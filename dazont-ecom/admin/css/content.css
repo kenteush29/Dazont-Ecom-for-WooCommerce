@@ -62,3 +62,19 @@
 .dze-cx-imgout img { max-width: 240px; height: auto; border: 1px solid #dcdcde; border-radius: 4px; margin-top: 10px; }
 .dze-cx-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #c3d9ec; border-top-color: #2271b1; border-radius: 50%; animation: dze-cx-spin .8s linear infinite; vertical-align: -2px; }
 @keyframes dze-cx-spin { to { transform: rotate(360deg); } }
+
+/* ---- Bulk screen ---- */
+.dze-cb-controls { background: #fff; border: 1px solid #e2e4e7; border-radius: 6px; padding: 14px 18px; margin-top: 12px; max-width: 1100px; }
+.dze-cb-controls label { margin-right: 16px; }
+.dze-cb-table { width: 100%; max-width: 1100px; border-collapse: collapse; margin-top: 14px; background: #fff; }
+.dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 8px 10px; text-align: left; vertical-align: middle; }
+.dze-cb-table th { background: #f6f7f7; }
+/* Large thumbnails for the judgement call — click opens the full image. */
+.dze-cb-thumb img { width: 110px; height: 110px; object-fit: cover; border-radius: 4px; display: block; }
+.dze-cb-status { font-size: 12px; color: #50575e; }
+.dze-cb-status .ok { color: #00794b; }
+.dze-cb-status .ko { color: #b32d2e; }
+.dze-cb-bar { height: 10px; background: #e2e4e7; border-radius: 5px; overflow: hidden; margin: 10px 0; max-width: 560px; }
+.dze-cb-fill { height: 100%; background: #2271b1; width: 0; transition: width .3s ease; }
+.dze-cb-row-tpl { max-width: 150px !important; width: auto !important; }
+.dze-cb-cost { width: 90px !important; }
