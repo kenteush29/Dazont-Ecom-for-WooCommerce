@@ -37,7 +37,10 @@
 		// (products are auto-selected by the chosen strategy).
 		$('.dze-field-strategy, .dze-field-top-n, .dze-field-lookback, .dze-field-autocount').toggle(isAutoBest);
 		$('.dze-field-scope').toggle(!isAutoBest);
+		// The "when more products match than the cap" priority only applies to the
+		// automatic discount (newest/slow strategies); never to bundle/bulk-order/sale.
 		if (isAutoBest) { refreshStrategyDesc(); }
+		else { $('.dze-field-priority').hide(); }
 	}
 
 	function refreshStrategyDesc() {
