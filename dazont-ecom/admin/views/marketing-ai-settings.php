@@ -30,15 +30,10 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		<tr>
 			<th scope="row"><label for="dze-mai-key"><?php esc_html_e( 'API key', 'dazont-ecom' ); ?></label></th>
 			<td>
-				<?php if ( $key_locked ) : ?>
-					<div class="notice notice-info inline"><p><?php esc_html_e( 'Provided by the DZE_ANTHROPIC_API_KEY constant (wp-config.php).', 'dazont-ecom' ); ?></p></div>
-				<?php else : ?>
-					<input type="password" id="dze-mai-key" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[api_key]' ); ?>" value="" class="regular-text" autocomplete="new-password" placeholder="sk-ant-…" />
+				<?php echo DZE_Api_Keys::status_html( 'anthropic', DZE_Marketing_Ai::api_key(), $key_locked ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
+				<?php if ( ! $key_locked ) : ?>
+					<input type="password" id="dze-mai-key" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[api_key]' ); ?>" value="" class="regular-text" autocomplete="new-password" placeholder="<?php echo $has_key ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : 'sk-ant-…'; ?>" />
 					<p class="description">
-						<?php echo $has_key
-							? '<span style="color:#0a7040;">&#10003; ' . esc_html__( 'A key is saved. Leave blank to keep it.', 'dazont-ecom' ) . '</span>'
-							: esc_html__( 'No key set yet.', 'dazont-ecom' ); ?>
-						<br />
 						<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Get an API key from your Anthropic dashboard ↗', 'dazont-ecom' ); ?></a>
 					</p>
 				<?php endif; ?>

@@ -31,12 +31,10 @@ $hints = [
 				<tr>
 					<th scope="row"><label for="dze-img-key"><?php esc_html_e( 'Google Gemini API key', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<?php if ( $key_locked ) : ?>
-							<input type="text" class="regular-text" value="<?php esc_attr_e( 'Set by the DZE_GEMINI_API_KEY constant', 'dazont-ecom' ); ?>" disabled />
-							<p class="description"><?php esc_html_e( 'The key is defined in wp-config.php and cannot be edited here.', 'dazont-ecom' ); ?></p>
-						<?php else : ?>
-							<input type="password" id="dze-img-key" class="regular-text" name="<?php echo esc_attr( DZE_Product_Images::OPT_SETTINGS ); ?>[api_key]" value="" autocomplete="off" placeholder="<?php echo $settings['api_key'] !== '' ? esc_attr__( '•••••••••• (saved — leave blank to keep)', 'dazont-ecom' ) : 'AIza…'; ?>" />
-							<p class="description"><?php esc_html_e( 'Powers the AI Product Images generator on the product edit screen. Stored in your database and only ever sent to Google. Leave blank to keep the saved key.', 'dazont-ecom' ); ?></p>
+						<?php echo DZE_Api_Keys::status_html( 'gemini', DZE_Product_Images::api_key(), $key_locked ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
+						<?php if ( ! $key_locked ) : ?>
+							<input type="password" id="dze-img-key" class="regular-text" name="<?php echo esc_attr( DZE_Product_Images::OPT_SETTINGS ); ?>[api_key]" value="" autocomplete="off" placeholder="<?php echo $settings['api_key'] !== '' ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : 'AIza…'; ?>" />
+							<p class="description"><?php esc_html_e( 'Powers the AI Product Images generator on the product edit screen. Stored in your database and only ever sent to Google.', 'dazont-ecom' ); ?></p>
 						<?php endif; ?>
 					</td>
 				</tr>
