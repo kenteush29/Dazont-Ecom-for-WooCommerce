@@ -1157,10 +1157,25 @@ final class DZE_Discounts {
 		}
 	}
 
-	/** Rebuild the desired state and kick a background pass (called on rule change). */
+	/** Rebuild the desired state, write a first chunk now, then finish in background. */
 	public function queue_sale_sync(): void {
-		delete_option( self::OPT_SYNC_QUEUE ); // force a fresh diff on the next pass.
-		$this->kick_sale_sync();
+		delete_option( self::OPT_SYNC_QUEUE ); // force a fresh diff.
+		// Process the first chunk synchronously so the DB reflects the change right
+		// away (feeds/GMC read real meta); the rest continues in the background — and
+		// no longer silently stalls when WP-cron doesn't fire on a rule change alone.
+		$this->run_sale_sync();
+	}
+
+	/** Drive the whole sync to completion in this request (bounded). */
+	private function run_sale_sync_to_end(): void {
+		delete_option( self::OPT_SYNC_QUEUE );
+		$guard = 0;
+		do {
+			$this->run_sale_sync( false );
+		} while ( null !== get_option( self::OPT_SYNC_QUEUE, null ) && ++$guard < 500 );
+		if ( null !== get_option( self::OPT_SYNC_QUEUE, null ) ) {
+			$this->kick_sale_sync(); // very large catalogue — let the background finish.
+		}
 	}
 
 	private function kick_sale_sync(): void {
@@ -1173,8 +1188,12 @@ final class DZE_Discounts {
 		}
 	}
 
-	/** Background worker: applies/releases native sale prices, a chunk at a time. */
-	public function run_sale_sync(): void {
+	/**
+	 * Worker: applies/releases native sale prices, a chunk at a time. Re-kicks a
+	 * background pass while work remains, unless $kick is false (used when we drive
+	 * the loop synchronously ourselves, e.g. the manual "Resync now" button).
+	 */
+	public function run_sale_sync( bool $kick = true ): void {
 		$queue = get_option( self::OPT_SYNC_QUEUE, null );
 		if ( ! is_array( $queue ) ) {
 			$desired = $this->materialize_desired();
@@ -1203,7 +1222,9 @@ final class DZE_Discounts {
 			delete_option( self::OPT_SYNC_QUEUE );
 		} else {
 			update_option( self::OPT_SYNC_QUEUE, $queue, false );
-			$this->kick_sale_sync();
+			if ( $kick ) {
+				$this->kick_sale_sync();
+			}
 		}
 	}
 
@@ -1250,6 +1271,11 @@ final class DZE_Discounts {
 			}
 		}
 		return $out ?: [ $pid ];
+	}
+
+	/** Number of products currently carrying a materialised automatic sale price. */
+	public function materialized_count(): int {
+		return count( $this->managed_sale_ids() );
 	}
 
 	/** Parent product IDs we currently manage a sale on. */
@@ -1364,7 +1390,7 @@ final class DZE_Discounts {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
-		$this->queue_sale_sync();
+		$this->run_sale_sync_to_end();
 		wp_safe_redirect( add_query_arg( [ 'page' => self::MENU_SLUG, 'resynced' => 1 ], admin_url( 'admin.php' ) ) );
 		exit;
 	}
