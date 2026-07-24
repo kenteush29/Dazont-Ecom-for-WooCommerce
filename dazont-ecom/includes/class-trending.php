@@ -27,7 +27,7 @@ final class DZE_Trending {
 	private const OPTION_GROUP = 'dze_trending_options';
 
 	private const MIN_LIMIT      = 1;
-	private const MAX_LIMIT      = 24;
+	private const MAX_LIMIT      = 100;
 	private const MIN_COLUMNS    = 1;
 	private const MAX_COLUMNS    = 6;
 	private const MIN_DAYS       = 1;
@@ -210,7 +210,7 @@ final class DZE_Trending {
 
 	/** How many extra candidates to fetch per requested slot, and the hard cap. */
 	private const CANDIDATE_MULTIPLIER = 5;
-	private const CANDIDATE_CAP        = 100;
+	private const CANDIDATE_CAP        = 300;
 
 	/**
 	 * @return int[] Candidate product IDs ranked by units sold over the
