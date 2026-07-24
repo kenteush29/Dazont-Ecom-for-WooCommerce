@@ -18,22 +18,10 @@ final class DZE_Trending {
 	public const NONCE     = 'dze_admin';
 	public const MENU_SLUG        = 'dazont-ecom-trending';
 
-	public const OPT_TIME_PERIOD    = 'dze_trending_time_period';
-	public const OPT_LIMIT          = 'dze_trending_limit';
-	public const OPT_COLUMNS        = 'dze_trending_columns';
-	public const OPT_CACHE_HOURS    = 'dze_trending_cache_hours';
 	public const OPT_CACHE_VERSION  = 'dze_trending_cache_version';
 
-	private const OPTION_GROUP = 'dze_trending_options';
-
-	private const MIN_LIMIT      = 1;
-	private const MAX_LIMIT      = 100;
-	private const MIN_COLUMNS    = 1;
-	private const MAX_COLUMNS    = 6;
-	private const MIN_DAYS       = 1;
-	private const MAX_DAYS       = 365;
-	private const MIN_CACHE_HRS  = 1;
-	private const MAX_CACHE_HRS  = 168; // 7 days
+	// Fixed cache lifetime — no longer a user setting.
+	private const CACHE_HOURS    = 24;
 
 	private static ?self $instance = null;
 
@@ -54,7 +42,6 @@ final class DZE_Trending {
 		}
 
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
-		add_action( 'admin_init', [ $this, 'register_settings' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		add_action( 'wp_ajax_dze_trending_clear_cache', [ $this, 'ajax_clear_cache' ] );
 	}
@@ -72,41 +59,6 @@ final class DZE_Trending {
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
 		);
-	}
-
-	public function register_settings(): void {
-		register_setting( self::OPTION_GROUP, self::OPT_TIME_PERIOD, [
-			'sanitize_callback' => [ $this, 'sanitize_days' ],
-			'default'           => 30,
-		] );
-		register_setting( self::OPTION_GROUP, self::OPT_LIMIT, [
-			'sanitize_callback' => [ $this, 'sanitize_limit' ],
-			'default'           => 8,
-		] );
-		register_setting( self::OPTION_GROUP, self::OPT_COLUMNS, [
-			'sanitize_callback' => [ $this, 'sanitize_columns' ],
-			'default'           => 4,
-		] );
-		register_setting( self::OPTION_GROUP, self::OPT_CACHE_HOURS, [
-			'sanitize_callback' => [ $this, 'sanitize_cache_hours' ],
-			'default'           => 1,
-		] );
-	}
-
-	public function sanitize_days( $value ): int {
-		return min( self::MAX_DAYS, max( self::MIN_DAYS, absint( $value ) ) );
-	}
-
-	public function sanitize_limit( $value ): int {
-		return min( self::MAX_LIMIT, max( self::MIN_LIMIT, absint( $value ) ) );
-	}
-
-	public function sanitize_columns( $value ): int {
-		return min( self::MAX_COLUMNS, max( self::MIN_COLUMNS, absint( $value ) ) );
-	}
-
-	public function sanitize_cache_hours( $value ): int {
-		return min( self::MAX_CACHE_HRS, max( self::MIN_CACHE_HRS, absint( $value ) ) );
 	}
 
 	public function enqueue_assets( string $hook ): void {
@@ -130,10 +82,6 @@ final class DZE_Trending {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
 
-		$time_period  = self::get_option_int( self::OPT_TIME_PERIOD, 30 );
-		$limit        = self::get_option_int( self::OPT_LIMIT, 8 );
-		$columns      = self::get_option_int( self::OPT_COLUMNS, 4 );
-		$cache_hours  = self::get_option_int( self::OPT_CACHE_HOURS, 1 );
 		$table_exists = $this->lookup_table_exists();
 
 		require DZE_DIR . 'admin/views/trending-page.php';
@@ -162,40 +110,58 @@ final class DZE_Trending {
 	// Shortcode
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Thin wrapper over WooCommerce's own [products] shortcode: it computes the
+	 * best-seller ranking for a time window and hands EVERYTHING else — limit,
+	 * columns, paginate, orderby, order, category, … — straight through to
+	 * [products], so all native WooCommerce behaviour (pagination included) works.
+	 *
+	 * Only one attribute is ours: `time_period` (days; "all"/0/absent = all time).
+	 * Ranking is preserved with orderby="post__in" unless the author sets orderby.
+	 */
 	public function render_shortcode( $atts ): string {
-		$atts = shortcode_atts( [
-			'time_period' => (string) self::get_option_int( self::OPT_TIME_PERIOD, 30 ),
-			'limit'       => (string) self::get_option_int( self::OPT_LIMIT, 8 ),
-			'columns'     => (string) self::get_option_int( self::OPT_COLUMNS, 4 ),
-		], $atts, self::SHORTCODE );
+		$atts = array_change_key_case( (array) $atts, CASE_LOWER );
 
-		$time_period = min( self::MAX_DAYS, max( self::MIN_DAYS, absint( $atts['time_period'] ) ) );
-		$limit       = min( self::MAX_LIMIT, max( self::MIN_LIMIT, absint( $atts['limit'] ) ) );
-		$columns     = min( self::MAX_COLUMNS, max( self::MIN_COLUMNS, absint( $atts['columns'] ) ) );
+		// Our single attribute; the rest are forwarded verbatim to [products].
+		$period_raw = isset( $atts['time_period'] ) ? strtolower( trim( (string) $atts['time_period'] ) ) : 'all';
+		unset( $atts['time_period'] );
+		$days = ( '' === $period_raw || 'all' === $period_raw ) ? 0 : absint( $period_raw );
 
-		// Fetch a larger candidate pool than requested: WooCommerce's own
-		// [products] shortcode silently drops out-of-stock products when the
-		// store has "Hide out of stock items from the catalog" enabled — even
-		// when we pass their IDs explicitly. Best-sellers are exactly the
-		// products most likely to be out of stock, so without a buffer the
-		// displayed count randomly falls short of the requested limit as
-		// stock status changes. Overfetching lets WooCommerce's internal
-		// filter drop some candidates while we still end up with `limit`
-		// visible products (unless the whole pool genuinely has fewer).
-		$product_ids = $this->get_trending_product_ids( $time_period, $limit );
+		$paginate = ! empty( $atts['paginate'] ) && filter_var( $atts['paginate'], FILTER_VALIDATE_BOOLEAN );
+		$limit    = isset( $atts['limit'] ) ? absint( $atts['limit'] ) : 0;
+
+		// Candidate pool. When paginating we need enough of the ranking to fill
+		// several pages; otherwise a small over-fetch covers out-of-stock products
+		// WooCommerce silently hides (best-sellers go out of stock often).
+		$cap = $paginate
+			? self::PAGINATE_CAP
+			: min( self::CANDIDATE_CAP, max( 1, $limit ) * self::CANDIDATE_MULTIPLIER );
+
+		$product_ids = $this->get_trending_product_ids( $days, $cap );
 		if ( empty( $product_ids ) ) {
 			return '';
 		}
 
-		// orderby="post__in" preserves our sales ranking — without it the
-		// native [products] shortcode falls back to its own default order
-		// and the "trending" ranking would be lost.
-		return do_shortcode( sprintf(
-			'[products limit="%d" columns="%d" ids="%s" orderby="post__in"]',
-			$limit,
-			$columns,
-			implode( ',', array_map( 'absint', $product_ids ) )
-		) );
+		// Preserve the sales ranking unless the author explicitly reorders.
+		if ( ! isset( $atts['orderby'] ) ) {
+			$atts['orderby'] = 'post__in';
+		}
+		// A sensible default only when neither a limit nor pagination is requested.
+		if ( ! isset( $atts['limit'] ) && ! $paginate ) {
+			$atts['limit'] = '12';
+		}
+		$atts['ids'] = implode( ',', array_map( 'absint', $product_ids ) );
+
+		$pairs = '';
+		foreach ( $atts as $key => $value ) {
+			$key = preg_replace( '/[^a-z0-9_]/', '', (string) $key );
+			if ( '' === $key ) {
+				continue;
+			}
+			$pairs .= sprintf( ' %s="%s"', $key, esc_attr( str_replace( '"', '', (string) $value ) ) );
+		}
+
+		return do_shortcode( "[products{$pairs}]" );
 	}
 
 	// -------------------------------------------------------------------------
@@ -208,29 +174,26 @@ final class DZE_Trending {
 		return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
 	}
 
-	/** How many extra candidates to fetch per requested slot, and the hard cap. */
+	/** How many extra candidates to fetch per requested slot, and the hard caps. */
 	private const CANDIDATE_MULTIPLIER = 5;
 	private const CANDIDATE_CAP        = 300;
+	private const PAGINATE_CAP         = 1000; // enough ranking to fill many pages.
 
 	/**
-	 * @return int[] Candidate product IDs ranked by units sold over the
-	 *               period, cached. Returns more than $limit IDs on purpose
-	 *               (see render_shortcode()) so WooCommerce's own visibility
-	 *               filtering doesn't leave fewer than $limit visible.
+	 * @param int $days            Look-back window in days; 0 = all time.
+	 * @param int $candidate_limit How many ranked product IDs to return.
+	 * @return int[] Product IDs ranked by units sold over the window, cached.
 	 */
-	private function get_trending_product_ids( int $time_period, int $limit ): array {
-		$candidate_limit = min( self::CANDIDATE_CAP, $limit * self::CANDIDATE_MULTIPLIER );
+	private function get_trending_product_ids( int $days, int $candidate_limit ): array {
+		$candidate_limit = max( 1, $candidate_limit );
 
 		$version   = (int) get_option( self::OPT_CACHE_VERSION, 1 );
-		$cache_key = 'dze_trending_v' . $version . '_' . $time_period . '_' . $candidate_limit;
+		$cache_key = 'dze_trending_v' . $version . '_' . $days . '_' . $candidate_limit;
 
 		$cached = get_transient( $cache_key );
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
-
-		global $wpdb;
-		$table = $wpdb->prefix . 'wc_order_product_lookup';
 
 		// The WooCommerce Analytics lookup table may not exist or be empty on
 		// stores where analytics hasn't synced — fail gracefully rather than
@@ -239,32 +202,40 @@ final class DZE_Trending {
 			return [];
 		}
 
-		// Site-timezone-aware window, independent of the PHP default timezone.
-		$now   = current_datetime();
-		$start = $now->modify( "-{$time_period} days" );
+		global $wpdb;
+		$table = $wpdb->prefix . 'wc_order_product_lookup';
 
-		$results = $wpdb->get_results( $wpdb->prepare(
-			"SELECT product_id, SUM(product_qty) AS total_qty
-			 FROM {$table}
-			 WHERE date_created BETWEEN %s AND %s
-			 GROUP BY product_id
-			 ORDER BY total_qty DESC
-			 LIMIT %d",
-			$start->format( 'Y-m-d H:i:s' ),
-			$now->format( 'Y-m-d H:i:s' ),
-			$candidate_limit
-		) );
+		if ( $days > 0 ) {
+			// Site-timezone-aware window, independent of the PHP default timezone.
+			$now     = current_datetime();
+			$start   = $now->modify( "-{$days} days" );
+			$results = $wpdb->get_results( $wpdb->prepare(
+				"SELECT product_id, SUM(product_qty) AS total_qty
+				 FROM {$table}
+				 WHERE date_created BETWEEN %s AND %s
+				 GROUP BY product_id
+				 ORDER BY total_qty DESC
+				 LIMIT %d",
+				$start->format( 'Y-m-d H:i:s' ),
+				$now->format( 'Y-m-d H:i:s' ),
+				$candidate_limit
+			) );
+		} else {
+			// All-time ranking.
+			$results = $wpdb->get_results( $wpdb->prepare(
+				"SELECT product_id, SUM(product_qty) AS total_qty
+				 FROM {$table}
+				 GROUP BY product_id
+				 ORDER BY total_qty DESC
+				 LIMIT %d",
+				$candidate_limit
+			) );
+		}
 
 		$product_ids = array_map( 'absint', wp_list_pluck( $results, 'product_id' ) );
 
-		$cache_hours = self::get_option_int( self::OPT_CACHE_HOURS, 1 );
-		set_transient( $cache_key, $product_ids, $cache_hours * HOUR_IN_SECONDS );
+		set_transient( $cache_key, $product_ids, self::CACHE_HOURS * HOUR_IN_SECONDS );
 
 		return $product_ids;
-	}
-
-	private static function get_option_int( string $key, int $default ): int {
-		$value = get_option( $key, $default );
-		return $value !== '' ? (int) $value : $default;
 	}
 }
