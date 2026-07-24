@@ -1,0 +1,284 @@
+/* Product Explorer */
+.dze-x-wrap { margin: 10px 20px 0 0; }
+.dze-x-topbar { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.dze-x-title { font-size: 15px; }
+
+/* ===================== Category performance (main screen) ================= */
+.dze-x-perf {
+	display: flex; flex-direction: column; min-height: 300px;
+	border: 1px solid #dcdcde; border-radius: 10px; background: #fff;
+}
+/* Toolbar + column header stick to the viewport so the whole category list can
+   flow down the page (no cramped inner scrollbar). */
+.dze-x-perf-toolbar {
+	display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px;
+	padding: 12px 16px; border-bottom: 1px solid #eee; background: #f6f7f7;
+	position: sticky; top: 32px; z-index: 6; border-radius: 10px 10px 0 0;
+}
+.dze-x-perf-search { min-width: 220px; }
+.dze-x-views { display: inline-flex; background: #e9eaec; border-radius: 8px; padding: 3px; gap: 3px; }
+.dze-x-view-btn {
+	border: 0; background: transparent; cursor: pointer; padding: 6px 12px; border-radius: 6px;
+	font-size: 12px; font-weight: 600; color: #50575e;
+}
+.dze-x-view-btn:hover { color: #1d2327; }
+.dze-x-view-btn.is-active { background: #fff; color: #1d2327; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.dze-x-perf-ctl { font-size: 12px; color: #646970; display: inline-flex; align-items: center; gap: 6px; }
+
+/* List: header + rows share one grid so columns line up. */
+.dze-x-list-head, .dze-x-row {
+	display: grid; grid-template-columns: minmax(0,1fr) 110px 110px 120px 330px; align-items: center; gap: 12px;
+}
+.dze-x-list-head {
+	padding: 4px 16px; border-bottom: 1px solid #e2e2e2; background: #fbfbfc;
+	position: sticky; top: 89px; z-index: 5;
+}
+.dze-x-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Clickable column headers (sorting) */
+.dze-x-col {
+	border: 0; background: transparent; cursor: pointer; padding: 6px 0; text-align: left;
+	font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #646970; font-weight: 600;
+}
+.dze-x-col.dze-x-num { text-align: right; }
+.dze-x-col:hover { color: #2271b1; }
+.dze-x-col .dze-x-arrow { display: inline-block; width: 12px; }
+.dze-x-col.is-asc  .dze-x-arrow::after { content: '▲'; font-size: 9px; margin-left: 3px; }
+.dze-x-col.is-desc .dze-x-arrow::after { content: '▼'; font-size: 9px; margin-left: 3px; }
+
+/* Collapse chevrons (grouped view only) — generous hit area, misclicks hurt. */
+.dze-x-tog {
+	flex: 0 0 30px; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent;
+	cursor: pointer; color: #50575e; font-size: 15px; padding: 0; text-align: center; line-height: 30px;
+}
+.dze-x-tog:hover { color: #fff; background: #2271b1; }
+.dze-x-tog-sp { cursor: default; }
+.dze-x-list.is-detailed .dze-x-tog { visibility: hidden; }
+
+.dze-x-list { overflow: visible; }
+.dze-x-row {
+	padding: 7px 16px; border-bottom: 1px solid #f0f0f1; cursor: pointer; font-size: 13px;
+}
+.dze-x-row:hover { background: #f6f9fc; }
+.dze-x-row-cat { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.dze-x-row-indent { flex: 0 0 auto; display: inline-block; width: 0; }
+.dze-x-row-thumb {
+	flex: 0 0 34px; width: 34px; height: 34px; border-radius: 6px; overflow: hidden; background: #f0f0f1;
+	display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.dze-x-row-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.dze-x-row-names { min-width: 0; }
+.dze-x-row-name { display: block; font-weight: 600; color: #1d2327; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dze-x-row-path { display: none; font-size: 11px; color: #787c82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dze-x-list.is-detailed .dze-x-row-path { display: block; }   /* show the path when the tree is flattened */
+.dze-x-row-count { color: #50575e; }
+.dze-x-row-qty { font-weight: 600; color: #2271b1; }
+.dze-x-row-res { font-size: 12px; color: #787c82; white-space: nowrap; }
+.dze-x-row-act { text-align: right; }
+.dze-x-never { color: #b32d2e; }
+.dze-x-perf-empty { padding: 24px; color: #646970; }
+
+/* ===================== Products overlay ================================== */
+/* z-index sits above the WordPress admin bar (99999) so it truly fills the screen. */
+.dze-x-overlay { position: fixed; inset: 0; z-index: 100000; background: #fff; display: flex; flex-direction: column; }
+body.dze-x-ov-open { overflow: hidden; }
+.dze-x-ov-head {
+	display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+	border-bottom: 1px solid #e2e2e2; background: #f6f7f7;
+}
+.dze-x-ov-thumb img { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; display: block; }
+.dze-x-ov-title { font-weight: 600; font-size: 15px; color: #1d2327; }
+.dze-x-ov-head .dze-x-count { color: #646970; font-size: 13px; }
+.dze-x-ov-actions { margin-left: auto; display: inline-flex; gap: 8px; }
+.dze-x-ai-panel {
+	background: #f0f6fc; border-bottom: 1px solid #cfe0f0; font-size: 13px; line-height: 1.5;
+	color: #1d2327; max-height: 55vh; overflow: auto; flex: 0 0 auto;
+}
+.dze-x-ai-bar {
+	position: sticky; top: 0; display: flex; align-items: center; gap: 10px;
+	padding: 8px 18px; background: #e3eefb; border-bottom: 1px solid #cfe0f0; font-size: 12px; color: #50575e;
+}
+.dze-x-ai-bar-btns { margin-left: auto; display: inline-flex; gap: 6px; }
+.dze-x-ai-body { padding: 12px 18px; }
+.dze-x-ai-sum { margin: 0 0 12px; max-width: 900px; }
+.dze-x-ai-q { color: #646970; font-size: 12px; }
+.dze-x-ai-ideas-t { margin: 14px 0 4px; }
+.dze-x-ai-ideas { margin: 0 0 4px 18px; list-style: disc; }
+.dze-x-ai-body .dze-x-kw-tbl thead th { background: #f0f6fc; }
+.dze-x-ai-spin {
+	display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;
+	border: 2px solid #c3d9ec; border-top-color: #2271b1; border-radius: 50%; animation: dze-x-spin .8s linear infinite;
+}
+@keyframes dze-x-spin { to { transform: rotate(360deg); } }
+
+/* Sourcing-report toggle button: caret shows it opens a dropdown; it points up
+   while the panel is open, and turns into a "＋" (generate) when none exists. */
+#dze-x-ai .dze-x-ai-caret { display: inline-block; transition: transform .15s ease; font-size: 11px; }
+#dze-x-ai.is-open .dze-x-ai-caret { transform: rotate(180deg); }
+#dze-x-ai.no-report .dze-x-ai-caret::before { content: "＋"; }
+#dze-x-ai.no-report .dze-x-ai-caret { font-size: 13px; }
+#dze-x-ai.no-report.is-open .dze-x-ai-caret { transform: none; }
+/* Keep the report readable while products stay in view: cap height, scroll inside. */
+.dze-x-ai-panel { max-height: 46vh; }
+.dze-x-ai-ideas { padding: 8px 10px 8px 28px; background: #fff; border: 1px solid #e0e7ef; border-radius: 6px; }
+.dze-x-ai-ideas li { margin: 3px 0; }
+
+/* ===================== Product grid (inside the overlay) ================= */
+.dze-x-grid {
+	flex: 1; overflow: auto; padding: 16px; --dze-cols: 5;
+	display: grid; gap: 14px; grid-template-columns: repeat(var(--dze-cols), minmax(0, 1fr)); align-content: start;
+}
+.dze-x-card {
+	position: relative; background: #fff; border: 1px solid #e2e2e2; border-radius: 10px; padding: 8px;
+	display: flex; flex-direction: column; gap: 6px;
+}
+.dze-x-card:hover { border-color: #2271b1; z-index: 5; }
+.dze-x-thumb { aspect-ratio: 1/1; overflow: hidden; border-radius: 8px; background: #f6f7f7; display: flex; align-items: center; justify-content: center; }
+.dze-x-img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.dze-x-name { font-weight: 600; font-size: 12px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Details sit below the title, hidden by default, revealed on hover as a solid
+   panel dropping under the card (no overlap on the image, no reflow). */
+.dze-x-card-more {
+	display: none; position: absolute; top: 100%; left: -1px; right: -1px; z-index: 6;
+	flex-direction: column; gap: 5px; padding: 8px 10px 10px;
+	background: #fff; border: 1px solid #2271b1; border-top: 0; border-radius: 0 0 10px 10px;
+	box-shadow: 0 8px 18px rgba(0,0,0,.14);
+}
+.dze-x-card:hover .dze-x-card-more { display: flex; }
+.dze-x-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #555; }
+.dze-x-sales { font-size: 12px; font-weight: 600; color: #2271b1; }
+.dze-x-date { font-size: 11px; color: #787c82; }
+.dze-x-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: auto; }
+.dze-x-more { text-align: center; padding: 14px; }
+.dze-x-status { margin-left: 8px; color: #666; font-size: 13px; }
+
+/* ===================== Keyword Workbench ================================ */
+.dze-x-kwpanel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.dze-x-kw-bar {
+	display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
+	padding: 8px 18px; border-bottom: 1px solid #e2e2e2; background: #fbfbfc;
+}
+/* Metrics get their own line above the controls for readability. */
+.dze-x-kw-metrics {
+	font-size: 12px; color: #50575e; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+	padding: 9px 18px; border-bottom: 1px solid #eee; background: #fff;
+}
+.dze-x-kw-sep { margin: 0 6px; color: #c3c4c7; }
+.dze-x-kw-dim { color: #8c8f94; }
+.dze-x-kw-gaps { color: #b32d2e; font-weight: 600; }
+.dze-x-opps-note { padding: 10px 14px 0; margin: 0; }
+.dze-x-opps-missing { margin: 14px; padding: 12px 16px; background: #fcf9e8; border: 1px solid #f0e6a6; border-radius: 4px; }
+.dze-x-opps-missing p { margin: 4px 0 10px; }
+.dze-x-opps-missing ul { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; list-style: none; }
+.dze-x-opps-missing li { display: inline-flex; align-items: center; gap: 6px; }
+.dze-x-kw-tools { display: inline-flex; gap: 6px; align-items: center; }
+.dze-x-kw-tools input[type="search"] { width: 180px; }
+.dze-x-kw-tools input[type="number"] { width: 74px; }
+.dze-x-kw-actions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.dze-x-kw-table { flex: 1; overflow: auto; }
+.dze-x-kw-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dze-x-kw-tbl thead th {
+	position: sticky; top: 0; z-index: 1; background: #fff; text-align: left;
+	padding: 8px 12px; border-bottom: 2px solid #e2e2e2; white-space: nowrap; font-size: 11px;
+	text-transform: uppercase; letter-spacing: .04em; color: #646970;
+}
+.dze-x-kw-tbl td { padding: 6px 12px; border-bottom: 1px solid #f0f0f1; }
+.dze-x-kw-tbl tbody tr:hover { background: #f6f9fc; }
+.dze-x-kw-srt { cursor: pointer; user-select: none; }
+.dze-x-kw-srt:hover { color: #2271b1; }
+.dze-x-kw-r { text-align: right; font-variant-numeric: tabular-nums; }
+.dze-x-kw-chk { width: 28px; }
+.dze-x-kw-row.st-covered td { background: rgba(10, 112, 64, .06); }
+.dze-x-kw-row.st-gap td { background: rgba(179, 45, 46, .06); }
+.dze-x-kw-row.st-ignored td { opacity: .5; }
+.dze-x-kw-st { max-width: 120px; }
+.dze-x-stb {
+	border: 1px solid transparent; border-radius: 12px; padding: 2px 10px; cursor: pointer;
+	font-size: 12px; background: #f0f0f1; color: #50575e;
+}
+.dze-x-stb.st-covered { background: rgba(10,112,64,.12); color: #0a7040; }
+.dze-x-stb.st-variation { background: rgba(153,104,0,.14); color: #996800; }
+.dze-x-stb.st-gap { background: rgba(179,45,46,.12); color: #b32d2e; }
+.dze-x-stb.st-to_source { background: rgba(34,113,177,.14); color: #2271b1; }
+.dze-x-stb:hover { border-color: #2271b1; }
+.dze-x-kw-pager { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 12px; font-size: 13px; color: #50575e; }
+
+/* Analysis progress bar (mirrored in the toolbar and the workbench bar) */
+#dze-x-global-prog, #dze-x-kw-prog { display: inline-flex; align-items: center; gap: 8px; }
+.dze-x-pbar { display: inline-block; width: 160px; height: 10px; background: #e2e4e7; border-radius: 6px; overflow: hidden; vertical-align: middle; }
+.dze-x-pbar-fill { display: block; height: 100%; background: #2271b1; border-radius: 6px; transition: width .4s ease; }
+.dze-x-pbar-txt { font-size: 12px; color: #2271b1; white-space: nowrap; }
+.dze-x-pbar-cat { font-weight: 600; color: #1d2327; }
+.dze-x-pstop { color: #b32d2e; text-decoration: none; font-size: 13px; }
+
+/* Category-row keyword stats (replaces the old key icon) */
+.dze-x-row-kwbadge { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; margin-top: 2px; }
+.dze-x-kwstat { color: #50575e; }
+.dze-x-kwopp { color: #b32d2e; }
+.dze-x-minvol { font-size: 12px; color: #50575e; display: inline-flex; align-items: center; gap: 4px; }
+.dze-x-kw-sep2 { color: #c3c4c7; }
+
+/* Overlay header: title + sub-line + columns selector */
+.dze-x-ov-headinfo { display: flex; flex-direction: column; min-width: 0; }
+.dze-x-ov-sub { font-size: 12px; color: #646970; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dze-x-ov-opp { color: #b32d2e; font-weight: 600; }
+.dze-x-ov-dot { margin: 0 6px; color: #c3c4c7; }
+.dze-x-ov-cols { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #646970; }
+.dze-x-ov-cols select { width: 52px; }
+
+/* Report: opportunity count line */
+.dze-x-ai-count { font-size: 13px; margin: 4px 0 8px; }
+.dze-x-ai-count strong { color: #2271b1; font-size: 15px; }
+.dze-x-kw-map th { text-align: left; padding: 4px 14px 4px 0; font-size: 13px; }
+.dze-x-kw-map td { padding: 4px 0; }
+.dze-x-kw-row.st-variation td { background: rgba(153, 104, 0, .07); }
+.dze-x-kw-row.st-to_source td { background: rgba(34, 113, 177, .08); }
+.dze-x-ico { font-size: 17px; cursor: help; margin-right: 4px; }
+.dze-x-row-act { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.dze-x-ico-kw.is-off { opacity: .35; }
+/* Sober, uniform row action buttons (WP-native, no emoji, compact). */
+.dze-x-row-act .button-small { font-size: 11px; padding: 0 7px; min-height: 24px; line-height: 22px; }
+.dze-x-row-act .dze-x-opp-cat.has-report { border-color: #46b450; color: #1e7e34; font-weight: 600; }
+.dze-x-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+.dze-x-dot.is-live { background: #46b450; }
+.dze-x-dot.is-empty { background: #dcdcde; box-shadow: inset 0 0 0 1px #c3c4c7; }
+.dze-x-toolbar-sep { width: 1px; height: 20px; background: #dcdcde; margin: 0 2px; }
+.dze-x-show { font-size: 12px; }
+.dze-x-kw-prog { font-size: 12px; color: #2271b1; white-space: nowrap; }
+
+/* Product card: covered-keywords badge */
+.dze-x-kwprod {
+	border: 0; background: transparent; cursor: pointer; padding: 0; margin-left: 8px;
+	font-size: 11px; color: #7c5cff; text-decoration: underline;
+}
+.dze-x-kwprod:hover { color: #2271b1; }
+
+/* Sub-category band at the top of the products overlay */
+.dze-x-subcats {
+	display: flex; gap: 8px; overflow-x: auto; padding: 10px 18px;
+	border-bottom: 1px solid #eee; background: #fbfbfc; flex: 0 0 auto;
+}
+.dze-x-subcat {
+	display: inline-flex; align-items: center; gap: 7px; border: 1px solid #dcdcde; border-radius: 20px;
+	background: #fff; cursor: pointer; padding: 4px 12px 4px 5px; font-size: 12px; color: #1d2327; white-space: nowrap;
+}
+.dze-x-subcat:hover { border-color: #2271b1; color: #2271b1; }
+.dze-x-subcat img, .dze-x-subcat-noimg {
+	width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: #f0f0f1;
+	display: inline-flex; align-items: center; justify-content: center; font-size: 13px;
+}
+.dze-x-subcat-count { color: #787c82; font-size: 11px; }
+
+/* ===================== Lightbox + variations modal ====================== */
+.dze-lightbox, .dze-gal-modal {
+	position: fixed; inset: 0; z-index: 100010; background: rgba(0,0,0,.8);
+	display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.dze-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 6px; }
+.dze-gal-modal__inner { background: #fff; border-radius: 10px; width: min(1100px, 94vw); max-height: 88vh; overflow: auto; padding: 18px 22px; }
+.dze-var-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.dze-var-sort { font-size: 13px; color: #50575e; }
+.dze-gal-vargrid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-top: 10px; }
+.dze-gal-vargrid figure { margin: 0; text-align: center; }
+.dze-gal-vargrid img { width: 100%; height: auto; border-radius: 6px; cursor: zoom-in; }
+.dze-gal-vargrid figcaption { font-size: 12px; color: #555; margin-top: 6px; line-height: 1.3; word-break: break-word; }

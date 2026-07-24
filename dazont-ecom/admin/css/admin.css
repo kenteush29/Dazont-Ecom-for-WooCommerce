@@ -43,3 +43,21 @@
 	max-width: 92vw; max-height: 92vh; object-fit: contain;
 	box-shadow: 0 8px 40px rgba(0,0,0,0.5); background: #fff; border-radius: 4px;
 }
+
+/* Discounts module */
+.dze-status-ok { color: #0a7040; font-weight: 600; }
+.dze-danger { color: #b32d2e; }
+.dze-danger:hover { color: #d63638; }
+
+/* Automatic-discount preview popup */
+.dze-auto-modal {
+	position: fixed; inset: 0; z-index: 100000;
+	background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.dze-auto-modal__inner {
+	background: #fff; border-radius: 10px; width: min(720px, 94vw);
+	max-height: 84vh; overflow: auto; padding: 18px 22px;
+}
+.dze-auto-list { margin: 8px 0 0 22px; }
+.dze-auto-list li { margin: 2px 0; }
+.dze-auto-list code { font-size: 11px; color: #777; }

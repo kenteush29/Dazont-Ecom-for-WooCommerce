@@ -1,0 +1,41 @@
+name: Build & publish plugin release
+
+# Triggered whenever a version tag is pushed, e.g. v1.2.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify plugin version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PLUGIN_VER=$(grep -m1 -oP "Version:\s*\K[0-9.]+" ai-content-suite/ai-content-suite.php)
+          echo "Tag version:    $TAG"
+          echo "Plugin header:  $PLUGIN_VER"
+          if [ "$TAG" != "$PLUGIN_VER" ]; then
+            echo "::error::Tag ($TAG) does not match plugin header version ($PLUGIN_VER). Bump the header first."
+            exit 1
+          fi
+
+      - name: Build plugin ZIP
+        run: |
+          # Top-level folder in the zip must be the plugin slug so WordPress
+          # installs it to wp-content/plugins/ai-content-suite/
+          zip -r ai-content-suite.zip ai-content-suite \
+            -x '*.git*' '*.DS_Store'
+
+      - name: Create GitHub release with the ZIP asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ai-content-suite.zip
+          generate_release_notes: true

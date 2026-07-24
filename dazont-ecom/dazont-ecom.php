@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
- * Description:       Dazont Ecom toolkit for WooCommerce. Modules: Restock (out-of-stock backlog) and Trending Products (best-sellers shortcode). More modules coming.
- * Version:           1.2.1
+ * Description:       Dazont Ecom toolkit for WooCommerce. Modules: Restock (out-of-stock backlog), Trending Products (best-sellers shortcode), Marketing Events (scheduled sales, banners, AI-generated calendar, GMC sync), Discounts (evergreen bulk cart coupons + automatic product discounts), Product Explorer (full-screen catalogue browser), AI Product Images (Google Gemini image generation on the product page) and the AI Marketing Assistant. More modules coming.
+ * Version:           3.14.1
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '1.2.1' );
+define( 'DZE_VERSION', '3.14.1' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -62,7 +62,17 @@ final class DZE_Plugin {
 		}
 
 		DZE_Restock::instance();
+		DZE_Dashboard::instance();
 		DZE_Trending::instance();
+		DZE_Discounts::instance();
+		DZE_Gmc::instance();
+		DZE_Marketing_Ai::instance();
+		DZE_Explorer::instance();
+		DZE_Keywords::instance();
+		DZE_Product_Images::instance();
+		// Kept in reserve for later, not loaded:
+		//   DZE_Fbt (Frequently Bought Together) — includes/class-fbt.php
+		// The Gallery module was replaced by the Product Explorer.
 	}
 
 	public static function activate(): void {
@@ -74,6 +84,12 @@ final class DZE_Plugin {
 
 	public static function deactivate(): void {
 		wp_clear_scheduled_hook( DZE_Restock::CRON_HOOK );
+		if ( class_exists( 'DZE_Gmc' ) ) {
+			DZE_Gmc::clear_cron();
+		}
+		if ( class_exists( 'DZE_Discounts' ) ) {
+			DZE_Discounts::clear_sale_sync();
+		}
 	}
 
 	public function notice_woo_missing(): void {

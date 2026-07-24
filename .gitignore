@@ -1,0 +1,10 @@
+# Build artifacts (installable plugin zips)
+dazont-ecom-*.zip
+*.zip
+
+# Scratch / working data files (SEMrush exports, trimmed CSVs, etc.)
+*.csv
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

@@ -1,0 +1,76 @@
+.aics-wrap h2.title { margin-top: 1.5em; }
+.aics-mapping-table th, .aics-mapping-table td { padding: 10px 12px; vertical-align: top; }
+.aics-mapping-table thead th { background: #f0f0f0; font-weight: 600; }
+.aics-field-select { min-width: 280px; }
+.aics-status-ok { color: #0a7040; font-weight: 600; }
+.aics-status-err { color: #c0392b; font-weight: 600; }
+.aics-log-table { font-size: 12px; }
+#aics-test-result .notice { display: inline-block; padding: 8px 14px; }
+
+/* ---- Product-list AI buttons ---- */
+.aics-pa-btn { margin-left: 6px !important; }
+.aics-pa-btn .dashicons { margin-right: 2px; }
+
+/* ---- Modal ---- */
+body.aics-modal-open { overflow: hidden; }
+.aics-modal-overlay {
+	position: fixed; inset: 0; z-index: 100000;
+	background: rgba(0,0,0,0.55);
+	display: flex; align-items: flex-start; justify-content: center;
+	padding: 5vh 16px; overflow-y: auto;
+}
+.aics-modal {
+	background: #fff; border-radius: 6px; width: 100%; max-width: 720px;
+	box-shadow: 0 8px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;
+}
+.aics-modal-head {
+	display: flex; align-items: center; justify-content: space-between;
+	padding: 14px 20px; border-bottom: 1px solid #e0e0e0;
+}
+.aics-modal-head h2 { margin: 0; font-size: 18px; }
+.aics-modal-close {
+	border: none; background: none; font-size: 26px; line-height: 1;
+	cursor: pointer; color: #777; padding: 0 4px;
+}
+.aics-modal-close:hover { color: #d63638; }
+.aics-modal-body { padding: 18px 20px; }
+.aics-modal-target {
+	margin: 0 0 14px; padding: 8px 12px; background: #f0f6fc;
+	border-left: 3px solid #2271b1; font-weight: 600;
+}
+.aics-modal-fieldset {
+	border: 1px solid #dcdcde; border-radius: 4px; padding: 10px 14px; margin: 0 0 14px;
+}
+.aics-modal-fieldset legend { font-weight: 600; padding: 0 6px; }
+.aics-modal-check { display: inline-flex; align-items: center; gap: 4px; margin: 4px 16px 4px 0; white-space: nowrap; }
+.aics-lang-switch {
+	display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+	margin: 0 0 14px; padding: 10px 14px; background: #fafafa; border-radius: 4px;
+}
+.aics-lang-arrow { font-size: 20px; color: #2271b1; }
+.aics-lang-targets { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.aics-progress-track { background: #e0e0e0; border-radius: 4px; height: 18px; overflow: hidden; }
+.aics-progress-bar { background: #2271b1; height: 100%; width: 0; transition: width .25s; }
+.aics-progress-text { margin: 6px 0 14px; font-size: 13px; color: #555; }
+.aics-modal-log { max-height: 300px; overflow-y: auto; }
+.aics-modal-log table { font-size: 12px; }
+.aics-modal-foot {
+	display: flex; gap: 8px; justify-content: flex-end;
+	padding: 14px 20px; border-top: 1px solid #e0e0e0;
+}
+
+/* ---- Restock module ---- */
+.aics-restock-toggle {
+	cursor: pointer; font-size: 14px; color: #2271b1;
+	text-decoration: none; margin-right: 4px; padding: 0 4px;
+}
+.aics-restock-toggle:hover { color: #135e96; }
+.aics-oos-badge {
+	display: inline-block; padding: 1px 8px; border-radius: 10px;
+	background: #fcf0e6; color: #bd5b12; font-weight: 600; font-size: 12px;
+}
+.aics-restock-child > td { background: #f6f7f7; padding: 8px 16px 12px !important; }
+.aics-subtable-note { margin: 0 0 6px; font-size: 12px; color: #757575; font-style: italic; }
+.aics-restock-subtable { margin: 4px 0; }
+.aics-restock-subtable th { font-size: 12px; }
+.aics-restock-subtable td { font-size: 13px; }
