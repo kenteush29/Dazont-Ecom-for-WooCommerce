@@ -389,8 +389,9 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'sourcing' === $tab ) {
 			$this->render_sourcing_settings();
 		} elseif ( 'content' === $tab ) {
-			echo '<h2>' . esc_html__( 'Product content (coming soon)', 'dazont-ecom' ) . '</h2>';
-			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'AI product content tools (descriptions, titles, SEO texts) will be configured here. The brand tone set under Marketing events will be reused by these tools.', 'dazont-ecom' ) . '</p>';
+			if ( class_exists( 'DZE_Content' ) ) {
+				DZE_Content::instance()->render_settings_section();
+			}
 		} elseif ( 'images' === $tab ) {
 			if ( class_exists( 'DZE_Product_Images' ) ) {
 				DZE_Product_Images::instance()->render_settings_section( 'prompts' );
@@ -810,6 +811,52 @@ final class DZE_Marketing_Ai {
 			throw new RuntimeException( __( 'The AI returned no usable events in this date range. Try a wider range.', 'dazont-ecom' ) );
 		}
 		return $clean;
+	}
+
+	/**
+	 * Reusable text completion for other modules (content generation, …). Shares
+	 * the API key, budget guard, model list and usage tracking. Throws on error.
+	 */
+	public static function complete( string $system, string $user, string $model = '', int $max_tokens = 2000 ): string {
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$key = self::api_key();
+		if ( '' === $key ) {
+			throw new RuntimeException( __( 'Add your Anthropic API key under AI Settings first.', 'dazont-ecom' ) );
+		}
+		$model    = '' !== $model ? $model : self::chosen_model();
+		$response = wp_remote_post( self::API_URL, [
+			'timeout' => 90,
+			'headers' => [
+				'x-api-key'         => $key,
+				'anthropic-version' => self::API_VERSION,
+				'content-type'      => 'application/json',
+			],
+			'body'    => wp_json_encode( [
+				'model'      => $model,
+				'max_tokens' => max( 64, $max_tokens ),
+				'system'     => $system,
+				'messages'   => [ [ 'role' => 'user', 'content' => $user ] ],
+			] ),
+		] );
+		if ( is_wp_error( $response ) ) {
+			throw new RuntimeException( $response->get_error_message() );
+		}
+		$code = wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( $code < 200 || $code >= 300 ) {
+			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
+		}
+		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
+		$text = '';
+		foreach ( (array) ( $data['content'] ?? [] ) as $block ) {
+			if ( ( $block['type'] ?? '' ) === 'text' ) {
+				$text .= (string) ( $block['text'] ?? '' );
+			}
+		}
+		return trim( $text );
 	}
 
 	private function call_claude( string $system, string $user ): string {
