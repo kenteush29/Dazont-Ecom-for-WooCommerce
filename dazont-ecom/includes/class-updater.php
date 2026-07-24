@@ -37,9 +37,10 @@ final class DZE_Updater {
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_update' ] );
 		add_filter( 'plugins_api', [ $this, 'plugin_details' ], 10, 3 );
 		add_action( 'upgrader_process_complete', [ $this, 'clear_cache' ], 10, 0 );
-		// One-click "Check for updates" on the Plugins row + its handler.
+		// In-page "Check for updates" on the Plugins row (AJAX, no navigation).
 		add_filter( 'plugin_action_links_' . $this->basename, [ $this, 'action_links' ] );
-		add_action( 'admin_post_dze_check_updates', [ $this, 'handle_manual_check' ] );
+		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_check_script' ] );
+		add_action( 'wp_ajax_dze_check_updates', [ $this, 'ajax_check' ] );
 	}
 
 	/** Delete the cached GitHub lookup so the next check re-fetches. */
@@ -48,20 +49,64 @@ final class DZE_Updater {
 	}
 
 	public function action_links( array $links ): array {
-		$url = wp_nonce_url( admin_url( 'admin-post.php?action=dze_check_updates' ), 'dze_check_updates' );
-		$links['dze_check'] = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Check for updates', 'dazont-ecom' ) . '</a>';
+		$links['dze_check'] = '<a href="#" class="dze-check-updates">' . esc_html__( 'Check for updates', 'dazont-ecom' ) . '</a>'
+			. ' <span class="dze-check-result" role="status" aria-live="polite"></span>';
 		return $links;
 	}
 
-	/** Force a fresh check: clear our cache + WP's, then land on the Updates page. */
-	public function handle_manual_check(): void {
-		if ( ! current_user_can( 'update_plugins' ) || ! check_admin_referer( 'dze_check_updates' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
+	/** Inline the small checker script on the Plugins screen only. */
+	public function enqueue_check_script( string $hook ): void {
+		if ( 'plugins.php' !== $hook || ! current_user_can( 'update_plugins' ) ) {
+			return;
 		}
+		$data = [
+			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			'nonce'   => wp_create_nonce( 'dze_check_updates' ),
+			'i18n'    => [
+				'checking' => __( 'Checking…', 'dazont-ecom' ),
+				'error'    => __( 'Check failed — try again.', 'dazont-ecom' ),
+			],
+		];
+		$js = 'window.dzeUpd=' . wp_json_encode( $data ) . ';'
+			. '(function(){document.addEventListener("click",function(e){'
+			. 'var a=e.target.closest(".dze-check-updates");if(!a)return;e.preventDefault();'
+			. 'var out=a.parentNode.querySelector(".dze-check-result");if(a.dataset.busy)return;a.dataset.busy="1";'
+			. 'out.textContent=" "+dzeUpd.i18n.checking;out.style.color="#646970";'
+			. 'var f=new FormData();f.append("action","dze_check_updates");f.append("nonce",dzeUpd.nonce);'
+			. 'fetch(dzeUpd.ajaxUrl,{method:"POST",credentials:"same-origin",body:f}).then(function(r){return r.json();}).then(function(res){'
+			. 'a.dataset.busy="";'
+			. 'if(res&&res.success){out.innerHTML=" "+res.data.html;out.style.color=res.data.update?"#b32d2e":"#00794b";}'
+			. 'else{out.textContent=" "+((res&&res.data&&res.data.message)||dzeUpd.i18n.error);out.style.color="#b32d2e";}'
+			. '}).catch(function(){a.dataset.busy="";out.textContent=" "+dzeUpd.i18n.error;out.style.color="#b32d2e";});'
+			. '});})();';
+		wp_register_script( 'dze-updater-check', false, [], DZE_VERSION, true );
+		wp_enqueue_script( 'dze-updater-check' );
+		wp_add_inline_script( 'dze-updater-check', $js );
+	}
+
+	/** Fresh GitHub check, in place. Returns a small HTML status; never navigates. */
+	public function ajax_check(): void {
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		check_ajax_referer( 'dze_check_updates', 'nonce' );
 		self::flush();
+		// Also let WordPress re-evaluate, so the native "update now" row appears on reload.
 		delete_site_transient( 'update_plugins' );
-		wp_safe_redirect( self_admin_url( 'update-core.php?force-check=1' ) );
-		exit;
+		$release = $this->get_latest_release();
+		if ( ! $release || empty( $release['version'] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not reach GitHub. Try again in a moment.', 'dazont-ecom' ) ] );
+		}
+		$update = version_compare( $release['version'], $this->version, '>' );
+		if ( $update ) {
+			$link = ' <a href="' . esc_url( self_admin_url( 'plugins.php' ) ) . '">' . esc_html__( 'reload to update', 'dazont-ecom' ) . '</a>';
+			/* translators: %s: new version number */
+			$html = '⬆ ' . sprintf( esc_html__( 'Version %s available.', 'dazont-ecom' ), esc_html( $release['version'] ) ) . $link;
+		} else {
+			/* translators: %s: current version number */
+			$html = '✓ ' . sprintf( esc_html__( 'Up to date (%s).', 'dazont-ecom' ), esc_html( $this->version ) );
+		}
+		wp_send_json_success( [ 'update' => $update, 'version' => $release['version'], 'html' => $html ] );
 	}
 
 	public function inject_update( $transient ) {
