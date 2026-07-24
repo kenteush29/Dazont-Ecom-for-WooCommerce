@@ -362,6 +362,9 @@ final class DZE_Discounts {
 			add_filter( 'woocommerce_variation_prices_price',            [ $this, 'filter_variation_price' ], 20, 3 );
 			add_filter( 'woocommerce_variation_prices_sale_price',       [ $this, 'filter_variation_price' ], 20, 3 );
 			add_filter( 'woocommerce_get_variation_prices_hash',        [ $this, 'filter_prices_hash' ], 20, 2 );
+			// Make sure the struck-through "on sale" price + Sale! badge actually
+			// render for our dynamic discount (WooCommerce only knows native sales).
+			add_filter( 'woocommerce_product_is_on_sale',           [ $this, 'filter_is_on_sale' ], 20, 2 );
 
 			// Coupons: make our dynamic sale honour the coupon "Exclude sale
 			// items" setting (WooCommerce otherwise only knows native sales).
@@ -796,6 +799,14 @@ final class DZE_Discounts {
 			return $price;
 		}
 		return $this->discounted( $regular, $percent );
+	}
+
+	/** Force "on sale" when our dynamic discount applies, so the struck price + badge show. */
+	public function filter_is_on_sale( $on_sale, $product ) {
+		if ( $on_sale || ! $product instanceof \WC_Product ) {
+			return $on_sale;
+		}
+		return $this->catalog_percent_for( $product ) > 0 ? true : $on_sale;
 	}
 
 	public function filter_variation_price( $price, $variation, $product ) {
