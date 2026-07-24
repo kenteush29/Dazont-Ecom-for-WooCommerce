@@ -1,0 +1,38 @@
+name: Build & publish Dazont Ecom (dev channel)
+
+# Manual dispatch (run from the Plugin-development branch). Publishes a GitHub
+# PRE-RELEASE tagged dazont-dev-v<version>, which only sites that opted into the
+# dev channel (DZE_DEV_CHANNEL) pick up — production stays on stable releases.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine plugin version
+        id: ver
+        run: |
+          PLUGIN_VER="$(grep -m1 -oP 'Version:\s*\K[0-9.]+' dazont-ecom/dazont-ecom.php)"
+          echo "version=$PLUGIN_VER" >> "$GITHUB_OUTPUT"
+          echo "Plugin header version: $PLUGIN_VER"
+
+      - name: Build plugin ZIP
+        run: |
+          zip -r dazont-ecom.zip dazont-ecom \
+            -x '*.git*' '*.DS_Store'
+
+      - name: Publish pre-release with the ZIP asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dazont-dev-v${{ steps.ver.outputs.version }}
+          name: Dazont Ecom ${{ steps.ver.outputs.version }} (dev)
+          prerelease: true
+          files: dazont-ecom.zip
+          generate_release_notes: true

@@ -46,6 +46,25 @@ final class DZE_Updater {
 	/** Delete the cached GitHub lookup so the next check re-fetches. */
 	public static function flush(): void {
 		delete_site_transient( self::CACHE_KEY );
+		delete_site_transient( self::CACHE_KEY . '_dev' );
+	}
+
+	/**
+	 * Dev channel opt-in: when on, the updater also offers GitHub pre-releases
+	 * (the development builds). Enable on a TEST site only, via the
+	 * DZE_DEV_CHANNEL constant in wp-config.php or the dze_dev_channel option.
+	 * Production sites leave it off and only ever see stable releases.
+	 */
+	private function dev_channel(): bool {
+		if ( defined( 'DZE_DEV_CHANNEL' ) ) {
+			return (bool) DZE_DEV_CHANNEL;
+		}
+		return (bool) get_option( 'dze_dev_channel', false );
+	}
+
+	/** Cache key kept separate per channel so switching doesn't serve a stale result. */
+	private function cache_key(): string {
+		return self::CACHE_KEY . ( $this->dev_channel() ? '_dev' : '' );
 	}
 
 	public function action_links( array $links ): array {
@@ -170,7 +189,8 @@ final class DZE_Updater {
 	}
 
 	private function get_latest_release(): ?array {
-		$cached = get_site_transient( self::CACHE_KEY );
+		$cache_key = $this->cache_key();
+		$cached    = get_site_transient( $cache_key );
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
@@ -185,7 +205,7 @@ final class DZE_Updater {
 		] );
 
 		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
-			set_site_transient( self::CACHE_KEY, [ 'version' => $this->version, 'zip_url' => '', 'html_url' => '', 'published_at' => '', 'body' => '' ], 30 * MINUTE_IN_SECONDS );
+			set_site_transient( $cache_key, [ 'version' => $this->version, 'zip_url' => '', 'html_url' => '', 'published_at' => '', 'body' => '' ], 30 * MINUTE_IN_SECONDS );
 			return null;
 		}
 
@@ -198,9 +218,16 @@ final class DZE_Updater {
 		// for THIS plugin (asset name contains the slug). We must compare versions
 		// ourselves: GitHub's /releases list is ordered by tag name, so "3.14.9"
 		// sorts above "3.14.10" — taking the first item would miss newer releases.
+		// Pre-releases are the dev channel: ignored unless this site opted in, so
+		// production sites only ever see stable releases.
+		$dev  = $this->dev_channel();
 		$best = null;
 		foreach ( $releases as $rel ) {
-			if ( ! empty( $rel['draft'] ) || ! empty( $rel['prerelease'] ) || empty( $rel['tag_name'] ) ) {
+			if ( ! empty( $rel['draft'] ) || empty( $rel['tag_name'] ) ) {
+				continue;
+			}
+			$is_pre = ! empty( $rel['prerelease'] );
+			if ( $is_pre && ! $dev ) {
 				continue;
 			}
 			$zip_url = '';
@@ -226,14 +253,22 @@ final class DZE_Updater {
 				'html_url'     => $rel['html_url'] ?? '',
 				'published_at' => $rel['published_at'] ?? '',
 				'body'         => $rel['body'] ?? '',
+				'prerelease'   => $is_pre,
 			];
-			if ( null === $best || version_compare( $info['version'], $best['version'], '>' ) ) {
+			// Highest version wins; on an exact tie a stable release beats a
+			// pre-release of the same version.
+			if ( null === $best ) {
 				$best = $info;
+			} else {
+				$cmp = version_compare( $info['version'], $best['version'] );
+				if ( $cmp > 0 || ( 0 === $cmp && $best['prerelease'] && ! $is_pre ) ) {
+					$best = $info;
+				}
 			}
 		}
 
 		if ( $best ) {
-			set_site_transient( self::CACHE_KEY, $best, self::CACHE_TTL );
+			set_site_transient( $cache_key, $best, self::CACHE_TTL );
 			return $best;
 		}
 
@@ -241,6 +276,6 @@ final class DZE_Updater {
 	}
 
 	public function clear_cache(): void {
-		delete_site_transient( self::CACHE_KEY );
+		self::flush();
 	}
 }
