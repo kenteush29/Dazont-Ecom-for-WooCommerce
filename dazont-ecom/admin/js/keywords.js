@@ -301,6 +301,9 @@
 				$row.attr('data-kw', c.kw).attr('data-kwopp', c.gaps).attr('data-ownkw', c.own_kw);
 				var $badge = $row.find('.dze-x-row-kwbadge');
 				if (c.kw > 0) { $badge.html(rowBadgeHtml(c)).show(); } else { $badge.hide(); }
+				// "No keyword file imported" flag: category has its own products but no own set.
+				var directN = parseInt($row.attr('data-count-direct'), 10) || 0;
+				$row.find('.dze-x-row-nokw').toggle(c.own_kw === 0 && directN > 0);
 				// Report button: visible when there are keywords; ✓ + green when a report exists.
 				var $rep = $row.find('.dze-x-opp-cat');
 				$rep.toggle(c.kw > 0).toggleClass('has-report', !!c.has_report)

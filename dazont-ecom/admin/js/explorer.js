@@ -86,10 +86,12 @@
 			seen[r.getAttribute('data-cat')] = true;
 			var cnt = parseInt(r.getAttribute('data-count'), 10) || 0;
 			var own = parseInt(r.getAttribute('data-ownkw'), 10) || 0;
+			var direct = parseInt(r.getAttribute('data-count-direct'), 10) || 0;
 			var passShow = show === 'all'
 				|| (show === 'live' && cnt > 0)
 				|| (show === 'empty' && cnt === 0)
-				|| (show === 'noset' && own === 0 && cnt > 0);
+				// "Missing keyword file": its own products, but no imported set (matches the row flag).
+				|| (show === 'noset' && own === 0 && direct > 0);
 			var ok = passShow && !e.hidden && (!perf.search || (r.getAttribute('data-name') || '').indexOf(perf.search) >= 0);
 			r.style.display = ok ? '' : 'none';
 			if (ok) { shown++; }

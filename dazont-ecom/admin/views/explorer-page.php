@@ -123,10 +123,15 @@ dze_explorer_flat_rows( $categories, [], 0, $dze_rows, $dze_seq );
 								<span class="dze-x-row-path"><?php echo esc_html( implode( ' › ', $parents ) ); ?></span>
 							<?php endif; ?>
 							<?php
-							$kw_n = (int) ( $n['kw'] ?? 0 );
-							$an_n = (int) ( $n['analysed'] ?? 0 );
-							$gp_n = (int) ( $n['gaps'] ?? 0 );
-							$apct = $kw_n ? (int) round( 100 * $an_n / $kw_n ) : 0;
+							$kw_n     = (int) ( $n['kw'] ?? 0 );
+							$an_n     = (int) ( $n['analysed'] ?? 0 );
+							$gp_n     = (int) ( $n['gaps'] ?? 0 );
+							$apct     = $kw_n ? (int) round( 100 * $an_n / $kw_n ) : 0;
+							$own_kw_n = (int) ( $n['own_kw'] ?? 0 );
+							$direct_n = (int) ( $n['count_direct'] ?? 0 );
+							// Flag categories that hold their own products but have no keyword
+							// file imported yet — so the work left to do (or delegate) is obvious.
+							$needs_kw = ( 0 === $own_kw_n && $direct_n > 0 );
 							?>
 							<span class="dze-x-row-kwbadge"<?php echo $kw_n ? '' : ' style="display:none;"'; ?>>
 								<span class="dze-x-kwstat"><strong><?php echo esc_html( number_format_i18n( $kw_n ) ); ?></strong> kw</span>
@@ -136,6 +141,7 @@ dze_explorer_flat_rows( $categories, [], 0, $dze_rows, $dze_seq );
 								?></span>
 								<span class="dze-x-kwstat dze-x-kwopp"><strong><?php echo esc_html( number_format_i18n( $gp_n ) ); ?></strong> <?php esc_html_e( 'opportunities', 'dazont-ecom' ); ?></span>
 							</span>
+							<span class="dze-x-row-nokw"<?php echo $needs_kw ? '' : ' style="display:none;"'; ?>><?php esc_html_e( 'No keyword file imported', 'dazont-ecom' ); ?></span>
 						</span>
 					</span>
 					<span class="dze-x-num dze-x-row-count"></span>
