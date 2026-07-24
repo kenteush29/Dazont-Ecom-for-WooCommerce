@@ -353,7 +353,6 @@ final class DZE_Marketing_Ai {
 			'general'  => __( 'General', 'dazont-ecom' ),
 			'sourcing' => __( 'Sourcing Assistant', 'dazont-ecom' ),
 			'content'  => __( 'Product content', 'dazont-ecom' ),
-			'images'   => __( 'Product images', 'dazont-ecom' ),
 			'events'   => __( 'Marketing events', 'dazont-ecom' ),
 		];
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
@@ -383,6 +382,11 @@ final class DZE_Marketing_Ai {
 				echo '<h2>' . esc_html__( 'Google Gemini', 'dazont-ecom' ) . '</h2>';
 				DZE_Product_Images::instance()->render_settings_section( 'keys' );
 			}
+			if ( class_exists( 'DZE_Content' ) ) {
+				echo '<hr style="margin:28px 0;" />';
+				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
+				DZE_Content::instance()->render_key_field();
+			}
 			echo '<hr style="margin:28px 0;" />';
 			echo '<h2>' . esc_html__( 'API usage per month', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
@@ -391,10 +395,6 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'content' === $tab ) {
 			if ( class_exists( 'DZE_Content' ) ) {
 				DZE_Content::instance()->render_settings_section();
-			}
-		} elseif ( 'images' === $tab ) {
-			if ( class_exists( 'DZE_Product_Images' ) ) {
-				DZE_Product_Images::instance()->render_settings_section( 'prompts' );
 			}
 		} else { // events.
 			$this->render_settings_section( 'events' );

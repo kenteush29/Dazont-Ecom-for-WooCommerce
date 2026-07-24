@@ -1,0 +1,64 @@
+/* =========================================================================
+ * AI Content — admin styles: defensive field-width reset (some plugins, e.g.
+ * size-chart-for-woocommerce, shrink every admin input to ~30% globally) plus
+ * the product-page side box and the toolbox modal.
+ * ========================================================================= */
+
+/* Restore sensible widths inside our own admin UIs, overriding global shrinks
+ * (e.g. size-chart-for-woocommerce forces every admin input to ~30%). */
+.dze-admin input[type="text"],
+.dze-admin input[type="search"],
+.dze-admin input[type="url"],
+.dze-admin input[type="password"],
+.dze-admin textarea,
+.dze-admin select,
+.dze-wrap .form-table input[type="text"],
+.dze-wrap .form-table input[type="password"],
+.dze-wrap .form-table textarea,
+.dze-wrap .form-table select {
+	width: 99% !important;
+	max-width: 100% !important;
+	box-sizing: border-box;
+}
+.dze-admin input[type="number"],
+.dze-wrap .form-table input[type="number"] { width: 120px !important; max-width: 100% !important; }
+.dze-admin input.regular-text,
+.dze-wrap .form-table input.regular-text { width: 25em !important; }
+.dze-admin .dze-price-table input[type="number"],
+.dze-admin .dze-it-table input[type="text"] { width: 90px !important; }
+.dze-admin .dze-it-table input[type="text"] { width: 99% !important; }
+
+/* ---- Product-page side box (2 buttons) ---- */
+.dze-content-side p { margin: 8px 0; }
+.dze-content-side .button { width: 100%; margin-bottom: 6px; text-align: center; }
+
+/* ---- Toolbox modal ---- */
+.dze-cx-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100000; display: none; }
+.dze-cx-modal.is-open { display: flex; align-items: flex-start; justify-content: center; }
+.dze-cx-dialog {
+	background: #fff; margin: 3vh auto; width: min(1080px, 96vw); max-height: 94vh; overflow: auto;
+	border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3);
+}
+.dze-cx-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e4e7; position: sticky; top: 0; background: #fff; z-index: 2; }
+.dze-cx-head h2 { margin: 0; font-size: 16px; }
+.dze-cx-tabs { display: flex; gap: 6px; margin-left: 10px; }
+.dze-cx-tab { border: 1px solid #dcdcde; background: #f6f7f7; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+.dze-cx-tab.is-active { background: #2271b1; color: #fff; border-color: #2271b1; }
+.dze-cx-close { margin-left: auto; }
+.dze-cx-body { padding: 16px 20px; }
+.dze-cx-pane { display: none; }
+.dze-cx-pane.is-active { display: block; }
+.dze-cx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 782px) { .dze-cx-grid { grid-template-columns: 1fr; } }
+.dze-cx-field { border: 1px solid #e2e4e7; border-radius: 6px; padding: 10px; background: #fff; }
+.dze-cx-field h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.dze-cx-field textarea { width: 100%; box-sizing: border-box; font-family: inherit; }
+.dze-cx-field .row-actions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.dze-cx-src textarea { width: 100%; box-sizing: border-box; }
+.dze-cx-src label { display: block; font-weight: 600; margin: 8px 0 3px; }
+.dze-cx-note { color: #646970; font-size: 12px; }
+.dze-cx-warn { background: #fcf9e8; border: 1px solid #f0e6a6; border-radius: 4px; padding: 8px 12px; margin: 0 0 12px; }
+.dze-cx-imgrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.dze-cx-imgout img { max-width: 240px; height: auto; border: 1px solid #dcdcde; border-radius: 4px; margin-top: 10px; }
+.dze-cx-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #c3d9ec; border-top-color: #2271b1; border-radius: 50%; animation: dze-cx-spin .8s linear infinite; vertical-align: -2px; }
+@keyframes dze-cx-spin { to { transform: rotate(360deg); } }
