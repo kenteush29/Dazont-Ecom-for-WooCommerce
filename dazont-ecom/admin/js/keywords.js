@@ -273,12 +273,42 @@
 			setProg('');
 		}
 	}
-	function afterJob(scope) {
-		// One category: flip its "pending ⏳" icon to "analysed 🔑". Bulk: leave the
-		// per-row icons to refresh on next page load (can't tell which had sets).
-		if (scope) { $('.dze-x-row[data-cat="' + scope + '"]').find('.dze-x-ico-kw').text('🔑').removeClass('is-off'); }
+	function afterJob() {
+		// Refresh every category row from server truth (kw counts, analysed %,
+		// opportunities, Report button) so nothing waits for a page reload.
+		refreshRows();
 		if (kw.cat && kw.open) { loadRows(); }
 		refreshBadge();
+	}
+
+	// Rebuild the per-row keyword badge + reveal the Report/Analyse buttons,
+	// using the same rolled-up figures a page reload would show.
+	function exNonce() { return (window.dzeExplorer && window.dzeExplorer.nonce) || cfg.nonce; }
+	function rowBadgeHtml(c) {
+		var pct = c.kw ? Math.round(100 * c.analysed / c.kw) : 0;
+		return '<span class="dze-x-kwstat"><strong>' + c.kw.toLocaleString() + '</strong> kw</span>' +
+			'<span class="dze-x-kwstat">' + c.analysed.toLocaleString() + '/' + c.kw.toLocaleString() + ' ' + esc(i18n.analysedWord || 'analysed') + ' (' + pct + '%)</span>' +
+			'<span class="dze-x-kwstat dze-x-kwopp"><strong>' + c.gaps.toLocaleString() + '</strong> ' + esc(i18n.opps || 'opportunities') + '</span>';
+	}
+	function refreshRows() {
+		$.post(cfg.ajaxUrl, { action: 'dze_explorer_kw_stats', nonce: exNonce() }).done(function (res) {
+			if (!res.success || !res.data.stats) { return; }
+			var stats = res.data.stats;
+			$('.dze-x-row').each(function () {
+				var $row = $(this), id = parseInt($row.attr('data-cat'), 10);
+				var c = stats[id];
+				if (!c) { return; }
+				$row.attr('data-kw', c.kw).attr('data-kwopp', c.gaps).attr('data-ownkw', c.own_kw);
+				var $badge = $row.find('.dze-x-row-kwbadge');
+				if (c.kw > 0) { $badge.html(rowBadgeHtml(c)).show(); } else { $badge.hide(); }
+				// Report button: visible when there are keywords; ✓ + green when a report exists.
+				var $rep = $row.find('.dze-x-opp-cat');
+				$rep.toggle(c.kw > 0).toggleClass('has-report', !!c.has_report)
+					.html(c.has_report ? esc(i18n.reportDone || 'Report ✓') : esc(i18n.report || 'Report'));
+				// Analyse button appears once the category has its own keyword file.
+				$row.find('.dze-x-an').toggle(c.own_kw > 0);
+			});
+		});
 	}
 	function pollProgress() {
 		$.post(cfg.ajaxUrl, { action: 'dze_kw_progress', nonce: cfg.nonce }).done(function (res) {
@@ -398,13 +428,16 @@
 		fd.append('action', 'dze_kw_upload');
 		fd.append('nonce', cfg.nonce);
 		fd.append('file', file);
+		// Reading + parsing a large CSV takes a moment — show the modal immediately.
+		$('#dze-x-modal').find('.dze-gal-modal__inner').html('<div class="dze-x-ai-body"><span class="dze-x-ai-spin"></span>' + esc(i18n.loading) + '</div>');
+		$('#dze-x-modal').css('display', 'flex');
 		$.ajax({ url: cfg.ajaxUrl, method: 'POST', data: fd, processData: false, contentType: false })
 			.done(function (res) {
-				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }
+				if (!res.success) { $('#dze-x-modal').hide(); window.alert((res.data && res.data.message) || i18n.error); return; }
 				kw.upload = res.data;
 				showMapping();
 			})
-			.fail(function () { window.alert(i18n.error); });
+			.fail(function () { $('#dze-x-modal').hide(); window.alert(i18n.error); });
 	});
 
 	function showMapping() {
@@ -458,11 +491,10 @@
 				$('#dze-x-modal').hide();
 				kw.upload = null;
 				window.alert(res.data.imported + ' ' + i18n.imported + (res.data.updated ? ' (' + res.data.updated + ' ' + i18n.updated + ')' : ''));
-				// Row icons: list present, analysis pending.
-				var $row = $('.dze-x-row[data-cat="' + target + '"]');
-				$row.find('.dze-x-ico-kw').removeClass('is-off').text('⏳');
-				$row.find('.dze-x-an').show();
+				// Reveal the Analyse button right away; refresh badges/buttons from server.
+				$('.dze-x-row[data-cat="' + target + '"]').find('.dze-x-an').show();
 				if (kw.open && kw.cat === target) { loadRows(); }
+				refreshRows();
 				setTimeout(refreshBadge, 800);
 			})
 			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
@@ -478,8 +510,6 @@
 	// with a nudge to generate their report.
 	// =====================================================================
 	var opps = { open: false };
-	// This endpoint lives in the Explorer module, so it expects the explorer nonce.
-	function exNonce() { return (window.dzeExplorer && window.dzeExplorer.nonce) || cfg.nonce; }
 
 	function renderAllOpps(d) {
 		var html = '';

@@ -111,6 +111,18 @@ body.dze-x-ov-open { overflow: hidden; }
 }
 @keyframes dze-x-spin { to { transform: rotate(360deg); } }
 
+/* Sourcing-report toggle button: caret shows it opens a dropdown; it points up
+   while the panel is open, and turns into a "＋" (generate) when none exists. */
+#dze-x-ai .dze-x-ai-caret { display: inline-block; transition: transform .15s ease; font-size: 11px; }
+#dze-x-ai.is-open .dze-x-ai-caret { transform: rotate(180deg); }
+#dze-x-ai.no-report .dze-x-ai-caret::before { content: "＋"; }
+#dze-x-ai.no-report .dze-x-ai-caret { font-size: 13px; }
+#dze-x-ai.no-report.is-open .dze-x-ai-caret { transform: none; }
+/* Keep the report readable while products stay in view: cap height, scroll inside. */
+.dze-x-ai-panel { max-height: 46vh; }
+.dze-x-ai-ideas { padding: 8px 10px 8px 28px; background: #fff; border: 1px solid #e0e7ef; border-radius: 6px; }
+.dze-x-ai-ideas li { margin: 3px 0; }
+
 /* ===================== Product grid (inside the overlay) ================= */
 .dze-x-grid {
 	flex: 1; overflow: auto; padding: 16px; --dze-cols: 5;

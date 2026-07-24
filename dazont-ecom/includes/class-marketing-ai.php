@@ -409,6 +409,12 @@ final class DZE_Marketing_Ai {
 		$s   = self::get_settings();
 		$opt = self::OPT_SETTINGS;
 		$explorer_url = class_exists( 'DZE_Explorer' ) ? add_query_arg( [ 'page' => DZE_Explorer::MENU_SLUG ], admin_url( 'admin.php' ) ) : '';
+		$models = self::available_models();
+		// Keep a saved-but-unlisted id selectable.
+		$match_cur = (string) ( $s['match_model'] ?? '' );
+		$ins_cur   = (string) ( $s['insights_model'] ?? '' );
+		$match_models = ( $match_cur !== '' && ! array_key_exists( $match_cur, $models ) ) ? [ $match_cur => $match_cur ] + $models : $models;
+		$ins_models   = ( $ins_cur !== '' && ! array_key_exists( $ins_cur, $models ) ) ? [ $ins_cur => $ins_cur ] + $models : $models;
 		?>
 		<p class="description" style="max-width:820px;">
 			<?php esc_html_e( 'Controls for the Sourcing Assistant: which models judge keyword coverage and write the sourcing report, and the default volume threshold for the keyword analysis.', 'dazont-ecom' ); ?>
@@ -421,14 +427,24 @@ final class DZE_Marketing_Ai {
 				<tr>
 					<th scope="row"><label for="dze-mai-match-model"><?php esc_html_e( 'Keyword-matching model', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<input type="text" id="dze-mai-match-model" class="regular-text" name="<?php echo esc_attr( $opt ); ?>[match_model]" value="<?php echo esc_attr( (string) ( $s['match_model'] ?? '' ) ); ?>" placeholder="claude-haiku-4-5-20251001" />
+						<select id="dze-mai-match-model" name="<?php echo esc_attr( $opt ); ?>[match_model]">
+							<option value=""<?php selected( '', $match_cur ); ?>><?php esc_html_e( 'Default (Haiku — fast & cheap)', 'dazont-ecom' ); ?></option>
+							<?php foreach ( $match_models as $id => $label ) : ?>
+								<option value="<?php echo esc_attr( $id ); ?>"<?php selected( $id, $match_cur ); ?>><?php echo esc_html( $label ); ?></option>
+							<?php endforeach; ?>
+						</select>
 						<p class="description"><?php esc_html_e( 'Judges which product/category covers each keyword — a simple, repetitive task. Haiku is ~10× cheaper and is the default when left empty.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
 					<th scope="row"><label for="dze-mai-ins-model"><?php esc_html_e( 'Sourcing report model', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<input type="text" id="dze-mai-ins-model" class="regular-text" name="<?php echo esc_attr( $opt ); ?>[insights_model]" value="<?php echo esc_attr( (string) ( $s['insights_model'] ?? '' ) ); ?>" placeholder="<?php echo esc_attr( self::chosen_model() ); ?>" />
+						<select id="dze-mai-ins-model" name="<?php echo esc_attr( $opt ); ?>[insights_model]">
+							<option value=""<?php selected( '', $ins_cur ); ?>><?php /* translators: %s: main model name */ echo esc_html( sprintf( __( 'Default (main model — %s)', 'dazont-ecom' ), self::chosen_model() ) ); ?></option>
+							<?php foreach ( $ins_models as $id => $label ) : ?>
+								<option value="<?php echo esc_attr( $id ); ?>"<?php selected( $id, $ins_cur ); ?>><?php echo esc_html( $label ); ?></option>
+							<?php endforeach; ?>
+						</select>
 						<p class="description"><?php esc_html_e( 'Writes the "sourcing opportunities" report — needs quality. Empty = the main Claude model from the General tab.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>

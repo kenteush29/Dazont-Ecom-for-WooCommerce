@@ -212,7 +212,8 @@
 		var thumb = $r.attr('data-thumb') || '';
 		$('#dze-x-ov-thumb').html(thumb ? ('<img src="' + thumb + '" alt="" />') : '');
 		$('#dze-x-ai-panel').hide().empty();
-		$('#dze-x-ai, #dze-x-ov-mark').prop('disabled', false);
+		$('#dze-x-ai').removeClass('is-open no-report').prop('disabled', false);
+		$('#dze-x-ov-mark').prop('disabled', false);
 		buildSubcats(state.cat);
 		$('#dze-x-overlay').css('display', 'flex');
 		$('body').addClass('dze-x-ov-open');
@@ -293,31 +294,61 @@
 					.done(function (est) {
 						if (!est.success) { showModal('<p>' + escHtml((est.data && est.data.message) || i18n.error) + '</p>'); return; }
 						if (!window.confirm(est.data.message)) { $('#dze-x-modal').hide(); return; }
-						showModal('<h2 style="margin-top:0;">🎯 ' + escHtml(path) + '</h2><p><span class="dze-x-ai-spin"></span>' + escHtml(i18n.aiThinking) + '</p>');
-						$.post(cfg.ajaxUrl, { action: 'dze_explorer_ai_insights', nonce: cfg.nonce, cat: pcat, mode: 'generate' })
-							.done(function (r2) {
-								if (!r2.success) { showModal('<p>' + escHtml((r2.data && r2.data.message) || i18n.error) + '</p>'); return; }
-								showModal('<h2 style="margin-top:0;">🎯 ' + escHtml(path) + '</h2>' + reportBodyHtml(r2.data));
-							})
-							.fail(function () { showModal('<p>' + escHtml(i18n.error) + '</p>'); });
+						showModal('<h2 style="margin-top:0;">🎯 ' + escHtml(path) + '</h2><p><span class="dze-x-ai-spin"></span>' + escHtml(i18n.aiWait || i18n.aiThinking) + '</p>');
+						generateReport(pcat, function (data) {
+							showModal('<h2 style="margin-top:0;">🎯 ' + escHtml(path) + '</h2>' + reportBodyHtml(data));
+						}, function (msg) {
+							showModal('<p>' + escHtml(msg) + '</p>');
+						});
 					})
 					.fail(function () { showModal('<p>' + escHtml(i18n.error) + '</p>'); });
 			})
 			.fail(function () { showModal('<p>' + escHtml(i18n.error) + '</p>'); });
 	});
+	// Generation is a single long request (up to ~3 min). Two robustness aids:
+	//  - a clear "this takes a minute or two" spinner so it never feels stuck;
+	//  - timeout recovery: if the request drops, the report was very often still
+	//    written server-side, so we re-check with mode:get before crying error.
+	var GEN_TIMEOUT = 200000;
+	function waitingHtml() {
+		return '<div class="dze-x-ai-body"><span class="dze-x-ai-spin"></span>' + escHtml(i18n.aiWait || i18n.aiThinking) + '</div>';
+	}
+	function generateReport(pcat, onReport, onError) {
+		$.ajax({ url: cfg.ajaxUrl, method: 'POST', timeout: GEN_TIMEOUT,
+			data: { action: 'dze_explorer_ai_insights', nonce: cfg.nonce, cat: pcat, mode: 'generate' } })
+			.done(function (r2) {
+				if (r2 && r2.success) { markRowReport(pcat); onReport(r2.data); return; }
+				onError((r2 && r2.data && r2.data.message) || i18n.error);
+			})
+			.fail(function () {
+				// Recover: the write may have completed after the connection dropped.
+				$.post(cfg.ajaxUrl, { action: 'dze_explorer_ai_insights', nonce: cfg.nonce, cat: pcat, mode: 'get' })
+					.done(function (g) {
+						if (g && g.success && g.data.saved) { markRowReport(pcat); onReport(g.data); }
+						else { onError(i18n.error); }
+					})
+					.fail(function () { onError(i18n.error); });
+			});
+	}
+	// Reflect a freshly generated report on the category-list row without reload.
+	function markRowReport(pcat) {
+		$('.dze-x-row[data-cat="' + pcat + '"] .dze-x-opp-cat')
+			.addClass('has-report').show()
+			.html(escHtml(i18n.reportDone || 'Report \u2713'));
+	}
 	function generateInsights($btn, $panel) {
 		$.post(cfg.ajaxUrl, { action: 'dze_explorer_ai_insights', nonce: cfg.nonce, cat: state.cat, mode: 'estimate' })
 			.done(function (res) {
 				if (!res.success) { $btn.prop('disabled', false); $panel.text((res.data && res.data.message) || i18n.error); return; }
 				if (!window.confirm(res.data.message)) { $btn.prop('disabled', false); $panel.hide(); return; }
-				$panel.html('<span class="dze-x-ai-spin"></span>' + escHtml(i18n.aiThinking));
-				$.post(cfg.ajaxUrl, { action: 'dze_explorer_ai_insights', nonce: cfg.nonce, cat: state.cat, mode: 'generate' })
-					.done(function (r2) {
-						$btn.prop('disabled', false);
-						if (!r2.success) { $panel.text((r2.data && r2.data.message) || i18n.error); return; }
-						showReport($panel, r2.data);
-					})
-					.fail(function () { $btn.prop('disabled', false); $panel.text(i18n.error); });
+				$panel.html(waitingHtml());
+				generateReport(state.cat, function (data) {
+					$btn.prop('disabled', false);
+					showReport($panel, data);
+				}, function (msg) {
+					$btn.prop('disabled', false);
+					$panel.html('<div class="dze-x-ai-body">' + escHtml(msg) + '</div>');
+				});
 			})
 			.fail(function () { $btn.prop('disabled', false); $panel.text(i18n.error); });
 	}
@@ -326,12 +357,13 @@
 	$('#dze-x-ai').on('click', function () {
 		if (!state.cat) { return; }
 		var $panel = $('#dze-x-ai-panel');
-		if ($panel.is(':visible')) { $panel.hide(); return; }
-		var $btn = $(this).prop('disabled', true);
+		if ($panel.is(':visible')) { $panel.hide(); $(this).removeClass('is-open'); return; }
+		var $btn = $(this).prop('disabled', true).addClass('is-open');
 		$panel.show().html('<div class="dze-x-ai-body"><span class="dze-x-ai-spin"></span>' + escHtml(i18n.loading) + '</div>');
 		$.post(cfg.ajaxUrl, { action: 'dze_explorer_ai_insights', nonce: cfg.nonce, cat: state.cat, mode: 'get' })
 			.done(function (res) {
 				$btn.prop('disabled', false);
+				$btn.toggleClass('no-report', !(res.success && res.data.saved));
 				if (res.success && res.data.saved) { showReport($panel, res.data); return; }
 				$panel.html('<div class="dze-x-ai-body"><p>' + escHtml(i18n.noReportYet || 'No report generated yet for this category.') + '</p>' +
 					'<button type="button" class="button button-primary" id="dze-x-ai-gen">' + escHtml(i18n.genReport || 'Generate report') + '</button>' +

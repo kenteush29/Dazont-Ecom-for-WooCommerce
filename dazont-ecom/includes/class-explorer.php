@@ -43,6 +43,7 @@ final class DZE_Explorer {
 		add_action( 'wp_ajax_dze_explorer_mark_researched', [ $this, 'ajax_mark_researched' ] );
 		add_action( 'wp_ajax_dze_explorer_ai_insights',     [ $this, 'ajax_ai_insights' ] );
 		add_action( 'wp_ajax_dze_explorer_all_opps',        [ $this, 'ajax_all_opps' ] );
+		add_action( 'wp_ajax_dze_explorer_kw_stats',        [ $this, 'ajax_kw_stats' ] );
 		// "+ Add product" from a category overlay: pre-tick that category on the new-product screen.
 		add_action( 'admin_footer-post-new.php', static function () {
 			$cat = isset( $_GET['dze_cat'] ) ? absint( $_GET['dze_cat'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- UI convenience only.
@@ -153,6 +154,9 @@ final class DZE_Explorer {
 				'genReport'  => __( 'Generate report', 'dazont-ecom' ),
 				'bulkAllAnalysed' => __( 'All imported keywords are already analysed. Reset a single category from its own page if you want to re-run it.', 'dazont-ecom' ),
 				'bulkNoFile' => __( 'Note: some categories have products but no keyword file imported yet. Import their SEMrush export first if you want them included.', 'dazont-ecom' ),
+				'analysedWord' => __( 'analysed', 'dazont-ecom' ),
+				'report'     => __( 'Report', 'dazont-ecom' ),
+				'reportDone' => __( 'Report ✓', 'dazont-ecom' ),
 			],
 		] );
 		wp_localize_script( 'dze-explorer', 'dzeExplorer', [
@@ -192,6 +196,8 @@ final class DZE_Explorer {
 				'noReportYet'  => __( 'No report generated yet for this category.', 'dazont-ecom' ),
 				'genReport'    => __( 'Generate report', 'dazont-ecom' ),
 				'close'        => __( 'Close', 'dazont-ecom' ),
+				'reportDone'   => __( 'Report ✓', 'dazont-ecom' ),
+				'aiWait'       => __( 'Writing the sourcing report — this can take a minute or two. You can keep browsing; it will appear here as soon as it is ready.', 'dazont-ecom' ),
 			],
 		] );
 	}
@@ -283,6 +289,62 @@ final class DZE_Explorer {
 			return $out;
 		};
 		return $build( 0 );
+	}
+
+	/**
+	 * Rolled-up keyword stats for every product category, in the exact same
+	 * shape the category list renders (subtree aggregation for kw/gaps/analysed,
+	 * own_kw = the category's own set, has_report = a saved sourcing report).
+	 * Used by the live-refresh endpoint so rows update after an analysis without
+	 * a full page reload.
+	 *
+	 * @return array<int,array{kw:int,gaps:int,pending:int,analysed:int,own_kw:int,has_report:bool}>
+	 */
+	private function kw_stats_map(): array {
+		$terms = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false ] );
+		if ( is_wp_error( $terms ) || empty( $terms ) ) {
+			return [];
+		}
+		$children = [];
+		foreach ( $terms as $t ) {
+			$children[ (int) $t->parent ][] = (int) $t->term_id;
+		}
+		$kwc = class_exists( 'DZE_Keywords' ) ? DZE_Keywords::counts_by_term() : [];
+		$rec_kw = function ( int $id ) use ( &$rec_kw, $children, $kwc ): array {
+			$k   = $kwc[ $id ] ?? [];
+			$sum = [
+				'kw'       => (int) ( $k['kw'] ?? 0 ),
+				'gaps'     => (int) ( $k['gaps'] ?? 0 ),
+				'pending'  => (int) ( $k['pending'] ?? 0 ),
+				'analysed' => (int) ( $k['analysed'] ?? 0 ),
+			];
+			foreach ( $children[ $id ] ?? [] as $cid ) {
+				$c = $rec_kw( $cid );
+				$sum['kw']       += $c['kw'];
+				$sum['gaps']     += $c['gaps'];
+				$sum['pending']  += $c['pending'];
+				$sum['analysed'] += $c['analysed'];
+			}
+			return $sum;
+		};
+		$out = [];
+		foreach ( $terms as $t ) {
+			$id         = (int) $t->term_id;
+			$out[ $id ] = $rec_kw( $id ) + [
+				'own_kw'     => (int) ( $kwc[ $id ]['kw'] ?? 0 ),
+				'has_report' => (bool) get_term_meta( $id, '_dze_insights', true ),
+			];
+		}
+		return $out;
+	}
+
+	/** Live per-category keyword stats (for refreshing rows after an analysis). */
+	public function ajax_kw_stats(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		wp_send_json_success( [ 'stats' => $this->kw_stats_map() ] );
 	}
 
 	/**
