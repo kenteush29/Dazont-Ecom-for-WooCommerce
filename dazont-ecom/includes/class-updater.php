@@ -37,10 +37,16 @@ final class DZE_Updater {
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_update' ] );
 		add_filter( 'plugins_api', [ $this, 'plugin_details' ], 10, 3 );
 		add_action( 'upgrader_process_complete', [ $this, 'clear_cache' ], 10, 0 );
-		// In-page "Check for updates" on the Plugins row (AJAX, no navigation).
+		// In-page "Check for updates" + dev-channel toggle on the Plugins row.
 		add_filter( 'plugin_action_links_' . $this->basename, [ $this, 'action_links' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_check_script' ] );
 		add_action( 'wp_ajax_dze_check_updates', [ $this, 'ajax_check' ] );
+		add_action( 'wp_ajax_dze_dev_channel',  [ $this, 'ajax_dev_channel' ] );
+	}
+
+	/** True when the channel is forced by the constant (UI toggle then disabled). */
+	private function channel_locked(): bool {
+		return defined( 'DZE_DEV_CHANNEL' );
 	}
 
 	/** Delete the cached GitHub lookup so the next check re-fetches. */
@@ -70,7 +76,32 @@ final class DZE_Updater {
 	public function action_links( array $links ): array {
 		$links['dze_check'] = '<a href="#" class="dze-check-updates">' . esc_html__( 'Check for updates', 'dazont-ecom' ) . '</a>'
 			. ' <span class="dze-check-result" role="status" aria-live="polite"></span>';
+
+		// Dev-channel toggle (receive development pre-releases). Hidden when the
+		// DZE_DEV_CHANNEL constant forces the choice.
+		if ( ! $this->channel_locked() ) {
+			$on = $this->dev_channel();
+			$links['dze_dev'] = '<a href="#" class="dze-dev-toggle" data-on="' . ( $on ? '1' : '0' ) . '">'
+				. esc_html__( 'Dev updates:', 'dazont-ecom' ) . ' <strong class="dze-dev-state">'
+				. ( $on ? esc_html__( 'On', 'dazont-ecom' ) : esc_html__( 'Off', 'dazont-ecom' ) ) . '</strong></a>';
+		}
 		return $links;
+	}
+
+	/** Toggle the dev channel option (no wp-config edit needed). */
+	public function ajax_dev_channel(): void {
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		check_ajax_referer( 'dze_check_updates', 'nonce' );
+		if ( $this->channel_locked() ) {
+			wp_send_json_error( [ 'message' => __( 'The channel is set by the DZE_DEV_CHANNEL constant.', 'dazont-ecom' ) ] );
+		}
+		$on = ! empty( $_POST['on'] );
+		update_option( 'dze_dev_channel', $on ? 1 : 0, false );
+		self::flush();
+		delete_site_transient( 'update_plugins' );
+		wp_send_json_success( [ 'on' => $on ] );
 	}
 
 	/** Inline the small checker script on the Plugins screen only. */
@@ -84,11 +115,15 @@ final class DZE_Updater {
 			'i18n'    => [
 				'checking' => __( 'Checking…', 'dazont-ecom' ),
 				'error'    => __( 'Check failed — try again.', 'dazont-ecom' ),
+				'on'       => __( 'On', 'dazont-ecom' ),
+				'off'      => __( 'Off', 'dazont-ecom' ),
+				'devConfirm' => __( 'Receive development builds on this site? Use on a test site only.', 'dazont-ecom' ),
 			],
 		];
 		$js = 'window.dzeUpd=' . wp_json_encode( $data ) . ';'
 			. '(function(){document.addEventListener("click",function(e){'
-			. 'var a=e.target.closest(".dze-check-updates");if(!a)return;e.preventDefault();'
+			. 'var a=e.target.closest(".dze-check-updates");'
+			. 'if(a){e.preventDefault();'
 			. 'var out=a.parentNode.querySelector(".dze-check-result");if(a.dataset.busy)return;a.dataset.busy="1";'
 			. 'out.textContent=" "+dzeUpd.i18n.checking;out.style.color="#646970";'
 			. 'var f=new FormData();f.append("action","dze_check_updates");f.append("nonce",dzeUpd.nonce);'
@@ -97,6 +132,18 @@ final class DZE_Updater {
 			. 'if(res&&res.success){out.innerHTML=" "+res.data.html;out.style.color=res.data.update?"#b32d2e":"#00794b";}'
 			. 'else{out.textContent=" "+((res&&res.data&&res.data.message)||dzeUpd.i18n.error);out.style.color="#b32d2e";}'
 			. '}).catch(function(){a.dataset.busy="";out.textContent=" "+dzeUpd.i18n.error;out.style.color="#b32d2e";});'
+			. 'return;}'
+			. 'var t=e.target.closest(".dze-dev-toggle");'
+			. 'if(t){e.preventDefault();if(t.dataset.busy)return;'
+			. 'var want=t.dataset.on==="1"?0:1;'
+			. 'if(want&&!window.confirm(dzeUpd.i18n.devConfirm))return;'
+			. 't.dataset.busy="1";'
+			. 'var f2=new FormData();f2.append("action","dze_dev_channel");f2.append("nonce",dzeUpd.nonce);f2.append("on",want);'
+			. 'fetch(dzeUpd.ajaxUrl,{method:"POST",credentials:"same-origin",body:f2}).then(function(r){return r.json();}).then(function(res){'
+			. 't.dataset.busy="";'
+			. 'if(res&&res.success){t.dataset.on=res.data.on?"1":"0";var s=t.querySelector(".dze-dev-state");if(s)s.textContent=res.data.on?dzeUpd.i18n.on:dzeUpd.i18n.off;}'
+			. '}).catch(function(){t.dataset.busy="";});'
+			. 'return;}'
 			. '});})();';
 		wp_register_script( 'dze-updater-check', false, [], DZE_VERSION, true );
 		wp_enqueue_script( 'dze-updater-check' );
