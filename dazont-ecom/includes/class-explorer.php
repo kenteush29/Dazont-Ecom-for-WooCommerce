@@ -20,6 +20,9 @@ final class DZE_Explorer {
 	private const NONCE     = 'dze_explorer';
 	private const PER_PAGE  = 30;
 
+	/** Hard ceiling on products fed into one sourcing report (protects the prompt). */
+	private const REPORT_PRODUCTS_MAX = 2000;
+
 	/** Term meta: unix timestamp of the last manual "novelty search" for a category. */
 	public const META_RESEARCHED = '_dze_researched';
 
@@ -360,6 +363,36 @@ final class DZE_Explorer {
 	 * @param array<int,int> $parent term_id => parent term_id map.
 	 * @return array<int,array{qty:float,rev:float,qty_direct:float,rev_direct:float}>
 	 */
+	/**
+	 * Lifetime units sold per product (parent id; variations roll up) for the
+	 * given product IDs, from WooCommerce Analytics' lookup table. Empty when the
+	 * table is missing. Used to annotate the sourcing report with real demand.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,int> product_id => units sold
+	 */
+	private function product_sales_map( array $ids ): array {
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+		if ( empty( $ids ) ) {
+			return [];
+		}
+		global $wpdb;
+		$table = $wpdb->prefix . 'wc_order_product_lookup';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+		$ph   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT product_id, SUM(product_qty) AS qty FROM {$table} WHERE product_id IN ($ph) GROUP BY product_id", $ids ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- int placeholders + own table.
+			ARRAY_A
+		);
+		$out = [];
+		foreach ( (array) $rows as $r ) {
+			$out[ (int) $r['product_id'] ] = (int) round( (float) $r['qty'] );
+		}
+		return $out;
+	}
+
 	private function category_sales( array $parent ): array {
 		$cached = get_transient( 'dze_x_cat_sales_v2' );
 		if ( is_array( $cached ) ) {
@@ -681,7 +714,15 @@ final class DZE_Explorer {
 		}
 
 		if ( 'estimate' === $mode ) {
-			$in_tok = 1500 + count( $gaps ) * 12;
+			$cq     = new WP_Query( [
+				'post_type'      => 'product',
+				'post_status'    => 'publish',
+				'posts_per_page' => 1,
+				'fields'         => 'ids',
+				'tax_query'      => [ [ 'taxonomy' => 'product_cat', 'field' => 'term_id', 'terms' => $cat, 'include_children' => true ] ],
+			] );
+			$pcount = min( (int) $cq->found_posts, self::REPORT_PRODUCTS_MAX );
+			$in_tok = 1500 + count( $gaps ) * 12 + $pcount * 8;
 			$cost   = ( $in_tok * 15 + 2500 * 75 ) / 1000000; // main-model pricing, upper bound.
 			wp_send_json_success( [
 				'message' => sprintf(
@@ -704,27 +745,35 @@ final class DZE_Explorer {
 		$names[] = $term->name;
 		$path    = implode( ' > ', $names );
 
-		// A sample of current product titles in the category (incl. sub-categories).
-		$q = new WP_Query( [
+		// EVERY current product in the category (incl. sub-categories), annotated
+		// with real lifetime units sold and ordered best-sellers first, so the AI
+		// sees the whole catalogue and what actually performs — not a sample.
+		$prod_ids = get_posts( [
 			'post_type'      => 'product',
 			'post_status'    => 'publish',
-			'posts_per_page' => 40,
+			'posts_per_page' => self::REPORT_PRODUCTS_MAX,
 			'orderby'        => 'date',
 			'order'          => 'DESC',
 			'no_found_rows'  => true,
 			'fields'         => 'ids',
 			'tax_query'      => [ [ 'taxonomy' => 'product_cat', 'field' => 'term_id', 'terms' => $cat, 'include_children' => true ] ],
 		] );
+		$prod_ids       = array_map( 'intval', (array) $prod_ids );
+		$total_products = count( $prod_ids );
+		$sales_map      = $this->product_sales_map( $prod_ids );
+		usort( $prod_ids, static fn( $a, $b ) => ( $sales_map[ $b ] ?? 0 ) <=> ( $sales_map[ $a ] ?? 0 ) );
 		$titles = [];
-		foreach ( $q->posts as $pid ) {
-			$titles[] = '- ' . wp_strip_all_tags( get_the_title( (int) $pid ) );
+		foreach ( $prod_ids as $pid ) {
+			$sold     = (int) ( $sales_map[ $pid ] ?? 0 );
+			$titles[] = '- ' . wp_strip_all_tags( get_the_title( $pid ) ) . ' (' . $sold . ' sold)';
 		}
 
 		$system = 'You are a senior product-sourcing assistant for an e-commerce catalogue. '
 			. 'You are concrete, practical and exhaustive when asked to be. Never invent facts about the shop.';
 		$user = "Product category: {$path}\n\n";
 		$user .= $titles
-			? ( "Products currently in this category:\n" . implode( "\n", $titles ) . "\n\n" )
+			? ( 'ALL ' . $total_products . " products currently in this category, with lifetime units sold, best-sellers first:\n"
+				. implode( "\n", $titles ) . "\n\n" )
 			: "This category currently has no products.\n\n";
 		if ( $gaps ) {
 			$glist = '';
@@ -733,10 +782,11 @@ final class DZE_Explorer {
 			}
 			$user .= "UNCOVERED search queries (gaps) from our keyword research:\n{$glist}\n";
 		}
+		$user .= "Use the sales figures: the best-sellers show proven demand in this shop. Favour opportunities that are adjacent or complementary to what already sells, and call out categories that sell well but are poorly covered by the catalogue.\n\n";
 		$user .= "Return ONLY a JSON object, no prose, no code fences, with exactly these keys:\n"
-			. "\"summary\": 2-3 sentences in the language of the product titles — what the category contains today and its biggest weaknesses.\n"
+			. "\"summary\": 2-3 sentences in the language of the product titles — what the category contains today, what sells best, and its biggest weaknesses.\n"
 			. "\"source_list\": exhaustive array grouping EVERY uncovered query above into concrete products to source, each item {\"product\": \"name as you would search it on a supplier site\", \"queries\": [the exact queries it covers], \"volume\": cumulated integer}. Sorted by volume descending. No query may be dropped.\n"
-			. "\"ideas\": array of 5-15 product ideas absent from BOTH the catalogue and the query list (missing famous models, variants, themes, POD lines shoppers would expect), each {\"product\": \"...\", \"why\": \"max 10 words\"}.";
+			. "\"ideas\": array of 5-15 product ideas absent from BOTH the catalogue and the query list (missing famous models, variants, themes, POD lines shoppers would expect, and products complementary to the best-sellers), each {\"product\": \"...\", \"why\": \"max 10 words\"}.";
 
 		// The report is a single long generation — give PHP room so the request
 		// doesn't die at the default 30s and surface as a generic AJAX failure.
