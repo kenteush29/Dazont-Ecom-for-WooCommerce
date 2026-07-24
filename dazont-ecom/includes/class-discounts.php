@@ -134,6 +134,10 @@ final class DZE_Discounts {
 
 	private static function save_rules( array $rules ): void {
 		update_option( self::OPTION, $rules, false );
+		// Refresh our store-wide product cache so scope/exclusion changes are picked
+		// up. WooCommerce's own on-sale transient is left intact — our filter merges
+		// dynamic IDs into it on every read, so no forced cache-miss gap.
+		delete_transient( 'dze_all_saleable_ids' );
 	}
 
 	public static function type_labels(): array {
@@ -365,6 +369,9 @@ final class DZE_Discounts {
 			// Make sure the struck-through "on sale" price + Sale! badge actually
 			// render for our dynamic discount (WooCommerce only knows native sales).
 			add_filter( 'woocommerce_product_is_on_sale',           [ $this, 'filter_is_on_sale' ], 20, 2 );
+			// Feed our discounted products into WooCommerce's on-sale product list so
+			// [products on_sale="true"], the On-Sale page and widgets include them.
+			add_filter( 'transient_wc_products_onsale',             [ $this, 'filter_onsale_ids' ] );
 
 			// Coupons: make our dynamic sale honour the coupon "Exclude sale
 			// items" setting (WooCommerce otherwise only knows native sales).
@@ -807,6 +814,87 @@ final class DZE_Discounts {
 			return $on_sale;
 		}
 		return $this->catalog_percent_for( $product ) > 0 ? true : $on_sale;
+	}
+
+	/**
+	 * Merge our dynamically-discounted product IDs into WooCommerce's on-sale list
+	 * (wc_get_product_ids_on_sale) so on-sale queries — [products on_sale="true"],
+	 * the On-Sale page, widgets — include them. Only touches the cached array; on a
+	 * cache miss ($ids === false) we let WooCommerce rebuild its native list first.
+	 */
+	public function filter_onsale_ids( $ids ) {
+		if ( ! is_array( $ids ) ) {
+			return $ids;
+		}
+		$dyn = $this->dynamic_on_sale_ids();
+		if ( empty( $dyn ) ) {
+			return $ids;
+		}
+		return array_values( array_unique( array_merge( array_map( 'intval', $ids ), $dyn ) ) );
+	}
+
+	private ?array $on_sale_ids = null;
+
+	/** Product IDs currently discounted by any active sale or automatic rule. */
+	public function dynamic_on_sale_ids(): array {
+		if ( null !== $this->on_sale_ids ) {
+			return $this->on_sale_ids;
+		}
+		// "raw" = small lists that still need per-id exclusion checks (automatic
+		// top-sellers, explicit product scope). "clean" = SQL results already
+		// filtered for stock/exclusions, so we never has_term() over a huge list.
+		$raw   = array_map( 'intval', array_keys( $this->autobest_map() ) );
+		$clean = [];
+		foreach ( $this->rules_of_type( 'sale' ) as $rule ) {
+			if ( (float) ( $rule['percent'] ?? 0 ) <= 0 ) {
+				continue;
+			}
+			$scope = $rule['scope'] ?? 'all';
+			if ( 'products' === $scope ) {
+				$raw = array_merge( $raw, array_map( 'intval', $rule['product_ids'] ?? [] ) );
+			} elseif ( 'categories' === $scope ) {
+				$clean = array_merge( $clean, $this->product_ids_in_categories( array_map( 'intval', $rule['category_ids'] ?? [] ) ) );
+			} else {
+				$clean = array_merge( $clean, $this->all_saleable_product_ids() );
+			}
+		}
+		$raw = array_filter( array_unique( $raw ), function ( $id ) {
+			return $id > 0 && ! $this->is_excluded( $id );
+		} );
+		$ids = array_values( array_unique( array_merge( array_map( 'intval', $raw ), array_map( 'intval', $clean ) ) ) );
+		return $this->on_sale_ids = $ids;
+	}
+
+	/** Published, in-stock, non-excluded product IDs in the given categories (exact terms). */
+	private function product_ids_in_categories( array $cats ): array {
+		$cats = array_filter( array_map( 'intval', $cats ) );
+		if ( empty( $cats ) ) {
+			return [];
+		}
+		global $wpdb;
+		$in  = implode( ',', $cats );
+		$sql = "SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+			INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+			INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			WHERE p.post_type = 'product' AND p.post_status = 'publish'
+			  AND tt.taxonomy = 'product_cat' AND tt.term_id IN ({$in})
+			  AND " . $this->in_stock_sql( 'p' ) . $this->exclusion_sql( 'p' ) . $this->default_lang_sql( 'p' );
+		return array_map( 'intval', (array) $wpdb->get_col( $sql ) ); // phpcs:ignore WordPress.DB.PreparedSQL
+	}
+
+	/** All published, in-stock, non-excluded product IDs (store-wide sale). Cached 6h. */
+	private function all_saleable_product_ids(): array {
+		$cached = get_transient( 'dze_all_saleable_ids' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		global $wpdb;
+		$sql = "SELECT p.ID FROM {$wpdb->posts} p
+			WHERE p.post_type = 'product' AND p.post_status = 'publish'
+			  AND " . $this->in_stock_sql( 'p' ) . $this->exclusion_sql( 'p' ) . $this->default_lang_sql( 'p' );
+		$ids = array_map( 'intval', (array) $wpdb->get_col( $sql ) ); // phpcs:ignore WordPress.DB.PreparedSQL
+		set_transient( 'dze_all_saleable_ids', $ids, 6 * HOUR_IN_SECONDS );
+		return $ids;
 	}
 
 	public function filter_variation_price( $price, $variation, $product ) {
