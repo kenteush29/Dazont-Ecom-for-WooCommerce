@@ -194,8 +194,11 @@ final class DZE_Updater {
 			return null;
 		}
 
-		// Find the newest release that ships an asset for THIS plugin (asset name
-		// contains the slug). This lets the repo host several plugins safely.
+		// Pick the release with the highest SEMANTIC version that ships an asset
+		// for THIS plugin (asset name contains the slug). We must compare versions
+		// ourselves: GitHub's /releases list is ordered by tag name, so "3.14.9"
+		// sorts above "3.14.10" — taking the first item would miss newer releases.
+		$best = null;
 		foreach ( $releases as $rel ) {
 			if ( ! empty( $rel['draft'] ) || ! empty( $rel['prerelease'] ) || empty( $rel['tag_name'] ) ) {
 				continue;
@@ -224,8 +227,14 @@ final class DZE_Updater {
 				'published_at' => $rel['published_at'] ?? '',
 				'body'         => $rel['body'] ?? '',
 			];
-			set_site_transient( self::CACHE_KEY, $info, self::CACHE_TTL );
-			return $info;
+			if ( null === $best || version_compare( $info['version'], $best['version'], '>' ) ) {
+				$best = $info;
+			}
+		}
+
+		if ( $best ) {
+			set_site_transient( self::CACHE_KEY, $best, self::CACHE_TTL );
+			return $best;
 		}
 
 		return null;
