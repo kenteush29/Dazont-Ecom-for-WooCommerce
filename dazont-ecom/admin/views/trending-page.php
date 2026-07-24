@@ -35,7 +35,7 @@ defined( 'ABSPATH' ) || exit;
 			</tr>
 			<tr>
 				<th scope="row"><label for="dze-limit"><?php esc_html_e( 'Number of products', 'dazont-ecom' ); ?></label></th>
-				<td><input type="number" id="dze-limit" name="<?php echo esc_attr( DZE_Trending::OPT_LIMIT ); ?>" value="<?php echo esc_attr( $limit ); ?>" min="1" max="24" class="small-text" /></td>
+				<td><input type="number" id="dze-limit" name="<?php echo esc_attr( DZE_Trending::OPT_LIMIT ); ?>" value="<?php echo esc_attr( $limit ); ?>" min="1" max="100" class="small-text" /></td>
 			</tr>
 			<tr>
 				<th scope="row"><label for="dze-columns"><?php esc_html_e( 'Columns', 'dazont-ecom' ); ?></label></th>
