@@ -24,7 +24,7 @@
 	(function restore() {
 		var m = mem();
 		if (Array.isArray(m.bulkFields)) {
-			$('.dze-cb-field').each(function () { this.checked = m.bulkFields.indexOf($(this).val()) >= 0; });
+			$('.dze-cb-field:not(:disabled)').each(function () { this.checked = m.bulkFields.indexOf($(this).val()) >= 0; });
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
@@ -34,7 +34,7 @@
 
 	function persist() {
 		var m = mem();
-		m.bulkFields = $('.dze-cb-field:checked').map(function () { return $(this).val(); }).get();
+		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
 		m.tpl = $('#dze-cb-tpl').val();
@@ -107,7 +107,7 @@
 	$('#dze-cb-start').on('click', function () {
 		if (!cfg.validated) { return; }
 		persist();
-		var fields = $('.dze-cb-field:checked').map(function () { return $(this).val(); }).get();
+		var fields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		var doPrice = $('#dze-cb-price').is(':checked');
 		if (!fields.length && !doPrice && !$('.dze-cb-row-img:checked').length) {
 			window.alert(i18n.noFields);

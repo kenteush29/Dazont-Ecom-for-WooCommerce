@@ -20,22 +20,26 @@
 	}
 
 	// ---- Build the modal once ----
+	function fieldValidated(fid) {
+		return !!(cfg.validated && cfg.validated[fid]);
+	}
 	function build() {
 		if ($('#dze-cx-modal').length) { return; }
 		var m = mem();
 		var fieldCards = '';
 		Object.keys(cfg.fields).forEach(function (fid) {
+			var ok = fieldValidated(fid);
 			fieldCards +=
-				'<div class="dze-cx-field" data-field="' + fid + '">' +
-				'<h4>' + esc(cfg.fields[fid]) + '</h4>' +
+				'<div class="dze-cx-field' + (ok ? '' : ' is-unvalidated') + '" data-field="' + fid + '">' +
+				'<h4>' + esc(cfg.fields[fid]) + (ok ? '' : ' <span class="dze-cx-badge">' + esc(i18n.notValid) + '</span>') + '</h4>' +
 				'<textarea rows="4" class="dze-cx-out" placeholder="—"></textarea>' +
 				'<div class="row-actions">' +
 				'<button type="button" class="button button-small dze-cx-gen">' + esc(i18n.generate) + '</button>' +
-				'<button type="button" class="button button-small dze-cx-apply">' + esc(i18n.apply) + '</button>' +
+				'<button type="button" class="button button-small dze-cx-apply"' + (ok ? '' : ' disabled title="' + esc(i18n.fieldLocked) + '"') + '>' + esc(i18n.apply) + '</button>' +
 				'</div></div>';
 		});
 		var tplOpts = cfg.templates.map(function (t, i) {
-			return '<option value="' + i + '"' + (m.tpl == i ? ' selected' : '') + '>' + esc(t.name) + ' (' + esc(t.target) + ')</option>';
+			return '<option value="' + i + '"' + (m.tpl == i ? ' selected' : '') + '>' + esc(t.name) + ' (' + esc(t.target) + ')' + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
 		}).join('');
 
 		var html =
@@ -49,14 +53,14 @@
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button>' +
 			'</div>' +
 			'<div class="dze-cx-body">' +
-				(cfg.validated ? '' : '<p class="dze-cx-warn">' + esc(i18n.previewOnly) + '</p>') +
+				(Object.keys(cfg.fields).every(fieldValidated) ? '' : '<p class="dze-cx-warn">' + esc(i18n.previewOnly) + '</p>') +
 				// TEXT pane
 				'<div class="dze-cx-pane" data-pane="text">' +
 					'<div class="dze-cx-src">' +
 						'<strong>' + esc(i18n.productData) + '</strong>' +
 						'<label>' + esc(i18n.pTitle) + '</label><input type="text" id="dze-cx-ptitle" value="' + esc(cfg.product.title) + '" />' +
 						'<label>' + esc(i18n.pDesc) + '</label><textarea id="dze-cx-pdesc" rows="3">' + esc(cfg.product.desc) + '</textarea>' +
-						'<label>' + esc(i18n.pAttr) + '</label><textarea id="dze-cx-pattr" rows="2"></textarea>' +
+						'<label>' + esc(i18n.pAttr) + '</label><textarea id="dze-cx-pattr" rows="3">' + esc(cfg.product.attr || '') + '</textarea>' +
 						'<p><button type="button" class="button button-primary" id="dze-cx-genall">' + esc(i18n.genAll) + '</button></p>' +
 					'</div>' +
 					'<div class="dze-cx-grid">' + fieldCards + '</div>' +
@@ -132,7 +136,7 @@
 		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
 		var val = $card.find('.dze-cx-out').val();
 		var $btn = $(this);
-		if (!cfg.validated) { window.alert(i18n.previewOnly); return; }
+		if (!fieldValidated(fid)) { window.alert(i18n.fieldLocked); return; }
 		$btn.prop('disabled', true);
 		$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: cfg.postId, field: fid, value: val })
 			.done(function (res) {
@@ -159,7 +163,11 @@
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res.success) { $st.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#00794b').text(i18n.imgAdded + ' (' + res.data.target + ')');
+				if (res.data.preview) {
+					$st.css('color', '#8a6d00').text(i18n.imgPreview);
+				} else {
+					$st.css('color', '#00794b').text(i18n.imgAdded + ' (' + res.data.target + ')');
+				}
 				if (res.data.url) { $('#dze-cx-imgout').html('<img src="' + res.data.url + '" alt="" />'); }
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });

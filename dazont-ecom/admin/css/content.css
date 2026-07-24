@@ -63,6 +63,23 @@
 .dze-cx-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #c3d9ec; border-top-color: #2271b1; border-radius: 50%; animation: dze-cx-spin .8s linear infinite; vertical-align: -2px; }
 @keyframes dze-cx-spin { to { transform: rotate(360deg); } }
 
+/* ---- Per-prompt validation ---- */
+.dze-fv { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: #8a6d00; }
+.dze-fv.is-ok { color: #0a7040; }
+.dze-cx-field.is-unvalidated { border-color: #f0e08a; background: #fffdf3; }
+.dze-cx-badge { font-size: 10px; font-weight: 600; color: #8a6d00; background: #fcf3cd; border: 1px solid #f0e08a; border-radius: 999px; padding: 1px 7px; text-transform: uppercase; }
+
+/* ---- Price table (add/remove ranges) ---- */
+.dze-price-table { max-width: 620px; }
+.dze-price-table td { vertical-align: middle; }
+.dze-price-table .dze-pt-cur {
+	display: inline-block; min-width: 18px; text-align: center; color: #646970;
+	background: #f0f0f1; border: 1px solid #dcdcde; border-radius: 3px; padding: 3px 5px; margin-right: 4px;
+}
+.dze-price-table input[type="number"] { width: 100px !important; }
+.dze-pt-del { color: #b32d2e !important; border-color: #f0c4c4 !important; }
+.dze-pt-add { margin-top: 4px !important; }
+
 /* ---- API-key status badges ---- */
 .dze-key-status { margin: 0 0 8px !important; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dze-key-badge {

@@ -178,8 +178,47 @@ final class DZE_Content {
 		return (string) ( self::get_settings()['store_context'] ?? '' );
 	}
 
+	/** Legacy global flag: true only when EVERY text-field prompt is validated. */
 	public static function prompts_validated(): bool {
-		return ! empty( self::get_settings()['prompts_validated'] );
+		foreach ( array_keys( self::fields() ) as $fid ) {
+			if ( ! self::field_validated( $fid ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Per-prompt validation. Legacy installs that ticked the old global box count as validated. */
+	public static function field_validated( string $field ): bool {
+		$s = self::get_settings();
+		if ( isset( $s['fv'] ) && is_array( $s['fv'] ) ) {
+			return ! empty( $s['fv'][ $field ] );
+		}
+		return ! empty( $s['prompts_validated'] ); // legacy fallback.
+	}
+
+	/** Per image-template validation (index into image_templates()). */
+	public static function template_validated( int $idx ): bool {
+		$tpls = self::image_templates();
+		if ( ! isset( $tpls[ $idx ] ) ) {
+			return false;
+		}
+		if ( array_key_exists( 'valid', $tpls[ $idx ] ) ) {
+			return ! empty( $tpls[ $idx ]['valid'] );
+		}
+		return ! empty( self::get_settings()['prompts_validated'] ); // legacy fallback.
+	}
+
+	/** [ validated, total ] across text prompts, for the side-box note. */
+	public static function validated_counts(): array {
+		$total = count( self::fields() );
+		$ok    = 0;
+		foreach ( array_keys( self::fields() ) as $fid ) {
+			if ( self::field_validated( $fid ) ) {
+				$ok++;
+			}
+		}
+		return [ $ok, $total ];
 	}
 
 	public static function prompt_for( string $field ): string {
@@ -268,6 +307,7 @@ final class DZE_Content {
 			$out['store_context'] = sanitize_textarea_field( (string) $in['store_context'] );
 		}
 		$dests = array_keys( self::dest_options() );
+		$fv    = [];
 		foreach ( array_keys( self::fields() ) as $fid ) {
 			if ( isset( $in[ 'prompt_' . $fid ] ) ) {
 				$out[ 'prompt_' . $fid ] = sanitize_textarea_field( (string) $in[ 'prompt_' . $fid ] );
@@ -278,7 +318,9 @@ final class DZE_Content {
 			if ( isset( $in[ 'metakey_' . $fid ] ) ) {
 				$out[ 'metakey_' . $fid ] = sanitize_key( (string) $in[ 'metakey_' . $fid ] );
 			}
+			$fv[ $fid ] = ! empty( $in['fv'][ $fid ] ) ? 1 : 0;
 		}
+		$out['fv'] = $fv; // per-prompt validation (individual checkboxes).
 		// Price table.
 		if ( isset( $in['pt_min'] ) && is_array( $in['pt_min'] ) ) {
 			$rows = [];
@@ -296,7 +338,7 @@ final class DZE_Content {
 				$out['price_table'] = $rows;
 			}
 		}
-		// Image templates.
+		// Image templates (indexed so the per-row "validated" checkbox stays aligned).
 		if ( isset( $in['it_name'] ) && is_array( $in['it_name'] ) ) {
 			$tpls = [];
 			foreach ( $in['it_name'] as $i => $nm ) {
@@ -304,14 +346,19 @@ final class DZE_Content {
 				$pr = sanitize_textarea_field( (string) ( $in['it_prompt'][ $i ] ?? '' ) );
 				$tg = ( ( $in['it_target'][ $i ] ?? 'gallery' ) === 'main' ) ? 'main' : 'gallery';
 				if ( '' !== $nm && '' !== $pr ) {
-					$tpls[] = [ 'name' => $nm, 'target' => $tg, 'prompt' => $pr ];
+					$tpls[] = [
+						'name'   => $nm,
+						'target' => $tg,
+						'prompt' => $pr,
+						'valid'  => ! empty( $in['it_valid'][ $i ] ) ? 1 : 0,
+					];
 				}
 			}
 			if ( $tpls ) {
 				$out['image_templates'] = $tpls;
 			}
 		}
-		$out['prompts_validated'] = ! empty( $in['prompts_validated'] ) ? 1 : 0;
+		unset( $out['prompts_validated'] ); // replaced by per-prompt validation.
 		return $out;
 	}
 
@@ -388,56 +435,83 @@ final class DZE_Content {
 								<span class="description"><?php esc_html_e( 'meta key (if custom field)', 'dazont-ecom' ); ?></span>
 							</p>
 						</th>
-						<td><textarea id="dze-p-<?php echo esc_attr( $fid ); ?>" name="<?php echo esc_attr( $opt ); ?>[prompt_<?php echo esc_attr( $fid ); ?>]" rows="4" class="large-text code"><?php echo esc_textarea( self::prompt_for( $fid ) ); ?></textarea></td>
+						<td>
+						<textarea id="dze-p-<?php echo esc_attr( $fid ); ?>" name="<?php echo esc_attr( $opt ); ?>[prompt_<?php echo esc_attr( $fid ); ?>]" rows="4" class="large-text code"><?php echo esc_textarea( self::prompt_for( $fid ) ); ?></textarea>
+						<label class="dze-fv<?php echo self::field_validated( $fid ) ? ' is-ok' : ''; ?>">
+							<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[fv][<?php echo esc_attr( $fid ); ?>]" value="1" <?php checked( self::field_validated( $fid ) ); ?> />
+							<?php esc_html_e( 'Prompt validated — unlocks applying this field to products', 'dazont-ecom' ); ?>
+						</label>
+					</td>
 					</tr>
 				<?php endforeach; ?>
 			</table>
 
 			<h2 class="title"><?php esc_html_e( 'Images (fal.ai templates)', 'dazont-ecom' ); ?></h2>
 			<table class="form-table dze-it-table" role="presentation">
-				<tr><th><?php esc_html_e( 'Template name', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Target', 'dazont-ecom' ); ?></th><th style="width:60%;"><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></th></tr>
-				<?php foreach ( self::image_templates() as $t ) : ?>
+				<tr><th><?php esc_html_e( 'Template name', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Target', 'dazont-ecom' ); ?></th><th style="width:55%;"><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Validated', 'dazont-ecom' ); ?></th></tr>
+				<?php $dze_ti = 0; foreach ( self::image_templates() as $t ) : ?>
 					<tr>
-						<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[it_name][]" value="<?php echo esc_attr( $t['name'] ); ?>" /></td>
+						<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[it_name][<?php echo (int) $dze_ti; ?>]" value="<?php echo esc_attr( $t['name'] ); ?>" /></td>
 						<td>
-							<select name="<?php echo esc_attr( $opt ); ?>[it_target][]">
+							<select name="<?php echo esc_attr( $opt ); ?>[it_target][<?php echo (int) $dze_ti; ?>]">
 								<option value="gallery" <?php selected( 'gallery', $t['target'] ?? 'gallery' ); ?>><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option>
 								<option value="main" <?php selected( 'main', $t['target'] ?? 'gallery' ); ?>><?php esc_html_e( 'Set as main image', 'dazont-ecom' ); ?></option>
 							</select>
 						</td>
-						<td><textarea name="<?php echo esc_attr( $opt ); ?>[it_prompt][]" rows="2" class="large-text"><?php echo esc_textarea( $t['prompt'] ); ?></textarea></td>
+						<td><textarea name="<?php echo esc_attr( $opt ); ?>[it_prompt][<?php echo (int) $dze_ti; ?>]" rows="2" class="large-text"><?php echo esc_textarea( $t['prompt'] ); ?></textarea></td>
+						<td>
+							<label class="dze-fv<?php echo ! empty( $t['valid'] ) ? ' is-ok' : ''; ?>">
+								<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[it_valid][<?php echo (int) $dze_ti; ?>]" value="1" <?php checked( ! empty( $t['valid'] ) ); ?> />
+								<?php esc_html_e( 'Validated', 'dazont-ecom' ); ?>
+							</label>
+						</td>
 					</tr>
-				<?php endforeach; ?>
+				<?php $dze_ti++; endforeach; ?>
 				<tr>
-					<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[it_name][]" value="" placeholder="<?php esc_attr_e( 'New template…', 'dazont-ecom' ); ?>" /></td>
-					<td><select name="<?php echo esc_attr( $opt ); ?>[it_target][]"><option value="gallery"><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option><option value="main"><?php esc_html_e( 'Set as main image', 'dazont-ecom' ); ?></option></select></td>
-					<td><textarea name="<?php echo esc_attr( $opt ); ?>[it_prompt][]" rows="2" class="large-text"></textarea></td>
+					<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[it_name][<?php echo (int) $dze_ti; ?>]" value="" placeholder="<?php esc_attr_e( 'New template…', 'dazont-ecom' ); ?>" /></td>
+					<td><select name="<?php echo esc_attr( $opt ); ?>[it_target][<?php echo (int) $dze_ti; ?>]"><option value="gallery"><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option><option value="main"><?php esc_html_e( 'Set as main image', 'dazont-ecom' ); ?></option></select></td>
+					<td><textarea name="<?php echo esc_attr( $opt ); ?>[it_prompt][<?php echo (int) $dze_ti; ?>]" rows="2" class="large-text"></textarea></td>
+					<td></td>
 				</tr>
 			</table>
+			<p class="description"><?php esc_html_e( 'Unvalidated templates run in PREVIEW: the image is generated and shown, but not attached to the product. Validate a template to attach its results (gallery or main image).', 'dazont-ecom' ); ?></p>
 
 			<h2 class="title"><?php esc_html_e( 'Price table (cost × multiplier → regular price)', 'dazont-ecom' ); ?></h2>
-			<p class="description"><?php esc_html_e( 'The current/import price is treated as the cost (COGS, also written to WooCommerce\'s Cost of Goods field); the matching multiplier sets the regular price. Leave the last row\'s upper bound at 0 for "no limit".', 'dazont-ecom' ); ?></p>
-			<table class="form-table dze-price-table" role="presentation">
-				<tr><th><?php esc_html_e( 'Cost from', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Cost to (0 = ∞)', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Multiplier', 'dazont-ecom' ); ?></th></tr>
-				<?php foreach ( self::price_table() as $row ) : ?>
-					<tr>
-						<td><input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_min][]" value="<?php echo esc_attr( $row['min'] ); ?>" /></td>
-						<td><input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_max][]" value="<?php echo esc_attr( $row['max'] ); ?>" /></td>
-						<td><input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_mult][]" value="<?php echo esc_attr( $row['mult'] ); ?>" /></td>
-					</tr>
-				<?php endforeach; ?>
-				<tr>
-					<td><input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_min][]" value="" placeholder="<?php esc_attr_e( 'add…', 'dazont-ecom' ); ?>" /></td>
-					<td><input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_max][]" value="" /></td>
-					<td><input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_mult][]" value="" /></td>
-				</tr>
+			<p class="description"><?php esc_html_e( 'The current/import price is treated as the cost (COGS, also written to WooCommerce\'s Cost of Goods field); the matching multiplier sets the regular price. Use 0 as the upper bound of the last range for "no limit".', 'dazont-ecom' ); ?></p>
+			<table class="widefat striped dze-price-table" id="dze-pt">
+				<thead>
+					<tr><th><?php esc_html_e( 'Cost from', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Cost to (0 = ∞)', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Multiplier', 'dazont-ecom' ); ?></th><th style="width:40px;"></th></tr>
+				</thead>
+				<tbody>
+					<?php foreach ( self::price_table() as $row ) : ?>
+						<tr class="dze-pt-row">
+							<td><span class="dze-pt-cur">$</span> <input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_min][]" value="<?php echo esc_attr( $row['min'] ); ?>" /></td>
+							<td><span class="dze-pt-cur">$</span> <input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_max][]" value="<?php echo esc_attr( $row['max'] ); ?>" /></td>
+							<td><span class="dze-pt-cur">×</span> <input type="number" step="0.01" name="<?php echo esc_attr( $opt ); ?>[pt_mult][]" value="<?php echo esc_attr( $row['mult'] ); ?>" /></td>
+							<td><button type="button" class="button dze-pt-del" title="<?php esc_attr_e( 'Remove this range', 'dazont-ecom' ); ?>">&#10005;</button></td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
 			</table>
-
-			<h2 class="title"><?php esc_html_e( 'Validation', 'dazont-ecom' ); ?></h2>
-			<label>
-				<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[prompts_validated]" value="1" <?php checked( self::prompts_validated() ); ?> />
-				<?php esc_html_e( 'I have reviewed and validated these prompts on real products (preview mode). Unlocks applying content — single and bulk.', 'dazont-ecom' ); ?>
-			</label>
+			<p><button type="button" class="button dze-pt-add" id="dze-pt-add">&#43; <?php esc_html_e( 'Add price range', 'dazont-ecom' ); ?></button></p>
+			<script>
+			jQuery( function ( $ ) {
+				$( '#dze-pt-add' ).on( 'click', function () {
+					var $rows = $( '#dze-pt tbody tr.dze-pt-row' );
+					var $row  = $rows.last().clone();
+					// New range starts where the previous one ends.
+					var prevMax = $rows.last().find( 'input' ).eq( 1 ).val() || '';
+					$row.find( 'input' ).val( '' );
+					$row.find( 'input' ).eq( 0 ).val( prevMax );
+					$( '#dze-pt tbody' ).append( $row );
+				} );
+				$( document ).on( 'click', '.dze-pt-del', function () {
+					var $rows = $( '#dze-pt tbody tr.dze-pt-row' );
+					if ( $rows.length > 1 ) { $( this ).closest( 'tr' ).remove(); }
+					else { $( this ).closest( 'tr' ).find( 'input' ).val( '' ); }
+				} );
+			} );
+			</script>
 
 			<?php submit_button(); ?>
 		</form>
@@ -459,8 +533,9 @@ final class DZE_Content {
 			<p class="description"><?php esc_html_e( 'Open the AI toolbox to generate the product content and images.', 'dazont-ecom' ); ?></p>
 			<button type="button" class="button button-primary" id="dze-cx-open-text" data-tab="text"><?php esc_html_e( 'Generate text', 'dazont-ecom' ); ?></button>
 			<button type="button" class="button" id="dze-cx-open-image" data-tab="image"><?php esc_html_e( 'Generate image', 'dazont-ecom' ); ?></button>
-			<?php if ( ! self::prompts_validated() ) : ?>
-				<p class="dze-cx-note"><?php esc_html_e( 'Preview mode — validate prompts in AI Settings → Product content to enable direct apply.', 'dazont-ecom' ); ?></p>
+			<?php [ $dze_ok, $dze_tot ] = self::validated_counts(); ?>
+			<?php if ( $dze_ok < $dze_tot ) : ?>
+				<p class="dze-cx-note"><?php printf( /* translators: 1: validated count, 2: total */ esc_html__( '%1$d/%2$d prompts validated — unvalidated fields stay in preview.', 'dazont-ecom' ), (int) $dze_ok, (int) $dze_tot ); ?></p>
 			<?php endif; ?>
 		</div>
 		<?php
@@ -528,14 +603,21 @@ final class DZE_Content {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
 		$products  = $this->bulk_products();
-		$validated = self::prompts_validated();
+		[ $ok_n, $tot_n ] = self::validated_counts();
+		$templates  = self::image_templates();
+		$valid_tpls = [];
+		foreach ( $templates as $ti => $t ) {
+			if ( ! empty( $t['valid'] ) ) {
+				$valid_tpls[ $ti ] = $t; // keep ORIGINAL index — ajax_image resolves by it.
+			}
+		}
 		?>
 		<div class="wrap dze-wrap dze-admin">
 			<h1><?php esc_html_e( 'AI Content — bulk generation', 'dazont-ecom' ); ?></h1>
 
-			<?php if ( ! $validated ) : ?>
+			<?php if ( $ok_n < $tot_n ) : ?>
 				<div class="notice notice-warning"><p>
-					<?php esc_html_e( 'Prompts are not validated yet (AI Settings → Product content). Bulk generation applies content directly, so it is locked until you validate.', 'dazont-ecom' ); ?>
+					<?php printf( /* translators: 1: validated, 2: total */ esc_html__( '%1$d/%2$d prompts validated — bulk applies directly, so only validated fields can be selected below.', 'dazont-ecom' ), (int) $ok_n, (int) $tot_n ); ?>
 				</p></div>
 			<?php endif; ?>
 
@@ -547,26 +629,33 @@ final class DZE_Content {
 			<div class="dze-cb-controls">
 				<h2 style="margin-top:0;"><?php esc_html_e( 'What to generate', 'dazont-ecom' ); ?></h2>
 				<p>
-					<?php foreach ( self::fields() as $fid => $f ) : ?>
-						<label><input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" checked /> <?php echo esc_html( $f['label'] ); ?></label>
+					<?php foreach ( self::fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
+						<label title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
+							<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
+							<?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?>
+						</label>
 					<?php endforeach; ?>
 				</p>
 				<p>
 					<label><input type="checkbox" id="dze-cb-price" checked /> <strong><?php esc_html_e( 'Recalculate price', 'dazont-ecom' ); ?></strong> <span class="description"><?php esc_html_e( '(cost below × price table → regular price; cost saved as COGS)', 'dazont-ecom' ); ?></span></label>
 				</p>
 				<p>
-					<label><input type="checkbox" id="dze-cb-image" /> <strong><?php esc_html_e( 'Generate an image per product', 'dazont-ecom' ); ?></strong></label>
-					<label style="margin-left:10px;"><?php esc_html_e( 'Default template:', 'dazont-ecom' ); ?>
-						<select id="dze-cb-tpl">
-							<?php foreach ( self::image_templates() as $i => $t ) : ?>
-								<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
-							<?php endforeach; ?>
-						</select>
-					</label>
-					<span class="description"><?php esc_html_e( 'Tick/untick and change the template per product in the table — this is the judgement call.', 'dazont-ecom' ); ?></span>
+					<?php if ( $valid_tpls ) : ?>
+						<label><input type="checkbox" id="dze-cb-image" /> <strong><?php esc_html_e( 'Generate an image per product', 'dazont-ecom' ); ?></strong></label>
+						<label style="margin-left:10px;"><?php esc_html_e( 'Default template:', 'dazont-ecom' ); ?>
+							<select id="dze-cb-tpl">
+								<?php foreach ( $valid_tpls as $i => $t ) : ?>
+									<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
+								<?php endforeach; ?>
+							</select>
+						</label>
+						<span class="description"><?php esc_html_e( 'Tick/untick and change the template per product in the table — this is the judgement call.', 'dazont-ecom' ); ?></span>
+					<?php else : ?>
+						<span class="description"><?php esc_html_e( 'No validated image template yet — validate one in AI Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></span>
+					<?php endif; ?>
 				</p>
 				<p>
-					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( ! $validated ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
 				</p>
 				<div class="dze-cb-bar" style="display:none;"><div class="dze-cb-fill"></div></div>
@@ -593,7 +682,7 @@ final class DZE_Content {
 						<td>
 							<label><input type="checkbox" class="dze-cb-row-img" /> <?php esc_html_e( 'Image', 'dazont-ecom' ); ?></label>
 							<select class="dze-cb-row-tpl" style="max-width:150px;">
-								<?php foreach ( self::image_templates() as $i => $t ) : ?>
+								<?php foreach ( $valid_tpls as $i => $t ) : ?>
 									<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?></option>
 								<?php endforeach; ?>
 							</select>
@@ -625,7 +714,7 @@ final class DZE_Content {
 			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
-				'validated' => self::prompts_validated(),
+				'validated' => true, // gating is per-field via disabled checkboxes.
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::fields() ),
 				'i18n'      => [
 					'working'  => __( 'Working…', 'dazont-ecom' ),
@@ -649,17 +738,24 @@ final class DZE_Content {
 		foreach ( self::fields() as $fid => $f ) {
 			$labels[ $fid ] = $f['label'];
 		}
+		$fv = [];
+		foreach ( array_keys( self::fields() ) as $fid ) {
+			$fv[ $fid ] = self::field_validated( $fid );
+		}
 		$product = $pid ? wc_get_product( $pid ) : null;
 		wp_localize_script( 'dze-content', 'dzeContent', [
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'nonce'      => wp_create_nonce( self::NONCE ),
 			'postId'     => $pid,
-			'validated'  => self::prompts_validated(),
+			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
-			'templates'  => array_map( static fn( $t ) => [ 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery' ], self::image_templates() ),
+			'templates'  => array_map( static fn( $t ) => [ 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ) ], self::image_templates() ),
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
+				// Imported supplier attributes are already stored as standard product
+				// attributes — pre-fill them so nobody retypes anything.
+				'attr'  => $product ? self::attributes_summary( $product ) : '',
 				'price' => $product ? (string) $product->get_regular_price() : '',
 			],
 			'i18n'       => [
@@ -683,6 +779,9 @@ final class DZE_Content {
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
 				'imgWait'    => __( 'Rendering — up to a minute…', 'dazont-ecom' ),
 				'imgAdded'   => __( 'Image added.', 'dazont-ecom' ),
+				'imgPreview' => __( 'Preview only — template not validated, nothing attached. Validate it in AI Settings to attach results.', 'dazont-ecom' ),
+				'notValid'   => __( 'not validated', 'dazont-ecom' ),
+				'fieldLocked'=> __( 'This prompt is not validated yet (AI Settings → Product content).', 'dazont-ecom' ),
 				'cost'       => __( 'Cost (COGS)', 'dazont-ecom' ),
 				'recalc'     => __( 'Recalculate & apply', 'dazont-ecom' ),
 				'newPrice'   => __( 'New regular price', 'dazont-ecom' ),
@@ -772,11 +871,11 @@ final class DZE_Content {
 
 	public function ajax_apply(): void {
 		$this->guard();
-		if ( ! self::prompts_validated() ) {
-			wp_send_json_error( [ 'message' => __( 'Validate the prompts in AI Settings first.', 'dazont-ecom' ) ] );
-		}
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$field  = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+		if ( '' !== $field && ! self::field_validated( $field ) ) {
+			wp_send_json_error( [ 'message' => __( 'This prompt is not validated yet — tick its "Prompt validated" box in AI Settings → Product content.', 'dazont-ecom' ) ] );
+		}
 		$value  = isset( $_POST['value'] ) ? wp_kses_post( wp_unslash( $_POST['value'] ) ) : '';
 		$fields = self::fields();
 		if ( ! $pid || ! isset( $fields[ $field ] ) ) {
@@ -907,16 +1006,15 @@ final class DZE_Content {
 		}
 		$mult    = self::mult_for_cost( $cost );
 		$regular = round( $cost * $mult, (int) ( function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2 ) );
-		if ( self::prompts_validated() ) {
-			$product = wc_get_product( $pid );
-			if ( $product instanceof WC_Product ) {
-				update_post_meta( $pid, '_dze_cogs', $cost );
-				update_post_meta( $pid, '_cogs_value', $cost ); // WooCommerce native Cost of Goods.
-				$product->set_regular_price( (string) $regular );
-				$product->save();
-			}
+		// Deterministic math on an explicit action — no prompt involved, applies directly.
+		$product = wc_get_product( $pid );
+		if ( $product instanceof WC_Product ) {
+			update_post_meta( $pid, '_dze_cogs', $cost );
+			update_post_meta( $pid, '_cogs_value', $cost ); // WooCommerce native Cost of Goods.
+			$product->set_regular_price( (string) $regular );
+			$product->save();
 		}
-		wp_send_json_success( [ 'mult' => $mult, 'regular' => $regular, 'applied' => self::prompts_validated() ] );
+		wp_send_json_success( [ 'mult' => $mult, 'regular' => $regular, 'applied' => true ] );
 	}
 
 	public function ajax_image(): void {
@@ -935,8 +1033,7 @@ final class DZE_Content {
 			wp_send_json_error( [ 'message' => __( 'No image template configured.', 'dazont-ecom' ) ] );
 		}
 		$thumb_id = get_post_thumbnail_id( $pid );
-		$src      = $thumb_id ? wp_get_attachment_image_url( $thumb_id, 'large' ) : '';
-		if ( ! $src ) {
+		if ( ! $thumb_id ) {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
 		$title  = get_the_title( $pid );
@@ -948,8 +1045,18 @@ final class DZE_Content {
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+		$validated = self::template_validated( $idx );
 		try {
-			$image_url = $this->fal_generate( $prompt, [ $src ] );
+			// The source is sent as a base64 data URI — fal cannot always fetch the
+			// site's own URLs (staging auth, hotlink protection), which surfaced as
+			// HTTP 422. Same approach as the validated Apps Script workflow.
+			$image_url = $this->fal_generate( $prompt, [ $this->fal_source_data_uri( (int) $thumb_id ) ] );
+
+			if ( ! $validated ) {
+				// PREVIEW: show the result, attach nothing.
+				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
+			}
+
 			require_once ABSPATH . 'wp-admin/includes/file.php';
 			require_once ABSPATH . 'wp-admin/includes/media.php';
 			require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -975,6 +1082,43 @@ final class DZE_Content {
 		] );
 	}
 
+	/**
+	 * Reads an attachment (preferring the 'large' size to bound the payload) and
+	 * returns it as a base64 data URI, which fal decodes directly — removing every
+	 * "fal cannot reach the source URL" failure (private staging, hotlink rules).
+	 */
+	private function fal_source_data_uri( int $attachment_id ): string {
+		$path = '';
+		$size = image_get_intermediate_size( $attachment_id, 'large' );
+		if ( is_array( $size ) && ! empty( $size['path'] ) ) {
+			$uploads = wp_get_upload_dir();
+			$try     = trailingslashit( (string) $uploads['basedir'] ) . $size['path'];
+			if ( file_exists( $try ) ) {
+				$path = $try;
+			}
+		}
+		if ( '' === $path ) {
+			$try = (string) get_attached_file( $attachment_id );
+			if ( $try && file_exists( $try ) ) {
+				$path = $try;
+			}
+		}
+		$bytes = '' !== $path ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
+		if ( false === $bytes || '' === $bytes ) {
+			// Last resort: fetch our own URL server-side (auth cookies not needed locally).
+			$url  = (string) wp_get_attachment_image_url( $attachment_id, 'large' );
+			$resp = $url ? wp_remote_get( $url, [ 'timeout' => 30 ] ) : null;
+			if ( $resp && ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
+				$bytes = wp_remote_retrieve_body( $resp );
+			}
+		}
+		if ( false === $bytes || '' === $bytes ) {
+			throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
+		}
+		$mime = (string) ( get_post_mime_type( $attachment_id ) ?: 'image/jpeg' );
+		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
+	}
+
 	private function fal_generate( string $prompt, array $image_urls ): string {
 		$resp = wp_remote_post( self::FAL_ENDPOINT, [
 			'timeout' => 120,
@@ -993,8 +1137,23 @@ final class DZE_Content {
 		$code = wp_remote_retrieve_response_code( $resp );
 		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
 		if ( $code < 200 || $code >= 300 ) {
-			$msg = is_array( $body ) && isset( $body['detail'] ) && is_string( $body['detail'] ) ? $body['detail'] : ( 'HTTP ' . $code );
-			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), $msg ) );
+			$msg = 'HTTP ' . $code;
+			if ( is_array( $body ) && isset( $body['detail'] ) ) {
+				if ( is_string( $body['detail'] ) ) {
+					$msg = $body['detail'];
+				} elseif ( is_array( $body['detail'] ) ) {
+					$parts = [];
+					foreach ( $body['detail'] as $d ) {
+						if ( is_array( $d ) && ! empty( $d['msg'] ) ) {
+							$parts[] = (string) $d['msg'] . ( ! empty( $d['loc'] ) ? ' (' . implode( '.', array_map( 'strval', (array) $d['loc'] ) ) . ')' : '' );
+						}
+					}
+					if ( $parts ) {
+						$msg = 'HTTP ' . $code . ' — ' . implode( '; ', $parts );
+					}
+				}
+			}
+			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
 		$url = $body['images'][0]['url'] ?? '';
 		if ( ! $url ) {
