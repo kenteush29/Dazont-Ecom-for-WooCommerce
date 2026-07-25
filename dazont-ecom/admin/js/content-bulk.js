@@ -63,21 +63,23 @@
 		$('#dze-cb-progress').text(sprintf(i18n.progress, doneCount, total, label || ''));
 	}
 
-	function textTask(id, fid, $row) {
-		return $.post(cfg.ajaxUrl, { action: 'dze_content_text', nonce: cfg.nonce, post: id, field: fid })
+	// ONE call per product: every selected field is generated in a single model
+	// request and applied server-side — the big speed win over field-by-field.
+	function textAllTask(id, fids, $row) {
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, apply: 1, fields: fids })
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
-				return $.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: id, field: fid, value: res.data.text });
-			})
-			.then(function (res) {
-				if (!res || !res.success) { throw (res && res.data && res.data.message) || i18n.error; }
-				okCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✓');
+				var r = res.data.results || {};
+				fids.forEach(function (fid) {
+					if (r[fid] === 'applied') { okCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✓'); }
+					else { koCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✗', true); }
+				});
 			})
 			.catch(function (msg) {
-				koCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✗', true);
-				if (window.console) { console.warn('DZE bulk', fid, msg); }
+				koCount++; status($row, 'text ✗', true);
+				if (window.console) { console.warn('DZE bulk', msg); }
 			})
-			.always(function () { progress(cfg.fields[fid] || fid); });
+			.always(function () { progress('text'); });
 	}
 
 	function priceTask(id, $row) {
@@ -119,7 +121,7 @@
 		$('.dze-cb-row').each(function () {
 			var $row = $(this), id = $row.data('id');
 			$row.find('.dze-cb-status').empty();
-			fields.forEach(function (fid) { tasks.push(function () { return textTask(id, fid, $row); }); });
+			if (fields.length) { tasks.push(function () { return textAllTask(id, fields, $row); }); }
 			if (doPrice) { tasks.push(function () { return priceTask(id, $row); }); }
 			if ($row.find('.dze-cb-row-img').is(':checked')) { tasks.push(function () { return imageTask(id, $row); }); }
 		});

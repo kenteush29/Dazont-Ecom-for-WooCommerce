@@ -863,7 +863,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * Reusable text completion for other modules (content generation, …). Shares
 	 * the API key, budget guard, model list and usage tracking. Throws on error.
 	 */
-	public static function complete( string $system, string $user, string $model = '', int $max_tokens = 2000 ): string {
+	public static function complete( string $system, string $user, string $model = '', int $max_tokens = 2000, int $timeout = 90 ): string {
 		if ( DZE_Ai_Usage::over_budget() ) {
 			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
 		}
@@ -873,7 +873,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 		$model    = '' !== $model ? $model : self::chosen_model();
 		$response = wp_remote_post( self::API_URL, [
-			'timeout' => 90,
+			'timeout' => max( 30, $timeout ),
 			'headers' => [
 				'x-api-key'         => $key,
 				'anthropic-version' => self::API_VERSION,

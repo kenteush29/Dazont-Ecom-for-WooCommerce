@@ -123,13 +123,30 @@
 
 	$(document).on('click', '.dze-cx-gen', function () { genField($(this).closest('.dze-cx-field')); });
 
+	// One single API call generates every field at once (each keeps its own prompt).
 	$(document).on('click', '#dze-cx-genall', function () {
 		var $btn = $(this).prop('disabled', true);
-		var cards = $('.dze-cx-field').toArray();
-		(function next(i) {
-			if (i >= cards.length) { $btn.prop('disabled', false); return; }
-			genField($(cards[i])).always(function () { next(i + 1); });
-		})(0);
+		var pd = productData();
+		$('.dze-cx-field .dze-cx-out').val(i18n.generating);
+		$.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: cfg.postId, title: pd.title, desc: pd.desc, attr: pd.attr })
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res.success) {
+					window.alert((res.data && res.data.message) || i18n.error);
+					$('.dze-cx-field .dze-cx-out').val('');
+					return;
+				}
+				var texts = res.data.texts || {};
+				$('.dze-cx-field').each(function () {
+					var fid = $(this).data('field');
+					$(this).find('.dze-cx-out').val(texts[fid] || '');
+				});
+			})
+			.fail(function () {
+				$btn.prop('disabled', false);
+				window.alert(i18n.error);
+				$('.dze-cx-field .dze-cx-out').val('');
+			});
 	});
 
 	$(document).on('click', '.dze-cx-apply', function () {

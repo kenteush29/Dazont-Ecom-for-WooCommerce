@@ -56,6 +56,7 @@ final class DZE_Content {
 		add_filter( 'handle_bulk_actions-edit-product', [ $this, 'handle_bulk_action' ], 10, 3 );
 
 		add_action( 'wp_ajax_dze_content_text',  [ $this, 'ajax_text' ] );
+		add_action( 'wp_ajax_dze_content_text_all', [ $this, 'ajax_text_all' ] );
 		add_action( 'wp_ajax_dze_content_apply', [ $this, 'ajax_apply' ] );
 		add_action( 'wp_ajax_dze_content_image', [ $this, 'ajax_image' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
@@ -65,61 +66,220 @@ final class DZE_Content {
 	// Field / template / price-table definitions
 	// =========================================================================
 
-	/** @return array<string,array{label:string,dest:string,tokens:int,prompt:string}> */
+	/**
+	 * Text fields. The prompts for description/short/seo/blocs/attributes are the
+	 * shop owner's own proven scripts, KEPT VERBATIM from the validated
+	 * spreadsheet (GPT Instructions sheet) — including wording quirks. Only
+	 * minimal framing lines, marked [Dazont], are added where the sheet relied on
+	 * spreadsheet context. 'enabled' is the default activation state (title and
+	 * SEO title ship disabled — they are handled manually for now).
+	 *
+	 * @return array<string,array{label:string,dest:string,tokens:int,enabled:bool,prompt:string}>
+	 */
 	public static function fields(): array {
+		$p_description = <<<'EOT'
+[Dazont] Rédige d'abord la description (instructions A), puis, à la suite, la liste technique (instructions B). Sortie finale : le <h2>, le paragraphe, puis la liste <ul> — rien d'autre.
+
+=== INSTRUCTIONS A — Description ===
+Interlocuteur : visiteur de la fiche produit
+Objectif : Rédiger une description produit
+
+Format : 
+- Tu intégrera les balises H dans ton texte pour faciliter l'import sur mon shop, depuis un csv
+- Exemple : 
+<h2>sous-titre</h2>
+description en dessous
+
+Un bon sous titre h2 :
+- Met en avant la caractéristique principale du produit
+- S'appuye sur le titre produit optimisé pour être pertinant
+- Ne pas utiliser l'expression "ultimate versatility" partout. Soit créatif.
+Quelques examples à partir desquels t'inspirer: 
+- 6b51 knee pads : <h2>Ratnik design knee pads perfect for an airsoft kit</h2>
+- 50L molle tactical backpack: <h2>Sufficient capacity for more than 48 hours in the field</h2>
+- Y strap military backpack 40L: <h2>Easy carrying of bulky items with the Y strap system</h2>
+
+La contenu :
+- Langue : anglais
+- Ton : informatif et expert
+- Adapter la description en fonction du produit, et des informations fournies. Cela signifie, adapter son style en fonction du client type (au final). Quand utiliser, la saison, pour quelle activité, la météo, sur quel terrain, la gamme de couleur, etc ?...
+- Ne pas : citer les tailles produit, citer le fournisseur si il n'est pas connu et n'apporte pas d'autorité à notre site web (nike, adidas ok pour citation... Par exemple, art of rajasthan n'est pas connu donc ne pas le citer)
+- Ecrire comme un humain: intégrer des biais cognitifs et émotions, ne jamais mettre de footprint IA de type pattern répétitif
+- Longueur de description environ 50 mots
+- N'inclus rien d'autre que la description dans ta réponse.
+
+=== INSTRUCTIONS B — Liste technique ===
+Interlocuteur : visiteur de fiche produit
+Objectif : Rédiger une liste des caractéristiques du produit
+Le contenu :
+- Langue : anglais
+- Ton : informatif
+- Abordes les caractéristiques principales du produit. Mets en avant ses caractéristiques et spécificités, en restant très succins. Pas besoin de formuler des phrases entière, juste une caractéristique technique ou un bénéfice produit
+- Ne pas : parler des tailles produits (souvent plusieurs sont disponibles), ne pas citer la marque, ne pas citer aucune information concernant le dropshipping ou wholesale (destinées aux revendeurs), citer une provenance de chine, citer des informations "délirantes" typiques d'aliexpress (noms de couleur erronés, tailles fausses, caractéristiques fakes ou incensées...)
+- Mettre l'accent sur les spécificités du produits, c'est grâce à ça qu'il se différencie des autres.
+- Si possible, intégrer des données chiffrées (par exemple, matériaux) pour renforcer la qualité de la description. En fonction des infos fournisseur et/ou des pratiques du marchés,
+Format : 
+- Tu intégrera les balises html dans ton texte pour faciliter l'import sur mon shop, depuis un csv. Ta réponse ne doit pas être au format html, il faut juste intégrer les balises i, ul.. Nécessairent pour une liste à puces.
+- N'inclus rien d'autre qu'une liste à puce dans ta réponse. Pas même le nom du produit.
+- Pas d'italique
+- Tu peux mettre en gras avec la balise <strong> les éléments les plus importants. Sans en abuser.
+- Pas de numérotation
+- Ne jamais mettre de footprint IA de type pattern répétitif
+- Tu es libre de modifier, d'omettre, et de créer des nouvelles caractéristiques non utilisées par le fournisseurs (qualité des descriptions fournisseurs pas toujours bonne), dans le but d'améliorer la qualité de la description
+Exemple
+<ul>
+         <li>point x</li>
+         <li>point y</li>
+</ul>
+EOT;
+
+		$p_short = <<<'EOT'
+Objectif : Rédiger une description courte pour fiche produit, d'environ 20 mots.
+Interlocuteur : lecteur de la page produit.
+Langue : anglais
+Conditions concernant les descriptions :
+- Te seront fournis le maximum d'information pour une meilleure compréhension du sujet.
+- Echelle d'originalité sur 1 à 10 : 8
+- N'inclus rien d'autre que la description dans ta réponse.
+- Mets l'accent sur la différence du produit parmis les autres dans sa catégorie.
+- Les formulations marketing stupides ne nous intéressent pas: parles le language du client et présentes les particularités du produit en donnant des exemples d'utilisation ou autre formulaison attraillantes, qui parlent aux prospects de cette niche.
+EOT;
+
+		$p_seo_desc = <<<'EOT'
+Objectif : Rédiger une meta description pour la serp google de 155 caractères maximum.
+Interlocuteur : personne ayant fait une recherche google
+Langue : anglais
+Conditions concernant les descriptions :
+- Te seront fournis le maximum d'information pour une meilleure compréhension du sujet.
+- Echelle d'originalité sur 1 à 10 : 7
+- N'inclus rien d'autre que la description dans ta réponse.
+- Utilises une construction de phrase originale et captivante pour éviter les doublons (ce script est utilisé sur d'autres produits individuellement).
+- Tu peux utiliser des formules prouvées fonctionelles pour t'efforcer d'augmenter le CTR.
+EOT;
+
+		$p_branding = <<<'EOT'
+Interlocuteur : visiteur de fiche produit
+Objectif : Rédiger une description produit supplémentaire.
+Le contenu :
+- Langue : anglais
+- Ton : informatif
+La description :
+- Environ 30-40 mots
+- Ne pas répéter le titre du produit. Epargnes nous ton spam.
+- Inclus dans la description le titre h2 fournis
+- Ton texte doit développer à propos du titre h2 fournis
+Format : 
+- Tu intégrera les balises H dans ton texte pour faciliter l'import sur mon shop, depuis un csv
+- Exemple : 
+<h2>sous-titre</h2>
+description que tu rédiges
+- N'inclus rien d'autre que la description dans ta réponse.
+- Ne répètes pas le contenu précédement rédigé.
+
+[Dazont] Si aucun titre h2 n'est fourni, invente un sous-titre h2 pertinent pour ce produit.
+EOT;
+
+		$p_attributes = <<<'EOT'
+[Dazont] Sortie : une ligne par attribut au format Nom: valeur|valeur (ex. Color: Black|Tan). Applique les trois scripts ci-dessous.
+
+=== Attributs ===
+Objectif : extraire un/des attributs produits de la description du fournisseur pour un produit produit woocommerce clean.
+Spécifications:
+- N'inclus rien d'autre que la description dans ta réponse.
+- Nettoyer les attributs fournisseurs si nécessaire: ils doivent correspondre avec les normes de la niche sur laquelle tu travailles.
+- Séparer les attributs avec le symbole "|" sans espaces.
+- Si tu n'est pas capable de récupérer l'attribut demandé, renvoies une réponse vide.
+- Les attributs doivent avoir leur première lettre capitale, pas les autres.
+- Exemple: cotton|jute|metal|etc...
+Concernant les attributs:
+- L'origine China doit être "PRC"
+- Le sexe doit être male|female
+- L'attribut "Specifications" concerne certaines normes ou standards de produits particuliers.
+
+=== Couleurs ===
+Objectif : Extraire l'attribut couleur du produit.
+Langue: Anglais
+
+Spécifications :
+
+- N'inclure que le résultat dans la réponse.
+- Nettoyer l'attribut si nécessaire pour qu'il corresponde aux normes de la niche.
+- Tu dois renvoyer uniquement les couleurs utilisés dans le produit au format (exemple) :  Beige|Gray|Black
+- Séparer les couleurs par le symbole "|" sans espaces.
+- Si aucune couleur n'est spécifié, utiliser les couleurs standards les plus répandus dans cette niche.
+- Si tu manque trop d'information sur le produit et sa niche, laisser renvoyer une réponse vide.
+- Les attributs doivent avoir leur première lettre capitale, pas les autres.
+
+=== Matières ===
+Objectif : Extraire l'attribut matière du produit
+Langue: Anglais
+Spécifications :
+
+- N'inclure que le résultat dans la réponse.
+- Nettoyer l'attribut si nécessaire pour qu'il corresponde aux normes de la niche.
+- Tu dois renvoyer uniquement les matériaux utilisés dans le produit au format (exemple) :  Cotton|Jute|Metal
+- Séparer les matériaux par le symbole "|" sans espaces.
+- Si aucun matériau n'est spécifié, utiliser les matériaux les plus répandus dans cette niche.
+- Si tu manque trop d'information sur le produit et sa niche, laisser renvoyer une réponse vide.
+- Les attributs doivent avoir leur première lettre capitale, pas les autres.
+EOT;
+
 		return [
 			'title' => [
-				'label'  => __( 'Title', 'dazont-ecom' ),
-				'dest'   => 'post_title',
-				'tokens' => 80,
-				'prompt' => "Write an SEO-optimised product title (max ~70 characters). Natural, human, no ALL CAPS, no supplier gibberish. Output only the title.",
+				'label'   => __( 'Title', 'dazont-ecom' ),
+				'dest'    => 'post_title',
+				'tokens'  => 80,
+				'enabled' => false, // titles are crafted manually for now.
+				'prompt'  => "Write an SEO-optimised product title (max ~70 characters). Natural, human, no ALL CAPS, no supplier gibberish. Output only the title.",
 			],
 			'description' => [
-				'label'  => __( 'Description (+ technical bullets)', 'dazont-ecom' ),
-				'dest'   => 'post_content',
-				'tokens' => 700,
-				'prompt' => "Write the product description for the storefront, English, expert & human tone.\n"
-					. "- Open with an <h2> subtitle highlighting the main characteristic (be creative).\n"
-					. "- ~50 words adapted to the product (use, season, activity, terrain, colours…).\n"
-					. "- Then a <ul><li>…</li></ul> technical bullet list of key features/benefits — concise, figures where possible, <strong> on a few key items.\n"
-					. "- Do NOT mention sizes, unknown suppliers, dropshipping/wholesale, Chinese origin, or absurd specs.\n"
-					. "- No repetitive AI patterns. Output only HTML (h2 + paragraph + ul), nothing else.",
+				'label'   => __( 'Description (+ technical bullets)', 'dazont-ecom' ),
+				'dest'    => 'post_content',
+				'tokens'  => 900,
+				'enabled' => true,
+				'prompt'  => $p_description,
 			],
 			'short' => [
-				'label'  => __( 'Short description', 'dazont-ecom' ),
-				'dest'   => 'post_excerpt',
-				'tokens' => 200,
-				'prompt' => "Write a ~20-word short description, English, originality 8/10. Emphasise what makes this product different; concrete uses. Output only the text.",
+				'label'   => __( 'Short description', 'dazont-ecom' ),
+				'dest'    => 'post_excerpt',
+				'tokens'  => 200,
+				'enabled' => true,
+				'prompt'  => $p_short,
 			],
 			'attributes' => [
-				'label'  => __( 'Attributes', 'dazont-ecom' ),
-				'dest'   => 'attributes',
-				'tokens' => 200,
-				'prompt' => "Extract clean WooCommerce attributes, one per line, as \"Name: value|value\" (e.g. Color: Black|Tan, Materials: Nylon|Polyester, Gender: male, Origin: PRC for China, Specifications: …). Capitalise first letters, no spaces around \"|\". Skip anything you cannot infer. Output only the lines.",
+				'label'   => __( 'Attributes', 'dazont-ecom' ),
+				'dest'    => 'attributes',
+				'tokens'  => 300,
+				'enabled' => true,
+				'prompt'  => $p_attributes,
 			],
 			'seo_title' => [
-				'label'  => __( 'SEO title', 'dazont-ecom' ),
-				'dest'   => 'seo_title',
-				'tokens' => 60,
-				'prompt' => "Write an SEO meta title (max ~60 characters), compelling for Google SERP, English. Output only the title.",
+				'label'   => __( 'SEO title', 'dazont-ecom' ),
+				'dest'    => 'seo_title',
+				'tokens'  => 60,
+				'enabled' => false, // handled manually for now.
+				'prompt'  => "Write an SEO meta title (max ~60 characters), compelling for Google SERP, English. Output only the title.",
 			],
 			'seo_description' => [
-				'label'  => __( 'SEO description', 'dazont-ecom' ),
-				'dest'   => 'seo_desc',
-				'tokens' => 120,
-				'prompt' => "Write a Google SERP meta description, 155 characters maximum, English, original structure, high-CTR. Output only the description.",
+				'label'   => __( 'SEO description', 'dazont-ecom' ),
+				'dest'    => 'seo_desc',
+				'tokens'  => 160,
+				'enabled' => true,
+				'prompt'  => $p_seo_desc,
 			],
 			'bloc1' => [
-				'label'  => __( 'Custom bloc text 1', 'dazont-ecom' ),
-				'dest'   => 'meta',
-				'tokens' => 200,
-				'prompt' => "Write an extra branding paragraph (~30-40 words), English. Include a fitting <h2> subtitle then develop it. Do not repeat the title. Output <h2>…</h2> then the paragraph only.",
+				'label'   => __( 'Custom bloc text 1', 'dazont-ecom' ),
+				'dest'    => 'meta',
+				'tokens'  => 250,
+				'enabled' => true,
+				'prompt'  => $p_branding,
 			],
 			'bloc2' => [
-				'label'  => __( 'Custom bloc text 2', 'dazont-ecom' ),
-				'dest'   => 'meta',
-				'tokens' => 200,
-				'prompt' => "Write a second branding paragraph (~30-40 words), English, different angle from bloc 1 (reassurance, use-case, quality). Include a <h2> subtitle. Output <h2>…</h2> then the paragraph only.",
+				'label'   => __( 'Custom bloc text 2', 'dazont-ecom' ),
+				'dest'    => 'meta',
+				'tokens'  => 250,
+				'enabled' => true,
+				'prompt'  => $p_branding . "\n\n[Dazont] Ceci est le SECOND bloc branding : angle différent du premier (réassurance, usage, qualité) et sous-titre h2 différent.",
 			],
 		];
 	}
@@ -197,6 +357,26 @@ final class DZE_Content {
 		return ! empty( $s['prompts_validated'] ); // legacy fallback.
 	}
 
+	/** Whether a field is active (settings override, else the field's shipped default). */
+	public static function field_enabled( string $field ): bool {
+		$s = self::get_settings();
+		if ( isset( $s['fe'] ) && is_array( $s['fe'] ) ) {
+			return ! empty( $s['fe'][ $field ] );
+		}
+		return ! empty( self::fields()[ $field ]['enabled'] );
+	}
+
+	/** Only the active fields, in declaration order. */
+	public static function enabled_fields(): array {
+		$out = [];
+		foreach ( self::fields() as $fid => $f ) {
+			if ( self::field_enabled( $fid ) ) {
+				$out[ $fid ] = $f;
+			}
+		}
+		return $out;
+	}
+
 	/** Per image-template validation (index into image_templates()). */
 	public static function template_validated( int $idx ): bool {
 		$tpls = self::image_templates();
@@ -209,16 +389,16 @@ final class DZE_Content {
 		return ! empty( self::get_settings()['prompts_validated'] ); // legacy fallback.
 	}
 
-	/** [ validated, total ] across text prompts, for the side-box note. */
+	/** [ validated, total ] across ENABLED text prompts, for the side-box note. */
 	public static function validated_counts(): array {
-		$total = count( self::fields() );
-		$ok    = 0;
-		foreach ( array_keys( self::fields() ) as $fid ) {
+		$fields = self::enabled_fields();
+		$ok     = 0;
+		foreach ( array_keys( $fields ) as $fid ) {
 			if ( self::field_validated( $fid ) ) {
 				$ok++;
 			}
 		}
-		return [ $ok, $total ];
+		return [ $ok, count( $fields ) ];
 	}
 
 	public static function prompt_for( string $field ): string {
@@ -308,6 +488,7 @@ final class DZE_Content {
 		}
 		$dests = array_keys( self::dest_options() );
 		$fv    = [];
+		$fe    = [];
 		foreach ( array_keys( self::fields() ) as $fid ) {
 			if ( isset( $in[ 'prompt_' . $fid ] ) ) {
 				$out[ 'prompt_' . $fid ] = sanitize_textarea_field( (string) $in[ 'prompt_' . $fid ] );
@@ -319,8 +500,10 @@ final class DZE_Content {
 				$out[ 'metakey_' . $fid ] = sanitize_key( (string) $in[ 'metakey_' . $fid ] );
 			}
 			$fv[ $fid ] = ! empty( $in['fv'][ $fid ] ) ? 1 : 0;
+			$fe[ $fid ] = ! empty( $in['fe'][ $fid ] ) ? 1 : 0;
 		}
 		$out['fv'] = $fv; // per-prompt validation (individual checkboxes).
+		$out['fe'] = $fe; // per-field activation.
 		// Price table.
 		if ( isset( $in['pt_min'] ) && is_array( $in['pt_min'] ) ) {
 			$rows = [];
@@ -423,6 +606,12 @@ final class DZE_Content {
 					<tr>
 						<th scope="row">
 							<label for="dze-p-<?php echo esc_attr( $fid ); ?>"><?php echo esc_html( $f['label'] ); ?></label>
+							<p style="margin:6px 0 0;">
+								<label class="dze-fv<?php echo self::field_enabled( $fid ) ? ' is-ok' : ''; ?>">
+									<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[fe][<?php echo esc_attr( $fid ); ?>]" value="1" <?php checked( self::field_enabled( $fid ) ); ?> />
+									<?php esc_html_e( 'Field enabled', 'dazont-ecom' ); ?>
+								</label>
+							</p>
 							<p style="margin:8px 0 0;">
 								<select name="<?php echo esc_attr( $opt ); ?>[dest_<?php echo esc_attr( $fid ); ?>]" style="max-width:220px;">
 									<?php foreach ( $dests as $dk => $dl ) : ?>
@@ -629,7 +818,7 @@ final class DZE_Content {
 			<div class="dze-cb-controls">
 				<h2 style="margin-top:0;"><?php esc_html_e( 'What to generate', 'dazont-ecom' ); ?></h2>
 				<p>
-					<?php foreach ( self::fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
+					<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
 						<label title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
 							<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
 							<?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?>
@@ -715,7 +904,7 @@ final class DZE_Content {
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
 				'validated' => true, // gating is per-field via disabled checkboxes.
-				'fields'    => array_map( static fn( $f ) => $f['label'], self::fields() ),
+				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
 				'i18n'      => [
 					'working'  => __( 'Working…', 'dazont-ecom' ),
 					'done'     => __( 'Done', 'dazont-ecom' ),
@@ -735,13 +924,12 @@ final class DZE_Content {
 		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery' ], DZE_VERSION, true );
 
 		$labels = [];
-		foreach ( self::fields() as $fid => $f ) {
+		$fv     = [];
+		foreach ( self::enabled_fields() as $fid => $f ) {
 			$labels[ $fid ] = $f['label'];
+			$fv[ $fid ]     = self::field_validated( $fid );
 		}
-		$fv = [];
-		foreach ( array_keys( self::fields() ) as $fid ) {
-			$fv[ $fid ] = self::field_validated( $fid );
-		}
+
 		$product = $pid ? wc_get_product( $pid ) : null;
 		wp_localize_script( 'dze-content', 'dzeContent', [
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
@@ -832,8 +1020,8 @@ final class DZE_Content {
 		$this->guard();
 		$field  = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
 		$fields = self::fields();
-		if ( ! isset( $fields[ $field ] ) ) {
-			wp_send_json_error( [ 'message' => __( 'Unknown field.', 'dazont-ecom' ) ] );
+		if ( ! isset( $fields[ $field ] ) || ! self::field_enabled( $field ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown or disabled field.', 'dazont-ecom' ) ] );
 		}
 		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
@@ -867,6 +1055,112 @@ final class DZE_Content {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		wp_send_json_success( [ 'field' => $field, 'text' => $text ] );
+	}
+
+	/** Complete product data pulled server-side (bulk and generate-all). */
+	private function product_context( int $pid ): array {
+		$product = $pid ? wc_get_product( $pid ) : null;
+		if ( ! $product instanceof WC_Product ) {
+			return [ '', '', '' ];
+		}
+		$title = $product->get_name();
+		$desc  = mb_substr( wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ), 0, 2500 );
+		$attr  = self::attributes_summary( $product );
+		$price = (string) $product->get_regular_price();
+		if ( '' !== $price ) {
+			$attr .= ( $attr ? "\n" : '' ) . 'Price: ' . $price;
+		}
+		return [ $title, $desc, $attr ];
+	}
+
+	/**
+	 * Generates ALL requested fields in ONE model call (each field keeps its own
+	 * verbatim prompt, executed independently inside the call) — this is what
+	 * makes per-product generation fast: one round-trip instead of one per field.
+	 * With apply=1 (bulk) every validated field is written to its destination
+	 * server-side too, so a whole product needs a single HTTP request.
+	 */
+	public function ajax_text_all(): void {
+		$this->guard();
+		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$apply = ! empty( $_POST['apply'] );
+		$req   = isset( $_POST['fields'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['fields'] ) ) : [];
+
+		$targets = [];
+		foreach ( self::enabled_fields() as $fid => $f ) {
+			if ( $req && ! in_array( $fid, $req, true ) ) {
+				continue;
+			}
+			if ( $apply && ! self::field_validated( $fid ) ) {
+				continue; // bulk applies directly: only validated prompts.
+			}
+			$targets[ $fid ] = $f;
+		}
+		if ( empty( $targets ) ) {
+			wp_send_json_error( [ 'message' => __( 'No enabled field to generate.', 'dazont-ecom' ) ] );
+		}
+
+		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
+		$desc  = isset( $_POST['desc'] ) ? sanitize_textarea_field( wp_unslash( $_POST['desc'] ) ) : '';
+		$attr  = isset( $_POST['attr'] ) ? sanitize_textarea_field( wp_unslash( $_POST['attr'] ) ) : '';
+		if ( '' === $title && '' === $desc && '' === $attr ) {
+			[ $title, $desc, $attr ] = $this->product_context( $pid );
+		}
+		if ( '' === $title && '' === $desc && '' === $attr ) {
+			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
+		}
+
+		$system = 'You are an expert e-commerce copywriter. ' . self::store_context();
+		$user   = "--- PRODUCT DATA ---\n";
+		if ( $title ) { $user .= "Title: {$title}\n"; }
+		if ( $desc )  { $user .= "Description: {$desc}\n"; }
+		if ( $attr )  { $user .= "Attributes / supplier data: {$attr}\n"; }
+		$user .= "\nGenerate the " . count( $targets ) . " fields below. Each field has its OWN instructions, coming from separate proven scripts — follow each set EXACTLY and independently, as if it were the only task.\n";
+		$user .= "OUTPUT FORMAT (strict): for each field output a line exactly ===FIELD:<field_id>=== followed by that field's content, then after the last field a line ===END===. Nothing else.\n\n";
+		$tokens = 300;
+		foreach ( $targets as $fid => $f ) {
+			$user   .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . self::prompt_for( $fid ) . "\n\n";
+			$tokens += (int) ( $f['tokens'] ?? 300 );
+		}
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		try {
+			$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+
+		$texts = [];
+		if ( preg_match_all( '/===FIELD:([a-z0-9_]+)===\s*(.*?)(?=\s*===FIELD:|\s*===END===)/s', $text . "\n===END===", $m, PREG_SET_ORDER ) ) {
+			foreach ( $m as $hit ) {
+				if ( ! isset( $texts[ $hit[1] ] ) ) {
+					$texts[ $hit[1] ] = trim( $hit[2] );
+				}
+			}
+		}
+		if ( empty( $texts ) ) {
+			wp_send_json_error( [ 'message' => __( 'The AI returned an unreadable multi-field response. Try again.', 'dazont-ecom' ) ] );
+		}
+
+		if ( $apply ) {
+			$results = [];
+			foreach ( $targets as $fid => $f ) {
+				if ( empty( $texts[ $fid ] ) ) {
+					$results[ $fid ] = 'missing';
+					continue;
+				}
+				try {
+					$this->apply_value( $pid, $fid, wp_kses_post( $texts[ $fid ] ) );
+					$results[ $fid ] = 'applied';
+				} catch ( \Throwable $e ) {
+					$results[ $fid ] = 'error';
+				}
+			}
+			wp_send_json_success( [ 'results' => $results, 'texts' => $texts ] );
+		}
+		wp_send_json_success( [ 'texts' => $texts ] );
 	}
 
 	public function ajax_apply(): void {
