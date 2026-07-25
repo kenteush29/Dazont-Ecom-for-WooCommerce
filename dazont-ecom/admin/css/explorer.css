@@ -101,6 +101,7 @@ body.dze-x-ov-open { overflow: hidden; }
 .dze-x-ai-bar-btns { margin-left: auto; display: inline-flex; gap: 6px; }
 .dze-x-ai-body { padding: 12px 18px; }
 .dze-x-ai-sum { margin: 0 0 12px; max-width: 900px; }
+.dze-x-ai-meta { margin: 0 0 8px; font-size: 11px; color: #646970; }
 .dze-x-ai-q { color: #646970; font-size: 12px; }
 .dze-x-ai-ideas-t { margin: 14px 0 4px; }
 .dze-x-ai-ideas { margin: 0 0 4px 18px; list-style: disc; }
