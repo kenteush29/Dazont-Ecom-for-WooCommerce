@@ -46,6 +46,35 @@ final class DZE_Keywords {
 		return self::$instance;
 	}
 
+	/**
+	 * Default keyword-matching rules (the editable heart of the matching prompt).
+	 * Admins can override them in AI Settings → Sourcing Assistant; the data
+	 * blocks and the JSON output format stay fixed so parsing never breaks.
+	 */
+	public const DEFAULT_MATCH_RULES = <<<'EOT'
+STEP 1 — is the query GENERIC or SPECIFIC?
+GENERIC = it only combines the product type with broad, common attributes: gender (men/women), colour (black/green/tan), material (cotton), size/fit (xs, crew neck), price (cheap), quantity, or a generic style word (camo, tactical, vintage). It names NO distinct subject. Examples of GENERIC: "military t shirt mens", "military black t shirt", "cheap army camo t shirts", "xs crew neck military t-shirts", "army green t shirt", "tactical t shirts".
+SPECIFIC = it names a distinct subject: a weapon/vehicle/aircraft model (G36, AK-47, F-22 Raptor), a brand (Glock, Daniel Defense), a character/meme/slogan, a military unit, a country/faction, or a named camo pattern (Multicam, Kryptek Typhon).
+
+STEP 2 — assign t and s:
+- GENERIC query → t="category", s="covered", p=[]. The CATEGORY page ranks for these, NEVER an individual themed product. A themed product (e.g. "G36 Tshirt") must NEVER be attached to a generic query, even though it is itself a black/men's/cotton military t-shirt. This is the most important rule.
+- Informational / navigational / off-topic (how-to, sizing guides, "amazon", unrelated) → t="info", s="ignored", p=[].
+- SPECIFIC query → t="product". Then: s="covered" ONLY if a product's OWN subject is that SAME subject (true synonyms allowed: "kalashnikov tshirt"="AK 47 T-shirt"; spelling/plural/hyphen variants of one subject share the verdict). p = that product's id(s). s="variation" if the subject matches a product but a requested attribute (e.g. colour) exists only as one of its variations. s="gap" if NO product is about that specific subject — sharing generic words is NOT coverage. "G36 Tshirt" covers "g36 tshirt"/"hk g36 shirt" only; it is a gap for "mp5 tshirt".
+
+When unsure between covered and gap, choose gap. Never invent product ids.
+EOT;
+
+	/** Effective matching rules: the admin override when set, else the default. */
+	public static function match_rules(): string {
+		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
+			$v = (string) ( DZE_Marketing_Ai::get_settings()['match_rules'] ?? '' );
+			if ( '' !== trim( $v ) ) {
+				return $v;
+			}
+		}
+		return self::DEFAULT_MATCH_RULES;
+	}
+
 	private function __construct() {
 		// The background worker must run in cron / async context too (not admin).
 		add_action( self::BG_HOOK, [ $this, 'run_job' ] );
@@ -766,14 +795,7 @@ final class DZE_Keywords {
 		$user = "Category: {$term->name}\n\n"
 			. "PRODUCTS in this category (id | title | attributes):\n{$plist}\n"
 			. "SEARCH QUERIES (id. query (monthly volume)):\n{$klist}\n"
-			. "STEP 1 — is the query GENERIC or SPECIFIC?\n"
-			. "GENERIC = it only combines the product type with broad, common attributes: gender (men/women), colour (black/green/tan), material (cotton), size/fit (xs, crew neck), price (cheap), quantity, or a generic style word (camo, tactical, vintage). It names NO distinct subject. Examples of GENERIC: \"military t shirt mens\", \"military black t shirt\", \"cheap army camo t shirts\", \"xs crew neck military t-shirts\", \"army green t shirt\", \"tactical t shirts\".\n"
-			. "SPECIFIC = it names a distinct subject: a weapon/vehicle/aircraft model (G36, AK-47, F-22 Raptor), a brand (Glock, Daniel Defense), a character/meme/slogan, a military unit, a country/faction, or a named camo pattern (Multicam, Kryptek Typhon).\n\n"
-			. "STEP 2 — assign t and s:\n"
-			. "- GENERIC query → t=\"category\", s=\"covered\", p=[]. The CATEGORY page ranks for these, NEVER an individual themed product. A themed product (e.g. \"G36 Tshirt\") must NEVER be attached to a generic query, even though it is itself a black/men's/cotton military t-shirt. This is the most important rule.\n"
-			. "- Informational / navigational / off-topic (how-to, sizing guides, \"amazon\", unrelated) → t=\"info\", s=\"ignored\", p=[].\n"
-			. "- SPECIFIC query → t=\"product\". Then: s=\"covered\" ONLY if a product's OWN subject is that SAME subject (true synonyms allowed: \"kalashnikov tshirt\"=\"AK 47 T-shirt\"; spelling/plural/hyphen variants of one subject share the verdict). p = that product's id(s). s=\"variation\" if the subject matches a product but a requested attribute (e.g. colour) exists only as one of its variations. s=\"gap\" if NO product is about that specific subject — sharing generic words is NOT coverage. \"G36 Tshirt\" covers \"g36 tshirt\"/\"hk g36 shirt\" only; it is a gap for \"mp5 tshirt\".\n\n"
-			. "When unsure between covered and gap, choose gap. Never invent product ids.\n"
+			. self::match_rules() . "\n"
 			. 'Output: JSON array of {"id":<query id>,"t":"category|product|info","s":"covered|variation|gap|ignored","p":[product ids]} for every query id listed.';
 
 		$raw     = $this->call_claude_kw( $system, $user );

@@ -23,6 +23,31 @@ final class DZE_Explorer {
 	/** Hard ceiling on products fed into one sourcing report (protects the prompt). */
 	private const REPORT_PRODUCTS_MAX = 2000;
 
+	/**
+	 * Default sourcing-report instructions — the editable heart of the report
+	 * prompt. Admins can override them in AI Settings → Sourcing Assistant; the
+	 * data blocks (category, products, gap queries) and the JSON output format
+	 * stay fixed so parsing never breaks.
+	 */
+	public const DEFAULT_REPORT_GUIDANCE = <<<'EOT'
+You are a senior product-sourcing assistant for an e-commerce catalogue. You are concrete, practical and exhaustive when asked to be. Never invent facts about the shop.
+
+Use the sales figures: the best-sellers show proven demand in this shop. Favour opportunities that are adjacent or complementary to what already sells, and call out categories that sell well but are poorly covered by the catalogue.
+
+CRITICAL: the product list above is COMPLETE and EXHAUSTIVE — it is the entire catalogue of this category. Before proposing ANY product (in source_list or ideas), check it against that list: never propose something already covered, including close variants and spelling differences (e.g. 'USMC t-shirt' duplicates 'USMC Tshirt'; 'Barrett .50 cal shirt' duplicates 'M82 Barrett Tshirt'). Only genuinely missing subjects qualify.
+EOT;
+
+	/** Effective report instructions: the admin override when set, else the default. */
+	public static function report_guidance(): string {
+		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
+			$v = (string) ( DZE_Marketing_Ai::get_settings()['report_guidance'] ?? '' );
+			if ( '' !== trim( $v ) ) {
+				return $v;
+			}
+		}
+		return self::DEFAULT_REPORT_GUIDANCE;
+	}
+
 	/** Term meta: unix timestamp of the last manual "novelty search" for a category. */
 	public const META_RESEARCHED = '_dze_researched';
 
@@ -773,8 +798,8 @@ final class DZE_Explorer {
 			$titles[]     = '- ' . $name . ' (' . $sold . ' sold)';
 		}
 
-		$system = 'You are a senior product-sourcing assistant for an e-commerce catalogue. '
-			. 'You are concrete, practical and exhaustive when asked to be. Never invent facts about the shop.';
+		// The persona + analysis guidance is admin-editable (Sourcing Assistant tab).
+		$system = self::report_guidance();
 		$user = "Product category: {$path}\n\n";
 		$user .= $titles
 			? ( 'ALL ' . $total_products . " products currently in this category, with lifetime units sold, best-sellers first:\n"
@@ -787,8 +812,6 @@ final class DZE_Explorer {
 			}
 			$user .= "UNCOVERED search queries (gaps) from our keyword research:\n{$glist}\n";
 		}
-		$user .= "Use the sales figures: the best-sellers show proven demand in this shop. Favour opportunities that are adjacent or complementary to what already sells, and call out categories that sell well but are poorly covered by the catalogue.\n\n";
-		$user .= "CRITICAL: the product list above is COMPLETE and EXHAUSTIVE — it is the entire catalogue of this category. Before proposing ANY product (in source_list or ideas), check it against that list: never propose something already covered, including close variants and spelling differences (e.g. 'USMC t-shirt' duplicates 'USMC Tshirt'; 'Barrett .50 cal shirt' duplicates 'M82 Barrett Tshirt'). Only genuinely missing subjects qualify.\n\n";
 		$user .= "Return ONLY a JSON object, no prose, no code fences, with exactly these keys:\n"
 			. "\"summary\": 2-3 sentences in the language of the product titles — what the category contains today, what sells best, and its biggest weaknesses.\n"
 			. "\"source_list\": exhaustive array grouping EVERY uncovered query above into concrete products to source, each item {\"product\": \"name as you would search it on a supplier site\", \"queries\": [the exact queries it covers], \"volume\": cumulated integer}. Sorted by volume descending. No query may be dropped.\n"
