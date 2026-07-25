@@ -201,6 +201,8 @@ final class DZE_Explorer {
 				'close'        => __( 'Close', 'dazont-ecom' ),
 				'reportDone'   => __( 'Report ✓', 'dazont-ecom' ),
 				'aiWait'       => __( 'Writing the sourcing report — this can take a minute or two. You can keep browsing; it will appear here as soon as it is ready.', 'dazont-ecom' ),
+				'basedOn'      => __( 'Report based on %s products (all of them).', 'dazont-ecom' ),
+				'dupesRemoved' => __( 'suggestions removed (already in the catalogue)', 'dazont-ecom' ),
 			],
 		] );
 	}
@@ -762,10 +764,13 @@ final class DZE_Explorer {
 		$total_products = count( $prod_ids );
 		$sales_map      = $this->product_sales_map( $prod_ids );
 		usort( $prod_ids, static fn( $a, $b ) => ( $sales_map[ $b ] ?? 0 ) <=> ( $sales_map[ $a ] ?? 0 ) );
-		$titles = [];
+		$titles     = [];
+		$raw_titles = [];
 		foreach ( $prod_ids as $pid ) {
-			$sold     = (int) ( $sales_map[ $pid ] ?? 0 );
-			$titles[] = '- ' . wp_strip_all_tags( get_the_title( $pid ) ) . ' (' . $sold . ' sold)';
+			$sold         = (int) ( $sales_map[ $pid ] ?? 0 );
+			$name         = wp_strip_all_tags( get_the_title( $pid ) );
+			$raw_titles[] = $name;
+			$titles[]     = '- ' . $name . ' (' . $sold . ' sold)';
 		}
 
 		$system = 'You are a senior product-sourcing assistant for an e-commerce catalogue. '
@@ -783,6 +788,7 @@ final class DZE_Explorer {
 			$user .= "UNCOVERED search queries (gaps) from our keyword research:\n{$glist}\n";
 		}
 		$user .= "Use the sales figures: the best-sellers show proven demand in this shop. Favour opportunities that are adjacent or complementary to what already sells, and call out categories that sell well but are poorly covered by the catalogue.\n\n";
+		$user .= "CRITICAL: the product list above is COMPLETE and EXHAUSTIVE — it is the entire catalogue of this category. Before proposing ANY product (in source_list or ideas), check it against that list: never propose something already covered, including close variants and spelling differences (e.g. 'USMC t-shirt' duplicates 'USMC Tshirt'; 'Barrett .50 cal shirt' duplicates 'M82 Barrett Tshirt'). Only genuinely missing subjects qualify.\n\n";
 		$user .= "Return ONLY a JSON object, no prose, no code fences, with exactly these keys:\n"
 			. "\"summary\": 2-3 sentences in the language of the product titles — what the category contains today, what sells best, and its biggest weaknesses.\n"
 			. "\"source_list\": exhaustive array grouping EVERY uncovered query above into concrete products to source, each item {\"product\": \"name as you would search it on a supplier site\", \"queries\": [the exact queries it covers], \"volume\": cumulated integer}. Sorted by volume descending. No query may be dropped.\n"
@@ -804,6 +810,9 @@ final class DZE_Explorer {
 		if ( ! is_array( $data ) || ( empty( $data['source_list'] ) && empty( $data['summary'] ) && empty( $data['ideas'] ) ) ) {
 			wp_send_json_error( [ 'message' => __( 'The AI returned an unreadable report. Try again.', 'dazont-ecom' ) ] );
 		}
+		// Safety net: strip recommendations that duplicate an existing product.
+		$data             = $this->drop_existing_recos( $data, $raw_titles );
+		$data['products'] = $total_products; // shown in the report for verification.
 		update_term_meta( $cat, '_dze_insights', [ 'data' => $data, 'ts' => time() ] );
 		wp_send_json_success( [ 'data' => $data, 'ts' => time(), 'saved' => true ] );
 	}
@@ -858,6 +867,67 @@ final class DZE_Explorer {
 			usort( $missing, static fn( $a, $b ) => $b['gaps'] <=> $a['gaps'] );
 		}
 		wp_send_json_success( [ 'opps' => $opps, 'missing' => $missing, 'reports' => count( $reported ) ] );
+	}
+
+	/**
+	 * Lowercased significant tokens of a product title (generic apparel words and
+	 * punctuation stripped), for duplicate detection between recommendations and
+	 * the existing catalogue.
+	 */
+	private function title_tokens( string $t ): array {
+		$t = strtolower( remove_accents( $t ) );
+		$t = (string) preg_replace( '/[^a-z0-9]+/', ' ', $t );
+		$stop = [ 't', 'shirt', 'tshirt', 'tee', 'shirts', 'tees', 'the', 'a', 'of', 'for', 'with' ];
+		$out  = [];
+		foreach ( array_filter( explode( ' ', $t ) ) as $w ) {
+			if ( ! in_array( $w, $stop, true ) ) {
+				$out[] = $w;
+			}
+		}
+		return array_values( array_unique( $out ) );
+	}
+
+	/**
+	 * Removes source_list/ideas entries that duplicate an existing product:
+	 * either every significant token of the recommendation appears in one
+	 * existing title, or an existing title (2+ tokens) is fully contained in the
+	 * recommendation. Belt-and-braces on top of the prompt instruction.
+	 */
+	private function drop_existing_recos( array $data, array $titles ): array {
+		$sets = [];
+		foreach ( $titles as $t ) {
+			$tok = $this->title_tokens( (string) $t );
+			if ( $tok ) {
+				$sets[] = $tok;
+			}
+		}
+		$dropped = 0;
+		foreach ( [ 'source_list', 'ideas' ] as $k ) {
+			if ( empty( $data[ $k ] ) || ! is_array( $data[ $k ] ) ) {
+				continue;
+			}
+			$keep = [];
+			foreach ( $data[ $k ] as $row ) {
+				$tok = $this->title_tokens( (string) ( $row['product'] ?? '' ) );
+				$dup = false;
+				if ( $tok ) {
+					foreach ( $sets as $set ) {
+						if ( ! array_diff( $tok, $set ) || ( count( $set ) >= 2 && ! array_diff( $set, $tok ) ) ) {
+							$dup = true;
+							break;
+						}
+					}
+				}
+				if ( $dup ) {
+					$dropped++;
+				} else {
+					$keep[] = $row;
+				}
+			}
+			$data[ $k ] = $keep;
+		}
+		$data['deduped'] = $dropped;
+		return $data;
 	}
 
 	/**

@@ -245,6 +245,11 @@
 		var data = d.data || null;
 		if (data) {
 			var oppN = (data.source_list && data.source_list.length) || 0;
+			if (data.products) {
+				var meta = (i18n.basedOn || 'Report based on %s products (all of them).').replace('%s', data.products);
+				if (data.deduped) { meta += ' · ' + data.deduped + ' ' + (i18n.dupesRemoved || 'suggestions removed (already in the catalogue)'); }
+				body += '<p class="dze-x-ai-meta">' + escHtml(meta) + '</p>';
+			}
 			if (data.summary) { body += '<p class="dze-x-ai-sum">' + escHtml(data.summary) + '</p>'; }
 			if (oppN) {
 				body += '<p class="dze-x-ai-count"><strong>' + oppN + '</strong> ' + escHtml(i18n.sourcingOpps || 'sourcing opportunities') + '</p>';
