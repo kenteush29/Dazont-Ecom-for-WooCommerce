@@ -138,6 +138,8 @@ final class DZE_Marketing_Ai {
 			'match_model'   => '', // keyword-matching model; empty = Haiku default.
 			'insights_model'=> '', // Sourcing report model; empty = main model.
 			'sourcing_minvol' => 10, // default "analyse vol ≥" threshold in the Sourcing Assistant.
+			'match_rules'     => '', // keyword-matching rules override; empty = DZE_Keywords default.
+			'report_guidance' => '', // sourcing-report instructions override; empty = DZE_Explorer default.
 		] );
 	}
 
@@ -276,10 +278,22 @@ final class DZE_Marketing_Ai {
 			] );
 		}
 		if ( 'sourcing' === $section ) {
+			// Prompt overrides: a text identical to the shipped default is stored
+			// empty, so future default improvements reach untouched installs.
+			$match_rules = trim( sanitize_textarea_field( (string) ( $in['match_rules'] ?? '' ) ) );
+			if ( class_exists( 'DZE_Keywords' ) && trim( DZE_Keywords::DEFAULT_MATCH_RULES ) === $match_rules ) {
+				$match_rules = '';
+			}
+			$report_guidance = trim( sanitize_textarea_field( (string) ( $in['report_guidance'] ?? '' ) ) );
+			if ( class_exists( 'DZE_Explorer' ) && trim( DZE_Explorer::DEFAULT_REPORT_GUIDANCE ) === $report_guidance ) {
+				$report_guidance = '';
+			}
 			return array_merge( $existing, [
 				'match_model'     => sanitize_text_field( (string) ( $in['match_model'] ?? '' ) ),
 				'insights_model'  => sanitize_text_field( (string) ( $in['insights_model'] ?? '' ) ),
 				'sourcing_minvol' => max( 0, (int) ( $in['sourcing_minvol'] ?? 10 ) ),
+				'match_rules'     => $match_rules,
+				'report_guidance' => $report_guidance,
 			] );
 		}
 		if ( 'events' === $section ) {
@@ -453,6 +467,38 @@ final class DZE_Marketing_Ai {
 					<td>
 						<input type="number" id="dze-mai-minvol" name="<?php echo esc_attr( $opt ); ?>[sourcing_minvol]" value="<?php echo esc_attr( (int) ( $s['sourcing_minvol'] ?? 10 ) ); ?>" min="0" style="width:90px;" />
 						<p class="description"><?php esc_html_e( 'Keywords below this monthly search volume are skipped by the analysis by default (faster, cheaper). You can still change it per run in the Sourcing Assistant. 0 = analyse everything.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-mai-match-rules"><?php esc_html_e( 'Keyword-matching rules (prompt)', 'dazont-ecom' ); ?></label>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'The rules the AI follows to decide covered / variation / gap for each query.', 'dazont-ecom' ); ?></p>
+					</th>
+					<td>
+						<textarea id="dze-mai-match-rules" name="<?php echo esc_attr( $opt ); ?>[match_rules]" rows="14" class="large-text code"><?php echo esc_textarea( class_exists( 'DZE_Keywords' ) ? DZE_Keywords::match_rules() : '' ); ?></textarea>
+						<details style="margin-top:6px;">
+							<summary class="description" style="cursor:pointer;"><?php esc_html_e( 'Fixed parts added automatically (read-only)', 'dazont-ecom' ); ?></summary>
+							<pre class="description" style="white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 10px;">BEFORE your rules: the category name, the product list (id | title | attributes) and the query batch (id. query (volume)).
+AFTER your rules: Output: JSON array of {"id":&lt;query id&gt;,"t":"category|product|info","s":"covered|variation|gap|ignored","p":[product ids]} for every query id listed.</pre>
+						</details>
+						<p class="description"><?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-mai-report-guidance"><?php esc_html_e( 'Sourcing report instructions (prompt)', 'dazont-ecom' ); ?></label>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Persona and analysis guidance for the "sourcing opportunities" report — including how sales figures are used and the no-duplicates rule.', 'dazont-ecom' ); ?></p>
+					</th>
+					<td>
+						<textarea id="dze-mai-report-guidance" name="<?php echo esc_attr( $opt ); ?>[report_guidance]" rows="10" class="large-text code"><?php echo esc_textarea( class_exists( 'DZE_Explorer' ) ? DZE_Explorer::report_guidance() : '' ); ?></textarea>
+						<details style="margin-top:6px;">
+							<summary class="description" style="cursor:pointer;"><?php esc_html_e( 'Fixed parts added automatically (read-only)', 'dazont-ecom' ); ?></summary>
+							<pre class="description" style="white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 10px;">DATA: category path, ALL products with lifetime units sold (best-sellers first), and the top uncovered queries (gaps) by volume.
+OUTPUT FORMAT (fixed so the report always renders):
+"summary": 2-3 sentences — contents today, what sells best, biggest weaknesses.
+"source_list": every uncovered query grouped into concrete products to source {product, queries, volume}, sorted by volume.
+"ideas": 5-15 product ideas absent from BOTH the catalogue and the query list {product, why}.
+A safety filter also removes suggestions matching an existing product title.</pre>
+						</details>
+						<p class="description"><?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 			</table>
