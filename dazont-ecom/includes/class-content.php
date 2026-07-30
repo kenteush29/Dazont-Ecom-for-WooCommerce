@@ -314,6 +314,29 @@ EOT;
 	// settings are migrated into the registry once, then it is the single source.
 	// =========================================================================
 
+	/**
+	 * Distinct meta keys existing on products — powers the searchable
+	 * suggestions (datalist + picker) so nobody types a key blind. Cached 1h.
+	 *
+	 * @return string[]
+	 */
+	public static function product_meta_keys(): array {
+		$cached = get_transient( 'dze_product_meta_keys' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		global $wpdb;
+		$keys = $wpdb->get_col(
+			"SELECT DISTINCT pm.meta_key FROM {$wpdb->postmeta} pm
+			 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+			 WHERE p.post_type = 'product' AND pm.meta_key NOT LIKE '\\_oembed%'
+			 ORDER BY pm.meta_key LIMIT 400"
+		);
+		$keys = array_values( array_map( 'strval', (array) $keys ) );
+		set_transient( 'dze_product_meta_keys', $keys, HOUR_IN_SECONDS );
+		return $keys;
+	}
+
 	/** Product metadata selectable as prompt inputs (WP All Import style). */
 	public static function input_options(): array {
 		return [
@@ -808,7 +831,10 @@ EOT;
 			<p class="description" style="max-width:960px;">
 				<?php esc_html_e( 'ONE universal list of prompts — add as many as you want, for anything. Each prompt has a content type (Text or Image), the product metadata it receives as INPUT, and an OUTPUT destination (product fields, SEO metas, WooCommerce attributes, any custom field — or the product gallery / main image for Image prompts, fully compatible with the product image generator). Text prompts appear in the toolbox and bulk once enabled; apply is unlocked per prompt by its Validated box.', 'dazont-ecom' ); ?>
 			</p>
-			<?php $dze_inputs = self::input_options(); $dze_ri = 0; ?>
+			<?php $dze_inputs = self::input_options(); $dze_metakeys = self::product_meta_keys(); $dze_ri = 0; ?>
+			<datalist id="dze-metakeys">
+				<?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"></option><?php endforeach; ?>
+			</datalist>
 			<table class="widefat dze-pr-table" id="dze-pr">
 				<thead>
 					<tr>
@@ -847,7 +873,7 @@ EOT;
 									<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
 								<?php endforeach; ?>
 							</select>
-							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
 						</td>
 						<td>
 							<details class="dze-pr-inputs">
@@ -855,7 +881,11 @@ EOT;
 								<?php foreach ( $dze_inputs as $ik => $il ) : ?>
 									<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][<?php echo (int) $dze_ri; ?>][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, $sel_in, true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
 								<?php endforeach; ?>
-								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['inputs_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" />
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['inputs_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" class="dze-pr-inmeta" />
+								<span class="dze-pr-metapickrow">
+									<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
+									<button type="button" class="button button-small dze-pr-metaadd" title="<?php esc_attr_e( 'Add this key as an input', 'dazont-ecom' ); ?>">&#43;</button>
+								</span>
 							</details>
 						</td>
 						<td><textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="4" class="large-text code"><?php echo esc_textarea( $r['prompt'] ); ?></textarea></td>
@@ -886,7 +916,7 @@ EOT;
 								<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
 							<?php endforeach; ?>
 						</select>
-						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" class="dze-pr-metakey" style="display:none;" />
+						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
 					</td>
 					<td>
 						<details class="dze-pr-inputs">
@@ -894,7 +924,11 @@ EOT;
 							<?php foreach ( $dze_inputs as $ik => $il ) : ?>
 								<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][__I__][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, [ 'title', 'description' ], true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
 							<?php endforeach; ?>
-							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" />
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" class="dze-pr-inmeta" />
+						<span class="dze-pr-metapickrow">
+							<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
+							<button type="button" class="button button-small dze-pr-metaadd">&#43;</button>
+						</span>
 						</details>
 					</td>
 					<td><textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][__I__]" rows="4" class="large-text code"></textarea></td>
@@ -930,6 +964,15 @@ EOT;
 					syncRow( $row );
 				} );
 				$( document ).on( 'click', '.dze-pr-del', function () { $( this ).closest( 'tr' ).remove(); } );
+				$( document ).on( 'click', '.dze-pr-metaadd', function () {
+					var $wrap = $( this ).closest( 'details' );
+					var key = $wrap.find( '.dze-pr-metapick' ).val();
+					if ( ! key ) { return; }
+					var $in = $wrap.find( '.dze-pr-inmeta' );
+					var cur = ( $in.val() || '' ).split( ',' ).map( function ( x ) { return x.trim(); } ).filter( Boolean );
+					if ( cur.indexOf( key ) < 0 ) { cur.push( key ); }
+					$in.val( cur.join( ', ' ) );
+				} );
 			} );
 			</script>
 
@@ -1782,6 +1825,42 @@ EOT;
 		update_option( self::OPT_SETTINGS, $settings, false );
 		self::$registry_cache = null;
 		wp_send_json_success( [ 'saved' => true ] );
+	}
+
+	/**
+	 * Reads an attachment (preferring the 'large' size to bound the payload) and
+	 * returns it as a base64 data URI, which fal decodes directly — removing every
+	 * "fal cannot reach the source URL" failure (private staging, hotlink rules).
+	 */
+	private function fal_source_data_uri( int $attachment_id ): string {
+		$path = '';
+		$size = image_get_intermediate_size( $attachment_id, 'large' );
+		if ( is_array( $size ) && ! empty( $size['path'] ) ) {
+			$uploads = wp_get_upload_dir();
+			$try     = trailingslashit( (string) $uploads['basedir'] ) . $size['path'];
+			if ( file_exists( $try ) ) {
+				$path = $try;
+			}
+		}
+		if ( '' === $path ) {
+			$try = (string) get_attached_file( $attachment_id );
+			if ( $try && file_exists( $try ) ) {
+				$path = $try;
+			}
+		}
+		$bytes = '' !== $path ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
+		if ( false === $bytes || '' === $bytes ) {
+			$url  = (string) wp_get_attachment_image_url( $attachment_id, 'large' );
+			$resp = $url ? wp_remote_get( $url, [ 'timeout' => 30 ] ) : null;
+			if ( $resp && ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
+				$bytes = wp_remote_retrieve_body( $resp );
+			}
+		}
+		if ( false === $bytes || '' === $bytes ) {
+			throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
+		}
+		$mime = (string) ( get_post_mime_type( $attachment_id ) ?: 'image/jpeg' );
+		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
 	}
 
 	private function fal_generate( string $prompt, array $image_urls ): string {

@@ -33,8 +33,7 @@
 				'<div class="dze-cx-field' + (ok ? '' : ' is-unvalidated') + '" data-field="' + fid + '">' +
 				'<h4>' + esc(cfg.fields[fid]) + (ok ? '' : ' <span class="dze-cx-badge">' + esc(i18n.notValid) + '</span>') + '</h4>' +
 				'<div class="dze-cx-pwrap" style="display:none;">' +
-					'<p class="dze-cx-note">' + esc(i18n.promptNote) + '</p>' +
-					'<textarea rows="6" class="dze-cx-p-text"></textarea>' +
+					'<textarea rows="6" class="dze-cx-p-text" title="' + esc(i18n.promptNote) + '"></textarea>' +
 				'</div>' +
 				'<textarea rows="4" class="dze-cx-out" placeholder="—"></textarea>' +
 				'<div class="row-actions">' +
@@ -59,16 +58,15 @@
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button>' +
 			'</div>' +
 			'<div class="dze-cx-body">' +
-				(Object.keys(cfg.fields).every(fieldValidated) ? '' : '<p class="dze-cx-warn">' + esc(i18n.previewOnly) + '</p>') +
 				// TEXT pane
 				'<div class="dze-cx-pane" data-pane="text">' +
-					'<div class="dze-cx-src">' +
-						'<strong>' + esc(i18n.productData) + '</strong>' +
+					'<p class="dze-cx-topbar"><button type="button" class="button button-primary" id="dze-cx-genall">' + esc(i18n.genAll) + '</button></p>' +
+					'<details class="dze-cx-acc dze-cx-src">' +
+						'<summary>' + esc(i18n.productData) + '</summary>' +
 						'<label>' + esc(i18n.pTitle) + '</label><input type="text" id="dze-cx-ptitle" value="' + esc(cfg.product.title) + '" />' +
 						'<label>' + esc(i18n.pDesc) + '</label><textarea id="dze-cx-pdesc" rows="3">' + esc(cfg.product.desc) + '</textarea>' +
 						'<label>' + esc(i18n.pAttr) + '</label><textarea id="dze-cx-pattr" rows="3">' + esc(cfg.product.attr || '') + '</textarea>' +
-						'<p><button type="button" class="button button-primary" id="dze-cx-genall">' + esc(i18n.genAll) + '</button></p>' +
-					'</div>' +
+					'</details>' +
 					'<div class="dze-cx-grid">' + fieldCards + '</div>' +
 				'</div>' +
 				// IMAGE pane
@@ -76,11 +74,13 @@
 					'<div class="dze-cx-imgrow">' +
 						'<label>' + esc(i18n.template) + ' <select id="dze-cx-tpl">' + tplOpts + '</select></label>' +
 						'<button type="button" class="button button-primary" id="dze-cx-genimg">' + esc(i18n.genImage) + '</button>' +
-						'<button type="button" class="button-link" id="dze-cx-tpl-save">💾 ' + esc(i18n.savePrompt) + '</button>' +
 						'<span id="dze-cx-imgstatus"></span>' +
 					'</div>' +
-					'<p class="dze-cx-note" style="margin:8px 0 2px;">' + esc(i18n.promptNote) + '</p>' +
-					'<textarea id="dze-cx-tpl-prompt" rows="3" style="width:100%;box-sizing:border-box;"></textarea>' +
+					'<details class="dze-cx-acc">' +
+						'<summary>✎ ' + esc(i18n.editPrompt) + '</summary>' +
+						'<textarea id="dze-cx-tpl-prompt" rows="3" style="width:100%;box-sizing:border-box;" title="' + esc(i18n.promptNote) + '"></textarea>' +
+						'<p style="margin:6px 0 0;"><button type="button" class="button-link" id="dze-cx-tpl-save">💾 ' + esc(i18n.savePrompt) + '</button></p>' +
+					'</details>' +
 					'<div class="dze-cx-galbar">' +
 						'<label>' + esc(i18n.sendTo) + ' <select id="dze-cx-target"><option value="gallery">' + esc(i18n.toGallery) + '</option><option value="main">' + esc(i18n.toMain) + '</option></select></label>' +
 						'<button type="button" class="button button-primary" id="dze-cx-attach" disabled>' + esc(i18n.addSelected) + ' (0)</button>' +

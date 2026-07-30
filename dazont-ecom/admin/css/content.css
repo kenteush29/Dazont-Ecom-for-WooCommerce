@@ -56,6 +56,16 @@
 .dze-cx-field .row-actions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 .dze-cx-src textarea { width: 100%; box-sizing: border-box; }
 .dze-cx-src label { display: block; font-weight: 600; margin: 8px 0 3px; }
+
+/* Collapsible parameter blocks — details are tucked away until needed. */
+.dze-cx-topbar { margin: 0 0 12px; }
+.dze-cx-acc {
+	border: 1px solid #e2e4e7; border-radius: 6px; background: #f6f7f7;
+	padding: 8px 12px; margin: 0 0 14px;
+}
+.dze-cx-acc > summary { cursor: pointer; font-weight: 600; color: #2271b1; font-size: 13px; }
+.dze-cx-acc[open] { background: #fff; }
+.dze-cx-acc[open] > summary { margin-bottom: 6px; }
 .dze-cx-note { color: #646970; font-size: 12px; }
 .dze-cx-warn { background: #fcf9e8; border: 1px solid #f0e6a6; border-radius: 4px; padding: 8px 12px; margin: 0 0 12px; }
 .dze-cx-imgrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
