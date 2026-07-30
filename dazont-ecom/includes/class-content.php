@@ -47,7 +47,6 @@ final class DZE_Content {
 
 	private function __construct() {
 		add_action( 'admin_init',     [ $this, 'register_settings' ] );
-		add_action( 'add_meta_boxes', [ $this, 'add_meta_box' ] );
 		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 
@@ -1142,21 +1141,8 @@ EOT;
 	// Product-page side box
 	// =========================================================================
 
-	public function add_meta_box(): void {
-		add_meta_box( 'dze-content-side', __( 'Product Content (Dazont)', 'dazont-ecom' ), [ $this, 'render_side_box' ], 'product', 'side', 'high' );
-	}
-
-	public function render_side_box( $post ): void {
-		?>
-		<div class="dze-content-side dze-admin">
-			<button type="button" class="button button-primary" id="dze-cx-open-auto"><?php esc_html_e( 'Automatic edition', 'dazont-ecom' ); ?></button>
-			<?php [ $dze_ok, $dze_tot ] = self::validated_counts(); ?>
-			<?php if ( $dze_ok < $dze_tot ) : ?>
-				<p class="dze-cx-note"><?php printf( /* translators: 1: validated count, 2: total */ esc_html__( '%1$d/%2$d prompts validated — unvalidated fields stay in preview.', 'dazont-ecom' ), (int) $dze_ok, (int) $dze_tot ); ?></p>
-			<?php endif; ?>
-		</div>
-		<?php
-	}
+	// The product-page entry point now lives in the shared "Dazont Ecom" hub
+	// box (DZE_Modules::render_hub) — this module only contributes its button.
 
 	// =========================================================================
 	// Bulk: products-list action + bulk screen

@@ -15,7 +15,7 @@
 	function renderResults() {
 		var $g = $('#dze-pod-results .dze-pod-grid').empty();
 		results.forEach(function (u, i) {
-			$('<img />').attr('src', u).toggleClass('is-sel', i === selIdx).attr('data-i', i).appendTo($g);
+			$('<img />').attr('src', u).attr('data-full', u).addClass('dze-hzoom').toggleClass('is-sel', i === selIdx).attr('data-i', i).appendTo($g);
 		});
 		$('#dze-pod-results').toggle(results.length > 0);
 	}

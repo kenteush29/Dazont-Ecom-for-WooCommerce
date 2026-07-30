@@ -382,7 +382,7 @@
 		var html = '';
 		gal.forEach(function (g, i) {
 			html += '<div class="dze-cx-thumb' + (g.sel ? ' is-sel' : '') + (g.added ? ' is-added' : '') + '" data-i="' + i + '">' +
-				'<img src="' + g.url + '" alt="" />' +
+				'<img class="dze-hzoom" src="' + g.url + '" data-full="' + g.url + '" alt="" />' +
 				'<span class="dze-cx-t-check" title="' + esc(i18n.select) + '">✓</span>' +
 				'<button type="button" class="dze-cx-t-edit" title="' + esc(i18n.editImage) + '">✎</button>' +
 				(g.added ? '<span class="dze-cx-t-tag">' + esc(i18n.added) + '</span>' : '') +

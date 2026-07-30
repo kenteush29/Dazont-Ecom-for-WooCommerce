@@ -28,6 +28,10 @@ final class DZE_Modules {
 		add_action( 'admin_menu', [ $this, 'fallback_menu' ], 9 );
 		add_action( 'admin_menu', [ $this, 'submenu' ], 99 );
 		add_action( 'wp_ajax_dze_modules_toggle', [ $this, 'ajax_toggle' ] );
+		// ONE "Dazont Ecom" box on the product page compiles every product
+		// function (buttons opening popups) instead of one box per module.
+		add_action( 'add_meta_boxes', [ $this, 'hub_meta_box' ] );
+		add_action( 'admin_enqueue_scripts', [ $this, 'hub_assets' ] );
 	}
 
 	// =========================================================================
@@ -191,6 +195,78 @@ final class DZE_Modules {
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
 		);
+	}
+
+	// =========================================================================
+	// Product-page hub: one box, one button per enabled product function
+	// =========================================================================
+
+	public function hub_meta_box(): void {
+		if ( ! self::enabled( 'content' ) && ! self::enabled( 'pod' ) && ! self::enabled( 'gmc_activation' ) ) {
+			return;
+		}
+		add_meta_box( 'dze-hub', __( 'Dazont Ecom', 'dazont-ecom' ), [ $this, 'render_hub' ], 'product', 'side', 'high' );
+	}
+
+	/** Shared admin styles (modal shells, notes) for the hub and its popups. */
+	public function hub_assets( string $hook ): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'product' !== $screen->post_type || ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) {
+			return;
+		}
+		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+	}
+
+	public function render_hub( $post ): void {
+		$product  = wc_get_product( $post->ID );
+		$variable = $product && $product->is_type( 'variable' );
+		?>
+		<div class="dze-admin dze-hub">
+			<?php if ( self::enabled( 'content' ) ) : ?>
+				<button type="button" class="button button-primary dze-hub-btn" id="dze-cx-open-auto"><?php esc_html_e( 'Automatic edition', 'dazont-ecom' ); ?></button>
+			<?php endif; ?>
+			<?php if ( self::enabled( 'pod' ) ) : ?>
+				<button type="button" class="button dze-hub-btn" data-modal="dze-pod-modal"><?php esc_html_e( 'POD image', 'dazont-ecom' ); ?></button>
+			<?php endif; ?>
+			<?php if ( self::enabled( 'gmc_activation' ) && class_exists( 'DZE_Gmc_Activation' ) ) : ?>
+				<?php if ( $variable ) : ?>
+					<button type="button" class="button dze-hub-btn" data-modal="dze-gmca-modal"><?php esc_html_e( 'GMC activation', 'dazont-ecom' ); ?></button>
+				<?php elseif ( $product ) : ?>
+					<?php DZE_Gmc_Activation::instance()->render_simple_toggle( (int) $post->ID ); ?>
+				<?php endif; ?>
+			<?php endif; ?>
+		</div>
+		<script>
+		jQuery( function ( $ ) {
+			$( '.dze-hub-btn[data-modal]' ).on( 'click', function () {
+				$( '#' + $( this ).data( 'modal' ) ).addClass( 'is-open' );
+			} );
+			$( document ).on( 'click', '.dze-hub-close', function () {
+				$( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' );
+			} );
+			$( document ).on( 'click', '#dze-pod-modal, #dze-gmca-modal', function ( e ) {
+				if ( e.target === this ) { $( this ).removeClass( 'is-open' ); }
+			} );
+			// Shared hover zoom: any img.dze-hzoom shows a floating large preview.
+			var $hz = null;
+			$( document ).on( 'mouseenter', 'img.dze-hzoom', function () {
+				var src = $( this ).data( 'full' ) || this.src;
+				if ( $hz ) { $hz.remove(); }
+				$hz = $( '<div class="dze-hzoom-pop"><img src="' + src + '" alt="" /></div>' ).appendTo( 'body' );
+			} );
+			$( document ).on( 'mousemove', 'img.dze-hzoom', function ( e ) {
+				if ( ! $hz ) { return; }
+				$hz.css( {
+					left: Math.min( e.clientX + 24, window.innerWidth - 360 ) + 'px',
+					top: Math.max( 10, Math.min( e.clientY - 170, window.innerHeight - 360 ) ) + 'px'
+				} );
+			} );
+			$( document ).on( 'mouseleave', 'img.dze-hzoom', function () {
+				if ( $hz ) { $hz.remove(); $hz = null; }
+			} );
+		} );
+		</script>
+		<?php
 	}
 
 	// =========================================================================

@@ -51,8 +51,8 @@ final class DZE_Gmc_Activation {
 		// Per-variation checkbox in the Variations panel.
 		add_action( 'woocommerce_product_after_variable_attributes', [ $this, 'variation_checkbox' ], 10, 3 );
 		add_action( 'woocommerce_save_product_variation', [ $this, 'save_variation_checkbox' ], 10, 2 );
-		// Product-page picker + strategies.
-		add_action( 'add_meta_boxes', [ $this, 'add_meta_box' ] );
+		// Product-page picker + strategies (popup opened from the Dazont hub).
+		add_action( 'admin_footer', [ $this, 'footer_modal' ] );
 		add_action( 'wp_ajax_dze_gmca_save', [ $this, 'ajax_save' ] );
 		add_action( 'wp_ajax_dze_gmca_strategy', [ $this, 'ajax_strategy' ] );
 		// Catalogue-wide auto-mark (batched).
@@ -261,35 +261,51 @@ final class DZE_Gmc_Activation {
 	// Product-page picker (side box)
 	// =========================================================================
 
-	public function add_meta_box(): void {
-		add_meta_box( 'dze-gmca', __( 'GMC activation (Dazont)', 'dazont-ecom' ), [ $this, 'render_box' ], 'product', 'side', 'default' );
+	/** Compact toggle for SIMPLE products, rendered inside the Dazont hub box. */
+	public function render_simple_toggle( int $post_id ): void {
+		$nonce = wp_create_nonce( self::NONCE );
+		?>
+		<p style="margin:8px 0 0;">
+			<label><input type="checkbox" id="dze-gmca-simple" data-id="<?php echo (int) $post_id; ?>" <?php checked( self::is_on( $post_id ) ); ?> />
+			<?php esc_html_e( 'Send to Merchant Center', 'dazont-ecom' ); ?></label>
+			<span id="dze-gmca-simplestatus" class="dze-cx-note"></span>
+		</p>
+		<script>
+		jQuery( function ( $ ) {
+			$( '#dze-gmca-simple' ).on( 'change', function () {
+				var $c = $( this );
+				$.post( window.ajaxurl, { action: 'dze_gmca_save', nonce: '<?php echo esc_js( $nonce ); ?>', post: $c.data( 'id' ), parent_on: $c.is( ':checked' ) ? 1 : 0 } )
+					.done( function ( res ) { $( '#dze-gmca-simplestatus' ).text( res && res.success ? '✓' : '✗' ); setTimeout( function () { $( '#dze-gmca-simplestatus' ).text( '' ); }, 1500 ); } );
+			} );
+		} );
+		</script>
+		<?php
 	}
 
-	public function render_box( $post ): void {
+	/** Popup shell for VARIABLE products, printed in the footer; opened from the hub. */
+	public function footer_modal(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'product' !== $screen->post_type || 'post' !== $screen->base ) {
+			return;
+		}
+		global $post;
+		$product = $post ? wc_get_product( $post->ID ) : null;
+		if ( ! $product || ! $product->is_type( 'variable' ) ) {
+			return;
+		}
+		echo '<div class="dze-cx-modal" id="dze-gmca-modal"><div class="dze-cx-dialog" style="width:min(520px,94vw);">';
+		echo '<div class="dze-cx-head"><h2>' . esc_html__( 'GMC activation', 'dazont-ecom' ) . '</h2><button type="button" class="button dze-hub-close" style="margin-left:auto;">' . esc_html__( 'Close', 'dazont-ecom' ) . '</button></div>';
+		echo '<div class="dze-cx-body">';
+		$this->render_panel( $post );
+		echo '</div></div></div>';
+	}
+
+	public function render_panel( $post ): void {
 		$product = wc_get_product( $post->ID );
-		if ( ! $product ) {
+		if ( ! $product || ! $product->is_type( 'variable' ) ) {
 			return;
 		}
 		$nonce = wp_create_nonce( self::NONCE );
-		if ( ! $product->is_type( 'variable' ) ) {
-			?>
-			<div class="dze-admin">
-				<label><input type="checkbox" id="dze-gmca-simple" data-id="<?php echo (int) $post->ID; ?>" <?php checked( self::is_on( $post->ID ) ); ?> />
-				<?php esc_html_e( 'Send this product to Merchant Center', 'dazont-ecom' ); ?></label>
-				<span id="dze-gmca-status" class="dze-cx-note"></span>
-			</div>
-			<script>
-			jQuery( function ( $ ) {
-				$( '#dze-gmca-simple' ).on( 'change', function () {
-					var $c = $( this );
-					$.post( window.ajaxurl, { action: 'dze_gmca_save', nonce: '<?php echo esc_js( $nonce ); ?>', post: $c.data( 'id' ), parent_on: $c.is( ':checked' ) ? 1 : 0 } )
-						.done( function ( res ) { $( '#dze-gmca-status' ).text( res && res.success ? '✓' : '✗' ); setTimeout( function () { $( '#dze-gmca-status' ).text( '' ); }, 1500 ); } );
-				} );
-			} );
-			</script>
-			<?php
-			return;
-		}
 
 		// Variable product: variation picker + strategies.
 		$attrs = array_keys( $product->get_variation_attributes() ); // e.g. pa_color, pa_size
@@ -304,6 +320,7 @@ final class DZE_Gmc_Activation {
 				'id'    => (int) $vid,
 				'on'    => self::is_on( (int) $vid ),
 				'thumb' => $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : '',
+				'full'  => $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '',
 				'label' => wc_get_formatted_variation( $v, true, false ),
 			];
 		}
@@ -316,7 +333,7 @@ final class DZE_Gmc_Activation {
 				<?php foreach ( $rows as $r ) : ?>
 					<label class="dze-gmca-row">
 						<input type="checkbox" class="dze-gmca-v" value="<?php echo (int) $r['id']; ?>" <?php checked( $r['on'] ); ?> />
-						<?php if ( $r['thumb'] ) : ?><img src="<?php echo esc_url( $r['thumb'] ); ?>" alt="" /><?php else : ?><span class="dze-gmca-noimg" title="<?php esc_attr_e( 'No own image', 'dazont-ecom' ); ?>">—</span><?php endif; ?>
+						<?php if ( $r['thumb'] ) : ?><img class="dze-hzoom" src="<?php echo esc_url( $r['thumb'] ); ?>" data-full="<?php echo esc_url( $r['full'] ?: $r['thumb'] ); ?>" alt="" /><?php else : ?><span class="dze-gmca-noimg" title="<?php esc_attr_e( 'No own image', 'dazont-ecom' ); ?>">—</span><?php endif; ?>
 						<span class="dze-gmca-lbl"><?php echo esc_html( $r['label'] ?: ( '#' . $r['id'] ) ); ?></span>
 					</label>
 				<?php endforeach; ?>

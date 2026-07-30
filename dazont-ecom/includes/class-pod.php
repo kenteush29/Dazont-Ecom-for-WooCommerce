@@ -28,7 +28,7 @@ final class DZE_Pod {
 
 	private function __construct() {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
-		add_action( 'add_meta_boxes', [ $this, 'add_meta_box' ] );
+		add_action( 'admin_footer', [ $this, 'footer_modal' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_pod_design', [ $this, 'ajax_design' ] );
 		add_action( 'wp_ajax_dze_pod_generate', [ $this, 'ajax_generate' ] );
@@ -158,11 +158,24 @@ PROMPT;
 	}
 
 	// =========================================================================
-	// Product page: own side box
+	// Product page: popup opened from the shared "Dazont Ecom" hub box
 	// =========================================================================
 
-	public function add_meta_box(): void {
-		add_meta_box( 'dze-pod-side', __( 'POD image (Dazont)', 'dazont-ecom' ), [ $this, 'render_box' ], 'product', 'side', 'default' );
+	/** Popup shell printed in the footer of product screens; opened from the hub. */
+	public function footer_modal(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'product' !== $screen->post_type || 'post' !== $screen->base ) {
+			return;
+		}
+		global $post;
+		if ( ! $post ) {
+			return;
+		}
+		echo '<div class="dze-cx-modal" id="dze-pod-modal"><div class="dze-cx-dialog" style="width:min(560px,94vw);">';
+		echo '<div class="dze-cx-head"><h2>' . esc_html__( 'POD image', 'dazont-ecom' ) . '</h2><button type="button" class="button dze-hub-close" style="margin-left:auto;">' . esc_html__( 'Close', 'dazont-ecom' ) . '</button></div>';
+		echo '<div class="dze-cx-body">';
+		$this->render_panel( $post );
+		echo '</div></div></div>';
 	}
 
 	/** "1234 × 1234 px (~150 DPI on 30×40 cm)" for a design attachment, or ''. */
@@ -183,13 +196,13 @@ PROMPT;
 		);
 	}
 
-	public function render_box( $post ): void {
+	public function render_panel( $post ): void {
 		$design = absint( get_post_meta( $post->ID, self::DESIGN_META, true ) );
 		$thumb  = $design ? wp_get_attachment_image_url( $design, 'thumbnail' ) : '';
 		?>
 		<div class="dze-admin dze-pod-box" id="dze-pod-box">
 			<div id="dze-pod-design-preview" <?php echo $thumb ? '' : 'style="display:none;"'; ?>>
-				<img src="<?php echo esc_url( $thumb ); ?>" alt="" />
+				<img class="dze-hzoom" src="<?php echo esc_url( $thumb ); ?>" data-full="<?php echo esc_url( $design ? (string) wp_get_attachment_image_url( $design, 'large' ) : '' ); ?>" alt="" />
 			</div>
 			<p class="dze-cx-note" id="dze-pod-dims"><?php echo esc_html( self::design_dims_note( $design ) ); ?></p>
 			<p>

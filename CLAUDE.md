@@ -15,6 +15,11 @@ owner communicates in French.
   vanish with boot, but every CROSS-module surface (settings tabs, dashboard
   blocks, bridge buttons) must be gated with `DZE_Modules::enabled( $id )` —
   `class_exists()` is NOT a module check (class files always exist).
+- Product-page functions surface ONLY through the single "Dazont Ecom" hub
+  box (`DZE_Modules::render_hub`): one button per enabled module opening a
+  popup (footer-printed `.dze-cx-modal` + `.dze-hub-close`) — never a
+  separate meta box per module. Thumbnails get hover zoom via
+  `img.dze-hzoom` (+ `data-full`).
 - One settings menu only: the Settings page (class-marketing-ai.php tabs).
   New settings go into an existing tab or a new tab there — never a separate
   submenu (fallback submenus only to avoid lock-outs).
