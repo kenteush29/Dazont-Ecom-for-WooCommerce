@@ -95,6 +95,21 @@
 			.fail(function () { $btn.prop('disabled', false); status(i18n.error, '#b32d2e'); });
 	});
 
+	// Upscale the stored design ×4 (fal ESRGAN) → becomes the print file.
+	$('#dze-pod-upscale').on('click', function () {
+		var $btn = $(this).prop('disabled', true);
+		status('<span class="dze-cx-spin"></span> ' + i18n.upscaling);
+		$.post(cfg.ajaxUrl, { action: 'dze_pod_upscale', nonce: cfg.nonce, post: cfg.postId })
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res.success) { status((res.data && res.data.message) || i18n.error, '#b32d2e'); return; }
+				$('#dze-pod-design-preview').show().find('img').attr('src', res.data.thumb);
+				$('#dze-pod-dims').text(res.data.dims);
+				status(i18n.upscaled, '#00794b');
+			})
+			.fail(function () { $btn.prop('disabled', false); status(i18n.error, '#b32d2e'); });
+	});
+
 	// Hand the kept render to the Content image toolbox as a SOURCE: from there
 	// the ✎ variant flow builds new images on top of it (UGC shots, scenes…).
 	$('#dze-pod-tolab').on('click', function () {

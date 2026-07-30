@@ -242,6 +242,8 @@ PROMPT;
 				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),
 				'savePrompt'  => __( 'Save prompt', 'dazont-ecom' ),
 				'noMockup'    => __( 'No stored mockup — the product featured image is used as the base.', 'dazont-ecom' ),
+				'upscaling'   => __( 'Upscaling ×4 — up to a minute…', 'dazont-ecom' ),
+				'upscaled'    => __( 'Print file upscaled ✓', 'dazont-ecom' ),
 				'change'      => __( 'Change design', 'dazont-ecom' ),
 				'upload'      => __( 'Upload design', 'dazont-ecom' ),
 			],
