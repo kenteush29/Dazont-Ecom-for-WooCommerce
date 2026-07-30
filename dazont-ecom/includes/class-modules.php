@@ -83,6 +83,13 @@ final class DZE_Modules {
 				'desc'  => __( 'Pushes your scheduled sale promotions to Merchant Center.', 'dazont-ecom' ),
 				'more'  => __( 'No product feed involved. Each scheduled sale from the Discounts module is inserted as a Merchant Center PROMOTION through Google\'s Merchant API (the successor of the Content API), into one GMC account per language; the promotion data sources are found or created automatically per country/language. Authentication uses your connected Google account or a service account. A cron keeps the promotions in sync with your events.', 'dazont-ecom' ),
 			],
+			'gmc_activation' => [
+				'class' => 'DZE_Gmc_Activation',
+				'group' => 'marketing',
+				'label' => __( 'GMC product activation', 'dazont-ecom' ),
+				'desc'  => __( 'Chooses which products/variations go to Merchant Center.', 'dazont-ecom' ),
+				'more'  => __( 'Manages the "_merchant_center_activation" flag your Merchant Center feed reads, with a ✔/✘ GMC column on the products list. Automatic rules (whole catalogue or per product): simple products and variable parents on; variations with an ORIGINAL image on (first of each distinct image, duplicates skipped); when no variation has an image, first variation of each value of a fallback attribute (colour by default). Per-product quick strategies — all variations (unique versions), first of each chosen attribute (one per colour), none — plus a manual variation picker with thumbnails for the tricky cases (e.g. rugs), and the classic checkboxes in the product Advanced tab and variation panels.', 'dazont-ecom' ),
+			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',
 				'group' => 'marketing',
