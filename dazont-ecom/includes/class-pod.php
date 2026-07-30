@@ -34,6 +34,7 @@ final class DZE_Pod {
 		add_action( 'wp_ajax_dze_pod_generate', [ $this, 'ajax_generate' ] );
 		add_action( 'wp_ajax_dze_pod_save_prompt', [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_pod_attach', [ $this, 'ajax_attach' ] );
+		add_action( 'wp_ajax_dze_pod_upscale', [ $this, 'ajax_upscale' ] );
 		// Order fulfilment: a small button on each order line whose product has a
 		// stored POD design opens the print file in a popup.
 		add_action( 'woocommerce_after_order_itemmeta', [ $this, 'order_item_design' ], 10, 3 );
@@ -157,6 +158,24 @@ PROMPT;
 		add_meta_box( 'dze-pod-side', __( 'POD image (Dazont)', 'dazont-ecom' ), [ $this, 'render_box' ], 'product', 'side', 'default' );
 	}
 
+	/** "1234 × 1234 px (~150 DPI on 30×40 cm)" for a design attachment, or ''. */
+	private static function design_dims_note( int $design ): string {
+		$meta = $design ? wp_get_attachment_metadata( $design ) : null;
+		$w    = (int) ( $meta['width'] ?? 0 );
+		$h    = (int) ( $meta['height'] ?? 0 );
+		if ( ! $w || ! $h ) {
+			return '';
+		}
+		$dpi = (int) round( min( $w / 11.8, $h / 15.75 ) ); // 30×40 cm chest print.
+		return sprintf(
+			/* translators: 1: width px, 2: height px, 3: estimated DPI */
+			__( '%1$s × %2$s px — ≈ %3$s DPI on a 30×40 cm print', 'dazont-ecom' ),
+			number_format_i18n( $w ),
+			number_format_i18n( $h ),
+			number_format_i18n( $dpi )
+		);
+	}
+
 	public function render_box( $post ): void {
 		$design = absint( get_post_meta( $post->ID, self::DESIGN_META, true ) );
 		$thumb  = $design ? wp_get_attachment_image_url( $design, 'thumbnail' ) : '';
@@ -165,11 +184,13 @@ PROMPT;
 			<div id="dze-pod-design-preview" <?php echo $thumb ? '' : 'style="display:none;"'; ?>>
 				<img src="<?php echo esc_url( $thumb ); ?>" alt="" />
 			</div>
+			<p class="dze-cx-note" id="dze-pod-dims"><?php echo esc_html( self::design_dims_note( $design ) ); ?></p>
 			<p>
 				<button type="button" class="button" id="dze-pod-pick"><?php echo $design ? esc_html__( 'Change design', 'dazont-ecom' ) : esc_html__( 'Upload design', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-pod-upscale" <?php echo $design ? '' : 'style="display:none;"'; ?> title="<?php esc_attr_e( 'Enlarge the design ×4 (fal.ai ESRGAN) and keep the result as the print file — for AI-generated designs that are too small to print.', 'dazont-ecom' ); ?>">⤢ <?php esc_html_e( 'Upscale ×4', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button-link dze-pod-del" id="dze-pod-clear" <?php echo $design ? '' : 'style="display:none;"'; ?>><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 			</p>
-			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background. Upload your print-ready file (e.g. 4500×5400 px): it is kept full-size for the supplier — the generation automatically works from a reduced copy.', 'dazont-ecom' ); ?></p>
+			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background. Print quality: ~1800×2400 px minimum (150 DPI on a chest print), 300 DPI ideal. AI-generated designs (1024–2048 px) should be upscaled ×4 before printing.', 'dazont-ecom' ); ?></p>
 			<p>
 				<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
 				<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
@@ -311,6 +332,76 @@ PROMPT;
 			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
+	}
+
+	/**
+	 * Upscales the stored design ×4 through fal.ai ESRGAN and keeps the result
+	 * as the new print file (the original stays in the media library). Meant
+	 * for AI-generated designs (1024–2048 px) that are too small to print.
+	 */
+	public function ajax_upscale(): void {
+		$this->guard();
+		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$design = $pid ? absint( get_post_meta( $pid, self::DESIGN_META, true ) ) : 0;
+		if ( ! $design ) {
+			wp_send_json_error( [ 'message' => __( 'Upload a design on this product first.', 'dazont-ecom' ) ] );
+		}
+		if ( ! class_exists( 'DZE_Content' ) || '' === DZE_Content::fal_key() ) {
+			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+		}
+		$path = (string) get_attached_file( $design );
+		if ( '' === $path || ! file_exists( $path ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not read the design file.', 'dazont-ecom' ) ] );
+		}
+		if ( filesize( $path ) > 15 * 1024 * 1024 ) {
+			wp_send_json_error( [ 'message' => __( 'The design file is already very large — upscaling is meant for small AI-generated designs.', 'dazont-ecom' ) ] );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 240 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		$mime = (string) ( get_post_mime_type( $design ) ?: 'image/png' );
+		$src  = 'data:' . $mime . ';base64,' . base64_encode( (string) file_get_contents( $path ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
+
+		$resp = wp_remote_post( 'https://fal.run/fal-ai/esrgan', [
+			'timeout' => 180,
+			'headers' => [ 'Authorization' => 'Key ' . DZE_Content::fal_key(), 'content-type' => 'application/json' ],
+			'body'    => wp_json_encode( [ 'image_url' => $src, 'scale' => 4 ] ),
+		] );
+		if ( is_wp_error( $resp ) ) {
+			wp_send_json_error( [ 'message' => $resp->get_error_message() ] );
+		}
+		$code = wp_remote_retrieve_response_code( $resp );
+		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+		$url  = (string) ( $body['image']['url'] ?? ( $body['images'][0]['url'] ?? '' ) );
+		if ( $code < 200 || $code >= 300 || '' === $url ) {
+			$msg = is_array( $body ) && isset( $body['detail'] ) ? ( is_string( $body['detail'] ) ? $body['detail'] : wp_json_encode( $body['detail'] ) ) : 'HTTP ' . $code;
+			wp_send_json_error( [ 'message' => sprintf( __( 'fal.ai upscale error: %s', 'dazont-ecom' ), mb_substr( (string) $msg, 0, 300 ) ) ] );
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) ) {
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'esrgan', 0.01 ); // rough per-upscale estimate.
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		$tmp = download_url( $url, 120 );
+		if ( is_wp_error( $tmp ) ) {
+			wp_send_json_error( [ 'message' => $tmp->get_error_message() ] );
+		}
+		$slug   = sanitize_title( get_the_title( $pid ) ) ?: 'pod-design';
+		$att_id = media_handle_sideload( [ 'name' => $slug . '-print.png', 'tmp_name' => $tmp ], $pid, get_the_title( $pid ) . ' — print file' );
+		if ( is_wp_error( $att_id ) ) {
+			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+			wp_send_json_error( [ 'message' => $att_id->get_error_message() ] );
+		}
+		update_post_meta( $pid, self::DESIGN_META, (int) $att_id );
+		wp_send_json_success( [
+			'thumb' => (string) wp_get_attachment_image_url( (int) $att_id, 'thumbnail' ),
+			'dims'  => self::design_dims_note( (int) $att_id ),
+		] );
 	}
 
 	// =========================================================================

@@ -1978,15 +1978,27 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
 		}
 		$settings['registry'] = $rows;
-		update_option( self::OPT_SETTINGS, $settings, false );
+		$this->write_settings_direct( $settings );
 		self::$registry_cache = null;
-		// Read back: the option's sanitizer runs on every update_option and must
-		// not have dropped the row — report a real failure instead of a fake ✓.
+		// Read back — report a real failure instead of a fake ✓.
 		$check = self::registry_row( $row_id );
 		if ( ! $check || (string) ( $check['prompt'] ?? '' ) !== $prompt ) {
 			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
+	}
+
+	/**
+	 * Writes ALREADY-CANONICAL settings without WordPress re-running our
+	 * sanitizer on them (update_option triggers the sanitize_option filter,
+	 * which is shaped for form input and has historically eaten programmatic
+	 * saves). The callers only pass arrays built from stored settings.
+	 */
+	private function write_settings_direct( array $settings ): void {
+		$tag = 'sanitize_option_' . self::OPT_SETTINGS;
+		remove_filter( $tag, [ $this, 'sanitize' ] );
+		update_option( self::OPT_SETTINGS, $settings, false );
+		add_filter( $tag, [ $this, 'sanitize' ] );
 	}
 
 	/**
@@ -2045,7 +2057,7 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
 		}
 		$settings['registry'] = $rows;
-		update_option( self::OPT_SETTINGS, $settings, false );
+		$this->write_settings_direct( $settings );
 		self::$registry_cache = null;
 		$check = self::registry_row( $row_id );
 		if ( ! $check || (int) ! empty( $check['valid'] ) !== $on ) {
