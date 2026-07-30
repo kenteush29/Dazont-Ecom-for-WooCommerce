@@ -348,16 +348,28 @@ EOT;
 		];
 	}
 
-	/** The full prompt registry; builds itself from legacy settings on first read. */
+	/**
+	 * In-memory registry cache. NEVER auto-persist from here: update_option on our
+	 * own registered option re-enters sanitize() (sanitize_option_* filter), which
+	 * reads the registry again — infinite recursion, fatal error. The registry is
+	 * only persisted by real saves (settings form / ajax_save_prompt).
+	 *
+	 * @var array[]|null
+	 */
+	private static ?array $registry_cache = null;
+
+	/** The full prompt registry; falls back to a legacy-derived set in memory. */
 	public static function registry(): array {
+		if ( null !== self::$registry_cache ) {
+			return self::$registry_cache;
+		}
 		$s = self::get_settings();
 		if ( ! empty( $s['registry'] ) && is_array( $s['registry'] ) ) {
-			return $s['registry'];
+			self::$registry_cache = $s['registry'];
+		} else {
+			self::$registry_cache = self::registry_from_legacy();
 		}
-		$rows = self::registry_from_legacy();
-		$s['registry'] = $rows;
-		update_option( self::OPT_SETTINGS, $s, false );
-		return $rows;
+		return self::$registry_cache;
 	}
 
 	/** One-time migration: legacy fields + overrides + image templates → registry rows. */
@@ -650,6 +662,13 @@ EOT;
 	}
 
 	public function sanitize( $in ): array {
+		// Re-entrancy guard: update_option() on this option triggers this callback
+		// again (sanitize_option_* filter) — pass nested calls through untouched.
+		static $busy = false;
+		if ( $busy ) {
+			return is_array( $in ) ? $in : [];
+		}
+		$busy = true;
 		$in  = is_array( $in ) ? $in : [];
 		$out = self::get_settings();
 
@@ -659,30 +678,13 @@ EOT;
 		}
 		// The General-tab mini form only posts fal_key: don't touch the rest then.
 		if ( isset( $in['fal_key'] ) && count( $in ) <= 2 ) {
+			$busy = false;
 			return $out;
 		}
 
 		if ( isset( $in['store_context'] ) ) {
 			$out['store_context'] = sanitize_textarea_field( (string) $in['store_context'] );
 		}
-		$dests = array_keys( self::dest_options() );
-		$fv    = [];
-		$fe    = [];
-		foreach ( array_keys( self::fields() ) as $fid ) {
-			if ( isset( $in[ 'prompt_' . $fid ] ) ) {
-				$out[ 'prompt_' . $fid ] = sanitize_textarea_field( (string) $in[ 'prompt_' . $fid ] );
-			}
-			if ( isset( $in[ 'dest_' . $fid ] ) && in_array( $in[ 'dest_' . $fid ], $dests, true ) ) {
-				$out[ 'dest_' . $fid ] = (string) $in[ 'dest_' . $fid ];
-			}
-			if ( isset( $in[ 'metakey_' . $fid ] ) ) {
-				$out[ 'metakey_' . $fid ] = sanitize_key( (string) $in[ 'metakey_' . $fid ] );
-			}
-			$fv[ $fid ] = ! empty( $in['fv'][ $fid ] ) ? 1 : 0;
-			$fe[ $fid ] = ! empty( $in['fe'][ $fid ] ) ? 1 : 0;
-		}
-		$out['fv'] = $fv; // per-prompt validation (individual checkboxes).
-		$out['fe'] = $fe; // per-field activation.
 		// Price table.
 		if ( isset( $in['pt_min'] ) && is_array( $in['pt_min'] ) ) {
 			$rows = [];
@@ -698,26 +700,6 @@ EOT;
 			}
 			if ( $rows ) {
 				$out['price_table'] = $rows;
-			}
-		}
-		// Image templates (indexed so the per-row "validated" checkbox stays aligned).
-		if ( isset( $in['it_name'] ) && is_array( $in['it_name'] ) ) {
-			$tpls = [];
-			foreach ( $in['it_name'] as $i => $nm ) {
-				$nm = sanitize_text_field( (string) $nm );
-				$pr = sanitize_textarea_field( (string) ( $in['it_prompt'][ $i ] ?? '' ) );
-				$tg = ( ( $in['it_target'][ $i ] ?? 'gallery' ) === 'main' ) ? 'main' : 'gallery';
-				if ( '' !== $nm && '' !== $pr ) {
-					$tpls[] = [
-						'name'   => $nm,
-						'target' => $tg,
-						'prompt' => $pr,
-						'valid'  => ! empty( $in['it_valid'][ $i ] ) ? 1 : 0,
-					];
-				}
-			}
-			if ( $tpls ) {
-				$out['image_templates'] = $tpls;
 			}
 		}
 		// Universal prompt registry rows (the new editor posts pr_* arrays).
@@ -766,6 +748,8 @@ EOT;
 			}
 		}
 		unset( $out['prompts_validated'] ); // replaced by per-prompt validation.
+		self::$registry_cache = null; // saved rows take effect immediately.
+		$busy = false;
 		return $out;
 	}
 
@@ -1796,6 +1780,7 @@ EOT;
 		}
 		$settings['registry'] = $rows;
 		update_option( self::OPT_SETTINGS, $settings, false );
+		self::$registry_cache = null;
 		wp_send_json_success( [ 'saved' => true ] );
 	}
 
