@@ -61,6 +61,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_image', [ $this, 'ajax_image' ] );
 		add_action( 'wp_ajax_dze_content_image_attach', [ $this, 'ajax_image_attach' ] );
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
+		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
 
@@ -713,8 +714,10 @@ EOT;
 			$c = (float) $in['fal_image_cost'];
 			$out['fal_image_cost'] = $c > 0 ? round( $c, 4 ) : 0.0;
 		}
-		// The General-tab mini form only posts fal_key (+ price): don't touch the rest then.
-		if ( isset( $in['fal_key'] ) && count( $in ) <= 3 ) {
+		// The General-tab mini form (explicit marker) only carries key + price:
+		// don't touch the rest then. A key-count heuristic was used before and
+		// misfired on slim installs, silently discarding programmatic saves.
+		if ( isset( $in['fal_form'] ) ) {
 			$busy = false;
 			return $out;
 		}
@@ -853,6 +856,7 @@ EOT;
 		<div class="dze-admin">
 		<form method="post" action="options.php">
 		<?php settings_fields( 'dze_content_options' ); ?>
+		<input type="hidden" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_form]" value="1" />
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="dze-fal-key"><?php esc_html_e( 'fal.ai API key (images)', 'dazont-ecom' ); ?></label></th>
@@ -1371,6 +1375,8 @@ EOT;
 				'promptNote' => __( 'Edits here are used for THIS generation only — click 💾 to make them permanent.', 'dazont-ecom' ),
 				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
 				'notValid'   => __( 'not validated', 'dazont-ecom' ),
+				'validated'  => __( 'Validated', 'dazont-ecom' ),
+				'validToggle'=> __( 'Click to toggle validation — validated prompts can be applied / attached.', 'dazont-ecom' ),
 				'fieldLocked'=> __( 'This prompt is not validated yet (AI Settings → Product content).', 'dazont-ecom' ),
 				'cost'       => __( 'Cost (COGS)', 'dazont-ecom' ),
 				'recalc'     => __( 'Recalculate & apply', 'dazont-ecom' ),
@@ -1906,6 +1912,51 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from AI Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
+	}
+
+	/**
+	 * Toggle a prompt's Validated flag straight from the toolbox — no round trip
+	 * to AI Settings. Same capability as the settings page.
+	 */
+	public function ajax_validate_prompt(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$type = isset( $_POST['ptype'] ) ? sanitize_key( wp_unslash( $_POST['ptype'] ) ) : '';
+		$on   = ! empty( $_POST['on'] ) ? 1 : 0;
+		$row_id = '';
+		if ( 'field' === $type ) {
+			$row_id = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+		} elseif ( 'template' === $type ) {
+			$idx    = isset( $_POST['index'] ) ? absint( $_POST['index'] ) : 0;
+			$tpls   = self::image_templates();
+			$row_id = (string) ( $tpls[ $idx ]['id'] ?? '' );
+		}
+		if ( '' === $row_id ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+		}
+		$settings = self::get_settings();
+		$rows     = self::registry();
+		$found    = false;
+		foreach ( $rows as $k => $r ) {
+			if ( ( $r['id'] ?? '' ) === $row_id ) {
+				$rows[ $k ]['valid'] = $on;
+				$found = true;
+				break;
+			}
+		}
+		if ( ! $found ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		$settings['registry'] = $rows;
+		update_option( self::OPT_SETTINGS, $settings, false );
+		self::$registry_cache = null;
+		$check = self::registry_row( $row_id );
+		if ( ! $check || (int) ! empty( $check['valid'] ) !== $on ) {
+			wp_send_json_error( [ 'message' => __( 'The change was not persisted — please use AI Settings instead.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'valid' => (bool) $on ] );
 	}
 
 	/**

@@ -106,6 +106,14 @@
 .dze-fv.is-ok { color: #0a7040; }
 .dze-cx-field.is-unvalidated { border-color: #f0e08a; background: #fffdf3; }
 .dze-cx-badge { font-size: 10px; font-weight: 600; color: #8a6d00; background: #fcf3cd; border: 1px solid #f0e08a; border-radius: 999px; padding: 1px 7px; text-transform: uppercase; }
+/* Clickable validation toggle — amber = not validated, green = validated. */
+.dze-cx-vbtn {
+	cursor: pointer; font-size: 10px; font-weight: 600; text-transform: uppercase;
+	color: #8a6d00; background: #fcf3cd; border: 1px solid #f0e08a; border-radius: 999px; padding: 1px 8px;
+}
+.dze-cx-vbtn.is-on { color: #0a7040; background: #e6f4ea; border-color: #b6dfc3; }
+.dze-cx-vbtn:hover { border-color: #8a6d00; }
+.dze-cx-vbtn.is-on:hover { border-color: #0a7040; }
 
 /* ---- Price table (add/remove ranges) ---- */
 .dze-price-table { max-width: 620px; }

@@ -31,7 +31,8 @@
 			var ok = fieldValidated(fid);
 			fieldCards +=
 				'<div class="dze-cx-field' + (ok ? '' : ' is-unvalidated') + '" data-field="' + fid + '">' +
-				'<h4>' + esc(cfg.fields[fid]) + (ok ? '' : ' <span class="dze-cx-badge">' + esc(i18n.notValid) + '</span>') + '</h4>' +
+				'<h4>' + esc(cfg.fields[fid]) +
+				' <button type="button" class="dze-cx-vbtn' + (ok ? ' is-on' : '') + '" title="' + esc(i18n.validToggle) + '">' + (ok ? '✓ ' + esc(i18n.validated) : esc(i18n.notValid)) + '</button></h4>' +
 				'<div class="dze-cx-pwrap" style="display:none;">' +
 					'<textarea rows="6" class="dze-cx-p-text" title="' + esc(i18n.promptNote) + '"></textarea>' +
 				'</div>' +
@@ -74,6 +75,7 @@
 					'<div class="dze-cx-imgrow">' +
 						'<label>' + esc(i18n.template) + ' <select id="dze-cx-tpl">' + tplOpts + '</select></label>' +
 						'<button type="button" class="button button-primary" id="dze-cx-genimg">' + esc(i18n.genImage) + '</button>' +
+						'<button type="button" class="dze-cx-vbtn" id="dze-cx-tpl-validate" title="' + esc(i18n.validToggle) + '"></button>' +
 						'<span id="dze-cx-imgstatus"></span>' +
 					'</div>' +
 					'<details class="dze-cx-acc">' +
@@ -110,6 +112,7 @@
 	function open(pane) {
 		build();
 		syncTplPrompt();
+		refreshTplUi();
 		$('#dze-cx-modal').addClass('is-open');
 		showPane(pane || 'text');
 	}
@@ -117,6 +120,20 @@
 		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
 		var t = cfg.templates[i] || {};
 		$('#dze-cx-tpl-prompt').val(t.prompt || '');
+	}
+	function tplLabel(i) {
+		var t = cfg.templates[i];
+		return t.name + ' (' + t.target + ')' + (t.valid ? '' : ' — ' + i18n.notValid);
+	}
+	// Keeps the template select labels and the validation toggle in sync.
+	function refreshTplUi() {
+		$('#dze-cx-tpl option').each(function () {
+			var ix = parseInt($(this).val(), 10);
+			if (cfg.templates[ix]) { $(this).text(tplLabel(ix)); }
+		});
+		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
+		var t = cfg.templates[i] || {};
+		$('#dze-cx-tpl-validate').toggleClass('is-on', !!t.valid).text(t.valid ? '✓ ' + i18n.validated : i18n.notValid);
 	}
 	function showPane(p) {
 		$('.dze-cx-tab').removeClass('is-active').filter('[data-pane="' + p + '"]').addClass('is-active');
@@ -239,6 +256,37 @@
 	$(document).on('change', '#dze-cx-tpl', function () {
 		var m = mem(); m.tpl = $(this).val(); saveMem(m);
 		syncTplPrompt();
+		refreshTplUi();
+	});
+
+	// ---- One-click validation toggles (persisted in the prompt registry) ----
+	$(document).on('click', '.dze-cx-field .dze-cx-vbtn', function () {
+		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
+		var on = fieldValidated(fid) ? 0 : 1, $b = $(this).prop('disabled', true);
+		$.post(cfg.ajaxUrl, { action: 'dze_content_validate_prompt', nonce: cfg.nonce, ptype: 'field', field: fid, on: on })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }
+				cfg.validated[fid] = !!on;
+				$b.toggleClass('is-on', !!on).text(on ? '✓ ' + i18n.validated : i18n.notValid);
+				$card.toggleClass('is-unvalidated', !on);
+				$card.find('.dze-cx-apply').prop('disabled', !on).attr('title', on ? '' : i18n.fieldLocked);
+			})
+			.fail(function () { $b.prop('disabled', false); window.alert(i18n.error); });
+	});
+	$(document).on('click', '#dze-cx-tpl-validate', function () {
+		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
+		var t = cfg.templates[i];
+		if (!t) { return; }
+		var on = t.valid ? 0 : 1, $b = $(this).prop('disabled', true);
+		$.post(cfg.ajaxUrl, { action: 'dze_content_validate_prompt', nonce: cfg.nonce, ptype: 'template', index: i, on: on })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }
+				t.valid = !!on;
+				refreshTplUi();
+			})
+			.fail(function () { $b.prop('disabled', false); window.alert(i18n.error); });
 	});
 
 	$(document).on('click', '#dze-cx-tpl-save', function () {
