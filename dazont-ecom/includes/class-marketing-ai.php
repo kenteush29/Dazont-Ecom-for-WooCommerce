@@ -367,6 +367,7 @@ final class DZE_Marketing_Ai {
 			'general'  => __( 'General', 'dazont-ecom' ),
 			'sourcing' => __( 'Sourcing Assistant', 'dazont-ecom' ),
 			'content'  => __( 'Product content', 'dazont-ecom' ),
+			'pod'      => __( 'POD', 'dazont-ecom' ),
 			'events'   => __( 'Marketing events', 'dazont-ecom' ),
 		];
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
@@ -409,6 +410,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'content' === $tab ) {
 			if ( class_exists( 'DZE_Content' ) ) {
 				DZE_Content::instance()->render_settings_section();
+			}
+		} elseif ( 'pod' === $tab ) {
+			if ( class_exists( 'DZE_Pod' ) ) {
+				DZE_Pod::instance()->render_settings();
 			}
 		} else { // events.
 			$this->render_settings_section( 'events' );

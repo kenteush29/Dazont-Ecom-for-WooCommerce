@@ -1310,6 +1310,9 @@ EOT;
 			return;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		if ( $on_settings || $on_product ) {
+			wp_enqueue_media(); // POD design / mockup pickers use the native media modal.
+		}
 
 		if ( $on_bulk ) {
 			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery' ], DZE_VERSION, true );
@@ -1840,7 +1843,7 @@ EOT;
 	}
 
 	/** Only fal's own delivery hosts are accepted as remote sources (no SSRF). */
-	private static function is_fal_url( string $url ): bool {
+	public static function is_fal_url( string $url ): bool {
 		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
 		return 'fal.media' === $host || str_ends_with( $host, '.fal.media' ) || str_ends_with( $host, '.fal.run' ) || 'fal.run' === $host;
 	}
@@ -1888,7 +1891,7 @@ EOT;
 	 * product title, alt text set. Attaches as main image or appends to the
 	 * product gallery.
 	 */
-	private function sideload_seo( string $url, int $pid, string $target ): int {
+	public function sideload_seo( string $url, int $pid, string $target ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -2055,7 +2058,7 @@ EOT;
 	 * returns it as a base64 data URI, which fal decodes directly — removing every
 	 * "fal cannot reach the source URL" failure (private staging, hotlink rules).
 	 */
-	private function fal_source_data_uri( int $attachment_id ): string {
+	public function fal_source_data_uri( int $attachment_id ): string {
 		$path = '';
 		$size = image_get_intermediate_size( $attachment_id, 'large' );
 		if ( is_array( $size ) && ! empty( $size['path'] ) ) {
@@ -2086,7 +2089,7 @@ EOT;
 		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
 	}
 
-	private function fal_generate( string $prompt, array $image_urls ): string {
+	public function fal_generate( string $prompt, array $image_urls ): string {
 		$resp = wp_remote_post( self::FAL_ENDPOINT, [
 			'timeout' => 120,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],

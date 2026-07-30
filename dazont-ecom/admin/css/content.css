@@ -196,3 +196,12 @@
 .dze-pr-inputs label { display: block; font-size: 12px; margin: 3px 0; }
 .dze-pr-inputs input[type="text"] { margin-top: 4px; font-size: 11px; }
 .dze-pr-del { color: #b32d2e !important; border-color: #f0c4c4 !important; }
+
+/* ---- POD module (separate side box + settings tab) ---- */
+.dze-pod-box #dze-pod-design-preview img {
+	max-width: 120px; height: auto; display: block; margin-bottom: 6px;
+	border: 1px solid #dcdcde; border-radius: 4px;
+	background: repeating-conic-gradient(#f0f0f1 0 25%, #fff 0 50%) 0 0 / 16px 16px; /* checkerboard = transparency visible */
+}
+.dze-pod-box .button { max-width: 100%; }
+.dze-pod-del { color: #b32d2e !important; }
