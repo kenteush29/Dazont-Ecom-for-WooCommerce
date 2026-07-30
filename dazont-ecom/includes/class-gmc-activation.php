@@ -25,7 +25,6 @@ defined( 'ABSPATH' ) || exit;
  */
 final class DZE_Gmc_Activation {
 
-	private const OPT   = 'dze_gmca_settings';
 	private const NONCE = 'dze_gmca';
 
 	/** Same meta key the shop's existing GMC flow reads. */
@@ -41,7 +40,6 @@ final class DZE_Gmc_Activation {
 	}
 
 	private function __construct() {
-		add_action( 'admin_init', [ $this, 'register_settings' ] );
 		// Products list column.
 		add_filter( 'manage_edit-product_columns', [ $this, 'add_column' ], 20 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'render_column' ], 10, 2 );
@@ -60,35 +58,55 @@ final class DZE_Gmc_Activation {
 	}
 
 	// =========================================================================
-	// Settings (fallback attribute for the no-image case)
+	// WPML helpers — the activation flag is a PRODUCT decision, not a
+	// language decision: every write is mirrored to all translations, and the
+	// catalogue run walks original-language products only.
 	// =========================================================================
 
-	public static function get_settings(): array {
-		$s = get_option( self::OPT, [] );
-		return is_array( $s ) ? $s : [];
+	private static function wpml_active(): bool {
+		return defined( 'ICL_SITEPRESS_VERSION' );
 	}
 
-	public function register_settings(): void {
-		register_setting( 'dze_gmca_options', self::OPT, [
-			'type'              => 'array',
-			'sanitize_callback' => [ $this, 'sanitize' ],
-			'default'           => [],
+	/** Original-language published product ids (all products when WPML is absent). */
+	private static function original_product_ids( int $offset, int $limit ): array {
+		if ( self::wpml_active() ) {
+			global $wpdb;
+			return array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare(
+				"SELECT p.ID FROM {$wpdb->posts} p
+				 INNER JOIN {$wpdb->prefix}icl_translations t
+				 ON t.element_id = p.ID AND t.element_type = 'post_product'
+				 WHERE p.post_type = 'product' AND p.post_status = 'publish'
+				 AND t.source_language_code IS NULL
+				 ORDER BY p.ID ASC LIMIT %d OFFSET %d",
+				$limit,
+				$offset
+			) ) );
+		}
+		return get_posts( [
+			'post_type'      => 'product',
+			'post_status'    => 'publish',
+			'fields'         => 'ids',
+			'orderby'        => 'ID',
+			'order'          => 'ASC',
+			'posts_per_page' => $limit,
+			'offset'         => $offset,
 		] );
 	}
 
-	public function sanitize( $in ): array {
-		$in  = is_array( $in ) ? $in : [];
-		$out = self::get_settings();
-		if ( isset( $in['fallback_attr'] ) ) {
-			$out['fallback_attr'] = sanitize_title( (string) $in['fallback_attr'] );
+	/** How many products the catalogue run will process (originals only). */
+	public static function original_count(): int {
+		if ( self::wpml_active() ) {
+			global $wpdb;
+			return (int) $wpdb->get_var(
+				"SELECT COUNT(p.ID) FROM {$wpdb->posts} p
+				 INNER JOIN {$wpdb->prefix}icl_translations t
+				 ON t.element_id = p.ID AND t.element_type = 'post_product'
+				 WHERE p.post_type = 'product' AND p.post_status = 'publish'
+				 AND t.source_language_code IS NULL"
+			);
 		}
-		return $out;
-	}
-
-	/** Attribute used to pick "one variation per value" when no variation has an image. */
-	public static function fallback_attr(): string {
-		$a = (string) ( self::get_settings()['fallback_attr'] ?? '' );
-		return '' !== $a ? $a : 'pa_color';
+		$counts = wp_count_posts( 'product' );
+		return (int) ( $counts->publish ?? 0 );
 	}
 
 	// =========================================================================
@@ -99,11 +117,31 @@ final class DZE_Gmc_Activation {
 		return 'yes' === get_post_meta( $post_id, self::META, true );
 	}
 
-	private static function set_on( int $post_id, bool $on ): void {
+	private static function write_flag( int $post_id, bool $on ): void {
 		if ( $on ) {
 			update_post_meta( $post_id, self::META, 'yes' );
 		} else {
 			delete_post_meta( $post_id, self::META );
+		}
+	}
+
+	/** Sets the flag on a product/variation AND on every WPML translation of it. */
+	private static function set_on( int $post_id, bool $on ): void {
+		self::write_flag( $post_id, $on );
+		$langs = apply_filters( 'wpml_active_languages', null );
+		if ( empty( $langs ) || ! is_array( $langs ) ) {
+			return;
+		}
+		$type = get_post_type( $post_id ) ?: 'product';
+		foreach ( $langs as $lang ) {
+			$code = (string) ( $lang['code'] ?? '' );
+			if ( '' === $code ) {
+				continue;
+			}
+			$tid = apply_filters( 'wpml_object_id', $post_id, $type, false, $code );
+			if ( $tid && (int) $tid !== $post_id ) {
+				self::write_flag( (int) $tid, $on );
+			}
 		}
 	}
 
@@ -194,15 +232,33 @@ final class DZE_Gmc_Activation {
 	// =========================================================================
 
 	/**
+	 * The colour-like variation attribute of THIS product (else its first
+	 * variation attribute) — used to keep one variation per value when no
+	 * variation has an image. Auto-detected, nothing to configure.
+	 */
+	private static function pick_fallback_attr( WC_Product $product ): string {
+		$attrs = array_keys( (array) $product->get_variation_attributes() );
+		if ( empty( $attrs ) ) {
+			return '';
+		}
+		foreach ( $attrs as $a ) {
+			$slug = sanitize_title( (string) $a );
+			if ( preg_match( '/colou?r|couleur/', $slug ) ) {
+				return $slug;
+			}
+		}
+		return sanitize_title( (string) $attrs[0] );
+	}
+
+	/**
 	 * Applies the automatic rules to ONE product and returns the enabled ids.
 	 * Simple: the product itself. Variable: parent + the picked variations —
 	 * first of each distinct variation image; when NO variation has its own
-	 * image, first of each value of the fallback attribute (or the very first
-	 * variation when that attribute is absent). Every other variation is
-	 * switched off.
+	 * image, first of each value of the product's colour attribute (or its
+	 * first variation attribute). Every other variation is switched off.
 	 */
-	public static function auto_mark( WC_Product $product, string $fallback_attr = '' ): array {
-		$fallback_attr = $fallback_attr ?: self::fallback_attr();
+	public static function auto_mark( WC_Product $product ): array {
+		$fallback_attr = self::pick_fallback_attr( $product );
 		self::set_on( $product->get_id(), true );
 		if ( ! $product->is_type( 'variable' ) ) {
 			return [ $product->get_id() ];
@@ -221,10 +277,10 @@ final class DZE_Gmc_Activation {
 			}
 		}
 		if ( empty( $keep ) && ! empty( $children ) ) {
-			// No variation image at all → one per fallback-attribute value.
+			// No variation image at all → one per value of the colour-like attribute.
 			$by_value = [];
 			foreach ( $children as $vid ) {
-				$val = (string) get_post_meta( $vid, 'attribute_' . $fallback_attr, true );
+				$val = '' !== $fallback_attr ? (string) get_post_meta( $vid, 'attribute_' . $fallback_attr, true ) : '';
 				$by_value[ $val ][] = $vid;
 			}
 			foreach ( $by_value as $vids ) {
@@ -490,16 +546,8 @@ final class DZE_Gmc_Activation {
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
-		$ids = get_posts( [
-			'post_type'      => 'product',
-			'post_status'    => 'publish',
-			'fields'         => 'ids',
-			'orderby'        => 'ID',
-			'order'          => 'ASC',
-			'posts_per_page' => $limit,
-			'offset'         => $offset,
-			'suppress_filters' => false, // WPML: current-language set; translations follow their own run.
-		] );
+		// WPML: originals only — every flag write is mirrored to translations.
+		$ids = self::original_product_ids( $offset, $limit );
 		$marked = 0;
 		foreach ( $ids as $pid ) {
 			$product = wc_get_product( (int) $pid );
@@ -524,29 +572,26 @@ final class DZE_Gmc_Activation {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		$counts = wp_count_posts( 'product' );
-		$total  = (int) ( $counts->publish ?? 0 );
+		$total = self::original_count();
 		?>
 		<div class="dze-admin">
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Marks which products and variations are sent to Google Merchant Center (the "_merchant_center_activation" flag your feed already uses). Automatic rules: every simple product and variable parent is enabled; variations with an ORIGINAL image are enabled (first of each distinct image — duplicates skipped); when no variation has its own image, the first variation of each value of the fallback attribute below is enabled. Fine-tune per product from the "GMC activation" box on the product page.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Decides which products and variations are sent to Google Merchant Center. The goal: ONE entry per real product picture — never the same photo twice.', 'dazont-ecom' ); ?>
 		</p>
-		<form method="post" action="options.php">
-			<?php settings_fields( 'dze_gmca_options' ); ?>
-			<table class="form-table" role="presentation">
-				<tr>
-					<th scope="row"><label for="dze-gmca-fattr"><?php esc_html_e( 'Fallback attribute (no-image case)', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<input type="text" id="dze-gmca-fattr" name="<?php echo esc_attr( self::OPT ); ?>[fallback_attr]" value="<?php echo esc_attr( self::fallback_attr() ); ?>" class="regular-text" placeholder="pa_color" />
-						<p class="description"><?php esc_html_e( 'Attribute slug used to keep one variation per value when no variation has an image (default: pa_color — one per colour).', 'dazont-ecom' ); ?></p>
-					</td>
-				</tr>
-			</table>
-			<?php submit_button( __( 'Save GMC activation settings', 'dazont-ecom' ) ); ?>
-		</form>
+		<ul style="max-width:880px;list-style:disc;padding-left:20px;">
+			<li><?php esc_html_e( 'Simple products and variable parents: always sent.', 'dazont-ecom' ); ?></li>
+			<li><?php esc_html_e( 'Variations with their own photo: sent once per distinct photo (duplicates skipped).', 'dazont-ecom' ); ?></li>
+			<li><?php esc_html_e( 'Variations without any photo: one per colour (the product\'s colour attribute is detected automatically; its first attribute is used when there is no colour).', 'dazont-ecom' ); ?></li>
+		</ul>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'Special cases (e.g. a rug where only one size matches the photo) are refined product by product: "GMC activation" button in the Dazont Ecom box on the product page.', 'dazont-ecom' ); ?>
+			<?php if ( self::wpml_active() ) : ?>
+				<br /><strong>WPML:</strong> <?php esc_html_e( 'the run walks original-language products only, and every choice (automatic or manual) is copied to all translations — one decision per product, whatever the language.', 'dazont-ecom' ); ?>
+			<?php endif; ?>
+		</p>
 		<hr />
 		<h2><?php esc_html_e( 'Mark the whole catalogue', 'dazont-ecom' ); ?></h2>
-		<p class="description"><?php printf( /* translators: %s: product count */ esc_html__( 'Applies the automatic rules to all %s published products (existing manual choices on variations are overwritten — refine the tricky ones afterwards from their product page).', 'dazont-ecom' ), number_format_i18n( $total ) ); ?></p>
+		<p class="description"><?php printf( /* translators: %s: product count */ esc_html__( 'Applies the rules above to the %s products of the catalogue. Existing manual variation choices are overwritten — refine the tricky ones afterwards.', 'dazont-ecom' ), number_format_i18n( $total ) ); ?></p>
 		<p>
 			<button type="button" class="button button-primary" id="dze-gmca-runall"><?php esc_html_e( 'Run automatic marking', 'dazont-ecom' ); ?></button>
 		</p>

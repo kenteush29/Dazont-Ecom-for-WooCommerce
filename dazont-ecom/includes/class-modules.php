@@ -92,7 +92,7 @@ final class DZE_Modules {
 				'group' => 'marketing',
 				'label' => __( 'GMC product activation', 'dazont-ecom' ),
 				'desc'  => __( 'Chooses which products/variations go to Merchant Center.', 'dazont-ecom' ),
-				'more'  => __( 'Manages the "_merchant_center_activation" flag your Merchant Center feed reads, with a ✔/✘ GMC column on the products list. Automatic rules (whole catalogue or per product): simple products and variable parents on; variations with an ORIGINAL image on (first of each distinct image, duplicates skipped); when no variation has an image, first variation of each value of a fallback attribute (colour by default). Per-product quick strategies — all variations (unique versions), first of each chosen attribute (one per colour), none — plus a manual variation picker with thumbnails for the tricky cases (e.g. rugs), and the classic checkboxes in the product Advanced tab and variation panels.', 'dazont-ecom' ),
+				'more'  => __( 'Manages the "_merchant_center_activation" flag your Merchant Center feed reads, with a ✔/✘ GMC column on the products list. Goal: one Merchant Center entry per real product photo. Automatic rules (whole catalogue or per product): simple products and variable parents on; variations with their own photo on (once per distinct photo, duplicates skipped); variations without any photo → one per colour (detected automatically). Per-product quick strategies — all variations, first of each chosen attribute, none — plus a manual variation picker with thumbnails for tricky cases (e.g. rugs). WPML: one decision per product, mirrored to every translation; the catalogue run walks original-language products only.', 'dazont-ecom' ),
 			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',
