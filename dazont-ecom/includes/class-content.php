@@ -784,6 +784,57 @@ EOT;
 				$out['registry'] = $rows;
 			}
 		}
+		// Programmatic saves (e.g. ajax_save_prompt) call update_option with the
+		// canonical settings array, and WordPress re-runs this sanitizer on it.
+		// Without this branch their registry rows were silently dropped and the
+		// old rows written back — accept the canonical shape too.
+		if ( isset( $in['registry'] ) && is_array( $in['registry'] ) && ! isset( $in['pr_name'] ) ) {
+			$rows = [];
+			$seen = [];
+			foreach ( $in['registry'] as $r ) {
+				if ( ! is_array( $r ) ) {
+					continue;
+				}
+				$name   = sanitize_text_field( (string) ( $r['name'] ?? '' ) );
+				$prompt = sanitize_textarea_field( (string) ( $r['prompt'] ?? '' ) );
+				if ( '' === $name || '' === trim( $prompt ) ) {
+					continue;
+				}
+				$id = sanitize_key( (string) ( $r['id'] ?? '' ) );
+				if ( '' === $id ) {
+					$id = sanitize_key( str_replace( ' ', '_', $name ) ) ?: 'prompt';
+				}
+				while ( isset( $seen[ $id ] ) ) {
+					$id .= '_2';
+				}
+				$seen[ $id ] = 1;
+				$type   = ( ( $r['type'] ?? 'text' ) === 'image' ) ? 'image' : 'text';
+				$outsel = (string) ( $r['output'] ?? '' );
+				if ( ! array_key_exists( $outsel, self::output_options( $type ) ) ) {
+					$outsel = 'image' === $type ? 'gallery' : 'meta';
+				}
+				$inputs = array_values( array_intersect(
+					array_map( 'sanitize_key', (array) ( $r['inputs'] ?? [] ) ),
+					array_keys( self::input_options() )
+				) );
+				$rows[] = [
+					'id'          => $id,
+					'name'        => $name,
+					'type'        => $type,
+					'prompt'      => $prompt,
+					'inputs'      => $inputs ?: [ 'title', 'description' ],
+					'inputs_meta' => sanitize_text_field( (string) ( $r['inputs_meta'] ?? '' ) ),
+					'output'      => $outsel,
+					'meta_key'    => sanitize_key( (string) ( $r['meta_key'] ?? '' ) ) ?: '_dze_' . $id,
+					'enabled'     => ! empty( $r['enabled'] ) ? 1 : 0,
+					'valid'       => ! empty( $r['valid'] ) ? 1 : 0,
+					'tokens'      => max( 50, (int) ( $r['tokens'] ?? 400 ) ),
+				];
+			}
+			if ( $rows ) {
+				$out['registry'] = $rows;
+			}
+		}
 		unset( $out['prompts_validated'] ); // replaced by per-prompt validation.
 		self::$registry_cache = null; // saved rows take effect immediately.
 		$busy = false;
@@ -1848,6 +1899,12 @@ EOT;
 		$settings['registry'] = $rows;
 		update_option( self::OPT_SETTINGS, $settings, false );
 		self::$registry_cache = null;
+		// Read back: the option's sanitizer runs on every update_option and must
+		// not have dropped the row — report a real failure instead of a fake ✓.
+		$check = self::registry_row( $row_id );
+		if ( ! $check || (string) ( $check['prompt'] ?? '' ) !== $prompt ) {
+			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from AI Settings instead.', 'dazont-ecom' ) ] );
+		}
 		wp_send_json_success( [ 'saved' => true ] );
 	}
 
