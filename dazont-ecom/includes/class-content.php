@@ -62,6 +62,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_image_attach', [ $this, 'ajax_image_attach' ] );
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
+		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
 
@@ -1049,6 +1050,33 @@ EOT;
 					if ( cur.indexOf( key ) < 0 ) { cur.push( key ); }
 					$in.val( cur.join( ', ' ) );
 				} );
+				// AJAX save — no page reload. The appended action parameter wins over
+				// the hidden "action=update" field when admin-ajax parses the body.
+				var $dzeForm = $( '#dze-pr' ).closest( 'form' );
+				$dzeForm.on( 'submit', function ( e ) {
+					e.preventDefault();
+					var $btn = $dzeForm.find( '#submit' ).prop( 'disabled', true );
+					var $ok  = $( '#dze-pr-savednote' );
+					if ( ! $ok.length ) { $ok = $( '<span id="dze-pr-savednote" style="margin-left:10px;font-weight:600;"></span>' ).insertAfter( $btn ); }
+					$ok.css( 'color', '#646970' ).text( '…' );
+					$.post(
+						window.ajaxurl,
+						$dzeForm.serialize() + '&action=dze_content_save_settings&nonce=' + encodeURIComponent( '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' )
+					).done( function ( res ) {
+						$btn.prop( 'disabled', false );
+						if ( res && res.success ) {
+							$ok.css( 'color', '#0a7040' ).text( '<?php echo esc_js( __( 'Saved ✓', 'dazont-ecom' ) ); ?>' );
+							setTimeout( function () { $ok.text( '' ); }, 2500 );
+						} else {
+							$ok.css( 'color', '#b32d2e' ).text( ( res && res.data && res.data.message ) || '<?php echo esc_js( __( 'Save failed.', 'dazont-ecom' ) ); ?>' );
+						}
+					} ).fail( function () {
+						// Network/AJAX failure: fall back to the classic full-page save.
+						$btn.prop( 'disabled', false );
+						$dzeForm.off( 'submit' );
+						$dzeForm.trigger( 'submit' );
+					} );
+				} );
 			} );
 			</script>
 
@@ -1106,9 +1134,7 @@ EOT;
 	public function render_side_box( $post ): void {
 		?>
 		<div class="dze-content-side dze-admin">
-			<p class="description"><?php esc_html_e( 'Open the AI toolbox to generate the product content and images.', 'dazont-ecom' ); ?></p>
-			<button type="button" class="button button-primary" id="dze-cx-open-text" data-tab="text"><?php esc_html_e( 'Generate text', 'dazont-ecom' ); ?></button>
-			<button type="button" class="button" id="dze-cx-open-image" data-tab="image"><?php esc_html_e( 'Generate image', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button button-primary" id="dze-cx-open-auto"><?php esc_html_e( 'Automatic edition', 'dazont-ecom' ); ?></button>
 			<?php [ $dze_ok, $dze_tot ] = self::validated_counts(); ?>
 			<?php if ( $dze_ok < $dze_tot ) : ?>
 				<p class="dze-cx-note"><?php printf( /* translators: 1: validated count, 2: total */ esc_html__( '%1$d/%2$d prompts validated — unvalidated fields stay in preview.', 'dazont-ecom' ), (int) $dze_ok, (int) $dze_tot ); ?></p>
@@ -1320,7 +1346,23 @@ EOT;
 		}
 
 		$product = $pid ? wc_get_product( $pid ) : null;
+
+		// Which product data the enabled prompts consume (labels only, for the
+		// discreet "data used" line — content stays collapsed).
+		$dze_union = [];
+		$dze_opts  = self::input_options();
+		foreach ( array_keys( self::enabled_fields() ) as $ufid ) {
+			$urow = self::registry_row( $ufid );
+			foreach ( (array) ( $urow['inputs'] ?? [] ) as $ink ) {
+				$dze_union[ (string) ( $dze_opts[ $ink ] ?? $ink ) ] = 1;
+			}
+			foreach ( array_filter( array_map( 'trim', explode( ',', (string) ( $urow['inputs_meta'] ?? '' ) ) ) ) as $mk ) {
+				$dze_union[ $mk ] = 1;
+			}
+		}
+
 		wp_localize_script( 'dze-content', 'dzeContent', [
+			'inputsUsed' => array_keys( $dze_union ),
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'nonce'      => wp_create_nonce( self::NONCE ),
 			'postId'     => $pid,
@@ -1331,6 +1373,8 @@ EOT;
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
+				// Formatted like the WordPress editor for the rich context view.
+				'descHtml' => $product ? wpautop( (string) get_post_field( 'post_content', $pid ) ) : '',
 				// Imported supplier attributes are already stored as standard product
 				// attributes — pre-fill them so nobody retypes anything.
 				'attr'  => $product ? self::attributes_summary( $product ) : '',
@@ -1377,6 +1421,24 @@ EOT;
 				'notValid'   => __( 'not validated', 'dazont-ecom' ),
 				'validated'  => __( 'Validated', 'dazont-ecom' ),
 				'validToggle'=> __( 'Click to toggle validation — validated prompts can be applied / attached.', 'dazont-ecom' ),
+				'auto'       => __( 'Automatic edition', 'dazont-ecom' ),
+				'launch'     => __( 'Launch', 'dazont-ecom' ),
+				'whatToGen'  => __( 'What to generate', 'dazont-ecom' ),
+				'testBox'    => __( 'Test', 'dazont-ecom' ),
+				'testNote'   => __( 'Preview and tune the prompts before automating.', 'dazont-ecom' ),
+				'previewText'=> __( 'Preview text', 'dazont-ecom' ),
+				'previewImg' => __( 'Preview images', 'dazont-ecom' ),
+				'saveSetup'  => __( 'Remember this setup', 'dazont-ecom' ),
+				'dataUsed'   => __( 'Data used', 'dazont-ecom' ),
+				'review'     => __( 'Review', 'dazont-ecom' ),
+				'reviewNote' => __( 'Check and edit the generated content, then apply.', 'dazont-ecom' ),
+				'applyAll'   => __( 'Apply all', 'dazont-ecom' ),
+				'skippedLock'=> __( 'skipped (not validated)', 'dazont-ecom' ),
+				'genImgOpt'  => __( 'Generate an image', 'dazont-ecom' ),
+				'priceOpt'   => __( 'Recalculate price (applies immediately)', 'dazont-ecom' ),
+				'nothingSel' => __( 'Tick at least one thing to generate.', 'dazont-ecom' ),
+				'allDone'    => __( 'Done — everything applied.', 'dazont-ecom' ),
+				'editData'   => __( 'View / edit the data sent to the AI', 'dazont-ecom' ),
 				'fieldLocked'=> __( 'This prompt is not validated yet (AI Settings → Product content).', 'dazont-ecom' ),
 				'cost'       => __( 'Cost (COGS)', 'dazont-ecom' ),
 				'recalc'     => __( 'Recalculate & apply', 'dazont-ecom' ),
@@ -1853,6 +1915,15 @@ EOT;
 		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
 
 		if ( 'main' === $target ) {
+			// The replaced main image is never lost: it moves to the FRONT of the
+			// product gallery so it stays first among the secondary images.
+			$old = (int) get_post_thumbnail_id( $pid );
+			if ( $old && $old !== (int) $att_id ) {
+				$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
+				$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
+				array_unshift( $ids, $old );
+				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
+			}
 			set_post_thumbnail( $pid, (int) $att_id );
 		} else {
 			$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
@@ -1911,6 +1982,26 @@ EOT;
 		if ( ! $check || (string) ( $check['prompt'] ?? '' ) !== $prompt ) {
 			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from AI Settings instead.', 'dazont-ecom' ) ] );
 		}
+		wp_send_json_success( [ 'saved' => true ] );
+	}
+
+	/**
+	 * AJAX save of the Product-content settings form — same data, same
+	 * sanitizer (it runs inside update_option), no page reload.
+	 */
+	public function ajax_save_settings(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$in = isset( $_POST[ self::OPT_SETTINGS ] ) && is_array( $_POST[ self::OPT_SETTINGS ] )
+			? (array) wp_unslash( $_POST[ self::OPT_SETTINGS ] ) // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- runs through the registered sanitizer below.
+			: [];
+		if ( empty( $in ) ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing to save.', 'dazont-ecom' ) ] );
+		}
+		update_option( self::OPT_SETTINGS, $in, false );
+		self::$registry_cache = null;
 		wp_send_json_success( [ 'saved' => true ] );
 	}
 

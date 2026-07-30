@@ -66,6 +66,37 @@
 .dze-cx-acc > summary { cursor: pointer; font-weight: 600; color: #2271b1; font-size: 13px; }
 .dze-cx-acc[open] { background: #fff; }
 .dze-cx-acc[open] > summary { margin-bottom: 6px; }
+
+/* Discreet icon buttons (prompt / data editors) — quiet until hovered. */
+.dze-cx-icon {
+	background: transparent; border: none; cursor: pointer; color: #a7aaad;
+	font-size: 13px; padding: 0 4px; line-height: 1; vertical-align: middle;
+}
+.dze-cx-icon:hover { color: #2271b1; }
+.dze-cx-field h4 .dze-cx-icon { margin-left: auto; }
+
+/* "Data used" line — names only, content stays hidden behind the ✎. */
+.dze-cx-datause { color: #646970; font-size: 12px; margin: 0 0 10px; }
+
+/* Rich (editor-like) product description context, editable in place. */
+.dze-cx-rich {
+	border: 1px solid #dcdcde; border-radius: 4px; background: #fff;
+	padding: 10px 12px; max-height: 260px; overflow: auto; font-size: 13px; line-height: 1.6;
+}
+.dze-cx-rich:focus { outline: 2px solid #2271b1; outline-offset: -1px; }
+.dze-cx-rich p { margin: 0 0 0.8em; }
+
+/* Automatic edition setup + Test box */
+.dze-cx-setup { border: 1px solid #e2e4e7; border-radius: 6px; background: #fff; padding: 14px 18px; }
+.dze-cx-setup h3 { margin: 0 0 10px; font-size: 14px; }
+.dze-au-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 14px; margin-bottom: 10px; }
+.dze-au-check { display: block; margin: 4px 0; }
+.dze-cx-testbox {
+	margin-top: 14px; border: 1px dashed #c3c4c7; border-radius: 6px;
+	background: #f6f7f7; padding: 10px 14px; color: #50575e;
+}
+.dze-cx-testbox .button { margin: 6px 6px 0 0; }
+.dze-rv-out { min-height: 90px; }
 .dze-cx-note { color: #646970; font-size: 12px; }
 .dze-cx-warn { background: #fcf9e8; border: 1px solid #f0e6a6; border-radius: 4px; padding: 8px 12px; margin: 0 0 12px; }
 .dze-cx-imgrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
