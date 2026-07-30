@@ -19,6 +19,7 @@ final class DZE_Ai_Usage {
 		return [
 			'anthropic' => __( 'Anthropic (Claude)', 'dazont-ecom' ),
 			'gemini'    => __( 'Google Gemini', 'dazont-ecom' ),
+			'fal'       => __( 'fal.ai (images)', 'dazont-ecom' ),
 		];
 	}
 
@@ -43,7 +44,11 @@ final class DZE_Ai_Usage {
 		return [ 3.0, 15.0 ];
 	}
 
-	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '' ): void {
+	/**
+	 * $flat_cost covers providers billed per unit rather than per token
+	 * (fal.ai images): it is added to the month's cost as-is.
+	 */
+	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0 ): void {
 		$data = get_option( self::OPT, [] );
 		$data = is_array( $data ) ? $data : [];
 		$m    = gmdate( 'Y-m' );
@@ -54,7 +59,7 @@ final class DZE_Ai_Usage {
 		$data[ $m ][ $provider ]['calls']++;
 		$data[ $m ][ $provider ]['in']   += max( 0, $tokens_in );
 		$data[ $m ][ $provider ]['out']  += max( 0, $tokens_out );
-		$data[ $m ][ $provider ]['cost']  = round( (float) ( $data[ $m ][ $provider ]['cost'] ?? 0 ) + ( $tokens_in * $p_in + $tokens_out * $p_out ) / 1000000, 4 );
+		$data[ $m ][ $provider ]['cost']  = round( (float) ( $data[ $m ][ $provider ]['cost'] ?? 0 ) + ( $tokens_in * $p_in + $tokens_out * $p_out ) / 1000000 + max( 0.0, $flat_cost ), 4 );
 		krsort( $data );
 		$data = array_slice( $data, 0, 18, true ); // keep 18 months max.
 		update_option( self::OPT, $data, false );
@@ -109,7 +114,7 @@ final class DZE_Ai_Usage {
 			echo '<p class="description">' . esc_html__( 'No AI calls recorded yet. Usage will appear here as soon as a feature calls its API.', 'dazont-ecom' ) . '</p>';
 			return;
 		}
-		$colors = [ 'anthropic' => '#7c5cff', 'gemini' => '#1a9c6e' ];
+		$colors = [ 'anthropic' => '#7c5cff', 'gemini' => '#1a9c6e', 'fal' => '#d63384' ];
 		$max    = 1;
 		foreach ( $months as $rows ) {
 			foreach ( $rows as $r ) {
@@ -138,13 +143,18 @@ final class DZE_Ai_Usage {
 				}
 				$calls = (int) ( $r['calls'] ?? 0 );
 				$pct   = max( 2, (int) round( 100 * $calls / $max ) );
+				// fal is billed per image, not per token — one call = one image.
+				$fmt = 'fal' === $key
+					/* translators: 1: number of generated images, 4: estimated cost */
+					? __( '%1$s images · ~$%4$s', 'dazont-ecom' )
+					/* translators: 1: number of API calls, 2: input tokens, 3: output tokens, 4: estimated cost */
+					: __( '%1$s calls · %2$s in / %3$s out tokens · ~$%4$s', 'dazont-ecom' );
 				printf(
 					'<span style="display:flex;align-items:center;gap:8px;"><span style="width:%1$d%%;max-width:100%%;height:12px;border-radius:3px;background:%2$s;"></span><span style="font-size:11px;color:#646970;white-space:nowrap;">%3$s</span></span>',
 					$pct,
 					esc_attr( $colors[ $key ] ?? '#999' ),
 					esc_html( sprintf(
-						/* translators: 1: number of API calls, 2: input tokens, 3: output tokens, 4: estimated cost */
-						__( '%1$s calls · %2$s in / %3$s out tokens · ~$%4$s', 'dazont-ecom' ),
+						$fmt,
 						number_format_i18n( $calls ),
 						number_format_i18n( (int) ( $r['in'] ?? 0 ) ),
 						number_format_i18n( (int) ( $r['out'] ?? 0 ) ),

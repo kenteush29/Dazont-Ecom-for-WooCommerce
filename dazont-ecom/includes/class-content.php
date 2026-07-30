@@ -555,6 +555,16 @@ EOT;
 		return (string) ( self::get_settings()['fal_key'] ?? '' );
 	}
 
+	/**
+	 * fal.ai price per generated image (USD) — used only for the usage graph
+	 * and the monthly budget guard, not for billing. Adjustable on the General
+	 * tab next to the key; defaults to $0.04/image.
+	 */
+	public static function fal_image_cost(): float {
+		$c = (float) ( self::get_settings()['fal_image_cost'] ?? 0 );
+		return $c > 0 ? $c : 0.04;
+	}
+
 	public static function store_context(): string {
 		return (string) ( self::get_settings()['store_context'] ?? '' );
 	}
@@ -699,8 +709,12 @@ EOT;
 			$k = trim( (string) $in['fal_key'] );
 			$out['fal_key'] = '' !== $k ? sanitize_text_field( $k ) : (string) ( $out['fal_key'] ?? '' );
 		}
-		// The General-tab mini form only posts fal_key: don't touch the rest then.
-		if ( isset( $in['fal_key'] ) && count( $in ) <= 2 ) {
+		if ( isset( $in['fal_image_cost'] ) ) {
+			$c = (float) $in['fal_image_cost'];
+			$out['fal_image_cost'] = $c > 0 ? round( $c, 4 ) : 0.0;
+		}
+		// The General-tab mini form only posts fal_key (+ price): don't touch the rest then.
+		if ( isset( $in['fal_key'] ) && count( $in ) <= 3 ) {
 			$busy = false;
 			return $out;
 		}
@@ -786,22 +800,29 @@ EOT;
 		$has_fal    = self::fal_key() !== '';
 		?>
 		<div class="dze-admin">
+		<form method="post" action="options.php">
+		<?php settings_fields( 'dze_content_options' ); ?>
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="dze-fal-key"><?php esc_html_e( 'fal.ai API key (images)', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<?php echo DZE_Api_Keys::status_html( 'fal', self::fal_key(), $fal_locked ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 					<?php if ( ! $fal_locked ) : ?>
-						<form method="post" action="options.php" style="display:inline;">
-							<?php settings_fields( 'dze_content_options' ); ?>
-							<input type="password" id="dze-fal-key" class="regular-text" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_key]" value="" autocomplete="new-password" placeholder="<?php echo $has_fal ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : esc_attr__( 'Paste your fal.ai key', 'dazont-ecom' ); ?>" />
-							<?php submit_button( __( 'Save fal.ai key', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
-							<p class="description"><?php esc_html_e( 'Used for image generation (fal.ai nano-banana-2/edit). For production, define DZE_FAL_API_KEY in wp-config.php.', 'dazont-ecom' ); ?></p>
-						</form>
+						<input type="password" id="dze-fal-key" class="regular-text" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_key]" value="" autocomplete="new-password" placeholder="<?php echo $has_fal ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : esc_attr__( 'Paste your fal.ai key', 'dazont-ecom' ); ?>" />
+						<p class="description"><?php esc_html_e( 'Used for image generation (fal.ai nano-banana-2/edit). For production, define DZE_FAL_API_KEY in wp-config.php.', 'dazont-ecom' ); ?></p>
 					<?php endif; ?>
 				</td>
 			</tr>
+			<tr>
+				<th scope="row"><label for="dze-fal-cost"><?php esc_html_e( 'fal.ai price per image (USD)', 'dazont-ecom' ); ?></label></th>
+				<td>
+					<input type="number" id="dze-fal-cost" step="0.001" min="0" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_image_cost]" value="<?php echo esc_attr( self::fal_image_cost() ); ?>" style="width:110px;" />
+					<p class="description"><?php esc_html_e( 'Each generated image is counted at this price in the AI usage graph and the monthly budget. Check your fal.ai model pricing and adjust.', 'dazont-ecom' ); ?></p>
+				</td>
+			</tr>
 		</table>
+		<?php submit_button( __( 'Save fal.ai settings', 'dazont-ecom' ), 'secondary', 'submit', true ); ?>
+		</form>
 		</div>
 		<?php
 	}
@@ -1646,6 +1667,9 @@ EOT;
 		if ( '' === self::fal_key() ) {
 			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under AI Settings → General first.', 'dazont-ecom' ) ] );
 		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+		}
 		$templates = self::image_templates();
 		$tpl       = $templates[ $idx ] ?? $templates[0] ?? null;
 		if ( ! $tpl && '' === $custom ) {
@@ -1900,6 +1924,9 @@ EOT;
 			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
 		$url = $body['images'][0]['url'] ?? '';
+		if ( $url && class_exists( 'DZE_Ai_Usage' ) ) {
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::fal_image_cost() );
+		}
 		if ( ! $url ) {
 			throw new RuntimeException( __( 'fal.ai returned no image.', 'dazont-ecom' ) );
 		}
