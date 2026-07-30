@@ -78,7 +78,7 @@ final class DZE_Content {
 	 *
 	 * @return array<string,array{label:string,dest:string,tokens:int,enabled:bool,prompt:string}>
 	 */
-	public static function fields(): array {
+	private static function legacy_fields(): array {
 		$p_description = <<<'EOT'
 [Dazont] Rédige d'abord la description (instructions A), puis, à la suite, la liste technique (instructions B). Sortie finale : le <h2>, le paragraphe, puis la liste <ul> — rien d'autre.
 
@@ -306,6 +306,190 @@ EOT;
 		];
 	}
 
+	// =========================================================================
+	// Universal prompt registry — ACF-style: ONE standardized list of prompts,
+	// each with a content type (text / image), a prompt, selectable product
+	// metadata INPUTS (fed to the prompt) and an OUTPUT destination. Rows are
+	// freely added/removed in AI Settings → Product content. Legacy per-field
+	// settings are migrated into the registry once, then it is the single source.
+	// =========================================================================
+
+	/** Product metadata selectable as prompt inputs (WP All Import style). */
+	public static function input_options(): array {
+		return [
+			'title'             => __( 'Product title', 'dazont-ecom' ),
+			'description'       => __( 'Description', 'dazont-ecom' ),
+			'short_description' => __( 'Short description', 'dazont-ecom' ),
+			'attributes'        => __( 'Attributes', 'dazont-ecom' ),
+			'price'             => __( 'Regular price', 'dazont-ecom' ),
+			'cogs'              => __( 'Cost (COGS)', 'dazont-ecom' ),
+			'categories'        => __( 'Categories', 'dazont-ecom' ),
+			'tags'              => __( 'Tags', 'dazont-ecom' ),
+			'sku'               => __( 'SKU', 'dazont-ecom' ),
+		];
+	}
+
+	/** Output destinations per content type. */
+	public static function output_options( string $type = 'text' ): array {
+		if ( 'image' === $type ) {
+			return [
+				'gallery' => __( 'Product gallery (image)', 'dazont-ecom' ),
+				'main'    => __( 'Main image', 'dazont-ecom' ),
+			];
+		}
+		return [
+			'post_title'   => __( 'Product title', 'dazont-ecom' ),
+			'post_content' => __( 'Product description', 'dazont-ecom' ),
+			'post_excerpt' => __( 'Short description', 'dazont-ecom' ),
+			'seo_title'    => __( 'SEO title (SEO plugin meta)', 'dazont-ecom' ),
+			'seo_desc'     => __( 'SEO description (SEO plugin meta)', 'dazont-ecom' ),
+			'attributes'   => __( 'WooCommerce attributes', 'dazont-ecom' ),
+			'meta'         => __( 'Custom field (meta key)', 'dazont-ecom' ),
+		];
+	}
+
+	/** The full prompt registry; builds itself from legacy settings on first read. */
+	public static function registry(): array {
+		$s = self::get_settings();
+		if ( ! empty( $s['registry'] ) && is_array( $s['registry'] ) ) {
+			return $s['registry'];
+		}
+		$rows = self::registry_from_legacy();
+		$s['registry'] = $rows;
+		update_option( self::OPT_SETTINGS, $s, false );
+		return $rows;
+	}
+
+	/** One-time migration: legacy fields + overrides + image templates → registry rows. */
+	private static function registry_from_legacy(): array {
+		$s    = self::get_settings();
+		$rows = [];
+		foreach ( self::legacy_fields() as $fid => $f ) {
+			$dest = (string) ( $s[ 'dest_' . $fid ] ?? 'default' );
+			if ( 'default' === $dest || '' === $dest || ! array_key_exists( $dest, self::output_options( 'text' ) ) ) {
+				$dest = $f['dest'];
+			}
+			$metakey = (string) ( $s[ 'metakey_' . $fid ] ?? ( $s[ 'map_' . $fid ] ?? '' ) );
+			$rows[]  = [
+				'id'          => $fid,
+				'name'        => $f['label'],
+				'type'        => 'text',
+				'prompt'      => ! empty( $s[ 'prompt_' . $fid ] ) ? (string) $s[ 'prompt_' . $fid ] : $f['prompt'],
+				'inputs'      => [ 'title', 'description', 'attributes', 'price' ],
+				'inputs_meta' => '',
+				'output'      => $dest,
+				'meta_key'    => '' !== $metakey ? $metakey : '_dze_' . $fid,
+				'enabled'     => isset( $s['fe'][ $fid ] ) ? (int) ! empty( $s['fe'][ $fid ] ) : (int) ! empty( $f['enabled'] ),
+				'valid'       => (int) ! empty( $s['fv'][ $fid ] ),
+				'tokens'      => (int) $f['tokens'],
+			];
+		}
+		$tpls = ( ! empty( $s['image_templates'] ) && is_array( $s['image_templates'] ) ) ? $s['image_templates'] : self::default_image_templates();
+		$n    = 1;
+		foreach ( $tpls as $t ) {
+			$id = sanitize_key( str_replace( ' ', '_', (string) ( $t['name'] ?? '' ) ) ) ?: 'image_' . $n;
+			$rows[] = [
+				'id'          => 'img_' . $id,
+				'name'        => (string) ( $t['name'] ?? 'Image ' . $n ),
+				'type'        => 'image',
+				'prompt'      => (string) ( $t['prompt'] ?? '' ),
+				'inputs'      => [ 'title', 'description' ],
+				'inputs_meta' => '',
+				'output'      => ( ( $t['target'] ?? 'gallery' ) === 'main' ) ? 'main' : 'gallery',
+				'meta_key'    => '',
+				'enabled'     => 1,
+				'valid'       => (int) ! empty( $t['valid'] ),
+				'tokens'      => 0,
+			];
+			$n++;
+		}
+		return $rows;
+	}
+
+	/** Registry row by id (text or image), or null. */
+	private static function registry_row( string $id ): ?array {
+		foreach ( self::registry() as $r ) {
+			if ( ( $r['id'] ?? '' ) === $id ) {
+				return $r;
+			}
+		}
+		return null;
+	}
+
+	/** TEXT registry rows in the legacy shape the rest of the module consumes. */
+	public static function fields(): array {
+		$out = [];
+		foreach ( self::registry() as $r ) {
+			if ( ( $r['type'] ?? 'text' ) !== 'text' ) {
+				continue;
+			}
+			$out[ (string) $r['id'] ] = [
+				'label'   => (string) ( $r['name'] ?? $r['id'] ),
+				'dest'    => (string) ( $r['output'] ?? 'meta' ),
+				'tokens'  => (int) ( $r['tokens'] ?: 400 ),
+				'enabled' => ! empty( $r['enabled'] ),
+				'prompt'  => (string) ( $r['prompt'] ?? '' ),
+			];
+		}
+		return $out;
+	}
+
+	/** Assembles the product data block from a row's selected inputs. */
+	private static function payload_lines( int $pid, array $inputs, string $inputs_meta = '' ): string {
+		$product = $pid ? wc_get_product( $pid ) : null;
+		if ( ! $product instanceof WC_Product ) {
+			return '';
+		}
+		$L = [];
+		foreach ( $inputs as $k ) {
+			switch ( $k ) {
+				case 'title':
+					$L[] = 'Title: ' . $product->get_name();
+					break;
+				case 'description':
+					$d = mb_substr( wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ), 0, 2500 );
+					if ( $d ) { $L[] = 'Description: ' . $d; }
+					break;
+				case 'short_description':
+					$d = wp_strip_all_tags( (string) get_post_field( 'post_excerpt', $pid ) );
+					if ( $d ) { $L[] = 'Short description: ' . $d; }
+					break;
+				case 'attributes':
+					$a = self::attributes_summary( $product );
+					if ( $a ) { $L[] = "Attributes:\n" . $a; }
+					break;
+				case 'price':
+					$p = (string) $product->get_regular_price();
+					if ( '' !== $p ) { $L[] = 'Price: ' . $p; }
+					break;
+				case 'cogs':
+					$c = (string) get_post_meta( $pid, '_dze_cogs', true );
+					if ( '' === $c ) { $c = (string) get_post_meta( $pid, '_cogs_value', true ); }
+					if ( '' !== $c ) { $L[] = 'Cost (COGS): ' . $c; }
+					break;
+				case 'categories':
+					$t = wp_get_post_terms( $pid, 'product_cat', [ 'fields' => 'names' ] );
+					if ( ! is_wp_error( $t ) && $t ) { $L[] = 'Categories: ' . implode( ', ', $t ); }
+					break;
+				case 'tags':
+					$t = wp_get_post_terms( $pid, 'product_tag', [ 'fields' => 'names' ] );
+					if ( ! is_wp_error( $t ) && $t ) { $L[] = 'Tags: ' . implode( ', ', $t ); }
+					break;
+				case 'sku':
+					$sk = (string) $product->get_sku();
+					if ( '' !== $sk ) { $L[] = 'SKU: ' . $sk; }
+					break;
+			}
+		}
+		foreach ( array_filter( array_map( 'trim', explode( ',', $inputs_meta ) ) ) as $mk ) {
+			$v = get_post_meta( $pid, sanitize_key( $mk ), true );
+			if ( is_scalar( $v ) && '' !== (string) $v ) {
+				$L[] = $mk . ': ' . mb_substr( (string) $v, 0, 500 );
+			}
+		}
+		return implode( "\n", $L );
+	}
+
 	/** Selectable destinations for the field mapping. */
 	public static function dest_options(): array {
 		return [
@@ -352,20 +536,14 @@ EOT;
 
 	/** Per-prompt validation. Legacy installs that ticked the old global box count as validated. */
 	public static function field_validated( string $field ): bool {
-		$s = self::get_settings();
-		if ( isset( $s['fv'] ) && is_array( $s['fv'] ) ) {
-			return ! empty( $s['fv'][ $field ] );
-		}
-		return ! empty( $s['prompts_validated'] ); // legacy fallback.
+		$r = self::registry_row( $field );
+		return $r ? ! empty( $r['valid'] ) : false;
 	}
 
 	/** Whether a field is active (settings override, else the field's shipped default). */
 	public static function field_enabled( string $field ): bool {
-		$s = self::get_settings();
-		if ( isset( $s['fe'] ) && is_array( $s['fe'] ) ) {
-			return ! empty( $s['fe'][ $field ] );
-		}
-		return ! empty( self::fields()[ $field ]['enabled'] );
+		$r = self::registry_row( $field );
+		return $r ? ! empty( $r['enabled'] ) : false;
 	}
 
 	/** Only the active fields, in declaration order. */
@@ -382,13 +560,7 @@ EOT;
 	/** Per image-template validation (index into image_templates()). */
 	public static function template_validated( int $idx ): bool {
 		$tpls = self::image_templates();
-		if ( ! isset( $tpls[ $idx ] ) ) {
-			return false;
-		}
-		if ( array_key_exists( 'valid', $tpls[ $idx ] ) ) {
-			return ! empty( $tpls[ $idx ]['valid'] );
-		}
-		return ! empty( self::get_settings()['prompts_validated'] ); // legacy fallback.
+		return ! empty( $tpls[ $idx ]['valid'] );
 	}
 
 	/** [ validated, total ] across ENABLED text prompts, for the side-box note. */
@@ -404,11 +576,8 @@ EOT;
 	}
 
 	public static function prompt_for( string $field ): string {
-		$s = self::get_settings();
-		if ( ! empty( $s[ 'prompt_' . $field ] ) ) {
-			return (string) $s[ 'prompt_' . $field ];
-		}
-		return self::fields()[ $field ]['prompt'] ?? '';
+		$r = self::registry_row( $field );
+		return $r ? (string) ( $r['prompt'] ?? '' ) : '';
 	}
 
 	public static function price_table(): array {
@@ -416,9 +585,24 @@ EOT;
 		return ( is_array( $t ) && ! empty( $t ) ) ? $t : self::default_price_table();
 	}
 
+	/** ENABLED image prompts from the registry, in the shape the image flow uses. */
 	public static function image_templates(): array {
-		$t = self::get_settings()['image_templates'] ?? null;
-		return ( is_array( $t ) && ! empty( $t ) ) ? $t : self::default_image_templates();
+		$out = [];
+		foreach ( self::registry() as $r ) {
+			if ( ( $r['type'] ?? '' ) !== 'image' || empty( $r['enabled'] ) ) {
+				continue;
+			}
+			$out[] = [
+				'id'          => (string) $r['id'],
+				'name'        => (string) ( $r['name'] ?? '' ),
+				'target'      => ( ( $r['output'] ?? 'gallery' ) === 'main' ) ? 'main' : 'gallery',
+				'prompt'      => (string) ( $r['prompt'] ?? '' ),
+				'valid'       => (int) ! empty( $r['valid'] ),
+				'inputs'      => (array) ( $r['inputs'] ?? [ 'title', 'description' ] ),
+				'inputs_meta' => (string) ( $r['inputs_meta'] ?? '' ),
+			];
+		}
+		return $out;
 	}
 
 	/** Multiplier for a given cost. */
@@ -438,18 +622,11 @@ EOT;
 	 * field's default. @return array{type:string,key?:string}
 	 */
 	private static function dest_for( string $field ): array {
-		$s   = self::get_settings();
-		$sel = (string) ( $s[ 'dest_' . $field ] ?? 'default' );
-		if ( 'default' === $sel || '' === $sel || ! array_key_exists( $sel, self::dest_options() ) ) {
-			$sel = self::fields()[ $field ]['dest'] ?? 'meta';
-		}
+		$r = self::registry_row( $field );
+		$sel = $r ? (string) ( $r['output'] ?? 'meta' ) : 'meta';
 		if ( 'meta' === $sel ) {
-			// metakey_<field>, legacy map_<field>, then a sane default.
-			$key = (string) ( $s[ 'metakey_' . $field ] ?? '' );
-			if ( '' === $key ) {
-				$key = (string) ( $s[ 'map_' . $field ] ?? '' );
-			}
-			return [ 'type' => 'meta', 'key' => $key !== '' ? $key : '_dze_' . $field ];
+			$key = $r ? (string) ( $r['meta_key'] ?? '' ) : '';
+			return [ 'type' => 'meta', 'key' => '' !== $key ? $key : '_dze_' . $field ];
 		}
 		return [ 'type' => $sel ];
 	}
@@ -543,6 +720,51 @@ EOT;
 				$out['image_templates'] = $tpls;
 			}
 		}
+		// Universal prompt registry rows (the new editor posts pr_* arrays).
+		if ( isset( $in['pr_name'] ) && is_array( $in['pr_name'] ) ) {
+			$rows = [];
+			$seen = [];
+			foreach ( $in['pr_name'] as $i => $name ) {
+				$name   = sanitize_text_field( (string) $name );
+				$prompt = sanitize_textarea_field( (string) ( $in['pr_prompt'][ $i ] ?? '' ) );
+				if ( '' === $name || '' === trim( $prompt ) ) {
+					continue; // empty rows (e.g. the blank "add" row) are dropped.
+				}
+				$id = sanitize_key( (string) ( $in['pr_id'][ $i ] ?? '' ) );
+				if ( '' === $id ) {
+					$id = sanitize_key( str_replace( ' ', '_', $name ) ) ?: 'prompt';
+				}
+				while ( isset( $seen[ $id ] ) ) {
+					$id .= '_2';
+				}
+				$seen[ $id ] = 1;
+				$type   = ( ( $in['pr_type'][ $i ] ?? 'text' ) === 'image' ) ? 'image' : 'text';
+				$outsel = (string) ( $in['pr_output'][ $i ] ?? '' );
+				if ( ! array_key_exists( $outsel, self::output_options( $type ) ) ) {
+					$outsel = 'image' === $type ? 'gallery' : 'meta';
+				}
+				$inputs = array_values( array_intersect(
+					array_map( 'sanitize_key', (array) ( $in['pr_inputs'][ $i ] ?? [] ) ),
+					array_keys( self::input_options() )
+				) );
+				$rows[] = [
+					'id'          => $id,
+					'name'        => $name,
+					'type'        => $type,
+					'prompt'      => $prompt,
+					'inputs'      => $inputs ?: [ 'title', 'description' ],
+					'inputs_meta' => sanitize_text_field( (string) ( $in['pr_inmeta'][ $i ] ?? '' ) ),
+					'output'      => $outsel,
+					'meta_key'    => sanitize_key( (string) ( $in['pr_metakey'][ $i ] ?? '' ) ) ?: '_dze_' . $id,
+					'enabled'     => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
+					'valid'       => ! empty( $in['pr_valid'][ $i ] ) ? 1 : 0,
+					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
+				];
+			}
+			if ( $rows ) {
+				$out['registry'] = $rows;
+			}
+		}
 		unset( $out['prompts_validated'] ); // replaced by per-prompt validation.
 		return $out;
 	}
@@ -598,74 +820,134 @@ EOT;
 			<textarea name="<?php echo esc_attr( $opt ); ?>[store_context]" rows="2" class="large-text"><?php echo esc_textarea( (string) ( $s['store_context'] ?? '' ) ); ?></textarea>
 			<p class="description"><?php esc_html_e( 'Prepended to every generation, e.g. "Kula Tactical > Military / tactical clothing and gear > Tone: sharp, authoritative, informational".', 'dazont-ecom' ); ?></p>
 
-			<h2 class="title"><?php esc_html_e( 'Text fields — prompt & field mapping', 'dazont-ecom' ); ?></h2>
-			<p class="description"><?php printf( /* translators: 1: seo title meta key, 2: seo desc meta key */ esc_html__( 'Detected SEO plugin meta: %1$s / %2$s. "Default destination" uses the field\'s natural target.', 'dazont-ecom' ), '<code>' . esc_html( $seo['title'] ) . '</code>', '<code>' . esc_html( $seo['desc'] ) . '</code>' ); ?></p>
-			<table class="form-table" role="presentation">
-				<?php foreach ( self::fields() as $fid => $f ) :
-					$cur_dest = (string) ( $s[ 'dest_' . $fid ] ?? 'default' );
-					$cur_key  = (string) ( $s[ 'metakey_' . $fid ] ?? ( $s[ 'map_' . $fid ] ?? '' ) );
-					?>
+			<h2 class="title"><?php esc_html_e( 'Prompt registry', 'dazont-ecom' ); ?></h2>
+			<p class="description" style="max-width:960px;">
+				<?php esc_html_e( 'ONE universal list of prompts — add as many as you want, for anything. Each prompt has a content type (Text or Image), the product metadata it receives as INPUT, and an OUTPUT destination (product fields, SEO metas, WooCommerce attributes, any custom field — or the product gallery / main image for Image prompts, fully compatible with the product image generator). Text prompts appear in the toolbox and bulk once enabled; apply is unlocked per prompt by its Validated box.', 'dazont-ecom' ); ?>
+			</p>
+			<?php $dze_inputs = self::input_options(); $dze_ri = 0; ?>
+			<table class="widefat dze-pr-table" id="dze-pr">
+				<thead>
 					<tr>
-						<th scope="row">
-							<label for="dze-p-<?php echo esc_attr( $fid ); ?>"><?php echo esc_html( $f['label'] ); ?></label>
-							<p style="margin:6px 0 0;">
-								<label class="dze-fv<?php echo self::field_enabled( $fid ) ? ' is-ok' : ''; ?>">
-									<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[fe][<?php echo esc_attr( $fid ); ?>]" value="1" <?php checked( self::field_enabled( $fid ) ); ?> />
-									<?php esc_html_e( 'Field enabled', 'dazont-ecom' ); ?>
-								</label>
-							</p>
-							<p style="margin:8px 0 0;">
-								<select name="<?php echo esc_attr( $opt ); ?>[dest_<?php echo esc_attr( $fid ); ?>]" style="max-width:220px;">
-									<?php foreach ( $dests as $dk => $dl ) : ?>
-										<option value="<?php echo esc_attr( $dk ); ?>" <?php selected( $dk, $cur_dest ); ?>><?php echo esc_html( $dl ); ?><?php echo 'default' === $dk ? ' (' . esc_html( $dests[ $f['dest'] ] ?? $f['dest'] ) . ')' : ''; ?></option>
-									<?php endforeach; ?>
-								</select>
-							</p>
-							<p style="margin:6px 0 0;">
-								<input type="text" name="<?php echo esc_attr( $opt ); ?>[metakey_<?php echo esc_attr( $fid ); ?>]" value="<?php echo esc_attr( $cur_key ); ?>" placeholder="_dze_<?php echo esc_attr( $fid ); ?>" style="max-width:220px;" />
-								<span class="description"><?php esc_html_e( 'meta key (if custom field)', 'dazont-ecom' ); ?></span>
-							</p>
-						</th>
-						<td>
-						<textarea id="dze-p-<?php echo esc_attr( $fid ); ?>" name="<?php echo esc_attr( $opt ); ?>[prompt_<?php echo esc_attr( $fid ); ?>]" rows="4" class="large-text code"><?php echo esc_textarea( self::prompt_for( $fid ) ); ?></textarea>
-						<label class="dze-fv<?php echo self::field_validated( $fid ) ? ' is-ok' : ''; ?>">
-							<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[fv][<?php echo esc_attr( $fid ); ?>]" value="1" <?php checked( self::field_validated( $fid ) ); ?> />
-							<?php esc_html_e( 'Prompt validated — unlocks applying this field to products', 'dazont-ecom' ); ?>
-						</label>
-					</td>
+						<th style="width:36px;"><?php esc_html_e( 'On', 'dazont-ecom' ); ?></th>
+						<th style="width:150px;"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+						<th style="width:90px;"><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></th>
+						<th style="width:190px;"><?php esc_html_e( 'Output', 'dazont-ecom' ); ?></th>
+						<th style="width:170px;"><?php esc_html_e( 'Inputs', 'dazont-ecom' ); ?></th>
+						<th><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></th>
+						<th style="width:70px;"><?php esc_html_e( 'Max tk', 'dazont-ecom' ); ?></th>
+						<th style="width:70px;"><?php esc_html_e( 'Valid', 'dazont-ecom' ); ?></th>
+						<th style="width:40px;"></th>
 					</tr>
-				<?php endforeach; ?>
-			</table>
-
-			<h2 class="title"><?php esc_html_e( 'Images (fal.ai templates)', 'dazont-ecom' ); ?></h2>
-			<table class="form-table dze-it-table" role="presentation">
-				<tr><th><?php esc_html_e( 'Template name', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Target', 'dazont-ecom' ); ?></th><th style="width:55%;"><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></th><th><?php esc_html_e( 'Validated', 'dazont-ecom' ); ?></th></tr>
-				<?php $dze_ti = 0; foreach ( self::image_templates() as $t ) : ?>
-					<tr>
-						<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[it_name][<?php echo (int) $dze_ti; ?>]" value="<?php echo esc_attr( $t['name'] ); ?>" /></td>
+				</thead>
+				<tbody>
+					<?php foreach ( self::registry() as $r ) : $sel_in = (array) ( $r['inputs'] ?? [] ); ?>
+					<tr class="dze-pr-row">
+						<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> /></td>
 						<td>
-							<select name="<?php echo esc_attr( $opt ); ?>[it_target][<?php echo (int) $dze_ti; ?>]">
-								<option value="gallery" <?php selected( 'gallery', $t['target'] ?? 'gallery' ); ?>><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option>
-								<option value="main" <?php selected( 'main', $t['target'] ?? 'gallery' ); ?>><?php esc_html_e( 'Set as main image', 'dazont-ecom' ); ?></option>
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
+							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['id'] ); ?>" />
+							<code class="dze-pr-slug"><?php echo esc_html( $r['id'] ); ?></code>
+						</td>
+						<td>
+							<select name="<?php echo esc_attr( $opt ); ?>[pr_type][<?php echo (int) $dze_ri; ?>]" class="dze-pr-type">
+								<option value="text" <?php selected( 'text', $r['type'] ?? 'text' ); ?>><?php esc_html_e( 'Text', 'dazont-ecom' ); ?></option>
+								<option value="image" <?php selected( 'image', $r['type'] ?? 'text' ); ?>><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></option>
 							</select>
 						</td>
-						<td><textarea name="<?php echo esc_attr( $opt ); ?>[it_prompt][<?php echo (int) $dze_ti; ?>]" rows="2" class="large-text"><?php echo esc_textarea( $t['prompt'] ); ?></textarea></td>
 						<td>
-							<label class="dze-fv<?php echo ! empty( $t['valid'] ) ? ' is-ok' : ''; ?>">
-								<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[it_valid][<?php echo (int) $dze_ti; ?>]" value="1" <?php checked( ! empty( $t['valid'] ) ); ?> />
-								<?php esc_html_e( 'Validated', 'dazont-ecom' ); ?>
-							</label>
+							<select name="<?php echo esc_attr( $opt ); ?>[pr_output][<?php echo (int) $dze_ri; ?>]" class="dze-pr-output">
+								<?php foreach ( self::output_options( 'text' ) as $ok => $ol ) : ?>
+									<option class="dze-o-text" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
+								<?php endforeach; ?>
+								<?php foreach ( self::output_options( 'image' ) as $ok => $ol ) : ?>
+									<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
+								<?php endforeach; ?>
+							</select>
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
 						</td>
+						<td>
+							<details class="dze-pr-inputs">
+								<summary><?php printf( /* translators: %d: count */ esc_html__( 'Inputs (%d)', 'dazont-ecom' ), count( $sel_in ) ); ?></summary>
+								<?php foreach ( $dze_inputs as $ik => $il ) : ?>
+									<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][<?php echo (int) $dze_ri; ?>][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, $sel_in, true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
+								<?php endforeach; ?>
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['inputs_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" />
+							</details>
+						</td>
+						<td><textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="4" class="large-text code"><?php echo esc_textarea( $r['prompt'] ); ?></textarea></td>
+						<td><input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" /></td>
+						<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['valid'] ) ); ?> /></td>
+						<td><button type="button" class="button dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button></td>
 					</tr>
-				<?php $dze_ti++; endforeach; ?>
-				<tr>
-					<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[it_name][<?php echo (int) $dze_ti; ?>]" value="" placeholder="<?php esc_attr_e( 'New template…', 'dazont-ecom' ); ?>" /></td>
-					<td><select name="<?php echo esc_attr( $opt ); ?>[it_target][<?php echo (int) $dze_ti; ?>]"><option value="gallery"><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option><option value="main"><?php esc_html_e( 'Set as main image', 'dazont-ecom' ); ?></option></select></td>
-					<td><textarea name="<?php echo esc_attr( $opt ); ?>[it_prompt][<?php echo (int) $dze_ti; ?>]" rows="2" class="large-text"></textarea></td>
-					<td></td>
-				</tr>
+					<?php $dze_ri++; endforeach; ?>
+				</tbody>
 			</table>
-			<p class="description"><?php esc_html_e( 'Unvalidated templates run in PREVIEW: the image is generated and shown, but not attached to the product. Validate a template to attach its results (gallery or main image).', 'dazont-ecom' ); ?></p>
+			<p><button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button></p>
+			<script type="text/template" id="dze-pr-rowtpl">
+				<tr class="dze-pr-row">
+					<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][__I__]" value="1" checked /></td>
+					<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_name][__I__]" value="" placeholder="<?php esc_attr_e( 'New prompt…', 'dazont-ecom' ); ?>" /><input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][__I__]" value="" /></td>
+					<td>
+						<select name="<?php echo esc_attr( $opt ); ?>[pr_type][__I__]" class="dze-pr-type">
+							<option value="text"><?php esc_html_e( 'Text', 'dazont-ecom' ); ?></option>
+							<option value="image"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></option>
+						</select>
+					</td>
+					<td>
+						<select name="<?php echo esc_attr( $opt ); ?>[pr_output][__I__]" class="dze-pr-output">
+							<?php foreach ( self::output_options( 'text' ) as $ok => $ol ) : ?>
+								<option class="dze-o-text" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
+							<?php endforeach; ?>
+							<?php foreach ( self::output_options( 'image' ) as $ok => $ol ) : ?>
+								<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
+							<?php endforeach; ?>
+						</select>
+						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" class="dze-pr-metakey" style="display:none;" />
+					</td>
+					<td>
+						<details class="dze-pr-inputs">
+							<summary><?php esc_html_e( 'Inputs', 'dazont-ecom' ); ?></summary>
+							<?php foreach ( $dze_inputs as $ik => $il ) : ?>
+								<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][__I__][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, [ 'title', 'description' ], true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
+							<?php endforeach; ?>
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" />
+						</details>
+					</td>
+					<td><textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][__I__]" rows="4" class="large-text code"></textarea></td>
+					<td><input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" /></td>
+					<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][__I__]" value="1" /></td>
+					<td><button type="button" class="button dze-pr-del">&#10005;</button></td>
+				</tr>
+			</script>
+			<script>
+			jQuery( function ( $ ) {
+				function syncRow( $row ) {
+					var type = $row.find( '.dze-pr-type' ).val();
+					var $out = $row.find( '.dze-pr-output' );
+					$out.find( 'option' ).each( function () {
+						var isImg = $( this ).hasClass( 'dze-o-image' );
+						$( this ).prop( 'hidden', type === 'image' ? ! isImg : isImg );
+					} );
+					var cur = $out.find( 'option:selected' );
+					if ( cur.prop( 'hidden' ) ) {
+						$out.val( $out.find( 'option' ).not( '[hidden]' ).first().val() );
+					}
+					$row.find( '.dze-pr-metakey' ).toggle( $out.val() === 'meta' );
+					$row.find( '.dze-pr-tokens' ).prop( 'disabled', type === 'image' );
+				}
+				$( '#dze-pr tbody tr' ).each( function () { syncRow( $( this ) ); } );
+				$( document ).on( 'change', '.dze-pr-type, .dze-pr-output', function () { syncRow( $( this ).closest( 'tr' ) ); } );
+				$( '#dze-pr-add' ).on( 'click', function () {
+					var $b = $( this ), i = parseInt( $b.data( 'next' ), 10 ) || 0;
+					$b.data( 'next', i + 1 );
+					var html = $( '#dze-pr-rowtpl' ).html().replace( /__I__/g, String( i ) );
+					var $row = $( html );
+					$( '#dze-pr tbody' ).append( $row );
+					syncRow( $row );
+				} );
+				$( document ).on( 'click', '.dze-pr-del', function () { $( this ).closest( 'tr' ).remove(); } );
+			} );
+			</script>
 
 			<h2 class="title"><?php esc_html_e( 'Price table (cost × multiplier → regular price)', 'dazont-ecom' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'The current/import price is treated as the cost (COGS, also written to WooCommerce\'s Cost of Goods field); the matching multiplier sets the regular price. Use 0 as the upper bound of the last range for "no limit".', 'dazont-ecom' ); ?></p>
@@ -1049,50 +1331,26 @@ EOT;
 		$desc  = isset( $_POST['desc'] ) ? sanitize_textarea_field( wp_unslash( $_POST['desc'] ) ) : '';
 		$attr  = isset( $_POST['attr'] ) ? sanitize_textarea_field( wp_unslash( $_POST['attr'] ) ) : '';
 
-		// Bulk (and lazy single) mode: pull the COMPLETE product data server-side.
-		if ( '' === $title && '' === $desc && '' === $attr && $pid ) {
-			$product = wc_get_product( $pid );
-			if ( $product instanceof WC_Product ) {
-				$title = $product->get_name();
-				$desc  = mb_substr( wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ), 0, 2500 );
-				$attr  = self::attributes_summary( $product );
-				$price = (string) $product->get_regular_price();
-				if ( '' !== $price ) {
-					$attr .= ( $attr ? "\n" : '' ) . 'Price: ' . $price;
-				}
-			}
+		// Server-side payload from the prompt's SELECTED inputs when nothing is posted.
+		$payload = '';
+		if ( '' !== $title || '' !== $desc || '' !== $attr ) {
+			$payload = ( $title ? "Title: {$title}\n" : '' ) . ( $desc ? "Description: {$desc}\n" : '' ) . ( $attr ? "Attributes / supplier data: {$attr}\n" : '' );
+		} elseif ( $pid ) {
+			$row     = self::registry_row( $field );
+			$payload = self::payload_lines( $pid, (array) ( $row['inputs'] ?? [ 'title', 'description', 'attributes', 'price' ] ), (string) ( $row['inputs_meta'] ?? '' ) );
 		}
-		if ( '' === $title && '' === $desc && '' === $attr ) {
+		if ( '' === trim( $payload ) ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
 		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		$system   = 'You are an expert e-commerce copywriter. ' . self::store_context();
-		$user     = ( '' !== trim( $override ) ? $override : self::prompt_for( $field ) ) . "\n\n--- PRODUCT DATA ---\n";
-		if ( $title ) { $user .= "Title: {$title}\n"; }
-		if ( $desc )  { $user .= "Description: {$desc}\n"; }
-		if ( $attr )  { $user .= "Attributes / supplier data: {$attr}\n"; }
+		$user     = ( '' !== trim( $override ) ? $override : self::prompt_for( $field ) ) . "\n\n--- PRODUCT DATA ---\n" . $payload . "\n";
 		try {
 			$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), (int) ( $fields[ $field ]['tokens'] ?? 400 ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		wp_send_json_success( [ 'field' => $field, 'text' => $text ] );
-	}
-
-	/** Complete product data pulled server-side (bulk and generate-all). */
-	private function product_context( int $pid ): array {
-		$product = $pid ? wc_get_product( $pid ) : null;
-		if ( ! $product instanceof WC_Product ) {
-			return [ '', '', '' ];
-		}
-		$title = $product->get_name();
-		$desc  = mb_substr( wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ), 0, 2500 );
-		$attr  = self::attributes_summary( $product );
-		$price = (string) $product->get_regular_price();
-		if ( '' !== $price ) {
-			$attr .= ( $attr ? "\n" : '' ) . 'Price: ' . $price;
-		}
-		return [ $title, $desc, $attr ];
 	}
 
 	/**
@@ -1125,18 +1383,25 @@ EOT;
 		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
 		$desc  = isset( $_POST['desc'] ) ? sanitize_textarea_field( wp_unslash( $_POST['desc'] ) ) : '';
 		$attr  = isset( $_POST['attr'] ) ? sanitize_textarea_field( wp_unslash( $_POST['attr'] ) ) : '';
-		if ( '' === $title && '' === $desc && '' === $attr ) {
-			[ $title, $desc, $attr ] = $this->product_context( $pid );
+		if ( '' !== $title || '' !== $desc || '' !== $attr ) {
+			$payload = ( $title ? "Title: {$title}\n" : '' ) . ( $desc ? "Description: {$desc}\n" : '' ) . ( $attr ? "Attributes / supplier data: {$attr}\n" : '' );
+		} else {
+			// Union of the selected inputs across every requested prompt.
+			$union = [];
+			$umeta = [];
+			foreach ( $targets as $fid => $f ) {
+				$row = self::registry_row( $fid );
+				foreach ( (array) ( $row['inputs'] ?? [] ) as $ink ) { $union[ $ink ] = 1; }
+				if ( ! empty( $row['inputs_meta'] ) ) { $umeta[] = (string) $row['inputs_meta']; }
+			}
+			$payload = self::payload_lines( $pid, array_keys( $union ) ?: [ 'title', 'description', 'attributes', 'price' ], implode( ',', $umeta ) );
 		}
-		if ( '' === $title && '' === $desc && '' === $attr ) {
+		if ( '' === trim( $payload ) ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
 
 		$system = 'You are an expert e-commerce copywriter. ' . self::store_context();
-		$user   = "--- PRODUCT DATA ---\n";
-		if ( $title ) { $user .= "Title: {$title}\n"; }
-		if ( $desc )  { $user .= "Description: {$desc}\n"; }
-		if ( $attr )  { $user .= "Attributes / supplier data: {$attr}\n"; }
+		$user   = "--- PRODUCT DATA ---\n" . $payload . "\n";
 		$user .= "\nGenerate the " . count( $targets ) . " fields below. Each field has its OWN instructions, coming from separate proven scripts — follow each set EXACTLY and independently, as if it were the only task.\n";
 		$user .= "OUTPUT FORMAT (strict): for each field output a line exactly ===FIELD:<field_id>=== followed by that field's content, then after the last field a line ===END===. Nothing else.\n\n";
 		// One-off prompt overrides from the live editors (never saved here).
@@ -1369,11 +1634,10 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
 
-		$title  = get_the_title( $pid );
-		$desc   = wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) );
-		$desc   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $desc ) ), 0, 600 );
-		$ctx    = trim( self::store_context() . ' ' . $title . '. ' . $desc );
-		$base   = '' !== $custom ? $custom : (string) $tpl['prompt'];
+		$pl   = $tpl ? self::payload_lines( $pid, (array) ( $tpl['inputs'] ?? [ 'title', 'description' ] ), (string) ( $tpl['inputs_meta'] ?? '' ) ) : self::payload_lines( $pid, [ 'title', 'description' ] );
+		$pl   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $pl ) ), 0, 800 );
+		$ctx  = trim( self::store_context() . ' ' . $pl );
+		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
 		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . $base;
 
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -1505,24 +1769,32 @@ EOT;
 		if ( '' === trim( $prompt ) ) {
 			wp_send_json_error( [ 'message' => __( 'Empty prompt.', 'dazont-ecom' ) ] );
 		}
-		$settings = self::get_settings();
+		// Resolve the registry row id to update.
+		$row_id = '';
 		if ( 'field' === $type ) {
-			$field = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
-			if ( ! isset( self::fields()[ $field ] ) ) {
-				wp_send_json_error( [ 'message' => __( 'Unknown field.', 'dazont-ecom' ) ] );
-			}
-			$settings[ 'prompt_' . $field ] = $prompt;
+			$row_id = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
 		} elseif ( 'template' === $type ) {
 			$idx  = isset( $_POST['index'] ) ? absint( $_POST['index'] ) : 0;
 			$tpls = self::image_templates();
-			if ( ! isset( $tpls[ $idx ] ) ) {
-				wp_send_json_error( [ 'message' => __( 'Unknown template.', 'dazont-ecom' ) ] );
-			}
-			$tpls[ $idx ]['prompt']      = $prompt;
-			$settings['image_templates'] = array_values( $tpls );
-		} else {
+			$row_id = (string) ( $tpls[ $idx ]['id'] ?? '' );
+		}
+		if ( '' === $row_id ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 		}
+		$settings = self::get_settings();
+		$rows     = self::registry();
+		$found    = false;
+		foreach ( $rows as $k => $r ) {
+			if ( ( $r['id'] ?? '' ) === $row_id ) {
+				$rows[ $k ]['prompt'] = $prompt;
+				$found = true;
+				break;
+			}
+		}
+		if ( ! $found ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		$settings['registry'] = $rows;
 		update_option( self::OPT_SETTINGS, $settings, false );
 		wp_send_json_success( [ 'saved' => true ] );
 	}

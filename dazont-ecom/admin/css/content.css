@@ -134,3 +134,16 @@
 .dze-cb-fill { height: 100%; background: #2271b1; width: 0; transition: width .3s ease; }
 .dze-cb-row-tpl { max-width: 150px !important; width: auto !important; }
 .dze-cb-cost { width: 90px !important; }
+
+/* ---- Universal prompt registry (ACF-style editor) ---- */
+.dze-pr-table { margin-top: 10px; }
+.dze-pr-table td { vertical-align: top; padding-top: 12px; }
+.dze-pr-table textarea { width: 100% !important; box-sizing: border-box; font-size: 12px; }
+.dze-pr-table input[type="text"] { width: 100% !important; box-sizing: border-box; }
+.dze-pr-table .dze-pr-tokens { width: 60px !important; }
+.dze-pr-slug { display: block; margin-top: 3px; font-size: 10px; color: #646970; background: transparent; padding: 0; }
+.dze-pr-metakey { margin-top: 4px !important; }
+.dze-pr-inputs summary { cursor: pointer; color: #2271b1; font-size: 12px; }
+.dze-pr-inputs label { display: block; font-size: 12px; margin: 3px 0; }
+.dze-pr-inputs input[type="text"] { margin-top: 4px; font-size: 11px; }
+.dze-pr-del { color: #b32d2e !important; border-color: #f0c4c4 !important; }
