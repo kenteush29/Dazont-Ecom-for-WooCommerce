@@ -497,6 +497,11 @@
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
 
+	// Bridge for sibling modules (POD): push an image into the session gallery
+	// and open a toolbox pane — the ✎ variant flow then works on that image.
+	window.dzeContentAddToGallery = function (url) { build(); addToGal(url); };
+	window.dzeContentOpen = open;
+
 	// ---- Price lab ----
 	function runPrice(cost) {
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: cfg.postId, cost: cost });

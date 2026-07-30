@@ -169,9 +169,6 @@ PROMPT;
 			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background, min 2000 px — ideally 4500×5400 px (print standard).', 'dazont-ecom' ); ?></p>
 			<p>
 				<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
-				<select id="dze-pod-count" title="<?php esc_attr_e( 'Number of images to generate — pick the best one below.', 'dazont-ecom' ); ?>">
-					<option value="1">×1</option><option value="2">×2</option><option value="3">×3</option><option value="4">×4</option>
-				</select>
 				<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
 			</p>
 			<div id="dze-pod-pwrap" style="display:none;">
@@ -189,6 +186,11 @@ PROMPT;
 					</select></label>
 					<button type="button" class="button button-primary" id="dze-pod-attach"><?php esc_html_e( 'Add to product', 'dazont-ecom' ); ?></button>
 				</p>
+				<?php if ( class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'content' ) ) : ?>
+				<p style="margin:8px 0 0;">
+					<button type="button" class="button" id="dze-pod-tolab"><?php esc_html_e( 'Create more images from it (UGC, scenes…)', 'dazont-ecom' ); ?></button>
+				</p>
+				<?php endif; ?>
 			</div>
 		</div>
 		<?php

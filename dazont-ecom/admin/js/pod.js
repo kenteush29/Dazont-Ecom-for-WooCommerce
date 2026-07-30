@@ -10,7 +10,6 @@
 	var cfg = dzePod, i18n = cfg.i18n;
 	var results = [];   // generated URLs, click to select the keeper
 	var selIdx = -1;
-	var pending = 0, hadErr = false;
 	var frame = null;
 
 	function renderResults() {
@@ -76,34 +75,33 @@
 			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
 	});
 
-	// N parallel generations; every result joins the grid, the last one is
-	// pre-selected. Buttons re-enable when the LAST call completes.
+	// One generation per click (the mockup makes the render deterministic
+	// enough); successive runs accumulate in the grid so a retake can still be
+	// compared with the previous one.
 	$('#dze-pod-generate').on('click', function () {
-		var $btn = $(this);
-		var n = parseInt($('#dze-pod-count').val(), 10) || 1;
+		var $btn = $(this).prop('disabled', true);
 		var live = $('#dze-pod-pwrap').is(':visible') ? ($('#dze-pod-prompt-live').val() || '') : '';
 		var custom = (live && live !== cfg.prompt) ? live : '';
-		pending = n; hadErr = false;
-		$btn.prop('disabled', true);
-		status('<span class="dze-cx-spin"></span> ' + i18n.working + (n > 1 ? ' (' + n + ')' : '') + (cfg.mockupSet ? '' : '<br />' + i18n.noMockup));
-		for (var k = 0; k < n; k++) {
-			$.post(cfg.ajaxUrl, { action: 'dze_pod_generate', nonce: cfg.nonce, post: cfg.postId, custom_prompt: custom })
-				.done(function (res) {
-					if (!res.success) { hadErr = true; status((res.data && res.data.message) || i18n.error, '#b32d2e'); return; }
-					results.push(res.data.url);
-					selIdx = results.length - 1;
-					renderResults();
-				})
-				.fail(function () { hadErr = true; status(i18n.error, '#b32d2e'); })
-				.always(function () {
-					pending = Math.max(0, pending - 1);
-					if (pending === 0) {
-						$btn.prop('disabled', false);
-						if (!hadErr) { status(i18n.ready, '#00794b'); }
-					} else if (!hadErr) {
-						status('<span class="dze-cx-spin"></span> ' + i18n.working + ' (' + pending + ')');
-					}
-				});
+		status('<span class="dze-cx-spin"></span> ' + i18n.working + (cfg.mockupSet ? '' : '<br />' + i18n.noMockup));
+		$.post(cfg.ajaxUrl, { action: 'dze_pod_generate', nonce: cfg.nonce, post: cfg.postId, custom_prompt: custom })
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res.success) { status((res.data && res.data.message) || i18n.error, '#b32d2e'); return; }
+				results.push(res.data.url);
+				selIdx = results.length - 1;
+				renderResults();
+				status(i18n.ready, '#00794b');
+			})
+			.fail(function () { $btn.prop('disabled', false); status(i18n.error, '#b32d2e'); });
+	});
+
+	// Hand the kept render to the Content image toolbox as a SOURCE: from there
+	// the ✎ variant flow builds new images on top of it (UGC shots, scenes…).
+	$('#dze-pod-tolab').on('click', function () {
+		if (selIdx < 0 || !results[selIdx]) { return; }
+		if (window.dzeContentAddToGallery) {
+			window.dzeContentAddToGallery(results[selIdx]);
+			if (window.dzeContentOpen) { window.dzeContentOpen('image'); }
 		}
 	});
 
