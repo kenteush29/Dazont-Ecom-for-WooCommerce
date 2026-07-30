@@ -134,7 +134,7 @@ final class DZE_Dashboard {
 
 	/** Out-of-stock products ranked by their cached all-time sales (Restock data). */
 	public function block_out_of_stock(): void {
-		if ( ! class_exists( 'DZE_Restock' ) ) {
+		if ( ! class_exists( 'DZE_Restock' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'restock' ) ) ) {
 			return;
 		}
 		$lines = DZE_Restock::get_line_index();
@@ -172,7 +172,7 @@ final class DZE_Dashboard {
 
 	/** Current + upcoming scheduled sales from the Marketing Events calendar. */
 	public function block_events(): void {
-		if ( ! class_exists( 'DZE_Discounts' ) ) {
+		if ( ! class_exists( 'DZE_Discounts' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'discounts' ) ) ) {
 			return;
 		}
 		$today = current_time( 'Y-m-d' );

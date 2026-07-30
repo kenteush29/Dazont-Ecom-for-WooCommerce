@@ -363,14 +363,20 @@ final class DZE_Marketing_Ai {
 	 *   Marketing events — calendar languages, countries, context and prompt.
 	 */
 	public function render_settings_page(): void {
-		$tabs = [
-			'general'  => __( 'General', 'dazont-ecom' ),
-			'sourcing' => __( 'Sourcing Assistant', 'dazont-ecom' ),
-			'content'  => __( 'Product content', 'dazont-ecom' ),
-			'pod'      => __( 'POD', 'dazont-ecom' ),
-			'events'   => __( 'Marketing events', 'dazont-ecom' ),
-			'modules'  => __( 'Modules', 'dazont-ecom' ),
-		];
+		// A disabled module leaves NO trace: its settings tab disappears with it.
+		$mod_on = static fn( string $id ): bool => ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
+		$tabs   = [ 'general' => __( 'General', 'dazont-ecom' ) ];
+		if ( $mod_on( 'sourcing' ) ) {
+			$tabs['sourcing'] = __( 'Sourcing Assistant', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'content' ) ) {
+			$tabs['content'] = __( 'Product content', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'pod' ) ) {
+			$tabs['pod'] = __( 'POD', 'dazont-ecom' );
+		}
+		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
+		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = 'general';
@@ -393,7 +399,8 @@ final class DZE_Marketing_Ai {
 			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
-			if ( class_exists( 'DZE_Content' ) ) {
+			// The fal key lives in Content settings but also powers POD.
+			if ( class_exists( 'DZE_Content' ) && ( $mod_on( 'content' ) || $mod_on( 'pod' ) ) ) {
 				echo '<hr style="margin:28px 0;" />';
 				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
 				DZE_Content::instance()->render_key_field();
@@ -404,11 +411,11 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'sourcing' === $tab ) {
 			$this->render_sourcing_settings();
 		} elseif ( 'content' === $tab ) {
-			if ( class_exists( 'DZE_Content' ) ) {
+			if ( class_exists( 'DZE_Content' ) && $mod_on( 'content' ) ) {
 				DZE_Content::instance()->render_settings_section();
 			}
 		} elseif ( 'pod' === $tab ) {
-			if ( class_exists( 'DZE_Pod' ) ) {
+			if ( class_exists( 'DZE_Pod' ) && $mod_on( 'pod' ) ) {
 				DZE_Pod::instance()->render_settings();
 			}
 		} elseif ( 'modules' === $tab ) {

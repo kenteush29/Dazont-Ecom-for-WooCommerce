@@ -11,6 +11,10 @@ owner communicates in French.
   both accurate, written from what the code actually does, no "AI" branding.
   Modules boot ONLY through `DZE_Modules::boot()`; never instantiate a module
   directly in `dazont-ecom.php`.
+- **A disabled module must leave ZERO trace in the admin**: its own hooks
+  vanish with boot, but every CROSS-module surface (settings tabs, dashboard
+  blocks, bridge buttons) must be gated with `DZE_Modules::enabled( $id )` —
+  `class_exists()` is NOT a module check (class files always exist).
 - One settings menu only: the Settings page (class-marketing-ai.php tabs).
   New settings go into an existing tab or a new tab there — never a separate
   submenu (fallback submenus only to avoid lock-outs).
