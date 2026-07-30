@@ -98,7 +98,10 @@
 							'<label class="dze-au-check"><input type="checkbox" id="dze-au-img"' + (au.img ? ' checked' : '') + ' /> ' + esc(i18n.genImgOpt) +
 							' <select id="dze-au-tpl">' + cfg.templates.map(function (t, i) {
 								return '<option value="' + i + '"' + ((au.tpl !== undefined ? au.tpl : m.tpl) == i ? ' selected' : '') + '>' + esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
-							}).join('') + '</select></label>' : '') +
+							}).join('') + '</select>' +
+							' <select id="dze-au-imgn" title="' + esc(i18n.imgCount) + '">' +
+								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
+							'</select></label>' : '') +
 						'<label class="dze-au-check dze-cx-note"><input type="checkbox" id="dze-au-save" checked /> ' + esc(i18n.saveSetup) + '</label>' +
 						'<p style="margin:14px 0 0;"><button type="button" class="button button-primary button-hero" id="dze-au-launch">' + esc(i18n.launch) + '</button> <span id="dze-au-status"></span></p>' +
 					'</div>' +
@@ -132,6 +135,9 @@
 				'<div class="dze-cx-pane" data-pane="image">' +
 					'<div class="dze-cx-imgrow">' +
 						'<label>' + esc(i18n.template) + ' <select id="dze-cx-tpl">' + tplOpts + '</select></label>' +
+						'<select id="dze-cx-imgn" title="' + esc(i18n.imgCount) + '">' +
+							[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((m.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
+						'</select>' +
 						'<button type="button" class="button button-primary" id="dze-cx-genimg">' + esc(i18n.genImage) + '</button>' +
 						'<button type="button" class="dze-cx-vbtn" id="dze-cx-tpl-validate" title="' + esc(i18n.validToggle) + '"></button>' +
 						'<button type="button" class="dze-cx-icon" id="dze-cx-tpl-edit" title="' + esc(i18n.editPrompt) + '">✎</button>' +
@@ -394,25 +400,60 @@
 		renderGal();
 	}
 
+	// Several generations can run in parallel (the ×N picker): a pending counter
+	// drives the status line and re-enables the buttons on the LAST completion.
+	var imgPending = 0, imgHadError = false;
+	function imgTick() {
+		var $st = $('#dze-cx-imgstatus');
+		if (imgPending > 0) {
+			$st.css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.imgWait) + (imgPending > 1 ? ' (' + imgPending + ')' : ''));
+			return;
+		}
+		$('#dze-cx-genimg, #dze-cx-editgo').prop('disabled', false);
+		if (!imgHadError) { $st.css('color', '#00794b').text(i18n.imgReady); }
+	}
 	function genImage(params) {
-		var $btn = $('#dze-cx-genimg, #dze-cx-editgo').prop('disabled', true);
-		var $st = $('#dze-cx-imgstatus').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.imgWait));
+		if (imgPending === 0) { imgHadError = false; }
+		imgPending++;
+		$('#dze-cx-genimg, #dze-cx-editgo').prop('disabled', true);
+		imgTick();
 		var data = $.extend({ action: 'dze_content_image', nonce: cfg.nonce, post: cfg.postId, mode: 'defer' }, params);
 		return $.post(cfg.ajaxUrl, data)
 			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (!res.success) { $st.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#00794b').text(i18n.imgReady);
+				if (!res.success) {
+					imgHadError = true;
+					$('#dze-cx-imgstatus').css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error);
+					return;
+				}
 				addToGal(res.data.url);
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function () {
+				imgHadError = true;
+				$('#dze-cx-imgstatus').css('color', '#b32d2e').text(i18n.error);
+			})
+			.always(function () {
+				imgPending = Math.max(0, imgPending - 1);
+				imgTick();
+			});
+	}
+	// N parallel generations of the same template; resolves when ALL are done.
+	function genImages(params, n) {
+		var calls = [];
+		for (var k = 0; k < Math.max(1, n); k++) { calls.push(genImage(params)); }
+		return $.when.apply($, calls).then(null, function () { return $.Deferred().resolve(); });
 	}
 
+	$(document).on('change', '#dze-cx-imgn', function () {
+		var m = mem(); m.imgn = parseInt($(this).val(), 10) || 1; saveMem(m);
+	});
 	$(document).on('click', '#dze-cx-genimg', function () {
 		var idx = parseInt($('#dze-cx-tpl').val(), 10) || 0;
 		var txt = $('#dze-cx-tpl-prompt').val() || '';
 		var stored = (cfg.templates[idx] && cfg.templates[idx].prompt) || '';
-		genImage({ template: idx, custom_prompt: (txt !== stored && $('#dze-cx-tpl-pwrap').is(':visible') ? txt : '') });
+		genImages(
+			{ template: idx, custom_prompt: (txt !== stored && $('#dze-cx-tpl-pwrap').is(':visible') ? txt : '') },
+			parseInt($('#dze-cx-imgn').val(), 10) || 1
+		);
 	});
 
 	// Selection — native-WordPress feel: click the thumb (or its check) to toggle.
@@ -492,7 +533,7 @@
 		if ($('#dze-au-save').is(':checked')) {
 			var m = mem(), fmap = {};
 			$('.dze-au-f').each(function () { fmap[$(this).val()] = $(this).is(':checked') ? 1 : 0; });
-			m.auto = { fields: fmap, price: doPrice ? 1 : 0, img: doImg ? 1 : 0, tpl: $('#dze-au-tpl').val() };
+			m.auto = { fields: fmap, price: doPrice ? 1 : 0, img: doImg ? 1 : 0, tpl: $('#dze-au-tpl').val(), imgn: parseInt($('#dze-au-imgn').val(), 10) || 1 };
 			saveMem(m);
 		}
 
@@ -522,7 +563,10 @@
 		}
 		if (doImg) {
 			chain = chain.then(function () {
-				return genImage({ template: parseInt($('#dze-au-tpl').val(), 10) || 0 }).then(null, function () { return $.Deferred().resolve(); });
+				return genImages(
+					{ template: parseInt($('#dze-au-tpl').val(), 10) || 0 },
+					parseInt($('#dze-au-imgn').val(), 10) || 1
+				);
 			});
 		}
 

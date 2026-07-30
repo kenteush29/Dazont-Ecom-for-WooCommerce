@@ -218,7 +218,7 @@ final class DZE_Marketing_Ai {
 		$in       = is_array( $value ) ? $value : [];
 		$existing = self::get_settings();
 
-		// The AI Settings page saves per tab: only overwrite the fields the
+		// The Settings page saves per tab: only overwrite the fields the
 		// submitted section actually carries, keep everything else as-is.
 		$section = (string) ( $in['section'] ?? 'all' );
 
@@ -347,8 +347,8 @@ final class DZE_Marketing_Ai {
 	public function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'AI Settings', 'dazont-ecom' ),
-			__( 'AI Settings', 'dazont-ecom' ),
+			__( 'Settings', 'dazont-ecom' ),
+			__( 'Settings', 'dazont-ecom' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_settings_page' ]
@@ -356,7 +356,7 @@ final class DZE_Marketing_Ai {
 	}
 
 	/**
-	 * Central "AI Settings" page, one tab per AI-powered function:
+	 * Central "Settings" page, one tab per AI-powered function:
 	 *   General          — API keys, models, monthly API usage graph.
 	 *   Product content  — upcoming content tools (placeholder).
 	 *   Product images   — Gemini prompt templates.
@@ -369,6 +369,7 @@ final class DZE_Marketing_Ai {
 			'content'  => __( 'Product content', 'dazont-ecom' ),
 			'pod'      => __( 'POD', 'dazont-ecom' ),
 			'events'   => __( 'Marketing events', 'dazont-ecom' ),
+			'modules'  => __( 'Modules', 'dazont-ecom' ),
 		];
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		if ( ! isset( $tabs[ $tab ] ) ) {
@@ -376,7 +377,7 @@ final class DZE_Marketing_Ai {
 		}
 
 		echo '<div class="wrap dze-wrap">';
-		echo '<h1>' . esc_html__( 'AI Settings', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html__( 'Settings', 'dazont-ecom' ) . '</h1>';
 		echo '<nav class="nav-tab-wrapper" style="margin-bottom:16px;">';
 		foreach ( $tabs as $key => $label ) {
 			printf(
@@ -414,6 +415,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'pod' === $tab ) {
 			if ( class_exists( 'DZE_Pod' ) ) {
 				DZE_Pod::instance()->render_settings();
+			}
+		} elseif ( 'modules' === $tab ) {
+			if ( class_exists( 'DZE_Modules' ) ) {
+				DZE_Modules::instance()->render_tab();
 			}
 		} else { // events.
 			$this->render_settings_section( 'events' );
@@ -874,7 +879,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 		$key = self::api_key();
 		if ( '' === $key ) {
-			throw new RuntimeException( __( 'Add your Anthropic API key under AI Settings first.', 'dazont-ecom' ) );
+			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
 		}
 		$model    = '' !== $model ? $model : self::chosen_model();
 		$response = wp_remote_post( self::API_URL, [

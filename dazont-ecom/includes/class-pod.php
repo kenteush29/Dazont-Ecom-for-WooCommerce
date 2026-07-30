@@ -37,7 +37,7 @@ final class DZE_Pod {
 	}
 
 	// =========================================================================
-	// Settings (own option, own tab on the AI Settings page)
+	// Settings (own option, own tab on the Settings page)
 	// =========================================================================
 
 	public static function get_settings(): array {
@@ -82,7 +82,7 @@ PROMPT;
 		return '' !== $p ? $p : self::default_prompt();
 	}
 
-	/** Settings tab body (invoked from the AI Settings page). */
+	/** Settings tab body (invoked from the Settings page). */
 	public function render_settings(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
@@ -169,6 +169,9 @@ PROMPT;
 			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background, min 2000 px — ideally 4500×5400 px (print standard).', 'dazont-ecom' ); ?></p>
 			<p>
 				<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
+				<select id="dze-pod-count" title="<?php esc_attr_e( 'Number of images to generate — pick the best one below.', 'dazont-ecom' ); ?>">
+					<option value="1">×1</option><option value="2">×2</option><option value="3">×3</option><option value="4">×4</option>
+				</select>
 				<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
 			</p>
 			<div id="dze-pod-pwrap" style="display:none;">
@@ -176,8 +179,9 @@ PROMPT;
 				<p style="margin:4px 0 0;"><button type="button" class="button-link" id="dze-pod-prompt-save">💾 <?php esc_html_e( 'Save prompt', 'dazont-ecom' ); ?></button></p>
 			</div>
 			<p id="dze-pod-status" class="dze-cx-note"></p>
-			<div id="dze-pod-result" style="display:none;">
-				<img src="" alt="" style="max-width:100%;height:auto;border:1px solid #dcdcde;border-radius:4px;" />
+			<div id="dze-pod-results" style="display:none;">
+				<div class="dze-pod-grid"></div>
+				<p class="dze-cx-note" style="margin:6px 0 0;"><?php esc_html_e( 'Click the image to keep, then add it to the product.', 'dazont-ecom' ); ?></p>
 				<p style="margin:8px 0 0;">
 					<label><select id="dze-pod-target" style="max-width:100%;">
 						<option value="main"><?php esc_html_e( 'Use as main image', 'dazont-ecom' ); ?></option>
@@ -257,7 +261,7 @@ PROMPT;
 			wp_send_json_error( [ 'message' => __( 'Upload a design on this product first.', 'dazont-ecom' ) ] );
 		}
 		if ( ! class_exists( 'DZE_Content' ) || '' === DZE_Content::fal_key() ) {
-			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under AI Settings → General first.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
 		}
 		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
 			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
@@ -299,7 +303,7 @@ PROMPT;
 		$s['prompt'] = $prompt;
 		update_option( self::OPT, $s, false );
 		if ( self::prompt() !== $prompt ) {
-			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from AI Settings instead.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
 	}

@@ -1,7 +1,7 @@
 <?php
 defined( 'ABSPATH' ) || exit;
 /**
- * AI Product Images — Gemini settings, embedded on the AI Settings page.
+ * AI Product Images — Gemini settings, embedded on the Settings page.
  *
  * @var array  $settings    Current settings ( api_key, model, prompts ).
  * @var bool   $key_locked  Whether the API key is fixed by the DZE_GEMINI_API_KEY constant.

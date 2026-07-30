@@ -48,7 +48,7 @@ final class DZE_Keywords {
 
 	/**
 	 * Default keyword-matching rules (the editable heart of the matching prompt).
-	 * Admins can override them in AI Settings → Sourcing Assistant; the data
+	 * Admins can override them in Settings → Sourcing Assistant; the data
 	 * blocks and the JSON output format stay fixed so parsing never breaks.
 	 */
 	public const DEFAULT_MATCH_RULES = <<<'EOT'
@@ -627,7 +627,7 @@ EOT;
 	public function ajax_start(): void {
 		$this->guard();
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) || DZE_Marketing_Ai::api_key() === '' ) {
-			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key under AI Settings first.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) ] );
 		}
 		if ( DZE_Ai_Usage::over_budget() ) {
 			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );

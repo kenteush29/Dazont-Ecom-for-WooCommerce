@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
  * category insights, Google Gemini for product images) records itself here:
  * calls + tokens, bucketed per month per provider. Stored in a single
  * autoload-off option, pruned to 18 months. Rendered as a small bar graph on
- * the AI Settings page and the Dazont dashboard.
+ * the Settings page and the Dazont dashboard.
  */
 final class DZE_Ai_Usage {
 
@@ -77,7 +77,7 @@ final class DZE_Ai_Usage {
 	}
 
 	/**
-	 * True when the monthly AI budget (AI Settings → General) is set and the
+	 * True when the monthly AI budget (Settings → General) is set and the
 	 * estimated month spend reached it. Every AI call site checks this first.
 	 */
 	public static function over_budget(): bool {
@@ -92,7 +92,7 @@ final class DZE_Ai_Usage {
 	public static function budget_message(): string {
 		return sprintf(
 			/* translators: %s: estimated spend this month */
-			__( 'Monthly AI budget reached (~%s spent). Raise the cap under AI Settings → General to continue.', 'dazont-ecom' ),
+			__( 'Monthly AI budget reached (~%s spent). Raise the cap under Settings → General to continue.', 'dazont-ecom' ),
 			'$' . number_format_i18n( self::month_cost(), 2 )
 		);
 	}

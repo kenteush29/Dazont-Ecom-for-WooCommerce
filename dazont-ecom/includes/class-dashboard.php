@@ -227,7 +227,7 @@ final class DZE_Dashboard {
 
 	public function block_ai_usage(): void {
 		DZE_Ai_Usage::render_graph( 6 );
-		echo '<p style="margin-bottom:0;"><a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Open AI Settings →', 'dazont-ecom' ) . '</a></p>';
+		echo '<p style="margin-bottom:0;"><a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Open Settings →', 'dazont-ecom' ) . '</a></p>';
 	}
 
 	// =========================================================================

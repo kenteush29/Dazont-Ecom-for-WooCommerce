@@ -312,7 +312,7 @@ EOT;
 	// Universal prompt registry — ACF-style: ONE standardized list of prompts,
 	// each with a content type (text / image), a prompt, selectable product
 	// metadata INPUTS (fed to the prompt) and an OUTPUT destination. Rows are
-	// freely added/removed in AI Settings → Product content. Legacy per-field
+	// freely added/removed in Settings → Product content. Legacy per-field
 	// settings are migrated into the registry once, then it is the single source.
 	// =========================================================================
 
@@ -1128,7 +1128,7 @@ EOT;
 	// =========================================================================
 
 	public function add_meta_box(): void {
-		add_meta_box( 'dze-content-side', __( 'AI Content (Dazont)', 'dazont-ecom' ), [ $this, 'render_side_box' ], 'product', 'side', 'high' );
+		add_meta_box( 'dze-content-side', __( 'Product Content (Dazont)', 'dazont-ecom' ), [ $this, 'render_side_box' ], 'product', 'side', 'high' );
 	}
 
 	public function render_side_box( $post ): void {
@@ -1148,7 +1148,7 @@ EOT;
 	// =========================================================================
 
 	public function register_bulk_action( array $actions ): array {
-		$actions[ self::BULK_ACTION ] = __( 'Generate AI content (Dazont)', 'dazont-ecom' );
+		$actions[ self::BULK_ACTION ] = __( 'Generate content (Dazont)', 'dazont-ecom' );
 		return $actions;
 	}
 
@@ -1163,8 +1163,8 @@ EOT;
 	public function register_bulk_page(): void {
 		add_submenu_page(
 			'edit.php?post_type=product',
-			__( 'AI Content bulk', 'dazont-ecom' ),
-			__( 'AI Content bulk', 'dazont-ecom' ),
+			__( 'Content bulk', 'dazont-ecom' ),
+			__( 'Content bulk', 'dazont-ecom' ),
 			'edit_products',
 			self::BULK_SLUG,
 			[ $this, 'render_bulk_page' ]
@@ -1215,7 +1215,7 @@ EOT;
 		}
 		?>
 		<div class="wrap dze-wrap dze-admin">
-			<h1><?php esc_html_e( 'AI Content — bulk generation', 'dazont-ecom' ); ?></h1>
+			<h1><?php esc_html_e( 'Product Content — bulk generation', 'dazont-ecom' ); ?></h1>
 
 			<?php if ( $ok_n < $tot_n ) : ?>
 				<div class="notice notice-warning"><p>
@@ -1224,7 +1224,7 @@ EOT;
 			<?php endif; ?>
 
 			<?php if ( empty( $products ) ) : ?>
-				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Generate AI content (Dazont)" in the Bulk actions menu.', 'dazont-ecom' ); ?></p>
+				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Generate content (Dazont)" in the Bulk actions menu.', 'dazont-ecom' ); ?></p>
 				<?php return; ?>
 			<?php endif; ?>
 
@@ -1253,7 +1253,7 @@ EOT;
 						</label>
 						<span class="description"><?php esc_html_e( 'Tick/untick and change the template per product in the table — this is the judgement call.', 'dazont-ecom' ); ?></span>
 					<?php else : ?>
-						<span class="description"><?php esc_html_e( 'No validated image template yet — validate one in AI Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></span>
+						<span class="description"><?php esc_html_e( 'No validated image template yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></span>
 					<?php endif; ?>
 				</p>
 				<p>
@@ -1384,7 +1384,7 @@ EOT;
 				'price' => $product ? (string) $product->get_regular_price() : '',
 			],
 			'i18n'       => [
-				'toolbox'    => __( 'AI Content toolbox', 'dazont-ecom' ),
+				'toolbox'    => __( 'Content toolbox', 'dazont-ecom' ),
 				'text'       => __( 'Text', 'dazont-ecom' ),
 				'image'      => __( 'Image', 'dazont-ecom' ),
 				'price'      => __( 'Price', 'dazont-ecom' ),
@@ -1404,7 +1404,7 @@ EOT;
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
 				'imgWait'    => __( 'Rendering — up to a minute…', 'dazont-ecom' ),
 				'imgAdded'   => __( 'Image added.', 'dazont-ecom' ),
-				'imgPreview' => __( 'Preview only — template not validated, nothing attached. Validate it in AI Settings to attach results.', 'dazont-ecom' ),
+				'imgPreview' => __( 'Preview only — template not validated, nothing attached. Validate it in Settings to attach results.', 'dazont-ecom' ),
 				'imgReady'   => __( 'Image ready — added to the session gallery below.', 'dazont-ecom' ),
 				'addSelected'=> __( 'Add selected to product', 'dazont-ecom' ),
 				'added'      => __( 'Added ✓', 'dazont-ecom' ),
@@ -1442,7 +1442,8 @@ EOT;
 				'nothingSel' => __( 'Tick at least one thing to generate.', 'dazont-ecom' ),
 				'allDone'    => __( 'Done — everything applied.', 'dazont-ecom' ),
 				'editData'   => __( 'View / edit the data sent to the AI', 'dazont-ecom' ),
-				'fieldLocked'=> __( 'This prompt is not validated yet (AI Settings → Product content).', 'dazont-ecom' ),
+				'imgCount'   => __( 'Number of images to generate — pick the best ones from the gallery.', 'dazont-ecom' ),
+				'fieldLocked'=> __( 'This prompt is not validated yet (Settings → Product content).', 'dazont-ecom' ),
 				'cost'       => __( 'Cost (COGS)', 'dazont-ecom' ),
 				'recalc'     => __( 'Recalculate & apply', 'dazont-ecom' ),
 				'newPrice'   => __( 'New regular price', 'dazont-ecom' ),
@@ -1633,7 +1634,7 @@ EOT;
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$field  = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
 		if ( '' !== $field && ! self::field_validated( $field ) ) {
-			wp_send_json_error( [ 'message' => __( 'This prompt is not validated yet — tick its "Prompt validated" box in AI Settings → Product content.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'This prompt is not validated yet — tick its "Prompt validated" box in Settings → Product content.', 'dazont-ecom' ) ] );
 		}
 		$value  = isset( $_POST['value'] ) ? wp_kses_post( wp_unslash( $_POST['value'] ) ) : '';
 		$fields = self::fields();
@@ -1787,7 +1788,7 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
 		}
 		if ( '' === self::fal_key() ) {
-			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under AI Settings → General first.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
 		}
 		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
 			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
@@ -1983,7 +1984,7 @@ EOT;
 		// not have dropped the row — report a real failure instead of a fake ✓.
 		$check = self::registry_row( $row_id );
 		if ( ! $check || (string) ( $check['prompt'] ?? '' ) !== $prompt ) {
-			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from AI Settings instead.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
 	}
@@ -2010,7 +2011,7 @@ EOT;
 
 	/**
 	 * Toggle a prompt's Validated flag straight from the toolbox — no round trip
-	 * to AI Settings. Same capability as the settings page.
+	 * to Settings. Same capability as the settings page.
 	 */
 	public function ajax_validate_prompt(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
@@ -2048,7 +2049,7 @@ EOT;
 		self::$registry_cache = null;
 		$check = self::registry_row( $row_id );
 		if ( ! $check || (int) ! empty( $check['valid'] ) !== $on ) {
-			wp_send_json_error( [ 'message' => __( 'The change was not persisted — please use AI Settings instead.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'The change was not persisted — please use Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'valid' => (bool) $on ] );
 	}

@@ -8,8 +8,22 @@
 	'use strict';
 
 	var cfg = dzePod, i18n = cfg.i18n;
-	var lastUrl = '';
+	var results = [];   // generated URLs, click to select the keeper
+	var selIdx = -1;
+	var pending = 0, hadErr = false;
 	var frame = null;
+
+	function renderResults() {
+		var $g = $('#dze-pod-results .dze-pod-grid').empty();
+		results.forEach(function (u, i) {
+			$('<img />').attr('src', u).toggleClass('is-sel', i === selIdx).attr('data-i', i).appendTo($g);
+		});
+		$('#dze-pod-results').toggle(results.length > 0);
+	}
+	$(document).on('click', '#dze-pod-results .dze-pod-grid img', function () {
+		selIdx = parseInt($(this).attr('data-i'), 10);
+		renderResults();
+	});
 
 	function status(msg, color) {
 		$('#dze-pod-status').css('color', color || '#646970').html(msg);
@@ -62,25 +76,41 @@
 			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
 	});
 
+	// N parallel generations; every result joins the grid, the last one is
+	// pre-selected. Buttons re-enable when the LAST call completes.
 	$('#dze-pod-generate').on('click', function () {
-		var $btn = $(this).prop('disabled', true);
+		var $btn = $(this);
+		var n = parseInt($('#dze-pod-count').val(), 10) || 1;
 		var live = $('#dze-pod-pwrap').is(':visible') ? ($('#dze-pod-prompt-live').val() || '') : '';
-		status('<span class="dze-cx-spin"></span> ' + i18n.working + (cfg.mockupSet ? '' : '<br />' + i18n.noMockup));
-		$.post(cfg.ajaxUrl, { action: 'dze_pod_generate', nonce: cfg.nonce, post: cfg.postId, custom_prompt: (live && live !== cfg.prompt ? live : '') })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (!res.success) { status((res.data && res.data.message) || i18n.error, '#b32d2e'); return; }
-				lastUrl = res.data.url;
-				status(i18n.ready, '#00794b');
-				$('#dze-pod-result').show().find('img').attr('src', lastUrl);
-			})
-			.fail(function () { $btn.prop('disabled', false); status(i18n.error, '#b32d2e'); });
+		var custom = (live && live !== cfg.prompt) ? live : '';
+		pending = n; hadErr = false;
+		$btn.prop('disabled', true);
+		status('<span class="dze-cx-spin"></span> ' + i18n.working + (n > 1 ? ' (' + n + ')' : '') + (cfg.mockupSet ? '' : '<br />' + i18n.noMockup));
+		for (var k = 0; k < n; k++) {
+			$.post(cfg.ajaxUrl, { action: 'dze_pod_generate', nonce: cfg.nonce, post: cfg.postId, custom_prompt: custom })
+				.done(function (res) {
+					if (!res.success) { hadErr = true; status((res.data && res.data.message) || i18n.error, '#b32d2e'); return; }
+					results.push(res.data.url);
+					selIdx = results.length - 1;
+					renderResults();
+				})
+				.fail(function () { hadErr = true; status(i18n.error, '#b32d2e'); })
+				.always(function () {
+					pending = Math.max(0, pending - 1);
+					if (pending === 0) {
+						$btn.prop('disabled', false);
+						if (!hadErr) { status(i18n.ready, '#00794b'); }
+					} else if (!hadErr) {
+						status('<span class="dze-cx-spin"></span> ' + i18n.working + ' (' + pending + ')');
+					}
+				});
+		}
 	});
 
 	$('#dze-pod-attach').on('click', function () {
-		if (!lastUrl) { return; }
+		if (selIdx < 0 || !results[selIdx]) { return; }
 		var $btn = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_pod_attach', nonce: cfg.nonce, post: cfg.postId, url: lastUrl, target: $('#dze-pod-target').val() })
+		$.post(cfg.ajaxUrl, { action: 'dze_pod_attach', nonce: cfg.nonce, post: cfg.postId, url: results[selIdx], target: $('#dze-pod-target').val() })
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }

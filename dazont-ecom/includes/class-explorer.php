@@ -25,7 +25,7 @@ final class DZE_Explorer {
 
 	/**
 	 * Default sourcing-report instructions — the editable heart of the report
-	 * prompt. Admins can override them in AI Settings → Sourcing Assistant; the
+	 * prompt. Admins can override them in Settings → Sourcing Assistant; the
 	 * data blocks (category, products, gap queries) and the JSON output format
 	 * stay fixed so parsing never breaks.
 	 */
@@ -720,7 +720,7 @@ EOT;
 			wp_send_json_success( [ 'saved' => false ] );
 		}
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) || DZE_Marketing_Ai::api_key() === '' ) {
-			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key under AI Settings first.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) ] );
 		}
 
 		// Gap list from the keyword set (top by volume), for the exhaustive part.

@@ -50,7 +50,7 @@ final class DZE_Product_Images {
 		if ( ! is_admin() ) {
 			return;
 		}
-		// Settings are embedded on the central "AI Settings" page (no own submenu).
+		// Settings are embedded on the central "Settings" page (no own submenu).
 		add_action( 'admin_init',            [ $this, 'register_settings' ] );
 		add_action( 'add_meta_boxes',        [ $this, 'add_meta_box' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
@@ -99,7 +99,7 @@ final class DZE_Product_Images {
 		$in       = is_array( $value ) ? $value : [];
 		$existing = self::get_settings();
 
-		// The AI Settings page saves per tab ('keys' on General, 'prompts' on
+		// The Settings page saves per tab ('keys' on General, 'prompts' on
 		// Product images): only overwrite the fields the submitted section carries.
 		$section = (string) ( $in['section'] ?? 'all' );
 
@@ -130,7 +130,7 @@ final class DZE_Product_Images {
 	}
 
 	/**
-	 * Renders the Gemini settings form, embedded on the central AI Settings page.
+	 * Renders the Gemini settings form, embedded on the central Settings page.
 	 *
 	 * @param string $dze_section 'all', 'keys' (API key + model) or 'prompts'.
 	 */
@@ -148,7 +148,7 @@ final class DZE_Product_Images {
 	// =========================================================================
 
 	public function add_meta_box(): void {
-		add_meta_box( 'dze-ai-images', __( 'AI Product Images', 'dazont-ecom' ), [ $this, 'render_meta_box' ], 'product', 'normal', 'default' );
+		add_meta_box( 'dze-ai-images', __( 'Product Images (Gemini)', 'dazont-ecom' ), [ $this, 'render_meta_box' ], 'product', 'normal', 'default' );
 	}
 
 	public function render_meta_box( $post ): void {
@@ -189,7 +189,7 @@ final class DZE_Product_Images {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
 		if ( self::api_key() === '' ) {
-			wp_send_json_error( [ 'message' => __( 'Add your Google Gemini API key under AI Settings first.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your Google Gemini API key under Settings first.', 'dazont-ecom' ) ] );
 		}
 		$product_id = isset( $_POST['product'] ) ? absint( $_POST['product'] ) : 0;
 		$product    = $product_id ? wc_get_product( $product_id ) : null;

@@ -3,9 +3,11 @@ defined( 'ABSPATH' ) || exit;
 
 /**
  * Module manager — the single catalog of every plugin function, grouped by
- * type, each with a mandatory one-line description and an on/off switch
- * (Dazont Ecom → Modules). The plugin boots ONLY the enabled modules; the
- * manager itself, the updater and the API-key helper are always on.
+ * type. Each entry carries a short one-line description and a longer detailed
+ * one (shown in a popup). Lives as a tab of the Settings page; keeps a
+ * fallback submenu/top-level menu so it stays reachable whatever is disabled.
+ * The plugin boots ONLY the enabled modules; the manager itself, the updater
+ * and the API-key helper are always on.
  */
 final class DZE_Modules {
 
@@ -29,7 +31,8 @@ final class DZE_Modules {
 	}
 
 	// =========================================================================
-	// Catalog — id => class, group, label, one-line description. Boot order.
+	// Catalog — id => class, group, label, short desc, detailed popup text.
+	// Array order = boot order (historical instantiation order).
 	// =========================================================================
 
 	/** group id => label. */
@@ -49,73 +52,85 @@ final class DZE_Modules {
 				'class' => 'DZE_Restock',
 				'group' => 'catalog',
 				'label' => __( 'Restock', 'dazont-ecom' ),
-				'desc'  => __( 'Out-of-stock backlog ranked by lifetime sales, recalculated weekly. Also hosts the Dazont admin menu.', 'dazont-ecom' ),
+				'desc'  => __( 'Out-of-stock backlog ranked by lifetime sales.', 'dazont-ecom' ),
+				'more'  => __( 'Lists the product lines (simple products or variable parents) that have at least one out-of-stock element, ranked by total lifetime sales — so restocking always starts with proven sellers. Sales figures are cached by a weekly WP-Cron recalculation and aggregated across all WPML languages. This module also hosts the top-level Dazont menu; if you switch it off, the module manager takes the menu over so nothing gets lost.', 'dazont-ecom' ),
 			],
 			'dashboard' => [
 				'class' => 'DZE_Dashboard',
 				'group' => 'tech',
 				'label' => __( 'Dashboard', 'dazont-ecom' ),
-				'desc'  => __( 'The Dazont dashboard page: modules overview, quick links, monthly AI usage.', 'dazont-ecom' ),
+				'desc'  => __( 'The plugin home screen: stock, spend, calendar, categories.', 'dazont-ecom' ),
+				'more'  => __( 'Four blocks: the top out-of-stock best-sellers waiting for restock, the monthly API spend per provider, the planned marketing calendar (current and upcoming events), and the top product categories of the last 3 months with their last novelty-search date. The same blocks are also registered as WordPress dashboard widgets on the WP home screen.', 'dazont-ecom' ),
 			],
 			'trending' => [
 				'class' => 'DZE_Trending',
 				'group' => 'catalog',
 				'label' => __( 'Trending Products', 'dazont-ecom' ),
-				'desc'  => __( 'The [time_bestsellers] shortcode: best-sellers grid with native WooCommerce pagination.', 'dazont-ecom' ),
+				'desc'  => __( 'The [time_bestsellers] shortcode: best-sellers grid.', 'dazont-ecom' ),
+				'more'  => __( 'Computes the shop\'s best-sellers from the WooCommerce Analytics sales lookup table, then delegates the display to WooCommerce\'s own [products] shortcode — native grid, native columns, native pagination, zero custom markup to maintain. Results are cached 24 hours. Pages that don\'t use the shortcode pay no cost at all.', 'dazont-ecom' ),
 			],
 			'discounts' => [
 				'class' => 'DZE_Discounts',
 				'group' => 'marketing',
 				'label' => __( 'Discounts & Marketing events', 'dazont-ecom' ),
-				'desc'  => __( 'Evergreen bulk-cart coupons, automatic product discounts with real sale prices, scheduled sale events.', 'dazont-ecom' ),
+				'desc'  => __( 'Scheduled sales, bulk offers, automatic discounts, banners.', 'dazont-ecom' ),
+				'more'  => __( 'Four rule types: scheduled site-wide % sales with optional promo banners; "Bulk offer per item" (% off a product line once you buy N of the same product, shown as a Bundle line); tiered "Bulk order" discounts applied through an automatic Wholesale coupon; and automatic product discounts (new arrivals, slow movers, best-sellers or trending) refreshed weekly. Sale prices are written into the real product data, so on-sale pages, badges and Merchant Center all see them. Front-end hooks are only registered while at least one rule is active.', 'dazont-ecom' ),
 			],
 			'gmc' => [
 				'class' => 'DZE_Gmc',
 				'group' => 'marketing',
 				'label' => __( 'Google Merchant Center', 'dazont-ecom' ),
-				'desc'  => __( 'GMC sync: product feed and scheduled updates towards Google Shopping.', 'dazont-ecom' ),
+				'desc'  => __( 'Pushes your scheduled sale promotions to Merchant Center.', 'dazont-ecom' ),
+				'more'  => __( 'No product feed involved. Each scheduled sale from the Discounts module is inserted as a Merchant Center PROMOTION through Google\'s Merchant API (the successor of the Content API), into one GMC account per language; the promotion data sources are found or created automatically per country/language. Authentication uses your connected Google account or a service account. A cron keeps the promotions in sync with your events.', 'dazont-ecom' ),
 			],
 			'marketing_ai' => [
 				'class' => 'DZE_Marketing_Ai',
 				'group' => 'marketing',
-				'label' => __( 'AI Marketing Assistant', 'dazont-ecom' ),
-				'desc'  => __( 'AI marketing calendar and insights — also hosts the AI Settings page (keys, models, monthly budget).', 'dazont-ecom' ),
+				'label' => __( 'Marketing Assistant', 'dazont-ecom' ),
+				'desc'  => __( 'Suggests a promotion calendar; hosts the Settings page.', 'dazont-ecom' ),
+				'more'  => __( 'Builds a proposed marketing calendar from your own shop data: site name, categories, sample products, price range, languages (WPML) and per-language target countries. Every suggestion is reviewed by you — accepting turns it into a real scheduled event in Marketing Events; a shortcode renders the final calendar on the front. This module also hosts the shared Settings page (API keys, model choices, monthly spend cap) that the other modules read their configuration from.', 'dazont-ecom' ),
 			],
 			'explorer' => [
 				'class' => 'DZE_Explorer',
 				'group' => 'sourcing',
 				'label' => __( 'Product Explorer', 'dazont-ecom' ),
-				'desc'  => __( 'Full-screen catalogue browser plus the AI sourcing report (all products, sales-aware).', 'dazont-ecom' ),
+				'desc'  => __( 'Full-screen catalogue browser + the sourcing report.', 'dazont-ecom' ),
+				'more'  => __( 'A storefront-like admin view of the whole catalogue: big product images, a category rail with recursive counts, filters, image zoom, a variations popup and a focus mode that hides the WordPress chrome. The sourcing report runs from here: it feeds ALL products (ranked by real sales) plus the keyword gaps to the model and returns product opportunities, deduplicated against what the shop already sells.', 'dazont-ecom' ),
 			],
 			'keywords' => [
 				'class' => 'DZE_Keywords',
 				'group' => 'sourcing',
 				'label' => __( 'Sourcing keywords', 'dazont-ecom' ),
-				'desc'  => __( 'Keyword import, AI matching against the catalogue and analysis for the Sourcing Assistant.', 'dazont-ecom' ),
+				'desc'  => __( 'Per-category SEMrush keyword sets with a workbench.', 'dazont-ecom' ),
+				'more'  => __( 'Stores one keyword set per product category in a dedicated table. CSV import is deliberately tolerant of SEMrush export variations (delimiter, encoding and decimal style auto-detected; the column mapping is confirmed by you before anything is written). The workbench offers sorting, filtering, manual statuses, bulk actions and per-category metrics (volume, weighted CPC, average KD, completion), plus keyword-to-product matching to spot what the catalogue already covers and what is missing.', 'dazont-ecom' ),
 			],
 			'product_images' => [
 				'class' => 'DZE_Product_Images',
 				'group' => 'product',
-				'label' => __( 'AI Product Images (Gemini)', 'dazont-ecom' ),
-				'desc'  => __( 'Google Gemini image generation box on the product page.', 'dazont-ecom' ),
+				'label' => __( 'Product Images (Gemini, legacy)', 'dazont-ecom' ),
+				'desc'  => __( 'Older image box calling Google Gemini directly (own key).', 'dazont-ecom' ),
+				'more'  => __( 'The first-generation image generator: recolor / lifestyle / enhance / custom templates on the product page, calling Google\'s Gemini API directly with its own dedicated key. The Product Content module now generates images through fal.ai instead, so this module is redundant unless you keep a separate Gemini key — switch it off if you don\'t use it.', 'dazont-ecom' ),
 			],
 			'content' => [
 				'class' => 'DZE_Content',
 				'group' => 'product',
-				'label' => __( 'AI Content', 'dazont-ecom' ),
-				'desc'  => __( 'Prompt registry, Automatic edition toolbox (texts, images, price), bulk generation, price table.', 'dazont-ecom' ),
+				'label' => __( 'Product Content', 'dazont-ecom' ),
+				'desc'  => __( 'Automatic edition of a product: texts, images, price.', 'dazont-ecom' ),
+				'more'  => __( 'The full product pipeline. A universal prompt registry (your own prompts, with the product data they receive as input and the field each one writes to); the "Automatic edition" popup on the product page (tick what to generate, Launch, review everything in an editable preview, apply); image generation with a session gallery, native-style selection and SEO naming; price recalculation from cost (COGS × your price table); and the multi-product bulk screen reached from the Products list.', 'dazont-ecom' ),
 			],
 			'pod' => [
 				'class' => 'DZE_Pod',
 				'group' => 'product',
 				'label' => __( 'POD image', 'dazont-ecom' ),
-				'desc'  => __( 'Print on demand: a per-product design printed on your stored base mockup (fal.ai key required).', 'dazont-ecom' ),
+				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
+				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
 			],
 			'variation_split' => [
 				'class' => 'DZE_Variation_Split',
 				'group' => 'product',
 				'label' => __( 'Variation Split (prototype)', 'dazont-ecom' ),
-				'desc'  => __( 'Split a variable product\'s variations into simple DRAFT products.', 'dazont-ecom' ),
+				'desc'  => __( 'One variation attribute → standalone draft products.', 'dazont-ecom' ),
+				'more'  => __( 'Splits a chosen variation attribute of a variable product (e.g. colour) into standalone products, one per term — each independently searchable and rankable in SEO. Deliberately conservative: the new products are created as DRAFTS and never published automatically, the source product is left untouched, and each copy takes the description, categories, gallery, the representative variation\'s price and image, and keeps the term as a fixed attribute.', 'dazont-ecom' ),
 			],
 		];
 	}
@@ -145,7 +160,9 @@ final class DZE_Modules {
 	}
 
 	// =========================================================================
-	// Menu — takes over the top-level Dazont menu when Restock is off.
+	// Menu — normally a tab of the Settings page. Fallbacks keep it reachable:
+	// an own submenu when the Settings host module is off, and the top-level
+	// Dazont menu itself when Restock (its owner) is off.
 	// =========================================================================
 
 	public function fallback_menu(): void {
@@ -164,6 +181,9 @@ final class DZE_Modules {
 	}
 
 	public function submenu(): void {
+		if ( self::enabled( 'marketing_ai' ) ) {
+			return; // reachable as the Modules tab of the Settings page.
+		}
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			__( 'Modules', 'dazont-ecom' ),
@@ -178,9 +198,20 @@ final class DZE_Modules {
 	// Screen
 	// =========================================================================
 
+	/** Standalone page (fallback menus only). */
 	public function render_page(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
+		}
+		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html__( 'Dazont Ecom — Modules', 'dazont-ecom' ) . '</h1>';
+		$this->render_tab();
+		echo '</div>';
+	}
+
+	/** Tab body (used by the Settings page tab AND the standalone page). */
+	public function render_tab(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
 		}
 		$groups = self::groups();
 		$by     = [];
@@ -188,33 +219,39 @@ final class DZE_Modules {
 			$by[ $m['group'] ][ $id ] = $m;
 		}
 		?>
-		<div class="wrap dze-wrap dze-admin">
-			<h1><?php esc_html_e( 'Dazont Ecom — Modules', 'dazont-ecom' ); ?></h1>
-			<p class="description"><?php esc_html_e( 'Switch any function on or off. A change takes effect on the next page load.', 'dazont-ecom' ); ?></p>
-			<div class="dze-mod-groups">
-			<?php foreach ( $groups as $gid => $glabel ) : ?>
-				<?php if ( empty( $by[ $gid ] ) ) { continue; } ?>
-				<div class="dze-mod-card">
-					<h2><?php echo esc_html( $glabel ); ?></h2>
-					<?php foreach ( $by[ $gid ] as $id => $m ) : $on = self::enabled( $id ); ?>
-						<div class="dze-mod-row">
-							<label class="dze-switch">
-								<input type="checkbox" class="dze-mod-toggle" data-module="<?php echo esc_attr( $id ); ?>" <?php checked( $on ); ?> />
-								<span class="dze-switch-slider"></span>
-							</label>
-							<div class="dze-mod-info">
-								<strong><?php echo esc_html( $m['label'] ); ?></strong>
-								<span class="dze-mod-desc"><?php echo esc_html( $m['desc'] ); ?></span>
-							</div>
+		<p class="description"><?php esc_html_e( 'Switch any function on or off. A change takes effect on the next page load. Click ? for the full description.', 'dazont-ecom' ); ?></p>
+		<div class="dze-mod-groups">
+		<?php foreach ( $groups as $gid => $glabel ) : ?>
+			<?php if ( empty( $by[ $gid ] ) ) { continue; } ?>
+			<div class="dze-mod-card">
+				<h2><?php echo esc_html( $glabel ); ?></h2>
+				<?php foreach ( $by[ $gid ] as $id => $m ) : $on = self::enabled( $id ); ?>
+					<div class="dze-mod-row">
+						<label class="dze-switch">
+							<input type="checkbox" class="dze-mod-toggle" data-module="<?php echo esc_attr( $id ); ?>" <?php checked( $on ); ?> />
+							<span class="dze-switch-slider"></span>
+						</label>
+						<div class="dze-mod-info">
+							<strong><?php echo esc_html( $m['label'] ); ?>
+								<button type="button" class="dze-mod-more" data-module="<?php echo esc_attr( $id ); ?>" title="<?php esc_attr_e( 'Full description', 'dazont-ecom' ); ?>">?</button>
+							</strong>
+							<span class="dze-mod-desc"><?php echo esc_html( $m['desc'] ); ?></span>
 						</div>
-					<?php endforeach; ?>
-				</div>
-			<?php endforeach; ?>
+					</div>
+				<?php endforeach; ?>
 			</div>
-			<p id="dze-mod-note" class="description" style="display:none;">
-				<?php esc_html_e( 'Saved ✓ — the change applies on the next page load.', 'dazont-ecom' ); ?>
-				<a href="#" onclick="window.location.reload();return false;"><?php esc_html_e( 'Reload now', 'dazont-ecom' ); ?></a>
-			</p>
+		<?php endforeach; ?>
+		</div>
+		<p id="dze-mod-note" class="description" style="display:none;">
+			<?php esc_html_e( 'Saved ✓ — the change applies on the next page load.', 'dazont-ecom' ); ?>
+			<a href="#" onclick="window.location.reload();return false;"><?php esc_html_e( 'Reload now', 'dazont-ecom' ); ?></a>
+		</p>
+		<div class="dze-mod-popup" id="dze-mod-popup">
+			<div class="dze-mod-popup-box">
+				<h3 id="dze-mod-popup-title"></h3>
+				<p id="dze-mod-popup-text"></p>
+				<p style="text-align:right;margin:14px 0 0;"><button type="button" class="button" id="dze-mod-popup-close"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button></p>
+			</div>
 		</div>
 		<style>
 		.dze-mod-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 16px; margin-top: 14px; max-width: 1400px; }
@@ -224,6 +261,12 @@ final class DZE_Modules {
 		.dze-mod-row:first-of-type { border-top: none; }
 		.dze-mod-info strong { display: block; font-size: 13px; }
 		.dze-mod-desc { display: block; color: #646970; font-size: 12px; margin-top: 2px; }
+		.dze-mod-more {
+			display: inline-block; width: 16px; height: 16px; line-height: 14px; text-align: center; padding: 0;
+			border: 1px solid #c3c4c7; border-radius: 50%; background: #f6f7f7; color: #646970;
+			font-size: 10px; font-weight: 700; cursor: pointer; vertical-align: 1px; margin-left: 4px;
+		}
+		.dze-mod-more:hover { border-color: #2271b1; color: #2271b1; }
 		.dze-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 36px; margin-top: 2px; }
 		.dze-switch input { opacity: 0; width: 0; height: 0; }
 		.dze-switch-slider { position: absolute; inset: 0; background: #c3c4c7; border-radius: 999px; transition: background .15s; cursor: pointer; }
@@ -231,10 +274,31 @@ final class DZE_Modules {
 		.dze-switch input:checked + .dze-switch-slider { background: #00794b; }
 		.dze-switch input:checked + .dze-switch-slider::before { transform: translateX(16px); }
 		.dze-switch input:disabled + .dze-switch-slider { opacity: .5; cursor: wait; }
+		.dze-mod-popup { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100001; display: none; align-items: center; justify-content: center; }
+		.dze-mod-popup.is-open { display: flex; }
+		.dze-mod-popup-box { background: #fff; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3); max-width: 560px; width: 92vw; padding: 20px 24px; }
+		.dze-mod-popup-box h3 { margin: 0 0 10px; }
+		.dze-mod-popup-box p { margin: 0; line-height: 1.6; color: #3c434a; }
 		</style>
 		<script>
 		jQuery( function ( $ ) {
-			$( '.dze-mod-toggle' ).on( 'change', function () {
+			var moreTexts = <?php
+				$pop = [];
+				foreach ( self::catalog() as $mid => $mm ) {
+					$pop[ $mid ] = [ 'title' => $mm['label'], 'text' => $mm['more'] ];
+				}
+				echo wp_json_encode( $pop );
+			?>;
+			$( document ).on( 'click', '.dze-mod-more', function () {
+				var m = moreTexts[ $( this ).data( 'module' ) ];
+				if ( ! m ) { return; }
+				$( '#dze-mod-popup-title' ).text( m.title );
+				$( '#dze-mod-popup-text' ).text( m.text );
+				$( '#dze-mod-popup' ).addClass( 'is-open' );
+			} );
+			$( document ).on( 'click', '#dze-mod-popup-close', function () { $( '#dze-mod-popup' ).removeClass( 'is-open' ); } );
+			$( document ).on( 'click', '#dze-mod-popup', function ( e ) { if ( e.target === this ) { $( this ).removeClass( 'is-open' ); } } );
+			$( document ).on( 'change', '.dze-mod-toggle', function () {
 				var $t = $( this ).prop( 'disabled', true );
 				$.post( window.ajaxurl, {
 					action: 'dze_modules_toggle',

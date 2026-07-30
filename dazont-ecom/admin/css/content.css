@@ -205,3 +205,10 @@
 }
 .dze-pod-box .button { max-width: 100%; }
 .dze-pod-del { color: #b32d2e !important; }
+.dze-pod-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+.dze-pod-grid img {
+	width: 100%; height: auto; display: block; cursor: pointer;
+	border: 2px solid #dcdcde; border-radius: 4px; box-sizing: border-box;
+}
+.dze-pod-grid img:hover { border-color: #2271b1; }
+.dze-pod-grid img.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
