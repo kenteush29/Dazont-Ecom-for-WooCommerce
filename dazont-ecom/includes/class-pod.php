@@ -34,6 +34,9 @@ final class DZE_Pod {
 		add_action( 'wp_ajax_dze_pod_generate', [ $this, 'ajax_generate' ] );
 		add_action( 'wp_ajax_dze_pod_save_prompt', [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_pod_attach', [ $this, 'ajax_attach' ] );
+		// Order fulfilment: a small button on each order line whose product has a
+		// stored POD design opens the print file in a popup.
+		add_action( 'woocommerce_after_order_itemmeta', [ $this, 'order_item_design' ], 10, 3 );
 	}
 
 	// =========================================================================
@@ -166,7 +169,7 @@ PROMPT;
 				<button type="button" class="button" id="dze-pod-pick"><?php echo $design ? esc_html__( 'Change design', 'dazont-ecom' ) : esc_html__( 'Upload design', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button-link dze-pod-del" id="dze-pod-clear" <?php echo $design ? '' : 'style="display:none;"'; ?>><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 			</p>
-			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background, min 2000 px — ideally 4500×5400 px (print standard).', 'dazont-ecom' ); ?></p>
+			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background. Upload your print-ready file (e.g. 4500×5400 px): it is kept full-size for the supplier — the generation automatically works from a reduced copy.', 'dazont-ecom' ); ?></p>
 			<p>
 				<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
 				<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
@@ -308,6 +311,67 @@ PROMPT;
 			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — please save it from Settings instead.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
+	}
+
+	// =========================================================================
+	// Order page: view the print file of POD products in the order
+	// =========================================================================
+
+	private bool $order_popup_printed = false;
+
+	/**
+	 * Renders a "POD design" button under an order line item — ONLY when the
+	 * ordered product (or its variable parent) has a stored design. Opens the
+	 * full-size print file in a popup, with a link to the original for the
+	 * supplier hand-off.
+	 */
+	public function order_item_design( $item_id, $item, $product ): void {
+		if ( ! is_admin() || ! $product instanceof WC_Product ) {
+			return;
+		}
+		$pid    = $product->get_parent_id() ?: $product->get_id();
+		$design = absint( get_post_meta( $pid, self::DESIGN_META, true ) );
+		$full   = $design ? wp_get_attachment_image_url( $design, 'full' ) : '';
+		if ( ! $full ) {
+			return;
+		}
+		printf(
+			'<button type="button" class="button button-small dze-pod-order-view" data-src="%1$s">%2$s</button>',
+			esc_url( $full ),
+			esc_html__( '🎨 POD design', 'dazont-ecom' )
+		);
+		if ( ! $this->order_popup_printed ) {
+			$this->order_popup_printed = true;
+			add_action( 'admin_footer', [ $this, 'order_popup_markup' ] );
+		}
+	}
+
+	/** Popup shell + behaviour, printed once per order screen. */
+	public function order_popup_markup(): void {
+		?>
+		<div id="dze-pod-order-popup" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100002;display:none;align-items:center;justify-content:center;">
+			<div style="background:#fff;border-radius:8px;padding:14px;max-width:min(92vw,700px);max-height:92vh;overflow:auto;text-align:center;">
+				<img src="" alt="" style="max-width:100%;max-height:74vh;height:auto;background:repeating-conic-gradient(#f0f0f1 0 25%,#fff 0 50%) 0 0/16px 16px;border:1px solid #dcdcde;border-radius:4px;" />
+				<p style="margin:10px 0 0;">
+					<a href="#" target="_blank" rel="noopener" class="button button-primary" id="dze-pod-order-open"><?php esc_html_e( 'Open the print file (full size)', 'dazont-ecom' ); ?></a>
+					<button type="button" class="button" id="dze-pod-order-close"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button>
+				</p>
+			</div>
+		</div>
+		<script>
+		jQuery( function ( $ ) {
+			var $p = $( '#dze-pod-order-popup' );
+			$( document ).on( 'click', '.dze-pod-order-view', function () {
+				var src = $( this ).data( 'src' );
+				$p.find( 'img' ).attr( 'src', src );
+				$( '#dze-pod-order-open' ).attr( 'href', src );
+				$p.css( 'display', 'flex' );
+			} );
+			$( document ).on( 'click', '#dze-pod-order-close', function () { $p.hide(); } );
+			$p.on( 'click', function ( e ) { if ( e.target === this ) { $p.hide(); } } );
+		} );
+		</script>
+		<?php
 	}
 
 	/** Attach the generated image (SEO naming; main moves the old main to gallery). */
