@@ -58,8 +58,36 @@
 .dze-cx-src label { display: block; font-weight: 600; margin: 8px 0 3px; }
 .dze-cx-note { color: #646970; font-size: 12px; }
 .dze-cx-warn { background: #fcf9e8; border: 1px solid #f0e6a6; border-radius: 4px; padding: 8px 12px; margin: 0 0 12px; }
-.dze-cx-imgrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.dze-cx-imgrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .dze-cx-imgout img { max-width: 240px; height: auto; border: 1px solid #dcdcde; border-radius: 4px; margin-top: 10px; }
+
+/* ---- Session gallery (generated images, native-WP selection feel) ---- */
+.dze-cx-galbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+.dze-cx-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 6px; }
+.dze-cx-thumb {
+	position: relative; border: 2px solid #dcdcde; border-radius: 6px; overflow: hidden; cursor: pointer;
+	aspect-ratio: 1/1; background: #f6f7f7;
+}
+.dze-cx-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dze-cx-thumb:hover { border-color: #2271b1; }
+/* Selected: blue frame + filled check, like the WordPress media library. */
+.dze-cx-thumb.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+.dze-cx-t-check {
+	position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent; font-size: 14px; line-height: 22px; text-align: center;
+}
+.dze-cx-thumb.is-sel .dze-cx-t-check { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-cx-t-edit {
+	position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; cursor: pointer; font-size: 13px; line-height: 1;
+}
+.dze-cx-t-edit:hover { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-cx-thumb.is-added { opacity: .65; cursor: default; }
+.dze-cx-t-tag {
+	position: absolute; bottom: 6px; left: 6px; background: #00794b; color: #fff;
+	font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+}
+#dze-cx-editrow { margin-top: 10px; padding: 10px; background: #fffdf3; border: 1px solid #f0e08a; border-radius: 6px; }
 .dze-cx-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #c3d9ec; border-top-color: #2271b1; border-radius: 50%; animation: dze-cx-spin .8s linear infinite; vertical-align: -2px; }
 @keyframes dze-cx-spin { to { transform: rotate(360deg); } }
 

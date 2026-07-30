@@ -59,6 +59,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_text_all', [ $this, 'ajax_text_all' ] );
 		add_action( 'wp_ajax_dze_content_apply', [ $this, 'ajax_apply' ] );
 		add_action( 'wp_ajax_dze_content_image', [ $this, 'ajax_image' ] );
+		add_action( 'wp_ajax_dze_content_image_attach', [ $this, 'ajax_image_attach' ] );
+		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
 
@@ -923,11 +925,13 @@ EOT;
 		$pid = (int) get_the_ID();
 		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery' ], DZE_VERSION, true );
 
-		$labels = [];
-		$fv     = [];
+		$labels  = [];
+		$fv      = [];
+		$prompts = [];
 		foreach ( self::enabled_fields() as $fid => $f ) {
-			$labels[ $fid ] = $f['label'];
-			$fv[ $fid ]     = self::field_validated( $fid );
+			$labels[ $fid ]  = $f['label'];
+			$fv[ $fid ]      = self::field_validated( $fid );
+			$prompts[ $fid ] = self::prompt_for( $fid );
 		}
 
 		$product = $pid ? wc_get_product( $pid ) : null;
@@ -937,7 +941,8 @@ EOT;
 			'postId'     => $pid,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
-			'templates'  => array_map( static fn( $t ) => [ 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ) ], self::image_templates() ),
+			'templates'  => array_map( static fn( $t ) => [ 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
+			'prompts'    => $prompts,
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
@@ -968,6 +973,22 @@ EOT;
 				'imgWait'    => __( 'Rendering — up to a minute…', 'dazont-ecom' ),
 				'imgAdded'   => __( 'Image added.', 'dazont-ecom' ),
 				'imgPreview' => __( 'Preview only — template not validated, nothing attached. Validate it in AI Settings to attach results.', 'dazont-ecom' ),
+				'imgReady'   => __( 'Image ready — added to the session gallery below.', 'dazont-ecom' ),
+				'addSelected'=> __( 'Add selected to product', 'dazont-ecom' ),
+				'added'      => __( 'Added ✓', 'dazont-ecom' ),
+				'attachDone' => __( 'image(s) added to the product with SEO naming.', 'dazont-ecom' ),
+				'sendTo'     => __( 'Send to:', 'dazont-ecom' ),
+				'toGallery'  => __( 'Product gallery', 'dazont-ecom' ),
+				'toMain'     => __( 'Main image (first selected)', 'dazont-ecom' ),
+				'select'     => __( 'Select', 'dazont-ecom' ),
+				'editImage'  => __( 'Edit with a manual prompt', 'dazont-ecom' ),
+				'variantHelp'=> __( 'Describe the change to apply to THIS image (one-off prompt, not saved):', 'dazont-ecom' ),
+				'genVariant' => __( 'Generate variant', 'dazont-ecom' ),
+				'editPrompt' => __( 'Edit prompt', 'dazont-ecom' ),
+				'savePrompt' => __( 'Save prompt', 'dazont-ecom' ),
+				'savedPrompt'=> __( 'Prompt saved ✓', 'dazont-ecom' ),
+				'promptNote' => __( 'Edits here are used for THIS generation only — click 💾 to make them permanent.', 'dazont-ecom' ),
+				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
 				'notValid'   => __( 'not validated', 'dazont-ecom' ),
 				'fieldLocked'=> __( 'This prompt is not validated yet (AI Settings → Product content).', 'dazont-ecom' ),
 				'cost'       => __( 'Cost (COGS)', 'dazont-ecom' ),
@@ -1044,8 +1065,9 @@ EOT;
 		if ( '' === $title && '' === $desc && '' === $attr ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
-		$system = 'You are an expert e-commerce copywriter. ' . self::store_context();
-		$user   = self::prompt_for( $field ) . "\n\n--- PRODUCT DATA ---\n";
+		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
+		$system   = 'You are an expert e-commerce copywriter. ' . self::store_context();
+		$user     = ( '' !== trim( $override ) ? $override : self::prompt_for( $field ) ) . "\n\n--- PRODUCT DATA ---\n";
 		if ( $title ) { $user .= "Title: {$title}\n"; }
 		if ( $desc )  { $user .= "Description: {$desc}\n"; }
 		if ( $attr )  { $user .= "Attributes / supplier data: {$attr}\n"; }
@@ -1117,9 +1139,17 @@ EOT;
 		if ( $attr )  { $user .= "Attributes / supplier data: {$attr}\n"; }
 		$user .= "\nGenerate the " . count( $targets ) . " fields below. Each field has its OWN instructions, coming from separate proven scripts — follow each set EXACTLY and independently, as if it were the only task.\n";
 		$user .= "OUTPUT FORMAT (strict): for each field output a line exactly ===FIELD:<field_id>=== followed by that field's content, then after the last field a line ===END===. Nothing else.\n\n";
+		// One-off prompt overrides from the live editors (never saved here).
+		$overrides = [];
+		if ( isset( $_POST['prompts'] ) && is_array( $_POST['prompts'] ) ) {
+			foreach ( wp_unslash( $_POST['prompts'] ) as $ofid => $op ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
+				$overrides[ sanitize_key( $ofid ) ] = sanitize_textarea_field( (string) $op );
+			}
+		}
 		$tokens = 300;
 		foreach ( $targets as $fid => $f ) {
-			$user   .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . self::prompt_for( $fid ) . "\n\n";
+			$p       = ! empty( $overrides[ $fid ] ) ? $overrides[ $fid ] : self::prompt_for( $fid );
+			$user   .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . $p . "\n\n";
 			$tokens += (int) ( $f['tokens'] ?? 300 );
 		}
 
@@ -1313,8 +1343,11 @@ EOT;
 
 	public function ajax_image(): void {
 		$this->guard();
-		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$idx = isset( $_POST['template'] ) ? absint( $_POST['template'] ) : 0;
+		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$idx    = isset( $_POST['template'] ) ? absint( $_POST['template'] ) : 0;
+		$mode   = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : '';
+		$custom = isset( $_POST['custom_prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['custom_prompt'] ) ) : '';
+		$src    = isset( $_POST['src_url'] ) ? esc_url_raw( wp_unslash( $_POST['src_url'] ) ) : '';
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
 		}
@@ -1323,49 +1356,45 @@ EOT;
 		}
 		$templates = self::image_templates();
 		$tpl       = $templates[ $idx ] ?? $templates[0] ?? null;
-		if ( ! $tpl ) {
+		if ( ! $tpl && '' === $custom ) {
 			wp_send_json_error( [ 'message' => __( 'No image template configured.', 'dazont-ecom' ) ] );
 		}
+
+		// Source image: an earlier AI result (live edit) or the featured image.
+		if ( '' !== $src && ! self::is_fal_url( $src ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid source image.', 'dazont-ecom' ) ] );
+		}
 		$thumb_id = get_post_thumbnail_id( $pid );
-		if ( ! $thumb_id ) {
+		if ( '' === $src && ! $thumb_id ) {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
+
 		$title  = get_the_title( $pid );
 		$desc   = wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) );
 		$desc   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $desc ) ), 0, 600 );
 		$ctx    = trim( self::store_context() . ' ' . $title . '. ' . $desc );
-		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . (string) $tpl['prompt'];
+		$base   = '' !== $custom ? $custom : (string) $tpl['prompt'];
+		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . $base;
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 		$validated = self::template_validated( $idx );
 		try {
-			// The source is sent as a base64 data URI — fal cannot always fetch the
-			// site's own URLs (staging auth, hotlink protection), which surfaced as
-			// HTTP 422. Same approach as the validated Apps Script workflow.
-			$image_url = $this->fal_generate( $prompt, [ $this->fal_source_data_uri( (int) $thumb_id ) ] );
+			// Sources: fal's own CDN URLs pass through; local files go as data URIs
+			// (fal cannot always fetch staging/hotlink-protected site URLs).
+			$source    = '' !== $src ? $src : $this->fal_source_data_uri( (int) $thumb_id );
+			$image_url = $this->fal_generate( $prompt, [ $source ] );
 
+			if ( 'defer' === $mode ) {
+				// Toolbox flow: never auto-attach — the result joins the session
+				// gallery; a human selects what gets pushed to the product.
+				wp_send_json_success( [ 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
+			}
 			if ( ! $validated ) {
-				// PREVIEW: show the result, attach nothing.
 				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
 			}
-
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-			require_once ABSPATH . 'wp-admin/includes/media.php';
-			require_once ABSPATH . 'wp-admin/includes/image.php';
-			$att_id = media_sideload_image( $image_url, $pid, $title . ' — AI', 'id' );
-			if ( is_wp_error( $att_id ) ) {
-				throw new RuntimeException( $att_id->get_error_message() );
-			}
-			if ( 'main' === ( $tpl['target'] ?? 'gallery' ) ) {
-				set_post_thumbnail( $pid, (int) $att_id );
-			} else {
-				$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
-				$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
-				$ids[]   = (int) $att_id;
-				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
-			}
+			$att_id = $this->sideload_seo( $image_url, $pid, (string) ( $tpl['target'] ?? 'gallery' ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -1376,41 +1405,126 @@ EOT;
 		] );
 	}
 
+	/** Only fal's own delivery hosts are accepted as remote sources (no SSRF). */
+	private static function is_fal_url( string $url ): bool {
+		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
+		return 'fal.media' === $host || str_ends_with( $host, '.fal.media' ) || str_ends_with( $host, '.fal.run' ) || 'fal.run' === $host;
+	}
+
 	/**
-	 * Reads an attachment (preferring the 'large' size to bound the payload) and
-	 * returns it as a base64 data URI, which fal decodes directly — removing every
-	 * "fal cannot reach the source URL" failure (private staging, hotlink rules).
+	 * Pushes selected session-gallery images onto the product. Standard SEO
+	 * procedure on the way in: the attachment file name, title, slug and alt all
+	 * take the product title (WordPress natively de-duplicates with -1/-2/-3).
 	 */
-	private function fal_source_data_uri( int $attachment_id ): string {
-		$path = '';
-		$size = image_get_intermediate_size( $attachment_id, 'large' );
-		if ( is_array( $size ) && ! empty( $size['path'] ) ) {
-			$uploads = wp_get_upload_dir();
-			$try     = trailingslashit( (string) $uploads['basedir'] ) . $size['path'];
-			if ( file_exists( $try ) ) {
-				$path = $try;
+	public function ajax_image_attach(): void {
+		$this->guard();
+		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$target = ( isset( $_POST['target'] ) && 'main' === $_POST['target'] ) ? 'main' : 'gallery';
+		$urls   = isset( $_POST['urls'] ) ? array_map( 'esc_url_raw', (array) wp_unslash( $_POST['urls'] ) ) : [];
+		if ( ! $pid || empty( $urls ) ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing selected.', 'dazont-ecom' ) ] );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		$ids    = [];
+		$errors = 0;
+		foreach ( $urls as $u ) {
+			if ( ! self::is_fal_url( $u ) ) {
+				$errors++;
+				continue;
+			}
+			try {
+				// First selected image becomes the main image when requested.
+				$this_target = ( 'main' === $target && empty( $ids ) ) ? 'main' : 'gallery';
+				$ids[]       = $this->sideload_seo( $u, $pid, $this_target );
+			} catch ( \Throwable $e ) {
+				$errors++;
 			}
 		}
-		if ( '' === $path ) {
-			$try = (string) get_attached_file( $attachment_id );
-			if ( $try && file_exists( $try ) ) {
-				$path = $try;
+		if ( empty( $ids ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not attach the selected image(s).', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'attached' => count( $ids ), 'errors' => $errors, 'ids' => $ids ] );
+	}
+
+	/**
+	 * Sideloads a generated image with SEO naming: file name = product slug
+	 * (WordPress appends -1/-2/-3 natively on collision), attachment title/slug =
+	 * product title, alt text set. Attaches as main image or appends to the
+	 * product gallery.
+	 */
+	private function sideload_seo( string $url, int $pid, string $target ): int {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$title = get_the_title( $pid );
+		$slug  = sanitize_title( $title ) ?: 'product-image';
+
+		$tmp = download_url( $url, 120 );
+		if ( is_wp_error( $tmp ) ) {
+			throw new RuntimeException( $tmp->get_error_message() );
+		}
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$ext  = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( ! in_array( $ext, [ 'png', 'jpg', 'jpeg', 'webp' ], true ) ) {
+			$ext = 'png';
+		}
+		$att_id = media_handle_sideload( [ 'name' => $slug . '.' . $ext, 'tmp_name' => $tmp ], $pid, $title );
+		if ( is_wp_error( $att_id ) ) {
+			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+			throw new RuntimeException( $att_id->get_error_message() );
+		}
+		// Attachment title + slug match the product (WP uniquifies the slug natively).
+		wp_update_post( [ 'ID' => (int) $att_id, 'post_title' => $title, 'post_name' => $slug ] );
+		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
+
+		if ( 'main' === $target ) {
+			set_post_thumbnail( $pid, (int) $att_id );
+		} else {
+			$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
+			$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
+			$ids[]   = (int) $att_id;
+			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
+		}
+		return (int) $att_id;
+	}
+
+	/**
+	 * Live prompt save from the product toolbox: fixes a prompt for good the
+	 * moment an anomaly is spotted, without a trip to the settings screen.
+	 */
+	public function ajax_save_prompt(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$type   = isset( $_POST['ptype'] ) ? sanitize_key( wp_unslash( $_POST['ptype'] ) ) : '';
+		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
+		if ( '' === trim( $prompt ) ) {
+			wp_send_json_error( [ 'message' => __( 'Empty prompt.', 'dazont-ecom' ) ] );
+		}
+		$settings = self::get_settings();
+		if ( 'field' === $type ) {
+			$field = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+			if ( ! isset( self::fields()[ $field ] ) ) {
+				wp_send_json_error( [ 'message' => __( 'Unknown field.', 'dazont-ecom' ) ] );
 			}
-		}
-		$bytes = '' !== $path ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
-		if ( false === $bytes || '' === $bytes ) {
-			// Last resort: fetch our own URL server-side (auth cookies not needed locally).
-			$url  = (string) wp_get_attachment_image_url( $attachment_id, 'large' );
-			$resp = $url ? wp_remote_get( $url, [ 'timeout' => 30 ] ) : null;
-			if ( $resp && ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
-				$bytes = wp_remote_retrieve_body( $resp );
+			$settings[ 'prompt_' . $field ] = $prompt;
+		} elseif ( 'template' === $type ) {
+			$idx  = isset( $_POST['index'] ) ? absint( $_POST['index'] ) : 0;
+			$tpls = self::image_templates();
+			if ( ! isset( $tpls[ $idx ] ) ) {
+				wp_send_json_error( [ 'message' => __( 'Unknown template.', 'dazont-ecom' ) ] );
 			}
+			$tpls[ $idx ]['prompt']      = $prompt;
+			$settings['image_templates'] = array_values( $tpls );
+		} else {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 		}
-		if ( false === $bytes || '' === $bytes ) {
-			throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
-		}
-		$mime = (string) ( get_post_mime_type( $attachment_id ) ?: 'image/jpeg' );
-		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
+		update_option( self::OPT_SETTINGS, $settings, false );
+		wp_send_json_success( [ 'saved' => true ] );
 	}
 
 	private function fal_generate( string $prompt, array $image_urls ): string {
