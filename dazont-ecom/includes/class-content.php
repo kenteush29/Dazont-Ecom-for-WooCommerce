@@ -63,6 +63,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
+		add_action( 'wp_ajax_dze_content_reset_prompts', [ $this, 'ajax_reset_prompts' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
 
@@ -973,7 +974,10 @@ EOT;
 					<?php $dze_ri++; endforeach; ?>
 				</tbody>
 			</table>
-			<p><button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button></p>
+			<p>
+				<button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
+			</p>
 			<script type="text/template" id="dze-pr-rowtpl">
 				<tr class="dze-pr-row">
 					<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][__I__]" value="1" checked /></td>
@@ -1049,6 +1053,17 @@ EOT;
 					var cur = ( $in.val() || '' ).split( ',' ).map( function ( x ) { return x.trim(); } ).filter( Boolean );
 					if ( cur.indexOf( key ) < 0 ) { cur.push( key ); }
 					$in.val( cur.join( ', ' ) );
+				} );
+				// Restore the shipped default prompts (drops customs — confirmed first).
+				$( '#dze-pr-reset' ).on( 'click', function () {
+					if ( ! window.confirm( '<?php echo esc_js( __( 'Restore the shipped default prompts? Custom prompt rows will be removed and validation flags reset. Your generated content is not affected.', 'dazont-ecom' ) ); ?>' ) ) { return; }
+					var $b = $( this ).prop( 'disabled', true );
+					$.post( window.ajaxurl, { action: 'dze_content_reset_prompts', nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' } )
+						.done( function ( res ) {
+							if ( res && res.success ) { window.location.reload(); }
+							else { $b.prop( 'disabled', false ); window.alert( ( res && res.data && res.data.message ) || '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' ); }
+						} )
+						.fail( function () { $b.prop( 'disabled', false ); window.alert( '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' ); } );
 				} );
 				// AJAX save — no page reload. The appended action parameter wins over
 				// the hidden "action=update" field when admin-ajax parses the body.
@@ -1999,6 +2014,30 @@ EOT;
 		remove_filter( $tag, [ $this, 'sanitize' ] );
 		update_option( self::OPT_SETTINGS, $settings, false );
 		add_filter( $tag, [ $this, 'sanitize' ] );
+	}
+
+	/**
+	 * Restores the SHIPPED default prompts: drops the stored registry and every
+	 * legacy prompt override so registry() falls back to the built-in defaults
+	 * (the original spreadsheet prompts + default image templates). Custom
+	 * prompt rows are removed and validation flags reset — hence the explicit
+	 * confirmation in the UI before calling this.
+	 */
+	public function ajax_reset_prompts(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$s = self::get_settings();
+		unset( $s['registry'], $s['image_templates'], $s['fv'], $s['fe'], $s['prompts_validated'] );
+		foreach ( array_keys( $s ) as $k ) {
+			if ( preg_match( '/^(prompt|dest|metakey|map)_/', (string) $k ) ) {
+				unset( $s[ $k ] );
+			}
+		}
+		$this->write_settings_direct( $s );
+		self::$registry_cache = null;
+		wp_send_json_success( [ 'reset' => true ] );
 	}
 
 	/**

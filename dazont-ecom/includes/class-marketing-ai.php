@@ -390,14 +390,9 @@ final class DZE_Marketing_Ai {
 		echo '</nav>';
 
 		if ( 'general' === $tab ) {
-			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'API keys and models for every AI-powered feature of the plugin. The Anthropic key powers the Marketing calendar and the category "AI insights"; the Google Gemini key powers the AI Product Images generator. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
+			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
-			if ( class_exists( 'DZE_Product_Images' ) ) {
-				echo '<hr style="margin:28px 0;" />';
-				echo '<h2>' . esc_html__( 'Google Gemini', 'dazont-ecom' ) . '</h2>';
-				DZE_Product_Images::instance()->render_settings_section( 'keys' );
-			}
 			if ( class_exists( 'DZE_Content' ) ) {
 				echo '<hr style="margin:28px 0;" />';
 				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
@@ -491,7 +486,10 @@ final class DZE_Marketing_Ai {
 							<pre class="description" style="white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 10px;">BEFORE your rules: the category name, the product list (id | title | attributes) and the query batch (id. query (volume)).
 AFTER your rules: Output: JSON array of {"id":&lt;query id&gt;,"t":"category|product|info","s":"covered|variation|gap|ignored","p":[product ids]} for every query id listed.</pre>
 						</details>
-						<p class="description"><?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?></p>
+						<p class="description">
+							<?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-match-rules">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
 					</td>
 				</tr>
 				<tr>
@@ -509,12 +507,29 @@ OUTPUT FORMAT (fixed so the report always renders):
 "ideas": 5-15 product ideas absent from BOTH the catalogue and the query list {product, why}.
 A safety filter also removes suggestions matching an existing product title.</pre>
 						</details>
-						<p class="description"><?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?></p>
+						<p class="description">
+							<?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-report-guidance">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
 					</td>
 				</tr>
 			</table>
 			<?php submit_button(); ?>
 		</form>
+		<script>
+		jQuery( function ( $ ) {
+			// Refill a prompt textarea with its SHIPPED default (saved on submit;
+			// storing the exact default text is stored as "use the default").
+			var dzeDefaults = {
+				'dze-mai-match-rules': <?php echo wp_json_encode( class_exists( 'DZE_Keywords' ) ? DZE_Keywords::DEFAULT_MATCH_RULES : '' ); ?>,
+				'dze-mai-report-guidance': <?php echo wp_json_encode( class_exists( 'DZE_Explorer' ) ? DZE_Explorer::DEFAULT_REPORT_GUIDANCE : '' ); ?>
+			};
+			$( '.dze-mai-restore' ).on( 'click', function () {
+				var id = $( this ).data( 'target' );
+				if ( dzeDefaults[ id ] ) { $( '#' + id ).val( dzeDefaults[ id ] ); }
+			} );
+		} );
+		</script>
 		<?php
 	}
 

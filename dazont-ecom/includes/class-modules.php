@@ -90,26 +90,12 @@ final class DZE_Modules {
 				'desc'  => __( 'Suggests a promotion calendar; hosts the Settings page.', 'dazont-ecom' ),
 				'more'  => __( 'Builds a proposed marketing calendar from your own shop data: site name, categories, sample products, price range, languages (WPML) and per-language target countries. Every suggestion is reviewed by you — accepting turns it into a real scheduled event in Marketing Events; a shortcode renders the final calendar on the front. This module also hosts the shared Settings page (API keys, model choices, monthly spend cap) that the other modules read their configuration from.', 'dazont-ecom' ),
 			],
-			'explorer' => [
-				'class' => 'DZE_Explorer',
-				'group' => 'sourcing',
-				'label' => __( 'Product Explorer', 'dazont-ecom' ),
-				'desc'  => __( 'Full-screen catalogue browser + the sourcing report.', 'dazont-ecom' ),
-				'more'  => __( 'A storefront-like admin view of the whole catalogue: big product images, a category rail with recursive counts, filters, image zoom, a variations popup and a focus mode that hides the WordPress chrome. The sourcing report runs from here: it feeds ALL products (ranked by real sales) plus the keyword gaps to the model and returns product opportunities, deduplicated against what the shop already sells.', 'dazont-ecom' ),
-			],
-			'keywords' => [
-				'class' => 'DZE_Keywords',
-				'group' => 'sourcing',
-				'label' => __( 'Sourcing keywords', 'dazont-ecom' ),
-				'desc'  => __( 'Per-category SEMrush keyword sets with a workbench.', 'dazont-ecom' ),
-				'more'  => __( 'Stores one keyword set per product category in a dedicated table. CSV import is deliberately tolerant of SEMrush export variations (delimiter, encoding and decimal style auto-detected; the column mapping is confirmed by you before anything is written). The workbench offers sorting, filtering, manual statuses, bulk actions and per-category metrics (volume, weighted CPC, average KD, completion), plus keyword-to-product matching to spot what the catalogue already covers and what is missing.', 'dazont-ecom' ),
-			],
-			'product_images' => [
-				'class' => 'DZE_Product_Images',
-				'group' => 'product',
-				'label' => __( 'Product Images (Gemini, legacy)', 'dazont-ecom' ),
-				'desc'  => __( 'Older image box calling Google Gemini directly (own key).', 'dazont-ecom' ),
-				'more'  => __( 'The first-generation image generator: recolor / lifestyle / enhance / custom templates on the product page, calling Google\'s Gemini API directly with its own dedicated key. The Product Content module now generates images through fal.ai instead, so this module is redundant unless you keep a separate Gemini key — switch it off if you don\'t use it.', 'dazont-ecom' ),
+			'sourcing' => [
+				'classes' => [ 'DZE_Explorer', 'DZE_Keywords' ],
+				'group'   => 'sourcing',
+				'label'   => __( 'Sourcing Assistant', 'dazont-ecom' ),
+				'desc'    => __( 'Catalogue explorer, keyword workbench and the sourcing report.', 'dazont-ecom' ),
+				'more'    => __( 'One assistant, three parts. The Product Explorer: a storefront-like full-screen view of the catalogue (big images, category rail, filters, zoom, focus mode). The keyword workbench: one SEMrush keyword set per category (tolerant CSV import, statuses, per-category metrics, keyword-to-product matching). And the sourcing report: ALL products ranked by real sales plus the keyword gaps are fed to the model, which returns product opportunities deduplicated against what the shop already sells.', 'dazont-ecom' ),
 			],
 			'content' => [
 				'class' => 'DZE_Content',
@@ -153,8 +139,14 @@ final class DZE_Modules {
 	/** Instantiate every ENABLED module, in the catalog (historical) order. */
 	public static function boot(): void {
 		foreach ( self::catalog() as $id => $m ) {
-			if ( self::enabled( $id ) && class_exists( $m['class'] ) ) {
-				$m['class']::instance();
+			if ( ! self::enabled( $id ) ) {
+				continue;
+			}
+			// A module entry may cover several classes (e.g. Sourcing Assistant).
+			foreach ( (array) ( $m['classes'] ?? $m['class'] ?? [] ) as $cls ) {
+				if ( class_exists( $cls ) ) {
+					$cls::instance();
+				}
 			}
 		}
 	}

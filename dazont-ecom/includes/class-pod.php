@@ -117,7 +117,10 @@ PROMPT;
 					<th scope="row"><label for="dze-pod-prompt"><?php esc_html_e( 'POD prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
 						<textarea id="dze-pod-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="5" class="large-text code" placeholder="<?php echo esc_attr( self::default_prompt() ); ?>"><?php echo esc_textarea( (string) ( self::get_settings()['prompt'] ?? '' ) ); ?></textarea>
-						<p class="description"><?php esc_html_e( 'Leave empty to keep the shipped default (shown greyed). The design and the mockup are always attached as images; this prompt tells the AI how to print one on the other.', 'dazont-ecom' ); ?></p>
+						<p class="description">
+							<?php esc_html_e( 'Leave empty to keep the shipped default (shown greyed). The design and the mockup are always attached as images; this prompt tells the AI how to print one on the other.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link" id="dze-pod-prompt-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
 					</td>
 				</tr>
 			</table>
@@ -144,6 +147,10 @@ PROMPT;
 				$( '#dze-pod-mockup-id' ).val( 0 );
 				$( '#dze-pod-mockup-preview' ).hide();
 				$( this ).hide();
+			} );
+			// Empty field = shipped default (save afterwards to persist).
+			$( '#dze-pod-prompt-restore' ).on( 'click', function () {
+				$( '#dze-pod-prompt' ).val( '' );
 			} );
 		} );
 		</script>
