@@ -55,6 +55,9 @@ final class DZE_Gmc_Activation {
 		add_action( 'wp_ajax_dze_gmca_strategy', [ $this, 'ajax_strategy' ] );
 		// Catalogue-wide auto-mark (batched).
 		add_action( 'wp_ajax_dze_gmca_run', [ $this, 'ajax_run' ] );
+		// Products list: the GMC icon opens the same panel in a popup.
+		add_action( 'wp_ajax_dze_gmca_panel', [ $this, 'ajax_panel' ] );
+		add_action( 'admin_footer-edit.php', [ $this, 'list_modal' ] );
 	}
 
 	// =========================================================================
@@ -185,15 +188,18 @@ final class DZE_Gmc_Activation {
 			echo '—';
 			return;
 		}
-		$data = self::status_data( $product );
-		if ( $data['active'] ) {
-			echo '<span style="color:#16a34a;font-size:16px;font-weight:bold;">&#10004;</span>';
-			if ( $product->is_type( 'variable' ) && $data['active_variations'] > 0 ) {
-				echo ' <span>(' . (int) $data['active_variations'] . ')</span>';
-			}
-		} else {
-			echo '<span style="color:#dc2626;font-size:16px;font-weight:bold;">&#10008;</span>';
-		}
+		$data  = self::status_data( $product );
+		$label = $data['active']
+			? '<span style="color:#16a34a;font-size:16px;font-weight:bold;">&#10004;</span>'
+				. ( $product->is_type( 'variable' ) && $data['active_variations'] > 0 ? ' <span>(' . (int) $data['active_variations'] . ')</span>' : '' )
+			: '<span style="color:#dc2626;font-size:16px;font-weight:bold;">&#10008;</span>';
+		// Clickable: opens the activation panel for this product without leaving the list.
+		printf(
+			'<button type="button" class="dze-gmca-open" data-id="%1$d" title="%2$s">%3$s</button>',
+			(int) $post_id,
+			esc_attr__( 'Choose what is sent to Merchant Center', 'dazont-ecom' ),
+			$label // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
+		);
 	}
 
 	// =========================================================================
@@ -314,145 +320,217 @@ final class DZE_Gmc_Activation {
 	}
 
 	// =========================================================================
-	// Product-page picker (side box)
+	// The activation panel — one renderer used by the product page (hub popup)
+	// and by the products list (clickable GMC icon).
 	// =========================================================================
 
-	/** Compact toggle for SIMPLE products, rendered inside the Dazont hub box. */
-	public function render_simple_toggle( int $post_id ): void {
-		$nonce = wp_create_nonce( self::NONCE );
-		?>
-		<p style="margin:8px 0 0;">
-			<label><input type="checkbox" id="dze-gmca-simple" data-id="<?php echo (int) $post_id; ?>" <?php checked( self::is_on( $post_id ) ); ?> />
-			<?php esc_html_e( 'Send to Merchant Center', 'dazont-ecom' ); ?></label>
-			<span id="dze-gmca-simplestatus" class="dze-cx-note"></span>
-		</p>
-		<script>
-		jQuery( function ( $ ) {
-			$( '#dze-gmca-simple' ).on( 'change', function () {
-				var $c = $( this );
-				$.post( window.ajaxurl, { action: 'dze_gmca_save', nonce: '<?php echo esc_js( $nonce ); ?>', post: $c.data( 'id' ), parent_on: $c.is( ':checked' ) ? 1 : 0 } )
-					.done( function ( res ) { $( '#dze-gmca-simplestatus' ).text( res && res.success ? '✓' : '✗' ); setTimeout( function () { $( '#dze-gmca-simplestatus' ).text( '' ); }, 1500 ); } );
-			} );
-		} );
-		</script>
-		<?php
-	}
-
-	/** Popup shell for VARIABLE products, printed in the footer; opened from the hub. */
-	public function footer_modal(): void {
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( ! $screen || 'product' !== $screen->post_type || 'post' !== $screen->base ) {
+	/**
+	 * Full panel for ONE product: automatic choices at the top, manual
+	 * variation picking below. Works for simple and variable products.
+	 */
+	public function render_panel( int $post_id ): void {
+		$product = wc_get_product( $post_id );
+		if ( ! $product ) {
 			return;
 		}
-		global $post;
-		$product = $post ? wc_get_product( $post->ID ) : null;
-		if ( ! $product || ! $product->is_type( 'variable' ) ) {
-			return;
-		}
-		echo '<div class="dze-cx-modal" id="dze-gmca-modal"><div class="dze-cx-dialog" style="width:min(520px,94vw);">';
-		echo '<div class="dze-cx-head"><h2>' . esc_html__( 'GMC activation', 'dazont-ecom' ) . '</h2><button type="button" class="button dze-hub-close" style="margin-left:auto;">' . esc_html__( 'Close', 'dazont-ecom' ) . '</button></div>';
-		echo '<div class="dze-cx-body">';
-		$this->render_panel( $post );
-		echo '</div></div></div>';
-	}
-
-	public function render_panel( $post ): void {
-		$product = wc_get_product( $post->ID );
-		if ( ! $product || ! $product->is_type( 'variable' ) ) {
-			return;
-		}
-		$nonce = wp_create_nonce( self::NONCE );
-
-		// Variable product: variation picker + strategies.
-		$attrs = array_keys( $product->get_variation_attributes() ); // e.g. pa_color, pa_size
-		$rows  = [];
-		foreach ( $product->get_children() as $vid ) {
-			$v = wc_get_product( (int) $vid );
-			if ( ! $v ) {
-				continue;
+		$variable = $product->is_type( 'variable' );
+		$rows     = [];
+		$on_count = 0;
+		if ( $variable ) {
+			foreach ( $product->get_children() as $vid ) {
+				$v = wc_get_product( (int) $vid );
+				if ( ! $v ) {
+					continue;
+				}
+				$img    = (int) get_post_meta( (int) $vid, '_thumbnail_id', true );
+				$is_on  = self::is_on( (int) $vid );
+				$on_count += $is_on ? 1 : 0;
+				$rows[] = [
+					'id'    => (int) $vid,
+					'on'    => $is_on,
+					'thumb' => $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : '',
+					'full'  => $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '',
+					'label' => wc_get_formatted_variation( $v, true, false ),
+				];
 			}
-			$img    = (int) get_post_meta( (int) $vid, '_thumbnail_id', true );
-			$rows[] = [
-				'id'    => (int) $vid,
-				'on'    => self::is_on( (int) $vid ),
-				'thumb' => $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : '',
-				'full'  => $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '',
-				'label' => wc_get_formatted_variation( $v, true, false ),
-			];
 		}
+		$attrs = $variable ? array_keys( (array) $product->get_variation_attributes() ) : [];
 		?>
-		<div class="dze-admin dze-gmca-box">
-			<p style="margin-top:0;">
-				<label><input type="checkbox" id="dze-gmca-parent" <?php checked( self::is_on( $post->ID ) ); ?> /> <strong><?php esc_html_e( 'Parent product', 'dazont-ecom' ); ?></strong></label>
+		<div class="dze-admin dze-gmca-box" data-post="<?php echo (int) $post_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
+			<p class="dze-gmca-intro">
+				<?php esc_html_e( 'What is sent to Google Merchant Center for this product. The rule: one entry per real photo — never the same photo twice.', 'dazont-ecom' ); ?>
 			</p>
-			<div class="dze-gmca-list">
-				<?php foreach ( $rows as $r ) : ?>
-					<label class="dze-gmca-row">
-						<input type="checkbox" class="dze-gmca-v" value="<?php echo (int) $r['id']; ?>" <?php checked( $r['on'] ); ?> />
-						<?php if ( $r['thumb'] ) : ?><img class="dze-hzoom" src="<?php echo esc_url( $r['thumb'] ); ?>" data-full="<?php echo esc_url( $r['full'] ?: $r['thumb'] ); ?>" alt="" /><?php else : ?><span class="dze-gmca-noimg" title="<?php esc_attr_e( 'No own image', 'dazont-ecom' ); ?>">—</span><?php endif; ?>
-						<span class="dze-gmca-lbl"><?php echo esc_html( $r['label'] ?: ( '#' . $r['id'] ) ); ?></span>
+
+			<?php if ( ! $variable ) : ?>
+				<label class="dze-gmca-main">
+					<input type="checkbox" class="dze-gmca-parent" <?php checked( self::is_on( $post_id ) ); ?> />
+					<strong><?php esc_html_e( 'Send this product to Merchant Center', 'dazont-ecom' ); ?></strong>
+				</label>
+				<p><button type="button" class="button button-primary button-small dze-gmca-savesel"><?php esc_html_e( 'Save', 'dazont-ecom' ); ?></button>
+				<span class="dze-gmca-status"></span></p>
+			<?php else : ?>
+
+				<p class="dze-gmca-sum">
+					<?php
+					printf(
+						/* translators: 1: active variations, 2: total variations */
+						esc_html__( 'Sent right now: %1$s of %2$s variations', 'dazont-ecom' ),
+						'<strong class="dze-gmca-count">' . (int) $on_count . '</strong>',
+						(int) count( $rows )
+					);
+					?>
+				</p>
+
+				<div class="dze-gmca-sec">
+					<h4><?php esc_html_e( '1. Let the plugin choose', 'dazont-ecom' ); ?></h4>
+
+					<div class="dze-gmca-choice">
+						<button type="button" class="button button-primary button-small dze-gmca-strat" data-mode="auto"><?php esc_html_e( 'One per photo', 'dazont-ecom' ); ?></button>
+						<span class="dze-gmca-help"><?php esc_html_e( 'Recommended. Keeps one variation for each different photo; variations repeating a photo are dropped. If no variation has its own photo, keeps one per colour.', 'dazont-ecom' ); ?></span>
+					</div>
+
+					<div class="dze-gmca-choice">
+						<button type="button" class="button button-small dze-gmca-strat" data-mode="all"><?php esc_html_e( 'Every variation', 'dazont-ecom' ); ?></button>
+						<span class="dze-gmca-help"><?php esc_html_e( 'For products where each variation is really a different item with its own photo (e.g. a "version" or "model" attribute).', 'dazont-ecom' ); ?></span>
+					</div>
+
+					<?php if ( $attrs ) : ?>
+					<div class="dze-gmca-choice">
+						<button type="button" class="button button-small dze-gmca-strat" data-mode="first_attr"><?php esc_html_e( 'One per value of…', 'dazont-ecom' ); ?></button>
+						<select class="dze-gmca-attr">
+							<?php foreach ( $attrs as $a ) : ?>
+								<option value="<?php echo esc_attr( sanitize_title( (string) $a ) ); ?>"><?php echo esc_html( wc_attribute_label( (string) $a ) ); ?></option>
+							<?php endforeach; ?>
+						</select>
+						<span class="dze-gmca-help">
+							<?php esc_html_e( 'Keeps the first variation of each value of the chosen product attribute. Example: attribute "Colour" on a t-shirt in 3 colours × 5 sizes → 3 entries, one per colour.', 'dazont-ecom' ); ?>
+						</span>
+					</div>
+					<?php endif; ?>
+
+					<div class="dze-gmca-choice">
+						<button type="button" class="button button-small dze-gmca-strat" data-mode="none"><?php esc_html_e( 'Nothing', 'dazont-ecom' ); ?></button>
+						<span class="dze-gmca-help"><?php esc_html_e( 'Removes this product and all its variations from Merchant Center.', 'dazont-ecom' ); ?></span>
+					</div>
+					<p class="dze-gmca-help" style="margin:10px 0 0;"><?php esc_html_e( 'These choices are rules applied to your data — no AI involved, same result every time.', 'dazont-ecom' ); ?></p>
+				</div>
+
+				<div class="dze-gmca-sec">
+					<h4><?php esc_html_e( '2. Or pick them by hand', 'dazont-ecom' ); ?></h4>
+					<p class="dze-gmca-help" style="margin:0 0 8px;"><?php esc_html_e( 'For special cases (e.g. a rug where only one size matches the photo). Hover a thumbnail to enlarge it.', 'dazont-ecom' ); ?></p>
+					<div class="dze-gmca-list">
+						<?php foreach ( $rows as $r ) : ?>
+							<label class="dze-gmca-row">
+								<input type="checkbox" class="dze-gmca-v" value="<?php echo (int) $r['id']; ?>" <?php checked( $r['on'] ); ?> />
+								<?php if ( $r['thumb'] ) : ?>
+									<img class="dze-hzoom" src="<?php echo esc_url( $r['thumb'] ); ?>" data-full="<?php echo esc_url( $r['full'] ?: $r['thumb'] ); ?>" alt="" />
+								<?php else : ?>
+									<span class="dze-gmca-noimg" title="<?php esc_attr_e( 'This variation has no photo of its own', 'dazont-ecom' ); ?>">—</span>
+								<?php endif; ?>
+								<span class="dze-gmca-lbl"><?php echo esc_html( $r['label'] ?: ( '#' . $r['id'] ) ); ?></span>
+							</label>
+						<?php endforeach; ?>
+					</div>
+					<label class="dze-gmca-main" style="margin-top:8px;">
+						<input type="checkbox" class="dze-gmca-parent" <?php checked( self::is_on( $post_id ) ); ?> />
+						<?php esc_html_e( 'Also send the parent product', 'dazont-ecom' ); ?>
 					</label>
-				<?php endforeach; ?>
-			</div>
-			<p>
-				<button type="button" class="button button-primary button-small" id="dze-gmca-savesel"><?php esc_html_e( 'Save selection', 'dazont-ecom' ); ?></button>
-				<span id="dze-gmca-status" class="dze-cx-note"></span>
-			</p>
-			<hr />
-			<p class="dze-cx-note" style="margin:6px 0;"><?php esc_html_e( 'Quick strategies:', 'dazont-ecom' ); ?></p>
-			<p>
-				<button type="button" class="button button-small dze-gmca-strat" data-mode="auto" title="<?php esc_attr_e( 'First variation of each distinct image; one per attribute value when no variation has an image.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Auto (by image)', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button button-small dze-gmca-strat" data-mode="all" title="<?php esc_attr_e( 'Every variation is unique (e.g. versions) — send them all.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'All variations', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button button-small dze-gmca-strat" data-mode="none"><?php esc_html_e( 'None', 'dazont-ecom' ); ?></button>
-			</p>
-			<?php if ( $attrs ) : ?>
-			<p>
-				<button type="button" class="button button-small dze-gmca-strat" data-mode="first_attr"><?php esc_html_e( 'First of each', 'dazont-ecom' ); ?></button>
-				<select id="dze-gmca-attr" style="max-width:120px;">
-					<?php foreach ( $attrs as $a ) : ?>
-						<option value="<?php echo esc_attr( sanitize_title( $a ) ); ?>"><?php echo esc_html( wc_attribute_label( $a ) ); ?></option>
-					<?php endforeach; ?>
-				</select>
-			</p>
+					<p>
+						<button type="button" class="button button-primary button-small dze-gmca-savesel"><?php esc_html_e( 'Save selection', 'dazont-ecom' ); ?></button>
+						<span class="dze-gmca-status"></span>
+					</p>
+				</div>
 			<?php endif; ?>
 		</div>
-		<script>
-		jQuery( function ( $ ) {
-			var pid = <?php echo (int) $post->ID; ?>, nonce = '<?php echo esc_js( $nonce ); ?>';
-			function refresh( state ) {
-				if ( ! state ) { return; }
-				$( '#dze-gmca-parent' ).prop( 'checked', !! state.parent );
-				$( '.dze-gmca-v' ).each( function () {
-					$( this ).prop( 'checked', !! state.v[ $( this ).val() ] );
-				} );
-			}
-			function note( ok ) {
-				$( '#dze-gmca-status' ).text( ok ? '✓ <?php echo esc_js( __( 'Saved', 'dazont-ecom' ) ); ?>' : '✗' );
-				setTimeout( function () { $( '#dze-gmca-status' ).text( '' ); }, 1800 );
-			}
-			$( '#dze-gmca-savesel' ).on( 'click', function () {
-				var v = {};
-				$( '.dze-gmca-v' ).each( function () { v[ $( this ).val() ] = $( this ).is( ':checked' ) ? 1 : 0; } );
-				$.post( window.ajaxurl, { action: 'dze_gmca_save', nonce: nonce, post: pid, parent_on: $( '#dze-gmca-parent' ).is( ':checked' ) ? 1 : 0, v: v } )
-					.done( function ( res ) { note( res && res.success ); } )
-					.fail( function () { note( false ); } );
-			} );
-			$( '.dze-gmca-strat' ).on( 'click', function () {
-				$.post( window.ajaxurl, { action: 'dze_gmca_strategy', nonce: nonce, post: pid, mode: $( this ).data( 'mode' ), attr: $( '#dze-gmca-attr' ).val() || '' } )
-					.done( function ( res ) { if ( res && res.success ) { refresh( res.data ); note( true ); } else { note( false ); } } )
-					.fail( function () { note( false ); } );
-			} );
-		} );
-		</script>
+		<?php
+		self::print_panel_assets();
+	}
+
+	/** Styles + delegated handlers, printed once per screen (AJAX-loaded panels included). */
+	public static function print_panel_assets(): void {
+		static $done = false;
+		if ( $done ) {
+			return;
+		}
+		$done = true;
+		?>
 		<style>
+		.dze-gmca-box { font-size: 13px; }
+		.dze-gmca-intro { margin: 0 0 10px; color: #50575e; }
+		.dze-gmca-sum { margin: 0 0 12px; padding: 6px 10px; background: #f6f7f7; border-radius: 4px; }
+		.dze-gmca-sec { border: 1px solid #e2e4e7; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; }
+		.dze-gmca-sec h4 { margin: 0 0 10px; font-size: 13px; }
+		.dze-gmca-choice { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: start; margin-bottom: 10px; }
+		.dze-gmca-choice select { grid-column: 1; margin-top: 4px; max-width: 160px; }
+		.dze-gmca-choice .dze-gmca-help { grid-column: 2; }
+		.dze-gmca-help { color: #646970; font-size: 12px; line-height: 1.5; }
+		.dze-gmca-main { display: block; margin: 6px 0; }
 		.dze-gmca-list { max-height: 260px; overflow: auto; border: 1px solid #e2e4e7; border-radius: 4px; padding: 4px 8px; }
 		.dze-gmca-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid #f0f0f1; cursor: pointer; }
 		.dze-gmca-row:first-child { border-top: none; }
 		.dze-gmca-row img { width: 28px; height: 28px; object-fit: cover; border-radius: 3px; border: 1px solid #dcdcde; }
 		.dze-gmca-noimg { width: 28px; height: 28px; line-height: 28px; text-align: center; color: #a7aaad; background: #f6f7f7; border-radius: 3px; }
 		.dze-gmca-lbl { font-size: 12px; }
+		.dze-gmca-status { font-size: 12px; margin-left: 6px; }
+		.dze-gmca-open { background: none; border: none; padding: 0; cursor: pointer; }
 		</style>
+		<script>
+		jQuery( function ( $ ) {
+			function box( el ) { return $( el ).closest( '.dze-gmca-box' ); }
+			function note( $b, ok ) {
+				$b.find( '.dze-gmca-status' ).css( 'color', ok ? '#0a7040' : '#b32d2e' ).text( ok ? '✓' : '✗' );
+				setTimeout( function () { $b.find( '.dze-gmca-status' ).text( '' ); }, 1800 );
+			}
+			function refresh( $b, state ) {
+				if ( ! state ) { return; }
+				$b.find( '.dze-gmca-parent' ).prop( 'checked', !! state.parent );
+				var n = 0;
+				$b.find( '.dze-gmca-v' ).each( function () {
+					var on = !! state.v[ $( this ).val() ];
+					$( this ).prop( 'checked', on );
+					if ( on ) { n++; }
+				} );
+				$b.find( '.dze-gmca-count' ).text( n );
+			}
+			$( document ).on( 'click', '.dze-gmca-savesel', function () {
+				var $b = box( this ), v = {};
+				$b.find( '.dze-gmca-v' ).each( function () { v[ $( this ).val() ] = $( this ).is( ':checked' ) ? 1 : 0; } );
+				$.post( window.ajaxurl, {
+					action: 'dze_gmca_save', nonce: $b.data( 'nonce' ), post: $b.data( 'post' ),
+					parent_on: $b.find( '.dze-gmca-parent' ).is( ':checked' ) ? 1 : 0, v: v
+				} )
+					.done( function ( res ) { if ( res && res.success ) { refresh( $b, res.data ); } note( $b, res && res.success ); } )
+					.fail( function () { note( $b, false ); } );
+			} );
+			$( document ).on( 'click', '.dze-gmca-strat', function () {
+				var $b = box( this );
+				$.post( window.ajaxurl, {
+					action: 'dze_gmca_strategy', nonce: $b.data( 'nonce' ), post: $b.data( 'post' ),
+					mode: $( this ).data( 'mode' ), attr: $b.find( '.dze-gmca-attr' ).val() || ''
+				} )
+					.done( function ( res ) { if ( res && res.success ) { refresh( $b, res.data ); note( $b, true ); } else { note( $b, false ); } } )
+					.fail( function () { note( $b, false ); } );
+			} );
+		} );
+		</script>
 		<?php
+	}
+
+	/** Popup shell printed in the footer of product screens; opened from the hub. */
+	public function footer_modal(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'product' !== $screen->post_type || 'post' !== $screen->base ) {
+			return;
+		}
+		global $post;
+		if ( ! $post || ! wc_get_product( $post->ID ) ) {
+			return;
+		}
+		echo '<div class="dze-cx-modal" id="dze-gmca-modal"><div class="dze-cx-dialog" style="width:min(600px,94vw);">';
+		echo '<div class="dze-cx-head"><h2>' . esc_html__( 'GMC activation', 'dazont-ecom' ) . '</h2><button type="button" class="button dze-hub-close" style="margin-left:auto;">' . esc_html__( 'Close', 'dazont-ecom' ) . '</button></div>';
+		echo '<div class="dze-cx-body">';
+		$this->render_panel( (int) $post->ID );
+		echo '</div></div></div>';
 	}
 
 	// =========================================================================
@@ -533,6 +611,69 @@ final class DZE_Gmc_Activation {
 				wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( self::state( $product ) );
+	}
+
+	/** Panel HTML for one product — feeds the products-list popup. */
+	public function ajax_panel(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( ! $pid || ! wc_get_product( $pid ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+		}
+		ob_start();
+		$this->render_panel( $pid );
+		wp_send_json_success( [ 'html' => ob_get_clean(), 'title' => get_the_title( $pid ) ] );
+	}
+
+	/** Popup shell on the products list; filled by ajax_panel on icon click. */
+	public function list_modal(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'product' !== $screen->post_type ) {
+			return;
+		}
+		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		self::print_panel_assets(); // styles + delegated save/strategy handlers.
+		?>
+		<div class="dze-cx-modal" id="dze-gmca-listmodal"><div class="dze-cx-dialog" style="width:min(600px,94vw);">
+			<div class="dze-cx-head"><h2 id="dze-gmca-listtitle"><?php esc_html_e( 'GMC activation', 'dazont-ecom' ); ?></h2>
+				<button type="button" class="button dze-hub-close" style="margin-left:auto;"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button></div>
+			<div class="dze-cx-body" id="dze-gmca-listbody"></div>
+		</div></div>
+		<script>
+		jQuery( function ( $ ) {
+			var $m = $( '#dze-gmca-listmodal' );
+			$( document ).on( 'click', '.dze-gmca-open', function () {
+				var id = $( this ).data( 'id' );
+				$( '#dze-gmca-listbody' ).html( '<p><span class="dze-cx-spin"></span></p>' );
+				$m.addClass( 'is-open' );
+				$.post( window.ajaxurl, { action: 'dze_gmca_panel', nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>', post: id } )
+					.done( function ( res ) {
+						if ( res && res.success ) {
+							$( '#dze-gmca-listtitle' ).text( res.data.title );
+							$( '#dze-gmca-listbody' ).html( res.data.html );
+						} else {
+							$( '#dze-gmca-listbody' ).text( ( res && res.data && res.data.message ) || 'Error' );
+						}
+					} )
+					.fail( function () { $( '#dze-gmca-listbody' ).text( 'Error' ); } );
+			} );
+			$( document ).on( 'click', '.dze-hub-close', function () { $( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' ); } );
+			$m.on( 'click', function ( e ) { if ( e.target === this ) { $m.removeClass( 'is-open' ); } } );
+			// Hover zoom for the variation thumbnails inside the popup.
+			var $hz = null;
+			$( document ).on( 'mouseenter', 'img.dze-hzoom', function () {
+				var src = $( this ).data( 'full' ) || this.src;
+				if ( $hz ) { $hz.remove(); }
+				$hz = $( '<div class="dze-hzoom-pop"><img src="' + src + '" alt="" /></div>' ).appendTo( 'body' );
+			} );
+			$( document ).on( 'mousemove', 'img.dze-hzoom', function ( e ) {
+				if ( ! $hz ) { return; }
+				$hz.css( { left: Math.min( e.clientX + 24, window.innerWidth - 360 ) + 'px', top: Math.max( 10, Math.min( e.clientY - 170, window.innerHeight - 360 ) ) + 'px' } );
+			} );
+			$( document ).on( 'mouseleave', 'img.dze-hzoom', function () { if ( $hz ) { $hz.remove(); $hz = null; } } );
+		} );
+		</script>
+		<?php
 	}
 
 	/** Catalogue-wide auto-mark, batched (offset/limit) for large catalogues. */

@@ -228,12 +228,8 @@ final class DZE_Modules {
 			<?php if ( self::enabled( 'pod' ) ) : ?>
 				<button type="button" class="button dze-hub-btn" data-modal="dze-pod-modal"><?php esc_html_e( 'POD image', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
-			<?php if ( self::enabled( 'gmc_activation' ) && class_exists( 'DZE_Gmc_Activation' ) ) : ?>
-				<?php if ( $variable ) : ?>
-					<button type="button" class="button dze-hub-btn" data-modal="dze-gmca-modal"><?php esc_html_e( 'GMC activation', 'dazont-ecom' ); ?></button>
-				<?php elseif ( $product ) : ?>
-					<?php DZE_Gmc_Activation::instance()->render_simple_toggle( (int) $post->ID ); ?>
-				<?php endif; ?>
+			<?php if ( self::enabled( 'gmc_activation' ) && $product ) : ?>
+				<button type="button" class="button dze-hub-btn" data-modal="dze-gmca-modal"><?php esc_html_e( 'GMC activation', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
 		</div>
 		<script>

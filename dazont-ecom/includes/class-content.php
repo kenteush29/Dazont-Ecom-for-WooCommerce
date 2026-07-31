@@ -443,6 +443,40 @@ EOT;
 		return $rows;
 	}
 
+	/**
+	 * The SHIPPED default prompt for a registry row id, or '' when the row is a
+	 * custom one (nothing to restore to). Text rows come from the verbatim
+	 * spreadsheet prompts, image rows from the default templates.
+	 */
+	public static function default_prompt_for( string $id ): string {
+		foreach ( self::legacy_fields() as $fid => $f ) {
+			if ( $fid === $id ) {
+				return (string) $f['prompt'];
+			}
+		}
+		$n = 1;
+		foreach ( self::default_image_templates() as $t ) {
+			$tid = 'img_' . ( sanitize_key( str_replace( ' ', '_', (string) ( $t['name'] ?? '' ) ) ) ?: 'image_' . $n );
+			if ( $tid === $id ) {
+				return (string) ( $t['prompt'] ?? '' );
+			}
+			$n++;
+		}
+		return '';
+	}
+
+	/** id => shipped default prompt, for every row that has one. */
+	public static function default_prompts(): array {
+		$out = [];
+		foreach ( self::registry() as $r ) {
+			$d = self::default_prompt_for( (string) ( $r['id'] ?? '' ) );
+			if ( '' !== $d ) {
+				$out[ (string) $r['id'] ] = $d;
+			}
+		}
+		return $out;
+	}
+
 	/** Registry row by id (text or image), or null. */
 	private static function registry_row( string $id ): ?array {
 		foreach ( self::registry() as $r ) {
@@ -965,7 +999,12 @@ EOT;
 								</span>
 							</details>
 						</td>
-						<td><textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="4" class="large-text code"><?php echo esc_textarea( $r['prompt'] ); ?></textarea></td>
+						<td>
+							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="4" class="large-text code dze-pr-prompt"><?php echo esc_textarea( $r['prompt'] ); ?></textarea>
+							<?php if ( '' !== self::default_prompt_for( (string) $r['id'] ) ) : ?>
+								<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the shipped default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php endif; ?>
+						</td>
 						<td><input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" /></td>
 						<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['valid'] ) ); ?> /></td>
 						<td><button type="button" class="button dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button></td>
@@ -1052,6 +1091,13 @@ EOT;
 					var cur = ( $in.val() || '' ).split( ',' ).map( function ( x ) { return x.trim(); } ).filter( Boolean );
 					if ( cur.indexOf( key ) < 0 ) { cur.push( key ); }
 					$in.val( cur.join( ', ' ) );
+				} );
+				// Per-row restore: refill THIS prompt with its shipped default.
+				var dzePromptDefaults = <?php echo wp_json_encode( self::default_prompts() ); ?>;
+				$( document ).on( 'click', '.dze-pr-restore', function () {
+					var d = dzePromptDefaults[ $( this ).data( 'id' ) ];
+					if ( ! d ) { return; }
+					$( this ).closest( 'td' ).find( '.dze-pr-prompt' ).val( d );
 				} );
 				// Restore the shipped default prompts (drops customs — confirmed first).
 				$( '#dze-pr-reset' ).on( 'click', function () {
@@ -1242,6 +1288,12 @@ EOT;
 				<p>
 					<label><input type="checkbox" id="dze-cb-price" checked /> <strong><?php esc_html_e( 'Recalculate price', 'dazont-ecom' ); ?></strong> <span class="description"><?php esc_html_e( '(cost below × price table → regular price; cost saved as COGS)', 'dazont-ecom' ); ?></span></label>
 				</p>
+				<p class="dze-cb-mode">
+					<strong><?php esc_html_e( 'Texts:', 'dazont-ecom' ); ?></strong>
+					<label><input type="radio" name="dze-cb-mode" value="review" checked /> <?php esc_html_e( 'Review before applying', 'dazont-ecom' ); ?></label>
+					<label><input type="radio" name="dze-cb-mode" value="direct" /> <?php esc_html_e( 'Apply immediately (no review)', 'dazont-ecom' ); ?></label>
+					<span class="description"><?php esc_html_e( 'Review shows every generated text in an editable box per product; nothing is written until you click "Apply reviewed texts".', 'dazont-ecom' ); ?></span>
+				</p>
 				<p>
 					<?php if ( $valid_tpls ) : ?>
 						<label><input type="checkbox" id="dze-cb-image" /> <strong><?php esc_html_e( 'Generate an image per product', 'dazont-ecom' ); ?></strong></label>
@@ -1260,6 +1312,7 @@ EOT;
 				<p>
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply reviewed texts', 'dazont-ecom' ); ?></button>
 				</p>
 				<div class="dze-cb-bar" style="display:none;"><div class="dze-cb-fill"></div></div>
 				<p id="dze-cb-progress" class="description"></p>
@@ -1292,6 +1345,7 @@ EOT;
 						</td>
 						<td class="dze-cb-status">—</td>
 					</tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
 				<?php endforeach; ?>
 			</table>
 		</div>
@@ -1330,6 +1384,9 @@ EOT;
 					'progress' => __( '%1$s / %2$s tasks — %3$s', 'dazont-ecom' ),
 					'finished' => __( 'Finished: %1$s ok, %2$s errors.', 'dazont-ecom' ),
 					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
+					'review'   => __( 'Generated — review below, then "Apply reviewed texts".', 'dazont-ecom' ),
+					'applied'  => __( 'applied', 'dazont-ecom' ),
+					'locked'   => __( 'not validated — skipped', 'dazont-ecom' ),
 				],
 			] );
 			return;
@@ -1372,8 +1429,9 @@ EOT;
 			'postId'     => $pid,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
-			'templates'  => array_map( static fn( $t ) => [ 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
+			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
 			'prompts'    => $prompts,
+			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
@@ -1420,6 +1478,7 @@ EOT;
 				'editPrompt' => __( 'Edit prompt', 'dazont-ecom' ),
 				'savePrompt' => __( 'Save prompt', 'dazont-ecom' ),
 				'savedPrompt'=> __( 'Prompt saved ✓', 'dazont-ecom' ),
+				'restore'    => __( 'Restore default', 'dazont-ecom' ),
 				'promptNote' => __( 'Edits here are used for THIS generation only — click 💾 to make them permanent.', 'dazont-ecom' ),
 				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
 				'notValid'   => __( 'not validated', 'dazont-ecom' ),

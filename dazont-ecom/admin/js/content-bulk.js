@@ -64,11 +64,20 @@
 	}
 
 	// ONE call per product: every selected field is generated in a single model
-	// request and applied server-side — the big speed win over field-by-field.
-	function textAllTask(id, fids, $row) {
-		return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, apply: 1, fields: fids })
+	// request. In "direct" mode the server applies them straight away; in
+	// "review" mode nothing is written — the texts land in an editable preview
+	// row and only "Apply reviewed texts" commits them.
+	function textAllTask(id, fids, $row, review) {
+		var data = { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, fields: fids };
+		if (!review) { data.apply = 1; }
+		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
+				if (review) {
+					renderPreview(id, fids, res.data.texts || {});
+					status($row, i18n.review);
+					return;
+				}
 				var r = res.data.results || {};
 				fids.forEach(function (fid) {
 					if (r[fid] === 'applied') { okCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✓'); }
@@ -81,6 +90,49 @@
 			})
 			.always(function () { progress('text'); });
 	}
+
+	// ---- Review mode: editable preview per product ----
+	function renderPreview(id, fids, texts) {
+		var html = '<div class="dze-cb-prev">';
+		fids.forEach(function (fid) {
+			html += '<div class="dze-cb-prevfield" data-field="' + fid + '">' +
+				'<label>' + esc(cfg.fields[fid] || fid) + '</label>' +
+				'<textarea rows="4">' + esc(texts[fid] || '') + '</textarea>' +
+				'<span class="dze-cb-prevstate"></span></div>';
+		});
+		html += '</div>';
+		$('.dze-cb-preview[data-id="' + id + '"]').show().find('td').html(html);
+		$('#dze-cb-applyall').show();
+	}
+
+	// Commit every reviewed text, product by product, field by field.
+	$('#dze-cb-applyall').on('click', function () {
+		var $btn = $(this).prop('disabled', true);
+		var jobs = [];
+		$('.dze-cb-preview:visible').each(function () {
+			var id = $(this).data('id');
+			$(this).find('.dze-cb-prevfield').each(function () {
+				var $f = $(this);
+				jobs.push({ id: id, fid: $f.data('field'), $f: $f });
+			});
+		});
+		var i = 0;
+		(function next() {
+			if (i >= jobs.length) {
+				$btn.prop('disabled', false);
+				$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+				return;
+			}
+			var j = jobs[i++];
+			$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.$f.find('textarea').val() })
+				.done(function (res) {
+					if (res && res.success) { okCount++; j.$f.find('.dze-cb-prevstate').css('color', '#0a7040').text('✓ ' + i18n.applied); }
+					else { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); }
+				})
+				.fail(function () { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text(i18n.error); })
+				.always(next);
+		})();
+	});
 
 	function priceTask(id, $row) {
 		var cost = $row.find('.dze-cb-cost').val();
@@ -111,6 +163,9 @@
 		persist();
 		var fields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		var doPrice = $('#dze-cb-price').is(':checked');
+		var review = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
+		$('.dze-cb-preview').hide().find('td').empty();
+		$('#dze-cb-applyall').hide();
 		if (!fields.length && !doPrice && !$('.dze-cb-row-img:checked').length) {
 			window.alert(i18n.noFields);
 			return;
@@ -121,7 +176,7 @@
 		$('.dze-cb-row').each(function () {
 			var $row = $(this), id = $row.data('id');
 			$row.find('.dze-cb-status').empty();
-			if (fields.length) { tasks.push(function () { return textAllTask(id, fields, $row); }); }
+			if (fields.length) { tasks.push(function () { return textAllTask(id, fields, $row, review); }); }
 			if (doPrice) { tasks.push(function () { return priceTask(id, $row); }); }
 			if ($row.find('.dze-cb-row-img').is(':checked')) { tasks.push(function () { return imageTask(id, $row); }); }
 		});

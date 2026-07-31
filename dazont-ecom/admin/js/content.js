@@ -52,7 +52,9 @@
 				'<button type="button" class="dze-cx-icon dze-cx-p-toggle" title="' + esc(i18n.editPrompt) + '">✎</button></h4>' +
 				'<div class="dze-cx-pwrap" style="display:none;">' +
 					'<textarea rows="6" class="dze-cx-p-text" title="' + esc(i18n.promptNote) + '"></textarea>' +
-					'<p style="margin:4px 0 0;"><button type="button" class="button-link dze-cx-p-save">💾 ' + esc(i18n.savePrompt) + '</button></p>' +
+					'<p style="margin:4px 0 0;"><button type="button" class="button-link dze-cx-p-save">💾 ' + esc(i18n.savePrompt) + '</button>' +
+					((cfg.defaults && cfg.defaults[fid]) ? ' <button type="button" class="button-link dze-cx-p-restore">↺ ' + esc(i18n.restore) + '</button>' : '') +
+				'</p>' +
 				'</div>' +
 				'<textarea rows="4" class="dze-cx-out" placeholder="—"></textarea>' +
 				'<div class="row-actions">' +
@@ -145,7 +147,8 @@
 					'</div>' +
 					'<div id="dze-cx-tpl-pwrap" style="display:none;margin:8px 0;">' +
 						'<textarea id="dze-cx-tpl-prompt" rows="3" style="width:100%;box-sizing:border-box;" title="' + esc(i18n.promptNote) + '"></textarea>' +
-						'<p style="margin:4px 0 0;"><button type="button" class="button-link" id="dze-cx-tpl-save">💾 ' + esc(i18n.savePrompt) + '</button></p>' +
+						'<p style="margin:4px 0 0;"><button type="button" class="button-link" id="dze-cx-tpl-save">💾 ' + esc(i18n.savePrompt) + '</button>' +
+						' <button type="button" class="button-link" id="dze-cx-tpl-restore" style="display:none;">↺ ' + esc(i18n.restore) + '</button></p>' +
 					'</div>' +
 					'<div id="dze-cx-galwrap">' +
 						'<div class="dze-cx-galbar">' +
@@ -192,6 +195,7 @@
 		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
 		var t = cfg.templates[i] || {};
 		$('#dze-cx-tpl-validate').toggleClass('is-on', !!t.valid).text(t.valid ? '✓ ' + i18n.validated : i18n.notValid);
+		$('#dze-cx-tpl-restore').toggle(!!(cfg.defaults && t.id && cfg.defaults[t.id]));
 		$('#dze-au-tpl option').each(function () {
 			var ix = parseInt($(this).val(), 10), tt = cfg.templates[ix];
 			if (tt) { $(this).text(tt.name + (tt.valid ? '' : ' — ' + i18n.notValid)); }
@@ -244,6 +248,18 @@
 			})
 			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
 	});
+	// Per-prompt restore: puts the shipped default back in the editor (💾 to keep it).
+	$(document).on('click', '.dze-cx-p-restore', function () {
+		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
+		var d = cfg.defaults && cfg.defaults[fid];
+		if (d) { $card.find('.dze-cx-p-text').val(d); }
+	});
+	$(document).on('click', '#dze-cx-tpl-restore', function () {
+		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
+		var d = cfg.defaults && cfg.templates[i] && cfg.defaults[cfg.templates[i].id];
+		if (d) { $('#dze-cx-tpl-prompt').val(d); }
+	});
+
 	// The card's live prompt when its editor is open and differs from the stored one.
 	function cardPromptOverride($card) {
 		var $wrap = $card.find('.dze-cx-pwrap');
