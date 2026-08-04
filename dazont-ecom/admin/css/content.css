@@ -193,9 +193,17 @@
 .dze-cb-cost { width: 90px !important; }
 .dze-cb-mode label { margin-right: 14px; }
 
+/* ---- Clickable list-table chips (GMC, Reviews) ---- */
+.dze-gmca-open, .dze-rev-open {
+	display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+	border: 1px solid #dcdcde; border-radius: 4px; background: #fff;
+	padding: 2px 8px; line-height: 1.8; font-size: 13px;
+}
+.dze-gmca-open:hover, .dze-rev-open:hover { border-color: #2271b1; background: #f0f6fc; box-shadow: 0 0 0 1px #2271b1; }
+.dze-gmca-open .dze-caret, .dze-rev-open .dze-caret { color: #a7aaad; font-size: 10px; }
+.dze-gmca-open:hover .dze-caret, .dze-rev-open:hover .dze-caret { color: #2271b1; }
+
 /* ---- Review generator (testing module) ---- */
-.dze-rev-open { background: none; border: none; padding: 0; cursor: pointer; font-size: 13px; }
-.dze-rev-open:hover span { text-decoration: underline; }
 .dze-rev-stats { margin: 0 0 12px; padding: 6px 10px; background: #f6f7f7; border-radius: 4px; }
 .dze-rev-draft { border: 1px solid #e2e4e7; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; background: #fff; }
 .dze-rev-meta { margin: 0 0 6px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }

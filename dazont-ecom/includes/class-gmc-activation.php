@@ -58,6 +58,17 @@ final class DZE_Gmc_Activation {
 		// Products list: the GMC icon opens the same panel in a popup.
 		add_action( 'wp_ajax_dze_gmca_panel', [ $this, 'ajax_panel' ] );
 		add_action( 'admin_footer-edit.php', [ $this, 'list_modal' ] );
+		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
+	}
+
+	/** The popup needs the shared modal styles — enqueued from the right hook. */
+	public function enqueue( string $hook ): void {
+		$screen  = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		$on_list = $screen && 'product' === $screen->post_type && 'edit' === $screen->base;
+		if ( ! $on_list && false === strpos( (string) $hook, 'dazont' ) ) {
+			return;
+		}
+		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 	}
 
 	// =========================================================================
@@ -195,9 +206,9 @@ final class DZE_Gmc_Activation {
 			: '<span style="color:#dc2626;font-size:16px;font-weight:bold;">&#10008;</span>';
 		// Clickable: opens the activation panel for this product without leaving the list.
 		printf(
-			'<button type="button" class="dze-gmca-open" data-id="%1$d" title="%2$s">%3$s</button>',
+			'<button type="button" class="dze-gmca-open" data-id="%1$d" title="%2$s">%3$s<span class="dze-caret">&#9662;</span></button>',
 			(int) $post_id,
-			esc_attr__( 'Choose what is sent to Merchant Center', 'dazont-ecom' ),
+			esc_attr__( 'Click to choose what is sent to Merchant Center', 'dazont-ecom' ),
 			$label // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built above.
 		);
 	}
@@ -443,7 +454,6 @@ final class DZE_Gmc_Activation {
 			<?php endif; ?>
 		</div>
 		<?php
-		self::print_panel_assets();
 	}
 
 	/** Styles + delegated handlers, printed once per screen (AJAX-loaded panels included). */
@@ -472,7 +482,14 @@ final class DZE_Gmc_Activation {
 		.dze-gmca-noimg { width: 28px; height: 28px; line-height: 28px; text-align: center; color: #a7aaad; background: #f6f7f7; border-radius: 3px; }
 		.dze-gmca-lbl { font-size: 12px; }
 		.dze-gmca-status { font-size: 12px; margin-left: 6px; }
-		.dze-gmca-open { background: none; border: none; padding: 0; cursor: pointer; }
+		.dze-gmca-open, .dze-rev-open {
+			display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+			border: 1px solid #dcdcde; border-radius: 4px; background: #fff;
+			padding: 2px 8px; line-height: 1.8; font-size: 13px;
+		}
+		.dze-gmca-open:hover, .dze-rev-open:hover { border-color: #2271b1; background: #f0f6fc; box-shadow: 0 0 0 1px #2271b1; }
+		.dze-gmca-open .dze-caret, .dze-rev-open .dze-caret { color: #a7aaad; font-size: 10px; }
+		.dze-gmca-open:hover .dze-caret, .dze-rev-open:hover .dze-caret { color: #2271b1; }
 		</style>
 		<script>
 		jQuery( function ( $ ) {
@@ -531,6 +548,7 @@ final class DZE_Gmc_Activation {
 		echo '<div class="dze-cx-body">';
 		$this->render_panel( (int) $post->ID );
 		echo '</div></div></div>';
+		self::print_panel_assets();
 	}
 
 	// =========================================================================
@@ -631,7 +649,6 @@ final class DZE_Gmc_Activation {
 		if ( ! $screen || 'product' !== $screen->post_type ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		self::print_panel_assets(); // styles + delegated save/strategy handlers.
 		?>
 		<div class="dze-cx-modal" id="dze-gmca-listmodal"><div class="dze-cx-dialog" style="width:min(600px,94vw);">

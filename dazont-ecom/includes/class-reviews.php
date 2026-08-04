@@ -290,9 +290,9 @@ PROMPT;
 		$st    = self::stats( $post_id );
 		$color = $st['total'] ? '#2271b1' : '#a7aaad';
 		printf(
-			'<button type="button" class="dze-rev-open" data-id="%1$d" title="%2$s"><span style="color:%3$s;font-weight:600;">%4$s</span>%5$s</button>',
+			'<button type="button" class="dze-rev-open" data-id="%1$d" title="%2$s"><span style="color:%3$s;font-weight:600;">%4$s</span>%5$s<span class="dze-caret">&#9662;</span></button>',
 			(int) $post_id,
-			esc_attr__( 'Generate or manage reviews for this product', 'dazont-ecom' ),
+			esc_attr__( 'Click to generate or manage reviews for this product', 'dazont-ecom' ),
 			esc_attr( $color ),
 			(int) $st['total'],
 			$st['avg'] ? ' <span style="color:#646970;font-size:11px;">★' . esc_html( number_format_i18n( $st['avg'], 1 ) ) . '</span>' : ''
