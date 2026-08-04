@@ -183,6 +183,25 @@ PROMPT;
 		return $out;
 	}
 
+	/** How many links the category description currently contains. */
+	public static function links_in_description( int $term_id ): int {
+		$term = get_term( $term_id, 'product_cat' );
+		if ( ! $term || is_wp_error( $term ) ) {
+			return 0;
+		}
+		return (int) preg_match_all( '/<a\s[^>]*href=/i', (string) $term->description );
+	}
+
+	/** Candidate pool grouped by kind, for the "what can I link to" line. */
+	public static function link_pool_breakdown( int $term_id ): array {
+		$out = [];
+		foreach ( self::link_pool( $term_id ) as $l ) {
+			$kind         = (string) $l['kind'];
+			$out[ $kind ] = ( $out[ $kind ] ?? 0 ) + 1;
+		}
+		return $out;
+	}
+
 	/**
 	 * Internal-link candidates: the category tree around this term plus its
 	 * best sellers — i.e. what the sitemap holds for this branch, read straight
@@ -361,7 +380,9 @@ PROMPT;
 	// =========================================================================
 
 	public function add_column( array $columns ): array {
-		$columns['dze_desc'] = __( 'Description', 'dazont-ecom' );
+		// NOT "Description": WooCommerce already has a Description column
+		// holding the text itself.
+		$columns['dze_desc'] = __( 'Word count', 'dazont-ecom' );
 		return $columns;
 	}
 
@@ -375,9 +396,18 @@ PROMPT;
 		$label = $words
 			? '<span style="color:#0a7040;font-weight:600;">' . (int) $words . ' ' . esc_html__( 'words', 'dazont-ecom' ) . '</span>'
 			: '<span style="color:#b32d2e;font-weight:600;">' . esc_html__( 'empty', 'dazont-ecom' ) . '</span>';
+		$meta = [];
+		$in   = self::links_in_description( $term_id );
+		if ( $in ) {
+			/* translators: %d: links found in the description */
+			$meta[] = sprintf( esc_html__( '%d links', 'dazont-ecom' ), (int) $in );
+		}
 		if ( $kw['total'] ) {
 			/* translators: %d: number of imported keywords */
-			$label .= ' <span style="color:#646970;font-size:11px;">' . sprintf( esc_html__( '%d kw', 'dazont-ecom' ), (int) $kw['total'] ) . '</span>';
+			$meta[] = sprintf( esc_html__( '%d kw', 'dazont-ecom' ), (int) $kw['total'] );
+		}
+		if ( $meta ) {
+			$label .= ' <span style="color:#646970;font-size:11px;">' . esc_html( implode( ' · ', $meta ) ) . '</span>';
 		}
 		return sprintf(
 			'<button type="button" class="dze-cc-open" data-id="%1$d" title="%2$s">%3$s<span class="dze-caret">&#9662;</span></button>',
@@ -395,16 +425,49 @@ PROMPT;
 		$term  = get_term( $term_id, 'product_cat' );
 		$kw    = self::keyword_pools( $term_id, $term ? $term->name : '' );
 		$links = self::link_pool( $term_id );
+		$break = self::link_pool_breakdown( $term_id );
+		$in    = self::links_in_description( $term_id );
+		$words = ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0;
 		?>
 		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
 			<p class="description" style="margin-top:0;">
 				<?php
 				printf(
-					/* translators: 1: secondary queries, 2: questions, 3: links */
-					esc_html__( 'Data used: %1$s secondary queries · %2$s buyer questions · %3$s internal links available', 'dazont-ecom' ),
+					/* translators: 1: word count, 2: links currently in the description */
+					esc_html__( 'Current description: %1$s words, %2$s links', 'dazont-ecom' ),
+					'<strong>' . (int) $words . '</strong>',
+					'<strong>' . (int) $in . '</strong>'
+				);
+				?>
+			</p>
+			<p class="description">
+				<?php
+				printf(
+					/* translators: 1: secondary queries, 2: questions */
+					esc_html__( 'Data available: %1$s secondary queries · %2$s buyer questions', 'dazont-ecom' ),
 					'<strong>' . count( $kw['titles'] ) . '</strong>',
-					'<strong>' . count( $kw['questions'] ) . '</strong>',
-					'<strong>' . count( $links ) . '</strong>'
+					'<strong>' . count( $kw['questions'] ) . '</strong>'
+				);
+				?>
+				<br />
+				<?php
+				$parts = [];
+				$names = [
+					'parent category'  => __( 'parent', 'dazont-ecom' ),
+					'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
+					'related category' => __( 'sibling categories', 'dazont-ecom' ),
+					'product'          => __( 'best sellers', 'dazont-ecom' ),
+					'page'             => __( 'sitemap pages', 'dazont-ecom' ),
+				];
+				foreach ( $break as $kind => $n ) {
+					$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
+				}
+				printf(
+					/* translators: 1: total link targets, 2: their breakdown, 3: max links inserted */
+					esc_html__( 'Link targets it can choose from: %1$s (%2$s). At most %3$s are inserted.', 'dazont-ecom' ),
+					'<strong>' . count( $links ) . '</strong>',
+					esc_html( implode( ', ', $parts ) ),
+					'<strong>' . (int) self::links() . '</strong>'
 				);
 				?>
 			</p>
@@ -576,6 +639,7 @@ PROMPT;
 		$term = get_term( $tid, 'product_cat' );
 		wp_send_json_success( [
 			'words' => ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0,
+			'links' => self::links_in_description( $tid ),
 		] );
 	}
 

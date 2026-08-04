@@ -148,8 +148,13 @@
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				$st.css('color', '#0a7040').text(i18n.applied);
-				$('.dze-cc-open[data-id="' + $box.data('term') + '"] span').first()
-					.text(res.data.words + ' words').css('color', '#0a7040');
+				// Keep the list cell in sync: word count + links now in the text.
+				var $chip = $('.dze-cc-open[data-id="' + $box.data('term') + '"]');
+				$chip.find('span').first().text(res.data.words + ' words').css('color', '#0a7040');
+				var $meta = $chip.find('span').eq(1);
+				if ($meta.length && $meta.hasClass('dze-caret') === false) {
+					$meta.text(res.data.links + ' links');
+				}
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
