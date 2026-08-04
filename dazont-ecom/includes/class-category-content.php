@@ -47,6 +47,7 @@ final class DZE_Category_Content {
 		add_action( 'wp_ajax_dze_cc_generate', [ $this, 'ajax_generate' ] );
 		add_action( 'wp_ajax_dze_cc_apply', [ $this, 'ajax_apply' ] );
 		add_action( 'wp_ajax_dze_cc_save_prompt', [ $this, 'ajax_save_prompt' ] );
+		add_action( 'wp_ajax_dze_cc_sitemap_test', [ $this, 'ajax_sitemap_test' ] );
 	}
 
 	// =========================================================================
@@ -75,6 +76,13 @@ final class DZE_Category_Content {
 		if ( isset( $in['links'] ) ) {
 			$out['links'] = max( 0, min( 12, (int) $in['links'] ) );
 		}
+		if ( isset( $in['sitemap'] ) ) {
+			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
+			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
+				delete_transient( 'dze_cc_sitemap' ); // a new URL is re-read at once.
+			}
+			$out['sitemap'] = $url;
+		}
 		if ( isset( $in['prompt'] ) ) {
 			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
 		}
@@ -88,6 +96,94 @@ final class DZE_Category_Content {
 	public static function links(): int {
 		$v = self::get_settings()['links'] ?? 5;
 		return max( 0, min( 12, (int) $v ) );
+	}
+
+	public static function sitemap_url(): string {
+		return trim( (string) ( self::get_settings()['sitemap'] ?? '' ) );
+	}
+
+	/**
+	 * Pages read from the configured sitemap, cached 12h. A sitemap INDEX is
+	 * followed one level (that is what wp-sitemap.xml and the SEO plugins
+	 * serve), preferring the category/page sitemaps.
+	 *
+	 * @return array{urls:array,status:string,count:int,checked:int}
+	 */
+	public static function sitemap_pages( bool $force = false ): array {
+		$url = self::sitemap_url();
+		if ( '' === $url ) {
+			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
+		}
+		$cached = $force ? false : get_transient( 'dze_cc_sitemap' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		$out = self::read_sitemap( $url );
+		set_transient( 'dze_cc_sitemap', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/**
+	 * Reads one sitemap URL right now — no cache, no settings. Used by
+	 * sitemap_pages() and by the Test button (which checks the URL currently
+	 * typed in the field, saved or not).
+	 *
+	 * @return array{urls:array,status:string,count:int,checked:int}
+	 */
+	public static function read_sitemap( string $url ): array {
+		if ( '' === trim( $url ) ) {
+			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
+		}
+		$fetch = static function ( string $u ): string {
+			$r = wp_remote_get( $u, [ 'timeout' => 20 ] );
+			return ( ! is_wp_error( $r ) && 200 === wp_remote_retrieve_response_code( $r ) )
+				? (string) wp_remote_retrieve_body( $r )
+				: '';
+		};
+		$body = $fetch( $url );
+		if ( '' === $body ) {
+			return [ 'urls' => [], 'status' => 'error', 'count' => 0, 'checked' => time() ];
+		}
+		$locs = [];
+		preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $body, $m );
+		$first = $m[1] ?? [];
+		if ( false !== stripos( $body, '<sitemapindex' ) ) {
+			// Index: follow the most relevant child sitemaps.
+			usort( $first, static function ( $a, $b ) {
+				$score = static fn( $u ) => preg_match( '/categor|product.cat|page/i', $u ) ? 0 : 1;
+				return $score( $a ) <=> $score( $b );
+			} );
+			foreach ( array_slice( $first, 0, 3 ) as $child ) {
+				$sub = $fetch( $child );
+				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
+					$locs = array_merge( $locs, $mm[1] );
+				}
+			}
+		} else {
+			$locs = $first;
+		}
+		$urls = [];
+		foreach ( $locs as $loc ) {
+			$loc = esc_url_raw( trim( $loc ) );
+			if ( '' === $loc || preg_match( '/\.xml($|\?)/i', $loc ) ) {
+				continue;
+			}
+			$slug   = trim( (string) wp_parse_url( $loc, PHP_URL_PATH ), '/' );
+			$urls[] = [
+				'label' => $slug ? ucwords( str_replace( [ '-', '_', '/' ], ' ', $slug ) ) : $loc,
+				'url'   => $loc,
+				'kind'  => 'page',
+			];
+			if ( count( $urls ) >= 60 ) {
+				break;
+			}
+		}
+		return [
+			'urls'    => $urls,
+			'status'  => $urls ? 'ok' : 'empty',
+			'count'   => count( $urls ),
+			'checked' => time(),
+		];
 	}
 
 	public static function default_prompt(): string {
@@ -239,7 +335,16 @@ PROMPT;
 		}
 		// No products here on purpose: the category page already lists them, so
 		// linking to individual products from its description adds nothing.
-		return array_values( $pool );
+		$pool = array_values( $pool );
+
+		// Optional extra layer: pages from the sitemap (guides, landing pages).
+		foreach ( self::sitemap_pages()['urls'] as $page ) {
+			if ( count( $pool ) >= 40 ) {
+				break;
+			}
+			$pool[] = $page;
+		}
+		return $pool;
 	}
 
 	/** Language of the category (WPML), else the site language. */
@@ -323,6 +428,29 @@ PROMPT;
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
 		}
 		return wp_kses_post( $html );
+	}
+
+	/**
+	 * Connection badge for the sitemap: off / connected / unreachable / empty.
+	 * Pass a state array to describe a one-off read (the Test button).
+	 */
+	public static function sitemap_status_html( ?array $state = null ): string {
+		$s = $state ?? self::sitemap_pages();
+		if ( 'ok' === $s['status'] ) {
+			return '<span class="dze-key-badge is-set">&#10003; ' . sprintf(
+				/* translators: 1: page count, 2: human time diff */
+				esc_html__( 'Sitemap connected — %1$s pages read %2$s ago', 'dazont-ecom' ),
+				(int) $s['count'],
+				esc_html( human_time_diff( (int) $s['checked'] ) )
+			) . '</span>';
+		}
+		if ( 'empty' === $s['status'] ) {
+			return '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap reachable, but no page URL found in it', 'dazont-ecom' ) . '</span>';
+		}
+		if ( 'error' === $s['status'] ) {
+			return '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap not reachable — check the URL', 'dazont-ecom' ) . '</span>';
+		}
+		return '<span class="dze-key-badge is-missing">' . esc_html__( 'No sitemap connected — categories only', 'dazont-ecom' ) . '</span>';
 	}
 
 	// =========================================================================
@@ -423,19 +551,21 @@ PROMPT;
 						'parent category'  => __( 'parent', 'dazont-ecom' ),
 						'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
 						'related category' => __( 'sibling categories', 'dazont-ecom' ),
-						'main category'    => __( 'main categories', 'dazont-ecom' ),
+							'main category'    => __( 'main categories', 'dazont-ecom' ),
+						'page'             => __( 'sitemap pages', 'dazont-ecom' ),
 					];
 					foreach ( $break as $kind => $n ) {
 						$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
 					}
 					echo '<br />';
 					printf(
-						/* translators: 1: number of categories it can link to, 2: breakdown, 3: max inserted */
-						esc_html__( 'It can link to %1$s other categories (%2$s); at most %3$s links are inserted.', 'dazont-ecom' ),
+						/* translators: 1: number of pages it can link to, 2: breakdown, 3: max inserted */
+						esc_html__( 'Link suggestions: %1$s URLs to choose from (%2$s); at most %3$s are inserted. The writer may only use URLs from that list — it never invents one.', 'dazont-ecom' ),
 						'<strong>' . count( $links ) . '</strong>',
 						esc_html( implode( ', ', $parts ) ),
 						'<strong>' . (int) self::links() . '</strong>'
 					);
+					echo '<br />' . self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
 					?>
 				</p>
 				<?php if ( $kw['titles'] ) : ?>
@@ -595,6 +725,24 @@ PROMPT;
 		] );
 	}
 
+	/**
+	 * Reads the sitemap now and returns the fresh badge. The URL typed in the
+	 * field is tested as it is, so the owner can check it before saving.
+	 */
+	public function ajax_sitemap_test(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$url = esc_url_raw( trim( (string) ( $_POST['url'] ?? '' ) ) );
+		if ( '' !== $url && $url !== self::sitemap_url() ) {
+			// Not the saved URL: read it once, without touching the cache.
+			wp_send_json_success( [ 'html' => self::sitemap_status_html( self::read_sitemap( $url ) ) ] );
+		}
+		self::sitemap_pages( true ); // saved URL: refresh the cache too.
+		wp_send_json_success( [ 'html' => self::sitemap_status_html() ] );
+	}
+
 	public function ajax_save_prompt(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -642,6 +790,15 @@ PROMPT;
 					</td>
 				</tr>
 				<tr>
+					<th scope="row"><label for="dze-cc-sitemap"><?php esc_html_e( 'Sitemap (optional)', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<input type="url" id="dze-cc-sitemap" name="<?php echo esc_attr( self::OPT ); ?>[sitemap]" class="regular-text" value="<?php echo esc_attr( self::sitemap_url() ); ?>" placeholder="<?php echo esc_attr( home_url( '/wp-sitemap.xml' ) ); ?>" />
+						<button type="button" class="button" id="dze-cc-sitemap-test"><?php esc_html_e( 'Test', 'dazont-ecom' ); ?></button>
+						<p id="dze-cc-sitemap-status" style="margin:8px 0 0;"><?php echo self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?></p>
+						<p class="description"><?php esc_html_e( 'Adds your own pages (guides, landing pages) to the link pool, on top of the categories. A sitemap index is followed one level. Re-read every 12 hours.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
 					<th scope="row"><label for="dze-cc-prompt"><?php esc_html_e( 'Writing prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
 						<textarea id="dze-cc-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="12" class="large-text code" placeholder="<?php echo esc_attr( self::default_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['prompt'] ?? '' ) ); ?></textarea>
@@ -656,7 +813,23 @@ PROMPT;
 		</form>
 		</div>
 		<script>
-		jQuery( function ( $ ) { $( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( '' ); } ); } );
+		jQuery( function ( $ ) {
+			$( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( '' ); } );
+			$( '#dze-cc-sitemap-test' ).on( 'click', function () {
+				var $b = $( this ).prop( 'disabled', true );
+				$( '#dze-cc-sitemap-status' ).html( '<span class="dze-cx-spin"></span>' );
+				$.post( window.ajaxurl, {
+					action: 'dze_cc_sitemap_test',
+					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
+					url: $( '#dze-cc-sitemap' ).val()
+				} )
+					.done( function ( res ) {
+						$b.prop( 'disabled', false );
+						$( '#dze-cc-sitemap-status' ).html( ( res && res.success ) ? res.data.html : '' );
+					} )
+					.fail( function () { $b.prop( 'disabled', false ); } );
+			} );
+		} );
 		</script>
 		<?php
 	}
