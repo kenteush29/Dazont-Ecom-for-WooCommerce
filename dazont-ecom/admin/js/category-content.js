@@ -1,8 +1,8 @@
 /* global dzeCatContent, jQuery */
 /**
- * Category description writer: the Description column opens a panel —
- * see the data used, write, read the rendered result, edit the HTML if
- * needed, apply to the category. Prompt editable in place.
+ * Category description writer: the Word count column opens a panel holding the
+ * existing description in the WordPress editor. Generate to rewrite it, edit
+ * freely, save — or undo. Prompt and SEMrush import available in place.
  */
 (function ($) {
 	'use strict';
@@ -15,8 +15,39 @@
 		return str.replace(/%\d\$s|%s/g, function () { return args[i++]; });
 	}
 
+	var EDITOR = 'dze-cc-editor';
+	var original = '';
+
+	function editorRemove() {
+		if (window.wp && wp.editor && wp.editor.remove) {
+			try { wp.editor.remove(EDITOR); } catch (e) {}
+		}
+	}
+	function editorInit() {
+		if (window.wp && wp.editor && wp.editor.initialize) {
+			wp.editor.initialize(EDITOR, {
+				tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo' },
+				quicktags: true,
+				mediaButtons: false
+			});
+		}
+	}
+	function editorGet() {
+		if (window.tinymce && tinymce.get(EDITOR) && !tinymce.get(EDITOR).isHidden()) {
+			return tinymce.get(EDITOR).getContent();
+		}
+		return $('#' + EDITOR).val() || '';
+	}
+	function editorSet(html) {
+		if (window.tinymce && tinymce.get(EDITOR) && !tinymce.get(EDITOR).isHidden()) {
+			tinymce.get(EDITOR).setContent(html);
+		}
+		$('#' + EDITOR).val(html);
+	}
+
 	$(document).on('click', '.dze-cc-open', function () {
 		var id = $(this).data('id');
+		editorRemove(); // a previous panel may still hold an instance.
 		$('#dze-cc-body').html('<p><span class="dze-cx-spin"></span></p>');
 		$('#dze-cc-modal').addClass('is-open');
 		$.post(cfg.ajaxUrl, { action: 'dze_cc_panel', nonce: cfg.nonce, term: id })
@@ -24,19 +55,21 @@
 				if (res && res.success) {
 					$('#dze-cc-title').text(res.data.title);
 					$('#dze-cc-body').html(res.data.html);
+					original = $('#' + EDITOR).val() || '';
+					editorInit();
 				} else {
 					$('#dze-cc-body').text((res && res.data && res.data.message) || i18n.error);
 				}
 			})
 			.fail(function () { $('#dze-cc-body').text(i18n.error); });
 	});
+	$(document).on('click', '.dze-hub-close', editorRemove);
 	$(document).on('click', '.dze-hub-close', function () { $(this).closest('.dze-cx-modal').removeClass('is-open'); });
 	$(document).on('click', '#dze-cc-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
 
 	// Data / prompt / HTML panels stay collapsed until asked for.
 	$(document).on('click', '.dze-cc-dtoggle', function () { $(this).closest('.dze-cc-box').find('.dze-cc-data').toggle(); });
 	$(document).on('click', '.dze-cc-ptoggle', function () { $(this).closest('.dze-cc-box').find('.dze-cc-pwrap').toggle(); });
-	$(document).on('click', '.dze-cc-htmltoggle', function () { $(this).closest('.dze-cc-box').find('.dze-cc-html').toggle(); });
 	$(document).on('click', '.dze-cc-prestore', function () {
 		$(this).closest('.dze-cc-box').find('.dze-cc-ptext').val(i18n.defaultPrompt);
 	});
@@ -127,23 +160,16 @@
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				$st.text('');
-				$box.find('.dze-cc-preview').html(res.data.html);
-				$box.find('.dze-cc-html').val(res.data.html);
-				$box.find('.dze-cc-result').show();
+				$st.css('color', '#646970').text(i18n.review);
+				editorSet(res.data.html); // nothing saved yet — the editor holds it.
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
-	});
-
-	// The HTML box is the source of truth when it has been opened and edited.
-	$(document).on('input', '.dze-cc-html', function () {
-		$(this).closest('.dze-cc-box').find('.dze-cc-preview').html($(this).val());
 	});
 
 	$(document).on('click', '.dze-cc-apply', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
-		$.post(cfg.ajaxUrl, { action: 'dze_cc_apply', nonce: $box.data('nonce'), term: $box.data('term'), html: $box.find('.dze-cc-html').val() })
+		$.post(cfg.ajaxUrl, { action: 'dze_cc_apply', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet() })
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
@@ -159,11 +185,9 @@
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
 
-	$(document).on('click', '.dze-cc-discard', function () {
-		var $box = $(this).closest('.dze-cc-box');
-		$box.find('.dze-cc-result').hide();
-		$box.find('.dze-cc-preview').empty();
-		$box.find('.dze-cc-html').val('');
+	$(document).on('click', '.dze-cc-revert', function () {
+		editorSet(original);
+		$(this).closest('.dze-cc-box').find('.dze-cc-status').text('');
 	});
 
 }(jQuery));

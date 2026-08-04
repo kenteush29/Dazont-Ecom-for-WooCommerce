@@ -10,9 +10,9 @@ defined( 'ABSPATH' ) || exit;
  *      Sourcing Assistant (same files, same table). Queries are split into
  *      secondary title candidates (same search intent, different wording) and
  *      real buyer questions, both ranked by search volume.
- *   2. The catalogue itself: parent, children and sibling categories plus the
- *      category's best sellers — the internal-link pool. An optional sitemap
- *      URL can widen it with pages the taxonomy does not cover.
+ *   2. The category tree: parent, children, siblings and the main top-level
+ *      categories — the internal-link pool. Category-to-category only, since
+ *      the page already lists its own products.
  *   3. The category context: name, current description, product count, price
  *      range, sample product titles.
  *
@@ -75,9 +75,6 @@ final class DZE_Category_Content {
 		if ( isset( $in['links'] ) ) {
 			$out['links'] = max( 0, min( 12, (int) $in['links'] ) );
 		}
-		if ( isset( $in['sitemap'] ) ) {
-			$out['sitemap'] = esc_url_raw( (string) $in['sitemap'] );
-		}
 		if ( isset( $in['prompt'] ) ) {
 			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
 		}
@@ -93,10 +90,6 @@ final class DZE_Category_Content {
 		return max( 0, min( 12, (int) $v ) );
 	}
 
-	public static function sitemap_url(): string {
-		return trim( (string) ( self::get_settings()['sitemap'] ?? '' ) );
-	}
-
 	public static function default_prompt(): string {
 		return <<<'PROMPT'
 You write the description of a product category for an online shop. Think of a shop assistant standing in that aisle: concise, concrete, genuinely useful — a short buying guide, not marketing filler.
@@ -109,6 +102,7 @@ STRUCTURE
 - Under each heading: 2 to 4 sentences. Practical advice — materials, sizing, use cases, what to check, what to avoid. No fluff, no repetition of the intro.
 
 RULES
+- Put the category's key phrasings in <strong>: its main query and the secondary queries you reused, the first time each appears. A handful in total, at most one per paragraph — bold what a buyer scans for, never whole sentences.
 - Concrete over generic: mention real criteria a buyer weighs, not "quality and style".
 - Never invent figures: no prices, no measurements, no delivery times, no statistics.
 - Do not promise stock, discounts or shipping conditions.
@@ -203,9 +197,10 @@ PROMPT;
 	}
 
 	/**
-	 * Internal-link candidates: the category tree around this term plus its
-	 * best sellers — i.e. what the sitemap holds for this branch, read straight
-	 * from the catalogue so the URLs are always valid.
+	 * Internal-link candidates: OTHER CATEGORIES only — parent, children,
+	 * siblings and the main top-level categories. Products are deliberately
+	 * excluded: the category page already lists them. URLs come straight from
+	 * the taxonomy, so they always resolve.
 	 */
 	public static function link_pool( int $term_id ): array {
 		$pool = [];
@@ -236,60 +231,15 @@ PROMPT;
 				$add( $sib->name, (string) get_term_link( $sib ), 'related category' );
 			}
 		}
-		// Best sellers of the category — the products worth linking to.
-		$products = get_posts( [
-			'post_type'      => 'product',
-			'post_status'    => 'publish',
-			'posts_per_page' => 8,
-			'meta_key'       => 'total_sales', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-			'orderby'        => 'meta_value_num',
-			'order'          => 'DESC',
-			'tax_query'      => [ [ 'taxonomy' => 'product_cat', 'field' => 'term_id', 'terms' => $term_id ] ], // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
-		] );
-		foreach ( $products as $p ) {
-			$add( get_the_title( $p ), (string) get_permalink( $p ), 'product' );
-		}
-		$pool = array_values( $pool );
-
-		// Optional widening from the site's own sitemap (cached 12h).
-		$extra = self::sitemap_links();
-		foreach ( $extra as $e ) {
-			if ( count( $pool ) >= 40 ) {
-				break;
-			}
-			$pool[] = $e;
-		}
-		return $pool;
-	}
-
-	/** URLs pulled from the configured sitemap, cached — optional enrichment. */
-	private static function sitemap_links(): array {
-		$url = self::sitemap_url();
-		if ( '' === $url ) {
-			return [];
-		}
-		$cached = get_transient( 'dze_cc_sitemap' );
-		if ( is_array( $cached ) ) {
-			return $cached;
-		}
-		$out  = [];
-		$resp = wp_remote_get( $url, [ 'timeout' => 20 ] );
-		if ( ! is_wp_error( $resp ) && 200 === wp_remote_retrieve_response_code( $resp ) ) {
-			$body = (string) wp_remote_retrieve_body( $resp );
-			if ( preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $body, $m ) ) {
-				foreach ( array_slice( $m[1], 0, 60 ) as $loc ) {
-					$loc = esc_url_raw( trim( $loc ) );
-					if ( '' === $loc || preg_match( '/\.xml($|\?)/i', $loc ) ) {
-						continue; // sitemap index entries, not pages.
-					}
-					$slug  = trim( (string) wp_parse_url( $loc, PHP_URL_PATH ), '/' );
-					$label = ucwords( str_replace( [ '-', '_', '/' ], ' ', $slug ) );
-					$out[] = [ 'label' => $label ?: $loc, 'url' => $loc, 'kind' => 'page' ];
-				}
+		// Other top-level categories, so a leaf can also point sideways in the tree.
+		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => 0, 'hide_empty' => true, 'number' => 10, 'exclude' => [ $term_id ] ] ) as $top ) {
+			if ( ! is_wp_error( $top ) ) {
+				$add( $top->name, (string) get_term_link( $top ), 'main category' );
 			}
 		}
-		set_transient( 'dze_cc_sitemap', $out, 12 * HOUR_IN_SECONDS );
-		return $out;
+		// No products here on purpose: the category page already lists them, so
+		// linking to individual products from its description adds nothing.
+		return array_values( $pool );
 	}
 
 	/** Language of the category (WPML), else the site language. */
@@ -427,57 +377,30 @@ PROMPT;
 		$links = self::link_pool( $term_id );
 		$break = self::link_pool_breakdown( $term_id );
 		$in    = self::links_in_description( $term_id );
-		$words = ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0;
+		$desc  = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+		$words = str_word_count( wp_strip_all_tags( $desc ) );
+		$has   = '' !== trim( $desc );
 		?>
 		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
 			<p class="description" style="margin-top:0;">
-				<?php
-				printf(
-					/* translators: 1: word count, 2: links currently in the description */
-					esc_html__( 'Current description: %1$s words, %2$s links', 'dazont-ecom' ),
-					'<strong>' . (int) $words . '</strong>',
-					'<strong>' . (int) $in . '</strong>'
-				);
-				?>
+				<?php if ( $has ) : ?>
+					<?php
+					printf(
+						/* translators: 1: word count, 2: links currently in the description */
+						esc_html__( 'Current description: %1$s words, %2$s links. Edit it below, or rewrite it from scratch.', 'dazont-ecom' ),
+						'<strong>' . (int) $words . '</strong>',
+						'<strong>' . (int) $in . '</strong>'
+					);
+					?>
+				<?php else : ?>
+					<?php esc_html_e( 'This category has no description yet.', 'dazont-ecom' ); ?>
+				<?php endif; ?>
 			</p>
-			<p class="description">
-				<?php
-				printf(
-					/* translators: 1: secondary queries, 2: questions */
-					esc_html__( 'Data available: %1$s secondary queries · %2$s buyer questions', 'dazont-ecom' ),
-					'<strong>' . count( $kw['titles'] ) . '</strong>',
-					'<strong>' . count( $kw['questions'] ) . '</strong>'
-				);
-				?>
-				<br />
-				<?php
-				$parts = [];
-				$names = [
-					'parent category'  => __( 'parent', 'dazont-ecom' ),
-					'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
-					'related category' => __( 'sibling categories', 'dazont-ecom' ),
-					'product'          => __( 'best sellers', 'dazont-ecom' ),
-					'page'             => __( 'sitemap pages', 'dazont-ecom' ),
-				];
-				foreach ( $break as $kind => $n ) {
-					$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
-				}
-				printf(
-					/* translators: 1: total link targets, 2: their breakdown, 3: max links inserted */
-					esc_html__( 'Link targets it can choose from: %1$s (%2$s). At most %3$s are inserted.', 'dazont-ecom' ),
-					'<strong>' . count( $links ) . '</strong>',
-					esc_html( implode( ', ', $parts ) ),
-					'<strong>' . (int) self::links() . '</strong>'
-				);
-				?>
-			</p>
-			<?php if ( ! $kw['total'] ) : ?>
-				<p class="description" style="color:#8a6d00;">
-					<?php esc_html_e( 'No keyword imported for this category yet — import its SEMrush file in the Sourcing Assistant to write from real queries instead of the catalogue alone.', 'dazont-ecom' ); ?>
-				</p>
-			<?php endif; ?>
+
 			<p>
-				<button type="button" class="button button-primary dze-cc-gen"><?php esc_html_e( 'Write the description', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-primary dze-cc-gen">
+					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
+				</button>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
 				<?php if ( class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) ) ) : ?>
@@ -485,17 +408,44 @@ PROMPT;
 				<?php endif; ?>
 				<span class="dze-cc-status"></span>
 			</p>
+
 			<div class="dze-cc-data" style="display:none;">
+				<p class="description" style="margin-top:0;">
+					<?php
+					printf(
+						/* translators: 1: secondary queries, 2: questions */
+						esc_html__( '%1$s secondary queries · %2$s buyer questions imported for this category.', 'dazont-ecom' ),
+						'<strong>' . count( $kw['titles'] ) . '</strong>',
+						'<strong>' . count( $kw['questions'] ) . '</strong>'
+					);
+					$parts = [];
+					$names = [
+						'parent category'  => __( 'parent', 'dazont-ecom' ),
+						'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
+						'related category' => __( 'sibling categories', 'dazont-ecom' ),
+						'main category'    => __( 'main categories', 'dazont-ecom' ),
+					];
+					foreach ( $break as $kind => $n ) {
+						$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
+					}
+					echo '<br />';
+					printf(
+						/* translators: 1: number of categories it can link to, 2: breakdown, 3: max inserted */
+						esc_html__( 'It can link to %1$s other categories (%2$s); at most %3$s links are inserted.', 'dazont-ecom' ),
+						'<strong>' . count( $links ) . '</strong>',
+						esc_html( implode( ', ', $parts ) ),
+						'<strong>' . (int) self::links() . '</strong>'
+					);
+					?>
+				</p>
 				<?php if ( $kw['titles'] ) : ?>
 					<p><strong><?php esc_html_e( 'Secondary queries', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['titles'], 0, 12 ) ) ); ?></span></p>
 				<?php endif; ?>
 				<?php if ( $kw['questions'] ) : ?>
 					<p><strong><?php esc_html_e( 'Buyer questions', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['questions'], 0, 10 ) ) ); ?></span></p>
 				<?php endif; ?>
-				<?php if ( $links ) : ?>
-					<p><strong><?php esc_html_e( 'Internal links', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_map( static fn( $l ) => $l['label'], array_slice( $links, 0, 14 ) ) ) ); ?></span></p>
-				<?php endif; ?>
 			</div>
+
 			<div class="dze-cc-import" style="display:none;">
 				<p class="description" style="margin:0 0 6px;">
 					<?php esc_html_e( 'SEMrush export for this category (CSV). Existing keywords keep their status and only refresh their metrics; new ones are added.', 'dazont-ecom' ); ?>
@@ -510,6 +460,7 @@ PROMPT;
 					<p><button type="button" class="button button-primary dze-cc-doimport"><?php esc_html_e( 'Import', 'dazont-ecom' ); ?></button></p>
 				</div>
 			</div>
+
 			<div class="dze-cc-pwrap" style="display:none;">
 				<textarea rows="10" class="large-text code dze-cc-ptext"><?php echo esc_textarea( self::prompt() ); ?></textarea>
 				<p class="description" style="margin:2px 0 10px;">
@@ -518,18 +469,17 @@ PROMPT;
 					<button type="button" class="button-link dze-cc-prestore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 				</p>
 			</div>
-			<div class="dze-cc-result" style="display:none;">
-				<div class="dze-cc-preview"></div>
-				<p><button type="button" class="button-link dze-cc-htmltoggle">&lt;/&gt; <?php esc_html_e( 'Edit the HTML', 'dazont-ecom' ); ?></button></p>
-				<textarea rows="12" class="large-text code dze-cc-html" style="display:none;"></textarea>
-				<p>
-					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Apply to the category', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button dze-cc-discard"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
-					<?php if ( $term && ! is_wp_error( $term ) ) : ?>
-						<a class="button" href="<?php echo esc_url( (string) get_edit_term_link( $term_id, 'product_cat' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open the category', 'dazont-ecom' ); ?></a>
-					<?php endif; ?>
-				</p>
-			</div>
+
+			<?php // The WordPress editor holds the description: existing text now, generated text after a run. ?>
+			<textarea id="dze-cc-editor" class="dze-cc-editor"><?php echo esc_textarea( $desc ); ?></textarea>
+
+			<p style="margin-top:10px;">
+				<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Save the description', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Undo changes', 'dazont-ecom' ); ?></button>
+				<?php if ( $term && ! is_wp_error( $term ) ) : ?>
+					<a class="button" href="<?php echo esc_url( (string) get_edit_term_link( $term_id, 'product_cat' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open the category', 'dazont-ecom' ); ?></a>
+				<?php endif; ?>
+			</p>
 		</div>
 		<?php
 	}
@@ -555,6 +505,7 @@ PROMPT;
 			return;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		wp_enqueue_editor(); // the panel edits the description in the WP editor.
 		wp_enqueue_script( 'dze-catcontent', DZE_URL . 'admin/js/category-content.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-catcontent', 'dzeCatContent', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
@@ -572,7 +523,8 @@ PROMPT;
 				'colIntent'   => __( 'Intent', 'dazont-ecom' ),
 				'colNone'     => __( '— none —', 'dazont-ecom' ),
 				'error'       => __( 'Something went wrong.', 'dazont-ecom' ),
-				'applied'     => __( 'Applied ✓', 'dazont-ecom' ),
+				'applied'     => __( 'Saved ✓', 'dazont-ecom' ),
+				'review'      => __( 'Draft ready — edit it if needed, then save.', 'dazont-ecom' ),
 				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),
 				'savePrompt'  => __( 'Save prompt', 'dazont-ecom' ),
 				'defaultPrompt' => self::default_prompt(),
@@ -686,14 +638,7 @@ PROMPT;
 					<th scope="row"><label for="dze-cc-links"><?php esc_html_e( 'Internal links', 'dazont-ecom' ); ?></label></th>
 					<td>
 						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="12" value="<?php echo (int) self::links(); ?>" />
-						<p class="description"><?php esc_html_e( 'Maximum links inserted per description (0 disables internal linking). Only URLs from the category tree, the best sellers and the optional sitemap are allowed.', 'dazont-ecom' ); ?></p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="dze-cc-sitemap"><?php esc_html_e( 'Sitemap URL (optional)', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<input type="url" id="dze-cc-sitemap" name="<?php echo esc_attr( self::OPT ); ?>[sitemap]" class="regular-text" value="<?php echo esc_attr( self::sitemap_url() ); ?>" placeholder="<?php echo esc_attr( home_url( '/wp-sitemap.xml' ) ); ?>" />
-						<p class="description"><?php esc_html_e( 'Widens the link pool with pages the category tree does not cover (guides, landing pages). Cached 12 hours. Leave empty to link only to categories and products.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Maximum links inserted per description (0 disables internal linking). Only other categories are linked — the page already lists its own products.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>

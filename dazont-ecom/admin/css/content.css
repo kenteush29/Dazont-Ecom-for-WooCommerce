@@ -211,14 +211,9 @@
 .dze-cc-imstatus { font-size: 12px; margin-left: 8px; }
 .dze-cc-data { background: #f6f7f7; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; }
 .dze-cc-data p { margin: 6px 0; }
-.dze-cc-preview {
-	border: 1px solid #dcdcde; border-radius: 4px; background: #fff;
-	padding: 12px 16px; max-height: 420px; overflow: auto; margin-bottom: 8px;
-}
-.dze-cc-preview h2 { font-size: 15px; margin: 14px 0 6px; }
-.dze-cc-preview p { margin: 0 0 8px; line-height: 1.6; }
-.dze-cc-preview a { color: #2271b1; }
-.dze-cc-ptext, .dze-cc-html { font-size: 12px !important; }
+.dze-cc-box .wp-editor-wrap { margin-top: 4px; }
+.dze-cc-box .wp-editor-area { font-size: 13px; }
+.dze-cc-ptext { font-size: 12px !important; }
 .dze-cc-status { font-size: 12px; margin-left: 6px; }
 
 /* ---- Review generator (testing module) ---- */
