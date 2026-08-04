@@ -205,6 +205,21 @@
 
 /* ---- Review generator (testing module) ---- */
 .dze-rev-box p { margin: 8px 0; }
+.dze-rev-drafts { max-height: 340px; overflow: auto; margin: 4px 0; }
+.dze-rev-draft {
+	position: relative; border: 1px solid #e2e4e7; border-radius: 4px;
+	padding: 8px 28px 8px 10px; margin-bottom: 6px; background: #fff; font-size: 13px;
+}
+.dze-rev-draft .dze-rev-text { margin-top: 3px; color: #3c434a; }
+.dze-rev-stars { color: #d98500; letter-spacing: 1px; }
+.dze-rev-dim { color: #c3c4c7; }
+.dze-rev-draft .dze-rev-dim { font-size: 11px; }
+.dze-rev-drop {
+	position: absolute; top: 4px; right: 4px; border: none; background: none;
+	color: #a7aaad; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
+}
+.dze-rev-drop:hover { color: #b32d2e; }
+.dze-rev-ptext { font-size: 12px !important; }
 .dze-rev-status { font-size: 12px; margin-left: 6px; }
 #dze-rev-modal .dze-cx-dialog { width: min(520px, 94vw); }
 #dze-rev-modal .dze-cx-body { padding: 12px 16px; }
