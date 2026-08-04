@@ -36,6 +36,7 @@ final class DZE_Reviews {
 
 	private function __construct() {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
+		add_action( 'admin_init', [ $this, 'clear_placeholder_emails' ] );
 		// Products list: count column + popup.
 		add_filter( 'manage_edit-product_columns', [ $this, 'add_column' ], 21 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'render_column' ], 10, 2 );
@@ -227,6 +228,26 @@ PROMPT;
 		return '' !== $p ? $p : self::default_prompt();
 	}
 
+	/**
+	 * Earlier versions stored a made-up name@example.com on generated reviews.
+	 * Wipes those addresses once — only on comments this module created.
+	 */
+	public function clear_placeholder_emails(): void {
+		if ( get_option( 'dze_reviews_mailfix' ) ) {
+			return;
+		}
+		update_option( 'dze_reviews_mailfix', 1, false );
+		global $wpdb;
+		$ids = $wpdb->get_col(
+			"SELECT c.comment_ID FROM {$wpdb->comments} c
+			 INNER JOIN {$wpdb->commentmeta} m ON m.comment_id = c.comment_ID AND m.meta_key = '_dze_generated'
+			 WHERE c.comment_author_email LIKE '%@example.com'"
+		);
+		foreach ( $ids as $cid ) {
+			wp_update_comment( [ 'comment_ID' => (int) $cid, 'comment_author_email' => '' ] );
+		}
+	}
+
 	// =========================================================================
 	// Review data helpers
 	// =========================================================================
@@ -297,7 +318,6 @@ PROMPT;
 		$cid = wp_insert_comment( [
 			'comment_post_ID'      => $pid,
 			'comment_author'       => $name,
-			'comment_author_email' => sanitize_email( sanitize_title( $name ) . '@example.com' ),
 			'comment_content'      => wp_kses_post( $text ),
 			'comment_type'         => 'review',
 			'comment_approved'     => self::auto_approve() ? 1 : 0,
