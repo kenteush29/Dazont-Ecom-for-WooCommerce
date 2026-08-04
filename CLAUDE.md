@@ -29,6 +29,13 @@ owner communicates in French.
 - Shipped default prompts are precious (the owner's spreadsheet prompts,
   verbatim). Custom edits live in settings; empty/absent = shipped default,
   and every prompt UI offers a "Restore default" path.
+- **The shop's main language is ENGLISH**: product data is always stored and
+  sent in English, and every generated output must come back in the site's
+  main language whatever language the prompt is written in. Resolve it with
+  `DZE_Content::site_language()` (WPML default language → WP locale) and
+  append it as an automatic constraint — never by rewriting the owner's
+  prompts. Shipped default prompts are written in English too, since the
+  model mirrors the prompt's language.
 - WPML compatibility everywhere.
 - New/unfinished features ship to the DEV channel only (`Plugin-development`
   branch → prerelease); `Live-plugin` (stable) only with explicit approval.

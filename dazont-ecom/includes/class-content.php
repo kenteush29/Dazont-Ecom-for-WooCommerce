@@ -661,6 +661,34 @@ EOT;
 		return $r ? (string) ( $r['prompt'] ?? '' ) : '';
 	}
 
+	/**
+	 * The shop's main language, as a name the model understands (WPML default
+	 * language, else the WordPress locale). Product data is stored in that
+	 * language, and every generation must answer in it — whatever language the
+	 * prompt itself happens to be written in.
+	 */
+	public static function site_language(): string {
+		$code = (string) apply_filters( 'wpml_default_language', '' );
+		if ( '' === $code ) {
+			$code = (string) get_locale();
+		}
+		$names = [
+			'en' => 'English', 'fr' => 'French', 'de' => 'German', 'es' => 'Spanish',
+			'it' => 'Italian', 'nl' => 'Dutch', 'pt' => 'Portuguese', 'pl' => 'Polish',
+		];
+		$short = strtolower( substr( str_replace( '-', '_', $code ), 0, 2 ) );
+		if ( isset( $names[ $short ] ) ) {
+			return ( 'en' === $short && false !== stripos( $code, 'US' ) ) ? 'English (US spelling)' : $names[ $short ];
+		}
+		return class_exists( 'Locale' ) ? (string) Locale::getDisplayLanguage( $code, 'en' ) : $code;
+	}
+
+	/** Language line appended to every text request (never edits the prompts). */
+	private static function language_rule(): string {
+		return "\n\nLANGUAGE: write the answer in " . self::site_language()
+			. '. This overrides the language the instructions above happen to be written in.';
+	}
+
 	public static function price_table(): array {
 		$t = self::get_settings()['price_table'] ?? null;
 		return ( is_array( $t ) && ! empty( $t ) ) ? $t : self::default_price_table();
@@ -1575,7 +1603,8 @@ EOT;
 		}
 		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		$system   = 'You are an expert e-commerce copywriter. ' . self::store_context();
-		$user     = ( '' !== trim( $override ) ? $override : self::prompt_for( $field ) ) . "\n\n--- PRODUCT DATA ---\n" . $payload . "\n";
+		$user     = ( '' !== trim( $override ) ? $override : self::prompt_for( $field ) ) . self::language_rule()
+			. "\n\n--- PRODUCT DATA ---\n" . $payload . "\n";
 		try {
 			$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), (int) ( $fields[ $field ]['tokens'] ?? 400 ) );
 		} catch ( \Throwable $e ) {
@@ -1631,10 +1660,11 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
 
-		$system = 'You are an expert e-commerce copywriter. ' . self::store_context();
+		$system = 'You are an expert e-commerce copywriter writing in ' . self::site_language() . '. ' . self::store_context();
 		$user   = "--- PRODUCT DATA ---\n" . $payload . "\n";
 		$user .= "\nGenerate the " . count( $targets ) . " fields below. Each field has its OWN instructions, coming from separate proven scripts — follow each set EXACTLY and independently, as if it were the only task.\n";
-		$user .= "OUTPUT FORMAT (strict): for each field output a line exactly ===FIELD:<field_id>=== followed by that field's content, then after the last field a line ===END===. Nothing else.\n\n";
+		$user .= "OUTPUT FORMAT (strict): for each field output a line exactly ===FIELD:<field_id>=== followed by that field's content, then after the last field a line ===END===. Nothing else.\n";
+		$user .= 'LANGUAGE: every field is written in ' . self::site_language() . ", whatever language the instructions below are written in.\n\n";
 		// One-off prompt overrides from the live editors (never saved here).
 		$overrides = [];
 		if ( isset( $_POST['prompts'] ) && is_array( $_POST['prompts'] ) ) {

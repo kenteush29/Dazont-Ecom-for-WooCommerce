@@ -76,7 +76,7 @@ final class DZE_Pod {
 
 	public static function default_prompt(): string {
 		return <<<'PROMPT'
-Tu reçois deux images : (1) le produit de base (mockup) et (2) un design PNG. Applique fidèlement le design sur le produit : centré sur la zone d'impression, proportions réalistes, en respectant les plis, la matière et l'éclairage du support. Ne modifie JAMAIS les couleurs, les détails ni le texte du design. Rendu photo e-commerce professionnel, fond neutre uni, produit entier visible.
+You are given two images: (1) the blank base product (mockup) and (2) a PNG design. Print the design faithfully on the product: centred on the print area, realistic proportions, following the folds, the material and the lighting of the garment. NEVER alter the colours, the details or the text of the design. Professional e-commerce photo, plain neutral background, whole product visible.
 PROMPT;
 	}
 
@@ -328,8 +328,8 @@ PROMPT;
 			}
 			$sources[] = $content->fal_source_data_uri( $design );
 			$prompt    = ( '' !== $custom ? $custom : self::prompt() )
-				. "\n\nProduit : " . get_the_title( $pid )
-				. ( $base ? '' : "\n(Aucun mockup fourni : génère le produit portant le design.)" );
+				. "\n\nProduct: " . get_the_title( $pid )
+				. ( $base ? '' : "\n(No mockup supplied: generate the product carrying the design.)" );
 			$url = $content->fal_generate( $prompt, $sources );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
