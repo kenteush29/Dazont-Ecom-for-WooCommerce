@@ -408,18 +408,17 @@ PROMPT;
 		return $out;
 	}
 
-	/** URL of the native WooCommerce reviews screen (falls back to WP comments). */
+	/**
+	 * URL of the native WooCommerce → Reviews screen (WooCommerce 6.7+).
+	 *
+	 * Detection is by WooCommerce version / class, NOT by inspecting $submenu:
+	 * the panel is rendered inside an admin-ajax request, where admin_menu
+	 * never runs and $submenu is empty — which is what used to send this link
+	 * to the WordPress comments screen instead.
+	 */
 	public static function reviews_url( string $status = '' ): string {
-		global $submenu;
-		$has_wc_page = false;
-		if ( isset( $submenu['woocommerce'] ) && is_array( $submenu['woocommerce'] ) ) {
-			foreach ( $submenu['woocommerce'] as $item ) {
-				if ( 'product-reviews' === ( $item[2] ?? '' ) ) {
-					$has_wc_page = true;
-					break;
-				}
-			}
-		}
+		$has_wc_page = class_exists( '\Automattic\WooCommerce\Internal\Admin\ProductReviews\ReviewsListTable' )
+			|| ( defined( 'WC_VERSION' ) && version_compare( WC_VERSION, '6.7', '>=' ) );
 		$args = $status ? [ 'comment_status' => $status ] : [];
 		return $has_wc_page
 			? add_query_arg( array_merge( [ 'page' => 'product-reviews' ], $args ), admin_url( 'admin.php' ) )
