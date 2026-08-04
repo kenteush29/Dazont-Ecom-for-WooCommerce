@@ -84,6 +84,9 @@ final class DZE_Reviews {
 		if ( isset( $in['verified'] ) ) {
 			$out['verified'] = ! empty( $in['verified'] ) ? 1 : 0;
 		}
+		if ( isset( $in['delivery'] ) ) {
+			$out['delivery'] = sanitize_text_field( (string) $in['delivery'] );
+		}
 		if ( isset( $in['prompt'] ) ) {
 			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
 		}
@@ -108,18 +111,38 @@ final class DZE_Reviews {
 		return ! isset( $s['verified'] ) || ! empty( $s['verified'] );
 	}
 
+	/** Real delivery time reviewers may mention; empty = never mention it. */
+	public static function delivery(): string {
+		return trim( (string) ( self::get_settings()['delivery'] ?? '' ) );
+	}
+
 	public static function default_prompt(): string {
 		return <<<'PROMPT'
-Tu écris des avis clients authentiques pour une boutique en ligne, à partir des informations du produit.
+Tu écris des avis clients pour une boutique en ligne. Objectif : qu'ils soient indiscernables de vrais avis laissés par des acheteurs.
 
-Règles :
-- Chaque avis est écrit par une personne différente : varie le style, la longueur (1 à 4 phrases), le niveau de langue et le vocabulaire.
-- Reste concret : parle de l'usage réel, de la qualité perçue, de la taille/matière/finition, du délai de livraison. Pas de langage marketing, pas de superlatifs creux.
-- Les avis 4 étoiles contiennent une petite réserve honnête (taille un peu juste, couleur légèrement différente, livraison un peu longue…).
-- Aucune mention de prix précis, de code promo, de concurrent, ni de nom de marque inventé.
-- Prénom + initiale du nom, cohérents avec la langue de la boutique.
-- Un titre court (3 à 6 mots) par avis, dans le même ton que le texte.
-- Écris dans la même langue que la fiche produit.
+LONGUEUR — c'est le point le plus important, et le plus souvent raté.
+N'écris JAMAIS des avis de longueur homogène. Sur 10 avis :
+- 3 ou 4 sont très courts : 2 à 6 mots ("Conforme, rien à dire.", "Parfait merci", "Très bien").
+- 3 ou 4 tiennent en une seule phrase.
+- 2 font deux ou trois phrases.
+- 1 seul, au maximum, est détaillé (4 à 5 phrases).
+Un avis court est un avis normal : n'ajoute pas de détails pour "faire mieux".
+
+STYLE — varie tout, d'un avis à l'autre :
+- Beaucoup ne parlent que d'UN seul aspect (la couleur, la coupe, le poids, la finition).
+- Aucune structure récurrente : n'enchaîne pas systématiquement qualité → usage → livraison.
+- Registre variable : familier, neutre ou soigné. Ponctuation naturelle ; sur les avis très courts, la majuscule ou le point final peuvent manquer.
+- Pas d'emoji. Pas de superlatifs creux. "Je recommande" dans un seul avis au maximum.
+- Ne répète pas le nom complet du produit : un client dit "le t-shirt", "la housse", "il", "elle".
+- Change la façon d'ouvrir : certains commencent par le défaut, d'autres par l'usage, d'autres sans introduction.
+
+CONTENU — seulement ce qu'un acheteur peut constater :
+- Taille, matière, finition, couleur, confort, tenue, usage réel.
+- N'invente AUCUN chiffre : ni prix, ni dimension, ni pourcentage, ni durée.
+- Les avis 4 étoiles contiennent une réserve honnête et concrète. Les 5 étoiles restent sobres : contentement, pas d'enthousiasme publicitaire.
+- Prénom + initiale du nom.
+- Titre court (2 à 5 mots), du même ton que le texte : télégraphique si l'avis est court.
+- Écris dans la langue de la fiche produit.
 PROMPT;
 	}
 
@@ -161,10 +184,28 @@ PROMPT;
 		];
 	}
 
+	/**
+	 * A real YYYY-MM-DD date inside the configured window: the model's own date
+	 * when usable, the legacy days_ago when present, a random day otherwise.
+	 */
+	private static function clean_date( array $r ): string {
+		$raw = trim( (string) ( $r['date'] ?? '' ) );
+		if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $raw ) ) {
+			$ts = strtotime( $raw );
+			if ( $ts && $ts <= time() && $ts >= strtotime( '-' . self::days() . ' days' ) ) {
+				return $raw;
+			}
+		}
+		if ( isset( $r['days_ago'] ) ) {
+			return gmdate( 'Y-m-d', strtotime( '-' . max( 0, (int) $r['days_ago'] ) . ' days' ) );
+		}
+		return gmdate( 'Y-m-d', strtotime( '-' . wp_rand( 1, self::days() ) . ' days' ) );
+	}
+
 	/** Creates ONE native WooCommerce review; returns the comment id. */
 	private static function insert_review( int $pid, array $r ): int {
-		$days   = max( 0, (int) ( $r['days_ago'] ?? wp_rand( 1, self::days() ) ) );
-		$date   = gmdate( 'Y-m-d H:i:s', strtotime( '-' . $days . ' days', (int) current_time( 'timestamp' ) ) ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested
+		// A plausible hour of the day, so a batch does not land at 00:00.
+		$date   = self::clean_date( $r ) . sprintf( ' %02d:%02d:00', wp_rand( 8, 22 ), wp_rand( 0, 59 ) );
 		$name   = sanitize_text_field( (string) ( $r['name'] ?? 'Client' ) );
 		$rating = max( 1, min( 5, (int) ( $r['rating'] ?? 5 ) ) );
 		$title  = sanitize_text_field( (string) ( $r['title'] ?? '' ) );
@@ -211,6 +252,17 @@ PROMPT;
 	// Generation (Claude)
 	// =========================================================================
 
+	/**
+	 * Shipping is a fact of the shop, not something to invent: the model is
+	 * either given the real delivery time or forbidden to mention any.
+	 */
+	private static function delivery_rule(): string {
+		$d = self::delivery();
+		return '' !== $d
+			? 'Délai de livraison réel de la boutique : ' . $d . '. Deux avis au maximum peuvent l\'évoquer, et jamais un autre délai que celui-ci.'
+			: 'Ne mentionne JAMAIS le délai de livraison, l\'expédition ni le transporteur : aucun chiffre n\'est disponible.';
+	}
+
 	/** Asks the model for $count reviews about a product; returns draft rows. */
 	public static function generate( int $pid, int $count ): array {
 		$product = wc_get_product( $pid );
@@ -237,7 +289,7 @@ PROMPT;
 			. "\n\nGenerate exactly {$count} reviews, ratings between " . self::min_rating() . ' and 5, spread over the last ' . self::days() . " days.\n"
 			. "OUTPUT (strict): a JSON array only, no prose, each item {\"name\":\"Firstname L.\",\"rating\":5,\"title\":\"…\",\"text\":\"…\",\"days_ago\":42}.";
 
-		$raw = DZE_Marketing_Ai::complete( $system, $user, '', 300 * $count + 300, 180 );
+		$raw = DZE_Marketing_Ai::complete( $system, $user, '', 220 * $count + 400, 180 );
 		$json = trim( $raw );
 		if ( preg_match( '/\[.*\]/s', $json, $m ) ) {
 			$json = $m[0];
@@ -252,11 +304,11 @@ PROMPT;
 				continue;
 			}
 			$out[] = [
-				'name'     => sanitize_text_field( (string) ( $r['name'] ?? 'Client' ) ),
-				'rating'   => max( 1, min( 5, (int) ( $r['rating'] ?? 5 ) ) ),
-				'title'    => sanitize_text_field( (string) ( $r['title'] ?? '' ) ),
-				'text'     => sanitize_textarea_field( (string) $r['text'] ),
-				'days_ago' => max( 0, min( self::days(), (int) ( $r['days_ago'] ?? wp_rand( 1, self::days() ) ) ) ),
+				'name'   => sanitize_text_field( (string) ( $r['name'] ?? 'Client' ) ),
+				'rating' => max( 1, min( 5, (int) ( $r['rating'] ?? 5 ) ) ),
+				'title'  => sanitize_text_field( (string) ( $r['title'] ?? '' ) ),
+				'text'   => sanitize_textarea_field( (string) $r['text'] ),
+				'date'   => self::clean_date( $r ),
 			];
 		}
 		if ( empty( $out ) ) {
@@ -468,7 +520,7 @@ PROMPT;
 				'name'      => __( 'Name', 'dazont-ecom' ),
 				'title'     => __( 'Title', 'dazont-ecom' ),
 				'rating'    => __( 'Rating', 'dazont-ecom' ),
-				'daysAgo'   => __( 'Days ago', 'dazont-ecom' ),
+				'date'      => __( 'Date', 'dazont-ecom' ),
 				'progress'  => __( '%1$s / %2$s products', 'dazont-ecom' ),
 				'finished'  => __( 'Finished: %1$s reviews published, %2$s errors.', 'dazont-ecom' ),
 				'stopped'   => __( 'Stopped.', 'dazont-ecom' ),
@@ -595,6 +647,13 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-rev-days"><?php esc_html_e( 'Spread over the last', 'dazont-ecom' ); ?></label></th>
 					<td><input type="number" id="dze-rev-days" name="<?php echo esc_attr( self::OPT ); ?>[days]" min="1" max="1095" value="<?php echo (int) self::days(); ?>" style="width:80px;" /> <?php esc_html_e( 'days', 'dazont-ecom' ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-rev-delivery"><?php esc_html_e( 'Real delivery time', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<input type="text" id="dze-rev-delivery" name="<?php echo esc_attr( self::OPT ); ?>[delivery]" value="<?php echo esc_attr( self::delivery() ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'e.g. 10 to 14 days', 'dazont-ecom' ); ?>" />
+						<p class="description"><?php esc_html_e( 'Reviewers never invent shipping times: leave this empty and delivery is never mentioned at all; fill it in and at most two reviews may mention it, using this figure only.', 'dazont-ecom' ); ?></p>
+					</td>
 				</tr>
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Verified badge', 'dazont-ecom' ); ?></th>

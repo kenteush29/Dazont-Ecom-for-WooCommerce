@@ -25,7 +25,7 @@
 			'<p class="dze-rev-meta">' +
 				'<label>' + esc(i18n.name) + ' <input type="text" class="dze-rev-f-name" value="' + esc(r.name) + '" /></label> ' +
 				'<label>' + esc(i18n.rating) + ' <select class="dze-rev-f-rating">' + stars + '</select></label> ' +
-				'<label>' + esc(i18n.daysAgo) + ' <input type="number" class="dze-rev-f-days" min="0" value="' + parseInt(r.days_ago, 10) + '" /></label>' +
+				'<label>' + esc(i18n.date) + ' <input type="date" class="dze-rev-f-date" value="' + esc(r.date || '') + '" /></label>' +
 			'</p>' +
 			'<input type="text" class="dze-rev-f-title" placeholder="' + esc(i18n.title) + '" value="' + esc(r.title || '') + '" />' +
 			'<textarea rows="3" class="dze-rev-f-text">' + esc(r.text) + '</textarea>' +
@@ -41,7 +41,7 @@
 				rating: parseInt($d.find('.dze-rev-f-rating').val(), 10) || 5,
 				title: $d.find('.dze-rev-f-title').val(),
 				text: $d.find('.dze-rev-f-text').val(),
-				days_ago: parseInt($d.find('.dze-rev-f-days').val(), 10) || 0
+				date: $d.find('.dze-rev-f-date').val()
 			});
 		});
 		return out;

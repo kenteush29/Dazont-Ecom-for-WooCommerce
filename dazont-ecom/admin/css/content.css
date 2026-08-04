@@ -208,7 +208,7 @@
 .dze-rev-draft { border: 1px solid #e2e4e7; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; background: #fff; }
 .dze-rev-meta { margin: 0 0 6px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
 .dze-rev-meta input[type="text"] { width: 150px; }
-.dze-rev-meta input[type="number"] { width: 70px; }
+.dze-rev-meta input[type="date"] { width: 145px; }
 .dze-rev-draft .dze-rev-f-title { width: 100%; box-sizing: border-box; margin-bottom: 5px; font-weight: 600; }
 .dze-rev-draft textarea { width: 100%; box-sizing: border-box; }
 .dze-rev-status { font-size: 12px; margin-left: 6px; }
