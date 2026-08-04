@@ -358,7 +358,7 @@ final class DZE_Gmc_Activation {
 		?>
 		<div class="dze-admin dze-gmca-box" data-post="<?php echo (int) $post_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
 			<p class="dze-gmca-intro">
-				<?php esc_html_e( 'What is sent to Google Merchant Center for this product. The rule: one entry per real photo — never the same photo twice.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'What is sent to Google Merchant Center for this product. The rule: one entry per real photo — never the same photo twice. The parent product is always sent.', 'dazont-ecom' ); ?>
 			</p>
 
 			<?php if ( ! $variable ) : ?>

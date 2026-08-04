@@ -122,6 +122,14 @@ final class DZE_Modules {
 				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
 				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
 			],
+			'reviews' => [
+				'class'   => 'DZE_Reviews',
+				'group'   => 'product',
+				'default' => 0, // testing tool: opt-in only.
+				'label'   => __( 'Review generator (testing)', 'dazont-ecom' ),
+				'desc'    => __( 'Writes sample customer reviews — staging catalogues only.', 'dazont-ecom' ),
+				'more'    => __( 'Testing tool, off by default. Generates customer reviews with Claude from the product data and saves them as native WooCommerce reviews (rating, verified badge, review title and language meta read by WooCommerce Photo Reviews). A Reviews column on the products list shows the count per product and opens a panel: generate, edit the drafts, publish; the "Generate reviews (Dazont)" bulk action does the same over a selection, with review-before-publishing by default. Publishing fabricated reviews on a live shop is illegal in the EU and under FTC rules — every review created here is tagged and deletable in one click.', 'dazont-ecom' ),
+			],
 			'variation_split' => [
 				'class' => 'DZE_Variation_Split',
 				'group' => 'product',
@@ -141,10 +149,17 @@ final class DZE_Modules {
 		return is_array( $s ) ? $s : [];
 	}
 
-	/** A module is ON unless explicitly switched off (new modules default on). */
+	/**
+	 * A module is ON unless explicitly switched off — except entries carrying
+	 * 'default' => 0, which stay off until switched on (testing tools).
+	 */
 	public static function enabled( string $id ): bool {
 		$s = self::states();
-		return ! isset( $s[ $id ] ) || ! empty( $s[ $id ] );
+		if ( isset( $s[ $id ] ) ) {
+			return ! empty( $s[ $id ] );
+		}
+		$cat = self::catalog();
+		return ! isset( $cat[ $id ]['default'] ) || ! empty( $cat[ $id ]['default'] );
 	}
 
 	/** Instantiate every ENABLED module, in the catalog (historical) order. */
