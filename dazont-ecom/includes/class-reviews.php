@@ -48,7 +48,6 @@ final class DZE_Reviews {
 		// AJAX.
 		add_action( 'wp_ajax_dze_reviews_panel', [ $this, 'ajax_panel' ] );
 		add_action( 'wp_ajax_dze_reviews_generate', [ $this, 'ajax_generate' ] );
-		add_action( 'wp_ajax_dze_reviews_publish', [ $this, 'ajax_publish' ] );
 		add_action( 'wp_ajax_dze_reviews_delete', [ $this, 'ajax_delete' ] );
 	}
 
@@ -72,11 +71,17 @@ final class DZE_Reviews {
 	public function sanitize( $in ): array {
 		$in  = is_array( $in ) ? $in : [];
 		$out = self::get_settings();
-		if ( isset( $in['count'] ) ) {
-			$out['count'] = max( 1, min( 20, (int) $in['count'] ) );
+		if ( isset( $in['min_count'] ) ) {
+			$out['min_count'] = max( 1, min( 20, (int) $in['min_count'] ) );
 		}
-		if ( isset( $in['min_rating'] ) ) {
-			$out['min_rating'] = max( 1, min( 5, (int) $in['min_rating'] ) );
+		if ( isset( $in['max_count'] ) ) {
+			$out['max_count'] = max( 1, min( 20, (int) $in['max_count'] ) );
+		}
+		if ( isset( $in['five_pct'] ) ) {
+			$out['five_pct'] = max( 0, min( 100, (int) $in['five_pct'] ) );
+		}
+		if ( isset( $in['status'] ) ) {
+			$out['status'] = ( 'approved' === $in['status'] ) ? 'approved' : 'pending';
 		}
 		if ( isset( $in['days'] ) ) {
 			$out['days'] = max( 1, min( 1095, (int) $in['days'] ) );
@@ -96,13 +101,52 @@ final class DZE_Reviews {
 		return $out;
 	}
 
-	public static function count_default(): int {
-		return max( 1, (int) ( self::get_settings()['count'] ?? 5 ) );
+	public static function min_count(): int {
+		return max( 1, (int) ( self::get_settings()['min_count'] ?? 2 ) );
 	}
 
-	public static function min_rating(): int {
-		$r = (int) ( self::get_settings()['min_rating'] ?? 4 );
-		return max( 1, min( 5, $r ) );
+	public static function max_count(): int {
+		return max( self::min_count(), (int) ( self::get_settings()['max_count'] ?? 6 ) );
+	}
+
+	/** A different, random number of reviews for each product. */
+	public static function random_count(): int {
+		return wp_rand( self::min_count(), self::max_count() );
+	}
+
+	/** Share of 5-star reviews (the rest is spread over 4 and 3). */
+	public static function five_pct(): int {
+		$v = self::get_settings()['five_pct'] ?? 70;
+		return max( 0, min( 100, (int) $v ) );
+	}
+
+	/** New reviews wait in WooCommerce → Reviews unless set to approved. */
+	public static function auto_approve(): bool {
+		return 'approved' === ( self::get_settings()['status'] ?? 'pending' );
+	}
+
+	/**
+	 * Ratings decided HERE, not by the model: the requested share of 5s, the
+	 * rest mostly 4s with the odd 3, then shuffled — which is what kills the
+	 * mechanical 5/4/5/4 alternation the model falls into on its own.
+	 */
+	public static function rating_plan( int $count ): array {
+		$fives = (int) round( $count * self::five_pct() / 100 );
+		$rest  = max( 0, $count - $fives );
+		// One 3-star in roughly one batch out of six: on a whole catalogue that
+		// reads naturally, while most products keep a clean 4/5 mix.
+		$threes = ( $rest >= 1 && wp_rand( 1, 6 ) === 1 ) ? 1 : 0;
+		$fours  = $rest - $threes;
+		$plan   = array_merge(
+			array_fill( 0, max( 0, $fives ), 5 ),
+			array_fill( 0, max( 0, $fours ), 4 ),
+			array_fill( 0, max( 0, $threes ), 3 )
+		);
+		if ( empty( $plan ) ) {
+			$plan = array_fill( 0, $count, 5 );
+		}
+		shuffle( $plan );
+		return $plan;
 	}
 
 	public static function days(): int {
@@ -188,18 +232,22 @@ PROMPT;
 	/** [ 'total' => int, 'generated' => int, 'avg' => float ] for a product. */
 	public static function stats( int $pid ): array {
 		$comments = get_comments( [
-			'post_id'   => $pid,
-			'type'      => 'review',
-			'status'    => 'approve',
-			'fields'    => 'ids',
-			'number'    => 0,
+			'post_id' => $pid,
+			'type'    => 'review',
+			'status'  => 'all',
+			'fields'  => 'ids',
+			'number'  => 0,
 		] );
-		$gen = 0;
-		$sum = 0;
-		$n   = 0;
+		$gen     = 0;
+		$pending = 0;
+		$sum     = 0;
+		$n       = 0;
 		foreach ( $comments as $cid ) {
 			if ( get_comment_meta( (int) $cid, self::GEN_META, true ) ) {
 				$gen++;
+			}
+			if ( '1' !== (string) get_comment( (int) $cid )->comment_approved ) {
+				$pending++;
 			}
 			$r = (int) get_comment_meta( (int) $cid, 'rating', true );
 			if ( $r > 0 ) {
@@ -210,6 +258,7 @@ PROMPT;
 		return [
 			'total'     => count( $comments ),
 			'generated' => $gen,
+			'pending'   => $pending,
 			'avg'       => $n ? round( $sum / $n, 1 ) : 0.0,
 		];
 	}
@@ -249,7 +298,7 @@ PROMPT;
 			'comment_author_email' => sanitize_email( sanitize_title( $name ) . '@example.com' ),
 			'comment_content'      => wp_kses_post( $text ),
 			'comment_type'         => 'review',
-			'comment_approved'     => 1,
+			'comment_approved'     => self::auto_approve() ? 1 : 0,
 			'comment_date'         => get_date_from_gmt( $date ),
 			'comment_date_gmt'     => $date,
 		] );
@@ -303,6 +352,7 @@ PROMPT;
 			throw new RuntimeException( __( 'The Marketing Assistant module (Settings page) is required for the Anthropic key.', 'dazont-ecom' ) );
 		}
 		$count = max( 1, min( 20, $count ) );
+		$plan  = self::rating_plan( $count ); // ratings decided here, not by the model.
 		$desc  = wp_strip_all_tags( (string) $product->get_short_description() ?: (string) $product->get_description() );
 		$attrs = '';
 		foreach ( $product->get_attributes() as $a ) {
@@ -321,7 +371,7 @@ PROMPT;
 			. "\n\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: write every review — title and text — in ' . self::language() . '. This overrides the language of the instructions above and of the product data. Reviewer names must be plausible for that language.' . "\n"
 			. self::delivery_rule() . "\n"
-			. "\nGenerate exactly {$count} reviews, ratings between " . self::min_rating() . " and 5.\n"
+			. "\nGenerate exactly {$count} reviews. The rating of each one is imposed, in this order: " . implode( ', ', $plan ) . " stars. Do not reorder them and do not alternate ratings mechanically — write the text that fits the rating you are given.\n"
 			. 'Dates: real calendar dates between ' . gmdate( 'Y-m-d', strtotime( '-' . self::days() . ' days' ) ) . ' and ' . gmdate( 'Y-m-d' ) . ", irregularly spread (not one per week), format YYYY-MM-DD.\n"
 			. "Re-read your {$count} reviews before answering: if two of them have a similar length or the same structure, rewrite one of them shorter.\n"
 			. "OUTPUT (strict): a JSON array only, no prose, each item {\"name\":\"Firstname L.\",\"rating\":5,\"title\":\"…\",\"text\":\"…\",\"date\":\"YYYY-MM-DD\"}.";
@@ -336,13 +386,17 @@ PROMPT;
 			throw new RuntimeException( __( 'The model returned an unreadable answer. Try again.', 'dazont-ecom' ) );
 		}
 		$out = [];
+		$i   = 0;
 		foreach ( $rows as $r ) {
 			if ( ! is_array( $r ) || empty( $r['text'] ) ) {
 				continue;
 			}
+			// The plan wins: the model's own rating is only a fallback.
+			$rating = $plan[ $i ] ?? max( 1, min( 5, (int) ( $r['rating'] ?? 5 ) ) );
+			$i++;
 			$out[] = [
 				'name'   => sanitize_text_field( (string) ( $r['name'] ?? 'Client' ) ),
-				'rating' => max( 1, min( 5, (int) ( $r['rating'] ?? 5 ) ) ),
+				'rating' => $rating,
 				'title'  => sanitize_text_field( (string) ( $r['title'] ?? '' ) ),
 				'text'   => sanitize_textarea_field( (string) $r['text'] ),
 				'date'   => self::clean_date( $r ),
@@ -352,6 +406,24 @@ PROMPT;
 			throw new RuntimeException( __( 'No usable review in the answer.', 'dazont-ecom' ) );
 		}
 		return $out;
+	}
+
+	/** URL of the native WooCommerce reviews screen (falls back to WP comments). */
+	public static function reviews_url( string $status = '' ): string {
+		global $submenu;
+		$has_wc_page = false;
+		if ( isset( $submenu['woocommerce'] ) && is_array( $submenu['woocommerce'] ) ) {
+			foreach ( $submenu['woocommerce'] as $item ) {
+				if ( 'product-reviews' === ( $item[2] ?? '' ) ) {
+					$has_wc_page = true;
+					break;
+				}
+			}
+		}
+		$args = $status ? [ 'comment_status' => $status ] : [];
+		return $has_wc_page
+			? add_query_arg( array_merge( [ 'page' => 'product-reviews' ], $args ), admin_url( 'admin.php' ) )
+			: add_query_arg( array_merge( [ 'comment_type' => 'review' ], $args ), admin_url( 'edit-comments.php' ) );
 	}
 
 	// =========================================================================
@@ -395,32 +467,34 @@ PROMPT;
 	public function render_panel( int $pid ): void {
 		$st = self::stats( $pid );
 		?>
-		<div class="dze-admin dze-rev-box" data-post="<?php echo (int) $pid; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
-			<p class="dze-rev-stats">
+		<div class="dze-rev-box" data-post="<?php echo (int) $pid; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
+			<p class="description" style="margin-top:0;">
 				<?php
 				printf(
-					/* translators: 1: total reviews, 2: average rating, 3: generated count */
-					esc_html__( '%1$s reviews · average %2$s · %3$s generated by this module', 'dazont-ecom' ),
+					/* translators: 1: total reviews, 2: pending, 3: generated */
+					esc_html__( '%1$s reviews · %2$s awaiting moderation · %3$s generated here', 'dazont-ecom' ),
 					'<strong>' . (int) $st['total'] . '</strong>',
-					$st['avg'] ? '★' . esc_html( number_format_i18n( $st['avg'], 1 ) ) : '—',
+					'<strong>' . (int) $st['pending'] . '</strong>',
 					'<strong>' . (int) $st['generated'] . '</strong>'
 				);
 				?>
 			</p>
 			<p>
-				<label><?php esc_html_e( 'How many', 'dazont-ecom' ); ?>
-					<input type="number" class="dze-rev-count" min="1" max="20" value="<?php echo (int) self::count_default(); ?>" style="width:70px;" />
-				</label>
+				<label for="dze-rev-count-<?php echo (int) $pid; ?>"><?php esc_html_e( 'How many', 'dazont-ecom' ); ?></label>
+				<input type="number" id="dze-rev-count-<?php echo (int) $pid; ?>" class="small-text dze-rev-count" min="1" max="20" value="<?php echo (int) self::random_count(); ?>" />
 				<button type="button" class="button button-primary dze-rev-gen"><?php esc_html_e( 'Generate', 'dazont-ecom' ); ?></button>
 				<span class="dze-rev-status"></span>
 			</p>
-			<div class="dze-rev-drafts"></div>
-			<p class="dze-rev-actions" style="display:none;">
-				<button type="button" class="button button-primary dze-rev-publish"><?php esc_html_e( 'Publish these reviews', 'dazont-ecom' ); ?></button>
+			<p class="description">
+				<?php
+				echo self::auto_approve()
+					? esc_html__( 'Reviews are published straight away (Settings → Reviews).', 'dazont-ecom' )
+					: esc_html__( 'Reviews are created as pending: you approve them in WooCommerce → Reviews.', 'dazont-ecom' );
+				?>
+				<a href="<?php echo esc_url( self::reviews_url( 'moderated' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open Reviews', 'dazont-ecom' ); ?></a>
 			</p>
 			<?php if ( $st['generated'] ) : ?>
-				<hr />
-				<p><button type="button" class="button dze-rev-del"><?php printf( /* translators: %d: count */ esc_html__( 'Delete the %d generated reviews', 'dazont-ecom' ), (int) $st['generated'] ); ?></button></p>
+				<p><button type="button" class="button button-small dze-rev-del"><?php printf( /* translators: %d: count */ esc_html__( 'Delete the %d generated reviews', 'dazont-ecom' ), (int) $st['generated'] ); ?></button></p>
 			<?php endif; ?>
 		</div>
 		<?php
@@ -476,39 +550,43 @@ PROMPT;
 		$ids = get_transient( 'dze_reviews_bulk_' . get_current_user_id() );
 		$ids = is_array( $ids ) ? $ids : [];
 		?>
-		<div class="wrap dze-wrap dze-admin">
-			<h1><?php esc_html_e( 'Reviews — bulk generation', 'dazont-ecom' ); ?></h1>
-			<div class="notice notice-warning"><p>
-				<?php esc_html_e( 'Testing tool. Publishing fabricated customer reviews on a live shop is illegal in the EU and under FTC rules — use this on staging/demo catalogues only. Every review created here is tagged and can be deleted in one click.', 'dazont-ecom' ); ?>
+		<div class="wrap">
+			<h1 class="wp-heading-inline"><?php esc_html_e( 'Generate reviews', 'dazont-ecom' ); ?></h1>
+			<hr class="wp-header-end" />
+			<div class="notice notice-warning inline"><p>
+				<?php esc_html_e( 'Testing tool — staging catalogues only. Publishing fabricated reviews on a live shop is illegal in the EU and under FTC rules. Everything created here is tagged and deletable in one click.', 'dazont-ecom' ); ?>
 			</p></div>
 			<?php if ( empty( $ids ) ) : ?>
 				<p><?php esc_html_e( 'No product queued. Select products on the Products list and pick "Generate reviews (Dazont)" in the Bulk actions menu.', 'dazont-ecom' ); ?></p>
 				<?php return; ?>
 			<?php endif; ?>
 
-			<div class="dze-cb-controls" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
-				<p>
-					<label><?php esc_html_e( 'Reviews per product', 'dazont-ecom' ); ?>
-						<input type="number" id="dze-rvb-count" min="1" max="20" value="<?php echo (int) self::count_default(); ?>" style="width:70px;" /></label>
-					<label style="margin-left:16px;"><input type="radio" name="dze-rvb-mode" value="review" checked /> <?php esc_html_e( 'Review before publishing', 'dazont-ecom' ); ?></label>
-					<label><input type="radio" name="dze-rvb-mode" value="direct" /> <?php esc_html_e( 'Publish immediately', 'dazont-ecom' ); ?></label>
-				</p>
-				<p>
-					<button type="button" class="button button-primary button-hero" id="dze-rvb-start"><?php esc_html_e( 'Generate', 'dazont-ecom' ); ?></button>
+			<div class="tablenav top" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
+				<div class="alignleft actions">
+					<label for="dze-rvb-min"><?php esc_html_e( 'Reviews per product:', 'dazont-ecom' ); ?></label>
+					<input type="number" id="dze-rvb-min" class="small-text" min="1" max="20" value="<?php echo (int) self::min_count(); ?>" />
+					<span>–</span>
+					<input type="number" id="dze-rvb-max" class="small-text" min="1" max="20" value="<?php echo (int) self::max_count(); ?>" />
+					<span class="description" style="margin-right:12px;"><?php esc_html_e( '(a random number in that range for each product)', 'dazont-ecom' ); ?></span>
+					<button type="button" class="button button-primary" id="dze-rvb-start"><?php esc_html_e( 'Generate', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-rvb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button button-primary" id="dze-rvb-publish" style="display:none;"><?php esc_html_e( 'Publish everything reviewed', 'dazont-ecom' ); ?></button>
-				</p>
-				<div class="dze-cb-bar" style="display:none;"><div class="dze-cb-fill"></div></div>
-				<p id="dze-rvb-progress" class="description"></p>
+				</div>
+				<div class="alignleft actions">
+					<span id="dze-rvb-progress" class="description"></span>
+				</div>
+				<br class="clear" />
 			</div>
 
-			<table class="dze-cb-table">
-				<tr>
-					<th style="width:130px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
-					<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
-					<th style="width:110px;"><?php esc_html_e( 'Reviews', 'dazont-ecom' ); ?></th>
-					<th style="width:220px;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
-				</tr>
+			<table class="wp-list-table widefat fixed striped">
+				<thead>
+					<tr>
+						<th scope="col" class="manage-column" style="width:60px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
+						<th scope="col" class="manage-column column-primary"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
+						<th scope="col" class="manage-column" style="width:90px;"><?php esc_html_e( 'Reviews', 'dazont-ecom' ); ?></th>
+						<th scope="col" class="manage-column" style="width:220px;"><?php esc_html_e( 'Result', 'dazont-ecom' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
 				<?php
 				foreach ( $ids as $pid ) :
 					$product = wc_get_product( (int) $pid );
@@ -519,14 +597,18 @@ PROMPT;
 					$img = (int) $product->get_image_id();
 					?>
 					<tr class="dze-rvb-row" data-id="<?php echo (int) $pid; ?>">
-						<td class="dze-cb-thumb"><img class="dze-hzoom" src="<?php echo esc_url( $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : wc_placeholder_img_src() ); ?>" data-full="<?php echo esc_url( $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '' ); ?>" alt="" /></td>
-						<td><a href="<?php echo esc_url( (string) get_edit_post_link( (int) $pid ) ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $product->get_name() ); ?></strong></a></td>
+						<td><img class="dze-hzoom" style="width:40px;height:40px;object-fit:cover;border-radius:3px;display:block;" src="<?php echo esc_url( $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : wc_placeholder_img_src() ); ?>" data-full="<?php echo esc_url( $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '' ); ?>" alt="" /></td>
+						<td class="column-primary"><a href="<?php echo esc_url( (string) get_edit_post_link( (int) $pid ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $product->get_name() ); ?></a></td>
 						<td class="dze-rvb-count"><?php echo (int) $st['total']; ?></td>
-						<td class="dze-cb-status">—</td>
+						<td class="dze-rvb-status">—</td>
 					</tr>
-					<tr class="dze-rvb-preview" data-id="<?php echo (int) $pid; ?>" style="display:none;"><td colspan="4"></td></tr>
 				<?php endforeach; ?>
+				</tbody>
 			</table>
+			<p class="description" id="dze-rvb-done" style="display:none;">
+				<?php esc_html_e( 'Generated reviews are waiting for moderation.', 'dazont-ecom' ); ?>
+				<a href="<?php echo esc_url( self::reviews_url( 'moderated' ) ); ?>"><?php esc_html_e( 'Open WooCommerce → Reviews', 'dazont-ecom' ); ?></a>
+			</p>
 		</div>
 		<?php
 	}
@@ -551,15 +633,11 @@ PROMPT;
 				'working'   => __( 'Writing…', 'dazont-ecom' ),
 				'error'     => __( 'Something went wrong.', 'dazont-ecom' ),
 				'published' => __( 'published', 'dazont-ecom' ),
-				'ready'     => __( 'Drafts ready — edit them if needed, then publish.', 'dazont-ecom' ),
+				'pending'   => __( 'pending', 'dazont-ecom' ),
 				'confirmDel'=> __( 'Delete every review generated by this module on this product?', 'dazont-ecom' ),
 				'deleted'   => __( 'Deleted', 'dazont-ecom' ),
-				'name'      => __( 'Name', 'dazont-ecom' ),
-				'title'     => __( 'Title', 'dazont-ecom' ),
-				'rating'    => __( 'Rating', 'dazont-ecom' ),
-				'date'      => __( 'Date', 'dazont-ecom' ),
 				'progress'  => __( '%1$s / %2$s products', 'dazont-ecom' ),
-				'finished'  => __( 'Finished: %1$s reviews published, %2$s errors.', 'dazont-ecom' ),
+				'finished'  => __( 'Finished: %1$s reviews created, %2$s errors.', 'dazont-ecom' ),
 				'stopped'   => __( 'Stopped.', 'dazont-ecom' ),
 			],
 		] );
@@ -591,7 +669,8 @@ PROMPT;
 	public function ajax_generate(): void {
 		$this->guard();
 		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$count = isset( $_POST['count'] ) ? absint( $_POST['count'] ) : self::count_default();
+		$count = isset( $_POST['count'] ) ? absint( $_POST['count'] ) : 0;
+		$count = $count > 0 ? min( 20, $count ) : self::random_count();
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 		}
@@ -606,25 +685,20 @@ PROMPT;
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		wp_send_json_success( [ 'reviews' => $rows ] );
-	}
-
-	public function ajax_publish(): void {
-		$this->guard();
-		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$rows = isset( $_POST['reviews'] ) && is_array( $_POST['reviews'] ) ? wp_unslash( $_POST['reviews'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized in insert_review().
-		if ( ! $pid || empty( $rows ) ) {
-			wp_send_json_error( [ 'message' => __( 'Nothing to publish.', 'dazont-ecom' ) ] );
-		}
-		$n = 0;
+		$made = 0;
 		foreach ( $rows as $r ) {
-			if ( is_array( $r ) && self::insert_review( $pid, $r ) ) {
-				$n++;
+			if ( self::insert_review( $pid, $r ) ) {
+				$made++;
 			}
 		}
 		self::refresh( $pid );
 		$st = self::stats( $pid );
-		wp_send_json_success( [ 'published' => $n, 'total' => $st['total'] ] );
+		wp_send_json_success( [
+			'created' => $made,
+			'total'   => $st['total'],
+			'pending' => $st['pending'],
+			'held'    => ! self::auto_approve(),
+		] );
 	}
 
 	public function ajax_delete(): void {
@@ -667,18 +741,28 @@ PROMPT;
 			<?php settings_fields( 'dze_reviews_options' ); ?>
 			<table class="form-table" role="presentation">
 				<tr>
-					<th scope="row"><label for="dze-rev-count"><?php esc_html_e( 'Reviews per product', 'dazont-ecom' ); ?></label></th>
-					<td><input type="number" id="dze-rev-count" name="<?php echo esc_attr( self::OPT ); ?>[count]" min="1" max="20" value="<?php echo (int) self::count_default(); ?>" style="width:80px;" /></td>
+					<th scope="row"><?php esc_html_e( 'Reviews per product', 'dazont-ecom' ); ?></th>
+					<td>
+						<input type="number" name="<?php echo esc_attr( self::OPT ); ?>[min_count]" class="small-text" min="1" max="20" value="<?php echo (int) self::min_count(); ?>" />
+						<span>–</span>
+						<input type="number" name="<?php echo esc_attr( self::OPT ); ?>[max_count]" class="small-text" min="1" max="20" value="<?php echo (int) self::max_count(); ?>" />
+						<p class="description"><?php esc_html_e( 'A random number in this range is drawn for each product, so the catalogue does not end up with the same count everywhere.', 'dazont-ecom' ); ?></p>
+					</td>
 				</tr>
 				<tr>
-					<th scope="row"><label for="dze-rev-min"><?php esc_html_e( 'Lowest rating allowed', 'dazont-ecom' ); ?></label></th>
+					<th scope="row"><label for="dze-rev-five"><?php esc_html_e( 'Share of 5-star reviews', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<select id="dze-rev-min" name="<?php echo esc_attr( self::OPT ); ?>[min_rating]">
-							<?php for ( $i = 1; $i <= 5; $i++ ) : ?>
-								<option value="<?php echo (int) $i; ?>" <?php selected( $i, self::min_rating() ); ?>><?php echo esc_html( $i . ' ★' ); ?></option>
-							<?php endfor; ?>
-						</select>
-						<p class="description"><?php esc_html_e( 'Ratings are spread between this value and 5.', 'dazont-ecom' ); ?></p>
+						<input type="number" id="dze-rev-five" name="<?php echo esc_attr( self::OPT ); ?>[five_pct]" class="small-text" min="0" max="100" value="<?php echo (int) self::five_pct(); ?>" /> %
+						<p class="description"><?php esc_html_e( 'The rest is mostly 4 stars, with the occasional 3 on larger batches. Ratings are drawn and shuffled by the plugin, never alternated by the model.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'New reviews', 'dazont-ecom' ); ?></th>
+					<td>
+						<fieldset>
+							<label><input type="radio" name="<?php echo esc_attr( self::OPT ); ?>[status]" value="pending" <?php checked( ! self::auto_approve() ); ?> /> <?php esc_html_e( 'Wait for moderation in WooCommerce → Reviews', 'dazont-ecom' ); ?></label><br />
+							<label><input type="radio" name="<?php echo esc_attr( self::OPT ); ?>[status]" value="approved" <?php checked( self::auto_approve() ); ?> /> <?php esc_html_e( 'Are published immediately', 'dazont-ecom' ); ?></label>
+						</fieldset>
 					</td>
 				</tr>
 				<tr>
