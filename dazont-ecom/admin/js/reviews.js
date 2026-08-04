@@ -2,8 +2,9 @@
 /**
  * Review generator UI. Panel: generate → read the drafts → push them to the
  * reviews screen (pending) or discard, with a live prompt editor for tuning.
- * Bulk screen: one direct pass over the queued products, a random count each.
- * Approving what was pushed happens in WooCommerce → Reviews.
+ * A bulk action runs on the list itself: a spinner per product cell, reviews
+ * written straight to the moderation queue. Approving happens in
+ * WooCommerce → Reviews.
  */
 (function ($) {
 	'use strict';
@@ -145,53 +146,52 @@
 			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
 	});
 
-	// ---- Bulk screen ----
-	var stopped = false;
-
-	$('#dze-rvb-start').on('click', function () {
-		var nonce = $('.tablenav.top').data('nonce');
-		var min = parseInt($('#dze-rvb-min').val(), 10) || 1;
-		var max = parseInt($('#dze-rvb-max').val(), 10) || min;
-		if (max < min) { max = min; }
-		var $rows = $('.dze-rvb-row'), total = $rows.length, done = 0, made = 0, errors = 0;
-		stopped = false;
-		$(this).prop('disabled', true);
-		$('#dze-rvb-stop').show();
-		$('#dze-rvb-done').hide();
+	// ---- Bulk run, straight on the products list ----
+	// A bulk action queued a selection: each product's Reviews cell shows a
+	// spinner while its reviews are written, then the count updates. Reviews go
+	// to the moderation queue directly — no preview at this stage.
+	function runQueue(ids) {
+		var total = ids.length, done = 0, made = 0, errors = 0;
+		var $notice = $('<div class="notice notice-info dze-rev-run"><p></p></div>');
+		$('.wrap > h1').first().after($notice);
+		function say(txt) { $notice.find('p').html(txt); }
+		say(sprintf(i18n.queueRun, 0, total));
 
 		(function next(i) {
-			if (stopped || i >= total) {
-				$('#dze-rvb-start').prop('disabled', false);
-				$('#dze-rvb-stop').hide();
-				$('#dze-rvb-progress').text(stopped ? i18n.stopped : sprintf(i18n.finished, made, errors));
-				if (made && !stopped) { $('#dze-rvb-done').show(); }
+			if (i >= total) {
+				$notice.removeClass('notice-info').addClass('notice-success');
+				say(sprintf(i18n.queueDone, made, total - errors) +
+					' <a href="' + cfg.reviewsUrl + '">' + esc(i18n.openList) + '</a>');
 				return;
 			}
-			var $row = $rows.eq(i), id = $row.data('id');
-			// A different count for each product, drawn in the chosen range.
-			var count = Math.floor(Math.random() * (max - min + 1)) + min;
-			$row.find('.dze-rvb-status').html('<span class="dze-cx-spin"></span>');
-			$('#dze-rvb-progress').text(sprintf(i18n.progress, done, total));
-			$.post(cfg.ajaxUrl, { action: 'dze_reviews_generate', nonce: nonce, post: id, count: count, direct: 1 })
+			var id = ids[i];
+			var $chip = $('.dze-rev-open[data-id="' + id + '"]');
+			var before = $chip.html();
+			$chip.prop('disabled', true).html('<span class="dze-cx-spin"></span>');
+			$.post(cfg.ajaxUrl, { action: 'dze_reviews_generate', nonce: cfg.nonce, post: id, direct: 1 })
 				.done(function (res) {
 					if (!res || !res.success) {
 						errors++;
-						$row.find('.dze-rvb-status').html('<span style="color:#b32d2e;">' + esc((res && res.data && res.data.message) || i18n.error) + '</span>');
+						$chip.html(before).prop('disabled', false).attr('title', (res && res.data && res.data.message) || i18n.error);
 						return;
 					}
 					made += res.data.created;
-					$row.find('.dze-rvb-count').text(res.data.total);
-					$row.find('.dze-rvb-status').html('<span style="color:#0a7040;">+' + res.data.created + ' ' + esc(res.data.held ? i18n.pending : i18n.published) + '</span>');
+					$chip.prop('disabled', false).html(
+						'<span style="color:#2271b1;font-weight:600;">' + res.data.total + '</span>' +
+						'<span class="dze-caret">&#9662;</span>'
+					);
 				})
-				.fail(function () { errors++; $row.find('.dze-rvb-status').html('<span style="color:#b32d2e;">✗</span>'); })
+				.fail(function () { errors++; $chip.html(before).prop('disabled', false); })
 				.always(function () {
 					done++;
-					$('#dze-rvb-progress').text(sprintf(i18n.progress, done, total));
+					say(sprintf(i18n.queueRun, done, total));
 					next(i + 1);
 				});
 		})(0);
-	});
+	}
 
-	$('#dze-rvb-stop').on('click', function () { stopped = true; });
+	if (cfg.queue && cfg.queue.length) {
+		runQueue(cfg.queue);
+	}
 
 }(jQuery));

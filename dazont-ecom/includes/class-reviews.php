@@ -12,14 +12,16 @@ defined( 'ABSPATH' ) || exit;
  * review it creates is tagged with the `_dze_generated` comment meta, shown as
  * such in the panel and removable in one click (per product or in bulk).
  *
- * Products list: a "Reviews" column shows the count (0 in grey) and opens the
- * per-product panel — generate, review the drafts, edit them, publish.
+ * Products list: a "Reviews" column shows the count and opens the per-product
+ * panel — generate, read the drafts, push them or discard. The bulk action
+ * runs straight on that list, a spinner in each product's cell, writing the
+ * reviews as pending without a preview step: individual generation is where
+ * the prompt gets calibrated, bulk is for volume once it is.
  */
 final class DZE_Reviews {
 
 	private const OPT      = 'dze_reviews_settings';
 	private const NONCE    = 'dze_reviews';
-	public const BULK_SLUG   = 'dazont-reviews-bulk';
 	public const BULK_ACTION = 'dze_gen_reviews';
 
 	/** Comment meta flagging a review created by this module. */
@@ -41,10 +43,9 @@ final class DZE_Reviews {
 		add_filter( 'manage_edit-product_columns', [ $this, 'add_column' ], 21 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'render_column' ], 10, 2 );
 		add_action( 'admin_footer-edit.php', [ $this, 'list_modal' ] );
-		// Bulk action → dedicated screen.
+		// Bulk action → runs on the products list itself.
 		add_filter( 'bulk_actions-edit-product', [ $this, 'register_bulk_action' ] );
 		add_filter( 'handle_bulk_actions-edit-product', [ $this, 'handle_bulk_action' ], 10, 3 );
-		add_action( 'admin_menu', [ $this, 'register_bulk_page' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		// AJAX.
 		add_action( 'wp_ajax_dze_reviews_panel', [ $this, 'ajax_panel' ] );
@@ -559,93 +560,16 @@ PROMPT;
 		return $actions;
 	}
 
+	/**
+	 * Queues the selection and returns to the products list: the run happens
+	 * there, with a spinner in each product's Reviews cell — no extra screen.
+	 */
 	public function handle_bulk_action( string $redirect, string $action, array $ids ): string {
 		if ( self::BULK_ACTION !== $action || empty( $ids ) ) {
 			return $redirect;
 		}
-		set_transient( 'dze_reviews_bulk_' . get_current_user_id(), array_map( 'intval', $ids ), HOUR_IN_SECONDS );
-		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
-	}
-
-	public function register_bulk_page(): void {
-		add_submenu_page(
-			'edit.php?post_type=product',
-			__( 'Reviews bulk', 'dazont-ecom' ),
-			__( 'Reviews bulk', 'dazont-ecom' ),
-			'manage_woocommerce',
-			self::BULK_SLUG,
-			[ $this, 'render_bulk_page' ]
-		);
-	}
-
-	public function render_bulk_page(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
-		}
-		$ids = get_transient( 'dze_reviews_bulk_' . get_current_user_id() );
-		$ids = is_array( $ids ) ? $ids : [];
-		?>
-		<div class="wrap">
-			<h1 class="wp-heading-inline"><?php esc_html_e( 'Generate reviews', 'dazont-ecom' ); ?></h1>
-			<hr class="wp-header-end" />
-			<div class="notice notice-warning inline"><p>
-				<?php esc_html_e( 'Testing tool — staging catalogues only. Publishing fabricated reviews on a live shop is illegal in the EU and under FTC rules. Everything created here is tagged and deletable in one click.', 'dazont-ecom' ); ?>
-			</p></div>
-			<?php if ( empty( $ids ) ) : ?>
-				<p><?php esc_html_e( 'No product queued. Select products on the Products list and pick "Generate reviews (Dazont)" in the Bulk actions menu.', 'dazont-ecom' ); ?></p>
-				<?php return; ?>
-			<?php endif; ?>
-
-			<div class="tablenav top" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
-				<div class="alignleft actions">
-					<label for="dze-rvb-min"><?php esc_html_e( 'Reviews per product:', 'dazont-ecom' ); ?></label>
-					<input type="number" id="dze-rvb-min" class="small-text" min="1" max="20" value="<?php echo (int) self::min_count(); ?>" />
-					<span>–</span>
-					<input type="number" id="dze-rvb-max" class="small-text" min="1" max="20" value="<?php echo (int) self::max_count(); ?>" />
-					<span class="description" style="margin-right:12px;"><?php esc_html_e( '(a random number in that range for each product)', 'dazont-ecom' ); ?></span>
-					<button type="button" class="button button-primary" id="dze-rvb-start"><?php esc_html_e( 'Generate', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button" id="dze-rvb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
-				</div>
-				<div class="alignleft actions">
-					<span id="dze-rvb-progress" class="description"></span>
-				</div>
-				<br class="clear" />
-			</div>
-
-			<table class="wp-list-table widefat fixed striped">
-				<thead>
-					<tr>
-						<th scope="col" class="manage-column" style="width:60px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
-						<th scope="col" class="manage-column column-primary"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
-						<th scope="col" class="manage-column" style="width:90px;"><?php esc_html_e( 'Reviews', 'dazont-ecom' ); ?></th>
-						<th scope="col" class="manage-column" style="width:220px;"><?php esc_html_e( 'Result', 'dazont-ecom' ); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-				<?php
-				foreach ( $ids as $pid ) :
-					$product = wc_get_product( (int) $pid );
-					if ( ! $product ) {
-						continue;
-					}
-					$st  = self::stats( (int) $pid );
-					$img = (int) $product->get_image_id();
-					?>
-					<tr class="dze-rvb-row" data-id="<?php echo (int) $pid; ?>">
-						<td><img class="dze-hzoom" style="width:40px;height:40px;object-fit:cover;border-radius:3px;display:block;" src="<?php echo esc_url( $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : wc_placeholder_img_src() ); ?>" data-full="<?php echo esc_url( $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '' ); ?>" alt="" /></td>
-						<td class="column-primary"><a href="<?php echo esc_url( (string) get_edit_post_link( (int) $pid ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $product->get_name() ); ?></a></td>
-						<td class="dze-rvb-count"><?php echo (int) $st['total']; ?></td>
-						<td class="dze-rvb-status">—</td>
-					</tr>
-				<?php endforeach; ?>
-				</tbody>
-			</table>
-			<p class="description" id="dze-rvb-done" style="display:none;">
-				<?php esc_html_e( 'Generated reviews are waiting for moderation.', 'dazont-ecom' ); ?>
-				<a href="<?php echo esc_url( self::reviews_url( 'moderated' ) ); ?>"><?php esc_html_e( 'Open WooCommerce → Reviews', 'dazont-ecom' ); ?></a>
-			</p>
-		</div>
-		<?php
+		set_transient( 'dze_reviews_queue_' . get_current_user_id(), array_map( 'intval', $ids ), 10 * MINUTE_IN_SECONDS );
+		return add_query_arg( 'dze_reviews_run', count( $ids ), $redirect );
 	}
 
 	// =========================================================================
@@ -653,33 +577,42 @@ PROMPT;
 	// =========================================================================
 
 	public function enqueue( string $hook ): void {
-		$screen  = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		$on_list = $screen && 'product' === $screen->post_type && 'edit' === $screen->base;
-		$on_bulk = ( 'product_page_' . self::BULK_SLUG ) === $hook;
-		if ( ! $on_list && ! $on_bulk ) {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || 'product' !== $screen->post_type || 'edit' !== $screen->base ) {
 			return;
+		}
+		// A bulk action just queued a selection: hand it to the runner once.
+		$queue = [];
+		if ( isset( $_GET['dze_reviews_run'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only trigger.
+			$key   = 'dze_reviews_queue_' . get_current_user_id();
+			$saved = get_transient( $key );
+			if ( is_array( $saved ) ) {
+				$queue = array_map( 'intval', $saved );
+				delete_transient( $key ); // one run per bulk action, never on refresh.
+			}
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		wp_enqueue_script( 'dze-reviews', DZE_URL . 'admin/js/reviews.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-reviews', 'dzeReviews', [
-			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-			'nonce'   => wp_create_nonce( self::NONCE ),
-			'i18n'    => [
+			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
+			'nonce'      => wp_create_nonce( self::NONCE ),
+			'queue'      => $queue,
+			'reviewsUrl' => self::reviews_url( 'moderated' ),
+			'i18n'       => [
 				'working'   => __( 'Writing…', 'dazont-ecom' ),
 				'error'     => __( 'Something went wrong.', 'dazont-ecom' ),
 				'published' => __( 'published', 'dazont-ecom' ),
 				'pending'   => __( 'pending', 'dazont-ecom' ),
 				'push'      => __( 'Push %s reviews', 'dazont-ecom' ),
-				'pushed'    => __( 'pushed', 'dazont-ecom' ),
 				'drop'      => __( 'Remove this review', 'dazont-ecom' ),
-				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),
-				'savePrompt'  => __( 'Save prompt', 'dazont-ecom' ),
+				'savedPrompt'   => __( 'Prompt saved ✓', 'dazont-ecom' ),
+				'savePrompt'    => __( 'Save prompt', 'dazont-ecom' ),
 				'defaultPrompt' => self::default_prompt(),
 				'confirmDel'=> __( 'Delete every review generated by this module on this product?', 'dazont-ecom' ),
 				'deleted'   => __( 'Deleted', 'dazont-ecom' ),
-				'progress'  => __( '%1$s / %2$s products', 'dazont-ecom' ),
-				'finished'  => __( 'Finished: %1$s reviews created, %2$s errors.', 'dazont-ecom' ),
-				'stopped'   => __( 'Stopped.', 'dazont-ecom' ),
+				'queueRun'  => __( 'Writing reviews: %1$s / %2$s products…', 'dazont-ecom' ),
+				'queueDone' => __( 'Done — %1$s reviews created for %2$s products.', 'dazont-ecom' ),
+				'openList'  => __( 'Review them in WooCommerce → Reviews', 'dazont-ecom' ),
 			],
 		] );
 	}
