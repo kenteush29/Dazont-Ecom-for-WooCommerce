@@ -417,6 +417,9 @@ PROMPT;
 				<button type="button" class="button button-primary dze-cc-gen"><?php esc_html_e( 'Write the description', 'dazont-ecom' ); ?></button>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
+				<?php if ( class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) ) ) : ?>
+					<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
+				<?php endif; ?>
 				<span class="dze-cc-status"></span>
 			</p>
 			<div class="dze-cc-data" style="display:none;">
@@ -429,6 +432,20 @@ PROMPT;
 				<?php if ( $links ) : ?>
 					<p><strong><?php esc_html_e( 'Internal links', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_map( static fn( $l ) => $l['label'], array_slice( $links, 0, 14 ) ) ) ); ?></span></p>
 				<?php endif; ?>
+			</div>
+			<div class="dze-cc-import" style="display:none;">
+				<p class="description" style="margin:0 0 6px;">
+					<?php esc_html_e( 'SEMrush export for this category (CSV). Existing keywords keep their status and only refresh their metrics; new ones are added.', 'dazont-ecom' ); ?>
+				</p>
+				<p>
+					<input type="file" class="dze-cc-file" accept=".csv,text/csv,text/plain" />
+					<span class="dze-cc-imstatus"></span>
+				</p>
+				<div class="dze-cc-map" style="display:none;">
+					<p class="description" style="margin:0 0 4px;"><?php esc_html_e( 'Check the columns before importing:', 'dazont-ecom' ); ?></p>
+					<p class="dze-cc-mapfields"></p>
+					<p><button type="button" class="button button-primary dze-cc-doimport"><?php esc_html_e( 'Import', 'dazont-ecom' ); ?></button></p>
+				</div>
 			</div>
 			<div class="dze-cc-pwrap" style="display:none;">
 				<textarea rows="10" class="large-text code dze-cc-ptext"><?php echo esc_textarea( self::prompt() ); ?></textarea>
@@ -479,8 +496,18 @@ PROMPT;
 		wp_localize_script( 'dze-catcontent', 'dzeCatContent', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
+			'kwNonce' => class_exists( 'DZE_Keywords' ) ? DZE_Keywords::nonce() : '',
 			'i18n'    => [
 				'working'     => __( 'Writing — up to a minute…', 'dazont-ecom' ),
+				'reading'     => __( 'Reading the file…', 'dazont-ecom' ),
+				'importing'   => __( 'Importing…', 'dazont-ecom' ),
+				'imported'    => __( '%1$s added · %2$s updated', 'dazont-ecom' ),
+				'colKeyword'  => __( 'Keyword', 'dazont-ecom' ),
+				'colVolume'   => __( 'Volume', 'dazont-ecom' ),
+				'colKd'       => __( 'KD', 'dazont-ecom' ),
+				'colCpc'      => __( 'CPC', 'dazont-ecom' ),
+				'colIntent'   => __( 'Intent', 'dazont-ecom' ),
+				'colNone'     => __( '— none —', 'dazont-ecom' ),
 				'error'       => __( 'Something went wrong.', 'dazont-ecom' ),
 				'applied'     => __( 'Applied ✓', 'dazont-ecom' ),
 				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),

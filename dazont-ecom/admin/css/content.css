@@ -205,6 +205,10 @@
 
 /* ---- Category descriptions ---- */
 .dze-cc-box p { margin: 8px 0; }
+.dze-cc-import { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+.dze-cc-import p { margin: 6px 0; }
+.dze-cc-import select { max-width: 150px; }
+.dze-cc-imstatus { font-size: 12px; margin-left: 8px; }
 .dze-cc-data { background: #f6f7f7; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; }
 .dze-cc-data p { margin: 6px 0; }
 .dze-cc-preview {
