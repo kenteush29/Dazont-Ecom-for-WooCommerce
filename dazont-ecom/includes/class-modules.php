@@ -122,6 +122,13 @@ final class DZE_Modules {
 				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
 				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
 			],
+			'category_content' => [
+				'class' => 'DZE_Category_Content',
+				'group' => 'catalog',
+				'label' => __( 'Category descriptions', 'dazont-ecom' ),
+				'desc'  => __( 'Buying-guide category copy from your real queries, with internal links.', 'dazont-ecom' ),
+				'more'  => __( 'Writes product category descriptions the way a shop assistant would advise in that aisle: short, concrete, useful. It reads the SEMrush keyword set already imported for the category by the Sourcing Assistant — secondary queries (same intent, different wording) become H2 headings, real buyer questions become answered H2 questions — so the copy is built on measured demand instead of assumptions. Internal linking comes with it: links are picked from the parent, sub- and sibling categories plus the category best sellers (optionally widened by your sitemap), and the model may only use those URLs, so they always resolve. A Description column on Products → Categories shows the length and the keyword count and opens the writer: see the data used, generate, read the result, edit the HTML, apply. Nothing is written to the category before you apply.', 'dazont-ecom' ),
+			],
 			'reviews' => [
 				'class'   => 'DZE_Reviews',
 				'group'   => 'product',
