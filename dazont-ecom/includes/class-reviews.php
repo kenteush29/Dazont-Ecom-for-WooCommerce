@@ -87,6 +87,9 @@ final class DZE_Reviews {
 		if ( isset( $in['delivery'] ) ) {
 			$out['delivery'] = sanitize_text_field( (string) $in['delivery'] );
 		}
+		if ( isset( $in['language'] ) ) {
+			$out['language'] = sanitize_text_field( (string) $in['language'] );
+		}
 		if ( isset( $in['prompt'] ) ) {
 			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
 		}
@@ -116,33 +119,60 @@ final class DZE_Reviews {
 		return trim( (string) ( self::get_settings()['delivery'] ?? '' ) );
 	}
 
+	/**
+	 * The language reviews are written in: the shop's MAIN language (WPML
+	 * default language, else the WordPress locale), or the manual override.
+	 * Returned as a human-readable name — that is what the model needs.
+	 */
+	public static function language(): string {
+		$manual = trim( (string) ( self::get_settings()['language'] ?? '' ) );
+		if ( '' !== $manual ) {
+			return $manual;
+		}
+		$code = (string) apply_filters( 'wpml_default_language', '' );
+		if ( '' === $code ) {
+			$code = (string) get_locale(); // e.g. en_US, fr_FR.
+		}
+		$short = strtolower( substr( str_replace( '-', '_', $code ), 0, 2 ) );
+		$names = [
+			'en' => 'English', 'fr' => 'French', 'de' => 'German', 'es' => 'Spanish',
+			'it' => 'Italian', 'nl' => 'Dutch', 'pt' => 'Portuguese', 'pl' => 'Polish',
+			'sv' => 'Swedish', 'da' => 'Danish', 'no' => 'Norwegian', 'fi' => 'Finnish',
+			'cs' => 'Czech', 'ro' => 'Romanian', 'el' => 'Greek', 'ja' => 'Japanese',
+		];
+		if ( isset( $names[ $short ] ) ) {
+			// US English gets its spelling stated explicitly.
+			return ( 'en' === $short && false !== stripos( $code, 'US' ) ) ? 'English (US spelling)' : $names[ $short ];
+		}
+		return class_exists( 'Locale' ) ? (string) Locale::getDisplayLanguage( $code, 'en' ) : $code;
+	}
+
 	public static function default_prompt(): string {
 		return <<<'PROMPT'
-Tu écris des avis clients pour une boutique en ligne. Objectif : qu'ils soient indiscernables de vrais avis laissés par des acheteurs.
+You write customer reviews for an online shop. They must be indistinguishable from real reviews left by buyers.
 
-LONGUEUR — c'est le point le plus important, et le plus souvent raté.
-N'écris JAMAIS des avis de longueur homogène. Sur 10 avis :
-- 3 ou 4 sont très courts : 2 à 6 mots ("Conforme, rien à dire.", "Parfait merci", "Très bien").
-- 3 ou 4 tiennent en une seule phrase.
-- 2 font deux ou trois phrases.
-- 1 seul, au maximum, est détaillé (4 à 5 phrases).
-Un avis court est un avis normal : n'ajoute pas de détails pour "faire mieux".
+LENGTH — the most important point, and the one most often botched.
+NEVER write reviews of uniform length. Out of 10 reviews:
+- 3 or 4 are very short: 2 to 6 words ("Fits perfectly.", "Great, thanks", "Exactly as described").
+- 3 or 4 are a single sentence.
+- 2 run to two or three sentences.
+- 1 at most is detailed (4 to 5 sentences).
+A short review is a normal review: never pad it out to "do better".
 
-STYLE — varie tout, d'un avis à l'autre :
-- Beaucoup ne parlent que d'UN seul aspect (la couleur, la coupe, le poids, la finition).
-- Aucune structure récurrente : n'enchaîne pas systématiquement qualité → usage → livraison.
-- Registre variable : familier, neutre ou soigné. Ponctuation naturelle ; sur les avis très courts, la majuscule ou le point final peuvent manquer.
-- Pas d'emoji. Pas de superlatifs creux. "Je recommande" dans un seul avis au maximum.
-- Ne répète pas le nom complet du produit : un client dit "le t-shirt", "la housse", "il", "elle".
-- Change la façon d'ouvrir : certains commencent par le défaut, d'autres par l'usage, d'autres sans introduction.
+STYLE — vary everything from one review to the next:
+- Many mention ONE aspect only (the colour, the cut, the weight, the stitching).
+- No recurring structure: do not go quality → use → delivery every time.
+- Mixed register: casual, plain or careful. Natural punctuation; very short reviews may skip the capital or the full stop.
+- No emoji. No empty superlatives. "I recommend" in one review at most.
+- Do not repeat the full product name: a buyer says "the shirt", "the case", "it".
+- Vary the opening: some start with the flaw, some with the use, some with no lead-in at all.
 
-CONTENU — seulement ce qu'un acheteur peut constater :
-- Taille, matière, finition, couleur, confort, tenue, usage réel.
-- N'invente AUCUN chiffre : ni prix, ni dimension, ni pourcentage, ni durée.
-- Les avis 4 étoiles contiennent une réserve honnête et concrète. Les 5 étoiles restent sobres : contentement, pas d'enthousiasme publicitaire.
-- Prénom + initiale du nom.
-- Titre court (2 à 5 mots), du même ton que le texte : télégraphique si l'avis est court.
-- Écris dans la langue de la fiche produit.
+CONTENT — only what a buyer can actually observe:
+- Fit, material, finish, colour, comfort, durability, real-life use.
+- Invent NO figures: no price, no measurement, no percentage, no duration.
+- 4-star reviews carry an honest, concrete reservation. 5-star ones stay sober: satisfied, not advertising copy.
+- First name + last initial, plausible for the review language.
+- A short title (2 to 5 words) matching the tone: telegraphic when the review is short.
 PROMPT;
 	}
 
@@ -281,13 +311,20 @@ PROMPT;
 				$attrs .= wc_attribute_label( $a->get_name() ) . ': ' . ( is_array( $vals ) ? implode( ', ', array_map( 'strval', $vals ) ) : '' ) . "\n";
 			}
 		}
-		$system = 'You write authentic customer reviews. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' );
+		$system = 'You write authentic customer reviews in ' . self::language() . '. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' );
 		$user   = "--- PRODUCT ---\nTitle: " . $product->get_name() . "\n"
 			. ( $desc ? 'Description: ' . mb_substr( $desc, 0, 900 ) . "\n" : '' )
 			. ( $attrs ? "Attributes:\n" . mb_substr( $attrs, 0, 400 ) . "\n" : '' )
 			. "\n--- INSTRUCTIONS ---\n" . self::prompt()
-			. "\n\nGenerate exactly {$count} reviews, ratings between " . self::min_rating() . ' and 5, spread over the last ' . self::days() . " days.\n"
-			. "OUTPUT (strict): a JSON array only, no prose, each item {\"name\":\"Firstname L.\",\"rating\":5,\"title\":\"…\",\"text\":\"…\",\"days_ago\":42}.";
+			// Facts the model must never override — language first: the shop's
+			// main language wins over the language of the instructions above.
+			. "\n\n--- FACTS (never contradict these) ---\n"
+			. 'LANGUAGE: write every review — title and text — in ' . self::language() . '. This overrides the language of the instructions above and of the product data. Reviewer names must be plausible for that language.' . "\n"
+			. self::delivery_rule() . "\n"
+			. "\nGenerate exactly {$count} reviews, ratings between " . self::min_rating() . " and 5.\n"
+			. 'Dates: real calendar dates between ' . gmdate( 'Y-m-d', strtotime( '-' . self::days() . ' days' ) ) . ' and ' . gmdate( 'Y-m-d' ) . ", irregularly spread (not one per week), format YYYY-MM-DD.\n"
+			. "Re-read your {$count} reviews before answering: if two of them have a similar length or the same structure, rewrite one of them shorter.\n"
+			. "OUTPUT (strict): a JSON array only, no prose, each item {\"name\":\"Firstname L.\",\"rating\":5,\"title\":\"…\",\"text\":\"…\",\"date\":\"YYYY-MM-DD\"}.";
 
 		$raw = DZE_Marketing_Ai::complete( $system, $user, '', 220 * $count + 400, 180 );
 		$json = trim( $raw );
@@ -647,6 +684,21 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-rev-days"><?php esc_html_e( 'Spread over the last', 'dazont-ecom' ); ?></label></th>
 					<td><input type="number" id="dze-rev-days" name="<?php echo esc_attr( self::OPT ); ?>[days]" min="1" max="1095" value="<?php echo (int) self::days(); ?>" style="width:80px;" /> <?php esc_html_e( 'days', 'dazont-ecom' ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-rev-language"><?php esc_html_e( 'Review language', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<input type="text" id="dze-rev-language" name="<?php echo esc_attr( self::OPT ); ?>[language]" value="<?php echo esc_attr( (string) ( $s['language'] ?? '' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( self::language() ); ?>" />
+						<p class="description">
+							<?php
+							printf(
+								/* translators: %s: detected language */
+								esc_html__( 'Empty = the shop\'s main language, detected automatically (currently: %s). Fill it in only to force another one.', 'dazont-ecom' ),
+								'<strong>' . esc_html( self::language() ) . '</strong>'
+							);
+							?>
+						</p>
+					</td>
 				</tr>
 				<tr>
 					<th scope="row"><label for="dze-rev-delivery"><?php esc_html_e( 'Real delivery time', 'dazont-ecom' ); ?></label></th>
