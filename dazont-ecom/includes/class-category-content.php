@@ -24,7 +24,8 @@ final class DZE_Category_Content {
 
 	private const OPT   = 'dze_catcontent_settings';
 	private const NONCE = 'dze_catcontent';
-	public const GEN_META = '_dze_desc_generated';
+	public const GEN_META  = '_dze_desc_generated';
+	public const CRON_HOOK = 'dze_cc_sitemap_check';
 
 	private static ?self $instance = null;
 
@@ -37,6 +38,12 @@ final class DZE_Category_Content {
 
 	private function __construct() {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
+		add_action( 'admin_init', [ $this, 'maybe_dismiss_sitemap_notice' ] );
+		add_action( 'admin_notices', [ $this, 'sitemap_notice' ] );
+		// Daily background read, so the admin never waits on the sitemap and the
+		// status shown is a real one.
+		add_action( 'admin_init', [ $this, 'schedule_sitemap_check' ] );
+		add_action( self::CRON_HOOK, [ __CLASS__, 'cron_sitemap_check' ] );
 		// Categories list: status column + popup.
 		add_filter( 'manage_edit-product_cat_columns', [ $this, 'add_column' ] );
 		add_filter( 'manage_product_cat_custom_column', [ $this, 'render_column' ], 10, 3 );
@@ -99,13 +106,59 @@ final class DZE_Category_Content {
 		return max( 0, min( 12, (int) $v ) );
 	}
 
-	public static function sitemap_url(): string {
+	/** URL saved by hand in Settings → Categories, if any. */
+	public static function sitemap_override(): string {
 		return trim( (string) ( self::get_settings()['sitemap'] ?? '' ) );
 	}
 
 	/**
-	 * Pages read from the configured sitemap, cached 12h. A sitemap INDEX is
-	 * followed one level (that is what wp-sitemap.xml and the SEO plugins
+	 * Sitemap published by the site itself. Rank Math, Yoast, SEOPress, All in
+	 * One SEO and WordPress core each expose their own address — no need to ask
+	 * the owner for it.
+	 *
+	 * @return array{url:string,source:string}
+	 */
+	public static function detect_sitemap(): array {
+		// Rank Math — its router knows the address even on a sub-directory install.
+		if ( class_exists( '\RankMath\Sitemap\Router' ) && method_exists( '\RankMath\Sitemap\Router', 'get_base_url' ) ) {
+			return [ 'url' => \RankMath\Sitemap\Router::get_base_url( 'sitemap_index.xml' ), 'source' => 'Rank Math' ];
+		}
+		if ( defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' ) ) {
+			return [ 'url' => home_url( '/sitemap_index.xml' ), 'source' => 'Rank Math' ];
+		}
+		if ( class_exists( 'WPSEO_Sitemaps_Router' ) && method_exists( 'WPSEO_Sitemaps_Router', 'get_base_url' ) ) {
+			return [ 'url' => \WPSEO_Sitemaps_Router::get_base_url( 'sitemap_index.xml' ), 'source' => 'Yoast SEO' ];
+		}
+		if ( defined( 'WPSEO_VERSION' ) ) {
+			return [ 'url' => home_url( '/sitemap_index.xml' ), 'source' => 'Yoast SEO' ];
+		}
+		if ( defined( 'SEOPRESS_VERSION' ) ) {
+			return [ 'url' => home_url( '/sitemap.xml' ), 'source' => 'SEOPress' ];
+		}
+		if ( defined( 'AIOSEO_VERSION' ) ) {
+			return [ 'url' => home_url( '/sitemap.xml' ), 'source' => 'All in One SEO' ];
+		}
+		// WordPress has served its own sitemap since 5.5, unless it was disabled.
+		if ( function_exists( 'wp_sitemaps_get_server' ) && apply_filters( 'wp_sitemaps_enabled', true ) ) {
+			return [ 'url' => home_url( '/wp-sitemap.xml' ), 'source' => 'WordPress' ];
+		}
+		return [ 'url' => '', 'source' => '' ];
+	}
+
+	/** The sitemap actually used: the saved URL, else the one detected. */
+	public static function sitemap_url(): string {
+		$own = self::sitemap_override();
+		return '' !== $own ? $own : self::detect_sitemap()['url'];
+	}
+
+	/** Where that URL comes from — '' when it was typed by hand. */
+	public static function sitemap_source(): string {
+		return '' !== self::sitemap_override() ? '' : self::detect_sitemap()['source'];
+	}
+
+	/**
+	 * Pages read from the sitemap in use, cached 12h. A sitemap INDEX is
+	 * followed one level (that is what Rank Math, Yoast and wp-sitemap.xml
 	 * serve), preferring the category/page sitemaps.
 	 *
 	 * @return array{urls:array,status:string,count:int,checked:int}
@@ -116,10 +169,12 @@ final class DZE_Category_Content {
 			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
 		}
 		$cached = $force ? false : get_transient( 'dze_cc_sitemap' );
-		if ( is_array( $cached ) ) {
+		// A cache read for another address (SEO plugin swapped) is thrown away.
+		if ( is_array( $cached ) && ( $cached['url'] ?? '' ) === $url ) {
 			return $cached;
 		}
-		$out = self::read_sitemap( $url );
+		$out        = self::read_sitemap( $url );
+		$out['url'] = $url;
 		set_transient( 'dze_cc_sitemap', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
@@ -149,11 +204,19 @@ final class DZE_Category_Content {
 		preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $body, $m );
 		$first = $m[1] ?? [];
 		if ( false !== stripos( $body, '<sitemapindex' ) ) {
-			// Index: follow the most relevant child sitemaps.
-			usort( $first, static function ( $a, $b ) {
-				$score = static fn( $u ) => preg_match( '/categor|product.cat|page/i', $u ) ? 0 : 1;
-				return $score( $a ) <=> $score( $b );
-			} );
+			// Index: follow the child sitemaps worth linking to. Pages and
+			// category sitemaps first, then the blog; the product sitemap is
+			// left for last, individual products are not link targets here.
+			$score = static function ( string $u ): int {
+				if ( preg_match( '#product[-_]?sitemap|/product/#i', $u ) ) {
+					return 3;
+				}
+				if ( preg_match( '/categor|product.cat|page/i', $u ) ) {
+					return 0;
+				}
+				return preg_match( '/post|blog|article|news/i', $u ) ? 1 : 2;
+			};
+			usort( $first, static fn( $a, $b ) => $score( $a ) <=> $score( $b ) );
 			foreach ( array_slice( $first, 0, 3 ) as $child ) {
 				$sub = $fetch( $child );
 				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
@@ -521,14 +584,20 @@ PROMPT;
 	 * Pass a state array to describe a one-off read (the Test button).
 	 */
 	public static function sitemap_status_html( ?array $state = null ): string {
-		$s = $state ?? self::sitemap_pages();
+		$s   = $state ?? self::sitemap_pages();
+		$src = null === $state ? self::sitemap_source() : '';
 		if ( 'ok' === $s['status'] ) {
-			return '<span class="dze-key-badge is-set">&#10003; ' . sprintf(
+			$badge = '<span class="dze-key-badge is-set">&#10003; ' . sprintf(
 				/* translators: 1: page count, 2: human time diff */
 				esc_html__( 'Sitemap connected — %1$s pages read %2$s ago', 'dazont-ecom' ),
 				(int) $s['count'],
 				esc_html( human_time_diff( (int) $s['checked'] ) )
 			) . '</span>';
+			if ( '' !== $src ) {
+				/* translators: %s: name of the plugin publishing the sitemap */
+				$badge .= ' <span class="description">' . sprintf( esc_html__( 'found on its own from %s', 'dazont-ecom' ), esc_html( $src ) ) . '</span>';
+			}
+			return $badge;
 		}
 		if ( 'empty' === $s['status'] ) {
 			return '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap reachable, but no page URL found in it', 'dazont-ecom' ) . '</span>';
@@ -537,6 +606,75 @@ PROMPT;
 			return '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap not reachable — check the URL', 'dazont-ecom' ) . '</span>';
 		}
 		return '<span class="dze-key-badge is-missing">' . esc_html__( 'No sitemap connected — categories only', 'dazont-ecom' ) . '</span>';
+	}
+
+	// =========================================================================
+	// Sitemap notice
+	// =========================================================================
+
+	private const DISMISS_META = 'dze_cc_sitemap_notice_off';
+
+	public function schedule_sitemap_check(): void {
+		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+			wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'daily', self::CRON_HOOK );
+		}
+	}
+
+	public static function cron_sitemap_check(): void {
+		self::sitemap_pages( true );
+	}
+
+	/** "Not now" on the notice: silenced for that user until a reset. */
+	public function maybe_dismiss_sitemap_notice(): void {
+		if ( empty( $_GET['dze_cc_sitemap_off'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified right below.
+			return;
+		}
+		if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_GET['_wpnonce'] ?? '' ) ), 'dze_cc_sitemap_off' ) ) {
+			return;
+		}
+		update_user_meta( get_current_user_id(), self::DISMISS_META, 1 );
+		wp_safe_redirect( remove_query_arg( [ 'dze_cc_sitemap_off', '_wpnonce' ] ) );
+		exit;
+	}
+
+	/**
+	 * Warns where it matters — the categories screen and the settings page —
+	 * when the internal linking has no sitemap behind it, or when the one it
+	 * has cannot be read. Never fetches: the cached state is enough.
+	 */
+	public function sitemap_notice(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) || get_user_meta( get_current_user_id(), self::DISMISS_META, true ) ) {
+			return;
+		}
+		// The settings tab lives on the Marketing Assistant page: no page, no
+		// invitation to click through to it.
+		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'marketing_ai' ) ) {
+			return;
+		}
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		$here   = $screen && ( 'edit-product_cat' === $screen->id || false !== strpos( (string) $screen->id, DZE_Marketing_Ai::MENU_SLUG ) );
+		if ( ! $here || self::links() < 1 ) {
+			return;
+		}
+		$url    = self::sitemap_url();
+		$cached = get_transient( 'dze_cc_sitemap' );
+		$state  = ( is_array( $cached ) && ( $cached['url'] ?? '' ) === $url ) ? $cached['status'] : '';
+		if ( '' !== $url && ( 'ok' === $state || '' === $state ) ) {
+			return; // Connected, or not read yet — no reason to shout.
+		}
+		$tab   = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'categories' ], admin_url( 'admin.php' ) );
+		$hide  = wp_nonce_url( add_query_arg( 'dze_cc_sitemap_off', 1 ), 'dze_cc_sitemap_off' );
+		$body  = '' === $url
+			? esc_html__( 'No sitemap found on this site, so category descriptions can only link to other categories. Point the plugin at your sitemap to let them link to your pages and blog posts too.', 'dazont-ecom' )
+			: sprintf(
+				/* translators: %s: sitemap URL */
+				esc_html__( 'The sitemap at %s could not be read, so category descriptions are linking to other categories only.', 'dazont-ecom' ),
+				'<code>' . esc_html( $url ) . '</code>'
+			);
+		echo '<div class="notice notice-warning"><p><strong>' . esc_html__( 'Dazont Ecom — internal linking', 'dazont-ecom' ) . '</strong><br />'
+			. $body // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+			. '</p><p><a class="button button-primary" href="' . esc_url( $tab ) . '">' . esc_html__( 'Connect the sitemap', 'dazont-ecom' ) . '</a> '
+			. '<a class="button-link" href="' . esc_url( $hide ) . '">' . esc_html__( 'Not now', 'dazont-ecom' ) . '</a></p></div>';
 	}
 
 	// =========================================================================
@@ -856,7 +994,7 @@ PROMPT;
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
-		$url = esc_url_raw( trim( (string) ( $_POST['url'] ?? '' ) ) );
+		$url = esc_url_raw( trim( (string) wp_unslash( $_POST['url'] ?? '' ) ) );
 		if ( '' !== $url && $url !== self::sitemap_url() ) {
 			// Not the saved URL: read it once, without touching the cache.
 			wp_send_json_success( [ 'html' => self::sitemap_status_html( self::read_sitemap( $url ) ) ] );
@@ -912,12 +1050,27 @@ PROMPT;
 					</td>
 				</tr>
 				<tr>
-					<th scope="row"><label for="dze-cc-sitemap"><?php esc_html_e( 'Sitemap (optional)', 'dazont-ecom' ); ?></label></th>
+					<th scope="row"><label for="dze-cc-sitemap"><?php esc_html_e( 'Sitemap', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<input type="url" id="dze-cc-sitemap" name="<?php echo esc_attr( self::OPT ); ?>[sitemap]" class="regular-text" value="<?php echo esc_attr( self::sitemap_url() ); ?>" placeholder="<?php echo esc_attr( home_url( '/wp-sitemap.xml' ) ); ?>" />
+						<?php $auto = self::detect_sitemap(); ?>
+						<input type="url" id="dze-cc-sitemap" name="<?php echo esc_attr( self::OPT ); ?>[sitemap]" class="regular-text" value="<?php echo esc_attr( self::sitemap_override() ); ?>" placeholder="<?php echo esc_attr( '' !== $auto['url'] ? $auto['url'] : home_url( '/wp-sitemap.xml' ) ); ?>" />
 						<button type="button" class="button" id="dze-cc-sitemap-test"><?php esc_html_e( 'Test', 'dazont-ecom' ); ?></button>
 						<p id="dze-cc-sitemap-status" style="margin:8px 0 0;"><?php echo self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?></p>
-						<p class="description"><?php esc_html_e( 'Adds your own pages (guides, landing pages) to the link pool, on top of the categories. A sitemap index is followed one level. Re-read every 12 hours.', 'dazont-ecom' ); ?></p>
+						<p class="description">
+							<?php
+							if ( '' !== $auto['url'] ) {
+								printf(
+									/* translators: 1: plugin publishing the sitemap, 2: sitemap URL */
+									esc_html__( 'Leave this empty: the plugin picks up the sitemap %1$s publishes on its own (%2$s). Fill it in only to point somewhere else.', 'dazont-ecom' ),
+									'<strong>' . esc_html( $auto['source'] ) . '</strong>',
+									'<code>' . esc_html( $auto['url'] ) . '</code>'
+								);
+							} else {
+								esc_html_e( 'No sitemap was found on this site — paste its address here.', 'dazont-ecom' );
+							}
+							?>
+							<br /><?php esc_html_e( 'It adds your own pages (blog posts, guides, landing pages) to the link pool, on top of the categories. A sitemap index is followed one level, and it is re-read every 12 hours.', 'dazont-ecom' ); ?>
+						</p>
 					</td>
 				</tr>
 				<tr>
