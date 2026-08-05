@@ -356,11 +356,96 @@ PROMPT;
 		return $out;
 	}
 
+	/** Words too common to say anything about what a page is about. */
+	private static function stop_words(): array {
+		return [
+			'the', 'and', 'for', 'with', 'your', 'you', 'our', 'from', 'that', 'this', 'are', 'how', 'what',
+			'why', 'best', 'top', 'guide', 'all', 'about', 'into', 'out', 'not', 'can', 'les', 'des', 'une',
+			'pour', 'avec', 'dans', 'sur', 'vos', 'votre', 'nos', 'notre', 'comment', 'pourquoi', 'meilleur',
+		];
+	}
+
+	/** Meaningful words of a string, lower-cased and de-duplicated. */
+	private static function tokens( string $s ): array {
+		$words = preg_split( '/[^\p{L}\p{N}]+/u', mb_strtolower( $s ), -1, PREG_SPLIT_NO_EMPTY ) ?: [];
+		$stop  = self::stop_words();
+		$out   = [];
+		foreach ( $words as $w ) {
+			if ( mb_strlen( $w ) > 2 && ! in_array( $w, $stop, true ) ) {
+				$out[ $w ] = true;
+			}
+		}
+		return array_keys( $out );
+	}
+
 	/**
-	 * Internal-link candidates: OTHER CATEGORIES only — parent, children,
-	 * siblings and the main top-level categories. Products are deliberately
-	 * excluded: the category page already lists them. URLs come straight from
-	 * the taxonomy, so they always resolve.
+	 * Blog posts and pages worth linking to FROM this category, read from
+	 * WordPress itself — so the anchor can use the real title — and ranked by
+	 * how much their wording overlaps the category and its imported queries.
+	 * That is how a camouflage category ends up pointing at the camo pages.
+	 */
+	public static function editorial_pool( int $term_id, int $limit = 10 ): array {
+		$term = get_term( $term_id, 'product_cat' );
+		if ( ! $term || is_wp_error( $term ) ) {
+			return [];
+		}
+		$kw    = self::keyword_pools( $term_id, $term->name );
+		$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
+		if ( ! $needle ) {
+			return [];
+		}
+		// Pages that exist for the checkout, not for the reader.
+		$skip = array_filter( [
+			(int) get_option( 'page_on_front' ),
+			(int) get_option( 'page_for_posts' ),
+			(int) get_option( 'wp_page_for_privacy_policy' ),
+			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'cart' ) : 0,
+			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'checkout' ) : 0,
+			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'myaccount' ) : 0,
+			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'terms' ) : 0,
+		] );
+
+		$posts = get_posts( [
+			'post_type'              => [ 'post', 'page' ],
+			'post_status'            => 'publish',
+			'posts_per_page'         => 300,
+			'orderby'                => 'date',
+			'order'                  => 'DESC',
+			'exclude'                => $skip,
+			'no_found_rows'          => true,
+			'update_post_meta_cache' => false,
+			'update_post_term_cache' => false,
+		] );
+
+		$scored = [];
+		foreach ( $posts as $p ) {
+			$title = get_the_title( $p );
+			$hits  = array_intersect( $needle, self::tokens( $title . ' ' . $p->post_name ) );
+			if ( ! $hits ) {
+				continue;
+			}
+			$scored[] = [
+				'label' => $title,
+				'url'   => (string) get_permalink( $p ),
+				'kind'  => 'post' === $p->post_type ? 'blog post' : 'page',
+				'score' => count( $hits ),
+			];
+		}
+		usort( $scored, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
+		$out = [];
+		foreach ( array_slice( $scored, 0, max( 0, $limit ) ) as $row ) {
+			unset( $row['score'] );
+			$out[] = $row;
+		}
+		return $out;
+	}
+
+	/**
+	 * Internal-link candidates: other CATEGORIES — parent, children, siblings
+	 * and the main top-level categories — plus the blog posts and pages that
+	 * talk about the same thing. Individual products are deliberately excluded:
+	 * the category page already lists them. URLs come straight from WordPress,
+	 * so they always resolve.
 	 */
 	public static function link_pool( int $term_id ): array {
 		$pool = [];
@@ -370,10 +455,13 @@ PROMPT;
 		}
 		$add = static function ( string $label, string $url, string $kind ) use ( &$pool ) {
 			$url = (string) $url;
-			if ( '' === $url || isset( $pool[ $url ] ) ) {
+			// Keyed without the trailing slash: the sitemap and get_permalink()
+			// do not always agree on it, and that would double an entry.
+			$key = untrailingslashit( $url );
+			if ( '' === $url || isset( $pool[ $key ] ) ) {
 				return;
 			}
-			$pool[ $url ] = [ 'label' => $label, 'url' => $url, 'kind' => $kind ];
+			$pool[ $key ] = [ 'label' => $label, 'url' => $url, 'kind' => $kind ];
 		};
 		if ( $term->parent ) {
 			$parent = get_term( $term->parent, 'product_cat' );
@@ -399,16 +487,22 @@ PROMPT;
 		}
 		// No products here on purpose: the category page already lists them, so
 		// linking to individual products from its description adds nothing.
-		$pool = array_values( $pool );
 
-		// Optional extra layer: pages from the sitemap (guides, landing pages).
+		// The editorial side: blog posts and pages on the same subject. They
+		// carry their real title, which makes for a far better anchor.
+		foreach ( self::editorial_pool( $term_id ) as $row ) {
+			$add( $row['label'], $row['url'], $row['kind'] );
+		}
+
+		// Last layer: anything else the sitemap knows about and WordPress does
+		// not serve here (another site section, a plugin-made landing page).
 		foreach ( self::sitemap_pages()['urls'] as $page ) {
 			if ( count( $pool ) >= 40 ) {
 				break;
 			}
-			$pool[] = $page;
+			$add( $page['label'], $page['url'], 'sitemap page' );
 		}
-		return $pool;
+		return array_values( $pool );
 	}
 
 	/** Language of the category (WPML), else the site language. */
@@ -477,6 +571,7 @@ PROMPT;
 			}
 			$user .= "\n--- INTERNAL LINKS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n";
 			$user .= 'Insert ' . max( 1, self::links() - 2 ) . ' to ' . self::links() . " of them, anchored on natural wording inside the sentences.\n";
+			$user .= "A target marked [blog post] or [page] already covers its subject in full: mention it in a sentence and link to it, do not explain the subject again here.\n";
 		}
 
 		$user .= "\n--- INSTRUCTIONS ---\n" . ( '' !== $prompt_override ? $prompt_override : self::prompt() );
@@ -547,6 +642,7 @@ PROMPT;
 			. "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
 			. '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n"
 			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
+			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
 			. "- The anchor must be words already in the sentence, or as close as possible. You may re-word lightly — a handful of words at most, around the anchor — so the anchor names what the target page is about. Keep the sentence's meaning and its style.\n"
 			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
 			. "- Never link twice to the same URL, never link a whole sentence, never link inside a heading.\n"
@@ -781,7 +877,9 @@ PROMPT;
 						'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
 						'related category' => __( 'sibling categories', 'dazont-ecom' ),
 							'main category'    => __( 'main categories', 'dazont-ecom' ),
-						'page'             => __( 'sitemap pages', 'dazont-ecom' ),
+						'blog post'        => __( 'blog posts', 'dazont-ecom' ),
+						'page'             => __( 'site pages', 'dazont-ecom' ),
+						'sitemap page'     => __( 'other pages from the sitemap', 'dazont-ecom' ),
 					];
 					foreach ( $break as $kind => $n ) {
 						$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
