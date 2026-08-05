@@ -36,6 +36,30 @@ owner communicates in French.
   append it as an automatic constraint — never by rewriting the owner's
   prompts. Shipped default prompts are written in English too, since the
   model mirrors the prompt's language.
+- **Server footprint comes before features.** The shop must stay fast for
+  visitors AND cheap for the server. Every addition is judged on:
+  - **Front-end footprint**: a shop page must run as if the plugin were not
+    installed. No front hook, query, option read or asset unless the feature
+    is genuinely visible to a customer. Admin work belongs to `admin_*`,
+    `wp_ajax_*` and cron hooks.
+  - **No blocking HTTP while somebody waits for a page** — least of all a
+    loopback call to our own site (one PHP worker waiting on another is how a
+    shop starts returning 408/504). Fetching happens in cron or in an explicit
+    AJAX action; page rendering reads the cache and says so when it is empty.
+    Short timeouts, few redirects, a lock around any scheduled fetch.
+  - **Autoloaded options**: settings the front never reads are registered with
+    `'autoload' => false` (autoloaded rows are read on EVERY request). Big
+    payloads — prompts, keyword sets, cached page lists — never autoload.
+  - **Query cost**: no query in a loop (N+1), no `posts_per_page => -1`, and
+    list-table columns must stay O(1) per row — heavy work belongs to the
+    AJAX panel behind the click, not to the row.
+  - **Cache what is expensive** in transients with a sane TTL, keyed so a
+    changed input invalidates it, plus a lock against stampedes.
+  - **Weight on disk and in memory**: no library we can do without, no asset
+    enqueued outside the screen that needs it, classes loaded by the
+    autoloader only when used.
+  When a feature cannot be built within that budget, say so instead of
+  shipping it heavy.
 - WPML compatibility everywhere.
 - New/unfinished features ship to the DEV channel only (`Plugin-development`
   branch → prerelease); `Live-plugin` (stable) only with explicit approval.

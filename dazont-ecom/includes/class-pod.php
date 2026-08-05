@@ -54,6 +54,7 @@ final class DZE_Pod {
 			'type'              => 'array',
 			'sanitize_callback' => [ $this, 'sanitize' ],
 			'default'           => [],
+			'autoload'          => false, // admin-only settings: never loaded on a shop page.
 		] );
 	}
 

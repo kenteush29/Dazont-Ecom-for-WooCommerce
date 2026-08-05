@@ -69,6 +69,7 @@ final class DZE_Reviews {
 			'type'              => 'array',
 			'sanitize_callback' => [ $this, 'sanitize' ],
 			'default'           => [],
+			'autoload'          => false, // admin-only settings: never loaded on a shop page.
 		] );
 	}
 

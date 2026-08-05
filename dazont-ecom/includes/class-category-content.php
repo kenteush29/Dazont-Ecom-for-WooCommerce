@@ -72,6 +72,7 @@ final class DZE_Category_Content {
 			'type'              => 'array',
 			'sanitize_callback' => [ $this, 'sanitize' ],
 			'default'           => [],
+			'autoload'          => false, // admin-only settings: never loaded on a shop page.
 		] );
 	}
 
