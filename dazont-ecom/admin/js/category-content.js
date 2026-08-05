@@ -166,6 +166,24 @@
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
 
+	// Linking-only pass: the text stays, links come in. Still nothing saved.
+	$(document).on('click', '.dze-cc-links', function () {
+		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
+		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.linking));
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet()
+		})
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
+				editorSet(res.data.html);
+				$st.css('color', '#646970').text(res.data.added
+					? sprintf(i18n.linked, res.data.added, res.data.after)
+					: i18n.linkedNone);
+			})
+			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+	});
+
 	$(document).on('click', '.dze-cc-apply', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');

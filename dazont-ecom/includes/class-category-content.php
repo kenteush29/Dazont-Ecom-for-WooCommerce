@@ -45,6 +45,7 @@ final class DZE_Category_Content {
 		// AJAX.
 		add_action( 'wp_ajax_dze_cc_panel', [ $this, 'ajax_panel' ] );
 		add_action( 'wp_ajax_dze_cc_generate', [ $this, 'ajax_generate' ] );
+		add_action( 'wp_ajax_dze_cc_links', [ $this, 'ajax_links' ] );
 		add_action( 'wp_ajax_dze_cc_apply', [ $this, 'ajax_apply' ] );
 		add_action( 'wp_ajax_dze_cc_save_prompt', [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_cc_sitemap_test', [ $this, 'ajax_sitemap_test' ] );
@@ -430,6 +431,91 @@ PROMPT;
 		return wp_kses_post( $html );
 	}
 
+	/** URLs already linked inside a description. */
+	public static function linked_urls( string $html ): array {
+		preg_match_all( '/<a\s[^>]*href=["\']([^"\']+)["\']/i', $html, $m );
+		return array_values( array_unique( $m[1] ?? [] ) );
+	}
+
+	/**
+	 * Internal linking pass on an EXISTING description: the text stays as it
+	 * is, only links are added. The writer is allowed to re-word the few words
+	 * carrying an anchor so it matches the target page — nothing else moves.
+	 *
+	 * @return array{html:string,added:int,before:int,after:int}
+	 */
+	public static function add_links( int $term_id, string $html ): array {
+		$term = get_term( $term_id, 'product_cat' );
+		if ( ! $term || is_wp_error( $term ) ) {
+			throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
+		}
+		if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
+			throw new RuntimeException( __( 'This category has no description to work on yet.', 'dazont-ecom' ) );
+		}
+		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
+		}
+		$max = self::links();
+		if ( $max < 1 ) {
+			throw new RuntimeException( __( 'Internal linking is set to 0 in Settings → Categories.', 'dazont-ecom' ) );
+		}
+		$done  = self::linked_urls( $html );
+		$links = [];
+		foreach ( self::link_pool( $term_id ) as $l ) {
+			if ( ! in_array( $l['url'], $done, true ) ) {
+				$links[] = $l;
+			}
+		}
+		if ( ! $links ) {
+			throw new RuntimeException( __( 'Every page this category can link to is already linked.', 'dazont-ecom' ) );
+		}
+		$room = max( 1, $max - count( $done ) );
+
+		$list = [];
+		foreach ( $links as $l ) {
+			$list[] = $l['label'] . ' [' . $l['kind'] . '] → ' . $l['url'];
+		}
+
+		$user = "--- CATEGORY ---\nName: " . $term->name . "\n"
+			. "\n--- LINK TARGETS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n"
+			. ( $done ? "\nAlready linked in the text, do not link again:\n- " . implode( "\n- ", $done ) . "\n" : '' )
+			. "\n--- DESCRIPTION (HTML, to return with links added) ---\n" . $html . "\n"
+			. "\n--- INSTRUCTIONS ---\n"
+			. "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
+			. '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n"
+			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
+			. "- The anchor must be words already in the sentence, or as close as possible. You may re-word lightly — a handful of words at most, around the anchor — so the anchor names what the target page is about. Keep the sentence's meaning and its style.\n"
+			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
+			. "- Never link twice to the same URL, never link a whole sentence, never link inside a heading.\n"
+			. "\n--- FACTS (never contradict these) ---\n"
+			. 'LANGUAGE: the text is in ' . self::language( $term_id ) . " — keep it in that language.\n"
+			. 'LINK FORMAT: <a href="URL">anchor</a>, using the URLs above verbatim.' . "\n"
+			. 'OUTPUT: the full HTML fragment only — no markdown, no code fence, no comment before or after.';
+
+		$system = 'You are an SEO editor doing internal linking on an existing e-commerce category page. You are conservative: you add links, you do not rewrite copy.';
+		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
+		$out    = DZE_Marketing_Ai::complete( $system, $user, '', $words * 3 + 600, 180 );
+		$out    = trim( preg_replace( '/^```(?:html)?|```$/m', '', $out ) );
+		if ( '' === $out ) {
+			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
+		}
+		$out = wp_kses_post( $out );
+
+		// Safety net: a linking pass that lost a fifth of the text rewrote it.
+		$kept = str_word_count( wp_strip_all_tags( $out ) );
+		if ( $kept < $words * 0.8 ) {
+			throw new RuntimeException( __( 'The text came back shortened instead of just linked — nothing was changed. Try again.', 'dazont-ecom' ) );
+		}
+		$before = count( $done );
+		$after  = count( self::linked_urls( $out ) );
+		return [
+			'html'   => $out,
+			'added'  => max( 0, $after - $before ),
+			'before' => $before,
+			'after'  => $after,
+		];
+	}
+
 	/**
 	 * Connection badge for the sitemap: off / connected / unreachable / empty.
 	 * Pass a state array to describe a one-off read (the Test button).
@@ -529,6 +615,11 @@ PROMPT;
 				<button type="button" class="button button-primary dze-cc-gen">
 					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
 				</button>
+				<?php if ( $has && self::links() > 0 ) : ?>
+					<button type="button" class="button dze-cc-links" title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
+						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
+					</button>
+				<?php endif; ?>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
 				<?php if ( class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) ) ) : ?>
@@ -643,6 +734,10 @@ PROMPT;
 			'kwNonce' => class_exists( 'DZE_Keywords' ) ? DZE_Keywords::nonce() : '',
 			'i18n'    => [
 				'working'     => __( 'Writing — up to a minute…', 'dazont-ecom' ),
+				'linking'     => __( 'Placing the links…', 'dazont-ecom' ),
+				/* translators: 1: links added, 2: links in the text now */
+				'linked'      => __( '%1$s links added (%2$s in total) — check them, then save.', 'dazont-ecom' ),
+				'linkedNone'  => __( 'No spot worth a link was found — the text is unchanged.', 'dazont-ecom' ),
 				'reading'     => __( 'Reading the file…', 'dazont-ecom' ),
 				'importing'   => __( 'Importing…', 'dazont-ecom' ),
 				'imported'    => __( '%1$s added · %2$s updated', 'dazont-ecom' ),
@@ -704,6 +799,33 @@ PROMPT;
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		wp_send_json_success( [ 'html' => $html ] );
+	}
+
+	/** Linking-only pass on the description currently in the editor. */
+	public function ajax_links(): void {
+		$this->guard();
+		$tid  = isset( $_POST['term'] ) ? absint( $_POST['term'] ) : 0;
+		$html = isset( $_POST['html'] ) ? wp_kses_post( wp_unslash( $_POST['html'] ) ) : '';
+		if ( ! $tid ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+		}
+		if ( '' === trim( $html ) ) {
+			// Nothing in the editor: fall back on what the category holds.
+			$term = get_term( $tid, 'product_cat' );
+			$html = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 200 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		try {
+			$res = self::add_links( $tid, $html );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( $res );
 	}
 
 	public function ajax_apply(): void {
