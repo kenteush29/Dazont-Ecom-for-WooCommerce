@@ -168,15 +168,28 @@ final class DZE_Category_Content {
 		if ( '' === $url ) {
 			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
 		}
-		$cached = $force ? false : get_transient( 'dze_cc_sitemap' );
-		// A cache read for another address (SEO plugin swapped) is thrown away.
-		if ( is_array( $cached ) && ( $cached['url'] ?? '' ) === $url ) {
+		$cached = $force ? null : self::sitemap_cached();
+		if ( null !== $cached ) {
 			return $cached;
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
 		set_transient( 'dze_cc_sitemap', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
+	}
+
+	/**
+	 * What the last read found, or null when there is nothing to go on.
+	 *
+	 * Everything that runs while somebody is waiting for a page uses THIS, not
+	 * sitemap_pages(): reading a sitemap is an HTTP call to our own site, and
+	 * one PHP worker blocked on another PHP worker is how a shop starts
+	 * timing out. Only the daily cron and the Test button actually fetch.
+	 */
+	public static function sitemap_cached(): ?array {
+		$cached = get_transient( 'dze_cc_sitemap' );
+		// A cache read for another address (SEO plugin swapped) is thrown away.
+		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
 
 	/**
@@ -190,13 +203,16 @@ final class DZE_Category_Content {
 		if ( '' === trim( $url ) ) {
 			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
 		}
-		$fetch = static function ( string $u ): string {
-			$r = wp_remote_get( $u, [ 'timeout' => 20 ] );
+		// Short timeouts on purpose: this is a loopback call to our own server,
+		// so a slow answer means the site is already busy — waiting on it would
+		// only make things worse.
+		$fetch = static function ( string $u, int $timeout ): string {
+			$r = wp_remote_get( $u, [ 'timeout' => $timeout, 'redirection' => 2 ] );
 			return ( ! is_wp_error( $r ) && 200 === wp_remote_retrieve_response_code( $r ) )
 				? (string) wp_remote_retrieve_body( $r )
 				: '';
 		};
-		$body = $fetch( $url );
+		$body = $fetch( $url, 8 );
 		if ( '' === $body ) {
 			return [ 'urls' => [], 'status' => 'error', 'count' => 0, 'checked' => time() ];
 		}
@@ -217,8 +233,8 @@ final class DZE_Category_Content {
 				return preg_match( '/post|blog|article|news/i', $u ) ? 1 : 2;
 			};
 			usort( $first, static fn( $a, $b ) => $score( $a ) <=> $score( $b ) );
-			foreach ( array_slice( $first, 0, 3 ) as $child ) {
-				$sub = $fetch( $child );
+			foreach ( array_slice( $first, 0, 2 ) as $child ) {
+				$sub = $fetch( $child, 6 );
 				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
 					$locs = array_merge( $locs, $mm[1] );
 				}
@@ -496,7 +512,8 @@ PROMPT;
 
 		// Last layer: anything else the sitemap knows about and WordPress does
 		// not serve here (another site section, a plugin-made landing page).
-		foreach ( self::sitemap_pages()['urls'] as $page ) {
+		// Cache only — nobody waits on an HTTP call to build this list.
+		foreach ( ( self::sitemap_cached()['urls'] ?? [] ) as $page ) {
 			if ( count( $pool ) >= 40 ) {
 				break;
 			}
@@ -680,8 +697,18 @@ PROMPT;
 	 * Pass a state array to describe a one-off read (the Test button).
 	 */
 	public static function sitemap_status_html( ?array $state = null ): string {
-		$s   = $state ?? self::sitemap_pages();
 		$src = null === $state ? self::sitemap_source() : '';
+		if ( null === $state ) {
+			// Never fetch while a page is rendering: show what the last read
+			// found, or say plainly that no read has happened yet.
+			$state = self::sitemap_cached();
+			if ( null === $state ) {
+				return '' === self::sitemap_url()
+					? '<span class="dze-key-badge is-missing">' . esc_html__( 'No sitemap connected — categories only', 'dazont-ecom' ) . '</span>'
+					: '<span class="dze-key-badge is-missing">' . esc_html__( 'Not read yet — press Test, or wait for the daily check', 'dazont-ecom' ) . '</span>';
+			}
+		}
+		$s = $state;
 		if ( 'ok' === $s['status'] ) {
 			$badge = '<span class="dze-key-badge is-set">&#10003; ' . sprintf(
 				/* translators: 1: page count, 2: human time diff */
@@ -717,7 +744,14 @@ PROMPT;
 	}
 
 	public static function cron_sitemap_check(): void {
+		// One read at a time, whatever the cron does: two workers fetching our
+		// own sitemap at once is exactly what we are trying to avoid.
+		if ( get_transient( 'dze_cc_sitemap_lock' ) ) {
+			return;
+		}
+		set_transient( 'dze_cc_sitemap_lock', 1, 5 * MINUTE_IN_SECONDS );
 		self::sitemap_pages( true );
+		delete_transient( 'dze_cc_sitemap_lock' );
 	}
 
 	/** "Not now" on the notice: silenced for that user until a reset. */
@@ -752,9 +786,8 @@ PROMPT;
 		if ( ! $here || self::links() < 1 ) {
 			return;
 		}
-		$url    = self::sitemap_url();
-		$cached = get_transient( 'dze_cc_sitemap' );
-		$state  = ( is_array( $cached ) && ( $cached['url'] ?? '' ) === $url ) ? $cached['status'] : '';
+		$url   = self::sitemap_url();
+		$state = (string) ( self::sitemap_cached()['status'] ?? '' );
 		if ( '' !== $url && ( 'ok' === $state || '' === $state ) ) {
 			return; // Connected, or not read yet — no reason to shout.
 		}
