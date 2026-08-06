@@ -105,13 +105,13 @@ final class DZE_Category_Content {
 			$before           = ! empty( $out['sitemap_products'] );
 			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
 			if ( $before !== (bool) $out['sitemap_products'] ) {
-				delete_transient( 'dze_cc_sitemap_v3' ); // different files to read.
+				delete_transient( 'dze_cc_sitemap_v4' ); // different files to read.
 			}
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v3' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v4' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -260,6 +260,27 @@ final class DZE_Category_Content {
 		return [ 'url' => '', 'source' => '' ];
 	}
 
+	/**
+	 * URL segments that mark a single product, taken from the shop's own
+	 * permalink settings (/product/, /boutique/, whatever it was set to) plus
+	 * the WooCommerce defaults. Used to recognise a product URL in a sitemap
+	 * whatever file it was listed in.
+	 */
+	public static function product_bases(): array {
+		$bases = [ 'product', 'produit' ];
+		if ( function_exists( 'wc_get_permalink_structure' ) ) {
+			$st = wc_get_permalink_structure();
+			foreach ( [ 'product_rewrite_slug', 'product_base' ] as $k ) {
+				$v = trim( (string) ( $st[ $k ] ?? '' ), '/' );
+				// A base like "%product_cat%" is a placeholder, not a segment.
+				if ( '' !== $v && false === strpos( $v, '%' ) ) {
+					$bases[] = $v;
+				}
+			}
+		}
+		return array_values( array_unique( array_map( 'preg_quote', $bases ) ) );
+	}
+
 	/** The sitemap actually used: the saved URL, else the one detected. */
 	public static function sitemap_url(): string {
 		$own = self::sitemap_override();
@@ -289,7 +310,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v3', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v4', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -302,7 +323,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v3' );
+		$cached = get_transient( 'dze_cc_sitemap_v4' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -331,7 +352,8 @@ final class DZE_Category_Content {
 		if ( '' === $body ) {
 			return [ 'urls' => [], 'status' => 'error', 'count' => 0, 'checked' => time() ];
 		}
-		$locs = [];
+		$products = ! empty( self::get_settings()['sitemap_products'] );
+		$locs     = [];
 		preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $body, $m );
 		$first    = $m[1] ?? [];
 		$children = 0;
@@ -346,9 +368,8 @@ final class DZE_Category_Content {
 			// The product sitemaps are the exception, and they are skipped on
 			// purpose: an individual product is never a link target here, the
 			// category page already lists it, and they are also the longest.
-			$queue   = [];
+			$queue    = [];
 			$skiplist = [];
-			$products = ! empty( self::get_settings()['sitemap_products'] );
 			foreach ( $first as $child ) {
 				if ( ! $products && preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) ) {
 					++$skipped;
@@ -389,18 +410,32 @@ final class DZE_Category_Content {
 		} else {
 			$locs = $first;
 		}
+		// Judge every URL on its own address, not on the name of the file it
+		// came from: a sitemap called anything at all can still list products,
+		// and a product URL has no business in a category's link pool.
+		$bases = self::product_bases();
 		$urls  = [];
 		$found = 0;
+		$prod  = 0;
+		$seen  = [];
 		foreach ( $locs as $loc ) {
 			$loc = esc_url_raw( trim( $loc ) );
 			if ( '' === $loc || preg_match( '/\.xml($|\?)/i', $loc ) ) {
 				continue;
 			}
+			$slug = trim( (string) wp_parse_url( $loc, PHP_URL_PATH ), '/' );
+			if ( isset( $seen[ $slug ] ) ) {
+				continue; // the same page in the index twice.
+			}
+			$seen[ $slug ] = true;
 			++$found;
+			if ( ! $products && $bases && preg_match( '#(^|/)(' . implode( '|', $bases ) . ')/#i', '/' . $slug . '/' ) ) {
+				++$prod;
+				continue;
+			}
 			if ( count( $urls ) >= self::SITEMAP_KEEP ) {
 				continue;
 			}
-			$slug   = trim( (string) wp_parse_url( $loc, PHP_URL_PATH ), '/' );
 			$urls[] = [
 				'label' => $slug ? ucwords( str_replace( [ '-', '_', '/' ], ' ', $slug ) ) : $loc,
 				'url'   => $loc,
@@ -416,6 +451,8 @@ final class DZE_Category_Content {
 			'read'     => $read,
 			'skipped'  => $skipped,
 			'index'    => count( $first ),
+			'products' => $prod,
+			'sample'   => array_slice( array_column( $urls, 'url' ), 0, 25 ),
 			'readlist' => $readlist ?? [],
 			'skiplist' => $skiplist ?? [],
 			'checked'  => time(),
@@ -1094,6 +1131,13 @@ PROMPT;
 						/* translators: %s: number of product sitemaps left out */
 						esc_html__( '%s left out because they list products, which are not link targets here', 'dazont-ecom' ),
 						number_format_i18n( $skip )
+					);
+				}
+				if ( ! empty( $s['products'] ) ) {
+					$parts[] = sprintf(
+						/* translators: %s: number of product URLs dropped */
+						esc_html__( '%s product URLs dropped from the files that were read', 'dazont-ecom' ),
+						number_format_i18n( (int) $s['products'] )
 					);
 				}
 				$pending = max( 0, (int) ( $s['children'] ?? 0 ) - $read );
@@ -1826,7 +1870,12 @@ PROMPT;
 									<?php endif; ?>
 									<?php if ( ! empty( $st['skiplist'] ) ) : ?>
 										<strong><?php esc_html_e( 'Left out', 'dazont-ecom' ); ?></strong><br />
-										<?php echo esc_html( implode( ' · ', (array) $st['skiplist'] ) ); ?>
+										<?php echo esc_html( implode( ' · ', (array) $st['skiplist'] ) ); ?><br />
+									<?php endif; ?>
+									<?php if ( ! empty( $st['sample'] ) ) : ?>
+										<strong><?php esc_html_e( 'First URLs kept', 'dazont-ecom' ); ?></strong>
+										<?php esc_html_e( '— check here what these pages actually are.', 'dazont-ecom' ); ?><br />
+										<?php echo esc_html( implode( ' · ', array_map( static fn( $u ) => (string) wp_parse_url( $u, PHP_URL_PATH ), (array) $st['sample'] ) ) ); ?>
 									<?php endif; ?>
 								</p>
 							</details>
