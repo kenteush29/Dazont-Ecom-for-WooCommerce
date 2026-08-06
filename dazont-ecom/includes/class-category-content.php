@@ -539,7 +539,7 @@ PROMPT;
 	 * raw material, not noise: they are the buyer questions. So 'ignored' hides
 	 * a keyword unless it was the matcher calling it informational.
 	 */
-	public static function keyword_pools( int $term_id, string $exclude = '' ): array {
+	public static function keyword_pools( int $term_id, string $exclude = '', bool $with_questions = true ): array {
 		global $wpdb;
 		$out = [ 'titles' => [], 'questions' => [], 'total' => 0 ];
 		if ( ! class_exists( 'DZE_Keywords' ) ) {
@@ -582,7 +582,9 @@ PROMPT;
 			}
 		}
 
-		$out['questions'] = self::question_pool( $term_id, $exclude );
+		if ( $with_questions ) {
+			$out['questions'] = self::question_pool( $term_id, $exclude );
+		}
 		return $out;
 	}
 
@@ -783,7 +785,7 @@ PROMPT;
 		if ( ! $term || is_wp_error( $term ) ) {
 			return [];
 		}
-		$kw    = self::keyword_pools( $term_id, $term->name );
+		$kw    = self::keyword_pools( $term_id, $term->name, false );
 		$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
 		if ( ! $needle ) {
 			return [];
@@ -918,7 +920,7 @@ PROMPT;
 		// about this category come in, best first.
 		$cached = self::sitemap_cached()['urls'] ?? [];
 		if ( $cached ) {
-			$kw     = self::keyword_pools( $term_id, $term->name );
+			$kw     = self::keyword_pools( $term_id, $term->name, false );
 			$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
 			$ranked = [];
 			foreach ( $cached as $page ) {
@@ -1407,7 +1409,7 @@ PROMPT;
 		}
 		$term  = get_term( $term_id, 'product_cat' );
 		$words = ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0;
-		$kw    = self::keyword_pools( $term_id );
+		$kw    = self::keyword_pools( $term_id, '', false );
 		$label = $words
 			? '<span style="color:#0a7040;font-weight:600;">' . (int) $words . ' ' . esc_html__( 'words', 'dazont-ecom' ) . '</span>'
 			: '<span style="color:#b32d2e;font-weight:600;">' . esc_html__( 'empty', 'dazont-ecom' ) . '</span>';
@@ -1777,6 +1779,7 @@ PROMPT;
 				/* translators: %s: HTTP status code */
 				'serverError' => __( 'The server answered with an error (HTTP %s). Look at your host\'s PHP error log for the reason.', 'dazont-ecom' ),
 				'expired'     => __( 'This page has been open too long and the security token expired — reload it.', 'dazont-ecom' ),
+				'tooLong'     => __( 'Given up after five minutes without an answer. The run may still have finished on the server: reopen this panel to see. If it keeps happening, lower the Target length in Settings → Categories.', 'dazont-ecom' ),
 				'applied'     => __( 'Saved ✓', 'dazont-ecom' ),
 				'review'      => __( 'Draft ready — edit it if needed, then save.', 'dazont-ecom' ),
 				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),
@@ -1836,7 +1839,18 @@ PROMPT;
 	 */
 	private static function diff_text( string $html ): string {
 		$html = preg_replace( '#<(/?)(h[1-6]|p|li|div|tr)[^>]*>#i', "\n", $html );
-		$html = str_replace( [ '</a>', '<br />', '<br>' ], [ '</a>', "\n", "\n" ], $html );
+		$html = str_replace( [ '<br />', '<br>' ], [ "\n", "\n" ], $html );
+		// Links are written out rather than stripped: a linking-only pass changes
+		// almost no words, so a comparison blind to <a> would report "nothing
+		// changed" on the very run whose whole point is the links.
+		$html = preg_replace_callback(
+			'#<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>#is',
+			static function ( $m ) {
+				$path = (string) wp_parse_url( $m[1], PHP_URL_PATH );
+				return trim( wp_strip_all_tags( $m[2] ) ) . ' [→ ' . ( '' !== $path ? $path : $m[1] ) . ']';
+			},
+			(string) $html
+		);
 		$text = wp_strip_all_tags( (string) $html );
 		$text = preg_replace( "/[ \t]+/", ' ', $text );
 		$text = preg_replace( "/\n{2,}/", "\n", $text );

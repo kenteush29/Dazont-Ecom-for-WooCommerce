@@ -51,9 +51,23 @@
 	}
 
 
+
+	// A long run must show it is alive and must always end: without a timeout a
+	// dropped connection leaves the spinner turning for ever.
+	var LONG = 300000;
+	function ticker($st, label) {
+		var t0 = Date.now();
+		var id = window.setInterval(function () {
+			var sec = Math.round((Date.now() - t0) / 1000);
+			$st.html('<span class="dze-cx-spin"></span> ' + esc(label) + ' ' + sec + 's');
+		}, 1000);
+		return function () { window.clearInterval(id); };
+	}
+
 	// A dead request is not "something went wrong": say what the server did, so
 	// a timeout on a long generation is not confused with a broken plugin.
-	function why(xhr) {
+	function why(xhr, status) {
+		if (status === 'timeout') { return i18n.tooLong; }
 		if (!xhr || !xhr.status) { return i18n.noAnswer; }
 		if (xhr.status === 504 || xhr.status === 408 || xhr.status === 502) { return sprintf(i18n.timedOut, xhr.status); }
 		if (xhr.status === 403) { return i18n.expired; }
@@ -246,19 +260,21 @@
 				// Popup: reopen it so the query pools are listed.
 				$('.dze-cc-open[data-id="' + $box.data('term') + '"]').trigger('click');
 			})
-			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
+			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
 	});
 
 	// Nothing is written to the category before Apply.
 	$(document).on('click', '.dze-cc-gen', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.working));
+		var stop = ticker($st, i18n.working);
 		var $p = $box.find('.dze-cc-pwrap');
-		$.post(cfg.ajaxUrl, {
+		$.ajax({ url: cfg.ajaxUrl, method: 'POST', timeout: LONG, data: {
 			action: 'dze_cc_generate', nonce: $box.data('nonce'), term: $box.data('term'),
 			prompt: $p.is(':visible') ? ($box.find('.dze-cc-ptext').val() || '') : ''
-		})
+		} })
 			.done(function (res) {
+				stop();
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				$st.css('color', '#646970').text(i18n.review);
@@ -266,7 +282,7 @@
 				refreshLinks($box);
 				showDiff($box);
 			})
-			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
+			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
 	});
 
 	// ---- Choosing the links before they are placed ----
@@ -334,12 +350,14 @@
 	$(document).on('click', '.dze-cc-links', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.linking));
+		var stop = ticker($st, i18n.linking);
 		var urls = $box.find('.dze-cc-pick:checked:not(:disabled)').map(function () { return this.value; }).get();
-		$.post(cfg.ajaxUrl, {
+		$.ajax({ url: cfg.ajaxUrl, method: 'POST', timeout: LONG, data: {
 			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'),
 			html: editorGet(edId($box)), urls: urls
-		})
+		} })
 			.done(function (res) {
+				stop();
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				editorSet(edId($box), res.data.html);
@@ -350,7 +368,7 @@
 					? sprintf(i18n.linked, res.data.added, res.data.after)
 					: i18n.linkedNone);
 			})
-			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
+			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
 	});
 
 	$(document).on('click', '.dze-cc-apply', function () {
@@ -369,7 +387,7 @@
 					$meta.text(res.data.links + ' links');
 				}
 			})
-			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
+			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
 	});
 
 	$(document).on('click', '.dze-cc-revert', function () {
