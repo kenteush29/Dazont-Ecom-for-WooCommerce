@@ -87,7 +87,7 @@ final class DZE_Category_Content {
 		// Empty (0) means "work it out from the category" — see size_for().
 		if ( isset( $in['words'] ) ) {
 			$v            = (int) $in['words'];
-			$out['words'] = $v > 0 ? max( 120, min( 1200, $v ) ) : 0;
+			$out['words'] = $v > 0 ? max( 120, min( 2500, $v ) ) : 0;
 		}
 		if ( isset( $in['links'] ) ) {
 			$v            = (int) $in['links'];
@@ -118,27 +118,63 @@ final class DZE_Category_Content {
 	 *
 	 * @return array{words:int,links:int,products:int,subs:int,auto_words:bool,auto_links:bool}
 	 */
+	/**
+	 * Products behind a category — the ones in it AND in every sub-category
+	 * below it, at any depth. $term->count only holds what is attached to the
+	 * term itself, which reads 0 on a parent whose products all live one level
+	 * down. Cached six hours: it moves with the catalogue, not with the page.
+	 */
+	public static function products_behind( int $term_id ): int {
+		$key    = 'dze_cc_pcount_' . $term_id;
+		$cached = get_transient( $key );
+		if ( false !== $cached ) {
+			return (int) $cached;
+		}
+		$q = new WP_Query( [
+			'post_type'              => 'product',
+			'post_status'            => 'publish',
+			'fields'                 => 'ids',
+			'posts_per_page'         => 1,
+			'update_post_meta_cache' => false,
+			'update_post_term_cache' => false,
+			'tax_query'              => [ // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+				[
+					'taxonomy'         => 'product_cat',
+					'field'            => 'term_id',
+					'terms'            => $term_id,
+					'include_children' => true, // the whole branch, however deep.
+				],
+			],
+		] );
+		$n = (int) $q->found_posts;
+		set_transient( $key, $n, 6 * HOUR_IN_SECONDS );
+		return $n;
+	}
+
 	public static function size_for( int $term_id ): array {
 		$s        = self::get_settings();
-		$term     = $term_id ? get_term( $term_id, 'product_cat' ) : null;
-		$products = ( $term && ! is_wp_error( $term ) ) ? (int) $term->count : 0;
+		$products = $term_id ? self::products_behind( $term_id ) : 0;
+		// Direct children are the link targets; the whole branch drives length.
 		$subs     = $term_id ? (int) count( get_terms( [
 			'taxonomy'   => 'product_cat',
 			'parent'     => $term_id,
-			'hide_empty' => true,
+			'hide_empty' => false,
 			'fields'     => 'ids',
-			'number'     => 30,
 		] ) ) : 0;
+		$branch = $term_id ? (int) count( get_term_children( $term_id, 'product_cat' ) ) : 0;
 
 		// Depth of catalogue behind the page, flattened: going from 10 to 100
-		// products says a lot, going from 400 to 500 says little.
-		$depth = (int) round( sqrt( max( 0, $products ) ) * 14 );
-		$words = 220 + min( 300, $depth ) + 24 * min( 10, $subs );
-		$words = max( 220, min( 900, (int) ( round( $words / 10 ) * 10 ) ) );
+		// products says a lot, going from 900 to 1000 says little. A page with
+		// a whole branch under it is a guide, not a paragraph — tokens are
+		// cheap, a thin page on a big branch is what actually costs us.
+		$depth = (int) round( sqrt( max( 0, $products ) ) * 45 );
+		$words = 450 + min( 1200, $depth ) + 60 * min( 12, $branch );
+		$words = max( 600, min( 2500, (int) ( round( $words / 50 ) * 50 ) ) );
 
-		// One link per ~80 words, and every sub-category deserves one.
-		$links = max( 3, min( 12, (int) round( $words / 80 ) ) );
-		$links = max( $links, min( 12, $subs ) );
+		// One link per ~150 words, and never fewer than there are sub-categories
+		// to point at.
+		$links = max( 3, min( 14, (int) round( $words / 150 ) ) );
+		$links = max( $links, min( 14, max( $subs, $branch ) ) );
 
 		$set_w = (int) ( $s['words'] ?? 0 );
 		$set_l = (int) ( $s['links'] ?? 0 );
@@ -151,6 +187,7 @@ final class DZE_Category_Content {
 			'links'      => ! empty( $s['links_off'] ) ? 0 : ( $set_l > 0 ? $set_l : $links ),
 			'products'   => $products,
 			'subs'       => $subs,
+			'branch'     => $branch,
 			'auto_words' => $set_w < 1,
 			'auto_links' => empty( $s['links_off'] ) && $set_l < 1,
 		];
@@ -344,10 +381,10 @@ You write the description of a product category for an online shop. Think of a s
 
 STRUCTURE
 - Open with 2 or 3 sentences: what this category covers, who it is for, what matters most when choosing.
-- Then 3 to 5 <h2> headings, built FROM THE SUPPLIED QUERIES AND QUESTIONS, reusing their wording as naturally as possible:
+- Then the <h2> headings asked for below, built FROM THE SUPPLIED QUERIES AND QUESTIONS, reusing their wording as naturally as possible:
   · secondary queries (same search intent, different wording) become topic headings;
   · buyer questions become question headings, each answered concretely below.
-- Under each heading: 2 to 4 sentences. Practical advice — materials, sizing, use cases, what to check, what to avoid. No fluff, no repetition of the intro.
+- Under each heading: enough to actually answer it — 2 to 3 sentences on a short page, a full paragraph or a short list on a long one. Practical advice: materials, sizing, use cases, what to check, what to avoid. No fluff, no repetition of the intro, no sentence that says nothing.
 
 RULES
 - Put the category's key phrasings in <strong>: its main query and the secondary queries you reused, the first time each appears. A handful in total, at most one per paragraph — bold what a buyer scans for, never whole sentences.
@@ -557,9 +594,18 @@ PROMPT;
 				$add( $parent->name, (string) get_term_link( $parent ), 'parent category' );
 			}
 		}
-		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => $term_id, 'hide_empty' => true, 'number' => 12 ] ) as $child ) {
+		// Direct children first, then the level below them: a hub is expected to
+		// point at its whole branch, not only at its immediate children.
+		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => $term_id, 'hide_empty' => true, 'number' => 20 ] ) as $child ) {
 			if ( ! is_wp_error( $child ) ) {
 				$add( $child->name, (string) get_term_link( $child ), 'sub-category' );
+			}
+		}
+		if ( count( $pool ) < 20 ) {
+			foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'child_of' => $term_id, 'hide_empty' => true, 'number' => 24 ] ) as $deep ) {
+				if ( ! is_wp_error( $deep ) ) {
+					$add( $deep->name, (string) get_term_link( $deep ), 'sub-category' );
+				}
 			}
 		}
 		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => (int) $term->parent, 'hide_empty' => true, 'number' => 12, 'exclude' => [ $term_id ] ] ) as $sib ) {
@@ -684,11 +730,13 @@ PROMPT;
 		$user .= "\n--- INSTRUCTIONS ---\n" . ( '' !== $prompt_override ? $prompt_override : self::prompt() );
 		$user .= "\n\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: write in ' . self::language( $term_id ) . ". This overrides the language of the instructions above.\n"
-			. 'LENGTH: about ' . $size['words'] . " words in total.\n"
+			. 'LENGTH: about ' . $size['words'] . ' words in total, spread over about ' . max( 3, min( 10, (int) round( $size['words'] / 220 ) ) ) . " <h2> sections. Depth is expected: this page sits on a whole branch of the catalogue, so treat it as a buying guide, not a paragraph. Never pad — if a section has nothing concrete to say, cut it and give the room to one that does.\n"
 			. "OUTPUT: the HTML fragment only — no markdown, no code fence, no comment before or after.";
 
 		$system = 'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' );
-		$html   = DZE_Marketing_Ai::complete( $system, $user, '', (int) ( $size['words'] * 3 ) + 600, 180 );
+		// ~1.4 tokens per word, doubled so a long guide is never cut mid-sentence.
+		$budget = min( 16000, (int) ( $size['words'] * 3 ) + 900 );
+		$html   = DZE_Marketing_Ai::complete( $system, $user, '', $budget, 240 );
 		$html   = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
 		if ( '' === $html ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
@@ -779,7 +827,7 @@ PROMPT;
 
 		$system = 'You are an SEO editor doing internal linking on an existing e-commerce category page. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
-		$out    = DZE_Marketing_Ai::complete( $system, $user, '', $words * 3 + 600, 180 );
+		$out    = DZE_Marketing_Ai::complete( $system, $user, '', min( 16000, $words * 3 + 900 ), 240 );
 		$out    = trim( preg_replace( '/^```(?:html)?|```$/m', '', $out ) );
 		if ( '' === $out ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
@@ -1016,12 +1064,13 @@ PROMPT;
 				<br />
 				<?php
 				printf(
-					/* translators: 1: target word count, 2: target link count, 3: products, 4: sub-categories */
-					esc_html__( 'Target for this category: %1$s words and %2$s links (%3$s products, %4$s sub-categories).', 'dazont-ecom' ),
+					/* translators: 1: target word count, 2: target link count, 3: products in the whole branch, 4: direct sub-categories, 5: sub-categories at any depth */
+					esc_html__( 'Target for this category: %1$s words and %2$s links — %3$s products behind it, %4$s sub-categories (%5$s counting every level).', 'dazont-ecom' ),
 					'<strong>' . (int) $size['words'] . '</strong>' . ( $size['auto_words'] ? '' : '*' ),
 					'<strong>' . (int) $size['links'] . '</strong>' . ( $size['auto_links'] ? '' : '*' ),
-					(int) $size['products'],
-					(int) $size['subs']
+					'<strong>' . (int) $size['products'] . '</strong>',
+					(int) $size['subs'],
+					(int) $size['branch']
 				);
 				if ( ! $size['auto_words'] || ! $size['auto_links'] ) {
 					echo ' <span class="description">' . esc_html__( '* fixed in the settings, not worked out from the category.', 'dazont-ecom' ) . '</span>';
@@ -1305,7 +1354,7 @@ PROMPT;
 		}
 		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 200 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 		try {
 			$html = self::generate( $tid, $override );
@@ -1332,7 +1381,7 @@ PROMPT;
 			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
 		}
 		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 200 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 		$only = isset( $_POST['urls'] ) && is_array( $_POST['urls'] )
 			? array_map( 'esc_url_raw', array_map( 'wp_unslash', $_POST['urls'] ) )
@@ -1421,8 +1470,8 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-cc-words"><?php esc_html_e( 'Target length', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<input type="number" id="dze-cc-words" name="<?php echo esc_attr( self::OPT ); ?>[words]" class="small-text" min="0" max="1200" step="10" value="<?php echo (int) ( $s['words'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" /> <?php esc_html_e( 'words', 'dazont-ecom' ); ?>
-						<p class="description"><?php esc_html_e( 'Leave empty and each category gets a length of its own, from 220 to 900 words, worked out from how many products and sub-categories sit behind it. Fill it in to force the same length everywhere.', 'dazont-ecom' ); ?></p>
+						<input type="number" id="dze-cc-words" name="<?php echo esc_attr( self::OPT ); ?>[words]" class="small-text" min="0" max="2500" step="50" value="<?php echo (int) ( $s['words'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" /> <?php esc_html_e( 'words', 'dazont-ecom' ); ?>
+						<p class="description"><?php esc_html_e( 'Leave empty and each category gets a length of its own, from 600 to 2500 words, worked out from the products in its whole branch — sub-categories of sub-categories included — and from how many sub-categories it has. A category page sitting on a large branch is a buying guide, not a paragraph. Fill it in to force the same length everywhere.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
@@ -1430,7 +1479,7 @@ PROMPT;
 					<td>
 						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="14" value="<?php echo (int) ( $s['links'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" />
 						<label style="margin-left:12px;"><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[links_off]" value="1" <?php checked( ! empty( $s['links_off'] ) ); ?> /> <?php esc_html_e( 'No internal linking at all', 'dazont-ecom' ); ?></label>
-						<p class="description"><?php esc_html_e( 'Empty means one link per ~80 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Empty means one link per ~150 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
