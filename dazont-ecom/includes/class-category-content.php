@@ -105,13 +105,13 @@ final class DZE_Category_Content {
 			$before           = ! empty( $out['sitemap_products'] );
 			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
 			if ( $before !== (bool) $out['sitemap_products'] ) {
-				delete_transient( 'dze_cc_sitemap_v7' ); // different files to read.
+				delete_transient( 'dze_cc_sitemap_v8' ); // different files to read.
 			}
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v7' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v8' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -310,7 +310,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v7', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v8', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -323,7 +323,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v7' );
+		$cached = get_transient( 'dze_cc_sitemap_v8' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -425,9 +425,11 @@ final class DZE_Category_Content {
 		// and a product URL has no business in a category's link pool.
 		$bases = self::product_bases();
 		$urls  = [];
-		$found = 0;
-		$prod  = 0;
-		$arch  = 0;
+		$found   = 0;
+		$prod    = 0;
+		$arch    = 0;
+		$other   = 0;
+		$deflang = self::default_lang();
 		$seen  = [];
 		foreach ( $locs as $loc ) {
 			$loc = esc_url_raw( trim( $loc ) );
@@ -451,6 +453,14 @@ final class DZE_Category_Content {
 				++$arch;
 				continue;
 			}
+			// Only the main language is worked on: WPML lists the whole site once
+			// per language, and the translations are WPML's job, not ours. They
+			// are dropped here rather than filtered later, so the cache stays the
+			// size of the site instead of the size of the site times nine.
+			if ( '' !== $deflang && self::url_language( $loc ) !== $deflang ) {
+				++$other;
+				continue;
+			}
 			if ( count( $urls ) >= self::SITEMAP_KEEP ) {
 				continue;
 			}
@@ -460,15 +470,8 @@ final class DZE_Category_Content {
 				'kind'  => 'page',
 			];
 		}
-		$langs = [];
-		if ( count( self::language_bases() ) > 1 ) {
-			foreach ( $urls as $u ) {
-				$langs[ self::url_language( $u['url'] ) ] = true;
-			}
-		}
 		return [
 			'urls'     => $urls,
-			'langs'    => count( $langs ),
 			'status'   => $urls ? 'ok' : 'empty',
 			'count'    => count( $urls ),
 			'found'    => $found,
@@ -479,6 +482,7 @@ final class DZE_Category_Content {
 			'indexlist' => $indexlist ?? [],
 			'products' => $prod,
 			'archives' => $arch,
+			'other'    => $other,
 			'sample'   => array_slice( array_column( $urls, 'url' ), 0, 25 ),
 			'readlist' => $readlist ?? [],
 			'skiplist' => $skiplist ?? [],
@@ -795,9 +799,8 @@ PROMPT;
 			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'terms' ) : 0,
 		] );
 
-		// Same reason: the blog posts offered must be the ones written in the
-		// language of the category being described.
-		$lang = self::lang_code( $term_id );
+		// Same reason: the posts and pages offered are the main-language ones.
+		$lang = self::default_lang();
 		if ( '' !== $lang ) {
 			do_action( 'wpml_switch_language', $lang );
 		}
@@ -852,9 +855,9 @@ PROMPT;
 		if ( ! $term || is_wp_error( $term ) ) {
 			return $pool;
 		}
-		// Every candidate below has to come back in the category's own
-		// language, so the whole read runs switched to it.
-		$plang = self::lang_code( $term_id );
+		// Everything below is read in the site's main language: that is the one
+		// the shop is written in, and the translations belong to WPML.
+		$plang = self::default_lang();
 		if ( '' !== $plang ) {
 			do_action( 'wpml_switch_language', $plang );
 		}
@@ -917,15 +920,8 @@ PROMPT;
 		if ( $cached ) {
 			$kw     = self::keyword_pools( $term_id, $term->name );
 			$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
-			// WPML in sub-directory mode lists the whole site once per language:
-			// a French category must not be offered the German copy of a page.
-			$lang   = self::lang_code( $term_id );
-			$multi  = count( self::language_bases() ) > 1;
 			$ranked = [];
 			foreach ( $cached as $page ) {
-				if ( $multi && '' !== $lang && self::url_language( $page['url'] ) !== $lang ) {
-					continue;
-				}
 				$hits = $needle ? count( array_intersect( $needle, self::tokens( $page['url'] ) ) ) : 0;
 				if ( $hits > 0 ) {
 					$page['score'] = $hits;
@@ -944,6 +940,11 @@ PROMPT;
 			do_action( 'wpml_switch_language', null );
 		}
 		return array_values( $pool );
+	}
+
+	/** The site's main language (WPML default), '' when not multilingual. */
+	public static function default_lang(): string {
+		return (string) apply_filters( 'wpml_default_language', '' );
 	}
 
 	/** WPML language code of a category, else the site's default. */
@@ -1009,9 +1010,12 @@ PROMPT;
 		return (string) ( array_key_first( array_slice( $bases, -1, 1, true ) ) ?? '' );
 	}
 
-	/** Language of the category (WPML), else the site language. */
+	/**
+	 * The language descriptions are written in: the site's main one, always.
+	 * A translated category is WPML's business, not the writer's.
+	 */
 	private static function language( int $term_id ): string {
-		$code = self::lang_code( $term_id );
+		$code = self::default_lang();
 		if ( '' === $code ) {
 			$code = (string) get_locale();
 		}
@@ -1281,11 +1285,11 @@ PROMPT;
 					esc_html__( '%s URLs available for linking', 'dazont-ecom' ),
 					number_format_i18n( $found )
 				);
-			if ( ! empty( $s['langs'] ) && (int) $s['langs'] > 1 ) {
+			if ( ! empty( $s['other'] ) ) {
 				$parts[] = sprintf(
-					/* translators: %s: number of languages */
-					esc_html__( 'spread over %s languages — each category is only offered its own', 'dazont-ecom' ),
-					number_format_i18n( (int) $s['langs'] )
+					/* translators: %s: number of translated URLs dropped */
+					esc_html__( '%s URLs in other languages dropped — only the main language is worked on', 'dazont-ecom' ),
+					number_format_i18n( (int) $s['other'] )
 				);
 			}
 			$parts[] = sprintf(
@@ -1501,6 +1505,29 @@ PROMPT;
 				</p>
 				<div class="dze-cc-diff"></div>
 			</div>
+
+			<?php
+			// A translation is not where a description is written: the original
+			// is, and WPML carries it over.
+			$deflang = self::default_lang();
+			$mylang  = self::lang_code( $term_id );
+			if ( '' !== $deflang && '' !== $mylang && $mylang !== $deflang ) :
+				$origin = (int) apply_filters( 'wpml_object_id', $term_id, 'product_cat', false, $deflang );
+				?>
+				<div class="dze-cc-warn">
+					<p><strong><?php
+					printf(
+						/* translators: %s: language code of the category */
+						esc_html__( 'This is the %s translation of a category.', 'dazont-ecom' ),
+						esc_html( strtoupper( $mylang ) )
+					);
+					?></strong></p>
+					<p><?php esc_html_e( 'Descriptions are written on the main-language category and carried over by WPML, so the queries, the links and the text all stay in one language. Writing here would leave this translation on its own.', 'dazont-ecom' ); ?></p>
+					<?php if ( $origin && $origin !== $term_id ) : ?>
+						<p><a class="button button-small" href="<?php echo esc_url( (string) get_edit_term_link( $origin, 'product_cat' ) ); ?>"><?php esc_html_e( 'Open the main-language category', 'dazont-ecom' ); ?></a></p>
+					<?php endif; ?>
+				</div>
+			<?php endif; ?>
 
 			<?php if ( ! $kw['total'] ) : ?>
 				<div class="dze-cc-warn">
