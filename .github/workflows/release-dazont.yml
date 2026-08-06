@@ -1,10 +1,13 @@
 name: Build & publish Dazont Ecom
 
-# Triggered by tags like dazont-v1.0.0
+# Triggered by tags like dazont-v1.0.0, or manually (workflow_dispatch) — in
+# which case the version is read from the plugin header and the tag is created
+# by the release step at the dispatched commit.
 on:
   push:
     tags:
       - 'dazont-v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,15 +19,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify plugin version matches tag
+      - name: Determine plugin version
+        id: ver
         run: |
-          TAG_VER="$(echo "${GITHUB_REF_NAME}" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')"
           PLUGIN_VER="$(grep -m1 -oP 'Version:\s*\K[0-9.]+' dazont-ecom/dazont-ecom.php)"
-          echo "Tag version:   $TAG_VER"
-          echo "Plugin header: $PLUGIN_VER"
-          if [ "$TAG_VER" != "$PLUGIN_VER" ]; then
-            echo "::error::Tag ($TAG_VER) does not match plugin header version ($PLUGIN_VER). Bump the header first."
-            exit 1
+          echo "version=$PLUGIN_VER" >> "$GITHUB_OUTPUT"
+          echo "Plugin header version: $PLUGIN_VER"
+          # For tag-triggered runs, make sure the tag matches the header.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG_VER="$(echo "${GITHUB_REF_NAME}" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')"
+            if [ "$TAG_VER" != "$PLUGIN_VER" ]; then
+              echo "::error::Tag ($TAG_VER) does not match plugin header version ($PLUGIN_VER). Bump the header first."
+              exit 1
+            fi
           fi
 
       - name: Build plugin ZIP
@@ -35,5 +42,7 @@ jobs:
       - name: Publish GitHub release with the ZIP asset
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: dazont-v${{ steps.ver.outputs.version }}
+          name: Dazont Ecom ${{ steps.ver.outputs.version }}
           files: dazont-ecom.zip
           generate_release_notes: true
