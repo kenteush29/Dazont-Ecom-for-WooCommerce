@@ -27,18 +27,26 @@
 			$b.append('<tr><td colspan="4">' + esc('Nothing in the queue.') + '</td></tr>');
 		}
 		rows.forEach(function (r) {
-			var act = '';
+			// Every row can be acted on: a run that went wrong is retried or
+			// dropped from here, never left with a spinner and no way out.
+			var act = [];
 			if (r.status === 'review') {
-				act = '<button type="button" class="button button-small dze-q-open" data-id="' + r.id + '">Review</button>';
-			} else if (r.status === 'failed') {
-				act = '<span class="description">' + esc(r.error || '') + '</span>';
-			} else if (r.status === 'running') {
-				act = '<span class="dze-cx-spin"></span>';
+				act.push('<button type="button" class="button button-small dze-q-open" data-id="' + r.id + '">' + esc(i18n.review) + '</button>');
 			}
+			if (r.status === 'running') {
+				act.push('<span class="dze-cx-spin"></span>');
+			}
+			if (r.status !== 'review') {
+				act.push('<button type="button" class="button button-small dze-q-retry" data-id="' + r.id + '">' + esc(i18n.retry) + '</button>');
+			}
+			act.push('<button type="button" class="button-link dze-q-remove" data-id="' + r.id + '" style="color:#b32d2e;">' + esc(i18n.remove) + '</button>');
+			var state = esc(LABELS[r.status] || r.status);
+			if (r.status === 'running' && r.progress) { state += ' <span class="description">' + esc(r.progress) + '</span>'; }
+			if (r.status === 'failed' && r.error) { state += '<br /><span class="description">' + esc(r.error) + '</span>'; }
 			$b.append(
 				'<tr><td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.kind) + '</td>' +
-				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + esc(LABELS[r.status] || r.status) + '</td>' +
-				'<td>' + act + '</td></tr>'
+				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + state + '</td>' +
+				'<td>' + act.join(' ') + '</td></tr>'
 			);
 		});
 		$('#dze-q-counts').text(
@@ -49,9 +57,21 @@
 		if (timer && !(c.queued || c.running)) { stopWatch(); }
 	}
 
+	var busy = false;
 	function refresh() {
 		return $.post(cfg.ajaxUrl, { action: 'dze_q_status', nonce: cfg.nonce })
-			.done(function (res) { if (res && res.success) { draw(res.data); } });
+			.done(function (res) {
+				if (!res || !res.success) { return; }
+				draw(res.data);
+				// While this page is open it is the engine: one step per tick,
+				// never two at once, so nothing waits on cron.
+				var c = res.data.counts || {};
+				if (timer && !busy && (c.queued || c.running)) {
+					busy = true;
+					$.post(cfg.ajaxUrl, { action: 'dze_q_run', nonce: cfg.nonce })
+						.always(function () { busy = false; refresh(); });
+				}
+			});
 	}
 
 	function startWatch() {
@@ -75,6 +95,16 @@
 			$.post(cfg.ajaxUrl, { action: 'dze_q_run', nonce: cfg.nonce })
 				.always(function () { $b.prop('disabled', false); refresh(); });
 			startWatch();
+		});
+		$(document).on('click', '.dze-q-retry', function () {
+			var $b = $(this).prop('disabled', true);
+			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'retry' })
+				.always(function () { $b.prop('disabled', false); startWatch(); });
+		});
+		$(document).on('click', '.dze-q-remove', function () {
+			var $b = $(this).prop('disabled', true);
+			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'remove' })
+				.always(function () { $b.prop('disabled', false); refresh(); });
 		});
 		$('#dze-q-clear').on('click', function () {
 			if (!window.confirm(i18n.confirm)) { return; }

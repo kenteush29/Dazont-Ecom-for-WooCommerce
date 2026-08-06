@@ -63,6 +63,7 @@ final class DZE_Queue {
 		add_action( 'wp_ajax_dze_q_clear', [ $this, 'ajax_clear' ] );
 		add_action( 'wp_ajax_dze_q_add', [ $this, 'ajax_add' ] );
 		add_action( 'wp_ajax_dze_q_job', [ $this, 'ajax_job' ] );
+		add_action( 'wp_ajax_dze_q_action', [ $this, 'ajax_job_action' ] );
 	}
 
 	public static function table(): string {
@@ -349,7 +350,7 @@ final class DZE_Queue {
 		$table = self::table();
 		return (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT id, kind, object_id, status, error, updated FROM {$table}
+			"SELECT id, kind, object_id, status, error, payload, updated FROM {$table}
 			 ORDER BY FIELD(status,'running','queued','review','failed','applied','skipped'), id ASC LIMIT %d",
 			$limit
 		), ARRAY_A );
@@ -358,7 +359,9 @@ final class DZE_Queue {
 	public static function label_for( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
 			$t = get_term( $object_id, 'product_cat' );
-			return ( $t && ! is_wp_error( $t ) ) ? $t->name : sprintf( '#%d', $object_id );
+			// Decoded here, escaped once by the screen: otherwise "Bags &
+			// backpacks" comes out as "Bags &amp;amp; backpacks".
+			return ( $t && ! is_wp_error( $t ) ) ? html_entity_decode( $t->name, ENT_QUOTES, 'UTF-8' ) : sprintf( '#%d', $object_id );
 		}
 		return sprintf( '#%d', $object_id );
 	}
@@ -391,6 +394,9 @@ final class DZE_Queue {
 			'nonce'   => wp_create_nonce( self::NONCE ),
 			'i18n'    => [
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
+				'review'   => __( 'Review', 'dazont-ecom' ),
+				'retry'    => __( 'Retry', 'dazont-ecom' ),
+				'remove'   => __( 'Remove', 'dazont-ecom' ),
 				'confirm'  => __( 'Remove every finished and failed job from this list?', 'dazont-ecom' ),
 				'applying' => __( 'Saving…', 'dazont-ecom' ),
 				'applied'  => __( 'Saved ✓', 'dazont-ecom' ),
@@ -440,17 +446,59 @@ final class DZE_Queue {
 
 	public function ajax_status(): void {
 		$this->guard();
+		self::recover(); // a run the server killed must not sit here for ever.
 		$rows = [];
 		foreach ( self::rows() as $r ) {
+			$p     = $r['payload'] ?? '';
+			$p     = $p ? (array) json_decode( (string) $p, true ) : [];
+			$total = isset( $p['plan']['sections'] ) ? count( (array) $p['plan']['sections'] ) : 0;
+			$step  = (int) ( $p['step'] ?? -1 );
 			$rows[] = [
-				'id'     => (int) $r['id'],
-				'label'  => self::label_for( (string) $r['kind'], (int) $r['object_id'] ),
-				'kind'   => (string) ( self::kinds()[ $r['kind'] ]['label'] ?? $r['kind'] ),
-				'status' => (string) $r['status'],
-				'error'  => (string) ( $r['error'] ?? '' ),
+				'id'       => (int) $r['id'],
+				'label'    => self::label_for( (string) $r['kind'], (int) $r['object_id'] ),
+				'kind'     => (string) ( self::kinds()[ $r['kind'] ]['label'] ?? $r['kind'] ),
+				'status'   => (string) $r['status'],
+				'error'    => (string) ( $r['error'] ?? '' ),
+				'progress' => $total ? sprintf(
+					/* translators: 1: section written, 2: sections in total */
+					__( 'section %1$s of %2$s', 'dazont-ecom' ),
+					number_format_i18n( max( 0, min( $total, $step + 1 ) ) ),
+					number_format_i18n( $total )
+				) : '',
 			];
 		}
 		wp_send_json_success( [ 'rows' => $rows, 'counts' => self::counts() ] );
+	}
+
+	/** Put a job back in the queue, or drop it, from the screen. */
+	public function ajax_job_action(): void {
+		$this->guard();
+		global $wpdb;
+		$id  = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
+		if ( ! $id ) {
+			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
+		}
+		if ( 'remove' === $do ) {
+			$wpdb->delete( self::table(), [ 'id' => $id ] );
+			delete_transient( self::LOCK );
+			wp_send_json_success( [ 'removed' => 1 ] );
+		}
+		if ( 'retry' === $do ) {
+			// Start this one over: the plan and the sections already written are
+			// dropped, so a run that went wrong does not poison the next one.
+			$wpdb->update( self::table(), [
+				'status'  => 'queued',
+				'result'  => null,
+				'error'   => null,
+				'payload' => null,
+				'updated' => current_time( 'mysql' ),
+			], [ 'id' => $id ] );
+			delete_transient( self::LOCK );
+			self::kick();
+			wp_send_json_success( [ 'requeued' => 1 ] );
+		}
+		wp_send_json_error( [ 'message' => __( 'Unknown action.', 'dazont-ecom' ) ] );
 	}
 
 	/** Kicks the worker. Returns at once: the work does not happen here. */
