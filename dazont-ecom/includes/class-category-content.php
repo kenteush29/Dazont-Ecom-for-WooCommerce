@@ -58,6 +58,7 @@ final class DZE_Category_Content {
 		add_action( 'wp_ajax_dze_cc_panel', [ $this, 'ajax_panel' ] );
 		add_action( 'wp_ajax_dze_cc_generate', [ $this, 'ajax_generate' ] );
 		add_action( 'wp_ajax_dze_cc_links', [ $this, 'ajax_links' ] );
+		add_action( 'wp_ajax_dze_cc_diff', [ $this, 'ajax_diff' ] );
 		add_action( 'wp_ajax_dze_cc_apply', [ $this, 'ajax_apply' ] );
 		add_action( 'wp_ajax_dze_cc_save_prompt', [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_cc_sitemap_test', [ $this, 'ajax_sitemap_test' ] );
@@ -723,7 +724,11 @@ PROMPT;
 			}
 			$user .= "\n--- INTERNAL LINKS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n";
 			$user .= 'Insert ' . max( 1, $size['links'] - 2 ) . ' to ' . $size['links'] . " of them, the sub-categories first.\n";
-			$user .= "ANCHOR RULE, no exception: the anchor text is the NAME of the page you link to, exactly as it is written in the list above. Build the sentence so that name appears in it naturally, then link the name itself. Never anchor on \"here\", \"this page\", \"see more\" or on wording that does not name the target.\n";
+			$user .= "ANCHOR RULE. The anchor must NAME the page it points to — a reader who sees only the anchor knows where it goes. Get as close to the target's own name as the sentence allows, then stop:\n"
+				. "- A category: use its name as it stands. \"Jute rugs\" links to Jute rugs.\n"
+				. "- An article or a page: use the SUBJECT of its title, not the title itself. Keep the words that identify it, drop the question mark, the verbs and the filler. \"Why Do Gel Blaster Players Prefer Tactical Gear for Outdoor Matches?\" is anchored on \"tactical gear for gel blaster games\" — never pasted whole.\n"
+				. "- Two to six words. Always inside a sentence that would read perfectly well without the link: the link is woven into what you were saying anyway.\n"
+				. "- Forbidden: a title dropped in as a quote, a sentence bolted on at the end (\"See X for more\", \"Read Y to find out\"), \"here\", \"this page\", \"learn more\", and any anchor that leaves the destination ambiguous.\n";
 			$user .= "A target marked [blog post] or [page] already covers its subject in full: mention it in a sentence and link to it, do not explain the subject again here.\n";
 		}
 
@@ -817,7 +822,8 @@ PROMPT;
 				: '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n" )
 			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
 			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
-			. "- ANCHOR RULE, no exception: the anchor text is the NAME of the target page, exactly as written in the list above. Re-word the few words around it so that name reads naturally in the sentence, then link the name itself. Never anchor on \"here\", \"this page\", \"see more\", nor on wording that does not name the target. Keep the sentence's meaning and its style.\n"
+			. "- ANCHOR RULE. The anchor must NAME the page it points to, as closely as the sentence allows. A category keeps its name as it stands; an article or a page is anchored on the SUBJECT of its title, not on the title itself — keep the identifying words, drop the question mark, the verbs and the filler, two to six words. Re-word the few words around it so it reads naturally.\n"
+			. "- The sentence must still read perfectly well without the link. Never quote a title, never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\", never leave the destination ambiguous.\n"
 			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
 			. "- Never link twice to the same URL, never link a whole sentence, never link inside a heading.\n"
 			. "\n--- FACTS (never contradict these) ---\n"
@@ -1080,6 +1086,16 @@ PROMPT;
 			<?php // Filled from the editor content, so it always matches what is on screen. ?>
 			<ul class="dze-cc-linklist" style="display:none;"></ul>
 
+			<?php // Before / after, opened on its own once something has been generated. ?>
+			<div class="dze-cc-diffwrap" style="display:none;">
+				<p style="margin:0 0 6px;">
+					<strong><?php esc_html_e( 'Before / after', 'dazont-ecom' ); ?></strong>
+					<button type="button" class="button-link dze-cc-difftoggle"><?php esc_html_e( 'hide', 'dazont-ecom' ); ?></button>
+					<span class="dze-cc-diffwords description"></span>
+				</p>
+				<div class="dze-cc-diff"></div>
+			</div>
+
 			<?php if ( ! $kw['total'] ) : ?>
 				<div class="dze-cc-warn">
 					<p><strong><?php esc_html_e( 'No SEMrush file imported for this category.', 'dazont-ecom' ); ?></strong></p>
@@ -1296,6 +1312,10 @@ PROMPT;
 				/* translators: %s: number of pages ticked */
 				'picked'      => __( '%s selected', 'dazont-ecom' ),
 				'alreadyLinked' => __( 'already linked', 'dazont-ecom' ),
+				'hide'        => __( 'hide', 'dazont-ecom' ),
+				'show'        => __( 'show', 'dazont-ecom' ),
+				/* translators: 1: words before, 2: words after */
+				'diffWords'   => __( '%1$s words → %2$s words', 'dazont-ecom' ),
 				'working'     => __( 'Writing — up to a minute…', 'dazont-ecom' ),
 				'linking'     => __( 'Placing the links…', 'dazont-ecom' ),
 				/* translators: 1: links added, 2: links in the text now */
@@ -1362,6 +1382,54 @@ PROMPT;
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		wp_send_json_success( [ 'html' => $html ] );
+	}
+
+	/**
+	 * HTML made readable for a diff: one block per line, tags out of the way,
+	 * so the comparison shows what changed in the text and not in the markup.
+	 */
+	private static function diff_text( string $html ): string {
+		$html = preg_replace( '#<(/?)(h[1-6]|p|li|div|tr)[^>]*>#i', "\n", $html );
+		$html = str_replace( [ '</a>', '<br />', '<br>' ], [ '</a>', "\n", "\n" ], $html );
+		$text = wp_strip_all_tags( (string) $html );
+		$text = preg_replace( "/[ \t]+/", ' ', $text );
+		$text = preg_replace( "/\n{2,}/", "\n", $text );
+		return trim( (string) $text );
+	}
+
+	/** Side-by-side comparison of the saved description and the pending one. */
+	public function ajax_diff(): void {
+		$this->guard();
+		$tid  = isset( $_POST['term'] ) ? absint( $_POST['term'] ) : 0;
+		$html = isset( $_POST['html'] ) ? wp_kses_post( wp_unslash( $_POST['html'] ) ) : '';
+		$term = $tid ? get_term( $tid, 'product_cat' ) : null;
+		if ( ! $term || is_wp_error( $term ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+		}
+		$old = self::diff_text( (string) $term->description );
+		$new = self::diff_text( $html );
+		if ( $old === $new ) {
+			wp_send_json_success( [ 'html' => '<p class="description">' . esc_html__( 'Nothing changed yet.', 'dazont-ecom' ) . '</p>' ] );
+		}
+		if ( '' === $old ) {
+			wp_send_json_success( [ 'html' => '<p class="description">' . esc_html__( 'This category had no description — everything below is new.', 'dazont-ecom' ) . '</p>' ] );
+		}
+		$diff = function_exists( 'wp_text_diff' )
+			? wp_text_diff( $old, $new, [
+				'title_left'  => __( 'Saved on the category', 'dazont-ecom' ),
+				'title_right' => __( 'What you are about to save', 'dazont-ecom' ),
+				'show_split_view' => true,
+			] )
+			: '';
+		if ( '' === $diff ) {
+			// Fallback: the two texts, side by side, without the word-level diff.
+			$diff = '<div class="dze-cc-sbs"><div><h4>' . esc_html__( 'Saved on the category', 'dazont-ecom' ) . '</h4><pre>' . esc_html( $old ) . '</pre></div>'
+				. '<div><h4>' . esc_html__( 'What you are about to save', 'dazont-ecom' ) . '</h4><pre>' . esc_html( $new ) . '</pre></div></div>';
+		}
+		wp_send_json_success( [
+			'html'  => $diff,
+			'words' => [ str_word_count( $old ), str_word_count( $new ) ],
+		] );
 	}
 
 	/** Linking-only pass on the description currently in the editor. */

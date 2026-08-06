@@ -60,11 +60,15 @@ owner communicates in French.
     autoloader only when used.
   When a feature cannot be built within that budget, say so instead of
   shipping it heavy.
-- **An internal-link anchor IS the name of the page it points to**, written
-  in full — the category name, the article title. The sentence is built (or
-  lightly re-worded) so that name reads naturally, then the name itself is
-  linked. Never "here", "this page", "see more", never wording that does not
-  name the target. Applies to every generator that inserts links.
+- **An internal-link anchor NAMES the page it points to** — a reader seeing
+  only the anchor knows where it goes. As close to the target's own name as
+  the sentence allows, and no closer: a category keeps its name as it stands;
+  an article or page is anchored on the SUBJECT of its title, never on the
+  title pasted whole (2–6 words, question mark and filler dropped). The link
+  is woven into a sentence that would read perfectly well without it — never
+  a quoted title, never a "See X for more" bolted on at the end, never
+  "here"/"this page"/"learn more", never an ambiguous destination. Applies to
+  every generator that inserts links.
 - WPML compatibility everywhere.
 - New/unfinished features ship to the DEV channel only (`Plugin-development`
   branch → prerelease); `Live-plugin` (stable) only with explicit approval.

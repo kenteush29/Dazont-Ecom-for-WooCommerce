@@ -50,6 +50,24 @@
 		$('#' + id).val(html);
 	}
 
+	// Does this anchor name that page? Either it contains the name, or it
+	// shares enough of its meaningful words — a title shortened to its subject
+	// still names it, "read more" never does.
+	var SMALL = /^(the|and|for|with|your|our|from|that|this|are|how|what|why|do|does|to|of|in|on|a|an|les|des|une|pour|avec|dans|sur|est)$/;
+	function words(s) {
+		return (s || '').toLowerCase().split(/[^a-z0-9à-ÿ]+/)
+			.filter(function (w) { return w.length > 2 && !SMALL.test(w); });
+	}
+	function names(anchor, name) {
+		var a = anchor.toLowerCase(), n = name.toLowerCase();
+		if (!a) { return false; }
+		if (a.indexOf(n) !== -1 || n.indexOf(a) !== -1) { return true; }
+		var an = words(anchor), nn = words(name);
+		if (!an.length || !nn.length) { return false; }
+		var hits = an.filter(function (w) { return nn.indexOf(w) !== -1; }).length;
+		return hits >= Math.min(2, nn.length);
+	}
+
 	// The links the description actually contains, read from the editor so the
 	// list always matches what is on screen — before and after a run.
 	function linkList($box) {
@@ -64,9 +82,10 @@
 				name: name,
 				path: href.replace(/^https?:\/\/[^/]+/i, '') || href,
 				external: cfg.home ? (href.indexOf(cfg.home) !== 0 && /^https?:/i.test(href)) : false,
-				// The anchor is supposed to BE the name of the page it points to.
-				named: !name || anchor.toLowerCase().indexOf(name.toLowerCase()) !== -1 ||
-					name.toLowerCase().indexOf(anchor.toLowerCase()) !== -1
+				// The anchor has to name the target — not necessarily word for
+				// word (an article title gets shortened to its subject), but
+				// close enough that the destination is never in doubt.
+				named: !name || names(anchor, name)
 			});
 		});
 		return rows;
@@ -230,6 +249,7 @@
 				$st.css('color', '#646970').text(i18n.review);
 				editorSet(edId($box), res.data.html); // nothing saved yet — the editor holds it.
 				refreshLinks($box);
+				showDiff($box);
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
@@ -255,6 +275,30 @@
 		var $box = $(this).closest('.dze-cc-box');
 		$box.find('.dze-cc-pick:not(:disabled)').prop('checked', false);
 		pickCount($box);
+	});
+
+	// What the category holds today against what is about to replace it. Asked
+	// for only after a run — nothing to compare before that.
+	function showDiff($box) {
+		var $wrap = $box.find('.dze-cc-diffwrap').show();
+		var $out = $box.find('.dze-cc-diff').html('<p><span class="dze-cx-spin"></span></p>').show();
+		$box.find('.dze-cc-difftoggle').text(i18n.hide);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_cc_diff', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box))
+		})
+			.done(function (res) {
+				if (!res || !res.success) { $wrap.hide(); return; }
+				$out.html(res.data.html);
+				$box.find('.dze-cc-diffwords').text(res.data.words
+					? sprintf(i18n.diffWords, res.data.words[0], res.data.words[1])
+					: '');
+			})
+			.fail(function () { $wrap.hide(); });
+	}
+
+	$(document).on('click', '.dze-cc-difftoggle', function () {
+		var $d = $(this).closest('.dze-cc-diffwrap').find('.dze-cc-diff').toggle();
+		$(this).text($d.is(':visible') ? i18n.hide : i18n.show);
 	});
 
 	// After a run, whatever is now in the text is shown as already linked.
@@ -286,6 +330,7 @@
 				editorSet(edId($box), res.data.html);
 				refreshLinks($box);
 				markPlaced($box);
+				showDiff($box);
 				$st.css('color', '#646970').text(res.data.added
 					? sprintf(i18n.linked, res.data.added, res.data.after)
 					: i18n.linkedNone);
@@ -316,6 +361,7 @@
 		var $b = $(this).closest('.dze-cc-box'), id = edId($b);
 		editorSet(id, original[id] || '');
 		refreshLinks($b);
+		$b.find('.dze-cc-diffwrap').hide();
 		$(this).closest('.dze-cc-box').find('.dze-cc-status').text('');
 	});
 

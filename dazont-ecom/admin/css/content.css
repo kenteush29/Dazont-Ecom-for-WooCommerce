@@ -223,6 +223,20 @@
 .dze-cc-linklist .dze-cc-target { font-family: Consolas, Monaco, monospace; }
 .dze-cc-linklist .dze-cc-out { color: #b32d2e; }
 .dze-cc-ltoggle { font-size: 12px; margin-left: 6px; }
+/* Before / after, shown once something has been generated. */
+.dze-cc-diffwrap { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+.dze-cc-diff { max-height: 340px; overflow: auto; background: #fff; border: 1px solid #dcdcde; border-radius: 3px; }
+.dze-cc-diff table.diff { width: 100%; font-size: 12px; }
+.dze-cc-diff table.diff td { padding: 2px 6px; word-break: break-word; }
+.dze-cc-diff .diff-deletedline { background: #fcf0f1; }
+.dze-cc-diff .diff-addedline { background: #e6f4ea; }
+.dze-cc-diff .diff-deletedline del, .dze-cc-diff .diff-addedline ins { text-decoration: none; padding: 0 2px; border-radius: 2px; }
+.dze-cc-diff .diff-deletedline del { background: #f7c9cb; }
+.dze-cc-diff .diff-addedline ins { background: #b6dfc3; }
+.dze-cc-sbs { display: flex; gap: 12px; }
+.dze-cc-sbs > div { flex: 1 1 50%; min-width: 0; }
+.dze-cc-sbs pre { white-space: pre-wrap; font-size: 12px; margin: 0; }
+.dze-cc-diffwords { margin-left: 8px; }
 /* Choosing the links before they are placed. */
 .dze-cc-picker { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
 .dze-cc-picklist { margin: 0 0 8px; max-height: 230px; overflow-y: auto; }
