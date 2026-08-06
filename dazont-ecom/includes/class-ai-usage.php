@@ -187,52 +187,119 @@ final class DZE_Ai_Usage {
 	}
 
 	/**
-	 * The current month, day by day and model by model. A monthly total tells
-	 * you the budget is holding; only a daily line tells you which run cost
-	 * what, and on which model.
+	 * The current month as a column per day: how much was spent today, and how
+	 * today compares with the rest of the month, read in one glance. Days with
+	 * nothing are drawn empty so the month reads like a calendar.
 	 */
 	public static function render_days( string $month = '' ): void {
 		$data  = get_option( self::OPT, [] );
 		$month = '' !== $month ? $month : gmdate( 'Y-m' );
-		$days  = is_array( $data ) ? (array) ( $data[ $month ]['_days'] ?? [] ) : [];
-		if ( ! $days ) {
+		$rows  = is_array( $data ) ? (array) ( $data[ $month ]['_days'] ?? [] ) : [];
+
+		$is_now = gmdate( 'Y-m' ) === $month;
+		$last   = $is_now ? (int) gmdate( 'j' ) : (int) gmdate( 't', strtotime( $month . '-01' ) );
+		$today  = gmdate( 'Y-m-d' );
+
+		$cost  = [];
+		$calls = [];
+		$tips  = [];
+		$max   = 0.0;
+		$total = 0.0;
+		for ( $d = 1; $d <= $last; $d++ ) {
+			$key   = sprintf( '%s-%02d', $month, $d );
+			$c     = 0.0;
+			$n     = 0;
+			$lines = [];
+			foreach ( (array) ( $rows[ $key ] ?? [] ) as $name => $r ) {
+				$c      += (float) ( $r['cost'] ?? 0 );
+				$n      += (int) ( $r['calls'] ?? 0 );
+				$lines[] = $name . ': ' . (int) ( $r['calls'] ?? 0 ) . ' calls, $' . number_format( (float) ( $r['cost'] ?? 0 ), 3 );
+			}
+			$cost[ $d ]  = $c;
+			$calls[ $d ] = $n;
+			$tips[ $d ]  = $lines ? implode( "\n", $lines ) : '';
+			$max         = max( $max, $c );
+			$total      += $c;
+		}
+		if ( $total <= 0 ) {
+			echo '<p class="description">' . esc_html__( 'Nothing spent this month yet.', 'dazont-ecom' ) . '</p>';
 			return;
 		}
-		krsort( $days );
-		echo '<h3 style="margin:22px 0 6px;">' . sprintf(
+		$today_cost = (float) ( $cost[ (int) gmdate( 'j' ) ] ?? 0 );
+
+		echo '<h3 style="margin:22px 0 4px;">' . sprintf(
 			/* translators: %s: month, e.g. 2026-08 */
-			esc_html__( 'Day by day — %s', 'dazont-ecom' ),
+			esc_html__( 'Spend per day — %s', 'dazont-ecom' ),
 			esc_html( $month )
 		) . '</h3>';
-		echo '<table class="wp-list-table widefat striped" style="max-width:720px;"><thead><tr>'
+		echo '<p style="margin:0 0 10px;font-size:13px;color:#50575e;">';
+		if ( $is_now ) {
+			printf(
+				/* translators: 1: today's spend, 2: today's call count */
+				esc_html__( 'Today: %1$s (%2$s calls)', 'dazont-ecom' ),
+				'<strong>$' . esc_html( number_format_i18n( $today_cost, 2 ) ) . '</strong>',
+				esc_html( number_format_i18n( (int) ( $calls[ (int) gmdate( 'j' ) ] ?? 0 ) ) )
+			);
+			echo ' &nbsp;·&nbsp; ';
+		}
+		printf(
+			/* translators: %s: month total */
+			esc_html__( 'This month: %s', 'dazont-ecom' ),
+			'<strong>$' . esc_html( number_format_i18n( $total, 2 ) ) . '</strong>'
+		);
+		echo '</p>';
+
+		// Columns. Height carries the cost, the tooltip carries the models.
+		echo '<div style="display:flex;align-items:flex-end;gap:3px;height:120px;max-width:760px;border-bottom:1px solid #dcdcde;padding-bottom:2px;">';
+		for ( $d = 1; $d <= $last; $d++ ) {
+			$c   = (float) $cost[ $d ];
+			$h   = $max > 0 ? max( 2, (int) round( 110 * $c / $max ) ) : 2;
+			$key = sprintf( '%s-%02d', $month, $d );
+			$is_today = $key === $today;
+			$tip = $key . ( $c > 0 ? ' — $' . number_format( $c, 3 ) . ( $tips[ $d ] ? "\n" . $tips[ $d ] : '' ) : ' — ' . __( 'nothing', 'dazont-ecom' ) );
+			printf(
+				'<div title="%1$s" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%%;"><span style="height:%2$dpx;border-radius:3px 3px 0 0;background:%3$s;display:block;"></span></div>',
+				esc_attr( $tip ),
+				$h,
+				$c > 0 ? ( $is_today ? '#0a7040' : '#7c5cff' ) : '#f0f0f1'
+			);
+		}
+		echo '</div>';
+		// Day numbers, every other one when the month is long.
+		echo '<div style="display:flex;gap:3px;max-width:760px;margin-bottom:14px;">';
+		for ( $d = 1; $d <= $last; $d++ ) {
+			printf(
+				'<span style="flex:1;text-align:center;font-size:9px;color:%2$s;">%1$s</span>',
+				esc_html( ( 1 === $d % 2 || $d === $last ) ? (string) $d : '' ),
+				esc_attr( sprintf( '%s-%02d', $month, $d ) === $today ? '#0a7040' : '#a7aaad' )
+			);
+		}
+		echo '</div>';
+
+		// The same figures in full, for whoever wants the detail.
+		echo '<details style="max-width:760px;"><summary style="cursor:pointer;color:#2271b1;">'
+			. esc_html__( 'Detail per day and per model', 'dazont-ecom' ) . '</summary>';
+		echo '<table class="wp-list-table widefat striped" style="margin-top:8px;"><thead><tr>'
 			. '<th>' . esc_html__( 'Day', 'dazont-ecom' ) . '</th>'
 			. '<th>' . esc_html__( 'Model', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:14%;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:24%;">' . esc_html__( 'Tokens in / out', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:14%;">' . esc_html__( 'Cost', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:12%;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:22%;">' . esc_html__( 'Tokens in / out', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:12%;">' . esc_html__( 'Cost', 'dazont-ecom' ) . '</th>'
 			. '</tr></thead><tbody>';
-		foreach ( $days as $day => $models ) {
+		krsort( $rows );
+		foreach ( $rows as $day => $models ) {
 			$first = true;
-			$total = 0.0;
-			foreach ( (array) $models as $name => $r ) {
-				$total += (float) ( $r['cost'] ?? 0 );
-			}
 			foreach ( (array) $models as $name => $r ) {
 				echo '<tr>';
-				echo '<td>' . ( $first ? '<strong>' . esc_html( $day ) . '</strong>' : '' ) . '</td>';
-				echo '<td><code style="font-size:11px;">' . esc_html( $name ) . '</code></td>';
+				echo '<td>' . ( $first ? '<strong>' . esc_html( (string) $day ) . '</strong>' : '' ) . '</td>';
+				echo '<td><code style="font-size:11px;">' . esc_html( (string) $name ) . '</code></td>';
 				echo '<td>' . esc_html( number_format_i18n( (int) ( $r['calls'] ?? 0 ) ) ) . '</td>';
 				echo '<td>' . esc_html( number_format_i18n( (int) ( $r['in'] ?? 0 ) ) . ' / ' . number_format_i18n( (int) ( $r['out'] ?? 0 ) ) ) . '</td>';
 				echo '<td>$' . esc_html( number_format_i18n( (float) ( $r['cost'] ?? 0 ), 3 ) ) . '</td>';
 				echo '</tr>';
 				$first = false;
 			}
-			if ( count( (array) $models ) > 1 ) {
-				echo '<tr><td></td><td colspan="3" style="text-align:right;color:#646970;">'
-					. esc_html__( 'day total', 'dazont-ecom' ) . '</td><td><strong>$'
-					. esc_html( number_format_i18n( $total, 3 ) ) . '</strong></td></tr>';
-			}
 		}
-		echo '</tbody></table>';
+		echo '</tbody></table></details>';
 	}
 }
