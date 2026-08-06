@@ -156,8 +156,8 @@ final class DZE_Gmc {
 	// Marketing Events page (see DZE_Discounts::render_events_page()).
 
 	public function register_settings(): void {
-		register_setting( 'dze_gmc_options', self::OPT_CREDENTIALS, [ 'sanitize_callback' => [ $this, 'sanitize_credentials' ] ] );
-		register_setting( 'dze_gmc_options', self::OPT_ACCOUNTS, [ 'sanitize_callback' => [ $this, 'sanitize_accounts' ] ] );
+		register_setting( 'dze_gmc_options', self::OPT_CREDENTIALS, [ 'sanitize_callback' => [ $this, 'sanitize_credentials' ], 'autoload' => false ] );
+		register_setting( 'dze_gmc_options', self::OPT_ACCOUNTS, [ 'sanitize_callback' => [ $this, 'sanitize_accounts' ], 'autoload' => false ] );
 		register_setting( 'dze_gmc_options', self::OPT_OAUTH, [ 'sanitize_callback' => [ $this, 'sanitize_oauth' ], 'autoload' => false ] );
 		register_setting( 'dze_gmc_options', self::OPT_ADVANCED, [ 'sanitize_callback' => [ $this, 'sanitize_advanced' ], 'autoload' => false ] );
 	}

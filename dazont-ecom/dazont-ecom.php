@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
- * Description:       Dazont Ecom toolkit for WooCommerce. Modules: Restock (out-of-stock backlog), Trending Products (best-sellers shortcode), Marketing Events (scheduled sales, banners, AI-generated calendar, GMC sync), Discounts (evergreen bulk cart coupons + automatic product discounts), Product Explorer (full-screen catalogue browser), AI Product Images (Google Gemini image generation on the product page) and the AI Marketing Assistant. More modules coming.
- * Version:           3.15.3
+ * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
+ * Version:           3.57.1
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '3.15.3' );
+define( 'DZE_VERSION', '3.57.1' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -61,18 +61,43 @@ final class DZE_Plugin {
 			return;
 		}
 
-		DZE_Restock::instance();
-		DZE_Dashboard::instance();
-		DZE_Trending::instance();
-		DZE_Discounts::instance();
-		DZE_Gmc::instance();
-		DZE_Marketing_Ai::instance();
-		DZE_Explorer::instance();
-		DZE_Keywords::instance();
-		DZE_Product_Images::instance();
+		// The module manager boots every ENABLED module (Dazont Ecom → Modules).
+		// Always on: the manager itself, the updater and the API-key helper.
+		DZE_Modules::instance();
+		DZE_Modules::boot();
+		DZE_Api_Keys::init();
+		if ( is_admin() ) {
+			self::trim_autoload();
+		}
 		// Kept in reserve for later, not loaded:
 		//   DZE_Fbt (Frequently Bought Together) — includes/class-fbt.php
 		// The Gallery module was replaced by the Product Explorer.
+	}
+
+	/**
+	 * Settings rows written before they were declared non-autoloading are still
+	 * flagged as such in the database, so WordPress loads them — prompts and
+	 * all — on every single request, shop pages included. This flips the flag
+	 * once. Only settings no shop page ever reads are listed.
+	 */
+	private static function trim_autoload(): void {
+		if ( '1' === (string) get_option( 'dze_autoload_trimmed', '' ) ) {
+			return;
+		}
+		$options = [
+			'dze_catcontent_settings',
+			'dze_content_settings',
+			'dze_pod_settings',
+			'dze_reviews_settings',
+			'dze_gmc_accounts',
+			'dze_gmc_credentials',
+		];
+		foreach ( $options as $name ) {
+			if ( function_exists( 'wp_set_option_autoload' ) ) {
+				wp_set_option_autoload( $name, false );
+			}
+		}
+		update_option( 'dze_autoload_trimmed', '1', true );
 	}
 
 	public static function activate(): void {
@@ -94,6 +119,7 @@ final class DZE_Plugin {
 		if ( class_exists( 'DZE_Discounts' ) ) {
 			DZE_Discounts::clear_sale_sync();
 		}
+		wp_clear_scheduled_hook( DZE_Category_Content::CRON_HOOK );
 	}
 
 	public function notice_woo_missing(): void {

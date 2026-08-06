@@ -21,8 +21,9 @@ final class DZE_Keywords {
 
 	private const NONCE          = 'dze_kw';
 	private const SCHEMA_OPT     = 'dze_kw_schema';
-	private const SCHEMA_VERSION = 1;
-	private const MAX_ROWS       = 5000;   // per category — safety cap.
+	private const SCHEMA_VERSION = 2;
+	private const MAX_ROWS       = 30000;  // kept per category — a whole broad-match export fits.
+	private const MAX_PARSE      = 30000;  // lines read from a file before the pick.
 	private const MAX_UPLOAD     = 5242880; // 5 MB.
 
 	/**
@@ -48,7 +49,7 @@ final class DZE_Keywords {
 
 	/**
 	 * Default keyword-matching rules (the editable heart of the matching prompt).
-	 * Admins can override them in AI Settings → Sourcing Assistant; the data
+	 * Admins can override them in Settings → Sourcing Assistant; the data
 	 * blocks and the JSON output format stay fixed so parsing never breaks.
 	 */
 	public const DEFAULT_MATCH_RULES = <<<'EOT'
@@ -129,7 +130,8 @@ EOT;
 			updated DATETIME NOT NULL,
 			PRIMARY KEY  (id),
 			KEY term_id (term_id),
-			KEY term_status (term_id,status)
+			KEY term_status (term_id,status),
+			KEY term_volume (term_id,volume)
 		) {$charset};" );
 		update_option( self::SCHEMA_OPT, self::SCHEMA_VERSION, false );
 	}
@@ -244,7 +246,7 @@ EOT;
 				continue;
 			}
 			$lines[] = array_map( static fn( $v ) => trim( (string) $v ), $row );
-			if ( count( $lines ) > self::MAX_ROWS + 1 ) {
+			if ( count( $lines ) > self::MAX_PARSE + 1 ) {
 				break;
 			}
 		}
@@ -319,13 +321,19 @@ EOT;
 		// and only refresh volume/KD/CPC/intent; new keywords are added
 		// unanalysed. The list stays alive across fresh SEMrush exports.
 		$existing = [];
-		foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT id, keyword FROM {$table} WHERE term_id = %d", $term_id ), ARRAY_A ) as $r ) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			$existing[ mb_strtolower( (string) $r['keyword'] ) ] = (int) $r['id'];
+		foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT id, keyword, volume, kd, cpc, intent FROM {$table} WHERE term_id = %d", $term_id ), ARRAY_A ) as $r ) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			$existing[ mb_strtolower( (string) $r['keyword'] ) ] = $r;
 		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
 		$seen  = [];
 		$added = 0;
 		$upd   = 0;
-		foreach ( (array) $parsed['rows'] as $row ) {
+		$queue = [];
+		$rows  = self::pick_rows( (array) $parsed['rows'], $map );
+		foreach ( $rows as $row ) {
 			$kw  = trim( (string) ( $row[ $map['keyword'] ] ?? '' ) );
 			$low = mb_strtolower( $kw );
 			if ( $kw === '' || mb_strlen( $kw ) > 191 || isset( $seen[ $low ] ) ) {
@@ -340,18 +348,122 @@ EOT;
 				'updated' => $now,
 			];
 			if ( isset( $existing[ $low ] ) ) {
-				$wpdb->update( $table, $fields, [ 'id' => $existing[ $low ] ] );
+				// Nothing to write when the export repeats what we already hold:
+				// a re-import then costs a handful of queries instead of tens of
+				// thousands.
+				$was = $existing[ $low ];
+				if ( (int) $was['volume'] === $fields['volume']
+					&& (string) $was['intent'] === $fields['intent']
+					&& self::same_num( $was['kd'], $fields['kd'] )
+					&& self::same_num( $was['cpc'], $fields['cpc'] ) ) {
+					continue;
+				}
+				$wpdb->update( $table, $fields, [ 'id' => (int) $was['id'] ] );
 				$upd++;
-			} else {
-				$wpdb->insert( $table, $fields + [ 'term_id' => $term_id, 'keyword' => $kw, 'status' => '' ] );
-				$added++;
+				continue;
 			}
-			if ( $added + $upd >= self::MAX_ROWS ) {
-				break;
+			$queue[] = $fields + [ 'term_id' => $term_id, 'keyword' => $kw, 'status' => '' ];
+			$added++;
+			if ( count( $queue ) >= 400 ) {
+				self::insert_many( $queue );
+				$queue = [];
 			}
 		}
+		if ( $queue ) {
+			self::insert_many( $queue );
+		}
 		delete_transient( 'dze_kw_up_' . $token );
-		wp_send_json_success( [ 'imported' => $added, 'updated' => $upd ] );
+		wp_send_json_success( [
+			'imported' => $added,
+			'updated'  => $upd,
+			'read'     => count( (array) $parsed['rows'] ),
+			'kept'     => count( $rows ),
+		] );
+	}
+
+	/** Two metric values that mean the same thing, NULLs included. */
+	private static function same_num( $a, $b ): bool {
+		if ( null === $a || null === $b ) {
+			return null === $a && null === $b;
+		}
+		return abs( (float) $a - (float) $b ) < 0.001;
+	}
+
+	/** One INSERT for a batch of rows instead of one query per keyword. */
+	private static function insert_many( array $rows ): void {
+		global $wpdb;
+		if ( ! $rows ) {
+			return;
+		}
+		$values = [];
+		$args   = [];
+		foreach ( $rows as $r ) {
+			// NULL is written as the literal: prepare() would turn it into an
+			// empty string, and kd/cpc are nullable decimals.
+			$kd  = null === $r['kd'] ? 'NULL' : '%f';
+			$cpc = null === $r['cpc'] ? 'NULL' : '%f';
+			$values[] = "(%d,%s,%d,{$kd},{$cpc},%s,%s,%s)";
+			$args[]   = (int) $r['term_id'];
+			$args[]   = (string) $r['keyword'];
+			$args[]   = (int) $r['volume'];
+			if ( null !== $r['kd'] ) {
+				$args[] = (float) $r['kd'];
+			}
+			if ( null !== $r['cpc'] ) {
+				$args[] = (float) $r['cpc'];
+			}
+			$args[] = (string) $r['intent'];
+			$args[] = (string) $r['status'];
+			$args[] = (string) $r['updated'];
+		}
+		$sql = "INSERT INTO " . self::table() . ' (term_id, keyword, volume, kd, cpc, intent, status, updated) VALUES '
+			. implode( ',', $values );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- own table name, every value is a placeholder.
+		$wpdb->query( $wpdb->prepare( $sql, $args ) );
+	}
+
+	/**
+	 * Which rows of a very large export go into the set.
+	 *
+	 * Nothing is dropped for being small: a query with no measured volume is
+	 * often the most useful one we have — it is where a product nobody sells
+	 * yet shows up. Only a file beyond the ceiling is reduced, and then by
+	 * taking a slice spread across the WHOLE file rather than its head, with
+	 * every question kept: cutting by volume would throw away exactly the long
+	 * tail the Sourcing Assistant is looking for.
+	 */
+	public static function pick_rows( array $rows, array $map ): array {
+		if ( count( $rows ) <= self::MAX_ROWS ) {
+			return $rows;
+		}
+		$kc        = (int) ( $map['keyword'] ?? 0 );
+		$questions = [];
+		$others    = [];
+		foreach ( $rows as $row ) {
+			$kw = trim( (string) ( $row[ $kc ] ?? '' ) );
+			if ( '' === $kw ) {
+				continue;
+			}
+			if ( preg_match( '/^(how|what|which|why|when|where|can|is|are|do|does|should|comment|pourquoi|quel|quelle|quels|quelles|quand|est-ce|faut-il)\b/iu', $kw ) || false !== strpos( $kw, '?' ) ) {
+				$questions[] = $row;
+			} else {
+				$others[] = $row;
+			}
+		}
+		$keep = array_slice( $questions, 0, self::MAX_ROWS );
+		$room = self::MAX_ROWS - count( $keep );
+		if ( $room > 0 && $others ) {
+			if ( count( $others ) <= $room ) {
+				$keep = array_merge( $keep, $others );
+			} else {
+				// Even spread: one row out of every N, head to tail.
+				$step = count( $others ) / $room;
+				for ( $i = 0; $i < $room; $i++ ) {
+					$keep[] = $others[ (int) floor( $i * $step ) ];
+				}
+			}
+		}
+		return $keep;
 	}
 
 	/** Tolerant number parse: "1 300", "39,5", "0.56", "1.300,5". */
@@ -627,7 +739,7 @@ EOT;
 	public function ajax_start(): void {
 		$this->guard();
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) || DZE_Marketing_Ai::api_key() === '' ) {
-			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key under AI Settings first.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) ] );
 		}
 		if ( DZE_Ai_Usage::over_budget() ) {
 			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );

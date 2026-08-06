@@ -134,7 +134,7 @@ final class DZE_Dashboard {
 
 	/** Out-of-stock products ranked by their cached all-time sales (Restock data). */
 	public function block_out_of_stock(): void {
-		if ( ! class_exists( 'DZE_Restock' ) ) {
+		if ( ! class_exists( 'DZE_Restock' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'restock' ) ) ) {
 			return;
 		}
 		$lines = DZE_Restock::get_line_index();
@@ -172,7 +172,7 @@ final class DZE_Dashboard {
 
 	/** Current + upcoming scheduled sales from the Marketing Events calendar. */
 	public function block_events(): void {
-		if ( ! class_exists( 'DZE_Discounts' ) ) {
+		if ( ! class_exists( 'DZE_Discounts' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'discounts' ) ) ) {
 			return;
 		}
 		$today = current_time( 'Y-m-d' );
@@ -227,7 +227,7 @@ final class DZE_Dashboard {
 
 	public function block_ai_usage(): void {
 		DZE_Ai_Usage::render_graph( 6 );
-		echo '<p style="margin-bottom:0;"><a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Open AI Settings →', 'dazont-ecom' ) . '</a></p>';
+		echo '<p style="margin-bottom:0;"><a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Open Settings →', 'dazont-ecom' ) . '</a></p>';
 	}
 
 	// =========================================================================

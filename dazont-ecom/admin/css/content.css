@@ -1,0 +1,313 @@
+/* =========================================================================
+ * AI Content — admin styles: defensive field-width reset (some plugins, e.g.
+ * size-chart-for-woocommerce, shrink every admin input to ~30% globally) plus
+ * the product-page side box and the toolbox modal.
+ * ========================================================================= */
+
+/* Restore sensible widths inside our own admin UIs, overriding global shrinks
+ * (e.g. size-chart-for-woocommerce forces every admin input to ~30%). */
+.dze-admin input[type="text"],
+.dze-admin input[type="search"],
+.dze-admin input[type="url"],
+.dze-admin input[type="password"],
+.dze-admin textarea,
+.dze-admin select,
+.dze-wrap .form-table input[type="text"],
+.dze-wrap .form-table input[type="password"],
+.dze-wrap .form-table textarea,
+.dze-wrap .form-table select {
+	width: 99% !important;
+	max-width: 100% !important;
+	box-sizing: border-box;
+}
+.dze-admin input[type="number"],
+.dze-wrap .form-table input[type="number"] { width: 120px !important; max-width: 100% !important; }
+.dze-admin input.regular-text,
+.dze-wrap .form-table input.regular-text { width: 25em !important; }
+.dze-admin .dze-price-table input[type="number"],
+.dze-admin .dze-it-table input[type="text"] { width: 90px !important; }
+.dze-admin .dze-it-table input[type="text"] { width: 99% !important; }
+
+/* ---- Product-page hub (ONE Dazont Ecom box, one button per function) ---- */
+.dze-hub .dze-hub-btn { display: block; width: 100%; margin-bottom: 6px; text-align: center; }
+.dze-hub p { margin: 8px 0 0; }
+
+/* Shared hover zoom: floating large preview following the cursor. */
+.dze-hzoom-pop { position: fixed; z-index: 100005; pointer-events: none; }
+.dze-hzoom-pop img {
+	width: 340px; height: 340px; object-fit: contain; display: block;
+	background: #fff; border: 1px solid #c3c4c7; border-radius: 8px;
+	box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+
+/* ---- Toolbox modal ---- */
+.dze-cx-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100000; display: none; }
+.dze-cx-modal.is-open { display: flex; align-items: flex-start; justify-content: center; }
+.dze-cx-dialog {
+	background: #fff; margin: 3vh auto; width: min(1080px, 96vw); max-height: 94vh; overflow: auto;
+	border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3);
+}
+.dze-cx-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e4e7; position: sticky; top: 0; background: #fff; z-index: 2; }
+.dze-cx-head h2 { margin: 0; font-size: 16px; }
+.dze-cx-tabs { display: flex; gap: 6px; margin-left: 10px; }
+.dze-cx-tab { border: 1px solid #dcdcde; background: #f6f7f7; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+.dze-cx-tab.is-active { background: #2271b1; color: #fff; border-color: #2271b1; }
+.dze-cx-close { margin-left: auto; }
+.dze-cx-body { padding: 16px 20px; }
+.dze-cx-pane { display: none; }
+.dze-cx-pane.is-active { display: block; }
+.dze-cx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 782px) { .dze-cx-grid { grid-template-columns: 1fr; } }
+.dze-cx-field { border: 1px solid #e2e4e7; border-radius: 6px; padding: 10px; background: #fff; }
+.dze-cx-field h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.dze-cx-field textarea { width: 100%; box-sizing: border-box; font-family: inherit; }
+.dze-cx-field .row-actions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.dze-cx-src textarea { width: 100%; box-sizing: border-box; }
+.dze-cx-src label { display: block; font-weight: 600; margin: 8px 0 3px; }
+
+/* Collapsible parameter blocks — details are tucked away until needed. */
+.dze-cx-topbar { margin: 0 0 12px; }
+.dze-cx-acc {
+	border: 1px solid #e2e4e7; border-radius: 6px; background: #f6f7f7;
+	padding: 8px 12px; margin: 0 0 14px;
+}
+.dze-cx-acc > summary { cursor: pointer; font-weight: 600; color: #2271b1; font-size: 13px; }
+.dze-cx-acc[open] { background: #fff; }
+.dze-cx-acc[open] > summary { margin-bottom: 6px; }
+
+/* Discreet icon buttons (prompt / data editors) — quiet until hovered. */
+.dze-cx-icon {
+	background: transparent; border: none; cursor: pointer; color: #a7aaad;
+	font-size: 13px; padding: 0 4px; line-height: 1; vertical-align: middle;
+}
+.dze-cx-icon:hover { color: #2271b1; }
+.dze-cx-field h4 .dze-cx-icon { margin-left: auto; }
+
+/* "Data used" line — names only, content stays hidden behind the ✎. */
+.dze-cx-datause { color: #646970; font-size: 12px; margin: 0 0 10px; }
+
+/* Rich (editor-like) product description context, editable in place. */
+.dze-cx-rich {
+	border: 1px solid #dcdcde; border-radius: 4px; background: #fff;
+	padding: 10px 12px; max-height: 260px; overflow: auto; font-size: 13px; line-height: 1.6;
+}
+.dze-cx-rich:focus { outline: 2px solid #2271b1; outline-offset: -1px; }
+.dze-cx-rich p { margin: 0 0 0.8em; }
+
+/* Automatic edition setup + Test box */
+.dze-cx-setup { border: 1px solid #e2e4e7; border-radius: 6px; background: #fff; padding: 14px 18px; }
+.dze-cx-setup h3 { margin: 0 0 10px; font-size: 14px; }
+.dze-au-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 14px; margin-bottom: 10px; }
+.dze-au-check { display: block; margin: 4px 0; }
+.dze-cx-testbox {
+	margin-top: 14px; border: 1px dashed #c3c4c7; border-radius: 6px;
+	background: #f6f7f7; padding: 10px 14px; color: #50575e;
+}
+.dze-cx-testbox .button { margin: 6px 6px 0 0; }
+.dze-rv-out { min-height: 90px; }
+.dze-cx-note { color: #646970; font-size: 12px; }
+.dze-cx-warn { background: #fcf9e8; border: 1px solid #f0e6a6; border-radius: 4px; padding: 8px 12px; margin: 0 0 12px; }
+.dze-cx-imgrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.dze-cx-imgout img { max-width: 240px; height: auto; border: 1px solid #dcdcde; border-radius: 4px; margin-top: 10px; }
+
+/* ---- Session gallery (generated images, native-WP selection feel) ---- */
+.dze-cx-galbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+.dze-cx-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 6px; }
+.dze-cx-thumb {
+	position: relative; border: 2px solid #dcdcde; border-radius: 6px; overflow: hidden; cursor: pointer;
+	aspect-ratio: 1/1; background: #f6f7f7;
+}
+.dze-cx-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dze-cx-thumb:hover { border-color: #2271b1; }
+/* Selected: blue frame + filled check, like the WordPress media library. */
+.dze-cx-thumb.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+.dze-cx-t-check {
+	position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent; font-size: 14px; line-height: 22px; text-align: center;
+}
+.dze-cx-thumb.is-sel .dze-cx-t-check { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-cx-t-edit {
+	position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; cursor: pointer; font-size: 13px; line-height: 1;
+}
+.dze-cx-t-edit:hover { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-cx-thumb.is-added { opacity: .65; cursor: default; }
+.dze-cx-t-tag {
+	position: absolute; bottom: 6px; left: 6px; background: #00794b; color: #fff;
+	font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+}
+#dze-cx-editrow { margin-top: 10px; padding: 10px; background: #fffdf3; border: 1px solid #f0e08a; border-radius: 6px; }
+.dze-cx-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #c3d9ec; border-top-color: #2271b1; border-radius: 50%; animation: dze-cx-spin .8s linear infinite; vertical-align: -2px; }
+@keyframes dze-cx-spin { to { transform: rotate(360deg); } }
+
+/* ---- Per-prompt validation ---- */
+.dze-fv { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: #8a6d00; }
+.dze-fv.is-ok { color: #0a7040; }
+.dze-cx-field.is-unvalidated { border-color: #f0e08a; background: #fffdf3; }
+.dze-cx-badge { font-size: 10px; font-weight: 600; color: #8a6d00; background: #fcf3cd; border: 1px solid #f0e08a; border-radius: 999px; padding: 1px 7px; text-transform: uppercase; }
+/* Clickable validation toggle — amber = not validated, green = validated. */
+.dze-cx-vbtn {
+	cursor: pointer; font-size: 10px; font-weight: 600; text-transform: uppercase;
+	color: #8a6d00; background: #fcf3cd; border: 1px solid #f0e08a; border-radius: 999px; padding: 1px 8px;
+}
+.dze-cx-vbtn.is-on { color: #0a7040; background: #e6f4ea; border-color: #b6dfc3; }
+.dze-cx-vbtn:hover { border-color: #8a6d00; }
+.dze-cx-vbtn.is-on:hover { border-color: #0a7040; }
+
+/* ---- Price table (add/remove ranges) ---- */
+.dze-price-table { max-width: 620px; }
+.dze-price-table td { vertical-align: middle; }
+.dze-price-table .dze-pt-cur {
+	display: inline-block; min-width: 18px; text-align: center; color: #646970;
+	background: #f0f0f1; border: 1px solid #dcdcde; border-radius: 3px; padding: 3px 5px; margin-right: 4px;
+}
+.dze-price-table input[type="number"] { width: 100px !important; }
+.dze-pt-del { color: #b32d2e !important; border-color: #f0c4c4 !important; }
+.dze-pt-add { margin-top: 4px !important; }
+
+/* ---- API-key status badges ---- */
+.dze-key-status { margin: 0 0 8px !important; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dze-key-badge {
+	display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+	border-radius: 999px; font-size: 12px; font-weight: 600;
+}
+.dze-key-badge.is-set { background: #e6f4ea; color: #0a7040; border: 1px solid #b6dfc3; }
+.dze-key-badge.is-set code { background: transparent; color: #0a7040; font-weight: 400; padding: 0; }
+.dze-key-badge.is-missing { background: #fcf3cd; color: #8a6d00; border: 1px solid #f0e08a; }
+.dze-key-test-out { font-size: 12px; }
+
+/* ---- Bulk screen ---- */
+.dze-cb-controls { background: #fff; border: 1px solid #e2e4e7; border-radius: 6px; padding: 14px 18px; margin-top: 12px; max-width: 1100px; }
+.dze-cb-controls label { margin-right: 16px; }
+.dze-cb-table { width: 100%; max-width: 1100px; border-collapse: collapse; margin-top: 14px; background: #fff; }
+.dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 8px 10px; text-align: left; vertical-align: middle; }
+.dze-cb-table th { background: #f6f7f7; }
+/* Large thumbnails for the judgement call — click opens the full image. */
+.dze-cb-thumb img { width: 110px; height: 110px; object-fit: cover; border-radius: 4px; display: block; }
+.dze-cb-status { font-size: 12px; color: #50575e; }
+.dze-cb-status .ok { color: #00794b; }
+.dze-cb-status .ko { color: #b32d2e; }
+.dze-cb-bar { height: 10px; background: #e2e4e7; border-radius: 5px; overflow: hidden; margin: 10px 0; max-width: 560px; }
+.dze-cb-fill { height: 100%; background: #2271b1; width: 0; transition: width .3s ease; }
+.dze-cb-row-tpl { max-width: 150px !important; width: auto !important; }
+.dze-cb-cost { width: 90px !important; }
+.dze-cb-mode label { margin-right: 14px; }
+
+/* ---- Clickable list-table chips (GMC, Reviews) ---- */
+.dze-gmca-open, .dze-rev-open, .dze-cc-open {
+	display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+	border: 1px solid #dcdcde; border-radius: 4px; background: #fff;
+	padding: 2px 8px; line-height: 1.8; font-size: 13px;
+}
+.dze-gmca-open:hover, .dze-rev-open:hover, .dze-cc-open:hover { border-color: #2271b1; background: #f0f6fc; box-shadow: 0 0 0 1px #2271b1; }
+.dze-gmca-open .dze-caret, .dze-rev-open .dze-caret, .dze-cc-open .dze-caret { color: #a7aaad; font-size: 10px; }
+.dze-gmca-open:hover .dze-caret, .dze-rev-open:hover .dze-caret, .dze-cc-open:hover .dze-caret { color: #2271b1; }
+
+/* ---- Category descriptions ---- */
+.dze-cc-box p { margin: 8px 0; }
+.dze-cc-import { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+.dze-cc-import p { margin: 6px 0; }
+.dze-cc-import select { max-width: 150px; }
+.dze-cc-imstatus { font-size: 12px; margin-left: 8px; }
+.dze-cc-data { background: #f6f7f7; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; }
+.dze-cc-data p { margin: 6px 0; }
+.dze-cc-box .wp-editor-wrap { margin-top: 4px; }
+.dze-cc-box .wp-editor-area { font-size: 13px; }
+.dze-cc-ptext { font-size: 12px !important; }
+.dze-cc-status { font-size: 12px; margin-left: 6px; }
+/* The links a description contains, listed on demand and kept quiet. */
+.dze-cc-linklist { margin: 0 0 10px; font-size: 12px; color: #646970; }
+.dze-cc-linklist li { margin: 0 0 2px; padding-left: 14px; text-indent: -14px; line-height: 1.5; }
+.dze-cc-linklist li::before { content: "↳ "; color: #a7aaad; }
+.dze-cc-linklist .dze-cc-anchor { color: #1d2327; }
+.dze-cc-linklist .dze-cc-target { font-family: Consolas, Monaco, monospace; }
+.dze-cc-linklist .dze-cc-out { color: #b32d2e; }
+.dze-cc-ltoggle { font-size: 12px; margin-left: 6px; }
+/* Before / after: two readable documents, not a diff table. */
+.dze-cc-diffwrap { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+.dze-cx-dialog.is-wide { width: min(1500px, 97vw) !important; }
+.dze-cc-sbs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 1100px) { .dze-cc-sbs { grid-template-columns: 1fr; } }
+.dze-cc-sbs h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: #50575e; }
+.dze-cc-sbs h4 .description { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.dze-cc-doc {
+	background: #fff; border: 1px solid #dcdcde; border-radius: 4px;
+	padding: 14px 16px; max-height: 460px; overflow: auto;
+	font-size: 13px; line-height: 1.65; color: #1d2327;
+}
+.dze-cc-doc.is-new { border-color: #b6dfc3; box-shadow: inset 0 0 0 1px #e6f4ea; }
+.dze-cc-doc h2 { font-size: 15px; margin: 16px 0 6px; }
+.dze-cc-doc h2:first-child { margin-top: 0; }
+.dze-cc-doc p { margin: 0 0 10px; }
+.dze-cc-doc a { color: #2271b1; }
+.dze-cc-doc strong { color: #000; }
+/* Choosing the links before they are placed. */
+.dze-cc-picker { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+.dze-cc-picklist { margin: 0 0 8px; max-height: 230px; overflow-y: auto; }
+.dze-cc-picklist li { margin: 0; padding: 2px 0; font-size: 13px; }
+.dze-cc-picklist label { display: block; }
+.dze-cc-pick-kind { color: #646970; font-size: 11px; margin-left: 6px; }
+.dze-cc-pick-done { color: #0a7040; font-size: 11px; margin-left: 6px; }
+.dze-cc-pick-loose { color: #a7aaad; font-size: 11px; margin-left: 6px; font-style: italic; }
+.dze-cc-pickcount { margin-left: 8px; }
+/* Missing-data alert: visible without being a wall of red. */
+.dze-cc-warn {
+	background: #fcf3cd; border-left: 4px solid #dba617; border-radius: 2px;
+	padding: 8px 12px; margin: 0 0 10px;
+}
+.dze-cc-warn p { margin: 0 0 6px; font-size: 13px; }
+.dze-cc-warn p:last-child { margin-bottom: 0; }
+/* Same panel, embedded in the category edit screen. */
+.dze-cc-embed { border: 1px solid #dcdcde; background: #fff; border-radius: 4px; padding: 12px 16px; margin: 16px 0; max-width: 800px; }
+.dze-cc-embed > h2 { margin: 0 0 4px; font-size: 14px; }
+.dze-cc-embed .dze-cc-box > p:first-child { margin-top: 0; }
+
+/* ---- Review generator (testing module) ---- */
+.dze-rev-box p { margin: 8px 0; }
+.dze-rev-drafts { max-height: 340px; overflow: auto; margin: 4px 0; }
+.dze-rev-draft {
+	position: relative; border: 1px solid #e2e4e7; border-radius: 4px;
+	padding: 8px 28px 8px 10px; margin-bottom: 6px; background: #fff; font-size: 13px;
+}
+.dze-rev-draft .dze-rev-text { margin-top: 3px; color: #3c434a; }
+.dze-rev-stars { color: #d98500; letter-spacing: 1px; }
+.dze-rev-dim { color: #c3c4c7; }
+.dze-rev-draft .dze-rev-dim { font-size: 11px; }
+.dze-rev-drop {
+	position: absolute; top: 4px; right: 4px; border: none; background: none;
+	color: #a7aaad; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
+}
+.dze-rev-drop:hover { color: #b32d2e; }
+.dze-rev-ptext { font-size: 12px !important; }
+.dze-rev-status { font-size: 12px; margin-left: 6px; }
+#dze-rev-modal .dze-cx-dialog { width: min(520px, 94vw); }
+#dze-rev-modal .dze-cx-body { padding: 12px 16px; }
+
+/* ---- Universal prompt registry (ACF-style editor) ---- */
+.dze-pr-table { margin-top: 10px; }
+.dze-pr-table td { vertical-align: top; padding-top: 12px; }
+.dze-pr-table textarea { width: 100% !important; box-sizing: border-box; font-size: 12px; }
+.dze-pr-table input[type="text"] { width: 100% !important; box-sizing: border-box; }
+.dze-pr-table .dze-pr-tokens { width: 60px !important; }
+.dze-pr-slug { display: block; margin-top: 3px; font-size: 10px; color: #646970; background: transparent; padding: 0; }
+.dze-pr-metakey { margin-top: 4px !important; }
+.dze-pr-inputs summary { cursor: pointer; color: #2271b1; font-size: 12px; }
+.dze-pr-inputs label { display: block; font-size: 12px; margin: 3px 0; }
+.dze-pr-inputs input[type="text"] { margin-top: 4px; font-size: 11px; }
+.dze-pr-del { color: #b32d2e !important; border-color: #f0c4c4 !important; }
+
+/* ---- POD module (separate side box + settings tab) ---- */
+.dze-pod-box #dze-pod-design-preview img {
+	max-width: 120px; height: auto; display: block; margin-bottom: 6px;
+	border: 1px solid #dcdcde; border-radius: 4px;
+	background: repeating-conic-gradient(#f0f0f1 0 25%, #fff 0 50%) 0 0 / 16px 16px; /* checkerboard = transparency visible */
+}
+.dze-pod-box .button { max-width: 100%; }
+.dze-pod-del { color: #b32d2e !important; }
+.dze-pod-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+.dze-pod-grid img {
+	width: 100%; height: auto; display: block; cursor: pointer;
+	border: 2px solid #dcdcde; border-radius: 4px; box-sizing: border-box;
+}
+.dze-pod-grid img:hover { border-color: #2271b1; }
+.dze-pod-grid img.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }

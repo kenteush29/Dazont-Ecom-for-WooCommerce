@@ -218,7 +218,7 @@ final class DZE_Marketing_Ai {
 		$in       = is_array( $value ) ? $value : [];
 		$existing = self::get_settings();
 
-		// The AI Settings page saves per tab: only overwrite the fields the
+		// The Settings page saves per tab: only overwrite the fields the
 		// submitted section actually carries, keep everything else as-is.
 		$section = (string) ( $in['section'] ?? 'all' );
 
@@ -347,8 +347,8 @@ final class DZE_Marketing_Ai {
 	public function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'AI Settings', 'dazont-ecom' ),
-			__( 'AI Settings', 'dazont-ecom' ),
+			__( 'Settings', 'dazont-ecom' ),
+			__( 'Settings', 'dazont-ecom' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_settings_page' ]
@@ -356,27 +356,43 @@ final class DZE_Marketing_Ai {
 	}
 
 	/**
-	 * Central "AI Settings" page, one tab per AI-powered function:
+	 * Central "Settings" page, one tab per AI-powered function:
 	 *   General          — API keys, models, monthly API usage graph.
 	 *   Product content  — upcoming content tools (placeholder).
-	 *   Product images   — Gemini prompt templates.
+	 *   Product images   — image prompt templates.
 	 *   Marketing events — calendar languages, countries, context and prompt.
 	 */
 	public function render_settings_page(): void {
-		$tabs = [
-			'general'  => __( 'General', 'dazont-ecom' ),
-			'sourcing' => __( 'Sourcing Assistant', 'dazont-ecom' ),
-			'content'  => __( 'Product content', 'dazont-ecom' ),
-			'images'   => __( 'Product images', 'dazont-ecom' ),
-			'events'   => __( 'Marketing events', 'dazont-ecom' ),
-		];
+		// A disabled module leaves NO trace: its settings tab disappears with it.
+		$mod_on = static fn( string $id ): bool => ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
+		$tabs   = [ 'general' => __( 'General', 'dazont-ecom' ) ];
+		if ( $mod_on( 'sourcing' ) ) {
+			$tabs['sourcing'] = __( 'Sourcing Assistant', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'content' ) ) {
+			$tabs['content'] = __( 'Product content', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'pod' ) ) {
+			$tabs['pod'] = __( 'POD', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'gmc_activation' ) ) {
+			$tabs['gmc_activation'] = __( 'GMC activation', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'category_content' ) ) {
+			$tabs['categories'] = __( 'Categories', 'dazont-ecom' );
+		}
+		if ( $mod_on( 'reviews' ) ) {
+			$tabs['reviews'] = __( 'Reviews', 'dazont-ecom' );
+		}
+		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
+		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		if ( ! isset( $tabs[ $tab ] ) ) {
 			$tab = 'general';
 		}
 
 		echo '<div class="wrap dze-wrap">';
-		echo '<h1>' . esc_html__( 'AI Settings', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html__( 'Settings', 'dazont-ecom' ) . '</h1>';
 		echo '<nav class="nav-tab-wrapper" style="margin-bottom:16px;">';
 		foreach ( $tabs as $key => $label ) {
 			printf(
@@ -389,25 +405,43 @@ final class DZE_Marketing_Ai {
 		echo '</nav>';
 
 		if ( 'general' === $tab ) {
-			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'API keys and models for every AI-powered feature of the plugin. The Anthropic key powers the Marketing calendar and the category "AI insights"; the Google Gemini key powers the AI Product Images generator. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
+			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
-			if ( class_exists( 'DZE_Product_Images' ) ) {
+			// The fal key lives in Content settings but also powers POD.
+			if ( class_exists( 'DZE_Content' ) && ( $mod_on( 'content' ) || $mod_on( 'pod' ) ) ) {
 				echo '<hr style="margin:28px 0;" />';
-				echo '<h2>' . esc_html__( 'Google Gemini', 'dazont-ecom' ) . '</h2>';
-				DZE_Product_Images::instance()->render_settings_section( 'keys' );
+				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
+				DZE_Content::instance()->render_key_field();
 			}
 			echo '<hr style="margin:28px 0;" />';
-			echo '<h2>' . esc_html__( 'API usage per month', 'dazont-ecom' ) . '</h2>';
+			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
 		} elseif ( 'sourcing' === $tab ) {
 			$this->render_sourcing_settings();
 		} elseif ( 'content' === $tab ) {
-			echo '<h2>' . esc_html__( 'Product content (coming soon)', 'dazont-ecom' ) . '</h2>';
-			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'AI product content tools (descriptions, titles, SEO texts) will be configured here. The brand tone set under Marketing events will be reused by these tools.', 'dazont-ecom' ) . '</p>';
-		} elseif ( 'images' === $tab ) {
-			if ( class_exists( 'DZE_Product_Images' ) ) {
-				DZE_Product_Images::instance()->render_settings_section( 'prompts' );
+			if ( class_exists( 'DZE_Content' ) && $mod_on( 'content' ) ) {
+				DZE_Content::instance()->render_settings_section();
+			}
+		} elseif ( 'pod' === $tab ) {
+			if ( class_exists( 'DZE_Pod' ) && $mod_on( 'pod' ) ) {
+				DZE_Pod::instance()->render_settings();
+			}
+		} elseif ( 'gmc_activation' === $tab ) {
+			if ( class_exists( 'DZE_Gmc_Activation' ) && $mod_on( 'gmc_activation' ) ) {
+				DZE_Gmc_Activation::instance()->render_settings();
+			}
+		} elseif ( 'categories' === $tab ) {
+			if ( class_exists( 'DZE_Category_Content' ) && $mod_on( 'category_content' ) ) {
+				DZE_Category_Content::instance()->render_settings();
+			}
+		} elseif ( 'reviews' === $tab ) {
+			if ( class_exists( 'DZE_Reviews' ) && $mod_on( 'reviews' ) ) {
+				DZE_Reviews::instance()->render_settings();
+			}
+		} elseif ( 'modules' === $tab ) {
+			if ( class_exists( 'DZE_Modules' ) ) {
+				DZE_Modules::instance()->render_tab();
 			}
 		} else { // events.
 			$this->render_settings_section( 'events' );
@@ -480,7 +514,10 @@ final class DZE_Marketing_Ai {
 							<pre class="description" style="white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 10px;">BEFORE your rules: the category name, the product list (id | title | attributes) and the query batch (id. query (volume)).
 AFTER your rules: Output: JSON array of {"id":&lt;query id&gt;,"t":"category|product|info","s":"covered|variation|gap|ignored","p":[product ids]} for every query id listed.</pre>
 						</details>
-						<p class="description"><?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?></p>
+						<p class="description">
+							<?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-match-rules">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
 					</td>
 				</tr>
 				<tr>
@@ -498,12 +535,29 @@ OUTPUT FORMAT (fixed so the report always renders):
 "ideas": 5-15 product ideas absent from BOTH the catalogue and the query list {product, why}.
 A safety filter also removes suggestions matching an existing product title.</pre>
 						</details>
-						<p class="description"><?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?></p>
+						<p class="description">
+							<?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-report-guidance">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
 					</td>
 				</tr>
 			</table>
 			<?php submit_button(); ?>
 		</form>
+		<script>
+		jQuery( function ( $ ) {
+			// Refill a prompt textarea with its SHIPPED default (saved on submit;
+			// storing the exact default text is stored as "use the default").
+			var dzeDefaults = {
+				'dze-mai-match-rules': <?php echo wp_json_encode( class_exists( 'DZE_Keywords' ) ? DZE_Keywords::DEFAULT_MATCH_RULES : '' ); ?>,
+				'dze-mai-report-guidance': <?php echo wp_json_encode( class_exists( 'DZE_Explorer' ) ? DZE_Explorer::DEFAULT_REPORT_GUIDANCE : '' ); ?>
+			};
+			$( '.dze-mai-restore' ).on( 'click', function () {
+				var id = $( this ).data( 'target' );
+				if ( dzeDefaults[ id ] ) { $( '#' + id ).val( dzeDefaults[ id ] ); }
+			} );
+		} );
+		</script>
 		<?php
 	}
 
@@ -856,6 +910,52 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			throw new RuntimeException( __( 'The AI returned no usable events in this date range. Try a wider range.', 'dazont-ecom' ) );
 		}
 		return $clean;
+	}
+
+	/**
+	 * Reusable text completion for other modules (content generation, …). Shares
+	 * the API key, budget guard, model list and usage tracking. Throws on error.
+	 */
+	public static function complete( string $system, string $user, string $model = '', int $max_tokens = 2000, int $timeout = 90 ): string {
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$key = self::api_key();
+		if ( '' === $key ) {
+			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
+		}
+		$model    = '' !== $model ? $model : self::chosen_model();
+		$response = wp_remote_post( self::API_URL, [
+			'timeout' => max( 30, $timeout ),
+			'headers' => [
+				'x-api-key'         => $key,
+				'anthropic-version' => self::API_VERSION,
+				'content-type'      => 'application/json',
+			],
+			'body'    => wp_json_encode( [
+				'model'      => $model,
+				'max_tokens' => max( 64, $max_tokens ),
+				'system'     => $system,
+				'messages'   => [ [ 'role' => 'user', 'content' => $user ] ],
+			] ),
+		] );
+		if ( is_wp_error( $response ) ) {
+			throw new RuntimeException( $response->get_error_message() );
+		}
+		$code = wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( $code < 200 || $code >= 300 ) {
+			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
+		}
+		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
+		$text = '';
+		foreach ( (array) ( $data['content'] ?? [] ) as $block ) {
+			if ( ( $block['type'] ?? '' ) === 'text' ) {
+				$text .= (string) ( $block['text'] ?? '' );
+			}
+		}
+		return trim( $text );
 	}
 
 	private function call_claude( string $system, string $user ): string {
