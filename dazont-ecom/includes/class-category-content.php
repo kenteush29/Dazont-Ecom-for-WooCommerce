@@ -29,8 +29,12 @@ final class DZE_Category_Content {
 	/** Cached verdict of the question sifting pass, per category. */
 	private const Q_META   = '_dze_cc_questions';
 
-	/** How many sitemap URLs are kept in cache; each run uses a handful. */
-	private const SITEMAP_KEEP = 400;
+	/**
+	 * How many sitemap URLs are kept in cache. Each description uses a
+	 * handful, picked by relevance, but the pool has to hold the whole site
+	 * for that pick to mean anything.
+	 */
+	private const SITEMAP_KEEP = 2500;
 
 	private static ?self $instance = null;
 
@@ -102,7 +106,7 @@ final class DZE_Category_Content {
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v2' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v3' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -280,7 +284,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v2', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v3', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -293,7 +297,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v2' );
+		$cached = get_transient( 'dze_cc_sitemap_v3' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -324,23 +328,47 @@ final class DZE_Category_Content {
 		}
 		$locs = [];
 		preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $body, $m );
-		$first = $m[1] ?? [];
+		$first    = $m[1] ?? [];
+		$children = 0;
+		$read     = 0;
+		$skipped  = 0;
 		if ( false !== stripos( $body, '<sitemapindex' ) ) {
-			// Index: follow the child sitemaps worth linking to. Pages and
-			// category sitemaps first, then the blog; the product sitemap is
-			// left for last, individual products are not link targets here.
-			$score = static function ( string $u ): int {
-				if ( preg_match( '#product[-_]?sitemap|/product/#i', $u ) ) {
-					return 3;
+			// An index: every child is followed, not a handful of them. Rank Math
+			// and Yoast split by post type AND by chunks of 200, so a shop easily
+			// publishes a dozen — reading five of them was why the count came
+			// back far short of what the sitemap actually holds.
+			//
+			// The product sitemaps are the exception, and they are skipped on
+			// purpose: an individual product is never a link target here, the
+			// category page already lists it, and they are also the longest.
+			$queue = [];
+			foreach ( $first as $child ) {
+				if ( preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) ) {
+					++$skipped;
+					continue;
 				}
+				$queue[] = $child;
+			}
+			// Pages and categories first, then the blog: if the deadline below
+			// cuts the run short, what was read is what matters most.
+			$score = static function ( string $u ): int {
 				if ( preg_match( '/categor|product.cat|page/i', $u ) ) {
 					return 0;
 				}
 				return preg_match( '/post|blog|article|news/i', $u ) ? 1 : 2;
 			};
-			usort( $first, static fn( $a, $b ) => $score( $a ) <=> $score( $b ) );
-			foreach ( array_slice( $first, 0, 5 ) as $child ) {
+			usort( $queue, static fn( $a, $b ) => $score( $a ) <=> $score( $b ) );
+			$children = count( $queue );
+			// Time budget rather than a fixed number of files: a slow server
+			// stops the run instead of holding a worker for minutes, and the
+			// next daily read picks up where this one stopped.
+			$deadline = microtime( true ) + 25;
+			foreach ( $queue as $child ) {
+				if ( microtime( true ) > $deadline ) {
+					break;
+				}
 				$sub = $fetch( $child, 6 );
+				++$read;
 				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
 					$locs = array_merge( $locs, $mm[1] );
 				}
@@ -356,9 +384,6 @@ final class DZE_Category_Content {
 				continue;
 			}
 			++$found;
-			// A big shop has thousands of URLs; keeping them all would bloat the
-			// cache for nothing, since each description uses a handful. The kept
-			// ones are picked per category, by relevance, in link_pool().
 			if ( count( $urls ) >= self::SITEMAP_KEEP ) {
 				continue;
 			}
@@ -370,11 +395,14 @@ final class DZE_Category_Content {
 			];
 		}
 		return [
-			'urls'    => $urls,
-			'status'  => $urls ? 'ok' : 'empty',
-			'count'   => count( $urls ),
-			'found'   => $found,
-			'checked' => time(),
+			'urls'     => $urls,
+			'status'   => $urls ? 'ok' : 'empty',
+			'count'    => count( $urls ),
+			'found'    => $found,
+			'children' => $children,
+			'read'     => $read,
+			'skipped'  => $skipped,
+			'checked'  => time(),
 		];
 	}
 
@@ -1029,23 +1057,51 @@ PROMPT;
 		}
 		$s = $state;
 		if ( 'ok' === $s['status'] ) {
-			$found = (int) ( $s['found'] ?? $s['count'] );
-			$badge = '<span class="dze-key-badge is-set">&#10003; ' . (
-				$found > (int) $s['count']
+			$found  = (int) ( $s['found'] ?? $s['count'] );
+			$kept   = (int) $s['count'];
+			$read   = (int) ( $s['read'] ?? 0 );
+			$total  = (int) ( $s['children'] ?? 0 );
+			$parts  = [];
+			$parts[] = $kept < $found
+				? sprintf(
+					/* translators: 1: URLs found, 2: URLs kept */
+					esc_html__( '%1$s URLs found, %2$s kept as link candidates', 'dazont-ecom' ),
+					number_format_i18n( $found ),
+					number_format_i18n( $kept )
+				)
+				: sprintf(
+					/* translators: %s: number of URLs */
+					esc_html__( '%s URLs', 'dazont-ecom' ),
+					number_format_i18n( $found )
+				);
+			if ( $total ) {
+				$parts[] = $read < $total
 					? sprintf(
-						/* translators: 1: URLs found in the sitemap, 2: URLs kept, 3: human time diff */
-						esc_html__( 'Sitemap connected — %1$s URLs found, %2$s kept as link candidates, read %3$s ago', 'dazont-ecom' ),
-						$found,
-						(int) $s['count'],
-						esc_html( human_time_diff( (int) $s['checked'] ) )
+						/* translators: 1: sub-sitemaps read, 2: sub-sitemaps found */
+						esc_html__( '%1$s of %2$s sub-sitemaps read so far, the rest on the next daily check', 'dazont-ecom' ),
+						number_format_i18n( $read ),
+						number_format_i18n( $total )
 					)
 					: sprintf(
-						/* translators: 1: page count, 2: human time diff */
-						esc_html__( 'Sitemap connected — %1$s pages read %2$s ago', 'dazont-ecom' ),
-						(int) $s['count'],
-						esc_html( human_time_diff( (int) $s['checked'] ) )
-					)
-			) . '</span>';
+						/* translators: %s: number of sub-sitemaps */
+						esc_html__( '%s sub-sitemaps read', 'dazont-ecom' ),
+						number_format_i18n( $total )
+					);
+			}
+			if ( ! empty( $s['skipped'] ) ) {
+				$parts[] = sprintf(
+					/* translators: %s: number of product sitemaps skipped */
+					esc_html__( '%s product sitemap(s) skipped — a product is never a link target here', 'dazont-ecom' ),
+					number_format_i18n( (int) $s['skipped'] )
+				);
+			}
+			$parts[] = sprintf(
+				/* translators: %s: human time diff */
+				esc_html__( 'read %s ago', 'dazont-ecom' ),
+				esc_html( human_time_diff( (int) $s['checked'] ) )
+			);
+			$badge = '<span class="dze-key-badge is-set">&#10003; '
+				. esc_html__( 'Sitemap connected', 'dazont-ecom' ) . ' — ' . implode( ' · ', $parts ) . '</span>';
 			if ( '' !== $src ) {
 				/* translators: %s: name of the plugin publishing the sitemap */
 				$badge .= ' <span class="description">' . sprintf( esc_html__( 'found on its own from %s', 'dazont-ecom' ), esc_html( $src ) ) . '</span>';
@@ -1656,6 +1712,9 @@ PROMPT;
 	 */
 	public function ajax_sitemap_test(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a full index takes a moment.
+		}
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
