@@ -359,7 +359,7 @@ final class DZE_Marketing_Ai {
 	 * Central "Settings" page, one tab per AI-powered function:
 	 *   General          — API keys, models, monthly API usage graph.
 	 *   Product content  — upcoming content tools (placeholder).
-	 *   Product images   — Gemini prompt templates.
+	 *   Product images   — image prompt templates.
 	 *   Marketing events — calendar languages, countries, context and prompt.
 	 */
 	public function render_settings_page(): void {
@@ -415,7 +415,7 @@ final class DZE_Marketing_Ai {
 				DZE_Content::instance()->render_key_field();
 			}
 			echo '<hr style="margin:28px 0;" />';
-			echo '<h2>' . esc_html__( 'API usage per month', 'dazont-ecom' ) . '</h2>';
+			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
 		} elseif ( 'sourcing' === $tab ) {
 			$this->render_sourcing_settings();

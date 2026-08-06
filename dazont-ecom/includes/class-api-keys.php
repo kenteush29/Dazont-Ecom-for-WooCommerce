@@ -3,7 +3,7 @@ defined( 'ABSPATH' ) || exit;
 
 /**
  * API key status + live test, shared by every provider field (Anthropic,
- * Google Gemini, fal.ai). Renders a badge that makes a saved key obvious —
+ * fal.ai). Renders a badge that makes a saved key obvious —
  * first characters visible, the rest masked — plus a "Test key" button that
  * checks the SAVED key against the provider with a free/cheap request.
  *
@@ -30,7 +30,7 @@ final class DZE_Api_Keys {
 	}
 
 	/**
-	 * Status badge + test button for a provider ('anthropic'|'gemini'|'fal').
+	 * Status badge + test button for a provider ('anthropic'|'fal').
 	 * $key is the currently saved key ('' = none), $locked = set via constant.
 	 */
 	public static function status_html( string $provider, string $key, bool $locked = false ): string {
@@ -86,15 +86,6 @@ final class DZE_Api_Keys {
 					'headers' => [ 'x-api-key' => $key, 'anthropic-version' => '2023-06-01' ],
 				] );
 				self::respond( $resp, [ 200 ], __( 'Anthropic key is valid — model list reachable.', 'dazont-ecom' ) );
-				break;
-
-			case 'gemini':
-				$key = class_exists( 'DZE_Product_Images' ) ? DZE_Product_Images::api_key() : '';
-				if ( '' === $key ) {
-					wp_send_json_error( [ 'message' => __( 'No key saved.', 'dazont-ecom' ) ] );
-				}
-				$resp = wp_remote_get( 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=' . rawurlencode( $key ), [ 'timeout' => 15 ] );
-				self::respond( $resp, [ 200 ], __( 'Gemini key is valid — model list reachable.', 'dazont-ecom' ) );
 				break;
 
 			case 'fal':
