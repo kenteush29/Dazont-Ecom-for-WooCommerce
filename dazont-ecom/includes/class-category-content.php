@@ -1468,7 +1468,7 @@ PROMPT;
 			$names[ untrailingslashit( $l['url'] ) ] = $l['label'];
 		}
 		?>
-		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
+		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-qnonce="<?php echo esc_attr( class_exists( 'DZE_Queue' ) ? wp_create_nonce( DZE_Queue::NONCE ) : '' ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
 			<p class="description" style="margin-top:0;">
 				<?php if ( $has ) : ?>
 					<?php
@@ -1566,11 +1566,6 @@ PROMPT;
 						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
-				<?php if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) : ?>
-					<button type="button" class="button dze-cc-queue" data-kind="cat_desc" data-nonce="<?php echo esc_attr( wp_create_nonce( DZE_Queue::NONCE ) ); ?>" title="<?php esc_attr_e( 'Writes it in the background instead of here, so a slow host cannot cut the run off. You review it in the writing queue.', 'dazont-ecom' ); ?>">
-						<?php esc_html_e( 'Write in the background', 'dazont-ecom' ); ?>
-					</button>
-				<?php endif; ?>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
 				<?php if ( $imp ) : ?>
@@ -1584,21 +1579,19 @@ PROMPT;
 			// linked targets are shown ticked and disabled, the rest is ticked
 			// down to the figure this category is worth.
 			$linked = array_flip( array_map( 'untrailingslashit', self::linked_urls( $desc ) ) );
-			$budget = max( 0, (int) $size['links'] - count( $linked ) );
-			$picked = 0;
 			?>
 			<div class="dze-cc-picker" style="display:none;">
 				<p class="description" style="margin:0 0 6px;">
-					<?php esc_html_e( 'Pick the pages this description should link to. Nothing is written until you launch it.', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Everything related to this category is selected — sub-categories, sibling categories, blog posts and pages that talk about it. Untick what you do not want, then launch. Nothing is written until you save.', 'dazont-ecom' ); ?>
 				</p>
 				<ul class="dze-cc-picklist">
 					<?php foreach ( $links as $l ) :
-						$key  = untrailingslashit( $l['url'] );
-						$got  = isset( $linked[ $key ] );
-						$tick = ! $got && $picked < $budget;
-						if ( $tick ) {
-							++$picked;
-						}
+						$key = untrailingslashit( $l['url'] );
+						$got = isset( $linked[ $key ] );
+						// Everything close to this category starts ticked, blog
+						// posts and pages included: they are here because they
+						// already matched it. Untick what you do not want.
+						$tick = ! $got;
 						?>
 						<li>
 							<label>
@@ -1696,14 +1689,10 @@ PROMPT;
 
 				<p style="margin-top:10px;">
 					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Save the description', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Undo changes', 'dazont-ecom' ); ?></button>
-					<?php if ( $term && ! is_wp_error( $term ) ) : ?>
-						<a class="button" href="<?php echo esc_url( (string) get_edit_term_link( $term_id, 'product_cat' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open the category', 'dazont-ecom' ); ?></a>
-					<?php endif; ?>
+					<span class="description"><?php esc_html_e( 'Nothing is written to the category until you save. Close the window to leave it as it is.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php else : ?>
 				<p style="margin-top:10px;">
-					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Undo changes', 'dazont-ecom' ); ?></button>
 					<span class="description"><?php esc_html_e( 'The result lands in the Description field above. Nothing is saved until you press Update.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php endif; ?>
@@ -1825,6 +1814,7 @@ PROMPT;
 				/* translators: %s: HTTP status code */
 				'serverError' => __( 'The server answered with an error (HTTP %s). Look at your host\'s PHP error log for the reason.', 'dazont-ecom' ),
 				'expired'     => __( 'This page has been open too long and the security token expired — reload it.', 'dazont-ecom' ),
+				'queuedShort' => __( 'waiting for the writer…', 'dazont-ecom' ),
 				'queued'      => __( 'Queued — it is being written in the background. %s', 'dazont-ecom' ),
 				'queueLink'   => __( 'Follow it in the writing queue', 'dazont-ecom' ),
 				'queueDup'    => __( 'This category is already waiting in the queue.', 'dazont-ecom' ),

@@ -263,47 +263,19 @@
 			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
 	});
 
-	// Nothing is written to the category before Apply.
+	// Nothing is written to the category before Save.
 	$(document).on('click', '.dze-cc-gen', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.working));
-		var stop = ticker($st, i18n.working);
 		var $p = $box.find('.dze-cc-pwrap');
-		$.ajax({ url: cfg.ajaxUrl, method: 'POST', timeout: LONG, data: {
-			action: 'dze_cc_generate', nonce: $box.data('nonce'), term: $box.data('term'),
-			prompt: $p.is(':visible') ? ($box.find('.dze-cc-ptext').val() || '') : ''
-		} })
-			.done(function (res) {
-				stop();
-				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#646970').text(i18n.review);
-				editorSet(edId($box), res.data.html); // nothing saved yet — the editor holds it.
-				refreshLinks($box);
-				showDiff($box);
-			})
-			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
-	});
-
-	// Hand the job to the background worker instead of running it here: a long
-	// description is exactly what a host cuts off at 60 seconds.
-	$(document).on('click', '.dze-cc-queue', function () {
-		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_q_add', nonce: $btn.data('nonce'),
-			kind: $btn.data('kind'), id: $box.data('term')
-		})
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				if (!res.data.added) { $st.css('color', '#8a6d00').text(i18n.queueDup); return; }
-				$st.css('color', '#0a7040').html(sprintf(
-					esc(i18n.queued),
-					'<a href="' + esc(res.data.url) + '">' + esc(i18n.queueLink) + '</a>'
-				));
-			})
-			.fail(function (xhr, status) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
+		var prompt = $p.is(':visible') ? ($box.find('.dze-cc-ptext').val() || '') : '';
+		runJob($box, 'cat_desc', [], i18n.working, function (ok, html) {
+			$btn.prop('disabled', false);
+			if (!ok) { return; }
+			editorSet(edId($box), html);
+			refreshLinks($box);
+			showDiff($box);
+			$box.find('.dze-cc-status').css('color', '#646970').text(i18n.review);
+		}, prompt);
 	});
 
 	// ---- Choosing the links before they are placed ----
@@ -370,26 +342,15 @@
 	// Linking-only pass: the text stays, links come in. Still nothing saved.
 	$(document).on('click', '.dze-cc-links', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.linking));
-		var stop = ticker($st, i18n.linking);
 		var urls = $box.find('.dze-cc-pick:checked:not(:disabled)').map(function () { return this.value; }).get();
-		$.ajax({ url: cfg.ajaxUrl, method: 'POST', timeout: LONG, data: {
-			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'),
-			html: editorGet(edId($box)), urls: urls
-		} })
-			.done(function (res) {
-				stop();
-				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				editorSet(edId($box), res.data.html);
-				refreshLinks($box);
-				markPlaced($box);
-				showDiff($box);
-				$st.css('color', '#646970').text(res.data.added
-					? sprintf(i18n.linked, res.data.added, res.data.after)
-					: i18n.linkedNone);
-			})
-			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
+		runJob($box, 'cat_links', urls, i18n.linking, function (ok, html) {
+			$btn.prop('disabled', false);
+			if (!ok) { return; }
+			editorSet(edId($box), html);
+			refreshLinks($box);
+			markPlaced($box);
+			showDiff($box);
+		});
 	});
 
 	$(document).on('click', '.dze-cc-apply', function () {

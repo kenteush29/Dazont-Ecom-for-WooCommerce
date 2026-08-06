@@ -62,6 +62,7 @@ final class DZE_Queue {
 		add_action( 'wp_ajax_dze_q_decide', [ $this, 'ajax_decide' ] );
 		add_action( 'wp_ajax_dze_q_clear', [ $this, 'ajax_clear' ] );
 		add_action( 'wp_ajax_dze_q_add', [ $this, 'ajax_add' ] );
+		add_action( 'wp_ajax_dze_q_job', [ $this, 'ajax_job' ] );
 	}
 
 	public static function table(): string {
@@ -223,7 +224,7 @@ final class DZE_Queue {
 			throw new RuntimeException( __( 'The Category descriptions module is switched off.', 'dazont-ecom' ) );
 		}
 		if ( 'cat_desc' === $kind ) {
-			return DZE_Category_Content::generate( $object_id );
+			return DZE_Category_Content::generate( $object_id, (string) ( $payload['prompt'] ?? '' ) );
 		}
 		if ( 'cat_links' === $kind ) {
 			$term = get_term( $object_id, 'product_cat' );
@@ -443,10 +444,51 @@ final class DZE_Queue {
 		$urls = isset( $_POST['urls'] ) && is_array( $_POST['urls'] )
 			? array_map( 'esc_url_raw', array_map( 'wp_unslash', $_POST['urls'] ) )
 			: [];
-		$n = self::add( $kind, [ $id ], false, $urls ? [ 'urls' => $urls ] : [] );
+		global $wpdb;
+		$payload = [];
+		if ( $urls ) {
+			$payload['urls'] = $urls;
+		}
+		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
+		if ( '' !== trim( $prompt ) ) {
+			$payload['prompt'] = $prompt;
+		}
+		$n = self::add( $kind, [ $id ], false, $payload );
+		// Follow this exact job, whether it was just added or already waiting.
+		$job = (int) $wpdb->get_var( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"SELECT id FROM " . self::table() . " WHERE kind = %s AND object_id = %d AND status IN ('queued','running','review') ORDER BY id DESC LIMIT 1",
+			$kind,
+			$id
+		) );
 		wp_send_json_success( [
 			'added' => $n,
+			'job'   => $job,
 			'url'   => add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ),
+		] );
+	}
+
+	/** One job's state, for a panel waiting on its own run. */
+	public function ajax_job(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		global $wpdb;
+		$id  = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		$job = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		if ( ! $job ) {
+			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
+		}
+		// A queued job that nothing has picked up yet gets a nudge: on a host
+		// without a working cron, the panel itself becomes the trigger.
+		if ( 'queued' === $job['status'] ) {
+			self::kick();
+		}
+		wp_send_json_success( [
+			'status' => (string) $job['status'],
+			'html'   => 'review' === $job['status'] || 'applied' === $job['status'] ? (string) $job['result'] : '',
+			'error'  => (string) ( $job['error'] ?? '' ),
 		] );
 	}
 
