@@ -10,6 +10,10 @@
 	var cfg = dzeQueue, i18n = cfg.i18n, timer = null, EDITOR = 'dze-q-editor';
 
 	function esc(s) { return $('<div>').text(s == null ? '' : s).html(); }
+	function sprintf(str) {
+		var args = Array.prototype.slice.call(arguments, 1), i = 0;
+		return String(str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
+	}
 
 	var LABELS = {
 		queued: 'waiting', running: 'writing…', review: 'to review',
@@ -20,11 +24,24 @@
 		applied: '#0a7040', failed: '#b32d2e', skipped: '#787c82'
 	};
 
+	// Ticks survive a refresh: the list redraws every few seconds while the
+	// queue runs, and losing a selection mid-review would be maddening.
+	var sel = {};
+
+	function selection() {
+		return Object.keys(sel).filter(function (k) { return sel[k]; });
+	}
+	function drawBulk() {
+		var n = selection().length;
+		$('#dze-q-bulkbar').toggle(n > 0);
+		$('#dze-q-selcount').text(sprintf(i18n.selected, n));
+	}
+
 	function draw(res) {
 		var rows = res.rows || [], c = res.counts || {};
 		var $b = $('#dze-q-table tbody').empty();
 		if (!rows.length) {
-			$b.append('<tr><td colspan="4">' + esc('Nothing in the queue.') + '</td></tr>');
+			$b.append('<tr><td colspan="5">' + esc(i18n.empty) + '</td></tr>');
 		}
 		rows.forEach(function (r) {
 			// Every row can be acted on: a run that went wrong is retried or
@@ -44,7 +61,9 @@
 			if (r.status === 'running' && r.progress) { state += ' <span class="description">' + esc(r.progress) + '</span>'; }
 			if (r.status === 'failed' && r.error) { state += '<br /><span class="description">' + esc(r.error) + '</span>'; }
 			$b.append(
-				'<tr><td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.kind) + '</td>' +
+				'<tr><th scope="row" class="check-column"><input type="checkbox" class="dze-q-pick" value="' + r.id +
+					'" data-status="' + esc(r.status) + '"' + (sel[r.id] ? ' checked' : '') + ' /></th>' +
+				'<td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.kind) + '</td>' +
 				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + state + '</td>' +
 				'<td>' + act.join(' ') + '</td></tr>'
 			);
@@ -53,6 +72,7 @@
 			(c.queued || 0) + ' waiting · ' + (c.review || 0) + ' to review · ' +
 			(c.applied || 0) + ' saved · ' + (c.failed || 0) + ' failed'
 		);
+		drawBulk();
 		// Keep watching only while there is something moving.
 		if (timer && !(c.queued || c.running)) { stopWatch(); }
 	}
@@ -105,6 +125,35 @@
 			var $b = $(this).prop('disabled', true);
 			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'remove' })
 				.always(function () { $b.prop('disabled', false); refresh(); });
+		});
+		$(document).on('change', '.dze-q-pick', function () {
+			sel[this.value] = this.checked;
+			drawBulk();
+		});
+		$(document).on('change', '#dze-q-all', function () {
+			var on = this.checked;
+			$('.dze-q-pick').each(function () {
+				this.checked = on;
+				sel[this.value] = on;
+			});
+			drawBulk();
+		});
+		$(document).on('click', '.dze-q-bulk', function () {
+			var todo = $(this).data('do'), ids = selection();
+			if (!ids.length) { return; }
+			if (todo === 'accept' && !window.confirm(sprintf(i18n.confirmAccept, ids.length))) { return; }
+			if ((todo === 'remove' || todo === 'discard') && !window.confirm(sprintf(i18n.confirmDrop, ids.length))) { return; }
+			var $b = $('.dze-q-bulk').prop('disabled', true);
+			$('#dze-q-bulkstatus').html('<span class="dze-cx-spin"></span>');
+			$.post(cfg.ajaxUrl, { action: 'dze_q_bulk', nonce: cfg.nonce, do: todo, ids: ids })
+				.done(function (res) {
+					$b.prop('disabled', false);
+					$('#dze-q-bulkstatus').text((res && res.data && res.data.message) || i18n.error);
+					sel = {};
+					$('#dze-q-all').prop('checked', false);
+					refresh();
+				})
+				.fail(function () { $b.prop('disabled', false); $('#dze-q-bulkstatus').text(i18n.error); });
 		});
 		$('#dze-q-clear').on('click', function () {
 			if (!window.confirm(i18n.confirm)) { return; }

@@ -64,6 +64,7 @@ final class DZE_Queue {
 		add_action( 'wp_ajax_dze_q_add', [ $this, 'ajax_add' ] );
 		add_action( 'wp_ajax_dze_q_job', [ $this, 'ajax_job' ] );
 		add_action( 'wp_ajax_dze_q_action', [ $this, 'ajax_job_action' ] );
+		add_action( 'wp_ajax_dze_q_bulk', [ $this, 'ajax_bulk' ] );
 	}
 
 	public static function table(): string {
@@ -451,6 +452,13 @@ final class DZE_Queue {
 				'review'   => __( 'Review', 'dazont-ecom' ),
 				'retry'    => __( 'Retry', 'dazont-ecom' ),
 				'remove'   => __( 'Remove', 'dazont-ecom' ),
+				'empty'    => __( 'Nothing in the queue.', 'dazont-ecom' ),
+				/* translators: %s: number of rows ticked */
+				'selected' => __( '%s selected:', 'dazont-ecom' ),
+				/* translators: %s: number of texts */
+				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'confirmDrop'   => __( 'Drop %s jobs? What they wrote is lost.', 'dazont-ecom' ),
 				'confirm'  => __( 'Remove every finished and failed job from this list?', 'dazont-ecom' ),
 				'applying' => __( 'Saving…', 'dazont-ecom' ),
 				'applied'  => __( 'Saved ✓', 'dazont-ecom' ),
@@ -469,14 +477,23 @@ final class DZE_Queue {
 				<button type="button" class="button" id="dze-q-clear"><?php esc_html_e( 'Clear finished', 'dazont-ecom' ); ?></button>
 				<span id="dze-q-counts" class="description"></span>
 			</p>
+			<p id="dze-q-bulkbar" style="display:none;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 12px;">
+				<strong id="dze-q-selcount"></strong>
+				<button type="button" class="button button-primary dze-q-bulk" data-do="accept"><?php esc_html_e( 'Accept and save', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button dze-q-bulk" data-do="discard"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button dze-q-bulk" data-do="retry"><?php esc_html_e( 'Retry', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button-link dze-q-bulk" data-do="remove" style="color:#b32d2e;"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
+				<span id="dze-q-bulkstatus" class="description"></span>
+			</p>
 			<table class="wp-list-table widefat fixed striped" id="dze-q-table">
 				<thead><tr>
-					<th style="width:32%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
+					<td class="check-column" style="width:2.2em;padding:8px 0 8px 3px;"><input type="checkbox" id="dze-q-all" /></td>
+					<th style="width:30%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
 					<th style="width:22%;"><?php esc_html_e( 'Job', 'dazont-ecom' ); ?></th>
 					<th style="width:16%;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 					<th><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
 				</tr></thead>
-				<tbody><tr><td colspan="4"><span class="dze-cx-spin"></span></td></tr></tbody>
+				<tbody><tr><td colspan="5"><span class="dze-cx-spin"></span></td></tr></tbody>
 			</table>
 		</div>
 		<div class="dze-cx-modal" id="dze-q-modal"><div class="dze-cx-dialog" style="width:min(860px,94vw);">
@@ -686,6 +703,84 @@ final class DZE_Queue {
 				number_format_i18n( max( 0, min( $total, $step + 1 ) ) ),
 				number_format_i18n( $total )
 			) : __( 'planning the page…', 'dazont-ecom' ),
+		] );
+	}
+
+	/**
+	 * The same decisions, taken on several jobs at once. Accepting in bulk
+	 * saves each result exactly as it was written — the per-item review is
+	 * where editing happens.
+	 */
+	public function ajax_bulk(): void {
+		$this->guard();
+		global $wpdb;
+		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
+		$ids = isset( $_POST['ids'] ) && is_array( $_POST['ids'] )
+			? array_values( array_filter( array_map( 'absint', wp_unslash( $_POST['ids'] ) ) ) )
+			: [];
+		if ( ! $ids ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing selected.', 'dazont-ecom' ) ] );
+		}
+		$table = self::table();
+		$now   = current_time( 'mysql' );
+		$ok    = 0;
+		$fail  = 0;
+
+		foreach ( $ids as $id ) {
+			$job = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			if ( ! $job ) {
+				continue;
+			}
+			switch ( $do ) {
+				case 'accept':
+					if ( 'review' !== $job['status'] ) {
+						continue 2;
+					}
+					$saved = self::apply( (string) $job['kind'], (int) $job['object_id'], (string) $job['result'] );
+					$wpdb->update( $table, [
+						'status'  => $saved ? 'applied' : 'failed',
+						'error'   => $saved ? null : __( 'Saving failed.', 'dazont-ecom' ),
+						'updated' => $now,
+					], [ 'id' => $id ] );
+					$saved ? $ok++ : $fail++;
+					break;
+
+				case 'discard':
+					$wpdb->update( $table, [ 'status' => 'skipped', 'updated' => $now ], [ 'id' => $id ] );
+					$ok++;
+					break;
+
+				case 'retry':
+					$wpdb->update( $table, [
+						'status'  => 'queued',
+						'result'  => null,
+						'error'   => null,
+						'payload' => null,
+						'updated' => $now,
+					], [ 'id' => $id ] );
+					$ok++;
+					break;
+
+				case 'remove':
+					$wpdb->delete( $table, [ 'id' => $id ] );
+					$ok++;
+					break;
+
+				default:
+					wp_send_json_error( [ 'message' => __( 'Unknown action.', 'dazont-ecom' ) ] );
+			}
+		}
+		if ( in_array( $do, [ 'retry', 'remove' ], true ) ) {
+			delete_transient( self::LOCK );
+			if ( 'retry' === $do ) {
+				self::kick();
+			}
+		}
+		wp_send_json_success( [
+			'done'    => $ok,
+			'failed'  => $fail,
+			/* translators: 1: jobs handled, 2: jobs that failed */
+			'message' => sprintf( __( '%1$s done, %2$s failed', 'dazont-ecom' ), number_format_i18n( $ok ), number_format_i18n( $fail ) ),
 		] );
 	}
 
