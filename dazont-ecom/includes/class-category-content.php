@@ -1399,7 +1399,7 @@ PROMPT;
 				'importing'   => __( 'Importing…', 'dazont-ecom' ),
 				'imported'    => __( '%1$s added · %2$s updated', 'dazont-ecom' ),
 				/* translators: 1: rows read from the file, 2: rows kept */
-				'trimmed'     => __( '%1$s rows read, %2$s kept (questions first, then the highest volumes)', 'dazont-ecom' ),
+				'trimmed'     => __( '%1$s rows read, %2$s kept (every question, plus an even spread of the rest — never the top volumes only)', 'dazont-ecom' ),
 				'colKeyword'  => __( 'Keyword', 'dazont-ecom' ),
 				'colVolume'   => __( 'Volume', 'dazont-ecom' ),
 				'colKd'       => __( 'KD', 'dazont-ecom' ),
