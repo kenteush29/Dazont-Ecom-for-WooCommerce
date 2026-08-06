@@ -263,6 +263,57 @@
 			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
 	});
 
+	// Every long run goes through the writing queue: the work happens in the
+	// background, so the host can never cut it off, and this panel simply
+	// follows its own job until the text comes back.
+	function runJob($box, kind, urls, label, done, prompt) {
+		var $st = $box.find('.dze-cc-status').css('color', '#646970');
+		var t0 = Date.now(), poll = null;
+		function tick(state) {
+			var sec = Math.round((Date.now() - t0) / 1000);
+			$st.html('<span class="dze-cx-spin"></span> ' + esc(state) + ' ' + sec + 's');
+		}
+		function stopPoll() { window.clearInterval(poll); poll = null; }
+		tick(i18n.queuedShort);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_q_add', nonce: $box.data('qnonce'),
+			kind: kind, id: $box.data('term'), urls: urls || [], prompt: prompt || ''
+		})
+			.done(function (res) {
+				if (!res || !res.success || !res.data.job) {
+					$st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					done(false);
+					return;
+				}
+				var job = res.data.job;
+				poll = window.setInterval(function () {
+					$.post(cfg.ajaxUrl, { action: 'dze_q_job', nonce: $box.data('qnonce'), id: job })
+						.done(function (r) {
+							if (!r || !r.success) { return; }
+							if (r.data.status === 'queued') { tick(i18n.queuedShort); return; }
+							if (r.data.status === 'running') { tick(label); return; }
+							stopPoll();
+							if (r.data.status === 'failed') {
+								$st.css('color', '#b32d2e').text(r.data.error || i18n.error);
+								done(false);
+								return;
+							}
+							$st.css('color', '#646970').text('');
+							done(true, r.data.html);
+						})
+						.fail(function (xhr, status) {
+							stopPoll();
+							$st.css('color', '#b32d2e').text(why(xhr, status));
+							done(false);
+						});
+				}, 3000);
+			})
+			.fail(function (xhr, status) {
+				$st.css('color', '#b32d2e').text(why(xhr, status));
+				done(false);
+			});
+	}
+
 	// Nothing is written to the category before Save.
 	$(document).on('click', '.dze-cc-gen', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);

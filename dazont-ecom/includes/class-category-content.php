@@ -1580,12 +1580,24 @@ PROMPT;
 				</div>
 			<?php endif; ?>
 
+			<?php
+			// Every run goes through the queue, so if that module is off the
+			// buttons would do nothing at all. Say it instead of failing quietly.
+			$q_on = class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
+			?>
+			<?php if ( ! $q_on ) : ?>
+				<div class="dze-cc-warn">
+					<p><strong><?php esc_html_e( 'The Writing queue module is switched off.', 'dazont-ecom' ); ?></strong></p>
+					<p><?php esc_html_e( 'Writing runs through it — in the background, so a long description cannot be cut off by the server. Switch it back on under Settings → Modules to generate anything here.', 'dazont-ecom' ); ?></p>
+				</div>
+			<?php endif; ?>
+
 			<p>
-				<button type="button" class="button button-primary dze-cc-gen">
+				<button type="button" class="button button-primary dze-cc-gen"<?php disabled( ! $q_on ); ?>>
 					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
 				</button>
 				<?php if ( $has && $size['links'] > 0 ) : ?>
-					<button type="button" class="button dze-cc-ltoggle-pick" title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
+					<button type="button" class="button dze-cc-ltoggle-pick"<?php disabled( ! $q_on ); ?> title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
 						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
