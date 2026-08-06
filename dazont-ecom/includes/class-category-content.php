@@ -27,6 +27,9 @@ final class DZE_Category_Content {
 	public const GEN_META  = '_dze_desc_generated';
 	public const CRON_HOOK = 'dze_cc_sitemap_check';
 
+	/** How many sitemap URLs are kept in cache; each run uses a handful. */
+	private const SITEMAP_KEEP = 400;
+
 	private static ?self $instance = null;
 
 	public static function instance(): self {
@@ -48,6 +51,8 @@ final class DZE_Category_Content {
 		add_filter( 'manage_edit-product_cat_columns', [ $this, 'add_column' ] );
 		add_filter( 'manage_product_cat_custom_column', [ $this, 'render_column' ], 10, 3 );
 		add_action( 'admin_footer-edit-tags.php', [ $this, 'list_modal' ] );
+		// Same writer on the single-category screen, under its Description field.
+		add_action( 'product_cat_edit_form', [ $this, 'edit_form_box' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		// AJAX.
 		add_action( 'wp_ajax_dze_cc_panel', [ $this, 'ajax_panel' ] );
@@ -88,7 +93,7 @@ final class DZE_Category_Content {
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v2' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -175,7 +180,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v2', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -188,7 +193,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap' );
+		$cached = get_transient( 'dze_cc_sitemap_v2' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -234,7 +239,7 @@ final class DZE_Category_Content {
 				return preg_match( '/post|blog|article|news/i', $u ) ? 1 : 2;
 			};
 			usort( $first, static fn( $a, $b ) => $score( $a ) <=> $score( $b ) );
-			foreach ( array_slice( $first, 0, 2 ) as $child ) {
+			foreach ( array_slice( $first, 0, 5 ) as $child ) {
 				$sub = $fetch( $child, 6 );
 				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
 					$locs = array_merge( $locs, $mm[1] );
@@ -243,10 +248,18 @@ final class DZE_Category_Content {
 		} else {
 			$locs = $first;
 		}
-		$urls = [];
+		$urls  = [];
+		$found = 0;
 		foreach ( $locs as $loc ) {
 			$loc = esc_url_raw( trim( $loc ) );
 			if ( '' === $loc || preg_match( '/\.xml($|\?)/i', $loc ) ) {
+				continue;
+			}
+			++$found;
+			// A big shop has thousands of URLs; keeping them all would bloat the
+			// cache for nothing, since each description uses a handful. The kept
+			// ones are picked per category, by relevance, in link_pool().
+			if ( count( $urls ) >= self::SITEMAP_KEEP ) {
 				continue;
 			}
 			$slug   = trim( (string) wp_parse_url( $loc, PHP_URL_PATH ), '/' );
@@ -255,14 +268,12 @@ final class DZE_Category_Content {
 				'url'   => $loc,
 				'kind'  => 'page',
 			];
-			if ( count( $urls ) >= 60 ) {
-				break;
-			}
 		}
 		return [
 			'urls'    => $urls,
 			'status'  => $urls ? 'ok' : 'empty',
 			'count'   => count( $urls ),
+			'found'   => $found,
 			'checked' => time(),
 		];
 	}
@@ -513,12 +524,28 @@ PROMPT;
 
 		// Last layer: anything else the sitemap knows about and WordPress does
 		// not serve here (another site section, a plugin-made landing page).
-		// Cache only — nobody waits on an HTTP call to build this list.
-		foreach ( ( self::sitemap_cached()['urls'] ?? [] ) as $page ) {
-			if ( count( $pool ) >= 40 ) {
-				break;
+		// Cache only — nobody waits on an HTTP call to build this list. A big
+		// sitemap holds thousands of URLs, so only the ones whose address talks
+		// about this category come in, best first.
+		$cached = self::sitemap_cached()['urls'] ?? [];
+		if ( $cached ) {
+			$kw     = self::keyword_pools( $term_id, $term->name );
+			$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
+			$ranked = [];
+			foreach ( $cached as $page ) {
+				$hits = $needle ? count( array_intersect( $needle, self::tokens( $page['url'] ) ) ) : 0;
+				if ( $hits > 0 ) {
+					$page['score'] = $hits;
+					$ranked[]      = $page;
+				}
 			}
-			$add( $page['label'], $page['url'], 'sitemap page' );
+			usort( $ranked, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
+			foreach ( array_slice( $ranked, 0, 8 ) as $page ) {
+				if ( count( $pool ) >= 40 ) {
+					break;
+				}
+				$add( $page['label'], $page['url'], 'sitemap page' );
+			}
 		}
 		return array_values( $pool );
 	}
@@ -711,11 +738,22 @@ PROMPT;
 		}
 		$s = $state;
 		if ( 'ok' === $s['status'] ) {
-			$badge = '<span class="dze-key-badge is-set">&#10003; ' . sprintf(
-				/* translators: 1: page count, 2: human time diff */
-				esc_html__( 'Sitemap connected — %1$s pages read %2$s ago', 'dazont-ecom' ),
-				(int) $s['count'],
-				esc_html( human_time_diff( (int) $s['checked'] ) )
+			$found = (int) ( $s['found'] ?? $s['count'] );
+			$badge = '<span class="dze-key-badge is-set">&#10003; ' . (
+				$found > (int) $s['count']
+					? sprintf(
+						/* translators: 1: URLs found in the sitemap, 2: URLs kept, 3: human time diff */
+						esc_html__( 'Sitemap connected — %1$s URLs found, %2$s kept as link candidates, read %3$s ago', 'dazont-ecom' ),
+						$found,
+						(int) $s['count'],
+						esc_html( human_time_diff( (int) $s['checked'] ) )
+					)
+					: sprintf(
+						/* translators: 1: page count, 2: human time diff */
+						esc_html__( 'Sitemap connected — %1$s pages read %2$s ago', 'dazont-ecom' ),
+						(int) $s['count'],
+						esc_html( human_time_diff( (int) $s['checked'] ) )
+					)
 			) . '</span>';
 			if ( '' !== $src ) {
 				/* translators: %s: name of the plugin publishing the sitemap */
@@ -853,7 +891,12 @@ PROMPT;
 	// Panel
 	// =========================================================================
 
-	public function render_panel( int $term_id ): void {
+	/**
+	 * The writer itself. $editor names the textarea the result is written to:
+	 * empty for the popup (which brings its own), or 'description' on the
+	 * category edit screen, where WordPress already shows one.
+	 */
+	public function render_panel( int $term_id, string $editor = '' ): void {
 		$term  = get_term( $term_id, 'product_cat' );
 		$kw    = self::keyword_pools( $term_id, $term ? $term->name : '' );
 		$links = self::link_pool( $term_id );
@@ -862,8 +905,10 @@ PROMPT;
 		$desc  = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
 		$words = str_word_count( wp_strip_all_tags( $desc ) );
 		$has   = '' !== trim( $desc );
+		$own   = '' === $editor; // popup: the panel owns its editor and saves itself.
+		$imp   = class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) );
 		?>
-		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>">
+		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
 			<p class="description" style="margin-top:0;">
 				<?php if ( $has ) : ?>
 					<?php
@@ -879,6 +924,28 @@ PROMPT;
 				<?php endif; ?>
 			</p>
 
+			<?php if ( ! $kw['total'] ) : ?>
+				<div class="dze-cc-warn">
+					<p><strong><?php esc_html_e( 'No SEMrush file imported for this category.', 'dazont-ecom' ); ?></strong></p>
+					<p><?php esc_html_e( 'The text can still be written, but its headings will come from the category name alone — no secondary query, no real buyer question. Import the export for this category to write on measured demand instead.', 'dazont-ecom' ); ?></p>
+					<?php if ( $imp ) : ?>
+						<p><button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import the SEMrush file', 'dazont-ecom' ); ?></button></p>
+					<?php else : ?>
+						<p class="description"><?php esc_html_e( 'Enable the Sourcing Assistant module to import keyword files.', 'dazont-ecom' ); ?></p>
+					<?php endif; ?>
+				</div>
+			<?php elseif ( ! $kw['questions'] ) : ?>
+				<div class="dze-cc-warn">
+					<p><?php
+					printf(
+						/* translators: %s: number of keywords imported */
+						esc_html__( '%s keywords imported, but not one of them is a question — the description will have no buyer-question heading. A wider export usually fixes it.', 'dazont-ecom' ),
+						'<strong>' . (int) $kw['total'] . '</strong>'
+					);
+					?></p>
+				</div>
+			<?php endif; ?>
+
 			<p>
 				<button type="button" class="button button-primary dze-cc-gen">
 					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
@@ -890,7 +957,7 @@ PROMPT;
 				<?php endif; ?>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
-				<?php if ( class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) ) ) : ?>
+				<?php if ( $imp ) : ?>
 					<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
 				<?php endif; ?>
 				<span class="dze-cc-status"></span>
@@ -961,18 +1028,39 @@ PROMPT;
 				</p>
 			</div>
 
-			<?php // The WordPress editor holds the description: existing text now, generated text after a run. ?>
-			<textarea id="dze-cc-editor" class="dze-cc-editor"><?php echo esc_textarea( $desc ); ?></textarea>
+			<?php if ( $own ) : ?>
+				<?php // The WordPress editor holds the description: existing text now, generated text after a run. ?>
+				<textarea id="dze-cc-editor" class="dze-cc-editor"><?php echo esc_textarea( $desc ); ?></textarea>
 
-			<p style="margin-top:10px;">
-				<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Save the description', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Undo changes', 'dazont-ecom' ); ?></button>
-				<?php if ( $term && ! is_wp_error( $term ) ) : ?>
-					<a class="button" href="<?php echo esc_url( (string) get_edit_term_link( $term_id, 'product_cat' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open the category', 'dazont-ecom' ); ?></a>
-				<?php endif; ?>
-			</p>
+				<p style="margin-top:10px;">
+					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Save the description', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Undo changes', 'dazont-ecom' ); ?></button>
+					<?php if ( $term && ! is_wp_error( $term ) ) : ?>
+						<a class="button" href="<?php echo esc_url( (string) get_edit_term_link( $term_id, 'product_cat' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Open the category', 'dazont-ecom' ); ?></a>
+					<?php endif; ?>
+				</p>
+			<?php else : ?>
+				<p style="margin-top:10px;">
+					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Undo changes', 'dazont-ecom' ); ?></button>
+					<span class="description"><?php esc_html_e( 'The result lands in the Description field above. Nothing is saved until you press Update.', 'dazont-ecom' ); ?></span>
+				</p>
+			<?php endif; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Same writer, on the category edit screen, right under the Description
+	 * field it feeds. Nothing is written to the term here: the generated text
+	 * lands in that field and WooCommerce's own Update button saves it.
+	 */
+	public function edit_form_box( $term ): void {
+		if ( ! $term || is_wp_error( $term ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		echo '<div class="dze-cc-embed"><h2>' . esc_html__( 'Dazont Ecom — description writer', 'dazont-ecom' ) . '</h2>';
+		$this->render_panel( (int) $term->term_id, 'description' );
+		echo '</div>';
 	}
 
 	public function list_modal(): void {

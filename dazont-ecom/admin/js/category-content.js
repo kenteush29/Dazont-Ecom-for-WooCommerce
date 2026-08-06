@@ -15,8 +15,13 @@
 		return str.replace(/%\d\$s|%s/g, function () { return args[i++]; });
 	}
 
+	// Two hosts for the same panel: the popup on the categories list, which
+	// brings its own editor, and the category edit screen, where the result
+	// goes into the Description field WordPress already shows there.
 	var EDITOR = 'dze-cc-editor';
-	var original = '';
+	var original = {};
+
+	function edId($box) { return $box.data('editor') || EDITOR; }
 
 	function editorRemove() {
 		if (window.wp && wp.editor && wp.editor.remove) {
@@ -32,18 +37,26 @@
 			});
 		}
 	}
-	function editorGet() {
-		if (window.tinymce && tinymce.get(EDITOR) && !tinymce.get(EDITOR).isHidden()) {
-			return tinymce.get(EDITOR).getContent();
+	function editorGet(id) {
+		if (window.tinymce && tinymce.get(id) && !tinymce.get(id).isHidden()) {
+			return tinymce.get(id).getContent();
 		}
-		return $('#' + EDITOR).val() || '';
+		return $('#' + id).val() || '';
 	}
-	function editorSet(html) {
-		if (window.tinymce && tinymce.get(EDITOR) && !tinymce.get(EDITOR).isHidden()) {
-			tinymce.get(EDITOR).setContent(html);
+	function editorSet(id, html) {
+		if (window.tinymce && tinymce.get(id) && !tinymce.get(id).isHidden()) {
+			tinymce.get(id).setContent(html);
 		}
-		$('#' + EDITOR).val(html);
+		$('#' + id).val(html);
 	}
+
+	// Embedded panel: remember the description as it was, for Undo.
+	$(function () {
+		$('.dze-cc-box[data-editor]').each(function () {
+			var id = $(this).data('editor');
+			original[id] = $('#' + id).val() || '';
+		});
+	});
 
 	$(document).on('click', '.dze-cc-open', function () {
 		var id = $(this).data('id');
@@ -55,7 +68,7 @@
 				if (res && res.success) {
 					$('#dze-cc-title').text(res.data.title);
 					$('#dze-cc-body').html(res.data.html);
-					original = $('#' + EDITOR).val() || '';
+					original[EDITOR] = $('#' + EDITOR).val() || '';
 					editorInit();
 				} else {
 					$('#dze-cc-body').text((res && res.data && res.data.message) || i18n.error);
@@ -142,7 +155,13 @@
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				$st.css('color', '#0a7040').text(sprintf(i18n.imported, res.data.imported, res.data.updated));
-				// Reload the panel so the query pools reflect the new keywords.
+				// The keywords are in: the alert no longer applies, and the next
+				// run reads them server-side whatever this panel still shows.
+				$box.find('.dze-cc-warn').remove();
+				if ($box.data('editor')) {
+					return; // embedded panel: reloading would drop unsaved edits.
+				}
+				// Popup: reopen it so the query pools are listed.
 				$('.dze-cc-open[data-id="' + $box.data('term') + '"]').trigger('click');
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
@@ -161,7 +180,7 @@
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				$st.css('color', '#646970').text(i18n.review);
-				editorSet(res.data.html); // nothing saved yet — the editor holds it.
+				editorSet(edId($box), res.data.html); // nothing saved yet — the editor holds it.
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
@@ -171,12 +190,12 @@
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.linking));
 		$.post(cfg.ajaxUrl, {
-			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet()
+			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box))
 		})
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				editorSet(res.data.html);
+				editorSet(edId($box), res.data.html);
 				$st.css('color', '#646970').text(res.data.added
 					? sprintf(i18n.linked, res.data.added, res.data.after)
 					: i18n.linkedNone);
@@ -187,7 +206,7 @@
 	$(document).on('click', '.dze-cc-apply', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
-		$.post(cfg.ajaxUrl, { action: 'dze_cc_apply', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet() })
+		$.post(cfg.ajaxUrl, { action: 'dze_cc_apply', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box)) })
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
@@ -204,7 +223,8 @@
 	});
 
 	$(document).on('click', '.dze-cc-revert', function () {
-		editorSet(original);
+		var $b = $(this).closest('.dze-cc-box'), id = edId($b);
+		editorSet(id, original[id] || '');
 		$(this).closest('.dze-cc-box').find('.dze-cc-status').text('');
 	});
 

@@ -215,6 +215,17 @@
 .dze-cc-box .wp-editor-area { font-size: 13px; }
 .dze-cc-ptext { font-size: 12px !important; }
 .dze-cc-status { font-size: 12px; margin-left: 6px; }
+/* Missing-data alert: visible without being a wall of red. */
+.dze-cc-warn {
+	background: #fcf3cd; border-left: 4px solid #dba617; border-radius: 2px;
+	padding: 8px 12px; margin: 0 0 10px;
+}
+.dze-cc-warn p { margin: 0 0 6px; font-size: 13px; }
+.dze-cc-warn p:last-child { margin-bottom: 0; }
+/* Same panel, embedded in the category edit screen. */
+.dze-cc-embed { border: 1px solid #dcdcde; background: #fff; border-radius: 4px; padding: 12px 16px; margin: 16px 0; max-width: 800px; }
+.dze-cc-embed > h2 { margin: 0 0 4px; font-size: 14px; }
+.dze-cc-embed .dze-cc-box > p:first-child { margin-top: 0; }
 
 /* ---- Review generator (testing module) ---- */
 .dze-rev-box p { margin: 8px 0; }
