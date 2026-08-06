@@ -28,6 +28,10 @@ final class DZE_Modules {
 		add_action( 'admin_menu', [ $this, 'fallback_menu' ], 9 );
 		add_action( 'admin_menu', [ $this, 'submenu' ], 99 );
 		add_action( 'wp_ajax_dze_modules_toggle', [ $this, 'ajax_toggle' ] );
+		// Erasing data is never a side effect of switching a module off: it has
+		// its own endpoints, its own buttons, its own confirmations.
+		add_action( 'wp_ajax_dze_modules_purge', [ $this, 'ajax_purge' ] );
+		add_action( 'wp_ajax_dze_modules_uninstall_flag', [ $this, 'ajax_uninstall_flag' ] );
 		// ONE "Dazont Ecom" box on the product page compiles every product
 		// function (buttons opening popups) instead of one box per module.
 		add_action( 'add_meta_boxes', [ $this, 'hub_meta_box' ] );
@@ -319,6 +323,7 @@ final class DZE_Modules {
 			<div class="dze-mod-card">
 				<h2><?php echo esc_html( $glabel ); ?></h2>
 				<?php foreach ( $by[ $gid ] as $id => $m ) : $on = self::enabled( $id ); ?>
+					<?php $foot = DZE_Cleanup::measure( $id ); ?>
 					<div class="dze-mod-row">
 						<label class="dze-switch">
 							<input type="checkbox" class="dze-mod-toggle" data-module="<?php echo esc_attr( $id ); ?>" <?php checked( $on ); ?> />
@@ -329,12 +334,55 @@ final class DZE_Modules {
 								<button type="button" class="dze-mod-more" data-module="<?php echo esc_attr( $id ); ?>" title="<?php esc_attr_e( 'Full description', 'dazont-ecom' ); ?>">?</button>
 							</strong>
 							<span class="dze-mod-desc"><?php echo esc_html( $m['desc'] ); ?></span>
+							<span class="dze-mod-data" data-module="<?php echo esc_attr( $id ); ?>">
+								<?php if ( ! $foot['declared'] ) : ?>
+									<em class="dze-mod-undeclared"><?php esc_html_e( 'Data footprint not declared — see DZE_Cleanup::map().', 'dazont-ecom' ); ?></em>
+								<?php elseif ( $foot['rows'] ) : ?>
+									<span class="dze-mod-size"><?php
+										printf(
+											/* translators: 1: row count, 2: size, 3: what it is made of */
+											esc_html__( 'In the database: %1$s rows, %2$s — %3$s', 'dazont-ecom' ),
+											esc_html( number_format_i18n( $foot['rows'] ) ),
+											esc_html( DZE_Cleanup::human_size( $foot['bytes'] ) ),
+											esc_html( implode( ', ', $foot['detail'] ) )
+										);
+									?></span>
+									<button type="button" class="button-link dze-mod-purge" data-module="<?php echo esc_attr( $id ); ?>" data-label="<?php echo esc_attr( $m['label'] ); ?>"><?php esc_html_e( 'Erase this data', 'dazont-ecom' ); ?></button>
+								<?php else : ?>
+									<span class="dze-mod-size"><?php esc_html_e( 'Nothing stored in the database.', 'dazont-ecom' ); ?></span>
+								<?php endif; ?>
+							</span>
 						</div>
 					</div>
 				<?php endforeach; ?>
 			</div>
 		<?php endforeach; ?>
 		</div>
+		<?php $core = DZE_Cleanup::measure( 'core' ); ?>
+		<div class="dze-mod-card dze-mod-clean">
+			<h2><?php esc_html_e( 'Database cleanup', 'dazont-ecom' ); ?></h2>
+			<p class="description" style="margin-top:0;">
+				<?php esc_html_e( 'Switching a function off keeps its data, so you can switch it back on and find everything in place. Erasing is a separate decision, taken here, function by function — each "Erase this data" button above only removes what that one function wrote. Nothing of WooCommerce is ever touched: prices, products, images and real customer reviews stay untouched.', 'dazont-ecom' ); ?>
+			</p>
+			<p>
+				<button type="button" class="button button-secondary" id="dze-mod-purge-all"><?php esc_html_e( 'Erase everything Dazont Ecom wrote', 'dazont-ecom' ); ?></button>
+				<span class="dze-mod-size" style="margin-left:8px;"><?php
+					printf(
+						/* translators: %s: size of the plugin's own settings */
+						esc_html__( 'plugin settings included (%s)', 'dazont-ecom' ),
+						esc_html( DZE_Cleanup::human_size( $core['bytes'] ) )
+					);
+				?></span>
+			</p>
+			<p>
+				<label>
+					<input type="checkbox" id="dze-mod-uninstall" <?php checked( (bool) get_option( DZE_Cleanup::OPT_ON_UNINSTALL ) ); ?> />
+					<?php esc_html_e( 'Also erase everything when the plugin is deleted from WordPress', 'dazont-ecom' ); ?>
+				</label>
+				<span class="dze-mod-desc"><?php esc_html_e( 'Off by default: deleting the plugin leaves your imported keyword sets and settings in place, so reinstalling finds them again. Deactivating never erases anything, whatever this box says.', 'dazont-ecom' ); ?></span>
+			</p>
+		</div>
+
 		<p id="dze-mod-note" class="description" style="display:none;">
 			<?php esc_html_e( 'Saved ✓ — the change applies on the next page load.', 'dazont-ecom' ); ?>
 			<a href="#" onclick="window.location.reload();return false;"><?php esc_html_e( 'Reload now', 'dazont-ecom' ); ?></a>
@@ -372,6 +420,12 @@ final class DZE_Modules {
 		.dze-mod-popup-box { background: #fff; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3); max-width: 560px; width: 92vw; padding: 20px 24px; }
 		.dze-mod-popup-box h3 { margin: 0 0 10px; }
 		.dze-mod-popup-box p { margin: 0; line-height: 1.6; color: #3c434a; }
+		.dze-mod-data { display: block; margin-top: 3px; font-size: 11px; }
+		.dze-mod-size { color: #787c82; }
+		.dze-mod-undeclared { color: #b32d2e; }
+		.dze-mod-purge { font-size: 11px; margin-left: 6px; color: #b32d2e; }
+		.dze-mod-purge:hover { color: #8a2424; }
+		.dze-mod-clean { max-width: 1400px; margin-top: 16px; }
 		</style>
 		<script>
 		jQuery( function ( $ ) {
@@ -391,6 +445,61 @@ final class DZE_Modules {
 			} );
 			$( document ).on( 'click', '#dze-mod-popup-close', function () { $( '#dze-mod-popup' ).removeClass( 'is-open' ); } );
 			$( document ).on( 'click', '#dze-mod-popup', function ( e ) { if ( e.target === this ) { $( this ).removeClass( 'is-open' ); } } );
+			// Erasing is destructive and one-way: the exact wording of what is
+			// about to go has to be read before it happens.
+			function purge( module, label, $where ) {
+				$.post( window.ajaxurl, {
+					action: 'dze_modules_purge',
+					nonce: '<?php echo esc_js( wp_create_nonce( DZE_Cleanup::NONCE ) ); ?>',
+					module: module
+				} ).done( function ( res ) {
+					if ( res && res.success ) {
+						$where.html( '<span class="dze-mod-size">' + res.data.message + '</span>' );
+					} else {
+						window.alert( ( res && res.data && res.data.message ) || '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' );
+					}
+				} ).fail( function () {
+					window.alert( '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' );
+				} );
+			}
+			$( document ).on( 'click', '.dze-mod-purge', function () {
+				var $b = $( this ), mod = $b.data( 'module' );
+				var txt = $b.closest( '.dze-mod-data' ).find( '.dze-mod-size' ).text();
+				if ( ! window.confirm( '<?php echo esc_js( __( 'Erase the data of:', 'dazont-ecom' ) ); ?> ' + $b.data( 'label' ) + '\n\n' + txt + '\n\n<?php echo esc_js( __( 'This cannot be undone. The function itself stays available and will start again from nothing.', 'dazont-ecom' ) ); ?>' ) ) {
+					return;
+				}
+				purge( mod, $b.data( 'label' ), $b.closest( '.dze-mod-data' ) );
+			} );
+			$( document ).on( 'click', '#dze-mod-purge-all', function () {
+				if ( ! window.confirm( '<?php echo esc_js( __( 'Erase EVERYTHING Dazont Ecom has written: keyword sets, settings, prompts, generated reviews, and every flag it added to your products and categories.', 'dazont-ecom' ) ); ?>\n\n<?php echo esc_js( __( 'Your products, prices, images and real customer reviews are not touched. This cannot be undone.', 'dazont-ecom' ) ); ?>' ) ) {
+					return;
+				}
+				if ( ! window.confirm( '<?php echo esc_js( __( 'Last check — erase everything now?', 'dazont-ecom' ) ); ?>' ) ) {
+					return;
+				}
+				var $b = $( this ).prop( 'disabled', true );
+				$.post( window.ajaxurl, {
+					action: 'dze_modules_purge',
+					nonce: '<?php echo esc_js( wp_create_nonce( DZE_Cleanup::NONCE ) ); ?>',
+					module: '__all__'
+				} ).done( function ( res ) {
+					$b.prop( 'disabled', false );
+					window.alert( ( res && res.data && res.data.message ) || '' );
+					window.location.reload();
+				} ).fail( function () {
+					$b.prop( 'disabled', false );
+					window.alert( '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' );
+				} );
+			} );
+			$( document ).on( 'change', '#dze-mod-uninstall', function () {
+				var on = $( this ).is( ':checked' ) ? 1 : 0;
+				$.post( window.ajaxurl, {
+					action: 'dze_modules_uninstall_flag',
+					nonce: '<?php echo esc_js( wp_create_nonce( DZE_Cleanup::NONCE ) ); ?>',
+					on: on
+				} ).done( function () { $( '#dze-mod-note' ).show(); } );
+			} );
+
 			$( document ).on( 'change', '.dze-mod-toggle', function () {
 				var $t = $( this ).prop( 'disabled', true );
 				$.post( window.ajaxurl, {
@@ -413,6 +522,45 @@ final class DZE_Modules {
 		} );
 		</script>
 		<?php
+	}
+
+	/** Erases one module's data, or every module's, and reports what went. */
+	public function ajax_purge(): void {
+		check_ajax_referer( DZE_Cleanup::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$id = isset( $_POST['module'] ) ? sanitize_text_field( wp_unslash( $_POST['module'] ) ) : '';
+		if ( '__all__' === $id ) {
+			$rows = 0;
+			foreach ( DZE_Cleanup::all_ids() as $mid ) {
+				$rows += DZE_Cleanup::purge( $mid )['rows'];
+			}
+			wp_send_json_success( [
+				/* translators: %s: number of database rows removed */
+				'message' => sprintf( __( 'Everything erased — %s database rows removed.', 'dazont-ecom' ), number_format_i18n( $rows ) ),
+			] );
+		}
+		$id = sanitize_key( $id );
+		if ( ! isset( DZE_Cleanup::map()[ $id ] ) && 'core' !== $id ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown module.', 'dazont-ecom' ) ] );
+		}
+		$res = DZE_Cleanup::purge( $id );
+		wp_send_json_success( [
+			/* translators: %s: number of database rows removed */
+			'message' => sprintf( __( 'Erased — %s rows removed.', 'dazont-ecom' ), number_format_i18n( $res['rows'] ) ),
+			'rows'    => $res['rows'],
+		] );
+	}
+
+	/** Opt-in: erase the data when WordPress deletes the plugin. */
+	public function ajax_uninstall_flag(): void {
+		check_ajax_referer( DZE_Cleanup::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		update_option( DZE_Cleanup::OPT_ON_UNINSTALL, empty( $_POST['on'] ) ? 0 : 1, false );
+		wp_send_json_success();
 	}
 
 	public function ajax_toggle(): void {

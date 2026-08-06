@@ -60,6 +60,18 @@ owner communicates in French.
     autoloader only when used.
   When a feature cannot be built within that budget, say so instead of
   shipping it heavy.
+- **Every module declares its database footprint and can be wiped on its
+  own.** Any new option, meta key, transient prefix, table or tagged comment
+  goes into `DZE_Cleanup::map()` under its module id — a module missing from
+  that map is flagged as undeclared in Settings → Modules. Three rules:
+  (1) deactivating a module NEVER deletes data — switching a function off and
+  throwing its data away are separate decisions, each with its own control;
+  (2) each module is erased individually, and "erase everything" is only a
+  loop over the same descriptors — never a second code path; (3) only keys we
+  own are listed, never WooCommerce's (prices, images, real reviews).
+  `uninstall.php` erases only when the opt-in box was ticked; the default is
+  to leave the owner's data in place. A light database is a permanent
+  requirement, not a cleanup done once.
 - **An internal-link anchor NAMES the page it points to** — a reader seeing
   only the anchor knows where it goes. As close to the target's own name as
   the sentence allows, and no closer: a category keeps its name as it stands;
