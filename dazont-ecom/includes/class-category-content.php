@@ -105,13 +105,13 @@ final class DZE_Category_Content {
 			$before           = ! empty( $out['sitemap_products'] );
 			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
 			if ( $before !== (bool) $out['sitemap_products'] ) {
-				delete_transient( 'dze_cc_sitemap_v5' ); // different files to read.
+				delete_transient( 'dze_cc_sitemap_v6' ); // different files to read.
 			}
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v5' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v6' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -310,7 +310,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v5', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v6', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -323,7 +323,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v5' );
+		$cached = get_transient( 'dze_cc_sitemap_v6' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -370,6 +370,7 @@ final class DZE_Category_Content {
 			// category page already lists it, and they are also the longest.
 			$queue    = [];
 			$skiplist = [];
+			$indexlist = [];
 			foreach ( $first as $child ) {
 				$name = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
 				// Products (unless asked for), and everything that is an archive
@@ -380,10 +381,12 @@ final class DZE_Category_Content {
 					|| preg_match( '#tag[-_]?sitemap|attachment[-_]?sitemap|author[-_]?sitemap|media[-_]?sitemap|brand[-_]?sitemap#i', $child );
 				if ( $drop ) {
 					++$skipped;
-					$skiplist[] = $name;
+					$skiplist[]  = $name;
+					$indexlist[] = $name . ' [skipped]';
 					continue;
 				}
-				$queue[] = $child;
+				$queue[]     = $child;
+				$indexlist[] = $name;
 			}
 			// Pages and categories first, then the blog: if the deadline below
 			// cuts the run short, what was read is what matters most.
@@ -465,7 +468,8 @@ final class DZE_Category_Content {
 			'children' => $children,
 			'read'     => $read,
 			'skipped'  => $skipped,
-			'index'    => count( $first ),
+			'index'     => count( $first ),
+			'indexlist' => $indexlist ?? [],
 			'products' => $prod,
 			'archives' => $arch,
 			'sample'   => array_slice( array_column( $urls, 'url' ), 0, 25 ),
@@ -1887,8 +1891,13 @@ PROMPT;
 						<?php $st = self::sitemap_cached(); ?>
 						<?php if ( is_array( $st ) && ( ! empty( $st['readlist'] ) || ! empty( $st['skiplist'] ) ) ) : ?>
 							<details style="margin:6px 0;">
-								<summary style="cursor:pointer;color:#2271b1;"><?php esc_html_e( 'Which sub-sitemaps were read', 'dazont-ecom' ); ?></summary>
+								<summary style="cursor:pointer;color:#2271b1;"><?php esc_html_e( 'What the sitemap contains, and what was taken from it', 'dazont-ecom' ); ?></summary>
 								<p class="description" style="margin:6px 0 0;">
+									<?php if ( ! empty( $st['indexlist'] ) ) : ?>
+										<strong><?php esc_html_e( 'Every file in the index', 'dazont-ecom' ); ?></strong>
+										<?php esc_html_e( '— those marked [skipped] were not downloaded.', 'dazont-ecom' ); ?><br />
+										<?php echo esc_html( implode( ' · ', (array) $st['indexlist'] ) ); ?><br />
+									<?php endif; ?>
 									<?php if ( ! empty( $st['readlist'] ) ) : ?>
 										<strong><?php esc_html_e( 'Read', 'dazont-ecom' ); ?></strong><br />
 										<?php echo esc_html( implode( ' · ', (array) $st['readlist'] ) ); ?><br />
