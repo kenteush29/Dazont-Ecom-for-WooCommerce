@@ -105,13 +105,13 @@ final class DZE_Category_Content {
 			$before           = ! empty( $out['sitemap_products'] );
 			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
 			if ( $before !== (bool) $out['sitemap_products'] ) {
-				delete_transient( 'dze_cc_sitemap_v6' ); // different files to read.
+				delete_transient( 'dze_cc_sitemap_v7' ); // different files to read.
 			}
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v6' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v7' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -310,7 +310,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v6', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v7', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -323,7 +323,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v6' );
+		$cached = get_transient( 'dze_cc_sitemap_v7' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -460,8 +460,15 @@ final class DZE_Category_Content {
 				'kind'  => 'page',
 			];
 		}
+		$langs = [];
+		if ( count( self::language_bases() ) > 1 ) {
+			foreach ( $urls as $u ) {
+				$langs[ self::url_language( $u['url'] ) ] = true;
+			}
+		}
 		return [
 			'urls'     => $urls,
+			'langs'    => count( $langs ),
 			'status'   => $urls ? 'ok' : 'empty',
 			'count'    => count( $urls ),
 			'found'    => $found,
@@ -788,6 +795,12 @@ PROMPT;
 			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'terms' ) : 0,
 		] );
 
+		// Same reason: the blog posts offered must be the ones written in the
+		// language of the category being described.
+		$lang = self::lang_code( $term_id );
+		if ( '' !== $lang ) {
+			do_action( 'wpml_switch_language', $lang );
+		}
 		$posts = get_posts( [
 			'post_type'              => [ 'post', 'page' ],
 			'post_status'            => 'publish',
@@ -814,6 +827,9 @@ PROMPT;
 				'score' => count( $hits ),
 			];
 		}
+		if ( '' !== $lang ) {
+			do_action( 'wpml_switch_language', null ); // back to the admin language.
+		}
 		usort( $scored, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
 		$out = [];
 		foreach ( array_slice( $scored, 0, max( 0, $limit ) ) as $row ) {
@@ -835,6 +851,12 @@ PROMPT;
 		$term = get_term( $term_id, 'product_cat' );
 		if ( ! $term || is_wp_error( $term ) ) {
 			return $pool;
+		}
+		// Every candidate below has to come back in the category's own
+		// language, so the whole read runs switched to it.
+		$plang = self::lang_code( $term_id );
+		if ( '' !== $plang ) {
+			do_action( 'wpml_switch_language', $plang );
 		}
 		$add = static function ( string $label, string $url, string $kind ) use ( &$pool ) {
 			$url = (string) $url;
@@ -895,8 +917,15 @@ PROMPT;
 		if ( $cached ) {
 			$kw     = self::keyword_pools( $term_id, $term->name );
 			$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
+			// WPML in sub-directory mode lists the whole site once per language:
+			// a French category must not be offered the German copy of a page.
+			$lang   = self::lang_code( $term_id );
+			$multi  = count( self::language_bases() ) > 1;
 			$ranked = [];
 			foreach ( $cached as $page ) {
+				if ( $multi && '' !== $lang && self::url_language( $page['url'] ) !== $lang ) {
+					continue;
+				}
 				$hits = $needle ? count( array_intersect( $needle, self::tokens( $page['url'] ) ) ) : 0;
 				if ( $hits > 0 ) {
 					$page['score'] = $hits;
@@ -911,16 +940,78 @@ PROMPT;
 				$add( $page['label'], $page['url'], 'sitemap page' );
 			}
 		}
+		if ( '' !== $plang ) {
+			do_action( 'wpml_switch_language', null );
+		}
 		return array_values( $pool );
 	}
 
-	/** Language of the category (WPML), else the site language. */
-	private static function language( int $term_id ): string {
+	/** WPML language code of a category, else the site's default. */
+	public static function lang_code( int $term_id ): string {
 		$details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $term_id, 'element_type' => 'product_cat' ] );
 		$code    = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
 		if ( '' === $code ) {
 			$code = (string) apply_filters( 'wpml_default_language', '' );
 		}
+		return $code;
+	}
+
+	/**
+	 * Base URL of each active language, longest first.
+	 *
+	 * WPML can put the language in a sub-directory (/fr/…), in its own domain,
+	 * or in a query string, and a sitemap lists all of them together. Asking
+	 * WPML itself for the home URL of each language covers the three modes
+	 * without guessing at the shape of the URL.
+	 *
+	 * @return array<string,string> language code => base URL
+	 */
+	public static function language_bases(): array {
+		static $bases = null;
+		if ( null !== $bases ) {
+			return $bases;
+		}
+		$bases  = [];
+		$active = apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] );
+		if ( is_array( $active ) ) {
+			foreach ( $active as $code => $l ) {
+				$code = (string) ( $l['language_code'] ?? $code );
+				$url  = (string) apply_filters( 'wpml_permalink', home_url( '/' ), $code );
+				if ( '' !== $url ) {
+					$bases[ $code ] = untrailingslashit( $url );
+				}
+			}
+		}
+		// Longest base first, so /fr wins over / when both match.
+		uasort( $bases, static fn( $a, $b ) => strlen( $b ) <=> strlen( $a ) );
+		return $bases;
+	}
+
+	/**
+	 * Which language a URL belongs to, '' when the site is not multilingual or
+	 * the URL sits outside every language base (the default language, then).
+	 */
+	public static function url_language( string $url ): string {
+		$bases = self::language_bases();
+		if ( count( $bases ) < 2 ) {
+			return '';
+		}
+		$url = untrailingslashit( $url );
+		foreach ( $bases as $code => $base ) {
+			if ( 0 === stripos( $url . '/', $base . '/' ) ) {
+				return (string) $code;
+			}
+			// Query-string mode: ?lang=fr rather than a path.
+			if ( preg_match( '/[?&]lang=([a-z-]{2,7})/i', $url, $m ) ) {
+				return strtolower( $m[1] );
+			}
+		}
+		return (string) ( array_key_first( array_slice( $bases, -1, 1, true ) ) ?? '' );
+	}
+
+	/** Language of the category (WPML), else the site language. */
+	private static function language( int $term_id ): string {
+		$code = self::lang_code( $term_id );
 		if ( '' === $code ) {
 			$code = (string) get_locale();
 		}
@@ -1190,6 +1281,13 @@ PROMPT;
 					esc_html__( '%s URLs available for linking', 'dazont-ecom' ),
 					number_format_i18n( $found )
 				);
+			if ( ! empty( $s['langs'] ) && (int) $s['langs'] > 1 ) {
+				$parts[] = sprintf(
+					/* translators: %s: number of languages */
+					esc_html__( 'spread over %s languages — each category is only offered its own', 'dazont-ecom' ),
+					number_format_i18n( (int) $s['langs'] )
+				);
+			}
 			$parts[] = sprintf(
 				/* translators: %s: human time diff */
 				esc_html__( 'read %s ago', 'dazont-ecom' ),
