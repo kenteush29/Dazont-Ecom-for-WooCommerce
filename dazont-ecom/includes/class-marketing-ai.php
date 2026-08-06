@@ -110,7 +110,7 @@ final class DZE_Marketing_Ai {
 		add_action( 'admin_init',            [ $this, 'register_settings' ] );
 		add_action( 'admin_menu',            [ $this, 'register_menu' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
-		add_action( 'wp_dashboard_setup',    [ $this, 'register_dashboard_widget' ] );
+		// No widget on the WordPress home screen — see DZE_Dashboard.
 		add_action( 'wp_ajax_dze_mai_generate',   [ $this, 'ajax_generate' ] );
 		add_action( 'wp_ajax_dze_mai_accept',     [ $this, 'ajax_accept' ] );
 		add_action( 'wp_ajax_dze_mai_save_event', [ $this, 'ajax_save_event' ] );
@@ -1418,29 +1418,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		</script>
 		<?php
 		return (string) ob_get_clean();
-	}
-
-	// =========================================================================
-	// Dashboard widget (WordPress admin home)
-	// =========================================================================
-
-	public function register_dashboard_widget(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return;
-		}
-		wp_add_dashboard_widget(
-			'dze_marketing_calendar_widget',
-			__( 'Marketing calendar', 'dazont-ecom' ),
-			[ $this, 'dashboard_widget' ]
-		);
-	}
-
-	public function dashboard_widget(): void {
-		echo $this->calendar_grid_html( 3 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping internally.
-		if ( class_exists( 'DZE_Discounts' ) ) {
-			$url = add_query_arg( [ 'page' => DZE_Discounts::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) );
-			echo '<p style="margin:10px 0 0;"><a href="' . esc_url( $url ) . '">' . esc_html__( 'Open Marketing Events →', 'dazont-ecom' ) . '</a></p>';
-		}
 	}
 
 	// =========================================================================

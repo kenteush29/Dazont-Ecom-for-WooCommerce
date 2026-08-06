@@ -35,7 +35,9 @@ final class DZE_Dashboard {
 		// Priority 20: after every module registered its submenu, so the
 		// Dashboard entry can be moved to the top of the list.
 		add_action( 'admin_menu',         [ $this, 'register_menu' ], 20 );
-		add_action( 'wp_dashboard_setup', [ $this, 'register_widgets' ] );
+		// Nothing is added to the WordPress home screen: those widgets query the
+		// shop on a page nobody opens for them, and the plugin has its own
+		// Dashboard for exactly the same blocks.
 	}
 
 	public function register_menu(): void {
@@ -60,16 +62,6 @@ final class DZE_Dashboard {
 				}
 			}
 		}
-	}
-
-	public function register_widgets(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return;
-		}
-		wp_add_dashboard_widget( 'dze_dash_topcats', __( 'Dazont — Top categories (3 months)', 'dazont-ecom' ), [ $this, 'block_top_categories' ] );
-		wp_add_dashboard_widget( 'dze_dash_oos',    __( 'Dazont — Top out-of-stock products', 'dazont-ecom' ), [ $this, 'block_out_of_stock' ] );
-		wp_add_dashboard_widget( 'dze_dash_events', __( 'Dazont — Marketing calendar', 'dazont-ecom' ),        [ $this, 'block_events' ] );
-		wp_add_dashboard_widget( 'dze_dash_ai',     __( 'Dazont — AI usage', 'dazont-ecom' ),                  [ $this, 'block_ai_usage' ] );
 	}
 
 	// =========================================================================
