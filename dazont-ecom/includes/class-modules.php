@@ -141,6 +141,13 @@ final class DZE_Modules {
 				'desc'    => __( 'Writes sample customer reviews — staging catalogues only.', 'dazont-ecom' ),
 				'more'    => __( 'Testing tool, off by default. Writes customer reviews with Claude from the product data and saves them as native WooCommerce reviews (rating, verified badge, plus the title and language meta WooCommerce Photo Reviews reads). New reviews land as PENDING, so they are moderated in the standard WooCommerce → Reviews screen. A Reviews column on the products list shows the count and opens a small panel — generate, read the drafts, push them to the moderation queue or discard, with the prompt editable in place. The "Generate reviews (Dazont)" bulk action runs on that same list, a spinner in each product\'s cell and a random number of reviews per product, writing straight to the moderation queue: individual generation is where the prompt gets calibrated, bulk is for volume once it is. Ratings are drawn by the plugin (70% five-star by default) instead of being alternated by the model, and reviews are written in the shop\'s main language. Publishing fabricated reviews on a live shop is illegal in the EU and under FTC rules — everything created here is tagged and deletable in one click.', 'dazont-ecom' ),
 			],
+			'queue' => [
+				'class' => 'DZE_Queue',
+				'group' => 'tech',
+				'label' => __( 'Writing queue', 'dazont-ecom' ),
+				'desc'  => __( 'Sends batches off to be written, then holds them for review.', 'dazont-ecom' ),
+				'more'  => __( 'A description of two thousand words takes the model a minute or more, and a browser request that waits that long is cut off by the host — the HTTP 504 you would otherwise get. So nothing is written inside the request that asks for it: the selection is queued, a background worker takes one item at a time, and the screen only watches. Leave the page and it carries on (through Action Scheduler, which WooCommerce provides, or WP-Cron); stay on Dazont Ecom → Writing queue and the items go by one by one, as WPML does for translations. What comes back waits under "to review": open it, read it against what the category holds today, edit it in the WordPress editor, then accept or discard. Nothing reaches the shop until you accept, unless the batch was sent with immediate saving. Bulk actions on Products → Categories feed it.', 'dazont-ecom' ),
+			],
 			'variation_split' => [
 				'class' => 'DZE_Variation_Split',
 				'group' => 'product',

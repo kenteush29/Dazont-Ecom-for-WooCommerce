@@ -59,6 +59,10 @@ final class DZE_Category_Content {
 		add_action( 'admin_footer-edit-tags.php', [ $this, 'list_modal' ] );
 		// Same writer on the single-category screen, under its Description field.
 		add_action( 'product_cat_edit_form', [ $this, 'edit_form_box' ] );
+		// Bulk: send a selection to the writing queue instead of doing it here.
+		add_filter( 'bulk_actions-edit-product_cat', [ $this, 'bulk_actions' ] );
+		add_filter( 'handle_bulk_actions-edit-product_cat', [ $this, 'handle_bulk' ], 10, 3 );
+		add_action( 'admin_notices', [ $this, 'bulk_notice' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		// AJAX.
 		add_action( 'wp_ajax_dze_cc_panel', [ $this, 'ajax_panel' ] );
@@ -1562,6 +1566,11 @@ PROMPT;
 						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
+				<?php if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) : ?>
+					<button type="button" class="button dze-cc-queue" data-kind="cat_desc" data-nonce="<?php echo esc_attr( wp_create_nonce( DZE_Queue::NONCE ) ); ?>" title="<?php esc_attr_e( 'Writes it in the background instead of here, so a slow host cannot cut the run off. You review it in the writing queue.', 'dazont-ecom' ); ?>">
+						<?php esc_html_e( 'Write in the background', 'dazont-ecom' ); ?>
+					</button>
+				<?php endif; ?>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
 				<?php if ( $imp ) : ?>
@@ -1716,6 +1725,43 @@ PROMPT;
 		echo '</div>';
 	}
 
+	/**
+	 * Bulk actions on Products → Categories. They queue, they never write: a
+	 * batch of long descriptions is exactly what a browser request cannot wait
+	 * for, and the queue exists for that.
+	 */
+	public function bulk_actions( array $actions ): array {
+		if ( ! class_exists( 'DZE_Queue' ) ) {
+			return $actions;
+		}
+		$actions['dze_cc_write'] = __( 'Dazont: write the description (review before saving)', 'dazont-ecom' );
+		$actions['dze_cc_link']  = __( 'Dazont: add internal links (review before saving)', 'dazont-ecom' );
+		return $actions;
+	}
+
+	public function handle_bulk( string $redirect, string $action, array $ids ): string {
+		if ( ! class_exists( 'DZE_Queue' ) || ! in_array( $action, [ 'dze_cc_write', 'dze_cc_link' ], true ) ) {
+			return $redirect;
+		}
+		$kind = 'dze_cc_write' === $action ? 'cat_desc' : 'cat_links';
+		$n    = DZE_Queue::add( $kind, $ids, false );
+		return add_query_arg( 'dze_cc_queued', $n, $redirect );
+	}
+
+	public function bulk_notice(): void {
+		if ( ! isset( $_GET['dze_cc_queued'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+			return;
+		}
+		$n   = absint( $_GET['dze_cc_queued'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		$url = add_query_arg( [ 'page' => DZE_Queue::MENU_SLUG ], admin_url( 'admin.php' ) );
+		echo '<div class="notice notice-success"><p>' . sprintf(
+			/* translators: 1: number of categories queued, 2: link to the queue */
+			esc_html( _n( '%1$s category sent to the writing queue. %2$s', '%1$s categories sent to the writing queue. %2$s', $n, 'dazont-ecom' ) ),
+			(int) $n,
+			'<a href="' . esc_url( $url ) . '">' . esc_html__( 'Follow it there', 'dazont-ecom' ) . '</a>'
+		) . '</p></div>';
+	}
+
 	public function list_modal(): void {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		if ( ! $screen || 'product_cat' !== $screen->taxonomy ) {
@@ -1779,6 +1825,9 @@ PROMPT;
 				/* translators: %s: HTTP status code */
 				'serverError' => __( 'The server answered with an error (HTTP %s). Look at your host\'s PHP error log for the reason.', 'dazont-ecom' ),
 				'expired'     => __( 'This page has been open too long and the security token expired — reload it.', 'dazont-ecom' ),
+				'queued'      => __( 'Queued — it is being written in the background. %s', 'dazont-ecom' ),
+				'queueLink'   => __( 'Follow it in the writing queue', 'dazont-ecom' ),
+				'queueDup'    => __( 'This category is already waiting in the queue.', 'dazont-ecom' ),
 				'tooLong'     => __( 'Given up after five minutes without an answer. The run may still have finished on the server: reopen this panel to see. If it keeps happening, lower the Target length in Settings → Categories.', 'dazont-ecom' ),
 				'applied'     => __( 'Saved ✓', 'dazont-ecom' ),
 				'review'      => __( 'Draft ready — edit it if needed, then save.', 'dazont-ecom' ),

@@ -91,6 +91,10 @@ final class DZE_Cleanup {
 				'transients'   => [ 'dze_reviews_queue_' ],
 				'comment_meta' => '_dze_generated',
 			],
+			'queue' => [
+				'tables'  => [ 'dze_queue' ],
+				'options' => [ 'dze_queue_schema' ],
+			],
 			'variation_split' => [],
 		];
 	}
