@@ -356,6 +356,60 @@ final class DZE_Queue {
 		), ARRAY_A );
 	}
 
+	/**
+	 * What is waiting, per object, for the category kinds. One query for a
+	 * whole list screen — a badge per row must never cost a query per row.
+	 *
+	 * @return array<int,array{status:string,id:int,kind:string}>
+	 */
+	public static function pending_map(): array {
+		global $wpdb;
+		static $cache = null;
+		if ( null !== $cache ) {
+			return $cache;
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			$cache = [];
+			return $cache;
+		}
+		$cache = [];
+		$rows  = (array) $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"SELECT id, kind, object_id, status FROM {$table}
+			 WHERE status IN ('queued','running','review') AND kind LIKE 'cat_%'
+			 ORDER BY FIELD(status,'review','running','queued'), id DESC",
+			ARRAY_A
+		);
+		foreach ( $rows as $r ) {
+			$oid = (int) $r['object_id'];
+			if ( isset( $cache[ $oid ] ) ) {
+				continue; // the most advanced one wins.
+			}
+			$cache[ $oid ] = [ 'status' => (string) $r['status'], 'id' => (int) $r['id'], 'kind' => (string) $r['kind'] ];
+		}
+		return $cache;
+	}
+
+	/** The job waiting on this object, if any. */
+	public static function pending_for( int $object_id ): array {
+		return self::pending_map()[ $object_id ] ?? [];
+	}
+
+	/**
+	 * The owner saved this category by hand: whatever was waiting for review on
+	 * it is settled, and must not keep asking.
+	 */
+	public static function settle( int $object_id ): void {
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"UPDATE " . self::table() . " SET status = 'applied', updated = %s WHERE object_id = %d AND status = 'review' AND kind LIKE 'cat_%%'",
+			current_time( 'mysql' ),
+			$object_id
+		) );
+	}
+
 	public static function label_for( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
 			$t = get_term( $object_id, 'product_cat' );

@@ -314,6 +314,26 @@
 			});
 	}
 
+	// A result already written by the queue: bring it into this panel rather
+	// than sending the owner to another screen for it.
+	$(document).on('click', '.dze-cc-loadjob', function () {
+		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
+		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
+		$.post(cfg.ajaxUrl, { action: 'dze_q_job', nonce: $box.data('qnonce'), id: $btn.data('job') })
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res || !res.success || !res.data.html) {
+					$st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				editorSet(edId($box), res.data.html);
+				refreshLinks($box);
+				showDiff($box);
+				$st.css('color', '#646970').text(i18n.review);
+			})
+			.fail(function (xhr, status) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
+	});
+
 	// Nothing is written to the category before Save.
 	$(document).on('click', '.dze-cc-gen', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);

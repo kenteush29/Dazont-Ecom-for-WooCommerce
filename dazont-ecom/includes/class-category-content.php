@@ -1561,6 +1561,14 @@ PROMPT;
 		if ( $meta ) {
 			$label .= ' <span style="color:#646970;font-size:11px;">' . esc_html( implode( ' · ', $meta ) ) . '</span>';
 		}
+		// Something waiting on this category, said quietly but said.
+		$job = class_exists( 'DZE_Queue' ) ? DZE_Queue::pending_for( $term_id ) : [];
+		if ( $job ) {
+			$note = 'review' === $job['status']
+				? [ __( 'to review', 'dazont-ecom' ), '#8a6d00' ]
+				: [ __( 'writing…', 'dazont-ecom' ), '#2271b1' ];
+			$label .= '<br /><span style="color:' . esc_attr( $note[1] ) . ';font-size:11px;">&#9679; ' . esc_html( $note[0] ) . '</span>';
+		}
 		return sprintf(
 			'<button type="button" class="dze-cc-open" data-id="%1$d" title="%2$s">%3$s<span class="dze-caret">&#9662;</span></button>',
 			(int) $term_id,
@@ -1685,6 +1693,26 @@ PROMPT;
 						'<strong>' . (int) $kw['total'] . '</strong>'
 					);
 					?></p>
+				</div>
+			<?php endif; ?>
+
+			<?php
+			$pending = class_exists( 'DZE_Queue' ) ? DZE_Queue::pending_for( $term_id ) : [];
+			if ( $pending && 'review' === $pending['status'] ) :
+				?>
+				<div class="dze-cc-warn" style="background:#eef6fc;border-left-color:#2271b1;">
+					<p><strong><?php esc_html_e( 'A text is waiting for you on this category.', 'dazont-ecom' ); ?></strong>
+					<?php echo esc_html( 'cat_links' === $pending['kind'] ? __( 'It is a linking pass.', 'dazont-ecom' ) : __( 'It is a description.', 'dazont-ecom' ) ); ?></p>
+					<p>
+						<button type="button" class="button button-small dze-cc-loadjob" data-job="<?php echo (int) $pending['id']; ?>">
+							<?php esc_html_e( 'Load it here', 'dazont-ecom' ); ?>
+						</button>
+						<span class="description"><?php esc_html_e( 'It opens in the editor below with the before/after, and is only kept once you save.', 'dazont-ecom' ); ?></span>
+					</p>
+				</div>
+			<?php elseif ( $pending ) : ?>
+				<div class="dze-cc-warn" style="background:#eef6fc;border-left-color:#2271b1;">
+					<p><?php esc_html_e( 'A run is under way on this category — it will appear here when it is done.', 'dazont-ecom' ); ?></p>
 				</div>
 			<?php endif; ?>
 
@@ -2090,6 +2118,9 @@ PROMPT;
 			wp_send_json_error( [ 'message' => $res->get_error_message() ] );
 		}
 		update_term_meta( $tid, self::GEN_META, 1 );
+		if ( class_exists( 'DZE_Queue' ) ) {
+			DZE_Queue::settle( $tid ); // what was waiting for review has been dealt with.
+		}
 		$term = get_term( $tid, 'product_cat' );
 		wp_send_json_success( [
 			'words' => ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0,
