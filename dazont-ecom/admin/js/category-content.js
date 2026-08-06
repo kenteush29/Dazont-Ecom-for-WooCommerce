@@ -221,7 +221,11 @@
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#0a7040').text(sprintf(i18n.imported, res.data.imported, res.data.updated));
+				var msg = sprintf(i18n.imported, res.data.imported, res.data.updated);
+				if (res.data.read && res.data.kept && res.data.read > res.data.kept) {
+					msg += ' — ' + sprintf(i18n.trimmed, res.data.read, res.data.kept);
+				}
+				$st.css('color', '#0a7040').text(msg);
 				// The keywords are in: the alert no longer applies, and the next
 				// run reads them server-side whatever this panel still shows.
 				$box.find('.dze-cc-warn').remove();

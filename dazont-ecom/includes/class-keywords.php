@@ -22,7 +22,8 @@ final class DZE_Keywords {
 	private const NONCE          = 'dze_kw';
 	private const SCHEMA_OPT     = 'dze_kw_schema';
 	private const SCHEMA_VERSION = 1;
-	private const MAX_ROWS       = 5000;   // per category — safety cap.
+	private const MAX_ROWS       = 5000;   // kept per category — safety cap.
+	private const MAX_PARSE      = 30000;  // lines read from a file before the pick.
 	private const MAX_UPLOAD     = 5242880; // 5 MB.
 
 	/**
@@ -244,7 +245,7 @@ EOT;
 				continue;
 			}
 			$lines[] = array_map( static fn( $v ) => trim( (string) $v ), $row );
-			if ( count( $lines ) > self::MAX_ROWS + 1 ) {
+			if ( count( $lines ) > self::MAX_PARSE + 1 ) {
 				break;
 			}
 		}
@@ -325,7 +326,8 @@ EOT;
 		$seen  = [];
 		$added = 0;
 		$upd   = 0;
-		foreach ( (array) $parsed['rows'] as $row ) {
+		$rows  = self::pick_rows( (array) $parsed['rows'], $map );
+		foreach ( $rows as $row ) {
 			$kw  = trim( (string) ( $row[ $map['keyword'] ] ?? '' ) );
 			$low = mb_strtolower( $kw );
 			if ( $kw === '' || mb_strlen( $kw ) > 191 || isset( $seen[ $low ] ) ) {
@@ -351,7 +353,49 @@ EOT;
 			}
 		}
 		delete_transient( 'dze_kw_up_' . $token );
-		wp_send_json_success( [ 'imported' => $added, 'updated' => $upd ] );
+		wp_send_json_success( [
+			'imported' => $added,
+			'updated'  => $upd,
+			'read'     => count( (array) $parsed['rows'] ),
+			'kept'     => count( $rows ),
+		] );
+	}
+
+	/**
+	 * Which rows of a big export actually go into the set. A broad-match file
+	 * runs to tens of thousands of lines, sorted by volume, so a plain cut at
+	 * the cap keeps only the busiest queries — and drops every question, since
+	 * a question almost never carries volume. Questions are therefore taken
+	 * first, then the rest by volume.
+	 */
+	public static function pick_rows( array $rows, array $map ): array {
+		if ( count( $rows ) <= self::MAX_ROWS ) {
+			return $rows;
+		}
+		$kc = (int) ( $map['keyword'] ?? 0 );
+		$vc = isset( $map['volume'] ) && $map['volume'] >= 0 ? (int) $map['volume'] : -1;
+		$questions = [];
+		$others    = [];
+		foreach ( $rows as $row ) {
+			$kw = trim( (string) ( $row[ $kc ] ?? '' ) );
+			if ( '' === $kw ) {
+				continue;
+			}
+			if ( preg_match( '/^(how|what|which|why|when|where|can|is|are|do|does|should|comment|pourquoi|quel|quelle|quels|quelles|quand|est-ce|faut-il)\b/iu', $kw ) || false !== strpos( $kw, '?' ) ) {
+				$questions[] = $row;
+			} else {
+				$others[] = $row;
+			}
+		}
+		if ( $vc >= 0 ) {
+			$vol = static fn( $r ) => self::num( $r[ $vc ] ?? '' );
+			usort( $questions, static fn( $a, $b ) => $vol( $b ) <=> $vol( $a ) );
+			usort( $others, static fn( $a, $b ) => $vol( $b ) <=> $vol( $a ) );
+		}
+		// Questions never take more than a third of the room.
+		$qmax = (int) floor( self::MAX_ROWS / 3 );
+		$keep = array_slice( $questions, 0, $qmax );
+		return array_merge( $keep, array_slice( $others, 0, self::MAX_ROWS - count( $keep ) ) );
 	}
 
 	/** Tolerant number parse: "1 300", "39,5", "0.56", "1.300,5". */

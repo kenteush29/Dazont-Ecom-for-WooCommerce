@@ -428,39 +428,113 @@ PROMPT;
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
 			return $out;
 		}
-		$rows = $wpdb->get_results( $wpdb->prepare(
+		// Real size of the set, not the size of the slice read below.
+		$out['total'] = (int) $wpdb->get_var( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT keyword, volume, intent FROM {$table}
-			 WHERE term_id = %d AND status <> 'ignored'
-			 ORDER BY volume DESC LIMIT 120",
+			"SELECT COUNT(*) FROM {$table} WHERE term_id = %d AND status <> 'ignored'",
 			$term_id
-		), ARRAY_A );
-		if ( empty( $rows ) ) {
+		) );
+		if ( ! $out['total'] ) {
 			return $out;
 		}
-		$out['total'] = count( $rows );
+
 		$needle = mb_strtolower( trim( $exclude ) );
+		$rows   = $wpdb->get_results( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"SELECT keyword, volume FROM {$table}
+			 WHERE term_id = %d AND status <> 'ignored'
+			 ORDER BY volume DESC LIMIT 200",
+			$term_id
+		), ARRAY_A );
 		foreach ( $rows as $r ) {
 			$kw = trim( (string) $r['keyword'] );
-			if ( '' === $kw ) {
-				continue;
-			}
-			$line = $kw . ( (int) $r['volume'] ? ' (' . (int) $r['volume'] . '/mo)' : '' );
-			if ( self::is_question( $kw ) ) {
-				if ( count( $out['questions'] ) < 15 ) {
-					$out['questions'][] = $line;
-				}
+			if ( '' === $kw || self::is_question( $kw ) ) {
 				continue;
 			}
 			// The category's own name is not a "secondary" query.
 			if ( '' !== $needle && mb_strtolower( $kw ) === $needle ) {
 				continue;
 			}
-			if ( count( $out['titles'] ) < 20 ) {
-				$out['titles'][] = $line;
+			$out['titles'][] = $kw . ( (int) $r['volume'] ? ' (' . (int) $r['volume'] . '/mo)' : '' );
+			if ( count( $out['titles'] ) >= 20 ) {
+				break;
 			}
 		}
+
+		$out['questions'] = self::question_pool( $term_id, $exclude );
 		return $out;
+	}
+
+	/**
+	 * Buyer questions, searched across the WHOLE set instead of the top
+	 * keywords: a question almost never ranks high on volume, so reading only
+	 * the busiest rows finds none in an export of several thousand.
+	 *
+	 * A broad-match export also drags in questions that have nothing to do with
+	 * the shop ("do military get free checked bags" under Tactical bags), so
+	 * what comes back is ranked on how much it overlaps the category's own
+	 * wording, not on volume alone.
+	 */
+	public static function question_pool( int $term_id, string $exclude = '' ): array {
+		global $wpdb;
+		$table = DZE_Keywords::table();
+		$like  = [ "keyword LIKE '%?%'" ];
+		foreach ( [
+			'how', 'what', 'which', 'why', 'when', 'where', 'can', 'is', 'are', 'do', 'does', 'should',
+			'comment', 'pourquoi', 'quel', 'quelle', 'quels', 'quelles', 'quand', 'est-ce', 'faut-il',
+		] as $w ) {
+			$like[] = $wpdb->prepare( 'keyword LIKE %s', $wpdb->esc_like( $w ) . ' %' );
+		}
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name, patterns prepared above.
+			"SELECT keyword, volume FROM {$table}
+			 WHERE term_id = %d AND status <> 'ignored' AND ( " . implode( ' OR ', $like ) . " )
+			 ORDER BY volume DESC LIMIT 200",
+			$term_id
+		), ARRAY_A );
+		if ( ! $rows ) {
+			return [];
+		}
+		// What this category is about, in words: its name plus its busiest
+		// non-question queries.
+		$top = (array) $wpdb->get_col( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"SELECT keyword FROM {$table} WHERE term_id = %d AND status <> 'ignored' ORDER BY volume DESC LIMIT 25",
+			$term_id
+		) );
+		$term   = get_term( $term_id, 'product_cat' );
+		$name   = ( $term && ! is_wp_error( $term ) ) ? $term->name : $exclude;
+		$needle = self::stems( $name . ' ' . implode( ' ', $top ) );
+		$floor  = count( self::stems( $name ) ) > 1 ? 2 : 1;
+
+		$scored = [];
+		foreach ( $rows as $r ) {
+			$kw = trim( (string) $r['keyword'] );
+			if ( '' === $kw ) {
+				continue;
+			}
+			$hits = $needle ? count( array_intersect( $needle, self::stems( $kw ) ) ) : $floor;
+			if ( $hits < $floor ) {
+				continue; // Off-topic noise from a broad-match export.
+			}
+			$scored[] = [ 'kw' => $kw, 'v' => (int) $r['volume'], 'h' => $hits ];
+		}
+		usort( $scored, static fn( $a, $b ) => [ $b['h'], $b['v'] ] <=> [ $a['h'], $a['v'] ] );
+
+		$out = [];
+		foreach ( array_slice( $scored, 0, 15 ) as $q ) {
+			$out[] = $q['kw'] . ( $q['v'] ? ' (' . $q['v'] . '/mo)' : '' );
+		}
+		return $out;
+	}
+
+	/** tokens(), with a crude plural trim so "bag" and "bags" are one word. */
+	private static function stems( string $s ): array {
+		$out = [];
+		foreach ( self::tokens( $s ) as $t ) {
+			$out[] = ( mb_strlen( $t ) > 3 && 's' === mb_substr( $t, -1 ) ) ? mb_substr( $t, 0, -1 ) : $t;
+		}
+		return array_values( array_unique( $out ) );
 	}
 
 	/** How many links the category description currently contains. */
@@ -1110,8 +1184,8 @@ PROMPT;
 				<div class="dze-cc-warn">
 					<p><?php
 					printf(
-						/* translators: %s: number of keywords imported */
-						esc_html__( '%s keywords imported, but not one of them is a question — the description will have no buyer-question heading. A wider export usually fixes it.', 'dazont-ecom' ),
+						/* translators: %s: number of keywords in the set */
+						esc_html__( '%s keywords in this set, but none of them reads as a question about this category — the description will have no buyer-question heading. Questions belonging to another subject are left out on purpose; a broad-match export usually carries some.', 'dazont-ecom' ),
 						'<strong>' . (int) $kw['total'] . '</strong>'
 					);
 					?></p>
@@ -1324,6 +1398,8 @@ PROMPT;
 				'reading'     => __( 'Reading the file…', 'dazont-ecom' ),
 				'importing'   => __( 'Importing…', 'dazont-ecom' ),
 				'imported'    => __( '%1$s added · %2$s updated', 'dazont-ecom' ),
+				/* translators: 1: rows read from the file, 2: rows kept */
+				'trimmed'     => __( '%1$s rows read, %2$s kept (questions first, then the highest volumes)', 'dazont-ecom' ),
 				'colKeyword'  => __( 'Keyword', 'dazont-ecom' ),
 				'colVolume'   => __( 'Volume', 'dazont-ecom' ),
 				'colKd'       => __( 'KD', 'dazont-ecom' ),
