@@ -68,17 +68,30 @@
 				'<td>' + act.join(' ') + '</td></tr>'
 			);
 		});
-		$('#dze-q-counts').text(
-			(c.queued || 0) + ' waiting · ' + (c.review || 0) + ' to review · ' +
-			(c.applied || 0) + ' saved · ' + (c.failed || 0) + ' failed'
-		);
+		var parts = [];
+		if (c.queued) { parts.push(sprintf(i18n.cWaiting, c.queued)); }
+		if (c.running) { parts.push(sprintf(i18n.cWriting, c.running)); }
+		if (c.review) { parts.push(sprintf(i18n.cReview, c.review)); }
+		if (c.applied) { parts.push(sprintf(i18n.cSaved, c.applied)); }
+		if (c.failed) { parts.push(sprintf(i18n.cFailed, c.failed)); }
+		$('#dze-q-counts').text(parts.length ? parts.join(' · ') : i18n.idle);
+
+		// Pause is only offered while there is something to pause.
+		var moving = (c.queued || c.running);
+		$('#dze-q-pause').toggle(!!moving).text(paused ? i18n.resume : i18n.pause);
+
+		// Clearing is only offered when there is something finished to clear.
+		var finished = (c.applied || 0) + (c.failed || 0) + (c.skipped || 0);
+		$('#dze-q-clear').toggle(finished > 0).text(sprintf(i18n.clearN, finished));
+
 		drawBulk();
-		// Keep watching only while there is something moving.
-		if (timer && !(c.queued || c.running)) { stopWatch(); }
+		// The page drives the queue on its own while anything is moving.
+		if (moving && !paused) { startWatch(); } else { stopWatch(); }
 	}
 
 	var busy = false;
 	function refresh() {
+		if (paused) { return $.Deferred().resolve(); }
 		return $.post(cfg.ajaxUrl, { action: 'dze_q_status', nonce: cfg.nonce })
 			.done(function (res) {
 				if (!res || !res.success) { return; }
@@ -86,7 +99,7 @@
 				// While this page is open it is the engine: one step per tick,
 				// never two at once, so nothing waits on cron.
 				var c = res.data.counts || {};
-				if (timer && !busy && (c.queued || c.running)) {
+				if (!paused && !busy && (c.queued || c.running)) {
 					busy = true;
 					$.post(cfg.ajaxUrl, { action: 'dze_q_run', nonce: cfg.nonce })
 						.always(function () { busy = false; refresh(); });
@@ -94,32 +107,28 @@
 			});
 	}
 
+	var paused = false;
 	function startWatch() {
 		if (timer) { return; }
-		$('#dze-q-watch').text('Stop watching');
 		timer = window.setInterval(refresh, 3000);
-		refresh();
 	}
 	function stopWatch() {
 		window.clearInterval(timer);
 		timer = null;
-		$('#dze-q-watch').text('Watch progress');
 	}
 
 	$(function () {
 		refresh();
-		$('#dze-q-watch').on('click', function () { return timer ? stopWatch() : startWatch(); });
-		$('#dze-q-kick').on('click', function () {
-			var $b = $(this).prop('disabled', true);
-			// Takes one item, then hands over to the background worker.
-			$.post(cfg.ajaxUrl, { action: 'dze_q_run', nonce: cfg.nonce })
-				.always(function () { $b.prop('disabled', false); refresh(); });
-			startWatch();
+		$('#dze-q-pause').on('click', function () {
+			paused = !paused;
+			$(this).text(paused ? i18n.resume : i18n.pause);
+			if (!paused) { refresh(); }
 		});
 		$(document).on('click', '.dze-q-retry', function () {
 			var $b = $(this).prop('disabled', true);
+			paused = false;
 			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'retry' })
-				.always(function () { $b.prop('disabled', false); startWatch(); });
+				.always(function () { $b.prop('disabled', false); refresh(); });
 		});
 		$(document).on('click', '.dze-q-remove', function () {
 			var $b = $(this).prop('disabled', true);

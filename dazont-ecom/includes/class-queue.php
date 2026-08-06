@@ -453,6 +453,21 @@ final class DZE_Queue {
 				'retry'    => __( 'Retry', 'dazont-ecom' ),
 				'remove'   => __( 'Remove', 'dazont-ecom' ),
 				'empty'    => __( 'Nothing in the queue.', 'dazont-ecom' ),
+				'idle'     => __( 'Nothing waiting.', 'dazont-ecom' ),
+				'pause'    => __( 'Pause', 'dazont-ecom' ),
+				'resume'   => __( 'Resume', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cWaiting' => __( '%s waiting', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cWriting' => __( '%s being written', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cReview'  => __( '%s to review', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cSaved'   => __( '%s saved', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cFailed'  => __( '%s failed', 'dazont-ecom' ),
+				/* translators: %s: number of finished rows */
+				'clearN'   => __( 'clear %s finished rows', 'dazont-ecom' ),
 				/* translators: %s: number of rows ticked */
 				'selected' => __( '%s selected:', 'dazont-ecom' ),
 				/* translators: %s: number of texts */
@@ -469,13 +484,17 @@ final class DZE_Queue {
 		<div class="wrap dze-admin">
 			<h1><?php esc_html_e( 'Writing queue', 'dazont-ecom' ); ?></h1>
 			<p class="description" style="max-width:900px;">
-				<?php esc_html_e( 'Work is done in the background, one item at a time, so nothing depends on this page staying open — a long description can take a minute and would be cut off by the server if a browser were waiting for it. Leave and come back, or stay and watch it go.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'Texts are written one at a time, and this page keeps the queue moving while it is open — leave it open and watch, or come back later and pick up what is waiting. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>
 			</p>
+			<?php
+			// No "start", no "watch": the page runs the queue by itself while it
+			// is open. The only control worth a button is stopping, and it only
+			// appears while something is actually running.
+			?>
 			<p>
-				<button type="button" class="button button-primary" id="dze-q-watch"><?php esc_html_e( 'Watch progress', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-q-kick"><?php esc_html_e( 'Start / resume now', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-q-clear"><?php esc_html_e( 'Clear finished', 'dazont-ecom' ); ?></button>
 				<span id="dze-q-counts" class="description"></span>
+				<button type="button" class="button button-small" id="dze-q-pause" style="display:none;"><?php esc_html_e( 'Pause', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button-link" id="dze-q-clear" style="display:none;margin-left:10px;color:#646970;"></button>
 			</p>
 			<p id="dze-q-bulkbar" style="display:none;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 12px;">
 				<strong id="dze-q-selcount"></strong>
