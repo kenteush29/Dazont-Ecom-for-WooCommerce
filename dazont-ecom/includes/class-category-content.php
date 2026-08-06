@@ -867,7 +867,12 @@ PROMPT;
 		if ( '' !== $plang ) {
 			do_action( 'wpml_switch_language', $plang );
 		}
-		$add = static function ( string $label, string $url, string $kind ) use ( &$pool ) {
+		// What this category is about, in stemmed words: used to tell a candidate
+		// that belongs to it from one that merely exists.
+		$kwt    = self::keyword_pools( $term_id, $term->name, false );
+		$needle = self::stems( $term->name . ' ' . implode( ' ', array_slice( $kwt['titles'], 0, 12 ) ) );
+
+		$add = static function ( string $label, string $url, string $kind ) use ( &$pool, $needle ) {
 			$url = (string) $url;
 			// Keyed without the trailing slash: the sitemap and get_permalink()
 			// do not always agree on it, and that would double an entry.
@@ -875,7 +880,19 @@ PROMPT;
 			if ( '' === $url || isset( $pool[ $key ] ) ) {
 				return;
 			}
-			$pool[ $key ] = [ 'label' => $label, 'url' => $url, 'kind' => $kind ];
+			// A sub-category IS part of this category, so it is always close. For
+			// everything else, closeness is measured: two words in common with
+			// the category and its queries. "Tactical backpack" earns it,
+			// "motorcycle boots" does not, however tactical it is.
+			$hits  = count( array_intersect( $needle, self::stems( $label ) ) );
+			$close = in_array( $kind, [ 'sub-category', 'parent category' ], true ) || $hits >= 2;
+			$pool[ $key ] = [
+				'label' => $label,
+				'url'   => $url,
+				'kind'  => $kind,
+				'score' => $hits,
+				'close' => $close,
+			];
 		};
 		if ( $term->parent ) {
 			$parent = get_term( $term->parent, 'product_cat' );
@@ -897,14 +914,14 @@ PROMPT;
 				}
 			}
 		}
-		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => (int) $term->parent, 'hide_empty' => true, 'number' => 12, 'exclude' => [ $term_id ] ] ) as $sib ) {
-			if ( ! is_wp_error( $sib ) ) {
+		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => (int) $term->parent, 'hide_empty' => true, 'number' => 12, 'exclude' => [ $term_id, (int) get_option( 'default_product_cat' ) ] ] ) as $sib ) {
+			if ( ! is_wp_error( $sib ) && 'uncategorized' !== $sib->slug ) {
 				$add( $sib->name, (string) get_term_link( $sib ), 'related category' );
 			}
 		}
 		// Other top-level categories, so a leaf can also point sideways in the tree.
-		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => 0, 'hide_empty' => true, 'number' => 10, 'exclude' => [ $term_id ] ] ) as $top ) {
-			if ( ! is_wp_error( $top ) ) {
+		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => 0, 'hide_empty' => true, 'number' => 10, 'exclude' => [ $term_id, (int) get_option( 'default_product_cat' ) ] ] ) as $top ) {
+			if ( ! is_wp_error( $top ) && 'uncategorized' !== $top->slug ) {
 				$add( $top->name, (string) get_term_link( $top ), 'main category' );
 			}
 		}
@@ -945,7 +962,13 @@ PROMPT;
 		if ( '' !== $plang ) {
 			do_action( 'wpml_switch_language', null );
 		}
-		return array_values( $pool );
+		$pool = array_values( $pool );
+		// Closest first: sub-categories, then what shares the most wording.
+		usort( $pool, static function ( $a, $b ) {
+			$rank = static fn( $x ) => ( 'sub-category' === $x['kind'] || 'parent category' === $x['kind'] ) ? 2 : ( ! empty( $x['close'] ) ? 1 : 0 );
+			return [ $rank( $b ), $b['score'] ?? 0 ] <=> [ $rank( $a ), $a['score'] ?? 0 ];
+		} );
+		return $pool;
 	}
 
 	/** The site's main language (WPML default), '' when not multilingual. */
@@ -1582,22 +1605,26 @@ PROMPT;
 			?>
 			<div class="dze-cc-picker" style="display:none;">
 				<p class="description" style="margin:0 0 6px;">
-					<?php esc_html_e( 'Everything related to this category is selected — sub-categories, sibling categories, blog posts and pages that talk about it. Untick what you do not want, then launch. Nothing is written until you save.', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Ticked: the sub-categories, plus every page, category or article that actually talks about this one. The rest is listed but left unticked — tick it if you want it anyway. Nothing is written until you save.', 'dazont-ecom' ); ?>
 				</p>
 				<ul class="dze-cc-picklist">
 					<?php foreach ( $links as $l ) :
 						$key = untrailingslashit( $l['url'] );
 						$got = isset( $linked[ $key ] );
-						// Everything close to this category starts ticked, blog
-						// posts and pages included: they are here because they
-						// already matched it. Untick what you do not want.
-						$tick = ! $got;
+						// Ticked when the candidate really belongs to this
+						// category: its sub-categories always, and anything else
+						// that shares its wording. The rest stays listed but
+						// unticked — available, not assumed.
+						$tick = ! $got && ! empty( $l['close'] );
 						?>
 						<li>
 							<label>
 								<input type="checkbox" class="dze-cc-pick" value="<?php echo esc_url( $l['url'] ); ?>"<?php checked( $got || $tick ); disabled( $got ); ?> />
 								<span class="dze-cc-pick-name"><?php echo esc_html( $l['label'] ); ?></span>
 								<span class="dze-cc-pick-kind"><?php echo esc_html( $l['kind'] ); ?></span>
+								<?php if ( ! $got && empty( $l['close'] ) ) : ?>
+									<span class="dze-cc-pick-loose"><?php esc_html_e( 'not obviously related', 'dazont-ecom' ); ?></span>
+								<?php endif; ?>
 								<?php if ( $got ) : ?>
 									<span class="dze-cc-pick-done"><?php esc_html_e( 'already linked', 'dazont-ecom' ); ?></span>
 								<?php endif; ?>

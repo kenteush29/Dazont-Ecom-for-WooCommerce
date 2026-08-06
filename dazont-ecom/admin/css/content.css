@@ -244,6 +244,7 @@
 .dze-cc-picklist label { display: block; }
 .dze-cc-pick-kind { color: #646970; font-size: 11px; margin-left: 6px; }
 .dze-cc-pick-done { color: #0a7040; font-size: 11px; margin-left: 6px; }
+.dze-cc-pick-loose { color: #a7aaad; font-size: 11px; margin-left: 6px; font-style: italic; }
 .dze-cc-pickcount { margin-left: 8px; }
 /* Missing-data alert: visible without being a wall of red. */
 .dze-cc-warn {
