@@ -84,11 +84,17 @@ final class DZE_Category_Content {
 	public function sanitize( $in ): array {
 		$in  = is_array( $in ) ? $in : [];
 		$out = self::get_settings();
+		// Empty (0) means "work it out from the category" — see size_for().
 		if ( isset( $in['words'] ) ) {
-			$out['words'] = max( 120, min( 1200, (int) $in['words'] ) );
+			$v            = (int) $in['words'];
+			$out['words'] = $v > 0 ? max( 120, min( 1200, $v ) ) : 0;
 		}
 		if ( isset( $in['links'] ) ) {
-			$out['links'] = max( 0, min( 12, (int) $in['links'] ) );
+			$v            = (int) $in['links'];
+			$out['links'] = $v > 0 ? min( 14, $v ) : 0;
+		}
+		if ( isset( $in['form'] ) ) {
+			$out['links_off'] = empty( $in['links_off'] ) ? 0 : 1;
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
@@ -103,13 +109,67 @@ final class DZE_Category_Content {
 		return $out;
 	}
 
-	public static function words(): int {
-		return max( 120, (int) ( self::get_settings()['words'] ?? 350 ) );
+	/**
+	 * How big a description this category deserves, and how many links it can
+	 * carry — worked out from the category itself rather than from one number
+	 * shared by the whole shop. A hub with 400 products and eight
+	 * sub-categories has far more to say, and far more to point at, than a
+	 * leaf with six products.
+	 *
+	 * @return array{words:int,links:int,products:int,subs:int,auto_words:bool,auto_links:bool}
+	 */
+	public static function size_for( int $term_id ): array {
+		$s        = self::get_settings();
+		$term     = $term_id ? get_term( $term_id, 'product_cat' ) : null;
+		$products = ( $term && ! is_wp_error( $term ) ) ? (int) $term->count : 0;
+		$subs     = $term_id ? (int) count( get_terms( [
+			'taxonomy'   => 'product_cat',
+			'parent'     => $term_id,
+			'hide_empty' => true,
+			'fields'     => 'ids',
+			'number'     => 30,
+		] ) ) : 0;
+
+		// Depth of catalogue behind the page, flattened: going from 10 to 100
+		// products says a lot, going from 400 to 500 says little.
+		$depth = (int) round( sqrt( max( 0, $products ) ) * 14 );
+		$words = 220 + min( 300, $depth ) + 24 * min( 10, $subs );
+		$words = max( 220, min( 900, (int) ( round( $words / 10 ) * 10 ) ) );
+
+		// One link per ~80 words, and every sub-category deserves one.
+		$links = max( 3, min( 12, (int) round( $words / 80 ) ) );
+		$links = max( $links, min( 12, $subs ) );
+
+		$set_w = (int) ( $s['words'] ?? 0 );
+		$set_l = (int) ( $s['links'] ?? 0 );
+		if ( ! empty( $s['links_off'] ) ) {
+			$set_l = 0;
+			$links = 0;
+		}
+		return [
+			'words'      => $set_w > 0 ? $set_w : $words,
+			'links'      => ! empty( $s['links_off'] ) ? 0 : ( $set_l > 0 ? $set_l : $links ),
+			'products'   => $products,
+			'subs'       => $subs,
+			'auto_words' => $set_w < 1,
+			'auto_links' => empty( $s['links_off'] ) && $set_l < 1,
+		];
 	}
 
+	/** Shop-wide fallback, used where no category is in play. */
+	public static function words(): int {
+		$v = (int) ( self::get_settings()['words'] ?? 0 );
+		return $v > 0 ? max( 120, $v ) : 350;
+	}
+
+	/** Shop-wide fallback; per-category figures come from size_for(). */
 	public static function links(): int {
-		$v = self::get_settings()['links'] ?? 5;
-		return max( 0, min( 12, (int) $v ) );
+		$s = self::get_settings();
+		if ( ! empty( $s['links_off'] ) ) {
+			return 0;
+		}
+		$v = (int) ( $s['links'] ?? 0 );
+		return $v > 0 ? min( 14, $v ) : 5;
 	}
 
 	/** URL saved by hand in Settings → Categories, if any. */
@@ -609,13 +669,14 @@ PROMPT;
 			? "\nReal buyer questions — turn the most relevant ones into <h2> questions and answer them concretely:\n- " . implode( "\n- ", $kw['questions'] ) . "\n"
 			: '';
 
-		if ( $links && self::links() > 0 ) {
+		$size = self::size_for( $term_id );
+		if ( $links && $size['links'] > 0 ) {
 			$list = [];
 			foreach ( $links as $l ) {
 				$list[] = $l['label'] . ' [' . $l['kind'] . '] → ' . $l['url'];
 			}
 			$user .= "\n--- INTERNAL LINKS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n";
-			$user .= 'Insert ' . max( 1, self::links() - 2 ) . ' to ' . self::links() . " of them.\n";
+			$user .= 'Insert ' . max( 1, $size['links'] - 2 ) . ' to ' . $size['links'] . " of them, the sub-categories first.\n";
 			$user .= "ANCHOR RULE, no exception: the anchor text is the NAME of the page you link to, exactly as it is written in the list above. Build the sentence so that name appears in it naturally, then link the name itself. Never anchor on \"here\", \"this page\", \"see more\" or on wording that does not name the target.\n";
 			$user .= "A target marked [blog post] or [page] already covers its subject in full: mention it in a sentence and link to it, do not explain the subject again here.\n";
 		}
@@ -623,11 +684,11 @@ PROMPT;
 		$user .= "\n--- INSTRUCTIONS ---\n" . ( '' !== $prompt_override ? $prompt_override : self::prompt() );
 		$user .= "\n\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: write in ' . self::language( $term_id ) . ". This overrides the language of the instructions above.\n"
-			. 'LENGTH: about ' . self::words() . " words in total.\n"
+			. 'LENGTH: about ' . $size['words'] . " words in total.\n"
 			. "OUTPUT: the HTML fragment only — no markdown, no code fence, no comment before or after.";
 
 		$system = 'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' );
-		$html   = DZE_Marketing_Ai::complete( $system, $user, '', (int) ( self::words() * 3 ) + 600, 180 );
+		$html   = DZE_Marketing_Ai::complete( $system, $user, '', (int) ( $size['words'] * 3 ) + 600, 180 );
 		$html   = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
 		if ( '' === $html ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
@@ -648,7 +709,7 @@ PROMPT;
 	 *
 	 * @return array{html:string,added:int,before:int,after:int}
 	 */
-	public static function add_links( int $term_id, string $html ): array {
+	public static function add_links( int $term_id, string $html, array $only = [] ): array {
 		$term = get_term( $term_id, 'product_cat' );
 		if ( ! $term || is_wp_error( $term ) ) {
 			throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
@@ -659,21 +720,38 @@ PROMPT;
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
 		}
-		$max = self::links();
-		if ( $max < 1 ) {
-			throw new RuntimeException( __( 'Internal linking is set to 0 in Settings → Categories.', 'dazont-ecom' ) );
-		}
 		$done  = self::linked_urls( $html );
+		// $only: the targets ticked in the panel. Without it, the whole pool is
+		// offered and the per-category figure decides how many are placed.
+		$keys  = [];
+		foreach ( $only as $u ) {
+			$keys[ untrailingslashit( esc_url_raw( (string) $u ) ) ] = true;
+		}
 		$links = [];
 		foreach ( self::link_pool( $term_id ) as $l ) {
-			if ( ! in_array( $l['url'], $done, true ) ) {
-				$links[] = $l;
+			if ( in_array( $l['url'], $done, true ) ) {
+				continue;
 			}
+			if ( $keys && ! isset( $keys[ untrailingslashit( $l['url'] ) ] ) ) {
+				continue;
+			}
+			$links[] = $l;
 		}
 		if ( ! $links ) {
-			throw new RuntimeException( __( 'Every page this category can link to is already linked.', 'dazont-ecom' ) );
+			throw new RuntimeException( $keys
+				? __( 'The pages you picked are already linked in this text.', 'dazont-ecom' )
+				: __( 'Every page this category can link to is already linked.', 'dazont-ecom' ) );
 		}
-		$room = max( 1, $max - count( $done ) );
+		if ( $keys ) {
+			// An explicit choice is a choice: place them all if a spot exists.
+			$room = count( $links );
+		} else {
+			$max = self::size_for( $term_id )['links'];
+			if ( $max < 1 ) {
+				throw new RuntimeException( __( 'Internal linking is turned off in Settings → Categories.', 'dazont-ecom' ) );
+			}
+			$room = max( 1, $max - count( $done ) );
+		}
 
 		$list = [];
 		foreach ( $links as $l ) {
@@ -686,7 +764,9 @@ PROMPT;
 			. "\n--- DESCRIPTION (HTML, to return with links added) ---\n" . $html . "\n"
 			. "\n--- INSTRUCTIONS ---\n"
 			. "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
-			. '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n"
+			. ( $keys
+				? '- Add a link for EACH of the ' . $room . " targets above, on a different spot, unless the text truly offers no place for one.\n"
+				: '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n" )
 			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
 			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
 			. "- ANCHOR RULE, no exception: the anchor text is the NAME of the target page, exactly as written in the list above. Re-word the few words around it so that name reads naturally in the sentence, then link the name itself. Never anchor on \"here\", \"this page\", \"see more\", nor on wording that does not name the target. Keep the sentence's meaning and its style.\n"
@@ -908,6 +988,7 @@ PROMPT;
 		$has   = '' !== trim( $desc );
 		$own   = '' === $editor; // popup: the panel owns its editor and saves itself.
 		$imp   = class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) );
+		$size  = self::size_for( $term_id );
 		?>
 		<?php
 		// url => page name, so the link list can show what each link points to
@@ -932,6 +1013,20 @@ PROMPT;
 					<?php esc_html_e( 'This category has no description yet.', 'dazont-ecom' ); ?>
 				<?php endif; ?>
 				<button type="button" class="button-link dze-cc-ltoggle" style="display:none;"></button>
+				<br />
+				<?php
+				printf(
+					/* translators: 1: target word count, 2: target link count, 3: products, 4: sub-categories */
+					esc_html__( 'Target for this category: %1$s words and %2$s links (%3$s products, %4$s sub-categories).', 'dazont-ecom' ),
+					'<strong>' . (int) $size['words'] . '</strong>' . ( $size['auto_words'] ? '' : '*' ),
+					'<strong>' . (int) $size['links'] . '</strong>' . ( $size['auto_links'] ? '' : '*' ),
+					(int) $size['products'],
+					(int) $size['subs']
+				);
+				if ( ! $size['auto_words'] || ! $size['auto_links'] ) {
+					echo ' <span class="description">' . esc_html__( '* fixed in the settings, not worked out from the category.', 'dazont-ecom' ) . '</span>';
+				}
+				?>
 			</p>
 			<?php // Filled from the editor content, so it always matches what is on screen. ?>
 			<ul class="dze-cc-linklist" style="display:none;"></ul>
@@ -962,8 +1057,8 @@ PROMPT;
 				<button type="button" class="button button-primary dze-cc-gen">
 					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
 				</button>
-				<?php if ( $has && self::links() > 0 ) : ?>
-					<button type="button" class="button dze-cc-links" title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
+				<?php if ( $has && $size['links'] > 0 ) : ?>
+					<button type="button" class="button dze-cc-ltoggle-pick" title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
 						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
@@ -974,6 +1069,47 @@ PROMPT;
 				<?php endif; ?>
 				<span class="dze-cc-status"></span>
 			</p>
+
+			<?php
+			// Which links to place, decided before anything is written. Already
+			// linked targets are shown ticked and disabled, the rest is ticked
+			// down to the figure this category is worth.
+			$linked = array_flip( array_map( 'untrailingslashit', self::linked_urls( $desc ) ) );
+			$budget = max( 0, (int) $size['links'] - count( $linked ) );
+			$picked = 0;
+			?>
+			<div class="dze-cc-picker" style="display:none;">
+				<p class="description" style="margin:0 0 6px;">
+					<?php esc_html_e( 'Pick the pages this description should link to. Nothing is written until you launch it.', 'dazont-ecom' ); ?>
+				</p>
+				<ul class="dze-cc-picklist">
+					<?php foreach ( $links as $l ) :
+						$key  = untrailingslashit( $l['url'] );
+						$got  = isset( $linked[ $key ] );
+						$tick = ! $got && $picked < $budget;
+						if ( $tick ) {
+							++$picked;
+						}
+						?>
+						<li>
+							<label>
+								<input type="checkbox" class="dze-cc-pick" value="<?php echo esc_url( $l['url'] ); ?>"<?php checked( $got || $tick ); disabled( $got ); ?> />
+								<span class="dze-cc-pick-name"><?php echo esc_html( $l['label'] ); ?></span>
+								<span class="dze-cc-pick-kind"><?php echo esc_html( $l['kind'] ); ?></span>
+								<?php if ( $got ) : ?>
+									<span class="dze-cc-pick-done"><?php esc_html_e( 'already linked', 'dazont-ecom' ); ?></span>
+								<?php endif; ?>
+							</label>
+						</li>
+					<?php endforeach; ?>
+				</ul>
+				<p>
+					<button type="button" class="button button-primary dze-cc-links"><?php esc_html_e( 'Place the selected links', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button-link dze-cc-pickall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button-link dze-cc-picknone"><?php esc_html_e( 'Clear', 'dazont-ecom' ); ?></button>
+					<span class="dze-cc-pickcount description"></span>
+				</p>
+			</div>
 
 			<div class="dze-cc-data" style="display:none;">
 				<p class="description" style="margin-top:0;">
@@ -1003,7 +1139,7 @@ PROMPT;
 						esc_html__( 'Link suggestions: %1$s URLs to choose from (%2$s); at most %3$s are inserted. The writer may only use URLs from that list — it never invents one.', 'dazont-ecom' ),
 						'<strong>' . count( $links ) . '</strong>',
 						esc_html( implode( ', ', $parts ) ),
-						'<strong>' . (int) self::links() . '</strong>'
+						'<strong>' . (int) $size['links'] . '</strong>'
 					);
 					echo '<br />' . self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
 					?>
@@ -1108,6 +1244,9 @@ PROMPT;
 				'showLinks'   => __( '%s links', 'dazont-ecom' ),
 				'external'    => __( 'external', 'dazont-ecom' ),
 				'notNamed'    => __( 'The anchor does not name the page it points to.', 'dazont-ecom' ),
+				/* translators: %s: number of pages ticked */
+				'picked'      => __( '%s selected', 'dazont-ecom' ),
+				'alreadyLinked' => __( 'already linked', 'dazont-ecom' ),
 				'working'     => __( 'Writing — up to a minute…', 'dazont-ecom' ),
 				'linking'     => __( 'Placing the links…', 'dazont-ecom' ),
 				/* translators: 1: links added, 2: links in the text now */
@@ -1195,8 +1334,11 @@ PROMPT;
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 200 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+		$only = isset( $_POST['urls'] ) && is_array( $_POST['urls'] )
+			? array_map( 'esc_url_raw', array_map( 'wp_unslash', $_POST['urls'] ) )
+			: [];
 		try {
-			$res = self::add_links( $tid, $html );
+			$res = self::add_links( $tid, $html, $only );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -1275,15 +1417,20 @@ PROMPT;
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_catcontent_options' ); ?>
 			<table class="form-table" role="presentation">
+				<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[form]" value="1" />
 				<tr>
 					<th scope="row"><label for="dze-cc-words"><?php esc_html_e( 'Target length', 'dazont-ecom' ); ?></label></th>
-					<td><input type="number" id="dze-cc-words" name="<?php echo esc_attr( self::OPT ); ?>[words]" class="small-text" min="120" max="1200" step="10" value="<?php echo (int) self::words(); ?>" /> <?php esc_html_e( 'words', 'dazont-ecom' ); ?></td>
+					<td>
+						<input type="number" id="dze-cc-words" name="<?php echo esc_attr( self::OPT ); ?>[words]" class="small-text" min="0" max="1200" step="10" value="<?php echo (int) ( $s['words'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" /> <?php esc_html_e( 'words', 'dazont-ecom' ); ?>
+						<p class="description"><?php esc_html_e( 'Leave empty and each category gets a length of its own, from 220 to 900 words, worked out from how many products and sub-categories sit behind it. Fill it in to force the same length everywhere.', 'dazont-ecom' ); ?></p>
+					</td>
 				</tr>
 				<tr>
 					<th scope="row"><label for="dze-cc-links"><?php esc_html_e( 'Internal links', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="12" value="<?php echo (int) self::links(); ?>" />
-						<p class="description"><?php esc_html_e( 'Maximum links inserted per description (0 disables internal linking). Only other categories are linked — the page already lists its own products.', 'dazont-ecom' ); ?></p>
+						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="14" value="<?php echo (int) ( $s['links'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" />
+						<label style="margin-left:12px;"><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[links_off]" value="1" <?php checked( ! empty( $s['links_off'] ) ); ?> /> <?php esc_html_e( 'No internal linking at all', 'dazont-ecom' ); ?></label>
+						<p class="description"><?php esc_html_e( 'Empty means one link per ~80 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>

@@ -234,18 +234,58 @@
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
 
+	// ---- Choosing the links before they are placed ----
+	function pickCount($box) {
+		var n = $box.find('.dze-cc-pick:checked:not(:disabled)').length;
+		$box.find('.dze-cc-pickcount').text(sprintf(i18n.picked, n));
+		$box.find('.dze-cc-links').prop('disabled', n < 1);
+	}
+	$(document).on('click', '.dze-cc-ltoggle-pick', function () {
+		var $box = $(this).closest('.dze-cc-box');
+		$box.find('.dze-cc-picker').toggle();
+		pickCount($box);
+	});
+	$(document).on('change', '.dze-cc-pick', function () { pickCount($(this).closest('.dze-cc-box')); });
+	$(document).on('click', '.dze-cc-pickall', function () {
+		var $box = $(this).closest('.dze-cc-box');
+		$box.find('.dze-cc-pick:not(:disabled)').prop('checked', true);
+		pickCount($box);
+	});
+	$(document).on('click', '.dze-cc-picknone', function () {
+		var $box = $(this).closest('.dze-cc-box');
+		$box.find('.dze-cc-pick:not(:disabled)').prop('checked', false);
+		pickCount($box);
+	});
+
+	// After a run, whatever is now in the text is shown as already linked.
+	function markPlaced($box) {
+		var done = {};
+		linkList($box).forEach(function (r) { done[r.href.replace(/\/+$/, '')] = true; });
+		$box.find('.dze-cc-pick').each(function () {
+			if (done[this.value.replace(/\/+$/, '')]) {
+				$(this).prop({ checked: true, disabled: true })
+					.closest('label').find('.dze-cc-pick-done').remove().end()
+					.append(' <span class="dze-cc-pick-done">' + esc(i18n.alreadyLinked) + '</span>');
+			}
+		});
+		pickCount($box);
+	}
+
 	// Linking-only pass: the text stays, links come in. Still nothing saved.
 	$(document).on('click', '.dze-cc-links', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.linking));
+		var urls = $box.find('.dze-cc-pick:checked:not(:disabled)').map(function () { return this.value; }).get();
 		$.post(cfg.ajaxUrl, {
-			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box))
+			action: 'dze_cc_links', nonce: $box.data('nonce'), term: $box.data('term'),
+			html: editorGet(edId($box)), urls: urls
 		})
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				editorSet(edId($box), res.data.html);
 				refreshLinks($box);
+				markPlaced($box);
 				$st.css('color', '#646970').text(res.data.added
 					? sprintf(i18n.linked, res.data.added, res.data.after)
 					: i18n.linkedNone);
