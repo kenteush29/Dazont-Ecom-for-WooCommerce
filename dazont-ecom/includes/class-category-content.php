@@ -105,13 +105,13 @@ final class DZE_Category_Content {
 			$before           = ! empty( $out['sitemap_products'] );
 			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
 			if ( $before !== (bool) $out['sitemap_products'] ) {
-				delete_transient( 'dze_cc_sitemap_v4' ); // different files to read.
+				delete_transient( 'dze_cc_sitemap_v5' ); // different files to read.
 			}
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
 			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v4' ); // a new URL is re-read at once.
+				delete_transient( 'dze_cc_sitemap_v5' ); // a new URL is re-read at once.
 			}
 			$out['sitemap'] = $url;
 		}
@@ -310,7 +310,7 @@ final class DZE_Category_Content {
 		}
 		$out        = self::read_sitemap( $url );
 		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v4', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+		set_transient( 'dze_cc_sitemap_v5', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -323,7 +323,7 @@ final class DZE_Category_Content {
 	 * timing out. Only the daily cron and the Test button actually fetch.
 	 */
 	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v4' );
+		$cached = get_transient( 'dze_cc_sitemap_v5' );
 		// A cache read for another address (SEO plugin swapped) is thrown away.
 		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
 	}
@@ -371,9 +371,16 @@ final class DZE_Category_Content {
 			$queue    = [];
 			$skiplist = [];
 			foreach ( $first as $child ) {
-				if ( ! $products && preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) ) {
+				$name = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
+				// Products (unless asked for), and everything that is an archive
+				// rather than a page someone would want to land on: tag,
+				// attachment, author and media sitemaps. Linking a category
+				// description to a tag archive helps nobody.
+				$drop = ( ! $products && preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) )
+					|| preg_match( '#tag[-_]?sitemap|attachment[-_]?sitemap|author[-_]?sitemap|media[-_]?sitemap|brand[-_]?sitemap#i', $child );
+				if ( $drop ) {
 					++$skipped;
-					$skiplist[] = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
+					$skiplist[] = $name;
 					continue;
 				}
 				$queue[] = $child;
@@ -417,6 +424,7 @@ final class DZE_Category_Content {
 		$urls  = [];
 		$found = 0;
 		$prod  = 0;
+		$arch  = 0;
 		$seen  = [];
 		foreach ( $locs as $loc ) {
 			$loc = esc_url_raw( trim( $loc ) );
@@ -431,6 +439,13 @@ final class DZE_Category_Content {
 			++$found;
 			if ( ! $products && $bases && preg_match( '#(^|/)(' . implode( '|', $bases ) . ')/#i', '/' . $slug . '/' ) ) {
 				++$prod;
+				continue;
+			}
+			// An archive, a paginated page, a feed or a file: never something a
+			// description should send a reader to.
+			if ( preg_match( '#(^|/)(tag|product-tag|etiquette-produit|author|feed|page/\d+|comment-page-\d+|\d{4}/\d{2})(/|$)#i', $slug )
+				|| preg_match( '#\.(jpe?g|png|gif|webp|svg|pdf|zip|mp4|avif)$#i', $slug ) ) {
+				++$arch;
 				continue;
 			}
 			if ( count( $urls ) >= self::SITEMAP_KEEP ) {
@@ -452,6 +467,7 @@ final class DZE_Category_Content {
 			'skipped'  => $skipped,
 			'index'    => count( $first ),
 			'products' => $prod,
+			'archives' => $arch,
 			'sample'   => array_slice( array_column( $urls, 'url' ), 0, 25 ),
 			'readlist' => $readlist ?? [],
 			'skiplist' => $skiplist ?? [],
@@ -1133,11 +1149,20 @@ PROMPT;
 						number_format_i18n( $skip )
 					);
 				}
+				$dropped = [];
 				if ( ! empty( $s['products'] ) ) {
+					/* translators: %s: number of product URLs dropped */
+					$dropped[] = sprintf( esc_html__( '%s products', 'dazont-ecom' ), number_format_i18n( (int) $s['products'] ) );
+				}
+				if ( ! empty( $s['archives'] ) ) {
+					/* translators: %s: number of archive URLs dropped */
+					$dropped[] = sprintf( esc_html__( '%s tag/author/file URLs', 'dazont-ecom' ), number_format_i18n( (int) $s['archives'] ) );
+				}
+				if ( $dropped ) {
 					$parts[] = sprintf(
-						/* translators: %s: number of product URLs dropped */
-						esc_html__( '%s product URLs dropped from the files that were read', 'dazont-ecom' ),
-						number_format_i18n( (int) $s['products'] )
+						/* translators: %s: what was dropped, e.g. "1,204 products, 892 tag/author/file URLs" */
+						esc_html__( 'dropped from the files read: %s', 'dazont-ecom' ),
+						implode( ', ', $dropped )
 					);
 				}
 				$pending = max( 0, (int) ( $s['children'] ?? 0 ) - $read );
