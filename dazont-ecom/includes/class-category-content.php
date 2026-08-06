@@ -26,6 +26,8 @@ final class DZE_Category_Content {
 	private const NONCE = 'dze_catcontent';
 	public const GEN_META  = '_dze_desc_generated';
 	public const CRON_HOOK = 'dze_cc_sitemap_check';
+	/** Cached verdict of the question sifting pass, per category. */
+	private const Q_META   = '_dze_cc_questions';
 
 	/** How many sitemap URLs are kept in cache; each run uses a handful. */
 	private const SITEMAP_KEEP = 400;
@@ -529,10 +531,83 @@ PROMPT;
 		usort( $scored, static fn( $a, $b ) => [ $b['h'], $b['v'] ] <=> [ $a['h'], $a['v'] ] );
 
 		$out = [];
-		foreach ( array_slice( $scored, 0, 15 ) as $q ) {
+		foreach ( array_slice( $scored, 0, 40 ) as $q ) {
 			$out[] = $q['kw'] . ( $q['v'] ? ' (' . $q['v'] . '/mo)' : '' );
 		}
-		return $out;
+		return array_slice( self::keep_relevant( $term_id, (string) $name, $out ), 0, 15 );
+	}
+
+	/**
+	 * Last sieve on the questions, and the only one that can tell subject from
+	 * vocabulary.
+	 *
+	 * Word overlap cannot: "does spirit airlines charge military for bags"
+	 * shares "military" and "bag" with a tactical-bag category and sails
+	 * through, although it is about airline baggage allowance and a shop
+	 * selling bags has nothing to say about it. So the shortlist is read once
+	 * by the cheap model, which keeps what a customer of THIS shop would ask
+	 * before buying, and the verdict is cached on the category until the
+	 * candidate list itself changes.
+	 *
+	 * No key, no answer, any failure: the list goes through untouched rather
+	 * than the writer losing its questions.
+	 */
+	public static function keep_relevant( int $term_id, string $name, array $questions ): array {
+		if ( count( $questions ) < 4 || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return $questions;
+		}
+		$hash   = md5( $name . '|' . implode( '|', $questions ) );
+		$cached = get_term_meta( $term_id, self::Q_META, true );
+		if ( is_array( $cached ) && ( $cached['hash'] ?? '' ) === $hash ) {
+			return (array) $cached['keep'];
+		}
+
+		$list = '';
+		foreach ( $questions as $i => $q ) {
+			$list .= $i . '. ' . $q . "\n";
+		}
+		$user = "SHOP CATEGORY: {$name}\n\n"
+			. "QUESTIONS PULLED FROM SEARCH DATA:\n" . $list . "\n"
+			. "Keep only the questions a customer would ask this shop before buying from this category — about the products themselves: material, size, use, care, choice, compatibility, quality.\n"
+			. "Drop everything else, however many words it shares with the category: another industry's rules (airline baggage allowance, customs, shipping policies of other companies), another product entirely, a named brand or retailer, a job or a service.\n"
+			. "Order what you keep by how useful the answer is to a buyer. Keep at most 15.\n"
+			. 'OUTPUT: a JSON array of the kept numbers, nothing else. Example: [3,0,7]';
+
+		try {
+			$raw = DZE_Marketing_Ai::complete(
+				'You sort search queries for an e-commerce category page. You are strict: a query that shares words with the category but is about another subject is dropped.',
+				$user,
+				self::sift_model(),
+				400,
+				30
+			);
+		} catch ( \Throwable $e ) {
+			return $questions;
+		}
+		if ( ! preg_match( '/\[[^\]]*\]/s', $raw, $m ) ) {
+			return $questions;
+		}
+		$idx = json_decode( $m[0], true );
+		if ( ! is_array( $idx ) ) {
+			return $questions;
+		}
+		$keep = [];
+		foreach ( $idx as $i ) {
+			if ( isset( $questions[ (int) $i ] ) ) {
+				$keep[] = $questions[ (int) $i ];
+			}
+		}
+		if ( ! $keep ) {
+			return $questions; // A model answering "none" is more likely wrong than the data.
+		}
+		update_term_meta( $term_id, self::Q_META, [ 'hash' => $hash, 'keep' => $keep ] );
+		return $keep;
+	}
+
+	/** Cheap model for the sifting pass; the matcher's model when set. */
+	private static function sift_model(): string {
+		$m = class_exists( 'DZE_Marketing_Ai' ) ? trim( (string) ( DZE_Marketing_Ai::get_settings()['match_model'] ?? '' ) ) : '';
+		return '' !== $m ? $m : 'claude-haiku-4-5-20251001';
 	}
 
 	/** tokens(), with a crude plural trim so "bag" and "bags" are one word. */
@@ -948,8 +1023,8 @@ PROMPT;
 			$state = self::sitemap_cached();
 			if ( null === $state ) {
 				return '' === self::sitemap_url()
-					? '<span class="dze-key-badge is-missing">' . esc_html__( 'No sitemap connected — categories only', 'dazont-ecom' ) . '</span>'
-					: '<span class="dze-key-badge is-missing">' . esc_html__( 'Not read yet — press Test, or wait for the daily check', 'dazont-ecom' ) . '</span>';
+					? '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap: none connected — links stay inside the site pages listed above', 'dazont-ecom' ) . '</span>'
+					: '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap: not read yet — it is read once a day in the background, or now from Settings → Categories', 'dazont-ecom' ) . '</span>';
 			}
 		}
 		$s = $state;
@@ -1258,6 +1333,7 @@ PROMPT;
 			</div>
 
 			<div class="dze-cc-data" style="display:none;">
+				<p style="margin:0 0 4px;"><strong><?php esc_html_e( 'What this description will be built from', 'dazont-ecom' ); ?></strong></p>
 				<p class="description" style="margin-top:0;">
 					<?php
 					printf(
@@ -1294,7 +1370,11 @@ PROMPT;
 					<p><strong><?php esc_html_e( 'Secondary queries', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['titles'], 0, 12 ) ) ); ?></span></p>
 				<?php endif; ?>
 				<?php if ( $kw['questions'] ) : ?>
-					<p><strong><?php esc_html_e( 'Buyer questions', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['questions'], 0, 10 ) ) ); ?></span></p>
+					<p>
+						<strong><?php esc_html_e( 'Buyer questions', 'dazont-ecom' ); ?></strong>
+						<span class="description"><?php esc_html_e( '— read from the whole keyword set, then sifted so only what a buyer would ask this shop is kept', 'dazont-ecom' ); ?></span>
+						<br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['questions'], 0, 10 ) ) ); ?></span>
+					</p>
 				<?php endif; ?>
 			</div>
 
@@ -1414,6 +1494,12 @@ PROMPT;
 				'colIntent'   => __( 'Intent', 'dazont-ecom' ),
 				'colNone'     => __( '— none —', 'dazont-ecom' ),
 				'error'       => __( 'Something went wrong.', 'dazont-ecom' ),
+				'noAnswer'    => __( 'No answer from the server — the connection dropped before it replied.', 'dazont-ecom' ),
+				/* translators: %s: HTTP status code */
+				'timedOut'    => __( 'The server cut the request off (HTTP %s). A long description can take longer than your host allows: try again, or set a shorter Target length in Settings → Categories.', 'dazont-ecom' ),
+				/* translators: %s: HTTP status code */
+				'serverError' => __( 'The server answered with an error (HTTP %s). Look at your host\'s PHP error log for the reason.', 'dazont-ecom' ),
+				'expired'     => __( 'This page has been open too long and the security token expired — reload it.', 'dazont-ecom' ),
 				'applied'     => __( 'Saved ✓', 'dazont-ecom' ),
 				'review'      => __( 'Draft ready — edit it if needed, then save.', 'dazont-ecom' ),
 				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),

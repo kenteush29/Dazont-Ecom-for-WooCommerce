@@ -50,6 +50,17 @@
 		$('#' + id).val(html);
 	}
 
+
+	// A dead request is not "something went wrong": say what the server did, so
+	// a timeout on a long generation is not confused with a broken plugin.
+	function why(xhr) {
+		if (!xhr || !xhr.status) { return i18n.noAnswer; }
+		if (xhr.status === 504 || xhr.status === 408 || xhr.status === 502) { return sprintf(i18n.timedOut, xhr.status); }
+		if (xhr.status === 403) { return i18n.expired; }
+		if (xhr.status >= 500) { return sprintf(i18n.serverError, xhr.status); }
+		return sprintf(i18n.serverError, xhr.status);
+	}
+
 	// Does this anchor name that page? Either it contains the name, or it
 	// shares enough of its meaningful words — a title shortened to its subject
 	// still names it, "read more" never does.
@@ -235,7 +246,7 @@
 				// Popup: reopen it so the query pools are listed.
 				$('.dze-cc-open[data-id="' + $box.data('term') + '"]').trigger('click');
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
 	});
 
 	// Nothing is written to the category before Apply.
@@ -255,7 +266,7 @@
 				refreshLinks($box);
 				showDiff($box);
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
 	});
 
 	// ---- Choosing the links before they are placed ----
@@ -339,7 +350,7 @@
 					? sprintf(i18n.linked, res.data.added, res.data.after)
 					: i18n.linkedNone);
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
 	});
 
 	$(document).on('click', '.dze-cc-apply', function () {
@@ -358,7 +369,7 @@
 					$meta.text(res.data.links + ' links');
 				}
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function (xhr) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr)); });
 	});
 
 	$(document).on('click', '.dze-cc-revert', function () {
