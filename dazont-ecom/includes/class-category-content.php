@@ -102,6 +102,11 @@ final class DZE_Category_Content {
 		}
 		if ( isset( $in['form'] ) ) {
 			$out['links_off'] = empty( $in['links_off'] ) ? 0 : 1;
+			$before           = ! empty( $out['sitemap_products'] );
+			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
+			if ( $before !== (bool) $out['sitemap_products'] ) {
+				delete_transient( 'dze_cc_sitemap_v3' ); // different files to read.
+			}
 		}
 		if ( isset( $in['sitemap'] ) ) {
 			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
@@ -341,10 +346,13 @@ final class DZE_Category_Content {
 			// The product sitemaps are the exception, and they are skipped on
 			// purpose: an individual product is never a link target here, the
 			// category page already lists it, and they are also the longest.
-			$queue = [];
+			$queue   = [];
+			$skiplist = [];
+			$products = ! empty( self::get_settings()['sitemap_products'] );
 			foreach ( $first as $child ) {
-				if ( preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) ) {
+				if ( ! $products && preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) ) {
 					++$skipped;
+					$skiplist[] = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
 					continue;
 				}
 				$queue[] = $child;
@@ -363,15 +371,20 @@ final class DZE_Category_Content {
 			// stops the run instead of holding a worker for minutes, and the
 			// next daily read picks up where this one stopped.
 			$deadline = microtime( true ) + 25;
+			$readlist = [];
 			foreach ( $queue as $child ) {
 				if ( microtime( true ) > $deadline ) {
 					break;
 				}
 				$sub = $fetch( $child, 6 );
 				++$read;
+				$name = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
+				$n    = 0;
 				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
 					$locs = array_merge( $locs, $mm[1] );
+					$n    = count( $mm[1] );
 				}
+				$readlist[] = $name . ' (' . $n . ')';
 			}
 		} else {
 			$locs = $first;
@@ -402,6 +415,9 @@ final class DZE_Category_Content {
 			'children' => $children,
 			'read'     => $read,
 			'skipped'  => $skipped,
+			'index'    => count( $first ),
+			'readlist' => $readlist ?? [],
+			'skiplist' => $skiplist ?? [],
 			'checked'  => time(),
 		];
 	}
@@ -1057,49 +1073,56 @@ PROMPT;
 		}
 		$s = $state;
 		if ( 'ok' === $s['status'] ) {
-			$found  = (int) ( $s['found'] ?? $s['count'] );
-			$kept   = (int) $s['count'];
-			$read   = (int) ( $s['read'] ?? 0 );
-			$total  = (int) ( $s['children'] ?? 0 );
-			$parts  = [];
+			$found = (int) ( $s['found'] ?? $s['count'] );
+			$kept  = (int) $s['count'];
+			$read  = (int) ( $s['read'] ?? 0 );
+			$skip  = (int) ( $s['skipped'] ?? 0 );
+			$index = (int) ( $s['index'] ?? 0 );
+			$parts = [];
+
+			if ( $index ) {
+				// Say what the index holds, not only what was taken from it:
+				// "10 read" alone reads like nine tenths went missing.
+				$parts[] = sprintf(
+					/* translators: 1: sub-sitemaps in the index, 2: sub-sitemaps read */
+					esc_html__( '%1$s sub-sitemaps in the index, %2$s read', 'dazont-ecom' ),
+					number_format_i18n( $index ),
+					number_format_i18n( $read )
+				);
+				if ( $skip ) {
+					$parts[] = sprintf(
+						/* translators: %s: number of product sitemaps left out */
+						esc_html__( '%s left out because they list products, which are not link targets here', 'dazont-ecom' ),
+						number_format_i18n( $skip )
+					);
+				}
+				$pending = max( 0, (int) ( $s['children'] ?? 0 ) - $read );
+				if ( $pending ) {
+					$parts[] = sprintf(
+						/* translators: %s: sub-sitemaps still to read */
+						esc_html__( '%s still to read on the next daily check', 'dazont-ecom' ),
+						number_format_i18n( $pending )
+					);
+				}
+			}
 			$parts[] = $kept < $found
 				? sprintf(
 					/* translators: 1: URLs found, 2: URLs kept */
-					esc_html__( '%1$s URLs found, %2$s kept as link candidates', 'dazont-ecom' ),
+					esc_html__( '%1$s URLs, %2$s kept as link candidates', 'dazont-ecom' ),
 					number_format_i18n( $found ),
 					number_format_i18n( $kept )
 				)
 				: sprintf(
 					/* translators: %s: number of URLs */
-					esc_html__( '%s URLs', 'dazont-ecom' ),
+					esc_html__( '%s URLs available for linking', 'dazont-ecom' ),
 					number_format_i18n( $found )
 				);
-			if ( $total ) {
-				$parts[] = $read < $total
-					? sprintf(
-						/* translators: 1: sub-sitemaps read, 2: sub-sitemaps found */
-						esc_html__( '%1$s of %2$s sub-sitemaps read so far, the rest on the next daily check', 'dazont-ecom' ),
-						number_format_i18n( $read ),
-						number_format_i18n( $total )
-					)
-					: sprintf(
-						/* translators: %s: number of sub-sitemaps */
-						esc_html__( '%s sub-sitemaps read', 'dazont-ecom' ),
-						number_format_i18n( $total )
-					);
-			}
-			if ( ! empty( $s['skipped'] ) ) {
-				$parts[] = sprintf(
-					/* translators: %s: number of product sitemaps skipped */
-					esc_html__( '%s product sitemap(s) skipped — a product is never a link target here', 'dazont-ecom' ),
-					number_format_i18n( (int) $s['skipped'] )
-				);
-			}
 			$parts[] = sprintf(
 				/* translators: %s: human time diff */
 				esc_html__( 'read %s ago', 'dazont-ecom' ),
 				esc_html( human_time_diff( (int) $s['checked'] ) )
 			);
+
 			$badge = '<span class="dze-key-badge is-set">&#10003; '
 				. esc_html__( 'Sitemap connected', 'dazont-ecom' ) . ' — ' . implode( ' · ', $parts ) . '</span>';
 			if ( '' !== $src ) {
@@ -1785,6 +1808,29 @@ PROMPT;
 						<input type="url" id="dze-cc-sitemap" name="<?php echo esc_attr( self::OPT ); ?>[sitemap]" class="regular-text" value="<?php echo esc_attr( self::sitemap_override() ); ?>" placeholder="<?php echo esc_attr( '' !== $auto['url'] ? $auto['url'] : home_url( '/wp-sitemap.xml' ) ); ?>" />
 						<button type="button" class="button" id="dze-cc-sitemap-test"><?php esc_html_e( 'Test', 'dazont-ecom' ); ?></button>
 						<p id="dze-cc-sitemap-status" style="margin:8px 0 0;"><?php echo self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?></p>
+						<p style="margin:6px 0;">
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[sitemap_products]" value="1" <?php checked( ! empty( $s['sitemap_products'] ) ); ?> />
+								<?php esc_html_e( 'Read the product sitemaps too', 'dazont-ecom' ); ?>
+							</label>
+							<span class="description"><?php esc_html_e( 'Off by default: a category page already lists its products, so linking to one from its description adds nothing — and those files are the bulk of a big sitemap.', 'dazont-ecom' ); ?></span>
+						</p>
+						<?php $st = self::sitemap_cached(); ?>
+						<?php if ( is_array( $st ) && ( ! empty( $st['readlist'] ) || ! empty( $st['skiplist'] ) ) ) : ?>
+							<details style="margin:6px 0;">
+								<summary style="cursor:pointer;color:#2271b1;"><?php esc_html_e( 'Which sub-sitemaps were read', 'dazont-ecom' ); ?></summary>
+								<p class="description" style="margin:6px 0 0;">
+									<?php if ( ! empty( $st['readlist'] ) ) : ?>
+										<strong><?php esc_html_e( 'Read', 'dazont-ecom' ); ?></strong><br />
+										<?php echo esc_html( implode( ' · ', (array) $st['readlist'] ) ); ?><br />
+									<?php endif; ?>
+									<?php if ( ! empty( $st['skiplist'] ) ) : ?>
+										<strong><?php esc_html_e( 'Left out', 'dazont-ecom' ); ?></strong><br />
+										<?php echo esc_html( implode( ' · ', (array) $st['skiplist'] ) ); ?>
+									<?php endif; ?>
+								</p>
+							</details>
+						<?php endif; ?>
 						<p class="description">
 							<?php
 							if ( '' !== $auto['url'] ) {
