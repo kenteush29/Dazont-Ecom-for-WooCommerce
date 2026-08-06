@@ -417,6 +417,13 @@ PROMPT;
 	/**
 	 * The category's SEMrush queries, already imported by the Sourcing
 	 * Assistant: [ 'titles' => [...], 'questions' => [...] ], volume-ranked.
+	 *
+	 * Both modules read the same table, and a keyword set aside there is set
+	 * aside here — with one exception. The sourcing matcher files every
+	 * informational query as kw_type 'info' + status 'ignored', meaning "no
+	 * product to source behind this". For a description those queries are the
+	 * raw material, not noise: they are the buyer questions. So 'ignored' hides
+	 * a keyword unless it was the matcher calling it informational.
 	 */
 	public static function keyword_pools( int $term_id, string $exclude = '' ): array {
 		global $wpdb;
@@ -431,7 +438,7 @@ PROMPT;
 		// Real size of the set, not the size of the slice read below.
 		$out['total'] = (int) $wpdb->get_var( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT COUNT(*) FROM {$table} WHERE term_id = %d AND status <> 'ignored'",
+			"SELECT COUNT(*) FROM {$table} WHERE term_id = %d AND ( status <> 'ignored' OR kw_type = 'info' )",
 			$term_id
 		) );
 		if ( ! $out['total'] ) {
@@ -442,7 +449,7 @@ PROMPT;
 		$rows   = $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 			"SELECT keyword, volume FROM {$table}
-			 WHERE term_id = %d AND status <> 'ignored'
+			 WHERE term_id = %d AND ( status <> 'ignored' OR kw_type = 'info' )
 			 ORDER BY volume DESC LIMIT 200",
 			$term_id
 		), ARRAY_A );
@@ -488,7 +495,7 @@ PROMPT;
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name, patterns prepared above.
 			"SELECT keyword, volume FROM {$table}
-			 WHERE term_id = %d AND status <> 'ignored' AND ( " . implode( ' OR ', $like ) . " )
+			 WHERE term_id = %d AND ( status <> 'ignored' OR kw_type = 'info' ) AND ( " . implode( ' OR ', $like ) . " )
 			 ORDER BY volume DESC LIMIT 200",
 			$term_id
 		), ARRAY_A );
@@ -499,7 +506,7 @@ PROMPT;
 		// non-question queries.
 		$top = (array) $wpdb->get_col( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT keyword FROM {$table} WHERE term_id = %d AND status <> 'ignored' ORDER BY volume DESC LIMIT 25",
+			"SELECT keyword FROM {$table} WHERE term_id = %d AND ( status <> 'ignored' OR kw_type = 'info' ) ORDER BY volume DESC LIMIT 25",
 			$term_id
 		) );
 		$term   = get_term( $term_id, 'product_cat' );
