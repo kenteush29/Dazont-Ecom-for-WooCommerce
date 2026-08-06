@@ -215,6 +215,14 @@
 .dze-cc-box .wp-editor-area { font-size: 13px; }
 .dze-cc-ptext { font-size: 12px !important; }
 .dze-cc-status { font-size: 12px; margin-left: 6px; }
+/* The links a description contains, listed on demand and kept quiet. */
+.dze-cc-linklist { margin: 0 0 10px; font-size: 12px; color: #646970; }
+.dze-cc-linklist li { margin: 0 0 2px; padding-left: 14px; text-indent: -14px; line-height: 1.5; }
+.dze-cc-linklist li::before { content: "↳ "; color: #a7aaad; }
+.dze-cc-linklist .dze-cc-anchor { color: #1d2327; }
+.dze-cc-linklist .dze-cc-target { font-family: Consolas, Monaco, monospace; }
+.dze-cc-linklist .dze-cc-out { color: #b32d2e; }
+.dze-cc-ltoggle { font-size: 12px; margin-left: 6px; }
 /* Missing-data alert: visible without being a wall of red. */
 .dze-cc-warn {
 	background: #fcf3cd; border-left: 4px solid #dba617; border-radius: 2px;

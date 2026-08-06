@@ -615,7 +615,8 @@ PROMPT;
 				$list[] = $l['label'] . ' [' . $l['kind'] . '] → ' . $l['url'];
 			}
 			$user .= "\n--- INTERNAL LINKS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n";
-			$user .= 'Insert ' . max( 1, self::links() - 2 ) . ' to ' . self::links() . " of them, anchored on natural wording inside the sentences.\n";
+			$user .= 'Insert ' . max( 1, self::links() - 2 ) . ' to ' . self::links() . " of them.\n";
+			$user .= "ANCHOR RULE, no exception: the anchor text is the NAME of the page you link to, exactly as it is written in the list above. Build the sentence so that name appears in it naturally, then link the name itself. Never anchor on \"here\", \"this page\", \"see more\" or on wording that does not name the target.\n";
 			$user .= "A target marked [blog post] or [page] already covers its subject in full: mention it in a sentence and link to it, do not explain the subject again here.\n";
 		}
 
@@ -688,7 +689,7 @@ PROMPT;
 			. '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n"
 			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
 			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
-			. "- The anchor must be words already in the sentence, or as close as possible. You may re-word lightly — a handful of words at most, around the anchor — so the anchor names what the target page is about. Keep the sentence's meaning and its style.\n"
+			. "- ANCHOR RULE, no exception: the anchor text is the NAME of the target page, exactly as written in the list above. Re-word the few words around it so that name reads naturally in the sentence, then link the name itself. Never anchor on \"here\", \"this page\", \"see more\", nor on wording that does not name the target. Keep the sentence's meaning and its style.\n"
 			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
 			. "- Never link twice to the same URL, never link a whole sentence, never link inside a heading.\n"
 			. "\n--- FACTS (never contradict these) ---\n"
@@ -908,7 +909,15 @@ PROMPT;
 		$own   = '' === $editor; // popup: the panel owns its editor and saves itself.
 		$imp   = class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) );
 		?>
-		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
+		<?php
+		// url => page name, so the link list can show what each link points to
+		// and flag an anchor that does not name it.
+		$names = [];
+		foreach ( $links as $l ) {
+			$names[ untrailingslashit( $l['url'] ) ] = $l['label'];
+		}
+		?>
+		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
 			<p class="description" style="margin-top:0;">
 				<?php if ( $has ) : ?>
 					<?php
@@ -922,7 +931,10 @@ PROMPT;
 				<?php else : ?>
 					<?php esc_html_e( 'This category has no description yet.', 'dazont-ecom' ); ?>
 				<?php endif; ?>
+				<button type="button" class="button-link dze-cc-ltoggle" style="display:none;"></button>
 			</p>
+			<?php // Filled from the editor content, so it always matches what is on screen. ?>
+			<ul class="dze-cc-linklist" style="display:none;"></ul>
 
 			<?php if ( ! $kw['total'] ) : ?>
 				<div class="dze-cc-warn">
@@ -1090,7 +1102,12 @@ PROMPT;
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
 			'kwNonce' => class_exists( 'DZE_Keywords' ) ? DZE_Keywords::nonce() : '',
+			'home'    => home_url( '/' ),
 			'i18n'    => [
+				/* translators: %s: number of links in the description */
+				'showLinks'   => __( '%s links', 'dazont-ecom' ),
+				'external'    => __( 'external', 'dazont-ecom' ),
+				'notNamed'    => __( 'The anchor does not name the page it points to.', 'dazont-ecom' ),
 				'working'     => __( 'Writing — up to a minute…', 'dazont-ecom' ),
 				'linking'     => __( 'Placing the links…', 'dazont-ecom' ),
 				/* translators: 1: links added, 2: links in the text now */

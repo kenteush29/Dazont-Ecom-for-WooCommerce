@@ -50,11 +50,58 @@
 		$('#' + id).val(html);
 	}
 
+	// The links the description actually contains, read from the editor so the
+	// list always matches what is on screen — before and after a run.
+	function linkList($box) {
+		var pool = $box.data('pool') || {}, rows = [];
+		$('<div>').html(editorGet(edId($box))).find('a[href]').each(function () {
+			var href = $(this).attr('href') || '';
+			var key = href.replace(/\/+$/, '');
+			var name = pool[key] || '';
+			var anchor = ($(this).text() || '').replace(/\s+/g, ' ').trim();
+			rows.push({
+				anchor: anchor,
+				name: name,
+				path: href.replace(/^https?:\/\/[^/]+/i, '') || href,
+				external: cfg.home ? (href.indexOf(cfg.home) !== 0 && /^https?:/i.test(href)) : false,
+				// The anchor is supposed to BE the name of the page it points to.
+				named: !name || anchor.toLowerCase().indexOf(name.toLowerCase()) !== -1 ||
+					name.toLowerCase().indexOf(anchor.toLowerCase()) !== -1
+			});
+		});
+		return rows;
+	}
+
+	function refreshLinks($box) {
+		var rows = linkList($box), $ul = $box.find('.dze-cc-linklist'), $btn = $box.find('.dze-cc-ltoggle');
+		if (!rows.length) {
+			$ul.empty().hide();
+			$btn.hide();
+			return;
+		}
+		$ul.html(rows.map(function (r) {
+			var target = r.name || r.path;
+			return '<li><span class="dze-cc-anchor">' + esc(r.anchor || '—') + '</span> → ' +
+				'<span class="dze-cc-target' + (r.external ? ' dze-cc-out' : '') + '">' + esc(target) + '</span>' +
+				(r.external ? ' <em>' + esc(i18n.external) + '</em>' : '') +
+				(r.named ? '' : ' <span class="dze-cc-out" title="' + esc(i18n.notNamed) + '">&#9888;</span>') +
+				'</li>';
+		}).join(''));
+		$btn.show().text(sprintf(i18n.showLinks, rows.length) + ($ul.is(':visible') ? ' ▴' : ' ▾'));
+	}
+
+	$(document).on('click', '.dze-cc-ltoggle', function () {
+		var $box = $(this).closest('.dze-cc-box');
+		$box.find('.dze-cc-linklist').toggle();
+		refreshLinks($box);
+	});
+
 	// Embedded panel: remember the description as it was, for Undo.
 	$(function () {
 		$('.dze-cc-box[data-editor]').each(function () {
 			var id = $(this).data('editor');
 			original[id] = $('#' + id).val() || '';
+			refreshLinks($(this));
 		});
 	});
 
@@ -70,6 +117,7 @@
 					$('#dze-cc-body').html(res.data.html);
 					original[EDITOR] = $('#' + EDITOR).val() || '';
 					editorInit();
+					refreshLinks($('#dze-cc-body').find('.dze-cc-box'));
 				} else {
 					$('#dze-cc-body').text((res && res.data && res.data.message) || i18n.error);
 				}
@@ -181,6 +229,7 @@
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				$st.css('color', '#646970').text(i18n.review);
 				editorSet(edId($box), res.data.html); // nothing saved yet — the editor holds it.
+				refreshLinks($box);
 			})
 			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
 	});
@@ -196,6 +245,7 @@
 				$btn.prop('disabled', false);
 				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
 				editorSet(edId($box), res.data.html);
+				refreshLinks($box);
 				$st.css('color', '#646970').text(res.data.added
 					? sprintf(i18n.linked, res.data.added, res.data.after)
 					: i18n.linkedNone);
@@ -225,6 +275,7 @@
 	$(document).on('click', '.dze-cc-revert', function () {
 		var $b = $(this).closest('.dze-cc-box'), id = edId($b);
 		editorSet(id, original[id] || '');
+		refreshLinks($b);
 		$(this).closest('.dze-cc-box').find('.dze-cc-status').text('');
 	});
 
