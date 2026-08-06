@@ -291,7 +291,7 @@
 						.done(function (r) {
 							if (!r || !r.success) { return; }
 							if (r.data.status === 'queued') { tick(i18n.queuedShort); return; }
-							if (r.data.status === 'running') { tick(label); return; }
+							if (r.data.status === 'running') { tick(label + ' — ' + (r.data.progress || '')); return; }
 							stopPoll();
 							if (r.data.status === 'failed') {
 								$st.css('color', '#b32d2e').text(r.data.error || i18n.error);
@@ -306,7 +306,7 @@
 							$st.css('color', '#b32d2e').text(why(xhr, status));
 							done(false);
 						});
-				}, 3000);
+				}, 1500);
 			})
 			.fail(function (xhr, status) {
 				$st.css('color', '#b32d2e').text(why(xhr, status));

@@ -169,52 +169,127 @@ final class DZE_Queue {
 	// The worker
 	// =========================================================================
 
-	/** Takes ONE job. One at a time keeps every request short and safe. */
+	/**
+	 * Takes ONE STEP of one job — a plan, or a single section — and hands over.
+	 *
+	 * A step, not a job: writing a long description in one request means a
+	 * request of several minutes, and a host kills that whatever PHP is told.
+	 * Every step here finishes in seconds, saves what it produced, and asks for
+	 * the next one. Nothing is ever lost to a timeout.
+	 */
 	public static function work(): void {
 		global $wpdb;
+		$table = self::table();
+		self::recover();
 		if ( get_transient( self::LOCK ) ) {
 			return;
 		}
-		set_transient( self::LOCK, 1, 10 * MINUTE_IN_SECONDS );
-		$table = self::table();
-		$job   = $wpdb->get_row( "SELECT * FROM {$table} WHERE status = 'queued' ORDER BY id ASC LIMIT 1", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		set_transient( self::LOCK, 1, 5 * MINUTE_IN_SECONDS );
+
+		$job = $wpdb->get_row( "SELECT * FROM {$table} WHERE status IN ('queued','running') ORDER BY FIELD(status,'running','queued'), id ASC LIMIT 1", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		if ( ! $job ) {
 			delete_transient( self::LOCK );
 			return;
 		}
-		$now = current_time( 'mysql' );
-		$wpdb->update( $table, [ 'status' => 'running', 'updated' => $now ], [ 'id' => (int) $job['id'] ] );
-
 		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 600 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- nobody is waiting on this request.
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- nobody is waiting on this request.
 		}
-		$out    = '';
-		$err    = '';
+		$id      = (int) $job['id'];
 		$payload = $job['payload'] ? (array) json_decode( (string) $job['payload'], true ) : [];
+		$done    = false;
+		$err     = '';
+		$result  = (string) ( $job['result'] ?? '' );
+
 		try {
-			$out = self::produce( (string) $job['kind'], (int) $job['object_id'], $payload );
+			if ( 'cat_desc' === $job['kind'] ) {
+				// Step 0 is the plan, then one step per section.
+				if ( empty( $payload['plan'] ) ) {
+					$payload['plan'] = DZE_Category_Content::plan( (int) $job['object_id'], (string) ( $payload['prompt'] ?? '' ) );
+					$payload['step'] = -1; // the opening comes next.
+				} else {
+					$step  = (int) ( $payload['step'] ?? -1 );
+					$piece = DZE_Category_Content::write_part(
+						(int) $job['object_id'],
+						$step,
+						(array) $payload['plan'],
+						(string) ( $payload['prompt'] ?? '' )
+					);
+					$result         .= ( '' !== $result ? "\n\n" : '' ) . $piece;
+					$payload['step'] = $step + 1;
+					$done            = $payload['step'] >= count( (array) $payload['plan']['sections'] );
+				}
+			} else {
+				$result = self::produce( (string) $job['kind'], (int) $job['object_id'], $payload );
+				$done   = true;
+			}
 		} catch ( \Throwable $e ) {
 			$err = $e->getMessage();
 		}
 
 		if ( '' !== $err ) {
-			$wpdb->update( $table, [ 'status' => 'failed', 'error' => $err, 'updated' => current_time( 'mysql' ) ], [ 'id' => (int) $job['id'] ] );
-		} elseif ( ! empty( $job['auto_apply'] ) ) {
-			$applied = self::apply( (string) $job['kind'], (int) $job['object_id'], $out );
+			$wpdb->update( $table, [ 'status' => 'failed', 'error' => $err, 'updated' => current_time( 'mysql' ) ], [ 'id' => $id ] );
+		} elseif ( $done ) {
+			$applied = ! empty( $job['auto_apply'] ) && self::apply( (string) $job['kind'], (int) $job['object_id'], $result );
 			$wpdb->update( $table, [
-				'status'  => $applied ? 'applied' : 'failed',
-				'result'  => $out,
-				'error'   => $applied ? null : __( 'Written, but saving it failed.', 'dazont-ecom' ),
+				'status'  => ! empty( $job['auto_apply'] ) ? ( $applied ? 'applied' : 'failed' ) : 'review',
+				'result'  => $result,
+				'payload' => wp_json_encode( $payload ),
 				'updated' => current_time( 'mysql' ),
-			], [ 'id' => (int) $job['id'] ] );
+			], [ 'id' => $id ] );
 		} else {
-			$wpdb->update( $table, [ 'status' => 'review', 'result' => $out, 'updated' => current_time( 'mysql' ) ], [ 'id' => (int) $job['id'] ] );
+			$wpdb->update( $table, [
+				'status'  => 'running',
+				'result'  => $result,
+				'payload' => wp_json_encode( $payload ),
+				'updated' => current_time( 'mysql' ),
+			], [ 'id' => $id ] );
 		}
 
 		delete_transient( self::LOCK );
-		// Anything left? Straight on to the next one.
+		if ( '' === $err && ! $done ) {
+			self::kick(); // straight on to the next step.
+			return;
+		}
 		if ( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'queued'" ) ) { // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 			self::kick();
+		}
+	}
+
+	/**
+	 * A step that never came back — the host killed the request mid-way — must
+	 * not leave a job spinning for ever. After five idle minutes it is put back
+	 * in the queue, keeping what it had already written; after three of those,
+	 * it is called failed and says so.
+	 */
+	public static function recover(): void {
+		global $wpdb;
+		$table = self::table();
+		$stale = (array) $wpdb->get_results( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"SELECT id, payload FROM {$table} WHERE status = 'running' AND updated < %s",
+			// Same clock as the column: it is written with current_time().
+			gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 5 * MINUTE_IN_SECONDS ) // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- matches the stored site time.
+		), ARRAY_A );
+		foreach ( $stale as $r ) {
+			$p            = $r['payload'] ? (array) json_decode( (string) $r['payload'], true ) : [];
+			$p['retries'] = (int) ( $p['retries'] ?? 0 ) + 1;
+			if ( $p['retries'] > 3 ) {
+				$wpdb->update( $table, [
+					'status'  => 'failed',
+					'error'   => __( 'The server stopped this run three times. Try a shorter target length, or a faster model in Settings.', 'dazont-ecom' ),
+					'payload' => wp_json_encode( $p ),
+					'updated' => current_time( 'mysql' ),
+				], [ 'id' => (int) $r['id'] ] );
+				continue;
+			}
+			$wpdb->update( $table, [
+				'status'  => 'queued',
+				'payload' => wp_json_encode( $p ),
+				'updated' => current_time( 'mysql' ),
+			], [ 'id' => (int) $r['id'] ] );
+		}
+		if ( $stale ) {
+			delete_transient( self::LOCK );
 		}
 	}
 
@@ -468,7 +543,15 @@ final class DZE_Queue {
 		] );
 	}
 
-	/** One job's state, for a panel waiting on its own run. */
+	/**
+	 * One job's state — and, while a panel is watching, the engine that moves
+	 * it along.
+	 *
+	 * Cron and loopback requests are not reliable on every host; an open panel
+	 * is. So a poll that finds work to do runs ONE step itself and returns the
+	 * result. Each poll is therefore a short request, well inside any limit,
+	 * and the description advances section by section in front of you.
+	 */
 	public function ajax_job(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -480,15 +563,27 @@ final class DZE_Queue {
 		if ( ! $job ) {
 			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
 		}
-		// A queued job that nothing has picked up yet gets a nudge: on a host
-		// without a working cron, the panel itself becomes the trigger.
-		if ( 'queued' === $job['status'] ) {
-			self::kick();
+		// Nothing else has taken it? Take it here, one step.
+		$idle = strtotime( (string) $job['updated'] ) < ( current_time( 'timestamp' ) - 20 ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- compared with a site-time column.
+		if ( 'queued' === $job['status'] || ( 'running' === $job['status'] && $idle ) ) {
+			self::work();
+			$job = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		}
+		$p     = $job['payload'] ? (array) json_decode( (string) $job['payload'], true ) : [];
+		$total = isset( $p['plan']['sections'] ) ? count( (array) $p['plan']['sections'] ) : 0;
+		$step  = (int) ( $p['step'] ?? -1 );
 		wp_send_json_success( [
-			'status' => (string) $job['status'],
-			'html'   => 'review' === $job['status'] || 'applied' === $job['status'] ? (string) $job['result'] : '',
-			'error'  => (string) ( $job['error'] ?? '' ),
+			'status'   => (string) $job['status'],
+			'html'     => in_array( $job['status'], [ 'review', 'applied' ], true ) ? (string) $job['result'] : '',
+			'error'    => (string) ( $job['error'] ?? '' ),
+			'step'     => max( 0, $step + 1 ),
+			'total'    => $total,
+			'progress' => $total ? sprintf(
+				/* translators: 1: section written, 2: sections in total */
+				__( 'section %1$s of %2$s', 'dazont-ecom' ),
+				number_format_i18n( max( 0, min( $total, $step + 1 ) ) ),
+				number_format_i18n( $total )
+			) : __( 'planning the page…', 'dazont-ecom' ),
 		] );
 	}
 

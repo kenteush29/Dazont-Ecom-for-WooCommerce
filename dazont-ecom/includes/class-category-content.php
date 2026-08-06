@@ -1060,6 +1060,111 @@ PROMPT;
 	// Generation
 	// =========================================================================
 
+	/**
+	 * The plan: the headings this description will have, and nothing else.
+	 *
+	 * Writing two thousand words in one call means one request of two to four
+	 * minutes — too long for any host, and too slow to watch. So the work is
+	 * cut up: this call is short (a list of headings), and each section is
+	 * written on its own afterwards. Same material, same length, same prompt,
+	 * but no single step long enough to be killed.
+	 *
+	 * @return array{intro:string,sections:array<int,string>,words:int}
+	 */
+	public static function plan( int $term_id, string $prompt_override = '' ): array {
+		$term = get_term( $term_id, 'product_cat' );
+		if ( ! $term || is_wp_error( $term ) ) {
+			throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
+		}
+		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
+		}
+		$size = self::size_for( $term_id );
+		$kw   = self::keyword_pools( $term_id, $term->name );
+		$n    = max( 3, min( 10, (int) round( $size['words'] / 220 ) ) );
+
+		$user = "CATEGORY: {$term->name}\n"
+			. 'Products behind it: ' . (int) $size['products'] . "\n\n"
+			. ( $kw['titles'] ? "SECONDARY QUERIES (build headings on these, keeping their wording):\n- " . implode( "\n- ", $kw['titles'] ) . "\n\n" : '' )
+			. ( $kw['questions'] ? "BUYER QUESTIONS (turn the best ones into question headings):\n- " . implode( "\n- ", $kw['questions'] ) . "\n\n" : '' )
+			. "Plan a buying-guide description for this category: {$n} <h2> headings, in reading order, each one a topic a buyer needs before choosing. Reuse the wording of the queries above where it reads naturally, and do not repeat the same angle twice.\n"
+			. 'LANGUAGE: ' . self::language( $term_id ) . ".\n"
+			. 'OUTPUT: a JSON array of ' . $n . ' heading strings, nothing else.';
+
+		$raw = DZE_Marketing_Ai::complete(
+			'You plan e-commerce category pages. You answer with JSON and nothing else.',
+			$user,
+			self::writer_model(),
+			800,
+			60
+		);
+		preg_match( '/\[.*\]/s', $raw, $m );
+		$list = $m ? json_decode( $m[0], true ) : null;
+		$out  = [];
+		foreach ( (array) $list as $h ) {
+			$h = trim( wp_strip_all_tags( (string) $h ) );
+			if ( '' !== $h ) {
+				$out[] = $h;
+			}
+		}
+		if ( ! $out ) {
+			throw new RuntimeException( __( 'The model did not return a usable plan.', 'dazont-ecom' ) );
+		}
+		return [
+			'sections' => array_slice( $out, 0, $n ),
+			'words'    => (int) $size['words'],
+		];
+	}
+
+	/**
+	 * Writes ONE piece: the opening when $index is -1, otherwise the section
+	 * under heading $index. Each call is short enough to finish well inside any
+	 * host's limit, and the pieces are assembled by the queue.
+	 */
+	public static function write_part( int $term_id, int $index, array $plan, string $prompt_override = '' ): string {
+		$term = get_term( $term_id, 'product_cat' );
+		if ( ! $term || is_wp_error( $term ) ) {
+			throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
+		}
+		$sections = (array) ( $plan['sections'] ?? [] );
+		$total    = max( 1, count( $sections ) );
+		$budget   = max( 90, (int) round( ( (int) ( $plan['words'] ?? 800 ) ) / ( $total + 1 ) ) );
+		$kw       = self::keyword_pools( $term_id, $term->name );
+
+		$context = "CATEGORY: {$term->name}\n"
+			. ( $kw['titles'] ? 'Queries this page targets: ' . implode( ' · ', array_slice( $kw['titles'], 0, 12 ) ) . "\n" : '' )
+			. 'Full plan of the page: ' . implode( ' | ', $sections ) . "\n\n";
+
+		if ( $index < 0 ) {
+			$task = "Write ONLY the opening: 2 or 3 sentences saying what this category covers, who it is for, and what matters most when choosing. No heading, no list.\n";
+		} else {
+			$h    = (string) ( $sections[ $index ] ?? '' );
+			$task = "Write ONLY this section: <h2>{$h}</h2> followed by its body — about {$budget} words. Practical and concrete: materials, sizes, uses, what to check, what to avoid. Answer the heading, do not introduce the category again, do not cover the other sections of the plan.\n";
+		}
+
+		$user = $context . $task
+			. "\n--- STYLE ---\n" . ( '' !== $prompt_override ? $prompt_override : self::prompt() )
+			. "\n\n--- FACTS ---\n"
+			. 'LANGUAGE: write in ' . self::language( $term_id ) . ". This overrides the language of the instructions above.\n"
+			. "OUTPUT: the HTML fragment for this piece only — no markdown, no code fence, no comment, no <html> wrapper.";
+
+		$html = DZE_Marketing_Ai::complete(
+			'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' ),
+			$user,
+			self::writer_model(),
+			$budget * 3 + 400,
+			90
+		);
+		$html = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
+		return wp_kses_post( $html );
+	}
+
+	/** Model used for writing; the shop's chosen model unless one is set. */
+	public static function writer_model(): string {
+		$m = (string) ( self::get_settings()['model'] ?? '' );
+		return '' !== trim( $m ) ? $m : '';
+	}
+
 	public static function generate( int $term_id, string $prompt_override = '' ): string {
 		$term = get_term( $term_id, 'product_cat' );
 		if ( ! $term || is_wp_error( $term ) ) {
@@ -1830,7 +1935,7 @@ PROMPT;
 				'show'        => __( 'show', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
 				'diffWords'   => __( '%1$s words → %2$s words', 'dazont-ecom' ),
-				'working'     => __( 'Writing — up to a minute…', 'dazont-ecom' ),
+				'working'     => __( 'Writing', 'dazont-ecom' ),
 				'linking'     => __( 'Placing the links…', 'dazont-ecom' ),
 				/* translators: 1: links added, 2: links in the text now */
 				'linked'      => __( '%1$s links added (%2$s in total) — check them, then save.', 'dazont-ecom' ),
