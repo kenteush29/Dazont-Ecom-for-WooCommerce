@@ -358,15 +358,26 @@
 		var $wrap = $box.find('.dze-cc-diffwrap').show();
 		var $out = $box.find('.dze-cc-diff').html('<p><span class="dze-cx-spin"></span></p>').show();
 		$box.find('.dze-cc-difftoggle').text(i18n.hide);
+		// The modal widens for the comparison: two descriptions read side by
+		// side need the room, otherwise they are two narrow columns of soup.
+		$box.closest('.dze-cx-dialog').addClass('is-wide');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_cc_diff', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box))
 		})
 			.done(function (res) {
 				if (!res || !res.success) { $wrap.hide(); return; }
-				$out.html(res.data.html);
-				$box.find('.dze-cc-diffwords').text(res.data.words
-					? sprintf(i18n.diffWords, res.data.words[0], res.data.words[1])
-					: '');
+				var d = res.data;
+				$out.html(
+					'<div class="dze-cc-sbs">' +
+						'<div><h4>' + esc(i18n.before) + ' <span class="description">' +
+							esc(sprintf(i18n.wl, d.words[0], d.links[0])) + '</span></h4>' +
+							'<div class="dze-cc-doc">' + (d.before || '<p class="description">' + esc(i18n.wasEmpty) + '</p>') + '</div></div>' +
+						'<div><h4>' + esc(i18n.after) + ' <span class="description">' +
+							esc(sprintf(i18n.wl, d.words[1], d.links[1])) + '</span></h4>' +
+							'<div class="dze-cc-doc is-new">' + d.after + '</div></div>' +
+					'</div>'
+				);
+				$box.find('.dze-cc-diffwords').text('');
 			})
 			.fail(function () { $wrap.hide(); });
 	}

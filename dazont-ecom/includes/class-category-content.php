@@ -119,6 +119,9 @@ final class DZE_Category_Content {
 			}
 			$out['sitemap'] = $url;
 		}
+		if ( isset( $in['model'] ) ) {
+			$out['model'] = sanitize_text_field( (string) $in['model'] );
+		}
 		if ( isset( $in['prompt'] ) ) {
 			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
 		}
@@ -1932,6 +1935,11 @@ PROMPT;
 				'picked'      => __( '%s selected', 'dazont-ecom' ),
 				'alreadyLinked' => __( 'already linked', 'dazont-ecom' ),
 				'hide'        => __( 'hide', 'dazont-ecom' ),
+				'before'      => __( 'Before', 'dazont-ecom' ),
+				'after'       => __( 'After', 'dazont-ecom' ),
+				/* translators: 1: word count, 2: link count */
+				'wl'          => __( '%1$s words · %2$s links', 'dazont-ecom' ),
+				'wasEmpty'    => __( 'This category had no description.', 'dazont-ecom' ),
 				'show'        => __( 'show', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
 				'diffWords'   => __( '%1$s words → %2$s words', 'dazont-ecom' ),
@@ -2017,30 +2025,12 @@ PROMPT;
 	}
 
 	/**
-	 * HTML made readable for a diff: one block per line, tags out of the way,
-	 * so the comparison shows what changed in the text and not in the markup.
+	 * Before and after, as two readable documents rather than a diff table.
+	 *
+	 * A word-level diff is precise and unreadable: what is wanted here is the
+	 * old description on one side and the new one on the other, both rendered
+	 * as they will appear, side by side.
 	 */
-	private static function diff_text( string $html ): string {
-		$html = preg_replace( '#<(/?)(h[1-6]|p|li|div|tr)[^>]*>#i', "\n", $html );
-		$html = str_replace( [ '<br />', '<br>' ], [ "\n", "\n" ], $html );
-		// Links are written out rather than stripped: a linking-only pass changes
-		// almost no words, so a comparison blind to <a> would report "nothing
-		// changed" on the very run whose whole point is the links.
-		$html = preg_replace_callback(
-			'#<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>#is',
-			static function ( $m ) {
-				$path = (string) wp_parse_url( $m[1], PHP_URL_PATH );
-				return trim( wp_strip_all_tags( $m[2] ) ) . ' [→ ' . ( '' !== $path ? $path : $m[1] ) . ']';
-			},
-			(string) $html
-		);
-		$text = wp_strip_all_tags( (string) $html );
-		$text = preg_replace( "/[ \t]+/", ' ', $text );
-		$text = preg_replace( "/\n{2,}/", "\n", $text );
-		return trim( (string) $text );
-	}
-
-	/** Side-by-side comparison of the saved description and the pending one. */
 	public function ajax_diff(): void {
 		$this->guard();
 		$tid  = isset( $_POST['term'] ) ? absint( $_POST['term'] ) : 0;
@@ -2049,29 +2039,12 @@ PROMPT;
 		if ( ! $term || is_wp_error( $term ) ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 		}
-		$old = self::diff_text( (string) $term->description );
-		$new = self::diff_text( $html );
-		if ( $old === $new ) {
-			wp_send_json_success( [ 'html' => '<p class="description">' . esc_html__( 'Nothing changed yet.', 'dazont-ecom' ) . '</p>' ] );
-		}
-		if ( '' === $old ) {
-			wp_send_json_success( [ 'html' => '<p class="description">' . esc_html__( 'This category had no description — everything below is new.', 'dazont-ecom' ) . '</p>' ] );
-		}
-		$diff = function_exists( 'wp_text_diff' )
-			? wp_text_diff( $old, $new, [
-				'title_left'  => __( 'Saved on the category', 'dazont-ecom' ),
-				'title_right' => __( 'What you are about to save', 'dazont-ecom' ),
-				'show_split_view' => true,
-			] )
-			: '';
-		if ( '' === $diff ) {
-			// Fallback: the two texts, side by side, without the word-level diff.
-			$diff = '<div class="dze-cc-sbs"><div><h4>' . esc_html__( 'Saved on the category', 'dazont-ecom' ) . '</h4><pre>' . esc_html( $old ) . '</pre></div>'
-				. '<div><h4>' . esc_html__( 'What you are about to save', 'dazont-ecom' ) . '</h4><pre>' . esc_html( $new ) . '</pre></div></div>';
-		}
+		$old = (string) $term->description;
 		wp_send_json_success( [
-			'html'  => $diff,
-			'words' => [ str_word_count( $old ), str_word_count( $new ) ],
+			'before' => '' !== trim( $old ) ? wp_kses_post( wpautop( $old ) ) : '',
+			'after'  => wp_kses_post( wpautop( $html ) ),
+			'words'  => [ str_word_count( wp_strip_all_tags( $old ) ), str_word_count( wp_strip_all_tags( $html ) ) ],
+			'links'  => [ count( self::linked_urls( $old ) ), count( self::linked_urls( $html ) ) ],
 		] );
 	}
 
@@ -2194,6 +2167,25 @@ PROMPT;
 						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="14" value="<?php echo (int) ( $s['links'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" />
 						<label style="margin-left:12px;"><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[links_off]" value="1" <?php checked( ! empty( $s['links_off'] ) ); ?> /> <?php esc_html_e( 'No internal linking at all', 'dazont-ecom' ); ?></label>
 						<p class="description"><?php esc_html_e( 'Empty means one link per ~150 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-cc-model"><?php esc_html_e( 'Writing model', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<?php
+						$models = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::available_models() : [];
+						$cur    = (string) ( $s['model'] ?? '' );
+						if ( '' !== $cur && ! array_key_exists( $cur, $models ) ) {
+							$models = [ $cur => $cur ] + $models;
+						}
+						?>
+						<select id="dze-cc-model" name="<?php echo esc_attr( self::OPT ); ?>[model]">
+							<option value=""><?php esc_html_e( '— the shop default —', 'dazont-ecom' ); ?></option>
+							<?php foreach ( $models as $id => $label ) : ?>
+								<option value="<?php echo esc_attr( $id ); ?>" <?php selected( $cur, $id ); ?>><?php echo esc_html( $label ); ?></option>
+							<?php endforeach; ?>
+						</select>
+						<p class="description"><?php esc_html_e( 'This is the speed lever, and it does not cost quality: a category description is buying-guide copy, which Sonnet writes about three times faster than Opus for the same result. Each section is one call, so the model choice shows directly in how long a run takes.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
