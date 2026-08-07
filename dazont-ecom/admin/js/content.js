@@ -66,6 +66,26 @@
 			return '<option value="' + i + '"' + (m.tpl == i ? ' selected' : '') + '>' + esc(t.name) + '</option>';
 		}).join('');
 
+		// The scene (fixed support / background) reused on every generation.
+		// Remembered per browser, falling back to the one marked as default in
+		// the settings, so the whole catalogue keeps the same look by itself.
+		var scenes = cfg.scenes || [];
+		var sceneCur = (m.scene !== undefined && m.scene !== null) ? parseInt(m.scene, 10) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
+		if (sceneCur >= scenes.length) { sceneCur = scenes.length ? 0 : -1; }
+		function sceneOpts() {
+			return '<option value="-1"' + (sceneCur < 0 ? ' selected' : '') + '>' + esc(i18n.noScene) + '</option>' +
+				scenes.map(function (s, i) {
+					return '<option value="' + i + '"' + (sceneCur === i ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+				}).join('');
+		}
+		function scenePicker(id) {
+			if (!scenes.length) { return ''; }
+			// A span, not a label: this picker also sits inside the automatic-
+			// edition checkbox line, where a nested label would hijack clicks.
+			return '<span class="dze-cx-scenepick" title="' + esc(i18n.sceneHelp) + '">' + esc(i18n.scene) +
+				' <select id="' + id + '" class="dze-cx-scene">' + sceneOpts() + '</select></span>';
+		}
+
 		// Automatic-edition checkboxes (restored from the saved setup).
 		var auChecks = '';
 		Object.keys(cfg.fields).forEach(function (fid) {
@@ -103,7 +123,7 @@
 							}).join('') + '</select>' +
 							' <select id="dze-au-imgn" title="' + esc(i18n.imgCount) + '">' +
 								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
-							'</select></label>' : '') +
+							'</select> ' + scenePicker('dze-au-scene') + '</label>' : '') +
 						'<label class="dze-au-check dze-cx-note"><input type="checkbox" id="dze-au-save" checked /> ' + esc(i18n.saveSetup) + '</label>' +
 						'<p style="margin:14px 0 0;"><button type="button" class="button button-primary button-hero" id="dze-au-launch">' + esc(i18n.launch) + '</button> <span id="dze-au-status"></span></p>' +
 					'</div>' +
@@ -137,6 +157,8 @@
 				'<div class="dze-cx-pane" data-pane="image">' +
 					'<div class="dze-cx-imgrow">' +
 						'<label>' + esc(i18n.template) + ' <select id="dze-cx-tpl">' + tplOpts + '</select></label>' +
+						scenePicker('dze-cx-scene') +
+						'<span id="dze-cx-scenethumb" class="dze-cx-scenethumb"></span>' +
 						'<select id="dze-cx-imgn" title="' + esc(i18n.imgCount) + '">' +
 							[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((m.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
 						'</select>' +
@@ -182,6 +204,7 @@
 		build();
 		syncTplPrompt();
 		refreshTplUi();
+		drawSceneThumb();
 		$('#dze-cx-modal').addClass('is-open');
 		showPane(pane || 'auto');
 	}
@@ -462,12 +485,35 @@
 	$(document).on('change', '#dze-cx-imgn', function () {
 		var m = mem(); m.imgn = parseInt($(this).val(), 10) || 1; saveMem(m);
 	});
+	// The scene chosen anywhere in the toolbox is THE scene: both pickers and
+	// the reminder thumbnail follow, and the choice is kept for next time.
+	function sceneVal() {
+		var $s = $('#dze-cx-scene');
+		return $s.length ? (parseInt($s.val(), 10)) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
+	}
+	function drawSceneThumb() {
+		var i = sceneVal(), s = (cfg.scenes || [])[i];
+		var $w = $('#dze-cx-scenethumb').empty();
+		if (s && s.thumb) {
+			$w.append($('<img />').attr('src', s.thumb).attr('alt', '').attr('title', s.name));
+		}
+	}
+	$(document).on('change', '.dze-cx-scene', function () {
+		var v = parseInt($(this).val(), 10);
+		$('.dze-cx-scene').val(String(v));
+		var m = mem(); m.scene = v; saveMem(m);
+		drawSceneThumb();
+	});
 	$(document).on('click', '#dze-cx-genimg', function () {
 		var idx = parseInt($('#dze-cx-tpl').val(), 10) || 0;
 		var txt = $('#dze-cx-tpl-prompt').val() || '';
 		var stored = (cfg.templates[idx] && cfg.templates[idx].prompt) || '';
 		genImages(
-			{ template: idx, custom_prompt: (txt !== stored && $('#dze-cx-tpl-pwrap').is(':visible') ? txt : '') },
+			{
+				template: idx,
+				scene: sceneVal(),
+				custom_prompt: (txt !== stored && $('#dze-cx-tpl-pwrap').is(':visible') ? txt : '')
+			},
 			parseInt($('#dze-cx-imgn').val(), 10) || 1
 		);
 	});
@@ -585,7 +631,7 @@
 		if (doImg) {
 			chain = chain.then(function () {
 				return genImages(
-					{ template: parseInt($('#dze-au-tpl').val(), 10) || 0 },
+					{ template: parseInt($('#dze-au-tpl').val(), 10) || 0, scene: sceneVal() },
 					parseInt($('#dze-au-imgn').val(), 10) || 1
 				);
 			});

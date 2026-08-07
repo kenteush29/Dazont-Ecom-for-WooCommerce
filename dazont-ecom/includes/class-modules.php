@@ -117,7 +117,7 @@ final class DZE_Modules {
 				'group' => 'product',
 				'label' => __( 'Product Content', 'dazont-ecom' ),
 				'desc'  => __( 'Automatic edition of a product: texts, images, price.', 'dazont-ecom' ),
-				'more'  => __( 'The full product pipeline. A universal prompt registry (your own prompts, with the product data they receive as input and the field each one writes to); the "Automatic edition" popup on the product page (tick what to generate, Launch, review everything in an editable preview, apply); image generation with a session gallery, native-style selection and SEO naming; price recalculation from cost (COGS × your price table); and the multi-product bulk screen reached from the Products list.', 'dazont-ecom' ),
+				'more'  => __( 'The full product pipeline. A universal prompt registry (your own prompts, with the product data they receive as input and the field each one writes to); the "Automatic edition" popup on the product page (tick what to generate, Launch, review everything in an editable preview, apply); image generation with a session gallery, native-style selection and SEO naming; scenes — a fixed support or background image (studio backdrop, table top, garment mockup) sent alongside every product photo with the instruction to keep the product untouched, so a catalogue shot by a dozen suppliers comes back in one visual identity; price recalculation from cost (COGS × your price table); and the multi-product bulk screen reached from the Products list.', 'dazont-ecom' ),
 			],
 			'pod' => [
 				'class' => 'DZE_Pod',

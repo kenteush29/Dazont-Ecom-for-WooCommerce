@@ -29,6 +29,11 @@
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
 		if (typeof m.tpl !== 'undefined') { $('#dze-cb-tpl').val(m.tpl); }
+		// The scene is remembered with the toolbox (same store): pick a support
+		// once and every screen keeps shooting on it.
+		if (typeof m.scene !== 'undefined' && $('#dze-cb-scene option[value="' + m.scene + '"]').length) {
+			$('#dze-cb-scene').val(String(m.scene));
+		}
 		syncRows();
 	}());
 
@@ -38,6 +43,7 @@
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
 		m.tpl = $('#dze-cb-tpl').val();
+		if ($('#dze-cb-scene').length) { m.scene = parseInt($('#dze-cb-scene').val(), 10); }
 		saveMem(m);
 	}
 	// Global image toggle/template cascade to every row (rows stay overridable).
@@ -47,6 +53,7 @@
 		$('.dze-cb-row-tpl').val(tpl);
 	}
 	$('#dze-cb-image, #dze-cb-tpl').on('change', function () { persist(); syncRows(); });
+	$('#dze-cb-scene').on('change', persist);
 	$('.dze-cb-field, #dze-cb-price').on('change', persist);
 
 	// ---- Task queue ----
@@ -147,7 +154,11 @@
 
 	function imageTask(id, $row) {
 		var tpl = $row.find('.dze-cb-row-tpl').val();
-		return $.post(cfg.ajaxUrl, { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl })
+		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
+		// One scene for the whole run — that is the point of a scene.
+		var $sc = $('#dze-cb-scene');
+		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
+		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++; status($row, 'img ✓');
