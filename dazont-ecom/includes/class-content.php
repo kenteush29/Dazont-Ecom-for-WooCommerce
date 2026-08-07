@@ -695,6 +695,48 @@ EOT;
 	}
 
 	/** ENABLED image prompts from the registry, in the shape the image flow uses. */
+	/**
+	 * Scenes: a fixed image reused as a second source on every generation.
+	 *
+	 * The point is visual consistency. A shop whose photos come from a dozen
+	 * suppliers looks like a dozen shops; giving the model the SAME support —
+	 * a studio background, a table top, a garment mockup — on every run is what
+	 * turns a pile of product shots into one brand.
+	 *
+	 * Each scene carries its own instruction, because a mockup and a backdrop
+	 * are not used the same way ("print this design onto the garment" versus
+	 * "place the product on this surface").
+	 *
+	 * @return array<int,array{name:string,image:int,prompt:string,default:bool}>
+	 */
+	public static function scenes(): array {
+		$rows = (array) ( self::get_settings()['scenes'] ?? [] );
+		$out  = [];
+		foreach ( $rows as $r ) {
+			$img = (int) ( $r['image'] ?? 0 );
+			if ( ! $img ) {
+				continue;
+			}
+			$out[] = [
+				'name'    => (string) ( $r['name'] ?? __( 'Scene', 'dazont-ecom' ) ),
+				'image'   => $img,
+				'prompt'  => (string) ( $r['prompt'] ?? '' ),
+				'default' => ! empty( $r['default'] ),
+			];
+		}
+		return $out;
+	}
+
+	/** The scene to use when none was picked: the one marked as default. */
+	public static function default_scene(): int {
+		foreach ( self::scenes() as $i => $sc ) {
+			if ( $sc['default'] ) {
+				return $i;
+			}
+		}
+		return -1;
+	}
+
 	public static function image_templates(): array {
 		$out = [];
 		foreach ( self::registry() as $r ) {
@@ -787,6 +829,24 @@ EOT;
 
 		if ( isset( $in['store_context'] ) ) {
 			$out['store_context'] = sanitize_textarea_field( (string) $in['store_context'] );
+		}
+		// Scene library: name + image + its own instruction, one marked default.
+		if ( isset( $in['sc_name'] ) && is_array( $in['sc_name'] ) ) {
+			$rows = [];
+			$def  = isset( $in['sc_default'] ) ? (int) $in['sc_default'] : -1;
+			foreach ( $in['sc_name'] as $i => $name ) {
+				$img = (int) ( $in['sc_image'][ $i ] ?? 0 );
+				if ( ! $img ) {
+					continue; // a scene without its image is not a scene.
+				}
+				$rows[] = [
+					'name'    => sanitize_text_field( (string) $name ) ?: __( 'Scene', 'dazont-ecom' ),
+					'image'   => $img,
+					'prompt'  => sanitize_textarea_field( (string) ( $in['sc_prompt'][ $i ] ?? '' ) ),
+					'default' => ( (int) $i === $def ),
+				];
+			}
+			$out['scenes'] = $rows;
 		}
 		// Price table.
 		if ( isset( $in['pt_min'] ) && is_array( $in['pt_min'] ) ) {
@@ -965,6 +1025,104 @@ EOT;
 			<h2 class="title"><?php esc_html_e( 'Store context', 'dazont-ecom' ); ?></h2>
 			<textarea name="<?php echo esc_attr( $opt ); ?>[store_context]" rows="2" class="large-text"><?php echo esc_textarea( (string) ( $s['store_context'] ?? '' ) ); ?></textarea>
 			<p class="description"><?php esc_html_e( 'Prepended to every generation, e.g. "Kula Tactical > Military / tactical clothing and gear > Tone: sharp, authoritative, informational".', 'dazont-ecom' ); ?></p>
+
+			<h2 class="title"><?php esc_html_e( 'Scenes — the fixed support behind your images', 'dazont-ecom' ); ?></h2>
+			<p class="description" style="max-width:960px;">
+				<?php esc_html_e( 'One image, reused on every generation, so a catalogue shot by a dozen suppliers ends up looking like one shop: a studio backdrop, a table top, a garment mockup for print-on-demand. The product is sent as image 1 and the scene as image 2, with the instruction to keep the product exactly as it is and only place it in the scene. Add your own line to say how that particular scene is meant to be used. Tick "Default" to have a scene pre-selected on the product toolbox and the bulk screen — leave every box unticked and nothing is used until you pick a scene there.', 'dazont-ecom' ); ?>
+			</p>
+			<?php $dze_scenes = self::scenes(); $dze_scenes[] = [ 'name' => '', 'image' => 0, 'prompt' => '', 'default' => false ]; ?>
+			<table class="widefat dze-sc-table" id="dze-sc">
+				<thead><tr>
+					<th style="width:80px;"><?php esc_html_e( 'Default', 'dazont-ecom' ); ?></th>
+					<th style="width:110px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
+					<th style="width:170px;"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'How to use this scene', 'dazont-ecom' ); ?></th>
+				</tr></thead>
+				<tbody>
+				<?php foreach ( $dze_scenes as $si => $sc ) : ?>
+					<tr class="dze-sc-row">
+						<td style="text-align:center;">
+							<input type="radio" name="<?php echo esc_attr( $opt ); ?>[sc_default]" value="<?php echo (int) $si; ?>" <?php checked( ! empty( $sc['default'] ) ); ?> />
+						</td>
+						<td>
+							<div class="dze-sc-thumb">
+								<?php if ( ! empty( $sc['image'] ) ) : ?>
+									<?php echo wp_get_attachment_image( (int) $sc['image'], 'thumbnail', false, [ 'style' => 'max-width:90px;height:auto;border-radius:4px;' ] ); ?>
+								<?php endif; ?>
+							</div>
+							<input type="hidden" class="dze-sc-img" name="<?php echo esc_attr( $opt ); ?>[sc_image][]" value="<?php echo (int) $sc['image']; ?>" />
+							<button type="button" class="button button-small dze-sc-pick"><?php echo empty( $sc['image'] ) ? esc_html__( 'Choose', 'dazont-ecom' ) : esc_html__( 'Replace', 'dazont-ecom' ); ?></button>
+							<?php if ( ! empty( $sc['image'] ) ) : ?>
+								<button type="button" class="button-link dze-sc-clear" style="color:#b32d2e;"><?php esc_html_e( 'remove', 'dazont-ecom' ); ?></button>
+							<?php endif; ?>
+						</td>
+						<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_name][]" value="<?php echo esc_attr( (string) $sc['name'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Studio backdrop', 'dazont-ecom' ); ?>" /></td>
+						<td><textarea name="<?php echo esc_attr( $opt ); ?>[sc_prompt][]" rows="2" class="large-text" placeholder="<?php esc_attr_e( 'e.g. Place the product on this surface, centred, at eye level. Keep the background exactly as it is.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( (string) $sc['prompt'] ); ?></textarea></td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+			<p>
+				<button type="button" class="button" id="dze-sc-add">&#43; <?php esc_html_e( 'Add a scene', 'dazont-ecom' ); ?></button>
+				<span class="description" style="margin-left:8px;"><?php esc_html_e( 'A row without an image is ignored. Leave the whole table empty to generate without any scene, as before.', 'dazont-ecom' ); ?></span>
+			</p>
+			<script>
+			jQuery( function ( $ ) {
+				var dzeScPick = <?php echo wp_json_encode( __( 'Choose', 'dazont-ecom' ) ); ?>,
+					dzeScRepl = <?php echo wp_json_encode( __( 'Replace', 'dazont-ecom' ) ); ?>,
+					dzeScGone = <?php echo wp_json_encode( __( 'remove', 'dazont-ecom' ) ); ?>,
+					dzeScTtl  = <?php echo wp_json_encode( __( 'Choose the scene image', 'dazont-ecom' ) ); ?>,
+					dzeScUse  = <?php echo wp_json_encode( __( 'Use this image', 'dazont-ecom' ) ); ?>,
+					dzeScFrm  = null;
+				// The native media modal: the scene is an image already in the
+				// library, never an upload path of our own.
+				$( document ).on( 'click', '.dze-sc-pick', function () {
+					if ( ! window.wp || ! wp.media ) { return; }
+					var $cell = $( this ).closest( 'td' );
+					dzeScFrm = wp.media( {
+						title: dzeScTtl,
+						library: { type: 'image' },
+						button: { text: dzeScUse },
+						multiple: false
+					} );
+					dzeScFrm.on( 'select', function () {
+						var a = dzeScFrm.state().get( 'selection' ).first().toJSON();
+						var url = ( a.sizes && a.sizes.thumbnail ) ? a.sizes.thumbnail.url : a.url;
+						$cell.find( '.dze-sc-img' ).val( a.id );
+						$cell.find( '.dze-sc-thumb' ).html(
+							$( '<img />' ).attr( 'src', url ).attr( 'alt', '' ).css( { maxWidth: '90px', height: 'auto', borderRadius: '4px' } )
+						);
+						$cell.find( '.dze-sc-pick' ).text( dzeScRepl );
+						if ( ! $cell.find( '.dze-sc-clear' ).length ) {
+							$cell.find( '.dze-sc-pick' ).after(
+								' <button type="button" class="button-link dze-sc-clear" style="color:#b32d2e;"></button>'
+							);
+							$cell.find( '.dze-sc-clear' ).text( dzeScGone );
+						}
+					} );
+					dzeScFrm.open();
+				} );
+				$( document ).on( 'click', '.dze-sc-clear', function () {
+					var $cell = $( this ).closest( 'td' );
+					$cell.find( '.dze-sc-img' ).val( '0' );
+					$cell.find( '.dze-sc-thumb' ).empty();
+					$cell.find( '.dze-sc-pick' ).text( dzeScPick );
+					$( this ).remove();
+				} );
+				// A fresh empty row, with the Default radio numbered like its
+				// position — the server reads the rows in DOM order.
+				$( '#dze-sc-add' ).on( 'click', function () {
+					var $rows = $( '#dze-sc tbody tr' ), $row = $rows.last().clone();
+					$row.find( 'input[type=text], textarea' ).val( '' );
+					$row.find( '.dze-sc-img' ).val( '0' );
+					$row.find( '.dze-sc-thumb' ).empty();
+					$row.find( '.dze-sc-clear' ).remove();
+					$row.find( '.dze-sc-pick' ).text( dzeScPick );
+					$row.find( 'input[type=radio]' ).prop( 'checked', false ).val( String( $rows.length ) );
+					$( '#dze-sc tbody' ).append( $row );
+				} );
+			} );
+			</script>
 
 			<h2 class="title"><?php esc_html_e( 'Prompt registry', 'dazont-ecom' ); ?></h2>
 			<p class="description" style="max-width:960px;">
@@ -1332,6 +1490,17 @@ EOT;
 								<?php endforeach; ?>
 							</select>
 						</label>
+						<?php $dze_bscenes = self::scenes(); ?>
+						<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
+							<label style="margin-left:10px;" title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Scene:', 'dazont-ecom' ); ?>
+								<select id="dze-cb-scene">
+									<option value="-1" <?php selected( -1, $dze_bdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
+									<?php foreach ( $dze_bscenes as $dze_si => $dze_sc ) : ?>
+										<option value="<?php echo (int) $dze_si; ?>" <?php selected( $dze_si, $dze_bdef ); ?>><?php echo esc_html( $dze_sc['name'] ); ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+						<?php endif; ?>
 						<span class="description"><?php esc_html_e( 'Tick/untick and change the template per product in the table — this is the judgement call.', 'dazont-ecom' ); ?></span>
 					<?php else : ?>
 						<span class="description"><?php esc_html_e( 'No validated image template yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></span>
@@ -1458,6 +1627,16 @@ EOT;
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
 			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
+			// The fixed supports/backgrounds, so the whole catalogue can be shot
+			// in the same setting from one screen.
+			'scenes'     => array_map(
+				static fn( $sc ) => [
+					'name'  => (string) $sc['name'],
+					'thumb' => (string) ( wp_get_attachment_image_url( (int) $sc['image'], 'thumbnail' ) ?: '' ),
+				],
+				self::scenes()
+			),
+			'sceneDef'   => self::default_scene(),
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'product'    => [
@@ -1488,6 +1667,9 @@ EOT;
 				'pDesc'      => __( 'Supplier / current description', 'dazont-ecom' ),
 				'pAttr'      => __( 'Supplier attributes / extra data', 'dazont-ecom' ),
 				'template'   => __( 'Template', 'dazont-ecom' ),
+				'scene'      => __( 'Scene', 'dazont-ecom' ),
+				'noScene'    => __( 'No scene', 'dazont-ecom' ),
+				'sceneHelp'  => __( 'The fixed support or background added as a second image, so every product is shot in the same setting. Manage the list under Settings → Product content.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
 				'imgWait'    => __( 'Rendering — up to a minute…', 'dazont-ecom' ),
 				'imgAdded'   => __( 'Image added.', 'dazont-ecom' ),
@@ -1893,6 +2075,18 @@ EOT;
 		if ( '' !== $src && ! self::is_fal_url( $src ) ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid source image.', 'dazont-ecom' ) ] );
 		}
+		// The scene: the fixed support or background this shop always shoots on.
+		// A one-off edit of an image that already exists ("make the strap red")
+		// keeps that image's own setting, so the scene only comes back if it was
+		// explicitly asked for.
+		$scenes = self::scenes();
+		$sidx   = isset( $_POST['scene'] ) ? (int) $_POST['scene'] : ( '' !== $src ? -1 : self::default_scene() );
+		$scene  = ( $sidx >= 0 && isset( $scenes[ $sidx ] ) ) ? $scenes[ $sidx ] : null;
+		if ( $scene && ! wp_attachment_is_image( (int) $scene['image'] ) ) {
+			// Deleted from the media library: say so instead of failing on the
+			// product image, which is what the generic reader error would blame.
+			wp_send_json_error( [ 'message' => __( 'The scene image is missing from the media library — pick it again under Settings → Product content.', 'dazont-ecom' ) ] );
+		}
 		$thumb_id = get_post_thumbnail_id( $pid );
 		if ( '' === $src && ! $thumb_id ) {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
@@ -1903,6 +2097,13 @@ EOT;
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
 		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . $base;
+		if ( $scene ) {
+			// Two images go out, so the model must be told which is which —
+			// otherwise it happily redraws the product to match the scene.
+			$prompt .= "\n\nTWO IMAGES ARE PROVIDED. Image 1 is THE PRODUCT: keep it exactly as it is — same shape, same colours, same materials, same proportions, no redesign. Image 2 is THE SCENE: the support, background and lighting to place the product in."
+				. ( '' !== trim( $scene['prompt'] ) ? "\n" . $scene['prompt'] : '' )
+				. "\nThe result must look like one photograph: consistent perspective, contact shadows on the surface, and the light of the scene falling on the product.";
+		}
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -1911,8 +2112,12 @@ EOT;
 		try {
 			// Sources: fal's own CDN URLs pass through; local files go as data URIs
 			// (fal cannot always fetch staging/hotlink-protected site URLs).
-			$source    = '' !== $src ? $src : $this->fal_source_data_uri( (int) $thumb_id );
-			$image_url = $this->fal_generate( $prompt, [ $source ] );
+			$source  = '' !== $src ? $src : $this->fal_source_data_uri( (int) $thumb_id );
+			$sources = [ $source ];
+			if ( $scene ) {
+				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
+			}
+			$image_url = $this->fal_generate( $prompt, $sources );
 
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session
