@@ -26,6 +26,34 @@
 
 	// The photograph a branding block was written against, shown in that
 	// field's header wherever its card appears (Text lab and Review).
+	// One row = one image prompt. The last row offers +, and − shows up as soon
+	// as there is more than one.
+	function tplRowHtml(sel) {
+		return '<span class="dze-tplrow"><select class="dze-au-tpl">' +
+			cfg.templates.map(function (t, i) {
+				return '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
+					esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
+			}).join('') +
+			'</select>' +
+			'<button type="button" class="button button-small dze-au-tpladd" title="' + esc(i18n.addPrompt) + '">+</button>' +
+			'<button type="button" class="button button-small dze-au-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span>';
+	}
+	function syncAuTplRows() {
+		var $rows = $('#dze-au-tplrows .dze-tplrow');
+		$rows.each(function (i) {
+			$(this).find('.dze-au-tpladd').toggle(i === $rows.length - 1);
+			$(this).find('.dze-au-tpldel').toggle($rows.length > 1);
+		});
+	}
+	$(document).on('click', '.dze-au-tpladd', function () {
+		$('#dze-au-tplrows').append(tplRowHtml(0));
+		syncAuTplRows();
+	});
+	$(document).on('click', '.dze-au-tpldel', function () {
+		$(this).closest('.dze-tplrow').remove();
+		syncAuTplRows();
+	});
+
 	function paintCompanions(map) {
 		Object.keys(map || {}).forEach(function (fid) {
 			var c = map[fid];
@@ -142,14 +170,10 @@
 							' <select id="dze-au-imgn" title="' + esc(i18n.imgCount) + '">' +
 								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
 							'</select> ' + scenePicker('dze-au-scene') + '</label>' +
-							// Several prompts at once: a scene shot and a detail shot
-							// are two different jobs. Same choice as the bulk screen,
-							// so a habit learnt on one works on the other.
-							'<div class="dze-au-tpls">' + cfg.templates.map(function (t, i) {
-								var on = Array.isArray(au.tpls) ? au.tpls.indexOf(String(i)) >= 0 : i === 0;
-								return '<label class="dze-au-check"><input type="checkbox" class="dze-au-tpl" value="' + i + '"' + (on ? ' checked' : '') + ' /> ' +
-									esc(t.name) + (t.valid ? '' : ' <span class="dze-cx-badge">' + esc(i18n.notValid) + '</span>') + '</label>';
-							}).join('') + '</div>' : '') +
+							// One prompt, plus a + when a product needs a second kind
+							// of shot. Same control as the bulk screen, so a habit
+							// learnt on one works on the other.
+							'<div class="dze-tplrows" id="dze-au-tplrows"></div>' : '') +
 						'<label class="dze-au-check dze-cx-note"><input type="checkbox" id="dze-au-save" checked /> ' + esc(i18n.saveSetup) + '</label>' +
 						'<p style="margin:14px 0 0;"><button type="button" class="button button-primary button-hero" id="dze-au-launch">' + esc(i18n.launch) + '</button> <span id="dze-au-status"></span></p>' +
 					'</div>' +
@@ -209,7 +233,7 @@
 					'</div>' +
 					'<div id="dze-cx-galwrap">' +
 						'<div class="dze-cx-galbar">' +
-							'<label>' + esc(i18n.sendTo) + ' <select id="dze-cx-target"><option value="gallery">' + esc(i18n.toGallery) + '</option><option value="main">' + esc(i18n.toMain) + '</option></select></label>' +
+							'<span class="dze-cx-note">' + esc(i18n.sendToEach) + '</span>' +
 							'<button type="button" class="button button-primary" id="dze-cx-attach" disabled>' + esc(i18n.addSelected) + ' (0)</button>' +
 							'<span id="dze-cx-attachstatus"></span>' +
 						'</div>' +
@@ -237,6 +261,13 @@
 
 	function open(pane) {
 		build();
+		if ($('#dze-au-tplrows').length && !$('#dze-au-tplrows .dze-tplrow').length) {
+			var saved = (mem().auto || {}).tpls;
+			(Array.isArray(saved) && saved.length ? saved : [ 0 ]).forEach(function (v) {
+				$('#dze-au-tplrows').append(tplRowHtml(v));
+			});
+			syncAuTplRows();
+		}
 		syncTplPrompt();
 		refreshTplUi();
 		drawSceneThumb();
@@ -254,12 +285,11 @@
 		var t = cfg.templates[i] || {};
 		$('#dze-cx-tpl-validate').toggleClass('is-on', !!t.valid).text(t.valid ? '✓ ' + i18n.validated : i18n.notValid);
 		$('#dze-cx-tpl-restore').toggle(!!(cfg.defaults && t.id && cfg.defaults[t.id]));
-		// The ticked prompts carry their own validation badge; keep it truthful
-		// when a prompt is validated from the Image lab without a reload.
-		$('.dze-au-tpl').each(function () {
+		// The prompt rows carry their validation state in their labels; keep it
+		// truthful when a prompt is validated from the Image lab without reload.
+		$('#dze-au-tplrows .dze-au-tpl option').each(function () {
 			var tt = cfg.templates[parseInt($(this).val(), 10)];
-			if (!tt) { return; }
-			$(this).closest('label').find('.dze-cx-badge').toggle(!tt.valid);
+			if (tt) { $(this).text(tt.name + (tt.valid ? '' : ' — ' + i18n.notValid)); }
 		});
 	}
 	function showPane(p) {
@@ -459,11 +489,21 @@
 	function renderGal() {
 		var html = '';
 		gal.forEach(function (g, i) {
-			html += '<div class="dze-cx-thumb' + (g.sel ? ' is-sel' : '') + (g.added ? ' is-added' : '') + '" data-i="' + i + '">' +
+			// Each result carries its own destination: main image, first of the
+			// gallery (what a visitor sees second), or simply the gallery.
+			html += '<div class="dze-cx-galcell">' +
+				'<div class="dze-cx-thumb' + (g.sel ? ' is-sel' : '') + (g.added ? ' is-added' : '') + '" data-i="' + i + '">' +
 				'<img class="dze-hzoom" src="' + g.url + '" data-full="' + g.url + '" alt="" />' +
 				'<span class="dze-cx-t-check" title="' + esc(i18n.select) + '">✓</span>' +
 				'<button type="button" class="dze-cx-t-edit" title="' + esc(i18n.editImage) + '">✎</button>' +
 				(g.added ? '<span class="dze-cx-t-tag">' + esc(i18n.added) + '</span>' : '') +
+				'</div>' +
+				(g.added ? '' :
+					'<select class="dze-cx-t-dest" data-i="' + i + '">' +
+						'<option value="gallery"' + (g.dest === 'gallery' ? ' selected' : '') + '>' + esc(i18n.toGallery) + '</option>' +
+						'<option value="gallery_first"' + (g.dest === 'gallery_first' ? ' selected' : '') + '>' + esc(i18n.toGalleryFirst) + '</option>' +
+						'<option value="main"' + (g.dest === 'main' ? ' selected' : '') + '>' + esc(i18n.toMain) + '</option>' +
+					'</select>') +
 				'</div>';
 		});
 		$('#dze-cx-gal').html(html);
@@ -474,9 +514,19 @@
 		$('#dze-cx-attach').prop('disabled', !n).text(i18n.addSelected + ' (' + n + ')');
 	}
 	function addToGal(url) {
-		gal.push({ url: url, sel: false, added: false });
+		gal.push({ url: url, sel: false, added: false, dest: 'gallery' });
 		renderGal();
 	}
+	$(document).on('change', '.dze-cx-t-dest', function () {
+		var i = parseInt($(this).data('i'), 10), v = $(this).val();
+		if (!gal[i]) { return; }
+		gal[i].dest = v;
+		// Only one main image: choosing a second sends the first to the gallery.
+		if (v === 'main') {
+			gal.forEach(function (g, k) { if (k !== i && g.dest === 'main') { g.dest = 'gallery'; } });
+			renderGal();
+		}
+	});
 
 	// Several generations can run in parallel (the ×N picker): a pending counter
 	// drives the status line and re-enables the buttons on the LAST completion.
@@ -583,11 +633,12 @@
 	// Push the selection onto the product (SEO naming happens server-side; when
 	// the target is the main image, the old main moves to gallery position 1).
 	$(document).on('click', '#dze-cx-attach', function () {
-		var urls = gal.filter(function (g) { return g.sel && !g.added; }).map(function (g) { return g.url; });
-		if (!urls.length) { return; }
+		var items = gal.filter(function (g) { return g.sel && !g.added; })
+			.map(function (g) { return { url: g.url, target: g.dest || 'gallery' }; });
+		if (!items.length) { return; }
 		var $btn = $(this).prop('disabled', true);
 		var $st = $('#dze-cx-attachstatus').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
-		$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: cfg.postId, urls: urls, target: $('#dze-cx-target').val() })
+		$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: cfg.postId, items: items })
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res.success) { $st.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error); return; }
@@ -641,7 +692,7 @@
 			$('.dze-au-f').each(function () { fmap[$(this).val()] = $(this).is(':checked') ? 1 : 0; });
 			m.auto = {
 				fields: fmap, price: doPrice ? 1 : 0, img: doImg ? 1 : 0,
-				tpls: $('.dze-au-tpl:checked').map(function () { return $(this).val(); }).get(),
+				tpls: $('#dze-au-tplrows .dze-au-tpl').map(function () { return $(this).val(); }).get(),
 				imgn: parseInt($('#dze-au-imgn').val(), 10) || 1
 			};
 			saveMem(m);
@@ -675,7 +726,8 @@
 			});
 		}
 		if (doImg) {
-			var picked = $('.dze-au-tpl:checked').map(function () { return parseInt($(this).val(), 10) || 0; }).get();
+			var picked = $('#dze-au-tplrows .dze-au-tpl').map(function () { return parseInt($(this).val(), 10) || 0; }).get();
+			picked = picked.filter(function (v, k) { return picked.indexOf(v) === k; });
 			if (!picked.length) { picked = [ 0 ]; }
 			picked.forEach(function (tplIdx) {
 				chain = chain.then(function () {

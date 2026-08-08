@@ -278,11 +278,9 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
-.dze-cb-redo {
-	background: transparent; border: none; cursor: pointer; color: #a7aaad;
-	font-size: 14px; line-height: 1; padding: 0 2px;
-}
-.dze-cb-redo:hover { color: #2271b1; }
+/* Real buttons, not grey glyphs you have to hunt for with the mouse. */
+.dze-cb-fhead .button { flex: 0 0 auto; }
+.dze-cb-redo, .dze-cb-now { white-space: nowrap; }
 .dze-cb-fbody { padding: 0 10px 10px; }
 .dze-cb-fbody .wp-editor-wrap { background: #fff; }
 .dze-cb-fbody textarea.dze-cb-plain {
@@ -471,3 +469,43 @@
 .dze-cb-tplpick em { color: #8c8f94; font-style: normal; font-size: 11px; }
 /* The companion image key sits under the destination meta key. */
 .dze-pr-imgmeta { margin-top: 4px; }
+
+
+/* ---- Image prompts: one row, a + for a second ---- */
+.dze-tplrows { display: inline-flex; flex-direction: column; gap: 4px; }
+.dze-tplrow { display: inline-flex; align-items: center; gap: 4px; }
+.dze-tplrow select { min-width: 190px; }
+.dze-tplrow .button { min-width: 28px; padding: 0 6px; text-align: center; }
+#dze-au-tplrows { margin: 2px 0 8px 26px; }
+
+/* ---- The bulk list is editable ---- */
+.dze-cb-listbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; }
+.dze-cb-pickcell { text-align: center; }
+.dze-cb-unqueue-one {
+	background: transparent; border: none; cursor: pointer; color: #c3c4c7;
+	font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.dze-cb-row:hover .dze-cb-unqueue-one { color: #b32d2e; }
+
+/* ---- A destination per generated image ---- */
+.dze-cb-shotwrap { display: flex; flex-direction: column; gap: 3px; }
+.dze-cb-shotdest, .dze-cx-t-dest { font-size: 11px; max-width: 120px; height: 24px; line-height: 1; }
+.dze-cb-shotwrap .dze-cb-shotdest { width: 92px; }
+.dze-cx-galcell { display: flex; flex-direction: column; gap: 4px; }
+.dze-cx-t-dest { width: 100%; }
+
+/* ---- What the product says today ---- */
+.dze-cb-nowlabel {
+	display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+	letter-spacing: .04em; color: #646970; margin-bottom: 4px;
+}
+.dze-cb-nowshots:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+.dze-cb-nowgrid { display: flex; flex-wrap: wrap; gap: 6px; }
+.dze-cb-nowshot img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; display: block; }
+.dze-cb-nowshot.is-main img { border-color: #2271b1; box-shadow: 0 0 0 1px #2271b1; }
+.dze-cb-nowtext {
+	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 4px;
+	padding: 8px 10px; margin: 0 0 8px; max-height: 220px; overflow: auto;
+}
+.dze-cb-nowbody { font-size: 12px; line-height: 1.6; color: #50575e; }
+.dze-cb-nowbody p { margin: 0 0 .6em; }

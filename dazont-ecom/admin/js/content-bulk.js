@@ -39,9 +39,7 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
-		if (Array.isArray(m.tpls) && m.tpls.length) {
-			$('.dze-cb-tpl').each(function () { this.checked = m.tpls.indexOf($(this).val()) >= 0; });
-		}
+		buildTplRows(Array.isArray(m.tpls) && m.tpls.length ? m.tpls : [ '' ]);
 		// The scene is remembered with the toolbox (same store): pick a support
 		// once and every screen keeps shooting on it.
 		if (typeof m.scene !== 'undefined' && $('#dze-cb-scene option[value="' + m.scene + '"]').length) {
@@ -62,12 +60,91 @@
 		if ($('#dze-cb-par').length) { m.par = parseInt($('#dze-cb-par').val(), 10); }
 		saveMem(m);
 	}
-	$('.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par').on('change', persist);
-	// The image prompts ticked at the top: every one of them runs on every
-	// product of the list.
-	function tpls() {
-		return $('.dze-cb-tpl:checked').map(function () { return $(this).val(); }).get();
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par', persist);
+	// One prompt by default, a + to add another when a product needs two kinds
+	// of shot. Every row runs on every product of the list.
+	function tplRow(value) {
+		var $r = $($('#dze-cb-tpltpl').html());
+		if (value !== '' && value !== undefined) { $r.find('.dze-cb-tpl').val(String(value)); }
+		return $r;
 	}
+	function buildTplRows(values) {
+		var $wrap = $('#dze-cb-tplrows').empty();
+		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
+		syncTplRows();
+	}
+	// Only the last row offers +, and − disappears when one row is left: there
+	// is nothing to remove when there is nothing without it.
+	function syncTplRows() {
+		var $rows = $('#dze-cb-tplrows .dze-tplrow');
+		$rows.each(function (i) {
+			$(this).find('.dze-tpl-add').toggle(i === $rows.length - 1);
+			$(this).find('.dze-tpl-del').toggle($rows.length > 1);
+		});
+	}
+	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
+		$('#dze-cb-tplrows').append(tplRow(''));
+		syncTplRows();
+		persist();
+	});
+	$(document).on('click', '#dze-cb-tplrows .dze-tpl-del', function () {
+		$(this).closest('.dze-tplrow').remove();
+		syncTplRows();
+		persist();
+	});
+	function tpls() {
+		var seen = {}, out = [];
+		$('#dze-cb-tplrows .dze-cb-tpl').each(function () {
+			var v = $(this).val();
+			if (v !== null && !seen[v]) { seen[v] = 1; out.push(v); }
+		});
+		return out;
+	}
+
+	// =====================================================================
+	// The list itself: take products out, or empty it
+	// =====================================================================
+
+	function picked() {
+		return $('.dze-cb-pick:checked').map(function () { return $(this).val(); }).get();
+	}
+	function drawPicked() {
+		var n = picked().length;
+		$('#dze-cb-selcount').text(n ? sprintf(i18n.selected, n) : '');
+		$('#dze-cb-unqueue').toggle(n > 0);
+	}
+	$(document).on('change', '.dze-cb-pick', drawPicked);
+	$(document).on('change', '#dze-cb-all', function () {
+		$('.dze-cb-pick').prop('checked', this.checked);
+		drawPicked();
+	});
+	function dropRows(ids) {
+		ids.forEach(function (id) {
+			$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
+			delete results[id];
+			delete state[id];
+		});
+		drawPicked();
+		if (!$('.dze-cb-row').length) { window.location.reload(); }
+	}
+	$('#dze-cb-unqueue').on('click', function () {
+		var ids = picked();
+		if (!ids.length) { return; }
+		var $b = $(this).prop('disabled', true);
+		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids })
+			.always(function () { $b.prop('disabled', false); dropRows(ids); });
+	});
+	$('#dze-cb-clearlist').on('click', function () {
+		if (!window.confirm(i18n.confirmClear)) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'clear' })
+			.always(function () { window.location.reload(); });
+	});
+	// One product out, from its own line.
+	$(document).on('click', '.dze-cb-unqueue-one', function () {
+		var id = $(this).closest('.dze-cb-row').data('id');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: [ id ] })
+			.always(function () { dropRows([ id ]); });
+	});
 
 	// =====================================================================
 	// Per-product state: one symbol, one bar, one tooltip
@@ -280,12 +357,14 @@
 					'<span class="dze-cb-fname">' + esc(cfg.fields[fid] || fid) + '</span>' +
 					'<span class="dze-cb-fpeek">' + esc(peek(b.texts[fid])) + '</span>' +
 					'<span class="dze-cb-fstate"></span>' +
-					'<button type="button" class="dze-cb-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻</button>' +
+					'<button type="button" class="button button-small dze-cb-now" data-field="' + fid + '" title="' + esc(i18n.compareHelp) + '">' + esc(i18n.compare) + '</button>' +
+					'<button type="button" class="button button-small dze-cb-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻ ' + esc(i18n.redoShort) + '</button>' +
 				'</div>' +
 				'<div class="dze-cb-fbody" style="display:none;"></div>' +
 			'</div>';
 		});
 		html += '</div>' +
+			'<div class="dze-cb-nowshots"></div>' +
 			'<p class="dze-cb-panelbar">' +
 				(Object.keys(b.texts).length
 					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
@@ -297,6 +376,9 @@
 		$cell.html(html);
 		b.built = true;
 		renderShots(id);
+		// The gallery as it stands today, right under the new images: the only
+		// way to judge whether a generated shot ADDS something.
+		loadCurrent(id).then(function () { renderCurrentImages(id); });
 	}
 
 	function openField(id, fid, open) {
@@ -331,32 +413,81 @@
 		}
 	}
 
+	// Each generated image says where IT goes. One destination for the batch
+	// could not express "this one is the main image, that one goes second",
+	// which is the decision actually being made in front of the strip.
+	function destSelect(cur) {
+		return '<select class="dze-cb-shotdest">' +
+			'<option value="gallery"' + (cur === 'gallery' ? ' selected' : '') + '>' + esc(i18n.toGallery) + '</option>' +
+			'<option value="gallery_first"' + (cur === 'gallery_first' ? ' selected' : '') + '>' + esc(i18n.toGalleryFirst) + '</option>' +
+			'<option value="main"' + (cur === 'main' ? ' selected' : '') + '>' + esc(i18n.toMain) + '</option>' +
+			'</select>';
+	}
 	function renderShots(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
 		if (!$slot.length || !b.shots.length) { return; }
 		// Adding one more attempt redraws the strip: what was already ticked or
-		// unticked, and where they were headed, survives the redraw.
+		// unticked, and where each was headed, survives the redraw.
 		var $old = $slot.find('.dze-cb-shots');
-		var dropped = {}, target = '';
+		var dropped = {}, dest = {};
 		if ($old.length) {
-			target = $old.find('.dze-cb-shottarget').val() || '';
-			$old.find('.dze-cb-shot').not('.is-sel').each(function () { dropped[$(this).data('url')] = true; });
+			$old.find('.dze-cb-shot').each(function () {
+				var u = $(this).data('url');
+				if (!$(this).hasClass('is-sel')) { dropped[u] = true; }
+				dest[u] = $(this).find('.dze-cb-shotdest').val();
+			});
 		}
 		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div>' +
-			'<select class="dze-cb-shottarget">' +
-				'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
-				'<option value="main">' + esc(i18n.toMain) + '</option>' +
-			'</select> <span class="dze-cb-shotstate"></span></div>');
+			'<span class="dze-cb-shotstate"></span></div>');
 		b.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
-				$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
-					.toggleClass('is-sel', !dropped[url])
-					.attr('data-url', url)
-					.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''))
+				$('<div class="dze-cb-shotwrap"></div>').append(
+					$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
+						.toggleClass('is-sel', !dropped[url])
+						.attr('data-url', url)
+						.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', '')),
+					$(destSelect(dest[url] || 'gallery'))
+				).attr('data-url', url)
 			);
 		});
-		if (target) { $wrap.find('.dze-cb-shottarget').val(target); }
 		$slot.empty().append($wrap);
+	}
+	// Only one image can be the main one; picking a second moves the first back
+	// to the gallery instead of letting the server arbitrate silently.
+	$(document).on('change', '.dze-cb-shotdest', function () {
+		if ($(this).val() !== 'main') { return; }
+		var $me = $(this);
+		$me.closest('.dze-cb-shots').find('.dze-cb-shotdest').not($me).each(function () {
+			if ($(this).val() === 'main') { $(this).val('gallery'); }
+		});
+	});
+
+	// ---- What the product says today ----
+	// Loaded when a panel opens, never with the list: it is one product's worth
+	// of data, asked for at the moment somebody wants to compare.
+	function loadCurrent(id) {
+		var b = bucket(id);
+		if (b.current) { return $.Deferred().resolve(b.current); }
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: id })
+			.then(function (res) {
+				b.current = (res && res.success) ? res.data : { texts: {}, images: [] };
+				return b.current;
+			}, function () { b.current = { texts: {}, images: [] }; return b.current; });
+	}
+	function renderCurrentImages(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-nowshots');
+		if (!$slot.length || !b.current) { return; }
+		var imgs = b.current.images || [];
+		if (!imgs.length) { $slot.empty(); return; }
+		var $g = $('<div class="dze-cb-nowgrid"></div>');
+		imgs.forEach(function (im) {
+			$g.append(
+				$('<span class="dze-cb-nowshot"></span>')
+					.toggleClass('is-main', !!im.main)
+					.append($('<img class="dze-hzoom" />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', ''))
+			);
+		});
+		$slot.empty().append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>').append($g);
 	}
 
 	function editorGet(eid) {
@@ -391,8 +522,30 @@
 		$prev.toggle(!open);
 		$btn.attr('aria-expanded', open ? 'false' : 'true').find('.dze-cb-caret').text(open ? '▾' : '▴');
 	});
+	// The current text, side by side with the new one, read-only.
+	$(document).on('click', '.dze-cb-now', function (e) {
+		e.stopPropagation();
+		var $btn = $(this), fid = $btn.data('field');
+		var id = $btn.closest('.dze-cb-preview').data('id');
+		var $block = $btn.closest('.dze-cb-fblock');
+		var $body = $block.find('.dze-cb-fbody');
+		if ($block.hasClass('is-comparing')) {
+			$block.removeClass('is-comparing').find('.dze-cb-nowtext').remove();
+			$btn.removeClass('button-primary');
+			return;
+		}
+		if (!$block.hasClass('is-open')) { openField(id, fid, true); }
+		$btn.addClass('button-primary');
+		$block.addClass('is-comparing');
+		$body.prepend('<div class="dze-cb-nowtext"><span class="dze-cb-nowlabel">' + esc(i18n.nowText) + '</span><div class="dze-cb-nowbody">…</div></div>');
+		loadCurrent(id).then(function (cur) {
+			var val = (cur.texts || {})[fid] || '';
+			$block.find('.dze-cb-nowbody').html(val ? $('<div>').html(val).html() : esc(i18n.empty));
+		});
+	});
+
 	$(document).on('click', '.dze-cb-fhead', function (e) {
-		if ($(e.target).closest('.dze-cb-redo').length) { return; }
+		if ($(e.target).closest('.dze-cb-redo, .dze-cb-now').length) { return; }
 		var $h = $(this), id = $h.closest('.dze-cb-preview').data('id');
 		openField(id, $h.closest('.dze-cb-fblock').data('field'), !$h.closest('.dze-cb-fblock').hasClass('is-open'));
 	});
@@ -503,17 +656,21 @@
 			});
 			if (b.shots.length) {
 				var $w = $prev.find('.dze-cb-shots');
-				// Never opened: every shot is kept. Opened: only the ticked ones.
-				var urls = $w.length
-					? $w.find('.dze-cb-shot.is-sel').map(function () { return $(this).data('url'); }).get()
-					: b.shots.slice();
-				if (urls.length) {
-					shots.push({
-						id: id,
-						urls: urls,
-						target: $w.length ? $w.find('.dze-cb-shottarget').val() : 'gallery',
-						$w: $w.length ? $w : $prev
+				// Never opened: every shot is kept, all to the gallery. Opened:
+				// the ticked ones, each to the destination chosen under it.
+				var items = [];
+				if ($w.length) {
+					$w.find('.dze-cb-shot.is-sel').each(function () {
+						items.push({
+							url: $(this).data('url'),
+							target: $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery'
+						});
 					});
+				} else {
+					b.shots.forEach(function (u) { items.push({ url: u, target: 'gallery' }); });
+				}
+				if (items.length) {
+					shots.push({ id: id, items: items, $w: $w.length ? $w : $prev });
 				}
 			}
 		});
@@ -523,7 +680,7 @@
 			if (k >= shots.length) { return runTexts(); }
 			var sh = shots[k];
 			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
-			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, urls: sh.urls, target: sh.target })
+			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items })
 				.done(function (res) {
 					if (res && res.success) {
 						okCount++;

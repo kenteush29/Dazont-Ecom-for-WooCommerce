@@ -68,6 +68,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
+		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
+		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		add_action( 'wp_ajax_dze_content_reset_prompts', [ $this, 'ajax_reset_prompts' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
@@ -1918,18 +1920,23 @@ Answer with STRICT JSON and nothing else: "
 							<span><?php esc_html_e( 'Generate images', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
 						</label>
 						<div class="dze-cb-opts">
-							<div class="dze-cb-tplpick">
-								<span class="dze-cb-optlabel"><?php esc_html_e( 'Prompts', 'dazont-ecom' ); ?></span>
-								<!-- Several at once: a scene shot and a detail shot are two
-								     different jobs, and running the list twice to get both
-								     is the kind of chore a bulk screen exists to remove. -->
-								<?php foreach ( $valid_tpls as $i => $t ) : ?>
-									<label class="dze-cb-check">
-										<input type="checkbox" class="dze-cb-tpl" value="<?php echo (int) $i; ?>" <?php checked( 0 === array_search( $i, array_keys( $valid_tpls ), true ) ); ?> />
-										<span><?php echo esc_html( $t['name'] ); ?> <em>(<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</em></span>
-									</label>
-								<?php endforeach; ?>
-							</div>
+							<!-- One prompt, plus a + to add a second when a product
+							     needs two kinds of shot. A checkbox list of every
+							     prompt was noise: most runs use one. -->
+							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+								<span class="dze-tplrows" id="dze-cb-tplrows" data-name="dze-cb-tpl"></span>
+							</label>
+							<script type="text/template" id="dze-cb-tpltpl">
+								<span class="dze-tplrow">
+									<select class="dze-cb-tpl">
+										<?php foreach ( $valid_tpls as $i => $t ) : ?>
+											<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
+										<?php endforeach; ?>
+									</select>
+									<button type="button" class="button button-small dze-tpl-add" title="<?php esc_attr_e( 'Add another image prompt to this run', 'dazont-ecom' ); ?>">+</button>
+									<button type="button" class="button button-small dze-tpl-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&minus;</button>
+								</span>
+							</script>
 							<?php $dze_bscenes = self::scenes(); ?>
 							<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
 								<label title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
@@ -1977,6 +1984,12 @@ Answer with STRICT JSON and nothing else: "
 				<p id="dze-cb-progress" class="description"></p>
 			</div>
 
+			<p class="dze-cb-listbar">
+				<span id="dze-cb-selcount" class="description"></span>
+				<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Remove from the list', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Empty the whole list', 'dazont-ecom' ); ?></button>
+			</p>
+
 			<!-- Pinned to the bottom of the window while a run is on: on a list of
 			     thirty products the progress must stay in sight wherever you have
 			     scrolled to. -->
@@ -1991,6 +2004,7 @@ Answer with STRICT JSON and nothing else: "
 
 			<table class="dze-cb-table">
 				<tr>
+					<th style="width:28px;"><input type="checkbox" id="dze-cb-all" title="<?php esc_attr_e( 'Select every product', 'dazont-ecom' ); ?>" /></th>
 					<th style="width:70px;" title="<?php esc_attr_e( 'Hover a thumbnail to see it full size.', 'dazont-ecom' ); ?>"></th>
 					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
 					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
@@ -1998,6 +2012,10 @@ Answer with STRICT JSON and nothing else: "
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
+						<td class="dze-cb-pickcell">
+							<input type="checkbox" class="dze-cb-pick" value="<?php echo (int) $p['id']; ?>" />
+							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list', 'dazont-ecom' ); ?>">&times;</button>
+						</td>
 						<td class="dze-cb-thumb">
 							<?php if ( $p['full'] ) : ?><a href="<?php echo esc_url( $p['full'] ); ?>" target="_blank" rel="noopener"><?php endif; ?>
 							<img class="dze-hzoom" src="<?php echo esc_url( $p['thumb'] ); ?>" data-full="<?php echo esc_url( $p['full'] ?: $p['thumb'] ); ?>" alt="" />
@@ -2019,7 +2037,7 @@ Answer with STRICT JSON and nothing else: "
 							</button>
 						</td>
 					</tr>
-					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="4"></td></tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
 				<?php endforeach; ?>
 			</table>
 		</div>
@@ -2094,6 +2112,14 @@ Answer with STRICT JSON and nothing else: "
 					'empty'    => __( '(empty)', 'dazont-ecom' ),
 					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
 					'discard'  => __( 'Discard', 'dazont-ecom' ),
+					'selected' => __( '%s selected', 'dazont-ecom' ),
+					'confirmClear' => __( 'Empty the whole list? The products are not modified, they simply leave this screen.', 'dazont-ecom' ),
+					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+					'compare'  => __( 'Current', 'dazont-ecom' ),
+					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
+					'redoShort'=> __( 'Rewrite', 'dazont-ecom' ),
+					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
+					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
@@ -2208,7 +2234,11 @@ Answer with STRICT JSON and nothing else: "
 				'attachDone' => __( 'image(s) added to the product with SEO naming.', 'dazont-ecom' ),
 				'sendTo'     => __( 'Send to:', 'dazont-ecom' ),
 				'toGallery'  => __( 'Product gallery', 'dazont-ecom' ),
-				'toMain'     => __( 'Main image (first selected)', 'dazont-ecom' ),
+				'toMain'     => __( 'Main image', 'dazont-ecom' ),
+				'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+				'sendToEach' => __( 'Each image goes where its own menu says.', 'dazont-ecom' ),
+				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
+				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
 				'select'     => __( 'Select', 'dazont-ecom' ),
 				'editImage'  => __( 'Edit with a manual prompt', 'dazont-ecom' ),
 				'variantHelp'=> __( 'Describe the change to apply to THIS image (one-off prompt, not saved):', 'dazont-ecom' ),
@@ -2823,6 +2853,90 @@ Answer with STRICT JSON and nothing else: "
 	 * procedure on the way in: the attachment file name, title, slug and alt all
 	 * take the product title (WordPress natively de-duplicates with -1/-2/-3).
 	 */
+	/**
+	 * The bulk list is the owner's working set, so it has to be editable: take
+	 * one product out, take the ticked ones out, or empty it. Before this the
+	 * only way to change your mind was to go back to the products list and
+	 * queue a new selection from scratch.
+	 */
+	public function ajax_bulk_list(): void {
+		$this->guard();
+		$do   = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
+		$ids  = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
+		$tkey = 'dze_content_bulk_' . get_current_user_id();
+		$list = array_map( 'intval', (array) get_transient( $tkey ) );
+
+		if ( 'clear' === $do ) {
+			delete_transient( $tkey );
+			wp_send_json_success( [ 'left' => 0 ] );
+		}
+		if ( 'remove' === $do && $ids ) {
+			$list = array_values( array_diff( $list, $ids ) );
+			if ( $list ) {
+				set_transient( $tkey, $list, DAY_IN_SECONDS );
+			} else {
+				delete_transient( $tkey );
+			}
+			wp_send_json_success( [ 'left' => count( $list ) ] );
+		}
+		wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+	}
+
+	/**
+	 * What the product says TODAY: its texts and its photographs.
+	 *
+	 * Fetched only when a review panel is opened, never with the list — it is
+	 * one product's worth of data, asked for at the moment somebody wants to
+	 * compare the new text with the old one, or check that a generated image
+	 * adds something the gallery does not already have.
+	 */
+	public function ajax_current(): void {
+		$this->guard();
+		$pid     = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$product = $pid ? wc_get_product( $pid ) : null;
+		if ( ! $product instanceof WC_Product ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+		}
+		$seo   = self::seo_keys();
+		$texts = [];
+		foreach ( self::enabled_fields() as $fid => $f ) {
+			$dest  = self::dest_for( (string) $fid );
+			$value = '';
+			switch ( $dest['type'] ) {
+				case 'post_title':
+					$value = get_the_title( $pid );
+					break;
+				case 'post_content':
+					$value = (string) get_post_field( 'post_content', $pid );
+					break;
+				case 'post_excerpt':
+					$value = (string) get_post_field( 'post_excerpt', $pid );
+					break;
+				case 'seo_title':
+					$value = (string) get_post_meta( $pid, $seo['title'], true );
+					break;
+				case 'seo_desc':
+					$value = (string) get_post_meta( $pid, $seo['desc'], true );
+					break;
+				case 'attributes':
+					$value = self::attributes_summary( $product );
+					break;
+				default:
+					$value = (string) get_post_meta( $pid, (string) ( $dest['key'] ?? '_dze_' . $fid ), true );
+			}
+			$texts[ $fid ] = $value;
+		}
+		$images = [];
+		foreach ( self::product_source_ids( $pid ) as $aid ) {
+			$images[] = [
+				'thumb' => (string) ( wp_get_attachment_image_url( (int) $aid, 'thumbnail' ) ?: '' ),
+				'full'  => (string) ( wp_get_attachment_image_url( (int) $aid, 'large' ) ?: '' ),
+				'main'  => (int) $aid === (int) get_post_thumbnail_id( $pid ),
+			];
+		}
+		wp_send_json_success( [ 'texts' => $texts, 'images' => $images ] );
+	}
+
 	/** Accepted or discarded: either way the product stops waiting. */
 	public function ajax_pending_clear(): void {
 		$this->guard();
@@ -2836,26 +2950,56 @@ Answer with STRICT JSON and nothing else: "
 
 	public function ajax_image_attach(): void {
 		$this->guard();
-		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$target = ( isset( $_POST['target'] ) && 'main' === $_POST['target'] ) ? 'main' : 'gallery';
-		$urls   = isset( $_POST['urls'] ) ? array_map( 'esc_url_raw', (array) wp_unslash( $_POST['urls'] ) ) : [];
-		if ( ! $pid || empty( $urls ) ) {
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+
+		// Each image says where IT goes. A single destination for the batch made
+		// "one of these is the main image, that one goes second" impossible to
+		// express, which is exactly the decision being made at that moment.
+		$items = [];
+		if ( isset( $_POST['items'] ) && is_array( $_POST['items'] ) ) {
+			foreach ( wp_unslash( $_POST['items'] ) as $it ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
+				$items[] = [
+					'url'    => esc_url_raw( (string) ( $it['url'] ?? '' ) ),
+					'target' => self::attach_target( (string) ( $it['target'] ?? '' ) ),
+				];
+			}
+		} else {
+			// Older callers: a list of urls and one destination for all of them.
+			$target = self::attach_target( isset( $_POST['target'] ) ? (string) wp_unslash( $_POST['target'] ) : '' );
+			foreach ( (array) ( $_POST['urls'] ?? [] ) as $i => $u ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
+				$items[] = [
+					'url'    => esc_url_raw( (string) wp_unslash( $u ) ),
+					// Only the first of a batch could ever be the main image.
+					'target' => ( 'main' === $target && 0 !== $i ) ? 'gallery' : $target,
+				];
+			}
+		}
+		if ( ! $pid || empty( $items ) ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing selected.', 'dazont-ecom' ) ] );
 		}
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
-		$ids    = [];
-		$errors = 0;
-		foreach ( $urls as $u ) {
-			if ( ! self::is_fal_url( $u ) ) {
+		$ids     = [];
+		$errors  = 0;
+		$main_up = false;
+		foreach ( $items as $item ) {
+			$u = (string) $item['url'];
+			if ( '' === $u || ! self::is_fal_url( $u ) ) {
 				$errors++;
 				continue;
 			}
+			$t = (string) $item['target'];
+			// Two main images cannot both win: the first one asked for it.
+			if ( 'main' === $t ) {
+				if ( $main_up ) {
+					$t = 'gallery';
+				} else {
+					$main_up = true;
+				}
+			}
 			try {
-				// First selected image becomes the main image when requested.
-				$this_target = ( 'main' === $target && empty( $ids ) ) ? 'main' : 'gallery';
-				$ids[]       = $this->sideload_seo( $u, $pid, $this_target );
+				$ids[] = $this->sideload_seo( $u, $pid, $t );
 			} catch ( \Throwable $e ) {
 				$errors++;
 			}
@@ -2872,6 +3016,11 @@ Answer with STRICT JSON and nothing else: "
 	 * product title, alt text set. Attaches as main image or appends to the
 	 * product gallery.
 	 */
+	/** gallery (default) | gallery_first (second photo of the product) | main. */
+	public static function attach_target( string $t ): string {
+		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';
+	}
+
 	public function sideload_seo( string $url, int $pid, string $target ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -2913,21 +3062,24 @@ Answer with STRICT JSON and nothing else: "
 		wp_update_post( [ 'ID' => (int) $att_id, 'post_title' => $title, 'post_name' => $slug ] );
 		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
 
+		$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
+		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 		if ( 'main' === $target ) {
 			// The replaced main image is never lost: it moves to the FRONT of the
 			// product gallery so it stays first among the secondary images.
 			$old = (int) get_post_thumbnail_id( $pid );
 			if ( $old && $old !== (int) $att_id ) {
-				$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
-				$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 				array_unshift( $ids, $old );
 				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			}
 			set_post_thumbnail( $pid, (int) $att_id );
+		} elseif ( 'gallery_first' === $target ) {
+			// Second photograph of the product: the one a visitor sees right
+			// after the main image, and the one most likely to sell the detail.
+			array_unshift( $ids, (int) $att_id );
+			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 		} else {
-			$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
-			$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
-			$ids[]   = (int) $att_id;
+			$ids[] = (int) $att_id;
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 		}
 		return (int) $att_id;
