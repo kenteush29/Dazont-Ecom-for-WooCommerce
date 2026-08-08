@@ -479,11 +479,18 @@
 #dze-au-tplrows { margin: 2px 0 8px 26px; }
 
 /* ---- The bulk list is editable ---- */
-.dze-cb-listbar { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; }
+.dze-cb-listbar {
+	display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
+	padding: 10px 12px; background: #fff; border: 1px solid #e2e4e7; border-radius: 6px;
+}
+#dze-cb-selcount { margin-right: auto; }
+/* A gap between deciding what to WRITE and deciding what to REMOVE. */
+.dze-cb-barsep { width: 1px; align-self: stretch; background: #e2e4e7; margin: 0 4px; }
 .dze-cb-pickcell { text-align: center; }
+/* Kept away from the tick box: one selects, the other throws away. */
 .dze-cb-unqueue-one {
 	background: transparent; border: none; cursor: pointer; color: #c3c4c7;
-	font-size: 15px; line-height: 1; padding: 0 2px;
+	font-size: 16px; line-height: 1; padding: 0 4px; margin-left: 10px;
 }
 .dze-cb-row:hover .dze-cb-unqueue-one { color: #b32d2e; }
 

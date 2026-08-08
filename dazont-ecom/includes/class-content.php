@@ -1979,13 +1979,15 @@ Answer with STRICT JSON and nothing else: "
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply what I kept', 'dazont-ecom' ); ?></button>
 				</p>
 				<p id="dze-cb-progress" class="description"></p>
 			</div>
 
 			<p class="dze-cb-listbar">
 				<span id="dze-cb-selcount" class="description"></span>
+				<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply all', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-cb-applysel" style="display:none;"><?php esc_html_e( 'Apply only selected', 'dazont-ecom' ); ?></button>
+				<span class="dze-cb-barsep"></span>
 				<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Remove from the list', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Empty the whole list', 'dazont-ecom' ); ?></button>
 			</p>
@@ -2012,10 +2014,7 @@ Answer with STRICT JSON and nothing else: "
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
-						<td class="dze-cb-pickcell">
-							<input type="checkbox" class="dze-cb-pick" value="<?php echo (int) $p['id']; ?>" />
-							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list', 'dazont-ecom' ); ?>">&times;</button>
-						</td>
+						<td class="dze-cb-pickcell"><input type="checkbox" class="dze-cb-pick" value="<?php echo (int) $p['id']; ?>" /></td>
 						<td class="dze-cb-thumb">
 							<?php if ( $p['full'] ) : ?><a href="<?php echo esc_url( $p['full'] ); ?>" target="_blank" rel="noopener"><?php endif; ?>
 							<img class="dze-hzoom" src="<?php echo esc_url( $p['thumb'] ); ?>" data-full="<?php echo esc_url( $p['full'] ?: $p['thumb'] ); ?>" alt="" />
@@ -2035,6 +2034,9 @@ Answer with STRICT JSON and nothing else: "
 							<button type="button" class="button button-small dze-cb-toggle" style="display:none;" aria-expanded="false" title="<?php esc_attr_e( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ); ?>">
 								<?php esc_html_e( 'Review', 'dazont-ecom' ); ?> <span class="dze-cb-caret">▾</span>
 							</button>
+							<!-- Far from the tick box on purpose: one selects, the other
+							     throws away, and they must not be neighbours. -->
+							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list', 'dazont-ecom' ); ?>">&times;</button>
 						</td>
 					</tr>
 					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
@@ -2114,6 +2116,12 @@ Answer with STRICT JSON and nothing else: "
 					'discard'  => __( 'Discard', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Empty the whole list? The products are not modified, they simply leave this screen.', 'dazont-ecom' ),
+					'confirmAll' => __( 'Write the generated content to %s products at once? This modifies the shop.', 'dazont-ecom' ),
+					'applyOne' => __( 'Apply this product', 'dazont-ecom' ),
+					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
+					'applying' => __( 'Applying…', 'dazont-ecom' ),
+					'applyAllN' => __( 'Apply all (%s)', 'dazont-ecom' ),
+					'applySelN' => __( 'Apply only selected (%s)', 'dazont-ecom' ),
 					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),

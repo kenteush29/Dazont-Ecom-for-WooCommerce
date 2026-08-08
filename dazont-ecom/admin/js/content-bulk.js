@@ -112,6 +112,7 @@
 		var n = picked().length;
 		$('#dze-cb-selcount').text(n ? sprintf(i18n.selected, n) : '');
 		$('#dze-cb-unqueue').toggle(n > 0);
+		refreshApplyBar();
 	}
 	$(document).on('change', '.dze-cb-pick', drawPicked);
 	$(document).on('change', '#dze-cb-all', function () {
@@ -306,7 +307,6 @@
 		return results[id];
 	}
 	function previewCell(id) {
-		$('#dze-cb-applyall').show();
 		return $('.dze-cb-preview[data-id="' + id + '"]').find('td');
 	}
 	function editorId(id, fid) { return 'dze-cb-ed-' + id + '-' + String(fid).replace(/[^a-zA-Z0-9_-]/g, ''); }
@@ -327,6 +327,7 @@
 			badge(id, fid, cfg.fields[fid] || fid);
 		});
 		offerReview(id);
+		refreshApplyBar();
 	}
 	function addShot(id, url) {
 		if (!url) { return; }
@@ -334,6 +335,7 @@
 		b.shots.push(url);
 		badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length);
 		offerReview(id);
+		refreshApplyBar();
 		if (b.built) { renderShots(id); }
 	}
 
@@ -369,6 +371,7 @@
 				(Object.keys(b.texts).length
 					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
 				'<button type="button" class="button button-small dze-cb-onemore">↻ ' + esc(i18n.oneMore) + '</button> ' +
+				'<button type="button" class="button button-small button-primary dze-cb-applyone">' + esc(i18n.applyOne) + '</button> ' +
 				'<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>' +
 				'<span class="dze-cb-panelstate"></span>' +
 			'</p>' +
@@ -512,6 +515,7 @@
 		$row(id).find('.dze-cb-toggle').hide();
 		state[id] = { total: 1, done: 1, notes: [], failed: false };
 		paint(id, 'wait');
+		refreshApplyBar();
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
@@ -630,7 +634,6 @@
 				offerReview(id);
 				state[id] = { total: 1, done: 1, notes: [ i18n.fromEarlier ], failed: false };
 				paint(id, 'ready');
-				$('#dze-cb-applyall').show();
 			}
 		});
 	}());
@@ -639,13 +642,28 @@
 	// Applying what was kept
 	// =====================================================================
 
-	$('#dze-cb-applyall').on('click', function () {
-		var $btn = $(this).prop('disabled', true);
-		// Everything generated is applied, opened panel or not: a product you
-		// did not bother to review is a product you are happy with.
+	// Applying is a decision with three sizes: this product, the ticked ones,
+	// or everything waiting. They live together in the list bar, next to the
+	// other decisions about the list.
+	function pendingIds() {
+		return Object.keys(results).filter(function (id) {
+			var b = results[id];
+			return b && (Object.keys(b.texts).length || b.shots.length);
+		});
+	}
+	function refreshApplyBar() {
+		var waiting = pendingIds().length;
+		var sel = picked().filter(function (id) { return results[id]; }).length;
+		$('#dze-cb-applyall').toggle(waiting > 0).text(sprintf(i18n.applyAllN, waiting));
+		$('#dze-cb-applysel').toggle(sel > 0).text(sprintf(i18n.applySelN, sel));
+	}
+
+	function applyProducts(ids, $btn) {
 		var jobs = [], shots = [];
-		Object.keys(results).forEach(function (id) {
-			var b = results[id], $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+		ids.forEach(function (id) {
+			var b = results[id];
+			if (!b) { return; }
+			var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
 			Object.keys(b.texts).forEach(function (fid) {
 				jobs.push({
 					id: id,
@@ -669,17 +687,22 @@
 				} else {
 					b.shots.forEach(function (u) { items.push({ url: u, target: 'gallery' }); });
 				}
-				if (items.length) {
-					shots.push({ id: id, items: items, $w: $w.length ? $w : $prev });
-				}
+				if (items.length) { shots.push({ id: id, items: items, $w: $w.length ? $w : $prev }); }
 			}
 		});
+		if (!jobs.length && !shots.length) {
+			window.alert(i18n.nothingKept);
+			return;
+		}
+		if ($btn) { $btn.prop('disabled', true); }
+		ids.forEach(function (id) { paint(id, 'run'); });
+
 		// Images first: attaching is what the run was for, and a text failure
 		// should not leave the kept shots behind.
 		function attachNext(k) {
 			if (k >= shots.length) { return runTexts(); }
 			var sh = shots[k];
-			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
+			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.applying);
 			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items })
 				.done(function (res) {
 					if (res && res.success) {
@@ -688,35 +711,77 @@
 						sh.$w.find('.dze-cb-shot').removeClass('is-sel');
 					} else {
 						koCount++;
+						note(sh.id, (res && res.data && res.data.message) || i18n.error, true);
 						sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					}
 				})
-				.fail(function (x) { koCount++; sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text(reason(x)); })
+				.fail(function (x) {
+					koCount++;
+					note(sh.id, reason(x), true);
+					sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text(reason(x));
+				})
 				.always(function () { attachNext(k + 1); });
 		}
 		function runTexts() {
 			var i = 0;
 			(function next() {
-				if (i >= jobs.length) {
-					$btn.prop('disabled', false);
-					$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
-					// Decided: the products stop waiting.
-					Object.keys(results).forEach(function (id) {
-						$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
-					});
-					return;
-				}
+				if (i >= jobs.length) { return done(); }
 				var j = jobs[i++];
 				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.value })
 					.done(function (res) {
 						if (res && res.success) { okCount++; j.$f.find('.dze-cb-fstate').removeClass('is-ko').text('✓'); }
-						else { koCount++; j.$f.find('.dze-cb-fstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error); }
+						else {
+							koCount++;
+							note(j.id, (res && res.data && res.data.message) || i18n.error, true);
+							j.$f.find('.dze-cb-fstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+						}
 					})
-					.fail(function () { koCount++; j.$f.find('.dze-cb-fstate').addClass('is-ko').text(i18n.error); })
+					.fail(function () { koCount++; note(j.id, i18n.error, true); j.$f.find('.dze-cb-fstate').addClass('is-ko').text(i18n.error); })
 					.always(next);
 			})();
 		}
+		function done() {
+			if ($btn) { $btn.prop('disabled', false); }
+			ids.forEach(function (id) {
+				var st = state[id];
+				// Applied and settled: the product stops waiting, here and on
+				// the server, and its line says so.
+				if (!st || !st.failed) {
+					delete results[id];
+					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+					state[id] = { total: 1, done: 1, notes: [], failed: false };
+					reviewModeWas = reviewMode;
+					reviewMode = false;
+					paint(id, 'done');
+					reviewMode = reviewModeWas;
+					$('.dze-cb-preview[data-id="' + id + '"]').hide();
+					$row(id).find('.dze-cb-toggle').hide();
+				} else {
+					paint(id, 'fail');
+				}
+			});
+			refreshApplyBar();
+			$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+		}
+		var reviewModeWas = reviewMode;
 		attachNext(0);
+	}
+
+	$('#dze-cb-applyall').on('click', function () {
+		var ids = pendingIds();
+		if (!ids.length) { window.alert(i18n.nothingKept); return; }
+		if (!window.confirm(sprintf(i18n.confirmAll, ids.length))) { return; }
+		applyProducts(ids, $(this));
+	});
+	$('#dze-cb-applysel').on('click', function () {
+		var ids = picked().filter(function (id) { return results[id]; });
+		if (!ids.length) { window.alert(i18n.nothingKept); return; }
+		applyProducts(ids, $(this));
+	});
+	// One product, from its own panel: no confirmation, it is one deliberate
+	// click on one product you are looking at.
+	$(document).on('click', '.dze-cb-applyone', function () {
+		applyProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
 	});
 
 	// =====================================================================
@@ -749,9 +814,9 @@
 		$('.dze-cb-preview').hide().find('td').empty();
 		$('.dze-cb-badges').empty();
 		$('.dze-cb-toggle').hide().attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
-		$('#dze-cb-applyall').hide();
 		results = {};
 		state = {};
+		refreshApplyBar();
 
 		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0);
 		// ONE job per product, its own steps in order inside it. Products are
