@@ -597,6 +597,42 @@ EOT;
 	}
 
 	/**
+	 * What stands between the owner and a working image generation, right now.
+	 *
+	 * These are the conditions that make EVERY generation fail, whatever the
+	 * product: no key, budget reached, no image prompt. They used to be found
+	 * out the hard way — you launched a run, waited, and read "0 ok, 1 errors".
+	 * Screens ask for this list first and say it plainly instead.
+	 *
+	 * @return array<int,array{text:string,url:string,label:string}>
+	 */
+	public static function image_blockers(): array {
+		$out = [];
+		if ( '' === self::fal_key() ) {
+			$out[] = [
+				'text'  => __( 'No fal.ai key is saved — no image can be generated.', 'dazont-ecom' ),
+				'url'   => add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ),
+				'label' => __( 'Add the key', 'dazont-ecom' ),
+			];
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			$out[] = [
+				'text'  => DZE_Ai_Usage::budget_message(),
+				'url'   => add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ),
+				'label' => __( 'See the usage', 'dazont-ecom' ),
+			];
+		}
+		if ( ! self::image_templates() ) {
+			$out[] = [
+				'text'  => __( 'No image prompt is enabled in the registry.', 'dazont-ecom' ),
+				'url'   => add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'content' ], admin_url( 'admin.php' ) ),
+				'label' => __( 'Open the registry', 'dazont-ecom' ),
+			];
+		}
+		return $out;
+	}
+
+	/**
 	 * fal.ai price per generated image (USD) — used only for the usage graph
 	 * and the monthly budget guard, not for billing. Adjustable on the General
 	 * tab next to the key; defaults to $0.04/image.
@@ -1056,6 +1092,15 @@ EOT;
 		<p class="description" style="max-width:900px;">
 			<?php esc_html_e( 'Generate every product field from the imported data, generate images from templates, and recalculate the price from cost. Text uses the Anthropic key (General tab); images use the fal.ai key (General tab). Tune the prompts and the field mapping, test on real products from the toolbox (preview mode), then tick "Prompts validated" to unlock applying.', 'dazont-ecom' ); ?>
 		</p>
+		<?php $dze_blk = self::image_blockers(); ?>
+		<?php if ( $dze_blk ) : ?>
+			<div class="notice notice-error inline" style="margin:12px 0;"><p><strong><?php esc_html_e( 'Images cannot be generated right now:', 'dazont-ecom' ); ?></strong></p>
+			<ul style="margin:0 0 10px 20px;list-style:disc;">
+				<?php foreach ( $dze_blk as $dze_b ) : ?>
+					<li><?php echo esc_html( $dze_b['text'] ); ?> <a href="<?php echo esc_url( $dze_b['url'] ); ?>"><?php echo esc_html( $dze_b['label'] ); ?></a></li>
+				<?php endforeach; ?>
+			</ul></div>
+		<?php endif; ?>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_content_options' ); ?>
 
@@ -1487,6 +1532,18 @@ EOT;
 		<div class="wrap dze-wrap dze-admin">
 			<h1><?php esc_html_e( 'Product Content — bulk generation', 'dazont-ecom' ); ?></h1>
 
+			<?php $dze_blockers = self::image_blockers(); ?>
+			<?php if ( $dze_blockers ) : ?>
+				<div class="notice notice-error"><p><strong><?php esc_html_e( 'Images cannot be generated right now:', 'dazont-ecom' ); ?></strong></p>
+				<ul style="margin:0 0 10px 20px;list-style:disc;">
+					<?php foreach ( $dze_blockers as $dze_b ) : ?>
+						<li><?php echo esc_html( $dze_b['text'] ); ?>
+							<a href="<?php echo esc_url( $dze_b['url'] ); ?>"><?php echo esc_html( $dze_b['label'] ); ?></a></li>
+					<?php endforeach; ?>
+				</ul>
+				<p class="description"><?php esc_html_e( 'Texts and prices are not affected — only image generation.', 'dazont-ecom' ); ?></p></div>
+			<?php endif; ?>
+
 			<?php if ( $ok_n < $tot_n ) : ?>
 				<div class="notice notice-warning"><p>
 					<?php printf( /* translators: 1: validated, 2: total */ esc_html__( '%1$d/%2$d prompts validated — bulk applies directly, so only validated fields can be selected below.', 'dazont-ecom' ), (int) $ok_n, (int) $tot_n ); ?>
@@ -1519,7 +1576,11 @@ EOT;
 				</p>
 				<p>
 					<?php if ( $valid_tpls ) : ?>
-						<label><input type="checkbox" id="dze-cb-image" /> <strong><?php esc_html_e( 'Generate an image per product', 'dazont-ecom' ); ?></strong></label>
+						<label title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
+							<input type="checkbox" id="dze-cb-image" <?php disabled( ! empty( $dze_blockers ) ); ?> />
+							<strong><?php esc_html_e( 'Generate an image per product', 'dazont-ecom' ); ?></strong>
+							<?php echo $dze_blockers ? ' 🔒' : ''; ?>
+						</label>
 						<label style="margin-left:10px;"><?php esc_html_e( 'Default template:', 'dazont-ecom' ); ?>
 							<select id="dze-cb-tpl">
 								<?php foreach ( $valid_tpls as $i => $t ) : ?>
@@ -1678,6 +1739,8 @@ EOT;
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
 			'sourceN'    => $pid ? count( self::product_source_ids( $pid ) ) : 0,
+			// Said before the click, not after a failed generation.
+			'blockers'   => self::image_blockers(),
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'product'    => [
@@ -1712,6 +1775,7 @@ EOT;
 				'sources1'   => __( '1 product photo sent as reference (the featured image).', 'dazont-ecom' ),
 				'sourcesN'   => __( '%s product photos sent as reference: the featured image and the gallery.', 'dazont-ecom' ),
 				'sources0'   => __( 'No product photo to send — set a featured image first.', 'dazont-ecom' ),
+				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
 				'noScene'    => __( 'No scene', 'dazont-ecom' ),
 				'sceneHelp'  => __( 'The fixed support or background added as a second image, so every product is shot in the same setting. Manage the list under Settings → Product content.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
