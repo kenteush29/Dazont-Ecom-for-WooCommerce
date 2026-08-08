@@ -559,3 +559,7 @@
 	border-radius: 999px; padding: 0 7px; font-size: 11px; line-height: 17px;
 }
 .dze-cx-who { color: #646970; font-size: 13px; margin-left: 4px; }
+
+/* ---- Writing queue: the review modal ---- */
+.dze-q-meta { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+#dze-q-now { margin-bottom: 12px; }

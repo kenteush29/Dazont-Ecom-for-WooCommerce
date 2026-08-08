@@ -180,8 +180,20 @@
 				if (!res || !res.success) { $('#dze-q-body').text(i18n.error); return; }
 				var d = res.data;
 				$('#dze-q-title').text(d.title);
+				// What the category holds today, one click away above the new
+				// text — the same answer as the products screen, rather than two
+				// word counts and a leap of faith.
+				var current = d.current
+					? '<div class="dze-cb-nowtext" id="dze-q-now" style="display:none;">' +
+						'<span class="dze-cb-nowlabel">' + esc(i18n.nowText) + ' — ' +
+							esc(sprintf(i18n.words, d.words[0])) + '</span>' +
+						'<div class="dze-cb-nowbody">' + d.current + '</div></div>'
+					: '';
 				$('#dze-q-body').html(
-					'<p class="description">' + esc(d.words[0] + ' words → ' + d.words[1] + ' words') + '</p>' +
+					'<p class="dze-q-meta">' +
+						'<span class="description">' + esc(sprintf(i18n.wordsTo, d.words[0], d.words[1])) + '</span> ' +
+						(d.current ? '<button type="button" class="button button-small" id="dze-q-nowbtn">' + esc(i18n.compare) + '</button>' : '') +
+					'</p>' + current +
 					'<textarea id="' + EDITOR + '"></textarea>' +
 					'<p style="margin-top:10px;">' +
 					'<button type="button" class="button button-primary dze-q-accept" data-id="' + d.id + '">Accept and save</button> ' +
@@ -198,6 +210,11 @@
 				}
 			})
 			.fail(function () { $('#dze-q-body').text(i18n.error); });
+	});
+
+	$(document).on('click', '#dze-q-nowbtn', function () {
+		var $n = $('#dze-q-now').toggle();
+		$(this).toggleClass('button-primary', $n.is(':visible'));
 	});
 
 	function editorGet() {

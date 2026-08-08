@@ -1934,20 +1934,24 @@ PROMPT;
 		}
 		$kind = 'dze_cc_write' === $action ? 'cat_desc' : 'cat_links';
 		$n    = DZE_Queue::add( $kind, $ids, false );
-		return add_query_arg( 'dze_cc_queued', $n, $redirect );
+		// Straight to the queue: you asked for work to be done, the place where
+		// it happens is where you want to be. Coming back to the categories
+		// list with a notice pointing at another screen was one click too many.
+		return add_query_arg(
+			[ 'page' => DZE_Queue::MENU_SLUG, 'dze_cc_queued' => $n ],
+			admin_url( 'admin.php' )
+		);
 	}
 
 	public function bulk_notice(): void {
 		if ( ! isset( $_GET['dze_cc_queued'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
 			return;
 		}
-		$n   = absint( $_GET['dze_cc_queued'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
-		$url = add_query_arg( [ 'page' => DZE_Queue::MENU_SLUG ], admin_url( 'admin.php' ) );
+		$n = absint( $_GET['dze_cc_queued'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
 		echo '<div class="notice notice-success"><p>' . sprintf(
-			/* translators: 1: number of categories queued, 2: link to the queue */
-			esc_html( _n( '%1$s category sent to the writing queue. %2$s', '%1$s categories sent to the writing queue. %2$s', $n, 'dazont-ecom' ) ),
-			(int) $n,
-			'<a href="' . esc_url( $url ) . '">' . esc_html__( 'Follow it there', 'dazont-ecom' ) . '</a>'
+			/* translators: %s: number of categories queued */
+			esc_html( _n( '%s category added to the queue — it starts writing right away.', '%s categories added to the queue — it starts writing right away.', $n, 'dazont-ecom' ) ),
+			esc_html( number_format_i18n( $n ) )
 		) . '</p></div>';
 	}
 
