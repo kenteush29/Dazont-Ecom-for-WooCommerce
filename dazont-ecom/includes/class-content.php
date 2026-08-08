@@ -2087,6 +2087,18 @@ Answer with STRICT JSON and nothing else: "
 						<span><?php esc_html_e( 'Apply immediately, no confirmation', 'dazont-ecom' ); ?></span></label>
 				</div>
 
+				<div class="dze-cb-block">
+					<h3><?php esc_html_e( 'Products already written', 'dazont-ecom' ); ?></h3>
+					<!-- Off by default: content already generated and not yet
+					     decided on is work already paid for. A run that quietly
+					     wrote over it would charge twice and destroy the first
+					     result. Redoing one product is what its ↻ is for. -->
+					<label class="dze-cb-check">
+						<input type="checkbox" id="dze-cb-force" />
+						<span><?php esc_html_e( 'Write them again too, replacing what is waiting for a decision', 'dazont-ecom' ); ?></span>
+					</label>
+				</div>
+
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
@@ -2237,6 +2249,10 @@ Answer with STRICT JSON and nothing else: "
 					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
 					'applyOne' => __( 'Apply this product', 'dazont-ecom' ),
 					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
+					'sSkipped' => __( 'Left alone — already written and waiting for a decision', 'dazont-ecom' ),
+					/* translators: %s: number of products */
+					'skippedN' => __( '%s left alone (already written)', 'dazont-ecom' ),
+					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Decide on it, or tick "Write them again too".', 'dazont-ecom' ),
 					'applying' => __( 'Applying…', 'dazont-ecom' ),
 					'applyAllN' => __( 'Apply all (%s)', 'dazont-ecom' ),
 					'applySelN' => __( 'Apply only selected (%s)', 'dazont-ecom' ),

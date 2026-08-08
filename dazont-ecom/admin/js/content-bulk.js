@@ -863,22 +863,45 @@
 			window.alert(i18n.noFields);
 			return;
 		}
-		// A new run starts from a clean screen.
-		$('.dze-cb-preview').hide().find('td').empty();
-		$('.dze-cb-badges').empty();
-		$('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
-		$('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
-		results = {};
-		state = {};
+		// A new run clears the screen of everything it is about to redo, and
+		// leaves untouched what it is about to skip — that content is still
+		// waiting for a decision.
+		var keep = $('#dze-cb-force').is(':checked') ? [] : pendingIds().map(String);
+		$('.dze-cb-row').each(function () {
+			var rid = String($(this).data('id'));
+			if (keep.indexOf(rid) >= 0) { return; }
+			$('.dze-cb-preview[data-id="' + rid + '"]').hide().find('td').empty();
+			$(this).find('.dze-cb-badges').empty();
+			$(this).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+			$(this).find('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
+			delete results[rid];
+			delete state[rid];
+		});
 		refreshApplyBar();
 
 		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0);
+		// A product already holding content nobody has decided on is left alone:
+		// writing over it would charge for the same work twice and throw the
+		// first result away. Redoing one on purpose is what its ↻ is for, and
+		// the tick above forces the whole run.
+		var force = $('#dze-cb-force').is(':checked');
+		var waiting = force ? [] : pendingIds().map(String);
+		var skipped = 0;
+
 		// ONE job per product, its own steps in order inside it. Products are
 		// independent, the steps of a product are not: a price recalculated
 		// while its texts are still being written would be a race for nothing.
 		var jobs = [];
 		$('.dze-cb-row').each(function () {
 			var id = $(this).data('id');
+			if (waiting.indexOf(String(id)) >= 0) {
+				skipped++;
+				var st = state[id] || { total: 1, done: 1, notes: [], failed: false };
+				st.notes = [ i18n.sSkipped ];
+				state[id] = st;
+				paint(id, 'ready');
+				return;
+			}
 			plan(id, perProduct);
 			jobs.push(function () {
 				paint(id, 'run');
@@ -890,8 +913,12 @@
 			});
 		});
 
+		if (!jobs.length) {
+			window.alert(i18n.allSkipped);
+			return;
+		}
 		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
-		total = $('.dze-cb-row').length * perProduct;
+		total = jobs.length * perProduct;
 		$('#dze-cb-sticky').show();
 		$('.dze-cb-fill').css('width', 0);
 		$('#dze-cb-stickypct').text('0%');
@@ -908,7 +935,10 @@
 			$('#dze-cb-start').prop('disabled', false);
 			$('#dze-cb-stop').hide();
 			$('#dze-cb-sticky').hide();
-			$('#dze-cb-progress').text(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount));
+			$('#dze-cb-progress').text(
+				(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount)) +
+				(skipped ? ' · ' + sprintf(i18n.skippedN, skipped) : '')
+			);
 		}
 		function pump() {
 			if (stopped) { if (!live) { finish(); } return; }
