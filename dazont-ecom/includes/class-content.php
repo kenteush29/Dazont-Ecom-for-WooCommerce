@@ -904,6 +904,28 @@ EOT;
 		}
 		$cur['time'] = time();
 		update_post_meta( $pid, self::META_PENDING, $cur );
+		delete_transient( 'dze_pending_count' );
+	}
+
+	/**
+	 * How many products are waiting for a decision.
+	 *
+	 * Read on EVERY admin page to draw the menu bubble, so it is a single
+	 * COUNT on an indexed meta key, held in a transient and dropped by the two
+	 * places that can change it — never a get_posts() on every screen.
+	 */
+	public static function pending_count(): int {
+		$n = get_transient( 'dze_pending_count' );
+		if ( false !== $n ) {
+			return (int) $n;
+		}
+		global $wpdb;
+		$n = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s",
+			self::META_PENDING
+		) );
+		set_transient( 'dze_pending_count', $n, HOUR_IN_SECONDS );
+		return $n;
 	}
 
 	/** What is waiting on one product ([] when nothing is). */
@@ -1737,10 +1759,19 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	public function register_bulk_page(): void {
+		// The count rides on the menu label, the way WordPress shows comments
+		// awaiting moderation: you should not have to open a screen to learn
+		// that something is waiting on it.
+		$waiting = self::pending_count();
+		$label   = __( 'Content bulk', 'dazont-ecom' );
+		$menu    = $waiting
+			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
+				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
+			: $label;
 		add_submenu_page(
 			'edit.php?post_type=product',
-			__( 'Content bulk', 'dazont-ecom' ),
-			__( 'Content bulk', 'dazont-ecom' ),
+			$label,
+			$menu,
 			'edit_products',
 			self::BULK_SLUG,
 			[ $this, 'render_bulk_page' ]
@@ -2798,8 +2829,9 @@ Answer with STRICT JSON and nothing else: "
 		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		if ( $pid ) {
 			delete_post_meta( $pid, self::META_PENDING );
+			delete_transient( 'dze_pending_count' );
 		}
-		wp_send_json_success( [ 'cleared' => $pid ] );
+		wp_send_json_success( [ 'cleared' => $pid, 'waiting' => self::pending_count() ] );
 	}
 
 	public function ajax_image_attach(): void {
