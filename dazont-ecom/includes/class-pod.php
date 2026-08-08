@@ -247,6 +247,9 @@ PROMPT;
 			return;
 		}
 		wp_enqueue_media();
+		// The design/mockup thumbnails carry .dze-hzoom — the shared hover zoom
+		// must be there even when the Product Content module is switched off.
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_enqueue_script( 'dze-pod', DZE_URL . 'admin/js/pod.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-pod', 'dzePod', [
 			'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
