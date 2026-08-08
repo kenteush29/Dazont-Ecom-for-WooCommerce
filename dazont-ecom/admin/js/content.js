@@ -635,8 +635,11 @@
 			chain = chain.then(function () {
 				return runPrice($('#dze-au-cost').val()).then(function (res) {
 					if (res && res.success) {
-						out.price = '× ' + res.data.mult + ' → ' + i18n.newPrice + ': ' + res.data.regular + ' ✓';
-						$('#_regular_price').val(res.data.regular);
+						out.price = '× ' + res.data.mult + ' → ' + i18n.newPrice + ': ' + res.data.regular +
+							(res.data.variations ? ' (' + res.data.variations + ')' : '') + ' ✓';
+						// Only a simple product has that field, and only its own
+						// price belongs in it — never a range.
+						if (!res.data.variations) { $('#_regular_price').val(res.data.regular); }
 					}
 				}, function () { return $.Deferred().resolve(); });
 			});

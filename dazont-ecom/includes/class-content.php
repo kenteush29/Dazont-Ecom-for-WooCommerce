@@ -829,6 +829,45 @@ EOT;
 		return $out;
 	}
 
+	/**
+	 * The cost to show for a product, variations included.
+	 *
+	 * A variable product carries nothing on the parent: its cost, like its
+	 * price, lives on the variations. Reading the parent alone is why the
+	 * column came up empty. The lowest recorded cost is shown, because that is
+	 * the one the "from …" price is built on.
+	 */
+	public static function product_cost( WC_Product $product ): string {
+		$own = self::cost_meta( $product->get_id() );
+		if ( '' !== $own ) {
+			return $own;
+		}
+		if ( $product->is_type( 'variable' ) ) {
+			$costs = [];
+			foreach ( $product->get_children() as $vid ) {
+				$c = self::cost_meta( (int) $vid );
+				if ( '' === $c ) {
+					$v = wc_get_product( (int) $vid );
+					$c = $v ? (string) $v->get_regular_price() : '';
+				}
+				if ( '' !== $c && (float) $c > 0 ) {
+					$costs[] = (float) $c;
+				}
+			}
+			return $costs ? (string) min( $costs ) : '';
+		}
+		return (string) $product->get_regular_price();
+	}
+
+	/** Our own cost meta, then WooCommerce's native Cost of Goods. */
+	private static function cost_meta( int $id ): string {
+		$c = (string) get_post_meta( $id, '_dze_cogs', true );
+		if ( '' === $c ) {
+			$c = (string) get_post_meta( $id, '_cogs_value', true );
+		}
+		return $c;
+	}
+
 	/** Multiplier for a given cost. */
 	public static function mult_for_cost( float $cost ): float {
 		foreach ( self::price_table() as $row ) {
@@ -1496,13 +1535,7 @@ EOT;
 				continue;
 			}
 			$thumb_id = get_post_thumbnail_id( $pid );
-			$cost     = (string) get_post_meta( $pid, '_dze_cogs', true );
-			if ( '' === $cost ) {
-				$cost = (string) get_post_meta( $pid, '_cogs_value', true );
-			}
-			if ( '' === $cost ) {
-				$cost = (string) $product->get_regular_price();
-			}
+			$cost     = self::product_cost( $product );
 			$out[] = [
 				'id'    => $pid,
 				'title' => $product->get_name(),
@@ -1782,7 +1815,9 @@ EOT;
 				// Imported supplier attributes are already stored as standard product
 				// attributes — pre-fill them so nobody retypes anything.
 				'attr'  => $product ? self::attributes_summary( $product ) : '',
-				'price' => $product ? (string) $product->get_regular_price() : '',
+				// Variable products keep their cost on the variations, so the
+				// parent's own field is empty — ask for the real figure.
+				'price' => $product ? self::product_cost( $product ) : '',
 			],
 			'i18n'       => [
 				'toolbox'    => __( 'Content toolbox', 'dazont-ecom' ),
@@ -2181,12 +2216,59 @@ EOT;
 		$regular = DZE_Price::charm( $cost * $mult, 'up' );
 		// Deterministic math on an explicit action — no prompt involved, applies directly.
 		$product = wc_get_product( $pid );
-		if ( $product instanceof WC_Product ) {
-			update_post_meta( $pid, '_dze_cogs', $cost );
-			update_post_meta( $pid, '_cogs_value', $cost ); // WooCommerce native Cost of Goods.
-			$product->set_regular_price( (string) $regular );
-			$product->save();
+		if ( ! $product instanceof WC_Product ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
 		}
+		update_post_meta( $pid, '_dze_cogs', $cost );
+		update_post_meta( $pid, '_cogs_value', $cost ); // WooCommerce native Cost of Goods.
+
+		if ( $product->is_type( 'variable' ) ) {
+			// A regular price on a variable parent is meta WooCommerce never
+			// displays — the shop reads the variations. Writing it there was a
+			// silent no-op. Each variation is recomputed from ITS OWN recorded
+			// cost when it has one, so a run does not flatten a range of
+			// different costs onto the single figure typed in the box.
+			$prices = [];
+			$done   = 0;
+			foreach ( $product->get_children() as $vid ) {
+				$variation = wc_get_product( (int) $vid );
+				if ( ! $variation instanceof WC_Product ) {
+					continue;
+				}
+				$vcost = (float) ( self::cost_meta( (int) $vid ) ?: $cost );
+				if ( $vcost <= 0 ) {
+					continue;
+				}
+				$vmult = self::mult_for_cost( $vcost );
+				$vreg  = DZE_Price::charm( $vcost * $vmult, 'up' );
+				update_post_meta( (int) $vid, '_dze_cogs', $vcost );
+				update_post_meta( (int) $vid, '_cogs_value', $vcost );
+				$variation->set_regular_price( (string) $vreg );
+				$variation->save();
+				$prices[] = $vreg;
+				$done++;
+			}
+			if ( ! $done ) {
+				wp_send_json_error( [ 'message' => __( 'This variable product has no variation to price.', 'dazont-ecom' ) ] );
+			}
+			// Without this the parent keeps serving the old price range from
+			// its own cached meta and transients.
+			if ( class_exists( 'WC_Product_Variable' ) ) {
+				WC_Product_Variable::sync( $pid );
+			}
+			$lo    = min( $prices );
+			$hi    = max( $prices );
+			$label = $lo === $hi ? (string) $lo : $lo . '–' . $hi;
+			wp_send_json_success( [
+				'mult'       => $mult,
+				'regular'    => $label,
+				'variations' => $done,
+				'applied'    => true,
+			] );
+		}
+
+		$product->set_regular_price( (string) $regular );
+		$product->save();
 		wp_send_json_success( [ 'mult' => $mult, 'regular' => $regular, 'applied' => true ] );
 	}
 
