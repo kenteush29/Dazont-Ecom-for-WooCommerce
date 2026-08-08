@@ -1541,7 +1541,7 @@ EOT;
 							<a href="<?php echo esc_url( $dze_b['url'] ); ?>"><?php echo esc_html( $dze_b['label'] ); ?></a></li>
 					<?php endforeach; ?>
 				</ul>
-				<p class="description"><?php esc_html_e( 'Texts and prices are not affected — only image generation.', 'dazont-ecom' ); ?></p></div>
+</div>
 			<?php endif; ?>
 
 			<?php if ( $ok_n < $tot_n ) : ?>
@@ -1579,7 +1579,6 @@ EOT;
 						<input type="checkbox" id="dze-cb-price" checked />
 						<span><?php esc_html_e( 'Recalculate from the cost', 'dazont-ecom' ); ?></span>
 					</label>
-					<p class="description"><?php esc_html_e( 'Cost in the table below × your price table → regular price. The cost is saved as COGS on the product.', 'dazont-ecom' ); ?></p>
 				</div>
 
 				<div class="dze-cb-block">
@@ -1616,20 +1615,17 @@ EOT;
 								</select>
 							</label>
 						</div>
-						<p class="description"><?php esc_html_e( 'Tick or untick a product, and change its prompt, directly in the table below — that is the judgement call.', 'dazont-ecom' ); ?></p>
 					<?php else : ?>
 						<p class="description"><?php esc_html_e( 'No validated image prompt yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></p>
 					<?php endif; ?>
 				</div>
 
 				<div class="dze-cb-block dze-cb-mode">
-					<h3><?php esc_html_e( 'Before writing anything', 'dazont-ecom' ); ?></h3>
+					<h3><?php esc_html_e( 'Before writing to the shop', 'dazont-ecom' ); ?></h3>
 					<label class="dze-cb-check"><input type="radio" name="dze-cb-mode" value="review" checked />
-						<span><strong><?php esc_html_e( 'Review first', 'dazont-ecom' ); ?></strong> — <?php esc_html_e( 'texts land in an editable box and images in a selectable strip, under each product. Nothing touches the shop until you click "Apply what I kept".', 'dazont-ecom' ); ?></span>
-					</label>
+						<span><?php esc_html_e( 'Review, then apply what I keep', 'dazont-ecom' ); ?></span></label>
 					<label class="dze-cb-check"><input type="radio" name="dze-cb-mode" value="direct" />
-						<span><strong><?php esc_html_e( 'Apply immediately', 'dazont-ecom' ); ?></strong> — <?php esc_html_e( 'texts are written and images attached as they come back, with no confirmation.', 'dazont-ecom' ); ?></span>
-					</label>
+						<span><?php esc_html_e( 'Apply immediately, no confirmation', 'dazont-ecom' ); ?></span></label>
 				</div>
 
 				<p class="dze-cb-actions">
@@ -1643,21 +1639,21 @@ EOT;
 
 			<table class="dze-cb-table">
 				<tr>
-					<th style="width:130px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
+					<th style="width:70px;"></th>
 					<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
-					<th style="width:110px;"><?php esc_html_e( 'Cost (COGS)', 'dazont-ecom' ); ?></th>
-					<th style="width:220px;"><?php esc_html_e( 'Image generation', 'dazont-ecom' ); ?></th>
+					<th style="width:80px;"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
+					<th style="width:190px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
 					<th style="width:240px;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
 						<td class="dze-cb-thumb">
 							<?php if ( $p['full'] ) : ?><a href="<?php echo esc_url( $p['full'] ); ?>" target="_blank" rel="noopener"><?php endif; ?>
-							<img src="<?php echo esc_url( $p['thumb'] ); ?>" alt="" />
+							<img class="dze-hzoom" src="<?php echo esc_url( $p['thumb'] ); ?>" data-full="<?php echo esc_url( $p['full'] ?: $p['thumb'] ); ?>" alt="" />
 							<?php if ( $p['full'] ) : ?></a><?php endif; ?>
 						</td>
 						<td><a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a></td>
-						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" style="width:90px !important;" /></td>
+						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>
 						<td>
 							<label><input type="checkbox" class="dze-cb-row-img" /> <?php esc_html_e( 'Image', 'dazont-ecom' ); ?></label>
 							<select class="dze-cb-row-tpl" style="max-width:150px;">
@@ -1688,6 +1684,9 @@ EOT;
 			return;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		// Dense thumbnails everywhere: the full image on hover instead of
+		// screen space spent on being legible.
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		if ( $on_settings || $on_product ) {
 			wp_enqueue_media(); // POD design / mockup pickers use the native media modal.
 		}
@@ -1709,8 +1708,6 @@ EOT;
 					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
 					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
 					'toReview' => __( 'to review', 'dazont-ecom' ),
-					'keepWhich'=> __( 'Which images do you keep?', 'dazont-ecom' ),
-					'sendTo'   => __( 'Send the kept images to:', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
@@ -1806,8 +1803,8 @@ EOT;
 				'pAttr'      => __( 'Supplier attributes / extra data', 'dazont-ecom' ),
 				'template'   => __( 'Template', 'dazont-ecom' ),
 				'scene'      => __( 'Scene', 'dazont-ecom' ),
-				'sources1'   => __( '1 product photo sent as reference (the featured image).', 'dazont-ecom' ),
-				'sourcesN'   => __( '%s product photos sent as reference: the featured image and the gallery.', 'dazont-ecom' ),
+				'sources1'   => __( '1 photo sent', 'dazont-ecom' ),
+				'sourcesN'   => __( '%s photos sent', 'dazont-ecom' ),
 				'sources0'   => __( 'No product photo to send — set a featured image first.', 'dazont-ecom' ),
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
 				'noScene'    => __( 'No scene', 'dazont-ecom' ),

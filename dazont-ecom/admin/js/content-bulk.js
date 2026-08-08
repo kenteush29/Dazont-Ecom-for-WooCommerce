@@ -117,12 +117,14 @@
 		return $cell;
 	}
 	function renderPreview(id, fids, texts) {
+		// Two columns of short boxes: a review screen you can take in at a
+		// glance beats one you have to scroll through product by product.
 		var html = '<div class="dze-cb-prev">';
 		fids.forEach(function (fid) {
 			html += '<div class="dze-cb-prevfield" data-field="' + fid + '">' +
-				'<label>' + esc(cfg.fields[fid] || fid) + '</label>' +
-				'<textarea rows="4">' + esc(texts[fid] || '') + '</textarea>' +
-				'<span class="dze-cb-prevstate"></span></div>';
+				'<label>' + esc(cfg.fields[fid] || fid) + '<span class="dze-cb-prevstate"></span></label>' +
+				'<textarea rows="2">' + esc(texts[fid] || '') + '</textarea>' +
+				'</div>';
 		});
 		html += '</div>';
 		var $cell = previewCell(id), $shots = $cell.find('.dze-cb-shots').detach();
@@ -134,21 +136,21 @@
 		if (!url) { return; }
 		var $cell = previewCell(id), $wrap = $cell.find('.dze-cb-shots');
 		if (!$wrap.length) {
+			// One line: the shots, then where they go. Hover a shot to see it
+			// full size — no need to give the strip half the screen.
 			$wrap = $('<div class="dze-cb-shots">' +
-				'<label class="dze-cb-shotlabel"><strong>' + esc(i18n.keepWhich) + '</strong></label>' +
 				'<div class="dze-cb-shotgrid"></div>' +
-				'<p class="description">' + esc(i18n.sendTo) + ' ' +
-					'<select class="dze-cb-shottarget">' +
-						'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
-						'<option value="main">' + esc(i18n.toMain) + '</option>' +
-					'</select> <span class="dze-cb-shotstate"></span></p>' +
+				'<select class="dze-cb-shottarget">' +
+					'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
+					'<option value="main">' + esc(i18n.toMain) + '</option>' +
+				'</select> <span class="dze-cb-shotstate"></span>' +
 				'</div>');
 			$cell.append($wrap);
 		}
 		$wrap.find('.dze-cb-shotgrid').append(
 			$('<div class="dze-cb-shot is-sel"><span class="dze-cb-shotcheck">✓</span></div>')
 				.attr('data-url', url)
-				.append($('<img />').attr('src', url).attr('alt', ''))
+				.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''))
 		);
 	}
 	$(document).on('click', '.dze-cb-shot', function () { $(this).toggleClass('is-sel'); });

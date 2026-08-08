@@ -205,29 +205,47 @@
 .dze-cb-opts select { min-width: 160px; }
 .dze-cb-mode .dze-cb-check { max-width: 900px; }
 .dze-cb-actions { margin: 16px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-/* Generated images awaiting a decision, under their product. */
-.dze-cb-shots { margin-top: 10px; }
-.dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0; }
-.dze-cb-shot { position: relative; border: 2px solid #dcdcde; border-radius: 6px; overflow: hidden; cursor: pointer; width: 130px; height: 130px; background: #f6f7f7; }
+/* ---- Review, under the product it belongs to ----
+   Everything here is deliberately small: hover a thumbnail to see it full
+   size, and open the product to read a text in full. A review screen is
+   worth having only if a whole run fits on it. */
+.dze-cb-preview td { background: #fbfbfc; padding: 8px 10px; }
+.dze-cb-prev { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 14px; }
+.dze-cb-prevfield label {
+	display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+	font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #646970;
+	margin: 0 0 2px;
+}
+.dze-cb-prevfield textarea {
+	width: 100% !important; box-sizing: border-box; font-size: 12px; line-height: 1.5;
+	resize: vertical; min-height: 46px; padding: 4px 6px;
+}
+.dze-cb-prevstate { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+/* Generated images awaiting a decision: one line, thumbnails + destination. */
+.dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; }
+.dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.dze-cb-shot { position: relative; border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; width: 62px; height: 62px; background: #f6f7f7; }
 .dze-cb-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dze-cb-shot.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
 .dze-cb-shot .dze-cb-shotcheck {
-	position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; border-radius: 50%;
-	background: #fff; border: 1px solid #c3c4c7; color: transparent; font-size: 13px; line-height: 20px; text-align: center;
+	position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent; font-size: 10px; line-height: 14px; text-align: center;
 }
 .dze-cb-shot.is-sel .dze-cb-shotcheck { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-cb-shottarget { max-width: 190px; }
+.dze-cb-shotstate { font-size: 12px; }
 .dze-cb-table { width: 100%; max-width: 1100px; border-collapse: collapse; margin-top: 14px; background: #fff; }
-.dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 8px 10px; text-align: left; vertical-align: middle; }
-.dze-cb-table th { background: #f6f7f7; }
-/* Large thumbnails for the judgement call — click opens the full image. */
-.dze-cb-thumb img { width: 110px; height: 110px; object-fit: cover; border-radius: 4px; display: block; }
+.dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 6px 8px; text-align: left; vertical-align: middle; }
+.dze-cb-table th { background: #f6f7f7; font-size: 12px; }
+/* Small thumbnails: hover shows the full image, click opens it. */
+.dze-cb-thumb img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; display: block; }
 .dze-cb-status { font-size: 12px; color: #50575e; }
 .dze-cb-status .ok { color: #00794b; }
 .dze-cb-status .ko { color: #b32d2e; }
 .dze-cb-bar { height: 10px; background: #e2e4e7; border-radius: 5px; overflow: hidden; margin: 10px 0; max-width: 560px; }
 .dze-cb-fill { height: 100%; background: #2271b1; width: 0; transition: width .3s ease; }
 .dze-cb-row-tpl { max-width: 150px !important; width: auto !important; }
-.dze-cb-cost { width: 90px !important; }
+.dze-cb-cost { width: 70px !important; }
 .dze-cb-mode label { margin-right: 14px; }
 
 /* ---- Clickable list-table chips (GMC, Reviews) ---- */
