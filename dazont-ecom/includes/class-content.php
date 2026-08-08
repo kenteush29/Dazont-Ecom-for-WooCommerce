@@ -70,6 +70,9 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
+		// The products list: one chip per row opening the toolbox on the spot.
+		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
+		add_action( 'manage_product_posts_custom_column', [ $this, 'list_cell' ], 10, 2 );
 		add_action( 'wp_ajax_dze_content_reset_prompts', [ $this, 'ajax_reset_prompts' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
@@ -1760,6 +1763,51 @@ Answer with STRICT JSON and nothing else: "
 		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
 	}
 
+	/**
+	 * A "Content" column on the products list.
+	 *
+	 * It answers the two questions you actually have while scrolling a
+	 * catalogue: how many photographs does this product have — the thing that
+	 * decides whether it can carry a branding block at all — and is there
+	 * content sitting here waiting for a decision. The chip opens the toolbox
+	 * on the spot: no page load to write one description.
+	 */
+	public function list_column( array $cols ): array {
+		$out = [];
+		foreach ( $cols as $k => $v ) {
+			$out[ $k ] = $v;
+			if ( 'name' === $k ) {
+				$out['dze_content'] = __( 'Content', 'dazont-ecom' );
+			}
+		}
+		if ( ! isset( $out['dze_content'] ) ) {
+			$out['dze_content'] = __( 'Content', 'dazont-ecom' );
+		}
+		return $out;
+	}
+
+	/** O(1) per row: two meta reads, both already primed by the list table. */
+	public function list_cell( string $col, int $pid ): void {
+		if ( 'dze_content' !== $col ) {
+			return;
+		}
+		$gallery = array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) );
+		$photos  = count( $gallery ) + ( get_post_thumbnail_id( $pid ) ? 1 : 0 );
+		$waiting = (bool) get_post_meta( $pid, self::META_PENDING, true );
+
+		printf(
+			'<button type="button" class="dze-cc-open dze-content-open" data-id="%1$d" title="%2$s">'
+				. '<span class="dze-caret">✎</span> %3$s'
+				. '<span class="dze-content-photos%4$s">%5$s</span>%6$s</button>',
+			(int) $pid,
+			esc_attr__( 'Write this product: texts, price, images.', 'dazont-ecom' ),
+			esc_html__( 'Content', 'dazont-ecom' ),
+			$photos < 2 ? ' is-thin' : '',
+			esc_html( sprintf( /* translators: %s: number of photographs */ _n( '%s photo', '%s photos', $photos, 'dazont-ecom' ), number_format_i18n( $photos ) ) ),
+			$waiting ? '<span class="dze-content-waiting">' . esc_html__( 'to review', 'dazont-ecom' ) . '</span>' : ''
+		);
+	}
+
 	public function register_bulk_page(): void {
 		// The count rides on the menu label, the way WordPress shows comments
 		// awaiting moderation: you should not have to open a screen to learn
@@ -2053,9 +2101,10 @@ Answer with STRICT JSON and nothing else: "
 	public function enqueue( string $hook ): void {
 		$screen      = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		$on_product  = $screen && 'product' === $screen->post_type && in_array( $hook, [ 'post.php', 'post-new.php' ], true );
+		$on_list     = 'edit.php' === $hook && $screen && 'product' === $screen->post_type;
 		$on_bulk     = ( 'product_page_' . self::BULK_SLUG ) === $hook;
 		$on_settings = false !== strpos( (string) $hook, 'dazont' );
-		if ( ! $on_product && ! $on_bulk && ! $on_settings ) {
+		if ( ! $on_product && ! $on_list && ! $on_bulk && ! $on_settings ) {
 			return;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
@@ -2138,10 +2187,13 @@ Answer with STRICT JSON and nothing else: "
 			] );
 			return;
 		}
-		if ( ! $on_product ) {
+		if ( ! $on_product && ! $on_list ) {
 			return;
 		}
-		$pid = (int) get_the_ID();
+		// The list opens the same popup for any row, so it loads the same script
+		// and the same editor; the product it works on is chosen at click time.
+		$pid = $on_list ? 0 : (int) get_the_ID();
+		wp_enqueue_editor();
 		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery' ], DZE_VERSION, true );
 
 		$labels  = [];
@@ -2262,6 +2314,7 @@ Answer with STRICT JSON and nothing else: "
 				'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
 				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
 				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
+				'toReview'   => __( 'to review', 'dazont-ecom' ),
 				'confirmRedo'=> __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
 				'confirmDrop'=> __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
@@ -2279,6 +2332,7 @@ Answer with STRICT JSON and nothing else: "
 				'sendToEach' => __( 'Each image goes where its own menu says.', 'dazont-ecom' ),
 				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
 				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
+				'toReview'   => __( 'to review', 'dazont-ecom' ),
 				'select'     => __( 'Select', 'dazont-ecom' ),
 				'editImage'  => __( 'Edit with a manual prompt', 'dazont-ecom' ),
 				'variantHelp'=> __( 'Describe the change to apply to THIS image (one-off prompt, not saved):', 'dazont-ecom' ),
@@ -2974,7 +3028,15 @@ Answer with STRICT JSON and nothing else: "
 				'main'  => (int) $aid === (int) get_post_thumbnail_id( $pid ),
 			];
 		}
-		wp_send_json_success( [ 'texts' => $texts, 'images' => $images ] );
+		wp_send_json_success( [
+			'texts'   => $texts,
+			'images'  => $images,
+			// Everything the popup needs to work on a product it was not opened
+			// from: its name, its cost, and whatever is already waiting on it.
+			'title'   => $product->get_name(),
+			'cost'    => self::product_cost( $product ),
+			'pending' => self::pending( $pid ),
+		] );
 	}
 
 	/** Accepted or discarded: either way the product stops waiting. */

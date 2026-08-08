@@ -31,9 +31,24 @@
 		return i18n.error;
 	}
 
-	var PID = cfg.postId;
+	// The product being worked on. On an edit screen it is that product; from
+	// the products list it is the row that was clicked, so it is a variable,
+	// not a constant, and everything below reads it at call time.
+	var PID = cfg.postId || 0;
 	// Everything the popup is holding right now.
 	var res = { texts: {}, shots: [], open: {}, shotOf: {}, current: null };
+	function reset() {
+		// TinyMCE instances belong to the product they were opened on.
+		Object.keys(res.open).forEach(function (fid) {
+			try { if (window.wp && wp.editor) { wp.editor.remove(editorId(fid)); } } catch (e) {}
+		});
+		res = { texts: {}, shots: [], open: {}, shotOf: {}, current: null };
+		$('#dze-cx-drawers').empty();
+		$('#dze-cx-shots').empty();
+		$('#dze-cx-nowshots').empty();
+		$('#dze-cx-result').hide();
+		$('#dze-cx-runstate').empty();
+	}
 
 	// =====================================================================
 	// Image prompt rows: one, plus a + while there is another prompt to pick
@@ -143,6 +158,7 @@
 		$('body').append(
 		'<div class="dze-cx-modal" id="dze-cx-modal"><div class="dze-cx-dialog">' +
 			'<div class="dze-cx-head"><h2>' + esc(i18n.toolbox) + '</h2>' +
+				'<span id="dze-cx-who" class="dze-cx-who">' + esc(cfg.product.title || '') + '</span>' +
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button></div>' +
 			'<div class="dze-cx-body">' +
 				blockers +
@@ -193,15 +209,36 @@
 		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, #dze-cx-imgn, #dze-cx-scene', remember);
 	}
 
-	function open() {
+	function open(pid) {
 		build();
+		var target = parseInt(pid, 10) || cfg.postId || 0;
+		var switching = target !== PID;
+		PID = target;
 		$('#dze-cx-modal').addClass('is-open');
+		if (switching) {
+			reset();
+			// A product we were not opened on: ask the server who it is, what it
+			// costs and what is already waiting on it, then arm the popup.
+			$('#dze-cx-runstate').html('<span class="dze-cx-spin"></span>');
+			loadCurrent().then(function (cur) {
+				$('#dze-cx-runstate').empty();
+				$('#dze-cx-who').text(cur.title || '');
+				if (cur.cost) { $('#dze-cx-cost').val(cur.cost); }
+				drawCurrentImages();
+				if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
+					hydrate(cur.pending);
+				}
+			});
+			return;
+		}
 		if (cfg.pending && (Object.keys(cfg.pending.texts || {}).length || (cfg.pending.shots || []).length)) {
 			hydrate(cfg.pending);
 			cfg.pending = null;
 		}
 	}
-	$(document).on('click', '#dze-cx-open-auto', function () { open(); });
+	$(document).on('click', '#dze-cx-open-auto', function () { open(cfg.postId); });
+	// From the products list: one chip per row, same popup.
+	$(document).on('click', '.dze-content-open', function () { open($(this).data('id')); });
 	$(document).on('click', '.dze-cx-close', function () { $('#dze-cx-modal').removeClass('is-open'); });
 	$(document).on('click', '#dze-cx-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
 
@@ -381,6 +418,7 @@
 				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
 				res.shots.push(r.data.url);
 				drawShots();
+				flagWaiting();
 			});
 	}
 	function genTexts(fids) {
@@ -393,7 +431,15 @@
 					delete res.open[fid];
 				});
 				drawDrawers();
+				flagWaiting();
 			});
+	}
+	// The row that opened the popup learns that it now holds something.
+	function flagWaiting() {
+		var $chip = $('.dze-content-open[data-id="' + PID + '"]');
+		if ($chip.length && !$chip.find('.dze-content-waiting').length) {
+			$chip.append('<span class="dze-content-waiting">' + esc(i18n.toReview) + '</span>');
+		}
 	}
 
 	$(document).on('click', '#dze-cx-run', function () {
@@ -514,6 +560,7 @@
 			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
 			$st.text(i18n.applied);
 			$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID });
+			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
 			res.current = null;
 			loadCurrent().then(drawCurrentImages);
 		}
@@ -537,10 +584,11 @@
 	$(document).on('click', '.dze-cx-drop', function () {
 		if (!window.confirm(i18n.confirmDrop)) { return; }
 		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID });
-		res = { texts: {}, shots: [], open: {}, shotOf: {}, current: res.current };
-		$('#dze-cx-drawers').empty();
-		$('#dze-cx-shots').empty();
-		$('#dze-cx-result').hide();
+		$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
+		var keep = res.current;
+		reset();
+		res.current = keep;
+		drawCurrentImages();
 	});
 
 	// ---- Content left waiting from an earlier visit ----

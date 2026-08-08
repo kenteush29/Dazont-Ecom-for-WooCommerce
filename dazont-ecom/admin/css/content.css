@@ -542,3 +542,15 @@
 .dze-cx-state.is-ko { color: #b32d2e; }
 .dze-cx-body .dze-cb-controls { margin-top: 0; border: none; padding: 0; max-width: none; }
 .dze-cx-body .dze-cb-block:first-of-type { padding-top: 0; }
+
+/* ---- Products list: the Content chip ---- */
+.dze-content-open { gap: 6px; }
+.dze-content-photos { color: #646970; font-size: 12px; }
+/* Under two photographs a product cannot carry a branding block, and that is
+   worth seeing from the list rather than discovering at generation time. */
+.dze-content-photos.is-thin { color: #b32d2e; }
+.dze-content-waiting {
+	background: #fcf9e8; border: 1px solid #f0e6a6; color: #8a6d00;
+	border-radius: 999px; padding: 0 7px; font-size: 11px; line-height: 17px;
+}
+.dze-cx-who { color: #646970; font-size: 13px; margin-left: 4px; }
