@@ -533,6 +533,10 @@ final class DZE_Queue {
 				/* translators: %s: number of rows ticked */
 				'selected' => __( '%s selected:', 'dazont-ecom' ),
 				'nowText'  => __( 'On the category today', 'dazont-ecom' ),
+				'acceptOne'=> __( 'Accept: save this text onto the category', 'dazont-ecom' ),
+				'refuseOne'=> __( 'Refuse: throw this text away', 'dazont-ecom' ),
+				'confirmOne' => __( 'Save this text onto the category, as written? It replaces the description currently there.', 'dazont-ecom' ),
+				'confirmRefuse' => __( 'Throw this text away? It cannot be recovered.', 'dazont-ecom' ),
 				'compare'  => __( 'Current', 'dazont-ecom' ),
 				'accept'   => __( 'Accept and save', 'dazont-ecom' ),
 				'discardBtn' => __( 'Discard', 'dazont-ecom' ),

@@ -149,12 +149,22 @@
 		drawPicked();
 		if (!$('.dze-cb-row').length) { window.location.reload(); }
 	}
+	// The screen shows what the server holds, not what it hoped the server
+	// would hold: rows only leave once the list has really been rewritten.
+	function unqueue(ids, $b) {
+		if ($b) { $b.prop('disabled', true); }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids })
+			.done(function (res) {
+				if (res && res.success) { dropRows(ids); }
+				else { window.alert((res && res.data && res.data.message) || i18n.error); }
+			})
+			.fail(function (x) { window.alert(reason(x)); })
+			.always(function () { if ($b) { $b.prop('disabled', false); } });
+	}
 	$('#dze-cb-unqueue').on('click', function () {
 		var ids = picked();
 		if (!ids.length) { return; }
-		var $b = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids })
-			.always(function () { $b.prop('disabled', false); dropRows(ids); });
+		unqueue(ids, $(this));
 	});
 	$('#dze-cb-clearlist').on('click', function () {
 		if (!window.confirm(i18n.confirmClear)) { return; }
@@ -163,9 +173,7 @@
 	});
 	// One product out, from its own line.
 	$(document).on('click', '.dze-cb-unqueue-one', function () {
-		var id = $(this).closest('.dze-cb-row').data('id');
-		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: [ id ] })
-			.always(function () { dropRows([ id ]); });
+		unqueue([ $(this).closest('.dze-cb-row').data('id') ], $(this));
 	});
 
 	// =====================================================================
@@ -220,7 +228,31 @@
 		if (!$b.length) { $b = $('<span class="dze-cb-badge" data-k="' + esc(key) + '"></span>').appendTo($wrap); }
 		$b.html(esc(label) + ' <span class="dze-cb-badgecheck">✓</span>');
 	}
-	function offerReview(id) { $row(id).find('.dze-cb-toggle').show(); }
+	function offerReview(id) {
+		$row(id).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').show();
+	}
+	function hideRowActions(id) {
+		$row(id).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+	}
+	// Accept and refuse, from the line. Accepting always asks first — it writes
+	// to the shop; refusing asks too, because it throws away work already paid
+	// for.
+	$(document).on('click', '.dze-cb-yes', function () {
+		if (!window.confirm(i18n.confirmOne)) { return; }
+		applyProducts([ $(this).closest('.dze-cb-row').data('id') ], $(this));
+	});
+	$(document).on('click', '.dze-cb-no', function () {
+		if (!window.confirm(i18n.confirmDrop)) { return; }
+		var id = $(this).closest('.dze-cb-row').data('id');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+		delete results[id];
+		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
+		$row(id).find('.dze-cb-badges').empty();
+		hideRowActions(id);
+		state[id] = { total: 1, done: 1, notes: [], failed: false };
+		paint(id, 'wait');
+		refreshApplyBar();
+	});
 
 	// ---- Global progress, pinned to the bottom of the window ----
 	function progress(label) {
@@ -776,7 +808,7 @@
 					paint(id, 'done');
 					reviewMode = reviewModeWas;
 					$('.dze-cb-preview[data-id="' + id + '"]').hide();
-					$row(id).find('.dze-cb-toggle').hide();
+					hideRowActions(id);
 				} else {
 					paint(id, 'fail');
 				}
@@ -834,7 +866,8 @@
 		// A new run starts from a clean screen.
 		$('.dze-cb-preview').hide().find('td').empty();
 		$('.dze-cb-badges').empty();
-		$('.dze-cb-toggle').hide().attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
+		$('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+		$('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
 		results = {};
 		state = {};
 		refreshApplyBar();

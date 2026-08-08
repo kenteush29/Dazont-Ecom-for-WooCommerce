@@ -49,6 +49,11 @@
 			var act = [];
 			if (r.status === 'review') {
 				act.push('<button type="button" class="button button-small dze-q-open" data-id="' + r.id + '">' + esc(i18n.review) + '</button>');
+				// Accept and refuse on the line, the same two symbols as the
+				// products screen: reading the text before deciding is a choice,
+				// not a toll on the way to the decision.
+				act.push('<button type="button" class="dze-cb-yes dze-q-yes" data-id="' + r.id + '" title="' + esc(i18n.acceptOne) + '">✓</button>');
+				act.push('<button type="button" class="dze-cb-no dze-q-no" data-id="' + r.id + '" title="' + esc(i18n.refuseOne) + '">✗</button>');
 			}
 			if (r.status === 'running') {
 				act.push('<span class="dze-cx-spin"></span>');
@@ -210,6 +215,21 @@
 				}
 			})
 			.fail(function () { $('#dze-q-body').text(i18n.error); });
+	});
+
+	// Accepting writes to the shop, so it always asks; refusing throws away
+	// work already paid for, so it asks too.
+	$(document).on('click', '.dze-q-yes', function () {
+		if (!window.confirm(i18n.confirmOne)) { return; }
+		var $b = $(this).prop('disabled', true);
+		$.post(cfg.ajaxUrl, { action: 'dze_q_decide', nonce: cfg.nonce, id: $b.data('id'), accept: 1, html: '' })
+			.always(function () { $b.prop('disabled', false); refresh(); });
+	});
+	$(document).on('click', '.dze-q-no', function () {
+		if (!window.confirm(i18n.confirmRefuse)) { return; }
+		var $b = $(this).prop('disabled', true);
+		$.post(cfg.ajaxUrl, { action: 'dze_q_decide', nonce: cfg.nonce, id: $b.data('id'), accept: 0, html: '' })
+			.always(function () { $b.prop('disabled', false); refresh(); });
 	});
 
 	$(document).on('click', '#dze-q-nowbtn', function () {

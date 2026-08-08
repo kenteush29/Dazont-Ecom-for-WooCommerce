@@ -563,3 +563,17 @@
 /* ---- Writing queue: the review modal ---- */
 .dze-q-meta { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
 #dze-q-now { margin-bottom: 12px; }
+
+/* ---- Accept / refuse, on the line ----
+   Two distinct symbols next to the state they act on, shared by the products
+   bulk screen and the categories queue so the same gesture means the same
+   thing on both. */
+.dze-cb-yes, .dze-cb-no {
+	border: 1px solid #dcdcde; background: #fff; cursor: pointer;
+	width: 26px; height: 26px; border-radius: 4px; margin-left: 6px;
+	font-size: 13px; font-weight: 700; line-height: 1; vertical-align: middle;
+}
+.dze-cb-yes { color: #00794b; }
+.dze-cb-yes:hover { background: #edfaf3; border-color: #00794b; }
+.dze-cb-no { color: #b32d2e; }
+.dze-cb-no:hover { background: #fcf0f1; border-color: #b32d2e; }

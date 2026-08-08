@@ -1759,11 +1759,43 @@ Answer with STRICT JSON and nothing else: "
 		return $actions;
 	}
 
+	/**
+	 * The working list of the bulk screen.
+	 *
+	 * User meta, not a transient. A transient expires — an hour was enough to
+	 * lose a list halfway through a session — and on a shop with a persistent
+	 * object cache a write can be served stale, which is why products taken out
+	 * of the list kept coming back on the next page load. Meta is durable, per
+	 * user, and reads what was just written.
+	 */
+	private const LIST_META = '_dze_content_bulk';
+
+	public static function bulk_list(): array {
+		$uid  = get_current_user_id();
+		$list = get_user_meta( $uid, self::LIST_META, true );
+		if ( ! is_array( $list ) ) {
+			// A list queued before this moved out of transients.
+			$list = (array) get_transient( 'dze_content_bulk_' . $uid );
+		}
+		return array_values( array_filter( array_map( 'intval', $list ) ) );
+	}
+
+	public static function set_bulk_list( array $ids ): void {
+		$uid = get_current_user_id();
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		if ( $ids ) {
+			update_user_meta( $uid, self::LIST_META, $ids );
+		} else {
+			delete_user_meta( $uid, self::LIST_META );
+		}
+		delete_transient( 'dze_content_bulk_' . $uid );
+	}
+
 	public function handle_bulk_action( string $redirect, string $action, array $ids ): string {
 		if ( self::BULK_ACTION !== $action || empty( $ids ) ) {
 			return $redirect;
 		}
-		set_transient( 'dze_content_bulk_' . get_current_user_id(), array_map( 'intval', $ids ), HOUR_IN_SECONDS );
+		self::set_bulk_list( $ids );
 		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
 	}
 
@@ -1839,7 +1871,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
 			$ids = self::pending_ids();
 		} else {
-			$ids = get_transient( 'dze_content_bulk_' . get_current_user_id() );
+			$ids = self::bulk_list();
 		}
 		$out = [];
 		foreach ( array_map( 'intval', (array) $ids ) as $pid ) {
@@ -2086,6 +2118,11 @@ Answer with STRICT JSON and nothing else: "
 							<button type="button" class="button button-small dze-cb-toggle" style="display:none;" aria-expanded="false" title="<?php esc_attr_e( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ); ?>">
 								<?php esc_html_e( 'Review', 'dazont-ecom' ); ?> <span class="dze-cb-caret">▾</span>
 							</button>
+							<!-- Accept and refuse belong on the line, next to the state
+							     they act on — not folded inside a panel you have to open
+							     to reach them. -->
+							<button type="button" class="dze-cb-yes" style="display:none;" title="<?php esc_attr_e( 'Accept: write this content to the product', 'dazont-ecom' ); ?>">✓</button>
+							<button type="button" class="dze-cb-no" style="display:none;" title="<?php esc_attr_e( 'Refuse: throw this content away', 'dazont-ecom' ); ?>">✗</button>
 							<!-- Far from the tick box on purpose: one selects, the other
 							     throws away, and they must not be neighbours. -->
 							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list', 'dazont-ecom' ); ?>">&times;</button>
@@ -2170,6 +2207,7 @@ Answer with STRICT JSON and nothing else: "
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Empty the whole list? The products are not modified, they simply leave this screen.', 'dazont-ecom' ),
 					'confirmAll' => __( 'Write the generated content to %s products at once? This modifies the shop.', 'dazont-ecom' ),
+					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
 					'applyOne' => __( 'Apply this product', 'dazont-ecom' ),
 					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
 					'applying' => __( 'Applying…', 'dazont-ecom' ),
@@ -2966,23 +3004,19 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	public function ajax_bulk_list(): void {
 		$this->guard();
-		$do   = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
-		$ids  = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
-		$tkey = 'dze_content_bulk_' . get_current_user_id();
-		$list = array_map( 'intval', (array) get_transient( $tkey ) );
+		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
+		$ids = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
 
 		if ( 'clear' === $do ) {
-			delete_transient( $tkey );
-			wp_send_json_success( [ 'left' => 0 ] );
+			self::set_bulk_list( [] );
+			wp_send_json_success( [ 'left' => [] ] );
 		}
 		if ( 'remove' === $do && $ids ) {
-			$list = array_values( array_diff( $list, $ids ) );
-			if ( $list ) {
-				set_transient( $tkey, $list, DAY_IN_SECONDS );
-			} else {
-				delete_transient( $tkey );
-			}
-			wp_send_json_success( [ 'left' => count( $list ) ] );
+			$list = array_values( array_diff( self::bulk_list(), $ids ) );
+			self::set_bulk_list( $list );
+			// The list as it now stands, read back: the screen shows what the
+			// server holds, not what it hoped the server would hold.
+			wp_send_json_success( [ 'left' => self::bulk_list() ] );
 		}
 		wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 	}
