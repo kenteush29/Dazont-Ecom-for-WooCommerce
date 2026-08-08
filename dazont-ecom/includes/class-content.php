@@ -2176,7 +2176,9 @@ EOT;
 			wp_send_json_error( [ 'message' => __( 'Enter a valid cost.', 'dazont-ecom' ) ] );
 		}
 		$mult    = self::mult_for_cost( $cost );
-		$regular = round( $cost * $mult, (int) ( function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2 ) );
+		// Rounded UP when charm rounding is on: a selling price built from a
+		// cost must never lose margin to the presentation.
+		$regular = DZE_Price::charm( $cost * $mult, 'up' );
 		// Deterministic math on an explicit action — no prompt involved, applies directly.
 		$product = wc_get_product( $pid );
 		if ( $product instanceof WC_Product ) {
