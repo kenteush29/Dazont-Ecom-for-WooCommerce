@@ -372,15 +372,14 @@
 		pickCount($box);
 	});
 
-	// What the category holds today against what is about to replace it. Asked
-	// for only after a run — nothing to compare before that.
+	// What the category holds TODAY, shown above the new text rather than beside
+	// it. Two descriptions side by side in a popup are two narrow columns of
+	// soup; the products screen settled this — one is being written, the other
+	// is a reference you open when you need it.
 	function showDiff($box) {
 		var $wrap = $box.find('.dze-cc-diffwrap').show();
 		var $out = $box.find('.dze-cc-diff').html('<p><span class="dze-cx-spin"></span></p>').show();
 		$box.find('.dze-cc-difftoggle').text(i18n.hide);
-		// The modal widens for the comparison: two descriptions read side by
-		// side need the room, otherwise they are two narrow columns of soup.
-		$box.closest('.dze-cx-dialog').addClass('is-wide');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_cc_diff', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box))
 		})
@@ -388,23 +387,24 @@
 				if (!res || !res.success) { $wrap.hide(); return; }
 				var d = res.data;
 				$out.html(
-					'<div class="dze-cc-sbs">' +
-						'<div><h4>' + esc(i18n.before) + ' <span class="description">' +
-							esc(sprintf(i18n.wl, d.words[0], d.links[0])) + '</span></h4>' +
-							'<div class="dze-cc-doc">' + (d.before || '<p class="description">' + esc(i18n.wasEmpty) + '</p>') + '</div></div>' +
-						'<div><h4>' + esc(i18n.after) + ' <span class="description">' +
-							esc(sprintf(i18n.wl, d.words[1], d.links[1])) + '</span></h4>' +
-							'<div class="dze-cc-doc is-new">' + d.after + '</div></div>' +
+					'<div class="dze-cb-nowtext">' +
+						'<span class="dze-cb-nowlabel">' + esc(i18n.before) + ' — ' +
+							esc(sprintf(i18n.wl, d.words[0], d.links[0])) + '</span>' +
+						'<div class="dze-cb-nowbody">' +
+							(d.before || '<p>' + esc(i18n.wasEmpty) + '</p>') +
+						'</div>' +
 					'</div>'
 				);
-				$box.find('.dze-cc-diffwords').text('');
+				$box.find('.dze-cc-diffwords').text(sprintf(i18n.wl, d.words[1], d.links[1]));
 			})
 			.fail(function () { $wrap.hide(); });
 	}
 
 	$(document).on('click', '.dze-cc-difftoggle', function () {
-		var $d = $(this).closest('.dze-cc-diffwrap').find('.dze-cc-diff').toggle();
-		$(this).text($d.is(':visible') ? i18n.hide : i18n.show);
+		var $w = $(this).closest('.dze-cc-diffwrap');
+		var $d = $w.find('.dze-cc-diff');
+		if ($d.is(':visible')) { $d.hide(); $(this).text(i18n.show); return; }
+		showDiff($w.closest('.dze-cc-box'));
 	});
 
 	// After a run, whatever is now in the text is shown as already linked.

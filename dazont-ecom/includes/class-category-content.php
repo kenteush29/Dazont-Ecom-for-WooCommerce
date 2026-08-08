@@ -1244,7 +1244,21 @@ PROMPT;
 		if ( '' === $html ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
 		}
-		return wp_kses_post( $html );
+		$html = wp_kses_post( $html );
+		// Writing includes linking: a description handed over without its
+		// internal links is a job left half done, and running the linking pass
+		// by hand afterwards means paying for a second read of a text we just
+		// wrote. A failure here keeps the description — links can be added
+		// from the review screen.
+		try {
+			$linked = self::add_links( $term_id, $html );
+			if ( ! empty( $linked['html'] ) ) {
+				$html = (string) $linked['html'];
+			}
+		} catch ( \Throwable $e ) {
+			$html .= '';
+		}
+		return $html;
 	}
 
 	/** URLs already linked inside a description. */
@@ -1741,7 +1755,7 @@ PROMPT;
 
 			<p>
 				<button type="button" class="button button-primary dze-cc-gen"<?php disabled( ! $q_on ); ?>>
-					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Write with AI', 'dazont-ecom' ); ?>
 				</button>
 				<?php if ( $has && $size['links'] > 0 ) : ?>
 					<button type="button" class="button dze-cc-ltoggle-pick"<?php disabled( ! $q_on ); ?> title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">

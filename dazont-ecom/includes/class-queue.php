@@ -218,7 +218,26 @@ final class DZE_Queue {
 					);
 					$result         .= ( '' !== $result ? "\n\n" : '' ) . $piece;
 					$payload['step'] = $step + 1;
-					$done            = $payload['step'] >= count( (array) $payload['plan']['sections'] );
+					$written         = $payload['step'] >= count( (array) $payload['plan']['sections'] );
+					// A description without its internal links is half a job. It
+					// used to be finished by hand, with a second five-minute run
+					// on a text that had just been written; the linking pass is
+					// now the last step of writing, not a separate errand.
+					if ( $written && empty( $payload['linked'] ) ) {
+						$payload['linked'] = 1;
+						try {
+							$linked = DZE_Category_Content::add_links( (int) $job['object_id'], $result );
+							if ( ! empty( $linked['html'] ) ) {
+								$result            = (string) $linked['html'];
+								$payload['links']  = (int) ( $linked['after'] ?? 0 );
+							}
+						} catch ( \Throwable $e ) {
+							// The description is written and worth keeping; the
+							// links can be added from the review screen.
+							$payload['link_error'] = $e->getMessage();
+						}
+					}
+					$done = $written;
 				}
 			} else {
 				$result = self::produce( (string) $job['kind'], (int) $job['object_id'], $payload );
