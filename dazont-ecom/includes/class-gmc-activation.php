@@ -676,8 +676,12 @@ final class DZE_Gmc_Activation {
 			} );
 			$( document ).on( 'click', '.dze-hub-close', function () { $( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' ); } );
 			$m.on( 'click', function ( e ) { if ( e.target === this ) { $m.removeClass( 'is-open' ); } } );
-			// Hover zoom for the variation thumbnails inside the popup.
+			// Hover zoom for the variation thumbnails inside the popup — skipped
+			// when the shared handler (admin/js/hzoom.js) is already bound, so
+			// two popups never follow the same cursor.
 			var $hz = null;
+			if ( ! window.dzeHzoomBound ) {
+			window.dzeHzoomBound = true;
 			$( document ).on( 'mouseenter', 'img.dze-hzoom', function () {
 				var src = $( this ).data( 'full' ) || this.src;
 				if ( $hz ) { $hz.remove(); }
@@ -688,6 +692,7 @@ final class DZE_Gmc_Activation {
 				$hz.css( { left: Math.min( e.clientX + 24, window.innerWidth - 360 ) + 'px', top: Math.max( 10, Math.min( e.clientY - 170, window.innerHeight - 360 ) ) + 'px' } );
 			} );
 			$( document ).on( 'mouseleave', 'img.dze-hzoom', function () { if ( $hz ) { $hz.remove(); $hz = null; } } );
+			}
 		} );
 		</script>
 		<?php
