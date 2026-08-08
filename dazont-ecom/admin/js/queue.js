@@ -47,21 +47,24 @@
 			// Every row can be acted on: a run that went wrong is retried or
 			// dropped from here, never left with a spinner and no way out.
 			var act = [];
+			if (r.status === 'running') {
+				act.push('<span class="dze-cx-spin"></span>');
+			}
 			if (r.status === 'review') {
 				act.push('<button type="button" class="button button-small dze-q-open" data-id="' + r.id + '">' + esc(i18n.review) + '</button>');
 				// Accept and refuse on the line, the same two symbols as the
 				// products screen: reading the text before deciding is a choice,
 				// not a toll on the way to the decision.
 				act.push('<button type="button" class="dze-cb-yes dze-q-yes" data-id="' + r.id + '" title="' + esc(i18n.acceptOne) + '">✓</button>');
-				act.push('<button type="button" class="dze-cb-no dze-q-no" data-id="' + r.id + '" title="' + esc(i18n.refuseOne) + '">✗</button>');
-			}
-			if (r.status === 'running') {
-				act.push('<span class="dze-cx-spin"></span>');
-			}
-			if (r.status !== 'review') {
+			} else if (r.status !== 'queued' && r.status !== 'running') {
 				act.push('<button type="button" class="button button-small dze-q-retry" data-id="' + r.id + '">' + esc(i18n.retry) + '</button>');
 			}
-			act.push('<button type="button" class="button-link dze-q-remove" data-id="' + r.id + '" style="color:#b32d2e;">' + esc(i18n.remove) + '</button>');
+			// ONE cross, on every line, meaning the one thing it should: get rid
+			// of this. On a finished text that is a refusal, anywhere else it is
+			// a line dropped from the queue. The word "Remove" beside it said
+			// the same thing twice.
+			act.push('<button type="button" class="dze-cb-no dze-q-no" data-id="' + r.id + '" data-status="' + esc(r.status) +
+				'" title="' + esc(r.status === 'review' ? i18n.refuseOne : i18n.dropOne) + '">✗</button>');
 			var state = esc(LABELS[r.status] || r.status);
 			if (r.status === 'running' && r.progress) { state += ' <span class="description">' + esc(r.progress) + '</span>'; }
 			if (r.status === 'failed' && r.error) { state += '<br /><span class="description">' + esc(r.error) + '</span>'; }
@@ -133,11 +136,6 @@
 			var $b = $(this).prop('disabled', true);
 			paused = false;
 			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'retry' })
-				.always(function () { $b.prop('disabled', false); refresh(); });
-		});
-		$(document).on('click', '.dze-q-remove', function () {
-			var $b = $(this).prop('disabled', true);
-			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'remove' })
 				.always(function () { $b.prop('disabled', false); refresh(); });
 		});
 		$(document).on('change', '.dze-q-pick', function () {
@@ -226,10 +224,14 @@
 			.always(function () { $b.prop('disabled', false); refresh(); });
 	});
 	$(document).on('click', '.dze-q-no', function () {
-		if (!window.confirm(i18n.confirmRefuse)) { return; }
-		var $b = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_q_decide', nonce: cfg.nonce, id: $b.data('id'), accept: 0, html: '' })
-			.always(function () { $b.prop('disabled', false); refresh(); });
+		var $b = $(this), review = $b.data('status') === 'review';
+		// A finished text is worth a question; an empty queued line is not.
+		if (review && !window.confirm(i18n.confirmRefuse)) { return; }
+		$b.prop('disabled', true);
+		var data = review
+			? { action: 'dze_q_decide', nonce: cfg.nonce, id: $b.data('id'), accept: 0, html: '' }
+			: { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'remove' };
+		$.post(cfg.ajaxUrl, data).always(function () { $b.prop('disabled', false); refresh(); });
 	});
 
 	$(document).on('click', '#dze-q-nowbtn', function () {

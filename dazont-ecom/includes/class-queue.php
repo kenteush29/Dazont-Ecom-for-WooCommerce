@@ -535,6 +535,7 @@ final class DZE_Queue {
 				'nowText'  => __( 'On the category today', 'dazont-ecom' ),
 				'acceptOne'=> __( 'Accept: save this text onto the category', 'dazont-ecom' ),
 				'refuseOne'=> __( 'Refuse: throw this text away', 'dazont-ecom' ),
+				'dropOne'  => __( 'Drop this line from the queue', 'dazont-ecom' ),
 				'confirmOne' => __( 'Save this text onto the category, as written? It replaces the description currently there.', 'dazont-ecom' ),
 				'confirmRefuse' => __( 'Throw this text away? It cannot be recovered.', 'dazont-ecom' ),
 				'compare'  => __( 'Current', 'dazont-ecom' ),
