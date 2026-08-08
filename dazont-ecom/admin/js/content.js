@@ -159,6 +159,12 @@
 				'</div>' +
 				// IMAGE lab
 				'<div class="dze-cx-pane" data-pane="image">' +
+					// What is standing in the way, before a single click is spent.
+					((cfg.blockers && cfg.blockers.length) ?
+						'<div class="dze-cx-blocked"><strong>' + esc(i18n.blocked) + '</strong><ul>' +
+						cfg.blockers.map(function (b) {
+							return '<li>' + esc(b.text) + ' <a href="' + esc(b.url) + '" target="_blank" rel="noopener">' + esc(b.label) + '</a></li>';
+						}).join('') + '</ul></div>' : '') +
 					'<p class="dze-cx-datause">' + esc(
 						cfg.sourceN > 1 ? sprintf(i18n.sourcesN, cfg.sourceN) : (cfg.sourceN === 1 ? i18n.sources1 : i18n.sources0)
 					) + '</p>' +
