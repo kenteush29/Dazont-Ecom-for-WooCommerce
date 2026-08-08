@@ -34,6 +34,7 @@
 		if (typeof m.scene !== 'undefined' && $('#dze-cb-scene option[value="' + m.scene + '"]').length) {
 			$('#dze-cb-scene').val(String(m.scene));
 		}
+		if (typeof m.imgn !== 'undefined') { $('#dze-cb-imgn').val(String(m.imgn)); }
 		syncRows();
 	}());
 
@@ -44,6 +45,7 @@
 		m.bulkImage = $('#dze-cb-image').is(':checked');
 		m.tpl = $('#dze-cb-tpl').val();
 		if ($('#dze-cb-scene').length) { m.scene = parseInt($('#dze-cb-scene').val(), 10); }
+		if ($('#dze-cb-imgn').length) { m.imgn = parseInt($('#dze-cb-imgn').val(), 10); }
 		saveMem(m);
 	}
 	// Global image toggle/template cascade to every row (rows stay overridable).
@@ -53,7 +55,7 @@
 		$('.dze-cb-row-tpl').val(tpl);
 	}
 	$('#dze-cb-image, #dze-cb-tpl').on('change', function () { persist(); syncRows(); });
-	$('#dze-cb-scene').on('change', persist);
+	$('#dze-cb-scene, #dze-cb-imgn').on('change', persist);
 	$('.dze-cb-field, #dze-cb-price').on('change', persist);
 
 	// ---- Task queue ----
@@ -107,6 +109,13 @@
 	}
 
 	// ---- Review mode: editable preview per product ----
+	// The row exists for texts AND for images, so it is created on demand and
+	// each kind of content appends its own block to it.
+	function previewCell(id) {
+		var $cell = $('.dze-cb-preview[data-id="' + id + '"]').show().find('td');
+		$('#dze-cb-applyall').show();
+		return $cell;
+	}
 	function renderPreview(id, fids, texts) {
 		var html = '<div class="dze-cb-prev">';
 		fids.forEach(function (fid) {
@@ -116,37 +125,89 @@
 				'<span class="dze-cb-prevstate"></span></div>';
 		});
 		html += '</div>';
-		$('.dze-cb-preview[data-id="' + id + '"]').show().find('td').html(html);
-		$('#dze-cb-applyall').show();
+		var $cell = previewCell(id), $shots = $cell.find('.dze-cb-shots').detach();
+		$cell.html(html).append($shots);
 	}
+	// A generated image waiting for a decision. Selected by default — the
+	// common case is keeping it — but nothing is attached until Apply.
+	function addShot(id, url) {
+		if (!url) { return; }
+		var $cell = previewCell(id), $wrap = $cell.find('.dze-cb-shots');
+		if (!$wrap.length) {
+			$wrap = $('<div class="dze-cb-shots">' +
+				'<label class="dze-cb-shotlabel"><strong>' + esc(i18n.keepWhich) + '</strong></label>' +
+				'<div class="dze-cb-shotgrid"></div>' +
+				'<p class="description">' + esc(i18n.sendTo) + ' ' +
+					'<select class="dze-cb-shottarget">' +
+						'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
+						'<option value="main">' + esc(i18n.toMain) + '</option>' +
+					'</select> <span class="dze-cb-shotstate"></span></p>' +
+				'</div>');
+			$cell.append($wrap);
+		}
+		$wrap.find('.dze-cb-shotgrid').append(
+			$('<div class="dze-cb-shot is-sel"><span class="dze-cb-shotcheck">✓</span></div>')
+				.attr('data-url', url)
+				.append($('<img />').attr('src', url).attr('alt', ''))
+		);
+	}
+	$(document).on('click', '.dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
 
 	// Commit every reviewed text, product by product, field by field.
 	$('#dze-cb-applyall').on('click', function () {
 		var $btn = $(this).prop('disabled', true);
-		var jobs = [];
+		var jobs = [], shots = [];
 		$('.dze-cb-preview:visible').each(function () {
-			var id = $(this).data('id');
-			$(this).find('.dze-cb-prevfield').each(function () {
+			var $prev = $(this), id = $prev.data('id');
+			$prev.find('.dze-cb-prevfield').each(function () {
 				var $f = $(this);
 				jobs.push({ id: id, fid: $f.data('field'), $f: $f });
 			});
-		});
-		var i = 0;
-		(function next() {
-			if (i >= jobs.length) {
-				$btn.prop('disabled', false);
-				$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
-				return;
+			var $w = $prev.find('.dze-cb-shots');
+			if ($w.length) {
+				var urls = $w.find('.dze-cb-shot.is-sel').map(function () { return $(this).data('url'); }).get();
+				if (urls.length) { shots.push({ id: id, urls: urls, target: $w.find('.dze-cb-shottarget').val(), $w: $w }); }
 			}
-			var j = jobs[i++];
-			$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.$f.find('textarea').val() })
+		});
+		// Images first: attaching is what the run was for, and a text failure
+		// should not leave the kept shots behind.
+		function attachNext(k) {
+			if (k >= shots.length) { return runTexts(); }
+			var sh = shots[k];
+			sh.$w.find('.dze-cb-shotstate').css('color', '#646970').text(i18n.working);
+			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, urls: sh.urls, target: sh.target })
 				.done(function (res) {
-					if (res && res.success) { okCount++; j.$f.find('.dze-cb-prevstate').css('color', '#0a7040').text('✓ ' + i18n.applied); }
-					else { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); }
+					if (res && res.success) {
+						okCount++;
+						sh.$w.find('.dze-cb-shotstate').css('color', '#0a7040').text('✓ ' + sprintf(i18n.attached, res.data.attached));
+						sh.$w.find('.dze-cb-shot').removeClass('is-sel');
+					} else {
+						koCount++;
+						sh.$w.find('.dze-cb-shotstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					}
 				})
-				.fail(function () { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text(i18n.error); })
-				.always(next);
-		})();
+				.fail(function (x) { koCount++; sh.$w.find('.dze-cb-shotstate').css('color', '#b32d2e').text(reason(x)); })
+				.always(function () { attachNext(k + 1); });
+		}
+		function runTexts() {
+			var i = 0;
+			(function next() {
+				if (i >= jobs.length) {
+					$btn.prop('disabled', false);
+					$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+					return;
+				}
+				var j = jobs[i++];
+				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.$f.find('textarea').val() })
+					.done(function (res) {
+						if (res && res.success) { okCount++; j.$f.find('.dze-cb-prevstate').css('color', '#0a7040').text('✓ ' + i18n.applied); }
+						else { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); }
+					})
+					.fail(function () { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text(i18n.error); })
+					.always(next);
+			})();
+		}
+		attachNext(0);
 	});
 
 	function priceTask(id, $row) {
@@ -160,21 +221,41 @@
 			.always(function () { progress('price'); });
 	}
 
-	function imageTask(id, $row) {
+	// One attempt. In review mode nothing is attached: the result joins the
+	// strip under the product and waits for a decision.
+	function oneImage(id, $row, review) {
 		var tpl = $row.find('.dze-cb-row-tpl').val();
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
+		if (review) { data.mode = 'defer'; }
 		// One scene for the whole run — that is the point of a scene.
 		var $sc = $('#dze-cb-scene');
 		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
 		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
-				okCount++; status($row, 'img ✓');
-				// Better image visibility: refresh the row thumbnail with the result.
-				if (res.data.url) { $row.find('.dze-cb-thumb img').attr('src', res.data.url); }
+				okCount++;
+				if (review) {
+					addShot(id, res.data.url);
+					status($row, 'img ' + i18n.toReview);
+				} else {
+					status($row, 'img ✓');
+					// Better image visibility: refresh the row thumbnail.
+					if (res.data.url) { $row.find('.dze-cb-thumb img').attr('src', res.data.url); }
+				}
 			})
 			.catch(function (msg) { koCount++; status($row, 'img ✗ ' + esc(reason(msg)), true); })
 			.always(function () { progress('image'); });
+	}
+	// N attempts on the same product, one after the other — the provider is
+	// slow enough that firing four at once is how a run times out.
+	function imageTask(id, $row, review, n) {
+		var i = 0, d = $.Deferred();
+		(function next() {
+			if (stopped || i >= Math.max(1, n)) { d.resolve(); return; }
+			i++;
+			oneImage(id, $row, review).always(next);
+		})();
+		return d;
 	}
 
 	$('#dze-cb-start').on('click', function () {
@@ -197,10 +278,17 @@
 			$row.find('.dze-cb-status').empty();
 			if (fields.length) { tasks.push(function () { return textAllTask(id, fields, $row, review); }); }
 			if (doPrice) { tasks.push(function () { return priceTask(id, $row); }); }
-			if ($row.find('.dze-cb-row-img').is(':checked')) { tasks.push(function () { return imageTask(id, $row); }); }
+			if ($row.find('.dze-cb-row-img').is(':checked')) {
+				var n = parseInt($('#dze-cb-imgn').val(), 10) || 1;
+				tasks.push(function () { return imageTask(id, $row, review, n); });
+			}
 		});
 
-		stopped = false; okCount = 0; koCount = 0; doneCount = 0; total = tasks.length;
+		// An image task covers N attempts, each reporting its own progress.
+		var imgN = parseInt($('#dze-cb-imgn').val(), 10) || 1;
+		var imgRows = $('.dze-cb-row-img:checked').length;
+		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
+		total = tasks.length + (imgRows * (imgN - 1));
 		$('.dze-cb-bar').show(); $('.dze-cb-fill').css('width', 0);
 		$('#dze-cb-start').prop('disabled', true);
 		$('#dze-cb-stop').show();

@@ -1556,58 +1556,86 @@ EOT;
 			<?php endif; ?>
 
 			<div class="dze-cb-controls">
-				<h2 style="margin-top:0;"><?php esc_html_e( 'What to generate', 'dazont-ecom' ); ?></h2>
-				<p>
-					<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
-						<label title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
-							<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
-							<?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?>
-						</label>
-					<?php endforeach; ?>
-				</p>
-				<p>
-					<label><input type="checkbox" id="dze-cb-price" checked /> <strong><?php esc_html_e( 'Recalculate price', 'dazont-ecom' ); ?></strong> <span class="description"><?php esc_html_e( '(cost below × price table → regular price; cost saved as COGS)', 'dazont-ecom' ); ?></span></label>
-				</p>
-				<p class="dze-cb-mode">
-					<strong><?php esc_html_e( 'Texts:', 'dazont-ecom' ); ?></strong>
-					<label><input type="radio" name="dze-cb-mode" value="review" checked /> <?php esc_html_e( 'Review before applying', 'dazont-ecom' ); ?></label>
-					<label><input type="radio" name="dze-cb-mode" value="direct" /> <?php esc_html_e( 'Apply immediately (no review)', 'dazont-ecom' ); ?></label>
-					<span class="description"><?php esc_html_e( 'Review shows every generated text in an editable box per product; nothing is written until you click "Apply reviewed texts".', 'dazont-ecom' ); ?></span>
-				</p>
-				<p>
+				<h2><?php esc_html_e( 'What to generate', 'dazont-ecom' ); ?></h2>
+
+				<!-- Three blocks, one per kind of work, each with its own options
+				     next to it: the flat list of checkboxes and floating selects
+				     made it impossible to tell what belonged to what. -->
+				<div class="dze-cb-block">
+					<h3><?php esc_html_e( 'Texts', 'dazont-ecom' ); ?></h3>
+					<div class="dze-cb-checks">
+						<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
+							<label class="dze-cb-check<?php echo $fok ? '' : ' is-locked'; ?>" title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
+								<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
+								<span><?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?></span>
+							</label>
+						<?php endforeach; ?>
+					</div>
+				</div>
+
+				<div class="dze-cb-block">
+					<h3><?php esc_html_e( 'Price', 'dazont-ecom' ); ?></h3>
+					<label class="dze-cb-check">
+						<input type="checkbox" id="dze-cb-price" checked />
+						<span><?php esc_html_e( 'Recalculate from the cost', 'dazont-ecom' ); ?></span>
+					</label>
+					<p class="description"><?php esc_html_e( 'Cost in the table below × your price table → regular price. The cost is saved as COGS on the product.', 'dazont-ecom' ); ?></p>
+				</div>
+
+				<div class="dze-cb-block">
+					<h3><?php esc_html_e( 'Images', 'dazont-ecom' ); ?></h3>
 					<?php if ( $valid_tpls ) : ?>
-						<label title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
+						<label class="dze-cb-check<?php echo $dze_blockers ? ' is-locked' : ''; ?>" title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
 							<input type="checkbox" id="dze-cb-image" <?php disabled( ! empty( $dze_blockers ) ); ?> />
-							<strong><?php esc_html_e( 'Generate an image per product', 'dazont-ecom' ); ?></strong>
-							<?php echo $dze_blockers ? ' 🔒' : ''; ?>
+							<span><?php esc_html_e( 'Generate images', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
 						</label>
-						<label style="margin-left:10px;"><?php esc_html_e( 'Default template:', 'dazont-ecom' ); ?>
-							<select id="dze-cb-tpl">
-								<?php foreach ( $valid_tpls as $i => $t ) : ?>
-									<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
-								<?php endforeach; ?>
-							</select>
-						</label>
-						<?php $dze_bscenes = self::scenes(); ?>
-						<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
-							<label style="margin-left:10px;" title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Scene:', 'dazont-ecom' ); ?>
-								<select id="dze-cb-scene">
-									<option value="-1" <?php selected( -1, $dze_bdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
-									<?php foreach ( $dze_bscenes as $dze_si => $dze_sc ) : ?>
-										<option value="<?php echo (int) $dze_si; ?>" <?php selected( $dze_si, $dze_bdef ); ?>><?php echo esc_html( $dze_sc['name'] ); ?></option>
+						<div class="dze-cb-opts">
+							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-tpl">
+									<?php foreach ( $valid_tpls as $i => $t ) : ?>
+										<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
 									<?php endforeach; ?>
 								</select>
 							</label>
-						<?php endif; ?>
-						<span class="description"><?php esc_html_e( 'Tick/untick and change the template per product in the table — this is the judgement call.', 'dazont-ecom' ); ?></span>
+							<?php $dze_bscenes = self::scenes(); ?>
+							<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
+								<label title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
+									<select id="dze-cb-scene">
+										<option value="-1" <?php selected( -1, $dze_bdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
+										<?php foreach ( $dze_bscenes as $dze_si => $dze_sc ) : ?>
+											<option value="<?php echo (int) $dze_si; ?>" <?php selected( $dze_si, $dze_bdef ); ?>><?php echo esc_html( $dze_sc['name'] ); ?></option>
+										<?php endforeach; ?>
+									</select>
+								</label>
+							<?php endif; ?>
+							<label title="<?php esc_attr_e( 'Several attempts per product — you keep the good ones at review time.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Per product', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-imgn">
+									<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
+										<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+						</div>
+						<p class="description"><?php esc_html_e( 'Tick or untick a product, and change its prompt, directly in the table below — that is the judgement call.', 'dazont-ecom' ); ?></p>
 					<?php else : ?>
-						<span class="description"><?php esc_html_e( 'No validated image template yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></span>
+						<p class="description"><?php esc_html_e( 'No validated image prompt yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></p>
 					<?php endif; ?>
-				</p>
-				<p>
+				</div>
+
+				<div class="dze-cb-block dze-cb-mode">
+					<h3><?php esc_html_e( 'Before writing anything', 'dazont-ecom' ); ?></h3>
+					<label class="dze-cb-check"><input type="radio" name="dze-cb-mode" value="review" checked />
+						<span><strong><?php esc_html_e( 'Review first', 'dazont-ecom' ); ?></strong> — <?php esc_html_e( 'texts land in an editable box and images in a selectable strip, under each product. Nothing touches the shop until you click "Apply what I kept".', 'dazont-ecom' ); ?></span>
+					</label>
+					<label class="dze-cb-check"><input type="radio" name="dze-cb-mode" value="direct" />
+						<span><strong><?php esc_html_e( 'Apply immediately', 'dazont-ecom' ); ?></strong> — <?php esc_html_e( 'texts are written and images attached as they come back, with no confirmation.', 'dazont-ecom' ); ?></span>
+					</label>
+				</div>
+
+				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply reviewed texts', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply what I kept', 'dazont-ecom' ); ?></button>
 				</p>
 				<div class="dze-cb-bar" style="display:none;"><div class="dze-cb-fill"></div></div>
 				<p id="dze-cb-progress" class="description"></p>
@@ -1679,7 +1707,13 @@ EOT;
 					'progress' => __( '%1$s / %2$s tasks — %3$s', 'dazont-ecom' ),
 					'finished' => __( 'Finished: %1$s ok, %2$s errors.', 'dazont-ecom' ),
 					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
-					'review'   => __( 'Generated — review below, then "Apply reviewed texts".', 'dazont-ecom' ),
+					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
+					'toReview' => __( 'to review', 'dazont-ecom' ),
+					'keepWhich'=> __( 'Which images do you keep?', 'dazont-ecom' ),
+					'sendTo'   => __( 'Send the kept images to:', 'dazont-ecom' ),
+					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
+					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
+					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
 					'applied'  => __( 'applied', 'dazont-ecom' ),
 					'locked'   => __( 'not validated — skipped', 'dazont-ecom' ),
 				],
@@ -2335,7 +2369,22 @@ EOT;
 		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
 		$ext  = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		if ( ! in_array( $ext, [ 'png', 'jpg', 'jpeg', 'webp' ], true ) ) {
-			$ext = 'png';
+			$ext = 'jpg';
+		}
+		// The provider is asked for JPEG; if it hands back a PNG anyway, it is
+		// converted here rather than shipped to the shop — these are opaque
+		// photographs, and a PNG of one weighs several times as much.
+		if ( 'png' === $ext ) {
+			$editor = wp_get_image_editor( $tmp );
+			if ( ! is_wp_error( $editor ) ) {
+				$editor->set_quality( 85 );
+				$saved = $editor->save( $tmp . '.jpg', 'image/jpeg' );
+				if ( ! is_wp_error( $saved ) && ! empty( $saved['path'] ) && file_exists( $saved['path'] ) ) {
+					@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+					$tmp = (string) $saved['path'];
+					$ext = 'jpg';
+				}
+			}
 		}
 		$att_id = media_handle_sideload( [ 'name' => $slug . '.' . $ext, 'tmp_name' => $tmp ], $pid, $title );
 		if ( is_wp_error( $att_id ) ) {
@@ -2593,7 +2642,10 @@ EOT;
 				'image_urls'    => array_values( $image_urls ),
 				'num_images'    => 1,
 				'aspect_ratio'  => 'auto',
-				'output_format' => 'png',
+				// Photographs, on a shop: JPEG. A PNG product image is three to
+				// five times the weight for no visible gain and slows the page
+				// down for every visitor.
+				'output_format' => 'jpeg',
 			] ),
 		] );
 		if ( is_wp_error( $resp ) ) {

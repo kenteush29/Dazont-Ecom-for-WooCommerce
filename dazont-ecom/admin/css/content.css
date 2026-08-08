@@ -181,8 +181,41 @@
 .dze-key-test-out { font-size: 12px; }
 
 /* ---- Bulk screen ---- */
-.dze-cb-controls { background: #fff; border: 1px solid #e2e4e7; border-radius: 6px; padding: 14px 18px; margin-top: 12px; max-width: 1100px; }
-.dze-cb-controls label { margin-right: 16px; }
+.dze-cb-controls { background: #fff; border: 1px solid #e2e4e7; border-radius: 6px; padding: 4px 18px 16px; margin-top: 12px; max-width: 1100px; }
+.dze-cb-controls h2 { margin: 14px 0 4px; font-size: 16px; }
+/* One block per kind of work, its options attached to it. A single flat run of
+   checkboxes and floating selects made it impossible to see what belonged to
+   what — and impossible to align. */
+.dze-cb-block { border-top: 1px solid #f0f0f1; padding: 12px 0 10px; }
+.dze-cb-block:first-of-type { border-top: none; }
+.dze-cb-block h3 {
+	margin: 0 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+	letter-spacing: .06em; color: #646970;
+}
+.dze-cb-block > .description { margin: 6px 0 0; }
+.dze-cb-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 18px; }
+.dze-cb-check { display: flex; align-items: flex-start; gap: 8px; margin: 3px 0; line-height: 1.5; }
+.dze-cb-check input { margin: 3px 0 0; flex: 0 0 auto; }
+.dze-cb-check.is-locked { color: #8c8f94; }
+/* Option rows: every label is a column of its own, so the selects line up
+   instead of drifting with the length of the word in front of them. */
+.dze-cb-opts { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 10px 0 0; }
+.dze-cb-opts label { display: flex; flex-direction: column; gap: 3px; margin: 0; }
+.dze-cb-opts label > span { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
+.dze-cb-opts select { min-width: 160px; }
+.dze-cb-mode .dze-cb-check { max-width: 900px; }
+.dze-cb-actions { margin: 16px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Generated images awaiting a decision, under their product. */
+.dze-cb-shots { margin-top: 10px; }
+.dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0; }
+.dze-cb-shot { position: relative; border: 2px solid #dcdcde; border-radius: 6px; overflow: hidden; cursor: pointer; width: 130px; height: 130px; background: #f6f7f7; }
+.dze-cb-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dze-cb-shot.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+.dze-cb-shot .dze-cb-shotcheck {
+	position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent; font-size: 13px; line-height: 20px; text-align: center;
+}
+.dze-cb-shot.is-sel .dze-cb-shotcheck { background: #2271b1; border-color: #2271b1; color: #fff; }
 .dze-cb-table { width: 100%; max-width: 1100px; border-collapse: collapse; margin-top: 14px; background: #fff; }
 .dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 8px 10px; text-align: left; vertical-align: middle; }
 .dze-cb-table th { background: #f6f7f7; }
