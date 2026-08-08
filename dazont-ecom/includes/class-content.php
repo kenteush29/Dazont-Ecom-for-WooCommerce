@@ -2163,7 +2163,11 @@ EOT;
 				// of taking the whole generation down with it.
 				foreach ( $product_ids as $i => $aid ) {
 					try {
-						$uri = $this->fal_source_data_uri( (int) $aid );
+						// The featured image is the one the result is built on,
+						// so it goes at full working size; the others are read
+						// for information only and travel smaller — a lighter
+						// request body and a faster answer, same understanding.
+						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'large' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
@@ -2485,9 +2489,9 @@ EOT;
 		return array_slice( $ids, 0, self::MAX_SOURCES );
 	}
 
-	public function fal_source_data_uri( int $attachment_id ): string {
+	public function fal_source_data_uri( int $attachment_id, string $wanted = 'large' ): string {
 		$path = '';
-		$size = image_get_intermediate_size( $attachment_id, 'large' );
+		$size = image_get_intermediate_size( $attachment_id, $wanted );
 		if ( is_array( $size ) && ! empty( $size['path'] ) ) {
 			$uploads = wp_get_upload_dir();
 			$try     = trailingslashit( (string) $uploads['basedir'] ) . $size['path'];
@@ -2503,7 +2507,7 @@ EOT;
 		}
 		$bytes = '' !== $path ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
 		if ( false === $bytes || '' === $bytes ) {
-			$url  = (string) wp_get_attachment_image_url( $attachment_id, 'large' );
+			$url  = (string) wp_get_attachment_image_url( $attachment_id, $wanted );
 			$resp = $url ? wp_remote_get( $url, [ 'timeout' => 30 ] ) : null;
 			if ( $resp && ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
 				$bytes = wp_remote_retrieve_body( $resp );

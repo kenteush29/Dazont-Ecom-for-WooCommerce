@@ -59,6 +59,14 @@
 	// ---- Task queue ----
 	var stopped = false, okCount = 0, koCount = 0, doneCount = 0, total = 0;
 
+	// A failed task must say WHY on the row. Without this the screen answers
+	// "1 errors" and leaves you to guess between a missing key, a budget stop,
+	// a template that is not validated and a timeout at the provider.
+	function reason(msg) {
+		if (typeof msg === 'string' && msg) { return msg; }
+		if (msg && msg.status) { return 'HTTP ' + msg.status + (msg.statusText ? ' ' + msg.statusText : ''); }
+		return i18n.error;
+	}
 	function status($row, html, isErr) {
 		var $s = $row.find('.dze-cb-status');
 		$s.append('<span class="' + (isErr ? 'ko' : 'ok') + '">' + html + '</span> ');
@@ -92,7 +100,7 @@
 				});
 			})
 			.catch(function (msg) {
-				koCount++; status($row, 'text ✗', true);
+				koCount++; status($row, 'text ✗ ' + esc(reason(msg)), true);
 				if (window.console) { console.warn('DZE bulk', msg); }
 			})
 			.always(function () { progress('text'); });
@@ -148,7 +156,7 @@
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++; status($row, '$' + res.data.regular + ' ✓');
 			})
-			.catch(function () { koCount++; status($row, '$ ✗', true); })
+			.catch(function (msg) { koCount++; status($row, '$ ✗ ' + esc(reason(msg)), true); })
 			.always(function () { progress('price'); });
 	}
 
@@ -165,7 +173,7 @@
 				// Better image visibility: refresh the row thumbnail with the result.
 				if (res.data.url) { $row.find('.dze-cb-thumb img').attr('src', res.data.url); }
 			})
-			.catch(function () { koCount++; status($row, 'img ✗', true); })
+			.catch(function (msg) { koCount++; status($row, 'img ✗ ' + esc(reason(msg)), true); })
 			.always(function () { progress('image'); });
 	}
 
