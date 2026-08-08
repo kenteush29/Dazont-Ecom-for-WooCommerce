@@ -1672,11 +1672,11 @@ EOT;
 
 			<table class="dze-cb-table">
 				<tr>
-					<th style="width:70px;"></th>
-					<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
-					<th style="width:80px;"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
-					<th style="width:190px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
-					<th style="width:240px;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
+					<th style="width:70px;" title="<?php esc_attr_e( 'Hover a thumbnail to see it full size.', 'dazont-ecom' ); ?>"></th>
+					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
+					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
+					<th style="width:210px;" title="<?php esc_attr_e( 'Tick to include this product in the image run, and pick the prompt to use for it.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Image prompt', 'dazont-ecom' ); ?></th>
+					<th style="width:200px;" title="<?php esc_attr_e( 'One symbol per task: ✓ done, ✗ failed. Hover a symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
@@ -1685,17 +1685,31 @@ EOT;
 							<img class="dze-hzoom" src="<?php echo esc_url( $p['thumb'] ); ?>" data-full="<?php echo esc_url( $p['full'] ?: $p['thumb'] ); ?>" alt="" />
 							<?php if ( $p['full'] ) : ?></a><?php endif; ?>
 						</td>
-						<td><a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a></td>
-						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>
 						<td>
-							<label><input type="checkbox" class="dze-cb-row-img" /> <?php esc_html_e( 'Image', 'dazont-ecom' ); ?></label>
-							<select class="dze-cb-row-tpl" style="max-width:150px;">
+							<a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a>
+							<div class="dze-cb-badges"></div>
+						</td>
+						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>
+						<td class="dze-cb-imgcell">
+							<!-- The tick and the prompt are one control: include this
+							     product in the image run, and with which prompt. Two
+							     stacked widgets both labelled "Image", in a column
+							     already called Image, said the same word three times
+							     and explained nothing. -->
+							<input type="checkbox" class="dze-cb-row-img" id="dze-cb-img-<?php echo (int) $p['id']; ?>"
+								title="<?php esc_attr_e( 'Include this product in the image run.', 'dazont-ecom' ); ?>" />
+							<select class="dze-cb-row-tpl" aria-label="<?php esc_attr_e( 'Image prompt for this product', 'dazont-ecom' ); ?>">
 								<?php foreach ( $valid_tpls as $i => $t ) : ?>
 									<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?></option>
 								<?php endforeach; ?>
 							</select>
 						</td>
-						<td class="dze-cb-status">—</td>
+						<td class="dze-cb-statuscell">
+							<span class="dze-cb-status"></span>
+							<button type="button" class="button button-small dze-cb-toggle" style="display:none;" aria-expanded="false" title="<?php esc_attr_e( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ); ?>">
+								<?php esc_html_e( 'Review', 'dazont-ecom' ); ?> <span class="dze-cb-caret">▾</span>
+							</button>
+						</td>
 					</tr>
 					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
 				<?php endforeach; ?>
@@ -1725,12 +1739,21 @@ EOT;
 		}
 
 		if ( $on_bulk ) {
+			// Reviewed texts are edited in the real WordPress editor, not in a
+			// bare textarea full of raw HTML.
+			wp_enqueue_editor();
 			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery' ], DZE_VERSION, true );
 			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
 				'validated' => true, // gating is per-field via disabled checkboxes.
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
+				// A rich editor for what is really HTML; a plain box for a title
+				// or a meta description, which TinyMCE would wrap in a <p>.
+				'rich'      => array_map(
+					static fn( $f ) => in_array( (string) ( $f['dest'] ?? '' ), [ 'post_content', 'post_excerpt', 'meta' ], true ),
+					self::enabled_fields()
+				),
 				'i18n'      => [
 					'working'  => __( 'Working…', 'dazont-ecom' ),
 					'done'     => __( 'Done', 'dazont-ecom' ),
@@ -1741,6 +1764,12 @@ EOT;
 					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
 					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
 					'toReview' => __( 'to review', 'dazont-ecom' ),
+					'tText'    => __( 'Texts', 'dazont-ecom' ),
+					'tPrice'   => __( 'Price', 'dazont-ecom' ),
+					'tImage'   => __( 'Image', 'dazont-ecom' ),
+					'imgBadge' => __( 'Images', 'dazont-ecom' ),
+					'running'  => __( 'in progress', 'dazont-ecom' ),
+					'partial'  => __( '%1$s of %2$s written', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),

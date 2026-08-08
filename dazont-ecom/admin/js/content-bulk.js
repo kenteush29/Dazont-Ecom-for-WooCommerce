@@ -53,7 +53,16 @@
 		var on = $('#dze-cb-image').is(':checked'), tpl = $('#dze-cb-tpl').val();
 		$('.dze-cb-row-img').prop('checked', on);
 		$('.dze-cb-row-tpl').val(tpl);
+		syncRowTpl();
 	}
+	// A prompt you cannot use is greyed out rather than left looking active.
+	function syncRowTpl() {
+		$('.dze-cb-row').each(function () {
+			var $r = $(this);
+			$r.find('.dze-cb-row-tpl').prop('disabled', !$r.find('.dze-cb-row-img').is(':checked'));
+		});
+	}
+	$(document).on('change', '.dze-cb-row-img', syncRowTpl);
 	$('#dze-cb-image, #dze-cb-tpl').on('change', function () { persist(); syncRows(); });
 	$('#dze-cb-scene, #dze-cb-imgn').on('change', persist);
 	$('.dze-cb-field, #dze-cb-price').on('change', persist);
@@ -69,9 +78,30 @@
 		if (msg && msg.status) { return 'HTTP ' + msg.status + (msg.statusText ? ' ' + msg.statusText : ''); }
 		return i18n.error;
 	}
-	function status($row, html, isErr) {
-		var $s = $row.find('.dze-cb-status');
-		$s.append('<span class="' + (isErr ? 'ko' : 'ok') + '">' + html + '</span> ');
+	// A task shows up as ONE symbol on its row, with the whole story in its
+	// tooltip. A column of sentences turned a thirty-product run into a wall
+	// of text you had to read to find the two things that went wrong.
+	function pending($row, label) {
+		var $s = $('<span class="dze-cb-sym is-run">•</span>').attr('title', label + ' — ' + i18n.running);
+		$row.find('.dze-cb-status').append($s);
+		return {
+			ok: function (detail) {
+				$s.removeClass('is-run').addClass('is-ok').text('✓').attr('title', label + (detail ? ' — ' + detail : ''));
+			},
+			ko: function (detail) {
+				$s.removeClass('is-run').addClass('is-ko').text('✗').attr('title', label + (detail ? ' — ' + detail : ''));
+			}
+		};
+	}
+	// One badge per piece of content actually produced, on the product line.
+	function badge(id, key, label) {
+		var $wrap = $('.dze-cb-row[data-id="' + id + '"]').find('.dze-cb-badges');
+		var $b = $wrap.find('[data-k="' + key + '"]');
+		if (!$b.length) {
+			$b = $('<span class="dze-cb-badge" data-k="' + esc(key) + '"></span>').appendTo($wrap);
+		}
+		$b.html(esc(label) + ' <span class="dze-cb-badgecheck">✓</span>');
+		$('.dze-cb-row[data-id="' + id + '"]').find('.dze-cb-toggle').show();
 	}
 	function progress(label) {
 		doneCount++;
@@ -87,88 +117,164 @@
 	function textAllTask(id, fids, $row, review) {
 		var data = { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, fields: fids };
 		if (!review) { data.apply = 1; }
+		var mark = pending($row, i18n.tText);
 		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				if (review) {
-					renderPreview(id, fids, res.data.texts || {});
-					status($row, i18n.review);
+					storeTexts(id, fids, res.data.texts || {});
+					mark.ok(i18n.toReview);
 					return;
 				}
-				var r = res.data.results || {};
+				var r = res.data.results || {}, done = [];
 				fids.forEach(function (fid) {
-					if (r[fid] === 'applied') { okCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✓'); }
-					else { koCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✗', true); }
+					if (r[fid] === 'applied') {
+						okCount++; done.push(cfg.fields[fid] || fid);
+						badge(id, fid, cfg.fields[fid] || fid);
+					} else {
+						koCount++;
+					}
 				});
+				if (done.length === fids.length) { mark.ok(done.join(', ')); }
+				else { mark.ko(done.length ? sprintf(i18n.partial, done.length, fids.length) : ''); }
 			})
 			.catch(function (msg) {
-				koCount++; status($row, 'text ✗ ' + esc(reason(msg)), true);
+				koCount++; mark.ko(reason(msg));
 				if (window.console) { console.warn('DZE bulk', msg); }
 			})
 			.always(function () { progress('text'); });
 	}
 
-	// ---- Review mode: editable preview per product ----
-	// The row exists for texts AND for images, so it is created on demand and
-	// each kind of content appends its own block to it.
+	// ---- Review: one collapsed panel per product ----
+	// Nothing opens by itself. A run leaves badges on the lines and the panel
+	// waits behind "Review ▾", so thirty products stay thirty lines.
+	var results = {}; // id => { texts: {fid: html}, shots: [url] }
+
+	function bucket(id) {
+		if (!results[id]) { results[id] = { texts: {}, shots: [], built: false }; }
+		return results[id];
+	}
 	function previewCell(id) {
-		var $cell = $('.dze-cb-preview[data-id="' + id + '"]').show().find('td');
 		$('#dze-cb-applyall').show();
-		return $cell;
+		return $('.dze-cb-preview[data-id="' + id + '"]').find('td');
 	}
-	function renderPreview(id, fids, texts) {
-		// Two columns of short boxes: a review screen you can take in at a
-		// glance beats one you have to scroll through product by product.
-		var html = '<div class="dze-cb-prev">';
+	function editorId(id, fid) { return 'dze-cb-ed-' + id + '-' + String(fid).replace(/[^a-zA-Z0-9_-]/g, ''); }
+	function isRich(fid) { return !!(cfg.rich && cfg.rich[fid]); }
+
+	function storeTexts(id, fids, texts) {
+		var b = bucket(id);
 		fids.forEach(function (fid) {
-			html += '<div class="dze-cb-prevfield" data-field="' + fid + '">' +
-				'<label>' + esc(cfg.fields[fid] || fid) + '<span class="dze-cb-prevstate"></span></label>' +
-				'<textarea rows="2">' + esc(texts[fid] || '') + '</textarea>' +
-				'</div>';
+			b.texts[fid] = texts[fid] || '';
+			badge(id, fid, cfg.fields[fid] || fid);
 		});
-		html += '</div>';
-		var $cell = previewCell(id), $shots = $cell.find('.dze-cb-shots').detach();
-		$cell.html(html).append($shots);
 	}
-	// A generated image waiting for a decision. Selected by default — the
-	// common case is keeping it — but nothing is attached until Apply.
 	function addShot(id, url) {
 		if (!url) { return; }
-		var $cell = previewCell(id), $wrap = $cell.find('.dze-cb-shots');
-		if (!$wrap.length) {
-			// One line: the shots, then where they go. Hover a shot to see it
-			// full size — no need to give the strip half the screen.
-			$wrap = $('<div class="dze-cb-shots">' +
-				'<div class="dze-cb-shotgrid"></div>' +
-				'<select class="dze-cb-shottarget">' +
-					'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
-					'<option value="main">' + esc(i18n.toMain) + '</option>' +
-				'</select> <span class="dze-cb-shotstate"></span>' +
-				'</div>');
-			$cell.append($wrap);
-		}
-		$wrap.find('.dze-cb-shotgrid').append(
-			$('<div class="dze-cb-shot is-sel"><span class="dze-cb-shotcheck">✓</span></div>')
-				.attr('data-url', url)
-				.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''))
-		);
+		var b = bucket(id);
+		b.shots.push(url);
+		badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length);
+		if (b.built) { renderShots(id); }
 	}
+
+	// Built the first time the panel is opened: starting a WordPress editor for
+	// every product of a thirty-product run up front would freeze the page.
+	function buildPanel(id) {
+		var b = bucket(id), $cell = previewCell(id);
+		if (b.built) { return; }
+		var html = '<div class="dze-cb-prev">';
+		Object.keys(b.texts).forEach(function (fid) {
+			var eid = editorId(id, fid);
+			html += '<div class="dze-cb-prevfield" data-field="' + fid + '" data-editor="' + eid + '">' +
+				'<label>' + esc(cfg.fields[fid] || fid) + '<span class="dze-cb-prevstate"></span></label>' +
+				(isRich(fid)
+					? '<textarea id="' + eid + '" class="dze-cb-ed">' + esc(b.texts[fid]) + '</textarea>'
+					: '<textarea id="' + eid + '" class="dze-cb-plain" rows="3">' + esc(b.texts[fid]) + '</textarea>') +
+				'</div>';
+		});
+		html += '</div><div class="dze-cb-shots-slot"></div>';
+		$cell.html(html);
+		b.built = true;
+		renderShots(id);
+
+		// The rich boxes become real editors — visual tab, toolbar, code view —
+		// so a description is read as a description and not as raw HTML.
+		Object.keys(b.texts).forEach(function (fid) {
+			if (!isRich(fid) || !window.wp || !wp.editor || !wp.editor.initialize) { return; }
+			var eid = editorId(id, fid);
+			try { wp.editor.remove(eid); } catch (e) {}
+			wp.editor.initialize(eid, {
+				tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo', height: 200 },
+				quicktags: true,
+				mediaButtons: false
+			});
+		});
+	}
+
+	function renderShots(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
+		if (!$slot.length || !b.shots.length) { return; }
+		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div>' +
+			'<select class="dze-cb-shottarget">' +
+				'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
+				'<option value="main">' + esc(i18n.toMain) + '</option>' +
+			'</select> <span class="dze-cb-shotstate"></span></div>');
+		b.shots.forEach(function (url) {
+			$wrap.find('.dze-cb-shotgrid').append(
+				$('<div class="dze-cb-shot is-sel"><span class="dze-cb-shotcheck">✓</span></div>')
+					.attr('data-url', url)
+					.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''))
+			);
+		});
+		$slot.empty().append($wrap);
+	}
+
+	// Read a box back whichever way it is being edited.
+	function editorGet(eid) {
+		if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) {
+			return tinymce.get(eid).getContent();
+		}
+		return $('#' + eid).val() || '';
+	}
+
+	$(document).on('click', '.dze-cb-toggle', function () {
+		var $btn = $(this), id = $btn.closest('.dze-cb-row').data('id');
+		var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+		var open = $prev.is(':visible');
+		if (!open) { buildPanel(id); }
+		$prev.toggle(!open);
+		$btn.attr('aria-expanded', open ? 'false' : 'true').find('.dze-cb-caret').text(open ? '▾' : '▴');
+	});
+
 	$(document).on('click', '.dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
 
 	// Commit every reviewed text, product by product, field by field.
 	$('#dze-cb-applyall').on('click', function () {
 		var $btn = $(this).prop('disabled', true);
+		// Everything that was generated is applied, opened panel or not: a
+		// product you did not bother to review is a product you are happy with.
+		// An untouched panel simply hands back what came out of the model.
 		var jobs = [], shots = [];
-		$('.dze-cb-preview:visible').each(function () {
-			var $prev = $(this), id = $prev.data('id');
-			$prev.find('.dze-cb-prevfield').each(function () {
-				var $f = $(this);
-				jobs.push({ id: id, fid: $f.data('field'), $f: $f });
+		Object.keys(results).forEach(function (id) {
+			var b = results[id], $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+			Object.keys(b.texts).forEach(function (fid) {
+				var eid = editorId(id, fid);
+				var value = b.built ? editorGet(eid) : b.texts[fid];
+				jobs.push({ id: id, fid: fid, value: value, $f: $prev.find('.dze-cb-prevfield[data-field="' + fid + '"]') });
 			});
-			var $w = $prev.find('.dze-cb-shots');
-			if ($w.length) {
-				var urls = $w.find('.dze-cb-shot.is-sel').map(function () { return $(this).data('url'); }).get();
-				if (urls.length) { shots.push({ id: id, urls: urls, target: $w.find('.dze-cb-shottarget').val(), $w: $w }); }
+			if (b.shots.length) {
+				var $w = $prev.find('.dze-cb-shots');
+				// Never opened: every shot is kept. Opened: only the ticked ones.
+				var urls = $w.length
+					? $w.find('.dze-cb-shot.is-sel').map(function () { return $(this).data('url'); }).get()
+					: b.shots.slice();
+				if (urls.length) {
+					shots.push({
+						id: id,
+						urls: urls,
+						target: $w.length ? $w.find('.dze-cb-shottarget').val() : 'gallery',
+						$w: $w.length ? $w : $prev
+					});
+				}
 			}
 		});
 		// Images first: attaching is what the run was for, and a text failure
@@ -200,7 +306,7 @@
 					return;
 				}
 				var j = jobs[i++];
-				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.$f.find('textarea').val() })
+				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.value })
 					.done(function (res) {
 						if (res && res.success) { okCount++; j.$f.find('.dze-cb-prevstate').css('color', '#0a7040').text('✓ ' + i18n.applied); }
 						else { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); }
@@ -214,15 +320,18 @@
 
 	function priceTask(id, $row) {
 		var cost = $row.find('.dze-cb-cost').val();
+		var mark = pending($row, i18n.tPrice);
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: id, cost: cost })
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
 				// A variable product reports the range and how many variations
 				// were repriced — one figure would be a half-truth.
-				status($row, '$' + res.data.regular + (res.data.variations ? ' ×' + res.data.variations : '') + ' ✓');
+				var label = res.data.regular + (res.data.variations ? ' ×' + res.data.variations : '');
+				mark.ok(label);
+				badge(id, 'price', i18n.tPrice + ' ' + label);
 			})
-			.catch(function (msg) { koCount++; status($row, '$ ✗ ' + esc(reason(msg)), true); })
+			.catch(function (msg) { koCount++; mark.ko(reason(msg)); })
 			.always(function () { progress('price'); });
 	}
 
@@ -235,20 +344,24 @@
 		// One scene for the whole run — that is the point of a scene.
 		var $sc = $('#dze-cb-scene');
 		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
+		var mark = pending($row, i18n.tImage);
 		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
 				if (review) {
 					addShot(id, res.data.url);
-					status($row, 'img ' + i18n.toReview);
+					mark.ok(i18n.toReview);
 				} else {
-					status($row, 'img ✓');
+					mark.ok('');
+					badge(id, 'img', i18n.imgBadge);
 					// Better image visibility: refresh the row thumbnail.
-					if (res.data.url) { $row.find('.dze-cb-thumb img').attr('src', res.data.url); }
+					if (res.data.url) {
+						$row.find('.dze-cb-thumb img').attr('src', res.data.url).attr('data-full', res.data.url);
+					}
 				}
 			})
-			.catch(function (msg) { koCount++; status($row, 'img ✗ ' + esc(reason(msg)), true); })
+			.catch(function (msg) { koCount++; mark.ko(reason(msg)); })
 			.always(function () { progress('image'); });
 	}
 	// N attempts on the same product, one after the other — the provider is
@@ -270,7 +383,10 @@
 		var doPrice = $('#dze-cb-price').is(':checked');
 		var review = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
 		$('.dze-cb-preview').hide().find('td').empty();
+		$('.dze-cb-badges').empty();
+		$('.dze-cb-toggle').hide().attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
 		$('#dze-cb-applyall').hide();
+		results = {};
 		if (!fields.length && !doPrice && !$('.dze-cb-row-img:checked').length) {
 			window.alert(i18n.noFields);
 			return;

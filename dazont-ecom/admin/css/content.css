@@ -205,22 +205,45 @@
 .dze-cb-opts select { min-width: 160px; }
 .dze-cb-mode .dze-cb-check { max-width: 900px; }
 .dze-cb-actions { margin: 16px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-/* ---- Review, under the product it belongs to ----
-   Everything here is deliberately small: hover a thumbnail to see it full
-   size, and open the product to read a text in full. A review screen is
-   worth having only if a whole run fits on it. */
-.dze-cb-preview td { background: #fbfbfc; padding: 8px 10px; }
-.dze-cb-prev { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 14px; }
+/* ---- The line says what happened, the panel says it properly ----
+   Symbols with the story in their tooltip, badges for what was written, and
+   a panel that stays shut until asked. */
+.dze-cb-sym {
+	display: inline-block; min-width: 20px; text-align: center; font-weight: 700;
+	font-size: 14px; line-height: 1.4; cursor: help;
+}
+.dze-cb-sym.is-ok  { color: #00794b; }
+.dze-cb-sym.is-ko  { color: #b32d2e; }
+.dze-cb-sym.is-run { color: #a7aaad; animation: dze-cb-blink 1s ease-in-out infinite; }
+@keyframes dze-cb-blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .dze-cb-sym.is-run { animation: none; } }
+.dze-cb-statuscell { white-space: nowrap; }
+.dze-cb-toggle { margin-left: 10px; }
+.dze-cb-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.dze-cb-badge {
+	display: inline-flex; align-items: center; gap: 4px;
+	border: 1px solid #c6e6d5; background: #f0faf5; color: #1d4c38;
+	border-radius: 999px; padding: 1px 9px; font-size: 11px; line-height: 1.7;
+}
+.dze-cb-badgecheck { color: #00794b; font-weight: 700; }
+
+/* The review panel: two real WordPress editors side by side, so a description
+   is read as a description and not as a wall of raw HTML. */
+.dze-cb-preview td { background: #fbfbfc; padding: 12px 14px; }
+.dze-cb-prev { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+@media (max-width: 1200px) { .dze-cb-prev { grid-template-columns: 1fr; } }
 .dze-cb-prevfield label {
 	display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
 	font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #646970;
-	margin: 0 0 2px;
+	margin: 0 0 4px;
 }
-.dze-cb-prevfield textarea {
-	width: 100% !important; box-sizing: border-box; font-size: 12px; line-height: 1.5;
-	resize: vertical; min-height: 46px; padding: 4px 6px;
+.dze-cb-prevfield .wp-editor-wrap { background: #fff; }
+.dze-cb-prevfield textarea.dze-cb-plain {
+	width: 100% !important; box-sizing: border-box; font-size: 13px; line-height: 1.5;
+	resize: vertical; padding: 6px 8px; background: #fff;
 }
 .dze-cb-prevstate { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.dze-cb-shots-slot:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
 /* Generated images awaiting a decision: one line, thumbnails + destination. */
 .dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; }
 .dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
@@ -244,7 +267,11 @@
 .dze-cb-status .ko { color: #b32d2e; }
 .dze-cb-bar { height: 10px; background: #e2e4e7; border-radius: 5px; overflow: hidden; margin: 10px 0; max-width: 560px; }
 .dze-cb-fill { height: 100%; background: #2271b1; width: 0; transition: width .3s ease; }
-.dze-cb-row-tpl { max-width: 150px !important; width: auto !important; }
+/* Tick + prompt on one line: they are a single decision. */
+.dze-cb-imgcell { white-space: nowrap; }
+.dze-cb-imgcell input[type="checkbox"] { margin: 0 8px 0 0; vertical-align: middle; }
+.dze-cb-row-tpl { max-width: 165px !important; width: auto !important; vertical-align: middle; }
+.dze-cb-row-tpl:disabled { opacity: .5; }
 .dze-cb-cost { width: 70px !important; }
 .dze-cb-mode label { margin-right: 14px; }
 
