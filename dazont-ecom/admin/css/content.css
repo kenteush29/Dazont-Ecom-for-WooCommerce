@@ -577,3 +577,11 @@
 .dze-cb-yes:hover { background: #edfaf3; border-color: #00794b; }
 .dze-cb-no { color: #b32d2e; }
 .dze-cb-no:hover { background: #fcf0f1; border-color: #b32d2e; }
+
+/* ---- Toolbox: how far along a run is ----
+   Calls take a minute and a half each; a spinner alone says nothing worth
+   knowing. Steps, the one running, and the clock. */
+.dze-cx-prog { margin: 10px 0 0; max-width: 560px; }
+.dze-cx-prog .dze-cb-bar { margin: 0 0 6px; }
+.dze-cx-prog p { margin: 0; font-size: 13px; }
+#dze-cx-progstep { color: #50575e; }
