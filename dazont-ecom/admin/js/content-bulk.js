@@ -217,7 +217,10 @@
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: id, cost: cost })
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
-				okCount++; status($row, '$' + res.data.regular + ' ✓');
+				okCount++;
+				// A variable product reports the range and how many variations
+				// were repriced — one figure would be a half-truth.
+				status($row, '$' + res.data.regular + (res.data.variations ? ' ×' + res.data.variations : '') + ' ✓');
 			})
 			.catch(function (msg) { koCount++; status($row, '$ ✗ ' + esc(reason(msg)), true); })
 			.always(function () { progress('price'); });

@@ -414,6 +414,13 @@ final class DZE_Marketing_Ai {
 				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
 				DZE_Content::instance()->render_key_field();
 			}
+			// Price endings: not an API setting, but a shop-wide one shared by
+			// Discounts and Product Content, and this is the only general tab.
+			if ( class_exists( 'DZE_Price' ) && ( DZE_Modules::enabled( 'discounts' ) || DZE_Modules::enabled( 'content' ) ) ) {
+				echo '<hr style="margin:28px 0;" />';
+				echo '<h2>' . esc_html__( 'Price endings', 'dazont-ecom' ) . '</h2>';
+				self::render_price_rounding();
+			}
 			echo '<hr style="margin:28px 0;" />';
 			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
@@ -558,6 +565,38 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			} );
 		} );
 		</script>
+		<?php
+	}
+
+	/**
+	 * The shared price-ending control. Its own form and its own option: it
+	 * belongs to no module in particular, and both Discounts and Product
+	 * Content read it.
+	 */
+	private static function render_price_rounding(): void {
+		$current = DZE_Price::mode();
+		?>
+		<form method="post" action="options.php" class="dze-admin">
+			<?php settings_fields( 'dze_price_options' ); ?>
+			<p class="description" style="max-width:820px;">
+				<?php esc_html_e( 'Computed prices land on the ending you pick instead of whatever the arithmetic produces. Sale prices round DOWN, so the reduction is never smaller than the percentage announced; selling prices computed from a cost round UP, so no margin is lost to the presentation.', 'dazont-ecom' ); ?>
+			</p>
+			<p>
+				<select name="<?php echo esc_attr( DZE_Price::OPTION ); ?>">
+					<?php foreach ( DZE_Price::endings() as $dze_k => $dze_e ) : ?>
+						<option value="<?php echo esc_attr( $dze_k ); ?>" <?php selected( $dze_k, $current ); ?>><?php echo esc_html( $dze_e['label'] ); ?></option>
+					<?php endforeach; ?>
+				</select>
+				<?php submit_button( __( 'Save', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
+			</p>
+			<?php $dze_pv = DZE_Price::preview(); ?>
+			<?php if ( $dze_pv ) : ?>
+				<p class="description"><strong><?php echo esc_html( $dze_pv ); ?></strong></p>
+			<?php endif; ?>
+			<p class="description" style="max-width:820px;">
+				<?php esc_html_e( 'Existing prices are untouched: the ending applies to what the plugin computes from now on. Endings at the unit level (.90, .95, .99) can give away up to one unit on a sale price — the ten-cent endings give away at most ten cents.', 'dazont-ecom' ); ?>
+			</p>
+		</form>
 		<?php
 	}
 

@@ -430,8 +430,11 @@ final class DZE_Discounts {
 		if ( $price <= 0 || $percent <= 0 ) {
 			return $price;
 		}
-		$decimals = function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2;
-		return round( $price * ( 1 - $percent / 100 ), $decimals );
+		// Rounded DOWN when charm rounding is on, so the price on the shelf is
+		// never above the percentage announced next to it. Must stay identical
+		// to set_row_sale() or the displayed price and the stored sale meta
+		// would disagree.
+		return DZE_Price::charm( $price * ( 1 - $percent / 100 ), 'down' );
 	}
 
 	private function product_in_scope( array $rule, int $product_id, int $parent_id = 0 ): bool {
@@ -1333,8 +1336,7 @@ final class DZE_Discounts {
 		if ( $regular <= 0 ) {
 			return;
 		}
-		$decimals = function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2;
-		$sale     = round( $regular * ( 1 - $pct / 100 ), $decimals );
+		$sale = DZE_Price::charm( $regular * ( 1 - $pct / 100 ), 'down' );
 		if ( $sale <= 0 || $sale >= $regular ) {
 			return;
 		}
