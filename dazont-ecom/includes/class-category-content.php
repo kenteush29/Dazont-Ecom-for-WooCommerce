@@ -695,6 +695,7 @@ PROMPT;
 			. 'OUTPUT: a JSON array of the kept numbers, nothing else. Example: [3,0,7]';
 
 		try {
+			DZE_Ai_Usage::unit( 'cat_sift' );
 			$raw = DZE_Marketing_Ai::complete(
 				'You sort search queries for an e-commerce category page. You are strict: a query that shares words with the category but is about another subject is dropped.',
 				$user,
@@ -702,7 +703,9 @@ PROMPT;
 				400,
 				30
 			);
+			DZE_Ai_Usage::unit();
 		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
 			return $questions;
 		}
 		if ( ! preg_match( '/\[[^\]]*\]/s', $raw, $m ) ) {
@@ -1094,6 +1097,7 @@ PROMPT;
 			. 'LANGUAGE: ' . self::language( $term_id ) . ".\n"
 			. 'OUTPUT: a JSON array of ' . $n . ' heading strings, nothing else.';
 
+		DZE_Ai_Usage::unit( 'cat_desc' );
 		$raw = DZE_Marketing_Ai::complete(
 			'You plan e-commerce category pages. You answer with JSON and nothing else.',
 			$user,
@@ -1101,6 +1105,7 @@ PROMPT;
 			800,
 			60
 		);
+		DZE_Ai_Usage::unit();
 		preg_match( '/\[.*\]/s', $raw, $m );
 		$list = $m ? json_decode( $m[0], true ) : null;
 		$out  = [];
@@ -1151,6 +1156,7 @@ PROMPT;
 			. 'LANGUAGE: write in ' . self::language( $term_id ) . ". This overrides the language of the instructions above.\n"
 			. "OUTPUT: the HTML fragment for this piece only — no markdown, no code fence, no comment, no <html> wrapper.";
 
+		DZE_Ai_Usage::unit( 'cat_desc' );
 		$html = DZE_Marketing_Ai::complete(
 			'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' ),
 			$user,
@@ -1158,6 +1164,7 @@ PROMPT;
 			$budget * 3 + 400,
 			90
 		);
+		DZE_Ai_Usage::unit();
 		$html = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
 		return wp_kses_post( $html );
 	}
@@ -1230,7 +1237,9 @@ PROMPT;
 		$system = 'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' );
 		// ~1.4 tokens per word, doubled so a long guide is never cut mid-sentence.
 		$budget = min( 16000, (int) ( $size['words'] * 3 ) + 900 );
+		DZE_Ai_Usage::unit( 'cat_desc' );
 		$html   = DZE_Marketing_Ai::complete( $system, $user, '', $budget, 240 );
+		DZE_Ai_Usage::unit();
 		$html   = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
 		if ( '' === $html ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
@@ -1322,7 +1331,9 @@ PROMPT;
 
 		$system = 'You are an SEO editor doing internal linking on an existing e-commerce category page. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
+		DZE_Ai_Usage::unit( 'cat_links' );
 		$out    = DZE_Marketing_Ai::complete( $system, $user, '', min( 16000, $words * 3 + 900 ), 240 );
+		DZE_Ai_Usage::unit();
 		$out    = trim( preg_replace( '/^```(?:html)?|```$/m', '', $out ) );
 		if ( '' === $out ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );

@@ -231,6 +231,11 @@ final class DZE_Queue {
 		if ( '' !== $err ) {
 			$wpdb->update( $table, [ 'status' => 'failed', 'error' => $err, 'updated' => current_time( 'mysql' ) ], [ 'id' => $id ] );
 		} elseif ( $done ) {
+			// One finished piece of work, whatever number of calls it took: that
+			// is what "a category description costs X" is measured against.
+			if ( class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::finished( (string) $job['kind'] );
+			}
 			$applied = ! empty( $job['auto_apply'] ) && self::apply( (string) $job['kind'], (int) $job['object_id'], $result );
 			$wpdb->update( $table, [
 				'status'  => ! empty( $job['auto_apply'] ) ? ( $applied ? 'applied' : 'failed' ) : 'review',

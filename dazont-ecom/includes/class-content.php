@@ -1030,6 +1030,7 @@ Answer with STRICT JSON and nothing else: "
 			. '[{"image": <number>, "feature": "<what this photograph shows, 4 to 12 words, factual, no sales language>"}]';
 
 		try {
+			DZE_Ai_Usage::unit( 'feature_pick' );
 			$raw = DZE_Marketing_Ai::complete_with_images(
 				'You look at product photographs and report what is visible in them. You never invent a detail you cannot see.',
 				$user,
@@ -1038,8 +1039,11 @@ Answer with STRICT JSON and nothing else: "
 				400
 			);
 		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
 			return [];
 		}
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::finished( 'feature_pick' );
 		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
 		$rows = json_decode( $json, true );
 		if ( ! is_array( $rows ) ) {
@@ -2538,6 +2542,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+		DZE_Ai_Usage::unit( 'product_text' );
 		try {
 			if ( $shots ) {
 				// The model writes about a photograph it can see, not about a
@@ -2561,8 +2566,11 @@ Answer with STRICT JSON and nothing else: "
 				$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
 			}
 		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::finished( 'product_text' );
 
 		// What each block was written against, so the screens can show it next
 		// to the text instead of leaving the choice invisible.
@@ -2912,7 +2920,10 @@ Answer with STRICT JSON and nothing else: "
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
 			$prompt   .= self::sources_instruction( $product_count, $scene );
+			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources );
+			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::finished( 'product_img' );
 
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session

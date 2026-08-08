@@ -44,6 +44,39 @@ final class DZE_Ai_Usage {
 	 * $flat_cost covers providers billed per unit rather than per token
 	 * (fal.ai images): it is added to the month's cost as-is.
 	 */
+	/**
+	 * What the current work IS, so a cost can be attributed to a job and not
+	 * only to a provider.
+	 *
+	 * "$18 on Anthropic this month" does not tell you whether a category
+	 * description is worth writing. "A category description costs $0.34" does.
+	 * A module names its unit before it calls, and clears it after.
+	 *
+	 * @var string
+	 */
+	private static string $unit = '';
+
+	/** Names the unit of work about to be charged ('' clears it). */
+	public static function unit( string $unit = '' ): void {
+		self::$unit = sanitize_key( $unit );
+	}
+
+	/** Human labels for the units the plugin charges to. */
+	public static function units(): array {
+		return [
+			'cat_desc'    => __( 'Category description', 'dazont-ecom' ),
+			'cat_links'   => __( 'Internal linking pass', 'dazont-ecom' ),
+			'cat_sift'    => __( 'Buyer-question sifting', 'dazont-ecom' ),
+			'product_text'=> __( 'Product texts (one run)', 'dazont-ecom' ),
+			'product_img' => __( 'Product image', 'dazont-ecom' ),
+			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),
+			'pod'         => __( 'POD mockup', 'dazont-ecom' ),
+			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),
+			'sourcing'    => __( 'Sourcing analysis', 'dazont-ecom' ),
+			'other'       => __( 'Everything else', 'dazont-ecom' ),
+		];
+	}
+
 	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0 ): void {
 		$data = get_option( self::OPT, [] );
 		$data = is_array( $data ) ? $data : [];
@@ -68,9 +101,68 @@ final class DZE_Ai_Usage {
 		$d['out']  += max( 0, $tokens_out );
 		$d['cost']  = round( (float) $d['cost'] + $cost, 4 );
 		$data[ $m ]['_days'][ $day ][ $name ] = $d;
+
+		// Per unit of work: how many were made, and what they cost together.
+		// Averaging those two is the answer to "what does one of these cost".
+		$unit = self::$unit ?: 'other';
+		$u    = (array) ( $data[ $m ]['_units'][ $unit ] ?? [ 'calls' => 0, 'runs' => 0, 'cost' => 0.0 ] );
+		$u['calls']++;
+		$u['cost'] = round( (float) $u['cost'] + $cost, 4 );
+		$data[ $m ]['_units'][ $unit ] = $u;
+
 		krsort( $data );
 		$data = array_slice( $data, 0, 18, true ); // keep 18 months max.
 		update_option( self::OPT, $data, false );
+	}
+
+	/**
+	 * Counts one FINISHED unit of work, whatever number of calls it took.
+	 *
+	 * A category description is eight calls and one description; dividing its
+	 * cost by the number of calls would answer a question nobody asked.
+	 */
+	public static function finished( string $unit, int $n = 1 ): void {
+		$unit = sanitize_key( $unit );
+		if ( '' === $unit ) {
+			return;
+		}
+		$data = get_option( self::OPT, [] );
+		$data = is_array( $data ) ? $data : [];
+		$m    = gmdate( 'Y-m' );
+		$u    = (array) ( $data[ $m ]['_units'][ $unit ] ?? [ 'calls' => 0, 'runs' => 0, 'cost' => 0.0 ] );
+		$u['runs'] = (int) ( $u['runs'] ?? 0 ) + max( 1, $n );
+		$data[ $m ]['_units'][ $unit ] = $u;
+		update_option( self::OPT, $data, false );
+	}
+
+	/**
+	 * What one of each thing costs this month.
+	 *
+	 * @return array<int,array{unit:string,label:string,runs:int,calls:int,cost:float,each:float}>
+	 */
+	public static function unit_report( string $month = '' ): array {
+		$data  = get_option( self::OPT, [] );
+		$month = $month ?: gmdate( 'Y-m' );
+		$rows  = (array) ( $data[ $month ]['_units'] ?? [] );
+		$labels = self::units();
+		$out   = [];
+		foreach ( $rows as $unit => $r ) {
+			$runs  = (int) ( $r['runs'] ?? 0 );
+			$calls = (int) ( $r['calls'] ?? 0 );
+			$cost  = (float) ( $r['cost'] ?? 0 );
+			// No finished run recorded (a one-call unit): the calls ARE the runs.
+			$div   = $runs ?: $calls;
+			$out[] = [
+				'unit'  => (string) $unit,
+				'label' => (string) ( $labels[ $unit ] ?? $unit ),
+				'runs'  => $div,
+				'calls' => $calls,
+				'cost'  => round( $cost, 4 ),
+				'each'  => $div ? round( $cost / $div, 4 ) : 0.0,
+			];
+		}
+		usort( $out, static fn( $a, $b ) => $b['cost'] <=> $a['cost'] );
+		return $out;
 	}
 
 	/** Estimated spend (USD) recorded for the current month, all providers. */
@@ -79,7 +171,8 @@ final class DZE_Ai_Usage {
 		$rows = is_array( $data ) ? ( $data[ gmdate( 'Y-m' ) ] ?? [] ) : [];
 		$sum  = 0.0;
 		foreach ( (array) $rows as $k => $r ) {
-			if ( '_days' === $k ) {
+			// The breakdown buckets hold the SAME money as the provider rows.
+			if ( '_days' === $k || '_units' === $k ) {
 				continue;
 			}
 			$sum += (float) ( $r['cost'] ?? 0 );
@@ -124,7 +217,8 @@ final class DZE_Ai_Usage {
 		$month = '' !== $month ? $month : gmdate( 'Y-m' );
 		$sum   = 0.0;
 		foreach ( (array) ( is_array( $data ) ? ( $data[ $month ] ?? [] ) : [] ) as $k => $r ) {
-			if ( '_days' === $k ) {
+			// The breakdown buckets hold the SAME money as the provider rows.
+			if ( '_days' === $k || '_units' === $k ) {
 				continue;
 			}
 			$sum += (float) ( $r['cost'] ?? 0 );
@@ -161,8 +255,47 @@ final class DZE_Ai_Usage {
 			$month = gmdate( 'Y-m' );
 		}
 		self::render_summary();
+		self::render_units( $month );
 		self::render_days( $month );
 		self::render_months( $limit );
+	}
+
+	/**
+	 * What one of each thing costs.
+	 *
+	 * The month total tells you whether the budget holds; this tells you
+	 * whether a job is worth doing — the only figure that answers "should I
+	 * rewrite two hundred categories".
+	 */
+	public static function render_units( string $month = '' ): void {
+		$rows = self::unit_report( $month );
+		if ( ! $rows ) {
+			return;
+		}
+		echo '<h3 style="margin:22px 0 6px;">' . esc_html__( 'What one costs', 'dazont-ecom' ) . '</h3>';
+		echo '<table class="widefat striped" style="max-width:760px;"><thead><tr>'
+			. '<th>' . esc_html__( 'Unit of work', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Each', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Done', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Total', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
+			. '</tr></thead><tbody>';
+		foreach ( $rows as $r ) {
+			printf(
+				'<tr><td>%1$s</td><td style="text-align:right;"><strong>$%2$s</strong></td>'
+					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">$%4$s</td>'
+					. '<td style="text-align:right;color:#646970;">%5$s</td></tr>',
+				esc_html( $r['label'] ),
+				esc_html( number_format( $r['each'], $r['each'] < 0.01 ? 4 : 3 ) ),
+				esc_html( number_format_i18n( $r['runs'] ) ),
+				esc_html( number_format( $r['cost'], 2 ) ),
+				esc_html( number_format_i18n( $r['calls'] ) )
+			);
+		}
+		echo '</tbody></table>';
+		echo '<p class="description" style="max-width:760px;">'
+			. esc_html__( 'Average over what was actually produced this month, at published token prices. A category description is one unit however many calls it takes; an image is one unit. "Calls" is there to show where a unit is expensive because it is long, rather than because it is frequent.', 'dazont-ecom' )
+			. '</p>';
 	}
 
 	/** Today, this month, last month, and what is left of the budget. */
