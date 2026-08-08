@@ -2193,6 +2193,14 @@ Answer with STRICT JSON and nothing else: "
 			'sourceN'    => $pid ? count( self::product_source_ids( $pid ) ) : 0,
 			// Said before the click, not after a failed generation.
 			'blockers'   => self::image_blockers(),
+			// A rich editor for what is really HTML; a plain box for a title or
+			// a meta description, which TinyMCE would wrap in a <p>.
+			'rich'       => array_map(
+				static fn( $f ) => in_array( (string) ( $f['dest'] ?? '' ), [ 'post_content', 'post_excerpt', 'meta' ], true ),
+				self::enabled_fields()
+			),
+			// Content generated here or in bulk and never decided on.
+			'pending'    => $pid ? self::pending( $pid ) : [],
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'product'    => [
@@ -2232,6 +2240,30 @@ Answer with STRICT JSON and nothing else: "
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
 				'noScene'    => __( 'No scene', 'dazont-ecom' ),
 				'sceneHelp'  => __( 'The fixed support or background added as a second image, so every product is shot in the same setting. Manage the list under Settings → Product content.', 'dazont-ecom' ),
+				// The toolbox now runs the same flow as the bulk screen and needs
+				// the same words for it.
+				'costLabel'  => __( 'Cost', 'dazont-ecom' ),
+				'attempts'   => __( 'Attempts', 'dazont-ecom' ),
+				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
+				'applyOne'   => __( 'Apply to the product', 'dazont-ecom' ),
+				'redoAll'    => __( 'Write every text again', 'dazont-ecom' ),
+				'redoOne'    => __( 'Write this one again', 'dazont-ecom' ),
+				'redoShort'  => __( 'Rewrite', 'dazont-ecom' ),
+				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
+				'discard'    => __( 'Discard', 'dazont-ecom' ),
+				'compare'    => __( 'Current', 'dazont-ecom' ),
+				'compareHelp'=> __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
+				'nowText'    => __( 'On the product today', 'dazont-ecom' ),
+				'nowImages'  => __( 'Photographs already on the product', 'dazont-ecom' ),
+				'empty'      => __( '(empty)', 'dazont-ecom' ),
+				'working'    => __( 'Working…', 'dazont-ecom' ),
+				'applying'   => __( 'Applying…', 'dazont-ecom' ),
+				'partial'    => __( '%1$s of %2$s written', 'dazont-ecom' ),
+				'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
+				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
+				'confirmRedo'=> __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
+				'confirmDrop'=> __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
 				'imgWait'    => __( 'Rendering — up to a minute…', 'dazont-ecom' ),
 				'imgAdded'   => __( 'Image added.', 'dazont-ecom' ),

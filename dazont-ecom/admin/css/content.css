@@ -514,5 +514,31 @@
 	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 4px;
 	padding: 8px 10px; margin: 0 0 8px; max-height: 220px; overflow: auto;
 }
+/* The current content is shown AS CONTENT: the admin stylesheet strips list
+   markers and heading sizes, so a description pasted in raw came out as a
+   grey run-on paragraph with its bullets missing. */
 .dze-cb-nowbody { font-size: 12px; line-height: 1.6; color: #50575e; }
 .dze-cb-nowbody p { margin: 0 0 .6em; }
+.dze-cb-nowbody ul, .dze-cb-nowbody ol { margin: 0 0 .6em 1.6em; padding: 0; }
+.dze-cb-nowbody ul { list-style: disc; }
+.dze-cb-nowbody ol { list-style: decimal; }
+.dze-cb-nowbody li { margin: 0 0 .25em; display: list-item; }
+.dze-cb-nowbody h1, .dze-cb-nowbody h2, .dze-cb-nowbody h3, .dze-cb-nowbody h4 {
+	font-size: 13px; font-weight: 600; margin: .8em 0 .3em; color: #1d2327;
+}
+.dze-cb-nowbody strong { font-weight: 600; color: #1d2327; }
+.dze-cb-nowbody em { font-style: italic; }
+.dze-cb-nowbody a { text-decoration: underline; }
+.dze-cb-nowbody img { max-width: 100%; height: auto; }
+.dze-cb-nowbody table { border-collapse: collapse; }
+.dze-cb-nowbody td, .dze-cb-nowbody th { border: 1px solid #dcdcde; padding: 3px 6px; }
+.dze-cb-nowbody blockquote { margin: 0 0 .6em; padding-left: 10px; border-left: 3px solid #dcdcde; }
+
+
+/* ---- Product toolbox: the bulk screen's flow, for one product ---- */
+.dze-cx-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e2e4e7; }
+.dze-cx-result .dze-cb-prev { margin-bottom: 4px; }
+.dze-cx-state { font-size: 12px; color: #646970; }
+.dze-cx-state.is-ko { color: #b32d2e; }
+.dze-cx-body .dze-cb-controls { margin-top: 0; border: none; padding: 0; max-width: none; }
+.dze-cx-body .dze-cb-block:first-of-type { padding-top: 0; }

@@ -73,17 +73,38 @@
 		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
 		syncTplRows();
 	}
-	// Only the last row offers +, and − disappears when one row is left: there
-	// is nothing to remove when there is nothing without it.
+	// A + that cannot add anything is a lie: it only shows while an unused
+	// prompt is left, and − disappears when one row is left.
+	function tplCount() { return $('#dze-cb-tpltpl').length ? $($('#dze-cb-tpltpl').html()).find('option').length : 0; }
 	function syncTplRows() {
 		var $rows = $('#dze-cb-tplrows .dze-tplrow');
+		var room = $rows.length < tplCount();
 		$rows.each(function (i) {
-			$(this).find('.dze-tpl-add').toggle(i === $rows.length - 1);
+			$(this).find('.dze-tpl-add').toggle(room && i === $rows.length - 1);
 			$(this).find('.dze-tpl-del').toggle($rows.length > 1);
 		});
 	}
+	function firstFreeTpl() {
+		var used = $('#dze-cb-tplrows .dze-cb-tpl').map(function () { return $(this).val(); }).get();
+		var free = '';
+		$($('#dze-cb-tpltpl').html()).find('option').each(function () {
+			if (free === '' && used.indexOf($(this).val()) < 0) { free = $(this).val(); }
+		});
+		return free;
+	}
+	// Two rows on the same prompt would generate the same thing twice without
+	// saying so: the duplicate falls back to a free one.
+	$(document).on('change', '#dze-cb-tplrows .dze-cb-tpl', function () {
+		var used = {}, $me = $(this);
+		$('#dze-cb-tplrows .dze-cb-tpl').each(function () {
+			var v = $(this).val();
+			if (used[v] && this === $me[0]) { $me.val(firstFreeTpl()); }
+			else if (used[v]) { $(this).val(firstFreeTpl()); }
+			used[$(this).val()] = 1;
+		});
+	});
 	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
-		$('#dze-cb-tplrows').append(tplRow(''));
+		$('#dze-cb-tplrows').append(tplRow(firstFreeTpl()));
 		syncTplRows();
 		persist();
 	});
