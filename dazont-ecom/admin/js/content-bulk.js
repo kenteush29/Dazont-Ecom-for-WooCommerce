@@ -101,6 +101,10 @@
 			$b = $('<span class="dze-cb-badge" data-k="' + esc(key) + '"></span>').appendTo($wrap);
 		}
 		$b.html(esc(label) + ' <span class="dze-cb-badgecheck">✓</span>');
+	}
+	// Only offered when there is really something behind it: in direct mode the
+	// content went straight to the product and there is no panel to open.
+	function offerReview(id) {
 		$('.dze-cb-row[data-id="' + id + '"]').find('.dze-cb-toggle').show();
 	}
 	function progress(label) {
@@ -167,12 +171,14 @@
 			b.texts[fid] = texts[fid] || '';
 			badge(id, fid, cfg.fields[fid] || fid);
 		});
+		offerReview(id);
 	}
 	function addShot(id, url) {
 		if (!url) { return; }
 		var b = bucket(id);
 		b.shots.push(url);
 		badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length);
+		offerReview(id);
 		if (b.built) { renderShots(id); }
 	}
 
@@ -185,13 +191,25 @@
 		Object.keys(b.texts).forEach(function (fid) {
 			var eid = editorId(id, fid);
 			html += '<div class="dze-cb-prevfield" data-field="' + fid + '" data-editor="' + eid + '">' +
-				'<label>' + esc(cfg.fields[fid] || fid) + '<span class="dze-cb-prevstate"></span></label>' +
+				'<label>' + esc(cfg.fields[fid] || fid) +
+					'<span class="dze-cb-labelright">' +
+						'<span class="dze-cb-prevstate"></span>' +
+						'<button type="button" class="dze-cb-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻</button>' +
+					'</span></label>' +
 				(isRich(fid)
 					? '<textarea id="' + eid + '" class="dze-cb-ed">' + esc(b.texts[fid]) + '</textarea>'
 					: '<textarea id="' + eid + '" class="dze-cb-plain" rows="3">' + esc(b.texts[fid]) + '</textarea>') +
 				'</div>';
 		});
-		html += '</div><div class="dze-cb-shots-slot"></div>';
+		html += '</div>' +
+			'<p class="dze-cb-panelbar">' +
+				(Object.keys(b.texts).length
+					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
+				(b.shots.length || rowWantsImage(id)
+					? '<button type="button" class="button button-small dze-cb-onemore">↻ ' + esc(i18n.oneMore) + '</button> ' : '') +
+				'<span class="dze-cb-panelstate"></span>' +
+			'</p>' +
+			'<div class="dze-cb-shots-slot"></div>';
 		$cell.html(html);
 		b.built = true;
 		renderShots(id);
@@ -213,6 +231,14 @@
 	function renderShots(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
 		if (!$slot.length || !b.shots.length) { return; }
+		// Adding one more attempt redraws the strip: what was already ticked or
+		// unticked, and where they were headed, survives the redraw.
+		var $old = $slot.find('.dze-cb-shots');
+		var dropped = {}, target = '';
+		if ($old.length) {
+			target = $old.find('.dze-cb-shottarget').val() || '';
+			$old.find('.dze-cb-shot').not('.is-sel').each(function () { dropped[$(this).data('url')] = true; });
+		}
 		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div>' +
 			'<select class="dze-cb-shottarget">' +
 				'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
@@ -220,11 +246,13 @@
 			'</select> <span class="dze-cb-shotstate"></span></div>');
 		b.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
-				$('<div class="dze-cb-shot is-sel"><span class="dze-cb-shotcheck">✓</span></div>')
+				$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
+					.toggleClass('is-sel', !dropped[url])
 					.attr('data-url', url)
 					.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''))
 			);
 		});
+		if (target) { $wrap.find('.dze-cb-shottarget').val(target); }
 		$slot.empty().append($wrap);
 	}
 
@@ -235,6 +263,75 @@
 		}
 		return $('#' + eid).val() || '';
 	}
+
+	// ---- Regenerating, from where you are reading ----
+	// A text you have just read and disliked is redone in place. An edit you
+	// made yourself is never thrown away without asking.
+	function rowWantsImage(id) {
+		return $('.dze-cb-row[data-id="' + id + '"]').find('.dze-cb-row-img').is(':checked');
+	}
+	function setEditorValue(id, fid, html) {
+		var eid = editorId(id, fid);
+		if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) { tinymce.get(eid).setContent(html); }
+		else { $('#' + eid).val(html); }
+	}
+	function edited(id, fid) {
+		var b = bucket(id);
+		if (!b.built) { return false; }
+		return editorGet(editorId(id, fid)) !== (b.texts[fid] || '');
+	}
+
+	function regenerate(id, fids, $state) {
+		var b = bucket(id);
+		var keep = fids.filter(function (fid) { return edited(id, fid); });
+		if (keep.length && !window.confirm(sprintf(i18n.confirmRedo, keep.length))) { return; }
+		$state.removeClass('is-ko').text(i18n.working);
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, fields: fids })
+			.done(function (res) {
+				if (!res || !res.success) {
+					$state.addClass('is-ko').text(reason((res && res.data && res.data.message) || i18n.error));
+					return;
+				}
+				var texts = res.data.texts || {};
+				fids.forEach(function (fid) {
+					b.texts[fid] = texts[fid] || '';
+					setEditorValue(id, fid, b.texts[fid]);
+				});
+				$state.text('✓');
+				window.setTimeout(function () { $state.text(''); }, 2000);
+			})
+			.fail(function (x) { $state.addClass('is-ko').text(reason(x)); });
+	}
+
+	$(document).on('click', '.dze-cb-redo', function () {
+		var $btn = $(this), id = $btn.closest('.dze-cb-preview').data('id');
+		regenerate(id, [ $btn.data('field') ], $btn.closest('label').find('.dze-cb-prevstate'));
+	});
+	$(document).on('click', '.dze-cb-redoall', function () {
+		var $btn = $(this), id = $btn.closest('.dze-cb-preview').data('id');
+		regenerate(id, Object.keys(bucket(id).texts), $btn.closest('p').find('.dze-cb-panelstate'));
+	});
+	// One more attempt at the image, without re-running the whole list.
+	$(document).on('click', '.dze-cb-onemore', function () {
+		var $btn = $(this).prop('disabled', true);
+		var id = $btn.closest('.dze-cb-preview').data('id');
+		var $row = $('.dze-cb-row[data-id="' + id + '"]');
+		var $state = $btn.closest('p').find('.dze-cb-panelstate').removeClass('is-ko').text(i18n.working);
+		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, mode: 'defer', template: $row.find('.dze-cb-row-tpl').val() };
+		var $sc = $('#dze-cb-scene');
+		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
+		$.post(cfg.ajaxUrl, data)
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res || !res.success) {
+					$state.addClass('is-ko').text(reason((res && res.data && res.data.message) || i18n.error));
+					return;
+				}
+				addShot(id, res.data.url);
+				$state.text('');
+			})
+			.fail(function (x) { $btn.prop('disabled', false); $state.addClass('is-ko').text(reason(x)); });
+	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
 		var $btn = $(this), id = $btn.closest('.dze-cb-row').data('id');

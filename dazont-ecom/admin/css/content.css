@@ -242,7 +242,17 @@
 	width: 100% !important; box-sizing: border-box; font-size: 13px; line-height: 1.5;
 	resize: vertical; padding: 6px 8px; background: #fff;
 }
-.dze-cb-prevstate { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.dze-cb-prevstate { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; color: #646970; }
+.dze-cb-prevstate.is-ko, .dze-cb-panelstate.is-ko { color: #b32d2e; }
+.dze-cb-labelright { display: inline-flex; align-items: center; gap: 6px; }
+/* Write it again, from where you are reading it. */
+.dze-cb-redo {
+	background: transparent; border: none; cursor: pointer; color: #a7aaad;
+	font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.dze-cb-redo:hover { color: #2271b1; }
+.dze-cb-panelbar { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; }
+.dze-cb-panelstate { font-size: 12px; color: #646970; }
 .dze-cb-shots-slot:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
 /* Generated images awaiting a decision: one line, thumbnails + destination. */
 .dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; }
