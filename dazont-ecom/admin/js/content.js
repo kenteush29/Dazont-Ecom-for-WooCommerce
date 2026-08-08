@@ -12,6 +12,10 @@
 	var MEM = 'dzeContentMem';
 
 	function esc(s) { return $('<div>').text(s == null ? '' : s).html(); }
+	function sprintf(str) {
+		var args = Array.prototype.slice.call(arguments, 1), i = 0;
+		return String(str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
+	}
 	function mem() { try { return JSON.parse(localStorage.getItem(MEM) || '{}'); } catch (e) { return {}; } }
 	function saveMem(o) { try { localStorage.setItem(MEM, JSON.stringify(o)); } catch (e) {} }
 
@@ -155,6 +159,9 @@
 				'</div>' +
 				// IMAGE lab
 				'<div class="dze-cx-pane" data-pane="image">' +
+					'<p class="dze-cx-datause">' + esc(
+						cfg.sourceN > 1 ? sprintf(i18n.sourcesN, cfg.sourceN) : (cfg.sourceN === 1 ? i18n.sources1 : i18n.sources0)
+					) + '</p>' +
 					'<div class="dze-cx-imgrow">' +
 						'<label>' + esc(i18n.template) + ' <select id="dze-cx-tpl">' + tplOpts + '</select></label>' +
 						scenePicker('dze-cx-scene') +

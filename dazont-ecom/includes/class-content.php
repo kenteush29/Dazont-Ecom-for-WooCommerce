@@ -33,6 +33,11 @@ final class DZE_Content {
 
 	private const FAL_ENDPOINT = 'https://fal.run/fal-ai/nano-banana-2/edit';
 
+	/** How many photographs of the product travel with one generation. */
+	public const MAX_SOURCES = 6;
+	/** Ceiling on the encoded images in one request body, in bytes. */
+	private const MAX_PAYLOAD = 9437184; // 9 MB.
+
 	public const BULK_SLUG   = 'dazont-content-bulk';
 	private const BULK_ACTION = 'dze_ai_content';
 
@@ -723,6 +728,38 @@ EOT;
 				'prompt'  => (string) ( $r['prompt'] ?? '' ),
 				'default' => ! empty( $r['default'] ),
 			];
+		}
+		return $out;
+	}
+
+	/**
+	 * The paragraph that tells the model what each image it received IS.
+	 *
+	 * Without it, several photographs of one product read as several products,
+	 * and a scene reads as something to blend the product into. It is appended
+	 * to the prompt rather than written into it, so the owner's own prompts
+	 * never have to carry this plumbing.
+	 *
+	 * @param int        $count Number of product photographs sent.
+	 * @param array|null $scene The scene, when one is used, sent last.
+	 */
+	public static function sources_instruction( int $count, ?array $scene ): string {
+		$out = "\n\n";
+		if ( $count > 1 ) {
+			$out .= sprintf(
+				'IMAGES 1 TO %1$d ARE ALL PHOTOGRAPHS OF ONE SINGLE PRODUCT, taken from different angles and distances — overall views, details, close-ups of the material. Read them together to know exactly what the product looks like: its complete shape, its complete pattern, its real colours and its real texture. Image 1 is the reference for the overall look; the others fill in what image 1 does not show.',
+				$count
+			);
+			$out .= ' NEVER invent, complete, extend or redraw any part of the product. If a part of it is not visible in any of the photographs, keep it out of the frame rather than making it up.';
+		} else {
+			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
+		}
+		if ( $scene ) {
+			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the support, background and lighting to place the product in — it is not a product and nothing in it must end up looking like one.', $count + 1 );
+			if ( '' !== trim( (string) $scene['prompt'] ) ) {
+				$out .= "\n" . trim( (string) $scene['prompt'] );
+			}
+			$out .= "\nThe result must look like one photograph: consistent perspective, contact shadows where the product meets the surface, and the light of the scene falling on the product.";
 		}
 		return $out;
 	}
@@ -1637,6 +1674,10 @@ EOT;
 				self::scenes()
 			),
 			'sceneDef'   => self::default_scene(),
+			// How many photographs of this product travel with a generation —
+			// stated on screen, because "which image did it actually use?" is
+			// the first question when a result comes back wrong.
+			'sourceN'    => $pid ? count( self::product_source_ids( $pid ) ) : 0,
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'product'    => [
@@ -1668,6 +1709,9 @@ EOT;
 				'pAttr'      => __( 'Supplier attributes / extra data', 'dazont-ecom' ),
 				'template'   => __( 'Template', 'dazont-ecom' ),
 				'scene'      => __( 'Scene', 'dazont-ecom' ),
+				'sources1'   => __( '1 product photo sent as reference (the featured image).', 'dazont-ecom' ),
+				'sourcesN'   => __( '%s product photos sent as reference: the featured image and the gallery.', 'dazont-ecom' ),
+				'sources0'   => __( 'No product photo to send — set a featured image first.', 'dazont-ecom' ),
 				'noScene'    => __( 'No scene', 'dazont-ecom' ),
 				'sceneHelp'  => __( 'The fixed support or background added as a second image, so every product is shot in the same setting. Manage the list under Settings → Product content.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
@@ -2087,8 +2131,10 @@ EOT;
 			// product image, which is what the generic reader error would blame.
 			wp_send_json_error( [ 'message' => __( 'The scene image is missing from the media library — pick it again under Settings → Product content.', 'dazont-ecom' ) ] );
 		}
-		$thumb_id = get_post_thumbnail_id( $pid );
-		if ( '' === $src && ! $thumb_id ) {
+		// Every photograph of the product goes out, not just the featured one:
+		// a single cropped shot is what makes the model invent the rest.
+		$product_ids = self::product_source_ids( $pid );
+		if ( '' === $src && ! $product_ids ) {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
 
@@ -2097,13 +2143,6 @@ EOT;
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
 		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . $base;
-		if ( $scene ) {
-			// Two images go out, so the model must be told which is which —
-			// otherwise it happily redraws the product to match the scene.
-			$prompt .= "\n\nTWO IMAGES ARE PROVIDED. Image 1 is THE PRODUCT: keep it exactly as it is — same shape, same colours, same materials, same proportions, no redesign. Image 2 is THE SCENE: the support, background and lighting to place the product in."
-				. ( '' !== trim( $scene['prompt'] ) ? "\n" . $scene['prompt'] : '' )
-				. "\nThe result must look like one photograph: consistent perspective, contact shadows on the surface, and the light of the scene falling on the product.";
-		}
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -2112,11 +2151,41 @@ EOT;
 		try {
 			// Sources: fal's own CDN URLs pass through; local files go as data URIs
 			// (fal cannot always fetch staging/hotlink-protected site URLs).
-			$source  = '' !== $src ? $src : $this->fal_source_data_uri( (int) $thumb_id );
-			$sources = [ $source ];
+			$sources = [];
+			$weight  = 0;
+			if ( '' !== $src ) {
+				// Editing one precise image: that image is the subject, on its own.
+				$sources[] = $src;
+			} else {
+				// Everything we have of this product. The featured image comes
+				// first and is never dropped; the rest joins while the request
+				// body stays a sane size, and a broken file is skipped instead
+				// of taking the whole generation down with it.
+				foreach ( $product_ids as $i => $aid ) {
+					try {
+						// The featured image is the one the result is built on,
+						// so it goes at full working size; the others are read
+						// for information only and travel smaller — a lighter
+						// request body and a faster answer, same understanding.
+						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'large' );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+					if ( $i > 0 && ( $weight + strlen( $uri ) ) > self::MAX_PAYLOAD ) {
+						break;
+					}
+					$weight   += strlen( $uri );
+					$sources[] = $uri;
+				}
+			}
+			if ( ! $sources ) {
+				throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
+			}
+			$product_count = count( $sources );
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
+			$prompt   .= self::sources_instruction( $product_count, $scene );
 			$image_url = $this->fal_generate( $prompt, $sources );
 
 			if ( 'defer' === $mode ) {
@@ -2390,9 +2459,39 @@ EOT;
 	 * returns it as a base64 data URI, which fal decodes directly — removing every
 	 * "fal cannot reach the source URL" failure (private staging, hotlink rules).
 	 */
-	public function fal_source_data_uri( int $attachment_id ): string {
+	/**
+	 * Every photograph of the product, featured image first, then the gallery.
+	 *
+	 * One photo is rarely enough to describe a product: a cropped in-situ shot
+	 * hides half the pattern, a macro hides the shape. Given the whole set, the
+	 * model has no gap left to fill in with an invention of its own — which is
+	 * exactly how a rug comes back with a design that was never woven.
+	 *
+	 * Capped, because each image travels as base64 in the request body and a
+	 * 20-photo gallery would turn one generation into a 30 MB upload.
+	 *
+	 * @return int[] Attachment ids.
+	 */
+	public static function product_source_ids( int $pid ): array {
+		$ids     = [];
+		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+		$thumb   = (int) get_post_thumbnail_id( $pid );
+		if ( $thumb ) {
+			$ids[] = $thumb;
+		}
+		if ( $product ) {
+			foreach ( (array) $product->get_gallery_image_ids() as $gid ) {
+				$ids[] = (int) $gid;
+			}
+		}
+		$ids = array_values( array_unique( array_filter( $ids ) ) );
+		$ids = array_values( array_filter( $ids, static fn( $id ) => wp_attachment_is_image( (int) $id ) ) );
+		return array_slice( $ids, 0, self::MAX_SOURCES );
+	}
+
+	public function fal_source_data_uri( int $attachment_id, string $wanted = 'large' ): string {
 		$path = '';
-		$size = image_get_intermediate_size( $attachment_id, 'large' );
+		$size = image_get_intermediate_size( $attachment_id, $wanted );
 		if ( is_array( $size ) && ! empty( $size['path'] ) ) {
 			$uploads = wp_get_upload_dir();
 			$try     = trailingslashit( (string) $uploads['basedir'] ) . $size['path'];
@@ -2408,7 +2507,7 @@ EOT;
 		}
 		$bytes = '' !== $path ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- local file.
 		if ( false === $bytes || '' === $bytes ) {
-			$url  = (string) wp_get_attachment_image_url( $attachment_id, 'large' );
+			$url  = (string) wp_get_attachment_image_url( $attachment_id, $wanted );
 			$resp = $url ? wp_remote_get( $url, [ 'timeout' => 30 ] ) : null;
 			if ( $resp && ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
 				$bytes = wp_remote_retrieve_body( $resp );
