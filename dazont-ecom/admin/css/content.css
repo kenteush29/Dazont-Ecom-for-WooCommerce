@@ -293,6 +293,26 @@
 .dze-cb-panelstate { font-size: 12px; color: #646970; }
 .dze-cb-panelstate.is-ko { color: #b32d2e; }
 .dze-cb-shots-slot:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+/* Generated images awaiting a decision: one line of small tiles, hover to see
+   one full size. Without these rules they render at their natural size and
+   swallow the screen. */
+.dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.dze-cb-shot {
+	position: relative; width: 62px; height: 62px; flex: 0 0 62px;
+	border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; background: #f6f7f7;
+}
+.dze-cb-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dze-cb-shot.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+.dze-cb-shot .dze-cb-shotcheck {
+	position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent;
+	font-size: 10px; line-height: 14px; text-align: center;
+}
+.dze-cb-shot.is-sel .dze-cb-shotcheck { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-cb-shottarget { max-width: 190px; }
+.dze-cb-shotstate { font-size: 12px; color: #646970; }
+.dze-cb-shotstate.is-ko { color: #b32d2e; }
 .dze-cb-table { width: 100%; max-width: 1100px; border-collapse: collapse; margin-top: 14px; background: #fff; }
 .dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 6px 8px; text-align: left; vertical-align: middle; }
 .dze-cb-table th { background: #f6f7f7; font-size: 12px; }

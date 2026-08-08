@@ -48,6 +48,7 @@
 			$('#dze-cb-scene').val(String(m.scene));
 		}
 		if (typeof m.imgn !== 'undefined') { $('#dze-cb-imgn').val(String(m.imgn)); }
+		if (typeof m.par !== 'undefined') { $('#dze-cb-par').val(String(m.par)); }
 	}());
 
 	function persist() {
@@ -58,9 +59,10 @@
 		m.tpls = tpls();
 		if ($('#dze-cb-scene').length) { m.scene = parseInt($('#dze-cb-scene').val(), 10); }
 		if ($('#dze-cb-imgn').length) { m.imgn = parseInt($('#dze-cb-imgn').val(), 10); }
+		if ($('#dze-cb-par').length) { m.par = parseInt($('#dze-cb-par').val(), 10); }
 		saveMem(m);
 	}
-	$('.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn').on('change', persist);
+	$('.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par').on('change', persist);
 	// The image prompts ticked at the top: every one of them runs on every
 	// product of the list.
 	function tpls() {
@@ -139,7 +141,9 @@
 
 	function textAllTask(id, fids, review) {
 		var data = { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, fields: fids };
-		if (!review) { data.apply = 1; }
+		// Reviewed content is kept on the product, not in this tab: a closed
+		// window must not throw away what has just been paid for.
+		if (review) { data.stash = 1; } else { data.apply = 1; }
 		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
@@ -179,7 +183,7 @@
 	// decision for the run, not one per line.
 	function imageRequest(id, review, tpl) {
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
-		if (review) { data.mode = 'defer'; }
+		if (review) { data.mode = 'defer'; data.stash = 1; }
 		var $sc = $('#dze-cb-scene');
 		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
 		return data;
@@ -286,6 +290,7 @@
 				(Object.keys(b.texts).length
 					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
 				'<button type="button" class="button button-small dze-cb-onemore">↻ ' + esc(i18n.oneMore) + '</button> ' +
+				'<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>' +
 				'<span class="dze-cb-panelstate"></span>' +
 			'</p>' +
 			'<div class="dze-cb-shots-slot"></div>';
@@ -364,6 +369,20 @@
 		return b.open[fid] ? editorGet(editorId(id, fid)) : (b.texts[fid] || '');
 	}
 
+	// Waiting content you no longer want. The only other way out was to accept
+	// it, which is not a choice.
+	$(document).on('click', '.dze-cb-drop', function () {
+		if (!window.confirm(i18n.confirmDrop)) { return; }
+		var id = $(this).closest('.dze-cb-preview').data('id');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+		delete results[id];
+		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
+		$row(id).find('.dze-cb-badges').empty();
+		$row(id).find('.dze-cb-toggle').hide();
+		state[id] = { total: 1, done: 1, notes: [], failed: false };
+		paint(id, 'wait');
+	});
+
 	$(document).on('click', '.dze-cb-toggle', function () {
 		var $btn = $(this), id = $btn.closest('.dze-cb-row').data('id');
 		var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
@@ -440,6 +459,29 @@
 			.fail(function (x) { $btn.prop('disabled', false); $state.addClass('is-ko').text(reason(x)); });
 	});
 
+	// Whatever was left undecided last time is put back on screen as it was.
+	(function restorePending() {
+		var p = cfg.pending || {};
+		Object.keys(p).forEach(function (id) {
+			var waiting = p[id] || {};
+			var texts = waiting.texts || {};
+			var b = bucket(id);
+			b.shotOf = waiting.companions || {};
+			Object.keys(texts).forEach(function (fid) {
+				b.texts[fid] = texts[fid] || '';
+				badge(id, fid, cfg.fields[fid] || fid);
+			});
+			(waiting.shots || []).forEach(function (url) { b.shots.push(url); });
+			if (b.shots.length) { badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length); }
+			if (Object.keys(b.texts).length || b.shots.length) {
+				offerReview(id);
+				state[id] = { total: 1, done: 1, notes: [ i18n.fromEarlier ], failed: false };
+				paint(id, 'ready');
+				$('#dze-cb-applyall').show();
+			}
+		});
+	}());
+
 	// =====================================================================
 	// Applying what was kept
 	// =====================================================================
@@ -501,6 +543,10 @@
 				if (i >= jobs.length) {
 					$btn.prop('disabled', false);
 					$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+					// Decided: the products stop waiting.
+					Object.keys(results).forEach(function (id) {
+						$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+					});
 					return;
 				}
 				var j = jobs[i++];
@@ -551,13 +597,21 @@
 		state = {};
 
 		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0);
-		var tasks = [];
+		// ONE job per product, its own steps in order inside it. Products are
+		// independent, the steps of a product are not: a price recalculated
+		// while its texts are still being written would be a race for nothing.
+		var jobs = [];
 		$('.dze-cb-row').each(function () {
 			var id = $(this).data('id');
 			plan(id, perProduct);
-			if (fields.length) { tasks.push(function () { paint(id, 'run'); return textAllTask(id, fields, reviewMode); }); }
-			if (doPrice) { tasks.push(function () { paint(id, 'run'); return priceTask(id); }); }
-			if (doImg) { tasks.push(function () { paint(id, 'run'); return imageTask(id, reviewMode, imgN, tplList); }); }
+			jobs.push(function () {
+				paint(id, 'run');
+				var chain = $.Deferred().resolve().promise();
+				if (fields.length) { chain = chain.then(function () { return textAllTask(id, fields, reviewMode); }); }
+				if (doPrice) { chain = chain.then(function () { return priceTask(id); }); }
+				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, imgN, tplList); }); }
+				return chain;
+			});
 		});
 
 		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
@@ -569,16 +623,29 @@
 		$('#dze-cb-start').prop('disabled', true);
 		$('#dze-cb-stop').show();
 
-		(function next(i) {
-			if (stopped || i >= tasks.length) {
-				$('#dze-cb-start').prop('disabled', false);
-				$('#dze-cb-stop').hide();
-				$('#dze-cb-sticky').hide();
-				$('#dze-cb-progress').text(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount));
-				return;
+		// A pool of workers rather than a queue of one: waiting for the provider
+		// is what a run spends its time on, and there is nothing to gain by
+		// waiting for one product before starting the next.
+		var lanes = Math.max(1, parseInt($('#dze-cb-par').val(), 10) || 1);
+		var cursor = 0, live = 0;
+		function finish() {
+			$('#dze-cb-start').prop('disabled', false);
+			$('#dze-cb-stop').hide();
+			$('#dze-cb-sticky').hide();
+			$('#dze-cb-progress').text(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount));
+		}
+		function pump() {
+			if (stopped) { if (!live) { finish(); } return; }
+			while (live < lanes && cursor < jobs.length) {
+				live++;
+				jobs[cursor++]().always(function () {
+					live--;
+					pump();
+				});
 			}
-			tasks[i]().always(function () { next(i + 1); });
-		})(0);
+			if (!live && cursor >= jobs.length) { finish(); }
+		}
+		pump();
 	});
 
 }(jQuery));

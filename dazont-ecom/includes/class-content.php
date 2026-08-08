@@ -67,6 +67,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
+		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_reset_prompts', [ $this, 'ajax_reset_prompts' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
@@ -875,6 +876,60 @@ EOT;
 
 	/** Post meta holding the picks, so a second run does not pay for the look again. */
 	private const META_SHOTS = '_dze_feature_shots';
+
+	/**
+	 * Post meta holding content generated but not yet decided on.
+	 *
+	 * A run of thirty products is not reviewed in one sitting. Keeping the
+	 * results in the browser meant a closed tab threw away everything that had
+	 * just been paid for; they live on the product now, and the screen finds
+	 * them again whenever you come back.
+	 */
+	private const META_PENDING = '_dze_pending_review';
+
+	/** Merges freshly generated content into what is already waiting. */
+	public static function stash( int $pid, array $add ): void {
+		$cur = get_post_meta( $pid, self::META_PENDING, true );
+		$cur = is_array( $cur ) ? $cur : [ 'texts' => [], 'shots' => [], 'companions' => [] ];
+		if ( isset( $add['texts'] ) ) {
+			$cur['texts'] = array_merge( (array) ( $cur['texts'] ?? [] ), (array) $add['texts'] );
+		}
+		if ( isset( $add['companions'] ) ) {
+			$cur['companions'] = array_merge( (array) ( $cur['companions'] ?? [] ), (array) $add['companions'] );
+		}
+		if ( ! empty( $add['shot'] ) ) {
+			$shots   = (array) ( $cur['shots'] ?? [] );
+			$shots[] = (string) $add['shot'];
+			$cur['shots'] = array_values( array_unique( $shots ) );
+		}
+		$cur['time'] = time();
+		update_post_meta( $pid, self::META_PENDING, $cur );
+	}
+
+	/** What is waiting on one product ([] when nothing is). */
+	public static function pending( int $pid ): array {
+		$p = get_post_meta( $pid, self::META_PENDING, true );
+		return is_array( $p ) ? $p : [];
+	}
+
+	/**
+	 * Products holding content that has never been accepted or discarded.
+	 * Capped: this feeds a notice, not a report.
+	 *
+	 * @return int[]
+	 */
+	public static function pending_ids( int $limit = 100 ): array {
+		return array_map( 'intval', (array) get_posts( [
+			'post_type'      => 'product',
+			'post_status'    => 'any',
+			'posts_per_page' => $limit,
+			'fields'         => 'ids',
+			'meta_key'       => self::META_PENDING, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- indexed key, capped, admin only.
+			'orderby'        => 'modified',
+			'order'          => 'DESC',
+			'no_found_rows'  => true,
+		] ) );
+	}
 
 	/**
 	 * How many branding blocks a product's photographs can honestly carry.
@@ -1694,7 +1749,13 @@ Answer with STRICT JSON and nothing else: "
 
 	/** Products queued for the bulk screen (from the last bulk action). */
 	private function bulk_products(): array {
-		$ids = get_transient( 'dze_content_bulk_' . get_current_user_id() );
+		// "Show me what is waiting" reuses this screen with the pending products
+		// instead of the selection that was queued from the products list.
+		if ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
+			$ids = self::pending_ids();
+		} else {
+			$ids = get_transient( 'dze_content_bulk_' . get_current_user_id() );
+		}
 		$out = [];
 		foreach ( array_map( 'intval', (array) $ids ) as $pid ) {
 			$product = wc_get_product( $pid );
@@ -1715,6 +1776,21 @@ Answer with STRICT JSON and nothing else: "
 		return $out;
 	}
 
+	/**
+	 * The waiting content of every product currently listed, keyed by id.
+	 * Only the products on screen: the notice handles the rest.
+	 */
+	private function pending_payload(): array {
+		$out = [];
+		foreach ( $this->bulk_products() as $p ) {
+			$waiting = self::pending( (int) $p['id'] );
+			if ( $waiting ) {
+				$out[ (int) $p['id'] ] = $waiting;
+			}
+		}
+		return $out;
+	}
+
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
@@ -1731,6 +1807,28 @@ Answer with STRICT JSON and nothing else: "
 		?>
 		<div class="wrap dze-wrap dze-admin">
 			<h1><?php esc_html_e( 'Product Content — bulk generation', 'dazont-ecom' ); ?></h1>
+
+			<?php
+			$dze_pending_ids = self::pending_ids();
+			$dze_showing_pending = ! empty( $_GET['dze_pending'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			?>
+			<?php if ( $dze_pending_ids && ! $dze_showing_pending ) : ?>
+				<div class="notice notice-info"><p>
+					<?php
+					printf(
+						/* translators: %s: number of products */
+						esc_html( _n( '%s product is holding content you have not accepted or discarded yet.', '%s products are holding content you have not accepted or discarded yet.', count( $dze_pending_ids ), 'dazont-ecom' ) ),
+						esc_html( number_format_i18n( count( $dze_pending_ids ) ) )
+					);
+					?>
+					<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG, 'dze_pending' => 1 ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
+				</p></div>
+			<?php elseif ( $dze_showing_pending ) : ?>
+				<div class="notice notice-info"><p>
+					<?php esc_html_e( 'Showing the products whose generated content is still waiting for a decision.', 'dazont-ecom' ); ?>
+					<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Back to my selection', 'dazont-ecom' ); ?></a>
+				</p></div>
+			<?php endif; ?>
 
 			<?php $dze_blockers = self::image_blockers(); ?>
 			<?php if ( $dze_blockers ) : ?>
@@ -1816,6 +1914,13 @@ Answer with STRICT JSON and nothing else: "
 								<select id="dze-cb-imgn">
 									<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
 										<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+							<label title="<?php esc_attr_e( 'How many products are worked on at the same time. Higher is faster; too high and your own server, or the provider, starts refusing requests.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'In parallel', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-par">
+									<?php foreach ( [ 1, 2, 3, 4, 6 ] as $dze_p ) : ?>
+										<option value="<?php echo (int) $dze_p; ?>" <?php selected( 3, $dze_p ); ?>><?php echo (int) $dze_p; ?> <?php echo 1 === $dze_p ? esc_html__( 'product', 'dazont-ecom' ) : esc_html__( 'products', 'dazont-ecom' ); ?></option>
 									<?php endforeach; ?>
 								</select>
 							</label>
@@ -1920,6 +2025,9 @@ Answer with STRICT JSON and nothing else: "
 				'nonce'     => wp_create_nonce( self::NONCE ),
 				'validated' => true, // gating is per-field via disabled checkboxes.
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
+				// What was generated last time and never decided on, so the
+				// screen finds it again after a reload.
+				'pending'   => self::pending_payload(),
 				// A rich editor for what is really HTML; a plain box for a title
 				// or a meta description, which TinyMCE would wrap in a <p>.
 				'rich'      => array_map(
@@ -1953,6 +2061,9 @@ Answer with STRICT JSON and nothing else: "
 					'sFail'    => __( 'Something failed', 'dazont-ecom' ),
 					'gProgress'=> __( '%1$s of %2$s products', 'dazont-ecom' ),
 					'empty'    => __( '(empty)', 'dazont-ecom' ),
+					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
+					'discard'  => __( 'Discard', 'dazont-ecom' ),
+					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
@@ -2340,6 +2451,9 @@ Answer with STRICT JSON and nothing else: "
 			}
 			wp_send_json_success( [ 'results' => $results, 'texts' => $texts, 'companions' => $companion_out ] );
 		}
+		if ( ! empty( $_POST['stash'] ) ) {
+			self::stash( $pid, [ 'texts' => $texts, 'companions' => $companion_out ] );
+		}
 		wp_send_json_success( [ 'texts' => $texts, 'companions' => $companion_out ] );
 	}
 
@@ -2648,6 +2762,9 @@ Answer with STRICT JSON and nothing else: "
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session
 				// gallery; a human selects what gets pushed to the product.
+				if ( ! empty( $_POST['stash'] ) ) {
+					self::stash( $pid, [ 'shot' => $image_url ] );
+				}
 				wp_send_json_success( [ 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
 			}
 			if ( ! $validated ) {
@@ -2675,6 +2792,16 @@ Answer with STRICT JSON and nothing else: "
 	 * procedure on the way in: the attachment file name, title, slug and alt all
 	 * take the product title (WordPress natively de-duplicates with -1/-2/-3).
 	 */
+	/** Accepted or discarded: either way the product stops waiting. */
+	public function ajax_pending_clear(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( $pid ) {
+			delete_post_meta( $pid, self::META_PENDING );
+		}
+		wp_send_json_success( [ 'cleared' => $pid ] );
+	}
+
 	public function ajax_image_attach(): void {
 		$this->guard();
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
