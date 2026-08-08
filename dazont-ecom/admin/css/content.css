@@ -434,3 +434,20 @@
    the button is, instead of a failed generation a minute later. */
 .dze-cx-blocked { border-left: 4px solid #b32d2e; background: #fcf0f1; padding: 10px 12px; margin: 0 0 12px; border-radius: 3px; }
 .dze-cx-blocked ul { margin: 6px 0 0 18px; list-style: disc; }
+
+/* ---- The photograph a branding block was written against ----
+   Shown beside the block wherever it appears, so the pairing of a zoom and
+   its picture is visible before anything is saved. Hover enlarges it. */
+.dze-cx-fshot, .dze-cb-fshot {
+	width: 30px; height: 30px; object-fit: cover; border-radius: 4px;
+	border: 1px solid #dcdcde; flex: 0 0 auto;
+}
+.dze-cx-field h4 .dze-cx-fshot { margin-right: 6px; }
+/* Several image prompts at once, ticked like the fields above them. */
+.dze-au-tpls { margin: 2px 0 6px 26px; }
+.dze-cb-tplpick { display: flex; flex-direction: column; gap: 2px; }
+.dze-cb-optlabel { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
+.dze-cb-tplpick .dze-cb-check { margin: 0; }
+.dze-cb-tplpick em { color: #8c8f94; font-style: normal; font-size: 11px; }
+/* The companion image key sits under the destination meta key. */
+.dze-pr-imgmeta { margin-top: 4px; }

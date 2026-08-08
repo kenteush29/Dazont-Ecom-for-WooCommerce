@@ -997,6 +997,73 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		return trim( $text );
 	}
 
+	/**
+	 * Same completion, with photographs attached to the message.
+	 *
+	 * Judging what a picture SHOWS cannot be done from the product's text: the
+	 * model has to see it. Images travel as base64 blocks before the text, the
+	 * order Anthropic recommends when the text refers to them.
+	 *
+	 * @param array<int,array{media:string,data:string}> $images Base64 payloads.
+	 */
+	public static function complete_with_images( string $system, string $user, array $images, string $model = '', int $max_tokens = 1500, int $timeout = 120 ): string {
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$key = self::api_key();
+		if ( '' === $key ) {
+			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
+		}
+		$content = [];
+		foreach ( $images as $i => $img ) {
+			// Numbered out loud: the answer refers to "image 2", and a silent
+			// ordering would be guesswork on both sides.
+			$content[] = [ 'type' => 'text', 'text' => sprintf( 'Image %d:', $i + 1 ) ];
+			$content[] = [
+				'type'   => 'image',
+				'source' => [
+					'type'       => 'base64',
+					'media_type' => (string) $img['media'],
+					'data'       => (string) $img['data'],
+				],
+			];
+		}
+		$content[] = [ 'type' => 'text', 'text' => $user ];
+
+		$model    = '' !== $model ? $model : self::chosen_model();
+		$response = wp_remote_post( self::API_URL, [
+			'timeout' => max( 30, $timeout ),
+			'headers' => [
+				'x-api-key'         => $key,
+				'anthropic-version' => self::API_VERSION,
+				'content-type'      => 'application/json',
+			],
+			'body'    => wp_json_encode( [
+				'model'      => $model,
+				'max_tokens' => max( 64, $max_tokens ),
+				'system'     => $system,
+				'messages'   => [ [ 'role' => 'user', 'content' => $content ] ],
+			] ),
+		] );
+		if ( is_wp_error( $response ) ) {
+			throw new RuntimeException( $response->get_error_message() );
+		}
+		$code = wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( $code < 200 || $code >= 300 ) {
+			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
+		}
+		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
+		$text = '';
+		foreach ( (array) ( $data['content'] ?? [] ) as $block ) {
+			if ( ( $block['type'] ?? '' ) === 'text' ) {
+				$text .= (string) ( $block['text'] ?? '' );
+			}
+		}
+		return trim( $text );
+	}
+
 	private function call_claude( string $system, string $user ): string {
 		if ( DZE_Ai_Usage::over_budget() ) {
 			throw new RuntimeException( DZE_Ai_Usage::budget_message() );

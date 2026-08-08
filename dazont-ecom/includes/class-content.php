@@ -502,6 +502,7 @@ EOT;
 			$out[ (string) $r['id'] ] = [
 				'label'   => (string) ( $r['name'] ?? $r['id'] ),
 				'dest'    => (string) ( $r['output'] ?? 'meta' ),
+				'img_meta'=> (string) ( $r['img_meta'] ?? '' ),
 				'tokens'  => (int) ( $r['tokens'] ?: 400 ),
 				'enabled' => ! empty( $r['enabled'] ),
 				'prompt'  => (string) ( $r['prompt'] ?? '' ),
@@ -868,6 +869,167 @@ EOT;
 		return $c;
 	}
 
+	// =========================================================================
+	// Companion images: the photograph a branding block is written against
+	// =========================================================================
+
+	/** Post meta holding the picks, so a second run does not pay for the look again. */
+	private const META_SHOTS = '_dze_feature_shots';
+
+	/**
+	 * How many branding blocks a product's photographs can honestly carry.
+	 *
+	 * The block is a zoom on a particularity, so it needs a photograph that
+	 * actually shows one. With a single catalogue shot there is nothing to zoom
+	 * on that the main image does not already say; with a real set there is a
+	 * choice to make. Two is the ceiling — a third block is padding.
+	 */
+	public static function feature_slots( int $count ): int {
+		if ( $count >= 4 ) {
+			return 2;
+		}
+		return $count >= 2 ? 1 : 0;
+	}
+
+	/**
+	 * Asks the model to LOOK at the product photographs and pick the ones worth
+	 * writing a zoom about, each with the feature it shows.
+	 *
+	 * Cached per photograph set: re-running the texts on a product whose images
+	 * have not changed reuses the same picks — same images, same answer, no
+	 * reason to pay twice — and a new photo invalidates it by changing the key.
+	 *
+	 * @return array<int,array{id:int,feature:string}>
+	 */
+	public static function feature_shots( int $pid, bool $refresh = false ): array {
+		$ids  = self::product_source_ids( $pid );
+		$want = self::feature_slots( count( $ids ) );
+		if ( ! $want ) {
+			return [];
+		}
+		$key    = md5( implode( ',', $ids ) . '|' . $want );
+		$cached = get_post_meta( $pid, self::META_SHOTS, true );
+		if ( ! $refresh && is_array( $cached ) && ( $cached['key'] ?? '' ) === $key && ! empty( $cached['picks'] ) ) {
+			return (array) $cached['picks'];
+		}
+
+		$images  = [];
+		$mapping = [];
+		foreach ( $ids as $aid ) {
+			$uri = '';
+			try {
+				$uri = self::instance()->fal_source_data_uri( (int) $aid, 'medium_large' );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+			if ( ! preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $m ) ) {
+				continue;
+			}
+			$images[]  = [ 'media' => $m[1], 'data' => $m[2] ];
+			$mapping[] = (int) $aid;
+		}
+		if ( count( $images ) < 2 ) {
+			return [];
+		}
+
+		$product = wc_get_product( $pid );
+		$name    = $product ? $product->get_name() : '';
+		$user    = "Product: {$name}
+
+"
+			. sprintf(
+				'Above are the %1$d photographs of this product. Pick the %2$d that best show a CONCRETE particularity worth zooming in on in a sales argument — a material, a fastening, a finish, a compartment, a texture, a detail of construction, the product in use. '
+				. 'Avoid the plain catalogue shot when a more telling one exists, and never pick two photographs showing the same thing.',
+				count( $images ),
+				$want
+			)
+			. "
+Answer with STRICT JSON and nothing else: "
+			. '[{"image": <number>, "feature": "<what this photograph shows, 4 to 12 words, factual, no sales language>"}]';
+
+		try {
+			$raw = DZE_Marketing_Ai::complete_with_images(
+				'You look at product photographs and report what is visible in them. You never invent a detail you cannot see.',
+				$user,
+				$images,
+				'',
+				400
+			);
+		} catch ( \Throwable $e ) {
+			return [];
+		}
+		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
+		$rows = json_decode( $json, true );
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+		$picks = [];
+		$seen  = [];
+		foreach ( $rows as $r ) {
+			$n = (int) ( $r['image'] ?? 0 ) - 1; // the model counts from 1.
+			if ( ! isset( $mapping[ $n ] ) || isset( $seen[ $n ] ) ) {
+				continue;
+			}
+			$seen[ $n ] = true;
+			$picks[]    = [
+				'id'      => $mapping[ $n ],
+				'feature' => sanitize_text_field( (string) ( $r['feature'] ?? '' ) ),
+			];
+			if ( count( $picks ) >= $want ) {
+				break;
+			}
+		}
+		if ( $picks ) {
+			update_post_meta( $pid, self::META_SHOTS, [ 'key' => $key, 'picks' => $picks ] );
+		}
+		return $picks;
+	}
+
+	/**
+	 * The prompts that carry a companion image, in registry order: the first
+	 * one gets the first pick, the second the second. A prompt whose slot has
+	 * no pick is skipped entirely rather than written against nothing.
+	 *
+	 * @return string[] Field ids.
+	 */
+	public static function companion_fields(): array {
+		$out = [];
+		foreach ( self::enabled_fields() as $fid => $f ) {
+			$row = self::registry_row( $fid );
+			if ( '' !== trim( (string) ( $row['img_meta'] ?? '' ) ) ) {
+				$out[] = (string) $fid;
+			}
+		}
+		return $out;
+	}
+
+	/** The meta key a field writes its companion attachment id to ('' = none). */
+	public static function companion_meta( string $fid ): string {
+		$row = self::registry_row( $fid );
+		return trim( (string) ( $row['img_meta'] ?? '' ) );
+	}
+
+	/**
+	 * field id => pick, for one product. Deterministic, so generation and apply
+	 * agree without the browser having to carry the choice around.
+	 *
+	 * @return array<string,array{id:int,feature:string}>
+	 */
+	public static function companion_map( int $pid ): array {
+		$fields = self::companion_fields();
+		if ( ! $fields ) {
+			return [];
+		}
+		$picks = self::feature_shots( $pid );
+		$out   = [];
+		foreach ( array_values( $fields ) as $i => $fid ) {
+			if ( isset( $picks[ $i ] ) ) {
+				$out[ $fid ] = $picks[ $i ];
+			}
+		}
+		return $out;
+	}
+
 	/** Multiplier for a given cost. */
 	public static function mult_for_cost( float $cost ): float {
 		foreach ( self::price_table() as $row ) {
@@ -1013,6 +1175,9 @@ EOT;
 					'inputs_meta' => sanitize_text_field( (string) ( $in['pr_inmeta'][ $i ] ?? '' ) ),
 					'output'      => $outsel,
 					'meta_key'    => sanitize_key( (string) ( $in['pr_metakey'][ $i ] ?? '' ) ) ?: '_dze_' . $id,
+					// Optional: the meta key that receives the id of the
+					// photograph this text is written against.
+					'img_meta'    => sanitize_key( (string) ( $in['pr_imgmeta'][ $i ] ?? '' ) ),
 					'enabled'     => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
 					'valid'       => ! empty( $in['pr_valid'][ $i ] ) ? 1 : 0,
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
@@ -1292,6 +1457,7 @@ EOT;
 								<?php endforeach; ?>
 							</select>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( '+ image meta key', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" title="<?php esc_attr_e( 'Optional. Fill this in and the prompt is written against ONE product photograph, chosen by looking at them: the attachment id lands in this meta key so your template can display the text and its image together.', 'dazont-ecom' ); ?>" />
 						</td>
 						<td>
 							<details class="dze-pr-inputs">
@@ -1343,6 +1509,7 @@ EOT;
 							<?php endforeach; ?>
 						</select>
 						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
+						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( '+ image meta key', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
 					</td>
 					<td>
 						<details class="dze-pr-inputs">
@@ -1622,13 +1789,18 @@ EOT;
 							<span><?php esc_html_e( 'Generate images', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
 						</label>
 						<div class="dze-cb-opts">
-							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
-								<select id="dze-cb-tpl">
-									<?php foreach ( $valid_tpls as $i => $t ) : ?>
-										<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
-									<?php endforeach; ?>
-								</select>
-							</label>
+							<div class="dze-cb-tplpick">
+								<span class="dze-cb-optlabel"><?php esc_html_e( 'Prompts', 'dazont-ecom' ); ?></span>
+								<!-- Several at once: a scene shot and a detail shot are two
+								     different jobs, and running the list twice to get both
+								     is the kind of chore a bulk screen exists to remove. -->
+								<?php foreach ( $valid_tpls as $i => $t ) : ?>
+									<label class="dze-cb-check">
+										<input type="checkbox" class="dze-cb-tpl" value="<?php echo (int) $i; ?>" <?php checked( 0 === array_search( $i, array_keys( $valid_tpls ), true ) ); ?> />
+										<span><?php echo esc_html( $t['name'] ); ?> <em>(<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</em></span>
+									</label>
+								<?php endforeach; ?>
+							</div>
 							<?php $dze_bscenes = self::scenes(); ?>
 							<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
 								<label title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
@@ -1640,7 +1812,7 @@ EOT;
 									</select>
 								</label>
 							<?php endif; ?>
-							<label title="<?php esc_attr_e( 'Several attempts per product — you keep the good ones at review time.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Per product', 'dazont-ecom' ); ?></span>
+							<label title="<?php esc_attr_e( 'Attempts per prompt and per product — you keep the good ones at review time.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Attempts', 'dazont-ecom' ); ?></span>
 								<select id="dze-cb-imgn">
 									<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
 										<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
@@ -2068,10 +2240,32 @@ EOT;
 				$overrides[ sanitize_key( $ofid ) ] = sanitize_textarea_field( (string) $op );
 			}
 		}
+		// A block written against a photograph only exists if there IS one: with
+		// a thin gallery the second block is dropped rather than written about
+		// an image that was never chosen.
+		$companions = self::companion_map( $pid );
+		foreach ( array_keys( $targets ) as $fid ) {
+			if ( '' !== self::companion_meta( (string) $fid ) && ! isset( $companions[ $fid ] ) ) {
+				unset( $targets[ $fid ] );
+			}
+		}
+		if ( empty( $targets ) ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing to write: these blocks need product photographs to zoom in on.', 'dazont-ecom' ) ] );
+		}
+
 		$tokens = 300;
+		$shots  = [];
 		foreach ( $targets as $fid => $f ) {
-			$p       = ! empty( $overrides[ $fid ] ) ? $overrides[ $fid ] : self::prompt_for( $fid );
-			$user   .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . $p . "\n\n";
+			$p     = ! empty( $overrides[ $fid ] ) ? $overrides[ $fid ] : self::prompt_for( $fid );
+			$user .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . $p . "\n\n";
+			if ( isset( $companions[ $fid ] ) ) {
+				$n       = count( $shots ) + 1;
+				$shots[] = (int) $companions[ $fid ]['id'];
+				$user   .= '===THE PHOTOGRAPH BESIDE FIELD "' . $fid . '"===' . "\n"
+					. 'This block is displayed next to image ' . $n . ' above, which shows: '
+					. $companions[ $fid ]['feature'] . ".\n"
+					. "Its h2 must be a selling angle zooming in on THAT particularity, and the body must argue that one point, from what is actually visible in the photograph. Write about the product, never about the photograph itself — no \"as you can see on the picture\".\n\n";
+			}
 			$tokens += (int) ( $f['tokens'] ?? 300 );
 		}
 
@@ -2079,9 +2273,43 @@ EOT;
 			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 		try {
-			$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+			if ( $shots ) {
+				// The model writes about a photograph it can see, not about a
+				// description of one. The images referenced by the blocks travel
+				// with the request, in the order the instructions name them.
+				$payload_images = [];
+				foreach ( $shots as $aid ) {
+					try {
+						$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+					if ( preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $mm ) ) {
+						$payload_images[] = [ 'media' => $mm[1], 'data' => $mm[2] ];
+					}
+				}
+				$text = $payload_images
+					? DZE_Marketing_Ai::complete_with_images( $system, $user, $payload_images, self::model(), $tokens, 240 )
+					: DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+			} else {
+				$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+			}
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+
+		// What each block was written against, so the screens can show it next
+		// to the text instead of leaving the choice invisible.
+		$companion_out = [];
+		foreach ( $companions as $cfid => $c ) {
+			if ( ! isset( $targets[ $cfid ] ) ) {
+				continue;
+			}
+			$companion_out[ $cfid ] = [
+				'thumb'   => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'thumbnail' ) ?: '' ),
+				'full'    => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'large' ) ?: '' ),
+				'feature' => (string) $c['feature'],
+			];
 		}
 
 		$texts = [];
@@ -2110,9 +2338,9 @@ EOT;
 					$results[ $fid ] = 'error';
 				}
 			}
-			wp_send_json_success( [ 'results' => $results, 'texts' => $texts ] );
+			wp_send_json_success( [ 'results' => $results, 'texts' => $texts, 'companions' => $companion_out ] );
 		}
-		wp_send_json_success( [ 'texts' => $texts ] );
+		wp_send_json_success( [ 'texts' => $texts, 'companions' => $companion_out ] );
 	}
 
 	public function ajax_apply(): void {
@@ -2160,6 +2388,16 @@ EOT;
 			case 'meta':
 			default:
 				update_post_meta( $pid, (string) ( $dest['key'] ?? '_dze_' . $field ), $value );
+		}
+		// A block written against a photograph carries it: the text and the
+		// image it argues about are one piece of content, and saving one
+		// without the other would put a zoom next to the wrong picture.
+		$img_key = self::companion_meta( $field );
+		if ( '' !== $img_key ) {
+			$map = self::companion_map( $pid );
+			if ( isset( $map[ $field ]['id'] ) ) {
+				update_post_meta( $pid, $img_key, (int) $map[ $field ]['id'] );
+			}
 		}
 		return '';
 	}

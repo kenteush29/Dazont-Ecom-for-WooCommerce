@@ -24,6 +24,23 @@
 		else { $('#' + id).val(html); }
 	}
 
+	// The photograph a branding block was written against, shown in that
+	// field's header wherever its card appears (Text lab and Review).
+	function paintCompanions(map) {
+		Object.keys(map || {}).forEach(function (fid) {
+			var c = map[fid];
+			if (!c || !c.thumb) { return; }
+			$('.dze-cx-field[data-field="' + fid + '"]').find('h4').each(function () {
+				var $h = $(this);
+				$h.find('.dze-cx-fshot').remove();
+				$('<img class="dze-cx-fshot dze-hzoom" alt="" />')
+					.attr('src', c.thumb).attr('data-full', c.full || c.thumb)
+					.attr('title', c.feature || '')
+					.prependTo($h);
+			});
+		});
+	}
+
 	function fieldValidated(fid) {
 		return !!(cfg.validated && cfg.validated[fid]);
 	}
@@ -122,12 +139,17 @@
 							' <input type="number" step="0.01" id="dze-au-cost" value="' + esc(cfg.product.price) + '" style="width:100px;" /></label>' +
 						(cfg.templates.length ?
 							'<label class="dze-au-check"><input type="checkbox" id="dze-au-img"' + (au.img ? ' checked' : '') + ' /> ' + esc(i18n.genImgOpt) +
-							' <select id="dze-au-tpl">' + cfg.templates.map(function (t, i) {
-								return '<option value="' + i + '"' + ((au.tpl !== undefined ? au.tpl : m.tpl) == i ? ' selected' : '') + '>' + esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
-							}).join('') + '</select>' +
 							' <select id="dze-au-imgn" title="' + esc(i18n.imgCount) + '">' +
 								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
-							'</select> ' + scenePicker('dze-au-scene') + '</label>' : '') +
+							'</select> ' + scenePicker('dze-au-scene') + '</label>' +
+							// Several prompts at once: a scene shot and a detail shot
+							// are two different jobs. Same choice as the bulk screen,
+							// so a habit learnt on one works on the other.
+							'<div class="dze-au-tpls">' + cfg.templates.map(function (t, i) {
+								var on = Array.isArray(au.tpls) ? au.tpls.indexOf(String(i)) >= 0 : i === 0;
+								return '<label class="dze-au-check"><input type="checkbox" class="dze-au-tpl" value="' + i + '"' + (on ? ' checked' : '') + ' /> ' +
+									esc(t.name) + (t.valid ? '' : ' <span class="dze-cx-badge">' + esc(i18n.notValid) + '</span>') + '</label>';
+							}).join('') + '</div>' : '') +
 						'<label class="dze-au-check dze-cx-note"><input type="checkbox" id="dze-au-save" checked /> ' + esc(i18n.saveSetup) + '</label>' +
 						'<p style="margin:14px 0 0;"><button type="button" class="button button-primary button-hero" id="dze-au-launch">' + esc(i18n.launch) + '</button> <span id="dze-au-status"></span></p>' +
 					'</div>' +
@@ -232,9 +254,12 @@
 		var t = cfg.templates[i] || {};
 		$('#dze-cx-tpl-validate').toggleClass('is-on', !!t.valid).text(t.valid ? '✓ ' + i18n.validated : i18n.notValid);
 		$('#dze-cx-tpl-restore').toggle(!!(cfg.defaults && t.id && cfg.defaults[t.id]));
-		$('#dze-au-tpl option').each(function () {
-			var ix = parseInt($(this).val(), 10), tt = cfg.templates[ix];
-			if (tt) { $(this).text(tt.name + (tt.valid ? '' : ' — ' + i18n.notValid)); }
+		// The ticked prompts carry their own validation badge; keep it truthful
+		// when a prompt is validated from the Image lab without a reload.
+		$('.dze-au-tpl').each(function () {
+			var tt = cfg.templates[parseInt($(this).val(), 10)];
+			if (!tt) { return; }
+			$(this).closest('label').find('.dze-cx-badge').toggle(!tt.valid);
 		});
 	}
 	function showPane(p) {
@@ -341,6 +366,7 @@
 					var fid = $(this).data('field');
 					$(this).find('.dze-cx-out').val(texts[fid] || '');
 				});
+				paintCompanions(res.data.companions);
 			})
 			.fail(function () {
 				$btn.prop('disabled', false);
@@ -613,7 +639,11 @@
 		if ($('#dze-au-save').is(':checked')) {
 			var m = mem(), fmap = {};
 			$('.dze-au-f').each(function () { fmap[$(this).val()] = $(this).is(':checked') ? 1 : 0; });
-			m.auto = { fields: fmap, price: doPrice ? 1 : 0, img: doImg ? 1 : 0, tpl: $('#dze-au-tpl').val(), imgn: parseInt($('#dze-au-imgn').val(), 10) || 1 };
+			m.auto = {
+				fields: fmap, price: doPrice ? 1 : 0, img: doImg ? 1 : 0,
+				tpls: $('.dze-au-tpl:checked').map(function () { return $(this).val(); }).get(),
+				imgn: parseInt($('#dze-au-imgn').val(), 10) || 1
+			};
 			saveMem(m);
 		}
 
@@ -626,7 +656,7 @@
 			chain = chain.then(function () {
 				return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: cfg.postId, fields: fields })
 					.then(function (res) {
-						if (res && res.success) { out.texts = res.data.texts || {}; }
+						if (res && res.success) { out.texts = res.data.texts || {}; paintCompanions(res.data.companions); }
 						else { out.textError = (res && res.data && res.data.message) || i18n.error; }
 					}, function () { out.textError = i18n.error; return $.Deferred().resolve(); });
 			});
@@ -645,11 +675,15 @@
 			});
 		}
 		if (doImg) {
-			chain = chain.then(function () {
-				return genImages(
-					{ template: parseInt($('#dze-au-tpl').val(), 10) || 0, scene: sceneVal() },
-					parseInt($('#dze-au-imgn').val(), 10) || 1
-				);
+			var picked = $('.dze-au-tpl:checked').map(function () { return parseInt($(this).val(), 10) || 0; }).get();
+			if (!picked.length) { picked = [ 0 ]; }
+			picked.forEach(function (tplIdx) {
+				chain = chain.then(function () {
+					return genImages(
+						{ template: tplIdx, scene: sceneVal() },
+						parseInt($('#dze-au-imgn').val(), 10) || 1
+					);
+				});
 			});
 		}
 

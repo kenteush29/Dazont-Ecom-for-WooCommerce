@@ -39,7 +39,9 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
-		if (typeof m.tpl !== 'undefined') { $('#dze-cb-tpl').val(m.tpl); }
+		if (Array.isArray(m.tpls) && m.tpls.length) {
+			$('.dze-cb-tpl').each(function () { this.checked = m.tpls.indexOf($(this).val()) >= 0; });
+		}
 		// The scene is remembered with the toolbox (same store): pick a support
 		// once and every screen keeps shooting on it.
 		if (typeof m.scene !== 'undefined' && $('#dze-cb-scene option[value="' + m.scene + '"]').length) {
@@ -53,12 +55,17 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
-		m.tpl = $('#dze-cb-tpl').val();
+		m.tpls = tpls();
 		if ($('#dze-cb-scene').length) { m.scene = parseInt($('#dze-cb-scene').val(), 10); }
 		if ($('#dze-cb-imgn').length) { m.imgn = parseInt($('#dze-cb-imgn').val(), 10); }
 		saveMem(m);
 	}
-	$('.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn').on('change', persist);
+	$('.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn').on('change', persist);
+	// The image prompts ticked at the top: every one of them runs on every
+	// product of the list.
+	function tpls() {
+		return $('.dze-cb-tpl:checked').map(function () { return $(this).val(); }).get();
+	}
 
 	// =====================================================================
 	// Per-product state: one symbol, one bar, one tooltip
@@ -170,15 +177,15 @@
 
 	// The prompt, the scene and the count come from the top of the page: one
 	// decision for the run, not one per line.
-	function imageRequest(id, review) {
-		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: $('#dze-cb-tpl').val() };
+	function imageRequest(id, review, tpl) {
+		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
 		if (review) { data.mode = 'defer'; }
 		var $sc = $('#dze-cb-scene');
 		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
 		return data;
 	}
-	function oneImage(id, review) {
-		return $.post(cfg.ajaxUrl, imageRequest(id, review))
+	function oneImage(id, review, tpl) {
+		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl))
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
@@ -194,12 +201,17 @@
 	}
 	// N attempts on the same product, one after the other — the provider is
 	// slow enough that firing four at once is how a run times out.
-	function imageTask(id, review, n) {
-		var i = 0, d = $.Deferred();
+	// Every ticked prompt × every attempt, one after the other: the provider is
+	// slow enough that firing them together is how a run times out.
+	function imageTask(id, review, n, list) {
+		var jobs = [], d = $.Deferred();
+		list.forEach(function (tpl) {
+			for (var k = 0; k < Math.max(1, n); k++) { jobs.push(tpl); }
+		});
+		var i = 0;
 		(function next() {
-			if (stopped || i >= Math.max(1, n)) { d.resolve(); return; }
-			i++;
-			oneImage(id, review).always(next);
+			if (stopped || i >= jobs.length) { d.resolve(); return; }
+			oneImage(id, review, jobs[i++]).always(next);
 		})();
 		return d;
 	}
@@ -209,7 +221,7 @@
 	// =====================================================================
 
 	function bucket(id) {
-		if (!results[id]) { results[id] = { texts: {}, shots: [], built: false, open: {} }; }
+		if (!results[id]) { results[id] = { texts: {}, shots: [], built: false, open: {}, shotOf: {} }; }
 		return results[id];
 	}
 	function previewCell(id) {
@@ -223,9 +235,13 @@
 		return t ? (t.length > 110 ? t.slice(0, 110) + '…' : t) : i18n.empty;
 	}
 
-	function storeTexts(id, fids, texts) {
+	function storeTexts(id, fids, texts, companions) {
 		var b = bucket(id);
+		b.shotOf = companions || {};
 		fids.forEach(function (fid) {
+			// A block written against a photograph that was not produced simply
+			// is not there — the server drops it when the gallery is too thin.
+			if (typeof texts[fid] === 'undefined') { return; }
 			b.texts[fid] = texts[fid] || '';
 			badge(id, fid, cfg.fields[fid] || fid);
 		});
@@ -248,9 +264,15 @@
 		if (b.built) { return; }
 		var html = '<div class="dze-cb-prev">';
 		Object.keys(b.texts).forEach(function (fid) {
+			var comp = (b.shotOf || {})[fid];
 			html += '<div class="dze-cb-fblock" data-field="' + fid + '">' +
 				'<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="false">' +
 					'<span class="dze-cb-fcaret">▸</span>' +
+					// The photograph this text was written against, so the pairing
+					// is visible before anything is saved.
+					(comp && comp.thumb
+						? '<img class="dze-cb-fshot dze-hzoom" src="' + esc(comp.thumb) + '" data-full="' + esc(comp.full || comp.thumb) + '" alt="" title="' + esc(comp.feature || '') + '" />'
+						: '') +
 					'<span class="dze-cb-fname">' + esc(cfg.fields[fid] || fid) + '</span>' +
 					'<span class="dze-cb-fpeek">' + esc(peek(b.texts[fid])) + '</span>' +
 					'<span class="dze-cb-fstate"></span>' +
@@ -405,7 +427,7 @@
 		var $btn = $(this).prop('disabled', true);
 		var id = $btn.closest('.dze-cb-preview').data('id');
 		var $state = $btn.closest('p').find('.dze-cb-panelstate').removeClass('is-ko').text(i18n.working);
-		$.post(cfg.ajaxUrl, imageRequest(id, true))
+		$.post(cfg.ajaxUrl, imageRequest(id, true, (tpls()[0] !== undefined ? tpls()[0] : '0')))
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success) {
@@ -511,7 +533,8 @@
 		persist();
 		var fields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		var doPrice = $('#dze-cb-price').is(':checked');
-		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled');
+		var tplList = tpls();
+		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled') && tplList.length > 0;
 		var imgN = parseInt($('#dze-cb-imgn').val(), 10) || 1;
 		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
 
@@ -527,14 +550,14 @@
 		results = {};
 		state = {};
 
-		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN : 0);
+		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0);
 		var tasks = [];
 		$('.dze-cb-row').each(function () {
 			var id = $(this).data('id');
 			plan(id, perProduct);
 			if (fields.length) { tasks.push(function () { paint(id, 'run'); return textAllTask(id, fields, reviewMode); }); }
 			if (doPrice) { tasks.push(function () { paint(id, 'run'); return priceTask(id); }); }
-			if (doImg) { tasks.push(function () { paint(id, 'run'); return imageTask(id, reviewMode, imgN); }); }
+			if (doImg) { tasks.push(function () { paint(id, 'run'); return imageTask(id, reviewMode, imgN, tplList); }); }
 		});
 
 		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
