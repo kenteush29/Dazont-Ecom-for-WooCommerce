@@ -25,6 +25,7 @@ final class DZE_Queue {
 	private const SCHEMA_OPT     = 'dze_queue_schema';
 	private const SCHEMA_VERSION = 1;
 	private const LOCK      = 'dze_queue_lock';
+	private const COUNT_KEY = 'dze_queue_review_count';
 
 	/** Job kinds: what each one writes, and who knows how to write it. */
 	public static function kinds(): array {
@@ -108,6 +109,7 @@ final class DZE_Queue {
 	 * @return int number of jobs actually added.
 	 */
 	public static function add( string $kind, array $ids, bool $auto_apply = false, array $payload = [] ): int {
+		self::forget_count();
 		global $wpdb;
 		if ( ! isset( self::kinds()[ $kind ] ) ) {
 			return 0;
@@ -218,7 +220,26 @@ final class DZE_Queue {
 					);
 					$result         .= ( '' !== $result ? "\n\n" : '' ) . $piece;
 					$payload['step'] = $step + 1;
-					$done            = $payload['step'] >= count( (array) $payload['plan']['sections'] );
+					$written         = $payload['step'] >= count( (array) $payload['plan']['sections'] );
+					// A description without its internal links is half a job. It
+					// used to be finished by hand, with a second five-minute run
+					// on a text that had just been written; the linking pass is
+					// now the last step of writing, not a separate errand.
+					if ( $written && empty( $payload['linked'] ) ) {
+						$payload['linked'] = 1;
+						try {
+							$linked = DZE_Category_Content::add_links( (int) $job['object_id'], $result );
+							if ( ! empty( $linked['html'] ) ) {
+								$result            = (string) $linked['html'];
+								$payload['links']  = (int) ( $linked['after'] ?? 0 );
+							}
+						} catch ( \Throwable $e ) {
+							// The description is written and worth keeping; the
+							// links can be added from the review screen.
+							$payload['link_error'] = $e->getMessage();
+						}
+					}
+					$done = $written;
 				}
 			} else {
 				$result = self::produce( (string) $job['kind'], (int) $job['object_id'], $payload );
@@ -228,9 +249,15 @@ final class DZE_Queue {
 			$err = $e->getMessage();
 		}
 
+		self::forget_count();
 		if ( '' !== $err ) {
 			$wpdb->update( $table, [ 'status' => 'failed', 'error' => $err, 'updated' => current_time( 'mysql' ) ], [ 'id' => $id ] );
 		} elseif ( $done ) {
+			// One finished piece of work, whatever number of calls it took: that
+			// is what "a category description costs X" is measured against.
+			if ( class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::finished( (string) $job['kind'] );
+			}
 			$applied = ! empty( $job['auto_apply'] ) && self::apply( (string) $job['kind'], (int) $job['object_id'], $result );
 			$wpdb->update( $table, [
 				'status'  => ! empty( $job['auto_apply'] ) ? ( $applied ? 'applied' : 'failed' ) : 'review',
@@ -402,6 +429,7 @@ final class DZE_Queue {
 	 * it is settled, and must not keep asking.
 	 */
 	public static function settle( int $object_id ): void {
+		self::forget_count();
 		global $wpdb;
 		$wpdb->query( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
@@ -427,14 +455,48 @@ final class DZE_Queue {
 
 	public function menu(): void {
 		$parent = class_exists( 'DZE_Restock' ) && DZE_Modules::enabled( 'restock' ) ? DZE_Restock::MENU_SLUG : DZE_Modules::MENU_SLUG;
+		// The count rides on the menu label: what is waiting for a decision
+		// should be visible without opening the screen it waits on.
+		$waiting = self::review_count();
+		$label   = __( 'Writing queue', 'dazont-ecom' );
+		$menu    = $waiting
+			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
+				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
+			: $label;
 		add_submenu_page(
 			$parent,
-			__( 'Writing queue', 'dazont-ecom' ),
-			__( 'Writing queue', 'dazont-ecom' ),
+			$label,
+			$menu,
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render' ]
 		);
+	}
+
+	/**
+	 * How many finished jobs are waiting for a yes or a no.
+	 *
+	 * Read on every admin page to draw the bubble, so it is one COUNT on an
+	 * indexed column held in a transient, dropped whenever a job changes state.
+	 */
+	public static function review_count(): int {
+		$n = get_transient( self::COUNT_KEY );
+		if ( false !== $n ) {
+			return (int) $n;
+		}
+		global $wpdb;
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return 0;
+		}
+		$n = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'review'" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		set_transient( self::COUNT_KEY, $n, MINUTE_IN_SECONDS );
+		return $n;
+	}
+
+	/** Any change of state can change the bubble. */
+	public static function forget_count(): void {
+		delete_transient( self::COUNT_KEY );
 	}
 
 	public function render(): void {
@@ -470,6 +532,19 @@ final class DZE_Queue {
 				'clearN'   => __( 'clear %s finished rows', 'dazont-ecom' ),
 				/* translators: %s: number of rows ticked */
 				'selected' => __( '%s selected:', 'dazont-ecom' ),
+				'nowText'  => __( 'On the category today', 'dazont-ecom' ),
+				'acceptOne'=> __( 'Accept: save this text onto the category', 'dazont-ecom' ),
+				'refuseOne'=> __( 'Refuse: throw this text away', 'dazont-ecom' ),
+				'dropOne'  => __( 'Drop this line from the queue', 'dazont-ecom' ),
+				'confirmOne' => __( 'Save this text onto the category, as written? It replaces the description currently there.', 'dazont-ecom' ),
+				'confirmRefuse' => __( 'Throw this text away? It cannot be recovered.', 'dazont-ecom' ),
+				'compare'  => __( 'Current', 'dazont-ecom' ),
+				'accept'   => __( 'Accept and save', 'dazont-ecom' ),
+				'discardBtn' => __( 'Discard', 'dazont-ecom' ),
+				/* translators: %s: number of words */
+				'words'    => __( '%s words', 'dazont-ecom' ),
+				/* translators: 1: words before, 2: words after */
+				'wordsTo'  => __( '%1$s words → %2$s words', 'dazont-ecom' ),
 				/* translators: %s: number of texts */
 				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
 				/* translators: %s: number of jobs */
@@ -622,6 +697,7 @@ final class DZE_Queue {
 
 	/** Accept (optionally edited), or discard. */
 	public function ajax_decide(): void {
+		self::forget_count();
 		$this->guard();
 		global $wpdb;
 		$id     = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
@@ -731,6 +807,7 @@ final class DZE_Queue {
 	 * where editing happens.
 	 */
 	public function ajax_bulk(): void {
+		self::forget_count();
 		$this->guard();
 		global $wpdb;
 		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
@@ -804,6 +881,7 @@ final class DZE_Queue {
 	}
 
 	public function ajax_clear(): void {
+		self::forget_count();
 		$this->guard();
 		global $wpdb;
 		$n = (int) $wpdb->query( "DELETE FROM " . self::table() . " WHERE status IN ('applied','failed','skipped')" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.

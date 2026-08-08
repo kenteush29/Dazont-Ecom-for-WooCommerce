@@ -1,10 +1,15 @@
-/* global dzeContentBulk, jQuery */
+/* global dzeContentBulk, jQuery, tinymce */
 /**
- * AI Content bulk runner: for each queued product, generates the selected text
- * fields (server pulls the complete product data), applies them to their mapped
- * destinations, optionally recalculates the price (cost × table) and generates
- * one image per product (per-row template + include checkbox — the judgement
- * call). Tasks run sequentially with a progress bar; choices are remembered.
+ * Bulk generation runner.
+ *
+ * The screen is a LIST first: one line per product, one state symbol, a thin
+ * progress bar, and green badges naming what was produced. Everything else —
+ * the texts, the images, the decisions — lives behind "Review", closed until
+ * asked for. A run of thirty products has to stay thirty lines, otherwise the
+ * screen is unusable exactly when it matters most.
+ *
+ * What to generate is decided ONCE at the top of the page: fields, price,
+ * image prompt, scene, how many attempts. Nothing is decided per row.
  */
 (function ($) {
 	'use strict';
@@ -17,10 +22,16 @@
 	function saveMem(o) { try { localStorage.setItem(MEM, JSON.stringify(o)); } catch (e) {} }
 	function sprintf(str) {
 		var args = Array.prototype.slice.call(arguments, 1), i = 0;
-		return str.replace(/%\d\$s|%s/g, function () { return args[i++]; });
+		return String(str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
 	}
+	function reason(msg) {
+		if (typeof msg === 'string' && msg) { return msg; }
+		if (msg && msg.status) { return 'HTTP ' + msg.status + (msg.statusText ? ' ' + msg.statusText : ''); }
+		return i18n.error;
+	}
+	function $row(id) { return $('.dze-cb-row[data-id="' + id + '"]'); }
 
-	// ---- Restore remembered choices ----
+	// ---- Remembered choices ----
 	(function restore() {
 		var m = mem();
 		if (Array.isArray(m.bulkFields)) {
@@ -28,14 +39,14 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
-		if (typeof m.tpl !== 'undefined') { $('#dze-cb-tpl').val(m.tpl); }
+		buildTplRows(Array.isArray(m.tpls) && m.tpls.length ? m.tpls : [ '' ]);
 		// The scene is remembered with the toolbox (same store): pick a support
 		// once and every screen keeps shooting on it.
 		if (typeof m.scene !== 'undefined' && $('#dze-cb-scene option[value="' + m.scene + '"]').length) {
 			$('#dze-cb-scene').val(String(m.scene));
 		}
 		if (typeof m.imgn !== 'undefined') { $('#dze-cb-imgn').val(String(m.imgn)); }
-		syncRows();
+		if (typeof m.par !== 'undefined') { $('#dze-cb-par').val(String(m.par)); }
 	}());
 
 	function persist() {
@@ -43,273 +54,904 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
-		m.tpl = $('#dze-cb-tpl').val();
+		m.tpls = tpls();
 		if ($('#dze-cb-scene').length) { m.scene = parseInt($('#dze-cb-scene').val(), 10); }
 		if ($('#dze-cb-imgn').length) { m.imgn = parseInt($('#dze-cb-imgn').val(), 10); }
+		if ($('#dze-cb-par').length) { m.par = parseInt($('#dze-cb-par').val(), 10); }
 		saveMem(m);
 	}
-	// Global image toggle/template cascade to every row (rows stay overridable).
-	function syncRows() {
-		var on = $('#dze-cb-image').is(':checked'), tpl = $('#dze-cb-tpl').val();
-		$('.dze-cb-row-img').prop('checked', on);
-		$('.dze-cb-row-tpl').val(tpl);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par', persist);
+	// One prompt by default, a + to add another when a product needs two kinds
+	// of shot. Every row runs on every product of the list.
+	function tplRow(value) {
+		var $r = $($('#dze-cb-tpltpl').html());
+		if (value !== '' && value !== undefined) { $r.find('.dze-cb-tpl').val(String(value)); }
+		return $r;
 	}
-	$('#dze-cb-image, #dze-cb-tpl').on('change', function () { persist(); syncRows(); });
-	$('#dze-cb-scene, #dze-cb-imgn').on('change', persist);
-	$('.dze-cb-field, #dze-cb-price').on('change', persist);
+	function buildTplRows(values) {
+		var $wrap = $('#dze-cb-tplrows').empty();
+		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
+		syncTplRows();
+	}
+	// A + that cannot add anything is a lie: it only shows while an unused
+	// prompt is left, and − disappears when one row is left.
+	function tplCount() { return $('#dze-cb-tpltpl').length ? $($('#dze-cb-tpltpl').html()).find('option').length : 0; }
+	function syncTplRows() {
+		var $rows = $('#dze-cb-tplrows .dze-tplrow');
+		var room = $rows.length < tplCount();
+		$rows.each(function (i) {
+			$(this).find('.dze-tpl-add').toggle(room && i === $rows.length - 1);
+			$(this).find('.dze-tpl-del').toggle($rows.length > 1);
+		});
+	}
+	function firstFreeTpl() {
+		var used = $('#dze-cb-tplrows .dze-cb-tpl').map(function () { return $(this).val(); }).get();
+		var free = '';
+		$($('#dze-cb-tpltpl').html()).find('option').each(function () {
+			if (free === '' && used.indexOf($(this).val()) < 0) { free = $(this).val(); }
+		});
+		return free;
+	}
+	// Two rows on the same prompt would generate the same thing twice without
+	// saying so: the duplicate falls back to a free one.
+	$(document).on('change', '#dze-cb-tplrows .dze-cb-tpl', function () {
+		var used = {}, $me = $(this);
+		$('#dze-cb-tplrows .dze-cb-tpl').each(function () {
+			var v = $(this).val();
+			if (used[v] && this === $me[0]) { $me.val(firstFreeTpl()); }
+			else if (used[v]) { $(this).val(firstFreeTpl()); }
+			used[$(this).val()] = 1;
+		});
+	});
+	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
+		$('#dze-cb-tplrows').append(tplRow(firstFreeTpl()));
+		syncTplRows();
+		persist();
+	});
+	$(document).on('click', '#dze-cb-tplrows .dze-tpl-del', function () {
+		$(this).closest('.dze-tplrow').remove();
+		syncTplRows();
+		persist();
+	});
+	function tpls() {
+		var seen = {}, out = [];
+		$('#dze-cb-tplrows .dze-cb-tpl').each(function () {
+			var v = $(this).val();
+			if (v !== null && !seen[v]) { seen[v] = 1; out.push(v); }
+		});
+		return out;
+	}
 
-	// ---- Task queue ----
+	// =====================================================================
+	// The list itself: take products out, or empty it
+	// =====================================================================
+
+	function picked() {
+		return $('.dze-cb-pick:checked').map(function () { return $(this).val(); }).get();
+	}
+	function drawPicked() {
+		var n = picked().length;
+		$('#dze-cb-selcount').text(n ? sprintf(i18n.selected, n) : '');
+		$('#dze-cb-unqueue').toggle(n > 0);
+		refreshApplyBar();
+	}
+	$(document).on('change', '.dze-cb-pick', drawPicked);
+	$(document).on('change', '#dze-cb-all', function () {
+		$('.dze-cb-pick').prop('checked', this.checked);
+		drawPicked();
+	});
+	function dropRows(ids) {
+		ids.forEach(function (id) {
+			$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
+			delete results[id];
+			delete state[id];
+		});
+		drawPicked();
+		if (!$('.dze-cb-row').length) { window.location.reload(); }
+	}
+	// The screen shows what the server holds, not what it hoped the server
+	// would hold: rows only leave once the list has really been rewritten.
+	function unqueue(ids, $b) {
+		if ($b) { $b.prop('disabled', true); }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids })
+			.done(function (res) {
+				if (res && res.success) { dropRows(ids); }
+				else { window.alert((res && res.data && res.data.message) || i18n.error); }
+			})
+			.fail(function (x) { window.alert(reason(x)); })
+			.always(function () { if ($b) { $b.prop('disabled', false); } });
+	}
+	$('#dze-cb-unqueue').on('click', function () {
+		var ids = picked();
+		if (!ids.length) { return; }
+		unqueue(ids, $(this));
+	});
+	$('#dze-cb-clearlist').on('click', function () {
+		if (!window.confirm(i18n.confirmClear)) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'clear' })
+			.always(function () { window.location.reload(); });
+	});
+	// One product out, from its own line.
+	$(document).on('click', '.dze-cb-unqueue-one', function () {
+		unqueue([ $(this).closest('.dze-cb-row').data('id') ], $(this));
+	});
+
+	// =====================================================================
+	// Per-product state: one symbol, one bar, one tooltip
+	// =====================================================================
+
 	var stopped = false, okCount = 0, koCount = 0, doneCount = 0, total = 0;
+	var state = {};   // id => { total, done, notes: [], failed: bool }
+	var results = {}; // id => { texts, shots, built, open }
 
-	// A failed task must say WHY on the row. Without this the screen answers
-	// "1 errors" and leaves you to guess between a missing key, a budget stop,
-	// a template that is not validated and a timeout at the provider.
-	function reason(msg) {
-		if (typeof msg === 'string' && msg) { return msg; }
-		if (msg && msg.status) { return 'HTTP ' + msg.status + (msg.statusText ? ' ' + msg.statusText : ''); }
-		return i18n.error;
+	var SYMBOL = { wait: '○', run: '', ready: '✓', done: '✓', fail: '✗' };
+
+	function plan(id, tasks) {
+		state[id] = { total: tasks, done: 0, notes: [], failed: false };
+		paint(id, 'wait');
 	}
-	function status($row, html, isErr) {
-		var $s = $row.find('.dze-cb-status');
-		$s.append('<span class="' + (isErr ? 'ko' : 'ok') + '">' + html + '</span> ');
+	function note(id, text, bad) {
+		var st = state[id];
+		if (!st) { return; }
+		if (text) { st.notes.push(text); }
+		if (bad) { st.failed = true; }
 	}
+	function step(id) {
+		var st = state[id];
+		if (!st) { return; }
+		st.done++;
+		paint(id, st.done >= st.total ? null : 'run');
+	}
+	// null = decide from what happened.
+	function paint(id, force) {
+		var st = state[id] || { total: 1, done: 0, notes: [], failed: false };
+		var kind = force;
+		if (!kind) { kind = st.failed ? 'fail' : (reviewMode ? 'ready' : 'done'); }
+		var pct = st.total ? Math.round(100 * st.done / st.total) : 0;
+		var $c = $row(id).find('.dze-cb-statuscell');
+		var label = { wait: i18n.sWait, run: i18n.sRun, ready: i18n.sReady, done: i18n.sDone, fail: i18n.sFail }[kind];
+		$c.find('.dze-cb-state')
+			.removeClass('is-wait is-run is-ready is-done is-fail')
+			.addClass('is-' + kind)
+			.text(SYMBOL[kind])
+			.attr('title', label + (st.notes.length ? ' — ' + st.notes.join(' · ') : ''));
+		// The thin bar only exists while there is something to watch.
+		var running = kind === 'run';
+		$c.find('.dze-cb-rowbar').toggle(running).find('i').css('width', pct + '%');
+		$c.find('.dze-cb-rowpct').toggle(running).text(pct + '%');
+	}
+
+	// One badge per piece of content actually produced, on the product line.
+	function badge(id, key, label) {
+		var $wrap = $row(id).find('.dze-cb-badges');
+		var $b = $wrap.find('[data-k="' + key + '"]');
+		if (!$b.length) { $b = $('<span class="dze-cb-badge" data-k="' + esc(key) + '"></span>').appendTo($wrap); }
+		$b.html(esc(label) + ' <span class="dze-cb-badgecheck">✓</span>');
+	}
+	function offerReview(id) {
+		$row(id).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').show();
+	}
+	function hideRowActions(id) {
+		$row(id).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+	}
+	// Accept and refuse, from the line. Accepting always asks first — it writes
+	// to the shop; refusing asks too, because it throws away work already paid
+	// for.
+	$(document).on('click', '.dze-cb-yes', function () {
+		if (!window.confirm(i18n.confirmOne)) { return; }
+		applyProducts([ $(this).closest('.dze-cb-row').data('id') ], $(this));
+	});
+	$(document).on('click', '.dze-cb-no', function () {
+		if (!window.confirm(i18n.confirmDrop)) { return; }
+		var id = $(this).closest('.dze-cb-row').data('id');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+		delete results[id];
+		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
+		$row(id).find('.dze-cb-badges').empty();
+		hideRowActions(id);
+		state[id] = { total: 1, done: 1, notes: [], failed: false };
+		paint(id, 'wait');
+		refreshApplyBar();
+	});
+
+	// ---- Global progress, pinned to the bottom of the window ----
 	function progress(label) {
 		doneCount++;
 		var pct = total ? Math.round(100 * doneCount / total) : 0;
 		$('.dze-cb-fill').css('width', pct + '%');
+		$('#dze-cb-stickypct').text(pct + '%');
+		$('#dze-cb-stickytext').text(sprintf(i18n.progress, doneCount, total, label || ''));
 		$('#dze-cb-progress').text(sprintf(i18n.progress, doneCount, total, label || ''));
 	}
 
-	// ONE call per product: every selected field is generated in a single model
-	// request. In "direct" mode the server applies them straight away; in
-	// "review" mode nothing is written — the texts land in an editable preview
-	// row and only "Apply reviewed texts" commits them.
-	function textAllTask(id, fids, $row, review) {
+	// =====================================================================
+	// The three kinds of work
+	// =====================================================================
+
+	var reviewMode = true;
+
+	function textAllTask(id, fids, review) {
 		var data = { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, fields: fids };
-		if (!review) { data.apply = 1; }
+		// Reviewed content is kept on the product, not in this tab: a closed
+		// window must not throw away what has just been paid for.
+		if (review) { data.stash = 1; } else { data.apply = 1; }
 		return $.post(cfg.ajaxUrl, data)
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				if (review) {
-					renderPreview(id, fids, res.data.texts || {});
-					status($row, i18n.review);
+					storeTexts(id, fids, res.data.texts || {});
+					note(id, fids.length + ' ' + i18n.tText.toLowerCase());
 					return;
 				}
-				var r = res.data.results || {};
+				var r = res.data.results || {}, done = 0;
 				fids.forEach(function (fid) {
-					if (r[fid] === 'applied') { okCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✓'); }
-					else { koCount++; status($row, esc(cfg.fields[fid] || fid) + ' ✗', true); }
+					if (r[fid] === 'applied') { okCount++; done++; badge(id, fid, cfg.fields[fid] || fid); }
+					else { koCount++; }
 				});
+				note(id, sprintf(i18n.partial, done, fids.length), done < fids.length);
 			})
-			.catch(function (msg) {
-				koCount++; status($row, 'text ✗ ' + esc(reason(msg)), true);
-				if (window.console) { console.warn('DZE bulk', msg); }
-			})
-			.always(function () { progress('text'); });
+			.catch(function (msg) { koCount++; note(id, i18n.tText + ': ' + reason(msg), true); })
+			.always(function () { step(id); progress(i18n.tText); });
 	}
 
-	// ---- Review mode: editable preview per product ----
-	// The row exists for texts AND for images, so it is created on demand and
-	// each kind of content appends its own block to it.
-	function previewCell(id) {
-		var $cell = $('.dze-cb-preview[data-id="' + id + '"]').show().find('td');
-		$('#dze-cb-applyall').show();
-		return $cell;
-	}
-	function renderPreview(id, fids, texts) {
-		// Two columns of short boxes: a review screen you can take in at a
-		// glance beats one you have to scroll through product by product.
-		var html = '<div class="dze-cb-prev">';
-		fids.forEach(function (fid) {
-			html += '<div class="dze-cb-prevfield" data-field="' + fid + '">' +
-				'<label>' + esc(cfg.fields[fid] || fid) + '<span class="dze-cb-prevstate"></span></label>' +
-				'<textarea rows="2">' + esc(texts[fid] || '') + '</textarea>' +
-				'</div>';
-		});
-		html += '</div>';
-		var $cell = previewCell(id), $shots = $cell.find('.dze-cb-shots').detach();
-		$cell.html(html).append($shots);
-	}
-	// A generated image waiting for a decision. Selected by default — the
-	// common case is keeping it — but nothing is attached until Apply.
-	function addShot(id, url) {
-		if (!url) { return; }
-		var $cell = previewCell(id), $wrap = $cell.find('.dze-cb-shots');
-		if (!$wrap.length) {
-			// One line: the shots, then where they go. Hover a shot to see it
-			// full size — no need to give the strip half the screen.
-			$wrap = $('<div class="dze-cb-shots">' +
-				'<div class="dze-cb-shotgrid"></div>' +
-				'<select class="dze-cb-shottarget">' +
-					'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
-					'<option value="main">' + esc(i18n.toMain) + '</option>' +
-				'</select> <span class="dze-cb-shotstate"></span>' +
-				'</div>');
-			$cell.append($wrap);
-		}
-		$wrap.find('.dze-cb-shotgrid').append(
-			$('<div class="dze-cb-shot is-sel"><span class="dze-cb-shotcheck">✓</span></div>')
-				.attr('data-url', url)
-				.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''))
-		);
-	}
-	$(document).on('click', '.dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
-
-	// Commit every reviewed text, product by product, field by field.
-	$('#dze-cb-applyall').on('click', function () {
-		var $btn = $(this).prop('disabled', true);
-		var jobs = [], shots = [];
-		$('.dze-cb-preview:visible').each(function () {
-			var $prev = $(this), id = $prev.data('id');
-			$prev.find('.dze-cb-prevfield').each(function () {
-				var $f = $(this);
-				jobs.push({ id: id, fid: $f.data('field'), $f: $f });
-			});
-			var $w = $prev.find('.dze-cb-shots');
-			if ($w.length) {
-				var urls = $w.find('.dze-cb-shot.is-sel').map(function () { return $(this).data('url'); }).get();
-				if (urls.length) { shots.push({ id: id, urls: urls, target: $w.find('.dze-cb-shottarget').val(), $w: $w }); }
-			}
-		});
-		// Images first: attaching is what the run was for, and a text failure
-		// should not leave the kept shots behind.
-		function attachNext(k) {
-			if (k >= shots.length) { return runTexts(); }
-			var sh = shots[k];
-			sh.$w.find('.dze-cb-shotstate').css('color', '#646970').text(i18n.working);
-			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, urls: sh.urls, target: sh.target })
-				.done(function (res) {
-					if (res && res.success) {
-						okCount++;
-						sh.$w.find('.dze-cb-shotstate').css('color', '#0a7040').text('✓ ' + sprintf(i18n.attached, res.data.attached));
-						sh.$w.find('.dze-cb-shot').removeClass('is-sel');
-					} else {
-						koCount++;
-						sh.$w.find('.dze-cb-shotstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
-					}
-				})
-				.fail(function (x) { koCount++; sh.$w.find('.dze-cb-shotstate').css('color', '#b32d2e').text(reason(x)); })
-				.always(function () { attachNext(k + 1); });
-		}
-		function runTexts() {
-			var i = 0;
-			(function next() {
-				if (i >= jobs.length) {
-					$btn.prop('disabled', false);
-					$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
-					return;
-				}
-				var j = jobs[i++];
-				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.$f.find('textarea').val() })
-					.done(function (res) {
-						if (res && res.success) { okCount++; j.$f.find('.dze-cb-prevstate').css('color', '#0a7040').text('✓ ' + i18n.applied); }
-						else { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); }
-					})
-					.fail(function () { koCount++; j.$f.find('.dze-cb-prevstate').css('color', '#b32d2e').text(i18n.error); })
-					.always(next);
-			})();
-		}
-		attachNext(0);
-	});
-
-	function priceTask(id, $row) {
-		var cost = $row.find('.dze-cb-cost').val();
+	function priceTask(id) {
+		var cost = $row(id).find('.dze-cb-cost').val();
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: id, cost: cost })
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
 				// A variable product reports the range and how many variations
 				// were repriced — one figure would be a half-truth.
-				status($row, '$' + res.data.regular + (res.data.variations ? ' ×' + res.data.variations : '') + ' ✓');
+				var label = res.data.regular + (res.data.variations ? ' ×' + res.data.variations : '');
+				note(id, i18n.tPrice + ' ' + label);
+				badge(id, 'price', i18n.tPrice + ' ' + label);
 			})
-			.catch(function (msg) { koCount++; status($row, '$ ✗ ' + esc(reason(msg)), true); })
-			.always(function () { progress('price'); });
+			.catch(function (msg) { koCount++; note(id, i18n.tPrice + ': ' + reason(msg), true); })
+			.always(function () { step(id); progress(i18n.tPrice); });
 	}
 
-	// One attempt. In review mode nothing is attached: the result joins the
-	// strip under the product and waits for a decision.
-	function oneImage(id, $row, review) {
-		var tpl = $row.find('.dze-cb-row-tpl').val();
+	// The prompt, the scene and the count come from the top of the page: one
+	// decision for the run, not one per line.
+	function imageRequest(id, review, tpl) {
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
-		if (review) { data.mode = 'defer'; }
-		// One scene for the whole run — that is the point of a scene.
+		if (review) { data.mode = 'defer'; data.stash = 1; }
 		var $sc = $('#dze-cb-scene');
 		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
-		return $.post(cfg.ajaxUrl, data)
+		return data;
+	}
+	function oneImage(id, review, tpl) {
+		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl))
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
 				if (review) {
 					addShot(id, res.data.url);
-					status($row, 'img ' + i18n.toReview);
 				} else {
-					status($row, 'img ✓');
-					// Better image visibility: refresh the row thumbnail.
-					if (res.data.url) { $row.find('.dze-cb-thumb img').attr('src', res.data.url); }
+					badge(id, 'img', i18n.imgBadge);
+					if (res.data.url) { $row(id).find('.dze-cb-thumb img').attr('src', res.data.url).attr('data-full', res.data.url); }
 				}
 			})
-			.catch(function (msg) { koCount++; status($row, 'img ✗ ' + esc(reason(msg)), true); })
-			.always(function () { progress('image'); });
+			.catch(function (msg) { koCount++; note(id, i18n.tImage + ': ' + reason(msg), true); })
+			.always(function () { step(id); progress(i18n.tImage); });
 	}
 	// N attempts on the same product, one after the other — the provider is
 	// slow enough that firing four at once is how a run times out.
-	function imageTask(id, $row, review, n) {
-		var i = 0, d = $.Deferred();
+	// Every ticked prompt × every attempt, one after the other: the provider is
+	// slow enough that firing them together is how a run times out.
+	function imageTask(id, review, n, list) {
+		var jobs = [], d = $.Deferred();
+		list.forEach(function (tpl) {
+			for (var k = 0; k < Math.max(1, n); k++) { jobs.push(tpl); }
+		});
+		var i = 0;
 		(function next() {
-			if (stopped || i >= Math.max(1, n)) { d.resolve(); return; }
-			i++;
-			oneImage(id, $row, review).always(next);
+			if (stopped || i >= jobs.length) { d.resolve(); return; }
+			oneImage(id, review, jobs[i++]).always(next);
 		})();
 		return d;
 	}
+
+	// =====================================================================
+	// Review: collapsed rows, opened one at a time
+	// =====================================================================
+
+	function bucket(id) {
+		if (!results[id]) { results[id] = { texts: {}, shots: [], built: false, open: {}, shotOf: {} }; }
+		return results[id];
+	}
+	function previewCell(id) {
+		return $('.dze-cb-preview[data-id="' + id + '"]').find('td');
+	}
+	function editorId(id, fid) { return 'dze-cb-ed-' + id + '-' + String(fid).replace(/[^a-zA-Z0-9_-]/g, ''); }
+	function isRich(fid) { return !!(cfg.rich && cfg.rich[fid]); }
+	function peek(html) {
+		var t = $('<div>').html(html || '').text().replace(/\s+/g, ' ').trim();
+		return t ? (t.length > 110 ? t.slice(0, 110) + '…' : t) : i18n.empty;
+	}
+
+	function storeTexts(id, fids, texts, companions) {
+		var b = bucket(id);
+		b.shotOf = companions || {};
+		fids.forEach(function (fid) {
+			// A block written against a photograph that was not produced simply
+			// is not there — the server drops it when the gallery is too thin.
+			if (typeof texts[fid] === 'undefined') { return; }
+			b.texts[fid] = texts[fid] || '';
+			badge(id, fid, cfg.fields[fid] || fid);
+		});
+		offerReview(id);
+		refreshApplyBar();
+	}
+	function addShot(id, url) {
+		if (!url) { return; }
+		var b = bucket(id);
+		b.shots.push(url);
+		badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length);
+		offerReview(id);
+		refreshApplyBar();
+		if (b.built) { renderShots(id); }
+	}
+
+	// The panel is a list of shut drawers. Each one shows the field name and
+	// the first line of what was written — enough to judge without opening —
+	// and the editor is only started when the drawer is.
+	function buildPanel(id) {
+		var b = bucket(id), $cell = previewCell(id);
+		if (b.built) { return; }
+		var html = '<div class="dze-cb-prev">';
+		Object.keys(b.texts).forEach(function (fid) {
+			var comp = (b.shotOf || {})[fid];
+			html += '<div class="dze-cb-fblock" data-field="' + fid + '">' +
+				'<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="false">' +
+					'<span class="dze-cb-fcaret">▸</span>' +
+					// The photograph this text was written against, so the pairing
+					// is visible before anything is saved.
+					(comp && comp.thumb
+						? '<img class="dze-cb-fshot dze-hzoom" src="' + esc(comp.thumb) + '" data-full="' + esc(comp.full || comp.thumb) + '" alt="" title="' + esc(comp.feature || '') + '" />'
+						: '') +
+					'<span class="dze-cb-fname">' + esc(cfg.fields[fid] || fid) + '</span>' +
+					'<span class="dze-cb-fpeek">' + esc(peek(b.texts[fid])) + '</span>' +
+					'<span class="dze-cb-fstate"></span>' +
+					'<button type="button" class="button button-small dze-cb-now" data-field="' + fid + '" title="' + esc(i18n.compareHelp) + '">' + esc(i18n.compare) + '</button>' +
+					'<button type="button" class="button button-small dze-cb-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻ ' + esc(i18n.redoShort) + '</button>' +
+				'</div>' +
+				'<div class="dze-cb-fbody" style="display:none;"></div>' +
+			'</div>';
+		});
+		html += '</div>' +
+			'<div class="dze-cb-nowshots"></div>' +
+			'<p class="dze-cb-panelbar">' +
+				(Object.keys(b.texts).length
+					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
+				'<button type="button" class="button button-small dze-cb-onemore">↻ ' + esc(i18n.oneMore) + '</button> ' +
+				'<button type="button" class="button button-small button-primary dze-cb-applyone">' + esc(i18n.applyOne) + '</button> ' +
+				'<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>' +
+				'<span class="dze-cb-panelstate"></span>' +
+			'</p>' +
+			'<div class="dze-cb-shots-slot"></div>';
+		$cell.html(html);
+		b.built = true;
+		renderShots(id);
+		// The gallery as it stands today, right under the new images: the only
+		// way to judge whether a generated shot ADDS something.
+		loadCurrent(id).then(function () { renderCurrentImages(id); });
+	}
+
+	function openField(id, fid, open) {
+		var b = bucket(id);
+		var $block = $('.dze-cb-preview[data-id="' + id + '"]').find('.dze-cb-fblock[data-field="' + fid + '"]');
+		var $body = $block.find('.dze-cb-fbody');
+		$block.toggleClass('is-open', open);
+		$block.find('.dze-cb-fhead').attr('aria-expanded', open ? 'true' : 'false');
+		$block.find('.dze-cb-fcaret').text(open ? '▾' : '▸');
+		if (!open) {
+			// Keep what is in the editor before it goes out of sight.
+			if (b.open[fid]) { b.texts[fid] = editorGet(editorId(id, fid)); }
+			$block.find('.dze-cb-fpeek').text(peek(b.texts[fid]));
+			$body.hide();
+			return;
+		}
+		$body.show();
+		if (b.open[fid]) { return; }
+		b.open[fid] = true;
+		var eid = editorId(id, fid);
+		$body.html(isRich(fid)
+			? '<textarea id="' + eid + '" class="dze-cb-ed"></textarea>'
+			: '<textarea id="' + eid + '" class="dze-cb-plain" rows="3"></textarea>');
+		$('#' + eid).val(b.texts[fid] || '');
+		if (isRich(fid) && window.wp && wp.editor && wp.editor.initialize) {
+			try { wp.editor.remove(eid); } catch (e) {}
+			wp.editor.initialize(eid, {
+				tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo', height: 220 },
+				quicktags: true,
+				mediaButtons: false
+			});
+		}
+	}
+
+	// Each generated image says where IT goes. One destination for the batch
+	// could not express "this one is the main image, that one goes second",
+	// which is the decision actually being made in front of the strip.
+	function destSelect(cur) {
+		return '<select class="dze-cb-shotdest">' +
+			'<option value="gallery"' + (cur === 'gallery' ? ' selected' : '') + '>' + esc(i18n.toGallery) + '</option>' +
+			'<option value="gallery_first"' + (cur === 'gallery_first' ? ' selected' : '') + '>' + esc(i18n.toGalleryFirst) + '</option>' +
+			'<option value="main"' + (cur === 'main' ? ' selected' : '') + '>' + esc(i18n.toMain) + '</option>' +
+			'</select>';
+	}
+	function renderShots(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
+		if (!$slot.length || !b.shots.length) { return; }
+		// Adding one more attempt redraws the strip: what was already ticked or
+		// unticked, and where each was headed, survives the redraw.
+		var $old = $slot.find('.dze-cb-shots');
+		var dropped = {}, dest = {};
+		if ($old.length) {
+			$old.find('.dze-cb-shot').each(function () {
+				var u = $(this).data('url');
+				if (!$(this).hasClass('is-sel')) { dropped[u] = true; }
+				dest[u] = $(this).find('.dze-cb-shotdest').val();
+			});
+		}
+		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div>' +
+			'<span class="dze-cb-shotstate"></span></div>');
+		b.shots.forEach(function (url) {
+			$wrap.find('.dze-cb-shotgrid').append(
+				$('<div class="dze-cb-shotwrap"></div>').append(
+					$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
+						.toggleClass('is-sel', !dropped[url])
+						.attr('data-url', url)
+						.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', '')),
+					$(destSelect(dest[url] || 'gallery'))
+				).attr('data-url', url)
+			);
+		});
+		$slot.empty().append($wrap);
+	}
+	// Only one image can be the main one; picking a second moves the first back
+	// to the gallery instead of letting the server arbitrate silently.
+	$(document).on('change', '.dze-cb-shotdest', function () {
+		if ($(this).val() !== 'main') { return; }
+		var $me = $(this);
+		$me.closest('.dze-cb-shots').find('.dze-cb-shotdest').not($me).each(function () {
+			if ($(this).val() === 'main') { $(this).val('gallery'); }
+		});
+	});
+
+	// ---- What the product says today ----
+	// Loaded when a panel opens, never with the list: it is one product's worth
+	// of data, asked for at the moment somebody wants to compare.
+	function loadCurrent(id) {
+		var b = bucket(id);
+		if (b.current) { return $.Deferred().resolve(b.current); }
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: id })
+			.then(function (res) {
+				b.current = (res && res.success) ? res.data : { texts: {}, images: [] };
+				return b.current;
+			}, function () { b.current = { texts: {}, images: [] }; return b.current; });
+	}
+	function renderCurrentImages(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-nowshots');
+		if (!$slot.length || !b.current) { return; }
+		var imgs = b.current.images || [];
+		if (!imgs.length) { $slot.empty(); return; }
+		var $g = $('<div class="dze-cb-nowgrid"></div>');
+		imgs.forEach(function (im) {
+			$g.append(
+				$('<span class="dze-cb-nowshot"></span>')
+					.toggleClass('is-main', !!im.main)
+					.append($('<img class="dze-hzoom" />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', ''))
+			);
+		});
+		$slot.empty().append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>').append($g);
+	}
+
+	function editorGet(eid) {
+		if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) { return tinymce.get(eid).getContent(); }
+		return $('#' + eid).val() || '';
+	}
+	// What a field holds right now, opened or not.
+	function valueOf(id, fid) {
+		var b = bucket(id);
+		return b.open[fid] ? editorGet(editorId(id, fid)) : (b.texts[fid] || '');
+	}
+
+	// Waiting content you no longer want. The only other way out was to accept
+	// it, which is not a choice.
+	$(document).on('click', '.dze-cb-drop', function () {
+		if (!window.confirm(i18n.confirmDrop)) { return; }
+		var id = $(this).closest('.dze-cb-preview').data('id');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+		delete results[id];
+		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
+		$row(id).find('.dze-cb-badges').empty();
+		$row(id).find('.dze-cb-toggle').hide();
+		state[id] = { total: 1, done: 1, notes: [], failed: false };
+		paint(id, 'wait');
+		refreshApplyBar();
+	});
+
+	$(document).on('click', '.dze-cb-toggle', function () {
+		var $btn = $(this), id = $btn.closest('.dze-cb-row').data('id');
+		var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+		var open = $prev.is(':visible');
+		if (!open) { buildPanel(id); }
+		$prev.toggle(!open);
+		$btn.attr('aria-expanded', open ? 'false' : 'true').find('.dze-cb-caret').text(open ? '▾' : '▴');
+	});
+	// The current text, side by side with the new one, read-only.
+	$(document).on('click', '.dze-cb-now', function (e) {
+		e.stopPropagation();
+		var $btn = $(this), fid = $btn.data('field');
+		var id = $btn.closest('.dze-cb-preview').data('id');
+		var $block = $btn.closest('.dze-cb-fblock');
+		var $body = $block.find('.dze-cb-fbody');
+		if ($block.hasClass('is-comparing')) {
+			$block.removeClass('is-comparing').find('.dze-cb-nowtext').remove();
+			$btn.removeClass('button-primary');
+			return;
+		}
+		if (!$block.hasClass('is-open')) { openField(id, fid, true); }
+		$btn.addClass('button-primary');
+		$block.addClass('is-comparing');
+		$body.prepend('<div class="dze-cb-nowtext"><span class="dze-cb-nowlabel">' + esc(i18n.nowText) + '</span><div class="dze-cb-nowbody">…</div></div>');
+		loadCurrent(id).then(function (cur) {
+			var val = (cur.texts || {})[fid] || '';
+			$block.find('.dze-cb-nowbody').html(val ? $('<div>').html(val).html() : esc(i18n.empty));
+		});
+	});
+
+	$(document).on('click', '.dze-cb-fhead', function (e) {
+		if ($(e.target).closest('.dze-cb-redo, .dze-cb-now').length) { return; }
+		var $h = $(this), id = $h.closest('.dze-cb-preview').data('id');
+		openField(id, $h.closest('.dze-cb-fblock').data('field'), !$h.closest('.dze-cb-fblock').hasClass('is-open'));
+	});
+	$(document).on('keydown', '.dze-cb-fhead', function (e) {
+		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+	});
+	$(document).on('click', '.dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
+
+	// ---- Writing it again, from where you are reading it ----
+	function edited(id, fid) {
+		var b = bucket(id);
+		return !!b.open[fid] && editorGet(editorId(id, fid)) !== (b.texts[fid] || '');
+	}
+	function setValue(id, fid, html) {
+		var b = bucket(id);
+		b.texts[fid] = html;
+		var $block = $('.dze-cb-preview[data-id="' + id + '"]').find('.dze-cb-fblock[data-field="' + fid + '"]');
+		$block.find('.dze-cb-fpeek').text(peek(html));
+		if (!b.open[fid]) { return; }
+		var eid = editorId(id, fid);
+		if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) { tinymce.get(eid).setContent(html); }
+		else { $('#' + eid).val(html); }
+	}
+	function regenerate(id, fids, $state) {
+		var keep = fids.filter(function (fid) { return edited(id, fid); });
+		if (keep.length && !window.confirm(sprintf(i18n.confirmRedo, keep.length))) { return; }
+		$state.removeClass('is-ko').text(i18n.working);
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: id, fields: fids })
+			.done(function (res) {
+				if (!res || !res.success) {
+					$state.addClass('is-ko').text(reason((res && res.data && res.data.message) || i18n.error));
+					return;
+				}
+				var texts = res.data.texts || {};
+				fids.forEach(function (fid) { setValue(id, fid, texts[fid] || ''); });
+				$state.text('✓');
+				window.setTimeout(function () { $state.text(''); }, 2000);
+			})
+			.fail(function (x) { $state.addClass('is-ko').text(reason(x)); });
+	}
+	$(document).on('click', '.dze-cb-redo', function (e) {
+		e.stopPropagation();
+		var $btn = $(this), id = $btn.closest('.dze-cb-preview').data('id');
+		regenerate(id, [ $btn.data('field') ], $btn.closest('.dze-cb-fhead').find('.dze-cb-fstate'));
+	});
+	$(document).on('click', '.dze-cb-redoall', function () {
+		var $btn = $(this), id = $btn.closest('.dze-cb-preview').data('id');
+		regenerate(id, Object.keys(bucket(id).texts), $btn.closest('p').find('.dze-cb-panelstate'));
+	});
+	$(document).on('click', '.dze-cb-onemore', function () {
+		var $btn = $(this).prop('disabled', true);
+		var id = $btn.closest('.dze-cb-preview').data('id');
+		var $state = $btn.closest('p').find('.dze-cb-panelstate').removeClass('is-ko').text(i18n.working);
+		$.post(cfg.ajaxUrl, imageRequest(id, true, (tpls()[0] !== undefined ? tpls()[0] : '0')))
+			.done(function (res) {
+				$btn.prop('disabled', false);
+				if (!res || !res.success) {
+					$state.addClass('is-ko').text(reason((res && res.data && res.data.message) || i18n.error));
+					return;
+				}
+				addShot(id, res.data.url);
+				$state.text('');
+			})
+			.fail(function (x) { $btn.prop('disabled', false); $state.addClass('is-ko').text(reason(x)); });
+	});
+
+	// Whatever was left undecided last time is put back on screen as it was.
+	(function restorePending() {
+		var p = cfg.pending || {};
+		Object.keys(p).forEach(function (id) {
+			var waiting = p[id] || {};
+			var texts = waiting.texts || {};
+			var b = bucket(id);
+			b.shotOf = waiting.companions || {};
+			Object.keys(texts).forEach(function (fid) {
+				b.texts[fid] = texts[fid] || '';
+				badge(id, fid, cfg.fields[fid] || fid);
+			});
+			(waiting.shots || []).forEach(function (url) { b.shots.push(url); });
+			if (b.shots.length) { badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length); }
+			if (Object.keys(b.texts).length || b.shots.length) {
+				offerReview(id);
+				state[id] = { total: 1, done: 1, notes: [ i18n.fromEarlier ], failed: false };
+				paint(id, 'ready');
+			}
+		});
+	}());
+
+	// =====================================================================
+	// Applying what was kept
+	// =====================================================================
+
+	// Applying is a decision with three sizes: this product, the ticked ones,
+	// or everything waiting. They live together in the list bar, next to the
+	// other decisions about the list.
+	function pendingIds() {
+		return Object.keys(results).filter(function (id) {
+			var b = results[id];
+			return b && (Object.keys(b.texts).length || b.shots.length);
+		});
+	}
+	function refreshApplyBar() {
+		var waiting = pendingIds().length;
+		var sel = picked().filter(function (id) { return results[id]; }).length;
+		$('#dze-cb-applyall').toggle(waiting > 0).text(sprintf(i18n.applyAllN, waiting));
+		$('#dze-cb-applysel').toggle(sel > 0).text(sprintf(i18n.applySelN, sel));
+	}
+
+	function applyProducts(ids, $btn) {
+		var jobs = [], shots = [];
+		ids.forEach(function (id) {
+			var b = results[id];
+			if (!b) { return; }
+			var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+			Object.keys(b.texts).forEach(function (fid) {
+				jobs.push({
+					id: id,
+					fid: fid,
+					value: valueOf(id, fid),
+					$f: $prev.find('.dze-cb-fblock[data-field="' + fid + '"]')
+				});
+			});
+			if (b.shots.length) {
+				var $w = $prev.find('.dze-cb-shots');
+				// Never opened: every shot is kept, all to the gallery. Opened:
+				// the ticked ones, each to the destination chosen under it.
+				var items = [];
+				if ($w.length) {
+					$w.find('.dze-cb-shot.is-sel').each(function () {
+						items.push({
+							url: $(this).data('url'),
+							target: $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery'
+						});
+					});
+				} else {
+					b.shots.forEach(function (u) { items.push({ url: u, target: 'gallery' }); });
+				}
+				if (items.length) { shots.push({ id: id, items: items, $w: $w.length ? $w : $prev }); }
+			}
+		});
+		if (!jobs.length && !shots.length) {
+			window.alert(i18n.nothingKept);
+			return;
+		}
+		if ($btn) { $btn.prop('disabled', true); }
+		ids.forEach(function (id) { paint(id, 'run'); });
+
+		// Images first: attaching is what the run was for, and a text failure
+		// should not leave the kept shots behind.
+		function attachNext(k) {
+			if (k >= shots.length) { return runTexts(); }
+			var sh = shots[k];
+			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.applying);
+			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items })
+				.done(function (res) {
+					if (res && res.success) {
+						okCount++;
+						sh.$w.find('.dze-cb-shotstate').text('✓ ' + sprintf(i18n.attached, res.data.attached));
+						sh.$w.find('.dze-cb-shot').removeClass('is-sel');
+					} else {
+						koCount++;
+						note(sh.id, (res && res.data && res.data.message) || i18n.error, true);
+						sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+					}
+				})
+				.fail(function (x) {
+					koCount++;
+					note(sh.id, reason(x), true);
+					sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text(reason(x));
+				})
+				.always(function () { attachNext(k + 1); });
+		}
+		function runTexts() {
+			var i = 0;
+			(function next() {
+				if (i >= jobs.length) { return done(); }
+				var j = jobs[i++];
+				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.value })
+					.done(function (res) {
+						if (res && res.success) { okCount++; j.$f.find('.dze-cb-fstate').removeClass('is-ko').text('✓'); }
+						else {
+							koCount++;
+							note(j.id, (res && res.data && res.data.message) || i18n.error, true);
+							j.$f.find('.dze-cb-fstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+						}
+					})
+					.fail(function () { koCount++; note(j.id, i18n.error, true); j.$f.find('.dze-cb-fstate').addClass('is-ko').text(i18n.error); })
+					.always(next);
+			})();
+		}
+		function done() {
+			if ($btn) { $btn.prop('disabled', false); }
+			ids.forEach(function (id) {
+				var st = state[id];
+				// Applied and settled: the product stops waiting, here and on
+				// the server, and its line says so.
+				if (!st || !st.failed) {
+					delete results[id];
+					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+					state[id] = { total: 1, done: 1, notes: [], failed: false };
+					reviewModeWas = reviewMode;
+					reviewMode = false;
+					paint(id, 'done');
+					reviewMode = reviewModeWas;
+					$('.dze-cb-preview[data-id="' + id + '"]').hide();
+					hideRowActions(id);
+				} else {
+					paint(id, 'fail');
+				}
+			});
+			refreshApplyBar();
+			$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+		}
+		var reviewModeWas = reviewMode;
+		attachNext(0);
+	}
+
+	$('#dze-cb-applyall').on('click', function () {
+		var ids = pendingIds();
+		if (!ids.length) { window.alert(i18n.nothingKept); return; }
+		if (!window.confirm(sprintf(i18n.confirmAll, ids.length))) { return; }
+		applyProducts(ids, $(this));
+	});
+	$('#dze-cb-applysel').on('click', function () {
+		var ids = picked().filter(function (id) { return results[id]; });
+		if (!ids.length) { window.alert(i18n.nothingKept); return; }
+		applyProducts(ids, $(this));
+	});
+	// One product, from its own panel: no confirmation, it is one deliberate
+	// click on one product you are looking at.
+	$(document).on('click', '.dze-cb-applyone', function () {
+		applyProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
+	});
+
+	// =====================================================================
+	// The run
+	// =====================================================================
+
+	function stop() {
+		stopped = true;
+		$('#dze-cb-sticky').hide();
+		$('#dze-cb-start').prop('disabled', false);
+		$('#dze-cb-stop').hide();
+	}
+	$('#dze-cb-stop, #dze-cb-stickystop').on('click', stop);
 
 	$('#dze-cb-start').on('click', function () {
 		if (!cfg.validated) { return; }
 		persist();
 		var fields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		var doPrice = $('#dze-cb-price').is(':checked');
-		var review = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
-		$('.dze-cb-preview').hide().find('td').empty();
-		$('#dze-cb-applyall').hide();
-		if (!fields.length && !doPrice && !$('.dze-cb-row-img:checked').length) {
+		var tplList = tpls();
+		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled') && tplList.length > 0;
+		var imgN = parseInt($('#dze-cb-imgn').val(), 10) || 1;
+		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
+
+		if (!fields.length && !doPrice && !doImg) {
 			window.alert(i18n.noFields);
 			return;
 		}
-
-		// Build the flat task list: per product → fields, price, image.
-		var tasks = [];
+		// A new run clears the screen of everything it is about to redo, and
+		// leaves untouched what it is about to skip — that content is still
+		// waiting for a decision.
+		var keep = $('#dze-cb-force').is(':checked') ? [] : pendingIds().map(String);
 		$('.dze-cb-row').each(function () {
-			var $row = $(this), id = $row.data('id');
-			$row.find('.dze-cb-status').empty();
-			if (fields.length) { tasks.push(function () { return textAllTask(id, fields, $row, review); }); }
-			if (doPrice) { tasks.push(function () { return priceTask(id, $row); }); }
-			if ($row.find('.dze-cb-row-img').is(':checked')) {
-				var n = parseInt($('#dze-cb-imgn').val(), 10) || 1;
-				tasks.push(function () { return imageTask(id, $row, review, n); });
-			}
+			var rid = String($(this).data('id'));
+			if (keep.indexOf(rid) >= 0) { return; }
+			$('.dze-cb-preview[data-id="' + rid + '"]').hide().find('td').empty();
+			$(this).find('.dze-cb-badges').empty();
+			$(this).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+			$(this).find('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
+			delete results[rid];
+			delete state[rid];
 		});
+		refreshApplyBar();
 
-		// An image task covers N attempts, each reporting its own progress.
-		var imgN = parseInt($('#dze-cb-imgn').val(), 10) || 1;
-		var imgRows = $('.dze-cb-row-img:checked').length;
-		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
-		total = tasks.length + (imgRows * (imgN - 1));
-		$('.dze-cb-bar').show(); $('.dze-cb-fill').css('width', 0);
-		$('#dze-cb-start').prop('disabled', true);
-		$('#dze-cb-stop').show();
-		$('#dze-cb-progress').text(i18n.working);
+		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0);
+		// A product already holding content nobody has decided on is left alone:
+		// writing over it would charge for the same work twice and throw the
+		// first result away. Redoing one on purpose is what its ↻ is for, and
+		// the tick above forces the whole run.
+		var force = $('#dze-cb-force').is(':checked');
+		var waiting = force ? [] : pendingIds().map(String);
+		var skipped = 0;
 
-		(function next(i) {
-			if (stopped || i >= tasks.length) {
-				$('#dze-cb-start').prop('disabled', false);
-				$('#dze-cb-stop').hide();
-				$('#dze-cb-progress').text(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount));
+		// ONE job per product, its own steps in order inside it. Products are
+		// independent, the steps of a product are not: a price recalculated
+		// while its texts are still being written would be a race for nothing.
+		var jobs = [];
+		$('.dze-cb-row').each(function () {
+			var id = $(this).data('id');
+			if (waiting.indexOf(String(id)) >= 0) {
+				skipped++;
+				var st = state[id] || { total: 1, done: 1, notes: [], failed: false };
+				st.notes = [ i18n.sSkipped ];
+				state[id] = st;
+				paint(id, 'ready');
 				return;
 			}
-			tasks[i]().always(function () { next(i + 1); });
-		})(0);
-	});
+			plan(id, perProduct);
+			jobs.push(function () {
+				paint(id, 'run');
+				var chain = $.Deferred().resolve().promise();
+				if (fields.length) { chain = chain.then(function () { return textAllTask(id, fields, reviewMode); }); }
+				if (doPrice) { chain = chain.then(function () { return priceTask(id); }); }
+				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, imgN, tplList); }); }
+				return chain;
+			});
+		});
 
-	$('#dze-cb-stop').on('click', function () { stopped = true; });
+		if (!jobs.length) {
+			window.alert(i18n.allSkipped);
+			return;
+		}
+		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
+		total = jobs.length * perProduct;
+		$('#dze-cb-sticky').show();
+		$('.dze-cb-fill').css('width', 0);
+		$('#dze-cb-stickypct').text('0%');
+		$('#dze-cb-stickytext').text(i18n.working);
+		$('#dze-cb-start').prop('disabled', true);
+		$('#dze-cb-stop').show();
+
+		// A pool of workers rather than a queue of one: waiting for the provider
+		// is what a run spends its time on, and there is nothing to gain by
+		// waiting for one product before starting the next.
+		var lanes = Math.max(1, parseInt($('#dze-cb-par').val(), 10) || 1);
+		var cursor = 0, live = 0;
+		function finish() {
+			$('#dze-cb-start').prop('disabled', false);
+			$('#dze-cb-stop').hide();
+			$('#dze-cb-sticky').hide();
+			$('#dze-cb-progress').text(
+				(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount)) +
+				(skipped ? ' · ' + sprintf(i18n.skippedN, skipped) : '')
+			);
+		}
+		function pump() {
+			if (stopped) { if (!live) { finish(); } return; }
+			while (live < lanes && cursor < jobs.length) {
+				live++;
+				jobs[cursor++]().always(function () {
+					live--;
+					pump();
+				});
+			}
+			if (!live && cursor >= jobs.length) { finish(); }
+		}
+		pump();
+	});
 
 }(jQuery));

@@ -695,6 +695,7 @@ PROMPT;
 			. 'OUTPUT: a JSON array of the kept numbers, nothing else. Example: [3,0,7]';
 
 		try {
+			DZE_Ai_Usage::unit( 'cat_sift' );
 			$raw = DZE_Marketing_Ai::complete(
 				'You sort search queries for an e-commerce category page. You are strict: a query that shares words with the category but is about another subject is dropped.',
 				$user,
@@ -702,7 +703,9 @@ PROMPT;
 				400,
 				30
 			);
+			DZE_Ai_Usage::unit();
 		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
 			return $questions;
 		}
 		if ( ! preg_match( '/\[[^\]]*\]/s', $raw, $m ) ) {
@@ -1094,6 +1097,7 @@ PROMPT;
 			. 'LANGUAGE: ' . self::language( $term_id ) . ".\n"
 			. 'OUTPUT: a JSON array of ' . $n . ' heading strings, nothing else.';
 
+		DZE_Ai_Usage::unit( 'cat_desc' );
 		$raw = DZE_Marketing_Ai::complete(
 			'You plan e-commerce category pages. You answer with JSON and nothing else.',
 			$user,
@@ -1101,6 +1105,7 @@ PROMPT;
 			800,
 			60
 		);
+		DZE_Ai_Usage::unit();
 		preg_match( '/\[.*\]/s', $raw, $m );
 		$list = $m ? json_decode( $m[0], true ) : null;
 		$out  = [];
@@ -1151,6 +1156,7 @@ PROMPT;
 			. 'LANGUAGE: write in ' . self::language( $term_id ) . ". This overrides the language of the instructions above.\n"
 			. "OUTPUT: the HTML fragment for this piece only — no markdown, no code fence, no comment, no <html> wrapper.";
 
+		DZE_Ai_Usage::unit( 'cat_desc' );
 		$html = DZE_Marketing_Ai::complete(
 			'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' ),
 			$user,
@@ -1158,6 +1164,7 @@ PROMPT;
 			$budget * 3 + 400,
 			90
 		);
+		DZE_Ai_Usage::unit();
 		$html = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
 		return wp_kses_post( $html );
 	}
@@ -1230,12 +1237,28 @@ PROMPT;
 		$system = 'You are an e-commerce category copywriter. ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::store_context() : '' );
 		// ~1.4 tokens per word, doubled so a long guide is never cut mid-sentence.
 		$budget = min( 16000, (int) ( $size['words'] * 3 ) + 900 );
+		DZE_Ai_Usage::unit( 'cat_desc' );
 		$html   = DZE_Marketing_Ai::complete( $system, $user, '', $budget, 240 );
+		DZE_Ai_Usage::unit();
 		$html   = trim( preg_replace( '/^```(?:html)?|```$/m', '', $html ) );
 		if ( '' === $html ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
 		}
-		return wp_kses_post( $html );
+		$html = wp_kses_post( $html );
+		// Writing includes linking: a description handed over without its
+		// internal links is a job left half done, and running the linking pass
+		// by hand afterwards means paying for a second read of a text we just
+		// wrote. A failure here keeps the description — links can be added
+		// from the review screen.
+		try {
+			$linked = self::add_links( $term_id, $html );
+			if ( ! empty( $linked['html'] ) ) {
+				$html = (string) $linked['html'];
+			}
+		} catch ( \Throwable $e ) {
+			$html .= '';
+		}
+		return $html;
 	}
 
 	/** URLs already linked inside a description. */
@@ -1322,7 +1345,9 @@ PROMPT;
 
 		$system = 'You are an SEO editor doing internal linking on an existing e-commerce category page. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
+		DZE_Ai_Usage::unit( 'cat_links' );
 		$out    = DZE_Marketing_Ai::complete( $system, $user, '', min( 16000, $words * 3 + 900 ), 240 );
+		DZE_Ai_Usage::unit();
 		$out    = trim( preg_replace( '/^```(?:html)?|```$/m', '', $out ) );
 		if ( '' === $out ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
@@ -1730,7 +1755,7 @@ PROMPT;
 
 			<p>
 				<button type="button" class="button button-primary dze-cc-gen"<?php disabled( ! $q_on ); ?>>
-					<?php echo $has ? esc_html__( 'Rewrite with AI', 'dazont-ecom' ) : esc_html__( 'Write the description', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Write with AI', 'dazont-ecom' ); ?>
 				</button>
 				<?php if ( $has && $size['links'] > 0 ) : ?>
 					<button type="button" class="button dze-cc-ltoggle-pick"<?php disabled( ! $q_on ); ?> title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
@@ -1909,20 +1934,24 @@ PROMPT;
 		}
 		$kind = 'dze_cc_write' === $action ? 'cat_desc' : 'cat_links';
 		$n    = DZE_Queue::add( $kind, $ids, false );
-		return add_query_arg( 'dze_cc_queued', $n, $redirect );
+		// Straight to the queue: you asked for work to be done, the place where
+		// it happens is where you want to be. Coming back to the categories
+		// list with a notice pointing at another screen was one click too many.
+		return add_query_arg(
+			[ 'page' => DZE_Queue::MENU_SLUG, 'dze_cc_queued' => $n ],
+			admin_url( 'admin.php' )
+		);
 	}
 
 	public function bulk_notice(): void {
 		if ( ! isset( $_GET['dze_cc_queued'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
 			return;
 		}
-		$n   = absint( $_GET['dze_cc_queued'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
-		$url = add_query_arg( [ 'page' => DZE_Queue::MENU_SLUG ], admin_url( 'admin.php' ) );
+		$n = absint( $_GET['dze_cc_queued'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
 		echo '<div class="notice notice-success"><p>' . sprintf(
-			/* translators: 1: number of categories queued, 2: link to the queue */
-			esc_html( _n( '%1$s category sent to the writing queue. %2$s', '%1$s categories sent to the writing queue. %2$s', $n, 'dazont-ecom' ) ),
-			(int) $n,
-			'<a href="' . esc_url( $url ) . '">' . esc_html__( 'Follow it there', 'dazont-ecom' ) . '</a>'
+			/* translators: %s: number of categories queued */
+			esc_html( _n( '%s category added to the queue — it starts writing right away.', '%s categories added to the queue — it starts writing right away.', $n, 'dazont-ecom' ) ),
+			esc_html( number_format_i18n( $n ) )
 		) . '</p></div>';
 	}
 

@@ -80,7 +80,9 @@ final class DZE_Cleanup {
 			],
 			'content' => [
 				'options'    => [ 'dze_content_settings' ],
-				'transients' => [ 'dze_content_bulk_', 'dze_product_meta_keys' ],
+				'post_meta'  => [ '_dze_feature_shots', '_dze_pending_review' ],
+				'user_meta'  => [ '_dze_content_bulk' ],
+				'transients' => [ 'dze_content_bulk_', 'dze_product_meta_keys', 'dze_pending_count' ],
 			],
 			'pod' => [
 				'options'   => [ 'dze_pod_settings' ],

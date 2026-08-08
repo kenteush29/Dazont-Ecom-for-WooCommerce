@@ -205,35 +205,112 @@
 .dze-cb-opts select { min-width: 160px; }
 .dze-cb-mode .dze-cb-check { max-width: 900px; }
 .dze-cb-actions { margin: 16px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-/* ---- Review, under the product it belongs to ----
-   Everything here is deliberately small: hover a thumbnail to see it full
-   size, and open the product to read a text in full. A review screen is
-   worth having only if a whole run fits on it. */
-.dze-cb-preview td { background: #fbfbfc; padding: 8px 10px; }
-.dze-cb-prev { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 14px; }
-.dze-cb-prevfield label {
-	display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-	font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #646970;
-	margin: 0 0 2px;
+/* ---- The line says what happened, the panel says it properly ----
+   ONE symbol per product with the story in its tooltip, a thin bar while it
+   works, green badges for what came out. */
+.dze-cb-statuscell { white-space: nowrap; }
+.dze-cb-state {
+	display: inline-block; min-width: 20px; text-align: center;
+	font-weight: 700; font-size: 15px; line-height: 1.2; cursor: help; vertical-align: middle;
 }
-.dze-cb-prevfield textarea {
-	width: 100% !important; box-sizing: border-box; font-size: 12px; line-height: 1.5;
-	resize: vertical; min-height: 46px; padding: 4px 6px;
+.dze-cb-state.is-wait  { color: #c3c4c7; }
+.dze-cb-state.is-ready { color: #8a6d00; }
+.dze-cb-state.is-done  { color: #00794b; }
+.dze-cb-state.is-fail  { color: #b32d2e; }
+/* Writing: a turning ring rather than a character, so "in progress" is never
+   mistaken for a result. */
+.dze-cb-state.is-run {
+	width: 14px; height: 14px; min-width: 14px; border-radius: 50%;
+	border: 2px solid #dcdcde; border-top-color: #2271b1;
+	animation: dze-cb-spin .7s linear infinite;
 }
-.dze-cb-prevstate { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
-/* Generated images awaiting a decision: one line, thumbnails + destination. */
-.dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px; }
+@keyframes dze-cb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dze-cb-state.is-run { animation-duration: 2s; } }
+/* Per-product progress, discreet: a hairline that fills up. */
+.dze-cb-rowbar {
+	display: none; width: 54px; height: 3px; border-radius: 2px; background: #e2e4e7;
+	margin: 0 6px; vertical-align: middle; overflow: hidden;
+}
+.dze-cb-rowbar i { display: block; height: 100%; width: 0; background: #2271b1; transition: width .25s ease; }
+.dze-cb-rowpct { display: none; font-size: 11px; color: #646970; vertical-align: middle; }
+.dze-cb-toggle { margin-left: 10px; }
+.dze-cb-badges { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; }
+.dze-cb-badge {
+	display: inline-flex; align-items: center; gap: 3px;
+	border: 1px solid #c6e6d5; background: #f0faf5; color: #1d4c38;
+	border-radius: 999px; padding: 0 7px; font-size: 10px; line-height: 18px;
+}
+.dze-cb-badgecheck { color: #00794b; font-weight: 700; }
+
+/* ---- Global progress, pinned to the bottom of the window ---- */
+#dze-cb-sticky {
+	position: fixed; left: 160px; right: 0; bottom: 0; z-index: 9999;
+	background: #fff; border-top: 1px solid #c3c4c7; box-shadow: 0 -2px 10px rgba(0,0,0,.08);
+}
+.folded #dze-cb-sticky, .auto-fold #dze-cb-sticky { left: 36px; }
+@media (max-width: 782px) { #dze-cb-sticky { left: 0; } }
+#dze-cb-sticky .dze-cb-bar { margin: 0; border-radius: 0; height: 4px; max-width: none; }
+.dze-cb-stickyrow { display: flex; align-items: center; gap: 12px; padding: 8px 20px; font-size: 13px; }
+#dze-cb-stickypct { font-size: 15px; min-width: 48px; }
+#dze-cb-stickytext { color: #50575e; flex: 1; }
+
+/* ---- Review: a list of shut drawers ----
+   Six open editors at once is a wall. Each field shows its name and its first
+   line; the editor is built when the drawer is opened, and never before. */
+.dze-cb-preview td { background: #fbfbfc; padding: 10px 14px; }
+.dze-cb-prev { display: flex; flex-direction: column; gap: 6px; }
+.dze-cb-fblock { border: 1px solid #e2e4e7; border-radius: 5px; background: #fff; }
+.dze-cb-fblock.is-open { border-color: #c3c4c7; }
+.dze-cb-fhead {
+	display: flex; align-items: center; gap: 10px; padding: 7px 10px; cursor: pointer;
+	border-radius: 5px;
+}
+.dze-cb-fhead:hover { background: #f6f7f7; }
+.dze-cb-fhead:focus-visible { outline: 2px solid #2271b1; outline-offset: -2px; }
+.dze-cb-fcaret { color: #a7aaad; font-size: 11px; width: 10px; }
+.dze-cb-fname {
+	font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+	color: #1d2327; white-space: nowrap;
+}
+.dze-cb-fpeek {
+	flex: 1; color: #646970; font-size: 12px; white-space: nowrap; overflow: hidden;
+	text-overflow: ellipsis; min-width: 0;
+}
+.dze-cb-fstate { font-size: 11px; color: #00794b; }
+.dze-cb-fstate.is-ko { color: #b32d2e; }
+/* Real buttons, not grey glyphs you have to hunt for with the mouse. */
+.dze-cb-fhead .button { flex: 0 0 auto; }
+.dze-cb-redo, .dze-cb-now { white-space: nowrap; }
+.dze-cb-fbody { padding: 0 10px 10px; }
+.dze-cb-fbody .wp-editor-wrap { background: #fff; }
+.dze-cb-fbody textarea.dze-cb-plain {
+	width: 100% !important; box-sizing: border-box; font-size: 13px; line-height: 1.5;
+	resize: vertical; padding: 6px 8px; background: #fff;
+}
+.dze-cb-panelbar { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; }
+.dze-cb-panelstate { font-size: 12px; color: #646970; }
+.dze-cb-panelstate.is-ko { color: #b32d2e; }
+.dze-cb-shots-slot:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+/* Generated images awaiting a decision: one line of small tiles, hover to see
+   one full size. Without these rules they render at their natural size and
+   swallow the screen. */
+.dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
 .dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-.dze-cb-shot { position: relative; border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; width: 62px; height: 62px; background: #f6f7f7; }
+.dze-cb-shot {
+	position: relative; width: 62px; height: 62px; flex: 0 0 62px;
+	border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; background: #f6f7f7;
+}
 .dze-cb-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dze-cb-shot.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
 .dze-cb-shot .dze-cb-shotcheck {
 	position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
-	background: #fff; border: 1px solid #c3c4c7; color: transparent; font-size: 10px; line-height: 14px; text-align: center;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent;
+	font-size: 10px; line-height: 14px; text-align: center;
 }
 .dze-cb-shot.is-sel .dze-cb-shotcheck { background: #2271b1; border-color: #2271b1; color: #fff; }
 .dze-cb-shottarget { max-width: 190px; }
-.dze-cb-shotstate { font-size: 12px; }
+.dze-cb-shotstate { font-size: 12px; color: #646970; }
+.dze-cb-shotstate.is-ko { color: #b32d2e; }
 .dze-cb-table { width: 100%; max-width: 1100px; border-collapse: collapse; margin-top: 14px; background: #fff; }
 .dze-cb-table th, .dze-cb-table td { border: 1px solid #e2e4e7; padding: 6px 8px; text-align: left; vertical-align: middle; }
 .dze-cb-table th { background: #f6f7f7; font-size: 12px; }
@@ -244,7 +321,11 @@
 .dze-cb-status .ko { color: #b32d2e; }
 .dze-cb-bar { height: 10px; background: #e2e4e7; border-radius: 5px; overflow: hidden; margin: 10px 0; max-width: 560px; }
 .dze-cb-fill { height: 100%; background: #2271b1; width: 0; transition: width .3s ease; }
-.dze-cb-row-tpl { max-width: 150px !important; width: auto !important; }
+/* Tick + prompt on one line: they are a single decision. */
+.dze-cb-imgcell { white-space: nowrap; }
+.dze-cb-imgcell input[type="checkbox"] { margin: 0 8px 0 0; vertical-align: middle; }
+.dze-cb-row-tpl { max-width: 165px !important; width: auto !important; vertical-align: middle; }
+.dze-cb-row-tpl:disabled { opacity: .5; }
 .dze-cb-cost { width: 70px !important; }
 .dze-cb-mode label { margin-right: 14px; }
 
@@ -280,7 +361,8 @@
 .dze-cc-ltoggle { font-size: 12px; margin-left: 6px; }
 /* Before / after: two readable documents, not a diff table. */
 .dze-cc-diffwrap { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
-.dze-cx-dialog.is-wide { width: min(1500px, 97vw) !important; }
+/* The comparison no longer widens the popup: the current description is shown
+   above the new one, not beside it. */
 .dze-cc-sbs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 1100px) { .dze-cc-sbs { grid-template-columns: 1fr; } }
 .dze-cc-sbs h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: #50575e; }
@@ -292,6 +374,10 @@
 }
 .dze-cc-doc.is-new { border-color: #b6dfc3; box-shadow: inset 0 0 0 1px #e6f4ea; }
 .dze-cc-doc h2 { font-size: 15px; margin: 16px 0 6px; }
+.dze-cc-doc ul, .dze-cc-doc ol { margin: 0 0 10px 1.6em; padding: 0; }
+.dze-cc-doc ul { list-style: disc; }
+.dze-cc-doc ol { list-style: decimal; }
+.dze-cc-doc li { display: list-item; margin: 0 0 .25em; }
 .dze-cc-doc h2:first-child { margin-top: 0; }
 .dze-cc-doc p { margin: 0 0 10px; }
 .dze-cc-doc a { color: #2271b1; }
@@ -371,3 +457,123 @@
    the button is, instead of a failed generation a minute later. */
 .dze-cx-blocked { border-left: 4px solid #b32d2e; background: #fcf0f1; padding: 10px 12px; margin: 0 0 12px; border-radius: 3px; }
 .dze-cx-blocked ul { margin: 6px 0 0 18px; list-style: disc; }
+
+/* ---- The photograph a branding block was written against ----
+   Shown beside the block wherever it appears, so the pairing of a zoom and
+   its picture is visible before anything is saved. Hover enlarges it. */
+.dze-cx-fshot, .dze-cb-fshot {
+	width: 30px; height: 30px; object-fit: cover; border-radius: 4px;
+	border: 1px solid #dcdcde; flex: 0 0 auto;
+}
+.dze-cx-field h4 .dze-cx-fshot { margin-right: 6px; }
+/* Several image prompts at once, ticked like the fields above them. */
+.dze-au-tpls { margin: 2px 0 6px 26px; }
+.dze-cb-tplpick { display: flex; flex-direction: column; gap: 2px; }
+.dze-cb-optlabel { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
+.dze-cb-tplpick .dze-cb-check { margin: 0; }
+.dze-cb-tplpick em { color: #8c8f94; font-style: normal; font-size: 11px; }
+/* The companion image key sits under the destination meta key. */
+.dze-pr-imgmeta { margin-top: 4px; }
+
+
+/* ---- Image prompts: one row, a + for a second ---- */
+.dze-tplrows { display: inline-flex; flex-direction: column; gap: 4px; }
+.dze-tplrow { display: inline-flex; align-items: center; gap: 4px; }
+.dze-tplrow select { min-width: 190px; }
+.dze-tplrow .button { min-width: 28px; padding: 0 6px; text-align: center; }
+#dze-au-tplrows { margin: 2px 0 8px 26px; }
+
+/* ---- The bulk list is editable ---- */
+.dze-cb-listbar {
+	display: flex; align-items: center; gap: 10px; margin: 14px 0 0;
+	padding: 10px 12px; background: #fff; border: 1px solid #e2e4e7; border-radius: 6px;
+}
+#dze-cb-selcount { margin-right: auto; }
+/* A gap between deciding what to WRITE and deciding what to REMOVE. */
+.dze-cb-barsep { width: 1px; align-self: stretch; background: #e2e4e7; margin: 0 4px; }
+.dze-cb-pickcell { text-align: center; }
+/* Kept away from the tick box: one selects, the other throws away. */
+.dze-cb-unqueue-one {
+	background: transparent; border: none; cursor: pointer; color: #c3c4c7;
+	font-size: 16px; line-height: 1; padding: 0 4px; margin-left: 10px;
+}
+.dze-cb-row:hover .dze-cb-unqueue-one { color: #b32d2e; }
+
+/* ---- A destination per generated image ---- */
+.dze-cb-shotwrap { display: flex; flex-direction: column; gap: 3px; }
+.dze-cb-shotdest, .dze-cx-t-dest { font-size: 11px; max-width: 120px; height: 24px; line-height: 1; }
+.dze-cb-shotwrap .dze-cb-shotdest { width: 92px; }
+.dze-cx-galcell { display: flex; flex-direction: column; gap: 4px; }
+.dze-cx-t-dest { width: 100%; }
+
+/* ---- What the product says today ---- */
+.dze-cb-nowlabel {
+	display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+	letter-spacing: .04em; color: #646970; margin-bottom: 4px;
+}
+.dze-cb-nowshots:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+.dze-cb-nowgrid { display: flex; flex-wrap: wrap; gap: 6px; }
+.dze-cb-nowshot img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; display: block; }
+.dze-cb-nowshot.is-main img { border-color: #2271b1; box-shadow: 0 0 0 1px #2271b1; }
+.dze-cb-nowtext {
+	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 4px;
+	padding: 8px 10px; margin: 0 0 8px; max-height: 220px; overflow: auto;
+}
+/* The current content is shown AS CONTENT: the admin stylesheet strips list
+   markers and heading sizes, so a description pasted in raw came out as a
+   grey run-on paragraph with its bullets missing. */
+.dze-cb-nowbody { font-size: 12px; line-height: 1.6; color: #50575e; }
+.dze-cb-nowbody p { margin: 0 0 .6em; }
+.dze-cb-nowbody ul, .dze-cb-nowbody ol { margin: 0 0 .6em 1.6em; padding: 0; }
+.dze-cb-nowbody ul { list-style: disc; }
+.dze-cb-nowbody ol { list-style: decimal; }
+.dze-cb-nowbody li { margin: 0 0 .25em; display: list-item; }
+.dze-cb-nowbody h1, .dze-cb-nowbody h2, .dze-cb-nowbody h3, .dze-cb-nowbody h4 {
+	font-size: 13px; font-weight: 600; margin: .8em 0 .3em; color: #1d2327;
+}
+.dze-cb-nowbody strong { font-weight: 600; color: #1d2327; }
+.dze-cb-nowbody em { font-style: italic; }
+.dze-cb-nowbody a { text-decoration: underline; }
+.dze-cb-nowbody img { max-width: 100%; height: auto; }
+.dze-cb-nowbody table { border-collapse: collapse; }
+.dze-cb-nowbody td, .dze-cb-nowbody th { border: 1px solid #dcdcde; padding: 3px 6px; }
+.dze-cb-nowbody blockquote { margin: 0 0 .6em; padding-left: 10px; border-left: 3px solid #dcdcde; }
+
+
+/* ---- Product toolbox: the bulk screen's flow, for one product ---- */
+.dze-cx-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e2e4e7; }
+.dze-cx-result .dze-cb-prev { margin-bottom: 4px; }
+.dze-cx-state { font-size: 12px; color: #646970; }
+.dze-cx-state.is-ko { color: #b32d2e; }
+.dze-cx-body .dze-cb-controls { margin-top: 0; border: none; padding: 0; max-width: none; }
+.dze-cx-body .dze-cb-block:first-of-type { padding-top: 0; }
+
+/* ---- Products list: the Content chip ---- */
+.dze-content-open { gap: 6px; }
+.dze-content-photos { color: #646970; font-size: 12px; }
+/* Under two photographs a product cannot carry a branding block, and that is
+   worth seeing from the list rather than discovering at generation time. */
+.dze-content-photos.is-thin { color: #b32d2e; }
+.dze-content-waiting {
+	background: #fcf9e8; border: 1px solid #f0e6a6; color: #8a6d00;
+	border-radius: 999px; padding: 0 7px; font-size: 11px; line-height: 17px;
+}
+.dze-cx-who { color: #646970; font-size: 13px; margin-left: 4px; }
+
+/* ---- Writing queue: the review modal ---- */
+.dze-q-meta { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+#dze-q-now { margin-bottom: 12px; }
+
+/* ---- Accept / refuse, on the line ----
+   Two distinct symbols next to the state they act on, shared by the products
+   bulk screen and the categories queue so the same gesture means the same
+   thing on both. */
+.dze-cb-yes, .dze-cb-no {
+	border: 1px solid #dcdcde; background: #fff; cursor: pointer;
+	width: 26px; height: 26px; border-radius: 4px; margin-left: 6px;
+	font-size: 13px; font-weight: 700; line-height: 1; vertical-align: middle;
+}
+.dze-cb-yes { color: #00794b; }
+.dze-cb-yes:hover { background: #edfaf3; border-color: #00794b; }
+.dze-cb-no { color: #b32d2e; }
+.dze-cb-no:hover { background: #fcf0f1; border-color: #b32d2e; }

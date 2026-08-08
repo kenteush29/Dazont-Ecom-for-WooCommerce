@@ -1,9 +1,16 @@
 /* global dzeContent, jQuery, tinymce */
 /**
- * AI Content toolbox. Default flow = "Automatic edition": tick what to
- * generate, Launch, review everything in an editable preview, apply. The Text
- * and Image labs stay available (Test box) for previews and prompt tuning —
- * prompts are hidden behind discreet ✎ icons everywhere.
+ * The product toolbox: ONE product, the same flow as the bulk screen.
+ *
+ * Generate → look at it → change it if needed → accept. That is all a product
+ * page needs, and it is exactly what the bulk screen does, so it looks and
+ * behaves the same here: shut drawers with the first line showing, a real
+ * WordPress editor when one is opened, the current content one click away, an
+ * image strip where each result says where it goes.
+ *
+ * Prompt writing, validation and the price table live in Settings, where the
+ * whole registry is. Keeping copies of them here made this popup a second
+ * settings screen with five tabs, which is what it should never have been.
  */
 (function ($) {
 	'use strict';
@@ -18,686 +25,589 @@
 	}
 	function mem() { try { return JSON.parse(localStorage.getItem(MEM) || '{}'); } catch (e) { return {}; } }
 	function saveMem(o) { try { localStorage.setItem(MEM, JSON.stringify(o)); } catch (e) {} }
-
-	function setEditor(id, html) {
-		if (window.tinymce && tinymce.get(id) && !tinymce.get(id).isHidden()) { tinymce.get(id).setContent(html); }
-		else { $('#' + id).val(html); }
+	function reason(msg) {
+		if (typeof msg === 'string' && msg) { return msg; }
+		if (msg && msg.status) { return 'HTTP ' + msg.status + (msg.statusText ? ' ' + msg.statusText : ''); }
+		return i18n.error;
 	}
 
-	function fieldValidated(fid) {
-		return !!(cfg.validated && cfg.validated[fid]);
+	// The product being worked on. On an edit screen it is that product; from
+	// the products list it is the row that was clicked, so it is a variable,
+	// not a constant, and everything below reads it at call time.
+	var PID = cfg.postId || 0;
+	// Everything the popup is holding right now.
+	var res = { texts: {}, shots: [], open: {}, shotOf: {}, current: null };
+	function reset() {
+		// TinyMCE instances belong to the product they were opened on.
+		Object.keys(res.open).forEach(function (fid) {
+			try { if (window.wp && wp.editor) { wp.editor.remove(editorId(fid)); } } catch (e) {}
+		});
+		res = { texts: {}, shots: [], open: {}, shotOf: {}, current: null };
+		$('#dze-cx-drawers').empty();
+		$('#dze-cx-shots').empty();
+		$('#dze-cx-nowshots').empty();
+		$('#dze-cx-result').hide();
+		$('#dze-cx-runstate').empty();
 	}
-	// One source of truth for a field's validation UI, wherever the card lives
-	// (Text lab and Review both hold a card for the same field).
-	function syncFieldValidUi(fid) {
-		var on = fieldValidated(fid);
-		$('.dze-cx-field[data-field="' + fid + '"]').each(function () {
-			var $c = $(this);
-			$c.toggleClass('is-unvalidated', !on);
-			$c.find('.dze-cx-vbtn').toggleClass('is-on', on).text(on ? '✓ ' + i18n.validated : i18n.notValid);
-			$c.find('.dze-cx-apply').prop('disabled', !on).attr('title', on ? '' : i18n.fieldLocked);
+
+	// =====================================================================
+	// Image prompt rows: one, plus a + while there is another prompt to pick
+	// =====================================================================
+
+	function tplUsed() {
+		return $('#dze-cx-tplrows .dze-cx-tpl').map(function () { return $(this).val(); }).get();
+	}
+	function tplRow(sel) {
+		var opts = cfg.templates.map(function (t, i) {
+			return '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
+				esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
+		}).join('');
+		return '<span class="dze-tplrow"><select class="dze-cx-tpl">' + opts + '</select>' +
+			'<button type="button" class="button button-small dze-cx-tpladd" title="' + esc(i18n.addPrompt) + '">+</button>' +
+			'<button type="button" class="button button-small dze-cx-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span>';
+	}
+	// A + that cannot add anything is a lie: it only shows while an unused
+	// prompt is left, and the row it creates lands on one of those.
+	function syncTplRows() {
+		var $rows = $('#dze-cx-tplrows .dze-tplrow');
+		var room = $rows.length < cfg.templates.length;
+		$rows.each(function (i) {
+			$(this).find('.dze-cx-tpladd').toggle(room && i === $rows.length - 1);
+			$(this).find('.dze-cx-tpldel').toggle($rows.length > 1);
 		});
 	}
+	function firstFreeTpl() {
+		var used = tplUsed();
+		for (var i = 0; i < cfg.templates.length; i++) {
+			if (used.indexOf(String(i)) < 0) { return i; }
+		}
+		return 0;
+	}
+	$(document).on('click', '.dze-cx-tpladd', function () {
+		$('#dze-cx-tplrows').append(tplRow(firstFreeTpl()));
+		syncTplRows();
+		remember();
+	});
+	$(document).on('click', '.dze-cx-tpldel', function () {
+		$(this).closest('.dze-tplrow').remove();
+		syncTplRows();
+		remember();
+	});
+	// Two rows on the same prompt would generate the same thing twice without
+	// saying so: the duplicate falls back to a free one.
+	$(document).on('change', '.dze-cx-tpl', function () {
+		var $me = $(this), v = $me.val(), seen = false;
+		$('#dze-cx-tplrows .dze-cx-tpl').each(function () {
+			if (this === $me[0]) { seen = true; return; }
+			if (seen && $(this).val() === v) { $(this).val(String(firstFreeTpl())); }
+		});
+		var used = {}, dupe = false;
+		$('#dze-cx-tplrows .dze-cx-tpl').each(function () {
+			if (used[$(this).val()]) { dupe = true; }
+			used[$(this).val()] = 1;
+		});
+		if (dupe) { $me.val(String(firstFreeTpl())); }
+		remember();
+	});
 
-	// ---- Build the modal once ----
+	function remember() {
+		var m = mem();
+		m.auto = {
+			fields: $('.dze-cx-f:checked').map(function () { return $(this).val(); }).get(),
+			price: $('#dze-cx-doprice').is(':checked') ? 1 : 0,
+			img: $('#dze-cx-doimg').is(':checked') ? 1 : 0,
+			tpls: tplUsed(),
+			imgn: parseInt($('#dze-cx-imgn').val(), 10) || 1
+		};
+		if ($('#dze-cx-scene').length) { m.scene = parseInt($('#dze-cx-scene').val(), 10); }
+		saveMem(m);
+	}
+
+	// =====================================================================
+	// The popup
+	// =====================================================================
+
 	function build() {
 		if ($('#dze-cx-modal').length) { return; }
-		var m = mem();
-		var au = m.auto || {};
-
-		// Text-lab cards: prompt hidden behind a small ✎ icon in the header.
-		var fieldCards = '';
-		Object.keys(cfg.fields).forEach(function (fid) {
-			var ok = fieldValidated(fid);
-			fieldCards +=
-				'<div class="dze-cx-field' + (ok ? '' : ' is-unvalidated') + '" data-field="' + fid + '">' +
-				'<h4>' + esc(cfg.fields[fid]) +
-				' <button type="button" class="dze-cx-vbtn' + (ok ? ' is-on' : '') + '" title="' + esc(i18n.validToggle) + '">' + (ok ? '✓ ' + esc(i18n.validated) : esc(i18n.notValid)) + '</button>' +
-				'<button type="button" class="dze-cx-icon dze-cx-p-toggle" title="' + esc(i18n.editPrompt) + '">✎</button></h4>' +
-				'<div class="dze-cx-pwrap" style="display:none;">' +
-					'<textarea rows="6" class="dze-cx-p-text" title="' + esc(i18n.promptNote) + '"></textarea>' +
-					'<p style="margin:4px 0 0;"><button type="button" class="button-link dze-cx-p-save">💾 ' + esc(i18n.savePrompt) + '</button>' +
-					((cfg.defaults && cfg.defaults[fid]) ? ' <button type="button" class="button-link dze-cx-p-restore">↺ ' + esc(i18n.restore) + '</button>' : '') +
-				'</p>' +
-				'</div>' +
-				'<textarea rows="4" class="dze-cx-out" placeholder="—"></textarea>' +
-				'<div class="row-actions">' +
-				'<button type="button" class="button button-small dze-cx-gen">' + esc(i18n.generate) + '</button>' +
-				'<button type="button" class="button button-small dze-cx-apply"' + (ok ? '' : ' disabled title="' + esc(i18n.fieldLocked) + '"') + '>' + esc(i18n.apply) + '</button>' +
-				'</div></div>';
-		});
-		var tplOpts = cfg.templates.map(function (t, i) {
-			return '<option value="' + i + '"' + (m.tpl == i ? ' selected' : '') + '>' + esc(t.name) + '</option>';
-		}).join('');
-
-		// The scene (fixed support / background) reused on every generation.
-		// Remembered per browser, falling back to the one marked as default in
-		// the settings, so the whole catalogue keeps the same look by itself.
+		var m = mem(), au = m.auto || {};
 		var scenes = cfg.scenes || [];
 		var sceneCur = (m.scene !== undefined && m.scene !== null) ? parseInt(m.scene, 10) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
 		if (sceneCur >= scenes.length) { sceneCur = scenes.length ? 0 : -1; }
-		function sceneOpts() {
-			return '<option value="-1"' + (sceneCur < 0 ? ' selected' : '') + '>' + esc(i18n.noScene) + '</option>' +
+
+		var checks = Object.keys(cfg.fields).map(function (fid) {
+			var on = au.fields ? au.fields.indexOf(fid) >= 0 : true;
+			return '<label class="dze-cb-check"><input type="checkbox" class="dze-cx-f" value="' + fid + '"' + (on ? ' checked' : '') + ' />' +
+				'<span>' + esc(cfg.fields[fid]) + '</span></label>';
+		}).join('');
+
+		var sceneSel = scenes.length
+			? '<label><span>' + esc(i18n.scene) + '</span><select id="dze-cx-scene">' +
+				'<option value="-1"' + (sceneCur < 0 ? ' selected' : '') + '>' + esc(i18n.noScene) + '</option>' +
 				scenes.map(function (s, i) {
 					return '<option value="' + i + '"' + (sceneCur === i ? ' selected' : '') + '>' + esc(s.name) + '</option>';
-				}).join('');
-		}
-		function scenePicker(id) {
-			if (!scenes.length) { return ''; }
-			// A span, not a label: this picker also sits inside the automatic-
-			// edition checkbox line, where a nested label would hijack clicks.
-			return '<span class="dze-cx-scenepick" title="' + esc(i18n.sceneHelp) + '">' + esc(i18n.scene) +
-				' <select id="' + id + '" class="dze-cx-scene">' + sceneOpts() + '</select></span>';
-		}
+				}).join('') + '</select></label>'
+			: '';
 
-		// Automatic-edition checkboxes (restored from the saved setup).
-		var auChecks = '';
-		Object.keys(cfg.fields).forEach(function (fid) {
-			var checked = au.fields ? !!au.fields[fid] : true;
-			auChecks +=
-				'<label class="dze-au-check"><input type="checkbox" class="dze-au-f" value="' + fid + '"' + (checked ? ' checked' : '') + ' /> ' +
-				esc(cfg.fields[fid]) + (fieldValidated(fid) ? '' : ' <span class="dze-cx-badge">' + esc(i18n.notValid) + '</span>') + '</label>';
-		});
-		var dataUsed = (cfg.inputsUsed || []).map(esc).join(' · ');
+		var blockers = (cfg.blockers && cfg.blockers.length)
+			? '<div class="dze-cx-blocked"><strong>' + esc(i18n.blocked) + '</strong><ul>' +
+				cfg.blockers.map(function (b) {
+					return '<li>' + esc(b.text) + ' <a href="' + esc(b.url) + '" target="_blank" rel="noopener">' + esc(b.label) + '</a></li>';
+				}).join('') + '</ul></div>'
+			: '';
 
-		var html =
+		$('body').append(
 		'<div class="dze-cx-modal" id="dze-cx-modal"><div class="dze-cx-dialog">' +
 			'<div class="dze-cx-head"><h2>' + esc(i18n.toolbox) + '</h2>' +
-				'<div class="dze-cx-tabs">' +
-					'<span class="dze-cx-tab" data-pane="auto">' + esc(i18n.auto) + '</span>' +
-					'<span class="dze-cx-tab" data-pane="review" style="display:none;">' + esc(i18n.review) + '</span>' +
-					'<span class="dze-cx-tab" data-pane="text">' + esc(i18n.text) + '</span>' +
-					'<span class="dze-cx-tab" data-pane="image">' + esc(i18n.image) + '</span>' +
-					'<span class="dze-cx-tab" data-pane="price">' + esc(i18n.price) + '</span>' +
-				'</div>' +
-				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button>' +
-			'</div>' +
+				'<span id="dze-cx-who" class="dze-cx-who">' + esc(cfg.product.title || '') + '</span>' +
+				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button></div>' +
 			'<div class="dze-cx-body">' +
-				// AUTOMATIC EDITION pane (default)
-				'<div class="dze-cx-pane" data-pane="auto">' +
-					'<div class="dze-cx-setup">' +
-						'<h3>' + esc(i18n.whatToGen) + '</h3>' +
-						'<div class="dze-au-fields">' + auChecks + '</div>' +
-						'<label class="dze-au-check"><input type="checkbox" id="dze-au-price"' + (au.price === undefined || au.price ? ' checked' : '') + ' /> ' + esc(i18n.priceOpt) +
-							' <input type="number" step="0.01" id="dze-au-cost" value="' + esc(cfg.product.price) + '" style="width:100px;" /></label>' +
-						(cfg.templates.length ?
-							'<label class="dze-au-check"><input type="checkbox" id="dze-au-img"' + (au.img ? ' checked' : '') + ' /> ' + esc(i18n.genImgOpt) +
-							' <select id="dze-au-tpl">' + cfg.templates.map(function (t, i) {
-								return '<option value="' + i + '"' + ((au.tpl !== undefined ? au.tpl : m.tpl) == i ? ' selected' : '') + '>' + esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
-							}).join('') + '</select>' +
-							' <select id="dze-au-imgn" title="' + esc(i18n.imgCount) + '">' +
-								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
-							'</select> ' + scenePicker('dze-au-scene') + '</label>' : '') +
-						'<label class="dze-au-check dze-cx-note"><input type="checkbox" id="dze-au-save" checked /> ' + esc(i18n.saveSetup) + '</label>' +
-						'<p style="margin:14px 0 0;"><button type="button" class="button button-primary button-hero" id="dze-au-launch">' + esc(i18n.launch) + '</button> <span id="dze-au-status"></span></p>' +
+				blockers +
+				'<div class="dze-cb-controls">' +
+					'<div class="dze-cb-block"><h3>' + esc(i18n.text) + '</h3>' +
+						'<div class="dze-cb-checks">' + checks + '</div></div>' +
+					'<div class="dze-cb-block"><h3>' + esc(i18n.price) + '</h3>' +
+						'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doprice"' + (au.price ? ' checked' : '') + ' />' +
+						'<span>' + esc(i18n.priceOpt) + '</span></label>' +
+						'<div class="dze-cb-opts"><label><span>' + esc(i18n.costLabel) + '</span>' +
+						'<input type="number" step="0.01" id="dze-cx-cost" value="' + esc(cfg.product.price) + '" /></label></div>' +
 					'</div>' +
-					'<div class="dze-cx-testbox">' +
-						'<strong>' + esc(i18n.testBox) + '</strong> <span class="dze-cx-note">' + esc(i18n.testNote) + '</span><br />' +
-						'<button type="button" class="button button-small" id="dze-au-prevtext">' + esc(i18n.previewText) + '</button> ' +
-						'<button type="button" class="button button-small" id="dze-au-previmg">' + esc(i18n.previewImg) + '</button>' +
-					'</div>' +
-				'</div>' +
-				// REVIEW pane (filled after Launch)
-				'<div class="dze-cx-pane" data-pane="review">' +
-					'<p class="dze-cx-note" style="margin-top:0;">' + esc(i18n.reviewNote) + '</p>' +
-					'<div class="dze-cx-grid" id="dze-rv-grid"></div>' +
-					'<p id="dze-rv-price" class="dze-cx-note" style="display:none;"></p>' +
-					'<div id="dze-rv-galslot"></div>' +
-					'<p style="margin:14px 0 0;"><button type="button" class="button button-primary" id="dze-rv-apply">' + esc(i18n.applyAll) + '</button> <span id="dze-rv-status"></span></p>' +
-				'</div>' +
-				// TEXT lab
-				'<div class="dze-cx-pane" data-pane="text">' +
-					'<p class="dze-cx-topbar"><button type="button" class="button button-primary" id="dze-cx-genall">' + esc(i18n.genAll) + '</button></p>' +
-					'<p class="dze-cx-datause">' + esc(i18n.dataUsed) + ': ' + dataUsed +
-						' <button type="button" class="dze-cx-icon" id="dze-cx-src-toggle" title="' + esc(i18n.editData) + '">✎</button></p>' +
-					'<div class="dze-cx-src" id="dze-cx-src" style="display:none;">' +
-						'<label>' + esc(i18n.pTitle) + '</label><input type="text" id="dze-cx-ptitle" value="' + esc(cfg.product.title) + '" />' +
-						'<label>' + esc(i18n.pDesc) + '</label><div id="dze-cx-pdesc" class="dze-cx-rich" contenteditable="true">' + (cfg.product.descHtml || esc(cfg.product.desc)) + '</div>' +
-						'<label>' + esc(i18n.pAttr) + '</label><textarea id="dze-cx-pattr" rows="3">' + esc(cfg.product.attr || '') + '</textarea>' +
-					'</div>' +
-					'<div class="dze-cx-grid">' + fieldCards + '</div>' +
-				'</div>' +
-				// IMAGE lab
-				'<div class="dze-cx-pane" data-pane="image">' +
-					// What is standing in the way, before a single click is spent.
-					((cfg.blockers && cfg.blockers.length) ?
-						'<div class="dze-cx-blocked"><strong>' + esc(i18n.blocked) + '</strong><ul>' +
-						cfg.blockers.map(function (b) {
-							return '<li>' + esc(b.text) + ' <a href="' + esc(b.url) + '" target="_blank" rel="noopener">' + esc(b.label) + '</a></li>';
-						}).join('') + '</ul></div>' : '') +
-					'<p class="dze-cx-datause">' + esc(
-						cfg.sourceN > 1 ? sprintf(i18n.sourcesN, cfg.sourceN) : (cfg.sourceN === 1 ? i18n.sources1 : i18n.sources0)
-					) + '</p>' +
-					'<div class="dze-cx-imgrow">' +
-						'<label>' + esc(i18n.template) + ' <select id="dze-cx-tpl">' + tplOpts + '</select></label>' +
-						scenePicker('dze-cx-scene') +
-						'<span id="dze-cx-scenethumb" class="dze-cx-scenethumb"></span>' +
-						'<select id="dze-cx-imgn" title="' + esc(i18n.imgCount) + '">' +
-							[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((m.imgn || 1) == n ? ' selected' : '') + '>×' + n + '</option>'; }).join('') +
-						'</select>' +
-						'<button type="button" class="button button-primary" id="dze-cx-genimg">' + esc(i18n.genImage) + '</button>' +
-						'<button type="button" class="dze-cx-vbtn" id="dze-cx-tpl-validate" title="' + esc(i18n.validToggle) + '"></button>' +
-						'<button type="button" class="dze-cx-icon" id="dze-cx-tpl-edit" title="' + esc(i18n.editPrompt) + '">✎</button>' +
-						'<span id="dze-cx-imgstatus"></span>' +
-					'</div>' +
-					'<div id="dze-cx-tpl-pwrap" style="display:none;margin:8px 0;">' +
-						'<textarea id="dze-cx-tpl-prompt" rows="3" style="width:100%;box-sizing:border-box;" title="' + esc(i18n.promptNote) + '"></textarea>' +
-						'<p style="margin:4px 0 0;"><button type="button" class="button-link" id="dze-cx-tpl-save">💾 ' + esc(i18n.savePrompt) + '</button>' +
-						' <button type="button" class="button-link" id="dze-cx-tpl-restore" style="display:none;">↺ ' + esc(i18n.restore) + '</button></p>' +
-					'</div>' +
-					'<div id="dze-cx-galwrap">' +
-						'<div class="dze-cx-galbar">' +
-							'<label>' + esc(i18n.sendTo) + ' <select id="dze-cx-target"><option value="gallery">' + esc(i18n.toGallery) + '</option><option value="main">' + esc(i18n.toMain) + '</option></select></label>' +
-							'<button type="button" class="button button-primary" id="dze-cx-attach" disabled>' + esc(i18n.addSelected) + ' (0)</button>' +
-							'<span id="dze-cx-attachstatus"></span>' +
+					(cfg.templates.length ?
+					'<div class="dze-cb-block"><h3>' + esc(i18n.image) + '</h3>' +
+						'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
+						'<span>' + esc(i18n.genImgOpt) + '</span></label>' +
+						'<div class="dze-cb-opts">' +
+							'<label><span>' + esc(i18n.template) + '</span><span class="dze-tplrows" id="dze-cx-tplrows"></span></label>' +
+							sceneSel +
+							'<label><span>' + esc(i18n.attempts) + '</span><select id="dze-cx-imgn">' +
+								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) === n ? ' selected' : '') + '>× ' + n + '</option>'; }).join('') +
+							'</select></label>' +
 						'</div>' +
-						'<div class="dze-cx-gal" id="dze-cx-gal"></div>' +
-						'<div id="dze-cx-editrow" style="display:none;">' +
-							'<p class="dze-cx-note" style="margin:8px 0 2px;">' + esc(i18n.variantHelp) + '</p>' +
-							'<textarea id="dze-cx-editprompt" rows="2" style="width:100%;box-sizing:border-box;"></textarea>' +
-							'<p style="margin:6px 0 0;">' +
-								'<button type="button" class="button button-primary button-small" id="dze-cx-editgo">' + esc(i18n.genVariant) + '</button> ' +
-								'<button type="button" class="button button-small" id="dze-cx-editcancel">' + esc(i18n.cancel) + '</button>' +
-							'</p>' +
-						'</div>' +
-					'</div>' +
+					'</div>' : '') +
+					'<p class="dze-cb-actions">' +
+						'<button type="button" class="button button-primary button-hero" id="dze-cx-run">' + esc(i18n.launch) + '</button>' +
+						'<span class="dze-cx-state" id="dze-cx-runstate"></span>' +
+					'</p>' +
 				'</div>' +
-				// PRICE pane
-				'<div class="dze-cx-pane" data-pane="price">' +
-					'<p><label>' + esc(i18n.cost) + ' <input type="number" step="0.01" id="dze-cx-cost" value="' + esc(cfg.product.price) + '" style="width:120px;" /></label> ' +
-					'<button type="button" class="button button-primary" id="dze-cx-recalc">' + esc(i18n.recalc) + '</button></p>' +
-					'<p id="dze-cx-priceout" class="dze-cx-note"></p>' +
+				'<div id="dze-cx-result" class="dze-cx-result" style="display:none;">' +
+					'<div class="dze-cb-prev" id="dze-cx-drawers"></div>' +
+					'<div class="dze-cb-nowshots" id="dze-cx-nowshots"></div>' +
+					'<p class="dze-cb-panelbar">' +
+						'<button type="button" class="button button-primary dze-cx-applyone">' + esc(i18n.applyOne) + '</button> ' +
+						'<button type="button" class="button button-small dze-cx-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' +
+						'<button type="button" class="button button-small dze-cx-onemore">↻ ' + esc(i18n.oneMore) + '</button> ' +
+						'<button type="button" class="button-link dze-cx-drop">' + esc(i18n.discard) + '</button>' +
+						'<span class="dze-cb-panelstate"></span>' +
+					'</p>' +
+					'<div class="dze-cb-shots-slot" id="dze-cx-shots"></div>' +
 				'</div>' +
 			'</div>' +
-		'</div></div>';
-		$('body').append(html);
+		'</div></div>');
+
+		var saved = Array.isArray(au.tpls) && au.tpls.length ? au.tpls : [ 0 ];
+		saved.forEach(function (v) { $('#dze-cx-tplrows').append(tplRow(v)); });
+		syncTplRows();
+		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, #dze-cx-imgn, #dze-cx-scene', remember);
 	}
 
-	function open(pane) {
+	function open(pid) {
 		build();
-		syncTplPrompt();
-		refreshTplUi();
-		drawSceneThumb();
+		var target = parseInt(pid, 10) || cfg.postId || 0;
+		var switching = target !== PID;
+		PID = target;
 		$('#dze-cx-modal').addClass('is-open');
-		showPane(pane || 'auto');
-	}
-	function syncTplPrompt() {
-		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
-		var t = cfg.templates[i] || {};
-		$('#dze-cx-tpl-prompt').val(t.prompt || '');
-	}
-	// Keeps the template select labels and the validation toggle in sync.
-	function refreshTplUi() {
-		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
-		var t = cfg.templates[i] || {};
-		$('#dze-cx-tpl-validate').toggleClass('is-on', !!t.valid).text(t.valid ? '✓ ' + i18n.validated : i18n.notValid);
-		$('#dze-cx-tpl-restore').toggle(!!(cfg.defaults && t.id && cfg.defaults[t.id]));
-		$('#dze-au-tpl option').each(function () {
-			var ix = parseInt($(this).val(), 10), tt = cfg.templates[ix];
-			if (tt) { $(this).text(tt.name + (tt.valid ? '' : ' — ' + i18n.notValid)); }
-		});
-	}
-	function showPane(p) {
-		$('.dze-cx-tab').removeClass('is-active').filter('[data-pane="' + p + '"]').addClass('is-active');
-		$('.dze-cx-pane').removeClass('is-active').filter('[data-pane="' + p + '"]').addClass('is-active');
-		// The session gallery is ONE block shared between the Image lab and the
-		// Review pane — it moves to whichever is being shown.
-		if (p === 'review') { $('#dze-cx-galwrap').appendTo('#dze-rv-galslot'); }
-		if (p === 'image') { $('#dze-cx-galwrap').appendTo('.dze-cx-pane[data-pane="image"]'); }
-	}
-
-	$('#dze-cx-open-auto').on('click', function () { open('auto'); });
-	$('#dze-cx-open-text').on('click', function () { open('text'); });
-	$('#dze-cx-open-image').on('click', function () { open('image'); });
-	$(document).on('click', '.dze-cx-tab', function () { showPane($(this).data('pane')); });
-	$(document).on('click', '.dze-cx-close', function () { $('#dze-cx-modal').removeClass('is-open'); });
-	$(document).on('click', '#dze-cx-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
-	$(document).on('click', '#dze-au-prevtext', function () { showPane('text'); });
-	$(document).on('click', '#dze-au-previmg', function () { showPane('image'); });
-	$(document).on('click', '#dze-cx-src-toggle', function () { $('#dze-cx-src').toggle(); });
-
-	function productData() {
-		var descEl = $('#dze-cx-pdesc')[0];
-		return {
-			title: $('#dze-cx-ptitle').val() || '',
-			desc: descEl ? (descEl.innerText || '') : '',
-			attr: $('#dze-cx-pattr').val() || ''
-		};
-	}
-
-	// Per-card prompt editor: opens with the current prompt; edits apply to the
-	// next generation immediately; 💾 persists them to the settings.
-	$(document).on('click', '.dze-cx-p-toggle', function () {
-		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
-		var $wrap = $card.find('.dze-cx-pwrap');
-		if (!$wrap.data('filled')) { $wrap.find('.dze-cx-p-text').val((cfg.prompts && cfg.prompts[fid]) || ''); $wrap.data('filled', 1); }
-		$wrap.toggle();
-	});
-	$(document).on('click', '.dze-cx-p-save', function () {
-		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
-		var val = $card.find('.dze-cx-p-text').val(), $btn = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_content_save_prompt', nonce: cfg.nonce, ptype: 'field', field: fid, prompt: val })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (res.success) { cfg.prompts[fid] = val; $btn.text(i18n.savedPrompt); setTimeout(function () { $btn.text('💾 ' + i18n.savePrompt); }, 1800); }
-				else { window.alert((res.data && res.data.message) || i18n.error); }
-			})
-			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
-	});
-	// Per-prompt restore: puts the shipped default back in the editor (💾 to keep it).
-	$(document).on('click', '.dze-cx-p-restore', function () {
-		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
-		var d = cfg.defaults && cfg.defaults[fid];
-		if (d) { $card.find('.dze-cx-p-text').val(d); }
-	});
-	$(document).on('click', '#dze-cx-tpl-restore', function () {
-		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
-		var d = cfg.defaults && cfg.templates[i] && cfg.defaults[cfg.templates[i].id];
-		if (d) { $('#dze-cx-tpl-prompt').val(d); }
-	});
-
-	// The card's live prompt when its editor is open and differs from the stored one.
-	function cardPromptOverride($card) {
-		var $wrap = $card.find('.dze-cx-pwrap');
-		if (!$wrap.is(':visible')) { return ''; }
-		var fid = $card.data('field'), val = $wrap.find('.dze-cx-p-text').val() || '';
-		return (val !== '' && val !== ((cfg.prompts && cfg.prompts[fid]) || '')) ? val : '';
-	}
-
-	function genField($card) {
-		var fid = $card.data('field'), pd = productData();
-		var $ta = $card.find('.dze-cx-out'), $btn = $card.find('.dze-cx-gen').prop('disabled', true);
-		$ta.val(i18n.generating);
-		return $.post(cfg.ajaxUrl, { action: 'dze_content_text', nonce: cfg.nonce, field: fid, title: pd.title, desc: pd.desc, attr: pd.attr, prompt: cardPromptOverride($card) })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				$ta.val(res.success ? res.data.text : ((res.data && res.data.message) || i18n.error));
-			})
-			.fail(function () { $btn.prop('disabled', false); $ta.val(i18n.error); });
-	}
-
-	$(document).on('click', '.dze-cx-gen', function () { genField($(this).closest('.dze-cx-field')); });
-
-	// One single API call generates every field at once (each keeps its own prompt).
-	$(document).on('click', '#dze-cx-genall', function () {
-		var $btn = $(this).prop('disabled', true);
-		var pd = productData();
-		$('.dze-cx-pane[data-pane="text"] .dze-cx-out').val(i18n.generating);
-		var overrides = {};
-		$('.dze-cx-pane[data-pane="text"] .dze-cx-field').each(function () {
-			var ov = cardPromptOverride($(this));
-			if (ov) { overrides[$(this).data('field')] = ov; }
-		});
-		$.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: cfg.postId, title: pd.title, desc: pd.desc, attr: pd.attr, prompts: overrides })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (!res.success) {
-					window.alert((res.data && res.data.message) || i18n.error);
-					$('.dze-cx-pane[data-pane="text"] .dze-cx-out').val('');
-					return;
-				}
-				var texts = res.data.texts || {};
-				$('.dze-cx-pane[data-pane="text"] .dze-cx-field').each(function () {
-					var fid = $(this).data('field');
-					$(this).find('.dze-cx-out').val(texts[fid] || '');
-				});
-			})
-			.fail(function () {
-				$btn.prop('disabled', false);
-				window.alert(i18n.error);
-				$('.dze-cx-pane[data-pane="text"] .dze-cx-out').val('');
-			});
-	});
-
-	function applyField(fid, val) {
-		return $.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: cfg.postId, field: fid, value: val })
-			.done(function (res) {
-				if (res.success) {
-					// Reflect into the classic editors where relevant.
-					if (fid === 'description') { setEditor('content', val); }
-					if (fid === 'short') { setEditor('excerpt', val); }
-					if (fid === 'title') { $('#title').val(val.replace(/<[^>]+>/g, '')); }
+		if (switching) {
+			reset();
+			// A product we were not opened on: ask the server who it is, what it
+			// costs and what is already waiting on it, then arm the popup.
+			$('#dze-cx-runstate').html('<span class="dze-cx-spin"></span>');
+			loadCurrent().then(function (cur) {
+				$('#dze-cx-runstate').empty();
+				$('#dze-cx-who').text(cur.title || '');
+				if (cur.cost) { $('#dze-cx-cost').val(cur.cost); }
+				drawCurrentImages();
+				if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
+					hydrate(cur.pending);
 				}
 			});
-	}
-
-	$(document).on('click', '.dze-cx-apply', function () {
-		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
-		var val = $card.find('.dze-cx-out').val();
-		var $btn = $(this);
-		if (!fieldValidated(fid)) { window.alert(i18n.fieldLocked); return; }
-		$btn.prop('disabled', true);
-		applyField(fid, val)
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }
-				if (res.data && res.data.note) { window.alert(res.data.note); }
-				$btn.text(i18n.applied); setTimeout(function () { $btn.text(i18n.apply); }, 1500);
-			})
-			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
-	});
-
-	// ---- Image: session gallery ----
-	// Every generation lands here (nothing auto-attached). The gallery lives for
-	// the whole page visit, so closing/reopening the popup keeps the images.
-	var gal = [];      // { url, sel, added }
-	var editSrc = null; // index being edited with a manual prompt
-
-	$(document).on('change', '#dze-cx-tpl', function () {
-		var m = mem(); m.tpl = $(this).val(); saveMem(m);
-		syncTplPrompt();
-		refreshTplUi();
-	});
-	$(document).on('click', '#dze-cx-tpl-edit', function () { $('#dze-cx-tpl-pwrap').toggle(); });
-
-	// ---- One-click validation toggles (persisted in the prompt registry) ----
-	$(document).on('click', '.dze-cx-field .dze-cx-vbtn', function () {
-		var $card = $(this).closest('.dze-cx-field'), fid = $card.data('field');
-		var on = fieldValidated(fid) ? 0 : 1, $b = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_content_validate_prompt', nonce: cfg.nonce, ptype: 'field', field: fid, on: on })
-			.done(function (res) {
-				$b.prop('disabled', false);
-				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }
-				cfg.validated[fid] = !!on;
-				syncFieldValidUi(fid);
-			})
-			.fail(function () { $b.prop('disabled', false); window.alert(i18n.error); });
-	});
-	$(document).on('click', '#dze-cx-tpl-validate', function () {
-		var i = parseInt($('#dze-cx-tpl').val(), 10) || 0;
-		var t = cfg.templates[i];
-		if (!t) { return; }
-		var on = t.valid ? 0 : 1, $b = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_content_validate_prompt', nonce: cfg.nonce, ptype: 'template', index: i, on: on })
-			.done(function (res) {
-				$b.prop('disabled', false);
-				if (!res.success) { window.alert((res.data && res.data.message) || i18n.error); return; }
-				t.valid = !!on;
-				refreshTplUi();
-			})
-			.fail(function () { $b.prop('disabled', false); window.alert(i18n.error); });
-	});
-
-	$(document).on('click', '#dze-cx-tpl-save', function () {
-		var idx = parseInt($('#dze-cx-tpl').val(), 10) || 0;
-		var val = $('#dze-cx-tpl-prompt').val(), $btn = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_content_save_prompt', nonce: cfg.nonce, ptype: 'template', index: idx, prompt: val })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (res.success) { cfg.templates[idx].prompt = val; $btn.text(i18n.savedPrompt); setTimeout(function () { $btn.text('💾 ' + i18n.savePrompt); }, 1800); }
-				else { window.alert((res.data && res.data.message) || i18n.error); }
-			})
-			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
-	});
-
-	function renderGal() {
-		var html = '';
-		gal.forEach(function (g, i) {
-			html += '<div class="dze-cx-thumb' + (g.sel ? ' is-sel' : '') + (g.added ? ' is-added' : '') + '" data-i="' + i + '">' +
-				'<img class="dze-hzoom" src="' + g.url + '" data-full="' + g.url + '" alt="" />' +
-				'<span class="dze-cx-t-check" title="' + esc(i18n.select) + '">✓</span>' +
-				'<button type="button" class="dze-cx-t-edit" title="' + esc(i18n.editImage) + '">✎</button>' +
-				(g.added ? '<span class="dze-cx-t-tag">' + esc(i18n.added) + '</span>' : '') +
-				'</div>';
-		});
-		$('#dze-cx-gal').html(html);
-		updateAttachBtn();
-	}
-	function updateAttachBtn() {
-		var n = gal.filter(function (g) { return g.sel && !g.added; }).length;
-		$('#dze-cx-attach').prop('disabled', !n).text(i18n.addSelected + ' (' + n + ')');
-	}
-	function addToGal(url) {
-		gal.push({ url: url, sel: false, added: false });
-		renderGal();
-	}
-
-	// Several generations can run in parallel (the ×N picker): a pending counter
-	// drives the status line and re-enables the buttons on the LAST completion.
-	var imgPending = 0, imgHadError = false;
-	function imgTick() {
-		var $st = $('#dze-cx-imgstatus');
-		if (imgPending > 0) {
-			$st.css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.imgWait) + (imgPending > 1 ? ' (' + imgPending + ')' : ''));
 			return;
 		}
-		$('#dze-cx-genimg, #dze-cx-editgo').prop('disabled', false);
-		if (!imgHadError) { $st.css('color', '#00794b').text(i18n.imgReady); }
+		if (cfg.pending && (Object.keys(cfg.pending.texts || {}).length || (cfg.pending.shots || []).length)) {
+			hydrate(cfg.pending);
+			cfg.pending = null;
+		}
 	}
-	function genImage(params) {
-		if (imgPending === 0) { imgHadError = false; }
-		imgPending++;
-		$('#dze-cx-genimg, #dze-cx-editgo').prop('disabled', true);
-		imgTick();
-		var data = $.extend({ action: 'dze_content_image', nonce: cfg.nonce, post: cfg.postId, mode: 'defer' }, params);
-		return $.post(cfg.ajaxUrl, data)
-			.done(function (res) {
-				if (!res.success) {
-					imgHadError = true;
-					$('#dze-cx-imgstatus').css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error);
-					return;
-				}
-				addToGal(res.data.url);
-			})
-			.fail(function () {
-				imgHadError = true;
-				$('#dze-cx-imgstatus').css('color', '#b32d2e').text(i18n.error);
-			})
-			.always(function () {
-				imgPending = Math.max(0, imgPending - 1);
-				imgTick();
+	$(document).on('click', '#dze-cx-open-auto', function () { open(cfg.postId); });
+	// From the products list: one chip per row, same popup.
+	$(document).on('click', '.dze-content-open', function () { open($(this).data('id')); });
+	$(document).on('click', '.dze-cx-close', function () { $('#dze-cx-modal').removeClass('is-open'); });
+	$(document).on('click', '#dze-cx-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
+
+	// =====================================================================
+	// Drawers — same as the bulk panel
+	// =====================================================================
+
+	function editorId(fid) { return 'dze-cx-ed-' + String(fid).replace(/[^a-zA-Z0-9_-]/g, ''); }
+	function isRich(fid) { return !!(cfg.rich && cfg.rich[fid]); }
+	function peek(html) {
+		var t = $('<div>').html(html || '').text().replace(/\s+/g, ' ').trim();
+		return t ? (t.length > 110 ? t.slice(0, 110) + '…' : t) : i18n.empty;
+	}
+	function editorGet(eid) {
+		if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) { return tinymce.get(eid).getContent(); }
+		return $('#' + eid).val() || '';
+	}
+	function valueOf(fid) {
+		return res.open[fid] ? editorGet(editorId(fid)) : (res.texts[fid] || '');
+	}
+
+	function drawDrawers() {
+		var html = '';
+		Object.keys(res.texts).forEach(function (fid) {
+			var c = res.shotOf[fid];
+			html += '<div class="dze-cb-fblock" data-field="' + fid + '">' +
+				'<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="false">' +
+					'<span class="dze-cb-fcaret">▸</span>' +
+					(c && c.thumb ? '<img class="dze-cb-fshot dze-hzoom" src="' + esc(c.thumb) + '" data-full="' + esc(c.full || c.thumb) + '" alt="" title="' + esc(c.feature || '') + '" />' : '') +
+					'<span class="dze-cb-fname">' + esc(cfg.fields[fid] || fid) + '</span>' +
+					'<span class="dze-cb-fpeek">' + esc(peek(res.texts[fid])) + '</span>' +
+					'<span class="dze-cb-fstate"></span>' +
+					'<button type="button" class="button button-small dze-cx-now" data-field="' + fid + '" title="' + esc(i18n.compareHelp) + '">' + esc(i18n.compare) + '</button>' +
+					'<button type="button" class="button button-small dze-cx-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻ ' + esc(i18n.redoShort) + '</button>' +
+				'</div>' +
+				'<div class="dze-cb-fbody" style="display:none;"></div>' +
+			'</div>';
+		});
+		$('#dze-cx-drawers').html(html);
+		$('#dze-cx-result').show();
+	}
+
+	function openField(fid, on) {
+		var $b = $('#dze-cx-drawers .dze-cb-fblock[data-field="' + fid + '"]');
+		var $body = $b.find('.dze-cb-fbody');
+		$b.toggleClass('is-open', on);
+		$b.find('.dze-cb-fhead').attr('aria-expanded', on ? 'true' : 'false');
+		$b.find('.dze-cb-fcaret').text(on ? '▾' : '▸');
+		if (!on) {
+			if (res.open[fid]) { res.texts[fid] = editorGet(editorId(fid)); }
+			$b.find('.dze-cb-fpeek').text(peek(res.texts[fid]));
+			$body.hide();
+			return;
+		}
+		$body.show();
+		if (res.open[fid]) { return; }
+		res.open[fid] = true;
+		var eid = editorId(fid);
+		$body.html(isRich(fid)
+			? '<textarea id="' + eid + '" class="dze-cb-ed"></textarea>'
+			: '<textarea id="' + eid + '" class="dze-cb-plain" rows="3"></textarea>');
+		$('#' + eid).val(res.texts[fid] || '');
+		if (isRich(fid) && window.wp && wp.editor && wp.editor.initialize) {
+			try { wp.editor.remove(eid); } catch (e) {}
+			wp.editor.initialize(eid, {
+				tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo', height: 220 },
+				quicktags: true, mediaButtons: false
+			});
+		}
+	}
+	$(document).on('click', '#dze-cx-drawers .dze-cb-fhead', function (e) {
+		if ($(e.target).closest('.dze-cx-redo, .dze-cx-now').length) { return; }
+		var $b = $(this).closest('.dze-cb-fblock');
+		openField($b.data('field'), !$b.hasClass('is-open'));
+	});
+	$(document).on('keydown', '#dze-cx-drawers .dze-cb-fhead', function (e) {
+		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+	});
+
+	// ---- What the product says today ----
+	function loadCurrent() {
+		if (res.current) { return $.Deferred().resolve(res.current); }
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: PID })
+			.then(function (r) {
+				res.current = (r && r.success) ? r.data : { texts: {}, images: [] };
+				return res.current;
+			}, function () { res.current = { texts: {}, images: [] }; return res.current; });
+	}
+	function drawCurrentImages() {
+		var imgs = (res.current && res.current.images) || [];
+		var $slot = $('#dze-cx-nowshots');
+		if (!imgs.length) { $slot.empty(); return; }
+		var $g = $('<div class="dze-cb-nowgrid"></div>');
+		imgs.forEach(function (im) {
+			$g.append($('<span class="dze-cb-nowshot"></span>').toggleClass('is-main', !!im.main)
+				.append($('<img class="dze-hzoom" />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', '')));
+		});
+		$slot.empty().append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>').append($g);
+	}
+	$(document).on('click', '.dze-cx-now', function (e) {
+		e.stopPropagation();
+		var $btn = $(this), fid = $btn.data('field');
+		var $b = $btn.closest('.dze-cb-fblock');
+		if ($b.hasClass('is-comparing')) {
+			$b.removeClass('is-comparing').find('.dze-cb-nowtext').remove();
+			$btn.removeClass('button-primary');
+			return;
+		}
+		if (!$b.hasClass('is-open')) { openField(fid, true); }
+		$btn.addClass('button-primary');
+		$b.addClass('is-comparing');
+		$b.find('.dze-cb-fbody').prepend('<div class="dze-cb-nowtext"><span class="dze-cb-nowlabel">' + esc(i18n.nowText) + '</span><div class="dze-cb-nowbody">…</div></div>');
+		loadCurrent().then(function (cur) {
+			var val = (cur.texts || {})[fid] || '';
+			$b.find('.dze-cb-nowbody').html(val ? val : esc(i18n.empty));
+		});
+	});
+
+	// =====================================================================
+	// Images: a strip, each with its own destination
+	// =====================================================================
+
+	function drawShots() {
+		var $slot = $('#dze-cx-shots');
+		if (!res.shots.length) { $slot.empty(); return; }
+		var $old = $slot.find('.dze-cb-shots'), dropped = {}, dest = {};
+		$old.find('.dze-cb-shot').each(function () {
+			var u = $(this).data('url');
+			if (!$(this).hasClass('is-sel')) { dropped[u] = true; }
+			dest[u] = $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val();
+		});
+		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div><span class="dze-cb-shotstate"></span></div>');
+		res.shots.forEach(function (url) {
+			var cur = dest[url] || 'gallery';
+			$wrap.find('.dze-cb-shotgrid').append(
+				$('<div class="dze-cb-shotwrap"></div>').append(
+					$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
+						.toggleClass('is-sel', !dropped[url])
+						.attr('data-url', url)
+						.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', '')),
+					$('<select class="dze-cb-shotdest">' +
+						'<option value="gallery"' + (cur === 'gallery' ? ' selected' : '') + '>' + esc(i18n.toGallery) + '</option>' +
+						'<option value="gallery_first"' + (cur === 'gallery_first' ? ' selected' : '') + '>' + esc(i18n.toGalleryFirst) + '</option>' +
+						'<option value="main"' + (cur === 'main' ? ' selected' : '') + '>' + esc(i18n.toMain) + '</option>' +
+					'</select>')
+				)
+			);
+		});
+		$slot.empty().append($wrap);
+		$('#dze-cx-result').show();
+	}
+	$(document).on('click', '#dze-cx-shots .dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
+	$(document).on('change', '#dze-cx-shots .dze-cb-shotdest', function () {
+		if ($(this).val() !== 'main') { return; }
+		var $me = $(this);
+		$('#dze-cx-shots .dze-cb-shotdest').not($me).each(function () {
+			if ($(this).val() === 'main') { $(this).val('gallery'); }
+		});
+	});
+
+	// =====================================================================
+	// Generating
+	// =====================================================================
+
+	function status(text, bad) {
+		$('#dze-cx-runstate').toggleClass('is-ko', !!bad).html(text || '');
+	}
+	function imageRequest(tpl) {
+		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: PID, template: tpl, mode: 'defer', stash: 1 };
+		var $sc = $('#dze-cx-scene');
+		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
+		return data;
+	}
+	function genImage(tpl) {
+		return $.post(cfg.ajaxUrl, imageRequest(tpl))
+			.then(function (r) {
+				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+				res.shots.push(r.data.url);
+				drawShots();
+				flagWaiting();
 			});
 	}
-	// N parallel generations of the same template; resolves when ALL are done.
-	function genImages(params, n) {
-		var calls = [];
-		for (var k = 0; k < Math.max(1, n); k++) { calls.push(genImage(params)); }
-		return $.when.apply($, calls).then(null, function () { return $.Deferred().resolve(); });
+	function genTexts(fids) {
+		return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: PID, fields: fids, stash: 1 })
+			.then(function (r) {
+				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+				res.shotOf = r.data.companions || {};
+				Object.keys(r.data.texts || {}).forEach(function (fid) {
+					res.texts[fid] = r.data.texts[fid] || '';
+					delete res.open[fid];
+				});
+				drawDrawers();
+				flagWaiting();
+			});
 	}
-
-	$(document).on('change', '#dze-cx-imgn', function () {
-		var m = mem(); m.imgn = parseInt($(this).val(), 10) || 1; saveMem(m);
-	});
-	// The scene chosen anywhere in the toolbox is THE scene: both pickers and
-	// the reminder thumbnail follow, and the choice is kept for next time.
-	function sceneVal() {
-		var $s = $('#dze-cx-scene');
-		return $s.length ? (parseInt($s.val(), 10)) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
-	}
-	function drawSceneThumb() {
-		var i = sceneVal(), s = (cfg.scenes || [])[i];
-		var $w = $('#dze-cx-scenethumb').empty();
-		if (s && s.thumb) {
-			$w.append($('<img />').attr('src', s.thumb).attr('alt', '').attr('title', s.name));
+	// The row that opened the popup learns that it now holds something.
+	function flagWaiting() {
+		var $chip = $('.dze-content-open[data-id="' + PID + '"]');
+		if ($chip.length && !$chip.find('.dze-content-waiting').length) {
+			$chip.append('<span class="dze-content-waiting">' + esc(i18n.toReview) + '</span>');
 		}
 	}
-	$(document).on('change', '.dze-cx-scene', function () {
-		var v = parseInt($(this).val(), 10);
-		$('.dze-cx-scene').val(String(v));
-		var m = mem(); m.scene = v; saveMem(m);
-		drawSceneThumb();
-	});
-	$(document).on('click', '#dze-cx-genimg', function () {
-		var idx = parseInt($('#dze-cx-tpl').val(), 10) || 0;
-		var txt = $('#dze-cx-tpl-prompt').val() || '';
-		var stored = (cfg.templates[idx] && cfg.templates[idx].prompt) || '';
-		genImages(
-			{
-				template: idx,
-				scene: sceneVal(),
-				custom_prompt: (txt !== stored && $('#dze-cx-tpl-pwrap').is(':visible') ? txt : '')
-			},
-			parseInt($('#dze-cx-imgn').val(), 10) || 1
-		);
-	});
 
-	// Selection — native-WordPress feel: click the thumb (or its check) to toggle.
-	$(document).on('click', '.dze-cx-thumb', function (e) {
-		if ($(e.target).closest('.dze-cx-t-edit').length) { return; }
-		var i = $(this).data('i');
-		if (gal[i].added) { return; }
-		gal[i].sel = !gal[i].sel;
-		renderGal();
-	});
-
-	// Edit an image with a one-off manual prompt → the variant joins the gallery.
-	$(document).on('click', '.dze-cx-t-edit', function (e) {
-		e.stopPropagation();
-		editSrc = $(this).closest('.dze-cx-thumb').data('i');
-		$('#dze-cx-editrow').show();
-		$('#dze-cx-editprompt').val('').trigger('focus');
-	});
-	$(document).on('click', '#dze-cx-editcancel', function () { $('#dze-cx-editrow').hide(); editSrc = null; });
-	$(document).on('click', '#dze-cx-editgo', function () {
-		var p = $('#dze-cx-editprompt').val() || '';
-		if (editSrc === null || !p.trim()) { return; }
-		genImage({ src_url: gal[editSrc].url, custom_prompt: p });
-	});
-
-	// Push the selection onto the product (SEO naming happens server-side; when
-	// the target is the main image, the old main moves to gallery position 1).
-	$(document).on('click', '#dze-cx-attach', function () {
-		var urls = gal.filter(function (g) { return g.sel && !g.added; }).map(function (g) { return g.url; });
-		if (!urls.length) { return; }
+	$(document).on('click', '#dze-cx-run', function () {
 		var $btn = $(this).prop('disabled', true);
-		var $st = $('#dze-cx-attachstatus').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
-		$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: cfg.postId, urls: urls, target: $('#dze-cx-target').val() })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (!res.success) { $st.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#00794b').text(res.data.attached + ' ' + i18n.attachDone);
-				gal.forEach(function (g) { if (g.sel && !g.added) { g.added = true; g.sel = false; } });
-				renderGal();
-			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
-	});
-
-	// Bridge for sibling modules (POD): push an image into the session gallery
-	// and open a toolbox pane — the ✎ variant flow then works on that image.
-	window.dzeContentAddToGallery = function (url) { build(); addToGal(url); };
-	window.dzeContentOpen = open;
-
-	// ---- Price lab ----
-	function runPrice(cost) {
-		return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: cfg.postId, cost: cost });
-	}
-	$(document).on('click', '#dze-cx-recalc', function () {
-		var $out = $('#dze-cx-priceout').text(i18n.generating);
-		runPrice($('#dze-cx-cost').val())
-			.done(function (res) {
-				if (!res.success) { $out.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error); return; }
-				$out.css('color', '#1d2327').text('× ' + res.data.mult + ' → ' + i18n.newPrice + ': ' + res.data.regular + (res.data.applied ? ' ✓' : ''));
-				if (res.data.applied) { $('#_regular_price').val(res.data.regular); }
-			})
-			.fail(function () { $out.css('color', '#b32d2e').text(i18n.error); });
-	});
-
-	// ---- Automatic edition: Launch → generate everything → Review ----
-	function reviewCard(fid, text) {
-		var ok = fieldValidated(fid);
-		return '<div class="dze-cx-field' + (ok ? '' : ' is-unvalidated') + '" data-field="' + fid + '">' +
-			'<h4>' + esc(cfg.fields[fid]) +
-			' <button type="button" class="dze-cx-vbtn' + (ok ? ' is-on' : '') + '" title="' + esc(i18n.validToggle) + '">' + (ok ? '✓ ' + esc(i18n.validated) : esc(i18n.notValid)) + '</button></h4>' +
-			'<textarea rows="5" class="dze-cx-out dze-rv-out"></textarea>' +
-			'<p class="dze-rv-state dze-cx-note" style="margin:4px 0 0;"></p>' +
-			'</div>';
-	}
-
-	$(document).on('click', '#dze-au-launch', function () {
-		var fields = [];
-		$('.dze-au-f:checked').each(function () { fields.push($(this).val()); });
-		var doPrice = $('#dze-au-price').is(':checked');
-		var doImg = $('#dze-au-img').is(':checked');
-		if (!fields.length && !doPrice && !doImg) { window.alert(i18n.nothingSel); return; }
-
-		if ($('#dze-au-save').is(':checked')) {
-			var m = mem(), fmap = {};
-			$('.dze-au-f').each(function () { fmap[$(this).val()] = $(this).is(':checked') ? 1 : 0; });
-			m.auto = { fields: fmap, price: doPrice ? 1 : 0, img: doImg ? 1 : 0, tpl: $('#dze-au-tpl').val(), imgn: parseInt($('#dze-au-imgn').val(), 10) || 1 };
-			saveMem(m);
+		var fids = $('.dze-cx-f:checked').map(function () { return $(this).val(); }).get();
+		var doPrice = $('#dze-cx-doprice').is(':checked');
+		var doImg = $('#dze-cx-doimg').is(':checked') && cfg.templates.length;
+		var n = parseInt($('#dze-cx-imgn').val(), 10) || 1;
+		remember();
+		if (!fids.length && !doPrice && !doImg) {
+			$btn.prop('disabled', false);
+			status(esc(i18n.nothingSel), true);
+			return;
 		}
-
-		var $btn = $(this).prop('disabled', true);
-		var $st = $('#dze-au-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.working || i18n.generating));
-		var out = { texts: {}, price: '' };
+		status('<span class="dze-cx-spin"></span> ' + esc(i18n.generating));
 
 		var chain = $.Deferred().resolve().promise();
-		if (fields.length) {
+		var errs = [];
+		if (fids.length) {
 			chain = chain.then(function () {
-				return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: cfg.postId, fields: fields })
-					.then(function (res) {
-						if (res && res.success) { out.texts = res.data.texts || {}; }
-						else { out.textError = (res && res.data && res.data.message) || i18n.error; }
-					}, function () { out.textError = i18n.error; return $.Deferred().resolve(); });
+				return genTexts(fids).then(null, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
 			});
 		}
 		if (doPrice) {
 			chain = chain.then(function () {
-				return runPrice($('#dze-au-cost').val()).then(function (res) {
-					if (res && res.success) {
-						out.price = '× ' + res.data.mult + ' → ' + i18n.newPrice + ': ' + res.data.regular +
-							(res.data.variations ? ' (' + res.data.variations + ')' : '') + ' ✓';
-						// Only a simple product has that field, and only its own
-						// price belongs in it — never a range.
-						if (!res.data.variations) { $('#_regular_price').val(res.data.regular); }
-					}
-				}, function () { return $.Deferred().resolve(); });
+				return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: PID, cost: $('#dze-cx-cost').val() })
+					.then(function (r) {
+						if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+						// Deterministic maths, applied on the spot; only a simple
+						// product has that field, and never a range.
+						if (!r.data.variations) { $('#_regular_price').val(r.data.regular); }
+						status(esc(i18n.newPrice + ': ' + r.data.regular));
+					}, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
 			});
 		}
 		if (doImg) {
-			chain = chain.then(function () {
-				return genImages(
-					{ template: parseInt($('#dze-au-tpl').val(), 10) || 0, scene: sceneVal() },
-					parseInt($('#dze-au-imgn').val(), 10) || 1
-				);
+			tplUsed().forEach(function (tpl) {
+				for (var k = 0; k < n; k++) {
+					chain = chain.then(function () {
+						return genImage(tpl).then(null, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
+					});
+				}
 			});
 		}
-
-		chain.then(function () {
+		chain.always(function () {
 			$btn.prop('disabled', false);
-			$st.text('');
-			if (out.textError && !Object.keys(out.texts).length && !doPrice && !doImg) {
-				$st.css('color', '#b32d2e').text(out.textError);
-				return;
-			}
-			// Build the review pane.
-			var html = '';
-			fields.forEach(function (fid) { html += reviewCard(fid); });
-			$('#dze-rv-grid').html(html);
-			fields.forEach(function (fid) {
-				$('#dze-rv-grid .dze-cx-field[data-field="' + fid + '"] .dze-rv-out').val(out.texts[fid] || out.textError || '');
-			});
-			$('#dze-rv-price').toggle(!!out.price).text(out.price);
-			$('.dze-cx-tab[data-pane="review"]').show();
-			$('#dze-rv-status').text('');
-			showPane('review');
+			loadCurrent().then(drawCurrentImages);
+			status(errs.length ? esc(errs.join(' · ')) : '', errs.length > 0);
 		});
 	});
 
-	// Apply everything from the review: each validated field with its (possibly
-	// edited) text, sequentially. Unvalidated fields are skipped with a note.
-	$(document).on('click', '#dze-rv-apply', function () {
+	// ---- Writing it again ----
+	function regenerate(fids, $state) {
+		var edited = fids.filter(function (fid) {
+			return res.open[fid] && editorGet(editorId(fid)) !== (res.texts[fid] || '');
+		});
+		if (edited.length && !window.confirm(sprintf(i18n.confirmRedo, edited.length))) { return; }
+		$state.removeClass('is-ko').text(i18n.working);
+		$.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: PID, fields: fids, stash: 1 })
+			.done(function (r) {
+				if (!r || !r.success) { $state.addClass('is-ko').text(reason((r && r.data && r.data.message) || i18n.error)); return; }
+				fids.forEach(function (fid) {
+					res.texts[fid] = (r.data.texts || {})[fid] || '';
+					var eid = editorId(fid);
+					$('#dze-cx-drawers .dze-cb-fblock[data-field="' + fid + '"]').find('.dze-cb-fpeek').text(peek(res.texts[fid]));
+					if (res.open[fid]) {
+						if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) { tinymce.get(eid).setContent(res.texts[fid]); }
+						else { $('#' + eid).val(res.texts[fid]); }
+					}
+				});
+				$state.text('✓');
+				window.setTimeout(function () { $state.text(''); }, 2000);
+			})
+			.fail(function (x) { $state.addClass('is-ko').text(reason(x)); });
+	}
+	$(document).on('click', '.dze-cx-redo', function (e) {
+		e.stopPropagation();
+		regenerate([ $(this).data('field') ], $(this).closest('.dze-cb-fhead').find('.dze-cb-fstate'));
+	});
+	$(document).on('click', '.dze-cx-redoall', function () {
+		regenerate(Object.keys(res.texts), $('#dze-cx-result .dze-cb-panelstate'));
+	});
+	$(document).on('click', '.dze-cx-onemore', function () {
 		var $btn = $(this).prop('disabled', true);
-		var $st = $('#dze-rv-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
-		var cards = $('#dze-rv-grid .dze-cx-field').toArray();
-		var chain = $.Deferred().resolve().promise();
-		var okCount = 0;
-		cards.forEach(function (el) {
-			chain = chain.then(function () {
-				var $c = $(el), fid = $c.data('field'), val = $c.find('.dze-rv-out').val();
-				var $state = $c.find('.dze-rv-state');
-				if (!fieldValidated(fid)) { $state.css('color', '#8a6d00').text('🔒 ' + i18n.skippedLock); return $.Deferred().resolve(); }
-				if (!val) { return $.Deferred().resolve(); }
-				return applyField(fid, val).then(function (res) {
-					if (res && res.success) { okCount++; $state.css('color', '#0a7040').text('✓ ' + i18n.applied); }
-					else { $state.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); }
-				}, function () { $state.css('color', '#b32d2e').text(i18n.error); return $.Deferred().resolve(); });
+		var $st = $('#dze-cx-result .dze-cb-panelstate').removeClass('is-ko').text(i18n.working);
+		genImage(tplUsed()[0] || '0')
+			.always(function () { $btn.prop('disabled', false); })
+			.then(function () { $st.text(''); }, function (m) { $st.addClass('is-ko').text(reason(m)); });
+	});
+
+	// ---- Accepting ----
+	$(document).on('click', '.dze-cx-applyone', function () {
+		var $btn = $(this).prop('disabled', true);
+		var $st = $('#dze-cx-result .dze-cb-panelstate').removeClass('is-ko').text(i18n.applying);
+		var items = [];
+		$('#dze-cx-shots .dze-cb-shot.is-sel').each(function () {
+			items.push({
+				url: $(this).data('url'),
+				target: $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery'
 			});
 		});
-		chain.then(function () {
+		var fids = Object.keys(res.texts), ok = 0, ko = 0;
+
+		function texts(i) {
+			if (i >= fids.length) { return finish(); }
+			var fid = fids[i];
+			$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: PID, field: fid, value: valueOf(fid) })
+				.done(function (r) {
+					var $s = $('#dze-cx-drawers .dze-cb-fblock[data-field="' + fid + '"]').find('.dze-cb-fstate');
+					if (r && r.success) { ok++; $s.removeClass('is-ko').text('✓'); }
+					else { ko++; $s.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); }
+				})
+				.fail(function () { ko++; })
+				.always(function () { texts(i + 1); });
+		}
+		function finish() {
 			$btn.prop('disabled', false);
-			$st.css('color', '#0a7040').text(okCount ? i18n.allDone : '');
-		});
+			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
+			$st.text(i18n.applied);
+			$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID });
+			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
+			res.current = null;
+			loadCurrent().then(drawCurrentImages);
+		}
+		if (items.length) {
+			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID, items: items })
+				.done(function (r) {
+					if (r && r.success) {
+						ok++;
+						$('#dze-cx-shots .dze-cb-shot').removeClass('is-sel');
+						res.shots = [];
+						drawShots();
+					} else { ko++; }
+				})
+				.fail(function () { ko++; })
+				.always(function () { texts(0); });
+		} else {
+			texts(0);
+		}
 	});
+
+	$(document).on('click', '.dze-cx-drop', function () {
+		if (!window.confirm(i18n.confirmDrop)) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID });
+		$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
+		var keep = res.current;
+		reset();
+		res.current = keep;
+		drawCurrentImages();
+	});
+
+	// ---- Content left waiting from an earlier visit ----
+	function hydrate(waiting) {
+		res.texts = waiting.texts || {};
+		res.shotOf = waiting.companions || {};
+		res.shots = (waiting.shots || []).slice();
+		res.open = {};
+		if (Object.keys(res.texts).length) { drawDrawers(); }
+		drawShots();
+		loadCurrent().then(drawCurrentImages);
+	}
+
+	// POD hands its result over to this strip.
+	window.dzeContentAddToGallery = function (url) {
+		build();
+		res.shots.push(url);
+		drawShots();
+	};
+	window.dzeContentOpen = function () { open(); };
 
 }(jQuery));

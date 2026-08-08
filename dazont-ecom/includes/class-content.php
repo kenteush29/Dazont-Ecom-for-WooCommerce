@@ -67,6 +67,12 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
+		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
+		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
+		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
+		// The products list: one chip per row opening the toolbox on the spot.
+		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
+		add_action( 'manage_product_posts_custom_column', [ $this, 'list_cell' ], 10, 2 );
 		add_action( 'wp_ajax_dze_content_reset_prompts', [ $this, 'ajax_reset_prompts' ] );
 		add_action( 'wp_ajax_dze_content_price', [ $this, 'ajax_price' ] );
 	}
@@ -502,6 +508,7 @@ EOT;
 			$out[ (string) $r['id'] ] = [
 				'label'   => (string) ( $r['name'] ?? $r['id'] ),
 				'dest'    => (string) ( $r['output'] ?? 'meta' ),
+				'img_meta'=> (string) ( $r['img_meta'] ?? '' ),
 				'tokens'  => (int) ( $r['tokens'] ?: 400 ),
 				'enabled' => ! empty( $r['enabled'] ),
 				'prompt'  => (string) ( $r['prompt'] ?? '' ),
@@ -868,6 +875,247 @@ EOT;
 		return $c;
 	}
 
+	// =========================================================================
+	// Companion images: the photograph a branding block is written against
+	// =========================================================================
+
+	/** Post meta holding the picks, so a second run does not pay for the look again. */
+	private const META_SHOTS = '_dze_feature_shots';
+
+	/**
+	 * Post meta holding content generated but not yet decided on.
+	 *
+	 * A run of thirty products is not reviewed in one sitting. Keeping the
+	 * results in the browser meant a closed tab threw away everything that had
+	 * just been paid for; they live on the product now, and the screen finds
+	 * them again whenever you come back.
+	 */
+	private const META_PENDING = '_dze_pending_review';
+
+	/** Merges freshly generated content into what is already waiting. */
+	public static function stash( int $pid, array $add ): void {
+		$cur = get_post_meta( $pid, self::META_PENDING, true );
+		$cur = is_array( $cur ) ? $cur : [ 'texts' => [], 'shots' => [], 'companions' => [] ];
+		if ( isset( $add['texts'] ) ) {
+			$cur['texts'] = array_merge( (array) ( $cur['texts'] ?? [] ), (array) $add['texts'] );
+		}
+		if ( isset( $add['companions'] ) ) {
+			$cur['companions'] = array_merge( (array) ( $cur['companions'] ?? [] ), (array) $add['companions'] );
+		}
+		if ( ! empty( $add['shot'] ) ) {
+			$shots   = (array) ( $cur['shots'] ?? [] );
+			$shots[] = (string) $add['shot'];
+			$cur['shots'] = array_values( array_unique( $shots ) );
+		}
+		$cur['time'] = time();
+		update_post_meta( $pid, self::META_PENDING, $cur );
+		delete_transient( 'dze_pending_count' );
+	}
+
+	/**
+	 * How many products are waiting for a decision.
+	 *
+	 * Read on EVERY admin page to draw the menu bubble, so it is a single
+	 * COUNT on an indexed meta key, held in a transient and dropped by the two
+	 * places that can change it — never a get_posts() on every screen.
+	 */
+	public static function pending_count(): int {
+		$n = get_transient( 'dze_pending_count' );
+		if ( false !== $n ) {
+			return (int) $n;
+		}
+		global $wpdb;
+		$n = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s",
+			self::META_PENDING
+		) );
+		set_transient( 'dze_pending_count', $n, HOUR_IN_SECONDS );
+		return $n;
+	}
+
+	/** What is waiting on one product ([] when nothing is). */
+	public static function pending( int $pid ): array {
+		$p = get_post_meta( $pid, self::META_PENDING, true );
+		return is_array( $p ) ? $p : [];
+	}
+
+	/**
+	 * Products holding content that has never been accepted or discarded.
+	 * Capped: this feeds a notice, not a report.
+	 *
+	 * @return int[]
+	 */
+	public static function pending_ids( int $limit = 100 ): array {
+		return array_map( 'intval', (array) get_posts( [
+			'post_type'      => 'product',
+			'post_status'    => 'any',
+			'posts_per_page' => $limit,
+			'fields'         => 'ids',
+			'meta_key'       => self::META_PENDING, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- indexed key, capped, admin only.
+			'orderby'        => 'modified',
+			'order'          => 'DESC',
+			'no_found_rows'  => true,
+		] ) );
+	}
+
+	/**
+	 * How many branding blocks a product's photographs can honestly carry.
+	 *
+	 * The block is a zoom on a particularity, so it needs a photograph that
+	 * actually shows one. With a single catalogue shot there is nothing to zoom
+	 * on that the main image does not already say; with a real set there is a
+	 * choice to make. Two is the ceiling — a third block is padding.
+	 */
+	public static function feature_slots( int $count ): int {
+		if ( $count >= 4 ) {
+			return 2;
+		}
+		return $count >= 2 ? 1 : 0;
+	}
+
+	/**
+	 * Asks the model to LOOK at the product photographs and pick the ones worth
+	 * writing a zoom about, each with the feature it shows.
+	 *
+	 * Cached per photograph set: re-running the texts on a product whose images
+	 * have not changed reuses the same picks — same images, same answer, no
+	 * reason to pay twice — and a new photo invalidates it by changing the key.
+	 *
+	 * @return array<int,array{id:int,feature:string}>
+	 */
+	public static function feature_shots( int $pid, bool $refresh = false ): array {
+		$ids  = self::product_source_ids( $pid );
+		$want = self::feature_slots( count( $ids ) );
+		if ( ! $want ) {
+			return [];
+		}
+		$key    = md5( implode( ',', $ids ) . '|' . $want );
+		$cached = get_post_meta( $pid, self::META_SHOTS, true );
+		if ( ! $refresh && is_array( $cached ) && ( $cached['key'] ?? '' ) === $key && ! empty( $cached['picks'] ) ) {
+			return (array) $cached['picks'];
+		}
+
+		$images  = [];
+		$mapping = [];
+		foreach ( $ids as $aid ) {
+			$uri = '';
+			try {
+				$uri = self::instance()->fal_source_data_uri( (int) $aid, 'medium_large' );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+			if ( ! preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $m ) ) {
+				continue;
+			}
+			$images[]  = [ 'media' => $m[1], 'data' => $m[2] ];
+			$mapping[] = (int) $aid;
+		}
+		if ( count( $images ) < 2 ) {
+			return [];
+		}
+
+		$product = wc_get_product( $pid );
+		$name    = $product ? $product->get_name() : '';
+		$user    = "Product: {$name}
+
+"
+			. sprintf(
+				'Above are the %1$d photographs of this product. Pick the %2$d that best show a CONCRETE particularity worth zooming in on in a sales argument — a material, a fastening, a finish, a compartment, a texture, a detail of construction, the product in use. '
+				. 'Avoid the plain catalogue shot when a more telling one exists, and never pick two photographs showing the same thing.',
+				count( $images ),
+				$want
+			)
+			. "
+Answer with STRICT JSON and nothing else: "
+			. '[{"image": <number>, "feature": "<what this photograph shows, 4 to 12 words, factual, no sales language>"}]';
+
+		try {
+			DZE_Ai_Usage::unit( 'feature_pick' );
+			$raw = DZE_Marketing_Ai::complete_with_images(
+				'You look at product photographs and report what is visible in them. You never invent a detail you cannot see.',
+				$user,
+				$images,
+				'',
+				400
+			);
+		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
+			return [];
+		}
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::finished( 'feature_pick' );
+		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
+		$rows = json_decode( $json, true );
+		if ( ! is_array( $rows ) ) {
+			return [];
+		}
+		$picks = [];
+		$seen  = [];
+		foreach ( $rows as $r ) {
+			$n = (int) ( $r['image'] ?? 0 ) - 1; // the model counts from 1.
+			if ( ! isset( $mapping[ $n ] ) || isset( $seen[ $n ] ) ) {
+				continue;
+			}
+			$seen[ $n ] = true;
+			$picks[]    = [
+				'id'      => $mapping[ $n ],
+				'feature' => sanitize_text_field( (string) ( $r['feature'] ?? '' ) ),
+			];
+			if ( count( $picks ) >= $want ) {
+				break;
+			}
+		}
+		if ( $picks ) {
+			update_post_meta( $pid, self::META_SHOTS, [ 'key' => $key, 'picks' => $picks ] );
+		}
+		return $picks;
+	}
+
+	/**
+	 * The prompts that carry a companion image, in registry order: the first
+	 * one gets the first pick, the second the second. A prompt whose slot has
+	 * no pick is skipped entirely rather than written against nothing.
+	 *
+	 * @return string[] Field ids.
+	 */
+	public static function companion_fields(): array {
+		$out = [];
+		foreach ( self::enabled_fields() as $fid => $f ) {
+			$row = self::registry_row( $fid );
+			if ( '' !== trim( (string) ( $row['img_meta'] ?? '' ) ) ) {
+				$out[] = (string) $fid;
+			}
+		}
+		return $out;
+	}
+
+	/** The meta key a field writes its companion attachment id to ('' = none). */
+	public static function companion_meta( string $fid ): string {
+		$row = self::registry_row( $fid );
+		return trim( (string) ( $row['img_meta'] ?? '' ) );
+	}
+
+	/**
+	 * field id => pick, for one product. Deterministic, so generation and apply
+	 * agree without the browser having to carry the choice around.
+	 *
+	 * @return array<string,array{id:int,feature:string}>
+	 */
+	public static function companion_map( int $pid ): array {
+		$fields = self::companion_fields();
+		if ( ! $fields ) {
+			return [];
+		}
+		$picks = self::feature_shots( $pid );
+		$out   = [];
+		foreach ( array_values( $fields ) as $i => $fid ) {
+			if ( isset( $picks[ $i ] ) ) {
+				$out[ $fid ] = $picks[ $i ];
+			}
+		}
+		return $out;
+	}
+
 	/** Multiplier for a given cost. */
 	public static function mult_for_cost( float $cost ): float {
 		foreach ( self::price_table() as $row ) {
@@ -1013,6 +1261,9 @@ EOT;
 					'inputs_meta' => sanitize_text_field( (string) ( $in['pr_inmeta'][ $i ] ?? '' ) ),
 					'output'      => $outsel,
 					'meta_key'    => sanitize_key( (string) ( $in['pr_metakey'][ $i ] ?? '' ) ) ?: '_dze_' . $id,
+					// Optional: the meta key that receives the id of the
+					// photograph this text is written against.
+					'img_meta'    => sanitize_key( (string) ( $in['pr_imgmeta'][ $i ] ?? '' ) ),
 					'enabled'     => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
 					'valid'       => ! empty( $in['pr_valid'][ $i ] ) ? 1 : 0,
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
@@ -1292,6 +1543,7 @@ EOT;
 								<?php endforeach; ?>
 							</select>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( '+ image meta key', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" title="<?php esc_attr_e( 'Optional. Fill this in and the prompt is written against ONE product photograph, chosen by looking at them: the attachment id lands in this meta key so your template can display the text and its image together.', 'dazont-ecom' ); ?>" />
 						</td>
 						<td>
 							<details class="dze-pr-inputs">
@@ -1343,6 +1595,7 @@ EOT;
 							<?php endforeach; ?>
 						</select>
 						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
+						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( '+ image meta key', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
 					</td>
 					<td>
 						<details class="dze-pr-inputs">
@@ -1506,19 +1759,105 @@ EOT;
 		return $actions;
 	}
 
+	/**
+	 * The working list of the bulk screen.
+	 *
+	 * User meta, not a transient. A transient expires — an hour was enough to
+	 * lose a list halfway through a session — and on a shop with a persistent
+	 * object cache a write can be served stale, which is why products taken out
+	 * of the list kept coming back on the next page load. Meta is durable, per
+	 * user, and reads what was just written.
+	 */
+	private const LIST_META = '_dze_content_bulk';
+
+	public static function bulk_list(): array {
+		$uid  = get_current_user_id();
+		$list = get_user_meta( $uid, self::LIST_META, true );
+		if ( ! is_array( $list ) ) {
+			// A list queued before this moved out of transients.
+			$list = (array) get_transient( 'dze_content_bulk_' . $uid );
+		}
+		return array_values( array_filter( array_map( 'intval', $list ) ) );
+	}
+
+	public static function set_bulk_list( array $ids ): void {
+		$uid = get_current_user_id();
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		if ( $ids ) {
+			update_user_meta( $uid, self::LIST_META, $ids );
+		} else {
+			delete_user_meta( $uid, self::LIST_META );
+		}
+		delete_transient( 'dze_content_bulk_' . $uid );
+	}
+
 	public function handle_bulk_action( string $redirect, string $action, array $ids ): string {
 		if ( self::BULK_ACTION !== $action || empty( $ids ) ) {
 			return $redirect;
 		}
-		set_transient( 'dze_content_bulk_' . get_current_user_id(), array_map( 'intval', $ids ), HOUR_IN_SECONDS );
+		self::set_bulk_list( $ids );
 		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
 	}
 
+	/**
+	 * A "Content" column on the products list.
+	 *
+	 * It answers the two questions you actually have while scrolling a
+	 * catalogue: how many photographs does this product have — the thing that
+	 * decides whether it can carry a branding block at all — and is there
+	 * content sitting here waiting for a decision. The chip opens the toolbox
+	 * on the spot: no page load to write one description.
+	 */
+	public function list_column( array $cols ): array {
+		$out = [];
+		foreach ( $cols as $k => $v ) {
+			$out[ $k ] = $v;
+			if ( 'name' === $k ) {
+				$out['dze_content'] = __( 'Content', 'dazont-ecom' );
+			}
+		}
+		if ( ! isset( $out['dze_content'] ) ) {
+			$out['dze_content'] = __( 'Content', 'dazont-ecom' );
+		}
+		return $out;
+	}
+
+	/** O(1) per row: two meta reads, both already primed by the list table. */
+	public function list_cell( string $col, int $pid ): void {
+		if ( 'dze_content' !== $col ) {
+			return;
+		}
+		$gallery = array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) );
+		$photos  = count( $gallery ) + ( get_post_thumbnail_id( $pid ) ? 1 : 0 );
+		$waiting = (bool) get_post_meta( $pid, self::META_PENDING, true );
+
+		printf(
+			'<button type="button" class="dze-cc-open dze-content-open" data-id="%1$d" title="%2$s">'
+				. '<span class="dze-caret">✎</span> %3$s'
+				. '<span class="dze-content-photos%4$s">%5$s</span>%6$s</button>',
+			(int) $pid,
+			esc_attr__( 'Write this product: texts, price, images.', 'dazont-ecom' ),
+			esc_html__( 'Content', 'dazont-ecom' ),
+			$photos < 2 ? ' is-thin' : '',
+			esc_html( sprintf( /* translators: %s: number of photographs */ _n( '%s photo', '%s photos', $photos, 'dazont-ecom' ), number_format_i18n( $photos ) ) ),
+			$waiting ? '<span class="dze-content-waiting">' . esc_html__( 'to review', 'dazont-ecom' ) . '</span>' : ''
+		);
+	}
+
 	public function register_bulk_page(): void {
+		// The count rides on the menu label, the way WordPress shows comments
+		// awaiting moderation: you should not have to open a screen to learn
+		// that something is waiting on it.
+		$waiting = self::pending_count();
+		$label   = __( 'Content bulk', 'dazont-ecom' );
+		$menu    = $waiting
+			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
+				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
+			: $label;
 		add_submenu_page(
 			'edit.php?post_type=product',
-			__( 'Content bulk', 'dazont-ecom' ),
-			__( 'Content bulk', 'dazont-ecom' ),
+			$label,
+			$menu,
 			'edit_products',
 			self::BULK_SLUG,
 			[ $this, 'render_bulk_page' ]
@@ -1526,8 +1865,33 @@ EOT;
 	}
 
 	/** Products queued for the bulk screen (from the last bulk action). */
+	/**
+	 * What this screen is showing: 'selection', 'pending' or 'empty'.
+	 *
+	 * An empty screen sitting next to a notice announcing that three products
+	 * are waiting is a design failure: the screen's job is to show the work. So
+	 * when the selection is empty and something IS waiting, the waiting is what
+	 * you get, without a link to click.
+	 */
+	private function bulk_mode(): string {
+		static $mode = null;
+		if ( null !== $mode ) {
+			return $mode;
+		}
+		if ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
+			$mode = 'pending';
+		} elseif ( self::bulk_list() ) {
+			$mode = 'selection';
+		} elseif ( self::pending_count() ) {
+			$mode = 'pending';
+		} else {
+			$mode = 'empty';
+		}
+		return $mode;
+	}
+
 	private function bulk_products(): array {
-		$ids = get_transient( 'dze_content_bulk_' . get_current_user_id() );
+		$ids = 'pending' === $this->bulk_mode() ? self::pending_ids() : self::bulk_list();
 		$out = [];
 		foreach ( array_map( 'intval', (array) $ids ) as $pid ) {
 			$product = wc_get_product( $pid );
@@ -1548,6 +1912,21 @@ EOT;
 		return $out;
 	}
 
+	/**
+	 * The waiting content of every product currently listed, keyed by id.
+	 * Only the products on screen: the notice handles the rest.
+	 */
+	private function pending_payload(): array {
+		$out = [];
+		foreach ( $this->bulk_products() as $p ) {
+			$waiting = self::pending( (int) $p['id'] );
+			if ( $waiting ) {
+				$out[ (int) $p['id'] ] = $waiting;
+			}
+		}
+		return $out;
+	}
+
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
@@ -1564,6 +1943,36 @@ EOT;
 		?>
 		<div class="wrap dze-wrap dze-admin">
 			<h1><?php esc_html_e( 'Product Content — bulk generation', 'dazont-ecom' ); ?></h1>
+
+			<?php
+			$dze_mode = $this->bulk_mode();
+			// "Other products": the ones NOT already on this screen. Counting
+			// the whole shop would announce work that is right in front of you.
+			$dze_waiting = 'selection' === $dze_mode
+				? count( array_diff( self::pending_ids(), self::bulk_list() ) )
+				: 0;
+			?>
+			<?php if ( 'pending' === $dze_mode ) : ?>
+				<div class="notice notice-info"><p>
+					<?php esc_html_e( 'These products are holding content you have not accepted or discarded yet.', 'dazont-ecom' ); ?>
+					<?php if ( self::bulk_list() ) : ?>
+						<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Back to my selection', 'dazont-ecom' ); ?></a>
+					<?php else : ?>
+						<span class="description"><?php esc_html_e( 'To work on other products, select them on the Products list and use the "Generate content" bulk action.', 'dazont-ecom' ); ?></span>
+					<?php endif; ?>
+				</p></div>
+			<?php elseif ( $dze_waiting ) : ?>
+				<div class="notice notice-info"><p>
+					<?php
+					printf(
+						/* translators: %s: number of products */
+						esc_html( _n( '%s other product is holding content waiting for a decision.', '%s other products are holding content waiting for a decision.', $dze_waiting, 'dazont-ecom' ) ),
+						esc_html( number_format_i18n( $dze_waiting ) )
+					);
+					?>
+					<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG, 'dze_pending' => 1 ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
+				</p></div>
+			<?php endif; ?>
 
 			<?php $dze_blockers = self::image_blockers(); ?>
 			<?php if ( $dze_blockers ) : ?>
@@ -1622,13 +2031,23 @@ EOT;
 							<span><?php esc_html_e( 'Generate images', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
 						</label>
 						<div class="dze-cb-opts">
+							<!-- One prompt, plus a + to add a second when a product
+							     needs two kinds of shot. A checkbox list of every
+							     prompt was noise: most runs use one. -->
 							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
-								<select id="dze-cb-tpl">
-									<?php foreach ( $valid_tpls as $i => $t ) : ?>
-										<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
-									<?php endforeach; ?>
-								</select>
+								<span class="dze-tplrows" id="dze-cb-tplrows" data-name="dze-cb-tpl"></span>
 							</label>
+							<script type="text/template" id="dze-cb-tpltpl">
+								<span class="dze-tplrow">
+									<select class="dze-cb-tpl">
+										<?php foreach ( $valid_tpls as $i => $t ) : ?>
+											<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
+										<?php endforeach; ?>
+									</select>
+									<button type="button" class="button button-small dze-tpl-add" title="<?php esc_attr_e( 'Add another image prompt to this run', 'dazont-ecom' ); ?>">+</button>
+									<button type="button" class="button button-small dze-tpl-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&minus;</button>
+								</span>
+							</script>
 							<?php $dze_bscenes = self::scenes(); ?>
 							<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
 								<label title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
@@ -1640,10 +2059,17 @@ EOT;
 									</select>
 								</label>
 							<?php endif; ?>
-							<label title="<?php esc_attr_e( 'Several attempts per product — you keep the good ones at review time.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Per product', 'dazont-ecom' ); ?></span>
+							<label title="<?php esc_attr_e( 'Attempts per prompt and per product — you keep the good ones at review time.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Attempts', 'dazont-ecom' ); ?></span>
 								<select id="dze-cb-imgn">
 									<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
 										<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+							<label title="<?php esc_attr_e( 'How many products are worked on at the same time. Higher is faster; too high and your own server, or the provider, starts refusing requests.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'In parallel', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-par">
+									<?php foreach ( [ 1, 2, 3, 4, 6 ] as $dze_p ) : ?>
+										<option value="<?php echo (int) $dze_p; ?>" <?php selected( 3, $dze_p ); ?>><?php echo (int) $dze_p; ?> <?php echo 1 === $dze_p ? esc_html__( 'product', 'dazont-ecom' ) : esc_html__( 'products', 'dazont-ecom' ); ?></option>
 									<?php endforeach; ?>
 								</select>
 							</label>
@@ -1661,41 +2087,85 @@ EOT;
 						<span><?php esc_html_e( 'Apply immediately, no confirmation', 'dazont-ecom' ); ?></span></label>
 				</div>
 
+				<div class="dze-cb-block">
+					<h3><?php esc_html_e( 'Products already written', 'dazont-ecom' ); ?></h3>
+					<!-- Off by default: content already generated and not yet
+					     decided on is work already paid for. A run that quietly
+					     wrote over it would charge twice and destroy the first
+					     result. Redoing one product is what its ↻ is for. -->
+					<label class="dze-cb-check">
+						<input type="checkbox" id="dze-cb-force" />
+						<span><?php esc_html_e( 'Write them again too, replacing what is waiting for a decision', 'dazont-ecom' ); ?></span>
+					</label>
+				</div>
+
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply what I kept', 'dazont-ecom' ); ?></button>
 				</p>
-				<div class="dze-cb-bar" style="display:none;"><div class="dze-cb-fill"></div></div>
 				<p id="dze-cb-progress" class="description"></p>
+			</div>
+
+			<p class="dze-cb-listbar">
+				<span id="dze-cb-selcount" class="description"></span>
+				<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply all', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-cb-applysel" style="display:none;"><?php esc_html_e( 'Apply only selected', 'dazont-ecom' ); ?></button>
+				<span class="dze-cb-barsep"></span>
+				<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Remove from the list', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Empty the whole list', 'dazont-ecom' ); ?></button>
+			</p>
+
+			<!-- Pinned to the bottom of the window while a run is on: on a list of
+			     thirty products the progress must stay in sight wherever you have
+			     scrolled to. -->
+			<div id="dze-cb-sticky" style="display:none;">
+				<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>
+				<div class="dze-cb-stickyrow">
+					<strong id="dze-cb-stickypct">0%</strong>
+					<span id="dze-cb-stickytext"></span>
+					<button type="button" class="button button-small" id="dze-cb-stickystop"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
+				</div>
 			</div>
 
 			<table class="dze-cb-table">
 				<tr>
-					<th style="width:70px;"></th>
-					<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
-					<th style="width:80px;"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
-					<th style="width:190px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
-					<th style="width:240px;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
+					<th style="width:28px;"><input type="checkbox" id="dze-cb-all" title="<?php esc_attr_e( 'Select every product', 'dazont-ecom' ); ?>" /></th>
+					<th style="width:70px;" title="<?php esc_attr_e( 'Hover a thumbnail to see it full size.', 'dazont-ecom' ); ?>"></th>
+					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
+					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
+					<th style="width:210px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
+						<td class="dze-cb-pickcell"><input type="checkbox" class="dze-cb-pick" value="<?php echo (int) $p['id']; ?>" /></td>
 						<td class="dze-cb-thumb">
 							<?php if ( $p['full'] ) : ?><a href="<?php echo esc_url( $p['full'] ); ?>" target="_blank" rel="noopener"><?php endif; ?>
 							<img class="dze-hzoom" src="<?php echo esc_url( $p['thumb'] ); ?>" data-full="<?php echo esc_url( $p['full'] ?: $p['thumb'] ); ?>" alt="" />
 							<?php if ( $p['full'] ) : ?></a><?php endif; ?>
 						</td>
-						<td><a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a></td>
-						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>
 						<td>
-							<label><input type="checkbox" class="dze-cb-row-img" /> <?php esc_html_e( 'Image', 'dazont-ecom' ); ?></label>
-							<select class="dze-cb-row-tpl" style="max-width:150px;">
-								<?php foreach ( $valid_tpls as $i => $t ) : ?>
-									<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?></option>
-								<?php endforeach; ?>
-							</select>
+							<a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a>
+							<div class="dze-cb-badges"></div>
 						</td>
-						<td class="dze-cb-status">—</td>
+						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>
+						<td class="dze-cb-statuscell">
+							<!-- ONE symbol per product, not one per task: the whole
+							     story is in its tooltip. -->
+							<span class="dze-cb-state is-wait" title="<?php esc_attr_e( 'Waiting', 'dazont-ecom' ); ?>">○</span>
+							<span class="dze-cb-rowbar"><i></i></span>
+							<span class="dze-cb-rowpct"></span>
+							<button type="button" class="button button-small dze-cb-toggle" style="display:none;" aria-expanded="false" title="<?php esc_attr_e( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ); ?>">
+								<?php esc_html_e( 'Review', 'dazont-ecom' ); ?> <span class="dze-cb-caret">▾</span>
+							</button>
+							<!-- Accept and refuse belong on the line, next to the state
+							     they act on — not folded inside a panel you have to open
+							     to reach them. -->
+							<button type="button" class="dze-cb-yes" style="display:none;" title="<?php esc_attr_e( 'Accept: write this content to the product', 'dazont-ecom' ); ?>">✓</button>
+							<button type="button" class="dze-cb-no" style="display:none;" title="<?php esc_attr_e( 'Refuse: throw this content away', 'dazont-ecom' ); ?>">✗</button>
+							<!-- Far from the tick box on purpose: one selects, the other
+							     throws away, and they must not be neighbours. -->
+							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list', 'dazont-ecom' ); ?>">&times;</button>
+						</td>
 					</tr>
 					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
 				<?php endforeach; ?>
@@ -1711,9 +2181,10 @@ EOT;
 	public function enqueue( string $hook ): void {
 		$screen      = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		$on_product  = $screen && 'product' === $screen->post_type && in_array( $hook, [ 'post.php', 'post-new.php' ], true );
+		$on_list     = 'edit.php' === $hook && $screen && 'product' === $screen->post_type;
 		$on_bulk     = ( 'product_page_' . self::BULK_SLUG ) === $hook;
 		$on_settings = false !== strpos( (string) $hook, 'dazont' );
-		if ( ! $on_product && ! $on_bulk && ! $on_settings ) {
+		if ( ! $on_product && ! $on_list && ! $on_bulk && ! $on_settings ) {
 			return;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
@@ -1725,12 +2196,24 @@ EOT;
 		}
 
 		if ( $on_bulk ) {
+			// Reviewed texts are edited in the real WordPress editor, not in a
+			// bare textarea full of raw HTML.
+			wp_enqueue_editor();
 			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery' ], DZE_VERSION, true );
 			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
 				'validated' => true, // gating is per-field via disabled checkboxes.
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
+				// What was generated last time and never decided on, so the
+				// screen finds it again after a reload.
+				'pending'   => self::pending_payload(),
+				// A rich editor for what is really HTML; a plain box for a title
+				// or a meta description, which TinyMCE would wrap in a <p>.
+				'rich'      => array_map(
+					static fn( $f ) => in_array( (string) ( $f['dest'] ?? '' ), [ 'post_content', 'post_excerpt', 'meta' ], true ),
+					self::enabled_fields()
+				),
 				'i18n'      => [
 					'working'  => __( 'Working…', 'dazont-ecom' ),
 					'done'     => __( 'Done', 'dazont-ecom' ),
@@ -1741,6 +2224,45 @@ EOT;
 					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
 					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
 					'toReview' => __( 'to review', 'dazont-ecom' ),
+					'tText'    => __( 'Texts', 'dazont-ecom' ),
+					'tPrice'   => __( 'Price', 'dazont-ecom' ),
+					'tImage'   => __( 'Image', 'dazont-ecom' ),
+					'imgBadge' => __( 'Images', 'dazont-ecom' ),
+					'running'  => __( 'in progress', 'dazont-ecom' ),
+					'partial'  => __( '%1$s of %2$s written', 'dazont-ecom' ),
+					'redoOne'  => __( 'Write this one again', 'dazont-ecom' ),
+					'redoAll'  => __( 'Write every text again', 'dazont-ecom' ),
+					'oneMore'  => __( 'One more image', 'dazont-ecom' ),
+					'confirmRedo' => __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
+					'sWait'    => __( 'Waiting', 'dazont-ecom' ),
+					'sRun'     => __( 'Writing…', 'dazont-ecom' ),
+					'sReady'   => __( 'Ready to review', 'dazont-ecom' ),
+					'sDone'    => __( 'Written to the product', 'dazont-ecom' ),
+					'sFail'    => __( 'Something failed', 'dazont-ecom' ),
+					'gProgress'=> __( '%1$s of %2$s products', 'dazont-ecom' ),
+					'empty'    => __( '(empty)', 'dazont-ecom' ),
+					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
+					'discard'  => __( 'Discard', 'dazont-ecom' ),
+					'selected' => __( '%s selected', 'dazont-ecom' ),
+					'confirmClear' => __( 'Empty the whole list? The products are not modified, they simply leave this screen.', 'dazont-ecom' ),
+					'confirmAll' => __( 'Write the generated content to %s products at once? This modifies the shop.', 'dazont-ecom' ),
+					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
+					'applyOne' => __( 'Apply this product', 'dazont-ecom' ),
+					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
+					'sSkipped' => __( 'Left alone — already written and waiting for a decision', 'dazont-ecom' ),
+					/* translators: %s: number of products */
+					'skippedN' => __( '%s left alone (already written)', 'dazont-ecom' ),
+					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Decide on it, or tick "Write them again too".', 'dazont-ecom' ),
+					'applying' => __( 'Applying…', 'dazont-ecom' ),
+					'applyAllN' => __( 'Apply all (%s)', 'dazont-ecom' ),
+					'applySelN' => __( 'Apply only selected (%s)', 'dazont-ecom' ),
+					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+					'compare'  => __( 'Current', 'dazont-ecom' ),
+					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
+					'redoShort'=> __( 'Rewrite', 'dazont-ecom' ),
+					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
+					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
+					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
@@ -1750,10 +2272,13 @@ EOT;
 			] );
 			return;
 		}
-		if ( ! $on_product ) {
+		if ( ! $on_product && ! $on_list ) {
 			return;
 		}
-		$pid = (int) get_the_ID();
+		// The list opens the same popup for any row, so it loads the same script
+		// and the same editor; the product it works on is chosen at click time.
+		$pid = $on_list ? 0 : (int) get_the_ID();
+		wp_enqueue_editor();
 		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery' ], DZE_VERSION, true );
 
 		$labels  = [];
@@ -1805,6 +2330,14 @@ EOT;
 			'sourceN'    => $pid ? count( self::product_source_ids( $pid ) ) : 0,
 			// Said before the click, not after a failed generation.
 			'blockers'   => self::image_blockers(),
+			// A rich editor for what is really HTML; a plain box for a title or
+			// a meta description, which TinyMCE would wrap in a <p>.
+			'rich'       => array_map(
+				static fn( $f ) => in_array( (string) ( $f['dest'] ?? '' ), [ 'post_content', 'post_excerpt', 'meta' ], true ),
+				self::enabled_fields()
+			),
+			// Content generated here or in bulk and never decided on.
+			'pending'    => $pid ? self::pending( $pid ) : [],
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'product'    => [
@@ -1844,6 +2377,31 @@ EOT;
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
 				'noScene'    => __( 'No scene', 'dazont-ecom' ),
 				'sceneHelp'  => __( 'The fixed support or background added as a second image, so every product is shot in the same setting. Manage the list under Settings → Product content.', 'dazont-ecom' ),
+				// The toolbox now runs the same flow as the bulk screen and needs
+				// the same words for it.
+				'costLabel'  => __( 'Cost', 'dazont-ecom' ),
+				'attempts'   => __( 'Attempts', 'dazont-ecom' ),
+				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
+				'applyOne'   => __( 'Apply to the product', 'dazont-ecom' ),
+				'redoAll'    => __( 'Write every text again', 'dazont-ecom' ),
+				'redoOne'    => __( 'Write this one again', 'dazont-ecom' ),
+				'redoShort'  => __( 'Rewrite', 'dazont-ecom' ),
+				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
+				'discard'    => __( 'Discard', 'dazont-ecom' ),
+				'compare'    => __( 'Current', 'dazont-ecom' ),
+				'compareHelp'=> __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
+				'nowText'    => __( 'On the product today', 'dazont-ecom' ),
+				'nowImages'  => __( 'Photographs already on the product', 'dazont-ecom' ),
+				'empty'      => __( '(empty)', 'dazont-ecom' ),
+				'working'    => __( 'Working…', 'dazont-ecom' ),
+				'applying'   => __( 'Applying…', 'dazont-ecom' ),
+				'partial'    => __( '%1$s of %2$s written', 'dazont-ecom' ),
+				'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
+				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
+				'toReview'   => __( 'to review', 'dazont-ecom' ),
+				'confirmRedo'=> __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
+				'confirmDrop'=> __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
 				'imgWait'    => __( 'Rendering — up to a minute…', 'dazont-ecom' ),
 				'imgAdded'   => __( 'Image added.', 'dazont-ecom' ),
@@ -1854,7 +2412,12 @@ EOT;
 				'attachDone' => __( 'image(s) added to the product with SEO naming.', 'dazont-ecom' ),
 				'sendTo'     => __( 'Send to:', 'dazont-ecom' ),
 				'toGallery'  => __( 'Product gallery', 'dazont-ecom' ),
-				'toMain'     => __( 'Main image (first selected)', 'dazont-ecom' ),
+				'toMain'     => __( 'Main image', 'dazont-ecom' ),
+				'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+				'sendToEach' => __( 'Each image goes where its own menu says.', 'dazont-ecom' ),
+				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
+				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
+				'toReview'   => __( 'to review', 'dazont-ecom' ),
 				'select'     => __( 'Select', 'dazont-ecom' ),
 				'editImage'  => __( 'Edit with a manual prompt', 'dazont-ecom' ),
 				'variantHelp'=> __( 'Describe the change to apply to THIS image (one-off prompt, not saved):', 'dazont-ecom' ),
@@ -2028,20 +2591,80 @@ EOT;
 				$overrides[ sanitize_key( $ofid ) ] = sanitize_textarea_field( (string) $op );
 			}
 		}
+		// A block written against a photograph only exists if there IS one: with
+		// a thin gallery the second block is dropped rather than written about
+		// an image that was never chosen.
+		$companions = self::companion_map( $pid );
+		foreach ( array_keys( $targets ) as $fid ) {
+			if ( '' !== self::companion_meta( (string) $fid ) && ! isset( $companions[ $fid ] ) ) {
+				unset( $targets[ $fid ] );
+			}
+		}
+		if ( empty( $targets ) ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing to write: these blocks need product photographs to zoom in on.', 'dazont-ecom' ) ] );
+		}
+
 		$tokens = 300;
+		$shots  = [];
 		foreach ( $targets as $fid => $f ) {
-			$p       = ! empty( $overrides[ $fid ] ) ? $overrides[ $fid ] : self::prompt_for( $fid );
-			$user   .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . $p . "\n\n";
+			$p     = ! empty( $overrides[ $fid ] ) ? $overrides[ $fid ] : self::prompt_for( $fid );
+			$user .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . $p . "\n\n";
+			if ( isset( $companions[ $fid ] ) ) {
+				$n       = count( $shots ) + 1;
+				$shots[] = (int) $companions[ $fid ]['id'];
+				$user   .= '===THE PHOTOGRAPH BESIDE FIELD "' . $fid . '"===' . "\n"
+					. 'This block is displayed next to image ' . $n . ' above, which shows: '
+					. $companions[ $fid ]['feature'] . ".\n"
+					. "Its h2 must be a selling angle zooming in on THAT particularity, and the body must argue that one point, from what is actually visible in the photograph. Write about the product, never about the photograph itself — no \"as you can see on the picture\".\n\n";
+			}
 			$tokens += (int) ( $f['tokens'] ?? 300 );
 		}
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+		DZE_Ai_Usage::unit( 'product_text' );
 		try {
-			$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+			if ( $shots ) {
+				// The model writes about a photograph it can see, not about a
+				// description of one. The images referenced by the blocks travel
+				// with the request, in the order the instructions name them.
+				$payload_images = [];
+				foreach ( $shots as $aid ) {
+					try {
+						$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+					if ( preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $mm ) ) {
+						$payload_images[] = [ 'media' => $mm[1], 'data' => $mm[2] ];
+					}
+				}
+				$text = $payload_images
+					? DZE_Marketing_Ai::complete_with_images( $system, $user, $payload_images, self::model(), $tokens, 240 )
+					: DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+			} else {
+				$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), $tokens, 240 );
+			}
 		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::finished( 'product_text' );
+
+		// What each block was written against, so the screens can show it next
+		// to the text instead of leaving the choice invisible.
+		$companion_out = [];
+		foreach ( $companions as $cfid => $c ) {
+			if ( ! isset( $targets[ $cfid ] ) ) {
+				continue;
+			}
+			$companion_out[ $cfid ] = [
+				'thumb'   => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'thumbnail' ) ?: '' ),
+				'full'    => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'large' ) ?: '' ),
+				'feature' => (string) $c['feature'],
+			];
 		}
 
 		$texts = [];
@@ -2070,9 +2693,12 @@ EOT;
 					$results[ $fid ] = 'error';
 				}
 			}
-			wp_send_json_success( [ 'results' => $results, 'texts' => $texts ] );
+			wp_send_json_success( [ 'results' => $results, 'texts' => $texts, 'companions' => $companion_out ] );
 		}
-		wp_send_json_success( [ 'texts' => $texts ] );
+		if ( ! empty( $_POST['stash'] ) ) {
+			self::stash( $pid, [ 'texts' => $texts, 'companions' => $companion_out ] );
+		}
+		wp_send_json_success( [ 'texts' => $texts, 'companions' => $companion_out ] );
 	}
 
 	public function ajax_apply(): void {
@@ -2120,6 +2746,16 @@ EOT;
 			case 'meta':
 			default:
 				update_post_meta( $pid, (string) ( $dest['key'] ?? '_dze_' . $field ), $value );
+		}
+		// A block written against a photograph carries it: the text and the
+		// image it argues about are one piece of content, and saving one
+		// without the other would put a zoom next to the wrong picture.
+		$img_key = self::companion_meta( $field );
+		if ( '' !== $img_key ) {
+			$map = self::companion_map( $pid );
+			if ( isset( $map[ $field ]['id'] ) ) {
+				update_post_meta( $pid, $img_key, (int) $map[ $field ]['id'] );
+			}
 		}
 		return '';
 	}
@@ -2365,11 +3001,17 @@ EOT;
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
 			$prompt   .= self::sources_instruction( $product_count, $scene );
+			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources );
+			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::finished( 'product_img' );
 
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session
 				// gallery; a human selects what gets pushed to the product.
+				if ( ! empty( $_POST['stash'] ) ) {
+					self::stash( $pid, [ 'shot' => $image_url ] );
+				}
 				wp_send_json_success( [ 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
 			}
 			if ( ! $validated ) {
@@ -2397,28 +3039,157 @@ EOT;
 	 * procedure on the way in: the attachment file name, title, slug and alt all
 	 * take the product title (WordPress natively de-duplicates with -1/-2/-3).
 	 */
+	/**
+	 * The bulk list is the owner's working set, so it has to be editable: take
+	 * one product out, take the ticked ones out, or empty it. Before this the
+	 * only way to change your mind was to go back to the products list and
+	 * queue a new selection from scratch.
+	 */
+	public function ajax_bulk_list(): void {
+		$this->guard();
+		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
+		$ids = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
+
+		if ( 'clear' === $do ) {
+			self::set_bulk_list( [] );
+			wp_send_json_success( [ 'left' => [] ] );
+		}
+		if ( 'remove' === $do && $ids ) {
+			$list = array_values( array_diff( self::bulk_list(), $ids ) );
+			self::set_bulk_list( $list );
+			// The list as it now stands, read back: the screen shows what the
+			// server holds, not what it hoped the server would hold.
+			wp_send_json_success( [ 'left' => self::bulk_list() ] );
+		}
+		wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+	}
+
+	/**
+	 * What the product says TODAY: its texts and its photographs.
+	 *
+	 * Fetched only when a review panel is opened, never with the list — it is
+	 * one product's worth of data, asked for at the moment somebody wants to
+	 * compare the new text with the old one, or check that a generated image
+	 * adds something the gallery does not already have.
+	 */
+	public function ajax_current(): void {
+		$this->guard();
+		$pid     = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$product = $pid ? wc_get_product( $pid ) : null;
+		if ( ! $product instanceof WC_Product ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+		}
+		$seo   = self::seo_keys();
+		$texts = [];
+		foreach ( self::enabled_fields() as $fid => $f ) {
+			$dest  = self::dest_for( (string) $fid );
+			$value = '';
+			switch ( $dest['type'] ) {
+				case 'post_title':
+					$value = get_the_title( $pid );
+					break;
+				case 'post_content':
+					$value = (string) get_post_field( 'post_content', $pid );
+					break;
+				case 'post_excerpt':
+					$value = (string) get_post_field( 'post_excerpt', $pid );
+					break;
+				case 'seo_title':
+					$value = (string) get_post_meta( $pid, $seo['title'], true );
+					break;
+				case 'seo_desc':
+					$value = (string) get_post_meta( $pid, $seo['desc'], true );
+					break;
+				case 'attributes':
+					$value = self::attributes_summary( $product );
+					break;
+				default:
+					$value = (string) get_post_meta( $pid, (string) ( $dest['key'] ?? '_dze_' . $fid ), true );
+			}
+			$texts[ $fid ] = $value;
+		}
+		$images = [];
+		foreach ( self::product_source_ids( $pid ) as $aid ) {
+			$images[] = [
+				'thumb' => (string) ( wp_get_attachment_image_url( (int) $aid, 'thumbnail' ) ?: '' ),
+				'full'  => (string) ( wp_get_attachment_image_url( (int) $aid, 'large' ) ?: '' ),
+				'main'  => (int) $aid === (int) get_post_thumbnail_id( $pid ),
+			];
+		}
+		wp_send_json_success( [
+			'texts'   => $texts,
+			'images'  => $images,
+			// Everything the popup needs to work on a product it was not opened
+			// from: its name, its cost, and whatever is already waiting on it.
+			'title'   => $product->get_name(),
+			'cost'    => self::product_cost( $product ),
+			'pending' => self::pending( $pid ),
+		] );
+	}
+
+	/** Accepted or discarded: either way the product stops waiting. */
+	public function ajax_pending_clear(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( $pid ) {
+			delete_post_meta( $pid, self::META_PENDING );
+			delete_transient( 'dze_pending_count' );
+		}
+		wp_send_json_success( [ 'cleared' => $pid, 'waiting' => self::pending_count() ] );
+	}
+
 	public function ajax_image_attach(): void {
 		$this->guard();
-		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$target = ( isset( $_POST['target'] ) && 'main' === $_POST['target'] ) ? 'main' : 'gallery';
-		$urls   = isset( $_POST['urls'] ) ? array_map( 'esc_url_raw', (array) wp_unslash( $_POST['urls'] ) ) : [];
-		if ( ! $pid || empty( $urls ) ) {
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+
+		// Each image says where IT goes. A single destination for the batch made
+		// "one of these is the main image, that one goes second" impossible to
+		// express, which is exactly the decision being made at that moment.
+		$items = [];
+		if ( isset( $_POST['items'] ) && is_array( $_POST['items'] ) ) {
+			foreach ( wp_unslash( $_POST['items'] ) as $it ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
+				$items[] = [
+					'url'    => esc_url_raw( (string) ( $it['url'] ?? '' ) ),
+					'target' => self::attach_target( (string) ( $it['target'] ?? '' ) ),
+				];
+			}
+		} else {
+			// Older callers: a list of urls and one destination for all of them.
+			$target = self::attach_target( isset( $_POST['target'] ) ? (string) wp_unslash( $_POST['target'] ) : '' );
+			foreach ( (array) ( $_POST['urls'] ?? [] ) as $i => $u ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
+				$items[] = [
+					'url'    => esc_url_raw( (string) wp_unslash( $u ) ),
+					// Only the first of a batch could ever be the main image.
+					'target' => ( 'main' === $target && 0 !== $i ) ? 'gallery' : $target,
+				];
+			}
+		}
+		if ( ! $pid || empty( $items ) ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing selected.', 'dazont-ecom' ) ] );
 		}
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
-		$ids    = [];
-		$errors = 0;
-		foreach ( $urls as $u ) {
-			if ( ! self::is_fal_url( $u ) ) {
+		$ids     = [];
+		$errors  = 0;
+		$main_up = false;
+		foreach ( $items as $item ) {
+			$u = (string) $item['url'];
+			if ( '' === $u || ! self::is_fal_url( $u ) ) {
 				$errors++;
 				continue;
 			}
+			$t = (string) $item['target'];
+			// Two main images cannot both win: the first one asked for it.
+			if ( 'main' === $t ) {
+				if ( $main_up ) {
+					$t = 'gallery';
+				} else {
+					$main_up = true;
+				}
+			}
 			try {
-				// First selected image becomes the main image when requested.
-				$this_target = ( 'main' === $target && empty( $ids ) ) ? 'main' : 'gallery';
-				$ids[]       = $this->sideload_seo( $u, $pid, $this_target );
+				$ids[] = $this->sideload_seo( $u, $pid, $t );
 			} catch ( \Throwable $e ) {
 				$errors++;
 			}
@@ -2435,6 +3206,11 @@ EOT;
 	 * product title, alt text set. Attaches as main image or appends to the
 	 * product gallery.
 	 */
+	/** gallery (default) | gallery_first (second photo of the product) | main. */
+	public static function attach_target( string $t ): string {
+		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';
+	}
+
 	public function sideload_seo( string $url, int $pid, string $target ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -2476,21 +3252,24 @@ EOT;
 		wp_update_post( [ 'ID' => (int) $att_id, 'post_title' => $title, 'post_name' => $slug ] );
 		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
 
+		$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
+		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 		if ( 'main' === $target ) {
 			// The replaced main image is never lost: it moves to the FRONT of the
 			// product gallery so it stays first among the secondary images.
 			$old = (int) get_post_thumbnail_id( $pid );
 			if ( $old && $old !== (int) $att_id ) {
-				$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
-				$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 				array_unshift( $ids, $old );
 				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			}
 			set_post_thumbnail( $pid, (int) $att_id );
+		} elseif ( 'gallery_first' === $target ) {
+			// Second photograph of the product: the one a visitor sees right
+			// after the main image, and the one most likely to sell the detail.
+			array_unshift( $ids, (int) $att_id );
+			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 		} else {
-			$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
-			$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
-			$ids[]   = (int) $att_id;
+			$ids[] = (int) $att_id;
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 		}
 		return (int) $att_id;
