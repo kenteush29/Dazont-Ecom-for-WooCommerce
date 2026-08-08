@@ -1865,14 +1865,33 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/** Products queued for the bulk screen (from the last bulk action). */
-	private function bulk_products(): array {
-		// "Show me what is waiting" reuses this screen with the pending products
-		// instead of the selection that was queued from the products list.
-		if ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
-			$ids = self::pending_ids();
-		} else {
-			$ids = self::bulk_list();
+	/**
+	 * What this screen is showing: 'selection', 'pending' or 'empty'.
+	 *
+	 * An empty screen sitting next to a notice announcing that three products
+	 * are waiting is a design failure: the screen's job is to show the work. So
+	 * when the selection is empty and something IS waiting, the waiting is what
+	 * you get, without a link to click.
+	 */
+	private function bulk_mode(): string {
+		static $mode = null;
+		if ( null !== $mode ) {
+			return $mode;
 		}
+		if ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
+			$mode = 'pending';
+		} elseif ( self::bulk_list() ) {
+			$mode = 'selection';
+		} elseif ( self::pending_count() ) {
+			$mode = 'pending';
+		} else {
+			$mode = 'empty';
+		}
+		return $mode;
+	}
+
+	private function bulk_products(): array {
+		$ids = 'pending' === $this->bulk_mode() ? self::pending_ids() : self::bulk_list();
 		$out = [];
 		foreach ( array_map( 'intval', (array) $ids ) as $pid ) {
 			$product = wc_get_product( $pid );
@@ -1926,24 +1945,32 @@ Answer with STRICT JSON and nothing else: "
 			<h1><?php esc_html_e( 'Product Content — bulk generation', 'dazont-ecom' ); ?></h1>
 
 			<?php
-			$dze_pending_ids = self::pending_ids();
-			$dze_showing_pending = ! empty( $_GET['dze_pending'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			$dze_mode = $this->bulk_mode();
+			// "Other products": the ones NOT already on this screen. Counting
+			// the whole shop would announce work that is right in front of you.
+			$dze_waiting = 'selection' === $dze_mode
+				? count( array_diff( self::pending_ids(), self::bulk_list() ) )
+				: 0;
 			?>
-			<?php if ( $dze_pending_ids && ! $dze_showing_pending ) : ?>
+			<?php if ( 'pending' === $dze_mode ) : ?>
+				<div class="notice notice-info"><p>
+					<?php esc_html_e( 'These products are holding content you have not accepted or discarded yet.', 'dazont-ecom' ); ?>
+					<?php if ( self::bulk_list() ) : ?>
+						<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Back to my selection', 'dazont-ecom' ); ?></a>
+					<?php else : ?>
+						<span class="description"><?php esc_html_e( 'To work on other products, select them on the Products list and use the "Generate content" bulk action.', 'dazont-ecom' ); ?></span>
+					<?php endif; ?>
+				</p></div>
+			<?php elseif ( $dze_waiting ) : ?>
 				<div class="notice notice-info"><p>
 					<?php
 					printf(
 						/* translators: %s: number of products */
-						esc_html( _n( '%s product is holding content you have not accepted or discarded yet.', '%s products are holding content you have not accepted or discarded yet.', count( $dze_pending_ids ), 'dazont-ecom' ) ),
-						esc_html( number_format_i18n( count( $dze_pending_ids ) ) )
+						esc_html( _n( '%s other product is holding content waiting for a decision.', '%s other products are holding content waiting for a decision.', $dze_waiting, 'dazont-ecom' ) ),
+						esc_html( number_format_i18n( $dze_waiting ) )
 					);
 					?>
 					<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG, 'dze_pending' => 1 ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
-				</p></div>
-			<?php elseif ( $dze_showing_pending ) : ?>
-				<div class="notice notice-info"><p>
-					<?php esc_html_e( 'Showing the products whose generated content is still waiting for a decision.', 'dazont-ecom' ); ?>
-					<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Back to my selection', 'dazont-ecom' ); ?></a>
 				</p></div>
 			<?php endif; ?>
 
