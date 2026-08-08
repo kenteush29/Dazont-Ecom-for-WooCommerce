@@ -187,6 +187,12 @@
 						'<button type="button" class="button button-primary button-hero" id="dze-cx-run">' + esc(i18n.launch) + '</button>' +
 						'<span class="dze-cx-state" id="dze-cx-runstate"></span>' +
 					'</p>' +
+					'<div class="dze-cx-prog" id="dze-cx-prog" style="display:none;">' +
+						'<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>' +
+						'<p><strong id="dze-cx-progcount"></strong> ' +
+							'<span id="dze-cx-progstep"></span> ' +
+							'<span id="dze-cx-progtime" class="description"></span></p>' +
+					'</div>' +
 				'</div>' +
 				'<div id="dze-cx-result" class="dze-cx-result" style="display:none;">' +
 					'<div class="dze-cb-prev" id="dze-cx-drawers"></div>' +
@@ -442,6 +448,23 @@
 		}
 	}
 
+	// ---- Running, with a count and a clock ----
+	// A spinner says "something is happening" and nothing else. On calls that
+	// take a minute and a half each, what you need is how many steps there are,
+	// which one is running, and how long it has been going.
+	var clock = null;
+	function progress(done, total, label, started) {
+		$('#dze-cx-prog').show();
+		var pct = total ? Math.round(100 * done / total) : 0;
+		$('#dze-cx-prog .dze-cb-fill').css('width', pct + '%');
+		$('#dze-cx-progcount').text(sprintf(i18n.stepN, done, total));
+		$('#dze-cx-progstep').text(label || '');
+		if (started) {
+			var secs = Math.round((Date.now() - started) / 1000);
+			$('#dze-cx-progtime').text(sprintf(i18n.elapsed, secs));
+		}
+	}
+
 	$(document).on('click', '#dze-cx-run', function () {
 		var $btn = $(this).prop('disabled', true);
 		var fids = $('.dze-cx-f:checked').map(function () { return $(this).val(); }).get();
@@ -454,41 +477,70 @@
 			status(esc(i18n.nothingSel), true);
 			return;
 		}
-		status('<span class="dze-cx-spin"></span> ' + esc(i18n.generating));
 
-		var chain = $.Deferred().resolve().promise();
-		var errs = [];
+		// The whole plan is known before the first call, so the count is a real
+		// count and not a guess that grows as it goes.
+		var steps = [], errs = [];
 		if (fids.length) {
-			chain = chain.then(function () {
-				return genTexts(fids).then(null, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
+			steps.push({
+				label: sprintf(i18n.stepTexts, fids.length),
+				run: function () { return genTexts(fids); }
 			});
 		}
 		if (doPrice) {
-			chain = chain.then(function () {
-				return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: PID, cost: $('#dze-cx-cost').val() })
-					.then(function (r) {
-						if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
-						// Deterministic maths, applied on the spot; only a simple
-						// product has that field, and never a range.
-						if (!r.data.variations) { $('#_regular_price').val(r.data.regular); }
-						status(esc(i18n.newPrice + ': ' + r.data.regular));
-					}, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
-			});
-		}
-		if (doImg) {
-			tplUsed().forEach(function (tpl) {
-				for (var k = 0; k < n; k++) {
-					chain = chain.then(function () {
-						return genImage(tpl).then(null, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
-					});
+			steps.push({
+				label: i18n.stepPrice,
+				run: function () {
+					return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: PID, cost: $('#dze-cx-cost').val() })
+						.then(function (r) {
+							if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+							// Deterministic maths, applied on the spot; only a
+							// simple product has that field, never a range.
+							if (!r.data.variations) { $('#_regular_price').val(r.data.regular); }
+						});
 				}
 			});
 		}
-		chain.always(function () {
-			$btn.prop('disabled', false);
-			loadCurrent().then(drawCurrentImages);
-			status(errs.length ? esc(errs.join(' · ')) : '', errs.length > 0);
-		});
+		if (doImg) {
+			var list = tplUsed();
+			list.forEach(function (tpl, ti) {
+				var name = (cfg.templates[parseInt(tpl, 10)] || {}).name || '';
+				for (var k = 0; k < n; k++) {
+					(function (attempt) {
+						steps.push({
+							label: n > 1
+								? sprintf(i18n.stepImageN, name, attempt, n)
+								: sprintf(i18n.stepImage, name),
+							run: function () { return genImage(tpl); }
+						});
+					}(k + 1));
+				}
+			});
+		}
+
+		var started = Date.now(), done = 0;
+		status('');
+		progress(0, steps.length, steps[0].label, started);
+		window.clearInterval(clock);
+		clock = window.setInterval(function () { progress(done, steps.length, null, started); }, 1000);
+
+		(function next(i) {
+			if (i >= steps.length) {
+				window.clearInterval(clock);
+				$btn.prop('disabled', false);
+				progress(steps.length, steps.length, i18n.stepDone, started);
+				loadCurrent().then(drawCurrentImages);
+				if (errs.length) { status(esc(errs.join(' · ')), true); }
+				return;
+			}
+			progress(done, steps.length, steps[i].label, started);
+			steps[i].run()
+				.always(function () {
+					done++;
+					next(i + 1);
+				})
+				.then(null, function (m) { errs.push(reason(m)); return $.Deferred().resolve(); });
+		}(0));
 	});
 
 	// ---- Writing it again ----

@@ -2400,6 +2400,18 @@ Answer with STRICT JSON and nothing else: "
 				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
 				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
 				'toReview'   => __( 'to review', 'dazont-ecom' ),
+				/* translators: 1: steps done, 2: steps in total */
+				'stepN'      => __( 'Step %1$s of %2$s', 'dazont-ecom' ),
+				/* translators: %s: seconds elapsed */
+				'elapsed'    => __( '· %ss', 'dazont-ecom' ),
+				/* translators: %s: number of fields */
+				'stepTexts'  => __( 'Writing %s texts', 'dazont-ecom' ),
+				'stepPrice'  => __( 'Recalculating the price', 'dazont-ecom' ),
+				/* translators: %s: prompt name */
+				'stepImage'  => __( 'Image — %s', 'dazont-ecom' ),
+				/* translators: 1: prompt name, 2: attempt number, 3: attempts in total */
+				'stepImageN' => __( 'Image — %1$s (%2$s of %3$s)', 'dazont-ecom' ),
+				'stepDone'   => __( 'Finished', 'dazont-ecom' ),
 				'confirmRedo'=> __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
 				'confirmDrop'=> __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 				'genImage'   => __( 'Generate image', 'dazont-ecom' ),
@@ -2418,6 +2430,18 @@ Answer with STRICT JSON and nothing else: "
 				'addPrompt'  => __( 'Add another image prompt', 'dazont-ecom' ),
 				'delPrompt'  => __( 'Remove this prompt', 'dazont-ecom' ),
 				'toReview'   => __( 'to review', 'dazont-ecom' ),
+				/* translators: 1: steps done, 2: steps in total */
+				'stepN'      => __( 'Step %1$s of %2$s', 'dazont-ecom' ),
+				/* translators: %s: seconds elapsed */
+				'elapsed'    => __( '· %ss', 'dazont-ecom' ),
+				/* translators: %s: number of fields */
+				'stepTexts'  => __( 'Writing %s texts', 'dazont-ecom' ),
+				'stepPrice'  => __( 'Recalculating the price', 'dazont-ecom' ),
+				/* translators: %s: prompt name */
+				'stepImage'  => __( 'Image — %s', 'dazont-ecom' ),
+				/* translators: 1: prompt name, 2: attempt number, 3: attempts in total */
+				'stepImageN' => __( 'Image — %1$s (%2$s of %3$s)', 'dazont-ecom' ),
+				'stepDone'   => __( 'Finished', 'dazont-ecom' ),
 				'select'     => __( 'Select', 'dazont-ecom' ),
 				'editImage'  => __( 'Edit with a manual prompt', 'dazont-ecom' ),
 				'variantHelp'=> __( 'Describe the change to apply to THIS image (one-off prompt, not saved):', 'dazont-ecom' ),
