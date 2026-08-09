@@ -1852,6 +1852,9 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	private const LIST_META = '_dze_content_bulk';
 
+	/** Ceiling on one paste: past this the screen itself becomes unusable. */
+	private const PASTE_MAX = 1000;
+
 	public static function bulk_list(): array {
 		$uid  = get_current_user_id();
 		$list = get_user_meta( $uid, self::LIST_META, true );
@@ -1973,26 +1976,50 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	private function bulk_products(): array {
+		if ( null !== $this->bulk_products_cache ) {
+			return $this->bulk_products_cache; // asked for twice per render.
+		}
 		$ids = 'pending' === $this->bulk_mode() ? self::pending_ids() : self::bulk_list();
+		$ids = array_values( array_filter( array_map( 'intval', (array) $ids ) ) );
+		// Four hundred products pasted from a spreadsheet is a normal list here,
+		// and one query per row is not an option: posts and their meta are read
+		// in two queries, then every wc_get_product() below is served from cache.
+		if ( $ids ) {
+			_prime_post_caches( $ids, false, true );
+		}
+		// Same again for the photographs, before any image URL is asked for.
+		$thumbs = [];
+		foreach ( $ids as $pid ) {
+			$t = (int) get_post_thumbnail_id( $pid );
+			if ( $t ) {
+				$thumbs[ $pid ] = $t;
+			}
+		}
+		if ( $thumbs ) {
+			_prime_post_caches( array_values( array_unique( $thumbs ) ), false, true );
+		}
 		$out = [];
-		foreach ( array_map( 'intval', (array) $ids ) as $pid ) {
+		foreach ( $ids as $pid ) {
 			$product = wc_get_product( $pid );
 			if ( ! $product instanceof WC_Product ) {
 				continue;
 			}
-			$thumb_id = get_post_thumbnail_id( $pid );
-			$cost     = self::product_cost( $product );
+			$thumb_id = (int) ( $thumbs[ $pid ] ?? 0 );
 			$out[] = [
 				'id'    => $pid,
 				'title' => $product->get_name(),
 				'edit'  => get_edit_post_link( $pid, '' ),
 				'thumb' => $thumb_id ? (string) wp_get_attachment_image_url( $thumb_id, 'medium' ) : (string) wc_placeholder_img_src(),
 				'full'  => $thumb_id ? (string) wp_get_attachment_image_url( $thumb_id, 'full' ) : '',
-				'cost'  => $cost,
+				'cost'  => self::product_cost( $product ),
 			];
 		}
+		$this->bulk_products_cache = $out;
 		return $out;
 	}
+
+	/** Built once per request: the page renders it and the payload reads it. */
+	private ?array $bulk_products_cache = null;
 
 	/**
 	 * The waiting content of every product currently listed, keyed by id.
@@ -2007,6 +2034,32 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Paste a column of product IDs instead of ticking four hundred boxes.
+	 *
+	 * A list of products needing attention rarely comes from the WordPress
+	 * admin: it comes from a spreadsheet — "every product with a single
+	 * photograph", exported once and worked through afterwards. So the screen
+	 * accepts that column as it is pasted: commas, spaces, tabs, line breaks, a
+	 * leading # — anything that is not a digit is a separator.
+	 */
+	private function render_bulk_paste(): void {
+		?>
+		<details class="dze-cb-paste" id="dze-cb-paste"<?php echo self::bulk_list() ? '' : ' open'; ?>>
+			<summary><?php esc_html_e( 'Add products by ID', 'dazont-ecom' ); ?></summary>
+			<p class="description" style="margin:6px 0;">
+				<?php esc_html_e( 'Paste a column of IDs from your spreadsheet. Separators do not matter. IDs already on the list, and anything that is not a product, are reported instead of being swallowed.', 'dazont-ecom' ); ?>
+			</p>
+			<textarea id="dze-cb-pasteids" rows="4" class="large-text code" placeholder="1024&#10;1025&#10;1031, 1042 1055"></textarea>
+			<p>
+				<button type="button" class="button button-primary" id="dze-cb-pasteadd"><?php esc_html_e( 'Add to the list', 'dazont-ecom' ); ?></button>
+				<label style="margin-left:12px;"><input type="checkbox" id="dze-cb-pastereplace" /> <?php esc_html_e( 'Replace the current list', 'dazont-ecom' ); ?></label>
+				<span id="dze-cb-pastestate" class="description" style="margin-left:8px;"></span>
+			</p>
+		</details>
+		<?php
 	}
 
 	public function render_bulk_page(): void {
@@ -2074,8 +2127,10 @@ Answer with STRICT JSON and nothing else: "
 				</p></div>
 			<?php endif; ?>
 
+			<?php $this->render_bulk_paste(); ?>
+
 			<?php if ( empty( $products ) ) : ?>
-				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Generate content (Dazont)" in the Bulk actions menu.', 'dazont-ecom' ); ?></p>
+				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Generate content (Dazont)" in the Bulk actions menu — or paste their IDs above.', 'dazont-ecom' ); ?></p>
 				<?php return; ?>
 			<?php endif; ?>
 
@@ -2302,6 +2357,9 @@ Answer with STRICT JSON and nothing else: "
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
 				'validated' => true, // gating is per-field via disabled checkboxes.
+				// Where the screen goes back to after a paste: the selection, not
+				// whatever filtered view it was opened on.
+				'listUrl'   => add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) ),
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
 				// What was generated last time and never decided on, so the
 				// screen finds it again after a reload.
@@ -2360,6 +2418,10 @@ Answer with STRICT JSON and nothing else: "
 					'redoShort'=> __( 'Rewrite', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
+					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
+					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
+					/* translators: %s: number of IDs */
+					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
@@ -3188,7 +3250,57 @@ Answer with STRICT JSON and nothing else: "
 			// server holds, not what it hoped the server would hold.
 			wp_send_json_success( [ 'left' => self::bulk_list() ] );
 		}
+		if ( 'add' === $do ) {
+			$this->bulk_add_ids( $ids, ! empty( $_POST['replace'] ) );
+		}
 		wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
+	}
+
+	/**
+	 * Adds pasted IDs to the working list and says exactly what happened to
+	 * each one.
+	 *
+	 * ONE query for the whole paste: four hundred `get_post()` calls would be
+	 * four hundred queries. Anything that is not a published or draft product
+	 * comes back named, so a wrong column in the spreadsheet is visible instead
+	 * of being silently dropped.
+	 */
+	private function bulk_add_ids( array $ids, bool $replace ): void {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( $ids ) ) );
+		if ( ! $ids ) {
+			wp_send_json_error( [ 'message' => __( 'No ID found in what you pasted.', 'dazont-ecom' ) ] );
+		}
+		if ( count( $ids ) > self::PASTE_MAX ) {
+			wp_send_json_error( [
+				'message' => sprintf(
+					/* translators: %s: maximum number of products */
+					__( 'That is more than %s products at once. Split the list.', 'dazont-ecom' ),
+					number_format_i18n( self::PASTE_MAX )
+				),
+			] );
+		}
+		$holes = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $holes is a placeholder list built from the count.
+		$found = $wpdb->get_col( $wpdb->prepare(
+			"SELECT ID FROM {$wpdb->posts}
+			 WHERE ID IN ({$holes}) AND post_type = 'product' AND post_status NOT IN ( 'trash', 'auto-draft' )",
+			...$ids
+		) );
+		$found   = array_map( 'intval', (array) $found );
+		$unknown = array_values( array_diff( $ids, $found ) );
+
+		$before = $replace ? [] : self::bulk_list();
+		$dupes  = array_values( array_intersect( $found, $before ) );
+		self::set_bulk_list( array_merge( $before, $found ) );
+
+		wp_send_json_success( [
+			'added'   => count( $found ) - count( $dupes ),
+			'already' => count( $dupes ),
+			'unknown' => array_slice( $unknown, 0, 30 ), // enough to fix the spreadsheet.
+			'unknownN'=> count( $unknown ),
+			'total'   => count( self::bulk_list() ),
+		] );
 	}
 
 	/**
