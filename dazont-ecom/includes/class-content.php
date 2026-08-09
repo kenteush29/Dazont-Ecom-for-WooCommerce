@@ -53,7 +53,7 @@ final class DZE_Content {
 
 	private function __construct() {
 		add_action( 'admin_init',     [ $this, 'register_settings' ] );
-		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ] );
+		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ], 20 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 
 		// Bulk action on the products list → bulk screen.
@@ -1837,7 +1837,7 @@ Answer with STRICT JSON and nothing else: "
 	// =========================================================================
 
 	public function register_bulk_action( array $actions ): array {
-		$actions[ self::BULK_ACTION ] = __( 'Generate content (Dazont)', 'dazont-ecom' );
+		$actions[ self::BULK_ACTION ] = __( 'Dazont: send to Products AI bulk', 'dazont-ecom' );
 		return $actions;
 	}
 
@@ -1934,7 +1934,7 @@ Answer with STRICT JSON and nothing else: "
 		// awaiting moderation: you should not have to open a screen to learn
 		// that something is waiting on it.
 		$waiting = self::pending_count();
-		$label   = __( 'Content bulk', 'dazont-ecom' );
+		$label   = __( 'Products AI bulk', 'dazont-ecom' );
 		$menu    = $waiting
 			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
 				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
@@ -2077,7 +2077,7 @@ Answer with STRICT JSON and nothing else: "
 		}
 		?>
 		<div class="wrap dze-wrap dze-admin">
-			<h1><?php esc_html_e( 'Product Content — bulk generation', 'dazont-ecom' ); ?></h1>
+			<h1><?php esc_html_e( 'Products AI bulk', 'dazont-ecom' ); ?></h1>
 
 			<?php
 			$dze_mode = $this->bulk_mode();
@@ -2093,7 +2093,7 @@ Answer with STRICT JSON and nothing else: "
 					<?php if ( self::bulk_list() ) : ?>
 						<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Back to my selection', 'dazont-ecom' ); ?></a>
 					<?php else : ?>
-						<span class="description"><?php esc_html_e( 'To work on other products, select them on the Products list and use the "Generate content" bulk action.', 'dazont-ecom' ); ?></span>
+						<span class="description"><?php esc_html_e( 'To work on other products, select them on the Products list and use the "Dazont: send to Products AI bulk" action — or paste their IDs below.', 'dazont-ecom' ); ?></span>
 					<?php endif; ?>
 				</p></div>
 			<?php elseif ( $dze_waiting ) : ?>
@@ -2130,7 +2130,7 @@ Answer with STRICT JSON and nothing else: "
 			<?php $this->render_bulk_paste(); ?>
 
 			<?php if ( empty( $products ) ) : ?>
-				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Generate content (Dazont)" in the Bulk actions menu — or paste their IDs above.', 'dazont-ecom' ); ?></p>
+				<p><?php esc_html_e( 'No products queued. Select products on the Products list and pick "Dazont: send to Products AI bulk" in the Bulk actions menu — or paste their IDs above.', 'dazont-ecom' ); ?></p>
 				<?php return; ?>
 			<?php endif; ?>
 

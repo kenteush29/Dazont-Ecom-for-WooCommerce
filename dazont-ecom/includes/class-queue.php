@@ -56,7 +56,7 @@ final class DZE_Queue {
 			return;
 		}
 		add_action( 'admin_init', [ $this, 'maybe_install' ] );
-		add_action( 'admin_menu', [ $this, 'menu' ], 20 );
+		add_action( 'admin_menu', [ $this, 'menu' ], 21 ); // right after Products AI bulk.
 		add_action( 'wp_ajax_dze_q_status', [ $this, 'ajax_status' ] );
 		add_action( 'wp_ajax_dze_q_run', [ $this, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_q_review', [ $this, 'ajax_review' ] );
@@ -453,12 +453,23 @@ final class DZE_Queue {
 	// Screen
 	// =========================================================================
 
+	/** The screen's address, in one place: the menu it hangs from can move. */
+	public static function url( array $args = [] ): string {
+		return add_query_arg(
+			array_merge( [ 'post_type' => 'product', 'page' => self::MENU_SLUG ], $args ),
+			admin_url( 'edit.php' )
+		);
+	}
+
 	public function menu(): void {
-		$parent = class_exists( 'DZE_Restock' ) && DZE_Modules::enabled( 'restock' ) ? DZE_Restock::MENU_SLUG : DZE_Modules::MENU_SLUG;
+		// Next to the products bulk screen, under Products: every job this queue
+		// carries writes a product CATEGORY, and that is where categories are
+		// worked on. The slug is unchanged, so old links still land here.
+		$parent  = 'edit.php?post_type=product';
 		// The count rides on the menu label: what is waiting for a decision
 		// should be visible without opening the screen it waits on.
 		$waiting = self::review_count();
-		$label   = __( 'Writing queue', 'dazont-ecom' );
+		$label   = __( 'Categories AI bulk', 'dazont-ecom' );
 		$menu    = $waiting
 			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
 				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
@@ -560,7 +571,7 @@ final class DZE_Queue {
 		] );
 		?>
 		<div class="wrap dze-admin">
-			<h1><?php esc_html_e( 'Writing queue', 'dazont-ecom' ); ?></h1>
+			<h1><?php esc_html_e( 'Categories AI bulk', 'dazont-ecom' ); ?></h1>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'Texts are written one at a time, and this page keeps the queue moving while it is open — leave it open and watch, or come back later and pick up what is waiting. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>
 			</p>
