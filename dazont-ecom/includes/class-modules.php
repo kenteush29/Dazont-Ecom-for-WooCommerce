@@ -103,7 +103,7 @@ final class DZE_Modules {
 				'group' => 'marketing',
 				'label' => __( 'Marketing Assistant', 'dazont-ecom' ),
 				'desc'  => __( 'Suggests a promotion calendar; hosts the Settings page.', 'dazont-ecom' ),
-				'more'  => __( 'Builds a proposed marketing calendar from your own shop data: site name, categories, sample products, price range, languages (WPML) and per-language target countries. Every suggestion is reviewed by you — accepting turns it into a real scheduled event in Marketing Events; a shortcode renders the final calendar on the front. This module also hosts the shared Settings page (API keys, model choices, monthly spend cap) that the other modules read their configuration from.', 'dazont-ecom' ),
+				'more'  => __( 'Builds a proposed marketing calendar from your own shop data: site name, categories, sample products, price range, languages (WPML) and per-language target countries. Every suggestion is reviewed by you — accepting turns it into a real scheduled event in Marketing Events; a shortcode renders the final calendar on the front. This module also hosts the shared Settings page (API keys, model choices, monthly spend cap) that the other modules read their configuration from. Everywhere the plugin is about to call a model — the calendar here, the sourcing report, the category writer, the product texts and images — a discreet pencil opens the exact instructions being sent and takes you straight to the field where they are edited, on the tab that owns them.', 'dazont-ecom' ),
 			],
 			'sourcing' => [
 				'classes' => [ 'DZE_Explorer', 'DZE_Keywords' ],

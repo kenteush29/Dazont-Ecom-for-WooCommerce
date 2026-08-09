@@ -48,6 +48,7 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 			<label><?php esc_html_e( 'To', 'dazont-ecom' ); ?> <input type="date" id="dze-mai-end" /></label>
 			&nbsp;
 			<button type="button" id="dze-mai-generate" class="button button-primary"><?php esc_html_e( 'Generate suggestions', 'dazont-ecom' ); ?></button>
+			<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'events' ); } ?>
 			<span id="dze-mai-gen-status" style="margin-left:8px;font-size:13px;"></span>
 		</p>
 		<p class="description"><?php esc_html_e( 'Suggestions are generated for the chosen language only. Leave Countries blank to use that language\'s default markets.', 'dazont-ecom' ); ?> <a href="<?php echo esc_url( $ai_settings_url ); ?>"><?php esc_html_e( 'Adjust country pools / see what the AI knows about your shop →', 'dazont-ecom' ); ?></a></p>

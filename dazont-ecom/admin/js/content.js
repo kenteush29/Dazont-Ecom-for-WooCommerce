@@ -54,6 +54,14 @@
 	// Image prompt rows: one, plus a + while there is another prompt to pick
 	// =====================================================================
 
+	// A quiet "see the instructions" next to whatever is about to be generated:
+	// a result you cannot trace back to a prompt is a result you cannot fix.
+	function promptBtn(id) {
+		if (!id) { return ''; }
+		return '<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(id) +
+			'" title="' + esc(i18n.promptTip) + '">&#9998;</button>';
+	}
+
 	function tplUsed() {
 		return $('#dze-cx-tplrows .dze-cx-tpl').map(function () { return $(this).val(); }).get();
 	}
@@ -62,7 +70,9 @@
 			return '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
 				esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
 		}).join('');
+		var cur = cfg.templates[parseInt(sel, 10)] || cfg.templates[0] || {};
 		return '<span class="dze-tplrow"><select class="dze-cx-tpl">' + opts + '</select>' +
+			promptBtn(cur.id) +
 			'<button type="button" class="button button-small dze-cx-tpladd" title="' + esc(i18n.addPrompt) + '">+</button>' +
 			'<button type="button" class="button button-small dze-cx-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span>';
 	}
@@ -107,6 +117,11 @@
 			used[$(this).val()] = 1;
 		});
 		if (dupe) { $me.val(String(firstFreeTpl())); }
+		// The peek button follows the prompt the row now points at.
+		$('#dze-cx-tplrows .dze-tplrow').each(function () {
+			var t = cfg.templates[parseInt($(this).find('.dze-cx-tpl').val(), 10)] || {};
+			$(this).find('.dze-prompt-peek').attr('data-prompt', 'content_' + (t.id || ''));
+		});
 		remember();
 	});
 
@@ -136,8 +151,8 @@
 
 		var checks = Object.keys(cfg.fields).map(function (fid) {
 			var on = au.fields ? au.fields.indexOf(fid) >= 0 : true;
-			return '<label class="dze-cb-check"><input type="checkbox" class="dze-cx-f" value="' + fid + '"' + (on ? ' checked' : '') + ' />' +
-				'<span>' + esc(cfg.fields[fid]) + '</span></label>';
+			return '<span class="dze-cb-checkline"><label class="dze-cb-check"><input type="checkbox" class="dze-cx-f" value="' + fid + '"' + (on ? ' checked' : '') + ' />' +
+				'<span>' + esc(cfg.fields[fid]) + '</span></label>' + promptBtn(fid) + '</span>';
 		}).join('');
 
 		var sceneSel = scenes.length
@@ -279,6 +294,7 @@
 					'<span class="dze-cb-fstate"></span>' +
 					'<button type="button" class="button button-small dze-cx-now" data-field="' + fid + '" title="' + esc(i18n.compareHelp) + '">' + esc(i18n.compare) + '</button>' +
 					'<button type="button" class="button button-small dze-cx-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻ ' + esc(i18n.redoShort) + '</button>' +
+					promptBtn(fid) +
 				'</div>' +
 				'<div class="dze-cb-fbody" style="display:none;"></div>' +
 			'</div>';
