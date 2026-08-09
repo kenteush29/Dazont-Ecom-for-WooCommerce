@@ -3327,12 +3327,17 @@ Answer with STRICT JSON and nothing else: "
 		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 		if ( 'main' === $target ) {
 			// The replaced main image is never lost: it moves to the FRONT of the
-			// product gallery so it stays first among the secondary images.
+			// product gallery so it stays first among the secondary images. And an
+			// image cannot be the main one AND a gallery one — the shop would show
+			// it twice — so the newcomer leaves the gallery as it takes the top
+			// spot. The row is written even when there was no main image before,
+			// otherwise that de-duplication would never reach the database.
 			$old = (int) get_post_thumbnail_id( $pid );
+			$ids = array_values( array_diff( $ids, [ (int) $att_id ] ) );
 			if ( $old && $old !== (int) $att_id ) {
 				array_unshift( $ids, $old );
-				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			}
+			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			set_post_thumbnail( $pid, (int) $att_id );
 		} elseif ( 'gallery_first' === $target ) {
 			// Second photograph of the product: the one a visitor sees right
@@ -3342,6 +3347,14 @@ Answer with STRICT JSON and nothing else: "
 		} else {
 			$ids[] = (int) $att_id;
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
+		}
+		// WooCommerce reads the gallery from its own cached product object: a raw
+		// meta write is invisible to the shop, and to this very screen, until that
+		// copy is dropped. Skipping this is how a correct move looks like nothing
+		// happened at all.
+		clean_post_cache( $pid );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $pid );
 		}
 		return (int) $att_id;
 	}
