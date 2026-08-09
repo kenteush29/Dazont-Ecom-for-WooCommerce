@@ -308,6 +308,12 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* A block left out of the acceptance: still readable, visibly out of the deal. */
+.dze-cb-fkeep { margin: 0 !important; flex: 0 0 auto; }
+.dze-cb-fblock.is-dropped { border-style: dashed; background: #fafafa; }
+.dze-cb-fblock.is-dropped .dze-cb-fname,
+.dze-cb-fblock.is-dropped .dze-cb-fpeek { opacity: .45; text-decoration: line-through; }
+.dze-cb-fblock.is-dropped .dze-cb-fshot { opacity: .45; }
 /* Real buttons, not grey glyphs you have to hunt for with the mouse. */
 .dze-cb-fhead .button { flex: 0 0 auto; }
 .dze-cb-redo, .dze-cb-now { white-space: nowrap; }
