@@ -183,6 +183,8 @@
 				if (!res || !res.success) { $('#dze-q-body').text(i18n.error); return; }
 				var d = res.data;
 				$('#dze-q-title').text(d.title);
+				// The prompt behind this job, next to its name.
+				$('#dze-q-prompt').attr('data-prompt', d.prompt || '').toggle(!!d.prompt);
 				// What the category holds today, one click away above the new
 				// text — the same answer as the products screen, rather than two
 				// word counts and a leap of faith.

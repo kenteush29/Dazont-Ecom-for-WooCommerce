@@ -83,6 +83,36 @@
 .dze-cx-icon:hover { color: #2271b1; }
 .dze-cx-field h4 .dze-cx-icon { margin-left: auto; }
 
+/* "See the prompt" — sits next to every generate button without competing
+   with it: grey and borderless until hovered, never wider than its glyph. */
+.dze-prompt-peek {
+	background: transparent; border: none; cursor: pointer; color: #a7aaad;
+	font-size: 12px; padding: 0 4px; line-height: 1; vertical-align: middle;
+	white-space: nowrap;
+}
+.dze-prompt-peek:hover,
+.dze-prompt-peek:focus { color: #2271b1; text-decoration: underline; }
+/* One line per field: the checkbox and its prompt button stay together. */
+.dze-cb-checkline { display: inline-flex; align-items: center; gap: 2px; }
+/* The prompt itself: read as sent, wrapped, never a single endless line. */
+.dze-prompt-text {
+	white-space: pre-wrap; word-break: break-word; margin: 0 0 10px;
+	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
+	padding: 12px 14px; max-height: 60vh; overflow: auto;
+	font-size: 13px; line-height: 1.6;
+}
+/* Landing on a prompt from "Edit these instructions" shows which row it is. */
+.dze-pr-row:target > td { background: #fcf3d4; }
+#dze-ct-feature-prompt:target,
+#dze-cc-prompt:target,
+#dze-cc-links-prompt:target,
+#dze-cc-sift-prompt:target,
+#dze-rev-prompt:target,
+#dze-mai-prompt:target,
+#dze-mai-match-rules:target,
+#dze-mai-report-guidance:target,
+#dze-pod-prompt:target { outline: 2px solid #2271b1; outline-offset: 2px; }
+
 /* "Data used" line — names only, content stays hidden behind the ✎. */
 .dze-cx-datause { color: #646970; font-size: 12px; margin: 0 0 10px; }
 

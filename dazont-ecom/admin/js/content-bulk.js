@@ -66,7 +66,13 @@
 	function tplRow(value) {
 		var $r = $($('#dze-cb-tpltpl').html());
 		if (value !== '' && value !== undefined) { $r.find('.dze-cb-tpl').val(String(value)); }
+		syncPeek($r);
 		return $r;
+	}
+	// The peek button of a row always points at the prompt that row will run.
+	function syncPeek($row) {
+		var $s = $row.find('.dze-cb-tpl');
+		$row.find('.dze-prompt-peek').attr('data-prompt', $s.find('option:selected').data('prompt') || '');
 	}
 	function buildTplRows(values) {
 		var $wrap = $('#dze-cb-tplrows').empty();
@@ -102,6 +108,7 @@
 			else if (used[v]) { $(this).val(firstFreeTpl()); }
 			used[$(this).val()] = 1;
 		});
+		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); });
 	});
 	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
 		$('#dze-cb-tplrows').append(tplRow(firstFreeTpl()));
@@ -414,6 +421,8 @@
 					'<span class="dze-cb-fstate"></span>' +
 					'<button type="button" class="button button-small dze-cb-now" data-field="' + fid + '" title="' + esc(i18n.compareHelp) + '">' + esc(i18n.compare) + '</button>' +
 					'<button type="button" class="button button-small dze-cb-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻ ' + esc(i18n.redoShort) + '</button>' +
+					// The instructions this text came out of, one click away.
+					'<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(fid) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
 				'</div>' +
 				'<div class="dze-cb-fbody" style="display:none;"></div>' +
 			'</div>';

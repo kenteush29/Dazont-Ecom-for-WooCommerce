@@ -63,6 +63,7 @@ dze_explorer_flat_rows( $categories, [], 0, $dze_rows, $dze_seq );
 			<button type="button" id="dze-x-expand" class="button button-small"><?php esc_html_e( 'Expand all', 'dazont-ecom' ); ?></button>
 			<button type="button" id="dze-x-opps-toggle" class="button button-small"><?php esc_html_e( 'All opportunities', 'dazont-ecom' ); ?></button>
 			<button type="button" id="dze-x-kw-bulk-ai" class="button button-small"><?php esc_html_e( 'Launch keyword analysis (all)', 'dazont-ecom' ); ?></button>
+		<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'keyword_match' ); } ?>
 			<span id="dze-x-global-prog" class="dze-x-kw-prog"></span>
 		</div>
 
@@ -187,6 +188,7 @@ dze_explorer_flat_rows( $categories, [], 0, $dze_rows, $dze_seq );
 				<button type="button" id="dze-x-kw-toggle" class="button"><?php esc_html_e( 'SEMrush keywords', 'dazont-ecom' ); ?></button>
 				<button type="button" id="dze-x-ov-mark" class="button"><?php esc_html_e( 'Mark searched today', 'dazont-ecom' ); ?></button>
 				<button type="button" id="dze-x-ai" class="button button-primary"><span class="dze-x-ai-label"><?php esc_html_e( 'Sourcing report', 'dazont-ecom' ); ?></span> <span class="dze-x-ai-caret" aria-hidden="true">▾</span></button>
+				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'sourcing_report' ); } ?>
 			</span>
 		</div>
 		<div id="dze-x-ai-panel" class="dze-x-ai-panel" style="display:none;"></div>
@@ -211,6 +213,7 @@ dze_explorer_flat_rows( $categories, [], 0, $dze_rows, $dze_seq );
 						<input type="number" id="dze-x-kw-minvol" min="0" value="<?php echo esc_attr( $dze_minvol ); ?>" style="width:64px;" />
 					</label>
 					<button type="button" id="dze-x-kw-ai" class="button button-primary button-small"><?php esc_html_e( 'Launch keyword analysis', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'keyword_match' ); } ?>
 					<span id="dze-x-kw-prog" class="dze-x-kw-prog"></span>
 					<button type="button" id="dze-x-kw-import" class="button button-small"><?php esc_html_e( 'Import CSV', 'dazont-ecom' ); ?></button>
 					<button type="button" id="dze-x-kw-export" class="button button-small"><?php esc_html_e( 'Export', 'dazont-ecom' ); ?></button>

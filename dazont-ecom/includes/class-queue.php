@@ -505,6 +505,9 @@ final class DZE_Queue {
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		wp_enqueue_editor();
+		if ( class_exists( 'DZE_Prompts' ) ) {
+			DZE_Prompts::print_assets(); // the review popup shows the prompt behind the job.
+		}
 		wp_enqueue_script( 'dze-queue', DZE_URL . 'admin/js/queue.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-queue', 'dzeQueue', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
@@ -592,6 +595,7 @@ final class DZE_Queue {
 		</div>
 		<div class="dze-cx-modal" id="dze-q-modal"><div class="dze-cx-dialog" style="width:min(860px,94vw);">
 			<div class="dze-cx-head"><h2 id="dze-q-title"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></h2>
+				<button type="button" class="dze-prompt-peek" id="dze-q-prompt" data-prompt="" style="display:none;" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998; <?php esc_html_e( 'prompt', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button dze-hub-close" style="margin-left:auto;"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button></div>
 			<div class="dze-cx-body" id="dze-q-body"></div>
 		</div></div>
@@ -689,6 +693,9 @@ final class DZE_Queue {
 		wp_send_json_success( [
 			'id'      => $id,
 			'title'   => self::label_for( (string) $job['kind'], (int) $job['object_id'] ),
+			// Which instruction block wrote this, so a disappointing result can
+			// be traced back to its prompt from the review itself.
+			'prompt'  => (string) $job['kind'],
 			'html'    => (string) $job['result'],
 			'current' => $old,
 			'words'   => [ str_word_count( wp_strip_all_tags( $old ) ), str_word_count( wp_strip_all_tags( (string) $job['result'] ) ) ],

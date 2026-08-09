@@ -653,6 +653,18 @@ EOT;
 		return (string) ( self::get_settings()['store_context'] ?? '' );
 	}
 
+	/** Shipped rules for choosing which photograph illustrates a text block. */
+	public static function default_feature_prompt(): string {
+		return 'Pick the photographs that best show a CONCRETE particularity worth zooming in on in a sales argument — a material, a fastening, a finish, a compartment, a texture, a detail of construction, the product in use. '
+			. 'Avoid the plain catalogue shot when a more telling one exists, and never pick two photographs showing the same thing.';
+	}
+
+	/** The rules actually sent: the owner's, or the shipped ones. */
+	public static function feature_prompt(): string {
+		$p = trim( (string) ( self::get_settings()['feature_prompt'] ?? '' ) );
+		return '' !== $p ? $p : self::default_feature_prompt();
+	}
+
 	/** Legacy global flag: true only when EVERY text-field prompt is validated. */
 	public static function prompts_validated(): bool {
 		foreach ( array_keys( self::fields() ) as $fid ) {
@@ -1020,11 +1032,12 @@ EOT;
 
 "
 			. sprintf(
-				'Above are the %1$d photographs of this product. Pick the %2$d that best show a CONCRETE particularity worth zooming in on in a sales argument — a material, a fastening, a finish, a compartment, a texture, a detail of construction, the product in use. '
-				. 'Avoid the plain catalogue shot when a more telling one exists, and never pick two photographs showing the same thing.',
+				/* translators: 1: number of photographs, 2: number to pick. */
+				__( 'Above are the %1$d photographs of this product. Pick %2$d of them.', 'dazont-ecom' ),
 				count( $images ),
 				$want
 			)
+			. ' ' . self::feature_prompt()
 			. "
 Answer with STRICT JSON and nothing else: "
 			. '[{"image": <number>, "feature": "<what this photograph shows, 4 to 12 words, factual, no sales language>"}]';
@@ -1189,6 +1202,11 @@ Answer with STRICT JSON and nothing else: "
 
 		if ( isset( $in['store_context'] ) ) {
 			$out['store_context'] = sanitize_textarea_field( (string) $in['store_context'] );
+		}
+		if ( isset( $in['feature_prompt'] ) ) {
+			$p = trim( sanitize_textarea_field( (string) $in['feature_prompt'] ) );
+			// Empty means "the shipped rules", never an empty instruction.
+			$out['feature_prompt'] = ( $p === trim( self::default_feature_prompt() ) ) ? '' : $p;
 		}
 		// Scene library: name + image + its own instruction, one marked default.
 		if ( isset( $in['sc_name'] ) && is_array( $in['sc_name'] ) ) {
@@ -1520,7 +1538,7 @@ Answer with STRICT JSON and nothing else: "
 				</thead>
 				<tbody>
 					<?php foreach ( self::registry() as $r ) : $sel_in = (array) ( $r['inputs'] ?? [] ); ?>
-					<tr class="dze-pr-row">
+					<tr class="dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
 						<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> /></td>
 						<td>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
@@ -1574,6 +1592,16 @@ Answer with STRICT JSON and nothing else: "
 			<p>
 				<button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
+			</p>
+
+			<h2 class="title"><?php esc_html_e( 'Choosing which photograph illustrates a block', 'dazont-ecom' ); ?></h2>
+			<p class="description" style="max-width:900px;">
+				<?php esc_html_e( 'When a prompt carries an image meta key, the plugin looks at every photograph of the product and picks the one that block should be shown with. These are the rules it picks by.', 'dazont-ecom' ); ?>
+			</p>
+			<textarea id="dze-ct-feature-prompt" name="<?php echo esc_attr( $opt ); ?>[feature_prompt]" rows="4" class="large-text code" placeholder="<?php echo esc_attr( self::default_feature_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['feature_prompt'] ?? '' ) ); ?></textarea>
+			<p class="description">
+				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
+				<button type="button" class="button-link" id="dze-ct-feature-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 			</p>
 			<script type="text/template" id="dze-pr-rowtpl">
 				<tr class="dze-pr-row">
@@ -1659,6 +1687,7 @@ Answer with STRICT JSON and nothing else: "
 					if ( ! d ) { return; }
 					$( this ).closest( 'td' ).find( '.dze-pr-prompt' ).val( d );
 				} );
+				$( '#dze-ct-feature-restore' ).on( 'click', function () { $( '#dze-ct-feature-prompt' ).val( '' ); } );
 				// Restore the shipped default prompts (drops customs — confirmed first).
 				$( '#dze-pr-reset' ).on( 'click', function () {
 					if ( ! window.confirm( '<?php echo esc_js( __( 'Restore the shipped default prompts? Custom prompt rows will be removed and validation flags reset. Your generated content is not affected.', 'dazont-ecom' ) ); ?>' ) ) { return; }
@@ -2007,10 +2036,13 @@ Answer with STRICT JSON and nothing else: "
 					<h3><?php esc_html_e( 'Texts', 'dazont-ecom' ); ?></h3>
 					<div class="dze-cb-checks">
 						<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
-							<label class="dze-cb-check<?php echo $fok ? '' : ' is-locked'; ?>" title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
-								<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
-								<span><?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?></span>
-							</label>
+							<span class="dze-cb-checkline">
+								<label class="dze-cb-check<?php echo $fok ? '' : ' is-locked'; ?>" title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
+									<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
+									<span><?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?></span>
+								</label>
+								<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'content_' . $fid, '✎' ); } ?>
+							</span>
 						<?php endforeach; ?>
 					</div>
 				</div>
@@ -2041,9 +2073,10 @@ Answer with STRICT JSON and nothing else: "
 								<span class="dze-tplrow">
 									<select class="dze-cb-tpl">
 										<?php foreach ( $valid_tpls as $i => $t ) : ?>
-											<option value="<?php echo (int) $i; ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
+											<option value="<?php echo (int) $i; ?>" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $t['id'] ?? '' ) ); ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
 										<?php endforeach; ?>
 									</select>
+									<button type="button" class="dze-prompt-peek" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $valid_tpls[0]['id'] ?? '' ) ); ?>" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998;</button>
 									<button type="button" class="button button-small dze-tpl-add" title="<?php esc_attr_e( 'Add another image prompt to this run', 'dazont-ecom' ); ?>">+</button>
 									<button type="button" class="button button-small dze-tpl-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&minus;</button>
 								</span>
@@ -2191,6 +2224,11 @@ Answer with STRICT JSON and nothing else: "
 		// Dense thumbnails everywhere: the full image on hover instead of
 		// screen space spent on being legible.
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		// The toolbox and the bulk list draw their "see the prompt" buttons in
+		// JavaScript, so the modal has to be on the page before they exist.
+		if ( class_exists( 'DZE_Prompts' ) && ( $on_product || $on_bulk || $on_list ) ) {
+			DZE_Prompts::print_assets();
+		}
 		if ( $on_settings || $on_product ) {
 			wp_enqueue_media(); // POD design / mockup pickers use the native media modal.
 		}
@@ -2260,6 +2298,7 @@ Answer with STRICT JSON and nothing else: "
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
 					'redoShort'=> __( 'Rewrite', 'dazont-ecom' ),
+					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
@@ -2386,6 +2425,7 @@ Answer with STRICT JSON and nothing else: "
 				'redoAll'    => __( 'Write every text again', 'dazont-ecom' ),
 				'redoOne'    => __( 'Write this one again', 'dazont-ecom' ),
 				'redoShort'  => __( 'Rewrite', 'dazont-ecom' ),
+				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
 				'discard'    => __( 'Discard', 'dazont-ecom' ),
 				'compare'    => __( 'Current', 'dazont-ecom' ),

@@ -125,6 +125,16 @@ final class DZE_Category_Content {
 		if ( isset( $in['prompt'] ) ) {
 			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
 		}
+		// The two secondary passes. Re-saving the shipped text stores nothing, so
+		// an improved default still reaches an install that never edited it.
+		if ( isset( $in['links_prompt'] ) ) {
+			$p = trim( sanitize_textarea_field( (string) $in['links_prompt'] ) );
+			$out['links_prompt'] = ( $p === trim( self::default_links_prompt() ) ) ? '' : $p;
+		}
+		if ( isset( $in['sift_prompt'] ) ) {
+			$p = trim( sanitize_textarea_field( (string) $in['sift_prompt'] ) );
+			$out['sift_prompt'] = ( $p === trim( self::default_sift_prompt() ) ) ? '' : $p;
+		}
 		return $out;
 	}
 
@@ -523,6 +533,40 @@ PROMPT;
 		return '' !== $p ? $p : self::default_prompt();
 	}
 
+	/**
+	 * The rules the linking pass follows.
+	 *
+	 * Shipped as a default and editable like any other prompt: a generation
+	 * whose instructions you cannot read, let alone change, is one you can
+	 * only shrug at when the result disappoints.
+	 */
+	public static function default_links_prompt(): string {
+		return "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
+			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
+			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
+			. "- ANCHOR RULE. The anchor must NAME the page it points to, as closely as the sentence allows. A category keeps its name as it stands; an article or a page is anchored on the SUBJECT of its title, not on the title itself — keep the identifying words, drop the question mark, the verbs and the filler, two to six words. Re-word the few words around it so it reads naturally.\n"
+			. "- The sentence must still read perfectly well without the link. Never quote a title, never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\", never leave the destination ambiguous.\n"
+			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
+			. '- Never link twice to the same URL, never link a whole sentence, never link inside a heading.';
+	}
+
+	public static function links_prompt(): string {
+		$p = trim( (string) ( self::get_settings()['links_prompt'] ?? '' ) );
+		return '' !== $p ? $p : self::default_links_prompt();
+	}
+
+	/** How buyer questions pulled from search data are sorted. */
+	public static function default_sift_prompt(): string {
+		return "Keep only the questions a customer would ask this shop before buying from this category — about the products themselves: material, size, use, care, choice, compatibility, quality.\n"
+			. "Drop everything else, however many words it shares with the category: another industry's rules (airline baggage allowance, customs, shipping policies of other companies), another product entirely, a named brand or retailer, a job or a service.\n"
+			. 'Order what you keep by how useful the answer is to a buyer. Keep at most 15.';
+	}
+
+	public static function sift_prompt(): string {
+		$p = trim( (string) ( self::get_settings()['sift_prompt'] ?? '' ) );
+		return '' !== $p ? $p : self::default_sift_prompt();
+	}
+
 	// =========================================================================
 	// Real data: keywords, link pool, context
 	// =========================================================================
@@ -689,9 +733,7 @@ PROMPT;
 		}
 		$user = "SHOP CATEGORY: {$name}\n\n"
 			. "QUESTIONS PULLED FROM SEARCH DATA:\n" . $list . "\n"
-			. "Keep only the questions a customer would ask this shop before buying from this category — about the products themselves: material, size, use, care, choice, compatibility, quality.\n"
-			. "Drop everything else, however many words it shares with the category: another industry's rules (airline baggage allowance, customs, shipping policies of other companies), another product entirely, a named brand or retailer, a job or a service.\n"
-			. "Order what you keep by how useful the answer is to a buyer. Keep at most 15.\n"
+			. self::sift_prompt() . "\n"
 			. 'OUTPUT: a JSON array of the kept numbers, nothing else. Example: [3,0,7]';
 
 		try {
@@ -1328,16 +1370,10 @@ PROMPT;
 			. ( $done ? "\nAlready linked in the text, do not link again:\n- " . implode( "\n- ", $done ) . "\n" : '' )
 			. "\n--- DESCRIPTION (HTML, to return with links added) ---\n" . $html . "\n"
 			. "\n--- INSTRUCTIONS ---\n"
-			. "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
 			. ( $keys
 				? '- Add a link for EACH of the ' . $room . " targets above, on a different spot, unless the text truly offers no place for one.\n"
 				: '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n" )
-			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
-			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
-			. "- ANCHOR RULE. The anchor must NAME the page it points to, as closely as the sentence allows. A category keeps its name as it stands; an article or a page is anchored on the SUBJECT of its title, not on the title itself — keep the identifying words, drop the question mark, the verbs and the filler, two to six words. Re-word the few words around it so it reads naturally.\n"
-			. "- The sentence must still read perfectly well without the link. Never quote a title, never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\", never leave the destination ambiguous.\n"
-			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
-			. "- Never link twice to the same URL, never link a whole sentence, never link inside a heading.\n"
+			. self::links_prompt() . "\n"
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . self::language( $term_id ) . " — keep it in that language.\n"
 			. 'LINK FORMAT: <a href="URL">anchor</a>, using the URLs above verbatim.' . "\n"
@@ -1764,6 +1800,14 @@ PROMPT;
 				<?php endif; ?>
 				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
 				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
+				<?php
+				// Writing runs three passes; the first one is edited right here, the
+				// other two are only visible if we say so.
+				if ( class_exists( 'DZE_Prompts' ) ) {
+					DZE_Prompts::the_button( 'cat_sift', __( '✎ questions', 'dazont-ecom' ) );
+					DZE_Prompts::the_button( 'cat_links', __( '✎ linking', 'dazont-ecom' ) );
+				}
+				?>
 				<?php if ( $imp ) : ?>
 					<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
 				<?php endif; ?>
@@ -1807,6 +1851,7 @@ PROMPT;
 				</ul>
 				<p>
 					<button type="button" class="button button-primary dze-cc-links"><?php esc_html_e( 'Place the selected links', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_links' ); } ?>
 					<button type="button" class="button-link dze-cc-pickall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button-link dze-cc-picknone"><?php esc_html_e( 'Clear', 'dazont-ecom' ); ?></button>
 					<span class="dze-cc-pickcount description"></span>
@@ -2315,6 +2360,26 @@ PROMPT;
 						</p>
 					</td>
 				</tr>
+				<tr>
+					<th scope="row"><label for="dze-cc-sift-prompt"><?php esc_html_e( 'Choosing the buyer questions', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<textarea id="dze-cc-sift-prompt" name="<?php echo esc_attr( self::OPT ); ?>[sift_prompt]" rows="8" class="large-text code" placeholder="<?php echo esc_attr( self::default_sift_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['sift_prompt'] ?? '' ) ); ?></textarea>
+						<p class="description">
+							<?php esc_html_e( 'The pass that reads the real search queries and keeps the ones this page should answer. Empty = shipped default.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-sift-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-cc-links-prompt"><?php esc_html_e( 'Internal linking prompt', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<textarea id="dze-cc-links-prompt" name="<?php echo esc_attr( self::OPT ); ?>[links_prompt]" rows="10" class="large-text code" placeholder="<?php echo esc_attr( self::default_links_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['links_prompt'] ?? '' ) ); ?></textarea>
+						<p class="description">
+							<?php esc_html_e( 'The pass that weaves links into a description once it is written. Empty = shipped default.', 'dazont-ecom' ); ?>
+							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-links-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+						</p>
+					</td>
+				</tr>
 			</table>
 			<?php submit_button( __( 'Save category settings', 'dazont-ecom' ) ); ?>
 		</form>
@@ -2322,6 +2387,7 @@ PROMPT;
 		<script>
 		jQuery( function ( $ ) {
 			$( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( '' ); } );
+			$( '.dze-cc-clear' ).on( 'click', function () { $( '#' + $( this ).data( 'target' ) ).val( '' ); } );
 			$( '#dze-cc-sitemap-test' ).on( 'click', function () {
 				var $b = $( this ).prop( 'disabled', true );
 				$( '#dze-cc-sitemap-status' ).html( '<span class="dze-cx-spin"></span>' );
