@@ -287,6 +287,10 @@
 			var c = res.shotOf[fid];
 			html += '<div class="dze-cb-fblock" data-field="' + fid + '">' +
 				'<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="false">' +
+					// Accepting is not all or nothing: untick a block and it is
+					// simply not written — the images, or the other texts, still
+					// are. Same gesture as the tick on a generated image.
+					'<input type="checkbox" class="dze-cb-fkeep" checked title="' + esc(i18n.keepHelp) + '" />' +
 					'<span class="dze-cb-fcaret">▸</span>' +
 					(c && c.thumb ? '<img class="dze-cb-fshot dze-hzoom" src="' + esc(c.thumb) + '" data-full="' + esc(c.full || c.thumb) + '" alt="" title="' + esc(c.feature || '') + '" />' : '') +
 					'<span class="dze-cb-fname">' + esc(cfg.fields[fid] || fid) + '</span>' +
@@ -331,8 +335,14 @@
 			});
 		}
 	}
+	// Dropping a block greys the whole line, so what will NOT be written is
+	// readable without opening anything.
+	$(document).on('change', '#dze-cx-drawers .dze-cb-fkeep', function (e) {
+		e.stopPropagation();
+		$(this).closest('.dze-cb-fblock').toggleClass('is-dropped', !$(this).is(':checked'));
+	});
 	$(document).on('click', '#dze-cx-drawers .dze-cb-fhead', function (e) {
-		if ($(e.target).closest('.dze-cx-redo, .dze-cx-now').length) { return; }
+		if ($(e.target).closest('.dze-cx-redo, .dze-cx-now, .dze-cb-fkeep, .dze-prompt-peek').length) { return; }
 		var $b = $(this).closest('.dze-cb-fblock');
 		openField($b.data('field'), !$b.hasClass('is-open'));
 	});
@@ -609,7 +619,17 @@
 				target: $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val() || 'gallery'
 			});
 		});
-		var fids = Object.keys(res.texts), ok = 0, ko = 0;
+		// Only the blocks still ticked are written; the rest is simply dropped.
+		var fids = Object.keys(res.texts).filter(function (fid) {
+			var $k = $('#dze-cx-drawers .dze-cb-fblock[data-field="' + fid + '"]').find('.dze-cb-fkeep');
+			return !$k.length || $k.is(':checked');
+		});
+		var ok = 0, ko = 0;
+		if (!fids.length && !items.length) {
+			$btn.prop('disabled', false);
+			$st.addClass('is-ko').text(i18n.nothingKept);
+			return;
+		}
 
 		function texts(i) {
 			if (i >= fids.length) { return finish(); }

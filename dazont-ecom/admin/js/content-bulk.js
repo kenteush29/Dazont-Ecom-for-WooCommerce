@@ -410,6 +410,10 @@
 			var comp = (b.shotOf || {})[fid];
 			html += '<div class="dze-cb-fblock" data-field="' + fid + '">' +
 				'<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="false">' +
+					// Accepting is not all or nothing: untick a block and it is
+					// simply not written — the images, or the other texts, still
+					// are. Same gesture as the tick on a generated image.
+					'<input type="checkbox" class="dze-cb-fkeep" checked title="' + esc(i18n.keepHelp) + '" />' +
 					'<span class="dze-cb-fcaret">▸</span>' +
 					// The photograph this text was written against, so the pairing
 					// is visible before anything is saved.
@@ -610,8 +614,16 @@
 		});
 	});
 
+	// Dropping a block greys the whole line, so what will NOT be written is
+	// readable without opening anything.
+	$(document).on('change', '.dze-cb-fkeep', function (e) {
+		e.stopPropagation();
+		var $block = $(this).closest('.dze-cb-fblock');
+		$block.toggleClass('is-dropped', !$(this).is(':checked'));
+		refreshApplyBar();
+	});
 	$(document).on('click', '.dze-cb-fhead', function (e) {
-		if ($(e.target).closest('.dze-cb-redo, .dze-cb-now').length) { return; }
+		if ($(e.target).closest('.dze-cb-redo, .dze-cb-now, .dze-cb-fkeep, .dze-prompt-peek').length) { return; }
 		var $h = $(this), id = $h.closest('.dze-cb-preview').data('id');
 		openField(id, $h.closest('.dze-cb-fblock').data('field'), !$h.closest('.dze-cb-fblock').hasClass('is-open'));
 	});
@@ -727,12 +739,12 @@
 			if (!b) { return; }
 			var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
 			Object.keys(b.texts).forEach(function (fid) {
-				jobs.push({
-					id: id,
-					fid: fid,
-					value: valueOf(id, fid),
-					$f: $prev.find('.dze-cb-fblock[data-field="' + fid + '"]')
-				});
+				var $f = $prev.find('.dze-cb-fblock[data-field="' + fid + '"]');
+				// Unticked in the panel: this block is not written. A panel that
+				// was never opened has no ticks at all, and keeps everything.
+				var $keep = $f.find('.dze-cb-fkeep');
+				if ($keep.length && !$keep.is(':checked')) { return; }
+				jobs.push({ id: id, fid: fid, value: valueOf(id, fid), $f: $f });
 			});
 			if (b.shots.length) {
 				var $w = $prev.find('.dze-cb-shots');

@@ -9,7 +9,8 @@ defined( 'ABSPATH' ) || exit;
  *
  * Workflow: product imported from a platform (AliExpress, eBay, Etsy, CJ,
  * Printify…) → its COMPLETE data is the generation context → each text field
- * (Title, Description incl. technical bullets, Short description, Attributes,
+ * (each named after the WooCommerce field it writes: Product name, Description,
+ * Product short description, Attributes, plus the plugin's own
  * SEO title/description, Custom blocs 1-2) is generated from its stored prompt
  * and written to its MAPPED destination (post field / SEO plugin meta / custom
  * meta / real WooCommerce attributes) → images from templates (scene,
@@ -241,28 +242,28 @@ EOT;
 
 		return [
 			'title' => [
-				'label'   => __( 'Title', 'dazont-ecom' ),
+				'label'   => self::native_label( 'post_title' ),
 				'dest'    => 'post_title',
 				'tokens'  => 80,
 				'enabled' => false, // titles are crafted manually for now.
 				'prompt'  => "Write an SEO-optimised product title (max ~70 characters). Natural, human, no ALL CAPS, no supplier gibberish. Output only the title.",
 			],
 			'description' => [
-				'label'   => __( 'Description (+ technical bullets)', 'dazont-ecom' ),
+				'label'   => self::native_label( 'post_content' ),
 				'dest'    => 'post_content',
 				'tokens'  => 900,
 				'enabled' => true,
 				'prompt'  => $p_description,
 			],
 			'short' => [
-				'label'   => __( 'Short description', 'dazont-ecom' ),
+				'label'   => self::native_label( 'post_excerpt' ),
 				'dest'    => 'post_excerpt',
 				'tokens'  => 200,
 				'enabled' => true,
 				'prompt'  => $p_short,
 			],
 			'attributes' => [
-				'label'   => __( 'Attributes', 'dazont-ecom' ),
+				'label'   => self::native_label( 'attributes' ),
 				'dest'    => 'attributes',
 				'tokens'  => 300,
 				'enabled' => true,
@@ -401,11 +402,63 @@ EOT;
 		}
 		$s = self::get_settings();
 		if ( ! empty( $s['registry'] ) && is_array( $s['registry'] ) ) {
-			self::$registry_cache = $s['registry'];
+			self::$registry_cache = self::rename_to_native( $s['registry'] );
 		} else {
 			self::$registry_cache = self::registry_from_legacy();
 		}
 		return self::$registry_cache;
+	}
+
+	/**
+	 * A field that writes a WooCommerce field carries WooCommerce's name for it.
+	 *
+	 * Inventing a label ("Description (+ technical bullets)") makes the reader
+	 * work out which box of the product page it lands in. The name comes from
+	 * WooCommerce's own translations, so it reads exactly as the product screen
+	 * does, in whatever language that screen is in.
+	 */
+	public static function native_label( string $dest ): string {
+		$map = [
+			'post_title'   => 'Product name',
+			'post_content' => 'Description',
+			'post_excerpt' => 'Product short description',
+			'attributes'   => 'Attributes',
+		];
+		if ( ! isset( $map[ $dest ] ) ) {
+			return '';
+		}
+		// translate() and not __(): the string belongs to WooCommerce, we only
+		// ask for its wording. phpcs:ignore WordPress.WP.I18n.LowLevelTranslationFunction, WordPress.WP.I18n.NonSingularStringLiteralText, WordPress.WP.I18n.TextDomainMismatch
+		return class_exists( 'WooCommerce' ) ? translate( $map[ $dest ], 'woocommerce' ) : $map[ $dest ];
+	}
+
+	/**
+	 * Rows saved before that rule still carry the old invented label. The name
+	 * is only replaced when it is one WE shipped — a label the owner typed is
+	 * left exactly as typed.
+	 */
+	private static function rename_to_native( array $rows ): array {
+		$ours = [
+			'Description (+ technical bullets)' => 'post_content',
+			'Description'                       => 'post_content',
+			'Short description'                 => 'post_excerpt',
+			'Product short description'         => 'post_excerpt',
+			'Title'                             => 'post_title',
+			'Product name'                      => 'post_title',
+			'Attributes'                        => 'attributes',
+		];
+		foreach ( $rows as $i => $r ) {
+			$name = (string) ( $r['name'] ?? '' );
+			$dest = (string) ( $r['output'] ?? '' );
+			if ( ! isset( $ours[ $name ] ) || $ours[ $name ] !== $dest ) {
+				continue; // not one of ours, or moved elsewhere: leave it alone.
+			}
+			$native = self::native_label( $dest );
+			if ( '' !== $native ) {
+				$rows[ $i ]['name'] = $native;
+			}
+		}
+		return $rows;
 	}
 
 	/** One-time migration: legacy fields + overrides + image templates → registry rows. */
@@ -2306,6 +2359,7 @@ Answer with STRICT JSON and nothing else: "
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
 					'redoShort'=> __( 'Rewrite', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
+					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
@@ -2433,6 +2487,8 @@ Answer with STRICT JSON and nothing else: "
 				'redoOne'    => __( 'Write this one again', 'dazont-ecom' ),
 				'redoShort'  => __( 'Rewrite', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
+				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
+				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
 				'discard'    => __( 'Discard', 'dazont-ecom' ),
 				'compare'    => __( 'Current', 'dazont-ecom' ),
