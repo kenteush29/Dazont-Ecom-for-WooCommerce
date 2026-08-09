@@ -84,6 +84,9 @@ owner communicates in French.
 - WPML compatibility everywhere.
 - New/unfinished features ship to the DEV channel only (`Plugin-development`
   branch → prerelease); `Live-plugin` (stable) only with explicit approval.
+  A FIX to something that already exists — a bug, a UI correction, a wording
+  change — goes straight to Live without asking: both channels are released
+  in the same pass. Only genuinely new functions wait on the owner's word.
 
 ## Traps learned the hard way
 

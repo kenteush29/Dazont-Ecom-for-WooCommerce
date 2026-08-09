@@ -2167,6 +2167,7 @@ Answer with STRICT JSON and nothing else: "
 					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
 					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
 					<th style="width:210px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
+					<th style="width:34px;"></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
@@ -2195,12 +2196,18 @@ Answer with STRICT JSON and nothing else: "
 							     to reach them. -->
 							<button type="button" class="dze-cb-yes" style="display:none;" title="<?php esc_attr_e( 'Accept: write this content to the product', 'dazont-ecom' ); ?>">✓</button>
 							<button type="button" class="dze-cb-no" style="display:none;" title="<?php esc_attr_e( 'Refuse: throw this content away', 'dazont-ecom' ); ?>">✗</button>
-							<!-- Far from the tick box on purpose: one selects, the other
-							     throws away, and they must not be neighbours. -->
-							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list', 'dazont-ecom' ); ?>">&times;</button>
+						</td>
+						<!-- Its own column, and a bin rather than a second cross: leaving
+						     the list is not refusing a text, and two crosses side by side
+						     made the row unreadable. -->
+						<td class="dze-cb-killcell">
+							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list (nothing is written or deleted on the product)', 'dazont-ecom' ); ?>">
+								<span class="dashicons dashicons-trash" aria-hidden="true"></span>
+								<span class="screen-reader-text"><?php esc_html_e( 'Take this product out of the list', 'dazont-ecom' ); ?></span>
+							</button>
 						</td>
 					</tr>
-					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="6"></td></tr>
 				<?php endforeach; ?>
 			</table>
 		</div>
@@ -3320,12 +3327,17 @@ Answer with STRICT JSON and nothing else: "
 		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 		if ( 'main' === $target ) {
 			// The replaced main image is never lost: it moves to the FRONT of the
-			// product gallery so it stays first among the secondary images.
+			// product gallery so it stays first among the secondary images. And an
+			// image cannot be the main one AND a gallery one — the shop would show
+			// it twice — so the newcomer leaves the gallery as it takes the top
+			// spot. The row is written even when there was no main image before,
+			// otherwise that de-duplication would never reach the database.
 			$old = (int) get_post_thumbnail_id( $pid );
+			$ids = array_values( array_diff( $ids, [ (int) $att_id ] ) );
 			if ( $old && $old !== (int) $att_id ) {
 				array_unshift( $ids, $old );
-				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			}
+			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			set_post_thumbnail( $pid, (int) $att_id );
 		} elseif ( 'gallery_first' === $target ) {
 			// Second photograph of the product: the one a visitor sees right
@@ -3335,6 +3347,14 @@ Answer with STRICT JSON and nothing else: "
 		} else {
 			$ids[] = (int) $att_id;
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
+		}
+		// WooCommerce reads the gallery from its own cached product object: a raw
+		// meta write is invisible to the shop, and to this very screen, until that
+		// copy is dropped. Skipping this is how a correct move looks like nothing
+		// happened at all.
+		clean_post_cache( $pid );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $pid );
 		}
 		return (int) $att_id;
 	}
