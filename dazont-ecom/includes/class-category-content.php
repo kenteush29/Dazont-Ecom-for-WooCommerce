@@ -1982,10 +1982,7 @@ PROMPT;
 		// Straight to the queue: you asked for work to be done, the place where
 		// it happens is where you want to be. Coming back to the categories
 		// list with a notice pointing at another screen was one click too many.
-		return add_query_arg(
-			[ 'page' => DZE_Queue::MENU_SLUG, 'dze_cc_queued' => $n ],
-			admin_url( 'admin.php' )
-		);
+		return DZE_Queue::url( [ 'dze_cc_queued' => $n ] );
 	}
 
 	public function bulk_notice(): void {
