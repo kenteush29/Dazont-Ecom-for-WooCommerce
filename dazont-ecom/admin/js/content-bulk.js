@@ -183,6 +183,42 @@
 		unqueue([ $(this).closest('.dze-cb-row').data('id') ], $(this));
 	});
 
+	// ---- A column of IDs, pasted from a spreadsheet ----
+	// Anything that is not a digit separates: commas, tabs, line breaks, a
+	// leading #. A spreadsheet column pastes as it comes.
+	$('#dze-cb-pasteadd').on('click', function () {
+		var $b = $(this), $st = $('#dze-cb-pastestate').removeClass('is-ko');
+		var ids = ($('#dze-cb-pasteids').val() || '').split(/[^0-9]+/)
+			.filter(function (v) { return v !== ''; })
+			.map(function (v) { return parseInt(v, 10); });
+		if (!ids.length) { $st.addClass('is-ko').text(i18n.pasteNone); return; }
+		var replace = $('#dze-cb-pastereplace').is(':checked');
+		if (replace && !window.confirm(i18n.pasteReplace)) { return; }
+		$b.prop('disabled', true);
+		$st.text(i18n.working);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'add', ids: ids, replace: replace ? 1 : 0
+		})
+			.done(function (res) {
+				if (!res || !res.success) {
+					$b.prop('disabled', false);
+					$st.addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				var d = res.data;
+				// Nothing is swallowed: what could not be added is named before
+				// the page reloads on the new list.
+				if (d.unknownN) {
+					window.alert(sprintf(i18n.pasteUnknown, d.unknownN) + '\n\n' + d.unknown.join(', ') +
+						(d.unknownN > d.unknown.length ? ' …' : ''));
+				}
+				// Always land on the selection itself, even when the paste was
+				// done from the "waiting for a decision" view.
+				window.location.href = cfg.listUrl || window.location.href;
+			})
+			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
+
 	// =====================================================================
 	// Per-product state: one symbol, one bar, one tooltip
 	// =====================================================================

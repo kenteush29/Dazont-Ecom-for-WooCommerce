@@ -308,6 +308,16 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* Paste a column of IDs: shut once a list exists, open when there is none. */
+.dze-cb-paste {
+	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;
+	padding: 10px 14px; margin: 0 0 14px; max-width: 900px;
+}
+.dze-cb-paste > summary { cursor: pointer; font-weight: 600; color: #2271b1; }
+.dze-cb-paste[open] > summary { margin-bottom: 4px; }
+.dze-cb-paste textarea { font-size: 12px; }
+#dze-cb-pastestate.is-ko { color: #b32d2e; }
+
 /* A block left out of the acceptance: still readable, visibly out of the deal. */
 .dze-cb-fkeep { margin: 0 !important; flex: 0 0 auto; }
 .dze-cb-fblock.is-dropped { border-style: dashed; background: #fafafa; }
