@@ -82,11 +82,12 @@ owner communicates in French.
   "here"/"this page"/"learn more", never an ambiguous destination. Applies to
   every generator that inserts links.
 - WPML compatibility everywhere.
-- New/unfinished features ship to the DEV channel only (`Plugin-development`
-  branch → prerelease); `Live-plugin` (stable) only with explicit approval.
-  A FIX to something that already exists — a bug, a UI correction, a wording
-  change — goes straight to Live without asking: both channels are released
-  in the same pass. Only genuinely new functions wait on the owner's word.
+- **Both channels are released in the same pass, by default.** Fixes AND
+  additions to a module that already exists — a new control on an existing
+  screen, a UI correction, a wording change — go straight to `Live-plugin`
+  without asking, alongside `Plugin-development`. DEV-only is the exception,
+  for work the owner has called unfinished or experimental, or for a module
+  that does not exist yet; say so and wait for his word in that case.
 
 ## Traps learned the hard way
 
