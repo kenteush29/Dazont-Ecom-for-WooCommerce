@@ -1405,6 +1405,25 @@ final class DZE_Discounts {
 	private static array $rendered = [];
 	private static bool $timer_script_done = false;
 
+	/** This module's entry on the Shortcodes screen. */
+	public static function shortcode_card(): array {
+		return [
+			'tag'     => 'dze_promo_banner',
+			'title'   => __( 'Promotion banner', 'dazont-ecom' ),
+			'summary' => __( 'The banner of every running sale, where you decide to put it.', 'dazont-ecom' ),
+			'body'    => [ self::class, 'render_shortcode_card' ],
+		];
+	}
+
+	public static function render_shortcode_card(): void {
+		?>
+		<p class="description"><?php esc_html_e( 'Prints the banner of each sale rule whose banner is switched on and whose dates are running. Rules already placed automatically (shop notice, above the products…) keep their own position — this shortcode is for putting one somewhere else, on a landing page for instance. A rule never prints twice on the same page.', 'dazont-ecom' ); ?></p>
+		<p><?php esc_html_e( 'No attributes: what a banner says, and which rule it belongs to, is set on the rule itself.', 'dazont-ecom' ); ?>
+			<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Marketing Events →', 'dazont-ecom' ); ?></a>
+		</p>
+		<?php
+	}
+
 	public function shortcode_banner( $atts ): string {
 		ob_start();
 		foreach ( $this->rules_of_type( 'sale' ) as $rule ) {
@@ -1537,10 +1556,20 @@ final class DZE_Discounts {
 	// =========================================================================
 
 	public function register_menu(): void {
+		// The count rides on the menu label, as everywhere else in the plugin:
+		// suggested events waiting for a yes or a no are visible without
+		// opening the screen they wait on.
+		$ev_label = __( 'Marketing Events', 'dazont-ecom' );
+		$ev_wait  = ( class_exists( 'DZE_Marketing_Ai' ) && DZE_Modules::enabled( 'marketing_ai' ) )
+			? DZE_Marketing_Ai::pending_count()
+			: 0;
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Marketing Events', 'dazont-ecom' ),
-			__( 'Marketing Events', 'dazont-ecom' ),
+			$ev_label,
+			$ev_wait
+				? $ev_label . ' <span class="update-plugins count-' . (int) $ev_wait . '"><span class="plugin-count">'
+					. esc_html( number_format_i18n( $ev_wait ) ) . '</span></span>'
+				: $ev_label,
 			'manage_woocommerce',
 			self::MENU_SLUG_EVENTS,
 			[ $this, 'render_events_page' ]

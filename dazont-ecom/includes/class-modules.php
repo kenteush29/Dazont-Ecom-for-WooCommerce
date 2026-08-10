@@ -75,7 +75,7 @@ final class DZE_Modules {
 				'group' => 'catalog',
 				'label' => __( 'Trending Products', 'dazont-ecom' ),
 				'desc'  => __( 'The [time_bestsellers] shortcode: best-sellers grid.', 'dazont-ecom' ),
-				'more'  => __( 'Computes the shop\'s best-sellers from the WooCommerce Analytics sales lookup table, then delegates the display to WooCommerce\'s own [products] shortcode — native grid, native columns, native pagination, zero custom markup to maintain. Results are cached 24 hours. Pages that don\'t use the shortcode pay no cost at all.', 'dazont-ecom' ),
+				'more'  => __( 'Computes the shop\'s best-sellers from the WooCommerce Analytics sales lookup table, then delegates the display to WooCommerce\'s own [products] shortcode — native grid, native columns, native pagination, zero custom markup to maintain. Results are cached 24 hours. Pages that don\'t use the shortcode pay no cost at all. Its tag, its attributes and its cache button are documented on Dazont Ecom → Shortcodes, next to every other shortcode the plugin publishes.', 'dazont-ecom' ),
 			],
 			'discounts' => [
 				'class' => 'DZE_Discounts',
