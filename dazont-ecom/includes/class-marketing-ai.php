@@ -316,6 +316,33 @@ final class DZE_Marketing_Ai {
 		];
 	}
 
+	/** This module's entry on the Shortcodes screen. */
+	public static function shortcode_card(): array {
+		return [
+			'tag'     => self::SHORTCODE,
+			'title'   => __( 'Marketing calendar', 'dazont-ecom' ),
+			'summary' => __( 'The scheduled sales of the shop, as a month grid or as a list.', 'dazont-ecom' ),
+			'body'    => [ self::class, 'render_shortcode_card' ],
+		];
+	}
+
+	public static function render_shortcode_card(): void {
+		?>
+		<p class="description"><?php esc_html_e( 'Renders the events you have scheduled under Marketing Events. Only enabled events are shown, so a draft calendar stays private until you switch its events on.', 'dazont-ecom' ); ?></p>
+		<h4><?php esc_html_e( 'Attributes', 'dazont-ecom' ); ?></h4>
+		<ul style="list-style-type:disc;margin-left:20px;">
+			<li><code>view</code> — <?php esc_html_e( '"calendar" (default): a single month with Prev/Next buttons. "list": the events one after the other.', 'dazont-ecom' ); ?></li>
+			<li><code>limit</code> — <?php esc_html_e( 'list view only: how many events at most (12 by default).', 'dazont-ecom' ); ?></li>
+			<li><code>past</code> — <?php esc_html_e( 'set to 1 to keep events that are already over.', 'dazont-ecom' ); ?></li>
+		</ul>
+		<h4><?php esc_html_e( 'Examples', 'dazont-ecom' ); ?></h4>
+		<ul style="list-style-type:disc;margin-left:20px;">
+			<li><code>[<?php echo esc_html( self::SHORTCODE ); ?>]</code></li>
+			<li><code>[<?php echo esc_html( self::SHORTCODE ); ?> view="list" limit="6"]</code></li>
+		</ul>
+		<?php
+	}
+
 	/** The effective calendar guidance: the user's custom text, or the default. */
 	public static function events_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['events_prompt'] ?? '' ) );
@@ -1143,6 +1170,18 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	public static function get_suggestions(): array {
 		$s = get_option( self::OPT_SUGGESTIONS, [] );
 		return is_array( $s ) ? $s : [];
+	}
+
+	/**
+	 * How many suggested events are waiting for a yes or a no.
+	 *
+	 * Read on every admin page to draw the menu bubble, so it must cost almost
+	 * nothing: the suggestions are a single option row, and the count is just
+	 * its size. The row does not autoload, so this is one query on the admin
+	 * pages that draw the menu — and none at all on the front.
+	 */
+	public static function pending_count(): int {
+		return count( self::get_suggestions() );
 	}
 
 	private static function save_suggestions( array $s ): void {

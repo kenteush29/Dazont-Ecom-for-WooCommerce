@@ -16,7 +16,6 @@ final class DZE_Trending {
 
 	public const SHORTCODE = 'time_bestsellers';
 	public const NONCE     = 'dze_admin';
-	public const MENU_SLUG        = 'dazont-ecom-trending';
 
 	public const OPT_CACHE_VERSION  = 'dze_trending_cache_version';
 
@@ -41,7 +40,6 @@ final class DZE_Trending {
 			return;
 		}
 
-		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		add_action( 'wp_ajax_dze_trending_clear_cache', [ $this, 'ajax_clear_cache' ] );
 	}
@@ -50,19 +48,30 @@ final class DZE_Trending {
 	// Menu + settings + assets
 	// -------------------------------------------------------------------------
 
-	public function register_menu(): void {
-		add_submenu_page(
-			DZE_Restock::MENU_SLUG,
-			__( 'Trending Products', 'dazont-ecom' ),
-			__( 'Trending Products', 'dazont-ecom' ),
-			'manage_woocommerce',
-			self::MENU_SLUG,
-			[ $this, 'render_page' ]
-		);
+	/**
+	 * This module's entry on the Shortcodes screen.
+	 *
+	 * The module no longer owns a menu of its own: what it offers is a
+	 * shortcode, and shortcodes are all documented in one place.
+	 */
+	public static function shortcode_card(): array {
+		return [
+			'tag'     => self::SHORTCODE,
+			'title'   => __( 'Trending products', 'dazont-ecom' ),
+			'summary' => __( 'Best sellers over the window you choose, rendered by WooCommerce itself.', 'dazont-ecom' ),
+			'body'    => [ self::class, 'render_card' ],
+		];
+	}
+
+	public static function render_card(): void {
+		$table_exists = self::instance()->lookup_table_exists();
+		require DZE_DIR . 'admin/views/trending-page.php';
 	}
 
 	public function enqueue_assets( string $hook ): void {
-		if ( strpos( $hook, self::MENU_SLUG ) === false ) {
+		// The card lives on the Shortcodes screen now; the cache button on it
+		// still needs its handler.
+		if ( ! class_exists( 'DZE_Shortcodes' ) || strpos( $hook, DZE_Shortcodes::MENU_SLUG ) === false ) {
 			return;
 		}
 		wp_enqueue_script( 'dze-trending', DZE_URL . 'admin/js/trending.js', [ 'jquery' ], DZE_VERSION, true );
@@ -75,16 +84,6 @@ final class DZE_Trending {
 				'error'    => __( 'Error', 'dazont-ecom' ),
 			],
 		] );
-	}
-
-	public function render_page(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
-		}
-
-		$table_exists = $this->lookup_table_exists();
-
-		require DZE_DIR . 'admin/views/trending-page.php';
 	}
 
 	// -------------------------------------------------------------------------
@@ -168,7 +167,7 @@ final class DZE_Trending {
 	// Data
 	// -------------------------------------------------------------------------
 
-	private function lookup_table_exists(): bool {
+	public function lookup_table_exists(): bool {
 		global $wpdb;
 		$table = $wpdb->prefix . 'wc_order_product_lookup';
 		return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;

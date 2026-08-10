@@ -308,6 +308,19 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* ---- Shortcodes screen: one boxed card per shortcode ---- */
+.dze-sc-card {
+	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;
+	padding: 14px 18px 18px; margin: 0 0 18px; max-width: 980px;
+}
+.dze-sc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-sc-head h2 { margin: 0; font-size: 15px; }
+.dze-sc-tag { background: #f0f0f1; border-radius: 3px; padding: 2px 8px; font-size: 13px; }
+.dze-sc-summary { margin: 4px 0 10px; }
+.dze-sc-body h3 { font-size: 13px; margin: 16px 0 4px; }
+.dze-sc-body h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; margin: 12px 0 4px; }
+.dze-sc-body ul { margin: 0 0 4px 20px; }
+
 /* Paste a column of IDs: shut once a list exists, open when there is none. */
 .dze-cb-paste {
 	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;
