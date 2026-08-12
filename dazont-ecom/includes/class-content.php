@@ -1209,7 +1209,7 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/** SEO plugin meta keys, auto-detected (Yoast, Rank Math, fallback own). */
-	private static function seo_keys(): array {
+	public static function seo_keys(): array {
 		if ( defined( 'WPSEO_VERSION' ) ) {
 			return [ 'title' => '_yoast_wpseo_title', 'desc' => '_yoast_wpseo_metadesc' ];
 		}

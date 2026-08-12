@@ -28,7 +28,8 @@ final class DZE_Wpml {
 	}
 
 	/**
-	 * Active languages as a list of [ 'code' => 'en', 'native_name' => 'English' ].
+	 * Active languages as a list of
+	 * [ 'code' => 'en', 'native_name' => 'English', 'english_name' => 'English' ].
 	 * Empty array when WPML is inactive.
 	 */
 	public static function get_active_languages(): array {
@@ -44,6 +45,8 @@ final class DZE_Wpml {
 			$result[] = [
 				'code'        => (string) $code,
 				'native_name' => (string) ( $data['native_name'] ?? $code ),
+				// The name a model understands without ambiguity ("French", not "fr").
+				'english_name'=> (string) ( $data['english_name'] ?? $data['translated_name'] ?? '' ),
 				'flag'        => (string) ( $data['country_flag_url'] ?? '' ),
 			];
 		}

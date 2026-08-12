@@ -126,6 +126,13 @@ final class DZE_Modules {
 				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
 				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
 			],
+			'translate' => [
+				'class' => 'DZE_Translate',
+				'group' => 'product',
+				'label' => __( 'Product translation', 'dazont-ecom' ),
+				'desc'  => __( 'Translates a product\'s written content into the site\'s other languages.', 'dazont-ecom' ),
+				'more'  => __( 'Translates the WRITTEN content of a product — name, description, short description, SEO title and description — into every other language active on the site, and hands the result to WPML as a real translation, linked to the original. WPML\'s own automatic translation bills per word in credits; the same words go through the Anthropic key already configured here for a fraction of that, in the shop\'s voice, with a glossary of terms that must never be translated (brand, references, technical names). Price, stock, attributes, images and taxonomy are NOT touched: they belong to WooCommerce Multilingual, and when this module has to create a translation it asks WPML to run its own custom-field sync so the numbers arrive from the original rather than from us. Nothing is written blind: a translation is produced, shown next to the original AND next to what the translation holds today, edited in the WordPress editor if a word is wrong, and applied field by field — a block you untick is left out. A translation this module did not write says so before it can be replaced. The prompt and the glossary are editable under Settings → Translation, and every call is charged to the monthly budget like any other.', 'dazont-ecom' ),
+			],
 			'category_content' => [
 				'class' => 'DZE_Category_Content',
 				'group' => 'catalog',
@@ -235,7 +242,7 @@ final class DZE_Modules {
 	// =========================================================================
 
 	public function hub_meta_box(): void {
-		if ( ! self::enabled( 'content' ) && ! self::enabled( 'pod' ) && ! self::enabled( 'gmc_activation' ) ) {
+		if ( ! self::enabled( 'content' ) && ! self::enabled( 'pod' ) && ! self::enabled( 'gmc_activation' ) && ! self::enabled( 'translate' ) ) {
 			return;
 		}
 		add_meta_box( 'dze-hub', __( 'Dazont Ecom', 'dazont-ecom' ), [ $this, 'render_hub' ], 'product', 'side', 'high' );
@@ -264,6 +271,9 @@ final class DZE_Modules {
 			<?php if ( self::enabled( 'gmc_activation' ) && $product ) : ?>
 				<button type="button" class="button dze-hub-btn" data-modal="dze-gmca-modal"><?php esc_html_e( 'GMC activation', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
+			<?php if ( self::enabled( 'translate' ) && class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) : ?>
+				<button type="button" class="button dze-hub-btn" data-modal="dze-tr-modal"><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></button>
+			<?php endif; ?>
 		</div>
 		<script>
 		jQuery( function ( $ ) {
@@ -273,7 +283,7 @@ final class DZE_Modules {
 			$( document ).on( 'click', '.dze-hub-close', function () {
 				$( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' );
 			} );
-			$( document ).on( 'click', '#dze-pod-modal, #dze-gmca-modal', function ( e ) {
+			$( document ).on( 'click', '#dze-pod-modal, #dze-gmca-modal, #dze-tr-modal', function ( e ) {
 				if ( e.target === this ) { $( this ).removeClass( 'is-open' ); }
 			} );
 			// Shared hover zoom: any img.dze-hzoom shows a floating large preview.

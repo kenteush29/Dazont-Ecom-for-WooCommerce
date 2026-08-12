@@ -84,6 +84,10 @@ final class DZE_Cleanup {
 				'user_meta'  => [ '_dze_content_bulk' ],
 				'transients' => [ 'dze_content_bulk_', 'dze_product_meta_keys', 'dze_pending_count' ],
 			],
+			'translate' => [
+				'options'   => [ 'dze_translate_settings' ],
+				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by' ],
+			],
 			'pod' => [
 				'options'   => [ 'dze_pod_settings' ],
 				'post_meta' => [ '_dze_pod_design_id' ],

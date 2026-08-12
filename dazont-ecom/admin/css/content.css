@@ -308,6 +308,16 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* ---- Translate popup: the original and the current translation, side by
+   side above the new text. Judging a translation without its source is
+   guessing. ---- */
+.dze-tr-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+.dze-tr-col { min-width: 0; }
+.dze-tr-col .dze-cb-nowbody { max-height: 220px; overflow: auto; }
+@media (max-width: 900px) { .dze-tr-cols { grid-template-columns: 1fr; } }
+.dze-tr-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-tr-bar label { display: inline-flex; align-items: center; gap: 6px; }
+
 /* ---- Shortcodes screen: one boxed card per shortcode ---- */
 .dze-sc-card {
 	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;

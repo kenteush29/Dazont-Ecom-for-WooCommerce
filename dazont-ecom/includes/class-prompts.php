@@ -116,6 +116,14 @@ final class DZE_Prompts {
 				];
 			}
 		}
+		if ( class_exists( 'DZE_Translate' ) && self::module_on( 'translate' ) ) {
+			$out['translate'] = [
+				'label' => __( 'Product translation', 'dazont-ecom' ),
+				'text'  => [ 'DZE_Translate', 'prompt' ],
+				'tab'   => 'translate',
+				'frag'  => 'dze-tr-prompt',
+			];
+		}
 		if ( class_exists( 'DZE_Pod' ) && self::module_on( 'pod' ) ) {
 			$out['pod'] = [
 				'label' => __( 'POD mockup', 'dazont-ecom' ),
