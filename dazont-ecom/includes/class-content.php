@@ -55,6 +55,7 @@ final class DZE_Content {
 
 	private function __construct() {
 		add_action( 'admin_init',     [ $this, 'register_settings' ] );
+		add_action( 'admin_init',     [ $this, 'migrate_quick_recipe' ] );
 		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ], 20 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 
@@ -310,6 +311,12 @@ EOT;
 
 	public static function default_image_templates(): array {
 		return [
+			// The main image is a prompt like the others: same list, same card,
+			// renameable, movable, removable. It is only recognised by WHAT IT
+			// WRITES — an image prompt whose destination is the main image — so
+			// the Main image button offers it without anything being hard-wired
+			// to a name or an id.
+			[ 'name' => 'Main image', 'target' => 'main', 'prompt' => self::default_quick_prompt() ],
 			[ 'name' => 'Scene (in use)', 'target' => 'gallery', 'prompt' => "Create a UGC-style photoshoot of this product in its favourite context of use. No text on the image. Careful with the exact product type (not everything is worn in the field). Realistic, with human imperfections." ],
 			// A supplier photograph is rarely a shop photograph: it carries the
 			// supplier's text, it is the wrong shape, and it is small. This is
@@ -881,10 +888,61 @@ EOT;
 			. 'Invent nothing that is not visible in the source photograph.';
 	}
 
-	/** The recipe actually sent: the owner's, or the shipped one. */
+	/**
+	 * The prompt behind the Main image lane: the first enabled image prompt
+	 * that writes the main image. Nothing is reserved and nothing is fixed —
+	 * rename it, rewrite it, put another one above it, and the lane follows.
+	 *
+	 * @return array<string,mixed>|null
+	 */
+	public static function main_recipe(): ?array {
+		foreach ( self::registry() as $r ) {
+			if ( ( $r['type'] ?? '' ) === 'image' && ( $r['output'] ?? '' ) === 'main' && ! empty( $r['enabled'] ) ) {
+				return $r;
+			}
+		}
+		return null;
+	}
+
+	/** The recipe actually sent: the row's text, or the shipped one. */
 	public static function quick_prompt(): string {
-		$p = trim( (string) ( self::get_settings()['quick_prompt'] ?? '' ) );
+		$row = self::main_recipe();
+		$p   = $row ? trim( (string) ( $row['prompt'] ?? '' ) ) : '';
+		if ( '' === $p ) {
+			$p = trim( (string) ( self::get_settings()['quick_prompt'] ?? '' ) ); // pre-4.2 installs.
+		}
 		return '' !== $p ? $p : self::default_quick_prompt();
+	}
+
+	/**
+	 * Pre-4.2 installs kept this prompt in a setting of its own, edited in a
+	 * corner of the Backgrounds section and absent from the list of prompts.
+	 * It becomes an ordinary row, once, carrying whatever text was in it.
+	 */
+	public function migrate_quick_recipe(): void {
+		if ( self::main_recipe() ) {
+			return; // a prompt already writes the main image.
+		}
+		$s    = self::get_settings();
+		$rows = self::registry();
+		$own  = trim( (string) ( $s['quick_prompt'] ?? '' ) );
+		$rows[] = [
+			'id'          => 'img_main_image',
+			'name'        => __( 'Main image', 'dazont-ecom' ),
+			'type'        => 'image',
+			'prompt'      => '' !== $own ? $own : self::default_quick_prompt(),
+			'inputs'      => [ 'title', 'description' ],
+			'inputs_meta' => '',
+			'output'      => 'main',
+			'meta_key'    => '',
+			'enabled'     => 1,
+			'valid'       => 1,
+			'tokens'      => 0,
+		];
+		$s['registry'] = $rows;
+		unset( $s['quick_prompt'] );
+		$this->write_settings_direct( $s );
+		self::$registry_cache = null;
 	}
 
 	/** The rules actually sent: the owner's, or the shipped ones. */
@@ -1954,37 +2012,9 @@ Answer with STRICT JSON and nothing else: "
 			<div id="dze-pr">
 			<?php foreach ( $dze_groups as $dze_g => $dze_glabel ) : ?>
 				<h3 class="dze-pr-grouphead"><?php echo esc_html( $dze_glabel ); ?>
-					<span class="description">(<?php echo (int) count( $dze_map[ $dze_g ] ?? [] ) + ( 'image' === $dze_g ? 1 : 0 ); ?>)</span>
+					<span class="description">(<?php echo (int) count( $dze_map[ $dze_g ] ?? [] ); ?>)</span>
 				</h3>
 				<div class="dze-prlist" data-group="<?php echo esc_attr( $dze_g ); ?>">
-				<?php if ( 'image' === $dze_g ) : ?>
-					<?php
-					// The main-image recipe is a prompt like the others and belongs
-					// in the one list of prompts, even though it is stored in a
-					// setting of its own rather than as a registry row. It was in
-					// the Backgrounds section, which is not where anybody looks for
-					// a prompt. It cannot be renamed, moved or removed: the Main
-					// image lane always has exactly this one recipe behind it.
-					?>
-					<div class="dze-prb dze-pr-fixed" id="dze-pr-row-quick_main">
-						<div class="dze-prb-head">
-							<span class="dze-prb-name dze-prb-fixedname"><?php esc_html_e( 'Main image (the shop recipe)', 'dazont-ecom' ); ?></span>
-							<span class="dze-prb-dest"><?php esc_html_e( 'Main image', 'dazont-ecom' ); ?></span>
-							<span class="dze-prb-flags"><span class="dze-prb-always" title="<?php esc_attr_e( 'Always on: the Main image lane runs this recipe', 'dazont-ecom' ); ?>"><?php esc_html_e( 'always on', 'dazont-ecom' ); ?></span></span>
-							<button type="button" class="dze-prb-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
-						</div>
-						<div class="dze-prb-body" style="display:none;">
-							<p class="description" style="max-width:900px;margin-top:0;">
-								<?php esc_html_e( 'One photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares. The background is chosen at generation time, from the shelf above.', 'dazont-ecom' ); ?>
-							</p>
-							<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="8" class="large-text code"><?php echo esc_textarea( self::quick_prompt() ); ?></textarea>
-							<p class="description">
-								<?php esc_html_e( 'Empty = shipped default.', 'dazont-ecom' ); ?>
-								<button type="button" class="button-link" id="dze-ct-quick-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-							</p>
-						</div>
-					</div>
-				<?php endif; ?>
 				<?php foreach ( (array) ( $dze_map[ $dze_g ] ?? [] ) as $dze_ri => $r ) :
 					$sel_in = (array) ( $r['inputs'] ?? [] ); ?>
 					<div class="dze-prb dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
@@ -3087,6 +3117,10 @@ Answer with STRICT JSON and nothing else: "
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
 			'quickPrompt'=> self::quick_prompt(), // the recipe the Main image lane runs.
+			// Which ROW that is, so its pencil opens the right prompt. Nothing
+			// is reserved: it is simply the first image prompt writing the main
+			// image, and it changes the moment the list does.
+			'mainRecipe' => (string) ( self::main_recipe()['id'] ?? '' ),
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
@@ -3182,7 +3216,6 @@ Answer with STRICT JSON and nothing else: "
 				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
 				// The three questions the image workshop asks, in order.
 				'stepWhat'   => __( 'What are we making?', 'dazont-ecom' ),
-				'recipeShop' => __( 'The shop\'s catalogue shot: the product straight-on, on the surface you pick below, one soft shadow under it.', 'dazont-ecom' ),
 				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'An image from elsewhere', 'dazont-ecom' ),
@@ -3190,7 +3223,6 @@ Answer with STRICT JSON and nothing else: "
 				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
 				'imgRecipe'  => __( 'Recipe', 'dazont-ecom' ),
-				'imgMainR'   => __( 'Main image (the shop recipe)', 'dazont-ecom' ),
 				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
 				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),
 				'imgRun'     => __( 'Make the image', 'dazont-ecom' ),
@@ -4632,15 +4664,6 @@ Answer with STRICT JSON and nothing else: "
 			$idx  = isset( $_POST['index'] ) ? absint( $_POST['index'] ) : 0;
 			$tpls = self::image_templates();
 			$row_id = (string) ( $tpls[ $idx ]['id'] ?? '' );
-		}
-		// The main-image recipe is not a registry row: it has a setting of its own.
-		if ( 'quick' === $type ) {
-			try {
-				self::write_setting( 'quick_prompt', ( trim( $prompt ) === trim( self::default_quick_prompt() ) ) ? '' : $prompt );
-			} catch ( \Throwable $e ) {
-				wp_send_json_error( [ 'message' => $e->getMessage() ] );
-			}
-			wp_send_json_success( [ 'saved' => true ] );
 		}
 		if ( '' === $row_id ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
