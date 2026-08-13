@@ -1132,6 +1132,14 @@
 	// Only the recipes that write where this box shows: the featured image, or
 	// the gallery. A recipe's own destination decides, so adding one in the
 	// settings puts it under the right box by itself.
+	// The opening sentence of a prompt, as a caption: enough to tell two
+	// recipes apart without opening either.
+	function firstLine(prompt) {
+		var t = String(prompt || '').replace(/\s+/g, ' ').trim();
+		var stop = t.indexOf('. ');
+		if (stop > 20) { t = t.slice(0, stop + 1); }
+		return t.length > 120 ? t.slice(0, 120) + '…' : t;
+	}
 	function oneRecipes() {
 		var tpls = (cfg.templates || []);
 		if (one.scope === 'gallery') {
@@ -1150,8 +1158,15 @@
 		}
 		var html = '';
 		cards.forEach(function (t) {
+			// A name alone did not say what the recipe does, and the difference
+			// between two of them was only readable by opening both prompts.
+			var what = t.id ? firstLine(t.prompt) : i18n.recipeShop;
 			html += '<button type="button" class="dze-one-recipe' + (String(t.id) === String(cur) ? ' is-sel' : '') + '" ' +
-				'data-id="' + esc(String(t.id)) + '">' + esc(t.name) +
+				'data-id="' + esc(String(t.id)) + '">' +
+				'<span class="dze-one-recipetxt">' +
+					'<span class="dze-one-recipename">' + esc(t.name) + '</span>' +
+					(what ? '<span class="dze-one-recipewhat">' + esc(what) + '</span>' : '') +
+				'</span>' +
 				'<span class="dze-one-recipepen dze-prompt-peek" data-prompt="' + (t.id ? 'content_' + esc(String(t.id)) : 'quick_main') + '" ' +
 				'title="' + esc(i18n.promptTip) + '">&#9998;</span></button>';
 		});
