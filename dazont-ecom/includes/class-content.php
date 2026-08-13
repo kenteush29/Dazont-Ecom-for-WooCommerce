@@ -325,6 +325,10 @@ EOT;
 			],
 			// Variants split by colour often inherit ONE photograph while their
 			// siblings have five. This is what fills that gap.
+			// There is no shipped "remake the main image" template: the main
+			// image has ONE recipe, the shop recipe, and it is far more precise
+			// than a template could be. Two cards for the same job only made
+			// the choice harder.
 			[
 				'name'   => 'Another angle of the same product',
 				'target' => 'gallery',
@@ -334,7 +338,6 @@ EOT;
 					. "- No text, no props, no people unless the product is worn in the source.\n"
 					. "- Invent nothing: if a side of the product is not visible in any source photograph, choose an angle that does not reveal it.",
 			],
-			[ 'name' => 'Remake main (studio)', 'target' => 'main', 'prompt' => "Recreate a clean, well-lit studio main image of this exact product on a neutral background, sharp, e-commerce ready. No text, no props. Keep the product faithful." ],
 		];
 	}
 
@@ -3162,6 +3165,7 @@ Answer with STRICT JSON and nothing else: "
 				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
 				// The three questions the image workshop asks, in order.
 				'stepWhat'   => __( 'What are we making?', 'dazont-ecom' ),
+				'recipeShop' => __( 'The shop\'s catalogue shot: the product straight-on, on the surface you pick below, one soft shadow under it.', 'dazont-ecom' ),
 				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'An image from elsewhere', 'dazont-ecom' ),
