@@ -73,6 +73,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
+		add_action( 'wp_ajax_dze_content_backdrop', [ $this, 'ajax_backdrop' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
 		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
@@ -899,6 +900,90 @@ EOT;
 		return $out;
 	}
 
+	/**
+	 * The shop's own backdrop plate, built here rather than photographed.
+	 *
+	 * Two products shot on "a light grey background" come back on two different
+	 * greys, and a catalogue where every tile has its own grey looks exactly as
+	 * unfinished as one with supplier photographs. So the background stops being
+	 * a description and becomes a FILE: one plate, generated once, sent with
+	 * every product as the surface to place it on.
+	 *
+	 * It is drawn small and scaled up: a radial gradient computed pixel by pixel
+	 * at full size would be four million iterations of PHP for an image that is,
+	 * by definition, smooth.
+	 *
+	 * @return int attachment id.
+	 */
+	public static function make_backdrop( int $light = 252, int $dark = 232, int $size = 2048 ): int {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			throw new RuntimeException( __( 'The GD image library is not available on this server.', 'dazont-ecom' ) );
+		}
+		$light = max( 0, min( 255, $light ) );
+		$dark  = max( 0, min( 255, $dark ) );
+		$small = 256;
+		$im    = imagecreatetruecolor( $small, $small );
+		$cx    = ( $small - 1 ) / 2;
+		$max   = sqrt( 2 * ( $cx ** 2 ) ); // centre to corner.
+		for ( $y = 0; $y < $small; $y++ ) {
+			for ( $x = 0; $x < $small; $x++ ) {
+				// Slightly flattened falloff: the middle stays open, the corners
+				// close in — the studio look, not a vignette.
+				$d = sqrt( ( $x - $cx ) ** 2 + ( $y - $cx ) ** 2 ) / $max;
+				$t = min( 1.0, $d ** 1.35 );
+				$v = (int) round( $light + ( $dark - $light ) * $t );
+				imagesetpixel( $im, $x, $y, imagecolorallocate( $im, $v, $v, $v ) );
+			}
+		}
+		$big = imagescale( $im, $size, $size, IMG_BICUBIC );
+		imagedestroy( $im );
+		if ( ! $big ) {
+			throw new RuntimeException( __( 'The backdrop could not be scaled.', 'dazont-ecom' ) );
+		}
+		$tmp = wp_tempnam( 'dze-backdrop.jpg' );
+		imagejpeg( $big, $tmp, 92 );
+		imagedestroy( $big );
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		$id = media_handle_sideload(
+			[ 'name' => 'dazont-backdrop.jpg', 'tmp_name' => $tmp ],
+			0,
+			__( 'Studio backdrop', 'dazont-ecom' )
+		);
+		if ( is_wp_error( $id ) ) {
+			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+			throw new RuntimeException( $id->get_error_message() );
+		}
+		self::write_setting( 'backdrop', (int) $id );
+		return (int) $id;
+	}
+
+	/** The plate in use, or 0 when none has been made yet. */
+	public static function backdrop(): int {
+		$id = (int) ( self::get_settings()['backdrop'] ?? 0 );
+		return ( $id && wp_attachment_is_image( $id ) ) ? $id : 0;
+	}
+
+	/**
+	 * Writes ONE settings key without going through the form sanitizer, which
+	 * is shaped for form input and would drop everything not posted with it.
+	 */
+	private static function write_setting( string $key, $value ): void {
+		$s         = self::get_settings();
+		$s[ $key ] = $value;
+		remove_filter( 'sanitize_option_' . self::OPT_SETTINGS, [ self::instance(), 'sanitize' ] );
+		update_option( self::OPT_SETTINGS, $s, false );
+		add_filter( 'sanitize_option_' . self::OPT_SETTINGS, [ self::instance(), 'sanitize' ] );
+		self::$registry_cache = null;
+		// Read back: a save that did not happen must not report success.
+		$check = self::get_settings();
+		if ( ( $check[ $key ] ?? null ) != $value ) { // phpcs:ignore WordPress.PHP.StrictComparisons.LooseComparison -- ints may come back as strings.
+			throw new RuntimeException( __( 'The setting could not be saved.', 'dazont-ecom' ) );
+		}
+	}
+
 	/** The scene to use when none was picked: the one marked as default. */
 	public static function default_scene(): int {
 		foreach ( self::scenes() as $i => $sc ) {
@@ -1682,6 +1767,36 @@ Answer with STRICT JSON and nothing else: "
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
 			</p>
+			<?php $dze_bd = self::backdrop(); ?>
+			<div class="dze-bd">
+				<div class="dze-bd-plate">
+					<?php if ( $dze_bd ) : ?>
+						<img id="dze-bd-thumb" class="dze-hzoom" src="<?php echo esc_url( (string) wp_get_attachment_image_url( $dze_bd, 'medium' ) ); ?>" data-full="<?php echo esc_url( (string) wp_get_attachment_image_url( $dze_bd, 'full' ) ); ?>" alt="" />
+					<?php else : ?>
+						<img id="dze-bd-thumb" src="" alt="" style="display:none;" />
+						<span class="dze-bd-none"><?php esc_html_e( 'No backdrop yet', 'dazont-ecom' ); ?></span>
+					<?php endif; ?>
+				</div>
+				<div class="dze-bd-side">
+					<p class="description" style="margin-top:0;">
+						<?php esc_html_e( 'The surface every main image is shot on. Two products asked for "a light grey background" come back on two different greys; sent the SAME plate, they come back on the same one. It is drawn here — a soft grey gradient, lighter in the middle — not photographed, so it can be made again identically at any time.', 'dazont-ecom' ); ?>
+					</p>
+					<p>
+						<label><?php esc_html_e( 'Centre', 'dazont-ecom' ); ?>
+							<input type="number" id="dze-bd-light" min="200" max="255" value="252" style="width:70px;" />
+						</label>
+						<label style="margin-left:10px;"><?php esc_html_e( 'Edges', 'dazont-ecom' ); ?>
+							<input type="number" id="dze-bd-dark" min="180" max="255" value="232" style="width:70px;" />
+						</label>
+						<button type="button" class="button" id="dze-bd-make" style="margin-left:10px;">
+							<?php echo $dze_bd ? esc_html__( 'Make it again', 'dazont-ecom' ) : esc_html__( 'Create the backdrop', 'dazont-ecom' ); ?>
+						</button>
+						<span id="dze-bd-state" class="description"></span>
+					</p>
+					<p class="description"><?php esc_html_e( '0 is black, 255 is white. The shipped values (252 / 232) are the studio grey used on the shop.', 'dazont-ecom' ); ?></p>
+				</div>
+			</div>
+
 			<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="5" class="large-text code" placeholder="<?php echo esc_attr( self::default_quick_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['quick_prompt'] ?? '' ) ); ?></textarea>
 			<p class="description">
 				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
@@ -1783,6 +1898,22 @@ Answer with STRICT JSON and nothing else: "
 				} );
 				$( '#dze-ct-feature-restore' ).on( 'click', function () { $( '#dze-ct-feature-prompt' ).val( '' ); } );
 				$( '#dze-ct-quick-restore' ).on( 'click', function () { $( '#dze-ct-quick-prompt' ).val( '' ); } );
+				$( '#dze-bd-make' ).on( 'click', function () {
+					var $b = $( this ).prop( 'disabled', true );
+					var $st = $( '#dze-bd-state' ).text( '…' );
+					$.post( window.ajaxurl, {
+						action: 'dze_content_backdrop',
+						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
+						light: $( '#dze-bd-light' ).val(),
+						dark: $( '#dze-bd-dark' ).val()
+					} ).done( function ( r ) {
+						$b.prop( 'disabled', false );
+						if ( ! r || ! r.success ) { $st.text( ( r && r.data && r.data.message ) || '' ); return; }
+						$st.text( '' );
+						$( '#dze-bd-thumb' ).attr( 'src', r.data.thumb ).attr( 'data-full', r.data.thumb ).show();
+						$( '.dze-bd-none' ).remove();
+					} ).fail( function () { $b.prop( 'disabled', false ); $st.text( '' ); } );
+				} );
 				// Restore the shipped default prompts (drops customs — confirmed first).
 				$( '#dze-pr-reset' ).on( 'click', function () {
 					if ( ! window.confirm( '<?php echo esc_js( __( 'Restore the shipped default prompts? Custom prompt rows will be removed and validation flags reset. Your generated content is not affected.', 'dazont-ecom' ) ); ?>' ) ) { return; }
@@ -2528,6 +2659,23 @@ Answer with STRICT JSON and nothing else: "
 				self::scenes()
 			),
 			'sceneDef'   => self::default_scene(),
+			// The surfaces the Main image lane can put a product on: the shop's
+			// own plate first, then any scene already configured.
+			'backdrops'  => array_values( array_filter( array_merge(
+				self::backdrop() ? [ [
+					'id'    => self::backdrop(),
+					'name'  => __( 'The shop backdrop', 'dazont-ecom' ),
+					'thumb' => (string) wp_get_attachment_image_url( self::backdrop(), 'thumbnail' ),
+				] ] : [],
+				array_map(
+					static fn( $sc ) => (int) $sc['image'] ? [
+						'id'    => (int) $sc['image'],
+						'name'  => (string) $sc['name'],
+						'thumb' => (string) wp_get_attachment_image_url( (int) $sc['image'], 'thumbnail' ),
+					] : null,
+					self::scenes()
+				)
+			) ) ),
 			// How many photographs of this product travel with a generation —
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
@@ -2602,6 +2750,12 @@ Answer with STRICT JSON and nothing else: "
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
 				'qmUse'      => __( 'Use as main image', 'dazont-ecom' ),
 				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
+				'qmBg'       => __( 'Background', 'dazont-ecom' ),
+				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),
+				'qmBgPlate'  => __( 'The shop backdrop', 'dazont-ecom' ),
+				'qmPaste'    => __( 'Paste an image here (Ctrl+V) or drop a file', 'dazont-ecom' ),
+				'qmPasted'   => __( 'Image pasted ✓ — it will be used instead of the address', 'dazont-ecom' ),
+				'qmClear'    => __( 'Remove', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3195,6 +3349,28 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/**
+	 * Validates an image that arrived as a data URI and hands it back clean.
+	 *
+	 * Same checks as an image read from the web — the bytes have to BE an
+	 * image, and stay under the ceiling — minus the fetch, since the browser
+	 * already had the file.
+	 */
+	public static function read_data_uri( string $uri ): string {
+		if ( ! preg_match( '#^data:(image/[a-z0-9.+-]+);base64,(.+)$#i', trim( $uri ), $m ) ) {
+			throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+		}
+		$bytes = base64_decode( $m[2], true );
+		if ( false === $bytes || '' === $bytes || strlen( $bytes ) > self::MAX_REMOTE ) {
+			throw new RuntimeException( __( 'That image is empty, or too heavy to send.', 'dazont-ecom' ) );
+		}
+		$info = @getimagesizefromstring( $bytes ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a corrupt file answers false, which is the test.
+		if ( ! $info || empty( $info['mime'] ) || 0 !== strpos( (string) $info['mime'], 'image/' ) ) {
+			throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+		}
+		return 'data:' . $info['mime'] . ';base64,' . base64_encode( $bytes );
+	}
+
+	/**
 	 * The fast lane: one photograph in, one catalogue main image out.
 	 *
 	 * The full toolbox asks which prompts, which scene, how many attempts, and
@@ -3203,11 +3379,32 @@ Answer with STRICT JSON and nothing else: "
 	 * main image of a listing. Here there is one recipe, one source, one image,
 	 * and the next click puts it in place.
 	 */
+	/** Builds the backdrop plate on demand and reports where it landed. */
+	public function ajax_backdrop(): void {
+		$this->guard();
+		$light = isset( $_POST['light'] ) ? absint( $_POST['light'] ) : 252;
+		$dark  = isset( $_POST['dark'] ) ? absint( $_POST['dark'] ) : 232;
+		try {
+			$id = self::make_backdrop( $light, $dark );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'id'    => $id,
+			'thumb' => (string) wp_get_attachment_image_url( $id, 'medium' ),
+		] );
+	}
+
 	public function ajax_quick_main(): void {
 		$this->guard();
-		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$web = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
+		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$web  = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
 		$note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+		// An image pasted straight into the lane (Ctrl+V or dropped): it arrives
+		// as a data URI, never as a URL, so nothing is fetched from anywhere.
+		$paste = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
+		// The surface to put the product on: the shop's plate, a scene, or none.
+		$bg = isset( $_POST['bg'] ) ? absint( $_POST['bg'] ) : 0;
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
 		}
@@ -3223,7 +3420,11 @@ Answer with STRICT JSON and nothing else: "
 
 		try {
 			$sources = [];
-			if ( '' !== $web ) {
+			if ( '' !== $paste ) {
+				// The fastest path there is: the photograph is already in the
+				// request, straight from the clipboard.
+				$sources[] = self::read_data_uri( $paste );
+			} elseif ( '' !== $web ) {
 				// A pasted photograph is THE subject: sending the product's other
 				// images beside it would only invite the model to blend them.
 				$sources[] = $this->fetch_remote_image( $web );
@@ -3242,9 +3443,20 @@ Answer with STRICT JSON and nothing else: "
 			if ( ! $sources ) {
 				throw new RuntimeException( __( 'No image to work from: set a featured image, or paste the address of one.', 'dazont-ecom' ) );
 			}
+			// The background travels as the LAST image, exactly like a scene: a
+			// surface the model can see beats a colour it has to imagine, and it
+			// is the same file for every product — which is the whole point.
+			$plate = $bg && wp_attachment_is_image( $bg ) ? $bg : 0;
+			$count = count( $sources );
+			if ( $plate ) {
+				$sources[] = $this->fal_source_data_uri( $plate );
+			}
 			$prompt = self::quick_prompt()
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( count( $sources ), null );
+				. self::sources_instruction(
+					$count,
+					$plate ? [ 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it with a soft contact shadow. Do not add anything else to it.' ] : null
+				);
 
 			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources );

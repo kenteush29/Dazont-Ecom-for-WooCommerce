@@ -163,6 +163,13 @@
 				}).join('') + '</select></label>'
 			: '';
 
+		// The surfaces this shop shoots on. The first one is the default: a
+		// catalogue is consistent because everything lands on the same plate.
+		var bgList = cfg.backdrops || [];
+		var bgOpts = bgList.map(function (b, i) {
+			return '<option value="' + b.id + '"' + (i === 0 ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+		}).join('') + '<option value="0"' + (bgList.length ? '' : ' selected') + '>' + esc(i18n.qmBgNone) + '</option>';
+
 		var blockers = (cfg.blockers && cfg.blockers.length)
 			? '<div class="dze-cx-blocked"><strong>' + esc(i18n.blocked) + '</strong><ul>' +
 				cfg.blockers.map(function (b) {
@@ -186,8 +193,19 @@
 						'<button type="button" class="dze-prompt-peek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
 						'<span class="description">' + esc(i18n.qmHelp) + '</span>' +
 					'</div>' +
+					// Three ways in, in the order they are actually used: paste the
+					// image, paste its address, or use the product's own photographs.
+					'<div class="dze-qm-drop" id="dze-qm-drop" tabindex="0">' +
+						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+						'<img id="dze-qm-src" alt="" style="display:none;" />' +
+						'<button type="button" class="dze-qm-srcdel" id="dze-qm-srcdel" style="display:none;" title="' + esc(i18n.qmClear) + '">&times;</button>' +
+					'</div>' +
 					'<p class="dze-qm-bar">' +
 						'<input type="url" id="dze-qm-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
+						'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span>' +
+							'<select id="dze-qm-bg">' + bgOpts + '</select></label>' +
+					'</p>' +
+					'<p class="dze-qm-bar">' +
 						'<input type="text" id="dze-qm-note" placeholder="' + esc(i18n.qmNote) + '" />' +
 						'<button type="button" class="button button-primary" id="dze-qm-run">' + esc(i18n.qmRun) + '</button>' +
 						'<span class="dze-cx-state" id="dze-qm-state"></span>' +
@@ -722,6 +740,50 @@
 	// old main is not lost: attaching as "main" pushes it to the front of the
 	// gallery, which is what the attach endpoint does for every image.
 	var qmUrl = '';
+	// An image pasted or dropped into the lane, held as a data URI until it is
+	// sent. Nothing is uploaded to the media library on the way.
+	var qmPaste = '';
+
+	function qmShowSource(dataUri) {
+		qmPaste = dataUri || '';
+		$('#dze-qm-src').attr('src', qmPaste).toggle(!!qmPaste);
+		$('#dze-qm-srcdel').toggle(!!qmPaste);
+		$('#dze-qm-drop').toggleClass('has-img', !!qmPaste)
+			.find('.dze-qm-dropmsg').text(qmPaste ? i18n.qmPasted : i18n.qmPaste);
+		if (qmPaste) { $('#dze-qm-url').val(''); }
+	}
+	function qmReadFile(file) {
+		if (!file || !/^image\//.test(file.type)) { return; }
+		var fr = new FileReader();
+		fr.onload = function () { qmShowSource(String(fr.result)); };
+		fr.readAsDataURL(file);
+	}
+	// Ctrl+V anywhere in the popup while the lane is on screen, and a file
+	// dropped on the box. Both end up in the same place.
+	$(document).on('paste', '#dze-cx-modal', function (e) {
+		var items = (e.originalEvent && e.originalEvent.clipboardData && e.originalEvent.clipboardData.items) || [];
+		for (var i = 0; i < items.length; i++) {
+			if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+				e.preventDefault();
+				qmReadFile(items[i].getAsFile());
+				return;
+			}
+		}
+	});
+	$(document).on('dragover', '#dze-qm-drop', function (e) {
+		e.preventDefault();
+		$(this).addClass('is-over');
+	});
+	$(document).on('dragleave drop', '#dze-qm-drop', function () { $(this).removeClass('is-over'); });
+	$(document).on('drop', '#dze-qm-drop', function (e) {
+		e.preventDefault();
+		var dt = e.originalEvent && e.originalEvent.dataTransfer;
+		if (dt && dt.files && dt.files.length) { qmReadFile(dt.files[0]); }
+	});
+	$(document).on('click', '#dze-qm-srcdel', function (e) {
+		e.stopPropagation();
+		qmShowSource('');
+	});
 
 	function qmRun() {
 		var $b = $('#dze-qm-run').prop('disabled', true);
@@ -730,6 +792,8 @@
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 			url: $('#dze-qm-url').val() || '',
+			paste: qmPaste,
+			bg: $('#dze-qm-bg').val() || 0,
 			note: $('#dze-qm-note').val() || ''
 		})
 			.done(function (r) {
