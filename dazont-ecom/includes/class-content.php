@@ -863,7 +863,16 @@ EOT;
 		return 'Turn this product into a clean e-commerce MAIN image. '
 			. 'Show the product straight-on, centred and upright, filling about 85% of a square frame, '
 			. 'on a seamless very light grey studio background (around #f2f2f2), '
-			. 'with a soft contact shadow under it and even, diffuse lighting. '
+			. 'lit by an even, diffuse light with no visible light source. '
+			// A garment photographed without a mannequin touches nothing, so
+			// "a shadow where it meets the surface" has no answer and the model
+			// invents a dark smudge behind it. The shadow has to be described
+			// for a product that hangs: one small ellipse, under it, and that
+			// is all.
+			. 'SHADOW: exactly ONE shadow, directly UNDER the product and nowhere else — '
+			. 'a small soft ellipse, no wider than the product, darkest immediately beneath it and gone within a short distance. '
+			. 'No shadow cast behind or to the side, no dark halo or glow around the product, no vignette, no grey smudge on the background, no second shadow. '
+			. 'If the product hangs or floats (a garment photographed without a mannequin), it still gets that one discreet ellipse under its lowest point. '
 			. 'No props, no text, no logo, no hands, no people, no background objects. '
 			. 'Keep the product EXACTLY as it is: same shape, same materials, same colours, same stitching, same hardware, same proportions. '
 			. 'Invent nothing that is not visible in the source photograph.';
@@ -1030,7 +1039,12 @@ EOT;
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
-			$out .= "\nThe result must look like one photograph: consistent perspective, contact shadows where the product meets the surface, and the light of the scene falling on the product.";
+			// The scene IS the background. Said any less firmly, the model
+			// paints its own over it — and, asked for "contact shadows" on a
+			// product that touches nothing, drops a large dark smear behind it.
+			$out .= "\nThe result must look like ONE photograph: the same perspective and the same light in the product as in the scene.";
+			$out .= "\nThe background is the scene image and only it: its colour, its gradient and its own shadow are kept as they are. Do not paint another background over it, do not darken it, do not add a vignette, and ignore any background described in words above.";
+			$out .= "\nSHADOW: if the scene already shows a shadow on its surface, use that one and add no other. Otherwise, one soft ellipse directly under the product, no wider than the product, gone within a short distance. Never a large diffuse dark area behind, beside or around the product, and never two shadows.";
 		}
 		return $out;
 	}
@@ -4085,7 +4099,7 @@ Answer with STRICT JSON and nothing else: "
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
 				. self::sources_instruction(
 					$count,
-					$plate ? [ 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it with a soft contact shadow. Do not add anything else to it.' ] : null
+					$plate ? [ 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it. Do not add anything else to it, and do not darken it.' ] : null
 				);
 
 			DZE_Ai_Usage::unit( 'product_img' );
