@@ -1014,3 +1014,12 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 }
 .dze-one-try.is-sel .dze-one-trynum { background: #2271b1; }
 #dze-one-trycap { font-size: 11px; color: #646970; }
+
+/* The two halves of a request: the instructions, and the product data. */
+.dze-one-tabs { display: flex; gap: 6px; margin: 8px 0; }
+.dze-one-tabs button.is-sel { background: #2271b1; border-color: #2271b1; color: #fff; }
+.dze-one-pane .dze-prompt-text {
+	max-height: 260px; overflow: auto; white-space: pre-wrap;
+	background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 10px; margin: 0;
+	font-size: 12px; line-height: 1.5;
+}
