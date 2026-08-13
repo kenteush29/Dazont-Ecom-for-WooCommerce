@@ -351,14 +351,12 @@
 				'</div>' +
 				'<div id="dze-cx-result" class="dze-cx-result" style="display:none;">' +
 					'<div class="dze-cb-prev" id="dze-cx-drawers"></div>' +
+					'<div class="dze-cb-shots-slot" id="dze-cx-shots"></div>' +
 					'<p class="dze-cb-panelbar">' +
 						'<button type="button" class="button button-primary dze-cx-applyone">' + esc(i18n.applyOne) + '</button> ' +
-						'<button type="button" class="button button-small dze-cx-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' +
-						'<button type="button" class="button button-small dze-cx-onemore">↻ ' + esc(i18n.oneMore) + '</button> ' +
 						'<button type="button" class="button-link dze-cx-drop">' + esc(i18n.discard) + '</button>' +
 						'<span class="dze-cb-panelstate"></span>' +
 					'</p>' +
-					'<div class="dze-cb-shots-slot" id="dze-cx-shots"></div>' +
 				'</div>' +
 			'</div>' +
 		'</div></div>');
@@ -391,10 +389,16 @@
 			});
 			return;
 		}
-		if (cfg.pending && (Object.keys(cfg.pending.texts || {}).length || (cfg.pending.shots || []).length)) {
-			hydrate(cfg.pending);
-			cfg.pending = null;
-		}
+		// Same product, popup reopened: what is waiting is asked for again. The
+		// snapshot taken when the page loaded does not know about the image
+		// generated two minutes ago, which is how one vanished on closing.
+		res.current = null;
+		loadCurrent().then(function (cur) {
+			drawCurrentImages();
+			if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
+				hydrate(cur.pending);
+			}
+		});
 	}
 	$(document).on('click', '#dze-cx-open-auto', function () { open(cfg.postId); });
 	// From the products list: one chip per row, same popup.
@@ -541,7 +545,10 @@
 			if (!$(this).hasClass('is-sel')) { dropped[u] = true; }
 			dest[u] = $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val();
 		});
-		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div><span class="dze-cb-shotstate"></span></div>');
+		var $wrap = $('<div class="dze-cb-shots">' +
+			'<div class="dze-cb-shothead"><span class="dze-cb-nowlabel">' + esc(i18n.shotsLabel) + '</span>' +
+				'<button type="button" class="button button-small dze-cx-onemore">↻ ' + esc(i18n.oneMore) + '</button></div>' +
+			'<div class="dze-cb-shotgrid"></div><span class="dze-cb-shotstate"></span></div>');
 		res.shots.forEach(function (url) {
 			var cur = dest[url] || 'gallery';
 			$wrap.find('.dze-cb-shotgrid').append(
@@ -736,12 +743,9 @@
 		e.stopPropagation();
 		regenerate([ $(this).data('field') ], $(this).closest('.dze-cb-fhead').find('.dze-cb-fstate'));
 	});
-	$(document).on('click', '.dze-cx-redoall', function () {
-		regenerate(Object.keys(res.texts), $('#dze-cx-result .dze-cb-panelstate'));
-	});
 	$(document).on('click', '.dze-cx-onemore', function () {
 		var $btn = $(this).prop('disabled', true);
-		var $st = $('#dze-cx-result .dze-cb-panelstate').removeClass('is-ko').text(i18n.working);
+		var $st = $('#dze-cx-shots .dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
 		genImage(tplUsed()[0] || '0')
 			.always(function () { $btn.prop('disabled', false); })
 			.then(function () { $st.text(''); }, function (m) { $st.addClass('is-ko').text(reason(m)); });
@@ -786,15 +790,23 @@
 			$btn.prop('disabled', false);
 			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
 			$st.text(i18n.applied);
-			// Applied and settled: the result panel has nothing left to offer.
-			window.setTimeout(function () {
-				reset();
+			// Only what was just written stops waiting. An image generated and
+			// left undecided is still there the next time the popup opens.
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID,
+				fields: fids, shots: items.map(function (it) { return it.url; })
+			}).always(function () {
+				res.shots = res.shots.filter(function (u) {
+					return items.every(function (it) { return it.url !== u; });
+				});
+				res.texts = {};
+				$('#dze-cx-drawers').empty();
+				drawShots();
+				if (!res.shots.length) { $('#dze-cx-result').hide(); }
 				loadCurrent().then(drawCurrentImages);
-			}, 900);
-			$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID });
+			});
 			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
 			res.current = null;
-			loadCurrent().then(drawCurrentImages);
 		}
 		if (items.length) {
 			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID, items: items })
@@ -924,6 +936,7 @@
 				$b.prop('disabled', false);
 				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
 				$st.text(i18n.applied);
+				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ qmUrl ] });
 				// The product page behind the popup still shows the old main.
 				window.setTimeout(function () { window.location.reload(); }, 900);
 			})
@@ -1094,7 +1107,12 @@
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
 				items: [ { url: one.url, target: 'main' } ]
-			}).done(done).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+			}).done(function (r) {
+				if (r && r.success) {
+					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ one.url ] });
+				}
+				done(r);
+			}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 			return;
 		}
 		var val = (window.tinymce && tinymce.get(ONE_ED) && !tinymce.get(ONE_ED).isHidden())

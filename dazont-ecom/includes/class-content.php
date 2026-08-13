@@ -2875,6 +2875,7 @@ Answer with STRICT JSON and nothing else: "
 				'oneRedo'    => __( 'Write it again', 'dazont-ecom' ),
 				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
 				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
+				'shotsLabel' => __( 'Generated images — waiting for your decision', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3958,14 +3959,42 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/** Accepted or discarded: either way the product stops waiting. */
+	/**
+	 * Forgets what is waiting on a product — all of it, or only the pieces that
+	 * have just been dealt with.
+	 *
+	 * Applying one image used to throw away everything else that was waiting,
+	 * which is how a generation you had not decided on yet disappeared while
+	 * you were saving another one. What was applied is dropped; what was not is
+	 * still there when you come back.
+	 */
 	public function ajax_pending_clear(): void {
 		$this->guard();
-		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		if ( $pid ) {
+		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$shots  = isset( $_POST['shots'] ) ? array_map( 'esc_url_raw', (array) wp_unslash( $_POST['shots'] ) ) : [];
+		$fields = isset( $_POST['fields'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['fields'] ) ) : [];
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+		}
+		if ( ! $shots && ! $fields ) {
 			delete_post_meta( $pid, self::META_PENDING );
 			delete_transient( 'dze_pending_count' );
+			wp_send_json_success( [ 'cleared' => $pid, 'left' => [], 'waiting' => self::pending_count() ] );
 		}
-		wp_send_json_success( [ 'cleared' => $pid, 'waiting' => self::pending_count() ] );
+		$waiting = self::pending( $pid );
+		if ( $shots ) {
+			$waiting['shots'] = array_values( array_diff( (array) ( $waiting['shots'] ?? [] ), $shots ) );
+		}
+		foreach ( $fields as $fid ) {
+			unset( $waiting['texts'][ $fid ], $waiting['companions'][ $fid ] );
+		}
+		if ( empty( $waiting['shots'] ) && empty( $waiting['texts'] ) ) {
+			delete_post_meta( $pid, self::META_PENDING );
+		} else {
+			update_post_meta( $pid, self::META_PENDING, $waiting );
+		}
+		delete_transient( 'dze_pending_count' );
+		wp_send_json_success( [ 'left' => self::pending( $pid ), 'waiting' => self::pending_count() ] );
 	}
 
 	public function ajax_image_attach(): void {
