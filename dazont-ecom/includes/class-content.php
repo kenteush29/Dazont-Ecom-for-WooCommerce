@@ -922,13 +922,19 @@ EOT;
 	 * It becomes an ordinary row, once, carrying whatever text was in it.
 	 */
 	public function migrate_quick_recipe(): void {
-		if ( self::main_recipe() ) {
-			return; // a prompt already writes the main image.
+		$s = self::get_settings();
+		// Keyed on the ROW, not on "does something write the main image": an
+		// install carrying the old "Remake main (studio)" template answered yes
+		// to that question, so the migration skipped, the detailed recipe was
+		// never moved, and the Main image lane silently ran the sketchy one.
+		foreach ( self::registry() as $r ) {
+			if ( 'img_main_image' === ( $r['id'] ?? '' ) ) {
+				return;
+			}
 		}
-		$s    = self::get_settings();
 		$rows = self::registry();
 		$own  = trim( (string) ( $s['quick_prompt'] ?? '' ) );
-		$rows[] = [
+		$new  = [
 			'id'          => 'img_main_image',
 			'name'        => __( 'Main image', 'dazont-ecom' ),
 			'type'        => 'image',
@@ -941,6 +947,16 @@ EOT;
 			'valid'       => 1,
 			'tokens'      => 0,
 		];
+		// FIRST among the image prompts: the lane runs the first one that
+		// writes the main image, and this is the one it must run.
+		$at = count( $rows );
+		foreach ( $rows as $i => $r ) {
+			if ( ( $r['type'] ?? '' ) === 'image' ) {
+				$at = $i;
+				break;
+			}
+		}
+		array_splice( $rows, $at, 0, [ $new ] );
 		$s['registry'] = $rows;
 		unset( $s['quick_prompt'] );
 		$this->write_settings_direct( $s );
@@ -2108,6 +2124,20 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
 			</p>
 
+			<?php
+			// These rules only run for a text prompt that was given an image
+			// meta key. With no such prompt they are a screenful of explanation
+			// about something that never happens, so they stay out of sight
+			// until one exists.
+			$dze_pairs = false;
+			foreach ( $dze_rows as $dze_r ) {
+				if ( '' !== trim( (string) ( $dze_r['img_meta'] ?? '' ) ) ) {
+					$dze_pairs = true;
+					break;
+				}
+			}
+			?>
+			<?php if ( $dze_pairs ) : ?>
 			<h3 class="dze-set-sub"><?php esc_html_e( 'Pairing a text block with one of the product photographs', 'dazont-ecom' ); ?></h3>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'This is NOT about generating images. A text prompt can be given an image meta key (in its card, under "Pair this text with one of the product photographs"): the plugin then looks at the photographs the product already has, picks the one that block should be displayed next to, and writes the block about what is visible in it. These are the rules it picks by. Nothing here runs if no prompt carries such a key.', 'dazont-ecom' ); ?>
@@ -2117,6 +2147,7 @@ Answer with STRICT JSON and nothing else: "
 				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
 				<button type="button" class="button-link" id="dze-ct-feature-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 			</p>
+			<?php endif; ?>
 			<script type="text/template" id="dze-pr-rowtpl">
 				<div class="dze-prb dze-pr-row is-open">
 					<div class="dze-prb-head">
@@ -2234,9 +2265,6 @@ Answer with STRICT JSON and nothing else: "
 				} );
 				$( '#dze-ct-feature-restore' ).on( 'click', function () {
 					$( '#dze-ct-feature-prompt' ).val( <?php echo wp_json_encode( self::default_feature_prompt() ); ?> );
-				} );
-				$( '#dze-ct-quick-restore' ).on( 'click', function () {
-					$( '#dze-ct-quick-prompt' ).val( <?php echo wp_json_encode( self::default_quick_prompt() ); ?> );
 				} );
 				// On or off is one flag: it is written when it is clicked, not
 				// when the page happens to be saved.
