@@ -218,7 +218,31 @@
 		}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 	});
 
+	// ---- Collapsible sections, wherever they are printed ----
+	// The popup builds them in JavaScript, the bulk screen prints them in PHP;
+	// one handler drives both, so the two dashboards behave identically and a
+	// screen that adds a section gets the behaviour for free. Whoever wants to
+	// remember the state listens for the event.
+	function toggleSec($sec, on) {
+		$sec.toggleClass('is-open', on);
+		$sec.find('> .dze-sec-head').attr('aria-expanded', on ? 'true' : 'false')
+			.find('.dze-sec-caret').text(on ? '▾' : '▸');
+		$sec.find('> .dze-sec-body').toggle(on);
+		$(document).trigger('dze:sec', [ $sec.attr('data-sec'), on ]);
+	}
+	$(document).on('click', '.dze-sec-head', function () {
+		var $sec = $(this).closest('.dze-sec');
+		toggleSec($sec, !$sec.hasClass('is-open'));
+	});
+	$(document).on('keydown', '.dze-sec-head', function (e) {
+		if (e.key !== 'Enter' && e.key !== ' ') { return; }
+		e.preventDefault();
+		var $sec = $(this).closest('.dze-sec');
+		toggleSec($sec, !$sec.hasClass('is-open'));
+	});
+
 	window.dzePhotos = {
+		toggleSec: toggleSec,
 		render: render,
 		on: function (name, fn) { handlers[name] = fn; }
 	};
