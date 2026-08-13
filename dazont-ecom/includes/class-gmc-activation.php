@@ -429,7 +429,7 @@ final class DZE_Gmc_Activation {
 
 				<div class="dze-gmca-sec">
 					<h4><?php esc_html_e( '2. Or pick them by hand', 'dazont-ecom' ); ?></h4>
-					<p class="dze-gmca-help" style="margin:0 0 8px;"><?php esc_html_e( 'For special cases (e.g. a rug where only one size matches the photo). Hover a thumbnail to enlarge it.', 'dazont-ecom' ); ?></p>
+					<p class="dze-gmca-help" style="margin:0 0 8px;"><?php esc_html_e( 'For special cases (e.g. a rug where only one size matches the photo).', 'dazont-ecom' ); ?></p>
 					<div class="dze-gmca-list">
 						<?php foreach ( $rows as $r ) : ?>
 							<label class="dze-gmca-row">

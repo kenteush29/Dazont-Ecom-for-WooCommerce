@@ -1951,7 +1951,7 @@ Answer with STRICT JSON and nothing else: "
 				<p class="description" style="max-width:960px;">
 					<?php esc_html_e( 'A mockup is a background too: the photograph of your blank product, kept once, that every design is printed onto. It lives here with the rest of the static images instead of in a screen of its own.', 'dazont-ecom' ); ?>
 				</p>
-				<?php DZE_Pod::instance()->render_settings( false ); ?>
+				<?php DZE_Pod::instance()->render_settings( false, false ); ?>
 			<?php endif; ?>
 
 			<h3 class="dze-set-sub"><?php esc_html_e( 'The main-image recipe', 'dazont-ecom' ); ?></h3>
@@ -2811,7 +2811,7 @@ Answer with STRICT JSON and nothing else: "
 			<table class="dze-cb-table">
 				<tr>
 					<th style="width:28px;"><input type="checkbox" id="dze-cb-all" title="<?php esc_attr_e( 'Select every product', 'dazont-ecom' ); ?>" /></th>
-					<th style="width:70px;" title="<?php esc_attr_e( 'Hover a thumbnail to see it full size.', 'dazont-ecom' ); ?>"></th>
+					<th style="width:70px;" title="<?php esc_attr_e( 'Click a thumbnail to open the product.', 'dazont-ecom' ); ?>"></th>
 					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
 					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
 					<th style="width:210px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>

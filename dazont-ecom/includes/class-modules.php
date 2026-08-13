@@ -295,23 +295,6 @@ final class DZE_Modules {
 			$( document ).on( 'click', '#dze-pod-modal, #dze-gmca-modal, #dze-tr-modal', function ( e ) {
 				if ( e.target === this ) { $( this ).removeClass( 'is-open' ); }
 			} );
-			// Shared hover zoom: any img.dze-hzoom shows a floating large preview.
-			var $hz = null;
-			$( document ).on( 'mouseenter', 'img.dze-hzoom', function () {
-				var src = $( this ).data( 'full' ) || this.src;
-				if ( $hz ) { $hz.remove(); }
-				$hz = $( '<div class="dze-hzoom-pop"><img src="' + src + '" alt="" /></div>' ).appendTo( 'body' );
-			} );
-			$( document ).on( 'mousemove', 'img.dze-hzoom', function ( e ) {
-				if ( ! $hz ) { return; }
-				$hz.css( {
-					left: Math.min( e.clientX + 24, window.innerWidth - 360 ) + 'px',
-					top: Math.max( 10, Math.min( e.clientY - 170, window.innerHeight - 360 ) ) + 'px'
-				} );
-			} );
-			$( document ).on( 'mouseleave', 'img.dze-hzoom', function () {
-				if ( $hz ) { $hz.remove(); $hz = null; }
-			} );
 		} );
 		</script>
 		<?php

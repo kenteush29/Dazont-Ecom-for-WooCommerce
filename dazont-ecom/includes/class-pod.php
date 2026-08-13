@@ -50,12 +50,18 @@ final class DZE_Pod {
 	}
 
 	public function register_settings(): void {
-		register_setting( 'dze_pod_options', self::OPT, [
+		$args = [
 			'type'              => 'array',
 			'sanitize_callback' => [ $this, 'sanitize' ],
 			'default'           => [],
 			'autoload'          => false, // admin-only settings: never loaded on a shop page.
-		] );
+		];
+		register_setting( 'dze_pod_options', self::OPT, $args );
+		// These fields are also shown inside the Product content form, which
+		// posts the group 'dze_content_options'. options.php only writes the
+		// options registered in the group it was given, so the setting belongs
+		// to both — one Save button for the screen you are looking at.
+		register_setting( 'dze_content_options', self::OPT, $args );
 	}
 
 	public function sanitize( $in ): array {
@@ -97,7 +103,16 @@ PROMPT;
 	 * @param bool $intro whether to print the explanatory paragraph — the host
 	 *                    section says it already when it embeds this.
 	 */
-	public function render_settings( bool $intro = true ): void {
+	/**
+	 * @param bool $intro Print the explanatory paragraph.
+	 * @param bool $own_form Print its own <form> and Save button. FALSE when
+	 *                      embedded in another settings form: a nested <form>
+	 *                      is dropped by the browser and its first </form>
+	 *                      closes the form it was embedded in, which silently
+	 *                      cut the Product content tab in half — everything
+	 *                      after this block stopped being submitted.
+	 */
+	public function render_settings( bool $intro = true, bool $own_form = true ): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
@@ -110,8 +125,10 @@ PROMPT;
 			<?php esc_html_e( 'Print on demand: upload a design (PNG) on any product, then one dedicated prompt asks the AI to print it on your base product. Store your base mockup here once — when none is set, the product\'s own featured image is used as the base.', 'dazont-ecom' ); ?>
 		</p>
 		<?php endif; ?>
+		<?php if ( $own_form ) : ?>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_pod_options' ); ?>
+		<?php endif; ?>
 			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Base mockup', 'dazont-ecom' ); ?></th>
@@ -136,8 +153,10 @@ PROMPT;
 					</td>
 				</tr>
 			</table>
-			<?php submit_button( __( 'Save POD settings', 'dazont-ecom' ) ); ?>
+			<?php if ( $own_form ) : ?>
+				<?php submit_button( __( 'Save POD settings', 'dazont-ecom' ) ); ?>
 		</form>
+			<?php endif; ?>
 		</div>
 		<script>
 		jQuery( function ( $ ) {
@@ -258,7 +277,7 @@ PROMPT;
 			return;
 		}
 		wp_enqueue_media();
-		// The design/mockup thumbnails carry .dze-hzoom — the shared hover zoom
+		// The design/mockup thumbnails carry .dze-hzoom — the shared zoom
 		// must be there even when the Product Content module is switched off.
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_enqueue_script( 'dze-pod', DZE_URL . 'admin/js/pod.js', [ 'jquery' ], DZE_VERSION, true );

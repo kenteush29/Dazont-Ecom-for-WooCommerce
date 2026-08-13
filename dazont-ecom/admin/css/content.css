@@ -32,14 +32,6 @@
 .dze-hub .dze-hub-btn { display: block; width: 100%; margin-bottom: 6px; text-align: center; }
 .dze-hub p { margin: 8px 0 0; }
 
-/* Shared hover zoom: floating large preview following the cursor. */
-.dze-hzoom-pop { position: fixed; z-index: 100005; pointer-events: none; }
-.dze-hzoom-pop img {
-	width: 340px; height: 340px; object-fit: contain; display: block;
-	background: #fff; border: 1px solid #c3c4c7; border-radius: 8px;
-	box-shadow: 0 8px 30px rgba(0,0,0,.35);
-}
-
 /* ---- Toolbox modal ---- */
 .dze-cx-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100000; display: none; }
 .dze-cx-modal.is-open { display: flex; align-items: flex-start; justify-content: center; }
