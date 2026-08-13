@@ -127,8 +127,11 @@ final class DZE_Modules {
 				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
 			],
 			'translate' => [
-				'class' => 'DZE_Translate',
-				'group' => 'product',
+				'class'   => 'DZE_Translate',
+				'group'   => 'product',
+				// Ships switched off: writing into WPML is the kind of thing you
+				// try on a staging copy before letting it near a live catalogue.
+				'default' => 0,
 				'label' => __( 'Product translation', 'dazont-ecom' ),
 				'desc'  => __( 'Translates a product\'s written content into the site\'s other languages.', 'dazont-ecom' ),
 				'more'  => __( 'Translates the WRITTEN content of a product — name, description, short description, SEO title and description — into every other language active on the site, and hands the result to WPML as a real translation, linked to the original. WPML\'s own automatic translation bills per word in credits; the same words go through the Anthropic key already configured here for a fraction of that, in the shop\'s voice, with a glossary of terms that must never be translated (brand, references, technical names). Price, stock, attributes, images and taxonomy are NOT touched: they belong to WooCommerce Multilingual, and when this module has to create a translation it asks WPML to run its own custom-field sync so the numbers arrive from the original rather than from us. Nothing is written blind: a translation is produced, shown next to the original AND next to what the translation holds today, edited in the WordPress editor if a word is wrong, and applied field by field — a block you untick is left out. A translation this module did not write says so before it can be replaced. The prompt and the glossary are editable under Settings → Translation, and every call is charged to the monthly budget like any other.', 'dazont-ecom' ),
