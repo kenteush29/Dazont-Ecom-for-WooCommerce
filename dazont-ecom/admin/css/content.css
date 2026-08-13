@@ -308,6 +308,23 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* ---- One block at a time, from the block itself ---- */
+/* The button sits inside the WordPress box it writes into: quiet, small, and
+   at the top where the eye already is. */
+.dze-one-plant { margin: 0 0 8px; }
+.dze-one-btn { white-space: nowrap; }
+.dze-hub-rest { margin: 10px 0 0; font-size: 12px; line-height: 1.9; }
+.dze-hub-rest .description { display: block; margin-bottom: 2px; }
+/* Narrower than the full toolbox: one function, one column. */
+.dze-one-dialog { width: min(820px, 94vw); }
+.dze-one-instr { margin: 0 0 14px; border: 1px solid #e2e4e7; border-radius: 6px; padding: 8px 12px; background: #f6f7f7; }
+.dze-one-instr > summary { cursor: pointer; font-size: 12px; color: #2271b1; }
+.dze-one-instr[open] { background: #fff; }
+.dze-one-after { margin-top: 14px; }
+.dze-one-bar { margin: 16px 0 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-one-img .dze-qm-pair { margin-top: 12px; }
+#dze-one-drop img { max-height: 120px; }
+
 /* ---- Settings: one shut block per subject ---- */
 .dze-set {
 	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;

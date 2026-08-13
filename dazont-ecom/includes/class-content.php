@@ -2735,6 +2735,21 @@ Answer with STRICT JSON and nothing else: "
 				self::scenes()
 			),
 			'sceneDef'   => self::default_scene(),
+			// The native WordPress block each prompt writes into: the button to
+			// write just that block is placed there, next to the field itself,
+			// rather than only inside the big popup.
+			'anchors'    => array_filter( array_map(
+				static function ( $f ) {
+					$map = [
+						'post_title'   => '#titlediv',
+						'post_content' => '#postdivrich',
+						'post_excerpt' => '#postexcerpt',
+						'attributes'   => '#woocommerce-product-data',
+					];
+					return $map[ (string) ( $f['dest'] ?? '' ) ] ?? '';
+				},
+				self::enabled_fields()
+			) ),
 			// Straight to the table the recalculation reads, from where it is used.
 			'priceUrl'   => class_exists( 'DZE_Marketing_Ai' )
 				? add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'content' ], admin_url( 'admin.php' ) ) . '#dze-set-price'
@@ -2772,6 +2787,7 @@ Answer with STRICT JSON and nothing else: "
 			'pending'    => $pid ? self::pending( $pid ) : [],
 			'prompts'    => $prompts,
 			'defaults'   => self::default_prompts(), // per-prompt "restore default".
+			'quickPrompt'=> self::quick_prompt(), // the recipe the Main image lane runs.
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
@@ -2846,6 +2862,19 @@ Answer with STRICT JSON and nothing else: "
 				'pvNow'      => __( 'Price today', 'dazont-ecom' ),
 				'pvNew'      => __( 'Would become', 'dazont-ecom' ),
 				'pvEdit'     => __( 'Edit the price table', 'dazont-ecom' ),
+				// The one-block popup.
+				'oneWrite'   => __( 'Write this with AI', 'dazont-ecom' ),
+				'oneMain'    => __( 'Make the main image', 'dazont-ecom' ),
+				'oneInstr'   => __( 'Instructions sent to the model', 'dazont-ecom' ),
+				'oneInstrH'  => __( 'Edited here, it is used for this run only — unless you save it as the prompt.', 'dazont-ecom' ),
+				'oneSave'    => __( 'Save as the prompt', 'dazont-ecom' ),
+				'oneSaved'   => __( 'Prompt saved ✓', 'dazont-ecom' ),
+				'oneBefore'  => __( 'On the product today', 'dazont-ecom' ),
+				'oneAfter'   => __( 'What was just written', 'dazont-ecom' ),
+				'oneGen'     => __( 'Write it', 'dazont-ecom' ),
+				'oneRedo'    => __( 'Write it again', 'dazont-ecom' ),
+				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
+				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3580,6 +3609,8 @@ Answer with STRICT JSON and nothing else: "
 		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$web  = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
 		$note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+		// A recipe typed for this run only, never saved unless asked.
+		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		// An image pasted straight into the lane (Ctrl+V or dropped): it arrives
 		// as a data URI, never as a URL, so nothing is fetched from anywhere.
 		$paste = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
@@ -3631,7 +3662,7 @@ Answer with STRICT JSON and nothing else: "
 			if ( $plate ) {
 				$sources[] = $this->fal_source_data_uri( $plate );
 			}
-			$prompt = self::quick_prompt()
+			$prompt = ( '' !== trim( $override ) ? $override : self::quick_prompt() )
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
 				. self::sources_instruction(
 					$count,
@@ -4109,6 +4140,15 @@ Answer with STRICT JSON and nothing else: "
 			$idx  = isset( $_POST['index'] ) ? absint( $_POST['index'] ) : 0;
 			$tpls = self::image_templates();
 			$row_id = (string) ( $tpls[ $idx ]['id'] ?? '' );
+		}
+		// The main-image recipe is not a registry row: it has a setting of its own.
+		if ( 'quick' === $type ) {
+			try {
+				self::write_setting( 'quick_prompt', ( trim( $prompt ) === trim( self::default_quick_prompt() ) ) ? '' : $prompt );
+			} catch ( \Throwable $e ) {
+				wp_send_json_error( [ 'message' => $e->getMessage() ] );
+			}
+			wp_send_json_success( [ 'saved' => true ] );
 		}
 		if ( '' === $row_id ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );

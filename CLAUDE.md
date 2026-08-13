@@ -16,7 +16,10 @@ owner communicates in French.
   blocks, bridge buttons) must be gated with `DZE_Modules::enabled( $id )` —
   `class_exists()` is NOT a module check (class files always exist).
 - Product-page functions surface ONLY through the single "Dazont Ecom" hub
-  box (`DZE_Modules::render_hub`): one button per enabled module opening a
+  box (`DZE_Modules::render_hub`) — plus, for a single field, a small button
+  planted INSIDE the native WordPress box that field writes into (title,
+  description, short description, main image), opening a one-function popup.
+  Never a new meta box of our own: one button per enabled module opening a
   popup (footer-printed `.dze-cx-modal` + `.dze-hub-close`) — never a
   separate meta box per module. Thumbnails get hover zoom via
   `img.dze-hzoom` (+ `data-full`).

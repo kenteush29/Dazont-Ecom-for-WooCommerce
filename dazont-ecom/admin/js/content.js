@@ -930,6 +930,244 @@
 			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 	});
 
+	// =====================================================================
+	// One block at a time, from the block itself
+	// =====================================================================
+	//
+	// The big popup is for working through a whole product. Most of the time
+	// the job is smaller than that: this description, that image. So every
+	// block WordPress already shows carries its own button, and the button
+	// opens a popup with that one function in it — read the instructions,
+	// change them for one run if you want, write, compare, save.
+
+	var one = { fid: '', mode: 'text', value: '', url: '' };
+
+	function oneBuild() {
+		if ($('#dze-one').length) { return; }
+		$('body').append(
+		'<div class="dze-cx-modal" id="dze-one"><div class="dze-cx-dialog dze-one-dialog">' +
+			'<div class="dze-cx-head">' +
+				'<h2 id="dze-one-title"></h2>' +
+				'<span id="dze-one-peek"></span>' +
+				'<button type="button" class="button dze-hub-close" style="margin-left:auto;">' + esc(i18n.close) + '</button>' +
+			'</div>' +
+			'<div class="dze-cx-body">' +
+				'<details class="dze-one-instr" id="dze-one-instrwrap">' +
+					'<summary>' + esc(i18n.oneInstr) + '</summary>' +
+					'<p class="description">' + esc(i18n.oneInstrH) + '</p>' +
+					'<textarea id="dze-one-prompt" rows="7" class="large-text code"></textarea>' +
+					'<p><button type="button" class="button-link" id="dze-one-saveprompt">&#128190; ' + esc(i18n.oneSave) + '</button> ' +
+						'<span class="description" id="dze-one-savestate"></span></p>' +
+				'</details>' +
+				'<div id="dze-one-body"></div>' +
+				'<p class="dze-one-bar">' +
+					'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
+					'<button type="button" class="button button-primary" id="dze-one-apply" style="display:none;"></button> ' +
+					'<span class="dze-cx-state" id="dze-one-state"></span>' +
+				'</p>' +
+			'</div>' +
+		'</div></div>');
+		$(document).on('click', '#dze-one', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
+	}
+
+	function openOne(fid, mode) {
+		oneBuild();
+		one = { fid: fid, mode: mode || 'text', value: '', url: '' };
+		var label = mode === 'image' ? i18n.qmTitle : (cfg.fields[fid] || fid);
+		$('#dze-one-title').text(label);
+		$('#dze-one-peek').html('<button type="button" class="dze-prompt-peek" data-prompt="' +
+			(mode === 'image' ? 'quick_main' : 'content_' + esc(fid)) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>');
+		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
+		$('#dze-one-instrwrap').prop('open', false);
+		$('#dze-one-savestate').text('');
+		$('#dze-one-state').removeClass('is-ko').text('');
+		$('#dze-one-apply').hide().text(i18n.oneApply);
+		$('#dze-one-gen').text(mode === 'image' ? i18n.oneMain : i18n.oneGen);
+		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : '');
+		$('#dze-one').addClass('is-open');
+		if (mode === 'text') { oneShowBefore(fid); }
+	}
+
+	function oneImageBody() {
+		return '<div class="dze-one-img">' +
+			'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
+				'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+				'<img id="dze-one-src" alt="" style="display:none;" />' +
+			'</div>' +
+			'<p class="dze-qm-bar">' +
+				'<input type="url" id="dze-one-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
+				'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span><select id="dze-one-bg">' + bgOptions() + '</select></label>' +
+			'</p>' +
+			'<div class="dze-qm-pair" id="dze-one-pair" style="display:none;">' +
+				'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-one-old" class="dze-hzoom" alt="" /></figure>' +
+				'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-one-new" class="dze-hzoom" alt="" /></figure>' +
+			'</div>' +
+		'</div>';
+	}
+	function bgOptions() {
+		var list = cfg.backdrops || [];
+		return list.map(function (b, i) {
+			return '<option value="' + b.id + '"' + (i === 0 ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+		}).join('') + '<option value="0"' + (list.length ? '' : ' selected') + '>' + esc(i18n.qmBgNone) + '</option>';
+	}
+
+	// What the product says today, above what was just written: the same
+	// before/after as everywhere else in the plugin.
+	function oneShowBefore(fid) {
+		$('#dze-one-body').html('<div class="dze-cb-nowtext"><span class="dze-cb-nowlabel">' + esc(i18n.oneBefore) +
+			'</span><div class="dze-cb-nowbody" id="dze-one-before"><span class="dze-cx-spin"></span></div></div>');
+		loadCurrent().then(function (cur) {
+			var v = (cur.texts || {})[fid] || '';
+			$('#dze-one-before').html(v ? $('<div>').html(v).html() : esc(i18n.empty));
+		});
+	}
+
+	var ONE_ED = 'dze-one-ed';
+	function oneShowResult(text) {
+		one.value = text;
+		var $wrap = $('<div class="dze-one-after"><span class="dze-cb-nowlabel">' + esc(i18n.oneAfter) + '</span></div>');
+		$wrap.append('<textarea id="' + ONE_ED + '" class="dze-cb-ed"></textarea>');
+		$('#dze-one-body').append($wrap);
+		$('#' + ONE_ED).val(text);
+		if (window.wp && wp.editor && wp.editor.initialize) {
+			try { wp.editor.remove(ONE_ED); } catch (e) {}
+			wp.editor.initialize(ONE_ED, {
+				tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo', height: 220 },
+				quicktags: true, mediaButtons: false
+			});
+		}
+		$('#dze-one-gen').text(i18n.oneRedo);
+		$('#dze-one-apply').show();
+	}
+
+	$(document).on('click', '#dze-one-gen', function () {
+		var $b = $(this).prop('disabled', true);
+		var $st = $('#dze-one-state').removeClass('is-ko').text(i18n.generating);
+		var prompt = $('#dze-one-prompt').val() || '';
+
+		if (one.mode === 'image') {
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
+				url: $('#dze-one-url').val() || '', paste: one.paste || '',
+				bg: $('#dze-one-bg').val() || 0, prompt: prompt
+			})
+				.done(function (r) {
+					$b.prop('disabled', false);
+					if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+					$st.text('');
+					one.url = r.data.url;
+					$('#dze-one-new').attr('src', one.url).attr('data-full', one.url);
+					$('#dze-one-old').attr('src', r.data.main || '').attr('data-full', r.data.main || '')
+						.closest('figure').toggle(!!r.data.main);
+					$('#dze-one-pair').show();
+					$('#dze-one-gen').text(i18n.qmAgain);
+					$('#dze-one-apply').show().text(i18n.qmUse);
+				})
+				.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+			return;
+		}
+
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_text', nonce: cfg.nonce, post: PID, field: one.fid, prompt: prompt
+		})
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+				$st.text('');
+				$('#dze-one-body .dze-one-after').remove();
+				oneShowResult(r.data.text || '');
+			})
+			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
+
+	$(document).on('click', '#dze-one-apply', function () {
+		var $b = $(this).prop('disabled', true);
+		var $st = $('#dze-one-state').removeClass('is-ko').text(i18n.applying);
+		var done = function (r) {
+			$b.prop('disabled', false);
+			if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+			$st.text(i18n.applied);
+			// The block behind the popup still shows the old value.
+			window.setTimeout(function () { window.location.reload(); }, 800);
+		};
+		if (one.mode === 'image') {
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
+				items: [ { url: one.url, target: 'main' } ]
+			}).done(done).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+			return;
+		}
+		var val = (window.tinymce && tinymce.get(ONE_ED) && !tinymce.get(ONE_ED).isHidden())
+			? tinymce.get(ONE_ED).getContent() : ($('#' + ONE_ED).val() || one.value);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_apply', nonce: cfg.nonce, post: PID, field: one.fid, value: val
+		}).done(done).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
+
+	// The instructions, kept for good when they are right.
+	$(document).on('click', '#dze-one-saveprompt', function () {
+		var $st = $('#dze-one-savestate').text('…');
+		var data = { action: 'dze_content_save_prompt', nonce: cfg.nonce, prompt: $('#dze-one-prompt').val() || '' };
+		if (one.mode === 'image') { data.ptype = 'quick'; } else { data.ptype = 'field'; data.field = one.fid; }
+		$.post(cfg.ajaxUrl, data)
+			.done(function (r) { $st.text((r && r.success) ? i18n.oneSaved : ((r && r.data && r.data.message) || i18n.error)); })
+			.fail(function () { $st.text(i18n.error); });
+	});
+
+	// Paste or drop straight into the small popup too.
+	$(document).on('paste', '#dze-one', function (e) {
+		var items = (e.originalEvent && e.originalEvent.clipboardData && e.originalEvent.clipboardData.items) || [];
+		for (var i = 0; i < items.length; i++) {
+			if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+				e.preventDefault();
+				var fr = new FileReader();
+				fr.onload = function () {
+					one.paste = String(fr.result);
+					$('#dze-one-src').attr('src', one.paste).show();
+					$('#dze-one-drop').addClass('has-img').find('.dze-qm-dropmsg').text(i18n.qmPasted);
+				};
+				fr.readAsDataURL(items[i].getAsFile());
+				return;
+			}
+		}
+	});
+
+	// ---- The buttons themselves, on the blocks WordPress already shows ----
+	function plantButtons() {
+		if (!PID || $('.dze-one-btn').length) { return; }
+		var anchors = cfg.anchors || {};
+		var placed = {};
+		Object.keys(anchors).forEach(function (fid) {
+			var $box = $(anchors[fid]);
+			if (!$box.length) { return; }
+			var $target = $box.find('> .inside').first();
+			if (!$target.length) { $target = $box; }
+			$target.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" data-field="' +
+				esc(fid) + '">✦ ' + esc(i18n.oneWrite) + '</button></p>');
+			placed[fid] = 1;
+		});
+		// The main image box gets the image lane.
+		var $img = $('#postimagediv > .inside');
+		if ($img.length) {
+			$img.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" data-mode="image">✦ ' +
+				esc(i18n.oneMain) + '</button></p>');
+		}
+		// Whatever writes somewhere we cannot point at — custom blocks, SEO
+		// fields — is listed in the hub box instead of being unreachable.
+		var rest = Object.keys(cfg.fields).filter(function (fid) { return !placed[fid]; });
+		if (rest.length && $('.dze-hub').length) {
+			$('.dze-hub').append('<p class="dze-hub-rest"><span class="description">' + esc(i18n.oneOthers) + '</span> ' +
+				rest.map(function (fid) {
+					return '<button type="button" class="button-link dze-one-btn" data-field="' + esc(fid) + '">' + esc(cfg.fields[fid]) + '</button>';
+				}).join(' · ') + '</p>');
+		}
+	}
+	$(function () { plantButtons(); });
+	$(document).on('click', '.dze-one-btn', function () {
+		var $b = $(this);
+		openOne($b.data('field') || '', $b.data('mode') || 'text');
+	});
+
 	// POD hands its result over to this strip.
 	window.dzeContentAddToGallery = function (url) {
 		build();
