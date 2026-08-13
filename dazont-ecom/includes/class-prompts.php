@@ -46,7 +46,6 @@ final class DZE_Prompts {
 			];
 		}
 		$map = [
-			'feature_pick' => [ 'DZE_Content', 'feature_prompt', 'default_feature_prompt' ],
 			'cat_desc'   => [ 'DZE_Category_Content', 'prompt', 'default_prompt' ],
 			'cat_links'  => [ 'DZE_Category_Content', 'links_prompt', 'default_links_prompt' ],
 			'cat_sift'   => [ 'DZE_Category_Content', 'sift_prompt', 'default_sift_prompt' ],
@@ -66,7 +65,6 @@ final class DZE_Prompts {
 		}
 		// Which option key each module keeps its prompt under.
 		$where = [
-			'feature_pick' => [ 'DZE_Content', 'feature_prompt' ],
 			'cat_desc'     => [ 'DZE_Category_Content', 'prompt' ],
 			'cat_links'    => [ 'DZE_Category_Content', 'links_prompt' ],
 			'cat_sift'     => [ 'DZE_Category_Content', 'sift_prompt' ],
@@ -219,14 +217,8 @@ final class DZE_Prompts {
 			];
 		}
 		if ( class_exists( 'DZE_Content' ) && self::module_on( 'content' ) ) {
-			// The main-image recipe is not listed here: it is a registry row
-			// like every other image prompt, and rows are added below.
-			$out['feature_pick'] = [
-				'label' => __( 'Choosing which photograph illustrates a block', 'dazont-ecom' ),
-				'text'  => [ 'DZE_Content', 'feature_prompt' ],
-				'tab'   => 'content',
-				'frag'  => 'dze-ct-feature-prompt',
-			];
+			// Neither the main-image recipe nor the photograph-picking rules are
+			// listed here: both live on a registry row, and rows are added below.
 			// One entry per product field / image template, so the toolbox and the
 			// bulk screen can show the exact instructions behind each block.
 			foreach ( DZE_Content::registry() as $row ) {
