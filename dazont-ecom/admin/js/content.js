@@ -1196,7 +1196,7 @@
 
 	function openOne(fid, mode, scope) {
 		oneBuild();
-		one = { fid: fid, mode: mode || 'text', value: '', url: '', scope: scope || 'main' };
+		one = { fid: fid, mode: mode || 'text', value: '', url: '', tries: [], scope: scope || 'main' };
 		var label = mode === 'image'
 			? (one.scope === 'gallery' ? i18n.oneGallery : i18n.qmTitle)
 			: (cfg.fields[fid] || fid);
@@ -1259,9 +1259,13 @@
 				'<div class="dze-one-bgs" id="dze-one-bgs"></div>' +
 			'</div>' +
 
-			'<div class="dze-qm-pair" id="dze-one-pair" style="display:none;">' +
-				'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-one-old" class="dze-hzoom" alt="" /></figure>' +
-				'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-one-new" class="dze-hzoom" alt="" /></figure>' +
+			'<div class="dze-qm-pair dze-zoomgroup" id="dze-one-pair" style="display:none;">' +
+				'<figure id="dze-one-oldfig"><figcaption>' + esc(i18n.qmNow) + '</figcaption>' +
+					'<img id="dze-one-old" alt="" /></figure>' +
+				'<div class="dze-one-tries">' +
+					'<figcaption id="dze-one-trycap"></figcaption>' +
+					'<div class="dze-one-trygrid" id="dze-one-trygrid"></div>' +
+				'</div>' +
 			'</div>' +
 			'<p class="dze-qm-bar" id="dze-one-dest" style="display:none;">' +
 				'<label class="dze-qm-bglabel"><span>' + esc(i18n.imgWhere) + '</span>' +
@@ -1509,10 +1513,14 @@
 					$b.prop('disabled', false);
 					if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
 					$st.text('');
+					// Every attempt is paid for: none of them is thrown away
+					// behind the next one. They line up and you compare.
+					one.tries = one.tries || [];
+					one.tries.push(r.data.url);
 					one.url = r.data.url;
-					$('#dze-one-new').attr('src', one.url).attr('data-full', one.url);
 					$('#dze-one-old').attr('src', r.data.main || '').attr('data-full', r.data.main || '')
 						.closest('figure').toggle(!!r.data.main);
+					oneDrawTries();
 					$('#dze-one-pair').show();
 					$('#dze-one-dest').show();
 					$('#dze-one-gen').text(i18n.qmAgain);
@@ -1533,6 +1541,32 @@
 				oneShowResult(r.data.text || '');
 			})
 			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
+
+	// The attempts, oldest first, the chosen one outlined. The zoom button of
+	// the shared viewer walks them full size, which is the only way to judge
+	// two versions of the same photograph.
+	function oneDrawTries() {
+		var $g = $('#dze-one-trygrid').empty();
+		(one.tries || []).forEach(function (u, i) {
+			$g.append(
+				$('<button type="button" class="dze-one-try"></button>')
+					.toggleClass('is-sel', u === one.url)
+					.attr('data-url', u)
+					.append(
+						$('<img />').attr('src', u).attr('data-full', u).attr('alt', ''),
+						$('<span class="dze-one-trynum"></span>').text(i + 1)
+					)
+			);
+		});
+		$('#dze-one-trycap').text(
+			(one.tries || []).length > 1 ? sprintf(i18n.tryPick, (one.tries || []).length) : i18n.qmNew
+		);
+	}
+	$(document).on('click', '.dze-one-try', function () {
+		one.url = String($(this).data('url'));
+		$('.dze-one-try').removeClass('is-sel');
+		$(this).addClass('is-sel');
 	});
 
 	$(document).on('click', '#dze-one-apply', function () {
