@@ -268,7 +268,13 @@ final class DZE_Modules {
 			<?php if ( self::enabled( 'content' ) ) : ?>
 				<button type="button" class="button button-primary dze-hub-btn" id="dze-cx-open-auto"><?php esc_html_e( 'Generate content', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
-			<?php if ( self::enabled( 'pod' ) ) : ?>
+			<?php
+			// Print on demand: the button only appears once a base mockup has
+			// been stored. A shop that does not print anything should not be
+			// asked, on every product, what it wants to print.
+			$pod_ready = self::enabled( 'pod' ) && class_exists( 'DZE_Pod' ) && DZE_Pod::mockup_id();
+			?>
+			<?php if ( $pod_ready ) : ?>
 				<button type="button" class="button dze-hub-btn" data-modal="dze-pod-modal"><?php esc_html_e( 'POD image', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
 			<?php if ( self::enabled( 'gmc_activation' ) && $product ) : ?>

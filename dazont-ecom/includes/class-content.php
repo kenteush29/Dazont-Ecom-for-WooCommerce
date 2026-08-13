@@ -1582,11 +1582,15 @@ Answer with STRICT JSON and nothing else: "
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_content_options' ); ?>
 
-			<h2 class="title"><?php esc_html_e( 'Store context', 'dazont-ecom' ); ?></h2>
+			<details class="dze-set">
+			<summary><?php esc_html_e( 'Store context — one line prepended to every generation', 'dazont-ecom' ); ?></summary>
 			<textarea name="<?php echo esc_attr( $opt ); ?>[store_context]" rows="2" class="large-text"><?php echo esc_textarea( (string) ( $s['store_context'] ?? '' ) ); ?></textarea>
 			<p class="description"><?php esc_html_e( 'Prepended to every generation, e.g. "Kula Tactical > Military / tactical clothing and gear > Tone: sharp, authoritative, informational".', 'dazont-ecom' ); ?></p>
 
-			<h2 class="title"><?php esc_html_e( 'Scenes — the fixed support behind your images', 'dazont-ecom' ); ?></h2>
+			</details>
+
+			<details class="dze-set">
+			<summary><?php esc_html_e( 'Backgrounds — the surfaces your products are shot on', 'dazont-ecom' ); ?></summary>
 			<p class="description" style="max-width:960px;">
 				<?php esc_html_e( 'One image, reused on every generation, so a catalogue shot by a dozen suppliers ends up looking like one shop: a studio backdrop, a table top, a garment mockup for print-on-demand. The product is sent as image 1 and the scene as image 2, with the instruction to keep the product exactly as it is and only place it in the scene. Add your own line to say how that particular scene is meant to be used. Tick "Default" to have a scene pre-selected on the product toolbox and the bulk screen — leave every box unticked and nothing is used until you pick a scene there.', 'dazont-ecom' ); ?>
 			</p>
@@ -1684,87 +1688,7 @@ Answer with STRICT JSON and nothing else: "
 			} );
 			</script>
 
-			<h2 class="title"><?php esc_html_e( 'Prompt registry', 'dazont-ecom' ); ?></h2>
-			<p class="description" style="max-width:960px;">
-				<?php esc_html_e( 'ONE universal list of prompts — add as many as you want, for anything. Each prompt has a content type (Text or Image), the product metadata it receives as INPUT, and an OUTPUT destination (product fields, SEO metas, WooCommerce attributes, any custom field — or the product gallery / main image for Image prompts, fully compatible with the product image generator). Text prompts appear in the toolbox and bulk once enabled; apply is unlocked per prompt by its Validated box.', 'dazont-ecom' ); ?>
-			</p>
-			<?php $dze_inputs = self::input_options(); $dze_metakeys = self::product_meta_keys(); $dze_ri = 0; ?>
-			<datalist id="dze-metakeys">
-				<?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"></option><?php endforeach; ?>
-			</datalist>
-			<table class="widefat dze-pr-table" id="dze-pr">
-				<thead>
-					<tr>
-						<th style="width:36px;"><?php esc_html_e( 'On', 'dazont-ecom' ); ?></th>
-						<th style="width:150px;"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
-						<th style="width:90px;"><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></th>
-						<th style="width:190px;"><?php esc_html_e( 'Output', 'dazont-ecom' ); ?></th>
-						<th style="width:170px;"><?php esc_html_e( 'Inputs', 'dazont-ecom' ); ?></th>
-						<th><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></th>
-						<th style="width:70px;"><?php esc_html_e( 'Max tk', 'dazont-ecom' ); ?></th>
-						<th style="width:70px;"><?php esc_html_e( 'Valid', 'dazont-ecom' ); ?></th>
-						<th style="width:40px;"></th>
-					</tr>
-				</thead>
-				<tbody>
-					<?php foreach ( self::registry() as $r ) : $sel_in = (array) ( $r['inputs'] ?? [] ); ?>
-					<tr class="dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
-						<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> /></td>
-						<td>
-							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
-							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['id'] ); ?>" />
-							<code class="dze-pr-slug"><?php echo esc_html( $r['id'] ); ?></code>
-						</td>
-						<td>
-							<select name="<?php echo esc_attr( $opt ); ?>[pr_type][<?php echo (int) $dze_ri; ?>]" class="dze-pr-type">
-								<option value="text" <?php selected( 'text', $r['type'] ?? 'text' ); ?>><?php esc_html_e( 'Text', 'dazont-ecom' ); ?></option>
-								<option value="image" <?php selected( 'image', $r['type'] ?? 'text' ); ?>><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></option>
-							</select>
-						</td>
-						<td>
-							<select name="<?php echo esc_attr( $opt ); ?>[pr_output][<?php echo (int) $dze_ri; ?>]" class="dze-pr-output">
-								<?php foreach ( self::output_options( 'text' ) as $ok => $ol ) : ?>
-									<option class="dze-o-text" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
-								<?php endforeach; ?>
-								<?php foreach ( self::output_options( 'image' ) as $ok => $ol ) : ?>
-									<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
-								<?php endforeach; ?>
-							</select>
-							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
-							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( '+ image meta key', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" title="<?php esc_attr_e( 'Optional. Fill this in and the prompt is written against ONE product photograph, chosen by looking at them: the attachment id lands in this meta key so your template can display the text and its image together.', 'dazont-ecom' ); ?>" />
-						</td>
-						<td>
-							<details class="dze-pr-inputs">
-								<summary><?php printf( /* translators: %d: count */ esc_html__( 'Inputs (%d)', 'dazont-ecom' ), count( $sel_in ) ); ?></summary>
-								<?php foreach ( $dze_inputs as $ik => $il ) : ?>
-									<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][<?php echo (int) $dze_ri; ?>][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, $sel_in, true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
-								<?php endforeach; ?>
-								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['inputs_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" class="dze-pr-inmeta" />
-								<span class="dze-pr-metapickrow">
-									<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
-									<button type="button" class="button button-small dze-pr-metaadd" title="<?php esc_attr_e( 'Add this key as an input', 'dazont-ecom' ); ?>">&#43;</button>
-								</span>
-							</details>
-						</td>
-						<td>
-							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="4" class="large-text code dze-pr-prompt"><?php echo esc_textarea( $r['prompt'] ); ?></textarea>
-							<?php if ( '' !== self::default_prompt_for( (string) $r['id'] ) ) : ?>
-								<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the shipped default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-							<?php endif; ?>
-						</td>
-						<td><input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" /></td>
-						<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['valid'] ) ); ?> /></td>
-						<td><button type="button" class="button dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button></td>
-					</tr>
-					<?php $dze_ri++; endforeach; ?>
-				</tbody>
-			</table>
-			<p>
-				<button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
-			</p>
-
-			<h2 class="title"><?php esc_html_e( 'Main image, made on the spot', 'dazont-ecom' ); ?></h2>
+			<h3 class="dze-set-sub"><?php esc_html_e( 'The main-image recipe', 'dazont-ecom' ); ?></h3>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
 			</p>
@@ -1804,7 +1728,121 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button-link" id="dze-ct-quick-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 			</p>
 
-			<h2 class="title"><?php esc_html_e( 'Choosing which photograph illustrates a block', 'dazont-ecom' ); ?></h2>
+			</details>
+
+			<details class="dze-set" open>
+			<summary><?php esc_html_e( 'Prompts — what the plugin writes, and how', 'dazont-ecom' ); ?></summary>
+			<p class="description" style="max-width:960px;">
+				<?php esc_html_e( 'ONE universal list of prompts — add as many as you want, for anything. Each prompt has a content type (Text or Image), the product metadata it receives as INPUT, and an OUTPUT destination (product fields, SEO metas, WooCommerce attributes, any custom field — or the product gallery / main image for Image prompts, fully compatible with the product image generator). Text prompts appear in the toolbox and bulk once enabled; apply is unlocked per prompt by its Validated box.', 'dazont-ecom' ); ?>
+			</p>
+			<?php $dze_inputs = self::input_options(); $dze_metakeys = self::product_meta_keys(); $dze_ri = 0; ?>
+			<datalist id="dze-metakeys">
+				<?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"></option><?php endforeach; ?>
+			</datalist>
+			<?php
+			// One card per prompt, shut, in two groups: what writes TEXT and what
+			// makes IMAGES. A nine-column table of textareas was unreadable, and
+			// every prompt was on screen at the same time whether or not it was
+			// the one being worked on. The field names are unchanged, so what is
+			// saved is exactly what was saved before.
+			$dze_rows = self::registry();
+			$dze_map  = [];
+			foreach ( $dze_rows as $ri => $r ) {
+				$dze_map[ ( ( $r['type'] ?? 'text' ) === 'image' ) ? 'image' : 'text' ][ $ri ] = $r;
+			}
+			$dze_groups = [
+				'text'  => __( 'Text prompts', 'dazont-ecom' ),
+				'image' => __( 'Image prompts', 'dazont-ecom' ),
+			];
+			?>
+			<div id="dze-pr">
+			<?php foreach ( $dze_groups as $dze_g => $dze_glabel ) : ?>
+				<h3 class="dze-pr-grouphead"><?php echo esc_html( $dze_glabel ); ?>
+					<span class="description">(<?php echo (int) count( $dze_map[ $dze_g ] ?? [] ); ?>)</span>
+				</h3>
+				<div class="dze-prlist" data-group="<?php echo esc_attr( $dze_g ); ?>">
+				<?php foreach ( (array) ( $dze_map[ $dze_g ] ?? [] ) as $dze_ri => $r ) :
+					$sel_in = (array) ( $r['inputs'] ?? [] ); ?>
+					<div class="dze-prb dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
+						<div class="dze-prb-head">
+							<label class="dze-prb-on" title="<?php esc_attr_e( 'Use this prompt', 'dazont-ecom' ); ?>">
+								<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> />
+							</label>
+							<input type="text" class="dze-prb-name" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
+							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['id'] ); ?>" />
+							<span class="dze-prb-dest"><?php echo esc_html( self::output_options( ( $r['type'] ?? 'text' ) === 'image' ? 'image' : 'text' )[ $r['output'] ?? '' ] ?? ( $r['output'] ?? '' ) ); ?></span>
+							<span class="dze-prb-flags">
+								<?php if ( ! empty( $r['valid'] ) ) : ?><span class="dze-prb-ok" title="<?php esc_attr_e( 'Validated: bulk may apply it', 'dazont-ecom' ); ?>">✓</span><?php endif; ?>
+							</span>
+							<button type="button" class="dze-prb-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
+							<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
+						</div>
+						<div class="dze-prb-body" style="display:none;">
+							<p class="dze-prb-line">
+								<label><span><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></span>
+									<select name="<?php echo esc_attr( $opt ); ?>[pr_type][<?php echo (int) $dze_ri; ?>]" class="dze-pr-type">
+										<option value="text" <?php selected( 'text', $r['type'] ?? 'text' ); ?>><?php esc_html_e( 'Text', 'dazont-ecom' ); ?></option>
+										<option value="image" <?php selected( 'image', $r['type'] ?? 'text' ); ?>><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></option>
+									</select>
+								</label>
+								<label><span><?php esc_html_e( 'Writes to', 'dazont-ecom' ); ?></span>
+									<select name="<?php echo esc_attr( $opt ); ?>[pr_output][<?php echo (int) $dze_ri; ?>]" class="dze-pr-output">
+										<?php foreach ( self::output_options( 'text' ) as $ok => $ol ) : ?>
+											<option class="dze-o-text" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
+										<?php endforeach; ?>
+										<?php foreach ( self::output_options( 'image' ) as $ok => $ol ) : ?>
+											<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>" <?php selected( $ok, $r['output'] ?? '' ); ?>><?php echo esc_html( $ol ); ?></option>
+										<?php endforeach; ?>
+									</select>
+								</label>
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
+								<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
+									<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" />
+								</label>
+								<label class="dze-prb-valid"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['valid'] ) ); ?> />
+									<span><?php esc_html_e( 'Validated', 'dazont-ecom' ); ?></span>
+								</label>
+							</p>
+							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="8" class="large-text code dze-pr-prompt"><?php echo esc_textarea( $r['prompt'] ); ?></textarea>
+							<p class="dze-prb-line">
+								<?php if ( '' !== self::default_prompt_for( (string) $r['id'] ) ) : ?>
+									<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the shipped default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+								<?php endif; ?>
+							</p>
+							<details class="dze-pr-inputs">
+								<summary><?php printf( /* translators: %d: count */ esc_html__( 'Product data sent with it (%d)', 'dazont-ecom' ), count( $sel_in ) ); ?></summary>
+								<?php foreach ( $dze_inputs as $ik => $il ) : ?>
+									<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][<?php echo (int) $dze_ri; ?>][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, $sel_in, true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
+								<?php endforeach; ?>
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['inputs_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" class="dze-pr-inmeta" />
+								<span class="dze-pr-metapickrow">
+									<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
+									<button type="button" class="button button-small dze-pr-metaadd" title="<?php esc_attr_e( 'Add this key as an input', 'dazont-ecom' ); ?>">&#43;</button>
+								</span>
+							</details>
+							<details class="dze-pr-inputs">
+								<summary><?php esc_html_e( 'Pair this text with one of the product photographs', 'dazont-ecom' ); ?></summary>
+								<p class="description" style="max-width:820px;">
+									<?php esc_html_e( 'Leave empty and this block is written from the product data alone. Fill in a meta key and the plugin LOOKS at the photographs of the product, picks the one showing a real particularity, writes this block about what is visible there, and stores the chosen image id in that key so your theme can show the text and its photograph together.', 'dazont-ecom' ); ?>
+								</p>
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
+							</details>
+						</div>
+					</div>
+				<?php endforeach; ?>
+				</div>
+			<?php endforeach; ?>
+			</div>
+			<?php $dze_ri = count( $dze_rows ); ?>
+			<p>
+				<button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
+			</p>
+
+			</details>
+
+			<details class="dze-set">
+			<summary><?php esc_html_e( 'Rules for picking the photograph that goes with a text block', 'dazont-ecom' ); ?></summary>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'When a prompt carries an image meta key, the plugin looks at every photograph of the product and picks the one that block should be shown with. These are the rules it picks by.', 'dazont-ecom' ); ?>
 			</p>
@@ -1814,45 +1852,60 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button-link" id="dze-ct-feature-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 			</p>
 			<script type="text/template" id="dze-pr-rowtpl">
-				<tr class="dze-pr-row">
-					<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][__I__]" value="1" checked /></td>
-					<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_name][__I__]" value="" placeholder="<?php esc_attr_e( 'New prompt…', 'dazont-ecom' ); ?>" /><input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][__I__]" value="" /></td>
-					<td>
-						<select name="<?php echo esc_attr( $opt ); ?>[pr_type][__I__]" class="dze-pr-type">
-							<option value="text"><?php esc_html_e( 'Text', 'dazont-ecom' ); ?></option>
-							<option value="image"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></option>
-						</select>
-					</td>
-					<td>
-						<select name="<?php echo esc_attr( $opt ); ?>[pr_output][__I__]" class="dze-pr-output">
-							<?php foreach ( self::output_options( 'text' ) as $ok => $ol ) : ?>
-								<option class="dze-o-text" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
-							<?php endforeach; ?>
-							<?php foreach ( self::output_options( 'image' ) as $ok => $ol ) : ?>
-								<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
-							<?php endforeach; ?>
-						</select>
-						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
-						<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( '+ image meta key', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
-					</td>
-					<td>
+				<div class="dze-prb dze-pr-row is-open">
+					<div class="dze-prb-head">
+						<label class="dze-prb-on"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][__I__]" value="1" checked /></label>
+						<input type="text" class="dze-prb-name" name="<?php echo esc_attr( $opt ); ?>[pr_name][__I__]" value="" placeholder="<?php esc_attr_e( 'New prompt…', 'dazont-ecom' ); ?>" />
+						<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][__I__]" value="" />
+						<span class="dze-prb-dest"></span>
+						<span class="dze-prb-flags"></span>
+						<button type="button" class="dze-prb-toggle" aria-expanded="true"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▾</span></button>
+						<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
+					</div>
+					<div class="dze-prb-body">
+						<p class="dze-prb-line">
+							<label><span><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></span>
+								<select name="<?php echo esc_attr( $opt ); ?>[pr_type][__I__]" class="dze-pr-type">
+									<option value="text"><?php esc_html_e( 'Text', 'dazont-ecom' ); ?></option>
+									<option value="image"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></option>
+								</select>
+							</label>
+							<label><span><?php esc_html_e( 'Writes to', 'dazont-ecom' ); ?></span>
+								<select name="<?php echo esc_attr( $opt ); ?>[pr_output][__I__]" class="dze-pr-output">
+									<?php foreach ( self::output_options( 'text' ) as $ok => $ol ) : ?>
+										<option class="dze-o-text" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
+									<?php endforeach; ?>
+									<?php foreach ( self::output_options( 'image' ) as $ok => $ol ) : ?>
+										<option class="dze-o-image" value="<?php echo esc_attr( $ok ); ?>"><?php echo esc_html( $ol ); ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
+							<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
+								<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" />
+							</label>
+							<label class="dze-prb-valid"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][__I__]" value="1" />
+								<span><?php esc_html_e( 'Validated', 'dazont-ecom' ); ?></span>
+							</label>
+						</p>
+						<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][__I__]" rows="8" class="large-text code dze-pr-prompt"></textarea>
 						<details class="dze-pr-inputs">
-							<summary><?php esc_html_e( 'Inputs', 'dazont-ecom' ); ?></summary>
+							<summary><?php esc_html_e( 'Product data sent with it', 'dazont-ecom' ); ?></summary>
 							<?php foreach ( $dze_inputs as $ik => $il ) : ?>
 								<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][__I__][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, [ 'title', 'description' ], true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
 							<?php endforeach; ?>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_inmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'custom meta keys, comma separated', 'dazont-ecom' ); ?>" class="dze-pr-inmeta" />
-						<span class="dze-pr-metapickrow">
-							<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
-							<button type="button" class="button button-small dze-pr-metaadd">&#43;</button>
-						</span>
+							<span class="dze-pr-metapickrow">
+								<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
+								<button type="button" class="button button-small dze-pr-metaadd">&#43;</button>
+							</span>
 						</details>
-					</td>
-					<td><textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][__I__]" rows="4" class="large-text code"></textarea></td>
-					<td><input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" /></td>
-					<td><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][__I__]" value="1" /></td>
-					<td><button type="button" class="button dze-pr-del">&#10005;</button></td>
-				</tr>
+						<details class="dze-pr-inputs">
+							<summary><?php esc_html_e( 'Pair this text with one of the product photographs', 'dazont-ecom' ); ?></summary>
+							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
+						</details>
+					</div>
+				</div>
 			</script>
 			<script>
 			jQuery( function ( $ ) {
@@ -1870,17 +1923,34 @@ Answer with STRICT JSON and nothing else: "
 					$row.find( '.dze-pr-metakey' ).toggle( $out.val() === 'meta' );
 					$row.find( '.dze-pr-tokens' ).prop( 'disabled', type === 'image' );
 				}
-				$( '#dze-pr tbody tr' ).each( function () { syncRow( $( this ) ); } );
-				$( document ).on( 'change', '.dze-pr-type, .dze-pr-output', function () { syncRow( $( this ).closest( 'tr' ) ); } );
+				$( '#dze-pr .dze-prb' ).each( function () { syncRow( $( this ) ); } );
+				$( document ).on( 'change', '.dze-pr-type, .dze-pr-output', function () { syncRow( $( this ).closest( '.dze-prb' ) ); } );
+				// One card open at a time: opening one shuts the others, because
+				// the point of shut cards is to have one prompt in front of you.
+				$( document ).on( 'click', '.dze-prb-toggle', function () {
+					var $b = $( this ).closest( '.dze-prb' );
+					var open = ! $b.hasClass( 'is-open' );
+					$( '#dze-pr .dze-prb' ).removeClass( 'is-open' ).find( '.dze-prb-body' ).hide()
+						.end().find( '.dze-prb-toggle' ).attr( 'aria-expanded', 'false' ).find( '.dze-prb-caret' ).text( '▸' );
+					if ( open ) {
+						$b.addClass( 'is-open' ).find( '.dze-prb-body' ).show();
+						$b.find( '.dze-prb-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
+					}
+				} );
 				$( '#dze-pr-add' ).on( 'click', function () {
 					var $b = $( this ), i = parseInt( $b.data( 'next' ), 10 ) || 0;
 					$b.data( 'next', i + 1 );
 					var html = $( '#dze-pr-rowtpl' ).html().replace( /__I__/g, String( i ) );
 					var $row = $( html );
-					$( '#dze-pr tbody' ).append( $row );
+					// A new prompt is a text prompt until it says otherwise.
+					$( '#dze-pr .dze-prlist[data-group="text"]' ).append( $row );
 					syncRow( $row );
+					$( 'html, body' ).animate( { scrollTop: $row.offset().top - 60 }, 200 );
 				} );
-				$( document ).on( 'click', '.dze-pr-del', function () { $( this ).closest( 'tr' ).remove(); } );
+				$( document ).on( 'click', '.dze-pr-del', function () {
+					if ( ! window.confirm( '<?php echo esc_js( __( 'Remove this prompt? Nothing already written on your products is affected.', 'dazont-ecom' ) ); ?>' ) ) { return; }
+					$( this ).closest( '.dze-prb' ).remove();
+				} );
 				$( document ).on( 'click', '.dze-pr-metaadd', function () {
 					var $wrap = $( this ).closest( 'details' );
 					var key = $wrap.find( '.dze-pr-metapick' ).val();
@@ -1956,7 +2026,10 @@ Answer with STRICT JSON and nothing else: "
 			} );
 			</script>
 
-			<h2 class="title"><?php esc_html_e( 'Price table (cost × multiplier → regular price)', 'dazont-ecom' ); ?></h2>
+			</details>
+
+			<details class="dze-set">
+			<summary><?php esc_html_e( 'Price table — cost × multiplier, set once', 'dazont-ecom' ); ?></summary>
 			<p class="description"><?php esc_html_e( 'The current/import price is treated as the cost (COGS, also written to WooCommerce\'s Cost of Goods field); the matching multiplier sets the regular price. Use 0 as the upper bound of the last range for "no limit".', 'dazont-ecom' ); ?></p>
 			<table class="widefat striped dze-price-table" id="dze-pt">
 				<thead>
@@ -1992,6 +2065,8 @@ Answer with STRICT JSON and nothing else: "
 				} );
 			} );
 			</script>
+
+			</details>
 
 			<?php submit_button(); ?>
 		</form>

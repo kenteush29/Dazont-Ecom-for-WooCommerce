@@ -308,6 +308,45 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* ---- Settings: one shut block per subject ---- */
+.dze-set {
+	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;
+	padding: 0 18px; margin: 0 0 10px; max-width: 1100px;
+}
+.dze-set > summary {
+	cursor: pointer; font-weight: 600; font-size: 13px; color: #1d2327;
+	padding: 12px 0; list-style: none;
+}
+.dze-set > summary::-webkit-details-marker { display: none; }
+.dze-set > summary::before { content: '▸ '; color: #a7aaad; }
+.dze-set[open] > summary::before { content: '▾ '; }
+.dze-set[open] { padding-bottom: 18px; border-color: #c3c4c7; }
+.dze-set[open] > summary { border-bottom: 1px solid #f0f0f1; margin-bottom: 12px; }
+.dze-set-sub { font-size: 13px; margin: 22px 0 6px; padding-top: 16px; border-top: 1px solid #f0f0f1; }
+
+/* One card per prompt: shut, one line each, open the one you are working on. */
+.dze-pr-grouphead { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; margin: 16px 0 6px; }
+.dze-pr-grouphead:first-of-type { margin-top: 0; }
+.dze-prlist { display: flex; flex-direction: column; gap: 6px; }
+.dze-prb { border: 1px solid #dcdcde; border-radius: 5px; background: #fff; }
+.dze-prb.is-open { border-color: #2271b1; }
+.dze-prb-head { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
+.dze-prb-on { display: flex; align-items: center; }
+.dze-prb-name { flex: 0 1 260px; min-width: 0; }
+.dze-prb-dest { flex: 1 1 auto; color: #646970; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dze-prb-ok { color: #00794b; font-weight: 700; }
+.dze-prb-toggle, .dze-pr-del {
+	background: transparent; border: none; cursor: pointer; color: #2271b1;
+	font-size: 12px; white-space: nowrap;
+}
+.dze-pr-del { color: #c3c4c7; font-size: 15px; }
+.dze-prb:hover .dze-pr-del { color: #b32d2e; }
+.dze-prb-body { padding: 4px 10px 12px; border-top: 1px solid #f0f0f1; }
+.dze-prb-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 10px 0; }
+.dze-prb-line label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.dze-prb-line label > span { color: #646970; }
+.dze-prb-tk input { width: 90px; }
+
 /* The prompt reader is opened FROM another popup, so it has to sit above it —
    and above the hover zoom, which is itself above the popups. Without this it
    opened behind the toolbox and looked like a dead button. */

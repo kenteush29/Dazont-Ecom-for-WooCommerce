@@ -303,6 +303,10 @@
 					// ---- IMAGES ---- the main image lane and the extra shots
 					// belong to the same subject and now live together.
 					sec('img', i18n.image, false,
+						// What the product already carries, right where images are
+						// worked on — it was floating under the results panel,
+						// which is not where you look for it.
+						'<div class="dze-cb-nowshots" id="dze-cx-nowshots"></div>' +
 						qmLane +
 						(cfg.templates.length ?
 						'<div class="dze-cb-sub">' +
@@ -343,7 +347,6 @@
 				'</div>' +
 				'<div id="dze-cx-result" class="dze-cx-result" style="display:none;">' +
 					'<div class="dze-cb-prev" id="dze-cx-drawers"></div>' +
-					'<div class="dze-cb-nowshots" id="dze-cx-nowshots"></div>' +
 					'<p class="dze-cb-panelbar">' +
 						'<button type="button" class="button button-primary dze-cx-applyone">' + esc(i18n.applyOne) + '</button> ' +
 						'<button type="button" class="button button-small dze-cx-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' +
@@ -779,6 +782,11 @@
 			$btn.prop('disabled', false);
 			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
 			$st.text(i18n.applied);
+			// Applied and settled: the result panel has nothing left to offer.
+			window.setTimeout(function () {
+				reset();
+				loadCurrent().then(drawCurrentImages);
+			}, 900);
 			$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID });
 			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
 			res.current = null;
