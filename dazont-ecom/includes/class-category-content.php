@@ -123,7 +123,10 @@ final class DZE_Category_Content {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
 		}
 		if ( isset( $in['prompt'] ) ) {
-			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
+			$p = trim( sanitize_textarea_field( (string) $in['prompt'] ) );
+			// Saved exactly as shipped means "no custom prompt", so a better
+			// default still reaches this install later.
+			$out['prompt'] = ( $p === trim( self::default_prompt() ) ) ? '' : $p;
 		}
 		// The two secondary passes. Re-saving the shipped text stores nothing, so
 		// an improved default still reaches an install that never edited it.
@@ -2350,7 +2353,7 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-cc-prompt"><?php esc_html_e( 'Writing prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<textarea id="dze-cc-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="12" class="large-text code" placeholder="<?php echo esc_attr( self::default_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['prompt'] ?? '' ) ); ?></textarea>
+						<textarea id="dze-cc-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="12" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
 						<p class="description">
 							<?php esc_html_e( 'Empty = shipped default (shown greyed). The category data, the queries, the link list, the language and the length are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-cc-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -2360,7 +2363,7 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-cc-sift-prompt"><?php esc_html_e( 'Choosing the buyer questions', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<textarea id="dze-cc-sift-prompt" name="<?php echo esc_attr( self::OPT ); ?>[sift_prompt]" rows="8" class="large-text code" placeholder="<?php echo esc_attr( self::default_sift_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['sift_prompt'] ?? '' ) ); ?></textarea>
+						<textarea id="dze-cc-sift-prompt" name="<?php echo esc_attr( self::OPT ); ?>[sift_prompt]" rows="8" class="large-text code"><?php echo esc_textarea( self::sift_prompt() ); ?></textarea>
 						<p class="description">
 							<?php esc_html_e( 'The pass that reads the real search queries and keeps the ones this page should answer. Empty = shipped default.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-sift-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -2370,7 +2373,7 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-cc-links-prompt"><?php esc_html_e( 'Internal linking prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<textarea id="dze-cc-links-prompt" name="<?php echo esc_attr( self::OPT ); ?>[links_prompt]" rows="10" class="large-text code" placeholder="<?php echo esc_attr( self::default_links_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['links_prompt'] ?? '' ) ); ?></textarea>
+						<textarea id="dze-cc-links-prompt" name="<?php echo esc_attr( self::OPT ); ?>[links_prompt]" rows="10" class="large-text code"><?php echo esc_textarea( self::links_prompt() ); ?></textarea>
 						<p class="description">
 							<?php esc_html_e( 'The pass that weaves links into a description once it is written. Empty = shipped default.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-links-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -2383,8 +2386,15 @@ PROMPT;
 		</div>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( '' ); } );
-			$( '.dze-cc-clear' ).on( 'click', function () { $( '#' + $( this ).data( 'target' ) ).val( '' ); } );
+			$( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> ); } );
+			var dzeCcDef = {
+				'dze-cc-sift-prompt': <?php echo wp_json_encode( self::default_sift_prompt() ); ?>,
+				'dze-cc-links-prompt': <?php echo wp_json_encode( self::default_links_prompt() ); ?>
+			};
+			$( '.dze-cc-clear' ).on( 'click', function () {
+				var t = $( this ).data( 'target' );
+				$( '#' + t ).val( dzeCcDef[ t ] || '' );
+			} );
 			$( '#dze-cc-sitemap-test' ).on( 'click', function () {
 				var $b = $( this ).prop( 'disabled', true );
 				$( '#dze-cc-sitemap-status' ).html( '<span class="dze-cx-spin"></span>' );

@@ -75,6 +75,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		add_action( 'wp_ajax_dze_content_backdrop', [ $this, 'ajax_backdrop' ] );
 		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
+		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
+		add_action( 'wp_ajax_dze_content_context', [ $this, 'ajax_context' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
@@ -1614,7 +1616,35 @@ Answer with STRICT JSON and nothing else: "
 
 			<details class="dze-set">
 			<summary><?php esc_html_e( 'Store context — one line prepended to every generation', 'dazont-ecom' ); ?></summary>
-			<textarea name="<?php echo esc_attr( $opt ); ?>[store_context]" rows="2" class="large-text"><?php echo esc_textarea( (string) ( $s['store_context'] ?? '' ) ); ?></textarea>
+			<textarea id="dze-ct-context" name="<?php echo esc_attr( $opt ); ?>[store_context]" rows="3" class="large-text"><?php echo esc_textarea( (string) ( $s['store_context'] ?? '' ) ); ?></textarea>
+			<p>
+				<button type="button" class="button" id="dze-ct-context-gen">&#10022; <?php esc_html_e( 'Read it from my shop', 'dazont-ecom' ); ?></button>
+				<span id="dze-ct-context-state" class="description" style="margin-left:8px;"></span>
+			</p>
+			<details class="dze-cx-acc" id="dze-ct-context-facts" style="display:none;">
+				<summary><?php esc_html_e( 'What the shop was read as', 'dazont-ecom' ); ?></summary>
+				<pre class="dze-prompt-text" id="dze-ct-context-factstext"></pre>
+			</details>
+			<script>
+			jQuery( function ( $ ) {
+				// Proposed, never imposed: it lands in the box and you fix it.
+				$( '#dze-ct-context-gen' ).on( 'click', function () {
+					var $b = $( this ).prop( 'disabled', true );
+					var $st = $( '#dze-ct-context-state' ).text( '…' );
+					$.post( window.ajaxurl, {
+						action: 'dze_content_context',
+						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>'
+					} ).done( function ( r ) {
+						$b.prop( 'disabled', false );
+						if ( ! r || ! r.success ) { $st.text( ( r && r.data && r.data.message ) || '' ); return; }
+						$st.text( '' );
+						$( '#dze-ct-context' ).val( r.data.text );
+						$( '#dze-ct-context-factstext' ).text( r.data.facts );
+						$( '#dze-ct-context-facts' ).show();
+					} ).fail( function () { $b.prop( 'disabled', false ); $st.text( '' ); } );
+				} );
+			} );
+			</script>
 			<p class="description"><?php esc_html_e( 'Prepended to every generation, e.g. "Kula Tactical > Military / tactical clothing and gear > Tone: sharp, authoritative, informational".', 'dazont-ecom' ); ?></p>
 
 			</details>
@@ -1723,7 +1753,7 @@ Answer with STRICT JSON and nothing else: "
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
 			</p>
-			<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="5" class="large-text code" placeholder="<?php echo esc_attr( self::default_quick_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['quick_prompt'] ?? '' ) ); ?></textarea>
+			<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="5" class="large-text code"><?php echo esc_textarea( self::quick_prompt() ); ?></textarea>
 			<p class="description">
 				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
 				<button type="button" class="button-link" id="dze-ct-quick-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -1766,8 +1796,8 @@ Answer with STRICT JSON and nothing else: "
 					$sel_in = (array) ( $r['inputs'] ?? [] ); ?>
 					<div class="dze-prb dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
 						<div class="dze-prb-head">
-							<label class="dze-prb-on" title="<?php esc_attr_e( 'Use this prompt', 'dazont-ecom' ); ?>">
-								<input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> />
+							<label class="dze-prb-on" title="<?php esc_attr_e( 'Use this prompt — saved the moment you tick it', 'dazont-ecom' ); ?>">
+								<input type="checkbox" class="dze-prb-live" data-id="<?php echo esc_attr( (string) $r['id'] ); ?>" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> />
 							</label>
 							<input type="text" class="dze-prb-name" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
 							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['id'] ); ?>" />
@@ -1847,7 +1877,7 @@ Answer with STRICT JSON and nothing else: "
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'When a prompt carries an image meta key, the plugin looks at every photograph of the product and picks the one that block should be shown with. These are the rules it picks by.', 'dazont-ecom' ); ?>
 			</p>
-			<textarea id="dze-ct-feature-prompt" name="<?php echo esc_attr( $opt ); ?>[feature_prompt]" rows="4" class="large-text code" placeholder="<?php echo esc_attr( self::default_feature_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['feature_prompt'] ?? '' ) ); ?></textarea>
+			<textarea id="dze-ct-feature-prompt" name="<?php echo esc_attr( $opt ); ?>[feature_prompt]" rows="4" class="large-text code"><?php echo esc_textarea( self::feature_prompt() ); ?></textarea>
 			<p class="description">
 				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
 				<button type="button" class="button-link" id="dze-ct-feature-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -1968,8 +1998,31 @@ Answer with STRICT JSON and nothing else: "
 					if ( ! d ) { return; }
 					$( this ).closest( 'td' ).find( '.dze-pr-prompt' ).val( d );
 				} );
-				$( '#dze-ct-feature-restore' ).on( 'click', function () { $( '#dze-ct-feature-prompt' ).val( '' ); } );
-				$( '#dze-ct-quick-restore' ).on( 'click', function () { $( '#dze-ct-quick-prompt' ).val( '' ); } );
+				$( '#dze-ct-feature-restore' ).on( 'click', function () {
+					$( '#dze-ct-feature-prompt' ).val( <?php echo wp_json_encode( self::default_feature_prompt() ); ?> );
+				} );
+				$( '#dze-ct-quick-restore' ).on( 'click', function () {
+					$( '#dze-ct-quick-prompt' ).val( <?php echo wp_json_encode( self::default_quick_prompt() ); ?> );
+				} );
+				// On or off is one flag: it is written when it is clicked, not
+				// when the page happens to be saved.
+				$( document ).on( 'change', '.dze-prb-live', function () {
+					var $c = $( this ), $card = $c.closest( '.dze-prb' );
+					$card.addClass( 'is-saving' );
+					$.post( window.ajaxurl, {
+						action: 'dze_content_prompt_toggle',
+						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
+						id: $c.data( 'id' ),
+						on: $c.is( ':checked' ) ? 1 : 0
+					} ).done( function ( r ) {
+						$card.removeClass( 'is-saving' );
+						if ( ! r || ! r.success ) { $c.prop( 'checked', ! $c.is( ':checked' ) ); }
+						else { $card.addClass( 'is-saved' ); window.setTimeout( function () { $card.removeClass( 'is-saved' ); }, 900 ); }
+					} ).fail( function () {
+						$card.removeClass( 'is-saving' );
+						$c.prop( 'checked', ! $c.is( ':checked' ) );
+					} );
+				} );
 				// The plain grey plate is just another background: it is drawn,
 				// then it lands in the same list as the ones you upload.
 				$( '#dze-bd-make' ).on( 'click', function () {
@@ -3597,6 +3650,82 @@ Answer with STRICT JSON and nothing else: "
 	 * main image of a listing. Here there is one recipe, one source, one image,
 	 * and the next click puts it in place.
 	 */
+	/**
+	 * Proposes the store context by reading the shop.
+	 *
+	 * This line is prepended to every generation, so it decides the voice of
+	 * the whole catalogue — and it is the hardest thing to write about your own
+	 * shop, because you know it too well. The model does not: it is given the
+	 * shop's name, its tagline, its best-selling categories and products and
+	 * its price range, and asked for the three things that actually steer a
+	 * copywriter — what this shop sells, who buys it, how to speak to them.
+	 *
+	 * Short on purpose. A paragraph here is a paragraph in front of every
+	 * prompt, on every call, for every product.
+	 */
+	public function ajax_context(): void {
+		$this->guard();
+		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			wp_send_json_error( [ 'message' => __( 'The Marketing Assistant module holds the Anthropic key — switch it back on.', 'dazont-ecom' ) ] );
+		}
+		$facts = DZE_Marketing_Ai::instance()->shop_context_text();
+		if ( '' === trim( $facts ) ) {
+			wp_send_json_error( [ 'message' => __( 'There is not enough in this shop yet to read anything from it.', 'dazont-ecom' ) ] );
+		}
+		$system = 'You read a shop and describe it to the copywriter who will write its product pages.';
+		$user   = "Here is what the shop is:\n\n" . $facts . "\n\n"
+			. "Write its context line for that copywriter, in " . self::site_language() . ", in THREE short segments separated by \" > \":\n"
+			. "1. the shop name and what it sells, in a few words;\n"
+			. "2. who buys there — the real buyer, not a marketing persona;\n"
+			. "3. the tone to write in — three adjectives at most.\n\n"
+			. "Example of the shape expected: \"Kula Tactical > Military and tactical clothing and gear > Buyers: airsoft players, hunters, security staff who want kit that holds > Tone: sharp, factual, no hype\".\n"
+			. "Answer with that single line and nothing else. No quotes, no preamble.";
+		try {
+			DZE_Ai_Usage::unit( 'store_context' );
+			$out = DZE_Marketing_Ai::complete( $system, $user, self::model(), 300 );
+		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::finished( 'store_context' );
+		wp_send_json_success( [
+			'text'  => trim( wp_strip_all_tags( $out ) ),
+			'facts' => $facts,
+		] );
+	}
+
+	/**
+	 * Switches one prompt on or off, there and then.
+	 *
+	 * A tick that only counts once the whole page has been saved is a tick you
+	 * cannot trust: you leave the screen sure a field is off when it is still
+	 * on. This writes that one flag and answers.
+	 */
+	public function ajax_prompt_toggle(): void {
+		$this->guard();
+		$id = isset( $_POST['id'] ) ? sanitize_key( wp_unslash( $_POST['id'] ) ) : '';
+		$on = ! empty( $_POST['on'] ) ? 1 : 0;
+		$rows  = self::registry();
+		$found = false;
+		foreach ( $rows as $k => $r ) {
+			if ( (string) ( $r['id'] ?? '' ) === $id ) {
+				$rows[ $k ]['enabled'] = $on;
+				$found = true;
+				break;
+			}
+		}
+		if ( ! $found ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		try {
+			self::write_setting( 'registry', $rows );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'id' => $id, 'on' => $on ] );
+	}
+
 	/**
 	 * Keeps an image as a background, from wherever it was picked.
 	 *
