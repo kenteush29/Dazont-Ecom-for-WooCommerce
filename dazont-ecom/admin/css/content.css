@@ -308,6 +308,39 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* The prompt reader is opened FROM another popup, so it has to sit above it —
+   and above the hover zoom, which is itself above the popups. Without this it
+   opened behind the toolbox and looked like a dead button. */
+#dze-prompt-modal { z-index: 100010; }
+
+/* ---- One shut section per kind of work ---- */
+.dze-sec { border: 1px solid #dcdcde; border-radius: 6px; background: #fff; margin: 0 0 10px; }
+.dze-sec.is-open { border-color: #c3c4c7; }
+.dze-sec-head {
+	display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 14px;
+	font-size: 13px; cursor: pointer; user-select: none;
+}
+.dze-sec-head:hover { background: #f6f7f7; border-radius: 6px; }
+.dze-sec-head:focus-visible { outline: 2px solid #2271b1; outline-offset: -2px; }
+.dze-sec-caret { color: #a7aaad; font-size: 11px; width: 10px; }
+.dze-sec-body { padding: 4px 14px 14px; }
+/* One line per field, ticks aligned: a wrapped grid of checkboxes reads as a
+   wall, and you cannot scan what is on and what is off. */
+.dze-cb-checks.is-col { display: flex; flex-direction: column; gap: 2px; }
+.dze-cb-checks.is-col .dze-cb-checkline { width: 100%; }
+.dze-cb-sub { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f1; }
+
+/* What the price recalculation would do, before it does it. */
+.dze-cx-pricebox { margin-top: 10px; }
+.dze-cx-pricebox .is-ko { color: #b32d2e; }
+table.dze-pricepv { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 12px; }
+table.dze-pricepv th, table.dze-pricepv td {
+	text-align: left; padding: 5px 8px; border-bottom: 1px solid #f0f0f1;
+}
+table.dze-pricepv th { color: #646970; font-weight: 600; }
+table.dze-pricepv tr.is-hit { background: #f0f6fc; }
+table.dze-pricepv tr.is-hit td { font-weight: 600; }
+
 /* ---- The backdrop plate, in Settings ---- */
 .dze-bd { display: flex; gap: 18px; align-items: flex-start; margin: 8px 0 18px; flex-wrap: wrap; }
 .dze-bd-plate {

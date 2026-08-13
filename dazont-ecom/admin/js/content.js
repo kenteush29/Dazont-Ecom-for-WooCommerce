@@ -142,6 +142,74 @@
 	// The popup
 	// =====================================================================
 
+	// One shut section per kind of work: a title you click, a caret, a body.
+	// Which ones you left open is remembered, because a habit is a habit.
+	function sec(id, title, openByDefault, body) {
+		var m = mem();
+		var open = (m.sec && m.sec[id] !== undefined) ? !!m.sec[id] : !!openByDefault;
+		return '<section class="dze-sec' + (open ? ' is-open' : '') + '" data-sec="' + id + '">' +
+			'<h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+				'<span class="dze-sec-caret">' + (open ? '▾' : '▸') + '</span>' + esc(title) +
+			'</h3>' +
+			'<div class="dze-sec-body"' + (open ? '' : ' style="display:none;"') + '>' + body + '</div>' +
+		'</section>';
+	}
+	function toggleSec($sec, on) {
+		$sec.toggleClass('is-open', on);
+		$sec.find('> .dze-sec-head').attr('aria-expanded', on ? 'true' : 'false')
+			.find('.dze-sec-caret').text(on ? '▾' : '▸');
+		$sec.find('> .dze-sec-body').toggle(on);
+		var m = mem();
+		m.sec = m.sec || {};
+		m.sec[$sec.data('sec')] = on ? 1 : 0;
+		saveMem(m);
+	}
+	$(document).on('click', '.dze-sec-head', function () {
+		var $sec = $(this).closest('.dze-sec');
+		toggleSec($sec, !$sec.hasClass('is-open'));
+	});
+	$(document).on('keydown', '.dze-sec-head', function (e) {
+		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+	});
+
+	// ---- What the price recalculation would actually do ----
+	// "Recalculate from the cost" says nothing about which cost, which table or
+	// which variation. This shows the lot, before anything is written.
+	$(document).on('click', '#dze-cx-pricepv', function () {
+		var $b = $(this).prop('disabled', true);
+		var $box = $('#dze-cx-pricebox').show().html('<span class="dze-cx-spin"></span>');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_price_preview', nonce: cfg.nonce, post: PID,
+			cost: $('#dze-cx-cost').val() || ''
+		})
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $box.html('<p class="is-ko">' + esc((r && r.data && r.data.message) || i18n.error) + '</p>'); return; }
+				var d = r.data, html = '';
+				html += '<p class="description">' + esc(d.explain) + '</p>';
+				if (d.table && d.table.length) {
+					html += '<table class="dze-pricepv"><thead><tr>' +
+						'<th>' + esc(i18n.pvFrom) + '</th><th>' + esc(i18n.pvTo) + '</th><th>' + esc(i18n.pvMult) + '</th>' +
+						'</tr></thead><tbody>' +
+						d.table.map(function (row) {
+							return '<tr' + (row.hit ? ' class="is-hit"' : '') + '><td>' + esc(row.min) + '</td><td>' + esc(row.max) + '</td><td>× ' + esc(row.mult) + '</td></tr>';
+						}).join('') + '</tbody></table>';
+				}
+				if (d.rows && d.rows.length) {
+					html += '<table class="dze-pricepv"><thead><tr>' +
+						'<th>' + esc(i18n.pvWhat) + '</th><th>' + esc(i18n.pvCost) + '</th>' +
+						'<th>' + esc(i18n.pvNow) + '</th><th>' + esc(i18n.pvNew) + '</th>' +
+						'</tr></thead><tbody>' +
+						d.rows.map(function (row) {
+							return '<tr><td>' + esc(row.name) + '</td><td>' + esc(row.cost) + '</td>' +
+								'<td>' + esc(row.now) + '</td><td><strong>' + esc(row.next) + '</strong></td></tr>';
+						}).join('') + '</tbody></table>';
+				}
+				$box.html(html);
+			})
+			.fail(function (x) { $b.prop('disabled', false); $box.html('<p class="is-ko">' + esc(reason(x)) + '</p>'); });
+	});
+
 	function build() {
 		if ($('#dze-cx-modal').length) { return; }
 		var m = mem(), au = m.auto || {};
@@ -177,6 +245,44 @@
 				}).join('') + '</ul></div>'
 			: '';
 
+		// The fast lane, kept whole but now living inside the Images section.
+		var qmLane =
+			'<div class="dze-qm" id="dze-qm">' +
+				'<div class="dze-qm-head">' +
+					'<h4>' + esc(i18n.qmTitle) + '</h4>' +
+					'<button type="button" class="dze-prompt-peek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
+					'<span class="description">' + esc(i18n.qmHelp) + '</span>' +
+				'</div>' +
+				// Three ways in, in the order they are actually used: paste the
+				// image, paste its address, or use the product's own photographs.
+				'<div class="dze-qm-drop" id="dze-qm-drop" tabindex="0">' +
+					'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+					'<img id="dze-qm-src" alt="" style="display:none;" />' +
+					'<button type="button" class="dze-qm-srcdel" id="dze-qm-srcdel" style="display:none;" title="' + esc(i18n.qmClear) + '">&times;</button>' +
+				'</div>' +
+				'<p class="dze-qm-bar">' +
+					'<input type="url" id="dze-qm-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
+					'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span>' +
+						'<select id="dze-qm-bg">' + bgOpts + '</select></label>' +
+				'</p>' +
+				'<p class="dze-qm-bar">' +
+					'<input type="text" id="dze-qm-note" placeholder="' + esc(i18n.qmNote) + '" />' +
+					'<button type="button" class="button button-primary" id="dze-qm-run">' + esc(i18n.qmRun) + '</button>' +
+					'<span class="dze-cx-state" id="dze-qm-state"></span>' +
+				'</p>' +
+				'<div class="dze-qm-out" id="dze-qm-out" style="display:none;">' +
+					'<div class="dze-qm-pair">' +
+						'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-qm-old" class="dze-hzoom" alt="" /></figure>' +
+						'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-qm-shot" class="dze-hzoom" alt="" /></figure>' +
+					'</div>' +
+					'<p>' +
+						'<button type="button" class="button button-primary" id="dze-qm-use">' + esc(i18n.qmUse) + '</button> ' +
+						'<button type="button" class="button" id="dze-qm-again">' + esc(i18n.qmAgain) + '</button>' +
+						'<span class="dze-cx-state" id="dze-qm-usestate"></span>' +
+					'</p>' +
+				'</div>' +
+			'</div>';
+
 		$('body').append(
 		'<div class="dze-cx-modal" id="dze-cx-modal"><div class="dze-cx-dialog">' +
 			'<div class="dze-cx-head"><h2>' + esc(i18n.toolbox) + '</h2>' +
@@ -184,65 +290,46 @@
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button></div>' +
 			'<div class="dze-cx-body">' +
 				blockers +
-				// The fast lane, above everything else: one photograph in, one
-				// catalogue main image out. It is the thing done constantly, so
-				// it does not live three folds down inside the full toolbox.
-				'<div class="dze-qm" id="dze-qm">' +
-					'<div class="dze-qm-head">' +
-						'<h3>' + esc(i18n.qmTitle) + '</h3>' +
-						'<button type="button" class="dze-prompt-peek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
-						'<span class="description">' + esc(i18n.qmHelp) + '</span>' +
-					'</div>' +
-					// Three ways in, in the order they are actually used: paste the
-					// image, paste its address, or use the product's own photographs.
-					'<div class="dze-qm-drop" id="dze-qm-drop" tabindex="0">' +
-						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
-						'<img id="dze-qm-src" alt="" style="display:none;" />' +
-						'<button type="button" class="dze-qm-srcdel" id="dze-qm-srcdel" style="display:none;" title="' + esc(i18n.qmClear) + '">&times;</button>' +
-					'</div>' +
-					'<p class="dze-qm-bar">' +
-						'<input type="url" id="dze-qm-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
-						'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span>' +
-							'<select id="dze-qm-bg">' + bgOpts + '</select></label>' +
-					'</p>' +
-					'<p class="dze-qm-bar">' +
-						'<input type="text" id="dze-qm-note" placeholder="' + esc(i18n.qmNote) + '" />' +
-						'<button type="button" class="button button-primary" id="dze-qm-run">' + esc(i18n.qmRun) + '</button>' +
-						'<span class="dze-cx-state" id="dze-qm-state"></span>' +
-					'</p>' +
-					'<div class="dze-qm-out" id="dze-qm-out" style="display:none;">' +
-						'<div class="dze-qm-pair">' +
-							'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-qm-old" class="dze-hzoom" alt="" /></figure>' +
-							'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-qm-shot" class="dze-hzoom" alt="" /></figure>' +
-						'</div>' +
-						'<p>' +
-							'<button type="button" class="button button-primary" id="dze-qm-use">' + esc(i18n.qmUse) + '</button> ' +
-							'<button type="button" class="button" id="dze-qm-again">' + esc(i18n.qmAgain) + '</button>' +
-							'<span class="dze-cx-state" id="dze-qm-usestate"></span>' +
-						'</p>' +
-					'</div>' +
-				'</div>' +
+				// Grouped by KIND, one shut section each: text with text, images
+				// with images, price on its own. Everything open at once is how
+				// this popup became impossible to read.
 				'<div class="dze-cb-controls">' +
-					'<div class="dze-cb-block"><h3>' + esc(i18n.text) + '</h3>' +
-						'<div class="dze-cb-checks">' + checks + '</div></div>' +
-					'<div class="dze-cb-block"><h3>' + esc(i18n.price) + '</h3>' +
+
+					// ---- TEXT ----
+					sec('text', i18n.text, true,
+						'<div class="dze-cb-checks is-col">' + checks + '</div>'
+					) +
+
+					// ---- IMAGES ---- the main image lane and the extra shots
+					// belong to the same subject and now live together.
+					sec('img', i18n.image, false,
+						qmLane +
+						(cfg.templates.length ?
+						'<div class="dze-cb-sub">' +
+							'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
+							'<span>' + esc(i18n.genImgOpt) + '</span></label>' +
+							'<div class="dze-cb-opts">' +
+								'<label><span>' + esc(i18n.template) + '</span><span class="dze-tplrows" id="dze-cx-tplrows"></span></label>' +
+								sceneSel +
+								'<label><span>' + esc(i18n.attempts) + '</span><select id="dze-cx-imgn">' +
+									[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) === n ? ' selected' : '') + '>× ' + n + '</option>'; }).join('') +
+								'</select></label>' +
+							'</div>' +
+						'</div>' : '')
+					) +
+
+					// ---- PRICE ---- shut, and it says what it will do before
+					// it does it: the table it reads, and every variation it
+					// would rewrite, with the figures.
+					sec('price', i18n.price, false,
 						'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doprice"' + (au.price ? ' checked' : '') + ' />' +
 						'<span>' + esc(i18n.priceOpt) + '</span></label>' +
 						'<div class="dze-cb-opts"><label><span>' + esc(i18n.costLabel) + '</span>' +
-						'<input type="number" step="0.01" id="dze-cx-cost" value="' + esc(cfg.product.price) + '" /></label></div>' +
-					'</div>' +
-					(cfg.templates.length ?
-					'<div class="dze-cb-block"><h3>' + esc(i18n.image) + '</h3>' +
-						'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
-						'<span>' + esc(i18n.genImgOpt) + '</span></label>' +
-						'<div class="dze-cb-opts">' +
-							'<label><span>' + esc(i18n.template) + '</span><span class="dze-tplrows" id="dze-cx-tplrows"></span></label>' +
-							sceneSel +
-							'<label><span>' + esc(i18n.attempts) + '</span><select id="dze-cx-imgn">' +
-								[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) === n ? ' selected' : '') + '>× ' + n + '</option>'; }).join('') +
-							'</select></label>' +
-						'</div>' +
-					'</div>' : '') +
+						'<input type="number" step="0.01" id="dze-cx-cost" value="' + esc(cfg.product.price) + '" /></label>' +
+						'<button type="button" class="button button-small" id="dze-cx-pricepv">' + esc(i18n.pricePreview) + '</button></div>' +
+						'<div class="dze-cx-pricebox" id="dze-cx-pricebox" style="display:none;"></div>'
+					) +
+
 					'<p class="dze-cb-actions">' +
 						'<button type="button" class="button button-primary button-hero" id="dze-cx-run">' + esc(i18n.launch) + '</button>' +
 						'<span class="dze-cx-state" id="dze-cx-runstate"></span>' +
