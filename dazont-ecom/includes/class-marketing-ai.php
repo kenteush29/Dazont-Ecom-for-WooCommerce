@@ -487,6 +487,33 @@ final class DZE_Marketing_Ai {
 		} else { // events.
 			$this->render_settings_section( 'events' );
 		}
+		// A link that lands on a field inside a shut block would land on nothing:
+		// every ancestor of the target is opened, then it is scrolled to and
+		// flashed. This is what keeps "edit these instructions" working now that
+		// the settings are folded away by default.
+		?>
+		<script>
+		jQuery( function ( $ ) {
+			function reveal() {
+				var id = window.location.hash.replace( '#', '' );
+				if ( ! id ) { return; }
+				var el = document.getElementById( id );
+				if ( ! el ) { return; }
+				$( el ).parents( 'details' ).prop( 'open', true );
+				// A prompt card is not a <details>: it opens on its own button.
+				var $card = $( el ).closest( '.dze-prb' );
+				if ( $card.length && ! $card.hasClass( 'is-open' ) ) { $card.find( '.dze-prb-toggle' ).trigger( 'click' ); }
+				window.setTimeout( function () {
+					el.scrollIntoView( { behavior: 'smooth', block: 'center' } );
+					$( el ).addClass( 'dze-flash' );
+					window.setTimeout( function () { $( el ).removeClass( 'dze-flash' ); }, 1600 );
+				}, 60 );
+			}
+			reveal();
+			$( window ).on( 'hashchange', reveal );
+		} );
+		</script>
+		<?php
 		echo '</div>';
 	}
 
