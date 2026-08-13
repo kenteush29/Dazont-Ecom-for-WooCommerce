@@ -399,9 +399,7 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'content' ) ) {
 			$tabs['content'] = __( 'Product content', 'dazont-ecom' );
 		}
-		if ( $mod_on( 'pod' ) ) {
-			$tabs['pod'] = __( 'POD', 'dazont-ecom' );
-		}
+
 		if ( $mod_on( 'gmc_activation' ) ) {
 			$tabs['gmc_activation'] = __( 'GMC activation', 'dazont-ecom' );
 		}
@@ -460,10 +458,7 @@ final class DZE_Marketing_Ai {
 			if ( class_exists( 'DZE_Content' ) && $mod_on( 'content' ) ) {
 				DZE_Content::instance()->render_settings_section();
 			}
-		} elseif ( 'pod' === $tab ) {
-			if ( class_exists( 'DZE_Pod' ) && $mod_on( 'pod' ) ) {
-				DZE_Pod::instance()->render_settings();
-			}
+
 		} elseif ( 'gmc_activation' === $tab ) {
 			if ( class_exists( 'DZE_Gmc_Activation' ) && $mod_on( 'gmc_activation' ) ) {
 				DZE_Gmc_Activation::instance()->render_settings();

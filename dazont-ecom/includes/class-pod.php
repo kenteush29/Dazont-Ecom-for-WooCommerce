@@ -91,7 +91,13 @@ PROMPT;
 	}
 
 	/** Settings tab body (invoked from the Settings page). */
-	public function render_settings(): void {
+	/**
+	 * The POD settings, drawn inside Product content.
+	 *
+	 * @param bool $intro whether to print the explanatory paragraph — the host
+	 *                    section says it already when it embeds this.
+	 */
+	public function render_settings( bool $intro = true ): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
@@ -99,9 +105,11 @@ PROMPT;
 		$thumb = $mid ? wp_get_attachment_image_url( $mid, 'medium' ) : '';
 		?>
 		<div class="dze-admin dze-pod-settings">
+		<?php if ( $intro ) : ?>
 		<p class="description" style="max-width:860px;">
 			<?php esc_html_e( 'Print on demand: upload a design (PNG) on any product, then one dedicated prompt asks the AI to print it on your base product. Store your base mockup here once — when none is set, the product\'s own featured image is used as the base.', 'dazont-ecom' ); ?>
 		</p>
+		<?php endif; ?>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_pod_options' ); ?>
 			<table class="form-table" role="presentation">

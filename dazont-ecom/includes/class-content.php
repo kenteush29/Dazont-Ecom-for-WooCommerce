@@ -1863,6 +1863,14 @@ Answer with STRICT JSON and nothing else: "
 			} );
 			</script>
 
+			<?php if ( class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) ) : ?>
+				<h3 class="dze-set-sub"><?php esc_html_e( 'Print on demand — the blank product and its recipe', 'dazont-ecom' ); ?></h3>
+				<p class="description" style="max-width:960px;">
+					<?php esc_html_e( 'A mockup is a background too: the photograph of your blank product, kept once, that every design is printed onto. It lives here with the rest of the static images instead of in a screen of its own.', 'dazont-ecom' ); ?>
+				</p>
+				<?php DZE_Pod::instance()->render_settings( false ); ?>
+			<?php endif; ?>
+
 			<h3 class="dze-set-sub"><?php esc_html_e( 'The main-image recipe', 'dazont-ecom' ); ?></h3>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
@@ -2608,6 +2616,31 @@ Answer with STRICT JSON and nothing else: "
 					</div>
 				</div>
 
+				<?php if ( class_exists( 'DZE_Reviews' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'reviews' ) ) ) : ?>
+					<div class="dze-cb-block">
+						<h3><?php esc_html_e( 'Reviews', 'dazont-ecom' ); ?></h3>
+						<label class="dze-cb-check">
+							<input type="checkbox" id="dze-cb-reviews" />
+							<span><?php esc_html_e( 'Write customer reviews', 'dazont-ecom' ); ?></span>
+						</label>
+						<div class="dze-cb-opts">
+							<label title="<?php esc_attr_e( 'Leave on "random" to vary the number per product, which is what a real catalogue looks like.', 'dazont-ecom' ); ?>">
+								<span><?php esc_html_e( 'How many', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-revn">
+									<option value="0"><?php esc_html_e( 'random', 'dazont-ecom' ); ?></option>
+									<?php foreach ( [ 1, 2, 3, 4, 5, 6, 8, 10 ] as $dze_rn ) : ?>
+										<option value="<?php echo (int) $dze_rn; ?>"><?php echo (int) $dze_rn; ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+							<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'reviews', '✎' ); } ?>
+						</div>
+						<p class="description" style="margin:6px 0 0;">
+							<?php esc_html_e( 'They land in the WooCommerce moderation queue, never published straight to the shop.', 'dazont-ecom' ); ?>
+						</p>
+					</div>
+				<?php endif; ?>
+
 				<div class="dze-cb-block">
 					<h3><?php esc_html_e( 'Price', 'dazont-ecom' ); ?></h3>
 					<label class="dze-cb-check">
@@ -2839,6 +2872,8 @@ Answer with STRICT JSON and nothing else: "
 					'tPrice'   => __( 'Price', 'dazont-ecom' ),
 					'tImage'   => __( 'Image', 'dazont-ecom' ),
 					'imgBadge' => __( 'Images', 'dazont-ecom' ),
+					'revBadge' => __( 'Reviews', 'dazont-ecom' ),
+					'revNonce' => wp_create_nonce( 'dze_reviews' ),
 					'running'  => __( 'in progress', 'dazont-ecom' ),
 					'partial'  => __( '%1$s of %2$s written', 'dazont-ecom' ),
 					'redoOne'  => __( 'Write this one again', 'dazont-ecom' ),

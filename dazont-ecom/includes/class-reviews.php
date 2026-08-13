@@ -43,6 +43,10 @@ final class DZE_Reviews {
 		add_filter( 'manage_edit-product_columns', [ $this, 'add_column' ], 21 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'render_column' ], 10, 2 );
 		add_action( 'admin_footer-edit.php', [ $this, 'list_modal' ] );
+		// The same panel on the product screen itself: reviews are worked on
+		// where the reviews are, not only from the list.
+		add_action( 'admin_footer-post.php', [ $this, 'list_modal' ] );
+		add_action( 'admin_footer-post-new.php', [ $this, 'list_modal' ] );
 		// Bulk action → runs on the products list itself.
 		add_filter( 'bulk_actions-edit-product', [ $this, 'register_bulk_action' ] );
 		add_filter( 'handle_bulk_actions-edit-product', [ $this, 'handle_bulk_action' ], 10, 3 );
@@ -582,7 +586,7 @@ PROMPT;
 
 	public function enqueue( string $hook ): void {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( ! $screen || 'product' !== $screen->post_type || 'edit' !== $screen->base ) {
+		if ( ! $screen || 'product' !== $screen->post_type || ! in_array( $screen->base, [ 'edit', 'post' ], true ) ) {
 			return;
 		}
 		// A bulk action just queued a selection: hand it to the runner once.
@@ -600,6 +604,10 @@ PROMPT;
 		wp_localize_script( 'dze-reviews', 'dzeReviews', [
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'nonce'      => wp_create_nonce( self::NONCE ),
+			// On a product screen: the id of the product, so the button planted
+			// in the Reviews box knows which product it is talking about.
+			'postId'     => ( 'post' === $screen->base ) ? (int) get_the_ID() : 0,
+			'plantLabel' => __( 'Write reviews with AI', 'dazont-ecom' ),
 			'queue'      => $queue,
 			'reviewsUrl' => self::reviews_url( 'moderated' ),
 			'i18n'       => [

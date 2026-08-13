@@ -60,7 +60,7 @@
 		if ($('#dze-cb-par').length) { m.par = parseInt($('#dze-cb-par').val(), 10); }
 		saveMem(m);
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par, #dze-cb-reviews, #dze-cb-revn', persist);
 	// One prompt by default, a + to add another when a product needs two kinds
 	// of shot. Every row runs on every product of the list.
 	function tplRow(value) {
@@ -894,6 +894,25 @@
 		applyProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
 	});
 
+	function reviewsTask(id, count) {
+		step(id, i18n.revBadge);
+		return $.post(cfg.ajaxUrl, {
+			action: 'dze_reviews_generate', nonce: cfg.revNonce,
+			post: id, count: count, direct: 1
+		})
+			.then(function (r) {
+				if (!r || !r.success) {
+					note(id, (r && r.data && r.data.message) || i18n.error, true);
+					return $.Deferred().reject().promise();
+				}
+				badge(id, 'reviews', i18n.revBadge + ' ×' + (r.data.created || 0));
+				return true;
+			}, function (x) {
+				note(id, reason(x), true);
+				return $.Deferred().reject().promise();
+			});
+	}
+
 	// =====================================================================
 	// The run
 	// =====================================================================
@@ -914,9 +933,11 @@
 		var tplList = tpls();
 		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled') && tplList.length > 0;
 		var imgN = parseInt($('#dze-cb-imgn').val(), 10) || 1;
+		var doRev = $('#dze-cb-reviews').is(':checked');
+		var revN = parseInt($('#dze-cb-revn').val(), 10) || 0;
 		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
 
-		if (!fields.length && !doPrice && !doImg) {
+		if (!fields.length && !doPrice && !doImg && !doRev) {
 			window.alert(i18n.noFields);
 			return;
 		}
@@ -936,7 +957,7 @@
 		});
 		refreshApplyBar();
 
-		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0);
+		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0) + (doRev ? 1 : 0);
 		// A product already holding content nobody has decided on is left alone:
 		// writing over it would charge for the same work twice and throw the
 		// first result away. Redoing one on purpose is what its ↻ is for, and
@@ -966,6 +987,7 @@
 				if (fields.length) { chain = chain.then(function () { return textAllTask(id, fields, reviewMode); }); }
 				if (doPrice) { chain = chain.then(function () { return priceTask(id); }); }
 				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, imgN, tplList); }); }
+				if (doRev) { chain = chain.then(function () { return reviewsTask(id, revN); }); }
 				return chain;
 			});
 		});
