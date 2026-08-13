@@ -256,7 +256,9 @@
 				// Three ways in, in the order they are actually used: paste the
 				// image, paste its address, or use the product's own photographs.
 				'<div class="dze-qm-drop" id="dze-qm-drop" tabindex="0">' +
-					'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+					'<button type="button" class="button button-small dze-qm-browse">' + esc(i18n.qmBrowse) + '</button>' +
+					'<input type="file" accept="image/*" class="dze-qm-file" hidden />' +
 					'<img id="dze-qm-src" alt="" style="display:none;" />' +
 					'<button type="button" class="dze-qm-srcdel" id="dze-qm-srcdel" style="display:none;" title="' + esc(i18n.qmClear) + '">&times;</button>' +
 				'</div>' +
@@ -1244,7 +1246,9 @@
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
-						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+	'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+					'<button type="button" class="button button-small dze-qm-browse">' + esc(i18n.qmBrowse) + '</button>' +
+					'<input type="file" accept="image/*" class="dze-qm-file" hidden />' +
 						'<img id="dze-one-src" alt="" style="display:none;" />' +
 					'</div>' +
 				'</div>' +
@@ -1436,6 +1440,22 @@
 		};
 		fr.readAsDataURL(file);
 	}
+	// Choosing a file from the computer is the same road as pasting one: it is
+	// read in the browser and travels as bytes inside the request. Nothing is
+	// uploaded to the media library, so the site stores nothing for an image
+	// that is only a source.
+	$(document).on('click', '.dze-qm-browse', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		$(this).closest('.dze-qm-drop').find('.dze-qm-file').trigger('click');
+	});
+	$(document).on('change', '.dze-qm-file', function () {
+		var file = this.files && this.files[0];
+		this.value = '';
+		if (!file) { return; }
+		if ($(this).closest('#dze-one-drop').length) { oneReadFile(file); }
+		else { qmReadFile(file); }
+	});
 	$(document).on('dragover', '#dze-one-drop', function (e) { e.preventDefault(); $(this).addClass('is-over'); });
 	$(document).on('dragleave drop', '#dze-one-drop', function () { $(this).removeClass('is-over'); });
 	$(document).on('drop', '#dze-one-drop', function (e) {
