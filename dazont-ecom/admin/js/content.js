@@ -261,7 +261,6 @@
 					'<button type="button" class="dze-qm-srcdel" id="dze-qm-srcdel" style="display:none;" title="' + esc(i18n.qmClear) + '">&times;</button>' +
 				'</div>' +
 				'<p class="dze-qm-bar">' +
-					'<input type="url" id="dze-qm-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
 					'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span>' +
 						'<select id="dze-qm-bg">' + bgOpts + '</select></label>' +
 					'<button type="button" class="button button-small dze-bg-add" data-for="dze-qm-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
@@ -935,7 +934,6 @@
 		$('#dze-qm-srcdel').toggle(!!qmPaste);
 		$('#dze-qm-drop').toggleClass('has-img', !!qmPaste)
 			.find('.dze-qm-dropmsg').text(qmPaste ? i18n.qmPasted : i18n.qmPaste);
-		if (qmPaste) { $('#dze-qm-url').val(''); }
 	}
 	function qmReadFile(file) {
 		if (!file || !/^image\//.test(file.type)) { return; }
@@ -966,7 +964,6 @@
 		$('#dze-qm-usestate').text('');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-			url: $('#dze-qm-url').val() || '',
 			paste: qmPaste,
 			bg: $('#dze-qm-bg').val() || 0,
 			note: $('#dze-qm-note').val() || ''
@@ -984,7 +981,7 @@
 			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 	}
 	$(document).on('click', '#dze-qm-run, #dze-qm-again', qmRun);
-	$(document).on('keydown', '#dze-qm-url, #dze-qm-note', function (e) {
+	$(document).on('keydown', '#dze-qm-note', function (e) {
 		if (e.key === 'Enter') { e.preventDefault(); qmRun(); }
 	});
 
@@ -1097,7 +1094,6 @@
 						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
 						'<img id="dze-one-src" alt="" style="display:none;" />' +
 					'</div>' +
-					'<p class="dze-qm-bar"><input type="url" id="dze-one-url" placeholder="' + esc(i18n.qmUrl) + '" /></p>' +
 				'</div>' +
 			'</div>' +
 
@@ -1258,7 +1254,7 @@
 		// The box to paste into belongs to that tile: it is on screen when the
 		// tile is chosen, and out of the way the rest of the time.
 		$('#dze-one-elsewrap').toggle(outside);
-		if (!outside) { oneShowPasted(''); $('#dze-one-url').val(''); }
+		if (!outside) { oneShowPasted(''); }
 		else { $('#dze-one-drop').trigger('focus'); }
 		// Only a photograph of the product can be retired by its own remake.
 		$('#dze-one-replacewrap').toggle(!!id);
@@ -1273,7 +1269,6 @@
 			.find('.dze-qm-dropmsg').text(one.paste ? i18n.qmPasted : i18n.qmPaste);
 		$('#dze-one-newthumb').attr('src', one.paste).toggle(!!one.paste);
 		$('.dze-one-srcnew .dze-one-newmsg').toggle(!one.paste);
-		if (one.paste) { $('#dze-one-url').val(''); }
 	}
 	function oneReadFile(file) {
 		if (!file || !/^image\//.test(file.type)) { return; }
@@ -1333,7 +1328,7 @@
 		if (one.mode === 'image') {
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-				url: $('#dze-one-url').val() || '', paste: one.paste || '',
+				paste: one.paste || '',
 				src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 				bg: $('#dze-one-bg').val() || 0, prompt: prompt
 			})

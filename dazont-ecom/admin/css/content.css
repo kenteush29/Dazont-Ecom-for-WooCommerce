@@ -942,3 +942,13 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-one-srcnew img { width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
 .dze-one-srcnew .dze-one-newmsg { padding: 0 8px; }
 #dze-one-elsewrap { margin-top: 10px; }
+
+/* The main-image recipe, in the one list of prompts. It is not a registry
+   row — no name to type, no destination to choose, nothing to delete — so
+   it shows what it is instead of offering controls that do not apply. */
+.dze-prb-fixedname { flex: 0 1 260px; min-width: 0; font-weight: 600; }
+.dze-prb-always {
+	font-size: 11px; color: #0a7040; background: #edf7f0; border: 1px solid #cde6d6;
+	border-radius: 10px; padding: 1px 8px;
+}
+.dze-pr-fixed { border-left: 3px solid #2271b1; }

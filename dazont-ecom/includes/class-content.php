@@ -1924,16 +1924,6 @@ Answer with STRICT JSON and nothing else: "
 				<?php DZE_Pod::instance()->render_settings( false, false ); ?>
 			<?php endif; ?>
 
-			<h3 class="dze-set-sub"><?php esc_html_e( 'The main-image recipe', 'dazont-ecom' ); ?></h3>
-			<p class="description" style="max-width:900px;">
-				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
-			</p>
-			<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="5" class="large-text code"><?php echo esc_textarea( self::quick_prompt() ); ?></textarea>
-			<p class="description">
-				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
-				<button type="button" class="button-link" id="dze-ct-quick-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-			</p>
-
 			</details>
 
 			<details class="dze-set" open>
@@ -1964,9 +1954,37 @@ Answer with STRICT JSON and nothing else: "
 			<div id="dze-pr">
 			<?php foreach ( $dze_groups as $dze_g => $dze_glabel ) : ?>
 				<h3 class="dze-pr-grouphead"><?php echo esc_html( $dze_glabel ); ?>
-					<span class="description">(<?php echo (int) count( $dze_map[ $dze_g ] ?? [] ); ?>)</span>
+					<span class="description">(<?php echo (int) count( $dze_map[ $dze_g ] ?? [] ) + ( 'image' === $dze_g ? 1 : 0 ); ?>)</span>
 				</h3>
 				<div class="dze-prlist" data-group="<?php echo esc_attr( $dze_g ); ?>">
+				<?php if ( 'image' === $dze_g ) : ?>
+					<?php
+					// The main-image recipe is a prompt like the others and belongs
+					// in the one list of prompts, even though it is stored in a
+					// setting of its own rather than as a registry row. It was in
+					// the Backgrounds section, which is not where anybody looks for
+					// a prompt. It cannot be renamed, moved or removed: the Main
+					// image lane always has exactly this one recipe behind it.
+					?>
+					<div class="dze-prb dze-pr-fixed" id="dze-pr-row-quick_main">
+						<div class="dze-prb-head">
+							<span class="dze-prb-name dze-prb-fixedname"><?php esc_html_e( 'Main image (the shop recipe)', 'dazont-ecom' ); ?></span>
+							<span class="dze-prb-dest"><?php esc_html_e( 'Main image', 'dazont-ecom' ); ?></span>
+							<span class="dze-prb-flags"><span class="dze-prb-always" title="<?php esc_attr_e( 'Always on: the Main image lane runs this recipe', 'dazont-ecom' ); ?>"><?php esc_html_e( 'always on', 'dazont-ecom' ); ?></span></span>
+							<button type="button" class="dze-prb-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
+						</div>
+						<div class="dze-prb-body" style="display:none;">
+							<p class="description" style="max-width:900px;margin-top:0;">
+								<?php esc_html_e( 'One photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares. The background is chosen at generation time, from the shelf above.', 'dazont-ecom' ); ?>
+							</p>
+							<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="8" class="large-text code"><?php echo esc_textarea( self::quick_prompt() ); ?></textarea>
+							<p class="description">
+								<?php esc_html_e( 'Empty = shipped default.', 'dazont-ecom' ); ?>
+								<button type="button" class="button-link" id="dze-ct-quick-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							</p>
+						</div>
+					</div>
+				<?php endif; ?>
 				<?php foreach ( (array) ( $dze_map[ $dze_g ] ?? [] ) as $dze_ri => $r ) :
 					$sel_in = (array) ( $r['inputs'] ?? [] ); ?>
 					<div class="dze-prb dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
@@ -3119,7 +3137,6 @@ Answer with STRICT JSON and nothing else: "
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
 				'qmHelp'     => __( 'One photograph in, one catalogue shot out: the product straight-on, on the shop\'s grey, ready to be the main image.', 'dazont-ecom' ),
-				'qmUrl'      => __( 'Paste an image address (optional — otherwise the product\'s own photographs are used)', 'dazont-ecom' ),
 				'qmNote'     => __( 'Anything to add? e.g. "front view, zip closed"', 'dazont-ecom' ),
 				'qmRun'      => __( 'Make the main image', 'dazont-ecom' ),
 				'qmWorking'  => __( 'Shooting…', 'dazont-ecom' ),
@@ -3820,50 +3837,6 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/**
-	 * Reads an image from the web and returns it as a data URI.
-	 *
-	 * Used by the quick main-image lane: the photograph often lives on a
-	 * supplier page and is not worth importing into the media library just to
-	 * be reshot. Nothing about that URL is stored — only the bytes travel, to
-	 * fal, once.
-	 *
-	 * wp_safe_remote_get is the point: it refuses loopback and private
-	 * addresses, so a URL pasted into this box cannot be used to make the shop
-	 * fetch something on its own network.
-	 */
-	public function fetch_remote_image( string $url ): string {
-		$url = trim( $url );
-		if ( ! preg_match( '#^https?://#i', $url ) || ! wp_http_validate_url( $url ) ) {
-			throw new RuntimeException( __( 'That is not a valid image address.', 'dazont-ecom' ) );
-		}
-		$res = wp_safe_remote_get( $url, [
-			'timeout'     => 20,
-			'redirection' => 2,
-			'headers'     => [ 'Accept' => 'image/*' ],
-		] );
-		if ( is_wp_error( $res ) ) {
-			throw new RuntimeException( $res->get_error_message() );
-		}
-		if ( 200 !== (int) wp_remote_retrieve_response_code( $res ) ) {
-			throw new RuntimeException( __( 'That address did not return an image.', 'dazont-ecom' ) );
-		}
-		$type = strtolower( (string) wp_remote_retrieve_header( $res, 'content-type' ) );
-		$body = (string) wp_remote_retrieve_body( $res );
-		if ( '' === $body || strlen( $body ) > self::MAX_REMOTE ) {
-			throw new RuntimeException( __( 'That image is empty, or too heavy to send.', 'dazont-ecom' ) );
-		}
-		// The header is a claim; the bytes are the proof.
-		$info = @getimagesizefromstring( $body ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a corrupt file answers false, which is the test.
-		if ( ! $info || empty( $info['mime'] ) || 0 !== strpos( (string) $info['mime'], 'image/' ) ) {
-			throw new RuntimeException( __( 'That address did not return an image.', 'dazont-ecom' ) );
-		}
-		if ( '' !== $type && 0 !== strpos( $type, 'image/' ) ) {
-			throw new RuntimeException( __( 'That address did not return an image.', 'dazont-ecom' ) );
-		}
-		return 'data:' . $info['mime'] . ';base64,' . base64_encode( $body );
-	}
-
-	/**
 	 * Validates an image that arrived as a data URI and hands it back clean.
 	 *
 	 * Same checks as an image read from the web — the bytes have to BE an
@@ -4030,7 +4003,6 @@ Answer with STRICT JSON and nothing else: "
 	public function ajax_quick_main(): void {
 		$this->guard();
 		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$web  = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
 		$note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
 		// A recipe typed for this run only, never saved unless asked.
 		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
@@ -4062,13 +4034,11 @@ Answer with STRICT JSON and nothing else: "
 			if ( $src_id && wp_attachment_is_image( $src_id ) ) {
 				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
 			} elseif ( '' !== $paste ) {
-				// The fastest path there is: the photograph is already in the
-				// request, straight from the clipboard.
+				// The photograph is already in the request, straight from the
+				// clipboard or dropped from the desktop — and it is THE subject:
+				// sending the product's other images beside it would only invite
+				// the model to blend them.
 				$sources[] = self::read_data_uri( $paste );
-			} elseif ( '' !== $web ) {
-				// A pasted photograph is THE subject: sending the product's other
-				// images beside it would only invite the model to blend them.
-				$sources[] = $this->fetch_remote_image( $web );
 			} else {
 				// The product's own photographs, main first. Two are enough here:
 				// this lane is about speed, and the shape of a product is settled
