@@ -2666,7 +2666,7 @@ Answer with STRICT JSON and nothing else: "
 				     next to it: the flat list of checkboxes and floating selects
 				     made it impossible to tell what belonged to what. -->
 				<?php self::sec_open( 'text', __( 'Texts', 'dazont-ecom' ) ); ?>
-					<div class="dze-cb-checks">
+					<div class="dze-cb-checks is-col">
 						<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
 							<span class="dze-cb-checkline">
 								<label class="dze-cb-check<?php echo $fok ? '' : ' is-locked'; ?>" title="<?php echo $fok ? '' : esc_attr__( 'Prompt not validated — locked for bulk.', 'dazont-ecom' ); ?>">
@@ -3255,6 +3255,7 @@ Answer with STRICT JSON and nothing else: "
 				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
 				// The three questions the image workshop asks, in order.
 				'stepWhat'   => __( 'What are we making?', 'dazont-ecom' ),
+				'notValidHere' => __( 'This prompt is not validated: bulk refuses it. You can still run it here — trying it on one product, with the result in front of you, is how you decide to validate it.', 'dazont-ecom' ),
 				// The request has two halves: the instructions, and what the
 				// model is told about this product.
 				'panePrompt' => __( 'The instructions', 'dazont-ecom' ),
