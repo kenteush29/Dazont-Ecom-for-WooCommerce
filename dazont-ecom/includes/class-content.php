@@ -2028,7 +2028,7 @@ Answer with STRICT JSON and nothing else: "
 
 			</details>
 
-			<details class="dze-set">
+			<details class="dze-set" id="dze-set-price">
 			<summary><?php esc_html_e( 'Price table — cost × multiplier, set once', 'dazont-ecom' ); ?></summary>
 			<p class="description"><?php esc_html_e( 'The current/import price is treated as the cost (COGS, also written to WooCommerce\'s Cost of Goods field); the matching multiplier sets the regular price. Use 0 as the upper bound of the last range for "no limit".', 'dazont-ecom' ); ?></p>
 			<table class="widefat striped dze-price-table" id="dze-pt">
@@ -2735,6 +2735,10 @@ Answer with STRICT JSON and nothing else: "
 				self::scenes()
 			),
 			'sceneDef'   => self::default_scene(),
+			// Straight to the table the recalculation reads, from where it is used.
+			'priceUrl'   => class_exists( 'DZE_Marketing_Ai' )
+				? add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'content' ], admin_url( 'admin.php' ) ) . '#dze-set-price'
+				: '',
 			// The surfaces the Main image lane can put a product on: the shop's
 			// own plate first, then any scene already configured.
 			'backdrops'  => array_values( array_filter( array_merge(
@@ -2841,6 +2845,7 @@ Answer with STRICT JSON and nothing else: "
 				'pvCost'     => __( 'Cost used', 'dazont-ecom' ),
 				'pvNow'      => __( 'Price today', 'dazont-ecom' ),
 				'pvNew'      => __( 'Would become', 'dazont-ecom' ),
+				'pvEdit'     => __( 'Edit the price table', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),

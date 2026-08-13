@@ -330,7 +330,11 @@
 						'<span>' + esc(i18n.priceOpt) + '</span></label>' +
 						'<div class="dze-cb-opts"><label><span>' + esc(i18n.costLabel) + '</span>' +
 						'<input type="number" step="0.01" id="dze-cx-cost" value="' + esc(cfg.product.price) + '" /></label>' +
-						'<button type="button" class="button button-small" id="dze-cx-pricepv">' + esc(i18n.pricePreview) + '</button></div>' +
+						'<button type="button" class="button button-small" id="dze-cx-pricepv">' + esc(i18n.pricePreview) + '</button>' +
+						// The table this reads from, one click away from where it is
+						// used — not hunted for in a settings tab.
+						(cfg.priceUrl ? '<a class="dze-cx-priceedit" href="' + esc(cfg.priceUrl) + '" target="_blank" rel="noopener">' + esc(i18n.pvEdit) + ' →</a>' : '') +
+						'</div>' +
 						'<div class="dze-cx-pricebox" id="dze-cx-pricebox" style="display:none;"></div>'
 					) +
 

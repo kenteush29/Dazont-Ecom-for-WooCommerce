@@ -369,6 +369,17 @@
 .dze-cb-checks.is-col .dze-cb-checkline { width: 100%; }
 .dze-cb-sub { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f1; }
 
+/* Landing on a field from a link: it opens its block, then says where it is. */
+.dze-flash {
+	animation: dze-flash 1.6s ease-out;
+	border-radius: 4px;
+}
+@keyframes dze-flash {
+	0%, 40% { box-shadow: 0 0 0 3px #f0c33c; background: #fcf3d4; }
+	100%    { box-shadow: 0 0 0 3px rgba(240,195,60,0); background: transparent; }
+}
+.dze-cx-priceedit { font-size: 12px; margin-left: 10px; white-space: nowrap; }
+
 /* What the price recalculation would do, before it does it. */
 .dze-cx-pricebox { margin-top: 10px; }
 .dze-cx-pricebox .is-ko { color: #b32d2e; }
