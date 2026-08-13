@@ -1054,10 +1054,12 @@
 		$(document).on('click', '#dze-one', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
 	}
 
-	function openOne(fid, mode) {
+	function openOne(fid, mode, scope) {
 		oneBuild();
-		one = { fid: fid, mode: mode || 'text', value: '', url: '' };
-		var label = mode === 'image' ? i18n.qmTitle : (cfg.fields[fid] || fid);
+		one = { fid: fid, mode: mode || 'text', value: '', url: '', scope: scope || 'main' };
+		var label = mode === 'image'
+			? (one.scope === 'gallery' ? i18n.oneGallery : i18n.qmTitle)
+			: (cfg.fields[fid] || fid);
 		$('#dze-one-title').text(label);
 		$('#dze-one-peek').html('<button type="button" class="dze-prompt-peek" data-prompt="' +
 			(mode === 'image' ? 'quick_main' : 'content_' + esc(fid)) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>');
@@ -1066,36 +1068,54 @@
 		$('#dze-one-savestate').text('');
 		$('#dze-one-state').removeClass('is-ko').text('');
 		$('#dze-one-apply').hide().text(i18n.oneApply);
-		$('#dze-one-gen').text(mode === 'image' ? i18n.oneMain : i18n.oneGen);
+		$('#dze-one-gen').text(mode === 'image'
+			? (one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain)
+			: i18n.oneGen);
 		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : '');
 		$('#dze-one').addClass('is-open');
-		if (mode === 'image') { one.srcId = 0; one.paste = ''; oneDrawSources(); }
+		if (mode === 'image') {
+			one.srcId = 0; one.paste = '';
+			oneDrawRecipes();
+			oneSetRecipe(oneRecipes()[0] ? String(oneRecipes()[0].id) : '');
+			oneDrawSources();
+		}
 		if (mode === 'text') { oneShowBefore(fid); }
 	}
 
-	// The image workshop: which photograph to work from, which recipe to run,
-	// where the result goes — and whether the photograph it replaces is kept.
+	// The image workshop, as three plain questions asked in the order they get
+	// answered: what are we making, from which photograph, on which surface.
+	// It used to open on two dropdowns, a paste box and a URL field before it
+	// said what any of it was for.
 	function oneImageBody() {
-		var recipes = (cfg.templates || []).map(function (t) {
-			return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
-		}).join('');
 		return '<div class="dze-one-img">' +
-			'<p class="dze-qm-bar">' +
-				'<label class="dze-qm-bglabel"><span>' + esc(i18n.imgRecipe) + '</span>' +
-					'<select id="dze-one-recipe"><option value="">' + esc(i18n.imgMainR) + '</option>' + recipes + '</select></label>' +
-				'<button type="button" class="dze-prompt-peek" id="dze-one-recipepeek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
-				'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span><select id="dze-one-bg">' + bgOptions() + '</select></label>' +
-				'<button type="button" class="button button-small dze-bg-add" data-for="dze-one-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
-			'</p>' +
-			'<p class="dze-cb-nowlabel">' + esc(i18n.imgSource) + '</p>' +
-			'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
-			'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
-				'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
-				'<img id="dze-one-src" alt="" style="display:none;" />' +
+			'<input type="hidden" id="dze-one-recipe" value="" />' +
+			'<input type="hidden" id="dze-one-bg" value="' + esc(String(defaultBg())) + '" />' +
+
+			'<div class="dze-step">' +
+				'<p class="dze-step-q"><span class="dze-step-n">1</span>' + esc(i18n.stepWhat) + '</p>' +
+				'<div class="dze-one-recipes" id="dze-one-recipes"></div>' +
 			'</div>' +
-			'<p class="dze-qm-bar">' +
-				'<input type="url" id="dze-one-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
-			'</p>' +
+
+			'<div class="dze-step">' +
+				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
+				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
+				'<p class="dze-step-more">' +
+					'<button type="button" class="button-link" id="dze-one-elsewhere">' + esc(i18n.stepElse) + '</button>' +
+				'</p>' +
+				'<div id="dze-one-elsewrap" style="display:none;">' +
+					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
+						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+						'<img id="dze-one-src" alt="" style="display:none;" />' +
+					'</div>' +
+					'<p class="dze-qm-bar"><input type="url" id="dze-one-url" placeholder="' + esc(i18n.qmUrl) + '" /></p>' +
+				'</div>' +
+			'</div>' +
+
+			'<div class="dze-step" id="dze-one-bgstep">' +
+				'<p class="dze-step-q"><span class="dze-step-n">3</span>' + esc(i18n.stepBg) + '</p>' +
+				'<div class="dze-one-bgs" id="dze-one-bgs"></div>' +
+			'</div>' +
+
 			'<div class="dze-qm-pair" id="dze-one-pair" style="display:none;">' +
 				'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-one-old" class="dze-hzoom" alt="" /></figure>' +
 				'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-one-new" class="dze-hzoom" alt="" /></figure>' +
@@ -1111,8 +1131,92 @@
 			'</p>' +
 		'</div>';
 	}
+	function defaultBg() {
+		var list = cfg.backdrops || [];
+		return list.length ? list[0].id : 0;
+	}
 
-	// The product's own photographs, to pick the one being worked on.
+	// Question 1: one card per recipe, named, with its own ✎ to read and edit
+	// the instructions behind it. A dropdown hid both the choice and the fact
+	// that there was one.
+	// Only the recipes that write where this box shows: the featured image, or
+	// the gallery. A recipe's own destination decides, so adding one in the
+	// settings puts it under the right box by itself.
+	function oneRecipes() {
+		var tpls = (cfg.templates || []);
+		if (one.scope === 'gallery') {
+			return tpls.filter(function (t) { return t.target !== 'main'; });
+		}
+		return [ { id: '', name: i18n.imgMainR } ].concat(
+			tpls.filter(function (t) { return t.target === 'main'; })
+		);
+	}
+	function oneDrawRecipes() {
+		var cur = $('#dze-one-recipe').val() || '';
+		var cards = oneRecipes();
+		if (!cards.length) {
+			$('#dze-one-recipes').html('<span class="description">' + esc(i18n.noRecipes) + '</span>');
+			return;
+		}
+		var html = '';
+		cards.forEach(function (t) {
+			html += '<button type="button" class="dze-one-recipe' + (String(t.id) === String(cur) ? ' is-sel' : '') + '" ' +
+				'data-id="' + esc(String(t.id)) + '">' + esc(t.name) +
+				'<span class="dze-one-recipepen dze-prompt-peek" data-prompt="' + (t.id ? 'content_' + esc(String(t.id)) : 'quick_main') + '" ' +
+				'title="' + esc(i18n.promptTip) + '">&#9998;</span></button>';
+		});
+		$('#dze-one-recipes').html(html);
+	}
+	$(document).on('click', '.dze-one-recipe', function (e) {
+		// The pencil inside the card opens the prompt, it does not pick.
+		if ($(e.target).hasClass('dze-one-recipepen')) { return; }
+		oneSetRecipe($(this).data('id') === undefined ? '' : String($(this).data('id')));
+	});
+	function oneSetRecipe(v) {
+		$('#dze-one-recipe').val(v);
+		$('.dze-one-recipe').removeClass('is-sel').filter(function () {
+			return String($(this).data('id')) === String(v);
+		}).addClass('is-sel');
+		var t = (cfg.templates || []).filter(function (x) { return String(x.id) === String(v); })[0];
+		$('#dze-one-prompt').val(v ? (t ? t.prompt : '') : (cfg.quickPrompt || ''));
+		$('#dze-one-peek .dze-prompt-peek').attr('data-prompt', v ? 'content_' + v : 'quick_main');
+		$('#dze-one-target').val(v ? ((t && t.target === 'main') ? 'main' : 'gallery') : 'main');
+		// A surface is what the MAIN image is shot on. The other recipes work
+		// on a photograph that already has its own, so the question is folded
+		// away rather than asked every time for nothing.
+		var mainish = !v || (t && t.target === 'main');
+		$('#dze-one-bgstep').toggle(!!mainish);
+		if (!mainish) { $('#dze-one-bg').val('0'); }
+		else if (!$('#dze-one-bg').val() || $('#dze-one-bg').val() === '0') { $('#dze-one-bg').val(String(defaultBg())); }
+		oneDrawBgs();
+	}
+
+	// Question 3: the surfaces, as pictures. "None" first, then the shelf, then
+	// the button that adds one from the media library.
+	function oneDrawBgs() {
+		var $slot = $('#dze-one-bgs');
+		if (!$slot.length) { return; }
+		var cur = String($('#dze-one-bg').val() || '0');
+		var html = '<button type="button" class="dze-one-bg' + ('0' === cur ? ' is-sel' : '') + '" data-id="0">' +
+			'<span class="dze-one-bgnone">' + esc(i18n.qmBgNone) + '</span></button>';
+		(cfg.backdrops || []).forEach(function (b) {
+			html += '<button type="button" class="dze-one-bg' + (String(b.id) === cur ? ' is-sel' : '') + '" data-id="' + b.id + '">' +
+				(b.thumb ? '<img src="' + esc(b.thumb) + '" alt="" />' : '') +
+				'<span class="dze-one-bgname">' + esc(b.name) + '</span></button>';
+		});
+		html += '<button type="button" class="dze-one-bg dze-one-bgadd dze-bg-add" data-for="dze-one-bg" title="' +
+			esc(i18n.bgAdd) + '">+</button>';
+		$slot.html(html);
+	}
+	$(document).on('click', '.dze-one-bg', function () {
+		if ($(this).hasClass('dze-one-bgadd')) { return; }
+		$('#dze-one-bg').val(String($(this).data('id')));
+		$('.dze-one-bg').removeClass('is-sel');
+		$(this).addClass('is-sel');
+	});
+
+	// Question 2: the product's own photographs, to pick the one being worked
+	// on. An image from somewhere else is a rarer case, kept behind a link.
 	function oneDrawSources() {
 		var $slot = $('#dze-one-srcs');
 		if (!$slot.length) { return; }
@@ -1120,13 +1224,16 @@
 			var imgs = (cur.images || []);
 			var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
 			imgs.forEach(function (im) {
-                if (!im.id) { return; }
+				if (!im.id) { return; }
 				html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
 					'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" /></button>';
 			});
 			$slot.html(html);
 		});
 	}
+	$(document).on('click', '#dze-one-elsewhere', function () {
+		$('#dze-one-elsewrap').toggle();
+	});
 	$(document).on('click', '.dze-one-srcpick', function () {
 		$('.dze-one-srcpick').removeClass('is-sel');
 		$(this).addClass('is-sel');
@@ -1136,20 +1243,6 @@
 		$('#dze-one-replacewrap').toggle(!!id);
 		if (!id) { $('#dze-one-replace').prop('checked', false); }
 	});
-	// The peek button follows the recipe chosen.
-	$(document).on('change', '#dze-one-recipe', function () {
-		var v = $(this).val();
-		$('#dze-one-recipepeek').attr('data-prompt', v ? 'content_' + v : 'quick_main');
-		var t = (cfg.templates || []).filter(function (x) { return x.id === v; })[0];
-		$('#dze-one-prompt').val(v ? (t ? t.prompt : '') : (cfg.quickPrompt || ''));
-		$('#dze-one-target').val(v ? ((t && t.target === 'main') ? 'main' : 'gallery') : 'main');
-	});
-	function bgOptions() {
-		var list = cfg.backdrops || [];
-		return list.map(function (b, i) {
-			return '<option value="' + b.id + '"' + (i === 0 ? ' selected' : '') + '>' + esc(b.name) + '</option>';
-		}).join('') + '<option value="0"' + (list.length ? '' : ' selected') + '>' + esc(i18n.qmBgNone) + '</option>';
-	}
 
 	// What the product says today, above what was just written: the same
 	// before/after as everywhere else in the plugin.
@@ -1299,9 +1392,12 @@
 					cfg.backdrops = cfg.backdrops || [];
 					if (!r.data.already) {
 						cfg.backdrops.push({ id: r.data.id, name: r.data.name, thumb: r.data.thumb });
-						$('#' + target).prepend($('<option></option>').val(r.data.id).text(r.data.name));
+						if ($('#' + target).is('select')) {
+							$('#' + target).prepend($('<option></option>').val(r.data.id).text(r.data.name));
+						}
 					}
 					$('#' + target).val(r.data.id);
+					if ('dze-one-bg' === target) { oneDrawBgs(); }
 				});
 		});
 		bgFrame.open();
@@ -1333,11 +1429,15 @@
 		// The image boxes: the featured image and the gallery both open the
 		// workshop — it is the same tool, and the gallery is where a supplier
 		// photograph needing a remake actually sits.
-		[ '#postimagediv', '#woocommerce-product-images' ].forEach(function (sel) {
-			var $box = $(sel + ' > .inside');
+		// Each box offers the recipes that write INTO it, and no others: the
+		// featured-image box was showing every image prompt of the shop,
+		// gallery remakes included.
+		[ { sel: '#postimagediv', scope: 'main', label: i18n.oneMain },
+		  { sel: '#woocommerce-product-images', scope: 'gallery', label: i18n.oneGallery } ].forEach(function (box) {
+			var $box = $(box.sel + ' > .inside');
 			if (!$box.length) { return; }
-			$box.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" data-mode="image">✦ ' +
-				esc(i18n.oneMain) + '</button></p>');
+			$box.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" ' +
+				'data-mode="image" data-scope="' + box.scope + '">✦ ' + esc(box.label) + '</button></p>');
 		});
 		// Whatever writes somewhere we cannot point at — custom blocks, SEO
 		// fields — is listed in the hub box instead of being unreachable.
@@ -1352,7 +1452,7 @@
 	$(function () { plantButtons(); });
 	$(document).on('click', '.dze-one-btn', function () {
 		var $b = $(this);
-		openOne($b.data('field') || '', $b.data('mode') || 'text');
+		openOne($b.data('field') || '', $b.data('mode') || 'text', $b.data('scope') || '');
 	});
 
 	// One image thrown away: off the screen and out of the waiting list, so it

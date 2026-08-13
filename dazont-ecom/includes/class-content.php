@@ -3214,6 +3214,13 @@ Answer with STRICT JSON and nothing else: "
 				'bgUse'      => __( 'Keep this one', 'dazont-ecom' ),
 				// The image workshop.
 				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
+				// The three questions the image workshop asks, in order.
+				'stepWhat'   => __( 'What are we making?', 'dazont-ecom' ),
+				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
+				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
+				'stepElse'   => __( '…or from an image that is not on the product yet', 'dazont-ecom' ),
+				'noRecipes'  => __( 'No image recipe writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
+				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
 				'imgRecipe'  => __( 'Recipe', 'dazont-ecom' ),
 				'imgMainR'   => __( 'Main image (the shop recipe)', 'dazont-ecom' ),
