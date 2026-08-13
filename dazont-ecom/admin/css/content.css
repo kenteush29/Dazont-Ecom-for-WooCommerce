@@ -980,8 +980,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* The bar sits clear of the sizes written under the last row of thumbnails:
    at 8px they touched, and the text read as struck through. */
 .dze-nowbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 18px 0 0; }
-.dze-nowtool { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
-.dze-nowtool select { height: 28px; font-size: 12px; max-width: 260px; }
+/* The two things you can do to these photographs, named on the buttons. */
+.dze-photo-ai, .dze-photo-rf { white-space: nowrap; }
 .dze-rf-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dze-rf-tools label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
 .dze-rf-tools select { height: 26px; font-size: 12px; }
@@ -989,21 +989,17 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-rf-state.is-ko, .dze-rf-state2.is-ko { color: #b32d2e; }
 .dze-rf-err { color: #b32d2e; font-size: 12px; margin: 4px 0; }
 .dze-rf-out:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
-/* Before on one row, after on the row beneath it, column by column: the same
-   photograph is never drawn twice, and ten images are read at a glance. */
-.dze-rf-rows { display: flex; flex-direction: column; gap: 16px; }
-.dze-rf-row { display: flex; align-items: flex-start; gap: 12px; }
-.dze-rf-rowcap {
-	flex: 0 0 58px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-	color: #646970; padding-top: 4px;
-}
-.dze-rf-strip { display: flex; gap: 10px; flex-wrap: wrap; }
-.dze-rf-cell { position: relative; display: block; width: 148px; }
-.dze-rf-cell img {
+/* The resized version appears under the photograph it was made from, in its
+   own column. The originals are already on screen: drawing them a second time
+   to sit beside their copies doubled the block and made the comparison
+   harder, not easier. */
+.dze-nowafter { display: block; }
+.dze-nowafter:not(:empty) { margin-top: 2px; }
+.dze-nowarrow { display: block; text-align: center; color: #2271b1; font-size: 14px; line-height: 1.1; }
+.dze-rf-new {
 	display: block; width: 148px; height: 148px; object-fit: contain;
-	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
+	background: #f6f7f7; border: 2px solid #2271b1; border-radius: 4px;
 }
-.dze-rf-cell.dze-rf-pair img { border-color: #2271b1; }
 .dze-rf-drop { font-size: 12px; color: #50575e; }
 
 /* The instructions sit under the recipe they belong to, indented with it. */
