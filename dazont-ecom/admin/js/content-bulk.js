@@ -658,20 +658,20 @@
 				return b.current;
 			}, function () { b.current = { texts: {}, images: [] }; return b.current; });
 	}
+	// The same block as the product screen, from the same renderer: sizes and
+	// shapes under each photograph, the main image apart from the gallery, the
+	// zoom, and the reframe lane. No AI button here — the bulk screen has no
+	// per-product image popup to open.
 	function renderCurrentImages(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-nowshots');
-		if (!$slot.length || !b.current) { return; }
-		var imgs = b.current.images || [];
-		if (!imgs.length) { $slot.empty(); return; }
-		var $g = $('<div class="dze-cb-nowgrid"></div>');
-		imgs.forEach(function (im) {
-			$g.append(
-				$('<span class="dze-cb-nowshot"></span>')
-					.toggleClass('is-main', !!im.main)
-					.append($('<img class="dze-hzoom" />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', ''))
-			);
+		if (!$slot.length || !b.current || !window.dzePhotos) { return; }
+		window.dzePhotos.render($slot, b.current.images || [], {
+			post: id,
+			after: function () {
+				b.current = null;
+				loadCurrent(id).then(function () { renderCurrentImages(id); });
+			}
 		});
-		$slot.empty().append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>').append($g);
 	}
 
 	function editorGet(eid) {
