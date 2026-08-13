@@ -264,6 +264,7 @@
 					'<input type="url" id="dze-qm-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
 					'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span>' +
 						'<select id="dze-qm-bg">' + bgOpts + '</select></label>' +
+					'<button type="button" class="button button-small dze-bg-add" data-for="dze-qm-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
 				'</p>' +
 				'<p class="dze-qm-bar">' +
 					'<input type="text" id="dze-qm-note" placeholder="' + esc(i18n.qmNote) + '" />' +
@@ -1010,6 +1011,7 @@
 			'<p class="dze-qm-bar">' +
 				'<input type="url" id="dze-one-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
 				'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span><select id="dze-one-bg">' + bgOptions() + '</select></label>' +
+			'<button type="button" class="button button-small dze-bg-add" data-for="dze-one-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
 			'</p>' +
 			'<div class="dze-qm-pair" id="dze-one-pair" style="display:none;">' +
 				'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-one-old" class="dze-hzoom" alt="" /></figure>' +
@@ -1148,6 +1150,33 @@
 				return;
 			}
 		}
+	});
+
+	// A background prepared outside WordPress is kept from here: the native
+	// media picker, then it joins the list the settings show — no second place
+	// to store one, and no trip to the settings screen to start using it.
+	var bgFrame = null;
+	$(document).on('click', '.dze-bg-add', function () {
+		if (!window.wp || !wp.media) { return; }
+		var target = $(this).data('for');
+		bgFrame = wp.media({
+			title: i18n.bgPick, library: { type: 'image' },
+			button: { text: i18n.bgUse }, multiple: false
+		});
+		bgFrame.on('select', function () {
+			var a = bgFrame.state().get('selection').first().toJSON();
+			$.post(cfg.ajaxUrl, { action: 'dze_content_bg_add', nonce: cfg.nonce, id: a.id, name: a.title || '' })
+				.done(function (r) {
+					if (!r || !r.success) { return; }
+					cfg.backdrops = cfg.backdrops || [];
+					if (!r.data.already) {
+						cfg.backdrops.push({ id: r.data.id, name: r.data.name, thumb: r.data.thumb });
+						$('#' + target).prepend($('<option></option>').val(r.data.id).text(r.data.name));
+					}
+					$('#' + target).val(r.data.id);
+				});
+		});
+		bgFrame.open();
 	});
 
 	// ---- The buttons themselves, on the blocks WordPress already shows ----

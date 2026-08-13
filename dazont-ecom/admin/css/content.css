@@ -412,15 +412,19 @@ table.dze-pricepv th { color: #646970; font-weight: 600; }
 table.dze-pricepv tr.is-hit { background: #f0f6fc; }
 table.dze-pricepv tr.is-hit td { font-weight: 600; }
 
-/* ---- The backdrop plate, in Settings ---- */
-.dze-bd { display: flex; gap: 18px; align-items: flex-start; margin: 8px 0 18px; flex-wrap: wrap; }
-.dze-bd-plate {
-	width: 180px; height: 180px; flex: 0 0 auto; display: flex; align-items: center;
-	justify-content: center; border: 1px solid #dcdcde; border-radius: 6px; background: #f6f7f7;
+/* ---- Backgrounds: a shelf of images, nothing more ---- */
+.dze-bggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin: 8px 0 14px; }
+.dze-bgcard { border: 1px solid #dcdcde; border-radius: 6px; padding: 10px; background: #fff; }
+.dze-bgcard.is-empty { border-style: dashed; background: #fbfbfc; }
+.dze-bgcard .dze-sc-thumb {
+	height: 130px; display: flex; align-items: center; justify-content: center;
+	background: #f6f7f7; border-radius: 4px; margin-bottom: 8px; overflow: hidden;
 }
-.dze-bd-plate img { max-width: 100%; max-height: 100%; border-radius: 5px; }
-.dze-bd-none { color: #646970; font-size: 12px; }
-.dze-bd-side { flex: 1 1 340px; min-width: 0; }
+.dze-bgcard .dze-sc-thumb img { max-width: 100%; max-height: 130px; height: auto; display: block; }
+.dze-bgcard input[type=text] { width: 100%; margin-bottom: 4px; }
+.dze-bgcard .dze-bgnote { font-size: 11px; }
+.dze-bgfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; font-size: 12px; }
+.dze-bgfoot label { display: inline-flex; align-items: center; gap: 4px; }
 
 /* ---- The fast lane: one photograph in, one main image out ---- */
 .dze-qm {

@@ -74,6 +74,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		add_action( 'wp_ajax_dze_content_backdrop', [ $this, 'ajax_backdrop' ] );
+		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
@@ -957,14 +958,42 @@ EOT;
 			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
 			throw new RuntimeException( $id->get_error_message() );
 		}
-		self::write_setting( 'backdrop', (int) $id );
 		return (int) $id;
 	}
 
-	/** The plate in use, or 0 when none has been made yet. */
-	public static function backdrop(): int {
-		$id = (int) ( self::get_settings()['backdrop'] ?? 0 );
-		return ( $id && wp_attachment_is_image( $id ) ) ? $id : 0;
+	/**
+	 * A plate made before backgrounds were one single list, folded into it.
+	 *
+	 * It was stored on its own key and shown in its own box, which was one
+	 * concept too many: a generated backdrop is a background image like the
+	 * ones you upload. Installs that made one keep it, in the list, once.
+	 */
+	public static function migrate_backdrop(): void {
+		$s  = self::get_settings();
+		$id = (int) ( $s['backdrop'] ?? 0 );
+		if ( ! $id ) {
+			return;
+		}
+		$rows = (array) ( $s['scenes'] ?? [] );
+		foreach ( $rows as $r ) {
+			if ( (int) ( $r['image'] ?? 0 ) === $id ) {
+				$id = 0; // already there.
+				break;
+			}
+		}
+		if ( $id && wp_attachment_is_image( $id ) ) {
+			$rows[] = [
+				'name'    => __( 'Studio backdrop', 'dazont-ecom' ),
+				'image'   => $id,
+				'prompt'  => '',
+				'default' => empty( $rows ),
+			];
+			$s['scenes'] = $rows;
+		}
+		unset( $s['backdrop'] );
+		remove_filter( 'sanitize_option_' . self::OPT_SETTINGS, [ self::instance(), 'sanitize' ] );
+		update_option( self::OPT_SETTINGS, $s, false );
+		add_filter( 'sanitize_option_' . self::OPT_SETTINGS, [ self::instance(), 'sanitize' ] );
 	}
 
 	/**
@@ -1561,6 +1590,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		self::migrate_backdrop(); // one list of backgrounds, not two concepts.
 		$s     = self::get_settings();
 		$opt   = self::OPT_SETTINGS;
 		$seo   = self::seo_keys();
@@ -1592,44 +1622,42 @@ Answer with STRICT JSON and nothing else: "
 			<details class="dze-set">
 			<summary><?php esc_html_e( 'Backgrounds — the surfaces your products are shot on', 'dazont-ecom' ); ?></summary>
 			<p class="description" style="max-width:960px;">
-				<?php esc_html_e( 'One image, reused on every generation, so a catalogue shot by a dozen suppliers ends up looking like one shop: a studio backdrop, a table top, a garment mockup for print-on-demand. The product is sent as image 1 and the scene as image 2, with the instruction to keep the product exactly as it is and only place it in the scene. Add your own line to say how that particular scene is meant to be used. Tick "Default" to have a scene pre-selected on the product toolbox and the bulk screen — leave every box unticked and nothing is used until you pick a scene there.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'The images you keep to shoot your products on: a studio backdrop, a floor for rugs, a table top, a garment mockup. Pick one when you generate an image and the product is placed on it, so a catalogue shot by a dozen suppliers comes back looking like one shop. The note under each image is optional — it says how that particular background is meant to be used ("lay the rug flat on this floor"), and it is only worth writing when the image alone does not say it.', 'dazont-ecom' ); ?>
 			</p>
 			<?php $dze_scenes = self::scenes(); $dze_scenes[] = [ 'name' => '', 'image' => 0, 'prompt' => '', 'default' => false ]; ?>
-			<table class="widefat dze-sc-table" id="dze-sc">
-				<thead><tr>
-					<th style="width:80px;"><?php esc_html_e( 'Default', 'dazont-ecom' ); ?></th>
-					<th style="width:110px;"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></th>
-					<th style="width:170px;"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
-					<th><?php esc_html_e( 'How to use this scene', 'dazont-ecom' ); ?></th>
-				</tr></thead>
-				<tbody>
-				<?php foreach ( $dze_scenes as $si => $sc ) : ?>
-					<tr class="dze-sc-row">
-						<td style="text-align:center;">
+			<div class="dze-bggrid" id="dze-sc">
+			<?php foreach ( $dze_scenes as $si => $sc ) : ?>
+				<div class="dze-bgcard<?php echo empty( $sc['image'] ) ? ' is-empty' : ''; ?>">
+					<div class="dze-sc-thumb">
+						<?php if ( ! empty( $sc['image'] ) ) : ?>
+							<?php echo wp_get_attachment_image( (int) $sc['image'], 'medium', false, [ 'class' => 'dze-hzoom', 'data-full' => (string) wp_get_attachment_image_url( (int) $sc['image'], 'full' ) ] ); ?>
+						<?php endif; ?>
+					</div>
+					<input type="hidden" class="dze-sc-img" name="<?php echo esc_attr( $opt ); ?>[sc_image][]" value="<?php echo (int) $sc['image']; ?>" />
+					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_name][]" value="<?php echo esc_attr( (string) $sc['name'] ); ?>" placeholder="<?php esc_attr_e( 'Name it', 'dazont-ecom' ); ?>" />
+					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_prompt][]" value="<?php echo esc_attr( (string) $sc['prompt'] ); ?>" placeholder="<?php esc_attr_e( 'note for the model (optional)', 'dazont-ecom' ); ?>" class="dze-bgnote" />
+					<p class="dze-bgfoot">
+						<label title="<?php esc_attr_e( 'Pre-selected when you generate an image', 'dazont-ecom' ); ?>">
 							<input type="radio" name="<?php echo esc_attr( $opt ); ?>[sc_default]" value="<?php echo (int) $si; ?>" <?php checked( ! empty( $sc['default'] ) ); ?> />
-						</td>
-						<td>
-							<div class="dze-sc-thumb">
-								<?php if ( ! empty( $sc['image'] ) ) : ?>
-									<?php echo wp_get_attachment_image( (int) $sc['image'], 'thumbnail', false, [ 'style' => 'max-width:90px;height:auto;border-radius:4px;' ] ); ?>
-								<?php endif; ?>
-							</div>
-							<input type="hidden" class="dze-sc-img" name="<?php echo esc_attr( $opt ); ?>[sc_image][]" value="<?php echo (int) $sc['image']; ?>" />
-							<button type="button" class="button button-small dze-sc-pick"><?php echo empty( $sc['image'] ) ? esc_html__( 'Choose', 'dazont-ecom' ) : esc_html__( 'Replace', 'dazont-ecom' ); ?></button>
-							<?php if ( ! empty( $sc['image'] ) ) : ?>
-								<button type="button" class="button-link dze-sc-clear" style="color:#b32d2e;"><?php esc_html_e( 'remove', 'dazont-ecom' ); ?></button>
-							<?php endif; ?>
-						</td>
-						<td><input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_name][]" value="<?php echo esc_attr( (string) $sc['name'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Studio backdrop', 'dazont-ecom' ); ?>" /></td>
-						<td><textarea name="<?php echo esc_attr( $opt ); ?>[sc_prompt][]" rows="2" class="large-text" placeholder="<?php esc_attr_e( 'e.g. Place the product on this surface, centred, at eye level. Keep the background exactly as it is.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( (string) $sc['prompt'] ); ?></textarea></td>
-					</tr>
-				<?php endforeach; ?>
-				</tbody>
-			</table>
+							<?php esc_html_e( 'Default', 'dazont-ecom' ); ?>
+						</label>
+						<button type="button" class="button button-small dze-sc-pick"><?php echo empty( $sc['image'] ) ? esc_html__( 'Choose an image', 'dazont-ecom' ) : esc_html__( 'Replace', 'dazont-ecom' ); ?></button>
+						<?php if ( ! empty( $sc['image'] ) ) : ?>
+							<button type="button" class="button-link dze-sc-clear" style="color:#b32d2e;"><?php esc_html_e( 'remove', 'dazont-ecom' ); ?></button>
+						<?php endif; ?>
+					</p>
+				</div>
+			<?php endforeach; ?>
+			</div>
 			<p>
-				<button type="button" class="button" id="dze-sc-add">&#43; <?php esc_html_e( 'Add a scene', 'dazont-ecom' ); ?></button>
-				<span class="description" style="margin-left:8px;"><?php esc_html_e( 'A row without an image is ignored. Leave the whole table empty to generate without any scene, as before.', 'dazont-ecom' ); ?></span>
+				<button type="button" class="button" id="dze-sc-add">&#43; <?php esc_html_e( 'Add a background', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-bd-make" style="margin-left:8px;">&#9788; <?php esc_html_e( 'Generate a plain grey one', 'dazont-ecom' ); ?></button>
+				<span id="dze-bd-state" class="description" style="margin-left:8px;"></span>
 			</p>
+			<p class="description">
+				<?php esc_html_e( 'A card without an image is ignored. The generated one is a soft grey gradient, lighter in the middle, drawn here rather than photographed — so it can be made again identically whenever you want.', 'dazont-ecom' ); ?>
+			</p>
+
 			<script>
 			jQuery( function ( $ ) {
 				var dzeScPick = <?php echo wp_json_encode( __( 'Choose', 'dazont-ecom' ) ); ?>,
@@ -1642,7 +1670,7 @@ Answer with STRICT JSON and nothing else: "
 				// library, never an upload path of our own.
 				$( document ).on( 'click', '.dze-sc-pick', function () {
 					if ( ! window.wp || ! wp.media ) { return; }
-					var $cell = $( this ).closest( 'td' );
+					var $cell = $( this ).closest( '.dze-bgcard' );
 					dzeScFrm = wp.media( {
 						title: dzeScTtl,
 						library: { type: 'image' },
@@ -1656,7 +1684,7 @@ Answer with STRICT JSON and nothing else: "
 						$cell.find( '.dze-sc-thumb' ).html(
 							$( '<img />' ).attr( 'src', url ).attr( 'alt', '' ).css( { maxWidth: '90px', height: 'auto', borderRadius: '4px' } )
 						);
-						$cell.find( '.dze-sc-pick' ).text( dzeScRepl );
+						$cell.removeClass( 'is-empty' ).find( '.dze-sc-pick' ).text( dzeScRepl );
 						if ( ! $cell.find( '.dze-sc-clear' ).length ) {
 							$cell.find( '.dze-sc-pick' ).after(
 								' <button type="button" class="button-link dze-sc-clear" style="color:#b32d2e;"></button>'
@@ -1667,23 +1695,26 @@ Answer with STRICT JSON and nothing else: "
 					dzeScFrm.open();
 				} );
 				$( document ).on( 'click', '.dze-sc-clear', function () {
-					var $cell = $( this ).closest( 'td' );
+					var $cell = $( this ).closest( '.dze-bgcard' );
 					$cell.find( '.dze-sc-img' ).val( '0' );
 					$cell.find( '.dze-sc-thumb' ).empty();
 					$cell.find( '.dze-sc-pick' ).text( dzeScPick );
+					$cell.addClass( 'is-empty' );
 					$( this ).remove();
 				} );
 				// A fresh empty row, with the Default radio numbered like its
 				// position — the server reads the rows in DOM order.
 				$( '#dze-sc-add' ).on( 'click', function () {
-					var $rows = $( '#dze-sc tbody tr' ), $row = $rows.last().clone();
-					$row.find( 'input[type=text], textarea' ).val( '' );
-					$row.find( '.dze-sc-img' ).val( '0' );
-					$row.find( '.dze-sc-thumb' ).empty();
-					$row.find( '.dze-sc-clear' ).remove();
-					$row.find( '.dze-sc-pick' ).text( dzeScPick );
-					$row.find( 'input[type=radio]' ).prop( 'checked', false ).val( String( $rows.length ) );
-					$( '#dze-sc tbody' ).append( $row );
+					var $cards = $( '#dze-sc .dze-bgcard' ), $card = $cards.last().clone();
+					$card.addClass( 'is-empty' );
+					$card.find( 'input[type=text]' ).val( '' );
+					$card.find( '.dze-sc-img' ).val( '0' );
+					$card.find( '.dze-sc-thumb' ).empty();
+					$card.find( '.dze-sc-clear' ).remove();
+					$card.find( '.dze-sc-pick' ).text( dzeScPick );
+					$card.find( 'input[type=radio]' ).prop( 'checked', false ).val( String( $cards.length ) );
+					$( '#dze-sc' ).append( $card );
+					$card.find( '.dze-sc-pick' ).trigger( 'click' );
 				} );
 			} );
 			</script>
@@ -1692,36 +1723,6 @@ Answer with STRICT JSON and nothing else: "
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
 			</p>
-			<?php $dze_bd = self::backdrop(); ?>
-			<div class="dze-bd">
-				<div class="dze-bd-plate">
-					<?php if ( $dze_bd ) : ?>
-						<img id="dze-bd-thumb" class="dze-hzoom" src="<?php echo esc_url( (string) wp_get_attachment_image_url( $dze_bd, 'medium' ) ); ?>" data-full="<?php echo esc_url( (string) wp_get_attachment_image_url( $dze_bd, 'full' ) ); ?>" alt="" />
-					<?php else : ?>
-						<img id="dze-bd-thumb" src="" alt="" style="display:none;" />
-						<span class="dze-bd-none"><?php esc_html_e( 'No backdrop yet', 'dazont-ecom' ); ?></span>
-					<?php endif; ?>
-				</div>
-				<div class="dze-bd-side">
-					<p class="description" style="margin-top:0;">
-						<?php esc_html_e( 'The surface every main image is shot on. Two products asked for "a light grey background" come back on two different greys; sent the SAME plate, they come back on the same one. It is drawn here — a soft grey gradient, lighter in the middle — not photographed, so it can be made again identically at any time.', 'dazont-ecom' ); ?>
-					</p>
-					<p>
-						<label><?php esc_html_e( 'Centre', 'dazont-ecom' ); ?>
-							<input type="number" id="dze-bd-light" min="200" max="255" value="252" style="width:70px;" />
-						</label>
-						<label style="margin-left:10px;"><?php esc_html_e( 'Edges', 'dazont-ecom' ); ?>
-							<input type="number" id="dze-bd-dark" min="180" max="255" value="232" style="width:70px;" />
-						</label>
-						<button type="button" class="button" id="dze-bd-make" style="margin-left:10px;">
-							<?php echo $dze_bd ? esc_html__( 'Make it again', 'dazont-ecom' ) : esc_html__( 'Create the backdrop', 'dazont-ecom' ); ?>
-						</button>
-						<span id="dze-bd-state" class="description"></span>
-					</p>
-					<p class="description"><?php esc_html_e( '0 is black, 255 is white. The shipped values (252 / 232) are the studio grey used on the shop.', 'dazont-ecom' ); ?></p>
-				</div>
-			</div>
-
 			<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="5" class="large-text code" placeholder="<?php echo esc_attr( self::default_quick_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['quick_prompt'] ?? '' ) ); ?></textarea>
 			<p class="description">
 				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
@@ -1969,20 +1970,29 @@ Answer with STRICT JSON and nothing else: "
 				} );
 				$( '#dze-ct-feature-restore' ).on( 'click', function () { $( '#dze-ct-feature-prompt' ).val( '' ); } );
 				$( '#dze-ct-quick-restore' ).on( 'click', function () { $( '#dze-ct-quick-prompt' ).val( '' ); } );
+				// The plain grey plate is just another background: it is drawn,
+				// then it lands in the same list as the ones you upload.
 				$( '#dze-bd-make' ).on( 'click', function () {
 					var $b = $( this ).prop( 'disabled', true );
 					var $st = $( '#dze-bd-state' ).text( '…' );
 					$.post( window.ajaxurl, {
 						action: 'dze_content_backdrop',
-						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
-						light: $( '#dze-bd-light' ).val(),
-						dark: $( '#dze-bd-dark' ).val()
+						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>'
 					} ).done( function ( r ) {
 						$b.prop( 'disabled', false );
 						if ( ! r || ! r.success ) { $st.text( ( r && r.data && r.data.message ) || '' ); return; }
 						$st.text( '' );
-						$( '#dze-bd-thumb' ).attr( 'src', r.data.thumb ).attr( 'data-full', r.data.thumb ).show();
-						$( '.dze-bd-none' ).remove();
+						var $card = $( '#dze-sc .dze-bgcard' ).last();
+						if ( $card.find( '.dze-sc-img' ).val() !== '0' ) {
+							$( '#dze-sc-add' ).trigger( 'click' );
+							$( '#dze-sc .dze-bgcard' ).last().find( '.dze-sc-pick' ).trigger( 'blur' );
+							$card = $( '#dze-sc .dze-bgcard' ).last();
+						}
+						$card.removeClass( 'is-empty' );
+						$card.find( '.dze-sc-img' ).val( r.data.id );
+						$card.find( '.dze-sc-thumb' ).html( $( '<img />' ).attr( 'src', r.data.thumb ).attr( 'alt', '' ) );
+						$card.find( 'input[name$="[sc_name][]"]' ).val( r.data.name );
+						$card.find( '.dze-sc-pick' ).text( <?php echo wp_json_encode( __( 'Replace', 'dazont-ecom' ) ); ?> );
 					} ).fail( function () { $b.prop( 'disabled', false ); $st.text( '' ); } );
 				} );
 				// Restore the shipped default prompts (drops customs — confirmed first).
@@ -2593,8 +2603,10 @@ Answer with STRICT JSON and nothing else: "
 		if ( class_exists( 'DZE_Prompts' ) && ( $on_product || $on_bulk || $on_list ) ) {
 			DZE_Prompts::print_assets();
 		}
-		if ( $on_settings || $on_product ) {
-			wp_enqueue_media(); // POD design / mockup pickers use the native media modal.
+		if ( $on_settings || $on_product || $on_list || $on_bulk ) {
+			// Backgrounds, POD designs and mockups are all picked in the native
+			// media modal, wherever the picker is offered.
+			wp_enqueue_media();
 		}
 
 		if ( $on_bulk ) {
@@ -2756,20 +2768,13 @@ Answer with STRICT JSON and nothing else: "
 				: '',
 			// The surfaces the Main image lane can put a product on: the shop's
 			// own plate first, then any scene already configured.
-			'backdrops'  => array_values( array_filter( array_merge(
-				self::backdrop() ? [ [
-					'id'    => self::backdrop(),
-					'name'  => __( 'The shop backdrop', 'dazont-ecom' ),
-					'thumb' => (string) wp_get_attachment_image_url( self::backdrop(), 'thumbnail' ),
-				] ] : [],
-				array_map(
-					static fn( $sc ) => (int) $sc['image'] ? [
-						'id'    => (int) $sc['image'],
-						'name'  => (string) $sc['name'],
-						'thumb' => (string) wp_get_attachment_image_url( (int) $sc['image'], 'thumbnail' ),
-					] : null,
-					self::scenes()
-				)
+			'backdrops'  => array_values( array_filter( array_map(
+				static fn( $sc ) => (int) $sc['image'] ? [
+					'id'    => (int) $sc['image'],
+					'name'  => (string) $sc['name'],
+					'thumb' => (string) wp_get_attachment_image_url( (int) $sc['image'], 'thumbnail' ),
+				] : null,
+				self::scenes()
 			) ) ),
 			// How many photographs of this product travel with a generation —
 			// stated on screen, because "which image did it actually use?" is
@@ -2876,6 +2881,9 @@ Answer with STRICT JSON and nothing else: "
 				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
 				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
 				'shotsLabel' => __( 'Generated images — waiting for your decision', 'dazont-ecom' ),
+				'bgAdd'      => __( 'Keep a new background', 'dazont-ecom' ),
+				'bgPick'     => __( 'Choose the background image', 'dazont-ecom' ),
+				'bgUse'      => __( 'Keep this one', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3589,6 +3597,46 @@ Answer with STRICT JSON and nothing else: "
 	 * main image of a listing. Here there is one recipe, one source, one image,
 	 * and the next click puts it in place.
 	 */
+	/**
+	 * Keeps an image as a background, from wherever it was picked.
+	 *
+	 * A background prepared outside WordPress — a studio floor for rugs, a
+	 * table top — is chosen on the product screen, at the moment it is needed,
+	 * and joins the same list the settings show. There is no second place to
+	 * store one.
+	 */
+	public function ajax_bg_add(): void {
+		$this->guard();
+		$id   = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		$name = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+		if ( ! $id || ! wp_attachment_is_image( $id ) ) {
+			wp_send_json_error( [ 'message' => __( 'That is not an image.', 'dazont-ecom' ) ] );
+		}
+		$settings = self::get_settings();
+		$rows     = (array) ( $settings['scenes'] ?? [] );
+		foreach ( $rows as $r ) {
+			if ( (int) ( $r['image'] ?? 0 ) === $id ) {
+				wp_send_json_success( [ 'id' => $id, 'already' => true ] ); // already kept.
+			}
+		}
+		$rows[] = [
+			'name'    => '' !== $name ? $name : __( 'Background', 'dazont-ecom' ),
+			'image'   => $id,
+			'prompt'  => '',
+			'default' => empty( $rows ),
+		];
+		try {
+			self::write_setting( 'scenes', $rows );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'id'    => $id,
+			'name'  => (string) $rows[ count( $rows ) - 1 ]['name'],
+			'thumb' => (string) wp_get_attachment_image_url( $id, 'thumbnail' ),
+		] );
+	}
+
 	/** Builds the backdrop plate on demand and reports where it landed. */
 	public function ajax_backdrop(): void {
 		$this->guard();
@@ -3601,6 +3649,7 @@ Answer with STRICT JSON and nothing else: "
 		}
 		wp_send_json_success( [
 			'id'    => $id,
+			'name'  => __( 'Studio backdrop', 'dazont-ecom' ),
 			'thumb' => (string) wp_get_attachment_image_url( $id, 'medium' ),
 		] );
 	}
