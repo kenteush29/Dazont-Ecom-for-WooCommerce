@@ -77,6 +77,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
 		add_action( 'wp_ajax_dze_content_context', [ $this, 'ajax_context' ] );
+		add_action( 'wp_ajax_dze_content_add_default', [ $this, 'ajax_add_default' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
@@ -311,7 +312,29 @@ EOT;
 	public static function default_image_templates(): array {
 		return [
 			[ 'name' => 'Scene (in use)', 'target' => 'gallery', 'prompt' => "Create a UGC-style photoshoot of this product in its favourite context of use. No text on the image. Careful with the exact product type (not everything is worn in the field). Realistic, with human imperfections." ],
-			[ 'name' => 'Additional angle', 'target' => 'gallery', 'prompt' => "Create an additional clean product shot from a different angle, neutral background, e-commerce quality. No text. Keep the product identical." ],
+			// A supplier photograph is rarely a shop photograph: it carries the
+			// supplier's text, it is the wrong shape, and it is small. This is
+			// the pass that makes it usable without changing the product.
+			[
+				'name'   => 'Remake a supplier photo',
+				'target' => 'gallery',
+				'prompt' => "Remake this photograph as a clean e-commerce image of the SAME product, changing nothing about the product itself.\n"
+					. "- Remove every piece of text, watermark, logo, sticker, price tag and badge that is not physically printed on the product. A shop translated into several languages cannot carry words baked into its images.\n"
+					. "- Square 1:1 framing, product centred, filling about 85% of the frame. Extend the background rather than cropping the product: nothing may be cut off.\n"
+					. "- Restore what a small or soft source loses: sharp edges, readable material, clean stitching, no compression artefacts, no blur, no noise.\n"
+					. "- Same shape, same colours, same materials, same proportions, same hardware. Invent no detail that is not visible in the source.",
+			],
+			// Variants split by colour often inherit ONE photograph while their
+			// siblings have five. This is what fills that gap.
+			[
+				'name'   => 'Another angle of the same product',
+				'target' => 'gallery',
+				'prompt' => "Photograph the SAME product again from a different, useful angle — three-quarter view, back, or a close-up of the material and the stitching — as a clean e-commerce shot.\n"
+					. "- It must read as another photograph from the same shoot: same product, same colours, same materials, same lighting, same background.\n"
+					. "- Show something the source photographs do not already show. Never repeat an angle that already exists.\n"
+					. "- No text, no props, no people unless the product is worn in the source.\n"
+					. "- Invent nothing: if a side of the product is not visible in any source photograph, choose an angle that does not reveal it.",
+			],
 			[ 'name' => 'Remake main (studio)', 'target' => 'main', 'prompt' => "Recreate a clean, well-lit studio main image of this exact product on a neutral background, sharp, e-commerce ready. No text, no props. Keep the product faithful." ],
 		];
 	}
@@ -547,6 +570,97 @@ EOT;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Shipped prompts this install does not have.
+	 *
+	 * The registry is saved the first time the settings are saved, so prompts
+	 * added to the plugin afterwards would never appear. They are offered here
+	 * rather than pushed back in: one deleted on purpose must stay deleted.
+	 *
+	 * @return array<string,string> id => name.
+	 */
+	public static function missing_defaults(): array {
+		$have = [];
+		foreach ( self::registry() as $r ) {
+			$have[ (string) ( $r['id'] ?? '' ) ] = 1;
+		}
+		$out = [];
+		foreach ( self::legacy_fields() as $fid => $f ) {
+			if ( ! isset( $have[ $fid ] ) ) {
+				$out[ $fid ] = (string) $f['label'];
+			}
+		}
+		$n = 1;
+		foreach ( self::default_image_templates() as $t ) {
+			$id = 'img_' . ( sanitize_key( str_replace( ' ', '_', (string) ( $t['name'] ?? '' ) ) ) ?: 'image_' . $n );
+			if ( ! isset( $have[ $id ] ) ) {
+				$out[ $id ] = (string) $t['name'];
+			}
+			$n++;
+		}
+		return $out;
+	}
+
+	/** Puts one shipped prompt back into the registry, switched off. */
+	public function ajax_add_default(): void {
+		$this->guard();
+		$id = isset( $_POST['id'] ) ? sanitize_key( wp_unslash( $_POST['id'] ) ) : '';
+		if ( ! isset( self::missing_defaults()[ $id ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		$row = null;
+		foreach ( self::legacy_fields() as $fid => $f ) {
+			if ( $fid === $id ) {
+				$row = [
+					'id'          => $fid,
+					'name'        => (string) $f['label'],
+					'type'        => 'text',
+					'prompt'      => (string) $f['prompt'],
+					'inputs'      => [ 'title', 'description', 'attributes', 'price' ],
+					'inputs_meta' => '',
+					'output'      => (string) $f['dest'],
+					'meta_key'    => '_dze_' . $fid,
+					'enabled'     => 0,
+					'valid'       => 0,
+					'tokens'      => (int) $f['tokens'],
+				];
+			}
+		}
+		if ( ! $row ) {
+			$n = 1;
+			foreach ( self::default_image_templates() as $t ) {
+				$tid = 'img_' . ( sanitize_key( str_replace( ' ', '_', (string) ( $t['name'] ?? '' ) ) ) ?: 'image_' . $n );
+				if ( $tid === $id ) {
+					$row = [
+						'id'          => $tid,
+						'name'        => (string) $t['name'],
+						'type'        => 'image',
+						'prompt'      => (string) $t['prompt'],
+						'inputs'      => [ 'title', 'description' ],
+						'inputs_meta' => '',
+						'output'      => ( ( $t['target'] ?? 'gallery' ) === 'main' ) ? 'main' : 'gallery',
+						'meta_key'    => '',
+						'enabled'     => 1,
+						'valid'       => 0,
+						'tokens'      => 0,
+					];
+				}
+				$n++;
+			}
+		}
+		if ( ! $row ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		$rows   = self::registry();
+		$rows[] = $row;
+		try {
+			self::write_setting( 'registry', $rows );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'id' => $id ] );
 	}
 
 	/** Registry row by id (text or image), or null. */
@@ -1865,6 +1979,19 @@ Answer with STRICT JSON and nothing else: "
 			<?php endforeach; ?>
 			</div>
 			<?php $dze_ri = count( $dze_rows ); ?>
+			<?php $dze_missing = self::missing_defaults(); ?>
+			<?php if ( $dze_missing ) : ?>
+				<p class="dze-pr-missing">
+					<span class="description"><?php esc_html_e( 'Shipped prompts this install does not have:', 'dazont-ecom' ); ?></span>
+					<select id="dze-pr-defpick">
+						<?php foreach ( $dze_missing as $mid => $mname ) : ?>
+							<option value="<?php echo esc_attr( $mid ); ?>"><?php echo esc_html( $mname ); ?></option>
+						<?php endforeach; ?>
+					</select>
+					<button type="button" class="button" id="dze-pr-defadd">&#43; <?php esc_html_e( 'Add it', 'dazont-ecom' ); ?></button>
+					<span id="dze-pr-defstate" class="description"></span>
+				</p>
+			<?php endif; ?>
 			<p>
 				<button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
@@ -2006,6 +2133,20 @@ Answer with STRICT JSON and nothing else: "
 				} );
 				// On or off is one flag: it is written when it is clicked, not
 				// when the page happens to be saved.
+				// A prompt shipped after this install saved its registry is put
+				// back on demand, switched off, ready to be read before use.
+				$( '#dze-pr-defadd' ).on( 'click', function () {
+					var $b = $( this ).prop( 'disabled', true );
+					$.post( window.ajaxurl, {
+						action: 'dze_content_add_default',
+						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
+						id: $( '#dze-pr-defpick' ).val()
+					} ).done( function ( r ) {
+						if ( r && r.success ) { window.location.reload(); return; }
+						$b.prop( 'disabled', false );
+						$( '#dze-pr-defstate' ).text( ( r && r.data && r.data.message ) || '' );
+					} ).fail( function () { $b.prop( 'disabled', false ); } );
+				} );
 				$( document ).on( 'change', '.dze-prb-live', function () {
 					var $c = $( this ), $card = $c.closest( '.dze-prb' );
 					$card.addClass( 'is-saving' );
@@ -2805,11 +2946,18 @@ Answer with STRICT JSON and nothing else: "
 			// rather than only inside the big popup.
 			'anchors'    => array_filter( array_map(
 				static function ( $f ) {
+					// Rank Math and Yoast each draw their own box; the gallery
+					// and the featured image are WooCommerce's.
+					$seo_box = defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' )
+						? '#rank_math_metabox'
+						: ( defined( 'WPSEO_VERSION' ) ? '#wpseo_meta' : '' );
 					$map = [
 						'post_title'   => '#titlediv',
 						'post_content' => '#postdivrich',
 						'post_excerpt' => '#postexcerpt',
 						'attributes'   => '#woocommerce-product-data',
+						'seo_title'    => $seo_box,
+						'seo_desc'     => $seo_box,
 					];
 					return $map[ (string) ( $f['dest'] ?? '' ) ] ?? '';
 				},
@@ -2937,6 +3085,15 @@ Answer with STRICT JSON and nothing else: "
 				'bgAdd'      => __( 'Keep a new background', 'dazont-ecom' ),
 				'bgPick'     => __( 'Choose the background image', 'dazont-ecom' ),
 				'bgUse'      => __( 'Keep this one', 'dazont-ecom' ),
+				// The image workshop.
+				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
+				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
+				'imgRecipe'  => __( 'Recipe', 'dazont-ecom' ),
+				'imgMainR'   => __( 'Main image (the shop recipe)', 'dazont-ecom' ),
+				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
+				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),
+				'imgRun'     => __( 'Make the image', 'dazont-ecom' ),
+				'imgSaved'   => __( 'Saved on the product ✓', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3793,8 +3950,13 @@ Answer with STRICT JSON and nothing else: "
 		// An image pasted straight into the lane (Ctrl+V or dropped): it arrives
 		// as a data URI, never as a URL, so nothing is fetched from anywhere.
 		$paste = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
-		// The surface to put the product on: the shop's plate, a scene, or none.
+		// The surface to put the product on: a background, or none.
 		$bg = isset( $_POST['bg'] ) ? absint( $_POST['bg'] ) : 0;
+		// ONE photograph of the product as the source — remaking a supplier
+		// shot is work done on that shot, not on the product in general.
+		$src_id = isset( $_POST['src_id'] ) ? absint( $_POST['src_id'] ) : 0;
+		// Which recipe: a registry image prompt, or the main-image one.
+		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( wp_unslash( $_POST['recipe'] ) ) : '';
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
 		}
@@ -3810,7 +3972,9 @@ Answer with STRICT JSON and nothing else: "
 
 		try {
 			$sources = [];
-			if ( '' !== $paste ) {
+			if ( $src_id && wp_attachment_is_image( $src_id ) ) {
+				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
+			} elseif ( '' !== $paste ) {
 				// The fastest path there is: the photograph is already in the
 				// request, straight from the clipboard.
 				$sources[] = self::read_data_uri( $paste );
@@ -3841,7 +4005,14 @@ Answer with STRICT JSON and nothing else: "
 			if ( $plate ) {
 				$sources[] = $this->fal_source_data_uri( $plate );
 			}
-			$prompt = ( '' !== trim( $override ) ? $override : self::quick_prompt() )
+			$base = '' !== trim( $override ) ? $override : self::quick_prompt();
+			if ( '' === trim( $override ) && '' !== $recipe ) {
+				$row = self::registry_row( $recipe );
+				if ( $row && '' !== trim( (string) ( $row['prompt'] ?? '' ) ) ) {
+					$base = (string) $row['prompt'];
+				}
+			}
+			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
 				. self::sources_instruction(
 					$count,
@@ -4120,6 +4291,8 @@ Answer with STRICT JSON and nothing else: "
 		$images = [];
 		foreach ( self::product_source_ids( $pid ) as $aid ) {
 			$images[] = [
+				// The id travels too: the image workshop works ON one of these.
+				'id'    => (int) $aid,
 				'thumb' => (string) ( wp_get_attachment_image_url( (int) $aid, 'thumbnail' ) ?: '' ),
 				'full'  => (string) ( wp_get_attachment_image_url( (int) $aid, 'large' ) ?: '' ),
 				'main'  => (int) $aid === (int) get_post_thumbnail_id( $pid ),
@@ -4193,6 +4366,10 @@ Answer with STRICT JSON and nothing else: "
 		} else {
 			// Older callers: a list of urls and one destination for all of them.
 			$target = self::attach_target( isset( $_POST['target'] ) ? (string) wp_unslash( $_POST['target'] ) : '' );
+		// The supplier shot a remake replaces is of no further use: taking it out
+		// of the product and out of the library is what leaves a clean page and
+		// a clean media folder behind. Only ever an image of THIS product.
+		$replace = isset( $_POST['replace'] ) ? absint( $_POST['replace'] ) : 0;
 			foreach ( (array) ( $_POST['urls'] ?? [] ) as $i => $u ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
 				$items[] = [
 					'url'    => esc_url_raw( (string) wp_unslash( $u ) ),
@@ -4234,7 +4411,16 @@ Answer with STRICT JSON and nothing else: "
 		if ( empty( $ids ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not attach the selected image(s).', 'dazont-ecom' ) ] );
 		}
-		wp_send_json_success( [ 'attached' => count( $ids ), 'errors' => $errors, 'ids' => $ids ] );
+		$removed = 0;
+		if ( $replace && in_array( $replace, self::product_source_ids( $pid ), true ) ) {
+			$removed = (int) self::retire_image( $pid, $replace );
+		}
+		wp_send_json_success( [
+			'attached' => count( $ids ),
+			'errors'   => $errors,
+			'ids'      => $ids,
+			'removed'  => $removed,
+		] );
 	}
 
 	/**
@@ -4243,6 +4429,48 @@ Answer with STRICT JSON and nothing else: "
 	 * product title, alt text set. Attaches as main image or appends to the
 	 * product gallery.
 	 */
+	/**
+	 * Takes one photograph off a product and out of the library.
+	 *
+	 * Used when a remake replaces a supplier shot: the shot is removed from the
+	 * gallery, from the featured slot if it held it, and the file is deleted —
+	 * a catalogue rebuilt with this plugin should not leave the supplier's
+	 * originals behind, on the page or on the disk.
+	 *
+	 * @return bool whether the file was deleted.
+	 */
+	public static function retire_image( int $pid, int $att_id ): bool {
+		$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
+		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
+		$ids     = array_values( array_diff( $ids, [ $att_id ] ) );
+		update_post_meta( $pid, '_product_image_gallery', implode( ',', $ids ) );
+		if ( (int) get_post_thumbnail_id( $pid ) === $att_id ) {
+			// The product must not be left without a main image: the first
+			// gallery photograph takes the slot, and leaves the gallery.
+			$next = (int) ( $ids[0] ?? 0 );
+			if ( $next ) {
+				set_post_thumbnail( $pid, $next );
+				update_post_meta( $pid, '_product_image_gallery', implode( ',', array_slice( $ids, 1 ) ) );
+			} else {
+				delete_post_thumbnail( $pid );
+			}
+		}
+		clean_post_cache( $pid );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $pid );
+		}
+		// Attached to another product as well? Then it is not ours to delete.
+		global $wpdb;
+		$others = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_thumbnail_id' AND meta_value = %d",
+			$att_id
+		) );
+		if ( $others > 0 ) {
+			return false;
+		}
+		return (bool) wp_delete_attachment( $att_id, true );
+	}
+
 	/** gallery (default) | gallery_first (second photo of the product) | main. */
 	public static function attach_target( string $t ): string {
 		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';

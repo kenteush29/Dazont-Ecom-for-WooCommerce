@@ -999,26 +999,81 @@
 		$('#dze-one-gen').text(mode === 'image' ? i18n.oneMain : i18n.oneGen);
 		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : '');
 		$('#dze-one').addClass('is-open');
+		if (mode === 'image') { one.srcId = 0; one.paste = ''; oneDrawSources(); }
 		if (mode === 'text') { oneShowBefore(fid); }
 	}
 
+	// The image workshop: which photograph to work from, which recipe to run,
+	// where the result goes — and whether the photograph it replaces is kept.
 	function oneImageBody() {
+		var recipes = (cfg.templates || []).map(function (t) {
+			return '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
+		}).join('');
 		return '<div class="dze-one-img">' +
+			'<p class="dze-qm-bar">' +
+				'<label class="dze-qm-bglabel"><span>' + esc(i18n.imgRecipe) + '</span>' +
+					'<select id="dze-one-recipe"><option value="">' + esc(i18n.imgMainR) + '</option>' + recipes + '</select></label>' +
+				'<button type="button" class="dze-prompt-peek" id="dze-one-recipepeek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
+				'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span><select id="dze-one-bg">' + bgOptions() + '</select></label>' +
+				'<button type="button" class="button button-small dze-bg-add" data-for="dze-one-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
+			'</p>' +
+			'<p class="dze-cb-nowlabel">' + esc(i18n.imgSource) + '</p>' +
+			'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
 			'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
 				'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
 				'<img id="dze-one-src" alt="" style="display:none;" />' +
 			'</div>' +
 			'<p class="dze-qm-bar">' +
 				'<input type="url" id="dze-one-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
-				'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span><select id="dze-one-bg">' + bgOptions() + '</select></label>' +
-			'<button type="button" class="button button-small dze-bg-add" data-for="dze-one-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
 			'</p>' +
 			'<div class="dze-qm-pair" id="dze-one-pair" style="display:none;">' +
 				'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-one-old" class="dze-hzoom" alt="" /></figure>' +
 				'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-one-new" class="dze-hzoom" alt="" /></figure>' +
 			'</div>' +
+			'<p class="dze-qm-bar" id="dze-one-dest" style="display:none;">' +
+				'<label class="dze-qm-bglabel"><span>' + esc(i18n.imgWhere) + '</span>' +
+					'<select id="dze-one-target">' +
+						'<option value="main">' + esc(i18n.toMain) + '</option>' +
+						'<option value="gallery_first">' + esc(i18n.toGalleryFirst) + '</option>' +
+						'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
+					'</select></label>' +
+				'<label id="dze-one-replacewrap" style="display:none;"><input type="checkbox" id="dze-one-replace" /> ' + esc(i18n.imgReplace) + '</label>' +
+			'</p>' +
 		'</div>';
 	}
+
+	// The product's own photographs, to pick the one being worked on.
+	function oneDrawSources() {
+		var $slot = $('#dze-one-srcs');
+		if (!$slot.length) { return; }
+		loadCurrent().then(function (cur) {
+			var imgs = (cur.images || []);
+			var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
+			imgs.forEach(function (im) {
+                if (!im.id) { return; }
+				html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
+					'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" /></button>';
+			});
+			$slot.html(html);
+		});
+	}
+	$(document).on('click', '.dze-one-srcpick', function () {
+		$('.dze-one-srcpick').removeClass('is-sel');
+		$(this).addClass('is-sel');
+		var id = parseInt($(this).data('id'), 10) || 0;
+		one.srcId = id;
+		// Only a photograph of the product can be retired by its own remake.
+		$('#dze-one-replacewrap').toggle(!!id);
+		if (!id) { $('#dze-one-replace').prop('checked', false); }
+	});
+	// The peek button follows the recipe chosen.
+	$(document).on('change', '#dze-one-recipe', function () {
+		var v = $(this).val();
+		$('#dze-one-recipepeek').attr('data-prompt', v ? 'content_' + v : 'quick_main');
+		var t = (cfg.templates || []).filter(function (x) { return x.id === v; })[0];
+		$('#dze-one-prompt').val(v ? (t ? t.prompt : '') : (cfg.quickPrompt || ''));
+		$('#dze-one-target').val(v ? ((t && t.target === 'main') ? 'main' : 'gallery') : 'main');
+	});
 	function bgOptions() {
 		var list = cfg.backdrops || [];
 		return list.map(function (b, i) {
@@ -1064,6 +1119,7 @@
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 				url: $('#dze-one-url').val() || '', paste: one.paste || '',
+				src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 				bg: $('#dze-one-bg').val() || 0, prompt: prompt
 			})
 				.done(function (r) {
@@ -1075,8 +1131,9 @@
 					$('#dze-one-old').attr('src', r.data.main || '').attr('data-full', r.data.main || '')
 						.closest('figure').toggle(!!r.data.main);
 					$('#dze-one-pair').show();
+					$('#dze-one-dest').show();
 					$('#dze-one-gen').text(i18n.qmAgain);
-					$('#dze-one-apply').show().text(i18n.qmUse);
+					$('#dze-one-apply').show().text(i18n.oneApply);
 				})
 				.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 			return;
@@ -1108,7 +1165,8 @@
 		if (one.mode === 'image') {
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
-				items: [ { url: one.url, target: 'main' } ]
+				items: [ { url: one.url, target: $('#dze-one-target').val() || 'main' } ],
+				replace: $('#dze-one-replace').is(':checked') ? (one.srcId || 0) : 0
 			}).done(function (r) {
 				if (r && r.success) {
 					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ one.url ] });
@@ -1184,21 +1242,33 @@
 		if (!PID || $('.dze-one-btn').length) { return; }
 		var anchors = cfg.anchors || {};
 		var placed = {};
+		var byBox = {};
 		Object.keys(anchors).forEach(function (fid) {
-			var $box = $(anchors[fid]);
-			if (!$box.length) { return; }
+			if (!anchors[fid] || !$(anchors[fid]).length) { return; }
+			(byBox[anchors[fid]] = byBox[anchors[fid]] || []).push(fid);
+		});
+		Object.keys(byBox).forEach(function (sel) {
+			var $box = $(sel), fids = byBox[sel];
 			var $target = $box.find('> .inside').first();
 			if (!$target.length) { $target = $box; }
-			$target.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" data-field="' +
-				esc(fid) + '">✦ ' + esc(i18n.oneWrite) + '</button></p>');
-			placed[fid] = 1;
+			// One button when the box holds one prompt; named buttons when it
+			// holds several, so "write this" says which "this".
+			var html = fids.map(function (fid) {
+				placed[fid] = 1;
+				var label = fids.length > 1 ? cfg.fields[fid] : i18n.oneWrite;
+				return '<button type="button" class="button button-small dze-one-btn" data-field="' + esc(fid) + '">✦ ' + esc(label) + '</button>';
+			}).join(' ');
+			$target.prepend('<p class="dze-one-plant">' + html + '</p>');
 		});
-		// The main image box gets the image lane.
-		var $img = $('#postimagediv > .inside');
-		if ($img.length) {
-			$img.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" data-mode="image">✦ ' +
+		// The image boxes: the featured image and the gallery both open the
+		// workshop — it is the same tool, and the gallery is where a supplier
+		// photograph needing a remake actually sits.
+		[ '#postimagediv', '#woocommerce-product-images' ].forEach(function (sel) {
+			var $box = $(sel + ' > .inside');
+			if (!$box.length) { return; }
+			$box.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-one-btn" data-mode="image">✦ ' +
 				esc(i18n.oneMain) + '</button></p>');
-		}
+		});
 		// Whatever writes somewhere we cannot point at — custom blocks, SEO
 		// fields — is listed in the hub box instead of being unreachable.
 		var rest = Object.keys(cfg.fields).filter(function (fid) { return !placed[fid]; });
