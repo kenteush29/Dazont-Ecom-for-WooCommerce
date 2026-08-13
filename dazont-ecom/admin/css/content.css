@@ -317,12 +317,6 @@
 	background: #f0f6fc; border-radius: 999px; padding: 1px 8px;
 }
 .dze-cb-block.is-off .dze-cb-count { color: #646970; background: #f0f0f1; }
-/* Where an image is going, in words, under the image. A select alone told
-   nobody anything once the popup was scrolled. */
-.dze-cb-shotwhere {
-	display: block; font-size: 11px; color: #2271b1; font-weight: 600;
-	text-align: center; margin: 2px 0;
-}
 /* Throwing one away: a cross on the image itself, not a hunt in a bar. */
 .dze-cb-shot { position: relative; }
 .dze-cb-shotdrop {
@@ -456,12 +450,9 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-bgcard .dze-bgnote { font-size: 11px; }
 .dze-bgfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; font-size: 12px; }
 .dze-bgfoot label { display: inline-flex; align-items: center; gap: 4px; }
-/* Describing a set instead of finding one: same shelf, one field. */
+/* Emptying a photograph into a background: same shelf, one line of controls. */
 .dze-bgmake { border-top: 1px solid #f0f0f1; padding-top: 14px; margin-top: 6px; }
 .dze-bgmake-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dze-bgmake-bar #dze-bg-desc { flex: 1 1 420px; min-width: 0; }
-.dze-bgmake-ideas { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; margin: 8px 0 0; }
-.dze-bg-idea { text-align: left; }
 
 /* ---- The fast lane: one photograph in, one main image out ---- */
 .dze-qm {
@@ -555,9 +546,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cb-shots { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
 .dze-cb-shots .dze-cb-shotgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .dze-cb-shot {
-	position: relative; width: 62px; height: 62px; flex: 0 0 62px;
+	position: relative; width: 148px; height: 148px; flex: 0 0 148px;
 	border: 2px solid #dcdcde; border-radius: 5px; overflow: hidden; cursor: pointer; background: #f6f7f7;
 }
+.dze-cb-shot.is-busy { opacity: .45; }
 .dze-cb-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dze-cb-shot.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
 .dze-cb-shot .dze-cb-shotcheck {
@@ -762,10 +754,26 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cb-row:hover .dze-cb-unqueue-one { color: #b32d2e; }
 .dze-cb-unqueue-one:focus { color: #b32d2e; outline: 1px solid #b32d2e; border-radius: 3px; }
 
-/* ---- A destination per generated image ---- */
+/* ---- A destination per generated image, written ON the image ---- */
+/* The destination used to be said twice under a 62px thumbnail — a caption
+   and a dropdown repeating it — which left no room to actually look at the
+   photograph. Now the picture is big enough to judge and carries its own two
+   controls: where it goes, and one more attempt. */
 .dze-cb-shotwrap { display: flex; flex-direction: column; gap: 3px; }
-.dze-cb-shotdest, .dze-cx-t-dest { font-size: 11px; max-width: 120px; height: 24px; line-height: 1; }
-.dze-cb-shotwrap .dze-cb-shotdest { width: 92px; }
+.dze-cb-shotbar {
+	position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+	display: flex; align-items: stretch; gap: 1px;
+	background: rgba(0,0,0,.55);
+}
+.dze-cb-shotbar button {
+	border: 0; background: transparent; color: #fff; cursor: pointer;
+	font-size: 11px; line-height: 1.2; padding: 5px 4px; font-weight: 600;
+}
+.dze-cb-shotpos { flex: 1 1 auto; text-align: left; }
+.dze-cb-shotredo { flex: 0 0 26px; font-size: 13px; border-left: 1px solid rgba(255,255,255,.25) !important; }
+.dze-cb-shotbar button:hover { background: rgba(34,113,177,.9); }
+.dze-cb-shotbar button:disabled { opacity: .5; cursor: default; }
+.dze-cx-t-dest { font-size: 11px; max-width: 120px; height: 24px; line-height: 1; }
 .dze-cx-galcell { display: flex; flex-direction: column; gap: 4px; }
 .dze-cx-t-dest { width: 100%; }
 
