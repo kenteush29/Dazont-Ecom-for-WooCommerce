@@ -992,3 +992,25 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 #dze-one-instrslot .dze-one-instr { margin: 10px 0 0; }
 .dze-one-recipepen { padding: 0 2px; }
 .dze-one-recipe:hover .dze-one-recipepen { color: #135e96; }
+
+/* ---- Every attempt is kept: each one was paid for ---- */
+/* Generating again used to overwrite the previous image, so two versions of
+   the same photograph could never be compared — the only way was to accept
+   one and generate the other afterwards. */
+.dze-qm-pair figure { position: relative; }
+.dze-one-tries { flex: 1 1 auto; min-width: 0; }
+.dze-one-trygrid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.dze-one-try {
+	position: relative; padding: 0; background: #fff; cursor: pointer;
+	border: 2px solid #dcdcde; border-radius: 6px; line-height: 0;
+}
+.dze-one-try img { display: block; width: 148px; height: 148px; object-fit: cover; border-radius: 4px; }
+.dze-one-try.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+.dze-one-trynum {
+	position: absolute; left: 4px; bottom: 4px; z-index: 2;
+	min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+	background: rgba(0,0,0,.6); color: #fff;
+	font-size: 11px; line-height: 18px; text-align: center;
+}
+.dze-one-try.is-sel .dze-one-trynum { background: #2271b1; }
+#dze-one-trycap { font-size: 11px; color: #646970; }

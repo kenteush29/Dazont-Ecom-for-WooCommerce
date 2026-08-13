@@ -3180,6 +3180,8 @@ Answer with STRICT JSON and nothing else: "
 				'qmWorking'  => __( 'Shooting…', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
+				/* translators: %s: number of attempts */
+				'tryPick'    => __( '%s attempts — click the one to keep', 'dazont-ecom' ),
 				'qmUse'      => __( 'Use as main image', 'dazont-ecom' ),
 				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
 				'qmBg'       => __( 'Background', 'dazont-ecom' ),
