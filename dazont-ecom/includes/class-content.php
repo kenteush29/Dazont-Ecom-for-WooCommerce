@@ -663,6 +663,24 @@ EOT;
 		wp_send_json_success( [ 'id' => $id ] );
 	}
 
+	/** Writes one registry row's prompt. Used by the shared prompt editor. */
+	public static function set_prompt_for( string $id, string $text ): bool {
+		$rows  = self::registry();
+		$found = false;
+		foreach ( $rows as $k => $r ) {
+			if ( (string) ( $r['id'] ?? '' ) === $id ) {
+				$rows[ $k ]['prompt'] = $text;
+				$found = true;
+				break;
+			}
+		}
+		if ( ! $found ) {
+			return false;
+		}
+		self::write_setting( 'registry', $rows );
+		return true;
+	}
+
 	/** Registry row by id (text or image), or null. */
 	private static function registry_row( string $id ): ?array {
 		foreach ( self::registry() as $r ) {
@@ -1116,7 +1134,7 @@ EOT;
 	 * Writes ONE settings key without going through the form sanitizer, which
 	 * is shaped for form input and would drop everything not posted with it.
 	 */
-	private static function write_setting( string $key, $value ): void {
+	public static function write_setting( string $key, $value ): void {
 		$s         = self::get_settings();
 		$s[ $key ] = $value;
 		remove_filter( 'sanitize_option_' . self::OPT_SETTINGS, [ self::instance(), 'sanitize' ] );
@@ -2005,12 +2023,9 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
 			</p>
 
-			</details>
-
-			<details class="dze-set">
-			<summary><?php esc_html_e( 'Rules for picking the photograph that goes with a text block', 'dazont-ecom' ); ?></summary>
+			<h3 class="dze-set-sub"><?php esc_html_e( 'Pairing a text block with one of the product photographs', 'dazont-ecom' ); ?></h3>
 			<p class="description" style="max-width:900px;">
-				<?php esc_html_e( 'When a prompt carries an image meta key, the plugin looks at every photograph of the product and picks the one that block should be shown with. These are the rules it picks by.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'This is NOT about generating images. A text prompt can be given an image meta key (in its card, under "Pair this text with one of the product photographs"): the plugin then looks at the photographs the product already has, picks the one that block should be displayed next to, and writes the block about what is visible in it. These are the rules it picks by. Nothing here runs if no prompt carries such a key.', 'dazont-ecom' ); ?>
 			</p>
 			<textarea id="dze-ct-feature-prompt" name="<?php echo esc_attr( $opt ); ?>[feature_prompt]" rows="4" class="large-text code"><?php echo esc_textarea( self::feature_prompt() ); ?></textarea>
 			<p class="description">
@@ -2065,8 +2080,7 @@ Answer with STRICT JSON and nothing else: "
 								<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
 								<button type="button" class="button button-small dze-pr-metaadd">&#43;</button>
 							</span>
-						</details>
-						<details class="dze-pr-inputs">
+								<details class="dze-pr-inputs">
 							<summary><?php esc_html_e( 'Pair this text with one of the product photographs', 'dazont-ecom' ); ?></summary>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
 						</details>
@@ -2237,6 +2251,8 @@ Answer with STRICT JSON and nothing else: "
 				} );
 			} );
 			</script>
+
+			</details>
 
 			</details>
 
@@ -3116,7 +3132,8 @@ Answer with STRICT JSON and nothing else: "
 				'oneRedo'    => __( 'Write it again', 'dazont-ecom' ),
 				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
 				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
-				'shotsLabel' => __( 'Generated images — waiting for your decision', 'dazont-ecom' ),
+				'shotsLabel' => __( 'Generated images — tick the ones to keep, then save', 'dazont-ecom' ),
+				'shotDrop'   => __( 'Throw this image away', 'dazont-ecom' ),
 				'bgAdd'      => __( 'Keep a new background', 'dazont-ecom' ),
 				'bgPick'     => __( 'Choose the background image', 'dazont-ecom' ),
 				'bgUse'      => __( 'Keep this one', 'dazont-ecom' ),
