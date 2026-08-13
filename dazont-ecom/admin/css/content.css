@@ -308,6 +308,10 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* The generated images carry their own "one more": asking for another shot is
+   an image decision, not something to look for in a bar that also saves texts. */
+.dze-cb-shothead { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+
 /* ---- One block at a time, from the block itself ---- */
 /* The button sits inside the WordPress box it writes into: quiet, small, and
    at the top where the eye already is. */
