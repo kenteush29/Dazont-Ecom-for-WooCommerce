@@ -2900,12 +2900,10 @@ Answer with STRICT JSON and nothing else: "
 					'nowImages' => __( 'Photographs already on the product', 'dazont-ecom' ),
 					'nowMain'   => __( 'Main image', 'dazont-ecom' ),
 					'nowGallery'=> __( 'Gallery', 'dazont-ecom' ),
-					// One menu of what can be done to these photographs, instead
-					// of a button per tool standing there for good.
-					'toolLabel' => __( 'Do something with these', 'dazont-ecom' ),
-					'toolPick'  => __( '— choose —', 'dazont-ecom' ),
-					'toolReframe'=> __( 'Reframe photographs (change their shape)', 'dazont-ecom' ),
-					'toolAi'    => __( 'Remake the main image with AI', 'dazont-ecom' ),
+					// Two buttons that say what they do, rather than a menu that
+					// has to be opened to find out what the screen can even do.
+					'btnAi'     => __( 'Main image with AI', 'dazont-ecom' ),
+					'btnRf'     => __( 'Resize images', 'dazont-ecom' ),
 					'rfStart'   => __( 'Reframe photographs', 'dazont-ecom' ),
 					'rfAll'     => __( 'All / none', 'dazont-ecom' ),
 					'rfShape'   => __( 'Shape', 'dazont-ecom' ),
