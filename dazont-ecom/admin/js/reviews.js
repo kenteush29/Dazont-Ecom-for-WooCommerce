@@ -18,6 +18,16 @@
 	}
 
 	// ---- Products list: panel in a popup ----
+	// On a product screen, the Reviews box WordPress already draws gets the
+	// button: reviews are worked on where the reviews are.
+	$(function () {
+		if (!cfg.postId) { return; }
+		var $box = $('#commentsdiv > .inside, #commentsdiv .inside').first();
+		if (!$box.length || $box.find('.dze-rev-open').length) { return; }
+		$box.prepend('<p class="dze-one-plant"><button type="button" class="button button-small dze-rev-open" data-id="' +
+			cfg.postId + '">✦ <span></span>' + esc(cfg.plantLabel || '') + '</button></p>');
+	});
+
 	$(document).on('click', '.dze-rev-open', function () {
 		var id = $(this).data('id');
 		$('#dze-rev-body').html('<p><span class="dze-cx-spin"></span></p>');

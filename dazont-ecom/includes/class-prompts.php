@@ -131,10 +131,12 @@ final class DZE_Prompts {
 			];
 		}
 		if ( class_exists( 'DZE_Pod' ) && self::module_on( 'pod' ) ) {
+			// POD lives inside Product content now: same tab, same section as
+			// the other image recipes.
 			$out['pod'] = [
 				'label' => __( 'POD mockup', 'dazont-ecom' ),
 				'text'  => [ 'DZE_Pod', 'prompt' ],
-				'tab'   => 'pod',
+				'tab'   => 'content',
 				'frag'  => 'dze-pod-prompt',
 			];
 		}
