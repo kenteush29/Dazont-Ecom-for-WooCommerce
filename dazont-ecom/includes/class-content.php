@@ -3330,6 +3330,17 @@ Answer with STRICT JSON and nothing else: "
 	 * then one line per variation with its cost, its price today and the price
 	 * it would get.
 	 */
+	/**
+	 * A price as PLAIN TEXT.
+	 *
+	 * wc_price() returns markup, and markup handed to a screen that escapes
+	 * what it prints — as it should — comes out as a wall of span tags. The
+	 * preview needs the figure, not the formatting.
+	 */
+	private static function price_text( float $value ): string {
+		return trim( html_entity_decode( wp_strip_all_tags( wc_price( $value ) ), ENT_QUOTES, 'UTF-8' ) );
+	}
+
 	public function ajax_price_preview(): void {
 		$this->guard();
 		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
@@ -3351,8 +3362,8 @@ Answer with STRICT JSON and nothing else: "
 			$min = (float) ( $row['min'] ?? 0 );
 			$max = (float) ( $row['max'] ?? 0 );
 			$table[] = [
-				'min'  => wc_price( $min ),
-				'max'  => $max > 0 ? wc_price( $max ) : '∞',
+				'min'  => self::price_text( $min ),
+				'max'  => $max > 0 ? self::price_text( $max ) : '∞',
 				'mult' => (float) ( $row['mult'] ?? 1 ),
 				'hit'  => ( $cost >= $min && ( $max <= 0 || $cost <= $max ) ),
 			];
@@ -3374,17 +3385,17 @@ Answer with STRICT JSON and nothing else: "
 				}
 				$rows[] = [
 					'name' => $variation->get_name(),
-					'cost' => wc_price( $vcost ),
-					'now'  => '' !== $variation->get_regular_price() ? wc_price( (float) $variation->get_regular_price() ) : '—',
-					'next' => wc_price( DZE_Price::charm( $vcost * self::mult_for_cost( $vcost ), 'up' ) ),
+					'cost' => self::price_text( $vcost ),
+					'now'  => '' !== $variation->get_regular_price() ? self::price_text( (float) $variation->get_regular_price() ) : '—',
+					'next' => self::price_text( DZE_Price::charm( $vcost * self::mult_for_cost( $vcost ), 'up' ) ),
 				];
 			}
 		} else {
 			$rows[] = [
 				'name' => $product->get_name(),
-				'cost' => wc_price( $cost ),
-				'now'  => '' !== $product->get_regular_price() ? wc_price( (float) $product->get_regular_price() ) : '—',
-				'next' => wc_price( DZE_Price::charm( $cost * self::mult_for_cost( $cost ), 'up' ) ),
+				'cost' => self::price_text( $cost ),
+				'now'  => '' !== $product->get_regular_price() ? self::price_text( (float) $product->get_regular_price() ) : '—',
+				'next' => self::price_text( DZE_Price::charm( $cost * self::mult_for_cost( $cost ), 'up' ) ),
 			];
 		}
 
