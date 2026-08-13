@@ -77,7 +77,6 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
 		add_action( 'wp_ajax_dze_content_context', [ $this, 'ajax_context' ] );
 		add_action( 'wp_ajax_dze_content_add_default', [ $this, 'ajax_add_default' ] );
-		add_action( 'wp_ajax_dze_content_bg_strip', [ $this, 'ajax_bg_strip' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
@@ -1817,19 +1816,6 @@ Answer with STRICT JSON and nothing else: "
 				<span id="dze-bd-state" class="description" style="margin-left:8px;"></span>
 			</p>
 
-			<div class="dze-bgmake">
-				<p class="description" style="margin-top:0;">
-					<?php esc_html_e( 'Empty a photograph you already have: hand it one of your own shots and the product is taken out of it — the object, its shadow, the hanger, the label — leaving the set alone. Materials, light and framing are kept, so what comes back is your own set with nothing standing in it. It is redrawn, not cut out: it matches closely without being the same pixels, which is all a backdrop needs since every product is re-lit onto it afterwards.', 'dazont-ecom' ); ?>
-				</p>
-				<p class="dze-bgmake-bar">
-					<button type="button" class="button" id="dze-bg-src"><?php esc_html_e( 'Choose a photograph', 'dazont-ecom' ); ?></button>
-					<input type="hidden" id="dze-bg-srcid" value="0" />
-					<span id="dze-bg-srcname" class="description"></span>
-					<input type="text" id="dze-bg-stripurl" class="regular-text" placeholder="<?php esc_attr_e( 'or paste the address of an image', 'dazont-ecom' ); ?>" />
-					<button type="button" class="button button-primary" id="dze-bg-strip">&#9003; <?php esc_html_e( 'Empty it', 'dazont-ecom' ); ?></button>
-					<span id="dze-bg-stripstate" class="description"></span>
-				</p>
-			</div>
 			<p class="description">
 				<?php esc_html_e( 'A card without an image is ignored. The generated one is a soft grey gradient, lighter in the middle, drawn here rather than photographed — so it can be made again identically whenever you want.', 'dazont-ecom' ); ?>
 			</p>
@@ -1857,6 +1843,10 @@ Answer with STRICT JSON and nothing else: "
 						var a = dzeScFrm.state().get( 'selection' ).first().toJSON();
 						var url = ( a.sizes && a.sizes.thumbnail ) ? a.sizes.thumbnail.url : a.url;
 						$cell.find( '.dze-sc-img' ).val( a.id );
+						// The image already has a name in the library; retyping it
+						// is busywork. A name written by hand is left alone.
+						var $nm = $cell.find( 'input[name$="[sc_name][]"]' );
+						if ( ! $.trim( $nm.val() ) ) { $nm.val( a.title || a.filename || '' ); }
 						$cell.find( '.dze-sc-thumb' ).html(
 							$( '<img />' ).attr( 'src', url ).attr( 'alt', '' ).css( { maxWidth: '90px', height: 'auto', borderRadius: '4px' } )
 						);
@@ -1878,8 +1868,6 @@ Answer with STRICT JSON and nothing else: "
 					$cell.addClass( 'is-empty' );
 					$( this ).remove();
 				} );
-				// A fresh empty row, with the Default radio numbered like its
-				// position — the server reads the rows in DOM order.
 				// However the image was made, it lands on the shelf the same
 				// way: the last empty card, or a new one.
 				function dzeBgShelf( d ) {
@@ -1894,43 +1882,8 @@ Answer with STRICT JSON and nothing else: "
 					$card.find( 'input[name$="[sc_name][]"]' ).val( d.name );
 					$card.find( '.dze-sc-pick' ).text( dzeScRepl );
 				}
-				// Empty one of my own photographs: pick it in the library, or
-				// paste its address, and the product walks out of the frame.
-				var dzeBgSrcFrm = null;
-				$( '#dze-bg-src' ).on( 'click', function () {
-					if ( ! window.wp || ! wp.media ) { return; }
-					dzeBgSrcFrm = wp.media( {
-						title: <?php echo wp_json_encode( __( 'Choose the photograph to empty', 'dazont-ecom' ) ); ?>,
-						library: { type: 'image' },
-						button: { text: dzeScUse },
-						multiple: false
-					} );
-					dzeBgSrcFrm.on( 'select', function () {
-						var a = dzeBgSrcFrm.state().get( 'selection' ).first().toJSON();
-						$( '#dze-bg-srcid' ).val( a.id );
-						$( '#dze-bg-srcname' ).text( a.filename || a.title || '' );
-						$( '#dze-bg-stripurl' ).val( '' );
-					} );
-					dzeBgSrcFrm.open();
-				} );
-				$( '#dze-bg-stripurl' ).on( 'input', function () {
-					if ( $( this ).val() ) { $( '#dze-bg-srcid' ).val( '0' ); $( '#dze-bg-srcname' ).text( '' ); }
-				} );
-				$( '#dze-bg-strip' ).on( 'click', function () {
-					var $b = $( this ).prop( 'disabled', true );
-					var $st = $( '#dze-bg-stripstate' ).text( <?php echo wp_json_encode( __( 'Clearing the set…', 'dazont-ecom' ) ); ?> );
-					$.post( window.ajaxurl, {
-						action: 'dze_content_bg_strip',
-						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
-						att: $( '#dze-bg-srcid' ).val(),
-						url: $( '#dze-bg-stripurl' ).val()
-					} ).done( function ( r ) {
-						$b.prop( 'disabled', false );
-						if ( ! r || ! r.success ) { $st.text( ( r && r.data && r.data.message ) || '' ); return; }
-						$st.text( '' );
-						dzeBgShelf( r.data );
-					} ).fail( function () { $b.prop( 'disabled', false ); $st.text( '' ); } );
-				} );
+				// A fresh empty row, with the Default radio numbered like its
+				// position — the server reads the rows in DOM order.
 				$( '#dze-sc-add' ).on( 'click', function () {
 					var $cards = $( '#dze-sc .dze-bgcard' ), $card = $cards.last().clone();
 					$card.addClass( 'is-empty' );
@@ -2263,17 +2216,7 @@ Answer with STRICT JSON and nothing else: "
 						$b.prop( 'disabled', false );
 						if ( ! r || ! r.success ) { $st.text( ( r && r.data && r.data.message ) || '' ); return; }
 						$st.text( '' );
-						var $card = $( '#dze-sc .dze-bgcard' ).last();
-						if ( $card.find( '.dze-sc-img' ).val() !== '0' ) {
-							$( '#dze-sc-add' ).trigger( 'click' );
-							$( '#dze-sc .dze-bgcard' ).last().find( '.dze-sc-pick' ).trigger( 'blur' );
-							$card = $( '#dze-sc .dze-bgcard' ).last();
-						}
-						$card.removeClass( 'is-empty' );
-						$card.find( '.dze-sc-img' ).val( r.data.id );
-						$card.find( '.dze-sc-thumb' ).html( $( '<img />' ).attr( 'src', r.data.thumb ).attr( 'alt', '' ) );
-						$card.find( 'input[name$="[sc_name][]"]' ).val( r.data.name );
-						$card.find( '.dze-sc-pick' ).text( <?php echo wp_json_encode( __( 'Replace', 'dazont-ecom' ) ); ?> );
+						dzeBgShelf( r.data );
 					} ).fail( function () { $b.prop( 'disabled', false ); $st.text( '' ); } );
 				} );
 				// Restore the shipped default prompts (drops customs — confirmed first).
@@ -4888,102 +4831,6 @@ Answer with STRICT JSON and nothing else: "
 		}
 		$mime = (string) ( get_post_mime_type( $attachment_id ) ?: 'image/jpeg' );
 		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
-	}
-
-	/**
-	 * Puts a generated image in the media library, attached to nothing.
-	 *
-	 * A background belongs to the shop, not to a product: sideload_seo() names
-	 * files after the product they illustrate, which is exactly wrong here.
-	 */
-	public function sideload_library( string $url, string $title ): int {
-		if ( ! self::is_fal_url( $url ) ) {
-			throw new RuntimeException( __( 'Invalid image source.', 'dazont-ecom' ) );
-		}
-		require_once ABSPATH . 'wp-admin/includes/file.php';
-		require_once ABSPATH . 'wp-admin/includes/media.php';
-		require_once ABSPATH . 'wp-admin/includes/image.php';
-		$tmp = download_url( $url, 60 );
-		if ( is_wp_error( $tmp ) ) {
-			throw new RuntimeException( $tmp->get_error_message() );
-		}
-		$id = media_handle_sideload(
-			[ 'name' => sanitize_file_name( $title ?: 'background' ) . '.jpg', 'tmp_name' => $tmp ],
-			0,
-			$title
-		);
-		if ( is_wp_error( $id ) ) {
-			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
-			throw new RuntimeException( $id->get_error_message() );
-		}
-		return (int) $id;
-	}
-
-	/**
-	 * Empties a photograph: the product leaves, its set stays.
-	 *
-	 * The other way round from the block above — here the background already
-	 * exists, in a photograph that happens to have a product standing in it.
-	 * The model is asked to take the product out and rebuild the surface
-	 * underneath, touching nothing else. It is a redraw, not a cutout: what
-	 * comes back matches the set closely, it is not the same pixels. Which is
-	 * enough for a backdrop, since every product will be re-lit onto it
-	 * anyway.
-	 *
-	 * The source is one of: an image already in the library, a URL, or bytes
-	 * pasted from the clipboard.
-	 */
-	public function ajax_bg_strip(): void {
-		$this->guard();
-		$att   = isset( $_POST['att'] ) ? absint( wp_unslash( $_POST['att'] ) ) : 0;
-		$url   = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
-		$paste = isset( $_POST['paste'] ) ? trim( (string) wp_unslash( $_POST['paste'] ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- read_data_uri() validates the bytes.
-		$note  = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
-		if ( '' === self::fal_key() ) {
-			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
-		}
-		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
-			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
-		}
-		try {
-			if ( $att > 0 ) {
-				$source = $this->fal_source_data_uri( $att );
-			} elseif ( '' !== $paste ) {
-				$source = self::read_data_uri( $paste );
-			} elseif ( '' !== $url ) {
-				$source = $this->fetch_remote_image( $url );
-			} else {
-				throw new RuntimeException( __( 'Give me a photograph to empty.', 'dazont-ecom' ) );
-			}
-		} catch ( \Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		// Everything here pulls in the same direction: REMOVE, and CHANGE
-		// NOTHING ELSE. An edit model asked in loose terms redraws the whole
-		// frame — the very thing that makes a background unusable.
-		$prompt = 'Remove the product from this photograph, and everything that came with it: the object itself, its shadow, its reflection, any hand, mannequin, hanger, stand, price tag, label or text. '
-			. 'Rebuild the surface behind and beneath it so the set reads as an empty set that was photographed with nothing in it. '
-			. 'KEEP EVERYTHING ELSE EXACTLY AS IT IS: the same materials, the same colours, the same grain, the same lighting, the same direction and softness of light, the same perspective, the same framing, the same white balance. '
-			. 'Do not restyle, do not brighten, do not clean up, do not add anything. The result is a background plate: an empty set with clear space in the middle where another product will be placed later.';
-		if ( '' !== $note ) {
-			$prompt .= ' ' . $note;
-		}
-		try {
-			DZE_Ai_Usage::unit( 'background' );
-			$made = $this->fal_generate( $prompt, [ $source ] );
-			$name = $att > 0 ? (string) get_the_title( $att ) : __( 'Background from a photo', 'dazont-ecom' );
-			$id   = $this->sideload_library( $made, mb_substr( trim( $name ) ?: 'background', 0, 60 ) );
-		} catch ( \Throwable $e ) {
-			DZE_Ai_Usage::unit();
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		DZE_Ai_Usage::unit();
-		DZE_Ai_Usage::finished( 'background' );
-		wp_send_json_success( [
-			'id'    => $id,
-			'name'  => mb_substr( __( 'Set from a photo', 'dazont-ecom' ), 0, 40 ),
-			'thumb' => (string) wp_get_attachment_image_url( $id, 'medium' ),
-		] );
 	}
 
 	public function fal_generate( string $prompt, array $image_urls ): string {
