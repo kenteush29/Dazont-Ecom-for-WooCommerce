@@ -3185,7 +3185,10 @@ Answer with STRICT JSON and nothing else: "
 				'qmBg'       => __( 'Background', 'dazont-ecom' ),
 				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),
 				'qmBgPlate'  => __( 'The shop backdrop', 'dazont-ecom' ),
-				'qmPaste'    => __( 'Paste an image here (Ctrl+V) or drop a file', 'dazont-ecom' ),
+				'qmPaste'    => __( 'Paste an image here (Ctrl+V), drop a file, or', 'dazont-ecom' ),
+				// The file is read in the browser and travels inside the
+				// request: nothing is stored on the site for a source image.
+				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
 				'qmPasted'   => __( 'Image pasted ✓ — it will be used instead of the address', 'dazont-ecom' ),
 				'qmClear'    => __( 'Remove', 'dazont-ecom' ),
 				// The price preview.
