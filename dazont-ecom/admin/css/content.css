@@ -311,6 +311,26 @@
 /* The generated images carry their own "one more": asking for another shot is
    an image decision, not something to look for in a bar that also saves texts. */
 .dze-cb-shothead { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+/* What is ticked, out of what the block holds. */
+.dze-cb-count {
+	margin-left: 8px; font-size: 11px; font-weight: 600; color: #2271b1;
+	background: #f0f6fc; border-radius: 999px; padding: 1px 8px;
+}
+.dze-cb-block.is-off .dze-cb-count { color: #646970; background: #f0f0f1; }
+/* Where an image is going, in words, under the image. A select alone told
+   nobody anything once the popup was scrolled. */
+.dze-cb-shotwhere {
+	display: block; font-size: 11px; color: #2271b1; font-weight: 600;
+	text-align: center; margin: 2px 0;
+}
+/* Throwing one away: a cross on the image itself, not a hunt in a bar. */
+.dze-cb-shot { position: relative; }
+.dze-cb-shotdrop {
+	position: absolute; top: 2px; right: 2px; z-index: 2; width: 20px; height: 20px;
+	border: none; border-radius: 50%; background: rgba(255,255,255,.9); color: #b32d2e;
+	cursor: pointer; line-height: 1; font-size: 14px; padding: 0; display: none;
+}
+.dze-cb-shot:hover .dze-cb-shotdrop { display: block; }
 
 /* ---- One block at a time, from the block itself ---- */
 /* The button sits inside the WordPress box it writes into: quiet, small, and

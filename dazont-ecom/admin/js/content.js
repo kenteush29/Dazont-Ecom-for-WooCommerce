@@ -552,12 +552,15 @@
 			'<div class="dze-cb-shotgrid"></div><span class="dze-cb-shotstate"></span></div>');
 		res.shots.forEach(function (url) {
 			var cur = dest[url] || 'gallery';
+			var where = cur === 'main' ? i18n.toMain : (cur === 'gallery_first' ? i18n.toGalleryFirst : i18n.toGallery);
 			$wrap.find('.dze-cb-shotgrid').append(
 				$('<div class="dze-cb-shotwrap"></div>').append(
-					$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span></div>')
+					$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span>' +
+						'<button type="button" class="dze-cb-shotdrop" title="' + esc(i18n.shotDrop) + '">&times;</button></div>')
 						.toggleClass('is-sel', !dropped[url])
 						.attr('data-url', url)
 						.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', '')),
+					$('<span class="dze-cb-shotwhere"></span>').text(where),
 					$('<select class="dze-cb-shotdest">' +
 						'<option value="gallery"' + (cur === 'gallery' ? ' selected' : '') + '>' + esc(i18n.toGallery) + '</option>' +
 						'<option value="gallery_first"' + (cur === 'gallery_first' ? ' selected' : '') + '>' + esc(i18n.toGalleryFirst) + '</option>' +
@@ -571,6 +574,9 @@
 	}
 	$(document).on('click', '#dze-cx-shots .dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
 	$(document).on('change', '#dze-cx-shots .dze-cb-shotdest', function () {
+		var v = $(this).val();
+		$(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotwhere')
+			.text(v === 'main' ? i18n.toMain : (v === 'gallery_first' ? i18n.toGalleryFirst : i18n.toGallery));
 		if ($(this).val() !== 'main') { return; }
 		var $me = $(this);
 		$('#dze-cx-shots .dze-cb-shotdest').not($me).each(function () {
@@ -1283,6 +1289,17 @@
 	$(document).on('click', '.dze-one-btn', function () {
 		var $b = $(this);
 		openOne($b.data('field') || '', $b.data('mode') || 'text');
+	});
+
+	// One image thrown away: off the screen and out of the waiting list, so it
+	// does not come back the next time the popup opens.
+	$(document).on('click', '.dze-cb-shotdrop', function (e) {
+		e.stopPropagation();
+		var url = $(this).closest('.dze-cb-shot').data('url');
+		res.shots = res.shots.filter(function (u) { return u !== url; });
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] });
+		drawShots();
+		if (!res.shots.length && !Object.keys(res.texts).length) { $('#dze-cx-result').hide(); }
 	});
 
 	// POD hands its result over to this strip.

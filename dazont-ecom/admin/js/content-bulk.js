@@ -61,6 +61,29 @@
 		saveMem(m);
 	}
 	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par, #dze-cb-reviews, #dze-cb-revn', persist);
+
+	// Every block says what is ticked out of what it holds: "2 / 6" answers
+	// "did I forget something?" without opening anything.
+	function counts() {
+		var pairs = [
+			[ '.dze-cb-block:has(.dze-cb-field)', '.dze-cb-field', '.dze-cb-field:checked' ],
+			[ '.dze-cb-block:has(#dze-cb-image)', '#dze-cb-image', '#dze-cb-image:checked' ],
+			[ '.dze-cb-block:has(#dze-cb-price)', '#dze-cb-price', '#dze-cb-price:checked' ],
+			[ '.dze-cb-block:has(#dze-cb-reviews)', '#dze-cb-reviews', '#dze-cb-reviews:checked' ]
+		];
+		pairs.forEach(function (p) {
+			var $block = $(p[0]);
+			if (!$block.length) { return; }
+			var all = $block.find(p[1]).length, on = $block.find(p[2]).length;
+			var $h = $block.find('h3');
+			var $c = $h.find('.dze-cb-count');
+			if (!$c.length) { $c = $('<span class="dze-cb-count"></span>').appendTo($h); }
+			$c.text(on + ' / ' + all);
+			$block.toggleClass('is-off', on === 0);
+		});
+	}
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-reviews', counts);
+	$(counts);
 	// One prompt by default, a + to add another when a product needs two kinds
 	// of shot. Every row runs on every product of the list.
 	function tplRow(value) {
