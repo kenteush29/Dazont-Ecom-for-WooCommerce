@@ -2574,7 +2574,7 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	private static function sec_open( string $id, string $title, bool $open = true ): void {
 		printf(
-			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%5$s</h3><div class="dze-sec-body"%6$s>',
+			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%5$s<span class="dze-sec-count"></span></h3><div class="dze-sec-body"%6$s>',
 			$open ? ' is-open' : '',
 			esc_attr( $id ),
 			$open ? 'true' : 'false',
@@ -2708,6 +2708,37 @@ Answer with STRICT JSON and nothing else: "
 						<input type="checkbox" id="dze-cb-price" checked />
 						<span><?php esc_html_e( 'Recalculate from the cost', 'dazont-ecom' ); ?></span>
 					</label>
+					<?php
+					// The product screen shows what the recalculation would do,
+					// with the figures, and a link to the table it reads. A bulk
+					// run has no single product to preview, but it reads the same
+					// table — so the table itself is shown, and edited from here.
+					$dze_pt  = self::price_table();
+					$dze_url = class_exists( 'DZE_Marketing_Ai' )
+						? add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'content' ], admin_url( 'admin.php' ) ) . '#dze-set-price'
+						: '';
+					?>
+					<div class="dze-cb-opts">
+						<span class="description"><?php esc_html_e( 'Cost × multiplier, rounded to the shop\'s price ending:', 'dazont-ecom' ); ?></span>
+						<span class="dze-pt-mini">
+							<?php foreach ( $dze_pt as $dze_row ) : ?>
+								<span>
+									<?php
+									printf(
+										/* translators: 1: lower bound, 2: upper bound or ∞, 3: multiplier */
+										esc_html__( '%1$s–%2$s × %3$s', 'dazont-ecom' ),
+										esc_html( (string) $dze_row['min'] ),
+										esc_html( $dze_row['max'] > 0 ? (string) $dze_row['max'] : '∞' ),
+										esc_html( (string) $dze_row['mult'] )
+									);
+									?>
+								</span>
+							<?php endforeach; ?>
+						</span>
+						<?php if ( $dze_url ) : ?>
+							<a class="dze-cx-priceedit" href="<?php echo esc_url( $dze_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Edit the price table', 'dazont-ecom' ); ?> &rarr;</a>
+						<?php endif; ?>
+					</div>
 				<?php self::sec_close(); ?>
 
 				<?php self::sec_open( 'img', __( 'Images', 'dazont-ecom' ), false ); ?>

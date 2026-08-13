@@ -229,8 +229,38 @@
 		toggleSec($sec, !$sec.hasClass('is-open'));
 	});
 
+	// How many functions a shut section is holding, written in its own heading:
+	// a closed section said nothing about what it would run, so you had to open
+	// all of them to find out what the button was about to do.
+	function countSec($sec) {
+		var $boxes = $sec.find('> .dze-sec-body input[type=checkbox]').filter(function () {
+			return !$(this).closest('.dze-rf-tools, .dze-rf-out').length;
+		});
+		var total = $boxes.length;
+		var on = $boxes.filter(':checked').length;
+		$sec.find('> .dze-sec-head > .dze-sec-count').text(total ? (on + ' / ' + total) : '')
+			.toggleClass('is-on', on > 0);
+	}
+	function countAll() { $('.dze-sec').each(function () { countSec($(this)); }); }
+	$(document).on('change', '.dze-sec-body input[type=checkbox]', function () {
+		countSec($(this).closest('.dze-sec'));
+	});
+	$(function () { countAll(); });
+	// Sections drawn later — the popup builds its own — are counted when they
+	// appear, without every screen having to remember to ask.
+	if (window.MutationObserver) {
+		var pending = null;
+		$(function () {
+			new MutationObserver(function () {
+				window.clearTimeout(pending);
+				pending = window.setTimeout(countAll, 80);
+			}).observe(document.body, { childList: true, subtree: true });
+		});
+	}
+
 	window.dzePhotos = {
 		toggleSec: toggleSec,
+		countSections: countAll,
 		render: render,
 		on: function (name, fn) { handlers[name] = fn; }
 	};

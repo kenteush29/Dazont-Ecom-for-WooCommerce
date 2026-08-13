@@ -150,6 +150,7 @@
 		return '<section class="dze-sec' + (open ? ' is-open' : '') + '" data-sec="' + id + '">' +
 			'<h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
 				'<span class="dze-sec-caret">' + (open ? '▾' : '▸') + '</span>' + esc(title) +
+				'<span class="dze-sec-count"></span>' +
 			'</h3>' +
 			'<div class="dze-sec-body"' + (open ? '' : ' style="display:none;"') + '>' + body + '</div>' +
 		'</section>';
