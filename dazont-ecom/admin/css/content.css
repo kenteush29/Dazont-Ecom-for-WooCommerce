@@ -986,3 +986,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 }
 .dze-rf-pair figcaption { font-size: 11px; color: #646970; margin-top: 3px; }
 .dze-rf-drop { font-size: 12px; color: #50575e; }
+
+/* The instructions sit under the recipe they belong to, indented with it. */
+#dze-one-instrslot .dze-one-instr { margin: 10px 0 0; }
+.dze-one-recipepen { padding: 0 2px; }
+.dze-one-recipe:hover .dze-one-recipepen { color: #135e96; }

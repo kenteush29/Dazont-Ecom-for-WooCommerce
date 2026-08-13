@@ -1171,7 +1171,6 @@
 		'<div class="dze-cx-modal" id="dze-one"><div class="dze-cx-dialog dze-one-dialog">' +
 			'<div class="dze-cx-head">' +
 				'<h2 id="dze-one-title"></h2>' +
-				'<span id="dze-one-peek"></span>' +
 				'<button type="button" class="button dze-hub-close" style="margin-left:auto;">' + esc(i18n.close) + '</button>' +
 			'</div>' +
 			'<div class="dze-cx-body">' +
@@ -1200,8 +1199,6 @@
 			? (one.scope === 'gallery' ? i18n.oneGallery : i18n.qmTitle)
 			: (cfg.fields[fid] || fid);
 		$('#dze-one-title').text(label);
-		$('#dze-one-peek').html('<button type="button" class="dze-prompt-peek" data-prompt="' +
-			(mode === 'image' ? 'content_' + esc(cfg.mainRecipe || '') : 'content_' + esc(fid)) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>');
 		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
 		$('#dze-one-instrwrap').prop('open', false);
 		$('#dze-one-savestate').text('');
@@ -1211,6 +1208,9 @@
 			? (one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain)
 			: i18n.oneGen);
 		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : '');
+		// One editor, moved to where the thing it edits is named.
+		if (mode === 'image') { $('#dze-one-instrslot').append($('#dze-one-instrwrap')); }
+		else { $('#dze-one-body').before($('#dze-one-instrwrap')); }
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
 			one.srcId = 0; one.paste = '';
@@ -1233,6 +1233,10 @@
 			'<div class="dze-step">' +
 				'<p class="dze-step-q"><span class="dze-step-n">1</span>' + esc(i18n.stepWhat) + '</p>' +
 				'<div class="dze-one-recipes" id="dze-one-recipes"></div>' +
+				// The instructions belong to the recipe above them, so they are
+				// moved here rather than kept in a bar of their own at the top
+				// of the popup, which said the same thing twice.
+				'<div id="dze-one-instrslot"></div>' +
 			'</div>' +
 
 			'<div class="dze-step">' +
@@ -1309,15 +1313,19 @@
 					'<span class="dze-one-recipename">' + esc(t.name) + '</span>' +
 					(what ? '<span class="dze-one-recipewhat">' + esc(what) + '</span>' : '') +
 				'</span>' +
-				'<span class="dze-one-recipepen dze-prompt-peek" data-prompt="content_' + esc(String(t.id)) + '" ' +
-				'title="' + esc(i18n.promptTip) + '">&#9998;</span></button>';
+				'<span class="dze-one-recipepen" title="' + esc(i18n.promptTip) + '">&#9998;</span></button>';
 		});
 		$('#dze-one-recipes').html(html);
 	}
 	$(document).on('click', '.dze-one-recipe', function (e) {
-		// The pencil inside the card opens the prompt, it does not pick.
-		if ($(e.target).hasClass('dze-one-recipepen')) { return; }
+		var pen = $(e.target).hasClass('dze-one-recipepen');
 		oneSetRecipe($(this).data('id') === undefined ? '' : String($(this).data('id')));
+		// The pencil picks the recipe AND opens its instructions: reading them
+		// is how you tell whether this is the right recipe.
+		if (pen) {
+			var $w = $('#dze-one-instrwrap');
+			$w.prop('open', !$w.prop('open'));
+		}
 	});
 	function oneSetRecipe(v) {
 		$('#dze-one-recipe').val(v);
@@ -1326,7 +1334,6 @@
 		}).addClass('is-sel');
 		var t = (cfg.templates || []).filter(function (x) { return String(x.id) === String(v); })[0];
 		$('#dze-one-prompt').val(t ? t.prompt : '');
-		$('#dze-one-peek .dze-prompt-peek').attr('data-prompt', 'content_' + v);
 		$('#dze-one-target').val((t && t.target === 'main') ? 'main' : 'gallery');
 		// A surface is what the MAIN image is shot on. The other recipes work
 		// on a photograph that already has its own, so the question is folded
