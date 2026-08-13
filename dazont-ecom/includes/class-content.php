@@ -2804,17 +2804,6 @@ Answer with STRICT JSON and nothing else: "
 						<span><?php esc_html_e( 'Apply immediately, no confirmation', 'dazont-ecom' ); ?></span></label>
 				<?php self::sec_close(); ?></div>
 
-				<?php self::sec_open( 'again', __( 'Products already written', 'dazont-ecom' ), false ); ?>
-					<!-- Off by default: content already generated and not yet
-					     decided on is work already paid for. A run that quietly
-					     wrote over it would charge twice and destroy the first
-					     result. Redoing one product is what its ↻ is for. -->
-					<label class="dze-cb-check">
-						<input type="checkbox" id="dze-cb-force" />
-						<span><?php esc_html_e( 'Write them again too, replacing what is waiting for a decision', 'dazont-ecom' ); ?></span>
-					</label>
-				<?php self::sec_close(); ?>
-
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
@@ -3055,7 +3044,7 @@ Answer with STRICT JSON and nothing else: "
 					'sSkipped' => __( 'Left alone — already written and waiting for a decision', 'dazont-ecom' ),
 					/* translators: %s: number of products */
 					'skippedN' => __( '%s left alone (already written)', 'dazont-ecom' ),
-					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Decide on it, or tick "Write them again too".', 'dazont-ecom' ),
+					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Accept it or discard it, then run again.', 'dazont-ecom' ),
 					'applying' => __( 'Applying…', 'dazont-ecom' ),
 					'applyAllN' => __( 'Apply all (%s)', 'dazont-ecom' ),
 					'applySelN' => __( 'Apply only selected (%s)', 'dazont-ecom' ),
