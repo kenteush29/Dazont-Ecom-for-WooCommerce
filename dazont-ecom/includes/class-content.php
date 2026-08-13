@@ -2920,6 +2920,45 @@ Answer with STRICT JSON and nothing else: "
 		// Dense thumbnails everywhere: the full image on hover instead of
 		// screen space spent on being legible.
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		// The product's photographs, drawn by ONE renderer wherever they show:
+		// the product screen and the bulk screen had one each, so every
+		// improvement had to be made twice and never was.
+		{
+			// Enqueued on every screen this function serves, not only the two
+			// that draw the block: dze-content and dze-content-bulk depend on
+			// it, and a dependency that was never enqueued silently drops the
+			// script that needs it.
+			wp_enqueue_script( 'dze-photos', DZE_URL . 'admin/js/photos.js', [ 'jquery' ], DZE_VERSION, true );
+			wp_localize_script( 'dze-photos', 'dzePhotosCfg', [
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'nonce'   => wp_create_nonce( self::NONCE ),
+				'ratios'  => self::ratios(),
+				'i18n'    => [
+					'nowImages' => __( 'Photographs already on the product', 'dazont-ecom' ),
+					'nowMain'   => __( 'Main image', 'dazont-ecom' ),
+					'nowGallery'=> __( 'Gallery', 'dazont-ecom' ),
+					'nowAi'     => __( 'Remake with AI', 'dazont-ecom' ),
+					'rfStart'   => __( 'Reframe photographs', 'dazont-ecom' ),
+					'rfAll'     => __( 'All / none', 'dazont-ecom' ),
+					'rfShape'   => __( 'Shape', 'dazont-ecom' ),
+					'rfHow'     => __( 'How', 'dazont-ecom' ),
+					'rfPad'     => __( 'Extend the background (nothing is cut)', 'dazont-ecom' ),
+					'rfCrop'    => __( 'Crop to shape (the sides are cut)', 'dazont-ecom' ),
+					'rfRun'     => __( 'Reframe', 'dazont-ecom' ),
+					'rfNone'    => __( 'Tick the photographs to reframe.', 'dazont-ecom' ),
+					'rfApply'   => __( 'Save on the product', 'dazont-ecom' ),
+					'rfDropOld' => __( 'and delete the originals', 'dazont-ecom' ),
+					'cancel'    => __( 'Cancel', 'dazont-ecom' ),
+					'discard'   => __( 'Discard', 'dazont-ecom' ),
+					'qmNow'     => __( 'Before', 'dazont-ecom' ),
+					'qmNew'     => __( 'After', 'dazont-ecom' ),
+					'working'   => __( 'Working…', 'dazont-ecom' ),
+					'applying'  => __( 'Applying…', 'dazont-ecom' ),
+					'applied'   => __( 'Applied ✓', 'dazont-ecom' ),
+					'error'     => __( 'error', 'dazont-ecom' ),
+				],
+			] );
+		}
 		// The zoom viewer travels with it: every grid of product images in the
 		// plugin opens the same way.
 		// Saving a settings page without losing the page — the same background
@@ -2952,7 +2991,7 @@ Answer with STRICT JSON and nothing else: "
 			// Reviewed texts are edited in the real WordPress editor, not in a
 			// bare textarea full of raw HTML.
 			wp_enqueue_editor();
-			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery' ], DZE_VERSION, true );
+			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery', 'dze-photos' ], DZE_VERSION, true );
 			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
@@ -3052,7 +3091,7 @@ Answer with STRICT JSON and nothing else: "
 		// and the same editor; the product it works on is chosen at click time.
 		$pid = $on_list ? 0 : (int) get_the_ID();
 		wp_enqueue_editor();
-		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery', 'dze-photos' ], DZE_VERSION, true );
 
 		$labels  = [];
 		$fv      = [];

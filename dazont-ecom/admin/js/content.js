@@ -505,165 +505,21 @@
 			}, function () { res.current = { texts: {}, images: [] }; return res.current; });
 	}
 	function drawCurrentImages() {
-		var imgs = (res.current && res.current.images) || [];
-		var $slot = $('#dze-cx-nowshots');
-		if (!imgs.length) { $slot.empty(); return; }
-		// The main image apart from the gallery, on the same line: they are the
-		// same kind of thing and they do not have the same job. Each says its
-		// size and its shape, because that is what you look at before deciding
-		// anything about a catalogue.
-		function tile(im) {
-			return $('<span class="dze-cb-nowshot"></span>')
-				.toggleClass('is-main', !!im.main)
-				.attr('data-id', im.id)
-				.append(
-					$('<img class="dze-hzoom" />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', ''),
-					$('<span class="dze-nowdim"></span>').text(
-						(im.w && im.h) ? (im.w + '×' + im.h + (im.ratio ? ' · ' + im.ratio : '')) : ''
-					),
-					$('<span class="dze-nowtick">✓</span>')
-				);
-		}
-		var main = imgs.filter(function (im) { return im.main; });
-		var rest = imgs.filter(function (im) { return !im.main; });
-		var $wrap = $('<div class="dze-nowblock"></div>');
-		var $mainCol = $('<div class="dze-nowcol dze-nowcol-main"></div>').append(
-			$('<span class="dze-nowcap"></span>').text(i18n.nowMain).append(
-				$('<button type="button" class="button button-small dze-now-ai"></button>').text('✦ ' + i18n.nowAi)
-			)
-		);
-		var $grid = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
-		main.forEach(function (im) { $grid.append(tile(im)); });
-		$mainCol.append($grid);
-		var $restCol = $('<div class="dze-nowcol"></div>').append($('<span class="dze-nowcap"></span>').text(i18n.nowGallery));
-		var $grid2 = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
-		rest.forEach(function (im) { $grid2.append(tile(im)); });
-		$restCol.append($grid2);
-		$wrap.append($mainCol);
-		if (rest.length) { $wrap.append($restCol); }
-		// One button for every photograph: it turns the tiles into checkboxes
-		// and brings out the shape to reframe them to.
-		var ratios = (cfg.ratios || ['1:1']).map(function (r) {
-			return '<option value="' + esc(r) + '">' + esc(r) + '</option>';
-		}).join('');
-		var $bar = $('<p class="dze-nowbar"></p>').append(
-			'<button type="button" class="button button-small dze-rf-start">⤢ ' + esc(i18n.rfStart) + '</button>' +
-			'<span class="dze-rf-tools" style="display:none;">' +
-				'<button type="button" class="button-link dze-rf-all">' + esc(i18n.rfAll) + '</button>' +
-				'<label><span>' + esc(i18n.rfShape) + '</span><select class="dze-rf-ratio">' + ratios + '</select></label>' +
-				'<label><span>' + esc(i18n.rfHow) + '</span><select class="dze-rf-mode">' +
-					'<option value="pad">' + esc(i18n.rfPad) + '</option>' +
-					'<option value="crop">' + esc(i18n.rfCrop) + '</option>' +
-				'</select></label>' +
-				'<button type="button" class="button button-small button-primary dze-rf-run">' + esc(i18n.rfRun) + '</button>' +
-				'<button type="button" class="button-link dze-rf-cancel">' + esc(i18n.cancel) + '</button>' +
-				'<span class="dze-rf-state"></span>' +
-			'</span>'
-		);
-		$slot.empty()
-			.append('<span class="dze-cb-nowlabel">' + esc(i18n.nowImages) + '</span>')
-			.append($wrap).append($bar).append('<div class="dze-rf-out"></div>');
-	}
-
-	// ---- Reframing: pick the photographs, pick the shape, look, accept ----
-	$(document).on('click', '.dze-rf-start', function () {
-		$('#dze-cx-nowshots').addClass('is-picking').find('.dze-rf-tools').show();
-		$(this).hide();
-	});
-	$(document).on('click', '.dze-rf-cancel', function () {
-		$('#dze-cx-nowshots').removeClass('is-picking')
-			.find('.dze-cb-nowshot').removeClass('is-picked').end()
-			.find('.dze-rf-tools').hide().end()
-			.find('.dze-rf-start').show().end()
-			.find('.dze-rf-out').empty();
-	});
-	$(document).on('click', '.dze-rf-all', function () {
-		var $all = $('#dze-cx-nowshots .dze-cb-nowshot');
-		var on = $all.filter('.is-picked').length !== $all.length;
-		$all.toggleClass('is-picked', on);
-	});
-	$(document).on('click', '#dze-cx-nowshots.is-picking .dze-cb-nowshot', function () {
-		$(this).toggleClass('is-picked');
-	});
-	function rfPicked() {
-		return $('#dze-cx-nowshots .dze-cb-nowshot.is-picked').map(function () {
-			return parseInt($(this).data('id'), 10);
-		}).get().filter(Boolean);
-	}
-	$(document).on('click', '.dze-rf-run', function () {
-		var ids = rfPicked();
-		var $st = $('#dze-cx-nowshots .dze-rf-state').removeClass('is-ko');
-		if (!ids.length) { $st.addClass('is-ko').text(i18n.rfNone); return; }
-		var ratio = $('#dze-cx-nowshots .dze-rf-ratio').val();
-		var mode = $('#dze-cx-nowshots .dze-rf-mode').val();
-		var $b = $(this).prop('disabled', true);
-		$st.text(i18n.working);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_content_reframe_preview', nonce: cfg.nonce,
-			ids: ids, ratio: ratio, mode: mode
-		}).done(function (r) {
-			$b.prop('disabled', false);
-			if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
-			$st.text('');
-			rfDrawResult(r.data);
-		}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
-	});
-	// Before and after, side by side, and nothing is written until it is
-	// accepted — the same bargain as every other generation in the plugin.
-	function rfDrawResult(d) {
-		var $out = $('#dze-cx-nowshots .dze-rf-out').empty();
-		var $g = $('<div class="dze-rf-pairs"></div>');
-		(d.items || []).forEach(function (it) {
-			if (it.error) {
-				$g.append($('<p class="dze-rf-err"></p>').text(it.error));
-				return;
+		// One renderer for both screens: admin/js/photos.js. The product screen
+		// adds the AI button, because it has a popup to open.
+		if (!window.dzePhotos) { return; }
+		window.dzePhotos.render($('#dze-cx-nowshots'), (res.current && res.current.images) || [], {
+			post: PID,
+			ai: true,
+			after: function () {
+				res.current = null; // the product's photographs changed.
+				loadCurrent().then(function () { drawCurrentImages(); oneDrawSources(); });
 			}
-			$g.append($('<div class="dze-rf-pair"></div>').attr('data-id', it.id).append(
-				$('<figure></figure>').append(
-					$('<img />').attr('src', it.before).attr('alt', ''),
-					$('<figcaption></figcaption>').text(i18n.qmNow + ' · ' + (it.beforeD || ''))
-				),
-				$('<figure></figure>').append(
-					$('<img />').attr('src', it.after).attr('alt', ''),
-					$('<figcaption></figcaption>').text(i18n.qmNew + ' · ' + it.w + '×' + it.h + ' · ' + (it.afterD || ''))
-				)
-			));
 		});
-		$out.append($g).append(
-			$('<p class="dze-nowbar"></p>').append(
-				'<button type="button" class="button button-primary dze-rf-apply">' + esc(i18n.rfApply) + '</button>' +
-				'<label class="dze-rf-drop"><input type="checkbox" class="dze-rf-dropold" /> ' + esc(i18n.rfDropOld) + '</label>' +
-				'<button type="button" class="button-link dze-rf-cancel">' + esc(i18n.discard) + '</button>' +
-				'<span class="dze-rf-state2"></span>'
-			)
-		).data('ratio', d.ratio).data('mode', d.mode);
 	}
-	$(document).on('click', '.dze-rf-apply', function () {
-		var $out = $('#dze-cx-nowshots .dze-rf-out');
-		var ids = $out.find('.dze-rf-pair').map(function () { return parseInt($(this).data('id'), 10); }).get();
-		if (!ids.length) { return; }
-		var $b = $(this).prop('disabled', true);
-		var $st = $out.find('.dze-rf-state2').removeClass('is-ko').text(i18n.applying);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_content_reframe_apply', nonce: cfg.nonce, post: PID,
-			ids: ids, ratio: $out.data('ratio'), mode: $out.data('mode'),
-			drop_original: $out.find('.dze-rf-dropold').is(':checked') ? 1 : 0
-		}).done(function (r) {
-			$b.prop('disabled', false);
-			if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
-			$st.text(i18n.applied);
-			res.current = null; // the product's photographs changed.
-			loadCurrent().then(function () {
-				drawCurrentImages();
-				oneDrawSources();
-			});
-		}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
-	});
-	// The main image's own AI button, next to it rather than in a block of
-	// its own: same popup as the featured-image box opens.
-	$(document).on('click', '.dze-now-ai', function () {
-		openOne('', 'image', 'main');
-	});
+	if (window.dzePhotos) {
+		window.dzePhotos.on('ai', function () { openOne('', 'image', 'main'); });
+	}
 	$(document).on('click', '.dze-cx-now', function (e) {
 		e.stopPropagation();
 		var $btn = $(this), fid = $btn.data('field');
