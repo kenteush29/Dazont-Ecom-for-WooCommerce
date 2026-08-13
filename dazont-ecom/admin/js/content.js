@@ -36,13 +36,13 @@
 	// not a constant, and everything below reads it at call time.
 	var PID = cfg.postId || 0;
 	// Everything the popup is holding right now.
-	var res = { texts: {}, shots: [], open: {}, shotOf: {}, current: null };
+	var res = { texts: {}, shots: [], shotTpl: {}, open: {}, shotOf: {}, current: null };
 	function reset() {
 		// TinyMCE instances belong to the product they were opened on.
 		Object.keys(res.open).forEach(function (fid) {
 			try { if (window.wp && wp.editor) { wp.editor.remove(editorId(fid)); } } catch (e) {}
 		});
-		res = { texts: {}, shots: [], open: {}, shotOf: {}, current: null };
+		res = { texts: {}, shots: [], shotTpl: {}, open: {}, shotOf: {}, current: null };
 		$('#dze-cx-drawers').empty();
 		$('#dze-cx-shots').empty();
 		$('#dze-cx-nowshots').empty();
@@ -537,6 +537,32 @@
 	// Images: a strip, each with its own destination
 	// =====================================================================
 
+	// The image IS the control: where it goes and a fresh attempt are written
+	// on the picture itself. The destination used to be said twice, once as a
+	// caption and once as a dropdown right under it, on a thumbnail too small
+	// to judge the photograph.
+	function shotCard(url, cur) {
+		var tpl  = res.shotTpl[url];
+		var name = (cfg.templates[parseInt(tpl, 10)] || {}).name || '';
+		return $('<div class="dze-cb-shotwrap"></div>').attr('data-url', url).append(
+			$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span>' +
+				'<button type="button" class="dze-cb-shotdrop" title="' + esc(i18n.shotDrop) + '">&times;</button></div>')
+				.attr('data-url', url)
+				.append(
+					$('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', ''),
+					$('<span class="dze-cb-shotbar"></span>').append(
+						$('<button type="button" class="dze-cb-shotpos"></button>')
+							.attr('title', i18n.shotPos).text(destLabel(cur)),
+						$('<button type="button" class="dze-cb-shotredo">↻</button>')
+							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo)
+					),
+					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur)
+				)
+		);
+	}
+	function destLabel(v) {
+		return v === 'main' ? i18n.toMain : (v === 'gallery_first' ? i18n.toGalleryFirst : i18n.toGallery);
+	}
 	function drawShots() {
 		var $slot = $('#dze-cx-shots');
 		if (!res.shots.length) { $slot.empty(); return; }
@@ -544,44 +570,80 @@
 		$old.find('.dze-cb-shot').each(function () {
 			var u = $(this).data('url');
 			if (!$(this).hasClass('is-sel')) { dropped[u] = true; }
-			dest[u] = $(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotdest').val();
+			dest[u] = $(this).find('.dze-cb-shotdest').val();
+		});
+		// "One more image" said nothing about WHICH image: one button per
+		// recipe in use, named after it, so the style asked for is the style
+		// written on the button.
+		var seen = {}, more = '';
+		tplUsed().forEach(function (t) {
+			if (seen[t]) { return; }
+			seen[t] = 1;
+			var nm = (cfg.templates[parseInt(t, 10)] || {}).name || '';
+			more += '<button type="button" class="button button-small dze-cx-onemore" data-tpl="' + esc(t) + '">' +
+				'+ ' + esc(nm || i18n.oneMore) + '</button> ';
 		});
 		var $wrap = $('<div class="dze-cb-shots">' +
 			'<div class="dze-cb-shothead"><span class="dze-cb-nowlabel">' + esc(i18n.shotsLabel) + '</span>' +
-				'<button type="button" class="button button-small dze-cx-onemore">↻ ' + esc(i18n.oneMore) + '</button></div>' +
+				more + '</div>' +
 			'<div class="dze-cb-shotgrid"></div><span class="dze-cb-shotstate"></span></div>');
 		res.shots.forEach(function (url) {
-			var cur = dest[url] || 'gallery';
-			var where = cur === 'main' ? i18n.toMain : (cur === 'gallery_first' ? i18n.toGalleryFirst : i18n.toGallery);
 			$wrap.find('.dze-cb-shotgrid').append(
-				$('<div class="dze-cb-shotwrap"></div>').append(
-					$('<div class="dze-cb-shot"><span class="dze-cb-shotcheck">✓</span>' +
-						'<button type="button" class="dze-cb-shotdrop" title="' + esc(i18n.shotDrop) + '">&times;</button></div>')
-						.toggleClass('is-sel', !dropped[url])
-						.attr('data-url', url)
-						.append($('<img class="dze-hzoom" />').attr('src', url).attr('data-full', url).attr('alt', '')),
-					$('<span class="dze-cb-shotwhere"></span>').text(where),
-					$('<select class="dze-cb-shotdest">' +
-						'<option value="gallery"' + (cur === 'gallery' ? ' selected' : '') + '>' + esc(i18n.toGallery) + '</option>' +
-						'<option value="gallery_first"' + (cur === 'gallery_first' ? ' selected' : '') + '>' + esc(i18n.toGalleryFirst) + '</option>' +
-						'<option value="main"' + (cur === 'main' ? ' selected' : '') + '>' + esc(i18n.toMain) + '</option>' +
-					'</select>')
-				)
+				shotCard(url, dest[url] || 'gallery').find('.dze-cb-shot').toggleClass('is-sel', !dropped[url]).end()
 			);
 		});
 		$slot.empty().append($wrap);
 		$('#dze-cx-result').show();
 	}
 	$(document).on('click', '#dze-cx-shots .dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
-	$(document).on('change', '#dze-cx-shots .dze-cb-shotdest', function () {
-		var v = $(this).val();
-		$(this).closest('.dze-cb-shotwrap').find('.dze-cb-shotwhere')
-			.text(v === 'main' ? i18n.toMain : (v === 'gallery_first' ? i18n.toGalleryFirst : i18n.toGallery));
-		if ($(this).val() !== 'main') { return; }
-		var $me = $(this);
+	// One click walks the three destinations. Only one image can be the main
+	// one, so claiming it sends the previous claimant back to the gallery.
+	$(document).on('click', '#dze-cx-shots .dze-cb-shotpos', function (e) {
+		e.stopPropagation();
+		var $in = $(this).closest('.dze-cb-shot').find('.dze-cb-shotdest');
+		var order = [ 'gallery', 'gallery_first', 'main' ];
+		var next = order[(order.indexOf($in.val()) + 1) % order.length];
+		$in.val(next);
+		$(this).text(destLabel(next));
+		if ('main' !== next) { return; }
+		var $me = $in;
 		$('#dze-cx-shots .dze-cb-shotdest').not($me).each(function () {
-			if ($(this).val() === 'main') { $(this).val('gallery'); }
+			if ($(this).val() === 'main') {
+				$(this).val('gallery');
+				$(this).closest('.dze-cb-shot').find('.dze-cb-shotpos').text(destLabel('gallery'));
+			}
 		});
+	});
+	// A fresh attempt at THIS image, with the recipe that made it: the new one
+	// takes its place in the strip instead of piling up next to it.
+	$(document).on('click', '#dze-cx-shots .dze-cb-shotredo', function (e) {
+		e.stopPropagation();
+		var $btn = $(this).prop('disabled', true);
+		var $card = $btn.closest('.dze-cb-shot');
+		var url = $card.data('url');
+		var tpl = res.shotTpl[url];
+		if (tpl === undefined) { tpl = tplUsed()[0] || '0'; }
+		var $st = $('#dze-cx-shots .dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
+		$card.addClass('is-busy');
+		$.post(cfg.ajaxUrl, imageRequest(tpl))
+			.done(function (r) {
+				if (!r || !r.success) {
+					$btn.prop('disabled', false); $card.removeClass('is-busy');
+					$st.addClass('is-ko').text(reason((r && r.data && r.data.message) || i18n.error));
+					return;
+				}
+				var i = res.shots.indexOf(url);
+				if (i >= 0) { res.shots[i] = r.data.url; } else { res.shots.push(r.data.url); }
+				res.shotTpl[r.data.url] = tpl;
+				delete res.shotTpl[url];
+				$st.text('');
+				drawShots();
+				flagWaiting();
+			})
+			.fail(function (x) {
+				$btn.prop('disabled', false); $card.removeClass('is-busy');
+				$st.addClass('is-ko').text(reason(x));
+			});
 	});
 
 	// =====================================================================
@@ -602,6 +664,7 @@
 			.then(function (r) {
 				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
 				res.shots.push(r.data.url);
+				res.shotTpl[r.data.url] = tpl;
 				drawShots();
 				flagWaiting();
 			});
@@ -753,7 +816,8 @@
 	$(document).on('click', '.dze-cx-onemore', function () {
 		var $btn = $(this).prop('disabled', true);
 		var $st = $('#dze-cx-shots .dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
-		genImage(tplUsed()[0] || '0')
+		var tpl = $btn.data('tpl');
+		genImage(tpl === undefined ? (tplUsed()[0] || '0') : String(tpl))
 			.always(function () { $btn.prop('disabled', false); })
 			.then(function () { $st.text(''); }, function (m) { $st.addClass('is-ko').text(reason(m)); });
 	});
