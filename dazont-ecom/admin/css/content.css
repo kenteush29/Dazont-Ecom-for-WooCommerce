@@ -1044,3 +1044,15 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cb-controls .dze-sec { border-top: 1px solid #f0f0f1; }
 .dze-cb-controls .dze-sec:first-of-type { border-top: none; }
 .dze-cb-mode .dze-sec-body { display: block; }
+
+/* How many functions a section holds, in its own heading — readable while it
+   is shut, which is when you need it. */
+.dze-sec-count {
+	margin-left: auto; font-size: 11px; font-weight: 400; color: #646970;
+	background: #f0f0f1; border-radius: 10px; padding: 1px 9px;
+}
+.dze-sec-count:empty { display: none; }
+.dze-sec-count.is-on { color: #fff; background: #2271b1; }
+/* The price table as it will be applied, next to the box that applies it. */
+.dze-pt-mini { display: inline-flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: #50575e; }
+.dze-pt-mini span { background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 3px; padding: 1px 6px; }
