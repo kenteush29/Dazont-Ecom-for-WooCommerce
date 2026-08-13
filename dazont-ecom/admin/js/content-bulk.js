@@ -1043,7 +1043,7 @@
 		// A new run clears the screen of everything it is about to redo, and
 		// leaves untouched what it is about to skip — that content is still
 		// waiting for a decision.
-		var keep = $('#dze-cb-force').is(':checked') ? [] : pendingIds().map(String);
+		var keep = pendingIds().map(String);
 		$('.dze-cb-row').each(function () {
 			var rid = String($(this).data('id'));
 			if (keep.indexOf(rid) >= 0) { return; }
@@ -1059,10 +1059,8 @@
 		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0) + (doRev ? 1 : 0);
 		// A product already holding content nobody has decided on is left alone:
 		// writing over it would charge for the same work twice and throw the
-		// first result away. Redoing one on purpose is what its ↻ is for, and
-		// the tick above forces the whole run.
-		var force = $('#dze-cb-force').is(':checked');
-		var waiting = force ? [] : pendingIds().map(String);
+		// first result away. Redoing one on purpose is what its ↻ is for.
+		var waiting = pendingIds().map(String);
 		var skipped = 0;
 
 		// ONE job per product, its own steps in order inside it. Products are
