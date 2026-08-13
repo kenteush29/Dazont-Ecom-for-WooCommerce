@@ -80,6 +80,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_add_default', [ $this, 'ajax_add_default' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
+		add_action( 'wp_ajax_dze_content_inputs', [ $this, 'ajax_inputs' ] );
 		add_action( 'wp_ajax_dze_content_reframe_preview', [ $this, 'ajax_reframe_preview' ] );
 		add_action( 'wp_ajax_dze_content_reframe_apply', [ $this, 'ajax_reframe_apply' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
@@ -722,7 +723,7 @@ EOT;
 	}
 
 	/** Assembles the product data block from a row's selected inputs. */
-	private static function payload_lines( int $pid, array $inputs, string $inputs_meta = '' ): string {
+	public static function payload_lines( int $pid, array $inputs, string $inputs_meta = '' ): string {
 		$product = $pid ? wc_get_product( $pid ) : null;
 		if ( ! $product instanceof WC_Product ) {
 			return '';
@@ -3208,6 +3209,7 @@ Answer with STRICT JSON and nothing else: "
 				'qmWorking'  => __( 'Shooting…', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
+				'qmSource'   => __( 'Worked from', 'dazont-ecom' ),
 				/* translators: %s: number of attempts */
 				'tryPick'    => __( '%s attempts — click the one to keep', 'dazont-ecom' ),
 				'qmUse'      => __( 'Use as main image', 'dazont-ecom' ),
@@ -3253,6 +3255,11 @@ Answer with STRICT JSON and nothing else: "
 				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
 				// The three questions the image workshop asks, in order.
 				'stepWhat'   => __( 'What are we making?', 'dazont-ecom' ),
+				// The request has two halves: the instructions, and what the
+				// model is told about this product.
+				'panePrompt' => __( 'The instructions', 'dazont-ecom' ),
+				'paneData'   => __( 'What it receives about this product', 'dazont-ecom' ),
+				'paneDataH'  => __( 'Exactly what travels with the instructions. What goes in here is set per prompt, in its card under Settings → Product content → Prompts: tick Categories there and they appear above.', 'dazont-ecom' ),
 				// Reframing: the shape of a photograph, changed here rather
 				// than in an image editor.
 				'nowMain'    => __( 'Main image', 'dazont-ecom' ),
@@ -4744,6 +4751,51 @@ Answer with STRICT JSON and nothing else: "
 			$ids[ $at ] = $new;
 		}
 		update_post_meta( $pid, '_product_image_gallery', implode( ',', array_values( array_unique( $ids ) ) ) );
+	}
+
+	/**
+	 * What this prompt actually receives about THIS product.
+	 *
+	 * The instructions were readable, the data was not: whether the categories
+	 * travel with the prompt or not could only be found out by reading the
+	 * code. It is the half of the request that changes from one product to the
+	 * next, so it is the half worth looking at before blaming the prompt.
+	 */
+	public function ajax_inputs(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$row = isset( $_POST['row'] ) ? sanitize_key( wp_unslash( $_POST['row'] ) ) : '';
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		}
+		$r = '' !== $row ? self::registry_row( $row ) : null;
+		if ( ! $r ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		$parts = [];
+		$store = trim( (string) ( self::get_settings()['store_context'] ?? '' ) );
+		if ( '' !== $store ) {
+			$parts[] = __( 'Store context', 'dazont-ecom' ) . ":\n" . $store;
+		}
+		if ( ( $r['type'] ?? 'text' ) === 'image' ) {
+			// An image prompt is fed photographs, not sentences.
+			$names = [];
+			foreach ( self::product_source_ids( $pid ) as $i => $aid ) {
+				$names[] = sprintf( '%d. %s', $i + 1, get_the_title( $aid ) ?: ( '#' . $aid ) );
+			}
+			$parts[] = __( 'Photographs sent', 'dazont-ecom' ) . ":\n" . ( $names ? implode( "\n", $names ) : __( '(none — this product has no photograph)', 'dazont-ecom' ) );
+			$sc = self::scenes();
+			$def = self::default_scene();
+			$parts[] = __( 'Background sent', 'dazont-ecom' ) . ': ' . ( isset( $sc[ $def ] ) ? $sc[ $def ]['name'] : __( '(none)', 'dazont-ecom' ) );
+		}
+		$facts = self::payload_lines( $pid, (array) ( $r['inputs'] ?? [] ), (string) ( $r['inputs_meta'] ?? '' ) );
+		$parts[] = __( 'Product data', 'dazont-ecom' ) . ":\n" . ( '' !== trim( $facts ) ? $facts : __( '(nothing — no input is ticked on this prompt)', 'dazont-ecom' ) );
+		$parts[] = __( 'Answer in', 'dazont-ecom' ) . ': ' . self::site_language();
+		wp_send_json_success( [
+			'text'   => implode( "\n\n", $parts ),
+			'inputs' => array_values( (array) ( $r['inputs'] ?? [] ) ),
+			'all'    => self::input_options(),
+		] );
 	}
 
 	public static function ratio_label( int $w, int $h ): string {

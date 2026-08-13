@@ -1179,9 +1179,23 @@
 				'<details class="dze-one-instr" id="dze-one-instrwrap">' +
 					'<summary>' + esc(i18n.oneInstr) + '</summary>' +
 					'<p class="description">' + esc(i18n.oneInstrH) + '</p>' +
-					'<textarea id="dze-one-prompt" rows="7" class="large-text code"></textarea>' +
-					'<p><button type="button" class="button-link" id="dze-one-saveprompt">&#128190; ' + esc(i18n.oneSave) + '</button> ' +
-						'<span class="description" id="dze-one-savestate"></span></p>' +
+					// The instructions are half the request. The other half is
+					// what the model is told about THIS product, and it changes
+					// from one product to the next — so it is shown next to
+					// them instead of being taken on trust.
+					'<p class="dze-one-tabs">' +
+						'<button type="button" class="button button-small is-sel" data-pane="prompt">' + esc(i18n.panePrompt) + '</button>' +
+						'<button type="button" class="button button-small" data-pane="data">' + esc(i18n.paneData) + '</button>' +
+					'</p>' +
+					'<div class="dze-one-pane" data-pane="data" style="display:none;">' +
+						'<pre class="dze-prompt-text" id="dze-one-data"></pre>' +
+						'<p class="description">' + esc(i18n.paneDataH) + '</p>' +
+					'</div>' +
+					'<div class="dze-one-pane" data-pane="prompt">' +
+						'<textarea id="dze-one-prompt" rows="7" class="large-text code"></textarea>' +
+						'<p><button type="button" class="button-link" id="dze-one-saveprompt">&#128190; ' + esc(i18n.oneSave) + '</button> ' +
+							'<span class="description" id="dze-one-savestate"></span></p>' +
+					'</div>' +
 				'</details>' +
 				'<div id="dze-one-body"></div>' +
 				'<p class="dze-one-bar">' +
@@ -1260,7 +1274,7 @@
 			'</div>' +
 
 			'<div class="dze-qm-pair dze-zoomgroup" id="dze-one-pair" style="display:none;">' +
-				'<figure id="dze-one-oldfig"><figcaption>' + esc(i18n.qmNow) + '</figcaption>' +
+				'<figure id="dze-one-oldfig"><figcaption id="dze-one-oldcap"></figcaption>' +
 					'<img id="dze-one-old" alt="" /></figure>' +
 				'<div class="dze-one-tries">' +
 					'<figcaption id="dze-one-trycap"></figcaption>' +
@@ -1351,6 +1365,7 @@
 		if (!mainish) { $('#dze-one-bg').val('0'); }
 		else if (!$('#dze-one-bg').val() || $('#dze-one-bg').val() === '0') { $('#dze-one-bg').val(String(defaultBg())); }
 		oneDrawBgs();
+		if ($('.dze-one-pane[data-pane="data"]').is(':visible')) { oneLoadData(); }
 	}
 
 	// Question 3: the surfaces, as pictures. "None" first, then the shelf, then
@@ -1404,6 +1419,22 @@
 			if (one.srcId || one.paste) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
 		});
+	}
+	$(document).on('click', '.dze-one-tabs button', function () {
+		var pane = $(this).data('pane');
+		$('.dze-one-tabs button').removeClass('is-sel');
+		$(this).addClass('is-sel');
+		$('.dze-one-pane').each(function () { $(this).toggle($(this).data('pane') === pane); });
+		if ('data' === pane) { oneLoadData(); }
+	});
+	function oneLoadData() {
+		var row = (one.mode === 'image') ? ($('#dze-one-recipe').val() || cfg.mainRecipe || '') : one.fid;
+		var $out = $('#dze-one-data').text('…');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_inputs', nonce: cfg.nonce, post: PID, row: row })
+			.done(function (r) {
+				$out.text((r && r.success) ? r.data.text : ((r && r.data && r.data.message) || i18n.error));
+			})
+			.fail(function (x) { $out.text(reason(x)); });
 	}
 	$(document).on('click', '.dze-one-srcpick', function () {
 		$('.dze-one-srcpick').removeClass('is-sel');
@@ -1518,8 +1549,14 @@
 					one.tries = one.tries || [];
 					one.tries.push(r.data.url);
 					one.url = r.data.url;
-					$('#dze-one-old').attr('src', r.data.main || '').attr('data-full', r.data.main || '')
-						.closest('figure').toggle(!!r.data.main);
+					// What the new image should be judged against depends on
+					// what is being made: the main image is replacing the main
+					// image, a gallery shot is not — there it is the photograph
+					// it was worked from that means something.
+					var ref = oneReference(r.data.main || '');
+					$('#dze-one-oldcap').text(ref.caption);
+					$('#dze-one-old').attr('src', ref.url).attr('data-full', ref.url)
+						.closest('figure').toggle(!!ref.url);
 					oneDrawTries();
 					$('#dze-one-pair').show();
 					$('#dze-one-dest').show();
@@ -1543,6 +1580,22 @@
 			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 	});
 
+	// The image the new one is put next to. Replacing the main image means
+	// comparing with the main image; adding a gallery shot means comparing with
+	// the photograph it was made from — and with nothing at all when it was
+	// made from every photograph of the product at once.
+	function oneReference(mainUrl) {
+		if ('gallery' !== one.scope) {
+			return { url: mainUrl, caption: i18n.qmNow };
+		}
+		if (one.paste) { return { url: one.paste, caption: i18n.qmSource }; }
+		if (one.srcId) {
+			var $img = $('.dze-one-srcpick.is-sel img').first();
+			var u = $img.attr('data-full') || $img.attr('src') || '';
+			if (u) { return { url: u, caption: i18n.qmSource }; }
+		}
+		return { url: '', caption: '' };
+	}
 	// The attempts, oldest first, the chosen one outlined. The zoom button of
 	// the shared viewer walks them full size, which is the only way to judge
 	// two versions of the same photograph.
