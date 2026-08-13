@@ -214,8 +214,17 @@
 
 		var checks = Object.keys(cfg.fields).map(function (fid) {
 			var on = au.fields ? au.fields.indexOf(fid) >= 0 : true;
-			return '<span class="dze-cb-checkline"><label class="dze-cb-check"><input type="checkbox" class="dze-cx-f" value="' + fid + '"' + (on ? ' checked' : '') + ' />' +
-				'<span>' + esc(cfg.fields[fid]) + '</span></label>' + promptBtn(fid) + '</span>';
+			// A prompt that is not validated carries the same padlock as on the
+			// bulk screen — the two screens must not describe the same prompt
+			// differently. It stays usable HERE, though: trying a prompt on one
+			// product, with the result in front of you before anything is
+			// written, is precisely how you decide to validate it. What the
+			// padlock announces is that bulk will refuse it.
+			var ok = !cfg.validated || cfg.validated[fid];
+			return '<span class="dze-cb-checkline"><label class="dze-cb-check' + (ok ? '' : ' is-locked') + '"' +
+				(ok ? '' : ' title="' + esc(i18n.notValidHere) + '"') + '>' +
+				'<input type="checkbox" class="dze-cx-f" value="' + fid + '"' + (on ? ' checked' : '') + ' />' +
+				'<span>' + esc(cfg.fields[fid]) + (ok ? '' : ' 🔒') + '</span></label>' + promptBtn(fid) + '</span>';
 		}).join('');
 
 		var sceneSel = scenes.length
