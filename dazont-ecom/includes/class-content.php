@@ -2523,7 +2523,7 @@ Answer with STRICT JSON and nothing else: "
 			return $this->bulk_products_cache; // asked for twice per render.
 		}
 		$ids = 'pending' === $this->bulk_mode() ? self::pending_ids() : self::bulk_list();
-		$ids = array_values( array_filter( array_map( 'intval', (array) $ids ) ) );
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', (array) $ids ) ) ) );
 		// Four hundred products pasted from a spreadsheet is a normal list here,
 		// and one query per row is not an option: posts and their meta are read
 		// in two queries, then every wc_get_product() below is served from cache.
@@ -2907,6 +2907,14 @@ Answer with STRICT JSON and nothing else: "
 		// Dense thumbnails everywhere: the full image on hover instead of
 		// screen space spent on being legible.
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		// The zoom viewer travels with it: every grid of product images in the
+		// plugin opens the same way.
+		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
+			'zoom'  => __( 'See this image full size', 'dazont-ecom' ),
+			'close' => __( 'Close', 'dazont-ecom' ),
+			'prev'  => __( 'Previous image', 'dazont-ecom' ),
+			'next'  => __( 'Next image', 'dazont-ecom' ),
+		] );
 		// The toolbox and the bulk list draw their "see the prompt" buttons in
 		// JavaScript, so the modal has to be on the page before they exist.
 		if ( class_exists( 'DZE_Prompts' ) && ( $on_product || $on_bulk || $on_list ) ) {

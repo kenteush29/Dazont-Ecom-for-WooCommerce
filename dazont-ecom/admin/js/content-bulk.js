@@ -451,7 +451,7 @@
 	function addShot(id, url, tpl) {
 		if (!url) { return; }
 		var b = bucket(id);
-		b.shots.push(url);
+		if (b.shots.indexOf(url) < 0) { b.shots.push(url); }
 		b.shotTpl = b.shotTpl || {};
 		if (tpl !== undefined) { b.shotTpl[url] = tpl; }
 		badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length);
@@ -571,6 +571,9 @@
 	}
 	function renderShots(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
+		// The same image can reach the strip twice — restored from an earlier
+		// run and generated again in this one. It is one image either way.
+		b.shots = b.shots.filter(function (u, i) { return b.shots.indexOf(u) === i; });
 		if (!$slot.length || !b.shots.length) { return; }
 		// Adding one more attempt redraws the strip: what was already ticked or
 		// unticked, and where each was headed, survives the redraw.
@@ -583,7 +586,7 @@
 				dest[u] = $(this).find('.dze-cb-shotdest').val();
 			});
 		}
-		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid"></div>' +
+		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid dze-zoomgroup"></div>' +
 			'<span class="dze-cb-shotstate"></span></div>');
 		b.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
@@ -829,7 +832,9 @@
 				b.texts[fid] = texts[fid] || '';
 				badge(id, fid, cfg.fields[fid] || fid);
 			});
-			(waiting.shots || []).forEach(function (url) { b.shots.push(url); });
+			(waiting.shots || []).forEach(function (url) {
+				if (b.shots.indexOf(url) < 0) { b.shots.push(url); }
+			});
 			if (b.shots.length) { badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length); }
 			if (Object.keys(b.texts).length || b.shots.length) {
 				offerReview(id);
