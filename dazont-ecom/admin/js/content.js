@@ -1207,25 +1207,30 @@
 
 	// Question 2: the product's own photographs, to pick the one being worked
 	// on. An image from somewhere else is a rarer case, kept behind a link.
+	function oneSrcStrip(imgs) {
+		// "Every photograph", then the product's own, then — always, whether or
+		// not the product has any — a tile for an image that is not on the
+		// product yet. It is drawn with the popup rather than waiting for the
+		// product to be read, so it is never missing.
+		var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
+		(imgs || []).forEach(function (im) {
+			if (!im.id) { return; }
+			html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
+				'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" /></button>';
+		});
+		html += '<button type="button" class="dze-one-srcpick dze-one-srcnew" data-id="new">' +
+			'<img id="dze-one-newthumb" alt="" style="display:none;" />' +
+			'<span class="dze-one-newmsg">&#43; ' + esc(i18n.stepElse) + '</span></button>';
+		return html;
+	}
 	function oneDrawSources() {
 		var $slot = $('#dze-one-srcs').addClass('dze-zoomgroup');
 		if (!$slot.length) { return; }
+		$slot.html(oneSrcStrip([]));
 		loadCurrent().then(function (cur) {
-			var imgs = (cur.images || []);
-			var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
-			imgs.forEach(function (im) {
-				if (!im.id) { return; }
-				html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
-					'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" /></button>';
-			});
-			// A supplier photograph that is not on the product yet is a source
-			// like the others, so it is a tile in the same strip rather than a
-			// link hidden under it — one place to answer "from what".
-			html += '<button type="button" class="dze-one-srcpick dze-one-srcnew" data-id="new">' +
-				'<img id="dze-one-newthumb" alt="" style="display:none;" />' +
-				'<span class="dze-one-newmsg">&#43; ' + esc(i18n.stepElse) + '</span></button>';
-			$slot.html(html);
-			if (one.paste) { oneShowPasted(one.paste); }
+			// Something was chosen while the product was loading: leave it be.
+			if (one.srcId || one.paste) { return; }
+			$slot.html(oneSrcStrip(cur.images || []));
 		});
 	}
 	$(document).on('click', '.dze-one-srcpick', function () {
