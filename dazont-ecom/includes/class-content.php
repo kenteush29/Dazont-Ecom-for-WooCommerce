@@ -38,6 +38,8 @@ final class DZE_Content {
 	public const MAX_SOURCES = 6;
 	/** Ceiling on the encoded images in one request body, in bytes. */
 	private const MAX_PAYLOAD = 9437184; // 9 MB.
+	/** Ceiling on one image pulled from the web for the quick lane. */
+	private const MAX_REMOTE  = 8388608; // 8 MB.
 
 	public const BULK_SLUG   = 'dazont-content-bulk';
 	private const BULK_ACTION = 'dze_ai_content';
@@ -70,6 +72,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
+		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
 		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
@@ -712,6 +715,30 @@ EOT;
 			. 'Avoid the plain catalogue shot when a more telling one exists, and never pick two photographs showing the same thing.';
 	}
 
+	/**
+	 * The shipped recipe for a catalogue main image.
+	 *
+	 * A supplier photograph on a wooden table, with flowers and a magazine next
+	 * to it, is a mood shot: it does not belong at the top of a product page,
+	 * where every listing has to look like the one above it. This turns any
+	 * photograph into the same straight-on shot on the same grey.
+	 */
+	public static function default_quick_prompt(): string {
+		return 'Turn this product into a clean e-commerce MAIN image. '
+			. 'Show the product straight-on, centred and upright, filling about 85% of a square frame, '
+			. 'on a seamless very light grey studio background (around #f2f2f2), '
+			. 'with a soft contact shadow under it and even, diffuse lighting. '
+			. 'No props, no text, no logo, no hands, no people, no background objects. '
+			. 'Keep the product EXACTLY as it is: same shape, same materials, same colours, same stitching, same hardware, same proportions. '
+			. 'Invent nothing that is not visible in the source photograph.';
+	}
+
+	/** The recipe actually sent: the owner's, or the shipped one. */
+	public static function quick_prompt(): string {
+		$p = trim( (string) ( self::get_settings()['quick_prompt'] ?? '' ) );
+		return '' !== $p ? $p : self::default_quick_prompt();
+	}
+
 	/** The rules actually sent: the owner's, or the shipped ones. */
 	public static function feature_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['feature_prompt'] ?? '' ) );
@@ -1256,6 +1283,10 @@ Answer with STRICT JSON and nothing else: "
 		if ( isset( $in['store_context'] ) ) {
 			$out['store_context'] = sanitize_textarea_field( (string) $in['store_context'] );
 		}
+		if ( isset( $in['quick_prompt'] ) ) {
+			$p = trim( sanitize_textarea_field( (string) $in['quick_prompt'] ) );
+			$out['quick_prompt'] = ( $p === trim( self::default_quick_prompt() ) ) ? '' : $p;
+		}
 		if ( isset( $in['feature_prompt'] ) ) {
 			$p = trim( sanitize_textarea_field( (string) $in['feature_prompt'] ) );
 			// Empty means "the shipped rules", never an empty instruction.
@@ -1647,6 +1678,16 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
 			</p>
 
+			<h2 class="title"><?php esc_html_e( 'Main image, made on the spot', 'dazont-ecom' ); ?></h2>
+			<p class="description" style="max-width:900px;">
+				<?php esc_html_e( 'The recipe behind the "Main image" lane of the product toolbox: one photograph in — the product\'s own, or one pasted from a supplier page — one catalogue shot out, ready to be the main image. This is where you set the look every listing of the shop shares.', 'dazont-ecom' ); ?>
+			</p>
+			<textarea id="dze-ct-quick-prompt" name="<?php echo esc_attr( $opt ); ?>[quick_prompt]" rows="5" class="large-text code" placeholder="<?php echo esc_attr( self::default_quick_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['quick_prompt'] ?? '' ) ); ?></textarea>
+			<p class="description">
+				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
+				<button type="button" class="button-link" id="dze-ct-quick-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+			</p>
+
 			<h2 class="title"><?php esc_html_e( 'Choosing which photograph illustrates a block', 'dazont-ecom' ); ?></h2>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'When a prompt carries an image meta key, the plugin looks at every photograph of the product and picks the one that block should be shown with. These are the rules it picks by.', 'dazont-ecom' ); ?>
@@ -1741,6 +1782,7 @@ Answer with STRICT JSON and nothing else: "
 					$( this ).closest( 'td' ).find( '.dze-pr-prompt' ).val( d );
 				} );
 				$( '#dze-ct-feature-restore' ).on( 'click', function () { $( '#dze-ct-feature-prompt' ).val( '' ); } );
+				$( '#dze-ct-quick-restore' ).on( 'click', function () { $( '#dze-ct-quick-prompt' ).val( '' ); } );
 				// Restore the shipped default prompts (drops customs — confirmed first).
 				$( '#dze-pr-reset' ).on( 'click', function () {
 					if ( ! window.confirm( '<?php echo esc_js( __( 'Restore the shipped default prompts? Custom prompt rows will be removed and validation flags reset. Your generated content is not affected.', 'dazont-ecom' ) ); ?>' ) ) { return; }
@@ -2549,6 +2591,17 @@ Answer with STRICT JSON and nothing else: "
 				'redoOne'    => __( 'Write this one again', 'dazont-ecom' ),
 				'redoShort'  => __( 'Rewrite', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
+				// The fast lane.
+				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
+				'qmHelp'     => __( 'One photograph in, one catalogue shot out: the product straight-on, on the shop\'s grey, ready to be the main image.', 'dazont-ecom' ),
+				'qmUrl'      => __( 'Paste an image address (optional — otherwise the product\'s own photographs are used)', 'dazont-ecom' ),
+				'qmNote'     => __( 'Anything to add? e.g. "front view, zip closed"', 'dazont-ecom' ),
+				'qmRun'      => __( 'Make the main image', 'dazont-ecom' ),
+				'qmWorking'  => __( 'Shooting…', 'dazont-ecom' ),
+				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
+				'qmNew'      => __( 'New', 'dazont-ecom' ),
+				'qmUse'      => __( 'Use as main image', 'dazont-ecom' ),
+				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3095,6 +3148,121 @@ Answer with STRICT JSON and nothing else: "
 		$product->set_regular_price( (string) $regular );
 		$product->save();
 		wp_send_json_success( [ 'mult' => $mult, 'regular' => $regular, 'applied' => true ] );
+	}
+
+	/**
+	 * Reads an image from the web and returns it as a data URI.
+	 *
+	 * Used by the quick main-image lane: the photograph often lives on a
+	 * supplier page and is not worth importing into the media library just to
+	 * be reshot. Nothing about that URL is stored — only the bytes travel, to
+	 * fal, once.
+	 *
+	 * wp_safe_remote_get is the point: it refuses loopback and private
+	 * addresses, so a URL pasted into this box cannot be used to make the shop
+	 * fetch something on its own network.
+	 */
+	public function fetch_remote_image( string $url ): string {
+		$url = trim( $url );
+		if ( ! preg_match( '#^https?://#i', $url ) || ! wp_http_validate_url( $url ) ) {
+			throw new RuntimeException( __( 'That is not a valid image address.', 'dazont-ecom' ) );
+		}
+		$res = wp_safe_remote_get( $url, [
+			'timeout'     => 20,
+			'redirection' => 2,
+			'headers'     => [ 'Accept' => 'image/*' ],
+		] );
+		if ( is_wp_error( $res ) ) {
+			throw new RuntimeException( $res->get_error_message() );
+		}
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $res ) ) {
+			throw new RuntimeException( __( 'That address did not return an image.', 'dazont-ecom' ) );
+		}
+		$type = strtolower( (string) wp_remote_retrieve_header( $res, 'content-type' ) );
+		$body = (string) wp_remote_retrieve_body( $res );
+		if ( '' === $body || strlen( $body ) > self::MAX_REMOTE ) {
+			throw new RuntimeException( __( 'That image is empty, or too heavy to send.', 'dazont-ecom' ) );
+		}
+		// The header is a claim; the bytes are the proof.
+		$info = @getimagesizefromstring( $body ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a corrupt file answers false, which is the test.
+		if ( ! $info || empty( $info['mime'] ) || 0 !== strpos( (string) $info['mime'], 'image/' ) ) {
+			throw new RuntimeException( __( 'That address did not return an image.', 'dazont-ecom' ) );
+		}
+		if ( '' !== $type && 0 !== strpos( $type, 'image/' ) ) {
+			throw new RuntimeException( __( 'That address did not return an image.', 'dazont-ecom' ) );
+		}
+		return 'data:' . $info['mime'] . ';base64,' . base64_encode( $body );
+	}
+
+	/**
+	 * The fast lane: one photograph in, one catalogue main image out.
+	 *
+	 * The full toolbox asks which prompts, which scene, how many attempts, and
+	 * then holds the result for review — right for a batch, far too slow for
+	 * the one thing done constantly: a supplier photograph that cannot be the
+	 * main image of a listing. Here there is one recipe, one source, one image,
+	 * and the next click puts it in place.
+	 */
+	public function ajax_quick_main(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$web = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
+		$note = isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '';
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		}
+		if ( '' === self::fal_key() ) {
+			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		try {
+			$sources = [];
+			if ( '' !== $web ) {
+				// A pasted photograph is THE subject: sending the product's other
+				// images beside it would only invite the model to blend them.
+				$sources[] = $this->fetch_remote_image( $web );
+			} else {
+				// The product's own photographs, main first. Two are enough here:
+				// this lane is about speed, and the shape of a product is settled
+				// by the first shot plus one more angle.
+				foreach ( array_slice( self::product_source_ids( $pid ), 0, 2 ) as $i => $aid ) {
+					try {
+						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'large' );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+				}
+			}
+			if ( ! $sources ) {
+				throw new RuntimeException( __( 'No image to work from: set a featured image, or paste the address of one.', 'dazont-ecom' ) );
+			}
+			$prompt = self::quick_prompt()
+				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
+				. self::sources_instruction( count( $sources ), null );
+
+			DZE_Ai_Usage::unit( 'product_img' );
+			$image_url = $this->fal_generate( $prompt, $sources );
+			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::finished( 'product_img' );
+		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+
+		// Kept with the product, like any other pending result: a closed tab
+		// does not lose the image that was just paid for.
+		self::stash( $pid, [ 'shot' => $image_url ] );
+		$main = (int) get_post_thumbnail_id( $pid );
+		wp_send_json_success( [
+			'url'  => $image_url,
+			'main' => $main ? (string) wp_get_attachment_image_url( $main, 'large' ) : '',
+		] );
 	}
 
 	public function ajax_image(): void {

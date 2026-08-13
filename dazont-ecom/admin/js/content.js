@@ -177,6 +177,33 @@
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button></div>' +
 			'<div class="dze-cx-body">' +
 				blockers +
+				// The fast lane, above everything else: one photograph in, one
+				// catalogue main image out. It is the thing done constantly, so
+				// it does not live three folds down inside the full toolbox.
+				'<div class="dze-qm" id="dze-qm">' +
+					'<div class="dze-qm-head">' +
+						'<h3>' + esc(i18n.qmTitle) + '</h3>' +
+						'<button type="button" class="dze-prompt-peek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
+						'<span class="description">' + esc(i18n.qmHelp) + '</span>' +
+					'</div>' +
+					'<p class="dze-qm-bar">' +
+						'<input type="url" id="dze-qm-url" placeholder="' + esc(i18n.qmUrl) + '" />' +
+						'<input type="text" id="dze-qm-note" placeholder="' + esc(i18n.qmNote) + '" />' +
+						'<button type="button" class="button button-primary" id="dze-qm-run">' + esc(i18n.qmRun) + '</button>' +
+						'<span class="dze-cx-state" id="dze-qm-state"></span>' +
+					'</p>' +
+					'<div class="dze-qm-out" id="dze-qm-out" style="display:none;">' +
+						'<div class="dze-qm-pair">' +
+							'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-qm-old" class="dze-hzoom" alt="" /></figure>' +
+							'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-qm-shot" class="dze-hzoom" alt="" /></figure>' +
+						'</div>' +
+						'<p>' +
+							'<button type="button" class="button button-primary" id="dze-qm-use">' + esc(i18n.qmUse) + '</button> ' +
+							'<button type="button" class="button" id="dze-qm-again">' + esc(i18n.qmAgain) + '</button>' +
+							'<span class="dze-cx-state" id="dze-qm-usestate"></span>' +
+						'</p>' +
+					'</div>' +
+				'</div>' +
 				'<div class="dze-cb-controls">' +
 					'<div class="dze-cb-block"><h3>' + esc(i18n.text) + '</h3>' +
 						'<div class="dze-cb-checks">' + checks + '</div></div>' +
@@ -689,6 +716,56 @@
 		drawShots();
 		loadCurrent().then(drawCurrentImages);
 	}
+
+	// ---- The fast lane ----
+	// One call, one image, and the click after it puts the image in place. The
+	// old main is not lost: attaching as "main" pushes it to the front of the
+	// gallery, which is what the attach endpoint does for every image.
+	var qmUrl = '';
+
+	function qmRun() {
+		var $b = $('#dze-qm-run').prop('disabled', true);
+		var $st = $('#dze-qm-state').removeClass('is-ko').text(i18n.qmWorking);
+		$('#dze-qm-usestate').text('');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
+			url: $('#dze-qm-url').val() || '',
+			note: $('#dze-qm-note').val() || ''
+		})
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+				$st.text('');
+				qmUrl = r.data.url;
+				$('#dze-qm-shot').attr('src', qmUrl).attr('data-full', qmUrl);
+				$('#dze-qm-old').attr('src', r.data.main || '').attr('data-full', r.data.main || '')
+					.closest('figure').toggle(!!r.data.main);
+				$('#dze-qm-out').show();
+			})
+			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	}
+	$(document).on('click', '#dze-qm-run, #dze-qm-again', qmRun);
+	$(document).on('keydown', '#dze-qm-url, #dze-qm-note', function (e) {
+		if (e.key === 'Enter') { e.preventDefault(); qmRun(); }
+	});
+
+	$(document).on('click', '#dze-qm-use', function () {
+		if (!qmUrl) { return; }
+		var $b = $(this).prop('disabled', true);
+		var $st = $('#dze-qm-usestate').removeClass('is-ko').text(i18n.applying);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
+			items: [ { url: qmUrl, target: 'main' } ]
+		})
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+				$st.text(i18n.applied);
+				// The product page behind the popup still shows the old main.
+				window.setTimeout(function () { window.location.reload(); }, 900);
+			})
+			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
 
 	// POD hands its result over to this strip.
 	window.dzeContentAddToGallery = function (url) {

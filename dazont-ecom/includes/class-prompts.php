@@ -95,6 +95,12 @@ final class DZE_Prompts {
 			];
 		}
 		if ( class_exists( 'DZE_Content' ) && self::module_on( 'content' ) ) {
+			$out['quick_main'] = [
+				'label' => __( 'Main image, made on the spot', 'dazont-ecom' ),
+				'text'  => [ 'DZE_Content', 'quick_prompt' ],
+				'tab'   => 'content',
+				'frag'  => 'dze-ct-quick-prompt',
+			];
 			$out['feature_pick'] = [
 				'label' => __( 'Choosing which photograph illustrates a block', 'dazont-ecom' ),
 				'text'  => [ 'DZE_Content', 'feature_prompt' ],
