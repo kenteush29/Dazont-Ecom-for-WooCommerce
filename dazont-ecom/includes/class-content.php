@@ -69,7 +69,6 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_image_attach', [ $this, 'ajax_image_attach' ] );
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
-		add_action( 'wp_ajax_dze_content_save_settings', [ $this, 'ajax_save_settings' ] );
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
@@ -2288,33 +2287,6 @@ Answer with STRICT JSON and nothing else: "
 						} )
 						.fail( function () { $b.prop( 'disabled', false ); window.alert( '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' ); } );
 				} );
-				// AJAX save — no page reload. The appended action parameter wins over
-				// the hidden "action=update" field when admin-ajax parses the body.
-				var $dzeForm = $( '#dze-pr' ).closest( 'form' );
-				$dzeForm.on( 'submit', function ( e ) {
-					e.preventDefault();
-					var $btn = $dzeForm.find( '#submit' ).prop( 'disabled', true );
-					var $ok  = $( '#dze-pr-savednote' );
-					if ( ! $ok.length ) { $ok = $( '<span id="dze-pr-savednote" style="margin-left:10px;font-weight:600;"></span>' ).insertAfter( $btn ); }
-					$ok.css( 'color', '#646970' ).text( '…' );
-					$.post(
-						window.ajaxurl,
-						$dzeForm.serialize() + '&action=dze_content_save_settings&nonce=' + encodeURIComponent( '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' )
-					).done( function ( res ) {
-						$btn.prop( 'disabled', false );
-						if ( res && res.success ) {
-							$ok.css( 'color', '#0a7040' ).text( '<?php echo esc_js( __( 'Saved ✓', 'dazont-ecom' ) ); ?>' );
-							setTimeout( function () { $ok.text( '' ); }, 2500 );
-						} else {
-							$ok.css( 'color', '#b32d2e' ).text( ( res && res.data && res.data.message ) || '<?php echo esc_js( __( 'Save failed.', 'dazont-ecom' ) ); ?>' );
-						}
-					} ).fail( function () {
-						// Network/AJAX failure: fall back to the classic full-page save.
-						$btn.prop( 'disabled', false );
-						$dzeForm.off( 'submit' );
-						$dzeForm.trigger( 'submit' );
-					} );
-				} );
 			} );
 			</script>
 
@@ -2909,6 +2881,15 @@ Answer with STRICT JSON and nothing else: "
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		// The zoom viewer travels with it: every grid of product images in the
 		// plugin opens the same way.
+		// Saving a settings page without losing the page — the same background
+		// submit on every tab, straight to options.php.
+		if ( $on_settings ) {
+			wp_enqueue_script( 'dze-settings-save', DZE_URL . 'admin/js/settings-save.js', [ 'jquery' ], DZE_VERSION, true );
+			wp_localize_script( 'dze-settings-save', 'dzeSettingsSaveI18n', [
+				'saving' => __( 'Saving…', 'dazont-ecom' ),
+				'saved'  => __( 'Saved ✓', 'dazont-ecom' ),
+			] );
+		}
 		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
 			'zoom'  => __( 'See this image full size', 'dazont-ecom' ),
 			'close' => __( 'Close', 'dazont-ecom' ),
@@ -4798,22 +4779,6 @@ Answer with STRICT JSON and nothing else: "
 	 * AJAX save of the Product-content settings form — same data, same
 	 * sanitizer (it runs inside update_option), no page reload.
 	 */
-	public function ajax_save_settings(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
-		}
-		$in = isset( $_POST[ self::OPT_SETTINGS ] ) && is_array( $_POST[ self::OPT_SETTINGS ] )
-			? (array) wp_unslash( $_POST[ self::OPT_SETTINGS ] ) // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- runs through the registered sanitizer below.
-			: [];
-		if ( empty( $in ) ) {
-			wp_send_json_error( [ 'message' => __( 'Nothing to save.', 'dazont-ecom' ) ] );
-		}
-		update_option( self::OPT_SETTINGS, $in, false );
-		self::$registry_cache = null;
-		wp_send_json_success( [ 'saved' => true ] );
-	}
-
 	/**
 	 * Toggle a prompt's Validated flag straight from the toolbox — no round trip
 	 * to Settings. Same capability as the settings page.

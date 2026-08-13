@@ -92,8 +92,24 @@ owner communicates in French.
   for work the owner has called unfinished or experimental, or for a module
   that does not exist yet; say so and wait for his word in that case.
 
+- **The owner wants well-built, well-finished functions — not features piled
+  up.** Every addition is judged on how it lands in the environment it joins:
+  before writing anything, look at what is ALREADY there on that screen and
+  make the new thing work in harmony with it — same gesture, same wording,
+  same place, one way of doing each thing. Never a second code path beside an
+  existing one (a hand-written save next to WordPress's own, a second strip of
+  images, a second popup): the two drift apart and one of them silently loses
+  data. Adding a control to a screen means re-reading that screen as a whole
+  and removing what the addition makes redundant. A function that works but
+  leaves the screen more confusing than it found it is not finished.
+
 ## Traps learned the hard way
 
+- Settings pages are saved by ONE mechanism: `admin/js/settings-save.js`
+  posts the real form to `options.php` in the background. Never add a custom
+  AJAX save endpoint for a settings tab — the one that existed saved some
+  sections and dropped the background shelf, and the same button behaved
+  differently from tab to tab.
 - `update_option()` on our registered options re-runs the sanitize callback
   (shaped for FORM input). Programmatic saves of canonical data must use
   `DZE_Content::write_settings_direct()`-style writes (filter removed around

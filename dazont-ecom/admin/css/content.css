@@ -934,3 +934,6 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cb-nowshot { display: inline-block; width: 148px; height: 148px; }
 .dze-cb-nowshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dze-one-srcpick img { width: 148px; height: 148px; }
+
+/* The one save note, wherever the button is. */
+.dze-savednote { margin-left: 10px; font-weight: 600; }
