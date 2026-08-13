@@ -2937,7 +2937,12 @@ Answer with STRICT JSON and nothing else: "
 					'nowImages' => __( 'Photographs already on the product', 'dazont-ecom' ),
 					'nowMain'   => __( 'Main image', 'dazont-ecom' ),
 					'nowGallery'=> __( 'Gallery', 'dazont-ecom' ),
-					'nowAi'     => __( 'Remake with AI', 'dazont-ecom' ),
+					// One menu of what can be done to these photographs, instead
+					// of a button per tool standing there for good.
+					'toolLabel' => __( 'Do something with these', 'dazont-ecom' ),
+					'toolPick'  => __( '— choose —', 'dazont-ecom' ),
+					'toolReframe'=> __( 'Reframe photographs (change their shape)', 'dazont-ecom' ),
+					'toolAi'    => __( 'Remake the main image with AI', 'dazont-ecom' ),
 					'rfStart'   => __( 'Reframe photographs', 'dazont-ecom' ),
 					'rfAll'     => __( 'All / none', 'dazont-ecom' ),
 					'rfShape'   => __( 'Shape', 'dazont-ecom' ),
@@ -3244,26 +3249,19 @@ Answer with STRICT JSON and nothing else: "
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
-				'qmHelp'     => __( 'One photograph in, one catalogue shot out: the product straight-on, on the shop\'s grey, ready to be the main image.', 'dazont-ecom' ),
-				'qmNote'     => __( 'Anything to add? e.g. "front view, zip closed"', 'dazont-ecom' ),
-				'qmRun'      => __( 'Make the main image', 'dazont-ecom' ),
-				'qmWorking'  => __( 'Shooting…', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
 				'qmSource'   => __( 'Worked from', 'dazont-ecom' ),
 				/* translators: %s: number of attempts */
 				'tryPick'    => __( '%s attempts — click the one to keep', 'dazont-ecom' ),
-				'qmUse'      => __( 'Use as main image', 'dazont-ecom' ),
 				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
-				'qmBg'       => __( 'Background', 'dazont-ecom' ),
 				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),
 				'qmBgPlate'  => __( 'The shop backdrop', 'dazont-ecom' ),
 				'qmPaste'    => __( 'Paste an image here (Ctrl+V), drop a file, or', 'dazont-ecom' ),
 				// The file is read in the browser and travels inside the
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
-				'qmPasted'   => __( 'Image pasted ✓ — it will be used instead of the address', 'dazont-ecom' ),
-				'qmClear'    => __( 'Remove', 'dazont-ecom' ),
+				'qmPasted'   => __( 'Image ready ✓', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
 				'pvFrom'     => __( 'Cost from', 'dazont-ecom' ),

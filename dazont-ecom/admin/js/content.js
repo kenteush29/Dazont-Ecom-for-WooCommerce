@@ -231,13 +231,6 @@
 				}).join('') + '</select></label>'
 			: '';
 
-		// The surfaces this shop shoots on. The first one is the default: a
-		// catalogue is consistent because everything lands on the same plate.
-		var bgList = cfg.backdrops || [];
-		var bgOpts = bgList.map(function (b, i) {
-			return '<option value="' + b.id + '"' + (i === 0 ? ' selected' : '') + '>' + esc(b.name) + '</option>';
-		}).join('') + '<option value="0"' + (bgList.length ? '' : ' selected') + '>' + esc(i18n.qmBgNone) + '</option>';
-
 		var blockers = (cfg.blockers && cfg.blockers.length)
 			? '<div class="dze-cx-blocked"><strong>' + esc(i18n.blocked) + '</strong><ul>' +
 				cfg.blockers.map(function (b) {
@@ -245,45 +238,6 @@
 				}).join('') + '</ul></div>'
 			: '';
 
-		// The fast lane, kept whole but now living inside the Images section.
-		var qmLane =
-			'<div class="dze-qm" id="dze-qm">' +
-				'<div class="dze-qm-head">' +
-					'<h4>' + esc(i18n.qmTitle) + '</h4>' +
-					'<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(cfg.mainRecipe || '') + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
-					'<span class="description">' + esc(i18n.qmHelp) + '</span>' +
-				'</div>' +
-				// Three ways in, in the order they are actually used: paste the
-				// image, paste its address, or use the product's own photographs.
-				'<div class="dze-qm-drop" id="dze-qm-drop" tabindex="0">' +
-'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
-					'<button type="button" class="button button-small dze-qm-browse">' + esc(i18n.qmBrowse) + '</button>' +
-					'<input type="file" accept="image/*" class="dze-qm-file" hidden />' +
-					'<img id="dze-qm-src" alt="" style="display:none;" />' +
-					'<button type="button" class="dze-qm-srcdel" id="dze-qm-srcdel" style="display:none;" title="' + esc(i18n.qmClear) + '">&times;</button>' +
-				'</div>' +
-				'<p class="dze-qm-bar">' +
-					'<label class="dze-qm-bglabel"><span>' + esc(i18n.qmBg) + '</span>' +
-						'<select id="dze-qm-bg">' + bgOpts + '</select></label>' +
-					'<button type="button" class="button button-small dze-bg-add" data-for="dze-qm-bg" title="' + esc(i18n.bgAdd) + '">+</button>' +
-				'</p>' +
-				'<p class="dze-qm-bar">' +
-					'<input type="text" id="dze-qm-note" placeholder="' + esc(i18n.qmNote) + '" />' +
-					'<button type="button" class="button button-primary" id="dze-qm-run">' + esc(i18n.qmRun) + '</button>' +
-					'<span class="dze-cx-state" id="dze-qm-state"></span>' +
-				'</p>' +
-				'<div class="dze-qm-out" id="dze-qm-out" style="display:none;">' +
-					'<div class="dze-qm-pair">' +
-						'<figure><figcaption>' + esc(i18n.qmNow) + '</figcaption><img id="dze-qm-old" class="dze-hzoom" alt="" /></figure>' +
-						'<figure><figcaption>' + esc(i18n.qmNew) + '</figcaption><img id="dze-qm-shot" class="dze-hzoom" alt="" /></figure>' +
-					'</div>' +
-					'<p>' +
-						'<button type="button" class="button button-primary" id="dze-qm-use">' + esc(i18n.qmUse) + '</button> ' +
-						'<button type="button" class="button" id="dze-qm-again">' + esc(i18n.qmAgain) + '</button>' +
-						'<span class="dze-cx-state" id="dze-qm-usestate"></span>' +
-					'</p>' +
-				'</div>' +
-			'</div>';
 
 		$('body').append(
 		'<div class="dze-cx-modal" id="dze-cx-modal"><div class="dze-cx-dialog">' +
@@ -309,7 +263,6 @@
 						// worked on — it was floating under the results panel,
 						// which is not where you look for it.
 						'<div class="dze-cb-nowshots" id="dze-cx-nowshots"></div>' +
-						qmLane +
 						(cfg.templates.length ?
 						'<div class="dze-cb-sub">' +
 							'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
@@ -926,91 +879,6 @@
 		loadCurrent().then(drawCurrentImages);
 	}
 
-	// ---- The fast lane ----
-	// One call, one image, and the click after it puts the image in place. The
-	// old main is not lost: attaching as "main" pushes it to the front of the
-	// gallery, which is what the attach endpoint does for every image.
-	var qmUrl = '';
-	// An image pasted or dropped into the lane, held as a data URI until it is
-	// sent. Nothing is uploaded to the media library on the way.
-	var qmPaste = '';
-
-	function qmShowSource(dataUri) {
-		qmPaste = dataUri || '';
-		$('#dze-qm-src').attr('src', qmPaste).toggle(!!qmPaste);
-		$('#dze-qm-srcdel').toggle(!!qmPaste);
-		$('#dze-qm-drop').toggleClass('has-img', !!qmPaste)
-			.find('.dze-qm-dropmsg').text(qmPaste ? i18n.qmPasted : i18n.qmPaste);
-	}
-	function qmReadFile(file) {
-		if (!file || !/^image\//.test(file.type)) { return; }
-		var fr = new FileReader();
-		fr.onload = function () { qmShowSource(String(fr.result)); };
-		fr.readAsDataURL(file);
-	}
-	// A file dropped on the box. Ctrl+V is handled once for both popups,
-	// further down, on the document.
-	$(document).on('dragover', '#dze-qm-drop', function (e) {
-		e.preventDefault();
-		$(this).addClass('is-over');
-	});
-	$(document).on('dragleave drop', '#dze-qm-drop', function () { $(this).removeClass('is-over'); });
-	$(document).on('drop', '#dze-qm-drop', function (e) {
-		e.preventDefault();
-		var dt = e.originalEvent && e.originalEvent.dataTransfer;
-		if (dt && dt.files && dt.files.length) { qmReadFile(dt.files[0]); }
-	});
-	$(document).on('click', '#dze-qm-srcdel', function (e) {
-		e.stopPropagation();
-		qmShowSource('');
-	});
-
-	function qmRun() {
-		var $b = $('#dze-qm-run').prop('disabled', true);
-		var $st = $('#dze-qm-state').removeClass('is-ko').text(i18n.qmWorking);
-		$('#dze-qm-usestate').text('');
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-			paste: qmPaste,
-			bg: $('#dze-qm-bg').val() || 0,
-			note: $('#dze-qm-note').val() || ''
-		})
-			.done(function (r) {
-				$b.prop('disabled', false);
-				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
-				$st.text('');
-				qmUrl = r.data.url;
-				$('#dze-qm-shot').attr('src', qmUrl).attr('data-full', qmUrl);
-				$('#dze-qm-old').attr('src', r.data.main || '').attr('data-full', r.data.main || '')
-					.closest('figure').toggle(!!r.data.main);
-				$('#dze-qm-out').show();
-			})
-			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
-	}
-	$(document).on('click', '#dze-qm-run, #dze-qm-again', qmRun);
-	$(document).on('keydown', '#dze-qm-note', function (e) {
-		if (e.key === 'Enter') { e.preventDefault(); qmRun(); }
-	});
-
-	$(document).on('click', '#dze-qm-use', function () {
-		if (!qmUrl) { return; }
-		var $b = $(this).prop('disabled', true);
-		var $st = $('#dze-qm-usestate').removeClass('is-ko').text(i18n.applying);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
-			items: [ { url: qmUrl, target: 'main' } ]
-		})
-			.done(function (r) {
-				$b.prop('disabled', false);
-				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
-				$st.text(i18n.applied);
-				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ qmUrl ] });
-				// The product page behind the popup still shows the old main.
-				window.setTimeout(function () { window.location.reload(); }, 900);
-			})
-			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
-	});
-
 	// =====================================================================
 	// One block at a time, from the block itself
 	// =====================================================================
@@ -1116,7 +984,7 @@
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
-	'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
+						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
 					'<button type="button" class="button button-small dze-qm-browse">' + esc(i18n.qmBrowse) + '</button>' +
 					'<input type="file" accept="image/*" class="dze-qm-file" hidden />' +
 						'<img id="dze-one-src" alt="" style="display:none;" />' +
@@ -1344,8 +1212,7 @@
 		var file = this.files && this.files[0];
 		this.value = '';
 		if (!file) { return; }
-		if ($(this).closest('#dze-one-drop').length) { oneReadFile(file); }
-		else { qmReadFile(file); }
+		if (file) { oneReadFile(file); }
 	});
 	$(document).on('dragover', '#dze-one-drop', function (e) { e.preventDefault(); $(this).addClass('is-over'); });
 	$(document).on('dragleave drop', '#dze-one-drop', function () { $(this).removeClass('is-over'); });
@@ -1538,9 +1405,6 @@
 		if ($('#dze-one').hasClass('is-open') && 'image' === one.mode) {
 			e.preventDefault();
 			oneReadFile(file);
-		} else if ($('#dze-cx-modal').hasClass('is-open') && $('#dze-qm-drop').length) {
-			e.preventDefault();
-			qmReadFile(file);
 		}
 	});
 
