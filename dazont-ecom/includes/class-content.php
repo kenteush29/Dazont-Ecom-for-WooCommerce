@@ -74,6 +74,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		add_action( 'wp_ajax_dze_content_backdrop', [ $this, 'ajax_backdrop' ] );
+		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
 		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
@@ -2756,6 +2757,15 @@ Answer with STRICT JSON and nothing else: "
 				'qmPaste'    => __( 'Paste an image here (Ctrl+V) or drop a file', 'dazont-ecom' ),
 				'qmPasted'   => __( 'Image pasted ✓ — it will be used instead of the address', 'dazont-ecom' ),
 				'qmClear'    => __( 'Remove', 'dazont-ecom' ),
+				// The price preview.
+				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
+				'pvFrom'     => __( 'Cost from', 'dazont-ecom' ),
+				'pvTo'       => __( 'to', 'dazont-ecom' ),
+				'pvMult'     => __( 'Multiplier', 'dazont-ecom' ),
+				'pvWhat'     => __( 'What', 'dazont-ecom' ),
+				'pvCost'     => __( 'Cost used', 'dazont-ecom' ),
+				'pvNow'      => __( 'Price today', 'dazont-ecom' ),
+				'pvNew'      => __( 'Would become', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -3233,6 +3243,85 @@ Answer with STRICT JSON and nothing else: "
 		}
 		/* translators: 1: applied count, 2: skipped count */
 		return sprintf( __( '%1$d attribute(s) applied%2$s.', 'dazont-ecom' ), $applied, $skipped ? ' ' . sprintf( /* translators: %d: skipped count */ __( '(%d variation attribute(s) left untouched)', 'dazont-ecom' ), $skipped ) : '' );
+	}
+
+	/**
+	 * What the price recalculation WOULD do, without doing any of it.
+	 *
+	 * "Recalculate from the cost" answers none of the questions somebody about
+	 * to click it is asking: which cost, read from where, multiplied by what,
+	 * and — on a variable product — applied to which variation. So the whole
+	 * thing is laid out first: the table with the row that matches highlighted,
+	 * then one line per variation with its cost, its price today and the price
+	 * it would get.
+	 */
+	public function ajax_price_preview(): void {
+		$this->guard();
+		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$cost = isset( $_POST['cost'] ) ? (float) wp_unslash( $_POST['cost'] ) : 0;
+		$product = $pid ? wc_get_product( $pid ) : null;
+		if ( ! $product instanceof WC_Product ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+		}
+		if ( $cost <= 0 ) {
+			$cost = (float) self::product_cost( $product );
+		}
+		if ( $cost <= 0 ) {
+			wp_send_json_error( [ 'message' => __( 'No cost recorded on this product, and none typed in the box: there is nothing to calculate from.', 'dazont-ecom' ) ] );
+		}
+
+		// The table, with the row this cost falls into marked.
+		$table = [];
+		foreach ( self::price_table() as $row ) {
+			$min = (float) ( $row['min'] ?? 0 );
+			$max = (float) ( $row['max'] ?? 0 );
+			$table[] = [
+				'min'  => wc_price( $min ),
+				'max'  => $max > 0 ? wc_price( $max ) : '∞',
+				'mult' => (float) ( $row['mult'] ?? 1 ),
+				'hit'  => ( $cost >= $min && ( $max <= 0 || $cost <= $max ) ),
+			];
+		}
+
+		$rows = [];
+		if ( $product->is_type( 'variable' ) ) {
+			foreach ( $product->get_children() as $vid ) {
+				$variation = wc_get_product( (int) $vid );
+				if ( ! $variation instanceof WC_Product ) {
+					continue;
+				}
+				// Each variation is priced from ITS OWN recorded cost when it has
+				// one — that is exactly what the run does, so that is what the
+				// preview must show.
+				$vcost = (float) ( self::cost_meta( (int) $vid ) ?: $cost );
+				if ( $vcost <= 0 ) {
+					continue;
+				}
+				$rows[] = [
+					'name' => $variation->get_name(),
+					'cost' => wc_price( $vcost ),
+					'now'  => '' !== $variation->get_regular_price() ? wc_price( (float) $variation->get_regular_price() ) : '—',
+					'next' => wc_price( DZE_Price::charm( $vcost * self::mult_for_cost( $vcost ), 'up' ) ),
+				];
+			}
+		} else {
+			$rows[] = [
+				'name' => $product->get_name(),
+				'cost' => wc_price( $cost ),
+				'now'  => '' !== $product->get_regular_price() ? wc_price( (float) $product->get_regular_price() ) : '—',
+				'next' => wc_price( DZE_Price::charm( $cost * self::mult_for_cost( $cost ), 'up' ) ),
+			];
+		}
+
+		$explain = $product->is_type( 'variable' )
+			? __( 'Each variation is priced from its own recorded cost when it has one, and from the cost in the box when it has none. The cost is also written to the WooCommerce Cost of Goods field. Prices are rounded up to the ending set under Settings → General.', 'dazont-ecom' )
+			: __( 'The cost × the multiplier of the matching range gives the regular price. The cost is also written to the WooCommerce Cost of Goods field, and the price is rounded up to the ending set under Settings → General.', 'dazont-ecom' );
+
+		wp_send_json_success( [
+			'explain' => $explain,
+			'table'   => $table,
+			'rows'    => array_slice( $rows, 0, 60 ), // a preview, not a report.
+		] );
 	}
 
 	public function ajax_price(): void {
