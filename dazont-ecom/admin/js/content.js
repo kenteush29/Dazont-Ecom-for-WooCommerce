@@ -154,23 +154,18 @@
 			'<div class="dze-sec-body"' + (open ? '' : ' style="display:none;"') + '>' + body + '</div>' +
 		'</section>';
 	}
-	function toggleSec($sec, on) {
-		$sec.toggleClass('is-open', on);
-		$sec.find('> .dze-sec-head').attr('aria-expanded', on ? 'true' : 'false')
-			.find('.dze-sec-caret').text(on ? '▾' : '▸');
-		$sec.find('> .dze-sec-body').toggle(on);
+	// Opening and closing a section is handled once, in photos.js, for every
+	// screen that prints one. Here we only remember which ones were left open.
+	$(document).on('dze:sec', function (e, id, on) {
+		if (!id) { return; }
 		var m = mem();
 		m.sec = m.sec || {};
-		m.sec[$sec.data('sec')] = on ? 1 : 0;
+		m.sec[id] = on ? 1 : 0;
 		saveMem(m);
+	});
+	function toggleSec($sec, on) {
+		if (window.dzePhotos) { window.dzePhotos.toggleSec($sec, on); }
 	}
-	$(document).on('click', '.dze-sec-head', function () {
-		var $sec = $(this).closest('.dze-sec');
-		toggleSec($sec, !$sec.hasClass('is-open'));
-	});
-	$(document).on('keydown', '.dze-sec-head', function (e) {
-		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
-	});
 
 	// ---- What the price recalculation would actually do ----
 	// "Recalculate from the cost" says nothing about which cost, which table or

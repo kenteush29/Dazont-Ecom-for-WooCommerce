@@ -1,3 +1,14 @@
+/* ---- The one stacking scale of the plugin ----------------------------- */
+/* WordPress puts its own media modal at 160000 and its toolbar at 99999. A
+   layer of ours that lands on the same number wins or loses by DOM order —
+   that is, by luck. Every layer here is declared once, relative to those. */
+:root {
+	--dze-z-sticky: 9999;    /* the run bar, under the WP toolbar */
+	--dze-z-modal: 100000;   /* our popups */
+	--dze-z-prompt: 100010;  /* the prompt editor, over a popup */
+	--dze-z-zoom: 160050;    /* the image viewer, deliberately over wp.media */
+}
+
 /* =========================================================================
  * AI Content — admin styles: defensive field-width reset (some plugins, e.g.
  * size-chart-for-woocommerce, shrink every admin input to ~30% globally) plus
@@ -33,7 +44,7 @@
 .dze-hub p { margin: 8px 0 0; }
 
 /* ---- Toolbox modal ---- */
-.dze-cx-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100000; display: none; }
+.dze-cx-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: var(--dze-z-modal); display: none; }
 .dze-cx-modal.is-open { display: flex; align-items: flex-start; justify-content: center; }
 .dze-cx-dialog {
 	background: #fff; margin: 3vh auto; width: min(1080px, 96vw); max-height: 94vh; overflow: auto;
@@ -266,7 +277,7 @@
 
 /* ---- Global progress, pinned to the bottom of the window ---- */
 #dze-cb-sticky {
-	position: fixed; left: 160px; right: 0; bottom: 0; z-index: 9999;
+	position: fixed; left: 160px; right: 0; bottom: 0; z-index: var(--dze-z-sticky);
 	background: #fff; border-top: 1px solid #c3c4c7; box-shadow: 0 -2px 10px rgba(0,0,0,.08);
 }
 .folded #dze-cb-sticky, .auto-fold #dze-cb-sticky { left: 36px; }
@@ -428,7 +439,7 @@
 /* The prompt reader is opened FROM another popup, so it has to sit above it —
    and above the hover zoom, which is itself above the popups. Without this it
    opened behind the toolbox and looked like a dead button. */
-#dze-prompt-modal { z-index: 100010; }
+#dze-prompt-modal { z-index: var(--dze-z-prompt); }
 
 /* ---- One shut section per kind of work ---- */
 .dze-sec { border: 1px solid #dcdcde; border-radius: 6px; background: #fff; margin: 0 0 10px; }
@@ -905,7 +916,7 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-zoomgroup .dze-cb-shotdrop { right: 29px; }
 
 .dze-zoom-back {
-	display: none; position: fixed; inset: 0; z-index: 160000;
+	display: none; position: fixed; inset: 0; z-index: var(--dze-z-zoom);
 	background: rgba(0,0,0,.82); align-items: center; justify-content: center;
 }
 .dze-zoom-back.is-open { display: flex; }
@@ -1030,3 +1041,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 10px; margin: 0;
 	font-size: 12px; line-height: 1.5;
 }
+
+/* The bulk dashboard uses the popup's sections: the old flat blocks kept a
+   heading style of their own, which is exactly what made the two screens look
+   like different products. */
+.dze-cb-controls .dze-sec { border-top: 1px solid #f0f0f1; }
+.dze-cb-controls .dze-sec:first-of-type { border-top: none; }
+.dze-cb-mode .dze-sec-body { display: block; }

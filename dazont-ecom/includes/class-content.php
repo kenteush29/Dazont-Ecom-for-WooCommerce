@@ -2618,6 +2618,29 @@ Answer with STRICT JSON and nothing else: "
 		<?php
 	}
 
+	/**
+	 * The section shell the toolbox popup uses, printed for the bulk screen.
+	 *
+	 * The two dashboards choose the same things and looked nothing alike: flat
+	 * blocks with an uppercase heading on one side, collapsible sections with a
+	 * caret on the other. Same markup now, so they read the same and any change
+	 * to one reaches the other.
+	 */
+	private static function sec_open( string $id, string $title, bool $open = true ): void {
+		printf(
+			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%5$s</h3><div class="dze-sec-body"%6$s>',
+			$open ? ' is-open' : '',
+			esc_attr( $id ),
+			$open ? 'true' : 'false',
+			$open ? '▾' : '▸',
+			esc_html( $title ),
+			$open ? '' : ' style="display:none;"'
+		);
+	}
+	private static function sec_close(): void {
+		echo '</div></section>';
+	}
+
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
@@ -2696,8 +2719,7 @@ Answer with STRICT JSON and nothing else: "
 				<!-- Three blocks, one per kind of work, each with its own options
 				     next to it: the flat list of checkboxes and floating selects
 				     made it impossible to tell what belonged to what. -->
-				<div class="dze-cb-block">
-					<h3><?php esc_html_e( 'Texts', 'dazont-ecom' ); ?></h3>
+				<?php self::sec_open( 'text', __( 'Texts', 'dazont-ecom' ) ); ?>
 					<div class="dze-cb-checks">
 						<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
 							<span class="dze-cb-checkline">
@@ -2709,11 +2731,10 @@ Answer with STRICT JSON and nothing else: "
 							</span>
 						<?php endforeach; ?>
 					</div>
-				</div>
+				<?php self::sec_close(); ?>
 
 				<?php if ( class_exists( 'DZE_Reviews' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'reviews' ) ) ) : ?>
-					<div class="dze-cb-block">
-						<h3><?php esc_html_e( 'Reviews', 'dazont-ecom' ); ?></h3>
+					<?php self::sec_open( 'reviews', __( 'Reviews', 'dazont-ecom' ), false ); ?>
 						<label class="dze-cb-check">
 							<input type="checkbox" id="dze-cb-reviews" />
 							<span><?php esc_html_e( 'Write customer reviews', 'dazont-ecom' ); ?></span>
@@ -2733,19 +2754,17 @@ Answer with STRICT JSON and nothing else: "
 						<p class="description" style="margin:6px 0 0;">
 							<?php esc_html_e( 'They land in the WooCommerce moderation queue, never published straight to the shop.', 'dazont-ecom' ); ?>
 						</p>
-					</div>
+					<?php self::sec_close(); ?>
 				<?php endif; ?>
 
-				<div class="dze-cb-block">
-					<h3><?php esc_html_e( 'Price', 'dazont-ecom' ); ?></h3>
+				<?php self::sec_open( 'price', __( 'Price', 'dazont-ecom' ), false ); ?>
 					<label class="dze-cb-check">
 						<input type="checkbox" id="dze-cb-price" checked />
 						<span><?php esc_html_e( 'Recalculate from the cost', 'dazont-ecom' ); ?></span>
 					</label>
-				</div>
+				<?php self::sec_close(); ?>
 
-				<div class="dze-cb-block">
-					<h3><?php esc_html_e( 'Images', 'dazont-ecom' ); ?></h3>
+				<?php self::sec_open( 'img', __( 'Images', 'dazont-ecom' ), false ); ?>
 					<?php if ( $valid_tpls ) : ?>
 						<label class="dze-cb-check<?php echo $dze_blockers ? ' is-locked' : ''; ?>" title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
 							<input type="checkbox" id="dze-cb-image" <?php disabled( ! empty( $dze_blockers ) ); ?> />
@@ -2799,18 +2818,16 @@ Answer with STRICT JSON and nothing else: "
 					<?php else : ?>
 						<p class="description"><?php esc_html_e( 'No validated image prompt yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></p>
 					<?php endif; ?>
-				</div>
+				<?php self::sec_close(); ?>
 
-				<div class="dze-cb-block dze-cb-mode">
-					<h3><?php esc_html_e( 'Before writing to the shop', 'dazont-ecom' ); ?></h3>
+				<div class="dze-cb-mode"><?php self::sec_open( 'mode', __( 'Before writing to the shop', 'dazont-ecom' ), false ); ?>
 					<label class="dze-cb-check"><input type="radio" name="dze-cb-mode" value="review" checked />
 						<span><?php esc_html_e( 'Review, then apply what I keep', 'dazont-ecom' ); ?></span></label>
 					<label class="dze-cb-check"><input type="radio" name="dze-cb-mode" value="direct" />
 						<span><?php esc_html_e( 'Apply immediately, no confirmation', 'dazont-ecom' ); ?></span></label>
-				</div>
+				<?php self::sec_close(); ?></div>
 
-				<div class="dze-cb-block">
-					<h3><?php esc_html_e( 'Products already written', 'dazont-ecom' ); ?></h3>
+				<?php self::sec_open( 'again', __( 'Products already written', 'dazont-ecom' ), false ); ?>
 					<!-- Off by default: content already generated and not yet
 					     decided on is work already paid for. A run that quietly
 					     wrote over it would charge twice and destroy the first
@@ -2819,7 +2836,7 @@ Answer with STRICT JSON and nothing else: "
 						<input type="checkbox" id="dze-cb-force" />
 						<span><?php esc_html_e( 'Write them again too, replacing what is waiting for a decision', 'dazont-ecom' ); ?></span>
 					</label>
-				</div>
+				<?php self::sec_close(); ?>
 
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
