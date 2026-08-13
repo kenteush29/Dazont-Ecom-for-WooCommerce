@@ -842,7 +842,11 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 
 
 /* ---- Product toolbox: the bulk screen's flow, for one product ---- */
+/* The review panel, identical on the product popup and inside a bulk row:
+   the same wrapper, so spacing and rules never drift apart again. */
 .dze-cx-result { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e2e4e7; }
+.dze-cb-preview .dze-cx-result { margin-top: 0; padding-top: 0; border-top: 0; }
+.dze-cb-preview .dze-cb-nowshots:not(:empty) { margin-bottom: 14px; }
 .dze-cx-result .dze-cb-prev { margin-bottom: 4px; }
 .dze-cx-state { font-size: 12px; color: #646970; }
 .dze-cx-state.is-ko { color: #b32d2e; }

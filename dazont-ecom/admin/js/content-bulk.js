@@ -492,8 +492,11 @@
 				'<div class="dze-cb-fbody" style="display:none;"></div>' +
 			'</div>';
 		});
+		// Read in the same order as the product popup, because it IS the same
+		// panel: what the product has today, then what was written, then what
+		// was generated, then the decision.
 		html += '</div>' +
-			'<div class="dze-cb-nowshots"></div>' +
+			'<div class="dze-cb-shots-slot"></div>' +
 			'<p class="dze-cb-panelbar">' +
 				(Object.keys(b.texts).length
 					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
@@ -501,9 +504,9 @@
 				'<button type="button" class="button button-small button-primary dze-cb-applyone">' + esc(i18n.applyOne) + '</button> ' +
 				'<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>' +
 				'<span class="dze-cb-panelstate"></span>' +
-			'</p>' +
-			'<div class="dze-cb-shots-slot"></div>';
-		$cell.html(html);
+			'</p>';
+		html = '<div class="dze-cb-nowshots"></div>' + html;
+		$cell.html('<div class="dze-cx-result">' + html + '</div>');
 		b.built = true;
 		renderShots(id);
 		// The gallery as it stands today, right under the new images: the only
