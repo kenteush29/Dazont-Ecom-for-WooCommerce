@@ -926,3 +926,14 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 
 /* The one save note, wherever the button is. */
 .dze-savednote { margin-left: 10px; font-weight: 600; }
+
+/* The image that is not on the product yet: a tile in the same strip, so
+   "from what" is answered in one place. */
+.dze-one-srcnew {
+	width: 148px; height: 148px; display: flex; align-items: center; justify-content: center;
+	text-align: center; font-size: 12px; color: #2271b1; background: #f6f7f7;
+	border-style: dashed !important;
+}
+.dze-one-srcnew img { width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
+.dze-one-srcnew .dze-one-newmsg { padding: 0 8px; }
+#dze-one-elsewrap { margin-top: 10px; }

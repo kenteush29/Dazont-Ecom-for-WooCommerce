@@ -943,18 +943,8 @@
 		fr.onload = function () { qmShowSource(String(fr.result)); };
 		fr.readAsDataURL(file);
 	}
-	// Ctrl+V anywhere in the popup while the lane is on screen, and a file
-	// dropped on the box. Both end up in the same place.
-	$(document).on('paste', '#dze-cx-modal', function (e) {
-		var items = (e.originalEvent && e.originalEvent.clipboardData && e.originalEvent.clipboardData.items) || [];
-		for (var i = 0; i < items.length; i++) {
-			if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
-				e.preventDefault();
-				qmReadFile(items[i].getAsFile());
-				return;
-			}
-		}
-	});
+	// A file dropped on the box. Ctrl+V is handled once for both popups,
+	// further down, on the document.
 	$(document).on('dragover', '#dze-qm-drop', function (e) {
 		e.preventDefault();
 		$(this).addClass('is-over');
@@ -1102,9 +1092,6 @@
 			'<div class="dze-step">' +
 				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
-				'<p class="dze-step-more">' +
-					'<button type="button" class="button-link" id="dze-one-elsewhere">' + esc(i18n.stepElse) + '</button>' +
-				'</p>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
 						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
@@ -1231,20 +1218,62 @@
 				html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
 					'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" /></button>';
 			});
+			// A supplier photograph that is not on the product yet is a source
+			// like the others, so it is a tile in the same strip rather than a
+			// link hidden under it — one place to answer "from what".
+			html += '<button type="button" class="dze-one-srcpick dze-one-srcnew" data-id="new">' +
+				'<img id="dze-one-newthumb" alt="" style="display:none;" />' +
+				'<span class="dze-one-newmsg">&#43; ' + esc(i18n.stepElse) + '</span></button>';
 			$slot.html(html);
+			if (one.paste) { oneShowPasted(one.paste); }
 		});
 	}
-	$(document).on('click', '#dze-one-elsewhere', function () {
-		$('#dze-one-elsewrap').toggle();
-	});
 	$(document).on('click', '.dze-one-srcpick', function () {
 		$('.dze-one-srcpick').removeClass('is-sel');
 		$(this).addClass('is-sel');
-		var id = parseInt($(this).data('id'), 10) || 0;
+		var raw = String($(this).data('id'));
+		var outside = 'new' === raw;
+		var id = outside ? 0 : (parseInt(raw, 10) || 0);
 		one.srcId = id;
+		// The box to paste into belongs to that tile: it is on screen when the
+		// tile is chosen, and out of the way the rest of the time.
+		$('#dze-one-elsewrap').toggle(outside);
+		if (!outside) { oneShowPasted(''); $('#dze-one-url').val(''); }
+		else { $('#dze-one-drop').trigger('focus'); }
 		// Only a photograph of the product can be retired by its own remake.
 		$('#dze-one-replacewrap').toggle(!!id);
 		if (!id) { $('#dze-one-replace').prop('checked', false); }
+	});
+	// One place that says "this is the image we work from", whether it arrived
+	// by Ctrl+V, by drag and drop, or by its address.
+	function oneShowPasted(dataUri) {
+		one.paste = dataUri || '';
+		$('#dze-one-src').attr('src', one.paste).toggle(!!one.paste);
+		$('#dze-one-drop').toggleClass('has-img', !!one.paste)
+			.find('.dze-qm-dropmsg').text(one.paste ? i18n.qmPasted : i18n.qmPaste);
+		$('#dze-one-newthumb').attr('src', one.paste).toggle(!!one.paste);
+		$('.dze-one-srcnew .dze-one-newmsg').toggle(!one.paste);
+		if (one.paste) { $('#dze-one-url').val(''); }
+	}
+	function oneReadFile(file) {
+		if (!file || !/^image\//.test(file.type)) { return; }
+		var fr = new FileReader();
+		fr.onload = function () {
+			$('.dze-one-srcpick').removeClass('is-sel');
+			$('.dze-one-srcnew').addClass('is-sel');
+			one.srcId = 0;
+			$('#dze-one-elsewrap').show();
+			$('#dze-one-replacewrap').hide();
+			oneShowPasted(String(fr.result));
+		};
+		fr.readAsDataURL(file);
+	}
+	$(document).on('dragover', '#dze-one-drop', function (e) { e.preventDefault(); $(this).addClass('is-over'); });
+	$(document).on('dragleave drop', '#dze-one-drop', function () { $(this).removeClass('is-over'); });
+	$(document).on('drop', '#dze-one-drop', function (e) {
+		e.preventDefault();
+		var dt = e.originalEvent && e.originalEvent.dataTransfer;
+		if (dt && dt.files && dt.files.length) { oneReadFile(dt.files[0]); }
 	});
 
 	// What the product says today, above what was just written: the same
@@ -1358,21 +1387,23 @@
 			.fail(function () { $st.text(i18n.error); });
 	});
 
-	// Paste or drop straight into the small popup too.
-	$(document).on('paste', '#dze-one', function (e) {
+	// Ctrl+V is bound on the document, not on the popup: a paste event only
+	// fires on what has the focus, and the focus is usually nowhere in
+	// particular — which is why pasting used to do nothing until you had
+	// clicked inside the box first. Whichever popup is open takes the image.
+	$(document).on('paste', function (e) {
 		var items = (e.originalEvent && e.originalEvent.clipboardData && e.originalEvent.clipboardData.items) || [];
+		var file = null;
 		for (var i = 0; i < items.length; i++) {
-			if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
-				e.preventDefault();
-				var fr = new FileReader();
-				fr.onload = function () {
-					one.paste = String(fr.result);
-					$('#dze-one-src').attr('src', one.paste).show();
-					$('#dze-one-drop').addClass('has-img').find('.dze-qm-dropmsg').text(i18n.qmPasted);
-				};
-				fr.readAsDataURL(items[i].getAsFile());
-				return;
-			}
+			if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { file = items[i].getAsFile(); break; }
+		}
+		if (!file) { return; }
+		if ($('#dze-one').hasClass('is-open') && 'image' === one.mode) {
+			e.preventDefault();
+			oneReadFile(file);
+		} else if ($('#dze-cx-modal').hasClass('is-open') && $('#dze-qm-drop').length) {
+			e.preventDefault();
+			qmReadFile(file);
 		}
 	});
 
