@@ -308,6 +308,35 @@
 }
 .dze-cb-fstate { font-size: 11px; color: #00794b; }
 .dze-cb-fstate.is-ko { color: #b32d2e; }
+/* ---- The fast lane: one photograph in, one main image out ---- */
+.dze-qm {
+	border: 1px solid #c3c4c7; border-left: 3px solid #2271b1; border-radius: 6px;
+	background: #fff; padding: 12px 16px 14px; margin: 0 0 16px;
+}
+.dze-qm-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.dze-qm-head h3 { margin: 0; font-size: 14px; }
+.dze-qm-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+.dze-qm-bar #dze-qm-url { flex: 2 1 320px; min-width: 0; }
+.dze-qm-bar #dze-qm-note { flex: 1 1 220px; min-width: 0; }
+/* Two images, side by side, big enough to judge — and no bigger. */
+.dze-qm-pair { display: flex; gap: 14px; flex-wrap: wrap; margin: 12px 0 6px; }
+.dze-qm-pair figure { margin: 0; }
+.dze-qm-pair figcaption { font-size: 11px; color: #646970; margin-bottom: 4px; }
+.dze-qm-pair img {
+	display: block; width: 260px; height: 260px; object-fit: contain;
+	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
+}
+
+/* ---- Translate popup: the original and the current translation, side by
+   side above the new text. Judging a translation without its source is
+   guessing. ---- */
+.dze-tr-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+.dze-tr-col { min-width: 0; }
+.dze-tr-col .dze-cb-nowbody { max-height: 220px; overflow: auto; }
+@media (max-width: 900px) { .dze-tr-cols { grid-template-columns: 1fr; } }
+.dze-tr-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-tr-bar label { display: inline-flex; align-items: center; gap: 6px; }
+
 /* ---- Shortcodes screen: one boxed card per shortcode ---- */
 .dze-sc-card {
 	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;

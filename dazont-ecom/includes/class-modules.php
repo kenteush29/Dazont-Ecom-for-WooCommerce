@@ -117,7 +117,7 @@ final class DZE_Modules {
 				'group' => 'product',
 				'label' => __( 'Product Content', 'dazont-ecom' ),
 				'desc'  => __( 'Automatic edition of a product: texts, images, price.', 'dazont-ecom' ),
-				'more'  => __( 'The full product pipeline. A universal prompt registry (your own prompts, with the product data they receive as input and the field each one writes to); a Content chip on every row of the products list — how many photographs it has, in red under two, and an amber "to review" when something is waiting — opening the same popup for that product without leaving the list; the same flow on the product page, in one popup: tick what to generate, run it, read the result in collapsible WordPress editors with the current content one click away, rewrite what is weak, choose where each image goes, accept; a bulk screen where each product keeps one line — green badges for what was written, one symbol for its state — and opens on demand into collapsible WordPress editors, with a button to write a single text again, all of them again, or ask for one more image without re-running the list; several image prompts can run in the same pass, on the product page as in bulk, and a bulk run works on several products at once (you choose how many); content generated but not yet accepted is kept on the product, so a closed tab loses nothing and the bulk screen offers to show everything still waiting for a decision; a text prompt can also be given a companion image meta key, and then the model LOOKS at the product photographs, picks the one showing a real particularity, writes that block\'s h2 and body about what is visible there, and stores the chosen attachment id next to the text (two such blocks with a full gallery, one when the photographs are few); image generation with a session gallery, native-style selection and SEO naming, fed with every photograph of the product (featured image and gallery, up to six) so the model has nothing left to invent; scenes — a fixed support or background image (studio backdrop, table top, garment mockup) sent alongside every product photo with the instruction to keep the product untouched, so a catalogue shot by a dozen suppliers comes back in one visual identity; price recalculation from cost (COGS × your price table, rounded up to the price ending chosen under Settings → General); and the multi-product bulk screen reached from the Products list, fed either by ticking rows there or by pasting a column of product IDs straight from a spreadsheet — commas, tabs or line breaks, whatever is not a digit separates, and any ID that is not a product is named back to you instead of being dropped in silence. Accepting is never all or nothing: every generated block carries a tick, so you can keep the images and leave the description behind. Fields that write a WooCommerce field carry WooCommerce\'s own name for it.', 'dazont-ecom' ),
+				'more'  => __( 'The full product pipeline. A universal prompt registry (your own prompts, with the product data they receive as input and the field each one writes to); a Content chip on every row of the products list — how many photographs it has, in red under two, and an amber "to review" when something is waiting — opening the same popup for that product without leaving the list; the same flow on the product page, in one popup: tick what to generate, run it, read the result in collapsible WordPress editors with the current content one click away, rewrite what is weak, choose where each image goes, accept; a bulk screen where each product keeps one line — green badges for what was written, one symbol for its state — and opens on demand into collapsible WordPress editors, with a button to write a single text again, all of them again, or ask for one more image without re-running the list; several image prompts can run in the same pass, on the product page as in bulk, and a bulk run works on several products at once (you choose how many); content generated but not yet accepted is kept on the product, so a closed tab loses nothing and the bulk screen offers to show everything still waiting for a decision; a text prompt can also be given a companion image meta key, and then the model LOOKS at the product photographs, picks the one showing a real particularity, writes that block\'s h2 and body about what is visible there, and stores the chosen attachment id next to the text (two such blocks with a full gallery, one when the photographs are few); a Main image lane at the top of the product popup — paste the address of a supplier photograph, or use the product\'s own, and one call turns it into the shop\'s catalogue shot (product straight-on, seamless light grey, soft shadow), shown next to the current main image before one click puts it in place and pushes the old one to the front of the gallery; image generation with a session gallery, native-style selection and SEO naming, fed with every photograph of the product (featured image and gallery, up to six) so the model has nothing left to invent; scenes — a fixed support or background image (studio backdrop, table top, garment mockup) sent alongside every product photo with the instruction to keep the product untouched, so a catalogue shot by a dozen suppliers comes back in one visual identity; price recalculation from cost (COGS × your price table, rounded up to the price ending chosen under Settings → General); and the multi-product bulk screen reached from the Products list, fed either by ticking rows there or by pasting a column of product IDs straight from a spreadsheet — commas, tabs or line breaks, whatever is not a digit separates, and any ID that is not a product is named back to you instead of being dropped in silence. Accepting is never all or nothing: every generated block carries a tick, so you can keep the images and leave the description behind. Fields that write a WooCommerce field carry WooCommerce\'s own name for it.', 'dazont-ecom' ),
 			],
 			'pod' => [
 				'class' => 'DZE_Pod',
@@ -125,6 +125,16 @@ final class DZE_Modules {
 				'label' => __( 'POD image', 'dazont-ecom' ),
 				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
 				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
+			],
+			'translate' => [
+				'class'   => 'DZE_Translate',
+				'group'   => 'product',
+				// Ships switched off: writing into WPML is the kind of thing you
+				// try on a staging copy before letting it near a live catalogue.
+				'default' => 0,
+				'label' => __( 'Product translation', 'dazont-ecom' ),
+				'desc'  => __( 'Translates a product\'s written content into the site\'s other languages.', 'dazont-ecom' ),
+				'more'  => __( 'Translates the WRITTEN content of a product — name, description, short description, SEO title and description — into every other language active on the site, and hands the result to WPML as a real translation, linked to the original. WPML\'s own automatic translation bills per word in credits; the same words go through the Anthropic key already configured here for a fraction of that, in the shop\'s voice, with a glossary of terms that must never be translated (brand, references, technical names). Price, stock, attributes, images and taxonomy are NOT touched: they belong to WooCommerce Multilingual, and when this module has to create a translation it asks WPML to run its own custom-field sync so the numbers arrive from the original rather than from us. Nothing is written blind: a translation is produced, shown next to the original AND next to what the translation holds today, edited in the WordPress editor if a word is wrong, and applied field by field — a block you untick is left out. A translation this module did not write says so before it can be replaced. The prompt and the glossary are editable under Settings → Translation, and every call is charged to the monthly budget like any other.', 'dazont-ecom' ),
 			],
 			'category_content' => [
 				'class' => 'DZE_Category_Content',
@@ -235,7 +245,7 @@ final class DZE_Modules {
 	// =========================================================================
 
 	public function hub_meta_box(): void {
-		if ( ! self::enabled( 'content' ) && ! self::enabled( 'pod' ) && ! self::enabled( 'gmc_activation' ) ) {
+		if ( ! self::enabled( 'content' ) && ! self::enabled( 'pod' ) && ! self::enabled( 'gmc_activation' ) && ! self::enabled( 'translate' ) ) {
 			return;
 		}
 		add_meta_box( 'dze-hub', __( 'Dazont Ecom', 'dazont-ecom' ), [ $this, 'render_hub' ], 'product', 'side', 'high' );
@@ -264,6 +274,9 @@ final class DZE_Modules {
 			<?php if ( self::enabled( 'gmc_activation' ) && $product ) : ?>
 				<button type="button" class="button dze-hub-btn" data-modal="dze-gmca-modal"><?php esc_html_e( 'GMC activation', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
+			<?php if ( self::enabled( 'translate' ) && class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) : ?>
+				<button type="button" class="button dze-hub-btn" data-modal="dze-tr-modal"><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></button>
+			<?php endif; ?>
 		</div>
 		<script>
 		jQuery( function ( $ ) {
@@ -273,7 +286,7 @@ final class DZE_Modules {
 			$( document ).on( 'click', '.dze-hub-close', function () {
 				$( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' );
 			} );
-			$( document ).on( 'click', '#dze-pod-modal, #dze-gmca-modal', function ( e ) {
+			$( document ).on( 'click', '#dze-pod-modal, #dze-gmca-modal, #dze-tr-modal', function ( e ) {
 				if ( e.target === this ) { $( this ).removeClass( 'is-open' ); }
 			} );
 			// Shared hover zoom: any img.dze-hzoom shows a floating large preview.

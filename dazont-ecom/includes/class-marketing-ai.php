@@ -411,6 +411,9 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'reviews' ) ) {
 			$tabs['reviews'] = __( 'Reviews', 'dazont-ecom' );
 		}
+		if ( $mod_on( 'translate' ) ) {
+			$tabs['translate'] = __( 'Translation', 'dazont-ecom' );
+		}
 		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
 		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
@@ -472,6 +475,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'reviews' === $tab ) {
 			if ( class_exists( 'DZE_Reviews' ) && $mod_on( 'reviews' ) ) {
 				DZE_Reviews::instance()->render_settings();
+			}
+		} elseif ( 'translate' === $tab ) {
+			if ( class_exists( 'DZE_Translate' ) && $mod_on( 'translate' ) ) {
+				DZE_Translate::render_settings();
 			}
 		} elseif ( 'modules' === $tab ) {
 			if ( class_exists( 'DZE_Modules' ) ) {
