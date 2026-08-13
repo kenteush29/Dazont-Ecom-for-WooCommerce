@@ -46,7 +46,6 @@ final class DZE_Prompts {
 			];
 		}
 		$map = [
-			'quick_main' => [ 'DZE_Content', 'quick_prompt', 'default_quick_prompt' ],
 			'feature_pick' => [ 'DZE_Content', 'feature_prompt', 'default_feature_prompt' ],
 			'cat_desc'   => [ 'DZE_Category_Content', 'prompt', 'default_prompt' ],
 			'cat_links'  => [ 'DZE_Category_Content', 'links_prompt', 'default_links_prompt' ],
@@ -67,7 +66,6 @@ final class DZE_Prompts {
 		}
 		// Which option key each module keeps its prompt under.
 		$where = [
-			'quick_main'   => [ 'DZE_Content', 'quick_prompt' ],
 			'feature_pick' => [ 'DZE_Content', 'feature_prompt' ],
 			'cat_desc'     => [ 'DZE_Category_Content', 'prompt' ],
 			'cat_links'    => [ 'DZE_Category_Content', 'links_prompt' ],
@@ -221,12 +219,8 @@ final class DZE_Prompts {
 			];
 		}
 		if ( class_exists( 'DZE_Content' ) && self::module_on( 'content' ) ) {
-			$out['quick_main'] = [
-				'label' => __( 'Main image, made on the spot', 'dazont-ecom' ),
-				'text'  => [ 'DZE_Content', 'quick_prompt' ],
-				'tab'   => 'content',
-				'frag'  => 'dze-ct-quick-prompt',
-			];
+			// The main-image recipe is not listed here: it is a registry row
+			// like every other image prompt, and rows are added below.
 			$out['feature_pick'] = [
 				'label' => __( 'Choosing which photograph illustrates a block', 'dazont-ecom' ),
 				'text'  => [ 'DZE_Content', 'feature_prompt' ],

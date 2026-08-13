@@ -250,7 +250,7 @@
 			'<div class="dze-qm" id="dze-qm">' +
 				'<div class="dze-qm-head">' +
 					'<h4>' + esc(i18n.qmTitle) + '</h4>' +
-					'<button type="button" class="dze-prompt-peek" data-prompt="quick_main" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
+					'<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(cfg.mainRecipe || '') + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
 					'<span class="description">' + esc(i18n.qmHelp) + '</span>' +
 				'</div>' +
 				// Three ways in, in the order they are actually used: paste the
@@ -1052,7 +1052,7 @@
 			: (cfg.fields[fid] || fid);
 		$('#dze-one-title').text(label);
 		$('#dze-one-peek').html('<button type="button" class="dze-prompt-peek" data-prompt="' +
-			(mode === 'image' ? 'quick_main' : 'content_' + esc(fid)) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>');
+			(mode === 'image' ? 'content_' + esc(cfg.mainRecipe || '') : 'content_' + esc(fid)) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>');
 		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
 		$('#dze-one-instrwrap').prop('open', false);
 		$('#dze-one-savestate').text('');
@@ -1138,12 +1138,9 @@
 	}
 	function oneRecipes() {
 		var tpls = (cfg.templates || []);
-		if (one.scope === 'gallery') {
-			return tpls.filter(function (t) { return t.target !== 'main'; });
-		}
-		return [ { id: '', name: i18n.imgMainR } ].concat(
-			tpls.filter(function (t) { return t.target === 'main'; })
-		);
+		return tpls.filter(function (t) {
+			return one.scope === 'gallery' ? t.target !== 'main' : t.target === 'main';
+		});
 	}
 	function oneDrawRecipes() {
 		var cur = $('#dze-one-recipe').val() || '';
@@ -1156,14 +1153,14 @@
 		cards.forEach(function (t) {
 			// A name alone did not say what the recipe does, and the difference
 			// between two of them was only readable by opening both prompts.
-			var what = t.id ? firstLine(t.prompt) : i18n.recipeShop;
+			var what = firstLine(t.prompt);
 			html += '<button type="button" class="dze-one-recipe' + (String(t.id) === String(cur) ? ' is-sel' : '') + '" ' +
 				'data-id="' + esc(String(t.id)) + '">' +
 				'<span class="dze-one-recipetxt">' +
 					'<span class="dze-one-recipename">' + esc(t.name) + '</span>' +
 					(what ? '<span class="dze-one-recipewhat">' + esc(what) + '</span>' : '') +
 				'</span>' +
-				'<span class="dze-one-recipepen dze-prompt-peek" data-prompt="' + (t.id ? 'content_' + esc(String(t.id)) : 'quick_main') + '" ' +
+				'<span class="dze-one-recipepen dze-prompt-peek" data-prompt="content_' + esc(String(t.id)) + '" ' +
 				'title="' + esc(i18n.promptTip) + '">&#9998;</span></button>';
 		});
 		$('#dze-one-recipes').html(html);
@@ -1179,13 +1176,13 @@
 			return String($(this).data('id')) === String(v);
 		}).addClass('is-sel');
 		var t = (cfg.templates || []).filter(function (x) { return String(x.id) === String(v); })[0];
-		$('#dze-one-prompt').val(v ? (t ? t.prompt : '') : (cfg.quickPrompt || ''));
-		$('#dze-one-peek .dze-prompt-peek').attr('data-prompt', v ? 'content_' + v : 'quick_main');
-		$('#dze-one-target').val(v ? ((t && t.target === 'main') ? 'main' : 'gallery') : 'main');
+		$('#dze-one-prompt').val(t ? t.prompt : '');
+		$('#dze-one-peek .dze-prompt-peek').attr('data-prompt', 'content_' + v);
+		$('#dze-one-target').val((t && t.target === 'main') ? 'main' : 'gallery');
 		// A surface is what the MAIN image is shot on. The other recipes work
 		// on a photograph that already has its own, so the question is folded
 		// away rather than asked every time for nothing.
-		var mainish = !v || (t && t.target === 'main');
+		var mainish = !!(t && t.target === 'main');
 		$('#dze-one-bgstep').toggle(!!mainish);
 		if (!mainish) { $('#dze-one-bg').val('0'); }
 		else if (!$('#dze-one-bg').val() || $('#dze-one-bg').val() === '0') { $('#dze-one-bg').val(String(defaultBg())); }
@@ -1396,7 +1393,13 @@
 	$(document).on('click', '#dze-one-saveprompt', function () {
 		var $st = $('#dze-one-savestate').text('…');
 		var data = { action: 'dze_content_save_prompt', nonce: cfg.nonce, prompt: $('#dze-one-prompt').val() || '' };
-		if (one.mode === 'image') { data.ptype = 'quick'; } else { data.ptype = 'field'; data.field = one.fid; }
+		if (one.mode === 'image') {
+			data.ptype = 'field';
+			data.field = $('#dze-one-recipe').val() || cfg.mainRecipe || '';
+		} else {
+			data.ptype = 'field';
+			data.field = one.fid;
+		}
 		$.post(cfg.ajaxUrl, data)
 			.done(function (r) { $st.text((r && r.success) ? i18n.oneSaved : ((r && r.data && r.data.message) || i18n.error)); })
 			.fail(function () { $st.text(i18n.error); });
