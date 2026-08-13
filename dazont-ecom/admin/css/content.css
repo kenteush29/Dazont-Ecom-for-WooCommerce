@@ -363,6 +363,9 @@
 .dze-pr-del { color: #c3c4c7; font-size: 15px; }
 .dze-prb:hover .dze-pr-del { color: #b32d2e; }
 .dze-prb-body { padding: 4px 10px 12px; border-top: 1px solid #f0f0f1; }
+/* A tick that saves itself says so, briefly. */
+.dze-prb.is-saving { opacity: .6; }
+.dze-prb.is-saved { border-color: #00794b; box-shadow: 0 0 0 1px #00794b; }
 .dze-prb-line { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 10px 0; }
 .dze-prb-line label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .dze-prb-line label > span { color: #646970; }

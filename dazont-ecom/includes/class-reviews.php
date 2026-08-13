@@ -101,7 +101,10 @@ final class DZE_Reviews {
 			$out['language'] = sanitize_text_field( (string) $in['language'] );
 		}
 		if ( isset( $in['prompt'] ) ) {
-			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
+			$p = trim( sanitize_textarea_field( (string) $in['prompt'] ) );
+			// Saved exactly as shipped means "no custom prompt", so a better
+			// default still reaches this install later.
+			$out['prompt'] = ( $p === trim( self::default_prompt() ) ) ? '' : $p;
 		}
 		return $out;
 	}
@@ -813,7 +816,7 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-rev-prompt"><?php esc_html_e( 'Review-writing prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<textarea id="dze-rev-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="10" class="large-text code" placeholder="<?php echo esc_attr( self::default_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['prompt'] ?? '' ) ); ?></textarea>
+						<textarea id="dze-rev-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="10" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
 						<p class="description">
 							<?php esc_html_e( 'Empty = shipped default (shown greyed). The product data and the strict JSON output format are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-rev-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -826,7 +829,7 @@ PROMPT;
 		</div>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-rev-restore' ).on( 'click', function () { $( '#dze-rev-prompt' ).val( '' ); } );
+			$( '#dze-rev-restore' ).on( 'click', function () { $( '#dze-rev-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> ); } );
 		} );
 		</script>
 		<?php

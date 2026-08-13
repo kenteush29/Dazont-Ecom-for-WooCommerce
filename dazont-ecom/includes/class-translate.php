@@ -221,7 +221,7 @@ final class DZE_Translate {
 				<tr>
 					<th scope="row"><label for="dze-tr-prompt"><?php esc_html_e( 'Translation prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<textarea id="dze-tr-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="10" class="large-text code" placeholder="<?php echo esc_attr( self::default_prompt() ); ?>"><?php echo esc_textarea( (string) ( $s['prompt'] ?? '' ) ); ?></textarea>
+						<textarea id="dze-tr-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="10" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
 						<p class="description">
 							<?php esc_html_e( 'Empty = shipped default (shown greyed). The target language, the glossary and the answer format are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-tr-prompt-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -244,7 +244,7 @@ final class DZE_Translate {
 		</div>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-tr-prompt-restore' ).on( 'click', function () { $( '#dze-tr-prompt' ).val( '' ); } );
+			$( '#dze-tr-prompt-restore' ).on( 'click', function () { $( '#dze-tr-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> ); } );
 		} );
 		</script>
 		<?php

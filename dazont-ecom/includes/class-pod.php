@@ -65,7 +65,10 @@ final class DZE_Pod {
 			$out['mockup_id'] = absint( $in['mockup_id'] );
 		}
 		if ( isset( $in['prompt'] ) ) {
-			$out['prompt'] = sanitize_textarea_field( (string) $in['prompt'] );
+			$p = trim( sanitize_textarea_field( (string) $in['prompt'] ) );
+			// Saved exactly as shipped means "no custom prompt", so a better
+			// default still reaches this install later.
+			$out['prompt'] = ( $p === trim( self::default_prompt() ) ) ? '' : $p;
 		}
 		return $out;
 	}
@@ -117,7 +120,7 @@ PROMPT;
 				<tr>
 					<th scope="row"><label for="dze-pod-prompt"><?php esc_html_e( 'POD prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<textarea id="dze-pod-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="5" class="large-text code" placeholder="<?php echo esc_attr( self::default_prompt() ); ?>"><?php echo esc_textarea( (string) ( self::get_settings()['prompt'] ?? '' ) ); ?></textarea>
+						<textarea id="dze-pod-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="5" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
 						<p class="description">
 							<?php esc_html_e( 'Leave empty to keep the shipped default (shown greyed). The design and the mockup are always attached as images; this prompt tells the AI how to print one on the other.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-pod-prompt-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -151,7 +154,7 @@ PROMPT;
 			} );
 			// Empty field = shipped default (save afterwards to persist).
 			$( '#dze-pod-prompt-restore' ).on( 'click', function () {
-				$( '#dze-pod-prompt' ).val( '' );
+				$( '#dze-pod-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> );
 			} );
 		} );
 		</script>

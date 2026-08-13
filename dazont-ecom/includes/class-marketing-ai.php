@@ -825,7 +825,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * range are intentionally left out — they don't help a calendar built around
 	 * commercial moments and often mislead.
 	 */
-	private function shop_context_text(): string {
+	/** The shop's own facts, readable — used by the calendar and by others. */
+	public function shop_context_text(): string {
 		$c     = $this->shop_context();
 		$lines = [];
 		if ( $c['name'] !== '' ) {
