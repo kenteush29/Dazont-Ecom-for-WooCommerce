@@ -565,6 +565,9 @@
 	}
 	function drawShots() {
 		var $slot = $('#dze-cx-shots');
+		// The same image can reach the strip twice — restored from an earlier
+		// visit and generated again in this one. It is one image either way.
+		res.shots = res.shots.filter(function (u, i) { return res.shots.indexOf(u) === i; });
 		if (!res.shots.length) { $slot.empty(); return; }
 		var $old = $slot.find('.dze-cb-shots'), dropped = {}, dest = {};
 		$old.find('.dze-cb-shot').each(function () {
@@ -586,7 +589,7 @@
 		var $wrap = $('<div class="dze-cb-shots">' +
 			'<div class="dze-cb-shothead"><span class="dze-cb-nowlabel">' + esc(i18n.shotsLabel) + '</span>' +
 				more + '</div>' +
-			'<div class="dze-cb-shotgrid"></div><span class="dze-cb-shotstate"></span></div>');
+			'<div class="dze-cb-shotgrid dze-zoomgroup"></div><span class="dze-cb-shotstate"></span></div>');
 		res.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
 				shotCard(url, dest[url] || 'gallery').find('.dze-cb-shot').toggleClass('is-sel', !dropped[url]).end()
@@ -1218,7 +1221,7 @@
 	// Question 2: the product's own photographs, to pick the one being worked
 	// on. An image from somewhere else is a rarer case, kept behind a link.
 	function oneDrawSources() {
-		var $slot = $('#dze-one-srcs');
+		var $slot = $('#dze-one-srcs').addClass('dze-zoomgroup');
 		if (!$slot.length) { return; }
 		loadCurrent().then(function (cur) {
 			var imgs = (cur.images || []);
