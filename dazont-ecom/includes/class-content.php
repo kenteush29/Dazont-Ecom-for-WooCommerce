@@ -714,6 +714,7 @@ EOT;
 				'label'   => (string) ( $r['name'] ?? $r['id'] ),
 				'dest'    => (string) ( $r['output'] ?? 'meta' ),
 				'img_meta'=> (string) ( $r['img_meta'] ?? '' ),
+				'img_rules'=> (string) ( $r['img_rules'] ?? '' ),
 				'tokens'  => (int) ( $r['tokens'] ?: 400 ),
 				'enabled' => ! empty( $r['enabled'] ),
 				'prompt'  => (string) ( $r['prompt'] ?? '' ),
@@ -965,9 +966,33 @@ EOT;
 	}
 
 	/** The rules actually sent: the owner's, or the shipped ones. */
+	/**
+	 * The rules the photographs are picked by.
+	 *
+	 * ONE call picks the photographs for every paired block of a product, so
+	 * the rules of those blocks travel together — each block states how ITS
+	 * photograph should be chosen, in its own card, and a block that says
+	 * nothing falls back to the shipped rules.
+	 */
 	public static function feature_prompt(): string {
-		$p = trim( (string) ( self::get_settings()['feature_prompt'] ?? '' ) );
-		return '' !== $p ? $p : self::default_feature_prompt();
+		$rules = [];
+		foreach ( self::registry() as $r ) {
+			if ( ( $r['type'] ?? 'text' ) === 'image' || empty( $r['enabled'] ) ) {
+				continue;
+			}
+			if ( '' === trim( (string) ( $r['img_meta'] ?? '' ) ) ) {
+				continue;
+			}
+			$own = trim( (string) ( $r['img_rules'] ?? '' ) );
+			$rules[] = '' !== $own ? $own : self::default_feature_prompt();
+		}
+		$rules = array_values( array_unique( array_filter( $rules ) ) );
+		if ( ! $rules ) {
+			// Pre-4.9 installs kept one rule for all of them.
+			$legacy = trim( (string) ( self::get_settings()['feature_prompt'] ?? '' ) );
+			return '' !== $legacy ? $legacy : self::default_feature_prompt();
+		}
+		return implode( ' ', $rules );
 	}
 
 	/** Legacy global flag: true only when EVERY text-field prompt is validated. */
@@ -1629,11 +1654,6 @@ Answer with STRICT JSON and nothing else: "
 			$p = trim( sanitize_textarea_field( (string) $in['quick_prompt'] ) );
 			$out['quick_prompt'] = ( $p === trim( self::default_quick_prompt() ) ) ? '' : $p;
 		}
-		if ( isset( $in['feature_prompt'] ) ) {
-			$p = trim( sanitize_textarea_field( (string) $in['feature_prompt'] ) );
-			// Empty means "the shipped rules", never an empty instruction.
-			$out['feature_prompt'] = ( $p === trim( self::default_feature_prompt() ) ) ? '' : $p;
-		}
 		// Scene library: name + image + its own instruction, one marked default.
 		if ( isset( $in['sc_name'] ) && is_array( $in['sc_name'] ) ) {
 			$rows = [];
@@ -1708,6 +1728,10 @@ Answer with STRICT JSON and nothing else: "
 					// Optional: the meta key that receives the id of the
 					// photograph this text is written against.
 					'img_meta'    => sanitize_key( (string) ( $in['pr_imgmeta'][ $i ] ?? '' ) ),
+					// How THIS block's photograph is chosen. It used to be one
+					// setting for every paired block, in a section of its own —
+					// an exception, and unreadable next to the prompt it serves.
+					'img_rules'   => sanitize_textarea_field( (string) ( $in['pr_imgrules'][ $i ] ?? '' ) ),
 					'enabled'     => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
 					'valid'       => ! empty( $in['pr_valid'][ $i ] ) ? 1 : 0,
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
@@ -2099,6 +2123,10 @@ Answer with STRICT JSON and nothing else: "
 									<?php esc_html_e( 'Leave empty and this block is written from the product data alone. Fill in a meta key and the plugin LOOKS at the photographs of the product, picks the one showing a real particularity, writes this block about what is visible there, and stores the chosen image id in that key so your theme can show the text and its photograph together.', 'dazont-ecom' ); ?>
 								</p>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
+								<p class="description" style="max-width:820px;margin-top:10px;">
+									<?php esc_html_e( 'How the photograph for THIS block is chosen. Empty = the shipped rules, shown greyed.', 'dazont-ecom' ); ?>
+								</p>
+								<textarea name="<?php echo esc_attr( $opt ); ?>[pr_imgrules][<?php echo (int) $dze_ri; ?>]" rows="3" class="large-text code dze-pr-imgrules" placeholder="<?php echo esc_attr( self::default_feature_prompt() ); ?>"><?php echo esc_textarea( (string) ( $r['img_rules'] ?? '' ) ); ?></textarea>
 							</details>
 						</div>
 					</div>
@@ -2125,30 +2153,6 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
 			</p>
 
-			<?php
-			// These rules only run for a text prompt that was given an image
-			// meta key. With no such prompt they are a screenful of explanation
-			// about something that never happens, so they stay out of sight
-			// until one exists.
-			$dze_pairs = false;
-			foreach ( $dze_rows as $dze_r ) {
-				if ( '' !== trim( (string) ( $dze_r['img_meta'] ?? '' ) ) ) {
-					$dze_pairs = true;
-					break;
-				}
-			}
-			?>
-			<?php if ( $dze_pairs ) : ?>
-			<h3 class="dze-set-sub"><?php esc_html_e( 'Pairing a text block with one of the product photographs', 'dazont-ecom' ); ?></h3>
-			<p class="description" style="max-width:900px;">
-				<?php esc_html_e( 'This is NOT about generating images. A text prompt can be given an image meta key (in its card, under "Pair this text with one of the product photographs"): the plugin then looks at the photographs the product already has, picks the one that block should be displayed next to, and writes the block about what is visible in it. These are the rules it picks by. Nothing here runs if no prompt carries such a key.', 'dazont-ecom' ); ?>
-			</p>
-			<textarea id="dze-ct-feature-prompt" name="<?php echo esc_attr( $opt ); ?>[feature_prompt]" rows="4" class="large-text code"><?php echo esc_textarea( self::feature_prompt() ); ?></textarea>
-			<p class="description">
-				<?php esc_html_e( 'Empty = shipped default (shown greyed).', 'dazont-ecom' ); ?>
-				<button type="button" class="button-link" id="dze-ct-feature-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-			</p>
-			<?php endif; ?>
 			<script type="text/template" id="dze-pr-rowtpl">
 				<div class="dze-prb dze-pr-row is-open">
 					<div class="dze-prb-head">
@@ -2200,6 +2204,7 @@ Answer with STRICT JSON and nothing else: "
 								<details class="dze-pr-inputs">
 							<summary><?php esc_html_e( 'Pair this text with one of the product photographs', 'dazont-ecom' ); ?></summary>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
+							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_imgrules][__I__]" rows="3" class="large-text code dze-pr-imgrules" placeholder="<?php echo esc_attr( self::default_feature_prompt() ); ?>"></textarea>
 						</details>
 					</div>
 				</div>
@@ -2263,9 +2268,6 @@ Answer with STRICT JSON and nothing else: "
 					var d = dzePromptDefaults[ $( this ).data( 'id' ) ];
 					if ( ! d ) { return; }
 					$( this ).closest( 'td' ).find( '.dze-pr-prompt' ).val( d );
-				} );
-				$( '#dze-ct-feature-restore' ).on( 'click', function () {
-					$( '#dze-ct-feature-prompt' ).val( <?php echo wp_json_encode( self::default_feature_prompt() ); ?> );
 				} );
 				// On or off is one flag: it is written when it is clicked, not
 				// when the page happens to be saved.
