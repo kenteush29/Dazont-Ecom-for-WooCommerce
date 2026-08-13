@@ -456,6 +456,12 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-bgcard .dze-bgnote { font-size: 11px; }
 .dze-bgfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; font-size: 12px; }
 .dze-bgfoot label { display: inline-flex; align-items: center; gap: 4px; }
+/* Describing a set instead of finding one: same shelf, one field. */
+.dze-bgmake { border-top: 1px solid #f0f0f1; padding-top: 14px; margin-top: 6px; }
+.dze-bgmake-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dze-bgmake-bar #dze-bg-desc { flex: 1 1 420px; min-width: 0; }
+.dze-bgmake-ideas { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; margin: 8px 0 0; }
+.dze-bg-idea { text-align: left; }
 
 /* ---- The fast lane: one photograph in, one main image out ---- */
 .dze-qm {

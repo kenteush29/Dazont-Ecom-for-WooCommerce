@@ -71,6 +71,7 @@ final class DZE_Ai_Usage {
 			'product_img' => __( 'Product image', 'dazont-ecom' ),
 			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),
 			'store_context'=> __( 'Reading the shop for its context line', 'dazont-ecom' ),
+			'background'  => __( 'A background image made from a description', 'dazont-ecom' ),
 			'translate'   => __( 'Product translation (one language)', 'dazont-ecom' ),
 			'pod'         => __( 'POD mockup', 'dazont-ecom' ),
 			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),
