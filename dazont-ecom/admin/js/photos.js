@@ -57,11 +57,8 @@
 		// The main image apart from the gallery, on the same line: same kind of
 		// thing, different job.
 		var $wrap = $('<div class="dze-nowblock"></div>');
-		var $cap = $('<span class="dze-nowcap"></span>').text(i18n.nowMain);
-		if (opts.ai) {
-			$cap.append($('<button type="button" class="button button-small dze-now-ai"></button>').text('✦ ' + (i18n.nowAi || '')));
-		}
-		var $mainCol = $('<div class="dze-nowcol dze-nowcol-main"></div>').append($cap);
+		var $mainCol = $('<div class="dze-nowcol dze-nowcol-main"></div>')
+			.append($('<span class="dze-nowcap"></span>').text(i18n.nowMain));
 		var $g1 = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
 		main.forEach(function (im) { $g1.append(tile(im)); });
 		$mainCol.append($g1);
@@ -76,13 +73,19 @@
 			$wrap.append($restCol);
 		}
 
-		// One button for every photograph: it turns the tiles into checkboxes
-		// and brings out the shape to reframe them to.
+		// ONE menu of what can be done to these photographs. Reframing is not
+		// something anybody does on every product, so it does not get a button
+		// standing there for good: you pick the tool you need, when you need
+		// it, and its controls appear under the menu.
 		var ratios = (cfg.ratios || ['1:1']).map(function (r) {
 			return '<option value="' + esc(r) + '">' + esc(r) + '</option>';
 		}).join('');
+		var tools = '<option value="">' + esc(i18n.toolPick) + '</option>' +
+			'<option value="reframe">' + esc(i18n.toolReframe) + '</option>' +
+			(opts.ai ? '<option value="ai">' + esc(i18n.toolAi) + '</option>' : '');
 		var $bar = $('<p class="dze-nowbar"></p>').append(
-			'<button type="button" class="button button-small dze-rf-start">⤢ ' + esc(i18n.rfStart) + '</button>' +
+			'<label class="dze-nowtool"><span>' + esc(i18n.toolLabel) + '</span>' +
+				'<select class="dze-photo-tool">' + tools + '</select></label>' +
 			'<span class="dze-rf-tools" style="display:none;">' +
 				'<button type="button" class="button-link dze-rf-all">' + esc(i18n.rfAll) + '</button>' +
 				'<label><span>' + esc(i18n.rfShape) + '</span><select class="dze-rf-ratio">' + ratios + '</select></label>' +
@@ -105,15 +108,25 @@
 	// ---- Reframing: pick the photographs, pick the shape, look, accept ----
 	function box(el) { return $(el).closest('.dze-photos'); }
 
-	$(document).on('click', '.dze-photos .dze-rf-start', function () {
-		box(this).addClass('is-picking').find('.dze-rf-tools').show();
-		$(this).hide();
+	$(document).on('change', '.dze-photos .dze-photo-tool', function () {
+		var $box = box(this), v = $(this).val();
+		if ('reframe' === v) {
+			$box.addClass('is-picking').find('.dze-rf-tools').show();
+			return;
+		}
+		if ('ai' === v) {
+			$(this).val('');
+			if (typeof handlers.ai === 'function') { handlers.ai(parseInt($box.attr('data-post'), 10) || 0); }
+			return;
+		}
+		$box.removeClass('is-picking').find('.dze-cb-nowshot').removeClass('is-picked').end()
+			.find('.dze-rf-tools').hide().end().find('.dze-rf-out').empty();
 	});
 	$(document).on('click', '.dze-photos .dze-rf-cancel', function () {
 		box(this).removeClass('is-picking')
 			.find('.dze-cb-nowshot').removeClass('is-picked').end()
 			.find('.dze-rf-tools').hide().end()
-			.find('.dze-rf-start').show().end()
+			.find('.dze-photo-tool').val('').end()
 			.find('.dze-rf-out').empty();
 	});
 	$(document).on('click', '.dze-photos .dze-rf-all', function () {
@@ -147,19 +160,33 @@
 	// accepted — the same bargain as every other generation in the plugin.
 	function drawResult($box, d) {
 		var $out = $box.find('.dze-rf-out').empty();
-		var $g = $('<div class="dze-rf-pairs"></div>');
-		(d.items || []).forEach(function (it) {
-			if (it.error) { $g.append($('<p class="dze-rf-err"></p>').text(it.error)); return; }
-			$g.append($('<div class="dze-rf-pair"></div>').attr('data-id', it.id).append(
-				$('<figure></figure>').append(
-					$('<img />').attr('src', it.before).attr('alt', ''),
-					$('<figcaption></figcaption>').text((i18n.qmNow || '') + ' · ' + (it.beforeD || ''))
-				),
-				$('<figure></figure>').append(
-					$('<img />').attr('src', it.after).attr('alt', ''),
-					$('<figcaption></figcaption>').text((i18n.qmNew || '') + ' · ' + it.w + '×' + it.h + ' · ' + (it.afterD || ''))
-				)
+		// Two rows, aligned column by column: the photographs as they are on
+		// top, what they become underneath. Repeating each original next to
+		// its own copy made the same picture appear twice and the comparison
+		// impossible to read across several images at once.
+		var items = (d.items || []).filter(function (it) { return !it.error; });
+		var $g = $('<div class="dze-rf-rows"></div>');
+		var $r1 = $('<div class="dze-rf-row"></div>').append(
+			$('<span class="dze-rf-rowcap"></span>').text(i18n.qmNow || '')
+		);
+		var $r2 = $('<div class="dze-rf-row"></div>').append(
+			$('<span class="dze-rf-rowcap"></span>').text(i18n.qmNew || '')
+		);
+		var $g1 = $('<div class="dze-rf-strip dze-zoomgroup"></div>');
+		var $g2 = $('<div class="dze-rf-strip dze-zoomgroup"></div>');
+		items.forEach(function (it) {
+			$g1.append($('<span class="dze-rf-cell"></span>').append(
+				$('<img />').attr('src', it.before).attr('data-full', it.before).attr('alt', ''),
+				$('<span class="dze-nowdim"></span>').text(it.beforeD || '')
 			));
+			$g2.append($('<span class="dze-rf-cell dze-rf-pair"></span>').attr('data-id', it.id).append(
+				$('<img />').attr('src', it.after).attr('data-full', it.after).attr('alt', ''),
+				$('<span class="dze-nowdim"></span>').text(it.w + '×' + it.h + ' · ' + (it.afterD || ''))
+			));
+		});
+		$g.append($r1.append($g1)).append($r2.append($g2));
+		(d.items || []).forEach(function (it) {
+			if (it.error) { $g.append($('<p class="dze-rf-err"></p>').text(it.error)); }
 		});
 		$out.append($g).append(
 			$('<p class="dze-nowbar"></p>').append(
@@ -189,12 +216,6 @@
 			var after = $box.data('dze-after');
 			if (typeof after === 'function') { after(); }
 		}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
-	});
-
-	// The screen that shows the block says what its AI button opens; without
-	// one the button is not drawn at all.
-	$(document).on('click', '.dze-photos .dze-now-ai', function () {
-		if (typeof handlers.ai === 'function') { handlers.ai(parseInt(box(this).attr('data-post'), 10) || 0); }
 	});
 
 	window.dzePhotos = {
