@@ -942,3 +942,47 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-one-srcnew img { width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
 .dze-one-srcnew .dze-one-newmsg { padding: 0 8px; }
 #dze-one-elsewrap { margin-top: 10px; }
+
+/* ---- The product's photographs: what they are, and what shape they are ---- */
+/* A catalogue is square or it is not, and a photograph's dimensions decide
+   that before anything else. They are written under each one rather than
+   found by opening a file. */
+.dze-nowblock { display: flex; align-items: flex-start; gap: 26px; flex-wrap: wrap; margin: 6px 0 10px; }
+.dze-nowcol { display: flex; flex-direction: column; gap: 6px; }
+.dze-nowcol-main { padding-right: 26px; border-right: 1px solid #e2e4e7; }
+.dze-nowcap {
+	display: flex; align-items: center; gap: 8px;
+	font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #646970;
+}
+.dze-cb-nowshot { position: relative; }
+.dze-nowdim {
+	display: block; margin-top: 3px; font-size: 10px; color: #646970;
+	text-align: center; line-height: 1.3;
+}
+.dze-nowtick {
+	position: absolute; top: 4px; left: 4px; display: none; z-index: 2;
+	width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 1px solid #c3c4c7;
+	color: transparent; font-size: 11px; line-height: 16px; text-align: center;
+}
+.is-picking .dze-cb-nowshot { cursor: pointer; }
+.is-picking .dze-nowtick { display: block; }
+.is-picking .dze-cb-nowshot.is-picked .dze-nowtick { background: #2271b1; border-color: #2271b1; color: #fff; }
+.is-picking .dze-cb-nowshot.is-picked img { outline: 2px solid #2271b1; outline-offset: -2px; border-radius: 4px; }
+
+.dze-nowbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 0; }
+.dze-rf-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-rf-tools label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.dze-rf-tools select { height: 26px; font-size: 12px; }
+.dze-rf-state, .dze-rf-state2 { font-size: 12px; color: #646970; }
+.dze-rf-state.is-ko, .dze-rf-state2.is-ko { color: #b32d2e; }
+.dze-rf-err { color: #b32d2e; font-size: 12px; margin: 4px 0; }
+.dze-rf-out:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+.dze-rf-pairs { display: flex; flex-direction: column; gap: 14px; }
+.dze-rf-pair { display: flex; gap: 14px; align-items: flex-start; }
+.dze-rf-pair figure { margin: 0; }
+.dze-rf-pair img {
+	display: block; max-width: 240px; max-height: 240px; height: auto;
+	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
+}
+.dze-rf-pair figcaption { font-size: 11px; color: #646970; margin-top: 3px; }
+.dze-rf-drop { font-size: 12px; color: #50575e; }

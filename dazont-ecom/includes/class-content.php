@@ -80,6 +80,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_add_default', [ $this, 'ajax_add_default' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
+		add_action( 'wp_ajax_dze_content_reframe_preview', [ $this, 'ajax_reframe_preview' ] );
+		add_action( 'wp_ajax_dze_content_reframe_apply', [ $this, 'ajax_reframe_apply' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
 		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'list_cell' ], 10, 2 );
@@ -3121,6 +3123,8 @@ Answer with STRICT JSON and nothing else: "
 			// is reserved: it is simply the first image prompt writing the main
 			// image, and it changes the moment the list does.
 			'mainRecipe' => (string) ( self::main_recipe()['id'] ?? '' ),
+			// The shapes offered when reframing.
+			'ratios'     => self::ratios(),
 			'product'    => [
 				'title' => $product ? $product->get_name() : '',
 				'desc'  => $product ? wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ) : '',
@@ -3216,6 +3220,22 @@ Answer with STRICT JSON and nothing else: "
 				'imgSource'  => __( 'Work from', 'dazont-ecom' ),
 				// The three questions the image workshop asks, in order.
 				'stepWhat'   => __( 'What are we making?', 'dazont-ecom' ),
+				// Reframing: the shape of a photograph, changed here rather
+				// than in an image editor.
+				'nowMain'    => __( 'Main image', 'dazont-ecom' ),
+				'nowGallery' => __( 'Gallery', 'dazont-ecom' ),
+				'nowAi'      => __( 'Remake with AI', 'dazont-ecom' ),
+				'rfStart'    => __( 'Reframe photographs', 'dazont-ecom' ),
+				'rfAll'      => __( 'All / none', 'dazont-ecom' ),
+				'rfShape'    => __( 'Shape', 'dazont-ecom' ),
+				'rfHow'      => __( 'How', 'dazont-ecom' ),
+				'rfPad'      => __( 'Extend the background (nothing is cut)', 'dazont-ecom' ),
+				'rfCrop'     => __( 'Crop to shape (the sides are cut)', 'dazont-ecom' ),
+				'rfRun'      => __( 'Reframe', 'dazont-ecom' ),
+				'rfNone'     => __( 'Tick the photographs to reframe.', 'dazont-ecom' ),
+				'rfApply'    => __( 'Save on the product', 'dazont-ecom' ),
+				'rfDropOld'  => __( 'and delete the originals', 'dazont-ecom' ),
+				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
 				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'An image from elsewhere', 'dazont-ecom' ),
@@ -4379,12 +4399,20 @@ Answer with STRICT JSON and nothing else: "
 		}
 		$images = [];
 		foreach ( self::product_source_ids( $pid ) as $aid ) {
+			$meta = wp_get_attachment_metadata( (int) $aid );
+			$w    = (int) ( $meta['width'] ?? 0 );
+			$h    = (int) ( $meta['height'] ?? 0 );
 			$images[] = [
 				// The id travels too: the image workshop works ON one of these.
 				'id'    => (int) $aid,
 				'thumb' => (string) ( wp_get_attachment_image_url( (int) $aid, 'thumbnail' ) ?: '' ),
 				'full'  => (string) ( wp_get_attachment_image_url( (int) $aid, 'large' ) ?: '' ),
 				'main'  => (int) $aid === (int) get_post_thumbnail_id( $pid ),
+				// A catalogue is square or it is not; the shape has to be
+				// readable without opening anything.
+				'w'     => $w,
+				'h'     => $h,
+				'ratio' => self::ratio_label( $w, $h ),
 			];
 		}
 		wp_send_json_success( [
@@ -4528,6 +4556,301 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @return bool whether the file was deleted.
 	 */
+	/**
+	 * "3:4", "1:1", or "1.62:1" when the sides do not reduce to anything neat.
+	 */
+	/**
+	 * Reframes the chosen photographs and shows the result — nothing is written
+	 * to the product and nothing is added to the library until it is accepted.
+	 *
+	 * The reframed file is kept for an hour under a key made of the image, the
+	 * shape and the mode, so accepting does not redo the work.
+	 */
+	public function ajax_reframe_preview(): void {
+		$this->guard();
+		$ids   = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
+		$ratio = isset( $_POST['ratio'] ) ? sanitize_text_field( wp_unslash( $_POST['ratio'] ) ) : '1:1';
+		$mode  = isset( $_POST['mode'] ) && 'crop' === $_POST['mode'] ? 'crop' : 'pad';
+		$ids   = array_values( array_filter( array_unique( $ids ) ) );
+		if ( ! $ids ) {
+			wp_send_json_error( [ 'message' => __( 'Pick at least one photograph.', 'dazont-ecom' ) ] );
+		}
+		if ( count( $ids ) > 20 ) {
+			$ids = array_slice( $ids, 0, 20 );
+		}
+		$out = [];
+		foreach ( $ids as $aid ) {
+			if ( ! wp_attachment_is_image( $aid ) ) {
+				continue;
+			}
+			$meta = wp_get_attachment_metadata( $aid );
+			try {
+				$file = self::reframe_file( $aid, $ratio, $mode );
+			} catch ( \Throwable $e ) {
+				$out[] = [ 'id' => $aid, 'error' => $e->getMessage() ];
+				continue;
+			}
+			set_transient( self::reframe_key( $aid, $ratio, $mode ), $file, HOUR_IN_SECONDS );
+			$size = @getimagesize( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$out[] = [
+				'id'      => $aid,
+				'before'  => (string) ( wp_get_attachment_image_url( $aid, 'medium' ) ?: '' ),
+				'beforeD' => self::ratio_label( (int) ( $meta['width'] ?? 0 ), (int) ( $meta['height'] ?? 0 ) ),
+				'after'   => self::preview_uri( $file ),
+				'afterD'  => $size ? self::ratio_label( (int) $size[0], (int) $size[1] ) : '',
+				'w'       => $size ? (int) $size[0] : 0,
+				'h'       => $size ? (int) $size[1] : 0,
+			];
+		}
+		wp_send_json_success( [ 'items' => $out, 'ratio' => $ratio, 'mode' => $mode ] );
+	}
+
+	/** Where a reframed file waits between being seen and being accepted. */
+	private static function reframe_key( int $att_id, string $ratio, string $mode ): string {
+		return 'dze_rfr_' . md5( $att_id . '|' . $ratio . '|' . $mode );
+	}
+
+	/**
+	 * A bounded copy for the screen. The reframed file itself can be several
+	 * megabytes, and it has no business travelling through a JSON response.
+	 */
+	private static function preview_uri( string $file ): string {
+		$editor = wp_get_image_editor( $file );
+		if ( is_wp_error( $editor ) ) {
+			return '';
+		}
+		$editor->resize( 600, 600, false );
+		$tmp   = wp_tempnam( 'dze-rfr-preview.jpg' );
+		$saved = $editor->save( $tmp, 'image/jpeg' );
+		$path  = is_wp_error( $saved ) ? '' : (string) ( $saved['path'] ?? '' );
+		if ( '' === $path || ! file_exists( $path ) ) {
+			return '';
+		}
+		$bytes = (string) file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		wp_delete_file( $path );
+		return 'data:image/jpeg;base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI for one preview.
+	}
+
+	/**
+	 * Accepts the reframed photographs: each one enters the library as a new
+	 * file and takes the exact place of the one it replaces — the main image
+	 * stays the main image, a gallery photograph keeps its position.
+	 *
+	 * The original is left alone unless asked for: a shape change is not a
+	 * reason to lose the file it was made from.
+	 */
+	public function ajax_reframe_apply(): void {
+		$this->guard();
+		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$ids   = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
+		$ratio = isset( $_POST['ratio'] ) ? sanitize_text_field( wp_unslash( $_POST['ratio'] ) ) : '1:1';
+		$mode  = isset( $_POST['mode'] ) && 'crop' === $_POST['mode'] ? 'crop' : 'pad';
+		$drop  = ! empty( $_POST['drop_original'] );
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		}
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		$done = 0;
+		$errs = [];
+		foreach ( array_values( array_filter( array_unique( $ids ) ) ) as $aid ) {
+			if ( ! wp_attachment_is_image( $aid ) ) {
+				continue;
+			}
+			$key  = self::reframe_key( $aid, $ratio, $mode );
+			$file = (string) get_transient( $key );
+			try {
+				if ( '' === $file || ! file_exists( $file ) ) {
+					$file = self::reframe_file( $aid, $ratio, $mode ); // the wait expired.
+				}
+				$name = pathinfo( (string) get_attached_file( $aid ), PATHINFO_FILENAME );
+				$new  = media_handle_sideload(
+					[ 'name' => sanitize_file_name( $name . '-' . str_replace( ':', 'x', $ratio ) ) . '.jpg', 'tmp_name' => $file ],
+					$pid,
+					get_the_title( $aid )
+				);
+				if ( is_wp_error( $new ) ) {
+					throw new RuntimeException( $new->get_error_message() );
+				}
+				self::swap_image( $pid, $aid, (int) $new );
+				if ( $drop ) {
+					self::retire_image( $pid, $aid );
+				}
+				delete_transient( $key );
+				$done++;
+			} catch ( \Throwable $e ) {
+				$errs[] = $e->getMessage();
+			}
+		}
+		clean_post_cache( $pid );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $pid );
+		}
+		if ( ! $done ) {
+			wp_send_json_error( [ 'message' => $errs ? implode( ' · ', array_unique( $errs ) ) : __( 'Nothing was reframed.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'done' => $done, 'errors' => array_values( array_unique( $errs ) ) ] );
+	}
+
+	/**
+	 * Puts $new exactly where $old stood: the main image slot, or the same
+	 * position in the gallery. Anything else scrambles the order of a gallery
+	 * that was arranged on purpose.
+	 */
+	public static function swap_image( int $pid, int $old, int $new ): void {
+		if ( (int) get_post_thumbnail_id( $pid ) === $old ) {
+			set_post_thumbnail( $pid, $new );
+			return;
+		}
+		$ids = array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) );
+		$at  = array_search( $old, $ids, true );
+		if ( false === $at ) {
+			$ids[] = $new;
+		} else {
+			$ids[ $at ] = $new;
+		}
+		update_post_meta( $pid, '_product_image_gallery', implode( ',', array_values( array_unique( $ids ) ) ) );
+	}
+
+	public static function ratio_label( int $w, int $h ): string {
+		if ( $w < 1 || $h < 1 ) {
+			return '';
+		}
+		$a = $w;
+		$b = $h;
+		while ( $b ) {
+			[ $a, $b ] = [ $b, $a % $b ];
+		}
+		$rw = (int) ( $w / max( 1, $a ) );
+		$rh = (int) ( $h / max( 1, $a ) );
+		if ( $rw <= 20 && $rh <= 20 ) {
+			return $rw . ':' . $rh;
+		}
+		return ( $w >= $h )
+			? number_format_i18n( round( $w / $h, 2 ), 2 ) . ':1'
+			: '1:' . number_format_i18n( round( $h / $w, 2 ), 2 );
+	}
+
+	/** The shapes offered, as width:height. */
+	public static function ratios(): array {
+		return [ '1:1', '4:5', '3:4', '4:3', '16:9' ];
+	}
+
+	/**
+	 * Reframes a photograph to a given shape and writes the result to a temp
+	 * file, returning its path.
+	 *
+	 * No model is involved and no call is made: a shape change is arithmetic,
+	 * and asking a generative model to do it would cost money, take seconds and
+	 * come back with a redrawn product.
+	 *
+	 * Two ways, and the difference matters on a shop:
+	 *   pad  — the photograph is placed whole on a larger canvas filled with
+	 *          its own border colour. NOTHING is cut off. This is the one for
+	 *          a product shot on a plain background.
+	 *   crop — the middle is kept and the sides are cut. Right for a photograph
+	 *          with margin to spare, wrong for a product that fills its frame.
+	 */
+	public static function reframe_file( int $att_id, string $ratio, string $mode = 'pad' ): string {
+		$file = get_attached_file( $att_id );
+		if ( ! $file || ! file_exists( $file ) ) {
+			throw new RuntimeException( __( 'That image file is missing from the server.', 'dazont-ecom' ) );
+		}
+		if ( ! in_array( $ratio, self::ratios(), true ) ) {
+			throw new RuntimeException( __( 'Unknown shape.', 'dazont-ecom' ) );
+		}
+		[ $rw, $rh ] = array_map( 'intval', explode( ':', $ratio ) );
+		$size = @getimagesize( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( ! $size ) {
+			throw new RuntimeException( __( 'That file is not an image.', 'dazont-ecom' ) );
+		}
+		[ $w, $h ] = [ (int) $size[0], (int) $size[1] ];
+		if ( 'crop' === $mode ) {
+			// The largest rectangle of the wanted shape that fits inside.
+			$cw = min( $w, (int) round( $h * $rw / $rh ) );
+			$ch = min( $h, (int) round( $w * $rh / $rw ) );
+			$editor = wp_get_image_editor( $file );
+			if ( is_wp_error( $editor ) ) {
+				throw new RuntimeException( $editor->get_error_message() );
+			}
+			$done = $editor->crop( (int) round( ( $w - $cw ) / 2 ), (int) round( ( $h - $ch ) / 2 ), $cw, $ch );
+			if ( is_wp_error( $done ) ) {
+				throw new RuntimeException( $done->get_error_message() );
+			}
+			$tmp = wp_tempnam( 'dze-reframe.jpg' );
+			$saved = $editor->save( $tmp, 'image/jpeg' );
+			if ( is_wp_error( $saved ) ) {
+				throw new RuntimeException( $saved->get_error_message() );
+			}
+			return (string) ( $saved['path'] ?? $tmp );
+		}
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			throw new RuntimeException( __( 'This server cannot pad images (GD is missing). Use "Crop to shape" instead.', 'dazont-ecom' ) );
+		}
+		// The canvas: the photograph, extended on the two short sides only.
+		$cw = max( $w, (int) round( $h * $rw / $rh ) );
+		$ch = max( $h, (int) round( $w * $rh / $rw ) );
+		$src = self::gd_read( $file, (string) ( $size['mime'] ?? '' ) );
+		$dst = imagecreatetruecolor( $cw, $ch );
+		// The colour to extend with is READ from the photograph's own border,
+		// so a grey backdrop stays that grey instead of gaining white bands.
+		[ $r, $g, $b ] = self::border_colour( $src, $w, $h );
+		imagefilledrectangle( $dst, 0, 0, $cw, $ch, imagecolorallocate( $dst, $r, $g, $b ) );
+		imagecopy( $dst, $src, (int) round( ( $cw - $w ) / 2 ), (int) round( ( $ch - $h ) / 2 ), 0, 0, $w, $h );
+		$tmp = wp_tempnam( 'dze-reframe.jpg' );
+		imagejpeg( $dst, $tmp, 90 );
+		imagedestroy( $dst );
+		imagedestroy( $src );
+		return $tmp;
+	}
+
+	/** @return \GdImage */
+	private static function gd_read( string $file, string $mime ) {
+		$img = false;
+		if ( 'image/png' === $mime && function_exists( 'imagecreatefrompng' ) ) {
+			$img = @imagecreatefrompng( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		} elseif ( 'image/webp' === $mime && function_exists( 'imagecreatefromwebp' ) ) {
+			$img = @imagecreatefromwebp( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		} elseif ( function_exists( 'imagecreatefromjpeg' ) ) {
+			$img = @imagecreatefromjpeg( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		if ( ! $img ) {
+			throw new RuntimeException( __( 'That image could not be read.', 'dazont-ecom' ) );
+		}
+		return $img;
+	}
+
+	/**
+	 * The dominant colour of the photograph's outer frame — the median of the
+	 * four corners and the middle of each side. A single corner is enough to be
+	 * wrong the day a shadow reaches it.
+	 *
+	 * @param \GdImage $img
+	 * @return array{0:int,1:int,2:int}
+	 */
+	private static function border_colour( $img, int $w, int $h ): array {
+		$points = [
+			[ 1, 1 ], [ $w - 2, 1 ], [ 1, $h - 2 ], [ $w - 2, $h - 2 ],
+			[ (int) ( $w / 2 ), 1 ], [ (int) ( $w / 2 ), $h - 2 ],
+			[ 1, (int) ( $h / 2 ) ], [ $w - 2, (int) ( $h / 2 ) ],
+		];
+		$rs = [];
+		$gs = [];
+		$bs = [];
+		foreach ( $points as [ $x, $y ] ) {
+			$c    = imagecolorat( $img, max( 0, $x ), max( 0, $y ) );
+			$rs[] = ( $c >> 16 ) & 255;
+			$gs[] = ( $c >> 8 ) & 255;
+			$bs[] = $c & 255;
+		}
+		sort( $rs );
+		sort( $gs );
+		sort( $bs );
+		$mid = (int) floor( count( $rs ) / 2 );
+		return [ (int) $rs[ $mid ], (int) $gs[ $mid ], (int) $bs[ $mid ] ];
+	}
+
 	public static function retire_image( int $pid, int $att_id ): bool {
 		$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
 		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
