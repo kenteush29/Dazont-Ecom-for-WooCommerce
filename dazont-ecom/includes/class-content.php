@@ -2050,7 +2050,11 @@ Answer with STRICT JSON and nothing else: "
 							</label>
 							<input type="text" class="dze-prb-name" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
 							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['id'] ); ?>" />
-							<span class="dze-prb-dest"><?php echo esc_html( self::output_options( ( $r['type'] ?? 'text' ) === 'image' ? 'image' : 'text' )[ $r['output'] ?? '' ] ?? ( $r['output'] ?? '' ) ); ?></span>
+							<span class="dze-prb-dest"><?php echo esc_html( self::output_options( ( $r['type'] ?? 'text' ) === 'image' ? 'image' : 'text' )[ $r['output'] ?? '' ] ?? ( $r['output'] ?? '' ) ); ?>
+								<?php if ( '' !== trim( (string) ( $r['img_meta'] ?? '' ) ) ) : ?>
+									<span class="dze-prb-pairchip" title="<?php esc_attr_e( 'This block is illustrated with one of the product photographs, stored in this field', 'dazont-ecom' ); ?>">&#128247; <?php echo esc_html( (string) $r['img_meta'] ); ?></span>
+								<?php endif; ?>
+							</span>
 
 							<button type="button" class="dze-prb-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
 							<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
@@ -2105,12 +2109,27 @@ Answer with STRICT JSON and nothing else: "
 									<button type="button" class="button button-small dze-pr-metaadd" title="<?php esc_attr_e( 'Add this key as an input', 'dazont-ecom' ); ?>">&#43;</button>
 								</span>
 							</details>
-							<details class="dze-pr-inputs">
-								<summary><?php esc_html_e( 'Pair this text with one of the product photographs', 'dazont-ecom' ); ?></summary>
+							<?php $dze_pair_on = '' !== trim( (string) ( $r['img_meta'] ?? '' ) ); ?>
+							<details class="dze-pr-inputs dze-pr-pair"<?php echo $dze_pair_on ? ' open' : ''; ?>>
+								<summary>
+									<?php esc_html_e( 'Illustrate this block with one of the product photographs', 'dazont-ecom' ); ?>
+									<span class="dze-pr-pairstate<?php echo $dze_pair_on ? ' is-on' : ''; ?>">
+										<?php
+										echo $dze_pair_on
+											? esc_html( sprintf( /* translators: %s: meta key */ __( 'on → %s', 'dazont-ecom' ), (string) $r['img_meta'] ) )
+											: esc_html__( 'off', 'dazont-ecom' );
+										?>
+									</span>
+								</summary>
 								<p class="description" style="max-width:820px;">
-									<?php esc_html_e( 'Leave empty and this block is written from the product data alone. Fill in a meta key and the plugin LOOKS at the photographs of the product, picks the one showing a real particularity, writes this block about what is visible there, and stores the chosen image id in that key so your theme can show the text and its photograph together.', 'dazont-ecom' ); ?>
+									<?php esc_html_e( 'What it does, in order: the model LOOKS at the photographs this product already has, picks the one this block should sit next to, writes the block about what is visible in it, and stores that photograph\'s id in the key below — so a theme field like _bloc_image_1 shows the right picture beside the right text. Empty key = this block is written from the product data alone, with no photograph.', 'dazont-ecom' ); ?>
 								</p>
-								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
+								<p class="dze-prb-line">
+									<label><span><?php esc_html_e( 'Photograph goes to', 'dazont-ecom' ); ?></span>
+										<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['img_meta'] ?? '' ); ?>" placeholder="_bloc_image_1" list="dze-metakeys" class="dze-pr-imgmeta" />
+									</label>
+									<span class="description"><?php esc_html_e( 'the field that holds the image — an ACF image field is written as ACF expects', 'dazont-ecom' ); ?></span>
+								</p>
 								<p class="description" style="max-width:820px;margin-top:10px;">
 									<?php esc_html_e( 'How the photograph for THIS block is chosen. Empty = the shipped rules, shown greyed.', 'dazont-ecom' ); ?>
 								</p>
@@ -3331,9 +3350,12 @@ Answer with STRICT JSON and nothing else: "
 				'oneInstrH'  => __( 'Edited here, it is used for this run only — unless you save it as the prompt.', 'dazont-ecom' ),
 				'oneSave'    => __( 'Save as the prompt', 'dazont-ecom' ),
 				'psData'     => __( 'Product data sent with it', 'dazont-ecom' ),
-				'psPair'     => __( 'Pair this text with one of the product photographs', 'dazont-ecom' ),
+				'psPair'     => __( 'Illustrate this block with one of the product photographs', 'dazont-ecom' ),
+				/* translators: %s: meta key */
+				'psOn'       => __( 'on → %s', 'dazont-ecom' ),
+				'psOff'      => __( 'off', 'dazont-ecom' ),
 				'psPairH'    => __( 'Leave the key empty and this block is written from the product data alone. Fill it in and the plugin LOOKS at the photographs, picks the one this block should sit next to, writes the block about what is visible in it, and stores that photograph\'s id in the key so your theme can show them together.', 'dazont-ecom' ),
-				'psKey'      => __( 'Meta key holding the chosen photograph', 'dazont-ecom' ),
+				'psKey'      => __( 'Photograph goes to', 'dazont-ecom' ),
 				'psRules'    => __( 'How its photograph is chosen', 'dazont-ecom' ),
 				'oneSaved'   => __( 'Prompt saved ✓', 'dazont-ecom' ),
 				'oneBefore'  => __( 'On the product today', 'dazont-ecom' ),
