@@ -420,7 +420,15 @@
 .dze-prb-on { display: flex; align-items: center; }
 .dze-prb-name { flex: 0 1 260px; min-width: 0; }
 .dze-prb-dest { flex: 1 1 auto; color: #646970; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dze-prb-ok { color: #00794b; font-weight: 700; }
+/* The same switch as the module list: one control, one meaning, and it looks
+   the same wherever something is turned on or off. */
+.dze-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 36px; }
+.dze-switch input { opacity: 0; width: 0; height: 0; }
+.dze-switch-slider { position: absolute; inset: 0; background: #c3c4c7; border-radius: 999px; transition: background .15s; cursor: pointer; }
+.dze-switch-slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: transform .15s; }
+.dze-switch input:checked + .dze-switch-slider { background: #00794b; }
+.dze-switch input:checked + .dze-switch-slider::before { transform: translateX(16px); }
+.dze-switch input:disabled + .dze-switch-slider { opacity: .5; cursor: wait; }
 .dze-prb-toggle, .dze-pr-del {
 	background: transparent; border: none; cursor: pointer; color: #2271b1;
 	font-size: 12px; white-space: nowrap;
