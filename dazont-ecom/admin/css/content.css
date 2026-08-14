@@ -1090,3 +1090,11 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 3px; padding: 0 6px;
 }
 .dze-pr-pair > summary { font-weight: 600; }
+
+/* A quiet mention at the foot of the list, never a push. */
+.dze-pr-missing {
+	display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+	margin-top: 18px; padding-top: 12px; border-top: 1px dashed #dcdcde;
+	font-size: 12px;
+}
+.dze-pr-missing select { max-width: 260px; }

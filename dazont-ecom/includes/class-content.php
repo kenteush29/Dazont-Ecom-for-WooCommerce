@@ -871,12 +871,17 @@ EOT;
 	 */
 	public function migrate_quick_recipe(): void {
 		$s = self::get_settings();
-		// Keyed on the ROW, not on "does something write the main image": an
-		// install carrying the old "Remake main (studio)" template answered yes
-		// to that question, so the migration skipped, the detailed recipe was
-		// never moved, and the Main image lane silently ran the sketchy one.
+		// ONCE, and remembered. Keyed on the row's presence, this put the
+		// prompt back every time the admin loaded — so a prompt deleted on
+		// purpose came straight back, which is not a migration, it is a
+		// plugin arguing with its owner.
+		if ( ! empty( $s['quick_migrated'] ) ) {
+			return;
+		}
 		foreach ( self::registry() as $r ) {
 			if ( 'img_main_image' === ( $r['id'] ?? '' ) ) {
+				$s['quick_migrated'] = 1;
+				$this->write_settings_direct( $s );
 				return;
 			}
 		}
@@ -906,6 +911,7 @@ EOT;
 		}
 		array_splice( $rows, $at, 0, [ $new ] );
 		$s['registry'] = $rows;
+		$s['quick_migrated'] = 1;
 		unset( $s['quick_prompt'] );
 		$this->write_settings_direct( $s );
 		self::$registry_cache = null;
@@ -2000,7 +2006,7 @@ Answer with STRICT JSON and nothing else: "
 			</script>
 
 			<?php if ( class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) ) : ?>
-				<h3 class="dze-set-sub"><?php esc_html_e( 'Print on demand — the blank product and its recipe', 'dazont-ecom' ); ?></h3>
+				<h3 class="dze-set-sub"><?php esc_html_e( 'Print on demand — the blank product and its prompt', 'dazont-ecom' ); ?></h3>
 				<p class="description" style="max-width:960px;">
 					<?php esc_html_e( 'A mockup is a background too: the photograph of your blank product, kept once, that every design is printed onto. It lives here with the rest of the static images instead of in a screen of its own.', 'dazont-ecom' ); ?>
 				</p>
@@ -2079,7 +2085,7 @@ Answer with STRICT JSON and nothing else: "
 								</label>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'File name', 'dazont-ecom' ); ?></span>
-									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}-ugc" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Tokens: {product}, {recipe}. Empty = the product name.', 'dazont-ecom' ); ?>" />
+									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}-ugc" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Tokens: {product}, {prompt}. Empty = the product name.', 'dazont-ecom' ); ?>" />
 								</label>
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
 									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['img_title'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-imgtitle" title="<?php esc_attr_e( 'The attachment title and its alt text. Same tokens. Empty = the product name.', 'dazont-ecom' ); ?>" />
@@ -2145,7 +2151,13 @@ Answer with STRICT JSON and nothing else: "
 			<?php $dze_missing = self::missing_defaults(); ?>
 			<?php if ( $dze_missing ) : ?>
 				<p class="dze-pr-missing">
-					<span class="description"><?php esc_html_e( 'Shipped prompts this install does not have:', 'dazont-ecom' ); ?></span>
+					<span class="description"><?php
+						printf(
+							/* translators: %d: number of prompts */
+							esc_html( _n( '%d prompt ships with the plugin and is not on this site. Add it only if you want it — nothing is ever put back on its own.', '%d prompts ship with the plugin and are not on this site. Add one only if you want it — nothing is ever put back on its own.', count( $dze_missing ), 'dazont-ecom' ) ),
+							count( $dze_missing )
+						);
+					?></span>
 					<select id="dze-pr-defpick">
 						<?php foreach ( $dze_missing as $mid => $mname ) : ?>
 							<option value="<?php echo esc_attr( $mid ); ?>"><?php echo esc_html( $mname ); ?></option>
@@ -3398,10 +3410,10 @@ Answer with STRICT JSON and nothing else: "
 				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
 				'stepElse'   => __( 'An image from elsewhere', 'dazont-ecom' ),
-				'noRecipes'  => __( 'No image recipe writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
+				'noRecipes'  => __( 'No image prompt writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
 				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
-				'imgRecipe'  => __( 'Recipe', 'dazont-ecom' ),
+				'imgRecipe'  => __( 'Prompt', 'dazont-ecom' ),
 				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
 				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),
 				'imgRun'     => __( 'Make the image', 'dazont-ecom' ),
@@ -4004,7 +4016,7 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * A shop is read by its URLs too: a UGC shot and a catalogue shot have no
 	 * business landing on the same file name. Each image prompt says how its
-	 * results are named, with two tokens — {product} and {recipe} — and an
+	 * results are named, with two tokens — {product} and {prompt} — and an
 	 * empty pattern keeps what the shop has always done: the product name.
 	 *
 	 * @return array{0:string,1:string} slug, title
@@ -4016,7 +4028,7 @@ Answer with STRICT JSON and nothing else: "
 		$fpat    = $row ? trim( (string) ( $row['file_name'] ?? '' ) ) : '';
 		$tpat    = $row ? trim( (string) ( $row['img_title'] ?? '' ) ) : '';
 		$fill    = static function ( string $pattern ) use ( $title, $recipe ): string {
-			return str_replace( [ '{product}', '{recipe}' ], [ $title, $recipe ], $pattern );
+			return str_replace( [ '{product}', '{prompt}' ], [ $title, $recipe ], $pattern );
 		};
 		$slug  = sanitize_title( '' !== $fpat ? $fill( $fpat ) : $title ) ?: 'product-image';
 		$shown = '' !== $tpat ? trim( $fill( $tpat ) ) : $title;
