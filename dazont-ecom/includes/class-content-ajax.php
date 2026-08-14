@@ -942,6 +942,17 @@ trait DZE_Content_Ajax {
 	public function ajax_image_attach(): void {
 		$this->guard();
 		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		// Read BEFORE the two ways of listing the images below, not inside one
+		// of them: buried in the legacy branch, these were simply not defined
+		// when the toolbox posted its items — which is how "and delete the
+		// photograph it was made from" quietly never happened, and how the
+		// prompt id later became a fatal.
+		// The supplier shot a remake replaces is of no further use: taking it
+		// out of the product and out of the library is what leaves a clean page
+		// and a clean media folder behind. Only ever an image of THIS product.
+		$replace = isset( $_POST['replace'] ) ? absint( $_POST['replace'] ) : 0;
+		// Which prompt made these: it decides how the files are named.
+		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( (string) wp_unslash( $_POST['recipe'] ) ) : '';
 
 		// Each image says where IT goes. A single destination for the batch made
 		// "one of these is the main image, that one goes second" impossible to
@@ -957,13 +968,6 @@ trait DZE_Content_Ajax {
 		} else {
 			// Older callers: a list of urls and one destination for all of them.
 			$target = self::attach_target( isset( $_POST['target'] ) ? (string) wp_unslash( $_POST['target'] ) : '' );
-		// The supplier shot a remake replaces is of no further use: taking it out
-		// of the product and out of the library is what leaves a clean page and
-		// a clean media folder behind. Only ever an image of THIS product.
-		$replace = isset( $_POST['replace'] ) ? absint( $_POST['replace'] ) : 0;
-		// Which recipe made these: it decides how the files are named, and a
-		// name is not something to guess after the fact.
-		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( wp_unslash( $_POST['recipe'] ) ) : '';
 			foreach ( (array) ( $_POST['urls'] ?? [] ) as $i => $u ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
 				$items[] = [
 					'url'    => esc_url_raw( (string) wp_unslash( $u ) ),
