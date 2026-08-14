@@ -1067,3 +1067,14 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* The price table as it will be applied, next to the box that applies it. */
 .dze-pt-mini { display: inline-flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: #50575e; }
 .dze-pt-mini span { background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 3px; padding: 1px 6px; }
+
+/* Saving one prompt without hunting for the button at the foot of the page. */
+.dze-prb-savebar { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+/* The prompt's own settings, next to the text they belong to. */
+#dze-one-psets { margin: 10px 0 0; }
+#dze-one-psets > details { border: 1px solid #e2e4e7; border-radius: 6px; padding: 8px 12px; margin: 0 0 8px; background: #fbfbfc; }
+#dze-one-psets > details > summary { cursor: pointer; font-size: 12px; color: #2271b1; }
+.dze-ps-ins { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 14px; margin-top: 8px; }
+.dze-ps-in { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.dze-ps-line label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.dze-ps-line input[type=text] { flex: 1 1 260px; }
