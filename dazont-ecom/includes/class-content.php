@@ -3732,8 +3732,16 @@ Answer with STRICT JSON and nothing else: "
 
 	/** Only fal's own delivery hosts are accepted as remote sources (no SSRF). */
 	public static function is_fal_url( string $url ): bool {
-		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
-		return 'fal.media' === $host || str_ends_with( $host, '.fal.media' ) || str_ends_with( $host, '.fal.run' ) || 'fal.run' === $host;
+		$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+		// fal serves results from several of its own domains and has added more
+		// over time. The list stays a list of ITS hosts — never a wildcard, or
+		// this guard would let the plugin download whatever an answer names.
+		foreach ( [ 'fal.media', 'fal.run', 'fal.ai' ] as $own ) {
+			if ( $host === $own || str_ends_with( $host, '.' . $own ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 

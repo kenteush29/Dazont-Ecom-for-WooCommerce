@@ -980,11 +980,18 @@ trait DZE_Content_Ajax {
 		}
 		$ids     = [];
 		$errors  = 0;
+		$why     = [];
 		$main_up = false;
 		foreach ( $items as $item ) {
 			$u = (string) $item['url'];
 			if ( '' === $u || ! self::is_fal_url( $u ) ) {
 				$errors++;
+				$host  = (string) wp_parse_url( $u, PHP_URL_HOST );
+				$why[] = sprintf(
+					/* translators: %s: the host the image was served from */
+					__( 'the image is served from %s, which is not one of fal\'s own hosts — it was not downloaded', 'dazont-ecom' ),
+					$host ?: '(no address)'
+				);
 				continue;
 			}
 			$t = (string) $item['target'];
@@ -1000,10 +1007,18 @@ trait DZE_Content_Ajax {
 				$ids[] = $this->sideload_seo( $u, $pid, $t, $recipe );
 			} catch ( \Throwable $e ) {
 				$errors++;
+				$why[] = $e->getMessage();
 			}
 		}
 		if ( empty( $ids ) ) {
-			wp_send_json_error( [ 'message' => __( 'Could not attach the selected image(s).', 'dazont-ecom' ) ] );
+			// The reason, not just the failure: "could not attach" sent nobody
+			// anywhere. A fal URL has no guaranteed lifetime, the file may be
+			// too big for the server, the folder may not be writable — each of
+			// those has a different answer.
+			wp_send_json_error( [
+				'message' => __( 'Could not attach the selected image(s).', 'dazont-ecom' )
+					. ( $why ? ' ' . implode( ' · ', array_unique( $why ) ) : '' ),
+			] );
 		}
 		$removed = 0;
 		if ( $replace && in_array( $replace, self::product_source_ids( $pid ), true ) ) {
