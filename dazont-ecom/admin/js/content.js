@@ -962,7 +962,10 @@
 		var pair = '';
 		if ('image' !== row.type) {
 			pair = '<details class="dze-ps-pair"' + (row.img_meta ? ' open' : '') + '>' +
-				'<summary>' + esc(i18n.psPair) + '</summary>' +
+				'<summary>' + esc(i18n.psPair) +
+					'<span class="dze-pr-pairstate' + (row.img_meta ? ' is-on' : '') + '">' +
+					(row.img_meta ? esc(sprintf(i18n.psOn, row.img_meta)) : esc(i18n.psOff)) + '</span>' +
+				'</summary>' +
 				'<p class="description">' + esc(i18n.psPairH) + '</p>' +
 				'<p class="dze-ps-line"><label><span>' + esc(i18n.psKey) + '</span>' +
 					'<input type="text" id="dze-one-imgmeta" list="dze-one-metakeys" value="' + esc(row.img_meta || '') + '" placeholder="_bloc_image_1" /></label>' +

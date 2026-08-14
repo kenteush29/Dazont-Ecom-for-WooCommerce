@@ -1078,3 +1078,15 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-ps-in { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .dze-ps-line label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .dze-ps-line input[type=text] { flex: 1 1 260px; }
+
+/* Whether a block is illustrated, readable without opening anything. */
+.dze-pr-pairstate {
+	margin-left: 8px; font-size: 11px; color: #646970;
+	background: #f0f0f1; border-radius: 10px; padding: 1px 8px;
+}
+.dze-pr-pairstate.is-on { color: #fff; background: #2271b1; }
+.dze-prb-pairchip {
+	margin-left: 8px; font-size: 11px; color: #50575e;
+	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 3px; padding: 0 6px;
+}
+.dze-pr-pair > summary { font-weight: 600; }
