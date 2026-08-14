@@ -2294,7 +2294,9 @@ Answer with STRICT JSON and nothing else: "
 				$( document ).on( 'click', '.dze-pr-restore', function () {
 					var d = dzePromptDefaults[ $( this ).data( 'id' ) ];
 					if ( ! d ) { return; }
-					$( this ).closest( 'td' ).find( '.dze-pr-prompt' ).val( d );
+					// The registry stopped being a table when it became cards: a
+					// closest('td') found nothing, so the button did nothing.
+					$( this ).closest( '.dze-prb' ).find( '.dze-pr-prompt' ).val( d );
 				} );
 				// On or off is one flag: it is written when it is clicked, not
 				// when the page happens to be saved.

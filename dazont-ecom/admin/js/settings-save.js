@@ -33,21 +33,29 @@
 		return $n;
 	}
 
+	// Ours: a form carrying one of the plugin's option groups. Recognised by
+	// the group and not by the shape of its action attribute — a form whose
+	// action reads differently on some installs was skipped entirely, which
+	// left the page saving the old way and every button bound to it dead.
+	function isOurs($form) {
+		return ($form.find('input[name="option_page"]').val() || '').indexOf('dze_') === 0;
+	}
+
+	// A single row can ask for the save too: it is the same submit, so there is
+	// still ONE way this page is written. Delegated on the document, so it does
+	// not depend on the form having been recognised when the page loaded.
+	$(document).on('click', '.dze-save-row', function () {
+		var $form = $(this).closest('form');
+		if (!$form.length) { return; }
+		$form.data('dze-note', $(this).closest('.dze-prb').find('.dze-savednote').first());
+		$form.trigger('submit');
+	});
+
 	$(function () {
 		$('form').each(function () {
 			var $form = $(this);
-			// Ours only: a WordPress options form whose option group is one of
-			// the plugin's. Anything else on the screen is left alone.
-			if (!/options\.php(\?|$)/.test(this.action || '')) { return; }
-			var group = $form.find('input[name="option_page"]').val() || '';
-			if (group.indexOf('dze_') !== 0) { return; }
+			if (!isOurs($form)) { return; }
 
-			// A single row can ask for the save too: it is the same submit, so
-			// there is still ONE way this page is written.
-			$form.on('click', '.dze-save-row', function () {
-				$form.data('dze-note', $(this).closest('.dze-prb').find('.dze-savednote').first());
-				$form.trigger('submit');
-			});
 			$form.on('submit', function (e) {
 				// TinyMCE keeps its content in the iframe until asked.
 				if (window.tinymce && tinymce.triggerSave) { tinymce.triggerSave(); }
