@@ -905,27 +905,6 @@
 				'<button type="button" class="button dze-hub-close" style="margin-left:auto;">' + esc(i18n.close) + '</button>' +
 			'</div>' +
 			'<div class="dze-cx-body">' +
-				'<details class="dze-one-instr" id="dze-one-instrwrap">' +
-					'<summary>' + esc(i18n.oneInstr) + '</summary>' +
-					'<p class="description">' + esc(i18n.oneInstrH) + '</p>' +
-					// The instructions are half the request. The other half is
-					// what the model is told about THIS product, and it changes
-					// from one product to the next — so it is shown next to
-					// them instead of being taken on trust.
-					'<p class="dze-one-tabs">' +
-						'<button type="button" class="button button-small is-sel" data-pane="prompt">' + esc(i18n.panePrompt) + '</button>' +
-						'<button type="button" class="button button-small" data-pane="data">' + esc(i18n.paneData) + '</button>' +
-					'</p>' +
-					'<div class="dze-one-pane" data-pane="data" style="display:none;">' +
-						'<pre class="dze-prompt-text" id="dze-one-data"></pre>' +
-						'<p class="description">' + esc(i18n.paneDataH) + '</p>' +
-					'</div>' +
-					'<div class="dze-one-pane" data-pane="prompt">' +
-						'<textarea id="dze-one-prompt" rows="7" class="large-text code"></textarea>' +
-						'<p><button type="button" class="button-link" id="dze-one-saveprompt">&#128190; ' + esc(i18n.oneSave) + '</button> ' +
-							'<span class="description" id="dze-one-savestate"></span></p>' +
-					'</div>' +
-				'</details>' +
 				'<div id="dze-one-body"></div>' +
 				'<p class="dze-one-bar">' +
 					'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
@@ -937,6 +916,31 @@
 		$(document).on('click', '#dze-one', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
 	}
 
+	// The instructions, built fresh every time the popup opens. It used to be
+	// one node created once and MOVED between the top of the popup and the
+	// recipe card — but opening the popup rewrites its body, which destroyed
+	// the node on the way. From the second opening on there was nothing left
+	// to open, which is why the pencil on a gallery recipe did nothing.
+	function instrBlock() {
+		return '<details class="dze-one-instr" id="dze-one-instrwrap">' +
+			'<summary>' + esc(i18n.oneInstr) + '</summary>' +
+			'<p class="description">' + esc(i18n.oneInstrH) + '</p>' +
+			'<p class="dze-one-tabs">' +
+				'<button type="button" class="button button-small is-sel" data-pane="prompt">' + esc(i18n.panePrompt) + '</button>' +
+				'<button type="button" class="button button-small" data-pane="data">' + esc(i18n.paneData) + '</button>' +
+			'</p>' +
+			'<div class="dze-one-pane" data-pane="data" style="display:none;">' +
+				'<pre class="dze-prompt-text" id="dze-one-data"></pre>' +
+				'<p class="description">' + esc(i18n.paneDataH) + '</p>' +
+			'</div>' +
+			'<div class="dze-one-pane" data-pane="prompt">' +
+				'<textarea id="dze-one-prompt" rows="7" class="large-text code"></textarea>' +
+				'<p><button type="button" class="button-link" id="dze-one-saveprompt">&#128190; ' + esc(i18n.oneSave) + '</button> ' +
+					'<span class="description" id="dze-one-savestate"></span></p>' +
+			'</div>' +
+		'</details>';
+	}
+
 	function openOne(fid, mode, scope) {
 		oneBuild();
 		one = { fid: fid, mode: mode || 'text', value: '', url: '', tries: [], scope: scope || 'main' };
@@ -944,18 +948,14 @@
 			? (one.scope === 'gallery' ? i18n.oneGallery : i18n.qmTitle)
 			: (cfg.fields[fid] || fid);
 		$('#dze-one-title').text(label);
-		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
-		$('#dze-one-instrwrap').prop('open', false);
-		$('#dze-one-savestate').text('');
+
 		$('#dze-one-state').removeClass('is-ko').text('');
 		$('#dze-one-apply').hide().text(i18n.oneApply);
 		$('#dze-one-gen').text(mode === 'image'
 			? (one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain)
 			: i18n.oneGen);
-		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : '');
-		// One editor, moved to where the thing it edits is named.
-		if (mode === 'image') { $('#dze-one-instrslot').append($('#dze-one-instrwrap')); }
-		else { $('#dze-one-body').before($('#dze-one-instrwrap')); }
+		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : instrBlock());
+		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
 			one.srcId = 0; one.paste = '';
@@ -981,7 +981,7 @@
 				// The instructions belong to the recipe above them, so they are
 				// moved here rather than kept in a bar of their own at the top
 				// of the popup, which said the same thing twice.
-				'<div id="dze-one-instrslot"></div>' +
+				instrBlock() +
 			'</div>' +
 
 			'<div class="dze-step">' +
@@ -1230,7 +1230,11 @@
 	// What the product says today, above what was just written: the same
 	// before/after as everywhere else in the plugin.
 	function oneShowBefore(fid) {
-		$('#dze-one-body').html('<div class="dze-cb-nowtext"><span class="dze-cb-nowlabel">' + esc(i18n.oneBefore) +
+		// Appended, never .html(): the instructions are already in this body and
+		// replacing it would throw them away — the exact bug that made the
+		// pencil dead on the second opening.
+		$('#dze-one-body').find('.dze-cb-nowtext').remove();
+		$('#dze-one-body').append('<div class="dze-cb-nowtext"><span class="dze-cb-nowlabel">' + esc(i18n.oneBefore) +
 			'</span><div class="dze-cb-nowbody" id="dze-one-before"><span class="dze-cx-spin"></span></div></div>');
 		loadCurrent().then(function (cur) {
 			var v = (cur.texts || {})[fid] || '';
