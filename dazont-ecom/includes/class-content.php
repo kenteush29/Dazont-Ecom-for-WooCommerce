@@ -3037,6 +3037,8 @@ Answer with STRICT JSON and nothing else: "
 			wp_localize_script( 'dze-settings-save', 'dzeSettingsSaveI18n', [
 				'saving' => __( 'Saving…', 'dazont-ecom' ),
 				'saved'  => __( 'Saved ✓', 'dazont-ecom' ),
+				'slow'   => __( 'The server did not answer in time — saving the ordinary way…', 'dazont-ecom' ),
+				'retry'  => __( 'Saving the ordinary way…', 'dazont-ecom' ),
 			] );
 		}
 		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [

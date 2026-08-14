@@ -23,12 +23,16 @@
 
 	var i18n = window.dzeSettingsSaveI18n || {};
 
+	// The note next to the PAGE's own button. Searching the whole form for one
+	// now finds the note of every prompt card too, and would write "Saving…"
+	// into all of them at once.
 	function note($form) {
 		var $bar = $form.find('.submit, p.submit').last();
-		var $n = $form.find('.dze-savednote');
+		var $host = $bar.length ? $bar : $form;
+		var $n = $host.children('.dze-savednote');
 		if (!$n.length) {
 			$n = $('<span class="dze-savednote"></span>');
-			if ($bar.length) { $bar.append($n); } else { $form.append($n); }
+			$host.append($n);
 		}
 		return $n;
 	}
@@ -64,15 +68,22 @@
 				var $row = $form.data('dze-note');
 				$form.removeData('dze-note');
 				var $n = ($row && $row.length ? $row : note($form)).css('color', '#646970').text(i18n.saving || '…');
-				$.post(this.action, $form.serialize())
+				// Bounded, always: a request that never answers used to leave
+				// "Saving…" on screen for good, which says neither saved nor
+				// failed. Past the timeout the browser takes the save back the
+				// ordinary way, so nothing typed is ever lost to a silence.
+				$.ajax({ type: 'POST', url: this.action, data: $form.serialize(), timeout: 25000 })
 					.done(function () {
 						$btn.prop('disabled', false);
 						$n.css('color', '#0a7040').text(i18n.saved || 'Saved ✓');
 						window.setTimeout(function () { $n.text(''); }, 2500);
 					})
-					.fail(function () {
-						// Never swallow a save: hand it back to the browser.
+					.fail(function (x, why) {
 						$btn.prop('disabled', false);
+						$n.css('color', '#b32d2e').text(
+							'timeout' === why ? (i18n.slow || '') : (i18n.retry || '')
+						);
+						// Never swallow a save: hand it back to the browser.
 						$form.off('submit');
 						$form[0].submit();
 					});
