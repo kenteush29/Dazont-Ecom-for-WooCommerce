@@ -961,7 +961,10 @@
 				'<summary>' + esc(i18n.psPair) + '</summary>' +
 				'<p class="description">' + esc(i18n.psPairH) + '</p>' +
 				'<p class="dze-ps-line"><label><span>' + esc(i18n.psKey) + '</span>' +
-					'<input type="text" id="dze-one-imgmeta" value="' + esc(row.img_meta || '') + '" placeholder="_dze_bloc1_image" /></label></p>' +
+					'<input type="text" id="dze-one-imgmeta" list="dze-one-metakeys" value="' + esc(row.img_meta || '') + '" placeholder="_bloc_image_1" /></label>' +
+					'<datalist id="dze-one-metakeys">' +
+						(cfg.metaKeys || []).map(function (k) { return '<option value="' + esc(k) + '"></option>'; }).join('') +
+					'</datalist></p>' +
 				'<p class="description" style="margin-bottom:4px;">' + esc(i18n.psRules) + '</p>' +
 				'<textarea id="dze-one-imgrules" rows="3" class="large-text code" placeholder="' +
 					esc(cfg.imgRulesDef || '') + '">' + esc(row.img_rules || '') + '</textarea>' +

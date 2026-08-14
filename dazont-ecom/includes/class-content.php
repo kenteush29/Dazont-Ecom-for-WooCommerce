@@ -1505,6 +1505,27 @@ Answer with STRICT JSON and nothing else: "
 		return $out;
 	}
 
+	/**
+	 * Writes an attachment id into a meta key that may belong to ACF.
+	 *
+	 * An ACF image field is not a plain meta row: beside the value it keeps a
+	 * reference row (_key) holding the field key, and ACF needs it to know the
+	 * value is one of its own. Writing the id alone leaves the field empty in
+	 * the editor even though the number is in the database. So when ACF knows
+	 * this key on this product, ACF writes it; otherwise it is a plain meta,
+	 * exactly as before.
+	 */
+	public static function write_image_meta( int $pid, string $key, int $att_id ): void {
+		if ( function_exists( 'update_field' ) && function_exists( 'acf_get_field' ) ) {
+			$field = acf_get_field( $key );
+			if ( $field ) {
+				update_field( $key, $att_id, $pid );
+				return;
+			}
+		}
+		update_post_meta( $pid, $key, $att_id );
+	}
+
 	/** The meta key a field writes its companion attachment id to ('' = none). */
 	public static function companion_meta( string $fid ): string {
 		$row = self::registry_row( $fid );
@@ -3131,6 +3152,9 @@ Answer with STRICT JSON and nothing else: "
 				[]
 			),
 			'imgRulesDef' => self::default_feature_prompt(),
+			// The meta keys that exist on products, so the pairing key is
+			// PICKED — an ACF image field has a name you must not mistype.
+			'metaKeys'   => self::product_meta_keys(),
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'nonce'      => wp_create_nonce( self::NONCE ),
 			'postId'     => $pid,
@@ -3514,7 +3538,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( '' !== $img_key ) {
 			$map = self::companion_map( $pid );
 			if ( isset( $map[ $field ]['id'] ) ) {
-				update_post_meta( $pid, $img_key, (int) $map[ $field ]['id'] );
+				self::write_image_meta( $pid, $img_key, (int) $map[ $field ]['id'] );
 			}
 		}
 		return '';
