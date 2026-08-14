@@ -952,9 +952,17 @@ EOT;
 	}
 
 	/** Per-prompt validation. Legacy installs that ticked the old global box count as validated. */
+	/**
+	 * There is ONE switch per prompt now.
+	 *
+	 * "Enabled" and "Validated" were two flags for one decision: the first said
+	 * the prompt exists, the second said bulk may run it — and nothing on
+	 * screen explained the difference, so a prompt could be on and refuse to
+	 * work with no visible reason. A prompt that is switched on is usable
+	 * everywhere, and switching it off is how you stop it.
+	 */
 	public static function field_validated( string $field ): bool {
-		$r = self::registry_row( $field );
-		return $r ? ! empty( $r['valid'] ) : false;
+		return self::field_enabled( $field );
 	}
 
 	/** Whether a field is active (settings override, else the field's shipped default). */
@@ -977,7 +985,9 @@ EOT;
 	/** Per image-template validation (index into image_templates()). */
 	public static function template_validated( int $idx ): bool {
 		$tpls = self::image_templates();
-		return ! empty( $tpls[ $idx ]['valid'] );
+		// Same single switch as the text prompts: image_templates() already
+		// lists only the enabled ones.
+		return isset( $tpls[ $idx ] );
 	}
 
 	/** [ validated, total ] across ENABLED text prompts, for the side-box note. */
@@ -1679,7 +1689,8 @@ Answer with STRICT JSON and nothing else: "
 					// an exception, and unreadable next to the prompt it serves.
 					'img_rules'   => sanitize_textarea_field( (string) ( $in['pr_imgrules'][ $i ] ?? '' ) ),
 					'enabled'     => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
-					'valid'       => ! empty( $in['pr_valid'][ $i ] ) ? 1 : 0,
+					// Kept in step with the switch: one decision, one value.
+					'valid'       => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
 				];
 			}
@@ -2008,15 +2019,14 @@ Answer with STRICT JSON and nothing else: "
 					$sel_in = (array) ( $r['inputs'] ?? [] ); ?>
 					<div class="dze-prb dze-pr-row" id="dze-pr-row-<?php echo esc_attr( (string) $r['id'] ); ?>">
 						<div class="dze-prb-head">
-							<label class="dze-prb-on" title="<?php esc_attr_e( 'Use this prompt — saved the moment you tick it', 'dazont-ecom' ); ?>">
+							<label class="dze-switch dze-prb-on" title="<?php esc_attr_e( 'Use this prompt — saved the moment you switch it', 'dazont-ecom' ); ?>">
 								<input type="checkbox" class="dze-prb-live" data-id="<?php echo esc_attr( (string) $r['id'] ); ?>" name="<?php echo esc_attr( $opt ); ?>[pr_on][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['enabled'] ) ); ?> />
+								<span class="dze-switch-slider"></span>
 							</label>
 							<input type="text" class="dze-prb-name" name="<?php echo esc_attr( $opt ); ?>[pr_name][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['name'] ); ?>" />
 							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['id'] ); ?>" />
 							<span class="dze-prb-dest"><?php echo esc_html( self::output_options( ( $r['type'] ?? 'text' ) === 'image' ? 'image' : 'text' )[ $r['output'] ?? '' ] ?? ( $r['output'] ?? '' ) ); ?></span>
-							<span class="dze-prb-flags">
-								<?php if ( ! empty( $r['valid'] ) ) : ?><span class="dze-prb-ok" title="<?php esc_attr_e( 'Validated: bulk may apply it', 'dazont-ecom' ); ?>">✓</span><?php endif; ?>
-							</span>
+
 							<button type="button" class="dze-prb-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
 							<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
 						</div>
@@ -2041,9 +2051,6 @@ Answer with STRICT JSON and nothing else: "
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
 								<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 									<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" />
-								</label>
-								<label class="dze-prb-valid"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][<?php echo (int) $dze_ri; ?>]" value="1" <?php checked( ! empty( $r['valid'] ) ); ?> />
-									<span><?php esc_html_e( 'Validated', 'dazont-ecom' ); ?></span>
 								</label>
 							</p>
 							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="8" class="large-text code dze-pr-prompt"><?php echo esc_textarea( $r['prompt'] ); ?></textarea>
@@ -2102,11 +2109,10 @@ Answer with STRICT JSON and nothing else: "
 			<script type="text/template" id="dze-pr-rowtpl">
 				<div class="dze-prb dze-pr-row is-open">
 					<div class="dze-prb-head">
-						<label class="dze-prb-on"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][__I__]" value="1" checked /></label>
+						<label class="dze-switch dze-prb-on"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_on][__I__]" value="1" checked /><span class="dze-switch-slider"></span></label>
 						<input type="text" class="dze-prb-name" name="<?php echo esc_attr( $opt ); ?>[pr_name][__I__]" value="" placeholder="<?php esc_attr_e( 'New prompt…', 'dazont-ecom' ); ?>" />
 						<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_id][__I__]" value="" />
 						<span class="dze-prb-dest"></span>
-						<span class="dze-prb-flags"></span>
 						<button type="button" class="dze-prb-toggle" aria-expanded="true"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▾</span></button>
 						<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
 					</div>
@@ -2131,9 +2137,6 @@ Answer with STRICT JSON and nothing else: "
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
 							<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 								<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" />
-							</label>
-							<label class="dze-prb-valid"><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_valid][__I__]" value="1" />
-								<span><?php esc_html_e( 'Validated', 'dazont-ecom' ); ?></span>
 							</label>
 						</p>
 						<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][__I__]" rows="8" class="large-text code dze-pr-prompt"></textarea>
