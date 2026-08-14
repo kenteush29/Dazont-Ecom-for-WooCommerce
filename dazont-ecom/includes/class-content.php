@@ -2085,7 +2085,7 @@ Answer with STRICT JSON and nothing else: "
 								</label>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'File name', 'dazont-ecom' ); ?></span>
-									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}-ugc" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Tokens: {product}, {prompt}. Empty = the product name.', 'dazont-ecom' ); ?>" />
+									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Empty = the product name, which is what every image uses today. Tokens: {product}, {prompt} — e.g. {product}-ugc.', 'dazont-ecom' ); ?>" />
 								</label>
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
 									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['img_title'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-imgtitle" title="<?php esc_attr_e( 'The attachment title and its alt text. Same tokens. Empty = the product name.', 'dazont-ecom' ); ?>" />
@@ -2202,7 +2202,7 @@ Answer with STRICT JSON and nothing else: "
 							</label>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
 							<label class="dze-prb-tk dze-pr-imgonly" style="display:none;"><span><?php esc_html_e( 'File name', 'dazont-ecom' ); ?></span>
-								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][__I__]" value="" placeholder="{product}-ugc" class="dze-pr-file" />
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][__I__]" value="" placeholder="{product}" class="dze-pr-file" />
 							</label>
 							<label class="dze-prb-tk dze-pr-imgonly" style="display:none;"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][__I__]" value="" placeholder="{product}" class="dze-pr-imgtitle" />
