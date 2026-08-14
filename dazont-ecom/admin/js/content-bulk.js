@@ -896,7 +896,15 @@
 				} else {
 					b.shots.forEach(function (u) { items.push({ url: u, target: 'gallery' }); });
 				}
-				if (items.length) { shots.push({ id: id, items: items, $w: $w.length ? $w : $prev }); }
+				if (items.length) {
+					// The recipe behind the first kept image names the files.
+					var rec = (b.shotTpl && items.length) ? b.shotTpl[items[0].url] : '';
+					var recRow = (cfg.templates || [])[parseInt(rec, 10)];
+					shots.push({
+						id: id, items: items, $w: $w.length ? $w : $prev,
+						recipe: recRow ? recRow.id : ''
+					});
+				}
 			}
 		});
 		if (!jobs.length && !shots.length) {
@@ -912,7 +920,10 @@
 			if (k >= shots.length) { return runTexts(); }
 			var sh = shots[k];
 			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.applying);
-			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items })
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items,
+				recipe: sh.recipe || ''
+			})
 				.done(function (res) {
 					if (res && res.success) {
 						okCount++;

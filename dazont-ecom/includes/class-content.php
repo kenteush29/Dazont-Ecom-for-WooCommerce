@@ -1712,6 +1712,10 @@ Answer with STRICT JSON and nothing else: "
 					'enabled'     => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
 					// Kept in step with the switch: one decision, one value.
 					'valid'       => ! empty( $in['pr_on'][ $i ] ) ? 1 : 0,
+					// How the images this prompt makes are named on disk and in
+					// the library — the URL of a shop is content too.
+					'file_name'   => sanitize_text_field( (string) ( $in['pr_file'][ $i ] ?? '' ) ),
+					'img_title'   => sanitize_text_field( (string) ( $in['pr_imgtitle'][ $i ] ?? '' ) ),
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
 				];
 			}
@@ -2070,6 +2074,12 @@ Answer with STRICT JSON and nothing else: "
 									</select>
 								</label>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
+								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'File name', 'dazont-ecom' ); ?></span>
+									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}-ugc" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Tokens: {product}, {recipe}. Empty = the product name.', 'dazont-ecom' ); ?>" />
+								</label>
+								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
+									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['img_title'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-imgtitle" title="<?php esc_attr_e( 'The attachment title and its alt text. Same tokens. Empty = the product name.', 'dazont-ecom' ); ?>" />
+								</label>
 								<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 									<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" />
 								</label>
@@ -2160,6 +2170,12 @@ Answer with STRICT JSON and nothing else: "
 								</select>
 							</label>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][__I__]" value="" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="display:none;" />
+							<label class="dze-prb-tk dze-pr-imgonly" style="display:none;"><span><?php esc_html_e( 'File name', 'dazont-ecom' ); ?></span>
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][__I__]" value="" placeholder="{product}-ugc" class="dze-pr-file" />
+							</label>
+							<label class="dze-prb-tk dze-pr-imgonly" style="display:none;"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
+								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][__I__]" value="" placeholder="{product}" class="dze-pr-imgtitle" />
+							</label>
 							<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 								<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" />
 							</label>
@@ -2198,6 +2214,12 @@ Answer with STRICT JSON and nothing else: "
 					}
 					$row.find( '.dze-pr-metakey' ).toggle( $out.val() === 'meta' );
 					$row.find( '.dze-pr-tokens' ).prop( 'disabled', type === 'image' );
+					// Naming a file only means something for a prompt that makes
+					// one: it appears with the image type and leaves with it.
+					$row.find( '.dze-pr-imgonly' ).toggle( type === 'image' );
+					$row.find( '.dze-prb-tk' ).filter( function () {
+						return $( this ).find( '.dze-pr-tokens' ).length > 0;
+					} ).toggle( type !== 'image' );
 				}
 				$( '#dze-pr .dze-prb' ).each( function () { syncRow( $( this ) ); } );
 				$( document ).on( 'change', '.dze-pr-type, .dze-pr-output', function () { syncRow( $( this ).closest( '.dze-prb' ) ); } );
@@ -3955,13 +3977,36 @@ Answer with STRICT JSON and nothing else: "
 		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';
 	}
 
-	public function sideload_seo( string $url, int $pid, string $target ): int {
+	/**
+	 * The file name and the title a generated image is stored under.
+	 *
+	 * A shop is read by its URLs too: a UGC shot and a catalogue shot have no
+	 * business landing on the same file name. Each image prompt says how its
+	 * results are named, with two tokens — {product} and {recipe} — and an
+	 * empty pattern keeps what the shop has always done: the product name.
+	 *
+	 * @return array{0:string,1:string} slug, title
+	 */
+	public static function image_naming( int $pid, string $recipe_id = '' ): array {
+		$title   = get_the_title( $pid );
+		$row     = '' !== $recipe_id ? self::registry_row( $recipe_id ) : null;
+		$recipe  = $row ? (string) ( $row['name'] ?? '' ) : '';
+		$fpat    = $row ? trim( (string) ( $row['file_name'] ?? '' ) ) : '';
+		$tpat    = $row ? trim( (string) ( $row['img_title'] ?? '' ) ) : '';
+		$fill    = static function ( string $pattern ) use ( $title, $recipe ): string {
+			return str_replace( [ '{product}', '{recipe}' ], [ $title, $recipe ], $pattern );
+		};
+		$slug  = sanitize_title( '' !== $fpat ? $fill( $fpat ) : $title ) ?: 'product-image';
+		$shown = '' !== $tpat ? trim( $fill( $tpat ) ) : $title;
+		return [ $slug, $shown ?: $title ];
+	}
+
+	public function sideload_seo( string $url, int $pid, string $target, string $recipe_id = '' ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		$title = get_the_title( $pid );
-		$slug  = sanitize_title( $title ) ?: 'product-image';
+		[ $slug, $title ] = self::image_naming( $pid, $recipe_id );
 
 		$tmp = download_url( $url, 120 );
 		if ( is_wp_error( $tmp ) ) {
