@@ -1013,12 +1013,15 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    one and generate the other afterwards. */
 .dze-qm-pair figure { position: relative; }
 .dze-one-tries { flex: 1 1 auto; min-width: 0; }
-.dze-one-trygrid { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.dze-one-trygrid { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
 .dze-one-try {
 	position: relative; padding: 0; background: #fff; cursor: pointer;
 	border: 2px solid #dcdcde; border-radius: 6px; line-height: 0;
 }
-.dze-one-try img { display: block; width: 148px; height: 148px; object-fit: cover; border-radius: 4px; }
+/* An attempt is shown at the size of the image it would replace: at 148px
+   against a 260px original the eye cannot compare them, which is the whole
+   point of keeping them. */
+.dze-one-try img { display: block; width: 260px; height: 260px; object-fit: contain; background: #f6f7f7; border-radius: 4px; }
 .dze-one-try.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
 .dze-one-trynum {
 	position: absolute; left: 4px; bottom: 4px; z-index: 2;
