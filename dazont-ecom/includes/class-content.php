@@ -2054,6 +2054,10 @@ Answer with STRICT JSON and nothing else: "
 								</label>
 							</p>
 							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="8" class="large-text code dze-pr-prompt"><?php echo esc_textarea( $r['prompt'] ); ?></textarea>
+							<p class="dze-prb-line dze-prb-savebar">
+								<button type="button" class="button button-primary button-small dze-save-row"><?php esc_html_e( 'Save this prompt', 'dazont-ecom' ); ?></button>
+								<span class="dze-savednote"></span>
+							</p>
 							<p class="dze-prb-line">
 								<?php if ( '' !== self::default_prompt_for( (string) $r['id'] ) ) : ?>
 									<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the shipped default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -3109,6 +3113,24 @@ Answer with STRICT JSON and nothing else: "
 
 		wp_localize_script( 'dze-content', 'dzeContent', [
 			'inputsUsed' => array_keys( $dze_union ),
+			// What each prompt is set to receive, and how it pairs with a
+			// photograph — so the toolbox can show and change the same settings
+			// as the settings screen instead of being a read-only cousin.
+			'inputOpts'  => self::input_options(),
+			'rowcfg'     => array_reduce(
+				self::registry(),
+				static function ( array $out, array $r ): array {
+					$out[ (string) ( $r['id'] ?? '' ) ] = [
+						'inputs'    => array_values( (array) ( $r['inputs'] ?? [] ) ),
+						'img_meta'  => (string) ( $r['img_meta'] ?? '' ),
+						'img_rules' => (string) ( $r['img_rules'] ?? '' ),
+						'type'      => (string) ( $r['type'] ?? 'text' ),
+					];
+					return $out;
+				},
+				[]
+			),
+			'imgRulesDef' => self::default_feature_prompt(),
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'nonce'      => wp_create_nonce( self::NONCE ),
 			'postId'     => $pid,
@@ -3262,6 +3284,11 @@ Answer with STRICT JSON and nothing else: "
 				'oneInstr'   => __( 'Instructions sent to the model', 'dazont-ecom' ),
 				'oneInstrH'  => __( 'Edited here, it is used for this run only — unless you save it as the prompt.', 'dazont-ecom' ),
 				'oneSave'    => __( 'Save as the prompt', 'dazont-ecom' ),
+				'psData'     => __( 'Product data sent with it', 'dazont-ecom' ),
+				'psPair'     => __( 'Pair this text with one of the product photographs', 'dazont-ecom' ),
+				'psPairH'    => __( 'Leave the key empty and this block is written from the product data alone. Fill it in and the plugin LOOKS at the photographs, picks the one this block should sit next to, writes the block about what is visible in it, and stores that photograph\'s id in the key so your theme can show them together.', 'dazont-ecom' ),
+				'psKey'      => __( 'Meta key holding the chosen photograph', 'dazont-ecom' ),
+				'psRules'    => __( 'How its photograph is chosen', 'dazont-ecom' ),
 				'oneSaved'   => __( 'Prompt saved ✓', 'dazont-ecom' ),
 				'oneBefore'  => __( 'On the product today', 'dazont-ecom' ),
 				'oneAfter'   => __( 'What was just written', 'dazont-ecom' ),

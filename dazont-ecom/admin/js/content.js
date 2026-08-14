@@ -935,10 +935,45 @@
 			'</div>' +
 			'<div class="dze-one-pane" data-pane="prompt">' +
 				'<textarea id="dze-one-prompt" rows="7" class="large-text code"></textarea>' +
+				// The prompt's own settings, editable here and not only in the
+				// settings screen: reading them there while writing the prompt
+				// here is what made the toolbox a read-only cousin.
+				'<div id="dze-one-psets"></div>' +
 				'<p><button type="button" class="button-link" id="dze-one-saveprompt">&#128190; ' + esc(i18n.oneSave) + '</button> ' +
 					'<span class="description" id="dze-one-savestate"></span></p>' +
 			'</div>' +
 		'</details>';
+	}
+
+	// What this prompt receives, and how it pairs with a photograph. Same two
+	// settings as the card in Settings → Prompts, on the same row.
+	function promptSettings(rowId) {
+		var row = (cfg.rowcfg && cfg.rowcfg[rowId]) || {};
+		var have = row.inputs || [];
+		var opts = cfg.inputOpts || {};
+		var boxes = Object.keys(opts).map(function (k) {
+			return '<label class="dze-ps-in"><input type="checkbox" class="dze-ps-input" value="' + esc(k) + '"' +
+				(have.indexOf(k) >= 0 ? ' checked' : '') + ' /><span>' + esc(opts[k]) + '</span></label>';
+		}).join('');
+		var pair = '';
+		if ('image' !== row.type) {
+			pair = '<details class="dze-ps-pair"' + (row.img_meta ? ' open' : '') + '>' +
+				'<summary>' + esc(i18n.psPair) + '</summary>' +
+				'<p class="description">' + esc(i18n.psPairH) + '</p>' +
+				'<p class="dze-ps-line"><label><span>' + esc(i18n.psKey) + '</span>' +
+					'<input type="text" id="dze-one-imgmeta" value="' + esc(row.img_meta || '') + '" placeholder="_dze_bloc1_image" /></label></p>' +
+				'<p class="description" style="margin-bottom:4px;">' + esc(i18n.psRules) + '</p>' +
+				'<textarea id="dze-one-imgrules" rows="3" class="large-text code" placeholder="' +
+					esc(cfg.imgRulesDef || '') + '">' + esc(row.img_rules || '') + '</textarea>' +
+			'</details>';
+		}
+		return '<details class="dze-ps-data">' +
+				'<summary>' + esc(i18n.psData) + ' (' + have.length + ')</summary>' +
+				'<div class="dze-ps-ins">' + boxes + '</div>' +
+			'</details>' + pair;
+	}
+	function oneFillSettings(rowId) {
+		$('#dze-one-psets').html(rowId ? promptSettings(rowId) : '');
 	}
 
 	function openOne(fid, mode, scope) {
@@ -956,6 +991,7 @@
 			: i18n.oneGen);
 		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : instrBlock());
 		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
+		if ('image' !== mode) { oneFillSettings(fid); }
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
 			one.srcId = 0; one.paste = '';
@@ -1094,6 +1130,7 @@
 		if (!mainish) { $('#dze-one-bg').val('0'); }
 		else if (!$('#dze-one-bg').val() || $('#dze-one-bg').val() === '0') { $('#dze-one-bg').val(String(defaultBg())); }
 		oneDrawBgs();
+		oneFillSettings(v);
 		if ($('.dze-one-pane[data-pane="data"]').is(':visible')) { oneLoadData(); }
 	}
 
@@ -1388,12 +1425,16 @@
 	$(document).on('click', '#dze-one-saveprompt', function () {
 		var $st = $('#dze-one-savestate').text('…');
 		var data = { action: 'dze_content_save_prompt', nonce: cfg.nonce, prompt: $('#dze-one-prompt').val() || '' };
-		if (one.mode === 'image') {
-			data.ptype = 'field';
-			data.field = $('#dze-one-recipe').val() || cfg.mainRecipe || '';
-		} else {
-			data.ptype = 'field';
-			data.field = one.fid;
+		data.ptype = 'field';
+		data.field = (one.mode === 'image')
+			? ($('#dze-one-recipe').val() || cfg.mainRecipe || '')
+			: one.fid;
+		// The settings shown next to the text are saved with it: one button,
+		// one row, nothing left behind in a screen you did not open.
+		data.inputs = $('#dze-one-psets .dze-ps-input:checked').map(function () { return this.value; }).get();
+		if ($('#dze-one-imgmeta').length) {
+			data.img_meta = $('#dze-one-imgmeta').val() || '';
+			data.img_rules = $('#dze-one-imgrules').val() || '';
 		}
 		$.post(cfg.ajaxUrl, data)
 			.done(function (r) { $st.text((r && r.success) ? i18n.oneSaved : ((r && r.data && r.data.message) || i18n.error)); })

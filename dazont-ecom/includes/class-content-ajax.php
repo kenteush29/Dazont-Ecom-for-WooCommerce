@@ -1215,9 +1215,24 @@ trait DZE_Content_Ajax {
 		$settings = self::get_settings();
 		$rows     = self::registry();
 		$found    = false;
+		// The settings of a prompt travel with its text: the toolbox edits the
+		// same row the settings screen does, so what it can change there it can
+		// change here. Anything not sent is left as it is.
+		$inputs = isset( $_POST['inputs'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['inputs'] ) ) : null;
+		$imgmeta = isset( $_POST['img_meta'] ) ? sanitize_key( wp_unslash( $_POST['img_meta'] ) ) : null;
+		$imgrules = isset( $_POST['img_rules'] ) ? sanitize_textarea_field( wp_unslash( $_POST['img_rules'] ) ) : null;
 		foreach ( $rows as $k => $r ) {
 			if ( ( $r['id'] ?? '' ) === $row_id ) {
 				$rows[ $k ]['prompt'] = $prompt;
+				if ( null !== $inputs ) {
+					$rows[ $k ]['inputs'] = array_values( array_intersect( $inputs, array_keys( self::input_options() ) ) );
+				}
+				if ( null !== $imgmeta ) {
+					$rows[ $k ]['img_meta'] = $imgmeta;
+				}
+				if ( null !== $imgrules ) {
+					$rows[ $k ]['img_rules'] = $imgrules;
+				}
 				$found = true;
 				break;
 			}

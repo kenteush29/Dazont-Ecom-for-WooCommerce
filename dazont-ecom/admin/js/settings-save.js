@@ -42,12 +42,20 @@
 			var group = $form.find('input[name="option_page"]').val() || '';
 			if (group.indexOf('dze_') !== 0) { return; }
 
+			// A single row can ask for the save too: it is the same submit, so
+			// there is still ONE way this page is written.
+			$form.on('click', '.dze-save-row', function () {
+				$form.data('dze-note', $(this).closest('.dze-prb').find('.dze-savednote').first());
+				$form.trigger('submit');
+			});
 			$form.on('submit', function (e) {
 				// TinyMCE keeps its content in the iframe until asked.
 				if (window.tinymce && tinymce.triggerSave) { tinymce.triggerSave(); }
 				e.preventDefault();
 				var $btn = $form.find('input[type=submit], button[type=submit]').prop('disabled', true);
-				var $n = note($form).css('color', '#646970').text(i18n.saving || '…');
+				var $row = $form.data('dze-note');
+				$form.removeData('dze-note');
+				var $n = ($row && $row.length ? $row : note($form)).css('color', '#646970').text(i18n.saving || '…');
 				$.post(this.action, $form.serialize())
 					.done(function () {
 						$btn.prop('disabled', false);
