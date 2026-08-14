@@ -783,7 +783,7 @@ trait DZE_Content_Ajax {
 			if ( ! $validated ) {
 				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
 			}
-			$att_id = $this->sideload_seo( $image_url, $pid, (string) ( $tpl['target'] ?? 'gallery' ) );
+			$att_id = $this->sideload_seo( $image_url, $pid, (string) ( $tpl['target'] ?? 'gallery' ), (string) ( $tpl['id'] ?? '' ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -961,6 +961,9 @@ trait DZE_Content_Ajax {
 		// of the product and out of the library is what leaves a clean page and
 		// a clean media folder behind. Only ever an image of THIS product.
 		$replace = isset( $_POST['replace'] ) ? absint( $_POST['replace'] ) : 0;
+		// Which recipe made these: it decides how the files are named, and a
+		// name is not something to guess after the fact.
+		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( wp_unslash( $_POST['recipe'] ) ) : '';
 			foreach ( (array) ( $_POST['urls'] ?? [] ) as $i => $u ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized below.
 				$items[] = [
 					'url'    => esc_url_raw( (string) wp_unslash( $u ) ),
@@ -994,7 +997,7 @@ trait DZE_Content_Ajax {
 				}
 			}
 			try {
-				$ids[] = $this->sideload_seo( $u, $pid, $t );
+				$ids[] = $this->sideload_seo( $u, $pid, $t, $recipe );
 			} catch ( \Throwable $e ) {
 				$errors++;
 			}

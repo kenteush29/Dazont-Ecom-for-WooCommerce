@@ -847,7 +847,11 @@
 			res.current = null;
 		}
 		if (items.length) {
-			$.post(cfg.ajaxUrl, { action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID, items: items })
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID, items: items,
+				// The recipe that made them names the files it produced.
+				recipe: (res.shotTpl && items.length && res.shotTpl[items[0].url]) || ''
+			})
 				.done(function (r) {
 					if (r && r.success) {
 						ok++;
@@ -1407,6 +1411,7 @@
 		if (one.mode === 'image') {
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
+				recipe: $('#dze-one-recipe').val() || cfg.mainRecipe || '',
 				items: [ { url: one.url, target: $('#dze-one-target').val() || 'main' } ],
 				replace: $('#dze-one-replace').is(':checked') ? (one.srcId || 0) : 0
 			}).done(function (r) {
