@@ -939,6 +939,43 @@ trait DZE_Content_Ajax {
 		wp_send_json_success( [ 'left' => self::pending( $pid ), 'waiting' => self::pending_count() ] );
 	}
 
+	/**
+	 * The state of the two WordPress image boxes, after we changed them.
+	 *
+	 * Saving an image used to reload the whole product page, because the
+	 * featured-image box and the gallery behind the popup still showed the
+	 * previous state. Reloading to refresh two boxes costs the editor its
+	 * scroll position, its open panels and any unsaved text — for a picture.
+	 *
+	 * The featured box comes back as WordPress's own markup, built by
+	 * WordPress's own function, so the box stays the box.
+	 */
+	public function ajax_boxes(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		}
+		require_once ABSPATH . 'wp-admin/includes/post.php';
+		$thumb   = (int) get_post_thumbnail_id( $pid );
+		$gallery = array_values( array_filter( array_map(
+			'absint',
+			explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) )
+		) ) );
+		$shots = [];
+		foreach ( $gallery as $aid ) {
+			$shots[] = [
+				'id'    => $aid,
+				'thumb' => (string) ( wp_get_attachment_image_url( $aid, 'thumbnail' ) ?: '' ),
+			];
+		}
+		wp_send_json_success( [
+			'thumb_html' => function_exists( '_wp_post_thumbnail_html' ) ? _wp_post_thumbnail_html( $thumb ?: null, $pid ) : '',
+			'gallery'    => $shots,
+			'gallery_ids'=> implode( ',', $gallery ),
+		] );
+	}
+
 	public function ajax_image_attach(): void {
 		$this->guard();
 		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
