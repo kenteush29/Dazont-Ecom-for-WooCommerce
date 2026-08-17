@@ -85,6 +85,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_add_default', [ $this, 'ajax_add_default' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
+		add_action( 'wp_ajax_dze_content_boxes', [ $this, 'ajax_boxes' ] );
 		add_action( 'wp_ajax_dze_content_inputs', [ $this, 'ajax_inputs' ] );
 		add_action( 'wp_ajax_dze_content_reframe_preview', [ $this, 'ajax_reframe_preview' ] );
 		add_action( 'wp_ajax_dze_content_reframe_apply', [ $this, 'ajax_reframe_apply' ] );

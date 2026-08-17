@@ -858,6 +858,11 @@
 						$('#dze-cx-shots .dze-cb-shot').removeClass('is-sel');
 						res.shots = [];
 						drawShots();
+						// Same as the small popup: the WordPress boxes behind
+						// are brought up to date without a page reload.
+						refreshBoxes();
+						res.current = null;
+						loadCurrent().then(drawCurrentImages);
 					} else { ko++; }
 				})
 				.fail(function () { ko++; })
@@ -1401,6 +1406,33 @@
 		$(this).addClass('is-sel');
 	});
 
+	// The featured-image box and the product gallery, updated where they are.
+	// The featured box comes back as WordPress's own markup from WordPress's
+	// own function; the gallery items are cloned from the ones WooCommerce
+	// already drew, so neither box is re-implemented here.
+	function refreshBoxes() {
+		$.post(cfg.ajaxUrl, { action: 'dze_content_boxes', nonce: cfg.nonce, post: PID })
+			.done(function (r) {
+				if (!r || !r.success) { return; }
+				if (r.data.thumb_html) { $('#postimagediv .inside').html(r.data.thumb_html); }
+				var $list = $('#product_images_container ul.product_images');
+				if ($list.length) {
+					var $model = $list.find('li.image').first();
+					var $add = $list.find('li.add_product_images').detach();
+					if ($model.length) {
+						var tpl = $model[0].outerHTML;
+						$list.find('li.image').remove();
+						(r.data.gallery || []).forEach(function (im) {
+							var $li = $(tpl).attr('data-attachment_id', im.id);
+							$li.find('img').attr('src', im.thumb).removeAttr('srcset').removeAttr('sizes');
+							$list.append($li);
+						});
+					}
+					if ($add.length) { $list.append($add); }
+				}
+				$('#product_image_gallery').val(r.data.gallery_ids || '');
+			});
+	}
 	$(document).on('click', '#dze-one-apply', function () {
 		var $b = $(this).prop('disabled', true);
 		var $st = $('#dze-one-state').removeClass('is-ko').text(i18n.applying);
@@ -1408,8 +1440,14 @@
 			$b.prop('disabled', false);
 			if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
 			$st.text(i18n.applied);
-			// The block behind the popup still shows the old value.
-			window.setTimeout(function () { window.location.reload(); }, 800);
+			// The boxes behind the popup are brought up to date in place. They
+			// used to be refreshed by reloading the whole product page, which
+			// costs the scroll position, the open panels and any unsaved text —
+			// for a picture. Working on several images meant paying that once
+			// per image.
+			refreshBoxes();
+			res.current = null;
+			loadCurrent().then(function () { drawCurrentImages(); oneDrawSources(); });
 		};
 		if (one.mode === 'image') {
 			$.post(cfg.ajaxUrl, {
