@@ -610,14 +610,22 @@ trait DZE_Content_Ajax {
 
 		try {
 			$sources = [];
+			// The photographs that come AFTER the subject: the product's own,
+			// as context. They are not there to be redrawn — the instruction
+			// sent with them says image 1 is the reference and the others fill
+			// in what it does not show — but without them a pasted photograph
+			// was all the model ever saw of the product, and it had to guess
+			// the back, the lining, the fastenings and the material.
+			$context = [];
 			if ( $src_id && wp_attachment_is_image( $src_id ) ) {
 				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
+				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
 			} elseif ( '' !== $paste ) {
 				// The photograph is already in the request, straight from the
-				// clipboard or dropped from the desktop — and it is THE subject:
-				// sending the product's other images beside it would only invite
-				// the model to blend them.
+				// clipboard or dropped from the desktop, and it is THE subject:
+				// it stays image 1, and the product's own photographs follow it.
 				$sources[] = self::read_data_uri( $paste );
+				$context   = self::product_source_ids( $pid );
 			} else {
 				// The product's own photographs, main first. Two are enough here:
 				// this lane is about speed, and the shape of a product is settled
@@ -628,6 +636,15 @@ trait DZE_Content_Ajax {
 					} catch ( \Throwable $e ) {
 						continue;
 					}
+				}
+			}
+			// Two more at most: a third angle adds little and every image costs
+			// upload time on a call that is already slow.
+			foreach ( array_slice( $context, 0, 2 ) as $aid ) {
+				try {
+					$sources[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+				} catch ( \Throwable $e ) {
+					continue;
 				}
 			}
 			if ( ! $sources ) {

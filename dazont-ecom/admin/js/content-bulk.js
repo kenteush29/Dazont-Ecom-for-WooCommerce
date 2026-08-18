@@ -39,13 +39,14 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
-		buildTplRows(Array.isArray(m.tpls) && m.tpls.length ? m.tpls : [ '' ]);
-		// The scene is remembered with the toolbox (same store): pick a support
-		// once and every screen keeps shooting on it.
-		if (typeof m.scene !== 'undefined' && $('#dze-cb-scene option[value="' + m.scene + '"]').length) {
-			$('#dze-cb-scene').val(String(m.scene));
-		}
-		if (typeof m.imgn !== 'undefined') { $('#dze-cb-imgn').val(String(m.imgn)); }
+		// The scene and the count are remembered per row now; a memory written
+		// by an older version carries them for the run, and is read as the
+		// settings of every row it holds.
+		var saved = (Array.isArray(m.tpls) && m.tpls.length ? m.tpls : [ '' ]).map(function (v) {
+			if (v && typeof v === 'object') { return v; }
+			return { tpl: v, scene: m.scene, n: m.imgn };
+		});
+		buildTplRows(saved);
 		if (typeof m.par !== 'undefined') { $('#dze-cb-par').val(String(m.par)); }
 	}());
 
@@ -54,13 +55,15 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
-		m.tpls = tpls();
-		if ($('#dze-cb-scene').length) { m.scene = parseInt($('#dze-cb-scene').val(), 10); }
-		if ($('#dze-cb-imgn').length) { m.imgn = parseInt($('#dze-cb-imgn').val(), 10); }
+		m.tpls = tplJobs();
+		// The scene of the first row is what the other screens open on: one
+		// store, so a support chosen anywhere is the one shot on everywhere.
+		var first = tplJobs()[0];
+		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
 		if ($('#dze-cb-par').length) { m.par = parseInt($('#dze-cb-par').val(), 10); }
 		saveMem(m);
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, #dze-cb-scene, #dze-cb-imgn, #dze-cb-par, #dze-cb-reviews, #dze-cb-revn', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, #dze-cb-par, #dze-cb-reviews, #dze-cb-revn', persist);
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -85,10 +88,18 @@
 	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-reviews', counts);
 	$(counts);
 	// One prompt by default, a + to add another when a product needs two kinds
-	// of shot. Every row runs on every product of the list.
+	// of shot. Every row runs on every product of the list — and a row is a
+	// whole order: this prompt, on that scene, so many times.
 	function tplRow(value) {
 		var $r = $($('#dze-cb-tpltpl').html());
-		if (value !== '' && value !== undefined) { $r.find('.dze-cb-tpl').val(String(value)); }
+		// What was remembered may be the old shape — a bare prompt value, from
+		// the days when the scene and the count belonged to the run.
+		var row = (value && typeof value === 'object') ? value : { tpl: value };
+		if (row.tpl !== '' && row.tpl !== undefined && row.tpl !== null) { $r.find('.dze-cb-tpl').val(String(row.tpl)); }
+		if (typeof row.scene !== 'undefined' && $r.find('.dze-tpl-scene option[value="' + row.scene + '"]').length) {
+			$r.find('.dze-tpl-scene').val(String(row.scene));
+		}
+		if (row.n) { $r.find('.dze-tpl-n').val(String(row.n)); }
 		syncPeek($r);
 		return $r;
 	}
@@ -150,6 +161,26 @@
 			if (v !== null && !seen[v]) { seen[v] = 1; out.push(v); }
 		});
 		return out;
+	}
+	// The rows as orders, one entry each, duplicates dropped the same way.
+	function tplJobs() {
+		var seen = {}, out = [];
+		$('#dze-cb-tplrows .dze-tplrow').each(function () {
+			var $r = $(this), v = $r.find('.dze-cb-tpl').val();
+			if (v === null || seen[v]) { return; }
+			seen[v] = 1;
+			out.push({
+				tpl: String(v),
+				scene: $r.find('.dze-tpl-scene').length ? parseInt($r.find('.dze-tpl-scene').val(), 10) : -1,
+				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1
+			});
+		});
+		return out;
+	}
+	function jobFor(tpl) {
+		var found = null;
+		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
+		return found || { tpl: String(tpl), scene: -1, n: 1 };
 	}
 
 	// =====================================================================
@@ -407,17 +438,17 @@
 			.always(function () { step(id); progress(i18n.tPrice); });
 	}
 
-	// The prompt, the scene and the count come from the top of the page: one
-	// decision for the run, not one per line.
-	function imageRequest(id, review, tpl) {
+	// The prompt, its scene and its count come from the row that ordered the
+	// image: one decision per prompt, the same for every product of the list.
+	function imageRequest(id, review, tpl, scene) {
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
 		if (review) { data.mode = 'defer'; data.stash = 1; }
-		var $sc = $('#dze-cb-scene');
-		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
+		if (scene === undefined) { scene = jobFor(tpl).scene; }
+		if ($('#dze-cb-tplrows .dze-tpl-scene').length) { data.scene = scene; }
 		return data;
 	}
-	function oneImage(id, review, tpl) {
-		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl))
+	function oneImage(id, review, tpl, scene) {
+		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl, scene))
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
@@ -435,15 +466,16 @@
 	// slow enough that firing four at once is how a run times out.
 	// Every ticked prompt × every attempt, one after the other: the provider is
 	// slow enough that firing them together is how a run times out.
-	function imageTask(id, review, n, list) {
+	function imageTask(id, review, list) {
 		var jobs = [], d = $.Deferred();
-		list.forEach(function (tpl) {
-			for (var k = 0; k < Math.max(1, n); k++) { jobs.push(tpl); }
+		list.forEach(function (job) {
+			for (var k = 0; k < Math.max(1, job.n); k++) { jobs.push(job); }
 		});
 		var i = 0;
 		(function next() {
 			if (stopped || i >= jobs.length) { d.resolve(); return; }
-			oneImage(id, review, jobs[i++]).always(next);
+			var job = jobs[i++];
+			oneImage(id, review, job.tpl, job.scene).always(next);
 		})();
 		return d;
 	}
@@ -620,7 +652,9 @@
 				dest[u] = $(this).find('.dze-cb-shotdest').val();
 			});
 		}
-		var $wrap = $('<div class="dze-cb-shots"><div class="dze-cb-shotgrid dze-zoomgroup"></div>' +
+		var $wrap = $('<div class="dze-cb-shots">' +
+			'<div class="dze-cb-shothead">' + oldMainPicker() + '</div>' +
+			'<div class="dze-cb-shotgrid dze-zoomgroup"></div>' +
 			'<span class="dze-cb-shotstate"></span></div>');
 		b.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
@@ -629,6 +663,28 @@
 			);
 		});
 		$slot.empty().append($wrap);
+		syncOldMain($wrap);
+	}
+	// What becomes of the image holding the main slot today. Asked where the
+	// decision is made, and only when it arises: it appears the moment one of
+	// these shots is headed for the main image. The choice lived in the small
+	// popup on the product page and nowhere else, so a main image accepted
+	// from here always pushed the old one into the gallery.
+	function oldMainPicker() {
+		return '<label class="dze-cb-oldmain" style="display:none;"><span>' + esc(i18n.oldMain) + '</span>' +
+			'<select class="dze-cb-oldsel">' +
+				'<option value="1">' + esc(i18n.oldKeep) + '</option>' +
+				'<option value="0">' + esc(i18n.oldDrop) + '</option>' +
+			'</select></label>';
+	}
+	function syncOldMain($box) {
+		if (!$box || !$box.length) { return; }
+		var main = $box.find('.dze-cb-shotdest').filter(function () { return 'main' === $(this).val(); }).length > 0;
+		$box.find('.dze-cb-oldmain').toggle(main);
+	}
+	function keepOld($box) {
+		var $sel = ($box && $box.length) ? $box.find('.dze-cb-oldsel') : $();
+		return ($sel.length && '0' === $sel.val()) ? 0 : 1;
 	}
 	// One click walks the three destinations. Only one image can be the main
 	// one; claiming it moves the previous claimant back to the gallery instead
@@ -943,7 +999,12 @@
 						var row = (cfg.templates || [])[parseInt(b.shotTpl[first], 10)];
 						rec = row ? row.id : '';
 					}
-					shots.push({ id: id, items: items, $w: $w.length ? $w : $prev, recipe: rec });
+					shots.push({
+						id: id, items: items, $w: $w.length ? $w : $prev, recipe: rec,
+						// What becomes of the image holding the main slot today,
+						// as chosen on this product's own strip.
+						keepOld: keepOld($w)
+					});
 				}
 			}
 		});
@@ -962,7 +1023,7 @@
 			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.applying);
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items,
-				recipe: sh.recipe || ''
+				recipe: sh.recipe || '', keep_old: sh.keepOld
 			})
 				.done(function (res) {
 					if (res && res.success) {
@@ -1080,9 +1141,9 @@
 		persist();
 		var fields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		var doPrice = $('#dze-cb-price').is(':checked');
-		var tplList = tpls();
+		var tplList = tplJobs();
 		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled') && tplList.length > 0;
-		var imgN = parseInt($('#dze-cb-imgn').val(), 10) || 1;
+		var imgN = tplList.reduce(function (t, j) { return t + Math.max(1, j.n); }, 0);
 		var doRev = $('#dze-cb-reviews').is(':checked');
 		var revN = parseInt($('#dze-cb-revn').val(), 10) || 0;
 		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
@@ -1107,7 +1168,7 @@
 		});
 		refreshApplyBar();
 
-		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN * tplList.length : 0) + (doRev ? 1 : 0);
+		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN : 0) + (doRev ? 1 : 0);
 		// A product already holding content nobody has decided on is left alone:
 		// writing over it would charge for the same work twice and throw the
 		// first result away. Redoing one on purpose is what its ↻ is for.
@@ -1134,7 +1195,7 @@
 				var chain = $.Deferred().resolve().promise();
 				if (fields.length) { chain = chain.then(function () { return textAllTask(id, fields, reviewMode); }); }
 				if (doPrice) { chain = chain.then(function () { return priceTask(id); }); }
-				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, imgN, tplList); }); }
+				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, tplList); }); }
 				if (doRev) { chain = chain.then(function () { return reviewsTask(id, revN); }); }
 				return chain;
 			});
