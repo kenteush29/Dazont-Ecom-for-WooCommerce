@@ -2911,13 +2911,23 @@ Answer with STRICT JSON and nothing else: "
 				<p id="dze-cb-progress" class="description"></p>
 			</div>
 
+			<!-- These two act on the list the screen is SHOWING. On the waiting
+			     view that is not the selection: a product is there because it
+			     holds content nobody has decided on, so leaving the list means
+			     refusing that content, and the buttons say so rather than
+			     rewriting a selection that is not what you are looking at. -->
 			<p class="dze-cb-listbar">
 				<span id="dze-cb-selcount" class="description"></span>
 				<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply all', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-cb-applysel" style="display:none;"><?php esc_html_e( 'Apply only selected', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
-				<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Remove from the list', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Empty the whole list', 'dazont-ecom' ); ?></button>
+				<?php if ( 'pending' === $dze_mode ) : ?>
+					<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Throw away what is waiting', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Throw away everything waiting', 'dazont-ecom' ); ?></button>
+				<?php else : ?>
+					<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Remove from the list', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Empty the whole list', 'dazont-ecom' ); ?></button>
+				<?php endif; ?>
 			</p>
 
 			<!-- Pinned to the bottom of the window while a run is on: on a list of
@@ -2973,9 +2983,13 @@ Answer with STRICT JSON and nothing else: "
 						     the list is not refusing a text, and two crosses side by side
 						     made the row unreadable. -->
 						<td class="dze-cb-killcell">
-							<button type="button" class="dze-cb-unqueue-one" title="<?php esc_attr_e( 'Take this product out of the list (nothing is written or deleted on the product)', 'dazont-ecom' ); ?>">
+							<button type="button" class="dze-cb-unqueue-one" title="<?php echo esc_attr( 'pending' === $dze_mode
+								? __( 'Throw away what is waiting on this product (nothing already on the product is touched)', 'dazont-ecom' )
+								: __( 'Take this product out of the list (nothing is written or deleted on the product)', 'dazont-ecom' ) ); ?>">
 								<span class="dashicons dashicons-trash" aria-hidden="true"></span>
-								<span class="screen-reader-text"><?php esc_html_e( 'Take this product out of the list', 'dazont-ecom' ); ?></span>
+								<span class="screen-reader-text"><?php echo esc_html( 'pending' === $dze_mode
+									? __( 'Throw away what is waiting on this product', 'dazont-ecom' )
+									: __( 'Take this product out of the list', 'dazont-ecom' ) ); ?></span>
 							</button>
 						</td>
 					</tr>
@@ -3087,6 +3101,12 @@ Answer with STRICT JSON and nothing else: "
 				// Where the screen goes back to after a paste: the selection, not
 				// whatever filtered view it was opened on.
 				'listUrl'   => add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) ),
+				// Which list is on screen: the selection, or the products
+				// holding content waiting for a decision. Taking a row out
+				// means a different thing in each, and used to rewrite the
+				// selection in both — which did nothing at all on the waiting
+				// view, since the products there were never in it.
+				'mode'      => $this->bulk_mode(),
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
 			// The image recipes, so a button can say WHICH style it makes
 			// instead of "one more image".
@@ -3163,6 +3183,7 @@ Answer with STRICT JSON and nothing else: "
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
+					'confirmDropAll' => __( 'Throw away everything waiting on the products listed here? What was generated cannot be recovered — the products themselves are not modified.', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
