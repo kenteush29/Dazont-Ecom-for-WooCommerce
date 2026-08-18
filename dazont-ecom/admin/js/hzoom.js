@@ -92,12 +92,32 @@
 		}
 	});
 
+	// What the viewer walks: the images of THIS grid, each one once.
+	//
+	// Two things used to put the same photograph in the list several times.
+	// A grid nested inside another marked grid was read by both, so opening
+	// the outer one walked the inner one's images a second time; and a
+	// photograph shown twice on the same screen — the same URL in two tiles —
+	// was collected twice. Both showed as "1 / 6" with the same picture coming
+	// back under the arrows.
+	function urlsOf($group) {
+		var urls = [], seen = {};
+		$group.find('img[data-full]').each(function () {
+			if ($(this).closest('.dze-zoomgroup')[0] !== $group[0]) { return; }
+			var u = urlOf(this);
+			if (!u || seen[u]) { return; }
+			seen[u] = 1;
+			urls.push(u);
+		});
+		return urls;
+	}
+
 	$(document).on('click', '.dze-zoom-btn', function (e) {
 		e.preventDefault();
 		e.stopPropagation();
 		var $group = $(this).closest('.dze-zoomgroup');
-		var urls = [], me = urlOf($(this).parent().find('img[data-full]')[0] || {});
-		$group.find('img[data-full]').each(function () { urls.push(urlOf(this)); });
+		var me = urlOf($(this).parent().find('img[data-full]')[0] || {});
+		var urls = urlsOf($group);
 		open(urls, Math.max(0, urls.indexOf(me)));
 	});
 }(jQuery));

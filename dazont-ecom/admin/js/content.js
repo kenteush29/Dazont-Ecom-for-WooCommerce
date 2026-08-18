@@ -910,7 +910,7 @@
 	// opens a popup with that one function in it — read the instructions,
 	// change them for one run if you want, write, compare, save.
 
-	var one = { fid: '', mode: 'text', value: '', url: '' };
+	var one = { fid: '', mode: 'text', value: '', tries: [], keep: {} };
 
 	function oneBuild() {
 		if ($('#dze-one').length) { return; }
@@ -923,7 +923,12 @@
 			'<div class="dze-cx-body">' +
 				'<div id="dze-one-body"></div>' +
 				'<p class="dze-one-bar">' +
-					'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
+					'<label class="dze-qm-bglabel" id="dze-one-nwrap" style="display:none;"><span>' + esc(i18n.howMany) + '</span>' +
+					'<select id="dze-one-n">' +
+						'<option value="1">1</option><option value="2">2</option>' +
+						'<option value="3">3</option><option value="4">4</option>' +
+					'</select></label> ' +
+				'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
 					'<button type="button" class="button button-primary" id="dze-one-apply" style="display:none;"></button> ' +
 					'<span class="dze-cx-state" id="dze-one-state"></span>' +
 				'</p>' +
@@ -1000,7 +1005,7 @@
 
 	function openOne(fid, mode, scope) {
 		oneBuild();
-		one = { fid: fid, mode: mode || 'text', value: '', url: '', tries: [], scope: scope || 'main' };
+		one = { fid: fid, mode: mode || 'text', value: '', tries: [], keep: {}, scope: scope || 'main' };
 		var label = mode === 'image'
 			? (one.scope === 'gallery' ? i18n.oneGallery : i18n.qmTitle)
 			: (cfg.fields[fid] || fid);
@@ -1014,6 +1019,8 @@
 		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : instrBlock());
 		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
 		if ('image' !== mode) { oneFillSettings(fid); }
+		// Asking for several at once is only offered where several make sense.
+		$('#dze-one-nwrap').toggle('image' === mode);
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
 			one.srcId = 0; one.paste = '';
@@ -1074,6 +1081,15 @@
 						'<option value="main">' + esc(i18n.toMain) + '</option>' +
 						'<option value="gallery_first">' + esc(i18n.toGalleryFirst) + '</option>' +
 						'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
+					'</select></label>' +
+				// Taking the main slot decides the fate of the image that held
+				// it. It was always pushed into the gallery; on a product whose
+				// old main image is a supplier shot you are replacing, that is
+				// the last place you want it.
+				'<label class="dze-qm-bglabel" id="dze-one-oldwrap"><span>' + esc(i18n.oldMain) + '</span>' +
+					'<select id="dze-one-oldmain">' +
+						'<option value="1">' + esc(i18n.oldKeep) + '</option>' +
+						'<option value="0">' + esc(i18n.oldDrop) + '</option>' +
 					'</select></label>' +
 				'<label id="dze-one-replacewrap" style="display:none;"><input type="checkbox" id="dze-one-replace" /> ' + esc(i18n.imgReplace) + '</label>' +
 			'</p>' +
@@ -1325,36 +1341,55 @@
 		var prompt = $('#dze-one-prompt').val() || '';
 
 		if (one.mode === 'image') {
-			$.post(cfg.ajaxUrl, {
-				action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-				paste: one.paste || '',
-				src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
-				bg: $('#dze-one-bg').val() || 0, prompt: prompt
-			})
-				.done(function (r) {
-					$b.prop('disabled', false);
-					if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
-					$st.text('');
-					// Every attempt is paid for: none of them is thrown away
-					// behind the next one. They line up and you compare.
-					one.tries = one.tries || [];
-					one.tries.push(r.data.url);
-					one.url = r.data.url;
-					// What the new image should be judged against depends on
-					// what is being made: the main image is replacing the main
-					// image, a gallery shot is not — there it is the photograph
-					// it was worked from that means something.
-					var ref = oneReference(r.data.main || '');
-					$('#dze-one-oldcap').text(ref.caption);
-					$('#dze-one-old').attr('src', ref.url).attr('data-full', ref.url)
-						.closest('figure').toggle(!!ref.url);
-					oneDrawTries();
-					$('#dze-one-pair').show();
-					$('#dze-one-dest').show();
-					$('#dze-one-gen').text(i18n.qmAgain);
-					$('#dze-one-apply').show().text(i18n.oneApply);
+			// Asking for several at once is one request after another, not four
+			// at the same time: the provider is billed per image and answers in
+			// its own time, and a burst of parallel calls is how a run trips the
+			// budget guard halfway through.
+			var want = Math.max(1, parseInt($('#dze-one-n').val(), 10) || 1);
+			var made = 0;
+			var shoot = function () {
+				$st.text(want > 1 ? sprintf(i18n.tryN, made + 1, want) : i18n.generating);
+				$.post(cfg.ajaxUrl, {
+					action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
+					paste: one.paste || '',
+					src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
+					bg: $('#dze-one-bg').val() || 0, prompt: prompt
 				})
-				.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+					.done(function (r) {
+						if (!r || !r.success) {
+							$b.prop('disabled', false);
+							$st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error);
+							return;
+						}
+						made++;
+						// Every attempt is paid for: none of them is thrown away
+						// behind the next one. They line up and you compare.
+						one.tries = one.tries || [];
+						one.tries.push(r.data.url);
+						// A fresh attempt arrives kept: the common case is to
+						// take what you just asked for, and unticking is one
+						// click when it is not.
+						one.keep[r.data.url] = true;
+						// What the new image should be judged against depends on
+						// what is being made: the main image is replacing the main
+						// image, a gallery shot is not — there it is the photograph
+						// it was worked from that means something.
+						var ref = oneReference(r.data.main || '');
+						$('#dze-one-oldcap').text(ref.caption);
+						$('#dze-one-old').attr('src', ref.url).attr('data-full', ref.url)
+							.closest('figure').toggle(!!ref.url);
+						oneDrawTries();
+						$('#dze-one-pair').show();
+						$('#dze-one-dest').show();
+						$('#dze-one-oldwrap').toggle('main' === ($('#dze-one-target').val() || 'main'));
+						$('#dze-one-gen').text(i18n.qmAgain);
+						if (made < want) { shoot(); return; }
+						$b.prop('disabled', false);
+						$st.text('');
+					})
+					.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+			};
+			shoot();
 			return;
 		}
 
@@ -1387,30 +1422,50 @@
 		}
 		return { url: '', caption: '' };
 	}
-	// The attempts, oldest first, the chosen one outlined. The zoom button of
-	// the shared viewer walks them full size, which is the only way to judge
-	// two versions of the same photograph.
+	// The attempts, oldest first, the kept ones ticked. Several can be kept at
+	// once: two good versions of the same shot are two photographs the product
+	// can use, and paying for both only to throw one away is a waste the screen
+	// used to impose. The zoom button of the shared viewer walks them full
+	// size, which is the only way to judge two versions of the same image.
+	function oneKept() {
+		return (one.tries || []).filter(function (u) { return one.keep[u]; });
+	}
 	function oneDrawTries() {
 		var $g = $('#dze-one-trygrid').empty();
 		(one.tries || []).forEach(function (u, i) {
 			$g.append(
 				$('<button type="button" class="dze-one-try"></button>')
-					.toggleClass('is-sel', u === one.url)
+					.toggleClass('is-sel', !!one.keep[u])
 					.attr('data-url', u)
 					.append(
 						$('<img />').attr('src', u).attr('data-full', u).attr('alt', ''),
-						$('<span class="dze-one-trynum"></span>').text(i + 1)
+						$('<span class="dze-one-trynum"></span>').text(i + 1),
+						$('<span class="dze-one-trytick">✓</span>')
 					)
 			);
 		});
 		$('#dze-one-trycap').text(
 			(one.tries || []).length > 1 ? sprintf(i18n.tryPick, (one.tries || []).length) : i18n.qmNew
 		);
+		oneApplyLabel();
 	}
+	// The button says what it is about to do, including when that is "keep
+	// none of these": an attempt refused has to leave the waiting list too,
+	// otherwise the product sits in the bulk screen for good.
+	function oneApplyLabel() {
+		var n = oneKept().length;
+		$('#dze-one-apply').show().text(
+			n ? (n > 1 ? sprintf(i18n.oneApplyN, n) : i18n.oneApply) : i18n.oneDropAll
+		);
+	}
+	$(document).on('change', '#dze-one-target', function () {
+		$('#dze-one-oldwrap').toggle('main' === $(this).val());
+	});
 	$(document).on('click', '.dze-one-try', function () {
-		one.url = String($(this).data('url'));
-		$('.dze-one-try').removeClass('is-sel');
-		$(this).addClass('is-sel');
+		var u = String($(this).data('url'));
+		one.keep[u] = !one.keep[u];
+		$(this).toggleClass('is-sel', !!one.keep[u]);
+		oneApplyLabel();
 	});
 
 	// The featured-image box and the product gallery, updated where they are.
@@ -1457,16 +1512,50 @@
 			loadCurrent().then(function () { drawCurrentImages(); oneDrawSources(); });
 		};
 		if (one.mode === 'image') {
+			var kept = oneKept();
+			var all  = (one.tries || []).slice();
+			// Deciding is deciding for the whole strip: what is ticked is
+			// written to the product, what is not is refused — and BOTH leave
+			// the waiting list. They used to be left behind, one attempt per
+			// generation, so a product worked on from its own page stayed
+			// flagged "to review" on the bulk screen for ever.
+			var settle = function (r, msg) {
+				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: all })
+					.always(function () {
+						one.tries = [];
+						one.keep = {};
+						oneDrawTries();
+						$('#dze-one-pair').hide();
+						$('#dze-one-dest').hide();
+						$('#dze-one-apply').hide();
+						$('#dze-one-gen').text(one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain);
+						done(r);
+						if (msg) { $st.text(msg); }
+					});
+			};
+			if (!kept.length) {
+				// Refusing is a decision like any other, and it throws away
+				// work already paid for: the bulk screen asks before it does,
+				// so this asks in the same words.
+				if (!window.confirm(i18n.confirmDrop)) { $b.prop('disabled', false); $st.text(''); return; }
+				settle({ success: true }, i18n.dropped);
+				return;
+			}
+			// Only one image can hold the main slot; the others asked for in the
+			// same breath join the gallery rather than fighting over it.
+			var want = $('#dze-one-target').val() || 'main';
+			var items = kept.map(function (u, i) {
+				return { url: u, target: (i && 'gallery' !== want) ? 'gallery' : want };
+			});
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
 				recipe: $('#dze-one-recipe').val() || cfg.mainRecipe || '',
-				items: [ { url: one.url, target: $('#dze-one-target').val() || 'main' } ],
+				items: items,
+				keep_old: $('#dze-one-oldmain').val() === '0' ? 0 : 1,
 				replace: $('#dze-one-replace').is(':checked') ? (one.srcId || 0) : 0
 			}).done(function (r) {
-				if (r && r.success) {
-					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ one.url ] });
-				}
-				done(r);
+				if (!r || !r.success) { done(r); return; }
+				settle(r);
 			}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 			return;
 		}

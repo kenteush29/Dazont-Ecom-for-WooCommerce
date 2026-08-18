@@ -166,6 +166,22 @@
 		refreshApplyBar();
 	}
 	$(document).on('change', '.dze-cb-pick', drawPicked);
+	// Shift+click ticks everything between the last box you touched and this
+	// one, the way every list in WordPress behaves. Picking twelve products out
+	// of forty was twelve clicks, and the run being about to cost money for
+	// each of them is exactly why the selection has to be easy to get right.
+	var lastPick = null;
+	$(document).on('click', '.dze-cb-pick', function (e) {
+		var $all = $('.dze-cb-pick:visible');
+		var here = $all.index(this);
+		if (e.shiftKey && null !== lastPick && here >= 0) {
+			var from = Math.min(lastPick, here), to = Math.max(lastPick, here);
+			var on = this.checked;
+			$all.slice(from, to + 1).prop('checked', on);
+			drawPicked();
+		}
+		lastPick = here;
+	});
 	$(document).on('change', '#dze-cb-all', function () {
 		$('.dze-cb-pick').prop('checked', this.checked);
 		drawPicked();
