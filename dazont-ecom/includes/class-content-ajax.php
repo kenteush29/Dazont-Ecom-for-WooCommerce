@@ -642,11 +642,12 @@ trait DZE_Content_Ajax {
 				$sources[] = $this->fal_source_data_uri( $plate );
 			}
 			$base = '' !== trim( $override ) ? $override : self::quick_prompt();
-			if ( '' === trim( $override ) && '' !== $recipe ) {
-				$row = self::registry_row( $recipe );
-				if ( $row && '' !== trim( (string) ( $row['prompt'] ?? '' ) ) ) {
-					$base = (string) $row['prompt'];
-				}
+			// The prompt row behind this run: it says where the image is meant
+			// to go and how its file is named, and both have to survive until
+			// the image is accepted — possibly on another screen.
+			$recipe_row = '' !== $recipe ? self::registry_row( $recipe ) : self::main_recipe();
+			if ( '' === trim( $override ) && $recipe_row && '' !== trim( (string) ( $recipe_row['prompt'] ?? '' ) ) ) {
+				$base = (string) $recipe_row['prompt'];
 			}
 			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
@@ -666,7 +667,11 @@ trait DZE_Content_Ajax {
 
 		// Kept with the product, like any other pending result: a closed tab
 		// does not lose the image that was just paid for.
-		self::stash( $pid, [ 'shot' => $image_url ] );
+		self::stash( $pid, [
+			'shot'   => $image_url,
+			'target' => $recipe_row ? ( ( ( $recipe_row['output'] ?? '' ) === 'main' ) ? 'main' : 'gallery' ) : 'main',
+			'recipe' => $recipe_row ? (string) ( $recipe_row['id'] ?? '' ) : '',
+		] );
 		$main = (int) get_post_thumbnail_id( $pid );
 		wp_send_json_success( [
 			'url'  => $image_url,
@@ -776,7 +781,11 @@ trait DZE_Content_Ajax {
 				// Toolbox flow: never auto-attach — the result joins the session
 				// gallery; a human selects what gets pushed to the product.
 				if ( ! empty( $_POST['stash'] ) ) {
-					self::stash( $pid, [ 'shot' => $image_url ] );
+					self::stash( $pid, [
+						'shot'   => $image_url,
+						'target' => (string) ( $tpl['target'] ?? 'gallery' ),
+						'recipe' => (string) ( $tpl['id'] ?? '' ),
+					] );
 				}
 				wp_send_json_success( [ 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
 			}

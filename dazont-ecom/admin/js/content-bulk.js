@@ -593,7 +593,7 @@
 			'<span class="dze-cb-shotstate"></span></div>');
 		b.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
-				shotCard(id, url, dest[url] || 'gallery')
+				shotCard(id, url, dest[url] || (b.shotTarget && b.shotTarget[url]) || 'gallery')
 					.find('.dze-cb-shot').toggleClass('is-sel', !dropped[url]).end()
 			);
 		});
@@ -838,6 +838,11 @@
 			(waiting.shots || []).forEach(function (url) {
 				if (b.shots.indexOf(url) < 0) { b.shots.push(url); }
 			});
+			// An image made AS THE MAIN IMAGE stays destined for the main slot
+			// wherever it is accepted. Without this the bulk screen fell back
+			// to "gallery" and a main image landed at the end of the gallery.
+			b.shotTarget = waiting.targets || {};
+			b.shotRecipe = waiting.recipes || {};
 			if (b.shots.length) { badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length); }
 			if (Object.keys(b.texts).length || b.shots.length) {
 				offerReview(id);
@@ -898,12 +903,16 @@
 				}
 				if (items.length) {
 					// The recipe behind the first kept image names the files.
-					var rec = (b.shotTpl && items.length) ? b.shotTpl[items[0].url] : '';
-					var recRow = (cfg.templates || [])[parseInt(rec, 10)];
-					shots.push({
-						id: id, items: items, $w: $w.length ? $w : $prev,
-						recipe: recRow ? recRow.id : ''
-					});
+					// The prompt that made the first kept image names the files.
+					// Restored shots carry their prompt id; ones generated in
+					// this session carry the index of the prompt that ran.
+					var first = items[0].url;
+					var rec = (b.shotRecipe && b.shotRecipe[first]) || '';
+					if (!rec && b.shotTpl) {
+						var row = (cfg.templates || [])[parseInt(b.shotTpl[first], 10)];
+						rec = row ? row.id : '';
+					}
+					shots.push({ id: id, items: items, $w: $w.length ? $w : $prev, recipe: rec });
 				}
 			}
 		});
