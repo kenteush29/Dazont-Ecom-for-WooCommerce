@@ -1038,6 +1038,16 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	font-size: 11px; line-height: 18px; text-align: center;
 }
 .dze-one-try.is-sel .dze-one-trynum { background: #2271b1; }
+/* Kept or not, said the same way as on the bulk strip: several attempts can
+   be kept at once, so each one carries its own tick rather than the strip
+   carrying a single outline. */
+.dze-one-trytick {
+	position: absolute; top: 4px; left: 4px; z-index: 2;
+	width: 18px; height: 18px; border-radius: 50%;
+	background: #fff; border: 1px solid #c3c4c7; color: transparent;
+	font-size: 11px; line-height: 16px; text-align: center;
+}
+.dze-one-try.is-sel .dze-one-trytick { background: #2271b1; border-color: #2271b1; color: #fff; }
 #dze-one-trycap { font-size: 11px; color: #646970; }
 
 /* The two halves of a request: the instructions, and the product data. */

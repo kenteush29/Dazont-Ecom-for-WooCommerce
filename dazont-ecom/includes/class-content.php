@@ -3357,7 +3357,7 @@ Answer with STRICT JSON and nothing else: "
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
 				'qmSource'   => __( 'Worked from', 'dazont-ecom' ),
 				/* translators: %s: number of attempts */
-				'tryPick'    => __( '%s attempts — click the one to keep', 'dazont-ecom' ),
+				'tryPick'    => __( '%s attempts — tick the ones to keep', 'dazont-ecom' ),
 				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
 				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),
 				'qmBgPlate'  => __( 'The shop backdrop', 'dazont-ecom' ),
@@ -3396,6 +3396,18 @@ Answer with STRICT JSON and nothing else: "
 				'oneGen'     => __( 'Write it', 'dazont-ecom' ),
 				'oneRedo'    => __( 'Write it again', 'dazont-ecom' ),
 				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
+				/* translators: %s: number of images kept */
+				'oneApplyN'  => __( 'Save these %s on the product', 'dazont-ecom' ),
+				'oneDropAll' => __( 'Throw these attempts away', 'dazont-ecom' ),
+				'dropped'    => __( 'Thrown away ✓', 'dazont-ecom' ),
+				// Several images in one go, and what becomes of the image the
+				// new main one replaces.
+				'howMany'    => __( 'How many', 'dazont-ecom' ),
+				/* translators: 1: attempt number, 2: attempts asked for */
+				'tryN'       => __( 'Generating %1$s of %2$s…', 'dazont-ecom' ),
+				'oldMain'    => __( 'Today\'s main image', 'dazont-ecom' ),
+				'oldKeep'    => __( 'goes to the gallery', 'dazont-ecom' ),
+				'oldDrop'    => __( 'leaves the product', 'dazont-ecom' ),
 				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
 				'shotsLabel' => __( 'Generated images — tick the ones to keep, then save', 'dazont-ecom' ),
 				'shotDrop'   => __( 'Throw this image away', 'dazont-ecom' ),
@@ -4068,7 +4080,14 @@ Answer with STRICT JSON and nothing else: "
 		return [ $slug, $shown ?: $title ];
 	}
 
-	public function sideload_seo( string $url, int $pid, string $target, string $recipe_id = '' ): int {
+	/**
+	 * @param bool $keep_old What becomes of the main image being replaced:
+	 *                       true moves it to the front of the gallery, false
+	 *                       takes it off the product. The file itself is never
+	 *                       deleted here — leaving a product and leaving the
+	 *                       library are two decisions.
+	 */
+	public function sideload_seo( string $url, int $pid, string $target, string $recipe_id = '', bool $keep_old = true ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -4111,8 +4130,9 @@ Answer with STRICT JSON and nothing else: "
 		$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
 		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 		if ( 'main' === $target ) {
-			// The replaced main image is never lost: it moves to the FRONT of the
-			// product gallery so it stays first among the secondary images. And an
+			// The replaced main image moves to the FRONT of the product gallery
+			// by default, so it stays first among the secondary images — unless
+			// the screen said to take it off the product. And an
 			// image cannot be the main one AND a gallery one — the shop would show
 			// it twice — so the newcomer leaves the gallery as it takes the top
 			// spot. The row is written even when there was no main image before,
@@ -4120,7 +4140,13 @@ Answer with STRICT JSON and nothing else: "
 			$old = (int) get_post_thumbnail_id( $pid );
 			$ids = array_values( array_diff( $ids, [ (int) $att_id ] ) );
 			if ( $old && $old !== (int) $att_id ) {
-				array_unshift( $ids, $old );
+				if ( $keep_old ) {
+					array_unshift( $ids, $old );
+				} else {
+					// Asked to go: off the product, but still in the library —
+					// a photograph leaving a page is not a photograph deleted.
+					$ids = array_values( array_diff( $ids, [ $old ] ) );
+				}
 			}
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
 			set_post_thumbnail( $pid, (int) $att_id );

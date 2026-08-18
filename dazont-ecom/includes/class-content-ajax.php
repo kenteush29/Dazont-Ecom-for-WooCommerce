@@ -935,6 +935,11 @@ trait DZE_Content_Ajax {
 		$waiting = self::pending( $pid );
 		if ( $shots ) {
 			$waiting['shots'] = array_values( array_diff( (array) ( $waiting['shots'] ?? [] ), $shots ) );
+			// What each image was made for and by which prompt goes with it:
+			// a settled image leaves nothing of itself behind in the row.
+			foreach ( $shots as $gone ) {
+				unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ] );
+			}
 		}
 		foreach ( $fields as $fid ) {
 			unset( $waiting['texts'][ $fid ], $waiting['companions'][ $fid ] );
@@ -999,6 +1004,9 @@ trait DZE_Content_Ajax {
 		$replace = isset( $_POST['replace'] ) ? absint( $_POST['replace'] ) : 0;
 		// Which prompt made these: it decides how the files are named.
 		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( (string) wp_unslash( $_POST['recipe'] ) ) : '';
+		// What becomes of the main image this one replaces: kept at the front of
+		// the gallery (the default) or taken off the product.
+		$keep_old = ! isset( $_POST['keep_old'] ) || ! empty( $_POST['keep_old'] );
 
 		// Each image says where IT goes. A single destination for the batch made
 		// "one of these is the main image, that one goes second" impossible to
@@ -1054,7 +1062,7 @@ trait DZE_Content_Ajax {
 				}
 			}
 			try {
-				$ids[] = $this->sideload_seo( $u, $pid, $t, $recipe );
+				$ids[] = $this->sideload_seo( $u, $pid, $t, $recipe, $keep_old );
 			} catch ( \Throwable $e ) {
 				$errors++;
 				$why[] = $e->getMessage();
