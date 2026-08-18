@@ -1328,6 +1328,22 @@ EOT;
 			$shots   = (array) ( $cur['shots'] ?? [] );
 			$shots[] = (string) $add['shot'];
 			$cur['shots'] = array_values( array_unique( $shots ) );
+			// What it was MADE for travels with it. An image generated as the
+			// main image and accepted later from the bulk screen used to land
+			// at the end of the gallery, because the screen that accepted it
+			// had no idea what it had been made for and fell back to "gallery".
+			if ( ! empty( $add['target'] ) ) {
+				$where = (array) ( $cur['targets'] ?? [] );
+				$where[ (string) $add['shot'] ] = (string) $add['target'];
+				$cur['targets'] = $where;
+			}
+			// The prompt that made it travels too: it names the file when the
+			// image is finally filed, wherever that happens.
+			if ( ! empty( $add['recipe'] ) ) {
+				$who = (array) ( $cur['recipes'] ?? [] );
+				$who[ (string) $add['shot'] ] = (string) $add['recipe'];
+				$cur['recipes'] = $who;
+			}
 		}
 		$cur['time'] = time();
 		update_post_meta( $pid, self::META_PENDING, $cur );
@@ -4035,7 +4051,11 @@ Answer with STRICT JSON and nothing else: "
 	 * @return array{0:string,1:string} slug, title
 	 */
 	public static function image_naming( int $pid, string $recipe_id = '' ): array {
-		$title   = get_the_title( $pid );
+		// get_the_title() comes back with WordPress's typography applied:
+		// curly quotes and dashes as HTML entities. Fine inside a page, wrong
+		// in an attachment title and in an alt text, where they are read as
+		// literal &#8220; by everything that is not a browser.
+		$title   = html_entity_decode( wp_strip_all_tags( (string) get_the_title( $pid ) ), ENT_QUOTES, 'UTF-8' );
 		$row     = '' !== $recipe_id ? self::registry_row( $recipe_id ) : null;
 		$recipe  = $row ? (string) ( $row['name'] ?? '' ) : '';
 		$fpat    = $row ? trim( (string) ( $row['file_name'] ?? '' ) ) : '';

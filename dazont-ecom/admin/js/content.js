@@ -556,7 +556,8 @@
 			'<div class="dze-cb-shotgrid dze-zoomgroup"></div><span class="dze-cb-shotstate"></span></div>');
 		res.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
-				shotCard(url, dest[url] || 'gallery').find('.dze-cb-shot').toggleClass('is-sel', !dropped[url]).end()
+				shotCard(url, dest[url] || (res.shotTarget && res.shotTarget[url]) || 'gallery')
+					.find('.dze-cb-shot').toggleClass('is-sel', !dropped[url]).end()
 			);
 		});
 		$slot.empty().append($wrap);
@@ -849,8 +850,11 @@
 		if (items.length) {
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID, items: items,
-				// The recipe that made them names the files it produced.
-				recipe: (res.shotTpl && items.length && res.shotTpl[items[0].url]) || ''
+				// The prompt that made them names the files it produced.
+				recipe: (items.length && (
+					(res.shotRecipe && res.shotRecipe[items[0].url]) ||
+					(res.shotTpl && res.shotTpl[items[0].url])
+				)) || ''
 			})
 				.done(function (r) {
 					if (r && r.success) {
@@ -887,6 +891,9 @@
 		res.texts = waiting.texts || {};
 		res.shotOf = waiting.companions || {};
 		res.shots = (waiting.shots || []).slice();
+		// What each waiting image was made for, and by which prompt.
+		res.shotTarget = waiting.targets || {};
+		res.shotRecipe = waiting.recipes || {};
 		res.open = {};
 		if (Object.keys(res.texts).length) { drawDrawers(); }
 		drawShots();
