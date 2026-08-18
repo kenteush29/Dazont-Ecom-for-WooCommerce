@@ -2847,13 +2847,25 @@ Answer with STRICT JSON and nothing else: "
 							<input type="checkbox" id="dze-cb-image" <?php disabled( ! empty( $dze_blockers ) ); ?> />
 							<span><?php esc_html_e( 'Generate images', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
 						</label>
+						<?php $dze_bscenes = self::scenes(); $dze_bdef = self::default_scene(); ?>
 						<div class="dze-cb-opts">
-							<!-- One prompt, plus a + to add a second when a product
-							     needs two kinds of shot. A checkbox list of every
-							     prompt was noise: most runs use one. -->
-							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+							<!-- One prompt per row, plus a + to add a second when a
+							     product needs two kinds of shot — and each row is a
+							     whole order: this prompt, on that scene, so many
+							     times. The scene and the count used to stand beside
+							     the FIRST row as if they belonged to the run, so a
+							     second prompt ran on a scene nobody had chosen for
+							     it and the screen offered no way to choose one. -->
+							<div class="dze-tplgrid">
+								<span class="dze-tplhead">
+									<span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+									<span></span>
+									<?php if ( $dze_bscenes ) : ?><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span><?php endif; ?>
+									<span><?php esc_html_e( 'Attempts', 'dazont-ecom' ); ?></span>
+									<span></span>
+								</span>
 								<span class="dze-tplrows" id="dze-cb-tplrows" data-name="dze-cb-tpl"></span>
-							</label>
+							</div>
 							<script type="text/template" id="dze-cb-tpltpl">
 								<span class="dze-tplrow">
 									<select class="dze-cb-tpl">
@@ -2862,35 +2874,25 @@ Answer with STRICT JSON and nothing else: "
 										<?php endforeach; ?>
 									</select>
 									<button type="button" class="dze-prompt-peek" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $valid_tpls[0]['id'] ?? '' ) ); ?>" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998;</button>
-									<button type="button" class="button button-small dze-tpl-add" title="<?php esc_attr_e( 'Add another image prompt to this run', 'dazont-ecom' ); ?>">+</button>
-									<button type="button" class="button button-small dze-tpl-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&minus;</button>
-								</span>
-							</script>
-							<?php $dze_bscenes = self::scenes(); ?>
-							<?php if ( $dze_bscenes ) : $dze_bdef = self::default_scene(); ?>
-								<label title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so the whole run comes back in the same setting.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
-									<select id="dze-cb-scene">
-										<option value="-1" <?php selected( -1, $dze_bdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
-										<?php foreach ( $dze_bscenes as $dze_si => $dze_sc ) : ?>
-											<option value="<?php echo (int) $dze_si; ?>" <?php selected( $dze_si, $dze_bdef ); ?>><?php echo esc_html( $dze_sc['name'] ); ?></option>
+									<?php if ( $dze_bscenes ) : ?>
+										<select class="dze-tpl-scene" title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so this prompt always comes back in the same setting.', 'dazont-ecom' ); ?>">
+											<option value="-1" <?php selected( -1, $dze_bdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
+											<?php foreach ( $dze_bscenes as $dze_si => $dze_sc ) : ?>
+												<option value="<?php echo (int) $dze_si; ?>" <?php selected( $dze_si, $dze_bdef ); ?>><?php echo esc_html( $dze_sc['name'] ); ?></option>
+											<?php endforeach; ?>
+										</select>
+									<?php endif; ?>
+									<select class="dze-tpl-n" title="<?php esc_attr_e( 'Attempts for this prompt, on each product — you keep the good ones at review time.', 'dazont-ecom' ); ?>">
+										<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
+											<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
 										<?php endforeach; ?>
 									</select>
-								</label>
-							<?php endif; ?>
-							<label title="<?php esc_attr_e( 'Attempts per prompt and per product — you keep the good ones at review time.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'Attempts', 'dazont-ecom' ); ?></span>
-								<select id="dze-cb-imgn">
-									<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
-										<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
-									<?php endforeach; ?>
-								</select>
-							</label>
-							<label title="<?php esc_attr_e( 'How many products are worked on at the same time. Higher is faster; too high and your own server, or the provider, starts refusing requests.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'In parallel', 'dazont-ecom' ); ?></span>
-								<select id="dze-cb-par">
-									<?php foreach ( [ 1, 2, 3, 4, 6 ] as $dze_p ) : ?>
-										<option value="<?php echo (int) $dze_p; ?>" <?php selected( 3, $dze_p ); ?>><?php echo (int) $dze_p; ?> <?php echo 1 === $dze_p ? esc_html__( 'product', 'dazont-ecom' ) : esc_html__( 'products', 'dazont-ecom' ); ?></option>
-									<?php endforeach; ?>
-								</select>
-							</label>
+									<span class="dze-tplbtns">
+										<button type="button" class="button button-small dze-tpl-add" title="<?php esc_attr_e( 'Add another image prompt to this run', 'dazont-ecom' ); ?>">+</button>
+										<button type="button" class="button button-small dze-tpl-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&minus;</button>
+									</span>
+								</span>
+							</script>
 						</div>
 					<?php else : ?>
 						<p class="description"><?php esc_html_e( 'No validated image prompt yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></p>
@@ -2906,6 +2908,16 @@ Answer with STRICT JSON and nothing else: "
 
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
+					<!-- How fast the RUN goes, not how the images are made: it sat
+					     among the image settings, where it read as one more thing
+					     the first prompt did. -->
+					<label class="dze-cb-par" title="<?php esc_attr_e( 'How many products are worked on at the same time. Higher is faster; too high and your own server, or the provider, starts refusing requests.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'In parallel', 'dazont-ecom' ); ?></span>
+						<select id="dze-cb-par">
+							<?php foreach ( [ 1, 2, 3, 4, 6 ] as $dze_p ) : ?>
+								<option value="<?php echo (int) $dze_p; ?>" <?php selected( 3, $dze_p ); ?>><?php echo (int) $dze_p; ?> <?php echo 1 === $dze_p ? esc_html__( 'product', 'dazont-ecom' ) : esc_html__( 'products', 'dazont-ecom' ); ?></option>
+							<?php endforeach; ?>
+						</select>
+					</label>
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
 				</p>
 				<p id="dze-cb-progress" class="description"></p>
@@ -3184,6 +3196,11 @@ Answer with STRICT JSON and nothing else: "
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
 					'confirmDropAll' => __( 'Throw away everything waiting on the products listed here? What was generated cannot be recovered — the products themselves are not modified.', 'dazont-ecom' ),
+					// What becomes of the image holding the main slot, asked on
+					// the strip that is about to replace it.
+					'oldMain'     => __( 'Today\'s main image', 'dazont-ecom' ),
+					'oldKeep'     => __( 'goes to the gallery', 'dazont-ecom' ),
+					'oldDrop'     => __( 'leaves the product', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
@@ -3366,6 +3383,7 @@ Answer with STRICT JSON and nothing else: "
 				// the same words for it.
 				'costLabel'  => __( 'Cost', 'dazont-ecom' ),
 				'attempts'   => __( 'Attempts', 'dazont-ecom' ),
+				'attemptsHelp' => __( 'Attempts for this prompt — you keep the good ones once you have seen them.', 'dazont-ecom' ),
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
 				'applyOne'   => __( 'Apply to the product', 'dazont-ecom' ),
 				'redoAll'    => __( 'Write every text again', 'dazont-ecom' ),

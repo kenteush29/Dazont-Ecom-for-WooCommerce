@@ -772,6 +772,27 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tplrow { display: inline-flex; align-items: center; gap: 4px; }
 .dze-tplrow select { min-width: 190px; }
 .dze-tplrow .button { min-width: 28px; padding: 0 6px; text-align: center; }
+/* A row of image settings is a whole order — prompt, scene, attempts — so the
+   rows line up in columns under one set of headings, instead of the first row
+   sitting beside settings that looked like its own. */
+.dze-tplgrid .dze-tplhead,
+.dze-tplgrid .dze-tplrow {
+	display: grid;
+	grid-template-columns: minmax(200px, 300px) 30px auto auto auto;
+	gap: 4px 8px; align-items: center;
+}
+.dze-tplgrid .dze-tplrows { display: flex; flex-direction: column; gap: 4px; }
+.dze-tplgrid .dze-tplhead > span {
+	font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em;
+}
+.dze-tplgrid .dze-tplrow select { min-width: 0; width: 100%; }
+.dze-tplbtns { display: flex; gap: 4px; }
+/* How fast the run goes, next to the button that starts it. */
+.dze-cb-par { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.dze-cb-par > span { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
+/* What becomes of today's main image, in the head of the strip that decides it. */
+.dze-cb-oldmain { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.dze-cb-oldmain > span { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
 #dze-au-tplrows { margin: 2px 0 8px 26px; }
 
 /* ---- The bulk list is editable ---- */

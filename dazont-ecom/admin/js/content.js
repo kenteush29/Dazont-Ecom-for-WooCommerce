@@ -65,7 +65,50 @@
 	function tplUsed() {
 		return $('#dze-cx-tplrows .dze-cx-tpl').map(function () { return $(this).val(); }).get();
 	}
-	function tplRow(sel) {
+	// A row is a whole order: this prompt, on that scene, so many times. The
+	// scene and the count used to stand beside the FIRST row as if they were
+	// the run's own settings — a second prompt then ran on a scene nobody had
+	// chosen for it, and the screen showed no way to choose one.
+	function tplJobs() {
+		return $('#dze-cx-tplrows .dze-tplrow').map(function () {
+			var $r = $(this);
+			return {
+				tpl: String($r.find('.dze-cx-tpl').val()),
+				scene: $r.find('.dze-tpl-scene').length ? parseInt($r.find('.dze-tpl-scene').val(), 10) : -1,
+				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1
+			};
+		}).get();
+	}
+	function jobFor(tpl) {
+		var found = null;
+		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
+		return found || { tpl: String(tpl), scene: defaultScene(), n: 1 };
+	}
+	function defaultScene() {
+		var m = mem();
+		var scenes = cfg.scenes || [];
+		var cur = (m.scene !== undefined && m.scene !== null) ? parseInt(m.scene, 10) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
+		if (cur >= scenes.length) { cur = scenes.length ? 0 : -1; }
+		return cur;
+	}
+	function sceneSelect(cur) {
+		var scenes = cfg.scenes || [];
+		if (!scenes.length) { return ''; }
+		if (cur === undefined || cur === null || isNaN(cur)) { cur = defaultScene(); }
+		return '<select class="dze-tpl-scene" title="' + esc(i18n.sceneHelp) + '">' +
+			'<option value="-1"' + (cur < 0 ? ' selected' : '') + '>' + esc(i18n.noScene) + '</option>' +
+			scenes.map(function (s, i) {
+				return '<option value="' + i + '"' + (cur === i ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+			}).join('') + '</select>';
+	}
+	function nSelect(cur) {
+		cur = parseInt(cur, 10) || 1;
+		return '<select class="dze-tpl-n" title="' + esc(i18n.attemptsHelp) + '">' +
+			[1, 2, 3, 4].map(function (n) {
+				return '<option value="' + n + '"' + (cur === n ? ' selected' : '') + '>× ' + n + '</option>';
+			}).join('') + '</select>';
+	}
+	function tplRow(sel, scene, n) {
 		var opts = cfg.templates.map(function (t, i) {
 			return '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
 				esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
@@ -73,8 +116,17 @@
 		var cur = cfg.templates[parseInt(sel, 10)] || cfg.templates[0] || {};
 		return '<span class="dze-tplrow"><select class="dze-cx-tpl">' + opts + '</select>' +
 			promptBtn(cur.id) +
+			sceneSelect(scene) + nSelect(n) +
+			'<span class="dze-tplbtns">' +
 			'<button type="button" class="button button-small dze-cx-tpladd" title="' + esc(i18n.addPrompt) + '">+</button>' +
-			'<button type="button" class="button button-small dze-cx-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span>';
+			'<button type="button" class="button button-small dze-cx-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span></span>';
+	}
+	// The column names, printed once above the rows rather than repeated on
+	// each of them.
+	function tplHead() {
+		return '<span class="dze-tplhead"><span>' + esc(i18n.template) + '</span><span></span>' +
+			((cfg.scenes || []).length ? '<span>' + esc(i18n.scene) + '</span>' : '') +
+			'<span>' + esc(i18n.attempts) + '</span><span></span></span>';
 	}
 	// A + that cannot add anything is a lie: it only shows while an unused
 	// prompt is left, and the row it creates lands on one of those.
@@ -94,7 +146,7 @@
 		return 0;
 	}
 	$(document).on('click', '.dze-cx-tpladd', function () {
-		$('#dze-cx-tplrows').append(tplRow(firstFreeTpl()));
+		$('#dze-cx-tplrows').append(tplRow(firstFreeTpl(), defaultScene(), 1));
 		syncTplRows();
 		remember();
 	});
@@ -131,10 +183,13 @@
 			fields: $('.dze-cx-f:checked').map(function () { return $(this).val(); }).get(),
 			price: $('#dze-cx-doprice').is(':checked') ? 1 : 0,
 			img: $('#dze-cx-doimg').is(':checked') ? 1 : 0,
-			tpls: tplUsed(),
-			imgn: parseInt($('#dze-cx-imgn').val(), 10) || 1
+			tpls: tplJobs()
 		};
-		if ($('#dze-cx-scene').length) { m.scene = parseInt($('#dze-cx-scene').val(), 10); }
+		// The scene of the first row is the one every screen starts from: pick
+		// a support once and the toolbox, the bulk screen and the next popup
+		// all open on it.
+		var first = tplJobs()[0];
+		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
 		saveMem(m);
 	}
 
@@ -209,9 +264,6 @@
 	function build() {
 		if ($('#dze-cx-modal').length) { return; }
 		var m = mem(), au = m.auto || {};
-		var scenes = cfg.scenes || [];
-		var sceneCur = (m.scene !== undefined && m.scene !== null) ? parseInt(m.scene, 10) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
-		if (sceneCur >= scenes.length) { sceneCur = scenes.length ? 0 : -1; }
 
 		var checks = Object.keys(cfg.fields).map(function (fid) {
 			var on = au.fields ? au.fields.indexOf(fid) >= 0 : true;
@@ -227,14 +279,6 @@
 				'<input type="checkbox" class="dze-cx-f" value="' + fid + '"' + (on ? ' checked' : '') + ' />' +
 				'<span>' + esc(cfg.fields[fid]) + (ok ? '' : ' 🔒') + '</span></label>' + promptBtn(fid) + '</span>';
 		}).join('');
-
-		var sceneSel = scenes.length
-			? '<label><span>' + esc(i18n.scene) + '</span><select id="dze-cx-scene">' +
-				'<option value="-1"' + (sceneCur < 0 ? ' selected' : '') + '>' + esc(i18n.noScene) + '</option>' +
-				scenes.map(function (s, i) {
-					return '<option value="' + i + '"' + (sceneCur === i ? ' selected' : '') + '>' + esc(s.name) + '</option>';
-				}).join('') + '</select></label>'
-			: '';
 
 		var blockers = (cfg.blockers && cfg.blockers.length)
 			? '<div class="dze-cx-blocked"><strong>' + esc(i18n.blocked) + '</strong><ul>' +
@@ -273,11 +317,9 @@
 							'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
 							'<span>' + esc(i18n.genImgOpt) + '</span></label>' +
 							'<div class="dze-cb-opts">' +
-								'<label><span>' + esc(i18n.template) + '</span><span class="dze-tplrows" id="dze-cx-tplrows"></span></label>' +
-								sceneSel +
-								'<label><span>' + esc(i18n.attempts) + '</span><select id="dze-cx-imgn">' +
-									[1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + ((au.imgn || 1) === n ? ' selected' : '') + '>× ' + n + '</option>'; }).join('') +
-								'</select></label>' +
+								'<div class="dze-tplgrid">' + tplHead() +
+									'<span class="dze-tplrows" id="dze-cx-tplrows"></span>' +
+								'</div>' +
 							'</div>' +
 						'</div>' : '')
 					) +
@@ -321,10 +363,16 @@
 			'</div>' +
 		'</div></div>');
 
+		// What was remembered may be the old shape — a plain prompt index, from
+		// the days when the scene and the count belonged to the run. It is read
+		// as a row with the run's old settings, so nothing is lost on the way.
 		var saved = Array.isArray(au.tpls) && au.tpls.length ? au.tpls : [ 0 ];
-		saved.forEach(function (v) { $('#dze-cx-tplrows').append(tplRow(v)); });
+		saved.forEach(function (v) {
+			var row = (v && typeof v === 'object') ? v : { tpl: v, scene: defaultScene(), n: au.imgn || 1 };
+			$('#dze-cx-tplrows').append(tplRow(row.tpl, row.scene, row.n));
+		});
 		syncTplRows();
-		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, #dze-cx-imgn, #dze-cx-scene', remember);
+		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, .dze-tpl-scene, .dze-tpl-n', remember);
 	}
 
 	function open(pid) {
@@ -552,7 +600,7 @@
 		});
 		var $wrap = $('<div class="dze-cb-shots">' +
 			'<div class="dze-cb-shothead"><span class="dze-cb-nowlabel">' + esc(i18n.shotsLabel) + '</span>' +
-				more + '</div>' +
+				more + oldMainPicker() + '</div>' +
 			'<div class="dze-cb-shotgrid dze-zoomgroup"></div><span class="dze-cb-shotstate"></span></div>');
 		res.shots.forEach(function (url) {
 			$wrap.find('.dze-cb-shotgrid').append(
@@ -561,7 +609,29 @@
 			);
 		});
 		$slot.empty().append($wrap);
+		syncOldMain($slot);
 		$('#dze-cx-result').show();
+	}
+	// What becomes of the image that holds the main slot today, asked where the
+	// decision is made and only when it arises: it shows the moment one of
+	// these shots is headed for the main image, and nowhere else. The choice
+	// existed in the small popup and nowhere else, so accepting a main image
+	// from here always pushed the old one into the gallery.
+	function oldMainPicker() {
+		return '<label class="dze-cb-oldmain" style="display:none;"><span>' + esc(i18n.oldMain) + '</span>' +
+			'<select class="dze-cb-oldsel">' +
+				'<option value="1">' + esc(i18n.oldKeep) + '</option>' +
+				'<option value="0">' + esc(i18n.oldDrop) + '</option>' +
+			'</select></label>';
+	}
+	function syncOldMain($scope) {
+		var $box = $scope && $scope.length ? $scope : $('#dze-cx-shots');
+		var main = $box.find('.dze-cb-shotdest').filter(function () { return 'main' === $(this).val(); }).length > 0;
+		$box.find('.dze-cb-oldmain').toggle(main);
+	}
+	function keepOld($scope) {
+		var $sel = ($scope && $scope.length ? $scope : $('#dze-cx-shots')).find('.dze-cb-oldsel');
+		return ($sel.length && '0' === $sel.val()) ? 0 : 1;
 	}
 	$(document).on('click', '#dze-cx-shots .dze-cb-shot', function () { $(this).toggleClass('is-sel'); });
 	// One click walks the three destinations. Only one image can be the main
@@ -573,7 +643,7 @@
 		var next = order[(order.indexOf($in.val()) + 1) % order.length];
 		$in.val(next);
 		$(this).text(destLabel(next));
-		if ('main' !== next) { return; }
+		if ('main' !== next) { syncOldMain($('#dze-cx-shots')); return; }
 		var $me = $in;
 		$('#dze-cx-shots .dze-cb-shotdest').not($me).each(function () {
 			if ($(this).val() === 'main') {
@@ -581,6 +651,7 @@
 				$(this).closest('.dze-cb-shot').find('.dze-cb-shotpos').text(destLabel('gallery'));
 			}
 		});
+		syncOldMain($('#dze-cx-shots'));
 	});
 	// A fresh attempt at THIS image, with the recipe that made it: the new one
 	// takes its place in the strip instead of piling up next to it.
@@ -621,14 +692,14 @@
 	function status(text, bad) {
 		$('#dze-cx-runstate').toggleClass('is-ko', !!bad).html(text || '');
 	}
-	function imageRequest(tpl) {
+	function imageRequest(tpl, scene) {
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: PID, template: tpl, mode: 'defer', stash: 1 };
-		var $sc = $('#dze-cx-scene');
-		if ($sc.length) { data.scene = parseInt($sc.val(), 10); }
+		if (scene === undefined) { scene = jobFor(tpl).scene; }
+		if ((cfg.scenes || []).length) { data.scene = scene; }
 		return data;
 	}
-	function genImage(tpl) {
-		return $.post(cfg.ajaxUrl, imageRequest(tpl))
+	function genImage(tpl, scene) {
+		return $.post(cfg.ajaxUrl, imageRequest(tpl, scene))
 			.then(function (r) {
 				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
 				res.shots.push(r.data.url);
@@ -680,7 +751,6 @@
 		var fids = $('.dze-cx-f:checked').map(function () { return $(this).val(); }).get();
 		var doPrice = $('#dze-cx-doprice').is(':checked');
 		var doImg = $('#dze-cx-doimg').is(':checked') && cfg.templates.length;
-		var n = parseInt($('#dze-cx-imgn').val(), 10) || 1;
 		remember();
 		if (!fids.length && !doPrice && !doImg) {
 			$btn.prop('disabled', false);
@@ -712,16 +782,15 @@
 			});
 		}
 		if (doImg) {
-			var list = tplUsed();
-			list.forEach(function (tpl, ti) {
-				var name = (cfg.templates[parseInt(tpl, 10)] || {}).name || '';
-				for (var k = 0; k < n; k++) {
+			tplJobs().forEach(function (job) {
+				var name = (cfg.templates[parseInt(job.tpl, 10)] || {}).name || '';
+				for (var k = 0; k < job.n; k++) {
 					(function (attempt) {
 						steps.push({
-							label: n > 1
-								? sprintf(i18n.stepImageN, name, attempt, n)
+							label: job.n > 1
+								? sprintf(i18n.stepImageN, name, attempt, job.n)
 								: sprintf(i18n.stepImage, name),
-							run: function () { return genImage(tpl); }
+							run: function () { return genImage(job.tpl, job.scene); }
 						});
 					}(k + 1));
 				}
@@ -850,6 +919,7 @@
 		if (items.length) {
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID, items: items,
+				keep_old: keepOld($('#dze-cx-shots')),
 				// The prompt that made them names the files it produced.
 				recipe: (items.length && (
 					(res.shotRecipe && res.shotRecipe[items[0].url]) ||
