@@ -197,9 +197,21 @@
 	}
 	// The screen shows what the server holds, not what it hoped the server
 	// would hold: rows only leave once the list has really been rewritten.
+	//
+	// WHICH list, though, depends on what is on screen. On the waiting view the
+	// rows are the products holding content nobody has decided on — they were
+	// never in the selection, so rewriting the selection left every row exactly
+	// where it was, and "Remove from the list" and "Empty the whole list" both
+	// looked broken. There, leaving the list means refusing what is waiting.
+	function waiting() { return 'pending' === (cfg.mode || 'selection'); }
 	function unqueue(ids, $b) {
+		if (!ids.length) { return; }
+		if (waiting() && !window.confirm(i18n.confirmDrop)) { return; }
 		if ($b) { $b.prop('disabled', true); }
-		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids })
+		var req = waiting()
+			? { action: 'dze_content_pending_clear', nonce: cfg.nonce, posts: ids }
+			: { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids };
+		$.post(cfg.ajaxUrl, req)
 			.done(function (res) {
 				if (res && res.success) { dropRows(ids); }
 				else { window.alert((res && res.data && res.data.message) || i18n.error); }
@@ -208,14 +220,17 @@
 			.always(function () { if ($b) { $b.prop('disabled', false); } });
 	}
 	$('#dze-cb-unqueue').on('click', function () {
-		var ids = picked();
-		if (!ids.length) { return; }
-		unqueue(ids, $(this));
+		unqueue(picked(), $(this));
 	});
 	$('#dze-cb-clearlist').on('click', function () {
-		if (!window.confirm(i18n.confirmClear)) { return; }
-		$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'clear' })
-			.always(function () { window.location.reload(); });
+		if (!window.confirm(waiting() ? i18n.confirmDropAll : i18n.confirmClear)) { return; }
+		var req = waiting()
+			? {
+				action: 'dze_content_pending_clear', nonce: cfg.nonce,
+				posts: $('.dze-cb-row').map(function () { return $(this).data('id'); }).get()
+			}
+			: { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'clear' };
+		$.post(cfg.ajaxUrl, req).always(function () { window.location.reload(); });
 	});
 	// One product out, from its own line.
 	$(document).on('click', '.dze-cb-unqueue-one', function () {

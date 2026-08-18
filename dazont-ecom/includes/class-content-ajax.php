@@ -924,6 +924,19 @@ trait DZE_Content_Ajax {
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$shots  = isset( $_POST['shots'] ) ? array_map( 'esc_url_raw', (array) wp_unslash( $_POST['shots'] ) ) : [];
 		$fields = isset( $_POST['fields'] ) ? array_map( 'sanitize_key', (array) wp_unslash( $_POST['fields'] ) ) : [];
+		// Several products at once, for the screen that lists what is waiting:
+		// emptying that list is refusing each row, and one request per row on a
+		// list of a hundred is a hundred round trips for one decision.
+		$posts = isset( $_POST['posts'] )
+			? array_values( array_filter( array_map( 'absint', (array) wp_unslash( $_POST['posts'] ) ) ) )
+			: [];
+		if ( $posts ) {
+			foreach ( $posts as $one ) {
+				delete_post_meta( $one, self::META_PENDING );
+			}
+			delete_transient( 'dze_pending_count' );
+			wp_send_json_success( [ 'cleared' => count( $posts ), 'waiting' => self::pending_count() ] );
+		}
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
 		}
