@@ -461,6 +461,10 @@
 	$(document).on('click', '.dze-content-open', function () { open($(this).data('id')); });
 	$(document).on('click', '.dze-cx-close', function () { $('#dze-cx-modal').removeClass('is-open'); });
 	$(document).on('click', '#dze-cx-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
+	// Leaving a popup that wrote something this page cannot show: the reload is
+	// taken care of, unless the page is carrying edits of its own.
+	$(document).on('click', '.dze-cx-close, .dze-hub-close', function () { window.setTimeout(reloadIfIdle, 60); });
+	$(document).on('click', '.dze-cx-modal', function (e) { if (e.target === this) { window.setTimeout(reloadIfIdle, 60); } });
 
 	// =====================================================================
 	// Drawers — same as the bulk panel
@@ -958,13 +962,20 @@
 			return;
 		}
 
+		rememberClean();
 		function texts(i) {
 			if (i >= fids.length) { return finish(); }
-			var fid = fids[i];
-			$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: PID, field: fid, value: valueOf(fid) })
+			var fid = fids[i], value = valueOf(fid);
+			$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: PID, field: fid, value: value })
 				.done(function (r) {
 					var $s = $('#dze-cx-drawers .dze-cb-fblock[data-field="' + fid + '"]').find('.dze-cb-fstate');
-					if (r && r.success) { ok++; $s.removeClass('is-ko').text('✓'); }
+					if (r && r.success) {
+						ok++;
+						$s.removeClass('is-ko').text('✓');
+						// Written to the product AND to the page, so what is on
+						// screen is what the shop holds.
+						if (!applyToPage(fid, value)) { res.needsReload = true; }
+					}
 					else { ko++; $s.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); }
 				})
 				.fail(function () { ko++; })
@@ -974,6 +985,7 @@
 			$btn.prop('disabled', false);
 			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
 			$st.text(i18n.applied);
+			if (res.needsReload) { sayReload($st.parent()); }
 			// Only what was just written stops waiting. An image generated and
 			// left undecided is still there the next time the popup opens.
 			$.post(cfg.ajaxUrl, {
@@ -1230,6 +1242,12 @@
 					'<input type="file" accept="image/*" class="dze-qm-file" hidden />' +
 						'<img id="dze-one-src" alt="" style="display:none;" />' +
 					'</div>' +
+					// An image from elsewhere is the subject, not the whole
+					// brief: the product\'s own photographs say what its back,
+					// its lining and its material look like, and they travel
+					// with it unless you say otherwise.
+					'<label class="dze-one-withprod"><input type="checkbox" id="dze-one-withprod" checked /> ' +
+						esc(i18n.withProduct) + '</label>' +
 				'</div>' +
 			'</div>' +
 
@@ -1505,6 +1523,7 @@
 				$.post(cfg.ajaxUrl, {
 					action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 					paste: one.paste || '',
+					with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 					src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 					bg: $('#dze-one-bg').val() || 0, prompt: prompt
 				})
@@ -1956,6 +1975,71 @@
 		oneApplyLabel();
 	});
 
+	// ---- What the page itself shows, after we have written to the database ----
+	//
+	// A generated text was saved and the page went on showing the old one. That
+	// is not only a display gap: the product form still HELD the old value, so
+	// pressing Update wrote it straight back over what had just been written.
+	// So every result goes into the very field of the page it was saved into,
+	// and what has no field on screen — SEO meta, custom blocks, attributes —
+	// is named honestly with one button to reload.
+	var pageWasClean = null;
+	function postChanged() {
+		try {
+			return !!(window.wp && wp.autosave && wp.autosave.server && wp.autosave.server.postChanged());
+		} catch (e) { return true; }
+	}
+	function rememberClean() {
+		if (null === pageWasClean) { pageWasClean = !postChanged(); }
+	}
+	// Returns true when the page now shows it.
+	function applyToPage(fid, value) {
+		var dest = (cfg.dests || {})[fid] || '';
+		if ('post_title' === dest) {
+			var $t = $('#title');
+			if (!$t.length) { return false; }
+			$t.val(value).trigger('input').trigger('change');
+			$('#title-prompt-text').addClass('screen-reader-text');
+			return true;
+		}
+		if ('post_content' === dest) {
+			var ed = window.tinymce && tinymce.get('content');
+			if (ed && !ed.isHidden()) { ed.setContent(value); ed.fire('change'); return true; }
+			var $c = $('#content');
+			if ($c.length) { $c.val(value).trigger('change'); return true; }
+			return false;
+		}
+		if ('post_excerpt' === dest) {
+			var ed2 = window.tinymce && tinymce.get('excerpt');
+			if (ed2 && !ed2.isHidden()) { ed2.setContent(value); ed2.fire('change'); return true; }
+			var $e = $('#excerpt');
+			if ($e.length) { $e.val(value).trigger('change'); return true; }
+			return false;
+		}
+		// SEO meta, custom fields, attributes: written, but with no field of
+		// their own on this page to write into.
+		return false;
+	}
+	// Said once, where the work was done, with the only honest way out of it.
+	function sayReload($where) {
+		if (!$where || !$where.length || $where.find('.dze-reload').length) { return; }
+		$where.append(
+			$('<span class="dze-reload-wrap"></span>').append(
+				$('<span class="dze-reload-msg"></span>').text(i18n.reloadWhy),
+				$('<button type="button" class="button button-small dze-reload"></button>').text(i18n.reloadNow)
+			)
+		);
+	}
+	$(document).on('click', '.dze-reload', function () { window.location.reload(); });
+	// Closing the popup on a page that has nothing unsaved: the reload is taken
+	// care of rather than asked for. A page carrying edits is never reloaded
+	// from under its owner.
+	function reloadIfIdle() {
+		if (!res.needsReload) { return; }
+		if (false === pageWasClean || postChanged()) { return; }
+		window.location.reload();
+	}
+
 	// The featured-image box and the product gallery, updated where they are.
 	// The featured box comes back as WordPress's own markup from WordPress's
 	// own function; the gallery items are cloned from the ones WooCommerce
@@ -2049,9 +2133,16 @@
 		}
 		var val = (window.tinymce && tinymce.get(ONE_ED) && !tinymce.get(ONE_ED).isHidden())
 			? tinymce.get(ONE_ED).getContent() : ($('#' + ONE_ED).val() || one.value);
+		rememberClean();
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_content_apply', nonce: cfg.nonce, post: PID, field: one.fid, value: val
-		}).done(done).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+		}).done(function (r) {
+			if (r && r.success && !applyToPage(one.fid, val)) {
+				res.needsReload = true;
+				sayReload($('#dze-one .dze-one-bar'));
+			}
+			done(r);
+		}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
 	});
 
 	// The instructions, kept for good when they are right.

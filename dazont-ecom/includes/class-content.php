@@ -3560,6 +3560,14 @@ Answer with STRICT JSON and nothing else: "
 			// The native WordPress block each prompt writes into: the button to
 			// write just that block is placed there, next to the field itself,
 			// rather than only inside the big popup.
+			// What each prompt WRITES, so a result can be put back into the very
+			// field of the page it was just saved into. Without this the page
+			// kept showing the old text — and, worse, hitting Update wrote that
+			// old text straight back over what had just been generated.
+			'dests'      => array_map(
+				static fn( $f ) => (string) ( $f['dest'] ?? '' ),
+				self::enabled_fields()
+			),
 			'anchors'    => array_filter( array_map(
 				static function ( $f ) {
 					// Rank Math and Yoast each draw their own box; the gallery
@@ -3685,6 +3693,7 @@ Answer with STRICT JSON and nothing else: "
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
 				'qmPasted'   => __( 'Image ready ✓', 'dazont-ecom' ),
+				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
 				'pvFrom'     => __( 'Cost from', 'dazont-ecom' ),
@@ -3715,6 +3724,11 @@ Answer with STRICT JSON and nothing else: "
 				'oneGen'     => __( 'Write it', 'dazont-ecom' ),
 				'oneRedo'    => __( 'Write it again', 'dazont-ecom' ),
 				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
+				// What the page cannot show by itself: SEO fields, custom
+				// blocks, attributes. Written, but not on screen until it is
+				// read again.
+				'reloadWhy'  => __( 'Saved — this page cannot show it until it is loaded again.', 'dazont-ecom' ),
+				'reloadNow'  => __( 'Reload the page', 'dazont-ecom' ),
 				/* translators: %s: number of images kept */
 				'oneApplyN'  => __( 'Save these %s on the product', 'dazont-ecom' ),
 				'oneDropAll' => __( 'Throw these attempts away', 'dazont-ecom' ),
