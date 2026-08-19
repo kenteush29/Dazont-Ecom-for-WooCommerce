@@ -75,14 +75,15 @@
 			return {
 				tpl: String($r.find('.dze-cx-tpl').val()),
 				scene: $r.find('.dze-tpl-scene').length ? parseInt($r.find('.dze-tpl-scene').val(), 10) : -1,
-				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1
+				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1,
+				target: $r.find('.dze-tpl-target').val() || 'gallery'
 			};
 		}).get();
 	}
 	function jobFor(tpl) {
 		var found = null;
 		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
-		return found || { tpl: String(tpl), scene: defaultScene(), n: 1 };
+		return found || { tpl: String(tpl), scene: defaultScene(), n: 1, target: 'gallery' };
 	}
 	function defaultScene() {
 		var m = mem();
@@ -101,6 +102,13 @@
 				return '<option value="' + i + '"' + (cur === i ? ' selected' : '') + '>' + esc(s.name) + '</option>';
 			}).join('') + '</select>';
 	}
+	function targetSelect(cur) {
+		var opts = [ [ 'main', i18n.toMain ], [ 'gallery_first', i18n.toGalleryFirst ], [ 'gallery', i18n.toGallery ] ];
+		return '<select class="dze-tpl-target" title="' + esc(i18n.putHelp) + '">' +
+			opts.map(function (o) {
+				return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+			}).join('') + '</select>';
+	}
 	function nSelect(cur) {
 		cur = parseInt(cur, 10) || 1;
 		return '<select class="dze-tpl-n" title="' + esc(i18n.attemptsHelp) + '">' +
@@ -108,7 +116,7 @@
 				return '<option value="' + n + '"' + (cur === n ? ' selected' : '') + '>× ' + n + '</option>';
 			}).join('') + '</select>';
 	}
-	function tplRow(sel, scene, n) {
+	function tplRow(sel, scene, n, target) {
 		var opts = cfg.templates.map(function (t, i) {
 			return '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
 				esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
@@ -116,7 +124,7 @@
 		var cur = cfg.templates[parseInt(sel, 10)] || cfg.templates[0] || {};
 		return '<span class="dze-tplrow"><select class="dze-cx-tpl">' + opts + '</select>' +
 			promptBtn(cur.id) +
-			sceneSelect(scene) + nSelect(n) +
+			sceneSelect(scene) + nSelect(n) + targetSelect(target || cur.target || 'gallery') +
 			'<span class="dze-tplbtns">' +
 			'<button type="button" class="button button-small dze-cx-tpladd" title="' + esc(i18n.addPrompt) + '">+</button>' +
 			'<button type="button" class="button button-small dze-cx-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span></span>';
@@ -126,7 +134,7 @@
 	function tplHead() {
 		return '<span class="dze-tplhead"><span>' + esc(i18n.template) + '</span><span></span>' +
 			((cfg.scenes || []).length ? '<span>' + esc(i18n.scene) + '</span>' : '') +
-			'<span>' + esc(i18n.attempts) + '</span><span></span></span>';
+			'<span>' + esc(i18n.attempts) + '</span><span>' + esc(i18n.putIt) + '</span><span></span></span>';
 	}
 	// A + that cannot add anything is a lie: it only shows while an unused
 	// prompt is left, and the row it creates lands on one of those.
@@ -145,6 +153,7 @@
 		}
 		return 0;
 	}
+	$(document).on('change', '#dze-cx-tplrows .dze-tpl-target', function () { $(this).data('touched', 1); });
 	$(document).on('click', '.dze-cx-tpladd', function () {
 		$('#dze-cx-tplrows').append(tplRow(firstFreeTpl(), defaultScene(), 1));
 		syncTplRows();
@@ -169,10 +178,13 @@
 			used[$(this).val()] = 1;
 		});
 		if (dupe) { $me.val(String(firstFreeTpl())); }
-		// The peek button follows the prompt the row now points at.
+		// The peek button follows the prompt the row now points at, and so does
+		// the destination unless this row was told otherwise by hand.
 		$('#dze-cx-tplrows .dze-tplrow').each(function () {
 			var t = cfg.templates[parseInt($(this).find('.dze-cx-tpl').val(), 10)] || {};
 			$(this).find('.dze-prompt-peek').attr('data-prompt', 'content_' + (t.id || ''));
+			var $tg = $(this).find('.dze-tpl-target');
+			if (!$tg.data('touched')) { $tg.val(t.target || 'gallery'); }
 		});
 		remember();
 	});
@@ -317,7 +329,7 @@
 							'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
 							'<span>' + esc(i18n.genImgOpt) + '</span></label>' +
 							'<div class="dze-cb-opts">' +
-								'<div class="dze-tplgrid">' + tplHead() +
+								'<div class="dze-tplgrid' + ((cfg.scenes || []).length ? '' : ' has-noscene') + '">' + tplHead() +
 									'<span class="dze-tplrows" id="dze-cx-tplrows"></span>' +
 								'</div>' +
 							'</div>' +
@@ -369,10 +381,10 @@
 		var saved = Array.isArray(au.tpls) && au.tpls.length ? au.tpls : [ 0 ];
 		saved.forEach(function (v) {
 			var row = (v && typeof v === 'object') ? v : { tpl: v, scene: defaultScene(), n: au.imgn || 1 };
-			$('#dze-cx-tplrows').append(tplRow(row.tpl, row.scene, row.n));
+			$('#dze-cx-tplrows').append(tplRow(row.tpl, row.scene, row.n, row.target));
 		});
 		syncTplRows();
-		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, .dze-tpl-scene, .dze-tpl-n', remember);
+		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target', remember);
 	}
 
 	function open(pid) {
@@ -675,6 +687,9 @@
 				if (i >= 0) { res.shots[i] = r.data.url; } else { res.shots.push(r.data.url); }
 				res.shotTpl[r.data.url] = tpl;
 				delete res.shotTpl[url];
+				res.shotTarget = res.shotTarget || {};
+				res.shotTarget[r.data.url] = r.data.target || res.shotTarget[url] || 'gallery';
+				delete res.shotTarget[url];
 				$st.text('');
 				drawShots();
 				flagWaiting();
@@ -693,9 +708,13 @@
 		$('#dze-cx-runstate').toggleClass('is-ko', !!bad).html(text || '');
 	}
 	function imageRequest(tpl, scene) {
+		var job  = jobFor(tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: PID, template: tpl, mode: 'defer', stash: 1 };
-		if (scene === undefined) { scene = jobFor(tpl).scene; }
+		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
+		// Where it goes travels with the order, so the strip knows without
+		// being told again and the choice survives a closed tab.
+		data.target = job.target;
 		return data;
 	}
 	function genImage(tpl, scene) {
@@ -704,6 +723,8 @@
 				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
 				res.shots.push(r.data.url);
 				res.shotTpl[r.data.url] = tpl;
+				res.shotTarget = res.shotTarget || {};
+				if (r.data.target) { res.shotTarget[r.data.url] = r.data.target; }
 				drawShots();
 				flagWaiting();
 			});

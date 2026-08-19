@@ -79,7 +79,7 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock', 'dze_cc_pcount_' ],
 			],
 			'content' => [
-				'options'    => [ 'dze_content_settings' ],
+				'options'    => [ 'dze_content_settings', 'dze_content_log' ],
 				'post_meta'  => [ '_dze_feature_shots', '_dze_pending_review' ],
 				'user_meta'  => [ '_dze_content_bulk' ],
 				'transients' => [ 'dze_content_bulk_', 'dze_product_meta_keys', 'dze_pending_count', 'dze_rfr_' ],

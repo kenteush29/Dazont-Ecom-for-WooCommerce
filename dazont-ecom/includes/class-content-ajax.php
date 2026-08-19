@@ -717,6 +717,13 @@ trait DZE_Content_Ajax {
 		if ( ! $tpl && '' === $custom ) {
 			wp_send_json_error( [ 'message' => __( 'No image template configured.', 'dazont-ecom' ) ] );
 		}
+		// Where this image is meant to land. The prompt says it, and the screen
+		// that ordered the run may have said otherwise — a decision taken once
+		// before the run rather than corrected on thirty images afterwards.
+		$target = (string) ( $tpl['target'] ?? 'gallery' );
+		if ( isset( $_POST['target'] ) ) {
+			$target = self::attach_target( (string) wp_unslash( $_POST['target'] ) );
+		}
 
 		// Source image: an earlier AI result (live edit) or the featured image.
 		if ( '' !== $src && ! self::is_fal_url( $src ) ) {
@@ -764,7 +771,16 @@ trait DZE_Content_Ajax {
 				// first and is never dropped; the rest joins while the request
 				// body stays a sane size, and a broken file is skipped instead
 				// of taking the whole generation down with it.
-				foreach ( $product_ids as $i => $aid ) {
+				//
+				// Remaking the MAIN image is a different job: there is one
+				// subject, the photograph that holds the slot, and the others
+				// are there to say what the product looks like from behind. Six
+				// photographs sent for that is how a remake came back built on a
+				// gallery shot, in a setting of its own — so the main lane sends
+				// the featured image plus two, exactly like the toolbox that
+				// does this well.
+				$ids_out = 'main' === $target ? array_slice( $product_ids, 0, 3 ) : $product_ids;
+				foreach ( $ids_out as $i => $aid ) {
 					try {
 						// The featured image is the one the result is built on,
 						// so it goes at full working size; the others are read
@@ -789,6 +805,14 @@ trait DZE_Content_Ajax {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
 			$prompt   .= self::sources_instruction( $product_count, $scene );
+			// A second shot from the same prompt is asked for a different
+			// framing, otherwise it comes back as the first one again.
+			$prompt   .= self::variation_line(
+				$pid,
+				(string) ( $tpl['id'] ?? '' ),
+				$target,
+				isset( $_POST['attempt'] ) ? absint( $_POST['attempt'] ) : 0
+			);
 			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources );
 			DZE_Ai_Usage::unit();
@@ -800,22 +824,22 @@ trait DZE_Content_Ajax {
 				if ( ! empty( $_POST['stash'] ) ) {
 					self::stash( $pid, [
 						'shot'   => $image_url,
-						'target' => (string) ( $tpl['target'] ?? 'gallery' ),
+						'target' => $target,
 						'recipe' => (string) ( $tpl['id'] ?? '' ),
 					] );
 				}
-				wp_send_json_success( [ 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
+				wp_send_json_success( [ 'url' => $image_url, 'target' => $target ] );
 			}
 			if ( ! $validated ) {
-				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $tpl['target'] ?? 'gallery' ] );
+				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $target ] );
 			}
-			$att_id = $this->sideload_seo( $image_url, $pid, (string) ( $tpl['target'] ?? 'gallery' ), (string) ( $tpl['id'] ?? '' ) );
+			$att_id = $this->sideload_seo( $image_url, $pid, $target, (string) ( $tpl['id'] ?? '' ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		wp_send_json_success( [
 			'attachment' => (int) $att_id,
-			'target'     => $tpl['target'] ?? 'gallery',
+			'target'     => $target,
 			'url'        => wp_get_attachment_image_url( (int) $att_id, 'medium' ),
 		] );
 	}
@@ -936,6 +960,36 @@ trait DZE_Content_Ajax {
 	 * you were saving another one. What was applied is dropped; what was not is
 	 * still there when you come back.
 	 */
+	/**
+	 * "This product is done."
+	 *
+	 * Called once per product when its content has been written, by the screen
+	 * that wrote it: the product leaves the working list and joins the Done
+	 * view. One request per product accepted, never one per field.
+	 */
+	public function ajax_logged(): void {
+		$this->guard();
+		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$texts  = isset( $_POST['texts'] ) ? absint( $_POST['texts'] ) : 0;
+		$images = isset( $_POST['images'] ) ? absint( $_POST['images'] ) : 0;
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+		}
+		self::log_add( $pid, $texts, $images );
+		// Written is finished: it leaves the list it was queued in, so the
+		// screen shows what is left to do and nothing else.
+		if ( ! empty( $_POST['unqueue'] ) ) {
+			self::set_bulk_list( array_values( array_diff( self::bulk_list(), [ $pid ] ) ) );
+		}
+		wp_send_json_success( [ 'left' => count( self::bulk_list() ) ] );
+	}
+
+	public function ajax_log_clear(): void {
+		$this->guard();
+		delete_option( self::OPT_LOG );
+		wp_send_json_success( [] );
+	}
+
 	public function ajax_pending_clear(): void {
 		$this->guard();
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;

@@ -47,7 +47,6 @@
 			return { tpl: v, scene: m.scene, n: m.imgn };
 		});
 		buildTplRows(saved);
-		if (typeof m.par !== 'undefined') { $('#dze-cb-par').val(String(m.par)); }
 	}());
 
 	function persist() {
@@ -60,10 +59,9 @@
 		// store, so a support chosen anywhere is the one shot on everywhere.
 		var first = tplJobs()[0];
 		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
-		if ($('#dze-cb-par').length) { m.par = parseInt($('#dze-cb-par').val(), 10); }
 		saveMem(m);
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, #dze-cb-par, #dze-cb-reviews, #dze-cb-revn', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-reviews, #dze-cb-revn', persist);
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -101,6 +99,10 @@
 		}
 		if (row.n) { $r.find('.dze-tpl-n').val(String(row.n)); }
 		syncPeek($r);
+		// The destination starts on the prompt's own — "Remake main" writes the
+		// main image — and stays wherever it was last put by hand.
+		if (row.target) { $r.find('.dze-tpl-target').val(String(row.target)).data('touched', 1); }
+		else { syncTarget($r); }
 		return $r;
 	}
 	// The peek button of a row always points at the prompt that row will run.
@@ -108,6 +110,14 @@
 		var $s = $row.find('.dze-cb-tpl');
 		$row.find('.dze-prompt-peek').attr('data-prompt', $s.find('option:selected').data('prompt') || '');
 	}
+	// The destination a prompt declares for itself, unless this row was told
+	// otherwise.
+	function syncTarget($row) {
+		var $t = $row.find('.dze-tpl-target');
+		if (!$t.length || $t.data('touched')) { return; }
+		$t.val($row.find('.dze-cb-tpl option:selected').data('target') || 'gallery');
+	}
+	$(document).on('change', '#dze-cb-tplrows .dze-tpl-target', function () { $(this).data('touched', 1); });
 	function buildTplRows(values) {
 		var $wrap = $('#dze-cb-tplrows').empty();
 		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
@@ -142,7 +152,7 @@
 			else if (used[v]) { $(this).val(firstFreeTpl()); }
 			used[$(this).val()] = 1;
 		});
-		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); });
+		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); });
 	});
 	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
 		$('#dze-cb-tplrows').append(tplRow(firstFreeTpl()));
@@ -172,7 +182,8 @@
 			out.push({
 				tpl: String(v),
 				scene: $r.find('.dze-tpl-scene').length ? parseInt($r.find('.dze-tpl-scene').val(), 10) : -1,
-				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1
+				n: parseInt($r.find('.dze-tpl-n').val(), 10) || 1,
+				target: $r.find('.dze-tpl-target').val() || 'gallery'
 			});
 		});
 		return out;
@@ -180,7 +191,7 @@
 	function jobFor(tpl) {
 		var found = null;
 		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
-		return found || { tpl: String(tpl), scene: -1, n: 1 };
+		return found || { tpl: String(tpl), scene: -1, n: 1, target: 'gallery' };
 	}
 
 	// =====================================================================
@@ -252,6 +263,11 @@
 	}
 	$('#dze-cb-unqueue').on('click', function () {
 		unqueue(picked(), $(this));
+	});
+	$('#dze-cb-clearlog').on('click', function () {
+		if (!window.confirm(i18n.confirmClearLog)) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_log_clear', nonce: cfg.nonce })
+			.always(function () { window.location.reload(); });
 	});
 	$('#dze-cb-clearlist').on('click', function () {
 		if (!window.confirm(waiting() ? i18n.confirmDropAll : i18n.confirmClear)) { return; }
@@ -440,20 +456,27 @@
 
 	// The prompt, its scene and its count come from the row that ordered the
 	// image: one decision per prompt, the same for every product of the list.
-	function imageRequest(id, review, tpl, scene) {
+	function imageRequest(id, review, tpl, scene, attempt) {
+		var job  = jobFor(tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
+		// Which attempt of this prompt this is: the second one is asked for a
+		// different framing instead of coming back as the first one again.
+		if (attempt) { data.attempt = attempt; }
 		if (review) { data.mode = 'defer'; data.stash = 1; }
-		if (scene === undefined) { scene = jobFor(tpl).scene; }
+		if (scene === undefined) { scene = job.scene; }
 		if ($('#dze-cb-tplrows .dze-tpl-scene').length) { data.scene = scene; }
+		// Where it goes travels WITH the order, so the image is remembered as
+		// headed there even if the tab is closed before the review.
+		data.target = job.target;
 		return data;
 	}
-	function oneImage(id, review, tpl, scene) {
-		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl, scene))
+	function oneImage(id, review, tpl, scene, attempt) {
+		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl, scene, attempt))
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
 				if (review) {
-					addShot(id, res.data.url, tpl);
+					addShot(id, res.data.url, tpl, res.data.target);
 				} else {
 					badge(id, 'img', i18n.imgBadge);
 					if (res.data.url) { $row(id).find('.dze-cb-thumb img').attr('src', res.data.url).attr('data-full', res.data.url); }
@@ -469,13 +492,13 @@
 	function imageTask(id, review, list) {
 		var jobs = [], d = $.Deferred();
 		list.forEach(function (job) {
-			for (var k = 0; k < Math.max(1, job.n); k++) { jobs.push(job); }
+			for (var k = 0; k < Math.max(1, job.n); k++) { jobs.push({ job: job, attempt: k + 1 }); }
 		});
 		var i = 0;
 		(function next() {
 			if (stopped || i >= jobs.length) { d.resolve(); return; }
-			var job = jobs[i++];
-			oneImage(id, review, job.tpl, job.scene).always(next);
+			var it = jobs[i++];
+			oneImage(id, review, it.job.tpl, it.job.scene, it.attempt).always(next);
 		})();
 		return d;
 	}
@@ -511,12 +534,18 @@
 		offerReview(id);
 		refreshApplyBar();
 	}
-	function addShot(id, url, tpl) {
+	function addShot(id, url, tpl, target) {
 		if (!url) { return; }
 		var b = bucket(id);
 		if (b.shots.indexOf(url) < 0) { b.shots.push(url); }
 		b.shotTpl = b.shotTpl || {};
 		if (tpl !== undefined) { b.shotTpl[url] = tpl; }
+		// Where this image was MADE to go. Without this the strip fell back to
+		// "Product gallery" for everything, including images a main-image
+		// prompt had just produced — and the choice had to be made again on
+		// every single one.
+		b.shotTarget = b.shotTarget || {};
+		if (target) { b.shotTarget[url] = target; }
 		badge(id, 'img', i18n.imgBadge + ' ×' + b.shots.length);
 		offerReview(id);
 		refreshApplyBar();
@@ -744,9 +773,18 @@
 		if (b.current) { return $.Deferred().resolve(b.current); }
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: id })
 			.then(function (res) {
+				// A product whose photographs could not be read is not a product
+				// without photographs. Both used to end up as an empty block that
+				// simply did not appear, which reads as a bug in the screen —
+				// and on a server that answered 504 once, it was one.
+				b.currentKo = !(res && res.success);
 				b.current = (res && res.success) ? res.data : { texts: {}, images: [] };
 				return b.current;
-			}, function () { b.current = { texts: {}, images: [] }; return b.current; });
+			}, function (x) {
+				b.currentKo = reason(x);
+				b.current = { texts: {}, images: [] };
+				return b.current;
+			});
 	}
 	// The same block as the product screen, from the same renderer: sizes and
 	// shapes under each photograph, the main image apart from the gallery, the
@@ -755,6 +793,16 @@
 	function renderCurrentImages(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-nowshots');
 		if (!$slot.length || !b.current || !window.dzePhotos) { return; }
+		if (b.currentKo) {
+			$slot.empty().append(
+				$('<p class="dze-cb-nowko"></p>').append(
+					$('<span></span>').text(i18n.nowFailed + (typeof b.currentKo === 'string' ? ' ' + b.currentKo : '')),
+					' ',
+					$('<button type="button" class="button-link dze-cb-nowretry"></button>').text(i18n.retry)
+				)
+			);
+			return;
+		}
 		window.dzePhotos.render($slot, b.current.images || [], {
 			post: id,
 			after: function () {
@@ -763,6 +811,14 @@
 			}
 		});
 	}
+
+	$(document).on('click', '.dze-cb-nowretry', function () {
+		var id = $(this).closest('.dze-cb-preview').data('id');
+		var b = bucket(id);
+		b.current = null; b.currentKo = false;
+		$(this).closest('.dze-cb-nowshots').text(i18n.working);
+		loadCurrent(id).then(function () { renderCurrentImages(id); });
+	});
 
 	function editorGet(eid) {
 		if (window.tinymce && tinymce.get(eid) && !tinymce.get(eid).isHidden()) { return tinymce.get(eid).getContent(); }
@@ -904,7 +960,7 @@
 					$state.addClass('is-ko').text(reason((res && res.data && res.data.message) || i18n.error));
 					return;
 				}
-				addShot(id, res.data.url, tpl);
+				addShot(id, res.data.url, tpl, res.data.target);
 				$state.text('');
 			})
 			.fail(function (x) { $btn.prop('disabled', false); $state.addClass('is-ko').text(reason(x)); });
@@ -960,7 +1016,7 @@
 	}
 
 	function applyProducts(ids, $btn) {
-		var jobs = [], shots = [];
+		var jobs = [], shots = [], wrote = {};
 		ids.forEach(function (id) {
 			var b = results[id];
 			if (!b) { return; }
@@ -972,6 +1028,8 @@
 				var $keep = $f.find('.dze-cb-fkeep');
 				if ($keep.length && !$keep.is(':checked')) { return; }
 				jobs.push({ id: id, fid: fid, value: valueOf(id, fid), $f: $f });
+				wrote[id] = wrote[id] || { texts: 0, images: 0 };
+				wrote[id].texts++;
 			});
 			if (b.shots.length) {
 				var $w = $prev.find('.dze-cb-shots');
@@ -986,7 +1044,12 @@
 						});
 					});
 				} else {
-					b.shots.forEach(function (u) { items.push({ url: u, target: 'gallery' }); });
+					// Never opened: every shot is kept, each one where it was
+					// made to go — not all of them in the gallery, which is how
+					// a whole run of main images landed at the end of it.
+					b.shots.forEach(function (u) {
+						items.push({ url: u, target: (b.shotTarget && b.shotTarget[u]) || 'gallery' });
+					});
 				}
 				if (items.length) {
 					// The recipe behind the first kept image names the files.
@@ -999,6 +1062,8 @@
 						var row = (cfg.templates || [])[parseInt(b.shotTpl[first], 10)];
 						rec = row ? row.id : '';
 					}
+					wrote[id] = wrote[id] || { texts: 0, images: 0 };
+					wrote[id].images += items.length;
 					shots.push({
 						id: id, items: items, $w: $w.length ? $w : $prev, recipe: rec,
 						// What becomes of the image holding the main slot today,
@@ -1070,6 +1135,19 @@
 				if (!st || !st.failed) {
 					delete results[id];
 					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+					// Written is finished: it is recorded under "Done", and it
+					// leaves the working list instead of sitting there looking
+					// exactly like a product nobody has touched.
+					var w = wrote[id] || { texts: 0, images: 0 };
+					$.post(cfg.ajaxUrl, {
+						action: 'dze_content_logged', nonce: cfg.nonce, post: id,
+						texts: w.texts, images: w.images, unqueue: 1
+					}).always(function () {
+						$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
+						delete state[id];
+						drawPicked();
+						if (!$('.dze-cb-row').length) { window.location.reload(); }
+					});
 					state[id] = { total: 1, done: 1, notes: [], failed: false };
 					reviewModeWas = reviewMode;
 					reviewMode = false;
@@ -1217,7 +1295,18 @@
 		// A pool of workers rather than a queue of one: waiting for the provider
 		// is what a run spends its time on, and there is nothing to gain by
 		// waiting for one product before starting the next.
-		var lanes = Math.max(1, parseInt($('#dze-cb-par').val(), 10) || 1);
+		//
+		// How many lanes is not a question for the person running it: it is a
+		// property of the batch and of what a shared server survives. A short
+		// list runs one product at a time — the answers come back before you
+		// could have read a progress bar — and a long one opens lanes up to
+		// three, which is where the provider starts refusing requests. Asking
+		// on screen only ever offered a way to get it wrong.
+		var lanes = jobs.length <= 2 ? 1 : (jobs.length <= 8 ? 2 : 3);
+		// A product asking for several images is several calls of its own, so
+		// its lane is already busy: piling three of those in parallel is what
+		// times a shared server out.
+		if (perProduct >= 4) { lanes = Math.min(lanes, 2); }
 		var cursor = 0, live = 0;
 		function finish() {
 			$('#dze-cb-start').prop('disabled', false);
