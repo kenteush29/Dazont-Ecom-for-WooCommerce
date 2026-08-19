@@ -813,6 +813,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    three different places, which is what makes a wide screen look broken. */
 .dze-cb-tabs { max-width: 1100px; margin-top: 14px; }
 .dze-cb-tabs .dze-cb-count { margin-left: 6px; }
+/* A counter with nothing in it is not a zero to show, it is nothing. */
+.dze-cb-count:empty { display: none; }
 .dze-cb-table { max-width: 1100px; }
 #dze-cb-selcount { margin-right: auto; }
 /* A gap between deciding what to WRITE and deciding what to REMOVE. */

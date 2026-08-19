@@ -2870,9 +2870,9 @@ Answer with STRICT JSON and nothing else: "
 			     answer on it. -->
 			<h2 class="nav-tab-wrapper dze-cb-tabs">
 				<?php foreach ( $dze_tabs as $dze_key => $dze_tab ) : ?>
-					<a href="<?php echo esc_url( $dze_tab[1] ); ?>" class="nav-tab<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? ' nav-tab-active' : ''; ?>">
+					<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="nav-tab<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? ' nav-tab-active' : ''; ?>">
 						<?php echo esc_html( $dze_tab[0] ); ?>
-						<?php if ( $dze_tab[2] ) : ?><span class="dze-cb-count"><?php echo esc_html( number_format_i18n( $dze_tab[2] ) ); ?></span><?php endif; ?>
+						<span class="dze-cb-count"><?php echo $dze_tab[2] ? esc_html( number_format_i18n( $dze_tab[2] ) ) : ''; ?></span>
 					</a>
 				<?php endforeach; ?>
 			</h2>
