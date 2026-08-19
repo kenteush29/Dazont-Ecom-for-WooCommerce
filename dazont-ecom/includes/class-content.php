@@ -78,6 +78,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_variations', [ $this, 'ajax_variations' ] );
 		add_action( 'wp_ajax_dze_content_variation_assign', [ $this, 'ajax_variation_assign' ] );
+		add_action( 'wp_ajax_dze_content_variation_note', [ $this, 'ajax_variation_note' ] );
 		add_action( 'wp_ajax_dze_content_variation_paste', [ $this, 'ajax_variation_paste' ] );
 		add_action( 'wp_ajax_dze_content_logged', [ $this, 'ajax_logged' ] );
 		add_action( 'wp_ajax_dze_content_log_clear', [ $this, 'ajax_log_clear' ] );
@@ -684,7 +685,7 @@ EOT;
 	}
 
 	/** Assembles the product data block from a row's selected inputs. */
-	public static function payload_lines( int $pid, array $inputs, string $inputs_meta = '' ): string {
+	public static function payload_lines( int $pid, array $inputs, string $inputs_meta = '', string $variation = '' ): string {
 		$product = $pid ? wc_get_product( $pid ) : null;
 		if ( ! $product instanceof WC_Product ) {
 			return '';
@@ -693,7 +694,10 @@ EOT;
 		foreach ( $inputs as $k ) {
 			switch ( $k ) {
 				case 'title':
-					$L[] = 'Title: ' . $product->get_name();
+					// Working on one variation: the title is that variation's,
+					// not the parent's. "Combat shirt" and "Combat shirt —
+					// Multicam Tropic" are not the same brief.
+					$L[] = 'Title: ' . $product->get_name() . ( '' !== $variation ? ' — ' . $variation : '' );
 					break;
 				case 'description':
 					$d = mb_substr( wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ), 0, 2500 );
@@ -2144,6 +2148,18 @@ Answer with STRICT JSON and nothing else: "
 			foreach ( $dze_rows as $ri => $r ) {
 				$dze_map[ ( ( $r['type'] ?? 'text' ) === 'image' ) ? 'image' : 'text' ][ $ri ] = $r;
 			}
+			// By name, inside each group. Insertion order means something to the
+			// database and nothing to a reader: a list of twenty prompts you
+			// have to scan line by line to find one is a list nobody reads. The
+			// index of each row is kept as its key, so what is posted still
+			// carries the row it belongs to.
+			foreach ( $dze_map as $dze_g2 => $dze_rows2 ) {
+				uasort(
+					$dze_rows2,
+					static fn( $a, $b ) => strcasecmp( (string) ( $a['name'] ?? '' ), (string) ( $b['name'] ?? '' ) )
+				);
+				$dze_map[ $dze_g2 ] = $dze_rows2;
+			}
 			$dze_groups = [
 				'text'  => __( 'Text prompts', 'dazont-ecom' ),
 				'image' => __( 'Image prompts', 'dazont-ecom' ),
@@ -2279,6 +2295,10 @@ Answer with STRICT JSON and nothing else: "
 					<span id="dze-pr-defstate" class="description"></span>
 				</p>
 			<?php endif; ?>
+			<!-- A prompt being written belongs to no group yet: it is filed by
+			     what it writes, and it has not said that yet. It waits here,
+			     apart, until the page is saved. -->
+			<div class="dze-prlist dze-prlist-new" id="dze-pr-new"></div>
 			<p>
 				<button type="button" class="button dze-pt-add" id="dze-pr-add" data-next="<?php echo (int) $dze_ri; ?>">&#43; <?php esc_html_e( 'Add prompt', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-pr-reset" style="margin-left:8px;">&#8634; <?php esc_html_e( 'Restore default prompts', 'dazont-ecom' ); ?></button>
@@ -2383,8 +2403,9 @@ Answer with STRICT JSON and nothing else: "
 					$b.data( 'next', i + 1 );
 					var html = $( '#dze-pr-rowtpl' ).html().replace( /__I__/g, String( i ) );
 					var $row = $( html );
-					// A new prompt is a text prompt until it says otherwise.
-					$( '#dze-pr .dze-prlist[data-group="text"]' ).append( $row );
+					// Not filed under a type it has not chosen: it stands on its
+					// own until the page is saved, and joins its group then.
+					$( '#dze-pr-new' ).append( $row );
 					syncRow( $row );
 					$( 'html, body' ).animate( { scrollTop: $row.offset().top - 60 }, 200 );
 				} );
@@ -3029,49 +3050,12 @@ Answer with STRICT JSON and nothing else: "
 				<?php endif; ?>
 
 				<?php
-				// One image per colour, on every product of the list: the gap
-				// this fills is a catalogue where some colours inherit the
-				// parent's photograph and others have their own.
-				$dze_vtpls = array_values( array_filter( $valid_tpls, static fn( $t ) => 'variation' === ( $t['target'] ?? '' ) ) );
+				// Variation images are NOT a bulk pass. Which colour of which
+				// product needs which photograph is a decision taken in front of
+				// the product, one line at a time — run over a list it becomes a
+				// bill nobody can predict and a review nobody can follow. It
+				// lives on the product screen, in its own popup, and only there.
 				?>
-				<?php self::sec_open( 'var', __( 'Variation images', 'dazont-ecom' ), false ); ?>
-					<?php if ( $dze_vtpls ) : ?>
-						<label class="dze-cb-check<?php echo $dze_blockers ? ' is-locked' : ''; ?>" title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
-							<input type="checkbox" id="dze-cb-var" <?php disabled( ! empty( $dze_blockers ) ); ?> />
-							<span><?php esc_html_e( 'Give each colour its own image', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
-						</label>
-						<div class="dze-cb-opts">
-							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
-								<select id="dze-cb-vartpl">
-									<?php foreach ( $valid_tpls as $dze_vi => $dze_vt ) : ?>
-										<?php if ( 'variation' !== ( $dze_vt['target'] ?? '' ) ) { continue; } ?>
-										<option value="<?php echo (int) $dze_vi; ?>"><?php echo esc_html( $dze_vt['name'] ); ?></option>
-									<?php endforeach; ?>
-								</select>
-							</label>
-							<?php if ( $dze_bscenes ?? self::scenes() ) : $dze_vdef = self::default_scene(); ?>
-								<label><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
-									<select id="dze-cb-varscene">
-										<option value="-1" <?php selected( -1, $dze_vdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
-										<?php foreach ( self::scenes() as $dze_vsi => $dze_vsc ) : ?>
-											<option value="<?php echo (int) $dze_vsi; ?>" <?php selected( $dze_vsi, $dze_vdef ); ?>><?php echo esc_html( $dze_vsc['name'] ); ?></option>
-										<?php endforeach; ?>
-									</select>
-								</label>
-							<?php endif; ?>
-							<label class="dze-cb-check">
-								<input type="checkbox" id="dze-cb-varmissing" checked />
-								<span><?php esc_html_e( 'Only the colours that have no image of their own', 'dazont-ecom' ); ?></span>
-							</label>
-						</div>
-						<p class="description" style="margin:6px 0 0;">
-							<?php esc_html_e( 'On each product, the variations are grouped by colour (or by the first attribute that is not a size) and one image is made per group, then written to every variation of that group when you accept it.', 'dazont-ecom' ); ?>
-						</p>
-					<?php else : ?>
-						<p class="description"><?php esc_html_e( 'No prompt writes variation images yet. Add one under Settings → Product content → Prompts, with "Variation image" as its destination.', 'dazont-ecom' ); ?></p>
-					<?php endif; ?>
-				<?php self::sec_close(); ?>
-
 				<?php self::sec_open( 'price', __( 'Price', 'dazont-ecom' ), false ); ?>
 					<label class="dze-cb-check">
 						<input type="checkbox" id="dze-cb-price" checked />
@@ -3414,7 +3398,6 @@ Answer with STRICT JSON and nothing else: "
 					'tText'    => __( 'Texts', 'dazont-ecom' ),
 					'tPrice'   => __( 'Price', 'dazont-ecom' ),
 					'tImage'   => __( 'Image', 'dazont-ecom' ),
-					'tVar'     => __( 'Variation images', 'dazont-ecom' ),
 					/* translators: %s: the variation's name, e.g. a colour */
 					'toVariation' => __( 'Variation: %s', 'dazont-ecom' ),
 					'imgBadge' => __( 'Images', 'dazont-ecom' ),
@@ -3751,6 +3734,10 @@ Answer with STRICT JSON and nothing else: "
 				'varLibTitle'=> __( 'Choose the image for this variation', 'dazont-ecom' ),
 				'varPaste'   => __( 'Paste / file', 'dazont-ecom' ),
 				'varClear'   => __( 'Take this image off the variations', 'dazont-ecom' ),
+				'varNote'    => __( 'Notes', 'dazont-ecom' ),
+				'varNoteLabel' => __( 'What to know about this variation', 'dazont-ecom' ),
+				'varNoteHelp'=> __( 'Kept with the product and sent with every image made for this variation.', 'dazont-ecom' ),
+				'varNotePh'  => __( 'e.g. fabric: black, multicam tropic ripstop camo', 'dazont-ecom' ),
 				'varUseAs'   => __( 'Use it as it is', 'dazont-ecom' ),
 				'varFromIt'  => __( 'Make a clean image from it', 'dazont-ecom' ),
 				'varMissing' => __( 'Tick the ones without an image', 'dazont-ecom' ),
@@ -4623,6 +4610,40 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @return int[] Attachment ids.
 	 */
+	/**
+	 * What YOU know about a colour that no photograph says.
+	 *
+	 * "Fabric: black, multicam tropic ripstop" is the difference between a
+	 * remake in the right material and one in olive drab. The prompt is shared
+	 * by every colour of every product; this is the line that belongs to ONE
+	 * group, kept with the product so it is still there the next time that
+	 * colour needs an image.
+	 */
+	private const META_VAR_NOTES = '_dze_variation_notes';
+
+	public static function variation_notes( int $pid ): array {
+		$n = get_post_meta( $pid, self::META_VAR_NOTES, true );
+		return is_array( $n ) ? $n : [];
+	}
+
+	public static function variation_note( int $pid, string $group ): string {
+		return (string) ( self::variation_notes( $pid )[ $group ] ?? '' );
+	}
+
+	public static function set_variation_note( int $pid, string $group, string $note ): void {
+		$all = self::variation_notes( $pid );
+		if ( '' === trim( $note ) ) {
+			unset( $all[ $group ] );
+		} else {
+			$all[ $group ] = $note;
+		}
+		if ( $all ) {
+			update_post_meta( $pid, self::META_VAR_NOTES, $all );
+		} else {
+			delete_post_meta( $pid, self::META_VAR_NOTES );
+		}
+	}
+
 	/** The button planted in WooCommerce's own Variations panel. */
 	public function variations_button(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -4689,6 +4710,7 @@ Answer with STRICT JSON and nothing else: "
 					'value' => $value,
 					'label' => self::attribute_value_label( $attr, $value ),
 					'ids'   => [],
+					'note'  => self::variation_note( $pid, $key ),
 					'with'  => 0,
 					'image' => 0,
 					'thumb' => '',

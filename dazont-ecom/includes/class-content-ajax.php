@@ -786,7 +786,12 @@ trait DZE_Content_Ajax {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
 
-		$pl   = $tpl ? self::payload_lines( $pid, (array) ( $tpl['inputs'] ?? [ 'title', 'description' ] ), (string) ( $tpl['inputs_meta'] ?? '' ) ) : self::payload_lines( $pid, [ 'title', 'description' ] );
+		// On a variation run every product line is read for THAT variation: its
+		// title carries the colour, so "Product title" is the variation's title.
+		$v_label = '' !== $v_value ? self::attribute_value_label( $v_attr, $v_value ) : '';
+		$pl   = $tpl
+			? self::payload_lines( $pid, (array) ( $tpl['inputs'] ?? [ 'title', 'description' ] ), (string) ( $tpl['inputs_meta'] ?? '' ), $v_label )
+			: self::payload_lines( $pid, [ 'title', 'description' ], '', $v_label );
 		$pl   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $pl ) ), 0, 800 );
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
@@ -798,7 +803,7 @@ trait DZE_Content_Ajax {
 		$prompt = str_replace(
 			[ '{variation}', '{variation_attribute}' ],
 			[
-				'' !== $v_value ? self::attribute_value_label( $v_attr, $v_value ) : '',
+				$v_label,
 				'' !== $v_attr ? (string) wc_attribute_label( $v_attr ) : '',
 			],
 			$prompt
@@ -873,6 +878,12 @@ trait DZE_Content_Ajax {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
 				$prompt .= self::variation_instruction( $v_attr, $v_value, $v_own || '' !== $paste );
+				// And what the owner knows about this colour that no photograph
+				// says: the material, the exact camo, the shade.
+				$v_note = self::variation_note( $pid, $v_attr . '::' . $v_value );
+				if ( '' !== trim( $v_note ) ) {
+					$prompt .= "\nAbout this variation: " . trim( $v_note );
+				}
 			}
 			// A second shot from the same prompt is asked for a different
 			// framing, otherwise it comes back as the first one again.
@@ -1072,6 +1083,7 @@ trait DZE_Content_Ajax {
 					'total' => (int) $g['total'],
 					'with'  => (int) $g['with'],
 					'thumb' => (string) $g['thumb'],
+					'note'  => (string) ( $g['note'] ?? '' ),
 				],
 				$data['groups']
 			),
@@ -1086,6 +1098,20 @@ trait DZE_Content_Ajax {
 	 * would be a surprise nobody asked for. Pass 0 to take the image off the
 	 * group instead.
 	 */
+	/** What you know about one colour, kept with the product. */
+	public function ajax_variation_note(): void {
+		$this->guard();
+		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$group = isset( $_POST['group'] ) ? (string) wp_unslash( $_POST['group'] ) : '';
+		$note  = isset( $_POST['note'] ) ? sanitize_textarea_field( (string) wp_unslash( $_POST['note'] ) ) : '';
+		$target = self::attach_target( 'variation:' . $group );
+		if ( ! $pid || 0 !== strpos( $target, 'variation:' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown variation group.', 'dazont-ecom' ) ] );
+		}
+		self::set_variation_note( $pid, substr( $target, 10 ), $note );
+		wp_send_json_success( [ 'saved' => true ] );
+	}
+
 	public function ajax_variation_assign(): void {
 		$this->guard();
 		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
