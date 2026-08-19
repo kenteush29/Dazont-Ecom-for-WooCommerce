@@ -1591,7 +1591,12 @@
 	// "generate one": the shop often already has the photograph, in the library
 	// or on the desktop. A pasted one joins the library by the same road as a
 	// generated one — the shop's file name, the shop's title, its alt text.
-	var vars = { attr: '', groups: [], loaded: false };
+	// `made` holds what has been generated and not yet decided, BY GROUP: the
+	// list is redrawn after every write, and a preview living only in the
+	// markup was wiped by the redraw — saving one colour looked like it threw
+	// the other one away. (The image itself was still on the product's waiting
+	// list, but nobody should have to know that.)
+	var vars = { attr: '', groups: [], made: {}, loaded: false };
 
 	function varTemplates() {
 		return (cfg.templates || []).map(function (t, i) { return { i: i, t: t }; })
@@ -1621,6 +1626,7 @@
 								sceneSelect(defaultScene()).replace('dze-tpl-scene', 'dze-var-scene') + '</label>'
 							: '') +
 						'<button type="button" class="button button-primary" id="dze-var-run">' + esc(i18n.generate) + '</button>' +
+						'<button type="button" class="button button-primary" id="dze-var-saveall" style="display:none;"></button>' +
 						'<button type="button" class="button-link" id="dze-var-missing">' + esc(i18n.varMissing) + '</button>' +
 						'<span class="dze-var-state2" id="dze-var-state"></span>' +
 					'</p>'
@@ -1645,6 +1651,8 @@
 				vars = {
 					attr: r.data.attr, label: r.data.label, choices: r.data.choices || [],
 					groups: r.data.groups || [], count: r.data.count || '', short: !!r.data.short,
+					// Never dropped by a redraw.
+					made: vars.made || {},
 					loaded: true
 				};
 				drawVariations();
@@ -1699,6 +1707,28 @@
 			'<p class="description">' + esc(i18n.varIntro) + (vars.count ? ' <strong>' + esc(vars.count) + '</strong>' : '') + '</p>' + by +
 			'<div class="dze-var-list dze-zoomgroup">' + vars.groups.map(varRow).join('') + '</div>'
 		);
+		varDrawMade();
+	}
+	function varTryHtml(url) {
+		return '<div class="dze-var-try" data-url="' + esc(url) + '">' +
+			'<span class="dze-var-tryimg"><img src="' + esc(url) + '" data-full="' + esc(url) + '" alt="" /></span>' +
+			'<span class="dze-var-tryacts">' +
+				'<button type="button" class="button button-small button-primary dze-var-keep">' + esc(i18n.oneApply) + '</button> ' +
+				'<button type="button" class="button-link dze-var-throw">' + esc(i18n.discard) + '</button>' +
+			'</span>' +
+		'</div>';
+	}
+	// Everything generated and still undecided, drawn back into its row after
+	// each redraw, and counted in the footer.
+	function varDrawMade() {
+		Object.keys(vars.made || {}).forEach(function (key) {
+			var $row = $('.dze-var-row[data-key="' + key + '"]');
+			if ($row.length && !$row.find('.dze-var-try').length) {
+				$row.find('.dze-var-work').html(varTryHtml(vars.made[key]));
+			}
+		});
+		var n = Object.keys(vars.made || {}).length;
+		$('#dze-var-saveall').toggle(n > 1).text(sprintf(i18n.varSaveAll, n));
 	}
 	function varGroup($row) { return String($row.attr('data-key') || ''); }
 	function varSay($row, text, bad) {
@@ -1894,18 +1924,9 @@
 			.done(function (r) {
 				if (!r || !r.success) { varSay($row, (r && r.data && r.data.message) || i18n.error, true); d.reject(); return; }
 				varSay($row, '');
-				$row.find('.dze-var-work').html(
-					'<div class="dze-var-try" data-url="' + esc(r.data.url) + '">' +
-						// The image in a cell of its own: the shared zoom button
-						// is planted in the image's parent, and a parent that is
-						// the whole flex row puts it at the row's far corner.
-						'<span class="dze-var-tryimg"><img src="' + esc(r.data.url) + '" data-full="' + esc(r.data.url) + '" alt="" /></span>' +
-						'<span class="dze-var-tryacts">' +
-							'<button type="button" class="button button-small button-primary dze-var-keep">' + esc(i18n.oneApply) + '</button> ' +
-							'<button type="button" class="button-link dze-var-throw">' + esc(i18n.discard) + '</button>' +
-						'</span>' +
-					'</div>'
-				);
+				vars.made[varGroup($row)] = r.data.url;
+				$row.find('.dze-var-work').html(varTryHtml(r.data.url));
+				varDrawMade();
 				d.resolve();
 			})
 			.fail(function (x) { varSay($row, reason(x), true); d.reject(); });
@@ -1926,31 +1947,58 @@
 			varGenerate($(rows[i++])).always(next);
 		}());
 	});
-	$(document).on('click', '.dze-var-keep', function () {
-		var $row = $(this).closest('.dze-var-row');
-		var url = $row.find('.dze-var-try').attr('data-url') || '';
-		varSay($row, i18n.applying);
+	// Saving one colour, or every colour at once: the same call either way, one
+	// item per group. Only what is actually written leaves the waiting list.
+	function varSave(keys, $where) {
+		keys = keys.filter(function (k) { return vars.made[k]; });
+		if (!keys.length) { return; }
+		var urls = keys.map(function (k) { return vars.made[k]; });
+		var items = keys.map(function (k) { return { url: vars.made[k], target: 'variation:' + k }; });
+		if ($where) { varSay($where, i18n.applying); }
+		$('#dze-var-saveall').prop('disabled', true);
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_content_image_attach', nonce: cfg.nonce, post: PID,
-			items: [ { url: url, target: 'variation:' + varGroup($row) } ],
+			items: items,
 			recipe: (cfg.templates[parseInt($('#dze-var-tpl').val(), 10)] || {}).id || ''
 		})
 			.done(function (r) {
-				if (!r || !r.success) { varSay($row, (r && r.data && r.data.message) || i18n.error, true); return; }
-				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] });
-				res.shots = (res.shots || []).filter(function (u) { return u !== url; });
-				drawShots();
+				$('#dze-var-saveall').prop('disabled', false);
+				if (!r || !r.success) {
+					if ($where) { varSay($where, (r && r.data && r.data.message) || i18n.error, true); }
+					else { $('#dze-var-state').addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); }
+					return;
+				}
+				varForget(keys, urls);
 				varRefresh();
 			})
-			.fail(function (x) { varSay($row, reason(x), true); });
+			.fail(function (x) {
+				$('#dze-var-saveall').prop('disabled', false);
+				if ($where) { varSay($where, reason(x), true); }
+				else { $('#dze-var-state').addClass('is-ko').text(reason(x)); }
+			});
+	}
+	// Decided, one way or the other: out of the row, and out of the product's
+	// waiting list — the images that are still undecided stay exactly where
+	// they are.
+	function varForget(keys, urls) {
+		keys.forEach(function (k) { delete vars.made[k]; });
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: urls });
+		res.shots = (res.shots || []).filter(function (u) { return urls.indexOf(u) < 0; });
+		drawShots();
+	}
+	$(document).on('click', '.dze-var-keep', function () {
+		var $row = $(this).closest('.dze-var-row');
+		varSave([ varGroup($row) ], $row);
+	});
+	$(document).on('click', '#dze-var-saveall', function () {
+		varSave(Object.keys(vars.made || {}), null);
 	});
 	$(document).on('click', '.dze-var-throw', function () {
 		var $row = $(this).closest('.dze-var-row');
-		var url = $row.find('.dze-var-try').attr('data-url') || '';
-		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] });
-		res.shots = (res.shots || []).filter(function (u) { return u !== url; });
-		drawShots();
+		var key = varGroup($row);
+		varForget([ key ], [ vars.made[key] || '' ]);
 		$row.find('.dze-var-work').empty();
+		varDrawMade();
 	});
 
 	// The image the new one is put next to. Replacing the main image means

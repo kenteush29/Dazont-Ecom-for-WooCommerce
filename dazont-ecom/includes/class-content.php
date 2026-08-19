@@ -3735,6 +3735,8 @@ Answer with STRICT JSON and nothing else: "
 				'varLibTitle'=> __( 'Choose the image for this variation', 'dazont-ecom' ),
 				'varPaste'   => __( 'Paste / file', 'dazont-ecom' ),
 				'varClear'   => __( 'Take this image off the variations', 'dazont-ecom' ),
+				/* translators: %s: number of generated images waiting for a decision */
+				'varSaveAll' => __( 'Save these %s on the product', 'dazont-ecom' ),
 				'varNote'    => __( 'Notes', 'dazont-ecom' ),
 				'varNoteLabel' => __( 'What to know about this variation', 'dazont-ecom' ),
 				'varNoteHelp'=> __( 'Kept with the product and sent with every image made for this variation.', 'dazont-ecom' ),
