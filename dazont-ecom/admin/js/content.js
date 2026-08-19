@@ -1769,7 +1769,7 @@
 		$row.data('paste', dataUri);
 		$row.find('.dze-var-work').html(
 			'<div class="dze-var-try dze-var-src">' +
-				'<img src="' + esc(dataUri) + '" alt="" />' +
+				'<span class="dze-var-tryimg"><img src="' + esc(dataUri) + '" alt="" /></span>' +
 				'<span class="dze-var-tryacts">' +
 					'<button type="button" class="button button-small dze-var-useas">' + esc(i18n.varUseAs) + '</button> ' +
 					(varTemplates().length ? '<button type="button" class="button button-small button-primary dze-var-fromit">✦ ' + esc(i18n.varFromIt) + '</button> ' : '') +
@@ -1859,7 +1859,10 @@
 				varSay($row, '');
 				$row.find('.dze-var-work').html(
 					'<div class="dze-var-try" data-url="' + esc(r.data.url) + '">' +
-						'<img src="' + esc(r.data.url) + '" data-full="' + esc(r.data.url) + '" alt="" />' +
+						// The image in a cell of its own: the shared zoom button
+						// is planted in the image's parent, and a parent that is
+						// the whole flex row puts it at the row's far corner.
+						'<span class="dze-var-tryimg"><img src="' + esc(r.data.url) + '" data-full="' + esc(r.data.url) + '" alt="" /></span>' +
 						'<span class="dze-var-tryacts">' +
 							'<button type="button" class="button button-small button-primary dze-var-keep">' + esc(i18n.oneApply) + '</button> ' +
 							'<button type="button" class="button-link dze-var-throw">' + esc(i18n.discard) + '</button>' +

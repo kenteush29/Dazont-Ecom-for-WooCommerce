@@ -907,9 +907,15 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-var-work:empty { display: none; }
 .dze-var-work .dze-qm-drop { margin-top: 8px; }
 .dze-var-try { display: flex; align-items: flex-end; gap: 10px; margin-top: 8px; }
+.dze-var-tryimg { position: relative; display: inline-block; line-height: 0; }
 .dze-var-try img { width: 200px; height: 200px; object-fit: contain; background: #f6f7f7; border-radius: 4px; display: block; }
 /* The photograph you brought, before anything has been decided about it. */
 .dze-var-src img { border: 2px dashed #c3c4c7; }
+/* The row is a positioned box, so an image left loose inside it sent the zoom
+   button to the row's own corner — next to buttons it has nothing to do with. */
+.dze-var-row .dze-zoom-btn { display: none; }
+.dze-var-thumbwrap .dze-zoom-btn,
+.dze-var-tryimg .dze-zoom-btn { display: block; }
 .dze-var-tryacts { display: flex; align-items: center; gap: 6px; }
 /* The button planted in WooCommerce's own Variations panel. */
 .dze-varbar { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #eee; }
