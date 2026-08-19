@@ -76,6 +76,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
+		add_action( 'wp_ajax_dze_content_logged', [ $this, 'ajax_logged' ] );
+		add_action( 'wp_ajax_dze_content_log_clear', [ $this, 'ajax_log_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		add_action( 'wp_ajax_dze_content_backdrop', [ $this, 'ajax_backdrop' ] );
@@ -1371,6 +1373,49 @@ EOT;
 		return $n;
 	}
 
+	/**
+	 * "Not the same photograph again."
+	 *
+	 * Asking a prompt for a second gallery shot ran exactly the same
+	 * instruction on exactly the same photographs, so it came back with
+	 * exactly the same image — three attempts, three near-identical results,
+	 * three times the bill. The model cannot see what it produced a minute
+	 * ago, so the difference has to be asked for: how many shots this prompt
+	 * has already made on this product is known here, and each one gets its
+	 * own framing.
+	 *
+	 * Never on the main image: there is one right main image, not four
+	 * different ones.
+	 */
+	public static function variation_line( int $pid, string $recipe_id, string $target, int $attempt = 0 ): string {
+		if ( 'main' === $target ) {
+			return '';
+		}
+		$made = 0;
+		if ( '' !== $recipe_id ) {
+			foreach ( (array) ( self::pending( $pid )['recipes'] ?? [] ) as $rid ) {
+				if ( (string) $rid === $recipe_id ) {
+					$made++;
+				}
+			}
+		}
+		// A run that writes straight to the product stashes nothing, so the
+		// count above stays at zero: the screen says which attempt this is.
+		$made = max( $made, $attempt > 0 ? $attempt - 1 : 0 );
+		if ( $made < 1 ) {
+			return '';
+		}
+		$hints = [
+			'Take it from a clearly different angle than a straight-on view: a three-quarter view, the product turned.',
+			'Come closer: a detail of the material, the stitching or the fastening, filling most of the frame.',
+			'Step back: the whole product in its setting, seen from further away and slightly above.',
+			'Change the side: show the part the other photographs do not show — the back, the inside, the reverse.',
+		];
+		$hint = $hints[ ( $made - 1 ) % count( $hints ) ];
+		return "\n\nThis is photograph " . ( $made + 1 ) . ' of a set made for the same product: it must not repeat the ones already made. '
+			. $hint . ' Everything else — the product, the light and the setting — stays as described above.';
+	}
+
 	/** What is waiting on one product ([] when nothing is). */
 	public static function pending( int $pid ): array {
 		$p = get_post_meta( $pid, self::META_PENDING, true );
@@ -2467,6 +2512,45 @@ Answer with STRICT JSON and nothing else: "
 		return array_values( array_filter( array_map( 'intval', $list ) ) );
 	}
 
+	/**
+	 * What was actually written to the shop, and when.
+	 *
+	 * The bulk screen used to answer "did this product get done?" with the
+	 * product still sitting in the list, exactly as before the run — accepting
+	 * changed nothing you could see. A run that writes to a shop has to leave
+	 * a trace: accepted products leave the working list and land here, with
+	 * what they received.
+	 *
+	 * A capped list on ONE option, never autoloaded: it is read by one screen
+	 * and by nothing else, least of all the shop.
+	 */
+	public const OPT_LOG = 'dze_content_log';
+	private const LOG_MAX = 120;
+
+	public static function log_add( int $pid, int $texts, int $images ): void {
+		if ( ! $pid || ( ! $texts && ! $images ) ) {
+			return;
+		}
+		$log = get_option( self::OPT_LOG, [] );
+		$log = is_array( $log ) ? $log : [];
+		array_unshift( $log, [
+			'id'     => $pid,
+			'time'   => time(),
+			'texts'  => $texts,
+			'images' => $images,
+			// The name as it was at that moment: the log says what happened,
+			// not what the product is called today.
+			'title'  => html_entity_decode( wp_strip_all_tags( (string) get_the_title( $pid ) ), ENT_QUOTES, 'UTF-8' ),
+		] );
+		update_option( self::OPT_LOG, array_slice( $log, 0, self::LOG_MAX ), false );
+	}
+
+	/** @return array<int,array<string,mixed>> newest first. */
+	public static function log_entries(): array {
+		$log = get_option( self::OPT_LOG, [] );
+		return is_array( $log ) ? $log : [];
+	}
+
 	public static function set_bulk_list( array $ids ): void {
 		$uid = get_current_user_id();
 		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
@@ -2565,7 +2649,9 @@ Answer with STRICT JSON and nothing else: "
 		if ( null !== $mode ) {
 			return $mode;
 		}
-		if ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
+		if ( ! empty( $_GET['dze_log'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
+			$mode = 'log';
+		} elseif ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
 			$mode = 'pending';
 		} elseif ( self::bulk_list() ) {
 			$mode = 'selection';
@@ -2575,6 +2661,71 @@ Answer with STRICT JSON and nothing else: "
 			$mode = 'empty';
 		}
 		return $mode;
+	}
+
+	/**
+	 * The "Done" view: what was written, on which product, when.
+	 *
+	 * Deliberately not a report — one line per acceptance, newest first, with
+	 * a link to the product. It answers one question ("has this been done?")
+	 * and nothing else, and it costs one option read.
+	 */
+	private function render_bulk_log(): void {
+		$log = self::log_entries();
+		if ( ! $log ) {
+			echo '<p>' . esc_html__( 'Nothing has been written from this screen yet. Accepted products are listed here with what they received.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		?>
+		<p class="dze-cb-listbar">
+			<span class="description"><?php
+				printf(
+					/* translators: %s: number of entries */
+					esc_html( _n( '%s product written to the shop', '%s products written to the shop', count( $log ), 'dazont-ecom' ) ),
+					esc_html( number_format_i18n( count( $log ) ) )
+				);
+			?></span>
+			<button type="button" class="button-link" id="dze-cb-clearlog" style="color:#b32d2e;margin-left:auto;"><?php esc_html_e( 'Empty this log', 'dazont-ecom' ); ?></button>
+		</p>
+		<table class="dze-cb-table">
+			<tr>
+				<th style="width:70px;"></th>
+				<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
+				<th style="width:220px;"><?php esc_html_e( 'Written', 'dazont-ecom' ); ?></th>
+				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
+			</tr>
+			<?php foreach ( $log as $dze_e ) :
+				$dze_id  = (int) ( $dze_e['id'] ?? 0 );
+				$dze_thu = $dze_id ? (string) get_the_post_thumbnail_url( $dze_id, 'thumbnail' ) : '';
+				?>
+				<tr>
+					<td class="dze-cb-thumb"><?php if ( $dze_thu ) : ?><img src="<?php echo esc_url( $dze_thu ); ?>" alt="" /><?php endif; ?></td>
+					<td><a href="<?php echo esc_url( get_edit_post_link( $dze_id ) ?: '#' ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( (string) ( $dze_e['title'] ?? '' ) ); ?></strong></a></td>
+					<td>
+						<?php if ( ! empty( $dze_e['texts'] ) ) : ?>
+							<span class="dze-cb-badge"><?php
+								printf(
+									/* translators: %s: number of texts */
+									esc_html( _n( '%s text', '%s texts', (int) $dze_e['texts'], 'dazont-ecom' ) ),
+									esc_html( number_format_i18n( (int) $dze_e['texts'] ) )
+								);
+							?></span>
+						<?php endif; ?>
+						<?php if ( ! empty( $dze_e['images'] ) ) : ?>
+							<span class="dze-cb-badge"><?php
+								printf(
+									/* translators: %s: number of images */
+									esc_html( _n( '%s image', '%s images', (int) $dze_e['images'], 'dazont-ecom' ) ),
+									esc_html( number_format_i18n( (int) $dze_e['images'] ) )
+								);
+							?></span>
+						<?php endif; ?>
+					</td>
+					<td class="description"><?php echo esc_html( wp_date( 'j M Y · H:i', (int) ( $dze_e['time'] ?? 0 ) ) ); ?></td>
+				</tr>
+			<?php endforeach; ?>
+		</table>
+		<?php
 	}
 
 	private function bulk_products(): array {
@@ -2706,6 +2857,30 @@ Answer with STRICT JSON and nothing else: "
 
 			<?php
 			$dze_mode = $this->bulk_mode();
+			$dze_base = add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
+			$dze_tabs = [
+				'selection' => [ __( 'My selection', 'dazont-ecom' ), $dze_base, count( self::bulk_list() ) ],
+				'pending'   => [ __( 'Waiting for a decision', 'dazont-ecom' ), add_query_arg( 'dze_pending', 1, $dze_base ), self::pending_count() ],
+				'log'       => [ __( 'Done', 'dazont-ecom' ), add_query_arg( 'dze_log', 1, $dze_base ), count( self::log_entries() ) ],
+			];
+			?>
+			<!-- The three states of this screen, named and always in sight. They
+			     used to be one screen that silently swapped its list, which is
+			     why "the products are still there after accepting" had no
+			     answer on it. -->
+			<h2 class="nav-tab-wrapper dze-cb-tabs">
+				<?php foreach ( $dze_tabs as $dze_key => $dze_tab ) : ?>
+					<a href="<?php echo esc_url( $dze_tab[1] ); ?>" class="nav-tab<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? ' nav-tab-active' : ''; ?>">
+						<?php echo esc_html( $dze_tab[0] ); ?>
+						<?php if ( $dze_tab[2] ) : ?><span class="dze-cb-count"><?php echo esc_html( number_format_i18n( $dze_tab[2] ) ); ?></span><?php endif; ?>
+					</a>
+				<?php endforeach; ?>
+			</h2>
+			<?php if ( 'log' === $dze_mode ) : $this->render_bulk_log(); ?>
+				</div>
+				<?php return; ?>
+			<?php endif; ?>
+			<?php
 			// "Other products": the ones NOT already on this screen. Counting
 			// the whole shop would announce work that is right in front of you.
 			$dze_waiting = 'selection' === $dze_mode
@@ -2856,12 +3031,13 @@ Answer with STRICT JSON and nothing else: "
 							     the FIRST row as if they belonged to the run, so a
 							     second prompt ran on a scene nobody had chosen for
 							     it and the screen offered no way to choose one. -->
-							<div class="dze-tplgrid">
+							<div class="dze-tplgrid<?php echo $dze_bscenes ? '' : ' has-noscene'; ?>">
 								<span class="dze-tplhead">
 									<span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
 									<span></span>
 									<?php if ( $dze_bscenes ) : ?><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span><?php endif; ?>
 									<span><?php esc_html_e( 'Attempts', 'dazont-ecom' ); ?></span>
+									<span><?php esc_html_e( 'Put it', 'dazont-ecom' ); ?></span>
 									<span></span>
 								</span>
 								<span class="dze-tplrows" id="dze-cb-tplrows" data-name="dze-cb-tpl"></span>
@@ -2870,7 +3046,7 @@ Answer with STRICT JSON and nothing else: "
 								<span class="dze-tplrow">
 									<select class="dze-cb-tpl">
 										<?php foreach ( $valid_tpls as $i => $t ) : ?>
-											<option value="<?php echo (int) $i; ?>" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $t['id'] ?? '' ) ); ?>"><?php echo esc_html( $t['name'] ); ?> (<?php echo esc_html( $t['target'] ?? 'gallery' ); ?>)</option>
+											<option value="<?php echo (int) $i; ?>" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $t['id'] ?? '' ) ); ?>" data-target="<?php echo esc_attr( (string) ( $t['target'] ?? 'gallery' ) ); ?>"><?php echo esc_html( $t['name'] ); ?></option>
 										<?php endforeach; ?>
 									</select>
 									<button type="button" class="dze-prompt-peek" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $valid_tpls[0]['id'] ?? '' ) ); ?>" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998;</button>
@@ -2886,6 +3062,16 @@ Answer with STRICT JSON and nothing else: "
 										<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
 											<option value="<?php echo (int) $dze_n; ?>">× <?php echo (int) $dze_n; ?></option>
 										<?php endforeach; ?>
+									</select>
+									<!-- Where these images land, decided BEFORE the run: it
+									     starts on the prompt's own destination and can be
+									     changed here. Correcting it image by image after a
+									     run of thirty products is not a review, it is data
+									     entry. -->
+									<select class="dze-tpl-target" title="<?php esc_attr_e( 'Where the images made by this prompt go on each product.', 'dazont-ecom' ); ?>">
+										<option value="main"><?php esc_html_e( 'Main image', 'dazont-ecom' ); ?></option>
+										<option value="gallery_first"><?php esc_html_e( 'Gallery, first', 'dazont-ecom' ); ?></option>
+										<option value="gallery" selected><?php esc_html_e( 'Product gallery', 'dazont-ecom' ); ?></option>
 									</select>
 									<span class="dze-tplbtns">
 										<button type="button" class="button button-small dze-tpl-add" title="<?php esc_attr_e( 'Add another image prompt to this run', 'dazont-ecom' ); ?>">+</button>
@@ -2908,16 +3094,7 @@ Answer with STRICT JSON and nothing else: "
 
 				<p class="dze-cb-actions">
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
-					<!-- How fast the RUN goes, not how the images are made: it sat
-					     among the image settings, where it read as one more thing
-					     the first prompt did. -->
-					<label class="dze-cb-par" title="<?php esc_attr_e( 'How many products are worked on at the same time. Higher is faster; too high and your own server, or the provider, starts refusing requests.', 'dazont-ecom' ); ?>"><span><?php esc_html_e( 'In parallel', 'dazont-ecom' ); ?></span>
-						<select id="dze-cb-par">
-							<?php foreach ( [ 1, 2, 3, 4, 6 ] as $dze_p ) : ?>
-								<option value="<?php echo (int) $dze_p; ?>" <?php selected( 3, $dze_p ); ?>><?php echo (int) $dze_p; ?> <?php echo 1 === $dze_p ? esc_html__( 'product', 'dazont-ecom' ) : esc_html__( 'products', 'dazont-ecom' ); ?></option>
-							<?php endforeach; ?>
-						</select>
-					</label>
+
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
 				</p>
 				<p id="dze-cb-progress" class="description"></p>
@@ -3195,6 +3372,11 @@ Answer with STRICT JSON and nothing else: "
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
+					// A block that could not be read says so, and offers to try
+					// again — an empty space reads as a broken screen.
+					'nowFailed'   => __( 'The photographs of this product could not be read.', 'dazont-ecom' ),
+					'confirmClearLog' => __( 'Empty the log of what was written? The products keep everything they received; only this list is erased.', 'dazont-ecom' ),
+					'retry'       => __( 'Try again', 'dazont-ecom' ),
 					'confirmDropAll' => __( 'Throw away everything waiting on the products listed here? What was generated cannot be recovered — the products themselves are not modified.', 'dazont-ecom' ),
 					// What becomes of the image holding the main slot, asked on
 					// the strip that is about to replace it.
