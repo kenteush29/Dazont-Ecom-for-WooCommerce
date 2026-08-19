@@ -56,13 +56,22 @@
 	display: flex; flex-direction: column; overflow: hidden;
 	border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3);
 }
-.dze-cx-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e4e7; position: sticky; top: 0; background: #fff; z-index: 2; }
+/* The head is pinned by the column, not by `position: sticky`: sticky inside a
+   box that hides its overflow is what leaves ghost copies of the content
+   painted over each other while the body scrolls. */
+.dze-cx-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e4e7; background: #fff; z-index: 2; flex: 0 0 auto; }
 .dze-cx-head h2 { margin: 0; font-size: 16px; }
 .dze-cx-tabs { display: flex; gap: 6px; margin-left: 10px; }
 .dze-cx-tab { border: 1px solid #dcdcde; background: #f6f7f7; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
 .dze-cx-tab.is-active { background: #2271b1; color: #fff; border-color: #2271b1; }
 .dze-cx-close { margin-left: auto; }
-.dze-cx-body { padding: 16px 20px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+.dze-cx-body { padding: 16px 20px; overflow: auto; flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
+/* Each step is its own block, and nothing in it may reach outside: a card or a
+   thumbnail strip wider than the popup used to be drawn over the block above
+   instead of wrapping inside its own. */
+.dze-one-img, .dze-step { min-width: 0; }
+.dze-one-recipes, .dze-one-srcs, .dze-one-bgs { align-items: flex-start; max-width: 100%; }
+.dze-one-recipe { flex: 0 1 auto; min-width: 0; }
 /* What you do with what is on screen, always within reach. */
 .dze-cx-foot {
 	flex: 0 0 auto; padding: 10px 20px 12px; border-top: 1px solid #e2e4e7; background: #fff;
