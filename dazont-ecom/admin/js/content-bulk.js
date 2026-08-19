@@ -39,7 +39,6 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
-		if (typeof m.bulkVar !== 'undefined') { $('#dze-cb-var').prop('checked', !!m.bulkVar); }
 		// The scene and the count are remembered per row now; a memory written
 		// by an older version carries them for the run, and is read as the
 		// settings of every row it holds.
@@ -55,7 +54,6 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
-		m.bulkVar = $('#dze-cb-var').is(':checked');
 		m.tpls = tplJobs();
 		// The scene of the first row is what the other screens open on: one
 		// store, so a support chosen anywhere is the one shot on everywhere.
@@ -63,7 +61,7 @@
 		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
 		saveMem(m);
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-reviews, #dze-cb-revn, #dze-cb-var, #dze-cb-vartpl, #dze-cb-varscene, #dze-cb-varmissing', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-reviews, #dze-cb-revn', persist);
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -72,8 +70,7 @@
 			[ '.dze-cb-block:has(.dze-cb-field)', '.dze-cb-field', '.dze-cb-field:checked' ],
 			[ '.dze-cb-block:has(#dze-cb-image)', '#dze-cb-image', '#dze-cb-image:checked' ],
 			[ '.dze-cb-block:has(#dze-cb-price)', '#dze-cb-price', '#dze-cb-price:checked' ],
-			[ '.dze-cb-block:has(#dze-cb-reviews)', '#dze-cb-reviews', '#dze-cb-reviews:checked' ],
-			[ '.dze-cb-block:has(#dze-cb-var)', '#dze-cb-var', '#dze-cb-var:checked' ]
+			[ '.dze-cb-block:has(#dze-cb-reviews)', '#dze-cb-reviews', '#dze-cb-reviews:checked' ]
 		];
 		pairs.forEach(function (p) {
 			var $block = $(p[0]);
@@ -86,7 +83,7 @@
 			$block.toggleClass('is-off', on === 0);
 		});
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-reviews, #dze-cb-var', counts);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-reviews', counts);
 	$(counts);
 	// One prompt by default, a + to add another when a product needs two kinds
 	// of shot. Every row runs on every product of the list — and a row is a
@@ -850,46 +847,6 @@
 			});
 	});
 
-	// One image per colour, on one product.
-	//
-	// The groups are read from the server — it knows which attribute changes
-	// what the product looks like, and which groups have no photograph of their
-	// own. Then one generation per group, in turn: each one is paid for.
-	function variationTask(id, review, tpl, scene, onlyMissing) {
-		var d = $.Deferred();
-		var finish = function () { step(id); progress(i18n.tVar); d.resolve(); };
-		$.post(cfg.ajaxUrl, { action: 'dze_content_variations', nonce: cfg.nonce, post: id })
-			.done(function (r) {
-				var groups = (r && r.success) ? (r.data.groups || []) : [];
-				groups.forEach(function (g) { varLabels['variation:' + g.key] = g.label; });
-				if (onlyMissing) { groups = groups.filter(function (g) { return !g.with; }); }
-				if (!groups.length) { finish(); return; }
-				var i = 0;
-				(function next() {
-					if (stopped || i >= groups.length) { finish(); return; }
-					var g = groups[i++];
-					var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl, variation: g.key };
-					if ($('#dze-cb-varscene').length) { data.scene = scene; }
-					if (review) { data.mode = 'defer'; data.stash = 1; }
-					$.post(cfg.ajaxUrl, data)
-						.done(function (res) {
-							if (res && res.success) {
-								okCount++;
-								if (review) { addShot(id, res.data.url, tpl, res.data.target); }
-								else { badge(id, 'img', i18n.imgBadge); }
-							} else {
-								koCount++;
-								note(id, i18n.tVar + ': ' + reason((res && res.data && res.data.message) || i18n.error), true);
-							}
-						})
-						.fail(function (x) { koCount++; note(id, i18n.tVar + ': ' + reason(x), true); })
-						.always(next);
-				}());
-			})
-			.fail(function (x) { koCount++; note(id, i18n.tVar + ': ' + reason(x), true); finish(); });
-		return d;
-	}
-
 	// ---- What the product says today ----
 	// Loaded when a panel opens, never with the list: it is one product's worth
 	// of data, asked for at the moment somebody wants to compare.
@@ -1344,15 +1301,11 @@
 		var tplList = tplJobs();
 		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled') && tplList.length > 0;
 		var imgN = tplList.reduce(function (t, j) { return t + Math.max(1, j.n); }, 0);
-		var doVar = $('#dze-cb-var').is(':checked') && !$('#dze-cb-var').prop('disabled') && $('#dze-cb-vartpl').length;
-		var varTpl = $('#dze-cb-vartpl').val() || '0';
-		var varScene = $('#dze-cb-varscene').length ? (parseInt($('#dze-cb-varscene').val(), 10) || -1) : -1;
-		var varMissing = $('#dze-cb-varmissing').is(':checked');
 		var doRev = $('#dze-cb-reviews').is(':checked');
 		var revN = parseInt($('#dze-cb-revn').val(), 10) || 0;
 		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
 
-		if (!fields.length && !doPrice && !doImg && !doRev && !doVar) {
+		if (!fields.length && !doPrice && !doImg && !doRev) {
 			window.alert(i18n.noFields);
 			return;
 		}
@@ -1372,10 +1325,7 @@
 		});
 		refreshApplyBar();
 
-		// The variation pass is ONE step per product: how many images it makes
-		// depends on how many colours that product is sold in, which is only
-		// known once its variations have been read.
-		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN : 0) + (doRev ? 1 : 0) + (doVar ? 1 : 0);
+		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN : 0) + (doRev ? 1 : 0);
 		// A product already holding content nobody has decided on is left alone:
 		// writing over it would charge for the same work twice and throw the
 		// first result away. Redoing one on purpose is what its ↻ is for.
@@ -1403,7 +1353,6 @@
 				if (fields.length) { chain = chain.then(function () { return textAllTask(id, fields, reviewMode); }); }
 				if (doPrice) { chain = chain.then(function () { return priceTask(id); }); }
 				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, tplList); }); }
-				if (doVar) { chain = chain.then(function () { return variationTask(id, reviewMode, varTpl, varScene, varMissing); }); }
 				if (doRev) { chain = chain.then(function () { return reviewsTask(id, revN); }); }
 				return chain;
 			});

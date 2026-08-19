@@ -1613,11 +1613,14 @@
 							'<select id="dze-var-tpl">' + tpls.map(function (o) {
 								return '<option value="' + o.i + '">' + esc(o.t.name) + '</option>';
 							}).join('') + '</select></label>' +
+						// The instructions are read and edited from here, exactly
+						// as they are everywhere else a prompt is run.
+						'<span id="dze-var-peek">' + promptBtn((tpls[0].t || {}).id) + '</span>' +
 						((cfg.scenes || []).length
 							? '<label class="dze-qm-bglabel"><span>' + esc(i18n.scene) + '</span>' +
 								sceneSelect(defaultScene()).replace('dze-tpl-scene', 'dze-var-scene') + '</label>'
 							: '') +
-						'<button type="button" class="button button-primary" id="dze-var-run">' + esc(i18n.varRun) + '</button>' +
+						'<button type="button" class="button button-primary" id="dze-var-run">' + esc(i18n.generate) + '</button>' +
 						'<button type="button" class="button-link" id="dze-var-missing">' + esc(i18n.varMissing) + '</button>' +
 						'<span class="dze-var-state2" id="dze-var-state"></span>' +
 					'</p>'
@@ -1658,12 +1661,19 @@
 			'<span class="dze-var-name">' + esc(g.label) + '</span>' +
 			'<span class="dze-var-state">' + esc(none ? i18n.varHasNone : sprintf(i18n.varCount, g.total, g.with)) + '</span>' +
 			'<span class="dze-var-acts">' +
+				'<button type="button" class="button button-small dze-var-note' + (g.note ? ' is-on' : '') + '" title="' + esc(i18n.varNoteHelp) + '">' + esc(i18n.varNote) + '</button> ' +
 				'<button type="button" class="button button-small dze-var-lib">' + esc(i18n.varLib) + '</button> ' +
 				'<button type="button" class="button button-small dze-var-paste">' + esc(i18n.varPaste) + '</button> ' +
 				(varTemplates().length ? '<button type="button" class="button button-small dze-var-gen">✦</button> ' : '') +
 				(g.with ? '<button type="button" class="button-link dze-var-clear" title="' + esc(i18n.varClear) + '">&times;</button>' : '') +
 			'</span>' +
 			'<span class="dze-var-rowstate"></span>' +
+			// What the owner knows about THIS colour, kept with the product and
+			// sent with every image made for it.
+			'<label class="dze-var-notebox"' + (g.note ? '' : ' style="display:none;"') + '>' +
+				'<span>' + esc(i18n.varNoteLabel) + '</span>' +
+				'<textarea class="dze-var-notetext" rows="2" placeholder="' + esc(i18n.varNotePh) + '">' + esc(g.note || '') + '</textarea>' +
+			'</label>' +
 			'<div class="dze-var-work"></div>' +
 		'</div>';
 	}
@@ -1703,6 +1713,10 @@
 	}
 
 	$(document).on('change', '#dze-var-attr', function () { loadVariations($(this).val()); });
+	$(document).on('change', '#dze-var-tpl', function () {
+		var t = cfg.templates[parseInt($(this).val(), 10)] || {};
+		$('#dze-var-peek').html(promptBtn(t.id));
+	});
 	$(document).on('click', '#dze-var-missing', function () {
 		var empty = {};
 		(vars.groups || []).forEach(function (g) { if (!g.with) { empty[g.key] = 1; } });
@@ -1731,6 +1745,22 @@
 				.fail(function (x) { varSay($row, reason(x), true); });
 		});
 		varFrame.open();
+	});
+	$(document).on('click', '.dze-var-note', function () {
+		var $box = $(this).closest('.dze-var-row').find('.dze-var-notebox');
+		$box.toggle();
+		if ($box.is(':visible')) { $box.find('textarea').trigger('focus'); }
+	});
+	// Saved when you leave the box: one line typed once, kept with the product.
+	$(document).on('change blur', '.dze-var-notetext', function () {
+		var $row = $(this).closest('.dze-var-row');
+		var note = $(this).val() || '';
+		$row.find('.dze-var-note').toggleClass('is-on', '' !== note.trim());
+		(vars.groups || []).forEach(function (g) { if (g.key === varGroup($row)) { g.note = note; } });
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_variation_note', nonce: cfg.nonce,
+			post: PID, group: varGroup($row), note: note
+		});
 	});
 	$(document).on('click', '.dze-var-clear', function () {
 		var $row = $(this).closest('.dze-var-row');
