@@ -1656,7 +1656,7 @@
 			// parent was the row — so the button landed in the row's corner,
 			// miles from the image it opens.
 			(g.thumb
-				? '<span class="dze-var-thumbwrap"><img class="dze-var-thumb" src="' + esc(g.thumb) + '" data-full="' + esc(g.thumb) + '" alt="" /></span>'
+				? '<span class="dze-var-thumbwrap"><img class="dze-var-thumb" src="' + esc(g.thumb) + '" data-full="' + esc(g.full || g.thumb) + '" alt="" /></span>'
 				: '<span class="dze-var-nothumb">—</span>') +
 			'<span class="dze-var-name">' + esc(g.label) + '</span>' +
 			'<span class="dze-var-state">' + esc(none ? i18n.varHasNone : sprintf(i18n.varCount, g.total, g.with)) + '</span>' +

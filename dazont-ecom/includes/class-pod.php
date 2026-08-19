@@ -233,7 +233,7 @@ PROMPT;
 		?>
 		<div class="dze-admin dze-pod-box" id="dze-pod-box">
 			<div id="dze-pod-design-preview" <?php echo $thumb ? '' : 'style="display:none;"'; ?>>
-				<img class="dze-hzoom" src="<?php echo esc_url( $thumb ); ?>" data-full="<?php echo esc_url( $design ? (string) wp_get_attachment_image_url( $design, 'large' ) : '' ); ?>" alt="" />
+				<img class="dze-hzoom" src="<?php echo esc_url( $thumb ); ?>" data-full="<?php echo esc_url( $design ? (string) wp_get_attachment_image_url( $design, 'full' ) : '' ); ?>" alt="" />
 			</div>
 			<p class="dze-cx-note" id="dze-pod-dims"><?php echo esc_html( self::design_dims_note( $design ) ); ?></p>
 			<p>

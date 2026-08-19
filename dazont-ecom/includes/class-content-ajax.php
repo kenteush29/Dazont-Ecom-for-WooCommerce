@@ -240,7 +240,9 @@ trait DZE_Content_Ajax {
 			}
 			$companion_out[ $cfid ] = [
 				'thumb'   => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'thumbnail' ) ?: '' ),
-				'full'    => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'large' ) ?: '' ),
+				// The ORIGINAL file: a zoom that opens a resized copy is a zoom
+				// that cannot answer the question it was clicked for.
+				'full'    => (string) ( wp_get_attachment_image_url( (int) $c['id'], 'full' ) ?: '' ),
 				'feature' => (string) $c['feature'],
 			];
 		}
@@ -695,7 +697,8 @@ trait DZE_Content_Ajax {
 		$main = (int) get_post_thumbnail_id( $pid );
 		wp_send_json_success( [
 			'url'  => $image_url,
-			'main' => $main ? (string) wp_get_attachment_image_url( $main, 'large' ) : '',
+			// Shown next to the new image and opened by its zoom: the original.
+			'main' => $main ? (string) wp_get_attachment_image_url( $main, 'full' ) : '',
 		] );
 	}
 
@@ -1012,7 +1015,8 @@ trait DZE_Content_Ajax {
 				// The id travels too: the image workshop works ON one of these.
 				'id'    => (int) $aid,
 				'thumb' => (string) ( wp_get_attachment_image_url( (int) $aid, 'thumbnail' ) ?: '' ),
-				'full'  => (string) ( wp_get_attachment_image_url( (int) $aid, 'large' ) ?: '' ),
+				// The original file, always: this is what the zoom opens.
+				'full'  => (string) ( wp_get_attachment_image_url( (int) $aid, 'full' ) ?: '' ),
 				'main'  => (int) $aid === (int) get_post_thumbnail_id( $pid ),
 				// A catalogue is square or it is not; the shape has to be
 				// readable without opening anything.
@@ -1085,6 +1089,7 @@ trait DZE_Content_Ajax {
 					'total' => (int) $g['total'],
 					'with'  => (int) $g['with'],
 					'thumb' => (string) $g['thumb'],
+					'full'  => (string) ( $g['full'] ?? '' ),
 					'note'  => (string) ( $g['note'] ?? '' ),
 				],
 				$data['groups']
@@ -1142,6 +1147,7 @@ trait DZE_Content_Ajax {
 		wp_send_json_success( [
 			'done'  => count( $ids ),
 			'thumb' => $att ? (string) ( wp_get_attachment_image_url( $att, 'thumbnail' ) ?: '' ) : '',
+			'full'  => $att ? (string) ( wp_get_attachment_image_url( $att, 'full' ) ?: '' ) : '',
 		] );
 	}
 
