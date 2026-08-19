@@ -389,14 +389,43 @@
 		if (!window.confirm(i18n.confirmDrop)) { return; }
 		var id = $(this).closest('.dze-cb-row').data('id');
 		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+		settleRow(id);
+	});
+	// Decided, one way or the other.
+	//
+	// On the waiting list a product is there BECAUSE something was waiting on
+	// it. Accepted or refused, nothing is: the line has no content, no buttons
+	// and nothing left to decide, and leaving it on screen turned every
+	// decision into a second, pointless one — take it out of the list too. On
+	// the selection, the product is queued to be worked on and stays: only the
+	// result it was holding goes.
+	// The tab counters are printed by the server; a decision taken here changes
+	// them, and a "12 waiting" over an empty list is exactly the kind of thing
+	// that makes a screen untrustworthy.
+	function bumpTab(which, by) {
+		var $c = $('.dze-cb-tabs a[data-tab="' + which + '"] .dze-cb-count');
+		if (!$c.length) { return; }
+		var n = Math.max(0, (parseInt($c.text().replace(/[^0-9]/g, ''), 10) || 0) + by);
+		$c.text(n ? String(n) : '');
+	}
+	function settleRow(id) {
 		delete results[id];
+		bumpTab('pending', -1);
+		if (waiting()) {
+			$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
+			delete state[id];
+			drawPicked();
+			refreshApplyBar();
+			if (!$('.dze-cb-row').length) { window.location.reload(); }
+			return;
+		}
 		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
 		$row(id).find('.dze-cb-badges').empty();
 		hideRowActions(id);
 		state[id] = { total: 1, done: 1, notes: [], failed: false };
 		paint(id, 'wait');
 		refreshApplyBar();
-	});
+	}
 
 	// ---- Global progress, pinned to the bottom of the window ----
 	function progress(label) {
@@ -878,13 +907,7 @@
 		if (!window.confirm(i18n.confirmDrop)) { return; }
 		var id = $(this).closest('.dze-cb-preview').data('id');
 		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
-		delete results[id];
-		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
-		$row(id).find('.dze-cb-badges').empty();
-		$row(id).find('.dze-cb-toggle').hide();
-		state[id] = { total: 1, done: 1, notes: [], failed: false };
-		paint(id, 'wait');
-		refreshApplyBar();
+		settleRow(id);
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
@@ -1181,6 +1204,9 @@
 					// leaves the working list instead of sitting there looking
 					// exactly like a product nobody has touched.
 					var w = wrote[id] || { texts: 0, images: 0 };
+					bumpTab('pending', -1);
+					bumpTab('log', 1);
+					if (!waiting()) { bumpTab('selection', -1); }
 					$.post(cfg.ajaxUrl, {
 						action: 'dze_content_logged', nonce: cfg.nonce, post: id,
 						texts: w.texts, images: w.images, unqueue: 1
