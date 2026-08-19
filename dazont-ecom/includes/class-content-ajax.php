@@ -623,9 +623,12 @@ trait DZE_Content_Ajax {
 			} elseif ( '' !== $paste ) {
 				// The photograph is already in the request, straight from the
 				// clipboard or dropped from the desktop, and it is THE subject:
-				// it stays image 1, and the product's own photographs follow it.
+				// it stays image 1, and the product's own photographs follow it
+				// unless the screen says to work from the pasted one alone.
 				$sources[] = self::read_data_uri( $paste );
-				$context   = self::product_source_ids( $pid );
+				$context   = ( ! isset( $_POST['with_product'] ) || ! empty( $_POST['with_product'] ) )
+					? self::product_source_ids( $pid )
+					: [];
 			} else {
 				// The product's own photographs, main first. Two are enough here:
 				// this lane is about speed, and the shape of a product is settled
@@ -638,9 +641,9 @@ trait DZE_Content_Ajax {
 					}
 				}
 			}
-			// Two more at most: a third angle adds little and every image costs
-			// upload time on a call that is already slow.
-			foreach ( array_slice( $context, 0, 2 ) as $aid ) {
+			// Three more at most: past that a call gets slow for angles that add
+			// very little, and the payload is already carrying the subject.
+			foreach ( array_slice( $context, 0, 3 ) as $aid ) {
 				try {
 					$sources[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
 				} catch ( \Throwable $e ) {
