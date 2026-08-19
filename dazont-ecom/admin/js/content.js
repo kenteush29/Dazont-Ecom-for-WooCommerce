@@ -80,6 +80,32 @@
 			};
 		}).get();
 	}
+	// WHICH prompt made this image. One generated in this visit remembers the
+	// row that ordered it; one restored from the waiting list remembers the
+	// prompt's id instead, and asking for it again used to fall back to "the
+	// first row" — which is how ↻ on a gallery shot came back as a main image
+	// made by another prompt entirely.
+	function tplOfShot(url) {
+		var tpl = res.shotTpl ? res.shotTpl[url] : undefined;
+		if (tpl !== undefined && tpl !== null && tpl !== '') { return String(tpl); }
+		var rid = res.shotRecipe ? res.shotRecipe[url] : '';
+		var found = null;
+		if (rid) {
+			(cfg.templates || []).forEach(function (t, i) {
+				if (null === found && String(t.id) === String(rid)) { found = String(i); }
+			});
+		}
+		return found;
+	}
+	function tplForTarget(target) {
+		var found = null;
+		tplJobs().forEach(function (j) {
+			if (null === found && j.target === target) { found = String(j.tpl); }
+		});
+		if (null !== found) { return found; }
+		var first = tplJobs()[0];
+		return first ? String(first.tpl) : '0';
+	}
 	function jobFor(tpl) {
 		var found = null;
 		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
@@ -672,11 +698,14 @@
 		var $btn = $(this).prop('disabled', true);
 		var $card = $btn.closest('.dze-cb-shot');
 		var url = $card.data('url');
-		var tpl = res.shotTpl[url];
-		if (tpl === undefined) { tpl = tplUsed()[0] || '0'; }
+		// Where this image was headed decides nothing about its look, but it
+		// says which prompt made it when nothing else does.
+		var dest = $card.find('.dze-cb-shotdest').val() || (res.shotTarget && res.shotTarget[url]) || 'gallery';
+		var tpl = tplOfShot(url);
+		if (null === tpl) { tpl = tplForTarget(dest); }
 		var $st = $('#dze-cx-shots .dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
 		$card.addClass('is-busy');
-		$.post(cfg.ajaxUrl, imageRequest(tpl))
+		$.post(cfg.ajaxUrl, imageRequest(tpl, undefined, dest))
 			.done(function (r) {
 				if (!r || !r.success) {
 					$btn.prop('disabled', false); $card.removeClass('is-busy');
@@ -688,8 +717,13 @@
 				res.shotTpl[r.data.url] = tpl;
 				delete res.shotTpl[url];
 				res.shotTarget = res.shotTarget || {};
-				res.shotTarget[r.data.url] = r.data.target || res.shotTarget[url] || 'gallery';
+				res.shotTarget[r.data.url] = r.data.target || dest;
 				delete res.shotTarget[url];
+				// The prompt follows the new attempt, so a second ↻ still knows
+				// what it is remaking.
+				res.shotRecipe = res.shotRecipe || {};
+				if (res.shotRecipe[url]) { res.shotRecipe[r.data.url] = res.shotRecipe[url]; }
+				delete res.shotRecipe[url];
 				$st.text('');
 				drawShots();
 				flagWaiting();
@@ -707,14 +741,14 @@
 	function status(text, bad) {
 		$('#dze-cx-runstate').toggleClass('is-ko', !!bad).html(text || '');
 	}
-	function imageRequest(tpl, scene) {
+	function imageRequest(tpl, scene, target) {
 		var job  = jobFor(tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: PID, template: tpl, mode: 'defer', stash: 1 };
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
 		// being told again and the choice survives a closed tab.
-		data.target = job.target;
+		data.target = target || job.target;
 		return data;
 	}
 	function genImage(tpl, scene) {

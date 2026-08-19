@@ -456,7 +456,7 @@
 
 	// The prompt, its scene and its count come from the row that ordered the
 	// image: one decision per prompt, the same for every product of the list.
-	function imageRequest(id, review, tpl, scene, attempt) {
+	function imageRequest(id, review, tpl, scene, attempt, target) {
 		var job  = jobFor(tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
 		// Which attempt of this prompt this is: the second one is asked for a
@@ -467,8 +467,39 @@
 		if ($('#dze-cb-tplrows .dze-tpl-scene').length) { data.scene = scene; }
 		// Where it goes travels WITH the order, so the image is remembered as
 		// headed there even if the tab is closed before the review.
-		data.target = job.target;
+		data.target = target || job.target;
 		return data;
+	}
+	// WHICH prompt made this image.
+	//
+	// An image generated in this session remembers the row that ordered it; one
+	// restored from the waiting list remembers the prompt's id instead, and
+	// asking for it again fell back to "the first row" — which is how pressing
+	// ↻ on a gallery shot produced a main image made by a completely different
+	// prompt.
+	function tplOfShot(id, url) {
+		var b = bucket(id);
+		var tpl = b.shotTpl ? b.shotTpl[url] : undefined;
+		if (tpl !== undefined && tpl !== null && tpl !== '') { return String(tpl); }
+		var rid = b.shotRecipe ? b.shotRecipe[url] : '';
+		var found = null;
+		if (rid) {
+			(cfg.templates || []).forEach(function (t, i) {
+				if (null === found && String(t.id) === String(rid)) { found = String(i); }
+			});
+		}
+		return found;
+	}
+	// Nothing said which prompt it was: the one that writes where this image is
+	// headed, rather than whichever happens to be first.
+	function tplForTarget(target) {
+		var found = null;
+		tplJobs().forEach(function (j) {
+			if (null === found && j.target === target) { found = String(j.tpl); }
+		});
+		if (null !== found) { return found; }
+		var first = tplJobs()[0];
+		return first ? String(first.tpl) : '0';
 	}
 	function oneImage(id, review, tpl, scene, attempt) {
 		return $.post(cfg.ajaxUrl, imageRequest(id, review, tpl, scene, attempt))
@@ -741,10 +772,13 @@
 		var $card = $btn.closest('.dze-cb-shot').addClass('is-busy');
 		var id = $btn.closest('.dze-cb-preview').data('id');
 		var b = bucket(id), url = $card.data('url');
-		var tpl = b.shotTpl ? b.shotTpl[url] : undefined;
-		if (tpl === undefined) { tpl = tpls()[0] !== undefined ? tpls()[0] : '0'; }
+		// The destination written on the card is where the new attempt goes
+		// too: pressing ↻ asks for this image again, not for another one.
+		var dest = $card.find('.dze-cb-shotdest').val() || (b.shotTarget && b.shotTarget[url]) || 'gallery';
+		var tpl = tplOfShot(id, url);
+		if (null === tpl) { tpl = tplForTarget(dest); }
 		var $st = $card.closest('.dze-cb-shots').find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
-		$.post(cfg.ajaxUrl, imageRequest(id, true, tpl))
+		$.post(cfg.ajaxUrl, imageRequest(id, true, tpl, undefined, 0, dest))
 			.done(function (r) {
 				if (!r || !r.success) {
 					$btn.prop('disabled', false); $card.removeClass('is-busy');
@@ -756,6 +790,14 @@
 				b.shotTpl = b.shotTpl || {};
 				b.shotTpl[r.data.url] = tpl;
 				delete b.shotTpl[url];
+				// The prompt and the destination follow the new attempt, so a
+				// second ↻ still knows what it is remaking.
+				b.shotRecipe = b.shotRecipe || {};
+				if (b.shotRecipe[url]) { b.shotRecipe[r.data.url] = b.shotRecipe[url]; }
+				delete b.shotRecipe[url];
+				b.shotTarget = b.shotTarget || {};
+				b.shotTarget[r.data.url] = r.data.target || dest;
+				delete b.shotTarget[url];
 				$st.text('');
 				renderShots(id);
 			})
