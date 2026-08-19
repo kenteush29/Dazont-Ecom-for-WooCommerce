@@ -1082,6 +1082,10 @@ trait DZE_Content_Ajax {
 			'attr'    => $data['attr'],
 			'label'   => $data['label'],
 			'choices' => $choices,
+			// The same sentence the Variations panel shows, kept in step from
+			// one place so the two can never disagree.
+			'count'   => self::variation_count_text( (int) ( $data['allWith'] ?? 0 ), (int) ( $data['all'] ?? 0 ) ),
+			'short'   => (int) ( ( $data['allWith'] ?? 0 ) < ( $data['all'] ?? 0 ) ),
 			'groups'  => array_map(
 				static fn( $g ) => [
 					'key'   => $g['key'],
