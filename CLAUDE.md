@@ -105,11 +105,17 @@ owner communicates in French.
 
 ## Traps learned the hard way
 
-- Settings pages are saved by ONE mechanism: `admin/js/settings-save.js`
-  posts the real form to `options.php` in the background. Never add a custom
-  AJAX save endpoint for a settings tab — the one that existed saved some
-  sections and dropped the background shelf, and the same button behaved
-  differently from tab to tab.
+- Settings pages are saved by ONE mechanism: WordPress's own Save Changes,
+  full submit to `options.php`. Never add a custom AJAX save endpoint for a
+  settings tab, and never a background submit of the whole form: the one that
+  existed hung on a slow server, fell back to an ordinary submit, and — since
+  the form carries EVERY prompt as it stood when the page was opened — wrote
+  old text back over prompts edited since from another screen. A per-row
+  "save" that posts the whole page is not a per-row save.
+- A settings form that carries rows it did not change must prove it: each
+  prompt ships an `md5` of what was rendered (`pr_was`), and a row whose text
+  came back untouched is left as the shop holds it, not as the page remembers
+  it.
 - `update_option()` on our registered options re-runs the sanitize callback
   (shaped for FORM input). Programmatic saves of canonical data must use
   `DZE_Content::write_settings_direct()`-style writes (filter removed around

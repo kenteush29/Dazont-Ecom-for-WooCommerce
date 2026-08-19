@@ -1772,9 +1772,22 @@ Answer with STRICT JSON and nothing else: "
 		if ( isset( $in['pr_name'] ) && is_array( $in['pr_name'] ) ) {
 			$rows = [];
 			$seen = [];
+			// What the shop holds right now, to tell "left alone" from "changed".
+			$stored = [];
+			foreach ( self::registry() as $r ) {
+				$stored[ (string) ( $r['id'] ?? '' ) ] = (string) ( $r['prompt'] ?? '' );
+			}
 			foreach ( $in['pr_name'] as $i => $name ) {
 				$name   = sanitize_text_field( (string) $name );
 				$prompt = sanitize_textarea_field( (string) ( $in['pr_prompt'][ $i ] ?? '' ) );
+				// Untouched in THIS form, but changed elsewhere since it was
+				// drawn: the newer text wins. Editing a prompt from the toolbox
+				// and saving this page an hour later must not undo it.
+				$was    = (string) ( $in['pr_was'][ $i ] ?? '' );
+				$rid    = sanitize_key( (string) ( $in['pr_id'][ $i ] ?? '' ) );
+				if ( '' !== $was && isset( $stored[ $rid ] ) && md5( $prompt ) === $was && $stored[ $rid ] !== $prompt ) {
+					$prompt = $stored[ $rid ];
+				}
 				if ( '' === $name || '' === trim( $prompt ) ) {
 					continue; // empty rows (e.g. the blank "add" row) are dropped.
 				}
@@ -2181,7 +2194,7 @@ Answer with STRICT JSON and nothing else: "
 								</label>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_metakey][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( $r['meta_key'] ?? '' ); ?>" placeholder="_meta_key" list="dze-metakeys" class="dze-pr-metakey" style="<?php echo ( 'meta' === ( $r['output'] ?? '' ) ) ? '' : 'display:none;'; ?>" />
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'File name', 'dazont-ecom' ); ?></span>
-									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Empty = the product name, which is what every image uses today. Tokens: {product}, {prompt} — e.g. {product}-ugc.', 'dazont-ecom' ); ?>" />
+									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_file][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['file_name'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-file" title="<?php esc_attr_e( 'The file name, and so the image URL. Empty = the product name, which is what every image uses today. Tokens: {product}, {prompt}, {variation} — e.g. {product}-ugc.', 'dazont-ecom' ); ?>" />
 								</label>
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
 									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['img_title'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-imgtitle" title="<?php esc_attr_e( 'The attachment title and its alt text. Same tokens. Empty = the product name.', 'dazont-ecom' ); ?>" />
@@ -2191,10 +2204,13 @@ Answer with STRICT JSON and nothing else: "
 								</label>
 							</p>
 							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][<?php echo (int) $dze_ri; ?>]" rows="8" class="large-text code dze-pr-prompt"><?php echo esc_textarea( $r['prompt'] ); ?></textarea>
-							<p class="dze-prb-line dze-prb-savebar">
-								<button type="button" class="button button-primary button-small dze-save-row"><?php esc_html_e( 'Save this prompt', 'dazont-ecom' ); ?></button>
-								<span class="dze-savednote"></span>
-							</p>
+							<!-- What this prompt said when the page was drawn. A form
+							     carries every row, so saving one row saved all of them
+							     as they stood when the tab was opened — and wrote old
+							     text back over a prompt edited since, from another tab
+							     or from the toolbox. A row nobody touched here is now
+							     left exactly as the shop has it. -->
+							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_was][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( md5( (string) $r['prompt'] ) ); ?>" />
 							<p class="dze-prb-line">
 								<?php if ( '' !== self::default_prompt_for( (string) $r['id'] ) ) : ?>
 									<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the shipped default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -3328,17 +3344,12 @@ Answer with STRICT JSON and nothing else: "
 		}
 		// The zoom viewer travels with it: every grid of product images in the
 		// plugin opens the same way.
-		// Saving a settings page without losing the page — the same background
-		// submit on every tab, straight to options.php.
-		if ( $on_settings ) {
-			wp_enqueue_script( 'dze-settings-save', DZE_URL . 'admin/js/settings-save.js', [ 'jquery' ], DZE_VERSION, true );
-			wp_localize_script( 'dze-settings-save', 'dzeSettingsSaveI18n', [
-				'saving' => __( 'Saving…', 'dazont-ecom' ),
-				'saved'  => __( 'Saved ✓', 'dazont-ecom' ),
-				'slow'   => __( 'The server did not answer in time — saving the ordinary way…', 'dazont-ecom' ),
-				'retry'  => __( 'Saving the ordinary way…', 'dazont-ecom' ),
-			] );
-		}
+		// A settings page is saved by its own Save Changes button and nothing
+		// else. There used to be a background submit here, with a per-prompt
+		// button that posted the WHOLE form: it hung on slow servers, fell back
+		// to an ordinary submit, and — because the form carried every row as it
+		// stood when the page was opened — it wrote old text back over prompts
+		// edited since, from another tab or from the toolbox.
 		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
 			'zoom'  => __( 'See this image full size', 'dazont-ecom' ),
 			'close' => __( 'Close', 'dazont-ecom' ),
@@ -4404,7 +4415,7 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @return array{0:string,1:string} slug, title
 	 */
-	public static function image_naming( int $pid, string $recipe_id = '' ): array {
+	public static function image_naming( int $pid, string $recipe_id = '', string $variation = '' ): array {
 		// get_the_title() comes back with WordPress's typography applied:
 		// curly quotes and dashes as HTML entities. Fine inside a page, wrong
 		// in an attachment title and in an alt text, where they are read as
@@ -4414,8 +4425,10 @@ Answer with STRICT JSON and nothing else: "
 		$recipe  = $row ? (string) ( $row['name'] ?? '' ) : '';
 		$fpat    = $row ? trim( (string) ( $row['file_name'] ?? '' ) ) : '';
 		$tpat    = $row ? trim( (string) ( $row['img_title'] ?? '' ) ) : '';
-		$fill    = static function ( string $pattern ) use ( $title, $recipe ): string {
-			return str_replace( [ '{product}', '{prompt}' ], [ $title, $recipe ], $pattern );
+		// {variation} is the name of the colour this image is for, so a pattern
+		// can put it where it belongs instead of always at the end.
+		$fill    = static function ( string $pattern ) use ( $title, $recipe, $variation ): string {
+			return str_replace( [ '{product}', '{prompt}', '{variation}' ], [ $title, $recipe, $variation ], $pattern );
 		};
 		$slug  = sanitize_title( '' !== $fpat ? $fill( $fpat ) : $title ) ?: 'product-image';
 		$shown = '' !== $tpat ? trim( $fill( $tpat ) ) : $title;
@@ -4456,14 +4469,18 @@ Answer with STRICT JSON and nothing else: "
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		[ $slug, $title ] = self::image_naming( $pid, $recipe_id );
 		// A shop is read by its URLs: three colours of the same product cannot
-		// all be product-name-1.jpg.
+		// all be product-name-1.jpg. The colour goes where the pattern puts it,
+		// and at the end when the pattern never mentions it.
+		$n_label = '';
 		if ( 0 === strpos( $target, 'variation:' ) ) {
 			[ $n_attr, $n_value ] = array_pad( explode( '::', substr( $target, 10 ), 2 ), 2, '' );
 			$n_label = self::attribute_value_label( $n_attr, $n_value );
-			$slug    = $slug . '-' . sanitize_title( $n_value );
-			$title   = $title . ' — ' . $n_label;
+		}
+		[ $slug, $title ] = self::image_naming( $pid, $recipe_id, $n_label );
+		if ( '' !== $n_label && false === stripos( $slug, sanitize_title( $n_label ) ) ) {
+			$slug  = $slug . '-' . sanitize_title( $n_label );
+			$title = $title . ' — ' . $n_label;
 		}
 
 		if ( ! in_array( $ext, [ 'png', 'jpg', 'jpeg', 'webp' ], true ) ) {

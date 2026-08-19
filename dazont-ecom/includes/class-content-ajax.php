@@ -788,6 +788,18 @@ trait DZE_Content_Ajax {
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
 		$prompt = ( $ctx ? "Product context: {$ctx}\n\n" : '' ) . $base;
+		// {variation} is the name of the group being made — "Multicam Black" —
+		// so the prompt can say it in its own words instead of relying on the
+		// line the plugin appends. Outside a variation run it resolves to
+		// nothing rather than staying on screen as a token.
+		$prompt = str_replace(
+			[ '{variation}', '{variation_attribute}' ],
+			[
+				'' !== $v_value ? self::attribute_value_label( $v_attr, $v_value ) : '',
+				'' !== $v_attr ? (string) wc_attribute_label( $v_attr ) : '',
+			],
+			$prompt
+		);
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
