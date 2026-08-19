@@ -76,6 +76,7 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_save_prompt',  [ $this, 'ajax_save_prompt' ] );
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
+		add_action( 'wp_ajax_dze_content_variations', [ $this, 'ajax_variations' ] );
 		add_action( 'wp_ajax_dze_content_logged', [ $this, 'ajax_logged' ] );
 		add_action( 'wp_ajax_dze_content_log_clear', [ $this, 'ajax_log_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
@@ -421,8 +422,12 @@ EOT;
 	public static function output_options( string $type = 'text' ): array {
 		if ( 'image' === $type ) {
 			return [
-				'gallery' => __( 'Product gallery (image)', 'dazont-ecom' ),
-				'main'    => __( 'Main image', 'dazont-ecom' ),
+				'gallery'   => __( 'Product gallery (image)', 'dazont-ecom' ),
+				'main'      => __( 'Main image', 'dazont-ecom' ),
+				// One image per group of variations — the three colours of a
+				// product sold in three colours and five sizes, not fifteen
+				// images.
+				'variation' => __( 'Variation image (one per colour)', 'dazont-ecom' ),
 			];
 		}
 		return [
@@ -1250,7 +1255,9 @@ EOT;
 			$out[] = [
 				'id'          => (string) $r['id'],
 				'name'        => (string) ( $r['name'] ?? '' ),
-				'target'      => ( ( $r['output'] ?? 'gallery' ) === 'main' ) ? 'main' : 'gallery',
+				'target'      => in_array( (string) ( $r['output'] ?? 'gallery' ), [ 'main', 'variation' ], true )
+					? (string) $r['output']
+					: 'gallery',
 				'prompt'      => (string) ( $r['prompt'] ?? '' ),
 				'valid'       => (int) ! empty( $r['valid'] ),
 				'inputs'      => (array) ( $r['inputs'] ?? [ 'title', 'description' ] ),
@@ -1414,6 +1421,27 @@ EOT;
 		$hint = $hints[ ( $made - 1 ) % count( $hints ) ];
 		return "\n\nThis is photograph " . ( $made + 1 ) . ' of a set made for the same product: it must not repeat the ones already made. '
 			. $hint . ' Everything else — the product, the light and the setting — stays as described above.';
+	}
+
+	/**
+	 * "This one is the olive one."
+	 *
+	 * The photographs sent with the request show the product in whatever
+	 * colours the shop happens to have shot; the image being asked for is one
+	 * precise variation. Without this the model returns the colour it saw, and
+	 * the group that had no photograph still has none.
+	 */
+	public static function variation_instruction( string $attr, string $value, bool $has_own_shot ): string {
+		$label = self::attribute_value_label( $attr, $value );
+		$what  = function_exists( 'wc_attribute_label' ) ? (string) wc_attribute_label( $attr ) : $attr;
+		$out   = "\n\nTHIS IMAGE IS FOR ONE VARIATION OF THE PRODUCT: " . $what . ' = ' . $label . '.';
+		if ( $has_own_shot ) {
+			$out .= ' Image 1 already shows that variation: keep its colours and its materials exactly as they are.';
+		} else {
+			$out .= ' The photographs show the product in another colourway: the product itself — its shape, its cut, its materials, its stitching, its hardware and every marking — stays exactly the same, and only the colour becomes ' . $label . '.'
+				. ' Change nothing else, invent nothing, and do not alter the pattern beyond its colours.';
+		}
+		return $out;
 	}
 
 	/** What is waiting on one product ([] when nothing is). */
@@ -2978,6 +3006,50 @@ Answer with STRICT JSON and nothing else: "
 					<?php self::sec_close(); ?>
 				<?php endif; ?>
 
+				<?php
+				// One image per colour, on every product of the list: the gap
+				// this fills is a catalogue where some colours inherit the
+				// parent's photograph and others have their own.
+				$dze_vtpls = array_values( array_filter( $valid_tpls, static fn( $t ) => 'variation' === ( $t['target'] ?? '' ) ) );
+				?>
+				<?php self::sec_open( 'var', __( 'Variation images', 'dazont-ecom' ), false ); ?>
+					<?php if ( $dze_vtpls ) : ?>
+						<label class="dze-cb-check<?php echo $dze_blockers ? ' is-locked' : ''; ?>" title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
+							<input type="checkbox" id="dze-cb-var" <?php disabled( ! empty( $dze_blockers ) ); ?> />
+							<span><?php esc_html_e( 'Give each colour its own image', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
+						</label>
+						<div class="dze-cb-opts">
+							<label><span><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-vartpl">
+									<?php foreach ( $valid_tpls as $dze_vi => $dze_vt ) : ?>
+										<?php if ( 'variation' !== ( $dze_vt['target'] ?? '' ) ) { continue; } ?>
+										<option value="<?php echo (int) $dze_vi; ?>"><?php echo esc_html( $dze_vt['name'] ); ?></option>
+									<?php endforeach; ?>
+								</select>
+							</label>
+							<?php if ( $dze_bscenes ?? self::scenes() ) : $dze_vdef = self::default_scene(); ?>
+								<label><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
+									<select id="dze-cb-varscene">
+										<option value="-1" <?php selected( -1, $dze_vdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
+										<?php foreach ( self::scenes() as $dze_vsi => $dze_vsc ) : ?>
+											<option value="<?php echo (int) $dze_vsi; ?>" <?php selected( $dze_vsi, $dze_vdef ); ?>><?php echo esc_html( $dze_vsc['name'] ); ?></option>
+										<?php endforeach; ?>
+									</select>
+								</label>
+							<?php endif; ?>
+							<label class="dze-cb-check">
+								<input type="checkbox" id="dze-cb-varmissing" checked />
+								<span><?php esc_html_e( 'Only the colours that have no image of their own', 'dazont-ecom' ); ?></span>
+							</label>
+						</div>
+						<p class="description" style="margin:6px 0 0;">
+							<?php esc_html_e( 'On each product, the variations are grouped by colour (or by the first attribute that is not a size) and one image is made per group, then written to every variation of that group when you accept it.', 'dazont-ecom' ); ?>
+						</p>
+					<?php else : ?>
+						<p class="description"><?php esc_html_e( 'No prompt writes variation images yet. Add one under Settings → Product content → Prompts, with "Variation image" as its destination.', 'dazont-ecom' ); ?></p>
+					<?php endif; ?>
+				<?php self::sec_close(); ?>
+
 				<?php self::sec_open( 'price', __( 'Price', 'dazont-ecom' ), false ); ?>
 					<label class="dze-cb-check">
 						<input type="checkbox" id="dze-cb-price" checked />
@@ -3325,6 +3397,9 @@ Answer with STRICT JSON and nothing else: "
 					'tText'    => __( 'Texts', 'dazont-ecom' ),
 					'tPrice'   => __( 'Price', 'dazont-ecom' ),
 					'tImage'   => __( 'Image', 'dazont-ecom' ),
+					'tVar'     => __( 'Variation images', 'dazont-ecom' ),
+					/* translators: %s: the variation's name, e.g. a colour */
+					'toVariation' => __( 'Variation: %s', 'dazont-ecom' ),
 					'imgBadge' => __( 'Images', 'dazont-ecom' ),
 					'revBadge' => __( 'Reviews', 'dazont-ecom' ),
 					'revNonce' => wp_create_nonce( 'dze_reviews' ),
@@ -3535,6 +3610,8 @@ Answer with STRICT JSON and nothing else: "
 				// Variable products keep their cost on the variations, so the
 				// parent's own field is empty — ask for the real figure.
 				'price' => $product ? self::product_cost( $product ) : '',
+				// Sold in several colours? Then it has variation images to fill.
+				'variable' => (int) ( $product && $product->is_type( 'variable' ) ),
 			],
 			'i18n'       => [
 				'toolbox'    => __( 'Content toolbox', 'dazont-ecom' ),
@@ -3627,6 +3704,20 @@ Answer with STRICT JSON and nothing else: "
 				/* translators: 1: attempt number, 2: attempts asked for */
 				'tryN'       => __( 'Generating %1$s of %2$s…', 'dazont-ecom' ),
 				'oldMain'    => __( 'Today\'s main image', 'dazont-ecom' ),
+				// One image per colour, written to every size of that colour.
+				'varTitle'   => __( 'Variation images', 'dazont-ecom' ),
+				'varIntro'   => __( 'One image per colour, written to every variation of that colour.', 'dazont-ecom' ),
+				'varGroupBy' => __( 'Grouped by', 'dazont-ecom' ),
+				'varNone'    => __( 'This product has no variations to group.', 'dazont-ecom' ),
+				'varNoPrompt'=> __( 'No prompt writes variation images yet. Add one under Settings → Product content → Prompts, with "Variation image" as its destination.', 'dazont-ecom' ),
+				'varRun'     => __( 'Make the ticked images', 'dazont-ecom' ),
+				'varMissing' => __( 'Tick the ones without an image', 'dazont-ecom' ),
+				/* translators: 1: variations in the group, 2: how many have their own image */
+				'varCount'   => __( '%1$s variations · %2$s with their own image', 'dazont-ecom' ),
+				'varHasNone' => __( 'no image of its own', 'dazont-ecom' ),
+				'toVariation'=> __( 'Variation: %s', 'dazont-ecom' ),
+				'putHelp'    => __( 'Where the images made by this prompt go.', 'dazont-ecom' ),
+				'putIt'      => __( 'Put it', 'dazont-ecom' ),
 				'oldKeep'    => __( 'goes to the gallery', 'dazont-ecom' ),
 				'oldDrop'    => __( 'leaves the product', 'dazont-ecom' ),
 				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
@@ -4252,6 +4343,10 @@ Answer with STRICT JSON and nothing else: "
 				delete_post_thumbnail( $pid );
 			}
 		}
+		// A retired photograph may also be the image of a colour: a variation
+		// still pointing at it would keep it on the shop, and the count below
+		// would find it "in use" and refuse to delete the file.
+		self::replace_variation_image( $pid, $att_id, (int) get_post_thumbnail_id( $pid ) );
 		clean_post_cache( $pid );
 		if ( function_exists( 'wc_delete_product_transients' ) ) {
 			wc_delete_product_transients( $pid );
@@ -4270,6 +4365,15 @@ Answer with STRICT JSON and nothing else: "
 
 	/** gallery (default) | gallery_first (second photo of the product) | main. */
 	public static function attach_target( string $t ): string {
+		// A variation image says WHICH group of variations it is for, so the
+		// destination carries the attribute and the value: one image written to
+		// the five sizes of one colour.
+		if ( 0 === strpos( $t, 'variation:' ) ) {
+			[ $attr, $value ] = array_pad( explode( '::', substr( $t, 10 ), 2 ), 2, '' );
+			$attr  = sanitize_key( $attr );
+			$value = sanitize_title( $value );
+			return ( '' !== $attr && '' !== $value ) ? 'variation:' . $attr . '::' . $value : 'gallery';
+		}
 		return in_array( $t, [ 'main', 'gallery_first' ], true ) ? $t : 'gallery';
 	}
 
@@ -4314,6 +4418,14 @@ Answer with STRICT JSON and nothing else: "
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
 		[ $slug, $title ] = self::image_naming( $pid, $recipe_id );
+		// A shop is read by its URLs: three colours of the same product cannot
+		// all be product-name-1.jpg.
+		if ( 0 === strpos( $target, 'variation:' ) ) {
+			[ $n_attr, $n_value ] = array_pad( explode( '::', substr( $target, 10 ), 2 ), 2, '' );
+			$n_label = self::attribute_value_label( $n_attr, $n_value );
+			$slug    = $slug . '-' . sanitize_title( $n_value );
+			$title   = $title . ' — ' . $n_label;
+		}
 
 		$tmp = download_url( $url, 120 );
 		if ( is_wp_error( $tmp ) ) {
@@ -4348,6 +4460,22 @@ Answer with STRICT JSON and nothing else: "
 		wp_update_post( [ 'ID' => (int) $att_id, 'post_title' => $title, 'post_name' => $slug ] );
 		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
 
+		// A variation image belongs to its variations and to nothing else: it
+		// is written to every variation of the group and stays out of the
+		// parent's gallery, which is where fifteen near-identical photographs
+		// would otherwise pile up.
+		if ( 0 === strpos( $target, 'variation:' ) ) {
+			[ $v_attr, $v_value ] = array_pad( explode( '::', substr( $target, 10 ), 2 ), 2, '' );
+			foreach ( self::variation_ids( $pid, $v_attr, $v_value ) as $vid ) {
+				set_post_thumbnail( $vid, (int) $att_id );
+			}
+			clean_post_cache( $pid );
+			if ( function_exists( 'wc_delete_product_transients' ) ) {
+				wc_delete_product_transients( $pid );
+			}
+			return (int) $att_id;
+		}
+
 		$gallery = (string) get_post_meta( $pid, '_product_image_gallery', true );
 		$ids     = array_filter( array_map( 'absint', explode( ',', $gallery ) ) );
 		if ( 'main' === $target ) {
@@ -4367,6 +4495,12 @@ Answer with STRICT JSON and nothing else: "
 					// Asked to go: off the product, but still in the library —
 					// a photograph leaving a page is not a photograph deleted.
 					$ids = array_values( array_diff( $ids, [ $old ] ) );
+					// And off the variations that were using it. A main image
+					// is often the photograph one colour was given, so taking
+					// it off the product while a variation still points at it
+					// leaves the shop showing exactly the image that was
+					// supposed to be gone: those variations take the new one.
+					self::replace_variation_image( $pid, $old, (int) $att_id );
 				}
 			}
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
@@ -4425,6 +4559,155 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @return int[] Attachment ids.
 	 */
+	/**
+	 * The variations of a product, grouped by what changes how it LOOKS.
+	 *
+	 * A product sold in three colours and five sizes is fifteen variations and
+	 * three photographs: size changes nothing you can see, colour changes
+	 * everything. So the groups are built on ONE attribute — the colour one
+	 * when there is one, otherwise the first attribute that is not a size — and
+	 * an image made for a group is written to every variation in it.
+	 *
+	 * Read on demand for one product, never for a list: it walks the
+	 * variations.
+	 *
+	 * @return array{attr:string,label:string,groups:array<int,array<string,mixed>>}
+	 */
+	public static function variation_groups( int $pid, string $attr = '' ): array {
+		$empty   = [ 'attr' => '', 'label' => '', 'groups' => [] ];
+		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+		if ( ! $product || ! $product->is_type( 'variable' ) ) {
+			return $empty;
+		}
+		$attrs = (array) $product->get_variation_attributes();
+		if ( ! $attrs ) {
+			return $empty;
+		}
+		$names = array_keys( $attrs );
+		if ( '' === $attr || ! isset( $attrs[ $attr ] ) ) {
+			$attr = self::looks_attribute( $names );
+		}
+		$children = (array) $product->get_children();
+		if ( ! $children ) {
+			return $empty;
+		}
+		_prime_post_caches( $children, false, true );
+		$groups = [];
+		foreach ( $children as $vid ) {
+			$variation = wc_get_product( (int) $vid );
+			if ( ! $variation ) {
+				continue;
+			}
+			$value = (string) ( $variation->get_attributes()[ sanitize_title( $attr ) ] ?? '' );
+			if ( '' === $value ) {
+				// "Any colour": it belongs to no group in particular, and an
+				// image written to it would be written to all of them.
+				continue;
+			}
+			$key = $attr . '::' . $value;
+			if ( ! isset( $groups[ $key ] ) ) {
+				$groups[ $key ] = [
+					'key'   => $key,
+					'attr'  => $attr,
+					'value' => $value,
+					'label' => self::attribute_value_label( $attr, $value ),
+					'ids'   => [],
+					'with'  => 0,
+					'image' => 0,
+					'thumb' => '',
+				];
+			}
+			$groups[ $key ]['ids'][] = (int) $vid;
+			// The variation's OWN photograph, not the one WooCommerce lends it
+			// from the parent: a variation showing the parent's image is
+			// exactly the gap this fills.
+			$img = (int) get_post_thumbnail_id( (int) $vid );
+			if ( $img ) {
+				$groups[ $key ]['with']++;
+				if ( ! $groups[ $key ]['image'] ) {
+					$groups[ $key ]['image'] = $img;
+					$groups[ $key ]['thumb'] = (string) ( wp_get_attachment_image_url( $img, 'thumbnail' ) ?: '' );
+				}
+			}
+		}
+		foreach ( $groups as $k => $g ) {
+			$groups[ $k ]['total'] = count( $g['ids'] );
+		}
+		return [
+			'attr'   => $attr,
+			'label'  => (string) wc_attribute_label( $attr, $product ),
+			'groups' => array_values( $groups ),
+		];
+	}
+
+	/** The attribute that decides what the product looks like. */
+	private static function looks_attribute( array $names ): string {
+		foreach ( $names as $n ) {
+			if ( preg_match( '/colou?r|couleur|farbe|colore/i', (string) $n ) ) {
+				return (string) $n;
+			}
+		}
+		foreach ( $names as $n ) {
+			if ( ! preg_match( '/size|taille|pointure|length|longueur/i', (string) $n ) ) {
+				return (string) $n;
+			}
+		}
+		return (string) reset( $names );
+	}
+
+	/** "olive" → "Olive", through the taxonomy when there is one. */
+	public static function attribute_value_label( string $attr, string $value ): string {
+		if ( taxonomy_exists( $attr ) ) {
+			$term = get_term_by( 'slug', $value, $attr );
+			if ( $term && ! is_wp_error( $term ) ) {
+				return (string) $term->name;
+			}
+		}
+		return ucfirst( str_replace( '-', ' ', $value ) );
+	}
+
+	/**
+	 * Every variation showing one photograph now shows another.
+	 *
+	 * Used when a photograph leaves the product: it may have been the image of
+	 * a colour as well as the main image, and a variation still pointing at it
+	 * would keep it on the shop.
+	 *
+	 * @return int how many variations were changed.
+	 */
+	public static function replace_variation_image( int $pid, int $old_id, int $new_id ): int {
+		if ( ! $old_id || $old_id === $new_id ) {
+			return 0;
+		}
+		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+		if ( ! $product || ! $product->is_type( 'variable' ) ) {
+			return 0;
+		}
+		$done = 0;
+		foreach ( (array) $product->get_children() as $vid ) {
+			if ( (int) get_post_thumbnail_id( (int) $vid ) !== $old_id ) {
+				continue;
+			}
+			if ( $new_id ) {
+				set_post_thumbnail( (int) $vid, $new_id );
+			} else {
+				delete_post_thumbnail( (int) $vid );
+			}
+			$done++;
+		}
+		return $done;
+	}
+
+	/** The variations of one group, for writing an image to all of them. */
+	public static function variation_ids( int $pid, string $attr, string $value ): array {
+		foreach ( self::variation_groups( $pid, $attr )['groups'] as $g ) {
+			if ( (string) $g['value'] === $value ) {
+				return array_map( 'intval', (array) $g['ids'] );
+			}
+		}
+		return [];
+	}
+
 	public static function product_source_ids( int $pid ): array {
 		$ids     = [];
 		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
