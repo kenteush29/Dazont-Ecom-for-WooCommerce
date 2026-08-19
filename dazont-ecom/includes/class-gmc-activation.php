@@ -361,7 +361,8 @@ final class DZE_Gmc_Activation {
 					'id'    => (int) $vid,
 					'on'    => $is_on,
 					'thumb' => $img ? (string) wp_get_attachment_image_url( $img, 'thumbnail' ) : '',
-					'full'  => $img ? (string) wp_get_attachment_image_url( $img, 'large' ) : '',
+					// The original file: the zoom opens what the shop actually holds.
+					'full'  => $img ? (string) wp_get_attachment_image_url( $img, 'full' ) : '',
 					'label' => wc_get_formatted_variation( $v, true, false ),
 				];
 			}

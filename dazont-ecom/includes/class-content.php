@@ -4715,6 +4715,9 @@ Answer with STRICT JSON and nothing else: "
 					'with'  => 0,
 					'image' => 0,
 					'thumb' => '',
+					// The original file, for the zoom: a viewer that opens a
+					// 150px copy shows nothing you could not already see.
+					'full'  => '',
 				];
 			}
 			$groups[ $key ]['ids'][] = (int) $vid;
@@ -4727,6 +4730,7 @@ Answer with STRICT JSON and nothing else: "
 				if ( ! $groups[ $key ]['image'] ) {
 					$groups[ $key ]['image'] = $img;
 					$groups[ $key ]['thumb'] = (string) ( wp_get_attachment_image_url( $img, 'thumbnail' ) ?: '' );
+					$groups[ $key ]['full']  = (string) ( wp_get_attachment_image_url( $img, 'full' ) ?: '' );
 				}
 			}
 		}
