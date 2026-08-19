@@ -1068,6 +1068,29 @@
 			'</div>' +
 			'<div class="dze-cx-body">' +
 				'<div id="dze-one-body"></div>' +
+			'</div>' +
+			// The buttons live in the dialog's footer, not at the end of the
+			// scroll: what you do with what you are looking at must not depend
+			// on how much of it there is.
+			'<div class="dze-cx-foot">' +
+				'<p class="dze-qm-bar" id="dze-one-dest" style="display:none;">' +
+				'<label class="dze-qm-bglabel"><span>' + esc(i18n.imgWhere) + '</span>' +
+					'<select id="dze-one-target">' +
+						'<option value="main">' + esc(i18n.toMain) + '</option>' +
+						'<option value="gallery_first">' + esc(i18n.toGalleryFirst) + '</option>' +
+						'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
+					'</select></label>' +
+				// Taking the main slot decides the fate of the image that held
+				// it. It was always pushed into the gallery; on a product whose
+				// old main image is a supplier shot you are replacing, that is
+				// the last place you want it.
+				'<label class="dze-qm-bglabel" id="dze-one-oldwrap"><span>' + esc(i18n.oldMain) + '</span>' +
+					'<select id="dze-one-oldmain">' +
+						'<option value="1">' + esc(i18n.oldKeep) + '</option>' +
+						'<option value="0">' + esc(i18n.oldDrop) + '</option>' +
+					'</select></label>' +
+				'<label id="dze-one-replacewrap" style="display:none;"><input type="checkbox" id="dze-one-replace" /> ' + esc(i18n.imgReplace) + '</label>' +
+				'</p>' +
 				'<p class="dze-one-bar">' +
 					'<label class="dze-qm-bglabel" id="dze-one-nwrap" style="display:none;"><span>' + esc(i18n.howMany) + '</span>' +
 					'<select id="dze-one-n">' +
@@ -1158,6 +1181,8 @@
 		$('#dze-one-title').text(label);
 
 		$('#dze-one-state').removeClass('is-ko').text('');
+		// The decision bar belongs to a result: there is none yet.
+		$('#dze-one-dest, #dze-one-pair').hide();
 		$('#dze-one-apply').hide().text(i18n.oneApply);
 		$('#dze-one-gen').text(mode === 'image'
 			? (one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain)
@@ -1221,24 +1246,6 @@
 					'<div class="dze-one-trygrid" id="dze-one-trygrid"></div>' +
 				'</div>' +
 			'</div>' +
-			'<p class="dze-qm-bar" id="dze-one-dest" style="display:none;">' +
-				'<label class="dze-qm-bglabel"><span>' + esc(i18n.imgWhere) + '</span>' +
-					'<select id="dze-one-target">' +
-						'<option value="main">' + esc(i18n.toMain) + '</option>' +
-						'<option value="gallery_first">' + esc(i18n.toGalleryFirst) + '</option>' +
-						'<option value="gallery">' + esc(i18n.toGallery) + '</option>' +
-					'</select></label>' +
-				// Taking the main slot decides the fate of the image that held
-				// it. It was always pushed into the gallery; on a product whose
-				// old main image is a supplier shot you are replacing, that is
-				// the last place you want it.
-				'<label class="dze-qm-bglabel" id="dze-one-oldwrap"><span>' + esc(i18n.oldMain) + '</span>' +
-					'<select id="dze-one-oldmain">' +
-						'<option value="1">' + esc(i18n.oldKeep) + '</option>' +
-						'<option value="0">' + esc(i18n.oldDrop) + '</option>' +
-					'</select></label>' +
-				'<label id="dze-one-replacewrap" style="display:none;"><input type="checkbox" id="dze-one-replace" /> ' + esc(i18n.imgReplace) + '</label>' +
-			'</p>' +
 		'</div>';
 	}
 	function defaultBg() {

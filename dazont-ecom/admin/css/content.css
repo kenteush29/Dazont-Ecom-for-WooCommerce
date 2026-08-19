@@ -46,8 +46,14 @@
 /* ---- Toolbox modal ---- */
 .dze-cx-modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: var(--dze-z-modal); display: none; }
 .dze-cx-modal.is-open { display: flex; align-items: flex-start; justify-content: center; }
+/* The dialog is a column: a title that stays, a body that scrolls, and a
+   footer that stays. The whole box used to scroll as one, so the buttons at
+   the end of it walked off the bottom of the screen as soon as the content
+   grew — three generated images was enough, and the only way back to "Save on
+   the product" was the browser's zoom. */
 .dze-cx-dialog {
-	background: #fff; margin: 3vh auto; width: min(1080px, 96vw); max-height: 94vh; overflow: auto;
+	background: #fff; margin: 3vh auto; width: min(1080px, 96vw); max-height: 94vh;
+	display: flex; flex-direction: column; overflow: hidden;
 	border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3);
 }
 .dze-cx-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e4e7; position: sticky; top: 0; background: #fff; z-index: 2; }
@@ -56,7 +62,14 @@
 .dze-cx-tab { border: 1px solid #dcdcde; background: #f6f7f7; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
 .dze-cx-tab.is-active { background: #2271b1; color: #fff; border-color: #2271b1; }
 .dze-cx-close { margin-left: auto; }
-.dze-cx-body { padding: 16px 20px; }
+.dze-cx-body { padding: 16px 20px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* What you do with what is on screen, always within reach. */
+.dze-cx-foot {
+	flex: 0 0 auto; padding: 10px 20px 12px; border-top: 1px solid #e2e4e7; background: #fff;
+	display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+	max-height: 40vh; overflow: auto;
+}
+.dze-cx-foot > p { margin: 0; }
 .dze-cx-pane { display: none; }
 .dze-cx-pane.is-active { display: block; }
 .dze-cx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -342,7 +355,7 @@
 .dze-one-instr > summary { cursor: pointer; font-size: 12px; color: #2271b1; }
 .dze-one-instr[open] { background: #fff; }
 .dze-one-after { margin-top: 14px; }
-.dze-one-bar { margin: 16px 0 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-one-bar { margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
 .dze-one-img .dze-qm-pair { margin-top: 12px; }
 /* The product's own photographs, to choose the one being worked on. */
 .dze-one-srcs { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
