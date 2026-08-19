@@ -1642,8 +1642,15 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_content_variations', nonce: cfg.nonce, post: PID, attr: attr || '' })
 			.done(function (r) {
 				if (!r || !r.success) { $box.html('<p class="is-ko">' + esc((r && r.data && r.data.message) || i18n.error) + '</p>'); return; }
-				vars = { attr: r.data.attr, label: r.data.label, choices: r.data.choices || [], groups: r.data.groups || [], loaded: true };
+				vars = {
+					attr: r.data.attr, label: r.data.label, choices: r.data.choices || [],
+					groups: r.data.groups || [], count: r.data.count || '', short: !!r.data.short,
+					loaded: true
+				};
 				drawVariations();
+				// The counter in WooCommerce's own panel follows what was just
+				// written, instead of waiting for the page to be loaded again.
+				$('.dze-varbar .dze-varcount').text(vars.count).toggleClass('is-short', vars.short);
 			})
 			.fail(function (x) { $box.html('<p class="is-ko">' + esc(reason(x)) + '</p>'); });
 	}
@@ -1689,7 +1696,7 @@
 				}).join('') + '</select></label></div>';
 		}
 		$box.html(
-			'<p class="description">' + esc(i18n.varIntro) + '</p>' + by +
+			'<p class="description">' + esc(i18n.varIntro) + (vars.count ? ' <strong>' + esc(vars.count) + '</strong>' : '') + '</p>' + by +
 			'<div class="dze-var-list dze-zoomgroup">' + vars.groups.map(varRow).join('') + '</div>'
 		);
 	}

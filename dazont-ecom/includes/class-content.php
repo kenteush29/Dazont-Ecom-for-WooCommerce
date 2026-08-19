@@ -4650,11 +4650,45 @@ Answer with STRICT JSON and nothing else: "
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		// How much of this product is still showing the parent's photograph,
+		// answered where the variations are — not after opening anything.
+		$pid     = (int) get_the_ID();
+		$product = $pid && function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+		$all     = 0;
+		$with    = 0;
+		if ( $product && $product->is_type( 'variable' ) ) {
+			$children = (array) $product->get_children();
+			if ( $children ) {
+				_prime_post_caches( $children, false, true );
+			}
+			foreach ( $children as $vid ) {
+				$all++;
+				if ( get_post_thumbnail_id( (int) $vid ) ) {
+					$with++;
+				}
+			}
+		}
 		printf(
-			'<div class="dze-varbar"><button type="button" class="button dze-var-open">%s</button>'
-				. '<span class="description">%s</span></div>',
+			'<div class="dze-varbar"><button type="button" class="button dze-var-open">%1$s</button>'
+				. '<span class="dze-varcount%2$s">%3$s</span>'
+				. '<span class="description">%4$s</span></div>',
 			esc_html__( '✦ Variation images', 'dazont-ecom' ),
-			esc_html__( 'See every colour and the image it carries — pick one from the library, paste one, or generate one.', 'dazont-ecom' )
+			esc_attr( ( $all && $with < $all ) ? ' is-short' : '' ),
+			esc_html( self::variation_count_text( $with, $all ) ),
+			esc_html__( 'Pick one from the library, paste one, or generate one.', 'dazont-ecom' )
+		);
+	}
+
+	/** "3/18 variations with an image", said the same way wherever it is said. */
+	public static function variation_count_text( int $with, int $all ): string {
+		if ( ! $all ) {
+			return '';
+		}
+		return sprintf(
+			/* translators: 1: variations carrying their own image, 2: variations in total */
+			_n( '%1$s/%2$s variation with an image', '%1$s/%2$s variations with an image', $all, 'dazont-ecom' ),
+			number_format_i18n( $with ),
+			number_format_i18n( $all )
 		);
 	}
 
@@ -4737,10 +4771,23 @@ Answer with STRICT JSON and nothing else: "
 		foreach ( $groups as $k => $g ) {
 			$groups[ $k ]['total'] = count( $g['ids'] );
 		}
+		// Over EVERY variation, not only the ones the groups cover: a variation
+		// left on "any colour" belongs to no group and still counts as a
+		// variation somebody has to look at.
+		$all  = 0;
+		$with = 0;
+		foreach ( $children as $vid ) {
+			$all++;
+			if ( get_post_thumbnail_id( (int) $vid ) ) {
+				$with++;
+			}
+		}
 		return [
-			'attr'   => $attr,
-			'label'  => (string) wc_attribute_label( $attr, $product ),
-			'groups' => array_values( $groups ),
+			'attr'    => $attr,
+			'label'   => (string) wc_attribute_label( $attr, $product ),
+			'groups'  => array_values( $groups ),
+			'all'     => $all,
+			'allWith' => $with,
 		];
 	}
 
