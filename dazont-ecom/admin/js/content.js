@@ -2131,11 +2131,14 @@
 			var $box = $(sel), fids = byBox[sel];
 			var $target = $box.find('> .inside').first();
 			if (!$target.length) { $target = $box; }
-			// One button when the box holds one prompt; named buttons when it
-			// holds several, so "write this" says which "this".
+			// "Write this with AI" only where the box itself says what "this"
+			// is — the title, the description, the short description. Anywhere
+			// else the button carries the name of what it writes, because a
+			// button that does not say what it does is worse than no button.
+			var plain = [ '#titlediv', '#postdivrich', '#postexcerpt' ].indexOf(sel) >= 0;
 			var html = fids.map(function (fid) {
 				placed[fid] = 1;
-				var label = fids.length > 1 ? cfg.fields[fid] : i18n.oneWrite;
+				var label = (fids.length > 1 || !plain) ? cfg.fields[fid] : i18n.oneWrite;
 				return '<button type="button" class="button button-small dze-one-btn" data-field="' + esc(fid) + '">✦ ' + esc(label) + '</button>';
 			}).join(' ');
 			$target.prepend('<p class="dze-one-plant">' + html + '</p>');

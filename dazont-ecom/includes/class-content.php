@@ -3560,7 +3560,11 @@ Answer with STRICT JSON and nothing else: "
 						'post_title'   => '#titlediv',
 						'post_content' => '#postdivrich',
 						'post_excerpt' => '#postexcerpt',
-						'attributes'   => '#woocommerce-product-data',
+						// The Attributes PANEL, not the whole Product data box:
+						// planted on the box, the button stood above every tab
+						// — Variations included — saying "write this" about
+						// nothing anyone could point at.
+						'attributes'   => '#product_attributes',
 						'seo_title'    => $seo_box,
 						'seo_desc'     => $seo_box,
 					];
