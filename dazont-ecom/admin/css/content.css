@@ -885,7 +885,11 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	background: #fff; border: 1px solid #e2e4e7; border-radius: 5px; cursor: pointer;
 }
 .dze-var-row.is-empty { border-color: #f0c33c; background: #fffdf5; }
+.dze-var-thumbwrap { position: relative; display: inline-block; line-height: 0; }
 .dze-var-row img { width: 40px; height: 40px; object-fit: cover; border-radius: 3px; display: block; }
+/* On a 40px thumbnail the zoom button cannot be a corner badge: it sits under
+   it, small and out of the way. */
+.dze-var-thumbwrap .dze-zoom-btn { top: auto; bottom: -6px; right: -6px; width: 18px; height: 18px; line-height: 16px; font-size: 11px; }
 .dze-var-nothumb {
 	width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
 	border: 1px dashed #c3c4c7; border-radius: 3px; color: #a7aaad;
@@ -1170,7 +1174,6 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-pt-mini span { background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 3px; padding: 1px 6px; }
 
 /* Saving one prompt without hunting for the button at the foot of the page. */
-.dze-prb-savebar { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 /* The prompt's own settings, next to the text they belong to. */
 #dze-one-psets { margin: 10px 0 0; }
 #dze-one-psets > details { border: 1px solid #e2e4e7; border-radius: 6px; padding: 8px 12px; margin: 0 0 8px; background: #fbfbfc; }
