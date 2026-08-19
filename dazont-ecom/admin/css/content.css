@@ -346,6 +346,10 @@
 /* The button sits inside the WordPress box it writes into: quiet, small, and
    at the top where the eye already is. */
 .dze-one-plant { margin: 0 0 8px; }
+/* Planted inside a WooCommerce options panel rather than a metabox: those
+   panels indent everything, and a button left to their rules lands under the
+   labels column. */
+#product_attributes > .dze-one-plant { padding: 9px 12px 0; margin: 0; }
 .dze-one-btn { white-space: nowrap; }
 .dze-hub-rest { margin: 10px 0 0; font-size: 12px; line-height: 1.9; }
 .dze-hub-rest .description { display: block; margin-bottom: 2px; }
