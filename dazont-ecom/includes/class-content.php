@@ -696,8 +696,9 @@ EOT;
 				case 'title':
 					// Working on one variation: the title is that variation's,
 					// not the parent's. "Combat shirt" and "Combat shirt —
-					// Multicam Tropic" are not the same brief.
-					$L[] = 'Title: ' . $product->get_name() . ( '' !== $variation ? ' — ' . $variation : '' );
+					// Color: Multicam Tropic, Fabric: Ripstop" are not the same
+					// brief. The caller passes the whole name when it has one.
+					$L[] = 'Title: ' . ( '' !== $variation ? $variation : $product->get_name() );
 					break;
 				case 'description':
 					$d = mb_substr( wp_strip_all_tags( (string) get_post_field( 'post_content', $pid ) ), 0, 2500 );
@@ -4795,6 +4796,49 @@ Answer with STRICT JSON and nothing else: "
 			$done++;
 		}
 		return $done;
+	}
+
+	/**
+	 * The full name of what an image is being made for.
+	 *
+	 * A group is one value of one attribute, but the variations in it often
+	 * share more than that — the fabric, the cut, the finish. Everything the
+	 * whole group has in common goes into the name, so the request says
+	 * "Combat shirt — Color: Multicam Tropic, Fabric: Ripstop" and not just the
+	 * colour. What differs inside the group (the sizes) is left out: one image
+	 * serves all of them, and naming one size would be a lie.
+	 */
+	public static function variation_group_name( int $pid, string $attr, string $value ): string {
+		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+		if ( ! $product ) {
+			return '';
+		}
+		$ids = self::variation_ids( $pid, $attr, $value );
+		if ( ! $ids ) {
+			return '';
+		}
+		$common = null;
+		foreach ( $ids as $vid ) {
+			$v = wc_get_product( $vid );
+			if ( ! $v ) {
+				continue;
+			}
+			$attrs = array_filter( (array) $v->get_attributes() );
+			if ( null === $common ) {
+				$common = $attrs;
+				continue;
+			}
+			foreach ( $common as $k => $val ) {
+				if ( ! isset( $attrs[ $k ] ) || $attrs[ $k ] !== $val ) {
+					unset( $common[ $k ] );
+				}
+			}
+		}
+		$bits = [];
+		foreach ( (array) $common as $k => $val ) {
+			$bits[] = wc_attribute_label( $k, $product ) . ': ' . self::attribute_value_label( $k, (string) $val );
+		}
+		return $bits ? $product->get_name() . ' — ' . implode( ', ', $bits ) : '';
 	}
 
 	/** The variations of one group, for writing an image to all of them. */
