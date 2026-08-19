@@ -703,6 +703,11 @@ trait DZE_Content_Ajax {
 		$mode   = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : '';
 		$custom = isset( $_POST['custom_prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['custom_prompt'] ) ) : '';
 		$src    = isset( $_POST['src_url'] ) ? esc_url_raw( wp_unslash( $_POST['src_url'] ) ) : '';
+		// A photograph that is not on the product yet — a supplier shot pasted
+		// from a browser tab, its watermark and its play button included. It
+		// travels as bytes inside the request and is never stored: it is the
+		// subject of the generation, not a file the shop keeps.
+		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
 		}
@@ -774,7 +779,7 @@ trait DZE_Content_Ajax {
 				$product_ids = array_values( array_unique( array_merge( [ $v_own ], $product_ids ) ) );
 			}
 		}
-		if ( '' === $src && ! $product_ids ) {
+		if ( '' === $src && '' === $paste && ! $product_ids ) {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
 
@@ -796,6 +801,18 @@ trait DZE_Content_Ajax {
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its own.
 				$sources[] = $src;
+			} elseif ( '' !== $paste ) {
+				// The pasted photograph is image 1 — the subject — and the
+				// product's own photographs follow it as context, so the model
+				// knows the product beyond the one shot it was handed.
+				$sources[] = self::read_data_uri( $paste );
+				foreach ( array_slice( $product_ids, 0, 2 ) as $aid ) {
+					try {
+						$sources[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+				}
 			} else {
 				// Everything we have of this product. The featured image comes
 				// first and is never dropped; the rest joins while the request
@@ -838,7 +855,9 @@ trait DZE_Content_Ajax {
 			}
 			$prompt   .= self::sources_instruction( $product_count, $scene );
 			if ( '' !== $v_value ) {
-				$prompt .= self::variation_instruction( $v_attr, $v_value, (bool) $v_own );
+				// A pasted photograph IS that variation: it is shown as it is,
+				// and only the picture around it has to be redone.
+				$prompt .= self::variation_instruction( $v_attr, $v_value, $v_own || '' !== $paste );
 			}
 			// A second shot from the same prompt is asked for a different
 			// framing, otherwise it comes back as the first one again.
@@ -1041,6 +1060,86 @@ trait DZE_Content_Ajax {
 				],
 				$data['groups']
 			),
+		] );
+	}
+
+	/**
+	 * An image the shop already has, given to a group of variations.
+	 *
+	 * Nothing is downloaded, nothing is renamed: it is a photograph of this
+	 * library being pointed at, and rewriting the owner's own media on the way
+	 * would be a surprise nobody asked for. Pass 0 to take the image off the
+	 * group instead.
+	 */
+	public function ajax_variation_assign(): void {
+		$this->guard();
+		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$group = isset( $_POST['group'] ) ? (string) wp_unslash( $_POST['group'] ) : '';
+		$att   = isset( $_POST['attachment'] ) ? absint( $_POST['attachment'] ) : 0;
+		$target = self::attach_target( 'variation:' . $group );
+		if ( ! $pid || 0 !== strpos( $target, 'variation:' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown variation group.', 'dazont-ecom' ) ] );
+		}
+		if ( $att && ! wp_attachment_is_image( $att ) ) {
+			wp_send_json_error( [ 'message' => __( 'That is not an image.', 'dazont-ecom' ) ] );
+		}
+		[ $attr, $value ] = array_pad( explode( '::', substr( $target, 10 ), 2 ), 2, '' );
+		$ids = self::variation_ids( $pid, $attr, $value );
+		foreach ( $ids as $vid ) {
+			if ( $att ) {
+				set_post_thumbnail( $vid, $att );
+			} else {
+				delete_post_thumbnail( $vid );
+			}
+		}
+		clean_post_cache( $pid );
+		if ( function_exists( 'wc_delete_product_transients' ) ) {
+			wc_delete_product_transients( $pid );
+		}
+		wp_send_json_success( [
+			'done'  => count( $ids ),
+			'thumb' => $att ? (string) ( wp_get_attachment_image_url( $att, 'thumbnail' ) ?: '' ) : '',
+		] );
+	}
+
+	/**
+	 * An image from the desktop — pasted, dropped or picked from a folder —
+	 * given to a group of variations.
+	 *
+	 * It travels inside the request as bytes and joins the library through the
+	 * same road as a generated one: the shop's file name, the shop's title, the
+	 * alt text, the JPEG conversion. A photograph that arrives by another door
+	 * must not end up named DSC_0421.jpg.
+	 */
+	public function ajax_variation_paste(): void {
+		$this->guard();
+		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$group = isset( $_POST['group'] ) ? (string) wp_unslash( $_POST['group'] ) : '';
+		$data  = isset( $_POST['data'] ) ? (string) wp_unslash( $_POST['data'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
+		$recipe = isset( $_POST['recipe'] ) ? sanitize_key( (string) wp_unslash( $_POST['recipe'] ) ) : '';
+		$target = self::attach_target( 'variation:' . $group );
+		if ( ! $pid || 0 !== strpos( $target, 'variation:' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown variation group.', 'dazont-ecom' ) ] );
+		}
+		try {
+			$uri   = self::read_data_uri( $data );
+			$mime  = (string) substr( $uri, 5, strpos( $uri, ';' ) - 5 );
+			$bytes = base64_decode( (string) substr( $uri, strpos( $uri, ',' ) + 1 ), true );
+			if ( false === $bytes || '' === $bytes ) {
+				throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+			}
+			$ext = [ 'image/png' => 'png', 'image/webp' => 'webp' ][ $mime ] ?? 'jpg';
+			$tmp = wp_tempnam( 'dze-variation.' . $ext );
+			if ( ! $tmp || false === file_put_contents( $tmp, $bytes ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- a temporary file, not the filesystem API's business.
+				throw new RuntimeException( __( 'The image could not be written on the server.', 'dazont-ecom' ) );
+			}
+			$att = $this->attach_file( $tmp, $ext, $pid, $target, $recipe );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'attachment' => (int) $att,
+			'thumb'      => (string) ( wp_get_attachment_image_url( (int) $att, 'thumbnail' ) ?: '' ),
 		] );
 	}
 

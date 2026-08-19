@@ -887,7 +887,26 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	border: 1px dashed #c3c4c7; border-radius: 3px; color: #a7aaad;
 }
 .dze-var-name { font-weight: 600; }
-.dze-var-state { margin-left: auto; font-size: 12px; color: #646970; }
+/* The row carries its own actions and its own workbench: whatever fills the
+   group — the library, a pasted file, a generation — happens on the line that
+   asked for it. */
+.dze-var-row { flex-wrap: wrap; }
+.dze-var-pick { display: flex; align-items: center; margin: 0; }
+.dze-var-acts { display: flex; align-items: center; gap: 4px; }
+.dze-var-rowstate { font-size: 12px; color: #646970; }
+.dze-var-rowstate.is-ko { color: #b32d2e; }
+.dze-var-work { flex: 1 0 100%; }
+.dze-var-work:empty { display: none; }
+.dze-var-work .dze-qm-drop { margin-top: 8px; }
+.dze-var-try { display: flex; align-items: flex-end; gap: 10px; margin-top: 8px; }
+.dze-var-try img { width: 200px; height: 200px; object-fit: contain; background: #f6f7f7; border-radius: 4px; display: block; }
+/* The photograph you brought, before anything has been decided about it. */
+.dze-var-src img { border: 2px dashed #c3c4c7; }
+.dze-var-tryacts { display: flex; align-items: center; gap: 6px; }
+/* The button planted in WooCommerce's own Variations panel. */
+.dze-varbar { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #eee; }
+.dze-varbar .description { font-size: 12px; }
+.dze-var-state { margin-left: auto; margin-right: 10px; font-size: 12px; color: #646970; }
 .dze-var-state2 { font-size: 12px; color: #646970; margin-left: 8px; }
 .dze-var-state2.is-ko { color: #b32d2e; }
 

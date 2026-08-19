@@ -77,6 +77,8 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_validate_prompt', [ $this, 'ajax_validate_prompt' ] );
 		add_action( 'wp_ajax_dze_content_pending_clear', [ $this, 'ajax_pending_clear' ] );
 		add_action( 'wp_ajax_dze_content_variations', [ $this, 'ajax_variations' ] );
+		add_action( 'wp_ajax_dze_content_variation_assign', [ $this, 'ajax_variation_assign' ] );
+		add_action( 'wp_ajax_dze_content_variation_paste', [ $this, 'ajax_variation_paste' ] );
 		add_action( 'wp_ajax_dze_content_logged', [ $this, 'ajax_logged' ] );
 		add_action( 'wp_ajax_dze_content_log_clear', [ $this, 'ajax_log_clear' ] );
 		add_action( 'wp_ajax_dze_content_bulk_list', [ $this, 'ajax_bulk_list' ] );
@@ -92,6 +94,10 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_inputs', [ $this, 'ajax_inputs' ] );
 		add_action( 'wp_ajax_dze_content_reframe_preview', [ $this, 'ajax_reframe_preview' ] );
 		add_action( 'wp_ajax_dze_content_reframe_apply', [ $this, 'ajax_reframe_apply' ] );
+		// The Variations panel is the box variation images are written into, so
+		// the button that fills them is planted there — one button, opening one
+		// popup, exactly like the title and the main image have.
+		add_action( 'woocommerce_variable_product_before_variations', [ $this, 'variations_button' ] );
 		// The products list: one chip per row opening the toolbox on the spot.
 		add_filter( 'manage_edit-product_columns', [ $this, 'list_column' ], 22 );
 		add_action( 'manage_product_posts_custom_column', [ $this, 'list_cell' ], 10, 2 );
@@ -3711,6 +3717,13 @@ Answer with STRICT JSON and nothing else: "
 				'varNone'    => __( 'This product has no variations to group.', 'dazont-ecom' ),
 				'varNoPrompt'=> __( 'No prompt writes variation images yet. Add one under Settings → Product content → Prompts, with "Variation image" as its destination.', 'dazont-ecom' ),
 				'varRun'     => __( 'Make the ticked images', 'dazont-ecom' ),
+				'varOpen'    => __( 'Open variation images', 'dazont-ecom' ),
+				'varLib'     => __( 'Library', 'dazont-ecom' ),
+				'varLibTitle'=> __( 'Choose the image for this variation', 'dazont-ecom' ),
+				'varPaste'   => __( 'Paste / file', 'dazont-ecom' ),
+				'varClear'   => __( 'Take this image off the variations', 'dazont-ecom' ),
+				'varUseAs'   => __( 'Use it as it is', 'dazont-ecom' ),
+				'varFromIt'  => __( 'Make a clean image from it', 'dazont-ecom' ),
 				'varMissing' => __( 'Tick the ones without an image', 'dazont-ecom' ),
 				/* translators: 1: variations in the group, 2: how many have their own image */
 				'varCount'   => __( '%1$s variations · %2$s with their own image', 'dazont-ecom' ),
@@ -4414,6 +4427,28 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	public function sideload_seo( string $url, int $pid, string $target, string $recipe_id = '', bool $keep_old = true ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
+		$tmp = download_url( $url, 120 );
+		if ( is_wp_error( $tmp ) ) {
+			throw new RuntimeException( $tmp->get_error_message() );
+		}
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		return $this->attach_file( (string) $tmp, strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ), $pid, $target, $recipe_id, $keep_old );
+	}
+
+	/**
+	 * A file on disk becomes a photograph of this product.
+	 *
+	 * The naming, the alt text, the JPEG conversion and every destination —
+	 * main image, gallery, one group of variations — live HERE and nowhere
+	 * else. A generated image arrives by download, one pasted from the desktop
+	 * arrives in the request; past this point they are the same photograph and
+	 * follow the same road, so neither can quietly stop being named the way
+	 * the shop names its files.
+	 *
+	 * @param string $tmp Temporary file; consumed (moved or deleted) either way.
+	 */
+	public function attach_file( string $tmp, string $ext, int $pid, string $target, string $recipe_id = '', bool $keep_old = true ): int {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
@@ -4427,12 +4462,6 @@ Answer with STRICT JSON and nothing else: "
 			$title   = $title . ' — ' . $n_label;
 		}
 
-		$tmp = download_url( $url, 120 );
-		if ( is_wp_error( $tmp ) ) {
-			throw new RuntimeException( $tmp->get_error_message() );
-		}
-		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
-		$ext  = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		if ( ! in_array( $ext, [ 'png', 'jpg', 'jpeg', 'webp' ], true ) ) {
 			$ext = 'jpg';
 		}
@@ -4559,6 +4588,19 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @return int[] Attachment ids.
 	 */
+	/** The button planted in WooCommerce's own Variations panel. */
+	public function variations_button(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		printf(
+			'<div class="dze-varbar"><button type="button" class="button dze-var-open">%s</button>'
+				. '<span class="description">%s</span></div>',
+			esc_html__( '✦ Variation images', 'dazont-ecom' ),
+			esc_html__( 'See every colour and the image it carries — pick one from the library, paste one, or generate one.', 'dazont-ecom' )
+		);
+	}
+
 	/**
 	 * The variations of a product, grouped by what changes how it LOOKS.
 	 *
