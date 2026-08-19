@@ -786,12 +786,14 @@ trait DZE_Content_Ajax {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
 
-		// On a variation run every product line is read for THAT variation: its
-		// title carries the colour, so "Product title" is the variation's title.
+		// On a variation run every product line is read for THAT variation:
+		// "Product title" is the variation's full name — the product plus
+		// everything the whole group has in common, not the colour alone.
 		$v_label = '' !== $v_value ? self::attribute_value_label( $v_attr, $v_value ) : '';
+		$v_name  = '' !== $v_value ? self::variation_group_name( $pid, $v_attr, $v_value ) : '';
 		$pl   = $tpl
-			? self::payload_lines( $pid, (array) ( $tpl['inputs'] ?? [ 'title', 'description' ] ), (string) ( $tpl['inputs_meta'] ?? '' ), $v_label )
-			: self::payload_lines( $pid, [ 'title', 'description' ], '', $v_label );
+			? self::payload_lines( $pid, (array) ( $tpl['inputs'] ?? [ 'title', 'description' ] ), (string) ( $tpl['inputs_meta'] ?? '' ), $v_name )
+			: self::payload_lines( $pid, [ 'title', 'description' ], '', $v_name );
 		$pl   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $pl ) ), 0, 800 );
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];
