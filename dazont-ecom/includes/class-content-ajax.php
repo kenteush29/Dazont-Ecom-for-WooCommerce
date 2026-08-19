@@ -724,6 +724,19 @@ trait DZE_Content_Ajax {
 		if ( isset( $_POST['target'] ) ) {
 			$target = self::attach_target( (string) wp_unslash( $_POST['target'] ) );
 		}
+		// One group of variations — "the olive ones" — asked for by key. It
+		// decides the destination on its own: an image made for a colour goes
+		// to that colour's variations and nowhere else.
+		$variation = isset( $_POST['variation'] ) ? (string) wp_unslash( $_POST['variation'] ) : '';
+		$v_attr    = '';
+		$v_value   = '';
+		if ( '' !== $variation ) {
+			$target = self::attach_target( 'variation:' . $variation );
+			if ( 0 !== strpos( $target, 'variation:' ) ) {
+				wp_send_json_error( [ 'message' => __( 'Unknown variation group.', 'dazont-ecom' ) ] );
+			}
+			[ $v_attr, $v_value ] = array_pad( explode( '::', substr( $target, 10 ), 2 ), 2, '' );
+		}
 
 		// Source image: an earlier AI result (live edit) or the featured image.
 		if ( '' !== $src && ! self::is_fal_url( $src ) ) {
@@ -744,6 +757,23 @@ trait DZE_Content_Ajax {
 		// Every photograph of the product goes out, not just the featured one:
 		// a single cropped shot is what makes the model invent the rest.
 		$product_ids = self::product_source_ids( $pid );
+		// Working on one colour: the photograph that colour already has is the
+		// subject, and it goes first. When it has none — the case this whole
+		// function exists for — the product's own photographs are what the
+		// colour is built from.
+		$v_own = 0;
+		if ( '' !== $v_value ) {
+			foreach ( self::variation_ids( $pid, $v_attr, $v_value ) as $vid ) {
+				$shot = (int) get_post_thumbnail_id( $vid );
+				if ( $shot ) {
+					$v_own = $shot;
+					break;
+				}
+			}
+			if ( $v_own ) {
+				$product_ids = array_values( array_unique( array_merge( [ $v_own ], $product_ids ) ) );
+			}
+		}
 		if ( '' === $src && ! $product_ids ) {
 			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
 		}
@@ -779,7 +809,9 @@ trait DZE_Content_Ajax {
 				// gallery shot, in a setting of its own — so the main lane sends
 				// the featured image plus two, exactly like the toolbox that
 				// does this well.
-				$ids_out = 'main' === $target ? array_slice( $product_ids, 0, 3 ) : $product_ids;
+				$ids_out = ( 'main' === $target || 0 === strpos( $target, 'variation:' ) )
+					? array_slice( $product_ids, 0, 3 )
+					: $product_ids;
 				foreach ( $ids_out as $i => $aid ) {
 					try {
 						// The featured image is the one the result is built on,
@@ -805,12 +837,15 @@ trait DZE_Content_Ajax {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
 			$prompt   .= self::sources_instruction( $product_count, $scene );
+			if ( '' !== $v_value ) {
+				$prompt .= self::variation_instruction( $v_attr, $v_value, (bool) $v_own );
+			}
 			// A second shot from the same prompt is asked for a different
 			// framing, otherwise it comes back as the first one again.
 			$prompt   .= self::variation_line(
 				$pid,
 				(string) ( $tpl['id'] ?? '' ),
-				$target,
+				'' !== $v_value ? 'main' : $target,
 				isset( $_POST['attempt'] ) ? absint( $_POST['attempt'] ) : 0
 			);
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -967,6 +1002,48 @@ trait DZE_Content_Ajax {
 	 * that wrote it: the product leaves the working list and joins the Done
 	 * view. One request per product accepted, never one per field.
 	 */
+	/**
+	 * The variation groups of one product: which colours it is sold in, how
+	 * many variations each one covers, and which of them already have their
+	 * own photograph.
+	 *
+	 * Asked for when a panel is opened, never with a list: it walks the
+	 * variations of one product.
+	 */
+	public function ajax_variations(): void {
+		$this->guard();
+		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		$attr = isset( $_POST['attr'] ) ? sanitize_key( (string) wp_unslash( $_POST['attr'] ) ) : '';
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+		}
+		$data = self::variation_groups( $pid, $attr );
+		// Which attributes this product could be grouped by, so the screen can
+		// offer the choice when the guess is wrong.
+		$choices = [];
+		$product = wc_get_product( $pid );
+		if ( $product && $product->is_type( 'variable' ) ) {
+			foreach ( array_keys( (array) $product->get_variation_attributes() ) as $name ) {
+				$choices[] = [ 'key' => (string) $name, 'label' => (string) wc_attribute_label( (string) $name, $product ) ];
+			}
+		}
+		wp_send_json_success( [
+			'attr'    => $data['attr'],
+			'label'   => $data['label'],
+			'choices' => $choices,
+			'groups'  => array_map(
+				static fn( $g ) => [
+					'key'   => $g['key'],
+					'label' => $g['label'],
+					'total' => (int) $g['total'],
+					'with'  => (int) $g['with'],
+					'thumb' => (string) $g['thumb'],
+				],
+				$data['groups']
+			),
+		] );
+	}
+
 	public function ajax_logged(): void {
 		$this->guard();
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;

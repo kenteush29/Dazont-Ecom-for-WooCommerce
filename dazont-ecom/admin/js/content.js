@@ -362,6 +362,13 @@
 						'</div>' : '')
 					) +
 
+					// ---- VARIATIONS ---- one image per colour, written to every
+					// size of that colour. Only on a product that has any.
+					(cfg.product.variable ? sec('var', i18n.varTitle, false,
+						'<p class="description">' + esc(i18n.varIntro) + '</p>' +
+						'<div id="dze-cx-varbox" class="dze-cb-sub"></div>'
+					) : '') +
+
 					// ---- PRICE ---- shut, and it says what it will do before
 					// it does it: the table it reads, and every variation it
 					// would rewrite, with the figures.
@@ -410,6 +417,9 @@
 			$('#dze-cx-tplrows').append(tplRow(row.tpl, row.scene, row.n, row.target));
 		});
 		syncTplRows();
+		// The section may open with the popup, remembered from last time: it
+		// gets its list without waiting for a click that will not come.
+		if ($('.dze-sec[data-sec="var"]').hasClass('is-open')) { loadVariations(''); }
 		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target', remember);
 	}
 
@@ -611,8 +621,16 @@
 		);
 	}
 	function destLabel(v) {
+		v = String(v || '');
+		// A variation image says which colour it is for, not "gallery".
+		if (0 === v.indexOf('variation:')) {
+			var value = v.split('::')[1] || '';
+			var g = (vars.groups || []).filter(function (x) { return x.key === v.slice(10); })[0];
+			return sprintf(i18n.toVariation, g ? g.label : value);
+		}
 		return v === 'main' ? i18n.toMain : (v === 'gallery_first' ? i18n.toGalleryFirst : i18n.toGallery);
 	}
+	function isVariation(v) { return 0 === String(v || '').indexOf('variation:'); }
 	function drawShots() {
 		var $slot = $('#dze-cx-shots');
 		// The same image can reach the strip twice — restored from an earlier
@@ -677,6 +695,9 @@
 	$(document).on('click', '#dze-cx-shots .dze-cb-shotpos', function (e) {
 		e.stopPropagation();
 		var $in = $(this).closest('.dze-cb-shot').find('.dze-cb-shotdest');
+		// An image made for one colour belongs to that colour: there is nothing
+		// to cycle through.
+		if (isVariation($in.val())) { return; }
 		var order = [ 'gallery', 'gallery_first', 'main' ];
 		var next = order[(order.indexOf($in.val()) + 1) % order.length];
 		$in.val(next);
@@ -1529,6 +1550,135 @@
 				oneShowResult(r.data.text || '');
 			})
 			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
+
+	// =====================================================================
+	// Variation images: one photograph per colour, not one per variation
+	// =====================================================================
+
+	// A product sold in three colours and five sizes is fifteen variations and
+	// three photographs. The groups come from the server, which knows which
+	// attribute changes what the product looks like and which groups have no
+	// photograph of their own — the gap this fills.
+	var vars = { attr: '', groups: [], loaded: false };
+
+	function varTemplates() {
+		return (cfg.templates || []).map(function (t, i) { return { i: i, t: t }; })
+			.filter(function (o) { return 'variation' === o.t.target; });
+	}
+	function loadVariations(attr) {
+		var $box = $('#dze-cx-varbox');
+		if (!$box.length) { return; }
+		$box.html('<p class="description">' + esc(i18n.working) + '</p>');
+		$.post(cfg.ajaxUrl, { action: 'dze_content_variations', nonce: cfg.nonce, post: PID, attr: attr || '' })
+			.done(function (r) {
+				if (!r || !r.success) { $box.html('<p class="is-ko">' + esc((r && r.data && r.data.message) || i18n.error) + '</p>'); return; }
+				vars = { attr: r.data.attr, label: r.data.label, choices: r.data.choices || [], groups: r.data.groups || [], loaded: true };
+				drawVariations();
+			})
+			.fail(function (x) { $box.html('<p class="is-ko">' + esc(reason(x)) + '</p>'); });
+	}
+	function drawVariations() {
+		var $box = $('#dze-cx-varbox');
+		if (!$box.length) { return; }
+		if (!vars.groups.length) { $box.html('<p class="description">' + esc(i18n.varNone) + '</p>'); return; }
+		var tpls = varTemplates();
+		if (!tpls.length) {
+			$box.html('<p class="description">' + esc(i18n.varNoPrompt) + '</p>');
+			return;
+		}
+		// Which attribute the groups are built on: the guess is shown and can
+		// be changed, rather than being silently right or silently wrong.
+		var by = '';
+		if ((vars.choices || []).length > 1) {
+			by = '<label><span>' + esc(i18n.varGroupBy) + '</span>' +
+				'<select id="dze-cx-varattr">' + vars.choices.map(function (c) {
+					return '<option value="' + esc(c.key) + '"' + (c.key === vars.attr ? ' selected' : '') + '>' + esc(c.label) + '</option>';
+				}).join('') + '</select></label> ';
+		}
+		var rows = vars.groups.map(function (g) {
+			var none = !g.with;
+			return '<label class="dze-var-row' + (none ? ' is-empty' : '') + '">' +
+				'<input type="checkbox" class="dze-cx-var" value="' + esc(g.key) + '"' + (none ? ' checked' : '') + ' />' +
+				(g.thumb ? '<img src="' + esc(g.thumb) + '" data-full="' + esc(g.thumb) + '" alt="" />' : '<span class="dze-var-nothumb">—</span>') +
+				'<span class="dze-var-name">' + esc(g.label) + '</span>' +
+				'<span class="dze-var-state">' + esc(none ? i18n.varHasNone : sprintf(i18n.varCount, g.total, g.with)) + '</span>' +
+				'</label>';
+		}).join('');
+		// The same three questions as everywhere else — which prompt, on which
+		// scene, how many — as one row of labelled selects, like the Reviews
+		// block right above it.
+		$box.html(
+			'<div class="dze-cb-opts">' +
+				'<label><span>' + esc(i18n.template) + '</span>' +
+					'<select id="dze-cx-vartpl">' + tpls.map(function (o) {
+						return '<option value="' + o.i + '">' + esc(o.t.name) + '</option>';
+					}).join('') + '</select></label>' +
+				((cfg.scenes || []).length
+					? '<label><span>' + esc(i18n.scene) + '</span>' + sceneSelect(defaultScene()).replace('dze-tpl-scene', 'dze-var-scene') + '</label>'
+					: '') +
+				'<label><span>' + esc(i18n.attempts) + '</span>' + nSelect(1).replace('dze-tpl-n', 'dze-var-n') + '</label>' +
+				(by ? by : '') +
+			'</div>' +
+			'<div class="dze-var-list dze-zoomgroup">' + rows + '</div>' +
+			'<p class="dze-nowbar">' +
+				'<button type="button" class="button button-primary" id="dze-cx-varrun">' + esc(i18n.varRun) + '</button> ' +
+				'<button type="button" class="button-link" id="dze-cx-varmissing">' + esc(i18n.varMissing) + '</button>' +
+				'<span class="dze-var-state2"></span>' +
+			'</p>'
+		);
+	}
+	$(document).on('change', '#dze-cx-varattr', function () { loadVariations($(this).val()); });
+	// The list is read when the section is opened, not when the popup is: it
+	// walks the variations of the product.
+	$(document).on('dze:sec', function (e, which, on) {
+		if ('var' === which && on && !vars.loaded) { loadVariations(''); }
+	});
+	$(document).on('click', '#dze-cx-varmissing', function () {
+		var empty = {};
+		(vars.groups || []).forEach(function (g) { if (!g.with) { empty[g.key] = 1; } });
+		$('.dze-cx-var').each(function () { $(this).prop('checked', !!empty[$(this).val()]); });
+	});
+	// One request per group, one after another: each one is a paid generation
+	// and the provider answers in its own time.
+	$(document).on('click', '#dze-cx-varrun', function () {
+		var keys = $('.dze-cx-var:checked').map(function () { return $(this).val(); }).get();
+		var $st = $('.dze-var-state2').removeClass('is-ko');
+		if (!keys.length) { $st.addClass('is-ko').text(i18n.nothingSel); return; }
+		var $b = $(this).prop('disabled', true);
+		var tpl = $('#dze-cx-vartpl').val() || '0';
+		var scene = $('.dze-var-scene').length ? parseInt($('.dze-var-scene').val(), 10) : -1;
+		var n = parseInt($('.dze-var-n').val(), 10) || 1;
+		var jobs = [];
+		keys.forEach(function (k) { for (var i = 0; i < n; i++) { jobs.push(k); } });
+		var i = 0;
+		(function next() {
+			if (i >= jobs.length) {
+				$b.prop('disabled', false);
+				$st.text('');
+				// The groups now have images waiting: read them again so the
+				// list says so.
+				loadVariations(vars.attr);
+				return;
+			}
+			var key = jobs[i++];
+			$st.text(sprintf(i18n.tryN, i, jobs.length));
+			var data = imageRequest(tpl, scene);
+			data.variation = key;
+			$.post(cfg.ajaxUrl, data)
+				.done(function (r) {
+					if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); $b.prop('disabled', false); return; }
+					res.shots.push(r.data.url);
+					res.shotTpl[r.data.url] = tpl;
+					res.shotTarget = res.shotTarget || {};
+					res.shotTarget[r.data.url] = r.data.target || '';
+					drawShots();
+					flagWaiting();
+					$('#dze-cx-result').show();
+					next();
+				})
+				.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+		}());
 	});
 
 	// The image the new one is put next to. Replacing the main image means

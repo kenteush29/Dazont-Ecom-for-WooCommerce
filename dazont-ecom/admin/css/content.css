@@ -861,6 +861,23 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	letter-spacing: .04em; color: #646970; margin-bottom: 4px;
 }
 .dze-cb-nowshots:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
+/* ---- Variation images: one line per colour ---- */
+.dze-var-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.dze-var-row {
+	display: flex; align-items: center; gap: 10px; padding: 5px 8px;
+	background: #fff; border: 1px solid #e2e4e7; border-radius: 5px; cursor: pointer;
+}
+.dze-var-row.is-empty { border-color: #f0c33c; background: #fffdf5; }
+.dze-var-row img { width: 40px; height: 40px; object-fit: cover; border-radius: 3px; display: block; }
+.dze-var-nothumb {
+	width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+	border: 1px dashed #c3c4c7; border-radius: 3px; color: #a7aaad;
+}
+.dze-var-name { font-weight: 600; }
+.dze-var-state { margin-left: auto; font-size: 12px; color: #646970; }
+.dze-var-state2 { font-size: 12px; color: #646970; margin-left: 8px; }
+.dze-var-state2.is-ko { color: #b32d2e; }
+
 .dze-cb-nowko { margin: 4px 0 10px; font-size: 12px; color: #b32d2e; }
 .dze-cb-nowgrid { display: flex; flex-wrap: wrap; gap: 6px; }
 .dze-cb-nowshot img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; display: block; }
