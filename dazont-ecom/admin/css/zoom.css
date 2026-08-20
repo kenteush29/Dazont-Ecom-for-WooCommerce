@@ -1,0 +1,47 @@
+/**
+ * The zoom viewer, shared by every grid of product images.
+ *
+ * It ships with admin/js/hzoom.js and is enqueued wherever that script is: the
+ * viewer is one component, and a component that carries its behaviour but not
+ * its appearance is a component that works on three screens out of four.
+ */
+:root {
+	--dze-z-zoom: 160050; /* deliberately over wp.media */
+}
+
+/* ---- The zoom viewer, shared by every grid of product images ---- */
+/* Hovering is enough to recognise a photograph, not to judge one. Every grid
+   marked .dze-zoomgroup carries the same button, in the same corner, at the
+   same size — a generated image, a photograph already on the product and a
+   source picked to work from are all read the same way. */
+.dze-zoomgroup > * { position: relative; }
+.dze-zoom-btn {
+	position: absolute; top: 3px; right: 3px; z-index: 3;
+	width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px;
+	background: rgba(0,0,0,.55); color: #fff; cursor: pointer;
+	font-size: 13px; line-height: 22px; text-align: center; opacity: 0;
+	transition: opacity .12s;
+}
+.dze-zoomgroup > *:hover .dze-zoom-btn,
+.dze-zoom-btn:focus { opacity: 1; }
+.dze-zoom-btn:hover { background: #2271b1; }
+/* The cross that throws a generated image away shares the corner: it moves
+   left so both stay reachable. */
+.dze-zoomgroup .dze-cb-shotdrop { right: 29px; }
+
+.dze-zoom-back {
+	display: none; position: fixed; inset: 0; z-index: var(--dze-z-zoom);
+	background: rgba(0,0,0,.82); align-items: center; justify-content: center;
+}
+.dze-zoom-back.is-open { display: flex; }
+.dze-zoom-img { max-width: 88vw; max-height: 88vh; object-fit: contain; border-radius: 4px; background: #fff; }
+.dze-zoom-back button {
+	position: absolute; border: none; background: rgba(255,255,255,.14); color: #fff;
+	cursor: pointer; border-radius: 6px;
+}
+.dze-zoom-back button:hover { background: rgba(255,255,255,.3); }
+.dze-zoom-close { top: 18px; right: 22px; width: 40px; height: 40px; font-size: 26px; line-height: 1; }
+.dze-zoom-prev, .dze-zoom-next { top: 50%; margin-top: -32px; width: 46px; height: 64px; font-size: 34px; line-height: 1; }
+.dze-zoom-prev { left: 18px; }
+.dze-zoom-next { right: 18px; }
+.dze-zoom-count { position: absolute; bottom: 18px; color: #fff; font-size: 13px; opacity: .8; }

@@ -134,8 +134,22 @@ body.dze-x-ov-open { overflow: hidden; }
 	display: flex; flex-direction: column; gap: 6px;
 }
 .dze-x-card:hover { border-color: #2271b1; z-index: 5; }
-.dze-x-thumb { aspect-ratio: 1/1; overflow: hidden; border-radius: 8px; background: #f6f7f7; display: flex; align-items: center; justify-content: center; }
+.dze-x-thumb { position: relative; aspect-ratio: 1/1; overflow: hidden; border-radius: 8px; background: #f6f7f7; display: flex; align-items: center; justify-content: center; }
 .dze-x-img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+/* One mark per photograph, under the image: how many angles this product has,
+   and which one the cursor is on. Shown while the card is hovered — a grid of
+   thirty cards each wearing a row of dots is noise. */
+.dze-x-dots {
+	position: absolute; left: 0; right: 0; bottom: 5px; z-index: 2;
+	display: flex; justify-content: center; gap: 4px; opacity: 0; transition: opacity .12s;
+	pointer-events: none;
+}
+.dze-x-card:hover .dze-x-dots { opacity: 1; }
+.dze-x-dots i {
+	width: 14px; height: 3px; border-radius: 2px; background: rgba(0,0,0,.25);
+	box-shadow: 0 0 0 1px rgba(255,255,255,.5);
+}
+.dze-x-dots i.is-on { background: #2271b1; }
 .dze-x-name { font-weight: 600; font-size: 12px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Details sit below the title, hidden by default, revealed on hover as a solid
    panel dropping under the card (no overlap on the image, no reflow). */
@@ -275,12 +289,14 @@ body.dze-x-ov-open { overflow: hidden; }
 }
 .dze-x-subcat-count { color: #787c82; font-size: 11px; }
 
-/* ===================== Lightbox + variations modal ====================== */
-.dze-lightbox, .dze-gal-modal {
+/* ========================= Variations modal ============================= */
+/* Images open in the plugin's own viewer (admin/css/zoom.css): one lightbox
+   for the whole plugin, walked with ‹ ›, rather than a second one here that
+   could only ever show one photograph. */
+.dze-gal-modal {
 	position: fixed; inset: 0; z-index: 100010; background: rgba(0,0,0,.8);
 	display: flex; align-items: center; justify-content: center; padding: 24px;
 }
-.dze-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 6px; }
 .dze-gal-modal__inner { background: #fff; border-radius: 10px; width: min(1100px, 94vw); max-height: 88vh; overflow: auto; padding: 18px 22px; }
 .dze-var-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
 .dze-var-sort { font-size: 13px; color: #50575e; }
