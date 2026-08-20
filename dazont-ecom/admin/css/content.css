@@ -70,8 +70,9 @@
    thumbnail strip wider than the popup used to be drawn over the block above
    instead of wrapping inside its own. */
 .dze-one-img, .dze-step { min-width: 0; }
-.dze-one-recipes, .dze-one-srcs, .dze-one-bgs { align-items: flex-start; max-width: 100%; }
-.dze-one-recipe { flex: 0 1 auto; min-width: 0; }
+.dze-one-srcs, .dze-one-bgs { align-items: flex-start; max-width: 100%; }
+.dze-one-recipes { max-width: 100%; }
+.dze-one-recipe { min-width: 0; }
 /* What you do with what is on screen, always within reach. */
 .dze-cx-foot {
 	flex: 0 0 auto; padding: 10px 20px 12px; border-top: 1px solid #e2e4e7; background: #fff;
@@ -396,12 +397,20 @@
 	text-align: center; font-weight: 700;
 }
 .dze-step-more { margin: 6px 0 0; font-size: 12px; }
-.dze-one-recipes { display: flex; gap: 8px; flex-wrap: wrap; }
+/* One card per prompt, all the same card. Laid out as a grid rather than a
+   row of boxes each sized to its own sentence: a two-line prompt next to a
+   four-line one used to come out half as wide, and three of them made a
+   staircase. The grid fills the width with equal columns and stretches every
+   card of a row to the same height. */
+.dze-one-recipes {
+	display: grid; gap: 8px; align-items: stretch;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
 .dze-one-recipe {
-	display: inline-flex; align-items: flex-start; gap: 8px; text-align: left;
+	display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+	box-sizing: border-box; width: 100%; text-align: left;
 	background: #fff; border: 2px solid #dcdcde; border-radius: 6px;
 	padding: 8px 12px; cursor: pointer; font-size: 13px; color: #1d2327;
-	max-width: 330px;
 }
 .dze-one-recipe.is-sel { border-color: #2271b1; background: #f0f6fc; }
 .dze-one-recipetxt { display: block; }
