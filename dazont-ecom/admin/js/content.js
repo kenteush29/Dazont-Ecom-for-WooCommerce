@@ -578,6 +578,19 @@
 	if (window.dzePhotos) {
 		window.dzePhotos.on('ai', function () { openOne('', 'image', 'main'); });
 	}
+	// Another box of the page asking for this workshop — the POD box, which
+	// holds the design but does not generate anything of its own any more.
+	$(document).on('dze:image', function (e, opts) {
+		opts = opts || {};
+		openOne('', 'image', opts.scope || 'main');
+		if ('design' === opts.src && cfg.design && cfg.design.id) {
+			// Drawn when the product's photographs come back: the tile has to
+			// exist before it can be chosen.
+			loadCurrent().then(function () {
+				window.setTimeout(function () { $('.dze-one-srcdesign').trigger('click'); }, 30);
+			});
+		}
+	});
 	$(document).on('click', '.dze-cx-now', function (e) {
 		e.stopPropagation();
 		var $btn = $(this), fid = $btn.data('field');
@@ -1352,9 +1365,11 @@
 		var html = '<button type="button" class="dze-one-bg' + ('0' === cur ? ' is-sel' : '') + '" data-id="0">' +
 			'<span class="dze-one-bgnone">' + esc(i18n.qmBgNone) + '</span></button>';
 		(cfg.backdrops || []).forEach(function (b) {
-			html += '<button type="button" class="dze-one-bg' + (String(b.id) === cur ? ' is-sel' : '') + '" data-id="' + b.id + '">' +
+			html += '<button type="button" class="dze-one-bg' + (String(b.id) === cur ? ' is-sel' : '') +
+					('blank' === b.use ? ' is-blank' : '') + '" data-id="' + b.id + '">' +
 				(b.thumb ? '<img src="' + esc(b.thumb) + '" alt="" />' : '') +
-				'<span class="dze-one-bgname">' + esc(b.name) + '</span></button>';
+				'<span class="dze-one-bgname">' + esc(b.name) +
+					('blank' === b.use ? ' <em>' + esc(i18n.bgBlank) + '</em>' : '') + '</span></button>';
 		});
 		html += '<button type="button" class="dze-one-bg dze-one-bgadd dze-bg-add" data-for="dze-one-bg" title="' +
 			esc(i18n.bgAdd) + '">+</button>';
@@ -1375,6 +1390,14 @@
 		// product yet. It is drawn with the popup rather than waiting for the
 		// product to be read, so it is never missing.
 		var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
+		// The print design, when this product has one: printing it on a blank
+		// product is an image made in this workshop like any other, with the
+		// same prompts, the same review and the same naming.
+		if (cfg.design && cfg.design.id) {
+			html += '<button type="button" class="dze-one-srcpick dze-one-srcdesign" data-id="' + cfg.design.id + '" title="' + esc(i18n.srcDesignHelp) + '">' +
+				'<img src="' + esc(cfg.design.thumb) + '" data-full="' + esc(cfg.design.full) + '" alt="" />' +
+				'<span class="dze-one-srcname">' + esc(i18n.srcDesign) + '</span></button>';
+		}
 		(imgs || []).forEach(function (im) {
 			if (!im.id) { return; }
 			html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
@@ -1418,6 +1441,7 @@
 		var outside = 'new' === raw;
 		var id = outside ? 0 : (parseInt(raw, 10) || 0);
 		one.srcId = id;
+		one.design = $(this).hasClass('dze-one-srcdesign') ? 1 : 0;
 		// The box to paste into belongs to that tile: it is on screen when the
 		// tile is chosen, and out of the way the rest of the time.
 		$('#dze-one-elsewrap').toggle(outside);
@@ -1523,6 +1547,7 @@
 				$.post(cfg.ajaxUrl, {
 					action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 					paste: one.paste || '',
+					design: one.design || 0,
 					with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 					src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 					bg: $('#dze-one-bg').val() || 0, prompt: prompt

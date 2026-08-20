@@ -1092,6 +1092,11 @@ EOT;
 				'name'    => (string) ( $r['name'] ?? __( 'Scene', 'dazont-ecom' ) ),
 				'image'   => $img,
 				'prompt'  => (string) ( $r['prompt'] ?? '' ),
+				// What this image IS. A backdrop is a surface to put the product
+				// on; a blank product is the product itself, waiting for a print.
+				// Told the same thing, a mockup came back with a t-shirt lying on
+				// a t-shirt.
+				'use'     => 'blank' === ( $r['use'] ?? '' ) ? 'blank' : 'support',
 				'default' => ! empty( $r['default'] ),
 			];
 		}
@@ -1109,8 +1114,30 @@ EOT;
 	 * @param int        $count Number of product photographs sent.
 	 * @param array|null $scene The scene, when one is used, sent last.
 	 */
-	public static function sources_instruction( int $count, ?array $scene ): string {
+	public static function sources_instruction( int $count, ?array $scene, bool $design = false ): string {
 		$out = "\n\n";
+		// A print design is not a photograph of a product: it is artwork, and
+		// what is asked of it is to be reproduced, not re-photographed.
+		if ( $design ) {
+			$out .= 'IMAGE 1 IS A PRINT DESIGN — artwork on a transparent background, not a photograph. Reproduce it exactly: same drawing, same colours, same text, nothing added, nothing removed, nothing redrawn.';
+			if ( $count > 1 ) {
+				$out .= sprintf(
+					' Images 2 to %d are photographs of the product this design belongs to: read them for the real material and the real colours.',
+					$count
+				);
+			}
+			if ( $scene ) {
+				$out .= sprintf(
+					"\n\nTHE LAST IMAGE (image %d) IS THE BLANK PRODUCT: print the design on it. Keep that product exactly as it is — its shape, its colour, its material, its folds, its light and its background — and place the design where it would really be printed, following the folds and the perspective of the fabric. The design must look printed on the product, not pasted over the photograph.",
+					$count + 1
+				);
+				if ( '' !== trim( (string) $scene['prompt'] ) ) {
+					$out .= "\n" . trim( (string) $scene['prompt'] );
+				}
+				$out .= "\nOne single product in the frame, whole, on its own background. Do not add a second garment, a mannequin, a person, a hanger or any text of your own.";
+			}
+			return $out;
+		}
 		if ( $count > 1 ) {
 			$out .= sprintf(
 				'IMAGES 1 TO %1$d ARE ALL PHOTOGRAPHS OF ONE SINGLE PRODUCT, taken from different angles and distances — overall views, details, close-ups of the material. Read them together to know exactly what the product looks like: its complete shape, its complete pattern, its real colours and its real texture. Image 1 is the reference for the overall look; the others fill in what image 1 does not show.',
@@ -1119,6 +1146,19 @@ EOT;
 			$out .= ' NEVER invent, complete, extend or redraw any part of the product. If a part of it is not visible in any of the photographs, keep it out of the frame rather than making it up.';
 		} else {
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
+		}
+		if ( $scene && 'blank' === ( $scene['use'] ?? 'support' ) ) {
+			// The shelf can hold blank products as well as surfaces; here one is
+			// being used without a design, so it is a model to copy the shape
+			// and the setting from, never a second product in the frame.
+			$out .= sprintf(
+				' THE LAST IMAGE (image %d) IS A BLANK PRODUCT used as the model: copy its framing, its light and its background, and show THIS product the same way. Never show both products, and never print anything on it.',
+				$count + 1
+			);
+			if ( '' !== trim( (string) $scene['prompt'] ) ) {
+				$out .= "\n" . trim( (string) $scene['prompt'] );
+			}
+			return $out;
 		}
 		if ( $scene ) {
 			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the support, background and lighting to place the product in — it is not a product and nothing in it must end up looking like one.', $count + 1 );
@@ -1751,6 +1791,7 @@ Answer with STRICT JSON and nothing else: "
 					'name'    => sanitize_text_field( (string) $name ) ?: __( 'Scene', 'dazont-ecom' ),
 					'image'   => $img,
 					'prompt'  => sanitize_textarea_field( (string) ( $in['sc_prompt'][ $i ] ?? '' ) ),
+					'use'     => ( 'blank' === ( $in['sc_use'][ $i ] ?? '' ) ) ? 'blank' : 'support',
 					'default' => ( (int) $i === $def ),
 				];
 			}
@@ -2003,9 +2044,9 @@ Answer with STRICT JSON and nothing else: "
 			<details class="dze-set">
 			<summary><?php esc_html_e( 'Backgrounds — the surfaces your products are shot on', 'dazont-ecom' ); ?></summary>
 			<p class="description" style="max-width:960px;">
-				<?php esc_html_e( 'The images you keep to shoot your products on: a studio backdrop, a floor for rugs, a table top, a garment mockup. Pick one when you generate an image and the product is placed on it, so a catalogue shot by a dozen suppliers comes back looking like one shop. The note under each image is optional — it says how that particular background is meant to be used ("lay the rug flat on this floor"), and it is only worth writing when the image alone does not say it.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'The images you keep to shoot your products on — a studio backdrop, a floor for rugs, a table top — and the blank products you print on: a white tee, a hoodie, a mug. Each one says which of the two it is, because they are not used the same way: a product is PLACED on a surface, and a design is PRINTED on a blank product. Pick one when you generate an image and the product is placed on it, so a catalogue shot by a dozen suppliers comes back looking like one shop. The note under each image is optional — it says how that particular background is meant to be used ("lay the rug flat on this floor"), and it is only worth writing when the image alone does not say it.', 'dazont-ecom' ); ?>
 			</p>
-			<?php $dze_scenes = self::scenes(); $dze_scenes[] = [ 'name' => '', 'image' => 0, 'prompt' => '', 'default' => false ]; ?>
+			<?php $dze_scenes = self::scenes(); $dze_scenes[] = [ 'name' => '', 'image' => 0, 'prompt' => '', 'use' => 'support', 'default' => false ]; ?>
 			<div class="dze-bggrid" id="dze-sc">
 			<?php foreach ( $dze_scenes as $si => $sc ) : ?>
 				<div class="dze-bgcard<?php echo empty( $sc['image'] ) ? ' is-empty' : ''; ?>">
@@ -2017,6 +2058,12 @@ Answer with STRICT JSON and nothing else: "
 					<input type="hidden" class="dze-sc-img" name="<?php echo esc_attr( $opt ); ?>[sc_image][]" value="<?php echo (int) $sc['image']; ?>" />
 					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_name][]" value="<?php echo esc_attr( (string) $sc['name'] ); ?>" placeholder="<?php esc_attr_e( 'Name it', 'dazont-ecom' ); ?>" />
 					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_prompt][]" value="<?php echo esc_attr( (string) $sc['prompt'] ); ?>" placeholder="<?php esc_attr_e( 'note for the model (optional)', 'dazont-ecom' ); ?>" class="dze-bgnote" />
+					<label class="dze-bguse" title="<?php esc_attr_e( 'A surface the product is placed ON, or a blank product a design is printed on.', 'dazont-ecom' ); ?>">
+						<select name="<?php echo esc_attr( $opt ); ?>[sc_use][]">
+							<option value="support" <?php selected( 'blank' !== ( $sc['use'] ?? 'support' ) ); ?>><?php esc_html_e( 'A surface to shoot on', 'dazont-ecom' ); ?></option>
+							<option value="blank" <?php selected( 'blank', $sc['use'] ?? 'support' ); ?>><?php esc_html_e( 'A blank product to print on', 'dazont-ecom' ); ?></option>
+						</select>
+					</label>
 					<p class="dze-bgfoot">
 						<label title="<?php esc_attr_e( 'Pre-selected when you generate an image', 'dazont-ecom' ); ?>">
 							<input type="radio" name="<?php echo esc_attr( $opt ); ?>[sc_default]" value="<?php echo (int) $si; ?>" <?php checked( ! empty( $sc['default'] ) ); ?> />
@@ -3586,9 +3633,26 @@ Answer with STRICT JSON and nothing else: "
 					'id'    => (int) $sc['image'],
 					'name'  => (string) $sc['name'],
 					'thumb' => (string) wp_get_attachment_image_url( (int) $sc['image'], 'thumbnail' ),
+					// A blank product to print on is not a backdrop: the screen
+					// says which is which, and the request describes each one
+					// for what it is.
+					'use'   => (string) ( $sc['use'] ?? 'support' ),
 				] : null,
 				self::scenes()
 			) ) ),
+			// The print design of this product, when it has one: a source of its
+			// own in the workshop, so a POD image is made by the same lane as
+			// every other image of the shop.
+			'design'     => ( $pid && class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) )
+				? ( static function () use ( $pid ) {
+					$d = (int) get_post_meta( $pid, DZE_Pod::DESIGN_META, true );
+					return ( $d && wp_attachment_is_image( $d ) ) ? [
+						'id'    => $d,
+						'thumb' => (string) wp_get_attachment_image_url( $d, 'thumbnail' ),
+						'full'  => (string) wp_get_attachment_image_url( $d, 'full' ),
+					] : null;
+				} )()
+				: null,
 			// How many photographs of this product travel with a generation —
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
@@ -3677,6 +3741,9 @@ Answer with STRICT JSON and nothing else: "
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
 				'qmPasted'   => __( 'Image ready ✓', 'dazont-ecom' ),
+				'srcDesign'  => __( 'The print design', 'dazont-ecom' ),
+				'srcDesignHelp' => __( 'Print this design on the blank product chosen below.', 'dazont-ecom' ),
+				'bgBlank'    => __( '(blank product)', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
