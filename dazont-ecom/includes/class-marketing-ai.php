@@ -412,6 +412,9 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'translate' ) ) {
 			$tabs['translate'] = __( 'Translation', 'dazont-ecom' );
 		}
+		if ( $mod_on( 'image_lab' ) ) {
+			$tabs['lab'] = __( 'Image lab', 'dazont-ecom' );
+		}
 		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
 		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
@@ -459,6 +462,10 @@ final class DZE_Marketing_Ai {
 				DZE_Content::instance()->render_settings_section();
 			}
 
+		} elseif ( 'lab' === $tab ) {
+			if ( class_exists( 'DZE_Image_Lab' ) && $mod_on( 'image_lab' ) ) {
+				DZE_Image_Lab::instance()->render();
+			}
 		} elseif ( 'gmc_activation' === $tab ) {
 			if ( class_exists( 'DZE_Gmc_Activation' ) && $mod_on( 'gmc_activation' ) ) {
 				DZE_Gmc_Activation::instance()->render_settings();

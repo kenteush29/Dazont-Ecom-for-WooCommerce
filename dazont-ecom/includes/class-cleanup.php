@@ -101,6 +101,9 @@ final class DZE_Cleanup {
 				'tables'  => [ 'dze_queue' ],
 				'options' => [ 'dze_queue_schema' ],
 			],
+			// The lab keeps nothing of its own: what it produces is a media
+			// library entry, which is WordPress's data and not ours to erase.
+			'image_lab' => [],
 			'variation_split' => [],
 		];
 	}
