@@ -2,12 +2,18 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * POD (print on demand) — a SEPARATE module for one specific case and nothing
- * else: the admin uploads a design (PNG) on a product, an optional base mockup
- * is stored once in the settings, and ONE dedicated prompt asks fal.ai to
- * print the design on the product. It only borrows the fal client from the
- * Content module (single implementation, single cost tracking); it never
- * touches the generic AI Content pipeline, registry or validation flow.
+ * POD (print on demand) — the DESIGN of a product, and its print file.
+ *
+ * What is specific to printing on demand is exactly this: a product carries an
+ * artwork file, that file has to be big enough to print, and the supplier has
+ * to be handed it when an order comes in. Everything else — making the image
+ * of the printed product — is making an image of a product, which this shop
+ * does in one place: the image workshop of Product content, where this design
+ * appears as a source of its own next to the product's photographs.
+ *
+ * So this module has no settings screen, no prompt, no generator and no box on
+ * the product page. It keeps the design (picked and enlarged from the
+ * workshop), and the button on each order line that opens the print file.
  */
 final class DZE_Pod {
 
@@ -30,8 +36,6 @@ final class DZE_Pod {
 	}
 
 	private function __construct() {
-		add_action( 'admin_footer', [ $this, 'footer_modal' ] );
-		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_pod_design', [ $this, 'ajax_design' ] );
 		add_action( 'wp_ajax_dze_pod_upscale', [ $this, 'ajax_upscale' ] );
 		// Order fulfilment: a small button on each order line whose product has a
@@ -40,142 +44,30 @@ final class DZE_Pod {
 	}
 
 	// =========================================================================
-	// Product page: popup opened from the shared "Dazont Ecom" hub box
+	// AJAX
 	// =========================================================================
 
-	/** Popup shell printed in the footer of product screens; opened from the hub. */
-	public function footer_modal(): void {
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( ! $screen || 'product' !== $screen->post_type || 'post' !== $screen->base ) {
-			return;
-		}
-		global $post;
-		if ( ! $post ) {
-			return;
-		}
-		echo '<div class="dze-cx-modal" id="dze-pod-modal"><div class="dze-cx-dialog" style="width:min(560px,94vw);">';
-		echo '<div class="dze-cx-head"><h2>' . esc_html__( 'POD image', 'dazont-ecom' ) . '</h2><button type="button" class="button dze-hub-close" style="margin-left:auto;">' . esc_html__( 'Close', 'dazont-ecom' ) . '</button></div>';
-		echo '<div class="dze-cx-body">';
-		$this->render_panel( $post );
-		echo '</div></div></div>';
-	}
-
 	/** "1234 × 1234 px (~150 DPI on 30×40 cm)" for a design attachment, or ''. */
-	private static function design_dims_note( int $design ): string {
+	public static function design_dims_note( int $design ): string {
 		$meta = $design ? wp_get_attachment_metadata( $design ) : null;
 		$w    = (int) ( $meta['width'] ?? 0 );
 		$h    = (int) ( $meta['height'] ?? 0 );
 		if ( ! $w || ! $h ) {
 			return '';
 		}
-		$dpi = (int) round( min( $w / 11.8, $h / 15.75 ) ); // 30×40 cm chest print.
+		// A print file is judged in DPI at the size it will be printed, not in
+		// pixels: 1200 px is plenty on a badge and useless on a chest print.
+		$dpi = (int) round( min( $w, $h ) / ( 30 / 2.54 ) );
 		return sprintf(
-			/* translators: 1: width px, 2: height px, 3: estimated DPI */
-			__( '%1$s × %2$s px — ≈ %3$s DPI on a 30×40 cm print', 'dazont-ecom' ),
-			number_format_i18n( $w ),
-			number_format_i18n( $h ),
-			number_format_i18n( $dpi )
+			/* translators: 1: width, 2: height, 3: dots per inch at 30 cm */
+			__( '%1$d × %2$d px (~%3$d DPI on 30 cm)', 'dazont-ecom' ),
+			$w,
+			$h,
+			$dpi
 		);
 	}
 
-	public function render_panel( $post ): void {
-		$design = absint( get_post_meta( $post->ID, self::DESIGN_META, true ) );
-		$thumb  = $design ? wp_get_attachment_image_url( $design, 'thumbnail' ) : '';
-		// The image workshop of Product content, when it is there: printing a
-		// design is making an image of the product, and this shop makes those
-		// in one place.
-		$has_workshop = class_exists( 'DZE_Content' )
-			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'content' ) );
-		$mockups   = [];
-		$shelf_url = '';
-		if ( $has_workshop ) {
-			foreach ( DZE_Content::scenes() as $sc ) {
-				if ( 'blank' === ( $sc['use'] ?? 'support' ) ) {
-					$mockups[] = (string) $sc['name'];
-				}
-			}
-			$shelf_url = class_exists( 'DZE_Marketing_Ai' )
-				? add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'content' ], admin_url( 'admin.php' ) ) . '#dze-sc'
-				: '';
-		}
-		?>
-		<div class="dze-admin dze-pod-box" id="dze-pod-box">
-			<div id="dze-pod-design-preview" <?php echo $thumb ? '' : 'style="display:none;"'; ?>>
-				<img class="dze-hzoom" src="<?php echo esc_url( $thumb ); ?>" data-full="<?php echo esc_url( $design ? (string) wp_get_attachment_image_url( $design, 'full' ) : '' ); ?>" alt="" />
-			</div>
-			<p class="dze-cx-note" id="dze-pod-dims"><?php echo esc_html( self::design_dims_note( $design ) ); ?></p>
-			<p>
-				<button type="button" class="button" id="dze-pod-pick"><?php echo $design ? esc_html__( 'Change design', 'dazont-ecom' ) : esc_html__( 'Upload design', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-pod-upscale" <?php echo $design ? '' : 'style="display:none;"'; ?> title="<?php esc_attr_e( 'Enlarge the design ×4 (fal.ai ESRGAN) and keep the result as the print file — for AI-generated designs that are too small to print.', 'dazont-ecom' ); ?>">⤢ <?php esc_html_e( 'Upscale ×4', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button-link dze-pod-del" id="dze-pod-clear" <?php echo $design ? '' : 'style="display:none;"'; ?>><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
-			</p>
-			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background. Print quality: ~1800×2400 px minimum (150 DPI on a chest print), 300 DPI ideal. AI-generated designs (1024–2048 px) should be upscaled ×4 before printing.', 'dazont-ecom' ); ?></p>
-			<p id="dze-pod-status" class="dze-cx-note"></p>
-			<?php if ( $has_workshop ) : ?>
-				<!-- Printing the design is making an image of this product, so it
-				     is made where every other image of this product is made: the
-				     same prompts, the same blank products on the shelf, the same
-				     review, the same naming. This box holds the design; the
-				     workshop does the work. -->
-				<p>
-					<button type="button" class="button button-primary" id="dze-pod-workshop" <?php disabled( ! $design ); ?>>✦ <?php esc_html_e( 'Print it on a blank product', 'dazont-ecom' ); ?></button>
-				</p>
-				<p class="dze-cx-note">
-					<?php esc_html_e( 'Opens the image workshop with this design as the subject. Pick the blank product to print it on under "On which background?" — the shelf holds as many as you keep: a tee, a hoodie, a mug.', 'dazont-ecom' ); ?>
-					<?php if ( $mockups ) : ?>
-						<br /><?php
-						printf(
-							/* translators: %s: the blank products configured */
-							esc_html__( 'On the shelf: %s.', 'dazont-ecom' ),
-							esc_html( implode( ', ', $mockups ) )
-						);
-						?>
-					<?php else : ?>
-						<br /><a href="<?php echo esc_url( $shelf_url ); ?>"><?php esc_html_e( 'Add a blank product to the shelf first', 'dazont-ecom' ); ?></a>
-					<?php endif; ?>
-				</p>
-			<?php else : ?>
-				<!-- Printing happens in the image workshop of Product content:
-				     one lane for every image of the shop. Without it there is
-				     nothing here to print with, and saying so is better than a
-				     button that answers nothing. -->
-				<p class="dze-cx-note">
-					<?php esc_html_e( 'Switch on Product content to print this design: it is the workshop that makes the image, with your prompts and your blank products.', 'dazont-ecom' ); ?>
-				</p>
-			<?php endif; ?>
-		</div>
-		<?php
-	}
-
-	public function enqueue( string $hook ): void {
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( ! $screen || 'product' !== $screen->post_type || ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) ) {
-			return;
-		}
-		wp_enqueue_media();
-		// The design/mockup thumbnails carry .dze-hzoom — the shared zoom
-		// must be there even when the Product Content module is switched off.
-		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
-		wp_enqueue_script( 'dze-pod', DZE_URL . 'admin/js/pod.js', [ 'jquery' ], DZE_VERSION, true );
-		wp_localize_script( 'dze-pod', 'dzePod', [
-			'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
-			'nonce'     => wp_create_nonce( self::NONCE ),
-			'postId'    => (int) get_the_ID(),
-			'i18n'      => [
-				'pickTitle'   => __( 'Choose the POD design (PNG)', 'dazont-ecom' ),
-				'error'       => __( 'Something went wrong.', 'dazont-ecom' ),
-				'upscaling'   => __( 'Upscaling ×4 — up to a minute…', 'dazont-ecom' ),
-				'upscaled'    => __( 'Print file upscaled ✓', 'dazont-ecom' ),
-				'change'      => __( 'Change design', 'dazont-ecom' ),
-				'upload'      => __( 'Upload design', 'dazont-ecom' ),
-			],
-		] );
-	}
-
-	// =========================================================================
-	// AJAX
-	// =========================================================================
-
+	/** Persist (or clear) the per-product design attachment. */
 	private function guard(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
 		if ( ! current_user_can( 'edit_products' ) ) {
@@ -183,7 +75,6 @@ final class DZE_Pod {
 		}
 	}
 
-	/** Persist (or clear) the per-product design attachment. */
 	public function ajax_design(): void {
 		$this->guard();
 		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
@@ -199,10 +90,14 @@ final class DZE_Pod {
 			wp_send_json_error( [ 'message' => __( 'The design must be an image (PNG recommended).', 'dazont-ecom' ) ] );
 		}
 		update_post_meta( $pid, self::DESIGN_META, $att );
-		wp_send_json_success( [ 'thumb' => (string) wp_get_attachment_image_url( $att, 'thumbnail' ) ] );
+		wp_send_json_success( [
+			'id'    => $att,
+			'thumb' => (string) wp_get_attachment_image_url( $att, 'thumbnail' ),
+			'full'  => (string) wp_get_attachment_image_url( $att, 'full' ),
+			'dims'  => self::design_dims_note( $att ),
+		] );
 	}
 
-	/** Design + base (stored mockup, else featured image) → fal.ai render. */
 	/**
 	 * Upscales the stored design ×4 through fal.ai ESRGAN and keeps the result
 	 * as the new print file (the original stays in the media library). Meant

@@ -436,7 +436,7 @@ final class DZE_Marketing_Ai {
 		echo '</nav>';
 
 		if ( 'general' === $tab ) {
-			echo '<p class="description" style="max-width:820px;">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
+			echo '<p class="description">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
 			// The fal key lives in Content settings but also powers POD.
@@ -534,7 +534,7 @@ final class DZE_Marketing_Ai {
 		$match_models = ( $match_cur !== '' && ! array_key_exists( $match_cur, $models ) ) ? [ $match_cur => $match_cur ] + $models : $models;
 		$ins_models   = ( $ins_cur !== '' && ! array_key_exists( $ins_cur, $models ) ) ? [ $ins_cur => $ins_cur ] + $models : $models;
 		?>
-		<p class="description" style="max-width:820px;">
+		<p class="description">
 			<?php esc_html_e( 'Controls for the Sourcing Assistant: which models judge keyword coverage and write the sourcing report, and the default volume threshold for the keyword analysis.', 'dazont-ecom' ); ?>
 			<?php if ( $explorer_url ) : ?><a href="<?php echo esc_url( $explorer_url ); ?>"><?php esc_html_e( 'Open the Sourcing Assistant →', 'dazont-ecom' ); ?></a><?php endif; ?>
 		</p>
@@ -641,7 +641,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		?>
 		<form method="post" action="options.php" class="dze-admin">
 			<?php settings_fields( 'dze_price_options' ); ?>
-			<p class="description" style="max-width:820px;">
+			<p class="description">
 				<?php esc_html_e( 'Computed prices land on the ending you pick instead of whatever the arithmetic produces. Sale prices round DOWN, so the reduction is never smaller than the percentage announced; selling prices computed from a cost round UP, so no margin is lost to the presentation.', 'dazont-ecom' ); ?>
 			</p>
 			<p>
@@ -656,7 +656,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			<?php if ( $dze_pv ) : ?>
 				<p class="description"><strong><?php echo esc_html( $dze_pv ); ?></strong></p>
 			<?php endif; ?>
-			<p class="description" style="max-width:820px;">
+			<p class="description">
 				<?php esc_html_e( 'Existing prices are untouched: the ending applies to what the plugin computes from now on. Endings at the unit level (.90, .95, .99) can give away up to one unit on a sale price — the ten-cent endings give away at most ten cents.', 'dazont-ecom' ); ?>
 			</p>
 		</form>

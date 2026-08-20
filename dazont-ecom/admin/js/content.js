@@ -583,7 +583,7 @@
 	$(document).on('dze:image', function (e, opts) {
 		opts = opts || {};
 		openOne('', 'image', opts.scope || 'main');
-		if ('design' === opts.src && cfg.design && cfg.design.id) {
+		if ('design' === opts.src && cfg.pod && cfg.pod.id) {
 			// Drawn when the product's photographs come back: the tile has to
 			// exist before it can be chosen.
 			loadCurrent().then(function () {
@@ -1220,6 +1220,8 @@
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
 			one.srcId = 0; one.paste = '';
+			$('#dze-one-note').val(cfg.note || '');
+			$('#dze-one-notewrap').prop('open', !!(cfg.note || '').trim());
 			oneDrawRecipes();
 			oneSetRecipe(oneRecipes()[0] ? String(oneRecipes()[0].id) : '');
 			oneDrawSources();
@@ -1248,6 +1250,7 @@
 			'<div class="dze-step">' +
 				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
+				'<p class="dze-one-designbar" id="dze-one-designbar" style="display:none;"></p>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
 						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
@@ -1263,6 +1266,16 @@
 						esc(i18n.withProduct) + '</label>' +
 				'</div>' +
 			'</div>' +
+
+			// What no photograph of this product shows. Written once, sent with
+			// every image made for it — the variations have their own, per
+			// colour, and both travel together.
+			'<details class="dze-one-instr" id="dze-one-notewrap">' +
+				'<summary>' + esc(i18n.noteTitle) + '</summary>' +
+				'<p class="description">' + esc(i18n.noteHelp) + '</p>' +
+				'<textarea id="dze-one-note" rows="2" class="large-text" placeholder="' + esc(i18n.notePh) + '"></textarea>' +
+				'<span class="dze-one-notestate"></span>' +
+			'</details>' +
 
 			'<div class="dze-step" id="dze-one-bgstep">' +
 				'<p class="dze-step-q"><span class="dze-step-n">3</span>' + esc(i18n.stepBg) + '</p>' +
@@ -1365,11 +1378,9 @@
 		var html = '<button type="button" class="dze-one-bg' + ('0' === cur ? ' is-sel' : '') + '" data-id="0">' +
 			'<span class="dze-one-bgnone">' + esc(i18n.qmBgNone) + '</span></button>';
 		(cfg.backdrops || []).forEach(function (b) {
-			html += '<button type="button" class="dze-one-bg' + (String(b.id) === cur ? ' is-sel' : '') +
-					('blank' === b.use ? ' is-blank' : '') + '" data-id="' + b.id + '">' +
+			html += '<button type="button" class="dze-one-bg' + (String(b.id) === cur ? ' is-sel' : '') + '" data-id="' + b.id + '">' +
 				(b.thumb ? '<img src="' + esc(b.thumb) + '" alt="" />' : '') +
-				'<span class="dze-one-bgname">' + esc(b.name) +
-					('blank' === b.use ? ' <em>' + esc(i18n.bgBlank) + '</em>' : '') + '</span></button>';
+				'<span class="dze-one-bgname">' + esc(b.name) + '</span></button>';
 		});
 		html += '<button type="button" class="dze-one-bg dze-one-bgadd dze-bg-add" data-for="dze-one-bg" title="' +
 			esc(i18n.bgAdd) + '">+</button>';
@@ -1390,13 +1401,17 @@
 		// product yet. It is drawn with the popup rather than waiting for the
 		// product to be read, so it is never missing.
 		var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
-		// The print design, when this product has one: printing it on a blank
-		// product is an image made in this workshop like any other, with the
-		// same prompts, the same review and the same naming.
-		if (cfg.design && cfg.design.id) {
-			html += '<button type="button" class="dze-one-srcpick dze-one-srcdesign" data-id="' + cfg.design.id + '" title="' + esc(i18n.srcDesignHelp) + '">' +
-				'<img src="' + esc(cfg.design.thumb) + '" data-full="' + esc(cfg.design.full) + '" alt="" />' +
-				'<span class="dze-one-srcname">' + esc(i18n.srcDesign) + '</span></button>';
+		// The print design of this product — picked, replaced and enlarged from
+		// here. Printing it is an image made in this workshop like any other,
+		// with the same prompts, the same review and the same naming, so the
+		// design has no box of its own anywhere else.
+		if (cfg.pod) {
+			html += cfg.pod.id
+				? '<button type="button" class="dze-one-srcpick dze-one-srcdesign" data-id="' + cfg.pod.id + '" title="' + esc(i18n.srcDesignHelp) + '">' +
+					'<img src="' + esc(cfg.pod.thumb) + '" data-full="' + esc(cfg.pod.full) + '" alt="" />' +
+					'<span class="dze-one-srcname">' + esc(i18n.srcDesign) + '</span></button>'
+				: '<button type="button" class="dze-one-srcpick dze-one-srcadd" data-id="add" title="' + esc(i18n.designHelp) + '">' +
+					'<span class="dze-one-newmsg">' + esc(i18n.srcDesignAdd) + '</span></button>';
 		}
 		(imgs || []).forEach(function (im) {
 			if (!im.id) { return; }
@@ -1412,12 +1427,79 @@
 		var $slot = $('#dze-one-srcs').addClass('dze-zoomgroup');
 		if (!$slot.length) { return; }
 		$slot.html(oneSrcStrip([]));
+		drawDesignBar();
 		loadCurrent().then(function (cur) {
 			// Something was chosen while the product was loading: leave it be.
 			if (one.srcId || one.paste) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
+			drawDesignBar();
 		});
 	}
+	// Under the strip, and only when a design is there: its size in DPI, the
+	// way to replace it, and the ×4 enlargement for a file too small to print.
+	function drawDesignBar() {
+		var $bar = $('#dze-one-designbar');
+		if (!$bar.length || !cfg.pod) { return; }
+		if (!cfg.pod.id) { $bar.empty().hide(); return; }
+		$bar.show().html(
+			'<span class="dze-one-dims">' + esc(cfg.pod.dims) + '</span> ' +
+			'<button type="button" class="button-link dze-one-designpick">' + esc(i18n.designChange) + '</button> ' +
+			'<button type="button" class="button-link dze-one-designup" title="' + esc(i18n.designUpHelp) + '">⤢ ' + esc(i18n.designUp) + '</button> ' +
+			'<span class="dze-one-designstate"></span>'
+		);
+	}
+	function designSay(text, bad) {
+		$('.dze-one-designstate').toggleClass('is-ko', !!bad).text(text || '');
+	}
+	// The design is an image of the library like any other: the native modal
+	// picks it, and one endpoint of the POD module remembers it on the product.
+	var designFrame = null;
+	function pickDesign() {
+		if (!window.wp || !wp.media || !cfg.pod) { return; }
+		designFrame = wp.media({
+			title: i18n.designPick, button: { text: i18n.designUse },
+			library: { type: 'image' }, multiple: false
+		});
+		designFrame.on('select', function () {
+			var a = designFrame.state().get('selection').first().toJSON();
+			designSay(i18n.applying);
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_pod_design', nonce: cfg.pod.nonce, post: PID, attachment: a.id
+			})
+				.done(function (r) {
+					if (!r || !r.success) { designSay((r && r.data && r.data.message) || i18n.error, true); return; }
+					cfg.pod.id = r.data.id;
+					cfg.pod.thumb = r.data.thumb;
+					cfg.pod.full = r.data.full;
+					cfg.pod.dims = r.data.dims;
+					designSay('');
+					oneDrawSources();
+					// Chosen means chosen: the run works from it.
+					window.setTimeout(function () { $('.dze-one-srcdesign').trigger('click'); }, 20);
+				})
+				.fail(function (x) { designSay(reason(x), true); });
+		});
+		designFrame.open();
+	}
+	$(document).on('click', '.dze-one-srcadd, .dze-one-designpick', function (e) {
+		e.preventDefault();
+		pickDesign();
+	});
+	$(document).on('click', '.dze-one-designup', function (e) {
+		e.preventDefault();
+		var $b = $(this).prop('disabled', true);
+		designSay(i18n.designUping);
+		$.post(cfg.ajaxUrl, { action: 'dze_pod_upscale', nonce: cfg.pod.nonce, post: PID })
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { designSay((r && r.data && r.data.message) || i18n.error, true); return; }
+				cfg.pod.thumb = r.data.thumb;
+				cfg.pod.dims = r.data.dims;
+				designSay(i18n.designUped);
+				oneDrawSources();
+			})
+			.fail(function (x) { $b.prop('disabled', false); designSay(reason(x), true); });
+	});
 	$(document).on('click', '.dze-one-tabs button', function () {
 		var pane = $(this).data('pane');
 		$('.dze-one-tabs button').removeClass('is-sel');
@@ -2078,6 +2160,19 @@
 			n ? (n > 1 ? sprintf(i18n.oneApplyN, n) : i18n.oneApply) : i18n.oneDropAll
 		);
 	}
+	// Saved when you leave it: one line typed once, kept with the product.
+	$(document).on('change blur', '#dze-one-note', function () {
+		var note = $(this).val() || '';
+		if (note === (cfg.note || '')) { return; }
+		cfg.note = note;
+		var $st = $('.dze-one-notestate').text('…');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_variation_note', nonce: cfg.nonce,
+			post: PID, group: '*', note: note
+		})
+			.done(function (r) { $st.text((r && r.success) ? i18n.noteSaved : ((r && r.data && r.data.message) || i18n.error)); })
+			.fail(function () { $st.text(i18n.error); });
+	});
 	$(document).on('change', '#dze-one-target', function () {
 		$('#dze-one-oldwrap').toggle('main' === $(this).val());
 	});
