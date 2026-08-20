@@ -934,9 +934,8 @@ trait DZE_Content_Ajax {
 		if ( 'clear' === $do ) {
 			if ( $drop ) {
 				foreach ( $ids ?: self::pending_ids() as $one ) {
-					delete_post_meta( (int) $one, self::META_PENDING );
+					self::drop_product( (int) $one );
 				}
-				delete_transient( 'dze_pending_count' );
 			}
 			self::set_bulk_list( [] );
 			wp_send_json_success( [ 'left' => [], 'counts' => self::screen_counts() ] );
@@ -944,9 +943,8 @@ trait DZE_Content_Ajax {
 		if ( 'remove' === $do && $ids ) {
 			if ( $drop ) {
 				foreach ( $ids as $one ) {
-					delete_post_meta( (int) $one, self::META_PENDING );
+					self::drop_product( (int) $one );
 				}
-				delete_transient( 'dze_pending_count' );
 			}
 			$list = array_values( array_diff( self::bulk_list(), $ids ) );
 			self::set_bulk_list( $list );
@@ -1247,19 +1245,22 @@ trait DZE_Content_Ajax {
 		$posts = isset( $_POST['posts'] )
 			? array_values( array_filter( array_map( 'absint', (array) wp_unslash( $_POST['posts'] ) ) ) )
 			: [];
+		// Refusing everything a product holds is a decision: it is recorded
+		// under Done and the product leaves the working list, exactly like a
+		// product whose content was accepted.
 		if ( $posts ) {
 			foreach ( $posts as $one ) {
-				delete_post_meta( $one, self::META_PENDING );
+				self::drop_product( (int) $one );
 			}
-			delete_transient( 'dze_pending_count' );
+			self::set_bulk_list( array_values( array_diff( self::bulk_list(), $posts ) ) );
 			wp_send_json_success( [ 'cleared' => count( $posts ), 'counts' => self::screen_counts() ] );
 		}
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
 		}
 		if ( ! $shots && ! $fields ) {
-			delete_post_meta( $pid, self::META_PENDING );
-			delete_transient( 'dze_pending_count' );
+			self::drop_product( $pid );
+			self::set_bulk_list( array_values( array_diff( self::bulk_list(), [ $pid ] ) ) );
 			wp_send_json_success( [ 'cleared' => $pid, 'left' => [], 'counts' => self::screen_counts() ] );
 		}
 		$waiting = self::pending( $pid );
