@@ -1263,3 +1263,14 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-lab-resacts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dze-lab-resstate { font-size: 12px; color: #0a7040; }
 .dze-lab-resstate.is-ko { color: #b32d2e; }
+
+/* ---- POD: the extra references sent with a run ---- */
+.dze-pod-refs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.dze-pod-refs:empty { display: none; }
+.dze-pod-ref { position: relative; display: inline-block; line-height: 0; }
+.dze-pod-ref img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; display: block; }
+.dze-pod-refdrop {
+	position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+	border: 1px solid #dcdcde; border-radius: 50%; background: #fff; color: #b32d2e;
+	cursor: pointer; line-height: 1; font-size: 12px; padding: 0;
+}

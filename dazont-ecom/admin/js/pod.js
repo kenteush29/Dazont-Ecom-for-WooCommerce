@@ -28,6 +28,59 @@
 		$('#dze-pod-status').css('color', color || '#646970').html(msg);
 	}
 
+	// ---- Extra references for this run ----
+	// The blank product and the design are always sent. These answer what
+	// neither of them can: the real fabric, the real colour, the setting this
+	// range is shot in. Two at most — past that the model blends them instead
+	// of reading them.
+	var refs = [];
+	var refFrame = null;
+	function drawRefs() {
+		var $r = $('#dze-pod-refs').empty();
+		refs.forEach(function (a, i) {
+			$r.append(
+				$('<span class="dze-pod-ref"></span>').append(
+					$('<img class="dze-hzoom" />').attr('src', a.thumb).attr('data-full', a.full).attr('alt', ''),
+					$('<button type="button" class="dze-pod-refdrop"></button>')
+						.attr('title', i18n.refRemove).attr('data-i', i).html('&times;')
+				)
+			);
+		});
+		$('#dze-pod-refprod, #dze-pod-reflib').toggle(refs.length < 2);
+	}
+	function addRef(a) {
+		if (refs.length >= 2) { return; }
+		if (refs.some(function (x) { return x.id === a.id; })) { return; }
+		refs.push(a);
+		drawRefs();
+	}
+	$(document).on('click', '.dze-pod-refdrop', function () {
+		refs.splice(parseInt($(this).attr('data-i'), 10), 1);
+		drawRefs();
+	});
+	function openRefFrame(onlyProduct) {
+		refFrame = wp.media({
+			title: onlyProduct ? i18n.refProdTitle : i18n.refLibTitle,
+			button: { text: i18n.refUse },
+			library: onlyProduct ? { type: 'image', uploadedTo: cfg.postId } : { type: 'image' },
+			multiple: false
+		});
+		refFrame.on('select', function () {
+			var a = refFrame.state().get('selection').first().toJSON();
+			addRef({
+				id: a.id,
+				thumb: (a.sizes && a.sizes.thumbnail ? a.sizes.thumbnail.url : a.url),
+				full: a.url
+			});
+		});
+		refFrame.open();
+	}
+	// The product's own photographs first: they are what the model most often
+	// needs, and hunting for them in the whole library is a hunt.
+	$('#dze-pod-refprod').on('click', function (e) { e.preventDefault(); openRefFrame(true); });
+	$('#dze-pod-reflib').on('click', function (e) { e.preventDefault(); openRefFrame(false); });
+	$(drawRefs);
+
 	$('#dze-pod-pick').on('click', function (e) {
 		e.preventDefault();
 		if (!frame) {
@@ -83,7 +136,10 @@
 		var live = $('#dze-pod-pwrap').is(':visible') ? ($('#dze-pod-prompt-live').val() || '') : '';
 		var custom = (live && live !== cfg.prompt) ? live : '';
 		status('<span class="dze-cx-spin"></span> ' + i18n.working + (cfg.mockupSet ? '' : '<br />' + i18n.noMockup));
-		$.post(cfg.ajaxUrl, { action: 'dze_pod_generate', nonce: cfg.nonce, post: cfg.postId, custom_prompt: custom })
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_pod_generate', nonce: cfg.nonce, post: cfg.postId, custom_prompt: custom,
+			extra: refs.map(function (a) { return a.id; })
+		})
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res.success) { status((res.data && res.data.message) || i18n.error, '#b32d2e'); return; }

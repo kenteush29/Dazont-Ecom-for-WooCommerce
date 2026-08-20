@@ -242,6 +242,16 @@ PROMPT;
 				<button type="button" class="button-link dze-pod-del" id="dze-pod-clear" <?php echo $design ? '' : 'style="display:none;"'; ?>><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 			</p>
 			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background. Print quality: ~1800×2400 px minimum (150 DPI on a chest print), 300 DPI ideal. AI-generated designs (1024–2048 px) should be upscaled ×4 before printing.', 'dazont-ecom' ); ?></p>
+			<!-- What else the model gets to look at. The blank product and the
+			     design are always sent; these are the extras that answer
+			     questions neither of them can — the real fabric, the real
+			     colour, the setting this range is shot in. -->
+			<p class="dze-cx-note" style="margin-bottom:2px;"><?php esc_html_e( 'Also send (optional)', 'dazont-ecom' ); ?></p>
+			<div class="dze-pod-refs dze-zoomgroup" id="dze-pod-refs"></div>
+			<p>
+				<button type="button" class="button button-small" id="dze-pod-refprod"><?php esc_html_e( '+ a photo of this product', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-small" id="dze-pod-reflib"><?php esc_html_e( '+ from the library', 'dazont-ecom' ); ?></button>
+			</p>
 			<p>
 				<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
 				<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
@@ -300,6 +310,10 @@ PROMPT;
 				'upscaled'    => __( 'Print file upscaled ✓', 'dazont-ecom' ),
 				'change'      => __( 'Change design', 'dazont-ecom' ),
 				'upload'      => __( 'Upload design', 'dazont-ecom' ),
+				'refRemove'   => __( 'Do not send this one', 'dazont-ecom' ),
+				'refProdTitle'=> __( 'A photograph of this product', 'dazont-ecom' ),
+				'refLibTitle' => __( 'An image from the library', 'dazont-ecom' ),
+				'refUse'      => __( 'Send this one too', 'dazont-ecom' ),
 			],
 		] );
 	}
@@ -354,14 +368,34 @@ PROMPT;
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+		// Extra references chosen for this run: a photograph of the real
+		// product, an image from the library. Two at most — past that the model
+		// starts blending them instead of reading them.
+		$extra = [];
+		foreach ( (array) ( $_POST['extra'] ?? [] ) as $eid ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- cast below.
+			$eid = absint( $eid );
+			if ( $eid && wp_attachment_is_image( $eid ) && count( $extra ) < 2 ) {
+				$extra[] = $eid;
+			}
+		}
 		$content = DZE_Content::instance();
 		try {
 			$sources = [];
+			$says    = [];
 			if ( $base ) {
 				$sources[] = $content->fal_source_data_uri( $base );
+				$says[]    = 'IMAGE ' . count( $sources ) . ' is the BLANK product to print on: its shape, its material, its light and its background are the ones of the final image.';
 			}
 			$sources[] = $content->fal_source_data_uri( $design );
-			$prompt    = ( '' !== $custom ? $custom : self::prompt() )
+			$says[]    = 'IMAGE ' . count( $sources ) . ' is the DESIGN to print: reproduce it exactly — same colours, same details, same text — and print nothing else.';
+			foreach ( $extra as $eid ) {
+				$sources[] = $content->fal_source_data_uri( $eid );
+				$says[]    = 'IMAGE ' . count( $sources ) . ' is a REFERENCE: read the product\'s real colour, material and finish from it. Never copy a design already printed on it, and never copy its framing over the blank product above.';
+			}
+			// Said AFTER the instructions, so it holds whatever the prompt
+			// happens to claim about how many images there are.
+			$prompt = ( '' !== $custom ? $custom : self::prompt() )
+				. "\n\nWHAT EACH IMAGE IS:\n- " . implode( "\n- ", $says )
 				. "\n\nProduct: " . get_the_title( $pid )
 				. ( $base ? '' : "\n(No mockup supplied: generate the product carrying the design.)" );
 			$url = $content->fal_generate( $prompt, $sources );
