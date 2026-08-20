@@ -58,6 +58,7 @@ final class DZE_Image_Lab {
 		}
 		wp_enqueue_media();
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
 			'zoom'  => __( 'See this image full size', 'dazont-ecom' ),

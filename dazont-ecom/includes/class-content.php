@@ -3289,6 +3289,7 @@ Answer with STRICT JSON and nothing else: "
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		// Dense thumbnails everywhere: the full image on hover instead of
 		// screen space spent on being legible.
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
 		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
 		// The product's photographs, drawn by ONE renderer wherever they show:
 		// the product screen and the bulk screen had one each, so every

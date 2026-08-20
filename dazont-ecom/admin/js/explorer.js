@@ -416,14 +416,62 @@
 		}
 	});
 
-	// ---- Image zoom (single lightbox, closes in one click) ----
-	$(document).on('click', '.dze-thumb, .dze-gal-vargrid img', function (e) {
-		e.stopPropagation();
-		if ($('.dze-lightbox').length) { return; } // never stack lightboxes.
-		var full = $(this).data('full') || $(this).attr('src');
-		if (full) { $('body').append('<div class="dze-lightbox"><img src="' + full + '" alt="" /></div>'); }
+	// ---- The photographs of a card ----
+	//
+	// A sourcing card used to show one photograph, and judging a product from
+	// its catalogue shot alone is exactly what sourcing is not. The gallery
+	// travels with the card: the cursor walks it left to right — the same
+	// gesture as on any marketplace — and a click opens the viewer the rest of
+	// the plugin uses, with ‹ › to walk the same set full size.
+	function shotsOf($wrap) {
+		var raw = $wrap.attr('data-shots');
+		if (!raw) { return []; }
+		try { return JSON.parse(raw) || []; } catch (e) { return []; }
+	}
+	$(document).on('mousemove', '.dze-x-thumb.has-shots', function (e) {
+		var $wrap = $(this), shots = shotsOf($wrap);
+		if (shots.length < 2) { return; }
+		var box = this.getBoundingClientRect();
+		var i = Math.floor(((e.clientX - box.left) / box.width) * shots.length);
+		i = Math.max(0, Math.min(i, shots.length - 1));
+		if ($wrap.data('at') === i) { return; }
+		$wrap.data('at', i);
+		$wrap.find('.dze-thumb').attr('src', shots[i].t);
+		$wrap.find('.dze-x-dots i').each(function (k) { $(this).toggleClass('is-on', k === i); });
 	});
-	$(document).on('click', '.dze-lightbox', function () { $('.dze-lightbox').remove(); });
+	// Back to the photograph the card is known by: a grid where every card
+	// stayed on whichever angle the cursor last crossed is unreadable.
+	$(document).on('mouseleave', '.dze-x-thumb.has-shots', function () {
+		var $wrap = $(this), shots = shotsOf($wrap);
+		if (!shots.length) { return; }
+		$wrap.data('at', 0);
+		$wrap.find('.dze-thumb').attr('src', shots[0].t);
+		$wrap.find('.dze-x-dots i').each(function (k) { $(this).toggleClass('is-on', 0 === k); });
+	});
+	$(document).on('click', '.dze-x-thumb .dze-thumb', function (e) {
+		e.stopPropagation();
+		var $wrap = $(this).closest('.dze-x-thumb');
+		var shots = shotsOf($wrap);
+		var urls = shots.map(function (s) { return s.f; });
+		if (!urls.length) {
+			var one = $(this).data('full') || $(this).attr('src');
+			if (!one) { return; }
+			urls = [ one ];
+		}
+		window.dzeZoom.open(urls, parseInt($wrap.data('at'), 10) || 0);
+	});
+	// The variations popup walks its own grid, in the same viewer.
+	$(document).on('click', '.dze-gal-vargrid img', function (e) {
+		e.stopPropagation();
+		var me = $(this), urls = [], at = 0;
+		me.closest('.dze-gal-vargrid').find('img').each(function () {
+			var u = $(this).data('full') || $(this).attr('src');
+			if (!u) { return; }
+			if (this === me[0]) { at = urls.length; }
+			urls.push(u);
+		});
+		if (urls.length) { window.dzeZoom.open(urls, at); }
+	});
 
 	// ---- Variations popup (sortable: by ID or by an attribute) ----
 	var vars = { images: [], attrs: [], sort: 'id' };
@@ -468,7 +516,6 @@
 	// ---- Escape: close the most specific thing first ----
 	$(document).on('keydown', function (e) {
 		if (e.key !== 'Escape') { return; }
-		if ($('.dze-lightbox').length) { $('.dze-lightbox').remove(); return; }
 		if ($('#dze-x-modal').is(':visible')) { $('#dze-x-modal').hide(); return; }
 		if ($('#dze-x-overlay').is(':visible')) { closeOverlay(); }
 	});

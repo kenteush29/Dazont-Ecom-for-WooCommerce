@@ -19,6 +19,8 @@ final class DZE_Explorer {
 	public const MENU_SLUG = 'dazont-ecom-explorer';
 	private const NONCE     = 'dze_explorer';
 	private const PER_PAGE  = 30;
+	/** Photographs shown on one card: the main image plus a few gallery ones. */
+	private const CARD_SHOTS = 6;
 
 	/** Hard ceiling on products fed into one sourcing report (protects the prompt). */
 	private const REPORT_PRODUCTS_MAX = 2000;
@@ -110,7 +112,17 @@ EOT;
 		}, 999 );
 
 		wp_enqueue_style( 'dze-explorer', DZE_URL . 'admin/css/explorer.css', [], DZE_VERSION );
-		wp_enqueue_script( 'dze-explorer', DZE_URL . 'admin/js/explorer.js', [ 'jquery' ], DZE_VERSION, true );
+		// The image viewer, exactly the one the rest of the plugin uses: a
+		// photograph is judged the same way wherever it is met.
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
+			'zoom'  => __( 'See this image full size', 'dazont-ecom' ),
+			'close' => __( 'Close', 'dazont-ecom' ),
+			'prev'  => __( 'Previous image', 'dazont-ecom' ),
+			'next'  => __( 'Next image', 'dazont-ecom' ),
+		] );
+		wp_enqueue_script( 'dze-explorer', DZE_URL . 'admin/js/explorer.js', [ 'jquery', 'dze-hzoom' ], DZE_VERSION, true );
 		wp_enqueue_script( 'dze-keywords', DZE_URL . 'admin/js/keywords.js', [ 'jquery', 'dze-explorer' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-keywords', 'dzeKw', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
@@ -566,11 +578,27 @@ EOT;
 		$query = new WP_Query( $args );
 		$kwcov = ( $cat > 0 && class_exists( 'DZE_Keywords' ) ) ? DZE_Keywords::coverage_counts( $cat ) : [];
 		$html  = '';
+		// Every card carries its gallery, so hovering one shows the product
+		// from its other angles without a request per card. The attachments of
+		// the WHOLE page are read in one go first: without this, twenty-four
+		// cards asking for five image URLs each is a hundred and twenty
+		// queries for one screen.
+		$products = [];
+		$shot_ids = [];
 		foreach ( $query->posts as $post ) {
 			$product = wc_get_product( $post );
-			if ( $product instanceof \WC_Product ) {
-				$html .= $this->card_html( $product, (int) ( $kwcov[ $product->get_id() ] ?? 0 ), $cat );
+			if ( ! $product instanceof \WC_Product ) {
+				continue;
 			}
+			$products[] = $product;
+			$shot_ids   = array_merge( $shot_ids, $this->card_shot_ids( $product ) );
+		}
+		$shot_ids = array_values( array_unique( array_filter( $shot_ids ) ) );
+		if ( $shot_ids ) {
+			_prime_post_caches( $shot_ids, false, true );
+		}
+		foreach ( $products as $product ) {
+			$html .= $this->card_html( $product, (int) ( $kwcov[ $product->get_id() ] ?? 0 ), $cat );
 		}
 		wp_send_json_success( [
 			'html'    => $html,
@@ -579,10 +607,38 @@ EOT;
 		] );
 	}
 
+	/**
+	 * The photographs a card shows: the main image, then the gallery.
+	 *
+	 * Capped, because a card is a card: past half a dozen angles nobody is
+	 * still hovering, and every extra id is an attachment to read.
+	 *
+	 * @return int[]
+	 */
+	private function card_shot_ids( \WC_Product $product ): array {
+		$ids = [ (int) $product->get_image_id() ];
+		foreach ( (array) $product->get_gallery_image_ids() as $gid ) {
+			$ids[] = (int) $gid;
+		}
+		return array_slice( array_values( array_unique( array_filter( $ids ) ) ), 0, self::CARD_SHOTS );
+	}
+
 	private function card_html( \WC_Product $product, int $kwcov = 0, int $cat = 0 ): string {
 		$img_id    = (int) $product->get_image_id();
 		$thumb     = $img_id ? wp_get_attachment_image_url( $img_id, 'woocommerce_thumbnail' ) : wc_placeholder_img_src( 'woocommerce_thumbnail' );
 		$full      = $img_id ? wp_get_attachment_image_url( $img_id, 'full' ) : $thumb;
+		// The whole set travels with the card: the strip the cursor walks, and
+		// the list the viewer opens on. One JSON attribute rather than a dozen
+		// hidden <img> the browser would download for nothing.
+		$shots = [];
+		foreach ( $this->card_shot_ids( $product ) as $sid ) {
+			$s_thumb = wp_get_attachment_image_url( $sid, 'woocommerce_thumbnail' );
+			$s_full  = wp_get_attachment_image_url( $sid, 'full' );
+			if ( ! $s_thumb && ! $s_full ) {
+				continue;
+			}
+			$shots[] = [ 't' => (string) ( $s_thumb ?: $s_full ), 'f' => (string) ( $s_full ?: $s_thumb ) ];
+		}
 		$is_var    = $product->is_type( 'variable' );
 		$var_count = $is_var ? count( $product->get_children() ) : 0;
 		$edit      = get_edit_post_link( $product->get_id() );
@@ -592,8 +648,19 @@ EOT;
 		ob_start();
 		?>
 		<div class="dze-x-card">
-			<div class="dze-x-thumb dze-thumb-wrap">
-				<img class="dze-thumb dze-x-img" src="<?php echo esc_url( $thumb ); ?>" data-full="<?php echo esc_url( $full ); ?>" alt="" loading="lazy" />
+			<div class="dze-x-thumb dze-thumb-wrap<?php echo count( $shots ) > 1 ? ' has-shots' : ''; ?>"
+				data-shots="<?php echo esc_attr( (string) wp_json_encode( $shots ) ); ?>">
+				<img class="dze-thumb dze-x-img" src="<?php echo esc_url( $thumb ); ?>" data-full="<?php echo esc_url( $full ); ?>" alt=""
+					title="<?php echo esc_attr( count( $shots ) > 1
+						? __( 'Move across the photograph to see the others — click to open them full size.', 'dazont-ecom' )
+						: __( 'Click to open this photograph full size.', 'dazont-ecom' ) ); ?>" loading="lazy" />
+				<?php if ( count( $shots ) > 1 ) : ?>
+					<!-- One mark per photograph: how many there are, and which one
+					     the cursor is on. -->
+					<span class="dze-x-dots"><?php foreach ( array_keys( $shots ) as $di ) : ?>
+						<i class="<?php echo 0 === $di ? 'is-on' : ''; ?>"></i>
+					<?php endforeach; ?></span>
+				<?php endif; ?>
 			</div>
 			<div class="dze-x-name" title="<?php echo esc_attr( $product->get_name() ); ?>"><?php echo esc_html( $product->get_name() ); ?></div>
 			<div class="dze-x-card-more">

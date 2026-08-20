@@ -112,6 +112,11 @@
 		return urls;
 	}
 
+	// The viewer as a component: a screen that keeps its own list of images —
+	// the sourcing grid, where one card holds a whole gallery — opens it with
+	// that list instead of planting hidden thumbnails for this file to find.
+	window.dzeZoom = { open: open, close: close };
+
 	$(document).on('click', '.dze-zoom-btn', function (e) {
 		e.preventDefault();
 		e.stopPropagation();
