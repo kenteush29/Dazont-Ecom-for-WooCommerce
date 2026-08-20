@@ -131,7 +131,7 @@ final class DZE_Modules {
 				'group' => 'product',
 				'label' => __( 'POD image', 'dazont-ecom' ),
 				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
-				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
+				'more'  => __( 'Print on demand only. Upload the design on the product (PNG with transparent background, ideally 4500×5400 px), store the photo of your blank product once under Settings → POD, and one dedicated editable prompt renders the printed product through fal.ai. Two more images can be sent with a run — a photograph of this product, one from the library — for what neither the blank product nor the design can say: the real fabric, the real colour, the setting this range is shot in. The request names what each image is, in the order they are sent, so a reference is read and never printed. You review the result, then set it as the main image (the previous main moves to the front of the gallery) or add it to the gallery — with the standard SEO naming.', 'dazont-ecom' ),
 			],
 			'translate' => [
 				'class'   => 'DZE_Translate',
