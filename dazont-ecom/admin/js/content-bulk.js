@@ -1096,9 +1096,10 @@
 	// Applying what was kept
 	// =====================================================================
 
-	// Applying is a decision with three sizes: this product, the ticked ones,
-	// or everything waiting. They live together in the list bar, next to the
-	// other decisions about the list.
+	// Applying is a decision with two sizes: this product, from its own panel,
+	// or the products that were ticked. Never "all of them" — writing
+	// twenty-nine products to the shop from one click is not a decision taken
+	// on twenty-nine products.
 	function pendingIds() {
 		return Object.keys(results).filter(function (id) {
 			var b = results[id];
@@ -1108,31 +1109,52 @@
 	function refreshApplyBar() {
 		var waiting = pendingIds().length;
 		var sel = picked().filter(function (id) { return results[id]; }).length;
-		$('#dze-cb-applyall').toggle(waiting > 0).text(sprintf(i18n.applyAllN, waiting));
-		$('#dze-cb-applysel').toggle(sel > 0).text(sprintf(i18n.applySelN, sel));
+		// Shown as soon as something is waiting, so the way to write it to the
+		// shop is never hidden — and inert until products are ticked, so the
+		// way is always "these ones".
+		$('#dze-cb-applysel')
+			.toggle(waiting > 0)
+			.prop('disabled', 0 === sel)
+			.attr('title', 0 === sel ? i18n.tickFirst : '')
+			.text(sprintf(i18n.applySelN, sel));
 	}
 
+	// Applying, product by product.
+	//
+	// It used to run as two queues — every image of every product, then every
+	// text of every product — and only settle the screen once both had gone
+	// through. On a list of thirty that is several minutes during which not one
+	// line moves, and a single request left hanging stopped the whole thing
+	// without a word. One product is taken at a time now: its images, its
+	// texts, then its line leaves the list. What is finished is off the screen,
+	// what is left is what remains to do, and a product that fails takes only
+	// itself down.
+	function applyPost(data) {
+		// A dead request has to end: a queue that waits forever on one of them
+		// is exactly how this screen came to a stop.
+		return $.ajax({ url: cfg.ajaxUrl, type: 'POST', data: data, timeout: 240000 });
+	}
 	function applyProducts(ids, $btn) {
-		var jobs = [], shots = [], wrote = {};
+		var work = [];
 		ids.forEach(function (id) {
 			var b = results[id];
 			if (!b) { return; }
 			var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+			var texts = [], items = [], rec = '';
+			var $w = $prev.find('.dze-cb-shots');
 			Object.keys(b.texts).forEach(function (fid) {
 				var $f = $prev.find('.dze-cb-fblock[data-field="' + fid + '"]');
 				// Unticked in the panel: this block is not written. A panel that
 				// was never opened has no ticks at all, and keeps everything.
 				var $keep = $f.find('.dze-cb-fkeep');
 				if ($keep.length && !$keep.is(':checked')) { return; }
-				jobs.push({ id: id, fid: fid, value: valueOf(id, fid), $f: $f });
-				wrote[id] = wrote[id] || { texts: 0, images: 0 };
-				wrote[id].texts++;
+				texts.push({ fid: fid, value: valueOf(id, fid), $f: $f });
 			});
 			if (b.shots.length) {
-				var $w = $prev.find('.dze-cb-shots');
-				// Never opened: every shot is kept, all to the gallery. Opened:
-				// the ticked ones, each to the destination chosen under it.
-				var items = [];
+				// Never opened: every shot is kept, each one where it was made
+				// to go — not all of them in the gallery, which is how a whole
+				// run of main images landed at the end of it. Opened: the ticked
+				// ones, each to the destination chosen under it.
 				if ($w.length) {
 					$w.find('.dze-cb-shot.is-sel').each(function () {
 						items.push({
@@ -1141,140 +1163,167 @@
 						});
 					});
 				} else {
-					// Never opened: every shot is kept, each one where it was
-					// made to go — not all of them in the gallery, which is how
-					// a whole run of main images landed at the end of it.
 					b.shots.forEach(function (u) {
 						items.push({ url: u, target: (b.shotTarget && b.shotTarget[u]) || 'gallery' });
 					});
 				}
 				if (items.length) {
-					// The recipe behind the first kept image names the files.
 					// The prompt that made the first kept image names the files.
 					// Restored shots carry their prompt id; ones generated in
 					// this session carry the index of the prompt that ran.
 					var first = items[0].url;
-					var rec = (b.shotRecipe && b.shotRecipe[first]) || '';
+					rec = (b.shotRecipe && b.shotRecipe[first]) || '';
 					if (!rec && b.shotTpl) {
 						var row = (cfg.templates || [])[parseInt(b.shotTpl[first], 10)];
 						rec = row ? row.id : '';
 					}
-					wrote[id] = wrote[id] || { texts: 0, images: 0 };
-					wrote[id].images += items.length;
-					shots.push({
-						id: id, items: items, $w: $w.length ? $w : $prev, recipe: rec,
-						// What becomes of the image holding the main slot today,
-						// as chosen on this product's own strip.
-						keepOld: keepOld($w)
-					});
 				}
 			}
+			if (!texts.length && !items.length) { return; }
+			work.push({
+				id: id, texts: texts, items: items, recipe: rec,
+				$w: $w.length ? $w : $prev,
+				// What becomes of the image holding the main slot today, as
+				// chosen on this product's own strip.
+				keepOld: keepOld($w),
+				failed: false
+			});
 		});
-		if (!jobs.length && !shots.length) {
+		if (!work.length) {
 			window.alert(i18n.nothingKept);
 			return;
 		}
 		if ($btn) { $btn.prop('disabled', true); }
-		ids.forEach(function (id) { paint(id, 'run'); });
+		work.forEach(function (w) { paint(w.id, 'run'); });
 
 		// Images first: attaching is what the run was for, and a text failure
 		// should not leave the kept shots behind.
-		function attachNext(k) {
-			if (k >= shots.length) { return runTexts(); }
-			var sh = shots[k];
-			sh.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.applying);
-			$.post(cfg.ajaxUrl, {
-				action: 'dze_content_image_attach', nonce: cfg.nonce, post: sh.id, items: sh.items,
-				recipe: sh.recipe || '', keep_old: sh.keepOld
+		function attachImages(w) {
+			var d = $.Deferred();
+			if (!w.items.length) { return d.resolve().promise(); }
+			w.$w.find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.applying);
+			applyPost({
+				action: 'dze_content_image_attach', nonce: cfg.nonce, post: w.id, items: w.items,
+				recipe: w.recipe || '', keep_old: w.keepOld
 			})
+				// Wrapped, both of them: a handler that throws takes the whole
+				// queue with it, always() included, and the screen stops dead
+				// with no way of knowing why.
 				.done(function (res) {
-					if (res && res.success) {
-						okCount++;
-						sh.$w.find('.dze-cb-shotstate').text('✓ ' + sprintf(i18n.attached, res.data.attached));
-						sh.$w.find('.dze-cb-shot').removeClass('is-sel');
-					} else {
-						koCount++;
-						note(sh.id, (res && res.data && res.data.message) || i18n.error, true);
-						sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
-					}
+					try {
+						if (res && res.success) {
+							okCount++;
+							w.$w.find('.dze-cb-shotstate').text('✓ ' + sprintf(i18n.attached, res.data.attached));
+							w.$w.find('.dze-cb-shot').removeClass('is-sel');
+						} else {
+							koCount++;
+							w.failed = true;
+							note(w.id, (res && res.data && res.data.message) || i18n.error, true);
+							w.$w.find('.dze-cb-shotstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+						}
+					} catch (e) { w.failed = true; }
 				})
 				.fail(function (x) {
-					koCount++;
-					note(sh.id, reason(x), true);
-					sh.$w.find('.dze-cb-shotstate').addClass('is-ko').text(reason(x));
+					try {
+						koCount++;
+						w.failed = true;
+						note(w.id, reason(x), true);
+						w.$w.find('.dze-cb-shotstate').addClass('is-ko').text(reason(x));
+					} catch (e) { w.failed = true; }
 				})
-				.always(function () { attachNext(k + 1); });
+				.always(function () { d.resolve(); });
+			return d.promise();
 		}
-		function runTexts() {
-			var i = 0;
+		function writeTexts(w) {
+			var d = $.Deferred(), i = 0;
 			(function next() {
-				if (i >= jobs.length) { return done(); }
-				var j = jobs[i++];
-				$.post(cfg.ajaxUrl, { action: 'dze_content_apply', nonce: cfg.nonce, post: j.id, field: j.fid, value: j.value })
+				if (i >= w.texts.length) { d.resolve(); return; }
+				var j = w.texts[i++];
+				applyPost({ action: 'dze_content_apply', nonce: cfg.nonce, post: w.id, field: j.fid, value: j.value })
 					.done(function (res) {
-						if (res && res.success) { okCount++; j.$f.find('.dze-cb-fstate').removeClass('is-ko').text('✓'); }
-						else {
-							koCount++;
-							note(j.id, (res && res.data && res.data.message) || i18n.error, true);
-							j.$f.find('.dze-cb-fstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
-						}
+						try {
+							if (res && res.success) {
+								okCount++;
+								j.$f.find('.dze-cb-fstate').removeClass('is-ko').text('✓');
+							} else {
+								koCount++;
+								w.failed = true;
+								note(w.id, (res && res.data && res.data.message) || i18n.error, true);
+								j.$f.find('.dze-cb-fstate').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+							}
+						} catch (e) { w.failed = true; }
 					})
-					.fail(function () { koCount++; note(j.id, i18n.error, true); j.$f.find('.dze-cb-fstate').addClass('is-ko').text(i18n.error); })
+					.fail(function (x) {
+						try {
+							koCount++;
+							w.failed = true;
+							note(w.id, reason(x), true);
+							j.$f.find('.dze-cb-fstate').addClass('is-ko').text(reason(x));
+						} catch (e) { w.failed = true; }
+					})
 					.always(next);
-			})();
+			}());
+			return d.promise();
 		}
-		function done() {
-			if ($btn) { $btn.prop('disabled', false); }
-			ids.forEach(function (id) {
-				var st = state[id];
-				// Applied and settled: the product stops waiting, here and on
-				// the server, and its line says so.
-				if (!st || !st.failed) {
-					delete results[id];
-					$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
-					// Written is finished: it is recorded under "Done", and it
-					// leaves the working list instead of sitting there looking
-					// exactly like a product nobody has touched.
-					var w = wrote[id] || { texts: 0, images: 0 };
-					bumpTab('pending', -1);
-					bumpTab('log', 1);
-					if (!waiting()) { bumpTab('selection', -1); }
-					$.post(cfg.ajaxUrl, {
-						action: 'dze_content_logged', nonce: cfg.nonce, post: id,
-						texts: w.texts, images: w.images, unqueue: 1
-					}).always(function () {
-						$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
-						delete state[id];
-						drawPicked();
-						if (!$('.dze-cb-row').length) { window.location.reload(); }
-					});
-					state[id] = { total: 1, done: 1, notes: [], failed: false };
-					reviewModeWas = reviewMode;
-					reviewMode = false;
-					paint(id, 'done');
-					reviewMode = reviewModeWas;
-					$('.dze-cb-preview[data-id="' + id + '"]').hide();
-					hideRowActions(id);
-				} else {
-					paint(id, 'fail');
-				}
+		// Written is finished: the product stops waiting, here and on the
+		// server, it is recorded under "Done", and its line leaves the list
+		// instead of sitting there looking exactly like a product nobody has
+		// touched. One product at a time, the moment it is done.
+		function settle(w) {
+			var id = w.id;
+			if (w.failed) {
+				paint(id, 'fail');
+				return;
+			}
+			delete results[id];
+			$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
+			bumpTab('pending', -1);
+			bumpTab('log', 1);
+			if (!waiting()) { bumpTab('selection', -1); }
+			state[id] = { total: 1, done: 1, notes: [], failed: false };
+			var reviewModeWas = reviewMode;
+			reviewMode = false;
+			paint(id, 'done');
+			reviewMode = reviewModeWas;
+			$('.dze-cb-preview[data-id="' + id + '"]').hide();
+			hideRowActions(id);
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_content_logged', nonce: cfg.nonce, post: id,
+				texts: w.texts.length, images: w.items.length, unqueue: 1
+			}).always(function () {
+				$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
+				delete state[id];
+				drawPicked();
+				refreshApplyBar();
+				if (!$('.dze-cb-row').length) { window.location.reload(); }
 			});
-			refreshApplyBar();
-			$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
 		}
-		var reviewModeWas = reviewMode;
-		attachNext(0);
+		(function nextProduct(k) {
+			if (k >= work.length) {
+				if ($btn) { $btn.prop('disabled', false); }
+				refreshApplyBar();
+				$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+				return;
+			}
+			// The list shrinks as it goes, so the counter says how far along the
+			// batch is rather than how many lines are left on screen.
+			$('#dze-cb-progress').text(sprintf(i18n.gProgress, k + 1, work.length));
+			var w = work[k];
+			attachImages(w).always(function () {
+				writeTexts(w).always(function () {
+					settle(w);
+					nextProduct(k + 1);
+				});
+			});
+		}(0));
 	}
 
-	$('#dze-cb-applyall').on('click', function () {
-		var ids = pendingIds();
-		if (!ids.length) { window.alert(i18n.nothingKept); return; }
-		if (!window.confirm(sprintf(i18n.confirmAll, ids.length))) { return; }
-		applyProducts(ids, $(this));
-	});
 	$('#dze-cb-applysel').on('click', function () {
 		var ids = picked().filter(function (id) { return results[id]; });
-		if (!ids.length) { window.alert(i18n.nothingKept); return; }
+		if (!ids.length) { window.alert(i18n.tickFirst); return; }
+		// One product is one click you are looking at; several is a batch, and
+		// a batch is confirmed.
+		if (ids.length > 1 && !window.confirm(sprintf(i18n.confirmSel, ids.length))) { return; }
 		applyProducts(ids, $(this));
 	});
 	// One product, from its own panel: no confirmation, it is one deliberate
