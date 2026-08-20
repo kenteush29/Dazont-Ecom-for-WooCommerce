@@ -926,6 +926,11 @@ trait DZE_Content_Ajax {
 		// what is waiting" there — is how a product came back on the other tab
 		// after being taken out of this one.
 		$drop = ! empty( $_POST['drop_pending'] );
+		if ( 'counts' === $do ) {
+			// Read-only: the screen asking what the tabs should say, after a run
+			// that has just put content on a dozen products.
+			wp_send_json_success( [ 'counts' => self::screen_counts() ] );
+		}
 		if ( 'clear' === $do ) {
 			if ( $drop ) {
 				foreach ( $ids ?: self::pending_ids() as $one ) {
@@ -934,7 +939,7 @@ trait DZE_Content_Ajax {
 				delete_transient( 'dze_pending_count' );
 			}
 			self::set_bulk_list( [] );
-			wp_send_json_success( [ 'left' => [] ] );
+			wp_send_json_success( [ 'left' => [], 'counts' => self::screen_counts() ] );
 		}
 		if ( 'remove' === $do && $ids ) {
 			if ( $drop ) {
@@ -947,7 +952,7 @@ trait DZE_Content_Ajax {
 			self::set_bulk_list( $list );
 			// The list as it now stands, read back: the screen shows what the
 			// server holds, not what it hoped the server would hold.
-			wp_send_json_success( [ 'left' => self::bulk_list() ] );
+			wp_send_json_success( [ 'left' => self::bulk_list(), 'counts' => self::screen_counts() ] );
 		}
 		if ( 'add' === $do ) {
 			$this->bulk_add_ids( $ids, ! empty( $_POST['replace'] ) );
@@ -1219,7 +1224,10 @@ trait DZE_Content_Ajax {
 			self::set_bulk_list( array_values( array_diff( self::bulk_list(), [ $pid ] ) ) );
 		}
 		self::log_add( $pid, $texts, $images );
-		wp_send_json_success( [ 'left' => count( self::bulk_list() ), 'waiting' => self::pending_count() ] );
+		// The screen redraws its tabs from what the server holds, not from what
+		// it thinks it just did: a count that only tells the truth after a
+		// reload is a count nobody trusts.
+		wp_send_json_success( [ 'left' => count( self::bulk_list() ), 'counts' => self::screen_counts() ] );
 	}
 
 	public function ajax_log_clear(): void {
@@ -1244,7 +1252,7 @@ trait DZE_Content_Ajax {
 				delete_post_meta( $one, self::META_PENDING );
 			}
 			delete_transient( 'dze_pending_count' );
-			wp_send_json_success( [ 'cleared' => count( $posts ), 'waiting' => self::pending_count() ] );
+			wp_send_json_success( [ 'cleared' => count( $posts ), 'counts' => self::screen_counts() ] );
 		}
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
@@ -1252,7 +1260,7 @@ trait DZE_Content_Ajax {
 		if ( ! $shots && ! $fields ) {
 			delete_post_meta( $pid, self::META_PENDING );
 			delete_transient( 'dze_pending_count' );
-			wp_send_json_success( [ 'cleared' => $pid, 'left' => [], 'waiting' => self::pending_count() ] );
+			wp_send_json_success( [ 'cleared' => $pid, 'left' => [], 'counts' => self::screen_counts() ] );
 		}
 		$waiting = self::pending( $pid );
 		if ( $shots ) {
@@ -1272,7 +1280,7 @@ trait DZE_Content_Ajax {
 			update_post_meta( $pid, self::META_PENDING, $waiting );
 		}
 		delete_transient( 'dze_pending_count' );
-		wp_send_json_success( [ 'left' => self::pending( $pid ), 'waiting' => self::pending_count() ] );
+		wp_send_json_success( [ 'left' => self::pending( $pid ), 'counts' => self::screen_counts() ] );
 	}
 
 	/**
