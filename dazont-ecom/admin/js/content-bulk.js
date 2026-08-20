@@ -264,16 +264,10 @@
 	// The screen shows what the server holds, not what it hoped the server
 	// would hold: rows only leave once the list has really been rewritten.
 	//
-	// WHICH list, though, depends on what is on screen. On the waiting view the
-	// rows are the products holding content nobody has decided on — they were
-	// never in the selection, so rewriting the selection left every row exactly
-	// where it was, and "Remove from the list" and "Empty the whole list" both
-	// looked broken. There, leaving the list means refusing what is waiting.
-	function waiting() { return 'pending' === (cfg.mode || 'selection'); }
-	// Delete: the product leaves the list AND whatever was waiting on it is
-	// thrown away. One action, one request, the same on every tab — the two
-	// half-actions that used to share this button are why a product taken out
-	// of one list turned up on the other.
+	// Delete: the product leaves the list, whatever was waiting on it is thrown
+	// away, and Done records the decision. One action, one request — accepting
+	// and refusing are the two ways out of the list, and both of them end in
+	// the same place.
 	function removeProducts(ids, $b) {
 		if (!ids.length) { window.alert(i18n.tickFirst); return; }
 		if ($b) { $b.prop('disabled', true); }
@@ -353,8 +347,6 @@
 					window.alert(sprintf(i18n.pasteUnknown, d.unknownN) + '\n\n' + d.unknown.join(', ') +
 						(d.unknownN > d.unknown.length ? ' …' : ''));
 				}
-				// Always land on the selection itself, even when the paste was
-				// done from the "waiting for a decision" view.
 				window.location.href = cfg.listUrl || window.location.href;
 			})
 			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
@@ -426,14 +418,6 @@
 		if (!window.confirm(i18n.confirmOne)) { return; }
 		applyProducts([ $(this).closest('.dze-cb-row').data('id') ], $(this));
 	});
-	// Decided, one way or the other.
-	//
-	// On the waiting list a product is there BECAUSE something was waiting on
-	// it. Accepted or refused, nothing is: the line has no content, no buttons
-	// and nothing left to decide, and leaving it on screen turned every
-	// decision into a second, pointless one — take it out of the list too. On
-	// the selection, the product is queued to be worked on and stays: only the
-	// result it was holding goes.
 	// The three numbers as the SERVER holds them, written on the tabs after
 	// every request that changes them. Counting by hand on this side is how a
 	// screen ends up announcing twenty waiting products over a list of six
@@ -441,27 +425,10 @@
 	function setTabs(res) {
 		var c = res && res.data && res.data.counts;
 		if (!c) { return; }
-		[ [ 'selection', c.all ], [ 'pending', c.waiting ], [ 'log', c.log ] ].forEach(function (pair) {
+		[ [ 'selection', c.all ], [ 'log', c.log ] ].forEach(function (pair) {
 			var $c = $('.dze-cb-tabs a[data-tab="' + pair[0] + '"] .dze-cb-count');
 			if ($c.length) { $c.text(pair[1] ? String(pair[1]) : ''); }
 		});
-	}
-	function settleRow(id) {
-		delete results[id];
-		if (waiting()) {
-			$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
-			delete state[id];
-			drawPicked();
-			refreshApplyBar();
-			if (!$('.dze-cb-row').length) { window.location.reload(); }
-			return;
-		}
-		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
-		$row(id).find('.dze-cb-badges').empty();
-		hideRowActions(id);
-		state[id] = { total: 1, done: 1, notes: [], failed: false };
-		paint(id, 'wait');
-		refreshApplyBar();
 	}
 
 	// ---- Global progress, pinned to the bottom of the window ----
@@ -953,16 +920,13 @@
 		return b.open[fid] ? editorGet(editorId(id, fid)) : (b.texts[fid] || '');
 	}
 
-	// Waiting content you no longer want. The only other way out was to accept
-	// it, which is not a choice.
+	// Refusing what was generated is a decision like accepting it: the content
+	// is thrown away, the product leaves the list, and Done records that it was
+	// dealt with. It used to stay on the list with its badges wiped, which is
+	// how the same products were still there the next morning.
 	$(document).on('click', '.dze-cb-drop', function () {
 		if (!window.confirm(i18n.confirmDrop)) { return; }
-		var id = $(this).closest('.dze-cb-preview').data('id');
-		// The line goes once the server says it is gone: settling can reload
-		// the page, and a reload cancels a request that has not gone out yet —
-		// which left the product waiting for a decision it had already had.
-		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id })
-			.always(function (res) { setTabs(res); settleRow(id); });
+		removeProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
@@ -1132,14 +1096,14 @@
 		});
 	}
 	function refreshApplyBar() {
-		var waiting = pendingIds().length;
+		var holding = pendingIds().length;
 		var sel = picked().filter(function (id) { return results[id]; }).length;
 		// Shown as soon as something is waiting, so the way to write it to the
 		// shop is never hidden — and inert until products are ticked, so the
 		// way is always "these ones".
 		$('#dze-cb-applysel')
 			.prop('disabled', 0 === sel)
-			.attr('title', 0 === sel ? (waiting > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
+			.attr('title', 0 === sel ? (holding > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
 			.text(sprintf(i18n.applySelN, sel));
 	}
 

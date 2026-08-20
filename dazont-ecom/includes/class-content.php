@@ -1362,14 +1362,12 @@ EOT;
 	 * says so on its tabs instead of waiting for a reload to admit it. The
 	 * first tab holds the whole list, the second the part of it still waiting.
 	 *
-	 * @return array{all:int,waiting:int,log:int}
+	 * @return array{all:int,log:int}
 	 */
 	public static function screen_counts(): array {
-		$pending = self::pending_ids();
 		return [
-			'all'     => count( array_unique( array_merge( self::bulk_list(), $pending ) ) ),
-			'waiting' => count( $pending ),
-			'log'     => count( self::log_entries() ),
+			'all' => count( array_unique( array_merge( self::bulk_list(), self::pending_ids() ) ) ),
+			'log' => count( self::log_entries() ),
 		];
 	}
 
@@ -2594,22 +2592,50 @@ Answer with STRICT JSON and nothing else: "
 	public const OPT_LOG = 'dze_content_log';
 	private const LOG_MAX = 120;
 
-	public static function log_add( int $pid, int $texts, int $images ): void {
-		if ( ! $pid || ( ! $texts && ! $images ) ) {
+	public static function log_add( int $pid, int $texts, int $images, string $status = 'applied' ): void {
+		if ( ! $pid ) {
 			return;
 		}
 		$log = get_option( self::OPT_LOG, [] );
 		$log = is_array( $log ) ? $log : [];
+		// One product appears once: a product decided on twice is the same
+		// product, at the date of the last decision.
+		foreach ( $log as $i => $row ) {
+			if ( (int) ( $row['id'] ?? 0 ) === $pid ) {
+				unset( $log[ $i ] );
+			}
+		}
+		$log = array_values( $log );
 		array_unshift( $log, [
 			'id'     => $pid,
 			'time'   => time(),
 			'texts'  => $texts,
 			'images' => $images,
+			// Accepted or refused, the product is done with: what Done records
+			// is that the decision was taken, and which one.
+			'status' => 'dropped' === $status ? 'dropped' : 'applied',
 			// The name as it was at that moment: the log says what happened,
 			// not what the product is called today.
 			'title'  => html_entity_decode( wp_strip_all_tags( (string) get_the_title( $pid ) ), ENT_QUOTES, 'UTF-8' ),
 		] );
 		update_option( self::OPT_LOG, array_slice( $log, 0, self::LOG_MAX ), false );
+	}
+
+	/**
+	 * A product refused, or taken out of the list: the decision was taken.
+	 *
+	 * Refusing is a decision like accepting, and it ends in the same place —
+	 * what was waiting is thrown away, and the product is recorded under Done
+	 * with nothing written. A product left on the list after being dealt with
+	 * is a product you deal with again tomorrow.
+	 */
+	public static function drop_product( int $pid ): void {
+		if ( ! $pid ) {
+			return;
+		}
+		delete_post_meta( $pid, self::META_PENDING );
+		delete_transient( 'dze_pending_count' );
+		self::log_add( $pid, 0, 0, 'dropped' );
 	}
 
 	/** @return array<int,array<string,mixed>> newest first. */
@@ -2704,12 +2730,11 @@ Answer with STRICT JSON and nothing else: "
 
 	/** Products queued for the bulk screen (from the last bulk action). */
 	/**
-	 * What this screen is showing: 'selection', 'pending' or 'empty'.
+	 * What this screen is showing: 'selection', 'log' or 'empty'.
 	 *
 	 * An empty screen sitting next to a notice announcing that three products
-	 * are waiting is a design failure: the screen's job is to show the work. So
-	 * when the selection is empty and something IS waiting, the waiting is what
-	 * you get, without a link to click.
+	 * are waiting is a design failure: the screen's job is to show the work, so
+	 * a product holding an undecided result is part of the selection.
 	 */
 	private function bulk_mode(): string {
 		static $mode = null;
@@ -2718,11 +2743,11 @@ Answer with STRICT JSON and nothing else: "
 		}
 		if ( ! empty( $_GET['dze_log'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
 			$mode = 'log';
-		} elseif ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
-			$mode = 'pending';
 		} elseif ( self::bulk_list() || self::pending_count() ) {
-			// The first tab holds the whole list, waiting products included, so
-			// there is no reason to open on the filtered view any more.
+			// Two views, and one of them is the history: products are selected,
+			// worked on, decided on, and then they are done. "Waiting for a
+			// decision" was a third place for products that had never left the
+			// first one — the same rows, under another name, with another count.
 			$mode = 'selection';
 		} else {
 			$mode = 'empty';
@@ -2787,6 +2812,12 @@ Answer with STRICT JSON and nothing else: "
 								);
 							?></span>
 						<?php endif; ?>
+						<?php if ( empty( $dze_e['texts'] ) && empty( $dze_e['images'] ) ) : ?>
+							<!-- Refused, or taken out of the list before anything was
+							     written: the decision was taken, and that is what Done
+							     records. -->
+							<span class="description"><?php esc_html_e( 'nothing written', 'dazont-ecom' ); ?></span>
+						<?php endif; ?>
 					</td>
 					<td class="description"><?php echo esc_html( wp_date( 'j M Y · H:i', (int) ( $dze_e['time'] ?? 0 ) ) ); ?></td>
 				</tr>
@@ -2799,14 +2830,12 @@ Answer with STRICT JSON and nothing else: "
 		if ( null !== $this->bulk_products_cache ) {
 			return $this->bulk_products_cache; // asked for twice per render.
 		}
-		// ONE list of products to work on, and tabs that FILTER it — not two
-		// lists holding the same products with two different counts, which is
-		// what "My selection 14" next to "Waiting for a decision 20" was. A
-		// product holding content waiting for a decision belongs to the work
-		// whether or not it was queued by hand, so it is in the list.
-		$ids = 'pending' === $this->bulk_mode()
-			? self::pending_ids()
-			: array_merge( self::bulk_list(), self::pending_ids() );
+		// ONE list of products being worked on: the ones added by hand, plus
+		// the ones holding content that has never been decided on — a product
+		// generated from its own page belongs to the work just as much. It
+		// leaves this list when a decision is taken on it, accepted or refused,
+		// and lands under Done.
+		$ids = array_merge( self::bulk_list(), self::pending_ids() );
 		$ids = array_values( array_unique( array_filter( array_map( 'intval', (array) $ids ) ) ) );
 		// Four hundred products pasted from a spreadsheet is a normal list here,
 		// and one query per row is not an option: posts and their meta are read
@@ -2932,20 +2961,16 @@ Answer with STRICT JSON and nothing else: "
 			<?php
 			$dze_mode = $this->bulk_mode();
 			$dze_base = add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
-			// The first tab is the whole list; the second one shows the part of
-			// it that is holding content waiting for a decision. One is always
-			// bigger than the other, because one contains the other.
+			// Products are added to the list, worked on, decided on — and then
+			// they are done with. Two tabs is the whole story.
 			$dze_counts = self::screen_counts();
 			$dze_tabs   = [
-				'selection' => [ __( 'Products', 'dazont-ecom' ), $dze_base, $dze_counts['all'] ],
-				'pending'   => [ __( 'Waiting for a decision', 'dazont-ecom' ), add_query_arg( 'dze_pending', 1, $dze_base ), $dze_counts['waiting'] ],
+				'selection' => [ __( 'Selected products', 'dazont-ecom' ), $dze_base, $dze_counts['all'] ],
 				'log'       => [ __( 'Done', 'dazont-ecom' ), add_query_arg( 'dze_log', 1, $dze_base ), $dze_counts['log'] ],
 			];
 			?>
-			<!-- The three states of this screen, named and always in sight. They
-			     used to be one screen that silently swapped its list, which is
-			     why "the products are still there after accepting" had no
-			     answer on it. -->
+			<!-- Two states, and that is the whole screen: the products being
+			     worked on, and the products that are done with. -->
 			<h2 class="nav-tab-wrapper dze-cb-tabs">
 				<?php foreach ( $dze_tabs as $dze_key => $dze_tab ) : ?>
 					<a href="<?php echo esc_url( $dze_tab[1] ); ?>" data-tab="<?php echo esc_attr( $dze_key ); ?>" class="nav-tab<?php echo ( $dze_key === $dze_mode || ( 'empty' === $dze_mode && 'selection' === $dze_key ) ) ? ' nav-tab-active' : ''; ?>">
@@ -2958,11 +2983,7 @@ Answer with STRICT JSON and nothing else: "
 				</div>
 				<?php return; ?>
 			<?php endif; ?>
-			<?php if ( 'pending' === $dze_mode ) : ?>
-				<div class="notice notice-info"><p>
-					<?php esc_html_e( 'The products of your list that are holding content you have not accepted or discarded yet.', 'dazont-ecom' ); ?>
-				</p></div>
-			<?php endif; ?>
+
 
 			<?php $dze_blockers = self::image_blockers(); ?>
 			<?php if ( $dze_blockers ) : ?>
@@ -3407,9 +3428,9 @@ Answer with STRICT JSON and nothing else: "
 					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
 					'discard'  => __( 'Discard', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
-					'confirmClear' => __( 'Take every product out of this list and throw away everything waiting on them? The products themselves are not modified.', 'dazont-ecom' ),
+					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
-					'confirmDelete' => __( 'Take %s products out of the list and throw away what is waiting on them? The products themselves are not modified.', 'dazont-ecom' ),
+					'confirmDelete' => __( 'Take %s products out of the list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'confirmSel' => __( 'Write the generated content to the %s ticked products? This modifies the shop.', 'dazont-ecom' ),
 					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
@@ -3440,7 +3461,7 @@ Answer with STRICT JSON and nothing else: "
 					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
-					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered.', 'dazont-ecom' ),
+					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered. The product leaves the list and is filed under Done.', 'dazont-ecom' ),
 					// A block that could not be read says so, and offers to try
 					// again — an empty space reads as a broken screen.
 					'nowFailed'   => __( 'The photographs of this product could not be read.', 'dazont-ecom' ),
