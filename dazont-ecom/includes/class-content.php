@@ -1106,30 +1106,8 @@ EOT;
 	 * @param int        $count Number of product photographs sent.
 	 * @param array|null $scene The scene, when one is used, sent last.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, bool $design = false ): string {
+	public static function sources_instruction( int $count, ?array $scene ): string {
 		$out = "\n\n";
-		// A print design is not a photograph of a product: it is artwork, and
-		// what is asked of it is to be reproduced, not re-photographed.
-		if ( $design ) {
-			$out .= 'IMAGE 1 IS A PRINT DESIGN — artwork on a transparent background, not a photograph. Reproduce it exactly: same drawing, same colours, same text, nothing added, nothing removed, nothing redrawn.';
-			if ( $count > 1 ) {
-				$out .= sprintf(
-					' Images 2 to %d are photographs of the product this design belongs to: read them for the real material and the real colours.',
-					$count
-				);
-			}
-			if ( $scene ) {
-				$out .= sprintf(
-					"\n\nTHE LAST IMAGE (image %d) IS THE BLANK PRODUCT: print the design on it. Keep that product exactly as it is — its shape, its colour, its material, its folds, its light and its background — and place the design where it would really be printed, following the folds and the perspective of the fabric. The design must look printed on the product, not pasted over the photograph.",
-					$count + 1
-				);
-				if ( '' !== trim( (string) $scene['prompt'] ) ) {
-					$out .= "\n" . trim( (string) $scene['prompt'] );
-				}
-				$out .= "\nOne single product in the frame, whole, on its own background. Do not add a second garment, a mannequin, a person, a hanger or any text of your own.";
-			}
-			return $out;
-		}
 		if ( $count > 1 ) {
 			$out .= sprintf(
 				'IMAGES 1 TO %1$d ARE ALL PHOTOGRAPHS OF ONE SINGLE PRODUCT, taken from different angles and distances — overall views, details, close-ups of the material. Read them together to know exactly what the product looks like: its complete shape, its complete pattern, its real colours and its real texture. Image 1 is the reference for the overall look; the others fill in what image 1 does not show.',
@@ -1140,10 +1118,10 @@ EOT;
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
 		}
 		if ( $scene ) {
-			// Deliberately says WHAT it is and not what it may not be: the shelf
-			// also holds blank products to print on, and a sentence forbidding a
-			// scene from looking like a product fought the prompt that asked for
-			// exactly that.
+			// Deliberately says WHAT it is and not what it may not be: a shelf
+			// image can be a blank product to print on, and a sentence
+			// forbidding a scene from looking like a product fought the prompt
+			// that asked for exactly that.
 			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + 1 );
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
@@ -3479,26 +3457,6 @@ Answer with STRICT JSON and nothing else: "
 				] : null,
 				self::scenes()
 			) ) ),
-			// The print design of this product, when it has one: a source of its
-			// own in the workshop, so a POD image is made by the same lane as
-			// every other image of the shop.
-			// Print on demand, when the module is on: the design of this product
-			// is picked, replaced and enlarged HERE, in the workshop where the
-			// image is made. It used to live in a box of its own on the same
-			// page, which is one screen too many for one attachment id.
-			'pod'        => ( $pid && class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) )
-				? ( static function () use ( $pid ) {
-					$d = (int) get_post_meta( $pid, DZE_Pod::DESIGN_META, true );
-					$ok = $d && wp_attachment_is_image( $d );
-					return [
-						'nonce' => wp_create_nonce( 'dze_pod' ),
-						'id'    => $ok ? $d : 0,
-						'thumb' => $ok ? (string) wp_get_attachment_image_url( $d, 'thumbnail' ) : '',
-						'full'  => $ok ? (string) wp_get_attachment_image_url( $d, 'full' ) : '',
-						'dims'  => $ok ? DZE_Pod::design_dims_note( $d ) : '',
-					];
-				} )()
-				: null,
 			// How many photographs of this product travel with a generation —
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
@@ -3590,17 +3548,6 @@ Answer with STRICT JSON and nothing else: "
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
 				'qmPasted'   => __( 'Image ready ✓', 'dazont-ecom' ),
-				'srcDesign'  => __( 'The print design', 'dazont-ecom' ),
-				'srcDesignHelp' => __( 'Print this design on the background chosen below.', 'dazont-ecom' ),
-				'srcDesignAdd'  => __( '+ A print design', 'dazont-ecom' ),
-				'designPick' => __( 'Choose the print design (PNG, transparent background)', 'dazont-ecom' ),
-				'designUse'  => __( 'Use this design', 'dazont-ecom' ),
-				'designChange' => __( 'Change', 'dazont-ecom' ),
-				'designUp'   => __( 'Upscale ×4', 'dazont-ecom' ),
-				'designUpHelp' => __( 'Enlarge the design ×4 and keep the result as the print file — for designs too small to print.', 'dazont-ecom' ),
-				'designUping'=> __( 'Upscaling ×4 — up to a minute…', 'dazont-ecom' ),
-				'designUped' => __( 'Print file upscaled ✓', 'dazont-ecom' ),
-				'designHelp' => __( 'PNG with a transparent background. ~1800×2400 px minimum to print on a chest.', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),

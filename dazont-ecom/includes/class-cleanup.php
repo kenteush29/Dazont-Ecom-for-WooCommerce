@@ -88,6 +88,8 @@ final class DZE_Cleanup {
 				'options'   => [ 'dze_translate_settings' ],
 				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by' ],
 			],
+			// A module that no longer ships. Its descriptors stay so an install
+			// that once used it can still be erased of what it left behind.
 			'pod' => [
 				'options'   => [ 'dze_pod_settings' ],
 				'post_meta' => [ '_dze_pod_design_id' ],

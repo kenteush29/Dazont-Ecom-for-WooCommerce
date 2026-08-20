@@ -71,7 +71,6 @@ final class DZE_Ai_Usage {
 			'product_img' => __( 'Product image', 'dazont-ecom' ),
 			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),
 			'translate'   => __( 'Product translation (one language)', 'dazont-ecom' ),
-			'pod'         => __( 'POD mockup', 'dazont-ecom' ),
 			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),
 			'sourcing'    => __( 'Sourcing analysis', 'dazont-ecom' ),
 			'other'       => __( 'Everything else', 'dazont-ecom' ),
