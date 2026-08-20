@@ -123,6 +123,14 @@
 	});
 
 	// ---- The run ----
+	// A name suggested from what was asked for — a starting point, not a
+	// decision: the file name and the alt text of a library image are things
+	// you choose, and they were being taken from the first line of the prompt
+	// with no way to say otherwise.
+	function suggestName() {
+		var first = ($('#dze-lab-prompt').val() || '').split('\n')[0].trim();
+		return first.length > 70 ? first.slice(0, 70).trim() : first;
+	}
 	function draw(url) {
 		var $out = $('#dze-lab-out');
 		// Newest first: the one you are judging is the one at the top left.
@@ -130,9 +138,14 @@
 			'<figure class="dze-lab-res" data-url="' + esc(url) + '">' +
 				'<img src="' + esc(url) + '" data-full="' + esc(url) + '" alt="" />' +
 				'<figcaption>' +
-					'<a class="button button-small" href="' + esc(url) + '" target="_blank" rel="noopener" download>' + esc(i18n.download) + '</a> ' +
-					'<button type="button" class="button button-small button-primary dze-lab-keep">' + esc(i18n.keep) + '</button> ' +
-					'<span class="dze-lab-resstate"></span>' +
+					'<label class="dze-lab-namewrap"><span>' + esc(i18n.name) + '</span>' +
+						'<input type="text" class="dze-lab-name" value="' + esc(suggestName()) + '" placeholder="' + esc(i18n.namePh) + '" />' +
+					'</label>' +
+					'<span class="dze-lab-resacts">' +
+						'<a class="button button-small" href="' + esc(url) + '" target="_blank" rel="noopener" download>' + esc(i18n.download) + '</a> ' +
+						'<button type="button" class="button button-small button-primary dze-lab-keep">' + esc(i18n.keep) + '</button> ' +
+						'<span class="dze-lab-resstate"></span>' +
+					'</span>' +
 				'</figcaption>' +
 			'</figure>'
 		);
@@ -169,8 +182,9 @@
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_lab_keep', nonce: cfg.nonce,
 			url: $fig.attr('data-url'),
-			// The library entry is named after what was asked for.
-			name: ($('#dze-lab-prompt').val() || '').split('\n')[0]
+			// The name written on this result: the file, the title and the alt
+			// text all take it.
+			name: $fig.find('.dze-lab-name').val() || suggestName()
 		})
 			.done(function (r) {
 				if (!r || !r.success) { $b.prop('disabled', false); $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }

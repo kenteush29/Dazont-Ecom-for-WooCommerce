@@ -1256,6 +1256,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	width: 320px; height: 320px; object-fit: contain; display: block;
 	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 6px;
 }
-.dze-lab-res figcaption { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.dze-lab-res figcaption { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.dze-lab-namewrap { display: flex; flex-direction: column; gap: 2px; }
+.dze-lab-namewrap > span { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
+.dze-lab-name { width: 100%; box-sizing: border-box; font-size: 12px; }
+.dze-lab-resacts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dze-lab-resstate { font-size: 12px; color: #0a7040; }
 .dze-lab-resstate.is-ko { color: #b32d2e; }
