@@ -578,19 +578,6 @@
 	if (window.dzePhotos) {
 		window.dzePhotos.on('ai', function () { openOne('', 'image', 'main'); });
 	}
-	// Another box of the page asking for this workshop — the POD box, which
-	// holds the design but does not generate anything of its own any more.
-	$(document).on('dze:image', function (e, opts) {
-		opts = opts || {};
-		openOne('', 'image', opts.scope || 'main');
-		if ('design' === opts.src && cfg.pod && cfg.pod.id) {
-			// Drawn when the product's photographs come back: the tile has to
-			// exist before it can be chosen.
-			loadCurrent().then(function () {
-				window.setTimeout(function () { $('.dze-one-srcdesign').trigger('click'); }, 30);
-			});
-		}
-	});
 	$(document).on('click', '.dze-cx-now', function (e) {
 		e.stopPropagation();
 		var $btn = $(this), fid = $btn.data('field');
@@ -1250,7 +1237,6 @@
 			'<div class="dze-step">' +
 				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
-				'<p class="dze-one-designbar" id="dze-one-designbar" style="display:none;"></p>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
 						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
@@ -1401,18 +1387,6 @@
 		// product yet. It is drawn with the popup rather than waiting for the
 		// product to be read, so it is never missing.
 		var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
-		// The print design of this product — picked, replaced and enlarged from
-		// here. Printing it is an image made in this workshop like any other,
-		// with the same prompts, the same review and the same naming, so the
-		// design has no box of its own anywhere else.
-		if (cfg.pod) {
-			html += cfg.pod.id
-				? '<button type="button" class="dze-one-srcpick dze-one-srcdesign" data-id="' + cfg.pod.id + '" title="' + esc(i18n.srcDesignHelp) + '">' +
-					'<img src="' + esc(cfg.pod.thumb) + '" data-full="' + esc(cfg.pod.full) + '" alt="" />' +
-					'<span class="dze-one-srcname">' + esc(i18n.srcDesign) + '</span></button>'
-				: '<button type="button" class="dze-one-srcpick dze-one-srcadd" data-id="add" title="' + esc(i18n.designHelp) + '">' +
-					'<span class="dze-one-newmsg">' + esc(i18n.srcDesignAdd) + '</span></button>';
-		}
 		(imgs || []).forEach(function (im) {
 			if (!im.id) { return; }
 			html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
@@ -1427,79 +1401,12 @@
 		var $slot = $('#dze-one-srcs').addClass('dze-zoomgroup');
 		if (!$slot.length) { return; }
 		$slot.html(oneSrcStrip([]));
-		drawDesignBar();
 		loadCurrent().then(function (cur) {
 			// Something was chosen while the product was loading: leave it be.
 			if (one.srcId || one.paste) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
-			drawDesignBar();
 		});
 	}
-	// Under the strip, and only when a design is there: its size in DPI, the
-	// way to replace it, and the ×4 enlargement for a file too small to print.
-	function drawDesignBar() {
-		var $bar = $('#dze-one-designbar');
-		if (!$bar.length || !cfg.pod) { return; }
-		if (!cfg.pod.id) { $bar.empty().hide(); return; }
-		$bar.show().html(
-			'<span class="dze-one-dims">' + esc(cfg.pod.dims) + '</span> ' +
-			'<button type="button" class="button-link dze-one-designpick">' + esc(i18n.designChange) + '</button> ' +
-			'<button type="button" class="button-link dze-one-designup" title="' + esc(i18n.designUpHelp) + '">⤢ ' + esc(i18n.designUp) + '</button> ' +
-			'<span class="dze-one-designstate"></span>'
-		);
-	}
-	function designSay(text, bad) {
-		$('.dze-one-designstate').toggleClass('is-ko', !!bad).text(text || '');
-	}
-	// The design is an image of the library like any other: the native modal
-	// picks it, and one endpoint of the POD module remembers it on the product.
-	var designFrame = null;
-	function pickDesign() {
-		if (!window.wp || !wp.media || !cfg.pod) { return; }
-		designFrame = wp.media({
-			title: i18n.designPick, button: { text: i18n.designUse },
-			library: { type: 'image' }, multiple: false
-		});
-		designFrame.on('select', function () {
-			var a = designFrame.state().get('selection').first().toJSON();
-			designSay(i18n.applying);
-			$.post(cfg.ajaxUrl, {
-				action: 'dze_pod_design', nonce: cfg.pod.nonce, post: PID, attachment: a.id
-			})
-				.done(function (r) {
-					if (!r || !r.success) { designSay((r && r.data && r.data.message) || i18n.error, true); return; }
-					cfg.pod.id = r.data.id;
-					cfg.pod.thumb = r.data.thumb;
-					cfg.pod.full = r.data.full;
-					cfg.pod.dims = r.data.dims;
-					designSay('');
-					oneDrawSources();
-					// Chosen means chosen: the run works from it.
-					window.setTimeout(function () { $('.dze-one-srcdesign').trigger('click'); }, 20);
-				})
-				.fail(function (x) { designSay(reason(x), true); });
-		});
-		designFrame.open();
-	}
-	$(document).on('click', '.dze-one-srcadd, .dze-one-designpick', function (e) {
-		e.preventDefault();
-		pickDesign();
-	});
-	$(document).on('click', '.dze-one-designup', function (e) {
-		e.preventDefault();
-		var $b = $(this).prop('disabled', true);
-		designSay(i18n.designUping);
-		$.post(cfg.ajaxUrl, { action: 'dze_pod_upscale', nonce: cfg.pod.nonce, post: PID })
-			.done(function (r) {
-				$b.prop('disabled', false);
-				if (!r || !r.success) { designSay((r && r.data && r.data.message) || i18n.error, true); return; }
-				cfg.pod.thumb = r.data.thumb;
-				cfg.pod.dims = r.data.dims;
-				designSay(i18n.designUped);
-				oneDrawSources();
-			})
-			.fail(function (x) { $b.prop('disabled', false); designSay(reason(x), true); });
-	});
 	$(document).on('click', '.dze-one-tabs button', function () {
 		var pane = $(this).data('pane');
 		$('.dze-one-tabs button').removeClass('is-sel');
@@ -1523,7 +1430,6 @@
 		var outside = 'new' === raw;
 		var id = outside ? 0 : (parseInt(raw, 10) || 0);
 		one.srcId = id;
-		one.design = $(this).hasClass('dze-one-srcdesign') ? 1 : 0;
 		// The box to paste into belongs to that tile: it is on screen when the
 		// tile is chosen, and out of the way the rest of the time.
 		$('#dze-one-elsewrap').toggle(outside);
@@ -1629,7 +1535,6 @@
 				$.post(cfg.ajaxUrl, {
 					action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 					paste: one.paste || '',
-					design: one.design || 0,
 					with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 					src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 					bg: $('#dze-one-bg').val() || 0, prompt: prompt

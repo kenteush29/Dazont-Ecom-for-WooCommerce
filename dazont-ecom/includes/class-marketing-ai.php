@@ -440,7 +440,7 @@ final class DZE_Marketing_Ai {
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
 			// The fal key lives in Content settings but also powers POD.
-			if ( class_exists( 'DZE_Content' ) && ( $mod_on( 'content' ) || $mod_on( 'pod' ) ) ) {
+			if ( class_exists( 'DZE_Content' ) && $mod_on( 'content' ) ) {
 				echo '<hr style="margin:28px 0;" />';
 				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
 				DZE_Content::instance()->render_key_field();
