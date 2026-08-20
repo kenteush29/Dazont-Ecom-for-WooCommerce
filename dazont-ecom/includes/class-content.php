@@ -1105,8 +1105,11 @@ EOT;
 	 *
 	 * @param int        $count Number of product photographs sent.
 	 * @param array|null $scene The scene, when one is used, sent last.
+	 * @param int        $avoid Photographs this prompt already made, sent after
+	 *                          the product ones and before the scene, so the
+	 *                          model can see what it must not do again.
 	 */
-	public static function sources_instruction( int $count, ?array $scene ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0 ): string {
 		$out = "\n\n";
 		if ( $count > 1 ) {
 			$out .= sprintf(
@@ -1117,12 +1120,29 @@ EOT;
 		} else {
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
 		}
+		// The model has no memory of what it handed back a minute ago, so
+		// asking a second time for "a photograph of the product in use" simply
+		// returned the first one again. It is shown them instead of being told
+		// about them: a sentence saying "make it different" loses to a set of
+		// source images saying "make it the same".
+		if ( $avoid > 0 ) {
+			$out .= ' ' . (
+				1 === $avoid
+					? sprintf( 'IMAGE %d IS A PHOTOGRAPH ALREADY MADE', $count + 1 )
+					: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS ALREADY MADE', $count + 1, $count + $avoid )
+			);
+			$out .= ' for this product with these very instructions. They are here for one reason: the photograph you are making now must be clearly different from '
+				. ( 1 === $avoid ? 'it' : 'each of them' )
+				. ' — another angle, another distance, another part of the product, another arrangement. Never hand back one of them again, and never read '
+				. ( 1 === $avoid ? 'it' : 'them' )
+				. ' as the reference for what the product looks like: that is what the product photographs above are for.';
+		}
 		if ( $scene ) {
 			// Deliberately says WHAT it is and not what it may not be: a shelf
 			// image can be a blank product to print on, and a sentence
 			// forbidding a scene from looking like a product fought the prompt
 			// that asked for exactly that.
-			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + 1 );
+			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $avoid + 1 );
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
@@ -1334,6 +1354,84 @@ EOT;
 		return $n;
 	}
 
+	/** Attachment meta: the prompt a photograph came out of. */
+	public const META_RECIPE = '_dze_prompt';
+
+	/**
+	 * What this prompt has ALREADY made for this product.
+	 *
+	 * Two places hold it and neither one alone is the answer: the images still
+	 * waiting for a decision, and the images that were accepted and are now on
+	 * the product. Counting only the waiting list is why a second click on
+	 * "+ Product in use", the day after the first batch was accepted, came back
+	 * with a photograph the product already had.
+	 *
+	 * Cheap on purpose: one indexed meta read for the waiting list, one query
+	 * for the accepted ones, and only ever on the way to a generation that is
+	 * about to cost a fal call anyway.
+	 *
+	 * @return array{urls:string[],ids:int[]} Waiting images (fal URLs, newest
+	 *                                        last) and accepted ones (newest first).
+	 */
+	public static function made_already( int $pid, string $recipe_id ): array {
+		$out = [ 'urls' => [], 'ids' => [] ];
+		if ( ! $pid || '' === $recipe_id ) {
+			return $out;
+		}
+		$p     = self::pending( $pid );
+		$shots = array_map( 'strval', (array) ( $p['shots'] ?? [] ) );
+		foreach ( (array) ( $p['recipes'] ?? [] ) as $url => $rid ) {
+			// A refused attempt leaves the waiting list: it is not something
+			// this product has, so it is not something to avoid repeating.
+			if ( (string) $rid === $recipe_id && in_array( (string) $url, $shots, true ) ) {
+				$out['urls'][] = (string) $url;
+			}
+		}
+		global $wpdb;
+		$ids = $wpdb->get_col( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- admin, one product, on the way to a paid generation.
+			"SELECT p.ID FROM {$wpdb->posts} p
+			 INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = %s
+			 WHERE p.post_type = 'attachment' AND p.post_parent = %d AND m.meta_value = %s
+			 ORDER BY p.ID DESC LIMIT 20",
+			self::META_RECIPE,
+			$pid,
+			$recipe_id
+		) );
+		$out['ids'] = array_map( 'intval', (array) $ids );
+		return $out;
+	}
+
+	/**
+	 * The few already-made photographs worth showing the model, newest first.
+	 *
+	 * Two of them: enough to say "not these again", little enough that the
+	 * request stays light and the product photographs keep the upper hand on
+	 * what the product looks like. A waiting image is a fal URL — it travels as
+	 * a link and costs nothing to send; an accepted one is a file of ours and
+	 * is returned as an attachment id for the caller to read.
+	 *
+	 * @return array<int, int|string> Attachment ids and fal URLs, mixed.
+	 */
+	public static function avoid_sources( int $pid, string $recipe_id, int $max = 2 ): array {
+		$made = self::made_already( $pid, $recipe_id );
+		$out  = [];
+		foreach ( array_reverse( $made['urls'] ) as $url ) {
+			if ( count( $out ) >= $max ) {
+				return $out;
+			}
+			if ( self::is_fal_url( (string) $url ) ) {
+				$out[] = (string) $url;
+			}
+		}
+		foreach ( $made['ids'] as $id ) {
+			if ( count( $out ) >= $max ) {
+				return $out;
+			}
+			$out[] = (int) $id;
+		}
+		return $out;
+	}
+
 	/**
 	 * "Not the same photograph again."
 	 *
@@ -1352,14 +1450,8 @@ EOT;
 		if ( 'main' === $target ) {
 			return '';
 		}
-		$made = 0;
-		if ( '' !== $recipe_id ) {
-			foreach ( (array) ( self::pending( $pid )['recipes'] ?? [] ) as $rid ) {
-				if ( (string) $rid === $recipe_id ) {
-					$made++;
-				}
-			}
-		}
+		$already = self::made_already( $pid, $recipe_id );
+		$made    = count( $already['urls'] ) + count( $already['ids'] );
 		// A run that writes straight to the product stashes nothing, so the
 		// count above stays at zero: the screen says which attempt this is.
 		$made = max( $made, $attempt > 0 ? $attempt - 1 : 0 );
@@ -3067,8 +3159,11 @@ Answer with STRICT JSON and nothing else: "
 			     rewriting a selection that is not what you are looking at. -->
 			<p class="dze-cb-listbar">
 				<span id="dze-cb-selcount" class="description"></span>
-				<button type="button" class="button button-primary" id="dze-cb-applyall" style="display:none;"><?php esc_html_e( 'Apply all', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-cb-applysel" style="display:none;"><?php esc_html_e( 'Apply only selected', 'dazont-ecom' ); ?></button>
+				<!-- Writing to the shop is done on products that were TICKED, and
+				     on no others. "Apply all (29)" wrote twenty-nine products
+				     from one click, which is not a decision anybody takes on
+				     twenty-nine products at once. -->
+				<button type="button" class="button button-primary" id="dze-cb-applysel" style="display:none;"><?php esc_html_e( 'Apply the ticked products', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
 				<?php if ( 'pending' === $dze_mode ) : ?>
 					<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Throw away what is waiting', 'dazont-ecom' ); ?></button>
@@ -3305,7 +3400,8 @@ Answer with STRICT JSON and nothing else: "
 					'discard'  => __( 'Discard', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Empty the whole list? The products are not modified, they simply leave this screen.', 'dazont-ecom' ),
-					'confirmAll' => __( 'Write the generated content to %s products at once? This modifies the shop.', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'confirmSel' => __( 'Write the generated content to the %s ticked products? This modifies the shop.', 'dazont-ecom' ),
 					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
 					'applyOne' => __( 'Apply this product', 'dazont-ecom' ),
 					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
@@ -3314,8 +3410,9 @@ Answer with STRICT JSON and nothing else: "
 					'skippedN' => __( '%s left alone (already written)', 'dazont-ecom' ),
 					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Accept it or discard it, then run again.', 'dazont-ecom' ),
 					'applying' => __( 'Applying…', 'dazont-ecom' ),
-					'applyAllN' => __( 'Apply all (%s)', 'dazont-ecom' ),
-					'applySelN' => __( 'Apply only selected (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'applySelN' => __( 'Apply the ticked products (%s)', 'dazont-ecom' ),
+					'tickFirst' => __( 'Tick the products you want to write to the shop.', 'dazont-ecom' ),
 					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
@@ -3768,7 +3865,6 @@ Answer with STRICT JSON and nothing else: "
 				'dataUsed'   => __( 'Data used', 'dazont-ecom' ),
 				'review'     => __( 'Review', 'dazont-ecom' ),
 				'reviewNote' => __( 'Check and edit the generated content, then apply.', 'dazont-ecom' ),
-				'applyAll'   => __( 'Apply all', 'dazont-ecom' ),
 				'skippedLock'=> __( 'skipped (not validated)', 'dazont-ecom' ),
 				'genImgOpt'  => __( 'Generate an image', 'dazont-ecom' ),
 				'priceOpt'   => __( 'Recalculate price (applies immediately)', 'dazont-ecom' ),
@@ -4423,6 +4519,13 @@ Answer with STRICT JSON and nothing else: "
 		}
 
 		$att_id = $this->file_to_library( $tmp, $ext, $slug, $title, $pid );
+		// Which prompt this photograph came out of, kept on the photograph
+		// itself: it is the only thing that still knows, once the image has
+		// left the waiting list, that this prompt has already been served here
+		// — and asking it again for "one more" has to start from that.
+		if ( '' !== $recipe_id ) {
+			update_post_meta( (int) $att_id, self::META_RECIPE, $recipe_id );
+		}
 
 		// A variation image belongs to its variations and to nothing else: it
 		// is written to every variation of the group and stays out of the

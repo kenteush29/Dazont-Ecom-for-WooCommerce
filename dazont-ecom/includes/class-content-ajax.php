@@ -824,10 +824,39 @@ trait DZE_Content_Ajax {
 				throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
 			}
 			$product_count = count( $sources );
+			// What this prompt has already produced here goes out WITH the
+			// order, right after the product photographs: told in words that
+			// the last one must not come back, the model handed it back anyway.
+			// Never on a main image — there is one right main image, not four
+			// different ones — and never on a variation, where the whole point
+			// is one image per colour.
+			$avoid = 0;
+			if ( '' === $src && 'main' !== $target && '' === $v_value ) {
+				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ) ) as $ref ) {
+					if ( is_int( $ref ) ) {
+						// One already on the product: read from disk, and only
+						// while the request body stays a sane size.
+						try {
+							$uri = $this->fal_source_data_uri( $ref, 'medium_large' );
+						} catch ( \Throwable $e ) {
+							continue;
+						}
+						if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+							break;
+						}
+						$sources[] = $uri;
+					} else {
+						// One still waiting: it lives on fal's own CDN, so it
+						// travels as a URL and weighs nothing.
+						$sources[] = $ref;
+					}
+					$avoid++;
+				}
+			}
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
-			$prompt   .= self::sources_instruction( $product_count, $scene );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.

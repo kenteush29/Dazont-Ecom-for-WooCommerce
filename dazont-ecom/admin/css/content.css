@@ -363,11 +363,17 @@
 .dze-one-img .dze-qm-pair { margin-top: 12px; }
 /* The product's own photographs, to choose the one being worked on. */
 .dze-one-srcs { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
+/* Every answer to "from which photograph?" is one tile of the same size,
+   whether it holds a photograph or a sentence: a text tile left to size
+   itself came out a flat strip with its own label cut in half, next to
+   square thumbnails. */
 .dze-one-srcpick {
+	box-sizing: border-box; display: flex; align-items: center; justify-content: center;
 	background: #fff; border: 2px solid #dcdcde; border-radius: 5px; cursor: pointer;
-	padding: 2px; font-size: 11px; color: #50575e; line-height: 1.6;
+	padding: 2px; font-size: 11px; color: #50575e; line-height: 1.4;
+	text-align: center; white-space: normal; overflow: hidden;
 }
-.dze-one-srcpick img { display: block; width: 88px; height: 88px; object-fit: cover; border-radius: 3px; }
+.dze-one-srcpick img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
 .dze-one-srcpick.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
 #dze-one-drop img { max-height: 120px; }
 
@@ -400,16 +406,20 @@
 .dze-one-recipewhat { display: block; margin-top: 3px; font-size: 11px; line-height: 1.4; color: #646970; }
 .dze-one-recipepen { color: #2271b1; cursor: pointer; font-size: 13px; }
 .dze-one-bgs { display: flex; gap: 8px; flex-wrap: wrap; }
+/* One card per background, all the same box: a card without an image used to
+   come out shorter than its neighbours and the "+" one taller, so a row of
+   three surfaces read as three different kinds of thing. */
 .dze-one-bg {
-	position: relative; background: #fff; border: 2px solid #dcdcde; border-radius: 6px;
-	padding: 3px; cursor: pointer; width: 96px; font-size: 11px; color: #50575e;
+	position: relative; box-sizing: border-box;
+	background: #fff; border: 2px solid #dcdcde; border-radius: 6px;
+	padding: 3px; cursor: pointer; width: 96px; height: 96px; font-size: 11px; color: #50575e;
 	display: flex; flex-direction: column; align-items: center; gap: 3px;
 }
 .dze-one-bg img { display: block; width: 100%; height: 68px; object-fit: cover; border-radius: 3px; }
-.dze-one-bgnone { display: flex; align-items: center; justify-content: center; height: 68px; text-align: center; }
+.dze-one-bgnone { display: flex; align-items: center; justify-content: center; flex: 1; text-align: center; line-height: 1.3; }
 .dze-one-bgname { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dze-one-bg.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
-.dze-one-bgadd { align-items: center; justify-content: center; font-size: 20px; color: #2271b1; min-height: 80px; }
+.dze-one-bgadd { align-items: center; justify-content: center; font-size: 20px; color: #2271b1; }
 
 /* ---- Settings: one shut block per subject ---- */
 .dze-set {
@@ -1040,7 +1050,7 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* ---- One tile size for product images, everywhere ---- */
 .dze-cb-nowshot { display: inline-block; width: 148px; height: 148px; }
 .dze-cb-nowshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dze-one-srcpick img { width: 148px; height: 148px; }
+.dze-one-srcpick { width: 148px; height: 148px; }
 
 /* The one save note, wherever the button is. */
 .dze-savednote { margin-left: 10px; font-weight: 600; }
@@ -1051,8 +1061,7 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* The image that is not on the product yet: a tile in the same strip, so
    "from what" is answered in one place. */
 .dze-one-srcnew {
-	width: 148px; height: 148px; display: flex; align-items: center; justify-content: center;
-	text-align: center; font-size: 12px; color: #2271b1; background: #f6f7f7;
+	font-size: 12px; color: #2271b1; background: #f6f7f7;
 	border-style: dashed !important;
 }
 .dze-one-srcnew img { width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
@@ -1243,22 +1252,6 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-lab-resacts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dze-lab-resstate { font-size: 12px; color: #0a7040; }
 .dze-lab-resstate.is-ko { color: #b32d2e; }
-
-/* The print design among the sources, and the blank products among the
-   surfaces: both are named, because neither is a photograph of the product. */
-.dze-one-srcdesign { background: #f6f7f7; }
-.dze-one-srcdesign img { object-fit: contain !important; background: #fff; }
-.dze-one-srcname { display: block; font-size: 10px; text-align: center; color: #50575e; padding: 2px 4px 0; }
-
-/* The print design in the source strip, and what can be done to it. */
-.dze-one-srcadd {
-	width: 88px; height: 88px; display: inline-flex; align-items: center; justify-content: center;
-	text-align: center; font-size: 11px; color: #2271b1; background: #f6f7f7;
-	border-style: dashed !important;
-}
-.dze-one-designbar { margin: 0 0 10px; font-size: 12px; color: #646970; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.dze-one-dims { color: #50575e; }
-.dze-one-designstate.is-ko { color: #b32d2e; }
 
 .dze-one-notestate { font-size: 12px; color: #0a7040; margin-left: 8px; }
 
