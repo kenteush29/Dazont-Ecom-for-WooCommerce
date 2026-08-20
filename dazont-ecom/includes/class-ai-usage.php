@@ -457,7 +457,7 @@ final class DZE_Ai_Usage {
 			$max          = max( $max, $totals[ $m ] );
 		}
 		echo '<h3 style="margin:0 0 8px;">' . esc_html__( 'Month by month', 'dazont-ecom' ) . '</h3>';
-		echo '<div style="max-width:820px;">';
+		echo '<div>';
 		foreach ( array_reverse( $months, true ) as $m => $rows ) {
 			$total = (float) $totals[ $m ];
 			echo '<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">';

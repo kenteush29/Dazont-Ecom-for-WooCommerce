@@ -86,7 +86,6 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_quick_main', [ $this, 'ajax_quick_main' ] );
 		add_action( 'wp_ajax_dze_content_bg_add', [ $this, 'ajax_bg_add' ] );
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
-		add_action( 'wp_ajax_dze_content_add_default', [ $this, 'ajax_add_default' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
 		add_action( 'wp_ajax_dze_content_boxes', [ $this, 'ajax_boxes' ] );
@@ -1090,11 +1089,6 @@ EOT;
 				'name'    => (string) ( $r['name'] ?? __( 'Scene', 'dazont-ecom' ) ),
 				'image'   => $img,
 				'prompt'  => (string) ( $r['prompt'] ?? '' ),
-				// What this image IS. A backdrop is a surface to put the product
-				// on; a blank product is the product itself, waiting for a print.
-				// Told the same thing, a mockup came back with a t-shirt lying on
-				// a t-shirt.
-				'use'     => 'blank' === ( $r['use'] ?? '' ) ? 'blank' : 'support',
 				'default' => ! empty( $r['default'] ),
 			];
 		}
@@ -1145,21 +1139,12 @@ EOT;
 		} else {
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
 		}
-		if ( $scene && 'blank' === ( $scene['use'] ?? 'support' ) ) {
-			// The shelf can hold blank products as well as surfaces; here one is
-			// being used without a design, so it is a model to copy the shape
-			// and the setting from, never a second product in the frame.
-			$out .= sprintf(
-				' THE LAST IMAGE (image %d) IS A BLANK PRODUCT used as the model: copy its framing, its light and its background, and show THIS product the same way. Never show both products, and never print anything on it.',
-				$count + 1
-			);
-			if ( '' !== trim( (string) $scene['prompt'] ) ) {
-				$out .= "\n" . trim( (string) $scene['prompt'] );
-			}
-			return $out;
-		}
 		if ( $scene ) {
-			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the support, background and lighting to place the product in — it is not a product and nothing in it must end up looking like one.', $count + 1 );
+			// Deliberately says WHAT it is and not what it may not be: the shelf
+			// also holds blank products to print on, and a sentence forbidding a
+			// scene from looking like a product fought the prompt that asked for
+			// exactly that.
+			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + 1 );
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
@@ -1731,7 +1716,6 @@ Answer with STRICT JSON and nothing else: "
 					'name'    => sanitize_text_field( (string) $name ) ?: __( 'Scene', 'dazont-ecom' ),
 					'image'   => $img,
 					'prompt'  => sanitize_textarea_field( (string) ( $in['sc_prompt'][ $i ] ?? '' ) ),
-					'use'     => ( 'blank' === ( $in['sc_use'][ $i ] ?? '' ) ) ? 'blank' : 'support',
 					'default' => ( (int) $i === $def ),
 				];
 			}
@@ -1955,8 +1939,8 @@ Answer with STRICT JSON and nothing else: "
 
 			<details class="dze-set">
 			<summary><?php esc_html_e( 'Backgrounds — the surfaces your products are shot on', 'dazont-ecom' ); ?></summary>
-			<p class="description" style="max-width:960px;">
-				<?php esc_html_e( 'The images you keep to shoot your products on — a studio backdrop, a floor for rugs, a table top — and the blank products you print on: a white tee, a hoodie, a mug. Each one says which of the two it is, because they are not used the same way: a product is PLACED on a surface, and a design is PRINTED on a blank product. Pick one when you generate an image and the product is placed on it, so a catalogue shot by a dozen suppliers comes back looking like one shop. The note under each image is optional — it says how that particular background is meant to be used ("lay the rug flat on this floor"), and it is only worth writing when the image alone does not say it.', 'dazont-ecom' ); ?>
+			<p class="description">
+				<?php esc_html_e( 'The images you keep and send with a generation: a studio backdrop, a floor for rugs, a table top, a blank t-shirt to print on. Pick one when you generate an image and it travels as the last image of the request, so a catalogue shot by a dozen suppliers comes back looking like one shop. The note under each image is optional — it says what to do with that particular one ("lay the rug flat on this floor", "print the design on this shirt"), and it is only worth writing when the image alone does not say it.', 'dazont-ecom' ); ?>
 			</p>
 			<?php $dze_scenes = self::scenes(); ?>
 			<div class="dze-bggrid" id="dze-sc">
@@ -1970,12 +1954,6 @@ Answer with STRICT JSON and nothing else: "
 					<input type="hidden" class="dze-sc-img" name="<?php echo esc_attr( $opt ); ?>[sc_image][]" value="<?php echo (int) $sc['image']; ?>" />
 					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_name][]" value="<?php echo esc_attr( (string) $sc['name'] ); ?>" placeholder="<?php esc_attr_e( 'Name it', 'dazont-ecom' ); ?>" />
 					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_prompt][]" value="<?php echo esc_attr( (string) $sc['prompt'] ); ?>" placeholder="<?php esc_attr_e( 'note for the model (optional)', 'dazont-ecom' ); ?>" class="dze-bgnote" />
-					<label class="dze-bguse" title="<?php esc_attr_e( 'A surface the product is placed ON, or a blank product a design is printed on.', 'dazont-ecom' ); ?>">
-						<select name="<?php echo esc_attr( $opt ); ?>[sc_use][]">
-							<option value="support" <?php selected( 'blank' !== ( $sc['use'] ?? 'support' ) ); ?>><?php esc_html_e( 'A surface to shoot on', 'dazont-ecom' ); ?></option>
-							<option value="blank" <?php selected( 'blank', $sc['use'] ?? 'support' ); ?>><?php esc_html_e( 'A blank product to print on', 'dazont-ecom' ); ?></option>
-						</select>
-					</label>
 					<p class="dze-bgfoot">
 						<label title="<?php esc_attr_e( 'Pre-selected when you generate an image', 'dazont-ecom' ); ?>">
 							<input type="radio" name="<?php echo esc_attr( $opt ); ?>[sc_default]" value="<?php echo (int) $si; ?>" <?php checked( ! empty( $sc['default'] ) ); ?> />
@@ -1995,12 +1973,6 @@ Answer with STRICT JSON and nothing else: "
 					<input type="hidden" class="dze-sc-img" name="<?php echo esc_attr( $opt ); ?>[sc_image][]" value="0" />
 					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_name][]" value="" placeholder="<?php esc_attr_e( 'Name it', 'dazont-ecom' ); ?>" />
 					<input type="text" name="<?php echo esc_attr( $opt ); ?>[sc_prompt][]" value="" placeholder="<?php esc_attr_e( 'note for the model (optional)', 'dazont-ecom' ); ?>" class="dze-bgnote" />
-					<label class="dze-bguse">
-						<select name="<?php echo esc_attr( $opt ); ?>[sc_use][]">
-							<option value="support"><?php esc_html_e( 'A surface to shoot on', 'dazont-ecom' ); ?></option>
-							<option value="blank"><?php esc_html_e( 'A blank product to print on', 'dazont-ecom' ); ?></option>
-						</select>
-					</label>
 					<p class="dze-bgfoot">
 						<label><input type="radio" name="<?php echo esc_attr( $opt ); ?>[sc_default]" value="__I__" /> <?php esc_html_e( 'Default', 'dazont-ecom' ); ?></label>
 						<button type="button" class="button button-small dze-sc-pick"><?php esc_html_e( 'Replace', 'dazont-ecom' ); ?></button>
@@ -2097,7 +2069,7 @@ Answer with STRICT JSON and nothing else: "
 
 			<details class="dze-set" open>
 			<summary><?php esc_html_e( 'Prompts — what the plugin writes, and how', 'dazont-ecom' ); ?></summary>
-			<p class="description" style="max-width:960px;">
+			<p class="description">
 				<?php esc_html_e( 'ONE universal list of prompts — add as many as you want, for anything. Each prompt has a content type (Text or Image), the product metadata it receives as INPUT, and an OUTPUT destination (product fields, SEO metas, WooCommerce attributes, any custom field — or the product gallery / main image for Image prompts, fully compatible with the product image generator). Text prompts appear in the toolbox and bulk once enabled; apply is unlocked per prompt by its Validated box.', 'dazont-ecom' ); ?>
 			</p>
 			<?php $dze_inputs = self::input_options(); $dze_metakeys = self::product_meta_keys(); $dze_ri = 0; ?>
@@ -2222,7 +2194,7 @@ Answer with STRICT JSON and nothing else: "
 										?>
 									</span>
 								</summary>
-								<p class="description" style="max-width:820px;">
+								<p class="description">
 									<?php esc_html_e( 'What it does, in order: the model LOOKS at the photographs this product already has, picks the one this block should sit next to, writes the block about what is visible in it, and stores that photograph\'s id in the key below — so a theme field like _bloc_image_1 shows the right picture beside the right text. Empty key = this block is written from the product data alone, with no photograph.', 'dazont-ecom' ); ?>
 								</p>
 								<p class="dze-prb-line">
@@ -2243,25 +2215,6 @@ Answer with STRICT JSON and nothing else: "
 			<?php endforeach; ?>
 			</div>
 			<?php $dze_ri = count( $dze_rows ); ?>
-			<?php $dze_missing = self::missing_defaults(); ?>
-			<?php if ( $dze_missing ) : ?>
-				<p class="dze-pr-missing">
-					<span class="description"><?php
-						printf(
-							/* translators: %d: number of prompts */
-							esc_html( _n( '%d prompt ships with the plugin and is not on this site. Add it only if you want it — nothing is ever put back on its own.', '%d prompts ship with the plugin and are not on this site. Add one only if you want it — nothing is ever put back on its own.', count( $dze_missing ), 'dazont-ecom' ) ),
-							count( $dze_missing )
-						);
-					?></span>
-					<select id="dze-pr-defpick">
-						<?php foreach ( $dze_missing as $mid => $mname ) : ?>
-							<option value="<?php echo esc_attr( $mid ); ?>"><?php echo esc_html( $mname ); ?></option>
-						<?php endforeach; ?>
-					</select>
-					<button type="button" class="button" id="dze-pr-defadd">&#43; <?php esc_html_e( 'Add it', 'dazont-ecom' ); ?></button>
-					<span id="dze-pr-defstate" class="description"></span>
-				</p>
-			<?php endif; ?>
 			<!-- A prompt being written belongs to no group yet: it is filed by
 			     what it writes, and it has not said that yet. It waits here,
 			     apart, until the page is saved. -->
@@ -2400,20 +2353,6 @@ Answer with STRICT JSON and nothing else: "
 				} );
 				// On or off is one flag: it is written when it is clicked, not
 				// when the page happens to be saved.
-				// A prompt shipped after this install saved its registry is put
-				// back on demand, switched off, ready to be read before use.
-				$( '#dze-pr-defadd' ).on( 'click', function () {
-					var $b = $( this ).prop( 'disabled', true );
-					$.post( window.ajaxurl, {
-						action: 'dze_content_add_default',
-						nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
-						id: $( '#dze-pr-defpick' ).val()
-					} ).done( function ( r ) {
-						if ( r && r.success ) { window.location.reload(); return; }
-						$b.prop( 'disabled', false );
-						$( '#dze-pr-defstate' ).text( ( r && r.data && r.data.message ) || '' );
-					} ).fail( function () { $b.prop( 'disabled', false ); } );
-				} );
 				$( document ).on( 'change', '.dze-prb-live', function () {
 					var $c = $( this ), $card = $c.closest( '.dze-prb' );
 					$card.addClass( 'is-saving' );
@@ -3537,30 +3476,36 @@ Answer with STRICT JSON and nothing else: "
 					'id'    => (int) $sc['image'],
 					'name'  => (string) $sc['name'],
 					'thumb' => (string) wp_get_attachment_image_url( (int) $sc['image'], 'thumbnail' ),
-					// A blank product to print on is not a backdrop: the screen
-					// says which is which, and the request describes each one
-					// for what it is.
-					'use'   => (string) ( $sc['use'] ?? 'support' ),
 				] : null,
 				self::scenes()
 			) ) ),
 			// The print design of this product, when it has one: a source of its
 			// own in the workshop, so a POD image is made by the same lane as
 			// every other image of the shop.
-			'design'     => ( $pid && class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) )
+			// Print on demand, when the module is on: the design of this product
+			// is picked, replaced and enlarged HERE, in the workshop where the
+			// image is made. It used to live in a box of its own on the same
+			// page, which is one screen too many for one attachment id.
+			'pod'        => ( $pid && class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) )
 				? ( static function () use ( $pid ) {
 					$d = (int) get_post_meta( $pid, DZE_Pod::DESIGN_META, true );
-					return ( $d && wp_attachment_is_image( $d ) ) ? [
-						'id'    => $d,
-						'thumb' => (string) wp_get_attachment_image_url( $d, 'thumbnail' ),
-						'full'  => (string) wp_get_attachment_image_url( $d, 'full' ),
-					] : null;
+					$ok = $d && wp_attachment_is_image( $d );
+					return [
+						'nonce' => wp_create_nonce( 'dze_pod' ),
+						'id'    => $ok ? $d : 0,
+						'thumb' => $ok ? (string) wp_get_attachment_image_url( $d, 'thumbnail' ) : '',
+						'full'  => $ok ? (string) wp_get_attachment_image_url( $d, 'full' ) : '',
+						'dims'  => $ok ? DZE_Pod::design_dims_note( $d ) : '',
+					];
 				} )()
 				: null,
 			// How many photographs of this product travel with a generation —
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
 			'sourceN'    => $pid ? count( self::product_source_ids( $pid ) ) : 0,
+			// The note this product carries: sent with every image made for it,
+			// written once, here.
+			'note'       => $pid ? self::variation_note( $pid, self::NOTE_PRODUCT ) : '',
 			// Said before the click, not after a failed generation.
 			'blockers'   => self::image_blockers(),
 			// A rich editor for what is really HTML; a plain box for a title or
@@ -3646,8 +3591,16 @@ Answer with STRICT JSON and nothing else: "
 				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
 				'qmPasted'   => __( 'Image ready ✓', 'dazont-ecom' ),
 				'srcDesign'  => __( 'The print design', 'dazont-ecom' ),
-				'srcDesignHelp' => __( 'Print this design on the blank product chosen below.', 'dazont-ecom' ),
-				'bgBlank'    => __( '(blank product)', 'dazont-ecom' ),
+				'srcDesignHelp' => __( 'Print this design on the background chosen below.', 'dazont-ecom' ),
+				'srcDesignAdd'  => __( '+ A print design', 'dazont-ecom' ),
+				'designPick' => __( 'Choose the print design (PNG, transparent background)', 'dazont-ecom' ),
+				'designUse'  => __( 'Use this design', 'dazont-ecom' ),
+				'designChange' => __( 'Change', 'dazont-ecom' ),
+				'designUp'   => __( 'Upscale ×4', 'dazont-ecom' ),
+				'designUpHelp' => __( 'Enlarge the design ×4 and keep the result as the print file — for designs too small to print.', 'dazont-ecom' ),
+				'designUping'=> __( 'Upscaling ×4 — up to a minute…', 'dazont-ecom' ),
+				'designUped' => __( 'Print file upscaled ✓', 'dazont-ecom' ),
+				'designHelp' => __( 'PNG with a transparent background. ~1800×2400 px minimum to print on a chest.', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
@@ -3709,6 +3662,10 @@ Answer with STRICT JSON and nothing else: "
 				/* translators: %s: number of generated images waiting for a decision */
 				'varSaveAll' => __( 'Save these %s on the product', 'dazont-ecom' ),
 				'varNote'    => __( 'Notes', 'dazont-ecom' ),
+				'noteTitle'  => __( 'Notes about this product', 'dazont-ecom' ),
+				'noteHelp'   => __( 'Sent with every image made for this product — the real fabric, the finish, what no photograph shows. Saved as you leave the box.', 'dazont-ecom' ),
+				'notePh'     => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),
+				'noteSaved'  => __( 'Saved ✓', 'dazont-ecom' ),
 				'varNoteLabel' => __( 'What to know about this variation', 'dazont-ecom' ),
 				'varNoteHelp'=> __( 'Kept with the product and sent with every image made for this variation.', 'dazont-ecom' ),
 				'varNotePh'  => __( 'e.g. fabric: black, multicam tropic ripstop camo', 'dazont-ecom' ),
@@ -4622,8 +4579,34 @@ Answer with STRICT JSON and nothing else: "
 		return is_array( $n ) ? $n : [];
 	}
 
+	/**
+	 * The note attached to a scope of this product.
+	 *
+	 * '*' is the product itself — what every image of it must know: the real
+	 * fabric, the finish, the detail no photograph shows. A group key is one
+	 * colour. Same store, same idea: a line YOU wrote, sent with the run,
+	 * because a prompt shared by a whole catalogue cannot know it.
+	 */
+	public const NOTE_PRODUCT = '*';
+
 	public static function variation_note( int $pid, string $group ): string {
 		return (string) ( self::variation_notes( $pid )[ $group ] ?? '' );
+	}
+
+	/** The product-wide note, plus the group's own when there is one. */
+	public static function note_lines( int $pid, string $group = '' ): string {
+		$out = '';
+		$all = self::variation_note( $pid, self::NOTE_PRODUCT );
+		if ( '' !== trim( $all ) ) {
+			$out .= "\nAbout this product: " . trim( $all );
+		}
+		if ( '' !== $group ) {
+			$one = self::variation_note( $pid, $group );
+			if ( '' !== trim( $one ) ) {
+				$out .= "\nAbout this variation: " . trim( $one );
+			}
+		}
+		return $out;
 	}
 
 	public static function set_variation_note( int $pid, string $group, string $note ): void {

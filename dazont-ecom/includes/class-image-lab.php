@@ -100,7 +100,7 @@ final class DZE_Image_Lab {
 		$key = class_exists( 'DZE_Content' ) ? DZE_Content::fal_key() : '';
 		?>
 		<h2><?php esc_html_e( 'Image lab', 'dazont-ecom' ); ?></h2>
-		<p class="description" style="max-width:820px;">
+		<p class="description">
 			<?php esc_html_e( 'A bench for images that belong to no product yet: a blank mockup to shoot future products on, a backdrop for the shelf, or simply a prompt tried before it is trusted with a catalogue. Same model and same key as the product images, the same monthly budget, and what you keep goes into the media library named and with its alt text.', 'dazont-ecom' ); ?>
 		</p>
 		<?php if ( '' === $key ) : ?>

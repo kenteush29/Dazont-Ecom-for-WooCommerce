@@ -621,7 +621,7 @@ trait DZE_Content_Ajax {
 			// backdrop, one of the scenes, or a blank product to print on.
 			$plate_row = null;
 			if ( $plate ) {
-				$plate_row = [ 'use' => 'support', 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it. Do not add anything else to it, and do not darken it.' ];
+				$plate_row = [ 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it. Do not add anything else to it, and do not darken it.' ];
 				foreach ( self::scenes() as $sc ) {
 					if ( (int) $sc['image'] === $plate ) {
 						$plate_row = $sc;
@@ -631,7 +631,8 @@ trait DZE_Content_Ajax {
 			}
 			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, $is_design );
+				. self::sources_instruction( $count, $plate_row, $is_design )
+				. self::note_lines( $pid );
 
 			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources );
@@ -838,13 +839,10 @@ trait DZE_Content_Ajax {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
 				$prompt .= self::variation_instruction( $v_attr, $v_value, $v_own || '' !== $paste );
-				// And what the owner knows about this colour that no photograph
-				// says: the material, the exact camo, the shade.
-				$v_note = self::variation_note( $pid, $v_attr . '::' . $v_value );
-				if ( '' !== trim( $v_note ) ) {
-					$prompt .= "\nAbout this variation: " . trim( $v_note );
-				}
 			}
+			// What the owner knows and no photograph shows — about the product,
+			// and about this variation when there is one.
+			$prompt .= self::note_lines( $pid, '' !== $v_value ? $v_attr . '::' . $v_value : '' );
 			// A second shot from the same prompt is asked for a different
 			// framing, otherwise it comes back as the first one again.
 			$prompt   .= self::variation_line(
@@ -1070,6 +1068,14 @@ trait DZE_Content_Ajax {
 		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$group = isset( $_POST['group'] ) ? (string) wp_unslash( $_POST['group'] ) : '';
 		$note  = isset( $_POST['note'] ) ? sanitize_textarea_field( (string) wp_unslash( $_POST['note'] ) ) : '';
+		// '*' is the product itself: a note every image of it is given.
+		if ( self::NOTE_PRODUCT === $group ) {
+			if ( ! $pid ) {
+				wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
+			}
+			self::set_variation_note( $pid, self::NOTE_PRODUCT, $note );
+			wp_send_json_success( [ 'saved' => true ] );
+		}
 		$target = self::attach_target( 'variation:' . $group );
 		if ( ! $pid || 0 !== strpos( $target, 'variation:' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Unknown variation group.', 'dazont-ecom' ) ] );

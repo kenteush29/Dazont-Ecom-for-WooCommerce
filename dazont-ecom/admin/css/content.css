@@ -435,6 +435,11 @@
 .dze-set[open] { padding-bottom: 18px; border-color: #c3c4c7; }
 .dze-set[open] > summary { border-bottom: 1px solid #f0f0f1; margin-bottom: 12px; }
 .dze-set-sub { font-size: 13px; margin: 22px 0 6px; padding-top: 16px; border-top: 1px solid #f0f0f1; }
+/* An explanation is as wide as the box it explains, and never wider. These
+   paragraphs carried a fixed max-width of their own, so on a narrow settings
+   column they ran straight out of the card. */
+.dze-set > p, .dze-set .description { max-width: min(960px, 100%); }
+.dze-admin .description, .dze-wrap .description { overflow-wrap: anywhere; }
 
 /* One card per prompt: shut, one line each, open the one you are working on. */
 .dze-pr-grouphead { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; margin: 16px 0 6px; }
@@ -1280,7 +1285,15 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-one-srcdesign { background: #f6f7f7; }
 .dze-one-srcdesign img { object-fit: contain !important; background: #fff; }
 .dze-one-srcname { display: block; font-size: 10px; text-align: center; color: #50575e; padding: 2px 4px 0; }
-.dze-one-bg.is-blank { border-style: dashed; }
-.dze-one-bg.is-blank .dze-one-bgname em { display: block; font-size: 9px; color: #646970; font-style: normal; }
-.dze-bguse { display: block; margin-top: 4px; }
-.dze-bguse select { width: 100%; font-size: 12px; }
+
+/* The print design in the source strip, and what can be done to it. */
+.dze-one-srcadd {
+	width: 88px; height: 88px; display: inline-flex; align-items: center; justify-content: center;
+	text-align: center; font-size: 11px; color: #2271b1; background: #f6f7f7;
+	border-style: dashed !important;
+}
+.dze-one-designbar { margin: 0 0 10px; font-size: 12px; color: #646970; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-one-dims { color: #50575e; }
+.dze-one-designstate.is-ko { color: #b32d2e; }
+
+.dze-one-notestate { font-size: 12px; color: #0a7040; margin-left: 8px; }
