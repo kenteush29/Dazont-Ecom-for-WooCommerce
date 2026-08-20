@@ -4871,6 +4871,13 @@ Answer with STRICT JSON and nothing else: "
 		if ( false === $bytes || '' === $bytes ) {
 			throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
 		}
+		// The subject is asked for at full size — a model cannot keep a detail
+		// it was never shown, and WordPress's "large" is 1024 px on most
+		// installs. A file too heavy for one request falls back to that size
+		// rather than failing the generation.
+		if ( 'full' === $wanted && strlen( $bytes ) > self::MAX_REMOTE ) {
+			return self::instance()->fal_source_data_uri( $attachment_id, 'large' );
+		}
 		$mime = (string) ( get_post_mime_type( $attachment_id ) ?: 'image/jpeg' );
 		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
 	}
