@@ -419,7 +419,17 @@ EOT;
 			'categories'        => __( 'Categories', 'dazont-ecom' ),
 			'tags'              => __( 'Tags', 'dazont-ecom' ),
 			'sku'               => __( 'SKU', 'dazont-ecom' ),
+			// Not a line of text: the photographs themselves travel with the
+			// request and the model LOOKS at them. A description written from
+			// a supplier title alone invents the material, the cut and the
+			// details; one written in front of the product does not.
+			'photos'            => __( 'The product photographs (the model looks at them)', 'dazont-ecom' ),
 		];
+	}
+
+	/** Inputs that are images rather than lines of text. */
+	public static function is_image_input( string $key ): bool {
+		return 'photos' === $key;
 	}
 
 	/** Output destinations per content type. */
@@ -690,6 +700,9 @@ EOT;
 		$L = [];
 		foreach ( $inputs as $k ) {
 			switch ( $k ) {
+				case 'photos':
+					// Sent as images, not as a line: see look_images().
+					break;
 				case 'title':
 					// Working on one variation: the title is that variation's,
 					// not the parent's. "Combat shirt" and "Combat shirt —

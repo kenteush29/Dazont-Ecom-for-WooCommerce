@@ -75,6 +75,60 @@ trait DZE_Content_Ajax {
 		wp_send_json_success( [ 'id' => $id ] );
 	}
 
+	/**
+	 * The product's own photographs, ready to travel with a text request.
+	 *
+	 * A prompt that ticks "the product photographs" is written in front of the
+	 * product rather than from a supplier title: the model reads the material,
+	 * the cut and the details off the picture instead of inventing them. Kept
+	 * to a handful — the featured image first — because each one is paid for in
+	 * tokens and the third angle rarely says anything the first two did not.
+	 *
+	 * @param int[] $skip Attachment ids already attached to this request.
+	 * @return array<int,array{media:string,data:string}>
+	 */
+	private function look_images( int $pid, array $skip = [], int $max = 3 ): array {
+		$out = [];
+		foreach ( self::product_source_ids( $pid ) as $aid ) {
+			if ( count( $out ) >= $max ) {
+				break;
+			}
+			if ( in_array( (int) $aid, array_map( 'intval', $skip ), true ) ) {
+				continue;
+			}
+			try {
+				$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+			if ( preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $mm ) ) {
+				$out[] = [ 'media' => $mm[1], 'data' => $mm[2] ];
+			}
+		}
+		return $out;
+	}
+
+	/** Does this prompt ask to SEE the product? */
+	private static function wants_photos( array $row ): bool {
+		foreach ( (array) ( $row['inputs'] ?? [] ) as $in ) {
+			if ( self::is_image_input( (string) $in ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The paragraph that says what those photographs are and what to do with them. */
+	private static function look_instruction( int $first, int $count ): string {
+		if ( $count < 1 ) {
+			return '';
+		}
+		$which = 1 === $count
+			? sprintf( 'IMAGE %d IS A PHOTOGRAPH', $first )
+			: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS', $first, $first + $count - 1 );
+		return "\n===THE PRODUCT ITSELF===\n" . $which . ' of the product this text is about. Read the material, the cut, the finish, the fastenings and the real colours off them, and write from what is actually there. Never describe the photographs themselves and never mention them ("as you can see on the picture"): the reader has the product page in front of them. Never state anything the photographs and the data above do not support.' . "\n\n";
+	}
+
 	public function ajax_text(): void {
 		$this->guard();
 		$field  = isset( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
@@ -95,15 +149,24 @@ trait DZE_Content_Ajax {
 			$row     = self::registry_row( $field );
 			$payload = self::payload_lines( $pid, (array) ( $row['inputs'] ?? [ 'title', 'description', 'attributes', 'price' ] ), (string) ( $row['inputs_meta'] ?? '' ) );
 		}
-		if ( '' === trim( $payload ) ) {
+		// This prompt asked to see the product: the photographs travel with it,
+		// and a prompt fed on photographs ALONE is a legitimate brief — the
+		// product data being empty is not a reason to refuse it.
+		$look = ( $pid && self::wants_photos( self::registry_row( $field ) ) ) ? $this->look_images( $pid ) : [];
+		if ( '' === trim( $payload ) && ! $look ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
 		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		$system   = 'You are an expert e-commerce copywriter. ' . self::store_context();
 		$user     = ( '' !== trim( $override ) ? $override : self::prompt_for( $field ) ) . self::language_rule()
 			. "\n\n--- PRODUCT DATA ---\n" . $payload . "\n";
+		if ( $look ) {
+			$user .= self::look_instruction( 1, count( $look ) );
+		}
 		try {
-			$text = DZE_Marketing_Ai::complete( $system, $user, self::model(), (int) ( $fields[ $field ]['tokens'] ?? 400 ) );
+			$text = $look
+				? DZE_Marketing_Ai::complete_with_images( $system, $user, $look, self::model(), (int) ( $fields[ $field ]['tokens'] ?? 400 ), 240 )
+				: DZE_Marketing_Ai::complete( $system, $user, self::model(), (int) ( $fields[ $field ]['tokens'] ?? 400 ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -153,7 +216,17 @@ trait DZE_Content_Ajax {
 			}
 			$payload = self::payload_lines( $pid, array_keys( $union ) ?: [ 'title', 'description', 'attributes', 'price' ], implode( ',', $umeta ) );
 		}
-		if ( '' === trim( $payload ) ) {
+		// A block that asked to SEE the product is briefed by its photographs:
+		// they are sent once for the whole request, after the ones a block was
+		// written against, and empty product data is not a reason to refuse it.
+		$look_n = 0;
+		foreach ( array_keys( $targets ) as $fid ) {
+			if ( self::wants_photos( self::registry_row( (string) $fid ) ) ) {
+				$look_n = 1;
+				break;
+			}
+		}
+		if ( '' === trim( $payload ) && ! ( $look_n && $pid ) ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
 
@@ -203,7 +276,7 @@ trait DZE_Content_Ajax {
 		}
 		DZE_Ai_Usage::unit( 'product_text' );
 		try {
-			if ( $shots ) {
+			if ( $shots || $look_n ) {
 				// The model writes about a photograph it can see, not about a
 				// description of one. The images referenced by the blocks travel
 				// with the request, in the order the instructions name them.
@@ -216,6 +289,13 @@ trait DZE_Content_Ajax {
 					}
 					if ( preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $mm ) ) {
 						$payload_images[] = [ 'media' => $mm[1], 'data' => $mm[2] ];
+					}
+				}
+				if ( $look_n ) {
+					$look = $this->look_images( $pid, $shots );
+					if ( $look ) {
+						$user          .= self::look_instruction( count( $payload_images ) + 1, count( $look ) );
+						$payload_images = array_merge( $payload_images, $look );
 					}
 				}
 				$text = $payload_images
@@ -1582,6 +1662,17 @@ trait DZE_Content_Ajax {
 			$sc = self::scenes();
 			$def = self::default_scene();
 			$parts[] = __( 'Background sent', 'dazont-ecom' ) . ': ' . ( isset( $sc[ $def ] ) ? $sc[ $def ]['name'] : __( '(none)', 'dazont-ecom' ) );
+		}
+		// A text prompt that asked to SEE the product: the panel says which
+		// photographs go with it, the way the image prompts already do — an
+		// input that is invisible in "the data sent" is an input nobody trusts.
+		if ( ( $r['type'] ?? 'text' ) !== 'image' && self::wants_photos( $r ) ) {
+			$names = [];
+			foreach ( array_slice( self::product_source_ids( $pid ), 0, 3 ) as $i => $aid ) {
+				$names[] = sprintf( '%d. %s', $i + 1, get_the_title( $aid ) ?: ( '#' . $aid ) );
+			}
+			$parts[] = __( 'Photographs the model looks at', 'dazont-ecom' ) . ":\n"
+				. ( $names ? implode( "\n", $names ) : __( '(none — this product has no photograph)', 'dazont-ecom' ) );
 		}
 		$facts = self::payload_lines( $pid, (array) ( $r['inputs'] ?? [] ), (string) ( $r['inputs_meta'] ?? '' ) );
 		$parts[] = __( 'Product data', 'dazont-ecom' ) . ":\n" . ( '' !== trim( $facts ) ? $facts : __( '(nothing — no input is ticked on this prompt)', 'dazont-ecom' ) );
