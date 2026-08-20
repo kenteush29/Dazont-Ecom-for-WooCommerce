@@ -254,7 +254,11 @@
 /* ---- The line says what happened, the panel says it properly ----
    ONE symbol per product with the story in its tooltip, a thin bar while it
    works, green badges for what came out. */
+/* State, then the actions that act on it — the same words as the bar above
+   the list, spaced so they read as buttons and not as a row of symbols. */
 .dze-cb-statuscell { white-space: nowrap; }
+.dze-cb-statuscell .button { margin-left: 6px; }
+.dze-cb-del-one { color: #b32d2e; }
 .dze-cb-state {
 	display: inline-block; min-width: 20px; text-align: center;
 	font-weight: 700; font-size: 15px; line-height: 1.2; cursor: help; vertical-align: middle;
@@ -836,17 +840,6 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* A gap between deciding what to WRITE and deciding what to REMOVE. */
 .dze-cb-barsep { width: 1px; align-self: stretch; background: #e2e4e7; margin: 0 4px; }
 .dze-cb-pickcell { text-align: center; }
-/* Kept away from the tick box: one selects, the other throws away. */
-/* Leaving the list lives in its own column, away from the accept/refuse pair:
-   a bin is not a cross, and the two must never be read as the same gesture. */
-.dze-cb-killcell { text-align: right; border-left: 1px solid #f0f0f1; }
-.dze-cb-unqueue-one {
-	background: transparent; border: none; cursor: pointer; color: #c3c4c7;
-	line-height: 1; padding: 2px; display: inline-flex;
-}
-.dze-cb-unqueue-one .dashicons { font-size: 17px; width: 17px; height: 17px; }
-.dze-cb-row:hover .dze-cb-unqueue-one { color: #b32d2e; }
-.dze-cb-unqueue-one:focus { color: #b32d2e; outline: 1px solid #b32d2e; border-radius: 3px; }
 
 /* ---- A destination per generated image, written ON the image ---- */
 /* The destination used to be said twice under a 62px thumbnail — a caption

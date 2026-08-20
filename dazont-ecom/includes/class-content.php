@@ -2701,10 +2701,10 @@ Answer with STRICT JSON and nothing else: "
 			$mode = 'log';
 		} elseif ( ! empty( $_GET['dze_pending'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only view switch.
 			$mode = 'pending';
-		} elseif ( self::bulk_list() ) {
+		} elseif ( self::bulk_list() || self::pending_count() ) {
+			// The first tab holds the whole list, waiting products included, so
+			// there is no reason to open on the filtered view any more.
 			$mode = 'selection';
-		} elseif ( self::pending_count() ) {
-			$mode = 'pending';
 		} else {
 			$mode = 'empty';
 		}
@@ -2780,7 +2780,14 @@ Answer with STRICT JSON and nothing else: "
 		if ( null !== $this->bulk_products_cache ) {
 			return $this->bulk_products_cache; // asked for twice per render.
 		}
-		$ids = 'pending' === $this->bulk_mode() ? self::pending_ids() : self::bulk_list();
+		// ONE list of products to work on, and tabs that FILTER it — not two
+		// lists holding the same products with two different counts, which is
+		// what "My selection 14" next to "Waiting for a decision 20" was. A
+		// product holding content waiting for a decision belongs to the work
+		// whether or not it was queued by hand, so it is in the list.
+		$ids = 'pending' === $this->bulk_mode()
+			? self::pending_ids()
+			: array_merge( self::bulk_list(), self::pending_ids() );
 		$ids = array_values( array_unique( array_filter( array_map( 'intval', (array) $ids ) ) ) );
 		// Four hundred products pasted from a spreadsheet is a normal list here,
 		// and one query per row is not an option: posts and their meta are read
@@ -2906,8 +2913,12 @@ Answer with STRICT JSON and nothing else: "
 			<?php
 			$dze_mode = $this->bulk_mode();
 			$dze_base = add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
+			// The first tab is the whole list; the second one shows the part of
+			// it that is holding content waiting for a decision. One is always
+			// bigger than the other, because one contains the other.
+			$dze_all = count( array_unique( array_merge( self::bulk_list(), self::pending_ids() ) ) );
 			$dze_tabs = [
-				'selection' => [ __( 'My selection', 'dazont-ecom' ), $dze_base, count( self::bulk_list() ) ],
+				'selection' => [ __( 'Products', 'dazont-ecom' ), $dze_base, $dze_all ],
 				'pending'   => [ __( 'Waiting for a decision', 'dazont-ecom' ), add_query_arg( 'dze_pending', 1, $dze_base ), self::pending_count() ],
 				'log'       => [ __( 'Done', 'dazont-ecom' ), add_query_arg( 'dze_log', 1, $dze_base ), count( self::log_entries() ) ],
 			];
@@ -2928,32 +2939,9 @@ Answer with STRICT JSON and nothing else: "
 				</div>
 				<?php return; ?>
 			<?php endif; ?>
-			<?php
-			// "Other products": the ones NOT already on this screen. Counting
-			// the whole shop would announce work that is right in front of you.
-			$dze_waiting = 'selection' === $dze_mode
-				? count( array_diff( self::pending_ids(), self::bulk_list() ) )
-				: 0;
-			?>
 			<?php if ( 'pending' === $dze_mode ) : ?>
 				<div class="notice notice-info"><p>
-					<?php esc_html_e( 'These products are holding content you have not accepted or discarded yet.', 'dazont-ecom' ); ?>
-					<?php if ( self::bulk_list() ) : ?>
-						<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Back to my selection', 'dazont-ecom' ); ?></a>
-					<?php else : ?>
-						<span class="description"><?php esc_html_e( 'To work on other products, select them on the Products list and use the "Dazont: send to Products AI bulk" action — or paste their IDs below.', 'dazont-ecom' ); ?></span>
-					<?php endif; ?>
-				</p></div>
-			<?php elseif ( $dze_waiting ) : ?>
-				<div class="notice notice-info"><p>
-					<?php
-					printf(
-						/* translators: %s: number of products */
-						esc_html( _n( '%s other product is holding content waiting for a decision.', '%s other products are holding content waiting for a decision.', $dze_waiting, 'dazont-ecom' ) ),
-						esc_html( number_format_i18n( $dze_waiting ) )
-					);
-					?>
-					<a href="<?php echo esc_url( add_query_arg( [ 'page' => self::BULK_SLUG, 'dze_pending' => 1 ], admin_url( 'edit.php?post_type=product' ) ) ); ?>"><?php esc_html_e( 'Show them', 'dazont-ecom' ); ?></a>
+					<?php esc_html_e( 'The products of your list that are holding content you have not accepted or discarded yet.', 'dazont-ecom' ); ?>
 				</p></div>
 			<?php endif; ?>
 
@@ -3161,33 +3149,32 @@ Answer with STRICT JSON and nothing else: "
 				<?php self::sec_close(); ?></div>
 
 				<p class="dze-cb-actions">
-					<button type="button" class="button button-primary button-hero" id="dze-cb-start" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Start bulk generation', 'dazont-ecom' ); ?></button>
+					<!-- Generate, on the products that are ticked — the same rule as
+					     Apply and Delete below. It used to run on every line of the
+					     list whatever was ticked, which made the tick boxes mean one
+					     thing here and another thing three centimetres lower. -->
+					<button type="button" class="button button-primary button-hero" id="dze-cb-start" title="<?php esc_attr_e( 'Generate the ticked content for the ticked products', 'dazont-ecom' ); ?>" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Generate', 'dazont-ecom' ); ?></button>
 
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
 				</p>
 				<p id="dze-cb-progress" class="description"></p>
 			</div>
 
-			<!-- These two act on the list the screen is SHOWING. On the waiting
-			     view that is not the selection: a product is there because it
-			     holds content nobody has decided on, so leaving the list means
-			     refusing that content, and the buttons say so rather than
-			     rewriting a selection that is not what you are looking at. -->
+			<!-- Tick products, then act on them. Three words, the same three on
+			     every tab and on every line: Generate, Apply, Delete. What was
+			     here before said "Apply the ticked products", "Throw away what
+			     is waiting", "Throw away everything waiting" and "Remove from
+			     the list" — four sentences for two actions, each one worded
+			     differently depending on the tab you were standing on. -->
 			<p class="dze-cb-listbar">
 				<span id="dze-cb-selcount" class="description"></span>
-				<!-- Writing to the shop is done on products that were TICKED, and
-				     on no others. "Apply all (29)" wrote twenty-nine products
-				     from one click, which is not a decision anybody takes on
-				     twenty-nine products at once. -->
-				<button type="button" class="button button-primary" id="dze-cb-applysel" style="display:none;"><?php esc_html_e( 'Apply the ticked products', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-small" id="dze-cb-selall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-small" id="dze-cb-selnone"><?php esc_html_e( 'Unselect all', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
-				<?php if ( 'pending' === $dze_mode ) : ?>
-					<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Throw away what is waiting', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Throw away everything waiting', 'dazont-ecom' ); ?></button>
-				<?php else : ?>
-					<button type="button" class="button button-small" id="dze-cb-unqueue" style="display:none;"><?php esc_html_e( 'Remove from the list', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Empty the whole list', 'dazont-ecom' ); ?></button>
-				<?php endif; ?>
+				<button type="button" class="button button-primary" id="dze-cb-applysel" title="<?php esc_attr_e( 'Write the generated content of the ticked products to the shop', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-cb-delete" title="<?php esc_attr_e( 'Take the ticked products out of this list and throw away what is waiting on them. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
+				<span class="dze-cb-barsep"></span>
+				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Delete all', 'dazont-ecom' ); ?></button>
 			</p>
 
 			<!-- Pinned to the bottom of the window while a run is on: on a list of
@@ -3208,8 +3195,7 @@ Answer with STRICT JSON and nothing else: "
 					<th style="width:70px;" title="<?php esc_attr_e( 'Click a thumbnail to open the product.', 'dazont-ecom' ); ?>"></th>
 					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
 					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
-					<th style="width:210px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
-					<th style="width:34px;"></th>
+					<th style="width:260px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
@@ -3233,27 +3219,14 @@ Answer with STRICT JSON and nothing else: "
 							<button type="button" class="button button-small dze-cb-toggle" style="display:none;" aria-expanded="false" title="<?php esc_attr_e( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ); ?>">
 								<?php esc_html_e( 'Review', 'dazont-ecom' ); ?> <span class="dze-cb-caret">▾</span>
 							</button>
-							<!-- Accept and refuse belong on the line, next to the state
-							     they act on — not folded inside a panel you have to open
-							     to reach them. -->
-							<button type="button" class="dze-cb-yes" style="display:none;" title="<?php esc_attr_e( 'Accept: write this content to the product', 'dazont-ecom' ); ?>">✓</button>
-							<button type="button" class="dze-cb-no" style="display:none;" title="<?php esc_attr_e( 'Refuse: throw this content away', 'dazont-ecom' ); ?>">✗</button>
-						</td>
-						<!-- Its own column, and a bin rather than a second cross: leaving
-						     the list is not refusing a text, and two crosses side by side
-						     made the row unreadable. -->
-						<td class="dze-cb-killcell">
-							<button type="button" class="dze-cb-unqueue-one" title="<?php echo esc_attr( 'pending' === $dze_mode
-								? __( 'Throw away what is waiting on this product (nothing already on the product is touched)', 'dazont-ecom' )
-								: __( 'Take this product out of the list (nothing is written or deleted on the product)', 'dazont-ecom' ) ); ?>">
-								<span class="dashicons dashicons-trash" aria-hidden="true"></span>
-								<span class="screen-reader-text"><?php echo esc_html( 'pending' === $dze_mode
-									? __( 'Throw away what is waiting on this product', 'dazont-ecom' )
-									: __( 'Take this product out of the list', 'dazont-ecom' ) ); ?></span>
-							</button>
+							<!-- The same two words as the bar above, on the line they act
+							     on. A tick, a cross and a bin in a row said three things
+							     nobody could name. -->
+							<button type="button" class="button button-small dze-cb-apply-one" style="display:none;" title="<?php esc_attr_e( 'Write the generated content of this product to the shop', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
+							<button type="button" class="button button-small dze-cb-del-one" title="<?php esc_attr_e( 'Take this product out of the list and throw away what is waiting on it. The product itself is not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
 						</td>
 					</tr>
-					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="6"></td></tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
 				<?php endforeach; ?>
 			</table>
 		</div>
@@ -3415,7 +3388,9 @@ Answer with STRICT JSON and nothing else: "
 					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
 					'discard'  => __( 'Discard', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
-					'confirmClear' => __( 'Empty the whole list? The products are not modified, they simply leave this screen.', 'dazont-ecom' ),
+					'confirmClear' => __( 'Take every product out of this list and throw away everything waiting on them? The products themselves are not modified.', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'confirmDelete' => __( 'Take %s products out of the list and throw away what is waiting on them? The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'confirmSel' => __( 'Write the generated content to the %s ticked products? This modifies the shop.', 'dazont-ecom' ),
 					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
@@ -3427,8 +3402,13 @@ Answer with STRICT JSON and nothing else: "
 					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Accept it or discard it, then run again.', 'dazont-ecom' ),
 					'applying' => __( 'Applying…', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
-					'applySelN' => __( 'Apply the ticked products (%s)', 'dazont-ecom' ),
-					'tickFirst' => __( 'Tick the products you want to write to the shop.', 'dazont-ecom' ),
+					'applySelN' => __( 'Apply (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'deleteN'  => __( 'Delete (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
+					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
+					'tickNoContent' => __( 'None of the ticked products is holding content to write. Generate first, or tick a product that shows a Review button.', 'dazont-ecom' ),
 					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
@@ -3447,7 +3427,6 @@ Answer with STRICT JSON and nothing else: "
 					'nowFailed'   => __( 'The photographs of this product could not be read.', 'dazont-ecom' ),
 					'confirmClearLog' => __( 'Empty the log of what was written? The products keep everything they received; only this list is erased.', 'dazont-ecom' ),
 					'retry'       => __( 'Try again', 'dazont-ecom' ),
-					'confirmDropAll' => __( 'Throw away everything waiting on the products listed here? What was generated cannot be recovered — the products themselves are not modified.', 'dazont-ecom' ),
 					// What becomes of the image holding the main slot, asked on
 					// the strip that is about to replace it.
 					'oldMain'     => __( 'Today\'s main image', 'dazont-ecom' ),

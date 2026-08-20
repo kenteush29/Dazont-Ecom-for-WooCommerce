@@ -218,10 +218,17 @@
 	function picked() {
 		return $('.dze-cb-pick:checked').map(function () { return $(this).val(); }).get();
 	}
+	// Generating may be off for a reason of its own — no validated prompt. A
+	// selection can only ever add a reason, never remove that one.
+	var startOff = $('#dze-cb-start').prop('disabled');
 	function drawPicked() {
 		var n = picked().length;
 		$('#dze-cb-selcount').text(n ? sprintf(i18n.selected, n) : '');
-		$('#dze-cb-unqueue').toggle(n > 0);
+		// The three actions read the same selection and say so on their face:
+		// how many products they are about to work on, and nothing to click
+		// while that number is zero.
+		$('#dze-cb-delete').prop('disabled', 0 === n).text(sprintf(i18n.deleteN, n));
+		$('#dze-cb-start').prop('disabled', startOff || 0 === n).text(sprintf(i18n.generateN, n));
 		refreshApplyBar();
 	}
 	$(document).on('change', '.dze-cb-pick', drawPicked);
@@ -263,14 +270,17 @@
 	// where it was, and "Remove from the list" and "Empty the whole list" both
 	// looked broken. There, leaving the list means refusing what is waiting.
 	function waiting() { return 'pending' === (cfg.mode || 'selection'); }
-	function unqueue(ids, $b) {
-		if (!ids.length) { return; }
-		if (waiting() && !window.confirm(i18n.confirmDrop)) { return; }
+	// Delete: the product leaves the list AND whatever was waiting on it is
+	// thrown away. One action, one request, the same on every tab — the two
+	// half-actions that used to share this button are why a product taken out
+	// of one list turned up on the other.
+	function removeProducts(ids, $b) {
+		if (!ids.length) { window.alert(i18n.tickFirst); return; }
 		if ($b) { $b.prop('disabled', true); }
-		var req = waiting()
-			? { action: 'dze_content_pending_clear', nonce: cfg.nonce, posts: ids }
-			: { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'remove', ids: ids };
-		$.post(cfg.ajaxUrl, req)
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_bulk_list', nonce: cfg.nonce,
+			do: 'remove', ids: ids, drop_pending: 1
+		})
 			.done(function (res) {
 				if (res && res.success) { dropRows(ids); }
 				else { window.alert((res && res.data && res.data.message) || i18n.error); }
@@ -278,27 +288,40 @@
 			.fail(function (x) { window.alert(reason(x)); })
 			.always(function () { if ($b) { $b.prop('disabled', false); } });
 	}
-	$('#dze-cb-unqueue').on('click', function () {
-		unqueue(picked(), $(this));
+	$('#dze-cb-delete').on('click', function () {
+		var ids = picked();
+		if (!ids.length) { window.alert(i18n.tickFirst); return; }
+		if (!window.confirm(sprintf(i18n.confirmDelete, ids.length))) { return; }
+		removeProducts(ids, $(this));
+	});
+	$('#dze-cb-selall').on('click', function () {
+		$('.dze-cb-pick').prop('checked', true);
+		$('#dze-cb-all').prop('checked', true);
+		drawPicked();
+	});
+	$('#dze-cb-selnone').on('click', function () {
+		$('.dze-cb-pick').prop('checked', false);
+		$('#dze-cb-all').prop('checked', false);
+		drawPicked();
 	});
 	$('#dze-cb-clearlog').on('click', function () {
 		if (!window.confirm(i18n.confirmClearLog)) { return; }
 		$.post(cfg.ajaxUrl, { action: 'dze_content_log_clear', nonce: cfg.nonce })
 			.always(function () { window.location.reload(); });
 	});
+	// Delete all: the same action, on every line of the list.
 	$('#dze-cb-clearlist').on('click', function () {
-		if (!window.confirm(waiting() ? i18n.confirmDropAll : i18n.confirmClear)) { return; }
-		var req = waiting()
-			? {
-				action: 'dze_content_pending_clear', nonce: cfg.nonce,
-				posts: $('.dze-cb-row').map(function () { return $(this).data('id'); }).get()
-			}
-			: { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'clear' };
-		$.post(cfg.ajaxUrl, req).always(function () { window.location.reload(); });
+		if (!window.confirm(i18n.confirmClear)) { return; }
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'clear', drop_pending: 1,
+			ids: $('.dze-cb-row').map(function () { return $(this).data('id'); }).get()
+		}).always(function () { window.location.reload(); });
 	});
 	// One product out, from its own line.
-	$(document).on('click', '.dze-cb-unqueue-one', function () {
-		unqueue([ $(this).closest('.dze-cb-row').data('id') ], $(this));
+	$(document).on('click', '.dze-cb-del-one', function () {
+		var id = $(this).closest('.dze-cb-row').data('id');
+		if (!window.confirm(sprintf(i18n.confirmDelete, 1))) { return; }
+		removeProducts([ id ], $(this));
 	});
 
 	// ---- A column of IDs, pasted from a spreadsheet ----
@@ -389,24 +412,19 @@
 		if (!$b.length) { $b = $('<span class="dze-cb-badge" data-k="' + esc(key) + '"></span>').appendTo($wrap); }
 		$b.html(esc(label) + ' <span class="dze-cb-badgecheck">✓</span>');
 	}
+	// Review and Apply appear on a line the moment it holds something to look
+	// at. Delete is on every line, always: taking a product out of the list is
+	// not a decision about content.
 	function offerReview(id) {
-		$row(id).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').show();
+		$row(id).find('.dze-cb-toggle, .dze-cb-apply-one').show();
 	}
 	function hideRowActions(id) {
-		$row(id).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+		$row(id).find('.dze-cb-toggle, .dze-cb-apply-one').hide();
 	}
-	// Accept and refuse, from the line. Accepting always asks first — it writes
-	// to the shop; refusing asks too, because it throws away work already paid
-	// for.
-	$(document).on('click', '.dze-cb-yes', function () {
+	// Apply, from the line. It writes to the shop, so it asks first.
+	$(document).on('click', '.dze-cb-apply-one', function () {
 		if (!window.confirm(i18n.confirmOne)) { return; }
 		applyProducts([ $(this).closest('.dze-cb-row').data('id') ], $(this));
-	});
-	$(document).on('click', '.dze-cb-no', function () {
-		if (!window.confirm(i18n.confirmDrop)) { return; }
-		var id = $(this).closest('.dze-cb-row').data('id');
-		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id })
-			.always(function () { settleRow(id); });
 	});
 	// Decided, one way or the other.
 	//
@@ -1093,6 +1111,8 @@
 				paint(id, 'ready');
 			}
 		});
+		// The bar opens on the truth: nothing ticked, nothing to click.
+		drawPicked();
 	}());
 
 	// =====================================================================
@@ -1116,9 +1136,8 @@
 		// shop is never hidden — and inert until products are ticked, so the
 		// way is always "these ones".
 		$('#dze-cb-applysel')
-			.toggle(waiting > 0)
 			.prop('disabled', 0 === sel)
-			.attr('title', 0 === sel ? i18n.tickFirst : '')
+			.attr('title', 0 === sel ? (waiting > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
 			.text(sprintf(i18n.applySelN, sel));
 	}
 
@@ -1334,7 +1353,7 @@
 
 	$('#dze-cb-applysel').on('click', function () {
 		var ids = picked().filter(function (id) { return results[id]; });
-		if (!ids.length) { window.alert(i18n.tickFirst); return; }
+		if (!ids.length) { window.alert(picked().length ? i18n.tickNoContent : i18n.tickFirst); return; }
 		// One product is one click you are looking at; several is a batch, and
 		// a batch is confirmed.
 		if (ids.length > 1 && !window.confirm(sprintf(i18n.confirmSel, ids.length))) { return; }
@@ -1393,16 +1412,26 @@
 			window.alert(i18n.noFields);
 			return;
 		}
+		// The run works on the TICKED products, exactly like Apply and Delete.
+		// It used to run on every line of the list whatever was ticked, so the
+		// tick boxes meant one thing here and another thing three centimetres
+		// lower — and a run of forty products started from a click meant for
+		// three.
+		var $rows = $('.dze-cb-row').filter(function () {
+			return $(this).find('.dze-cb-pick').is(':checked');
+		});
+		if (!$rows.length) { window.alert(i18n.tickFirst); return; }
+
 		// A new run clears the screen of everything it is about to redo, and
 		// leaves untouched what it is about to skip — that content is still
 		// waiting for a decision.
 		var keep = pendingIds().map(String);
-		$('.dze-cb-row').each(function () {
+		$rows.each(function () {
 			var rid = String($(this).data('id'));
 			if (keep.indexOf(rid) >= 0) { return; }
 			$('.dze-cb-preview[data-id="' + rid + '"]').hide().find('td').empty();
 			$(this).find('.dze-cb-badges').empty();
-			$(this).find('.dze-cb-toggle, .dze-cb-yes, .dze-cb-no').hide();
+			$(this).find('.dze-cb-toggle, .dze-cb-apply-one').hide();
 			$(this).find('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
 			delete results[rid];
 			delete state[rid];
@@ -1420,7 +1449,7 @@
 		// independent, the steps of a product are not: a price recalculated
 		// while its texts are still being written would be a race for nothing.
 		var jobs = [];
-		$('.dze-cb-row').each(function () {
+		$rows.each(function () {
 			var id = $(this).data('id');
 			if (waiting.indexOf(String(id)) >= 0) {
 				skipped++;

@@ -920,11 +920,29 @@ trait DZE_Content_Ajax {
 		$do  = isset( $_POST['do'] ) ? sanitize_key( wp_unslash( $_POST['do'] ) ) : '';
 		$ids = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
 
+		// Delete means one thing on this screen: the product leaves the list,
+		// and whatever was waiting on it is thrown away. Two half-actions worded
+		// differently on each tab — "Remove from the list" here, "Throw away
+		// what is waiting" there — is how a product came back on the other tab
+		// after being taken out of this one.
+		$drop = ! empty( $_POST['drop_pending'] );
 		if ( 'clear' === $do ) {
+			if ( $drop ) {
+				foreach ( $ids ?: self::pending_ids() as $one ) {
+					delete_post_meta( (int) $one, self::META_PENDING );
+				}
+				delete_transient( 'dze_pending_count' );
+			}
 			self::set_bulk_list( [] );
 			wp_send_json_success( [ 'left' => [] ] );
 		}
 		if ( 'remove' === $do && $ids ) {
+			if ( $drop ) {
+				foreach ( $ids as $one ) {
+					delete_post_meta( (int) $one, self::META_PENDING );
+				}
+				delete_transient( 'dze_pending_count' );
+			}
 			$list = array_values( array_diff( self::bulk_list(), $ids ) );
 			self::set_bulk_list( $list );
 			// The list as it now stands, read back: the screen shows what the
