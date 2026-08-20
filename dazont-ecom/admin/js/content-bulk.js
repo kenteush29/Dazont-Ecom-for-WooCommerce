@@ -405,8 +405,8 @@
 	$(document).on('click', '.dze-cb-no', function () {
 		if (!window.confirm(i18n.confirmDrop)) { return; }
 		var id = $(this).closest('.dze-cb-row').data('id');
-		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
-		settleRow(id);
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id })
+			.always(function () { settleRow(id); });
 	});
 	// Decided, one way or the other.
 	//
@@ -938,8 +938,11 @@
 	$(document).on('click', '.dze-cb-drop', function () {
 		if (!window.confirm(i18n.confirmDrop)) { return; }
 		var id = $(this).closest('.dze-cb-preview').data('id');
-		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
-		settleRow(id);
+		// The line goes once the server says it is gone: settling can reload
+		// the page, and a reload cancels a request that has not gone out yet —
+		// which left the product waiting for a decision it had already had.
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id })
+			.always(function () { settleRow(id); });
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
@@ -1265,18 +1268,23 @@
 			}());
 			return d.promise();
 		}
-		// Written is finished: the product stops waiting, here and on the
-		// server, it is recorded under "Done", and its line leaves the list
-		// instead of sitting there looking exactly like a product nobody has
-		// touched. One product at a time, the moment it is done.
+		// Written is finished: the product stops waiting, it leaves the list it
+		// was queued in and it is recorded under "Done" — three facts, ONE
+		// request, and the next product does not start until the server has
+		// answered it.
+		//
+		// This used to be two requests fired for every product at once, and the
+		// screen reloaded itself the moment the last line went. Everything
+		// still queued in the browser died with that reload, which is how the
+		// same product ended up in the selection, in the waiting list AND under
+		// Done at the same time.
 		function settle(w) {
-			var id = w.id;
+			var d = $.Deferred(), id = w.id;
 			if (w.failed) {
 				paint(id, 'fail');
-				return;
+				return d.resolve().promise();
 			}
 			delete results[id];
-			$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id });
 			bumpTab('pending', -1);
 			bumpTab('log', 1);
 			if (!waiting()) { bumpTab('selection', -1); }
@@ -1287,22 +1295,29 @@
 			reviewMode = reviewModeWas;
 			$('.dze-cb-preview[data-id="' + id + '"]').hide();
 			hideRowActions(id);
-			$.post(cfg.ajaxUrl, {
+			applyPost({
 				action: 'dze_content_logged', nonce: cfg.nonce, post: id,
-				texts: w.texts.length, images: w.items.length, unqueue: 1
+				texts: w.texts.length, images: w.items.length, clear: 1, unqueue: 1
 			}).always(function () {
-				$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
-				delete state[id];
-				drawPicked();
-				refreshApplyBar();
-				if (!$('.dze-cb-row').length) { window.location.reload(); }
+				try {
+					$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
+					delete state[id];
+					drawPicked();
+					refreshApplyBar();
+				} catch (e) { /* the line is gone either way */ }
+				d.resolve();
 			});
+			return d.promise();
 		}
 		(function nextProduct(k) {
 			if (k >= work.length) {
 				if ($btn) { $btn.prop('disabled', false); }
 				refreshApplyBar();
 				$('#dze-cb-progress').text(sprintf(i18n.finished, okCount, koCount));
+				// The reload comes at the very END, once every product has been
+				// settled on the server. Reloading in the middle of the batch
+				// cancelled the requests that had not gone out yet.
+				if (!$('.dze-cb-row').length) { window.location.reload(); }
 				return;
 			}
 			// The list shrinks as it goes, so the counter says how far along the
@@ -1311,8 +1326,7 @@
 			var w = work[k];
 			attachImages(w).always(function () {
 				writeTexts(w).always(function () {
-					settle(w);
-					nextProduct(k + 1);
+					settle(w).always(function () { nextProduct(k + 1); });
 				});
 			});
 		}(0));

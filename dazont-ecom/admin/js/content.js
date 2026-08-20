@@ -1000,6 +1000,18 @@
 				drawShots();
 				if (!res.shots.length) { $('#dze-cx-result').hide(); }
 				loadCurrent().then(drawCurrentImages);
+				// Finished here is finished everywhere: a product written from
+				// its own page is recorded under "Done" and leaves the bulk
+				// selection, instead of sitting in that list looking exactly
+				// like a product nobody has touched. Only once nothing is left
+				// waiting on it — an image generated and left undecided still
+				// counts as work to come back to.
+				if (!res.shots.length) {
+					$.post(cfg.ajaxUrl, {
+						action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
+						texts: fids.length, images: items.length, unqueue: 1
+					});
+				}
 			});
 			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
 			res.current = null;

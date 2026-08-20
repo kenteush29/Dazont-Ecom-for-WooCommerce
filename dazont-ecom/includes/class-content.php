@@ -1503,7 +1503,7 @@ EOT;
 	 * @return int[]
 	 */
 	public static function pending_ids( int $limit = 100 ): array {
-		return array_map( 'intval', (array) get_posts( [
+		$ids = array_map( 'intval', (array) get_posts( [
 			'post_type'      => 'product',
 			'post_status'    => 'any',
 			'posts_per_page' => $limit,
@@ -1513,6 +1513,22 @@ EOT;
 			'order'          => 'DESC',
 			'no_found_rows'  => true,
 		] ) );
+		// A row holding neither a text nor an image is not a product waiting
+		// for a decision — there is nothing to decide. Those rows are the trace
+		// of a decision that was taken and half-written; they are swept as they
+		// are met, so the list says the truth and stops saying it again
+		// tomorrow.
+		$out = [];
+		foreach ( $ids as $pid ) {
+			$p = self::pending( $pid );
+			if ( empty( $p['shots'] ) && empty( $p['texts'] ) ) {
+				delete_post_meta( $pid, self::META_PENDING );
+				delete_transient( 'dze_pending_count' );
+				continue;
+			}
+			$out[] = $pid;
+		}
+		return $out;
 	}
 
 	/**

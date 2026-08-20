@@ -1187,13 +1187,21 @@ trait DZE_Content_Ajax {
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
 		}
-		self::log_add( $pid, $texts, $images );
-		// Written is finished: it leaves the list it was queued in, so the
-		// screen shows what is left to do and nothing else.
+		// A product is finished in ONE request: it stops waiting, it leaves the
+		// list it was queued in, and it is recorded as done. Three screens read
+		// those three facts, and they used to be written by two separate calls
+		// fired for every product at once — so a product could end up recorded
+		// as done, still queued and still waiting for a decision, all three at
+		// the same time. One request, one product, in this order.
+		if ( ! empty( $_POST['clear'] ) ) {
+			delete_post_meta( $pid, self::META_PENDING );
+			delete_transient( 'dze_pending_count' );
+		}
 		if ( ! empty( $_POST['unqueue'] ) ) {
 			self::set_bulk_list( array_values( array_diff( self::bulk_list(), [ $pid ] ) ) );
 		}
-		wp_send_json_success( [ 'left' => count( self::bulk_list() ) ] );
+		self::log_add( $pid, $texts, $images );
+		wp_send_json_success( [ 'left' => count( self::bulk_list() ), 'waiting' => self::pending_count() ] );
 	}
 
 	public function ajax_log_clear(): void {
