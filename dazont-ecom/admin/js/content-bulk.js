@@ -282,7 +282,7 @@
 			do: 'remove', ids: ids, drop_pending: 1
 		})
 			.done(function (res) {
-				if (res && res.success) { dropRows(ids); }
+				if (res && res.success) { setTabs(res); dropRows(ids); }
 				else { window.alert((res && res.data && res.data.message) || i18n.error); }
 			})
 			.fail(function (x) { window.alert(reason(x)); })
@@ -434,18 +434,20 @@
 	// decision into a second, pointless one — take it out of the list too. On
 	// the selection, the product is queued to be worked on and stays: only the
 	// result it was holding goes.
-	// The tab counters are printed by the server; a decision taken here changes
-	// them, and a "12 waiting" over an empty list is exactly the kind of thing
-	// that makes a screen untrustworthy.
-	function bumpTab(which, by) {
-		var $c = $('.dze-cb-tabs a[data-tab="' + which + '"] .dze-cb-count');
-		if (!$c.length) { return; }
-		var n = Math.max(0, (parseInt($c.text().replace(/[^0-9]/g, ''), 10) || 0) + by);
-		$c.text(n ? String(n) : '');
+	// The three numbers as the SERVER holds them, written on the tabs after
+	// every request that changes them. Counting by hand on this side is how a
+	// screen ends up announcing twenty waiting products over a list of six
+	// until somebody reloads it.
+	function setTabs(res) {
+		var c = res && res.data && res.data.counts;
+		if (!c) { return; }
+		[ [ 'selection', c.all ], [ 'pending', c.waiting ], [ 'log', c.log ] ].forEach(function (pair) {
+			var $c = $('.dze-cb-tabs a[data-tab="' + pair[0] + '"] .dze-cb-count');
+			if ($c.length) { $c.text(pair[1] ? String(pair[1]) : ''); }
+		});
 	}
 	function settleRow(id) {
 		delete results[id];
-		bumpTab('pending', -1);
 		if (waiting()) {
 			$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
 			delete state[id];
@@ -960,7 +962,7 @@
 		// the page, and a reload cancels a request that has not gone out yet —
 		// which left the product waiting for a decision it had already had.
 		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id })
-			.always(function () { settleRow(id); });
+			.always(function (res) { setTabs(res); settleRow(id); });
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
@@ -1304,9 +1306,6 @@
 				return d.resolve().promise();
 			}
 			delete results[id];
-			bumpTab('pending', -1);
-			bumpTab('log', 1);
-			if (!waiting()) { bumpTab('selection', -1); }
 			state[id] = { total: 1, done: 1, notes: [], failed: false };
 			var reviewModeWas = reviewMode;
 			reviewMode = false;
@@ -1317,8 +1316,9 @@
 			applyPost({
 				action: 'dze_content_logged', nonce: cfg.nonce, post: id,
 				texts: w.texts.length, images: w.items.length, clear: 1, unqueue: 1
-			}).always(function () {
+			}).always(function (res) {
 				try {
+					setTabs(res);
 					$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
 					delete state[id];
 					drawPicked();
@@ -1508,6 +1508,10 @@
 				(stopped ? i18n.stopped : sprintf(i18n.finished, okCount, koCount)) +
 				(skipped ? ' · ' + sprintf(i18n.skippedN, skipped) : '')
 			);
+			// A run puts content on products: the "waiting for a decision" tab
+			// has just grown, and it says so without waiting for a reload.
+			$.post(cfg.ajaxUrl, { action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'counts' })
+				.done(setTabs);
 		}
 		function pump() {
 			if (stopped) { if (!live) { finish(); } return; }

@@ -1354,6 +1354,25 @@ EOT;
 		return $n;
 	}
 
+	/**
+	 * The three numbers written on the bulk screen's tabs.
+	 *
+	 * Read from the same place by the page that prints them and by every
+	 * request that changes them, so a screen that has just deleted six products
+	 * says so on its tabs instead of waiting for a reload to admit it. The
+	 * first tab holds the whole list, the second the part of it still waiting.
+	 *
+	 * @return array{all:int,waiting:int,log:int}
+	 */
+	public static function screen_counts(): array {
+		$pending = self::pending_ids();
+		return [
+			'all'     => count( array_unique( array_merge( self::bulk_list(), $pending ) ) ),
+			'waiting' => count( $pending ),
+			'log'     => count( self::log_entries() ),
+		];
+	}
+
 	/** Attachment meta: the prompt a photograph came out of. */
 	public const META_RECIPE = '_dze_prompt';
 
@@ -2916,11 +2935,11 @@ Answer with STRICT JSON and nothing else: "
 			// The first tab is the whole list; the second one shows the part of
 			// it that is holding content waiting for a decision. One is always
 			// bigger than the other, because one contains the other.
-			$dze_all = count( array_unique( array_merge( self::bulk_list(), self::pending_ids() ) ) );
-			$dze_tabs = [
-				'selection' => [ __( 'Products', 'dazont-ecom' ), $dze_base, $dze_all ],
-				'pending'   => [ __( 'Waiting for a decision', 'dazont-ecom' ), add_query_arg( 'dze_pending', 1, $dze_base ), self::pending_count() ],
-				'log'       => [ __( 'Done', 'dazont-ecom' ), add_query_arg( 'dze_log', 1, $dze_base ), count( self::log_entries() ) ],
+			$dze_counts = self::screen_counts();
+			$dze_tabs   = [
+				'selection' => [ __( 'Products', 'dazont-ecom' ), $dze_base, $dze_counts['all'] ],
+				'pending'   => [ __( 'Waiting for a decision', 'dazont-ecom' ), add_query_arg( 'dze_pending', 1, $dze_base ), $dze_counts['waiting'] ],
+				'log'       => [ __( 'Done', 'dazont-ecom' ), add_query_arg( 'dze_log', 1, $dze_base ), $dze_counts['log'] ],
 			];
 			?>
 			<!-- The three states of this screen, named and always in sight. They
