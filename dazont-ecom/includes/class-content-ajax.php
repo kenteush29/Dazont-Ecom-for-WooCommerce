@@ -576,7 +576,7 @@ trait DZE_Content_Ajax {
 				// by the first shot plus one more angle.
 				foreach ( array_slice( self::product_source_ids( $pid ), 0, 2 ) as $i => $aid ) {
 					try {
-						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'large' );
+						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'full' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
@@ -809,7 +809,7 @@ trait DZE_Content_Ajax {
 						// so it goes at full working size; the others are read
 						// for information only and travel smaller — a lighter
 						// request body and a faster answer, same understanding.
-						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'large' );
+						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'full' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
