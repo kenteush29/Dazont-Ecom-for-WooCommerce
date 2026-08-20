@@ -2166,14 +2166,6 @@ Answer with STRICT JSON and nothing else: "
 			} );
 			</script>
 
-			<?php if ( class_exists( 'DZE_Pod' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'pod' ) ) ) : ?>
-				<h3 class="dze-set-sub"><?php esc_html_e( 'Print on demand — the blank product and its prompt', 'dazont-ecom' ); ?></h3>
-				<p class="description" style="max-width:960px;">
-					<?php esc_html_e( 'A mockup is a background too: the photograph of your blank product, kept once, that every design is printed onto. It lives here with the rest of the static images instead of in a screen of its own.', 'dazont-ecom' ); ?>
-				</p>
-				<?php DZE_Pod::instance()->render_settings( false, false ); ?>
-			<?php endif; ?>
-
 			</details>
 
 			<details class="dze-set" open>

@@ -131,7 +131,7 @@ final class DZE_Modules {
 				'group' => 'product',
 				'label' => __( 'POD image', 'dazont-ecom' ),
 				'desc'  => __( 'Prints a per-product design on your base mockup.', 'dazont-ecom' ),
-				'more'  => __( 'Print on demand only. This box holds the DESIGN of a product — a PNG with a transparent background, ideally 4500×5400 px — and can enlarge it ×4 through fal.ai when it was generated too small to print. Printing it is making an image of the product, so it is made where every other image of the product is made: one button opens the image workshop with the design as the subject, and you pick the blank product to print it on from the same shelf that holds the shop\'s backgrounds. That shelf takes as many as you keep — a tee, a hoodie, a mug — each one marked as a surface to shoot on or as a blank product to print on, because the two are not used the same way. From there it is the ordinary lane: your own prompts, several attempts kept side by side, the choice of where the result goes, the SEO naming, the monthly budget. Nothing about POD is a separate flow any more, and with Product content switched off the box keeps its own generator so the module still works alone.', 'dazont-ecom' ),
+				'more'  => __( 'Print on demand only. This box holds the DESIGN of a product — a PNG with a transparent background, ideally 4500×5400 px — and can enlarge it ×4 through fal.ai when it was generated too small to print. Printing it is making an image of the product, so it is made where every other image of the product is made: one button opens the image workshop with the design as the subject, and you pick the blank product to print it on from the same shelf that holds the shop\'s backgrounds. That shelf takes as many as you keep — a tee, a hoodie, a mug — each one marked as a surface to shoot on or as a blank product to print on, because the two are not used the same way. From there it is the ordinary lane: your own prompts, several attempts kept side by side, the choice of where the result goes, the SEO naming, the monthly budget. Nothing about POD is a separate flow any more, and with Product content switched off the box says so instead of offering a button that answers nothing. It has no settings screen and no prompt of its own any more: the blank products live on the shared shelf of backgrounds and the instructions are an ordinary image prompt.', 'dazont-ecom' ),
 			],
 			'translate' => [
 				'class'   => 'DZE_Translate',
@@ -276,10 +276,10 @@ final class DZE_Modules {
 				<button type="button" class="button button-primary dze-hub-btn" id="dze-cx-open-auto"><?php esc_html_e( 'Generate content', 'dazont-ecom' ); ?></button>
 			<?php endif; ?>
 			<?php
-			// Print on demand: the button only appears once a base mockup has
-			// been stored. A shop that does not print anything should not be
-			// asked, on every product, what it wants to print.
-			$pod_ready = self::enabled( 'pod' ) && class_exists( 'DZE_Pod' ) && DZE_Pod::mockup_id();
+			// Print on demand: the button is there when the module is, and the
+			// box inside says what is missing — there is no stored mockup to
+			// wait for any more, the blank products live on the shared shelf.
+			$pod_ready = self::enabled( 'pod' ) && class_exists( 'DZE_Pod' );
 			?>
 			<?php if ( $pod_ready ) : ?>
 				<button type="button" class="button dze-hub-btn" data-modal="dze-pod-modal"><?php esc_html_e( 'POD image', 'dazont-ecom' ); ?></button>

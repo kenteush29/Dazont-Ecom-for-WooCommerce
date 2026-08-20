@@ -50,7 +50,6 @@ final class DZE_Prompts {
 			'cat_links'  => [ 'DZE_Category_Content', 'links_prompt', 'default_links_prompt' ],
 			'cat_sift'   => [ 'DZE_Category_Content', 'sift_prompt', 'default_sift_prompt' ],
 			'reviews'    => [ 'DZE_Reviews', 'prompt', 'default_prompt' ],
-			'pod'        => [ 'DZE_Pod', 'prompt', 'default_prompt' ],
 			'translate'  => [ 'DZE_Translate', 'prompt', 'default_prompt' ],
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', '' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', '' ],
@@ -69,7 +68,6 @@ final class DZE_Prompts {
 			'cat_links'    => [ 'DZE_Category_Content', 'links_prompt' ],
 			'cat_sift'     => [ 'DZE_Category_Content', 'sift_prompt' ],
 			'reviews'      => [ 'DZE_Reviews', 'prompt' ],
-			'pod'          => [ 'DZE_Pod', 'prompt' ],
 			'translate'    => [ 'DZE_Translate', 'prompt' ],
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
@@ -99,7 +97,6 @@ final class DZE_Prompts {
 			'DZE_Content'          => 'dze_content_settings',
 			'DZE_Category_Content' => 'dze_catcontent_settings',
 			'DZE_Reviews'          => 'dze_reviews_settings',
-			'DZE_Pod'              => 'dze_pod_settings',
 			'DZE_Translate'        => 'dze_translate_settings',
 			'DZE_Marketing_Ai'     => 'dze_mai_settings',
 		];
@@ -240,16 +237,6 @@ final class DZE_Prompts {
 				'text'  => [ 'DZE_Translate', 'prompt' ],
 				'tab'   => 'translate',
 				'frag'  => 'dze-tr-prompt',
-			];
-		}
-		if ( class_exists( 'DZE_Pod' ) && self::module_on( 'pod' ) ) {
-			// POD lives inside Product content now: same tab, same section as
-			// the other image recipes.
-			$out['pod'] = [
-				'label' => __( 'POD mockup', 'dazont-ecom' ),
-				'text'  => [ 'DZE_Pod', 'prompt' ],
-				'tab'   => 'content',
-				'frag'  => 'dze-pod-prompt',
 			];
 		}
 
