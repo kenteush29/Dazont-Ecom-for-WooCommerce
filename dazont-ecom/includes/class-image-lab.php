@@ -80,6 +80,8 @@ final class DZE_Image_Lab {
 				'working'  => __( 'Generating — up to a minute…', 'dazont-ecom' ),
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
 				'keep'     => __( 'Save in the library', 'dazont-ecom' ),
+				'name'     => __( 'Name', 'dazont-ecom' ),
+				'namePh'   => __( 'e.g. Blank white tee mockup', 'dazont-ecom' ),
 				'kept'     => __( 'Saved in the library ✓', 'dazont-ecom' ),
 				'download' => __( 'Download', 'dazont-ecom' ),
 				'again'    => __( 'Generate again', 'dazont-ecom' ),
@@ -218,7 +220,8 @@ final class DZE_Image_Lab {
 		if ( is_wp_error( $tmp ) ) {
 			wp_send_json_error( [ 'message' => $tmp->get_error_message() ] );
 		}
-		// Named after what was asked for, so the library says what it holds.
+		// The name you chose becomes the file name, the attachment title and
+		// the alt text — one word typed once, in the three places that matter.
 		$title = '' !== trim( $name ) ? trim( $name ) : __( 'Image lab', 'dazont-ecom' );
 		$title = mb_substr( $title, 0, 80 );
 		$path  = (string) wp_parse_url( $url, PHP_URL_PATH );
