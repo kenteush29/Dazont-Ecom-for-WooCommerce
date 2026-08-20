@@ -230,6 +230,23 @@ PROMPT;
 	public function render_panel( $post ): void {
 		$design = absint( get_post_meta( $post->ID, self::DESIGN_META, true ) );
 		$thumb  = $design ? wp_get_attachment_image_url( $design, 'thumbnail' ) : '';
+		// The image workshop of Product content, when it is there: printing a
+		// design is making an image of the product, and this shop makes those
+		// in one place.
+		$has_workshop = class_exists( 'DZE_Content' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'content' ) );
+		$mockups   = [];
+		$shelf_url = '';
+		if ( $has_workshop ) {
+			foreach ( DZE_Content::scenes() as $sc ) {
+				if ( 'blank' === ( $sc['use'] ?? 'support' ) ) {
+					$mockups[] = (string) $sc['name'];
+				}
+			}
+			$shelf_url = class_exists( 'DZE_Marketing_Ai' )
+				? add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'content' ], admin_url( 'admin.php' ) ) . '#dze-sc'
+				: '';
+		}
 		?>
 		<div class="dze-admin dze-pod-box" id="dze-pod-box">
 			<div id="dze-pod-design-preview" <?php echo $thumb ? '' : 'style="display:none;"'; ?>>
@@ -242,41 +259,51 @@ PROMPT;
 				<button type="button" class="button-link dze-pod-del" id="dze-pod-clear" <?php echo $design ? '' : 'style="display:none;"'; ?>><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 			</p>
 			<p class="dze-cx-note"><?php esc_html_e( 'PNG, transparent background. Print quality: ~1800×2400 px minimum (150 DPI on a chest print), 300 DPI ideal. AI-generated designs (1024–2048 px) should be upscaled ×4 before printing.', 'dazont-ecom' ); ?></p>
-			<!-- What else the model gets to look at. The blank product and the
-			     design are always sent; these are the extras that answer
-			     questions neither of them can — the real fabric, the real
-			     colour, the setting this range is shot in. -->
-			<p class="dze-cx-note" style="margin-bottom:2px;"><?php esc_html_e( 'Also send (optional)', 'dazont-ecom' ); ?></p>
-			<div class="dze-pod-refs dze-zoomgroup" id="dze-pod-refs"></div>
-			<p>
-				<button type="button" class="button button-small" id="dze-pod-refprod"><?php esc_html_e( '+ a photo of this product', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button button-small" id="dze-pod-reflib"><?php esc_html_e( '+ from the library', 'dazont-ecom' ); ?></button>
-			</p>
-			<p>
-				<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
-				<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
-			</p>
-			<div id="dze-pod-pwrap" style="display:none;">
-				<textarea id="dze-pod-prompt-live" rows="5" style="width:100%;box-sizing:border-box;"></textarea>
-				<p style="margin:4px 0 0;"><button type="button" class="button-link" id="dze-pod-prompt-save">💾 <?php esc_html_e( 'Save prompt', 'dazont-ecom' ); ?></button></p>
-			</div>
-			<p id="dze-pod-status" class="dze-cx-note"></p>
-			<div id="dze-pod-results" style="display:none;">
-				<div class="dze-pod-grid"></div>
-				<p class="dze-cx-note" style="margin:6px 0 0;"><?php esc_html_e( 'Click the image to keep, then add it to the product.', 'dazont-ecom' ); ?></p>
-				<p style="margin:8px 0 0;">
-					<label><select id="dze-pod-target" style="max-width:100%;">
-						<option value="main"><?php esc_html_e( 'Use as main image', 'dazont-ecom' ); ?></option>
-						<option value="gallery"><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option>
-					</select></label>
-					<button type="button" class="button button-primary" id="dze-pod-attach"><?php esc_html_e( 'Add to product', 'dazont-ecom' ); ?></button>
+			<?php if ( $has_workshop ) : ?>
+				<!-- Printing the design is making an image of this product, so it
+				     is made where every other image of this product is made: the
+				     same prompts, the same blank products on the shelf, the same
+				     review, the same naming. This box holds the design; the
+				     workshop does the work. -->
+				<p>
+					<button type="button" class="button button-primary" id="dze-pod-workshop" <?php disabled( ! $design ); ?>>✦ <?php esc_html_e( 'Print it on a blank product', 'dazont-ecom' ); ?></button>
 				</p>
-				<?php if ( class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'content' ) ) : ?>
-				<p style="margin:8px 0 0;">
-					<button type="button" class="button" id="dze-pod-tolab"><?php esc_html_e( 'Create more images from it (UGC, scenes…)', 'dazont-ecom' ); ?></button>
+				<p class="dze-cx-note">
+					<?php esc_html_e( 'Opens the image workshop with this design as the subject. Pick the blank product to print it on under "On which background?" — the shelf holds as many as you keep: a tee, a hoodie, a mug.', 'dazont-ecom' ); ?>
+					<?php if ( $mockups ) : ?>
+						<br /><?php
+						printf(
+							/* translators: %s: the blank products configured */
+							esc_html__( 'On the shelf: %s.', 'dazont-ecom' ),
+							esc_html( implode( ', ', $mockups ) )
+						);
+						?>
+					<?php else : ?>
+						<br /><a href="<?php echo esc_url( $shelf_url ); ?>"><?php esc_html_e( 'Add a blank product to the shelf first', 'dazont-ecom' ); ?></a>
+					<?php endif; ?>
 				</p>
-				<?php endif; ?>
-			</div>
+			<?php else : ?>
+				<p>
+					<button type="button" class="button button-primary" id="dze-pod-generate" <?php disabled( ! $design ); ?>><?php esc_html_e( 'Generate POD image', 'dazont-ecom' ); ?></button>
+					<button type="button" class="dze-cx-icon" id="dze-pod-prompt-toggle" title="<?php esc_attr_e( 'Edit the POD prompt', 'dazont-ecom' ); ?>">✎</button>
+				</p>
+				<div id="dze-pod-pwrap" style="display:none;">
+					<textarea id="dze-pod-prompt-live" rows="5" style="width:100%;box-sizing:border-box;"></textarea>
+					<p style="margin:4px 0 0;"><button type="button" class="button-link" id="dze-pod-prompt-save">💾 <?php esc_html_e( 'Save prompt', 'dazont-ecom' ); ?></button></p>
+				</div>
+				<p id="dze-pod-status" class="dze-cx-note"></p>
+				<div id="dze-pod-results" style="display:none;">
+					<div class="dze-pod-grid"></div>
+					<p class="dze-cx-note" style="margin:6px 0 0;"><?php esc_html_e( 'Click the image to keep, then add it to the product.', 'dazont-ecom' ); ?></p>
+					<p style="margin:8px 0 0;">
+						<label><select id="dze-pod-target" style="max-width:100%;">
+							<option value="main"><?php esc_html_e( 'Use as main image', 'dazont-ecom' ); ?></option>
+							<option value="gallery"><?php esc_html_e( 'Add to gallery', 'dazont-ecom' ); ?></option>
+						</select></label>
+						<button type="button" class="button button-primary" id="dze-pod-attach"><?php esc_html_e( 'Add to product', 'dazont-ecom' ); ?></button>
+					</p>
+				</div>
+			<?php endif; ?>
 		</div>
 		<?php
 	}

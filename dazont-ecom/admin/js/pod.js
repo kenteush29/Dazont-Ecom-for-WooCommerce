@@ -28,6 +28,14 @@
 		$('#dze-pod-status').css('color', color || '#646970').html(msg);
 	}
 
+	// Printing the design is making an image of this product: the workshop of
+	// Product content does it, with its prompts, its blank products and its
+	// review. This box only hands it the design.
+	$('#dze-pod-workshop').on('click', function (e) {
+		e.preventDefault();
+		$(document).trigger('dze:image', [ { scope: 'main', src: 'design' } ]);
+	});
+
 	// ---- Extra references for this run ----
 	// The blank product and the design are always sent. These answer what
 	// neither of them can: the real fabric, the real colour, the setting this

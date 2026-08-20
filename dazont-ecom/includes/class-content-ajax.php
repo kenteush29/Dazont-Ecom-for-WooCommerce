@@ -619,7 +619,14 @@ trait DZE_Content_Ajax {
 			// was all the model ever saw of the product, and it had to guess
 			// the back, the lining, the fastenings and the material.
 			$context = [];
-			if ( $src_id && wp_attachment_is_image( $src_id ) ) {
+			// The print design of this product: artwork, not a photograph. It
+			// is the subject, and the product's own photographs follow it so
+			// the model knows what it is being printed on.
+			$is_design = ! empty( $_POST['design'] );
+			if ( $is_design && $src_id && wp_attachment_is_image( $src_id ) ) {
+				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
+				$context   = self::product_source_ids( $pid );
+			} elseif ( $src_id && wp_attachment_is_image( $src_id ) ) {
 				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
 				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
 			} elseif ( '' !== $paste ) {
@@ -671,12 +678,21 @@ trait DZE_Content_Ajax {
 			if ( '' === trim( $override ) && $recipe_row && '' !== trim( (string) ( $recipe_row['prompt'] ?? '' ) ) ) {
 				$base = (string) $recipe_row['prompt'];
 			}
+			// What the surface IS decides how it is described: the shop's own
+			// backdrop, one of the scenes, or a blank product to print on.
+			$plate_row = null;
+			if ( $plate ) {
+				$plate_row = [ 'use' => 'support', 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it. Do not add anything else to it, and do not darken it.' ];
+				foreach ( self::scenes() as $sc ) {
+					if ( (int) $sc['image'] === $plate ) {
+						$plate_row = $sc;
+						break;
+					}
+				}
+			}
 			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction(
-					$count,
-					$plate ? [ 'prompt' => 'This is the shop\'s backdrop: reproduce its exact tone and its gradient, and place the product on it. Do not add anything else to it, and do not darken it.' ] : null
-				);
+				. self::sources_instruction( $count, $plate_row, $is_design );
 
 			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources );
