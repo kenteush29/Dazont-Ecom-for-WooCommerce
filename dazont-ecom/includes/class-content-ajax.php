@@ -448,51 +448,7 @@ trait DZE_Content_Ajax {
 	 * main image of a listing. Here there is one recipe, one source, one image,
 	 * and the next click puts it in place.
 	 */
-	/**
-	 * Proposes the store context by reading the shop.
-	 *
-	 * This line is prepended to every generation, so it decides the voice of
-	 * the whole catalogue — and it is the hardest thing to write about your own
-	 * shop, because you know it too well. The model does not: it is given the
-	 * shop's name, its tagline, its best-selling categories and products and
-	 * its price range, and asked for the three things that actually steer a
-	 * copywriter — what this shop sells, who buys it, how to speak to them.
-	 *
-	 * Short on purpose. A paragraph here is a paragraph in front of every
-	 * prompt, on every call, for every product.
-	 */
-	public function ajax_context(): void {
-		$this->guard();
-		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
-			wp_send_json_error( [ 'message' => __( 'The Marketing Assistant module holds the Anthropic key — switch it back on.', 'dazont-ecom' ) ] );
-		}
-		$facts = DZE_Marketing_Ai::instance()->shop_context_text();
-		if ( '' === trim( $facts ) ) {
-			wp_send_json_error( [ 'message' => __( 'There is not enough in this shop yet to read anything from it.', 'dazont-ecom' ) ] );
-		}
-		$system = 'You read a shop and describe it to the copywriter who will write its product pages.';
-		$user   = "Here is what the shop is:\n\n" . $facts . "\n\n"
-			. "Write its context line for that copywriter, in " . self::site_language() . ", in THREE short segments separated by \" > \":\n"
-			. "1. the shop name and what it sells, in a few words;\n"
-			. "2. who buys there — the real buyer, not a marketing persona;\n"
-			. "3. the tone to write in — three adjectives at most.\n\n"
-			. "Example of the shape expected: \"Kula Tactical > Military and tactical clothing and gear > Buyers: airsoft players, hunters, security staff who want kit that holds > Tone: sharp, factual, no hype\".\n"
-			. "Answer with that single line and nothing else. No quotes, no preamble.";
-		try {
-			DZE_Ai_Usage::unit( 'store_context' );
-			$out = DZE_Marketing_Ai::complete( $system, $user, self::model(), 300 );
-		} catch ( \Throwable $e ) {
-			DZE_Ai_Usage::unit();
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		DZE_Ai_Usage::unit();
-		DZE_Ai_Usage::finished( 'store_context' );
-		wp_send_json_success( [
-			'text'  => trim( wp_strip_all_tags( $out ) ),
-			'facts' => $facts,
-		] );
-	}
-
+	
 	/**
 	 * Switches one prompt on or off, there and then.
 	 *
@@ -561,23 +517,6 @@ trait DZE_Content_Ajax {
 			'id'    => $id,
 			'name'  => (string) $rows[ count( $rows ) - 1 ]['name'],
 			'thumb' => (string) wp_get_attachment_image_url( $id, 'thumbnail' ),
-		] );
-	}
-
-	/** Builds the backdrop plate on demand and reports where it landed. */
-	public function ajax_backdrop(): void {
-		$this->guard();
-		$light = isset( $_POST['light'] ) ? absint( $_POST['light'] ) : 252;
-		$dark  = isset( $_POST['dark'] ) ? absint( $_POST['dark'] ) : 232;
-		try {
-			$id = self::make_backdrop( $light, $dark );
-		} catch ( \Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		wp_send_json_success( [
-			'id'    => $id,
-			'name'  => __( 'Studio backdrop', 'dazont-ecom' ),
-			'thumb' => (string) wp_get_attachment_image_url( $id, 'medium' ),
 		] );
 	}
 
