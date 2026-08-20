@@ -3026,6 +3026,19 @@ Answer with STRICT JSON and nothing else: "
 									</span>
 								</span>
 							</script>
+							<!-- Decided BEFORE the run, like everything else on this
+							     screen: an image taking the main slot pushes the old
+							     main image into the gallery, or takes it off the
+							     product. It was only asked on the review strip, one
+							     product at a time, which on a list of thirty is the
+							     same answer given thirty times. -->
+							<label class="dze-cb-oldmain" id="dze-cb-oldwrap" style="display:none;">
+								<span><?php esc_html_e( 'Today\'s main image', 'dazont-ecom' ); ?></span>
+								<select id="dze-cb-oldmain">
+									<option value="1"><?php esc_html_e( 'goes to the gallery', 'dazont-ecom' ); ?></option>
+									<option value="0"><?php esc_html_e( 'leaves the product', 'dazont-ecom' ); ?></option>
+								</select>
+							</label>
 						</div>
 					<?php else : ?>
 						<p class="description"><?php esc_html_e( 'No validated image prompt yet — validate one in Settings → Product content to enable images in bulk.', 'dazont-ecom' ); ?></p>
