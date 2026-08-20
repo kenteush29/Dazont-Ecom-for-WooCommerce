@@ -1228,3 +1228,34 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	font-size: 12px;
 }
 .dze-pr-missing select { max-width: 260px; }
+
+
+/* ---- The image lab: one prompt, a few images, a result ---- */
+.dze-lab { max-width: 1100px; }
+.dze-lab-q { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: #1d2327; }
+.dze-lab-q .description { font-weight: 400; margin-left: 8px; }
+.dze-lab-srcs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.dze-lab-srcs:empty { display: none; }
+.dze-lab-src { position: relative; display: inline-block; line-height: 0; }
+.dze-lab-src img {
+	width: 120px; height: 120px; object-fit: cover; display: block;
+	border: 2px solid #dcdcde; border-radius: 6px; background: #f6f7f7;
+}
+.dze-lab-srcdrop {
+	position: absolute; top: -6px; right: -6px; z-index: 2; width: 20px; height: 20px;
+	border: 1px solid #dcdcde; border-radius: 50%; background: #fff; color: #b32d2e;
+	cursor: pointer; line-height: 1; font-size: 14px; padding: 0;
+}
+#dze-lab-drop { max-width: 620px; }
+.dze-lab-bar { margin: 18px 0 0; display: flex; align-items: center; gap: 12px; }
+.dze-lab-state { font-size: 13px; color: #646970; }
+.dze-lab-state.is-ko { color: #b32d2e; }
+.dze-lab-out { display: flex; flex-wrap: wrap; gap: 14px; }
+.dze-lab-res { margin: 0; position: relative; }
+.dze-lab-res img {
+	width: 320px; height: 320px; object-fit: contain; display: block;
+	background: #f6f7f7; border: 1px solid #e2e4e7; border-radius: 6px;
+}
+.dze-lab-res figcaption { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.dze-lab-resstate { font-size: 12px; color: #0a7040; }
+.dze-lab-resstate.is-ko { color: #b32d2e; }

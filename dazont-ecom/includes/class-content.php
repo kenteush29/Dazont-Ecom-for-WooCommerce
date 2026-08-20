@@ -4457,6 +4457,53 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/**
+	 * A file on disk becomes an image of this library.
+	 *
+	 * The JPEG conversion, the file name, the attachment title, the slug and
+	 * the alt text — the whole road from a temporary file to a library entry —
+	 * live here, wherever the file came from and whatever it is going to be
+	 * used for. What it is then DONE with (a main image, a group of variations,
+	 * a backdrop, nothing at all) is the caller's business.
+	 *
+	 * @param string $tmp Temporary file; consumed either way.
+	 */
+	public function file_to_library( string $tmp, string $ext, string $slug, string $title, int $parent = 0 ): int {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		if ( ! in_array( $ext, [ 'png', 'jpg', 'jpeg', 'webp' ], true ) ) {
+			$ext = 'jpg';
+		}
+		// The provider is asked for JPEG; if it hands back a PNG anyway, it is
+		// converted here rather than shipped to the shop — these are opaque
+		// photographs, and a PNG of one weighs several times as much.
+		if ( 'png' === $ext ) {
+			$editor = wp_get_image_editor( $tmp );
+			if ( ! is_wp_error( $editor ) ) {
+				$editor->set_quality( 85 );
+				$saved = $editor->save( $tmp . '.jpg', 'image/jpeg' );
+				if ( ! is_wp_error( $saved ) && ! empty( $saved['path'] ) && file_exists( $saved['path'] ) ) {
+					@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+					$tmp = (string) $saved['path'];
+					$ext = 'jpg';
+				}
+			}
+		}
+		$slug   = sanitize_title( $slug ) ?: 'image';
+		$title  = '' !== trim( $title ) ? $title : $slug;
+		$att_id = media_handle_sideload( [ 'name' => $slug . '.' . $ext, 'tmp_name' => $tmp ], $parent, $title );
+		if ( is_wp_error( $att_id ) ) {
+			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
+			throw new RuntimeException( $att_id->get_error_message() );
+		}
+		// Title, slug and alt text say the same thing (WP uniquifies the slug).
+		wp_update_post( [ 'ID' => (int) $att_id, 'post_title' => $title, 'post_name' => $slug ] );
+		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
+		return (int) $att_id;
+	}
+
+	/**
 	 * A file on disk becomes a photograph of this product.
 	 *
 	 * The naming, the alt text, the JPEG conversion and every destination —
@@ -4487,32 +4534,7 @@ Answer with STRICT JSON and nothing else: "
 			$title = $title . ' — ' . $n_label;
 		}
 
-		if ( ! in_array( $ext, [ 'png', 'jpg', 'jpeg', 'webp' ], true ) ) {
-			$ext = 'jpg';
-		}
-		// The provider is asked for JPEG; if it hands back a PNG anyway, it is
-		// converted here rather than shipped to the shop — these are opaque
-		// photographs, and a PNG of one weighs several times as much.
-		if ( 'png' === $ext ) {
-			$editor = wp_get_image_editor( $tmp );
-			if ( ! is_wp_error( $editor ) ) {
-				$editor->set_quality( 85 );
-				$saved = $editor->save( $tmp . '.jpg', 'image/jpeg' );
-				if ( ! is_wp_error( $saved ) && ! empty( $saved['path'] ) && file_exists( $saved['path'] ) ) {
-					@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
-					$tmp = (string) $saved['path'];
-					$ext = 'jpg';
-				}
-			}
-		}
-		$att_id = media_handle_sideload( [ 'name' => $slug . '.' . $ext, 'tmp_name' => $tmp ], $pid, $title );
-		if ( is_wp_error( $att_id ) ) {
-			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink
-			throw new RuntimeException( $att_id->get_error_message() );
-		}
-		// Attachment title + slug match the product (WP uniquifies the slug natively).
-		wp_update_post( [ 'ID' => (int) $att_id, 'post_title' => $title, 'post_name' => $slug ] );
-		update_post_meta( (int) $att_id, '_wp_attachment_image_alt', $title );
+		$att_id = $this->file_to_library( $tmp, $ext, $slug, $title, $pid );
 
 		// A variation image belongs to its variations and to nothing else: it
 		// is written to every variation of the group and stays out of the
