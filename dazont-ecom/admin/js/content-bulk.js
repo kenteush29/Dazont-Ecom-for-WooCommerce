@@ -47,6 +47,7 @@
 			return { tpl: v, scene: m.scene, n: m.imgn };
 		});
 		buildTplRows(saved);
+		if (typeof m.keepOld !== 'undefined') { $('#dze-cb-oldmain').val(m.keepOld ? '1' : '0'); }
 	}());
 
 	function persist() {
@@ -61,7 +62,7 @@
 		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
 		saveMem(m);
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-reviews, #dze-cb-revn', persist);
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -117,7 +118,10 @@
 		if (!$t.length || $t.data('touched')) { return; }
 		$t.val($row.find('.dze-cb-tpl option:selected').data('target') || 'gallery');
 	}
-	$(document).on('change', '#dze-cb-tplrows .dze-tpl-target', function () { $(this).data('touched', 1); });
+	$(document).on('change', '#dze-cb-tplrows .dze-tpl-target', function () {
+		$(this).data('touched', 1);
+		syncOldMainRow();
+	});
 	function buildTplRows(values) {
 		var $wrap = $('#dze-cb-tplrows').empty();
 		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
@@ -126,6 +130,17 @@
 	// A + that cannot add anything is a lie: it only shows while an unused
 	// prompt is left, and − disappears when one row is left.
 	function tplCount() { return $('#dze-cb-tpltpl').length ? $($('#dze-cb-tpltpl').html()).find('option').length : 0; }
+	// The fate of the main image only arises when something is about to take
+	// its place: the question appears with the answer that makes it necessary.
+	function syncOldMainRow() {
+		var main = $('#dze-cb-tplrows .dze-tpl-target').filter(function () {
+			return 'main' === $(this).val();
+		}).length > 0;
+		$('#dze-cb-oldwrap').toggle(main);
+	}
+	function runKeepOld() {
+		return ($('#dze-cb-oldmain').val() === '0') ? 0 : 1;
+	}
 	function syncTplRows() {
 		var $rows = $('#dze-cb-tplrows .dze-tplrow');
 		var room = $rows.length < tplCount();
@@ -133,6 +148,7 @@
 			$(this).find('.dze-tpl-add').toggle(room && i === $rows.length - 1);
 			$(this).find('.dze-tpl-del').toggle($rows.length > 1);
 		});
+		syncOldMainRow();
 	}
 	function firstFreeTpl() {
 		var used = $('#dze-cb-tplrows .dze-cb-tpl').map(function () { return $(this).val(); }).get();
@@ -153,6 +169,7 @@
 			used[$(this).val()] = 1;
 		});
 		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); });
+		syncOldMainRow();
 	});
 	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
 		$('#dze-cb-tplrows').append(tplRow(firstFreeTpl()));
@@ -769,10 +786,11 @@
 	// popup on the product page and nowhere else, so a main image accepted
 	// from here always pushed the old one into the gallery.
 	function oldMainPicker() {
+		var keep = runKeepOld();
 		return '<label class="dze-cb-oldmain" style="display:none;"><span>' + esc(i18n.oldMain) + '</span>' +
 			'<select class="dze-cb-oldsel">' +
-				'<option value="1">' + esc(i18n.oldKeep) + '</option>' +
-				'<option value="0">' + esc(i18n.oldDrop) + '</option>' +
+				'<option value="1"' + (keep ? ' selected' : '') + '>' + esc(i18n.oldKeep) + '</option>' +
+				'<option value="0"' + (keep ? '' : ' selected') + '>' + esc(i18n.oldDrop) + '</option>' +
 			'</select></label>';
 	}
 	function syncOldMain($box) {
@@ -780,9 +798,12 @@
 		var main = $box.find('.dze-cb-shotdest').filter(function () { return 'main' === $(this).val(); }).length > 0;
 		$box.find('.dze-cb-oldmain').toggle(main);
 	}
+	// The strip's own answer when it has one, the run's otherwise: a panel
+	// never opened must not quietly disagree with what was set before the run.
 	function keepOld($box) {
 		var $sel = ($box && $box.length) ? $box.find('.dze-cb-oldsel') : $();
-		return ($sel.length && '0' === $sel.val()) ? 0 : 1;
+		if (!$sel.length) { return runKeepOld(); }
+		return ('0' === $sel.val()) ? 0 : 1;
 	}
 	// One click walks the three destinations. Only one image can be the main
 	// one; claiming it moves the previous claimant back to the gallery instead
