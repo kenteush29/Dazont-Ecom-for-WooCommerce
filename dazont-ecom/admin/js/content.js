@@ -1701,6 +1701,11 @@
 			'<span class="dze-var-state">' + esc(none ? i18n.varHasNone : sprintf(i18n.varCount, g.total, g.with)) + '</span>' +
 			'<span class="dze-var-acts">' +
 				'<button type="button" class="button button-small dze-var-note' + (g.note ? ' is-on' : '') + '" title="' + esc(i18n.varNoteHelp) + '">' + esc(i18n.varNote) + '</button> ' +
+				// The photographs this product already has, one click away:
+				// nine times out of ten the image a colour needs is already in
+				// its own gallery, and going to fetch it through the whole
+				// media library to find it again is the long way round.
+				'<button type="button" class="button button-small dze-var-own" title="' + esc(i18n.varOwnHelp) + '">' + esc(i18n.varOwn) + '</button> ' +
 				'<button type="button" class="button button-small dze-var-lib">' + esc(i18n.varLib) + '</button> ' +
 				'<button type="button" class="button button-small dze-var-paste">' + esc(i18n.varPaste) + '</button> ' +
 				(varTemplates().length ? '<button type="button" class="button button-small dze-var-gen">✦</button> ' : '') +
@@ -1782,6 +1787,47 @@
 		var empty = {};
 		(vars.groups || []).forEach(function (g) { if (!g.with) { empty[g.key] = 1; } });
 		$('.dze-cx-var').each(function () { $(this).prop('checked', !!empty[$(this).val()]); });
+	});
+
+	// ---- The photographs this product already has ----
+	// Main image and gallery together, in the order the product holds them:
+	// what a colour needs is usually one of them, and "which one" is a question
+	// answered by looking, not by opening a library of four thousand files.
+	$(document).on('click', '.dze-var-own', function () {
+		var $row = $(this).closest('.dze-var-row');
+		var $work = $row.find('.dze-var-work');
+		if ($work.find('.dze-var-owns').length) { $work.empty(); return; }
+		$work.html('<div class="dze-var-owns"><span class="description">…</span></div>');
+		loadCurrent().then(function (cur) {
+			var imgs = (cur.images || []).filter(function (im) { return im.id; });
+			if (!imgs.length) {
+				$work.html('<div class="dze-var-owns"><span class="description">' + esc(i18n.varOwnNone) + '</span></div>');
+				return;
+			}
+			$work.html('<div class="dze-var-owns">' + imgs.map(function (im) {
+				return '<button type="button" class="dze-var-ownpick" data-id="' + im.id + '" title="' +
+					esc(im.main ? i18n.varOwnMain : i18n.varOwnPick) + '">' +
+					'<img src="' + esc(im.thumb) + '" alt="" />' +
+					(im.main ? '<span class="dze-var-ownmain">' + esc(i18n.varOwnMainTag) + '</span>' : '') +
+					'</button>';
+			}).join('') + '</div>');
+		});
+	});
+	$(document).on('click', '.dze-var-ownpick', function () {
+		var $row = $(this).closest('.dze-var-row');
+		var id = $(this).data('id');
+		varSay($row, i18n.applying);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_variation_assign', nonce: cfg.nonce,
+			post: PID, group: varGroup($row), attachment: id
+		})
+			.done(function (r) {
+				if (!r || !r.success) { varSay($row, (r && r.data && r.data.message) || i18n.error, true); return; }
+				$row.find('.dze-var-work').empty();
+				varRefresh();
+				refreshBoxes();
+			})
+			.fail(function (x) { varSay($row, reason(x), true); });
 	});
 
 	// ---- The photograph the shop already has ----
