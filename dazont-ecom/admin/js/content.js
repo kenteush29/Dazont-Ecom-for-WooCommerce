@@ -1530,6 +1530,19 @@
 		$('#dze-one-apply').show();
 	}
 
+	// One order, read from the popup as it stands: the button that makes an
+	// image and the ↻ that makes one again ask for exactly the same thing.
+	function oneImageRequest(prompt) {
+		return {
+			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
+			paste: one.paste || '',
+			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
+			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
+			bg: $('#dze-one-bg').val() || 0,
+			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt
+		};
+	}
+
 	$(document).on('click', '#dze-one-gen', function () {
 		var $b = $(this).prop('disabled', true);
 		var $st = $('#dze-one-state').removeClass('is-ko').text(i18n.generating);
@@ -1544,13 +1557,7 @@
 			var made = 0;
 			var shoot = function () {
 				$st.text(want > 1 ? sprintf(i18n.tryN, made + 1, want) : i18n.generating);
-				$.post(cfg.ajaxUrl, {
-					action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-					paste: one.paste || '',
-					with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
-					src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
-					bg: $('#dze-one-bg').val() || 0, prompt: prompt
-				})
+				$.post(cfg.ajaxUrl, oneImageRequest(prompt))
 					.done(function (r) {
 						if (!r || !r.success) {
 							$b.prop('disabled', false);
@@ -1743,6 +1750,9 @@
 			'<span class="dze-var-tryimg"><img src="' + esc(url) + '" data-full="' + esc(url) + '" alt="" /></span>' +
 			'<span class="dze-var-tryacts">' +
 				'<button type="button" class="button button-small button-primary dze-var-keep">' + esc(i18n.oneApply) + '</button> ' +
+				// The same ↻ as every other generated image: this one again,
+				// with the prompt of the run, in its place.
+				'<button type="button" class="button button-small dze-var-redo" title="' + esc(i18n.shotRedo) + '">↻</button> ' +
 				'<button type="button" class="button-link dze-var-throw">' + esc(i18n.discard) + '</button>' +
 			'</span>' +
 		'</div>';
@@ -2005,6 +2015,10 @@
 	$(document).on('click', '.dze-var-gen', function () {
 		varGenerate($(this).closest('.dze-var-row'));
 	});
+	$(document).on('click', '.dze-var-redo', function () {
+		var $row = $(this).closest('.dze-var-row');
+		varGenerate($row, $row.data('paste') || '');
+	});
 	$(document).on('click', '#dze-var-run', function () {
 		var $b = $(this).prop('disabled', true);
 		var $st = $('#dze-var-state').removeClass('is-ko');
@@ -2105,7 +2119,13 @@
 					.append(
 						$('<img />').attr('src', u).attr('data-full', u).attr('alt', ''),
 						$('<span class="dze-one-trynum"></span>').text(i + 1),
-						$('<span class="dze-one-trytick">✓</span>')
+						$('<span class="dze-one-trytick">✓</span>'),
+						// Same ↻ as everywhere else: this attempt again, with the
+						// same instructions, in its place. It was the one surface
+						// where a bad attempt could only be unticked and left to
+						// clutter the strip.
+						$('<span class="dze-one-tryredo" role="button" tabindex="-1"></span>')
+							.attr('title', i18n.shotRedo).text('↻')
 					)
 			);
 		});
@@ -2144,6 +2164,33 @@
 		one.keep[u] = !one.keep[u];
 		$(this).toggleClass('is-sel', !!one.keep[u]);
 		oneApplyLabel();
+	});
+	// This attempt again: the new one takes its place in the strip instead of
+	// piling up next to it, and the one it replaces leaves the waiting list —
+	// an attempt nobody will ever look at again is not a decision to take.
+	$(document).on('click', '.dze-one-tryredo', function (e) {
+		e.stopPropagation();
+		var $card = $(this).closest('.dze-one-try').addClass('is-busy');
+		var url = String($card.data('url'));
+		var $st = $('#dze-one-state').removeClass('is-ko').text(i18n.generating);
+		$.post(cfg.ajaxUrl, oneImageRequest())
+			.done(function (r) {
+				$card.removeClass('is-busy');
+				if (!r || !r.success) {
+					$st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error);
+					return;
+				}
+				var i = (one.tries || []).indexOf(url);
+				if (i >= 0) { one.tries[i] = r.data.url; } else { one.tries.push(r.data.url); }
+				one.keep[r.data.url] = true;
+				delete one.keep[url];
+				$.post(cfg.ajaxUrl, {
+					action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ]
+				});
+				$st.text('');
+				oneDrawTries();
+			})
+			.fail(function (x) { $card.removeClass('is-busy'); $st.addClass('is-ko').text(reason(x)); });
 	});
 
 	// ---- What the page itself shows, after we have written to the database ----

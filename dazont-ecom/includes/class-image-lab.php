@@ -86,6 +86,7 @@ final class DZE_Image_Lab {
 				'kept'     => __( 'Saved in the library ✓', 'dazont-ecom' ),
 				'download' => __( 'Download', 'dazont-ecom' ),
 				'again'    => __( 'Generate again', 'dazont-ecom' ),
+				'redo'     => __( 'Make this image again', 'dazont-ecom' ),
 				'noPrompt' => __( 'Write what you want first.', 'dazont-ecom' ),
 				/* translators: %s: number of attempts on screen */
 				'tries'    => __( '%s results — the newest first', 'dazont-ecom' ),

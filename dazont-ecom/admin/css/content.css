@@ -1137,6 +1137,18 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	font-size: 11px; line-height: 16px; text-align: center;
 }
 .dze-one-try.is-sel .dze-one-trytick { background: #2271b1; border-color: #2271b1; color: #fff; }
+/* This attempt again — the same ↻ as on the bulk strip, in the corner the
+   zoom button does not use. */
+.dze-one-tryredo {
+	position: absolute; right: 4px; bottom: 4px; z-index: 3;
+	width: 22px; height: 22px; border-radius: 4px;
+	background: rgba(0,0,0,.55); color: #fff; cursor: pointer;
+	font-size: 13px; line-height: 22px; text-align: center;
+	opacity: 0; transition: opacity .12s;
+}
+.dze-one-try:hover .dze-one-tryredo { opacity: 1; }
+.dze-one-tryredo:hover { background: #2271b1; }
+.dze-one-try.is-busy { opacity: .45; pointer-events: none; }
 #dze-one-trycap { font-size: 11px; color: #646970; }
 
 /* The two halves of a request: the instructions, and the product data. */
@@ -1231,6 +1243,7 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-lab-resacts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dze-lab-resstate { font-size: 12px; color: #0a7040; }
 .dze-lab-resstate.is-ko { color: #b32d2e; }
+.dze-lab-res.is-busy { opacity: .45; pointer-events: none; }
 
 .dze-one-notestate { font-size: 12px; color: #0a7040; margin-left: 8px; }
 
