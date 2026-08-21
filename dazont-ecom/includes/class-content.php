@@ -3621,7 +3621,7 @@ Answer with STRICT JSON and nothing else: "
 			// How many photographs of this product travel with a generation —
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
-			'sourceN'    => $pid ? count( self::product_source_ids( $pid ) ) : 0,
+			'sourceN'    => $pid ? count( self::product_image_ids( $pid ) ) : 0,
 			// The note this product carries: sent with every image made for it,
 			// written once, here.
 			'note'       => $pid ? self::variation_note( $pid, self::NOTE_PRODUCT ) : '',
@@ -5036,7 +5036,18 @@ Answer with STRICT JSON and nothing else: "
 		return [];
 	}
 
-	public static function product_source_ids( int $pid ): array {
+	/**
+	 * EVERY photograph of the product, featured image first, then the gallery.
+	 *
+	 * Not to be confused with product_source_ids(): that one is capped, because
+	 * it says what TRAVELS with a generation and a request body has a size. A
+	 * list you pick from has no such excuse — a product with eight photographs
+	 * showed six in "From which photograph?", and the two that were missing
+	 * could not be worked on at all.
+	 *
+	 * @return int[]
+	 */
+	public static function product_image_ids( int $pid ): array {
 		$ids     = [];
 		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
 		$thumb   = (int) get_post_thumbnail_id( $pid );
@@ -5049,8 +5060,11 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		$ids = array_values( array_unique( array_filter( $ids ) ) );
-		$ids = array_values( array_filter( $ids, static fn( $id ) => wp_attachment_is_image( (int) $id ) ) );
-		return array_slice( $ids, 0, self::MAX_SOURCES );
+		return array_values( array_filter( $ids, static fn( $id ) => wp_attachment_is_image( (int) $id ) ) );
+	}
+
+	public static function product_source_ids( int $pid ): array {
+		return array_slice( self::product_image_ids( $pid ), 0, self::MAX_SOURCES );
 	}
 
 	public function fal_source_data_uri( int $attachment_id, string $wanted = 'large' ): string {
