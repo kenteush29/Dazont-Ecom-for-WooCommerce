@@ -896,9 +896,13 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cb-nowshots:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e4e7; }
 /* ---- Variation images: one line per colour ---- */
 .dze-var-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+/* The row is not a button: it holds a tick box, buttons, a note and a
+   workbench, each with its own gesture. It carried a hand cursor from a time
+   when clicking anywhere on it ticked the box — the handler is long gone, so
+   the hand was promising something that no longer happened. */
 .dze-var-row {
 	display: flex; align-items: center; gap: 10px; padding: 5px 8px;
-	background: #fff; border: 1px solid #e2e4e7; border-radius: 5px; cursor: pointer;
+	background: #fff; border: 1px solid #e2e4e7; border-radius: 5px; cursor: default;
 }
 .dze-var-row.is-empty { border-color: #f0c33c; background: #fffdf5; }
 .dze-var-thumbwrap { position: relative; display: inline-block; line-height: 0; }
@@ -915,7 +919,9 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    group — the library, a pasted file, a generation — happens on the line that
    asked for it. */
 .dze-var-row { flex-wrap: wrap; }
-.dze-var-pick { display: flex; align-items: center; margin: 0; }
+.dze-var-pick { display: flex; align-items: center; margin: 0; cursor: pointer; }
+/* The colour's name ticks its box, the way a label does everywhere else. */
+.dze-var-name { cursor: pointer; }
 .dze-var-acts { display: flex; align-items: center; gap: 4px; }
 .dze-var-rowstate { font-size: 12px; color: #646970; }
 .dze-var-rowstate.is-ko { color: #b32d2e; }

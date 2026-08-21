@@ -1831,6 +1831,12 @@
 		if ($panel.length) { $panel.trigger('reload'); }
 	}
 
+	// The colour's name ticks its box, the way a label does everywhere else —
+	// the tick box alone is a 13px target on a row that is otherwise inert.
+	$(document).on('click', '.dze-var-name', function () {
+		var $box = $(this).closest('.dze-var-row').find('.dze-cx-var');
+		$box.prop('checked', !$box.prop('checked')).trigger('change');
+	});
 	$(document).on('change', '#dze-var-attr', function () { loadVariations($(this).val()); });
 	$(document).on('change', '#dze-var-tpl', function () {
 		var t = cfg.templates[parseInt($(this).val(), 10)] || {};
