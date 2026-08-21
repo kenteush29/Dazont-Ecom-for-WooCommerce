@@ -608,7 +608,14 @@ trait DZE_Content_Ajax {
 		$override = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		// An image pasted straight into the lane (Ctrl+V or dropped): it arrives
 		// as a data URI, never as a URL, so nothing is fetched from anywhere.
-		$paste = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
+		// Several of them, in fact: three supplier shots of the same jacket, none
+		// of them usable as it stands, tell the model far more together than the
+		// best of them alone. The first is the subject; the others are context.
+		$pastes = isset( $_POST['pastes'] ) ? (array) wp_unslash( $_POST['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
+		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
+		if ( ! $pastes && '' !== $paste ) {
+			$pastes = [ $paste ];
+		}
 		// The surface to put the product on: a background, or none.
 		$bg = isset( $_POST['bg'] ) ? absint( $_POST['bg'] ) : 0;
 		// ONE photograph of the product as the source — remaking a supplier
@@ -641,13 +648,20 @@ trait DZE_Content_Ajax {
 			if ( $src_id && wp_attachment_is_image( $src_id ) ) {
 				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
 				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
-			} elseif ( '' !== $paste ) {
-				// The photograph is already in the request, straight from the
-				// clipboard or dropped from the desktop, and it is THE subject:
-				// it stays image 1, and the product's own photographs follow it
-				// unless the screen says to work from the pasted one alone.
-				$sources[] = self::read_data_uri( $paste );
-				$context   = ( ! isset( $_POST['with_product'] ) || ! empty( $_POST['with_product'] ) )
+			} elseif ( $pastes ) {
+				// The photographs are already in the request, straight from the
+				// clipboard or picked on the computer, and the first is THE
+				// subject: it stays image 1, the other pasted ones follow it,
+				// and the product's own photographs come after them unless the
+				// screen says to work from the pasted ones alone.
+				$outside = self::read_data_uris( $pastes );
+				if ( ! $outside ) {
+					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+				}
+				foreach ( $outside as $uri ) {
+					$sources[] = $uri;
+				}
+				$context = ( ! isset( $_POST['with_product'] ) || ! empty( $_POST['with_product'] ) )
 					? self::product_source_ids( $pid )
 					: [];
 			} else {
@@ -663,13 +677,18 @@ trait DZE_Content_Ajax {
 				}
 			}
 			// Three more at most: past that a call gets slow for angles that add
-			// very little, and the payload is already carrying the subject.
+			// very little, and the payload is already carrying the subject —
+			// which, with several photographs from outside, is heavy on its own.
 			foreach ( array_slice( $context, 0, 3 ) as $aid ) {
 				try {
-					$sources[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+					$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
 				} catch ( \Throwable $e ) {
 					continue;
 				}
+				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+					break;
+				}
+				$sources[] = $uri;
 			}
 			if ( ! $sources ) {
 				throw new RuntimeException( __( 'No image to work from: set a featured image, or paste the address of one.', 'dazont-ecom' ) );
@@ -743,6 +762,12 @@ trait DZE_Content_Ajax {
 		// travels as bytes inside the request and is never stored: it is the
 		// subject of the generation, not a file the shop keeps.
 		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
+		// Several photographs from outside the shop, the first one the subject.
+		$pastes = isset( $_POST['pastes'] ) ? (array) wp_unslash( $_POST['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
+		if ( ! $pastes && '' !== $paste ) {
+			$pastes = [ $paste ];
+		}
+		$paste = $pastes ? (string) $pastes[0] : '';
 		if ( ! $pid ) {
 			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
 		}
@@ -855,11 +880,18 @@ trait DZE_Content_Ajax {
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its own.
 				$sources[] = $src;
-			} elseif ( '' !== $paste ) {
-				// The pasted photograph is image 1 — the subject — and the
-				// product's own photographs follow it as context, so the model
-				// knows the product beyond the one shot it was handed.
-				$sources[] = self::read_data_uri( $paste );
+			} elseif ( $pastes ) {
+				// The pasted photographs come first — the first of them is the
+				// subject, the others say what it does not show — and the
+				// product's own photographs follow as context, so the model
+				// knows the product beyond the shots it was handed.
+				$outside = self::read_data_uris( $pastes );
+				if ( ! $outside ) {
+					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+				}
+				foreach ( $outside as $uri ) {
+					$sources[] = $uri;
+				}
 				foreach ( array_slice( $product_ids, 0, 2 ) as $aid ) {
 					try {
 						$sources[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );

@@ -1080,7 +1080,11 @@
 	// opens a popup with that one function in it — read the instructions,
 	// change them for one run if you want, write, compare, save.
 
-	var one = { fid: '', mode: 'text', value: '', tries: [], keep: {} };
+	// pastes: the photographs from OUTSIDE the shop sent with this run. Several
+	// of them, because three supplier shots of the same jacket — none of them
+	// usable as it stands — say together what no single one of them says.
+	var one = { fid: '', mode: 'text', value: '', tries: [], keep: {}, pastes: [] };
+	function maxPasted() { return parseInt(cfg.maxPasted, 10) || 4; }
 
 	function oneBuild() {
 		if ($('#dze-one').length) { return; }
@@ -1218,7 +1222,7 @@
 		$('#dze-one-nwrap').toggle('image' === mode);
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
-			one.srcId = 0; one.paste = '';
+			one.srcId = 0; one.pastes = [];
 			$('#dze-one-note').val(cfg.note || '');
 			$('#dze-one-notewrap').prop('open', !!(cfg.note || '').trim());
 			oneDrawRecipes();
@@ -1253,8 +1257,11 @@
 					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
 						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
 					'<button type="button" class="button button-small dze-qm-browse">' + esc(i18n.qmBrowse) + '</button>' +
-					'<input type="file" accept="image/*" class="dze-qm-file" hidden />' +
-						'<img id="dze-one-src" alt="" style="display:none;" />' +
+					'<input type="file" accept="image/*" class="dze-qm-file" multiple hidden />' +
+						// What has been added, each one with the cross that
+						// takes it back out: an image you cannot remove is an
+						// image you have to close the popup to be rid of.
+						'<div class="dze-one-pastes" id="dze-one-pastes"></div>' +
 					'</div>' +
 					// An image from elsewhere is the subject, not the whole
 					// brief: the product\'s own photographs say what its back,
@@ -1415,7 +1422,7 @@
 		$slot.html(oneSrcStrip([]));
 		loadCurrent().then(function (cur) {
 			// Something was chosen while the product was loading: leave it be.
-			if (one.srcId || one.paste) { return; }
+			if (one.srcId || (one.pastes || []).length) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
 		});
 	}
@@ -1451,16 +1458,48 @@
 		$('#dze-one-replacewrap').toggle(!!id);
 		if (!id) { $('#dze-one-replace').prop('checked', false); }
 	});
-	// One place that says "this is the image we work from", whether it arrived
-	// by Ctrl+V, by drag and drop, or by its address.
+	// One place that says which photographs from outside we work from, whether
+	// they arrived by Ctrl+V, by drag and drop, or from the computer. The FIRST
+	// one is the subject; the ones after it are there to say what it does not
+	// show.
 	function oneShowPasted(dataUri) {
-		one.paste = dataUri || '';
-		$('#dze-one-src').attr('src', one.paste).toggle(!!one.paste);
-		$('#dze-one-drop').toggleClass('has-img', !!one.paste)
-			.find('.dze-qm-dropmsg').text(one.paste ? i18n.qmPasted : i18n.qmPaste);
-		$('#dze-one-newthumb').attr('src', one.paste).toggle(!!one.paste);
-		$('.dze-one-srcnew .dze-one-newmsg').toggle(!one.paste);
+		one.pastes = dataUri ? [ String(dataUri) ] : [];
+		oneDrawPastes();
 	}
+	function onePasteAdd(dataUri) {
+		one.pastes = one.pastes || [];
+		if (!dataUri || one.pastes.length >= maxPasted()) { return; }
+		one.pastes.push(String(dataUri));
+		oneDrawPastes();
+	}
+	function oneDrawPastes() {
+		var n = (one.pastes || []).length;
+		var $g = $('#dze-one-pastes').empty();
+		(one.pastes || []).forEach(function (u, i) {
+			$g.append(
+				$('<span class="dze-one-pasted"></span>').append(
+					$('<img />').attr('src', u).attr('alt', ''),
+					// The first one is the subject and says so: the others are
+					// context, and which is which changes the result.
+					$('<span class="dze-one-pastedtag"></span>').text(0 === i ? i18n.pasteSubject : String(i + 1)),
+					$('<button type="button" class="dze-one-pastedel"></button>')
+						.attr('title', i18n.remove).attr('data-i', i).html('&times;')
+				)
+			);
+		});
+		$('#dze-one-drop').toggleClass('has-img', n > 0)
+			.find('.dze-qm-dropmsg').text(n ? (1 === n ? i18n.qmPasted : sprintf(i18n.qmPastedN, n)) : i18n.qmPaste);
+		// Room for one more, or not: the button says which by being there.
+		$('#dze-one-drop .dze-qm-browse').toggle(n < maxPasted());
+		$('#dze-one-newthumb').attr('src', (one.pastes || [])[0] || '').toggle(n > 0);
+		$('.dze-one-srcnew .dze-one-newmsg').toggle(!n);
+	}
+	$(document).on('click', '.dze-one-pastedel', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		one.pastes.splice(parseInt($(this).data('i'), 10) || 0, 1);
+		oneDrawPastes();
+	});
 	function oneReadFile(file) {
 		if (!file || !/^image\//.test(file.type)) { return; }
 		var fr = new FileReader();
@@ -1470,7 +1509,7 @@
 			one.srcId = 0;
 			$('#dze-one-elsewrap').show();
 			$('#dze-one-replacewrap').hide();
-			oneShowPasted(String(fr.result));
+			onePasteAdd(String(fr.result));
 		};
 		fr.readAsDataURL(file);
 	}
@@ -1483,18 +1522,22 @@
 		e.stopPropagation();
 		$(this).closest('.dze-qm-drop').find('.dze-qm-file').trigger('click');
 	});
-	$(document).on('change', '.dze-qm-file', function () {
-		var file = this.files && this.files[0];
+	// Scoped to THIS popup: the variation popup has a box of the same shape,
+	// with its own handler, and an unscoped selector had both of them firing on
+	// one pick — the file quietly landing in the other popup's set.
+	$(document).on('change', '#dze-one .dze-qm-file', function () {
+		var files = Array.prototype.slice.call(this.files || []);
 		this.value = '';
-		if (!file) { return; }
-		if (file) { oneReadFile(file); }
+		// Picked three at once, added three: the file picker allows it, so the
+		// screen behind it has to.
+		files.forEach(function (f) { oneReadFile(f); });
 	});
 	$(document).on('dragover', '#dze-one-drop', function (e) { e.preventDefault(); $(this).addClass('is-over'); });
 	$(document).on('dragleave drop', '#dze-one-drop', function () { $(this).removeClass('is-over'); });
 	$(document).on('drop', '#dze-one-drop', function (e) {
 		e.preventDefault();
 		var dt = e.originalEvent && e.originalEvent.dataTransfer;
-		if (dt && dt.files && dt.files.length) { oneReadFile(dt.files[0]); }
+		Array.prototype.slice.call((dt && dt.files) || []).forEach(function (f) { oneReadFile(f); });
 	});
 
 	// What the product says today, above what was just written: the same
@@ -1535,7 +1578,7 @@
 	function oneImageRequest(prompt) {
 		return {
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-			paste: one.paste || '',
+			pastes: one.pastes || [],
 			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
@@ -1979,6 +2022,7 @@
 	});
 	$(document).on('change', '#dze-var .dze-qm-file', function () {
 		var file = this.files && this.files[0];
+		this.value = '';
 		if (!file || !/^image\//.test(file.type)) { return; }
 		var $row = $(this).closest('.dze-var-row');
 		var fr = new FileReader();
@@ -2093,7 +2137,7 @@
 		if ('gallery' !== one.scope) {
 			return { url: mainUrl, caption: i18n.qmNow };
 		}
-		if (one.paste) { return { url: one.paste, caption: i18n.qmSource }; }
+		if ((one.pastes || []).length) { return { url: one.pastes[0], caption: i18n.qmSource }; }
 		if (one.srcId) {
 			var $img = $('.dze-one-srcpick.is-sel img').first();
 			var u = $img.attr('data-full') || $img.attr('src') || '';
