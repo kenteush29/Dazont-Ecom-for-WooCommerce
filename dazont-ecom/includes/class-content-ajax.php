@@ -1115,7 +1115,15 @@ trait DZE_Content_Ajax {
 			$texts[ $fid ] = $value;
 		}
 		$images = [];
-		foreach ( self::product_source_ids( $pid ) as $aid ) {
+		// EVERY photograph, not the ones that would travel with a generation:
+		// this list is what you pick from and what you compare against.
+		$shot_ids = self::product_image_ids( $pid );
+		if ( $shot_ids ) {
+			// Read in one go: a gallery of twenty is twenty attachments, and
+			// one query per thumbnail for a panel is one query too many.
+			_prime_post_caches( $shot_ids, false, true );
+		}
+		foreach ( $shot_ids as $aid ) {
 			$meta = wp_get_attachment_metadata( (int) $aid );
 			$w    = (int) ( $meta['width'] ?? 0 );
 			$h    = (int) ( $meta['height'] ?? 0 );
@@ -1522,7 +1530,7 @@ trait DZE_Content_Ajax {
 			] );
 		}
 		$removed = 0;
-		if ( $replace && in_array( $replace, self::product_source_ids( $pid ), true ) ) {
+		if ( $replace && in_array( $replace, self::product_image_ids( $pid ), true ) ) {
 			$removed = (int) self::retire_image( $pid, $replace );
 		}
 		wp_send_json_success( [
