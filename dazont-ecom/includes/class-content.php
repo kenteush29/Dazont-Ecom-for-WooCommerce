@@ -3710,10 +3710,12 @@ Answer with STRICT JSON and nothing else: "
 				// The file is read in the browser and travels inside the
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'Upload', 'dazont-ecom' ),
+				'qmAddMore'  => __( 'Add another', 'dazont-ecom' ),
 				'qmPasted'   => __( '1 image added', 'dazont-ecom' ),
 				/* translators: %s: number of images added */
 				'qmPastedN'  => __( '%s images added', 'dazont-ecom' ),
-				'pasteSubject' => __( 'subject', 'dazont-ecom' ),
+				'pasteFirst' => __( 'Build the image from this one instead', 'dazont-ecom' ),
+				'pasteHelp'  => __( 'The first photograph is the one the image is built from. The others are sent with it so the model knows the product — they are never copied into the result.', 'dazont-ecom' ),
 				'remove'     => __( 'Remove', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.

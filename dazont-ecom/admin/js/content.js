@@ -1262,6 +1262,7 @@
 						// takes it back out: an image you cannot remove is an
 						// image you have to close the popup to be rid of.
 						'<div class="dze-one-pastes" id="dze-one-pastes"></div>' +
+						'<p class="dze-one-pastehelp" id="dze-one-pastehelp" style="display:none;"></p>' +
 					'</div>' +
 					// An image from elsewhere is the subject, not the whole
 					// brief: the product\'s own photographs say what its back,
@@ -1476,24 +1477,45 @@
 		var n = (one.pastes || []).length;
 		var $g = $('#dze-one-pastes').empty();
 		(one.pastes || []).forEach(function (u, i) {
-			$g.append(
-				$('<span class="dze-one-pasted"></span>').append(
-					$('<img />').attr('src', u).attr('alt', ''),
-					// The first one is the subject and says so: the others are
-					// context, and which is which changes the result.
-					$('<span class="dze-one-pastedtag"></span>').text(0 === i ? i18n.pasteSubject : String(i + 1)),
-					$('<button type="button" class="dze-one-pastedel"></button>')
-						.attr('title', i18n.remove).attr('data-i', i).html('&times;')
-				)
+			var $tile = $('<span class="dze-one-pasted"></span>').append(
+				$('<img />').attr('src', u).attr('alt', ''),
+				$('<button type="button" class="dze-one-pastedel"></button>')
+					.attr('title', i18n.remove).attr('data-i', i).html('&times;')
 			);
+			if (0 === i) {
+				// The first one is the photograph the image is BUILT FROM, and
+				// it says so in the same words the rest of the popup uses.
+				$tile.append($('<span class="dze-one-pastedtag"></span>').text(i18n.qmSource));
+			} else {
+				// Which one that is has to be changeable, or the only way to
+				// correct a paste in the wrong order is to remove them all.
+				$tile.append(
+					$('<button type="button" class="dze-one-pastefirst"></button>')
+						.attr('title', i18n.pasteFirst).attr('data-i', i).text('↑')
+				);
+			}
+			$g.append($tile);
 		});
 		$('#dze-one-drop').toggleClass('has-img', n > 0)
 			.find('.dze-qm-dropmsg').text(n ? (1 === n ? i18n.qmPasted : sprintf(i18n.qmPastedN, n)) : i18n.qmPaste);
-		// Room for one more, or not: the button says which by being there.
-		$('#dze-one-drop .dze-qm-browse').toggle(n < maxPasted());
+		// The button says what it does NOW: the first image is an upload, the
+		// ones after it are additions — "Upload" next to two images already
+		// there read as "start again", not as "add another".
+		$('#dze-one-drop .dze-qm-browse')
+			.toggle(n < maxPasted())
+			.text(n ? i18n.qmAddMore : i18n.qmBrowse);
+		// What the set means, said once, under it: which one is used for what.
+		$('#dze-one-pastehelp').toggle(n > 1).text(i18n.pasteHelp);
 		$('#dze-one-newthumb').attr('src', (one.pastes || [])[0] || '').toggle(n > 0);
 		$('.dze-one-srcnew .dze-one-newmsg').toggle(!n);
 	}
+	$(document).on('click', '.dze-one-pastefirst', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		var i = parseInt($(this).data('i'), 10) || 0;
+		one.pastes.unshift(one.pastes.splice(i, 1)[0]);
+		oneDrawPastes();
+	});
 	$(document).on('click', '.dze-one-pastedel', function (e) {
 		e.preventDefault();
 		e.stopPropagation();
