@@ -41,6 +41,8 @@ final class DZE_Content {
 
 	/** How many photographs of the product travel with one generation. */
 	public const MAX_SOURCES = 6;
+	/** How many photographs from outside the shop can be sent with one run. */
+	public const MAX_PASTED = 4;
 	/** Ceiling on the encoded images in one request body, in bytes. */
 	private const MAX_PAYLOAD = 9437184; // 9 MB.
 	/** Ceiling on one image pulled from the web for the quick lane. */
@@ -3640,6 +3642,8 @@ Answer with STRICT JSON and nothing else: "
 			// is reserved: it is simply the first image prompt writing the main
 			// image, and it changes the moment the list does.
 			'mainRecipe' => (string) ( self::main_recipe()['id'] ?? '' ),
+			// How many photographs from outside the shop one run accepts.
+			'maxPasted'  => self::MAX_PASTED,
 			// The shapes offered when reframing.
 			'ratios'     => self::ratios(),
 			'product'    => [
@@ -3702,11 +3706,15 @@ Answer with STRICT JSON and nothing else: "
 				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
 				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),
 				'qmBgPlate'  => __( 'The shop backdrop', 'dazont-ecom' ),
-				'qmPaste'    => __( 'Paste an image here (Ctrl+V), drop a file, or', 'dazont-ecom' ),
+				'qmPaste'    => __( 'Paste an image here (Ctrl+V), drop files, or', 'dazont-ecom' ),
 				// The file is read in the browser and travels inside the
 				// request: nothing is stored on the site for a source image.
-				'qmBrowse'   => __( 'choose one on your computer', 'dazont-ecom' ),
-				'qmPasted'   => __( 'Image ready ✓', 'dazont-ecom' ),
+				'qmBrowse'   => __( 'Upload', 'dazont-ecom' ),
+				'qmPasted'   => __( '1 image added', 'dazont-ecom' ),
+				/* translators: %s: number of images added */
+				'qmPastedN'  => __( '%s images added', 'dazont-ecom' ),
+				'pasteSubject' => __( 'subject', 'dazont-ecom' ),
+				'remove'     => __( 'Remove', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
@@ -4125,6 +4133,36 @@ Answer with STRICT JSON and nothing else: "
 	 * image, and stay under the ceiling — minus the fetch, since the browser
 	 * already had the file.
 	 */
+	/**
+	 * Several photographs pasted or picked from the computer, read as one set.
+	 *
+	 * The first one is the SUBJECT; the ones after it are context — three
+	 * supplier shots of the same jacket, none of them usable as it stands, say
+	 * far more together than the best of them alone. Capped, and a file that is
+	 * not an image is dropped rather than taking the whole run down.
+	 *
+	 * @param array<int,string> $uris Raw data URIs from the request.
+	 * @return string[] Validated data URIs.
+	 */
+	public static function read_data_uris( array $uris, int $max = self::MAX_PASTED ): array {
+		$out = [];
+		foreach ( $uris as $uri ) {
+			if ( count( $out ) >= $max ) {
+				break;
+			}
+			$uri = (string) $uri;
+			if ( '' === trim( $uri ) ) {
+				continue;
+			}
+			try {
+				$out[] = self::read_data_uri( $uri );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+		}
+		return $out;
+	}
+
 	public static function read_data_uri( string $uri ): string {
 		if ( ! preg_match( '#^data:(image/[a-z0-9.+-]+);base64,(.+)$#i', trim( $uri ), $m ) ) {
 			throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
