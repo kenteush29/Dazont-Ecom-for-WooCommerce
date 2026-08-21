@@ -143,6 +143,10 @@
 					'</label>' +
 					'<span class="dze-lab-resacts">' +
 						'<a class="button button-small" href="' + esc(url) + '" target="_blank" rel="noopener" download>' + esc(i18n.download) + '</a> ' +
+						// The same ↻ as everywhere else in the plugin: this
+						// attempt again, with the prompt as it stands, in its
+						// place — not a fifth image at the top of the pile.
+						'<button type="button" class="button button-small dze-lab-redo" title="' + esc(i18n.redo) + '">↻</button> ' +
 						'<button type="button" class="button button-small button-primary dze-lab-keep">' + esc(i18n.keep) + '</button> ' +
 						'<span class="dze-lab-resstate"></span>' +
 					'</span>' +
@@ -153,17 +157,39 @@
 		$('#dze-lab-outcap').text(sprintf(i18n.tries, n));
 		$('#dze-lab-outwrap').show();
 	}
+	// One order, read from the bench as it stands: Generate and ↻ ask for
+	// exactly the same thing.
+	function labRequest(prompt) {
+		return {
+			action: 'dze_lab_generate', nonce: cfg.nonce, prompt: prompt,
+			pasted: srcs.filter(function (s) { return !!s.data; }).map(function (s) { return s.data; }),
+			ids: srcs.filter(function (s) { return !!s.id; }).map(function (s) { return s.id; })
+		};
+	}
+	$(document).on('click', '.dze-lab-redo', function () {
+		var prompt = $('#dze-lab-prompt').val() || '';
+		if (!prompt.trim()) { say(i18n.noPrompt, true); return; }
+		var $fig = $(this).closest('.dze-lab-res').addClass('is-busy');
+		var $st = $fig.find('.dze-lab-resstate').removeClass('is-ko').text('…');
+		$.post(cfg.ajaxUrl, labRequest(prompt))
+			.done(function (r) {
+				$fig.removeClass('is-busy');
+				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+				$st.text('');
+				$fig.attr('data-url', r.data.url);
+				$fig.find('img').attr('src', r.data.url).attr('data-full', r.data.url);
+				$fig.find('.dze-lab-keep').prop('disabled', false);
+				$fig.find('a.button').attr('href', r.data.url);
+			})
+			.fail(function (x) { $fig.removeClass('is-busy'); $st.addClass('is-ko').text(reason(x)); });
+	});
 	$(document).on('click', '#dze-lab-run', function () {
 		var prompt = $('#dze-lab-prompt').val() || '';
 		if (!prompt.trim()) { say(i18n.noPrompt, true); return; }
 		var $b = $(this).prop('disabled', true);
 		say(i18n.working);
 		try { window.localStorage.setItem(MEM, prompt); } catch (e) {}
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_lab_generate', nonce: cfg.nonce, prompt: prompt,
-			pasted: srcs.filter(function (s) { return !!s.data; }).map(function (s) { return s.data; }),
-			ids: srcs.filter(function (s) { return !!s.id; }).map(function (s) { return s.id; })
-		})
+		$.post(cfg.ajaxUrl, labRequest(prompt))
 			.done(function (r) {
 				$b.prop('disabled', false);
 				if (!r || !r.success) { say((r && r.data && r.data.message) || i18n.error, true); return; }
