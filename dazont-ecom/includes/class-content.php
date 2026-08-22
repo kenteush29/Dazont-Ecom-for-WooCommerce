@@ -3748,7 +3748,7 @@ Answer with STRICT JSON and nothing else: "
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
-				'qmSource'   => __( 'Worked from', 'dazont-ecom' ),
+				'qmSource'   => __( 'Base image', 'dazont-ecom' ),
 				'foundWaiting' => __( 'Found again: this was generated earlier and never decided on.', 'dazont-ecom' ),
 				/* translators: %s: number of attempts */
 				'tryPick'    => __( '%s attempts — tick the ones to keep', 'dazont-ecom' ),
@@ -4843,10 +4843,10 @@ Answer with STRICT JSON and nothing else: "
 			'added1'     => __( '1 image added', 'dazont-ecom' ),
 			/* translators: %s: number of images added */
 			'addedN'     => __( '%s images added', 'dazont-ecom' ),
-			'workedFrom' => __( 'Worked from', 'dazont-ecom' ),
-			'first'      => __( 'Build the image from this one instead', 'dazont-ecom' ),
+			'workedFrom' => __( 'Base image', 'dazont-ecom' ),
+			'first'      => __( 'Use this one as the base image', 'dazont-ecom' ),
 			'remove'     => __( 'Remove', 'dazont-ecom' ),
-			'help'       => __( 'The first photograph is the one the image is built from. The others are sent with it so the model knows the product — they are never copied into the result.', 'dazont-ecom' ),
+			'help'       => __( 'The base image is the photograph that gets transformed — the new image is made from it. The others are only sent so the model knows the product; nothing of them is copied into the result.', 'dazont-ecom' ),
 			'tooBig'     => __( 'That image would make the request too heavy. Remove one of the others, or use a lighter file.', 'dazont-ecom' ),
 		] );
 	}
