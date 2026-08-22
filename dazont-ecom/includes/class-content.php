@@ -3492,7 +3492,8 @@ Answer with STRICT JSON and nothing else: "
 					/* translators: %s: number of ticked products */
 					'confirmSel' => __( 'Write the generated content to the %s ticked products? This modifies the shop.', 'dazont-ecom' ),
 					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
-					'applyOne' => __( 'Apply this product', 'dazont-ecom' ),
+					/* translators: %s: number of texts and images about to be written */
+					'applyOne' => __( 'Apply (%s)', 'dazont-ecom' ),
 					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
 					'sSkipped' => __( 'Left alone — already written and waiting for a decision', 'dazont-ecom' ),
 					/* translators: %s: number of products */
@@ -3737,7 +3738,8 @@ Answer with STRICT JSON and nothing else: "
 				'attempts'   => __( 'Attempts', 'dazont-ecom' ),
 				'attemptsHelp' => __( 'Attempts for this prompt — you keep the good ones once you have seen them.', 'dazont-ecom' ),
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
-				'applyOne'   => __( 'Apply to the product', 'dazont-ecom' ),
+				/* translators: %s: number of texts and images about to be written */
+				'applyOne'   => __( 'Apply (%s)', 'dazont-ecom' ),
 				'redoAll'    => __( 'Generate all', 'dazont-ecom' ),
 				'redoOne'    => __( 'Generate this text again', 'dazont-ecom' ),
 				'redoShort'  => __( 'Generate', 'dazont-ecom' ),

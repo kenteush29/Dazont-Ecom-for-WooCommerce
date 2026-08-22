@@ -685,6 +685,7 @@
 		}
 		b.built = true;
 		renderShots(id);
+		panelApplyLabel(id);
 		// The gallery as it stands today, right under the new images: the only
 		// way to judge whether a generated shot ADDS something.
 		loadCurrent(id).then(function () { renderCurrentImages(id); });
@@ -758,6 +759,7 @@
 		);
 	}
 	function renderShots(id) {
+		window.setTimeout(function () { panelApplyLabel(id); }, 0);
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
 		// The same image can reach the strip twice — restored from an earlier
 		// run and generated again in this one. It is one image either way.
@@ -1342,6 +1344,26 @@
 		// a batch is confirmed.
 		if (ids.length > 1 && !window.confirm(sprintf(i18n.confirmSel, ids.length))) { return; }
 		applyProducts(ids, $(this));
+	});
+	// What this panel's button is about to write, counted the way the click
+	// counts it: the ticked images plus the ticked blocks of text.
+	function panelApplyLabel(id) {
+		var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
+		if (!$prev.length) { return; }
+		var b = results[id] || { texts: {} };
+		var n = $prev.find('.dze-cb-shot.is-sel').length;
+		Object.keys(b.texts || {}).forEach(function (fid) {
+			var $k = $prev.find('.dze-cb-fblock[data-field="' + fid + '"]').find('.dze-cb-fkeep');
+			if (!$k.length || $k.is(':checked')) { n++; }
+		});
+		$prev.find('.dze-cb-applyone').prop('disabled', 0 === n).text(sprintf(i18n.applyOne, n));
+	}
+	$(document).on('change', '.dze-cb-preview .dze-cb-fkeep', function () {
+		panelApplyLabel($(this).closest('.dze-cb-preview').data('id'));
+	});
+	$(document).on('click', '.dze-cb-preview .dze-cb-shot', function () {
+		var id = $(this).closest('.dze-cb-preview').data('id');
+		window.setTimeout(function () { panelApplyLabel(id); }, 0);
 	});
 	// One product, from its own panel: no confirmation, it is one deliberate
 	// click on one product you are looking at.
