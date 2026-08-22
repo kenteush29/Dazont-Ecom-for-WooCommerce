@@ -492,6 +492,11 @@
 	function imageRequest(id, review, tpl, scene, attempt, target) {
 		var job  = jobFor(tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
+		// What was handed to THIS product from outside the shop, and to no
+		// other: the box lives on its own panel.
+		var b = results[id];
+		var outside = (b && b.paste) ? b.paste.list() : [];
+		if (outside.length) { data.pastes = outside; }
 		// Which attempt of this prompt this is: the second one is asked for a
 		// different framing instead of coming back as the first one again.
 		if (attempt) { data.attempt = attempt; }
@@ -652,6 +657,13 @@
 		// panel: what the product has today, then what was written, then what
 		// was generated, then the decision.
 		html += '</div>' +
+			// Photographs this product does not have yet, sent with the images
+			// asked for from this panel: a supplier shot pasted on the line of
+			// the product it belongs to, and to no other.
+			'<details class="dze-cx-acc dze-cb-else">' +
+				'<summary>' + esc(i18n.stepElse) + '</summary>' +
+				'<div class="dze-cb-elsebox"></div>' +
+			'</details>' +
 			'<div class="dze-cb-shots-slot"></div>' +
 			'<p class="dze-cb-panelbar">' +
 				(Object.keys(b.texts).length
@@ -663,6 +675,14 @@
 			'</p>';
 		html = '<div class="dze-cb-nowshots"></div>' + html;
 		$cell.html('<div class="dze-cx-result">' + html + '</div>');
+		// One box per product, kept on that product's bucket: the panel can be
+		// closed and reopened, and what was handed to it stays with it.
+		if (window.dzePasteBox) {
+			b.paste = window.dzePasteBox.mount($cell.find('.dze-cb-elsebox'), {
+				max: parseInt(cfg.maxPasted, 10) || 12,
+				maxBody: parseInt(cfg.maxBody, 10) || 9437184
+			});
+		}
 		b.built = true;
 		renderShots(id);
 		// The gallery as it stands today, right under the new images: the only
