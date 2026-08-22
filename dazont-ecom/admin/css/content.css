@@ -380,6 +380,14 @@
 }
 .dze-one-srcpick img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
 .dze-one-srcpick.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
+/* The colour a photograph belongs to, on the photograph. */
+.dze-one-srcpick { position: relative; }
+.dze-one-srcvar, .dze-nowvar {
+	position: absolute; left: 4px; bottom: 4px; right: 4px; z-index: 2;
+	padding: 0 4px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff;
+	font-size: 10px; line-height: 16px; text-align: center;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* The photographs brought from outside: a row of them, the first one marked
    as the subject, each with the cross that takes it back out. They used to be
    one image with no way to remove it — the popup had to be closed. */

@@ -426,12 +426,17 @@ EOT;
 			// a supplier title alone invents the material, the cut and the
 			// details; one written in front of the product does not.
 			'photos'            => __( 'The product photographs (the model looks at them)', 'dazont-ecom' ),
+			// The other colours. Useful on a prompt that needs to know the
+			// product in every version it is sold in — and deliberately NOT
+			// automatic: sending a blue shoe with a black one is how a
+			// generation comes back the wrong colour.
+			'variation_photos'  => __( 'The variation photographs (the other colours)', 'dazont-ecom' ),
 		];
 	}
 
 	/** Inputs that are images rather than lines of text. */
 	public static function is_image_input( string $key ): bool {
-		return 'photos' === $key;
+		return in_array( $key, [ 'photos', 'variation_photos' ], true );
 	}
 
 	/** Output destinations per content type. */
@@ -703,7 +708,8 @@ EOT;
 		foreach ( $inputs as $k ) {
 			switch ( $k ) {
 				case 'photos':
-					// Sent as images, not as a line: see look_images().
+				case 'variation_photos':
+					// Sent as images, not as lines: see look_images().
 					break;
 				case 'title':
 					// Working on one variation: the title is that variation's,
@@ -1123,8 +1129,10 @@ EOT;
 	 * @param int        $avoid Photographs this prompt already made, sent after
 	 *                          the product ones and before the scene, so the
 	 *                          model can see what it must not do again.
+	 * @param int        $variants Photographs of OTHER COLOURS of the same
+	 *                          product, sent right after the product's own.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0 ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0 ): string {
 		$out = "\n\n";
 		if ( $count > 1 ) {
 			$out .= sprintf(
@@ -1135,6 +1143,21 @@ EOT;
 		} else {
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
 		}
+		// The other colours of the same product. They say what the shape, the
+		// cut and the details are — and nothing at all about the colour of the
+		// one being made, which is the whole reason they have to be named
+		// rather than dropped in with the rest.
+		if ( $variants > 0 ) {
+			$first = $count + 1;
+			$out  .= ' ' . (
+				1 === $variants
+					? sprintf( 'IMAGE %d IS THE SAME PRODUCT IN ANOTHER COLOUR', $first )
+					: sprintf( 'IMAGES %1$d TO %2$d ARE THE SAME PRODUCT IN OTHER COLOURS', $first, $first + $variants - 1 )
+			);
+			$out .= ' — same shape, same cut, same details, a different colourway. Read '
+				. ( 1 === $variants ? 'it' : 'them' )
+				. ' for the construction and the details only. The colours, the pattern and the material of the product you are making come from the photographs above and from them alone.';
+		}
 		// The model has no memory of what it handed back a minute ago, so
 		// asking a second time for "a photograph of the product in use" simply
 		// returned the first one again. It is shown them instead of being told
@@ -1143,8 +1166,8 @@ EOT;
 		if ( $avoid > 0 ) {
 			$out .= ' ' . (
 				1 === $avoid
-					? sprintf( 'IMAGE %d IS A PHOTOGRAPH ALREADY MADE', $count + 1 )
-					: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS ALREADY MADE', $count + 1, $count + $avoid )
+					? sprintf( 'IMAGE %d IS A PHOTOGRAPH ALREADY MADE', $count + $variants + 1 )
+					: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS ALREADY MADE', $count + $variants + 1, $count + $variants + $avoid )
 			);
 			$out .= ' for this product with these very instructions. They are here for one reason: the photograph you are making now must be clearly different from '
 				. ( 1 === $avoid ? 'it' : 'each of them' )
@@ -1157,7 +1180,7 @@ EOT;
 			// image can be a blank product to print on, and a sentence
 			// forbidding a scene from looking like a product fought the prompt
 			// that asked for exactly that.
-			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $avoid + 1 );
+			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $variants + $avoid + 1 );
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
@@ -3323,6 +3346,10 @@ Answer with STRICT JSON and nothing else: "
 					'nowImages' => __( 'Photographs already on the product', 'dazont-ecom' ),
 					'nowMain'   => __( 'Main image', 'dazont-ecom' ),
 					'nowGallery'=> __( 'Gallery', 'dazont-ecom' ),
+					// One column more: the photographs the variations carry,
+					// after the main image and the gallery — they are the
+					// product too, and they were nowhere on this screen.
+					'nowVars'   => __( 'Variations', 'dazont-ecom' ),
 					// Two buttons that say what they do, rather than a menu that
 					// has to be opened to find out what the screen can even do.
 					'btnAi'     => __( 'Main image with AI', 'dazont-ecom' ),
@@ -3335,7 +3362,7 @@ Answer with STRICT JSON and nothing else: "
 					'rfCrop'    => __( 'Crop to shape (the sides are cut)', 'dazont-ecom' ),
 					'rfRun'     => __( 'Reframe', 'dazont-ecom' ),
 					'rfNone'    => __( 'Tick the photographs to reframe.', 'dazont-ecom' ),
-					'rfApply'   => __( 'Save on the product', 'dazont-ecom' ),
+					'rfApply'   => __( 'Save selected', 'dazont-ecom' ),
 					'rfDropOld' => __( 'and delete the originals', 'dazont-ecom' ),
 					'cancel'    => __( 'Cancel', 'dazont-ecom' ),
 					'discard'   => __( 'Discard', 'dazont-ecom' ),
@@ -3427,8 +3454,8 @@ Answer with STRICT JSON and nothing else: "
 					'revNonce' => wp_create_nonce( 'dze_reviews' ),
 					'running'  => __( 'in progress', 'dazont-ecom' ),
 					'partial'  => __( '%1$s of %2$s written', 'dazont-ecom' ),
-					'redoOne'  => __( 'Write this one again', 'dazont-ecom' ),
-					'redoAll'  => __( 'Write every text again', 'dazont-ecom' ),
+					'redoOne'  => __( 'Generate this text again', 'dazont-ecom' ),
+					'redoAll'  => __( 'Generate all', 'dazont-ecom' ),
 					'oneMore'  => __( 'One more image', 'dazont-ecom' ),
 					'shotPos'  => __( 'Click to change where this image goes', 'dazont-ecom' ),
 					'shotRedo' => __( 'Make this image again', 'dazont-ecom' ),
@@ -3468,7 +3495,7 @@ Answer with STRICT JSON and nothing else: "
 					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
 					'compare'  => __( 'Current', 'dazont-ecom' ),
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
-					'redoShort'=> __( 'Rewrite', 'dazont-ecom' ),
+					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
@@ -3692,9 +3719,9 @@ Answer with STRICT JSON and nothing else: "
 				'attemptsHelp' => __( 'Attempts for this prompt — you keep the good ones once you have seen them.', 'dazont-ecom' ),
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),
 				'applyOne'   => __( 'Apply to the product', 'dazont-ecom' ),
-				'redoAll'    => __( 'Write every text again', 'dazont-ecom' ),
-				'redoOne'    => __( 'Write this one again', 'dazont-ecom' ),
-				'redoShort'  => __( 'Rewrite', 'dazont-ecom' ),
+				'redoAll'    => __( 'Generate all', 'dazont-ecom' ),
+				'redoOne'    => __( 'Generate this text again', 'dazont-ecom' ),
+				'redoShort'  => __( 'Generate', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
@@ -3703,7 +3730,6 @@ Answer with STRICT JSON and nothing else: "
 				'qmSource'   => __( 'Worked from', 'dazont-ecom' ),
 				/* translators: %s: number of attempts */
 				'tryPick'    => __( '%s attempts — tick the ones to keep', 'dazont-ecom' ),
-				'qmAgain'    => __( 'Try again', 'dazont-ecom' ),
 				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),
 				'qmBgPlate'  => __( 'The shop backdrop', 'dazont-ecom' ),
 				'qmPaste'    => __( 'Paste an image here (Ctrl+V), drop files, or', 'dazont-ecom' ),
@@ -3730,7 +3756,7 @@ Answer with STRICT JSON and nothing else: "
 				'pvEdit'     => __( 'Edit the price table', 'dazont-ecom' ),
 				// The one-block popup.
 				'oneWrite'   => __( 'Write this with AI', 'dazont-ecom' ),
-				'oneMain'    => __( 'Make the main image', 'dazont-ecom' ),
+				'oneMain'    => __( 'Main image', 'dazont-ecom' ),
 				'oneInstr'   => __( 'Instructions sent to the model', 'dazont-ecom' ),
 				'oneInstrH'  => __( 'Edited here, it is used for this run only — unless you save it as the prompt.', 'dazont-ecom' ),
 				'oneSave'    => __( 'Save as the prompt', 'dazont-ecom' ),
@@ -3745,17 +3771,15 @@ Answer with STRICT JSON and nothing else: "
 				'oneSaved'   => __( 'Prompt saved ✓', 'dazont-ecom' ),
 				'oneBefore'  => __( 'On the product today', 'dazont-ecom' ),
 				'oneAfter'   => __( 'What was just written', 'dazont-ecom' ),
-				'oneGen'     => __( 'Write it', 'dazont-ecom' ),
-				'oneRedo'    => __( 'Write it again', 'dazont-ecom' ),
-				'oneApply'   => __( 'Save on the product', 'dazont-ecom' ),
+				'oneApply'   => __( 'Save', 'dazont-ecom' ),
 				// What the page cannot show by itself: SEO fields, custom
 				// blocks, attributes. Written, but not on screen until it is
 				// read again.
 				'reloadWhy'  => __( 'Saved — this page cannot show it until it is loaded again.', 'dazont-ecom' ),
 				'reloadNow'  => __( 'Reload the page', 'dazont-ecom' ),
 				/* translators: %s: number of images kept */
-				'oneApplyN'  => __( 'Save these %s on the product', 'dazont-ecom' ),
-				'oneDropAll' => __( 'Throw these attempts away', 'dazont-ecom' ),
+				'oneApplyN'  => __( 'Save selected', 'dazont-ecom' ),
+				'oneDropAll' => __( 'Discard', 'dazont-ecom' ),
 				'dropped'    => __( 'Thrown away ✓', 'dazont-ecom' ),
 				// Several images in one go, and what becomes of the image the
 				// new main one replaces.
@@ -3782,7 +3806,7 @@ Answer with STRICT JSON and nothing else: "
 				'varPaste'   => __( 'Paste / file', 'dazont-ecom' ),
 				'varClear'   => __( 'Take this image off the variations', 'dazont-ecom' ),
 				/* translators: %s: number of generated images waiting for a decision */
-				'varSaveAll' => __( 'Save these %s on the product', 'dazont-ecom' ),
+				'varSaveAll' => __( 'Save selected', 'dazont-ecom' ),
 				'varNote'    => __( 'Notes', 'dazont-ecom' ),
 				'noteTitle'  => __( 'Notes about this product', 'dazont-ecom' ),
 				'noteHelp'   => __( 'Sent with every image made for this product — the real fabric, the finish, what no photograph shows. Saved as you leave the box.', 'dazont-ecom' ),
@@ -3791,8 +3815,8 @@ Answer with STRICT JSON and nothing else: "
 				'varNoteLabel' => __( 'What to know about this variation', 'dazont-ecom' ),
 				'varNoteHelp'=> __( 'Kept with the product and sent with every image made for this variation.', 'dazont-ecom' ),
 				'varNotePh'  => __( 'e.g. fabric: black, multicam tropic ripstop camo', 'dazont-ecom' ),
-				'varUseAs'   => __( 'Use it as it is', 'dazont-ecom' ),
-				'varFromIt'  => __( 'Make a clean image from it', 'dazont-ecom' ),
+				'varUseAs'   => __( 'Use as is', 'dazont-ecom' ),
+				'varFromIt'  => __( 'Generate', 'dazont-ecom' ),
 				'varMissing' => __( 'Tick the ones without an image', 'dazont-ecom' ),
 				/* translators: 1: variations in the group, 2: how many have their own image */
 				'varCount'   => __( '%1$s variations · %2$s with their own image', 'dazont-ecom' ),
@@ -3831,7 +3855,7 @@ Answer with STRICT JSON and nothing else: "
 				'rfCrop'     => __( 'Crop to shape (the sides are cut)', 'dazont-ecom' ),
 				'rfRun'      => __( 'Reframe', 'dazont-ecom' ),
 				'rfNone'     => __( 'Tick the photographs to reframe.', 'dazont-ecom' ),
-				'rfApply'    => __( 'Save on the product', 'dazont-ecom' ),
+				'rfApply'    => __( 'Save selected', 'dazont-ecom' ),
 				'rfDropOld'  => __( 'and delete the originals', 'dazont-ecom' ),
 				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
 				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
@@ -3843,8 +3867,7 @@ Answer with STRICT JSON and nothing else: "
 				'imgRecipe'  => __( 'Prompt', 'dazont-ecom' ),
 				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
 				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),
-				'imgRun'     => __( 'Make the image', 'dazont-ecom' ),
-				'imgSaved'   => __( 'Saved on the product ✓', 'dazont-ecom' ),
+				'imgSaved'   => __( 'Saved ✓', 'dazont-ecom' ),
 				'keepHelp'   => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 				'nothingKept'=> __( 'Nothing left to write: every block was unticked.', 'dazont-ecom' ),
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
@@ -5050,6 +5073,22 @@ Answer with STRICT JSON and nothing else: "
 	 * @return int[]
 	 */
 	public static function product_image_ids( int $pid ): array {
+		return array_values( array_unique( array_merge(
+			self::product_own_image_ids( $pid ),
+			array_keys( self::variation_images( $pid ) )
+		) ) );
+	}
+
+	/**
+	 * The product's OWN photographs: the featured image, then the gallery.
+	 *
+	 * What a variation carries is not in here — a colour's photograph belongs
+	 * to that colour, and mixing the two silently is how a generation of a
+	 * black shoe came back blue.
+	 *
+	 * @return int[]
+	 */
+	public static function product_own_image_ids( int $pid ): array {
 		$ids     = [];
 		$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
 		$thumb   = (int) get_post_thumbnail_id( $pid );
@@ -5065,8 +5104,32 @@ Answer with STRICT JSON and nothing else: "
 		return array_values( array_filter( $ids, static fn( $id ) => wp_attachment_is_image( (int) $id ) ) );
 	}
 
+	/**
+	 * One photograph per colour: what the variations carry that the product
+	 * itself does not show.
+	 *
+	 * Grouped exactly like the Variation images popup — one image per group,
+	 * never fifteen near-identical ones — and what is already the main image or
+	 * a gallery image is left out: it is the same file.
+	 *
+	 * @return array<int,string> attachment id => the colour it belongs to.
+	 */
+	public static function variation_images( int $pid ): array {
+		$out  = [];
+		$own  = self::product_own_image_ids( $pid );
+		$data = self::variation_groups( $pid );
+		foreach ( (array) ( $data['groups'] ?? [] ) as $row ) {
+			$img = (int) ( $row['image'] ?? 0 );
+			if ( ! $img || isset( $out[ $img ] ) || in_array( $img, $own, true ) ) {
+				continue;
+			}
+			$out[ $img ] = (string) ( $row['label'] ?? '' );
+		}
+		return $out;
+	}
+
 	public static function product_source_ids( int $pid ): array {
-		return array_slice( self::product_image_ids( $pid ), 0, self::MAX_SOURCES );
+		return array_slice( self::product_own_image_ids( $pid ), 0, self::MAX_SOURCES );
 	}
 
 	public function fal_source_data_uri( int $attachment_id, string $wanted = 'large' ): string {
