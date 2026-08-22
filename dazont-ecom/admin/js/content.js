@@ -497,6 +497,7 @@
 	}
 
 	function drawDrawers() {
+		window.setTimeout(cxApplyLabel, 0);
 		var html = '';
 		Object.keys(res.texts).forEach(function (fid) {
 			var c = res.shotOf[fid];
@@ -648,6 +649,7 @@
 	}
 	function isVariation(v) { return 0 === String(v || '').indexOf('variation:'); }
 	function drawShots() {
+		window.setTimeout(cxApplyLabel, 0);
 		var $slot = $('#dze-cx-shots');
 		// The same image can reach the strip twice — restored from an earlier
 		// visit and generated again in this one. It is one image either way.
@@ -967,6 +969,24 @@
 	});
 
 	// ---- Accepting ----
+	// What the button is about to write, counted the same way the click counts
+	// it: the ticked images plus the ticked blocks of text. A button that says
+	// "Apply to the product" leaves you counting the ticks yourself.
+	function cxKeptCount() {
+		var n = $('#dze-cx-shots .dze-cb-shot.is-sel').length;
+		Object.keys(res.texts || {}).forEach(function (fid) {
+			var $k = $('#dze-cx-drawers .dze-cb-fblock[data-field="' + fid + '"]').find('.dze-cb-fkeep');
+			if (!$k.length || $k.is(':checked')) { n++; }
+		});
+		return n;
+	}
+	function cxApplyLabel() {
+		var n = cxKeptCount();
+		$('.dze-cx-applyone').prop('disabled', 0 === n).text(sprintf(i18n.applyOne, n));
+	}
+	// Every tick that changes what would be written keeps the button honest.
+	$(document).on('change', '#dze-cx-drawers .dze-cb-fkeep', cxApplyLabel);
+	$(document).on('click', '#dze-cx-shots .dze-cb-shot', function () { window.setTimeout(cxApplyLabel, 0); });
 	$(document).on('click', '.dze-cx-applyone', function () {
 		var $btn = $(this).prop('disabled', true);
 		var $st = $('#dze-cx-result .dze-cb-panelstate').removeClass('is-ko').text(i18n.applying);
