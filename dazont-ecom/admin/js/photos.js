@@ -36,6 +36,10 @@
 			.attr('data-id', im.id)
 			.append(
 				$('<img />').attr('src', im.thumb).attr('data-full', im.full || im.thumb).attr('alt', ''),
+				// The colour it belongs to, when it belongs to one: without it
+				// a strip of eight photographs of the same shoe gives no clue
+				// why three of them are blue.
+				(im.variation ? $('<span class="dze-nowvar"></span>').text(im.variation) : ''),
 				// A catalogue is square or it is not: the shape is written under
 				// each photograph rather than opened to be found out.
 				$('<span class="dze-nowdim"></span>').text(
@@ -55,7 +59,8 @@
 		if (!imgs.length) { $slot.empty(); return; }
 
 		var main = imgs.filter(function (im) { return im.main; });
-		var rest = imgs.filter(function (im) { return !im.main; });
+		var vars = imgs.filter(function (im) { return !im.main && im.variation; });
+		var rest = imgs.filter(function (im) { return !im.main && !im.variation; });
 
 		// The main image apart from the gallery, on the same line: same kind of
 		// thing, different job.
@@ -74,6 +79,17 @@
 			rest.forEach(function (im) { $g2.append(tile(im)); });
 			$restCol.append($g2);
 			$wrap.append($restCol);
+		}
+		// Then the ones the variations carry, in their own column: same kind of
+		// thing, and the reason there are three photographs of a shoe nobody
+		// put in the gallery.
+		if (vars.length) {
+			var $varCol = $('<div class="dze-nowcol"></div>')
+				.append($('<span class="dze-nowcap"></span>').text(i18n.nowVars || ''));
+			var $g3 = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
+			vars.forEach(function (im) { $g3.append(tile(im)); });
+			$varCol.append($g3);
+			$wrap.append($varCol);
 		}
 
 		// ONE menu of what can be done to these photographs. Reframing is not

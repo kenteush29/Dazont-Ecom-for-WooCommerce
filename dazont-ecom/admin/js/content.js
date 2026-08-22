@@ -1212,9 +1212,8 @@
 		// The decision bar belongs to a result: there is none yet.
 		$('#dze-one-dest, #dze-one-pair').hide();
 		$('#dze-one-apply').hide().text(i18n.oneApply);
-		$('#dze-one-gen').text(mode === 'image'
-			? (one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain)
-			: i18n.oneGen);
+		// One word on the button that runs it, whatever it makes: Generate.
+		$('#dze-one-gen').text(i18n.generate);
 		$('#dze-one-body').html(mode === 'image' ? oneImageBody() : instrBlock());
 		$('#dze-one-prompt').val(mode === 'image' ? (cfg.quickPrompt || '') : ((cfg.prompts && cfg.prompts[fid]) || ''));
 		if ('image' !== mode) { oneFillSettings(fid); }
@@ -1409,8 +1408,14 @@
 		var html = '<button type="button" class="dze-one-srcpick is-sel" data-id="0">' + esc(i18n.imgAll) + '</button>';
 		(imgs || []).forEach(function (im) {
 			if (!im.id) { return; }
-			html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '">' +
-				'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" /></button>';
+			// A photograph that belongs to a colour says so on the tile: it is
+			// in this strip like the others, and picking it without knowing
+			// which colour it is is how a black shoe came back blue.
+			html += '<button type="button" class="dze-one-srcpick" data-id="' + im.id + '"' +
+				(im.variation ? ' title="' + esc(im.variation) + '"' : '') + '>' +
+				'<img class="dze-hzoom" src="' + esc(im.thumb) + '" data-full="' + esc(im.full || im.thumb) + '" alt="" />' +
+				(im.variation ? '<span class="dze-one-srcvar">' + esc(im.variation) + '</span>' : '') +
+				'</button>';
 		});
 		html += '<button type="button" class="dze-one-srcpick dze-one-srcnew" data-id="new">' +
 			'<img id="dze-one-newthumb" alt="" style="display:none;" />' +
@@ -1591,7 +1596,7 @@
 				quicktags: true, mediaButtons: false
 			});
 		}
-		$('#dze-one-gen').text(i18n.oneRedo);
+		$('#dze-one-gen').text(i18n.generate);
 		$('#dze-one-apply').show();
 	}
 
@@ -1650,7 +1655,7 @@
 						$('#dze-one-pair').show();
 						$('#dze-one-dest').show();
 						$('#dze-one-oldwrap').toggle('main' === ($('#dze-one-target').val() || 'main'));
-						$('#dze-one-gen').text(i18n.qmAgain);
+						$('#dze-one-gen').text(i18n.generate);
 						if (made < want) { shoot(); return; }
 						$b.prop('disabled', false);
 						$st.text('');
@@ -1832,7 +1837,7 @@
 			}
 		});
 		var n = Object.keys(vars.made || {}).length;
-		$('#dze-var-saveall').toggle(n > 1).text(sprintf(i18n.varSaveAll, n));
+		$('#dze-var-saveall').toggle(n > 1).text(i18n.varSaveAll);
 	}
 	function varGroup($row) { return String($row.attr('data-key') || ''); }
 	function varSay($row, text, bad) {
@@ -2212,7 +2217,7 @@
 	function oneApplyLabel() {
 		var n = oneKept().length;
 		$('#dze-one-apply').show().text(
-			n ? (n > 1 ? sprintf(i18n.oneApplyN, n) : i18n.oneApply) : i18n.oneDropAll
+			n ? (n > 1 ? i18n.oneApplyN : i18n.oneApply) : i18n.oneDropAll
 		);
 	}
 	// Saved when you leave it: one line typed once, kept with the product.
@@ -2390,7 +2395,7 @@
 						$('#dze-one-pair').hide();
 						$('#dze-one-dest').hide();
 						$('#dze-one-apply').hide();
-						$('#dze-one-gen').text(one.scope === 'gallery' ? i18n.imgRun : i18n.oneMain);
+						$('#dze-one-gen').text(i18n.generate);
 						done(r);
 						if (msg) { $st.text(msg); }
 					});

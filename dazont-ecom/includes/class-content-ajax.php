@@ -87,9 +87,16 @@ trait DZE_Content_Ajax {
 	 * @param int[] $skip Attachment ids already attached to this request.
 	 * @return array<int,array{media:string,data:string}>
 	 */
-	private function look_images( int $pid, array $skip = [], int $max = 3 ): array {
+	private function look_images( int $pid, array $skip = [], int $max = 3, bool $variants = false ): array {
+		$ids = self::product_source_ids( $pid );
+		if ( $variants ) {
+			// The other colours, after the product's own: a description that
+			// has to name the colourways cannot be written from one of them.
+			$ids = array_merge( $ids, array_slice( array_keys( self::variation_images( $pid ) ), 0, 2 ) );
+			$max = $max + 2;
+		}
 		$out = [];
-		foreach ( self::product_source_ids( $pid ) as $aid ) {
+		foreach ( $ids as $aid ) {
 			if ( count( $out ) >= $max ) {
 				break;
 			}
@@ -106,6 +113,39 @@ trait DZE_Content_Ajax {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The other colours of this product, ready to travel with a generation.
+	 *
+	 * Two at most: they are there to confirm a shape and a construction, and
+	 * past two they only make the request heavier and the colour question
+	 * murkier.
+	 *
+	 * @param int[] $skip Attachment ids already in the request.
+	 * @return string[] data URIs.
+	 */
+	private function variant_images( int $pid, array $skip = [], int $max = 2 ): array {
+		$out = [];
+		foreach ( array_keys( self::variation_images( $pid ) ) as $aid ) {
+			if ( count( $out ) >= $max ) {
+				break;
+			}
+			if ( in_array( (int) $aid, array_map( 'intval', $skip ), true ) ) {
+				continue;
+			}
+			try {
+				$out[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+			} catch ( \Throwable $e ) {
+				continue;
+			}
+		}
+		return $out;
+	}
+
+	/** Does this prompt ask for the other colours as well? */
+	private static function wants_variants( array $row ): bool {
+		return in_array( 'variation_photos', array_map( 'strval', (array) ( $row['inputs'] ?? [] ) ), true );
 	}
 
 	/** Does this prompt ask to SEE the product? */
@@ -152,7 +192,10 @@ trait DZE_Content_Ajax {
 		// This prompt asked to see the product: the photographs travel with it,
 		// and a prompt fed on photographs ALONE is a legitimate brief — the
 		// product data being empty is not a reason to refuse it.
-		$look = ( $pid && self::wants_photos( self::registry_row( $field ) ) ) ? $this->look_images( $pid ) : [];
+		$one_row = self::registry_row( $field );
+		$look    = ( $pid && self::wants_photos( $one_row ) )
+			? $this->look_images( $pid, [], 3, self::wants_variants( $one_row ) )
+			: [];
 		if ( '' === trim( $payload ) && ! $look ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
 		}
@@ -219,11 +262,15 @@ trait DZE_Content_Ajax {
 		// A block that asked to SEE the product is briefed by its photographs:
 		// they are sent once for the whole request, after the ones a block was
 		// written against, and empty product data is not a reason to refuse it.
-		$look_n = 0;
+		$look_n        = 0;
+		$look_variants = false;
 		foreach ( array_keys( $targets ) as $fid ) {
-			if ( self::wants_photos( self::registry_row( (string) $fid ) ) ) {
+			$row_look = self::registry_row( (string) $fid );
+			if ( self::wants_photos( $row_look ) ) {
 				$look_n = 1;
-				break;
+				if ( self::wants_variants( $row_look ) ) {
+					$look_variants = true;
+				}
 			}
 		}
 		if ( '' === trim( $payload ) && ! ( $look_n && $pid ) ) {
@@ -292,7 +339,7 @@ trait DZE_Content_Ajax {
 					}
 				}
 				if ( $look_n ) {
-					$look = $this->look_images( $pid, $shots );
+					$look = $this->look_images( $pid, $shots, 3, $look_variants );
 					if ( $look ) {
 						$user          .= self::look_instruction( count( $payload_images ) + 1, count( $look ) );
 						$payload_images = array_merge( $payload_images, $look );
@@ -693,19 +740,33 @@ trait DZE_Content_Ajax {
 			if ( ! $sources ) {
 				throw new RuntimeException( __( 'No image to work from: set a featured image, or paste the address of one.', 'dazont-ecom' ) );
 			}
+			// The other colours of the same product, when the prompt asked for
+			// them: they say what the construction is, and the paragraph that
+			// names them says they say nothing about the colour.
+			// The prompt row behind this run: it says where the image is meant
+			// to go, how its file is named and what travels with it, and all
+			// three have to survive until the image is accepted — possibly on
+			// another screen.
+			$recipe_row = '' !== $recipe ? self::registry_row( $recipe ) : self::main_recipe();
+			$count      = count( $sources );
+			$variants   = 0;
+			if ( is_array( $recipe_row ) && self::wants_variants( $recipe_row ) ) {
+				foreach ( $this->variant_images( $pid, self::product_source_ids( $pid ) ) as $uri ) {
+					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+						break;
+					}
+					$sources[] = $uri;
+					$variants++;
+				}
+			}
 			// The background travels as the LAST image, exactly like a scene: a
 			// surface the model can see beats a colour it has to imagine, and it
 			// is the same file for every product — which is the whole point.
 			$plate = $bg && wp_attachment_is_image( $bg ) ? $bg : 0;
-			$count = count( $sources );
 			if ( $plate ) {
 				$sources[] = $this->fal_source_data_uri( $plate );
 			}
 			$base = '' !== trim( $override ) ? $override : self::quick_prompt();
-			// The prompt row behind this run: it says where the image is meant
-			// to go and how its file is named, and both have to survive until
-			// the image is accepted — possibly on another screen.
-			$recipe_row = '' !== $recipe ? self::registry_row( $recipe ) : self::main_recipe();
 			if ( '' === trim( $override ) && $recipe_row && '' !== trim( (string) ( $recipe_row['prompt'] ?? '' ) ) ) {
 				$base = (string) $recipe_row['prompt'];
 			}
@@ -723,7 +784,7 @@ trait DZE_Content_Ajax {
 			}
 			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row )
+				. self::sources_instruction( $count, $plate_row, 0, $variants )
 				. self::note_lines( $pid );
 
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -936,6 +997,20 @@ trait DZE_Content_Ajax {
 				throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
 			}
 			$product_count = count( $sources );
+			// The other colours of the same product, when the prompt asked for
+			// them: never on a variation run — there, the colour being made is
+			// the whole subject and its neighbours are exactly the confusion to
+			// keep out.
+			$variants = 0;
+			if ( '' === $v_value && $tpl && self::wants_variants( self::registry_row( (string) ( $tpl['id'] ?? '' ) ) ) ) {
+				foreach ( $this->variant_images( $pid, $product_ids ) as $uri ) {
+					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+						break;
+					}
+					$sources[] = $uri;
+					$variants++;
+				}
+			}
 			// What this prompt has already produced here goes out WITH the
 			// order, right after the product photographs: told in words that
 			// the last one must not come back, the model handed it back anyway.
@@ -968,7 +1043,7 @@ trait DZE_Content_Ajax {
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
@@ -1123,11 +1198,17 @@ trait DZE_Content_Ajax {
 			// one query per thumbnail for a panel is one query too many.
 			_prime_post_caches( $shot_ids, false, true );
 		}
+		// Which of them belong to a colour rather than to the product: the strip
+		// says so instead of showing eight photographs of the same shoe with no
+		// clue why three of them are blue.
+		$of_colour = self::variation_images( $pid );
 		foreach ( $shot_ids as $aid ) {
 			$meta = wp_get_attachment_metadata( (int) $aid );
 			$w    = (int) ( $meta['width'] ?? 0 );
 			$h    = (int) ( $meta['height'] ?? 0 );
 			$images[] = [
+				// The colour this photograph belongs to, when it belongs to one.
+				'variation' => (string) ( $of_colour[ (int) $aid ] ?? '' ),
 				// The id travels too: the image workshop works ON one of these.
 				'id'    => (int) $aid,
 				'thumb' => (string) ( wp_get_attachment_image_url( (int) $aid, 'thumbnail' ) ?: '' ),
