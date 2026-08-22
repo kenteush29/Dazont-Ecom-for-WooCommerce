@@ -52,10 +52,18 @@
 			'</span>';
 		}).join('');
 		$('#dze-lab-srcs').html(html).toggleClass('dze-zoomgroup', srcs.length > 0);
-		$('#dze-lab-drop').toggle(srcs.length < (cfg.max || 4));
+		$('#dze-lab-drop').toggle(srcs.length < (cfg.max || 12));
 	}
 	function addPasted(dataUri) {
-		if (srcs.length >= (cfg.max || 4)) { return; }
+		if (srcs.length >= (cfg.max || 12)) { return; }
+		// Weight, not count: what a request can carry is a number of bytes, and
+		// a browser that posts more than the server accepts gets an empty
+		// answer with nothing to read in it.
+		var weight = srcs.reduce(function (n, s) { return n + (s.data ? s.data.length : 0); }, 0);
+		if (srcs.length && (weight + dataUri.length) > (parseInt(cfg.maxBody, 10) || 9437184)) {
+			say(i18n.tooBig, true);
+			return;
+		}
 		srcs.push({ data: dataUri });
 		drawSrcs();
 	}
@@ -109,7 +117,7 @@
 		frame = wp.media({ title: i18n.libTitle, button: { text: i18n.use }, library: { type: 'image' }, multiple: true });
 		frame.on('select', function () {
 			frame.state().get('selection').each(function (att) {
-				if (srcs.length >= (cfg.max || 4)) { return; }
+				if (srcs.length >= (cfg.max || 12)) { return; }
 				var a = att.toJSON();
 				srcs.push({
 					id: a.id,

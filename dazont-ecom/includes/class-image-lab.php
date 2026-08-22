@@ -26,8 +26,9 @@ final class DZE_Image_Lab {
 
 	private static ?self $instance = null;
 
-	/** Source images accepted in one call. */
-	private const MAX_SOURCES = 4;
+	/** Source images accepted in one call — a backstop, not a working limit:
+	 *  what really decides is the weight of the request, checked as it is built. */
+	private const MAX_SOURCES = 12;
 
 	public static function instance(): self {
 		if ( null === self::$instance ) {
@@ -71,6 +72,7 @@ final class DZE_Image_Lab {
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( 'dze_lab' ),
 			'max'     => self::MAX_SOURCES,
+			'maxBody' => DZE_Content::MAX_BODY,
 			'i18n'    => [
 				'drop'     => __( 'Paste an image here (Ctrl+V), drop a file, or', 'dazont-ecom' ),
 				'browse'   => __( 'choose one on your computer', 'dazont-ecom' ),
@@ -88,6 +90,7 @@ final class DZE_Image_Lab {
 				'again'    => __( 'Generate again', 'dazont-ecom' ),
 				'redo'     => __( 'Make this image again', 'dazont-ecom' ),
 				'noPrompt' => __( 'Write what you want first.', 'dazont-ecom' ),
+				'tooBig'   => __( 'That image would make the request too heavy. Remove one of the others, or use a lighter file.', 'dazont-ecom' ),
 				/* translators: %s: number of attempts on screen */
 				'tries'    => __( '%s results — the newest first', 'dazont-ecom' ),
 			],
@@ -168,12 +171,21 @@ final class DZE_Image_Lab {
 		$content = DZE_Content::instance();
 		$sources = [];
 		try {
+			// The weight of what has been gathered so far: the number of images
+			// is a backstop, the size of the request is the real limit.
+			$weigh = static function ( array $list ): int {
+				return array_sum( array_map( 'strlen', $list ) );
+			};
 			// Pasted, dropped or chosen from a folder: bytes in the request.
 			foreach ( (array) ( $_POST['pasted'] ?? [] ) as $uri ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
 				if ( count( $sources ) >= self::MAX_SOURCES ) {
 					break;
 				}
-				$sources[] = DZE_Content::read_data_uri( (string) wp_unslash( $uri ) );
+				$one = DZE_Content::read_data_uri( (string) wp_unslash( $uri ) );
+				if ( $sources && ( $weigh( $sources ) + strlen( $one ) ) > DZE_Content::MAX_BODY ) {
+					break;
+				}
+				$sources[] = $one;
 			}
 			// Already in the library: read from disk, not fetched over HTTP.
 			foreach ( (array) ( $_POST['ids'] ?? [] ) as $id ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- cast below.
@@ -181,9 +193,14 @@ final class DZE_Image_Lab {
 					break;
 				}
 				$id = absint( $id );
-				if ( $id && wp_attachment_is_image( $id ) ) {
-					$sources[] = $content->fal_source_data_uri( $id, 'full' );
+				if ( ! $id || ! wp_attachment_is_image( $id ) ) {
+					continue;
 				}
+				$one = $content->fal_source_data_uri( $id, 'full' );
+				if ( $sources && ( $weigh( $sources ) + strlen( $one ) ) > DZE_Content::MAX_BODY ) {
+					break;
+				}
+				$sources[] = $one;
 			}
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );

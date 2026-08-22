@@ -87,15 +87,16 @@ trait DZE_Content_Ajax {
 	 * @param int[] $skip Attachment ids already attached to this request.
 	 * @return array<int,array{media:string,data:string}>
 	 */
-	private function look_images( int $pid, array $skip = [], int $max = 3, bool $variants = false ): array {
+	private function look_images( int $pid, array $skip = [], int $max = 8, bool $variants = false ): array {
 		$ids = self::product_source_ids( $pid );
 		if ( $variants ) {
 			// The other colours, after the product's own: a description that
 			// has to name the colourways cannot be written from one of them.
-			$ids = array_merge( $ids, array_slice( array_keys( self::variation_images( $pid ) ), 0, 2 ) );
-			$max = $max + 2;
+			$ids = array_merge( $ids, array_slice( array_keys( self::variation_images( $pid ) ), 0, 4 ) );
+			$max = $max + 4;
 		}
-		$out = [];
+		$out    = [];
+		$weight = 0;
 		foreach ( $ids as $aid ) {
 			if ( count( $out ) >= $max ) {
 				break;
@@ -108,9 +109,16 @@ trait DZE_Content_Ajax {
 			} catch ( \Throwable $e ) {
 				continue;
 			}
-			if ( preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $mm ) ) {
-				$out[] = [ 'media' => $mm[1], 'data' => $mm[2] ];
+			if ( ! preg_match( '#^data:([^;]+);base64,(.+)$#', $uri, $mm ) ) {
+				continue;
 			}
+			// What actually limits this is the weight of the request, so that
+			// is what is counted; the number above is only a backstop.
+			if ( $out && ( $weight + strlen( $mm[2] ) ) > self::VISION_BUDGET ) {
+				break;
+			}
+			$weight += strlen( $mm[2] );
+			$out[]   = [ 'media' => $mm[1], 'data' => $mm[2] ];
 		}
 		return $out;
 	}
@@ -118,14 +126,13 @@ trait DZE_Content_Ajax {
 	/**
 	 * The other colours of this product, ready to travel with a generation.
 	 *
-	 * Two at most: they are there to confirm a shape and a construction, and
-	 * past two they only make the request heavier and the colour question
-	 * murkier.
+	 * Capped high rather than low: the request body is what actually limits
+	 * this, and it is checked image by image as the body is built.
 	 *
 	 * @param int[] $skip Attachment ids already in the request.
 	 * @return string[] data URIs.
 	 */
-	private function variant_images( int $pid, array $skip = [], int $max = 2 ): array {
+	private function variant_images( int $pid, array $skip = [], int $max = 6 ): array {
 		$out = [];
 		foreach ( array_keys( self::variation_images( $pid ) ) as $aid ) {
 			if ( count( $out ) >= $max ) {
@@ -194,7 +201,7 @@ trait DZE_Content_Ajax {
 		// product data being empty is not a reason to refuse it.
 		$one_row = self::registry_row( $field );
 		$look    = ( $pid && self::wants_photos( $one_row ) )
-			? $this->look_images( $pid, [], 3, self::wants_variants( $one_row ) )
+			? $this->look_images( $pid, [], 8, self::wants_variants( $one_row ) )
 			: [];
 		if ( '' === trim( $payload ) && ! $look ) {
 			wp_send_json_error( [ 'message' => __( 'Fill in the product data first.', 'dazont-ecom' ) ] );
@@ -339,7 +346,7 @@ trait DZE_Content_Ajax {
 					}
 				}
 				if ( $look_n ) {
-					$look = $this->look_images( $pid, $shots, 3, $look_variants );
+					$look = $this->look_images( $pid, $shots, 8, $look_variants );
 					if ( $look ) {
 						$user          .= self::look_instruction( count( $payload_images ) + 1, count( $look ) );
 						$payload_images = array_merge( $payload_images, $look );
@@ -701,7 +708,7 @@ trait DZE_Content_Ajax {
 				// subject: it stays image 1, the other pasted ones follow it,
 				// and the product's own photographs come after them unless the
 				// screen says to work from the pasted ones alone.
-				$outside = self::read_data_uris( $pastes );
+				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
 				if ( ! $outside ) {
 					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
 				}
@@ -723,10 +730,10 @@ trait DZE_Content_Ajax {
 					}
 				}
 			}
-			// Three more at most: past that a call gets slow for angles that add
-			// very little, and the payload is already carrying the subject —
-			// which, with several photographs from outside, is heavy on its own.
-			foreach ( array_slice( $context, 0, 3 ) as $aid ) {
+			// The product's other angles, as many as the body can carry: the
+			// weight is checked image by image just below, which is the only
+			// limit that means anything here.
+			foreach ( array_slice( $context, 0, self::MAX_SOURCES ) as $aid ) {
 				try {
 					$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
 				} catch ( \Throwable $e ) {
@@ -946,19 +953,23 @@ trait DZE_Content_Ajax {
 				// subject, the others say what it does not show — and the
 				// product's own photographs follow as context, so the model
 				// knows the product beyond the shots it was handed.
-				$outside = self::read_data_uris( $pastes );
+				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
 				if ( ! $outside ) {
 					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
 				}
 				foreach ( $outside as $uri ) {
 					$sources[] = $uri;
 				}
-				foreach ( array_slice( $product_ids, 0, 2 ) as $aid ) {
+				foreach ( $product_ids as $aid ) {
 					try {
-						$sources[] = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+						$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
+					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+						break;
+					}
+					$sources[] = $uri;
 				}
 			} else {
 				// Everything we have of this product. The featured image comes
@@ -1019,7 +1030,7 @@ trait DZE_Content_Ajax {
 			// is one image per colour.
 			$avoid = 0;
 			if ( '' === $src && 'main' !== $target && '' === $v_value ) {
-				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ) ) as $ref ) {
+				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 4 ) as $ref ) {
 					if ( is_int( $ref ) ) {
 						// One already on the product: read from disk, and only
 						// while the request body stays a sane size.
