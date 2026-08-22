@@ -3749,6 +3749,7 @@ Answer with STRICT JSON and nothing else: "
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
 				'qmNew'      => __( 'New', 'dazont-ecom' ),
 				'qmSource'   => __( 'Worked from', 'dazont-ecom' ),
+				'foundWaiting' => __( 'Found again: this was generated earlier and never decided on.', 'dazont-ecom' ),
 				/* translators: %s: number of attempts */
 				'tryPick'    => __( '%s attempts — tick the ones to keep', 'dazont-ecom' ),
 				'qmBgNone'   => __( 'None (described in the prompt)', 'dazont-ecom' ),

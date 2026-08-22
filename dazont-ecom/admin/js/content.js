@@ -1033,32 +1033,27 @@
 			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
 			$st.text(i18n.applied);
 			if (res.needsReload) { sayReload($st.parent()); }
-			// Only what was just written stops waiting. An image generated and
-			// left undecided is still there the next time the popup opens.
+			// Deciding is deciding for the whole panel: what was ticked is
+			// written, what was not is refused, and the product stops waiting.
+			// Keeping the rest "for later" is what left products flagged to
+			// review on the bulk screen after they had been dealt with here.
 			$.post(cfg.ajaxUrl, {
-				action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID,
-				fields: fids, shots: items.map(function (it) { return it.url; })
+				action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID
 			}).always(function () {
-				res.shots = res.shots.filter(function (u) {
-					return items.every(function (it) { return it.url !== u; });
-				});
+				res.shots = [];
 				res.texts = {};
 				$('#dze-cx-drawers').empty();
 				drawShots();
-				if (!res.shots.length) { $('#dze-cx-result').hide(); }
+				$('#dze-cx-result').hide();
 				loadCurrent().then(drawCurrentImages);
-				// Finished here is finished everywhere: a product written from
-				// its own page is recorded under "Done" and leaves the bulk
-				// selection, instead of sitting in that list looking exactly
-				// like a product nobody has touched. Only once nothing is left
-				// waiting on it — an image generated and left undecided still
-				// counts as work to come back to.
-				if (!res.shots.length) {
-					$.post(cfg.ajaxUrl, {
-						action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
-						texts: fids.length, images: items.length, unqueue: 1
-					});
-				}
+				// Finished here is finished everywhere: the product is recorded
+				// under "Done" and leaves the bulk selection, instead of
+				// sitting in that list looking exactly like a product nobody
+				// has touched.
+				$.post(cfg.ajaxUrl, {
+					action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
+					texts: fids.length, images: items.length, unqueue: 1
+				});
 			});
 			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
 			res.current = null;
@@ -1282,6 +1277,40 @@
 			oneDrawSources();
 		}
 		if (mode === 'text') { oneShowBefore(fid); }
+		oneRestore(mode, fid);
+	}
+
+	// What is still waiting on this product, found again.
+	//
+	// A generated image lives on the product until it is accepted or refused,
+	// which is why the bulk screen can show it. This popup could not: closing
+	// it — or a browser that crashed, or a page left for the night — meant
+	// coming back to an empty strip in front of images that had been paid for
+	// and were still there. It reads the same waiting set the bulk screen
+	// reads, and puts it back on screen, unticked: found again is not the same
+	// as decided.
+	function oneRestore(mode, fid) {
+		loadCurrent().then(function (cur) {
+			var waiting = (cur && cur.pending) || {};
+			if ('image' === mode) {
+				var shots = (waiting.shots || []).filter(function (u) {
+					return (one.tries || []).indexOf(u) < 0;
+				});
+				if (!shots.length) { return; }
+				one.tries = shots.concat(one.tries || []);
+				oneDrawTries();
+				$('#dze-one-pair').show();
+				$('#dze-one-dest').show();
+				$('#dze-one-oldwrap').toggle('main' === ($('#dze-one-target').val() || 'main'));
+				$('#dze-one-state').removeClass('is-ko').text(i18n.foundWaiting);
+				return;
+			}
+			var text = (waiting.texts || {})[fid] || '';
+			if ('' !== text) {
+				oneShowResult(text);
+				$('#dze-one-state').removeClass('is-ko').text(i18n.foundWaiting);
+			}
+		});
 	}
 
 	// The image workshop, as three plain questions asked in the order they get
@@ -2380,15 +2409,22 @@
 		};
 		if (one.mode === 'image') {
 			var kept = oneKept();
-			var all  = (one.tries || []).slice();
 			// Deciding is deciding for the whole strip: what is ticked is
 			// written to the product, what is not is refused — and BOTH leave
 			// the waiting list. They used to be left behind, one attempt per
 			// generation, so a product worked on from its own page stayed
 			// flagged "to review" on the bulk screen for ever.
 			var settle = function (r, msg) {
-				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: all })
+				// Everything waiting on the product, not only this strip: a
+				// decision taken here closes the product, and what was not
+				// kept is refused. Leaving the rest for later is what had
+				// products still flagged to review after being dealt with.
+				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID })
 					.always(function () {
+						$.post(cfg.ajaxUrl, {
+							action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
+							texts: 0, images: kept.length, unqueue: 1
+						});
 						one.tries = [];
 						one.keep = {};
 						oneDrawTries();
@@ -2435,6 +2471,19 @@
 			if (r && r.success && !applyToPage(one.fid, val)) {
 				res.needsReload = true;
 				sayReload($('#dze-one .dze-one-bar'));
+			}
+			if (r && r.success) {
+				// The same rule as everywhere else: written is decided, the
+				// product stops waiting and is filed under Done.
+				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID })
+					.always(function () {
+						$.post(cfg.ajaxUrl, {
+							action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
+							texts: 1, images: 0, unqueue: 1
+						});
+						res.shots = [];
+						res.texts = {};
+					});
 			}
 			done(r);
 		}).fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
