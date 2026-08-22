@@ -1141,9 +1141,28 @@ EOT;
 	 * @param int        $variants Photographs of OTHER COLOURS of the same
 	 *                          product, sent right after the product's own.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0 ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false ): string {
 		$out = "\n\n";
-		if ( $count > 1 ) {
+		if ( $count > 1 && $subject_first ) {
+			// A run with a SUBJECT — a photograph pasted in, a photograph
+			// picked to work on, the shot a colour already has — is not the
+			// same brief as "here is the product from six angles". The others
+			// are there for the shape and the construction and for nothing
+			// else: told to read them all together for the real colours and
+			// the real pattern, the model blended a pasted camo hat with the
+			// camo of the main image and handed back the main image's pattern.
+			$out .= 'IMAGE 1 IS THE PRODUCT TO WORK ON. Its colours, its pattern, its material, its stitching and its markings are the ones to keep — reproduce them exactly as they are in image 1.';
+			$out .= sprintf(
+				' IMAGES 2 TO %d show the same model in another version: read them ONLY for the shape, the cut, the proportions and the construction. Never take a colour, a pattern, a print or a texture from them, and never blend them into image 1.',
+				$count
+			);
+			$out .= ' NEVER invent, complete, extend or redraw any part of the product. If a part of it is not visible in image 1, keep it out of the frame rather than making it up.';
+			// The written data describes the product in general — often the
+			// version the main image shows. Against a pasted photograph of
+			// another one, it has to lose, or the text talks the model back
+			// into the pattern it can read about.
+			$out .= ' Where the product data written above disagrees with image 1 — a colour, a pattern, a material named in words — IMAGE 1 WINS.';
+		} elseif ( $count > 1 ) {
 			$out .= sprintf(
 				'IMAGES 1 TO %1$d ARE ALL PHOTOGRAPHS OF ONE SINGLE PRODUCT, taken from different angles and distances — overall views, details, close-ups of the material. Read them together to know exactly what the product looks like: its complete shape, its complete pattern, its real colours and its real texture. Image 1 is the reference for the overall look; the others fill in what image 1 does not show.',
 				$count

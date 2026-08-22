@@ -791,7 +791,7 @@ trait DZE_Content_Ajax {
 			}
 			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, 0, $variants )
+				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ! empty( $pastes ) ) )
 				. self::note_lines( $pid );
 
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -1061,7 +1061,11 @@ trait DZE_Content_Ajax {
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants );
+			// Is there a SUBJECT? A photograph being edited, a set pasted in, or
+			// the shot this colour already has: then image 1 is the product and
+			// the rest is context, which is a different sentence entirely.
+			$subject_first = ( '' !== $src ) || ! empty( $pastes ) || ( '' !== $v_value && $v_own );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
