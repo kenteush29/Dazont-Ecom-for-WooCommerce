@@ -1080,6 +1080,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 
 /* The one save note, wherever the button is. */
 .dze-savednote { margin-left: 10px; font-weight: 600; }
+/* Written to the product: said where the run said it was working. */
+.dze-cx-ok { color: #0a7040; }
 /* Written, but not on this screen until it is read again. */
 .dze-reload-wrap { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; }
 .dze-reload-msg { font-size: 12px; color: #646970; }

@@ -1031,8 +1031,7 @@
 		function finish() {
 			$btn.prop('disabled', false);
 			if (ko) { $st.addClass('is-ko').text(sprintf(i18n.partial, ok, ok + ko)); return; }
-			$st.text(i18n.applied);
-			if (res.needsReload) { sayReload($st.parent()); }
+			$st.text('');
 			// Deciding is deciding for the whole panel: what was ticked is
 			// written, what was not is refused, and the product stops waiting.
 			// Keeping the rest "for later" is what left products flagged to
@@ -1053,6 +1052,10 @@
 				$.post(cfg.ajaxUrl, {
 					action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
 					texts: fids.length, images: items.length, unqueue: 1
+				}).always(function () {
+					// Only now: what the page does next can be a reload, and a
+					// reload cancels whatever has not gone out yet.
+					pageWritten(fids.length + items.length, $st.parent());
 				});
 			});
 			$('.dze-content-open[data-id="' + PID + '"]').find('.dze-content-waiting').remove();
@@ -2355,6 +2358,26 @@
 		return false;
 	}
 	// Said once, where the work was done, with the only honest way out of it.
+	// What happens on the PAGE once something has been written to the product.
+	//
+	// The popup used to leave a three-word state line in a panel it then hid,
+	// and the page went on showing what the product no longer held: nothing
+	// looked like it had happened. Now it says what was written, brings the
+	// two image boxes up to date, and reloads the page when the page has
+	// nothing of its own to lose. A page carrying unsaved edits is never
+	// reloaded from under its owner: it gets the button instead.
+	function pageWritten(n, $where) {
+		$('#dze-cx-runstate').removeClass('is-ko').html(
+			'<strong class="dze-cx-ok">' + esc(sprintf(i18n.written, n)) + '</strong>'
+		);
+		refreshBoxes();
+		if (false !== pageWasClean) {
+			$('#dze-cx-runstate').append(' <span class="description">' + esc(i18n.reloading) + '</span>');
+			window.setTimeout(function () { window.location.reload(); }, 1400);
+			return;
+		}
+		sayReload($where && $where.length ? $where : $('#dze-cx-runstate').parent());
+	}
 	function sayReload($where) {
 		if (!$where || !$where.length || $where.find('.dze-reload').length) { return; }
 		$where.append(
@@ -2370,7 +2393,11 @@
 	// from under its owner.
 	function reloadIfIdle() {
 		if (!res.needsReload) { return; }
-		if (false === pageWasClean || postChanged()) { return; }
+		// The only edits since we started are ours, and they are already in the
+		// database: re-asking postChanged() here reads OUR own writes as unsaved
+		// work and never reloads, which is how the page kept showing the old
+		// text after accepting.
+		if (false === pageWasClean) { return; }
 		window.location.reload();
 	}
 
