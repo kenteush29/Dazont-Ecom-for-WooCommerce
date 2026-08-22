@@ -2103,9 +2103,14 @@
 		varSay($row, i18n.generating);
 		var data = imageRequest(tpl, $('.dze-var-scene').length ? parseInt($('.dze-var-scene').val(), 10) : undefined);
 		data.variation = varGroup($row);
-		// Built FROM a photograph that is not on the product: it is the
-		// subject, and nothing of it is stored on the site.
-		if (paste) { data.paste = paste; }
+		// A colour is built from ITS OWN photograph and from nothing else.
+		//
+		// imageRequest() carries whatever the toolbox was handed from outside,
+		// which is right for a gallery shot and wrong here: it would take the
+		// place of the photograph pasted on this line — the subject — and send
+		// the model off on something else entirely. One colour, one source.
+		data.pastes = paste ? [ paste ] : [];
+		delete data.paste;
 		$.post(cfg.ajaxUrl, data)
 			.done(function (r) {
 				if (!r || !r.success) { varSay($row, (r && r.data && r.data.message) || i18n.error, true); d.reject(); return; }
@@ -2134,7 +2139,12 @@
 		(function next() {
 			if (i >= rows.length) { $b.prop('disabled', false); $st.text(''); return; }
 			$st.text(sprintf(i18n.tryN, i + 1, rows.length));
-			varGenerate($(rows[i++])).always(next);
+			// A colour with a photograph pasted on its line is BUILT from that
+			// photograph. The run used to ignore it and work from the product's
+			// own shots instead, which is how a set of pasted supplier images
+			// came back as something nobody recognised.
+			var $row = $(rows[i++]);
+			varGenerate($row, String($row.data('paste') || '')).always(next);
 		}());
 	});
 	// Saving one colour, or every colour at once: the same call either way, one
