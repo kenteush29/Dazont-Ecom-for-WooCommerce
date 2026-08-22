@@ -388,38 +388,44 @@
 	font-size: 10px; line-height: 16px; text-align: center;
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* The photographs brought from outside: a row of them, the first one marked
-   as the subject, each with the cross that takes it back out. They used to be
-   one image with no way to remove it — the popup had to be closed. */
-.dze-one-pastes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
-.dze-one-pasted { position: relative; line-height: 0; }
-.dze-one-pasted img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
-.dze-one-pasted:first-child img { border-color: #2271b1; }
-.dze-one-pastedtag {
-	position: absolute; left: 3px; bottom: 3px; right: 3px; z-index: 2;
+/* ---- The box that takes photographs from outside the shop ---- */
+/* admin/js/paste-box.js, mounted by the one-function popup, the toolbox and
+   each product's panel on the bulk screen. One component, one appearance. */
+.dze-pb-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
+.dze-pb-tile { position: relative; line-height: 0; }
+.dze-pb-tile img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid #dcdcde; }
+.dze-pb-tile:first-child img { border-color: #2271b1; }
+.dze-pb-tag {
+	position: absolute; left: 3px; right: 3px; bottom: 3px; z-index: 2;
 	border-radius: 3px; background: #2271b1; color: #fff;
 	font-size: 10px; line-height: 16px; text-align: center;
 	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* Promoting one of the others to first place: on the tile, on hover, the way
    the redo and the zoom work everywhere else. */
-.dze-one-pastefirst {
+.dze-pb-first {
 	position: absolute; left: 3px; bottom: 3px; z-index: 3;
 	width: 20px; height: 20px; padding: 0; border: none; border-radius: 4px;
 	background: rgba(0,0,0,.55); color: #fff; cursor: pointer;
 	font-size: 12px; line-height: 20px; text-align: center;
 	opacity: 0; transition: opacity .12s;
 }
-.dze-one-pasted:hover .dze-one-pastefirst { opacity: 1; }
-.dze-one-pastefirst:hover { background: #2271b1; }
-.dze-one-pastehelp { margin: 8px 0 0; font-size: 11px; line-height: 1.4; color: #646970; }
-.dze-one-pastedel {
+.dze-pb-tile:hover .dze-pb-first { opacity: 1; }
+.dze-pb-first:hover { background: #2271b1; }
+.dze-pb-del {
 	position: absolute; top: -6px; right: -6px; z-index: 3;
 	width: 20px; height: 20px; padding: 0; border: 1px solid #dcdcde; border-radius: 50%;
 	background: #fff; color: #b32d2e; cursor: pointer;
 	font-size: 14px; line-height: 17px; text-align: center;
 }
-.dze-one-pastedel:hover { background: #b32d2e; border-color: #b32d2e; color: #fff; }
+.dze-pb-del:hover { background: #b32d2e; border-color: #b32d2e; color: #fff; }
+.dze-pb-help { margin: 8px 0 0; font-size: 11px; line-height: 1.4; color: #646970; }
+.dze-pb-state { display: block; margin-top: 6px; font-size: 12px; color: #646970; }
+.dze-pb-state.is-ko { color: #b32d2e; }
+/* Folded away until it is needed, on the two screens that generate a whole
+   product at once: it is an exception, not the usual way to run them. */
+.dze-cx-else, .dze-cb-else { margin: 10px 0 0; }
+.dze-cx-else > summary, .dze-cb-else > summary { cursor: pointer; font-size: 12px; color: #2271b1; }
 
 /* ---- The image workshop as three questions ---- */
 /* It used to open on two dropdowns, a paste box and a URL field, none of

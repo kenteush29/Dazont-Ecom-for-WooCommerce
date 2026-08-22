@@ -358,6 +358,14 @@
 								'<div class="dze-tplgrid' + ((cfg.scenes || []).length ? '' : ' has-noscene') + '">' + tplHead() +
 									'<span class="dze-tplrows" id="dze-cx-tplrows"></span>' +
 								'</div>' +
+								// Photographs the product does not have yet, sent
+								// with every image this run makes: a supplier shot
+								// pasted here is the subject, and this screen had
+								// no way to hand one over at all.
+								'<details class="dze-cx-acc dze-cx-else">' +
+									'<summary>' + esc(i18n.stepElse) + '</summary>' +
+									'<div id="dze-cx-else"></div>' +
+								'</details>' +
 							'</div>' +
 						'</div>' : '')
 					) +
@@ -429,7 +437,11 @@
 		var switching = target !== PID;
 		PID = target;
 		$('#dze-cx-modal').addClass('is-open');
+		// The box that takes photographs from outside is part of the popup: it
+		// is mounted with it, and emptied when the popup changes product.
+		cxPasteBox();
 		if (switching) {
+			if (cxPaste) { cxPaste.clear(); }
 			reset();
 			// A product we were not opened on: ask the server who it is, what it
 			// costs and what is already waiting on it, then arm the popup.
@@ -766,9 +778,24 @@
 	function status(text, bad) {
 		$('#dze-cx-runstate').toggleClass('is-ko', !!bad).html(text || '');
 	}
+	// The toolbox's own box of photographs from outside, mounted with the
+	// popup and read by every image it orders.
+	var cxPaste = null;
+	function cxPasteBox() {
+		var $slot = $('#dze-cx-else');
+		if (!$slot.length) { cxPaste = null; return null; }
+		if (!cxPaste || !$.contains(document.body, cxPaste.el[0])) {
+			cxPaste = window.dzePasteBox.mount($slot, { max: maxPasted(), maxBody: maxBody() });
+		}
+		return cxPaste;
+	}
 	function imageRequest(tpl, scene, target) {
 		var job  = jobFor(tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: PID, template: tpl, mode: 'defer', stash: 1 };
+		// Whatever was handed to this run from outside the shop travels with
+		// every image it makes.
+		var outside = cxPaste ? cxPaste.list() : [];
+		if (outside.length) { data.pastes = outside; }
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
@@ -1083,15 +1110,13 @@
 	// pastes: the photographs from OUTSIDE the shop sent with this run. Several
 	// of them, because three supplier shots of the same jacket — none of them
 	// usable as it stands — say together what no single one of them says.
-	var one = { fid: '', mode: 'text', value: '', tries: [], keep: {}, pastes: [] };
+	var one = { fid: '', mode: 'text', value: '', tries: [], keep: {} };
 	function maxPasted() { return parseInt(cfg.maxPasted, 10) || 12; }
 	// What really limits a run is the WEIGHT of the request, not a count: three
 	// photographs straight from a camera are heavier than a dozen supplier
-	// shots. Refused here, with a sentence, rather than by a server that
-	// answers an empty page to an oversized POST.
-	function pasteWeight() {
-		return (one.pastes || []).reduce(function (n, u) { return n + u.length; }, 0);
-	}
+	// shots. The shared box refuses the one that would not fit, with a
+	// sentence, rather than leaving a server to answer an oversized POST with
+	// an empty page.
 	function maxBody() { return parseInt(cfg.maxBody, 10) || 9437184; }
 
 	function oneBuild() {
@@ -1229,7 +1254,7 @@
 		$('#dze-one-nwrap').toggle('image' === mode);
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
-			one.srcId = 0; one.pastes = [];
+			one.srcId = 0; oneShowPasted('');
 			$('#dze-one-note').val(cfg.note || '');
 			$('#dze-one-notewrap').prop('open', !!(cfg.note || '').trim());
 			oneDrawRecipes();
@@ -1261,16 +1286,10 @@
 				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
-					'<div class="dze-qm-drop" id="dze-one-drop" tabindex="0">' +
-						'<span class="dze-qm-dropmsg">' + esc(i18n.qmPaste) + '</span>' +
-					'<button type="button" class="button button-small dze-qm-browse">' + esc(i18n.qmBrowse) + '</button>' +
-					'<input type="file" accept="image/*" class="dze-qm-file" multiple hidden />' +
-						// What has been added, each one with the cross that
-						// takes it back out: an image you cannot remove is an
-						// image you have to close the popup to be rid of.
-						'<div class="dze-one-pastes" id="dze-one-pastes"></div>' +
-						'<p class="dze-one-pastehelp" id="dze-one-pastehelp" style="display:none;"></p>' +
-					'</div>' +
+					// The box that takes photographs from outside the shop:
+					// admin/js/paste-box.js — the same component the toolbox
+					// and the bulk review panel mount.
+					'<div id="dze-one-drop"></div>' +
 					// An image from elsewhere is the subject, not the whole
 					// brief: the product\'s own photographs say what its back,
 					// its lining and its material look like, and they travel
@@ -1436,7 +1455,7 @@
 		$slot.html(oneSrcStrip([]));
 		loadCurrent().then(function (cur) {
 			// Something was chosen while the product was loading: leave it be.
-			if (one.srcId || (one.pastes || []).length) { return; }
+			if (one.srcId || onePastes().length) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
 		});
 	}
@@ -1466,8 +1485,14 @@
 		// The box to paste into belongs to that tile: it is on screen when the
 		// tile is chosen, and out of the way the rest of the time.
 		$('#dze-one-elsewrap').toggle(outside);
-		if (!outside) { oneShowPasted(''); }
-		else { $('#dze-one-drop').trigger('focus'); }
+		if (!outside) {
+			oneShowPasted('');
+		} else {
+			// Picking the tile is what puts the box on screen: it has to be
+			// mounted here, not only when something is dropped on it.
+			var box = onePasteBox();
+			if (box) { box.el.trigger('focus'); }
+		}
 		// Only a photograph of the product can be retired by its own remake.
 		$('#dze-one-replacewrap').toggle(!!id);
 		if (!id) { $('#dze-one-replace').prop('checked', false); }
@@ -1476,108 +1501,44 @@
 	// they arrived by Ctrl+V, by drag and drop, or from the computer. The FIRST
 	// one is the subject; the ones after it are there to say what it does not
 	// show.
-	function oneShowPasted(dataUri) {
-		one.pastes = dataUri ? [ String(dataUri) ] : [];
-		oneDrawPastes();
-	}
-	function onePasteAdd(dataUri) {
-		one.pastes = one.pastes || [];
-		if (!dataUri || one.pastes.length >= maxPasted()) { return; }
-		if (one.pastes.length && (pasteWeight() + dataUri.length) > maxBody()) {
-			$('#dze-one-state').addClass('is-ko').text(i18n.pasteTooBig);
-			return;
+	// The set being worked from lives in the shared box; this screen only says
+	// when to empty it and what to do when it changes.
+	var onePaste = null;
+	function onePasteBox() {
+		var $slot = $('#dze-one-drop');
+		if (!$slot.length) { onePaste = null; return null; }
+		if (!onePaste || !$.contains(document.body, onePaste.el[0])) {
+			onePaste = window.dzePasteBox.mount($slot, {
+				max: maxPasted(), maxBody: maxBody(), onChange: onePasteChanged
+			});
 		}
-		one.pastes.push(String(dataUri));
-		oneDrawPastes();
+		return onePaste;
 	}
-	function oneDrawPastes() {
-		var n = (one.pastes || []).length;
-		var $g = $('#dze-one-pastes').empty();
-		(one.pastes || []).forEach(function (u, i) {
-			var $tile = $('<span class="dze-one-pasted"></span>').append(
-				$('<img />').attr('src', u).attr('alt', ''),
-				$('<button type="button" class="dze-one-pastedel"></button>')
-					.attr('title', i18n.remove).attr('data-i', i).html('&times;')
-			);
-			if (0 === i) {
-				// The first one is the photograph the image is BUILT FROM, and
-				// it says so in the same words the rest of the popup uses.
-				$tile.append($('<span class="dze-one-pastedtag"></span>').text(i18n.qmSource));
-			} else {
-				// Which one that is has to be changeable, or the only way to
-				// correct a paste in the wrong order is to remove them all.
-				$tile.append(
-					$('<button type="button" class="dze-one-pastefirst"></button>')
-						.attr('title', i18n.pasteFirst).attr('data-i', i).text('↑')
-				);
-			}
-			$g.append($tile);
-		});
-		$('#dze-one-drop').toggleClass('has-img', n > 0)
-			.find('.dze-qm-dropmsg').text(n ? (1 === n ? i18n.qmPasted : sprintf(i18n.qmPastedN, n)) : i18n.qmPaste);
-		// The button says what it does NOW: the first image is an upload, the
-		// ones after it are additions — "Upload" next to two images already
-		// there read as "start again", not as "add another".
-		$('#dze-one-drop .dze-qm-browse')
-			.toggle(n < maxPasted())
-			.text(n ? i18n.qmAddMore : i18n.qmBrowse);
-		// What the set means, said once, under it: which one is used for what.
-		$('#dze-one-pastehelp').toggle(n > 1).text(i18n.pasteHelp);
-		$('#dze-one-newthumb').attr('src', (one.pastes || [])[0] || '').toggle(n > 0);
-		$('.dze-one-srcnew .dze-one-newmsg').toggle(!n);
+	function onePastes() { return onePaste ? onePaste.list() : []; }
+	function onePasteChanged(list) {
+		// The tile that opened this box mirrors the set it holds.
+		$('#dze-one-newthumb').attr('src', list[0] || '').toggle(list.length > 0);
+		$('.dze-one-srcnew .dze-one-newmsg').toggle(!list.length);
 	}
-	$(document).on('click', '.dze-one-pastefirst', function (e) {
-		e.preventDefault();
-		e.stopPropagation();
-		var i = parseInt($(this).data('i'), 10) || 0;
-		one.pastes.unshift(one.pastes.splice(i, 1)[0]);
-		oneDrawPastes();
-	});
-	$(document).on('click', '.dze-one-pastedel', function (e) {
-		e.preventDefault();
-		e.stopPropagation();
-		one.pastes.splice(parseInt($(this).data('i'), 10) || 0, 1);
-		oneDrawPastes();
-	});
+	function oneShowPasted(dataUri) {
+		var box = onePasteBox();
+		if (!box) { return; }
+		box.clear();
+		if (dataUri) { box.add(String(dataUri)); }
+	}
+	// A file dropped on the popup, or pasted with Ctrl+V, joins that same set —
+	// and picks the "from elsewhere" tile on the way, because that is what it
+	// means.
 	function oneReadFile(file) {
 		if (!file || !/^image\//.test(file.type)) { return; }
-		var fr = new FileReader();
-		fr.onload = function () {
-			$('.dze-one-srcpick').removeClass('is-sel');
-			$('.dze-one-srcnew').addClass('is-sel');
-			one.srcId = 0;
-			$('#dze-one-elsewrap').show();
-			$('#dze-one-replacewrap').hide();
-			onePasteAdd(String(fr.result));
-		};
-		fr.readAsDataURL(file);
+		$('.dze-one-srcpick').removeClass('is-sel');
+		$('.dze-one-srcnew').addClass('is-sel');
+		one.srcId = 0;
+		$('#dze-one-elsewrap').show();
+		$('#dze-one-replacewrap').hide();
+		var box = onePasteBox();
+		if (box) { box.addFile(file); }
 	}
-	// Choosing a file from the computer is the same road as pasting one: it is
-	// read in the browser and travels as bytes inside the request. Nothing is
-	// uploaded to the media library, so the site stores nothing for an image
-	// that is only a source.
-	$(document).on('click', '.dze-qm-browse', function (e) {
-		e.preventDefault();
-		e.stopPropagation();
-		$(this).closest('.dze-qm-drop').find('.dze-qm-file').trigger('click');
-	});
-	// Scoped to THIS popup: the variation popup has a box of the same shape,
-	// with its own handler, and an unscoped selector had both of them firing on
-	// one pick — the file quietly landing in the other popup's set.
-	$(document).on('change', '#dze-one .dze-qm-file', function () {
-		var files = Array.prototype.slice.call(this.files || []);
-		this.value = '';
-		// Picked three at once, added three: the file picker allows it, so the
-		// screen behind it has to.
-		files.forEach(function (f) { oneReadFile(f); });
-	});
-	$(document).on('dragover', '#dze-one-drop', function (e) { e.preventDefault(); $(this).addClass('is-over'); });
-	$(document).on('dragleave drop', '#dze-one-drop', function () { $(this).removeClass('is-over'); });
-	$(document).on('drop', '#dze-one-drop', function (e) {
-		e.preventDefault();
-		var dt = e.originalEvent && e.originalEvent.dataTransfer;
-		Array.prototype.slice.call((dt && dt.files) || []).forEach(function (f) { oneReadFile(f); });
-	});
 
 	// What the product says today, above what was just written: the same
 	// before/after as everywhere else in the plugin.
@@ -1617,7 +1578,7 @@
 	function oneImageRequest(prompt) {
 		return {
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
-			pastes: one.pastes || [],
+			pastes: onePastes(),
 			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
@@ -2065,6 +2026,13 @@
 		fr.onload = function () { varShowPasted($row, String(fr.result)); };
 		fr.readAsDataURL(file);
 	});
+	// The variations popup keeps a box of its own: one photograph for one
+	// colour, with its own two ways out (use it as it is, or make one from it).
+	$(document).on('click', '#dze-var .dze-qm-browse', function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		$(this).closest('.dze-qm-drop').find('.dze-qm-file').trigger('click');
+	});
 	$(document).on('change', '#dze-var .dze-qm-file', function () {
 		var file = this.files && this.files[0];
 		this.value = '';
@@ -2182,7 +2150,7 @@
 		if ('gallery' !== one.scope) {
 			return { url: mainUrl, caption: i18n.qmNow };
 		}
-		if ((one.pastes || []).length) { return { url: one.pastes[0], caption: i18n.qmSource }; }
+		if (onePastes().length) { return { url: onePastes()[0], caption: i18n.qmSource }; }
 		if (one.srcId) {
 			var $img = $('.dze-one-srcpick.is-sel img').first();
 			var u = $img.attr('data-full') || $img.attr('src') || '';

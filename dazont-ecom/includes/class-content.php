@@ -3413,7 +3413,8 @@ Answer with STRICT JSON and nothing else: "
 			// Reviewed texts are edited in the real WordPress editor, not in a
 			// bare textarea full of raw HTML.
 			wp_enqueue_editor();
-			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery', 'dze-photos' ], DZE_VERSION, true );
+			self::enqueue_paste_box();
+			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery', 'dze-photos', 'dze-paste-box' ], DZE_VERSION, true );
 			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
 				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( self::NONCE ),
@@ -3427,6 +3428,10 @@ Answer with STRICT JSON and nothing else: "
 				// selection in both — which did nothing at all on the waiting
 				// view, since the products there were never in it.
 				'mode'      => $this->bulk_mode(),
+				// The box that takes photographs from outside the shop, on the
+				// panel of the product they belong to.
+				'maxPasted' => self::MAX_PASTED,
+				'maxBody'   => self::MAX_BODY,
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
 			// The image recipes, so a button can say WHICH style it makes
 			// instead of "one more image".
@@ -3479,6 +3484,7 @@ Answer with STRICT JSON and nothing else: "
 					'empty'    => __( '(empty)', 'dazont-ecom' ),
 					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
 					'discard'  => __( 'Discard', 'dazont-ecom' ),
+					'stepElse' => __( 'Photographs from elsewhere', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
@@ -3540,7 +3546,8 @@ Answer with STRICT JSON and nothing else: "
 		// and the same editor; the product it works on is chosen at click time.
 		$pid = $on_list ? 0 : (int) get_the_ID();
 		wp_enqueue_editor();
-		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery', 'dze-photos' ], DZE_VERSION, true );
+		self::enqueue_paste_box();
+		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery', 'dze-photos', 'dze-paste-box' ], DZE_VERSION, true );
 
 		$labels  = [];
 		$fv      = [];
@@ -3748,14 +3755,6 @@ Answer with STRICT JSON and nothing else: "
 				// The file is read in the browser and travels inside the
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'Upload', 'dazont-ecom' ),
-				'qmAddMore'  => __( 'Add another', 'dazont-ecom' ),
-				'qmPasted'   => __( '1 image added', 'dazont-ecom' ),
-				/* translators: %s: number of images added */
-				'qmPastedN'  => __( '%s images added', 'dazont-ecom' ),
-				'pasteFirst' => __( 'Build the image from this one instead', 'dazont-ecom' ),
-				'pasteHelp'  => __( 'The first photograph is the one the image is built from. The others are sent with it so the model knows the product — they are never copied into the result.', 'dazont-ecom' ),
-				'remove'     => __( 'Remove', 'dazont-ecom' ),
-				'pasteTooBig'=> __( 'That image would make the request too heavy. Remove one of the others, or use a lighter file.', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
@@ -3873,7 +3872,7 @@ Answer with STRICT JSON and nothing else: "
 				'cancel'     => __( 'Cancel', 'dazont-ecom' ),
 				'stepFrom'   => __( 'From which photograph?', 'dazont-ecom' ),
 				'stepBg'     => __( 'On which background?', 'dazont-ecom' ),
-				'stepElse'   => __( 'An image from elsewhere', 'dazont-ecom' ),
+				'stepElse'   => __( 'Photographs from elsewhere', 'dazont-ecom' ),
 				'noRecipes'  => __( 'No image prompt writes here yet. Add one under Settings → Product content → Prompts.', 'dazont-ecom' ),
 				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
@@ -4823,6 +4822,30 @@ Answer with STRICT JSON and nothing else: "
 		} else {
 			delete_post_meta( $pid, self::META_VAR_NOTES );
 		}
+	}
+
+	/**
+	 * The box that takes photographs from outside the shop, and its words.
+	 *
+	 * One file for the three screens that use it, enqueued once: a component
+	 * that ships its behaviour and its wording together cannot be half-fixed
+	 * on one screen and left as it was on the other two.
+	 */
+	private static function enqueue_paste_box(): void {
+		wp_enqueue_script( 'dze-paste-box', DZE_URL . 'admin/js/paste-box.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-paste-box', 'dzePasteI18n', [
+			'paste'      => __( 'Paste an image here (Ctrl+V), drop files, or', 'dazont-ecom' ),
+			'upload'     => __( 'Upload', 'dazont-ecom' ),
+			'addMore'    => __( 'Add another', 'dazont-ecom' ),
+			'added1'     => __( '1 image added', 'dazont-ecom' ),
+			/* translators: %s: number of images added */
+			'addedN'     => __( '%s images added', 'dazont-ecom' ),
+			'workedFrom' => __( 'Worked from', 'dazont-ecom' ),
+			'first'      => __( 'Build the image from this one instead', 'dazont-ecom' ),
+			'remove'     => __( 'Remove', 'dazont-ecom' ),
+			'help'       => __( 'The first photograph is the one the image is built from. The others are sent with it so the model knows the product — they are never copied into the result.', 'dazont-ecom' ),
+			'tooBig'     => __( 'That image would make the request too heavy. Remove one of the others, or use a lighter file.', 'dazont-ecom' ),
+		] );
 	}
 
 	/** The button planted in WooCommerce's own Variations panel. */
