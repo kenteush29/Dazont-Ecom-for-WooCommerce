@@ -3790,6 +3790,9 @@ Answer with STRICT JSON and nothing else: "
 				// What the page cannot show by itself: SEO fields, custom
 				// blocks, attributes. Written, but not on screen until it is
 				// read again.
+				/* translators: %s: number of texts and images written */
+				'written'    => __( 'Written to the product ✓ (%s)', 'dazont-ecom' ),
+				'reloading'  => __( 'refreshing the page…', 'dazont-ecom' ),
 				'reloadWhy'  => __( 'Saved — this page cannot show it until it is loaded again.', 'dazont-ecom' ),
 				'reloadNow'  => __( 'Reload the page', 'dazont-ecom' ),
 				/* translators: %s: number of images kept */
