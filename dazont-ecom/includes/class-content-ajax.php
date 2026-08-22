@@ -960,7 +960,14 @@ trait DZE_Content_Ajax {
 				foreach ( $outside as $uri ) {
 					$sources[] = $uri;
 				}
-				foreach ( $product_ids as $aid ) {
+				// The product's own photographs come after them, as CONTEXT,
+				// and few: the pasted set is the subject, and a subject sent
+				// with six photographs of the product in another colour is a
+				// subject the model stops looking at. Two on a variation run,
+				// where the other colours are precisely what must not bleed in;
+				// four otherwise.
+				$ctx_max = '' !== $v_value ? 2 : 4;
+				foreach ( array_slice( $product_ids, 0, $ctx_max ) as $aid ) {
 					try {
 						$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
 					} catch ( \Throwable $e ) {
