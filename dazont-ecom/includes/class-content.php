@@ -39,14 +39,23 @@ final class DZE_Content {
 
 	private const FAL_ENDPOINT = 'https://fal.run/fal-ai/nano-banana-2/edit';
 
+	// The real limit on a generation is the SIZE of the request body, not a
+	// number of photographs — and that limit is enforced on every lane, image
+	// by image, as the body is built. The counts below are there so a product
+	// with sixty photographs does not try to send sixty; they are set high
+	// enough that nobody meets them by working normally.
 	/** How many photographs of the product travel with one generation. */
-	public const MAX_SOURCES = 6;
+	public const MAX_SOURCES = 12;
 	/** How many photographs from outside the shop can be sent with one run. */
-	public const MAX_PASTED = 4;
+	public const MAX_PASTED = 12;
 	/** Ceiling on the encoded images in one request body, in bytes. */
 	private const MAX_PAYLOAD = 9437184; // 9 MB.
+	/** The same ceiling, for the modules that build their own request. */
+	public const MAX_BODY = 9437184;
 	/** Ceiling on one image pulled from the web for the quick lane. */
 	private const MAX_REMOTE  = 8388608; // 8 MB.
+	/** Ceiling on the photographs a text request carries to Anthropic. */
+	public const VISION_BUDGET = 12582912; // 12 MB.
 
 	public const BULK_SLUG   = 'dazont-content-bulk';
 	private const BULK_ACTION = 'dze_ai_content';
@@ -3671,6 +3680,9 @@ Answer with STRICT JSON and nothing else: "
 			'mainRecipe' => (string) ( self::main_recipe()['id'] ?? '' ),
 			// How many photographs from outside the shop one run accepts.
 			'maxPasted'  => self::MAX_PASTED,
+			// The weight one request can carry: the browser stops before the
+			// server has to refuse an oversized POST with an empty answer.
+			'maxBody'    => self::MAX_BODY,
 			// The shapes offered when reframing.
 			'ratios'     => self::ratios(),
 			'product'    => [
@@ -3743,6 +3755,7 @@ Answer with STRICT JSON and nothing else: "
 				'pasteFirst' => __( 'Build the image from this one instead', 'dazont-ecom' ),
 				'pasteHelp'  => __( 'The first photograph is the one the image is built from. The others are sent with it so the model knows the product — they are never copied into the result.', 'dazont-ecom' ),
 				'remove'     => __( 'Remove', 'dazont-ecom' ),
+				'pasteTooBig'=> __( 'That image would make the request too heavy. Remove one of the others, or use a lighter file.', 'dazont-ecom' ),
 				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
@@ -4169,8 +4182,9 @@ Answer with STRICT JSON and nothing else: "
 	 * @param array<int,string> $uris Raw data URIs from the request.
 	 * @return string[] Validated data URIs.
 	 */
-	public static function read_data_uris( array $uris, int $max = self::MAX_PASTED ): array {
-		$out = [];
+	public static function read_data_uris( array $uris, int $max = self::MAX_PASTED, int $budget = self::MAX_PAYLOAD ): array {
+		$out    = [];
+		$weight = 0;
 		foreach ( $uris as $uri ) {
 			if ( count( $out ) >= $max ) {
 				break;
@@ -4180,10 +4194,17 @@ Answer with STRICT JSON and nothing else: "
 				continue;
 			}
 			try {
-				$out[] = self::read_data_uri( $uri );
+				$one = self::read_data_uri( $uri );
 			} catch ( \Throwable $e ) {
 				continue;
 			}
+			// The first one is the subject and goes out whatever it weighs;
+			// after that the body has to stay a body fal will accept.
+			if ( $out && ( $weight + strlen( $one ) ) > $budget ) {
+				break;
+			}
+			$weight += strlen( $one );
+			$out[]   = $one;
 		}
 		return $out;
 	}

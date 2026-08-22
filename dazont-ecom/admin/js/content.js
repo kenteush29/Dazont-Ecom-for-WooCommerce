@@ -1084,7 +1084,15 @@
 	// of them, because three supplier shots of the same jacket — none of them
 	// usable as it stands — say together what no single one of them says.
 	var one = { fid: '', mode: 'text', value: '', tries: [], keep: {}, pastes: [] };
-	function maxPasted() { return parseInt(cfg.maxPasted, 10) || 4; }
+	function maxPasted() { return parseInt(cfg.maxPasted, 10) || 12; }
+	// What really limits a run is the WEIGHT of the request, not a count: three
+	// photographs straight from a camera are heavier than a dozen supplier
+	// shots. Refused here, with a sentence, rather than by a server that
+	// answers an empty page to an oversized POST.
+	function pasteWeight() {
+		return (one.pastes || []).reduce(function (n, u) { return n + u.length; }, 0);
+	}
+	function maxBody() { return parseInt(cfg.maxBody, 10) || 9437184; }
 
 	function oneBuild() {
 		if ($('#dze-one').length) { return; }
@@ -1475,6 +1483,10 @@
 	function onePasteAdd(dataUri) {
 		one.pastes = one.pastes || [];
 		if (!dataUri || one.pastes.length >= maxPasted()) { return; }
+		if (one.pastes.length && (pasteWeight() + dataUri.length) > maxBody()) {
+			$('#dze-one-state').addClass('is-ko').text(i18n.pasteTooBig);
+			return;
+		}
 		one.pastes.push(String(dataUri));
 		oneDrawPastes();
 	}
