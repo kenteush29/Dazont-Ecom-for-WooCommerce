@@ -173,27 +173,6 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		<?php endforeach; ?>
 	</table>
 
-	<h2 class="title"><?php esc_html_e( 'Shop catalog context', 'dazont-ecom' ); ?></h2>
-	<table class="form-table" role="presentation">
-		<tr>
-			<th scope="row"><?php esc_html_e( 'Use catalog & sales data', 'dazont-ecom' ); ?></th>
-			<td>
-				<label>
-					<input type="checkbox" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[use_catalog]' ); ?>" value="1" <?php checked( ! empty( $settings['use_catalog'] ) ); ?> />
-					<?php esc_html_e( 'Also send my product categories and best-sellers', 'dazont-ecom' ); ?>
-				</label>
-				<p class="description" style="max-width:820px;"><?php esc_html_e( 'What the shop IS comes from "About this shop" on the General tab. This adds a list of category and best-seller names on top of it: a marketing calendar is driven by real commercial moments (Black Friday, seasonal sales, holidays…), which rarely depend on your exact catalogue, so leaving it off is usually the better answer.', 'dazont-ecom' ); ?></p>
-			</td>
-		</tr>
-		<tr>
-			<th scope="row"><label for="dze-mai-tone"><?php esc_html_e( 'Brand tone / voice', 'dazont-ecom' ); ?></label></th>
-			<td>
-				<input type="text" id="dze-mai-tone" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[tone]' ); ?>" value="<?php echo esc_attr( $settings['tone'] ?? '' ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'e.g. bold, tactical, no-nonsense', 'dazont-ecom' ); ?>" />
-				<p class="description" style="max-width:820px;"><?php esc_html_e( 'How your brand speaks. Used lightly for the calendar today, and reused by the upcoming content tools (product descriptions, etc.).', 'dazont-ecom' ); ?></p>
-			</td>
-		</tr>
-	</table>
-
 	<h2 class="title"><?php esc_html_e( 'Marketing calendar prompt', 'dazont-ecom' ); ?></h2>
 	<p class="description" style="max-width:820px;">
 		<?php esc_html_e( 'The strategy the AI follows when building your calendar. Edit it to steer what kinds of events it proposes. The shop context, chosen language, date range and output format are always added automatically — you only write the strategy.', 'dazont-ecom' ); ?>
@@ -222,29 +201,18 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 
 <?php if ( $show_events ) : ?>
 <hr />
-<h2 class="title"><?php esc_html_e( 'What the AI sees about your shop', 'dazont-ecom' ); ?></h2>
-<p class="description" style="max-width:820px;">
-	<?php esc_html_e( 'The exact text sent as context: what you wrote under Settings → General → About this shop, plus the catalogue lines when the box above is ticked.', 'dazont-ecom' ); ?>
-	<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'events', 'dze_mai_refresh' => 1 ] , admin_url( 'admin.php' ) ) ); ?>">↻ <?php esc_html_e( 'Refresh', 'dazont-ecom' ); ?></a>
-</p>
-<?php if ( $context !== '' ) : ?>
-	<pre style="background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:12px 16px;max-width:820px;white-space:pre-wrap;font-size:13px;"><?php echo esc_html( $context ); ?></pre>
-<?php else : ?>
-	<p class="description"><?php esc_html_e( 'Nothing detected yet — set a site tagline for better suggestions.', 'dazont-ecom' ); ?></p>
-<?php endif; ?>
+<!-- What is sent as context is the shop's own description, written once on the
+     General tab. Reprinting it here — next to a checkbox adding category names
+     on top of it — was the same text in two places and a second thing to keep
+     in step with the first. -->
 <p class="description" style="max-width:820px;">
 	<?php
 	printf(
-		/* translators: %s: link to the WordPress General Settings screen */
-		esc_html__( 'The tagline comes from your WordPress site tagline. %s', 'dazont-ecom' ),
-		'<a href="' . esc_url( admin_url( 'options-general.php' ) ) . '">' . esc_html__( 'Edit it in Settings → General ↗', 'dazont-ecom' ) . '</a>'
+		/* translators: %s: link to the General tab */
+		esc_html__( 'Context sent with every generation: what you wrote under %s.', 'dazont-ecom' ),
+		'<a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ) ) . '">'
+			. esc_html__( 'Settings → General → About this shop ↗', 'dazont-ecom' ) . '</a>'
 	);
 	?>
 </p>
-
-<hr />
-<p class="description" style="max-width:820px;">
-	<?php esc_html_e( 'To generate the calendar and review suggestions, go to Marketing Events.', 'dazont-ecom' ); ?>
-	<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Discounts::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Open Marketing Events →', 'dazont-ecom' ); ?></a>
-</p>
-<?php endif; // $show_events ?>
+<?php endif; ?>

@@ -131,8 +131,6 @@ final class DZE_Marketing_Ai {
 		return wp_parse_args( $s, [
 			'api_key'       => '',
 			'model'         => self::MODEL,
-			'use_catalog'   => true, // feed shop categories/best-sellers to the AI.
-			'tone'          => '',   // brand voice, reused by future content tools.
 			'events_prompt' => '',   // custom calendar guidance; empty = DEFAULT_EVENTS_PROMPT.
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
@@ -302,8 +300,6 @@ final class DZE_Marketing_Ai {
 		if ( 'events' === $section ) {
 			// The Marketing events tab carries everything except key + model.
 			return array_merge( $existing, [
-				'use_catalog'   => ! empty( $in['use_catalog'] ),
-				'tone'          => sanitize_textarea_field( (string) ( $in['tone'] ?? '' ) ),
 				'events_prompt' => sanitize_textarea_field( $events_prompt ),
 				'country_pools' => $pools,
 			] );
@@ -312,8 +308,6 @@ final class DZE_Marketing_Ai {
 		return [
 			'api_key'       => sanitize_text_field( $key ),
 			'model'         => $model,
-			'use_catalog'   => ! empty( $in['use_catalog'] ),
-			'tone'          => sanitize_textarea_field( (string) ( $in['tone'] ?? '' ) ),
 			'events_prompt' => sanitize_textarea_field( $events_prompt ),
 			'country_pools' => $pools,
 		];
@@ -690,10 +684,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
-		// Manual refresh of the auto-detected shop context.
-		if ( isset( $_GET['dze_mai_refresh'] ) ) {
-			delete_transient( self::CTX_TRANSIENT );
-		}
 		$settings   = self::get_settings();
 		$key_locked = defined( 'DZE_ANTHROPIC_API_KEY' );
 		$has_key    = $this->api_key() !== '';
@@ -874,35 +864,30 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		return $old;
 	}
 
-	/** The shop's own facts, readable — used by the calendar and by others. */
+	/**
+	 * The shop, as context for a generation: its own description and nothing
+	 * else.
+	 *
+	 * It used to add a brand-tone field and, optionally, fifteen category names
+	 * and twelve best-seller names — a second description of the shop, kept in
+	 * a second place, saying less than the first. What the shop is, how it
+	 * speaks and what it sells is one text now, written under Settings →
+	 * General → About this shop.
+	 */
 	public function shop_context_text(): string {
+		$mine = self::shop_profile();
+		if ( '' !== $mine ) {
+			return $mine;
+		}
+		// Nothing written yet: the two facts WordPress does know stand in until
+		// something is.
 		$c     = $this->shop_context();
 		$lines = [];
-		$mine  = self::shop_profile();
-		if ( '' !== $mine ) {
-			$lines[] = $mine;
-		}
-		// Nothing written yet: the shop still has to say what it is, so the two
-		// facts WordPress does know stand in until it does.
-		if ( '' === $mine && $c['name'] !== '' ) {
+		if ( $c['name'] !== '' ) {
 			$lines[] = sprintf( 'Store name: %s', $c['name'] );
 		}
-		if ( '' === $mine && $c['tagline'] !== '' ) {
+		if ( $c['tagline'] !== '' ) {
 			$lines[] = sprintf( 'What the store sells (tagline): %s', $c['tagline'] );
-		}
-		$tone = trim( (string) ( self::get_settings()['tone'] ?? '' ) );
-		if ( $tone !== '' ) {
-			$lines[] = sprintf( 'Brand tone / voice: %s', $tone );
-		}
-		// Catalog / sales signals are optional — some shops find them noise for a
-		// calendar driven by well-known commercial moments.
-		if ( ! empty( self::get_settings()['use_catalog'] ) ) {
-			if ( ! empty( $c['categories'] ) ) {
-				$lines[] = sprintf( 'Product categories (best-selling first): %s', implode( ', ', $c['categories'] ) );
-			}
-			if ( ! empty( $c['products'] ) ) {
-				$lines[] = sprintf( 'Best-selling products (highest first): %s', implode( ', ', $c['products'] ) );
-			}
 		}
 		return implode( "\n", $lines );
 	}
@@ -924,6 +909,9 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( '' === $this->api_key() ) {
 			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key first.', 'dazont-ecom' ) ] );
 		}
+		// Read the shop as it is right now: a draft written from an hour-old
+		// snapshot is a draft written from a shop that has since changed.
+		delete_transient( self::CTX_TRANSIENT );
 		$c     = $this->shop_context();
 		$facts = [];
 		if ( '' !== (string) $c['name'] ) {
