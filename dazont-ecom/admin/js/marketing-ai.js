@@ -69,6 +69,7 @@
 			start_date: $row.find('.dze-f-start').val(),
 			end_date: $row.find('.dze-f-end').val(),
 			languages: $row.find('.dze-f-langs').val(),
+			timer: $row.find('.dze-f-timer').is(':checked') ? 1 : 0,
 			// Reviewed on the row, so they travel with it — no second call.
 			i18n: JSON.stringify(rowI18n($row)),
 		})
@@ -136,6 +137,7 @@
 		$('#dze-ev-start').val(data.start || '');
 		$('#dze-ev-end').val(data.end || '');
 		$('#dze-ev-langs').val(data.langs || '');
+		$('#dze-ev-timer').prop('checked', !!data.timer);
 		$('#dze-ev-title').text(data.id ? i18n.modifyTitle : i18n.newTitle);
 		$('.dze-ev-status').text('');
 		$('#dze-ev-modal').css('display', 'flex');
@@ -148,6 +150,7 @@
 			id: $r.data('id'), title: $r.data('title'), percent: $r.data('percent'),
 			start: $r.data('start'), end: $r.data('end'),
 			langs: $r.data('langs'),
+			timer: $r.find('.dze-f-timer').is(':checked'),
 			// What the row already holds, corrections included.
 			i18n: rowI18n($r)
 		});
@@ -201,6 +204,7 @@
 			start_date: $('#dze-ev-start').val(),
 			end_date: $('#dze-ev-end').val(),
 			languages: $('#dze-ev-langs').val() || '',
+			timer: $('#dze-ev-timer').is(':checked') ? 1 : 0,
 			i18n: JSON.stringify(getI18n()),
 		};
 		// A promotion is pushed to every Merchant Center account that is set up

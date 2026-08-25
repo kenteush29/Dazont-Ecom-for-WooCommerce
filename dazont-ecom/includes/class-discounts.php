@@ -391,6 +391,38 @@ final class DZE_Discounts {
 	// Rule storage
 	// =========================================================================
 
+	/**
+	 * The banner's colours — the shop's, not one promotion's.
+	 *
+	 * A style chosen event by event is a shop whose banner looks different
+	 * every month. Decided once, under Settings → Marketing events, and read
+	 * here by everything that draws a banner.
+	 *
+	 * @return array{bg:string,color:string}
+	 */
+	public static function banner_style(): array {
+		$s = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::get_settings() : [];
+		$hex = static function ( $v, string $fallback ): string {
+			$v = is_string( $v ) ? trim( $v ) : '';
+			return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : $fallback;
+		};
+		return [
+			'bg'    => $hex( $s['banner_bg'] ?? '', '#111111' ),
+			'color' => $hex( $s['banner_color'] ?? '', '#ffffff' ),
+		];
+	}
+
+	/**
+	 * The title of the enabled promotion this one would collide with, or ''.
+	 *
+	 * Public because the calendar creates events too, and a rule written
+	 * straight into the option would otherwise walk past the one guard that
+	 * keeps two promotions from running at once.
+	 */
+	public function clash_for( array $rule, ?array $pool = null ): string {
+		return $this->conflicting_sale( $rule, $pool );
+	}
+
 	public static function get_rules(): array {
 		$rules = get_option( self::OPTION, [] );
 		return is_array( $rules ) ? $rules : [];
@@ -1735,8 +1767,9 @@ final class DZE_Discounts {
 
 		self::$rendered[ $id ] = true;
 
-		$bg    = $rule['banner_bg'] ?? '#111111';
-		$color = $rule['banner_color'] ?? '#ffffff';
+		$style = self::banner_style();
+		$bg    = $style['bg'];
+		$color = $style['color'];
 
 		$timer = '';
 		if ( ! empty( $rule['banner_timer'] ) && ! empty( $rule['end'] ) ) {
@@ -2020,6 +2053,9 @@ final class DZE_Discounts {
 		$id      = ! empty( $in['rule_id'] ) ? sanitize_key( $in['rule_id'] ) : 'r' . uniqid();
 		$type    = in_array( $in['type'] ?? '', array_keys( self::type_labels() ), true ) ? $in['type'] : 'sale';
 		$scope   = in_array( $in['scope'] ?? 'all', [ 'all', 'categories', 'products' ], true ) ? $in['scope'] : 'all';
+		if ( in_array( $type, self::EVENT_TYPES, true ) ) {
+			$scope = 'all'; // a marketing event is the whole shop on sale.
+		}
 		$b_loc   = in_array( $in['banner_location'] ?? '', [ 'top', 'below_header', 'product' ], true ) ? $in['banner_location'] : 'top';
 		$b_pos   = array_key_exists( $in['product_position'] ?? '', self::product_positions() ) ? $in['product_position'] : 'before_product';
 		$created = ( isset( $rules[ $id ]['created_at'] ) && $rules[ $id ]['created_at'] ) ? (int) $rules[ $id ]['created_at'] : time();
@@ -2047,9 +2083,11 @@ final class DZE_Discounts {
 			'top_n'         => max( 1, min( self::AUTO_MAX, (int) ( $in['top_n'] ?? 20 ) ) ),
 			'lookback_days' => min( 365, max( 1, (int) ( $in['lookback_days'] ?? 30 ) ) ),
 			'banner_enabled'   => ! empty( $in['banner_enabled'] ),
-			'banner_text'      => sanitize_text_field( $in['banner_text'] ?? '' ),
-			'banner_bg'        => $this->sanitize_hex( $in['banner_bg'] ?? '#111111' ),
-			'banner_color'     => $this->sanitize_hex( $in['banner_color'] ?? '#ffffff' ),
+			// What the banner says IS the title: one field, so the two can
+			// never drift apart. The colours belong to the shop, not here.
+			'banner_text'      => in_array( $type, self::EVENT_TYPES, true )
+				? sanitize_text_field( $in['title'] ?? '' )
+				: sanitize_text_field( $in['banner_text'] ?? '' ),
 			'banner_location'  => $b_loc,
 			'product_position' => $b_pos,
 			'banner_hooks'      => sanitize_text_field( $in['banner_hooks'] ?? '' ),

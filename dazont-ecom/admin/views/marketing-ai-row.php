@@ -7,7 +7,7 @@ defined( 'ABSPATH' ) || exit;
  */
 $sug = wp_parse_args( $sug, [
 	'id' => '', 'title' => '', 'percent' => 0, 'start_date' => '', 'end_date' => '',
-	'languages' => [], 'rationale' => '', 'i18n' => [],
+	'languages' => [], 'rationale' => '', 'i18n' => [], 'timer' => false,
 ] );
 $langs = implode( ', ', (array) $sug['languages'] );
 ?>
@@ -17,6 +17,7 @@ $langs = implode( ', ', (array) $sug['languages'] );
 	data-start="<?php echo esc_attr( $sug['start_date'] ); ?>"
 	data-end="<?php echo esc_attr( $sug['end_date'] ); ?>"
 	data-langs="<?php echo esc_attr( $langs ); ?>"
+	data-timer="<?php echo empty( $sug['timer'] ) ? '0' : '1'; ?>"
 	data-i18n="<?php echo esc_attr( (string) wp_json_encode( (array) $sug['i18n'] ) ); ?>">
 	<td style="text-align:center;"><input type="checkbox" class="dze-mai-cb" /></td>
 	<td>
@@ -25,6 +26,12 @@ $langs = implode( ', ', (array) $sug['languages'] );
 		<?php if ( ! empty( $sug['rationale'] ) ) : ?>
 			<div class="description" style="margin:3px 0 0;font-size:12px;"><?php echo esc_html( $sug['rationale'] ); ?></div>
 		<?php endif; ?>
+		<?php // A countdown is for the two or three moments of the year a
+		// deadline really presses on; the calendar says which, you decide. ?>
+		<label style="display:inline-block;margin:4px 0 0;font-size:12px;color:#646970;">
+			<input type="checkbox" class="dze-f-timer" <?php checked( ! empty( $sug['timer'] ) ); ?> />
+			&#9201; <?php esc_html_e( 'Countdown on the banner', 'dazont-ecom' ); ?>
+		</label>
 		<?php
 		// The title as customers will read it in each language — already
 		// written when the calendar was generated, so what is reviewed here is

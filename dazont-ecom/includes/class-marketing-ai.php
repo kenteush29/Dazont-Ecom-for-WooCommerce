@@ -325,11 +325,18 @@ final class DZE_Marketing_Ai {
 			if ( $promo_i18n === trim( self::default_promo_i18n_prompt() ) ) {
 				$promo_i18n = '';
 			}
+			$hex = static function ( $v, string $fallback ): string {
+				$v = is_string( $v ) ? trim( $v ) : '';
+				return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : $fallback;
+			};
 			return array_merge( $existing, [
 				'events_prompt'     => sanitize_textarea_field( $events_prompt ),
 				'promo_i18n_prompt' => $promo_i18n,
 				'promo_i18n_on'     => empty( $in['promo_i18n_on'] ) ? 0 : 1,
 				'country_pools'     => $pools,
+				// The banner every promotion of this shop wears.
+				'banner_bg'         => $hex( $in['banner_bg'] ?? '', '#111111' ),
+				'banner_color'      => $hex( $in['banner_color'] ?? '', '#ffffff' ),
 			] );
 		}
 
@@ -1251,6 +1258,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 
 		$schema = '{"events":[{"title":string (<=60 chars),"type":"sale",'
 			. '"start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","percent":integer 5-70,'
+			. '"timer":boolean,'
 			. '"rationale":string (one short sentence naming the real occasion it maps to)}]}';
 
 		$context = $this->shop_context_text();
@@ -1280,6 +1288,11 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			. "to Cyber Monday is one block. A real occasion cut to a few days sells less than it should.\n"
 			. "- A promotion customers buy gifts for must END early enough for the parcel to arrive "
 			. "before the date, counting this shop's own delivery time.\n"
+			. "- \"timer\" is a countdown shown to the customer. Give it to the two or three "
+			. "moments of the year a deadline really presses on — Black Friday, the last days "
+			. "before Christmas delivery, the end of an official sale period. On an ordinary "
+			. "sale it is noise, and a shop whose every banner counts down is a shop nobody "
+			. "hurries for: leave it false.\n"
 			. "- Events must not overlap in time (each has a clear start and end date).\n"
 			. "- Pick a realistic discount percentage for the occasion and this shop's positioning.\n"
 			. "- Order events chronologically by start_date. Hard maximum: %d events.\n\n"
@@ -1333,6 +1346,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				// in French and not in English is a bug the shop finds out
 				// about from its customers.
 				'languages'     => [],
+				'timer'         => ! empty( $ev['timer'] ),
 				'rationale'     => mb_substr( sanitize_text_field( (string) ( $ev['rationale'] ?? '' ) ), 0, 240 ),
 				// Filled by propose() once the batch comes back.
 				'i18n'          => [],
@@ -1578,6 +1592,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'start_date'    => $this->clean_date( wp_unslash( $_POST['start_date'] ?? $src['start_date'] ) ),
 			'end_date'      => $this->clean_date( wp_unslash( $_POST['end_date'] ?? $src['end_date'] ) ),
 			'languages'     => $this->list_codes( explode( ',', (string) ( $_POST['languages'] ?? implode( ',', $src['languages'] ) ) ), 5 ),
+			'timer'         => isset( $_POST['timer'] ) ? ! empty( $_POST['timer'] ) : ! empty( $src['timer'] ),
 		];
 		if ( $ev['start_date'] === '' || $ev['end_date'] === '' ) {
 			wp_send_json_error( [ 'message' => __( 'This event needs a valid start and end date.', 'dazont-ecom' ) ] );
@@ -1590,7 +1605,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		self::save_suggestions( $suggestions );
 
 		wp_send_json_success( [
-			'message'  => __( 'Added to your calendar (as a disabled event — review and enable it below).', 'dazont-ecom' ),
+			'message'  => __( 'Added to your calendar and running — switch it off below if you need to.', 'dazont-ecom' ),
 			'rule_id'  => $rule_id,
 		] );
 	}
@@ -1618,6 +1633,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'start_date'    => $this->clean_date( wp_unslash( $_POST['start_date'] ?? ( $src['start_date'] ?? '' ) ) ),
 			'end_date'      => $this->clean_date( wp_unslash( $_POST['end_date'] ?? ( $src['end_date'] ?? '' ) ) ),
 			'languages'     => $this->list_codes( explode( ',', (string) ( $_POST['languages'] ?? implode( ',', (array) ( $src['languages'] ?? [] ) ) ) ), 5 ),
+			'timer'         => isset( $_POST['timer'] ) ? ! empty( $_POST['timer'] ) : ! empty( $src['timer'] ),
 		];
 		if ( $ev['title'] === '' ) {
 			wp_send_json_error( [ 'message' => __( 'Give the event a title.', 'dazont-ecom' ) ] );
@@ -1744,7 +1760,10 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'created_at'    => time(),
 			'title'         => $ev['title'],
 			'type'          => 'sale',
-			'enabled'       => false, // one active event at a time — enable manually.
+			// An accepted event is a real one: it runs. The switch on the list
+			// is there to stop it, not to start it — an event created in a
+			// disabled state is an event the shop forgets to turn on.
+			'enabled'       => true,
 			'percent'       => (float) $ev['percent'],
 			'scope'         => 'all',
 			'category_ids'  => [],
@@ -1754,12 +1773,12 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'threshold'     => 0.0,
 			'banner_enabled'   => true,
 			'banner_text'      => $ev['title'],
-			'banner_bg'        => '#111111',
-			'banner_color'     => '#ffffff',
 			'banner_location'  => 'top',
 			'product_position' => 'before_product',
 			'banner_hooks'     => '',
-			'banner_timer'     => true,
+			// A countdown belongs to the few moments of the year that carry a
+			// deadline people act on, not to every sale.
+			'banner_timer'     => ! empty( $ev['timer'] ),
 			'banner_text_i18n' => (array) ( $ev['i18n'] ?? [] ),
 			'languages'        => $ev['languages'],
 			'hero_swap_enabled'=> false,
@@ -1768,6 +1787,21 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			// Marketing-AI metadata (ignored by Discounts, used by the calendar).
 			'source'         => 'ai',
 		];
+		// The one guard that matters is applied here too: writing a rule
+		// straight into the option must not put two promotions on the shop at
+		// the same time.
+		if ( class_exists( 'DZE_Discounts' ) ) {
+			$clash = DZE_Discounts::instance()->clash_for( $rules[ $id ], $rules );
+			if ( '' !== $clash ) {
+				$rules[ $id ]['enabled'] = false;
+				set_transient( 'dze_discount_notice', sprintf(
+					/* translators: 1: the new event, 2: the promotion already running */
+					__( '"%1$s" was added but left off: its dates overlap "%2$s", and only one promotion runs at a time.', 'dazont-ecom' ),
+					(string) $ev['title'],
+					$clash
+				), 60 );
+			}
+		}
 		update_option( DZE_Discounts::OPTION, $rules, false );
 		return $id;
 	}
