@@ -276,7 +276,7 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Other languages', 'dazont-ecom' ); ?></th>
 					<td>
-						<button type="button" class="button-link" id="dze-banner-translate">&#127760; <?php esc_html_e( 'Translate the banner text', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button-link" id="dze-banner-translate">&#127760; <?php esc_html_e( 'Write it for my other markets', 'dazont-ecom' ); ?></button>
 						<span id="dze-banner-tr-status" class="description" style="margin-left:8px;"></span>
 						<details id="dze-banner-i18n" style="margin:6px 0 0;"<?php echo $dze_got ? '' : ' open'; ?>>
 							<summary style="cursor:pointer;font-size:12px;color:#2271b1;">

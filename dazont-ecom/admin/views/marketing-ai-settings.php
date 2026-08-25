@@ -121,17 +121,17 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		}
 	}());
 	</script>
-	<h2 class="title"><?php esc_html_e( 'Promotion translations', 'dazont-ecom' ); ?></h2>
+	<h2 class="title"><?php esc_html_e( 'The promotion in your other markets', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>
-			<th scope="row"><?php esc_html_e( 'Translate on save', 'dazont-ecom' ); ?></th>
+			<th scope="row"><?php esc_html_e( 'Adapt promotions', 'dazont-ecom' ); ?></th>
 			<td>
 				<label>
 					<input type="checkbox" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[promo_i18n_on]' ); ?>" value="1" <?php checked( DZE_Marketing_Ai::promo_i18n_on() ); ?> />
-					<?php esc_html_e( 'Write the promotion in my other languages when an event is saved or switched on', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Write the promotion title for my other markets', 'dazont-ecom' ); ?>
 				</label>
 				<p class="description" style="max-width:820px;">
-					<?php esc_html_e( 'A promotion with nothing to say in a language does not run in that language at all — that is why this is on. It happens in the background, it never overwrites a line you wrote yourself, and you can correct any of them on the event. Switched off, the per-language fields on an event stay yours to fill.', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Not a translation: the line a shop in that market would write to announce the same offer. It runs when a calendar is generated — so the suggestions you review already carry their titles in every language — and again when an event is saved or switched on, for anything still missing. A promotion with nothing to say in a language does not run in that language at all, which is why this is on. It never overwrites a line you wrote yourself. Switched off, the fields stay yours to fill, and the button on an event still works.', 'dazont-ecom' ); ?>
 				</p>
 			</td>
 		</tr>

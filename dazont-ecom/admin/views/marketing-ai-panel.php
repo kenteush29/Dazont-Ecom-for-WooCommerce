@@ -82,7 +82,7 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 					if ( $dze_promo_langs ) :
 					?>
 					<p style="margin:6px 0 0;">
-						<button type="button" class="button-link" id="dze-ev-translate">&#127760; <?php esc_html_e( 'Translate the title', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button-link" id="dze-ev-translate">&#127760; <?php esc_html_e( 'Write it for my other markets', 'dazont-ecom' ); ?></button>
 						<span id="dze-ev-tr-status" class="description" style="margin-left:8px;"></span>
 					</p>
 					<details id="dze-ev-i18n" style="margin:6px 0 0;">
@@ -102,7 +102,7 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 							</p>
 						<?php endforeach; ?>
 						<p class="description" style="margin:6px 0 0;">
-							<?php esc_html_e( 'What customers read on the banner in each language. Left empty, the promotion does not run in that language.', 'dazont-ecom' ); ?>
+							<?php esc_html_e( 'What customers read on the banner in each market — the line that shop would write, not a translation of yours. Left empty, the promotion does not run in that language.', 'dazont-ecom' ); ?>
 						</p>
 					</details>
 					<?php endif; ?>
