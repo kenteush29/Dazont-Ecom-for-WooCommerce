@@ -48,16 +48,27 @@ final class DZE_Marketing_Ai {
 	 * the machinery.
 	 */
 	public const DEFAULT_EVENTS_PROMPT =
-		"You are an expert e-commerce marketing strategist. Build a well-paced promotional calendar "
-		. "for the shop, anchored to genuine, widely-recognised commercial moments for the target market:\n"
-		. "- Major public and retail holidays, and nationally-observed sale seasons (for example: les soldes "
-		. "in France, Black Friday, Cyber Monday, Christmas, Boxing Day, Valentine's Day, Mother's/Father's Day, Halloween).\n"
-		. "- Established seasonal sales that retailers run every year: Spring Sale, Summer Sale, Back-to-School, "
-		. "Autumn/Fall Sale, End-of-Season Clearance, Winter Sale.\n\n"
-		. "Pace the calendar so there are no long empty gaps: when two holidays are far apart, a well-known seasonal "
-		. "sale in between is welcome and encouraged. Never invent vague, meaningless promotions (a 'random weekend "
-		. "flash deal') just to reach a number — every event must map to a real occasion, which you name in its rationale. "
-		. "Favour realism and good spacing over sheer quantity.";
+		"You are the marketing strategist of this shop. Build its promotional calendar out of the "
+		. "commercial moments that are REAL for its customers, never out of moments invented to fill "
+		. "the year:\n"
+		. "- The public holidays and gift dates its market observes (Christmas, Valentine's Day, "
+		. "Mother's and Father's Day, Halloween).\n"
+		. "- The official sale periods and retail events of that market (les soldes in France, Black "
+		. "Friday, Cyber Monday, Boxing Day).\n"
+		. "- The seasons the whole trade runs on: the summer sale, the back-to-school return, the "
+		. "winter sale.\n"
+		. "- The dates that belong to what this shop sells, when they are dates its customers already "
+		. "keep themselves.\n\n"
+		. "How to judge a proposal: could a customer name that occasion on his own, without reading "
+		. "the promotion? If not, it is not an occasion, and it does not go on the calendar. Four "
+		. "honest moments beat twelve, and weeks with nothing in them are a normal answer.\n"
+		. "Name the promotion after the occasion, in the words customers use for it — no invented "
+		. "sale name, no slogan, no wordplay.\n"
+		. "Give each moment the length it deserves rather than the shortest one that works.\n"
+		. "This shop does not clear stock: nothing here is a clearance, a last chance on remaining "
+		. "stock or a way to shift unsold goods. A promotion sells more, it does not empty a warehouse.\n"
+		. "Mind the delivery time: a promotion people buy gifts in must end early enough for the "
+		. "parcel to arrive before the date it is needed.";
 
 	/** Default target-country pool per language, seeded on first use. */
 	public const LANGUAGE_COUNTRY_POOLS = [
@@ -1133,7 +1144,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		wp_send_json_success( [
 			'count'   => $count,
 			'message' => $count === 0
-				? __( 'No notable commercial moment found in this window — nothing to suggest. Try a longer or different date range.', 'dazont-ecom' )
+				? __( 'No real commercial moment in this window, so nothing is proposed — an empty stretch is an answer, not a failure. Widen the range if you expected one.', 'dazont-ecom' )
 				/* translators: %d: number of generated marketing events */
 				: sprintf( _n( '%d suggestion generated.', '%d suggestions generated.', $count, 'dazont-ecom' ), $count ),
 		] );
@@ -1251,14 +1262,24 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			"Shop context (auto-detected from the website — trust it):\n%s\n\n"
 			. "Write the calendar for ONE language only: %s (%s).\n"
 			. "Target market / countries: %s.\n"
-			. "All titles, email subjects and rationales must be written in %s.\n\n"
+			. "All titles and rationales must be written in %s.\n\n"
 			. "Plan promotional events strictly between %s and %s (inclusive) — every date must "
 			. "fall in this window.\n\n"
 			. "Rules:\n"
 			. "- Follow the strategy above. Every event must map to a real occasion (holiday or "
 			. "well-known seasonal sale) named in its rationale.\n"
-			. "- Space events out across the window — avoid long empty stretches when an obvious "
-			. "seasonal sale could sit between two holidays.\n"
+			. "- A stretch of the window with no real occasion in it gets NO event. Coming back with "
+			. "three events, or with none at all, is a correct answer; inventing an occasion to fill "
+			. "a gap is not. Never build a promotion on a theme of your own making, and never dress "
+			. "an ordinary week as an event.\n"
+			. "- The title NAMES the occasion, in the plainest words this shop's customers already "
+			. "use for it — the words they would type into a search box. No invented name for a sale, "
+			. "no slogan, no wordplay: the title alone must say what the promotion is.\n"
+			. "- Give each occasion the length it deserves rather than the shortest one that works: a "
+			. "dated holiday runs the days around it, a season runs two to three weeks, Black Friday "
+			. "to Cyber Monday is one block. A real occasion cut to a few days sells less than it should.\n"
+			. "- A promotion customers buy gifts for must END early enough for the parcel to arrive "
+			. "before the date, counting this shop's own delivery time.\n"
 			. "- Events must not overlap in time (each has a clear start and end date).\n"
 			. "- Pick a realistic discount percentage for the occasion and this shop's positioning.\n"
 			. "- Order events chronologically by start_date. Hard maximum: %d events.\n\n"
