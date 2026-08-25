@@ -5,6 +5,44 @@
 	var cfg  = dzeMai;
 	var i18n = cfg.i18n;
 
+	function esc(t) { return $('<i></i>').text(t == null ? '' : t).html(); }
+
+	// ---- The countries of the chosen language ----
+	//
+	// A calendar is generated FOR markets: which ones has to be visible and
+	// switchable. The panel asked for country codes in a text field, so the
+	// only way to leave one out was to know the whole pool by heart and retype
+	// it without that one.
+	function drawCountries() {
+		var $box = $('#dze-mai-countrybox');
+		if (!$box.length) { return; }
+		var lang = $('#dze-mai-lang').val() || '';
+		var pool = (cfg.pools || {})[lang] || [];
+		if (!pool.length) { $box.html('<span class="description">' + esc(i18n.noPool || '') + '</span>'); return; }
+		$box.html(pool.map(function (code) {
+			var name = (cfg.names || {})[code] || code;
+			return '<label class="dze-mai-country" title="' + esc(name) + '">' +
+				'<input type="checkbox" class="dze-mai-c" value="' + esc(code) + '" checked /> ' +
+				esc(code) + '</label>';
+		}).join(''));
+	}
+	function pickedCountries() {
+		var list = $('#dze-mai-countrybox .dze-mai-c:checked').map(function () { return this.value; }).get();
+		// Anything typed under "Others" joins the ticked ones.
+		($('#dze-mai-countries').val() || '').split(/[^A-Za-z]+/).forEach(function (raw) {
+			var c = String(raw || '').toUpperCase();
+			if (2 === c.length && list.indexOf(c) < 0) { list.push(c); }
+		});
+		return list;
+	}
+	$(document).on('change', '#dze-mai-lang', drawCountries);
+	$('#dze-mai-call').on('click', function () {
+		var $all = $('#dze-mai-countrybox .dze-mai-c');
+		var on = $all.filter(':checked').length !== $all.length;
+		$all.prop('checked', on);
+	});
+	drawCountries();
+
 	// ---- Generate suggestions ----
 	$('#dze-mai-generate').on('click', function () {
 		var $btn = $(this), $status = $('#dze-mai-gen-status');
@@ -12,6 +50,12 @@
 		var end   = $('#dze-mai-end').val();
 		if (!start || !end) {
 			$status.css('color', '#b32d2e').text(i18n.needDates);
+			return;
+		}
+		// Every country unticked is not "all of them": the server would fall
+		// back to the whole pool and the ticks would have meant nothing.
+		if ($('#dze-mai-countrybox .dze-mai-c').length && !pickedCountries().length) {
+			$status.css('color', '#b32d2e').text(i18n.needCountry);
 			return;
 		}
 		$btn.prop('disabled', true);
@@ -22,7 +66,7 @@
 			start_date: start,
 			end_date: end,
 			lang: $('#dze-mai-lang').val() || '',
-			countries: $('#dze-mai-countries').val() || ''
+			countries: pickedCountries().join(',')
 		})
 		.done(function (res) {
 			if (res.success) {

@@ -37,9 +37,16 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 					<?php endforeach; ?>
 				</select>
 			</label>
-			&nbsp;
-			<label><?php esc_html_e( 'Countries', 'dazont-ecom' ); ?>
-				<input type="text" id="dze-mai-countries" placeholder="<?php esc_attr_e( 'optional — e.g. FR, BE, CH', 'dazont-ecom' ); ?>" style="width:180px;" />
+		</p>
+		<!-- The countries of the chosen language, as tick boxes. It used to be a
+		     text field asking for codes from memory, with no way to see which
+		     ones the language ships with, let alone switch one off. -->
+		<p class="dze-mai-countries">
+			<span class="dze-mai-clabel"><?php esc_html_e( 'Countries', 'dazont-ecom' ); ?></span>
+			<span id="dze-mai-countrybox"></span>
+			<button type="button" class="button-link" id="dze-mai-call"><?php esc_html_e( 'All / none', 'dazont-ecom' ); ?></button>
+			<label class="dze-mai-cmore"><?php esc_html_e( 'Others', 'dazont-ecom' ); ?>
+				<input type="text" id="dze-mai-countries" placeholder="<?php esc_attr_e( 'e.g. PT, SE', 'dazont-ecom' ); ?>" style="width:120px;" />
 			</label>
 		</p>
 		<p>
@@ -51,7 +58,7 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 			<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'events' ); } ?>
 			<span id="dze-mai-gen-status" style="margin-left:8px;font-size:13px;"></span>
 		</p>
-		<p class="description"><?php esc_html_e( 'Suggestions are generated for the chosen language only. Leave Countries blank to use that language\'s default markets.', 'dazont-ecom' ); ?> <a href="<?php echo esc_url( $ai_settings_url ); ?>"><?php esc_html_e( 'Adjust country pools / see what the AI knows about your shop →', 'dazont-ecom' ); ?></a></p>
+		<p class="description"><?php esc_html_e( 'Suggestions are generated for the chosen language only, for the countries ticked above. Untick a country and its holidays stop being suggested; add a code under "Others" for a market the language does not ship with.', 'dazont-ecom' ); ?> <a href="<?php echo esc_url( $ai_settings_url ); ?>"><?php esc_html_e( 'Adjust country pools / see what the AI knows about your shop →', 'dazont-ecom' ); ?></a></p>
 	<?php endif; ?>
 
 	<?php if ( ! empty( $suggestions ) ) : ?>
