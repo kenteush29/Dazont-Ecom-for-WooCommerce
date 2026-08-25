@@ -25,47 +25,6 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	<input type="hidden" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS ); ?>[section]" value="<?php echo esc_attr( $dze_section ); ?>" />
 
 	<?php if ( $show_general ) : ?>
-	<!-- What this shop IS, written once and read by every module: the product
-	     texts, the category pages, the reviews, the marketing calendar and the
-	     sourcing report. It replaces a line typed under Product content AND a
-	     list of category and best-seller names the calendar assembled by
-	     itself — a catalogue is not a description of a business. -->
-	<h2 class="title"><?php esc_html_e( 'About this shop', 'dazont-ecom' ); ?></h2>
-	<p class="description" style="max-width:820px;">
-		<?php esc_html_e( 'A few lines saying what this shop is: what it sells, to whom, what makes it what it is. Sent with EVERY generation of the plugin — product texts, category pages, reviews, marketing calendar, sourcing report — so it is worth writing properly once.', 'dazont-ecom' ); ?>
-	</p>
-	<textarea id="dze-mai-profile" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[shop_profile]' ); ?>" rows="6" class="large-text" style="max-width:820px;" placeholder="<?php esc_attr_e( 'e.g. Online shop selling tactical and military gear (Kula Tactical). Patches, balaclavas, camo clothing and airsoft equipment, mostly Russian and Eastern-European surplus styles. Customers: airsoft players, collectors, reenactors. Sharp, factual, no-nonsense tone.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( (string) ( $settings['shop_profile'] ?? '' ) ); ?></textarea>
-	<p>
-		<button type="button" class="button" id="dze-mai-profile-draft"><?php esc_html_e( 'Draft it from my shop', 'dazont-ecom' ); ?></button>
-		<span class="description" id="dze-mai-profile-state"><?php esc_html_e( 'Writes a first version from your home page and the shape of your catalogue — a draft to correct, not an answer. What the shop is is yours to say.', 'dazont-ecom' ); ?></span>
-	</p>
-	<script>
-	(function () {
-		var btn = document.getElementById('dze-mai-profile-draft');
-		var ta  = document.getElementById('dze-mai-profile');
-		var st  = document.getElementById('dze-mai-profile-state');
-		if (!btn || !ta) { return; }
-		var busy = <?php echo wp_json_encode( __( 'Reading the shop…', 'dazont-ecom' ) ); ?>;
-		var done = <?php echo wp_json_encode( __( 'Read it, correct it, then save the page.', 'dazont-ecom' ) ); ?>;
-		var over = <?php echo wp_json_encode( __( 'Replace what is written with a fresh draft?', 'dazont-ecom' ) ); ?>;
-		var nonce = <?php echo wp_json_encode( wp_create_nonce( DZE_Marketing_Ai::NONCE ) ); ?>;
-		btn.addEventListener('click', function () {
-			if (ta.value.trim() && !window.confirm(over)) { return; }
-			btn.disabled = true;
-			st.textContent = busy;
-			var body = new URLSearchParams({ action: 'dze_mai_profile', nonce: nonce });
-			window.fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body: body })
-				.then(function (r) { return r.json(); })
-				.then(function (r) {
-					btn.disabled = false;
-					if (r && r.success) { ta.value = r.data.text || ''; st.textContent = done; }
-					else { st.textContent = (r && r.data && r.data.message) || 'error'; }
-				})
-				.catch(function () { btn.disabled = false; st.textContent = 'error'; });
-		});
-	}());
-	</script>
-
 	<h2 class="title"><?php esc_html_e( 'Anthropic API key', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>
@@ -134,44 +93,6 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 			</span>
 		<?php endforeach; ?>
 	</p>
-
-	<h2 class="title"><?php esc_html_e( 'Target countries per language', 'dazont-ecom' ); ?></h2>
-	<p class="description" style="max-width:820px;">
-		<?php esc_html_e( 'Each language starts with a sensible pool of countries where it is naturally spoken/sold. Uncheck any you don\'t sell in, or add more. This is independent from Google Merchant Center — it only guides the AI toward realistic, locale-appropriate events.', 'dazont-ecom' ); ?>
-	</p>
-	<table class="form-table" role="presentation">
-		<?php foreach ( $languages as $lang ) :
-			$code    = $lang['code'];
-			$saved   = $settings['country_pools'][ $code ] ?? null;
-			$default = DZE_Marketing_Ai::country_pool_for( $code );
-			// Union of default pool + anything previously saved, so earlier custom additions still show as checkboxes.
-			$pool    = array_values( array_unique( array_merge( DZE_Marketing_Ai::LANGUAGE_COUNTRY_POOLS[ $code ] ?? [], is_array( $saved ) ? $saved : [] ) ) );
-			sort( $pool );
-			$checked = is_array( $saved ) ? $saved : $default; // first time: defaults are pre-checked.
-		?>
-			<tr>
-				<th scope="row">
-					<?php if ( ! empty( $lang['flag'] ) ) : ?><img src="<?php echo esc_url( $lang['flag'] ); ?>" alt="" style="width:18px;height:12px;vertical-align:middle;margin-right:4px;" /><?php endif; ?>
-					<?php echo esc_html( $lang['native_name'] ); ?>
-				</th>
-				<td>
-					<?php if ( empty( $pool ) ) : ?>
-						<p class="description" style="margin-top:0;"><?php esc_html_e( 'No default pool for this language — add country codes below.', 'dazont-ecom' ); ?></p>
-					<?php else : foreach ( $pool as $c ) : ?>
-						<label style="display:inline-block;margin:0 12px 6px 0;">
-							<input type="checkbox" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[country_pools][' . $code . '][]' ); ?>" value="<?php echo esc_attr( $c ); ?>" <?php checked( in_array( $c, $checked, true ) ); ?> />
-							<?php echo esc_html( $c ); ?>
-						</label>
-					<?php endforeach; endif; ?>
-					<br />
-					<label class="description">
-						<?php esc_html_e( 'Add more (comma-separated ISO codes):', 'dazont-ecom' ); ?>
-						<input type="text" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[country_pools_extra][' . $code . ']' ); ?>" class="regular-text" placeholder="e.g. PT, GR" />
-					</label>
-				</td>
-			</tr>
-		<?php endforeach; ?>
-	</table>
 
 	<h2 class="title"><?php esc_html_e( 'Marketing calendar prompt', 'dazont-ecom' ); ?></h2>
 	<p class="description" style="max-width:820px;">
