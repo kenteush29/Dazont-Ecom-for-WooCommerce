@@ -368,11 +368,12 @@ final class DZE_Marketing_Ai {
 	}
 
 	/**
-	 * How a promotion line is translated into the shop's other languages.
+	 * How a promotion line is written for the shop's other markets.
 	 *
-	 * Not product copy: a banner line is four words that have to fit a banner
-	 * and sound like a shop, not like a translation. Its own instructions, and
-	 * editable like every other prompt.
+	 * Not a translation, and not product copy: a banner line is four words
+	 * that have to sound like a shop in that country. Rendered word for word,
+	 * an English sale line reads like an import — which is exactly what came
+	 * back before these instructions said otherwise.
 	 */
 	/**
 	 * Is a promotion translated when it is saved?
@@ -393,11 +394,13 @@ final class DZE_Marketing_Ai {
 	}
 
 	public static function default_promo_i18n_prompt(): string {
-		$shipped = "- Translate the line for each language, as a native shopper would read it on a banner — not word for word.\n"
+		$shipped = "- Do NOT translate. Write the line a shop in that market would write to announce the SAME offer. Same promotion, same tone, native wording. A word-for-word rendering of the original is a failure, even when it is correct.\n"
+			. "- Use that market's own commercial vocabulary. What a shop calls a discount campaign differs by country, and the literal word is usually the wrong one.\n"
+			. "- Watch the regulated words. In France \"soldes\" may only be used during the official sales periods set by law; outside them a shop writes \"promo\", \"offre\" or the name of its own event. Prefer a neutral commercial word when in doubt.\n"
+			. "- Keep the figures exactly as they are: the percentage, the dates, the product names, the brand name.\n"
 			. "- Keep it the same length or shorter. A banner line that wraps is a broken banner.\n"
-			. "- Keep the figures exactly as they are: percentages, dates, product names, brand names.\n"
-			. "- Keep the tone and the punctuation of the original, emoji included, and add nothing of your own — no extra exclamation mark, no word the original does not have.\n"
-			. '- Never translate the brand name, and never quote the result.';
+			. "- Keep the register and the punctuation of the original, emoji included. Add nothing it does not say: no extra exclamation mark, no invented urgency, no \"limited time\" the original never claimed.\n"
+			. '- Never quote the result and never explain it: the line itself, nothing else.';
 		return class_exists( 'DZE_Prompt_Defaults' )
 			? DZE_Prompt_Defaults::pick( 'promo_i18n', $shipped )
 			: $shipped;
@@ -1144,6 +1147,25 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		$self   = self::instance();
 		$events = $self->generate_events( $start, $end, self::primary_language(), [] );
 
+		// Translated here, not at acceptance: what the owner reviews is the
+		// event as it will exist — its title in every language he sells in,
+		// under his eyes before he says yes. One call for the whole calendar.
+		$langs = ( self::promo_i18n_on() && class_exists( 'DZE_Discounts' ) ) ? DZE_Discounts::promo_langs() : [];
+		if ( $langs && $events ) {
+			try {
+				$lines = DZE_Discounts::translate_lines( array_column( $events, 'title' ), $langs );
+				foreach ( $lines as $i => $one ) {
+					if ( isset( $events[ $i ] ) ) {
+						$events[ $i ]['i18n'] = $one;
+					}
+				}
+			} catch ( \Throwable $e ) {
+				// A calendar without its translations is still a calendar: the
+				// popup and the accept path ask again.
+				unset( $e );
+			}
+		}
+
 		// A moment already on the calendar is not a suggestion: an event
 		// accepted last month must not come back every month.
 		$taken = [];
@@ -1284,6 +1306,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				// about from its customers.
 				'languages'     => [],
 				'rationale'     => mb_substr( sanitize_text_field( (string) ( $ev['rationale'] ?? '' ) ), 0, 240 ),
+				// Filled by propose() once the batch comes back.
+				'i18n'          => [],
 			];
 		}
 		if ( empty( $clean ) ) {
@@ -1743,8 +1767,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				'modifyTitle'    => __( 'Accept & modify event', 'dazont-ecom' ),
 				'newTitle'       => __( 'New marketing event', 'dazont-ecom' ),
 				'titleFirst'     => __( 'Write the title first.', 'dazont-ecom' ),
-				'translating'    => __( 'Translating…', 'dazont-ecom' ),
-				'translated'     => __( 'Translated — check them, then save.', 'dazont-ecom' ),
+				'translating'    => __( 'Writing…', 'dazont-ecom' ),
+				'translated'     => __( 'Written — check them, then save.', 'dazont-ecom' ),
 			],
 		] );
 	}

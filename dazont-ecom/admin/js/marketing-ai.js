@@ -45,6 +45,16 @@
 		});
 	});
 
+	// The titles typed or corrected on a suggestion row.
+	function rowI18n($row) {
+		var out = {};
+		$row.find('.dze-f-i18n').each(function () {
+			var v = $.trim($(this).val() || '');
+			if (v) { out[$(this).data('lang')] = v; }
+		});
+		return out;
+	}
+
 	// ---- Accept one suggestion (with its inline edits). Returns a promise. ----
 	function acceptRow($row) {
 		var $status = $row.find('.dze-mai-row-status');
@@ -59,6 +69,8 @@
 			start_date: $row.find('.dze-f-start').val(),
 			end_date: $row.find('.dze-f-end').val(),
 			languages: $row.find('.dze-f-langs').val(),
+			// Reviewed on the row, so they travel with it — no second call.
+			i18n: JSON.stringify(rowI18n($row)),
 		})
 		.done(function (res) {
 			if (res.success) {
@@ -117,6 +129,7 @@
 		$('#dze-ev-id').val(data.id || '');
 		$('#dze-ev-name').val(data.title || '');
 		i18nFields().val('');
+		setI18n(data.i18n);
 		$('#dze-ev-tr-status').text('');
 		$('#dze-ev-i18n').prop('open', false);
 		$('#dze-ev-percent').val(data.percent || 10);
@@ -134,7 +147,9 @@
 		openModal({
 			id: $r.data('id'), title: $r.data('title'), percent: $r.data('percent'),
 			start: $r.data('start'), end: $r.data('end'),
-			langs: $r.data('langs')
+			langs: $r.data('langs'),
+			// What the row already holds, corrections included.
+			i18n: rowI18n($r)
 		});
 	});
 	$(document).on('click', '.dze-mai-new-event', function () { openModal({}); });

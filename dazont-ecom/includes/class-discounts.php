@@ -222,15 +222,15 @@ final class DZE_Discounts {
 		foreach ( $langs as $code => $name ) {
 			$names[] = $code . ' (' . $name . ')';
 		}
-		$user = "--- THE LINE TO TRANSLATE ---\n" . $line . "\n"
-			. "\n--- LANGUAGES ---\n- " . implode( "\n- ", $names ) . "\n"
+		$user = "--- THE LINE TO ADAPT ---\n" . $line . "\n"
+			. "\n--- MARKETS ---\n- " . implode( "\n- ", $names ) . "\n"
 			. "\n--- INSTRUCTIONS ---\n" . DZE_Marketing_Ai::promo_i18n_prompt() . "\n"
-			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the language codes above and whose values are the translated lines. No other key, no comment.";
+			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the language codes above and whose values are the adapted lines. No other key, no comment.";
 
 		DZE_Ai_Usage::unit( 'promo_i18n' );
 		try {
 			$out = DZE_Marketing_Ai::complete(
-				'You translate short promotional lines for an online shop. You reply with JSON only.',
+				'You are the copywriter of an online shop in each market named. You write the promotional line that shop would use to announce the offer given — never a translation of it. You reply with JSON only.',
 				$user,
 				'',
 				900,
@@ -248,6 +248,72 @@ final class DZE_Discounts {
 			$text = sanitize_text_field( (string) ( $json[ $code ] ?? '' ) );
 			if ( '' !== $text ) {
 				$clean[ $code ] = mb_substr( $text, 0, 120 );
+			}
+		}
+		if ( $clean && class_exists( 'DZE_Ai_Usage' ) ) {
+			DZE_Ai_Usage::finished( 'promo_i18n' );
+		}
+		return $clean;
+	}
+
+	/**
+	 * Translates several lines at once, for a whole calendar.
+	 *
+	 * A generated calendar is eight titles; eight calls to say eight short
+	 * sentences would cost eight times the tokens and come back in eight
+	 * different tones. One call, numbered in and numbered out.
+	 *
+	 * @param string[]             $lines Titles, in order.
+	 * @param array<string,string> $langs code => native name.
+	 *
+	 * @return array<int,array<string,string>> index => code => translated line.
+	 */
+	public static function translate_lines( array $lines, array $langs ): array {
+		$lines = array_values( array_filter( array_map( 'trim', $lines ), static fn( $l ) => '' !== $l ) );
+		if ( ! $lines || ! $langs || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return [];
+		}
+		$names = [];
+		foreach ( $langs as $code => $name ) {
+			$names[] = $code . ' (' . $name . ')';
+		}
+		$numbered = [];
+		foreach ( $lines as $i => $line ) {
+			$numbered[] = ( $i + 1 ) . '. ' . $line;
+		}
+		$user = "--- THE LINES TO ADAPT ---\n" . implode( "\n", $numbered ) . "\n"
+			. "\n--- MARKETS ---\n- " . implode( "\n- ", $names ) . "\n"
+			. "\n--- INSTRUCTIONS ---\n" . DZE_Marketing_Ai::promo_i18n_prompt() . "\n"
+			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the line numbers above, each holding an object of language code => adapted line. Every line, every language, no other key, no comment.";
+
+		DZE_Ai_Usage::unit( 'promo_i18n' );
+		try {
+			$out = DZE_Marketing_Ai::complete(
+				'You are the copywriter of an online shop in each market named. You write the promotional line that shop would use to announce the offer given — never a translation of it. You reply with JSON only.',
+				$user,
+				'',
+				2400,
+				120
+			);
+		} finally {
+			DZE_Ai_Usage::unit();
+		}
+		$json = json_decode( trim( preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
+		if ( ! is_array( $json ) ) {
+			return [];
+		}
+		$clean = [];
+		foreach ( $lines as $i => $line ) {
+			$row = (array) ( $json[ (string) ( $i + 1 ) ] ?? $json[ $i + 1 ] ?? [] );
+			$one = [];
+			foreach ( $langs as $code => $name ) {
+				$text = sanitize_text_field( (string) ( $row[ $code ] ?? '' ) );
+				if ( '' !== $text ) {
+					$one[ $code ] = mb_substr( $text, 0, 120 );
+				}
+			}
+			if ( $one ) {
+				$clean[ $i ] = $one;
 			}
 		}
 		if ( $clean && class_exists( 'DZE_Ai_Usage' ) ) {
@@ -1797,9 +1863,9 @@ final class DZE_Discounts {
 			'i18n'    => [
 				'counting' => __( 'Counting…', 'dazont-ecom' ),
 				'titleFirst'  => __( 'Write the banner text first.', 'dazont-ecom' ),
-				'translating' => __( 'Translating…', 'dazont-ecom' ),
-				'translated'  => __( 'Translated — check them, then save.', 'dazont-ecom' ),
-				'trFailed'    => __( 'Could not translate.', 'dazont-ecom' ),
+				'translating' => __( 'Writing…', 'dazont-ecom' ),
+				'translated'  => __( 'Written — check them, then save.', 'dazont-ecom' ),
+				'trFailed'    => __( 'Could not write them.', 'dazont-ecom' ),
 				'error'    => __( 'Could not count.', 'dazont-ecom' ),
 				/* translators: 1: total matching, 2: number that will be discounted */
 				'result'    => __( '%1$s products match — the top %2$s will be discounted.', 'dazont-ecom' ),
