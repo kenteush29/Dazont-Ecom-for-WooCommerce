@@ -37,7 +37,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	<textarea id="dze-mai-profile" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[shop_profile]' ); ?>" rows="6" class="large-text" style="max-width:820px;" placeholder="<?php esc_attr_e( 'e.g. Online shop selling tactical and military gear (Kula Tactical). Patches, balaclavas, camo clothing and airsoft equipment, mostly Russian and Eastern-European surplus styles. Customers: airsoft players, collectors, reenactors. Sharp, factual, no-nonsense tone.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( (string) ( $settings['shop_profile'] ?? '' ) ); ?></textarea>
 	<p>
 		<button type="button" class="button" id="dze-mai-profile-draft"><?php esc_html_e( 'Draft it from my shop', 'dazont-ecom' ); ?></button>
-		<span class="description" id="dze-mai-profile-state"><?php esc_html_e( 'Writes a first version from the shape of your catalogue — a draft to correct, not an answer. What the shop is is yours to say.', 'dazont-ecom' ); ?></span>
+		<span class="description" id="dze-mai-profile-state"><?php esc_html_e( 'Writes a first version from your home page and the shape of your catalogue — a draft to correct, not an answer. What the shop is is yours to say.', 'dazont-ecom' ); ?></span>
 	</p>
 	<script>
 	(function () {
