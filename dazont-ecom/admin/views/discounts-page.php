@@ -37,12 +37,6 @@ $klav_on    = $klav && $klav->configured();
 		<hr style="margin:24px 0;" />
 	<?php endif; ?>
 
-	<?php if ( $gmc_on ) : ?>
-		<p>
-			<button type="button" class="button" id="dze-gmc-sync-selected"><?php esc_html_e( 'Sync selected with GMC', 'dazont-ecom' ); ?></button>
-			<span id="dze-gmc-bulk-status" style="margin-left:8px;font-size:13px;color:#666;"></span>
-		</p>
-	<?php endif; ?>
 
 	<?php if ( isset( $_GET['saved'] ) && $_GET['saved'] === '1' ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Promotion saved.', 'dazont-ecom' ); ?></p></div>
@@ -54,8 +48,23 @@ $klav_on    = $klav && $klav->configured();
 		<div class="notice notice-warning is-dismissible"><p><?php echo esc_html( $notice ); ?></p></div>
 	<?php endif; ?>
 
+	<form method="post" action="<?php echo esc_url( $admin_post ); ?>" id="dze-rule-bulk">
+	<?php wp_nonce_field( DZE_Discounts::SAVE_NONCE ); ?>
+	<input type="hidden" name="action" value="dze_discount_bulk" />
+	<input type="hidden" name="mode" value="<?php echo esc_attr( $mode ); ?>" />
+	<p class="dze-bulk-bar">
+		<button type="submit" class="button" name="bulk" value="enable"><?php esc_html_e( 'Enable selected', 'dazont-ecom' ); ?></button>
+		<button type="submit" class="button" name="bulk" value="disable"><?php esc_html_e( 'Disable selected', 'dazont-ecom' ); ?></button>
+		<?php if ( $gmc_on ) : ?>
+			<button type="button" class="button" id="dze-gmc-sync-selected"><?php esc_html_e( 'Push selected to Merchant Center', 'dazont-ecom' ); ?></button>
+		<?php endif; ?>
+		<button type="submit" class="button dze-danger" name="bulk" value="delete" onclick="return confirm('<?php esc_attr_e( 'Delete every selected promotion?', 'dazont-ecom' ); ?>');"><?php esc_html_e( 'Delete selected', 'dazont-ecom' ); ?></button>
+		<span id="dze-gmc-bulk-status" style="margin-left:8px;font-size:13px;color:#666;"></span>
+	</p>
+
 	<table class="widefat striped">
 		<thead><tr>
+			<td class="check-column" style="width:28px;text-align:center;"><input type="checkbox" id="dze-rule-check-all" /></td>
 			<th><?php esc_html_e( 'Title', 'dazont-ecom' ); ?></th>
 			<th><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></th>
 			<th><?php esc_html_e( 'Discount', 'dazont-ecom' ); ?></th>
@@ -69,7 +78,7 @@ $klav_on    = $klav && $klav->configured();
 		</tr></thead>
 		<tbody>
 		<?php if ( empty( $rules ) ) :
-			$colspan = 6 + ( $is_events && ! empty( $languages ) ? 1 : 0 ) + ( $is_events ? 1 : 0 ) + ( $gmc_on ? 1 : 0 ) + ( $klav_on ? 1 : 0 ); ?>
+			$colspan = 7 + ( $is_events && ! empty( $languages ) ? 1 : 0 ) + ( $is_events ? 1 : 0 ) + ( $gmc_on ? 1 : 0 ) + ( $klav_on ? 1 : 0 ); ?>
 			<tr><td colspan="<?php echo (int) $colspan; ?>"><?php echo $is_events ? esc_html__( 'No events yet.', 'dazont-ecom' ) : esc_html__( 'No discounts yet.', 'dazont-ecom' ); ?></td></tr>
 		<?php else : foreach ( $rules as $id => $r ) :
 			$toggle_url = wp_nonce_url( add_query_arg( [ 'action' => 'dze_discount_toggle', 'rule' => $id ], $admin_post ), 'dze_discount_toggle' );
@@ -113,6 +122,9 @@ $klav_on    = $klav && $klav->configured();
 			$st = $status_map[ $status ] ?? $status_map['inactive'];
 		?>
 			<tr>
+				<td class="check-column" style="text-align:center;">
+					<input type="checkbox" class="dze-rule-cb" name="rules[]" value="<?php echo esc_attr( $id ); ?>" />
+				</td>
 				<td><strong><a href="<?php echo esc_url( $edit_url ); ?>"><?php echo esc_html( $r['title'] !== '' ? $r['title'] : '(untitled)' ); ?></a></strong></td>
 				<td><?php echo esc_html( $type_labels[ $r['type'] ] ?? $r['type'] ); ?></td>
 				<td><?php
@@ -162,7 +174,7 @@ $klav_on    = $klav && $klav->configured();
 				<?php if ( $gmc_on ) : ?>
 				<td>
 					<?php if ( ( $r['type'] ?? '' ) === 'sale' ) : ?>
-						<label style="display:block;margin-bottom:3px;"><input type="checkbox" class="dze-gmc-cb" value="<?php echo esc_attr( $id ); ?>" /> <?php echo wp_kses_post( $gmc->sync_badges_html( $r ) ); ?></label>
+						<div style="margin-bottom:3px;"><?php echo wp_kses_post( $gmc->sync_badges_html( $r ) ); ?></div>
 						<a href="#" class="dze-gmc-sync-one" data-rule="<?php echo esc_attr( $id ); ?>"><?php esc_html_e( 'Sync now', 'dazont-ecom' ); ?></a>
 						<span class="dze-gmc-feedback" style="font-size:12px;margin-left:6px;"></span>
 					<?php else : ?>
@@ -188,6 +200,7 @@ $klav_on    = $klav && $klav->configured();
 		<?php endforeach; endif; ?>
 		</tbody>
 	</table>
+	</form>
 
 	<?php if ( $klav_on ) { $klav->render_panel(); } ?>
 

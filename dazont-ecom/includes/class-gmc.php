@@ -101,12 +101,28 @@ final class DZE_Gmc {
 	 * gone with the field it was typed in.
 	 *
 	 * When the account has no promotion data source yet, its own business
-	 * address answers for it, and the shop's country only as a last resort —
-	 * the sync creates the data source for whichever it is on the way.
+	 * address answers for it — the sync creates the data source on the way.
+	 * And when the account says nothing at all, the guess belongs to the
+	 * LANGUAGE the account serves, not to the shop's own base country: five
+	 * Merchant Center accounts, one per language, are not five American
+	 * accounts because WooCommerce is configured in dollars. A French account
+	 * with nothing set up targets France, not the United States.
+	 *
+	 * @param string $language Two-letter code of the account's language, when known.
 	 *
 	 * @return string[] Uppercase ISO codes.
 	 */
-	public function promo_countries( string $merchant_id ): array {
+	public function promo_countries( string $merchant_id, string $language = '' ): array {
+		$known = $this->account_countries( $merchant_id );
+		return $known ? $known : self::country_for_language( $language );
+	}
+
+	/**
+	 * What the ACCOUNT itself says its promotions target — nothing guessed.
+	 *
+	 * @return string[] Uppercase ISO codes, empty when the account is silent.
+	 */
+	private function account_countries( string $merchant_id ): array {
 		$merchant_id = preg_replace( '/[^0-9]/', '', $merchant_id );
 		if ( '' === $merchant_id ) {
 			return [];
@@ -129,8 +145,7 @@ final class DZE_Gmc {
 			}
 			if ( ! $out ) {
 				// No promotion data source yet: the account's own business
-				// address answers for it, which beats a shop-wide default.
-				// Its own failure is not the list's failure.
+				// address answers for it. Its own failure is not the list's.
 				try {
 					$info = $this->request( 'GET', self::MERCHANT_API . '/' . self::ACCOUNTS_SUBAPI . '/accounts/' . $merchant_id . '/businessInfo', $token );
 					$c    = strtoupper( (string) ( $info['address']['regionCode'] ?? '' ) );
@@ -142,13 +157,31 @@ final class DZE_Gmc {
 				}
 			}
 		} catch ( \Throwable $e ) {
-			// Unreadable: the shop's own country, and asked again shortly.
-			set_transient( $key, self::shop_country(), 15 * MINUTE_IN_SECONDS );
-			return self::shop_country();
+			// Unreadable: say nothing rather than something wrong, and ask
+			// again shortly instead of holding a guess for six hours.
+			set_transient( $key, [], 15 * MINUTE_IN_SECONDS );
+			return [];
 		}
-		$out = $out ? array_values( $out ) : self::shop_country();
+		$out = array_values( $out );
 		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
 		return $out;
+	}
+
+	/**
+	 * The country a language sells to, when the account will not say.
+	 *
+	 * The pools are the ones the marketing calendar already uses, so the two
+	 * screens cannot disagree about which country a language belongs to.
+	 */
+	public static function country_for_language( string $language ): array {
+		$code = strtolower( substr( (string) $language, 0, 2 ) );
+		if ( '' !== $code && class_exists( 'DZE_Marketing_Ai' ) ) {
+			$pool = DZE_Marketing_Ai::LANGUAGE_COUNTRY_POOLS[ $code ] ?? [];
+			if ( $pool ) {
+				return [ strtoupper( (string) $pool[0] ) ];
+			}
+		}
+		return self::shop_country();
 	}
 
 	/** The shop's own country, as WooCommerce holds it. */
@@ -680,7 +713,7 @@ final class DZE_Gmc {
 			}
 			$language = ( $key !== 'default' ) ? $key : ( $acc['language'] ?: get_locale() );
 			$language = strtolower( substr( (string) $language, 0, 2 ) );
-			foreach ( $this->promo_countries( (string) $acc['merchant_id'] ) as $country ) {
+			foreach ( $this->promo_countries( (string) $acc['merchant_id'], $language ) as $country ) {
 				$targets[] = [
 					'key'         => $key,
 					'country'     => $country,
@@ -889,19 +922,48 @@ final class DZE_Gmc {
 		$sync    = (array) ( $rule['gmc_sync'] ?? [] );
 		$targets = $this->sync_targets( $rule );
 		if ( empty( $targets ) ) {
-			return '<span style="color:#999;" title="' . esc_attr__( 'No Merchant Center account/country configured.', 'dazont-ecom' ) . '">—</span>';
+			return '<span style="color:#999;" title="' . esc_attr__( 'No Merchant Center account configured.', 'dazont-ecom' ) . '">—</span>';
 		}
-		$out = '';
+		// One badge per LANGUAGE, not per country. An account that runs in
+		// three countries printed the same letters three times, and the
+		// country beside a language said nothing a reader could act on —
+		// worse, it read as a claim ("this account is American") the shop
+		// never made. The countries are still what the promotion is pushed
+		// to, and they are on the badge's tooltip where they belong.
+		$rank  = [ 'synced' => 0, 'pending' => 1, 'error' => 2 ];
+		$langs = [];
 		foreach ( $targets as $t ) {
 			$sk    = $t['key'] . '|' . $t['country'];
-			$state = $sync[ $sk ]['status'] ?? 'pending';
-			$label = ( $t['key'] === 'default' ? '' : strtoupper( $t['key'] ) . ':' ) . $t['country'];
-			$color = $state === 'synced' ? '#0a7040' : ( $state === 'error' ? '#b32d2e' : '#999' );
-			$title = $state === 'error' ? ( $sync[ $sk ]['message'] ?? 'error' ) : ucfirst( $state );
-			$dot   = $state === 'synced' ? '●' : ( $state === 'error' ? '✕' : '○' );
-			$out  .= sprintf(
-				'<span title="%s" style="color:%s;margin-right:6px;white-space:nowrap;">%s %s</span>',
-				esc_attr( $label . ': ' . $title ),
+			$state = (string) ( $sync[ $sk ]['status'] ?? 'pending' );
+			$state = isset( $rank[ $state ] ) ? $state : 'pending';
+			$key   = $t['key'];
+			if ( ! isset( $langs[ $key ] ) ) {
+				$langs[ $key ] = [ 'state' => $state, 'countries' => [], 'message' => '' ];
+			}
+			$langs[ $key ]['countries'][ $t['country'] ] = $t['country'];
+			// The worst state of the countries behind it: one failure is a
+			// failure, however many succeeded next to it.
+			if ( $rank[ $state ] > $rank[ $langs[ $key ]['state'] ] ) {
+				$langs[ $key ]['state'] = $state;
+			}
+			if ( 'error' === $state && '' === $langs[ $key ]['message'] ) {
+				$langs[ $key ]['message'] = (string) ( $sync[ $sk ]['message'] ?? '' );
+			}
+		}
+
+		$out = '';
+		foreach ( $langs as $key => $one ) {
+			$state = $one['state'];
+			$label = ( 'default' === $key ) ? __( 'Shop', 'dazont-ecom' ) : strtoupper( $key );
+			$color = 'synced' === $state ? '#0a7040' : ( 'error' === $state ? '#b32d2e' : '#999' );
+			$dot   = 'synced' === $state ? '●' : ( 'error' === $state ? '✕' : '○' );
+			$title = ucfirst( $state ) . ' · ' . implode( ', ', $one['countries'] );
+			if ( '' !== $one['message'] ) {
+				$title = $one['message'];
+			}
+			$out .= sprintf(
+				'<span title="%s" style="color:%s;margin-right:8px;white-space:nowrap;">%s %s</span>',
+				esc_attr( $label . ' — ' . $title ),
 				esc_attr( $color ),
 				esc_html( $dot ),
 				esc_html( $label )

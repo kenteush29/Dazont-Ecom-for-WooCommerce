@@ -174,6 +174,25 @@
 			});
 	});
 
+	// ---- The list: one tick per row, one tick for all of them ----
+	$(document).on('change', '#dze-rule-check-all', function () {
+		$('.dze-rule-cb').prop('checked', $(this).is(':checked'));
+	});
+	$(document).on('change', '.dze-rule-cb', function () {
+		var all = $('.dze-rule-cb').length;
+		$('#dze-rule-check-all').prop('checked', all > 0 && $('.dze-rule-cb:checked').length === all);
+	});
+	// A bulk button with nothing ticked would post an empty list and reload the
+	// page for nothing; say so instead.
+	$(document).on('click', '#dze-rule-bulk button[type="submit"]', function (e) {
+		if (!$('.dze-rule-cb:checked').length) {
+			e.preventDefault();
+			$('#dze-gmc-bulk-status').css('color', '#b32d2e').text(
+				(window.dzeDiscounts && dzeDiscounts.i18n && dzeDiscounts.i18n.pickRows) || 'Tick the promotions first.'
+			);
+		}
+	});
+
 	$(function () {
 		refreshType();
 		refreshScope();
