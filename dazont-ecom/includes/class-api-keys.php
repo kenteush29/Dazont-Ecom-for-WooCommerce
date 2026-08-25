@@ -103,6 +103,24 @@ final class DZE_Api_Keys {
 				self::respond( $resp, [ 200, 400, 422 ], __( 'fal.ai key is valid — endpoint reachable.', 'dazont-ecom' ), [ 401, 403 ] );
 				break;
 
+			case 'klaviyo':
+				$key = class_exists( 'DZE_Klaviyo' ) ? DZE_Klaviyo::key() : '';
+				if ( '' === $key ) {
+					wp_send_json_error( [ 'message' => __( 'No key saved.', 'dazont-ecom' ) ] );
+				}
+				// The account endpoint costs nothing and answers with the shop's
+				// own name, which is the proof worth showing.
+				$resp = wp_remote_get( 'https://a.klaviyo.com/api/accounts/', [
+					'timeout' => 15,
+					'headers' => [
+						'Authorization' => 'Klaviyo-API-Key ' . $key,
+						'revision'      => '2025-07-15',
+						'accept'        => 'application/vnd.api+json',
+					],
+				] );
+				self::respond( $resp, [ 200 ], __( 'Klaviyo key is valid — the account answers.', 'dazont-ecom' ) );
+				break;
+
 			default:
 				wp_send_json_error( [ 'message' => __( 'Unknown provider.', 'dazont-ecom' ) ] );
 		}

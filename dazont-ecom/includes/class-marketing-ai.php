@@ -480,6 +480,9 @@ final class DZE_Marketing_Ai {
 			$tabs['lab'] = __( 'Image lab', 'dazont-ecom' );
 		}
 		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
+		if ( $mod_on( 'klaviyo' ) ) {
+			$tabs['email'] = __( 'Email campaigns', 'dazont-ecom' );
+		}
 		if ( $mod_on( 'automation' ) ) {
 			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );
 		}
@@ -551,6 +554,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'translate' === $tab ) {
 			if ( class_exists( 'DZE_Translate' ) && $mod_on( 'translate' ) ) {
 				DZE_Translate::render_settings();
+			}
+		} elseif ( 'email' === $tab ) {
+			if ( class_exists( 'DZE_Klaviyo' ) && $mod_on( 'klaviyo' ) ) {
+				DZE_Klaviyo::render_settings();
 			}
 		} elseif ( 'automation' === $tab ) {
 			if ( class_exists( 'DZE_Automation' ) && $mod_on( 'automation' ) ) {

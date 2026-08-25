@@ -17,6 +17,9 @@ $controller = DZE_Discounts::instance();
 $is_events  = ( 'events' === $mode );
 $gmc        = ( $is_events && class_exists( 'DZE_Gmc' ) ) ? DZE_Gmc::instance() : null;
 $gmc_on     = $gmc && $gmc->is_configured();
+// A disabled module leaves no trace: no column, no popup, no script.
+$klav       = ( $is_events && class_exists( 'DZE_Klaviyo' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'klaviyo' ) ) ? DZE_Klaviyo::instance() : null;
+$klav_on    = $klav && $klav->configured();
 ?>
 <div class="wrap dze-wrap">
 	<h1 class="wp-heading-inline"><?php echo esc_html( $page_title ); ?></h1>
@@ -61,11 +64,12 @@ $gmc_on     = $gmc && $gmc->is_configured();
 			<?php if ( $is_events ) : ?><th><?php esc_html_e( 'Dates', 'dazont-ecom' ); ?></th><?php endif; ?>
 			<th><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 			<?php if ( $gmc_on ) : ?><th><?php esc_html_e( 'GMC sync', 'dazont-ecom' ); ?></th><?php endif; ?>
+			<?php if ( $klav_on ) : ?><th><?php esc_html_e( 'Email', 'dazont-ecom' ); ?></th><?php endif; ?>
 			<th></th>
 		</tr></thead>
 		<tbody>
 		<?php if ( empty( $rules ) ) :
-			$colspan = 6 + ( $is_events && ! empty( $languages ) ? 1 : 0 ) + ( $is_events ? 1 : 0 ) + ( $gmc_on ? 1 : 0 ); ?>
+			$colspan = 6 + ( $is_events && ! empty( $languages ) ? 1 : 0 ) + ( $is_events ? 1 : 0 ) + ( $gmc_on ? 1 : 0 ) + ( $klav_on ? 1 : 0 ); ?>
 			<tr><td colspan="<?php echo (int) $colspan; ?>"><?php echo $is_events ? esc_html__( 'No events yet.', 'dazont-ecom' ) : esc_html__( 'No discounts yet.', 'dazont-ecom' ); ?></td></tr>
 		<?php else : foreach ( $rules as $id => $r ) :
 			$toggle_url = wp_nonce_url( add_query_arg( [ 'action' => 'dze_discount_toggle', 'rule' => $id ], $admin_post ), 'dze_discount_toggle' );
@@ -166,6 +170,15 @@ $gmc_on     = $gmc && $gmc->is_configured();
 					<?php endif; ?>
 				</td>
 				<?php endif; ?>
+				<?php if ( $klav_on ) : ?>
+				<td>
+					<?php if ( ( $r['type'] ?? '' ) === 'sale' ) : ?>
+						<?php $klav->render_cell( (string) $id, $r ); ?>
+					<?php else : ?>
+						<span style="color:#999;">—</span>
+					<?php endif; ?>
+				</td>
+				<?php endif; ?>
 				<td style="text-align:right;white-space:nowrap;">
 					<a href="<?php echo esc_url( $edit_url ); ?>"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?></a> |
 					<a href="<?php echo esc_url( $toggle_url ); ?>"><?php echo $enabled ? esc_html__( 'Disable', 'dazont-ecom' ) : esc_html__( 'Enable', 'dazont-ecom' ); ?></a> |
@@ -175,6 +188,8 @@ $gmc_on     = $gmc && $gmc->is_configured();
 		<?php endforeach; endif; ?>
 		</tbody>
 	</table>
+
+	<?php if ( $klav_on ) { $klav->render_panel(); } ?>
 
 	<p class="description" style="margin-top:12px;">
 		<?php if ( $is_events ) : ?>
