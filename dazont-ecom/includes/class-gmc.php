@@ -92,22 +92,56 @@ final class DZE_Gmc {
 	}
 
 	/**
-	 * Uppercase 2-letter target countries configured for an account, supporting
-	 * both the new `countries` list and the legacy single `country` field.
+	 * The countries a Merchant Center account can actually run promotions in.
+	 *
+	 * Read from the account itself — the promotion data sources it holds, each
+	 * of which targets one country — instead of being typed by hand into a
+	 * field nobody can check. A shop that adds a country in Merchant Center
+	 * sees it here; a code typed here that Merchant Center never accepted is
+	 * gone with the field it was typed in.
+	 *
+	 * When the account has no promotion data source yet, the shop's own country
+	 * stands in: it is the one country a promotion is certain to make sense in,
+	 * and the sync creates the data source for it on the way.
+	 *
+	 * @return string[] Uppercase ISO codes.
 	 */
-	public static function account_countries( array $account ): array {
-		$raw = $account['countries'] ?? ( $account['country'] ?? [] );
-		if ( is_string( $raw ) ) {
-			$raw = preg_split( '/[\s,;]+/', $raw );
+	public function promo_countries( string $merchant_id ): array {
+		$merchant_id = preg_replace( '/[^0-9]/', '', $merchant_id );
+		if ( '' === $merchant_id ) {
+			return [];
+		}
+		$key    = 'dze_gmc_pc_' . $merchant_id;
+		$cached = get_transient( $key );
+		if ( is_array( $cached ) ) {
+			return $cached;
 		}
 		$out = [];
-		foreach ( (array) $raw as $c ) {
-			$c = strtoupper( preg_replace( '/[^A-Za-z]/', '', (string) $c ) );
-			if ( strlen( $c ) === 2 ) {
-				$out[ $c ] = $c;
+		try {
+			$token = $this->get_access_token();
+			$url   = self::MERCHANT_API . '/' . self::DS_SUBAPI . '/accounts/' . $merchant_id . '/dataSources?pageSize=200';
+			$list  = $this->request( 'GET', $url, $token );
+			foreach ( (array) ( $list['dataSources'] ?? [] ) as $ds ) {
+				$c = strtoupper( (string) ( $ds['promotionDataSource']['targetCountry'] ?? '' ) );
+				if ( 2 === strlen( $c ) ) {
+					$out[ $c ] = $c;
+				}
 			}
+		} catch ( \Throwable $e ) {
+			// Unreadable: the shop's own country, and asked again shortly.
+			set_transient( $key, self::shop_country(), 15 * MINUTE_IN_SECONDS );
+			return self::shop_country();
 		}
-		return array_values( $out );
+		$out = $out ? array_values( $out ) : self::shop_country();
+		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/** The shop's own country, as WooCommerce holds it. */
+	public static function shop_country(): array {
+		$base = function_exists( 'wc_get_base_location' ) ? wc_get_base_location() : [];
+		$c    = strtoupper( (string) ( $base['country'] ?? '' ) );
+		return 2 === strlen( $c ) ? [ $c ] : [];
 	}
 
 	/** WPML active → language codes; otherwise a single 'default' account. */
@@ -394,8 +428,6 @@ final class DZE_Gmc {
 			$key = sanitize_key( $key );
 			$clean[ $key ] = [
 				'merchant_id' => preg_replace( '/[^0-9]/', '', (string) ( $acc['merchant_id'] ?? '' ) ),
-				// One or more target countries (comma/space separated in the form).
-				'countries'   => self::account_countries( [ 'countries' => $acc['countries'] ?? ( $acc['country'] ?? '' ) ] ),
 				'language'    => sanitize_key( $acc['language'] ?? $key ),
 			];
 		}
@@ -445,7 +477,7 @@ final class DZE_Gmc {
 		if ( $connected || $has_creds ) {
 			foreach ( self::get_accounts() as $acc_key => $acc_row ) {
 				if ( ! empty( $acc_row['merchant_id'] ) ) {
-					$ads_links[ $acc_key ] = $this->ads_links( (string) $acc_row['merchant_id'] );
+					$ads_links[ $acc_key ] = $this->ads_links_state( (string) $acc_row['merchant_id'] );
 				}
 			}
 		}
@@ -637,7 +669,7 @@ final class DZE_Gmc {
 			}
 			$language = ( $key !== 'default' ) ? $key : ( $acc['language'] ?: get_locale() );
 			$language = strtolower( substr( (string) $language, 0, 2 ) );
-			foreach ( self::account_countries( $acc ) as $country ) {
+			foreach ( $this->promo_countries( (string) $acc['merchant_id'] ) as $country ) {
 				$targets[] = [
 					'key'         => $key,
 					'country'     => $country,
@@ -659,7 +691,7 @@ final class DZE_Gmc {
 			if ( empty( $acc['merchant_id'] ) ) {
 				continue;
 			}
-			foreach ( self::account_countries( $acc ) as $country ) {
+			foreach ( $this->promo_countries( (string) $acc['merchant_id'] ) as $country ) {
 				$sk         = $key . '|' . $country;
 				$out[ $sk ] = ( 'default' === $key ? '' : strtoupper( $key ) . ':' ) . strtoupper( $country );
 			}
@@ -888,55 +920,98 @@ final class DZE_Gmc {
 	/**
 	 * Is this Merchant Center account linked to a Google Ads account?
 	 *
-	 * What Google lets us read is the LINK, not the spend: the Content API's
-	 * accounts resource carries adsLinks — the Google Ads customer ids attached
-	 * to the account, active or awaiting approval. Whether that Ads account is
-	 * spending today is the Google Ads API's business, behind its own developer
-	 * token and its own approval, and is out of proportion for this.
+	 * Google models that link twice. In the Merchant API it is an account
+	 * SERVICE — "campaigns management", provided by GOOGLE_ADS, carrying the
+	 * Ads customer id as its external account id. In the older Content API it
+	 * is the account's adsLinks list. Both are read, the modern one first,
+	 * because which of the two answers depends on the account and on the APIs
+	 * enabled in the Google Cloud project behind the connection.
 	 *
-	 * The link is the signal that matters here anyway: a promotion pushed to an
-	 * account no advertising campaign reads is a promotion pushed nowhere.
+	 * What is NOT readable either way is the spend: whether those campaigns
+	 * run and what they cost belongs to the Google Ads API, behind its own
+	 * developer token.
 	 *
-	 * Cached for six hours — an account is not linked and unlinked twice a day
-	 * — and never fatal: an account we cannot read simply reports nothing.
+	 * The reason a read failed is kept with the answer, so a screen can say
+	 * "could not read" instead of the very different "nothing linked".
 	 *
-	 * @return array<int,array{id:string,status:string}>
+	 * @return array{links:array<int,array{id:string,status:string}>,error:string}
 	 */
-	public function ads_links( string $merchant_id ): array {
+	public function ads_links_state( string $merchant_id ): array {
 		$merchant_id = preg_replace( '/[^0-9]/', '', $merchant_id );
 		if ( '' === $merchant_id ) {
-			return [];
+			return [ 'links' => [], 'error' => '' ];
 		}
 		$key    = 'dze_gmc_ads_' . $merchant_id;
 		$cached = get_transient( $key );
-		if ( is_array( $cached ) ) {
+		if ( is_array( $cached ) && isset( $cached['links'] ) ) {
 			return $cached;
 		}
-		$out = [];
+		$links = [];
+		$error = '';
+		$token = '';
 		try {
 			$token = $this->get_access_token();
-			// A sub-account is read through its parent (the MCA); a standalone
-			// account is its own parent.
-			$parent = preg_replace( '/[^0-9]/', '', (string) get_option( self::OPT_ADVANCED, '' ) );
-			$parent = '' !== $parent ? $parent : $merchant_id;
-			$url    = 'https://shoppingcontent.googleapis.com/content/v2.1/' . $parent . '/accounts/' . $merchant_id;
-			$data   = $this->request( 'GET', $url, $token );
-			foreach ( (array) ( $data['adsLinks'] ?? [] ) as $link ) {
-				$id = (string) ( $link['adsId'] ?? '' );
+		} catch ( \Throwable $e ) {
+			$state = [ 'links' => [], 'error' => $e->getMessage() ];
+			set_transient( $key, $state, 15 * MINUTE_IN_SECONDS );
+			return $state;
+		}
+
+		// 1. The Merchant API: the services another account provides to this one.
+		try {
+			$url  = self::MERCHANT_API . '/' . self::ACCOUNTS_SUBAPI . '/accounts/' . $merchant_id . '/services?pageSize=200';
+			$data = $this->request( 'GET', $url, $token );
+			foreach ( (array) ( $data['accountServices'] ?? $data['services'] ?? [] ) as $svc ) {
+				$blob = wp_json_encode( $svc );
+				if ( ! is_string( $blob ) || false === stripos( $blob, 'GOOGLE_ADS' ) ) {
+					// Only the Ads link is of interest here; the other services
+					// an account can be given say nothing about advertising.
+					continue;
+				}
+				$id = (string) ( $svc['externalAccountId'] ?? $svc['provider']['externalAccountId'] ?? '' );
+				if ( '' === $id && preg_match( '/"externalAccountId"\s*:\s*"?([0-9-]{6,})"?/', $blob, $m ) ) {
+					$id = $m[1];
+				}
 				if ( '' === $id ) {
 					continue;
 				}
-				$out[] = [ 'id' => $id, 'status' => (string) ( $link['status'] ?? '' ) ];
+				$state = strtolower( (string) ( $svc['handshake']['approvalState'] ?? $svc['state'] ?? 'active' ) );
+				$links[ $id ] = [ 'id' => $id, 'status' => 'approved' === $state ? 'active' : $state ];
 			}
 		} catch ( \Throwable $e ) {
-			// Unreadable is not "unlinked": remembered briefly so a broken
-			// account does not ask Google on every page load, and no filter
-			// treats it as an answer.
-			set_transient( $key, [], 15 * MINUTE_IN_SECONDS );
-			return [];
+			$error = $e->getMessage();
 		}
-		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
-		return $out;
+
+		// 2. The Content API, which answers for accounts the first one does not.
+		if ( ! $links ) {
+			try {
+				$parent = preg_replace( '/[^0-9]/', '', (string) get_option( self::OPT_ADVANCED, '' ) );
+				$parent = '' !== $parent ? $parent : $merchant_id;
+				$url    = 'https://shoppingcontent.googleapis.com/content/v2.1/' . $parent . '/accounts/' . $merchant_id;
+				$data   = $this->request( 'GET', $url, $token );
+				foreach ( (array) ( $data['adsLinks'] ?? [] ) as $link ) {
+					$id = (string) ( $link['adsId'] ?? '' );
+					if ( '' === $id ) {
+						continue;
+					}
+					$links[ $id ] = [ 'id' => $id, 'status' => (string) ( $link['status'] ?? 'active' ) ];
+				}
+				$error = $links ? '' : $error;
+			} catch ( \Throwable $e ) {
+				$error = '' !== $error ? $error : $e->getMessage();
+			}
+		}
+
+		$state = [ 'links' => array_values( $links ), 'error' => $links ? '' : $error ];
+		// A failure is remembered briefly, an answer for six hours: an account
+		// is not linked and unlinked twice a day.
+		set_transient( $key, $state, $state['error'] ? 15 * MINUTE_IN_SECONDS : 6 * HOUR_IN_SECONDS );
+		return $state;
+	}
+
+	/** @return array<int,array{id:string,status:string}> */
+	public function ads_links( string $merchant_id ): array {
+		return $this->ads_links_state( $merchant_id )['links'];
 	}
 
 	/** Does this account have at least one ACTIVE Google Ads link? */
