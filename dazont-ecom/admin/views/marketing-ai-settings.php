@@ -121,6 +121,27 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		}
 	}());
 	</script>
+	<h2 class="title"><?php esc_html_e( 'The promo banner', 'dazont-ecom' ); ?></h2>
+	<table class="form-table" role="presentation">
+		<tr>
+			<th scope="row"><?php esc_html_e( 'Style', 'dazont-ecom' ); ?></th>
+			<td>
+				<?php $dze_style = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::banner_style() : [ 'bg' => '#111111', 'color' => '#ffffff' ]; ?>
+				<label><?php esc_html_e( 'Background', 'dazont-ecom' ); ?>
+					<input type="color" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_bg]' ); ?>" value="<?php echo esc_attr( $dze_style['bg'] ); ?>" />
+				</label>
+				&nbsp;
+				<label><?php esc_html_e( 'Text', 'dazont-ecom' ); ?>
+					<input type="color" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_color]' ); ?>" value="<?php echo esc_attr( $dze_style['color'] ); ?>" />
+				</label>
+				<span style="display:inline-block;margin-left:14px;padding:6px 14px;border-radius:4px;background:<?php echo esc_attr( $dze_style['bg'] ); ?>;color:<?php echo esc_attr( $dze_style['color'] ); ?>;"><?php esc_html_e( 'Summer sale — 20% off', 'dazont-ecom' ); ?></span>
+				<p class="description" style="max-width:820px;">
+					<?php esc_html_e( 'One style for every promotion, so the shop looks like itself whatever is running. Only the background and the text colour are set — the font comes from your theme.', 'dazont-ecom' ); ?>
+				</p>
+			</td>
+		</tr>
+	</table>
+
 	<h2 class="title"><?php esc_html_e( 'The promotion in your other markets', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>

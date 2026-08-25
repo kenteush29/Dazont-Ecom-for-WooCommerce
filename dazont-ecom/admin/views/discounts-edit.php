@@ -46,6 +46,11 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 				<th scope="row"><?php esc_html_e( 'Enabled', 'dazont-ecom' ); ?></th>
 				<td><label><input type="checkbox" name="enabled" value="1" <?php checked( ! $editing || ! empty( $editing['enabled'] ) ); ?> /> <?php esc_html_e( 'Promotion is active', 'dazont-ecom' ); ?></label></td>
 			</tr>
+			<?php if ( $is_events ) : ?>
+				<?php // A marketing event is a scheduled sale. Asking which type
+				// it is, with one answer possible, is a question for nobody. ?>
+				<input type="hidden" id="dze-type" name="type" value="sale" />
+			<?php else : ?>
 			<tr>
 				<th scope="row"><label for="dze-type"><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></label></th>
 				<td>
@@ -56,6 +61,7 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					</select>
 				</td>
 			</tr>
+			<?php endif; ?>
 			<tr class="dze-field-percent">
 				<th scope="row"><label for="dze-percent"><?php esc_html_e( 'Discount (%)', 'dazont-ecom' ); ?></label></th>
 				<td><input type="number" id="dze-percent" name="percent" min="0" max="100" step="0.01" class="small-text" value="<?php echo esc_attr( $e( 'percent', '10' ) ); ?>" /> %</td>
@@ -209,6 +215,10 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 		</table>
 		<?php endif; ?>
 
+		<?php if ( $is_events ) : ?>
+			<?php // An event is the whole shop on sale: there is no scope to pick. ?>
+			<input type="hidden" name="scope" value="all" />
+		<?php else : ?>
 		<div class="dze-field-scope">
 		<h3><?php esc_html_e( 'Scope', 'dazont-ecom' ); ?></h3>
 		<table class="form-table" role="presentation">
@@ -245,6 +255,7 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 			</tr>
 		</table>
 		</div><?php // .dze-field-scope ?>
+		<?php endif; ?>
 
 		<?php if ( $is_events ) : ?>
 		<div class="dze-field-banner">
@@ -254,12 +265,13 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					<th scope="row"><?php esc_html_e( 'Show banner', 'dazont-ecom' ); ?></th>
 					<td><label><input type="checkbox" name="banner_enabled" value="1" <?php checked( ! empty( $editing['banner_enabled'] ) ); ?> /> <?php esc_html_e( 'Display a banner while this sale is active', 'dazont-ecom' ); ?></label></td>
 				</tr>
+				<?php // What the banner says IS the title of the event. Two fields
+				// that had to say the same thing meant one of them was always
+				// out of date; the title above is the one that is read. ?>
 				<tr>
-					<th scope="row"><label for="dze-banner-text"><?php esc_html_e( 'Banner text', 'dazont-ecom' ); ?></label></th>
-					<td><input type="text" id="dze-banner-text" name="banner_text" class="large-text" value="<?php echo esc_attr( $e( 'banner_text' ) ); ?>" placeholder="<?php esc_attr_e( 'e.g. 🔥 Summer Sale — 20% off everything!', 'dazont-ecom' ); ?>" />
-					<?php if ( ! empty( $languages ) ) : ?>
-						<p class="description"><?php esc_html_e( 'Default-language text (used when a translation below is empty).', 'dazont-ecom' ); ?></p>
-					<?php endif; ?>
+					<th scope="row"><?php esc_html_e( 'What it says', 'dazont-ecom' ); ?></th>
+					<td>
+						<p class="description" style="margin-top:0;"><?php esc_html_e( 'The title of the event, as written at the top of this page.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<?php
@@ -274,7 +286,7 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					}
 					?>
 				<tr>
-					<th scope="row"><?php esc_html_e( 'Other languages', 'dazont-ecom' ); ?></th>
+					<th scope="row"><?php esc_html_e( 'The title in your other markets', 'dazont-ecom' ); ?></th>
 					<td>
 						<button type="button" class="button-link" id="dze-banner-translate">&#127760; <?php esc_html_e( 'Write it for my other markets', 'dazont-ecom' ); ?></button>
 						<span id="dze-banner-tr-status" class="description" style="margin-left:8px;"></span>
@@ -283,7 +295,7 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 								<?php
 								printf(
 									/* translators: 1: translations written, 2: languages to fill */
-									esc_html__( 'The banner in your other languages (%1$d of %2$d written)', 'dazont-ecom' ),
+									esc_html__( 'The title in your other languages (%1$d of %2$d written)', 'dazont-ecom' ),
 									(int) $dze_got,
 									count( $dze_promo_langs )
 								);
@@ -306,13 +318,26 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					</td>
 				</tr>
 				<?php endif; ?>
+				<?php
+				// The banner's colours are the shop's, not this promotion's: a
+				// style chosen event by event is a shop whose banner looks
+				// different every month. Decided once, on the settings tab.
+				$dze_style = DZE_Discounts::banner_style();
+				?>
 				<tr>
-					<th scope="row"><?php esc_html_e( 'Colors', 'dazont-ecom' ); ?></th>
+					<th scope="row"><?php esc_html_e( 'Style', 'dazont-ecom' ); ?></th>
 					<td>
-						<label><?php esc_html_e( 'Background', 'dazont-ecom' ); ?> <input type="color" name="banner_bg" value="<?php echo esc_attr( $e( 'banner_bg', '#111111' ) ); ?>" /></label>
-						&nbsp;
-						<label><?php esc_html_e( 'Text', 'dazont-ecom' ); ?> <input type="color" name="banner_color" value="<?php echo esc_attr( $e( 'banner_color', '#ffffff' ) ); ?>" /></label>
-						<p class="description"><?php esc_html_e( 'Only background and colour are set — font size/style come from your theme.', 'dazont-ecom' ); ?></p>
+						<span style="display:inline-block;padding:6px 14px;border-radius:4px;background:<?php echo esc_attr( $dze_style['bg'] ); ?>;color:<?php echo esc_attr( $dze_style['color'] ); ?>;"><?php esc_html_e( 'Every promotion wears this', 'dazont-ecom' ); ?></span>
+						<p class="description">
+							<?php
+							printf(
+								/* translators: %s: link to the settings tab */
+								esc_html__( 'The same for every event, so the shop looks like itself. Changed under %s.', 'dazont-ecom' ),
+								'<a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'events' ], admin_url( 'admin.php' ) ) ) . '">'
+									. esc_html__( 'Settings → Marketing events', 'dazont-ecom' ) . '</a>'
+							);
+							?>
+						</p>
 					</td>
 				</tr>
 				<tr>

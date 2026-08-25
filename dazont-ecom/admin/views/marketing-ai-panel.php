@@ -41,7 +41,7 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 
 	<?php if ( ! empty( $suggestions ) ) : ?>
 		<h3 style="margin-bottom:4px;"><?php esc_html_e( 'Suggested events — review before adding', 'dazont-ecom' ); ?></h3>
-		<p class="description" style="margin-top:0;"><?php esc_html_e( 'Tick rows and use the bulk buttons, or Accept/Discard one at a time. Accepted events are added to the calendar below as disabled — enable the ones you want.', 'dazont-ecom' ); ?></p>
+		<p class="description" style="margin-top:0;"><?php esc_html_e( 'Tick rows and use the bulk buttons, or Accept/Discard one at a time. Accepted events go live on the calendar below — switch off the ones you want to hold back.', 'dazont-ecom' ); ?></p>
 		<p>
 			<button type="button" class="button dze-mai-bulk-accept"><?php esc_html_e( 'Accept selected', 'dazont-ecom' ); ?></button>
 			<button type="button" class="button dze-mai-bulk-refuse"><?php esc_html_e( 'Discard selected', 'dazont-ecom' ); ?></button>
@@ -118,6 +118,13 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 					<label><?php esc_html_e( 'From', 'dazont-ecom' ); ?> <input type="date" id="dze-ev-start" /></label>
 					&nbsp;
 					<label><?php esc_html_e( 'To', 'dazont-ecom' ); ?> <input type="date" id="dze-ev-end" /></label>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Countdown', 'dazont-ecom' ); ?></th>
+				<td>
+					<label><input type="checkbox" id="dze-ev-timer" /> &#9201; <?php esc_html_e( 'Count the days down on the banner', 'dazont-ecom' ); ?></label>
+					<p class="description"><?php esc_html_e( 'For the few moments a deadline really presses on. On an ordinary sale it is noise.', 'dazont-ecom' ); ?></p>
 				</td>
 			</tr>
 		</table>

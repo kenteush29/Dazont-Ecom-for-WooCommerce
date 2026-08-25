@@ -66,9 +66,13 @@ $klav_on    = $klav && $klav->configured();
 		<thead><tr>
 			<td class="check-column" style="width:28px;text-align:center;"><input type="checkbox" id="dze-rule-check-all" /></td>
 			<th><?php esc_html_e( 'Title', 'dazont-ecom' ); ?></th>
-			<th><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></th>
+			<?php if ( ! $is_events ) : ?>
+				<th><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></th>
+			<?php endif; ?>
 			<th><?php esc_html_e( 'Discount', 'dazont-ecom' ); ?></th>
-			<th><?php esc_html_e( 'Scope', 'dazont-ecom' ); ?></th>
+			<?php if ( ! $is_events ) : ?>
+				<th><?php esc_html_e( 'Scope', 'dazont-ecom' ); ?></th>
+			<?php endif; ?>
 			<?php if ( $is_events && ! empty( $languages ) ) : ?><th><?php esc_html_e( 'Languages', 'dazont-ecom' ); ?></th><?php endif; ?>
 			<?php if ( $is_events ) : ?><th><?php esc_html_e( 'Dates', 'dazont-ecom' ); ?></th><?php endif; ?>
 			<th><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
@@ -78,7 +82,7 @@ $klav_on    = $klav && $klav->configured();
 		</tr></thead>
 		<tbody>
 		<?php if ( empty( $rules ) ) :
-			$colspan = 7 + ( $is_events && ! empty( $languages ) ? 1 : 0 ) + ( $is_events ? 1 : 0 ) + ( $gmc_on ? 1 : 0 ) + ( $klav_on ? 1 : 0 ); ?>
+			$colspan = ( $is_events ? 5 : 7 ) + ( $is_events && ! empty( $languages ) ? 1 : 0 ) + ( $is_events ? 1 : 0 ) + ( $gmc_on ? 1 : 0 ) + ( $klav_on ? 1 : 0 ); ?>
 			<tr><td colspan="<?php echo (int) $colspan; ?>"><?php echo $is_events ? esc_html__( 'No events yet.', 'dazont-ecom' ) : esc_html__( 'No discounts yet.', 'dazont-ecom' ); ?></td></tr>
 		<?php else : foreach ( $rules as $id => $r ) :
 			$toggle_url = wp_nonce_url( add_query_arg( [ 'action' => 'dze_discount_toggle', 'rule' => $id ], $admin_post ), 'dze_discount_toggle' );
@@ -126,7 +130,9 @@ $klav_on    = $klav && $klav->configured();
 					<input type="checkbox" class="dze-rule-cb" name="rules[]" value="<?php echo esc_attr( $id ); ?>" />
 				</td>
 				<td><strong><a href="<?php echo esc_url( $edit_url ); ?>"><?php echo esc_html( $r['title'] !== '' ? $r['title'] : '(untitled)' ); ?></a></strong></td>
-				<td><?php echo esc_html( $type_labels[ $r['type'] ] ?? $r['type'] ); ?></td>
+				<?php if ( ! $is_events ) : ?>
+					<td><?php echo esc_html( $type_labels[ $r['type'] ] ?? $r['type'] ); ?></td>
+				<?php endif; ?>
 				<td><?php
 				$fmt_pct = static fn( $v ) => rtrim( rtrim( number_format( (float) $v, 2, '.', '' ), '0' ), '.' );
 				if ( ( $r['type'] ?? '' ) === 'bulk_order' ) {
@@ -138,7 +144,9 @@ $klav_on    = $klav && $klav->configured();
 					echo esc_html( $fmt_pct( $r['percent'] ?? 0 ) ) . '%';
 				}
 				?></td>
-				<td><?php echo esc_html( $scope_txt ); ?></td>
+				<?php if ( ! $is_events ) : ?>
+					<td><?php echo esc_html( $scope_txt ); ?></td>
+				<?php endif; ?>
 				<?php if ( $is_events && ! empty( $languages ) ) : ?>
 				<td>
 					<?php
@@ -165,6 +173,10 @@ $klav_on    = $klav && $klav->configured();
 				<td>
 					<?php if ( ( $r['type'] ?? '' ) === 'sale' ) : ?>
 						<?php echo wp_kses_post( $start_txt ); ?> → <?php echo wp_kses_post( $end_txt ); ?>
+						<?php if ( ! empty( $r['banner_timer'] ) ) : ?>
+							<?php // The few events that count down say so here. ?>
+							<span title="<?php esc_attr_e( 'The banner counts down to the end of this event', 'dazont-ecom' ); ?>" style="margin-left:6px;color:#b26a00;">&#9201;</span>
+						<?php endif; ?>
 					<?php else : ?>
 						<span style="color:#999;">—</span>
 					<?php endif; ?>
