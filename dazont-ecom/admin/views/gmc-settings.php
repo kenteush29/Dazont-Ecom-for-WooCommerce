@@ -6,6 +6,8 @@ defined( 'ABSPATH' ) || exit;
  * @var array  $languages
  * @var bool   $has_creds
  * @var bool   $creds_locked
+ * @var array  $ads_links    Per account key: the Google Ads links Google reports.
+ * @var bool   $ads_only     Push promotions only to accounts linked to Google Ads.
  */
 $lang_names = [];
 foreach ( $languages as $l ) {
@@ -133,10 +135,44 @@ foreach ( $languages as $l ) {
 						<input type="text" name="<?php echo esc_attr( DZE_Gmc::OPT_ACCOUNTS . '[' . $key . '][language]' ); ?>" value="<?php echo esc_attr( $acc['language'] ?? '' ); ?>" size="4" maxlength="5" placeholder="en" />
 					</label>
 					<?php endif; ?>
+					<?php
+					// Whether a Google Ads campaign reads this account at all —
+					// which is what decides if a promotion pushed here is worth
+					// anything. Read from the account's Ads links; the spend
+					// itself belongs to another API entirely.
+					$dze_links = (array) ( $ads_links[ $key ] ?? [] );
+					$dze_ids   = [];
+					foreach ( $dze_links as $dze_l ) {
+						$dze_ids[] = $dze_l['id'] . ( 'active' === strtolower( (string) $dze_l['status'] ) ? '' : ' (' . $dze_l['status'] . ')' );
+					}
+					if ( ! empty( $acc['merchant_id'] ) ) : ?>
+						<p class="description" style="margin:6px 0 0;">
+							<?php if ( $dze_ids ) : ?>
+								<span style="color:#0a7040;">●</span>
+								<?php
+								printf(
+									/* translators: %s: Google Ads customer ids */
+									esc_html__( 'Linked to Google Ads: %s', 'dazont-ecom' ),
+									'<code>' . esc_html( implode( ', ', $dze_ids ) ) . '</code>'
+								);
+								?>
+							<?php else : ?>
+								<span style="color:#a7aaad;">○</span>
+								<?php esc_html_e( 'No Google Ads account linked (or not readable with this connection).', 'dazont-ecom' ); ?>
+							<?php endif; ?>
+						</p>
+					<?php endif; ?>
 				</td>
 			</tr>
 			<?php endforeach; ?>
 		</table>
+		<p style="max-width:820px;">
+			<label>
+				<input type="checkbox" name="<?php echo esc_attr( DZE_Gmc::OPT_ADS_ONLY ); ?>" value="1" <?php checked( ! empty( $ads_only ) ); ?> />
+				<?php esc_html_e( 'Send promotions only to accounts linked to Google Ads', 'dazont-ecom' ); ?>
+			</label>
+			<span class="description"><?php esc_html_e( 'A promotion pushed to an account no campaign reads is a promotion pushed nowhere. What is read here is the LINK between the accounts, not what the campaigns spend — the spend lives in the Google Ads API, behind its own approval.', 'dazont-ecom' ); ?></span>
+		</p>
 		<p class="description" style="max-width:820px;">
 			<?php esc_html_e( 'Target countries = one or more 2-letter ISO codes, comma-separated. A Google promotion always targets a single country, so the plugin creates one promotion per country listed here.', 'dazont-ecom' ); ?><br>
 			<?php esc_html_e( 'A language is not a country: for English, list every country you actually run promotions in (e.g. US, GB, CA, AU). Each country must be enabled in your Merchant Center Promotions program and the account must sell/ship there. Only the countries you list here are offered as sync targets in the promotions list.', 'dazont-ecom' ); ?>
