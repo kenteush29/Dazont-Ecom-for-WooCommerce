@@ -89,7 +89,7 @@ final class DZE_Modules {
 				'group' => 'marketing',
 				'label' => __( 'Google Merchant Center', 'dazont-ecom' ),
 				'desc'  => __( 'Pushes your scheduled sale promotions to Merchant Center.', 'dazont-ecom' ),
-				'more'  => __( 'No product feed involved. Each scheduled sale from the Discounts module is inserted as a Merchant Center PROMOTION through Google\'s Merchant API (the successor of the Content API), into one GMC account per language; the promotion data sources are found or created automatically per country/language. Authentication uses your connected Google account or a service account. A cron keeps the promotions in sync with your events.', 'dazont-ecom' ),
+				'more'  => __( 'No product feed involved. Each scheduled sale from the Discounts module is inserted as a Merchant Center PROMOTION through Google\'s Merchant API (the successor of the Content API), into one GMC account per language; the promotion data sources are found or created automatically per country/language. Authentication uses your connected Google account or a service account. A cron keeps the promotions in sync with your events. Each account also says whether a Google Ads account is linked to it — what Google lets a Merchant Center connection read is the LINK, never the spend — and the sync can be told to skip the accounts that have none: a promotion pushed to an account no campaign reads is a promotion pushed nowhere.', 'dazont-ecom' ),
 			],
 			'gmc_activation' => [
 				'class' => 'DZE_Gmc_Activation',

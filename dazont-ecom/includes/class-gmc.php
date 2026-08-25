@@ -32,6 +32,7 @@ final class DZE_Gmc {
 	public const OPT_CONNECTION  = 'dze_gmc_connection';   // Connected account (refresh token/email) — flow-managed only.
 	public const OPT_DATASOURCES = 'dze_gmc_datasources';  // Resolved promotion data source names, keyed by account|country|lang.
 	public const OPT_ADVANCED    = 'dze_gmc_advanced';     // Advanced/parent (MCA) account ID — used for GCP developer registration.
+	public const OPT_ADS_ONLY    = 'dze_gmc_ads_only';     // Push promotions only to accounts linked to Google Ads.
 
 	// Merchant API (replaces Content API for Shopping v2.1). v1beta was
 	// discontinued on 28 Feb 2026, so all sub-APIs are pinned to v1.
@@ -160,6 +161,7 @@ final class DZE_Gmc {
 		register_setting( 'dze_gmc_options', self::OPT_ACCOUNTS, [ 'sanitize_callback' => [ $this, 'sanitize_accounts' ], 'autoload' => false ] );
 		register_setting( 'dze_gmc_options', self::OPT_OAUTH, [ 'sanitize_callback' => [ $this, 'sanitize_oauth' ], 'autoload' => false ] );
 		register_setting( 'dze_gmc_options', self::OPT_ADVANCED, [ 'sanitize_callback' => [ $this, 'sanitize_advanced' ], 'autoload' => false ] );
+		register_setting( 'dze_gmc_options', self::OPT_ADS_ONLY, [ 'sanitize_callback' => static fn( $v ) => empty( $v ) ? '' : '1', 'autoload' => false ] );
 	}
 
 	/** Advanced (parent/MCA) account ID used for GCP developer registration. */
@@ -436,6 +438,17 @@ final class DZE_Gmc {
 		$connected     = ! empty( $connection['refresh_token'] );
 		$authorize_url = $oauth_ready ? $this->oauth_authorize_url() : '';
 		$advanced      = (string) get_option( self::OPT_ADVANCED, '' );
+		$ads_only      = '' !== (string) get_option( self::OPT_ADS_ONLY, '' );
+		// Which accounts a Google Ads campaign actually reads — read once for
+		// the screen, from a six-hour cache.
+		$ads_links = [];
+		if ( $connected || $has_creds ) {
+			foreach ( self::get_accounts() as $acc_key => $acc_row ) {
+				if ( ! empty( $acc_row['merchant_id'] ) ) {
+					$ads_links[ $acc_key ] = $this->ads_links( (string) $acc_row['merchant_id'] );
+				}
+			}
+		}
 		require DZE_DIR . 'admin/views/gmc-settings.php';
 	}
 
@@ -615,6 +628,11 @@ final class DZE_Gmc {
 		foreach ( $this->target_language_keys( $rule ) as $key ) {
 			$acc = $accounts[ $key ] ?? null;
 			if ( empty( $acc['merchant_id'] ) ) {
+				continue;
+			}
+			// Asked to work for Google Ads only: an account no campaign reads is
+			// skipped rather than filled with promotions nobody will serve.
+			if ( ! empty( get_option( self::OPT_ADS_ONLY, '' ) ) && ! $this->has_active_ads_link( (string) $acc['merchant_id'] ) ) {
 				continue;
 			}
 			$language = ( $key !== 'default' ) ? $key : ( $acc['language'] ?: get_locale() );
@@ -865,6 +883,70 @@ final class DZE_Gmc {
 			);
 		}
 		return $out;
+	}
+
+	/**
+	 * Is this Merchant Center account linked to a Google Ads account?
+	 *
+	 * What Google lets us read is the LINK, not the spend: the Content API's
+	 * accounts resource carries adsLinks — the Google Ads customer ids attached
+	 * to the account, active or awaiting approval. Whether that Ads account is
+	 * spending today is the Google Ads API's business, behind its own developer
+	 * token and its own approval, and is out of proportion for this.
+	 *
+	 * The link is the signal that matters here anyway: a promotion pushed to an
+	 * account no advertising campaign reads is a promotion pushed nowhere.
+	 *
+	 * Cached for six hours — an account is not linked and unlinked twice a day
+	 * — and never fatal: an account we cannot read simply reports nothing.
+	 *
+	 * @return array<int,array{id:string,status:string}>
+	 */
+	public function ads_links( string $merchant_id ): array {
+		$merchant_id = preg_replace( '/[^0-9]/', '', $merchant_id );
+		if ( '' === $merchant_id ) {
+			return [];
+		}
+		$key    = 'dze_gmc_ads_' . $merchant_id;
+		$cached = get_transient( $key );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		$out = [];
+		try {
+			$token = $this->get_access_token();
+			// A sub-account is read through its parent (the MCA); a standalone
+			// account is its own parent.
+			$parent = preg_replace( '/[^0-9]/', '', (string) get_option( self::OPT_ADVANCED, '' ) );
+			$parent = '' !== $parent ? $parent : $merchant_id;
+			$url    = 'https://shoppingcontent.googleapis.com/content/v2.1/' . $parent . '/accounts/' . $merchant_id;
+			$data   = $this->request( 'GET', $url, $token );
+			foreach ( (array) ( $data['adsLinks'] ?? [] ) as $link ) {
+				$id = (string) ( $link['adsId'] ?? '' );
+				if ( '' === $id ) {
+					continue;
+				}
+				$out[] = [ 'id' => $id, 'status' => (string) ( $link['status'] ?? '' ) ];
+			}
+		} catch ( \Throwable $e ) {
+			// Unreadable is not "unlinked": remembered briefly so a broken
+			// account does not ask Google on every page load, and no filter
+			// treats it as an answer.
+			set_transient( $key, [], 15 * MINUTE_IN_SECONDS );
+			return [];
+		}
+		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/** Does this account have at least one ACTIVE Google Ads link? */
+	public function has_active_ads_link( string $merchant_id ): bool {
+		foreach ( $this->ads_links( $merchant_id ) as $link ) {
+			if ( 'active' === strtolower( $link['status'] ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
