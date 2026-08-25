@@ -75,7 +75,38 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="dze-ev-name"><?php esc_html_e( 'Title', 'dazont-ecom' ); ?></label></th>
-				<td><input type="text" id="dze-ev-name" class="large-text" /></td>
+				<td>
+					<input type="text" id="dze-ev-name" class="large-text" />
+					<?php
+					$dze_promo_langs = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::promo_langs() : [];
+					if ( $dze_promo_langs ) :
+					?>
+					<p style="margin:6px 0 0;">
+						<button type="button" class="button-link" id="dze-ev-translate">&#127760; <?php esc_html_e( 'Translate the title', 'dazont-ecom' ); ?></button>
+						<span id="dze-ev-tr-status" class="description" style="margin-left:8px;"></span>
+					</p>
+					<details id="dze-ev-i18n" style="margin:6px 0 0;">
+						<summary style="cursor:pointer;font-size:12px;color:#2271b1;">
+							<?php
+							printf(
+								/* translators: %d: number of other languages */
+								esc_html( _n( 'The title in your %d other language', 'The title in your %d other languages', count( $dze_promo_langs ), 'dazont-ecom' ) ),
+								count( $dze_promo_langs )
+							);
+							?>
+						</summary>
+						<?php foreach ( $dze_promo_langs as $dze_code => $dze_name ) : ?>
+							<p style="margin:6px 0 0;display:flex;align-items:center;gap:8px;">
+								<label style="min-width:110px;font-size:12px;color:#646970;"><?php echo esc_html( $dze_name ); ?></label>
+								<input type="text" class="large-text dze-ev-i18n-field" data-lang="<?php echo esc_attr( $dze_code ); ?>" />
+							</p>
+						<?php endforeach; ?>
+						<p class="description" style="margin:6px 0 0;">
+							<?php esc_html_e( 'What customers read on the banner in each language. Left empty, the promotion does not run in that language.', 'dazont-ecom' ); ?>
+						</p>
+					</details>
+					<?php endif; ?>
+				</td>
 			</tr>
 			<tr>
 				<th scope="row"><label for="dze-ev-percent"><?php esc_html_e( 'Discount (%)', 'dazont-ecom' ); ?></label></th>
@@ -98,15 +129,7 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 			<button type="button" class="button-link dze-ev-cancel" style="margin-left:6px;"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 			<span class="dze-ev-status" style="margin-left:8px;font-size:13px;"></span>
 		</p>
-		<?php if ( class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) : ?>
-			<p class="description" style="margin:0;">
-				<?php
-				echo class_exists( 'DZE_Marketing_Ai' ) && DZE_Marketing_Ai::promo_i18n_on()
-					? esc_html__( 'The title is what customers read on the banner. It is translated into your other languages on its own, shortly after saving — you can correct any of them on the event itself.', 'dazont-ecom' )
-					: esc_html__( 'The title is what customers read on the banner. "Translate on save" is off, so this event will only run in the main language until you write the other lines on it.', 'dazont-ecom' );
-				?>
-			</p>
-		<?php endif; ?>
+
 	</div>
 </div>
 <style>

@@ -1,4 +1,4 @@
-/* global jQuery */
+/* global jQuery, dzeDiscounts */
 (function ($) {
 	'use strict';
 
@@ -135,6 +135,43 @@
 		$cell.find('input[type=hidden]').val('');
 		$cell.find('.dze-hero-preview').attr('src', '').hide();
 		$(this).hide();
+	});
+
+	// ---- The banner line in the shop's other languages ----
+	// Asked for on demand, shown in the fields, saved with the promotion like
+	// anything else typed on this screen.
+	$(document).on('click', '#dze-banner-translate', function () {
+		if (typeof dzeDiscounts === 'undefined') { return; }
+		var cfg = dzeDiscounts;
+		var $b = $(this), $st = $('#dze-banner-tr-status');
+		var line = $.trim($('#dze-banner-text').val() || '');
+		if (!line) {
+			$st.css('color', '#b32d2e').text(cfg.i18n.titleFirst);
+			$('#dze-banner-text').trigger('focus');
+			return;
+		}
+		$b.prop('disabled', true);
+		$st.css('color', '#646970').text(cfg.i18n.translating);
+		$.post(cfg.ajaxUrl, { action: 'dze_mai_translate', nonce: cfg.maiNonce, title: line })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (res && res.success) {
+					$('.dze-banner-i18n-field').each(function () {
+						var v = res.data.i18n[$(this).data('lang')];
+						// A line already written by hand stays: this fills the
+						// gaps, it does not take the screen over.
+						if (typeof v === 'string' && !$.trim($(this).val() || '')) { $(this).val(v); }
+					});
+					$('#dze-banner-i18n').prop('open', true);
+					$st.css('color', '#0a7040').text(cfg.i18n.translated);
+					return;
+				}
+				$st.css('color', '#b32d2e').text((res && res.data && res.data.message) || cfg.i18n.trFailed);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$st.css('color', '#b32d2e').text(cfg.i18n.trFailed);
+			});
 	});
 
 	$(function () {

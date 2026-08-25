@@ -115,6 +115,7 @@ final class DZE_Marketing_Ai {
 		add_action( 'wp_ajax_dze_mai_accept',     [ $this, 'ajax_accept' ] );
 		add_action( 'wp_ajax_dze_mai_save_event', [ $this, 'ajax_save_event' ] );
 		add_action( 'wp_ajax_dze_mai_refuse',     [ $this, 'ajax_refuse' ] );
+		add_action( 'wp_ajax_dze_mai_translate',  [ $this, 'ajax_translate' ] );
 		add_action( 'wp_ajax_dze_mai_profile',    [ $this, 'ajax_profile_draft' ] );
 		// Settings live on the "AI Assistant" submenu (register_menu →
 		// render_settings_page); the generate/review UI renders inside the
@@ -1530,12 +1531,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_send_json_error( [ 'message' => __( 'This event needs a valid start and end date.', 'dazont-ecom' ) ] );
 		}
 
-		$rule_id = $this->create_sale_rule( $ev );
-		// The event exists: its lines in the other languages are asked for in
-		// the background, so it is ready to run everywhere when it is enabled.
-		if ( class_exists( 'DZE_Discounts' ) ) {
-			DZE_Discounts::schedule_i18n( $rule_id );
-		}
+		$ev['i18n'] = $this->posted_i18n();
+		$rule_id    = $this->create_sale_rule( $ev );
 
 		unset( $suggestions[ $id ] );
 		self::save_suggestions( $suggestions );
@@ -1577,12 +1574,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_send_json_error( [ 'message' => __( 'This event needs a valid start and end date.', 'dazont-ecom' ) ] );
 		}
 
-		$rule_id = $this->create_sale_rule( $ev );
-		// The event exists: its lines in the other languages are asked for in
-		// the background, so it is ready to run everywhere when it is enabled.
-		if ( class_exists( 'DZE_Discounts' ) ) {
-			DZE_Discounts::schedule_i18n( $rule_id );
-		}
+		$ev['i18n'] = $this->posted_i18n();
+		$rule_id    = $this->create_sale_rule( $ev );
 
 		if ( $sug_id !== '' && isset( $suggestions[ $sug_id ] ) ) {
 			unset( $suggestions[ $sug_id ] );
@@ -1607,6 +1600,67 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 
 		wp_send_json_success( [ 'message' => $message, 'rule_id' => $rule_id ] );
+	}
+
+	/**
+	 * The translations the popup carried, if any.
+	 *
+	 * Typed or asked for on screen, they arrive with the event: the owner saw
+	 * them before saving, so they are his, not something written behind him.
+	 *
+	 * @return array<string,string>
+	 */
+	private function posted_i18n(): array {
+		$raw = isset( $_POST['i18n'] ) ? wp_unslash( $_POST['i18n'] ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the caller checked it.
+		$in  = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		if ( ! is_array( $in ) ) {
+			$in = [];
+		}
+		$langs = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::promo_langs() : [];
+		$out   = [];
+		foreach ( $langs as $code => $name ) {
+			$text = sanitize_text_field( (string) ( $in[ $code ] ?? '' ) );
+			if ( '' !== trim( $text ) ) {
+				$out[ $code ] = mb_substr( $text, 0, 120 );
+			}
+		}
+		if ( $out || ! self::promo_i18n_on() ) {
+			return $out;
+		}
+		// Accepted straight from the list, with no popup opened: the lines are
+		// written now rather than later. One short call, and the event is
+		// ready to run in every language the moment it is switched on.
+		$title = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the caller checked it.
+		try {
+			return class_exists( 'DZE_Discounts' ) ? DZE_Discounts::translate_line( $title, $langs ) : [];
+		} catch ( \Throwable $e ) {
+			return []; // the event is worth more than its translations.
+		}
+	}
+
+	/** Translates a promotion title on demand, for the event popup. */
+	public function ajax_translate(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$title = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) );
+		if ( '' === trim( $title ) ) {
+			wp_send_json_error( [ 'message' => __( 'Write the title first.', 'dazont-ecom' ) ] );
+		}
+		$langs = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::promo_langs() : [];
+		if ( ! $langs ) {
+			wp_send_json_error( [ 'message' => __( 'This shop sells in one language.', 'dazont-ecom' ) ] );
+		}
+		try {
+			$lines = DZE_Discounts::translate_line( $title, $langs );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		if ( ! $lines ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing came back — try again.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'i18n' => $lines ] );
 	}
 
 	public function ajax_refuse(): void {
@@ -1654,7 +1708,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'product_position' => 'before_product',
 			'banner_hooks'     => '',
 			'banner_timer'     => true,
-			'banner_text_i18n' => [],
+			'banner_text_i18n' => (array) ( $ev['i18n'] ?? [] ),
 			'languages'        => $ev['languages'],
 			'hero_swap_enabled'=> false,
 			'hero_source_id'   => 0,
@@ -1688,6 +1742,9 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				'saving'         => __( 'Saving…', 'dazont-ecom' ),
 				'modifyTitle'    => __( 'Accept & modify event', 'dazont-ecom' ),
 				'newTitle'       => __( 'New marketing event', 'dazont-ecom' ),
+				'titleFirst'     => __( 'Write the title first.', 'dazont-ecom' ),
+				'translating'    => __( 'Translating…', 'dazont-ecom' ),
+				'translated'     => __( 'Translated — check them, then save.', 'dazont-ecom' ),
 			],
 		] );
 	}
