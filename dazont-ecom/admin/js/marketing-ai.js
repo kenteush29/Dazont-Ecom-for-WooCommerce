@@ -59,7 +59,6 @@
 			start_date: $row.find('.dze-f-start').val(),
 			end_date: $row.find('.dze-f-end').val(),
 			languages: $row.find('.dze-f-langs').val(),
-			email_subject: $row.find('.dze-f-subject').val()
 		})
 		.done(function (res) {
 			if (res.success) {
@@ -100,7 +99,6 @@
 		$('#dze-ev-percent').val(data.percent || 10);
 		$('#dze-ev-start').val(data.start || '');
 		$('#dze-ev-end').val(data.end || '');
-		$('#dze-ev-subject').val(data.subject || '');
 		$('#dze-ev-langs').val(data.langs || '');
 		$('#dze-ev-title').text(data.id ? i18n.modifyTitle : i18n.newTitle);
 		$('.dze-ev-status').text('');
@@ -113,7 +111,7 @@
 		openModal({
 			id: $r.data('id'), title: $r.data('title'), percent: $r.data('percent'),
 			start: $r.data('start'), end: $r.data('end'),
-			langs: $r.data('langs'), subject: $r.data('subject')
+			langs: $r.data('langs')
 		});
 	});
 	$(document).on('click', '.dze-mai-new-event', function () { openModal({}); });
@@ -137,7 +135,6 @@
 			start_date: $('#dze-ev-start').val(),
 			end_date: $('#dze-ev-end').val(),
 			languages: $('#dze-ev-langs').val() || '',
-			email_subject: $('#dze-ev-subject').val()
 		};
 		// A promotion is pushed to every Merchant Center account that is set up
 		// — there is nothing to pick here: one event, one shop.

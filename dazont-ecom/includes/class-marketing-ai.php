@@ -132,6 +132,7 @@ final class DZE_Marketing_Ai {
 			'api_key'       => '',
 			'model'         => self::MODEL,
 			'events_prompt' => '',   // custom calendar guidance; empty = DEFAULT_EVENTS_PROMPT.
+			'promo_i18n_prompt' => '', // how a promotion line is translated; empty = shipped.
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
 			'match_model'   => '', // keyword-matching model; empty = Haiku default.
@@ -307,9 +308,14 @@ final class DZE_Marketing_Ai {
 		}
 		if ( 'events' === $section ) {
 			// The Marketing events tab carries everything except key + model.
+			$promo_i18n = trim( sanitize_textarea_field( (string) ( $in['promo_i18n_prompt'] ?? '' ) ) );
+			if ( $promo_i18n === trim( self::default_promo_i18n_prompt() ) ) {
+				$promo_i18n = '';
+			}
 			return array_merge( $existing, [
-				'events_prompt' => sanitize_textarea_field( $events_prompt ),
-				'country_pools' => $pools,
+				'events_prompt'     => sanitize_textarea_field( $events_prompt ),
+				'promo_i18n_prompt' => $promo_i18n,
+				'country_pools'     => $pools,
 			] );
 		}
 
@@ -356,6 +362,29 @@ final class DZE_Marketing_Ai {
 	public static function events_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['events_prompt'] ?? '' ) );
 		return $p !== '' ? $p : self::default_events_prompt();
+	}
+
+	/**
+	 * How a promotion line is translated into the shop's other languages.
+	 *
+	 * Not product copy: a banner line is four words that have to fit a banner
+	 * and sound like a shop, not like a translation. Its own instructions, and
+	 * editable like every other prompt.
+	 */
+	public static function promo_i18n_prompt(): string {
+		$p = trim( (string) ( self::get_settings()['promo_i18n_prompt'] ?? '' ) );
+		return '' !== $p ? $p : self::default_promo_i18n_prompt();
+	}
+
+	public static function default_promo_i18n_prompt(): string {
+		$shipped = "- Translate the line for each language, as a native shopper would read it on a banner — not word for word.\n"
+			. "- Keep it the same length or shorter. A banner line that wraps is a broken banner.\n"
+			. "- Keep the figures exactly as they are: percentages, dates, product names, brand names.\n"
+			. "- Keep the tone and the punctuation of the original, emoji included, and add nothing of your own — no extra exclamation mark, no word the original does not have.\n"
+			. '- Never translate the brand name, and never quote the result.';
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'promo_i18n', $shipped )
+			: $shipped;
 	}
 
 	/** The default: the shop's own when it set one, the shipped text otherwise. */
@@ -1166,7 +1195,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 
 		$schema = '{"events":[{"title":string (<=60 chars),"type":"sale",'
 			. '"start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","percent":integer 5-70,'
-			. '"email_subject":string (a marketing email subject line, <=80 chars),'
 			. '"rationale":string (one short sentence naming the real occasion it maps to)}]}';
 
 		$context = $this->shop_context_text();
@@ -1239,7 +1267,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				// in French and not in English is a bug the shop finds out
 				// about from its customers.
 				'languages'     => [],
-				'email_subject' => mb_substr( sanitize_text_field( (string) ( $ev['email_subject'] ?? '' ) ), 0, 120 ),
 				'rationale'     => mb_substr( sanitize_text_field( (string) ( $ev['rationale'] ?? '' ) ), 0, 240 ),
 			];
 		}
@@ -1483,13 +1510,17 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'start_date'    => $this->clean_date( wp_unslash( $_POST['start_date'] ?? $src['start_date'] ) ),
 			'end_date'      => $this->clean_date( wp_unslash( $_POST['end_date'] ?? $src['end_date'] ) ),
 			'languages'     => $this->list_codes( explode( ',', (string) ( $_POST['languages'] ?? implode( ',', $src['languages'] ) ) ), 5 ),
-			'email_subject' => sanitize_text_field( wp_unslash( $_POST['email_subject'] ?? $src['email_subject'] ) ),
 		];
 		if ( $ev['start_date'] === '' || $ev['end_date'] === '' ) {
 			wp_send_json_error( [ 'message' => __( 'This event needs a valid start and end date.', 'dazont-ecom' ) ] );
 		}
 
 		$rule_id = $this->create_sale_rule( $ev );
+		// The event exists: its lines in the other languages are asked for in
+		// the background, so it is ready to run everywhere when it is enabled.
+		if ( class_exists( 'DZE_Discounts' ) ) {
+			DZE_Discounts::schedule_i18n( $rule_id );
+		}
 
 		unset( $suggestions[ $id ] );
 		self::save_suggestions( $suggestions );
@@ -1523,7 +1554,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'start_date'    => $this->clean_date( wp_unslash( $_POST['start_date'] ?? ( $src['start_date'] ?? '' ) ) ),
 			'end_date'      => $this->clean_date( wp_unslash( $_POST['end_date'] ?? ( $src['end_date'] ?? '' ) ) ),
 			'languages'     => $this->list_codes( explode( ',', (string) ( $_POST['languages'] ?? implode( ',', (array) ( $src['languages'] ?? [] ) ) ) ), 5 ),
-			'email_subject' => sanitize_text_field( wp_unslash( $_POST['email_subject'] ?? ( $src['email_subject'] ?? '' ) ) ),
 		];
 		if ( $ev['title'] === '' ) {
 			wp_send_json_error( [ 'message' => __( 'Give the event a title.', 'dazont-ecom' ) ] );
@@ -1533,6 +1563,11 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 
 		$rule_id = $this->create_sale_rule( $ev );
+		// The event exists: its lines in the other languages are asked for in
+		// the background, so it is ready to run everywhere when it is enabled.
+		if ( class_exists( 'DZE_Discounts' ) ) {
+			DZE_Discounts::schedule_i18n( $rule_id );
+		}
 
 		if ( $sug_id !== '' && isset( $suggestions[ $sug_id ] ) ) {
 			unset( $suggestions[ $sug_id ] );
@@ -1611,7 +1646,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'hero_event_id'    => 0,
 			// Marketing-AI metadata (ignored by Discounts, used by the calendar).
 			'source'         => 'ai',
-			'email_subject'  => $ev['email_subject'],
 		];
 		update_option( DZE_Discounts::OPTION, $rules, false );
 		return $id;

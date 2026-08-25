@@ -89,10 +89,6 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 					<label><?php esc_html_e( 'To', 'dazont-ecom' ); ?> <input type="date" id="dze-ev-end" /></label>
 				</td>
 			</tr>
-			<tr>
-				<th scope="row"><label for="dze-ev-subject"><?php esc_html_e( 'Email subject', 'dazont-ecom' ); ?></label></th>
-				<td><input type="text" id="dze-ev-subject" class="large-text" /></td>
-			</tr>
 		</table>
 		<p>
 			<button type="button" class="button button-primary dze-ev-save"><?php esc_html_e( 'Save', 'dazont-ecom' ); ?></button>
@@ -102,6 +98,11 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 			<button type="button" class="button-link dze-ev-cancel" style="margin-left:6px;"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 			<span class="dze-ev-status" style="margin-left:8px;font-size:13px;"></span>
 		</p>
+		<?php if ( class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) : ?>
+			<p class="description" style="margin:0;">
+				<?php esc_html_e( 'The title is what customers read on the banner. It is translated into your other languages on its own, shortly after saving — you can correct any of them on the event itself.', 'dazont-ecom' ); ?>
+			</p>
+		<?php endif; ?>
 	</div>
 </div>
 <style>
