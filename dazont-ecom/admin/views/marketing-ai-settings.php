@@ -100,19 +100,25 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	</p>
 	<?php
 	$prompt_value   = trim( (string) ( $settings['events_prompt'] ?? '' ) );
-	$prompt_display = $prompt_value !== '' ? $prompt_value : DZE_Marketing_Ai::DEFAULT_EVENTS_PROMPT;
+	$prompt_display = $prompt_value !== '' ? $prompt_value : DZE_Marketing_Ai::default_events_prompt();
 	?>
 	<textarea id="dze-mai-prompt" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[events_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:820px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( $prompt_display ); ?></textarea>
 	<p>
-		<button type="button" class="button" id="dze-mai-prompt-reset"><?php esc_html_e( '↺ Reset to default', 'dazont-ecom' ); ?></button>
+		<button type="button" class="button-link" id="dze-mai-prompt-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+		<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'events', '#dze-mai-prompt' ); } ?>
 		<span class="description"><?php echo $prompt_value !== '' ? esc_html__( 'Customised.', 'dazont-ecom' ) : esc_html__( 'Using the default strategy.', 'dazont-ecom' ); ?></span>
 	</p>
 	<script>
 	(function () {
-		var def = <?php echo wp_json_encode( DZE_Marketing_Ai::DEFAULT_EVENTS_PROMPT ); ?>;
+		var shipped = <?php echo wp_json_encode( DZE_Marketing_Ai::default_events_prompt() ); ?>;
 		var btn = document.getElementById('dze-mai-prompt-reset');
 		var ta  = document.getElementById('dze-mai-prompt');
-		if ( btn && ta ) { btn.addEventListener('click', function () { ta.value = def; ta.focus(); }); }
+		if ( btn && ta ) {
+			btn.addEventListener('click', function () {
+				ta.value = window.dzeDefaultFor ? window.dzeDefaultFor( 'events', shipped ) : shipped;
+				ta.focus();
+			});
+		}
 	}());
 	</script>
 	<?php endif; // $show_events ?>

@@ -51,9 +51,9 @@ final class DZE_Prompts {
 			'cat_sift'   => [ 'DZE_Category_Content', 'sift_prompt', 'default_sift_prompt' ],
 			'reviews'    => [ 'DZE_Reviews', 'prompt', 'default_prompt' ],
 			'translate'  => [ 'DZE_Translate', 'prompt', 'default_prompt' ],
-			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', '' ],
-			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', '' ],
-			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', '' ],
+			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
+			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
+			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', 'default_match_rules' ],
 		];
 		if ( ! isset( $map[ $id ] ) ) {
 			return null;
@@ -332,6 +332,13 @@ final class DZE_Prompts {
 				<p class="dze-prompt-bar">
 					<button type="button" class="button button-primary" id="dze-prompt-save"><?php esc_html_e( 'Save the prompt', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button-link" id="dze-prompt-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+					<?php
+					// Which prompt this is only becomes known when one is opened,
+					// so the control is printed empty and JavaScript names it.
+					if ( class_exists( 'DZE_Prompt_Defaults' ) ) {
+						DZE_Prompt_Defaults::control( '', '#dze-prompt-text' );
+					}
+					?>
 					<a href="#" id="dze-prompt-edit" target="_blank" rel="noopener" class="dze-prompt-more"><?php esc_html_e( 'Its other settings →', 'dazont-ecom' ); ?></a>
 				</p>
 				<p class="description" id="dze-prompt-note"></p>
@@ -363,11 +370,20 @@ final class DZE_Prompts {
 					$( '#dze-prompt-save' ).toggle( !! r.data.editable );
 					$( '#dze-prompt-reset' ).toggle( !! r.data.editable && !! def );
 					$( '#dze-prompt-edit' ).attr( 'href', r.data.url ).toggle( !! r.data.url );
+					// The default control now knows which prompt it acts on.
+					$( '#dze-prompt-modal .dze-pd' ).attr( 'data-prompt', r.data.own ? cur : '' )
+						.find( '.dze-pd-state' ).text( '' ).end()
+						.find( '.dze-pd-set' ).toggle( !! r.data.editable && !! r.data.own ).end()
+						.find( '.dze-pd-ship' ).toggle( !! r.data.mine );
 				} ).fail( function () {
 					$( '#dze-prompt-text' ).val( '<?php echo esc_js( __( 'This prompt could not be read.', 'dazont-ecom' ) ); ?>' );
 				} );
 			} );
 			$( document ).on( 'click', '#dze-prompt-reset', function () { $( '#dze-prompt-text' ).val( def ); } );
+			// A default just set from here is what "Restore default" restores to.
+			$( document ).on( 'dze:prompt-default', function ( e, id, text ) {
+				if ( id === cur ) { def = text; }
+			} );
 			$( document ).on( 'click', '#dze-prompt-save', function () {
 				var $b = $( this ).prop( 'disabled', true );
 				var $st = $( '#dze-prompt-state' ).removeClass( 'is-ko' ).text( '…' );
@@ -414,11 +430,16 @@ final class DZE_Prompts {
 		}
 		$text = trim( (string) call_user_func( $row['text'] ) );
 		$w = self::writer( $id );
+		// Whether this prompt can have a default of its own, and whether the
+		// shop has already set one — the two states the control shows.
+		$own  = class_exists( 'DZE_Prompt_Defaults' ) && DZE_Prompt_Defaults::knows( $id );
 		wp_send_json_success( [
 			'label'    => (string) $row['label'],
 			'text'     => $text,
 			'def'      => $w ? (string) $w['default'] : '',
 			'editable' => (bool) $w,
+			'own'      => $own,
+			'mine'     => $own && DZE_Prompt_Defaults::has( $id ),
 			'url'      => self::url( $id ),
 			'note'     => __( 'Saved here, this is what every run uses from now on. The product or category data, the shop context, the site language and the answer format are added around it when the call is made.', 'dazont-ecom' ),
 		] );

@@ -113,7 +113,7 @@ final class DZE_Cleanup {
 	/** What belongs to no module in particular: the plugin's own plumbing. */
 	public static function core_map(): array {
 		return [
-			'options' => [ 'dze_modules', 'dze_autoload_trimmed', 'dze_dev_channel', 'dze_price_rounding', self::OPT_ON_UNINSTALL ],
+			'options' => [ 'dze_modules', 'dze_autoload_trimmed', 'dze_dev_channel', 'dze_price_rounding', 'dze_prompt_defaults', self::OPT_ON_UNINSTALL ],
 		];
 	}
 

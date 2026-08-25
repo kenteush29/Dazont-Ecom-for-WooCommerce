@@ -204,7 +204,7 @@ final class DZE_Reviews {
 	}
 
 	public static function default_prompt(): string {
-		return <<<'PROMPT'
+		$shipped = <<<'PROMPT'
 You write customer reviews for an online shop. They must be indistinguishable from real reviews left by buyers.
 
 LENGTH — the most important point, and the one most often botched.
@@ -230,6 +230,9 @@ CONTENT — only what a buyer can actually observe:
 - First name + last initial, plausible for the review language.
 - A short title (2 to 5 words) matching the tone: telegraphic when the review is short.
 PROMPT;
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'reviews', $shipped )
+			: $shipped;
 	}
 
 	public static function prompt(): string {
@@ -828,6 +831,7 @@ PROMPT;
 						<p class="description">
 							<?php esc_html_e( 'Empty = shipped default (shown greyed). The product data and the strict JSON output format are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-rev-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'reviews', '#dze-rev-prompt' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -837,7 +841,12 @@ PROMPT;
 		</div>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-rev-restore' ).on( 'click', function () { $( '#dze-rev-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> ); } );
+			// The default of a prompt is the shop's own when it set one, and it
+			// can be set from this very page without reloading it.
+			function dzeDef( id, shipped ) {
+				return window.dzeDefaultFor ? window.dzeDefaultFor( id, shipped ) : shipped;
+			}
+			$( '#dze-rev-restore' ).on( 'click', function () { $( '#dze-rev-prompt' ).val( dzeDef( 'reviews', <?php echo wp_json_encode( self::default_prompt() ); ?> ) ); } );
 		} );
 		</script>
 		<?php

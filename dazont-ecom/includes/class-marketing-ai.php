@@ -264,7 +264,7 @@ final class DZE_Marketing_Ai {
 		// A rewritten prompt that matches the default is stored empty, so future
 		// tweaks to the default keep flowing through.
 		$events_prompt = trim( (string) ( $in['events_prompt'] ?? '' ) );
-		if ( $events_prompt === self::DEFAULT_EVENTS_PROMPT ) {
+		if ( $events_prompt === trim( self::default_events_prompt() ) ) {
 			$events_prompt = '';
 		}
 
@@ -290,11 +290,11 @@ final class DZE_Marketing_Ai {
 			// Prompt overrides: a text identical to the shipped default is stored
 			// empty, so future default improvements reach untouched installs.
 			$match_rules = trim( sanitize_textarea_field( (string) ( $in['match_rules'] ?? '' ) ) );
-			if ( class_exists( 'DZE_Keywords' ) && trim( DZE_Keywords::DEFAULT_MATCH_RULES ) === $match_rules ) {
+			if ( class_exists( 'DZE_Keywords' ) && trim( DZE_Keywords::default_match_rules() ) === $match_rules ) {
 				$match_rules = '';
 			}
 			$report_guidance = trim( sanitize_textarea_field( (string) ( $in['report_guidance'] ?? '' ) ) );
-			if ( class_exists( 'DZE_Explorer' ) && trim( DZE_Explorer::DEFAULT_REPORT_GUIDANCE ) === $report_guidance ) {
+			if ( class_exists( 'DZE_Explorer' ) && trim( DZE_Explorer::default_report_guidance() ) === $report_guidance ) {
 				$report_guidance = '';
 			}
 			return array_merge( $existing, [
@@ -351,7 +351,14 @@ final class DZE_Marketing_Ai {
 	/** The effective calendar guidance: the user's custom text, or the default. */
 	public static function events_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['events_prompt'] ?? '' ) );
-		return $p !== '' ? $p : self::DEFAULT_EVENTS_PROMPT;
+		return $p !== '' ? $p : self::default_events_prompt();
+	}
+
+	/** The default: the shop's own when it set one, the shipped text otherwise. */
+	public static function default_events_prompt(): string {
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'events', self::DEFAULT_EVENTS_PROMPT )
+			: self::DEFAULT_EVENTS_PROMPT;
 	}
 
 	/** Active site languages: WPML's list if active, else the single site locale. */
@@ -595,6 +602,7 @@ AFTER your rules: Output: JSON array of {"id":&lt;query id&gt;,"t":"category|pro
 						<p class="description">
 							<?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-match-rules">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'keyword_match', '#dze-mai-match-rules' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -616,6 +624,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 						<p class="description">
 							<?php esc_html_e( 'Leave the text identical to the default to keep receiving default improvements with plugin updates.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-report-guidance">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'sourcing_report', '#dze-mai-report-guidance' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -624,15 +633,21 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		</form>
 		<script>
 		jQuery( function ( $ ) {
-			// Refill a prompt textarea with its SHIPPED default (saved on submit;
-			// storing the exact default text is stored as "use the default").
-			var dzeDefaults = {
-				'dze-mai-match-rules': <?php echo wp_json_encode( class_exists( 'DZE_Keywords' ) ? DZE_Keywords::DEFAULT_MATCH_RULES : '' ); ?>,
-				'dze-mai-report-guidance': <?php echo wp_json_encode( class_exists( 'DZE_Explorer' ) ? DZE_Explorer::DEFAULT_REPORT_GUIDANCE : '' ); ?>
+			// The default of a prompt is the shop's own when it set one, and it
+			// can be set from this very page without reloading it.
+			function dzeDef( id, shipped ) {
+				return window.dzeDefaultFor ? window.dzeDefaultFor( id, shipped ) : shipped;
+			}
+			// Refill a prompt textarea with its default (a text saved exactly as
+			// the default is stored as "use the default").
+			var dzeShipped = {
+				'dze-mai-match-rules': <?php echo wp_json_encode( class_exists( 'DZE_Keywords' ) ? DZE_Keywords::default_match_rules() : '' ); ?>,
+				'dze-mai-report-guidance': <?php echo wp_json_encode( class_exists( 'DZE_Explorer' ) ? DZE_Explorer::default_report_guidance() : '' ); ?>
 			};
+			var dzeMaiId = { 'dze-mai-match-rules': 'keyword_match', 'dze-mai-report-guidance': 'sourcing_report' };
 			$( '.dze-mai-restore' ).on( 'click', function () {
-				var id = $( this ).data( 'target' );
-				if ( dzeDefaults[ id ] ) { $( '#' + id ).val( dzeDefaults[ id ] ); }
+				var id = $( this ).data( 'target' ), d = dzeDef( dzeMaiId[ id ], dzeShipped[ id ] || '' );
+				if ( d ) { $( '#' + id ).val( d ); }
 			} );
 		} );
 		</script>

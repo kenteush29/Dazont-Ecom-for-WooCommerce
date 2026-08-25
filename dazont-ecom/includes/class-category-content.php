@@ -511,7 +511,7 @@ final class DZE_Category_Content {
 	}
 
 	public static function default_prompt(): string {
-		return <<<'PROMPT'
+		$shipped = <<<'PROMPT'
 You write the description of a product category for an online shop. Think of a shop assistant standing in that aisle: concise, concrete, genuinely useful — a short buying guide, not marketing filler.
 
 STRUCTURE
@@ -529,6 +529,9 @@ RULES
 - Plain HTML only: <p>, <h2>, <ul>/<li>, <strong>, <a>. No inline styles, no <h1>.
 - Insert the internal links from the supplied list only, anchored on natural wording inside sentences — never a bare "click here" and never a list of links at the end.
 PROMPT;
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'cat_desc', $shipped )
+			: $shipped;
 	}
 
 	public static function prompt(): string {
@@ -544,13 +547,16 @@ PROMPT;
 	 * only shrug at when the result disappoints.
 	 */
 	public static function default_links_prompt(): string {
-		return "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
+		$shipped = "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
 			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
 			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
 			. "- ANCHOR RULE. The anchor must NAME the page it points to, as closely as the sentence allows. A category keeps its name as it stands; an article or a page is anchored on the SUBJECT of its title, not on the title itself — keep the identifying words, drop the question mark, the verbs and the filler, two to six words. Re-word the few words around it so it reads naturally.\n"
 			. "- The sentence must still read perfectly well without the link. Never quote a title, never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\", never leave the destination ambiguous.\n"
 			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
 			. '- Never link twice to the same URL, never link a whole sentence, never link inside a heading.';
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'cat_links', $shipped )
+			: $shipped;
 	}
 
 	public static function links_prompt(): string {
@@ -560,9 +566,12 @@ PROMPT;
 
 	/** How buyer questions pulled from search data are sorted. */
 	public static function default_sift_prompt(): string {
-		return "Keep only the questions a customer would ask this shop before buying from this category — about the products themselves: material, size, use, care, choice, compatibility, quality.\n"
+		$shipped = "Keep only the questions a customer would ask this shop before buying from this category — about the products themselves: material, size, use, care, choice, compatibility, quality.\n"
 			. "Drop everything else, however many words it shares with the category: another industry's rules (airline baggage allowance, customs, shipping policies of other companies), another product entirely, a named brand or retailer, a job or a service.\n"
 			. 'Order what you keep by how useful the answer is to a buyer. Keep at most 15.';
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'cat_sift', $shipped )
+			: $shipped;
 	}
 
 	public static function sift_prompt(): string {
@@ -2357,6 +2366,7 @@ PROMPT;
 						<p class="description">
 							<?php esc_html_e( 'Empty = shipped default (shown greyed). The category data, the queries, the link list, the language and the length are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-cc-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_desc', '#dze-cc-prompt' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -2367,6 +2377,7 @@ PROMPT;
 						<p class="description">
 							<?php esc_html_e( 'The pass that reads the real search queries and keeps the ones this page should answer. Empty = shipped default.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-sift-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_sift', '#dze-cc-sift-prompt' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -2377,6 +2388,7 @@ PROMPT;
 						<p class="description">
 							<?php esc_html_e( 'The pass that weaves links into a description once it is written. Empty = shipped default.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-links-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_links', '#dze-cc-links-prompt' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -2386,14 +2398,22 @@ PROMPT;
 		</div>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> ); } );
-			var dzeCcDef = {
+			// The default of a prompt is the shop's own when it set one, and it
+			// can be set from this very page without reloading it.
+			function dzeDef( id, shipped ) {
+				return window.dzeDefaultFor ? window.dzeDefaultFor( id, shipped ) : shipped;
+			}
+			$( '#dze-cc-restore' ).on( 'click', function () { $( '#dze-cc-prompt' ).val( dzeDef( 'cat_desc', <?php echo wp_json_encode( self::default_prompt() ); ?> ) ); } );
+			// Shipped text per field, and the prompt each field is: the default
+			// itself is read at click time, never cached at page load.
+			var dzeCcShipped = {
 				'dze-cc-sift-prompt': <?php echo wp_json_encode( self::default_sift_prompt() ); ?>,
 				'dze-cc-links-prompt': <?php echo wp_json_encode( self::default_links_prompt() ); ?>
 			};
+			var dzeCcId = { 'dze-cc-sift-prompt': 'cat_sift', 'dze-cc-links-prompt': 'cat_links' };
 			$( '.dze-cc-clear' ).on( 'click', function () {
 				var t = $( this ).data( 'target' );
-				$( '#' + t ).val( dzeCcDef[ t ] || '' );
+				$( '#' + t ).val( dzeDef( dzeCcId[ t ], dzeCcShipped[ t ] || '' ) );
 			} );
 			$( '#dze-cc-sitemap-test' ).on( 'click', function () {
 				var $b = $( this ).prop( 'disabled', true );

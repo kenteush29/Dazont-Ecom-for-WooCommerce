@@ -47,7 +47,14 @@ EOT;
 				return $v;
 			}
 		}
-		return self::DEFAULT_REPORT_GUIDANCE;
+		return self::default_report_guidance();
+	}
+
+	/** The default: the shop's own when it set one, the shipped text otherwise. */
+	public static function default_report_guidance(): string {
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'sourcing_report', self::DEFAULT_REPORT_GUIDANCE )
+			: self::DEFAULT_REPORT_GUIDANCE;
 	}
 
 	/** Term meta: unix timestamp of the last manual "novelty search" for a category. */
