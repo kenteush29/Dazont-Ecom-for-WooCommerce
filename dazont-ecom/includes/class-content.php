@@ -847,7 +847,18 @@ EOT;
 		return $c > 0 ? $c : 0.04;
 	}
 
+	/**
+	 * What this shop is, in one place for the whole plugin.
+	 *
+	 * The text lives with the Settings page (Settings → General → About this
+	 * shop) and is read here rather than kept a second time: a product
+	 * description and a marketing calendar are written for the same shop, and
+	 * two boxes describing it is one box too many.
+	 */
 	public static function store_context(): string {
+		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
+			return DZE_Marketing_Ai::shop_profile();
+		}
 		return (string) ( self::get_settings()['store_context'] ?? '' );
 	}
 
@@ -2099,11 +2110,22 @@ Answer with STRICT JSON and nothing else: "
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_content_options' ); ?>
 
+			<!-- What the shop IS is written once, on the General tab, and read
+			     by every module. It used to be typed here AND assembled a
+			     second time by the calendar out of category and best-seller
+			     names — two descriptions of one shop, neither of them the
+			     owner's. Shown here, not edited here: one text, one home. -->
 			<details class="dze-set">
-			<summary><?php esc_html_e( 'Store context — one line prepended to every generation', 'dazont-ecom' ); ?></summary>
-			<textarea id="dze-ct-context" name="<?php echo esc_attr( $opt ); ?>[store_context]" rows="3" class="large-text"><?php echo esc_textarea( (string) ( $s['store_context'] ?? '' ) ); ?></textarea>
-			<p class="description"><?php esc_html_e( 'Prepended to every generation, e.g. "Kula Tactical > Military / tactical clothing and gear > Tone: sharp, authoritative, informational".', 'dazont-ecom' ); ?></p>
-
+			<summary><?php esc_html_e( 'About this shop — sent with every generation', 'dazont-ecom' ); ?></summary>
+			<?php $dze_prof = self::store_context(); ?>
+			<?php if ( '' !== trim( $dze_prof ) ) : ?>
+				<pre class="dze-shopprofile"><?php echo esc_html( $dze_prof ); ?></pre>
+			<?php else : ?>
+				<p class="description"><?php esc_html_e( 'Nothing written yet — the shop describes itself to every generation, so this is worth two minutes.', 'dazont-ecom' ); ?></p>
+			<?php endif; ?>
+			<p class="description">
+				<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Write it under Settings → General → About this shop ↗', 'dazont-ecom' ); ?></a>
+			</p>
 			</details>
 
 			<details class="dze-set">

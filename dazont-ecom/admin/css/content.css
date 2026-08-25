@@ -1299,3 +1299,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* The fate of the main image, asked once for the whole run. */
 .dze-cb-oldmain { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
 .dze-cb-oldmain > span { font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em; }
+
+/* The shop's own description, shown where it is used and edited in one place. */
+.dze-shopprofile {
+	background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
+	padding: 10px 14px; max-width: 900px; white-space: pre-wrap;
+	font-size: 13px; margin: 8px 0;
+}

@@ -25,6 +25,47 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	<input type="hidden" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS ); ?>[section]" value="<?php echo esc_attr( $dze_section ); ?>" />
 
 	<?php if ( $show_general ) : ?>
+	<!-- What this shop IS, written once and read by every module: the product
+	     texts, the category pages, the reviews, the marketing calendar and the
+	     sourcing report. It replaces a line typed under Product content AND a
+	     list of category and best-seller names the calendar assembled by
+	     itself — a catalogue is not a description of a business. -->
+	<h2 class="title"><?php esc_html_e( 'About this shop', 'dazont-ecom' ); ?></h2>
+	<p class="description" style="max-width:820px;">
+		<?php esc_html_e( 'A few lines saying what this shop is: what it sells, to whom, what makes it what it is. Sent with EVERY generation of the plugin — product texts, category pages, reviews, marketing calendar, sourcing report — so it is worth writing properly once.', 'dazont-ecom' ); ?>
+	</p>
+	<textarea id="dze-mai-profile" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[shop_profile]' ); ?>" rows="6" class="large-text" style="max-width:820px;" placeholder="<?php esc_attr_e( 'e.g. Online shop selling tactical and military gear (Kula Tactical). Patches, balaclavas, camo clothing and airsoft equipment, mostly Russian and Eastern-European surplus styles. Customers: airsoft players, collectors, reenactors. Sharp, factual, no-nonsense tone.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( (string) ( $settings['shop_profile'] ?? '' ) ); ?></textarea>
+	<p>
+		<button type="button" class="button" id="dze-mai-profile-draft"><?php esc_html_e( 'Draft it from my shop', 'dazont-ecom' ); ?></button>
+		<span class="description" id="dze-mai-profile-state"><?php esc_html_e( 'Writes a first version from your catalogue — read it, correct it, save it.', 'dazont-ecom' ); ?></span>
+	</p>
+	<script>
+	(function () {
+		var btn = document.getElementById('dze-mai-profile-draft');
+		var ta  = document.getElementById('dze-mai-profile');
+		var st  = document.getElementById('dze-mai-profile-state');
+		if (!btn || !ta) { return; }
+		var busy = <?php echo wp_json_encode( __( 'Reading the shop…', 'dazont-ecom' ) ); ?>;
+		var done = <?php echo wp_json_encode( __( 'Read it, correct it, then save the page.', 'dazont-ecom' ) ); ?>;
+		var over = <?php echo wp_json_encode( __( 'Replace what is written with a fresh draft?', 'dazont-ecom' ) ); ?>;
+		var nonce = <?php echo wp_json_encode( wp_create_nonce( DZE_Marketing_Ai::NONCE ) ); ?>;
+		btn.addEventListener('click', function () {
+			if (ta.value.trim() && !window.confirm(over)) { return; }
+			btn.disabled = true;
+			st.textContent = busy;
+			var body = new URLSearchParams({ action: 'dze_mai_profile', nonce: nonce });
+			window.fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body: body })
+				.then(function (r) { return r.json(); })
+				.then(function (r) {
+					btn.disabled = false;
+					if (r && r.success) { ta.value = r.data.text || ''; st.textContent = done; }
+					else { st.textContent = (r && r.data && r.data.message) || 'error'; }
+				})
+				.catch(function () { btn.disabled = false; st.textContent = 'error'; });
+		});
+	}());
+	</script>
+
 	<h2 class="title"><?php esc_html_e( 'Anthropic API key', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>
@@ -139,9 +180,9 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 			<td>
 				<label>
 					<input type="checkbox" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[use_catalog]' ); ?>" value="1" <?php checked( ! empty( $settings['use_catalog'] ) ); ?> />
-					<?php esc_html_e( 'Include my product categories and best-sellers in the AI context', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Also send my product categories and best-sellers', 'dazont-ecom' ); ?>
 				</label>
-				<p class="description" style="max-width:820px;"><?php esc_html_e( 'The marketing calendar is driven by real commercial moments (Black Friday, seasonal sales, holidays…), which rarely depend on your exact catalog. If suggestions feel off, turn this off so the AI focuses purely on the calendar and target market.', 'dazont-ecom' ); ?></p>
+				<p class="description" style="max-width:820px;"><?php esc_html_e( 'What the shop IS comes from "About this shop" on the General tab. This adds a list of category and best-seller names on top of it: a marketing calendar is driven by real commercial moments (Black Friday, seasonal sales, holidays…), which rarely depend on your exact catalogue, so leaving it off is usually the better answer.', 'dazont-ecom' ); ?></p>
 			</td>
 		</tr>
 		<tr>
@@ -183,7 +224,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 <hr />
 <h2 class="title"><?php esc_html_e( 'What the AI sees about your shop', 'dazont-ecom' ); ?></h2>
 <p class="description" style="max-width:820px;">
-	<?php esc_html_e( 'The exact text sent to the AI as context. Kept deliberately short.', 'dazont-ecom' ); ?>
+	<?php esc_html_e( 'The exact text sent as context: what you wrote under Settings → General → About this shop, plus the catalogue lines when the box above is ticked.', 'dazont-ecom' ); ?>
 	<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'events', 'dze_mai_refresh' => 1 ] , admin_url( 'admin.php' ) ) ); ?>">↻ <?php esc_html_e( 'Refresh', 'dazont-ecom' ); ?></a>
 </p>
 <?php if ( $context !== '' ) : ?>

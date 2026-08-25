@@ -115,6 +115,7 @@ final class DZE_Marketing_Ai {
 		add_action( 'wp_ajax_dze_mai_accept',     [ $this, 'ajax_accept' ] );
 		add_action( 'wp_ajax_dze_mai_save_event', [ $this, 'ajax_save_event' ] );
 		add_action( 'wp_ajax_dze_mai_refuse',     [ $this, 'ajax_refuse' ] );
+		add_action( 'wp_ajax_dze_mai_profile',    [ $this, 'ajax_profile_draft' ] );
 		// Settings live on the "AI Assistant" submenu (register_menu →
 		// render_settings_page); the generate/review UI renders inside the
 		// Marketing Events page via render_calendar_panel().
@@ -270,11 +271,13 @@ final class DZE_Marketing_Ai {
 		}
 
 		if ( 'general' === $section ) {
-			// Key, model and budget live on the General tab.
+			// Key, model, budget — and what the shop IS, which every module of
+			// the plugin reads from here.
 			return array_merge( $existing, [
 				'api_key'      => sanitize_text_field( $key ),
 				'model'        => $model,
 				'budget_month' => max( 0, (float) str_replace( ',', '.', (string) ( $in['budget_month'] ?? 0 ) ) ),
+				'shop_profile' => trim( sanitize_textarea_field( (string) ( $in['shop_profile'] ?? '' ) ) ),
 			] );
 		}
 		if ( 'sourcing' === $section ) {
@@ -846,14 +849,45 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * range are intentionally left out — they don't help a calendar built around
 	 * commercial moments and often mislead.
 	 */
+	/**
+	 * WHAT THIS SHOP IS, in the owner's own words.
+	 *
+	 * One text for the whole plugin: the calendar, the product texts, the
+	 * category pages, the reviews, the sourcing report. There used to be two —
+	 * a line typed under Product content, and a list of names the plugin
+	 * assembled by itself (store name, fifteen categories, twelve best
+	 * sellers). The second one described a catalogue, not a business, and no
+	 * amount of best-seller names says "an online shop selling tactical and
+	 * military gear".
+	 *
+	 * Empty here, the old Product content line is used, so nothing that was
+	 * written before is lost while it has not been moved.
+	 */
+	public static function shop_profile(): string {
+		$mine = trim( (string) ( self::get_settings()['shop_profile'] ?? '' ) );
+		if ( '' !== $mine ) {
+			return $mine;
+		}
+		$old = class_exists( 'DZE_Content' )
+			? trim( (string) ( DZE_Content::get_settings()['store_context'] ?? '' ) )
+			: '';
+		return $old;
+	}
+
 	/** The shop's own facts, readable — used by the calendar and by others. */
 	public function shop_context_text(): string {
 		$c     = $this->shop_context();
 		$lines = [];
-		if ( $c['name'] !== '' ) {
+		$mine  = self::shop_profile();
+		if ( '' !== $mine ) {
+			$lines[] = $mine;
+		}
+		// Nothing written yet: the shop still has to say what it is, so the two
+		// facts WordPress does know stand in until it does.
+		if ( '' === $mine && $c['name'] !== '' ) {
 			$lines[] = sprintf( 'Store name: %s', $c['name'] );
 		}
-		if ( $c['tagline'] !== '' ) {
+		if ( '' === $mine && $c['tagline'] !== '' ) {
 			$lines[] = sprintf( 'What the store sells (tagline): %s', $c['tagline'] );
 		}
 		$tone = trim( (string) ( self::get_settings()['tone'] ?? '' ) );
@@ -871,6 +905,55 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			}
 		}
 		return implode( "\n", $lines );
+	}
+
+	/**
+	 * A first version of the shop's description, written from the shop.
+	 *
+	 * The catalogue is a poor DESCRIPTION of a business, but it is a decent
+	 * thing to write one FROM: the model reads the name, the tagline, the
+	 * categories and the best sellers once, and hands back a few lines the
+	 * owner corrects and saves. After that the text is his, and the catalogue
+	 * is never consulted again for it.
+	 */
+	public function ajax_profile_draft(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		if ( '' === $this->api_key() ) {
+			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key first.', 'dazont-ecom' ) ] );
+		}
+		$c     = $this->shop_context();
+		$facts = [];
+		if ( '' !== (string) $c['name'] ) {
+			$facts[] = 'Name: ' . $c['name'];
+		}
+		if ( '' !== (string) $c['tagline'] ) {
+			$facts[] = 'Tagline: ' . $c['tagline'];
+		}
+		if ( ! empty( $c['categories'] ) ) {
+			$facts[] = 'Categories, best-selling first: ' . implode( ', ', $c['categories'] );
+		}
+		if ( ! empty( $c['products'] ) ) {
+			$facts[] = 'Best-selling products: ' . implode( ', ', $c['products'] );
+		}
+		if ( ! $facts ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing to read: this shop has no name, no tagline and no products yet.', 'dazont-ecom' ) ] );
+		}
+		$system = 'You describe an online shop in a few plain sentences, for another AI that will write its product texts and its marketing.';
+		$user   = "Here is what is known about the shop:\n" . implode( "\n", $facts ) . "\n\n"
+			. "Write 3 to 6 short lines saying WHAT THIS SHOP IS: what it sells, to whom, and what characterises it. "
+			. "Start with one line of the form \"Online shop selling X (Name).\" "
+			. "Name product families, never individual product names, and never a list of best sellers. "
+			. 'Write in ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English' ) . '. '
+			. 'Plain lines, no markdown, no heading, no preamble — the text only.';
+		try {
+			$text = self::complete( $system, $user, '', 400, 60 );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'text' => trim( $text ) ] );
 	}
 
 	// =========================================================================
