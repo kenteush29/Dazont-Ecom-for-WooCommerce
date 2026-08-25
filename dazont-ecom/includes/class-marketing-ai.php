@@ -133,6 +133,7 @@ final class DZE_Marketing_Ai {
 			'model'         => self::MODEL,
 			'events_prompt' => '',   // custom calendar guidance; empty = DEFAULT_EVENTS_PROMPT.
 			'promo_i18n_prompt' => '', // how a promotion line is translated; empty = shipped.
+			'promo_i18n_on'     => 1,  // translate a promotion when it is saved.
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
 			'match_model'   => '', // keyword-matching model; empty = Haiku default.
@@ -315,6 +316,7 @@ final class DZE_Marketing_Ai {
 			return array_merge( $existing, [
 				'events_prompt'     => sanitize_textarea_field( $events_prompt ),
 				'promo_i18n_prompt' => $promo_i18n,
+				'promo_i18n_on'     => empty( $in['promo_i18n_on'] ) ? 0 : 1,
 				'country_pools'     => $pools,
 			] );
 		}
@@ -371,6 +373,19 @@ final class DZE_Marketing_Ai {
 	 * and sound like a shop, not like a translation. Its own instructions, and
 	 * editable like every other prompt.
 	 */
+	/**
+	 * Is a promotion translated when it is saved?
+	 *
+	 * On by default, because a promotion with no wording in a language does
+	 * not run in that language at all — but it writes to the shop on its own,
+	 * so it says plainly that it is on, and it can be switched off.
+	 */
+	public static function promo_i18n_on(): bool {
+		// get_settings() fills the shipped default (on) for a shop that has
+		// never seen the switch.
+		return ! empty( self::get_settings()['promo_i18n_on'] );
+	}
+
 	public static function promo_i18n_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['promo_i18n_prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_promo_i18n_prompt();

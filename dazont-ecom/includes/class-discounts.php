@@ -149,6 +149,10 @@ final class DZE_Discounts {
 		if ( '' === $rule_id || ! self::missing_langs( $rule_id ) ) {
 			return;
 		}
+		// The owner's switch, on the tab that holds the instructions.
+		if ( class_exists( 'DZE_Marketing_Ai' ) && ! DZE_Marketing_Ai::promo_i18n_on() ) {
+			return;
+		}
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
 			as_enqueue_async_action( self::I18N_HOOK, [ $rule_id ], 'dazont-ecom' );
 			return;
