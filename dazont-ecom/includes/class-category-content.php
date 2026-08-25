@@ -225,6 +225,36 @@ final class DZE_Category_Content {
 		];
 	}
 
+	/**
+	 * Where one category stands, in the figures the panel prints at the top of
+	 * itself: what it holds today, and what it should hold.
+	 *
+	 * The panel reads this, and so does anything that has to JUDGE a category
+	 * without a human looking at it — the automation module picks its next
+	 * piece of work from exactly the numbers the owner sees on screen, never
+	 * from a second reckoning of its own.
+	 *
+	 * @return array{name:string,has_desc:bool,words:int,words_target:int,links:int,links_target:int,keywords:int,size:array}
+	 */
+	public static function state( int $term_id ): array {
+		$term = get_term( $term_id, 'product_cat' );
+		$name = ( $term && ! is_wp_error( $term ) ) ? (string) $term->name : '';
+		$desc = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+		$size = self::size_for( $term_id );
+		return [
+			'name'         => $name,
+			'has_desc'     => '' !== trim( wp_strip_all_tags( $desc ) ),
+			'words'        => str_word_count( wp_strip_all_tags( $desc ) ),
+			'words_target' => (int) $size['words'],
+			'links'        => (int) preg_match_all( '/<a\s[^>]*href=/i', $desc ),
+			'links_target' => (int) $size['links'],
+			// The size of the imported set, not its content: whether this
+			// category is written on measured demand or on its name alone.
+			'keywords'     => (int) self::keyword_pools( $term_id, $name, false )['total'],
+			'size'         => $size,
+		];
+	}
+
 	/** Shop-wide fallback, used where no category is in play. */
 	public static function words(): int {
 		$v = (int) ( self::get_settings()['words'] ?? 0 );
@@ -1664,13 +1694,16 @@ PROMPT;
 		$kw    = self::keyword_pools( $term_id, $term ? $term->name : '' );
 		$links = self::link_pool( $term_id );
 		$break = self::link_pool_breakdown( $term_id );
-		$in    = self::links_in_description( $term_id );
 		$desc  = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
-		$words = str_word_count( wp_strip_all_tags( $desc ) );
-		$has   = '' !== trim( $desc );
 		$own   = '' === $editor; // popup: the panel owns its editor and saves itself.
 		$imp   = class_exists( 'DZE_Keywords' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'sourcing' ) );
-		$size  = self::size_for( $term_id );
+		// The figures at the top of this panel are the ones the automation
+		// module works from: one reckoning, read in both places.
+		$st    = self::state( $term_id );
+		$in    = $st['links'];
+		$words = $st['words'];
+		$has   = $st['has_desc'];
+		$size  = $st['size'];
 		?>
 		<?php
 		// url => page name, so the link list can show what each link points to
@@ -2393,14 +2426,6 @@ PROMPT;
 					</td>
 				</tr>
 			</table>
-			<?php
-			// The upkeep module writes into these same descriptions, so its two
-			// settings belong on this tab — under the same Save button, and only
-			// when the module is on: switched off, it leaves no trace here.
-			if ( class_exists( 'DZE_Link_Mesh' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'link_mesh' ) ) {
-				DZE_Link_Mesh::render_section();
-			}
-			?>
 			<?php submit_button( __( 'Save category settings', 'dazont-ecom' ) ); ?>
 		</form>
 		</div>
