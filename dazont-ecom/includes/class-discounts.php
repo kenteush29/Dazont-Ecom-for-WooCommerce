@@ -200,9 +200,68 @@ final class DZE_Discounts {
 	 * four times costs four times as much for a worse result — the model sees
 	 * the whole set and keeps them consistent.
 	 */
+	/**
+	 * Translates one line into the given languages, or throws.
+	 *
+	 * One call for every language at once: they are one line each, and asking
+	 * four times costs four times as much for a worse result — the model sees
+	 * the whole set and keeps them consistent. The only place that knows how
+	 * a promotion is translated; the screens and the background pass both come
+	 * through here.
+	 *
+	 * @param array<string,string> $langs code => native name.
+	 *
+	 * @return array<string,string> code => translated line.
+	 */
+	public static function translate_line( string $line, array $langs ): array {
+		$line = trim( $line );
+		if ( '' === $line || ! $langs || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return [];
+		}
+		$names = [];
+		foreach ( $langs as $code => $name ) {
+			$names[] = $code . ' (' . $name . ')';
+		}
+		$user = "--- THE LINE TO TRANSLATE ---\n" . $line . "\n"
+			. "\n--- LANGUAGES ---\n- " . implode( "\n- ", $names ) . "\n"
+			. "\n--- INSTRUCTIONS ---\n" . DZE_Marketing_Ai::promo_i18n_prompt() . "\n"
+			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the language codes above and whose values are the translated lines. No other key, no comment.";
+
+		DZE_Ai_Usage::unit( 'promo_i18n' );
+		try {
+			$out = DZE_Marketing_Ai::complete(
+				'You translate short promotional lines for an online shop. You reply with JSON only.',
+				$user,
+				'',
+				900,
+				90
+			);
+		} finally {
+			DZE_Ai_Usage::unit();
+		}
+		$json = json_decode( trim( preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
+		if ( ! is_array( $json ) ) {
+			return [];
+		}
+		$clean = [];
+		foreach ( $langs as $code => $name ) {
+			$text = sanitize_text_field( (string) ( $json[ $code ] ?? '' ) );
+			if ( '' !== $text ) {
+				$clean[ $code ] = mb_substr( $text, 0, 120 );
+			}
+		}
+		if ( $clean && class_exists( 'DZE_Ai_Usage' ) ) {
+			DZE_Ai_Usage::finished( 'promo_i18n' );
+		}
+		return $clean;
+	}
+
+	/**
+	 * Writes the missing translations of one promotion, in the background.
+	 */
 	public static function fill_i18n( string $rule_id ): void {
 		$missing = self::missing_langs( $rule_id );
-		if ( ! $missing || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+		if ( ! $missing ) {
 			return;
 		}
 		$rules  = self::get_rules();
@@ -211,31 +270,12 @@ final class DZE_Discounts {
 		if ( '' === $source ) {
 			$source = trim( (string) ( $rule['title'] ?? '' ) );
 		}
-		$names = [];
-		foreach ( $missing as $code => $name ) {
-			$names[] = $code . ' (' . $name . ')';
-		}
-		$user = "--- THE LINE TO TRANSLATE ---\n" . $source . "\n"
-			. "\n--- LANGUAGES ---\n- " . implode( "\n- ", $names ) . "\n"
-			. "\n--- INSTRUCTIONS ---\n" . DZE_Marketing_Ai::promo_i18n_prompt() . "\n"
-			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the language codes above and whose values are the translated lines. No other key, no comment.";
-
 		try {
-			DZE_Ai_Usage::unit( 'promo_i18n' );
-			$out = DZE_Marketing_Ai::complete(
-				'You translate short promotional lines for an online shop. You reply with JSON only.',
-				$user,
-				'',
-				900,
-				90
-			);
-			DZE_Ai_Usage::unit();
+			$lines = self::translate_line( $source, $missing );
 		} catch ( \Throwable $e ) {
-			DZE_Ai_Usage::unit();
 			return; // the next save asks again; a promotion is not lost over this.
 		}
-		$json = json_decode( trim( preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
-		if ( ! is_array( $json ) ) {
+		if ( ! $lines ) {
 			return;
 		}
 		// Re-read: the rule may have been edited while the model was thinking.
@@ -245,13 +285,12 @@ final class DZE_Discounts {
 		}
 		$i18n = (array) ( $rules[ $rule_id ]['banner_text_i18n'] ?? [] );
 		$got  = 0;
-		foreach ( $missing as $code => $name ) {
-			$line = sanitize_text_field( (string) ( $json[ $code ] ?? '' ) );
+		foreach ( $lines as $code => $text ) {
 			// Never overwrite a line written by hand in the meantime.
-			if ( '' === $line || '' !== trim( (string) ( $i18n[ $code ] ?? '' ) ) ) {
+			if ( '' !== trim( (string) ( $i18n[ $code ] ?? '' ) ) ) {
 				continue;
 			}
-			$i18n[ $code ] = mb_substr( $line, 0, 120 );
+			$i18n[ $code ] = $text;
 			$got++;
 		}
 		if ( ! $got ) {
@@ -259,9 +298,26 @@ final class DZE_Discounts {
 		}
 		$rules[ $rule_id ]['banner_text_i18n'] = $i18n;
 		self::save_rules( $rules );
-		if ( class_exists( 'DZE_Ai_Usage' ) ) {
-			DZE_Ai_Usage::finished( 'promo_i18n' );
+	}
+
+	/**
+	 * The languages a promotion should speak, with their names.
+	 *
+	 * @return array<string,string> code => native name
+	 */
+	public static function promo_langs(): array {
+		if ( ! DZE_Wpml::is_active() ) {
+			return [];
 		}
+		$default = DZE_Wpml::default_language();
+		$out     = [];
+		foreach ( DZE_Wpml::get_active_languages() as $lang ) {
+			$code = (string) $lang['code'];
+			if ( $code !== $default ) {
+				$out[ $code ] = (string) ( $lang['native_name'] ?? $code );
+			}
+		}
+		return $out;
 	}
 
 	// =========================================================================
@@ -1735,8 +1791,15 @@ final class DZE_Discounts {
 		wp_localize_script( 'dze-discounts', 'dzeDiscounts', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::SAVE_NONCE ),
+			// The translate endpoint belongs to the Marketing module, and
+			// checks its own nonce.
+			'maiNonce' => class_exists( 'DZE_Marketing_Ai' ) ? wp_create_nonce( DZE_Marketing_Ai::NONCE ) : '',
 			'i18n'    => [
 				'counting' => __( 'Counting…', 'dazont-ecom' ),
+				'titleFirst'  => __( 'Write the banner text first.', 'dazont-ecom' ),
+				'translating' => __( 'Translating…', 'dazont-ecom' ),
+				'translated'  => __( 'Translated — check them, then save.', 'dazont-ecom' ),
+				'trFailed'    => __( 'Could not translate.', 'dazont-ecom' ),
 				'error'    => __( 'Could not count.', 'dazont-ecom' ),
 				/* translators: 1: total matching, 2: number that will be discounted */
 				'result'    => __( '%1$s products match — the top %2$s will be discounted.', 'dazont-ecom' ),

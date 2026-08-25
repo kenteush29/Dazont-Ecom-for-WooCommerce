@@ -93,9 +93,32 @@
 	});
 
 	// ---- Event editor popup (Accept & modify / New event) ----
+	// ---- The title in the shop's other languages ----
+	function i18nFields() { return $('.dze-ev-i18n-field'); }
+
+	function setI18n(map) {
+		map = map || {};
+		i18nFields().each(function () {
+			var v = map[$(this).data('lang')];
+			if (typeof v === 'string') { $(this).val(v); }
+		});
+	}
+
+	function getI18n() {
+		var out = {};
+		i18nFields().each(function () {
+			var v = $.trim($(this).val() || '');
+			if (v) { out[$(this).data('lang')] = v; }
+		});
+		return out;
+	}
+
 	function openModal(data) {
 		$('#dze-ev-id').val(data.id || '');
 		$('#dze-ev-name').val(data.title || '');
+		i18nFields().val('');
+		$('#dze-ev-tr-status').text('');
+		$('#dze-ev-i18n').prop('open', false);
 		$('#dze-ev-percent').val(data.percent || 10);
 		$('#dze-ev-start').val(data.start || '');
 		$('#dze-ev-end').val(data.end || '');
@@ -115,6 +138,34 @@
 		});
 	});
 	$(document).on('click', '.dze-mai-new-event', function () { openModal({}); });
+
+	$(document).on('click', '#dze-ev-translate', function () {
+		var $b = $(this), $st = $('#dze-ev-tr-status');
+		var title = $.trim($('#dze-ev-name').val() || '');
+		if (!title) {
+			$st.css('color', '#b32d2e').text(i18n.titleFirst);
+			$('#dze-ev-name').trigger('focus');
+			return;
+		}
+		$b.prop('disabled', true);
+		$st.css('color', '#646970').text(i18n.translating);
+		$.post(cfg.ajaxUrl, { action: 'dze_mai_translate', nonce: cfg.nonce, title: title })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (res && res.success) {
+					setI18n(res.data.i18n);
+					// Shown, not saved: they go with the event when you save it.
+					$('#dze-ev-i18n').prop('open', true);
+					$st.css('color', '#0a7040').text(i18n.translated);
+					return;
+				}
+				$st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$st.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
 	$(document).on('click', '.dze-ev-cancel', function () { closeModal(); });
 	$(document).on('click', '#dze-ev-modal', function (e) { if (e.target === this) { closeModal(); } });
 
@@ -135,6 +186,7 @@
 			start_date: $('#dze-ev-start').val(),
 			end_date: $('#dze-ev-end').val(),
 			languages: $('#dze-ev-langs').val() || '',
+			i18n: JSON.stringify(getI18n()),
 		};
 		// A promotion is pushed to every Merchant Center account that is set up
 		// — there is nothing to pick here: one event, one shop.
