@@ -16,7 +16,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 ?>
 <?php if ( $show_events ) : ?>
 <p class="description" style="max-width:820px;">
-	<?php esc_html_e( 'The AI Marketing Assistant generates a promotional calendar for your shop. It reads your shop and languages automatically — nothing to describe by hand. Configure, per language, which countries it should consider below. The API key and model live on the General tab.', 'dazont-ecom' ); ?>
+	<?php esc_html_e( 'The AI Marketing Assistant generates a promotional calendar for your shop. It reads your shop and languages automatically — nothing to describe by hand. The API key and model live on the General tab.', 'dazont-ecom' ); ?>
 </p>
 <?php endif; ?>
 

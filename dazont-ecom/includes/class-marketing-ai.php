@@ -1477,8 +1477,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				update_option( DZE_Discounts::OPTION, $rules, false );
 				DZE_Discounts::instance()->queue_sale_sync();
 			}
-			$only     = isset( $_POST['gmc_targets'] ) ? array_map( 'sanitize_text_field', (array) wp_unslash( $_POST['gmc_targets'] ) ) : [];
-			$statuses = DZE_Gmc::instance()->sync_rule( $rule_id, $only );
+			$statuses = DZE_Gmc::instance()->sync_rule( $rule_id );
 			$errors   = array_filter( $statuses, static fn( $s ) => ( $s['status'] ?? '' ) === 'error' );
 			$message  = empty( $errors )
 				? __( 'Event created, enabled and pushed to Google Merchant Center.', 'dazont-ecom' )
@@ -1632,7 +1631,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		$primary     = self::primary_language();
 		$gmc         = class_exists( 'DZE_Gmc' ) ? DZE_Gmc::instance() : null;
 		$gmc_on      = $gmc && $gmc->is_configured();
-		$gmc_targets = $gmc_on ? $gmc->configured_targets() : [];
 		require DZE_DIR . 'admin/views/marketing-ai-panel.php';
 
 		echo '<h2 class="title" style="margin-top:24px;">' . esc_html__( 'Calendar', 'dazont-ecom' ) . '</h2>';

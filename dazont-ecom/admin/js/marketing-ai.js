@@ -139,10 +139,9 @@
 			languages: $('#dze-ev-langs').val() || '',
 			email_subject: $('#dze-ev-subject').val()
 		};
-		if (pushGmc) {
-			payload.push_gmc = 1;
-			payload.gmc_targets = $('.dze-ev-gmc:checked').map(function () { return $(this).val(); }).get();
-		}
+		// A promotion is pushed to every Merchant Center account that is set up
+		// — there is nothing to pick here: one event, one shop.
+		if (pushGmc) { payload.push_gmc = 1; }
 		$.post(cfg.ajaxUrl, payload).done(function (res) {
 			if (res.success) { window.location.reload(); }
 			else {

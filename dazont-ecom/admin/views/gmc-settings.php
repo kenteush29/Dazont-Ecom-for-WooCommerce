@@ -143,32 +143,12 @@ foreach ( $languages as $l ) {
 					</label>
 					<?php endif; ?>
 					<?php
-					// The countries this account can run promotions in, read
-					// from the account itself. It used to be a text field: a
-					// list typed from memory, that Merchant Center had never
-					// agreed to, and that nobody could check from here.
-					$dze_pc = ! empty( $acc['merchant_id'] ) ? DZE_Gmc::instance()->promo_countries( (string) $acc['merchant_id'] ) : [];
-					if ( ! empty( $acc['merchant_id'] ) ) : ?>
-						<p class="description" style="margin:6px 0 0;">
-							<?php if ( $dze_pc ) : ?>
-								<?php
-								printf(
-									/* translators: %s: list of country codes */
-									esc_html__( 'Promotions run in: %s', 'dazont-ecom' ),
-									'<code>' . esc_html( implode( ', ', $dze_pc ) ) . '</code>'
-								);
-								?>
-								<?php esc_html_e( '— read from this account. Add a country in Merchant Center and it appears here.', 'dazont-ecom' ); ?>
-							<?php else : ?>
-								<?php esc_html_e( 'No country readable on this account yet.', 'dazont-ecom' ); ?>
-							<?php endif; ?>
-						</p>
-					<?php endif; ?>
-					<?php
 					// Whether a Google Ads campaign reads this account at all —
 					// which is what decides if a promotion pushed here is worth
-					// anything. Read from the account's Ads links; the spend
-					// itself belongs to another API entirely.
+					// anything. One short line: a dot, and the Ads account it
+					// is linked to. When Google refuses to answer, the reason
+					// is nothing the shop can act on, so it stays in the
+					// tooltip rather than in the middle of the screen.
 					$dze_state = (array) ( $ads_links[ $key ] ?? [] );
 					$dze_err   = (string) ( $dze_state['error'] ?? '' );
 					$dze_ids   = [];
@@ -176,23 +156,22 @@ foreach ( $languages as $l ) {
 						$dze_ids[] = $dze_l['id'] . ( 'active' === strtolower( (string) $dze_l['status'] ) ? '' : ' (' . $dze_l['status'] . ')' );
 					}
 					if ( ! empty( $acc['merchant_id'] ) ) : ?>
-						<p class="description" style="margin:6px 0 0;">
+						<p class="description" style="margin:6px 0 0;"<?php echo $dze_ids || '' === $dze_err ? '' : ' title="' . esc_attr( $dze_err ) . '"'; ?>>
 							<?php if ( $dze_ids ) : ?>
 								<span style="color:#0a7040;">●</span>
 								<?php
 								printf(
 									/* translators: %s: Google Ads customer ids */
-									esc_html__( 'Linked to Google Ads: %s', 'dazont-ecom' ),
+									esc_html__( 'Google Ads: %s', 'dazont-ecom' ),
 									'<code>' . esc_html( implode( ', ', $dze_ids ) ) . '</code>'
 								);
 								?>
 							<?php elseif ( '' !== $dze_err ) : ?>
 								<span style="color:#b32d2e;">!</span>
-								<?php esc_html_e( 'Could not read the Google Ads link of this account — which is not the same as having none:', 'dazont-ecom' ); ?>
-								<code style="font-size:11px;"><?php echo esc_html( $dze_err ); ?></code>
+								<?php esc_html_e( 'Google Ads: link not readable', 'dazont-ecom' ); ?>
 							<?php else : ?>
 								<span style="color:#a7aaad;">○</span>
-								<?php esc_html_e( 'No Google Ads account linked to this Merchant Center account.', 'dazont-ecom' ); ?>
+								<?php esc_html_e( 'Google Ads: no link', 'dazont-ecom' ); ?>
 							<?php endif; ?>
 						</p>
 					<?php endif; ?>
@@ -205,10 +184,7 @@ foreach ( $languages as $l ) {
 				<input type="checkbox" name="<?php echo esc_attr( DZE_Gmc::OPT_ADS_ONLY ); ?>" value="1" <?php checked( ! empty( $ads_only ) ); ?> />
 				<?php esc_html_e( 'Send promotions only to accounts linked to Google Ads', 'dazont-ecom' ); ?>
 			</label>
-			<span class="description"><?php esc_html_e( 'A promotion pushed to an account no campaign reads is a promotion pushed nowhere. What is read here is the LINK between the accounts, not what the campaigns spend — the spend lives in the Google Ads API, behind its own approval.', 'dazont-ecom' ); ?></span>
-		</p>
-		<p class="description" style="max-width:820px;">
-			<?php esc_html_e( 'A Google promotion always targets a single country, so one promotion is created per country the account runs in. Those countries are read from the account — its promotion data sources — and not typed here: what Merchant Center accepts is decided in Merchant Center. An account with none yet uses the shop\'s own country, and the data source for it is created on the first sync.', 'dazont-ecom' ); ?>
+			<span class="description"><?php esc_html_e( 'A promotion pushed to an account no campaign reads goes nowhere.', 'dazont-ecom' ); ?></span>
 		</p>
 		<p class="description" style="max-width:820px;">
 			<strong><?php esc_html_e( 'First time?', 'dazont-ecom' ); ?></strong>
