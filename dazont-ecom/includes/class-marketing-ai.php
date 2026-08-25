@@ -359,6 +359,25 @@ final class DZE_Marketing_Ai {
 	}
 
 	/** Countries configured (or, first time, defaulted) for one language. */
+	/**
+	 * Country code => the name to show next to its tick box.
+	 *
+	 * WordPress knows them when WooCommerce is around; the codes stand alone
+	 * when it is not. Only the ones that appear in a pool are needed, so this
+	 * is not a table of the world.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function country_names(): array {
+		$out = [];
+		if ( function_exists( 'WC' ) && WC()->countries ) {
+			foreach ( (array) WC()->countries->get_countries() as $code => $name ) {
+				$out[ (string) $code ] = (string) $name;
+			}
+		}
+		return $out;
+	}
+
 	public static function country_pool_for( string $lang ): array {
 		$saved = self::get_settings()['country_pools'][ $lang ] ?? null;
 		if ( is_array( $saved ) && ! empty( $saved ) ) {
@@ -1393,9 +1412,21 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			return;
 		}
 		wp_enqueue_script( 'dze-marketing-ai', DZE_URL . 'admin/js/marketing-ai.js', [ 'jquery' ], DZE_VERSION, true );
+		// The countries each language ships with, so the panel can offer them as
+		// tick boxes instead of a text field asking for codes from memory.
+		$dze_pools = [];
+		foreach ( self::active_languages() as $lng ) {
+			$code = (string) ( $lng['code'] ?? '' );
+			if ( '' === $code ) {
+				continue;
+			}
+			$dze_pools[ $code ] = array_values( self::country_pool_for( $code ) );
+		}
 		wp_localize_script( 'dze-marketing-ai', 'dzeMai', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
+			'pools'   => $dze_pools,
+			'names'   => self::country_names(),
 			'i18n'    => [
 				'generating' => __( 'Generating…', 'dazont-ecom' ),
 				'accepting'  => __( 'Adding…', 'dazont-ecom' ),
@@ -1403,6 +1434,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				'confirmRef'     => __( 'Discard this suggestion?', 'dazont-ecom' ),
 				'confirmRefBulk' => __( 'Discard the selected suggestions?', 'dazont-ecom' ),
 				'needDates'      => __( 'Pick a start and end date first.', 'dazont-ecom' ),
+				'needCountry'    => __( 'Tick at least one country.', 'dazont-ecom' ),
+				'noPool'         => __( 'No country set for this language — add codes under "Others".', 'dazont-ecom' ),
 				'saving'         => __( 'Saving…', 'dazont-ecom' ),
 				'modifyTitle'    => __( 'Accept & modify event', 'dazont-ecom' ),
 				'newTitle'       => __( 'New marketing event', 'dazont-ecom' ),
