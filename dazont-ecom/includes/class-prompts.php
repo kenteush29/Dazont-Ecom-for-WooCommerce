@@ -41,7 +41,9 @@ final class DZE_Prompts {
 		if ( 0 === strpos( $id, 'content_' ) && class_exists( 'DZE_Content' ) ) {
 			$row = substr( $id, strlen( 'content_' ) );
 			return [
-				'save'    => static fn( string $t ): bool => DZE_Content::set_prompt_for( $row, $t ),
+				'save'    => static fn( string $t ): string => DZE_Content::set_prompt_for( $row, $t )
+					? ''
+					: __( 'This prompt is not in the registry any more — reload the settings page.', 'dazont-ecom' ),
 				'default' => DZE_Content::default_prompt_for( $row ),
 			];
 		}
@@ -75,7 +77,7 @@ final class DZE_Prompts {
 		][ $id ];
 		$default = ( '' !== $def && is_callable( [ $class, $def ] ) ) ? (string) call_user_func( [ $class, $def ] ) : '';
 		return [
-			'save'    => static function ( string $t ) use ( $where, $default ): bool {
+			'save'    => static function ( string $t ) use ( $where, $default ): string {
 				[ $owner, $key ] = $where;
 				// Saved exactly as shipped means "no custom prompt".
 				$value = ( '' !== $default && trim( $t ) === trim( $default ) ) ? '' : $t;
@@ -92,7 +94,7 @@ final class DZE_Prompts {
 	 * form did not post, so a one-key write has to step around them and read
 	 * back to prove it landed.
 	 */
-	private static function write_option( string $class, string $key, string $value ): bool {
+	private static function write_option( string $class, string $key, string $value ): string {
 		$opts = [
 			'DZE_Content'          => 'dze_content_settings',
 			'DZE_Category_Content' => 'dze_catcontent_settings',
@@ -102,7 +104,8 @@ final class DZE_Prompts {
 		];
 		$name = $opts[ $class ] ?? '';
 		if ( '' === $name ) {
-			return false;
+			/* translators: %s: the module that owns the prompt */
+			return sprintf( __( 'No settings row is known for %s.', 'dazont-ecom' ), $class );
 		}
 		$row         = get_option( $name, [] );
 		$row         = is_array( $row ) ? $row : [];
@@ -115,13 +118,43 @@ final class DZE_Prompts {
 		if ( null !== $saved ) {
 			$wp_filter[ $filter ] = $saved;
 		}
-		$check = get_option( $name, [] );
-		return is_array( $check ) && (string) ( $check[ $key ] ?? '' ) === $value;
+		// Read back from the TABLE, not through get_option(): a plugin filtering
+		// that option — WPML string translation is the usual one — would answer
+		// with its own version, and a write that landed perfectly would be
+		// reported as a failure. What is being checked is what is stored.
+		global $wpdb;
+		wp_cache_delete( $name, 'options' );
+		$raw   = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name ) );
+		$check = maybe_unserialize( (string) $raw );
+		if ( ! is_array( $check ) ) {
+			/* translators: %s: option name */
+			return sprintf( __( 'The settings row %s came back unreadable.', 'dazont-ecom' ), $name );
+		}
+		$now = (string) ( $check[ $key ] ?? '' );
+		if ( $now === $value ) {
+			return '';
+		}
+		// It landed as something else: say what, rather than "not saved". A
+		// filter on the way through is the usual culprit, and a silent one is
+		// what makes this kind of thing take an afternoon.
+		return sprintf(
+			/* translators: 1: option name, 2: key, 3: characters sent, 4: characters stored */
+			__( 'Written to %1$s[%2$s], but read back different: %3$d characters sent, %4$d stored. Something is filtering that option.', 'dazont-ecom' ),
+			$name,
+			$key,
+			mb_strlen( $value ),
+			mb_strlen( $now )
+		);
 	}
 
 	/** Saves a prompt from the editor, wherever it was opened. */
 	public static function ajax_save(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
+		// A token that expired because the screen stayed open all afternoon is
+		// not "the prompt was not saved": it is a page to reload, and saying so
+		// is the difference between one click and an afternoon.
+		if ( ! check_ajax_referer( self::NONCE, 'nonce', false ) ) {
+			wp_send_json_error( [ 'message' => __( 'This page has been open too long and its security token expired. Reload the page, then save again — your text is still in the box.', 'dazont-ecom' ) ], 403 );
+		}
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
@@ -135,12 +168,12 @@ final class DZE_Prompts {
 			wp_send_json_error( [ 'message' => __( 'This prompt cannot be saved from here.', 'dazont-ecom' ) ] );
 		}
 		try {
-			$ok = (bool) call_user_func( $w['save'], $text );
+			$why = (string) call_user_func( $w['save'], $text );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		if ( ! $ok ) {
-			wp_send_json_error( [ 'message' => __( 'The prompt was not saved.', 'dazont-ecom' ) ] );
+		if ( '' !== $why ) {
+			wp_send_json_error( [ 'message' => $why ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
 	}
@@ -384,6 +417,15 @@ final class DZE_Prompts {
 			$( document ).on( 'dze:prompt-default', function ( e, id, text ) {
 				if ( id === cur ) { def = text; }
 			} );
+			// One place that puts a failure on screen, with the reason the server
+			// gave and, when it gave none, the status it answered with.
+			function say( message, status ) {
+				var $st = $( '#dze-prompt-state' ).addClass( 'is-ko' );
+				if ( message ) { $st.text( message ); return; }
+				$st.text( status
+					? '<?php echo esc_js( __( 'The prompt was not saved — the server answered', 'dazont-ecom' ) ); ?>' + ' ' + status + '.'
+					: '<?php echo esc_js( __( 'The prompt was not saved — the server could not be reached.', 'dazont-ecom' ) ); ?>' );
+			}
 			$( document ).on( 'click', '#dze-prompt-save', function () {
 				var $b = $( this ).prop( 'disabled', true );
 				var $st = $( '#dze-prompt-state' ).removeClass( 'is-ko' ).text( '…' );
@@ -401,10 +443,13 @@ final class DZE_Prompts {
 						$( document ).trigger( 'dze:prompt-saved', [ cur, $( '#dze-prompt-text' ).val() ] );
 						return;
 					}
-					$st.addClass( 'is-ko' ).text( ( r && r.data && r.data.message ) || '' );
-				} ).fail( function () {
+					say( ( r && r.data && r.data.message ) || '' );
+				} ).fail( function ( xhr ) {
 					$b.prop( 'disabled', false );
-					$st.addClass( 'is-ko' ).text( '<?php echo esc_js( __( 'The prompt was not saved.', 'dazont-ecom' ) ); ?>' );
+					// The server refused or fell over: whatever it said is worth
+					// more than one message for every possible failure.
+					var d = xhr && xhr.responseJSON && xhr.responseJSON.data;
+					say( ( d && d.message ) || '', xhr ? xhr.status : 0 );
 				} );
 			} );
 			$( document ).on( 'click', '#dze-prompt-modal', function ( e ) {

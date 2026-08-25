@@ -313,12 +313,16 @@ final class DZE_Marketing_Ai {
 			] );
 		}
 
-		return [
+		// No section named: the form that posted this carried only part of the
+		// settings, so what it did not carry is KEPT. Returning a fresh array
+		// here wiped the budget, the models and every prompt but one — the
+		// exact trap the sectioned branches above exist to avoid.
+		return array_merge( $existing, [
 			'api_key'       => sanitize_text_field( $key ),
 			'model'         => $model,
 			'events_prompt' => sanitize_textarea_field( $events_prompt ),
 			'country_pools' => $pools,
-		];
+		] );
 	}
 
 	/** This module's entry on the Shortcodes screen. */
