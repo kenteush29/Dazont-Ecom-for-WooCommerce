@@ -117,9 +117,12 @@ final class DZE_Post_Links {
 			$post->post_title . ' ' . wp_trim_words( wp_strip_all_tags( (string) $post->post_content ), 200, '' )
 		);
 		$pool = [];
-		$add  = static function ( string $label, string $url, string $kind, int $score ) use ( &$pool ): void {
+		// Its own address, which the sitemap layer would otherwise hand back as
+		// the best match for its own subject.
+		$self = untrailingslashit( (string) get_permalink( $post_id ) );
+		$add  = static function ( string $label, string $url, string $kind, int $score ) use ( &$pool, $self ): void {
 			$key = untrailingslashit( $url );
-			if ( '' === $url || isset( $pool[ $key ] ) ) {
+			if ( '' === $url || isset( $pool[ $key ] ) || $key === $self ) {
 				return;
 			}
 			$pool[ $key ] = [ 'label' => $label, 'url' => $url, 'kind' => $kind, 'score' => $score ];
@@ -254,7 +257,10 @@ final class DZE_Post_Links {
 		if ( ! class_exists( 'DZE_Category_Content' ) ) {
 			throw new RuntimeException( __( 'The Category descriptions module holds the linking pass — switch it on.', 'dazont-ecom' ) );
 		}
-		$html  = (string) $post->post_content;
+		$self  = (string) get_permalink( $post_id );
+		// Repair before measuring: a link to itself is not one of its links.
+		$html  = DZE_Category_Content::unlink_self( (string) $post->post_content, $self );
+		$mend  = $html !== (string) $post->post_content;
 		$words = str_word_count( wp_strip_all_tags( $html ) );
 		if ( $words < self::MIN_WORDS ) {
 			throw new RuntimeException( __( 'This text is too short to carry an internal link that reads well.', 'dazont-ecom' ) );
@@ -271,7 +277,12 @@ final class DZE_Post_Links {
 			}
 		}
 		$room = self::target_links( $words ) - count( $done );
-		if ( $room < 1 ) {
+		if ( $room < 1 || ! $links ) {
+			// Nothing to add — but a self-link just taken out IS a result, and
+			// it is worth saving.
+			if ( $mend ) {
+				return $html;
+			}
 			throw new RuntimeException( __( 'This article already carries its share of internal links.', 'dazont-ecom' ) );
 		}
 		$res = DZE_Category_Content::weave(
@@ -280,7 +291,7 @@ final class DZE_Post_Links {
 			DZE_Category_Content::lang_name( self::lang_of( $post_id, (string) $post->post_type ) ),
 			$links,
 			$room,
-			[ 'label' => 'post' === $post->post_type ? 'ARTICLE' : 'PAGE' ]
+			[ 'label' => 'post' === $post->post_type ? 'ARTICLE' : 'PAGE', 'self' => $self ]
 		);
 		return (string) $res['html'];
 	}

@@ -97,6 +97,9 @@
 	// list always matches what is on screen — before and after a run.
 	function linkList($box) {
 		var pool = $box.data('pool') || {}, rows = [];
+		// A page linking to itself is always wrong, and it is not something the
+		// anchor test can catch: the anchor names the page perfectly.
+		var self = String($box.data('self') || '').replace(/\/+$/, '');
 		$('<div>').html(editorGet(edId($box))).find('a[href]').each(function () {
 			var href = $(this).attr('href') || '';
 			var key = href.replace(/\/+$/, '');
@@ -110,7 +113,8 @@
 				// The anchor has to name the target — not necessarily word for
 				// word (an article title gets shortened to its subject), but
 				// close enough that the destination is never in doubt.
-				named: !name || names(anchor, name)
+				named: !name || names(anchor, name),
+				self: !!self && key === self
 			});
 		});
 		return rows;
@@ -129,6 +133,7 @@
 				'<span class="dze-cc-target' + (r.external ? ' dze-cc-out' : '') + '">' + esc(target) + '</span>' +
 				(r.external ? ' <em>' + esc(i18n.external) + '</em>' : '') +
 				(r.named ? '' : ' <span class="dze-cc-out" title="' + esc(i18n.notNamed) + '">&#9888;</span>') +
+				(r.self ? ' <span class="dze-cc-out" title="' + esc(i18n.selfLink) + '">&#8635;</span>' : '') +
 				'</li>';
 		}).join(''));
 		$btn.show().text(sprintf(i18n.showLinks, rows.length) + ($ul.is(':visible') ? ' ▴' : ' ▾'));
