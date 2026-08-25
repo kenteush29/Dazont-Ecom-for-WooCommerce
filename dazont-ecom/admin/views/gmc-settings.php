@@ -6,7 +6,7 @@ defined( 'ABSPATH' ) || exit;
  * @var array  $languages
  * @var bool   $has_creds
  * @var bool   $creds_locked
- * @var array  $ads_links    Per account key: the Google Ads links Google reports.
+ * @var array  $ads_links    Per account key: [ links => [...], error => string ].
  * @var bool   $ads_only     Push promotions only to accounts linked to Google Ads.
  */
 $lang_names = [];
@@ -127,7 +127,6 @@ foreach ( $languages as $l ) {
 				$acc      = $accounts[ $key ] ?? [];
 				$is_lang  = $key !== 'default';
 				$label    = $is_lang ? ( $lang_names[ $key ] ?? strtoupper( $key ) ) : __( 'Default (no WPML)', 'dazont-ecom' );
-				$countries_val = implode( ', ', DZE_Gmc::account_countries( $acc ) );
 			?>
 			<tr>
 				<th scope="row"><?php echo esc_html( $label ); ?><?php echo $is_lang ? ' <code>' . esc_html( $key ) . '</code>' : ''; ?></th>
@@ -137,24 +136,43 @@ foreach ( $languages as $l ) {
 					</label>
 					<button type="button" class="button dze-gmc-verify" data-target="dze-mid-<?php echo esc_attr( $key ); ?>"><?php esc_html_e( 'Verify', 'dazont-ecom' ); ?></button>
 					<span class="dze-gmc-verify-status" style="font-size:13px;margin-left:4px;"></span>
-					<br style="line-height:2.4;">
-					<label><?php esc_html_e( 'Target countries', 'dazont-ecom' ); ?>
-						<input type="text" name="<?php echo esc_attr( DZE_Gmc::OPT_ACCOUNTS . '[' . $key . '][countries]' ); ?>" value="<?php echo esc_attr( $countries_val ); ?>" class="regular-text" placeholder="US, GB, CA, AU" />
-					</label>
 					<?php if ( ! $is_lang ) : ?>
-					&nbsp;
+					<br style="line-height:2.4;">
 					<label><?php esc_html_e( 'Content language', 'dazont-ecom' ); ?>
 						<input type="text" name="<?php echo esc_attr( DZE_Gmc::OPT_ACCOUNTS . '[' . $key . '][language]' ); ?>" value="<?php echo esc_attr( $acc['language'] ?? '' ); ?>" size="4" maxlength="5" placeholder="en" />
 					</label>
+					<?php endif; ?>
+					<?php
+					// The countries this account can run promotions in, read
+					// from the account itself. It used to be a text field: a
+					// list typed from memory, that Merchant Center had never
+					// agreed to, and that nobody could check from here.
+					$dze_pc = ! empty( $acc['merchant_id'] ) ? DZE_Gmc::instance()->promo_countries( (string) $acc['merchant_id'] ) : [];
+					if ( ! empty( $acc['merchant_id'] ) ) : ?>
+						<p class="description" style="margin:6px 0 0;">
+							<?php if ( $dze_pc ) : ?>
+								<?php
+								printf(
+									/* translators: %s: list of country codes */
+									esc_html__( 'Promotions run in: %s', 'dazont-ecom' ),
+									'<code>' . esc_html( implode( ', ', $dze_pc ) ) . '</code>'
+								);
+								?>
+								<?php esc_html_e( '— read from this account. Add a country in Merchant Center and it appears here.', 'dazont-ecom' ); ?>
+							<?php else : ?>
+								<?php esc_html_e( 'No country readable on this account yet.', 'dazont-ecom' ); ?>
+							<?php endif; ?>
+						</p>
 					<?php endif; ?>
 					<?php
 					// Whether a Google Ads campaign reads this account at all —
 					// which is what decides if a promotion pushed here is worth
 					// anything. Read from the account's Ads links; the spend
 					// itself belongs to another API entirely.
-					$dze_links = (array) ( $ads_links[ $key ] ?? [] );
+					$dze_state = (array) ( $ads_links[ $key ] ?? [] );
+					$dze_err   = (string) ( $dze_state['error'] ?? '' );
 					$dze_ids   = [];
-					foreach ( $dze_links as $dze_l ) {
+					foreach ( (array) ( $dze_state['links'] ?? [] ) as $dze_l ) {
 						$dze_ids[] = $dze_l['id'] . ( 'active' === strtolower( (string) $dze_l['status'] ) ? '' : ' (' . $dze_l['status'] . ')' );
 					}
 					if ( ! empty( $acc['merchant_id'] ) ) : ?>
@@ -168,9 +186,13 @@ foreach ( $languages as $l ) {
 									'<code>' . esc_html( implode( ', ', $dze_ids ) ) . '</code>'
 								);
 								?>
+							<?php elseif ( '' !== $dze_err ) : ?>
+								<span style="color:#b32d2e;">!</span>
+								<?php esc_html_e( 'Could not read the Google Ads link of this account — which is not the same as having none:', 'dazont-ecom' ); ?>
+								<code style="font-size:11px;"><?php echo esc_html( $dze_err ); ?></code>
 							<?php else : ?>
 								<span style="color:#a7aaad;">○</span>
-								<?php esc_html_e( 'No Google Ads account linked (or not readable with this connection).', 'dazont-ecom' ); ?>
+								<?php esc_html_e( 'No Google Ads account linked to this Merchant Center account.', 'dazont-ecom' ); ?>
 							<?php endif; ?>
 						</p>
 					<?php endif; ?>
@@ -186,8 +208,7 @@ foreach ( $languages as $l ) {
 			<span class="description"><?php esc_html_e( 'A promotion pushed to an account no campaign reads is a promotion pushed nowhere. What is read here is the LINK between the accounts, not what the campaigns spend — the spend lives in the Google Ads API, behind its own approval.', 'dazont-ecom' ); ?></span>
 		</p>
 		<p class="description" style="max-width:820px;">
-			<?php esc_html_e( 'Target countries = one or more 2-letter ISO codes, comma-separated. A Google promotion always targets a single country, so the plugin creates one promotion per country listed here.', 'dazont-ecom' ); ?><br>
-			<?php esc_html_e( 'A language is not a country: for English, list every country you actually run promotions in (e.g. US, GB, CA, AU). Each country must be enabled in your Merchant Center Promotions program and the account must sell/ship there. Only the countries you list here are offered as sync targets in the promotions list.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'A Google promotion always targets a single country, so one promotion is created per country the account runs in. Those countries are read from the account — its promotion data sources — and not typed here: what Merchant Center accepts is decided in Merchant Center. An account with none yet uses the shop\'s own country, and the data source for it is created on the first sync.', 'dazont-ecom' ); ?>
 		</p>
 		<p class="description" style="max-width:820px;">
 			<strong><?php esc_html_e( 'First time?', 'dazont-ecom' ); ?></strong>
