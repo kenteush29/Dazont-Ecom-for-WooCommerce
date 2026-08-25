@@ -909,31 +909,60 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( '' === $this->api_key() ) {
 			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key first.', 'dazont-ecom' ) ] );
 		}
-		// Read the shop as it is right now: a draft written from an hour-old
-		// snapshot is a draft written from a shop that has since changed.
-		delete_transient( self::CTX_TRANSIENT );
-		$c     = $this->shop_context();
+		// WHAT THE SHOP STOCKS, not what it once sold.
+		//
+		// The first version of this read the best-selling categories and the
+		// best-selling products — lifetime sales, which describe the shop's
+		// PAST. A catalogue that has moved on comes back described by the theme
+		// that sold three years ago, as a specialisation it no longer has. What
+		// says what a shop is today is the shape of its catalogue: every
+		// category, with how many products it holds.
 		$facts = [];
-		if ( '' !== (string) $c['name'] ) {
-			$facts[] = 'Name: ' . $c['name'];
+		$name  = get_bloginfo( 'name' );
+		$tag   = get_bloginfo( 'description' );
+		if ( '' !== trim( (string) $name ) ) {
+			$facts[] = 'Name: ' . $name;
 		}
-		if ( '' !== (string) $c['tagline'] ) {
-			$facts[] = 'Tagline: ' . $c['tagline'];
+		if ( '' !== trim( (string) $tag ) ) {
+			$facts[] = 'Tagline: ' . $tag;
 		}
-		if ( ! empty( $c['categories'] ) ) {
-			$facts[] = 'Categories, best-selling first: ' . implode( ', ', $c['categories'] );
+		$terms = get_terms( [
+			'taxonomy'   => 'product_cat',
+			'hide_empty' => true,
+			'number'     => 40,
+			'orderby'    => 'count',
+			'order'      => 'DESC',
+		] );
+		$lines = [];
+		$total = 0;
+		if ( ! is_wp_error( $terms ) ) {
+			foreach ( $terms as $t ) {
+				if ( 'uncategorized' === $t->slug ) {
+					continue;
+				}
+				$lines[] = $t->name . ' (' . (int) $t->count . ')';
+				$total  += (int) $t->count;
+			}
 		}
-		if ( ! empty( $c['products'] ) ) {
-			$facts[] = 'Best-selling products: ' . implode( ', ', $c['products'] );
+		if ( $lines ) {
+			$facts[] = 'Catalogue, every category with how many products it holds: ' . implode( ', ', $lines );
+		}
+		$counts = wp_count_posts( 'product' );
+		if ( $counts && ! empty( $counts->publish ) ) {
+			$facts[] = 'Published products in total: ' . (int) $counts->publish;
 		}
 		if ( ! $facts ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing to read: this shop has no name, no tagline and no products yet.', 'dazont-ecom' ) ] );
 		}
 		$system = 'You describe an online shop in a few plain sentences, for another AI that will write its product texts and its marketing.';
 		$user   = "Here is what is known about the shop:\n" . implode( "\n", $facts ) . "\n\n"
-			. "Write 3 to 6 short lines saying WHAT THIS SHOP IS: what it sells, to whom, and what characterises it. "
+			. "Write 3 to 5 short lines saying WHAT THIS SHOP IS: what it sells, to whom, and how wide its range is. "
 			. "Start with one line of the form \"Online shop selling X (Name).\" "
-			. "Name product families, never individual product names, and never a list of best sellers. "
+			. "Describe the range AS A WHOLE, in product families. "
+			. "Do NOT turn a recurring word into a speciality: a theme is worth naming only if it covers a large share of the catalogue, "
+			. "and even then as one part of the range, never as what the shop is about. "
+			. "Do not name individual products, do not talk about best sellers, do not guess at history, "
+			. "and write nothing the facts above do not support. "
 			. 'Write in ' . ( class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English' ) . '. '
 			. 'Plain lines, no markdown, no heading, no preamble — the text only.';
 		try {
