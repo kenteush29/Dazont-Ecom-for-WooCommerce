@@ -149,25 +149,23 @@ final class DZE_Post_Links {
 			$add( $cat['name'], $cat['url'], 'product category', (int) $cat['score'], (int) $cat['products'] );
 		}
 
-		// 2. The articles and pages next door.
+		// 2. The articles and pages next door — read from the index of the
+		//    WHOLE site, not from the articles edited recently: closeness does
+		//    not fade with time.
 		$near = [];
-		foreach ( self::census() as $id => $row ) {
-			if ( (int) $id === (int) $post_id ) {
+		foreach ( DZE_Category_Content::page_index() as $page ) {
+			if ( (int) $page['id'] === (int) $post_id ) {
 				continue;
 			}
-			$hits = count( array_intersect( $needle, DZE_Category_Content::tokens( $row['title'] ) ) );
+			$hits = count( array_intersect( $needle, DZE_Category_Content::tokens( $page['title'] . ' ' . $page['slug'] ) ) );
 			if ( $hits > 1 ) {
-				$near[] = [ 'id' => (int) $id, 'row' => $row, 'score' => $hits ];
+				$page['score'] = $hits;
+				$near[]        = $page;
 			}
 		}
 		usort( $near, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
-		foreach ( array_slice( $near, 0, 6 ) as $n ) {
-			$add(
-				$n['row']['title'],
-				(string) get_permalink( $n['id'] ),
-				'post' === $n['row']['type'] ? 'blog post' : 'page',
-				(int) $n['score']
-			);
+		foreach ( array_slice( $near, 0, 8 ) as $n ) {
+			$add( (string) $n['title'], (string) $n['url'], (string) $n['kind'], (int) $n['score'] );
 		}
 
 		// And nothing else: product categories, blog posts, pages. An address
@@ -185,40 +183,22 @@ final class DZE_Post_Links {
 	}
 
 	/**
-	 * Product categories with their address, read once.
+	 * Product categories with their address and their catalogue.
 	 *
-	 * @return array<int,array{name:string,url:string}>
+	 * The list itself is the one the category module keeps; only the product
+	 * counts are added here, from the cache that module already holds.
+	 *
+	 * @return array<int,array{name:string,url:string,products:int}>
 	 */
 	private static function categories(): array {
-		$cached = get_transient( 'dze_pl_cats' );
-		if ( is_array( $cached ) ) {
-			return $cached;
+		$out = [];
+		foreach ( DZE_Category_Content::category_index() as $cat ) {
+			$out[] = [
+				'name'     => (string) $cat['name'],
+				'url'      => (string) $cat['url'],
+				'products' => (int) DZE_Category_Content::products_behind( (int) $cat['id'] ),
+			];
 		}
-		$out   = [];
-		$lang  = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::default_lang() : '';
-		$terms = get_terms( [
-			'taxonomy'   => 'product_cat',
-			'hide_empty' => true,
-			'exclude'    => [ (int) get_option( 'default_product_cat' ) ],
-		] );
-		if ( ! is_wp_error( $terms ) ) {
-			foreach ( $terms as $t ) {
-				if ( '' !== $lang && class_exists( 'DZE_Category_Content' )
-					&& DZE_Category_Content::lang_code( (int) $t->term_id ) !== $lang ) {
-					continue;
-				}
-				$url = get_term_link( $t );
-				if ( ! is_wp_error( $url ) ) {
-					$out[] = [
-						'name'     => (string) $t->name,
-						'url'      => (string) $url,
-						// Cached six hours by the module that owns the count.
-						'products' => (int) DZE_Category_Content::products_behind( (int) $t->term_id ),
-					];
-				}
-			}
-		}
-		set_transient( 'dze_pl_cats', $out, 6 * HOUR_IN_SECONDS );
 		return $out;
 	}
 

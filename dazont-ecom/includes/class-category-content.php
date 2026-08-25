@@ -594,22 +594,26 @@ PROMPT;
 		}
 		return array_keys( $out );
 	}
-
 	/**
-	 * Blog posts and pages worth linking to FROM this category, read from
-	 * WordPress itself — so the anchor can use the real title — and ranked by
-	 * how much their wording overlaps the category and its imported queries.
-	 * That is how a camouflage category ends up pointing at the camo pages.
+	 * Every page of this site that can receive a link, with its title.
+	 *
+	 * The whole site, not a recent slice of it: the pool has to answer "which
+	 * page is CLOSEST to this subject", and a page nobody has touched for two
+	 * years is exactly as close as it ever was. Only titles and addresses are
+	 * read — a few hundred rows weigh nothing — and the list is held for six
+	 * hours, because a site does not gain a page a minute.
+	 *
+	 * This replaces what the sitemap used to bring, at the source: a sitemap is
+	 * a file WordPress writes FROM this same table, so reading it over HTTP
+	 * added an addressable page to nothing, and added addresses we could not
+	 * attribute to anything.
+	 *
+	 * @return array<int,array{id:int,title:string,slug:string,url:string,kind:string}>
 	 */
-	public static function editorial_pool( int $term_id, int $limit = 10 ): array {
-		$term = get_term( $term_id, 'product_cat' );
-		if ( ! $term || is_wp_error( $term ) ) {
-			return [];
-		}
-		$kw    = self::keyword_pools( $term_id, $term->name, false );
-		$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
-		if ( ! $needle ) {
-			return [];
+	public static function page_index( bool $force = false ): array {
+		$cached = $force ? false : get_transient( 'dze_cc_pages' );
+		if ( is_array( $cached ) ) {
+			return $cached;
 		}
 		// Pages that exist for the checkout, not for the reader.
 		$skip = array_filter( [
@@ -621,48 +625,120 @@ PROMPT;
 			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'myaccount' ) : 0,
 			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'terms' ) : 0,
 		] );
-
-		// Same reason: the posts and pages offered are the main-language ones.
+		// The main language only: translations belong to WPML.
 		$lang = self::default_lang();
 		if ( '' !== $lang ) {
 			do_action( 'wpml_switch_language', $lang );
 		}
-		$posts = get_posts( [
-			'post_type'              => [ 'post', 'page' ],
-			'post_status'            => 'publish',
-			'posts_per_page'         => 300,
-			'orderby'                => 'date',
-			'order'                  => 'DESC',
-			'exclude'                => $skip,
-			'no_found_rows'          => true,
-			'update_post_meta_cache' => false,
-			'update_post_term_cache' => false,
-		] );
-
-		$scored = [];
-		foreach ( $posts as $p ) {
-			$title = get_the_title( $p );
-			$hits  = array_intersect( $needle, self::tokens( $title . ' ' . $p->post_name ) );
-			if ( ! $hits ) {
+		global $wpdb;
+		$rows = (array) $wpdb->get_results(
+			"SELECT ID, post_title, post_name, post_type FROM {$wpdb->posts}
+			 WHERE post_status = 'publish' AND post_type IN ('post','page')
+			 ORDER BY ID DESC",
+			ARRAY_A
+		);
+		$out = [];
+		foreach ( $rows as $r ) {
+			$id = (int) $r['ID'];
+			if ( in_array( $id, $skip, true ) || '' === trim( (string) $r['post_title'] ) ) {
 				continue;
 			}
-			$scored[] = [
-				'label' => $title,
-				'url'   => (string) get_permalink( $p ),
-				'kind'  => 'post' === $p->post_type ? 'blog post' : 'page',
-				'score' => count( $hits ),
+			if ( '' !== $lang && self::post_lang( $id, (string) $r['post_type'] ) !== $lang ) {
+				continue;
+			}
+			$out[] = [
+				'id'    => $id,
+				'title' => (string) $r['post_title'],
+				'slug'  => (string) $r['post_name'],
+				'url'   => (string) get_permalink( $id ),
+				'kind'  => 'post' === $r['post_type'] ? 'blog post' : 'page',
 			];
 		}
 		if ( '' !== $lang ) {
-			do_action( 'wpml_switch_language', null ); // back to the admin language.
+			do_action( 'wpml_switch_language', null );
+		}
+		set_transient( 'dze_cc_pages', $out, 6 * HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/** WPML's language for one post, '' when WPML is not active. */
+	public static function post_lang( int $post_id, string $type ): string {
+		$details = apply_filters( 'wpml_element_language_details', null, [
+			'element_id'   => $post_id,
+			'element_type' => 'post_' . $type,
+		] );
+		$code = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
+		return '' !== $code ? $code : (string) apply_filters( 'wpml_default_language', '' );
+	}
+
+	/**
+	 * Every product category with its address and the catalogue behind it.
+	 *
+	 * Same reason as page_index(): "the closest category" cannot be answered
+	 * by looking at the branch alone. A camo backpack article belongs next to
+	 * Camo clothing even though neither is the other's parent.
+	 *
+	 * @return array<int,array{id:int,name:string,url:string}>
+	 */
+	public static function category_index( bool $force = false ): array {
+		$cached = $force ? false : get_transient( 'dze_cc_cats' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		$lang  = self::default_lang();
+		$terms = get_terms( [
+			'taxonomy'   => 'product_cat',
+			'hide_empty' => true,
+			'exclude'    => [ (int) get_option( 'default_product_cat' ) ],
+		] );
+		$out = [];
+		if ( ! is_wp_error( $terms ) ) {
+			foreach ( $terms as $t ) {
+				if ( '' !== $lang && self::lang_code( (int) $t->term_id ) !== $lang ) {
+					continue;
+				}
+				$url = get_term_link( $t );
+				if ( ! is_wp_error( $url ) ) {
+					$out[] = [ 'id' => (int) $t->term_id, 'name' => (string) $t->name, 'url' => (string) $url ];
+				}
+			}
+		}
+		set_transient( 'dze_cc_cats', $out, 6 * HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/**
+	 * The blog posts and pages closest to this category, best first.
+	 *
+	 * Closeness is shared wording between the page's title and slug, and what
+	 * this category is about — its name plus the queries imported for it.
+	 *
+	 * @return array<int,array{label:string,url:string,kind:string,score:int}>
+	 */
+	public static function editorial_pool( int $term_id, int $limit = 10 ): array {
+		$term = get_term( $term_id, 'product_cat' );
+		if ( ! $term || is_wp_error( $term ) ) {
+			return [];
+		}
+		$kw     = self::keyword_pools( $term_id, $term->name, false );
+		$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
+		if ( ! $needle ) {
+			return [];
+		}
+		$scored = [];
+		foreach ( self::page_index() as $page ) {
+			$hits = count( array_intersect( $needle, self::tokens( $page['title'] . ' ' . $page['slug'] ) ) );
+			if ( $hits > 0 ) {
+				$scored[] = [
+					'label' => $page['title'],
+					'url'   => $page['url'],
+					'kind'  => $page['kind'],
+					'score' => $hits,
+				];
+			}
 		}
 		usort( $scored, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
-		$out = [];
-		foreach ( array_slice( $scored, 0, max( 0, $limit ) ) as $row ) {
-			unset( $row['score'] );
-			$out[] = $row;
-		}
-		return $out;
+		return array_slice( $scored, 0, max( 0, $limit ) );
 	}
 
 	/**
@@ -754,6 +830,17 @@ PROMPT;
 		// No products here on purpose: the category page already lists them, so
 		// linking to individual products from its description adds nothing.
 
+		// Any other category whose wording is close, wherever it sits in the
+		// tree. "The closest category" is not a question the branch can answer
+		// on its own: Camo clothing and Camo backpacks are neighbours to a
+		// reader and strangers to the taxonomy.
+		foreach ( self::category_index() as $cat ) {
+			if ( (int) $cat['id'] === $term_id ) {
+				continue;
+			}
+			$add( $cat['name'], $cat['url'], 'related category', (int) $cat['id'] );
+		}
+
 		// The editorial side: blog posts and pages on the same subject. They
 		// carry their real title, which makes for a far better anchor.
 		foreach ( self::editorial_pool( $term_id ) as $row ) {
@@ -780,6 +867,8 @@ PROMPT;
 		// it is one cached count per category, not something to spend on
 		// candidates nobody will reach.
 		usort( $pool, static fn( $a, $b ) => [ $b['score'], $a['label'] ] <=> [ $a['score'], $b['label'] ] );
+		// (a first pass on wording alone, so the twenty weighed below are the
+		// twenty most likely to be used)
 		$weighed = 0;
 		foreach ( $pool as $i => $row ) {
 			if ( ! $row['term'] || $weighed >= 20 ) {
@@ -789,12 +878,14 @@ PROMPT;
 			$weighed++;
 		}
 
-		// Closest first, and among equals the one with the most products. A
-		// sub-category or the parent is part of the same branch, so it stays
-		// ahead of a category that merely shares wording.
+		// Closest first, and among equals the one with the most products.
+		// Belonging to the same branch counts as one shared word — a parent is
+		// close by construction — but it does not outrank a page that is
+		// genuinely closer in wording. Semantic closeness decides; the branch
+		// only breaks a tie it would otherwise lose.
 		usort( $pool, static function ( $a, $b ) {
-			$rank = static fn( $x ) => in_array( $x['kind'], [ 'sub-category', 'parent category' ], true ) ? 1 : 0;
-			return [ $rank( $b ), $b['score'], $b['products'] ] <=> [ $rank( $a ), $a['score'], $a['products'] ];
+			$near = static fn( $x ) => (int) $x['score'] + ( in_array( $x['kind'], [ 'sub-category', 'parent category' ], true ) ? 1 : 0 );
+			return [ $near( $b ), $b['products'] ] <=> [ $near( $a ), $a['products'] ];
 		} );
 		return $pool;
 	}
