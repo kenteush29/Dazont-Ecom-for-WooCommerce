@@ -6,10 +6,11 @@ defined( 'ABSPATH' ) || exit;
  *
  * It adds no ability of its own. Everything it launches is a function that is
  * already on the site, with its own screen, its own prompt and its own button:
- * the "Add internal links only" pass, the category writer. What this module
- * brings is the part a person cannot do at scale — looking at the WHOLE
- * catalogue, seeing where each page falls short of what it should be, and
- * working through the list a little at a time.
+ * the "Add internal links only" pass — on a category as on an article — the
+ * category writer, the marketing calendar. What this module brings is the part
+ * a person cannot do at scale: looking at the WHOLE site, seeing where each
+ * page falls short of what it should be, and working through the list a little
+ * at a time.
  *
  * Three rules hold it together:
  *
@@ -19,13 +20,15 @@ defined( 'ABSPATH' ) || exit;
  *    Never a second reckoning that could disagree with the screen.
  * 2. It runs nothing itself. Work is handed to the writing queue — one job at
  *    a time, in the background, with its recovery and the monthly budget cap.
- * 3. It goes slowly, on purpose. One item per pass, spread over the day, a
- *    figure per day per task, and never the same category twice in a month.
- *    A catalogue whose fifty pages all change on the same afternoon does not
- *    look like a catalogue being looked after.
+ * 3. It goes slowly, on purpose. One item per pass, spread over its period, a
+ *    figure per day per task, and never the same page twice in a month. A site
+ *    whose fifty pages all change on the same afternoon does not look like a
+ *    site being looked after.
  *
- * Adding a task is adding a row to tasks(): what it is called, which module
- * owns it, which queue job it hands over, how a candidate is recognised.
+ * A task says what it is called, which module owns it, what it works on — a
+ * category, an article, the shop as a whole — how it is run (a queue job, or a
+ * call of its own), at what rhythm, and how a page short of something is
+ * recognised. Adding one is adding a row to tasks().
  */
 final class DZE_Automation {
 
@@ -136,18 +139,37 @@ final class DZE_Automation {
 				'label'   => __( 'Internal links on categories', 'dazont-ecom' ),
 				'what'    => __( 'Runs the "Add internal links only" pass on the category the rest of the shop points at least, among those under their link target. The text is left exactly as it is — only links are added.', 'dazont-ecom' ),
 				'module'  => 'category_content',
+				'scope'   => 'category',
 				'kind'    => 'cat_links',
 				'per_day' => 3,
+				'apply'   => 1,
+			],
+			'post_links' => [
+				'label'   => __( 'Internal links in articles and pages', 'dazont-ecom' ),
+				'what'    => __( 'The same pass, the other way round: an article that points at nothing is half a mesh. Candidates are the published articles and pages carrying fewer links than their length calls for, and the targets are the product categories their subject actually touches, then the neighbouring articles. It uses the internal-linking prompt from the Categories tab.', 'dazont-ecom' ),
+				'module'  => 'category_content',
+				'scope'   => 'post',
+				'kind'    => 'post_links',
+				'per_day' => 2,
 				'apply'   => 1,
 			],
 			'cat_desc'  => [
 				'label'   => __( 'Category descriptions', 'dazont-ecom' ),
 				'what'    => __( 'Writes the description of a category that has none, or one far under the length its branch deserves. A rewrite replaces the whole text, so it is held for review by default — the writing queue keeps it until you accept it.', 'dazont-ecom' ),
 				'module'  => 'category_content',
+				'scope'   => 'category',
 				'kind'    => 'cat_desc',
 				'per_day' => 1,
 				'apply'   => 0,
 				'kw'      => true, // may be restricted to categories with their SEMrush file.
+			],
+			'events'    => [
+				'label'   => __( 'Marketing calendar', 'dazont-ecom' ),
+				'what'    => __( 'Once a month, asks for the commercial moments worth a promotion in the coming quarter. Nothing reaches the shop: what comes back waits in the suggestion list on Marketing events, where accepting one creates the event — disabled, as always. Moments already on your calendar are not proposed again.', 'dazont-ecom' ),
+				'module'  => 'marketing_ai',
+				'scope'   => 'shop',
+				'cadence' => 'month',
+				'apply'   => 0,
 			],
 		];
 	}
@@ -164,24 +186,43 @@ final class DZE_Automation {
 	/** The modules a task leans on, all present and enabled. */
 	public static function task_ready( string $id ): bool {
 		$t = self::task( $id );
-		if ( ! $t || ! class_exists( 'DZE_Queue' ) || ! class_exists( 'DZE_Category_Content' ) ) {
+		if ( ! $t ) {
 			return false;
 		}
-		if ( ! class_exists( 'DZE_Modules' ) ) {
-			return true;
+		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( (string) $t['module'] ) ) {
+			return false;
 		}
-		return DZE_Modules::enabled( 'queue' ) && DZE_Modules::enabled( (string) $t['module'] );
+		// A task that hands its work to the queue needs the queue; one that
+		// runs a call of its own does not.
+		if ( ! empty( $t['kind'] ) ) {
+			if ( ! class_exists( 'DZE_Queue' ) ) {
+				return false;
+			}
+			if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) {
+				return false;
+			}
+		}
+		if ( 'shop' !== ( $t['scope'] ?? '' ) && ! class_exists( 'DZE_Category_Content' ) ) {
+			return false;
+		}
+		if ( 'shop' === ( $t['scope'] ?? '' ) && ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return false;
+		}
+		return true;
 	}
 
 	/** The saved settings of one task, filled in from its defaults. */
 	public static function conf( string $id ): array {
 		$t = self::task( $id );
 		$c = (array) ( self::settings()['tasks'][ $id ] ?? [] );
+		$m = 'month' === ( $t['cadence'] ?? 'day' );
 		return [
+			'cadence' => $m ? 'month' : 'day',
 			'on'      => ! empty( $c['on'] ),
-			'per_day' => max( 1, min( 20, (int) ( $c['per_day'] ?? $t['per_day'] ?? 1 ) ) ),
+			'per_day' => $m ? 1 : max( 1, min( 20, (int) ( $c['per_day'] ?? $t['per_day'] ?? 1 ) ) ),
 			'apply'   => array_key_exists( 'apply', $c ) ? ! empty( $c['apply'] ) : ! empty( $t['apply'] ),
 			'kw_only' => array_key_exists( 'kw_only', $c ) ? ! empty( $c['kw_only'] ) : ! empty( $t['kw'] ),
+			'scope'   => (string) ( $t['scope'] ?? 'category' ),
 		];
 	}
 
@@ -235,7 +276,16 @@ final class DZE_Automation {
 
 	/** The quiet time between two passes of one task. */
 	public static function gap( string $id ): int {
-		return (int) max( HOUR_IN_SECONDS, floor( DAY_IN_SECONDS / max( 1, self::conf( $id )['per_day'] ) ) );
+		$conf = self::conf( $id );
+		if ( 'month' === $conf['cadence'] ) {
+			return 30 * DAY_IN_SECONDS;
+		}
+		return (int) max( HOUR_IN_SECONDS, floor( DAY_IN_SECONDS / max( 1, $conf['per_day'] ) ) );
+	}
+
+	/** When this task last did something. */
+	public static function last_run( string $id ): int {
+		return (int) ( ( (array) ( self::state()['last'] ?? [] ) )[ $id ] ?? 0 );
 	}
 
 	/** Passes this task made today — the cap is a day's worth, not a run's. */
@@ -245,6 +295,36 @@ final class DZE_Automation {
 			return 0;
 		}
 		return (int) ( ( (array) ( $s['count'] ?? [] ) )[ $id ] ?? 0 );
+	}
+
+	/**
+	 * May this task run right now?
+	 *
+	 * @return string '' when it may, otherwise why not.
+	 */
+	public static function why_not( string $id, bool $forced = false ): string {
+		$conf = self::conf( $id );
+		if ( ! self::task_ready( $id ) ) {
+			return 'modules';
+		}
+		if ( ! $conf['on'] && ! $forced ) {
+			return 'off';
+		}
+		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
+			return 'budget';
+		}
+		if ( $forced ) {
+			return '';
+		}
+		if ( 'day' === $conf['cadence'] && self::done_today( $id ) >= $conf['per_day'] ) {
+			return 'cap';
+		}
+		// Spread over the period rather than run off at the start of it: three
+		// a day is one every eight hours, once a month is once a month.
+		if ( time() - self::last_run( $id ) < self::gap( $id ) ) {
+			return 'early';
+		}
+		return '';
 	}
 
 	// =========================================================================
@@ -311,7 +391,7 @@ final class DZE_Automation {
 	}
 
 	/**
-	 * The categories a task may work on, worst first.
+	 * What a task may work on, worst first.
 	 *
 	 * Cheap ranking, then the real figures on the head of the list only. The
 	 * screen shows the same list the tick takes from, so what the owner reads
@@ -320,10 +400,79 @@ final class DZE_Automation {
 	 * @return array<int,array{tid:int,name:string,why:string}>
 	 */
 	public static function shortlist( string $id, int $n = 5 ): array {
-		$rows = self::survey()['rows'];
-		if ( ! $rows || ! self::task( $id ) || ! self::task_ready( $id ) ) {
+		$task = self::task( $id );
+		if ( ! $task || ! self::task_ready( $id ) ) {
 			// Its module is off: the queue table may not even exist, and there
 			// is nothing this task could be about to do anyway.
+			return [];
+		}
+		$scope = (string) ( $task['scope'] ?? 'category' );
+		if ( 'shop' === $scope ) {
+			return self::shop_shortlist( $id );
+		}
+		return 'post' === $scope ? self::post_shortlist( $id, $n ) : self::cat_shortlist( $id, $n );
+	}
+
+	/** The one thing a shop-wide task can be short of. */
+	private static function shop_shortlist( string $id ): array {
+		if ( 'events' !== $id || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return [];
+		}
+		// A pile of suggestions nobody has answered is not a shortage of
+		// suggestions: asking for more would only make the pile taller.
+		if ( DZE_Marketing_Ai::pending_count() >= 8 ) {
+			return [];
+		}
+		$until = DZE_Marketing_Ai::covered_until();
+		$why   = $until > time()
+			/* translators: %s: date the accepted calendar runs to */
+			? sprintf( __( 'calendar runs to %s', 'dazont-ecom' ), date_i18n( (string) get_option( 'date_format' ), $until ) )
+			: __( 'nothing planned', 'dazont-ecom' );
+		return [ [ 'tid' => 0, 'name' => __( 'The coming quarter', 'dazont-ecom' ), 'why' => $why ] ];
+	}
+
+	/** Articles and pages carrying fewer links than their length calls for. */
+	private static function post_shortlist( string $id, int $n ): array {
+		if ( ! class_exists( 'DZE_Post_Links' ) ) {
+			return [];
+		}
+		$cool = time() - self::COOLDOWN * DAY_IN_SECONDS;
+		$pool = [];
+		foreach ( DZE_Post_Links::census() as $pid => $row ) {
+			$short = (int) $row['target'] - (int) $row['out'];
+			if ( $short < 1 ) {
+				continue;
+			}
+			if ( self::cooling( (int) $pid, $id, 'post', (int) $row['words'], (int) $row['out'], $cool ) ) {
+				continue;
+			}
+			$pool[] = [ 'tid' => (int) $pid, 'name' => (string) $row['title'], 'short' => $short, 'out' => (int) $row['out'], 'target' => (int) $row['target'] ];
+		}
+		// The emptiest first: an article pointing nowhere before one that is
+		// merely one link short.
+		usort( $pool, static fn( $a, $b ) => [ $b['short'], $a['out'] ] <=> [ $a['short'], $b['out'] ] );
+		$out = [];
+		foreach ( array_slice( $pool, 0, self::LOOK ) as $row ) {
+			if ( class_exists( 'DZE_Queue' ) && DZE_Queue::pending_for( (int) $row['tid'], 'post_' ) ) {
+				continue; // already queued, running, or waiting to be reviewed.
+			}
+			$out[] = [
+				'tid'  => (int) $row['tid'],
+				'name' => (string) $row['name'],
+				/* translators: 1: links in the article, 2: links its length calls for */
+				'why'  => sprintf( __( '%1$d of %2$d links', 'dazont-ecom' ), (int) $row['out'], (int) $row['target'] ),
+			];
+			if ( count( $out ) >= max( 1, $n ) ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/** Categories, ranked on the census and then on their real targets. */
+	private static function cat_shortlist( string $id, int $n ): array {
+		$rows = self::survey()['rows'];
+		if ( ! $rows ) {
 			return [];
 		}
 		$cool = time() - self::COOLDOWN * DAY_IN_SECONDS;
@@ -334,14 +483,8 @@ final class DZE_Automation {
 				// writer's job, not the linker's.
 				continue;
 			}
-			$seen = self::seen( (int) $tid, $id );
-			if ( $seen && (int) $seen['t'] > $cool ) {
-				// A pass that changed nothing — a failed job, or a model that
-				// found no room — must not lock the page out for a month.
-				$moved = (int) $row['words'] !== (int) ( $seen['w'] ?? 0 ) || (int) $row['out'] !== (int) ( $seen['l'] ?? 0 );
-				if ( $moved || (int) $seen['t'] > time() - self::RETRY * DAY_IN_SECONDS ) {
-					continue;
-				}
+			if ( self::cooling( (int) $tid, $id, 'term', (int) $row['words'], (int) $row['out'], $cool ) ) {
+				continue;
 			}
 			$pool[] = [ 'tid' => (int) $tid, 'name' => (string) $row['name'], 'in' => (int) $row['in'], 'out' => (int) $row['out'], 'words' => (int) $row['words'] ];
 		}
@@ -369,6 +512,21 @@ final class DZE_Automation {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Is this object still resting after its last pass?
+	 *
+	 * A pass that changed nothing — a failed job, or a model that found no
+	 * room — must not lock the page out for a month: it comes back in days.
+	 */
+	private static function cooling( int $oid, string $id, string $type, int $words, int $links, int $cool ): bool {
+		$seen = self::seen( $oid, $id, $type );
+		if ( ! $seen || (int) $seen['t'] <= $cool ) {
+			return false;
+		}
+		$moved = $words !== (int) ( $seen['w'] ?? 0 ) || $links !== (int) ( $seen['l'] ?? 0 );
+		return $moved || (int) $seen['t'] > time() - self::RETRY * DAY_IN_SECONDS;
 	}
 
 	/**
@@ -413,19 +571,58 @@ final class DZE_Automation {
 		return '';
 	}
 
-	/** What a task last did to a term: when, and the figures it left behind. */
-	private static function seen( int $tid, string $id ): array {
-		$all = get_term_meta( $tid, self::META_SEEN, true );
+	/** What a task last did to an object: when, and the figures it left. */
+	private static function seen( int $oid, string $id, string $type = 'term' ): array {
+		$all = 'post' === $type ? get_post_meta( $oid, self::META_SEEN, true ) : get_term_meta( $oid, self::META_SEEN, true );
 		$all = is_array( $all ) ? $all : [];
 		$row = (array) ( $all[ $id ] ?? [] );
 		return isset( $row['t'] ) ? $row : [];
 	}
 
-	private static function mark( int $tid, string $id, int $words, int $links ): void {
-		$all = get_term_meta( $tid, self::META_SEEN, true );
+	private static function mark( int $oid, string $id, string $type, int $words, int $links ): void {
+		$all = 'post' === $type ? get_post_meta( $oid, self::META_SEEN, true ) : get_term_meta( $oid, self::META_SEEN, true );
 		$all = is_array( $all ) ? $all : [];
 		$all[ $id ] = [ 't' => time(), 'w' => $words, 'l' => $links ];
-		update_term_meta( $tid, self::META_SEEN, $all );
+		if ( 'post' === $type ) {
+			update_post_meta( $oid, self::META_SEEN, $all );
+		} else {
+			update_term_meta( $oid, self::META_SEEN, $all );
+		}
+	}
+
+	/** The text one pass is about to replace, kept for the undo. */
+	private static function keep_copy( int $oid, string $type, string $html ): void {
+		if ( 'post' === $type ) {
+			update_post_meta( $oid, self::META_PREV, $html );
+		} else {
+			update_term_meta( $oid, self::META_PREV, $html );
+		}
+	}
+
+	private static function copy_of( int $oid, string $type ): string {
+		return (string) ( 'post' === $type ? get_post_meta( $oid, self::META_PREV, true ) : get_term_meta( $oid, self::META_PREV, true ) );
+	}
+
+	private static function drop_copy( int $oid, string $type ): void {
+		if ( 'post' === $type ) {
+			delete_post_meta( $oid, self::META_PREV );
+		} else {
+			delete_term_meta( $oid, self::META_PREV );
+		}
+	}
+
+	/** The object a task works on, as WordPress holds it. */
+	private static function subject( string $scope, int $oid ): array {
+		if ( 'post' === $scope ) {
+			$post = get_post( $oid );
+			return $post
+				? [ 'name' => (string) $post->post_title, 'html' => (string) $post->post_content, 'type' => 'post' ]
+				: [];
+		}
+		$term = get_term( $oid, 'product_cat' );
+		return ( $term && ! is_wp_error( $term ) )
+			? [ 'name' => (string) $term->name, 'html' => (string) $term->description, 'type' => 'term' ]
+			: [];
 	}
 
 	// =========================================================================
@@ -436,104 +633,120 @@ final class DZE_Automation {
 	 * One item, once an hour, task by task.
 	 *
 	 * @param string $only   Run this task alone (the button on its block).
-	 * @param bool   $forced Asked for by hand: the daily figure still holds,
-	 *                       the spacing between two passes does not.
+	 * @param bool   $forced Asked for by hand: the caps of the period still
+	 *                       hold, the spacing inside it does not.
 	 *
 	 * @return array{queued:int,task:string,reason:string}
 	 */
 	public static function tick( string $only = '', bool $forced = false ): array {
-		$no  = static fn( string $why, string $task = '' ): array => [ 'queued' => 0, 'task' => $task, 'reason' => $why ];
-		$ids = '' !== $only ? [ $only ] : array_keys( self::tasks() );
-		$last_reason = 'none';
+		$ids    = '' !== $only ? [ $only ] : array_keys( self::tasks() );
+		$reason = 'none';
 		foreach ( $ids as $id ) {
 			if ( ! self::task( $id ) ) {
 				continue;
 			}
-			if ( ! self::task_ready( $id ) ) {
-				$last_reason = 'modules';
-				continue;
-			}
-			if ( ! self::conf( $id )['on'] && ! $forced ) {
-				$last_reason = 'off';
-				continue;
-			}
-			if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
-				return $no( 'budget', $id );
-			}
-			if ( self::done_today( $id ) >= self::conf( $id )['per_day'] ) {
-				$last_reason = 'cap';
-				continue;
-			}
-			$s    = self::state();
-			$last = (int) ( ( (array) ( $s['last'] ?? [] ) )[ $id ] ?? 0 );
-			if ( ! $forced && time() - $last < self::gap( $id ) ) {
-				// Spread over the day rather than run off in the first hour:
-				// three a day is one every eight hours.
-				$last_reason = 'early';
+			$why = self::why_not( $id, $forced );
+			if ( '' !== $why ) {
+				$reason = $why;
 				continue;
 			}
 			$pick = self::shortlist( $id, 1 );
 			if ( ! $pick ) {
-				$last_reason = 'none';
+				$reason = 'none';
 				continue;
 			}
 			$res = self::run( $id, (int) $pick[0]['tid'] );
 			if ( $res['queued'] ) {
 				return $res;
 			}
-			$last_reason = $res['reason'];
+			$reason = $res['reason'];
 		}
-		return $no( $last_reason, '' !== $only ? $only : '' );
+		return [ 'queued' => 0, 'task' => $only, 'reason' => $reason ];
 	}
 
-	/** Hands one category to the queue for one task. */
-	public static function run( string $id, int $tid ): array {
-		$conf = self::conf( $id );
+	/** Sets one piece of work going, whatever kind of work it is. */
+	public static function run( string $id, int $oid ): array {
 		$task = self::task( $id );
-		$term = get_term( $tid, 'product_cat' );
-		if ( ! $task || ! $term || is_wp_error( $term ) ) {
-			return [ 'queued' => 0, 'task' => $id, 'reason' => 'gone' ];
+		$conf = self::conf( $id );
+		$no   = static fn( string $why ): array => [ 'queued' => 0, 'task' => $id, 'reason' => $why ];
+		if ( ! $task ) {
+			return $no( 'gone' );
 		}
-		$desc  = (string) $term->description;
-		$words = str_word_count( wp_strip_all_tags( $desc ) );
-		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $desc );
-		// What is applied straight to the shop keeps the text it replaced; what
-		// waits for review is undone from the review screen, which holds both.
+
+		// A shop-wide task has no object and no queue job: it is one call, made
+		// here, whose result waits on a review screen of its own.
+		if ( 'shop' === $conf['scope'] ) {
+			if ( 'events' !== $id || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+				return $no( 'gone' );
+			}
+			if ( function_exists( 'set_time_limit' ) ) {
+				@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- nobody is waiting on cron.
+			}
+			try {
+				$res = DZE_Marketing_Ai::propose(
+					gmdate( 'Y-m-d' ),
+					gmdate( 'Y-m-d', time() + 92 * DAY_IN_SECONDS )
+				);
+			} catch ( \Throwable $e ) {
+				return $no( 'failed' );
+			}
+			// A shop-wide pass has no words and no links: what it produced is
+			// a number of suggestions, and that is what the log shows.
+			self::note( $id, 0, __( 'Marketing calendar', 'dazont-ecom' ), 'shop', 0, (int) $res['added'], false );
+			return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
+		}
+
+		$sub = self::subject( $conf['scope'], $oid );
+		if ( ! $sub ) {
+			return $no( 'gone' );
+		}
+		$words = str_word_count( wp_strip_all_tags( $sub['html'] ) );
+		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $sub['html'] );
+		// What goes straight to the shop keeps the text it replaced; what waits
+		// for review is undone from the review screen, which holds both.
 		if ( $conf['apply'] ) {
-			update_term_meta( $tid, self::META_PREV, $desc );
+			self::keep_copy( $oid, $sub['type'], $sub['html'] );
 		}
-		self::mark( $tid, $id, $words, $links );
-		if ( ! DZE_Queue::add( (string) $task['kind'], [ $tid ], (bool) $conf['apply'] ) ) {
-			return [ 'queued' => 0, 'task' => $id, 'reason' => 'busy' ];
+		self::mark( $oid, $id, $sub['type'], $words, $links );
+		if ( ! DZE_Queue::add( (string) $task['kind'], [ $oid ], (bool) $conf['apply'] ) ) {
+			return $no( 'busy' );
 		}
-		self::note( $id, $tid, (string) $term->name, $words, $links, (bool) $conf['apply'] );
+		self::note( $id, $oid, (string) $sub['name'], $sub['type'], $words, $links, (bool) $conf['apply'] );
 		delete_transient( 'dze_auto_survey' ); // the shop is about to change.
+		delete_transient( 'dze_pl_census' );
 		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
 	}
 
 	/** Files one pass in the log, and keeps the undo of the last ones only. */
-	private static function note( string $id, int $tid, string $name, int $words, int $links, bool $applied ): void {
+	private static function note( string $id, int $oid, string $name, string $type, int $words, int $links, bool $applied ): void {
 		$s     = self::state();
 		$today = current_time( 'Y-m-d' );
 		$fresh = (string) ( $s['day'] ?? '' ) === $today;
 		$log   = (array) ( $s['log'] ?? [] );
 		array_unshift( $log, [
 			'task'  => $id,
-			'tid'   => $tid,
+			'tid'   => $oid,
+			'what'  => $type,
 			'name'  => $name,
 			'at'    => time(),
 			'words' => $words,
 			'links' => $links,
 			'auto'  => $applied ? 1 : 0,
 		] );
-		$kept  = array_slice( $log, 0, self::KEEP );
-		$alive = array_map( 'intval', array_column( $kept, 'tid' ) );
+		$kept = array_slice( $log, 0, self::KEEP );
 		foreach ( array_slice( $log, self::KEEP ) as $old ) {
 			// Out of the log, out of the database: a copy kept for an undo
-			// nobody can reach any more is dead weight. Unless the same
-			// category came back higher up — that copy is the live one.
-			if ( ! in_array( (int) $old['tid'], $alive, true ) ) {
-				delete_term_meta( (int) $old['tid'], self::META_PREV );
+			// nobody can reach any more is dead weight. Unless the same object
+			// came back higher up — that copy is the live one.
+			$still = false;
+			foreach ( $kept as $row ) {
+				if ( (int) $row['tid'] === (int) $old['tid'] && (string) ( $row['what'] ?? 'term' ) === (string) ( $old['what'] ?? 'term' ) ) {
+					$still = true;
+					break;
+				}
+			}
+			if ( ! $still && (int) $old['tid'] ) {
+				self::drop_copy( (int) $old['tid'], (string) ( $old['what'] ?? 'term' ) );
 			}
 		}
 		$count = $fresh ? (array) ( $s['count'] ?? [] ) : [];
@@ -543,26 +756,32 @@ final class DZE_Automation {
 		self::save_state( [ 'day' => $today, 'count' => $count, 'last' => $lastm, 'log' => $kept ] );
 	}
 
-	/** Puts back the description an automatic pass replaced. */
-	public static function undo( int $tid ): bool {
-		$prev = (string) get_term_meta( $tid, self::META_PREV, true );
+	/** Puts back the text an automatic pass replaced. */
+	public static function undo( int $oid, string $type = 'term' ): bool {
+		$prev = self::copy_of( $oid, $type );
 		if ( '' === trim( $prev ) ) {
 			return false;
 		}
-		if ( is_wp_error( wp_update_term( $tid, 'product_cat', [ 'description' => wp_kses_post( $prev ) ] ) ) ) {
+		if ( 'post' === $type ) {
+			$done = wp_update_post( [ 'ID' => $oid, 'post_content' => wp_kses_post( $prev ) ], true );
+			if ( is_wp_error( $done ) ) {
+				return false;
+			}
+		} elseif ( is_wp_error( wp_update_term( $oid, 'product_cat', [ 'description' => wp_kses_post( $prev ) ] ) ) ) {
 			return false;
 		}
-		delete_term_meta( $tid, self::META_PREV );
+		self::drop_copy( $oid, $type );
 		$s   = self::state();
 		$log = (array) ( $s['log'] ?? [] );
 		foreach ( $log as $i => $row ) {
-			if ( (int) ( $row['tid'] ?? 0 ) === $tid ) {
+			if ( (int) ( $row['tid'] ?? 0 ) === $oid && (string) ( $row['what'] ?? 'term' ) === $type ) {
 				$log[ $i ]['undone'] = 1;
 			}
 		}
 		$s['log'] = $log;
 		self::save_state( $s );
 		delete_transient( 'dze_auto_survey' );
+		delete_transient( 'dze_pl_census' );
 		return true;
 	}
 
@@ -577,7 +796,7 @@ final class DZE_Automation {
 		?>
 		<div class="dze-admin">
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Runs the functions already on this site, on a schedule, a few items a day. It judges a page on the very figures its own panel shows — what it holds today against what it should hold — hands the work to the writing queue, and never touches the same category twice in a month.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Runs the functions already on this site, on a schedule, a few items a day. It judges a page on the very figures its own panel shows — what it holds today against what it should hold — hands the writing to the queue, and never comes back to the same page within a month.', 'dazont-ecom' ); ?>
 		</p>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_auto_options' ); ?>
@@ -598,14 +817,20 @@ final class DZE_Automation {
 								<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[on]" value="1" <?php checked( $conf['on'] ); ?> <?php disabled( ! $ready ); ?> />
 								<?php esc_html_e( 'On', 'dazont-ecom' ); ?>
 							</label>
-							<label style="margin-left:18px;">
-								<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
-								<?php esc_html_e( 'per day', 'dazont-ecom' ); ?>
-							</label>
-							<label style="margin-left:18px;">
-								<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[apply]" value="1" <?php checked( $conf['apply'] ); ?> />
-								<?php esc_html_e( 'Save it on the shop straight away', 'dazont-ecom' ); ?>
-							</label>
+							<?php if ( 'month' === $conf['cadence'] ) : ?>
+								<span style="margin-left:18px;color:#646970;"><?php esc_html_e( 'once a month', 'dazont-ecom' ); ?></span>
+							<?php else : ?>
+								<label style="margin-left:18px;">
+									<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
+									<?php esc_html_e( 'per day', 'dazont-ecom' ); ?>
+								</label>
+							<?php endif; ?>
+							<?php if ( 'shop' !== $conf['scope'] ) : ?>
+								<label style="margin-left:18px;">
+									<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[apply]" value="1" <?php checked( $conf['apply'] ); ?> />
+									<?php esc_html_e( 'Save it on the shop straight away', 'dazont-ecom' ); ?>
+								</label>
+							<?php endif; ?>
 							<?php if ( ! empty( $task['kw'] ) ) : ?>
 								<br />
 								<label style="display:inline-block;margin-top:8px;">
@@ -614,9 +839,15 @@ final class DZE_Automation {
 								</label>
 							<?php endif; ?>
 							<p class="description">
-								<?php echo $conf['apply']
-									? esc_html__( 'Unticked, the result waits under "to review" in the writing queue instead of going live.', 'dazont-ecom' )
-									: esc_html__( 'Ticked, the result goes live without being read first. Left as it is, it waits under "to review" in the writing queue.', 'dazont-ecom' ); ?>
+								<?php
+								if ( 'shop' === $conf['scope'] ) {
+									esc_html_e( 'Nothing here reaches the shop on its own: what comes back waits for your yes or no.', 'dazont-ecom' );
+								} elseif ( $conf['apply'] ) {
+									esc_html_e( 'Unticked, the result waits under "to review" in the writing queue instead of going live.', 'dazont-ecom' );
+								} else {
+									esc_html_e( 'Ticked, the result goes live without being read first. Left as it is, it waits under "to review" in the writing queue.', 'dazont-ecom' );
+								}
+								?>
 							</p>
 						</td>
 					</tr>
@@ -666,7 +897,7 @@ final class DZE_Automation {
 			} );
 			$( document ).on( 'click', '.dze-auto-undo', function () {
 				var $b = $( this );
-				post( 'dze_auto_undo', { term: $b.data( 'term' ) }, $b, $b.closest( 'li' ).find( '.dze-auto-msg' ) );
+				post( 'dze_auto_undo', { term: $b.data( 'term' ), what: $b.data( 'what' ) }, $b, $b.closest( 'li' ).find( '.dze-auto-msg' ) );
 			} );
 		} );
 		</script>
@@ -676,23 +907,37 @@ final class DZE_Automation {
 	/** Where one task stands, and what it is about to take. */
 	public static function render_state( string $id ): void {
 		$conf = self::conf( $id );
-		$done = self::done_today( $id );
 		$next = wp_next_scheduled( self::HOOK );
 		echo '<p style="margin:0;">';
-		printf(
-			/* translators: 1: passes made today, 2: the daily figure */
-			esc_html__( 'Today: %1$s of %2$s.', 'dazont-ecom' ),
-			'<strong>' . esc_html( number_format_i18n( $done ) ) . '</strong>',
-			esc_html( number_format_i18n( $conf['per_day'] ) )
-		);
-		if ( $conf['on'] && $next ) {
-			echo ' ';
+		if ( 'month' === $conf['cadence'] ) {
+			$last = self::last_run( $id );
+			echo esc_html( $last
+				/* translators: %s: how long ago */
+				? sprintf( __( 'Last run %s ago.', 'dazont-ecom' ), human_time_diff( $last, time() ) )
+				: __( 'Never run yet.', 'dazont-ecom' ) );
+			if ( $conf['on'] ) {
+				echo ' ' . esc_html( $last && $last + self::gap( $id ) > time()
+					/* translators: %s: how long until the next run */
+					? sprintf( __( 'Next in %s.', 'dazont-ecom' ), human_time_diff( time(), $last + self::gap( $id ) ) )
+					: __( 'Due now.', 'dazont-ecom' ) );
+			}
+		} else {
 			printf(
-				/* translators: %s: human-readable delay, e.g. "35 mins" */
-				esc_html__( 'Next look in %s.', 'dazont-ecom' ),
-				esc_html( human_time_diff( time(), (int) $next ) )
+				/* translators: 1: passes made today, 2: the daily figure */
+				esc_html__( 'Today: %1$s of %2$s.', 'dazont-ecom' ),
+				'<strong>' . esc_html( number_format_i18n( self::done_today( $id ) ) ) . '</strong>',
+				esc_html( number_format_i18n( $conf['per_day'] ) )
 			);
-		} elseif ( ! $conf['on'] ) {
+			if ( $conf['on'] && $next ) {
+				echo ' ';
+				printf(
+					/* translators: %s: human-readable delay, e.g. "35 mins" */
+					esc_html__( 'Next look in %s.', 'dazont-ecom' ),
+					esc_html( human_time_diff( time(), (int) $next ) )
+				);
+			}
+		}
+		if ( ! $conf['on'] ) {
 			echo ' ' . esc_html__( 'Off — nothing runs on its own.', 'dazont-ecom' );
 		}
 		echo '</p>';
@@ -706,10 +951,23 @@ final class DZE_Automation {
 		echo '<p class="description" style="margin:6px 0 0;">' . esc_html__( 'Next in line:', 'dazont-ecom' ) . ' ';
 		$bits = [];
 		foreach ( $next_up as $row ) {
-			$bits[] = '<a href="' . esc_url( (string) get_edit_term_link( (int) $row['tid'], 'product_cat' ) ) . '">' . esc_html( (string) $row['name'] ) . '</a>'
+			$name = esc_html( (string) $row['name'] );
+			$url  = self::edit_url( $conf['scope'], (int) $row['tid'] );
+			$bits[] = ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name )
 				. ' <span style="color:#a7aaad;">(' . esc_html( (string) $row['why'] ) . ')</span>';
 		}
 		echo wp_kses_post( implode( ' · ', $bits ) ) . '</p>';
+	}
+
+	/** Where one worked-on object is edited, whatever kind it is. */
+	private static function edit_url( string $scope, int $oid ): string {
+		if ( ! $oid ) {
+			return '';
+		}
+		if ( 'post' === $scope ) {
+			return (string) get_edit_post_link( $oid, '' );
+		}
+		return (string) get_edit_term_link( $oid, 'product_cat' );
 	}
 
 	public static function render_log(): void {
@@ -721,41 +979,69 @@ final class DZE_Automation {
 		$tasks = self::tasks();
 		echo '<ul style="margin:0;">';
 		foreach ( $log as $row ) {
-			$tid  = (int) ( $row['tid'] ?? 0 );
+			$oid  = (int) ( $row['tid'] ?? 0 );
 			$id   = (string) ( $row['task'] ?? '' );
-			$st   = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::state( $tid ) : null;
+			$what = (string) ( $row['what'] ?? 'term' );
 			$und  = ! empty( $row['undone'] );
-			$can  = ! $und && '' !== trim( (string) get_term_meta( $tid, self::META_PREV, true ) );
+			$can  = ! $und && $oid && '' !== trim( self::copy_of( $oid, $what ) );
+			$url  = self::edit_url( 'post' === $what ? 'post' : 'category', $oid );
+			$name = esc_html( (string) ( $row['name'] ?? '' ) );
 			echo '<li style="margin:0 0 5px;">';
 			echo '<strong>' . esc_html( (string) ( $tasks[ $id ]['label'] ?? $id ) ) . '</strong> · ';
-			echo '<a href="' . esc_url( (string) get_edit_term_link( $tid, 'product_cat' ) ) . '">' . esc_html( (string) ( $row['name'] ?? '' ) ) . '</a> ';
+			echo '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a> ' : $name . ' ';
 			echo '<span class="description">';
 			printf(
 				/* translators: %s: how long ago */
 				esc_html__( '%s ago', 'dazont-ecom' ),
 				esc_html( human_time_diff( (int) ( $row['at'] ?? time() ), time() ) )
 			);
-			if ( $und ) {
-				echo ' · ' . esc_html__( 'put back', 'dazont-ecom' );
-			} elseif ( empty( $row['auto'] ) ) {
-				echo ' · ' . esc_html__( 'waiting for you to review it', 'dazont-ecom' );
-			} elseif ( $st && 'cat_links' === $id && $st['links'] > (int) ( $row['links'] ?? 0 ) ) {
-				/* translators: 1: links before, 2: links now */
-				echo ' · ' . esc_html( sprintf( __( '%1$d → %2$d links', 'dazont-ecom' ), (int) $row['links'], (int) $st['links'] ) );
-			} elseif ( $st && 'cat_desc' === $id && $st['words'] !== (int) ( $row['words'] ?? 0 ) ) {
-				/* translators: 1: words before, 2: words now */
-				echo ' · ' . esc_html( sprintf( __( '%1$d → %2$d words', 'dazont-ecom' ), (int) $row['words'], (int) $st['words'] ) );
-			} else {
-				echo ' · ' . esc_html__( 'waiting for the queue', 'dazont-ecom' );
-			}
+			echo ' · ' . esc_html( self::outcome( $row ) );
 			echo '</span>';
 			if ( $can ) {
-				echo ' <button type="button" class="button-link dze-auto-undo" data-term="' . esc_attr( (string) $tid ) . '">&#8634; ' . esc_html__( 'Undo', 'dazont-ecom' ) . '</button>';
+				echo ' <button type="button" class="button-link dze-auto-undo" data-term="' . esc_attr( (string) $oid ) . '" data-what="' . esc_attr( $what ) . '">&#8634; ' . esc_html__( 'Undo', 'dazont-ecom' ) . '</button>';
 			}
 			echo ' <span class="dze-auto-msg" style="font-size:12px;"></span>';
 			echo '</li>';
 		}
 		echo '</ul>';
+	}
+
+	/**
+	 * What became of one pass, read from the shop as it stands now rather than
+	 * from what the pass claimed: the queue may still be working on it.
+	 */
+	private static function outcome( array $row ): string {
+		$id   = (string) ( $row['task'] ?? '' );
+		$oid  = (int) ( $row['tid'] ?? 0 );
+		$what = (string) ( $row['what'] ?? 'term' );
+		if ( ! empty( $row['undone'] ) ) {
+			return __( 'put back', 'dazont-ecom' );
+		}
+		if ( 'shop' === $what ) {
+			$n = (int) ( $row['links'] ?? 0 );
+			return $n
+				/* translators: %d: how many suggestions were added */
+				? sprintf( _n( '%d suggestion to review', '%d suggestions to review', $n, 'dazont-ecom' ), $n )
+				: __( 'nothing new to suggest', 'dazont-ecom' );
+		}
+		if ( empty( $row['auto'] ) ) {
+			return __( 'waiting for you to review it', 'dazont-ecom' );
+		}
+		$now = self::subject( 'post' === $what ? 'post' : 'category', $oid );
+		if ( ! $now ) {
+			return __( 'gone', 'dazont-ecom' );
+		}
+		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $now['html'] );
+		$words = str_word_count( wp_strip_all_tags( $now['html'] ) );
+		if ( in_array( $id, [ 'cat_links', 'post_links' ], true ) && $links > (int) ( $row['links'] ?? 0 ) ) {
+			/* translators: 1: links before, 2: links now */
+			return sprintf( __( '%1$d → %2$d links', 'dazont-ecom' ), (int) $row['links'], $links );
+		}
+		if ( 'cat_desc' === $id && $words !== (int) ( $row['words'] ?? 0 ) ) {
+			/* translators: 1: words before, 2: words now */
+			return sprintf( __( '%1$d → %2$d words', 'dazont-ecom' ), (int) $row['words'], $words );
+		}
+		return __( 'waiting for the queue', 'dazont-ecom' );
 	}
 
 	// =========================================================================
@@ -789,6 +1075,10 @@ final class DZE_Automation {
 				return __( 'That category is already waiting in the queue.', 'dazont-ecom' );
 			case 'off':
 				return __( 'This task is switched off.', 'dazont-ecom' );
+			case 'early':
+				return __( 'Too soon after the last one — it is spread on purpose.', 'dazont-ecom' );
+			case 'failed':
+				return __( 'The model could not be reached. It will be tried again.', 'dazont-ecom' );
 		}
 		return __( 'Nothing was queued.', 'dazont-ecom' );
 	}
@@ -825,8 +1115,9 @@ final class DZE_Automation {
 
 	public static function ajax_undo(): void {
 		self::guard();
-		$tid = isset( $_POST['term'] ) ? absint( $_POST['term'] ) : 0;
-		if ( ! $tid || ! self::undo( $tid ) ) {
+		$tid  = isset( $_POST['term'] ) ? absint( $_POST['term'] ) : 0;
+		$what = isset( $_POST['what'] ) ? sanitize_key( wp_unslash( $_POST['what'] ) ) : 'term';
+		if ( ! $tid || ! self::undo( $tid, 'post' === $what ? 'post' : 'term' ) ) {
 			wp_send_json_error( [
 				'message' => __( 'Nothing to put back on this category.', 'dazont-ecom' ),
 				'log'     => self::log_html(),

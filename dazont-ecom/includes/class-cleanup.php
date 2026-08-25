@@ -81,7 +81,8 @@ final class DZE_Cleanup {
 			'automation' => [
 				'options'    => [ 'dze_auto_settings', 'dze_auto_state' ],
 				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
-				'transients' => [ 'dze_auto_survey' ],
+				'post_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
+				'transients' => [ 'dze_auto_survey', 'dze_pl_census', 'dze_pl_cats' ],
 			],
 			'content' => [
 				'options'    => [ 'dze_content_settings', 'dze_content_log' ],

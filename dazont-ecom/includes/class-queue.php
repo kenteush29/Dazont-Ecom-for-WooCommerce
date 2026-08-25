@@ -38,6 +38,10 @@ final class DZE_Queue {
 				'label'  => __( 'Category internal links', 'dazont-ecom' ),
 				'module' => 'category_content',
 			],
+			'post_links' => [
+				'label'  => __( 'Article internal links', 'dazont-ecom' ),
+				'module' => 'automation',
+			],
 		];
 	}
 
@@ -338,6 +342,12 @@ final class DZE_Queue {
 			$res = DZE_Category_Content::add_links( $object_id, (string) $term->description, (array) ( $payload['urls'] ?? [] ) );
 			return (string) $res['html'];
 		}
+		if ( 'post_links' === $kind ) {
+			if ( ! class_exists( 'DZE_Post_Links' ) ) {
+				throw new RuntimeException( __( 'The article linking pass is unavailable.', 'dazont-ecom' ) );
+			}
+			return DZE_Post_Links::add_links( $object_id );
+		}
 		throw new RuntimeException( __( 'Unknown job type.', 'dazont-ecom' ) );
 	}
 
@@ -345,6 +355,16 @@ final class DZE_Queue {
 	public static function apply( string $kind, int $object_id, string $html ): bool {
 		if ( '' === trim( $html ) ) {
 			return false;
+		}
+		if ( 'post_links' === $kind ) {
+			// Only the links changed: the title, the status, the dates and
+			// everything else about the post are none of our business.
+			$done = wp_update_post( [ 'ID' => $object_id, 'post_content' => wp_kses_post( $html ) ], true );
+			if ( is_wp_error( $done ) ) {
+				return false;
+			}
+			delete_transient( 'dze_pl_census' );
+			return true;
 		}
 		if ( 'cat_desc' === $kind || 'cat_links' === $kind ) {
 			$res = wp_update_term( $object_id, 'product_cat', [ 'description' => wp_kses_post( $html ) ] );
@@ -385,43 +405,49 @@ final class DZE_Queue {
 	}
 
 	/**
-	 * What is waiting, per object, for the category kinds. One query for a
+	 * What is waiting, per object, for one family of kinds. One query for a
 	 * whole list screen — a badge per row must never cost a query per row.
+	 *
+	 * The family matters: a category and an article can carry the same number
+	 * without being the same thing, and "is something waiting on #42" has to
+	 * know which #42 is being asked about.
 	 *
 	 * @return array<int,array{status:string,id:int,kind:string}>
 	 */
-	public static function pending_map(): array {
+	public static function pending_map( string $family = 'cat_' ): array {
 		global $wpdb;
-		static $cache = null;
-		if ( null !== $cache ) {
-			return $cache;
+		static $cache = [];
+		$family = preg_replace( '/[^a-z_]/', '', strtolower( $family ) );
+		if ( isset( $cache[ $family ] ) ) {
+			return $cache[ $family ];
 		}
 		$table = self::table();
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
-			$cache = [];
-			return $cache;
+			$cache[ $family ] = [];
+			return $cache[ $family ];
 		}
-		$cache = [];
-		$rows  = (array) $wpdb->get_results(
+		$map  = [];
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 			"SELECT id, kind, object_id, status FROM {$table}
-			 WHERE status IN ('queued','running','review') AND kind LIKE 'cat_%'
+			 WHERE status IN ('queued','running','review') AND kind LIKE %s
 			 ORDER BY FIELD(status,'review','running','queued'), id DESC",
-			ARRAY_A
-		);
+			$wpdb->esc_like( $family ) . '%'
+		), ARRAY_A );
 		foreach ( $rows as $r ) {
 			$oid = (int) $r['object_id'];
-			if ( isset( $cache[ $oid ] ) ) {
+			if ( isset( $map[ $oid ] ) ) {
 				continue; // the most advanced one wins.
 			}
-			$cache[ $oid ] = [ 'status' => (string) $r['status'], 'id' => (int) $r['id'], 'kind' => (string) $r['kind'] ];
+			$map[ $oid ] = [ 'status' => (string) $r['status'], 'id' => (int) $r['id'], 'kind' => (string) $r['kind'] ];
 		}
-		return $cache;
+		$cache[ $family ] = $map;
+		return $map;
 	}
 
 	/** The job waiting on this object, if any. */
-	public static function pending_for( int $object_id ): array {
-		return self::pending_map()[ $object_id ] ?? [];
+	public static function pending_for( int $object_id, string $family = 'cat_' ): array {
+		return self::pending_map( $family )[ $object_id ] ?? [];
 	}
 
 	/**
@@ -445,6 +471,10 @@ final class DZE_Queue {
 			// Decoded here, escaped once by the screen: otherwise "Bags &
 			// backpacks" comes out as "Bags &amp;amp; backpacks".
 			return ( $t && ! is_wp_error( $t ) ) ? html_entity_decode( $t->name, ENT_QUOTES, 'UTF-8' ) : sprintf( '#%d', $object_id );
+		}
+		if ( 0 === strpos( $kind, 'post_' ) ) {
+			$title = get_the_title( $object_id );
+			return '' !== $title ? html_entity_decode( $title, ENT_QUOTES, 'UTF-8' ) : sprintf( '#%d', $object_id );
 		}
 		return sprintf( '#%d', $object_id );
 	}

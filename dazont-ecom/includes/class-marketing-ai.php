@@ -1059,9 +1059,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		// is what an owner discovers on the day his other customers do not see
 		// the sale. The wording is written in the shop's main language; which
 		// commercial moments matter comes from what the shop says about itself.
-		$lang      = self::primary_language();
-		$countries = [];
-
 		// The Claude call can take up to ~60s; give PHP room beyond typical
 		// 30s shared-host limits so it isn't killed mid-request.
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -1069,21 +1066,11 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 
 		try {
-			$events = $this->generate_events( $start, $end, $lang, $countries );
+			$count = self::propose( $start, $end )['added'];
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 
-		// Store as pending suggestions (prepend the newest).
-		$existing = self::get_suggestions();
-		foreach ( array_reverse( $events ) as $ev ) {
-			$id = 'sug_' . substr( md5( $ev['title'] . '|' . $ev['start_date'] . '|' . wp_json_encode( $ev['countries'] ) ), 0, 10 );
-			$ev['id'] = $id;
-			$existing = [ $id => $ev ] + $existing;
-		}
-		self::save_suggestions( $existing );
-
-		$count = count( $events );
 		wp_send_json_success( [
 			'count'   => $count,
 			'message' => $count === 0
@@ -1091,6 +1078,65 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				/* translators: %d: number of generated marketing events */
 				: sprintf( _n( '%d suggestion generated.', '%d suggestions generated.', $count, 'dazont-ecom' ), $count ),
 		] );
+	}
+
+	/**
+	 * Proposes a calendar for a window and files what comes back.
+	 *
+	 * The one way suggestions are ever created — the button on the screen and
+	 * the monthly automation both come through here, so both dedupe the same
+	 * way and both leave the result waiting for a yes or a no. Nothing this
+	 * writes reaches the shop: a suggestion becomes an event only when it is
+	 * accepted, and even then it is created disabled.
+	 *
+	 * @return array{added:int,skipped:int}
+	 */
+	public static function propose( string $start, string $end ): array {
+		$self   = self::instance();
+		$events = $self->generate_events( $start, $end, self::primary_language(), [] );
+
+		// A moment already on the calendar is not a suggestion: an event
+		// accepted last month must not come back every month.
+		$taken = [];
+		if ( class_exists( 'DZE_Discounts' ) ) {
+			foreach ( DZE_Discounts::get_rules() as $rule ) {
+				if ( 'sale' === ( $rule['type'] ?? '' ) ) {
+					$taken[ mb_strtolower( trim( (string) ( $rule['title'] ?? '' ) ) ) . '|' . (string) ( $rule['start'] ?? '' ) ] = true;
+				}
+			}
+		}
+		$existing = self::get_suggestions();
+		$added    = 0;
+		$skipped  = 0;
+		foreach ( array_reverse( $events ) as $ev ) {
+			if ( isset( $taken[ mb_strtolower( trim( (string) $ev['title'] ) ) . '|' . (string) $ev['start_date'] ] ) ) {
+				$skipped++;
+				continue;
+			}
+			$id       = 'sug_' . substr( md5( $ev['title'] . '|' . $ev['start_date'] . '|' . wp_json_encode( $ev['countries'] ) ), 0, 10 );
+			$ev['id'] = $id;
+			$existing = [ $id => $ev ] + $existing;
+			$added++;
+		}
+		self::save_suggestions( $existing );
+		return [ 'added' => $added, 'skipped' => $skipped ];
+	}
+
+	/** How far ahead the accepted calendar already runs, as a timestamp (0 = nothing). */
+	public static function covered_until(): int {
+		$last = 0;
+		if ( class_exists( 'DZE_Discounts' ) ) {
+			foreach ( DZE_Discounts::get_rules() as $rule ) {
+				if ( 'sale' !== ( $rule['type'] ?? '' ) ) {
+					continue;
+				}
+				$end = strtotime( (string) ( $rule['end'] ?? '' ) );
+				if ( $end && $end > $last ) {
+					$last = $end;
+				}
+			}
+		}
+		return $last;
 	}
 
 	/**

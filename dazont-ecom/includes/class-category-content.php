@@ -819,7 +819,7 @@ PROMPT;
 	}
 
 	/** tokens(), with a crude plural trim so "bag" and "bags" are one word. */
-	private static function stems( string $s ): array {
+	public static function stems( string $s ): array {
 		$out = [];
 		foreach ( self::tokens( $s ) as $t ) {
 			$out[] = ( mb_strlen( $t ) > 3 && 's' === mb_substr( $t, -1 ) ) ? mb_substr( $t, 0, -1 ) : $t;
@@ -847,7 +847,7 @@ PROMPT;
 	}
 
 	/** Words too common to say anything about what a page is about. */
-	private static function stop_words(): array {
+	public static function stop_words(): array {
 		return [
 			'the', 'and', 'for', 'with', 'your', 'you', 'our', 'from', 'that', 'this', 'are', 'how', 'what',
 			'why', 'best', 'top', 'guide', 'all', 'about', 'into', 'out', 'not', 'can', 'les', 'des', 'une',
@@ -856,7 +856,7 @@ PROMPT;
 	}
 
 	/** Meaningful words of a string, lower-cased and de-duplicated. */
-	private static function tokens( string $s ): array {
+	public static function tokens( string $s ): array {
 		$words = preg_split( '/[^\p{L}\p{N}]+/u', mb_strtolower( $s ), -1, PREG_SPLIT_NO_EMPTY ) ?: [];
 		$stop  = self::stop_words();
 		$out   = [];
@@ -1134,16 +1134,7 @@ PROMPT;
 	 * A translated category is WPML's business, not the writer's.
 	 */
 	private static function language( int $term_id ): string {
-		$code = self::default_lang();
-		if ( '' === $code ) {
-			$code = (string) get_locale();
-		}
-		$names = [
-			'en' => 'English', 'fr' => 'French', 'de' => 'German', 'es' => 'Spanish',
-			'it' => 'Italian', 'nl' => 'Dutch', 'pt' => 'Portuguese', 'pl' => 'Polish',
-		];
-		$short = strtolower( substr( str_replace( '-', '_', $code ), 0, 2 ) );
-		return $names[ $short ] ?? $code;
+		return self::lang_name( self::lang_code( $term_id ) );
 	}
 
 	// =========================================================================
@@ -1402,26 +1393,65 @@ PROMPT;
 			$room = max( 1, $max - count( $done ) );
 		}
 
+		return self::weave( (string) $term->name, $html, self::language( $term_id ), $links, $room, [
+			'label'    => 'CATEGORY',
+			'explicit' => (bool) $keys,
+		] );
+	}
+
+	/**
+	 * The linking pass itself: a text, a list of targets, how many to place.
+	 *
+	 * Categories are not the only pages that carry internal links — an article
+	 * that points at nothing is the other half of the same mesh. The prompt,
+	 * the anchor rule, the safety nets and the usage accounting live here,
+	 * once, and whoever has a text and a list of targets uses them.
+	 *
+	 * @param string $subject  What the page is, in one line — its name.
+	 * @param string $html     The text to return with links added.
+	 * @param string $language The language it is written in, spelled out.
+	 * @param array  $links    Targets: [ label, url, kind ], already filtered.
+	 * @param int    $room     How many links to place.
+	 * @param array  $opt      'label' the word for the page kind in the prompt,
+	 *                         'explicit' when every target was picked by hand.
+	 *
+	 * @return array{html:string,added:int,before:int,after:int}
+	 */
+	public static function weave( string $subject, string $html, string $language, array $links, int $room, array $opt = [] ): array {
+		if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
+			throw new RuntimeException( __( 'There is no text to work on yet.', 'dazont-ecom' ) );
+		}
+		if ( ! $links ) {
+			throw new RuntimeException( __( 'Every page this text can link to is already linked.', 'dazont-ecom' ) );
+		}
+		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
+		}
+		$kind     = strtoupper( (string) ( $opt['label'] ?? 'PAGE' ) );
+		$explicit = ! empty( $opt['explicit'] );
+		$done     = self::linked_urls( $html );
+		$room     = max( 1, $room );
+
 		$list = [];
 		foreach ( $links as $l ) {
 			$list[] = $l['label'] . ' [' . $l['kind'] . '] → ' . $l['url'];
 		}
 
-		$user = "--- CATEGORY ---\nName: " . $term->name . "\n"
+		$user = "--- {$kind} ---\nName: " . $subject . "\n"
 			. "\n--- LINK TARGETS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n"
 			. ( $done ? "\nAlready linked in the text, do not link again:\n- " . implode( "\n- ", $done ) . "\n" : '' )
-			. "\n--- DESCRIPTION (HTML, to return with links added) ---\n" . $html . "\n"
+			. "\n--- TEXT (HTML, to return with links added) ---\n" . $html . "\n"
 			. "\n--- INSTRUCTIONS ---\n"
-			. ( $keys
+			. ( $explicit
 				? '- Add a link for EACH of the ' . $room . " targets above, on a different spot, unless the text truly offers no place for one.\n"
 				: '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n" )
 			. self::links_prompt() . "\n"
 			. "\n--- FACTS (never contradict these) ---\n"
-			. 'LANGUAGE: the text is in ' . self::language( $term_id ) . " — keep it in that language.\n"
+			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
 			. 'LINK FORMAT: <a href="URL">anchor</a>, using the URLs above verbatim.' . "\n"
 			. 'OUTPUT: the full HTML fragment only — no markdown, no code fence, no comment before or after.';
 
-		$system = 'You are an SEO editor doing internal linking on an existing e-commerce category page. You are conservative: you add links, you do not rewrite copy.';
+		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
 		DZE_Ai_Usage::unit( 'cat_links' );
 		$out    = DZE_Marketing_Ai::complete( $system, $user, '', min( 16000, $words * 3 + 900 ), 240 );
@@ -1445,6 +1475,22 @@ PROMPT;
 			'before' => $before,
 			'after'  => $after,
 		];
+	}
+
+	/** The language a text is written in, spelled out for a prompt. */
+	public static function lang_name( string $code = '' ): string {
+		if ( '' === $code ) {
+			$code = self::default_lang();
+		}
+		if ( '' === $code ) {
+			$code = (string) get_locale();
+		}
+		$names = [
+			'en' => 'English', 'fr' => 'French', 'de' => 'German', 'es' => 'Spanish',
+			'it' => 'Italian', 'nl' => 'Dutch', 'pt' => 'Portuguese', 'pl' => 'Polish',
+		];
+		$short = strtolower( substr( str_replace( '-', '_', $code ), 0, 2 ) );
+		return $names[ $short ] ?? $code;
 	}
 
 	/**
