@@ -53,8 +53,9 @@
 		var vars  = $cell.data('vars') || {};
 		$('#dze-klav-rule').val($cell.data('rule'));
 		$('#dze-klav-name').val($cell.data('name') || $cell.data('title') || '');
-		$('#dze-klav-subject').val($cell.data('title') || '');
-		$('#dze-klav-preview').val('');
+		// Written on the event's screen, so it opens written here.
+		$('#dze-klav-subject').val($cell.data('subject') || $cell.data('title') || '');
+		$('#dze-klav-preview').val($cell.data('preview') || '');
 		$('#dze-klav-when').val($cell.data('when') || '');
 		$('#dze-klav-write-msg').text('');
 		$('#dze-klav-status').text('');
@@ -72,12 +73,16 @@
 		var $b = $(this), $m = $('#dze-klav-write-msg');
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').text(i18n.writing);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_subject', nonce: cfg.nonce, rule: $('#dze-klav-rule').val() })
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: $('#dze-klav-rule').val() })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (res && res.success) {
 					$('#dze-klav-subject').val(res.data.subject);
 					if (res.data.preview) { $('#dze-klav-preview').val(res.data.preview); }
+					// Whatever else was written lands in the fields that hold it.
+					$.each(res.data.vars || {}, function (marker, text) {
+						$('#dze-klav-vars .dze-klav-v[data-marker="' + marker + '"]').val(text);
+					});
 					$m.text('');
 					return;
 				}
@@ -146,5 +151,73 @@
 				$s.css('color', '#b32d2e').text(i18n.error);
 			});
 	});
+
+	// ---- The event's own screen: write the email, look at it, save it with
+	// the event. No save of its own — the page has one button.
+	function editorVars() {
+		var out = {};
+		$('#dze-klav-editor .dze-klav-e-var').each(function () {
+			out[$(this).data('marker')] = $(this).val() || '';
+		});
+		return out;
+	}
+
+	$(document).on('click', '#dze-klav-e-write', function () {
+		var $b = $(this), $m = $('#dze-klav-e-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.writing);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_write',
+			nonce: cfg.nonce,
+			rule: $('#dze-klav-editor').data('rule')
+		})
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$('#dze-klav-e-subject').val(res.data.subject);
+				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
+				$.each(res.data.vars || {}, function (marker, text) {
+					$('#dze-klav-editor .dze-klav-e-var[data-marker="' + marker + '"]').not('[readonly]').val(text);
+				});
+				$m.css('color', '#b26a00').text(i18n.written);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	$(document).on('click', '#dze-klav-e-preview-btn', function () {
+		var $b = $(this), $m = $('#dze-klav-e-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.rendering);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_preview',
+			nonce: cfg.nonce,
+			vars: JSON.stringify(editorVars())
+		})
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$m.text('');
+				$('#dze-klav-e-subject-echo').text($('#dze-klav-e-subject').val() || '');
+				// srcdoc + an empty sandbox: the rendered email is shown, and
+				// nothing inside it runs.
+				$('#dze-klav-e-iframe').attr('srcdoc', res.data.html);
+				$('#dze-klav-e-frame').show();
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	$(document).on('click', '#dze-klav-e-close', function () { $('#dze-klav-e-frame').hide(); });
 
 }(jQuery));

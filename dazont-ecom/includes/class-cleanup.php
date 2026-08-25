@@ -68,7 +68,7 @@ final class DZE_Cleanup {
 			// The drafts themselves live in Klaviyo, which is not our database
 			// to erase: what we hold is the key, the choices and the links.
 			'klaviyo' => [
-				'options'    => [ 'dze_klaviyo', 'dze_klaviyo_drafts' ],
+				'options'    => [ 'dze_klaviyo', 'dze_klaviyo_drafts', 'dze_klaviyo_copy' ],
 				'transients' => [ 'dze_klaviyo_cat' ],
 			],
 			'sourcing' => [
