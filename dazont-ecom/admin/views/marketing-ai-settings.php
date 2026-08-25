@@ -121,6 +121,28 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		}
 	}());
 	</script>
+	<h2 class="title"><?php esc_html_e( 'Promotion translations', 'dazont-ecom' ); ?></h2>
+	<p class="description" style="max-width:820px;">
+		<?php esc_html_e( 'When an event is created or switched on, its banner line is translated into every language the shop sells in — a promotion with nothing to say in Polish does not run in Polish at all. It happens in the background, it never overwrites a line you wrote yourself, and you can correct any of them on the event.', 'dazont-ecom' ); ?>
+	</p>
+	<textarea id="dze-mai-promo-i18n" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[promo_i18n_prompt]' ); ?>" rows="6" class="large-text code" style="max-width:820px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( DZE_Marketing_Ai::promo_i18n_prompt() ); ?></textarea>
+	<p>
+		<button type="button" class="button-link" id="dze-mai-promo-i18n-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+		<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'promo_i18n', '#dze-mai-promo-i18n' ); } ?>
+	</p>
+	<script>
+	(function () {
+		var shipped = <?php echo wp_json_encode( DZE_Marketing_Ai::default_promo_i18n_prompt() ); ?>;
+		var btn = document.getElementById('dze-mai-promo-i18n-reset');
+		var ta  = document.getElementById('dze-mai-promo-i18n');
+		if ( btn && ta ) {
+			btn.addEventListener('click', function () {
+				ta.value = window.dzeDefaultFor ? window.dzeDefaultFor( 'promo_i18n', shipped ) : shipped;
+				ta.focus();
+			});
+		}
+	}());
+	</script>
 	<?php endif; // $show_events ?>
 
 	<?php submit_button( __( 'Save configuration', 'dazont-ecom' ) ); ?>

@@ -7,7 +7,7 @@ defined( 'ABSPATH' ) || exit;
  */
 $sug = wp_parse_args( $sug, [
 	'id' => '', 'title' => '', 'percent' => 0, 'start_date' => '', 'end_date' => '',
-	'languages' => [], 'email_subject' => '', 'rationale' => '',
+	'languages' => [], 'rationale' => '',
 ] );
 $langs = implode( ', ', (array) $sug['languages'] );
 ?>
@@ -16,12 +16,10 @@ $langs = implode( ', ', (array) $sug['languages'] );
 	data-percent="<?php echo esc_attr( (int) $sug['percent'] ); ?>"
 	data-start="<?php echo esc_attr( $sug['start_date'] ); ?>"
 	data-end="<?php echo esc_attr( $sug['end_date'] ); ?>"
-	data-langs="<?php echo esc_attr( $langs ); ?>"
-	data-subject="<?php echo esc_attr( $sug['email_subject'] ); ?>">
+	data-langs="<?php echo esc_attr( $langs ); ?>">
 	<td style="text-align:center;"><input type="checkbox" class="dze-mai-cb" /></td>
 	<td>
 		<input type="text" class="large-text dze-f-title" value="<?php echo esc_attr( $sug['title'] ); ?>" />
-		<input type="hidden" class="dze-f-subject" value="<?php echo esc_attr( $sug['email_subject'] ); ?>" />
 		<input type="hidden" class="dze-f-langs" value="<?php echo esc_attr( $langs ); ?>" />
 		<?php if ( ! empty( $sug['rationale'] ) ) : ?>
 			<div class="description" style="margin:3px 0 0;font-size:12px;"><?php echo esc_html( $sug['rationale'] ); ?></div>

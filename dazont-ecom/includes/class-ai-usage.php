@@ -72,6 +72,7 @@ final class DZE_Ai_Usage {
 			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),
 			'translate'   => __( 'Product translation (one language)', 'dazont-ecom' ),
 			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),
+			'promo_i18n'  => __( 'Promotion translations (one event)', 'dazont-ecom' ),
 			'sourcing'    => __( 'Sourcing analysis', 'dazont-ecom' ),
 			'other'       => __( 'Everything else', 'dazont-ecom' ),
 		];

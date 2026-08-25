@@ -54,6 +54,7 @@ final class DZE_Prompts {
 			'reviews'    => [ 'DZE_Reviews', 'prompt', 'default_prompt' ],
 			'translate'  => [ 'DZE_Translate', 'prompt', 'default_prompt' ],
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
+			'promo_i18n' => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt', 'default_promo_i18n_prompt' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
 			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', 'default_match_rules' ],
 		];
@@ -72,6 +73,7 @@ final class DZE_Prompts {
 			'reviews'      => [ 'DZE_Reviews', 'prompt' ],
 			'translate'    => [ 'DZE_Translate', 'prompt' ],
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
+			'promo_i18n'   => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
 			'keyword_match'   => [ 'DZE_Marketing_Ai', 'match_rules' ],
 		][ $id ];
@@ -200,6 +202,12 @@ final class DZE_Prompts {
 				'text'  => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 				'tab'   => 'events',
 				'frag'  => 'dze-mai-prompt',
+			];
+			$out['promo_i18n'] = [
+				'label' => __( 'Promotion translations', 'dazont-ecom' ),
+				'text'  => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
+				'tab'   => 'events',
+				'frag'  => 'dze-mai-promo-i18n',
 			];
 		}
 		if ( class_exists( 'DZE_Explorer' ) && self::module_on( 'sourcing' ) ) {

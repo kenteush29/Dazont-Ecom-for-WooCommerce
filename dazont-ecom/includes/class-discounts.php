@@ -100,6 +100,9 @@ final class DZE_Discounts {
 		return self::$instance;
 	}
 
+	/** Background translation of one promotion. */
+	public const I18N_HOOK = 'dze_promo_i18n';
+
 	private function __construct() {
 		if ( is_admin() ) {
 			add_action( 'admin_menu',            [ $this, 'register_menu' ] );
@@ -121,6 +124,140 @@ final class DZE_Discounts {
 		add_action( 'init', [ $this, 'schedule_sale_sync' ] );
 
 		add_shortcode( 'dze_promo_banner', [ $this, 'shortcode_banner' ] );
+
+		// Translating a promotion happens in the background, never inside the
+		// request that saved it.
+		add_action( self::I18N_HOOK, [ __CLASS__, 'fill_i18n' ] );
+	}
+
+	// =========================================================================
+	// The promotion, in every language the shop sells in
+	// =========================================================================
+
+	/**
+	 * Asks for the missing translations of a promotion, shortly, elsewhere.
+	 *
+	 * A promotion whose banner has no text in Polish does not RUN in Polish:
+	 * rule_effective_languages() drops that language, because a sale nobody
+	 * can read announced is worse than no sale. So the translations are not a
+	 * finishing touch — they are what makes the event exist in a language.
+	 *
+	 * Nothing is translated inside the request that saved the event: the owner
+	 * would wait on three or four model calls before his page came back.
+	 */
+	public static function schedule_i18n( string $rule_id ): void {
+		if ( '' === $rule_id || ! self::missing_langs( $rule_id ) ) {
+			return;
+		}
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( self::I18N_HOOK, [ $rule_id ], 'dazont-ecom' );
+			return;
+		}
+		if ( ! wp_next_scheduled( self::I18N_HOOK, [ $rule_id ] ) ) {
+			wp_schedule_single_event( time() + 15, self::I18N_HOOK, [ $rule_id ] );
+		}
+	}
+
+	/**
+	 * The languages this promotion still has nothing to say in.
+	 *
+	 * @return array<string,string> code => native name
+	 */
+	public static function missing_langs( string $rule_id ): array {
+		$rule = self::get_rules()[ $rule_id ] ?? null;
+		if ( ! $rule || 'sale' !== ( $rule['type'] ?? '' ) || ! DZE_Wpml::is_active() ) {
+			return [];
+		}
+		if ( '' === trim( (string) ( $rule['banner_text'] ?? $rule['title'] ?? '' ) ) ) {
+			return [];
+		}
+		$default  = DZE_Wpml::default_language();
+		$i18n     = (array) ( $rule['banner_text_i18n'] ?? [] );
+		$selected = (array) ( $rule['languages'] ?? [] );
+		$out      = [];
+		foreach ( DZE_Wpml::get_active_languages() as $lang ) {
+			$code = (string) $lang['code'];
+			if ( $code === $default || '' !== trim( (string) ( $i18n[ $code ] ?? '' ) ) ) {
+				continue;
+			}
+			// A rule restricted to some languages is not short of the others.
+			if ( $selected && ! in_array( $code, $selected, true ) ) {
+				continue;
+			}
+			$out[ $code ] = (string) ( $lang['native_name'] ?? $code );
+		}
+		return $out;
+	}
+
+	/**
+	 * Writes the missing translations of one promotion.
+	 *
+	 * One call for every language at once: they are one line each, and asking
+	 * four times costs four times as much for a worse result — the model sees
+	 * the whole set and keeps them consistent.
+	 */
+	public static function fill_i18n( string $rule_id ): void {
+		$missing = self::missing_langs( $rule_id );
+		if ( ! $missing || ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			return;
+		}
+		$rules  = self::get_rules();
+		$rule   = $rules[ $rule_id ] ?? [];
+		$source = trim( (string) ( $rule['banner_text'] ?? '' ) );
+		if ( '' === $source ) {
+			$source = trim( (string) ( $rule['title'] ?? '' ) );
+		}
+		$names = [];
+		foreach ( $missing as $code => $name ) {
+			$names[] = $code . ' (' . $name . ')';
+		}
+		$user = "--- THE LINE TO TRANSLATE ---\n" . $source . "\n"
+			. "\n--- LANGUAGES ---\n- " . implode( "\n- ", $names ) . "\n"
+			. "\n--- INSTRUCTIONS ---\n" . DZE_Marketing_Ai::promo_i18n_prompt() . "\n"
+			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the language codes above and whose values are the translated lines. No other key, no comment.";
+
+		try {
+			DZE_Ai_Usage::unit( 'promo_i18n' );
+			$out = DZE_Marketing_Ai::complete(
+				'You translate short promotional lines for an online shop. You reply with JSON only.',
+				$user,
+				'',
+				900,
+				90
+			);
+			DZE_Ai_Usage::unit();
+		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
+			return; // the next save asks again; a promotion is not lost over this.
+		}
+		$json = json_decode( trim( preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
+		if ( ! is_array( $json ) ) {
+			return;
+		}
+		// Re-read: the rule may have been edited while the model was thinking.
+		$rules = self::get_rules();
+		if ( ! isset( $rules[ $rule_id ] ) ) {
+			return;
+		}
+		$i18n = (array) ( $rules[ $rule_id ]['banner_text_i18n'] ?? [] );
+		$got  = 0;
+		foreach ( $missing as $code => $name ) {
+			$line = sanitize_text_field( (string) ( $json[ $code ] ?? '' ) );
+			// Never overwrite a line written by hand in the meantime.
+			if ( '' === $line || '' !== trim( (string) ( $i18n[ $code ] ?? '' ) ) ) {
+				continue;
+			}
+			$i18n[ $code ] = mb_substr( $line, 0, 120 );
+			$got++;
+		}
+		if ( ! $got ) {
+			return;
+		}
+		$rules[ $rule_id ]['banner_text_i18n'] = $i18n;
+		self::save_rules( $rules );
+		if ( class_exists( 'DZE_Ai_Usage' ) ) {
+			DZE_Ai_Usage::finished( 'promo_i18n' );
+		}
 	}
 
 	// =========================================================================
@@ -1803,6 +1940,7 @@ final class DZE_Discounts {
 		$rules[ $id ] = $rule;
 		self::save_rules( $rules );
 		$this->queue_sale_sync();
+		self::schedule_i18n( $id );
 
 		// "Save & Push to GMC": sync straight after saving (all configured targets).
 		if ( ! empty( $in['push_gmc'] ) && 'sale' === $type && class_exists( 'DZE_Gmc' ) && DZE_Gmc::instance()->is_configured() ) {
@@ -1863,6 +2001,9 @@ final class DZE_Discounts {
 			$rules[ $id ]['enabled'] = $enabling;
 			self::save_rules( $rules );
 			$this->queue_sale_sync();
+			if ( $enabling ) {
+				self::schedule_i18n( $id );
+			}
 		}
 		wp_safe_redirect( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) );
 		exit;

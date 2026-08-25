@@ -276,7 +276,11 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					<th scope="row"><label>
 						<?php if ( ! empty( $lang['flag'] ) ) : ?><img src="<?php echo esc_url( $lang['flag'] ); ?>" alt="" style="width:18px;height:12px;vertical-align:middle;margin-right:4px;" /><?php endif; ?>
 						<?php echo esc_html( sprintf( __( 'Banner text (%s)', 'dazont-ecom' ), $lang['native_name'] ) ); ?></label></th>
-					<td><input type="text" name="banner_text_i18n[<?php echo esc_attr( $lang['code'] ); ?>]" class="large-text" value="<?php echo esc_attr( $i18n[ $lang['code'] ] ?? '' ); ?>" placeholder="<?php echo esc_attr( sprintf( __( 'Translation for %s', 'dazont-ecom' ), $lang['native_name'] ) ); ?>" /></td>
+					<td><input type="text" name="banner_text_i18n[<?php echo esc_attr( $lang['code'] ); ?>]" class="large-text" value="<?php echo esc_attr( $i18n[ $lang['code'] ] ?? '' ); ?>" placeholder="<?php echo esc_attr( sprintf( __( 'Translation for %s', 'dazont-ecom' ), $lang['native_name'] ) ); ?>" />
+						<?php if ( empty( $i18n[ $lang['code'] ] ) ) : ?>
+							<p class="description"><?php esc_html_e( 'Left empty, it is written for you shortly after saving — a promotion with nothing to say in a language does not run in it. A line you type here is never overwritten.', 'dazont-ecom' ); ?></p>
+						<?php endif; ?>
+					</td>
 				</tr>
 					<?php endforeach;
 				endif; ?>
