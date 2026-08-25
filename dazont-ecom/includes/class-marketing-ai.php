@@ -926,6 +926,16 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( '' !== trim( (string) $tag ) ) {
 			$facts[] = 'Tagline: ' . $tag;
 		}
+		// THE HOME PAGE, first of all.
+		//
+		// It is the shop's own shop window, written by the owner for his
+		// customers: it says what the place is far better than any figure the
+		// catalogue can produce. The catalogue comes after it, for the breadth
+		// alone.
+		$home = self::front_page_text();
+		if ( '' !== $home ) {
+			$facts[] = "The shop's own home page, which is how it presents itself:\n" . $home;
+		}
 		$terms = get_terms( [
 			'taxonomy'   => 'product_cat',
 			'hide_empty' => true,
@@ -956,6 +966,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 		$system = 'You describe an online shop in a few plain sentences, for another AI that will write its product texts and its marketing.';
 		$user   = "Here is what is known about the shop:\n" . implode( "\n", $facts ) . "\n\n"
+			. "The home page, when there is one, is the shop speaking about itself: follow it. The category list is only there to say how wide the range is.\n"
 			. "Write 3 to 5 short lines saying WHAT THIS SHOP IS: what it sells, to whom, and how wide its range is. "
 			. "Start with one line of the form \"Online shop selling X (Name).\" "
 			. "Describe the range AS A WHOLE, in product families. "
@@ -971,6 +982,37 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		wp_send_json_success( [ 'text' => trim( $text ) ] );
+	}
+
+	/**
+	 * The text of the shop's front page, plain.
+	 *
+	 * A static front page when there is one, the WooCommerce shop page
+	 * otherwise. Shortcodes and markup are stripped and the whole thing is
+	 * capped: this is read once, to write a few lines from.
+	 *
+	 * A home page built entirely by a page builder keeps its text in its own
+	 * meta and comes back empty here — the catalogue then has to do, which is
+	 * exactly what it is there for.
+	 */
+	public static function front_page_text( int $max = 5000 ): string {
+		$pid = 0;
+		if ( 'page' === get_option( 'show_on_front' ) ) {
+			$pid = (int) get_option( 'page_on_front' );
+		}
+		if ( ! $pid && function_exists( 'wc_get_page_id' ) ) {
+			$pid = (int) wc_get_page_id( 'shop' );
+		}
+		if ( $pid <= 0 ) {
+			return '';
+		}
+		$raw = (string) get_post_field( 'post_content', $pid );
+		if ( '' === trim( $raw ) ) {
+			return '';
+		}
+		$txt = wp_strip_all_tags( strip_shortcodes( $raw ) );
+		$txt = trim( (string) preg_replace( "/\n{3,}/", "\n\n", (string) preg_replace( '/[ \t]+/', ' ', $txt ) ) );
+		return mb_substr( $txt, 0, $max );
 	}
 
 	// =========================================================================
