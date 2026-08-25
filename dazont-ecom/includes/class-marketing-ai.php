@@ -268,6 +268,14 @@ final class DZE_Marketing_Ai {
 			$events_prompt = '';
 		}
 
+		if ( 'shop' === $section ) {
+			// Its own form, its own button, its own section: a page where the
+			// field you just typed in is saved by a button two screens below
+			// it is a page where nothing gets saved.
+			return array_merge( $existing, [
+				'shop_profile' => trim( sanitize_textarea_field( (string) ( $in['shop_profile'] ?? '' ) ) ),
+			] );
+		}
 		if ( 'general' === $section ) {
 			// Key, model, budget — and what the shop IS, which every module of
 			// the plugin reads from here.
@@ -356,25 +364,6 @@ final class DZE_Marketing_Ai {
 	}
 
 	/** Countries configured (or, first time, defaulted) for one language. */
-	/**
-	 * Country code => the name to show next to its tick box.
-	 *
-	 * WordPress knows them when WooCommerce is around; the codes stand alone
-	 * when it is not. Only the ones that appear in a pool are needed, so this
-	 * is not a table of the world.
-	 *
-	 * @return array<string,string>
-	 */
-	public static function country_names(): array {
-		$out = [];
-		if ( function_exists( 'WC' ) && WC()->countries ) {
-			foreach ( (array) WC()->countries->get_countries() as $code => $name ) {
-				$out[ (string) $code ] = (string) $name;
-			}
-		}
-		return $out;
-	}
-
 	public static function country_pool_for( string $lang ): array {
 		$saved = self::get_settings()['country_pools'][ $lang ] ?? null;
 		if ( is_array( $saved ) && ! empty( $saved ) ) {
@@ -452,6 +441,9 @@ final class DZE_Marketing_Ai {
 		echo '</nav>';
 
 		if ( 'general' === $tab ) {
+			echo '<h2>' . esc_html__( 'About this shop', 'dazont-ecom' ) . '</h2>';
+			$this->render_shop_profile();
+			echo '<hr style="margin:28px 0;" />';
 			echo '<p class="description">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
@@ -1037,14 +1029,16 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_send_json_error( [ 'message' => __( 'The start date must be before the end date.', 'dazont-ecom' ) ] );
 		}
 
-		// One language per generation (keeps the calendar simple to read).
-		$lang  = sanitize_key( wp_unslash( $_POST['lang'] ?? '' ) );
-		$valid = array_map( static fn( $l ) => $l['code'], self::active_languages() );
-		if ( ! in_array( $lang, $valid, true ) ) {
-			$lang = self::primary_language();
-		}
-		// Optional country filter; empty = the language's configured pool (or worldwide).
-		$countries = $this->list_codes( explode( ',', (string) wp_unslash( $_POST['countries'] ?? '' ) ), 2 );
+		// ONE calendar, for the shop.
+		//
+		// The screen used to ask for a language and a list of countries before
+		// it would generate anything. Nothing is generated per country, and a
+		// promotion running in one language only is not what a shop wants — it
+		// is what an owner discovers on the day his other customers do not see
+		// the sale. The wording is written in the shop's main language; which
+		// commercial moments matter comes from what the shop says about itself.
+		$lang      = self::primary_language();
+		$countries = [];
 
 		// The Claude call can take up to ~60s; give PHP room beyond typical
 		// 30s shared-host limits so it isn't killed mid-request.
@@ -1089,10 +1083,12 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				break;
 			}
 		}
-		if ( empty( $countries ) ) {
-			$countries = self::country_pool_for( $lang );
-		}
-		$country_line = $countries ? implode( ', ', $countries ) : 'all relevant markets worldwide for this language';
+		// No country is asked for any more. What the shop sells and to whom is
+		// in its own description; a market only matters here when it changes
+		// which commercial moments are real, and that is the shop's to say.
+		$country_line = $countries
+			? implode( ', ', $countries )
+			: 'the shop as a whole — every market it sells to. Propose the commercial moments that are real for its customers, and skip a holiday that is specific to a country the shop has not mentioned.';
 
 		$system = self::events_prompt() . "\n\nYou reply with JSON only.";
 
@@ -1164,8 +1160,13 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				'start_date'    => $start,
 				'end_date'      => $end,
 				'percent'       => min( 90, max( 1, (int) round( (float) ( $ev['percent'] ?? 0 ) ) ) ),
-				'countries'     => $countries,   // as chosen at generate time
-				'languages'     => [ $lang ],    // one language per generation
+				'countries'     => $countries,
+				// EVERY language of the shop. An empty list is what the
+				// discounts module reads as "no language restriction", which
+				// is the only sane default for a sale: a promotion that runs
+				// in French and not in English is a bug the shop finds out
+				// about from its customers.
+				'languages'     => [],
 				'email_subject' => mb_substr( sanitize_text_field( (string) ( $ev['email_subject'] ?? '' ) ), 0, 120 ),
 				'rationale'     => mb_substr( sanitize_text_field( (string) ( $ev['rationale'] ?? '' ) ), 0, 240 ),
 			];
@@ -1554,21 +1555,9 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			return;
 		}
 		wp_enqueue_script( 'dze-marketing-ai', DZE_URL . 'admin/js/marketing-ai.js', [ 'jquery' ], DZE_VERSION, true );
-		// The countries each language ships with, so the panel can offer them as
-		// tick boxes instead of a text field asking for codes from memory.
-		$dze_pools = [];
-		foreach ( self::active_languages() as $lng ) {
-			$code = (string) ( $lng['code'] ?? '' );
-			if ( '' === $code ) {
-				continue;
-			}
-			$dze_pools[ $code ] = array_values( self::country_pool_for( $code ) );
-		}
 		wp_localize_script( 'dze-marketing-ai', 'dzeMai', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
-			'pools'   => $dze_pools,
-			'names'   => self::country_names(),
 			'i18n'    => [
 				'generating' => __( 'Generating…', 'dazont-ecom' ),
 				'accepting'  => __( 'Adding…', 'dazont-ecom' ),
@@ -1576,13 +1565,63 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				'confirmRef'     => __( 'Discard this suggestion?', 'dazont-ecom' ),
 				'confirmRefBulk' => __( 'Discard the selected suggestions?', 'dazont-ecom' ),
 				'needDates'      => __( 'Pick a start and end date first.', 'dazont-ecom' ),
-				'needCountry'    => __( 'Tick at least one country.', 'dazont-ecom' ),
-				'noPool'         => __( 'No country set for this language — add codes under "Others".', 'dazont-ecom' ),
 				'saving'         => __( 'Saving…', 'dazont-ecom' ),
 				'modifyTitle'    => __( 'Accept & modify event', 'dazont-ecom' ),
 				'newTitle'       => __( 'New marketing event', 'dazont-ecom' ),
 			],
 		] );
+	}
+
+	/**
+	 * "About this shop" — the description every module of the plugin reads.
+	 *
+	 * Its own form with its own Save, at the top of the General tab: it belongs
+	 * to no API key and to no model, and it is the first thing to write when
+	 * the plugin is installed.
+	 */
+	public function render_shop_profile(): void {
+		$profile = (string) ( self::get_settings()['shop_profile'] ?? '' );
+		?>
+		<form method="post" action="options.php">
+			<?php settings_fields( 'dze_mai_options' ); ?>
+			<input type="hidden" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[section]" value="shop" />
+			<p class="description" style="max-width:820px;">
+				<?php esc_html_e( 'A few lines saying what this shop is: what it sells, to whom, what makes it what it is. Sent with EVERY generation of the plugin — product texts, category pages, reviews, marketing calendar, sourcing report — so it is worth writing properly once.', 'dazont-ecom' ); ?>
+			</p>
+			<textarea id="dze-mai-profile" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[shop_profile]" rows="6" class="large-text" style="max-width:820px;" placeholder="<?php esc_attr_e( 'e.g. Online shop selling tactical and military gear (Kula Tactical). Patches, headwear, camo clothing, gloves, chest rigs and outdoor equipment, with a wide catalogue. Customers: airsoft players, collectors, outdoor and tactical-style buyers. Sharp, factual, no-nonsense tone.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( $profile ); ?></textarea>
+			<p>
+				<button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-mai-profile-draft"><?php esc_html_e( 'Draft it from my shop', 'dazont-ecom' ); ?></button>
+				<span class="description" id="dze-mai-profile-state"><?php esc_html_e( 'The draft reads your home page and the shape of your catalogue — correct it, then save.', 'dazont-ecom' ); ?></span>
+			</p>
+		</form>
+		<script>
+		(function () {
+			var btn = document.getElementById('dze-mai-profile-draft');
+			var ta  = document.getElementById('dze-mai-profile');
+			var st  = document.getElementById('dze-mai-profile-state');
+			if (!btn || !ta) { return; }
+			var busy = <?php echo wp_json_encode( __( 'Reading the shop…', 'dazont-ecom' ) ); ?>;
+			var done = <?php echo wp_json_encode( __( 'Read it, correct it, then press Save.', 'dazont-ecom' ) ); ?>;
+			var over = <?php echo wp_json_encode( __( 'Replace what is written with a fresh draft?', 'dazont-ecom' ) ); ?>;
+			var nonce = <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?>;
+			btn.addEventListener('click', function () {
+				if (ta.value.trim() && !window.confirm(over)) { return; }
+				btn.disabled = true;
+				st.textContent = busy;
+				var body = new URLSearchParams({ action: 'dze_mai_profile', nonce: nonce });
+				window.fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body: body })
+					.then(function (r) { return r.json(); })
+					.then(function (r) {
+						btn.disabled = false;
+						if (r && r.success) { ta.value = r.data.text || ''; st.textContent = done; }
+						else { st.textContent = (r && r.data && r.data.message) || 'error'; }
+					})
+					.catch(function () { btn.disabled = false; st.textContent = 'error'; });
+			});
+		}());
+		</script>
+		<?php
 	}
 
 	/** Generate button + date range + suggestions review table + calendar view. */

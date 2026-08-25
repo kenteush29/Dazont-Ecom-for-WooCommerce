@@ -26,30 +26,6 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 		</p>
 	<?php else : ?>
 		<p>
-			<label><?php esc_html_e( 'Language', 'dazont-ecom' ); ?>
-				<select id="dze-mai-lang">
-					<?php foreach ( $languages as $lng ) :
-						$code = (string) ( $lng['code'] ?? '' );
-						if ( $code === '' ) { continue; } ?>
-						<option value="<?php echo esc_attr( $code ); ?>" <?php selected( $code, $primary ); ?>>
-							<?php echo esc_html( ( $lng['native_name'] ?? strtoupper( $code ) ) . ' (' . strtoupper( $code ) . ')' ); ?>
-						</option>
-					<?php endforeach; ?>
-				</select>
-			</label>
-		</p>
-		<!-- The countries of the chosen language, as tick boxes. It used to be a
-		     text field asking for codes from memory, with no way to see which
-		     ones the language ships with, let alone switch one off. -->
-		<p class="dze-mai-countries">
-			<span class="dze-mai-clabel"><?php esc_html_e( 'Countries', 'dazont-ecom' ); ?></span>
-			<span id="dze-mai-countrybox"></span>
-			<button type="button" class="button-link" id="dze-mai-call"><?php esc_html_e( 'All / none', 'dazont-ecom' ); ?></button>
-			<label class="dze-mai-cmore"><?php esc_html_e( 'Others', 'dazont-ecom' ); ?>
-				<input type="text" id="dze-mai-countries" placeholder="<?php esc_attr_e( 'e.g. PT, SE', 'dazont-ecom' ); ?>" style="width:120px;" />
-			</label>
-		</p>
-		<p>
 			<label><?php esc_html_e( 'From', 'dazont-ecom' ); ?> <input type="date" id="dze-mai-start" /></label>
 			&nbsp;
 			<label><?php esc_html_e( 'To', 'dazont-ecom' ); ?> <input type="date" id="dze-mai-end" /></label>
@@ -58,7 +34,10 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 			<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'events' ); } ?>
 			<span id="dze-mai-gen-status" style="margin-left:8px;font-size:13px;"></span>
 		</p>
-		<p class="description"><?php esc_html_e( 'Suggestions are generated for the chosen language only, for the countries ticked above. Untick a country and its holidays stop being suggested; add a code under "Others" for a market the language does not ship with.', 'dazont-ecom' ); ?> <a href="<?php echo esc_url( $ai_settings_url ); ?>"><?php esc_html_e( 'Adjust country pools / see what the AI knows about your shop →', 'dazont-ecom' ); ?></a></p>
+		<p class="description">
+			<?php esc_html_e( 'Suggestions are made for the shop as a whole — one calendar, every language, every market. Which moments matter for your customers comes from what the shop says about itself; name your main markets there if it changes the answer.', 'dazont-ecom' ); ?>
+			<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Settings → General → About this shop ↗', 'dazont-ecom' ); ?></a>
+		</p>
 	<?php endif; ?>
 
 	<?php if ( ! empty( $suggestions ) ) : ?>
