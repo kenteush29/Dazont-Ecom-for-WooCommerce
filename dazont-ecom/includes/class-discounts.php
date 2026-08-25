@@ -2084,6 +2084,10 @@ final class DZE_Discounts {
 		$this->queue_sale_sync();
 		self::schedule_i18n( $id );
 
+		// One screen, one form, one Save button: what other modules planted on
+		// this page is saved by this very submit, not by a save of their own.
+		do_action( 'dze_discount_saved', $id, $rule, $in );
+
 		// "Save & Push to GMC": sync straight after saving (all configured targets).
 		if ( ! empty( $in['push_gmc'] ) && 'sale' === $type && class_exists( 'DZE_Gmc' ) && DZE_Gmc::instance()->is_configured() ) {
 			$statuses = DZE_Gmc::instance()->sync_rule( $id );
@@ -2134,6 +2138,7 @@ final class DZE_Discounts {
 					DZE_Gmc::instance()->cancel_rule( $rules[ $id ] );
 				}
 				unset( $rules[ $id ] );
+				do_action( 'dze_discount_deleted', $id );
 				$done++;
 				continue;
 			}
@@ -2199,6 +2204,8 @@ final class DZE_Discounts {
 		$back = ( isset( $rules[ $id ]['type'] ) && in_array( $rules[ $id ]['type'], self::EVENT_TYPES, true ) ) ? self::MENU_SLUG_EVENTS : self::MENU_SLUG;
 		unset( $rules[ $id ] );
 		self::save_rules( $rules );
+		// What other modules hang off this promotion goes with it.
+		do_action( 'dze_discount_deleted', $id );
 		$this->queue_sale_sync();
 		wp_safe_redirect( add_query_arg( [ 'page' => $back, 'deleted' => 1 ], admin_url( 'admin.php' ) ) );
 		exit;

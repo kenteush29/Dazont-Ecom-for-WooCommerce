@@ -394,6 +394,17 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 		<?php endif; ?>
 
 		<?php
+		// The email that announces this event, on the event's own screen and
+		// saved by the button below — not on a screen of its own.
+		if ( $is_events && class_exists( 'DZE_Klaviyo' ) && class_exists( 'DZE_Modules' )
+			&& DZE_Modules::enabled( 'klaviyo' ) && DZE_Klaviyo::instance()->configured() ) :
+			?>
+			<div class="dze-field-schedule">
+				<?php DZE_Klaviyo::instance()->render_editor( (string) ( $editing['id'] ?? '' ), (array) $editing ); ?>
+			</div>
+		<?php endif; ?>
+
+		<?php
 		$save_label = $is_events ? __( 'Save event', 'dazont-ecom' ) : __( 'Save discount', 'dazont-ecom' );
 		submit_button( $save_label, 'primary', 'submit', false );
 		?>
