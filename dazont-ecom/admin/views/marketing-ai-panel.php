@@ -100,7 +100,11 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 		</p>
 		<?php if ( class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) : ?>
 			<p class="description" style="margin:0;">
-				<?php esc_html_e( 'The title is what customers read on the banner. It is translated into your other languages on its own, shortly after saving — you can correct any of them on the event itself.', 'dazont-ecom' ); ?>
+				<?php
+				echo class_exists( 'DZE_Marketing_Ai' ) && DZE_Marketing_Ai::promo_i18n_on()
+					? esc_html__( 'The title is what customers read on the banner. It is translated into your other languages on its own, shortly after saving — you can correct any of them on the event itself.', 'dazont-ecom' )
+					: esc_html__( 'The title is what customers read on the banner. "Translate on save" is off, so this event will only run in the main language until you write the other lines on it.', 'dazont-ecom' );
+				?>
 			</p>
 		<?php endif; ?>
 	</div>

@@ -278,7 +278,11 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 						<?php echo esc_html( sprintf( __( 'Banner text (%s)', 'dazont-ecom' ), $lang['native_name'] ) ); ?></label></th>
 					<td><input type="text" name="banner_text_i18n[<?php echo esc_attr( $lang['code'] ); ?>]" class="large-text" value="<?php echo esc_attr( $i18n[ $lang['code'] ] ?? '' ); ?>" placeholder="<?php echo esc_attr( sprintf( __( 'Translation for %s', 'dazont-ecom' ), $lang['native_name'] ) ); ?>" />
 						<?php if ( empty( $i18n[ $lang['code'] ] ) ) : ?>
-							<p class="description"><?php esc_html_e( 'Left empty, it is written for you shortly after saving — a promotion with nothing to say in a language does not run in it. A line you type here is never overwritten.', 'dazont-ecom' ); ?></p>
+							<p class="description"><?php
+							echo class_exists( 'DZE_Marketing_Ai' ) && DZE_Marketing_Ai::promo_i18n_on()
+								? esc_html__( 'Left empty, it is written for you shortly after saving — a promotion with nothing to say in a language does not run in it. A line you type here is never overwritten.', 'dazont-ecom' )
+								: esc_html__( 'Left empty, this promotion will not run in that language. "Translate on save" is off in Settings → Marketing events.', 'dazont-ecom' );
+							?></p>
 						<?php endif; ?>
 					</td>
 				</tr>
