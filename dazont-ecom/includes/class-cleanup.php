@@ -62,8 +62,8 @@ final class DZE_Cleanup {
 				'post_meta' => [ '_merchant_center_activation' ],
 			],
 			'marketing_ai' => [
-				'options' => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage' ],
-				'transients' => [ 'dze_mai_models' ],
+				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage' ],
+				'transients' => [ 'dze_mai_shop_context', 'dze_mai_models' ],
 			],
 			'sourcing' => [
 				'tables'     => [ 'dze_keywords' ],
