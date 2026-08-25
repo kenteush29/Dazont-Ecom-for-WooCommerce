@@ -27,8 +27,8 @@ owner communicates in French.
   New settings go into an existing tab or a new tab there — never a separate
   submenu (fallback submenus only to avoid lock-outs).
 - API keys are never committed. Constants: `DZE_ANTHROPIC_API_KEY`,
-  `DZE_FAL_API_KEY`, `DZE_GMC_SERVICE_ACCOUNT`. Each key is only ever sent to
-  its own provider.
+  `DZE_FAL_API_KEY`, `DZE_GMC_SERVICE_ACCOUNT`, `DZE_KLAVIYO_API_KEY`. Each key
+  is only ever sent to its own provider.
 - Shipped default prompts are precious (the owner's spreadsheet prompts,
   verbatim). Custom edits live in settings; empty/absent = shipped default,
   and every prompt UI offers a "Restore default" path.

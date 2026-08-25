@@ -55,6 +55,7 @@ final class DZE_Prompts {
 			'translate'  => [ 'DZE_Translate', 'prompt', 'default_prompt' ],
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
 			'promo_i18n' => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt', 'default_promo_i18n_prompt' ],
+			'promo_email' => [ 'DZE_Klaviyo', 'subject_prompt', 'default_subject_prompt' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
 			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', 'default_match_rules' ],
 		];
@@ -74,6 +75,7 @@ final class DZE_Prompts {
 			'translate'    => [ 'DZE_Translate', 'prompt' ],
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 			'promo_i18n'   => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
+			'promo_email'  => [ 'DZE_Klaviyo', 'subject_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
 			'keyword_match'   => [ 'DZE_Marketing_Ai', 'match_rules' ],
 		][ $id ];
@@ -103,6 +105,7 @@ final class DZE_Prompts {
 			'DZE_Reviews'          => 'dze_reviews_settings',
 			'DZE_Translate'        => 'dze_translate_settings',
 			'DZE_Marketing_Ai'     => 'dze_mai_settings',
+			'DZE_Klaviyo'          => 'dze_klaviyo',
 		];
 		$name = $opts[ $class ] ?? '';
 		if ( '' === $name ) {
@@ -208,6 +211,14 @@ final class DZE_Prompts {
 				'text'  => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
 				'tab'   => 'events',
 				'frag'  => 'dze-mai-promo-i18n',
+			];
+		}
+		if ( class_exists( 'DZE_Klaviyo' ) && self::module_on( 'klaviyo' ) ) {
+			$out['promo_email'] = [
+				'label' => __( 'Promotion email subject', 'dazont-ecom' ),
+				'text'  => [ 'DZE_Klaviyo', 'subject_prompt' ],
+				'tab'   => 'email',
+				'frag'  => 'dze-klav-prompt',
 			];
 		}
 		if ( class_exists( 'DZE_Explorer' ) && self::module_on( 'sourcing' ) ) {
