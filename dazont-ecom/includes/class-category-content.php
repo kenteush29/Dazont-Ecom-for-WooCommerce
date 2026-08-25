@@ -962,12 +962,16 @@ PROMPT;
 		$kwt    = self::keyword_pools( $term_id, $term->name, false );
 		$needle = self::stems( $term->name . ' ' . implode( ' ', array_slice( $kwt['titles'], 0, 12 ) ) );
 
-		$add = static function ( string $label, string $url, string $kind ) use ( &$pool, $needle ) {
+		// The page's own address. It reaches the pool through the sitemap layer,
+		// where it is by definition the best match for its own name — and a
+		// category linking to itself is what came out of that.
+		$self = untrailingslashit( (string) get_term_link( $term ) );
+		$add  = static function ( string $label, string $url, string $kind ) use ( &$pool, $needle, $self ) {
 			$url = (string) $url;
 			// Keyed without the trailing slash: the sitemap and get_permalink()
 			// do not always agree on it, and that would double an entry.
 			$key = untrailingslashit( $url );
-			if ( '' === $url || isset( $pool[ $key ] ) ) {
+			if ( '' === $url || isset( $pool[ $key ] ) || $key === $self ) {
 				return;
 			}
 			// A sub-category IS part of this category, so it is always close. For
@@ -1360,6 +1364,12 @@ PROMPT;
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
 		}
+		// Repair before measuring: a link the page makes to itself is not one
+		// of its links, and it must not eat a slot in the count either.
+		$self  = (string) get_term_link( $term );
+		$fixed = self::unlink_self( $html, $self );
+		$mend  = $fixed !== $html;
+		$html  = $fixed;
 		$done  = self::linked_urls( $html );
 		// $only: the targets ticked in the panel. Without it, the whole pool is
 		// offered and the per-category figure decides how many are placed.
@@ -1378,6 +1388,11 @@ PROMPT;
 			$links[] = $l;
 		}
 		if ( ! $links ) {
+			// Nothing left to add — but if a self-link was just taken out, that
+			// repair IS the result of this pass, and it is worth saving.
+			if ( $mend ) {
+				return self::mended( $html );
+			}
 			throw new RuntimeException( $keys
 				? __( 'The pages you picked are already linked in this text.', 'dazont-ecom' )
 				: __( 'Every page this category can link to is already linked.', 'dazont-ecom' ) );
@@ -1388,6 +1403,9 @@ PROMPT;
 		} else {
 			$max = self::size_for( $term_id )['links'];
 			if ( $max < 1 ) {
+				if ( $mend ) {
+					return self::mended( $html );
+				}
 				throw new RuntimeException( __( 'Internal linking is turned off in Settings → Categories.', 'dazont-ecom' ) );
 			}
 			$room = max( 1, $max - count( $done ) );
@@ -1396,7 +1414,39 @@ PROMPT;
 		return self::weave( (string) $term->name, $html, self::language( $term_id ), $links, $room, [
 			'label'    => 'CATEGORY',
 			'explicit' => (bool) $keys,
+			'self'     => $self,
 		] );
+	}
+
+	/** A pass whose whole result was taking a self-link back out. */
+	private static function mended( string $html ): array {
+		$n = count( self::linked_urls( $html ) );
+		return [ 'html' => $html, 'added' => 0, 'before' => $n, 'after' => $n ];
+	}
+
+	/**
+	 * Takes the anchors pointing at the page itself back out, keeping their
+	 * wording.
+	 *
+	 * A page that links to itself is never right, and it happened: the pool
+	 * read the sitemap for pages whose address talks about this category, and
+	 * the address that talks about it most is its own. The hole is closed
+	 * where the pool is built — this repairs the descriptions that already
+	 * carry one, as each of them goes through a pass.
+	 */
+	public static function unlink_self( string $html, string $url ): string {
+		$self = untrailingslashit( (string) $url );
+		if ( '' === $self || false === stripos( $html, '<a' ) ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'/<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is',
+			static function ( array $m ) use ( $self ): string {
+				$href = untrailingslashit( html_entity_decode( $m[1], ENT_QUOTES, 'UTF-8' ) );
+				return $href === $self ? $m[2] : $m[0];
+			},
+			$html
+		);
 	}
 
 	/**
@@ -1429,6 +1479,18 @@ PROMPT;
 		}
 		$kind     = strtoupper( (string) ( $opt['label'] ?? 'PAGE' ) );
 		$explicit = ! empty( $opt['explicit'] );
+		$self     = untrailingslashit( (string) ( $opt['self'] ?? '' ) );
+		if ( '' !== $self ) {
+			// Whoever built the list: a page does not link to itself.
+			$html  = self::unlink_self( $html, $self );
+			$links = array_values( array_filter(
+				$links,
+				static fn( array $l ): bool => untrailingslashit( (string) $l['url'] ) !== $self
+			) );
+			if ( ! $links ) {
+				throw new RuntimeException( __( 'Every page this text can link to is already linked.', 'dazont-ecom' ) );
+			}
+		}
 		$done     = self::linked_urls( $html );
 		$room     = max( 1, $room );
 
@@ -1759,7 +1821,7 @@ PROMPT;
 			$names[ untrailingslashit( $l['url'] ) ] = $l['label'];
 		}
 		?>
-		<div class="dze-cc-box" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-qnonce="<?php echo esc_attr( class_exists( 'DZE_Queue' ) ? wp_create_nonce( DZE_Queue::NONCE ) : '' ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
+		<div class="dze-cc-box" data-self="<?php echo esc_attr( untrailingslashit( (string) get_term_link( $term_id, 'product_cat' ) ) ); ?>" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-qnonce="<?php echo esc_attr( class_exists( 'DZE_Queue' ) ? wp_create_nonce( DZE_Queue::NONCE ) : '' ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
 			<p class="description" style="margin-top:0;">
 				<?php if ( $has ) : ?>
 					<?php
@@ -2121,6 +2183,7 @@ PROMPT;
 				'showLinks'   => __( '%s links', 'dazont-ecom' ),
 				'external'    => __( 'external', 'dazont-ecom' ),
 				'notNamed'    => __( 'The anchor does not name the page it points to.', 'dazont-ecom' ),
+				'selfLink'    => __( 'This link points at the very page it sits on — remove it.', 'dazont-ecom' ),
 				/* translators: %s: number of pages ticked */
 				'picked'      => __( '%s selected', 'dazont-ecom' ),
 				'alreadyLinked' => __( 'already linked', 'dazont-ecom' ),
