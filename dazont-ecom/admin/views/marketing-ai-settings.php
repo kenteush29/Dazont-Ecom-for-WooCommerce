@@ -96,7 +96,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 
 	<h2 class="title"><?php esc_html_e( 'Marketing calendar prompt', 'dazont-ecom' ); ?></h2>
 	<p class="description" style="max-width:820px;">
-		<?php esc_html_e( 'The strategy the AI follows when building your calendar. Edit it to steer what kinds of events it proposes. The shop context, chosen language, date range and output format are always added automatically — you only write the strategy.', 'dazont-ecom' ); ?>
+		<?php esc_html_e( 'The strategy the AI follows when building your calendar. Edit it to steer what kinds of events it proposes. The shop context, chosen language, date range and output format are always added automatically — you only write the strategy. What is added never argues with what you write here: an occasion that is not real is not proposed, the title names the occasion in the words your customers use for it, and a window with nothing worth a promotion in it comes back empty.', 'dazont-ecom' ); ?>
 	</p>
 	<?php
 	$prompt_value   = trim( (string) ( $settings['events_prompt'] ?? '' ) );
