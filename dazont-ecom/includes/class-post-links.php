@@ -25,11 +25,10 @@ final class DZE_Post_Links {
 	/** The post types this works on. Products have their own pipeline. */
 	public const TYPES = [ 'post', 'page' ];
 
-	/** One link per this many words, within reason. */
-	private const PER_WORDS = 150;
+	/** The ceiling: one link per this many words. */
+	private const PER_WORDS = 50;
 
 	private const MIN_LINKS = 2;
-	private const MAX_LINKS = 10;
 
 	/** A text shorter than this has nowhere to put a link that reads well. */
 	private const MIN_WORDS = 150;
@@ -80,12 +79,17 @@ final class DZE_Post_Links {
 		return $out;
 	}
 
-	/** How many internal links a text that long should carry. */
+	/**
+	 * How many internal links a text that long may carry, at most.
+	 *
+	 * A ceiling, not a quota: what is actually placed is however many
+	 * genuinely close pages there are to point at, which is usually far fewer.
+	 */
 	public static function target_links( int $words ): int {
 		if ( $words < self::MIN_WORDS ) {
 			return 0;
 		}
-		return (int) max( self::MIN_LINKS, min( self::MAX_LINKS, (int) round( $words / self::PER_WORDS ) ) );
+		return (int) max( self::MIN_LINKS, (int) floor( $words / self::PER_WORDS ) );
 	}
 
 	/** WPML's language for one post, '' when WPML is not active. */
@@ -102,9 +106,9 @@ final class DZE_Post_Links {
 	 * What this article may link to, closest first.
 	 *
 	 * Product categories come first on purpose: an article exists to send a
-	 * reader somewhere he can buy. Then the neighbouring articles and pages,
-	 * then whatever else the sitemap knows about — read from cache only,
-	 * nobody waits on an HTTP call to build a list.
+	 * reader somewhere he can buy, and the aisle with the most in it comes
+	 * before the one with three products. Then the neighbouring articles and
+	 * pages. Nothing else: the mesh links categories, posts and pages.
 	 *
 	 * @return array<int,array{label:string,url:string,kind:string,score:int}>
 	 */
@@ -117,15 +121,14 @@ final class DZE_Post_Links {
 			$post->post_title . ' ' . wp_trim_words( wp_strip_all_tags( (string) $post->post_content ), 200, '' )
 		);
 		$pool = [];
-		// Its own address, which the sitemap layer would otherwise hand back as
-		// the best match for its own subject.
+		// Its own address: a page never links to itself.
 		$self = untrailingslashit( (string) get_permalink( $post_id ) );
-		$add  = static function ( string $label, string $url, string $kind, int $score ) use ( &$pool, $self ): void {
+		$add  = static function ( string $label, string $url, string $kind, int $score, int $products = 0 ) use ( &$pool, $self ): void {
 			$key = untrailingslashit( $url );
 			if ( '' === $url || isset( $pool[ $key ] ) || $key === $self ) {
 				return;
 			}
-			$pool[ $key ] = [ 'label' => $label, 'url' => $url, 'kind' => $kind, 'score' => $score ];
+			$pool[ $key ] = [ 'label' => $label, 'url' => $url, 'kind' => $kind, 'score' => $score, 'products' => $products ];
 		};
 
 		// 1. The categories this article talks about. Shared wording decides:
@@ -139,9 +142,11 @@ final class DZE_Post_Links {
 				$cats[]       = $cat;
 			}
 		}
-		usort( $cats, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
-		foreach ( array_slice( $cats, 0, 8 ) as $cat ) {
-			$add( $cat['name'], $cat['url'], 'product category', (int) $cat['score'] );
+		// Closest first, and among equals the one with the most products: an
+		// article should send its reader to the aisle with something in it.
+		usort( $cats, static fn( $a, $b ) => [ $b['score'], $b['products'] ] <=> [ $a['score'], $a['products'] ] );
+		foreach ( array_slice( $cats, 0, 12 ) as $cat ) {
+			$add( $cat['name'], $cat['url'], 'product category', (int) $cat['score'], (int) $cat['products'] );
 		}
 
 		// 2. The articles and pages next door.
@@ -165,29 +170,16 @@ final class DZE_Post_Links {
 			);
 		}
 
-		// 3. Anything else the sitemap knows about, best match first.
-		$cached = DZE_Category_Content::sitemap_cached()['urls'] ?? [];
-		if ( $cached ) {
-			$ranked = [];
-			foreach ( $cached as $page ) {
-				$hits = count( array_intersect( $needle, DZE_Category_Content::tokens( (string) $page['url'] ) ) );
-				if ( $hits > 0 ) {
-					$page['score'] = $hits;
-					$ranked[]      = $page;
-				}
-			}
-			usort( $ranked, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
-			foreach ( array_slice( $ranked, 0, 6 ) as $page ) {
-				$add( (string) $page['label'], (string) $page['url'], 'sitemap page', (int) $page['score'] );
-			}
-		}
+		// And nothing else: product categories, blog posts, pages. An address
+		// that merely resembles the subject is not a page worth pointing at.
 
 		$pool = array_values( $pool );
 		usort( $pool, static function ( $a, $b ) {
-			// A category always outranks a page of the same closeness: that is
-			// the direction this whole pass exists to feed.
+			// A category always outranks a page of the same closeness — that is
+			// the direction this whole pass exists to feed — and among
+			// categories, the one with the most products.
 			$rank = static fn( $x ) => 'product category' === $x['kind'] ? 1 : 0;
-			return [ $rank( $b ), $b['score'] ] <=> [ $rank( $a ), $a['score'] ];
+			return [ $rank( $b ), $b['score'], $b['products'] ] <=> [ $rank( $a ), $a['score'], $a['products'] ];
 		} );
 		return $pool;
 	}
@@ -217,7 +209,12 @@ final class DZE_Post_Links {
 				}
 				$url = get_term_link( $t );
 				if ( ! is_wp_error( $url ) ) {
-					$out[] = [ 'name' => (string) $t->name, 'url' => (string) $url ];
+					$out[] = [
+						'name'     => (string) $t->name,
+						'url'      => (string) $url,
+						// Cached six hours by the module that owns the count.
+						'products' => (int) DZE_Category_Content::products_behind( (int) $t->term_id ),
+					];
 				}
 			}
 		}
@@ -276,7 +273,9 @@ final class DZE_Post_Links {
 				$links[] = $l;
 			}
 		}
-		$room = self::target_links( $words ) - count( $done );
+		// Two limits, the smaller one wins: what the text can carry (one link
+		// per fifty words) and how many close pages there are to point at.
+		$room = min( self::target_links( $words ) - count( $done ), count( $links ) );
 		if ( $room < 1 || ! $links ) {
 			// Nothing to add — but a self-link just taken out IS a result, and
 			// it is worth saving.

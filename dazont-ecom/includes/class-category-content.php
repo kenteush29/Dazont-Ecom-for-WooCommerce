@@ -25,16 +25,8 @@ final class DZE_Category_Content {
 	private const OPT   = 'dze_catcontent_settings';
 	private const NONCE = 'dze_catcontent';
 	public const GEN_META  = '_dze_desc_generated';
-	public const CRON_HOOK = 'dze_cc_sitemap_check';
 	/** Cached verdict of the question sifting pass, per category. */
 	private const Q_META   = '_dze_cc_questions';
-
-	/**
-	 * How many sitemap URLs are kept in cache. Each description uses a
-	 * handful, picked by relevance, but the pool has to hold the whole site
-	 * for that pick to mean anything.
-	 */
-	private const SITEMAP_KEEP = 2500;
 
 	private static ?self $instance = null;
 
@@ -47,12 +39,9 @@ final class DZE_Category_Content {
 
 	private function __construct() {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
-		add_action( 'admin_init', [ $this, 'maybe_dismiss_sitemap_notice' ] );
-		add_action( 'admin_notices', [ $this, 'sitemap_notice' ] );
-		// Daily background read, so the admin never waits on the sitemap and the
-		// status shown is a real one.
-		add_action( 'admin_init', [ $this, 'schedule_sitemap_check' ] );
-		add_action( self::CRON_HOOK, [ __CLASS__, 'cron_sitemap_check' ] );
+		// The daily sitemap read went with the layer it fed: the mesh links
+		// categories, posts and pages, and WordPress serves all three.
+		add_action( 'admin_init', [ __CLASS__, 'drop_sitemap_cron' ] );
 		// Categories list: status column + popup.
 		add_filter( 'manage_edit-product_cat_columns', [ $this, 'add_column' ] );
 		add_filter( 'manage_product_cat_custom_column', [ $this, 'render_column' ], 10, 3 );
@@ -71,12 +60,27 @@ final class DZE_Category_Content {
 		add_action( 'wp_ajax_dze_cc_diff', [ $this, 'ajax_diff' ] );
 		add_action( 'wp_ajax_dze_cc_apply', [ $this, 'ajax_apply' ] );
 		add_action( 'wp_ajax_dze_cc_save_prompt', [ $this, 'ajax_save_prompt' ] );
-		add_action( 'wp_ajax_dze_cc_sitemap_test', [ $this, 'ajax_sitemap_test' ] );
 	}
 
 	// =========================================================================
 	// Settings
 	// =========================================================================
+
+	/**
+	 * The daily sitemap read, stood down.
+	 *
+	 * It fed a layer of the link pool that no longer exists — the mesh links
+	 * product categories, blog posts and pages, and WordPress serves all three
+	 * without an HTTP call to ourselves. Installs that scheduled it keep the
+	 * event until something clears it, so this does, once.
+	 */
+	public static function drop_sitemap_cron(): void {
+		if ( wp_next_scheduled( 'dze_cc_sitemap_check' ) ) {
+			wp_clear_scheduled_hook( 'dze_cc_sitemap_check' );
+			delete_transient( 'dze_cc_sitemap_v8' );
+			delete_transient( 'dze_cc_sitemap_lock' );
+		}
+	}
 
 	public static function get_settings(): array {
 		$s = get_option( self::OPT, [] );
@@ -106,18 +110,6 @@ final class DZE_Category_Content {
 		}
 		if ( isset( $in['form'] ) ) {
 			$out['links_off'] = empty( $in['links_off'] ) ? 0 : 1;
-			$before           = ! empty( $out['sitemap_products'] );
-			$out['sitemap_products'] = empty( $in['sitemap_products'] ) ? 0 : 1;
-			if ( $before !== (bool) $out['sitemap_products'] ) {
-				delete_transient( 'dze_cc_sitemap_v8' ); // different files to read.
-			}
-		}
-		if ( isset( $in['sitemap'] ) ) {
-			$url = esc_url_raw( trim( (string) $in['sitemap'] ) );
-			if ( $url !== ( $out['sitemap'] ?? '' ) ) {
-				delete_transient( 'dze_cc_sitemap_v8' ); // a new URL is re-read at once.
-			}
-			$out['sitemap'] = $url;
 		}
 		if ( isset( $in['model'] ) ) {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
@@ -203,10 +195,12 @@ final class DZE_Category_Content {
 		$words = 450 + min( 1200, $depth ) + 60 * min( 12, $branch );
 		$words = max( 600, min( 2500, (int) ( round( $words / 50 ) * 50 ) ) );
 
-		// One link per ~150 words, and never fewer than there are sub-categories
-		// to point at.
-		$links = max( 3, min( 14, (int) round( $words / 150 ) ) );
-		$links = max( $links, min( 14, max( $subs, $branch ) ) );
+		// How many links this text may carry, at most: one per fifty words. It
+		// is a ceiling, not a quota — what is actually placed is however many
+		// genuinely close pages there are to point at, and that is usually far
+		// fewer. A long guide may carry many links; a short one may not,
+		// whatever it has to point at.
+		$links = max( 3, (int) floor( $words / 50 ) );
 
 		$set_w = (int) ( $s['words'] ?? 0 );
 		$set_l = (int) ( $s['links'] ?? 0 );
@@ -271,275 +265,6 @@ final class DZE_Category_Content {
 		return $v > 0 ? min( 14, $v ) : 5;
 	}
 
-	/** URL saved by hand in Settings → Categories, if any. */
-	public static function sitemap_override(): string {
-		return trim( (string) ( self::get_settings()['sitemap'] ?? '' ) );
-	}
-
-	/**
-	 * Sitemap published by the site itself. Rank Math, Yoast, SEOPress, All in
-	 * One SEO and WordPress core each expose their own address — no need to ask
-	 * the owner for it.
-	 *
-	 * @return array{url:string,source:string}
-	 */
-	public static function detect_sitemap(): array {
-		// Rank Math — its router knows the address even on a sub-directory install.
-		if ( class_exists( '\RankMath\Sitemap\Router' ) && method_exists( '\RankMath\Sitemap\Router', 'get_base_url' ) ) {
-			return [ 'url' => \RankMath\Sitemap\Router::get_base_url( 'sitemap_index.xml' ), 'source' => 'Rank Math' ];
-		}
-		if ( defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' ) ) {
-			return [ 'url' => home_url( '/sitemap_index.xml' ), 'source' => 'Rank Math' ];
-		}
-		if ( class_exists( 'WPSEO_Sitemaps_Router' ) && method_exists( 'WPSEO_Sitemaps_Router', 'get_base_url' ) ) {
-			return [ 'url' => \WPSEO_Sitemaps_Router::get_base_url( 'sitemap_index.xml' ), 'source' => 'Yoast SEO' ];
-		}
-		if ( defined( 'WPSEO_VERSION' ) ) {
-			return [ 'url' => home_url( '/sitemap_index.xml' ), 'source' => 'Yoast SEO' ];
-		}
-		if ( defined( 'SEOPRESS_VERSION' ) ) {
-			return [ 'url' => home_url( '/sitemap.xml' ), 'source' => 'SEOPress' ];
-		}
-		if ( defined( 'AIOSEO_VERSION' ) ) {
-			return [ 'url' => home_url( '/sitemap.xml' ), 'source' => 'All in One SEO' ];
-		}
-		// WordPress has served its own sitemap since 5.5, unless it was disabled.
-		if ( function_exists( 'wp_sitemaps_get_server' ) && apply_filters( 'wp_sitemaps_enabled', true ) ) {
-			return [ 'url' => home_url( '/wp-sitemap.xml' ), 'source' => 'WordPress' ];
-		}
-		return [ 'url' => '', 'source' => '' ];
-	}
-
-	/**
-	 * URL segments that mark a single product, taken from the shop's own
-	 * permalink settings (/product/, /boutique/, whatever it was set to) plus
-	 * the WooCommerce defaults. Used to recognise a product URL in a sitemap
-	 * whatever file it was listed in.
-	 */
-	public static function product_bases(): array {
-		$bases = [ 'product', 'produit' ];
-		if ( function_exists( 'wc_get_permalink_structure' ) ) {
-			$st = wc_get_permalink_structure();
-			foreach ( [ 'product_rewrite_slug', 'product_base' ] as $k ) {
-				$v = trim( (string) ( $st[ $k ] ?? '' ), '/' );
-				// A base like "%product_cat%" is a placeholder, not a segment.
-				if ( '' !== $v && false === strpos( $v, '%' ) ) {
-					$bases[] = $v;
-				}
-			}
-		}
-		return array_values( array_unique( array_map( 'preg_quote', $bases ) ) );
-	}
-
-	/** The sitemap actually used: the saved URL, else the one detected. */
-	public static function sitemap_url(): string {
-		$own = self::sitemap_override();
-		return '' !== $own ? $own : self::detect_sitemap()['url'];
-	}
-
-	/** Where that URL comes from — '' when it was typed by hand. */
-	public static function sitemap_source(): string {
-		return '' !== self::sitemap_override() ? '' : self::detect_sitemap()['source'];
-	}
-
-	/**
-	 * Pages read from the sitemap in use, cached 12h. A sitemap INDEX is
-	 * followed one level (that is what Rank Math, Yoast and wp-sitemap.xml
-	 * serve), preferring the category/page sitemaps.
-	 *
-	 * @return array{urls:array,status:string,count:int,checked:int}
-	 */
-	public static function sitemap_pages( bool $force = false ): array {
-		$url = self::sitemap_url();
-		if ( '' === $url ) {
-			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
-		}
-		$cached = $force ? null : self::sitemap_cached();
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		$out        = self::read_sitemap( $url );
-		$out['url'] = $url;
-		set_transient( 'dze_cc_sitemap_v8', $out, 'ok' === $out['status'] ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
-		return $out;
-	}
-
-	/**
-	 * What the last read found, or null when there is nothing to go on.
-	 *
-	 * Everything that runs while somebody is waiting for a page uses THIS, not
-	 * sitemap_pages(): reading a sitemap is an HTTP call to our own site, and
-	 * one PHP worker blocked on another PHP worker is how a shop starts
-	 * timing out. Only the daily cron and the Test button actually fetch.
-	 */
-	public static function sitemap_cached(): ?array {
-		$cached = get_transient( 'dze_cc_sitemap_v8' );
-		// A cache read for another address (SEO plugin swapped) is thrown away.
-		return ( is_array( $cached ) && ( $cached['url'] ?? '' ) === self::sitemap_url() ) ? $cached : null;
-	}
-
-	/**
-	 * Reads one sitemap URL right now — no cache, no settings. Used by
-	 * sitemap_pages() and by the Test button (which checks the URL currently
-	 * typed in the field, saved or not).
-	 *
-	 * @return array{urls:array,status:string,count:int,checked:int}
-	 */
-	public static function read_sitemap( string $url ): array {
-		if ( '' === trim( $url ) ) {
-			return [ 'urls' => [], 'status' => 'off', 'count' => 0, 'checked' => 0 ];
-		}
-		// Short timeouts on purpose: this is a loopback call to our own server,
-		// so a slow answer means the site is already busy — waiting on it would
-		// only make things worse.
-		$fetch = static function ( string $u, int $timeout ): string {
-			$r = wp_remote_get( $u, [ 'timeout' => $timeout, 'redirection' => 2 ] );
-			return ( ! is_wp_error( $r ) && 200 === wp_remote_retrieve_response_code( $r ) )
-				? (string) wp_remote_retrieve_body( $r )
-				: '';
-		};
-		$body = $fetch( $url, 8 );
-		if ( '' === $body ) {
-			return [ 'urls' => [], 'status' => 'error', 'count' => 0, 'checked' => time() ];
-		}
-		$products = ! empty( self::get_settings()['sitemap_products'] );
-		$locs     = [];
-		preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $body, $m );
-		$first    = $m[1] ?? [];
-		$children = 0;
-		$read     = 0;
-		$skipped  = 0;
-		if ( false !== stripos( $body, '<sitemapindex' ) ) {
-			// An index: every child is followed, not a handful of them. Rank Math
-			// and Yoast split by post type AND by chunks of 200, so a shop easily
-			// publishes a dozen — reading five of them was why the count came
-			// back far short of what the sitemap actually holds.
-			//
-			// The product sitemaps are the exception, and they are skipped on
-			// purpose: an individual product is never a link target here, the
-			// category page already lists it, and they are also the longest.
-			$queue    = [];
-			$skiplist = [];
-			$indexlist = [];
-			foreach ( $first as $child ) {
-				$name = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
-				// Products (unless asked for), and everything that is an archive
-				// rather than a page someone would want to land on: tag,
-				// attachment, author and media sitemaps. Linking a category
-				// description to a tag archive helps nobody.
-				$drop = ( ! $products && preg_match( '#product[-_]?sitemap|/product-sitemap#i', $child ) )
-					|| preg_match( '#tag[-_]?sitemap|attachment[-_]?sitemap|author[-_]?sitemap|media[-_]?sitemap|brand[-_]?sitemap#i', $child );
-				if ( $drop ) {
-					++$skipped;
-					$skiplist[]  = $name;
-					$indexlist[] = $name . ' [skipped]';
-					continue;
-				}
-				$queue[]     = $child;
-				$indexlist[] = $name;
-			}
-			// Pages and categories first, then the blog: if the deadline below
-			// cuts the run short, what was read is what matters most.
-			$score = static function ( string $u ): int {
-				if ( preg_match( '/categor|product.cat|page/i', $u ) ) {
-					return 0;
-				}
-				return preg_match( '/post|blog|article|news/i', $u ) ? 1 : 2;
-			};
-			usort( $queue, static fn( $a, $b ) => $score( $a ) <=> $score( $b ) );
-			$children = count( $queue );
-			// Time budget rather than a fixed number of files: a slow server
-			// stops the run instead of holding a worker for minutes, and the
-			// next daily read picks up where this one stopped.
-			$deadline = microtime( true ) + 25;
-			$readlist = [];
-			foreach ( $queue as $child ) {
-				if ( microtime( true ) > $deadline ) {
-					break;
-				}
-				$sub = $fetch( $child, 6 );
-				++$read;
-				$name = basename( (string) wp_parse_url( $child, PHP_URL_PATH ) );
-				$n    = 0;
-				if ( '' !== $sub && preg_match_all( '#<loc>\s*([^<]+?)\s*</loc>#i', $sub, $mm ) ) {
-					$locs = array_merge( $locs, $mm[1] );
-					$n    = count( $mm[1] );
-				}
-				$readlist[] = $name . ' (' . $n . ')';
-			}
-		} else {
-			$locs = $first;
-		}
-		// Judge every URL on its own address, not on the name of the file it
-		// came from: a sitemap called anything at all can still list products,
-		// and a product URL has no business in a category's link pool.
-		$bases = self::product_bases();
-		$urls  = [];
-		$found   = 0;
-		$prod    = 0;
-		$arch    = 0;
-		$other   = 0;
-		$deflang = self::default_lang();
-		$seen  = [];
-		foreach ( $locs as $loc ) {
-			$loc = esc_url_raw( trim( $loc ) );
-			if ( '' === $loc || preg_match( '/\.xml($|\?)/i', $loc ) ) {
-				continue;
-			}
-			$slug = trim( (string) wp_parse_url( $loc, PHP_URL_PATH ), '/' );
-			if ( isset( $seen[ $slug ] ) ) {
-				continue; // the same page in the index twice.
-			}
-			$seen[ $slug ] = true;
-			++$found;
-			if ( ! $products && $bases && preg_match( '#(^|/)(' . implode( '|', $bases ) . ')/#i', '/' . $slug . '/' ) ) {
-				++$prod;
-				continue;
-			}
-			// An archive, a paginated page, a feed or a file: never something a
-			// description should send a reader to.
-			if ( preg_match( '#(^|/)(tag|product-tag|etiquette-produit|author|feed|page/\d+|comment-page-\d+|\d{4}/\d{2})(/|$)#i', $slug )
-				|| preg_match( '#\.(jpe?g|png|gif|webp|svg|pdf|zip|mp4|avif)$#i', $slug ) ) {
-				++$arch;
-				continue;
-			}
-			// Only the main language is worked on: WPML lists the whole site once
-			// per language, and the translations are WPML's job, not ours. They
-			// are dropped here rather than filtered later, so the cache stays the
-			// size of the site instead of the size of the site times nine.
-			if ( '' !== $deflang && self::url_language( $loc ) !== $deflang ) {
-				++$other;
-				continue;
-			}
-			if ( count( $urls ) >= self::SITEMAP_KEEP ) {
-				continue;
-			}
-			$urls[] = [
-				'label' => $slug ? ucwords( str_replace( [ '-', '_', '/' ], ' ', $slug ) ) : $loc,
-				'url'   => $loc,
-				'kind'  => 'page',
-			];
-		}
-		return [
-			'urls'     => $urls,
-			'status'   => $urls ? 'ok' : 'empty',
-			'count'    => count( $urls ),
-			'found'    => $found,
-			'children' => $children,
-			'read'     => $read,
-			'skipped'  => $skipped,
-			'index'     => count( $first ),
-			'indexlist' => $indexlist ?? [],
-			'products' => $prod,
-			'archives' => $arch,
-			'other'    => $other,
-			'sample'   => array_slice( array_column( $urls, 'url' ), 0, 25 ),
-			'readlist' => $readlist ?? [],
-			'skiplist' => $skiplist ?? [],
-			'checked'  => time(),
-		];
-	}
-
 	public static function default_prompt(): string {
 		$shipped = <<<'PROMPT'
 You write the description of a product category for an online shop. Think of a shop assistant standing in that aisle: concise, concrete, genuinely useful — a short buying guide, not marketing filler.
@@ -577,13 +302,15 @@ PROMPT;
 	 * only shrug at when the result disappoints.
 	 */
 	public static function default_links_prompt(): string {
-		$shipped = "This is an internal-linking pass, not a rewrite. Return the description exactly as it is, with internal links added.\n"
-			. "- Place a link where the text already talks about that target, or comes close to it. If nothing in the text fits a target, leave that target out — a forced link is worse than no link.\n"
-			. "- Targets marked [blog post] or [page] are the ones that help the reader most: link them wherever the text touches their subject, without explaining that subject any further here.\n"
-			. "- ANCHOR RULE. The anchor must NAME the page it points to, as closely as the sentence allows. A category keeps its name as it stands; an article or a page is anchored on the SUBJECT of its title, not on the title itself — keep the identifying words, drop the question mark, the verbs and the filler, two to six words. Re-word the few words around it so it reads naturally.\n"
-			. "- The sentence must still read perfectly well without the link. Never quote a title, never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\", never leave the destination ambiguous.\n"
-			. "- Everything else stays byte-for-byte: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
-			. '- Never link twice to the same URL, never link a whole sentence, never link inside a heading.';
+		$shipped = "This is an internal-linking pass, not a rewrite. Return the text exactly as it is, with internal links added.\n"
+			. "- CLOSENESS FIRST. Link a target only where the text genuinely talks about that subject. The closer the target is to what the sentence is actually saying, the better the link; a target the text never really touches is left out. A forced link is worse than no link, and there is no figure to reach.\n"
+			. "- The targets are listed closest first. Where several would fit, prefer the one carrying the most products: a category with a full catalogue behind it is worth more to the reader than a near-empty one. The product count is shown in brackets.\n"
+			. "- ANCHOR RULE. The anchor is the TITLE of the page it points to. A category keeps its name exactly as it stands. An article or a page keeps its title too, unless that title is a long headline or a question — then keep the identifying part of it, two to six words, dropping the question mark, the verbs and the filler. Never a paraphrase that leaves the destination in doubt.\n"
+			. "- You may adjust the few words around an anchor so the title reads naturally in the sentence — turn a phrasing, move a comma, change an article. Nothing beyond that.\n"
+			. "- The sentence must still read perfectly well without the link. Never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\".\n"
+			. "- Everything else stays as it is: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
+			. "- Never link twice to the same page, never link a whole sentence, never link inside a heading, and never link the page the text itself belongs to.\n"
+			. '- Use the supplied URLs verbatim, and no others.';
 		return class_exists( 'DZE_Prompt_Defaults' )
 			? DZE_Prompt_Defaults::pick( 'cat_links', $shipped )
 			: $shipped;
@@ -941,9 +668,14 @@ PROMPT;
 	/**
 	 * Internal-link candidates: other CATEGORIES — parent, children, siblings
 	 * and the main top-level categories — plus the blog posts and pages that
-	 * talk about the same thing. Individual products are deliberately excluded:
-	 * the category page already lists them. URLs come straight from WordPress,
-	 * so they always resolve.
+	 * talk about the same thing. Nothing else: individual products are left out
+	 * because the category page already lists them, and an address that merely
+	 * resembles the subject is not a page worth pointing at. URLs come straight
+	 * from WordPress, so they always resolve.
+	 *
+	 * Only what is genuinely close survives, and the order is the answer to
+	 * "which of these deserves the link most": the branch first, then shared
+	 * wording, then the size of the catalogue behind it.
 	 */
 	public static function link_pool( int $term_id ): array {
 		$pool = [];
@@ -962,14 +694,12 @@ PROMPT;
 		$kwt    = self::keyword_pools( $term_id, $term->name, false );
 		$needle = self::stems( $term->name . ' ' . implode( ' ', array_slice( $kwt['titles'], 0, 12 ) ) );
 
-		// The page's own address. It reaches the pool through the sitemap layer,
-		// where it is by definition the best match for its own name — and a
-		// category linking to itself is what came out of that.
+		// The page's own address: a category never links to itself.
 		$self = untrailingslashit( (string) get_term_link( $term ) );
-		$add  = static function ( string $label, string $url, string $kind ) use ( &$pool, $needle, $self ) {
+		$add  = static function ( string $label, string $url, string $kind, int $tid = 0 ) use ( &$pool, $needle, $self ) {
 			$url = (string) $url;
-			// Keyed without the trailing slash: the sitemap and get_permalink()
-			// do not always agree on it, and that would double an entry.
+			// Keyed without the trailing slash: two sources do not always agree
+			// on it, and that would double an entry.
 			$key = untrailingslashit( $url );
 			if ( '' === $url || isset( $pool[ $key ] ) || $key === $self ) {
 				return;
@@ -981,42 +711,44 @@ PROMPT;
 			$hits  = count( array_intersect( $needle, self::stems( $label ) ) );
 			$close = in_array( $kind, [ 'sub-category', 'parent category' ], true ) || $hits >= 2;
 			$pool[ $key ] = [
-				'label' => $label,
-				'url'   => $url,
-				'kind'  => $kind,
-				'score' => $hits,
-				'close' => $close,
+				'label'    => $label,
+				'url'      => $url,
+				'kind'     => $kind,
+				'score'    => $hits,
+				'close'    => $close,
+				'term'     => $tid,
+				'products' => 0,
 			];
 		};
 		if ( $term->parent ) {
 			$parent = get_term( $term->parent, 'product_cat' );
 			if ( $parent && ! is_wp_error( $parent ) ) {
-				$add( $parent->name, (string) get_term_link( $parent ), 'parent category' );
+				$add( $parent->name, (string) get_term_link( $parent ), 'parent category', (int) $parent->term_id );
 			}
 		}
 		// Direct children first, then the level below them: a hub is expected to
 		// point at its whole branch, not only at its immediate children.
 		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => $term_id, 'hide_empty' => true, 'number' => 20 ] ) as $child ) {
 			if ( ! is_wp_error( $child ) ) {
-				$add( $child->name, (string) get_term_link( $child ), 'sub-category' );
+				$add( $child->name, (string) get_term_link( $child ), 'sub-category', (int) $child->term_id );
 			}
 		}
 		if ( count( $pool ) < 20 ) {
 			foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'child_of' => $term_id, 'hide_empty' => true, 'number' => 24 ] ) as $deep ) {
 				if ( ! is_wp_error( $deep ) ) {
-					$add( $deep->name, (string) get_term_link( $deep ), 'sub-category' );
+					$add( $deep->name, (string) get_term_link( $deep ), 'sub-category', (int) $deep->term_id );
 				}
 			}
 		}
 		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => (int) $term->parent, 'hide_empty' => true, 'number' => 12, 'exclude' => [ $term_id, (int) get_option( 'default_product_cat' ) ] ] ) as $sib ) {
 			if ( ! is_wp_error( $sib ) && 'uncategorized' !== $sib->slug ) {
-				$add( $sib->name, (string) get_term_link( $sib ), 'related category' );
+				$add( $sib->name, (string) get_term_link( $sib ), 'related category', (int) $sib->term_id );
 			}
 		}
 		// Other top-level categories, so a leaf can also point sideways in the tree.
 		foreach ( get_terms( [ 'taxonomy' => 'product_cat', 'parent' => 0, 'hide_empty' => true, 'number' => 10, 'exclude' => [ $term_id, (int) get_option( 'default_product_cat' ) ] ] ) as $top ) {
 			if ( ! is_wp_error( $top ) && 'uncategorized' !== $top->slug ) {
-				$add( $top->name, (string) get_term_link( $top ), 'main category' );
+				$add( $top->name, (string) get_term_link( $top ), 'main category', (int) $top->term_id );
 			}
 		}
 		// No products here on purpose: the category page already lists them, so
@@ -1028,39 +760,41 @@ PROMPT;
 			$add( $row['label'], $row['url'], $row['kind'] );
 		}
 
-		// Last layer: anything else the sitemap knows about and WordPress does
-		// not serve here (another site section, a plugin-made landing page).
-		// Cache only — nobody waits on an HTTP call to build this list. A big
-		// sitemap holds thousands of URLs, so only the ones whose address talks
-		// about this category come in, best first.
-		$cached = self::sitemap_cached()['urls'] ?? [];
-		if ( $cached ) {
-			$kw     = self::keyword_pools( $term_id, $term->name, false );
-			$needle = self::tokens( $term->name . ' ' . implode( ' ', array_slice( $kw['titles'], 0, 12 ) ) );
-			$ranked = [];
-			foreach ( $cached as $page ) {
-				$hits = $needle ? count( array_intersect( $needle, self::tokens( $page['url'] ) ) ) : 0;
-				if ( $hits > 0 ) {
-					$page['score'] = $hits;
-					$ranked[]      = $page;
-				}
-			}
-			usort( $ranked, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
-			foreach ( array_slice( $ranked, 0, 8 ) as $page ) {
-				if ( count( $pool ) >= 40 ) {
-					break;
-				}
-				$add( $page['label'], $page['url'], 'sitemap page' );
-			}
-		}
+		// Nothing else. The mesh links product categories, blog posts and pages,
+		// and that is the whole list: a layer that offered "any address in the
+		// sitemap whose wording resembles this category" is how a category came
+		// to link to itself, and it never had anything to add that the two
+		// layers above did not already hold.
+
 		if ( '' !== $plang ) {
 			do_action( 'wpml_switch_language', null );
 		}
-		$pool = array_values( $pool );
-		// Closest first: sub-categories, then what shares the most wording.
+
+		// Only what is genuinely close is kept. A link is worth having when the
+		// reader would have looked for that page anyway; the rest is noise that
+		// costs the page some of its own weight.
+		$pool = array_values( array_filter( $pool, static fn( array $p ): bool => ! empty( $p['close'] ) ) );
+
+		// How big a catalogue sits behind each category, so the ones that sell
+		// the most get pointed at first. Asked of the head of the list only:
+		// it is one cached count per category, not something to spend on
+		// candidates nobody will reach.
+		usort( $pool, static fn( $a, $b ) => [ $b['score'], $a['label'] ] <=> [ $a['score'], $b['label'] ] );
+		$weighed = 0;
+		foreach ( $pool as $i => $row ) {
+			if ( ! $row['term'] || $weighed >= 20 ) {
+				continue;
+			}
+			$pool[ $i ]['products'] = self::products_behind( (int) $row['term'] );
+			$weighed++;
+		}
+
+		// Closest first, and among equals the one with the most products. A
+		// sub-category or the parent is part of the same branch, so it stays
+		// ahead of a category that merely shares wording.
 		usort( $pool, static function ( $a, $b ) {
-			$rank = static fn( $x ) => ( 'sub-category' === $x['kind'] || 'parent category' === $x['kind'] ) ? 2 : ( ! empty( $x['close'] ) ? 1 : 0 );
-			return [ $rank( $b ), $b['score'] ?? 0 ] <=> [ $rank( $a ), $a['score'] ?? 0 ];
+			$rank = static fn( $x ) => in_array( $x['kind'], [ 'sub-category', 'parent category' ], true ) ? 1 : 0;
+			return [ $rank( $b ), $b['score'], $b['products'] ] <=> [ $rank( $a ), $a['score'], $a['products'] ];
 		} );
 		return $pool;
 	}
@@ -1408,7 +1142,10 @@ PROMPT;
 				}
 				throw new RuntimeException( __( 'Internal linking is turned off in Settings → Categories.', 'dazont-ecom' ) );
 			}
-			$room = max( 1, $max - count( $done ) );
+			// Two limits, and the smaller one wins: what the text can carry
+			// (one link per fifty words) and what there is to point at. A page
+			// is never padded with links to reach a figure.
+			$room = max( 1, min( $max - count( $done ), count( $links ) ) );
 		}
 
 		return self::weave( (string) $term->name, $html, self::language( $term_id ), $links, $room, [
@@ -1496,7 +1233,8 @@ PROMPT;
 
 		$list = [];
 		foreach ( $links as $l ) {
-			$list[] = $l['label'] . ' [' . $l['kind'] . '] → ' . $l['url'];
+			$n = (int) ( $l['products'] ?? 0 );
+			$list[] = $l['label'] . ' [' . $l['kind'] . ( $n ? ', ' . $n . ' products' : '' ) . '] → ' . $l['url'];
 		}
 
 		$user = "--- {$kind} ---\nName: " . $subject . "\n"
@@ -1506,7 +1244,7 @@ PROMPT;
 			. "\n--- INSTRUCTIONS ---\n"
 			. ( $explicit
 				? '- Add a link for EACH of the ' . $room . " targets above, on a different spot, unless the text truly offers no place for one.\n"
-				: '- Add ' . max( 1, $room - 2 ) . ' to ' . $room . " links, each on a different target from the list above.\n" )
+				: '- Place AT MOST ' . $room . " links, each on a different target from the list above. Fewer is fine: there is no figure to reach, only targets that genuinely fit.\n" )
 			. self::links_prompt() . "\n"
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
@@ -1555,188 +1293,10 @@ PROMPT;
 		return $names[ $short ] ?? $code;
 	}
 
-	/**
-	 * Connection badge for the sitemap: off / connected / unreachable / empty.
-	 * Pass a state array to describe a one-off read (the Test button).
-	 */
-	public static function sitemap_status_html( ?array $state = null ): string {
-		$src = null === $state ? self::sitemap_source() : '';
-		if ( null === $state ) {
-			// Never fetch while a page is rendering: show what the last read
-			// found, or say plainly that no read has happened yet.
-			$state = self::sitemap_cached();
-			if ( null === $state ) {
-				return '' === self::sitemap_url()
-					? '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap: none connected — links stay inside the site pages listed above', 'dazont-ecom' ) . '</span>'
-					: '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap: not read yet — it is read once a day in the background, or now from Settings → Categories', 'dazont-ecom' ) . '</span>';
-			}
-		}
-		$s = $state;
-		if ( 'ok' === $s['status'] ) {
-			$found = (int) ( $s['found'] ?? $s['count'] );
-			$kept  = (int) $s['count'];
-			$read  = (int) ( $s['read'] ?? 0 );
-			$skip  = (int) ( $s['skipped'] ?? 0 );
-			$index = (int) ( $s['index'] ?? 0 );
-			$parts = [];
-
-			if ( $index ) {
-				// Say what the index holds, not only what was taken from it:
-				// "10 read" alone reads like nine tenths went missing.
-				$parts[] = sprintf(
-					/* translators: 1: sub-sitemaps in the index, 2: sub-sitemaps read */
-					esc_html__( '%1$s sub-sitemaps in the index, %2$s read', 'dazont-ecom' ),
-					number_format_i18n( $index ),
-					number_format_i18n( $read )
-				);
-				if ( $skip ) {
-					$parts[] = sprintf(
-						/* translators: %s: number of product sitemaps left out */
-						esc_html__( '%s left out because they list products, which are not link targets here', 'dazont-ecom' ),
-						number_format_i18n( $skip )
-					);
-				}
-				$dropped = [];
-				if ( ! empty( $s['products'] ) ) {
-					/* translators: %s: number of product URLs dropped */
-					$dropped[] = sprintf( esc_html__( '%s products', 'dazont-ecom' ), number_format_i18n( (int) $s['products'] ) );
-				}
-				if ( ! empty( $s['archives'] ) ) {
-					/* translators: %s: number of archive URLs dropped */
-					$dropped[] = sprintf( esc_html__( '%s tag/author/file URLs', 'dazont-ecom' ), number_format_i18n( (int) $s['archives'] ) );
-				}
-				if ( $dropped ) {
-					$parts[] = sprintf(
-						/* translators: %s: what was dropped, e.g. "1,204 products, 892 tag/author/file URLs" */
-						esc_html__( 'dropped from the files read: %s', 'dazont-ecom' ),
-						implode( ', ', $dropped )
-					);
-				}
-				$pending = max( 0, (int) ( $s['children'] ?? 0 ) - $read );
-				if ( $pending ) {
-					$parts[] = sprintf(
-						/* translators: %s: sub-sitemaps still to read */
-						esc_html__( '%s still to read on the next daily check', 'dazont-ecom' ),
-						number_format_i18n( $pending )
-					);
-				}
-			}
-			$parts[] = $kept < $found
-				? sprintf(
-					/* translators: 1: URLs found, 2: URLs kept */
-					esc_html__( '%1$s URLs, %2$s kept as link candidates', 'dazont-ecom' ),
-					number_format_i18n( $found ),
-					number_format_i18n( $kept )
-				)
-				: sprintf(
-					/* translators: %s: number of URLs */
-					esc_html__( '%s URLs available for linking', 'dazont-ecom' ),
-					number_format_i18n( $found )
-				);
-			if ( ! empty( $s['other'] ) ) {
-				$parts[] = sprintf(
-					/* translators: %s: number of translated URLs dropped */
-					esc_html__( '%s URLs in other languages dropped — only the main language is worked on', 'dazont-ecom' ),
-					number_format_i18n( (int) $s['other'] )
-				);
-			}
-			$parts[] = sprintf(
-				/* translators: %s: human time diff */
-				esc_html__( 'read %s ago', 'dazont-ecom' ),
-				esc_html( human_time_diff( (int) $s['checked'] ) )
-			);
-
-			$badge = '<span class="dze-key-badge is-set">&#10003; '
-				. esc_html__( 'Sitemap connected', 'dazont-ecom' ) . ' — ' . implode( ' · ', $parts ) . '</span>';
-			if ( '' !== $src ) {
-				/* translators: %s: name of the plugin publishing the sitemap */
-				$badge .= ' <span class="description">' . sprintf( esc_html__( 'found on its own from %s', 'dazont-ecom' ), esc_html( $src ) ) . '</span>';
-			}
-			return $badge;
-		}
-		if ( 'empty' === $s['status'] ) {
-			return '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap reachable, but no page URL found in it', 'dazont-ecom' ) . '</span>';
-		}
-		if ( 'error' === $s['status'] ) {
-			return '<span class="dze-key-badge is-missing">' . esc_html__( 'Sitemap not reachable — check the URL', 'dazont-ecom' ) . '</span>';
-		}
-		return '<span class="dze-key-badge is-missing">' . esc_html__( 'No sitemap connected — categories only', 'dazont-ecom' ) . '</span>';
-	}
-
 	// =========================================================================
 	// Sitemap notice
 	// =========================================================================
 
-	private const DISMISS_META = 'dze_cc_sitemap_notice_off';
-
-	public function schedule_sitemap_check(): void {
-		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
-			wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'daily', self::CRON_HOOK );
-		}
-	}
-
-	public static function cron_sitemap_check(): void {
-		// One read at a time, whatever the cron does: two workers fetching our
-		// own sitemap at once is exactly what we are trying to avoid.
-		if ( get_transient( 'dze_cc_sitemap_lock' ) ) {
-			return;
-		}
-		set_transient( 'dze_cc_sitemap_lock', 1, 5 * MINUTE_IN_SECONDS );
-		self::sitemap_pages( true );
-		delete_transient( 'dze_cc_sitemap_lock' );
-	}
-
-	/** "Not now" on the notice: silenced for that user until a reset. */
-	public function maybe_dismiss_sitemap_notice(): void {
-		if ( empty( $_GET['dze_cc_sitemap_off'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- verified right below.
-			return;
-		}
-		if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_GET['_wpnonce'] ?? '' ) ), 'dze_cc_sitemap_off' ) ) {
-			return;
-		}
-		update_user_meta( get_current_user_id(), self::DISMISS_META, 1 );
-		wp_safe_redirect( remove_query_arg( [ 'dze_cc_sitemap_off', '_wpnonce' ] ) );
-		exit;
-	}
-
-	/**
-	 * Warns where it matters — the categories screen and the settings page —
-	 * when the internal linking has no sitemap behind it, or when the one it
-	 * has cannot be read. Never fetches: the cached state is enough.
-	 */
-	public function sitemap_notice(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) || get_user_meta( get_current_user_id(), self::DISMISS_META, true ) ) {
-			return;
-		}
-		// The settings tab lives on the Marketing Assistant page: no page, no
-		// invitation to click through to it.
-		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'marketing_ai' ) ) {
-			return;
-		}
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		$here   = $screen && ( 'edit-product_cat' === $screen->id || false !== strpos( (string) $screen->id, DZE_Marketing_Ai::MENU_SLUG ) );
-		if ( ! $here || self::links() < 1 ) {
-			return;
-		}
-		$url   = self::sitemap_url();
-		$state = (string) ( self::sitemap_cached()['status'] ?? '' );
-		if ( '' !== $url && ( 'ok' === $state || '' === $state ) ) {
-			return; // Connected, or not read yet — no reason to shout.
-		}
-		$tab   = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'categories' ], admin_url( 'admin.php' ) );
-		$hide  = wp_nonce_url( add_query_arg( 'dze_cc_sitemap_off', 1 ), 'dze_cc_sitemap_off' );
-		$body  = '' === $url
-			? esc_html__( 'No sitemap found on this site, so category descriptions can only link to other categories. Point the plugin at your sitemap to let them link to your pages and blog posts too.', 'dazont-ecom' )
-			: sprintf(
-				/* translators: %s: sitemap URL */
-				esc_html__( 'The sitemap at %s could not be read, so category descriptions are linking to other categories only.', 'dazont-ecom' ),
-				'<code>' . esc_html( $url ) . '</code>'
-			);
-		echo '<div class="notice notice-warning"><p><strong>' . esc_html__( 'Dazont Ecom — internal linking', 'dazont-ecom' ) . '</strong><br />'
-			. $body // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
-			. '</p><p><a class="button button-primary" href="' . esc_url( $tab ) . '">' . esc_html__( 'Connect the sitemap', 'dazont-ecom' ) . '</a> '
-			. '<a class="button-link" href="' . esc_url( $hide ) . '">' . esc_html__( 'Not now', 'dazont-ecom' ) . '</a></p></div>';
-	}
 
 	// =========================================================================
 	// Categories list column
@@ -1840,7 +1400,7 @@ PROMPT;
 				<?php
 				printf(
 					/* translators: 1: target word count, 2: target link count, 3: products in the whole branch, 4: direct sub-categories, 5: sub-categories at any depth */
-					esc_html__( 'Target for this category: %1$s words and %2$s links — %3$s products behind it, %4$s sub-categories (%5$s counting every level).', 'dazont-ecom' ),
+					esc_html__( 'Target for this category: %1$s words, and up to %2$s links (one per 50 words) — %3$s products behind it, %4$s sub-categories (%5$s counting every level).', 'dazont-ecom' ),
 					'<strong>' . (int) $size['words'] . '</strong>' . ( $size['auto_words'] ? '' : '*' ),
 					'<strong>' . (int) $size['links'] . '</strong>' . ( $size['auto_links'] ? '' : '*' ),
 					'<strong>' . (int) $size['products'] . '</strong>',
@@ -2029,7 +1589,6 @@ PROMPT;
 							'main category'    => __( 'main categories', 'dazont-ecom' ),
 						'blog post'        => __( 'blog posts', 'dazont-ecom' ),
 						'page'             => __( 'site pages', 'dazont-ecom' ),
-						'sitemap page'     => __( 'other pages from the sitemap', 'dazont-ecom' ),
 					];
 					foreach ( $break as $kind => $n ) {
 						$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
@@ -2037,12 +1596,11 @@ PROMPT;
 					echo '<br />';
 					printf(
 						/* translators: 1: number of pages it can link to, 2: breakdown, 3: max inserted */
-						esc_html__( 'Link suggestions: %1$s URLs to choose from (%2$s); at most %3$s are inserted. The writer may only use URLs from that list — it never invents one.', 'dazont-ecom' ),
+						esc_html__( 'Link suggestions: %1$s pages close enough to link to (%2$s); at most %3$s are inserted — one link per 50 words, and only pages that genuinely fit. The writer may only use URLs from that list.', 'dazont-ecom' ),
 						'<strong>' . count( $links ) . '</strong>',
 						esc_html( implode( ', ', $parts ) ),
-						'<strong>' . (int) $size['links'] . '</strong>'
+						'<strong>' . (int) min( (int) $size['links'], count( $links ) ) . '</strong>'
 					);
-					echo '<br />' . self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
 					?>
 				</p>
 				<?php if ( $kw['titles'] ) : ?>
@@ -2353,27 +1911,6 @@ PROMPT;
 		] );
 	}
 
-	/**
-	 * Reads the sitemap now and returns the fresh badge. The URL typed in the
-	 * field is tested as it is, so the owner can check it before saving.
-	 */
-	public function ajax_sitemap_test(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- a full index takes a moment.
-		}
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
-		}
-		$url = esc_url_raw( trim( (string) wp_unslash( $_POST['url'] ?? '' ) ) );
-		if ( '' !== $url && $url !== self::sitemap_url() ) {
-			// Not the saved URL: read it once, without touching the cache.
-			wp_send_json_success( [ 'html' => self::sitemap_status_html( self::read_sitemap( $url ) ) ] );
-		}
-		self::sitemap_pages( true ); // saved URL: refresh the cache too.
-		wp_send_json_success( [ 'html' => self::sitemap_status_html() ] );
-	}
-
 	public function ajax_save_prompt(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -2445,63 +1982,6 @@ PROMPT;
 					</td>
 				</tr>
 				<tr>
-					<th scope="row"><label for="dze-cc-sitemap"><?php esc_html_e( 'Sitemap', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<?php $auto = self::detect_sitemap(); ?>
-						<input type="url" id="dze-cc-sitemap" name="<?php echo esc_attr( self::OPT ); ?>[sitemap]" class="regular-text" value="<?php echo esc_attr( self::sitemap_override() ); ?>" placeholder="<?php echo esc_attr( '' !== $auto['url'] ? $auto['url'] : home_url( '/wp-sitemap.xml' ) ); ?>" />
-						<button type="button" class="button" id="dze-cc-sitemap-test"><?php esc_html_e( 'Test', 'dazont-ecom' ); ?></button>
-						<p id="dze-cc-sitemap-status" style="margin:8px 0 0;"><?php echo self::sitemap_status_html(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?></p>
-						<p style="margin:6px 0;">
-							<label>
-								<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[sitemap_products]" value="1" <?php checked( ! empty( $s['sitemap_products'] ) ); ?> />
-								<?php esc_html_e( 'Read the product sitemaps too', 'dazont-ecom' ); ?>
-							</label>
-							<span class="description"><?php esc_html_e( 'Off by default: a category page already lists its products, so linking to one from its description adds nothing — and those files are the bulk of a big sitemap.', 'dazont-ecom' ); ?></span>
-						</p>
-						<?php $st = self::sitemap_cached(); ?>
-						<?php if ( is_array( $st ) && ( ! empty( $st['readlist'] ) || ! empty( $st['skiplist'] ) ) ) : ?>
-							<details style="margin:6px 0;">
-								<summary style="cursor:pointer;color:#2271b1;"><?php esc_html_e( 'What the sitemap contains, and what was taken from it', 'dazont-ecom' ); ?></summary>
-								<p class="description" style="margin:6px 0 0;">
-									<?php if ( ! empty( $st['indexlist'] ) ) : ?>
-										<strong><?php esc_html_e( 'Every file in the index', 'dazont-ecom' ); ?></strong>
-										<?php esc_html_e( '— those marked [skipped] were not downloaded.', 'dazont-ecom' ); ?><br />
-										<?php echo esc_html( implode( ' · ', (array) $st['indexlist'] ) ); ?><br />
-									<?php endif; ?>
-									<?php if ( ! empty( $st['readlist'] ) ) : ?>
-										<strong><?php esc_html_e( 'Read', 'dazont-ecom' ); ?></strong><br />
-										<?php echo esc_html( implode( ' · ', (array) $st['readlist'] ) ); ?><br />
-									<?php endif; ?>
-									<?php if ( ! empty( $st['skiplist'] ) ) : ?>
-										<strong><?php esc_html_e( 'Left out', 'dazont-ecom' ); ?></strong><br />
-										<?php echo esc_html( implode( ' · ', (array) $st['skiplist'] ) ); ?><br />
-									<?php endif; ?>
-									<?php if ( ! empty( $st['sample'] ) ) : ?>
-										<strong><?php esc_html_e( 'First URLs kept', 'dazont-ecom' ); ?></strong>
-										<?php esc_html_e( '— check here what these pages actually are.', 'dazont-ecom' ); ?><br />
-										<?php echo esc_html( implode( ' · ', array_map( static fn( $u ) => (string) wp_parse_url( $u, PHP_URL_PATH ), (array) $st['sample'] ) ) ); ?>
-									<?php endif; ?>
-								</p>
-							</details>
-						<?php endif; ?>
-						<p class="description">
-							<?php
-							if ( '' !== $auto['url'] ) {
-								printf(
-									/* translators: 1: plugin publishing the sitemap, 2: sitemap URL */
-									esc_html__( 'Leave this empty: the plugin picks up the sitemap %1$s publishes on its own (%2$s). Fill it in only to point somewhere else.', 'dazont-ecom' ),
-									'<strong>' . esc_html( $auto['source'] ) . '</strong>',
-									'<code>' . esc_html( $auto['url'] ) . '</code>'
-								);
-							} else {
-								esc_html_e( 'No sitemap was found on this site — paste its address here.', 'dazont-ecom' );
-							}
-							?>
-							<br /><?php esc_html_e( 'It adds your own pages (blog posts, guides, landing pages) to the link pool, on top of the categories. A sitemap index is followed one level, and it is re-read every 12 hours.', 'dazont-ecom' ); ?>
-						</p>
-					</td>
-				</tr>
-				<tr>
 					<th scope="row"><label for="dze-cc-prompt"><?php esc_html_e( 'Writing prompt', 'dazont-ecom' ); ?></label></th>
 					<td>
 						<textarea id="dze-cc-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="12" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
@@ -2556,20 +2036,6 @@ PROMPT;
 			$( '.dze-cc-clear' ).on( 'click', function () {
 				var t = $( this ).data( 'target' );
 				$( '#' + t ).val( dzeDef( dzeCcId[ t ], dzeCcShipped[ t ] || '' ) );
-			} );
-			$( '#dze-cc-sitemap-test' ).on( 'click', function () {
-				var $b = $( this ).prop( 'disabled', true );
-				$( '#dze-cc-sitemap-status' ).html( '<span class="dze-cx-spin"></span>' );
-				$.post( window.ajaxurl, {
-					action: 'dze_cc_sitemap_test',
-					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
-					url: $( '#dze-cc-sitemap' ).val()
-				} )
-					.done( function ( res ) {
-						$b.prop( 'disabled', false );
-						$( '#dze-cc-sitemap-status' ).html( ( res && res.success ) ? res.data.html : '' );
-					} )
-					.fail( function () { $b.prop( 'disabled', false ); } );
 			} );
 		} );
 		</script>
