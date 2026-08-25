@@ -110,6 +110,7 @@ final class DZE_Discounts {
 			add_action( 'admin_post_dze_discount_save',   [ $this, 'handle_save' ] );
 			add_action( 'admin_post_dze_discount_delete', [ $this, 'handle_delete' ] );
 			add_action( 'admin_post_dze_discount_toggle', [ $this, 'handle_toggle' ] );
+			add_action( 'admin_post_dze_discount_bulk',   [ $this, 'handle_bulk' ] );
 			add_action( 'admin_post_dze_discount_exclusions', [ $this, 'handle_exclusions_save' ] );
 			add_action( 'admin_post_dze_sale_resync',     [ $this, 'handle_resync' ] );
 			add_action( 'wp_ajax_dze_auto_count',         [ $this, 'ajax_auto_count' ] );
@@ -578,12 +579,19 @@ final class DZE_Discounts {
 	/**
 	 * Returns the title of an enabled sale whose window overlaps $rule, or ''
 	 * (used to forbid two promotions running at the same time).
+	 *
+	 * $pool is the set of rules to judge against. A batch being switched on
+	 * passes the set it is building, so two promotions of the same batch
+	 * cannot both come on behind each other's back; everything else lets it
+	 * default to what the shop holds.
+	 *
+	 * @param array|null $pool Rules as they stand, or null to read the option.
 	 */
-	private function conflicting_sale( array $rule ): string {
+	private function conflicting_sale( array $rule, ?array $pool = null ): string {
 		if ( ( $rule['type'] ?? '' ) !== 'sale' ) {
 			return '';
 		}
-		foreach ( self::get_rules() as $oid => $other ) {
+		foreach ( ( null === $pool ? self::get_rules() : $pool ) as $oid => $other ) {
 			if ( $oid === ( $rule['id'] ?? '' ) ) {
 				continue;
 			}
@@ -1866,6 +1874,7 @@ final class DZE_Discounts {
 				'translating' => __( 'Writing…', 'dazont-ecom' ),
 				'translated'  => __( 'Written — check them, then save.', 'dazont-ecom' ),
 				'trFailed'    => __( 'Could not write them.', 'dazont-ecom' ),
+				'pickRows'    => __( 'Tick the promotions you mean first.', 'dazont-ecom' ),
 				'error'    => __( 'Could not count.', 'dazont-ecom' ),
 				/* translators: 1: total matching, 2: number that will be discounted */
 				'result'    => __( '%1$s products match — the top %2$s will be discounted.', 'dazont-ecom' ),
@@ -2088,6 +2097,92 @@ final class DZE_Discounts {
 		exit;
 	}
 
+	/**
+	 * Several promotions at once: enable, disable, delete.
+	 *
+	 * The same decisions the row links take one at a time, and the same
+	 * guards: only one promotion may run at a time, so enabling a batch
+	 * enables what does not clash and says how many it had to leave alone
+	 * rather than silently switching one of them on.
+	 */
+	public function handle_bulk(): void {
+		check_admin_referer( self::SAVE_NONCE );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
+		}
+		$what  = isset( $_POST['bulk'] ) ? sanitize_key( wp_unslash( $_POST['bulk'] ) ) : '';
+		$ids   = array_filter( array_map( 'sanitize_key', (array) ( $_POST['rules'] ?? [] ) ) );
+		$mode  = isset( $_POST['mode'] ) && 'events' === $_POST['mode'] ? 'events' : 'discounts';
+		$back  = 'events' === $mode ? self::MENU_SLUG_EVENTS : self::MENU_SLUG;
+		$args  = [ 'page' => $back ];
+
+		if ( ! $ids || ! in_array( $what, [ 'enable', 'disable', 'delete' ], true ) ) {
+			wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+			exit;
+		}
+		$rules   = self::get_rules();
+		$done    = 0;
+		$skipped = 0;
+
+		foreach ( $ids as $id ) {
+			if ( ! isset( $rules[ $id ] ) ) {
+				continue;
+			}
+			if ( 'delete' === $what ) {
+				// Pushed to Merchant Center: cancelled there too, as one delete does.
+				if ( ! empty( $rules[ $id ]['gmc_sync'] ) && class_exists( 'DZE_Gmc' ) ) {
+					DZE_Gmc::instance()->cancel_rule( $rules[ $id ] );
+				}
+				unset( $rules[ $id ] );
+				$done++;
+				continue;
+			}
+			if ( 'disable' === $what ) {
+				if ( ! empty( $rules[ $id ]['enabled'] ) ) {
+					$rules[ $id ]['enabled'] = false;
+					$done++;
+				}
+				continue;
+			}
+			// Enable: the overlap guard reads the rules as they stand in this
+			// loop, so two promotions of the same batch cannot both come on.
+			if ( ! empty( $rules[ $id ]['enabled'] ) ) {
+				continue;
+			}
+			$clash = $this->conflicting_sale( $rules[ $id ], $rules );
+			if ( '' !== $clash ) {
+				$skipped++;
+				continue;
+			}
+			$rules[ $id ]['enabled'] = true;
+			$done++;
+			self::schedule_i18n( $id );
+		}
+
+		self::save_rules( $rules );
+		$this->queue_sale_sync();
+
+		if ( 'delete' === $what ) {
+			$args['deleted'] = 1;
+		} elseif ( $skipped ) {
+			set_transient( 'dze_discount_notice', sprintf(
+				/* translators: 1: number switched on, 2: number left off */
+				_n(
+					'%1$d promotion switched on. %2$d left off: its dates overlap one that is already running — only one promotion runs at a time.',
+					'%1$d promotions switched on. %2$d left off: their dates overlap one that is already running — only one promotion runs at a time.',
+					$skipped,
+					'dazont-ecom'
+				),
+				$done,
+				$skipped
+			), 60 );
+		} else {
+			$args['saved'] = 1;
+		}
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+		exit;
+	}
+
 	public function handle_delete(): void {
 		check_admin_referer( 'dze_discount_delete' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -2116,6 +2211,11 @@ final class DZE_Discounts {
 		}
 		$id    = isset( $_GET['rule'] ) ? sanitize_key( wp_unslash( $_GET['rule'] ) ) : '';
 		$rules = self::get_rules();
+		// Back to the screen this rule belongs to: toggling an event used to
+		// land on the Discounts page, which is not where the click happened.
+		$back  = ( isset( $rules[ $id ]['type'] ) && in_array( $rules[ $id ]['type'], self::EVENT_TYPES, true ) )
+			? self::MENU_SLUG_EVENTS
+			: self::MENU_SLUG;
 		if ( isset( $rules[ $id ] ) ) {
 			$enabling = empty( $rules[ $id ]['enabled'] );
 			// Enabling a sale that overlaps another active sale is forbidden.
@@ -2127,7 +2227,7 @@ final class DZE_Discounts {
 						__( 'Cannot enable: its dates overlap the active promotion "%s". Only one promotion can run at a time.', 'dazont-ecom' ),
 						$clash
 					), 60 );
-					wp_safe_redirect( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) );
+					wp_safe_redirect( add_query_arg( [ 'page' => $back ], admin_url( 'admin.php' ) ) );
 					exit;
 				}
 			}
@@ -2138,7 +2238,7 @@ final class DZE_Discounts {
 				self::schedule_i18n( $id );
 			}
 		}
-		wp_safe_redirect( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) );
+		wp_safe_redirect( add_query_arg( [ 'page' => $back ], admin_url( 'admin.php' ) ) );
 		exit;
 	}
 

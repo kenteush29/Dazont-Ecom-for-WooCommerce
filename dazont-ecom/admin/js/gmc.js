@@ -111,7 +111,8 @@
 
 	$(document).on('click', '#dze-gmc-sync-selected', function () {
 		var ids = [];
-		$('.dze-gmc-cb:checked').each(function () { ids.push($(this).val()); });
+		// The row's own tick is the selection: one column, one meaning.
+		$('.dze-rule-cb:checked').each(function () { ids.push($(this).val()); });
 		if (!ids.length) { alert('No promotion selected.'); return; }
 		sync(ids, $('#dze-gmc-bulk-status'));
 	});
