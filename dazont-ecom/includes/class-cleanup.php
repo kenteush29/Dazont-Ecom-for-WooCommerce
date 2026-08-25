@@ -78,10 +78,10 @@ final class DZE_Cleanup {
 				'user_meta'  => [ 'dze_cc_sitemap_notice_off' ],
 				'transients' => [ 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock', 'dze_cc_pcount_' ],
 			],
-			'link_mesh' => [
-				'options'    => [ 'dze_mesh_settings', 'dze_mesh_state' ],
-				'term_meta'  => [ '_dze_mesh_at', '_dze_mesh_out', '_dze_mesh_prev' ],
-				'transients' => [ 'dze_mesh_survey' ],
+			'automation' => [
+				'options'    => [ 'dze_auto_settings', 'dze_auto_state' ],
+				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
+				'transients' => [ 'dze_auto_survey' ],
 			],
 			'content' => [
 				'options'    => [ 'dze_content_settings', 'dze_content_log' ],

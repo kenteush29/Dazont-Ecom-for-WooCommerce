@@ -428,6 +428,9 @@ final class DZE_Marketing_Ai {
 			$tabs['lab'] = __( 'Image lab', 'dazont-ecom' );
 		}
 		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
+		if ( $mod_on( 'automation' ) ) {
+			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );
+		}
 		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		if ( ! isset( $tabs[ $tab ] ) ) {
@@ -496,6 +499,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'translate' === $tab ) {
 			if ( class_exists( 'DZE_Translate' ) && $mod_on( 'translate' ) ) {
 				DZE_Translate::render_settings();
+			}
+		} elseif ( 'automation' === $tab ) {
+			if ( class_exists( 'DZE_Automation' ) && $mod_on( 'automation' ) ) {
+				DZE_Automation::render_settings();
 			}
 		} elseif ( 'modules' === $tab ) {
 			if ( class_exists( 'DZE_Modules' ) ) {

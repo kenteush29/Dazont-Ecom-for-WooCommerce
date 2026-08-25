@@ -3,7 +3,7 @@
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
  * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
- * Version:           4.87.0
+ * Version:           4.88.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '4.87.0' );
+define( 'DZE_VERSION', '4.88.0' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -124,7 +124,7 @@ final class DZE_Plugin {
 			DZE_Discounts::clear_sale_sync();
 		}
 		wp_clear_scheduled_hook( DZE_Category_Content::CRON_HOOK );
-		wp_clear_scheduled_hook( DZE_Link_Mesh::HOOK );
+		wp_clear_scheduled_hook( DZE_Automation::HOOK );
 	}
 
 	public function notice_woo_missing(): void {
