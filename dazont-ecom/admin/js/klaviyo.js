@@ -20,7 +20,7 @@
 				fill($('#dze-klav-tpl'), res.data.templates);
 				fill($('#dze-klav-inc'), res.data.audiences);
 				fill($('#dze-klav-exc'), res.data.audiences);
-				$m.css('color', '#0a7040').text(res.data.message);
+				$m.css('color', res.data.partial ? '#b26a00' : '#0a7040').text(res.data.message);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);

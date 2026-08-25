@@ -120,23 +120,13 @@ final class DZE_Klaviyo {
 				$out[ $id_field ] = sanitize_text_field( (string) $in[ $id_field ] );
 			}
 		}
-		if ( array_key_exists( 'from_label', $in ) ) {
-			$out['from_label'] = sanitize_text_field( (string) $in['from_label'] );
-		}
-		if ( array_key_exists( 'from_email', $in ) ) {
-			$out['from_email'] = sanitize_email( (string) $in['from_email'] );
-		}
-		if ( array_key_exists( 'hour', $in ) ) {
-			$out['hour'] = max( 0, min( 23, (int) $in['hour'] ) );
-		}
-		if ( array_key_exists( 'lead_days', $in ) ) {
-			$out['lead_days'] = max( 0, min( 30, (int) $in['lead_days'] ) );
-		}
-		// Checkboxes: only read when the form that owns them was submitted.
-		if ( ! empty( $in['form'] ) ) {
-			$out['local']     = ! empty( $in['local'] ) ? 1 : 0;
-			$out['i18n_push'] = ! empty( $in['i18n_push'] ) ? 1 : 0;
-		}
+		// The sender, the send moment and the per-market subject are not
+		// questions: Klaviyo's own sender, the day the promotion opens, and
+		// yes. Three settings whose only sane answer was already the default
+		// are three ways to get it wrong, so they are gone — and the ones
+		// stored before are dropped rather than left behind to confuse a
+		// later reader.
+		unset( $out['from_label'], $out['from_email'], $out['hour'], $out['lead_days'], $out['local'], $out['i18n_push'] );
 		if ( array_key_exists( 'subject_prompt', $in ) ) {
 			// Same treatment as every other prompt of the plugin: shipped text
 			// saved as it stands means "no custom prompt".
@@ -234,35 +224,61 @@ final class DZE_Klaviyo {
 
 	/** Reads templates, lists and segments from the account. */
 	public static function refresh(): array {
-		$out = [ 'templates' => [], 'audiences' => [], 'read' => time() ];
+		$out    = [ 'templates' => [], 'audiences' => [], 'read' => time() ];
+		$errors = [];
 
-		$page = self::API . 'templates/?fields[template]=name,updated&sort=-updated&page[size]=10';
-		for ( $i = 0; $i < 12 && $page; $i++ ) {
-			$res = self::request( 'GET', substr( $page, strlen( self::API ) ), null, 20 );
-			if ( is_wp_error( $res ) ) {
-				if ( 0 === $i ) {
-					throw new RuntimeException( $res->get_error_message() );
-				}
-				break;
-			}
-			foreach ( (array) ( $res['data'] ?? [] ) as $row ) {
-				$out['templates'][ (string) $row['id'] ] = (string) ( $row['attributes']['name'] ?? $row['id'] );
-			}
-			$page = (string) ( $res['links']['next'] ?? '' );
+		foreach ( self::pages( 'templates/?fields[template]=name,updated&sort=-updated', $errors ) as $row ) {
+			$out['templates'][ (string) $row['id'] ] = (string) ( $row['attributes']['name'] ?? $row['id'] );
+		}
+		if ( ! $out['templates'] && $errors ) {
+			throw new RuntimeException( implode( ' ', $errors ) );
 		}
 
 		foreach ( [ 'segments' => __( 'Segment', 'dazont-ecom' ), 'lists' => __( 'List', 'dazont-ecom' ) ] as $kind => $label ) {
-			$res = self::request( 'GET', $kind . '/?fields[' . rtrim( $kind, 's' ) . ']=name&page[size]=50', null, 20 );
-			if ( is_wp_error( $res ) ) {
-				continue;
-			}
-			foreach ( (array) ( $res['data'] ?? [] ) as $row ) {
+			// No page[size] of our own: Klaviyo caps it per endpoint, and a
+			// number over that cap is a 400 — which is exactly how the audience
+			// pickers came back empty while the templates filled in.
+			foreach ( self::pages( $kind . '/?fields[' . rtrim( $kind, 's' ) . ']=name', $errors ) as $row ) {
 				$out['audiences'][ (string) $row['id'] ] = $label . ' · ' . (string) ( $row['attributes']['name'] ?? $row['id'] );
 			}
 		}
 		asort( $out['audiences'] );
 		set_transient( self::CACHE, $out, 12 * HOUR_IN_SECONDS );
+		$out['errors'] = $errors;
 		return $out;
+	}
+
+	/**
+	 * Every row of a listing, following Klaviyo's own next links.
+	 *
+	 * A refusal is not swallowed: it is added to $errors so the screen can say
+	 * what the account answered — a key without list access reads "403", and
+	 * that is a five-second fix once it is on screen instead of an empty list.
+	 *
+	 * @param array $errors Collected, by reference.
+	 *
+	 * @return array<int,array>
+	 */
+	private static function pages( string $path, array &$errors, int $max = 12 ): array {
+		$rows = [];
+		$next = self::API . ltrim( $path, '/' );
+		for ( $i = 0; $i < $max && '' !== $next; $i++ ) {
+			$res = self::request( 'GET', substr( $next, strlen( self::API ) ), null, 20 );
+			if ( is_wp_error( $res ) ) {
+				$errors[] = $res->get_error_message();
+				break;
+			}
+			foreach ( (array) ( $res['data'] ?? [] ) as $row ) {
+				if ( ! empty( $row['id'] ) ) {
+					$rows[] = $row;
+				}
+			}
+			$next = (string) ( $res['links']['next'] ?? '' );
+			if ( '' !== $next && 0 !== strpos( $next, self::API ) ) {
+				break; // never follow a link out of the API we called.
+			}
+		}
+		return $rows;
 	}
 
 	// =========================================================================
@@ -307,29 +323,24 @@ final class DZE_Klaviyo {
 		return $node;
 	}
 
-	/** When the email should land: so many days before the sale opens. */
+	/**
+	 * When the email lands: the day the promotion opens, at nine.
+	 *
+	 * Not a setting. A promotion is announced when it starts, and the one
+	 * campaign that wants another date has the field in front of it.
+	 */
 	public static function default_datetime( array $rule ): string {
-		$hour = (int) self::conf( 'hour', 9 );
-		$lead = (int) self::conf( 'lead_days', 0 );
-		$day  = (string) ( $rule['start'] ?? '' );
-		$ts   = $day ? strtotime( $day . ' 00:00:00' ) : false;
-		if ( ! $ts ) {
-			$ts = time() + DAY_IN_SECONDS;
-		} else {
-			$ts -= $lead * DAY_IN_SECONDS;
-		}
-		if ( $ts < time() + HOUR_IN_SECONDS ) {
+		$day = (string) ( $rule['start'] ?? '' );
+		$ts  = $day ? strtotime( $day . ' 00:00:00' ) : false;
+		if ( ! $ts || $ts < time() + HOUR_IN_SECONDS ) {
 			$ts = time() + DAY_IN_SECONDS; // a date already gone is not a send date.
 		}
-		return gmdate( 'Y-m-d', $ts ) . 'T' . sprintf( '%02d', $hour ) . ':00';
+		return gmdate( 'Y-m-d', $ts ) . 'T09:00';
 	}
 
 	/**
-	 * The send date as Klaviyo wants to read it.
-	 *
-	 * Sent in each reader's own time zone, the date is a wall clock and must
-	 * carry no offset; sent at one moment for everybody, it must carry one, or
-	 * the shop's afternoon becomes somebody's night.
+	 * The send date as Klaviyo wants to read it: a wall clock, no offset —
+	 * the campaign goes out at that hour in each reader's own time zone.
 	 */
 	private static function when( string $raw, array $rule ): string {
 		$raw = trim( $raw );
@@ -340,18 +351,10 @@ final class DZE_Klaviyo {
 		if ( 16 === strlen( $raw ) ) {
 			$raw .= ':00'; // an <input type="datetime-local"> has no seconds.
 		}
-		if ( self::conf( 'local', 1 ) ) {
-			return $raw;
-		}
-		if ( preg_match( '/(Z|[+-]\d{2}:\d{2})$/', $raw ) ) {
-			return $raw;
-		}
-		try {
-			$dt = new DateTime( $raw, wp_timezone() );
-		} catch ( \Exception $e ) {
-			return $raw;
-		}
-		return $dt->format( 'Y-m-d\TH:i:sP' );
+		// Always the reader's own time zone, as every campaign this shop
+		// sends already does — so the datetime is a wall clock and carries no
+		// offset of ours.
+		return $raw;
 	}
 
 	/** The drafts this shop has already produced, per event. */
@@ -451,7 +454,7 @@ final class DZE_Klaviyo {
 						'method'   => 'static',
 						'datetime' => self::when( (string) ( $in['datetime'] ?? '' ), $rule ),
 						'options'  => [
-							'is_local'                         => (bool) self::conf( 'local', 1 ),
+							'is_local'                         => true,
 							'send_past_recipients_immediately' => true,
 						],
 					],
@@ -464,11 +467,13 @@ final class DZE_Klaviyo {
 									'definition' => [
 										'channel' => 'email',
 										'label'   => mb_substr( $name, 0, 120 ),
+										// No sender of ours: the account sender is
+										// the verified one, and the one every
+										// other campaign of this shop goes out
+										// with.
 										'content' => array_filter( [
 											'subject'      => $subject,
 											'preview_text' => $preview,
-											'from_email'   => (string) self::conf( 'from_email' ),
-											'from_label'   => (string) self::conf( 'from_label' ),
 										] ),
 									],
 								],
@@ -510,7 +515,7 @@ final class DZE_Klaviyo {
 		}
 
 		// 7. The one line a machine translator writes worse than the shop does.
-		if ( '' !== $msg_id && self::conf( 'i18n_push', 0 ) ) {
+		if ( '' !== $msg_id ) {
 			$pushed = self::push_subjects( $msg_id, $rule );
 			if ( '' !== $pushed ) {
 				$warning = trim( $warning . ' ' . $pushed );
@@ -547,7 +552,7 @@ final class DZE_Klaviyo {
 		$i18n = (array) ( $rule['banner_text_i18n'] ?? [] );
 		$i18n = array_filter( array_map( 'trim', array_map( 'strval', $i18n ) ) );
 		if ( ! $i18n ) {
-			return __( 'No adapted title on this event, so nothing was written per language.', 'dazont-ecom' );
+			return ''; // nothing adapted on this event: nothing to push, and no fault.
 		}
 		$source  = class_exists( 'DZE_Wpml' ) ? DZE_Wpml::default_language() : 'en';
 		$targets = array_keys( $i18n );
@@ -624,11 +629,23 @@ final class DZE_Klaviyo {
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		$message = sprintf(
+			/* translators: 1: number of templates, 2: number of lists and segments */
+			__( 'Read %1$d templates and %2$d audiences.', 'dazont-ecom' ),
+			count( $cat['templates'] ),
+			count( $cat['audiences'] )
+		);
+		// What the account refused is said, not swallowed: an empty picker
+		// with no reason beside it is a bug hunt; "403 — the key has no list
+		// access" is a five-second fix.
+		if ( ! empty( $cat['errors'] ) ) {
+			$message .= ' ' . implode( ' ', array_unique( (array) $cat['errors'] ) );
+		}
 		wp_send_json_success( [
 			'templates' => $cat['templates'],
 			'audiences' => $cat['audiences'],
-			/* translators: 1: number of templates, 2: number of lists and segments */
-			'message'   => sprintf( __( 'Read %1$d templates and %2$d audiences.', 'dazont-ecom' ), count( $cat['templates'] ), count( $cat['audiences'] ) ),
+			'partial'   => ! empty( $cat['errors'] ),
+			'message'   => $message,
 		] );
 	}
 
@@ -919,48 +936,9 @@ final class DZE_Klaviyo {
 				</tr>
 			</table>
 
-			<h2 class="title"><?php esc_html_e( 'The draft', 'dazont-ecom' ); ?></h2>
-			<table class="form-table" role="presentation">
-				<tr>
-					<th scope="row"><?php esc_html_e( 'Sender', 'dazont-ecom' ); ?></th>
-					<td>
-						<input type="text" name="<?php echo esc_attr( self::OPT . '[from_label]' ); ?>" value="<?php echo esc_attr( (string) self::conf( 'from_label' ) ); ?>" class="regular-text" placeholder="<?php echo esc_attr( get_bloginfo( 'name' ) ); ?>" />
-						<input type="email" name="<?php echo esc_attr( self::OPT . '[from_email]' ); ?>" value="<?php echo esc_attr( (string) self::conf( 'from_email' ) ); ?>" class="regular-text" placeholder="contact@example.com" />
-						<p class="description"><?php esc_html_e( 'Left empty, Klaviyo uses the sender of your account.', 'dazont-ecom' ); ?></p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
-					<td>
-						<label>
-							<input type="number" name="<?php echo esc_attr( self::OPT . '[lead_days]' ); ?>" value="<?php echo (int) self::conf( 'lead_days', 0 ); ?>" min="0" max="30" class="small-text" />
-							<?php esc_html_e( 'days before the promotion opens,', 'dazont-ecom' ); ?>
-						</label>
-						<label style="margin-left:10px;">
-							<?php esc_html_e( 'at', 'dazont-ecom' ); ?>
-							<input type="number" name="<?php echo esc_attr( self::OPT . '[hour]' ); ?>" value="<?php echo (int) self::conf( 'hour', 9 ); ?>" min="0" max="23" class="small-text" />
-							<?php esc_html_e( 'o\'clock', 'dazont-ecom' ); ?>
-						</label>
-						<br />
-						<label style="display:inline-block;margin-top:8px;">
-							<input type="checkbox" name="<?php echo esc_attr( self::OPT . '[local]' ); ?>" value="1" <?php checked( (bool) self::conf( 'local', 1 ) ); ?> />
-							<?php esc_html_e( 'in each reader\'s own time zone', 'dazont-ecom' ); ?>
-						</label>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'The subject per market', 'dazont-ecom' ); ?></th>
-					<td>
-						<label>
-							<input type="checkbox" name="<?php echo esc_attr( self::OPT . '[i18n_push]' ); ?>" value="1" <?php checked( (bool) self::conf( 'i18n_push', 0 ) ); ?> />
-							<?php esc_html_e( 'Write the subject in each language from the event\'s own lines', 'dazont-ecom' ); ?>
-						</label>
-						<p class="description" style="max-width:880px;">
-							<?php esc_html_e( 'The promotion title on a marketing event is already written market by market — not translated, adapted. Ticked, those lines become the subject of the campaign in each language, and Klaviyo\'s own translator fills in the rest of the email. Left unticked, the whole email is Klaviyo\'s to translate, including the subject.', 'dazont-ecom' ); ?>
-						</p>
-					</td>
-				</tr>
-			</table>
+			<p class="description" style="max-width:880px;">
+				<?php esc_html_e( 'The rest is not asked: the draft goes out under the sender verified on your Klaviyo account, it is dated the day the promotion opens (at nine, in each reader\'s own time zone, and the field is in front of you on the campaign itself), and the subject is written in every language from the lines the event already carries — Klaviyo\'s translator does the rest of the email.', 'dazont-ecom' ); ?>
+			</p>
 
 			<h2 class="title"><?php esc_html_e( 'Subject line instructions', 'dazont-ecom' ); ?></h2>
 			<textarea id="dze-klav-prompt" name="<?php echo esc_attr( self::OPT . '[subject_prompt]' ); ?>" rows="8" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::subject_prompt() ); ?></textarea>
