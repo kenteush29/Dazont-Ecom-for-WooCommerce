@@ -37,11 +37,23 @@ foreach ( $languages as $l ) {
 				<?php if ( ! empty( $connection['email'] ) ) : ?> — <code><?php echo esc_html( $connection['email'] ); ?></code><?php endif; ?>
 			</p>
 			<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=dze_gmc_disconnect' ), 'dze_gmc_disconnect' ) ); ?>" class="button"><?php esc_html_e( 'Disconnect', 'dazont-ecom' ); ?></a>
+			<p class="description" style="max-width:820px;">
+				<?php esc_html_e( 'Authorized redirect URI of this site, should you need to register it again:', 'dazont-ecom' ); ?>
+				<code><?php echo esc_html( $redirect_uri ); ?></code>
+			</p>
 		<?php else : ?>
 			<p style="margin-top:0;"><?php esc_html_e( 'Create an OAuth Client ID (type “Web application”) in Google Cloud → APIs & Services → Credentials, then paste its Client ID and Secret below and click Connect. You sign in with your own Google account — one connection covers every Merchant Center you have access to.', 'dazont-ecom' ); ?></p>
 			<p>
 				<label style="font-weight:600;"><?php esc_html_e( 'Authorized redirect URI to add to your OAuth client:', 'dazont-ecom' ); ?></label><br>
 				<input type="text" readonly value="<?php echo esc_attr( $redirect_uri ); ?>" class="large-text code" onclick="this.select();" />
+			</p>
+			<!-- The one error this screen produces, and the three things that
+			     cause it. Google refuses at its own consent screen, so the
+			     plugin never sees it and cannot say this at the moment it
+			     happens: it says it here instead. -->
+			<p class="description" style="max-width:820px;">
+				<strong><?php esc_html_e( 'Google answers “Error 400: redirect_uri_mismatch”?', 'dazont-ecom' ); ?></strong>
+				<?php esc_html_e( 'That address must be listed, character for character, under “Authorized redirect URIs” of the OAuth client you pasted below — not the JavaScript origins. Three things catch people out: a client created as “Desktop app” instead of “Web application” (it has no redirect URIs at all), an address registered for another site (a staging domain), and www / https differing from what WordPress uses. Google can take a few minutes to apply a change.', 'dazont-ecom' ); ?>
 			</p>
 			<?php if ( $oauth_ready ) : ?>
 				<a href="<?php echo esc_url( $authorize_url ); ?>" class="button button-primary"><?php esc_html_e( 'Connect Google account', 'dazont-ecom' ); ?></a>
