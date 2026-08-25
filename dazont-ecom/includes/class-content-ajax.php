@@ -1791,7 +1791,7 @@ trait DZE_Content_Ajax {
 			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
 		}
 		$parts = [];
-		$store = trim( (string) ( self::get_settings()['store_context'] ?? '' ) );
+		$store = trim( self::store_context() );
 		if ( '' !== $store ) {
 			$parts[] = __( 'Store context', 'dazont-ecom' ) . ":\n" . $store;
 		}

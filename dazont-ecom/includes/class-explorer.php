@@ -866,7 +866,14 @@ EOT;
 		}
 
 		// The persona + analysis guidance is admin-editable (Sourcing Assistant tab).
+		// The shop says what it is, once, for every module that writes for it:
+		// a sourcing report for a tactical shop is not a sourcing report for a
+		// kitchenware shop, and this report used to know nothing about that.
 		$system = self::report_guidance();
+		$shop   = class_exists( 'DZE_Content' ) ? trim( DZE_Content::store_context() ) : '';
+		if ( '' !== $shop ) {
+			$system .= "\n\nTHE SHOP THIS REPORT IS FOR:\n" . $shop;
+		}
 		$user = "Product category: {$path}\n\n";
 		$user .= $titles
 			? ( 'ALL ' . $total_products . " products currently in this category, with lifetime units sold, best-sellers first:\n"
