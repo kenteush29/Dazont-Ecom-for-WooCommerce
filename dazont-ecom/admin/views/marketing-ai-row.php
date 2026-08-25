@@ -7,10 +7,9 @@ defined( 'ABSPATH' ) || exit;
  */
 $sug = wp_parse_args( $sug, [
 	'id' => '', 'title' => '', 'percent' => 0, 'start_date' => '', 'end_date' => '',
-	'languages' => [], 'email_subject' => '', 'rationale' => '', 'countries' => [],
+	'languages' => [], 'email_subject' => '', 'rationale' => '',
 ] );
-$langs     = implode( ', ', (array) $sug['languages'] );
-$countries = implode( ', ', (array) $sug['countries'] );
+$langs = implode( ', ', (array) $sug['languages'] );
 ?>
 <tr class="dze-mai-row" data-id="<?php echo esc_attr( $sug['id'] ); ?>"
 	data-title="<?php echo esc_attr( $sug['title'] ); ?>"
@@ -25,7 +24,7 @@ $countries = implode( ', ', (array) $sug['countries'] );
 		<input type="hidden" class="dze-f-subject" value="<?php echo esc_attr( $sug['email_subject'] ); ?>" />
 		<input type="hidden" class="dze-f-langs" value="<?php echo esc_attr( $langs ); ?>" />
 		<?php if ( ! empty( $sug['rationale'] ) ) : ?>
-			<div class="description" style="margin:3px 0 0;font-size:12px;"><?php echo esc_html( $sug['rationale'] ); ?><?php if ( $countries ) : ?> · <code style="font-size:11px;"><?php echo esc_html( $countries ); ?></code><?php endif; ?></div>
+			<div class="description" style="margin:3px 0 0;font-size:12px;"><?php echo esc_html( $sug['rationale'] ); ?></div>
 		<?php endif; ?>
 	</td>
 	<td><input type="number" min="1" max="90" class="dze-f-percent" style="width:56px;" value="<?php echo esc_attr( (int) $sug['percent'] ); ?>" />%</td>

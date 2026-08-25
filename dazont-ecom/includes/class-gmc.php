@@ -100,9 +100,9 @@ final class DZE_Gmc {
 	 * sees it here; a code typed here that Merchant Center never accepted is
 	 * gone with the field it was typed in.
 	 *
-	 * When the account has no promotion data source yet, the shop's own country
-	 * stands in: it is the one country a promotion is certain to make sense in,
-	 * and the sync creates the data source for it on the way.
+	 * When the account has no promotion data source yet, its own business
+	 * address answers for it, and the shop's country only as a last resort —
+	 * the sync creates the data source for whichever it is on the way.
 	 *
 	 * @return string[] Uppercase ISO codes.
 	 */
@@ -125,6 +125,20 @@ final class DZE_Gmc {
 				$c = strtoupper( (string) ( $ds['promotionDataSource']['targetCountry'] ?? '' ) );
 				if ( 2 === strlen( $c ) ) {
 					$out[ $c ] = $c;
+				}
+			}
+			if ( ! $out ) {
+				// No promotion data source yet: the account's own business
+				// address answers for it, which beats a shop-wide default.
+				// Its own failure is not the list's failure.
+				try {
+					$info = $this->request( 'GET', self::MERCHANT_API . '/' . self::ACCOUNTS_SUBAPI . '/accounts/' . $merchant_id . '/businessInfo', $token );
+					$c    = strtoupper( (string) ( $info['address']['regionCode'] ?? '' ) );
+					if ( 2 === strlen( $c ) ) {
+						$out[ $c ] = $c;
+					}
+				} catch ( \Throwable $e ) {
+					unset( $e );
 				}
 			}
 		} catch ( \Throwable $e ) {
@@ -567,7 +581,7 @@ final class DZE_Gmc {
 	 * country (a GMC promotion always targets a single country). Returns
 	 * [ "lang|COUNTRY" => [status,message,...] ] and stores it on the rule.
 	 */
-	public function sync_rule( string $rule_id, array $only = [] ): array {
+	public function sync_rule( string $rule_id ): array {
 		$rules = DZE_Discounts::get_rules();
 		if ( ! isset( $rules[ $rule_id ] ) ) {
 			return [];
@@ -580,9 +594,6 @@ final class DZE_Gmc {
 		$statuses = [];
 		foreach ( $this->sync_targets( $rule ) as $t ) {
 			$sk = $t['key'] . '|' . $t['country'];
-			if ( ! empty( $only ) && ! in_array( $sk, $only, true ) ) {
-				continue; // caller restricted which country/language targets to push.
-			}
 			try {
 				$token       = $this->get_access_token();
 				$promotion   = $this->build_promotion( $rule, $t['key'], $t['country'], $t['language'] );
@@ -679,24 +690,6 @@ final class DZE_Gmc {
 			}
 		}
 		return $targets;
-	}
-
-	/**
-	 * All configured Merchant Center targets (account-backed country/language),
-	 * as [ "key|COUNTRY" => "LABEL" ] — for the "push to GMC" target picker.
-	 */
-	public function configured_targets(): array {
-		$out = [];
-		foreach ( self::get_accounts() as $key => $acc ) {
-			if ( empty( $acc['merchant_id'] ) ) {
-				continue;
-			}
-			foreach ( $this->promo_countries( (string) $acc['merchant_id'] ) as $country ) {
-				$sk         = $key . '|' . $country;
-				$out[ $sk ] = ( 'default' === $key ? '' : strtoupper( $key ) . ':' ) . strtoupper( $country );
-			}
-		}
-		return $out;
 	}
 
 	/** Language keys the promo targets (effective WPML languages, or 'default'). */
@@ -946,9 +939,10 @@ final class DZE_Gmc {
 		if ( is_array( $cached ) && isset( $cached['links'] ) ) {
 			return $cached;
 		}
-		$links = [];
-		$error = '';
-		$token = '';
+		$links  = [];
+		$error  = '';
+		$token  = '';
+		$answer = false; // Did an API actually answer, link or no link?
 		try {
 			$token = $this->get_access_token();
 		} catch ( \Throwable $e ) {
@@ -975,15 +969,21 @@ final class DZE_Gmc {
 				if ( '' === $id ) {
 					continue;
 				}
-				$state = strtolower( (string) ( $svc['handshake']['approvalState'] ?? $svc['state'] ?? 'active' ) );
-				$links[ $id ] = [ 'id' => $id, 'status' => 'approved' === $state ? 'active' : $state ];
+				// ESTABLISHED is the Merchant API's word for a link both sides
+				// have agreed to — an active link, not a state worth printing.
+				$state        = strtolower( (string) ( $svc['handshake']['approvalState'] ?? $svc['state'] ?? 'active' ) );
+				$live         = in_array( $state, [ 'approved', 'established', 'active', 'enabled' ], true );
+				$links[ $id ] = [ 'id' => $id, 'status' => $live ? 'active' : $state ];
 			}
+			// The account listed its services: an empty list here IS the answer,
+			// "no Ads link", and no second API is asked to contradict it.
+			$answer = true;
 		} catch ( \Throwable $e ) {
 			$error = $e->getMessage();
 		}
 
-		// 2. The Content API, which answers for accounts the first one does not.
-		if ( ! $links ) {
+		// 2. The Content API, only when the first one could not answer at all.
+		if ( ! $answer ) {
 			try {
 				$parent = preg_replace( '/[^0-9]/', '', (string) get_option( self::OPT_ADVANCED, '' ) );
 				$parent = '' !== $parent ? $parent : $merchant_id;
@@ -996,13 +996,14 @@ final class DZE_Gmc {
 					}
 					$links[ $id ] = [ 'id' => $id, 'status' => (string) ( $link['status'] ?? 'active' ) ];
 				}
-				$error = $links ? '' : $error;
+				$answer = true;
+				$error  = '';
 			} catch ( \Throwable $e ) {
 				$error = '' !== $error ? $error : $e->getMessage();
 			}
 		}
 
-		$state = [ 'links' => array_values( $links ), 'error' => $links ? '' : $error ];
+		$state = [ 'links' => array_values( $links ), 'error' => $answer ? '' : $error ];
 		// A failure is remembered briefly, an answer for six hours: an account
 		// is not linked and unlinked twice a day.
 		set_transient( $key, $state, $state['error'] ? 15 * MINUTE_IN_SECONDS : 6 * HOUR_IN_SECONDS );

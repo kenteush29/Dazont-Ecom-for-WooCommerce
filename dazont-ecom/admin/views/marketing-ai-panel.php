@@ -9,7 +9,6 @@ defined( 'ABSPATH' ) || exit;
  * @var array  $languages   Active site languages ([code, native_name, flag]).
  * @var string $primary     Primary language code (pre-selected).
  * @var bool   $gmc_on      Whether Google Merchant Center is configured.
- * @var array  $gmc_targets [ "key|COUNTRY" => "LABEL" ] configured GMC targets.
  */
 $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], admin_url( 'admin.php' ) );
 ?>
@@ -94,19 +93,6 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 				<th scope="row"><label for="dze-ev-subject"><?php esc_html_e( 'Email subject', 'dazont-ecom' ); ?></label></th>
 				<td><input type="text" id="dze-ev-subject" class="large-text" /></td>
 			</tr>
-			<?php if ( $gmc_on && ! empty( $gmc_targets ) ) : ?>
-			<tr>
-				<th scope="row"><?php esc_html_e( 'Push to GMC', 'dazont-ecom' ); ?></th>
-				<td>
-					<p class="description" style="margin-top:0;"><?php esc_html_e( 'Choose which Merchant Center country/language targets to push to (used only by “Save & Push to GMC”).', 'dazont-ecom' ); ?></p>
-					<?php foreach ( $gmc_targets as $sk => $label ) : ?>
-						<label style="display:inline-block;margin:0 12px 4px 0;">
-							<input type="checkbox" class="dze-ev-gmc" value="<?php echo esc_attr( $sk ); ?>" checked /> <?php echo esc_html( $label ); ?>
-						</label>
-					<?php endforeach; ?>
-				</td>
-			</tr>
-			<?php endif; ?>
 		</table>
 		<p>
 			<button type="button" class="button button-primary dze-ev-save"><?php esc_html_e( 'Save', 'dazont-ecom' ); ?></button>
