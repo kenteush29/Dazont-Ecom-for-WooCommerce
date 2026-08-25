@@ -73,7 +73,14 @@ EOT;
 				return $v;
 			}
 		}
-		return self::DEFAULT_MATCH_RULES;
+		return self::default_match_rules();
+	}
+
+	/** The default: the shop's own when it set one, the shipped text otherwise. */
+	public static function default_match_rules(): string {
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'keyword_match', self::DEFAULT_MATCH_RULES )
+			: self::DEFAULT_MATCH_RULES;
 	}
 
 	private function __construct() {

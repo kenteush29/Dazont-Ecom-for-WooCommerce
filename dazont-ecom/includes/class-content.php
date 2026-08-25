@@ -599,20 +599,29 @@ EOT;
 	 * spreadsheet prompts, image rows from the default templates.
 	 */
 	public static function default_prompt_for( string $id ): string {
+		$shipped = '';
 		foreach ( self::legacy_fields() as $fid => $f ) {
 			if ( $fid === $id ) {
-				return (string) $f['prompt'];
+				$shipped = (string) $f['prompt'];
+				break;
 			}
 		}
-		$n = 1;
-		foreach ( self::default_image_templates() as $t ) {
-			$tid = 'img_' . ( sanitize_key( str_replace( ' ', '_', (string) ( $t['name'] ?? '' ) ) ) ?: 'image_' . $n );
-			if ( $tid === $id ) {
-				return (string) ( $t['prompt'] ?? '' );
+		if ( '' === $shipped ) {
+			$n = 1;
+			foreach ( self::default_image_templates() as $t ) {
+				$tid = 'img_' . ( sanitize_key( str_replace( ' ', '_', (string) ( $t['name'] ?? '' ) ) ) ?: 'image_' . $n );
+				if ( $tid === $id ) {
+					$shipped = (string) ( $t['prompt'] ?? '' );
+					break;
+				}
+				$n++;
 			}
-			$n++;
 		}
-		return '';
+		// A shop that made its own text the default restores to THAT, here as
+		// on every other screen: one notion of default, one answer.
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'content_' . $id, $shipped )
+			: $shipped;
 	}
 
 	/** id => shipped default prompt, for every row that has one. */
@@ -862,10 +871,13 @@ EOT;
 		return (string) ( self::get_settings()['store_context'] ?? '' );
 	}
 
-	/** Shipped rules for choosing which photograph illustrates a text block. */
+	/** The rules for choosing which photograph illustrates a text block. */
 	public static function default_feature_prompt(): string {
-		return 'Pick the photographs that best show a CONCRETE particularity worth zooming in on in a sales argument — a material, a fastening, a finish, a compartment, a texture, a detail of construction, the product in use. '
+		$shipped = 'Pick the photographs that best show a CONCRETE particularity worth zooming in on in a sales argument — a material, a fastening, a finish, a compartment, a texture, a detail of construction, the product in use. '
 			. 'Avoid the plain catalogue shot when a more telling one exists, and never pick two photographs showing the same thing.';
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'feature_rules', $shipped )
+			: $shipped;
 	}
 
 	/**
@@ -2040,6 +2052,14 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		unset( $out['prompts_validated'] ); // replaced by per-prompt validation.
+		// A block removed from the registry takes its own default with it: an
+		// id typed again months later must not inherit the old text.
+		if ( ! empty( $out['registry'] ) && is_array( $out['registry'] ) && class_exists( 'DZE_Prompt_Defaults' ) ) {
+			DZE_Prompt_Defaults::forget(
+				'content_',
+				array_map( static fn( $r ): string => 'content_' . (string) ( $r['id'] ?? '' ), $out['registry'] )
+			);
+		}
 		self::$registry_cache = null; // saved rows take effect immediately.
 		$busy = false;
 		return $out;
@@ -2320,7 +2340,7 @@ Answer with STRICT JSON and nothing else: "
 							<button type="button" class="dze-prb-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
 							<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
 						</div>
-						<div class="dze-prb-body" style="display:none;">
+						<div class="dze-prb-body dze-pd-scope" style="display:none;">
 							<p class="dze-prb-line">
 								<label><span><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></span>
 									<select name="<?php echo esc_attr( $opt ); ?>[pr_type][<?php echo (int) $dze_ri; ?>]" class="dze-pr-type">
@@ -2359,8 +2379,9 @@ Answer with STRICT JSON and nothing else: "
 							<input type="hidden" name="<?php echo esc_attr( $opt ); ?>[pr_was][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( md5( (string) $r['prompt'] ) ); ?>" />
 							<p class="dze-prb-line">
 								<?php if ( '' !== self::default_prompt_for( (string) $r['id'] ) ) : ?>
-									<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the shipped default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+									<button type="button" class="button-link dze-pr-restore" data-id="<?php echo esc_attr( $r['id'] ); ?>" title="<?php esc_attr_e( 'Put the default prompt back in this field (save to keep it)', 'dazont-ecom' ); ?>">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 								<?php endif; ?>
+								<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'content_' . (string) $r['id'], '.dze-pr-prompt' ); } ?>
 							</p>
 							<details class="dze-pr-inputs">
 								<summary><?php printf( /* translators: %d: count */ esc_html__( 'Product data sent with it (%d)', 'dazont-ecom' ), count( $sel_in ) ); ?></summary>
@@ -2398,6 +2419,9 @@ Answer with STRICT JSON and nothing else: "
 									<?php esc_html_e( 'How the photograph for THIS block is chosen. Empty = the shipped rules, shown greyed.', 'dazont-ecom' ); ?>
 								</p>
 								<textarea name="<?php echo esc_attr( $opt ); ?>[pr_imgrules][<?php echo (int) $dze_ri; ?>]" rows="3" class="large-text code dze-pr-imgrules" placeholder="<?php echo esc_attr( self::default_feature_prompt() ); ?>"><?php echo esc_textarea( (string) ( $r['img_rules'] ?? '' ) ); ?></textarea>
+								<p class="dze-prb-line">
+									<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'feature_rules', '.dze-pr-imgrules', __( 'Make these the default for every block', 'dazont-ecom' ) ); } ?>
+								</p>
 							</details>
 						</div>
 					</div>
@@ -2425,7 +2449,7 @@ Answer with STRICT JSON and nothing else: "
 						<button type="button" class="dze-prb-toggle" aria-expanded="true"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▾</span></button>
 						<button type="button" class="dze-pr-del" title="<?php esc_attr_e( 'Remove this prompt', 'dazont-ecom' ); ?>">&#10005;</button>
 					</div>
-					<div class="dze-prb-body">
+					<div class="dze-prb-body dze-pd-scope">
 						<p class="dze-prb-line">
 							<label><span><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></span>
 								<select name="<?php echo esc_attr( $opt ); ?>[pr_type][__I__]" class="dze-pr-type">
@@ -2533,10 +2557,14 @@ Answer with STRICT JSON and nothing else: "
 					if ( cur.indexOf( key ) < 0 ) { cur.push( key ); }
 					$in.val( cur.join( ', ' ) );
 				} );
-				// Per-row restore: refill THIS prompt with its shipped default.
+				// Per-row restore: refill THIS prompt with its default — the
+				// shop's own when it set one, the shipped text otherwise.
 				var dzePromptDefaults = <?php echo wp_json_encode( self::default_prompts() ); ?>;
 				$( document ).on( 'click', '.dze-pr-restore', function () {
-					var d = dzePromptDefaults[ $( this ).data( 'id' ) ];
+					var rid = $( this ).data( 'id' );
+					var d = window.dzeDefaultFor
+						? window.dzeDefaultFor( 'content_' + rid, dzePromptDefaults[ rid ] )
+						: dzePromptDefaults[ rid ];
 					if ( ! d ) { return; }
 					// The registry stopped being a table when it became cards: a
 					// closest('td') found nothing, so the button did nothing.

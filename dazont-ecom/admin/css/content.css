@@ -534,6 +534,14 @@
 .dze-prb-line label > span { color: #646970; }
 .dze-prb-tk input { width: 90px; }
 
+/* "Make this the default" travels with every prompt field: on a settings row
+   next to "Restore default", and inside the prompt editor. Same wording, same
+   weight, same place — it is one more way to spend a default, not a feature of
+   its own. */
+.dze-pd { display: inline-flex; align-items: center; gap: 12px; }
+.dze-pd .button-link { font-size: 12px; }
+.dze-pd-state { font-size: 12px; }
+
 /* The prompt reader is opened FROM another popup, so it has to sit above it —
    and above the hover zoom, which is itself above the popups. Without this it
    opened behind the toolbox and looked like a dead button. */

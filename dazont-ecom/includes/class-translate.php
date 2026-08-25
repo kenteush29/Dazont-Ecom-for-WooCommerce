@@ -93,13 +93,16 @@ final class DZE_Translate {
 
 	/** The shipped instructions. Empty in settings = these. */
 	public static function default_prompt(): string {
-		return "You translate e-commerce product copy for an online shop.\n\n"
+		$shipped = "You translate e-commerce product copy for an online shop.\n\n"
 			. "- Translate the MEANING, not the words: the result must read as if it had been written by a native copywriter of that market, never as a translation.\n"
 			. "- Keep the selling tone and the level of technical detail of the original. Do not add, remove or soften an argument.\n"
 			. "- Keep the HTML structure EXACTLY as it is: same tags, same attributes, same order. Translate only the text between the tags.\n"
 			. "- Keep measurements, sizes, references, model names and figures identical. Convert nothing.\n"
 			. "- A meta description stays under 155 characters; a meta title under 60. Rewrite rather than truncate.\n"
 			. "- Never translate a brand name, a product reference, or any term listed in the glossary.";
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'translate', $shipped )
+			: $shipped;
 	}
 
 	public static function prompt(): string {
@@ -225,6 +228,7 @@ final class DZE_Translate {
 						<p class="description">
 							<?php esc_html_e( 'Empty = shipped default (shown greyed). The target language, the glossary and the answer format are added automatically.', 'dazont-ecom' ); ?>
 							<button type="button" class="button-link" id="dze-tr-prompt-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'translate', '#dze-tr-prompt' ); } ?>
 						</p>
 					</td>
 				</tr>
@@ -244,7 +248,12 @@ final class DZE_Translate {
 		</div>
 		<script>
 		jQuery( function ( $ ) {
-			$( '#dze-tr-prompt-restore' ).on( 'click', function () { $( '#dze-tr-prompt' ).val( <?php echo wp_json_encode( self::default_prompt() ); ?> ); } );
+			// The default of a prompt is the shop's own when it set one, and it
+			// can be set from this very page without reloading it.
+			function dzeDef( id, shipped ) {
+				return window.dzeDefaultFor ? window.dzeDefaultFor( id, shipped ) : shipped;
+			}
+			$( '#dze-tr-prompt-restore' ).on( 'click', function () { $( '#dze-tr-prompt' ).val( dzeDef( 'translate', <?php echo wp_json_encode( self::default_prompt() ); ?> ) ); } );
 		} );
 		</script>
 		<?php
