@@ -2393,6 +2393,14 @@ PROMPT;
 					</td>
 				</tr>
 			</table>
+			<?php
+			// The upkeep module writes into these same descriptions, so its two
+			// settings belong on this tab — under the same Save button, and only
+			// when the module is on: switched off, it leaves no trace here.
+			if ( class_exists( 'DZE_Link_Mesh' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'link_mesh' ) ) {
+				DZE_Link_Mesh::render_section();
+			}
+			?>
 			<?php submit_button( __( 'Save category settings', 'dazont-ecom' ) ); ?>
 		</form>
 		</div>
