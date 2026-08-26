@@ -20,7 +20,6 @@
 				fill($('#dze-klav-inc'), res.data.audiences);
 				fill($('#dze-klav-exc'), res.data.audiences);
 				fill($('#dze-klav-th'), res.data.templates);
-				fill($('#dze-klav-tf'), res.data.templates);
 				$('#dze-klav-tpl-hint').text(cfg.i18n.pickedFrom);
 				inactive = res.data.inactive || [];
 				tools();
@@ -237,34 +236,16 @@
 	function drawShell() {
 		draw($('#dze-klav-shell-frame'), readable(assemble($('#dze-klav-shell').val() || '', cfg.sample)));
 	}
-	function shellView(which) {
-		$('.dze-klav-stab').removeClass('is-on').filter('[data-tab="' + which + '"]').addClass('is-on');
-		var $ta = $('#dze-klav-shell'), $fr = $('#dze-klav-shell-frame');
-		if (which === 'view') {
-			$ta.hide();
-			$fr.show();
-			drawShell();
-		} else {
-			$fr.hide();
-			$ta.show();
-		}
-	}
-	$(document).on('click', '.dze-klav-stab', function () { shellView($(this).data('tab')); });
 
-	// The header and the footer, lifted out of a template that already exists
-	// in the account. The seam is found by the plugin — nothing to place by
-	// hand, on this shop or the next one.
+	// The header and the footer, read out of a template that already exists in
+	// the account. Klaviyo renders it and says itself where the empty section
+	// is — nothing to find, nothing to place by hand, here or on the next shop.
 	$(document).on('click', '#dze-klav-take', function () {
 		var $b = $(this), $m = $('#dze-klav-shell-msg'), head = $('#dze-klav-th').val();
 		if (!head) { $m.css('color', '#b26a00').text(i18n.pickTpl); return; }
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').text(i18n.working);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_frame',
-			nonce: cfg.nonce,
-			header: head,
-			footer: $('#dze-klav-tf').val() || head
-		})
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_frame', nonce: cfg.nonce, header: head })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
@@ -272,7 +253,10 @@
 					return;
 				}
 				$('#dze-klav-shell').val(res.data.html);
-				shellView('view');
+				$('#dze-klav-fid').val(head);
+				$('#dze-klav-fname').val(res.data.name || '');
+				$('#dze-klav-tpl-hint').text(res.data.taken || '');
+				drawShell();
 				$m.css('color', '#b26a00').text(res.data.message);
 			})
 			.fail(function () {
@@ -280,14 +264,8 @@
 				$m.css('color', '#b32d2e').text(i18n.error);
 			});
 	});
-	// Redraw only. Switching the view back while somebody is typing in the
-	// HTML would take the keyboard away from them mid-word.
-	$(document).on('input', '#dze-klav-shell', function () {
-		window.clearTimeout(pending);
-		pending = window.setTimeout(drawShell, 300);
-	});
 	$(function () {
-		if ($('#dze-klav-shell-frame').length) { shellView('view'); }
+		if ($('#dze-klav-shell-frame').length) { drawShell(); }
 		if ($('#dze-klav-e-iframe').length) { view('view'); }
 	});
 

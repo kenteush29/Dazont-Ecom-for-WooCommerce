@@ -170,6 +170,12 @@ final class DZE_Klaviyo {
 				'done'  => '' !== (string) self::conf( 'excluded' ),
 				'note'  => __( 'Recommended, not required: a sale announced to somebody who paid full price three days ago earns a refund request.', 'dazont-ecom' ),
 			],
+			[
+				'label' => __( 'Take the header and footer from Klaviyo', 'dazont-ecom' ),
+				'url'   => $tab . '#dze-klav-th',
+				'done'  => '' !== trim( (string) ( self::settings()['shell'] ?? '' ) ),
+				'note'  => __( 'In Klaviyo, make one template with your header, ONE empty section, and your footer. Read it here and every promotion goes out inside it.', 'dazont-ecom' ),
+			],
 		];
 	}
 
@@ -333,30 +339,34 @@ final class DZE_Klaviyo {
 			$to = array_filter( array_map( 'sanitize_email', array_map( 'trim', explode( ',', (string) $in['test_to'] ) ) ) );
 			$out['test_to'] = implode( ', ', array_slice( $to, 0, 5 ) );
 		}
-		// The frame. A frame with no place to put the email in it is not a
-		// frame: rather than saving something that would come out as a header
-		// with nothing under it, the marker is checked and the shop keeps what
-		// it had — said out loud, on the screen that asked.
+		// The frame. It is not typed any more — it is read from Klaviyo by the
+		// button beside it and carried back by the form, so the only thing
+		// checked here is that what came back still has a place to put the
+		// email in it. A frame with no such place is a header with nothing
+		// under it, so the shop keeps the one it had and is told why.
 		if ( array_key_exists( 'shell', $in ) ) {
 			$shell = trim( (string) $in['shell'] );
-			// Typed by hand, so it is met halfway: {{BODY}}, {{ body }} and
-			// {{  BODY  }} all mean the same thing and are all made canonical
-			// here rather than refused for a missing space.
-			$shell = (string) preg_replace( '/\{\{\s*BODY\s*\}\}/i', self::BODY_MARK, $shell );
 			if ( '' === $shell || $shell === trim( self::default_shell() ) ) {
 				$out['shell'] = '';
 			} elseif ( false === strpos( $shell, self::BODY_MARK ) ) {
 				add_settings_error(
 					self::OPT,
 					'dze_klav_shell',
-					sprintf(
-						/* translators: %s: the body marker */
-						__( 'The frame was not saved: it has to carry %s once, on the line where the email\'s own content goes.', 'dazont-ecom' ),
-						self::BODY_MARK
-					)
+					__( 'The header and footer were not saved: what came back has nowhere to put the email. Read the template again.', 'dazont-ecom' )
 				);
 			} else {
 				$out['shell'] = $shell;
+				// Which template it came from, and when — the one line that
+				// tells the owner whether he is looking at last month's header.
+				if ( array_key_exists( 'frame_id', $in ) ) {
+					$out['frame_id'] = sanitize_text_field( (string) $in['frame_id'] );
+				}
+				if ( array_key_exists( 'frame_name', $in ) ) {
+					$out['frame_name'] = sanitize_text_field( (string) $in['frame_name'] );
+				}
+				if ( $shell !== trim( (string) ( $old['shell'] ?? '' ) ) ) {
+					$out['frame_read'] = time();
+				}
 			}
 		}
 		unset( $out['form'] );
@@ -1705,9 +1715,9 @@ final class DZE_Klaviyo {
 		wp_send_json_success( [
 			'audiences' => $cat['audiences'],
 			'inactive'  => $cat['inactive'],
-			// The two template menus are built when the page is drawn, so
-			// without this the button filled the audiences and left them
-			// empty until somebody thought to reload.
+			// The template menu is built when the page is drawn, so without
+			// this the button filled the audiences and left it empty until
+			// somebody thought to reload.
 			'templates' => (array) ( $cat['templates'] ?? [] ),
 			'partial'   => ! empty( $cat['errors'] ),
 			'message'   => $message,
@@ -2270,233 +2280,144 @@ final class DZE_Klaviyo {
 	// =========================================================================
 	// Taking the header and the footer from a Klaviyo template
 	//
-	// The first attempt asked the owner to paste a marker into imported HTML by
-	// hand, which he rightly refused: it works once, on one shop, by somebody
-	// who knows what a marker is. So the plugin finds the seam itself.
+	// Two attempts came before this one and both were wrong. The first asked
+	// the owner to paste a marker into imported HTML by hand — it works once,
+	// on one shop, by somebody who knows what a marker is. The second had the
+	// plugin GUESS the seam: the logo row at the top, the unsubscribe row at
+	// the bottom, throw away the middle. It guessed well on the templates it
+	// was written against and would have guessed wrong on the next one.
 	//
-	// An email is a stack of rows. Two of them are never in doubt: the one
-	// carrying the logo at the top, and the one carrying the unsubscribe line
-	// at the bottom — the law puts it there and Klaviyo writes it. Everything
-	// between the two is the content of whatever campaign the template was
-	// built for, and that is exactly what is thrown away.
+	// Klaviyo answers the question itself. A template built in its editor is a
+	// stack of SECTIONS, and a section left empty comes out of the renderer
+	// carrying "empty-column-placeholder" — Klaviyo saying, in the HTML, "this
+	// is where content goes". So the frame is not deduced: it is read. What is
+	// above the empty section is the header, what is below it is the footer,
+	// and the email is written into the hole between them.
+	//
+	// It has to be the RENDERED template, not the stored one. A template made
+	// of saved sections (Klaviyo's "universal content") holds only references
+	// to them: the API refuses to read a saved section's contents, refuses to
+	// create a template that points at one, and refuses to update a template
+	// that carries one. The renderer is the one door that opens — it hands back
+	// the finished email, universal sections and all, exactly as an inbox would
+	// receive it.
 	// =========================================================================
 
 	/**
-	 * Cuts a template into what comes before the content and what comes after.
+	 * Klaviyo's own rendering of one template: the finished HTML.
 	 *
-	 * @return array{header:DOMElement[],footer:DOMElement[],container:DOMNode,cell:?DOMElement,doc:DOMDocument}
-	 * @throws RuntimeException When the template has no seam to cut on.
-	 */
-	private static function seam( string $html ) {
-		if ( ! class_exists( 'DOMDocument' ) ) {
-			throw new RuntimeException( __( 'This server has no HTML reader (the DOM extension), so a template cannot be taken apart here.', 'dazont-ecom' ) );
-		}
-		$doc = new DOMDocument();
-		$was = libxml_use_internal_errors( true );
-		// Email HTML is never valid enough to load quietly; the meta forces the
-		// encoding so accented footers do not come back as mojibake.
-		$doc->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NOWARNING | LIBXML_NOERROR );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $was );
-
-		$xp = new DOMXPath( $doc );
-
-		// The unsubscribe row: the deepest <tr> that carries it, so its
-		// SIBLINGS are the top-level rows of the email.
-		$foot = null;
-		foreach ( $xp->query( '//tr' ) as $tr ) {
-			$text = strtolower( $tr->textContent . ' ' . $doc->saveHTML( $tr ) );
-			if ( false !== strpos( $text, 'unsubscribe' ) && ( null === $foot || self::depth( $tr ) > self::depth( $foot ) ) ) {
-				$foot = $tr;
-			}
-		}
-		if ( null === $foot ) {
-			throw new RuntimeException( __( 'No unsubscribe line was found in that template, so there is no footer to take from it. Pick a template that was actually sent as a campaign.', 'dazont-ecom' ) );
-		}
-		$container = $foot->parentNode;
-		$rows      = [];
-		foreach ( $container->childNodes as $node ) {
-			if ( $node instanceof DOMElement && 'tr' === strtolower( $node->nodeName ) ) {
-				$rows[] = $node;
-			}
-		}
-		$foot_at = array_search( $foot, $rows, true );
-		if ( false === $foot_at || count( $rows ) < 2 ) {
-			throw new RuntimeException( __( 'That template is not laid out as a stack of rows, so its header and footer cannot be told apart.', 'dazont-ecom' ) );
-		}
-
-		// The footer is not only the legal line: the band above it belongs to
-		// it too. A footer sits on its own background colour, so the rows are
-		// walked backwards while that colour holds.
-		$band = self::background( $foot );
-		$from = (int) $foot_at;
-		if ( '' !== $band ) {
-			while ( $from > 1 && self::background( $rows[ $from - 1 ] ) === $band ) {
-				$from--;
-			}
-		}
-
-		// The header is the leading rows that show something and say almost
-		// nothing — a logo, a rule, a spacer. The first row that starts talking
-		// is already content.
-		$to = 0;
-		for ( $i = 0; $i < $from; $i++ ) {
-			$text = trim( preg_replace( '/\s+/', ' ', $rows[ $i ]->textContent ) );
-			$img  = $rows[ $i ]->getElementsByTagName( 'img' )->length > 0;
-			if ( 0 === $i || ( mb_strlen( $text ) < 120 && ( $img || '' === $text ) ) ) {
-				$to = $i;
-				continue;
-			}
-			break;
-		}
-
-		$header = array_slice( $rows, 0, $to + 1 );
-		$footer = array_slice( $rows, $from );
-		// The cell the content used to sit in: its padding and its type are the
-		// ones the template was designed with, and they are worth keeping.
-		$cell = null;
-		for ( $i = $to + 1; $i < $from; $i++ ) {
-			$tds = $rows[ $i ]->getElementsByTagName( 'td' );
-			if ( $tds->length > 0 ) {
-				$cell = $tds->item( 0 );
-				break;
-			}
-		}
-		return [ 'header' => $header, 'footer' => $footer, 'container' => $container, 'cell' => $cell, 'doc' => $doc ];
-	}
-
-	private static function depth( DOMNode $n ): int {
-		$d = 0;
-		while ( $n->parentNode ) {
-			$d++;
-			$n = $n->parentNode;
-		}
-		return $d;
-	}
-
-	/** The background colour declared on a row or on its first cell, if any. */
-	private static function background( DOMElement $tr ): string {
-		$style = (string) $tr->getAttribute( 'style' );
-		$tds   = $tr->getElementsByTagName( 'td' );
-		if ( $tds->length > 0 ) {
-			$style .= ';' . (string) $tds->item( 0 )->getAttribute( 'style' );
-			$style .= ';background-color:' . (string) $tds->item( 0 )->getAttribute( 'bgcolor' );
-		}
-		if ( preg_match( '/background(?:-color)?\s*:\s*([^;]+)/i', $style, $m ) ) {
-			$hex = strtolower( trim( $m[1] ) );
-			return preg_match( '/^#?[0-9a-f]{3,8}$/', $hex ) || 0 === strpos( $hex, 'rgb' ) ? $hex : '';
-		}
-		return '';
-	}
-
-	/**
-	 * Builds the shop's frame out of one or two Klaviyo templates.
-	 *
-	 * @param string $header_html The template the header comes from.
-	 * @param string $footer_html The template the footer comes from; the same one when only one was chosen.
 	 * @throws RuntimeException
 	 */
-	public static function frame_from( string $header_html, string $footer_html ): string {
-		$a = self::seam( $header_html );
-		$b = ( $footer_html === $header_html ) ? $a : self::seam( $footer_html );
-
-		$doc       = $a['doc'];
-		$container = $a['container'];
-
-		// Everything between the two seams goes, and one row takes its place —
-		// wearing the padding and the type of the row it replaces.
-		$rows = [];
-		foreach ( $container->childNodes as $node ) {
-			if ( $node instanceof DOMElement && 'tr' === strtolower( $node->nodeName ) ) {
-				$rows[] = $node;
-			}
-		}
-		$keep_head = [];
-		foreach ( $a['header'] as $tr ) {
-			$keep_head[ spl_object_id( $tr ) ] = true;
-		}
-		$keep_foot = ( $b === $a ) ? $a['footer'] : [];
-		$keep_ids  = [];
-		foreach ( $keep_foot as $tr ) {
-			$keep_ids[ spl_object_id( $tr ) ] = true;
-		}
-
-		$anchor = null;
-		foreach ( $rows as $tr ) {
-			$id = spl_object_id( $tr );
-			if ( isset( $keep_head[ $id ] ) ) {
-				$anchor = $tr;
-				continue;
-			}
-			if ( isset( $keep_ids[ $id ] ) ) {
-				continue;
-			}
-			$container->removeChild( $tr );
-		}
-
-		$slot = $doc->createElement( 'tr' );
-		$td   = $doc->createElement( 'td' );
-		$t    = self::theme_style();
-		$td->setAttribute( 'style', $a['cell'] instanceof DOMElement && '' !== $a['cell']->getAttribute( 'style' )
-			? (string) $a['cell']->getAttribute( 'style' )
-			: sprintf( 'padding:8px 28px 22px;font:400 %dpx/1.6 %s;color:%s;', (int) $t['size'], $t['body'], $t['ink'] ) );
-		$td->appendChild( $doc->createTextNode( self::BODY_MARK ) );
-		$slot->appendChild( $td );
-		if ( $anchor instanceof DOMElement && $anchor->nextSibling ) {
-			$container->insertBefore( $slot, $anchor->nextSibling );
-		} else {
-			$container->appendChild( $slot );
-		}
-
-		// A footer borrowed from another template is brought across whole.
-		if ( $b !== $a ) {
-			foreach ( $b['footer'] as $tr ) {
-				$container->appendChild( $doc->importNode( $tr, true ) );
-			}
-		}
-
-		$html = (string) $doc->saveHTML();
-		$html = str_replace( '<?xml encoding="utf-8" ?>', '', $html );
-		// saveHTML() escapes nothing inside a text node it wrote, but the
-		// marker must come out as it went in.
-		$html = str_replace( htmlspecialchars( self::BODY_MARK, ENT_QUOTES ), self::BODY_MARK, $html );
-		if ( false === strpos( $html, self::BODY_MARK ) ) {
-			throw new RuntimeException( __( 'The frame came back without a place to put the email in it. Nothing was changed.', 'dazont-ecom' ) );
-		}
-		return trim( $html );
-	}
-
-	/** Builds the frame from the chosen templates and hands it back for the field. */
-	public static function ajax_frame(): void {
-		self::guard();
-		$head = isset( $_POST['header'] ) ? sanitize_text_field( wp_unslash( $_POST['header'] ) ) : '';
-		$foot = isset( $_POST['footer'] ) ? sanitize_text_field( wp_unslash( $_POST['footer'] ) ) : $head;
-		if ( '' === $head ) {
-			wp_send_json_error( [ 'message' => __( 'Choose a template first.', 'dazont-ecom' ) ] );
-		}
-		$foot = '' !== $foot ? $foot : $head;
-		try {
-			$html = self::frame_from( self::template_html( $head ), $head === $foot ? self::template_html( $head ) : self::template_html( $foot ) );
-		} catch ( \Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		wp_send_json_success( [
-			'html'    => $html,
-			'message' => __( 'Header and footer taken. Look at the preview, then save.', 'dazont-ecom' ),
-		] );
-	}
-
-	/** One template's HTML, as Klaviyo holds it. */
-	private static function template_html( string $id ): string {
-		$got = self::request( 'GET', 'templates/' . rawurlencode( $id ) . '/', null, 30 );
+	private static function render_template( string $id ): string {
+		$got = self::request( 'POST', 'template-render/', [
+			'data' => [
+				'type'       => 'template',
+				'id'         => $id,
+				'attributes' => [ 'context' => new stdClass() ],
+			],
+		], 30 );
 		if ( is_wp_error( $got ) ) {
 			throw new RuntimeException( $got->get_error_message() );
 		}
 		$html = (string) ( $got['data']['attributes']['html'] ?? '' );
 		if ( '' === trim( $html ) ) {
-			throw new RuntimeException( __( 'Klaviyo returned no HTML for that template.', 'dazont-ecom' ) );
+			throw new RuntimeException( __( 'Klaviyo returned nothing for that template.', 'dazont-ecom' ) );
 		}
 		return $html;
+	}
+
+	/**
+	 * Cuts the rendered template on its empty section and puts the body marker
+	 * in its place.
+	 *
+	 * The empty column is replaced rather than removed, so the section keeps
+	 * the background, the width and the padding the owner gave it in Klaviyo:
+	 * the email's content lands inside his own card, not beside it.
+	 *
+	 * @throws RuntimeException When the template has no empty section.
+	 */
+	public static function frame_from_render( string $html ): string {
+		$at = strpos( $html, 'empty-column-placeholder' );
+		if ( false === $at ) {
+			throw new RuntimeException( __( 'That template has no empty section, so there is nowhere to put the email. In Klaviyo, open it, add a section between the header and the footer, leave it empty, save — then read it again here.', 'dazont-ecom' ) );
+		}
+		// Back up to the start of the tag carrying that class, forward to the
+		// end of the element. The placeholder is empty by definition, so the
+		// first closing tag after it is its own.
+		$open = strrpos( substr( $html, 0, $at ), '<' );
+		$gt   = strpos( $html, '>', $at );
+		if ( false === $open || false === $gt ) {
+			throw new RuntimeException( __( 'That template came back in a shape this plugin cannot read. Nothing was changed.', 'dazont-ecom' ) );
+		}
+		$close = strpos( $html, '</', $gt );
+		$end   = ( false === $close ) ? false : strpos( $html, '>', $close );
+		if ( false === $end ) {
+			throw new RuntimeException( __( 'That template came back in a shape this plugin cannot read. Nothing was changed.', 'dazont-ecom' ) );
+		}
+		$frame = substr( $html, 0, $open )
+			. '<div class="kl-column" style="display:table-cell;vertical-align:top;width:100%;">'
+			. self::BODY_SLOT
+			. '</div>'
+			. substr( $html, $end + 1 );
+		// The renderer answers a template's links with the placeholders a SENT
+		// email carries; a template being uploaded needs the tokens Klaviyo
+		// resolves at send time instead. The unsubscribe line is the law's, not
+		// ours, so it is put back rather than left to chance.
+		$frame = strtr( $frame, [
+			'[unsubscribe_tag]'        => '{% unsubscribe_link %}',
+			'[manage_preferences_tag]' => '{% manage_preferences_link %}',
+			'[view_in_browser_tag]'    => '{% web_view_link %}',
+			'[web_view_tag]'           => '{% web_view_link %}',
+		] );
+		if ( false === strpos( $frame, self::BODY_MARK ) ) {
+			throw new RuntimeException( __( 'The frame came back without a place to put the email in it. Nothing was changed.', 'dazont-ecom' ) );
+		}
+		return trim( $frame );
+	}
+
+	/**
+	 * The column the email is written into, wearing the template's own type.
+	 *
+	 * The body the model writes is ordinary HTML — headings, paragraphs,
+	 * images, a table of products. It is dropped into the same component
+	 * wrapper Klaviyo uses for a text block, so the stylesheet the template
+	 * already carries in its head styles it: his headings come out in his
+	 * font, his links in his colour, and the mobile rules apply.
+	 */
+	private const BODY_SLOT = '<div class="mj-column-per-100 mj-outlook-group-fix component-wrapper kl-text-table-layout" style="font-size:0px;text-align:left;direction:ltr;vertical-align:top;width:100%;">'
+		. '<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;" width="100%"><tbody><tr>'
+		. '<td style="vertical-align:top;padding:0;">'
+		. '<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"><tbody><tr>'
+		. '<td align="left" class="kl-text" style="font-size:0px;padding:18px;word-break:break-word;">'
+		. '<div style="font-family:\'Roboto\', Helvetica, Arial, sans-serif;font-size:16px;font-style:normal;font-weight:400;letter-spacing:0px;line-height:1.3;text-align:left;">'
+		. self::BODY_MARK
+		. '</div></td></tr></tbody></table></td></tr></tbody></table></div>';
+
+	/** Reads the chosen template and hands the frame back for the field. */
+	public static function ajax_frame(): void {
+		self::guard();
+		$id = isset( $_POST['header'] ) ? sanitize_text_field( wp_unslash( $_POST['header'] ) ) : '';
+		if ( '' === $id ) {
+			wp_send_json_error( [ 'message' => __( 'Choose a template first.', 'dazont-ecom' ) ] );
+		}
+		try {
+			$html = self::frame_from_render( self::render_template( $id ) );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		$names = (array) ( self::catalogue()['templates'] ?? [] );
+		$name  = (string) ( $names[ $id ] ?? $id );
+		wp_send_json_success( [
+			'html'    => $html,
+			'name'    => $name,
+			'taken'   => sprintf(
+				/* translators: 1: template name, 2: date */
+				__( 'Header and footer from %1$s, read on %2$s.', 'dazont-ecom' ),
+				$name,
+				date_i18n( (string) get_option( 'date_format' ) )
+			),
+			'message' => __( 'Read. Look at the preview, then save.', 'dazont-ecom' ),
+		] );
 	}
 
 	// =========================================================================
@@ -2781,6 +2702,7 @@ final class DZE_Klaviyo {
 			return;
 		}
 		$cat     = self::catalogue();
+		$s       = self::settings();
 		$locked  = defined( 'DZE_KLAVIYO_API_KEY' ) && DZE_KLAVIYO_API_KEY;
 		$has_key = '' !== self::key();
 		$inc     = (string) self::conf( 'included' );
@@ -2876,67 +2798,54 @@ final class DZE_Klaviyo {
 			</tr>
 		</table>
 
-		<h2 class="title"><?php esc_html_e( 'Email template', 'dazont-ecom' ); ?></h2>
+		<h2 class="title"><?php esc_html_e( 'Header and footer', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'The header and the footer, identical on every promotion. Shipped ready to use, or taken from one of your own Klaviyo templates below.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Fixed on every promotion, and they come from Klaviyo — the template you keep there is the one the shop sends inside. Build it in the Klaviyo editor with your saved header and footer, leave ONE empty section in the middle for the email, then read it here.', 'dazont-ecom' ); ?>
 		</p>
-		<?php $dze_tpls = (array) ( $cat['templates'] ?? [] ); ?>
+		<?php
+		$dze_tpls  = (array) ( $cat['templates'] ?? [] );
+		$dze_from  = (string) ( $s['frame_name'] ?? '' );
+		$dze_when  = (int) ( $s['frame_read'] ?? 0 );
+		$dze_pick  = (string) ( $s['frame_id'] ?? '' );
+		?>
 		<table class="form-table" role="presentation">
 			<tr>
-				<th scope="row"><label for="dze-klav-th"><?php esc_html_e( 'Header from', 'dazont-ecom' ); ?></label></th>
+				<th scope="row"><label for="dze-klav-th"><?php esc_html_e( 'Take it from', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<select id="dze-klav-th" style="min-width:340px;">
-						<option value=""><?php esc_html_e( '— keep the current one —', 'dazont-ecom' ); ?></option>
+						<option value=""><?php esc_html_e( '— choose a Klaviyo template —', 'dazont-ecom' ); ?></option>
 						<?php foreach ( $dze_tpls as $dze_id => $dze_name ) : ?>
-							<option value="<?php echo esc_attr( $dze_id ); ?>"><?php echo esc_html( $dze_name ); ?></option>
+							<option value="<?php echo esc_attr( $dze_id ); ?>" <?php selected( $dze_pick, (string) $dze_id ); ?>><?php echo esc_html( $dze_name ); ?></option>
 						<?php endforeach; ?>
 					</select>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><label for="dze-klav-tf"><?php esc_html_e( 'Footer from', 'dazont-ecom' ); ?></label></th>
-				<td>
-					<select id="dze-klav-tf" style="min-width:340px;">
-						<option value=""><?php esc_html_e( '— the same template —', 'dazont-ecom' ); ?></option>
-						<?php foreach ( $dze_tpls as $dze_id => $dze_name ) : ?>
-							<option value="<?php echo esc_attr( $dze_id ); ?>"><?php echo esc_html( $dze_name ); ?></option>
-						<?php endforeach; ?>
-					</select>
-					<button type="button" class="button" id="dze-klav-take" style="margin-left:8px;"><?php esc_html_e( 'Take them', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button" id="dze-klav-take" style="margin-left:8px;"><?php esc_html_e( 'Read it', 'dazont-ecom' ); ?></button>
+					<input type="hidden" id="dze-klav-fid" name="<?php echo esc_attr( self::OPT . '[frame_id]' ); ?>" value="<?php echo esc_attr( $dze_pick ); ?>" />
+					<input type="hidden" id="dze-klav-fname" name="<?php echo esc_attr( self::OPT . '[frame_name]' ); ?>" value="<?php echo esc_attr( $dze_from ); ?>" />
 					<p class="description" id="dze-klav-tpl-hint">
 						<?php
-						echo $dze_tpls
-							? esc_html__( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' )
-							: esc_html__( 'Press "Read my Klaviyo account" above to list your templates.', 'dazont-ecom' );
+						if ( ! $dze_tpls ) {
+							esc_html_e( 'Press "Read my Klaviyo account" above to list your templates.', 'dazont-ecom' );
+						} elseif ( '' !== $dze_from && $dze_when ) {
+							printf(
+								/* translators: 1: template name, 2: date */
+								esc_html__( 'Header and footer from %1$s, read on %2$s. Read it again after you change it in Klaviyo.', 'dazont-ecom' ),
+								'<strong>' . esc_html( $dze_from ) . '</strong>',
+								esc_html( date_i18n( (string) get_option( 'date_format' ), $dze_when ) )
+							);
+						} else {
+							esc_html_e( 'Nothing read yet — the emails go out in the plain frame below until you choose one.', 'dazont-ecom' );
+						}
 						?>
 					</p>
 				</td>
 			</tr>
 		</table>
 		<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-			<button type="button" class="button-link" id="dze-klav-shell-reset">&#8634; <?php esc_html_e( 'Restore the shipped template', 'dazont-ecom' ); ?></button>
+			<strong style="font-size:13px;"><?php esc_html_e( 'What every email is sent inside', 'dazont-ecom' ); ?></strong>
 			<span id="dze-klav-shell-msg" style="font-size:13px;"></span>
-			<span style="flex:1;"></span>
-			<span class="dze-klav-switch">
-				<button type="button" class="button dze-klav-stab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-stab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
-			</span>
 		</p>
-		<textarea id="dze-klav-shell" name="<?php echo esc_attr( self::OPT . '[shell]' ); ?>" rows="10" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::shell() ); ?></textarea>
+		<textarea id="dze-klav-shell" name="<?php echo esc_attr( self::OPT . '[shell]' ); ?>" style="display:none;"><?php echo esc_textarea( self::shell() ); ?></textarea>
 		<iframe id="dze-klav-shell-frame" title="<?php esc_attr_e( 'Template preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;max-width:880px;height:640px;border:1px solid #dcdcde;background:#fff;"></iframe>
-		<script>
-		(function () {
-			var shipped = <?php echo wp_json_encode( self::default_shell() ); ?>;
-			var btn = document.getElementById('dze-klav-shell-reset');
-			var ta  = document.getElementById('dze-klav-shell');
-			if ( btn && ta ) {
-				btn.addEventListener('click', function () {
-					ta.value = shipped;
-					// The preview watches the field, so it redraws on its own.
-					ta.dispatchEvent(new Event('input', { bubbles: true }));
-				});
-			}
-		}());
-		</script>
 
 		<h2 class="title"><?php esc_html_e( 'Products', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
