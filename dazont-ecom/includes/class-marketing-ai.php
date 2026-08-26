@@ -233,6 +233,15 @@ final class DZE_Marketing_Ai {
 
 		// The Settings page saves per tab: only overwrite the fields the
 		// submitted section actually carries, keep everything else as-is.
+		//
+		// "Carries" is checked, not assumed. A branch that writes a key the
+		// form never contained writes an EMPTY value over a real one, and the
+		// shop finds out weeks later — the country pools and the shop's own
+		// description were both being wiped that way. So every write below is
+		// guarded by $has(), and the only keys written unconditionally are the
+		// checkboxes of the section being saved, which post nothing when
+		// unticked and would otherwise be impossible to switch off.
+		$has = static fn( string $k ): bool => array_key_exists( $k, $in );
 		$section = (string) ( $in['section'] ?? 'all' );
 
 		// Keep the stored key when the field is left blank (so it isn't wiped).
@@ -293,12 +302,20 @@ final class DZE_Marketing_Ai {
 		if ( 'general' === $section ) {
 			// Key, model, budget — and what the shop IS, which every module of
 			// the plugin reads from here.
-			return array_merge( $existing, [
-				'api_key'      => sanitize_text_field( $key ),
-				'model'        => $model,
-				'budget_month' => max( 0, (float) str_replace( ',', '.', (string) ( $in['budget_month'] ?? 0 ) ) ),
-				'shop_profile' => trim( sanitize_textarea_field( (string) ( $in['shop_profile'] ?? '' ) ) ),
-			] );
+			$write = [ 'api_key' => sanitize_text_field( $key ) ];
+			if ( $has( 'model' ) ) {
+				$write['model'] = $model;
+			}
+			if ( $has( 'budget_month' ) ) {
+				$write['budget_month'] = max( 0, (float) str_replace( ',', '.', (string) $in['budget_month'] ) );
+			}
+			// The shop's description has its own form, with section=shop. This
+			// one does not carry it, and writing it here emptied what every
+			// module of the plugin reads.
+			if ( $has( 'shop_profile' ) ) {
+				$write['shop_profile'] = trim( sanitize_textarea_field( (string) $in['shop_profile'] ) );
+			}
+			return array_merge( $existing, $write );
 		}
 		if ( 'sourcing' === $section ) {
 			// Prompt overrides: a text identical to the shipped default is stored
@@ -311,13 +328,23 @@ final class DZE_Marketing_Ai {
 			if ( class_exists( 'DZE_Explorer' ) && trim( DZE_Explorer::default_report_guidance() ) === $report_guidance ) {
 				$report_guidance = '';
 			}
-			return array_merge( $existing, [
-				'match_model'     => sanitize_text_field( (string) ( $in['match_model'] ?? '' ) ),
-				'insights_model'  => sanitize_text_field( (string) ( $in['insights_model'] ?? '' ) ),
-				'sourcing_minvol' => max( 0, (int) ( $in['sourcing_minvol'] ?? 10 ) ),
-				'match_rules'     => $match_rules,
-				'report_guidance' => $report_guidance,
-			] );
+			$write = [];
+			if ( $has( 'match_model' ) ) {
+				$write['match_model'] = sanitize_text_field( (string) $in['match_model'] );
+			}
+			if ( $has( 'insights_model' ) ) {
+				$write['insights_model'] = sanitize_text_field( (string) $in['insights_model'] );
+			}
+			if ( $has( 'sourcing_minvol' ) ) {
+				$write['sourcing_minvol'] = max( 0, (int) $in['sourcing_minvol'] );
+			}
+			if ( $has( 'match_rules' ) ) {
+				$write['match_rules'] = $match_rules;
+			}
+			if ( $has( 'report_guidance' ) ) {
+				$write['report_guidance'] = $report_guidance;
+			}
+			return array_merge( $existing, $write );
 		}
 		if ( 'events' === $section ) {
 			// The Marketing events tab carries everything except key + model.
@@ -329,27 +356,44 @@ final class DZE_Marketing_Ai {
 				$v = is_string( $v ) ? trim( $v ) : '';
 				return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : $fallback;
 			};
-			return array_merge( $existing, [
-				'events_prompt'     => sanitize_textarea_field( $events_prompt ),
-				'promo_i18n_prompt' => $promo_i18n,
-				'promo_i18n_on'     => empty( $in['promo_i18n_on'] ) ? 0 : 1,
-				'country_pools'     => $pools,
-				// The banner every promotion of this shop wears.
-				'banner_bg'         => $hex( $in['banner_bg'] ?? '', '#111111' ),
-				'banner_color'      => $hex( $in['banner_color'] ?? '', '#ffffff' ),
-			] );
+			// The switch is this form's own: unticked it posts nothing, so it
+			// is the one key written whether or not it came back.
+			$write = [ 'promo_i18n_on' => empty( $in['promo_i18n_on'] ) ? 0 : 1 ];
+			if ( $has( 'events_prompt' ) ) {
+				$write['events_prompt'] = sanitize_textarea_field( $events_prompt );
+			}
+			if ( $has( 'promo_i18n_prompt' ) ) {
+				$write['promo_i18n_prompt'] = $promo_i18n;
+			}
+			// This tab has no country-pool fields: writing them here emptied
+			// the pools the Merchant Center sync reads.
+			if ( $has( 'country_pools' ) ) {
+				$write['country_pools'] = $pools;
+			}
+			if ( $has( 'banner_bg' ) ) {
+				$write['banner_bg'] = $hex( $in['banner_bg'], '#111111' );
+			}
+			if ( $has( 'banner_color' ) ) {
+				$write['banner_color'] = $hex( $in['banner_color'], '#ffffff' );
+			}
+			return array_merge( $existing, $write );
 		}
 
 		// No section named: the form that posted this carried only part of the
 		// settings, so what it did not carry is KEPT. Returning a fresh array
 		// here wiped the budget, the models and every prompt but one — the
 		// exact trap the sectioned branches above exist to avoid.
-		return array_merge( $existing, [
-			'api_key'       => sanitize_text_field( $key ),
-			'model'         => $model,
-			'events_prompt' => sanitize_textarea_field( $events_prompt ),
-			'country_pools' => $pools,
-		] );
+		$write = [ 'api_key' => sanitize_text_field( $key ) ];
+		if ( $has( 'model' ) ) {
+			$write['model'] = $model;
+		}
+		if ( $has( 'events_prompt' ) ) {
+			$write['events_prompt'] = sanitize_textarea_field( $events_prompt );
+		}
+		if ( $has( 'country_pools' ) ) {
+			$write['country_pools'] = $pools;
+		}
+		return array_merge( $existing, $write );
 	}
 
 	/** This module's entry on the Shortcodes screen. */

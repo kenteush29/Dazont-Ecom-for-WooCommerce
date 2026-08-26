@@ -100,6 +100,14 @@ final class DZE_Fbt {
 	}
 
 	public function sanitize_settings( $value ): array {
+		// WordPress hands a sanitizer NULL when the submitted page did not
+		// carry this option at all. That is not "the shop emptied it": it is
+		// "another form was saved", and answering with defaults is how a
+		// setting disappears after an update nobody connected to it.
+		if ( null === $value ) {
+			return self::get_settings();
+		}
+
 		$in = is_array( $value ) ? $value : [];
 
 		$position = array_key_exists( $in['position'] ?? '', self::placements() ) ? $in['position'] : 'below_summary';

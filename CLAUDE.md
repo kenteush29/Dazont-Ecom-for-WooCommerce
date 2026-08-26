@@ -63,6 +63,16 @@ owner communicates in French.
     autoloader only when used.
   When a feature cannot be built within that budget, say so instead of
   shipping it heavy.
+- **No setting is ever lost to a save it had nothing to do with.** A
+  sanitizer writes a key ONLY when the submitted form actually carried it
+  (`array_key_exists`), never `$in['k'] ?? ''` — an absent field then writes
+  an empty value over a real one, and the shop finds out weeks later. Two
+  exceptions, both deliberate: a checkbox the submitted section owns (unticked
+  it posts nothing), and a key field left blank, which means "keep the saved
+  key". WordPress calls a sanitizer with **null** when the page did not carry
+  that option at all — that is "another form was saved", so return what is
+  stored, never defaults. Options edited by more than one tab or more than one
+  form are where this bites: read the other forms before adding a key.
 - **Every module declares its database footprint and can be wiped on its
   own.** Any new option, meta key, transient prefix, table or tagged comment
   goes into `DZE_Cleanup::map()` under its module id — a module missing from

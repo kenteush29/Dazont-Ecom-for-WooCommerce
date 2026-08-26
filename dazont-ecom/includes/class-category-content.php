@@ -97,6 +97,14 @@ final class DZE_Category_Content {
 	}
 
 	public function sanitize( $in ): array {
+		// WordPress hands a sanitizer NULL when the submitted page did not
+		// carry this option at all. That is not "the shop emptied it": it is
+		// "another form was saved", and answering with defaults is how a
+		// setting disappears after an update nobody connected to it.
+		if ( null === $in ) {
+			return self::get_settings();
+		}
+
 		$in  = is_array( $in ) ? $in : [];
 		$out = self::get_settings();
 		// Empty (0) means "work it out from the category" — see size_for().

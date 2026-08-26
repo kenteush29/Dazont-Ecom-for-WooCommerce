@@ -176,9 +176,15 @@ final class DZE_Klaviyo {
 		if ( '' !== $key ) {
 			$out['api_key'] = sanitize_text_field( $key );
 		}
-		foreach ( [ 'included', 'excluded' ] as $id_field ) {
-			if ( array_key_exists( $id_field, $in ) ) {
-				$out[ $id_field ] = sanitize_text_field( (string) $in[ $id_field ] );
+		// The audience is only rewritten by the form that carries the two
+		// pickers. Anything else posting this option — a future screen, a
+		// filter, a half-submitted page — leaves the shop's audience alone,
+		// because "who this shop emails" is not a field to lose in an update.
+		if ( ! empty( $in['form'] ) ) {
+			foreach ( [ 'included', 'excluded' ] as $id_field ) {
+				if ( array_key_exists( $id_field, $in ) ) {
+					$out[ $id_field ] = sanitize_text_field( (string) $in[ $id_field ] );
+				}
 			}
 		}
 		// The sender, the send moment and the per-market subject are not
