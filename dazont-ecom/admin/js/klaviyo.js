@@ -228,6 +228,11 @@
 
 	// A template being edited still carries Klaviyo's own tags; on screen they
 	// have nobody to fill them in, so they read as a person would see them.
+	//
+	// It runs AFTER the body has been put in, never before: {{ BODY }} is a
+	// double-brace tag like any other, and clearing the tags first took the
+	// marker with it — the frame then had nowhere to put the content, and the
+	// preview showed the content alone, with no header and no footer.
 	function readable(html) {
 		return String(html)
 			.split('{% unsubscribe %}').join(cfg.i18n.unsub)
@@ -261,7 +266,7 @@
 
 	// ---- Settings: the template, previewed the same way ----
 	function drawShell() {
-		draw($('#dze-klav-shell-frame'), assemble(readable($('#dze-klav-shell').val() || ''), cfg.sample));
+		draw($('#dze-klav-shell-frame'), readable(assemble($('#dze-klav-shell').val() || '', cfg.sample)));
 	}
 	function shellView(which) {
 		$('.dze-klav-stab').removeClass('is-on').filter('[data-tab="' + which + '"]').addClass('is-on');
