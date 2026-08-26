@@ -420,12 +420,29 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 
 		<?php
 		// The email that announces this event, on the event's own screen and
-		// saved by the button below — not on a screen of its own.
-		if ( $is_events && class_exists( 'DZE_Klaviyo' ) && class_exists( 'DZE_Modules' )
-			&& DZE_Modules::enabled( 'klaviyo' ) && DZE_Klaviyo::instance()->configured() ) :
+		// saved by the button below — not on a screen of its own. A section
+		// that is not ready says why: one that simply is not there sends the
+		// shop looking for a bug that is a missing setting.
+		if ( $is_events && class_exists( 'DZE_Klaviyo' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'klaviyo' ) ) :
+			$dze_klav = DZE_Klaviyo::instance();
 			?>
 			<div class="dze-field-schedule">
-				<?php DZE_Klaviyo::instance()->render_editor( (string) ( $editing['id'] ?? '' ), (array) $editing ); ?>
+				<?php if ( $dze_klav->configured() ) : ?>
+					<?php $dze_klav->render_editor( (string) ( $editing['id'] ?? '' ), (array) $editing ); ?>
+				<?php else : ?>
+					<h3><?php esc_html_e( 'The email that announces it', 'dazont-ecom' ); ?></h3>
+					<p class="description" style="max-width:880px;">
+						<?php
+						printf(
+							/* translators: 1: what is missing, 2: link to the settings tab */
+							esc_html__( 'Not ready yet — %1$s is missing. Fill it in under %2$s and this section writes the email for this event.', 'dazont-ecom' ),
+							esc_html( $dze_klav->missing() ),
+							'<a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'email' ], admin_url( 'admin.php' ) ) ) . '">'
+								. esc_html__( 'Settings → Email campaigns', 'dazont-ecom' ) . '</a>'
+						);
+						?>
+					</p>
+				<?php endif; ?>
 			</div>
 		<?php endif; ?>
 
