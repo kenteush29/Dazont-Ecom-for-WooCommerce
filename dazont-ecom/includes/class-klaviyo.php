@@ -266,8 +266,11 @@ final class DZE_Klaviyo {
 		$from = array_fill_keys( array_keys( $out ), $shipped );
 		// One place that writes a value AND remembers who said it: two lines
 		// that can disagree is how a screen ends up explaining the wrong thing.
-		$set = static function ( string $key, $value, string $source ) use ( &$out, &$from ): void {
-			if ( '' === $value || null === $value ) {
+		// First writer wins, so the ORDER of the readers below is the order of
+		// authority and nothing else has to say so. A reader that runs later
+		// cannot quietly overrule one the owner considers more authoritative.
+		$set = static function ( string $key, $value, string $source ) use ( &$out, &$from, $shipped ): void {
+			if ( '' === $value || null === $value || $from[ $key ] !== $shipped ) {
 				return;
 			}
 			$out[ $key ]  = $value;
@@ -280,7 +283,7 @@ final class DZE_Klaviyo {
 		// --- The two resolvers that make theme.json answerable in an email ---
 
 		$palette = [];
-		foreach ( [ 'theme', 'custom', 'default' ] as $origin ) {
+		foreach ( [ 'theme', 'custom' ] as $origin ) {
 			foreach ( (array) ( $settings['color']['palette'][ $origin ] ?? [] ) as $row ) {
 				if ( ! empty( $row['slug'] ) && ! empty( $row['color'] ) ) {
 					$palette[ (string) $row['slug'] ] = (string) $row['color'];
@@ -302,7 +305,7 @@ final class DZE_Klaviyo {
 			}
 		}
 		$families = [];
-		foreach ( [ 'theme', 'custom', 'default' ] as $origin ) {
+		foreach ( [ 'theme', 'custom' ] as $origin ) {
 			foreach ( (array) ( $settings['typography']['fontFamilies'][ $origin ] ?? [] ) as $row ) {
 				if ( ! empty( $row['slug'] ) && ! empty( $row['fontFamily'] ) ) {
 					$families[ (string) $row['slug'] ] = (string) $row['fontFamily'];
@@ -310,7 +313,7 @@ final class DZE_Klaviyo {
 			}
 		}
 		$sizes = [];
-		foreach ( [ 'theme', 'custom', 'default' ] as $origin ) {
+		foreach ( [ 'theme', 'custom' ] as $origin ) {
 			foreach ( (array) ( $settings['typography']['fontSizes'][ $origin ] ?? [] ) as $row ) {
 				if ( ! empty( $row['slug'] ) && isset( $row['size'] ) ) {
 					$sizes[ (string) $row['slug'] ] = (string) $row['size'];
@@ -360,6 +363,31 @@ final class DZE_Klaviyo {
 			return preg_match( '/^[0-9]+$/', trim( $v ) ) ? (int) $v : -1;
 		};
 
+		// --- The theme's own settings, first ---
+		//
+		// The order used to be the other way round and it was wrong. Where the
+		// owner GOES to change a colour is where the colour lives: he opens
+		// his theme's customizer, sets his palette, and the whole site
+		// follows. A theme.json read cannot outrank that — and when it tried,
+		// it answered with WordPress's OWN default palette and put a green
+		// nobody had chosen into the email. The standard below still answers
+		// for any theme; it just no longer overrules the one place the owner
+		// actually edits.
+		foreach ( self::theme_bridges() as $label => $reader ) {
+			// One theme answers on any given shop; the rest are asked only
+			// while something is still unspoken, so a shop running Astra never
+			// pays for four option reads it has no use for.
+			if ( ! array_filter( $from, static fn( $who ) => $who === $shipped ) ) {
+				break;
+			}
+			foreach ( (array) $reader() as $key => $value ) {
+				if ( isset( $out[ $key ] ) ) {
+					$set( $key, is_string( $value ) && 0 === strpos( $value, '#' ) ? $hex( $value ) : $value, $label );
+				}
+			}
+		}
+
+
 		// --- The standard, for any theme ---
 
 		if ( $settings || $styles ) {
@@ -367,12 +395,15 @@ final class DZE_Klaviyo {
 			$set( 'ink',  $hex( $preset( $styles['color']['text'] ?? '', $palette ) ), $src );
 			$set( 'card', $hex( $preset( $styles['color']['background'] ?? '', $palette ) ), $src );
 
+			// The heading's own face is asked for BEFORE the page's, because
+			// the first writer wins and the general one would otherwise claim
+			// the slot the specific one was meant to fill.
+			$set( 'head', $stack( $preset( $styles['blocks']['core/heading']['typography']['fontFamily'] ?? '', $families ) ), $src );
 			$f = $stack( $preset( $styles['typography']['fontFamily'] ?? '', $families ) );
 			if ( '' !== $f ) {
 				$set( 'body', $f, $src );
 				$set( 'head', $f, $src );
 			}
-			$set( 'head', $stack( $preset( $styles['blocks']['core/heading']['typography']['fontFamily'] ?? '', $families ) ), $src );
 			$s = $px( $preset( $styles['typography']['fontSize'] ?? '', $sizes ) );
 			if ( $s >= 12 && $s <= 22 ) {
 				$set( 'size', $s, $src );
@@ -405,18 +436,12 @@ final class DZE_Klaviyo {
 				}
 				return '';
 			};
-			$accent = $pick( [ 'primary', 'accent', 'accent-1', 'theme-color', 'link-color', 'vivid-green-cyan' ] );
-			if ( '' !== $accent ) {
-				if ( $from['link'] === $shipped )   { $set( 'link', $accent, $src ); }
-				if ( $from['sale'] === $shipped )   { $set( 'sale', $accent, $src ); }
-				if ( $from['btn_bg'] === $shipped ) { $set( 'btn_bg', $accent, $src ); }
-			}
-			if ( $from['ink'] === $shipped ) {
-				$set( 'ink', $pick( [ 'foreground', 'contrast', 'text', 'base-3', 'dark' ] ), $src );
-			}
-			if ( $from['card'] === $shipped ) {
-				$set( 'card', $pick( [ 'background', 'base', 'white' ] ), $src );
-			}
+			$accent = $pick( [ 'primary', 'accent', 'accent-1', 'theme-color', 'link-color' ] );
+			$set( 'link', $accent, $src );
+			$set( 'sale', $accent, $src );
+			$set( 'btn_bg', $accent, $src );
+			$set( 'ink', $pick( [ 'foreground', 'contrast', 'text', 'base-3', 'dark' ] ), $src );
+			$set( 'card', $pick( [ 'background', 'base', 'white' ] ), $src );
 		}
 
 		// WooCommerce already asked the owner what colour his shop is, for its
@@ -426,27 +451,7 @@ final class DZE_Klaviyo {
 		if ( '' !== $base ) {
 			$src = __( 'WooCommerce → Emails', 'dazont-ecom' );
 			foreach ( [ 'link', 'sale', 'btn_bg' ] as $k ) {
-				if ( $from[ $k ] === $shipped ) {
-					$set( $k, $base, $src );
-				}
-			}
-		}
-
-		// --- What the standard could not answer, theme by theme ---
-		//
-		// Only reached for a value still unspoken. A classic theme that drives
-		// its whole appearance from the Customizer and never told the block
-		// editor about it is the case this exists for; the standard above is
-		// what runs on every other shop.
-		foreach ( self::theme_bridges() as $label => $reader ) {
-			$blank = array_keys( array_filter( $from, static fn( $s ) => $s === $shipped ) );
-			if ( ! $blank ) {
-				break;
-			}
-			foreach ( (array) $reader() as $key => $value ) {
-				if ( isset( $out[ $key ] ) && $from[ $key ] === $shipped ) {
-					$set( $key, is_string( $value ) && 0 === strpos( $value, '#' ) ? $hex( $value ) : $value, $label );
-				}
+				$set( $k, $base, $src );
 			}
 		}
 
@@ -488,6 +493,40 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * The shop's colour palette, as its theme holds it.
+	 *
+	 * Shown on the settings screen beside the values the email uses, so the
+	 * owner can see his own palette and the email's colours side by side and
+	 * tell in one look whether the right one was picked. Read from the theme's
+	 * own palette first — that is the list he edits — and from the standard
+	 * otherwise. WordPress's default palette is never included: it belongs to
+	 * WordPress, not to the shop, and mistaking one for the other is what put
+	 * a green nobody chose into an email.
+	 *
+	 * @return array{colors:string[],source:string}
+	 */
+	public static function palette(): array {
+		$a = get_option( 'astra-settings', [] );
+		$p = is_array( $a ) ? array_values( (array) ( $a['global-color-palette']['palette'] ?? [] ) ) : [];
+		$p = array_values( array_filter( $p, static fn( $c ) => is_string( $c ) && preg_match( '/^#[0-9a-fA-F]{3,6}$/', trim( $c ) ) ) );
+		if ( $p ) {
+			return [ 'colors' => $p, 'source' => __( 'Astra → Global palette', 'dazont-ecom' ) ];
+		}
+		$out = [];
+		if ( function_exists( 'wp_get_global_settings' ) ) {
+			$s = (array) wp_get_global_settings();
+			foreach ( [ 'theme', 'custom' ] as $origin ) {
+				foreach ( (array) ( $s['color']['palette'][ $origin ] ?? [] ) as $row ) {
+					if ( ! empty( $row['color'] ) ) {
+						$out[] = (string) $row['color'];
+					}
+				}
+			}
+		}
+		return [ 'colors' => $out, 'source' => __( 'Theme palette (theme.json)', 'dazont-ecom' ) ];
+	}
+
+	/**
 	 * The themes that keep their appearance somewhere of their own.
 	 *
 	 * Each reader hands back only what it knows, and is only ever asked about
@@ -504,18 +543,49 @@ final class DZE_Klaviyo {
 				if ( ! is_array( $a ) || ! $a ) {
 					return [];
 				}
-				$size = $a['font-size-body']['desktop'] ?? ( $a['font-size-body'] ?? 0 );
+				// Astra 4 keeps ONE global palette and every other setting
+				// points at it — text-color is not "#5b594e", it is
+				// "var(--ast-global-color-3)". Read as a colour that is not a
+				// colour, which is why nothing from Astra used to come through
+				// and WordPress's default palette answered instead. So the
+				// palette is read first and every value resolved against it.
+				$palette = (array) ( $a['global-color-palette']['palette'] ?? [] );
+				$val = static function ( $v ) use ( $palette ) {
+					$v = is_string( $v ) ? trim( $v ) : '';
+					if ( '' === $v || 'inherit' === $v ) {
+						return '';
+					}
+					if ( preg_match( '/--ast-global-color-(\d+)/', $v, $m ) ) {
+						return (string) ( $palette[ (int) $m[1] ] ?? '' );
+					}
+					return $v;
+				};
+				// Astra has renamed several of these across its own versions.
+				// Asking for every spelling it has used costs nothing and is
+				// the difference between working next year and not.
+				$first = static function ( array $keys ) use ( $a, $val ) {
+					foreach ( $keys as $k ) {
+						$v = $val( $a[ $k ] ?? '' );
+						if ( '' !== $v ) {
+							return $v;
+						}
+					}
+					return '';
+				};
+				$size = $a['body-font-size']['desktop'] ?? ( $a['font-size-body']['desktop'] ?? ( $a['font-size-body'] ?? 0 ) );
+				$link = $first( [ 'link-color', 'theme-color' ] );
 				return array_filter( [
-					'ink'     => (string) ( $a['text-color'] ?? '' ),
-					'link'    => (string) ( $a['link-color'] ?? ( $a['theme-color'] ?? '' ) ),
-					'sale'    => (string) ( $a['link-color'] ?? ( $a['theme-color'] ?? '' ) ),
-					'body'    => (string) ( $a['body-font-family'] ?? '' ),
-					'head'    => (string) ( $a['headings-font-family'] ?? '' ),
+					'ink'     => $first( [ 'text-color', 'body-color' ] ),
+					'link'    => $link,
+					'sale'    => $link,
+					'body'    => $first( [ 'body-font-family', 'font-family-body' ] ),
+					'head'    => $first( [ 'headings-font-family', 'font-family-h2', 'font-family-h1' ] ),
 					'size'    => ( (int) $size >= 12 && (int) $size <= 22 ) ? (int) $size : '',
-					'btn_bg'  => (string) ( $a['button-bg-color'] ?? ( $a['theme-color'] ?? '' ) ),
-					'btn_ink' => (string) ( $a['button-color'] ?? '' ),
+					'btn_bg'  => $first( [ 'button-bg-color', 'theme-color' ] ),
+					'btn_ink' => $first( [ 'button-color', 'button-text-color' ] ),
 					'radius'  => $a['button-radius-fields']['global']['desktop'] ?? ( $a['button-radius'] ?? '' ),
-					'border'  => (string) ( $a['shop-product-border-color'] ?? '' ),
+					'card'    => $first( [ 'site-content-background-color', 'content-bg-color' ] ),
+					'border'  => $first( [ 'shop-product-border-color', 'single-product-border-color' ] ),
 				], static fn( $v ) => '' !== $v && null !== $v );
 			},
 			__( 'GeneratePress → Customizer', 'dazont-ecom' ) => static function (): array {
@@ -3182,7 +3252,7 @@ final class DZE_Klaviyo {
 			<?php esc_html_e( 'Nothing to set here. The email wears what your theme already says — this is only so you can see what it read and where it read it. Change it in your theme and the next email follows.', 'dazont-ecom' ); ?>
 		</p>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'It is read through WordPress\'s own standard — theme.json and the palette every theme declares to the block editor — so this works on any theme, not just the one installed today. WooCommerce answers for the shop colour where it was set. A theme that keeps its appearance only in its own Customizer is asked last, and only about what the standard left blank.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Your theme\'s own settings come first — that is where you go to change a colour, so that is where the email takes it from, palette variables resolved. WordPress\'s standard (theme.json and the palette a theme declares to the block editor) answers for anything your theme left unsaid, and on a theme this plugin has never heard of it answers for everything. WordPress\'s OWN default palette is never used: it belongs to WordPress, not to your shop.', 'dazont-ecom' ); ?>
 		</p>
 		<?php
 		$dze_t    = self::theme_style();
@@ -3202,6 +3272,15 @@ final class DZE_Klaviyo {
 			'border'  => __( 'Card border', 'dazont-ecom' ),
 		];
 		?>
+		<?php $dze_pal = self::palette(); ?>
+		<?php if ( ! empty( $dze_pal['colors'] ) ) : ?>
+			<p style="margin:0 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:880px;">
+				<span style="font-size:13px;color:#646970;"><?php echo esc_html( $dze_pal['source'] ); ?> —</span>
+				<?php foreach ( $dze_pal['colors'] as $dze_c ) : ?>
+					<span title="<?php echo esc_attr( $dze_c ); ?>" style="display:inline-block;width:26px;height:26px;border:1px solid #c3c4c7;background:<?php echo esc_attr( $dze_c ); ?>;"></span>
+				<?php endforeach; ?>
+			</p>
+		<?php endif; ?>
 		<div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;max-width:880px;">
 			<table class="widefat striped" style="flex:1 1 420px;min-width:380px;">
 				<thead><tr>
