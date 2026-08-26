@@ -240,6 +240,14 @@ final class DZE_Automation {
 	}
 
 	public static function sanitize( $in ): array {
+		// WordPress hands a sanitizer NULL when the submitted page did not
+		// carry this option at all. That is not "the shop emptied it": it is
+		// "another form was saved", and answering with defaults is how a
+		// setting disappears after an update nobody connected to it.
+		if ( null === $in ) {
+			return self::settings();
+		}
+
 		$in  = is_array( $in ) ? $in : [];
 		$out = self::settings();
 		if ( empty( $in['form'] ) ) {

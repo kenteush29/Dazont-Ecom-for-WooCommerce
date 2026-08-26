@@ -247,6 +247,9 @@ final class DZE_Gmc {
 
 	/** Advanced (parent/MCA) account ID used for GCP developer registration. */
 	public function sanitize_advanced( $value ): string {
+		if ( null === $value ) {
+			return (string) get_option( self::OPT_ADVANCED, '' ); // not on the submitted form.
+		}
 		return preg_replace( '/[^0-9]/', '', (string) $value );
 	}
 
@@ -467,8 +470,11 @@ final class DZE_Gmc {
 	}
 
 	public function sanitize_accounts( $value ): array {
+		// Not posted at all: another form was saved. The shop's Merchant
+		// Center accounts are not something to lose to a page that never
+		// carried them.
 		if ( ! is_array( $value ) ) {
-			return [];
+			return self::get_accounts();
 		}
 		$clean = [];
 		foreach ( $value as $key => $acc ) {
