@@ -109,20 +109,47 @@ final class DZE_Klaviyo {
 	/**
 	 * The parts of the email that never change from one promotion to the next.
 	 *
-	 * @return array{logo:string,accent:string,ink:string,paper:string,note:string}
+	 * The shipped values are the shop's own reference email — the header and
+	 * the footer of "Marketing Email 1" — so a fresh install already looks
+	 * like the shop instead of looking like a plugin. Every one of them is a
+	 * field on the settings tab.
+	 *
+	 * @return array{logo:string,accent:string,ink:string,paper:string,note:string,reassure:array}
 	 */
 	public static function design(): array {
 		$hex = static function ( $v, string $fallback ): string {
 			$v = is_string( $v ) ? trim( $v ) : '';
 			return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : $fallback;
 		};
-		$s = self::settings();
-		return [
+		$s   = self::settings();
+		$out = [
 			'logo'   => (string) ( $s['logo'] ?? '' ),
-			'accent' => $hex( $s['accent'] ?? '', '#8DC61B' ),
+			'accent' => $hex( $s['accent'] ?? '', '#719D1A' ),
 			'ink'    => $hex( $s['ink'] ?? '', '#111111' ),
-			'paper'  => $hex( $s['paper'] ?? '', '#f4f4ee' ),
-			'note'   => (string) ( $s['note'] ?? '' ),
+			'paper'  => $hex( $s['paper'] ?? '', '#F4F4EE' ),
+			'note'   => isset( $s['note'] ) ? (string) $s['note'] : __( 'We got you covered', 'dazont-ecom' ),
+		];
+		$shipped = self::default_reassure();
+		$saved   = (array) ( $s['reassure'] ?? [] );
+		$out['reassure'] = [];
+		foreach ( [ 0, 1, 2 ] as $i ) {
+			$one = (array) ( $saved[ $i ] ?? [] );
+			$out['reassure'][ $i ] = [
+				'icon'  => (string) ( $one['icon'] ?? ( $saved ? '' : ( $shipped[ $i ]['icon'] ?? '' ) ) ),
+				'title' => (string) ( $one['title'] ?? ( $saved ? '' : ( $shipped[ $i ]['title'] ?? '' ) ) ),
+				'line'  => (string) ( $one['line'] ?? ( $saved ? '' : ( $shipped[ $i ]['line'] ?? '' ) ) ),
+			];
+		}
+		return $out;
+	}
+
+	/** The three promises the shop's own emails carry, as they stand today. */
+	public static function default_reassure(): array {
+		$cdn = 'https://d3k81ch9hvuctc.cloudfront.net/company/UNysVD/images/';
+		return [
+			[ 'icon' => $cdn . '74d7e758-2982-4642-b10b-45a492e0408f.png', 'title' => __( 'Worldwide Delivery', 'dazont-ecom' ), 'line' => __( '- Anywhere in the world -', 'dazont-ecom' ) ],
+			[ 'icon' => $cdn . '1f414ab2-f6df-4d81-8dca-8ed7fd15dacf.png', 'title' => __( '5/7 Customer Support', 'dazont-ecom' ), 'line' => __( '- Ready to help you -', 'dazont-ecom' ) ],
+			[ 'icon' => $cdn . 'f8320b08-de46-4345-ae02-704d0811b651.png', 'title' => __( 'Secure Payments', 'dazont-ecom' ), 'line' => __( '- Website fully protected -', 'dazont-ecom' ) ],
 		];
 	}
 
@@ -168,6 +195,16 @@ final class DZE_Klaviyo {
 			$out['ink']    = sanitize_text_field( (string) ( $in['ink'] ?? '' ) );
 			$out['paper']  = sanitize_text_field( (string) ( $in['paper'] ?? '' ) );
 			$out['note']   = sanitize_text_field( (string) ( $in['note'] ?? '' ) );
+			$rows = [];
+			foreach ( [ 0, 1, 2 ] as $i ) {
+				$one = (array) ( $in['reassure'][ $i ] ?? [] );
+				$rows[ $i ] = [
+					'icon'  => esc_url_raw( trim( (string) ( $one['icon'] ?? '' ) ) ),
+					'title' => sanitize_text_field( (string) ( $one['title'] ?? '' ) ),
+					'line'  => sanitize_text_field( (string) ( $one['line'] ?? '' ) ),
+				];
+			}
+			$out['reassure'] = $rows;
 		}
 		if ( array_key_exists( 'email_prompt', $in ) ) {
 			// Same treatment as every other prompt of the plugin: shipped text
@@ -272,13 +309,26 @@ final class DZE_Klaviyo {
 		$out    = [ 'audiences' => [], 'read' => time() ];
 		$errors = [];
 
-		foreach ( [ 'segments' => __( 'Segment', 'dazont-ecom' ), 'lists' => __( 'List', 'dazont-ecom' ) ] as $kind => $label ) {
-			// No page[size] of our own: Klaviyo caps it per endpoint, and a
-			// number over that cap is a 400 — which is exactly how the audience
-			// pickers came back empty once.
-			foreach ( self::pages( $kind . '/?fields[' . rtrim( $kind, 's' ) . ']=name', $errors ) as $row ) {
-				$out['audiences'][ (string) $row['id'] ] = $label . ' · ' . (string) ( $row['attributes']['name'] ?? $row['id'] );
+		// Segments: asked for WITH the inactive ones. Klaviyo's default listing
+		// hides those, and a shop whose exclusion segment is one of them looks
+		// at a picker that does not offer what its own campaigns use. They are
+		// named as inactive here, because an inactive segment in Klaviyo is not
+		// maintained — excluding it excludes nobody, and that is worth knowing
+		// before pressing send.
+		$rows = self::pages( 'segments/?fields[segment]=name,is_active&filter=' . rawurlencode( 'any(is_active,[true,false])' ), $errors, 20 );
+		foreach ( $rows as $row ) {
+			$name = (string) ( $row['attributes']['name'] ?? $row['id'] );
+			if ( empty( $row['attributes']['is_active'] ) ) {
+				/* translators: %s: segment name */
+				$name = sprintf( __( '%s — inactive', 'dazont-ecom' ), $name );
 			}
+			$out['audiences'][ (string) $row['id'] ] = __( 'Segment', 'dazont-ecom' ) . ' · ' . $name;
+		}
+		// No page[size] of our own: Klaviyo caps it per endpoint, and a number
+		// over that cap is a 400 — which is exactly how these pickers came back
+		// empty once.
+		foreach ( self::pages( 'lists/?fields[list]=name', $errors ) as $row ) {
+			$out['audiences'][ (string) $row['id'] ] = __( 'List', 'dazont-ecom' ) . ' · ' . (string) ( $row['attributes']['name'] ?? $row['id'] );
 		}
 		asort( $out['audiences'] );
 		if ( ! $out['audiences'] && $errors ) {
@@ -394,57 +444,65 @@ final class DZE_Klaviyo {
 		$name   = get_bloginfo( 'name' );
 		$accent = $d['accent'];
 		$ink    = $d['ink'];
-		$paper  = $d['paper'];
+		$band   = $d['paper'];
+		$head   = "'Aldrich', Helvetica, Arial, sans-serif";
+		$text   = 'Helvetica, Arial, sans-serif';
+		$esc    = static fn( $v ): string => esc_html( (string) $v );
+		$rows   = '';
 
-		$esc  = static fn( $v ): string => esc_html( (string) $v );
-		$rows = '';
-
-		// Header: the shop's mark, nothing else.
-		$logo = $d['logo'] ? sprintf(
-			'<img src="%1$s" width="150" alt="%2$s" style="display:block;margin:0 auto;max-width:150px;height:auto;border:0;" />',
-			esc_url( $d['logo'] ),
-			esc_attr( $name )
-		) : sprintf( '<div style="font:700 22px Helvetica,Arial,sans-serif;color:%1$s;">%2$s</div>', esc_attr( $ink ), $esc( $name ) );
-		$rows .= '<tr><td align="center" style="padding:24px 24px 8px;">' . $logo . '</td></tr>';
+		// Header — the shop's mark, centred, small, linked home. Same as the
+		// reference email the shop already sends.
+		$logo = $d['logo']
+			? sprintf(
+				'<a href="%1$s"><img src="%2$s" width="80" alt="%3$s" style="display:block;margin:0 auto;width:80px;max-width:80px;height:auto;border:0;" /></a>',
+				esc_url( home_url( '/' ) ),
+				esc_url( $d['logo'] ),
+				esc_attr( $name )
+			)
+			: sprintf( '<div style="font:400 22px %1$s;color:%2$s;">%3$s</div>', $head, esc_attr( $ink ), $esc( $name ) );
+		$rows .= '<tr><td align="center" style="padding:20px 15px 14px;">' . $logo . '</td></tr>';
 
 		if ( ! empty( $parts['hero'] ) ) {
 			$rows .= sprintf(
-				'<tr><td style="padding:12px 0 0;"><img src="%1$s" width="600" alt="" style="display:block;width:100%%;max-width:600px;height:auto;border:0;" /></td></tr>',
+				'<tr><td style="padding:0;"><img src="%1$s" width="600" alt="" style="display:block;width:100%%;max-width:600px;height:auto;border:0;" /></td></tr>',
 				esc_url( (string) $parts['hero'] )
 			);
 		}
-
 		if ( ! empty( $parts['headline'] ) ) {
 			$rows .= sprintf(
-				'<tr><td align="center" style="padding:26px 28px 6px;font:700 30px/1.2 Helvetica,Arial,sans-serif;color:%1$s;">%2$s</td></tr>',
+				'<tr><td align="center" style="padding:26px 28px 6px;font:400 32px/1.2 %1$s;color:%2$s;">%3$s</td></tr>',
+				$head,
 				esc_attr( $ink ),
 				$esc( $parts['headline'] )
 			);
 		}
 		if ( ! empty( $parts['body'] ) ) {
 			$rows .= sprintf(
-				'<tr><td align="center" style="padding:8px 32px 4px;font:400 16px/1.6 Helvetica,Arial,sans-serif;color:%1$s;">%2$s</td></tr>',
+				'<tr><td align="center" style="padding:10px 34px 4px;font:400 18px/1.6 %1$s;color:%2$s;">%3$s</td></tr>',
+				$text,
 				esc_attr( $ink ),
 				nl2br( $esc( $parts['body'] ) )
 			);
 		}
 		if ( ! empty( $parts['offer'] ) ) {
 			$rows .= sprintf(
-				'<tr><td align="center" style="padding:18px 28px 6px;">'
-				. '<div style="display:inline-block;border:2px solid %1$s;border-radius:4px;padding:12px 22px;'
-				. 'font:700 20px/1.2 Helvetica,Arial,sans-serif;color:%2$s;">%3$s</div></td></tr>',
+				'<tr><td align="center" style="padding:20px 28px 4px;">'
+				. '<div style="display:inline-block;border:2px solid %1$s;padding:13px 24px;'
+				. 'font:400 20px/1.2 %2$s;color:%3$s;">%4$s</div></td></tr>',
 				esc_attr( $accent ),
+				$head,
 				esc_attr( $ink ),
 				$esc( $parts['offer'] )
 			);
 		}
 		if ( ! empty( $parts['cta_label'] ) ) {
 			$rows .= sprintf(
-				'<tr><td align="center" style="padding:22px 28px 8px;">'
+				'<tr><td align="center" style="padding:22px 18px 10px;">'
 				. '<a href="%1$s" style="display:inline-block;background:%2$s;color:#ffffff;text-decoration:none;'
-				. 'padding:15px 42px;border-radius:4px;font:700 16px Helvetica,Arial,sans-serif;">%3$s</a></td></tr>',
+				. 'padding:15px 60px;font:400 16px %3$s;">%4$s</a></td></tr>',
 				esc_url( (string) ( $parts['cta_url'] ?? home_url( '/' ) ) ),
 				esc_attr( $accent ),
+				$text,
 				$esc( $parts['cta_label'] )
 			);
 		}
@@ -456,48 +514,90 @@ final class DZE_Klaviyo {
 				foreach ( $products as $p ) {
 					$cells .= sprintf(
 						'<td width="33%%" valign="top" align="center" style="padding:10px 6px;">'
-						. '<a href="%1$s" style="text-decoration:none;color:%5$s;">'
-						. '<img src="%2$s" width="170" alt="%3$s" style="display:block;width:100%%;max-width:170px;height:auto;border:0;border-radius:4px;" />'
-						. '<div style="padding:8px 2px 2px;font:600 13px/1.35 Helvetica,Arial,sans-serif;">%3$s</div>'
-						. '<div style="font:400 13px Helvetica,Arial,sans-serif;color:#666;">%4$s</div>'
-						. '</a></td>',
+						. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
+						. '<img src="%2$s" width="170" alt="%3$s" style="display:block;width:100%%;max-width:170px;height:auto;border:0;" />'
+						. '<div style="padding:10px 2px 2px;font:400 14px/1.35 %5$s;">%3$s</div>'
+						. '<div style="padding-bottom:8px;font:400 14px %7$s;color:#666;">%4$s</div>'
+						. '</a>'
+						. '<a href="%1$s" style="display:inline-block;background:%8$s;color:#ffffff;text-decoration:none;padding:10px 15px;font:400 14px %7$s;">%9$s</a>'
+						. '</td>',
 						esc_url( $p['url'] ),
 						esc_url( $p['image'] ),
 						$esc( $p['name'] ),
 						$esc( $p['price'] ),
-						esc_attr( $ink )
+						$head,
+						esc_attr( $ink ),
+						$text,
+						esc_attr( $accent ),
+						esc_html__( 'Shop now', 'dazont-ecom' )
 					);
 				}
-				$rows .= '<tr><td style="padding:20px 18px 6px;">'
+				$rows .= '<tr><td style="padding:16px 12px 10px;">'
 					. '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' . $cells . '</tr></table>'
 					. '</td></tr>';
 			}
 		}
 
-		// Footer: what the law and the mailbox both want.
-		$address = $preview
-			? esc_html( (string) get_option( 'woocommerce_store_address', '' ) )
-			: '{{ organization.full_address }}';
-		$unsub = $preview
-			? '<span style="text-decoration:underline;">' . esc_html__( 'Unsubscribe', 'dazont-ecom' ) . '</span>'
-			: '{% unsubscribe %}';
-		$note  = '' !== $d['note'] ? '<div style="padding-bottom:6px;">' . $esc( $d['note'] ) . '</div>' : '';
+		// Footer band — the three promises the shop's own emails carry.
+		$cells = '';
+		foreach ( $d['reassure'] as $one ) {
+			if ( '' === trim( (string) $one['title'] ) && '' === trim( (string) $one['icon'] ) ) {
+				continue;
+			}
+			$icon = $one['icon'] ? sprintf(
+				'<img src="%1$s" width="50" alt="" style="display:block;margin:0 auto 8px;width:50px;max-width:50px;height:auto;border:0;" />',
+				esc_url( $one['icon'] )
+			) : '';
+			$cells .= sprintf(
+				'<td width="33%%" valign="top" align="center" style="padding:10px 18px 20px;">%1$s'
+				. '<div style="font:700 14px %2$s;color:%3$s;">%4$s</div>'
+				. '<div style="font:400 14px %2$s;color:%3$s;">%5$s</div></td>',
+				$icon,
+				$text,
+				esc_attr( $ink ),
+				$esc( $one['title'] ),
+				$esc( $one['line'] )
+			);
+		}
+		if ( '' !== $cells || '' !== trim( $d['note'] ) ) {
+			$rows .= sprintf( '<tr><td style="background:%1$s;padding:18px 0 0;">', esc_attr( $band ) );
+			if ( '' !== trim( $d['note'] ) ) {
+				$rows .= sprintf(
+					'<div style="text-align:center;padding:0 18px 6px;font:400 20px %1$s;color:%2$s;">%3$s</div>',
+					$head,
+					esc_attr( $ink ),
+					$esc( $d['note'] )
+				);
+			}
+			if ( '' !== $cells ) {
+				$rows .= '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' . $cells . '</tr></table>';
+			}
+			$rows .= '</td></tr>';
+		}
 
+		// The lines the law and the mailbox both want, exactly where the shop
+		// already puts them.
+		$address = $preview
+			? esc_html( $name . ' ' . (string) get_option( 'woocommerce_store_address', '' ) )
+			: '{{ organization.name }} {{ organization.full_address }}';
+		$unsub = $preview
+			? '<span style="color:#1457d0;">' . esc_html__( 'Unsubscribe', 'dazont-ecom' ) . '</span>'
+			: '{% unsubscribe %}';
 		$rows .= sprintf(
-			'<tr><td align="center" style="padding:26px 28px 30px;font:400 12px/1.6 Helvetica,Arial,sans-serif;color:#666;">'
-			. '%1$s<div>%2$s — %3$s</div><div style="padding-top:6px;">%4$s %5$s</div></td></tr>',
-			$note,
-			$esc( $name ),
-			$address,
-			esc_html__( 'No longer want these emails?', 'dazont-ecom' ),
-			$unsub
+			'<tr><td align="center" style="background:%1$s;padding:15px 18px 20px;font:400 11px/1.6 %2$s;color:#222222;">'
+			. '<div>%3$s <span style="color:#1457d0;">%4$s</span>.</div><div>%5$s</div></td></tr>',
+			esc_attr( $band ),
+			$text,
+			esc_html__( 'No longer want to receive these emails?', 'dazont-ecom' ),
+			$unsub,
+			$address
 		);
 
 		return '<!DOCTYPE html><html><head><meta charset="utf-8" />'
 			. '<meta name="viewport" content="width=device-width,initial-scale=1" />'
 			. '<title>' . $esc( $parts['headline'] ?? $name ) . '</title></head>'
-			. sprintf( '<body style="margin:0;padding:0;background:%1$s;">', esc_attr( $paper ) )
-			. sprintf( '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:%1$s;"><tr><td align="center">', esc_attr( $paper ) )
+			. sprintf( '<body style="margin:0;padding:0;background:%1$s;">', esc_attr( $band ) )
+			. sprintf( '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:%1$s;"><tr><td align="center">', esc_attr( $band ) )
 			. '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff;">'
 			. $rows
 			. '</table></td></tr></table></body></html>';
@@ -1318,6 +1418,9 @@ final class DZE_Klaviyo {
 							<option value="<?php echo esc_attr( $exc ); ?>" selected><?php echo esc_html( $exc ); ?></option>
 						<?php endif; ?>
 					</select>
+					<p class="description" style="max-width:820px;">
+						<?php esc_html_e( 'Segments marked inactive are listed too, because Klaviyo hides them from its own listing and your campaigns may well use one. Be warned that an inactive segment is not maintained: excluding it excludes nobody until it is switched back on in Klaviyo.', 'dazont-ecom' ); ?>
+					</p>
 				</td>
 			</tr>
 		</table>
@@ -1345,14 +1448,31 @@ final class DZE_Klaviyo {
 					&nbsp;
 					<label><?php esc_html_e( 'Text', 'dazont-ecom' ); ?> <input type="color" name="<?php echo esc_attr( self::OPT . '[ink]' ); ?>" value="<?php echo esc_attr( $design['ink'] ); ?>" /></label>
 					&nbsp;
-					<label><?php esc_html_e( 'Around the email', 'dazont-ecom' ); ?> <input type="color" name="<?php echo esc_attr( self::OPT . '[paper]' ); ?>" value="<?php echo esc_attr( $design['paper'] ); ?>" /></label>
+					<label><?php esc_html_e( 'Footer band', 'dazont-ecom' ); ?> <input type="color" name="<?php echo esc_attr( self::OPT . '[paper]' ); ?>" value="<?php echo esc_attr( $design['paper'] ); ?>" /></label>
 				</td>
 			</tr>
 			<tr>
-				<th scope="row"><label for="dze-klav-note"><?php esc_html_e( 'Footer line', 'dazont-ecom' ); ?></label></th>
+				<th scope="row"><label for="dze-klav-note"><?php esc_html_e( 'Footer heading', 'dazont-ecom' ); ?></label></th>
 				<td>
-					<input type="text" id="dze-klav-note" name="<?php echo esc_attr( self::OPT . '[note]' ); ?>" value="<?php echo esc_attr( $design['note'] ); ?>" class="large-text" placeholder="<?php esc_attr_e( 'e.g. Worldwide delivery · Secure payments', 'dazont-ecom' ); ?>" />
-					<p class="description"><?php esc_html_e( 'Optional, above the address. The shop name, the address and the unsubscribe link are added by law, not by choice.', 'dazont-ecom' ); ?></p>
+					<input type="text" id="dze-klav-note" name="<?php echo esc_attr( self::OPT . '[note]' ); ?>" value="<?php echo esc_attr( $design['note'] ); ?>" class="large-text" placeholder="<?php esc_attr_e( 'e.g. We got you covered', 'dazont-ecom' ); ?>" />
+					<p class="description"><?php esc_html_e( 'The line above the three promises. Empty removes it.', 'dazont-ecom' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'The three promises', 'dazont-ecom' ); ?></th>
+				<td>
+					<?php foreach ( $design['reassure'] as $dze_i => $dze_one ) : ?>
+						<div class="dze-klav-re" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+							<input type="hidden" class="dze-klav-re-url" name="<?php echo esc_attr( self::OPT . '[reassure][' . $dze_i . '][icon]' ); ?>" value="<?php echo esc_attr( $dze_one['icon'] ); ?>" />
+							<img class="dze-klav-re-img" src="<?php echo esc_url( $dze_one['icon'] ); ?>" alt="" style="<?php echo $dze_one['icon'] ? '' : 'display:none;'; ?>width:34px;height:34px;object-fit:contain;" />
+							<button type="button" class="button dze-klav-re-pick"><?php esc_html_e( 'Icon', 'dazont-ecom' ); ?></button>
+							<input type="text" name="<?php echo esc_attr( self::OPT . '[reassure][' . $dze_i . '][title]' ); ?>" value="<?php echo esc_attr( $dze_one['title'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Worldwide Delivery', 'dazont-ecom' ); ?>" />
+							<input type="text" name="<?php echo esc_attr( self::OPT . '[reassure][' . $dze_i . '][line]' ); ?>" value="<?php echo esc_attr( $dze_one['line'] ); ?>" class="regular-text" placeholder="<?php esc_attr_e( '- Anywhere in the world -', 'dazont-ecom' ); ?>" />
+						</div>
+					<?php endforeach; ?>
+					<p class="description" style="max-width:820px;">
+						<?php esc_html_e( 'The band at the bottom of every promotion email, as your own campaigns already carry it. Leave a title empty to drop that column. Below it, the shop name, the address and the unsubscribe link are added by law, not by choice.', 'dazont-ecom' ); ?>
+					</p>
 				</td>
 			</tr>
 		</table>

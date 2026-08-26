@@ -231,6 +231,19 @@
 		});
 		frame.open();
 	});
+	$(document).on('click', '.dze-klav-re-pick', function () {
+		if (!window.wp || !wp.media) { return; }
+		var $row = $(this).closest('.dze-klav-re');
+		var frame = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
+		frame.on('select', function () {
+			var img = frame.state().get('selection').first().toJSON();
+			var url = (img.sizes && img.sizes.thumbnail ? img.sizes.thumbnail.url : img.url);
+			$row.find('.dze-klav-re-url').val(url);
+			$row.find('.dze-klav-re-img').attr('src', url).show();
+		});
+		frame.open();
+	});
+
 	$(document).on('click', '.dze-klav-logo-clear', function () {
 		var $cell = $(this).closest('.dze-klav-logo');
 		$cell.find('#dze-klav-logo').val('');
