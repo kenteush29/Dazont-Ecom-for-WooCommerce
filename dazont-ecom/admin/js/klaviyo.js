@@ -412,15 +412,17 @@
 						.text((res && res.data && res.data.message) || i18n.error));
 					return;
 				}
-				var hours = res.data.hours || [], top = Math.max.apply(null, hours) || 1;
+				var days = res.data.days || [], names = res.data.names || [],
+					top = Math.max.apply(null, days) || 1;
 				var $bars = $('<div class="dze-hours"/>');
-				$.each(hours, function (h, n) {
+				$.each(days, function (d, n) {
 					var pc = Math.round((n / top) * 100);
 					$bars.append(
 						$('<span class="dze-hour"/>')
-							.attr('title', (h < 10 ? '0' + h : h) + ':00 — ' + n)
-							.toggleClass('is-peak', h === res.data.peak)
+							.attr('title', (names[d] || '') + ' — ' + n)
+							.toggleClass('is-peak', d === res.data.peak)
 							.append($('<i/>').css('height', Math.max(2, pc) + '%'))
+							.append($('<b/>').text((names[d] || '').slice(0, 3)))
 					);
 				});
 				$out.show().empty()
