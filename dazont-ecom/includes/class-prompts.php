@@ -56,7 +56,6 @@ final class DZE_Prompts {
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
 			'promo_i18n' => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt', 'default_promo_i18n_prompt' ],
 			'promo_email' => [ 'DZE_Klaviyo', 'email_prompt', 'default_email_prompt' ],
-			'promo_email_image' => [ 'DZE_Klaviyo', 'image_prompt', 'default_image_prompt' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
 			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', 'default_match_rules' ],
 		];
@@ -77,7 +76,6 @@ final class DZE_Prompts {
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 			'promo_i18n'   => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
 			'promo_email'  => [ 'DZE_Klaviyo', 'email_prompt' ],
-			'promo_email_image' => [ 'DZE_Klaviyo', 'image_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
 			'keyword_match'   => [ 'DZE_Marketing_Ai', 'match_rules' ],
 		][ $id ];
@@ -221,12 +219,6 @@ final class DZE_Prompts {
 				'text'  => [ 'DZE_Klaviyo', 'email_prompt' ],
 				'tab'   => 'email',
 				'frag'  => 'dze-klav-prompt',
-			];
-			$out['promo_email_image'] = [
-				'label' => __( 'Promotion email picture', 'dazont-ecom' ),
-				'text'  => [ 'DZE_Klaviyo', 'image_prompt' ],
-				'tab'   => 'email',
-				'frag'  => 'dze-klav-img-prompt',
 			];
 		}
 		if ( class_exists( 'DZE_Explorer' ) && self::module_on( 'sourcing' ) ) {
