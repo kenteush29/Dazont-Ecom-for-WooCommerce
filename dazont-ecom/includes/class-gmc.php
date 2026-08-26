@@ -842,13 +842,16 @@ final class DZE_Gmc {
 			],
 			'body'    => $body ? wp_json_encode( $body ) : null,
 		] );
+		$doing = $method . ' ' . (string) wp_parse_url( $url, PHP_URL_PATH );
 		if ( is_wp_error( $response ) ) {
+			DZE_Health::log( 'gmc', $doing, $response->get_error_message() );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			DZE_Health::log( 'gmc', $doing, 'HTTP ' . $code . ' — ' . $msg );
 			throw new RuntimeException( $msg );
 		}
 		return is_array( $data ) ? $data : [];
@@ -884,11 +887,16 @@ final class DZE_Gmc {
 		wp_send_json_success( [ 'results' => $results ] );
 	}
 
-	public function ajax_test(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
-		}
+	/**
+	 * Asks Google one cheap question and reports what it answered.
+	 *
+	 * The "Test the connection" button and the weekly checkup must agree on
+	 * what "connected" means, so both go through here rather than each having
+	 * its own idea of it.
+	 *
+	 * @return array{ok:bool,message:string}
+	 */
+	public function probe(): array {
 		try {
 			$token = $this->get_access_token();
 
@@ -900,19 +908,34 @@ final class DZE_Gmc {
 				if ( ! empty( $account['merchant_id'] ) ) {
 					$url = self::MERCHANT_API . '/' . self::DS_SUBAPI . '/accounts/' . $account['merchant_id'] . '/dataSources?pageSize=1';
 					$this->request( 'GET', $url, $token );
-					wp_send_json_success( [ 'message' => sprintf(
-						/* translators: %s: Merchant Center account ID */
-						__( 'Merchant API reachable for account %s.', 'dazont-ecom' ),
-						$account['merchant_id']
-					) ] );
+					return [
+						'ok'      => true,
+						'message' => sprintf(
+							/* translators: %s: Merchant Center account ID */
+							__( 'Merchant API reachable for account %s.', 'dazont-ecom' ),
+							$account['merchant_id']
+						),
+					];
 				}
 			}
 
 			// Authenticated, but no merchant account configured yet to test against.
-			wp_send_json_success( [ 'message' => __( 'Authenticated with Google. Add a Merchant ID to fully test the Merchant API.', 'dazont-ecom' ) ] );
+			return [ 'ok' => true, 'message' => __( 'Authenticated with Google. Add a Merchant ID to fully test the Merchant API.', 'dazont-ecom' ) ];
 		} catch ( \Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+			return [ 'ok' => false, 'message' => $e->getMessage() ];
 		}
+	}
+
+	public function ajax_test(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$probe = $this->probe();
+		if ( ! empty( $probe['ok'] ) ) {
+			wp_send_json_success( [ 'message' => $probe['message'] ] );
+		}
+		wp_send_json_error( [ 'message' => $probe['message'] ] );
 	}
 
 	// =========================================================================

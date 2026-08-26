@@ -235,6 +235,20 @@ final class DZE_Updater {
 		];
 	}
 
+	/**
+	 * The newest version available on the channel this site follows, or '' when
+	 * GitHub could not be read.
+	 *
+	 * When a provider changes something under the plugin's feet, the fix comes
+	 * as a release — so the weekly checkup ends by asking whether one is already
+	 * waiting. It reads the same cached lookup the update screen uses: no extra
+	 * call to GitHub, and no second idea of what "the latest version" means.
+	 */
+	public static function latest_version(): string {
+		$release = self::instance()->get_latest_release();
+		return is_array( $release ) ? (string) ( $release['version'] ?? '' ) : '';
+	}
+
 	private function get_latest_release(): ?array {
 		$cache_key = $this->cache_key();
 		$cached    = get_site_transient( $cache_key );

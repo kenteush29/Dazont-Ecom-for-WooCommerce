@@ -5305,6 +5305,7 @@ Answer with STRICT JSON and nothing else: "
 			] ),
 		] );
 		if ( is_wp_error( $resp ) ) {
+			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $resp->get_error_message() );
 			throw new RuntimeException( $resp->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $resp );
@@ -5326,6 +5327,7 @@ Answer with STRICT JSON and nothing else: "
 					}
 				}
 			}
+			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $msg );
 			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
 		$url = $body['images'][0]['url'] ?? '';

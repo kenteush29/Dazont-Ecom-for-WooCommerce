@@ -304,8 +304,10 @@ final class DZE_Klaviyo {
 		if ( null !== $body ) {
 			$args['body'] = wp_json_encode( $body );
 		}
-		$resp = wp_remote_request( self::API . ltrim( $path, '/' ), $args );
+		$doing = $method . ' ' . ltrim( $path, '/' );
+		$resp  = wp_remote_request( self::API . ltrim( $path, '/' ), $args );
 		if ( is_wp_error( $resp ) ) {
+			DZE_Health::log( 'klaviyo', $doing, $resp->get_error_message() );
 			return $resp;
 		}
 		$code = (int) wp_remote_retrieve_response_code( $resp );
@@ -318,6 +320,7 @@ final class DZE_Klaviyo {
 		if ( is_array( $data ) && ! empty( $data['errors'][0]['detail'] ) ) {
 			$detail = (string) $data['errors'][0]['detail'];
 		}
+		DZE_Health::log( 'klaviyo', $doing, 'HTTP ' . $code . ( '' !== $detail ? ' — ' . $detail : '' ) );
 		return new WP_Error(
 			'dze_klav_http',
 			sprintf(
