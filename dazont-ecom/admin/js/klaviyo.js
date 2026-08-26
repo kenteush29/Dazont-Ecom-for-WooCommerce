@@ -201,26 +201,72 @@
 			});
 	});
 
-	// ---- The event's own screen: write the email, look at it, save it with
-	// the event. No save of its own — the page has one button.
-	function editorParts() {
-		var out = {};
-		$('#dze-klav-editor .dze-klav-f').each(function () {
-			var $f = $(this);
-			out[$f.data('part')] = $f.is(':checkbox') ? ($f.is(':checked') ? 1 : 0) : ($f.val() || '');
-		});
-		return out;
+	// ---- The event's own screen: one panel, two views ----
+	function body()   { return $('#dze-klav-e-body'); }
+	function frame()  { return $('#dze-klav-e-iframe'); }
+	function ruleId() { return $('#dze-klav-editor').data('rule'); }
+
+	// srcdoc needs the frame to keep its own origin; an empty sandbox blocks
+	// that and leaves a white rectangle, which is what "the preview does not
+	// work" was. Scripts stay off — allow-scripts is not granted.
+	function show(html) {
+		var f = frame()[0];
+		if (!f) { return; }
+		f.setAttribute('sandbox', 'allow-same-origin');
+		f.srcdoc = html;
+	}
+
+	function view(which) {
+		$('.dze-klav-tab').removeClass('is-on').filter('[data-tab="' + which + '"]').addClass('is-on');
+		if (which === 'view') {
+			body().hide();
+			frame().show();
+			render();
+		} else {
+			frame().hide();
+			body().show();
+		}
+	}
+
+	function render() {
+		var $m = $('#dze-klav-e-msg');
+		$m.css('color', '#646970').text(i18n.rendering);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_preview',
+			nonce: cfg.nonce,
+			rule: ruleId(),
+			body: body().val() || ''
+		})
+			.done(function (res) {
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$m.text('');
+				show(res.data.html);
+			})
+			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
+	}
+
+	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
+
+	// Insert at the cursor, like any editor: what you were writing stays where
+	// it was instead of being appended somewhere else.
+	function insert(html) {
+		var el = body()[0];
+		if (!el) { return; }
+		var at = el.selectionStart || 0;
+		var to = el.selectionEnd || at;
+		el.value = el.value.slice(0, at) + html + el.value.slice(to);
+		el.selectionStart = el.selectionEnd = at + html.length;
+		el.focus();
 	}
 
 	$(document).on('click', '#dze-klav-e-write', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').text(i18n.writing);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_write',
-			nonce: cfg.nonce,
-			rule: $('#dze-klav-editor').data('rule')
-		})
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId() })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
@@ -229,10 +275,9 @@
 				}
 				$('#dze-klav-e-subject').val(res.data.subject);
 				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-				$.each(res.data.parts || {}, function (part, text) {
-					$('#dze-klav-editor .dze-klav-f[data-part="' + part + '"]').not(':checkbox').val(text);
-				});
+				body().val(res.data.body);
 				$m.css('color', '#b26a00').text(i18n.written);
+				view('view');
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
@@ -240,90 +285,34 @@
 			});
 	});
 
-	$(document).on('click', '#dze-klav-e-preview-btn', function () {
-		var $b = $(this), $m = $('#dze-klav-e-msg');
-		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.rendering);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_preview',
-			nonce: cfg.nonce,
-			rule: $('#dze-klav-editor').data('rule'),
-			parts: JSON.stringify(editorParts())
-		})
+	$(document).on('click', '#dze-klav-e-prod', function () {
+		var $m = $('#dze-klav-e-msg');
+		$m.css('color', '#646970').text(i18n.working);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_products', nonce: cfg.nonce, rule: ruleId() })
 			.done(function (res) {
-				$b.prop('disabled', false);
 				if (!res || !res.success) {
 					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				$m.text('');
-				$('#dze-klav-e-subject-echo').text($('#dze-klav-e-subject').val() || '');
-				// srcdoc + an empty sandbox: the rendered email is shown, and
-				// nothing inside it runs.
-				$('#dze-klav-e-iframe').attr('srcdoc', res.data.html);
-				$('#dze-klav-e-frame').show();
+				view('code');
+				insert('\n' + res.data.html + '\n');
 			})
-			.fail(function () {
-				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
-			});
+			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
 	});
 
-	$(document).on('click', '#dze-klav-e-close', function () { $('#dze-klav-e-frame').hide(); });
-
-	// The image comes from the media library, like every other image of this
-	// plugin: an address typed by hand is an address that stops resolving.
-	$(document).on('click', '.dze-klav-hero-pick', function () {
+	$(document).on('click', '#dze-klav-e-img', function () {
 		if (!window.wp || !wp.media) { return; }
-		var $cell = $(this).closest('.dze-klav-hero');
-		var frame = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
-		frame.on('select', function () {
-			var img = frame.state().get('selection').first().toJSON();
+		var f = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
+		f.on('select', function () {
+			var img = f.state().get('selection').first().toJSON();
 			var url = (img.sizes && img.sizes.large ? img.sizes.large.url : img.url);
-			$cell.find('#dze-klav-f-hero').val(url);
-			$cell.find('.dze-klav-hero-img').attr('src', url).show();
-			$cell.find('.dze-klav-hero-clear').show();
+			var alt = (img.alt || '').replace(/"/g, '&quot;');
+			view('code');
+			insert('\n<img src="' + url + '" width="544" alt="' + alt +
+				'" style="display:block;width:100%;max-width:544px;height:auto;border:0;" />\n');
 		});
-		frame.open();
-	});
-	$(document).on('click', '.dze-klav-logo-pick', function () {
-		if (!window.wp || !wp.media) { return; }
-		var $cell = $(this).closest('.dze-klav-logo');
-		var frame = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
-		frame.on('select', function () {
-			var img = frame.state().get('selection').first().toJSON();
-			var url = (img.sizes && img.sizes.medium ? img.sizes.medium.url : img.url);
-			$cell.find('#dze-klav-logo').val(url);
-			$cell.find('.dze-klav-logo-img').attr('src', url).show();
-			$cell.find('.dze-klav-logo-clear').show();
-		});
-		frame.open();
-	});
-	$(document).on('click', '.dze-klav-re-pick', function () {
-		if (!window.wp || !wp.media) { return; }
-		var $row = $(this).closest('.dze-klav-re');
-		var frame = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
-		frame.on('select', function () {
-			var img = frame.state().get('selection').first().toJSON();
-			var url = (img.sizes && img.sizes.thumbnail ? img.sizes.thumbnail.url : img.url);
-			$row.find('.dze-klav-re-url').val(url);
-			$row.find('.dze-klav-re-img').attr('src', url).show();
-		});
-		frame.open();
-	});
-
-	$(document).on('click', '.dze-klav-logo-clear', function () {
-		var $cell = $(this).closest('.dze-klav-logo');
-		$cell.find('#dze-klav-logo').val('');
-		$cell.find('.dze-klav-logo-img').hide();
-		$(this).hide();
-	});
-
-	$(document).on('click', '.dze-klav-hero-clear', function () {
-		var $cell = $(this).closest('.dze-klav-hero');
-		$cell.find('#dze-klav-f-hero').val('');
-		$cell.find('.dze-klav-hero-img').hide();
-		$(this).hide();
+		f.open();
 	});
 
 }(jQuery));
