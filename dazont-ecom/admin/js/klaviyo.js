@@ -19,6 +19,9 @@
 				}
 				fill($('#dze-klav-inc'), res.data.audiences);
 				fill($('#dze-klav-exc'), res.data.audiences);
+				fill($('#dze-klav-th'), res.data.templates);
+				fill($('#dze-klav-tf'), res.data.templates);
+				$('#dze-klav-tpl-hint').text(cfg.i18n.pickedFrom);
 				inactive = res.data.inactive || [];
 				tools();
 				$m.css('color', res.data.partial ? '#b26a00' : '#0a7040').text(res.data.message);
