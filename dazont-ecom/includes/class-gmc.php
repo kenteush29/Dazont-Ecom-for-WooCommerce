@@ -696,12 +696,7 @@ final class DZE_Gmc {
 		} catch ( \Throwable $e ) {
 			return [ [ 'ok' => false, 'where' => __( 'Google', 'dazont-ecom' ), 'message' => $e->getMessage() ] ];
 		}
-		// Google's promotions cannot be deleted; a promotion is ended by giving
-		// it an effective period that is already over. One minute ago, so it is
-		// unambiguously in the past whatever Google's clock says.
-		$now   = time();
-		$start = gmdate( 'Y-m-d\TH:i:s\Z', $now - 120 );
-		$end   = gmdate( 'Y-m-d\TH:i:s\Z', $now - 60 );
+		$now = time();
 
 		// Walked over what was actually PUSHED, not over the targets the
 		// settings would produce today. An account since removed from the
@@ -735,7 +730,10 @@ final class DZE_Gmc {
 				if ( ! empty( $record['promotion_id'] ) ) {
 					$promotion['promotionId'] = (string) $record['promotion_id'];
 				}
-				$promotion['attributes']['promotionEffectiveTimePeriod'] = [ 'startTime' => $start, 'endTime' => $end ];
+				$promotion['attributes']['promotionEffectiveTimePeriod'] = self::ended_period(
+					(string) ( $promotion['attributes']['promotionEffectiveTimePeriod']['startTime'] ?? '' ),
+					$now
+				);
 				$data_source = $this->resolve_data_source( $merchant, $country, $language, $token );
 				$url = self::MERCHANT_API . '/' . self::PROMO_SUBAPI . '/accounts/' . $merchant . '/promotions:insert';
 				$this->request( 'POST', $url, $token, [ 'promotion' => $promotion, 'dataSource' => $data_source ] );
@@ -979,10 +977,10 @@ final class DZE_Gmc {
 			'redemptionChannel' => (array) ( $live['redemptionChannel'] ?? [ 'ONLINE' ] ),
 			'attributes'        => (array) ( $live['attributes'] ?? [] ),
 		];
-		$promotion['attributes']['promotionEffectiveTimePeriod'] = [
-			'startTime' => gmdate( 'Y-m-d\TH:i:s\Z', $now - 120 ),
-			'endTime'   => gmdate( 'Y-m-d\TH:i:s\Z', $now - 60 ),
-		];
+		$promotion['attributes']['promotionEffectiveTimePeriod'] = self::ended_period(
+			(string) ( $live['attributes']['promotionEffectiveTimePeriod']['startTime'] ?? '' ),
+			$now
+		);
 		if ( empty( $promotion['attributes']['longTitle'] ) ) {
 			$promotion['attributes']['longTitle'] = $promotion_id;
 		}
@@ -1054,6 +1052,38 @@ final class DZE_Gmc {
 	 * already sent, from the events list or the event's own button. A
 	 * promotion Google has never seen waits for somebody to press push.
 	 */
+	/**
+	 * The period that ends a promotion, and still reads like something.
+	 *
+	 * Google has no delete: a promotion is ended by refiling it with a period
+	 * already over. Written as "a minute ago to a minute ago", the Merchant
+	 * Center row then showed a Christmas sale as running "26 August to 26
+	 * August" — true of the take-down, meaningless about the promotion, and
+	 * alarming to read.
+	 *
+	 * So a promotion that had already started keeps its real start date and is
+	 * simply closed today: the row then says when it actually ran. Only one
+	 * that never started gets the minute-long period, because a period cannot
+	 * end before it begins.
+	 *
+	 * @param string $started Google's own startTime for the promotion, when known.
+	 *
+	 * @return array{startTime:string,endTime:string}
+	 */
+	private static function ended_period( string $started, int $now ): array {
+		$start_ts = '' !== $started ? strtotime( $started ) : false;
+		if ( $start_ts && $start_ts < $now - 120 ) {
+			return [
+				'startTime' => gmdate( 'Y-m-d\TH:i:s\Z', $start_ts ),
+				'endTime'   => gmdate( 'Y-m-d\TH:i:s\Z', $now - 60 ),
+			];
+		}
+		return [
+			'startTime' => gmdate( 'Y-m-d\TH:i:s\Z', $now - 120 ),
+			'endTime'   => gmdate( 'Y-m-d\TH:i:s\Z', $now - 60 ),
+		];
+	}
+
 	public function cron_sync_all(): void {
 		foreach ( DZE_Discounts::get_rules() as $id => $rule ) {
 			if ( ( $rule['type'] ?? '' ) === 'sale' && ! empty( $rule['enabled'] ) && ! empty( $rule['gmc_sync'] ) ) {
