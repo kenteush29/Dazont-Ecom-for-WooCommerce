@@ -281,6 +281,36 @@
 		}
 	}
 	$(document).on('click', '.dze-klav-stab', function () { shellView($(this).data('tab')); });
+
+	// The header and the footer, lifted out of a template that already exists
+	// in the account. The seam is found by the plugin — nothing to place by
+	// hand, on this shop or the next one.
+	$(document).on('click', '#dze-klav-take', function () {
+		var $b = $(this), $m = $('#dze-klav-shell-msg'), head = $('#dze-klav-th').val();
+		if (!head) { $m.css('color', '#b26a00').text(i18n.pickTpl); return; }
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.working);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_frame',
+			nonce: cfg.nonce,
+			header: head,
+			footer: $('#dze-klav-tf').val() || head
+		})
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$('#dze-klav-shell').val(res.data.html);
+				shellView('view');
+				$m.css('color', '#b26a00').text(res.data.message);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
 	// Redraw only. Switching the view back while somebody is typing in the
 	// HTML would take the keyboard away from them mid-word.
 	$(document).on('input', '#dze-klav-shell', function () {
@@ -295,7 +325,6 @@
 	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
 
 	function picture()    { return $('#dze-klav-e-pic'); }
-	function hasPicture() { return !!$.trim(picture().val() || ''); }
 
 	// The email is laid out by the model, which places the picture itself. So a
 	// new picture SWAPS the one already in the email rather than being pasted
@@ -304,7 +333,9 @@
 		var el = body()[0], old = $.trim(picture().val() || '');
 		picture().val(url);
 		if (!el) { return; }
-		if (old && el.value.indexOf(old) !== -1) {
+		if (el.value.indexOf(cfg.pictureMark) !== -1) {
+			el.value = el.value.split(cfg.pictureMark).join(url);
+		} else if (old && el.value.indexOf(old) !== -1) {
 			el.value = el.value.split(old).join(url);
 		} else {
 			el.value = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
@@ -313,22 +344,42 @@
 		render();
 	}
 
-	// Making the picture is a call of its own, and a slow one. It runs BEFORE
+	// Making the picture is a call of its own, and a slow one. It runs beside
 	// the writing rather than inside it: two requests the server can each
-	// finish, instead of one that a host cuts off at ninety seconds.
-	function makePicture($b, $m, then) {
+	// finish, instead of one that a host cuts off at ninety seconds. The
+	// description comes from the writing — there is one prompt, and it decides
+	// the picture as well as the words.
+	function makePicture($b, $m, prompt, then) {
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').text(i18n.shooting);
-		return $.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId() })
+		return $.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId(), prompt: prompt || '' })
 			.done(function (res) {
-				if (res && res.success) { setPicture(res.data.url); }
-				else { $m.css('color', '#b26a00').text((res && res.data && res.data.message) || i18n.error); }
+				if (res && res.success) {
+					setPicture(res.data.url);
+				} else {
+					// No photograph: the email keeps its layout and loses its
+					// hole, rather than shipping a broken image.
+					dropPlaceholder();
+					$m.css('color', '#b26a00').text((res && res.data && res.data.message) || i18n.error);
+				}
 				if (then) { then(); } else { $b.prop('disabled', false); }
 			})
 			.fail(function () {
+				dropPlaceholder();
 				$b.prop('disabled', false);
 				$m.css('color', '#b32d2e').text(i18n.error);
 			});
+	}
+
+	// The <img> that was waiting for a photograph that never came.
+	function dropPlaceholder() {
+		var el = body()[0];
+		if (!el || el.value.indexOf(cfg.pictureMark) === -1) { return; }
+		el.value = el.value.replace(
+			new RegExp('<p[^>]*>\\s*<img[^>]*' + cfg.pictureMark + '[^>]*>\\s*<\\/p>|<img[^>]*' + cfg.pictureMark + '[^>]*>', 'gi'),
+			''
+		);
+		render();
 	}
 
 	function writeEmail($b, $m) {
@@ -346,9 +397,21 @@
 				body().val(res.data.body);
 				// A warning is not a failure: the email is there, and something
 				// in it is worth reading twice before it goes out.
-				$m.css('color', res.data.warning ? '#b32d2e' : '#b26a00')
-					.text(res.data.warning ? res.data.warning : i18n.written);
+				var note = function () {
+					$m.css('color', res.data.warning ? '#b32d2e' : '#b26a00')
+						.text(res.data.warning ? res.data.warning : i18n.written);
+				};
 				view('view');
+				// The writing asked for a photograph: go and get it.
+				if (res.data.picture) {
+					makePicture($b, $m, res.data.picture, function () {
+						$b.prop('disabled', false);
+						note();
+						view('view');
+					});
+					return;
+				}
+				note();
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
@@ -359,15 +422,13 @@
 	// An email opens on a picture. Asking for one separately meant it went out
 	// without one, so the writing makes it first when the event has none.
 	$(document).on('click', '#dze-klav-e-write', function () {
-		var $b = $(this), $m = $('#dze-klav-e-msg');
-		if (hasPicture()) { writeEmail($b, $m); return; }
-		makePicture($b, $m, function () { writeEmail($b, $m); });
+		writeEmail($(this), $('#dze-klav-e-msg'));
 	});
 
 	// A different picture, when the one that is there is not the one wanted.
 	$(document).on('click', '#dze-klav-e-shot', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
-		makePicture($b, $m, function () {
+		makePicture($b, $m, '', function () {
 			$b.prop('disabled', false);
 			$m.css('color', '#0a7040').text(i18n.shot);
 			view('view');
