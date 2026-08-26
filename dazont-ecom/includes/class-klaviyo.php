@@ -93,6 +93,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_image',    [ __CLASS__, 'ajax_image' ] );
 		add_action( 'wp_ajax_dze_klav_test',     [ __CLASS__, 'ajax_test' ] );
 		add_action( 'wp_ajax_dze_klav_frame',    [ __CLASS__, 'ajax_frame' ] );
+		add_action( 'wp_ajax_dze_klav_hours',    [ __CLASS__, 'ajax_hours' ] );
 		// The email is written on the event's own screen and saved by the
 		// event's own Save button — never by a second save of our own.
 		add_action( 'dze_discount_saved', [ __CLASS__, 'save_copy' ], 10, 3 );
@@ -934,6 +935,12 @@ final class DZE_Klaviyo {
 		return gmdate( 'Y-m-d', $ts ) . 'T09:00';
 	}
 
+	/** A send moment is a whole hour: the minutes are always zero. */
+	public static function whole_hour( string $when ): string {
+		$when = trim( str_replace( ' ', 'T', $when ) );
+		return preg_match( '/^(\d{4}-\d{2}-\d{2}T\d{2}):\d{2}/', $when, $m ) ? $m[1] . ':00' : $when;
+	}
+
 	/**
 	 * Every email of a promotion, in the order they go out.
 	 *
@@ -1031,7 +1038,7 @@ final class DZE_Klaviyo {
 			$out[ $email_id ] = [
 				'kind'    => $kind,
 				'when'    => array_key_exists( 'when', $posted )
-					? sanitize_text_field( (string) $posted['when'] )
+					? self::whole_hour( sanitize_text_field( (string) $posted['when'] ) )
 					: (string) ( $was['when'] ?? self::default_when( $kind, $rule ) ),
 				'subject' => array_key_exists( 'subject', $posted )
 					? mb_substr( sanitize_text_field( (string) $posted['subject'] ), 0, 150 )
@@ -1467,6 +1474,128 @@ final class DZE_Klaviyo {
 			throw new RuntimeException( $res->get_error_message() );
 		}
 		delete_transient( self::CACHE );
+	}
+
+	// =========================================================================
+	// When this shop's readers actually open
+	//
+	// Klaviyo already picks the hour reader by reader — that is Smart Send
+	// Time, and it is what a draft goes out with. This is the other question,
+	// the one a person asks before choosing a fixed hour: what does MY list do?
+	// Read from the account's own "Opened Email" events, hour by hour, and
+	// answered as a shape rather than a number.
+	// =========================================================================
+
+	private const HOURS_CACHE = 'dze_klaviyo_hours';
+	private const HOURS_DAYS  = 20; // 480 hourly buckets — one page, no paging to keep right.
+
+	/**
+	 * Opens per hour of the day, 0 to 23, over the recent past.
+	 *
+	 * @return array{hours:int[],peak:int,total:int,days:int,read:int}
+	 * @throws RuntimeException
+	 */
+	public static function open_hours( bool $fresh = false ): array {
+		$cached = get_transient( self::HOURS_CACHE );
+		if ( ! $fresh && is_array( $cached ) ) {
+			return $cached;
+		}
+		$metric = self::opens_metric();
+		$tz     = self::timezone();
+		$until  = current_datetime()->setTime( 0, 0 );
+		$from   = $until->modify( '-' . self::HOURS_DAYS . ' days' );
+
+		$res = self::request( 'POST', 'metric-aggregates/', [
+			'data' => [
+				'type'       => 'metric-aggregate',
+				'attributes' => [
+					'metric_id'    => $metric,
+					'measurements' => [ 'count' ],
+					'interval'     => 'hour',
+					'timezone'     => $tz,
+					'page_size'    => 500,
+					'filter'       => [
+						'greater-or-equal(datetime,' . $from->format( 'Y-m-d\TH:i:s' ) . ')',
+						'less-than(datetime,' . $until->format( 'Y-m-d\TH:i:s' ) . ')',
+					],
+				],
+			],
+		], 40 );
+		if ( is_wp_error( $res ) ) {
+			throw new RuntimeException( $res->get_error_message() );
+		}
+		$dates  = (array) ( $res['data']['attributes']['dates'] ?? [] );
+		$counts = (array) ( $res['data']['attributes']['data'][0]['measurements']['count'] ?? [] );
+		if ( ! $dates || ! $counts ) {
+			throw new RuntimeException( __( 'Klaviyo returned no opens for the last few weeks — there is nothing to read a best hour from yet.', 'dazont-ecom' ) );
+		}
+		$hours = array_fill( 0, 24, 0 );
+		$total = 0;
+		foreach ( $dates as $i => $stamp ) {
+			// The bucket is already in the timezone that was asked for; its
+			// hour is the two characters after the T, whatever offset Klaviyo
+			// prints beside it.
+			$hour = (int) substr( (string) $stamp, 11, 2 );
+			$n    = (int) ( $counts[ $i ] ?? 0 );
+			if ( $hour >= 0 && $hour <= 23 ) {
+				$hours[ $hour ] += $n;
+				$total          += $n;
+			}
+		}
+		if ( $total < 1 ) {
+			throw new RuntimeException( __( 'No opens in the last few weeks — nothing to read a best hour from yet.', 'dazont-ecom' ) );
+		}
+		$out = [
+			'hours' => $hours,
+			'peak'  => (int) array_search( max( $hours ), $hours, true ),
+			'total' => $total,
+			'days'  => self::HOURS_DAYS,
+			'read'  => time(),
+		];
+		set_transient( self::HOURS_CACHE, $out, 7 * DAY_IN_SECONDS );
+		return $out;
+	}
+
+	/** The account's own email-open metric. */
+	private static function opens_metric(): string {
+		$errors = [];
+		foreach ( self::pages( 'metrics/?fields[metric]=name', $errors, 12 ) as $row ) {
+			if ( 'opened email' === strtolower( (string) ( $row['attributes']['name'] ?? '' ) ) ) {
+				return (string) $row['id'];
+			}
+		}
+		throw new RuntimeException( __( 'No "Opened Email" metric was found in this Klaviyo account.', 'dazont-ecom' ) );
+	}
+
+	/**
+	 * The shop's timezone, as Klaviyo will accept it.
+	 *
+	 * WordPress happily answers "+02:00" when the site is set by offset rather
+	 * than by city; Klaviyo validates against the IANA list and refuses that,
+	 * so anything that is not Region/City falls back to UTC.
+	 */
+	private static function timezone(): string {
+		$tz = function_exists( 'wp_timezone_string' ) ? (string) wp_timezone_string() : '';
+		return preg_match( '#^[A-Za-z]+/[A-Za-z_+\-/]+$#', $tz ) ? $tz : 'UTC';
+	}
+
+	public static function ajax_hours(): void {
+		self::guard();
+		try {
+			$out = self::open_hours( ! empty( $_POST['fresh'] ) );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		$peak = $out['peak'];
+		wp_send_json_success( $out + [
+			'message' => sprintf(
+				/* translators: 1: the hour, 2: the next hour, 3: number of days */
+				__( 'Your readers open most between %1$02d:00 and %2$02d:00 — from %3$d days of opens on this account.', 'dazont-ecom' ),
+				$peak,
+				( $peak + 1 ) % 24,
+				(int) $out['days']
+			),
+		] );
 	}
 
 	/**
@@ -2460,6 +2589,8 @@ final class DZE_Klaviyo {
 				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
 				'openMail' => __( 'Open', 'dazont-ecom' ),
+				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
+				'whenOpen' => __( 'When do my readers open?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
 				'dropMail' => __( 'Remove this email from the promotion? What was written for it is lost when you save.', 'dazont-ecom' ),
 				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
@@ -2594,8 +2725,11 @@ final class DZE_Klaviyo {
 					<tr>
 						<th scope="row"><label for="dze-klav-e-when"><?php esc_html_e( 'Sends on', 'dazont-ecom' ); ?></label></th>
 						<td>
-							<input type="datetime-local" id="dze-klav-e-when" />
-							<p class="description"><?php esc_html_e( 'The day written on the Klaviyo draft. Klaviyo picks the hour each reader opens his mail; nothing goes out until you press send there.', 'dazont-ecom' ); ?></p>
+							<?php // Whole hours only: nobody schedules a campaign at 09:37. ?>
+							<input type="datetime-local" id="dze-klav-e-when" step="3600" />
+							<button type="button" class="button-link" id="dze-klav-hours" style="margin-left:10px;"><?php esc_html_e( 'When do my readers open?', 'dazont-ecom' ); ?></button>
+							<div id="dze-klav-hours-out" style="display:none;margin:8px 0 0;"></div>
+							<p class="description"><?php esc_html_e( 'The day written on the Klaviyo draft. Klaviyo picks the hour reader by reader, so this hour only applies if you switch that off in Klaviyo; nothing goes out until you press send there.', 'dazont-ecom' ); ?></p>
 						</td>
 					</tr>
 				</table>
@@ -2641,6 +2775,10 @@ final class DZE_Klaviyo {
 				.dze-klav-switch .button:first-child{border-radius:3px 0 0 3px;}
 				.dze-klav-switch .button:last-child{border-radius:0 3px 3px 0;margin-left:-1px;}
 				.dze-klav-switch .button.is-on{background:#2271b1;border-color:#2271b1;color:#fff;}
+				.dze-hours{display:flex;align-items:flex-end;gap:2px;height:46px;max-width:420px;}
+				.dze-hour{flex:1;display:flex;align-items:flex-end;height:100%;background:#f0f0f1;}
+				.dze-hour i{display:block;width:100%;background:#c3c4c7;}
+				.dze-hour.is-peak i{background:#2271b1;}
 			</style>
 		</div>
 		<?php

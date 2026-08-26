@@ -398,6 +398,41 @@
 		writeEmail($(this), $('#dze-klav-e-msg'));
 	});
 
+	// What this list actually does with its mornings — read from the account's
+	// own opens, not from a rule of thumb. It is information, not a setting:
+	// Klaviyo picks the hour reader by reader unless that is switched off.
+	$(document).on('click', '#dze-klav-hours', function () {
+		var $b = $(this), $out = $('#dze-klav-hours-out');
+		$b.prop('disabled', true).text(i18n.reading);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_hours', nonce: cfg.nonce })
+			.done(function (res) {
+				$b.prop('disabled', false).text(cfg.i18n.whenOpen);
+				if (!res || !res.success) {
+					$out.show().html($('<p style="margin:0;color:#b32d2e;"/>')
+						.text((res && res.data && res.data.message) || i18n.error));
+					return;
+				}
+				var hours = res.data.hours || [], top = Math.max.apply(null, hours) || 1;
+				var $bars = $('<div class="dze-hours"/>');
+				$.each(hours, function (h, n) {
+					var pc = Math.round((n / top) * 100);
+					$bars.append(
+						$('<span class="dze-hour"/>')
+							.attr('title', (h < 10 ? '0' + h : h) + ':00 — ' + n)
+							.toggleClass('is-peak', h === res.data.peak)
+							.append($('<i/>').css('height', Math.max(2, pc) + '%'))
+					);
+				});
+				$out.show().empty()
+					.append($bars)
+					.append($('<p class="description" style="margin:4px 0 0;"/>').text(res.data.message));
+			})
+			.fail(function () {
+				$b.prop('disabled', false).text(cfg.i18n.whenOpen);
+				$out.show().html($('<p style="margin:0;color:#b32d2e;"/>').text(i18n.error));
+			});
+	});
+
 	// The draft, per email. What is on screen is what Klaviyo receives.
 	$(document).on('click', '#dze-klav-e-draft', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
