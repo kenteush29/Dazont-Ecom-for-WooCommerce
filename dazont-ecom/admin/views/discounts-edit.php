@@ -271,7 +271,15 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 				<tr>
 					<th scope="row"><?php esc_html_e( 'What it says', 'dazont-ecom' ); ?></th>
 					<td>
-						<p class="description" style="margin-top:0;"><?php esc_html_e( 'The title of the event, as written at the top of this page.', 'dazont-ecom' ); ?></p>
+						<p style="margin:0;font-size:15px;">
+							<code style="background:#f0f0f1;padding:3px 8px;border-radius:3px;"><?php
+								echo esc_html( DZE_Discounts::banner_line(
+									[ 'percent' => (float) ( $editing['percent'] ?? 0 ) ],
+									(string) ( $editing['title'] ?? __( 'The title of the event', 'dazont-ecom' ) )
+								) );
+							?></code>
+						</p>
+						<p class="description"><?php esc_html_e( 'The title above, then the discount — added on its own, so it can never disagree with the percentage. Change either one and the banner follows.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<?php
