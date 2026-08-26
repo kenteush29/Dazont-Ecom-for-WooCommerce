@@ -225,6 +225,22 @@ final class DZE_Klaviyo {
 	/**
 	 * Both at once, worked out once per request.
 	 *
+	 * WordPress HAS a standard for this and it is theme.json. Since 6.1 it is
+	 * not a block-theme thing either: a classic theme's own theme.json is
+	 * merged in, and a theme that has none still contributes through the
+	 * add_theme_support() calls it made for the block editor, which WordPress
+	 * folds into the same structure. So one reader answers for any theme, and
+	 * a theme-specific bridge is only ever asked about what the standard left
+	 * blank.
+	 *
+	 * Two things make the standard usable in an email. Presets come back as
+	 * CSS variables — var(--wp--preset--color--primary) — which mean nothing
+	 * in an inbox, so they are resolved to the real value first. And the
+	 * quieter colours are DERIVED from the two the theme did state rather than
+	 * invented: a struck-through price is the text colour faded towards the
+	 * paper, a card border is the same at a tenth. Those follow the shop
+	 * automatically instead of being two hex codes of ours.
+	 *
 	 * @return array{value:array<string,mixed>,from:array<string,string>}
 	 */
 	private static function style(): array {
@@ -234,18 +250,18 @@ final class DZE_Klaviyo {
 		}
 		$shipped = __( 'Plugin default', 'dazont-ecom' );
 		$out = [
-			'head'   => "'Aldrich', Helvetica, Arial, sans-serif",
-			'body'   => 'Helvetica, Arial, sans-serif',
-			'ink'    => '#111111',
-			'link'   => '#719D1A',
-			'size'   => 16,
-			'muted'  => '#8a8a8a',
-			'sale'   => '#719D1A',
-			'btn_bg' => '#719D1A',
-			'btn_ink' => '#ffffff',
-			'radius' => 0,
-			'card'   => '#ffffff',
-			'border' => '#e6e6e1',
+			'head'    => "'Aldrich', Helvetica, Arial, sans-serif",
+			'body'    => 'Helvetica, Arial, sans-serif',
+			'ink'     => '#111111',
+			'link'    => '#719D1A',
+			'size'    => 16,
+			'muted'   => '',
+			'sale'    => '',
+			'btn_bg'  => '',
+			'btn_ink' => '',
+			'radius'  => 0,
+			'card'    => '#ffffff',
+			'border'  => '',
 		];
 		$from = array_fill_keys( array_keys( $out ), $shipped );
 		// One place that writes a value AND remembers who said it: two lines
@@ -257,91 +273,270 @@ final class DZE_Klaviyo {
 			$out[ $key ]  = $value;
 			$from[ $key ] = $source;
 		};
-		$hex = static function ( $v ): string {
+
+		$settings = function_exists( 'wp_get_global_settings' ) ? (array) wp_get_global_settings() : [];
+		$styles   = function_exists( 'wp_get_global_styles' ) ? (array) wp_get_global_styles() : [];
+
+		// --- The two resolvers that make theme.json answerable in an email ---
+
+		$palette = [];
+		foreach ( [ 'theme', 'custom', 'default' ] as $origin ) {
+			foreach ( (array) ( $settings['color']['palette'][ $origin ] ?? [] ) as $row ) {
+				if ( ! empty( $row['slug'] ) && ! empty( $row['color'] ) ) {
+					$palette[ (string) $row['slug'] ] = (string) $row['color'];
+				}
+			}
+		}
+		if ( ! $palette ) {
+			// A classic theme that never shipped a theme.json still declared
+			// its palette to the block editor. Same data, older door.
+			// get_theme_support() answers false when the theme said nothing,
+			// and false[0] is a warning waiting to happen on somebody else's
+			// shop rather than an empty list.
+			$declared = get_theme_support( 'editor-color-palette' );
+			$declared = ( is_array( $declared ) && isset( $declared[0] ) && is_array( $declared[0] ) ) ? $declared[0] : [];
+			foreach ( $declared as $row ) {
+				if ( ! empty( $row['slug'] ) && ! empty( $row['color'] ) ) {
+					$palette[ (string) $row['slug'] ] = (string) $row['color'];
+				}
+			}
+		}
+		$families = [];
+		foreach ( [ 'theme', 'custom', 'default' ] as $origin ) {
+			foreach ( (array) ( $settings['typography']['fontFamilies'][ $origin ] ?? [] ) as $row ) {
+				if ( ! empty( $row['slug'] ) && ! empty( $row['fontFamily'] ) ) {
+					$families[ (string) $row['slug'] ] = (string) $row['fontFamily'];
+				}
+			}
+		}
+		$sizes = [];
+		foreach ( [ 'theme', 'custom', 'default' ] as $origin ) {
+			foreach ( (array) ( $settings['typography']['fontSizes'][ $origin ] ?? [] ) as $row ) {
+				if ( ! empty( $row['slug'] ) && isset( $row['size'] ) ) {
+					$sizes[ (string) $row['slug'] ] = (string) $row['size'];
+				}
+			}
+		}
+		/** A theme.json value, with var(--wp--preset--…) turned back into a real one. */
+		$preset = static function ( $v, array $map ) {
 			$v = is_string( $v ) ? trim( $v ) : '';
-			if ( preg_match( '/^#[0-9a-fA-F]{3}$/', $v ) ) {
+			if ( '' === $v ) {
+				return '';
+			}
+			if ( preg_match( '/var\(\s*--wp--preset--[a-z-]+--([a-z0-9-]+)\s*\)/i', $v, $m ) ) {
+				return (string) ( $map[ strtolower( $m[1] ) ] ?? '' );
+			}
+			return $v;
+		};
+		$hex = static function ( $v ): string {
+			$v = is_string( $v ) ? strtolower( trim( $v ) ) : '';
+			if ( preg_match( '/^#[0-9a-f]{3}$/', $v ) ) {
 				return '#' . $v[1] . $v[1] . $v[2] . $v[2] . $v[3] . $v[3];
 			}
-			return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? strtolower( $v ) : '';
+			if ( preg_match( '/^#[0-9a-f]{6}$/', $v ) ) {
+				return $v;
+			}
+			// rgb()/rgba() is legal in theme.json and legal in an inbox only as
+			// a hex, so it is converted rather than dropped.
+			if ( preg_match( '/^rgba?\(\s*(\d+)\D+(\d+)\D+(\d+)/', $v, $m ) ) {
+				return sprintf( '#%02x%02x%02x', min( 255, (int) $m[1] ), min( 255, (int) $m[2] ), min( 255, (int) $m[3] ) );
+			}
+			return '';
 		};
 		$stack = static function ( $v ): string {
 			$v = is_string( $v ) ? trim( wp_strip_all_tags( $v ) ) : '';
-			// A CSS variable is meaningless in an email: only a real stack is.
 			return ( '' !== $v && false === strpos( $v, 'var(' ) ) ? $v : '';
 		};
 		$px = static function ( $v ): int {
-			$n = (int) preg_replace( '/[^0-9]/', '', (string) $v );
-			return ( $n >= 0 && $n <= 40 ) ? $n : -1;
+			$v = (string) $v;
+			// clamp()/min()/max() are what a fluid size looks like; the last
+			// plain px in it is the one a desktop inbox would land on.
+			if ( preg_match_all( '/([0-9.]+)px/', $v, $m ) ) {
+				return (int) round( (float) end( $m[1] ) );
+			}
+			if ( preg_match( '/^([0-9.]+)(rem|em)$/', $v, $m ) ) {
+				return (int) round( (float) $m[1] * 16 );
+			}
+			return preg_match( '/^[0-9]+$/', trim( $v ) ) ? (int) $v : -1;
 		};
 
-		// A block theme says it in theme.json, and WordPress hands it over.
-		if ( function_exists( 'wp_get_global_styles' ) ) {
-			$g   = wp_get_global_styles();
-			$src = __( 'Theme global styles (theme.json)', 'dazont-ecom' );
-			$set( 'ink', $hex( $g['color']['text'] ?? '' ), $src );
-			$f = $stack( $g['typography']['fontFamily'] ?? '' );
+		// --- The standard, for any theme ---
+
+		if ( $settings || $styles ) {
+			$src = __( 'Theme (theme.json / block editor)', 'dazont-ecom' );
+			$set( 'ink',  $hex( $preset( $styles['color']['text'] ?? '', $palette ) ), $src );
+			$set( 'card', $hex( $preset( $styles['color']['background'] ?? '', $palette ) ), $src );
+
+			$f = $stack( $preset( $styles['typography']['fontFamily'] ?? '', $families ) );
 			if ( '' !== $f ) {
 				$set( 'body', $f, $src );
 				$set( 'head', $f, $src );
 			}
-			$set( 'head', $stack( $g['blocks']['core/heading']['typography']['fontFamily'] ?? '' ), $src );
-			$link = $hex( $g['elements']['link']['color']['text'] ?? '' );
-			if ( '' !== $link ) {
-				$set( 'link', $link, $src );
-				$set( 'sale', $link, $src );
+			$set( 'head', $stack( $preset( $styles['blocks']['core/heading']['typography']['fontFamily'] ?? '', $families ) ), $src );
+			$s = $px( $preset( $styles['typography']['fontSize'] ?? '', $sizes ) );
+			if ( $s >= 12 && $s <= 22 ) {
+				$set( 'size', $s, $src );
 			}
-			$btn = $hex( $g['elements']['button']['color']['background'] ?? '' );
-			if ( '' !== $btn ) {
-				$set( 'btn_bg', $btn, $src );
-			}
-			$set( 'btn_ink', $hex( $g['elements']['button']['color']['text'] ?? '' ), $src );
-			$r = $px( $g['elements']['button']['border']['radius'] ?? '' );
-			if ( $r >= 0 ) {
+			$link = $hex( $preset( $styles['elements']['link']['color']['text'] ?? '', $palette ) );
+			$set( 'link', $link, $src );
+			$set( 'sale', $link, $src );
+
+			$btn = $hex( $preset( $styles['elements']['button']['color']['background'] ?? '', $palette ) );
+			$set( 'btn_bg', $btn, $src );
+			$set( 'btn_ink', $hex( $preset( $styles['elements']['button']['color']['text'] ?? '', $palette ) ), $src );
+			$r = $px( $styles['elements']['button']['border']['radius'] ?? '' );
+			if ( $r >= 0 && $r <= 40 ) {
 				$set( 'radius', $r, $src );
+			}
+		}
+		// The palette answers what the styles did not: every theme that speaks
+		// to the block editor names its own accent, and these are the slugs
+		// WordPress itself suggests.
+		if ( $palette ) {
+			$src  = __( 'Theme colour palette', 'dazont-ecom' );
+			$pick = static function ( array $names ) use ( $palette, $hex ): string {
+				foreach ( $names as $n ) {
+					if ( isset( $palette[ $n ] ) ) {
+						$c = $hex( $palette[ $n ] );
+						if ( '' !== $c ) {
+							return $c;
+						}
+					}
+				}
+				return '';
+			};
+			$accent = $pick( [ 'primary', 'accent', 'accent-1', 'theme-color', 'link-color', 'vivid-green-cyan' ] );
+			if ( '' !== $accent ) {
+				if ( $from['link'] === $shipped )   { $set( 'link', $accent, $src ); }
+				if ( $from['sale'] === $shipped )   { $set( 'sale', $accent, $src ); }
+				if ( $from['btn_bg'] === $shipped ) { $set( 'btn_bg', $accent, $src ); }
+			}
+			if ( $from['ink'] === $shipped ) {
+				$set( 'ink', $pick( [ 'foreground', 'contrast', 'text', 'base-3', 'dark' ] ), $src );
+			}
+			if ( $from['card'] === $shipped ) {
+				$set( 'card', $pick( [ 'background', 'base', 'white' ] ), $src );
 			}
 		}
 
 		// WooCommerce already asked the owner what colour his shop is, for its
-		// own transactional emails. A shop that answered there has answered.
+		// own transactional emails. A shop that answered there has answered,
+		// and the question is the same question.
 		$base = $hex( (string) get_option( 'woocommerce_email_base_color', '' ) );
 		if ( '' !== $base ) {
 			$src = __( 'WooCommerce → Emails', 'dazont-ecom' );
-			$set( 'link', $base, $src );
-			$set( 'btn_bg', $base, $src );
-			$set( 'sale', $base, $src );
+			foreach ( [ 'link', 'sale', 'btn_bg' ] as $k ) {
+				if ( $from[ $k ] === $shipped ) {
+					$set( $k, $base, $src );
+				}
+			}
 		}
 
-		// Astra keeps its own, and this shop runs Astra: it draws the product
-		// cards the customer actually sees, so it has the last word.
-		$astra = get_option( 'astra-settings', [] );
-		if ( is_array( $astra ) && $astra ) {
-			$src   = __( 'Astra → Customizer', 'dazont-ecom' );
-			$theme = $hex( $astra['theme-color'] ?? '' );
-			$set( 'ink', $hex( $astra['text-color'] ?? '' ), $src );
-			$link = $hex( $astra['link-color'] ?? '' );
-			$set( 'link', '' !== $link ? $link : $theme, $src );
-			$set( 'sale', '' !== $link ? $link : $theme, $src );
-			$set( 'body', $stack( $astra['body-font-family'] ?? '' ), $src );
-			$set( 'head', $stack( $astra['headings-font-family'] ?? '' ), $src );
-			$size = $astra['font-size-body']['desktop'] ?? ( $astra['font-size-body'] ?? 0 );
-			if ( (int) $size >= 12 && (int) $size <= 22 ) {
-				$set( 'size', (int) $size, $src );
+		// --- What the standard could not answer, theme by theme ---
+		//
+		// Only reached for a value still unspoken. A classic theme that drives
+		// its whole appearance from the Customizer and never told the block
+		// editor about it is the case this exists for; the standard above is
+		// what runs on every other shop.
+		foreach ( self::theme_bridges() as $label => $reader ) {
+			$blank = array_keys( array_filter( $from, static fn( $s ) => $s === $shipped ) );
+			if ( ! $blank ) {
+				break;
 			}
-			// The buttons the shop's own "Add to cart" wears.
-			$btn = __( 'Astra → Buttons', 'dazont-ecom' );
-			$bg  = $hex( $astra['button-bg-color'] ?? '' );
-			$set( 'btn_bg', '' !== $bg ? $bg : $theme, $btn );
-			$set( 'btn_ink', $hex( $astra['button-color'] ?? '' ), $btn );
-			$r = $px( $astra['button-radius-fields']['global']['desktop'] ?? ( $astra['button-radius'] ?? '' ) );
-			if ( $r >= 0 ) {
-				$set( 'radius', $r, $btn );
+			foreach ( (array) $reader() as $key => $value ) {
+				if ( isset( $out[ $key ] ) && $from[ $key ] === $shipped ) {
+					$set( $key, is_string( $value ) && 0 === strpos( $value, '#' ) ? $hex( $value ) : $value, $label );
+				}
 			}
-			$card = __( 'Astra → Shop cards', 'dazont-ecom' );
-			$set( 'card', $hex( $astra['single-product-bg-color'] ?? ( $astra['shop-card-bg-color'] ?? '' ) ), $card );
-			$set( 'border', $hex( $astra['shop-product-border-color'] ?? '' ), $card );
 		}
+
+		// --- The quiet colours, derived rather than invented ---
+		$mix = static function ( string $a, string $b, float $r ): string {
+			if ( 7 !== strlen( $a ) || 7 !== strlen( $b ) ) {
+				return $a;
+			}
+			$o = '#';
+			for ( $i = 1; $i < 7; $i += 2 ) {
+				$o .= sprintf( '%02x', (int) round( hexdec( substr( $a, $i, 2 ) ) * ( 1 - $r ) + hexdec( substr( $b, $i, 2 ) ) * $r ) );
+			}
+			return $o;
+		};
+		$derived = __( 'Worked out from the two above', 'dazont-ecom' );
+		if ( '' === $out['muted'] ) {
+			$set( 'muted', $mix( $out['ink'], $out['card'], 0.45 ), $derived );
+		}
+		if ( '' === $out['border'] ) {
+			$set( 'border', $mix( $out['ink'], $out['card'], 0.88 ), $derived );
+		}
+		if ( '' === $out['sale'] ) {
+			$set( 'sale', $out['link'], $derived );
+		}
+		if ( '' === $out['btn_bg'] ) {
+			$set( 'btn_bg', $out['link'], $derived );
+		}
+		if ( '' === $out['btn_ink'] ) {
+			// Black text on a dark button is a button nobody reads: the one
+			// that stands out against what the shop chose wins.
+			$lum = ( hexdec( substr( $out['btn_bg'], 1, 2 ) ) * 299
+				+ hexdec( substr( $out['btn_bg'], 3, 2 ) ) * 587
+				+ hexdec( substr( $out['btn_bg'], 5, 2 ) ) * 114 ) / 1000;
+			$set( 'btn_ink', $lum > 150 ? '#111111' : '#ffffff', $derived );
+		}
+
 		$done = [ 'value' => $out, 'from' => $from ];
 		return $done;
+	}
+
+	/**
+	 * The themes that keep their appearance somewhere of their own.
+	 *
+	 * Each reader hands back only what it knows, and is only ever asked about
+	 * a value the standard left blank. Adding a theme here is adding one entry
+	 * — nothing else in this file changes — and a shop running none of them
+	 * loses nothing, because the standard above already answered.
+	 *
+	 * @return array<string,callable():array<string,mixed>>
+	 */
+	private static function theme_bridges(): array {
+		return [
+			__( 'Astra → Customizer', 'dazont-ecom' ) => static function (): array {
+				$a = get_option( 'astra-settings', [] );
+				if ( ! is_array( $a ) || ! $a ) {
+					return [];
+				}
+				$size = $a['font-size-body']['desktop'] ?? ( $a['font-size-body'] ?? 0 );
+				return array_filter( [
+					'ink'     => (string) ( $a['text-color'] ?? '' ),
+					'link'    => (string) ( $a['link-color'] ?? ( $a['theme-color'] ?? '' ) ),
+					'sale'    => (string) ( $a['link-color'] ?? ( $a['theme-color'] ?? '' ) ),
+					'body'    => (string) ( $a['body-font-family'] ?? '' ),
+					'head'    => (string) ( $a['headings-font-family'] ?? '' ),
+					'size'    => ( (int) $size >= 12 && (int) $size <= 22 ) ? (int) $size : '',
+					'btn_bg'  => (string) ( $a['button-bg-color'] ?? ( $a['theme-color'] ?? '' ) ),
+					'btn_ink' => (string) ( $a['button-color'] ?? '' ),
+					'radius'  => $a['button-radius-fields']['global']['desktop'] ?? ( $a['button-radius'] ?? '' ),
+					'border'  => (string) ( $a['shop-product-border-color'] ?? '' ),
+				], static fn( $v ) => '' !== $v && null !== $v );
+			},
+			__( 'GeneratePress → Customizer', 'dazont-ecom' ) => static function (): array {
+				$c = get_option( 'generate_settings', [] );
+				return is_array( $c ) ? array_filter( [
+					'ink'     => (string) ( $c['text_color'] ?? '' ),
+					'link'    => (string) ( $c['link_color'] ?? '' ),
+					'card'    => (string) ( $c['background_color'] ?? '' ),
+				], static fn( $v ) => '' !== $v ) : [];
+			},
+			__( 'Kadence → Customizer', 'dazont-ecom' ) => static function (): array {
+				$c = get_option( 'kadence_global_palette', '' );
+				$c = is_string( $c ) ? json_decode( $c, true ) : $c;
+				$p = (array) ( $c['palette'] ?? [] );
+				return ! empty( $p[0]['color'] ) ? [ 'link' => (string) $p[0]['color'] ] : [];
+			},
+			__( 'OceanWP → Customizer', 'dazont-ecom' ) => static function (): array {
+				$c = (string) get_theme_mod( 'ocean_primary_color', '' );
+				return '' !== $c ? [ 'link' => $c ] : [];
+			},
+		];
 	}
 
 	/**
@@ -2985,6 +3180,9 @@ final class DZE_Klaviyo {
 		<h2 class="title"><?php esc_html_e( 'Shop style', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Nothing to set here. The email wears what your theme already says — this is only so you can see what it read and where it read it. Change it in your theme and the next email follows.', 'dazont-ecom' ); ?>
+		</p>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'It is read through WordPress\'s own standard — theme.json and the palette every theme declares to the block editor — so this works on any theme, not just the one installed today. WooCommerce answers for the shop colour where it was set. A theme that keeps its appearance only in its own Customizer is asked last, and only about what the standard left blank.', 'dazont-ecom' ); ?>
 		</p>
 		<?php
 		$dze_t    = self::theme_style();
