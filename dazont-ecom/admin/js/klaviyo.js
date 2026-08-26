@@ -17,7 +17,6 @@
 					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
-				fill($('#dze-klav-tpl'), res.data.templates);
 				fill($('#dze-klav-inc'), res.data.audiences);
 				fill($('#dze-klav-exc'), res.data.audiences);
 				$m.css('color', res.data.partial ? '#b26a00' : '#0a7040').text(res.data.message);
@@ -41,16 +40,9 @@
 	}
 
 	// ---- Events screen: one popup, opened from the row ----
-	function varsRow(marker, value) {
-		return $('<div class="dze-klav-var"/>')
-			.append($('<code/>').text(marker))
-			.append($('<input type="text" class="regular-text dze-klav-v"/>').attr('data-marker', marker).val(value));
-	}
-
 	$(document).on('click', '.dze-klav-open', function (e) {
 		e.preventDefault();
 		var $cell = $(this).closest('.dze-klav-cell');
-		var vars  = $cell.data('vars') || {};
 		$('#dze-klav-rule').val($cell.data('rule'));
 		$('#dze-klav-name').val($cell.data('name') || $cell.data('title') || '');
 		// Written on the event's screen, so it opens written here.
@@ -59,8 +51,6 @@
 		$('#dze-klav-when').val($cell.data('when') || '');
 		$('#dze-klav-write-msg').text('');
 		$('#dze-klav-status').text('');
-		var $box = $('#dze-klav-vars').empty();
-		$.each(vars, function (marker, value) { $box.append(varsRow(marker, value)); });
 		$('#dze-klav-modal').css('display', 'flex');
 	});
 
@@ -79,10 +69,6 @@
 				if (res && res.success) {
 					$('#dze-klav-subject').val(res.data.subject);
 					if (res.data.preview) { $('#dze-klav-preview').val(res.data.preview); }
-					// Whatever else was written lands in the fields that hold it.
-					$.each(res.data.vars || {}, function (marker, text) {
-						$('#dze-klav-vars .dze-klav-v[data-marker="' + marker + '"]').val(text);
-					});
 					$m.text('');
 					return;
 				}
@@ -104,10 +90,6 @@
 			$('#dze-klav-subject').trigger('focus');
 			return;
 		}
-		var vars = {};
-		$('#dze-klav-vars .dze-klav-v').each(function () {
-			vars[$(this).data('marker')] = $(this).val() || '';
-		});
 		$b.prop('disabled', true);
 		$s.css('color', '#646970').text(i18n.creating);
 		$.post(cfg.ajaxUrl, {
@@ -117,8 +99,7 @@
 			name: $('#dze-klav-name').val(),
 			subject: subject,
 			preview: $('#dze-klav-preview').val(),
-			datetime: $('#dze-klav-when').val(),
-			vars: JSON.stringify(vars)
+			datetime: $('#dze-klav-when').val()
 		})
 			.done(function (res) {
 				$b.prop('disabled', false);
@@ -154,10 +135,11 @@
 
 	// ---- The event's own screen: write the email, look at it, save it with
 	// the event. No save of its own — the page has one button.
-	function editorVars() {
+	function editorParts() {
 		var out = {};
-		$('#dze-klav-editor .dze-klav-e-var').each(function () {
-			out[$(this).data('marker')] = $(this).val() || '';
+		$('#dze-klav-editor .dze-klav-f').each(function () {
+			var $f = $(this);
+			out[$f.data('part')] = $f.is(':checkbox') ? ($f.is(':checked') ? 1 : 0) : ($f.val() || '');
 		});
 		return out;
 	}
@@ -179,8 +161,8 @@
 				}
 				$('#dze-klav-e-subject').val(res.data.subject);
 				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-				$.each(res.data.vars || {}, function (marker, text) {
-					$('#dze-klav-editor .dze-klav-e-var[data-marker="' + marker + '"]').not('[readonly]').val(text);
+				$.each(res.data.parts || {}, function (part, text) {
+					$('#dze-klav-editor .dze-klav-f[data-part="' + part + '"]').not(':checkbox').val(text);
 				});
 				$m.css('color', '#b26a00').text(i18n.written);
 			})
@@ -197,7 +179,8 @@
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_klav_preview',
 			nonce: cfg.nonce,
-			vars: JSON.stringify(editorVars())
+			rule: $('#dze-klav-editor').data('rule'),
+			parts: JSON.stringify(editorParts())
 		})
 			.done(function (res) {
 				$b.prop('disabled', false);
@@ -219,5 +202,47 @@
 	});
 
 	$(document).on('click', '#dze-klav-e-close', function () { $('#dze-klav-e-frame').hide(); });
+
+	// The image comes from the media library, like every other image of this
+	// plugin: an address typed by hand is an address that stops resolving.
+	$(document).on('click', '.dze-klav-hero-pick', function () {
+		if (!window.wp || !wp.media) { return; }
+		var $cell = $(this).closest('.dze-klav-hero');
+		var frame = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
+		frame.on('select', function () {
+			var img = frame.state().get('selection').first().toJSON();
+			var url = (img.sizes && img.sizes.large ? img.sizes.large.url : img.url);
+			$cell.find('#dze-klav-f-hero').val(url);
+			$cell.find('.dze-klav-hero-img').attr('src', url).show();
+			$cell.find('.dze-klav-hero-clear').show();
+		});
+		frame.open();
+	});
+	$(document).on('click', '.dze-klav-logo-pick', function () {
+		if (!window.wp || !wp.media) { return; }
+		var $cell = $(this).closest('.dze-klav-logo');
+		var frame = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
+		frame.on('select', function () {
+			var img = frame.state().get('selection').first().toJSON();
+			var url = (img.sizes && img.sizes.medium ? img.sizes.medium.url : img.url);
+			$cell.find('#dze-klav-logo').val(url);
+			$cell.find('.dze-klav-logo-img').attr('src', url).show();
+			$cell.find('.dze-klav-logo-clear').show();
+		});
+		frame.open();
+	});
+	$(document).on('click', '.dze-klav-logo-clear', function () {
+		var $cell = $(this).closest('.dze-klav-logo');
+		$cell.find('#dze-klav-logo').val('');
+		$cell.find('.dze-klav-logo-img').hide();
+		$(this).hide();
+	});
+
+	$(document).on('click', '.dze-klav-hero-clear', function () {
+		var $cell = $(this).closest('.dze-klav-hero');
+		$cell.find('#dze-klav-f-hero').val('');
+		$cell.find('.dze-klav-hero-img').hide();
+		$(this).hide();
+	});
 
 }(jQuery));
