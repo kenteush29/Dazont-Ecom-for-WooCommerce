@@ -321,21 +321,32 @@ final class DZE_Klaviyo {
 	}
 
 	public static function default_email_prompt(): string {
-		return "Write the email that announces this promotion, and COMPOSE it.\n"
+		return "Write the email that announces this promotion — the words AND the layout.\n"
 			. "\n"
-			. "The subject decides whether it is opened: say the offer, not the season. Six to nine words, no more — past that it is cut off on a phone. Figures are welcome, and they are the ones given.\n"
-			. "The preview text continues the subject, it does not repeat it: it is the second half of the sentence read in the inbox. Four to eight words.\n"
+			. "SUBJECT: it decides whether the email is opened. Say the offer, not the season. Six to nine words, no more — past that a phone cuts it off. Figures are welcome, and they are the ones given.\n"
+			. "PREVIEW TEXT: it continues the subject, it does not repeat it — the second half of the sentence read in the inbox. Four to eight words.\n"
 			. "\n"
-			. "Then build the email out of blocks. You choose which, how many and in what order — an email of five blocks and an email of fourteen are both right, if the promotion deserves it. What makes a good one:\n"
-			. "- It OPENS on something to look at. A picture the reader takes in before reading a word, and a title that lands with it.\n"
+			. "BODY: you decide everything about it. What comes first, how many paragraphs, how many products in a row and how many rows, what gets a heading and what does not, where the buttons go. An email of four parts and an email of fourteen are both right if the promotion deserves it.\n"
+			. "\n"
+			. "What makes a good one:\n"
+			. "- It OPENS on the picture, with the title reading with it, not fighting it.\n"
 			. "- It says what the offer is, what it covers and when it ends — early, plainly, once.\n"
-			. "- It SHOWS. A promotion described in three paragraphs is a promotion nobody pictures; the products are the argument, so give them room and come back to them.\n"
-			. "- It breathes. A short line of text, a row of products, another short line — not a wall of prose followed by a grid.\n"
-			. "- It gives the reader somewhere to click before the fold and again at the end.\n"
-			. "- A section line above a row of products is worth using when the rows are actually different from one another. Two identical rows under two labels is worse than one row.\n"
+			. "- It SHOWS. A promotion described in three paragraphs is a promotion nobody pictures: the products are the argument. Give them room, and come back to them.\n"
+			. "- It breathes: a short line, something to look at, another short line. Never a wall of prose followed by a grid.\n"
+			. "- Somewhere to click before the fold, and again at the end.\n"
+			. "- Group products under a small heading only when the groups are really different from one another. Two rows of the same kind of thing under two labels is worse than one row.\n"
+			. "- One idea per paragraph. Two or three short sentences at a time. Buttons are two or three words in the imperative.\n"
+			. "- No ALL CAPS, no stacked exclamation marks, no \"Don't miss out\", no emoji unless the promotion is a holiday one.\n"
+			. "- Never promise anything the promotion does not say: no free shipping, no gift, no discount code, no extra offer.\n"
 			. "\n"
-			. "Writing, everywhere: one idea per block. A heading is one line. A paragraph is two or three short sentences. A button is two or three words in the imperative. No ALL CAPS, no stacked exclamation marks, no \"Don't miss out\", no emoji unless the promotion is a holiday one.\n"
-			. "Never promise anything the promotion does not say — no free shipping, no gift, no discount code, no extra offer. Never invent a product, a price or a photograph: the product blocks are filled by the shop itself, with what is really selling and what it really costs.";
+			. "THE HTML, because an inbox is not a browser:\n"
+			. "- Return the body only: no <html>, <head>, <body>, no logo, no footer, no unsubscribe line. The shop's header and footer are added around what you write, and the whole thing already sits in a 600px column with 28px of padding — so your widest element is 544px.\n"
+			. "- Tables for anything side by side (<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">), never floats, never flexbox, never a class of your own, never a <style> block. Inline styles only.\n"
+			. "- Every row you build must be full. Three products in a row of three, two in a row of two — never a row of three holding one product and two holes.\n"
+			. "- Images: width and a max-width in the style, height:auto, display:block, border:0.\n"
+			. "- Use the shop's fonts and colours as given above, and nothing else.\n"
+			. "\n"
+			. "THE FACTS ARE NOT YOURS: use only the products listed, with the name, the link, the image URL and the prices exactly as they are written. Show the old price struck through beside the new one — that is the whole point of a sale. Never invent a product, a price, a photograph or a link, and never show a product the list does not contain.";
 	}
 
 	/**
@@ -585,172 +596,39 @@ final class DZE_Klaviyo {
 			: self::default_shell();
 	}
 
-	// =========================================================================
-	// Blocks — what the email is made of.
-	//
-	// The model used to be handed one shape to fill: heading, image, two
-	// paragraphs, button, products, in that order and no other. It could write
-	// well inside it and still never produce the email the shop actually
-	// sends, because the shape itself was the limit.
-	//
-	// So it does not write the HTML any more: it composes. It returns an
-	// ordered list of blocks — as many as it likes, in any order, repeated as
-	// often as it likes — and each block is drawn HERE, from the shop's own
-	// data. The freedom is total on the composition and the words; the prices,
-	// the photographs and the links stay the shop's, and the HTML stays the
-	// kind an email client can actually render.
-	// =========================================================================
-
-	/** @param array<int,array> $blocks */
-	public static function blocks_html( array $blocks, array $rule ): string {
-		$blocks = array_values( array_filter( $blocks, 'is_array' ) );
-		$done   = [];
-		foreach ( $blocks as $i => $b ) {
-			$type = sanitize_key( is_scalar( $b['type'] ?? null ) ? (string) $b['type'] : '' );
-			$html = self::block_html( $b, $rule );
-			// A label over nothing. It happens for real: the model asks for a
-			// category the shop has sold nothing from this fortnight, the row
-			// comes back empty, and the email is left with a heading standing
-			// on its own. The label goes with the row it was labelling.
-			if ( '' === trim( $html ) ) {
-				$prev = $done ? array_key_last( $done ) : null;
-				if ( 'products' === $type && null !== $prev && 'section' === $done[ $prev ]['type'] ) {
-					unset( $done[ $prev ] );
-				}
-				continue;
-			}
-			$done[ $i ] = [ 'type' => $type, 'html' => $html ];
-		}
-		return implode( '', array_column( $done, 'html' ) );
-	}
-
-	private static function block_html( array $b, array $rule ): string {
-		$t = self::theme_style();
-		// A model answering in JSON can hand back an array where a line was
-		// asked for. Everything read out of a block goes through here first, so
-		// one odd answer is an empty block and never a broken page.
-		$str  = static fn( $v ): string => is_scalar( $v ) ? trim( (string) $v ) : '';
-		$type = sanitize_key( $str( $b['type'] ?? '' ) );
-		$text = $str( $b['text'] ?? '' );
-		$safe = static fn( string $s ): string => wp_kses( $s, [ 'strong' => [], 'em' => [], 'br' => [] ] );
-
-		switch ( $type ) {
-			case 'hero':
-				$img   = $str( $b['image'] ?? '' );
-				$title = $str( $b['title'] ?? '' );
-				if ( '' === $img ) {
-					$img = self::event_image( $rule );
-				}
-				$html = '';
-				if ( '' !== $img ) {
-					$html .= sprintf(
-						'<p style="margin:0 0 14px;"><img src="%1$s" width="544" alt="%2$s" style="display:block;width:100%%;max-width:544px;height:auto;border:0;" /></p>',
-						esc_url( $img ),
-						esc_attr( wp_strip_all_tags( $title ) )
-					);
-				}
-				if ( '' !== $title ) {
-					$html .= sprintf(
-						'<h1 style="margin:0 0 10px;text-align:center;font-family:%1$s;color:%2$s;font-size:30px;line-height:1.2;">%3$s</h1>',
-						$t['head'],
-						esc_attr( $t['ink'] ),
-						$safe( $title )
-					);
-				}
-				if ( '' !== $text ) {
-					$html .= sprintf( '<p style="margin:0 0 14px;text-align:center;">%s</p>', $safe( $text ) );
-				}
-				return $html;
-
-			case 'heading':
-				$level = 2 === (int) ( $b['level'] ?? 2 ) ? 2 : 1;
-				return sprintf(
-					'<h%1$d style="margin:22px 0 10px;text-align:center;font-family:%2$s;color:%3$s;font-size:%4$dpx;line-height:1.25;">%5$s</h%1$d>',
-					$level,
-					$t['head'],
-					esc_attr( $t['ink'] ),
-					1 === $level ? 30 : 22,
-					$safe( $text )
-				);
-
-			// A short line above a row of products — "Plate carriers", "What
-			// people are buying". Quieter than a heading on purpose: it labels
-			// what follows, it does not compete with the title of the email.
-			case 'section':
-				return sprintf(
-					'<div style="margin:24px 0 6px;text-align:center;font:700 13px %1$s;letter-spacing:2px;text-transform:uppercase;color:%2$s;">%3$s</div>',
-					$t['body'],
-					esc_attr( $t['ink'] ),
-					esc_html( wp_strip_all_tags( $text ) )
-				);
-
-			case 'text':
-				return '' === $text ? '' : sprintf( '<p style="margin:0 0 14px;text-align:center;">%s</p>', $safe( $text ) );
-
-			// The small line under a button: the deadline, the shipping note.
-			case 'note':
-				return '' === $text ? '' : sprintf(
-					'<p style="margin:0 0 14px;text-align:center;font-size:13px;color:#666666;">%s</p>',
-					$safe( $text )
-				);
-
-			case 'button':
-				$url   = $str( $b['url'] ?? '' );
-				$label = wp_strip_all_tags( $str( $b['label'] ?? '' ) ?: $text );
-				return sprintf(
-					'<p style="margin:6px 0 18px;text-align:center;"><a href="%1$s" style="display:inline-block;background:%2$s;color:#ffffff;text-decoration:none;padding:15px 40px;font:400 16px %3$s;">%4$s</a></p>',
-					esc_url( '' !== $url ? $url : home_url( '/' ) ),
-					esc_attr( $t['link'] ),
-					$t['body'],
-					esc_html( '' !== $label ? $label : __( 'Shop now', 'dazont-ecom' ) )
-				);
-
-			case 'products':
-				return self::products_html( $rule, (int) ( is_scalar( $b['count'] ?? null ) ? $b['count'] : 3 ), $b['category'] ?? '' );
-
-			case 'divider':
-				return '<p style="margin:20px 0;border-top:1px solid #e6e6e0;font-size:0;line-height:0;">&nbsp;</p>';
-
-			case 'spacer':
-				return '<p style="margin:0;height:14px;font-size:0;line-height:0;">&nbsp;</p>';
-		}
-		return '';
-	}
-
 	/**
-	 * A row of products, ready to be dropped into the body.
+	 * A plain row of products — the fallback body of an event nobody has
+	 * written yet, and what fills the template preview.
 	 *
-	 * The event's own categories when it names any, otherwise what the shop
-	 * actually sold in the last fortnight — the products worth showing are the
-	 * ones people are buying, not the ones somebody picked once. A block may
-	 * name a category of its own, which is how the model gives an email
-	 * sections instead of one undifferentiated row.
-	 *
-	 * @param int|string $category A category the block asks for: term id, slug or name.
+	 * The email the shop actually sends is laid out by the model, not here.
+	 * This exists so a screen is never empty, which is a different job.
 	 */
-	public static function products_html( array $rule = [], int $limit = 3, $category = '' ): string {
-		$t    = self::theme_style();
-		$cats = array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) );
-		$one  = self::category_id( $category );
-		if ( $one ) {
-			$cats = [ $one ];
-		}
-		$limit = max( 1, min( 9, $limit ) );
-		$ids   = self::best_sellers( self::window_days(), $limit, $cats );
+	public static function products_html( array $rule = [], int $limit = 3 ): string {
+		$t     = self::theme_style();
+		$limit = max( 1, min( 4, $limit ) );
+		$ids   = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return '';
 		}
-		$rows  = '';
-		$cells = '';
-		$n     = 0;
+		$products = [];
 		foreach ( $ids as $id ) {
 			$product = wc_get_product( $id );
-			if ( ! $product instanceof WC_Product ) {
-				continue;
+			if ( $product instanceof WC_Product ) {
+				$products[] = $product;
 			}
+		}
+		if ( ! $products ) {
+			return '';
+		}
+		// The width follows the count. A row of three holding one product and
+		// two empty cells is what "lignes sans produits" looked like, and it
+		// was the row's fault, not the shop's.
+		$width = (int) floor( 100 / count( $products ) );
+		$cells = '';
+		foreach ( $products as $product ) {
 			$img    = wp_get_attachment_image_url( (int) $product->get_image_id(), 'medium' );
 			$cells .= sprintf(
-				'<td width="33%%" valign="top" align="center" style="padding:10px 6px;">'
+				'<td width="%10$d%%" valign="top" align="center" style="padding:10px 6px;">'
 				. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
 				. '<img src="%2$s" width="170" alt="%3$s" style="display:block;width:100%%;max-width:170px;height:auto;border:0;" />'
 				. '<div style="padding:10px 2px 2px;font:400 14px/1.35 %5$s;">%3$s</div>'
@@ -765,25 +643,11 @@ final class DZE_Klaviyo {
 				esc_attr( $t['ink'] ),
 				$t['body'],
 				esc_attr( $t['link'] ),
-				esc_html__( 'Shop now', 'dazont-ecom' )
+				esc_html__( 'Shop now', 'dazont-ecom' ),
+				$width
 			);
-			$n++;
-			// Three to a row: past that a phone stacks them into a column of
-			// thumbnails nobody scrolls through.
-			if ( 0 === $n % 3 ) {
-				$rows .= '<tr>' . $cells . '</tr>';
-				$cells = '';
-			}
 		}
-		if ( '' !== $cells ) {
-			// The last row is padded so two products do not stretch to half the
-			// width each while the row above shows three.
-			$rows .= '<tr>' . $cells . str_repeat( '<td width="33%">&nbsp;</td>', ( 3 - ( $n % 3 ) ) % 3 ) . '</tr>';
-		}
-		if ( '' === $rows ) {
-			return '';
-		}
-		return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">' . $rows . '</table>';
+		return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' . $cells . '</tr></table>';
 	}
 
 	/**
@@ -807,9 +671,7 @@ final class DZE_Klaviyo {
 		// Exactly the line the Discounts module prices with — same rounding,
 		// same direction. Any other arithmetic here would put a figure in the
 		// inbox that the product page then contradicts.
-		$now = class_exists( 'DZE_Price' )
-			? DZE_Price::charm( $reg * ( 1 - $pct / 100 ), 'down' )
-			: round( $reg * ( 1 - $pct / 100 ), 2 );
+		$now = self::sale_price( $reg, $pct );
 		return sprintf(
 			'<span style="color:#8a8a8a;text-decoration:line-through;">%1$s</span> <span style="color:#b32d2e;font-weight:700;">%2$s</span>',
 			wp_kses_post( wc_price( $reg ) ),
@@ -977,6 +839,9 @@ final class DZE_Klaviyo {
 			'subject' => (string) ( $one['subject'] ?? '' ),
 			'preview' => (string) ( $one['preview'] ?? '' ),
 			'body'    => (string) ( $one['body'] ?? '' ),
+			// The picture made for this event, kept so the next writing opens
+			// on it instead of paying fal.ai again for the same photograph.
+			'picture' => (string) ( $one['picture'] ?? '' ),
 		];
 	}
 
@@ -999,6 +864,9 @@ final class DZE_Klaviyo {
 		// email already written is never replaced by an empty one — a save that
 		// came from a screen where the editor was collapsed, or a submit that
 		// lost the field, must not throw the writing away.
+		if ( array_key_exists( 'picture', $posted ) ) {
+			$one['picture'] = esc_url_raw( (string) $posted['picture'] );
+		}
 		foreach ( [ 'subject', 'preview' ] as $field ) {
 			if ( array_key_exists( $field, $posted ) ) {
 				$one[ $field ] = mb_substr( sanitize_text_field( (string) $posted[ $field ] ), 0, 150 );
@@ -1551,13 +1419,87 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * The material the email is written FROM: the shop's real products, priced
+	 * as this promotion prices them.
+	 *
+	 * Handed to the model as plain lines it can copy verbatim — name, link,
+	 * photograph, the two prices. It lays them out however the prompt tells it
+	 * to; what it may never do is invent one, and it does not have to, because
+	 * everything it needs is written out here.
+	 *
+	 * @return array{lines:string,images:string[],prices:string[]}
+	 */
+	public static function material( array $rule, int $limit = 9 ): array {
+		$out = [ 'lines' => '', 'images' => [], 'prices' => [] ];
+		$ids = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) );
+		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
+			return $out;
+		}
+		$n = 0;
+		foreach ( $ids as $id ) {
+			$product = wc_get_product( $id );
+			if ( ! $product instanceof WC_Product ) {
+				continue;
+			}
+			$img = (string) ( wp_get_attachment_image_url( (int) $product->get_image_id(), 'medium' )
+				?: ( function_exists( 'wc_placeholder_img_src' ) ? wc_placeholder_img_src( 'medium' ) : '' ) );
+			$was = '';
+			$now = '';
+			$pct = (float) ( $rule['percent'] ?? 0 );
+			$reg = $product->is_type( 'variable' )
+				? (float) $product->get_variation_regular_price( 'min', true )
+				: (float) $product->get_regular_price();
+			if ( $pct > 0 && $reg > 0 && function_exists( 'wc_price' ) ) {
+				$was = wp_strip_all_tags( wc_price( $reg ) );
+				$now = wp_strip_all_tags( wc_price( self::sale_price( $reg, $pct ) ) );
+			} else {
+				$now = wp_strip_all_tags( (string) $product->get_price_html() );
+			}
+			$terms = get_the_terms( $id, 'product_cat' );
+			$cat   = ( is_array( $terms ) && isset( $terms[0] ) ) ? $terms[0]->name : '';
+
+			$n++;
+			$out['lines'] .= $n . '. ' . $product->get_name() . "\n"
+				. '   link: ' . $product->get_permalink() . "\n"
+				. '   image: ' . $img . "\n"
+				. ( '' !== $was ? '   was: ' . $was . '   now: ' . $now . "\n" : '   price: ' . $now . "\n" )
+				. ( '' !== $cat ? '   category: ' . $cat . "\n" : '' );
+			if ( '' !== $img ) {
+				$out['images'][] = $img;
+			}
+			foreach ( [ $was, $now ] as $p ) {
+				if ( '' !== $p ) {
+					$out['prices'][] = $p;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/** The price this promotion makes, the way the shop itself computes it. */
+	public static function sale_price( float $regular, float $percent ): float {
+		return class_exists( 'DZE_Price' )
+			? DZE_Price::charm( $regular * ( 1 - $percent / 100 ), 'down' )
+			: round( $regular * ( 1 - $percent / 100 ), 2 );
+	}
+
+	/**
 	 * The whole email for one promotion — subject, preview line and body.
 	 *
-	 * Nothing here needs a screen: the events list, the event's own editor and
-	 * — the day the shop automates its promotions — a scheduled job all call
-	 * this same function and get the same email.
+	 * The model writes the HTML itself, and the prompt above it is the only
+	 * thing that decides what that HTML looks like. There is no shape of ours
+	 * left in the middle: the day the owner wants four products to a row, or
+	 * no products at all, or the picture at the bottom, he writes it in the
+	 * prompt and it happens — the same way the product texts and the product
+	 * images are steered.
 	 *
-	 * @return array{subject:string,preview:string,body:string}
+	 * What is NOT left to it: the products, their photographs, their links and
+	 * their prices. Those are handed over as facts and checked on the way back.
+	 *
+	 * Nothing here needs a screen, so the day promotions are automated the same
+	 * function writes the same email.
+	 *
+	 * @return array{subject:string,preview:string,body:string,warning:string}
 	 * @throws RuntimeException When the model answers with nothing usable.
 	 */
 	public static function write_for( string $rule_id, array $rule ): array {
@@ -1568,76 +1510,161 @@ final class DZE_Klaviyo {
 		};
 		$pct  = rtrim( rtrim( number_format( (float) ( $rule['percent'] ?? 0 ), 2, '.', '' ), '0' ), '.' );
 		$lang = class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English';
+		$t    = self::theme_style();
 		$days = 0;
 		$s_ts = strtotime( (string) ( $rule['start'] ?? '' ) );
 		$e_ts = strtotime( (string) ( $rule['end'] ?? '' ) );
 		if ( $s_ts && $e_ts ) {
 			$days = max( 1, (int) round( ( $e_ts - $s_ts ) / DAY_IN_SECONDS ) + 1 );
 		}
+		$picture = self::picture_for( $rule_id, $rule );
+		$mat     = self::material( $rule );
 
 		$user = "--- THE PROMOTION ---\n"
 			. 'Title: ' . (string) ( $rule['title'] ?? '' ) . "\n"
 			. 'Discount: ' . $pct . "%\n"
 			. 'Runs: ' . $date( $rule['start'] ?? '' ) . ' → ' . $date( $rule['end'] ?? '' )
 			. ( $days ? ' (' . $days . ' days)' : '' ) . "\n"
+			. 'It covers ' . ( ! empty( $rule['category_ids'] ) ? 'the categories listed with the products below' : 'the whole shop' ) . ".\n"
 			. 'Shop address: ' . home_url( '/' ) . "\n";
-		$cats = self::category_names( $rule );
-		if ( $cats ) {
-			$user .= 'Categories a products block may name: ' . implode( ', ', array_keys( $cats ) ) . "\n";
-		}
-		if ( ! empty( $rule['category_ids'] ) ) {
-			$user .= "This promotion only covers the categories it names, so a block that names none already shows the right products.\n";
-		} else {
-			$user .= "This promotion covers the whole shop.\n";
-		}
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
 			$about = trim( (string) DZE_Marketing_Ai::instance()->shop_context_text() );
 			if ( '' !== $about ) {
 				$user .= "\n--- THE SHOP ---\n" . mb_substr( $about, 0, 1200 ) . "\n";
 			}
 		}
+		$user .= "\n--- THE PICTURE ---\n"
+			. ( '' !== $picture
+				? 'One picture is available for this email. Its URL, to be used exactly as it stands: ' . $picture . "\n"
+				: "No picture is available for this email. Do not write an <img> that is not a product photograph.\n" );
+		$user .= "\n--- THE PRODUCTS YOU MAY SHOW ---\n"
+			. ( '' !== $mat['lines']
+				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
+				: "The shop returned no product. Write the email without a product.\n" );
+		$user .= "\n--- THE SHOP'S OWN TYPE AND COLOUR ---\n"
+			. 'Headings font-family: ' . $t['head'] . "\n"
+			. 'Body font-family: ' . $t['body'] . "\n"
+			. 'Text colour: ' . $t['ink'] . "\n"
+			. 'Button and link colour: ' . $t['link'] . "\n"
+			. 'Body text size: ' . (int) $t['size'] . "px\n";
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::email_prompt() . "\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
-			. "\n--- THE BLOCKS YOU COMPOSE WITH ---\n"
-			. "The shop's header and footer are added around what you return: never write a logo, a footer, an unsubscribe line or an <html> tag.\n"
-			. "Each block is an object with a \"type\". Use as many as you want, in any order, repeating any of them:\n"
-			. "  {\"type\":\"hero\",\"title\":\"…\",\"text\":\"…\"} — the opening picture with the title over it. The picture is the shop's; do not give a URL. One hero, at the top.\n"
-			. "  {\"type\":\"heading\",\"text\":\"…\",\"level\":2} — a title further down the email.\n"
-			. "  {\"type\":\"text\",\"text\":\"…\"} — one paragraph. <strong> and <em> allowed, nothing else.\n"
-			. "  {\"type\":\"note\",\"text\":\"…\"} — one small quiet line: a deadline, a shipping promise.\n"
-			. "  {\"type\":\"button\",\"label\":\"…\",\"url\":\"…\"} — the url is the shop address above, or a page of it.\n"
-			. "  {\"type\":\"section\",\"text\":\"…\"} — a short label above a row of products. Two or three words.\n"
-			. "  {\"type\":\"products\",\"count\":3,\"category\":\"…\"} — a row of real products, priced as this promotion prices them, filled by the shop. count is 3 or 6. \"category\" is one of the categories listed above, or left out for the promotion's own.\n"
-			. "  {\"type\":\"divider\"} — a rule between two parts.\n"
-			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"blocks\":[…]}. No other key, no comment, no markdown fence.";
+			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
 		DZE_Ai_Usage::unit( 'promo_email' );
 		try {
 			$out = DZE_Marketing_Ai::complete(
-				'You compose the promotional emails of an online shop: you decide what the email is made of, block by block, and you write every word in it. You reply with JSON only.',
+				'You write and lay out the promotional emails of an online shop. You answer with JSON only, and the body is email-ready HTML.',
 				$user,
 				'',
-				3000,
-				120
+				4000,
+				150
 			);
 		} finally {
 			DZE_Ai_Usage::unit();
 		}
 		$json = json_decode( trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
-		$blocks = is_array( $json ) ? (array) ( $json['blocks'] ?? [] ) : [];
-		if ( ! $blocks ) {
-			throw new RuntimeException( __( 'Nothing usable came back — try again.', 'dazont-ecom' ) );
-		}
-		$body = self::blocks_html( $blocks, $rule );
+		$body = is_array( $json ) ? (string) ( $json['body'] ?? '' ) : '';
 		if ( '' === trim( $body ) ) {
 			throw new RuntimeException( __( 'Nothing usable came back — try again.', 'dazont-ecom' ) );
 		}
+		[ $body, $warning ] = self::vouch( $body, $mat, $picture );
+
 		DZE_Ai_Usage::finished( 'promo_email' );
 		return [
 			'subject' => mb_substr( sanitize_text_field( (string) ( $json['subject'] ?? '' ) ), 0, 150 ),
 			'preview' => mb_substr( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ), 0, 150 ),
 			'body'    => self::clean_html( $body ),
+			'warning' => $warning,
 		];
+	}
+
+	/**
+	 * Checks what came back against what was handed over.
+	 *
+	 * Freedom over the layout is not freedom over the facts. A photograph that
+	 * is not one of the shop's is removed outright — an email must never
+	 * hotlink something nobody chose. A price that is not one of the prices
+	 * given is left in place but SAID, because silently correcting a figure
+	 * would hide the fact that the model made one up.
+	 *
+	 * @return array{0:string,1:string} the body, and what to tell the owner.
+	 */
+	private static function vouch( string $body, array $mat, string $picture ): array {
+		$allowed = array_values( array_unique( array_merge( $mat['images'], array_filter( [ $picture, self::logo_url() ] ) ) ) );
+		$notes   = [];
+
+		$stripped = 0;
+		$body = (string) preg_replace_callback(
+			'/<img\b[^>]*>/i',
+			static function ( $m ) use ( $allowed, &$stripped ): string {
+				if ( preg_match( '/\\bsrc\\s*=\\s*["\\\']([^"\\\']+)["\\\']/i', $m[0], $src ) ) {
+					$url = html_entity_decode( $src[1], ENT_QUOTES );
+					foreach ( $allowed as $ok ) {
+						// Compared without the size suffix: the model is given a
+						// "medium" URL and may ask for the same file plainly.
+						if ( $url === $ok || self::same_file( $url, $ok ) ) {
+							return $m[0];
+						}
+					}
+				}
+				$stripped++;
+				return '';
+			},
+			$body
+		);
+		if ( $stripped > 0 ) {
+			$notes[] = sprintf(
+				/* translators: %d: number of images */
+				_n( '%d picture that is not the shop\'s was removed.', '%d pictures that are not the shop\'s were removed.', $stripped, 'dazont-ecom' ),
+				$stripped
+			);
+		}
+
+		// Prices: every amount printed must be one that was handed over.
+		if ( $mat['prices'] ) {
+			$seen = [];
+			if ( preg_match_all( '/[\\p{Sc}][\\s]?[0-9][0-9.,\\s]*/u', wp_strip_all_tags( $body ), $found ) ) {
+				foreach ( $found[0] as $one ) {
+					$one = trim( $one );
+					if ( '' !== $one && ! in_array( $one, $mat['prices'], true ) ) {
+						$seen[ $one ] = $one;
+					}
+				}
+			}
+			if ( $seen ) {
+				$notes[] = sprintf(
+					/* translators: %s: the amounts */
+					__( 'These amounts are not the shop\'s: %s. Read them before sending.', 'dazont-ecom' ),
+					implode( ', ', array_slice( array_values( $seen ), 0, 6 ) )
+				);
+			}
+		}
+		return [ $body, implode( ' ', $notes ) ];
+	}
+
+	/** Two URLs pointing at the same uploaded file, size suffix aside. */
+	private static function same_file( string $a, string $b ): bool {
+		$bare = static function ( string $u ): string {
+			$path = (string) wp_parse_url( $u, PHP_URL_PATH );
+			return (string) preg_replace( '/-\\d+x\\d+(\\.[a-z]{3,4})$/i', '$1', $path );
+		};
+		return '' !== $bare( $a ) && $bare( $a ) === $bare( $b );
+	}
+
+	/**
+	 * The picture this email opens with.
+	 *
+	 * The event's own, one made earlier for this event, or a new one made now.
+	 * An email whose main picture has to be asked for separately is an email
+	 * that goes out without one, which is what kept happening.
+	 */
+	public static function picture_for( string $rule_id, array $rule ): string {
+		$kept = (string) ( self::copy_for( $rule_id )['picture'] ?? '' );
+		if ( '' !== $kept ) {
+			return $kept;
+		}
+		return self::event_image( $rule );
 	}
 
 	public static function ajax_write(): void {
@@ -1649,10 +1676,11 @@ final class DZE_Klaviyo {
 			wp_send_json_error( [ 'message' => __( 'That event no longer exists.', 'dazont-ecom' ) ] );
 		}
 		try {
-			wp_send_json_success( self::write_for( $rule_id, $rule ) );
+			$made = self::write_for( $rule_id, $rule );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		wp_send_json_success( $made );
 	}
 
 	/**
@@ -1786,6 +1814,16 @@ final class DZE_Klaviyo {
 		];
 	}
 
+	/** Remembers the picture made for an event, beside the email it belongs to. */
+	public static function keep_picture( string $rule_id, string $url ): void {
+		$all = get_option( self::OPT_COPY, [] );
+		$all = is_array( $all ) ? $all : [];
+		$one = self::copy_for( $rule_id );
+		$one['picture'] = esc_url_raw( $url );
+		$all[ $rule_id ] = $one;
+		update_option( self::OPT_COPY, $all, false );
+	}
+
 	public static function ajax_image(): void {
 		self::guard();
 		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
@@ -1799,6 +1837,7 @@ final class DZE_Klaviyo {
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		self::keep_picture( $rule_id, $made['url'] );
 		wp_send_json_success( [ 'url' => $made['url'] ] );
 	}
 
@@ -1962,7 +2001,6 @@ final class DZE_Klaviyo {
 			'i18n'    => [
 				'unsub'    => __( 'Unsubscribe', 'dazont-ecom' ),
 				'loading'  => __( 'Reading your Klaviyo account…', 'dazont-ecom' ),
-				'writing'  => __( 'Writing…', 'dazont-ecom' ),
 				'creating' => __( 'Creating the draft in Klaviyo…', 'dazont-ecom' ),
 				'made'     => __( 'Draft ready in Klaviyo — nothing was sent.', 'dazont-ecom' ),
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
@@ -1973,6 +2011,7 @@ final class DZE_Klaviyo {
 				'working'  => __( 'Talking to Klaviyo…', 'dazont-ecom' ),
 				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
+				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
 				'shot'     => __( 'Made, and filed in the media library.', 'dazont-ecom' ),
 				'sending'  => __( 'Handing it to Klaviyo…', 'dazont-ecom' ),
 			],
@@ -2030,6 +2069,8 @@ final class DZE_Klaviyo {
 			<?php esc_html_e( 'Written from the promotion itself. The shop\'s header and footer are added around it, unchanged. Saved with the event by the Save button at the bottom of this page — there is no save of its own — and sent to Klaviyo as a draft when you press "Draft email" on the events list.', 'dazont-ecom' ); ?>
 		</p>
 		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>">
+			<?php // The picture belongs to the email, so it travels with it. ?>
+			<input type="hidden" id="dze-klav-e-pic" name="dze_email[picture]" value="<?php echo esc_attr( self::picture_for( $rule_id, $rule ) ); ?>" />
 			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row"><label for="dze-klav-e-subject"><?php esc_html_e( 'Subject', 'dazont-ecom' ); ?></label></th>
@@ -2078,13 +2119,19 @@ final class DZE_Klaviyo {
 	 * what it does to the content, and lorem ipsum judges nothing.
 	 */
 	public static function sample_body(): string {
-		return self::blocks_html( [
-			[ 'type' => 'hero', 'title' => __( 'Your title, over your picture', 'dazont-ecom' ) ],
-			[ 'type' => 'text', 'text' => __( 'Two or three short sentences saying what the offer is, what it covers and when it ends.', 'dazont-ecom' ) ],
-			[ 'type' => 'button', 'label' => __( 'Shop the sale', 'dazont-ecom' ), 'url' => home_url( '/' ) ],
-			[ 'type' => 'section', 'text' => __( 'Selling right now', 'dazont-ecom' ) ],
-			[ 'type' => 'products', 'count' => 3 ],
-		], [] );
+		$t = self::theme_style();
+		return sprintf(
+			'<h1 style="margin:0 0 10px;text-align:center;font-family:%1$s;color:%2$s;font-size:30px;line-height:1.2;">%3$s</h1>'
+			. '<p style="margin:0 0 14px;text-align:center;">%4$s</p>'
+			. '<p style="margin:6px 0 18px;text-align:center;"><a href="#" style="display:inline-block;background:%5$s;color:#ffffff;text-decoration:none;padding:15px 40px;font:400 16px %6$s;">%7$s</a></p>',
+			$t['head'],
+			esc_attr( $t['ink'] ),
+			esc_html__( 'Your title, over your picture', 'dazont-ecom' ),
+			esc_html__( 'Two or three short sentences saying what the offer is, what it covers and when it ends.', 'dazont-ecom' ),
+			esc_attr( $t['link'] ),
+			$t['body'],
+			esc_html__( 'Shop the sale', 'dazont-ecom' )
+		) . self::products_html( [], 3 );
 	}
 
 	/** The one popup, printed once at the bottom of the events screen. */
@@ -2275,9 +2322,9 @@ final class DZE_Klaviyo {
 		}());
 		</script>
 
-		<h2 class="title"><?php esc_html_e( 'Which products the emails show', 'dazont-ecom' ); ?></h2>
+		<h2 class="title"><?php esc_html_e( 'Which products the emails may show', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Product rows are filled by the shop, never by the model: what actually sold over the window below, restricted to the promotion\'s own categories when it names any, priced as the promotion prices them. That is why relaunching the writing gives you the same products — best-sellers are best-sellers. Widen the window to reach further back.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'The shop hands the writing a shortlist — what actually sold over the window below, restricted to the promotion\'s own categories when it names any, priced as the promotion prices them. The email shows as many of them as its layout calls for, and may show none. That is why relaunching gives you the same products: best-sellers are best-sellers. Widen the window to reach further back.', 'dazont-ecom' ); ?>
 		</p>
 		<table class="form-table" role="presentation">
 			<tr>
@@ -2290,9 +2337,9 @@ final class DZE_Klaviyo {
 			</tr>
 		</table>
 
-		<h2 class="title"><?php esc_html_e( 'How the email is written', 'dazont-ecom' ); ?></h2>
+		<h2 class="title"><?php esc_html_e( 'How the email is written and laid out', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'The model composes the email itself — a picture with a title, paragraphs, buttons, labelled rows of products, rules — and decides how many and in what order. These are the instructions it works under. Prices, photographs and links are never its business.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'This prompt decides the whole email — the words AND the layout. There is no shape of the plugin\'s left in the middle: how many products to a row, whether they are grouped, where the picture and the buttons go, how long it is. Ask for something else here and the next email is something else. The only things it is not allowed to decide are the facts: the products it may show, their photographs, their links and their prices are handed to it by the shop, and what comes back is checked against them.', 'dazont-ecom' ); ?>
 		</p>
 			<textarea id="dze-klav-prompt" name="<?php echo esc_attr( self::OPT . '[email_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::email_prompt() ); ?></textarea>
 			<p>

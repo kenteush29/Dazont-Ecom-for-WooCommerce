@@ -294,28 +294,44 @@
 
 	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
 
-	// The picture OPENS the email. Dropped at the cursor it landed wherever
-	// the caret happened to be — at the bottom, under the footer of the
-	// content, which is not a hero image, it is a mistake. It replaces the one
-	// the email already opens with, or it becomes the first thing in it.
+	function picture()    { return $('#dze-klav-e-pic'); }
+	function hasPicture() { return !!$.trim(picture().val() || ''); }
+
+	// The email is laid out by the model, which places the picture itself. So a
+	// new picture SWAPS the one already in the email rather than being pasted
+	// somewhere: the layout that was written stays the layout that was written.
 	function setPicture(url) {
-		var el = body()[0];
+		var el = body()[0], old = $.trim(picture().val() || '');
+		picture().val(url);
 		if (!el) { return; }
-		var img = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
-			'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>';
-		var current = el.value || '';
-		var first = current.search(/<p[^>]*>\s*<img[\s\S]*?<\/p>|<img[\s\S]*?\/?>/i);
-		if (first !== -1) {
-			var match = current.slice(first).match(/^(<p[^>]*>\s*<img[\s\S]*?<\/p>|<img[\s\S]*?\/?>)/i);
-			el.value = current.slice(0, first) + img + current.slice(first + match[1].length);
+		if (old && el.value.indexOf(old) !== -1) {
+			el.value = el.value.split(old).join(url);
 		} else {
-			el.value = img + current;
+			el.value = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
+				'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' + (el.value || '');
 		}
 		render();
 	}
 
-	$(document).on('click', '#dze-klav-e-write', function () {
-		var $b = $(this), $m = $('#dze-klav-e-msg');
+	// Making the picture is a call of its own, and a slow one. It runs BEFORE
+	// the writing rather than inside it: two requests the server can each
+	// finish, instead of one that a host cuts off at ninety seconds.
+	function makePicture($b, $m, then) {
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.shooting);
+		return $.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId() })
+			.done(function (res) {
+				if (res && res.success) { setPicture(res.data.url); }
+				else { $m.css('color', '#b26a00').text((res && res.data && res.data.message) || i18n.error); }
+				if (then) { then(); } else { $b.prop('disabled', false); }
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	}
+
+	function writeEmail($b, $m) {
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').text(i18n.writing);
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId() })
@@ -328,37 +344,34 @@
 				$('#dze-klav-e-subject').val(res.data.subject);
 				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
 				body().val(res.data.body);
-				$m.css('color', '#b26a00').text(i18n.written);
+				// A warning is not a failure: the email is there, and something
+				// in it is worth reading twice before it goes out.
+				$m.css('color', res.data.warning ? '#b32d2e' : '#b26a00')
+					.text(res.data.warning ? res.data.warning : i18n.written);
 				view('view');
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
 				$m.css('color', '#b32d2e').text(i18n.error);
 			});
+	}
+
+	// An email opens on a picture. Asking for one separately meant it went out
+	// without one, so the writing makes it first when the event has none.
+	$(document).on('click', '#dze-klav-e-write', function () {
+		var $b = $(this), $m = $('#dze-klav-e-msg');
+		if (hasPicture()) { writeEmail($b, $m); return; }
+		makePicture($b, $m, function () { writeEmail($b, $m); });
 	});
 
-	// A picture made for this promotion: a real photograph of the shop, put in
-	// the setting the event evokes. Long — fal takes its time — so the button
-	// says so rather than looking stuck.
+	// A different picture, when the one that is there is not the one wanted.
 	$(document).on('click', '#dze-klav-e-shot', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
-		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.shooting);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId() })
-			.done(function (res) {
-				$b.prop('disabled', false);
-				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
-					return;
-				}
-				$m.css('color', '#0a7040').text(i18n.shot);
-				setPicture(res.data.url);
-				view('view');
-			})
-			.fail(function () {
-				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
-			});
+		makePicture($b, $m, function () {
+			$b.prop('disabled', false);
+			$m.css('color', '#0a7040').text(i18n.shot);
+			view('view');
+		});
 	});
 
 	// The addresses sit inside the event's own form, and Enter in a text field
