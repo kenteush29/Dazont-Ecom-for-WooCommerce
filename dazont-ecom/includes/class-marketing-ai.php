@@ -570,6 +570,69 @@ final class DZE_Marketing_Ai {
 		}
 		echo '</nav>';
 
+		// A tab that dies takes the whole screen with it, and a white page
+		// tells nobody anything — not the owner, who sees a broken plugin, and
+		// not whoever has to fix it, who sees nothing at all. PHP lets an
+		// Error be caught like any other throwable, so it is: the screen says
+		// which tab failed, what the message was and at which file and line,
+		// the rest of the page stays usable, and the weekly checkup gets a
+		// copy. It cannot catch a memory or a timeout death, and it says that
+		// too rather than pretending otherwise.
+		try {
+			$this->render_tab_body( $tab, $mod_on );
+		} catch ( \Throwable $e ) {
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'plugin', 'settings tab: ' . $tab, $e->getMessage() );
+			}
+			echo '<div class="notice notice-error"><p><strong>' .
+				esc_html(
+					sprintf(
+						/* translators: %s: the settings tab that failed */
+						__( 'The "%s" tab could not be drawn.', 'dazont-ecom' ),
+						$tab
+					)
+				) . '</strong></p><p><code>' . esc_html( $e->getMessage() ) . '</code></p><p>' .
+				esc_html( $e->getFile() . ' : ' . $e->getLine() ) . '</p><p class="description">' .
+				esc_html__( 'Send this to the plugin author. The other tabs still work.', 'dazont-ecom' ) .
+				'</p></div>';
+		}
+		// A link that lands on a field inside a shut block would land on nothing:
+		// every ancestor of the target is opened, then it is scrolled to and
+		// flashed. This is what keeps "edit these instructions" working now that
+		// the settings are folded away by default.
+		?>
+		<script>
+		jQuery( function ( $ ) {
+			function reveal() {
+				var id = window.location.hash.replace( '#', '' );
+				if ( ! id ) { return; }
+				var el = document.getElementById( id );
+				if ( ! el ) { return; }
+				$( el ).parents( 'details' ).prop( 'open', true );
+				// A prompt card is not a <details>: it opens on its own button.
+				var $card = $( el ).closest( '.dze-prb' );
+				if ( $card.length && ! $card.hasClass( 'is-open' ) ) { $card.find( '.dze-prb-toggle' ).trigger( 'click' ); }
+				window.setTimeout( function () {
+					el.scrollIntoView( { behavior: 'smooth', block: 'center' } );
+					$( el ).addClass( 'dze-flash' );
+					window.setTimeout( function () { $( el ).removeClass( 'dze-flash' ); }, 1600 );
+				}, 60 );
+			}
+			reveal();
+			$( window ).on( 'hashchange', reveal );
+		} );
+		</script>
+		<?php
+		echo '</div>';
+	}
+
+	/**
+	 * One settings tab, drawn. Split out so the screen above can survive it
+	 * failing: a tab is a module's own code, and a module can be broken.
+	 *
+	 * @param callable $mod_on Tells whether a module is enabled.
+	 */
+	private function render_tab_body( string $tab, callable $mod_on ): void {
 		if ( 'general' === $tab ) {
 			echo '<h2>' . esc_html__( 'About this shop', 'dazont-ecom' ) . '</h2>';
 			$this->render_shop_profile();
@@ -639,34 +702,6 @@ final class DZE_Marketing_Ai {
 		} else { // events.
 			$this->render_settings_section( 'events' );
 		}
-		// A link that lands on a field inside a shut block would land on nothing:
-		// every ancestor of the target is opened, then it is scrolled to and
-		// flashed. This is what keeps "edit these instructions" working now that
-		// the settings are folded away by default.
-		?>
-		<script>
-		jQuery( function ( $ ) {
-			function reveal() {
-				var id = window.location.hash.replace( '#', '' );
-				if ( ! id ) { return; }
-				var el = document.getElementById( id );
-				if ( ! el ) { return; }
-				$( el ).parents( 'details' ).prop( 'open', true );
-				// A prompt card is not a <details>: it opens on its own button.
-				var $card = $( el ).closest( '.dze-prb' );
-				if ( $card.length && ! $card.hasClass( 'is-open' ) ) { $card.find( '.dze-prb-toggle' ).trigger( 'click' ); }
-				window.setTimeout( function () {
-					el.scrollIntoView( { behavior: 'smooth', block: 'center' } );
-					$( el ).addClass( 'dze-flash' );
-					window.setTimeout( function () { $( el ).removeClass( 'dze-flash' ); }, 1600 );
-				}, 60 );
-			}
-			reveal();
-			$( window ).on( 'hashchange', reveal );
-		} );
-		</script>
-		<?php
-		echo '</div>';
 	}
 
 	/** Settings for the Sourcing Assistant module (keyword analysis + report). */
