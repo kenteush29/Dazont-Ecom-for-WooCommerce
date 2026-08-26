@@ -572,6 +572,37 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * A stand-in body, so the frame preview shows a frame with something in it.
+	 *
+	 * It exists only to be looked at on the settings screen: it is never sent,
+	 * never saved and never shown to a customer. So it asks the shop nothing —
+	 * no query, no product, no option — because a preview that costs a
+	 * database round-trip on every page load is a preview that costs more than
+	 * it is worth.
+	 *
+	 * It is also the one honest picture of the convention the prompt writes
+	 * against: the content area is 600 pixels edge to edge with no padding of
+	 * ours, so a full-width band touches both sides and anything meant to be
+	 * read sets its own inset.
+	 */
+	public static function sample_body(): string {
+		return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+			. '<tr><td style="background:#e9e9e4;height:220px;text-align:center;vertical-align:middle;'
+			. 'font:400 13px/1.4 Helvetica,Arial,sans-serif;color:#8a887e;">'
+			. esc_html__( 'the email\'s picture, edge to edge', 'dazont-ecom' )
+			. '</td></tr>'
+			. '<tr><td style="padding:24px 24px 0;">'
+			. '<h2 style="margin:0 0 12px;">' . esc_html__( 'The headline the email opens on', 'dazont-ecom' ) . '</h2>'
+			. '<p style="margin:0 0 16px;font:400 16px/1.45 Helvetica,Arial,sans-serif;">'
+			. esc_html__( 'Two or three sentences saying what the offer is, what it covers and when it ends. Everything on this band — the words, the products, the buttons and the spacing around them — is written by the email prompt.', 'dazont-ecom' )
+			. '</p></td></tr>'
+			. '<tr><td style="padding:0 24px 28px;">'
+			. '<a href="#" style="display:inline-block;background:#5B594E;color:#ffffff;text-decoration:none;'
+			. 'padding:12px 22px;font:400 14px Helvetica,Arial,sans-serif;">'
+			. esc_html__( 'Shop the sale', 'dazont-ecom' ) . '</a>'
+			. '</td></tr></table>';
+	}
+	/**
 	 * A plain row of products — the fallback body of an event nobody has
 	 * written yet, and what fills the template preview.
 	 *

@@ -160,6 +160,16 @@ owner communicates in French.
 
 ## Release pipeline
 
+- **`php tools/check-methods.php dazont-ecom` must pass before every release.**
+  `php -l` proves a file PARSES, not that it runs: a call to a method nobody
+  wrote parses perfectly and dies the moment the line executes.
+  `DZE_Klaviyo::sample_body()` was called from `admin_enqueue_scripts` on one
+  settings tab and nowhere else — that tab was a white page for six versions
+  while every other screen worked. A fatal there happens before any of our own
+  error handling, and a white page carries no message.
+- Lint every file AND exercise every ENTRY POINT of what changed — the render,
+  the enqueue, the ajax handler, the sanitizer. A class that loads is not a
+  screen that works, and the path nobody ran is the path that is broken.
 - Version bump in `dazont-ecom/dazont-ecom.php` (header + `DZE_VERSION`).
 - Push working branch + `Plugin-development`, then dispatch
   `release-dazont-dev.yml` (workflow_dispatch; tag pushes are blocked by the
