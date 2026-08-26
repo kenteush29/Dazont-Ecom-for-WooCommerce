@@ -2122,7 +2122,12 @@ final class DZE_Discounts {
 			'banner_hooks'      => sanitize_text_field( $in['banner_hooks'] ?? '' ),
 			'banner_timer'      => ! empty( $in['banner_timer'] ),
 			'banner_text_i18n'  => $this->sanitize_i18n( $in['banner_text_i18n'] ?? [] ),
-			'languages'         => array_values( array_filter( array_map( 'sanitize_key', (array) ( $in['languages'] ?? [] ) ) ) ),
+			// The screen asks which languages to LEAVE OUT; what is stored is
+			// which ones it runs in, because that is what every reader of this
+			// rule already understands. Untouched when the form did not carry
+			// the block at all — a rule type without languages must not lose
+			// the ones it has.
+			'languages'         => self::languages_from( $in, (array) ( $rules[ $id ]['languages'] ?? [] ) ),
 			'hero_swap_enabled' => ! empty( $in['hero_swap_enabled'] ),
 			'hero_source_id'    => absint( $in['hero_source_id'] ?? 0 ),
 			'hero_event_id'     => absint( $in['hero_event_id'] ?? 0 ),
@@ -2280,6 +2285,39 @@ final class DZE_Discounts {
 			__( 'Deleted here, but Merchant Center did not take it down everywhere: %s. Those promotions are still live in Google.', 'dazont-ecom' ),
 			implode( ' · ', $lines )
 		), 120 );
+	}
+
+	/**
+	 * The languages a promotion runs in, from the "do not run in" ticks.
+	 *
+	 * @param array $in     The submitted form.
+	 * @param array $stored What the rule holds today.
+	 *
+	 * @return string[] Empty means every language, which is what every reader expects.
+	 */
+	private static function languages_from( array $in, array $stored ): array {
+		if ( empty( $in['languages_form'] ) ) {
+			return $stored; // the block was not on the screen: nothing to say about it.
+		}
+		$all = array_values( array_filter( array_map(
+			static fn( array $l ): string => (string) ( $l['code'] ?? '' ),
+			(array) ( class_exists( 'DZE_Wpml' ) ? DZE_Wpml::get_active_languages() : [] )
+		) ) );
+		if ( ! $all ) {
+			return $stored;
+		}
+		$off = array_values( array_filter( array_map( 'sanitize_key', (array) ( $in['languages_off'] ?? [] ) ) ) );
+		$on  = array_values( array_diff( $all, $off ) );
+		if ( ! $on ) {
+			// Every language ticked would store "runs in none", which reads as
+			// "runs in all" everywhere else — a promotion that quietly runs
+			// when it was meant to be off. The switch at the top of the page is
+			// how a promotion is stopped.
+			set_transient( 'dze_discount_notice', __( 'A promotion has to run in at least one language — the last one was kept. To stop it entirely, switch it off.', 'dazont-ecom' ), 60 );
+			return $stored ?: [];
+		}
+		// All of them left on is "everywhere", which is stored as nothing.
+		return count( $on ) === count( $all ) ? [] : $on;
 	}
 
 	public function handle_delete(): void {

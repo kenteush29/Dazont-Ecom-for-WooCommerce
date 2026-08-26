@@ -19,7 +19,10 @@ $gmc        = ( $is_events && class_exists( 'DZE_Gmc' ) ) ? DZE_Gmc::instance() 
 $gmc_on     = $gmc && $gmc->is_configured();
 // A disabled module leaves no trace: no column, no popup, no script.
 $klav       = ( $is_events && class_exists( 'DZE_Klaviyo' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'klaviyo' ) ) ? DZE_Klaviyo::instance() : null;
-$klav_on    = $klav && $klav->configured();
+// The column only reports what a promotion carries, so it shows as soon as the
+// module is on: an account not connected yet is exactly when "no emails" is
+// worth seeing.
+$klav_on    = null !== $klav;
 ?>
 <div class="wrap dze-wrap">
 	<h1 class="wp-heading-inline"><?php echo esc_html( $page_title ); ?></h1>
@@ -214,7 +217,6 @@ $klav_on    = $klav && $klav->configured();
 	</table>
 	</form>
 
-	<?php if ( $klav_on ) { $klav->render_panel(); } ?>
 
 	<p class="description" style="margin-top:12px;">
 		<?php if ( $is_events ) : ?>
