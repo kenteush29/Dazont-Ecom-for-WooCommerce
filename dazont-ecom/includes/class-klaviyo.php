@@ -60,6 +60,8 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
 		add_action( 'wp_ajax_dze_klav_preview', [ __CLASS__, 'ajax_preview' ] );
+		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
+		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
 		// The email is written on the event's own screen and saved by the
 		// event's own Save button — never by a second save of our own.
 		add_action( 'dze_discount_saved', [ __CLASS__, 'save_copy' ], 10, 3 );
@@ -301,12 +303,12 @@ final class DZE_Klaviyo {
 	 */
 	public static function catalogue(): array {
 		$c = get_transient( self::CACHE );
-		return is_array( $c ) ? $c : [ 'audiences' => [], 'read' => 0 ];
+		return is_array( $c ) ? $c : [ 'audiences' => [], 'inactive' => [], 'read' => 0 ];
 	}
 
 	/** Reads the lists and segments the shop can address. */
 	public static function refresh(): array {
-		$out    = [ 'audiences' => [], 'read' => time() ];
+		$out    = [ 'audiences' => [], 'inactive' => [], 'read' => time() ];
 		$errors = [];
 
 		// Segments: asked for WITH the inactive ones. Klaviyo's default listing
@@ -315,14 +317,17 @@ final class DZE_Klaviyo {
 		// named as inactive here, because an inactive segment in Klaviyo is not
 		// maintained — excluding it excludes nobody, and that is worth knowing
 		// before pressing send.
+		$out['inactive'] = [];
 		$rows = self::pages( 'segments/?fields[segment]=name,is_active&filter=' . rawurlencode( 'any(is_active,[true,false])' ), $errors, 20 );
 		foreach ( $rows as $row ) {
-			$name = (string) ( $row['attributes']['name'] ?? $row['id'] );
+			$id   = (string) $row['id'];
+			$name = (string) ( $row['attributes']['name'] ?? $id );
 			if ( empty( $row['attributes']['is_active'] ) ) {
+				$out['inactive'][] = $id;
 				/* translators: %s: segment name */
 				$name = sprintf( __( '%s — inactive', 'dazont-ecom' ), $name );
 			}
-			$out['audiences'][ (string) $row['id'] ] = __( 'Segment', 'dazont-ecom' ) . ' · ' . $name;
+			$out['audiences'][ $id ] = __( 'Segment', 'dazont-ecom' ) . ' · ' . $name;
 		}
 		// No page[size] of our own: Klaviyo caps it per endpoint, and a number
 		// over that cap is a 400 — which is exactly how these pickers came back
@@ -964,6 +969,118 @@ final class DZE_Klaviyo {
 		}
 	}
 
+	/**
+	 * Switches a segment back on in Klaviyo.
+	 *
+	 * An inactive segment is not maintained: it holds nobody, so excluding it
+	 * excludes nobody. Klaviyo asks that a deactivation travel alone in the
+	 * body; a reactivation is the same one attribute the other way round.
+	 */
+	public static function activate( string $segment_id ): void {
+		$res = self::request( 'PATCH', 'segments/' . rawurlencode( $segment_id ) . '/', [
+			'data' => [
+				'type'       => 'segment',
+				'id'         => $segment_id,
+				'attributes' => [ 'is_active' => true ],
+			],
+		], 30 );
+		if ( is_wp_error( $res ) ) {
+			throw new RuntimeException( $res->get_error_message() );
+		}
+		delete_transient( self::CACHE );
+	}
+
+	/**
+	 * The id of the metric an order is recorded under, in this account.
+	 *
+	 * Never hard-coded: the same shop on another Klaviyo account has another
+	 * id, and a segment built on the wrong metric silently matches nobody.
+	 */
+	private static function order_metric(): string {
+		$errors = [];
+		$best   = '';
+		foreach ( self::pages( 'metrics/?fields[metric]=name,integration', $errors, 12 ) as $row ) {
+			$name = strtolower( (string) ( $row['attributes']['name'] ?? '' ) );
+			if ( 'placed order' !== $name && 'ordered product' !== $name ) {
+				continue;
+			}
+			$from = strtolower( (string) ( $row['attributes']['integration']['name'] ?? '' ) );
+			if ( 'placed order' === $name && false !== strpos( $from, 'woocommerce' ) ) {
+				return (string) $row['id']; // the shop's own orders: nothing beats it.
+			}
+			if ( '' === $best && 'placed order' === $name ) {
+				$best = (string) $row['id'];
+			}
+		}
+		if ( '' === $best ) {
+			throw new RuntimeException( __( 'No "Placed Order" metric was found in this Klaviyo account, so a buyers segment cannot be built.', 'dazont-ecom' ) );
+		}
+		return $best;
+	}
+
+	/**
+	 * Creates the one segment a promotion email really wants: the people who
+	 * have just bought.
+	 *
+	 * Announcing a sale to somebody who paid full price three days ago earns a
+	 * refund request, not an order. It is the same definition the shop already
+	 * uses — bought at least once in the last N weeks, and reachable by email.
+	 *
+	 * @return array{id:string,name:string}
+	 */
+	public static function make_buyers_segment( int $weeks ): array {
+		$weeks = max( 1, min( 12, $weeks ) );
+		$name  = sprintf(
+			/* translators: %d: number of weeks */
+			_n( 'Buyers from the last %d week', 'Buyers from the last %d weeks', $weeks, 'dazont-ecom' ),
+			$weeks
+		);
+		$made = self::request( 'POST', 'segments/', [
+			'data' => [
+				'type'       => 'segment',
+				'attributes' => [
+					'name'       => $name,
+					'definition' => [
+						'condition_groups' => [
+							[
+								'conditions' => [
+									[
+										'type'               => 'profile-metric',
+										'metric_id'          => self::order_metric(),
+										'measurement'        => 'count',
+										'measurement_filter' => [ 'type' => 'numeric', 'operator' => 'greater-than', 'value' => 0 ],
+										'timeframe_filter'   => [ 'type' => 'date', 'operator' => 'in-the-last', 'unit' => 'week', 'quantity' => $weeks ],
+									],
+								],
+							],
+							[
+								'conditions' => [
+									[
+										'type'    => 'profile-marketing-consent',
+										'consent' => [
+											'channel'               => 'email',
+											'can_receive_marketing' => true,
+											'consent_status'        => [ 'subscription' => 'any' ],
+										],
+									],
+								],
+							],
+						],
+					],
+				],
+			],
+		], 40 );
+		if ( is_wp_error( $made ) ) {
+			throw new RuntimeException( $made->get_error_message() );
+		}
+		$id = (string) ( $made['data']['id'] ?? '' );
+		if ( '' === $id ) {
+			throw new RuntimeException( __( 'Klaviyo created nothing back.', 'dazont-ecom' ) );
+		}
+		delete_transient( self::CACHE );
+		return [ 'id' => $id, 'name' => $name ];
+	}
+
 	// =========================================================================
 	// AJAX
 	// =========================================================================
@@ -995,6 +1112,7 @@ final class DZE_Klaviyo {
 		}
 		wp_send_json_success( [
 			'audiences' => $cat['audiences'],
+			'inactive'  => $cat['inactive'],
 			'partial'   => ! empty( $cat['errors'] ),
 			'message'   => $message,
 		] );
@@ -1106,6 +1224,45 @@ final class DZE_Klaviyo {
 		wp_send_json_success( [ 'html' => self::layout( $parts, true ) ] );
 	}
 
+	/** Switches the chosen exclusion back on, without leaving the page. */
+	public static function ajax_activate(): void {
+		self::guard();
+		$id = isset( $_POST['segment'] ) ? sanitize_text_field( wp_unslash( $_POST['segment'] ) ) : '';
+		if ( '' === $id ) {
+			wp_send_json_error( [ 'message' => __( 'Pick a segment first.', 'dazont-ecom' ) ] );
+		}
+		try {
+			self::activate( $id );
+			$cat = self::refresh();
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'audiences' => $cat['audiences'],
+			'inactive'  => $cat['inactive'],
+			'message'   => __( 'Switched back on in Klaviyo. It fills again within a few minutes.', 'dazont-ecom' ),
+		] );
+	}
+
+	/** Builds the recent-buyers segment and hands it back, ready to be chosen. */
+	public static function ajax_make_segment(): void {
+		self::guard();
+		$weeks = isset( $_POST['weeks'] ) ? (int) $_POST['weeks'] : 3;
+		try {
+			$made = self::make_buyers_segment( $weeks );
+			$cat  = self::refresh();
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'id'        => $made['id'],
+			'audiences' => $cat['audiences'],
+			'inactive'  => $cat['inactive'],
+			/* translators: %s: the segment's name */
+			'message'   => sprintf( __( '"%s" created and chosen. Klaviyo fills it within a few minutes.', 'dazont-ecom' ), $made['name'] ),
+		] );
+	}
+
 	public static function ajax_draft(): void {
 		self::guard();
 		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
@@ -1149,8 +1306,11 @@ final class DZE_Klaviyo {
 		wp_enqueue_media();
 		wp_enqueue_script( 'dze-klaviyo', DZE_URL . 'admin/js/klaviyo.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-klaviyo', 'dzeKlav', [
-			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-			'nonce'   => wp_create_nonce( self::NONCE ),
+			'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+			'nonce'    => wp_create_nonce( self::NONCE ),
+			// The segments Klaviyo is not maintaining, so the settings screen
+			// can offer to switch the chosen one back on.
+			'inactive' => array_values( (array) ( self::catalogue()['inactive'] ?? [] ) ),
 			'i18n'    => [
 				'loading'  => __( 'Reading your Klaviyo account…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing…', 'dazont-ecom' ),
@@ -1163,6 +1323,8 @@ final class DZE_Klaviyo {
 				'written'  => __( 'Written — read it, then save the event.', 'dazont-ecom' ),
 				'rendering'=> __( 'Drawing it…', 'dazont-ecom' ),
 				'pick'     => __( 'Choose an image', 'dazont-ecom' ),
+				'working'  => __( 'Talking to Klaviyo…', 'dazont-ecom' ),
+				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 			],
 		] );
 	}
@@ -1418,8 +1580,27 @@ final class DZE_Klaviyo {
 							<option value="<?php echo esc_attr( $exc ); ?>" selected><?php echo esc_html( $exc ); ?></option>
 						<?php endif; ?>
 					</select>
+					<p class="description" style="max-width:820px;margin-bottom:8px;">
+						<strong><?php esc_html_e( 'Recommended on every promotion:', 'dazont-ecom' ); ?></strong>
+						<?php esc_html_e( 'the people who have just bought. Announcing a sale to somebody who paid full price three days ago earns a refund request, not an order.', 'dazont-ecom' ); ?>
+					</p>
+					<p class="dze-klav-seg-tools" style="margin:0 0 6px;">
+						<button type="button" class="button" id="dze-klav-activate" style="<?php echo in_array( $exc, (array) ( $cat['inactive'] ?? [] ), true ) ? '' : 'display:none;'; ?>">
+							&#9889; <?php esc_html_e( 'Switch it back on in Klaviyo', 'dazont-ecom' ); ?>
+						</button>
+						<span style="margin-left:10px;">
+							<?php esc_html_e( 'or build one:', 'dazont-ecom' ); ?>
+							<label>
+								<?php esc_html_e( 'buyers of the last', 'dazont-ecom' ); ?>
+								<input type="number" id="dze-klav-weeks" value="3" min="1" max="12" class="small-text" />
+								<?php esc_html_e( 'weeks', 'dazont-ecom' ); ?>
+							</label>
+							<button type="button" class="button" id="dze-klav-make-seg" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Create it', 'dazont-ecom' ); ?></button>
+						</span>
+						<span id="dze-klav-seg-msg" style="margin-left:8px;font-size:13px;"></span>
+					</p>
 					<p class="description" style="max-width:820px;">
-						<?php esc_html_e( 'Segments marked inactive are listed too, because Klaviyo hides them from its own listing and your campaigns may well use one. Be warned that an inactive segment is not maintained: excluding it excludes nobody until it is switched back on in Klaviyo.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'Segments marked inactive are listed too, because Klaviyo hides them from its own listing and your campaigns may well use one. An inactive segment is not maintained: excluding it excludes nobody until it is switched back on — which the button above does, in Klaviyo, without leaving this page.', 'dazont-ecom' ); ?>
 					</p>
 				</td>
 			</tr>

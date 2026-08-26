@@ -19,7 +19,75 @@
 				}
 				fill($('#dze-klav-inc'), res.data.audiences);
 				fill($('#dze-klav-exc'), res.data.audiences);
+				inactive = res.data.inactive || [];
+				tools();
 				$m.css('color', res.data.partial ? '#b26a00' : '#0a7040').text(res.data.message);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	// Which exclusions Klaviyo is not maintaining, so the page can offer to
+	// switch the chosen one back on instead of leaving it silently empty.
+	var inactive = (cfg.inactive || []);
+
+	function tools() {
+		var chosen = $('#dze-klav-exc').val();
+		$('#dze-klav-activate').toggle(!!chosen && $.inArray(chosen, inactive) !== -1);
+	}
+	$(document).on('change', '#dze-klav-exc', function () {
+		$('#dze-klav-seg-msg').text('');
+		tools();
+	});
+
+	$(document).on('click', '#dze-klav-activate', function () {
+		var $b = $(this), $m = $('#dze-klav-seg-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.working);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_activate', nonce: cfg.nonce, segment: $('#dze-klav-exc').val() })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				fill($('#dze-klav-inc'), res.data.audiences);
+				fill($('#dze-klav-exc'), res.data.audiences);
+				inactive = res.data.inactive || [];
+				tools();
+				$m.css('color', '#0a7040').text(res.data.message);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	$(document).on('click', '#dze-klav-make-seg', function () {
+		var $b = $(this), $m = $('#dze-klav-seg-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.working);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_segment',
+			nonce: cfg.nonce,
+			weeks: $('#dze-klav-weeks').val()
+		})
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				fill($('#dze-klav-inc'), res.data.audiences);
+				fill($('#dze-klav-exc'), res.data.audiences);
+				inactive = res.data.inactive || [];
+				// Built for this field, so it lands in it — and still has to be
+				// saved, like everything else on this page.
+				$('#dze-klav-exc').val(res.data.id);
+				tools();
+				$m.css('color', '#0a7040').text(res.data.message + ' ' + i18n.thenSave);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
