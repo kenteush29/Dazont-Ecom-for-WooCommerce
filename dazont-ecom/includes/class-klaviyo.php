@@ -197,80 +197,190 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * The shop's own type and colour, read from the theme.
+	 * The shop's own style, read from the theme — type, colour, buttons, the
+	 * shape of a product card.
 	 *
 	 * An email that does not look like the site it comes from is an email the
-	 * reader does not recognise. Nothing is asked for here: a block theme's
-	 * global styles answer first, Astra's own settings next — Astra is what
-	 * this shop runs — and a plain, safe pair of stacks last.
+	 * reader does not recognise, and a card restyled by hand here is a second
+	 * version of a decision the shop has already made once. So nothing is
+	 * asked for: the theme is read. A block theme's global styles answer
+	 * first, WooCommerce's own e-mail colours next, and Astra's settings last
+	 * and loudest — Astra is what this shop runs, so what it says wins.
 	 *
-	 * @return array{head:string,body:string,ink:string,link:string,size:int}
+	 * Every value remembers WHERE it came from, so the settings screen can
+	 * show the reader why his email looks the way it does instead of leaving
+	 * him to guess. A style nobody can trace is a style nobody trusts.
+	 *
+	 * @return array{head:string,body:string,ink:string,link:string,size:int,muted:string,sale:string,btn_bg:string,btn_ink:string,radius:int,card:string,border:string}
 	 */
 	public static function theme_style(): array {
+		return self::style()['value'];
+	}
+
+	/** Where each value of theme_style() was read from. */
+	public static function style_sources(): array {
+		return self::style()['from'];
+	}
+
+	/**
+	 * Both at once, worked out once per request.
+	 *
+	 * @return array{value:array<string,mixed>,from:array<string,string>}
+	 */
+	private static function style(): array {
+		static $done = null;
+		if ( null !== $done ) {
+			return $done;
+		}
+		$shipped = __( 'Plugin default', 'dazont-ecom' );
 		$out = [
-			'head' => "'Aldrich', Helvetica, Arial, sans-serif",
-			'body' => 'Helvetica, Arial, sans-serif',
-			'ink'  => '#111111',
-			'link' => '#719D1A',
-			'size' => 16,
+			'head'   => "'Aldrich', Helvetica, Arial, sans-serif",
+			'body'   => 'Helvetica, Arial, sans-serif',
+			'ink'    => '#111111',
+			'link'   => '#719D1A',
+			'size'   => 16,
+			'muted'  => '#8a8a8a',
+			'sale'   => '#719D1A',
+			'btn_bg' => '#719D1A',
+			'btn_ink' => '#ffffff',
+			'radius' => 0,
+			'card'   => '#ffffff',
+			'border' => '#e6e6e1',
 		];
+		$from = array_fill_keys( array_keys( $out ), $shipped );
+		// One place that writes a value AND remembers who said it: two lines
+		// that can disagree is how a screen ends up explaining the wrong thing.
+		$set = static function ( string $key, $value, string $source ) use ( &$out, &$from ): void {
+			if ( '' === $value || null === $value ) {
+				return;
+			}
+			$out[ $key ]  = $value;
+			$from[ $key ] = $source;
+		};
 		$hex = static function ( $v ): string {
 			$v = is_string( $v ) ? trim( $v ) : '';
-			return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : '';
+			if ( preg_match( '/^#[0-9a-fA-F]{3}$/', $v ) ) {
+				return '#' . $v[1] . $v[1] . $v[2] . $v[2] . $v[3] . $v[3];
+			}
+			return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? strtolower( $v ) : '';
 		};
 		$stack = static function ( $v ): string {
 			$v = is_string( $v ) ? trim( wp_strip_all_tags( $v ) ) : '';
 			// A CSS variable is meaningless in an email: only a real stack is.
 			return ( '' !== $v && false === strpos( $v, 'var(' ) ) ? $v : '';
 		};
+		$px = static function ( $v ): int {
+			$n = (int) preg_replace( '/[^0-9]/', '', (string) $v );
+			return ( $n >= 0 && $n <= 40 ) ? $n : -1;
+		};
 
 		// A block theme says it in theme.json, and WordPress hands it over.
 		if ( function_exists( 'wp_get_global_styles' ) ) {
-			$g = wp_get_global_styles();
-			$c = $hex( $g['color']['text'] ?? '' );
-			if ( '' !== $c ) {
-				$out['ink'] = $c;
-			}
+			$g   = wp_get_global_styles();
+			$src = __( 'Theme global styles (theme.json)', 'dazont-ecom' );
+			$set( 'ink', $hex( $g['color']['text'] ?? '' ), $src );
 			$f = $stack( $g['typography']['fontFamily'] ?? '' );
 			if ( '' !== $f ) {
-				$out['body'] = $f;
-				$out['head'] = $f;
+				$set( 'body', $f, $src );
+				$set( 'head', $f, $src );
 			}
-			$h = $stack( $g['blocks']['core/heading']['typography']['fontFamily'] ?? '' );
-			if ( '' !== $h ) {
-				$out['head'] = $h;
+			$set( 'head', $stack( $g['blocks']['core/heading']['typography']['fontFamily'] ?? '' ), $src );
+			$link = $hex( $g['elements']['link']['color']['text'] ?? '' );
+			if ( '' !== $link ) {
+				$set( 'link', $link, $src );
+				$set( 'sale', $link, $src );
 			}
-			$l = $hex( $g['elements']['link']['color']['text'] ?? '' );
-			if ( '' !== $l ) {
-				$out['link'] = $l;
+			$btn = $hex( $g['elements']['button']['color']['background'] ?? '' );
+			if ( '' !== $btn ) {
+				$set( 'btn_bg', $btn, $src );
+			}
+			$set( 'btn_ink', $hex( $g['elements']['button']['color']['text'] ?? '' ), $src );
+			$r = $px( $g['elements']['button']['border']['radius'] ?? '' );
+			if ( $r >= 0 ) {
+				$set( 'radius', $r, $src );
 			}
 		}
 
-		// Astra keeps its own, and this shop runs Astra.
+		// WooCommerce already asked the owner what colour his shop is, for its
+		// own transactional emails. A shop that answered there has answered.
+		$base = $hex( (string) get_option( 'woocommerce_email_base_color', '' ) );
+		if ( '' !== $base ) {
+			$src = __( 'WooCommerce → Emails', 'dazont-ecom' );
+			$set( 'link', $base, $src );
+			$set( 'btn_bg', $base, $src );
+			$set( 'sale', $base, $src );
+		}
+
+		// Astra keeps its own, and this shop runs Astra: it draws the product
+		// cards the customer actually sees, so it has the last word.
 		$astra = get_option( 'astra-settings', [] );
 		if ( is_array( $astra ) && $astra ) {
-			$c = $hex( $astra['text-color'] ?? '' );
-			if ( '' !== $c ) {
-				$out['ink'] = $c;
-			}
-			$l = $hex( $astra['link-color'] ?? ( $astra['theme-color'] ?? '' ) );
-			if ( '' !== $l ) {
-				$out['link'] = $l;
-			}
-			$fb = $stack( $astra['body-font-family'] ?? '' );
-			if ( '' !== $fb ) {
-				$out['body'] = $fb;
-			}
-			$fh = $stack( $astra['headings-font-family'] ?? '' );
-			if ( '' !== $fh ) {
-				$out['head'] = $fh;
-			}
+			$src   = __( 'Astra → Customizer', 'dazont-ecom' );
+			$theme = $hex( $astra['theme-color'] ?? '' );
+			$set( 'ink', $hex( $astra['text-color'] ?? '' ), $src );
+			$link = $hex( $astra['link-color'] ?? '' );
+			$set( 'link', '' !== $link ? $link : $theme, $src );
+			$set( 'sale', '' !== $link ? $link : $theme, $src );
+			$set( 'body', $stack( $astra['body-font-family'] ?? '' ), $src );
+			$set( 'head', $stack( $astra['headings-font-family'] ?? '' ), $src );
 			$size = $astra['font-size-body']['desktop'] ?? ( $astra['font-size-body'] ?? 0 );
 			if ( (int) $size >= 12 && (int) $size <= 22 ) {
-				$out['size'] = (int) $size;
+				$set( 'size', (int) $size, $src );
 			}
+			// The buttons the shop's own "Add to cart" wears.
+			$btn = __( 'Astra → Buttons', 'dazont-ecom' );
+			$bg  = $hex( $astra['button-bg-color'] ?? '' );
+			$set( 'btn_bg', '' !== $bg ? $bg : $theme, $btn );
+			$set( 'btn_ink', $hex( $astra['button-color'] ?? '' ), $btn );
+			$r = $px( $astra['button-radius-fields']['global']['desktop'] ?? ( $astra['button-radius'] ?? '' ) );
+			if ( $r >= 0 ) {
+				$set( 'radius', $r, $btn );
+			}
+			$card = __( 'Astra → Shop cards', 'dazont-ecom' );
+			$set( 'card', $hex( $astra['single-product-bg-color'] ?? ( $astra['shop-card-bg-color'] ?? '' ) ), $card );
+			$set( 'border', $hex( $astra['shop-product-border-color'] ?? '' ), $card );
 		}
-		return $out;
+		$done = [ 'value' => $out, 'from' => $from ];
+		return $done;
+	}
+
+	/**
+	 * One product card, in the shop's own style.
+	 *
+	 * The ONLY place a product is dressed. The email uses it, the settings
+	 * screen shows it, and there is nothing to keep in step: what the owner
+	 * looks at under "Shop style" is the very block the inbox receives.
+	 */
+	public static function card_html( string $link, string $img, string $name, string $price ): string {
+		$t = self::theme_style();
+		$r = (int) $t['radius'];
+		return sprintf(
+			'<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0">'
+			. '<tr><td align="center" style="background:%10$s;border:1px solid %11$s;border-radius:%12$dpx;padding:14px 10px 18px;">'
+			. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
+			. '<img src="%2$s" alt="%3$s" width="240" style="display:block;width:100%%;max-width:240px;height:auto;border:0;border-radius:%12$dpx;" />'
+			. '<div style="padding:12px 2px 4px;font:400 15px/1.35 %5$s;color:%6$s;">%3$s</div>'
+			. '<div style="padding:0 2px 12px;font:400 15px/1.4 %7$s;">%4$s</div></a>'
+			. '<a href="%1$s" style="display:inline-block;background:%8$s;color:%13$s;text-decoration:none;'
+			. 'padding:11px 20px;border-radius:%14$dpx;font:400 14px %7$s;">%9$s</a>'
+			. '</td></tr></table>',
+			esc_url( $link ),
+			esc_url( $img ),
+			esc_html( $name ),
+			$price,
+			$t['head'],
+			esc_attr( $t['ink'] ),
+			$t['body'],
+			esc_attr( $t['btn_bg'] ),
+			esc_html__( 'Shop now', 'dazont-ecom' ),
+			esc_attr( $t['card'] ),
+			esc_attr( $t['border'] ),
+			// A card's corners follow the shop's, but a rounded photograph
+			// inside a square card looks like a mistake, so they share one.
+			min( $r, 12 ),
+			esc_attr( $t['btn_ink'] ),
+			$r
+		);
 	}
 
 	/** The shop's mark, as WordPress holds it. */
@@ -678,10 +788,13 @@ final class DZE_Klaviyo {
 		// same direction. Any other arithmetic here would put a figure in the
 		// inbox that the product page then contradicts.
 		$now = self::sale_price( $reg, $pct );
+		$t = self::theme_style();
 		return sprintf(
-			'<span style="color:#8a8a8a;text-decoration:line-through;">%1$s</span> <span style="color:#b32d2e;font-weight:700;">%2$s</span>',
+			'<span style="color:%3$s;text-decoration:line-through;">%1$s</span> <span style="color:%4$s;font-weight:700;">%2$s</span>',
 			wp_kses_post( wc_price( $reg ) ),
-			wp_kses_post( wc_price( $now ) )
+			wp_kses_post( wc_price( $now ) ),
+			esc_attr( $t['muted'] ),
+			esc_attr( $t['sale'] )
 		);
 	}
 
@@ -1752,23 +1865,11 @@ final class DZE_Klaviyo {
 			// prompt's decision; what one of them LOOKS like is not, because a
 			// card reinvented on every send is a shop whose products are
 			// dressed differently in every email.
-			$out['cards'][] = sprintf(
-				'<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 8px;">'
-				. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
-				. '<img src="%2$s" alt="%3$s" width="240" style="display:block;width:100%%;max-width:240px;height:auto;border:0;" />'
-				. '<div style="padding:12px 2px 4px;font:400 15px/1.35 %5$s;color:%6$s;">%3$s</div>'
-				. '<div style="padding:0 2px 12px;font:400 15px/1.4 %7$s;">%4$s</div></a>'
-				. '<a href="%1$s" style="display:inline-block;background:%8$s;color:#ffffff;text-decoration:none;padding:11px 20px;font:400 14px %7$s;">%9$s</a>'
-				. '</td></tr></table>',
-				esc_url( (string) $product->get_permalink() ),
-				esc_url( $img ),
-				esc_html( $product->get_name() ),
-				self::price_html( $product, $rule ),
-				$t['head'],
-				esc_attr( $t['ink'] ),
-				$t['body'],
-				esc_attr( $t['link'] ),
-				esc_html__( 'Shop now', 'dazont-ecom' )
+			$out['cards'][] = self::card_html(
+				(string) $product->get_permalink(),
+				$img,
+				(string) $product->get_name(),
+				self::price_html( $product, $rule )
 			);
 			if ( '' !== $img ) {
 				$out['images'][] = $img;
@@ -2880,6 +2981,82 @@ final class DZE_Klaviyo {
 				</td>
 			</tr>
 		</table>
+
+		<h2 class="title"><?php esc_html_e( 'Shop style', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'Nothing to set here. The email wears what your theme already says — this is only so you can see what it read and where it read it. Change it in your theme and the next email follows.', 'dazont-ecom' ); ?>
+		</p>
+		<?php
+		$dze_t    = self::theme_style();
+		$dze_from = self::style_sources();
+		$dze_rows = [
+			'head'    => __( 'Headings font', 'dazont-ecom' ),
+			'body'    => __( 'Text font', 'dazont-ecom' ),
+			'size'    => __( 'Text size', 'dazont-ecom' ),
+			'ink'     => __( 'Text colour', 'dazont-ecom' ),
+			'link'    => __( 'Link colour', 'dazont-ecom' ),
+			'sale'    => __( 'Sale price', 'dazont-ecom' ),
+			'muted'   => __( 'Old price, struck through', 'dazont-ecom' ),
+			'btn_bg'  => __( 'Button', 'dazont-ecom' ),
+			'btn_ink' => __( 'Button text', 'dazont-ecom' ),
+			'radius'  => __( 'Corners', 'dazont-ecom' ),
+			'card'    => __( 'Card background', 'dazont-ecom' ),
+			'border'  => __( 'Card border', 'dazont-ecom' ),
+		];
+		?>
+		<div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;max-width:880px;">
+			<table class="widefat striped" style="flex:1 1 420px;min-width:380px;">
+				<thead><tr>
+					<th><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'Value', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'Read from', 'dazont-ecom' ); ?></th>
+				</tr></thead>
+				<tbody>
+				<?php foreach ( $dze_rows as $dze_k => $dze_label ) : ?>
+					<?php $dze_v = (string) $dze_t[ $dze_k ]; ?>
+					<tr>
+						<td><?php echo esc_html( $dze_label ); ?></td>
+						<td>
+							<?php if ( 0 === strpos( $dze_v, '#' ) ) : ?>
+								<span style="display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:6px;border:1px solid #c3c4c7;background:<?php echo esc_attr( $dze_v ); ?>;"></span>
+							<?php endif; ?>
+							<code><?php echo esc_html( in_array( $dze_k, [ 'size', 'radius' ], true ) ? $dze_v . 'px' : $dze_v ); ?></code>
+						</td>
+						<td><?php echo esc_html( (string) ( $dze_from[ $dze_k ] ?? '' ) ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+			<div style="flex:0 0 300px;">
+				<p style="margin:0 0 8px;font-size:13px;color:#646970;">
+					<?php esc_html_e( 'A product in an email, as it goes out:', 'dazont-ecom' ); ?>
+				</p>
+				<div style="padding:18px;background:#f6f7f7;border:1px solid #dcdcde;">
+					<?php
+					// The very function the email calls. A mock-up drawn beside
+					// it would be a second version of the card, and the two
+					// would drift the first time one of them changed.
+					echo wp_kses_post(
+						self::card_html(
+							'#',
+							// WooCommerce's own placeholder, so drawing this
+							// panel costs the shop no query at all. What is on
+							// show here is the STYLE, not the stock.
+							(string) ( function_exists( 'wc_placeholder_img_src' ) ? wc_placeholder_img_src( 'medium' ) : '' ),
+							__( 'A product from your shop', 'dazont-ecom' ),
+							sprintf(
+								'<span style="color:%1$s;text-decoration:line-through;">%3$s</span> <span style="color:%2$s;font-weight:700;">%4$s</span>',
+								esc_attr( $dze_t['muted'] ),
+								esc_attr( $dze_t['sale'] ),
+								esc_html( function_exists( 'wc_price' ) ? wp_strip_all_tags( wc_price( 222.90 ) ) : '222.90' ),
+								esc_html( function_exists( 'wc_price' ) ? wp_strip_all_tags( wc_price( 188.90 ) ) : '188.90' )
+							)
+						)
+					);
+					?>
+				</div>
+			</div>
+		</div>
 
 		<h2 class="title"><?php esc_html_e( 'Email copy prompt', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
