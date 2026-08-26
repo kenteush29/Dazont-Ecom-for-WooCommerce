@@ -857,9 +857,22 @@ final class DZE_Gmc {
 		return is_array( $data ) ? $data : [];
 	}
 
+	/**
+	 * Keeps the promotions Google already has in step with the shop.
+	 *
+	 * It used to push EVERY enabled sale, which meant a promotion reached
+	 * Google the hour it was created — before anybody had looked at it. Since
+	 * a marketing event is now active from the moment it is accepted, that
+	 * turned "I saved an event" into "I published an ad", which is not the
+	 * same decision and was never asked for.
+	 *
+	 * So the cron no longer PUBLISHES anything: it only refreshes what was
+	 * already sent, from the events list or the event's own button. A
+	 * promotion Google has never seen waits for somebody to press push.
+	 */
 	public function cron_sync_all(): void {
 		foreach ( DZE_Discounts::get_rules() as $id => $rule ) {
-			if ( ( $rule['type'] ?? '' ) === 'sale' && ! empty( $rule['enabled'] ) ) {
+			if ( ( $rule['type'] ?? '' ) === 'sale' && ! empty( $rule['enabled'] ) && ! empty( $rule['gmc_sync'] ) ) {
 				$this->sync_rule( (string) $id );
 			}
 		}

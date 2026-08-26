@@ -210,11 +210,39 @@
 	// srcdoc needs the frame to keep its own origin; an empty sandbox blocks
 	// that and leaves a white rectangle, which is what "the preview does not
 	// work" was. Scripts stay off — allow-scripts is not granted.
-	function show(html) {
-		var f = frame()[0];
+	function draw($frame, html) {
+		var f = $frame[0];
 		if (!f) { return; }
 		f.setAttribute('sandbox', 'allow-same-origin');
 		f.srcdoc = html;
+	}
+
+	// The email drawn where you are looking at it, as you type. The frame is
+	// handed over once by PHP — the same frame the email is sent inside — so
+	// nothing has to be asked of the server to see the result.
+	function assemble(shell, inner) {
+		var at = shell.indexOf(cfg.mark);
+		if (at === -1) { return inner; }
+		return shell.slice(0, at) + inner + shell.slice(at + cfg.mark.length);
+	}
+
+	// A template being edited still carries Klaviyo's own tags; on screen they
+	// have nobody to fill them in, so they read as a person would see them.
+	function readable(html) {
+		return String(html)
+			.split('{% unsubscribe %}').join(cfg.i18n.unsub)
+			.split('{{ organization.name }}').join(cfg.shopName)
+			.replace(/\{%[\s\S]*?%\}/g, '')
+			.replace(/\{\{[\s\S]*?\}\}/g, '');
+	}
+
+	var pending = null;
+	function render() {
+		draw(frame(), assemble(cfg.shell, body().val() || ''));
+	}
+	function live() {
+		window.clearTimeout(pending);
+		pending = window.setTimeout(render, 250);
 	}
 
 	function view(which) {
@@ -229,38 +257,56 @@
 		}
 	}
 
-	function render() {
-		var $m = $('#dze-klav-e-msg');
-		$m.css('color', '#646970').text(i18n.rendering);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_preview',
-			nonce: cfg.nonce,
-			rule: ruleId(),
-			body: body().val() || ''
-		})
-			.done(function (res) {
-				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
-					return;
-				}
-				$m.text('');
-				show(res.data.html);
-			})
-			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
+	$(document).on('input', '#dze-klav-e-body', live);
+
+	// ---- Settings: the template, previewed the same way ----
+	function drawShell() {
+		draw($('#dze-klav-shell-frame'), assemble(readable($('#dze-klav-shell').val() || ''), cfg.sample));
 	}
+	function shellView(which) {
+		$('.dze-klav-stab').removeClass('is-on').filter('[data-tab="' + which + '"]').addClass('is-on');
+		var $ta = $('#dze-klav-shell'), $fr = $('#dze-klav-shell-frame');
+		if (which === 'view') {
+			$ta.hide();
+			$fr.show();
+			drawShell();
+		} else {
+			$fr.hide();
+			$ta.show();
+		}
+	}
+	$(document).on('click', '.dze-klav-stab', function () { shellView($(this).data('tab')); });
+	// Redraw only. Switching the view back while somebody is typing in the
+	// HTML would take the keyboard away from them mid-word.
+	$(document).on('input', '#dze-klav-shell', function () {
+		window.clearTimeout(pending);
+		pending = window.setTimeout(drawShell, 300);
+	});
+	$(function () {
+		if ($('#dze-klav-shell-frame').length) { shellView('view'); }
+		if ($('#dze-klav-e-iframe').length) { view('view'); }
+	});
 
 	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
 
-	// Insert at the cursor, like any editor: what you were writing stays where
-	// it was instead of being appended somewhere else.
-	function insert(html) {
+	// The picture OPENS the email. Dropped at the cursor it landed wherever
+	// the caret happened to be — at the bottom, under the footer of the
+	// content, which is not a hero image, it is a mistake. It replaces the one
+	// the email already opens with, or it becomes the first thing in it.
+	function setPicture(url) {
 		var el = body()[0];
 		if (!el) { return; }
-		var at = el.selectionStart || 0;
-		var to = el.selectionEnd || at;
-		el.value = el.value.slice(0, at) + html + el.value.slice(to);
-		el.selectionStart = el.selectionEnd = at + html.length;
-		el.focus();
+		var img = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
+			'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>';
+		var current = el.value || '';
+		var first = current.search(/<p[^>]*>\s*<img[\s\S]*?<\/p>|<img[\s\S]*?\/?>/i);
+		if (first !== -1) {
+			var match = current.slice(first).match(/^(<p[^>]*>\s*<img[\s\S]*?<\/p>|<img[\s\S]*?\/?>)/i);
+			el.value = current.slice(0, first) + img + current.slice(first + match[1].length);
+		} else {
+			el.value = img + current;
+		}
+		render();
 	}
 
 	$(document).on('click', '#dze-klav-e-write', function () {
@@ -286,22 +332,6 @@
 			});
 	});
 
-	$(document).on('click', '#dze-klav-e-prod', function () {
-		var $m = $('#dze-klav-e-msg');
-		$m.css('color', '#646970').text(i18n.working);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_products', nonce: cfg.nonce, rule: ruleId() })
-			.done(function (res) {
-				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
-					return;
-				}
-				$m.text('');
-				view('code');
-				insert('\n' + res.data.html + '\n');
-			})
-			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
-	});
-
 	// A picture made for this promotion: a real photograph of the shop, put in
 	// the setting the event evokes. Long — fal takes its time — so the button
 	// says so rather than looking stuck.
@@ -317,13 +347,20 @@
 					return;
 				}
 				$m.css('color', '#0a7040').text(i18n.shot);
-				view('code');
-				insert('\n' + res.data.html + '\n');
+				setPicture(res.data.url);
+				view('view');
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
 				$m.css('color', '#b32d2e').text(i18n.error);
 			});
+	});
+
+	// The addresses sit inside the event's own form, and Enter in a text field
+	// submits a form. Typing an address and pressing Enter must send the test,
+	// not save the event.
+	$(document).on('keydown', '#dze-klav-e-to', function (e) {
+		if (e.which === 13) { e.preventDefault(); $('#dze-klav-e-test').trigger('click'); }
 	});
 
 	// The email as an inbox will actually show it: Klaviyo renders and Klaviyo
@@ -350,80 +387,5 @@
 			});
 	});
 
-	// ---- Settings: the frame, read from and written back to Klaviyo ----
-	$(document).on('click', '#dze-klav-tpls', function () {
-		var $b = $(this), $m = $('#dze-klav-shell-msg');
-		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.loading);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_tpls', nonce: cfg.nonce })
-			.done(function (res) {
-				$b.prop('disabled', false);
-				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
-					return;
-				}
-				var $sel = $('#dze-klav-tpl').empty();
-				$.each(res.data.templates, function (id, label) {
-					$sel.append($('<option/>').attr('value', id).text(label));
-				});
-				$sel.show();
-				$('#dze-klav-import').show();
-				$m.text('');
-			})
-			.fail(function () {
-				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
-			});
-	});
-
-	$(document).on('click', '#dze-klav-import', function () {
-		var $b = $(this), $m = $('#dze-klav-shell-msg');
-		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.working);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_import', nonce: cfg.nonce, template: $('#dze-klav-tpl').val() })
-			.done(function (res) {
-				$b.prop('disabled', false);
-				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
-					return;
-				}
-				$('#dze-klav-shell').val(res.data.html).trigger('focus');
-				$m.css('color', '#b26a00').text(i18n.mark);
-			})
-			.fail(function () {
-				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
-			});
-	});
-
-	$(document).on('click', '#dze-klav-shell-push', function () {
-		var $b = $(this), $m = $('#dze-klav-shell-msg');
-		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.working);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_shell', nonce: cfg.nonce })
-			.done(function (res) {
-				$b.prop('disabled', false);
-				$m.css('color', res && res.success ? '#0a7040' : '#b32d2e')
-					.text((res && res.data && res.data.message) || i18n.error);
-			})
-			.fail(function () {
-				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
-			});
-	});
-
-	$(document).on('click', '#dze-klav-e-img', function () {
-		if (!window.wp || !wp.media) { return; }
-		var f = wp.media({ title: i18n.pick, multiple: false, library: { type: 'image' } });
-		f.on('select', function () {
-			var img = f.state().get('selection').first().toJSON();
-			var url = (img.sizes && img.sizes.large ? img.sizes.large.url : img.url);
-			var alt = (img.alt || '').replace(/"/g, '&quot;');
-			view('code');
-			insert('\n<img src="' + url + '" width="544" alt="' + alt +
-				'" style="display:block;width:100%;max-width:544px;height:auto;border:0;" />\n');
-		});
-		f.open();
-	});
 
 }(jQuery));

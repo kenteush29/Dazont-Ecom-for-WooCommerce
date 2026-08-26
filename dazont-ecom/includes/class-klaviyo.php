@@ -36,8 +36,14 @@ final class DZE_Klaviyo {
 	public const OPT_COPY = 'dze_klaviyo_copy';   // rule id => the email written for it.
 
 	private const API   = 'https://a.klaviyo.com/api/';
-	private const REV   = '2025-07-15';      // stable API revision.
-	private const REV_B = '2025-07-15.pre';  // the localisation endpoints are beta.
+	// The API revision Klaviyo answers under. It is a DATE, and Klaviyo retires
+	// old ones: pinned at 2025-07-15 this plugin started getting "revision date
+	// requested is before the earliest available" — a 404 that looks like a
+	// missing endpoint and is really an expired pin. It is the single thing in
+	// this file that goes stale on its own, which is why the weekly checkup
+	// names it by hand when Klaviyo refuses.
+	private const REV   = '2026-07-15';      // stable API revision.
+	private const REV_B = '2026-07-15.pre';  // the localisation endpoints are beta.
 	private const NONCE = 'dze_klaviyo';
 	private const CACHE = 'dze_klaviyo_cat'; // the account's audiences, as last read.
 
@@ -69,15 +75,10 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
-		add_action( 'wp_ajax_dze_klav_preview', [ __CLASS__, 'ajax_preview' ] );
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
-		add_action( 'wp_ajax_dze_klav_products', [ __CLASS__, 'ajax_products' ] );
 		add_action( 'wp_ajax_dze_klav_image',    [ __CLASS__, 'ajax_image' ] );
 		add_action( 'wp_ajax_dze_klav_test',     [ __CLASS__, 'ajax_test' ] );
-		add_action( 'wp_ajax_dze_klav_tpls',     [ __CLASS__, 'ajax_templates' ] );
-		add_action( 'wp_ajax_dze_klav_import',   [ __CLASS__, 'ajax_import' ] );
-		add_action( 'wp_ajax_dze_klav_shell',    [ __CLASS__, 'ajax_push_shell' ] );
 		// The email is written on the event's own screen and saved by the
 		// event's own Save button — never by a second save of our own.
 		add_action( 'dze_discount_saved', [ __CLASS__, 'save_copy' ], 10, 3 );
@@ -268,6 +269,9 @@ final class DZE_Klaviyo {
 			$out['email_prompt'] = ( $text === trim( self::default_email_prompt() ) ) ? '' : $text;
 			unset( $out['subject_prompt'] );
 		}
+		if ( array_key_exists( 'days', $in ) ) {
+			$out['days'] = max( 1, min( 365, (int) $in['days'] ) );
+		}
 		if ( array_key_exists( 'image_prompt', $in ) ) {
 			$text = trim( sanitize_textarea_field( (string) $in['image_prompt'] ) );
 			$out['image_prompt'] = ( $text === trim( self::default_image_prompt() ) ) ? '' : $text;
@@ -332,6 +336,17 @@ final class DZE_Klaviyo {
 			. "\n"
 			. "Writing, everywhere: one idea per block. A heading is one line. A paragraph is two or three short sentences. A button is two or three words in the imperative. No ALL CAPS, no stacked exclamation marks, no \"Don't miss out\", no emoji unless the promotion is a holiday one.\n"
 			. "Never promise anything the promotion does not say — no free shipping, no gift, no discount code, no extra offer. Never invent a product, a price or a photograph: the product blocks are filled by the shop itself, with what is really selling and what it really costs.";
+	}
+
+	/**
+	 * How far back the product rows look.
+	 *
+	 * It was 14 days written into the code, which is exactly the kind of
+	 * decision that looks like a hidden prompt from the outside. It is one
+	 * number, and it belongs on the settings screen.
+	 */
+	public static function window_days(): int {
+		return max( 1, min( 365, (int) self::conf( 'days', 14 ) ) );
 	}
 
 	/** What the picture for an email is asked to be, when one is generated. */
@@ -721,7 +736,7 @@ final class DZE_Klaviyo {
 			$cats = [ $one ];
 		}
 		$limit = max( 1, min( 9, $limit ) );
-		$ids   = self::best_sellers( 14, $limit, $cats );
+		$ids   = self::best_sellers( self::window_days(), $limit, $cats );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return '';
 		}
@@ -915,13 +930,18 @@ final class DZE_Klaviyo {
 	 */
 	public static function layout( string $body, bool $preview = false ): string {
 		$html = str_replace( self::BODY_MARK, $body, self::shell() );
-		if ( ! $preview ) {
-			return $html;
-		}
-		// On screen, Klaviyo's tags have nobody to fill them in. Rather than
-		// showing the reader raw {% … %}, the ones that mean something here
-		// are answered and the rest are cleared — the frame then looks like
-		// what lands in an inbox, whoever wrote it.
+		return $preview ? self::readable( $html ) : $html;
+	}
+
+	/**
+	 * The email as a person would see it, not as Klaviyo receives it.
+	 *
+	 * On screen, Klaviyo's tags have nobody to fill them in. Rather than
+	 * showing raw {% … %}, the ones that mean something here are answered and
+	 * the rest are cleared — the frame then looks like what lands in an inbox,
+	 * whoever wrote it.
+	 */
+	public static function readable( string $html ): string {
 		$html = str_replace(
 			[ '{% unsubscribe %}', '{{ organization.name }}', '{{ organization.full_address }}' ],
 			[
@@ -933,6 +953,19 @@ final class DZE_Klaviyo {
 		);
 		$html = (string) preg_replace( '/\{%.*?%\}/s', '', $html );
 		return (string) preg_replace( '/\{\{.*?\}\}/s', '', $html );
+	}
+
+	/**
+	 * The frame, readable, with the marker still in it.
+	 *
+	 * Handed to the browser so both previews redraw as you type instead of
+	 * asking the server for a picture of what is already on screen. The frame
+	 * still comes from ONE place — this function — so the preview cannot drift
+	 * from the email that is sent.
+	 */
+	public static function preview_shell(): string {
+		$keep = '@@DZE_BODY@@';
+		return str_replace( $keep, self::BODY_MARK, self::readable( str_replace( self::BODY_MARK, $keep, self::shell() ) ) );
 	}
 
 	/** The email written for one event: its subject, its preview line, its body. */
@@ -958,13 +991,25 @@ final class DZE_Klaviyo {
 			return; // the section was not on the screen: nothing to say about it.
 		}
 		$posted = $in['dze_email'];
-		$one    = [
-			'subject' => mb_substr( sanitize_text_field( (string) ( $posted['subject'] ?? '' ) ), 0, 150 ),
-			'preview' => mb_substr( sanitize_text_field( (string) ( $posted['preview'] ?? '' ) ), 0, 150 ),
-			'body'    => self::clean_html( (string) ( $posted['body'] ?? '' ) ),
-		];
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
+		$all    = get_option( self::OPT_COPY, [] );
+		$all    = is_array( $all ) ? $all : [];
+		$one    = self::copy_for( $rule_id );
+
+		// Each field is written only if the form actually carried it, and an
+		// email already written is never replaced by an empty one — a save that
+		// came from a screen where the editor was collapsed, or a submit that
+		// lost the field, must not throw the writing away.
+		foreach ( [ 'subject', 'preview' ] as $field ) {
+			if ( array_key_exists( $field, $posted ) ) {
+				$one[ $field ] = mb_substr( sanitize_text_field( (string) $posted[ $field ] ), 0, 150 );
+			}
+		}
+		if ( array_key_exists( 'body', $posted ) ) {
+			$body = self::clean_html( (string) $posted['body'] );
+			if ( '' !== trim( $body ) || '' === trim( $one['body'] ) ) {
+				$one['body'] = $body;
+			}
+		}
 		$all[ $rule_id ] = $one;
 		update_option( self::OPT_COPY, $all, false );
 	}
@@ -1628,37 +1673,6 @@ final class DZE_Klaviyo {
 		return '';
 	}
 
-	/**
-	 * The email as it will actually look — built by the same function that
-	 * builds the one Klaviyo receives.
-	 *
-	 * One layout, one code path: a preview drawn by a second piece of code
-	 * would drift from the email the day one of the two is touched.
-	 */
-	public static function ajax_preview(): void {
-		self::guard();
-		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
-		$rules   = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$rule    = (array) ( $rules[ $rule_id ] ?? [] );
-		$body    = isset( $_POST['body'] )
-			? self::clean_html( (string) wp_unslash( $_POST['body'] ) )
-			: self::body_for( $rule, $rule_id );
-		wp_send_json_success( [ 'html' => self::layout( $body, true ) ] );
-	}
-
-	/** The product row on demand, to drop into the body being written. */
-	public static function ajax_products(): void {
-		self::guard();
-		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
-		$rules   = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$rule    = (array) ( $rules[ $rule_id ] ?? [] );
-		$html    = self::products_html( $rule, 3 );
-		if ( '' === $html ) {
-			wp_send_json_error( [ 'message' => __( 'No product could be read from the shop.', 'dazont-ecom' ) ] );
-		}
-		wp_send_json_success( [ 'html' => $html ] );
-	}
-
 	public static function ajax_draft(): void {
 		self::guard();
 		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
@@ -1719,7 +1733,7 @@ final class DZE_Klaviyo {
 		$source = (int) ( $rule['hero_event_id'] ?? 0 );
 		if ( ! $source || ! wp_attachment_is_image( $source ) ) {
 			$source = 0;
-			foreach ( self::best_sellers( 14, 1, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) ) as $pid ) {
+			foreach ( self::best_sellers( self::window_days(), 1, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) ) as $pid ) {
 				$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
 				$img     = $product instanceof WC_Product ? (int) $product->get_image_id() : 0;
 				if ( $img && wp_attachment_is_image( $img ) ) {
@@ -1785,13 +1799,7 @@ final class DZE_Klaviyo {
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		wp_send_json_success( [
-			'url'  => $made['url'],
-			'html' => sprintf(
-				'<p style="margin:0 0 14px;"><img src="%1$s" width="544" alt="" style="display:block;width:100%%;max-width:544px;height:auto;border:0;" /></p>',
-				esc_url( $made['url'] )
-			),
-		] );
+		wp_send_json_success( [ 'url' => $made['url'] ] );
 	}
 
 	// =========================================================================
@@ -1894,7 +1902,7 @@ final class DZE_Klaviyo {
 	}
 
 	// =========================================================================
-	// The frame, read from and written back to Klaviyo
+	// Settings written without a form
 	// =========================================================================
 
 	/**
@@ -1917,94 +1925,8 @@ final class DZE_Klaviyo {
 		add_filter( $tag, [ $me, 'sanitize' ] );
 	}
 
-	/** The templates of the account, newest first, for the shell picker. */
-	public static function ajax_templates(): void {
-		self::guard();
-		$errors = [];
-		$rows   = self::pages( 'templates/?sort=-updated', $errors, 4 );
-		$out    = [];
-		foreach ( $rows as $row ) {
-			$id = (string) ( $row['id'] ?? '' );
-			if ( '' !== $id ) {
-				$out[ $id ] = (string) ( $row['attributes']['name'] ?? $id );
-			}
-		}
-		if ( ! $out ) {
-			wp_send_json_error( [ 'message' => $errors ? implode( ' ', array_unique( $errors ) ) : __( 'No template found in the account.', 'dazont-ecom' ) ] );
-		}
-		wp_send_json_success( [ 'templates' => $out ] );
-	}
 
-	/** One template's HTML, to become the shop's frame. */
-	public static function ajax_import(): void {
-		self::guard();
-		$id  = isset( $_POST['template'] ) ? sanitize_text_field( wp_unslash( $_POST['template'] ) ) : '';
-		if ( '' === $id ) {
-			wp_send_json_error( [ 'message' => __( 'Pick a template first.', 'dazont-ecom' ) ] );
-		}
-		$got = self::request( 'GET', 'templates/' . rawurlencode( $id ) . '/', null, 30 );
-		if ( is_wp_error( $got ) ) {
-			wp_send_json_error( [ 'message' => $got->get_error_message() ] );
-		}
-		$html = (string) ( $got['data']['attributes']['html'] ?? '' );
-		if ( '' === trim( $html ) ) {
-			wp_send_json_error( [ 'message' => __( 'Klaviyo returned no HTML for that template — a drag-and-drop template has none until it is saved once as code.', 'dazont-ecom' ) ] );
-		}
-		wp_send_json_success( [ 'html' => $html ] );
-	}
 
-	/**
-	 * Files the frame back into Klaviyo as a reusable template.
-	 *
-	 * The shop's flows and its hand-made campaigns live in Klaviyo, not here,
-	 * and they need the same frame. One template, rewritten each time rather
-	 * than added to.
-	 */
-	public static function ajax_push_shell(): void {
-		self::guard();
-		$neutral = '<h1 style="text-align:center;">' . esc_html__( 'Your title here', 'dazont-ecom' ) . '</h1>'
-			. '<p style="text-align:center;">' . esc_html__( 'Your text here.', 'dazont-ecom' ) . '</p>';
-		$name    = sprintf(
-			/* translators: %s: the shop name */
-			__( '%s — Dazont frame', 'dazont-ecom' ),
-			get_bloginfo( 'name' )
-		);
-		$tpl     = trim( (string) ( self::settings()['shell_template'] ?? '' ) );
-		$payload = [
-			'data' => [
-				'type'       => 'template',
-				'attributes' => [
-					'name'        => mb_substr( $name, 0, 120 ),
-					'editor_type' => 'CODE',
-					'html'        => self::layout( $neutral ),
-				],
-			],
-		];
-		$made = null;
-		if ( '' !== $tpl ) {
-			$payload['data']['id'] = $tpl;
-			$made = self::request( 'PATCH', 'templates/' . rawurlencode( $tpl ) . '/', $payload, 40 );
-			if ( is_wp_error( $made ) ) {
-				$made = null;
-				unset( $payload['data']['id'] );
-			}
-		}
-		if ( null === $made ) {
-			$made = self::request( 'POST', 'templates/', $payload, 40 );
-			if ( is_wp_error( $made ) ) {
-				wp_send_json_error( [ 'message' => $made->get_error_message() ] );
-			}
-			$tpl = (string) ( $made['data']['id'] ?? '' );
-			self::remember( [ 'shell_template' => $tpl ] );
-		}
-		wp_send_json_success( [
-			'message' => sprintf(
-				/* translators: %s: the template name in Klaviyo */
-				__( 'Saved in Klaviyo as "%s".', 'dazont-ecom' ),
-				$name
-			),
-		] );
-	}
 
 	// =========================================================================
 	// Screens
@@ -2027,10 +1949,18 @@ final class DZE_Klaviyo {
 		wp_localize_script( 'dze-klaviyo', 'dzeKlav', [
 			'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
 			'nonce'    => wp_create_nonce( self::NONCE ),
+			// The frame, handed over once, so both previews redraw as you type
+			// instead of asking the server for a picture of what is already on
+			// screen. It is the very frame the email is sent inside.
+			'shell'    => self::preview_shell(),
+			'mark'     => self::BODY_MARK,
+			'shopName' => get_bloginfo( 'name' ),
+			'sample'   => $config ? self::sample_body() : '',
 			// The segments Klaviyo is not maintaining, so the settings screen
 			// can offer to switch the chosen one back on.
 			'inactive' => array_values( (array) ( self::catalogue()['inactive'] ?? [] ) ),
 			'i18n'    => [
+				'unsub'    => __( 'Unsubscribe', 'dazont-ecom' ),
 				'loading'  => __( 'Reading your Klaviyo account…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing…', 'dazont-ecom' ),
 				'creating' => __( 'Creating the draft in Klaviyo…', 'dazont-ecom' ),
@@ -2040,18 +1970,11 @@ final class DZE_Klaviyo {
 				'open'     => __( 'Open draft ↗', 'dazont-ecom' ),
 				'again'    => __( 'Again', 'dazont-ecom' ),
 				'written'  => __( 'Written — read it, then save the event.', 'dazont-ecom' ),
-				'rendering'=> __( 'Drawing it…', 'dazont-ecom' ),
-				'pick'     => __( 'Choose an image', 'dazont-ecom' ),
 				'working'  => __( 'Talking to Klaviyo…', 'dazont-ecom' ),
 				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'shot'     => __( 'Made, and filed in the media library.', 'dazont-ecom' ),
 				'sending'  => __( 'Handing it to Klaviyo…', 'dazont-ecom' ),
-				'mark'     => sprintf(
-					/* translators: %s: the body marker */
-					__( 'Imported. Now put %s on the line where the email\'s own content goes, then save.', 'dazont-ecom' ),
-					self::BODY_MARK
-				),
 			],
 		] );
 	}
@@ -2104,7 +2027,7 @@ final class DZE_Klaviyo {
 		?>
 		<h3><?php esc_html_e( 'The email that announces it', 'dazont-ecom' ); ?></h3>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'The shop\'s header and footer are added around it, unchanged. Saved with the event; sent to Klaviyo as a draft when you press "Draft email" on the events list.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Written from the promotion itself. The shop\'s header and footer are added around it, unchanged. Saved with the event by the Save button at the bottom of this page — there is no save of its own — and sent to Klaviyo as a draft when you press "Draft email" on the events list.', 'dazont-ecom' ); ?>
 		</p>
 		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>">
 			<table class="form-table" role="presentation">
@@ -2120,17 +2043,15 @@ final class DZE_Klaviyo {
 
 			<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
 				<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-klav-e-shot" title="<?php esc_attr_e( 'Puts a real photograph of the shop in the setting this promotion evokes, with fal.ai, files it in the media library and opens the email with it.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Change the picture', 'dazont-ecom' ); ?></button>
 				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
 				<span style="flex:1;"></span>
-				<button type="button" class="button" id="dze-klav-e-shot" title="<?php esc_attr_e( 'Puts a real photograph of the shop in the setting this promotion evokes, with fal.ai, and files it in the media library.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Make a picture', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-klav-e-img"><?php esc_html_e( 'Image', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-klav-e-prod"><?php esc_html_e( 'Products', 'dazont-ecom' ); ?></button>
-				<span class="dze-klav-switch" style="margin-left:6px;">
-					<button type="button" class="button dze-klav-tab is-on" data-tab="code"><?php esc_html_e( 'Code', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button>
+				<span class="dze-klav-switch">
+					<button type="button" class="button dze-klav-tab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
 				</span>
 			</p>
-			<textarea id="dze-klav-e-body" name="dze_email[body]" rows="18" class="large-text code" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( $body ); ?></textarea>
-			<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="display:none;width:100%;height:760px;border:1px solid #dcdcde;background:#fff;"></iframe>
+			<textarea id="dze-klav-e-body" name="dze_email[body]" rows="18" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( $body ); ?></textarea>
+			<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;height:760px;border:1px solid #dcdcde;background:#fff;"></iframe>
 			<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 				<label for="dze-klav-e-to"><?php esc_html_e( 'Send a test to', 'dazont-ecom' ); ?></label>
 				<input type="text" id="dze-klav-e-to" class="regular-text" value="<?php echo esc_attr( (string) self::conf( 'test_to', (string) get_option( 'admin_email', '' ) ) ); ?>" placeholder="<?php echo esc_attr( (string) get_option( 'admin_email', '' ) ); ?>" />
@@ -2148,6 +2069,22 @@ final class DZE_Klaviyo {
 			</style>
 		</div>
 		<?php
+	}
+
+	/**
+	 * What the template preview is filled with.
+	 *
+	 * Real products at real prices rather than grey boxes: a frame is judged on
+	 * what it does to the content, and lorem ipsum judges nothing.
+	 */
+	public static function sample_body(): string {
+		return self::blocks_html( [
+			[ 'type' => 'hero', 'title' => __( 'Your title, over your picture', 'dazont-ecom' ) ],
+			[ 'type' => 'text', 'text' => __( 'Two or three short sentences saying what the offer is, what it covers and when it ends.', 'dazont-ecom' ) ],
+			[ 'type' => 'button', 'label' => __( 'Shop the sale', 'dazont-ecom' ), 'url' => home_url( '/' ) ],
+			[ 'type' => 'section', 'text' => __( 'Selling right now', 'dazont-ecom' ) ],
+			[ 'type' => 'products', 'count' => 3 ],
+		], [] );
 	}
 
 	/** The one popup, printed once at the bottom of the events screen. */
@@ -2242,13 +2179,16 @@ final class DZE_Klaviyo {
 				</tr>
 			</table>
 
-			<h2 class="title"><?php esc_html_e( 'Who it goes to', 'dazont-ecom' ); ?></h2>
+			<h2 class="title"><?php esc_html_e( 'Who receives these emails', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'Answered once, and used by every promotion. Your lists and segments live in Klaviyo, so the two menus below are filled from your account — press the button to read them.', 'dazont-ecom' ); ?>
+		</p>
 		<p>
-			<button type="button" class="button" id="dze-klav-refresh" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Read them from Klaviyo', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button" id="dze-klav-refresh" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Get lists & segments from Klaviyo', 'dazont-ecom' ); ?></button>
 			<span id="dze-klav-refresh-msg" style="margin-left:8px;font-size:13px;">
 				<?php
 				if ( empty( $cat['audiences'] ) ) {
-					esc_html_e( 'Nothing read yet — press the button once and the lists below fill in.', 'dazont-ecom' );
+					esc_html_e( 'Not read yet — press the button once and the two menus fill in.', 'dazont-ecom' );
 				} else {
 					printf(
 						/* translators: %s: when the account was last read */
@@ -2264,7 +2204,7 @@ final class DZE_Klaviyo {
 				<th scope="row"><label for="dze-klav-inc"><?php esc_html_e( 'Send to', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<select id="dze-klav-inc" name="<?php echo esc_attr( self::OPT . '[included]' ); ?>" style="min-width:340px;">
-						<option value=""><?php esc_html_e( '— pick an audience —', 'dazont-ecom' ); ?></option>
+						<option value=""><?php esc_html_e( '— pick a list or a segment —', 'dazont-ecom' ); ?></option>
 						<?php foreach ( (array) $cat['audiences'] as $id => $label ) : ?>
 							<option value="<?php echo esc_attr( $id ); ?>" <?php selected( $id, $inc ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
@@ -2272,11 +2212,11 @@ final class DZE_Klaviyo {
 							<option value="<?php echo esc_attr( $inc ); ?>" selected><?php echo esc_html( $inc ); ?></option>
 						<?php endif; ?>
 					</select>
-					<p class="description"><?php esc_html_e( 'One campaign for everybody: the language each reader gets is decided by the language on his profile, not by a separate campaign per market.', 'dazont-ecom' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Normally all your contacts. Each reader is served in his own language by Klaviyo, so one campaign covers every market — you never need one per country.', 'dazont-ecom' ); ?></p>
 				</td>
 			</tr>
 			<tr>
-				<th scope="row"><label for="dze-klav-exc"><?php esc_html_e( 'Except', 'dazont-ecom' ); ?></label></th>
+				<th scope="row"><label for="dze-klav-exc"><?php esc_html_e( 'But not', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<select id="dze-klav-exc" name="<?php echo esc_attr( self::OPT . '[excluded]' ); ?>" style="min-width:340px;">
 						<option value=""><?php esc_html_e( '— nobody —', 'dazont-ecom' ); ?></option>
@@ -2288,67 +2228,71 @@ final class DZE_Klaviyo {
 						<?php endif; ?>
 					</select>
 					<p class="description" style="max-width:820px;margin-bottom:8px;">
-						<strong><?php esc_html_e( 'Recommended on every promotion:', 'dazont-ecom' ); ?></strong>
-						<?php esc_html_e( 'the people who have just bought. Announcing a sale to somebody who paid full price three days ago earns a refund request, not an order.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'Put your recent buyers here. Announcing a sale to somebody who paid full price three days ago earns a refund request, not an order. No segment for it yet? Build it in one click:', 'dazont-ecom' ); ?>
 					</p>
 					<p class="dze-klav-seg-tools" style="margin:0 0 6px;">
-						<button type="button" class="button" id="dze-klav-activate" style="<?php echo in_array( $exc, (array) ( $cat['inactive'] ?? [] ), true ) ? '' : 'display:none;'; ?>">
-							&#9889; <?php esc_html_e( 'Switch it back on in Klaviyo', 'dazont-ecom' ); ?>
+						<label>
+							<?php esc_html_e( 'people who bought in the last', 'dazont-ecom' ); ?>
+							<input type="number" id="dze-klav-weeks" value="3" min="1" max="12" class="small-text" />
+							<?php esc_html_e( 'weeks', 'dazont-ecom' ); ?>
+						</label>
+						<button type="button" class="button" id="dze-klav-make-seg" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Create this segment', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button" id="dze-klav-activate" style="margin-left:10px;<?php echo in_array( $exc, (array) ( $cat['inactive'] ?? [] ), true ) ? '' : 'display:none;'; ?>">
+							&#9889; <?php esc_html_e( 'This one is paused in Klaviyo — switch it back on', 'dazont-ecom' ); ?>
 						</button>
-						<span style="margin-left:10px;">
-							<?php esc_html_e( 'or build one:', 'dazont-ecom' ); ?>
-							<label>
-								<?php esc_html_e( 'buyers of the last', 'dazont-ecom' ); ?>
-								<input type="number" id="dze-klav-weeks" value="3" min="1" max="12" class="small-text" />
-								<?php esc_html_e( 'weeks', 'dazont-ecom' ); ?>
-							</label>
-							<button type="button" class="button" id="dze-klav-make-seg" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Create it', 'dazont-ecom' ); ?></button>
-						</span>
 						<span id="dze-klav-seg-msg" style="margin-left:8px;font-size:13px;"></span>
-					</p>
-					<p class="description" style="max-width:820px;">
-						<?php esc_html_e( 'Segments marked inactive are listed too, because Klaviyo hides them from its own listing and your campaigns may well use one. An inactive segment is not maintained: excluding it excludes nobody until it is switched back on — which the button above does, in Klaviyo, without leaving this page.', 'dazont-ecom' ); ?>
 					</p>
 				</td>
 			</tr>
 		</table>
 
-		<h2 class="title"><?php esc_html_e( 'The frame every email is built inside', 'dazont-ecom' ); ?></h2>
+		<h2 class="title"><?php esc_html_e( 'Email template', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
-			<?php
-			printf(
-				/* translators: %s: the body marker, e.g. {{ BODY }} */
-				esc_html__( 'The header and the footer are the same on every promotion — that is the point of them. Shipped as this plugin draws them: your logo at the top, the three promises and the legal lines at the bottom, the type and the colours read from the theme. If your real frame lives in a Klaviyo template, import it below rather than have this one imitate it: the HTML comes across as it stands, you put %s once on the line where the email\'s own content goes, and every promotion is built inside it from then on.', 'dazont-ecom' ),
-				'<code>' . esc_html( self::BODY_MARK ) . '</code>'
-			);
-			?>
+			<?php esc_html_e( 'The header and the footer, identical on every promotion. Each email is built inside this template, in the place marked in the HTML. Shipped ready to use — you should not have to touch it.', 'dazont-ecom' ); ?>
 		</p>
-		<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-			<button type="button" class="button" id="dze-klav-tpls" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Import from a Klaviyo template', 'dazont-ecom' ); ?></button>
-			<select id="dze-klav-tpl" style="min-width:280px;display:none;"></select>
-			<button type="button" class="button" id="dze-klav-import" style="display:none;"><?php esc_html_e( 'Bring its HTML here', 'dazont-ecom' ); ?></button>
-			<span style="flex:1;"></span>
-			<button type="button" class="button" id="dze-klav-shell-push" <?php disabled( ! $has_key ); ?> title="<?php esc_attr_e( 'Files this frame in Klaviyo as a reusable template, so your flows and your hand-made campaigns use the same one.', 'dazont-ecom' ); ?>"><?php esc_html_e( '(Re)create it in Klaviyo', 'dazont-ecom' ); ?></button>
+		<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+			<button type="button" class="button-link" id="dze-klav-shell-reset">&#8634; <?php esc_html_e( 'Restore the shipped template', 'dazont-ecom' ); ?></button>
 			<span id="dze-klav-shell-msg" style="font-size:13px;"></span>
+			<span style="flex:1;"></span>
+			<span class="dze-klav-switch">
+				<button type="button" class="button dze-klav-stab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-stab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
+			</span>
 		</p>
-		<textarea id="dze-klav-shell" name="<?php echo esc_attr( self::OPT . '[shell]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::shell() ); ?></textarea>
-		<p>
-			<button type="button" class="button-link" id="dze-klav-shell-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-		</p>
+		<textarea id="dze-klav-shell" name="<?php echo esc_attr( self::OPT . '[shell]' ); ?>" rows="10" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::shell() ); ?></textarea>
+		<iframe id="dze-klav-shell-frame" title="<?php esc_attr_e( 'Template preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;max-width:880px;height:640px;border:1px solid #dcdcde;background:#fff;"></iframe>
 		<script>
 		(function () {
 			var shipped = <?php echo wp_json_encode( self::default_shell() ); ?>;
 			var btn = document.getElementById('dze-klav-shell-reset');
 			var ta  = document.getElementById('dze-klav-shell');
 			if ( btn && ta ) {
-				btn.addEventListener('click', function () { ta.value = shipped; ta.focus(); });
+				btn.addEventListener('click', function () {
+					ta.value = shipped;
+					// The preview watches the field, so it redraws on its own.
+					ta.dispatchEvent(new Event('input', { bubbles: true }));
+				});
 			}
 		}());
 		</script>
 
+		<h2 class="title"><?php esc_html_e( 'Which products the emails show', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'Product rows are filled by the shop, never by the model: what actually sold over the window below, restricted to the promotion\'s own categories when it names any, priced as the promotion prices them. That is why relaunching the writing gives you the same products — best-sellers are best-sellers. Widen the window to reach further back.', 'dazont-ecom' ); ?>
+		</p>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><label for="dze-klav-days"><?php esc_html_e( 'Best-sellers of the last', 'dazont-ecom' ); ?></label></th>
+				<td>
+					<input type="number" id="dze-klav-days" name="<?php echo esc_attr( self::OPT . '[days]' ); ?>" value="<?php echo esc_attr( (string) self::window_days() ); ?>" min="1" max="365" class="small-text" />
+					<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
+					<p class="description"><?php esc_html_e( 'A quiet window falls back to the catalogue\'s own popularity, so a row is never empty.', 'dazont-ecom' ); ?></p>
+				</td>
+			</tr>
+		</table>
+
 		<h2 class="title"><?php esc_html_e( 'How the email is written', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'What the email is made of is not fixed here: the model composes it from blocks — a picture with a title, paragraphs, buttons, labelled rows of products, rules — and chooses how many and in what order. These are the instructions it composes under. Prices, photographs and links are never its business: the shop fills those in.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'The model composes the email itself — a picture with a title, paragraphs, buttons, labelled rows of products, rules — and decides how many and in what order. These are the instructions it works under. Prices, photographs and links are never its business.', 'dazont-ecom' ); ?>
 		</p>
 			<textarea id="dze-klav-prompt" name="<?php echo esc_attr( self::OPT . '[email_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::email_prompt() ); ?></textarea>
 			<p>
@@ -2371,7 +2315,7 @@ final class DZE_Klaviyo {
 
 		<h2 class="title"><?php esc_html_e( 'How its picture is made', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'The "Make a picture" button on an event runs this, with fal.ai, on a photograph the shop already owns — the one chosen for the event, or the product that is actually selling. It never invents a product, and it never writes a word into the image: the title goes over it in the email, where it can be read in every language the shop sells in.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( '"Change the picture", on an event, runs this with fal.ai on a photograph the shop already owns — the one chosen for the event, or the product that is selling. It never invents a product, and it never writes a word into the image: the title goes over it in the email, where every market can read it.', 'dazont-ecom' ); ?>
 		</p>
 			<textarea id="dze-klav-img-prompt" name="<?php echo esc_attr( self::OPT . '[image_prompt]' ); ?>" rows="7" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::image_prompt() ); ?></textarea>
 			<p>
