@@ -643,7 +643,17 @@ final class DZE_Gmc {
 					'promotion'  => $promotion,
 					'dataSource' => $data_source,
 				] );
-				$statuses[ $sk ] = [ 'status' => 'synced', 'message' => '', 'promotion_id' => $promotion['promotionId'], 'time' => time() ];
+				// The merchant is written down with the result: cancelling later
+				// must reach the account it was actually pushed to, even if the
+				// settings have changed since.
+				$statuses[ $sk ] = [
+					'status'       => 'synced',
+					'message'      => '',
+					'promotion_id' => $promotion['promotionId'],
+					'merchant_id'  => $t['merchant_id'],
+					'language'     => $t['language'],
+					'time'         => time(),
+				];
 			} catch ( \Throwable $e ) {
 				$statuses[ $sk ] = [ 'status' => 'error', 'message' => $e->getMessage(), 'time' => time() ];
 			}
@@ -662,38 +672,68 @@ final class DZE_Gmc {
 	 * Google then stops showing it. Best-effort and silent: a failure here must
 	 * never block the shop-side delete.
 	 */
-	public function cancel_rule( array $rule ): void {
+	public function cancel_rule( array $rule ): array {
 		if ( ( $rule['type'] ?? '' ) !== 'sale' ) {
-			return;
+			return [];
 		}
 		$synced = (array) ( $rule['gmc_sync'] ?? [] );
 		if ( empty( $synced ) ) {
-			return; // nothing was ever pushed.
+			return []; // nothing was ever pushed.
 		}
 		try {
 			$token = $this->get_access_token();
 		} catch ( \Throwable $e ) {
-			return;
+			return [ [ 'ok' => false, 'where' => __( 'Google', 'dazont-ecom' ), 'message' => $e->getMessage() ] ];
 		}
+		// Google's promotions cannot be deleted; a promotion is ended by giving
+		// it an effective period that is already over. One minute ago, so it is
+		// unambiguously in the past whatever Google's clock says.
 		$now   = time();
 		$start = gmdate( 'Y-m-d\TH:i:s\Z', $now - 120 );
 		$end   = gmdate( 'Y-m-d\TH:i:s\Z', $now - 60 );
 
-		foreach ( $this->sync_targets( $rule ) as $t ) {
-			$sk = $t['key'] . '|' . $t['country'];
-			if ( ( $synced[ $sk ]['status'] ?? '' ) !== 'synced' ) {
+		// Walked over what was actually PUSHED, not over the targets the
+		// settings would produce today. An account since removed from the
+		// "Google Ads only" filter, a country dropped from a data source, an
+		// account renamed: each of those used to leave a live promotion in
+		// Merchant Center that nothing would ever take down again.
+		$accounts = self::get_accounts();
+		$out      = [];
+		foreach ( $synced as $sk => $record ) {
+			if ( ( $record['status'] ?? '' ) !== 'synced' ) {
+				continue;
+			}
+			$parts    = explode( '|', (string) $sk );
+			$key      = (string) ( $parts[0] ?? '' );
+			$country  = strtoupper( (string) ( $parts[1] ?? '' ) );
+			$merchant = (string) ( $record['merchant_id'] ?? ( $accounts[ $key ]['merchant_id'] ?? '' ) );
+			$language = (string) ( $record['language'] ?? strtolower( substr( $key, 0, 2 ) ) );
+			if ( '' === $merchant || '' === $country ) {
+				$out[] = [
+					'ok'      => false,
+					'where'   => $sk,
+					/* translators: %s: the language/country the promotion was pushed to */
+					'message' => __( 'The Merchant Center account it was pushed to is no longer configured, so it could not be taken down.', 'dazont-ecom' ),
+				];
 				continue;
 			}
 			try {
-				$promotion = $this->build_promotion( $rule, $t['key'], $t['country'], $t['language'] );
+				$promotion = $this->build_promotion( $rule, $key, $country, $language );
+				// The same promotion id, or Google files a second promotion
+				// beside the live one instead of replacing it.
+				if ( ! empty( $record['promotion_id'] ) ) {
+					$promotion['promotionId'] = (string) $record['promotion_id'];
+				}
 				$promotion['attributes']['promotionEffectiveTimePeriod'] = [ 'startTime' => $start, 'endTime' => $end ];
-				$data_source = $this->resolve_data_source( $t['merchant_id'], $t['country'], $t['language'], $token );
-				$url = self::MERCHANT_API . '/' . self::PROMO_SUBAPI . '/accounts/' . $t['merchant_id'] . '/promotions:insert';
+				$data_source = $this->resolve_data_source( $merchant, $country, $language, $token );
+				$url = self::MERCHANT_API . '/' . self::PROMO_SUBAPI . '/accounts/' . $merchant . '/promotions:insert';
 				$this->request( 'POST', $url, $token, [ 'promotion' => $promotion, 'dataSource' => $data_source ] );
+				$out[] = [ 'ok' => true, 'where' => $merchant . ' ' . $country, 'message' => '' ];
 			} catch ( \Throwable $e ) {
-				// ignore — best effort.
+				$out[] = [ 'ok' => false, 'where' => $merchant . ' ' . $country, 'message' => $e->getMessage() ];
 			}
 		}
+		return $out;
 	}
 
 	/**

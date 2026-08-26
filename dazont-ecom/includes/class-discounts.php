@@ -1764,6 +1764,7 @@ final class DZE_Discounts {
 		if ( $text === '' ) {
 			return;
 		}
+		$text = self::banner_line( $rule, $text );
 
 		self::$rendered[ $id ] = true;
 
@@ -1789,6 +1790,34 @@ final class DZE_Discounts {
 			esc_html( $text ),
 			$timer // already-escaped markup built above.
 		);
+	}
+
+	/**
+	 * What the banner actually says: the promotion's name, then its discount.
+	 *
+	 * The figure is added HERE rather than typed into the field, for two
+	 * reasons. A percentage typed by hand is a percentage that goes on saying
+	 * 15 the day the promotion is changed to 20 — and the shop would find out
+	 * from a customer. And the name is what gets translated market by market:
+	 * "-20% OFF" is not worth a translation pass, and a machine translating it
+	 * is a machine that can get the number wrong.
+	 */
+	public static function banner_line( array $rule, string $text ): string {
+		$pct = (float) ( $rule['percent'] ?? 0 );
+		if ( $pct <= 0 ) {
+			return $text;
+		}
+		$text = rtrim( $text );
+		// A title that already ends on its own punctuation keeps it.
+		if ( '' !== $text && ! preg_match( '/[!?.…:]$/u', $text ) ) {
+			$text .= '!';
+		}
+		$figure = rtrim( rtrim( number_format( $pct, 2, '.', '' ), '0' ), '.' );
+		return trim( $text . ' ' . sprintf(
+			/* translators: %s: the discount, e.g. 15 */
+			__( '-%s%% OFF', 'dazont-ecom' ),
+			$figure
+		) );
 	}
 
 	private function print_timer_script(): void {
@@ -2162,9 +2191,10 @@ final class DZE_Discounts {
 			wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 			exit;
 		}
-		$rules   = self::get_rules();
-		$done    = 0;
-		$skipped = 0;
+		$rules        = self::get_rules();
+		$done         = 0;
+		$skipped      = 0;
+		$gmc_failures = [];
 
 		foreach ( $ids as $id ) {
 			if ( ! isset( $rules[ $id ] ) ) {
@@ -2173,7 +2203,7 @@ final class DZE_Discounts {
 			if ( 'delete' === $what ) {
 				// Pushed to Merchant Center: cancelled there too, as one delete does.
 				if ( ! empty( $rules[ $id ]['gmc_sync'] ) && class_exists( 'DZE_Gmc' ) ) {
-					DZE_Gmc::instance()->cancel_rule( $rules[ $id ] );
+					$gmc_failures = array_merge( $gmc_failures, DZE_Gmc::instance()->cancel_rule( $rules[ $id ] ) );
 				}
 				unset( $rules[ $id ] );
 				do_action( 'dze_discount_deleted', $id );
@@ -2207,6 +2237,7 @@ final class DZE_Discounts {
 
 		if ( 'delete' === $what ) {
 			$args['deleted'] = 1;
+			self::report_cancel( $gmc_failures );
 		} elseif ( $skipped ) {
 			set_transient( 'dze_discount_notice', sprintf(
 				/* translators: 1: number switched on, 2: number left off */
@@ -2226,6 +2257,31 @@ final class DZE_Discounts {
 		exit;
 	}
 
+	/**
+	 * Says what Merchant Center did with a take-down.
+	 *
+	 * Silence on success — a promotion removed everywhere it was pushed needs
+	 * no announcement — and the account and Google's own words on failure,
+	 * because that is a live advert the shop has to go and end by hand.
+	 *
+	 * @param array<int,array{ok:bool,where:string,message:string}> $results
+	 */
+	private static function report_cancel( array $results ): void {
+		$bad = array_filter( $results, static fn( array $r ): bool => empty( $r['ok'] ) );
+		if ( ! $bad ) {
+			return;
+		}
+		$lines = [];
+		foreach ( $bad as $one ) {
+			$lines[] = $one['where'] . ' — ' . $one['message'];
+		}
+		set_transient( 'dze_discount_notice', sprintf(
+			/* translators: %s: the accounts and what Google said */
+			__( 'Deleted here, but Merchant Center did not take it down everywhere: %s. Those promotions are still live in Google.', 'dazont-ecom' ),
+			implode( ' · ', $lines )
+		), 120 );
+	}
+
 	public function handle_delete(): void {
 		check_admin_referer( 'dze_discount_delete' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -2234,9 +2290,12 @@ final class DZE_Discounts {
 		$id    = isset( $_GET['rule'] ) ? sanitize_key( wp_unslash( $_GET['rule'] ) ) : '';
 		$rules = self::get_rules();
 
-		// If this promo was pushed to Google Merchant Center, cancel it there too.
+		// Pushed to Merchant Center: taken down there too, on every account it
+		// actually reached — and if one of them refuses, that is said rather
+		// than swallowed. A promotion left live in Google after the shop has
+		// deleted it is an advert for a price nobody honours.
 		if ( isset( $rules[ $id ] ) && ! empty( $rules[ $id ]['gmc_sync'] ) && class_exists( 'DZE_Gmc' ) ) {
-			DZE_Gmc::instance()->cancel_rule( $rules[ $id ] );
+			self::report_cancel( DZE_Gmc::instance()->cancel_rule( $rules[ $id ] ) );
 		}
 
 		$back = ( isset( $rules[ $id ]['type'] ) && in_array( $rules[ $id ]['type'], self::EVENT_TYPES, true ) ) ? self::MENU_SLUG_EVENTS : self::MENU_SLUG;
