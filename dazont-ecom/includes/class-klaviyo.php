@@ -416,7 +416,7 @@ final class DZE_Klaviyo {
 			. "\n"
 			. "THE HTML, because an inbox is not a browser:\n"
 			. "- Return the body only: no <html>, <head>, <body>, no logo, no footer, no unsubscribe line. The shop's header and footer are added around what you write.\n"
-			. "- Your canvas is 600 pixels wide, edge to edge, and nothing is padded for you. A photograph given width=\"600\" touches both edges of the card, which is what a good opening image does; anything meant to be read needs its own inset — around 24px left and right — or it will run into the paper. Set it yourself, on the cell or on the block, and vary it if the email is better for it.\n"
+			. "- Your canvas is about 550 pixels wide: the body sits in a column already inset by 24px on every side, so you never add an outer margin of your own. A picture given width=\"550\" fills it.\n"
 			. "- Tables for anything side by side (<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">), never floats, never flexbox, never a class of your own, never a <style> block. Inline styles only.\n"
 			. "- Every row you build must be full. Three products in a row of three, two in a row of two — never a row of three holding one product and two holes.\n"
 			. "- Images: width and a max-width in the style, height:auto, display:block, border:0.\n"
@@ -1712,7 +1712,8 @@ final class DZE_Klaviyo {
 	 * @return array{lines:string,images:string[],prices:string[]}
 	 */
 	public static function material( array $rule, int $limit = 9 ): array {
-		$out = [ 'lines' => '', 'images' => [], 'prices' => [] ];
+		$out = [ 'lines' => '', 'cards' => [], 'images' => [], 'prices' => [] ];
+		$t   = self::theme_style();
 		$ids = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return $out;
@@ -1746,6 +1747,29 @@ final class DZE_Klaviyo {
 				. '   image: ' . $img . "\n"
 				. ( '' !== $was ? '   was: ' . $was . '   now: ' . $now . "\n" : '   price: ' . $now . "\n" )
 				. ( '' !== $cat ? '   category: ' . $cat . "\n" : '' );
+			// The block itself, built HERE and handed to the writing ready-made.
+			// How many products, how they are grouped and where they sit is the
+			// prompt's decision; what one of them LOOKS like is not, because a
+			// card reinvented on every send is a shop whose products are
+			// dressed differently in every email.
+			$out['cards'][] = sprintf(
+				'<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 8px;">'
+				. '<a href="%1$s" style="text-decoration:none;color:%6$s;">'
+				. '<img src="%2$s" alt="%3$s" width="240" style="display:block;width:100%%;max-width:240px;height:auto;border:0;" />'
+				. '<div style="padding:12px 2px 4px;font:400 15px/1.35 %5$s;color:%6$s;">%3$s</div>'
+				. '<div style="padding:0 2px 12px;font:400 15px/1.4 %7$s;">%4$s</div></a>'
+				. '<a href="%1$s" style="display:inline-block;background:%8$s;color:#ffffff;text-decoration:none;padding:11px 20px;font:400 14px %7$s;">%9$s</a>'
+				. '</td></tr></table>',
+				esc_url( (string) $product->get_permalink() ),
+				esc_url( $img ),
+				esc_html( $product->get_name() ),
+				self::price_html( $product, $rule ),
+				$t['head'],
+				esc_attr( $t['ink'] ),
+				$t['body'],
+				esc_attr( $t['link'] ),
+				esc_html__( 'Shop now', 'dazont-ecom' )
+			);
 			if ( '' !== $img ) {
 				$out['images'][] = $img;
 			}
@@ -1831,6 +1855,12 @@ final class DZE_Klaviyo {
 			. ( '' !== $mat['lines']
 				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
 				: "The shop returned no product. Write the email without a product.\n" );
+		if ( ! empty( $mat['cards'] ) ) {
+			$user .= "\nEach one is ALREADY BUILT, in the shop's own type and colour. Paste the block for a product exactly as it stands — do not restyle it, do not rewrite its link text, do not rebuild it from the lines above. How many you show, how they are grouped and where they go is yours; what one of them looks like is the shop's.\n\n";
+			foreach ( $mat['cards'] as $i => $card ) {
+				$user .= 'PRODUCT BLOCK ' . ( $i + 1 ) . ":\n" . $card . "\n\n";
+			}
+		}
 		$user .= "\n--- THE SHOP'S OWN TYPE AND COLOUR ---\n"
 			. 'Headings font-family: ' . $t['head'] . "\n"
 			. 'Body font-family: ' . $t['body'] . "\n"
@@ -1838,6 +1868,16 @@ final class DZE_Klaviyo {
 			. 'Button and link colour: ' . $t['link'] . "\n"
 			. 'Body text size: ' . (int) $t['size'] . "px\n";
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::email_prompt() . "\n"
+			// The shop's own rules, added automatically. They are NOT put into
+			// the editable prompt: a rule written there only reaches a shop
+			// that never customised it, and the one shop that did is exactly
+			// the one still getting it wrong. Same treatment as the language
+			// constraint — the owner's prompt is never rewritten, it is
+			// followed by what the shop requires whatever it says.
+			. "\n--- THE SHOP'S OWN RULES, WHICH OVERRIDE THE INSTRUCTIONS ABOVE ---\n"
+			. "- The header and the footer are added around your body. They ALREADY carry the shop's service promises — worldwide delivery, customer support, secure payment — as badges. Never write those promises in the body: not as a line, not as a reassurance, not as a closing sentence. The reader sees them once, under what you wrote.\n"
+			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
+			. "- Use the product blocks exactly as they were handed to you.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
@@ -2200,13 +2240,18 @@ final class DZE_Klaviyo {
 			self::remember( [ 'test_template' => $tpl ] );
 		}
 
+		// The beta track. Sending a preview is not part of the stable revision:
+		// asked for there, Klaviyo answers "No valid revisions found for
+		// method" — a 404 that reads like a missing endpoint and is really a
+		// request on the wrong track. The localisation endpoints are on the
+		// same one.
 		$sent = self::request( 'POST', 'template-preview-send-jobs/', [
 			'data' => [
 				'type'          => 'template-preview-send-job',
 				'attributes'    => [ 'recipients' => $to ],
 				'relationships' => [ 'template' => [ 'data' => [ 'type' => 'template', 'id' => $tpl ] ] ],
 			],
-		], 40 );
+		], 40, true );
 		if ( is_wp_error( $sent ) ) {
 			throw new RuntimeException( $sent->get_error_message() );
 		}
@@ -2345,15 +2390,17 @@ final class DZE_Klaviyo {
 	 * already carries in its head styles it: headings come out in the shop's
 	 * font, links in its colour, and the mobile rules apply.
 	 *
-	 * What it does NOT do is impose a shape. There is no padding here on
-	 * purpose: an inset of ours would be a layout decision taken away from the
-	 * prompt, and a hero photograph could never reach the edge of the card.
-	 * The canvas is 600 pixels wide, edge to edge, and everything that happens
-	 * on it — the margins included — is written in the prompt.
+	 * It carries ONE thing of its own: a 24px inset, the margin the shop's own
+	 * Klaviyo marketing emails have. Leaving it to the prompt was tried and it
+	 * does not hold — a body with no margin runs into the paper the first time
+	 * the writing forgets, and "remember to pad your text" is exactly the kind
+	 * of rule that is right nine times and wrong the tenth. A guaranteed
+	 * margin costs a full-bleed photograph; a photograph is worth less than an
+	 * email that is never malformed.
 	 */
 	private const BODY_SLOT = '<div class="mj-column-per-100 mj-outlook-group-fix component-wrapper kl-text-table-layout" style="font-size:0px;text-align:left;direction:ltr;vertical-align:top;width:100%;">'
 		. '<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;" width="100%"><tbody><tr>'
-		. '<td align="left" class="kl-text" style="font-size:0px;padding:0;word-break:break-word;">'
+		. '<td align="left" class="kl-text" style="font-size:0px;padding:24px;word-break:break-word;">'
 		. '<div style="font-family:\'Roboto\', Helvetica, Arial, sans-serif;font-size:16px;font-weight:400;line-height:1.3;text-align:left;">'
 		. self::BODY_MARK
 		. '</div></td></tr></tbody></table></div>';
@@ -2837,6 +2884,18 @@ final class DZE_Klaviyo {
 		<h2 class="title"><?php esc_html_e( 'Email copy prompt', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Decides the whole email: the words and the layout. Products, photographs, links and prices are handed over by the shop and checked on the way back.', 'dazont-ecom' ); ?>
+		</p>
+		<p class="description" style="max-width:880px;padding:10px 12px;border-left:4px solid #c3c4c7;background:#f6f7f7;">
+			<strong><?php esc_html_e( 'This is not the only thing the email is written from.', 'dazont-ecom' ); ?></strong><br />
+			<?php
+			printf(
+				/* translators: %s: link to the shop profile field */
+				esc_html__( 'Your %s is sent with every email as background on the shop. If a sentence keeps coming back that you never asked for — a delivery promise, a guarantee — it is almost certainly written there, not here.', 'dazont-ecom' ),
+				'<a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ) ) . '">' .
+					esc_html__( 'About this shop', 'dazont-ecom' ) . '</a>'
+			);
+			?><br />
+			<?php esc_html_e( 'Two things are fixed and no prompt changes them: the product blocks are built by the shop in its own type and colour, and the service badges in the footer are never repeated in the body.', 'dazont-ecom' ); ?>
 		</p>
 			<textarea id="dze-klav-prompt" name="<?php echo esc_attr( self::OPT . '[email_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::email_prompt() ); ?></textarea>
 			<p>
