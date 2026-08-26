@@ -68,6 +68,8 @@ final class DZE_Gmc {
 		add_action( 'wp_ajax_dze_gmc_test',      [ $this, 'ajax_test' ] );
 		add_action( 'wp_ajax_dze_gmc_verify',    [ $this, 'ajax_verify' ] );
 		add_action( 'wp_ajax_dze_gmc_register',  [ $this, 'ajax_register' ] );
+		add_action( 'wp_ajax_dze_gmc_promotions', [ $this, 'ajax_promotions' ] );
+		add_action( 'wp_ajax_dze_gmc_end_promo',  [ $this, 'ajax_end_promotion' ] );
 		add_action( 'admin_post_dze_gmc_oauth',       [ $this, 'handle_oauth_callback' ] );
 		add_action( 'admin_post_dze_gmc_disconnect',  [ $this, 'handle_disconnect' ] );
 	}
@@ -503,6 +505,15 @@ final class DZE_Gmc {
 				'registering' => __( 'Registering…', 'dazont-ecom' ),
 				'done'      => __( 'Done', 'dazont-ecom' ),
 				'error'     => __( 'Error', 'dazont-ecom' ),
+				'reading'   => __( 'Asking Google…', 'dazont-ecom' ),
+				'none'      => __( 'Nothing filed in this account.', 'dazont-ecom' ),
+				'colTitle'  => __( 'Promotion', 'dazont-ecom' ),
+				'colWhere'  => __( 'Market', 'dazont-ecom' ),
+				'colEnds'   => __( 'Ends', 'dazont-ecom' ),
+				'end'       => __( 'End it', 'dazont-ecom' ),
+				'ending'    => __( 'Ending…', 'dazont-ecom' ),
+				'ended'     => __( 'Ended', 'dazont-ecom' ),
+				'sure'      => __( 'End this promotion in Merchant Center? Google stops serving it within a few hours.', 'dazont-ecom' ),
 			],
 		] );
 	}
@@ -895,6 +906,139 @@ final class DZE_Gmc {
 			throw new RuntimeException( $msg );
 		}
 		return is_array( $data ) ? $data : [];
+	}
+
+	// =========================================================================
+	// What Google is actually holding
+	//
+	// The plugin only ever knew about the promotions it had pushed and still
+	// had a rule for. Delete the rule and it forgot — so a take-down that had
+	// failed, or one that ran before the take-down was fixed, left a promotion
+	// live in Merchant Center that nothing here could see, let alone end. This
+	// asks Google what it holds and lets any of it be ended from this screen.
+	// =========================================================================
+
+	/**
+	 * The promotions an account currently holds, soonest to end first.
+	 *
+	 * @return array<int,array{id:string,title:string,country:string,language:string,ends:string,ours:bool}>
+	 */
+	public function list_promotions( string $merchant_id ): array {
+		$merchant_id = preg_replace( '/[^0-9]/', '', $merchant_id );
+		if ( '' === $merchant_id ) {
+			return [];
+		}
+		$token = $this->get_access_token();
+		$url   = self::MERCHANT_API . '/' . self::PROMO_SUBAPI . '/accounts/' . $merchant_id . '/promotions?pageSize=100';
+		$list  = $this->request( 'GET', $url, $token );
+		$out   = [];
+		foreach ( (array) ( $list['promotions'] ?? [] ) as $p ) {
+			$id = (string) ( $p['promotionId'] ?? '' );
+			if ( '' === $id ) {
+				continue;
+			}
+			$ends = (string) ( $p['attributes']['promotionEffectiveTimePeriod']['endTime'] ?? '' );
+			$out[] = [
+				'id'       => $id,
+				'title'    => (string) ( $p['attributes']['longTitle'] ?? $id ),
+				'country'  => strtoupper( (string) ( $p['targetCountry'] ?? '' ) ),
+				'language' => strtolower( (string) ( $p['contentLanguage'] ?? '' ) ),
+				'ends'     => $ends,
+				// Ours carry the id the plugin builds; anything else was made
+				// in Merchant Center by hand and is shown, not hidden.
+				'ours'     => 0 === strpos( $id, 'dze_' ),
+			];
+		}
+		usort( $out, static fn( array $a, array $b ): int => strcmp( $a['ends'], $b['ends'] ) );
+		return $out;
+	}
+
+	/**
+	 * Ends one promotion, whatever put it there.
+	 *
+	 * Google has no delete for promotions: a promotion is ended by filing it
+	 * again, under the same id, with an effective period that is already over.
+	 */
+	public function end_promotion( string $merchant_id, string $promotion_id, string $country, string $language ): void {
+		$merchant_id = preg_replace( '/[^0-9]/', '', $merchant_id );
+		$country     = strtoupper( substr( $country, 0, 2 ) );
+		$language    = strtolower( substr( $language, 0, 2 ) );
+		if ( '' === $merchant_id || '' === $promotion_id || '' === $country || '' === $language ) {
+			throw new RuntimeException( __( 'That promotion is missing the account, the country or the language it belongs to.', 'dazont-ecom' ) );
+		}
+		$token = $this->get_access_token();
+		$now   = time();
+		// Read first: everything Google requires on an insert has to come back
+		// unchanged, or the promotion is rewritten into something it never was.
+		$url   = self::MERCHANT_API . '/' . self::PROMO_SUBAPI . '/accounts/' . $merchant_id . '/promotions/' . rawurlencode( $promotion_id );
+		$live  = $this->request( 'GET', $url, $token );
+		$promotion = [
+			'promotionId'       => $promotion_id,
+			'targetCountry'     => $country,
+			'contentLanguage'   => $language,
+			'redemptionChannel' => (array) ( $live['redemptionChannel'] ?? [ 'ONLINE' ] ),
+			'attributes'        => (array) ( $live['attributes'] ?? [] ),
+		];
+		$promotion['attributes']['promotionEffectiveTimePeriod'] = [
+			'startTime' => gmdate( 'Y-m-d\TH:i:s\Z', $now - 120 ),
+			'endTime'   => gmdate( 'Y-m-d\TH:i:s\Z', $now - 60 ),
+		];
+		if ( empty( $promotion['attributes']['longTitle'] ) ) {
+			$promotion['attributes']['longTitle'] = $promotion_id;
+		}
+		$data_source = $this->resolve_data_source( $merchant_id, $country, $language, $token );
+		$this->request(
+			'POST',
+			self::MERCHANT_API . '/' . self::PROMO_SUBAPI . '/accounts/' . $merchant_id . '/promotions:insert',
+			$token,
+			[ 'promotion' => $promotion, 'dataSource' => $data_source ]
+		);
+	}
+
+	public function ajax_promotions(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$out = [];
+		foreach ( self::get_accounts() as $key => $account ) {
+			$merchant = (string) ( $account['merchant_id'] ?? '' );
+			if ( '' === $merchant ) {
+				continue;
+			}
+			try {
+				$out[] = [
+					'key'      => (string) $key,
+					'merchant' => $merchant,
+					'rows'     => $this->list_promotions( $merchant ),
+					'error'    => '',
+				];
+			} catch ( \Throwable $e ) {
+				$out[] = [ 'key' => (string) $key, 'merchant' => $merchant, 'rows' => [], 'error' => $e->getMessage() ];
+			}
+		}
+		if ( ! $out ) {
+			wp_send_json_error( [ 'message' => __( 'No Merchant Center account is configured.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'accounts' => $out ] );
+	}
+
+	public function ajax_end_promotion(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		try {
+			$this->end_promotion(
+				isset( $_POST['merchant'] ) ? sanitize_text_field( wp_unslash( $_POST['merchant'] ) ) : '',
+				isset( $_POST['promotion'] ) ? sanitize_text_field( wp_unslash( $_POST['promotion'] ) ) : '',
+				isset( $_POST['country'] ) ? sanitize_text_field( wp_unslash( $_POST['country'] ) ) : '',
+				isset( $_POST['language'] ) ? sanitize_text_field( wp_unslash( $_POST['language'] ) ) : ''
+			);
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'message' => __( 'Ended. Google stops serving it within a few hours.', 'dazont-ecom' ) ] );
 	}
 
 	/**
