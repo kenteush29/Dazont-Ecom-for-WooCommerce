@@ -71,6 +71,11 @@ final class DZE_Cleanup {
 				'options'    => [ 'dze_klaviyo', 'dze_klaviyo_drafts', 'dze_klaviyo_copy' ],
 				'transients' => [ 'dze_klaviyo_cat' ],
 			],
+			// The failure log and the last checkup. Both are ours, both are
+			// bounded, and erasing them costs nothing but the history.
+			'health' => [
+				'options' => [ 'dze_health_log', 'dze_health_state' ],
+			],
 			'sourcing' => [
 				'tables'     => [ 'dze_keywords' ],
 				'options'    => [ 'dze_kw_schema', 'dze_kw_job' ],

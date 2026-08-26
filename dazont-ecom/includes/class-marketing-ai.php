@@ -548,6 +548,9 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'automation' ) ) {
 			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );
 		}
+		if ( $mod_on( 'health' ) ) {
+			$tabs['health'] = __( 'Health', 'dazont-ecom' );
+		}
 		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		if ( ! isset( $tabs[ $tab ] ) ) {
@@ -624,6 +627,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'automation' === $tab ) {
 			if ( class_exists( 'DZE_Automation' ) && $mod_on( 'automation' ) ) {
 				DZE_Automation::render_settings();
+			}
+		} elseif ( 'health' === $tab ) {
+			if ( class_exists( 'DZE_Health' ) && $mod_on( 'health' ) ) {
+				DZE_Health::render();
 			}
 		} elseif ( 'modules' === $tab ) {
 			if ( class_exists( 'DZE_Modules' ) ) {
@@ -1430,12 +1437,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			] ),
 		] );
 		if ( is_wp_error( $response ) ) {
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
@@ -1497,12 +1506,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			] ),
 		] );
 		if ( is_wp_error( $response ) ) {
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
@@ -1534,12 +1545,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			] ),
 		] );
 		if ( is_wp_error( $response ) ) {
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), self::chosen_model() );
