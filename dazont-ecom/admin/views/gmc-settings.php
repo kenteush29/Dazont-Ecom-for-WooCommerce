@@ -231,3 +231,14 @@ foreach ( $languages as $l ) {
 	<p class="description" style="max-width:820px;">
 		<?php esc_html_e( 'Sync happens automatically every hour (WP-Cron) for active sales, and can be forced from the Marketing Events list (per promotion or in bulk). Note: GMC promotions apply store-wide (product/category scope is not yet mapped to GMC).', 'dazont-ecom' ); ?>
 	</p>
+
+	<hr />
+	<h2 class="title"><?php esc_html_e( 'What Google is holding', 'dazont-ecom' ); ?></h2>
+	<p class="description" style="max-width:820px;">
+		<?php esc_html_e( 'Every promotion currently filed in your Merchant Center accounts, whatever put it there. A promotion deleted here before it could be taken down in Google stays live and keeps being served: this is where you end it.', 'dazont-ecom' ); ?>
+	</p>
+	<p>
+		<button type="button" class="button" id="dze-gmc-promos"><?php esc_html_e( 'Read the promotions Google holds', 'dazont-ecom' ); ?></button>
+		<span id="dze-gmc-promos-msg" style="margin-left:8px;font-size:13px;"></span>
+	</p>
+	<div id="dze-gmc-promos-out"></div>

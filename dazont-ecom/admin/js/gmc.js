@@ -117,4 +117,92 @@
 		sync(ids, $('#dze-gmc-bulk-status'));
 	});
 
+	// ---- What Google is holding, and ending any of it ----
+	$(document).on('click', '#dze-gmc-promos', function () {
+		var $b = $(this), $m = $('#dze-gmc-promos-msg'), $out = $('#dze-gmc-promos-out');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(dzeGmc.i18n.reading);
+		$out.empty();
+		$.post(dzeGmc.ajaxUrl, { action: 'dze_gmc_promotions', nonce: dzeGmc.nonce })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || dzeGmc.i18n.error);
+					return;
+				}
+				$m.text('');
+				$.each(res.data.accounts, function (_, acc) {
+					var $box = $('<div style="margin:14px 0;"/>');
+					$box.append($('<h3 style="margin:0 0 6px;"/>').text(acc.key + ' · ' + acc.merchant));
+					if (acc.error) {
+						$box.append($('<p style="color:#b32d2e;margin:0;"/>').text(acc.error));
+						$out.append($box);
+						return;
+					}
+					if (!acc.rows.length) {
+						$box.append($('<p class="description" style="margin:0;"/>').text(dzeGmc.i18n.none));
+						$out.append($box);
+						return;
+					}
+					var $t = $('<table class="widefat striped" style="max-width:900px;"/>');
+					$t.append('<thead><tr><th>' + dzeGmc.i18n.colTitle + '</th><th style="width:110px;">' +
+						dzeGmc.i18n.colWhere + '</th><th style="width:190px;">' + dzeGmc.i18n.colEnds +
+						'</th><th style="width:90px;"></th></tr></thead>');
+					var $body = $('<tbody/>');
+					$.each(acc.rows, function (_, row) {
+						var $tr = $('<tr/>');
+						$tr.append($('<td/>').text(row.title));
+						$tr.append($('<td/>').text(row.language.toUpperCase() + ' / ' + row.country));
+						$tr.append($('<td/>').text(row.ends ? row.ends.replace('T', ' ').replace('Z', '') : '—'));
+						$tr.append($('<td/>').append(
+							$('<button type="button" class="button button-small dze-gmc-end"/>')
+								.text(dzeGmc.i18n.end)
+								.attr({
+									'data-merchant': acc.merchant,
+									'data-promotion': row.id,
+									'data-country': row.country,
+									'data-language': row.language
+								})
+						));
+						$body.append($tr);
+					});
+					$t.append($body);
+					$box.append($t);
+					$out.append($box);
+				});
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(dzeGmc.i18n.error);
+			});
+	});
+
+	$(document).on('click', '.dze-gmc-end', function () {
+		var $b = $(this);
+		if (!window.confirm(dzeGmc.i18n.sure)) { return; }
+		$b.prop('disabled', true).text(dzeGmc.i18n.ending);
+		$.post(dzeGmc.ajaxUrl, {
+			action: 'dze_gmc_end_promo',
+			nonce: dzeGmc.nonce,
+			merchant: $b.data('merchant'),
+			promotion: $b.data('promotion'),
+			country: $b.data('country'),
+			language: $b.data('language')
+		})
+			.done(function (res) {
+				if (res && res.success) {
+					$b.closest('tr').css('opacity', .5).find('td').last()
+						.text(dzeGmc.i18n.ended);
+					return;
+				}
+				$b.prop('disabled', false).text(dzeGmc.i18n.end);
+				$('#dze-gmc-promos-msg').css('color', '#b32d2e')
+					.text((res && res.data && res.data.message) || dzeGmc.i18n.error);
+			})
+			.fail(function () {
+				$b.prop('disabled', false).text(dzeGmc.i18n.end);
+				$('#dze-gmc-promos-msg').css('color', '#b32d2e').text(dzeGmc.i18n.error);
+			});
+	});
+
 }(jQuery));
