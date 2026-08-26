@@ -234,7 +234,11 @@
 
 	// ---- Settings: the template, previewed the same way ----
 	function drawShell() {
-		draw($('#dze-klav-shell-frame'), readable(assemble($('#dze-klav-shell').val() || '', cfg.sample)));
+		var shell = $('#dze-klav-shell').val() || '';
+		// No frame, no preview. Drawing the sample body on its own would show
+		// an email that is never sent — the module refuses to write one until
+		// a template has been read.
+		draw($('#dze-klav-shell-frame'), shell ? readable(assemble(shell, cfg.sample)) : '');
 	}
 
 	// The header and the footer, read out of a template that already exists in

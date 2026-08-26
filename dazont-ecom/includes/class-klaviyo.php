@@ -179,9 +179,21 @@ final class DZE_Klaviyo {
 		];
 	}
 
-	/** True when the two things a draft cannot be made without are answered. */
+	/**
+	 * True when the three things a draft cannot be made without are answered.
+	 *
+	 * The frame is one of them, and that is the whole point of it being read
+	 * from Klaviyo rather than drawn here. A plugin that quietly falls back to
+	 * a header of its own invention when none was chosen sends a stranger's
+	 * email under the shop's name, and does it silently. So this module does
+	 * not start until the owner has pointed at his template: the checklist
+	 * says so on the screen where he is trying to use it, and the editor does
+	 * not appear until it is done.
+	 */
 	public static function ready(): bool {
-		return '' !== self::key() && '' !== (string) self::conf( 'included' );
+		return '' !== self::key()
+			&& '' !== (string) self::conf( 'included' )
+			&& '' !== self::shell();
 	}
 
 	/**
@@ -346,7 +358,7 @@ final class DZE_Klaviyo {
 		// under it, so the shop keeps the one it had and is told why.
 		if ( array_key_exists( 'shell', $in ) ) {
 			$shell = trim( (string) $in['shell'] );
-			if ( '' === $shell || $shell === trim( self::default_shell() ) ) {
+			if ( '' === $shell ) {
 				$out['shell'] = '';
 			} elseif ( false === strpos( $shell, self::BODY_MARK ) ) {
 				add_settings_error(
@@ -403,7 +415,8 @@ final class DZE_Klaviyo {
 			. "- Never promise anything the promotion does not say: no free shipping, no gift, no discount code, no extra offer.\n"
 			. "\n"
 			. "THE HTML, because an inbox is not a browser:\n"
-			. "- Return the body only: no <html>, <head>, <body>, no logo, no footer, no unsubscribe line. The shop's header and footer are added around what you write, and the whole thing already sits in a 600px column with 28px of padding — so your widest element is 544px.\n"
+			. "- Return the body only: no <html>, <head>, <body>, no logo, no footer, no unsubscribe line. The shop's header and footer are added around what you write.\n"
+			. "- Your canvas is 600 pixels wide, edge to edge, and nothing is padded for you. A photograph given width=\"600\" touches both edges of the card, which is what a good opening image does; anything meant to be read needs its own inset — around 24px left and right — or it will run into the paper. Set it yourself, on the cell or on the block, and vary it if the email is better for it.\n"
 			. "- Tables for anything side by side (<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">), never floats, never flexbox, never a class of your own, never a <style> block. Inline styles only.\n"
 			. "- Every row you build must be full. Three products in a row of three, two in a row of two — never a row of three holding one product and two holes.\n"
 			. "- Images: width and a max-width in the style, height:auto, display:block, border:0.\n"
@@ -539,113 +552,23 @@ final class DZE_Klaviyo {
 		return $out;
 	}
 
-	/**
-	 * The head of every promotion email, as this plugin draws it.
-	 *
-	 * It is the SHIPPED head: what the shell falls back to before the owner
-	 * imports his own. Fixed from one campaign to the next either way — a
-	 * header that changes is a shop the reader stops recognising.
-	 */
-	public static function header_html(): string {
-		$t    = self::theme_style();
-		$name = get_bloginfo( 'name' );
-		$logo = self::logo_url();
-		$mark = $logo
-			? sprintf(
-				'<a href="%1$s"><img src="%2$s" width="80" alt="%3$s" style="display:block;margin:0 auto;width:80px;max-width:80px;height:auto;border:0;" /></a>',
-				esc_url( home_url( '/' ) ),
-				esc_url( $logo ),
-				esc_attr( $name )
-			)
-			: sprintf( '<div style="font:400 22px %1$s;color:%2$s;">%3$s</div>', $t['head'], esc_attr( $t['ink'] ), esc_html( $name ) );
-		return '<tr><td align="center" style="padding:20px 15px 14px;">' . $mark . '</td></tr>';
-	}
-
-	/**
-	 * The fixed foot: the three promises the shop's emails carry, then the
-	 * lines the law wants.
-	 */
-	public static function footer_html(): string {
-		$t    = self::theme_style();
-		$cdn  = 'https://d3k81ch9hvuctc.cloudfront.net/company/UNysVD/images/';
-		$rows = [
-			[ $cdn . '74d7e758-2982-4642-b10b-45a492e0408f.png', __( 'Worldwide Delivery', 'dazont-ecom' ), __( '- Anywhere in the world -', 'dazont-ecom' ) ],
-			[ $cdn . '1f414ab2-f6df-4d81-8dca-8ed7fd15dacf.png', __( '5/7 Customer Support', 'dazont-ecom' ), __( '- Ready to help you -', 'dazont-ecom' ) ],
-			[ $cdn . 'f8320b08-de46-4345-ae02-704d0811b651.png', __( 'Secure Payments', 'dazont-ecom' ), __( '- Website fully protected -', 'dazont-ecom' ) ],
-		];
-		$cells = '';
-		foreach ( $rows as $one ) {
-			$cells .= sprintf(
-				'<td width="33%%" valign="top" align="center" style="padding:10px 18px 20px;">'
-				. '<img src="%1$s" width="50" alt="" style="display:block;margin:0 auto 8px;width:50px;height:auto;border:0;" />'
-				. '<div style="font:700 14px %2$s;color:%3$s;">%4$s</div>'
-				. '<div style="font:400 14px %2$s;color:%3$s;">%5$s</div></td>',
-				esc_url( $one[0] ),
-				$t['body'],
-				esc_attr( $t['ink'] ),
-				esc_html( $one[1] ),
-				esc_html( $one[2] )
-			);
-		}
-
-		return sprintf( '<tr><td style="background:#F4F4EE;padding:18px 0 0;">'
-				. '<div style="text-align:center;padding:0 18px 6px;font:400 20px %1$s;color:%2$s;">%3$s</div>'
-				. '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0"><tr>%4$s</tr></table>'
-				. '</td></tr>',
-				$t['head'],
-				esc_attr( $t['ink'] ),
-				esc_html__( 'We got you covered', 'dazont-ecom' ),
-				$cells
-			)
-			. sprintf(
-				'<tr><td align="center" style="background:#F4F4EE;padding:15px 18px 20px;font:400 11px/1.6 %1$s;color:#222222;">'
-				. '<div>%2$s <span style="color:#1457d0;">{%% unsubscribe %%}</span>.</div>'
-				. '<div>{{ organization.name }} {{ organization.full_address }}</div></td></tr>',
-				$t['body'],
-				esc_html__( 'No longer want to receive these emails?', 'dazont-ecom' )
-			);
-	}
-
 	// =========================================================================
-	// The shell — the header and the footer, as ONE stored piece of HTML with
-	// a marker where the email's own content goes.
+	// The shell — the header and the footer, as ONE piece of HTML with a
+	// marker where the email's own content goes.
 	//
-	// They were built by the two functions above and nothing else, which meant
-	// the owner could only have the header this plugin happened to draw. Now
-	// they are a setting: shipped as those functions draw them, importable
-	// from a template that already exists in the Klaviyo account — so the
-	// frame becomes the shop's real one, to the pixel, rather than a
-	// reconstruction of ours — and editable by hand afterwards.
+	// It used to be drawn here: a logo row, three promises and a legal line,
+	// this plugin's idea of the shop. It was a reconstruction, and a
+	// reconstruction is a second version of something that already exists —
+	// the day the real header changed, the emails kept the old one and nobody
+	// could see why. So there is no version of ours any more. The frame is
+	// read from the Klaviyo template the owner maintains, or the module says
+	// it cannot work yet. One frame, one place, no drift.
 	// =========================================================================
 
-	/** The frame as this plugin draws it when nothing else was chosen. */
-	public static function default_shell(): string {
-		$t    = self::theme_style();
-		$name = get_bloginfo( 'name' );
-		return '<!DOCTYPE html><html><head><meta charset="utf-8" />'
-			. '<meta name="viewport" content="width=device-width,initial-scale=1" />'
-			. '<title>' . esc_html( $name ) . '</title></head>'
-			. '<body style="margin:0;padding:0;background:#F4F4EE;">'
-			. '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F4F4EE;"><tr><td align="center">'
-			. '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background:#ffffff;">'
-			. self::header_html()
-			. sprintf(
-				'<tr><td style="padding:8px 28px 22px;font:400 %1$dpx/1.6 %2$s;color:%3$s;">%4$s</td></tr>',
-				(int) $t['size'],
-				$t['body'],
-				esc_attr( $t['ink'] ),
-				self::BODY_MARK
-			)
-			. self::footer_html()
-			. '</table></td></tr></table></body></html>';
-	}
-
-	/** The frame in force: the owner's own when he saved one, ours otherwise. */
+	/** The frame in force, or an empty string while none has been read. */
 	public static function shell(): string {
 		$saved = trim( (string) ( self::settings()['shell'] ?? '' ) );
-		return ( '' !== $saved && false !== strpos( $saved, self::BODY_MARK ) )
-			? $saved
-			: self::default_shell();
+		return ( '' !== $saved && false !== strpos( $saved, self::BODY_MARK ) ) ? $saved : '';
 	}
 
 	/**
@@ -843,7 +766,14 @@ final class DZE_Klaviyo {
 	 * @param bool $preview True to read Klaviyo's own tags as a person would.
 	 */
 	public static function layout( string $body, bool $preview = false ): string {
-		$html = str_replace( self::BODY_MARK, $body, self::shell() );
+		$shell = self::shell();
+		if ( '' === $shell ) {
+			// Loudly, and only ever on a click: no frame means no email, and
+			// the alternative — sending the body on its own, with no header
+			// and no unsubscribe line — is worse than not sending at all.
+			throw new RuntimeException( __( 'No header and footer yet. Settings → Email campaigns → Header and footer: choose your Klaviyo template and press Read it.', 'dazont-ecom' ) );
+		}
+		$html = str_replace( self::BODY_MARK, $body, $shell );
 		return $preview ? self::readable( $html ) : $html;
 	}
 
@@ -2381,17 +2311,21 @@ final class DZE_Klaviyo {
 	 * The body the model writes is ordinary HTML — headings, paragraphs,
 	 * images, a table of products. It is dropped into the same component
 	 * wrapper Klaviyo uses for a text block, so the stylesheet the template
-	 * already carries in its head styles it: his headings come out in his
-	 * font, his links in his colour, and the mobile rules apply.
+	 * already carries in its head styles it: headings come out in the shop's
+	 * font, links in its colour, and the mobile rules apply.
+	 *
+	 * What it does NOT do is impose a shape. There is no padding here on
+	 * purpose: an inset of ours would be a layout decision taken away from the
+	 * prompt, and a hero photograph could never reach the edge of the card.
+	 * The canvas is 600 pixels wide, edge to edge, and everything that happens
+	 * on it — the margins included — is written in the prompt.
 	 */
 	private const BODY_SLOT = '<div class="mj-column-per-100 mj-outlook-group-fix component-wrapper kl-text-table-layout" style="font-size:0px;text-align:left;direction:ltr;vertical-align:top;width:100%;">'
 		. '<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;" width="100%"><tbody><tr>'
-		. '<td style="vertical-align:top;padding:0;">'
-		. '<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"><tbody><tr>'
-		. '<td align="left" class="kl-text" style="font-size:0px;padding:18px;word-break:break-word;">'
-		. '<div style="font-family:\'Roboto\', Helvetica, Arial, sans-serif;font-size:16px;font-style:normal;font-weight:400;letter-spacing:0px;line-height:1.3;text-align:left;">'
+		. '<td align="left" class="kl-text" style="font-size:0px;padding:0;word-break:break-word;">'
+		. '<div style="font-family:\'Roboto\', Helvetica, Arial, sans-serif;font-size:16px;font-weight:400;line-height:1.3;text-align:left;">'
 		. self::BODY_MARK
-		. '</div></td></tr></tbody></table></td></tr></tbody></table></div>';
+		. '</div></td></tr></tbody></table></div>';
 
 	/** Reads the chosen template and hands the frame back for the field. */
 	public static function ajax_frame(): void {
@@ -2798,10 +2732,16 @@ final class DZE_Klaviyo {
 			</tr>
 		</table>
 
-		<h2 class="title"><?php esc_html_e( 'Header and footer', 'dazont-ecom' ); ?></h2>
+		<h2 class="title"><?php esc_html_e( 'Header and footer', 'dazont-ecom' ); ?><span style="margin-left:8px;font-size:12px;font-weight:400;color:#b26a00;"><?php esc_html_e( 'required', 'dazont-ecom' ); ?></span></h2>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Fixed on every promotion, and they come from Klaviyo — the template you keep there is the one the shop sends inside. Build it in the Klaviyo editor with your saved header and footer, leave ONE empty section in the middle for the email, then read it here.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Fixed on every promotion, and they come from Klaviyo — the template you keep there is the one the shop sends inside. In the Klaviyo editor, make one template with your header, ONE empty section in the middle for the email, and your footer. Read it here and every promotion goes out in it.', 'dazont-ecom' ); ?>
 		</p>
+		<?php if ( '' === self::shell() ) : ?>
+			<p style="max-width:880px;padding:10px 12px;border-left:4px solid #dba617;background:#fcf9e8;">
+				<strong><?php esc_html_e( 'No emails can be written until this is done.', 'dazont-ecom' ); ?></strong>
+				<?php esc_html_e( 'This plugin draws no header of its own — a made-up frame under your shop\'s name is worse than none — so the email editor stays shut on your promotions until you read a template here.', 'dazont-ecom' ); ?>
+			</p>
+		<?php endif; ?>
 		<?php
 		$dze_tpls  = (array) ( $cat['templates'] ?? [] );
 		$dze_from  = (string) ( $s['frame_name'] ?? '' );
@@ -2833,7 +2773,7 @@ final class DZE_Klaviyo {
 								esc_html( date_i18n( (string) get_option( 'date_format' ), $dze_when ) )
 							);
 						} else {
-							esc_html_e( 'Nothing read yet — the emails go out in the plain frame below until you choose one.', 'dazont-ecom' );
+							esc_html_e( 'Nothing read yet. Choose your template and press Read it.', 'dazont-ecom' );
 						}
 						?>
 					</p>
@@ -2842,6 +2782,7 @@ final class DZE_Klaviyo {
 		</table>
 		<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
 			<strong style="font-size:13px;"><?php esc_html_e( 'What every email is sent inside', 'dazont-ecom' ); ?></strong>
+			<span style="font-size:13px;color:#646970;"><?php esc_html_e( '— the empty band in the middle is where the email is written.', 'dazont-ecom' ); ?></span>
 			<span id="dze-klav-shell-msg" style="font-size:13px;"></span>
 		</p>
 		<textarea id="dze-klav-shell" name="<?php echo esc_attr( self::OPT . '[shell]' ); ?>" style="display:none;"><?php echo esc_textarea( self::shell() ); ?></textarea>
