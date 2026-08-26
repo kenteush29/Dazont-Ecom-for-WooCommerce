@@ -2664,7 +2664,7 @@ final class DZE_Klaviyo {
 						<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 						<div class="dze-mail-what">
 							<strong><?php echo esc_html( $meta['label'] ); ?></strong>
-							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $meta['when'] ); ?></span>
+							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $meta['when'] ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
 						</div>
 						<div class="dze-mail-state">
@@ -2709,10 +2709,15 @@ final class DZE_Klaviyo {
 						<th scope="row"><label for="dze-klav-e-when"><?php esc_html_e( 'Sends on', 'dazont-ecom' ); ?></label></th>
 						<td>
 							<?php // The day is the shop's decision; the hour is Klaviyo's. ?>
+							<?php // Said BESIDE the field, not in small print under it: a
+							// note nobody reads is a note that is not there. ?>
 							<input type="date" id="dze-klav-e-when" />
+							<span class="dze-smart" title="<?php esc_attr_e( 'Klaviyo works out, for each person on the list, the hour that reader actually opens his mail.', 'dazont-ecom' ); ?>">
+								<?php esc_html_e( 'Hour: Klaviyo Smart Send Time', 'dazont-ecom' ); ?>
+							</span>
 							<button type="button" class="button-link" id="dze-klav-hours" style="margin-left:10px;"><?php esc_html_e( 'Which days work best?', 'dazont-ecom' ); ?></button>
 							<div id="dze-klav-hours-out" style="display:none;margin:8px 0 0;"></div>
-							<p class="description"><?php esc_html_e( 'You choose the day. Klaviyo chooses the hour on its own, reader by reader. Nothing goes out until you press send in Klaviyo.', 'dazont-ecom' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Nothing goes out until you press send in Klaviyo.', 'dazont-ecom' ); ?></p>
 						</td>
 					</tr>
 				</table>
@@ -2750,6 +2755,7 @@ final class DZE_Klaviyo {
 				.dze-mail-what{flex:1;min-width:0;}
 				.dze-mail-what strong{margin-right:8px;}
 				.dze-mail-when{color:#646970;font-size:12px;}
+				.dze-smart{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#eef4fb;color:#2271b1;font-size:11px;white-space:nowrap;vertical-align:1px;}
 				.dze-mail-subject{display:block;color:#50575e;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 				.dze-mail-state{font-size:12px;white-space:nowrap;}
 				.dze-mail-act{white-space:nowrap;}
