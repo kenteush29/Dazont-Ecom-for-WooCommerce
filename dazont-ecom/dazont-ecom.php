@@ -3,7 +3,7 @@
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
  * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
- * Version:           4.109.0
+ * Version:           4.110.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '4.109.0' );
+define( 'DZE_VERSION', '4.110.0' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -85,7 +85,9 @@ final class DZE_Plugin {
 	 * once. Only settings no shop page ever reads are listed.
 	 */
 	private static function trim_autoload(): void {
-		if ( '1' === (string) get_option( 'dze_autoload_trimmed', '' ) ) {
+		// The version is the flag: adding an option to the list below has to
+		// run the pass again on shops where it already ran once.
+		if ( '2' === (string) get_option( 'dze_autoload_trimmed', '' ) ) {
 			return;
 		}
 		$options = [
@@ -95,13 +97,17 @@ final class DZE_Plugin {
 			'dze_reviews_settings',
 			'dze_gmc_accounts',
 			'dze_gmc_credentials',
+			// Carries the email frame — a whole email's worth of HTML.
+			'dze_klaviyo',
+			'dze_klaviyo_copy',
+			'dze_klaviyo_drafts',
 		];
 		foreach ( $options as $name ) {
 			if ( function_exists( 'wp_set_option_autoload' ) ) {
 				wp_set_option_autoload( $name, false );
 			}
 		}
-		update_option( 'dze_autoload_trimmed', '1', true );
+		update_option( 'dze_autoload_trimmed', '2', true );
 	}
 
 	public static function activate(): void {

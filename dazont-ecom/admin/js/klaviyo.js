@@ -167,7 +167,8 @@
 			name: $('#dze-klav-name').val(),
 			subject: subject,
 			preview: $('#dze-klav-preview').val(),
-			datetime: $('#dze-klav-when').val()
+			datetime: $('#dze-klav-when').val(),
+			send: $('input[name="dze-klav-send"]:checked').val() || 'smart'
 		})
 			.done(function (res) {
 				$b.prop('disabled', false);
@@ -299,6 +300,116 @@
 				insert('\n' + res.data.html + '\n');
 			})
 			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
+	});
+
+	// A picture made for this promotion: a real photograph of the shop, put in
+	// the setting the event evokes. Long — fal takes its time — so the button
+	// says so rather than looking stuck.
+	$(document).on('click', '#dze-klav-e-shot', function () {
+		var $b = $(this), $m = $('#dze-klav-e-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.shooting);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId() })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$m.css('color', '#0a7040').text(i18n.shot);
+				view('code');
+				insert('\n' + res.data.html + '\n');
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	// The email as an inbox will actually show it: Klaviyo renders and Klaviyo
+	// sends, so nothing here can flatter the result.
+	$(document).on('click', '#dze-klav-e-test', function () {
+		var $b = $(this), $m = $('#dze-klav-e-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.sending);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_test',
+			nonce: cfg.nonce,
+			rule: ruleId(),
+			to: $('#dze-klav-e-to').val() || '',
+			body: body().val() || ''
+		})
+			.done(function (res) {
+				$b.prop('disabled', false);
+				$m.css('color', res && res.success ? '#0a7040' : '#b32d2e')
+					.text((res && res.data && res.data.message) || i18n.error);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	// ---- Settings: the frame, read from and written back to Klaviyo ----
+	$(document).on('click', '#dze-klav-tpls', function () {
+		var $b = $(this), $m = $('#dze-klav-shell-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.loading);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_tpls', nonce: cfg.nonce })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				var $sel = $('#dze-klav-tpl').empty();
+				$.each(res.data.templates, function (id, label) {
+					$sel.append($('<option/>').attr('value', id).text(label));
+				});
+				$sel.show();
+				$('#dze-klav-import').show();
+				$m.text('');
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	$(document).on('click', '#dze-klav-import', function () {
+		var $b = $(this), $m = $('#dze-klav-shell-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.working);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_import', nonce: cfg.nonce, template: $('#dze-klav-tpl').val() })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$('#dze-klav-shell').val(res.data.html).trigger('focus');
+				$m.css('color', '#b26a00').text(i18n.mark);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	$(document).on('click', '#dze-klav-shell-push', function () {
+		var $b = $(this), $m = $('#dze-klav-shell-msg');
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(i18n.working);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_shell', nonce: cfg.nonce })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				$m.css('color', res && res.success ? '#0a7040' : '#b32d2e')
+					.text((res && res.data && res.data.message) || i18n.error);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
 	});
 
 	$(document).on('click', '#dze-klav-e-img', function () {
