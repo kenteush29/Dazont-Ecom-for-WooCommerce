@@ -476,7 +476,7 @@ final class DZE_Klaviyo {
 		// The templates too: the header and the footer are chosen among them,
 		// and one button that reads the account should read all of it.
 		$out['templates'] = [];
-		foreach ( self::pages( 'templates/?fields[template]=name,updated&sort=-updated', $errors, 4 ) as $row ) {
+		foreach ( self::pages( 'templates/?fields[template]=name&sort=-updated', $errors, 4 ) as $row ) {
 			$out['templates'][ (string) $row['id'] ] = (string) ( $row['attributes']['name'] ?? $row['id'] );
 		}
 		if ( ! $out['audiences'] && $errors ) {
@@ -1385,9 +1385,10 @@ final class DZE_Klaviyo {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		$message = sprintf(
-			/* translators: %d: number of lists and segments read */
-			_n( 'Read %d audience.', 'Read %d audiences.', count( $cat['audiences'] ), 'dazont-ecom' ),
-			count( $cat['audiences'] )
+			/* translators: 1: number of lists and segments, 2: number of templates */
+			__( 'Read %1$d audiences and %2$d templates.', 'dazont-ecom' ),
+			count( $cat['audiences'] ),
+			count( (array) ( $cat['templates'] ?? [] ) )
 		);
 		// What the account refused is said, not swallowed: an empty picker
 		// with no reason beside it is a bug hunt; "403 — the key has no list
@@ -1398,6 +1399,10 @@ final class DZE_Klaviyo {
 		wp_send_json_success( [
 			'audiences' => $cat['audiences'],
 			'inactive'  => $cat['inactive'],
+			// The two template menus are built when the page is drawn, so
+			// without this the button filled the audiences and left them
+			// empty until somebody thought to reload.
+			'templates' => (array) ( $cat['templates'] ?? [] ),
 			'partial'   => ! empty( $cat['errors'] ),
 			'message'   => $message,
 		] );
@@ -2261,6 +2266,7 @@ final class DZE_Klaviyo {
 				'working'  => __( 'Talking to Klaviyo…', 'dazont-ecom' ),
 				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
+				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
 				'shot'     => __( 'Made, and filed in the media library.', 'dazont-ecom' ),
@@ -2571,7 +2577,7 @@ final class DZE_Klaviyo {
 						<?php endforeach; ?>
 					</select>
 					<button type="button" class="button" id="dze-klav-take" style="margin-left:8px;"><?php esc_html_e( 'Take them', 'dazont-ecom' ); ?></button>
-					<p class="description">
+					<p class="description" id="dze-klav-tpl-hint">
 						<?php
 						echo $dze_tpls
 							? esc_html__( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' )
