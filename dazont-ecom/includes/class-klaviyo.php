@@ -32,7 +32,10 @@ defined( 'ABSPATH' ) || exit;
 final class DZE_Klaviyo {
 
 	public const OPT     = 'dze_klaviyo';         // settings (never autoloaded).
-	public const OPT_MAP  = 'dze_klaviyo_drafts'; // rule id => the draft it produced.
+	// Where the drafts used to be recorded, one per event. Each email now keeps
+	// its own draft beside itself; the row stays declared so a shop that has
+	// one can still erase it.
+	public const OPT_MAP  = 'dze_klaviyo_drafts';
 	public const OPT_COPY = 'dze_klaviyo_copy';   // rule id => the email written for it.
 
 	private const API   = 'https://a.klaviyo.com/api/';
@@ -127,13 +130,51 @@ final class DZE_Klaviyo {
 
 	/** What is missing before a draft can be made, in plain words. */
 	public function missing(): string {
-		if ( '' === self::key() ) {
-			return __( 'the Klaviyo API key', 'dazont-ecom' );
-		}
-		if ( '' === (string) self::conf( 'included' ) ) {
-			return __( 'the audience to send to', 'dazont-ecom' );
+		foreach ( self::setup_items() as $item ) {
+			if ( empty( $item['done'] ) ) {
+				return (string) $item['label'];
+			}
 		}
 		return '';
+	}
+
+	/**
+	 * What this module needs before it can do anything, as a checklist.
+	 *
+	 * Shown on the screen where somebody is trying to use it, not left to be
+	 * discovered: a setting nobody knows about is a function nobody has.
+	 *
+	 * @return array<int,array{label:string,url:string,done:bool,note:string}>
+	 */
+	public static function setup_items(): array {
+		$tab = class_exists( 'DZE_Marketing_Ai' )
+			? add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'email' ], admin_url( 'admin.php' ) )
+			: '';
+		return [
+			[
+				'label' => __( 'Add your Klaviyo API key', 'dazont-ecom' ),
+				'url'   => $tab . '#dze-klav-key',
+				'done'  => '' !== self::key(),
+				'note'  => __( 'Klaviyo → Settings → API keys, with campaigns, templates and lists enabled.', 'dazont-ecom' ),
+			],
+			[
+				'label' => __( 'Choose who the emails go to', 'dazont-ecom' ),
+				'url'   => $tab . '#dze-klav-inc',
+				'done'  => '' !== (string) self::conf( 'included' ),
+				'note'  => __( 'Normally all your contacts, minus your recent buyers.', 'dazont-ecom' ),
+			],
+			[
+				'label' => __( 'Leave out your recent buyers', 'dazont-ecom' ),
+				'url'   => $tab . '#dze-klav-exc',
+				'done'  => '' !== (string) self::conf( 'excluded' ),
+				'note'  => __( 'Recommended, not required: a sale announced to somebody who paid full price three days ago earns a refund request.', 'dazont-ecom' ),
+			],
+		];
+	}
+
+	/** True when the two things a draft cannot be made without are answered. */
+	public static function ready(): bool {
+		return '' !== self::key() && '' !== (string) self::conf( 'included' );
 	}
 
 	/**
@@ -830,56 +871,202 @@ final class DZE_Klaviyo {
 		return str_replace( $keep, self::BODY_MARK, self::readable( str_replace( self::BODY_MARK, $keep, self::shell() ) ) );
 	}
 
-	/** The email written for one event: its subject, its preview line, its body. */
-	public static function copy_for( string $rule_id ): array {
+	// =========================================================================
+	// The emails of a promotion
+	//
+	// A promotion is not one email. It is a warm-up before it opens, the
+	// announcement on the day, a reminder while it runs and a last call before
+	// it closes — and which of those a promotion deserves is a decision, not a
+	// setting. So an event holds a LIST of emails, each with its own moment,
+	// its own subject and its own body, and each drafted into Klaviyo on its
+	// own. What was written before this existed becomes the launch email of
+	// its promotion, so nothing written is ever lost to the change.
+	// =========================================================================
+
+	/** The moments a promotion can be announced at, in the order they happen. */
+	public static function kinds(): array {
+		return [
+			'warm'     => [
+				'label' => __( 'Warm-up', 'dazont-ecom' ),
+				'when'  => __( 'Before it opens', 'dazont-ecom' ),
+				'days'  => -2,
+			],
+			'launch'   => [
+				'label' => __( 'Launch', 'dazont-ecom' ),
+				'when'  => __( 'The day it opens', 'dazont-ecom' ),
+				'days'  => 0,
+			],
+			'reminder' => [
+				'label' => __( 'Reminder', 'dazont-ecom' ),
+				'when'  => __( 'While it runs', 'dazont-ecom' ),
+				'days'  => 'mid', // halfway through the promotion.
+			],
+			'last'     => [
+				'label' => __( 'Last chance', 'dazont-ecom' ),
+				'when'  => __( 'Before it closes', 'dazont-ecom' ),
+				'days'  => 'end',
+			],
+		];
+	}
+
+	/** The day an email of this kind goes out, from the promotion's own window. */
+	public static function default_when( string $kind, array $rule ): string {
+		$start = strtotime( (string) ( $rule['start'] ?? '' ) . ' 09:00:00' );
+		$end   = strtotime( (string) ( $rule['end'] ?? '' ) . ' 09:00:00' );
+		// Read with a default of 0, never with ?? on a value that can legitimately
+		// be something other than a number: a sentinel that coalesces away is a
+		// sentinel that silently becomes "the day it opens".
+		$days  = self::kinds()[ $kind ]['days'] ?? 0;
+		if ( ! $start ) {
+			$start = time() + DAY_IN_SECONDS;
+		}
+		if ( 'end' === $days ) {
+			$ts = $end ?: $start;
+		} elseif ( 'mid' === $days ) {
+			$ts = ( $end && $end > $start ) ? (int) ( ( $start + $end ) / 2 ) : $start;
+		} else {
+			$ts = $start + ( (int) $days * DAY_IN_SECONDS );
+		}
+		// A date already gone is not a send date.
+		if ( $ts < time() + HOUR_IN_SECONDS ) {
+			$ts = time() + DAY_IN_SECONDS;
+		}
+		return gmdate( 'Y-m-d', $ts ) . 'T09:00';
+	}
+
+	/**
+	 * Every email of a promotion, in the order they go out.
+	 *
+	 * @return array<string,array> keyed by email id.
+	 */
+	public static function emails_for( string $rule_id, array $rule = [] ): array {
+		$all  = get_option( self::OPT_COPY, [] );
+		$all  = is_array( $all ) ? $all : [];
+		$one  = (array) ( $all[ $rule_id ] ?? [] );
+		$list = (array) ( $one['emails'] ?? [] );
+
+		// Written before a promotion could hold several: it is the launch one.
+		if ( ! $list && ( '' !== trim( (string) ( $one['body'] ?? '' ) ) || '' !== trim( (string) ( $one['subject'] ?? '' ) ) ) ) {
+			$list = [ 'launch' => [
+				'kind'    => 'launch',
+				'when'    => self::default_when( 'launch', $rule ),
+				'subject' => (string) ( $one['subject'] ?? '' ),
+				'preview' => (string) ( $one['preview'] ?? '' ),
+				'body'    => (string) ( $one['body'] ?? '' ),
+				'picture' => (string) ( $one['picture'] ?? '' ),
+			] ];
+		}
+
+		$out   = [];
+		$kinds = self::kinds();
+		foreach ( $list as $id => $email ) {
+			if ( ! is_array( $email ) ) {
+				continue;
+			}
+			$kind = isset( $kinds[ $email['kind'] ?? '' ] ) ? (string) $email['kind'] : 'launch';
+			$out[ (string) $id ] = [
+				'kind'    => $kind,
+				'when'    => (string) ( $email['when'] ?? self::default_when( $kind, $rule ) ),
+				'subject' => (string) ( $email['subject'] ?? '' ),
+				'preview' => (string) ( $email['preview'] ?? '' ),
+				'body'    => (string) ( $email['body'] ?? '' ),
+				'picture' => (string) ( $email['picture'] ?? '' ),
+				'draft'   => (array) ( $email['draft'] ?? [] ),
+			];
+		}
+		uasort( $out, static fn( array $a, array $b ): int => strcmp( $a['when'], $b['when'] ) );
+		return $out;
+	}
+
+	/** One email of a promotion, empty when it does not exist. */
+	public static function email_for( string $rule_id, string $email_id, array $rule = [] ): array {
+		return (array) ( self::emails_for( $rule_id, $rule )[ $email_id ] ?? [] );
+	}
+
+	/** Writes one email back, keeping everything it did not carry. */
+	public static function put_email( string $rule_id, string $email_id, array $fields ): void {
 		$all = get_option( self::OPT_COPY, [] );
 		$all = is_array( $all ) ? $all : [];
 		$one = (array) ( $all[ $rule_id ] ?? [] );
-		return [
-			'subject' => (string) ( $one['subject'] ?? '' ),
-			'preview' => (string) ( $one['preview'] ?? '' ),
-			'body'    => (string) ( $one['body'] ?? '' ),
-			// The picture made for this event, kept so the next writing opens
-			// on it instead of paying fal.ai again for the same photograph.
-			'picture' => (string) ( $one['picture'] ?? '' ),
-		];
+		// The migration has to be materialised before a single email is
+		// touched, or writing to "launch" would create a second one beside the
+		// legacy copy and the screen would show the same email twice.
+		$one['emails'] = self::emails_for( $rule_id );
+		unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
+		$one['emails'][ $email_id ] = array_merge( (array) ( $one['emails'][ $email_id ] ?? [] ), $fields );
+		$all[ $rule_id ]            = $one;
+		update_option( self::OPT_COPY, $all, false );
 	}
 
 	/**
 	 * Saved by the event's own Save button, on the event's own hook.
 	 *
-	 * Nothing here has a save of its own: the screen carries one form and one
-	 * button, and what is typed in this section travels with everything else.
+	 * Every email of the promotion travels in one form. A field is written only
+	 * if the form carried it, and an email already written is never replaced by
+	 * an empty one.
 	 */
 	public static function save_copy( string $rule_id, array $rule, array $in ): void {
 		if ( ! isset( $in['dze_email'] ) || ! is_array( $in['dze_email'] ) ) {
 			return; // the section was not on the screen: nothing to say about it.
 		}
-		$posted = $in['dze_email'];
-		$all    = get_option( self::OPT_COPY, [] );
-		$all    = is_array( $all ) ? $all : [];
-		$one    = self::copy_for( $rule_id );
-
-		// Each field is written only if the form actually carried it, and an
-		// email already written is never replaced by an empty one — a save that
-		// came from a screen where the editor was collapsed, or a submit that
-		// lost the field, must not throw the writing away.
-		if ( array_key_exists( 'picture', $posted ) ) {
-			$one['picture'] = esc_url_raw( (string) $posted['picture'] );
-		}
-		foreach ( [ 'subject', 'preview' ] as $field ) {
-			if ( array_key_exists( $field, $posted ) ) {
-				$one[ $field ] = mb_substr( sanitize_text_field( (string) $posted[ $field ] ), 0, 150 );
+		$kinds = self::kinds();
+		$live  = self::emails_for( $rule_id, $rule );
+		$out   = [];
+		foreach ( (array) $in['dze_email'] as $email_id => $posted ) {
+			$email_id = sanitize_key( (string) $email_id );
+			if ( '' === $email_id || ! is_array( $posted ) ) {
+				continue;
 			}
-		}
-		if ( array_key_exists( 'body', $posted ) ) {
-			$body = self::clean_html( (string) $posted['body'] );
-			if ( '' !== trim( $body ) || '' === trim( $one['body'] ) ) {
-				$one['body'] = $body;
+			// A moment the promotion does not use is not an empty email: it is
+			// not one at all, and it leaves nothing behind.
+			if ( empty( $posted['exists'] ) ) {
+				continue;
 			}
+			$was  = (array) ( $live[ $email_id ] ?? [] );
+			$kind = isset( $kinds[ $posted['kind'] ?? '' ] ) ? (string) $posted['kind'] : (string) ( $was['kind'] ?? 'launch' );
+			$body = array_key_exists( 'body', $posted ) ? self::clean_html( (string) $posted['body'] ) : (string) ( $was['body'] ?? '' );
+			if ( '' === trim( $body ) ) {
+				$body = (string) ( $was['body'] ?? '' );
+			}
+			$out[ $email_id ] = [
+				'kind'    => $kind,
+				'when'    => array_key_exists( 'when', $posted )
+					? sanitize_text_field( (string) $posted['when'] )
+					: (string) ( $was['when'] ?? self::default_when( $kind, $rule ) ),
+				'subject' => array_key_exists( 'subject', $posted )
+					? mb_substr( sanitize_text_field( (string) $posted['subject'] ), 0, 150 )
+					: (string) ( $was['subject'] ?? '' ),
+				'preview' => array_key_exists( 'preview', $posted )
+					? mb_substr( sanitize_text_field( (string) $posted['preview'] ), 0, 150 )
+					: (string) ( $was['preview'] ?? '' ),
+				'body'    => $body,
+				'picture' => array_key_exists( 'picture', $posted )
+					? esc_url_raw( (string) $posted['picture'] )
+					: (string) ( $was['picture'] ?? '' ),
+				'draft'   => (array) ( $was['draft'] ?? [] ),
+			];
 		}
-		$all[ $rule_id ] = $one;
+		$all = get_option( self::OPT_COPY, [] );
+		$all = is_array( $all ) ? $all : [];
+		$all[ $rule_id ] = [ 'emails' => $out ];
 		update_option( self::OPT_COPY, $all, false );
+	}
+
+	/** Remembers the picture made for one email. */
+	public static function keep_picture( string $rule_id, string $email_id, string $url ): void {
+		self::put_email( $rule_id, $email_id, [ 'picture' => esc_url_raw( $url ) ] );
+	}
+
+	/** How many emails a promotion carries, and how many are already in Klaviyo. */
+	public static function counts( string $rule_id, array $rule = [] ): array {
+		$emails = self::emails_for( $rule_id, $rule );
+		$drafts = 0;
+		foreach ( $emails as $email ) {
+			if ( ! empty( $email['draft']['campaign'] ) ) {
+				$drafts++;
+			}
+		}
+		return [ 'emails' => count( $emails ), 'drafts' => $drafts ];
 	}
 
 	/**
@@ -1006,16 +1193,6 @@ final class DZE_Klaviyo {
 		return $raw;
 	}
 
-	/** The drafts this shop has already produced, per event. */
-	public static function map(): array {
-		$m = get_option( self::OPT_MAP, [] );
-		return is_array( $m ) ? $m : [];
-	}
-
-	public static function draft_for( string $rule_id ): array {
-		return (array) ( self::map()[ $rule_id ] ?? [] );
-	}
-
 	public static function campaign_url( string $campaign_id ): string {
 		return 'https://www.klaviyo.com/campaign/' . rawurlencode( $campaign_id ) . '/wizard';
 	}
@@ -1032,7 +1209,7 @@ final class DZE_Klaviyo {
 	 * @return array{campaign:string,message:string,template:string,url:string,warning:string}
 	 * @throws RuntimeException with what failed, at the step it failed.
 	 */
-	public static function draft( string $rule_id, array $in ): array {
+	public static function draft( string $rule_id, string $email_id, array $in = [] ): array {
 		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
 		$rule  = (array) ( $rules[ $rule_id ] ?? [] );
 		if ( ! $rule ) {
@@ -1042,11 +1219,28 @@ final class DZE_Klaviyo {
 		if ( '' === $inc ) {
 			throw new RuntimeException( __( 'Pick the audience under Settings → Email campaigns first.', 'dazont-ecom' ) );
 		}
-		$copy    = self::copy_for( $rule_id );
-		$name    = trim( (string) ( $in['name'] ?? '' ) ) ?: (string) ( $rule['title'] ?? __( 'Promotion', 'dazont-ecom' ) );
-		$subject = trim( (string) ( $in['subject'] ?? '' ) ) ?: $copy['subject'];
-		$preview = trim( (string) ( $in['preview'] ?? '' ) ) ?: $copy['preview'];
-		$html    = self::layout( self::body_for( $rule, $rule_id ) );
+		$copy = self::email_for( $rule_id, $email_id, $rule );
+		if ( ! $copy ) {
+			throw new RuntimeException( __( 'That email no longer exists.', 'dazont-ecom' ) );
+		}
+		$subject = trim( (string) ( $copy['subject'] ?? '' ) );
+		if ( '' === $subject ) {
+			throw new RuntimeException( __( 'Write the email first: a campaign with no subject is not one.', 'dazont-ecom' ) );
+		}
+		$preview = (string) ( $copy['preview'] ?? '' );
+		$kinds   = self::kinds();
+		$kind    = (string) ( $copy['kind'] ?? 'launch' );
+		// The campaign carries the promotion's name AND which of its emails
+		// this is, so the account's campaign list can be read at a glance.
+		$name    = trim( (string) ( $rule['title'] ?? __( 'Promotion', 'dazont-ecom' ) ) )
+			. ' — ' . (string) ( $kinds[ $kind ]['label'] ?? $kind );
+		// What is on screen wins over what was last saved: the draft is made of
+		// the email the owner is looking at.
+		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
+			? (string) $in['body']
+			: self::body_for( $rule, $rule_id, $email_id );
+		$html    = self::layout( $body );
+		$in      = $in + [ 'datetime' => (string) ( $copy['when'] ?? '' ) ];
 		$warning = '';
 
 		// 1. The email itself becomes a template in the account, so the campaign
@@ -1154,15 +1348,15 @@ final class DZE_Klaviyo {
 			}
 		}
 
-		$map = self::map();
-		$map[ $rule_id ] = [
-			'campaign' => $camp_id,
-			'message'  => $msg_id,
-			'template' => $tpl_id,
-			'name'     => $name,
-			'at'       => time(),
-		];
-		update_option( self::OPT_MAP, $map, false );
+		self::put_email( $rule_id, $email_id, [
+			'draft' => [
+				'campaign' => $camp_id,
+				'message'  => $msg_id,
+				'template' => $tpl_id,
+				'name'     => $name,
+				'at'       => time(),
+			],
+		] );
 
 		return [
 			'campaign' => $camp_id,
@@ -1409,10 +1603,10 @@ final class DZE_Klaviyo {
 	}
 
 	/** The body the shop falls back on when nothing has been written yet. */
-	public static function body_for( array $rule, string $rule_id ): string {
-		$saved = self::copy_for( $rule_id );
-		if ( '' !== trim( $saved['body'] ) ) {
-			return $saved['body'];
+	public static function body_for( array $rule, string $rule_id, string $email_id = '' ): string {
+		$saved = self::email_for( $rule_id, $email_id, $rule );
+		if ( '' !== trim( (string) ( $saved['body'] ?? '' ) ) ) {
+			return (string) $saved['body'];
 		}
 		$title = trim( (string) ( $rule['banner_text'] ?? $rule['title'] ?? '' ) );
 		$t     = self::theme_style();
@@ -1507,7 +1701,7 @@ final class DZE_Klaviyo {
 	 * @return array{subject:string,preview:string,body:string,warning:string}
 	 * @throws RuntimeException When the model answers with nothing usable.
 	 */
-	public static function write_for( string $rule_id, array $rule ): array {
+	public static function write_for( string $rule_id, array $rule, string $email_id = '' ): array {
 		$fmt  = get_option( 'date_format' ) ?: 'Y-m-d';
 		$date = static function ( $ymd ) use ( $fmt ): string {
 			$ts = $ymd ? strtotime( (string) $ymd . ' 00:00:00' ) : false;
@@ -1522,7 +1716,8 @@ final class DZE_Klaviyo {
 		if ( $s_ts && $e_ts ) {
 			$days = max( 1, (int) round( ( $e_ts - $s_ts ) / DAY_IN_SECONDS ) + 1 );
 		}
-		$picture = self::picture_for( $rule_id, $rule );
+		$picture = self::picture_for( $rule_id, $rule, $email_id );
+		$moment  = self::email_for( $rule_id, $email_id, $rule );
 		$mat     = self::material( $rule );
 
 		$user = "--- THE PROMOTION ---\n"
@@ -1532,6 +1727,13 @@ final class DZE_Klaviyo {
 			. ( $days ? ' (' . $days . ' days)' : '' ) . "\n"
 			. 'It covers ' . ( ! empty( $rule['category_ids'] ) ? 'the categories listed with the products below' : 'the whole shop' ) . ".\n"
 			. 'Shop address: ' . home_url( '/' ) . "\n";
+		$kinds = self::kinds();
+		$kind  = (string) ( $moment['kind'] ?? 'launch' );
+		if ( isset( $kinds[ $kind ] ) ) {
+			$user .= "\n--- WHICH EMAIL THIS IS ---\n"
+				. $kinds[ $kind ]['label'] . ' — ' . $kinds[ $kind ]['when'] . ".\n"
+				. self::kind_brief( $kind ) . "\n";
+		}
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
 			$about = trim( (string) DZE_Marketing_Ai::instance()->shop_context_text() );
 			if ( '' !== $about ) {
@@ -1673,24 +1875,44 @@ final class DZE_Klaviyo {
 	 * An email whose main picture has to be asked for separately is an email
 	 * that goes out without one, which is what kept happening.
 	 */
-	public static function picture_for( string $rule_id, array $rule ): string {
-		$kept = (string) ( self::copy_for( $rule_id )['picture'] ?? '' );
+	public static function picture_for( string $rule_id, array $rule, string $email_id = '' ): string {
+		$kept = (string) ( self::email_for( $rule_id, $email_id, $rule )['picture'] ?? '' );
 		if ( '' !== $kept ) {
 			return $kept;
 		}
 		return self::event_image( $rule );
 	}
 
-	public static function ajax_write(): void {
-		self::guard();
-		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
-		$rules   = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$rule    = (array) ( $rules[ $rule_id ] ?? [] );
+	/** What each moment of a promotion has to do that the others do not. */
+	private static function kind_brief( string $kind ): string {
+		switch ( $kind ) {
+			case 'warm':
+				return 'It goes out BEFORE the promotion opens. It does not sell yet: it says something is coming and when, and it makes the reader want to be there on the day. No prices, no urgency, no countdown — nothing has started.';
+			case 'reminder':
+				return 'The promotion is already running and this reader has not bought. He has seen the announcement, so do not repeat it: show him something else — other products, another angle on the same offer — and say plainly how long is left.';
+			case 'last':
+				return 'It goes out just before the promotion closes. It is short. It says the offer ends, when exactly, and nothing else. One idea, one button.';
+		}
+		return 'It announces the promotion on the day it opens. This is the one that carries the whole offer: what it is, what it covers, when it ends.';
+	}
+
+	/** The promotion and the email an AJAX call is about. @return array{0:string,1:array,2:string} */
+	private static function target(): array {
+		$rule_id  = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
+		$email_id = isset( $_POST['email'] ) ? sanitize_key( wp_unslash( $_POST['email'] ) ) : '';
+		$rules    = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
+		$rule     = (array) ( $rules[ $rule_id ] ?? [] );
 		if ( ! $rule ) {
 			wp_send_json_error( [ 'message' => __( 'That event no longer exists.', 'dazont-ecom' ) ] );
 		}
+		return [ $rule_id, $rule, $email_id ];
+	}
+
+	public static function ajax_write(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
 		try {
-			$made = self::write_for( $rule_id, $rule );
+			$made = self::write_for( $rule_id, $rule, $email_id );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -1717,22 +1939,10 @@ final class DZE_Klaviyo {
 
 	public static function ajax_draft(): void {
 		self::guard();
-		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
-		$vars    = [];
-		if ( isset( $_POST['vars'] ) ) {
-			$raw = json_decode( (string) wp_unslash( $_POST['vars'] ), true );
-			foreach ( (array) $raw as $marker => $value ) {
-				$vars[ sanitize_text_field( (string) $marker ) ] = sanitize_text_field( (string) $value );
-			}
-		}
+		[ $rule_id, $rule, $email_id ] = self::target();
 		try {
-			$made = self::draft( $rule_id, [
-				'name'     => isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '',
-				'subject'  => isset( $_POST['subject'] ) ? sanitize_text_field( wp_unslash( $_POST['subject'] ) ) : '',
-				'preview'  => isset( $_POST['preview'] ) ? sanitize_text_field( wp_unslash( $_POST['preview'] ) ) : '',
-				'datetime' => isset( $_POST['datetime'] ) ? sanitize_text_field( wp_unslash( $_POST['datetime'] ) ) : '',
-				'send'     => isset( $_POST['send'] ) ? sanitize_key( wp_unslash( $_POST['send'] ) ) : '',
-				'vars'     => $vars,
+			$made = self::draft( $rule_id, $email_id, [
+				'body' => isset( $_POST['body'] ) ? self::clean_html( (string) wp_unslash( $_POST['body'] ) ) : null,
 			] );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -1835,31 +2045,16 @@ final class DZE_Klaviyo {
 		];
 	}
 
-	/** Remembers the picture made for an event, beside the email it belongs to. */
-	public static function keep_picture( string $rule_id, string $url ): void {
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
-		$one = self::copy_for( $rule_id );
-		$one['picture'] = esc_url_raw( $url );
-		$all[ $rule_id ] = $one;
-		update_option( self::OPT_COPY, $all, false );
-	}
-
 	public static function ajax_image(): void {
 		self::guard();
-		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
-		$rules   = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$rule    = (array) ( $rules[ $rule_id ] ?? [] );
-		if ( ! $rule ) {
-			wp_send_json_error( [ 'message' => __( 'That event no longer exists.', 'dazont-ecom' ) ] );
-		}
+		[ $rule_id, $rule, $email_id ] = self::target();
 		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		try {
 			$made = self::make_image( $rule, $prompt );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		self::keep_picture( $rule_id, $made['url'] );
+		self::keep_picture( $rule_id, $email_id, $made['url'] );
 		wp_send_json_success( [ 'url' => $made['url'] ] );
 	}
 
@@ -1936,12 +2131,10 @@ final class DZE_Klaviyo {
 
 	public static function ajax_test(): void {
 		self::guard();
-		$rule_id = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
-		$rules   = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$rule    = (array) ( $rules[ $rule_id ] ?? [] );
-		$body    = isset( $_POST['body'] )
+		[ $rule_id, $rule, $email_id ] = self::target();
+		$body = isset( $_POST['body'] )
 			? self::clean_html( (string) wp_unslash( $_POST['body'] ) )
-			: self::body_for( $rule, $rule_id );
+			: self::body_for( $rule, $rule_id, $email_id );
 		$to      = isset( $_POST['to'] ) ? (string) wp_unslash( $_POST['to'] ) : '';
 		$to      = array_map( 'trim', explode( ',', $to ) );
 		if ( ! array_filter( $to ) ) {
@@ -2230,7 +2423,7 @@ final class DZE_Klaviyo {
 		$tab    = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 		// The events screens — the list and one event — carry this once there
 		// is something to click.
-		$events = class_exists( 'DZE_Discounts' ) && false !== strpos( $hook, DZE_Discounts::MENU_SLUG_EVENTS ) && $this->configured();
+		$events = class_exists( 'DZE_Discounts' ) && false !== strpos( $hook, DZE_Discounts::MENU_SLUG_EVENTS );
 		$config = 'email' === $tab && class_exists( 'DZE_Marketing_Ai' ) && false !== strpos( $hook, DZE_Marketing_Ai::MENU_SLUG );
 		if ( ! $events && ! $config ) {
 			return;
@@ -2266,6 +2459,9 @@ final class DZE_Klaviyo {
 				'working'  => __( 'Talking to Klaviyo…', 'dazont-ecom' ),
 				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
+				'openMail' => __( 'Open', 'dazont-ecom' ),
+				'addMail'  => __( 'Add', 'dazont-ecom' ),
+				'dropMail' => __( 'Remove this email from the promotion? What was written for it is lost when you save.', 'dazont-ecom' ),
 				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
@@ -2276,176 +2472,177 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * The cell on a marketing event's row: create the draft, or open the one
-	 * that already exists.
+	 * The Email column of the promotions list: how many emails this promotion
+	 * carries, and how many are already drafts in Klaviyo.
+	 *
+	 * No button here any more. Writing an email needs the promotion's dates,
+	 * its products and a place to read what comes back — none of which fits in
+	 * a table cell, which is why the one that used to be here could be pressed
+	 * and led nowhere useful.
 	 */
 	public function render_cell( string $rule_id, array $rule ): void {
-		$made = self::draft_for( $rule_id );
-		// What was written on the event's own screen is what the popup opens
-		// with: the two screens read the same email, never two versions of it.
-		$copy  = self::copy_for( $rule_id );
-		$made_link = ! empty( $made['campaign'] );
-		echo '<div class="dze-klav-cell" data-rule="' . esc_attr( $rule_id ) . '"'
-			. ' data-name="' . esc_attr( (string) ( $rule['title'] ?? '' ) ) . '"'
-			. ' data-subject="' . esc_attr( $copy['subject'] ?: (string) ( $rule['title'] ?? '' ) ) . '"'
-			. ' data-preview="' . esc_attr( $copy['preview'] ) . '"'
-			. ' data-when="' . esc_attr( self::default_datetime( $rule ) ) . '">';
-		if ( $made_link ) {
-			printf(
-				'<a href="%1$s" class="dze-klav-link" target="_blank" rel="noopener noreferrer">%2$s</a> <span style="color:#999;">|</span> ',
-				esc_url( self::campaign_url( (string) $made['campaign'] ) ),
-				esc_html__( 'Open draft ↗', 'dazont-ecom' )
-			);
-			echo '<a href="#" class="dze-klav-open">' . esc_html__( 'Again', 'dazont-ecom' ) . '</a>';
-		} else {
-			echo '<a href="#" class="dze-klav-open">' . esc_html__( 'Draft email', 'dazont-ecom' ) . '</a>';
+		$n = self::counts( $rule_id, $rule );
+		if ( ! $n['emails'] ) {
+			echo '<span style="color:#a7aaad;">—</span>';
+			return;
 		}
-		echo '<span class="dze-klav-msg" style="display:block;font-size:12px;margin-top:2px;"></span>';
-		echo '</div>';
+		printf(
+			'<span title="%1$s">✉ %2$s</span>',
+			esc_attr__( 'Emails written for this promotion', 'dazont-ecom' ),
+			esc_html( sprintf(
+				/* translators: %d: number of emails */
+				_n( '%d email', '%d emails', $n['emails'], 'dazont-ecom' ),
+				$n['emails']
+			) )
+		);
+		if ( $n['drafts'] ) {
+			printf(
+				'<span style="display:block;font-size:12px;color:#0a7040;">%s</span>',
+				esc_html( sprintf(
+					/* translators: %d: number of drafts */
+					_n( '%d in Klaviyo', '%d in Klaviyo', $n['drafts'], 'dazont-ecom' ),
+					$n['drafts']
+				) )
+			);
+		}
 	}
 
 	/**
-	 * The email of one event, on the event's own screen.
+	 * The emails of one promotion, on the promotion's own screen.
 	 *
-	 * Two lines the inbox reads, one panel for the email itself, and a switch
-	 * between its code and what it looks like. The header and the footer are
-	 * not on this screen because they are not editable: they are the shop's,
-	 * and they are the same on every promotion.
+	 * A promotion is announced more than once: a warm-up before it opens, the
+	 * launch on the day, a reminder while it runs, a last call before it
+	 * closes. Each is listed with its date and its subject, each is written and
+	 * drafted on its own, and all of them are saved by the page's own Save
+	 * button — the four moments ARE the four emails, so there are no ids to
+	 * invent and nothing to keep in step.
 	 */
 	public function render_editor( string $rule_id, array $rule ): void {
 		if ( '' === $rule_id ) {
-			echo '<h3>' . esc_html__( 'The email that announces it', 'dazont-ecom' ) . '</h3>';
-			echo '<p class="description">' . esc_html__( 'Save the event first — the email is written from its title, its discount and its dates.', 'dazont-ecom' ) . '</p>';
+			echo '<h3>' . esc_html__( 'Emails', 'dazont-ecom' ) . '</h3>';
+			echo '<p class="description">' . esc_html__( 'Save the event first — its emails are written from its dates and its discount.', 'dazont-ecom' ) . '</p>';
 			return;
 		}
-		$copy = self::copy_for( $rule_id );
-		$body = '' !== trim( $copy['body'] ) ? $copy['body'] : self::body_for( $rule, $rule_id );
+		$emails = self::emails_for( $rule_id, $rule );
+		$kinds  = self::kinds();
+		$fmt    = get_option( 'date_format' ) ?: 'Y-m-d';
+		$first  = '';
+		foreach ( $kinds as $kind => $meta ) {
+			if ( isset( $emails[ $kind ] ) && '' === $first ) {
+				$first = $kind;
+			}
+		}
 		?>
-		<h3><?php esc_html_e( 'The email that announces it', 'dazont-ecom' ); ?></h3>
+		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Written from the promotion itself. The shop\'s header and footer are added around it, unchanged. Saved with the event by the Save button at the bottom of this page — there is no save of its own — and sent to Klaviyo as a draft when you press "Draft email" on the events list.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'One promotion, several emails. Each is saved by the Save button at the bottom of this page, and sent to Klaviyo as a draft — never sent from here.', 'dazont-ecom' ); ?>
 		</p>
-		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>">
-			<?php // The picture belongs to the email, so it travels with it. ?>
-			<input type="hidden" id="dze-klav-e-pic" name="dze_email[picture]" value="<?php echo esc_attr( self::picture_for( $rule_id, $rule ) ); ?>" />
-			<table class="form-table" role="presentation">
-				<tr>
-					<th scope="row"><label for="dze-klav-e-subject"><?php esc_html_e( 'Subject', 'dazont-ecom' ); ?></label></th>
-					<td><input type="text" id="dze-klav-e-subject" name="dze_email[subject]" class="large-text" value="<?php echo esc_attr( $copy['subject'] ); ?>" /></td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="dze-klav-e-preview"><?php esc_html_e( 'Preview text', 'dazont-ecom' ); ?></label></th>
-					<td><input type="text" id="dze-klav-e-preview" name="dze_email[preview]" class="large-text" value="<?php echo esc_attr( $copy['preview'] ); ?>" /></td>
-				</tr>
-			</table>
 
-			<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-				<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-klav-e-shot" title="<?php esc_attr_e( 'Puts a real photograph of the shop in the setting this promotion evokes, with fal.ai, files it in the media library and opens the email with it.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Change the picture', 'dazont-ecom' ); ?></button>
-				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
-				<span style="flex:1;"></span>
-				<span class="dze-klav-switch">
-					<button type="button" class="button dze-klav-tab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
-				</span>
-			</p>
-			<textarea id="dze-klav-e-body" name="dze_email[body]" rows="18" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( $body ); ?></textarea>
-			<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;height:760px;border:1px solid #dcdcde;background:#fff;"></iframe>
-			<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-				<label for="dze-klav-e-to"><?php esc_html_e( 'Send a test to', 'dazont-ecom' ); ?></label>
-				<input type="text" id="dze-klav-e-to" class="regular-text" value="<?php echo esc_attr( (string) self::conf( 'test_to', (string) get_option( 'admin_email', '' ) ) ); ?>" placeholder="<?php echo esc_attr( (string) get_option( 'admin_email', '' ) ); ?>" />
-				<button type="button" class="button" id="dze-klav-e-test"><?php esc_html_e( 'Send', 'dazont-ecom' ); ?></button>
-				<span id="dze-klav-e-msg" style="font-size:13px;"></span>
-			</p>
-			<p class="description" style="max-width:880px;margin-top:-6px;">
-				<?php esc_html_e( 'The test goes out through Klaviyo itself, so what lands in the inbox is what a customer would receive — not a drawing of it. Up to five addresses, separated by commas.', 'dazont-ecom' ); ?>
-			</p>
+		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>">
+			<div class="dze-mail-list">
+				<?php foreach ( $kinds as $kind => $meta ) :
+					$has  = isset( $emails[ $kind ] );
+					$mail = (array) ( $emails[ $kind ] ?? [] );
+					$when = (string) ( $mail['when'] ?? self::default_when( $kind, $rule ) );
+					$ts   = strtotime( str_replace( 'T', ' ', $when ) );
+					?>
+					<div class="dze-mail<?php echo $has ? '' : ' is-empty'; ?>" data-kind="<?php echo esc_attr( $kind ); ?>">
+						<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
+						<div class="dze-mail-what">
+							<strong><?php echo esc_html( $meta['label'] ); ?></strong>
+							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $meta['when'] ); ?></span>
+							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
+						</div>
+						<div class="dze-mail-state">
+							<?php if ( ! empty( $mail['draft']['campaign'] ) ) : ?>
+								<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
+									<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
+								</a>
+							<?php endif; ?>
+						</div>
+						<div class="dze-mail-act">
+							<?php if ( $has ) : ?>
+								<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Open', 'dazont-ecom' ); ?></button>
+								<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email from the promotion', 'dazont-ecom' ); ?>">&times;</button>
+							<?php else : ?>
+								<button type="button" class="button button-small dze-mail-add"><?php esc_html_e( 'Add', 'dazont-ecom' ); ?></button>
+							<?php endif; ?>
+						</div>
+						<?php // Every email keeps its fields in the form, so ONE Save keeps them all. ?>
+						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $kind ); ?>][exists]" value="<?php echo $has ? '1' : ''; ?>" />
+						<input type="hidden" name="dze_email[<?php echo esc_attr( $kind ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
+						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $kind ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $kind ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $kind ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-when" name="dze_email[<?php echo esc_attr( $kind ); ?>][when]" value="<?php echo esc_attr( $when ); ?>" />
+						<textarea class="dze-f-body" name="dze_email[<?php echo esc_attr( $kind ); ?>][body]" style="display:none;"><?php echo esc_textarea( (string) ( $mail['body'] ?? '' ) ); ?></textarea>
+					</div>
+				<?php endforeach; ?>
+			</div>
+
+			<div id="dze-mail-edit" style="<?php echo '' === $first ? 'display:none;' : ''; ?>">
+				<h4 id="dze-mail-title" style="margin:18px 0 6px;"></h4>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><label for="dze-klav-e-subject"><?php esc_html_e( 'Subject', 'dazont-ecom' ); ?></label></th>
+						<td><input type="text" id="dze-klav-e-subject" class="large-text" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="dze-klav-e-preview"><?php esc_html_e( 'Preview text', 'dazont-ecom' ); ?></label></th>
+						<td><input type="text" id="dze-klav-e-preview" class="large-text" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="dze-klav-e-when"><?php esc_html_e( 'Sends on', 'dazont-ecom' ); ?></label></th>
+						<td>
+							<input type="datetime-local" id="dze-klav-e-when" />
+							<p class="description"><?php esc_html_e( 'The day written on the Klaviyo draft. Klaviyo picks the hour each reader opens his mail; nothing goes out until you press send there.', 'dazont-ecom' ); ?></p>
+						</td>
+					</tr>
+				</table>
+
+				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+					<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Change the picture', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
+					<span style="flex:1;"></span>
+					<span class="dze-klav-switch">
+						<button type="button" class="button dze-klav-tab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
+					</span>
+				</p>
+				<textarea id="dze-klav-e-body" rows="18" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></textarea>
+				<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;height:700px;border:1px solid #dcdcde;background:#fff;"></iframe>
+
+				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+					<button type="button" class="button" id="dze-klav-e-draft"><?php esc_html_e( 'Create the draft in Klaviyo', 'dazont-ecom' ); ?></button>
+					<span style="flex:1;"></span>
+					<label for="dze-klav-e-to"><?php esc_html_e( 'Test to', 'dazont-ecom' ); ?></label>
+					<input type="text" id="dze-klav-e-to" class="regular-text" value="<?php echo esc_attr( (string) self::conf( 'test_to', (string) get_option( 'admin_email', '' ) ) ); ?>" />
+					<button type="button" class="button" id="dze-klav-e-test"><?php esc_html_e( 'Send', 'dazont-ecom' ); ?></button>
+				</p>
+				<p><span id="dze-klav-e-msg" style="font-size:13px;"></span></p>
+			</div>
+
 			<style>
+				.dze-mail-list{max-width:880px;border:1px solid #dcdcde;border-radius:4px;overflow:hidden;background:#fff;}
+				.dze-mail{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid #f0f0f1;}
+				.dze-mail:last-child{border-bottom:0;}
+				.dze-mail.is-on{background:#f6f7f7;box-shadow:inset 3px 0 0 #2271b1;}
+				.dze-mail.is-empty{opacity:.55;}
+				.dze-mail-thumb{width:76px;height:56px;flex:0 0 76px;border:1px solid #e6e6e6;background:#fff;overflow:hidden;position:relative;}
+				.dze-mail-thumb iframe{position:absolute;top:0;left:0;width:600px;height:440px;border:0;transform:scale(.1266);transform-origin:0 0;pointer-events:none;}
+				.dze-mail-what{flex:1;min-width:0;}
+				.dze-mail-what strong{margin-right:8px;}
+				.dze-mail-when{color:#646970;font-size:12px;}
+				.dze-mail-subject{display:block;color:#50575e;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+				.dze-mail-state{font-size:12px;white-space:nowrap;}
+				.dze-mail-act{white-space:nowrap;}
+				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
 				.dze-klav-switch .button{border-radius:0;margin:0;}
 				.dze-klav-switch .button:first-child{border-radius:3px 0 0 3px;}
 				.dze-klav-switch .button:last-child{border-radius:0 3px 3px 0;margin-left:-1px;}
 				.dze-klav-switch .button.is-on{background:#2271b1;border-color:#2271b1;color:#fff;}
 			</style>
 		</div>
-		<?php
-	}
-
-	/**
-	 * What the template preview is filled with.
-	 *
-	 * Real products at real prices rather than grey boxes: a frame is judged on
-	 * what it does to the content, and lorem ipsum judges nothing.
-	 */
-	public static function sample_body(): string {
-		$t = self::theme_style();
-		return sprintf(
-			'<h1 style="margin:0 0 10px;text-align:center;font-family:%1$s;color:%2$s;font-size:30px;line-height:1.2;">%3$s</h1>'
-			. '<p style="margin:0 0 14px;text-align:center;">%4$s</p>'
-			. '<p style="margin:6px 0 18px;text-align:center;"><a href="#" style="display:inline-block;background:%5$s;color:#ffffff;text-decoration:none;padding:15px 40px;font:400 16px %6$s;">%7$s</a></p>',
-			$t['head'],
-			esc_attr( $t['ink'] ),
-			esc_html__( 'Your title, over your picture', 'dazont-ecom' ),
-			esc_html__( 'Two or three short sentences saying what the offer is, what it covers and when it ends.', 'dazont-ecom' ),
-			esc_attr( $t['link'] ),
-			$t['body'],
-			esc_html__( 'Shop the sale', 'dazont-ecom' )
-		) . self::products_html( [], 3 );
-	}
-
-	/** The one popup, printed once at the bottom of the events screen. */
-	public function render_panel(): void {
-		?>
-		<div class="dze-klav-modal" id="dze-klav-modal" style="display:none;">
-			<div class="dze-klav-modal__inner">
-				<h2 style="margin-top:0;"><?php esc_html_e( 'Announce this promotion by email', 'dazont-ecom' ); ?></h2>
-				<p class="description" style="max-width:640px;">
-					<?php esc_html_e( 'The email written on the event\'s own screen goes to Klaviyo as a draft campaign, for the audience chosen in the settings. It is never sent and never scheduled from here — you read it in Klaviyo and decide.', 'dazont-ecom' ); ?>
-				</p>
-				<input type="hidden" id="dze-klav-rule" value="" />
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><label for="dze-klav-name"><?php esc_html_e( 'Campaign name', 'dazont-ecom' ); ?></label></th>
-						<td><input type="text" id="dze-klav-name" class="large-text" /></td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="dze-klav-subject"><?php esc_html_e( 'Subject', 'dazont-ecom' ); ?></label></th>
-						<td>
-							<input type="text" id="dze-klav-subject" class="large-text" />
-							<p style="margin:6px 0 0;">
-								<button type="button" class="button-link" id="dze-klav-write">&#9998; <?php esc_html_e( 'Write the subject and the preview text', 'dazont-ecom' ); ?></button>
-								<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
-								<span id="dze-klav-write-msg" class="description" style="margin-left:8px;"></span>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="dze-klav-preview"><?php esc_html_e( 'Preview text', 'dazont-ecom' ); ?></label></th>
-						<td><input type="text" id="dze-klav-preview" class="large-text" /></td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="dze-klav-when"><?php esc_html_e( 'Send date on the draft', 'dazont-ecom' ); ?></label></th>
-						<td>
-							<input type="datetime-local" id="dze-klav-when" />
-							<p style="margin:8px 0 0;">
-								<label><input type="radio" name="dze-klav-send" value="smart" checked /> <?php esc_html_e( 'At the hour Klaviyo works out for each reader', 'dazont-ecom' ); ?></label>
-								<label style="margin-left:14px;"><input type="radio" name="dze-klav-send" value="fixed" /> <?php esc_html_e( 'At the hour above, in the reader\'s time zone', 'dazont-ecom' ); ?></label>
-							</p>
-							<p class="description"><?php esc_html_e( 'Klaviyo picks the moment each person actually opens his mail, from what that person has done before — only the day is taken from the field above. Written on the draft so it is ready to schedule; Klaviyo sends nothing until you press send there.', 'dazont-ecom' ); ?></p>
-						</td>
-					</tr>
-				</table>
-				<p>
-					<button type="button" class="button button-primary" id="dze-klav-go"><?php esc_html_e( 'Create the draft in Klaviyo', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button-link" id="dze-klav-cancel" style="margin-left:6px;"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
-					<span id="dze-klav-status" style="margin-left:8px;font-size:13px;"></span>
-				</p>
-			</div>
-		</div>
-		<style>
-			.dze-klav-modal{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:24px;}
-			.dze-klav-modal__inner{background:#fff;border-radius:10px;width:min(720px,96vw);max-height:88vh;overflow:auto;padding:18px 24px;}
-			.dze-klav-var{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
-			.dze-klav-var code{min-width:170px;}
-		</style>
 		<?php
 	}
 

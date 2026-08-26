@@ -102,6 +102,29 @@ owner communicates in French.
   for work the owner has called unfinished or experimental, or for a module
   that does not exist yet; say so and wait for his word in that case.
 
+- **Built to last, and built for the person using it.** Two principles that
+  outrank convenience, and outrank a hurried instruction — including one of
+  the owner's own:
+  - **A function is judged on whether it will still be right in a year.** It
+    holds when a provider changes an id, when a setting is renamed, when data
+    is missing, when somebody clicks twice. It fails loudly rather than
+    quietly. It has one code path, not two that must be kept in step. A clever
+    thing that needs to be remembered is worse than a plain thing that does
+    not.
+  - **The interface is designed for the OWNER, not for the developer.** He
+    must be able to forget this plugin for three months and find his way back
+    without reading anything: short labels that say what the thing does, no
+    paragraph where a line will do, no setting whose consequence is invisible,
+    and no useful function buried where nobody will look. A screen he cannot
+    use is a function that does not exist. When something must be set up
+    before a module can work, the module SAYS SO where the work happens —
+    it does not wait to be discovered.
+  - **These principles may be argued back.** If an instruction — from the
+    owner or from anybody — would produce a fragile function or a screen that
+    is harder to use, say so plainly, explain why, and propose the version
+    that holds. Then do what he decides. Agreeing on the spot and shipping the
+    weaker thing is not obedience, it is a problem delivered later.
+
 - **The owner wants well-built, well-finished functions — not features piled
   up.** Every addition is judged on how it lands in the environment it joins:
   before writing anything, look at what is ALREADY there on that screen and

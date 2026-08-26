@@ -196,20 +196,37 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 		</table>
 
 		<?php if ( $is_events && ! empty( $languages ) ) :
+			// Stored as the languages the promotion RUNS in; shown as the ones
+			// it does not. A promotion runs everywhere unless somebody says
+			// otherwise, and the screen should ask for the exception, not for
+			// the rule.
 			$rule_langs = (array) ( $editing['languages'] ?? [] ); ?>
 		<h3><?php esc_html_e( 'Languages', 'dazont-ecom' ); ?></h3>
 		<table class="form-table" role="presentation">
 			<tr>
-				<th scope="row"><?php esc_html_e( 'Enable on languages', 'dazont-ecom' ); ?></th>
+				<th scope="row"><?php esc_html_e( 'Do not run in', 'dazont-ecom' ); ?></th>
 				<td>
-					<?php foreach ( $languages as $lang ) : ?>
-						<label style="margin-right:14px;">
-							<input type="checkbox" name="languages[]" value="<?php echo esc_attr( $lang['code'] ); ?>" <?php checked( in_array( $lang['code'], $rule_langs, true ) ); ?> />
+					<input type="hidden" name="languages_form" value="1" />
+					<?php foreach ( $languages as $lang ) :
+						$dze_off = $rule_langs && ! in_array( $lang['code'], $rule_langs, true ); ?>
+						<label class="dze-lang-off<?php echo $dze_off ? ' is-off' : ''; ?>" style="margin-right:14px;">
+							<input type="checkbox" name="languages_off[]" value="<?php echo esc_attr( $lang['code'] ); ?>" <?php checked( $dze_off ); ?> />
 							<?php if ( ! empty( $lang['flag'] ) ) : ?><img src="<?php echo esc_url( $lang['flag'] ); ?>" alt="" style="width:18px;height:12px;vertical-align:middle;" /> <?php endif; ?>
-							<?php echo esc_html( $lang['native_name'] ); ?>
+							<span><?php echo esc_html( $lang['native_name'] ); ?></span>
 						</label>
 					<?php endforeach; ?>
-					<p class="description"><?php esc_html_e( 'Leave all unchecked to target every language. A non-default language only becomes active when the banner text below is translated for it.', 'dazont-ecom' ); ?></p>
+					<p class="description"><?php esc_html_e( 'Every language runs the promotion. Tick one to leave it out.', 'dazont-ecom' ); ?></p>
+					<style>
+						.dze-lang-off.is-off span{text-decoration:line-through;color:#a7aaad;}
+						.dze-lang-off.is-off img{opacity:.35;filter:grayscale(1);}
+					</style>
+					<script>
+					jQuery( function ( $ ) {
+						$( document ).on( 'change', '.dze-lang-off input', function () {
+							$( this ).closest( '.dze-lang-off' ).toggleClass( 'is-off', this.checked );
+						} );
+					} );
+					</script>
 				</td>
 			</tr>
 		</table>
@@ -435,20 +452,26 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 			$dze_klav = DZE_Klaviyo::instance();
 			?>
 			<div class="dze-field-schedule">
-				<?php if ( $dze_klav->configured() ) : ?>
+				<?php
+				// The checklist comes FIRST and stays visible even once the
+				// module works: what is only recommended (leaving out the
+				// recent buyers) would otherwise never be seen by anybody who
+				// got the two required answers right.
+				if ( class_exists( 'DZE_Setup' ) ) {
+					DZE_Setup::render(
+						DZE_Klaviyo::ready()
+							? __( 'Emails: one thing left to set up', 'dazont-ecom' )
+							: __( 'Emails are not set up yet', 'dazont-ecom' ),
+						DZE_Klaviyo::setup_items()
+					);
+				}
+				?>
+				<?php if ( DZE_Klaviyo::ready() ) : ?>
 					<?php $dze_klav->render_editor( (string) ( $editing['id'] ?? '' ), (array) $editing ); ?>
 				<?php else : ?>
-					<h3><?php esc_html_e( 'The email that announces it', 'dazont-ecom' ); ?></h3>
+					<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
 					<p class="description" style="max-width:880px;">
-						<?php
-						printf(
-							/* translators: 1: what is missing, 2: link to the settings tab */
-							esc_html__( 'Not ready yet — %1$s is missing. Fill it in under %2$s and this section writes the email for this event.', 'dazont-ecom' ),
-							esc_html( $dze_klav->missing() ),
-							'<a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'email' ], admin_url( 'admin.php' ) ) ) . '">'
-								. esc_html__( 'Settings → Email campaigns', 'dazont-ecom' ) . '</a>'
-						);
-						?>
+						<?php esc_html_e( 'Once the two lines above are ticked, this is where the emails of this promotion are written.', 'dazont-ecom' ); ?>
 					</p>
 				<?php endif; ?>
 			</div>
