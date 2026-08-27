@@ -2023,7 +2023,10 @@ final class DZE_Klaviyo {
 		}
 		$all = get_option( self::OPT_COPY, [] );
 		$all = is_array( $all ) ? $all : [];
-		$all[ $rule_id ] = [ 'emails' => $out ];
+		// MERGED, never substituted: what a promotion holds beside its emails
+		// — what its pictures have cost so far — is not on this form, and a
+		// save of the emails must not throw it away.
+		$all[ $rule_id ] = array_merge( (array) ( $all[ $rule_id ] ?? [] ), [ 'emails' => $out ] );
 		update_option( self::OPT_COPY, $all, false );
 	}
 
@@ -2076,6 +2079,46 @@ final class DZE_Klaviyo {
 			$write['body'] = str_replace( self::PICTURE_MARK, $url, $body );
 		}
 		self::put_email( $rule_id, $email_id, $write );
+	}
+
+	/**
+	 * What a promotion has spent on pictures, and how many it has made.
+	 *
+	 * Beside the button that spends the next one: a promotion whose pictures
+	 * keep coming back wrong is a promotion to stop paying for, and that
+	 * decision is taken while looking at the screen, not at a monthly total.
+	 *
+	 * @return array{shots:int,spend:float,label:string}
+	 */
+	public static function charge_promo( string $rule_id, float $cost ): array {
+		$all = get_option( self::OPT_COPY, [] );
+		$all = is_array( $all ) ? $all : [];
+		$one = (array) ( $all[ $rule_id ] ?? [] );
+		if ( $cost > 0 ) {
+			$one['spend'] = round( (float) ( $one['spend'] ?? 0 ) + $cost, 4 );
+			$one['shots'] = 1 + (int) ( $one['shots'] ?? 0 );
+			$all[ $rule_id ] = $one;
+			update_option( self::OPT_COPY, $all, false );
+		}
+		return self::promo_spend( $rule_id );
+	}
+
+	/** @return array{shots:int,spend:float,label:string} */
+	public static function promo_spend( string $rule_id ): array {
+		$all   = get_option( self::OPT_COPY, [] );
+		$one   = is_array( $all ) ? (array) ( $all[ $rule_id ] ?? [] ) : [];
+		$shots = (int) ( $one['shots'] ?? 0 );
+		$spend = (float) ( $one['spend'] ?? 0 );
+		return [
+			'shots' => $shots,
+			'spend' => round( $spend, 2 ),
+			'label' => $shots ? sprintf(
+				/* translators: 1: number of pictures, 2: what they cost */
+				_n( '%1$d picture · %2$s', '%1$d pictures · %2$s', $shots, 'dazont-ecom' ),
+				$shots,
+				'$' . number_format_i18n( $spend, 2 )
+			) : '',
+		];
 	}
 
 	/** How many emails a promotion carries, and how many are already in Klaviyo. */
@@ -3654,10 +3697,15 @@ final class DZE_Klaviyo {
 		if ( ! $test ) {
 			self::keep_picture( $rule_id, $email_id, $made['url'] );
 		}
+		// Charged to the promotion, test or not: a test costs exactly what a
+		// kept picture costs, and a counter that only counted the ones you
+		// liked would be the wrong counter.
+		$spend = self::charge_promo( $rule_id, class_exists( 'DZE_Content' ) ? DZE_Content::last_image_cost() : 0.0 );
 		wp_send_json_success( [
 			'url'     => $made['url'],
 			'full'    => (string) ( $made['full'] ?? $made['url'] ),
 			'warning' => (string) ( $made['warning'] ?? '' ),
+			'spend'   => $spend,
 			'test'    => $test,
 		] );
 	}
@@ -4258,6 +4306,9 @@ final class DZE_Klaviyo {
 							}
 							?>
 							<span id="dze-klav-shot-msg" class="description"></span>
+							<?php // What this promotion's pictures have cost so far. ?>
+							<?php $dze_spend = (string) self::promo_spend( $rule_id )['label']; ?>
+							<span class="dze-spend" id="dze-klav-spend" style="<?php echo '' !== $dze_spend ? 'display:inline-block;' : ''; ?>" title="<?php esc_attr_e( 'What this promotion has spent on pictures, at the price per image set under Settings → Product content.', 'dazont-ecom' ); ?>"><?php echo esc_html( $dze_spend ); ?></span>
 						</p>
 						<p id="dze-klav-shot-out" style="display:none;align-items:center;gap:10px;margin:8px 0 0;">
 							<?php
