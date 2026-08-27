@@ -25,6 +25,12 @@ final class DZE_Prompts {
 	public static function init(): void {
 		add_action( 'wp_ajax_dze_prompt_peek', [ self::class, 'ajax_peek' ] );
 		add_action( 'wp_ajax_dze_prompt_save', [ self::class, 'ajax_save' ] );
+		add_action( 'wp_ajax_dze_prompt_draft', [ self::class, 'ajax_draft' ] );
+	}
+
+	/** The key the prompt controls sign their calls with. */
+	public static function nonce(): string {
+		return wp_create_nonce( self::NONCE );
 	}
 
 	/**
@@ -582,10 +588,13 @@ final class DZE_Prompts {
 					$( '#dze-prompt-reset' ).toggle( !! r.data.editable && !! def );
 					$( '#dze-prompt-edit' ).attr( 'href', r.data.url ).toggle( !! r.data.url );
 					// The default control now knows which prompt it acts on.
-					$( '#dze-prompt-modal .dze-pd' ).attr( 'data-prompt', r.data.own ? cur : '' )
+					$( '#dze-prompt-modal .dze-pd' ).attr( 'data-prompt', cur )
 						.find( '.dze-pd-state' ).text( '' ).end()
 						.find( '.dze-pd-set' ).toggle( !! r.data.editable && !! r.data.own ).end()
-						.find( '.dze-pd-ship' ).toggle( !! r.data.mine );
+						.find( '.dze-pd-ship' ).toggle( !! r.data.mine ).end()
+						// A draft can be asked for on any prompt that can be
+						// written back — that is the whole point of it.
+						.find( '.dze-pd-draft' ).toggle( !! r.data.editable );
 				} ).fail( function () {
 					$( '#dze-prompt-text' ).val( '<?php echo esc_js( __( 'This prompt could not be read.', 'dazont-ecom' ) ); ?>' );
 				} );
@@ -639,6 +648,81 @@ final class DZE_Prompts {
 		} );
 		</script>
 		<?php
+	}
+
+	/**
+	 * A first draft of one prompt, written for THIS shop.
+	 *
+	 * Starting from a blank box is the hardest part of every prompt, and the
+	 * shipped defaults are written for a plugin rather than for a shop: they
+	 * cannot name what this one sells, who buys it, or how it talks. So the
+	 * shop can ask for a draft — what this prompt is for, what the plugin
+	 * hands it at run time, the shipped text as a shape, and everything the
+	 * shop says about itself — and get back something to READ, cut and try.
+	 *
+	 * It is never saved and never becomes the default on its own: it lands in
+	 * the box, and the box is still the shop's to accept.
+	 */
+	public static function ajax_draft(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+			wp_send_json_error( [ 'message' => __( 'The Marketing Assistant module is off, and it is what talks to the model.', 'dazont-ecom' ) ] );
+		}
+		$id  = isset( $_POST['id'] ) ? sanitize_key( wp_unslash( $_POST['id'] ) ) : '';
+		$row = self::catalog()[ $id ] ?? null;
+		if ( ! $row ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown prompt.', 'dazont-ecom' ) ] );
+		}
+		$now     = isset( $_POST['text'] ) ? trim( (string) wp_unslash( $_POST['text'] ) ) : '';
+		$shipped = trim( self::shipped_for( $id ) );
+		$data    = self::data_for( $id );
+		$about   = trim( (string) DZE_Marketing_Ai::instance()->shop_context_text() );
+
+		$user = "--- WHAT THIS PROMPT IS FOR ---\n" . (string) $row['label'] . "\n";
+		if ( $data ) {
+			$user .= "\n--- WHAT THE PLUGIN SENDS WITH IT, EVERY TIME ---\n"
+				. "Never ask for any of this again, and never repeat it: it is already there.\n- "
+				. implode( "\n- ", $data ) . "\n";
+		}
+		if ( '' !== $shipped ) {
+			$user .= "\n--- THE TEXT THE PLUGIN SHIPS (a shape, not a model to copy) ---\n" . mb_substr( $shipped, 0, 3000 ) . "\n";
+		}
+		if ( '' !== $now && $now !== $shipped ) {
+			$user .= "\n--- WHAT THIS SHOP USES TODAY (keep what is deliberate in it) ---\n" . mb_substr( $now, 0, 3000 ) . "\n";
+		}
+		$user .= "\n--- THE SHOP ---\n" . ( '' !== $about ? mb_substr( $about, 0, 1500 ) : 'Nothing could be read about this shop.' ) . "\n";
+		$user .= "\n--- WRITE ---\n"
+			. "The instructions themselves, ready to paste into the box, and nothing else: no preamble, no explanation of your choices, no markdown fence, no title.\n"
+			. "Write them for THIS shop — what it sells, who buys it, the words its customers use — and keep them short enough to be read in one go.\n"
+			. "Say what to do, not what the plugin already does. Never invent a fact about the shop that is not above.\n"
+			. ( '' !== $now
+				? "Write in the same language as the instructions this shop uses today.\n"
+				: "Write in " . ( class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English' ) . ".\n" );
+
+		DZE_Ai_Usage::unit( 'prompt_draft' );
+		try {
+			$out = DZE_Marketing_Ai::complete(
+				'You write the INSTRUCTIONS an online shop gives to a model — the prompt itself, not the thing it produces. You answer with the instructions and nothing else.',
+				$user,
+				'',
+				1600,
+				90
+			);
+		} catch ( \Throwable $e ) {
+			DZE_Ai_Usage::unit();
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::finished( 'prompt_draft' );
+
+		$text = trim( (string) preg_replace( '/^```[a-z]*|```$/m', '', (string) $out ) );
+		if ( '' === $text ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing came back — try again.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'text' => $text ] );
 	}
 
 	public static function ajax_peek(): void {

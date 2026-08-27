@@ -191,6 +191,12 @@ final class DZE_Prompt_Defaults {
 			'<span class="dze-pd" data-prompt="%1$s" data-fill="%2$s">'
 			. '<button type="button" class="button-link dze-pd-set" title="%3$s"%4$s>&#9733; %5$s</button>'
 			. '<button type="button" class="button-link dze-pd-ship" title="%6$s"%7$s>&#8634; %8$s</button>'
+			// A blank box is the hardest part of a prompt, and the shipped text
+			// is written for a plugin rather than for a shop. This asks for a
+			// draft made from what the shop says about itself and from what the
+			// plugin sends with this prompt — to read, cut and try, never saved
+			// on its own.
+			. '<button type="button" class="button-link dze-pd-draft" title="%9$s"%4$s>&#10022; %10$s</button>'
 			. '<span class="dze-pd-state"></span></span>',
 			esc_attr( $id ),
 			esc_attr( $target ),
@@ -199,7 +205,9 @@ final class DZE_Prompt_Defaults {
 			'' !== $label ? esc_html( $label ) : esc_html__( 'Make this the default', 'dazont-ecom' ),
 			esc_attr__( 'Put the text the plugin ships back in the box (save to keep it)', 'dazont-ecom' ),
 			$has ? '' : ' style="display:none;"',
-			esc_html__( 'Shipped text', 'dazont-ecom' )
+			esc_html__( 'Shipped text', 'dazont-ecom' ),
+			esc_attr__( 'Write a first version from what this shop sells and what this prompt is sent — it lands in the box, nothing is saved', 'dazont-ecom' ),
+			esc_html__( 'Draft one for my shop', 'dazont-ecom' )
 		);
 	}
 
@@ -254,6 +262,29 @@ final class DZE_Prompt_Defaults {
 				$s.css( 'color', ko ? '#b32d2e' : '#0a7040' );
 				if ( ! ko ) { window.setTimeout( function () { $s.text( '' ); }, 2500 ); }
 			}
+			var draftNonce = '<?php echo esc_js( class_exists( 'DZE_Prompts' ) ? DZE_Prompts::nonce() : '' ); ?>';
+			$( document ).on( 'click', '.dze-pd-draft', function ( e ) {
+				e.preventDefault();
+				var $b = $( this ), $w = $b.closest( '.dze-pd' ), $f = field( $b );
+				var id = $w.attr( 'data-prompt' ) || '';
+				if ( ! id || ! $f.length ) { return; }
+				$b.prop( 'disabled', true );
+				say( $w, '<?php echo esc_js( __( 'Writing a draft…', 'dazont-ecom' ) ); ?>' );
+				$.post( window.ajaxurl, {
+					action: 'dze_prompt_draft', nonce: draftNonce, id: id, text: String( $f.val() || '' )
+				} ).done( function ( r ) {
+					$b.prop( 'disabled', false );
+					if ( ! r || ! r.success ) {
+						say( $w, ( r && r.data && r.data.message ) || '<?php echo esc_js( __( 'Nothing came back.', 'dazont-ecom' ) ); ?>', true );
+						return;
+					}
+					$f.val( r.data.text ).trigger( 'input' ).trigger( 'change' ).focus();
+					say( $w, '<?php echo esc_js( __( 'Draft — read it, cut it, then save.', 'dazont-ecom' ) ); ?>' );
+				} ).fail( function ( xhr ) {
+					$b.prop( 'disabled', false );
+					say( $w, 'HTTP ' + ( xhr ? xhr.status : 0 ), true );
+				} );
+			} );
 			$( document ).on( 'click', '.dze-pd-set', function ( e ) {
 				e.preventDefault();
 				var $b = $( this ), $w = $b.closest( '.dze-pd' ), $f = field( $b );
