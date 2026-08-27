@@ -74,7 +74,7 @@ final class DZE_Discounts {
 	/** Global "never discount" list, applied to EVERY promotion. */
 	public const OPT_EXCLUSIONS = 'dze_discount_exclusions';
 
-	/** Whether the saving is printed under the price: 'saved' or 'sale' (off). */
+	/** Whether the saving is printed beside the price: 'saved' or 'sale' (off). */
 	public const OPT_BADGE = 'dze_discount_badge';
 
 	/** Where it says it: 'product', 'lists' or 'both'. */
@@ -763,7 +763,7 @@ final class DZE_Discounts {
 			// Make sure the struck-through "on sale" price + Sale! badge actually
 			// render for our dynamic discount (WooCommerce only knows native sales).
 			add_filter( 'woocommerce_product_is_on_sale',           [ $this, 'filter_is_on_sale' ], 20, 2 );
-			// And under those two prices, the only figure a shopper actually
+			// And beside those two prices, the only figure a shopper actually
 			// wants: what this product saves him today. It sits with the price
 			// rather than in the corner badge — the badge is a claim in a
 			// fixed little shape, and a figure needs room and belongs where
@@ -1242,7 +1242,7 @@ final class DZE_Discounts {
 			</p>
 			<p>
 				<select name="<?php echo esc_attr( self::OPT_BADGE ); ?>">
-					<option value="saved" <?php selected( 'saved', $mode ); ?>><?php esc_html_e( 'Under the price — "Save $12.00"', 'dazont-ecom' ); ?></option>
+					<option value="saved" <?php selected( 'saved', $mode ); ?>><?php esc_html_e( 'Beside the price — "Save $12.00"', 'dazont-ecom' ); ?></option>
 					<option value="sale" <?php selected( 'sale', $mode ); ?>><?php esc_html_e( 'Nothing — leave the price as the shop prints it', 'dazont-ecom' ); ?></option>
 				</select>
 				<label for="dze-badge-where" style="margin-left:10px;"><?php esc_html_e( 'Shown', 'dazont-ecom' ); ?></label>
@@ -1281,12 +1281,13 @@ final class DZE_Discounts {
 	}
 
 	/**
-	 * What this product saves, under the price the theme just printed.
+	 * What this product saves, beside the price the theme just printed.
 	 *
 	 * It began life in the corner badge and it does not belong there: a badge
 	 * is a claim in a fixed little shape, sized by the theme for the word
-	 * "Sale!", and a figure needs room. Under the two prices it is read where
-	 * the eye already is, and it cannot contradict them — it is their
+	 * "Sale!", and a figure needs room. Beside the two prices it is read where
+	 * the eye already is, small and in the shop's accent so it reads as a note
+	 * on them and not as a third price, and it cannot contradict them — it is their
 	 * difference, whatever produced it, ours or a native WooCommerce sale.
 	 *
 	 * A variable product whose variations do not all save the same says "up
@@ -1340,10 +1341,19 @@ final class DZE_Discounts {
 			? sprintf( __( 'Save up to %s', 'dazont-ecom' ), wc_price( $saved ) )
 			/* translators: %s: amount saved, e.g. $12.00 */
 			: sprintf( __( 'Save %s', 'dazont-ecom' ), wc_price( $saved ) );
-		// Under the price the theme just printed, on its own line, and styled
-		// inline: the shop's stylesheet is the shop's, and a stylesheet of ours
-		// on the front for one sentence is a request every visitor pays for.
-		return $html . '<span class="dze-saved" style="display:block;font-size:.85em;font-weight:600;">'
+		// Beside the price the theme just printed, small and in the shop's own
+		// accent — not a second bold line under it, which read as a third
+		// price. The colour is asked of the SHOP, in CSS, where a browser
+		// answers for free: the accent a block theme declares, the one Astra
+		// keeps, and failing both the colour of the price itself, so a theme
+		// that publishes neither is left tidy rather than painted a colour
+		// nobody chose. A shop that wants another one sets --dze-saved-colour
+		// anywhere in its stylesheet and this follows it.
+		//
+		// Styled inline on purpose: the shop's stylesheet is the shop's, and a
+		// stylesheet of ours on the front for one sentence is a request every
+		// visitor pays for.
+		return $html . ' <span class="dze-saved" style="display:inline-block;margin-left:.5em;font-size:.8em;font-weight:500;white-space:nowrap;color:var(--dze-saved-colour, var(--wp--preset--color--accent, var(--wp--preset--color--primary, var(--ast-global-color-0, currentColor))));">'
 			. wp_kses_post( $said ) . '</span>';
 	}
 

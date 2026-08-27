@@ -87,6 +87,7 @@ final class DZE_Klaviyo {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
+		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
 		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
 		add_action( 'wp_ajax_dze_klav_drop',    [ __CLASS__, 'ajax_drop' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
@@ -3423,32 +3424,27 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * The whole email for one promotion — subject, preview line and body.
+	 * Everything the writing is TOLD, before the instructions it is told to
+	 * follow. Built here and nowhere else: the screen can show it, word for
+	 * word, beside the button that spends it.
 	 *
-	 * The model writes the HTML itself, and the prompt above it is the only
-	 * thing that decides what that HTML looks like. There is no shape of ours
-	 * left in the middle: the day the owner wants four products to a row, or
-	 * no products at all, or the picture at the bottom, he writes it in the
-	 * prompt and it happens — the same way the product texts and the product
-	 * images are steered.
+	 * That is not a debugging aid. "Do not repeat the other emails" is an
+	 * instruction whose effect nobody can see: an email that comes back
+	 * looking like its neighbour is either an email that was never shown the
+	 * neighbour or one that ignored it, and those two have opposite fixes.
+	 * One function answers both, because what the screen prints is what the
+	 * next call sends — there is no second version of it to drift.
 	 *
-	 * What is NOT left to it: the products, their photographs, their links and
-	 * their prices. Those are handed over as facts and checked on the way back.
-	 *
-	 * Nothing here needs a screen, so the day promotions are automated the same
-	 * function writes the same email.
-	 *
-	 * @return array{subject:string,preview:string,body:string,warning:string}
-	 * @throws RuntimeException When the model answers with nothing usable.
+	 * @param array  $mat     The products it may show, already gathered.
+	 * @param string $picture The picture this email already has, if any.
 	 */
-	public static function write_for( string $rule_id, array $rule, string $email_id = '' ): array {
+	public static function brief_for( string $rule_id, array $rule, string $email_id, array $mat, string $picture ): string {
 		$fmt  = get_option( 'date_format' ) ?: 'Y-m-d';
 		$date = static function ( $ymd ) use ( $fmt ): string {
 			$ts = $ymd ? strtotime( (string) $ymd . ' 00:00:00' ) : false;
 			return $ts ? (string) wp_date( $fmt, $ts ) : '';
 		};
 		$pct  = rtrim( rtrim( number_format( (float) ( $rule['percent'] ?? 0 ), 2, '.', '' ), '0' ), '.' );
-		$lang = class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English';
 		$t    = self::theme_style();
 		$days = 0;
 		$s_ts = strtotime( (string) ( $rule['start'] ?? '' ) );
@@ -3456,9 +3452,7 @@ final class DZE_Klaviyo {
 		if ( $s_ts && $e_ts ) {
 			$days = max( 1, (int) round( ( $e_ts - $s_ts ) / DAY_IN_SECONDS ) + 1 );
 		}
-		$picture = self::picture_for( $rule_id, $rule, $email_id );
-		$moment  = self::email_for( $rule_id, $email_id, $rule );
-		$mat     = self::material( $rule );
+		$moment = self::email_for( $rule_id, $email_id, $rule );
 
 		$user = "--- THE PROMOTION ---\n"
 			. 'Title: ' . (string) ( $rule['title'] ?? '' ) . "\n"
@@ -3537,6 +3531,33 @@ final class DZE_Klaviyo {
 			. 'Text colour: ' . $t['ink'] . "\n"
 			. 'Button and link colour: ' . $t['link'] . "\n"
 			. 'Body text size: ' . (int) $t['size'] . "px\n";
+		return $user;
+	}
+
+	/**
+	 * The whole email for one promotion — subject, preview line and body.
+	 *
+	 * The model writes the HTML itself, and the prompt above it is the only
+	 * thing that decides what that HTML looks like. There is no shape of ours
+	 * left in the middle: the day the owner wants four products to a row, or
+	 * no products at all, or the picture at the bottom, he writes it in the
+	 * prompt and it happens — the same way the product texts and the product
+	 * images are steered.
+	 *
+	 * What is NOT left to it: the products, their photographs, their links and
+	 * their prices. Those are handed over as facts and checked on the way back.
+	 *
+	 * Nothing here needs a screen, so the day promotions are automated the same
+	 * function writes the same email.
+	 *
+	 * @return array{subject:string,preview:string,body:string,warning:string}
+	 * @throws RuntimeException When the model answers with nothing usable.
+	 */
+	public static function write_for( string $rule_id, array $rule, string $email_id = '' ): array {
+		$lang    = class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English';
+		$picture = self::picture_for( $rule_id, $rule, $email_id );
+		$mat     = self::material( $rule );
+		$user    = self::brief_for( $rule_id, $rule, $email_id, $mat, $picture );
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::email_prompt() . "\n"
 			// The shop's own rules, added automatically. They are NOT put into
 			// the editable prompt: a rule written there only reaches a shop
@@ -3768,6 +3789,32 @@ final class DZE_Klaviyo {
 			return 'The promotion is already running and this reader has not bought. He has seen the announcement, so do not repeat it: show him something else — other products, another angle on the same offer — and say plainly how long is left.';
 		}
 		return 'It announces the promotion on the day it opens. This is the one that carries the whole offer: what it is, what it covers, when it ends.';
+	}
+
+	/**
+	 * What this email will be told, printed for the owner.
+	 *
+	 * Built by the very function the writing uses, with no model call and
+	 * nothing stored: what the screen shows IS what the next Generate sends.
+	 * An email that comes back looking like its neighbour is either one that
+	 * was never shown the neighbour or one that ignored it — and this is how
+	 * to tell which, without taking anybody's word for it.
+	 */
+	public static function ajax_brief(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		try {
+			$text = self::brief_for(
+				$rule_id,
+				$rule,
+				$email_id,
+				self::material( $rule ),
+				self::picture_for( $rule_id, $rule, $email_id )
+			);
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'brief' => $text ] );
 	}
 
 	/** The promotion and the email an AJAX call is about. @return array{0:string,1:array,2:string} */
@@ -4464,6 +4511,7 @@ final class DZE_Klaviyo {
 				'writing1' => __( 'Writing %1$d of %2$d…', 'dazont-ecom' ),
 				'allDone'  => __( 'All written. Read them, then save the event.', 'dazont-ecom' ),
 				'nothing'  => __( 'No email to write yet — plan the campaign or add one.', 'dazont-ecom' ),
+				'briefing' => __( 'Reading what this email is told…', 'dazont-ecom' ),
 				'drafting1' => __( 'Putting %1$d of %2$d in Klaviyo…', 'dazont-ecom' ),
 				'draftAll'  => __( 'All of them are in Klaviyo now, one campaign each, in date order, tagged with the promotion. Nothing was sent.', 'dazont-ecom' ),
 				'draftSome' => __( '%1$d in Klaviyo, %2$d refused — put those back one by one to read what Klaviyo said.', 'dazont-ecom' ),
@@ -4786,6 +4834,18 @@ final class DZE_Klaviyo {
 				// looking at.
 				?>
 				<p style="margin:0 0 8px;"><span id="dze-klav-write-msg" style="font-size:13px;"></span></p>
+				<?php
+				// What the writing is TOLD, on demand. The rule about not
+				// repeating the other emails is the one rule of this screen
+				// whose effect nobody can see, and it is the one the owner
+				// keeps catching out. Here is the answer, in the words that
+				// are actually sent.
+				?>
+				<details id="dze-klav-brief" style="margin:0 0 10px;">
+					<summary style="cursor:pointer;font-size:13px;"><?php esc_html_e( 'What this email is told', 'dazont-ecom' ); ?></summary>
+					<p class="description" style="margin:6px 0;"><?php esc_html_e( 'Everything handed over before your own instructions: the promotion and its dates, which email this is and when it goes out, and the other emails of the promotion — their day, their subject, their headings, how they opened and the products they showed. Built by the function that writes the email, so this is what the next Generate really sends.', 'dazont-ecom' ); ?></p>
+					<pre id="dze-klav-brief-txt" style="max-height:340px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;"></pre>
+				</details>
 				<textarea id="dze-klav-e-body" rows="18" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></textarea>
 				<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;height:700px;border:1px solid #dcdcde;background:#fff;"></iframe>
 

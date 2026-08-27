@@ -259,6 +259,7 @@
 		$('#dze-klav-shot-out').hide();
 		$('#dze-klav-shot-msg').text('').removeClass('is-ko');
 		drawHasPic();
+		briefReset();
 		$('#dze-mail-edit').show();
 		view('view');
 	}
@@ -616,6 +617,36 @@
 		render();
 	}
 
+	// What the writing is TOLD, printed on demand. It is built by the very
+	// function that writes the email, with no model call: what is shown here
+	// is what the next Generate sends, and there is no second version of it
+	// to drift. An email that comes back looking like its neighbour is either
+	// one that was never shown the neighbour or one that ignored it, and this
+	// is how to tell which without taking anybody's word for it.
+	function briefReset() {
+		$('#dze-klav-brief').prop('open', false).data('for', '');
+		$('#dze-klav-brief-txt').text('');
+	}
+
+	// <details> fires "toggle", which does not bubble — so the summary's own
+	// click is what is listened to, and the state read is the one BEFORE the
+	// browser flips it.
+	$(document).on('click', '#dze-klav-brief > summary', function () {
+		var $d = $(this).closest('details'), $out = $('#dze-klav-brief-txt');
+		if ($d.prop('open') || !current || $d.data('for') === current) { return; }
+		$out.text(cfg.i18n.briefing);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_brief', nonce: cfg.nonce, rule: ruleId(), email: current })
+			.done(function (res) {
+				if (!res || !res.success) {
+					$out.text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$d.data('for', current);
+				$out.text(res.data.brief || '');
+			})
+			.fail(function () { $out.text(i18n.error); });
+	});
+
 	function writeEmail($b, $m) {
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').removeClass('is-ko').text(i18n.writing);
@@ -631,6 +662,8 @@
 				commit();
 				body().val(res.data.body);
 				commit();
+				// This email has changed: what the OTHERS are told about it has too.
+				briefReset();
 				// A warning is not a failure: the email is there, and something
 				// in it is worth reading twice before it goes out.
 				var note = function () {
