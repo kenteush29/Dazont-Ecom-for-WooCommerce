@@ -65,6 +65,21 @@ STEP 2 — assign t and s:
 When unsure between covered and gap, choose gap. Never invent product ids.
 EOT;
 
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id = '' ): array {
+		return [
+			__( 'The category being matched, and its products with their ids.', 'dazont-ecom' ),
+			__( 'The batch of queries to judge, each with its search volume.', 'dazont-ecom' ),
+			__( 'The answer format — one verdict per query: its type, whether it is covered, and by which product.', 'dazont-ecom' ),
+		];
+	}
+
 	/** Effective matching rules: the admin override when set, else the default. */
 	public static function match_rules(): string {
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {

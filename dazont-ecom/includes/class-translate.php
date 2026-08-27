@@ -113,6 +113,21 @@ final class DZE_Translate {
 			: $shipped;
 	}
 
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id = '' ): array {
+		return [
+			__( 'The fields to translate, each one named, in the original language.', 'dazont-ecom' ),
+			__( 'The language to translate into.', 'dazont-ecom' ),
+			__( 'The answer format — the same fields back, translated, nothing added.', 'dazont-ecom' ),
+		];
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();

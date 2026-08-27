@@ -199,10 +199,15 @@
 	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
 
 	// Editor → the email's own fields, on every keystroke.
+	function typeName(kind) {
+		var names = $('#dze-klav-editor').data('names') || {};
+		return names[kind] || '';
+	}
+
 	function commit() {
 		if (!current) { return; }
-		var $c = card(current), name = $.trim($('#dze-klav-e-name').val() || '');
-		$c.find('.dze-f-name').val(name);
+		var $c = card(current), kind = $('#dze-klav-e-type').val() || '', name = typeName(kind);
+		$c.find('.dze-f-kind').val(kind);
 		$c.find('.dze-f-subject').val($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-f-preview').val($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
@@ -213,13 +218,12 @@
 		$('#dze-mail-title').text($c.find('.dze-mail-name').text());
 		thumb(current);
 	}
-	$(document).on('input change', '#dze-klav-e-name, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
+	$(document).on('input change', '#dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 
-	// Choosing the moment also sets the day it falls on: warm-up two days out,
-	// launch on the opening day, reminder five days in, last chance two days
-	// before it closes. A day changed afterwards stays changed — nothing here
-	// runs again until the menu is used a second time.
-	$(document).on('change', '#dze-klav-e-name', function () {
+	// Choosing the type also sets the day it falls on, from the type's own
+	// rule. A day changed afterwards stays changed — nothing here runs again
+	// until the menu is used a second time.
+	$(document).on('change', '#dze-klav-e-type', function () {
 		var map = $('#dze-klav-editor').data('when') || {}, day = map[$(this).val()];
 		if (day) { $('#dze-klav-e-when').val(day); }
 		commit();
@@ -236,13 +240,13 @@
 		current = id;
 		$('.dze-mail').removeClass('is-on');
 		$c.addClass('is-on');
-		// An email named before this menu existed — by the writing, or by hand —
-		// keeps its name: the option is added rather than the name dropped.
-		var $name = $('#dze-klav-e-name'), had = $c.find('.dze-f-name').val() || '';
-		if (had && !$name.find('option').filter(function () { return this.value === had; }).length) {
-			$name.append($('<option/>').val(had).text(had));
+		// An email whose type the shop has since deleted falls back to the
+		// first one rather than showing a menu with nothing selected.
+		var $type = $('#dze-klav-e-type'), had = $c.find('.dze-f-kind').val() || '';
+		if (!had || !$type.find('option').filter(function () { return this.value === had; }).length) {
+			had = $type.find('option').first().val() || '';
 		}
-		$name.val(had || $name.find('option').first().val());
+		$type.val(had);
 		$('#dze-mail-title').text($.trim($c.find('.dze-mail-name').text()));
 		$('#dze-klav-e-subject').val($c.find('.dze-f-subject').val() || '');
 		$('#dze-klav-e-preview').val($c.find('.dze-f-preview').val() || '');
@@ -272,6 +276,7 @@
 		// A new email opens on the day the promotion does; the moment it
 		// belongs to follows from whatever day it ends up on.
 		$c.find('.dze-f-when').val($('#dze-klav-editor').data('newday') || '');
+		$c.find('.dze-f-kind').val($('#dze-klav-editor').data('newkind') || '');
 		$('.dze-mail-list').append($c);
 		open(id);
 		commit();
@@ -301,7 +306,7 @@
 					var html = $('#dze-mail-blank').html().split('__ID__').join(mail.id),
 						$c = $($.trim(html));
 					$c.find('.dze-f-when').val(mail.when);
-					$c.find('.dze-f-name').val(mail.name);
+					$c.find('.dze-f-kind').val(mail.kind || '');
 					$c.find('.dze-mail-name').text(mail.name || cfg.i18n.unnamed);
 					$c.find('.dze-mail-when').contents().first().replaceWith(mail.when);
 					$('.dze-mail-list').append($c);

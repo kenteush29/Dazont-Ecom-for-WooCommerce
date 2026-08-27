@@ -243,6 +243,24 @@ PROMPT;
 			: $shipped;
 	}
 
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id = '' ): array {
+		return [
+			__( 'The product: its title, its description and its attributes.', 'dazont-ecom' ),
+			__( 'The shop context, and the shop\'s main language — which overrides the language your instructions are written in, reviewer names included.', 'dazont-ecom' ),
+			__( 'The delivery rule, so a review never contradicts what the shop promises.', 'dazont-ecom' ),
+			__( 'How many reviews to write, and the rating of each one, imposed in order.', 'dazont-ecom' ),
+			__( 'The date range they must fall in, spread irregularly.', 'dazont-ecom' ),
+			__( 'The answer format — name, rating, title, text, date.', 'dazont-ecom' ),
+		];
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
