@@ -181,6 +181,13 @@ foreach ( $languages as $l ) {
 		</table>
 		<p style="max-width:820px;">
 			<label>
+				<input type="checkbox" name="<?php echo esc_attr( DZE_Gmc::OPT_AUTO ); ?>" value="1" <?php checked( DZE_Gmc::auto_on() ); ?> />
+				<?php esc_html_e( 'Send promotions to Google by themselves', 'dazont-ecom' ); ?>
+			</label>
+			<span class="description"><?php esc_html_e( 'A promotion that is switched on goes out shortly after it is saved, and is taken down when it is switched off.', 'dazont-ecom' ); ?></span>
+		</p>
+		<p style="max-width:820px;">
+			<label>
 				<input type="checkbox" name="<?php echo esc_attr( DZE_Gmc::OPT_ADS_ONLY ); ?>" value="1" <?php checked( ! empty( $ads_only ) ); ?> />
 				<?php esc_html_e( 'Send promotions only to accounts linked to Google Ads', 'dazont-ecom' ); ?>
 			</label>

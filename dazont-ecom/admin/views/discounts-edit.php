@@ -428,8 +428,5 @@ $banner_location = (string) $e( 'banner_location', DZE_Discounts::default_locati
 		$save_label = $is_events ? __( 'Save event', 'dazont-ecom' ) : __( 'Save discount', 'dazont-ecom' );
 		submit_button( $save_label, 'primary', 'submit', false );
 		?>
-		<?php if ( $is_events && class_exists( 'DZE_Gmc' ) && DZE_Gmc::instance()->is_configured() ) : ?>
-			<button type="submit" name="push_gmc" value="1" class="button" style="margin-left:6px;"><?php esc_html_e( 'Save & Push to GMC', 'dazont-ecom' ); ?></button>
-		<?php endif; ?>
 	</form>
 </div>

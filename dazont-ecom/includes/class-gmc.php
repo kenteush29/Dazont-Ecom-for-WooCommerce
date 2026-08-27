@@ -33,6 +33,8 @@ final class DZE_Gmc {
 	public const OPT_DATASOURCES = 'dze_gmc_datasources';  // Resolved promotion data source names, keyed by account|country|lang.
 	public const OPT_ADVANCED    = 'dze_gmc_advanced';     // Advanced/parent (MCA) account ID — used for GCP developer registration.
 	public const OPT_ADS_ONLY    = 'dze_gmc_ads_only';     // Push promotions only to accounts linked to Google Ads.
+	public const OPT_AUTO        = 'dze_gmc_auto';         // Keep Google up to date without being asked.
+	public const SYNC_ONE        = 'dze_gmc_sync_one';     // Background job: one promotion, sync or cancel.
 
 	// Merchant API (replaces Content API for Shopping v2.1). v1beta was
 	// discontinued on 28 Feb 2026, so all sub-APIs are pinned to v1.
@@ -58,6 +60,9 @@ final class DZE_Gmc {
 	private function __construct() {
 		add_action( self::CRON_HOOK, [ $this, 'cron_sync_all' ] );
 		add_action( 'init',          [ $this, 'maybe_schedule_cron' ] );
+		// The background job, registered on every request: it is run by cron
+		// and by Action Scheduler, neither of which is an admin screen.
+		add_action( self::SYNC_ONE,  [ $this, 'run_queued' ], 10, 2 );
 
 		if ( ! is_admin() ) {
 			return;
@@ -82,6 +87,10 @@ final class DZE_Gmc {
 
 	public static function clear_cron(): void {
 		wp_clear_scheduled_hook( self::CRON_HOOK );
+		// The queued one-promotion jobs carry arguments, which
+		// wp_clear_scheduled_hook() cannot match: they need the hook cleared
+		// whatever its arguments, or a switched-off module goes on pushing.
+		wp_unschedule_hook( self::SYNC_ONE );
 	}
 
 	// =========================================================================
@@ -298,6 +307,7 @@ final class DZE_Gmc {
 		register_setting( 'dze_gmc_options', self::OPT_OAUTH, [ 'sanitize_callback' => [ $this, 'sanitize_oauth' ], 'autoload' => false ] );
 		register_setting( 'dze_gmc_options', self::OPT_ADVANCED, [ 'sanitize_callback' => [ $this, 'sanitize_advanced' ], 'autoload' => false ] );
 		register_setting( 'dze_gmc_options', self::OPT_ADS_ONLY, [ 'sanitize_callback' => static fn( $v ) => empty( $v ) ? '' : '1', 'autoload' => false ] );
+		register_setting( 'dze_gmc_options', self::OPT_AUTO, [ 'sanitize_callback' => static fn( $v ) => empty( $v ) ? '' : '1', 'autoload' => false ] );
 	}
 
 	/** Advanced (parent/MCA) account ID used for GCP developer registration. */
@@ -744,9 +754,200 @@ final class DZE_Gmc {
 		}
 
 		$rules[ $rule_id ]['gmc_sync'] = $statuses;
+		// What Google now holds, in one string. The automatic sync re-sends a
+		// promotion when this changes and leaves it alone when it has not —
+		// written only when something actually went through, because a
+		// promotion no account accepted has to be tried again, not filed away
+		// as delivered.
+		foreach ( $statuses as $one ) {
+			if ( ( $one['status'] ?? '' ) === 'synced' ) {
+				$rules[ $rule_id ]['gmc_fp'] = $this->rule_fingerprint( $rule );
+				break;
+			}
+		}
 		update_option( DZE_Discounts::OPTION, $rules, false );
 
 		return $statuses;
+	}
+
+	// =========================================================================
+	// Automatic sync
+	// =========================================================================
+
+	/**
+	 * Whether Google is kept up to date on its own. On unless switched off.
+	 */
+	public static function auto_on(): bool {
+		return '' !== (string) get_option( self::OPT_AUTO, '1' );
+	}
+
+	/**
+	 * What Google is holding, boiled down to one string.
+	 *
+	 * The automatic sync re-sends a promotion when this changes and leaves it
+	 * alone when it has not — so everything Merchant Center actually reads goes
+	 * in, and nothing else does: editing the emails of a promotion or the
+	 * colour of its banner is not a change Google would ever see.
+	 *
+	 * The targets are NOT read here on purpose. sync_targets() asks Google what
+	 * each account sells to, and asking that question every time we wonder
+	 * whether there is a question to ask is how an hourly job turns into a
+	 * pile of HTTP calls. The accounts themselves are the cheap stand-in: they
+	 * change exactly when the targets do.
+	 */
+	public function rule_fingerprint( array $rule ): string {
+		$parts = [
+			(string) ( $rule['id'] ?? '' ),
+			(string) ( $rule['title'] ?? '' ),
+			(string) ( $rule['banner_text'] ?? '' ),
+			wp_json_encode( (array) ( $rule['banner_text_i18n'] ?? [] ) ),
+			(string) ( $rule['percent'] ?? '' ),
+			(string) ( $rule['start'] ?? '' ),
+			(string) ( $rule['end'] ?? '' ),
+			empty( $rule['enabled'] ) ? '0' : '1',
+			wp_json_encode( (array) ( $rule['languages'] ?? [] ) ),
+			wp_json_encode( self::get_accounts() ),
+			(string) get_option( self::OPT_ADS_ONLY, '' ),
+		];
+		return md5( implode( '|', $parts ) );
+	}
+
+	/** A promotion Google should be told about, and has not been told about yet. */
+	public function needs_sync( array $rule ): bool {
+		if ( ( $rule['type'] ?? '' ) !== 'sale' || empty( $rule['enabled'] ) ) {
+			return false;
+		}
+		[ $start, $end ] = DZE_Discounts::instance()->window_ts( $rule );
+		if ( PHP_INT_MIN === $start || PHP_INT_MAX === $end ) {
+			return false; // a GMC promotion needs both dates; nothing to send.
+		}
+		if ( $end < time() ) {
+			return false; // over — Google stopped it on its own endTime.
+		}
+		return $this->rule_fingerprint( $rule ) !== (string) ( $rule['gmc_fp'] ?? '' );
+	}
+
+	/** A promotion Google is running that the shop has switched off. */
+	public function needs_cancel( array $rule ): bool {
+		if ( ( $rule['type'] ?? '' ) !== 'sale' || ! empty( $rule['enabled'] ) ) {
+			return false;
+		}
+		if ( 'ended' === (string) ( $rule['gmc_fp'] ?? '' ) ) {
+			return false; // already taken down.
+		}
+		foreach ( (array) ( $rule['gmc_sync'] ?? [] ) as $one ) {
+			if ( ( $one['status'] ?? '' ) === 'synced' ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A promotion was saved, switched on or switched off: Google follows.
+	 *
+	 * Called from every path that changes a promotion, and it is the only
+	 * thing those paths have to call — what to do, and whether there is
+	 * anything to do at all, is decided here.
+	 */
+	public function on_rule_saved( string $rule_id ): void {
+		if ( ! self::auto_on() ) {
+			return;
+		}
+		$rules = DZE_Discounts::get_rules();
+		$rule  = (array) ( $rules[ $rule_id ] ?? [] );
+		if ( empty( $rule ) ) {
+			return;
+		}
+		// What the promotion needs is worked out from the rule alone, before
+		// anything asks the connection whether it exists: this runs once per
+		// promotion on a screen that lists them all, and the connection is
+		// read from the database each time it is asked.
+		$what = $this->needs_cancel( $rule ) ? 'cancel' : ( $this->needs_sync( $rule ) ? 'sync' : '' );
+		if ( '' === $what || ! $this->is_configured() ) {
+			return;
+		}
+		$this->queue_rule( $rule_id, $what );
+	}
+
+	/**
+	 * Hands the Google round-trip to the background.
+	 *
+	 * Never in the request that saved: one insert per market, each with a
+	 * token and a data source behind it, is not something the owner should
+	 * watch a Save button spin through.
+	 */
+	public function queue_rule( string $rule_id, string $what = 'sync' ): void {
+		// Queued once. This is called from every screen that could notice the
+		// work is due, including one that redraws a list of promotions, and a
+		// queue is not a place to put the same job twenty times.
+		$mark = 'dze_gmc_q_' . md5( $rule_id . '|' . $what );
+		if ( get_transient( $mark ) ) {
+			return;
+		}
+		set_transient( $mark, 1, 5 * MINUTE_IN_SECONDS );
+
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( self::SYNC_ONE, [ $rule_id, $what ], 'dazont-ecom' );
+			return;
+		}
+		if ( wp_next_scheduled( self::SYNC_ONE, [ $rule_id, $what ] ) ) {
+			return;
+		}
+		wp_schedule_single_event( time() + 20, self::SYNC_ONE, [ $rule_id, $what ] );
+		if ( function_exists( 'spawn_cron' ) ) {
+			spawn_cron(); // non-blocking: WP's own fire-and-forget ping.
+		}
+	}
+
+	/**
+	 * The queued job. Also the hourly job's single step, so the two cannot
+	 * drift apart, and locked so a double click and a cron tick landing
+	 * together do not both push the same promotion.
+	 *
+	 * @param string $rule_id The promotion.
+	 * @param string $what    'sync' or 'cancel'.
+	 */
+	public function run_queued( $rule_id = '', $what = 'sync' ): void {
+		$rule_id = (string) $rule_id;
+		$what    = ( 'cancel' === $what ) ? 'cancel' : 'sync';
+		if ( '' === $rule_id || ! $this->is_configured() ) {
+			return;
+		}
+		$lock = 'dze_gmc_run_' . md5( $rule_id );
+		if ( get_transient( $lock ) ) {
+			return;
+		}
+		set_transient( $lock, 1, 5 * MINUTE_IN_SECONDS );
+		try {
+			$rules = DZE_Discounts::get_rules();
+			$rule  = (array) ( $rules[ $rule_id ] ?? [] );
+			if ( empty( $rule ) ) {
+				return;
+			}
+			if ( 'cancel' === $what ) {
+				if ( $this->needs_cancel( $rule ) ) {
+					$this->cancel_rule( $rule );
+					$this->remember_state( $rule_id, 'ended' );
+				}
+				return;
+			}
+			if ( $this->needs_sync( $rule ) ) {
+				$this->sync_rule( $rule_id );
+			}
+		} finally {
+			delete_transient( $lock );
+		}
+	}
+
+	/** Writes down where a promotion stands with Google, and nothing else. */
+	private function remember_state( string $rule_id, string $state ): void {
+		$rules = DZE_Discounts::get_rules();
+		if ( ! isset( $rules[ $rule_id ] ) ) {
+			return;
+		}
+		$rules[ $rule_id ]['gmc_fp'] = $state;
+		update_option( DZE_Discounts::OPTION, $rules, false );
 	}
 
 	/**
@@ -1157,10 +1358,27 @@ final class DZE_Gmc {
 		];
 	}
 
+	/**
+	 * The hourly round: every promotion, in whichever direction it needs.
+	 *
+	 * It used to refresh only promotions that had ALREADY been pushed by hand,
+	 * which meant the one state that actually needs a machine — a promotion
+	 * running in the shop that Google has never heard of — was the one state
+	 * it ignored. It now sends what has not been sent, re-sends what changed,
+	 * takes down what was switched off, and does nothing at all for the rest.
+	 */
 	public function cron_sync_all(): void {
+		if ( ! self::auto_on() || ! $this->is_configured() ) {
+			return;
+		}
 		foreach ( DZE_Discounts::get_rules() as $id => $rule ) {
-			if ( ( $rule['type'] ?? '' ) === 'sale' && ! empty( $rule['enabled'] ) && ! empty( $rule['gmc_sync'] ) ) {
-				$this->sync_rule( (string) $id );
+			if ( ( $rule['type'] ?? '' ) !== 'sale' ) {
+				continue;
+			}
+			if ( $this->needs_cancel( $rule ) ) {
+				$this->run_queued( (string) $id, 'cancel' );
+			} elseif ( $this->needs_sync( $rule ) ) {
+				$this->run_queued( (string) $id, 'sync' );
 			}
 		}
 	}
@@ -1325,15 +1543,32 @@ final class DZE_Gmc {
 		foreach ( $sync as $one ) {
 			$last = max( $last, (int) ( $one['time'] ?? 0 ) );
 		}
-		$out .= '<div style="font-size:11px;color:#646970;margin-top:2px;">' . esc_html(
-			$last
-				? sprintf(
-					/* translators: %s: how long ago, e.g. "2 hours" */
-					__( 'Sent %s ago', 'dazont-ecom' ),
-					human_time_diff( $last )
-				)
-				: __( 'Never sent', 'dazont-ecom' )
-		) . '</div>';
+		$line = $last
+			? sprintf(
+				/* translators: %s: how long ago, e.g. "2 hours" */
+				__( 'Sent %s ago', 'dazont-ecom' ),
+				human_time_diff( $last )
+			)
+			: __( 'Never sent', 'dazont-ecom' );
+
+		// Sending is automatic, so the row says what is ABOUT to happen too: a
+		// promotion nothing has pushed yet must not read like a promotion
+		// nothing will ever push.
+		if ( self::auto_on() ) {
+			if ( $this->needs_sync( $rule ) ) {
+				$line = $last
+					? sprintf(
+						/* translators: %s: how long ago, e.g. "2 hours" */
+						__( 'Sent %s ago · changed, going out again', 'dazont-ecom' ),
+						human_time_diff( $last )
+					)
+					: __( 'Going out to Google shortly', 'dazont-ecom' );
+			} elseif ( $this->needs_cancel( $rule ) ) {
+				$line = __( 'Being taken down in Google', 'dazont-ecom' );
+			}
+		}
+
+		$out .= '<div style="font-size:11px;color:#646970;margin-top:2px;">' . esc_html( $line ) . '</div>';
 		return $out;
 	}
 
