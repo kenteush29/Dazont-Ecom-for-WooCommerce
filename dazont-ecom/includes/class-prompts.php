@@ -218,12 +218,14 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
 			$out['events'] = [
 				'label' => __( 'Marketing calendar', 'dazont-ecom' ),
+				'owner' => 'DZE_Marketing_Ai',
 				'text'  => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 				'tab'   => 'events',
 				'frag'  => 'dze-mai-prompt',
 			];
 			$out['promo_i18n'] = [
 				'label' => __( 'Promotion translations', 'dazont-ecom' ),
+				'owner' => 'DZE_Marketing_Ai',
 				'text'  => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
 				'tab'   => 'events',
 				'frag'  => 'dze-mai-promo-i18n',
@@ -232,12 +234,14 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Klaviyo' ) && self::module_on( 'klaviyo' ) ) {
 			$out['promo_plan'] = [
 				'label' => __( 'Promotion campaign plan', 'dazont-ecom' ),
+				'owner' => 'DZE_Klaviyo',
 				'text'  => [ 'DZE_Klaviyo', 'plan_prompt' ],
 				'tab'   => 'email',
 				'frag'  => 'dze-klav-plan',
 			];
 			$out['promo_email'] = [
 				'label' => __( 'Promotion email', 'dazont-ecom' ),
+				'owner' => 'DZE_Klaviyo',
 				'text'  => [ 'DZE_Klaviyo', 'email_prompt' ],
 				'tab'   => 'email',
 				'frag'  => 'dze-klav-prompt',
@@ -246,6 +250,7 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Explorer' ) && self::module_on( 'sourcing' ) ) {
 			$out['sourcing_report'] = [
 				'label' => __( 'Sourcing report', 'dazont-ecom' ),
+				'owner' => 'DZE_Explorer',
 				'text'  => [ 'DZE_Explorer', 'report_guidance' ],
 				'tab'   => 'sourcing',
 				'frag'  => 'dze-mai-report-guidance',
@@ -254,6 +259,7 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Keywords' ) && self::module_on( 'sourcing' ) ) {
 			$out['keyword_match'] = [
 				'label' => __( 'Keyword matching', 'dazont-ecom' ),
+				'owner' => 'DZE_Keywords',
 				'text'  => [ 'DZE_Keywords', 'match_rules' ],
 				'tab'   => 'sourcing',
 				'frag'  => 'dze-mai-match-rules',
@@ -262,6 +268,7 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Reviews' ) && self::module_on( 'reviews' ) ) {
 			$out['reviews'] = [
 				'label' => __( 'Customer reviews', 'dazont-ecom' ),
+				'owner' => 'DZE_Reviews',
 				'text'  => [ 'DZE_Reviews', 'prompt' ],
 				'tab'   => 'reviews',
 				'frag'  => 'dze-rev-prompt',
@@ -270,18 +277,21 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Category_Content' ) && self::module_on( 'category_content' ) ) {
 			$out['cat_desc'] = [
 				'label' => __( 'Category description', 'dazont-ecom' ),
+				'owner' => 'DZE_Category_Content',
 				'text'  => [ 'DZE_Category_Content', 'prompt' ],
 				'tab'   => 'categories',
 				'frag'  => 'dze-cc-prompt',
 			];
 			$out['cat_links'] = [
 				'label' => __( 'Internal linking pass', 'dazont-ecom' ),
+				'owner' => 'DZE_Category_Content',
 				'text'  => [ 'DZE_Category_Content', 'links_prompt' ],
 				'tab'   => 'categories',
 				'frag'  => 'dze-cc-links-prompt',
 			];
 			$out['cat_sift'] = [
 				'label' => __( 'Buyer questions worth answering', 'dazont-ecom' ),
+				'owner' => 'DZE_Category_Content',
 				'text'  => [ 'DZE_Category_Content', 'sift_prompt' ],
 				'tab'   => 'categories',
 				'frag'  => 'dze-cc-sift-prompt',
@@ -299,7 +309,8 @@ final class DZE_Prompts {
 				}
 				$out[ 'content_' . $rid ] = [
 					'label' => (string) ( $row['name'] ?? $rid ),
-					'text'  => static fn(): string => DZE_Content::prompt_for( $rid ),
+					'owner' => 'DZE_Content',
+				'text'  => static fn(): string => DZE_Content::prompt_for( $rid ),
 					'tab'   => 'content',
 					'frag'  => 'dze-pr-row-' . $rid,
 				];
@@ -308,6 +319,7 @@ final class DZE_Prompts {
 		if ( class_exists( 'DZE_Translate' ) && self::module_on( 'translate' ) ) {
 			$out['translate'] = [
 				'label' => __( 'Product translation', 'dazont-ecom' ),
+				'owner' => 'DZE_Translate',
 				'text'  => [ 'DZE_Translate', 'prompt' ],
 				'tab'   => 'translate',
 				'frag'  => 'dze-tr-prompt',
@@ -316,6 +328,30 @@ final class DZE_Prompts {
 
 		self::$catalog = $out;
 		return $out;
+	}
+
+	/**
+	 * What the plugin adds to that prompt when it makes the call.
+	 *
+	 * A prompt is never sent alone: the product, the promotion, the shop, the
+	 * language, the answer format travel with it. An admin reading a
+	 * disappointing result has to be able to see WHICH of those the model
+	 * actually had — a missing figure is a missing input far more often than
+	 * it is a badly written instruction.
+	 *
+	 * The list is answered by the module that BUILDS the call, right beside
+	 * the code that builds it, so the two are read and changed together.
+	 *
+	 * @return string[] One short line per thing sent.
+	 */
+	public static function data_for( string $id ): array {
+		$row   = self::catalog()[ $id ] ?? null;
+		$owner = (string) ( $row['owner'] ?? '' );
+		if ( '' === $owner || ! is_callable( [ $owner, 'prompt_data' ] ) ) {
+			return [];
+		}
+		$out = (array) call_user_func( [ $owner, 'prompt_data' ], $id );
+		return array_values( array_filter( array_map( 'strval', $out ) ) );
 	}
 
 	private static function module_on( string $id ): bool {
@@ -415,6 +451,10 @@ final class DZE_Prompts {
 					?>
 					<a href="#" id="dze-prompt-edit" target="_blank" rel="noopener" class="dze-prompt-more"><?php esc_html_e( 'Its other settings →', 'dazont-ecom' ); ?></a>
 				</p>
+				<details id="dze-prompt-data" style="margin:10px 0 0;display:none;">
+					<summary style="cursor:pointer;font-size:12px;color:#2271b1;"><?php esc_html_e( 'What is sent with it', 'dazont-ecom' ); ?></summary>
+					<ul id="dze-prompt-data-list" style="margin:6px 0 0 18px;font-size:12px;color:#50575e;list-style:disc;"></ul>
+				</details>
 				<p class="description" id="dze-prompt-note"></p>
 			</div>
 		</div></div>
@@ -441,6 +481,11 @@ final class DZE_Prompts {
 					$( '#dze-prompt-title' ).text( r.data.label );
 					$( '#dze-prompt-text' ).val( r.data.text ).prop( 'disabled', ! r.data.editable );
 					$( '#dze-prompt-note' ).text( r.data.note );
+					// What travels with it, in the order it is put together.
+					var $list = $( '#dze-prompt-data-list' ).empty(),
+						lines = r.data.data || [];
+					$.each( lines, function ( i, line ) { $list.append( $( '<li/>' ).text( line ) ); } );
+					$( '#dze-prompt-data' ).toggle( !! lines.length ).prop( 'open', false );
 					$( '#dze-prompt-save' ).toggle( !! r.data.editable );
 					$( '#dze-prompt-reset' ).toggle( !! r.data.editable && !! def );
 					$( '#dze-prompt-edit' ).attr( 'href', r.data.url ).toggle( !! r.data.url );
@@ -527,6 +572,7 @@ final class DZE_Prompts {
 			'own'      => $own,
 			'mine'     => $own && DZE_Prompt_Defaults::has( $id ),
 			'url'      => self::url( $id ),
+			'data'     => self::data_for( $id ),
 			'note'     => __( 'Saved here, this is what every run uses from now on. The product or category data, the shop context, the site language and the answer format are added around it when the call is made.', 'dazont-ecom' ),
 		] );
 	}

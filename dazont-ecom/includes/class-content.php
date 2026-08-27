@@ -1077,6 +1077,36 @@ EOT;
 		return [ $ok, count( $fields ) ];
 	}
 
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id = '' ): array {
+		// An image row and a text row are not sent the same things at all.
+		$row = '';
+		if ( 0 === strpos( $id, 'content_' ) ) {
+			$row = substr( $id, strlen( 'content_' ) );
+		}
+		foreach ( self::registry() as $one ) {
+			if ( (string) ( $one['id'] ?? '' ) === $row && ( $one['type'] ?? 'text' ) === 'image' ) {
+				return [
+					__( 'The product photographs this template is run on, as real images.', 'dazont-ecom' ),
+					__( 'The product\'s name, so the picture is of the right thing.', 'dazont-ecom' ),
+					__( 'The shape asked for, and where the result is filed.', 'dazont-ecom' ),
+				];
+			}
+		}
+		return [
+			__( 'The product: its title, its description, its attributes, its categories and its price.', 'dazont-ecom' ),
+			__( 'The shop context written once under Settings → General.', 'dazont-ecom' ),
+			__( 'The shop\'s main language, which overrides the language your instructions are written in.', 'dazont-ecom' ),
+			__( 'The answer format the field expects, and its length.', 'dazont-ecom' ),
+		];
+	}
+
 	public static function prompt_for( string $field ): string {
 		$r = self::registry_row( $field );
 		return $r ? (string) ( $r['prompt'] ?? '' ) : '';

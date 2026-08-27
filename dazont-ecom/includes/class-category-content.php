@@ -297,6 +297,37 @@ PROMPT;
 			: $shipped;
 	}
 
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id ): array {
+		if ( 'cat_sift' === $id ) {
+			return [
+				__( 'The category: its name, and the queries it targets.', 'dazont-ecom' ),
+				__( 'The questions found for it, with what each one is worth in searches.', 'dazont-ecom' ),
+				__( 'The answer format — which questions to keep, nothing else.', 'dazont-ecom' ),
+			];
+		}
+		if ( 'cat_links' === $id ) {
+			return [
+				__( 'The text to link, as it stands.', 'dazont-ecom' ),
+				__( 'The pages it may link to: their name and their address.', 'dazont-ecom' ),
+				__( 'The rule added whatever your text says: an anchor names the page it points at, woven into a sentence that reads without it.', 'dazont-ecom' ),
+				__( 'The answer format — the text back, with the links in it.', 'dazont-ecom' ),
+			];
+		}
+		return [
+			__( 'The category: its name, the queries this page targets, and the plan of the whole page.', 'dazont-ecom' ),
+			__( 'Which piece is being written — the opening, or one section under its heading — and roughly how many words it gets.', 'dazont-ecom' ),
+			__( 'The language of the category, which overrides the language your instructions are written in.', 'dazont-ecom' ),
+			__( 'The answer format — the HTML of that piece alone, no wrapper.', 'dazont-ecom' ),
+		];
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();

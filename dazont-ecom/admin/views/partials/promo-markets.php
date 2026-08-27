@@ -24,6 +24,14 @@ defined( 'ABSPATH' ) || exit;
 				<th scope="row"><?php esc_html_e( 'The title in your other markets', 'dazont-ecom' ); ?></th>
 				<td>
 					<button type="button" class="button-link" id="dze-banner-translate">&#127760; <?php esc_html_e( 'Write it for my other markets', 'dazont-ecom' ); ?></button>
+					<?php
+					// The instructions this button follows, opened and edited
+					// where it is pressed: a line that comes back wrong is
+					// corrected and asked for again without leaving the event.
+					if ( class_exists( 'DZE_Prompts' ) ) {
+						DZE_Prompts::the_button( 'promo_i18n' );
+					}
+					?>
 					<span id="dze-banner-tr-status" class="description" style="margin-left:8px;"></span>
 					<details id="dze-banner-i18n" style="margin:6px 0 0;"<?php echo $dze_got ? '' : ' open'; ?>>
 						<summary style="cursor:pointer;font-size:12px;color:#2271b1;">

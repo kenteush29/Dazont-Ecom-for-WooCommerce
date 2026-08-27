@@ -445,6 +445,30 @@ final class DZE_Marketing_Ai {
 	}
 
 	/** The effective calendar guidance: the user's custom text, or the default. */
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id ): array {
+		if ( 'promo_i18n' === $id ) {
+			return [
+				__( 'The line to adapt, exactly as it stands on the promotion.', 'dazont-ecom' ),
+				__( 'The markets to write it for: language code and language name.', 'dazont-ecom' ),
+				__( 'The answer format — one line per language code, nothing else.', 'dazont-ecom' ),
+			];
+		}
+		return [
+			__( 'The shop, read from itself: its name, its tagline, its best-selling categories and products, how many products it has, its price range, its currency and its country.', 'dazont-ecom' ),
+			__( 'The language the calendar is written in, and the markets it is written for.', 'dazont-ecom' ),
+			__( 'The date range you asked for, and the largest number of events that may come back.', 'dazont-ecom' ),
+			__( 'The rules added whatever your text says: every event maps to a real occasion named in its rationale, the title names that occasion in the words customers use, a stretch with no occasion in it comes back empty.', 'dazont-ecom' ),
+			__( 'The answer format — title, dates, percentage, countdown, one-sentence rationale.', 'dazont-ecom' ),
+		];
+	}
+
 	/** Is the countdown decided by the rule below rather than by the model? */
 	public static function timer_auto_on(): bool {
 		return ! empty( self::get_settings()['timer_auto'] );

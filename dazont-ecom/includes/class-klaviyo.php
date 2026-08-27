@@ -850,6 +850,10 @@ final class DZE_Klaviyo {
 		// it is read from the section's own marker rather than from itself.
 		if ( ! empty( $in['form'] ) ) {
 			$out['images'] = ! empty( $in['images'] ) ? 1 : 0;
+			// The list of types belongs to this form and to no other. Emptied
+			// on purpose, it means the shipped list — the same thing the
+			// "Restore default" beside it does, so the two agree.
+			$out['types'] = self::clean_types( (array) ( $in['types'] ?? [] ) );
 		}
 		if ( array_key_exists( 'test_to', $in ) ) {
 			$to = array_filter( array_map( 'sanitize_email', array_map( 'trim', explode( ',', (string) $in['test_to'] ) ) ) );
@@ -1528,82 +1532,208 @@ final class DZE_Klaviyo {
 	// its promotion, so nothing written is ever lost to the change.
 	// =========================================================================
 
-	/** The moments a promotion can be announced at, in the order they happen. */
-	public static function kinds(): array {
+	/**
+	 * The types an email of a promotion can be, in the order they happen.
+	 *
+	 * A list, not four fixed slots: the shop edits it under Settings → Email
+	 * campaigns, because "warm-up, launch, reminder, last chance" is one
+	 * shop's rhythm and not a law. Each type is a NAME and the day it falls
+	 * on, said the only two ways a promotion can say it — so many days from
+	 * the start, or so many days from the end. Never both: a date measured
+	 * from both ends of a window is two dates.
+	 *
+	 * The type is what the writing is told this email is. It is chosen on the
+	 * email, it is not deduced from its date — that was the old behaviour and
+	 * it meant the choice on screen changed nothing at all.
+	 */
+	public static function shipped_kinds(): array {
 		return [
-			'warm'     => [
-				'label' => __( 'Warm-up', 'dazont-ecom' ),
-				'when'  => __( 'Before it opens', 'dazont-ecom' ),
-				'days'  => -2,
-			],
-			'launch'   => [
-				'label' => __( 'Launch', 'dazont-ecom' ),
-				'when'  => __( 'The day it opens', 'dazont-ecom' ),
-				'days'  => 0,
-			],
-			'reminder' => [
-				'label' => __( 'Reminder', 'dazont-ecom' ),
-				'when'  => __( 'Five days in', 'dazont-ecom' ),
-				'days'  => 5,
-			],
-			'last'     => [
-				'label' => __( 'Last chance', 'dazont-ecom' ),
-				'when'  => __( 'Two days before it closes', 'dazont-ecom' ),
-				'days'  => 'end-2',
-			],
+			[ 'id' => 'warm',     'label' => __( 'Warm-up', 'dazont-ecom' ),     'anchor' => 'start', 'offset' => -2 ],
+			[ 'id' => 'launch',   'label' => __( 'Launch', 'dazont-ecom' ),      'anchor' => 'start', 'offset' => 0 ],
+			[ 'id' => 'reminder', 'label' => __( 'Reminder', 'dazont-ecom' ),    'anchor' => 'start', 'offset' => 5 ],
+			[ 'id' => 'last',     'label' => __( 'Last chance', 'dazont-ecom' ), 'anchor' => 'end',   'offset' => -2 ],
 		];
 	}
 
-	/**
-	 * The rule a moment follows, said the way a shop owner says it.
-	 *
-	 * Shown on each option of the menu, because "Reminder" alone is not a
-	 * choice — "Reminder · J+5" is. The rule and the label come from the same
-	 * row of kinds(), so a moment cannot be moved without its caption moving
-	 * with it.
-	 *
-	 * @param int|string $days The row's own offset.
-	 */
-	public static function day_rule( $days ): string {
-		if ( 'end-2' === $days ) {
-			return __( 'end − 2', 'dazont-ecom' );
-		}
-		if ( 'end' === $days ) {
-			return __( 'end', 'dazont-ecom' );
-		}
-		if ( 'mid' === $days ) {
-			return __( 'halfway', 'dazont-ecom' );
-		}
-		$n = (int) $days;
-		if ( 0 === $n ) {
-			return 'J0';
-		}
-		return $n > 0 ? 'J+' . $n : 'J−' . abs( $n );
+	/** The types this shop uses, keyed by id. Empty settings = the shipped list. */
+	public static function kinds(): array {
+		$rows = self::settings()['types'] ?? null;
+		$out  = self::kinds_from( is_array( $rows ) ? $rows : [] );
+		return $out ?: self::kinds_from( self::shipped_kinds() );
 	}
 
-	/** The day an email of this kind goes out, from the promotion's own window. */
-	public static function default_when( string $kind, array $rule ): string {
+	/** @param array $rows Raw rows, from the settings or from the shipped list. */
+	private static function kinds_from( array $rows ): array {
+		$out = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$id    = sanitize_key( (string) ( $row['id'] ?? '' ) );
+			$label = trim( (string) ( $row['label'] ?? '' ) );
+			if ( '' === $id || '' === $label || isset( $out[ $id ] ) ) {
+				continue;
+			}
+			$anchor = ( 'end' === ( $row['anchor'] ?? '' ) ) ? 'end' : 'start';
+			$offset = max( -90, min( 90, (int) ( $row['offset'] ?? 0 ) ) );
+			$out[ $id ] = [
+				'label'  => $label,
+				'anchor' => $anchor,
+				'offset' => $offset,
+				'when'   => self::when_caption( $anchor, $offset ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * The types as the settings form posted them.
+	 *
+	 * The form talks in whole days and a direction ("2 days before it ends"),
+	 * because that is how a shop says it; what is stored is an anchor and a
+	 * signed offset, because that is what a date is worked out from. One
+	 * translation, in one place.
+	 */
+	public static function clean_types( array $rows ): array {
+		$out  = [];
+		$seen = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$label = trim( sanitize_text_field( (string) ( $row['label'] ?? '' ) ) );
+			if ( '' === $label ) {
+				continue; // a type with no name is not one.
+			}
+			$id = sanitize_key( (string) ( $row['id'] ?? '' ) );
+			if ( '' === $id ) {
+				$id = sanitize_key( sanitize_title( $label ) );
+			}
+			if ( '' === $id ) {
+				$id = 't' . ( count( $out ) + 1 );
+			}
+			while ( isset( $seen[ $id ] ) ) {
+				$id .= '2';
+			}
+			$seen[ $id ] = true;
+			$days = max( 0, min( 90, (int) ( $row['days'] ?? 0 ) ) );
+			$mode = (string) ( $row['mode'] ?? 'sa' );
+			$out[] = [
+				'id'     => $id,
+				'label'  => mb_substr( $label, 0, 60 ),
+				'anchor' => 'eb' === $mode ? 'end' : 'start',
+				'offset' => 'sa' === $mode ? $days : -$days,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id ): array {
+		if ( 'promo_plan' === $id ) {
+			return [
+				__( 'The promotion: its title, its discount, the day it opens, the day it closes, how many days that is, whether it covers the whole shop or some categories, and today\'s date.', 'dazont-ecom' ),
+				__( 'The shop, read from itself: its name, its tagline, its best-selling categories and products, its price range and its currency.', 'dazont-ecom' ),
+				__( 'The answer format — one date and one angle per email, nothing else.', 'dazont-ecom' ),
+			];
+		}
+		return [
+			__( 'The promotion: its title, its discount, its dates, how many days it runs, what it covers, and the shop address.', 'dazont-ecom' ),
+			__( 'Which email this is: its type, what that type means, the day it goes out, and its place in the sequence.', 'dazont-ecom' ),
+			__( 'The angle the campaign plan wrote for this one, when a plan was run.', 'dazont-ecom' ),
+			__( 'The other emails of the promotion: their subject, how they opened, and which products they leaned on — so this one repeats none of it.', 'dazont-ecom' ),
+			__( 'The shop, read from itself: name, tagline, best-selling categories and products, price range, currency.', 'dazont-ecom' ),
+			__( 'The products it may show: the best-sellers of the window set below, with their names, links, photographs and both prices — and the rule that a product is placed with [[PRODUCT n]] and never written by hand.', 'dazont-ecom' ),
+			__( 'The opening picture: the one this email already has, or the permission to describe one.', 'dazont-ecom' ),
+			__( 'Your theme\'s own type and colours: heading font, text font, text colour, link colour, text size.', 'dazont-ecom' ),
+			__( 'The shop\'s own rules, which override the instructions: the header and footer already carry the service promises, the body is written inside the column it is given, a product is never written by hand.', 'dazont-ecom' ),
+			__( 'The language to write in, and the answer format — subject, preview line, picture, body.', 'dazont-ecom' ),
+		];
+	}
+
+	/** The id of the first type — what an email with no type of its own is. */
+	public static function first_kind(): string {
+		$kinds = self::kinds();
+		return isset( $kinds['launch'] ) ? 'launch' : (string) ( array_key_first( $kinds ) ?? 'launch' );
+	}
+
+	/** When a type falls, in words, for the screen and for the writing. */
+	public static function when_caption( string $anchor, int $offset ): string {
+		if ( 'end' === $anchor ) {
+			if ( 0 === $offset ) {
+				return __( 'The day it closes', 'dazont-ecom' );
+			}
+			return $offset < 0
+				/* translators: %d: number of days */
+				? sprintf( _n( '%d day before it closes', '%d days before it closes', abs( $offset ), 'dazont-ecom' ), abs( $offset ) )
+				/* translators: %d: number of days */
+				: sprintf( _n( '%d day after it closes', '%d days after it closes', $offset, 'dazont-ecom' ), $offset );
+		}
+		if ( 0 === $offset ) {
+			return __( 'The day it opens', 'dazont-ecom' );
+		}
+		return $offset < 0
+			/* translators: %d: number of days */
+			? sprintf( _n( '%d day before it opens', '%d days before it opens', abs( $offset ), 'dazont-ecom' ), abs( $offset ) )
+			/* translators: %d: number of days */
+			: sprintf( _n( '%d day in', '%d days in', $offset, 'dazont-ecom' ), $offset );
+	}
+
+	/**
+	 * The rule a type follows, in the shorthand a shop owner reads at a glance.
+	 *
+	 * Shown on each option of the menu, because "Reminder" alone is not a
+	 * choice — "Reminder · J+5" is. It is computed from the type's own two
+	 * figures, so a type cannot be moved without its caption moving with it.
+	 *
+	 * @param array $meta One row of kinds().
+	 */
+	public static function day_rule( array $meta ): string {
+		$offset = (int) ( $meta['offset'] ?? 0 );
+		if ( 'end' === ( $meta['anchor'] ?? 'start' ) ) {
+			if ( 0 === $offset ) {
+				return __( 'end', 'dazont-ecom' );
+			}
+			return __( 'end', 'dazont-ecom' ) . ( $offset < 0 ? ' − ' : ' + ' ) . abs( $offset );
+		}
+		if ( 0 === $offset ) {
+			return 'J0';
+		}
+		return $offset > 0 ? 'J+' . $offset : 'J−' . abs( $offset );
+	}
+
+	/**
+	 * The moment a type falls on for this promotion, raw.
+	 *
+	 * Raw on purpose: default_when() pushes a day already gone forward,
+	 * because a send date in the past is not one, but a comparison must be
+	 * made on the real day or every past promotion has all its types landing
+	 * on tomorrow.
+	 */
+	private static function type_ts( array $meta, array $rule ): int {
 		$start = strtotime( (string) ( $rule['start'] ?? '' ) . ' 09:00:00' );
 		$end   = strtotime( (string) ( $rule['end'] ?? '' ) . ' 09:00:00' );
-		// Read with a default of 0, never with ?? on a value that can legitimately
-		// be something other than a number: a sentinel that coalesces away is a
-		// sentinel that silently becomes "the day it opens".
-		$days  = self::kinds()[ $kind ]['days'] ?? 0;
 		if ( ! $start ) {
 			$start = time() + DAY_IN_SECONDS;
 		}
-		if ( 'end' === $days ) {
-			$ts = $end ?: $start;
-		} elseif ( 'end-2' === $days ) {
-			// Two days before the last one, but never before the sale opens:
-			// a three-day promotion has no room for it, and a last call dated
-			// before the launch is a briefing that contradicts itself.
-			$ts = $end ? max( $start, $end - 2 * DAY_IN_SECONDS ) : $start;
-		} elseif ( 'mid' === $days ) {
-			$ts = ( $end && $end > $start ) ? (int) ( ( $start + $end ) / 2 ) : $start;
-		} else {
-			$ts = $start + ( (int) $days * DAY_IN_SECONDS );
+		$offset = (int) ( $meta['offset'] ?? 0 ) * DAY_IN_SECONDS;
+		if ( 'end' === ( $meta['anchor'] ?? 'start' ) ) {
+			return (int) ( $end ? max( $start, $end + $offset ) : $start );
 		}
+		return (int) ( $start + $offset );
+	}
+
+	/** The day an email of this type goes out, from the promotion's own window. */
+	public static function default_when( string $kind, array $rule ): string {
+		// A type the shop has since deleted still has to answer with a day:
+		// the promotion opens, and that is the day.
+		$ts = self::type_ts( self::kinds()[ $kind ] ?? [ 'anchor' => 'start', 'offset' => 0 ], $rule );
 		// A date already gone is not a send date.
 		if ( $ts < time() + HOUR_IN_SECONDS ) {
 			$ts = time() + DAY_IN_SECONDS;
@@ -1638,8 +1768,8 @@ final class DZE_Klaviyo {
 		// Written before a promotion could hold several: it is the launch one.
 		if ( ! $list && ( '' !== trim( (string) ( $one['body'] ?? '' ) ) || '' !== trim( (string) ( $one['subject'] ?? '' ) ) ) ) {
 			$list = [ 'launch' => [
-				'kind'    => 'launch',
-				'when'    => self::default_when( 'launch', $rule ),
+				'kind'    => self::first_kind(),
+				'when'    => self::default_when( self::first_kind(), $rule ),
 				'subject' => (string) ( $one['subject'] ?? '' ),
 				'preview' => (string) ( $one['preview'] ?? '' ),
 				'body'    => (string) ( $one['body'] ?? '' ),
@@ -1654,9 +1784,14 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			$when = self::just_day( (string) ( $email['when'] ?? '' ) );
-			$kind = '' !== $when && $rule
-				? self::kind_for( $when, $rule )
-				: ( isset( $kinds[ $email['kind'] ?? '' ] ) ? (string) $email['kind'] : 'launch' );
+			// The TYPE the email was given, not one deduced from its date.
+			// Deducing it is what made the menu on screen decorative: an email
+			// called a warm-up was written as a launch because its day said so.
+			// A date only answers for an email that has no type any more —
+			// written before this existed, or of a type the shop deleted.
+			$kind = isset( $kinds[ (string) ( $email['kind'] ?? '' ) ] )
+				? (string) $email['kind']
+				: ( '' !== $when && $rule ? self::kind_for( $when, $rule ) : self::first_kind() );
 			$out[ (string) $id ] = [
 				'kind'    => $kind,
 				'name'    => (string) ( $email['name'] ?? '' ),
@@ -1729,42 +1864,51 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * Which moment of the promotion a day falls in.
+	 * Which TYPE a day falls closest to.
 	 *
-	 * The moment used to be a field of its own, and a field of its own can
-	 * contradict the date beside it — a "Warm-up" dated three days after the
-	 * sale opened is a briefing that tells the writing to promise something
-	 * already on sale. There is one decision here, the day it goes out, and
-	 * the moment follows from it.
+	 * Only ever asked about an email that has no type of its own: one written
+	 * before types existed, one the plan has just dated, one whose type the
+	 * shop has since deleted. It answers with a type that really is in the
+	 * list — the one whose own day is nearest — rather than with a name
+	 * hard-coded here that the shop may well have renamed.
 	 */
 	public static function kind_for( string $when, array $rule ): string {
 		$day   = strtotime( self::just_day( $when ) ?: '' );
-		$start = strtotime( self::just_day( (string) ( $rule['start'] ?? '' ) ) ?: '' );
-		$end   = strtotime( self::just_day( (string) ( $rule['end'] ?? '' ) ) ?: '' );
-		if ( ! $day || ! $start ) {
-			return 'launch';
+		$kinds = self::kinds();
+		if ( ! $day || ! $kinds ) {
+			return self::first_kind();
 		}
-		if ( $day < $start ) {
-			return 'warm';
+		$best = '';
+		$gap  = PHP_INT_MAX;
+		foreach ( $kinds as $id => $meta ) {
+			$ts = self::type_ts( $meta, $rule );
+			if ( ! $ts ) {
+				continue;
+			}
+			$this_gap = abs( $ts - $day );
+			if ( $this_gap < $gap ) {
+				$gap  = $this_gap;
+				$best = (string) $id;
+			}
 		}
-		if ( ! $end || $end <= $start || $day <= $start ) {
-			return 'launch';
-		}
-		// The closing call is the preset day and everything after it, so the
-		// two halves agree: an email dated by the "Last chance" preset comes
-		// back as a last chance rather than as a reminder.
-		return ( $day >= $end - 2 * DAY_IN_SECONDS ) ? 'last' : 'reminder';
+		return '' !== $best ? $best : self::first_kind();
 	}
 
 	/**
-	 * What to call one email.
+	 * What to call one email: its TYPE.
 	 *
-	 * The writing names it — a name is a sentence about the email, which is
-	 * the writing's job and not arithmetic on a date. The owner overwrites it
-	 * whenever he likes. Nothing else decides: an email with no name yet is
-	 * called by its subject, and that is the whole rule.
+	 * There is no name beside the type any more. A free name and a menu of
+	 * types are two ways of saying one thing, and the owner had to answer the
+	 * same question twice — while the answer that mattered to the writing was
+	 * the one he could not see.
 	 */
 	public static function email_name( array $mail ): string {
+		$label = trim( (string) ( self::kinds()[ (string) ( $mail['kind'] ?? '' ) ]['label'] ?? '' ) );
+		if ( '' !== $label ) {
+			return $label;
+		}
+		// A type the shop has deleted, or an email written before types
+		// existed: what it was called then, failing that its subject.
 		foreach ( [ 'name', 'subject' ] as $key ) {
 			$try = trim( (string) ( $mail[ $key ] ?? '' ) );
 			if ( '' !== $try ) {
@@ -1832,19 +1976,17 @@ final class DZE_Klaviyo {
 			$when = array_key_exists( 'when', $posted )
 				? self::just_day( sanitize_text_field( (string) $posted['when'] ) )
 				: (string) ( $was['when'] ?? '' );
-			// Worked out from the day, never taken from the form: the moment
-			// is a consequence, and a consequence posted by a browser is a
-			// consequence that can arrive wrong.
-			$kind = self::kind_for( $when, $rule );
+			// The type is a CHOICE, so it comes from the form — checked
+			// against the list the shop actually has, never trusted as it
+			// arrives. Only an email that carries none is dated into one.
+			$posted_kind = array_key_exists( 'kind', $posted ) ? sanitize_key( (string) $posted['kind'] ) : (string) ( $was['kind'] ?? '' );
+			$kind        = isset( $kinds[ $posted_kind ] ) ? $posted_kind : self::kind_for( $when, $rule );
 			$body = array_key_exists( 'body', $posted ) ? self::clean_html( (string) $posted['body'] ) : (string) ( $was['body'] ?? '' );
 			if ( '' === trim( $body ) ) {
 				$body = (string) ( $was['body'] ?? '' );
 			}
 			$out[ $email_id ] = [
 				'kind'    => $kind,
-				'name'    => array_key_exists( 'name', $posted )
-					? mb_substr( sanitize_text_field( (string) $posted['name'] ), 0, 80 )
-					: (string) ( $was['name'] ?? '' ),
 				// The brief the plan wrote. The screen never posts it, so it
 				// survives every save of the email it belongs to.
 				'angle'   => (string) ( $was['angle'] ?? '' ),
@@ -2013,7 +2155,7 @@ final class DZE_Klaviyo {
 	private static function strategy( array $in, array $rule ): array {
 		$day = self::just_day( (string) ( $in['datetime'] ?? '' ) );
 		if ( '' === $day ) {
-			$day = self::default_when( 'launch', $rule );
+			$day = self::default_when( self::first_kind(), $rule );
 		}
 		return [ 'method' => 'smart_send_time', 'date' => $day ];
 	}
@@ -2055,7 +2197,7 @@ final class DZE_Klaviyo {
 		}
 		$preview = (string) ( $copy['preview'] ?? '' );
 		$kinds   = self::kinds();
-		$kind    = (string) ( $copy['kind'] ?? 'launch' );
+		$kind    = (string) ( $copy['kind'] ?? self::first_kind() );
 		// The campaign carries the promotion's name AND which of its emails
 		// this is, so the account's campaign list can be read at a glance.
 		$name    = trim( (string) ( $rule['title'] ?? __( 'Promotion', 'dazont-ecom' ) ) )
@@ -2792,12 +2934,10 @@ final class DZE_Klaviyo {
 			$id   = 'e' . substr( md5( $rule_id . $when . microtime() ), 0, 10 );
 			$kind = self::kind_for( $when, $rule );
 			$emails[ $id ] = [
+				// The plan decides WHEN each email goes out and what it is
+				// for; which TYPE that makes it follows from the day, and the
+				// owner can change it on the email like any other.
 				'kind'    => $kind,
-				// Named by its moment, exactly as the menu on the screen names
-				// it. The plan decides WHEN an email goes out and what it is
-				// for; what it is called follows from the first of those, and a
-				// name invented here would be a fifth option in a menu of four.
-				'name'    => (string) ( self::kinds()[ $kind ]['label'] ?? '' ),
 				'angle'   => mb_substr( sanitize_textarea_field( (string) ( $row['angle'] ?? '' ) ), 0, 600 ),
 				'when'    => $when,
 				'subject' => '',
@@ -2831,7 +2971,8 @@ final class DZE_Klaviyo {
 			'emails'  => array_map(
 				static fn( string $id, array $m ): array => [
 					'id'      => $id,
-					'name'    => (string) $m['name'],
+					'kind'    => (string) ( $m['kind'] ?? '' ),
+					'name'    => self::email_name( $m ),
 					'when'    => (string) $m['when'],
 					'angle'   => (string) ( $m['angle'] ?? '' ),
 					'subject' => (string) $m['subject'],
@@ -2893,10 +3034,20 @@ final class DZE_Klaviyo {
 			. 'It covers ' . ( ! empty( $rule['category_ids'] ) ? 'the categories listed with the products below' : 'the whole shop' ) . ".\n"
 			. 'Shop address: ' . home_url( '/' ) . "\n";
 		$kinds = self::kinds();
-		$kind  = (string) ( $moment['kind'] ?? 'launch' );
+		$kind  = (string) ( $moment['kind'] ?? self::first_kind() );
 		if ( isset( $kinds[ $kind ] ) ) {
+			// Which one of the promotion's emails this is, said three ways:
+			// its type, the day it goes out, and its place in the sequence.
+			// "Reminder" alone leaves the writing to guess whether anything
+			// has been said yet — and it guessed wrong, every time.
+			$order = array_keys( self::emails_for( $rule_id, $rule ) );
+			$at    = array_search( $email_id, $order, true );
 			$user .= "\n--- WHICH EMAIL THIS IS ---\n"
-				. $kinds[ $kind ]['label'] . ' — ' . $kinds[ $kind ]['when'] . ".\n"
+				. 'Type: ' . $kinds[ $kind ]['label'] . ' — ' . $kinds[ $kind ]['when'] . ".\n"
+				. ( '' !== (string) ( $moment['when'] ?? '' ) ? 'It goes out on ' . $date( $moment['when'] ) . ".\n" : '' )
+				. ( false !== $at && count( $order ) > 1
+					? sprintf( "It is email %d of %d in this promotion.\n", (int) $at + 1, count( $order ) )
+					: '' )
 				. self::kind_brief( $kind ) . "\n";
 		}
 		$angle = trim( (string) ( $moment['angle'] ?? '' ) );
@@ -3155,13 +3306,21 @@ final class DZE_Klaviyo {
 
 	/** What each moment of a promotion has to do that the others do not. */
 	private static function kind_brief( string $kind ): string {
-		switch ( $kind ) {
-			case 'warm':
-				return 'It goes out BEFORE the promotion opens. It does not sell yet: it says something is coming and when, and it makes the reader want to be there on the day. No prices, no urgency, no countdown — nothing has started.';
-			case 'reminder':
-				return 'The promotion is already running and this reader has not bought. He has seen the announcement, so do not repeat it: show him something else — other products, another angle on the same offer — and say plainly how long is left.';
-			case 'last':
-				return 'It goes out just before the promotion closes. It is short. It says the offer ends, when exactly, and nothing else. One idea, one button.';
+		// Read from WHEN the type falls, not from its id: a type the shop
+		// invented — "Mid-sale bestsellers, 6 days in" — is briefed like the
+		// moment it happens at, instead of falling through to the launch text
+		// because nobody hard-coded its name here.
+		$meta   = self::kinds()[ $kind ] ?? [];
+		$anchor = (string) ( $meta['anchor'] ?? 'start' );
+		$offset = (int) ( $meta['offset'] ?? 0 );
+		if ( 'start' === $anchor && $offset < 0 ) {
+			return 'It goes out BEFORE the promotion opens. It does not sell yet: it says something is coming and when, and it makes the reader want to be there on the day. No prices, no urgency, no countdown — nothing has started.';
+		}
+		if ( 'end' === $anchor && $offset <= 0 ) {
+			return 'It goes out just before the promotion closes. It is short. It says the offer ends, when exactly, and nothing else. One idea, one button.';
+		}
+		if ( 'start' === $anchor && $offset > 0 ) {
+			return 'The promotion is already running and this reader has not bought. He has seen the announcement, so do not repeat it: show him something else — other products, another angle on the same offer — and say plainly how long is left.';
 		}
 		return 'It announces the promotion on the day it opens. This is the one that carries the whole offer: what it is, what it covers, when it ends.';
 	}
@@ -3783,21 +3942,24 @@ final class DZE_Klaviyo {
 		// gets a sensible date the instant it is created rather than after a
 		// round trip.
 		$when_for = [];
+		$names    = [];
 		foreach ( $kinds as $kind => $meta ) {
-			// Keyed by the LABEL, because the label is what the owner picks
-			// from the list: choosing "Last chance" proposes its day without
-			// anything having to translate one into the other.
-			$when_for[ (string) $meta['label'] ] = self::default_when( $kind, $rule );
+			// Keyed by the type's ID, which is what the menu now carries: the
+			// label is what the owner reads, the id is what the email stores,
+			// and translating one into the other in the browser was one step
+			// that could go wrong for nothing.
+			$when_for[ $kind ] = self::default_when( $kind, $rule );
+			$names[ $kind ]    = (string) $meta['label'];
 		}
 		?>
 		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
 
-		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-newday="<?php echo esc_attr( self::default_when( 'launch', $rule ) ); ?>">
+		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
 			<input type="hidden" name="dze_email_shown" value="1" />
 			<div class="dze-mail-list">
 				<?php foreach ( $emails as $mail_id => $mail ) :
-					$kind = (string) ( $mail['kind'] ?? 'launch' );
+					$kind = (string) ( $mail['kind'] ?? self::first_kind() );
 					$when = (string) ( $mail['when'] ?? $when_for[ $kind ] ?? '' );
 					$ts   = strtotime( $when );
 					?>
@@ -3821,7 +3983,7 @@ final class DZE_Klaviyo {
 						</div>
 						<?php // Every email keeps its fields in the form, so ONE Save keeps them all. ?>
 						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][exists]" value="1" />
-						<input type="hidden" class="dze-f-name" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][name]" value="<?php echo esc_attr( (string) ( $mail['name'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-kind" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
 						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
@@ -3858,7 +4020,7 @@ final class DZE_Klaviyo {
 						<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
 					</div>
 					<input type="hidden" class="dze-f-exists" name="dze_email[__ID__][exists]" value="1" />
-					<input type="hidden" class="dze-f-name" name="dze_email[__ID__][name]" value="" />
+					<input type="hidden" class="dze-f-kind" name="dze_email[__ID__][kind]" value="" />
 					<input type="hidden" class="dze-f-picture" name="dze_email[__ID__][picture]" value="" />
 					<input type="hidden" class="dze-f-subject" name="dze_email[__ID__][subject]" value="" />
 					<input type="hidden" class="dze-f-preview" name="dze_email[__ID__][preview]" value="" />
@@ -3879,25 +4041,26 @@ final class DZE_Klaviyo {
 						<td><input type="text" id="dze-klav-e-preview" class="large-text" /></td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="dze-klav-e-name"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></label></th>
+						<th scope="row"><label for="dze-klav-e-type"><?php esc_html_e( 'Type', 'dazont-ecom' ); ?></label></th>
 						<td>
-							<?php // Admin only — it never reaches a reader. It travels
-							// with the campaign to Klaviyo, because the campaign list
-							// there is the other place this email is looked for. ?>
 							<?php
-							// The menu IS the name. There were four moments and a
-							// free field beside them, which is two ways of saying
-							// one thing and a question the owner had to answer
-							// twice. Each option carries the day it falls on,
-							// because "Reminder" alone is not a choice.
+							// The type is what this email IS: the writing is
+							// told it, and told what the others of the same
+							// promotion already said. Each option carries the
+							// day it falls on, because "Reminder" alone is not
+							// a choice. The list itself is the shop's, under
+							// Settings → Email campaigns.
 							?>
-							<select id="dze-klav-e-name" style="min-width:280px;">
-								<?php foreach ( self::kinds() as $dze_meta ) : ?>
-									<option value="<?php echo esc_attr( $dze_meta['label'] ); ?>">
-										<?php echo esc_html( $dze_meta['label'] . '  ·  ' . self::day_rule( $dze_meta['days'] ) ); ?>
+							<select id="dze-klav-e-type" style="min-width:280px;">
+								<?php foreach ( self::kinds() as $dze_id => $dze_meta ) : ?>
+									<option value="<?php echo esc_attr( $dze_id ); ?>">
+										<?php echo esc_html( $dze_meta['label'] . '  ·  ' . self::day_rule( $dze_meta ) ); ?>
 									</option>
 								<?php endforeach; ?>
 							</select>
+							<span class="description" style="margin-left:8px;">
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=dazont-ecom-ai&tab=email#dze-klav-types' ) ); ?>"><?php esc_html_e( 'Edit the types', 'dazont-ecom' ); ?></a>
+							</span>
 						</td>
 					</tr>
 					<tr>
@@ -4267,6 +4430,88 @@ final class DZE_Klaviyo {
 				</div>
 			</div>
 		</div>
+
+		<h2 class="title" id="dze-klav-types"><?php esc_html_e( 'Email types', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'The list an email is picked from — and what the writing is told this email is, so a reminder is not written like an announcement. A name, and the day it falls on: counted from the promotion\'s start OR from its end, never both.', 'dazont-ecom' ); ?>
+		</p>
+		<table class="widefat striped" style="max-width:880px;">
+			<thead>
+				<tr>
+					<th style="width:40%;"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'Goes out', 'dazont-ecom' ); ?></th>
+					<th style="width:40px;"></th>
+				</tr>
+			</thead>
+			<tbody id="dze-klav-type-rows">
+				<?php
+				$dze_i = 0;
+				foreach ( self::kinds() as $dze_id => $dze_meta ) :
+					$dze_mode = 'end' === $dze_meta['anchor'] ? 'eb' : ( $dze_meta['offset'] < 0 ? 'sb' : 'sa' );
+					?>
+					<tr class="dze-type-row">
+						<td>
+							<input type="hidden" name="<?php echo esc_attr( self::OPT . '[types][' . $dze_i . '][id]' ); ?>" value="<?php echo esc_attr( $dze_id ); ?>" />
+							<input type="text" class="large-text" name="<?php echo esc_attr( self::OPT . '[types][' . $dze_i . '][label]' ); ?>" value="<?php echo esc_attr( $dze_meta['label'] ); ?>" />
+						</td>
+						<td>
+							<input type="number" min="0" max="90" step="1" style="width:70px;" name="<?php echo esc_attr( self::OPT . '[types][' . $dze_i . '][days]' ); ?>" value="<?php echo esc_attr( (string) abs( (int) $dze_meta['offset'] ) ); ?>" />
+							<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
+							<select name="<?php echo esc_attr( self::OPT . '[types][' . $dze_i . '][mode]' ); ?>">
+								<option value="sb" <?php selected( 'sb', $dze_mode ); ?>><?php esc_html_e( 'before it starts', 'dazont-ecom' ); ?></option>
+								<option value="sa" <?php selected( 'sa', $dze_mode ); ?>><?php esc_html_e( 'after it starts', 'dazont-ecom' ); ?></option>
+								<option value="eb" <?php selected( 'eb', $dze_mode ); ?>><?php esc_html_e( 'before it ends', 'dazont-ecom' ); ?></option>
+							</select>
+						</td>
+						<td><button type="button" class="button-link dze-type-drop" title="<?php esc_attr_e( 'Remove this type', 'dazont-ecom' ); ?>">&times;</button></td>
+					</tr>
+					<?php
+					$dze_i++;
+				endforeach;
+				?>
+			</tbody>
+		</table>
+		<p>
+			<button type="button" class="button" id="dze-klav-type-add"><?php esc_html_e( 'Add a type', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button-link" id="dze-klav-type-reset" style="margin-left:10px;">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+			<span class="description" style="margin-left:10px;"><?php esc_html_e( 'A type still used by an email keeps that email: it falls back to the first of the list.', 'dazont-ecom' ); ?></span>
+		</p>
+		<script>
+		(function () {
+			var opt = <?php echo wp_json_encode( self::OPT ); ?>,
+				shipped = <?php echo wp_json_encode( array_values( self::shipped_kinds() ) ); ?>,
+				$rows = jQuery('#dze-klav-type-rows');
+			// The index only has to be unique inside this form; the ids the
+			// emails point at are the hidden field, not the row number.
+			function nextIndex() { return $rows.find('tr').length + Math.floor(Math.random() * 1000) + 100; }
+			function field(i, key) { return opt + '[types][' + i + '][' + key + ']'; }
+			function row(type) {
+				var i = nextIndex(), id = type.id || ('t' + Date.now().toString(36) + i),
+					mode = type.anchor === 'end' ? 'eb' : ((type.offset || 0) < 0 ? 'sb' : 'sa'),
+					days = Math.abs(type.offset || 0);
+				return jQuery('<tr class="dze-type-row"></tr>').append(
+					jQuery('<td></td>')
+						.append(jQuery('<input type="hidden"/>').attr('name', field(i, 'id')).val(id))
+						.append(jQuery('<input type="text" class="large-text"/>').attr('name', field(i, 'label')).val(type.label || '')),
+					jQuery('<td></td>')
+						.append(jQuery('<input type="number" min="0" max="90" step="1" style="width:70px;"/>').attr('name', field(i, 'days')).val(days))
+						.append(' <?php echo esc_js( __( 'days', 'dazont-ecom' ) ); ?> ')
+						.append(jQuery('<select></select>').attr('name', field(i, 'mode'))
+							.append(jQuery('<option value="sb"><?php echo esc_js( __( 'before it starts', 'dazont-ecom' ) ); ?></option>'))
+							.append(jQuery('<option value="sa"><?php echo esc_js( __( 'after it starts', 'dazont-ecom' ) ); ?></option>'))
+							.append(jQuery('<option value="eb"><?php echo esc_js( __( 'before it ends', 'dazont-ecom' ) ); ?></option>'))
+							.val(mode)),
+					jQuery('<td></td>').append(jQuery('<button type="button" class="button-link dze-type-drop">&times;</button>'))
+				);
+			}
+			jQuery('#dze-klav-type-add').on('click', function () { $rows.append(row({ label: '', anchor: 'start', offset: 0 })); });
+			jQuery(document).on('click', '.dze-type-drop', function () { jQuery(this).closest('tr').remove(); });
+			jQuery('#dze-klav-type-reset').on('click', function () {
+				$rows.empty();
+				jQuery.each(shipped, function (i, t) { $rows.append(row(t)); });
+			});
+		}());
+		</script>
 
 		<h2 class="title"><?php esc_html_e( 'Campaign plan prompt', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">

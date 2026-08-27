@@ -39,6 +39,22 @@ Use the sales figures: the best-sellers show proven demand in this shop. Favour 
 CRITICAL: the product list above is COMPLETE and EXHAUSTIVE — it is the entire catalogue of this category. Before proposing ANY product (in source_list or ideas), check it against that list: never propose something already covered, including close variants and spelling differences (e.g. 'USMC t-shirt' duplicates 'USMC Tshirt'; 'Barrett .50 cal shirt' duplicates 'M82 Barrett Tshirt'). Only genuinely missing subjects qualify.
 EOT;
 
+	/**
+	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * it. Written beside the code that builds the call, so the list and the
+	 * call are read and changed together.
+	 *
+	 * @return string[]
+	 */
+	public static function prompt_data( string $id = '' ): array {
+		return [
+			__( 'The category being studied, and what it sells.', 'dazont-ecom' ),
+			__( 'Its products — the WHOLE list, so nothing already stocked is proposed again — with what each one has sold.', 'dazont-ecom' ),
+			__( 'The queries the category is missing, with their search volumes.', 'dazont-ecom' ),
+			__( 'The answer format — the report\'s own sections, so the screen can read it back.', 'dazont-ecom' ),
+		];
+	}
+
 	/** Effective report instructions: the admin override when set, else the default. */
 	public static function report_guidance(): string {
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
