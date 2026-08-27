@@ -1249,13 +1249,27 @@ final class DZE_Klaviyo {
 		// inbox that the product page then contradicts.
 		$now = self::sale_price( $reg, $pct );
 		$t = self::theme_style();
-		return sprintf(
+		$line = sprintf(
 			'<span style="color:%3$s;text-decoration:line-through;">%1$s</span> <span style="color:%4$s;font-weight:700;">%2$s</span>',
 			wp_kses_post( wc_price( $reg ) ),
 			wp_kses_post( wc_price( $now ) ),
 			esc_attr( $t['muted'] ),
 			esc_attr( $t['sale'] )
 		);
+		// The figure that decides, said in the same words as the badge on the
+		// shop's own product tiles. Two prices ask the reader to subtract; the
+		// saving is what he was going to work out anyway, and an email is read
+		// in four seconds.
+		$saved = round( $reg - $now, 2 );
+		if ( $saved > 0 ) {
+			$line .= sprintf(
+				'<br /><span style="color:%2$s;font-size:12px;">%1$s</span>',
+				/* translators: %s: amount saved, e.g. $34.00 */
+				sprintf( esc_html__( 'Save %s', 'dazont-ecom' ), wp_kses_post( wc_price( $saved ) ) ),
+				esc_attr( $t['sale'] )
+			);
+		}
+		return $line;
 	}
 
 	/** A category named by a block, as a term id. Accepts an id, a slug or a name. */
