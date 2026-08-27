@@ -208,6 +208,8 @@
 		if (!current) { return; }
 		var $c = card(current), kind = $('#dze-klav-e-type').val() || '', name = typeName(kind);
 		$c.find('.dze-f-kind').val(kind);
+		$c.find('.dze-f-want').val($('#dze-klav-e-want').is(':checked') ? '1' : '0');
+		$c.find('.dze-f-idea').val($('#dze-klav-e-idea').val() || '');
 		$c.find('.dze-f-subject').val($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-f-preview').val($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
@@ -218,7 +220,7 @@
 		$('#dze-mail-title').text($c.find('.dze-mail-name').text());
 		thumb(current);
 	}
-	$(document).on('input change', '#dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
+	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-idea, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 
 	// Choosing the type also sets the day it falls on, from the type's own
 	// rule. A day changed afterwards stays changed — nothing here runs again
@@ -253,7 +255,13 @@
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
 		body().val($c.find('.dze-f-body').val() || '');
 		$('#dze-klav-e-msg').text('');
-		idea = '';
+		// The picture bench belongs to the email that is open: what it should
+		// show, and whether the next writing makes it.
+		idea = $c.find('.dze-f-idea').val() || '';
+		$('#dze-klav-e-idea').val(idea);
+		$('#dze-klav-e-want').prop('checked', '1' === ($c.find('.dze-f-want').val() || '0'));
+		$('#dze-klav-shot-out').hide();
+		$('#dze-klav-shot-msg').text('').removeClass('is-ko');
 		$('#dze-mail-edit').show();
 		view('view');
 	}
@@ -435,8 +443,7 @@
 	function setPicture(url) {
 		var el = body()[0], old = $.trim(picture().val() || '');
 		picture().val(url);
-		commit();
-		if (!el) { return; }
+		if (!el) { commit(); return; }
 		if (el.value.indexOf(cfg.pictureMark) !== -1) {
 			el.value = el.value.split(cfg.pictureMark).join(url);
 		} else if (old && el.value.indexOf(old) !== -1) {
@@ -449,6 +456,12 @@
 			el.value = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
 				'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' + (el.value || '');
 		}
+		// AFTER the body was changed, never before: commit is what copies the
+		// editor into the email's own fields, and running it first filed the
+		// body as it stood a line earlier — with the marker still in it. The
+		// picture was made, paid for, shown on screen, and the email saved
+		// without it.
+		commit();
 		render();
 	}
 
@@ -457,26 +470,41 @@
 	// finish, instead of one that a host cuts off at ninety seconds. The
 	// description comes from the writing — there is one prompt, and it decides
 	// the picture as well as the words.
-	function makePicture($b, $m, prompt, then) {
+	function makePicture($b, $m, prompt, then, test) {
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').removeClass('is-ko').text(i18n.shooting);
-		return $.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId(), email: current, prompt: prompt || '' })
+		return $.post(cfg.ajaxUrl, {
+			action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId(), email: current,
+			prompt: prompt || '', test: test ? 1 : 0
+		})
 			.done(function (res) {
 				if (res && res.success) {
-					setPicture(res.data.url);
+					if (test) { showTest(res.data.url); }
+					else { setPicture(res.data.url); }
 				} else {
 					// No photograph: the email keeps its layout and loses its
-					// hole, rather than shipping a broken image.
-					dropPlaceholder();
+					// hole, rather than shipping a broken image. A test that
+					// failed changes nothing in the email at all.
+					if (!test) { dropPlaceholder(); }
 					$m.css('color', '#b26a00').removeClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 				}
 				if (then) { then(); } else { $b.prop('disabled', false); }
 			})
 			.fail(function () {
-				dropPlaceholder();
+				if (!test) { dropPlaceholder(); }
 				$b.prop('disabled', false);
 				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
+	}
+
+	// A test picture is looked at, not filed: it is how a description is
+	// judged before an email is built on it.
+	var tested = '';
+	function showTest(url) {
+		tested = url;
+		$('#dze-klav-shot-img').attr('src', url);
+		$('#dze-klav-shot-full').attr('href', url);
+		$('#dze-klav-shot-out').css('display', 'flex');
 	}
 
 	// The <img> that was waiting for a photograph that never came.
@@ -519,7 +547,22 @@
 				// illustrate. The description is kept for the button beside
 				// this one, and the screen says it is waiting.
 				if (res.data.picture) {
+					// What the writing decided the picture should show. A
+					// description typed on the bench is the shop's and is not
+					// overwritten by it.
 					idea = res.data.picture;
+					if (!$.trim($('#dze-klav-e-idea').val() || '')) { $('#dze-klav-e-idea').val(idea); }
+					commit();
+					if ($('#dze-klav-e-want').is(':checked')) {
+						// Ready: the real picture is made in the same pass, and
+						// lands in the email.
+						makePicture($('#dze-klav-e-shot'), $m, $.trim($('#dze-klav-e-idea').val() || '') || idea, function () {
+							$('#dze-klav-e-shot').prop('disabled', false);
+							$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
+							view('view');
+						});
+						return;
+					}
 					$m.css('color', '#b26a00').removeClass('is-ko').text(res.data.warning || i18n.pictureReady);
 					return;
 				}
@@ -609,13 +652,20 @@
 	});
 
 	// The picture, made when it is asked for and not before.
+	// The bench: as many test pictures as it takes, on a description you can
+	// edit right here, none of them touching the email.
 	$(document).on('click', '#dze-klav-e-shot', function () {
-		var $b = $(this), $m = $('#dze-klav-e-msg');
-		makePicture($b, $m, idea, function () {
+		var $b = $(this), $m = $('#dze-klav-shot-msg');
+		makePicture($b, $m, $.trim($('#dze-klav-e-idea').val() || '') || idea, function () {
 			$b.prop('disabled', false);
-			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
-			view('view');
-		});
+			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shotTest);
+		}, true);
+	});
+	$(document).on('click', '#dze-klav-e-usepic', function () {
+		if (!tested) { return; }
+		setPicture(tested);
+		$('#dze-klav-shot-msg').css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
+		view('view');
 	});
 
 	// The addresses sit inside the event's own form, and Enter in a text field

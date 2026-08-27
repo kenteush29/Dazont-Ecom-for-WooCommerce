@@ -1795,6 +1795,11 @@ final class DZE_Klaviyo {
 			$out[ (string) $id ] = [
 				'kind'    => $kind,
 				'name'    => (string) ( $email['name'] ?? '' ),
+				// Whether writing this one also makes its picture.
+				'want_picture' => ! empty( $email['want_picture'] ),
+				// What its picture should show, kept so a description worked
+				// on for ten minutes is not lost by reloading the screen.
+				'idea'         => (string) ( $email['idea'] ?? '' ),
 				'angle'   => (string) ( $email['angle'] ?? '' ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => (string) ( $email['subject'] ?? '' ),
@@ -2001,6 +2006,12 @@ final class DZE_Klaviyo {
 				'picture' => array_key_exists( 'picture', $posted )
 					? esc_url_raw( (string) $posted['picture'] )
 					: (string) ( $was['picture'] ?? '' ),
+				'want_picture' => array_key_exists( 'want_picture', $posted )
+					? ! empty( $posted['want_picture'] )
+					: ! empty( $was['want_picture'] ),
+				'idea'    => array_key_exists( 'idea', $posted )
+					? mb_substr( sanitize_textarea_field( (string) $posted['idea'] ), 0, 1200 )
+					: (string) ( $was['idea'] ?? '' ),
 				'draft'   => (array) ( $was['draft'] ?? [] ),
 			];
 		}
@@ -2047,7 +2058,18 @@ final class DZE_Klaviyo {
 
 	/** Remembers the picture made for one email. */
 	public static function keep_picture( string $rule_id, string $email_id, string $url ): void {
-		self::put_email( $rule_id, $email_id, [ 'picture' => esc_url_raw( $url ) ] );
+		$url   = esc_url_raw( $url );
+		$write = [ 'picture' => $url ];
+		// And into the body, where the writing left a hole for it. Storing the
+		// picture beside the email and leaving "dze:picture" in the text meant
+		// every later reader — the draft, the test send, the screen after a
+		// reload — had to remember to put the two back together, and one of
+		// them always forgot.
+		$body = (string) ( self::email_for( $rule_id, $email_id )['body'] ?? '' );
+		if ( '' !== $url && '' !== $body && false !== strpos( $body, self::PICTURE_MARK ) ) {
+			$write['body'] = str_replace( self::PICTURE_MARK, $url, $body );
+		}
+		self::put_email( $rule_id, $email_id, $write );
 	}
 
 	/** How many emails a promotion carries, and how many are already in Klaviyo. */
@@ -2207,7 +2229,7 @@ final class DZE_Klaviyo {
 		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
 			? (string) $in['body']
 			: self::body_for( $rule, $rule_id, $email_id );
-		$html    = self::layout( self::settle_picture( $body, $rule ) );
+		$html    = self::layout( self::settle_picture( $body, $rule, (string) ( $copy['picture'] ?? '' ) ) );
 		$in      = $in + [ 'datetime' => (string) ( $copy['when'] ?? '' ) ];
 		$warning = '';
 
@@ -3262,16 +3284,25 @@ final class DZE_Klaviyo {
 	 *
 	 * fal.ai can be slow, refused or switched off, and an email carrying
 	 * src="dze:picture" is a broken image in an inbox. So the marker is
-	 * answered at the last moment — by the promotion's own image if it has
-	 * one, and by removing the picture altogether if it does not. An email
-	 * with one image fewer is an email; an email with a broken one is not.
+	 * answered at the last moment — by THIS EMAIL'S own picture when one was
+	 * made for it, failing that by the promotion's image, and by removing the
+	 * picture altogether when there is neither. An email with one image fewer
+	 * is an email; an email with a broken one is not.
+	 *
+	 * The email's own picture used to be missing from that list, which is the
+	 * whole of a bug worth writing down: "Make the picture" made one, filed it
+	 * on the email — and the marker in the body was still answered by the
+	 * promotion's image, or by nothing. The photograph existed, was paid for,
+	 * and never appeared.
+	 *
+	 * @param string $picture The picture this email holds, when it holds one.
 	 */
-	public static function settle_picture( string $html, array $rule ): string {
+	public static function settle_picture( string $html, array $rule, string $picture = '' ): string {
 		$html = self::drop_broken_images( $html );
 		if ( false === strpos( $html, self::PICTURE_MARK ) ) {
 			return $html;
 		}
-		$fallback = self::event_image( $rule );
+		$fallback = '' !== trim( $picture ) ? trim( $picture ) : self::event_image( $rule );
 		if ( '' !== $fallback ) {
 			return str_replace( self::PICTURE_MARK, esc_url( $fallback ), $html );
 		}
@@ -3518,13 +3549,19 @@ final class DZE_Klaviyo {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
 		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
+		// A TEST picture is looked at and thrown away: it is how a description
+		// is judged before an email is built on it. Only a picture asked for
+		// the email is filed on the email.
+		$test   = ! empty( $_POST['test'] );
 		try {
 			$made = self::make_image( $rule, $prompt );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		self::keep_picture( $rule_id, $email_id, $made['url'] );
-		wp_send_json_success( [ 'url' => $made['url'] ] );
+		if ( ! $test ) {
+			self::keep_picture( $rule_id, $email_id, $made['url'] );
+		}
+		wp_send_json_success( [ 'url' => $made['url'], 'test' => $test ] );
 	}
 
 	// =========================================================================
@@ -3615,7 +3652,7 @@ final class DZE_Klaviyo {
 			$to = [ (string) get_option( 'admin_email', '' ) ];
 		}
 		try {
-			self::test_send( self::layout( self::settle_picture( $body, $rule ) ), $to );
+			self::test_send( self::layout( self::settle_picture( $body, $rule, self::picture_for( $rule_id, $rule, $email_id ) ) ), $to );
 			self::remember( [ 'test_to' => implode( ', ', array_filter( array_map( 'sanitize_email', $to ) ) ) ] );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -3875,8 +3912,9 @@ final class DZE_Klaviyo {
 				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
-				'shot'     => __( 'Made, and filed in the media library.', 'dazont-ecom' ),
-				'pictureReady' => __( 'Written. It describes a picture — press Make the picture when you want it.', 'dazont-ecom' ),
+				'shot'     => __( 'In the email, and filed in the media library.', 'dazont-ecom' ),
+				'shotTest' => __( 'Test picture — look at it, adjust the description, try again.', 'dazont-ecom' ),
+				'pictureReady' => __( 'Written. It describes a picture — test it below, and tick the box to have the next writing make it.', 'dazont-ecom' ),
 				'sending'  => __( 'Handing it to Klaviyo…', 'dazont-ecom' ),
 			],
 		] );
@@ -3985,6 +4023,8 @@ final class DZE_Klaviyo {
 						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][exists]" value="1" />
 						<input type="hidden" class="dze-f-kind" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
 						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-want" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][want_picture]" value="<?php echo empty( $mail['want_picture'] ) ? '0' : '1'; ?>" />
+						<input type="hidden" class="dze-f-idea" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][idea]" value="<?php echo esc_attr( (string) ( $mail['idea'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-when" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][when]" value="<?php echo esc_attr( $when ); ?>" />
@@ -4022,6 +4062,8 @@ final class DZE_Klaviyo {
 					<input type="hidden" class="dze-f-exists" name="dze_email[__ID__][exists]" value="1" />
 					<input type="hidden" class="dze-f-kind" name="dze_email[__ID__][kind]" value="" />
 					<input type="hidden" class="dze-f-picture" name="dze_email[__ID__][picture]" value="" />
+					<input type="hidden" class="dze-f-want" name="dze_email[__ID__][want_picture]" value="0" />
+					<input type="hidden" class="dze-f-idea" name="dze_email[__ID__][idea]" value="" />
 					<input type="hidden" class="dze-f-subject" name="dze_email[__ID__][subject]" value="" />
 					<input type="hidden" class="dze-f-preview" name="dze_email[__ID__][preview]" value="" />
 					<input type="hidden" class="dze-f-when" name="dze_email[__ID__][when]" value="" />
@@ -4079,11 +4121,40 @@ final class DZE_Klaviyo {
 					</tr>
 				</table>
 
+				<?php if ( self::images_on() ) : ?>
+					<?php
+					// The picture, worked on BEFORE the email is finished.
+					//
+					// It used to be one button that made the real one and put
+					// it in the email, so the only way to judge a description
+					// was to spend a picture on the email and look at what
+					// arrived. Now: a test picture as many times as it takes,
+					// on a description you can edit right here — and a tick
+					// box that says whether the next writing makes the real one
+					// in the same pass, which is what you want once the
+					// description is right.
+					?>
+					<div id="dze-klav-shot" style="border:1px solid #dcdcde;border-radius:5px;padding:10px 12px;margin:0 0 10px;max-width:880px;background:#fff;">
+						<p style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;">
+							<label style="display:inline-flex;align-items:center;gap:6px;">
+								<input type="checkbox" id="dze-klav-e-want" />
+								<?php esc_html_e( 'Make the picture with the email', 'dazont-ecom' ); ?>
+							</label>
+							<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Generate test picture', 'dazont-ecom' ); ?></button>
+							<span id="dze-klav-shot-msg" class="description"></span>
+						</p>
+						<p style="margin:8px 0 0;">
+							<input type="text" id="dze-klav-e-idea" class="large-text" placeholder="<?php esc_attr_e( 'What the picture should show — left empty, the writing decides it', 'dazont-ecom' ); ?>" />
+						</p>
+						<p id="dze-klav-shot-out" style="display:none;align-items:center;gap:10px;margin:8px 0 0;">
+							<img id="dze-klav-shot-img" src="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+							<button type="button" class="button button-small" id="dze-klav-e-usepic"><?php esc_html_e( 'Use it in this email', 'dazont-ecom' ); ?></button>
+							<a href="#" id="dze-klav-shot-full" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Full size ↗', 'dazont-ecom' ); ?></a>
+						</p>
+					</div>
+				<?php endif; ?>
 				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
 					<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
-					<?php if ( self::images_on() ) : ?>
-						<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Make the picture', 'dazont-ecom' ); ?></button>
-					<?php endif; ?>
 					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
 					<span style="flex:1;"></span>
 					<span class="dze-klav-switch">
