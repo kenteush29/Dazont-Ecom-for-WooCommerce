@@ -2426,17 +2426,15 @@
 				if (r.data.thumb_html) { $('#postimagediv .inside').html(r.data.thumb_html); }
 				var $list = $('#product_images_container ul.product_images');
 				if ($list.length) {
-					var $model = $list.find('li.image').first();
+					// The rows come from the server, drawn the way WooCommerce
+					// draws them. They used to be cloned from a row already on
+					// the page, which works until the gallery is empty: the
+					// FIRST picture added to a product then appeared nowhere,
+					// and only a reload showed it — the same gesture working or
+					// not depending on what the product already had.
 					var $add = $list.find('li.add_product_images').detach();
-					if ($model.length) {
-						var tpl = $model[0].outerHTML;
-						$list.find('li.image').remove();
-						(r.data.gallery || []).forEach(function (im) {
-							var $li = $(tpl).attr('data-attachment_id', im.id);
-							$li.find('img').attr('src', im.thumb).removeAttr('srcset').removeAttr('sizes');
-							$list.append($li);
-						});
-					}
+					$list.find('li.image').remove();
+					$list.append(r.data.gallery_html || '');
 					if ($add.length) { $list.append($add); }
 				}
 				$('#product_image_gallery').val(r.data.gallery_ids || '');
