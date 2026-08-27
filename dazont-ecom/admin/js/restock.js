@@ -71,7 +71,7 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_recalc', nonce: cfg.nonce })
 		.done(function (res) {
 			if (res.success) {
-				$status.css('color', '#0a7040').text(res.data.message + ' — ' + res.data.timestamp);
+				$status.css('color', '#0a7040').removeClass('is-ko').text(res.data.message + ' — ' + res.data.timestamp);
 				setTimeout(function () { window.location.reload(); }, 900);
 			} else {
 				$status.css('color', '#c0392b').text((res.data && res.data.message) || i18n.error);
@@ -197,7 +197,7 @@
 
 		function next() {
 			if (!ids.length) {
-				$status.css('color', '#0a7040').text(i18n.bulkDone + ': ' + done + '/' + total);
+				$status.css('color', '#0a7040').removeClass('is-ko').text(i18n.bulkDone + ': ' + done + '/' + total);
 				$('.dze-bulk-restock').prop('disabled', false);
 				return;
 			}

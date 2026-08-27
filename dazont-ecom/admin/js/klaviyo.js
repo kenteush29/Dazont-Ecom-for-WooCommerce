@@ -9,12 +9,12 @@
 	$(document).on('click', '#dze-klav-refresh', function () {
 		var $b = $(this), $m = $('#dze-klav-refresh-msg');
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.loading);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.loading);
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_load', nonce: cfg.nonce })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				fill($('#dze-klav-inc'), res.data.audiences);
@@ -31,7 +31,7 @@
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 
@@ -65,30 +65,30 @@
 	$(document).on('click', '#dze-klav-activate', function () {
 		var $b = $(this), $m = $('#dze-klav-seg-msg');
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.working);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.working);
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_activate', nonce: cfg.nonce, segment: $('#dze-klav-exc').val() })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				fill($('#dze-klav-inc'), res.data.audiences);
 				fill($('#dze-klav-exc'), res.data.audiences);
 				inactive = res.data.inactive || [];
 				tools();
-				$m.css('color', '#0a7040').text(res.data.message);
+				$m.css('color', '#0a7040').removeClass('is-ko').text(res.data.message);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 
 	$(document).on('click', '#dze-klav-make-seg', function () {
 		var $b = $(this), $m = $('#dze-klav-seg-msg');
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.working);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.working);
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_klav_segment',
 			nonce: cfg.nonce,
@@ -97,7 +97,7 @@
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				fill($('#dze-klav-inc'), res.data.audiences);
@@ -107,11 +107,11 @@
 				// saved, like everything else on this page.
 				$('#dze-klav-exc').val(res.data.id);
 				tools();
-				$m.css('color', '#0a7040').text(res.data.message + ' ' + i18n.thenSave);
+				$m.css('color', '#0a7040').removeClass('is-ko').text(res.data.message + ' ' + i18n.thenSave);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 
@@ -291,12 +291,12 @@
 		var $b = $(this), $m = $('#dze-mail-plan-msg');
 		if ($('.dze-mail').length && !window.confirm(cfg.i18n.replan)) { return; }
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(cfg.i18n.planning);
+		$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.planning);
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_plan', nonce: cfg.nonce, rule: ruleId() })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				// The plan is already stored; the rows are redrawn from what it
@@ -315,11 +315,11 @@
 				$('#dze-mail-edit').hide();
 				var $first = $('.dze-mail').first();
 				if ($first.length) { open($first.data('id')); }
-				$m.css('color', '#0a7040').text(res.data.message);
+				$m.css('color', '#0a7040').removeClass('is-ko').text(res.data.message);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 
@@ -329,15 +329,15 @@
 	$(document).on('click', '#dze-mail-all', function () {
 		var $b = $(this), $m = $('#dze-mail-plan-msg'),
 			ids = $('.dze-mail').map(function () { return $(this).data('id'); }).get();
-		if (!ids.length) { $m.css('color', '#b26a00').text(cfg.i18n.nothing); return; }
+		if (!ids.length) { $m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.nothing); return; }
 		$b.prop('disabled', true);
 		(function next(i) {
 			if (i >= ids.length) {
 				$b.prop('disabled', false);
-				$m.css('color', '#0a7040').text(cfg.i18n.allDone);
+				$m.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.allDone);
 				return;
 			}
-			$m.css('color', '#646970').text(cfg.i18n.writing1.replace('%1$d', i + 1).replace('%2$d', ids.length));
+			$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.writing1.replace('%1$d', i + 1).replace('%2$d', ids.length));
 			open(ids[i]);
 			$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: ids[i] })
 				.done(function (res) {
@@ -372,10 +372,10 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_drop', nonce: cfg.nonce, rule: ruleId(), email: id })
 			.done(function (res) {
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 				}
 			})
-			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function () { $m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });
 	});
 
 	$(function () {
@@ -398,14 +398,14 @@
 	// is — nothing to find, nothing to place by hand, here or on the next shop.
 	$(document).on('click', '#dze-klav-take', function () {
 		var $b = $(this), $m = $('#dze-klav-shell-msg'), head = $('#dze-klav-th').val();
-		if (!head) { $m.css('color', '#b26a00').text(i18n.pickTpl); return; }
+		if (!head) { $m.css('color', '#b26a00').removeClass('is-ko').text(i18n.pickTpl); return; }
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.working);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.working);
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_frame', nonce: cfg.nonce, header: head })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				$('#dze-klav-shell').val(res.data.html);
@@ -413,11 +413,11 @@
 				$('#dze-klav-fname').val(res.data.name || '');
 				$('#dze-klav-tpl-hint').text(res.data.taken || '');
 				drawShell();
-				$m.css('color', '#b26a00').text(res.data.message);
+				$m.css('color', '#b26a00').removeClass('is-ko').text(res.data.message);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 	$(function () {
@@ -459,7 +459,7 @@
 	// the picture as well as the words.
 	function makePicture($b, $m, prompt, then) {
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.shooting);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.shooting);
 		return $.post(cfg.ajaxUrl, { action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId(), email: current, prompt: prompt || '' })
 			.done(function (res) {
 				if (res && res.success) {
@@ -468,14 +468,14 @@
 					// No photograph: the email keeps its layout and loses its
 					// hole, rather than shipping a broken image.
 					dropPlaceholder();
-					$m.css('color', '#b26a00').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b26a00').removeClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 				}
 				if (then) { then(); } else { $b.prop('disabled', false); }
 			})
 			.fail(function () {
 				dropPlaceholder();
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	}
 
@@ -492,12 +492,12 @@
 
 	function writeEmail($b, $m) {
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.writing);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.writing);
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: current })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				$('#dze-klav-e-subject').val(res.data.subject);
@@ -509,6 +509,7 @@
 				// in it is worth reading twice before it goes out.
 				var note = function () {
 					$m.css('color', res.data.warning ? '#b32d2e' : '#b26a00')
+						.toggleClass('is-ko', !!res.data.warning)
 						.text(res.data.warning ? res.data.warning : i18n.written);
 				};
 				view('view');
@@ -519,14 +520,14 @@
 				// this one, and the screen says it is waiting.
 				if (res.data.picture) {
 					idea = res.data.picture;
-					$m.css('color', '#b26a00').text(res.data.warning || i18n.pictureReady);
+					$m.css('color', '#b26a00').removeClass('is-ko').text(res.data.warning || i18n.pictureReady);
 					return;
 				}
 				note();
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	}
 
@@ -580,7 +581,7 @@
 		if (!current) { return; }
 		commit();
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.creating);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.creating);
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_klav_draft',
 			nonce: cfg.nonce,
@@ -591,7 +592,7 @@
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				var $state = card(current).find('.dze-mail-state').empty();
@@ -603,7 +604,7 @@
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 
@@ -612,7 +613,7 @@
 		var $b = $(this), $m = $('#dze-klav-e-msg');
 		makePicture($b, $m, idea, function () {
 			$b.prop('disabled', false);
-			$m.css('color', '#0a7040').text(i18n.shot);
+			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
 			view('view');
 		});
 	});
@@ -629,7 +630,7 @@
 	$(document).on('click', '#dze-klav-e-test', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(i18n.sending);
+		$m.css('color', '#646970').removeClass('is-ko').text(i18n.sending);
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_klav_test',
 			nonce: cfg.nonce,
@@ -641,11 +642,12 @@
 			.done(function (res) {
 				$b.prop('disabled', false);
 				$m.css('color', res && res.success ? '#0a7040' : '#b32d2e')
+					.toggleClass('is-ko', !( res && res.success ))
 					.text((res && res.data && res.data.message) || i18n.error);
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	});
 

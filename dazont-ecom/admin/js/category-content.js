@@ -204,19 +204,19 @@
 		var $box = $(this).closest('.dze-cc-box');
 		var file = this.files && this.files[0];
 		if (!file) { return; }
-		var $st = $box.find('.dze-cc-imstatus').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.reading));
+		var $st = $box.find('.dze-cc-imstatus').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span> ' + esc(i18n.reading));
 		var fd = new FormData();
 		fd.append('action', 'dze_kw_upload');
 		fd.append('nonce', cfg.kwNonce);
 		fd.append('file', file);
 		$.ajax({ url: cfg.ajaxUrl, method: 'POST', data: fd, processData: false, contentType: false })
 			.done(function (res) {
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#646970').text(res.data.total + ' rows');
+				if (!res || !res.success) { $st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error); return; }
+				$st.css('color', '#646970').removeClass('is-ko').text(res.data.total + ' rows');
 				$box.data('token', res.data.token);
 				renderMapping($box, res.data.headers, res.data.guess);
 			})
-			.fail(function () { $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function () { $st.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });
 	});
 
 	// One select per column the importer understands, pre-set to its guess.
@@ -241,7 +241,7 @@
 
 	$(document).on('click', '.dze-cc-doimport', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-cc-imstatus').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.importing));
+		var $st = $box.find('.dze-cc-imstatus').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span> ' + esc(i18n.importing));
 		var map = {};
 		$box.find('.dze-cc-col').each(function () { map[$(this).data('field')] = parseInt($(this).val(), 10); });
 		$.post(cfg.ajaxUrl, {
@@ -250,12 +250,12 @@
 		})
 			.done(function (res) {
 				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
+				if (!res || !res.success) { $st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error); return; }
 				var msg = sprintf(i18n.imported, res.data.imported, res.data.updated);
 				if (res.data.read && res.data.kept && res.data.read > res.data.kept) {
 					msg += ' — ' + sprintf(i18n.trimmed, res.data.read, res.data.kept);
 				}
-				$st.css('color', '#0a7040').text(msg);
+				$st.css('color', '#0a7040').removeClass('is-ko').text(msg);
 				// The keywords are in: the alert no longer applies, and the next
 				// run reads them server-side whatever this panel still shows.
 				$box.find('.dze-cc-warn').remove();
@@ -265,14 +265,14 @@
 				// Popup: reopen it so the query pools are listed.
 				$('.dze-cc-open[data-id="' + $box.data('term') + '"]').trigger('click');
 			})
-			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
+			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status)); });
 	});
 
 	// Every long run goes through the writing queue: the work happens in the
 	// background, so the host can never cut it off, and this panel simply
 	// follows its own job until the text comes back.
 	function runJob($box, kind, urls, label, done, prompt) {
-		var $st = $box.find('.dze-cc-status').css('color', '#646970');
+		var $st = $box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko');
 		var t0 = Date.now(), poll = null;
 		function tick(state) {
 			var sec = Math.round((Date.now() - t0) / 1000);
@@ -286,7 +286,7 @@
 		})
 			.done(function (res) {
 				if (!res || !res.success || !res.data.job) {
-					$st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					done(false);
 					return;
 				}
@@ -299,22 +299,22 @@
 							if (r.data.status === 'running') { tick(label + ' — ' + (r.data.progress || '')); return; }
 							stopPoll();
 							if (r.data.status === 'failed') {
-								$st.css('color', '#b32d2e').text(r.data.error || i18n.error);
+								$st.css('color', '#b32d2e').addClass('is-ko').text(r.data.error || i18n.error);
 								done(false);
 								return;
 							}
-							$st.css('color', '#646970').text('');
+							$st.css('color', '#646970').removeClass('is-ko').text('');
 							done(true, r.data.html);
 						})
 						.fail(function (xhr, status) {
 							stopPoll();
-							$st.css('color', '#b32d2e').text(why(xhr, status));
+							$st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status));
 							done(false);
 						});
 				}, 1500);
 			})
 			.fail(function (xhr, status) {
-				$st.css('color', '#b32d2e').text(why(xhr, status));
+				$st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status));
 				done(false);
 			});
 	}
@@ -323,20 +323,20 @@
 	// than sending the owner to another screen for it.
 	$(document).on('click', '.dze-cc-loadjob', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
+		var $st = $box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span>');
 		$.post(cfg.ajaxUrl, { action: 'dze_q_job', nonce: $box.data('qnonce'), id: $btn.data('job') })
 			.done(function (res) {
 				$btn.prop('disabled', false);
 				if (!res || !res.success || !res.data.html) {
-					$st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					$st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
 				editorSet(edId($box), res.data.html);
 				refreshLinks($box);
 				showDiff($box);
-				$st.css('color', '#646970').text(i18n.review);
+				$st.css('color', '#646970').removeClass('is-ko').text(i18n.review);
 			})
-			.fail(function (xhr, status) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
+			.fail(function (xhr, status) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status)); });
 	});
 
 	// Nothing is written to the category before Save.
@@ -350,7 +350,7 @@
 			editorSet(edId($box), html);
 			refreshLinks($box);
 			showDiff($box);
-			$box.find('.dze-cc-status').css('color', '#646970').text(i18n.review);
+			$box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko').text(i18n.review);
 		}, prompt);
 	});
 
@@ -442,21 +442,21 @@
 
 	$(document).on('click', '.dze-cc-apply', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-cc-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
+		var $st = $box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span>');
 		$.post(cfg.ajaxUrl, { action: 'dze_cc_apply', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box)) })
 			.done(function (res) {
 				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#0a7040').text(i18n.applied);
+				if (!res || !res.success) { $st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error); return; }
+				$st.css('color', '#0a7040').removeClass('is-ko').text(i18n.applied);
 				// Keep the list cell in sync: word count + links now in the text.
 				var $chip = $('.dze-cc-open[data-id="' + $box.data('term') + '"]');
-				$chip.find('span').first().text(res.data.words + ' words').css('color', '#0a7040');
+				$chip.find('span').first().text(res.data.words + ' words').css('color', '#0a7040').removeClass('is-ko');
 				var $meta = $chip.find('span').eq(1);
 				if ($meta.length && $meta.hasClass('dze-caret') === false) {
 					$meta.text(res.data.links + ' links');
 				}
 			})
-			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(why(xhr, status)); });
+			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status)); });
 	});
 
 	$(document).on('click', '.dze-cc-revert', function () {

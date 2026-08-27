@@ -784,7 +784,9 @@ final class DZE_Marketing_Ai {
 			if ( class_exists( 'DZE_Health' ) ) {
 				DZE_Health::log( 'plugin', 'settings tab: ' . $tab, $e->getMessage() );
 			}
-			echo '<div class="notice notice-error"><p><strong>' .
+			// The paragraph carries the plugin's own failure class, so the link
+			// to the log lands here like it does on every other failure.
+			echo '<div class="notice notice-error"><p class="is-ko"><strong>' .
 				esc_html(
 					sprintf(
 						/* translators: %s: the settings tab that failed */

@@ -15,7 +15,7 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_trending_clear_cache', nonce: cfg.nonce })
 		.done(function (res) {
 			if (res.success) {
-				$status.css('color', '#0a7040').text(i18n.cleared);
+				$status.css('color', '#0a7040').removeClass('is-ko').text(i18n.cleared);
 			} else {
 				$status.css('color', '#c0392b').text((res.data && res.data.message) || i18n.error);
 			}
