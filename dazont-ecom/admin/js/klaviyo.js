@@ -21,6 +21,10 @@
 				fill($('#dze-klav-exc'), res.data.audiences);
 				fill($('#dze-klav-th'), res.data.templates);
 				$('#dze-klav-tpl-hint').text(cfg.i18n.pickedFrom);
+				// The name saved beside each id is what the screen falls back
+				// to once this list goes stale again, so it is kept in step
+				// here and whenever the choice changes below.
+				names();
 				inactive = res.data.inactive || [];
 				tools();
 				$m.css('color', res.data.partial ? '#b26a00' : '#0a7040').text(res.data.message);
@@ -34,6 +38,20 @@
 	// Which exclusions Klaviyo is not maintaining, so the page can offer to
 	// switch the chosen one back on instead of leaving it silently empty.
 	var inactive = (cfg.inactive || []);
+
+	// The chosen list, segment and template are settings; the menus they were
+	// picked from are a cache. So the LABEL travels with the id in a hidden
+	// field, and the screen never has to answer "RpAZid" because a twelve-hour
+	// cache happened to expire.
+	function names() {
+		$.each({ '#dze-klav-inc': 'included', '#dze-klav-exc': 'excluded' }, function (sel, key) {
+			var $s = $(sel);
+			if (!$s.length) { return; }
+			var text = $.trim($s.find('option:selected').text());
+			$('input[name="' + cfg.opt + '[' + key + '_name]"]').val($s.val() ? text : '');
+		});
+	}
+	$(document).on('change', '#dze-klav-inc, #dze-klav-exc', names);
 
 	function tools() {
 		var chosen = $('#dze-klav-exc').val();
