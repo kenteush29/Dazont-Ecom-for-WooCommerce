@@ -667,6 +667,9 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'image_lab' ) ) {
 			$tabs['lab'] = __( 'Image lab', 'dazont-ecom' );
 		}
+		if ( $mod_on( 'discounts' ) ) {
+			$tabs['discounts'] = __( 'Discounts', 'dazont-ecom' );
+		}
 		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
 		if ( $mod_on( 'klaviyo' ) ) {
 			$tabs['email'] = __( 'Email campaigns', 'dazont-ecom' );
@@ -695,13 +698,16 @@ final class DZE_Marketing_Ai {
 				'tabs'  => [ 'categories', 'content', 'gmc_activation', 'reviews' ],
 			],
 			'promo'   => [
-				'label' => __( 'Marketing events', 'dazont-ecom' ),
-				'tabs'  => [ 'events', 'email' ],
+				'label' => __( 'Discounts', 'dazont-ecom' ),
+				'tabs'  => [ 'discounts', 'events', 'email' ],
 			],
 		];
 		// Sections read the same as the tab they were, except where the group
 		// already says it: "Marketing events → Marketing events" says it twice.
-		$section_labels = [ 'events' => __( 'Events', 'dazont-ecom' ) ];
+		$section_labels = [
+			'events'    => __( 'Events', 'dazont-ecom' ),
+			'discounts' => __( 'General', 'dazont-ecom' ),
+		];
 
 		echo '<div class="wrap dze-wrap">';
 		echo '<h1>' . esc_html__( 'Settings', 'dazont-ecom' ) . '</h1>';
@@ -844,9 +850,12 @@ final class DZE_Marketing_Ai {
 				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
 				DZE_Content::instance()->render_key_field();
 			}
-			// Price endings: not an API setting, but a shop-wide one shared by
-			// Discounts and Product Content, and this is the only general tab.
-			if ( class_exists( 'DZE_Price' ) && ( DZE_Modules::enabled( 'discounts' ) || DZE_Modules::enabled( 'content' ) ) ) {
+			// Price endings used to sit here for want of anywhere better. They
+			// belong with the rest of what decides a price, under
+			// Discounts → General — unless Discounts is off, in which case
+			// Product Content still computes prices and this is again the only
+			// general tab there is.
+			if ( class_exists( 'DZE_Price' ) && ! DZE_Modules::enabled( 'discounts' ) && DZE_Modules::enabled( 'content' ) ) {
 				echo '<hr style="margin:28px 0;" />';
 				echo '<h2>' . esc_html__( 'Price endings', 'dazont-ecom' ) . '</h2>';
 				self::render_price_rounding();
@@ -854,6 +863,19 @@ final class DZE_Marketing_Ai {
 			echo '<hr style="margin:28px 0;" />';
 			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
+		} elseif ( 'discounts' === $tab ) {
+			// Everything the Discounts module decides about the shop that is
+			// not one promotion: the badge, and the ending every computed price
+			// lands on. The promotions themselves are the two tabs beside this
+			// one.
+			if ( class_exists( 'DZE_Discounts' ) && $mod_on( 'discounts' ) ) {
+				DZE_Discounts::render_general_settings();
+			}
+			if ( class_exists( 'DZE_Price' ) ) {
+				echo '<hr style="margin:28px 0;" />';
+				echo '<h2>' . esc_html__( 'Price endings', 'dazont-ecom' ) . '</h2>';
+				self::render_price_rounding();
+			}
 		} elseif ( 'sourcing' === $tab ) {
 			$this->render_sourcing_settings();
 		} elseif ( 'content' === $tab ) {
