@@ -4062,6 +4062,11 @@ Answer with STRICT JSON and nothing else: "
 				'validToggle'=> __( 'Click to toggle validation — validated prompts can be applied / attached.', 'dazont-ecom' ),
 				'auto'       => __( 'Automatic edition', 'dazont-ecom' ),
 				'launch'     => __( 'Launch', 'dazont-ecom' ),
+				// A field that already holds something is rewritten, not
+				// written: the button says which of the two it is about to do.
+				'relaunch'   => __( 'Regenerate', 'dazont-ecom' ),
+				'written'    => __( '· written', 'dazont-ecom' ),
+				'writtenTip' => __( 'This product already has one. Running it again writes a different text, not the same one back.', 'dazont-ecom' ),
 				'whatToGen'  => __( 'What to generate', 'dazont-ecom' ),
 				'testBox'    => __( 'Test', 'dazont-ecom' ),
 				'testNote'   => __( 'Preview and tune the prompts before automating.', 'dazont-ecom' ),
