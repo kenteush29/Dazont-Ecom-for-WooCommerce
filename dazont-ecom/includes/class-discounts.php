@@ -74,7 +74,7 @@ final class DZE_Discounts {
 	/** Global "never discount" list, applied to EVERY promotion. */
 	public const OPT_EXCLUSIONS = 'dze_discount_exclusions';
 
-	/** What the corner badge says on a product page: 'saved' or 'sale'. */
+	/** Whether the saving is printed under the price: 'saved' or 'sale' (off). */
 	public const OPT_BADGE = 'dze_discount_badge';
 
 	/** Where it says it: 'product', 'lists' or 'both'. */
@@ -763,15 +763,14 @@ final class DZE_Discounts {
 			// Make sure the struck-through "on sale" price + Sale! badge actually
 			// render for our dynamic discount (WooCommerce only knows native sales).
 			add_filter( 'woocommerce_product_is_on_sale',           [ $this, 'filter_is_on_sale' ], 20, 2 );
-			// And that badge can say the only thing a shopper wants from it:
-			// how much this product saves him today. "Sale!" is a claim; a
-			// figure is a reason. Settings → Discounts → General decides, and
-			// the filter is not even hung when it is set to leave the shop's
-			// own badge alone.
+			// And under those two prices, the only figure a shopper actually
+			// wants: what this product saves him today. It sits with the price
+			// rather than in the corner badge — the badge is a claim in a
+			// fixed little shape, and a figure needs room and belongs where
+			// the eye already is. Settings → Discounts → General decides, and
+			// switched off the filter is not even hung.
 			if ( 'saved' === self::badge_mode() ) {
-				// Late, so the theme has already produced its badge and this only
-				// rewrites the words inside it.
-				add_filter( 'woocommerce_sale_flash', [ $this, 'saved_flash' ], 99, 3 );
+				add_filter( 'woocommerce_get_price_html', [ $this, 'saved_price' ], 99, 2 );
 			}
 			// Feed our discounted products into WooCommerce's on-sale product list so
 			// [products on_sale="true"], the On-Sale page and widgets include them.
@@ -1224,26 +1223,6 @@ final class DZE_Discounts {
 	}
 
 	/**
-	 * The corner badge, carrying the saving instead of the word "Sale".
-	 *
-	 * Same badge, same corner, same class: the theme places it, we only change
-	 * what it says. The figure is the difference between the price that is
-	 * struck through and the price being charged — whatever produced it, ours
-	 * or a native WooCommerce sale — so the badge can never contradict the two
-	 * prices printed underneath it.
-	 *
-	 * A variable product whose variations do not all save the same amount says
-	 * "up to": one figure for a range would be true of one variation and wrong
-	 * for the rest. Prices come from the objects the loop has already loaded
-	 * and from WooCommerce's own variation-price cache — no query is added to
-	 * a shop page.
-	 *
-	 * @param string     $html    The badge WooCommerce drew.
-	 * @param mixed      $post    Unused, kept for the filter signature.
-	 * @param mixed      $product The product the badge belongs to.
-	 * @return string
-	 */
-	/**
 	 * The general settings of everything this module does to the shop.
 	 *
 	 * One screen for the decisions that are not a promotion — what the corner
@@ -1255,16 +1234,16 @@ final class DZE_Discounts {
 		$mode  = self::badge_mode();
 		$where = self::badge_where();
 		?>
-		<h2><?php esc_html_e( 'The badge on a product', 'dazont-ecom' ); ?></h2>
+		<h2><?php esc_html_e( 'The saving on a product', 'dazont-ecom' ); ?></h2>
 		<form method="post" action="options.php" class="dze-admin">
 			<?php settings_fields( 'dze_discount_display_options' ); ?>
 			<p class="description">
-				<?php esc_html_e( 'What the corner badge says while a promotion is running. It is WooCommerce\'s own badge, in its own place, dressed by your theme — only the words change.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'What a product says it saves while a promotion is running: a line under its price, where the two prices already are. The shop\'s own corner badge is left exactly as it is.', 'dazont-ecom' ); ?>
 			</p>
 			<p>
 				<select name="<?php echo esc_attr( self::OPT_BADGE ); ?>">
-					<option value="saved" <?php selected( 'saved', $mode ); ?>><?php esc_html_e( 'The amount saved — "Save $12.00"', 'dazont-ecom' ); ?></option>
-					<option value="sale" <?php selected( 'sale', $mode ); ?>><?php esc_html_e( 'Leave the shop\'s own badge alone — "Sale!"', 'dazont-ecom' ); ?></option>
+					<option value="saved" <?php selected( 'saved', $mode ); ?>><?php esc_html_e( 'Under the price — "Save $12.00"', 'dazont-ecom' ); ?></option>
+					<option value="sale" <?php selected( 'sale', $mode ); ?>><?php esc_html_e( 'Nothing — leave the price as the shop prints it', 'dazont-ecom' ); ?></option>
 				</select>
 				<label for="dze-badge-where" style="margin-left:10px;"><?php esc_html_e( 'Shown', 'dazont-ecom' ); ?></label>
 				<select name="<?php echo esc_attr( self::OPT_BADGE_WHERE ); ?>" id="dze-badge-where">
@@ -1278,7 +1257,7 @@ final class DZE_Discounts {
 				<?php esc_html_e( '"On the product\'s own page" means the product being looked at, and nothing else on that page: the related products underneath are a grid of tiles and are treated as one. "On category pages" covers every grid — a category, a search, the home page, those related products — where thirty figures side by side is a wall of numbers.', 'dazont-ecom' ); ?>
 			</p>
 			<p class="description">
-				<?php esc_html_e( 'The figure is the difference between the price struck through and the price charged, in the shop\'s currency, so it can never contradict the two prices printed under it. A variable product whose variations do not all save the same says "Save up to".', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'The figure is the difference between the price struck through and the price charged, in the shop\'s currency, so it can never contradict the two prices printed above it. A variable product whose variations do not all save the same says "Save up to".', 'dazont-ecom' ); ?>
 			</p>
 		</form>
 		<?php
@@ -1301,8 +1280,32 @@ final class DZE_Discounts {
 		return in_array( $w, [ 'product', 'lists', 'both' ], true ) ? $w : 'product';
 	}
 
-	public function saved_flash( $html, $post, $product ) {
+	/**
+	 * What this product saves, under the price the theme just printed.
+	 *
+	 * It began life in the corner badge and it does not belong there: a badge
+	 * is a claim in a fixed little shape, sized by the theme for the word
+	 * "Sale!", and a figure needs room. Under the two prices it is read where
+	 * the eye already is, and it cannot contradict them — it is their
+	 * difference, whatever produced it, ours or a native WooCommerce sale.
+	 *
+	 * A variable product whose variations do not all save the same says "up
+	 * to": one figure for a range would be true of one variation and wrong for
+	 * the rest. Prices come from the objects the page has already loaded and
+	 * from WooCommerce's own variation-price cache — no query is added to a
+	 * shop page.
+	 *
+	 * @param string $html    The price, as the shop printed it.
+	 * @param mixed  $product The product it belongs to.
+	 * @return string
+	 */
+	public function saved_price( $html, $product ) {
 		if ( ! $product instanceof \WC_Product || ! function_exists( 'wc_price' ) ) {
+			return $html;
+		}
+		// Nothing to save on a product that is not on sale — and the line is
+		// never printed twice on the same price, whoever calls this filter.
+		if ( ! $product->is_on_sale() || false !== strpos( (string) $html, 'dze-saved' ) ) {
 			return $html;
 		}
 		// The product being LOOKED AT, or a tile in a grid — those are the two
@@ -1328,8 +1331,8 @@ final class DZE_Discounts {
 		}
 		$saved = round( $regular - $now, 2 );
 		if ( $saved <= 0 ) {
-			// On sale with nothing to show for it: leave the badge as the shop
-			// drew it rather than print "Save $0".
+			// On sale with nothing to show for it: leave the price as the shop
+			// printed it rather than add "Save $0".
 			return $html;
 		}
 		$said = $spread
@@ -1337,23 +1340,11 @@ final class DZE_Discounts {
 			? sprintf( __( 'Save up to %s', 'dazont-ecom' ), wc_price( $saved ) )
 			/* translators: %s: amount saved, e.g. $12.00 */
 			: sprintf( __( 'Save %s', 'dazont-ecom' ), wc_price( $saved ) );
-		// ONLY the words change. Rebuilding the badge — even as WooCommerce's
-		// own <span class="onsale">Sale!</span> — throws away whatever the
-		// theme put around it or on it, and the badge came back a different
-		// shape: Astra dresses its own markup, not the markup WooCommerce
-		// ships. So the first piece of text inside what the theme produced is
-		// swapped, and every tag, class and attribute it wrote is left exactly
-		// as it was.
-		$out = preg_replace_callback(
-			'/>([^<>]*\S[^<>]*)</',
-			static fn( array $m ): string => '>' . $said . '<',
-			$html,
-			1,
-			$done
-		);
-		// A badge with no text in it at all — an icon, a background image — is
-		// not one we can rewrite. It keeps what it had rather than losing it.
-		return ( null !== $out && $done ) ? $out : $html;
+		// Under the price the theme just printed, on its own line, and styled
+		// inline: the shop's stylesheet is the shop's, and a stylesheet of ours
+		// on the front for one sentence is a request every visitor pays for.
+		return $html . '<span class="dze-saved" style="display:block;font-size:.85em;font-weight:600;">'
+			. wp_kses_post( $said ) . '</span>';
 	}
 
 	/**
