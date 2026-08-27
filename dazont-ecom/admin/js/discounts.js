@@ -176,10 +176,16 @@
 		if (typeof dzeDiscounts === 'undefined') { return; }
 		var cfg = dzeDiscounts;
 		var $b = $(this), $st = $('#dze-banner-tr-status');
-		var line = $.trim($('#dze-banner-text').val() || '');
+		// The line to adapt is the promotion's TITLE: on an event, the title IS
+		// what the banner says — one field, so the two cannot drift. This still
+		// read the separate banner box, which stopped existing the day the two
+		// were merged, so it always answered "write the banner text first" on a
+		// promotion whose banner text was on the screen above it.
+		var $src = $('#dze-banner-text').length ? $('#dze-banner-text') : $('#dze-title');
+		var line = $.trim($src.val() || '');
 		if (!line) {
 			$st.css('color', '#b32d2e').addClass('is-ko').text(cfg.i18n.titleFirst);
-			$('#dze-banner-text').trigger('focus');
+			$src.trigger('focus');
 			return;
 		}
 		$b.prop('disabled', true);
