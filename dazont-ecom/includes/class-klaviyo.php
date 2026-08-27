@@ -1173,7 +1173,7 @@ final class DZE_Klaviyo {
 	public static function products_html( array $rule = [], int $limit = 3 ): string {
 		$t     = self::theme_style();
 		$limit = max( 1, min( 4, $limit ) );
-		$ids   = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) );
+		$ids   = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return '';
 		}
@@ -1298,27 +1298,102 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * The products the shop actually sold over a window, best first.
+	 * Which stretch of the shop's history a promotion should be read from.
+	 *
+	 * A promotion is written weeks before it runs, and the products that sell
+	 * in the week it is WRITTEN are not the products that will sell in the
+	 * week it OPENS. A New Year sale drafted in August, read off the last
+	 * fortnight, is a summer catalogue with a December headline on it.
+	 *
+	 * So when a promotion opens in a different part of the year, the shop is
+	 * asked about the SAME PART OF THE YEAR, one year earlier — 26 December
+	 * looks at last 26 December, not at last August. The window is widened by
+	 * the promotion's own length and a week on each side, because a sale is
+	 * rarely the only week its goods sell in.
+	 *
+	 * A promotion opening soon is a different question: the recent window is
+	 * the right one, and it is the one used.
+	 *
+	 * @return array{from:int,to:int,season:bool,label:string}
+	 */
+	public static function sellers_window( array $rule = [] ): array {
+		$now   = (int) current_time( 'timestamp' );
+		$days  = self::window_days();
+		$plain = [
+			'from'   => $now - $days * DAY_IN_SECONDS,
+			'to'     => $now,
+			'season' => false,
+			'label'  => sprintf(
+				/* translators: %d: number of days */
+				_n( 'the last %d day', 'the last %d days', $days, 'dazont-ecom' ),
+				$days
+			),
+		];
+		$start = strtotime( self::just_day( (string) ( $rule['start'] ?? '' ) ) ?: '' );
+		if ( ! $start ) {
+			return $plain;
+		}
+		// Opening within three weeks: this season IS that season.
+		if ( abs( $start - $now ) <= 21 * DAY_IN_SECONDS ) {
+			return $plain;
+		}
+		$end  = strtotime( self::just_day( (string) ( $rule['end'] ?? '' ) ) ?: '' ) ?: $start;
+		$from = strtotime( '-1 year', $start ) - 7 * DAY_IN_SECONDS;
+		$to   = strtotime( '-1 year', $end ) + 7 * DAY_IN_SECONDS;
+		if ( ! $from || ! $to || $to <= $from ) {
+			return $plain;
+		}
+		return [
+			'from'   => $from,
+			'to'     => $to,
+			'season' => true,
+			'label'  => sprintf(
+				/* translators: 1: first day, 2: last day */
+				__( '%1$s to %2$s, a year ago', 'dazont-ecom' ),
+				wp_date( 'j M', $from ),
+				wp_date( 'j M Y', $to )
+			),
+		];
+	}
+
+	/** The products the shop sold between two moments, best first. */
+	private static function sold_between( int $from, int $to, int $cap = 60 ): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'wc_order_product_lookup';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+		$rows = $wpdb->get_col( $wpdb->prepare(
+			"SELECT product_id FROM {$table} WHERE date_created >= %s AND date_created <= %s GROUP BY product_id ORDER BY SUM(product_qty) DESC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's own table name.
+			gmdate( 'Y-m-d H:i:s', $from ),
+			gmdate( 'Y-m-d H:i:s', $to ),
+			$cap
+		) );
+		return array_map( 'absint', (array) $rows );
+	}
+
+	/**
+	 * The products the shop actually sold over the right window, best first.
 	 *
 	 * @param int[] $categories Restrict to these product categories, when the event names any.
+	 * @param array $rule       The promotion, so the window can follow its season.
 	 *
 	 * @return int[]
 	 */
-	private static function best_sellers( int $days, int $limit, array $categories = [] ): array {
-		global $wpdb;
-		$limit = max( 1, min( 9, $limit ) );
-		$table = $wpdb->prefix . 'wc_order_product_lookup';
-		$ids   = [];
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
-			$since = current_datetime()->modify( '-' . max( 1, $days ) . ' days' )->format( 'Y-m-d H:i:s' );
-			$rows  = $wpdb->get_col( $wpdb->prepare(
-				"SELECT product_id FROM {$table} WHERE date_created >= %s GROUP BY product_id ORDER BY SUM(product_qty) DESC LIMIT 60", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WooCommerce's own table name.
-				$since
-			) );
-			$ids = array_map( 'absint', (array) $rows );
+	private static function best_sellers( int $days, int $limit, array $categories = [], array $rule = [] ): array {
+		$limit  = max( 1, min( 9, $limit ) );
+		$window = self::sellers_window( $rule );
+		$ids    = self::sold_between( (int) $window['from'], (int) $window['to'] );
+
+		// A shop younger than a year, or a quiet season last year, has nothing
+		// to say about it. Recent sales answer rather than nothing — the wrong
+		// season beats an empty email — and the screen says which was used.
+		if ( ! $ids && $window['season'] ) {
+			$now = (int) current_time( 'timestamp' );
+			$ids = self::sold_between( $now - max( 1, $days ) * DAY_IN_SECONDS, $now );
 		}
-		// Nothing sold in the window (a quiet fortnight, or Analytics not
-		// synced): the catalogue's own popularity answers rather than nothing.
+		// Nothing sold at all (a new shop, or Analytics not synced): the
+		// catalogue's own popularity answers.
 		if ( ! $ids && function_exists( 'wc_get_products' ) ) {
 			$ids = (array) wc_get_products( [
 				'limit'      => 60,
@@ -2523,7 +2598,7 @@ final class DZE_Klaviyo {
 	public static function material( array $rule, int $limit = 9 ): array {
 		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [] ];
 		$t   = self::theme_style();
-		$ids = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) );
+		$ids = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return $out;
 		}
@@ -2856,7 +2931,10 @@ final class DZE_Klaviyo {
 		} else {
 			$user .= "This shop does not open its emails on a made photograph. Do NOT place an image of your own and leave the \"picture\" field empty: open on the words, and let the product blocks carry the pictures.\n";
 		}
+		$win   = self::sellers_window( $rule );
 		$user .= "\n--- THE PRODUCTS YOU MAY SHOW ---\n"
+			. 'What the shop actually sold over ' . $win['label']
+			. ( $win['season'] ? ' — the same days of the year this promotion runs on, so the goods suit its season' : '' ) . ".\n"
 			. ( '' !== $mat['lines']
 				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
 				: "The shop returned no product. Write the email without a product.\n" );
@@ -3203,7 +3281,7 @@ final class DZE_Klaviyo {
 		if ( $hero && wp_attachment_is_image( $hero ) ) {
 			$sources[] = $hero; // on the rare event that carries one already.
 		}
-		foreach ( self::best_sellers( self::window_days(), 6, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) ) as $pid ) {
+		foreach ( self::best_sellers( self::window_days(), 6, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule ) as $pid ) {
 			if ( count( $sources ) >= 4 ) {
 				break; // four references is what the model composes well from.
 			}
@@ -4073,7 +4151,10 @@ final class DZE_Klaviyo {
 				<td>
 					<input type="number" id="dze-klav-days" name="<?php echo esc_attr( self::OPT . '[days]' ); ?>" value="<?php echo esc_attr( (string) self::window_days() ); ?>" min="1" max="365" class="small-text" />
 					<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
-					<p class="description"><?php esc_html_e( 'A quiet window falls back to catalogue popularity.', 'dazont-ecom' ); ?></p>
+					<p class="description">
+						<?php esc_html_e( 'A quiet window falls back to catalogue popularity.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'A promotion that opens more than three weeks from now is read from the same days of the year, one year back, instead — the products that sell in the week an email is written are not the ones that sell in the week it goes out.', 'dazont-ecom' ); ?>
+					</p>
 				</td>
 			</tr>
 			<tr>
