@@ -610,6 +610,20 @@ final class DZE_Klaviyo {
 		];
 	}
 
+	/**
+	 * Whether an email opens on a picture made for it.
+	 *
+	 * Switched on by default, because an email that opens on nothing is a
+	 * worse email — but it is a decision, not a fact: a generated photograph
+	 * costs money, takes a minute, and is only worth it when it is good. Off,
+	 * the writing is never asked for one and the shop's own image for the
+	 * promotion is used if it has one.
+	 */
+	public static function images_on(): bool {
+		$s = self::settings();
+		return ! array_key_exists( 'images', $s ) || (int) $s['images'] === 1;
+	}
+
 	/** How many products sit side by side on a desktop screen. */
 	public static function per_row(): int {
 		return max( 1, min( 4, (int) self::conf( 'per_row', 2 ) ) );
@@ -826,6 +840,11 @@ final class DZE_Klaviyo {
 		}
 		if ( array_key_exists( 'per_row', $in ) ) {
 			$out['per_row'] = max( 1, min( 4, (int) $in['per_row'] ) );
+		}
+		// A checkbox the submitted section owns: unticked it posts nothing, so
+		// it is read from the section's own marker rather than from itself.
+		if ( ! empty( $in['form'] ) ) {
+			$out['images'] = ! empty( $in['images'] ) ? 1 : 0;
 		}
 		if ( array_key_exists( 'test_to', $in ) ) {
 			$to = array_filter( array_map( 'sanitize_email', array_map( 'trim', explode( ',', (string) $in['test_to'] ) ) ) );
@@ -2607,10 +2626,14 @@ final class DZE_Klaviyo {
 				$user .= "\n--- THE SHOP ---\n" . mb_substr( $about, 0, 1200 ) . "\n";
 			}
 		}
-		$user .= "\n--- THE PICTURE ---\n"
-			. ( '' !== $picture
-				? 'This email already has its picture. Use this URL exactly as it stands, and leave the "picture" field empty: ' . $picture . "\n"
-				: "This email has no picture yet: describe the one it should open with in the \"picture\" field, and place it in the body with src=\"" . self::PICTURE_MARK . "\".\n" );
+		$user .= "\n--- THE PICTURE ---\n";
+		if ( '' !== $picture ) {
+			$user .= 'This email already has its picture. Use this URL exactly as it stands, and leave the "picture" field empty: ' . $picture . "\n";
+		} elseif ( self::images_on() ) {
+			$user .= "This email has no picture yet: describe the one it should open with in the \"picture\" field, and place it in the body with src=\"" . self::PICTURE_MARK . "\".\n";
+		} else {
+			$user .= "This shop does not open its emails on a made photograph. Do NOT place an image of your own and leave the \"picture\" field empty: open on the words, and let the product blocks carry the pictures.\n";
+		}
 		$user .= "\n--- THE PRODUCTS YOU MAY SHOW ---\n"
 			. ( '' !== $mat['lines']
 				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
@@ -2936,6 +2959,9 @@ final class DZE_Klaviyo {
 	 * @throws RuntimeException
 	 */
 	public static function make_image( array $rule, string $prompt = '' ): array {
+		if ( ! self::images_on() ) {
+			throw new RuntimeException( __( 'Generated pictures are switched off under Settings → Email campaigns.', 'dazont-ecom' ) );
+		}
 		if ( ! class_exists( 'DZE_Content' ) || ! DZE_Modules::enabled( 'content' ) ) {
 			throw new RuntimeException( __( 'Product content is switched off, and it is what talks to fal.ai.', 'dazont-ecom' ) );
 		}
@@ -3564,7 +3590,9 @@ final class DZE_Klaviyo {
 
 				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
 					<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Change the picture', 'dazont-ecom' ); ?></button>
+					<?php if ( self::images_on() ) : ?>
+						<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Change the picture', 'dazont-ecom' ); ?></button>
+					<?php endif; ?>
 					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
 					<span style="flex:1;"></span>
 					<span class="dze-klav-switch">
@@ -3796,6 +3824,16 @@ final class DZE_Klaviyo {
 					<input type="number" id="dze-klav-days" name="<?php echo esc_attr( self::OPT . '[days]' ); ?>" value="<?php echo esc_attr( (string) self::window_days() ); ?>" min="1" max="365" class="small-text" />
 					<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
 					<p class="description"><?php esc_html_e( 'A quiet window falls back to catalogue popularity.', 'dazont-ecom' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Opening picture', 'dazont-ecom' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" id="dze-klav-images" name="<?php echo esc_attr( self::OPT . '[images]' ); ?>" value="1" <?php checked( self::images_on() ); ?> />
+						<?php esc_html_e( 'Make one with fal.ai for each email', 'dazont-ecom' ); ?>
+					</label>
+					<p class="description"><?php esc_html_e( 'Off: the email opens on its words, and the promotion\'s own image is used if it has one.', 'dazont-ecom' ); ?></p>
 				</td>
 			</tr>
 			<tr>
