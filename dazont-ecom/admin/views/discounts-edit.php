@@ -296,7 +296,19 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 								) );
 							?></code>
 						</p>
-						<p class="description"><?php esc_html_e( 'The title above, then the discount — added on its own, so it can never disagree with the percentage. Change either one and the banner follows.', 'dazont-ecom' ); ?></p>
+						<?php
+						// A sentence that does not name the discount is a banner
+						// that does not announce one, and there is nothing the
+						// plugin can add in the reader's language without
+						// writing half of it in English. So it is said here,
+						// once, where the sentence is written.
+						$dze_says = (string) ( $editing['title'] ?? '' );
+						if ( (float) ( $editing['percent'] ?? 0 ) > 0 && '' !== $dze_says && ! DZE_Discounts::says_percent( $dze_says ) ) :
+							?>
+							<p class="description" style="color:#b26a00;">
+								<?php esc_html_e( 'This does not mention the discount. Write it into the title — the figure is kept up to date on its own, and each market gets it in its own words.', 'dazont-ecom' ); ?>
+							</p>
+						<?php endif; ?>
 					</td>
 				</tr>
 				<?php

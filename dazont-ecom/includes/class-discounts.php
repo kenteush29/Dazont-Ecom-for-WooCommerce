@@ -1793,31 +1793,48 @@ final class DZE_Discounts {
 	}
 
 	/**
-	 * What the banner actually says: the promotion's name, then its discount.
+	 * What the banner actually says, in the market it is being read in.
 	 *
-	 * The figure is added HERE rather than typed into the field, for two
-	 * reasons. A percentage typed by hand is a percentage that goes on saying
-	 * 15 the day the promotion is changed to 20 — and the shop would find out
-	 * from a customer. And the name is what gets translated market by market:
-	 * "-20% OFF" is not worth a translation pass, and a machine translating it
-	 * is a machine that can get the number wrong.
+	 * It used to be the name and then "-10% OFF", stuck on here. That made the
+	 * figure live — a percentage typed by hand goes on saying 15 the day the
+	 * promotion is changed to 20 — but it also made every market read a French
+	 * line with an English tail: "Offre de rentrée! -10% OFF". A sentence
+	 * assembled from two languages cannot be written well in either.
+	 *
+	 * So the line is ONE sentence, written and translated as one — the
+	 * discount announced inside it, in that market's own words and its own
+	 * typography. The figure stays live all the same: whatever percentage the
+	 * sentence carries is rewritten to the promotion's own before it is shown,
+	 * so changing 10 to 20 changes every market at once and none of them can
+	 * drift.
 	 */
 	public static function banner_line( array $rule, string $text ): string {
-		$pct = (float) ( $rule['percent'] ?? 0 );
-		if ( $pct <= 0 ) {
+		return self::refresh_percent( $text, (float) ( $rule['percent'] ?? 0 ) );
+	}
+
+	/**
+	 * Rewrites the percentage inside a sentence to the promotion's own.
+	 *
+	 * Only the digits change. The minus sign, the spacing and the position are
+	 * the market's business — French writes "-10 %" with a space and English
+	 * "10% off" without, and neither is corrected here.
+	 */
+	public static function refresh_percent( string $text, float $pct ): string {
+		$text = trim( $text );
+		if ( $pct <= 0 || '' === $text ) {
 			return $text;
 		}
-		$text = rtrim( $text );
-		// A title that already ends on its own punctuation keeps it.
-		if ( '' !== $text && ! preg_match( '/[!?.…:]$/u', $text ) ) {
-			$text .= '!';
-		}
 		$figure = rtrim( rtrim( number_format( $pct, 2, '.', '' ), '0' ), '.' );
-		return trim( $text . ' ' . sprintf(
-			/* translators: %s: the discount, e.g. 15 */
-			__( '-%s%% OFF', 'dazont-ecom' ),
-			$figure
-		) );
+		return (string) preg_replace_callback(
+			'/\d+(?:[.,]\d+)?(?=\s*%)/u',
+			static fn(): string => $figure,
+			$text
+		);
+	}
+
+	/** True when a sentence names a percentage at all. */
+	public static function says_percent( string $text ): bool {
+		return (bool) preg_match( '/\d+(?:[.,]\d+)?\s*%/u', $text );
 	}
 
 	private function print_timer_script(): void {
