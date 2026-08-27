@@ -141,10 +141,8 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 					</label>
 					<label style="margin-left:16px;">
 						<?php esc_html_e( 'running', 'dazont-ecom' ); ?>
-						<input type="number" min="1" max="120" step="1" style="width:70px;" name="<?php echo esc_attr( $dze_opt . '[timer_min_days]' ); ?>" value="<?php echo esc_attr( $dze_timer_rule[1] ); ?>" />
-						<?php esc_html_e( 'to', 'dazont-ecom' ); ?>
-						<input type="number" min="1" max="120" step="1" style="width:70px;" name="<?php echo esc_attr( $dze_opt . '[timer_max_days]' ); ?>" value="<?php echo esc_attr( $dze_timer_rule[2] ); ?>" />
-						<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
+						<input type="number" min="1" max="120" step="1" style="width:70px;" name="<?php echo esc_attr( $dze_opt . '[timer_max_days]' ); ?>" value="<?php echo esc_attr( $dze_timer_rule[1] ); ?>" />
+						<?php esc_html_e( 'days at most', 'dazont-ecom' ); ?>
 					</label>
 				</p>
 				<p class="description" style="max-width:820px;">

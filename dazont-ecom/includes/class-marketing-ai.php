@@ -151,7 +151,6 @@ final class DZE_Marketing_Ai {
 			// CRO recommendation printed beside them.
 			'timer_auto'        => 1,  // let the rule below decide the countdown.
 			'timer_min_percent' => 20, // nothing under this is worth a deadline.
-			'timer_min_days'    => 1,
 			'timer_max_days'    => 7,  // a deadline weeks away presses nobody.
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
@@ -367,17 +366,8 @@ final class DZE_Marketing_Ai {
 			if ( $has( 'timer_min_percent' ) ) {
 				$write['timer_min_percent'] = min( 90, max( 1, (int) $in['timer_min_percent'] ) );
 			}
-			if ( $has( 'timer_min_days' ) ) {
-				$write['timer_min_days'] = min( 120, max( 1, (int) $in['timer_min_days'] ) );
-			}
 			if ( $has( 'timer_max_days' ) ) {
 				$write['timer_max_days'] = min( 120, max( 1, (int) $in['timer_max_days'] ) );
-			}
-			// A window that reads backwards is a rule nothing can ever clear.
-			$low  = (int) ( $write['timer_min_days'] ?? $existing['timer_min_days'] ?? 1 );
-			$high = (int) ( $write['timer_max_days'] ?? $existing['timer_max_days'] ?? 7 );
-			if ( $high < $low ) {
-				$write['timer_max_days'] = $low;
 			}
 			if ( $has( 'events_prompt' ) ) {
 				$write['events_prompt'] = sanitize_textarea_field( $events_prompt );
@@ -460,14 +450,12 @@ final class DZE_Marketing_Ai {
 		return ! empty( self::get_settings()['timer_auto'] );
 	}
 
-	/** The bar an event has to clear: [ percent, min days, max days ]. */
+	/** The bar an event has to clear: [ percent, days at most ]. */
 	public static function timer_rule(): array {
-		$s   = self::get_settings();
-		$min = max( 1, (int) $s['timer_min_days'] );
+		$s = self::get_settings();
 		return [
 			max( 1, (int) $s['timer_min_percent'] ),
-			$min,
-			max( $min, (int) $s['timer_max_days'] ),
+			max( 1, (int) $s['timer_max_days'] ),
 		];
 	}
 
@@ -494,8 +482,8 @@ final class DZE_Marketing_Ai {
 		if ( $days < 1 ) {
 			return false;
 		}
-		[ $min_pc, $min_days, $max_days ] = self::timer_rule();
-		return $percent >= $min_pc && $days >= $min_days && $days <= $max_days;
+		[ $min_pc, $max_days ] = self::timer_rule();
+		return $percent >= $min_pc && $days <= $max_days;
 	}
 
 	/** Days a promotion runs, both ends counted — the way a shop counts them. */
