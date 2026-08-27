@@ -465,6 +465,22 @@
 		// without it.
 		commit();
 		render();
+		// Kept with the email at once, like the writing keeps itself. It used
+		// to wait for the event's Save, so a reload before that threw away the
+		// photograph, the paragraph it sat in, and what it cost.
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_usepic', nonce: cfg.nonce,
+			rule: ruleId(), email: current, url: url, body: el.value || ''
+		}).done(function (res) {
+			if (res && res.success) { return; }
+			$('#dze-klav-e-msg').css('color', '#b32d2e').addClass('is-ko')
+				.text((res && res.data && res.data.message) || i18n.error);
+		}).fail(function (xhr) {
+			// Silence here means the picture is on screen and nowhere else,
+			// which is exactly the failure this call exists to prevent.
+			$('#dze-klav-e-msg').css('color', '#b32d2e').addClass('is-ko')
+				.text('HTTP ' + (xhr ? xhr.status : 0));
+		});
 	}
 
 	// Making the picture is a call of its own, and a slow one. It runs beside

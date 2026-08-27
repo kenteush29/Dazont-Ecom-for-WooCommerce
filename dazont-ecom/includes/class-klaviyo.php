@@ -93,6 +93,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
 		add_action( 'wp_ajax_dze_klav_image',    [ __CLASS__, 'ajax_image' ] );
+		add_action( 'wp_ajax_dze_klav_usepic',   [ __CLASS__, 'ajax_usepic' ] );
 		add_action( 'wp_ajax_dze_klav_test',     [ __CLASS__, 'ajax_test' ] );
 		add_action( 'wp_ajax_dze_klav_frame',    [ __CLASS__, 'ajax_frame' ] );
 		add_action( 'wp_ajax_dze_klav_hours',    [ __CLASS__, 'ajax_hours' ] );
@@ -3677,6 +3678,34 @@ final class DZE_Klaviyo {
 		}
 		$hosted = (string) ( $res['data']['attributes']['image_url'] ?? '' );
 		return [ $hosted, '' !== $hosted ? '' : __( 'it answered without an address', 'dazont-ecom' ) ];
+	}
+
+	/**
+	 * A picture put into an email is kept with that email, at once.
+	 *
+	 * Everything else on this screen that CHANGES an email saves itself — the
+	 * writing does, the deletion does — because an email is not a form field,
+	 * it is work. The picture was the exception: it landed in the body on
+	 * screen and waited for the event's Save, so a reload before that took the
+	 * photograph, the paragraph it sat in, and the money it cost.
+	 *
+	 * The body comes from the editor rather than from storage: it is the one
+	 * that has the picture in it, and it may carry edits made since.
+	 */
+	public static function ajax_usepic(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		$url = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
+		if ( '' === $url || '' === $email_id ) {
+			wp_send_json_error( [ 'message' => __( 'No picture to keep.', 'dazont-ecom' ) ] );
+		}
+		$fields = [ 'picture' => $url ];
+		$body   = isset( $_POST['body'] ) ? self::clean_html( (string) wp_unslash( $_POST['body'] ) ) : '';
+		if ( '' !== trim( $body ) ) {
+			$fields['body'] = $body;
+		}
+		self::put_email( $rule_id, $email_id, $fields );
+		wp_send_json_success( [ 'saved' => true ] );
 	}
 
 	public static function ajax_image(): void {
