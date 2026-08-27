@@ -4318,8 +4318,18 @@ final class DZE_Klaviyo {
 							// second way of doing the one thing this plugin
 							// already does one way.
 							?>
-							<span class="dze-zoomgroup" style="position:relative;display:inline-block;line-height:0;">
-								<img id="dze-klav-shot-img" src="" data-full="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+							<?php
+							// Two spans, not one: the zoom plants its button on
+							// the image's PARENT and shows it when that parent
+							// is hovered, so the group has to CONTAIN cells
+							// rather than be one. Flattened, the button was
+							// planted on the group itself and stayed invisible
+							// — the rule that reveals it never matched.
+							?>
+							<span class="dze-zoomgroup" style="display:inline-block;line-height:0;">
+								<span style="display:inline-block;line-height:0;">
+									<img id="dze-klav-shot-img" src="" data-full="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+								</span>
 							</span>
 							<button type="button" class="button button-small" id="dze-klav-e-usepic"><?php esc_html_e( 'Use it in this email', 'dazont-ecom' ); ?></button>
 						</p>
