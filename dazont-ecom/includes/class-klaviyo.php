@@ -1496,6 +1496,61 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * The other emails of the same promotion, as the writing needs to know them.
+	 *
+	 * A reminder that repeats the launch is the commonest way an email
+	 * sequence goes wrong, and it cannot be prevented by instructions alone:
+	 * "do not repeat the announcement" means nothing to somebody who has not
+	 * read it. So each email is shown what its neighbours actually said —
+	 * their subject, how they opened, and WHICH PRODUCTS they leaned on, which
+	 * is the repetition a reader notices first.
+	 *
+	 * Short on purpose. The opening line and the product names carry almost
+	 * all of the value; the whole body would multiply the cost of every email
+	 * by the number of emails and buy very little more.
+	 *
+	 * @param array $mat The material, so a product can be recognised by its link.
+	 */
+	private static function siblings_brief( string $rule_id, array $rule, string $email_id, array $mat ): string {
+		$all = self::emails_for( $rule_id, $rule );
+		unset( $all[ $email_id ] );
+		if ( ! $all ) {
+			return '';
+		}
+		$fmt  = get_option( 'date_format' ) ?: 'Y-m-d';
+		$out  = '';
+		$n    = 0;
+		foreach ( $all as $mail ) {
+			if ( ++$n > 6 ) {
+				break;
+			}
+			$ts   = strtotime( (string) ( $mail['when'] ?? '' ) );
+			$line = $n . '. "' . self::email_name( $mail ) . '"'
+				. ( $ts ? ' — ' . wp_date( $fmt, $ts ) : '' );
+			$body = trim( wp_strip_all_tags( (string) ( $mail['body'] ?? '' ) ) );
+			if ( '' === $body ) {
+				$out .= $line . ' — ' . __( 'not written yet', 'dazont-ecom' ) . "\n";
+				continue;
+			}
+			$subject = trim( (string) ( $mail['subject'] ?? '' ) );
+			$out    .= $line . ( '' !== $subject ? ' — subject: "' . $subject . '"' : '' ) . "\n";
+			$out    .= '   opens: ' . mb_substr( preg_replace( '/\s+/u', ' ', $body ), 0, 180 ) . "…\n";
+			// Which of the shortlist it showed, found by the one thing a
+			// product block always carries: the product's own link.
+			$shown = [];
+			foreach ( (array) ( $mat['links'] ?? [] ) as $name => $link ) {
+				if ( '' !== $link && false !== strpos( (string) $mail['body'], $link ) ) {
+					$shown[] = $name;
+				}
+			}
+			if ( $shown ) {
+				$out .= '   products shown: ' . implode( ', ', array_slice( $shown, 0, 8 ) ) . "\n";
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Which moment of the promotion a day falls in.
 	 *
 	 * The moment used to be a field of its own, and a field of its own can
@@ -2328,7 +2383,7 @@ final class DZE_Klaviyo {
 	 * @return array{lines:string,images:string[],prices:string[]}
 	 */
 	public static function material( array $rule, int $limit = 9 ): array {
-		$out = [ 'lines' => '', 'cards' => [], 'images' => [], 'prices' => [] ];
+		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [] ];
 		$t   = self::theme_style();
 		$ids = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
@@ -2363,6 +2418,10 @@ final class DZE_Klaviyo {
 				. '   image: ' . $img . "\n"
 				. ( '' !== $was ? '   was: ' . $was . '   now: ' . $now . "\n" : '   price: ' . $now . "\n" )
 				. ( '' !== $cat ? '   category: ' . $cat . "\n" : '' );
+			// Its link, so an email written later can be told which products the
+			// earlier ones already leaned on: the link is the one thing a
+			// product block always carries, whatever the writing did around it.
+			$out['links'][ $product->get_name() ] = (string) $product->get_permalink();
 			// The block itself, built HERE and handed to the writing ready-made.
 			// How many products, how they are grouped and where they sit is the
 			// prompt's decision; what one of them LOOKS like is not, because a
@@ -2619,6 +2678,16 @@ final class DZE_Klaviyo {
 			// briefing another: this is that brief, and it outranks the
 			// general description of the moment above.
 			$user .= "\n--- WHAT THIS ONE IS FOR ---\n" . $angle . "\n";
+		}
+		// What the neighbours actually said. "Do not repeat the announcement"
+		// means nothing to somebody who has not read it, so each email is shown
+		// the others: their subject, how they opened, and which products they
+		// leaned on — the repetition a reader notices first.
+		$others = self::siblings_brief( $rule_id, $rule, $email_id, $mat );
+		if ( '' !== $others ) {
+			$user .= "\n--- THE OTHER EMAILS OF THIS PROMOTION ---\n"
+				. "In the order they go out. Do not repeat their subject lines, do not open the way they opened, and lean on OTHER products than the ones they showed — a reader who gets the same photographs twice stops opening the third.\n\n"
+				. $others;
 		}
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
 			$about = trim( (string) DZE_Marketing_Ai::instance()->shop_context_text() );
@@ -2979,10 +3048,14 @@ final class DZE_Klaviyo {
 		// and it invents gear that the shop does not sell. Several real
 		// photographs of the promotion's own best-sellers anchor it — the
 		// products in the answer are then the products in the references.
+		// Almost always product photographs, because a promotion usually has no
+		// image of its own — making one is the whole point of being here. So
+		// the references are packshots, and the brief has to say what to do
+		// with a packshot rather than assume a scene it can extend.
 		$sources = [];
 		$hero    = (int) ( $rule['hero_event_id'] ?? 0 );
 		if ( $hero && wp_attachment_is_image( $hero ) ) {
-			$sources[] = $hero; // somebody chose this one FOR this promotion.
+			$sources[] = $hero; // on the rare event that carries one already.
 		}
 		foreach ( self::best_sellers( self::window_days(), 6, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) ) as $pid ) {
 			if ( count( $sources ) >= 4 ) {
@@ -3019,7 +3092,7 @@ final class DZE_Klaviyo {
 		// carte blanche over the SETTING; it cannot mean carte blanche over
 		// the goods, because a photograph of gear this shop does not sell is
 		// worth less than no photograph at all.
-		$prompt .= "\n\nThe reference images are real products from this shop. Keep them EXACTLY as they are — same shape, same colour, same pattern, same markings — and build the scene around them. Do not redraw them, do not restyle them, do not add a single item that is not in the references. A wide photograph, real light, real ground, nothing staged on white. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
+		$prompt .= "\n\nThe reference images are real products from this shop, and most of them are catalogue shots on a plain background. Take those products OUT of that background and photograph them somewhere real. Keep each one EXACTLY as it is — same shape, same colour, same pattern, same markings, same proportions — and build the setting around them. Do not redraw them, do not restyle them, do not add a single item that is not in the references, and do not invent gear this shop does not sell. A wide photograph, real light, real ground, real depth of field. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
 
 		$refs = [];
 		foreach ( $sources as $id ) {
