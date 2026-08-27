@@ -213,6 +213,16 @@ trait DZE_Content_Ajax {
 		if ( $look ) {
 			$user .= self::look_instruction( 1, count( $look ) );
 		}
+		// Same rule as the whole-product run: asked again, it is told what the
+		// field says today and asked for another way in — otherwise the same
+		// instructions on the same product answer the same thing, and the
+		// button looks broken.
+		$already = trim( wp_strip_all_tags( self::current_value( $pid, $field ) ) );
+		if ( '' !== $already && 'attributes' !== ( self::dest_for( $field )['type'] ?? '' ) ) {
+			$user .= "\n--- WHAT THIS FIELD SAYS TODAY ---\n"
+				. mb_substr( (string) preg_replace( '/\s+/u', ' ', $already ), 0, 900 ) . "\n"
+				. "Write a DIFFERENT text: another opening, another order, another angle on the same product. Same facts, none of the same sentences. Do not comment on the text above and do not refer to it.\n";
+		}
 		try {
 			$text = $look
 				? DZE_Marketing_Ai::complete_with_images( $system, $user, $look, self::model(), (int) ( $fields[ $field ]['tokens'] ?? 400 ), 240 )
@@ -314,6 +324,20 @@ trait DZE_Content_Ajax {
 		foreach ( $targets as $fid => $f ) {
 			$p     = ! empty( $overrides[ $fid ] ) ? $overrides[ $fid ] : self::prompt_for( $fid );
 			$user .= '===INSTRUCTIONS for field "' . $fid . '" (' . $f['label'] . ")===\n" . $p . "\n\n";
+			// What this field already holds, and the one thing to do about it.
+			// The same instructions on the same product give the same text —
+			// the model cannot see what it wrote last time, so asking again
+			// returned what looked like the same answer, and it looked like a
+			// button that did nothing. It is told, and asked for another way in.
+			// Never on the attributes, where a different answer would mean
+			// different facts.
+			$already = trim( wp_strip_all_tags( self::current_value( $pid, (string) $fid ) ) );
+			if ( '' !== $already && 'attributes' !== ( self::dest_for( (string) $fid )['type'] ?? '' ) ) {
+				$user .= '===WHAT FIELD "' . $fid . '" SAYS TODAY===' . "\n"
+					. mb_substr( (string) preg_replace( '/\s+/u', ' ', $already ), 0, 900 ) . "\n"
+					. "Write a DIFFERENT text: another opening, another order, another angle on the same product. Same facts, none of the same sentences. Do not comment on the text above and do not refer to it.\n\n";
+				$tokens += 40;
+			}
 			if ( isset( $companions[ $fid ] ) ) {
 				$n       = count( $shots ) + 1;
 				$shots[] = (int) $companions[ $fid ]['id'];
@@ -1187,6 +1211,37 @@ trait DZE_Content_Ajax {
 	 * compare the new text with the old one, or check that a generated image
 	 * adds something the gallery does not already have.
 	 */
+	/**
+	 * What one field holds on the product right now.
+	 *
+	 * Read in one place, because two readers of the same thing drift: the
+	 * panel that shows "what the product says today" and the generation that
+	 * has to avoid repeating it are looking at the same value.
+	 */
+	public static function current_value( int $pid, string $fid ): string {
+		$product = $pid ? wc_get_product( $pid ) : null;
+		if ( ! $product instanceof WC_Product ) {
+			return '';
+		}
+		$seo  = self::seo_keys();
+		$dest = self::dest_for( $fid );
+		switch ( $dest['type'] ) {
+			case 'post_title':
+				return (string) get_the_title( $pid );
+			case 'post_content':
+				return (string) get_post_field( 'post_content', $pid );
+			case 'post_excerpt':
+				return (string) get_post_field( 'post_excerpt', $pid );
+			case 'seo_title':
+				return (string) get_post_meta( $pid, $seo['title'], true );
+			case 'seo_desc':
+				return (string) get_post_meta( $pid, $seo['desc'], true );
+			case 'attributes':
+				return (string) self::attributes_summary( $product );
+		}
+		return (string) get_post_meta( $pid, (string) ( $dest['key'] ?? '_dze_' . $fid ), true );
+	}
+
 	public function ajax_current(): void {
 		$this->guard();
 		$pid     = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
@@ -1194,34 +1249,9 @@ trait DZE_Content_Ajax {
 		if ( ! $product instanceof WC_Product ) {
 			wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
 		}
-		$seo   = self::seo_keys();
 		$texts = [];
 		foreach ( self::enabled_fields() as $fid => $f ) {
-			$dest  = self::dest_for( (string) $fid );
-			$value = '';
-			switch ( $dest['type'] ) {
-				case 'post_title':
-					$value = get_the_title( $pid );
-					break;
-				case 'post_content':
-					$value = (string) get_post_field( 'post_content', $pid );
-					break;
-				case 'post_excerpt':
-					$value = (string) get_post_field( 'post_excerpt', $pid );
-					break;
-				case 'seo_title':
-					$value = (string) get_post_meta( $pid, $seo['title'], true );
-					break;
-				case 'seo_desc':
-					$value = (string) get_post_meta( $pid, $seo['desc'], true );
-					break;
-				case 'attributes':
-					$value = self::attributes_summary( $product );
-					break;
-				default:
-					$value = (string) get_post_meta( $pid, (string) ( $dest['key'] ?? '_dze_' . $fid ), true );
-			}
-			$texts[ $fid ] = $value;
+			$texts[ $fid ] = self::current_value( $pid, (string) $fid );
 		}
 		$images = [];
 		// EVERY photograph, not the ones that would travel with a generation:
