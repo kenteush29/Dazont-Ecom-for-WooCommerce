@@ -1380,6 +1380,10 @@ trait DZE_Content_Ajax {
 			'title'   => $product->get_name(),
 			'cost'    => self::product_cost( $product ),
 			'pending' => self::pending( $pid ),
+			// The note travels with every image made for this product, so a
+			// popup opened on another product than the page it sits on must
+			// read THAT product's note rather than the one it was loaded with.
+			'note'    => self::variation_note( $pid, self::NOTE_PRODUCT ),
 		] );
 	}
 
