@@ -94,6 +94,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
 		add_action( 'wp_ajax_dze_klav_image',    [ __CLASS__, 'ajax_image' ] );
 		add_action( 'wp_ajax_dze_klav_usepic',   [ __CLASS__, 'ajax_usepic' ] );
+		add_action( 'wp_ajax_dze_klav_droppic',  [ __CLASS__, 'ajax_droppic' ] );
 		add_action( 'wp_ajax_dze_klav_test',     [ __CLASS__, 'ajax_test' ] );
 		add_action( 'wp_ajax_dze_klav_frame',    [ __CLASS__, 'ajax_frame' ] );
 		add_action( 'wp_ajax_dze_klav_hours',    [ __CLASS__, 'ajax_hours' ] );
@@ -3960,6 +3961,30 @@ final class DZE_Klaviyo {
 	 * The body comes from the editor rather than from storage: it is the one
 	 * that has the picture in it, and it may carry edits made since.
 	 */
+	/**
+	 * Takes the picture off an email, and puts its place back.
+	 *
+	 * Not the same as deleting it: the photograph stays where it is hosted and
+	 * paid for. What goes is this email's claim on it — so the next writing is
+	 * free to make another one instead of being told to reuse this one for
+	 * ever. The body gets the marker back where the URL was, which is what the
+	 * writing left there in the first place.
+	 */
+	public static function ajax_droppic(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		if ( '' === $email_id ) {
+			wp_send_json_error( [ 'message' => __( 'No email to change.', 'dazont-ecom' ) ] );
+		}
+		$fields = [ 'picture' => '' ];
+		$body   = isset( $_POST['body'] ) ? self::clean_html( (string) wp_unslash( $_POST['body'] ) ) : '';
+		if ( '' !== trim( $body ) ) {
+			$fields['body'] = $body;
+		}
+		self::put_email( $rule_id, $email_id, $fields );
+		wp_send_json_success( [ 'ok' => 1 ] );
+	}
+
 	public static function ajax_usepic(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
@@ -4364,6 +4389,8 @@ final class DZE_Klaviyo {
 				'noWritten' => __( 'Write the emails first — an empty one has nothing to put in Klaviyo.', 'dazont-ecom' ),
 				'sendSure'  => __( 'Send this email now? It goes to the whole audience of the campaign within minutes, and it cannot be taken back.', 'dazont-ecom' ),
 				'sentOk'    => __( 'Handed to Klaviyo\'s senders — it is on its way.', 'dazont-ecom' ),
+				'dropPic'   => __( 'Take the picture off this email? The email keeps its place for one, and the next writing will fill it.', 'dazont-ecom' ),
+				'pictureOff' => __( 'Off. The email keeps a place for a picture — write it again, or make one above.', 'dazont-ecom' ),
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
@@ -4642,6 +4669,22 @@ final class DZE_Klaviyo {
 								</span>
 							</span>
 							<button type="button" class="button button-small" id="dze-klav-e-usepic"><?php esc_html_e( 'Use it in this email', 'dazont-ecom' ); ?></button>
+						</p>
+						<?php
+						// What this email ALREADY holds. Writing it again keeps
+						// that picture — the writing is handed the URL and told
+						// to use it as it stands — and nothing said so, so the
+						// only way to find out was to spend a minute and a few
+						// cents finding out.
+						?>
+						<p id="dze-klav-haspic" style="display:none;align-items:center;gap:10px;margin:8px 0 0;">
+							<span class="dze-zoomgroup" style="display:inline-block;line-height:0;">
+								<span style="display:inline-block;line-height:0;">
+									<img src="" data-full="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+								</span>
+							</span>
+							<span class="description"><?php esc_html_e( 'This email has its picture. Writing it again keeps it — make another above and press "Use it in this email" to replace it.', 'dazont-ecom' ); ?></span>
+							<button type="button" class="button button-small" id="dze-klav-e-nopic"><?php esc_html_e( 'Take it off', 'dazont-ecom' ); ?></button>
 						</p>
 					</div>
 				<?php endif; ?>
