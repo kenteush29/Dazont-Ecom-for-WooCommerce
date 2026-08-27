@@ -1404,6 +1404,33 @@ final class DZE_Klaviyo {
 		];
 	}
 
+	/**
+	 * The rule a moment follows, said the way a shop owner says it.
+	 *
+	 * Shown on each option of the menu, because "Reminder" alone is not a
+	 * choice — "Reminder · J+5" is. The rule and the label come from the same
+	 * row of kinds(), so a moment cannot be moved without its caption moving
+	 * with it.
+	 *
+	 * @param int|string $days The row's own offset.
+	 */
+	public static function day_rule( $days ): string {
+		if ( 'end-2' === $days ) {
+			return __( 'end − 2', 'dazont-ecom' );
+		}
+		if ( 'end' === $days ) {
+			return __( 'end', 'dazont-ecom' );
+		}
+		if ( 'mid' === $days ) {
+			return __( 'halfway', 'dazont-ecom' );
+		}
+		$n = (int) $days;
+		if ( 0 === $n ) {
+			return 'J0';
+		}
+		return $n > 0 ? 'J+' . $n : 'J−' . abs( $n );
+	}
+
 	/** The day an email of this kind goes out, from the promotion's own window. */
 	public static function default_when( string $kind, array $rule ): string {
 		$start = strtotime( (string) ( $rule['start'] ?? '' ) . ' 09:00:00' );
@@ -3688,17 +3715,20 @@ final class DZE_Klaviyo {
 							// with the campaign to Klaviyo, because the campaign list
 							// there is the other place this email is looked for. ?>
 							<?php
-							// A list to pick from AND a field to type in: the four
-							// moments are what an email is usually called, so they
-							// are one click away, and anything else is still just
-							// typed over them. One control, not a menu beside a box.
+							// A real select. The datalist that stood here showed no
+							// arrow in half the browsers and hid the very thing that
+							// made each option worth choosing — the day it falls on.
+							// A menu that has to be discovered is not a menu.
 							?>
-							<input type="text" id="dze-klav-e-name" class="regular-text" maxlength="80" list="dze-klav-names" autocomplete="off" />
-							<datalist id="dze-klav-names">
+							<select id="dze-klav-e-preset">
+								<option value=""><?php esc_html_e( '— pick a moment —', 'dazont-ecom' ); ?></option>
 								<?php foreach ( self::kinds() as $dze_meta ) : ?>
-									<option value="<?php echo esc_attr( $dze_meta['label'] ); ?>"><?php echo esc_attr( $dze_meta['when'] ); ?></option>
+									<option value="<?php echo esc_attr( $dze_meta['label'] ); ?>">
+										<?php echo esc_html( $dze_meta['label'] . '  ·  ' . self::day_rule( $dze_meta['days'] ) ); ?>
+									</option>
 								<?php endforeach; ?>
-							</datalist>
+							</select>
+							<input type="text" id="dze-klav-e-name" class="regular-text" maxlength="80" style="margin-left:8px;" />
 						</td>
 					</tr>
 					<tr>

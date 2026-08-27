@@ -211,15 +211,22 @@
 	}
 	$(document).on('input change', '#dze-klav-e-name, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 
-	// Picking one of the four names proposes its day: warm-up two days out,
+	// Picking a moment fills the name AND its day: warm-up two days out,
 	// launch on the opening day, reminder five days in, last chance two days
-	// before it closes. Typing a name of your own proposes nothing — it is a
-	// name nobody can date for you — and a day you set afterwards stays, since
-	// nothing here runs again until you pick from the list a second time.
-	$(document).on('change', '#dze-klav-e-name', function () {
-		var map = $('#dze-klav-editor').data('when') || {},
-			day = map[$.trim($(this).val() || '')];
-		if (day) { $('#dze-klav-e-when').val(day); commit(); }
+	// before it closes. It is a shortcut, not a setting — the name stays free
+	// text and a day changed afterwards stays changed, because nothing here
+	// runs again until the menu is used a second time.
+	$(document).on('change', '#dze-klav-e-preset', function () {
+		var name = $(this).val();
+		if (!name) { return; }
+		var map = $('#dze-klav-editor').data('when') || {};
+		$('#dze-klav-e-name').val(name);
+		if (map[name]) { $('#dze-klav-e-when').val(map[name]); }
+		commit();
+		// Back to its resting label: what the email is called is shown in the
+		// field beside it, and a menu still displaying the last thing picked
+		// pretends to be the answer to a question nobody asked again.
+		$(this).val('');
 	});
 	$(document).on('input', '#dze-klav-e-body', function () {
 		commit();
