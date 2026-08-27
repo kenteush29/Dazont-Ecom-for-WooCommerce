@@ -2973,21 +2973,28 @@ final class DZE_Klaviyo {
 		}
 		$content = DZE_Content::instance();
 
-		// What it works from: the event's own picture first — somebody chose it
-		// FOR this promotion — then the photograph of what is selling best.
-		$source = (int) ( $rule['hero_event_id'] ?? 0 );
-		if ( ! $source || ! wp_attachment_is_image( $source ) ) {
-			$source = 0;
-			foreach ( self::best_sellers( self::window_days(), 1, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) ) as $pid ) {
-				$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
-				$img     = $product instanceof WC_Product ? (int) $product->get_image_id() : 0;
-				if ( $img && wp_attachment_is_image( $img ) ) {
-					$source = $img;
-					break;
-				}
+		// What it works from. This used to be ONE photograph, and one is what
+		// made the pictures generic: nano-banana-2 is an EDIT model, so a
+		// single packshot plus a loose brief gives it nothing to hold on to
+		// and it invents gear that the shop does not sell. Several real
+		// photographs of the promotion's own best-sellers anchor it — the
+		// products in the answer are then the products in the references.
+		$sources = [];
+		$hero    = (int) ( $rule['hero_event_id'] ?? 0 );
+		if ( $hero && wp_attachment_is_image( $hero ) ) {
+			$sources[] = $hero; // somebody chose this one FOR this promotion.
+		}
+		foreach ( self::best_sellers( self::window_days(), 6, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ) ) as $pid ) {
+			if ( count( $sources ) >= 4 ) {
+				break; // four references is what the model composes well from.
+			}
+			$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+			$img     = $product instanceof WC_Product ? (int) $product->get_image_id() : 0;
+			if ( $img && wp_attachment_is_image( $img ) && ! in_array( $img, $sources, true ) ) {
+				$sources[] = $img;
 			}
 		}
-		if ( ! $source ) {
+		if ( ! $sources ) {
 			throw new RuntimeException( __( 'No photograph to work from: pick an image for the event, or let the shop record a sale first.', 'dazont-ecom' ) );
 		}
 
@@ -2996,8 +3003,8 @@ final class DZE_Klaviyo {
 		// back on but the promotion, for the button that asks for another one
 		// before anything has been written.
 		$prompt = trim( $prompt );
+		$title  = trim( (string) ( $rule['title'] ?? '' ) );
 		if ( '' === $prompt ) {
-			$title  = trim( (string) ( $rule['title'] ?? '' ) );
 			$prompt = 'Photograph this product in the setting this promotion evokes, as the opening picture of a marketing email'
 				. ( '' !== $title ? ': ' . $title : '' ) . '. '
 				. 'One wide photograph, the product unchanged and sharp, real light and real ground. '
@@ -3007,13 +3014,26 @@ final class DZE_Klaviyo {
 				$prompt .= ' It runs in ' . wp_date( 'F', $start ) . '.';
 			}
 		}
+		// Appended to whatever was asked for, the way the language rule is
+		// appended to the writing. A brief that says "carte blanche" means
+		// carte blanche over the SETTING; it cannot mean carte blanche over
+		// the goods, because a photograph of gear this shop does not sell is
+		// worth less than no photograph at all.
+		$prompt .= "\n\nThe reference images are real products from this shop. Keep them EXACTLY as they are — same shape, same colour, same pattern, same markings — and build the scene around them. Do not redraw them, do not restyle them, do not add a single item that is not in the references. A wide photograph, real light, real ground, nothing staged on white. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
+
+		$refs = [];
+		foreach ( $sources as $id ) {
+			$refs[] = $content->fal_source_data_uri( $id, 'full' );
+		}
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 		DZE_Ai_Usage::unit( 'promo_email_img' );
 		try {
-			$url = $content->fal_generate( $prompt, [ $content->fal_source_data_uri( $source, 'full' ) ] );
+			// 3:2 rather than the source's own ratio: an email opens on a
+			// banner, and a square packshot was giving a square banner.
+			$url = $content->fal_generate( $prompt, $refs, '3:2' );
 		} finally {
 			DZE_Ai_Usage::unit();
 		}
