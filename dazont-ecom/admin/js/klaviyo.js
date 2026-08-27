@@ -134,6 +134,10 @@
 	// an email copies its fields in, and every keystroke copies them back. One
 	// editor in the DOM, whatever the promotion carries.
 	var current = null;
+	// What the writing said the picture should show, kept until somebody asks
+	// for it. Cleared when another email is opened: a description belongs to
+	// the email it was written for.
+	var idea = '';
 
 	function card(id)     { return $('.dze-mail[data-id="' + id + '"]'); }
 	function ruleId()     { return $('#dze-klav-editor').data('rule'); }
@@ -211,22 +215,14 @@
 	}
 	$(document).on('input change', '#dze-klav-e-name, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 
-	// Picking a moment fills the name AND its day: warm-up two days out,
+	// Choosing the moment also sets the day it falls on: warm-up two days out,
 	// launch on the opening day, reminder five days in, last chance two days
-	// before it closes. It is a shortcut, not a setting — the name stays free
-	// text and a day changed afterwards stays changed, because nothing here
+	// before it closes. A day changed afterwards stays changed — nothing here
 	// runs again until the menu is used a second time.
-	$(document).on('change', '#dze-klav-e-preset', function () {
-		var name = $(this).val();
-		if (!name) { return; }
-		var map = $('#dze-klav-editor').data('when') || {};
-		$('#dze-klav-e-name').val(name);
-		if (map[name]) { $('#dze-klav-e-when').val(map[name]); }
+	$(document).on('change', '#dze-klav-e-name', function () {
+		var map = $('#dze-klav-editor').data('when') || {}, day = map[$(this).val()];
+		if (day) { $('#dze-klav-e-when').val(day); }
 		commit();
-		// Back to its resting label: what the email is called is shown in the
-		// field beside it, and a menu still displaying the last thing picked
-		// pretends to be the answer to a question nobody asked again.
-		$(this).val('');
 	});
 	$(document).on('input', '#dze-klav-e-body', function () {
 		commit();
@@ -240,13 +236,20 @@
 		current = id;
 		$('.dze-mail').removeClass('is-on');
 		$c.addClass('is-on');
-		$('#dze-klav-e-name').val($c.find('.dze-f-name').val() || '');
+		// An email named before this menu existed — by the writing, or by hand —
+		// keeps its name: the option is added rather than the name dropped.
+		var $name = $('#dze-klav-e-name'), had = $c.find('.dze-f-name').val() || '';
+		if (had && !$name.find('option').filter(function () { return this.value === had; }).length) {
+			$name.append($('<option/>').val(had).text(had));
+		}
+		$name.val(had || $name.find('option').first().val());
 		$('#dze-mail-title').text($.trim($c.find('.dze-mail-name').text()));
 		$('#dze-klav-e-subject').val($c.find('.dze-f-subject').val() || '');
 		$('#dze-klav-e-preview').val($c.find('.dze-f-preview').val() || '');
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
 		body().val($c.find('.dze-f-body').val() || '');
 		$('#dze-klav-e-msg').text('');
+		idea = '';
 		$('#dze-mail-edit').show();
 		view('view');
 	}
@@ -336,9 +339,6 @@
 					if (res && res.success) {
 						$('#dze-klav-e-subject').val(res.data.subject || '');
 						if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-						if (res.data.name && !$.trim($('#dze-klav-e-name').val() || '')) {
-							$('#dze-klav-e-name').val(res.data.name);
-						}
 						body().val(res.data.body || '');
 						commit();
 					}
@@ -497,11 +497,6 @@
 				}
 				$('#dze-klav-e-subject').val(res.data.subject);
 				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-				// The writing names the email too. A name the owner typed is
-				// his, so it is only filled in when the field is empty.
-				if (res.data.name && !$.trim($('#dze-klav-e-name').val() || '')) {
-					$('#dze-klav-e-name').val(res.data.name);
-				}
 				commit();
 				body().val(res.data.body);
 				commit();
@@ -512,13 +507,14 @@
 						.text(res.data.warning ? res.data.warning : i18n.written);
 				};
 				view('view');
-				// The writing asked for a photograph: go and get it.
+				// The writing DESCRIBES the photograph; it does not order it.
+				// Making one costs money and a minute, and firing that off on
+				// every rewrite spends both on emails nobody had decided to
+				// illustrate. The description is kept for the button beside
+				// this one, and the screen says it is waiting.
 				if (res.data.picture) {
-					makePicture($b, $m, res.data.picture, function () {
-						$b.prop('disabled', false);
-						note();
-						view('view');
-					});
+					idea = res.data.picture;
+					$m.css('color', '#b26a00').text(res.data.warning || i18n.pictureReady);
 					return;
 				}
 				note();
@@ -606,10 +602,10 @@
 			});
 	});
 
-	// A different picture, when the one that is there is not the one wanted.
+	// The picture, made when it is asked for and not before.
 	$(document).on('click', '#dze-klav-e-shot', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
-		makePicture($b, $m, '', function () {
+		makePicture($b, $m, idea, function () {
 			$b.prop('disabled', false);
 			$m.css('color', '#0a7040').text(i18n.shot);
 			view('view');

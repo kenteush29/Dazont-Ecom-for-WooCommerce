@@ -614,11 +614,12 @@ final class DZE_Klaviyo {
 	/**
 	 * Whether an email opens on a picture made for it.
 	 *
-	 * Switched on by default, because an email that opens on nothing is a
-	 * worse email — but it is a decision, not a fact: a generated photograph
-	 * costs money, takes a minute, and is only worth it when it is good. Off,
-	 * the writing is never asked for one and the shop's own image for the
-	 * promotion is used if it has one.
+	 * A PERMISSION, not an order. Allowed, the writing describes the picture
+	 * an email should open with and the button beside it makes that picture
+	 * when somebody presses it — never on its own, because a photograph costs
+	 * money and a minute and firing one off on every rewrite spends both on
+	 * emails nobody had decided to illustrate. Forbidden, the writing is not
+	 * asked for one at all and the button is not drawn.
 	 */
 	public static function images_on(): bool {
 		$s = self::settings();
@@ -900,7 +901,6 @@ final class DZE_Klaviyo {
 			. "\n"
 			. "SUBJECT: it decides whether the email is opened. Say the offer, not the season. Six to nine words, no more — past that a phone cuts it off. Figures are welcome, and they are the ones given.\n"
 			. "PREVIEW TEXT: it continues the subject, it does not repeat it — the second half of the sentence read in the inbox. Four to eight words.\n"
-			. "NAME: what this email is called in the campaign list — for the shop, never for a reader. Say which email of the promotion it is and in what words, three to six of them: \"Warm-up, two days out\", \"Launch day\", \"Last call, closes tonight\". Not the subject line again.\n"
 			. "\n"
 			. "BODY: you decide everything about it. What comes first, how many paragraphs, how many products in a row and how many rows, what gets a heading and what does not, where the buttons go. An email of four parts and an email of fourteen are both right if the promotion deserves it.\n"
 			. "\n"
@@ -2553,7 +2553,6 @@ final class DZE_Klaviyo {
 			. "- A LAST CALL on the closing day or the one before: short, and about the ending.\n"
 			. "\n"
 			. "For each email, give:\n"
-			. "- name: what it is called in the shop's own campaign list. Three to six words. Never seen by a reader.\n"
 			. "- date: the day it goes out, YYYY-MM-DD, inside or just before the promotion's window.\n"
 			. "- angle: one or two sentences telling the writer what THIS email does that the others do not. It is a brief, not a subject line: name the argument, the products to lean on, the tone.\n"
 			. "\n"
@@ -2595,7 +2594,7 @@ final class DZE_Klaviyo {
 			}
 		}
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::plan_prompt() . "\n"
-			. "\n--- OUTPUT ---\nJSON only: {\"emails\":[{\"name\":\"…\",\"date\":\"YYYY-MM-DD\",\"angle\":\"…\"}]}. No other key, no comment, no markdown fence.";
+			. "\n--- OUTPUT ---\nJSON only: {\"emails\":[{\"date\":\"YYYY-MM-DD\",\"angle\":\"…\"}]}. No other key, no comment, no markdown fence.";
 
 		DZE_Ai_Usage::unit( 'promo_plan' );
 		try {
@@ -2629,10 +2628,15 @@ final class DZE_Klaviyo {
 			// Minted here rather than by the browser: the plan can be run by
 			// cron one day, and an id that only exists when somebody has a
 			// page open is an id the automation cannot make.
-			$id = 'e' . substr( md5( $rule_id . $when . microtime() ), 0, 10 );
+			$id   = 'e' . substr( md5( $rule_id . $when . microtime() ), 0, 10 );
+			$kind = self::kind_for( $when, $rule );
 			$emails[ $id ] = [
-				'kind'    => self::kind_for( $when, $rule ),
-				'name'    => mb_substr( sanitize_text_field( (string) ( $row['name'] ?? '' ) ), 0, 80 ),
+				'kind'    => $kind,
+				// Named by its moment, exactly as the menu on the screen names
+				// it. The plan decides WHEN an email goes out and what it is
+				// for; what it is called follows from the first of those, and a
+				// name invented here would be a fifth option in a menu of four.
+				'name'    => (string) ( self::kinds()[ $kind ]['label'] ?? '' ),
 				'angle'   => mb_substr( sanitize_textarea_field( (string) ( $row['angle'] ?? '' ) ), 0, 600 ),
 				'when'    => $when,
 				'subject' => '',
@@ -2794,7 +2798,7 @@ final class DZE_Klaviyo {
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
 			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
-			. "\n--- OUTPUT ---\nJSON only: {\"name\":\"…\",\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
+			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
 		DZE_Ai_Usage::unit( 'promo_email' );
 		try {
@@ -2823,7 +2827,6 @@ final class DZE_Klaviyo {
 
 		DZE_Ai_Usage::finished( 'promo_email' );
 		return [
-			'name'    => mb_substr( sanitize_text_field( (string) ( $json['name'] ?? '' ) ), 0, 80 ),
 			'subject' => mb_substr( sanitize_text_field( (string) ( $json['subject'] ?? '' ) ), 0, 150 ),
 			'preview' => mb_substr( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ), 0, 150 ),
 			'body'    => self::place_products( self::clean_html( $body ), $mat['cards'] ),
@@ -3031,12 +3034,6 @@ final class DZE_Klaviyo {
 			'preview' => (string) ( $made['preview'] ?? '' ),
 			'body'    => (string) ( $made['body'] ?? '' ),
 		];
-		// The name is the one thing a rewrite does not take back: pressing
-		// "Write the email" asks for new words, not for the label the owner
-		// chose for it in his campaign list.
-		if ( '' === trim( (string) ( self::email_for( $rule_id, $email_id, $rule )['name'] ?? '' ) ) ) {
-			$keep['name'] = (string) ( $made['name'] ?? '' );
-		}
 		self::put_email( $rule_id, $email_id, $keep );
 		wp_send_json_success( $made );
 	}
@@ -3548,6 +3545,7 @@ final class DZE_Klaviyo {
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
 				'shot'     => __( 'Made, and filed in the media library.', 'dazont-ecom' ),
+				'pictureReady' => __( 'Written. It describes a picture — press Make the picture when you want it.', 'dazont-ecom' ),
 				'sending'  => __( 'Handing it to Klaviyo…', 'dazont-ecom' ),
 			],
 		] );
@@ -3715,20 +3713,19 @@ final class DZE_Klaviyo {
 							// with the campaign to Klaviyo, because the campaign list
 							// there is the other place this email is looked for. ?>
 							<?php
-							// A real select. The datalist that stood here showed no
-							// arrow in half the browsers and hid the very thing that
-							// made each option worth choosing — the day it falls on.
-							// A menu that has to be discovered is not a menu.
+							// The menu IS the name. There were four moments and a
+							// free field beside them, which is two ways of saying
+							// one thing and a question the owner had to answer
+							// twice. Each option carries the day it falls on,
+							// because "Reminder" alone is not a choice.
 							?>
-							<select id="dze-klav-e-preset">
-								<option value=""><?php esc_html_e( '— pick a moment —', 'dazont-ecom' ); ?></option>
+							<select id="dze-klav-e-name" style="min-width:280px;">
 								<?php foreach ( self::kinds() as $dze_meta ) : ?>
 									<option value="<?php echo esc_attr( $dze_meta['label'] ); ?>">
 										<?php echo esc_html( $dze_meta['label'] . '  ·  ' . self::day_rule( $dze_meta['days'] ) ); ?>
 									</option>
 								<?php endforeach; ?>
 							</select>
-							<input type="text" id="dze-klav-e-name" class="regular-text" maxlength="80" style="margin-left:8px;" />
 						</td>
 					</tr>
 					<tr>
@@ -3750,7 +3747,7 @@ final class DZE_Klaviyo {
 				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
 					<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
 					<?php if ( self::images_on() ) : ?>
-						<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Change the picture', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Make the picture', 'dazont-ecom' ); ?></button>
 					<?php endif; ?>
 					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
 					<span style="flex:1;"></span>
@@ -3990,9 +3987,9 @@ final class DZE_Klaviyo {
 				<td>
 					<label>
 						<input type="checkbox" id="dze-klav-images" name="<?php echo esc_attr( self::OPT . '[images]' ); ?>" value="1" <?php checked( self::images_on() ); ?> />
-						<?php esc_html_e( 'Make one with fal.ai for each email', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'Allow pictures made with fal.ai', 'dazont-ecom' ); ?>
 					</label>
-					<p class="description"><?php esc_html_e( 'Off: the email opens on its words, and the promotion\'s own image is used if it has one.', 'dazont-ecom' ); ?></p>
+					<p class="description"><?php esc_html_e( 'A permission, not an order: an email is given one when you press Make the picture on it, never on its own.', 'dazont-ecom' ); ?></p>
 				</td>
 			</tr>
 			<tr>
