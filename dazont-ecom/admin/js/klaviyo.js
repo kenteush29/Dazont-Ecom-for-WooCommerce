@@ -215,7 +215,6 @@
 		$c.find('.dze-mail-subject').text($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-mail-name').text(name || cfg.i18n.unnamed);
 		$c.find('.dze-mail-when').contents().first().replaceWith($('#dze-klav-e-when').val() || '');
-		$('#dze-mail-title').text($c.find('.dze-mail-name').text());
 		thumb(current);
 	}
 	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
@@ -247,7 +246,6 @@
 			had = $type.find('option').first().val() || '';
 		}
 		$type.val(had);
-		$('#dze-mail-title').text($.trim($c.find('.dze-mail-name').text()));
 		$('#dze-klav-e-subject').val($c.find('.dze-f-subject').val() || '');
 		$('#dze-klav-e-preview').val($c.find('.dze-f-preview').val() || '');
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
@@ -358,6 +356,68 @@
 					next(i + 1);
 				})
 				.fail(function () { next(i + 1); });
+		}(0));
+	});
+
+	// The whole promotion handed over at once, oldest first.
+	//
+	// Klaviyo has no campaign that goes out four times on four days: a campaign
+	// is one send, with one send time. So a promotion becomes one campaign per
+	// email, each named after the event and its type, each scheduled on its own
+	// day, and all of them carrying the event's name as a tag — that tag is
+	// what makes them read as one campaign in the account.
+	//
+	// Same endpoint as the single button, one request per email: a run that is
+	// cut off halfway leaves the emails it already handed over in Klaviyo, and
+	// the rest can be sent by clicking again.
+	$(document).on('click', '#dze-mail-draftall', function () {
+		var $b = $(this), $m = $('#dze-mail-plan-msg');
+		commit();
+		var jobs = $('.dze-mail').map(function () {
+			var $c = $(this);
+			return {
+				id: $c.data('id'),
+				when: $.trim($c.find('.dze-f-when').val() || ''),
+				body: $.trim($c.find('.dze-f-body').val() || '')
+			};
+		}).get().filter(function (j) { return j.body; });
+		if (!jobs.length) { $m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.noWritten); return; }
+		// Date order, and a day nobody set goes last rather than first.
+		jobs.sort(function (a, b) { return (a.when || '9999-12-31').localeCompare(b.when || '9999-12-31'); });
+		$b.prop('disabled', true);
+		var made = 0, failed = 0;
+		(function next(i) {
+			if (i >= jobs.length) {
+				$b.prop('disabled', false);
+				if (failed) {
+					$m.css('color', '#b26a00').removeClass('is-ko')
+						.text(cfg.i18n.draftSome.replace('%1$d', made).replace('%2$d', failed));
+				} else {
+					$m.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.draftAll);
+				}
+				return;
+			}
+			$m.css('color', '#646970').removeClass('is-ko')
+				.text(cfg.i18n.drafting1.replace('%1$d', i + 1).replace('%2$d', jobs.length));
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_klav_draft',
+				nonce: cfg.nonce,
+				rule: ruleId(),
+				email: jobs[i].id,
+				body: jobs[i].body
+			})
+				.done(function (res) {
+					if (res && res.success && res.data && res.data.url) {
+						made += 1;
+						card(jobs[i].id).find('.dze-mail-state').empty()
+							.append($('<a target="_blank" rel="noopener noreferrer"/>')
+								.attr('href', res.data.url).text(i18n.open));
+					} else {
+						failed += 1;
+					}
+					next(i + 1);
+				})
+				.fail(function () { failed += 1; next(i + 1); });
 		}(0));
 	});
 

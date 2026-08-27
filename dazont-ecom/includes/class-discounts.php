@@ -738,6 +738,10 @@ final class DZE_Discounts {
 			// Make sure the struck-through "on sale" price + Sale! badge actually
 			// render for our dynamic discount (WooCommerce only knows native sales).
 			add_filter( 'woocommerce_product_is_on_sale',           [ $this, 'filter_is_on_sale' ], 20, 2 );
+			// And that badge says the only thing a shopper wants from it: how
+			// much this product saves him today. "Sale!" is a claim; a figure
+			// is a reason.
+			add_filter( 'woocommerce_sale_flash', [ $this, 'saved_flash' ], 20, 3 );
 			// Feed our discounted products into WooCommerce's on-sale product list so
 			// [products on_sale="true"], the On-Sale page and widgets include them.
 			add_filter( 'transient_wc_products_onsale',             [ $this, 'filter_onsale_ids' ] );
@@ -1186,6 +1190,55 @@ final class DZE_Discounts {
 			return $on_sale;
 		}
 		return $this->catalog_percent_for( $product ) > 0 ? true : $on_sale;
+	}
+
+	/**
+	 * The corner badge, carrying the saving instead of the word "Sale".
+	 *
+	 * Same badge, same corner, same class: the theme places it, we only change
+	 * what it says. The figure is the difference between the price that is
+	 * struck through and the price being charged — whatever produced it, ours
+	 * or a native WooCommerce sale — so the badge can never contradict the two
+	 * prices printed underneath it.
+	 *
+	 * A variable product whose variations do not all save the same amount says
+	 * "up to": one figure for a range would be true of one variation and wrong
+	 * for the rest. Prices come from the objects the loop has already loaded
+	 * and from WooCommerce's own variation-price cache — no query is added to
+	 * a shop page.
+	 *
+	 * @param string     $html    The badge WooCommerce drew.
+	 * @param mixed      $post    Unused, kept for the filter signature.
+	 * @param mixed      $product The product the badge belongs to.
+	 * @return string
+	 */
+	public function saved_flash( $html, $post, $product ) {
+		if ( ! $product instanceof \WC_Product || ! function_exists( 'wc_price' ) ) {
+			return $html;
+		}
+		$spread = false;
+		if ( $product->is_type( 'variable' ) ) {
+			$regular = (float) $product->get_variation_regular_price( 'max', true );
+			$now     = (float) $product->get_variation_price( 'max', true );
+			$spread  = round( $regular - $now, 2 )
+				!== round( (float) $product->get_variation_regular_price( 'min', true )
+					- (float) $product->get_variation_price( 'min', true ), 2 );
+		} else {
+			$regular = (float) $product->get_regular_price();
+			$now     = (float) $product->get_price();
+		}
+		$saved = round( $regular - $now, 2 );
+		if ( $saved <= 0 ) {
+			// On sale with nothing to show for it: leave the badge as the shop
+			// drew it rather than print "Save $0".
+			return $html;
+		}
+		$said = $spread
+			/* translators: %s: amount saved, e.g. $12.00 */
+			? sprintf( __( 'Save up to %s', 'dazont-ecom' ), wc_price( $saved ) )
+			/* translators: %s: amount saved, e.g. $12.00 */
+			: sprintf( __( 'Save %s', 'dazont-ecom' ), wc_price( $saved ) );
+		return '<span class="onsale dze-saved">' . wp_kses_post( $said ) . '</span>';
 	}
 
 	/**

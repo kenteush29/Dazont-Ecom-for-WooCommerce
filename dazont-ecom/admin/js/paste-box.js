@@ -36,7 +36,7 @@
 				'<span class="dze-qm-dropmsg"></span> ' +
 				'<button type="button" class="button button-small dze-pb-browse"></button>' +
 				'<input type="file" accept="image/*" multiple hidden class="dze-pb-file" />' +
-				'<div class="dze-pb-list"></div>' +
+				'<div class="dze-pb-list dze-zoomgroup"></div>' +
 				'<p class="dze-pb-help" style="display:none;"></p>' +
 				'<span class="dze-pb-state"></span>' +
 			'</div>'
@@ -61,7 +61,7 @@
 			list.forEach(function (u, i) {
 				$g.append(
 					$('<span class="dze-pb-tile"></span>').append(
-						$('<img />').attr('src', u).attr('alt', ''),
+						$('<img />').attr('src', u).attr('data-full', u).attr('alt', ''),
 						$('<button type="button" class="dze-pb-del"></button>')
 							.attr('title', i18n.remove || '').attr('data-i', i).html('&times;')
 					)
