@@ -88,6 +88,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
+		add_action( 'wp_ajax_dze_klav_drop',    [ __CLASS__, 'ajax_drop' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
@@ -1688,6 +1689,41 @@ final class DZE_Klaviyo {
 		$all = is_array( $all ) ? $all : [];
 		$all[ $rule_id ] = [ 'emails' => $out ];
 		update_option( self::OPT_COPY, $all, false );
+	}
+
+	/**
+	 * Removes one email of a promotion, at once.
+	 *
+	 * Deleting used to wait for the event's Save while WRITING an email saved
+	 * itself immediately, and two gestures that disagree about when they take
+	 * effect is one gesture too many: the row vanished, the owner reloaded,
+	 * and the email the generation had already stored came back. One rule now
+	 * — an email appears when it is written and disappears when it is
+	 * removed, both without waiting for anything.
+	 */
+	public static function forget_email( string $rule_id, string $email_id ): void {
+		$all = get_option( self::OPT_COPY, [] );
+		$all = is_array( $all ) ? $all : [];
+		$one = (array) ( $all[ $rule_id ] ?? [] );
+		// Materialised first, exactly as put_email() does it, or a promotion
+		// still carrying the legacy single copy would rebuild the email this
+		// call is meant to take away.
+		$one['emails'] = self::emails_for( $rule_id );
+		unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
+		unset( $one['emails'][ $email_id ] );
+		$all[ $rule_id ] = $one;
+		update_option( self::OPT_COPY, $all, false );
+	}
+
+	/** Removes the email the screen just dropped. */
+	public static function ajax_drop(): void {
+		self::guard();
+		[ $rule_id, , $email_id ] = self::target();
+		if ( '' === $email_id ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing to remove.', 'dazont-ecom' ) ] );
+		}
+		self::forget_email( $rule_id, $email_id );
+		wp_send_json_success( [ 'removed' => $email_id ] );
 	}
 
 	/** Remembers the picture made for one email. */
@@ -3480,7 +3516,7 @@ final class DZE_Klaviyo {
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
-				'dropMail' => __( 'Remove this email? What was written for it is lost when you save.', 'dazont-ecom' ),
+				'dropMail' => __( 'Remove this email? What was written for it is lost.', 'dazont-ecom' ),
 				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),

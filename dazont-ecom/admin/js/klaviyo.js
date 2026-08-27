@@ -346,14 +346,24 @@
 
 	$(document).on('click', '.dze-mail-drop', function () {
 		if (!window.confirm(cfg.i18n.dropMail)) { return; }
-		var $c = $(this).closest('.dze-mail'), id = $c.data('id');
-		// Removed from the form, so the save simply never hears about it —
-		// there is no "deleted" state to keep in step with anything.
+		var $c = $(this).closest('.dze-mail'), id = $c.data('id'), $m = $('#dze-mail-plan-msg');
+		// Taken out of the database at once, not left for the event's Save.
+		// Writing an email stores it immediately, so removing one has to as
+		// well: a row that disappears from the screen and comes back on the
+		// next reload is the same email twice, and the owner is right to call
+		// that broken.
 		$c.remove();
 		if (current === id) {
 			current = null;
 			$('#dze-mail-edit').hide();
 		}
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_drop', nonce: cfg.nonce, rule: ruleId(), email: id })
+			.done(function (res) {
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+				}
+			})
+			.fail(function () { $m.css('color', '#b32d2e').text(i18n.error); });
 	});
 
 	$(function () {
