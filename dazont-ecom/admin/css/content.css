@@ -1092,10 +1092,18 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 #dze-one-elsewrap { margin-top: 10px; }
 .dze-one-withprod { display: block; margin-top: 6px; font-size: 12px; color: #50575e; }
 /* One line, the box under it: the checkbox and its words on the same row,
-   aligned on the first line of the text however long it wraps. */
-.dze-basemain {
-	display: flex; align-items: flex-start; gap: 6px;
+   aligned on the first line of the text however long it wraps. Named twice on
+   purpose — the option rows around it turn every label into a column and
+   every label's span into small capitals, and this is a sentence, not a field
+   caption. */
+.dze-basemain,
+.dze-cb-opts .dze-basemain {
+	display: flex; flex-direction: row; align-items: flex-start; gap: 6px;
 	margin: 8px 0 0; font-size: 12px; color: #50575e; line-height: 1.5;
+}
+.dze-basemain > span,
+.dze-cb-opts .dze-basemain > span {
+	font-size: 12px; color: #50575e; text-transform: none; letter-spacing: 0;
 }
 .dze-basemain input { margin: 2px 0 0; flex: 0 0 auto; }
 

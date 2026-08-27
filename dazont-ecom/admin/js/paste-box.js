@@ -68,9 +68,13 @@
 				);
 			});
 			$box.toggleClass('has-img', n > 0);
-			$box.find('.dze-qm-dropmsg').text(
-				n ? (1 === n ? (i18n.added1 || '') : (i18n.addedN || '%s').replace('%s', n)) : (i18n.paste || '')
-			);
+			// The invitation does not go away because something is in the box:
+			// the whole point of the box is that you keep adding to it, and
+			// once the first image was in, nothing on screen still said you
+			// could paste a second.
+			var said = n ? (1 === n ? (i18n.added1 || '') : (i18n.addedN || '%s').replace('%s', n)) : (i18n.paste || '');
+			if (n && i18n.more) { said += ' — ' + i18n.more; }
+			$box.find('.dze-qm-dropmsg').text(said);
 			// The button says what it does at that moment: an upload while the
 			// box is empty, one more image once something is in it.
 			$box.find('.dze-pb-browse').toggle(n < max).text(n ? (i18n.addMore || '') : (i18n.upload || ''));
