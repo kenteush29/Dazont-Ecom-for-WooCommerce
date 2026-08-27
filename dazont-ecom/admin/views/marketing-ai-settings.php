@@ -127,17 +127,69 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 			<th scope="row"><?php esc_html_e( 'Style', 'dazont-ecom' ); ?></th>
 			<td>
 				<?php $dze_style = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::banner_style() : [ 'bg' => '#111111', 'color' => '#ffffff' ]; ?>
-				<label><?php esc_html_e( 'Background', 'dazont-ecom' ); ?>
-					<input type="color" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_bg]' ); ?>" value="<?php echo esc_attr( $dze_style['bg'] ); ?>" />
-				</label>
-				&nbsp;
-				<label><?php esc_html_e( 'Text', 'dazont-ecom' ); ?>
-					<input type="color" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_color]' ); ?>" value="<?php echo esc_attr( $dze_style['color'] ); ?>" />
-				</label>
-				<span style="display:inline-block;margin-left:14px;padding:6px 14px;border-radius:4px;background:<?php echo esc_attr( $dze_style['bg'] ); ?>;color:<?php echo esc_attr( $dze_style['color'] ); ?>;"><?php esc_html_e( 'Summer sale — 20% off', 'dazont-ecom' ); ?></span>
+				<?php
+				// WordPress's own picker rather than the browser's: it takes a
+				// hex typed by hand, which the native control does not, and a
+				// shop with a brand colour written down somewhere has that
+				// colour as six characters and not as a point on a gradient.
+				?>
+				<p style="margin:0 0 10px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+					<label><?php esc_html_e( 'Background', 'dazont-ecom' ); ?>
+						<input type="text" class="dze-colour" data-target="dze-banner-demo" data-what="background"
+							name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_bg]' ); ?>"
+							value="<?php echo esc_attr( $dze_style['bg'] ); ?>" />
+					</label>
+					<label><?php esc_html_e( 'Text', 'dazont-ecom' ); ?>
+						<input type="text" class="dze-colour" data-target="dze-banner-demo" data-what="color"
+							name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_color]' ); ?>"
+							value="<?php echo esc_attr( $dze_style['color'] ); ?>" />
+					</label>
+				</p>
+				<p style="margin:0 0 10px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+					<label><?php esc_html_e( 'Text size', 'dazont-ecom' ); ?>
+						<input type="number" id="dze-banner-size" min="0" max="40" step="1" class="small-text"
+							name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_size]' ); ?>"
+							value="<?php echo esc_attr( (string) $dze_style['size'] ); ?>" />
+						<?php esc_html_e( 'px — 0 leaves it to your theme', 'dazont-ecom' ); ?>
+					</label>
+					<label><?php esc_html_e( 'Padding', 'dazont-ecom' ); ?>
+						<input type="number" id="dze-banner-pad" min="0" max="60" step="1" class="small-text"
+							name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_pad]' ); ?>"
+							value="<?php echo esc_attr( (string) $dze_style['pad'] ); ?>" />
+						<?php esc_html_e( 'px', 'dazont-ecom' ); ?>
+					</label>
+				</p>
+				<p style="margin:0 0 10px;">
+					<?php // The strip IS the banner: same colours, same size, same padding. ?>
+					<span id="dze-banner-demo" style="display:inline-block;border-radius:4px;padding:<?php echo (int) $dze_style['pad']; ?>px;<?php echo $dze_style['size'] > 0 ? 'font-size:' . (int) $dze_style['size'] . 'px;' : ''; ?>background:<?php echo esc_attr( $dze_style['bg'] ); ?>;color:<?php echo esc_attr( $dze_style['color'] ); ?>;"><?php esc_html_e( 'Summer sale — 20% off', 'dazont-ecom' ); ?></span>
+				</p>
 				<p class="description" style="max-width:820px;">
 					<?php esc_html_e( 'One style for every promotion, so the shop looks like itself whatever is running. Only the background and the text colour are set — the font comes from your theme.', 'dazont-ecom' ); ?>
 				</p>
+				<script>
+				jQuery( function ( $ ) {
+					if ( ! $.fn.wpColorPicker ) { return; }
+					$( '#dze-banner-size, #dze-banner-pad' ).on( 'input change', function () {
+						var $demo = $( '#dze-banner-demo' ),
+							size = parseInt( $( '#dze-banner-size' ).val(), 10 ) || 0,
+							pad = parseInt( $( '#dze-banner-pad' ).val(), 10 );
+						$demo.css( 'padding', ( isNaN( pad ) ? 10 : pad ) + 'px' );
+						$demo.css( 'font-size', size > 0 ? size + 'px' : '' );
+					} );
+					$( '.dze-colour' ).each( function () {
+						var $f = $( this ),
+							$demo = $( '#' + $f.data( 'target' ) ),
+							what = $f.data( 'what' );
+						$f.wpColorPicker( {
+							// The strip beside the fields is what the banner
+							// will look like, so it follows every change rather
+							// than waiting for a save to be believed.
+							change: function ( e, ui ) { $demo.css( what, ui.color.toString() ); },
+							clear: function () { $demo.css( what, '' ); }
+						} );
+					} );
+				} );
+				</script>
 			</td>
 		</tr>
 	</table>

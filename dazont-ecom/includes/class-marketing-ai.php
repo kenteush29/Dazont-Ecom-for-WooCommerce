@@ -352,10 +352,6 @@ final class DZE_Marketing_Ai {
 			if ( $promo_i18n === trim( self::default_promo_i18n_prompt() ) ) {
 				$promo_i18n = '';
 			}
-			$hex = static function ( $v, string $fallback ): string {
-				$v = is_string( $v ) ? trim( $v ) : '';
-				return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : $fallback;
-			};
 			// The switch is this form's own: unticked it posts nothing, so it
 			// is the one key written whether or not it came back.
 			$write = [ 'promo_i18n_on' => empty( $in['promo_i18n_on'] ) ? 0 : 1 ];
@@ -371,10 +367,16 @@ final class DZE_Marketing_Ai {
 				$write['country_pools'] = $pools;
 			}
 			if ( $has( 'banner_bg' ) ) {
-				$write['banner_bg'] = $hex( $in['banner_bg'], '#111111' );
+				$write['banner_bg'] = DZE_Discounts::hex( $in['banner_bg'], '#111111' );
 			}
 			if ( $has( 'banner_color' ) ) {
-				$write['banner_color'] = $hex( $in['banner_color'], '#ffffff' );
+				$write['banner_color'] = DZE_Discounts::hex( $in['banner_color'], '#ffffff' );
+			}
+			if ( $has( 'banner_size' ) ) {
+				$write['banner_size'] = DZE_Discounts::px( $in['banner_size'], 0, 40 );
+			}
+			if ( $has( 'banner_pad' ) ) {
+				$write['banner_pad'] = DZE_Discounts::px( $in['banner_pad'], 0, 60 );
 			}
 			return array_merge( $existing, $write );
 		}
@@ -1904,6 +1906,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	// =========================================================================
 
 	public function enqueue_assets( string $hook ): void {
+		// The settings screen carries the banner's two colour fields, and they
+		// are WordPress's own picker: it takes a hex typed by hand, which the
+		// browser's native control does not. Nothing else of ours is needed
+		// there, so nothing else is loaded.
+		if ( strpos( $hook, self::MENU_SLUG ) !== false ) {
+			wp_enqueue_style( 'wp-color-picker' );
+			wp_enqueue_script( 'wp-color-picker' );
+		}
 		if ( ! class_exists( 'DZE_Discounts' ) || strpos( $hook, DZE_Discounts::MENU_SLUG_EVENTS ) === false ) {
 			return;
 		}
