@@ -652,9 +652,15 @@
 		if (res.current) { return $.Deferred().resolve(res.current); }
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: PID })
 			.then(function (r) {
-				res.current = (r && r.success) ? r.data : { texts: {}, images: [] };
-				return res.current;
-			}, function () { res.current = { texts: {}, images: [] }; return res.current; });
+				if (r && r.success) {
+					res.current = r.data;
+					return res.current;
+				}
+				// A refusal is not "this product has no photographs": it is a
+				// failure, and it is said as one. Not cached either, so the
+				// next opening asks again instead of showing the same silence.
+				return { texts: {}, images: [], failed: (r && r.data && r.data.message) || i18n.error };
+			}, function (x) { return { texts: {}, images: [], failed: reason(x) }; });
 	}
 	function drawCurrentImages() {
 		// One renderer for both screens: admin/js/photos.js. The product screen
@@ -1435,6 +1441,16 @@
 			'<div class="dze-step">' +
 				'<p class="dze-step-q"><span class="dze-step-n">2</span>' + esc(i18n.stepFrom) + '</p>' +
 				'<div class="dze-one-srcs" id="dze-one-srcs"></div>' +
+				// A strip with no photograph in it has to say WHY: an empty picker
+				// beside a product whose main image is on screen reads as a bug,
+				// and until now it was one — the read could fail and nothing said so.
+				'<p class="dze-one-srcnote" id="dze-one-srcnote" style="display:none;margin:4px 0 0;font-size:12px;color:#646970;"></p>' +
+				// Which photograph the model actually works FROM. The popup takes
+				// that decision from three controls at once — what is picked in the
+				// strip, what is pasted, and the tick box below — and until now it
+				// took it in silence, so a run that came back looking like the main
+				// image gave no clue why. It costs money to find that out twice.
+				'<p class="dze-one-subject" id="dze-one-subject" style="margin:4px 0 0;font-size:12px;color:#646970;"></p>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					// The box that takes photographs from outside the shop:
 					// admin/js/paste-box.js — the same component the toolbox
@@ -1605,6 +1621,22 @@
 			'<span class="dze-one-newmsg">&#43; ' + esc(i18n.stepElse) + '</span></button>';
 		return html;
 	}
+	// Why the strip holds no photograph — the product has none yet, or the
+	// shop refused to say. Both used to look identical: two cards and nothing
+	// else, next to a product whose main image was on screen.
+	function oneSrcNote(cur) {
+		var $note = $('#dze-one-srcnote');
+		if (!$note.length) { return; }
+		if (cur && cur.failed) {
+			$note.show().addClass('is-ko').css('color', '#b32d2e').text(cur.failed);
+			return;
+		}
+		if (!cur || !(cur.images || []).length) {
+			$note.show().removeClass('is-ko').css('color', '#646970').text(i18n.noShots || '');
+			return;
+		}
+		$note.hide().removeClass('is-ko').text('');
+	}
 	function oneDrawSources() {
 		var $slot = $('#dze-one-srcs').addClass('dze-zoomgroup');
 		if (!$slot.length) { return; }
@@ -1613,6 +1645,8 @@
 			// Something was chosen while the product was loading: leave it be.
 			if (one.srcId || onePastes().length) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
+			oneSrcNote(cur);
+			oneSubject();
 		});
 	}
 	$(document).on('click', '.dze-one-tabs button', function () {
@@ -1638,6 +1672,7 @@
 		var outside = 'new' === raw;
 		var id = outside ? 0 : (parseInt(raw, 10) || 0);
 		one.srcId = id;
+		window.setTimeout(oneSubject, 0);
 		// The box to paste into belongs to that tile: it is on screen when the
 		// tile is chosen, and out of the way the rest of the time.
 		$('#dze-one-elsewrap').toggle(outside);
@@ -1675,7 +1710,20 @@
 		// The tile that opened this box mirrors the set it holds.
 		$('#dze-one-newthumb').attr('src', list[0] || '').toggle(list.length > 0);
 		$('.dze-one-srcnew .dze-one-newmsg').toggle(!list.length);
+		oneSubject();
 	}
+	// One line saying what image 1 will be — the same rule the server applies,
+	// written where the decision is made.
+	function oneSubject() {
+		var $l = $('#dze-one-subject');
+		if (!$l.length) { return; }
+		var pasted = onePastes().length;
+		if (pasted && $('#dze-one-basemain').is(':checked')) { $l.text(i18n.subjKeep || ''); return; }
+		if (pasted) { $l.text(i18n.subjPaste || ''); return; }
+		if (one.srcId) { $l.text(i18n.subjPicked || ''); return; }
+		$l.text(i18n.subjMain || '');
+	}
+	$(document).on('change', '#dze-one-basemain, #dze-one-withprod', oneSubject);
 	function oneShowPasted(dataUri) {
 		var box = onePasteBox();
 		if (!box) { return; }

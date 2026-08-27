@@ -743,15 +743,22 @@ trait DZE_Content_Ajax {
 				}
 				$sources[] = $this->fal_source_data_uri( $lead, 'full' );
 				$context   = array_values( array_diff( $own, [ $lead ] ) );
-			} elseif ( $src_id && wp_attachment_is_image( $src_id ) ) {
-				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
-				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
 			} elseif ( $pastes ) {
 				// The photographs are already in the request, straight from the
 				// clipboard or picked on the computer, and the first is THE
 				// subject: it stays image 1, the other pasted ones follow it,
 				// and the product's own photographs come after them unless the
 				// screen says to work from the pasted ones alone.
+				//
+				// This is read BEFORE the chosen photograph on purpose. A
+				// photograph picked in the strip used to win, and the pasted set
+				// was then dropped from the request without a word: the run was
+				// made from the product's own image alone and came back looking
+				// exactly like it, which is precisely what somebody who pasted a
+				// photograph is trying to change. Unticking "keep the product's
+				// own photograph as the subject" says the pasted one leads;
+				// ticking it is the other branch above. Nothing is silently
+				// thrown away in either.
 				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
 				if ( ! $outside ) {
 					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
@@ -759,9 +766,17 @@ trait DZE_Content_Ajax {
 				foreach ( $outside as $uri ) {
 					$sources[] = $uri;
 				}
-				$context = ( ! isset( $_POST['with_product'] ) || ! empty( $_POST['with_product'] ) )
-					? self::product_source_ids( $pid )
-					: [];
+				$own = self::product_source_ids( $pid );
+				// The photograph he picked in the strip is the one he means the
+				// model to look at first among the product's own — it leads the
+				// context instead of being lost in it.
+				if ( $src_id && wp_attachment_is_image( $src_id ) ) {
+					$own = array_values( array_unique( array_merge( [ $src_id ], array_diff( $own, [ $src_id ] ) ) ) );
+				}
+				$context = ( ! isset( $_POST['with_product'] ) || ! empty( $_POST['with_product'] ) ) ? $own : [];
+			} elseif ( $src_id && wp_attachment_is_image( $src_id ) ) {
+				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
+				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
 			} else {
 				// The product's own photographs, main first. Two are enough here:
 				// this lane is about speed, and the shape of a product is settled
