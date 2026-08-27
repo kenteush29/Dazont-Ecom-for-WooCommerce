@@ -84,6 +84,7 @@ final class DZE_Prompts {
 			'promo_i18n' => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt', 'default_promo_i18n_prompt' ],
 			'hero_image' => [ 'DZE_Marketing_Ai', 'hero_prompt', 'default_hero_prompt' ],
 			'promo_email' => [ 'DZE_Klaviyo', 'email_prompt', 'default_email_prompt' ],
+			'promo_email_img' => [ 'DZE_Klaviyo', 'image_prompt', 'default_image_prompt' ],
 			'promo_plan'  => [ 'DZE_Klaviyo', 'plan_prompt', 'default_plan_prompt' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
 			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', 'default_match_rules' ],
@@ -106,6 +107,7 @@ final class DZE_Prompts {
 			'promo_i18n'   => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
 			'hero_image'   => [ 'DZE_Marketing_Ai', 'hero_prompt' ],
 			'promo_email'  => [ 'DZE_Klaviyo', 'email_prompt' ],
+			'promo_email_img' => [ 'DZE_Klaviyo', 'img_prompt' ],
 			'promo_plan'   => [ 'DZE_Klaviyo', 'plan_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
 			'keyword_match'   => [ 'DZE_Marketing_Ai', 'match_rules' ],
@@ -270,6 +272,15 @@ final class DZE_Prompts {
 				'tab'   => 'email',
 				'frag'  => 'dze-klav-prompt',
 			];
+			if ( DZE_Klaviyo::images_on() ) {
+				$out['promo_email_img'] = [
+					'label' => __( 'Promotion email picture', 'dazont-ecom' ),
+					'owner' => 'DZE_Klaviyo',
+					'text'  => [ 'DZE_Klaviyo', 'image_prompt' ],
+					'tab'   => 'email',
+					'frag'  => 'dze-klav-img-prompt',
+				];
+			}
 		}
 		if ( class_exists( 'DZE_Explorer' ) && self::module_on( 'sourcing' ) ) {
 			$out['sourcing_report'] = [

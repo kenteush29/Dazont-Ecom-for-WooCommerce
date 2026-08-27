@@ -829,6 +829,10 @@ final class DZE_Klaviyo {
 		// that used to describe it separately is gone, and what was stored for
 		// it goes rather than sitting in the database meaning nothing.
 		unset( $out['image_prompt'] );
+		if ( array_key_exists( 'img_prompt', $in ) ) {
+			$text = trim( sanitize_textarea_field( (string) $in['img_prompt'] ) );
+			$out['img_prompt'] = ( $text === trim( self::default_image_prompt() ) ) ? '' : $text;
+		}
 		if ( array_key_exists( 'plan_prompt', $in ) ) {
 			$text = trim( sanitize_textarea_field( (string) $in['plan_prompt'] ) );
 			$out['plan_prompt'] = ( $text === trim( self::default_plan_prompt() ) ) ? '' : $text;
@@ -1636,6 +1640,14 @@ final class DZE_Klaviyo {
 	 * @return string[]
 	 */
 	public static function prompt_data( string $id ): array {
+		if ( 'promo_email_img' === $id ) {
+			return [
+				__( 'The promotion: its title, the days it runs and its discount.', 'dazont-ecom' ),
+				__( 'Which email the picture opens, and that email\'s subject line — once it is written.', 'dazont-ecom' ),
+				__( 'Up to four real photographs of the promotion\'s own best-sellers, as the images to work from.', 'dazont-ecom' ),
+				__( 'The rule no prompt overrides: keep those products exactly as they are, add nothing that is not in them, and no text anywhere in the image.', 'dazont-ecom' ),
+			];
+		}
 		if ( 'promo_plan' === $id ) {
 			return [
 				__( 'The promotion: its title, its discount, the day it opens, the day it closes, how many days that is, whether it covers the whole shop or some categories, and today\'s date.', 'dazont-ecom' ),
@@ -1797,9 +1809,6 @@ final class DZE_Klaviyo {
 				'name'    => (string) ( $email['name'] ?? '' ),
 				// Whether writing this one also makes its picture.
 				'want_picture' => ! empty( $email['want_picture'] ),
-				// What its picture should show, kept so a description worked
-				// on for ten minutes is not lost by reloading the screen.
-				'idea'         => (string) ( $email['idea'] ?? '' ),
 				'angle'   => (string) ( $email['angle'] ?? '' ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => (string) ( $email['subject'] ?? '' ),
@@ -2009,9 +2018,6 @@ final class DZE_Klaviyo {
 				'want_picture' => array_key_exists( 'want_picture', $posted )
 					? ! empty( $posted['want_picture'] )
 					: ! empty( $was['want_picture'] ),
-				'idea'    => array_key_exists( 'idea', $posted )
-					? mb_substr( sanitize_textarea_field( (string) $posted['idea'] ), 0, 1200 )
-					: (string) ( $was['idea'] ?? '' ),
 				'draft'   => (array) ( $was['draft'] ?? [] ),
 			];
 		}
@@ -2845,6 +2851,39 @@ final class DZE_Klaviyo {
 	// =========================================================================
 
 	/** The campaign plan prompt in force: the owner's own, or the shipped one. */
+	/**
+	 * The instructions the email's opening picture is made from.
+	 *
+	 * A prompt of its OWN, and not a sentence the email writing came up with.
+	 * The description used to be invented by the copy prompt, email by email,
+	 * which meant there was nothing to work on: judging it took a whole email,
+	 * and improving it meant editing the instructions for the WORDS in the
+	 * hope the picture followed. It is now one text the shop writes, tests on
+	 * its own as many times as it likes, and keeps.
+	 *
+	 * The promotion's own facts are appended to it whatever it says, exactly
+	 * like the language rule on the writing.
+	 */
+	public static function image_prompt(): string {
+		$custom = trim( (string) ( self::settings()['img_prompt'] ?? '' ) );
+		if ( '' !== $custom ) {
+			return $custom;
+		}
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'promo_email_img', self::default_image_prompt() )
+			: self::default_image_prompt();
+	}
+
+	public static function default_image_prompt(): string {
+		return "Photograph the products in a scene that belongs to this promotion, as the opening picture of a marketing email.\n"
+			. "\n"
+			. "A COMPOSED photograph, not objects laid out on the ground. One clear subject, large in the frame, worn or held or in use — or, if nothing is being worn, arranged deliberately on a real surface at eye level, the way a catalogue shoots a still life. Everything else supports it and falls out of focus.\n"
+			. "\n"
+			. "Real light and real materials: the hour and the weather the promotion evokes, shadows that agree with them, a background that says where this is without competing with the product.\n"
+			. "\n"
+			. "No text of any kind in the image: no title, no price, no badge, no logo, no watermark. The words go over it in the email itself.";
+	}
+
 	public static function plan_prompt(): string {
 		$custom = trim( (string) ( self::settings()['plan_prompt'] ?? '' ) );
 		if ( '' !== $custom ) {
@@ -3100,7 +3139,9 @@ final class DZE_Klaviyo {
 		if ( '' !== $picture ) {
 			$user .= 'This email already has its picture. Use this URL exactly as it stands, and leave the "picture" field empty: ' . $picture . "\n";
 		} elseif ( self::images_on() ) {
-			$user .= "This email has no picture yet: describe the one it should open with in the \"picture\" field, and place it in the body with src=\"" . self::PICTURE_MARK . "\".\n";
+			// Where it goes, not what it shows: the picture is made from a
+			// prompt of its own, which the shop writes and tests separately.
+			$user .= "This email opens on a photograph the shop makes itself. Leave the \"picture\" field empty and mark its place in the body with src=\"" . self::PICTURE_MARK . "\" — one image, at the top, full width.\n";
 		} else {
 			$user .= "This shop does not open its emails on a made photograph. Do NOT place an image of your own and leave the \"picture\" field empty: open on the words, and let the product blocks carry the pictures.\n";
 		}
@@ -3168,12 +3209,11 @@ final class DZE_Klaviyo {
 			'preview' => mb_substr( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ), 0, 150 ),
 			'body'    => self::place_products( self::clean_html( $body ), $mat['cards'] ),
 			'warning' => $warning,
-			// What the picture should show, in the writing's own words. The
-			// browser asks for it next, as a call of its own — one long request
-			// that a host cuts off in the middle is not an email.
-			'picture' => ( '' === $picture && false !== strpos( $body, self::PICTURE_MARK ) )
-				? mb_substr( sanitize_textarea_field( (string) ( $json['picture'] ?? '' ) ), 0, 1200 )
-				: '',
+			// Whether this email left a place for a picture. The browser makes
+			// it next, as a call of its own — one long request that a host cuts
+			// off in the middle is not an email — from the shop's own picture
+			// prompt, never from a sentence written here.
+			'picture' => ( '' === $picture && false !== strpos( $body, self::PICTURE_MARK ) ) ? '1' : '',
 		];
 	}
 
@@ -3441,7 +3481,7 @@ final class DZE_Klaviyo {
 	 * @return array{url:string,id:int}
 	 * @throws RuntimeException
 	 */
-	public static function make_image( array $rule, string $prompt = '' ): array {
+	public static function make_image( array $rule, string $prompt = '', array $email = [] ): array {
 		if ( ! self::images_on() ) {
 			throw new RuntimeException( __( 'Generated pictures are switched off under Settings → Email campaigns.', 'dazont-ecom' ) );
 		}
@@ -3485,28 +3525,48 @@ final class DZE_Klaviyo {
 			throw new RuntimeException( __( 'No photograph to work from: pick an image for the event, or let the shop record a sale first.', 'dazont-ecom' ) );
 		}
 
-		// The description comes from the writing itself — the email and its
-		// picture are one idea, and one prompt decides both. Nothing to fall
-		// back on but the promotion, for the button that asks for another one
-		// before anything has been written.
+		// The shop's own picture prompt, and the promotion's facts appended to
+		// it whatever it says — the title, the days it runs and the discount
+		// are what the picture is FOR, and a prompt should not have to repeat
+		// them to be correct. When the email is already written, what that
+		// email is comes too: a warm-up and a last chance are not the same
+		// photograph.
 		$prompt = trim( $prompt );
-		$title  = trim( (string) ( $rule['title'] ?? '' ) );
 		if ( '' === $prompt ) {
-			$prompt = 'Photograph this product in the setting this promotion evokes, as the opening picture of a marketing email'
-				. ( '' !== $title ? ': ' . $title : '' ) . '. '
-				. 'One wide photograph, the product unchanged and sharp, real light and real ground. '
-				. 'No text of any kind in the image — no title, no price, no badge, no logo, no watermark.';
-			$start = strtotime( (string) ( $rule['start'] ?? '' ) );
-			if ( $start ) {
-				$prompt .= ' It runs in ' . wp_date( 'F', $start ) . '.';
-			}
+			$prompt = self::image_prompt();
+		}
+		$title = trim( (string) ( $rule['title'] ?? '' ) );
+		$facts = '';
+		if ( '' !== $title ) {
+			$facts .= 'Promotion: ' . $title . "\n";
+		}
+		$start = strtotime( (string) ( $rule['start'] ?? '' ) );
+		$end   = strtotime( (string) ( $rule['end'] ?? '' ) );
+		if ( $start ) {
+			$facts .= 'It runs ' . wp_date( 'j F', $start ) . ( $end ? ' → ' . wp_date( 'j F', $end ) : '' ) . "\n";
+		}
+		$pct = (float) ( $rule['percent'] ?? 0 );
+		if ( $pct > 0 ) {
+			$facts .= 'Discount: ' . rtrim( rtrim( number_format( $pct, 2, '.', '' ), '0' ), '.' ) . "%\n";
+		}
+		$kinds = self::kinds();
+		$kind  = (string) ( $email['kind'] ?? '' );
+		if ( isset( $kinds[ $kind ] ) ) {
+			$facts .= 'This picture opens the "' . $kinds[ $kind ]['label'] . '" email of that promotion — ' . $kinds[ $kind ]['when'] . ".\n";
+		}
+		$subject = trim( (string) ( $email['subject'] ?? '' ) );
+		if ( '' !== $subject ) {
+			$facts .= 'Its subject line: ' . $subject . "\n";
+		}
+		if ( '' !== $facts ) {
+			$prompt .= "\n\n--- THIS PROMOTION ---\n" . $facts;
 		}
 		// Appended to whatever was asked for, the way the language rule is
 		// appended to the writing. A brief that says "carte blanche" means
 		// carte blanche over the SETTING; it cannot mean carte blanche over
 		// the goods, because a photograph of gear this shop does not sell is
 		// worth less than no photograph at all.
-		$prompt .= "\n\nThe reference images are real products from this shop, and most of them are catalogue shots on a plain background. Take those products OUT of that background and photograph them somewhere real. Keep each one EXACTLY as it is — same shape, same colour, same pattern, same markings, same proportions — and build the setting around them. Do not redraw them, do not restyle them, do not add a single item that is not in the references, and do not invent gear this shop does not sell. A wide photograph, real light, real ground, real depth of field. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
+		$prompt .= "\n\nThe reference images are real products from this shop, and most of them are catalogue shots on a plain background. Photograph those products somewhere real instead. Keep each one EXACTLY as it is — same shape, same colour, same pattern, same markings, same proportions — and build the scene around them. Do not redraw them, do not restyle them, do not add a single item that is not in the references, and do not invent goods this shop does not sell. Do not simply lay them on the floor: a product dropped on the ground is a photograph nobody would put in a catalogue. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
 
 		$refs = [];
 		foreach ( $sources as $id ) {
@@ -3548,13 +3608,15 @@ final class DZE_Klaviyo {
 	public static function ajax_image(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
-		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
-		// A TEST picture is looked at and thrown away: it is how a description
-		// is judged before an email is built on it. Only a picture asked for
-		// the email is filed on the email.
-		$test   = ! empty( $_POST['test'] );
+		// The instructions are the SHOP'S, read here — never posted by the
+		// browser. A prompt that travels in the request is a prompt that can
+		// be tested and then not be the one that runs.
+		// A TEST picture is looked at and thrown away: it is how the prompt is
+		// judged before an email is built on it. Only a picture asked for the
+		// email is filed on the email.
+		$test = ! empty( $_POST['test'] );
 		try {
-			$made = self::make_image( $rule, $prompt );
+			$made = self::make_image( $rule, '', self::email_for( $rule_id, $email_id, $rule ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -3913,8 +3975,8 @@ final class DZE_Klaviyo {
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
 				'shot'     => __( 'In the email, and filed in the media library.', 'dazont-ecom' ),
-				'shotTest' => __( 'Test picture — look at it, adjust the description, try again.', 'dazont-ecom' ),
-				'pictureReady' => __( 'Written. It describes a picture — test it below, and tick the box to have the next writing make it.', 'dazont-ecom' ),
+				'shotTest' => __( 'Test picture — look at it, correct the picture prompt, try again.', 'dazont-ecom' ),
+				'pictureReady' => __( 'Written, with a place for its picture — test one above, and tick the box to have the next writing make it.', 'dazont-ecom' ),
 				'sending'  => __( 'Handing it to Klaviyo…', 'dazont-ecom' ),
 			],
 		] );
@@ -4024,7 +4086,6 @@ final class DZE_Klaviyo {
 						<input type="hidden" class="dze-f-kind" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
 						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-want" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][want_picture]" value="<?php echo empty( $mail['want_picture'] ) ? '0' : '1'; ?>" />
-						<input type="hidden" class="dze-f-idea" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][idea]" value="<?php echo esc_attr( (string) ( $mail['idea'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-when" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][when]" value="<?php echo esc_attr( $when ); ?>" />
@@ -4063,7 +4124,6 @@ final class DZE_Klaviyo {
 					<input type="hidden" class="dze-f-kind" name="dze_email[__ID__][kind]" value="" />
 					<input type="hidden" class="dze-f-picture" name="dze_email[__ID__][picture]" value="" />
 					<input type="hidden" class="dze-f-want" name="dze_email[__ID__][want_picture]" value="0" />
-					<input type="hidden" class="dze-f-idea" name="dze_email[__ID__][idea]" value="" />
 					<input type="hidden" class="dze-f-subject" name="dze_email[__ID__][subject]" value="" />
 					<input type="hidden" class="dze-f-preview" name="dze_email[__ID__][preview]" value="" />
 					<input type="hidden" class="dze-f-when" name="dze_email[__ID__][when]" value="" />
@@ -4126,13 +4186,13 @@ final class DZE_Klaviyo {
 					// The picture, worked on BEFORE the email is finished.
 					//
 					// It used to be one button that made the real one and put
-					// it in the email, so the only way to judge a description
-					// was to spend a picture on the email and look at what
-					// arrived. Now: a test picture as many times as it takes,
-					// on a description you can edit right here — and a tick
-					// box that says whether the next writing makes the real one
-					// in the same pass, which is what you want once the
-					// description is right.
+					// it in the email, so the only way to judge the result was
+					// to spend a picture on the email and look at what arrived.
+					// Now: a test picture as many times as it takes, on the
+					// shop's own picture PROMPT — edited here, tested here —
+					// and a tick box that says whether the next writing makes
+					// the real one in the same pass, which is what you want
+					// once that prompt is right.
 					?>
 					<div id="dze-klav-shot" style="border:1px solid #dcdcde;border-radius:5px;padding:10px 12px;margin:0 0 10px;max-width:880px;background:#fff;">
 						<p style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;">
@@ -4141,10 +4201,15 @@ final class DZE_Klaviyo {
 								<?php esc_html_e( 'Make the picture with the email', 'dazont-ecom' ); ?>
 							</label>
 							<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Generate test picture', 'dazont-ecom' ); ?></button>
+							<?php
+							// The instructions that button follows, opened and
+							// edited where it is pressed: read the result,
+							// correct the prompt, press again.
+							if ( class_exists( 'DZE_Prompts' ) ) {
+								DZE_Prompts::the_button( 'promo_email_img', __( 'the picture prompt', 'dazont-ecom' ) );
+							}
+							?>
 							<span id="dze-klav-shot-msg" class="description"></span>
-						</p>
-						<p style="margin:8px 0 0;">
-							<input type="text" id="dze-klav-e-idea" class="large-text" placeholder="<?php esc_attr_e( 'What the picture should show — left empty, the writing decides it', 'dazont-ecom' ); ?>" />
 						</p>
 						<p id="dze-klav-shot-out" style="display:none;align-items:center;gap:10px;margin:8px 0 0;">
 							<img id="dze-klav-shot-img" src="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
@@ -4651,6 +4716,35 @@ final class DZE_Klaviyo {
 			}());
 			</script>
 
+			<?php
+			if ( self::images_on() ) :
+				if ( $dze_card ) {
+					DZE_Prompts::card_close();
+					DZE_Prompts::card_open( 'dze-klav-img-card', __( 'Opening picture', 'dazont-ecom' ), __( 'What the photograph at the top of an email shows', 'dazont-ecom' ) );
+				}
+				?>
+				<p class="description" style="max-width:880px;">
+					<?php esc_html_e( 'Sent to fal.ai as it stands, with the promotion\'s title, dates and discount added — and, once the email is written, what that email is and its subject line. The products come as real photographs of the promotion\'s own best-sellers; keeping them exactly as they are is imposed and no prompt overrides it. Test it from any email, as many times as you like: a test picture touches nothing.', 'dazont-ecom' ); ?>
+				</p>
+				<textarea id="dze-klav-img-prompt" name="<?php echo esc_attr( self::OPT . '[img_prompt]' ); ?>" rows="8" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::image_prompt() ); ?></textarea>
+				<p>
+					<button type="button" class="button-link" id="dze-klav-img-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'promo_email_img', '#dze-klav-img-prompt' ); } ?>
+				</p>
+				<script>
+				(function () {
+					var shipped = <?php echo wp_json_encode( self::default_image_prompt() ); ?>;
+					var btn = document.getElementById('dze-klav-img-reset');
+					var ta  = document.getElementById('dze-klav-img-prompt');
+					if ( btn && ta ) {
+						btn.addEventListener('click', function () {
+							ta.value = window.dzeDefaultFor ? window.dzeDefaultFor( 'promo_email_img', shipped ) : shipped;
+							ta.focus();
+						});
+					}
+				}());
+				</script>
+			<?php endif; ?>
 			<?php
 			if ( $dze_card ) {
 				DZE_Prompts::card_close();
