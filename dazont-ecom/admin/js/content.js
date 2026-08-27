@@ -465,6 +465,7 @@
 				$('#dze-cx-who').text(cur.title || '');
 				if (cur.cost) { $('#dze-cx-cost').val(cur.cost); }
 				drawCurrentImages();
+				markWritten(cur.texts);
 				if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
 					hydrate(cur.pending);
 				}
@@ -477,6 +478,7 @@
 		res.current = null;
 		loadCurrent().then(function (cur) {
 			drawCurrentImages();
+			markWritten(cur.texts);
 			if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
 				hydrate(cur.pending);
 			}
@@ -581,6 +583,35 @@
 	});
 
 	// ---- What the product says today ----
+	//
+	// A field that already holds something is not generated, it is REWRITTEN —
+	// and the screen says so before the button is pressed rather than after,
+	// because the two are not the same decision: one fills a hole, the other
+	// replaces work that is already live.
+	function markWritten(texts) {
+		texts = texts || {};
+		$('.dze-cx-f').each(function () {
+			var $f = $(this), has = !!$.trim(String(texts[$f.val()] || '').replace(/<[^>]*>/g, ''));
+			$f.attr('data-written', has ? '1' : '0');
+			var $line = $f.closest('.dze-cb-checkline');
+			$line.find('.dze-cx-has').remove();
+			if (has) {
+				$line.find('.dze-cb-check > span').first()
+					.append(' <span class="dze-cx-has" title="' + esc(i18n.writtenTip) + '">' + esc(i18n.written) + '</span>');
+			}
+		});
+		runLabel();
+	}
+	// "Generate" while something is missing, "Regenerate" when everything
+	// ticked is already there.
+	function runLabel() {
+		var $ticked = $('.dze-cx-f:checked'), all = $ticked.length > 0;
+		$ticked.each(function () { if ('1' !== $(this).attr('data-written')) { all = false; } });
+		if ($('#dze-cx-doimg').is(':checked') || $('#dze-cx-doprice').is(':checked')) { all = false; }
+		$('#dze-cx-run').text(all ? i18n.relaunch : i18n.launch);
+	}
+	$(document).on('change', '.dze-cx-f, #dze-cx-doimg, #dze-cx-doprice', runLabel);
+
 	function loadCurrent() {
 		if (res.current) { return $.Deferred().resolve(res.current); }
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_current', nonce: cfg.nonce, post: PID })

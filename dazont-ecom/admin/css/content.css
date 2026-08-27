@@ -120,6 +120,8 @@
 .dze-prompt-peek:focus { color: #2271b1; text-decoration: underline; }
 /* One line per field: the checkbox and its prompt button stay together. */
 .dze-cb-checkline { display: inline-flex; align-items: center; gap: 2px; }
+/* A field the product already holds: it is rewritten, not written. */
+.dze-cx-has { color: #646970; font-size: 11px; white-space: nowrap; }
 /* The prompt itself: read as sent, wrapped, never a single endless line. */
 .dze-prompt-text {
 	white-space: pre-wrap; word-break: break-word; margin: 0 0 10px;
