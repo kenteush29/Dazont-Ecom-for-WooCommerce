@@ -2322,6 +2322,47 @@ final class DZE_Klaviyo {
 	 * @throws RuntimeException with what failed, at the step it failed.
 	 */
 	/**
+	 * Hands a campaign to Klaviyo's senders, now.
+	 *
+	 * There is no third state. Klaviyo's API can leave a campaign as a draft —
+	 * which is what the plugin does and what "Schedule" in Klaviyo turns into
+	 * a dated send — or it can start the send job, which goes out to the
+	 * audience within minutes and cannot be taken back once the first person
+	 * has it. Nothing here can make a campaign "go out on its own on the 24th":
+	 * that is one click on Schedule, in Klaviyo, on the draft this plugin
+	 * already made.
+	 *
+	 * So sending is deliberate: the day is checked by the caller, the screen
+	 * asks for a second click, and the campaign's own strategy is rewritten to
+	 * "immediate" first — a campaign still carrying a future date is not a
+	 * campaign to hand to a sender.
+	 *
+	 * @return string '' when the send job was accepted, otherwise what to say.
+	 */
+	public static function send_now( string $camp_id ): string {
+		if ( '' === $camp_id ) {
+			return __( 'There is no campaign to send yet.', 'dazont-ecom' );
+		}
+		$now = self::request( 'PATCH', 'campaigns/' . rawurlencode( $camp_id ) . '/', [
+			'data' => [
+				'type'       => 'campaign',
+				'id'         => $camp_id,
+				'attributes' => [ 'send_strategy' => [ 'method' => 'immediate' ] ],
+			],
+		], 30 );
+		if ( is_wp_error( $now ) ) {
+			return $now->get_error_message();
+		}
+		$job = self::request( 'POST', 'campaign-send-jobs/', [
+			'data' => [ 'type' => 'campaign-send-job', 'id' => $camp_id ],
+		], 30 );
+		if ( is_wp_error( $job ) ) {
+			return $job->get_error_message();
+		}
+		return '';
+	}
+
+	/**
 	 * Is the campaign made for this email still a draft we may rewrite?
 	 *
 	 * False for a campaign that was scheduled, sent, or deleted in Klaviyo
@@ -2569,6 +2610,20 @@ final class DZE_Klaviyo {
 			}
 		}
 
+		// 6. And out, when that is what was asked for — never as a side effect
+		//    of writing a draft. Everything above has already happened, so a
+		//    send that Klaviyo refuses leaves a campaign that is right and
+		//    still a draft, with the refusal on screen.
+		$sent = false;
+		if ( ! empty( $in['send'] ) ) {
+			$failed = self::send_now( $camp_id );
+			if ( '' === $failed ) {
+				$sent = true;
+			} else {
+				$warning = trim( $warning . ' ' . $failed );
+			}
+		}
+
 		self::put_email( $rule_id, $email_id, [
 			'draft' => [
 				'campaign' => $camp_id,
@@ -2576,6 +2631,7 @@ final class DZE_Klaviyo {
 				'template' => $tpl_id,
 				'name'     => $name,
 				'at'       => time(),
+				'sent'     => $sent ? time() : 0,
 			],
 		] );
 
@@ -2585,6 +2641,7 @@ final class DZE_Klaviyo {
 			'template' => $tpl_id,
 			'url'      => self::campaign_url( $camp_id ),
 			'warning'  => $warning,
+			'sent'     => $sent,
 		];
 	}
 
@@ -3672,9 +3729,29 @@ final class DZE_Klaviyo {
 	public static function ajax_draft(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
+		$send = ! empty( $_POST['send'] );
+		if ( $send ) {
+			// An email written for the 24th is not an email to send today, and
+			// Klaviyo has no "send it on the 24th" this plugin can ask for. So
+			// the day is the gate: today or already past, or the answer is no
+			// and it says what to do instead.
+			$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
+			$copy  = self::email_for( $rule_id, $email_id, (array) ( $rules[ $rule_id ] ?? [] ) );
+			$day  = self::just_day( (string) ( $copy['when'] ?? '' ) );
+			if ( '' !== $day && $day > current_time( 'Y-m-d' ) ) {
+				wp_send_json_error( [
+					'message' => sprintf(
+						/* translators: %s: the day the email is set for */
+						__( 'This email is set for %s. Sending from here goes out within minutes — put it in Klaviyo as a draft and press Schedule there, or move it to today.', 'dazont-ecom' ),
+						$day
+					),
+				] );
+			}
+		}
 		try {
 			$made = self::draft( $rule_id, $email_id, [
 				'body' => isset( $_POST['body'] ) ? self::clean_html( (string) wp_unslash( $_POST['body'] ) ) : null,
+				'send' => $send,
 			] );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -4269,6 +4346,8 @@ final class DZE_Klaviyo {
 				'draftAll'  => __( 'All of them are in Klaviyo now, one campaign each, in date order, tagged with the promotion. Nothing was sent.', 'dazont-ecom' ),
 				'draftSome' => __( '%1$d in Klaviyo, %2$d refused — put those back one by one to read what Klaviyo said.', 'dazont-ecom' ),
 				'noWritten' => __( 'Write the emails first — an empty one has nothing to put in Klaviyo.', 'dazont-ecom' ),
+				'sendSure'  => __( 'Send this email now? It goes to the whole audience of the campaign within minutes, and it cannot be taken back.', 'dazont-ecom' ),
+				'sentOk'    => __( 'Handed to Klaviyo\'s senders — it is on its way.', 'dazont-ecom' ),
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
@@ -4563,7 +4642,17 @@ final class DZE_Klaviyo {
 
 				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 					<button type="button" class="button" id="dze-klav-e-draft"><?php esc_html_e( 'Put this one in Klaviyo', 'dazont-ecom' ); ?></button>
-					<span class="description"><?php esc_html_e( 'As a campaign of its own, on its day, tagged with the promotion. Nothing is sent until you press send in Klaviyo.', 'dazont-ecom' ); ?></span>
+					<?php
+					// Draft or send, said before the click rather than after it.
+					// Klaviyo's API knows two states and no third: a draft, or a
+					// send that starts now. "It goes out on the 24th" is the
+					// Schedule button in Klaviyo, pressed on the draft this makes.
+					?>
+					<select id="dze-klav-e-how">
+						<option value="draft"><?php esc_html_e( 'as a draft', 'dazont-ecom' ); ?></option>
+						<option value="send"><?php esc_html_e( 'and send it now', 'dazont-ecom' ); ?></option>
+					</select>
+					<span class="description"><?php esc_html_e( 'A campaign of its own, on its day, tagged with the promotion. A draft waits for you to press Schedule or Send in Klaviyo; "send it now" goes out to the audience within minutes and cannot be taken back.', 'dazont-ecom' ); ?></span>
 					<span style="flex:1;"></span>
 					<label for="dze-klav-e-to"><?php esc_html_e( 'Test to', 'dazont-ecom' ); ?></label>
 					<input type="text" id="dze-klav-e-to" class="regular-text" value="<?php echo esc_attr( (string) self::conf( 'test_to', (string) get_option( 'admin_email', '' ) ) ); ?>" />

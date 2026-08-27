@@ -704,6 +704,10 @@
 	$(document).on('click', '#dze-klav-e-draft', function () {
 		var $b = $(this), $m = $('#dze-klav-e-msg');
 		if (!current) { return; }
+		// Sending is asked for twice: the menu, then this. Everything else on
+		// this screen can be undone by doing it again — a send cannot.
+		var send = $('#dze-klav-e-how').val() === 'send';
+		if (send && !window.confirm(cfg.i18n.sendSure)) { return; }
 		commit();
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').removeClass('is-ko').text(i18n.creating);
@@ -712,6 +716,7 @@
 			nonce: cfg.nonce,
 			rule: ruleId(),
 			email: current,
+			send: send ? 1 : 0,
 			body: body().val() || ''
 		})
 			.done(function (res) {
@@ -724,7 +729,7 @@
 				$state.append($('<a target="_blank" rel="noopener noreferrer"/>')
 					.attr('href', res.data.url).text(i18n.open));
 				$m.css('color', res.data.warning ? '#b26a00' : '#0a7040')
-					.text(res.data.warning || i18n.made);
+					.text(res.data.warning || (res.data.sent ? cfg.i18n.sentOk : i18n.made));
 				window.open(res.data.url, '_blank', 'noopener');
 			})
 			.fail(function () {
