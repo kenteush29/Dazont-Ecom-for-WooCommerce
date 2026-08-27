@@ -146,6 +146,13 @@ final class DZE_Marketing_Ai {
 			'events_prompt' => '',   // custom calendar guidance; empty = DEFAULT_EVENTS_PROMPT.
 			'promo_i18n_prompt' => '', // how a promotion line is translated; empty = shipped.
 			'promo_i18n_on'     => 1,  // translate a promotion when it is saved.
+			// The countdown on a generated event, decided from the offer
+			// itself rather than left to the model's mood. Defaults are the
+			// CRO recommendation printed beside them.
+			'timer_auto'        => 1,  // let the rule below decide the countdown.
+			'timer_min_percent' => 20, // nothing under this is worth a deadline.
+			'timer_min_days'    => 1,
+			'timer_max_days'    => 7,  // a deadline weeks away presses nobody.
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
 			'match_model'   => '', // keyword-matching model; empty = Haiku default.
@@ -355,6 +362,23 @@ final class DZE_Marketing_Ai {
 			// The switch is this form's own: unticked it posts nothing, so it
 			// is the one key written whether or not it came back.
 			$write = [ 'promo_i18n_on' => empty( $in['promo_i18n_on'] ) ? 0 : 1 ];
+			// Same reasoning for the countdown switch: this form owns it.
+			$write['timer_auto'] = empty( $in['timer_auto'] ) ? 0 : 1;
+			if ( $has( 'timer_min_percent' ) ) {
+				$write['timer_min_percent'] = min( 90, max( 1, (int) $in['timer_min_percent'] ) );
+			}
+			if ( $has( 'timer_min_days' ) ) {
+				$write['timer_min_days'] = min( 120, max( 1, (int) $in['timer_min_days'] ) );
+			}
+			if ( $has( 'timer_max_days' ) ) {
+				$write['timer_max_days'] = min( 120, max( 1, (int) $in['timer_max_days'] ) );
+			}
+			// A window that reads backwards is a rule nothing can ever clear.
+			$low  = (int) ( $write['timer_min_days'] ?? $existing['timer_min_days'] ?? 1 );
+			$high = (int) ( $write['timer_max_days'] ?? $existing['timer_max_days'] ?? 7 );
+			if ( $high < $low ) {
+				$write['timer_max_days'] = $low;
+			}
 			if ( $has( 'events_prompt' ) ) {
 				$write['events_prompt'] = sanitize_textarea_field( $events_prompt );
 			}
@@ -431,6 +455,59 @@ final class DZE_Marketing_Ai {
 	}
 
 	/** The effective calendar guidance: the user's custom text, or the default. */
+	/** Is the countdown decided by the rule below rather than by the model? */
+	public static function timer_auto_on(): bool {
+		return ! empty( self::get_settings()['timer_auto'] );
+	}
+
+	/** The bar an event has to clear: [ percent, min days, max days ]. */
+	public static function timer_rule(): array {
+		$s   = self::get_settings();
+		$min = max( 1, (int) $s['timer_min_days'] );
+		return [
+			max( 1, (int) $s['timer_min_percent'] ),
+			$min,
+			max( $min, (int) $s['timer_max_days'] ),
+		];
+	}
+
+	/**
+	 * Does this generated event carry a countdown?
+	 *
+	 * The model's own answer while the rule is off, the rule's answer while it
+	 * is on — and the rule answers in BOTH directions, so an event under the
+	 * bar loses the countdown the model felt like giving it. That is the whole
+	 * point: a countdown on every promotion is not a deadline any more, it is
+	 * decoration, and the customer stops reading it exactly when the shop
+	 * needs him to.
+	 *
+	 * @param string $start     YYYY-MM-DD.
+	 * @param string $end       YYYY-MM-DD.
+	 * @param int    $percent   The discount announced.
+	 * @param bool   $suggested What the model asked for.
+	 */
+	public static function timer_for( string $start, string $end, int $percent, bool $suggested ): bool {
+		if ( ! self::timer_auto_on() ) {
+			return $suggested;
+		}
+		$days = self::span_days( $start, $end );
+		if ( $days < 1 ) {
+			return false;
+		}
+		[ $min_pc, $min_days, $max_days ] = self::timer_rule();
+		return $percent >= $min_pc && $days >= $min_days && $days <= $max_days;
+	}
+
+	/** Days a promotion runs, both ends counted — the way a shop counts them. */
+	public static function span_days( string $start, string $end ): int {
+		$a = strtotime( $start . ' 00:00:00' );
+		$b = strtotime( $end . ' 00:00:00' );
+		if ( ! $a || ! $b || $b < $a ) {
+			return 0;
+		}
+		return (int) floor( ( $b - $a ) / DAY_IN_SECONDS ) + 1;
+	}
+
 	public static function events_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['events_prompt'] ?? '' ) );
 		return $p !== '' ? $p : self::default_events_prompt();
@@ -1428,11 +1505,12 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			if ( $start < $start_date || $end > $end_date ) {
 				continue;
 			}
+			$percent = min( 90, max( 1, (int) round( (float) ( $ev['percent'] ?? 0 ) ) ) );
 			$clean[] = [
 				'title'         => mb_substr( $title, 0, 80 ),
 				'start_date'    => $start,
 				'end_date'      => $end,
-				'percent'       => min( 90, max( 1, (int) round( (float) ( $ev['percent'] ?? 0 ) ) ) ),
+				'percent'       => $percent,
 				'countries'     => $countries,
 				// EVERY language of the shop. An empty list is what the
 				// discounts module reads as "no language restriction", which
@@ -1440,7 +1518,9 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				// in French and not in English is a bug the shop finds out
 				// about from its customers.
 				'languages'     => [],
-				'timer'         => ! empty( $ev['timer'] ),
+				// Decided from the offer itself when the shop has set that
+				// rule; the model's own answer otherwise.
+				'timer'         => self::timer_for( $start, $end, $percent, ! empty( $ev['timer'] ) ),
 				'rationale'     => mb_substr( sanitize_text_field( (string) ( $ev['rationale'] ?? '' ) ), 0, 240 ),
 				// Filled by propose() once the batch comes back.
 				'i18n'          => [],
