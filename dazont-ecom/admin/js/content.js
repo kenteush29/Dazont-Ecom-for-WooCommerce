@@ -30,6 +30,20 @@
 		if (msg && msg.status) { return 'HTTP ' + msg.status + (msg.statusText ? ' ' + msg.statusText : ''); }
 		return i18n.error;
 	}
+	// What an answer that is not a result actually said.
+	//
+	// A generation that fails on the server answers with a reason, and that
+	// reason is shown. What used to be swallowed is the answer that is not
+	// JSON at all — a PHP fatal, a notice printed by another plugin before our
+	// output — which arrives as a string, has no .success, and was reported as
+	// "Something went wrong." with nothing to act on. It is now quoted.
+	function answerError(r) {
+		if (r && r.data && r.data.message) { return r.data.message; }
+		if (typeof r === 'string' && $.trim(r)) {
+			return (i18n.badAnswer || '') + ' ' + $.trim($('<i></i>').html(r).text()).slice(0, 300);
+		}
+		return i18n.error;
+	}
 
 	// The product being worked on. On an edit screen it is that product; from
 	// the products list it is the row that was clicked, so it is a variable,
@@ -808,7 +822,7 @@
 	function genImage(tpl, scene) {
 		return $.post(cfg.ajaxUrl, imageRequest(tpl, scene))
 			.then(function (r) {
-				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+				if (!r || !r.success) { throw answerError(r); }
 				res.shots.push(r.data.url);
 				res.shotTpl[r.data.url] = tpl;
 				res.shotTarget = res.shotTarget || {};
@@ -820,7 +834,7 @@
 	function genTexts(fids) {
 		return $.post(cfg.ajaxUrl, { action: 'dze_content_text_all', nonce: cfg.nonce, post: PID, fields: fids, stash: 1 })
 			.then(function (r) {
-				if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+				if (!r || !r.success) { throw answerError(r); }
 				res.shotOf = r.data.companions || {};
 				Object.keys(r.data.texts || {}).forEach(function (fid) {
 					res.texts[fid] = r.data.texts[fid] || '';
@@ -882,7 +896,7 @@
 				run: function () {
 					return $.post(cfg.ajaxUrl, { action: 'dze_content_price', nonce: cfg.nonce, post: PID, cost: $('#dze-cx-cost').val() })
 						.then(function (r) {
-							if (!r.success) { throw (r.data && r.data.message) || i18n.error; }
+							if (!r || !r.success) { throw answerError(r); }
 							// Deterministic maths, applied on the spot; only a
 							// simple product has that field, never a range.
 							if (!r.data.variations) { $('#_regular_price').val(r.data.regular); }
