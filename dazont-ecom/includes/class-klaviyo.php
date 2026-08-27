@@ -645,11 +645,14 @@ final class DZE_Klaviyo {
 	 * possible: a row is only ever as wide as the products actually in it, and
 	 * the last one takes the width it needs.
 	 *
-	 * It stacks on a phone without a media query. Each card is an
-	 * inline-block that is 100% wide but no wider than its share of the
-	 * column, so on a desktop they sit side by side and on a narrow screen the
-	 * second one simply wraps under the first. Outlook, which ignores
-	 * inline-block, gets a real table through the conditional comments.
+	 * On a desktop each card is an inline-block no wider than its share of the
+	 * column, so they sit side by side; on a narrow screen the second one
+	 * wraps under the first. Wrapping alone is not enough, though — a card
+	 * that stacks but keeps its 178px cap sits in the middle of a 360px phone
+	 * with the screen empty on both sides. So the frame carries one rule that
+	 * lifts the cap below 480px, and a stacked card takes the width it has.
+	 * Outlook, which ignores inline-block and media queries alike, gets a real
+	 * table through the conditional comments and never sees either.
 	 *
 	 * A marker pointing at a product that does not exist is dropped rather
 	 * than left on screen: it is our syntax, not something a reader should
@@ -699,7 +702,7 @@ final class DZE_Klaviyo {
 			$ghost = (int) floor( 100 / $n );
 			foreach ( $row as $i => $card ) {
 				$cells .= '<!--[if mso]><td width="' . $ghost . '%" valign="top"><![endif]-->'
-					. '<div style="display:inline-block;width:100%;max-width:' . $width . 'px;vertical-align:top;">'
+					. '<div class="dze-card" style="display:inline-block;width:100%;max-width:' . $width . 'px;vertical-align:top;">'
 					. $card
 					. '</div>'
 					. ( $i + 1 < $n ? '<!--[if mso]></td><![endif]-->' : '' );
@@ -1365,8 +1368,34 @@ final class DZE_Klaviyo {
 			// and no unsubscribe line — is worse than not sending at all.
 			throw new RuntimeException( __( 'No header and footer yet. Settings → Email campaigns → Header and footer: choose your Klaviyo template and press Read it.', 'dazont-ecom' ) );
 		}
-		$html = str_replace( self::BODY_MARK, self::slot( $body ), $shell );
+		$html = self::with_mobile_rule( str_replace( self::BODY_MARK, self::slot( $body ), $shell ) );
 		return $preview ? self::readable( $html ) : $html;
+	}
+
+	/**
+	 * The one rule of ours the frame carries, put in its head at build time.
+	 *
+	 * A product card is an inline-block capped at its share of the column, so
+	 * two or three sit side by side on a desktop and wrap on a phone. Wrapping
+	 * is only half of it: a card that stacks and keeps its 178px cap sits in
+	 * the middle of a 360px screen with the paper empty on both sides. Only a
+	 * media query can lift that cap, and a media query only works in the
+	 * document's HEAD — a <style> in the body is thrown away by Gmail.
+	 *
+	 * It goes in at build time rather than into the stored frame, for the
+	 * reason the column is not stored either: a rule frozen into somebody's
+	 * snapshot is a rule no later fix can reach.
+	 */
+	public static function with_mobile_rule( string $html ): string {
+		if ( false !== strpos( $html, 'dze-mobile' ) || false === stripos( $html, '</head>' ) ) {
+			return $html;
+		}
+		$style = '<style type="text/css" id="dze-mobile">'
+			. '@media only screen and (max-width:480px){'
+			. '.dze-card{max-width:100%!important;width:100%!important;}'
+			. '}</style>';
+		$at = stripos( $html, '</head>' );
+		return substr( $html, 0, $at ) . $style . substr( $html, $at );
 	}
 
 	/**
@@ -1407,7 +1436,7 @@ final class DZE_Klaviyo {
 		// The column goes on HERE, with the marker still inside it, so the
 		// browser can keep doing the one thing it does — put the body where
 		// the marker is — and still show the margin the email is sent with.
-		$shell = str_replace( self::BODY_MARK, self::slot( self::BODY_MARK ), $shell );
+		$shell = self::with_mobile_rule( str_replace( self::BODY_MARK, self::slot( self::BODY_MARK ), $shell ) );
 		$keep  = '@@DZE_BODY@@';
 		return str_replace( $keep, self::BODY_MARK, self::readable( str_replace( self::BODY_MARK, $keep, $shell ) ) );
 	}
