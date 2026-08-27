@@ -2576,6 +2576,21 @@ Answer with STRICT JSON and nothing else: "
 				$( document ).on( 'change', '.dze-pr-type, .dze-pr-output', function () { syncRow( $( this ).closest( '.dze-prb' ) ); } );
 				// One card open at a time: opening one shuts the others, because
 				// the point of shut cards is to have one prompt in front of you.
+				// The count in "Product data sent with it (5)" is what that
+				// prompt SENDS. It was written once by the server and never
+				// touched again: ticking a box changed nothing until the page
+				// had been saved AND reloaded, so the screen said five while
+				// the boxes under it said three.
+				var inputsLabel = <?php echo wp_json_encode( __( 'Product data sent with it (%d)', 'dazont-ecom' ) ); ?>;
+				function inputsCount( $d ) {
+					$d.children( 'summary' ).text(
+						inputsLabel.replace( '%d', $d.find( 'input[type=checkbox]:checked' ).length )
+					);
+				}
+				$( '.dze-pr-inputs' ).each( function () { inputsCount( $( this ) ); } );
+				$( document ).on( 'change', '.dze-pr-inputs input[type=checkbox]', function () {
+					inputsCount( $( this ).closest( '.dze-pr-inputs' ) );
+				} );
 				$( document ).on( 'click', '.dze-prb-toggle', function () {
 					var $b = $( this ).closest( '.dze-prb' );
 					var open = ! $b.hasClass( 'is-open' );
@@ -2595,6 +2610,7 @@ Answer with STRICT JSON and nothing else: "
 					// own until the page is saved, and joins its group then.
 					$( '#dze-pr-new' ).append( $row );
 					syncRow( $row );
+					inputsCount( $row.find( '.dze-pr-inputs' ) );
 					$( 'html, body' ).animate( { scrollTop: $row.offset().top - 60 }, 200 );
 				} );
 				$( document ).on( 'click', '.dze-pr-del', function () {
