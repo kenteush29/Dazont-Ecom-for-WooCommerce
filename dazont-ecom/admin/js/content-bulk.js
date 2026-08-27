@@ -544,6 +544,14 @@
 			.then(function (res) {
 				if (!res.success) { throw (res.data && res.data.message) || i18n.error; }
 				okCount++;
+				// What this product has cost so far, kept with its bucket and
+				// shown on its panel: a run of thirty products is exactly where
+				// nobody notices one of them going round in circles.
+				if (res.data.spend) {
+					bucket(id).spend = res.data.spend;
+					$('.dze-spend[data-for="' + id + '"]').text(res.data.spend.label || '')
+						.toggle(!!(res.data.spend.label || ''));
+				}
 				if (review) {
 					addShot(id, res.data.url, tpl, res.data.target);
 				} else {
@@ -672,6 +680,12 @@
 				'<button type="button" class="button button-small button-primary dze-cb-applyone">' + esc(i18n.applyOne) + '</button> ' +
 				'<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>' +
 				'<span class="dze-cb-panelstate"></span>' +
+				// What this product has cost in images. Beside the buttons that
+				// spend the next one, because that is where a product that
+				// keeps coming back wrong is dropped.
+				'<span class="dze-spend" data-for="' + esc(String(id)) + '"' +
+					(b.spend && b.spend.label ? ' style="display:inline-block;"' : '') + '>' +
+					esc((b.spend && b.spend.label) || '') + '</span>' +
 			'</p>';
 		html = '<div class="dze-cb-nowshots"></div>' + html;
 		$cell.html('<div class="dze-cx-result">' + html + '</div>');
@@ -854,6 +868,11 @@
 					$btn.prop('disabled', false); $card.removeClass('is-busy');
 					$st.addClass('is-ko').text(reason((r && r.data && r.data.message) || i18n.error));
 					return;
+				}
+				if (r.data.spend) {
+					b.spend = r.data.spend;
+					$('.dze-spend[data-for="' + id + '"]').text(r.data.spend.label || '')
+						.toggle(!!(r.data.spend.label || ''));
 				}
 				var i = b.shots.indexOf(url);
 				if (i >= 0) { b.shots[i] = r.data.url; } else { b.shots.push(r.data.url); }

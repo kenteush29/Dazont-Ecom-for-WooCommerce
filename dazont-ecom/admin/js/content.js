@@ -428,6 +428,7 @@
 					'<p class="dze-cb-actions">' +
 						'<button type="button" class="button button-primary button-hero" id="dze-cx-run">' + esc(i18n.launch) + '</button>' +
 						'<span class="dze-cx-state" id="dze-cx-runstate"></span>' +
+						'<span class="dze-spend" title="' + esc(i18n.spendTip) + '"></span>' +
 					'</p>' +
 					'<div class="dze-cx-prog" id="dze-cx-prog" style="display:none;">' +
 						'<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>' +
@@ -484,6 +485,7 @@
 				cfg.note = cur.note || '';
 				$('#dze-one-note, #dze-cx-note').val(cfg.note);
 				$('#dze-cx-notewrap').prop('open', !!cfg.note.trim());
+				drawSpend(cur.spend);
 				if (cur.cost) { $('#dze-cx-cost').val(cur.cost); }
 				drawCurrentImages();
 				markWritten(cur.texts);
@@ -503,6 +505,7 @@
 			cfg.note = cur.note || '';
 			$('#dze-one-note, #dze-cx-note').val(cfg.note);
 			$('#dze-cx-notewrap').prop('open', !!cfg.note.trim());
+			drawSpend(cur.spend);
 			if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
 				hydrate(cur.pending);
 			}
@@ -605,6 +608,15 @@
 	$(document).on('keydown', '#dze-cx-drawers .dze-cb-fhead', function (e) {
 		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
 	});
+
+	// What this product has cost in images so far. Written from whatever the
+	// server just said, and the server counts it after every generation — the
+	// figure on screen is never one the browser worked out for itself.
+	function drawSpend(spend) {
+		if (!spend) { return; }
+		cfg.spend = spend;
+		$('.dze-spend').text(spend.label || '').toggle(!!(spend.label || ''));
+	}
 
 	// ---- What the product says today ----
 	//
@@ -881,6 +893,7 @@
 		return $.post(cfg.ajaxUrl, imageRequest(tpl, scene))
 			.then(function (r) {
 				if (!r || !r.success) { throw answerError(r); }
+				drawSpend(r.data.spend);
 				res.shots.push(r.data.url);
 				res.shotTpl[r.data.url] = tpl;
 				res.shotTarget = res.shotTarget || {};
@@ -1251,6 +1264,11 @@
 				'<button type="button" class="button button-primary" id="dze-one-gen"></button> ' +
 					'<button type="button" class="button button-primary" id="dze-one-apply" style="display:none;"></button> ' +
 					'<span class="dze-cx-state" id="dze-one-state"></span>' +
+					// What this product has already cost in images. Beside the
+					// button that spends the next one, because that is where
+					// the decision is taken: a product the model keeps getting
+					// wrong is a product to stop paying for.
+					'<span class="dze-spend" title="' + esc(i18n.spendTip) + '"></span>' +
 				'</p>' +
 			'</div>' +
 		'</div></div>');
@@ -1747,6 +1765,7 @@
 							return;
 						}
 						made++;
+						drawSpend(r.data.spend);
 						// Every attempt is paid for: none of them is thrown away
 						// behind the next one. They line up and you compare.
 						one.tries = one.tries || [];

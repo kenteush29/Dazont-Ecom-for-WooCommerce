@@ -861,6 +861,9 @@ trait DZE_Content_Ajax {
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto' );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
+			// Charged to the product it was made for: what a product has cost
+			// in images is the question being asked while looking at it.
+			self::charge_product( $pid, self::last_image_cost() );
 		} catch ( \Throwable $e ) {
 			DZE_Ai_Usage::unit();
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -878,6 +881,8 @@ trait DZE_Content_Ajax {
 			'url'  => $image_url,
 			// Shown next to the new image and opened by its zoom: the original.
 			'main' => $main ? (string) wp_get_attachment_image_url( $main, 'full' ) : '',
+			// What this product has cost in images, counted after this one.
+			'spend' => self::product_spend( $pid ),
 		] );
 	}
 
@@ -1196,6 +1201,7 @@ trait DZE_Content_Ajax {
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto' );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
+			self::charge_product( $pid, self::last_image_cost() );
 
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session
@@ -1207,10 +1213,10 @@ trait DZE_Content_Ajax {
 						'recipe' => (string) ( $tpl['id'] ?? '' ),
 					] );
 				}
-				wp_send_json_success( [ 'url' => $image_url, 'target' => $target ] );
+				wp_send_json_success( [ 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ] );
 			}
 			if ( ! $validated ) {
-				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $target ] );
+				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ] );
 			}
 			$att_id = $this->sideload_seo( $image_url, $pid, $target, (string) ( $tpl['id'] ?? '' ) );
 		} catch ( \Throwable $e ) {
@@ -1232,6 +1238,7 @@ trait DZE_Content_Ajax {
 			'attachment' => (int) $att_id,
 			'target'     => $target,
 			'url'        => wp_get_attachment_image_url( (int) $att_id, 'medium' ),
+			'spend'      => self::product_spend( $pid ),
 		] );
 	}
 
@@ -1380,6 +1387,8 @@ trait DZE_Content_Ajax {
 			'title'   => $product->get_name(),
 			'cost'    => self::product_cost( $product ),
 			'pending' => self::pending( $pid ),
+			// What this product has already cost in images.
+			'spend'   => self::product_spend( $pid ),
 			// The note travels with every image made for this product, so a
 			// popup opened on another product than the page it sits on must
 			// read THAT product's note rather than the one it was loaded with.

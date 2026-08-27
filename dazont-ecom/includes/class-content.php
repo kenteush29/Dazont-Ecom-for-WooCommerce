@@ -868,9 +868,53 @@ EOT;
 	 * and the monthly budget guard, not for billing. Adjustable on the General
 	 * tab next to the key; defaults to $0.04/image.
 	 */
+	/** What the last image cost, so the caller can charge it to its product. */
+	private static float $last_cost = 0.0;
+
+	public static function last_image_cost(): float {
+		return self::$last_cost;
+	}
+
+	/**
+	 * What has been spent on ONE product's images, and how many were made.
+	 *
+	 * Kept on the product because that is the question being asked: this
+	 * product is not working, how much has it already cost? A monthly total
+	 * cannot answer it, and a shop only finds out afterwards.
+	 */
+	public static function charge_product( int $pid, float $cost ): void {
+		if ( $pid <= 0 || $cost <= 0 ) {
+			return;
+		}
+		update_post_meta( $pid, self::META_SPEND, round( (float) get_post_meta( $pid, self::META_SPEND, true ) + $cost, 4 ) );
+		update_post_meta( $pid, self::META_IMGS, 1 + (int) get_post_meta( $pid, self::META_IMGS, true ) );
+	}
+
+	/** @return array{shots:int,spend:float,label:string} */
+	public static function product_spend( int $pid ): array {
+		$shots = (int) get_post_meta( $pid, self::META_IMGS, true );
+		$spend = (float) get_post_meta( $pid, self::META_SPEND, true );
+		return [
+			'shots' => $shots,
+			'spend' => round( $spend, 2 ),
+			'label' => $shots ? sprintf(
+				/* translators: 1: number of images, 2: what they cost */
+				_n( '%1$d image · %2$s', '%1$d images · %2$s', $shots, 'dazont-ecom' ),
+				$shots,
+				'$' . number_format_i18n( $spend, 2 )
+			) : '',
+		];
+	}
+
+	public const META_SPEND = '_dze_img_spend';
+	public const META_IMGS  = '_dze_img_shots';
+
 	public static function fal_image_cost(): float {
 		$c = (float) ( self::get_settings()['fal_image_cost'] ?? 0 );
-		return $c > 0 ? $c : 0.04;
+		// The shipped figure is what nano-banana-2 bills per image today. It is
+		// a default, not a reading: what a shop is charged is on its own
+		// invoice, and the field beside this is where that goes.
+		return $c > 0 ? $c : 0.08;
 	}
 
 	/**
@@ -2169,7 +2213,10 @@ Answer with STRICT JSON and nothing else: "
 				<th scope="row"><label for="dze-fal-cost"><?php esc_html_e( 'fal.ai price per image (USD)', 'dazont-ecom' ); ?></label></th>
 				<td>
 					<input type="number" id="dze-fal-cost" step="0.001" min="0" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_image_cost]" value="<?php echo esc_attr( self::fal_image_cost() ); ?>" style="width:110px;" />
-					<p class="description"><?php esc_html_e( 'Each generated image is counted at this price in the AI usage graph and the monthly budget. Check your fal.ai model pricing and adjust.', 'dazont-ecom' ); ?></p>
+					<p class="description">
+						<?php esc_html_e( 'The one figure this plugin cannot read: what a unit costs is on your fal.ai invoice, not in its answers. How MANY units a call is billed comes from fal itself when it says so, and is counted as one image when it does not — so the count is exact and only the price is yours to give.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'It drives the AI usage graph, the monthly budget, and the running total shown beside every button that makes an image.', 'dazont-ecom' ); ?>
+					</p>
 				</td>
 			</tr>
 		</table>
@@ -3689,6 +3736,7 @@ Answer with STRICT JSON and nothing else: "
 					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 					'promptWord'=> __( 'Prompt', 'dazont-ecom' ),
+					'spendTip'  => __( 'What this product has cost in images so far. Counted per generation, at the price per image set under Settings → Product content.', 'dazont-ecom' ),
 					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
 					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
@@ -3922,6 +3970,7 @@ Answer with STRICT JSON and nothing else: "
 				'redoShort'  => __( 'Generate', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 				'promptWord' => __( 'Prompt', 'dazont-ecom' ),
+				'spendTip'   => __( 'What this product has cost in images so far. Counted per generation, at the price per image set under Settings → Product content.', 'dazont-ecom' ),
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
@@ -5452,8 +5501,18 @@ Answer with STRICT JSON and nothing else: "
 			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
 		$url = $body['images'][0]['url'] ?? '';
+		// What this call is actually billed. fal answers with the number of
+		// billable units it charged for; when it does, that number is the
+		// truth and nothing here has to guess how many images a request became.
+		// The price OF a unit is the shop's own — it is on the invoice, not in
+		// the response — and it is asked for once in the settings.
+		$units = (float) wp_remote_retrieve_header( $resp, 'x-fal-billable-units' );
+		if ( $units <= 0 ) {
+			$units = 1.0;
+		}
+		self::$last_cost = round( $units * self::fal_image_cost(), 4 );
 		if ( $url && class_exists( 'DZE_Ai_Usage' ) ) {
-			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::fal_image_cost() );
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost );
 		}
 		if ( ! $url ) {
 			throw new RuntimeException( __( 'fal.ai returned no image.', 'dazont-ecom' ) );

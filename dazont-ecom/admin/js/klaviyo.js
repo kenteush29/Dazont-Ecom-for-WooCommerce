@@ -484,6 +484,9 @@
 					if (test) { showTest(res.data.url, res.data.full); }
 					else { setPicture(res.data.url); }
 					hosted = res.data.warning || '';
+					if (res.data.spend && res.data.spend.label) {
+						$('#dze-klav-spend').text(res.data.spend.label).show();
+					}
 				} else {
 					// No photograph: the email keeps its layout and loses its
 					// hole, rather than shipping a broken image. A test that
