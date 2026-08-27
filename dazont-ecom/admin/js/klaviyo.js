@@ -476,7 +476,7 @@
 		})
 			.done(function (res) {
 				if (res && res.success) {
-					if (test) { showTest(res.data.url); }
+					if (test) { showTest(res.data.url, res.data.full); }
 					else { setPicture(res.data.url); }
 				} else {
 					// No photograph: the email keeps its layout and loses its
@@ -497,10 +497,11 @@
 	// A test picture is looked at, not filed: it is how a description is
 	// judged before an email is built on it.
 	var tested = '';
-	function showTest(url) {
+	function showTest(url, full) {
 		tested = url;
-		$('#dze-klav-shot-img').attr('src', url);
-		$('#dze-klav-shot-full').attr('href', url);
+		// data-full is what the plugin's zoom opens: the button is planted on
+		// the thumbnail itself, like every other image strip here.
+		$('#dze-klav-shot-img').attr('src', url).attr('data-full', full || url);
 		$('#dze-klav-shot-out').css('display', 'flex');
 	}
 

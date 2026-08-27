@@ -443,6 +443,23 @@ EOT;
 		];
 	}
 
+	/** The shapes an image prompt may ask for — the provider's own list. */
+	public static function output_ratios(): array {
+		return [
+			''      => __( 'Same shape as the photograph', 'dazont-ecom' ),
+			'1:1'   => __( 'Square (1:1)', 'dazont-ecom' ),
+			'4:5'   => __( 'Portrait (4:5)', 'dazont-ecom' ),
+			'2:3'   => __( 'Portrait (2:3)', 'dazont-ecom' ),
+			'3:2'   => __( 'Landscape (3:2)', 'dazont-ecom' ),
+			'16:9'  => __( 'Wide (16:9)', 'dazont-ecom' ),
+			'9:16'  => __( 'Tall (9:16)', 'dazont-ecom' ),
+		];
+	}
+
+	public static function clean_ratio( string $r ): string {
+		return array_key_exists( $r, self::output_ratios() ) ? $r : '';
+	}
+
 	/** Inputs that are images rather than lines of text. */
 	public static function is_image_input( string $key ): bool {
 		return in_array( $key, [ 'photos', 'variation_photos' ], true );
@@ -2046,6 +2063,12 @@ Answer with STRICT JSON and nothing else: "
 					// the library — the URL of a shop is content too.
 					'file_name'   => sanitize_text_field( (string) ( $in['pr_file'][ $i ] ?? '' ) ),
 					'img_title'   => sanitize_text_field( (string) ( $in['pr_imgtitle'][ $i ] ?? '' ) ),
+					// The SHAPE of what comes back. Asked for in the prompt it
+					// was a wish — the provider takes it as a parameter and
+					// nowhere else, so "square, 1024" written in the
+					// instructions changed nothing and the image came back in
+					// the shape of the photograph it was built from.
+					'ratio'       => self::clean_ratio( (string) ( $in['pr_ratio'][ $i ] ?? '' ) ),
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
 				];
 			}
@@ -2418,6 +2441,13 @@ Answer with STRICT JSON and nothing else: "
 								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
 									<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (string) ( $r['img_title'] ?? '' ) ); ?>" placeholder="{product}" class="dze-pr-imgtitle" title="<?php esc_attr_e( 'The attachment title and its alt text. Same tokens. Empty = the product name.', 'dazont-ecom' ); ?>" />
 								</label>
+								<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Shape', 'dazont-ecom' ); ?></span>
+									<select name="<?php echo esc_attr( $opt ); ?>[pr_ratio][<?php echo (int) $dze_ri; ?>]" class="dze-pr-ratio" title="<?php esc_attr_e( 'Asked of the provider itself. Writing it in the prompt does nothing: the shape is a parameter, not a sentence.', 'dazont-ecom' ); ?>">
+										<?php foreach ( self::output_ratios() as $dze_rk => $dze_rl ) : ?>
+											<option value="<?php echo esc_attr( $dze_rk ); ?>" <?php selected( $dze_rk, (string) ( $r['ratio'] ?? '' ) ); ?>><?php echo esc_html( $dze_rl ); ?></option>
+										<?php endforeach; ?>
+									</select>
+								</label>
 								<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 									<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" />
 								</label>
@@ -2526,6 +2556,13 @@ Answer with STRICT JSON and nothing else: "
 							</label>
 							<label class="dze-prb-tk dze-pr-imgonly" style="display:none;"><span><?php esc_html_e( 'Image title', 'dazont-ecom' ); ?></span>
 								<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgtitle][__I__]" value="" placeholder="{product}" class="dze-pr-imgtitle" />
+							</label>
+							<label class="dze-prb-tk dze-pr-imgonly" style="display:none;"><span><?php esc_html_e( 'Shape', 'dazont-ecom' ); ?></span>
+								<select name="<?php echo esc_attr( $opt ); ?>[pr_ratio][__I__]" class="dze-pr-ratio">
+									<?php foreach ( self::output_ratios() as $dze_rk => $dze_rl ) : ?>
+										<option value="<?php echo esc_attr( $dze_rk ); ?>"><?php echo esc_html( $dze_rl ); ?></option>
+									<?php endforeach; ?>
+								</select>
 							</label>
 							<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 								<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][__I__]" value="400" min="50" class="dze-pr-tokens" />
@@ -3209,7 +3246,7 @@ Answer with STRICT JSON and nothing else: "
 									<input type="checkbox" class="dze-cb-field" value="<?php echo esc_attr( $fid ); ?>" <?php checked( $fok ); disabled( ! $fok ); ?> />
 									<span><?php echo esc_html( $f['label'] ); ?><?php echo $fok ? '' : ' 🔒'; ?></span>
 								</label>
-								<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'content_' . $fid, '✎' ); } ?>
+								<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'content_' . $fid ); } ?>
 							</span>
 						<?php endforeach; ?>
 					</div>
@@ -3651,6 +3688,7 @@ Answer with STRICT JSON and nothing else: "
 					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
 					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
+					'promptWord'=> __( 'Prompt', 'dazont-ecom' ),
 					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
 					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
@@ -3883,6 +3921,7 @@ Answer with STRICT JSON and nothing else: "
 				'redoOne'    => __( 'Generate this text again', 'dazont-ecom' ),
 				'redoShort'  => __( 'Generate', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
+				'promptWord' => __( 'Prompt', 'dazont-ecom' ),
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),

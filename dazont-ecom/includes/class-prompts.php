@@ -484,7 +484,7 @@ final class DZE_Prompts {
 			'<button type="button" class="dze-prompt-peek" data-prompt="%1$s" title="%2$s">%3$s</button>',
 			esc_attr( $id ),
 			esc_attr__( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
-			'' !== $label ? esc_html( $label ) : '&#9998; ' . esc_html__( 'prompt', 'dazont-ecom' )
+			'' !== $label ? esc_html( $label ) : '&#9998; ' . esc_html__( 'Prompt', 'dazont-ecom' )
 		);
 	}
 

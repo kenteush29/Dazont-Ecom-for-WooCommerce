@@ -854,7 +854,11 @@ trait DZE_Content_Ajax {
 				. self::note_lines( $pid );
 
 			DZE_Ai_Usage::unit( 'product_img' );
-			$image_url = $this->fal_generate( $prompt, $sources );
+			// The shape is asked of the PROVIDER, which is the only place it
+			// means anything: written in the instructions it was a wish, and
+			// the image came back in the shape of the photograph it was built
+			// from. Left on "same shape as the photograph", nothing changes.
+			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto' );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
 		} catch ( \Throwable $e ) {
@@ -1129,7 +1133,11 @@ trait DZE_Content_Ajax {
 			// is one image per colour.
 			$avoid = 0;
 			if ( '' === $src && 'main' !== $target && '' === $v_value ) {
-				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 4 ) as $ref ) {
+				// Two, not four. These are images the model MADE, and each one
+				// is a chance for a detail it invented last time to come back
+				// as a reference this time. They are here to be different
+				// from, and two says "not like these" as well as four did.
+				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 2 ) as $ref ) {
 					if ( is_int( $ref ) ) {
 						// One already on the product: read from disk, and only
 						// while the request body stays a sane size.
@@ -1185,7 +1193,7 @@ trait DZE_Content_Ajax {
 				isset( $_POST['attempt'] ) ? absint( $_POST['attempt'] ) : 0
 			);
 			DZE_Ai_Usage::unit( 'product_img' );
-			$image_url = $this->fal_generate( $prompt, $sources );
+			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto' );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
 
