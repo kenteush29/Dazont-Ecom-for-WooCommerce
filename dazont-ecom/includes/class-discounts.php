@@ -2190,7 +2190,7 @@ final class DZE_Discounts {
 			'maiNonce' => class_exists( 'DZE_Marketing_Ai' ) ? wp_create_nonce( DZE_Marketing_Ai::NONCE ) : '',
 			'i18n'    => [
 				'counting' => __( 'Counting…', 'dazont-ecom' ),
-				'titleFirst'  => __( 'Write the banner text first.', 'dazont-ecom' ),
+				'titleFirst'  => __( 'Write the promotion\'s title first — it is what the banner says.', 'dazont-ecom' ),
 				'translating' => __( 'Writing…', 'dazont-ecom' ),
 				'translated'  => __( 'Written — check them, then save.', 'dazont-ecom' ),
 				'trFailed'    => __( 'Could not write them.', 'dazont-ecom' ),
