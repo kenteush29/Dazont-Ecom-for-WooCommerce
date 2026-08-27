@@ -135,7 +135,7 @@
 	// editor in the DOM, whatever the promotion carries.
 	var current = null;
 
-	function card(kind)   { return $('.dze-mail[data-kind="' + kind + '"]'); }
+	function card(id)     { return $('.dze-mail[data-id="' + id + '"]'); }
 	function ruleId()     { return $('#dze-klav-editor').data('rule'); }
 	function body()       { return $('#dze-klav-e-body'); }
 	function frame()      { return $('#dze-klav-e-iframe'); }
@@ -169,8 +169,8 @@
 
 	// The thumbnails are the emails themselves, drawn small — the same HTML
 	// that will be sent, so a card can never show something the email is not.
-	function thumb(kind) {
-		var $c = card(kind), html = $.trim($c.find('.dze-f-body').val() || '');
+	function thumb(id) {
+		var $c = card(id), html = $.trim($c.find('.dze-f-body').val() || '');
 		draw($c.find('.dze-mail-thumb iframe'), html ? assemble(cfg.shell, html) : '');
 	}
 
@@ -184,28 +184,42 @@
 	// Editor → the email's own fields, on every keystroke.
 	function commit() {
 		if (!current) { return; }
-		var $c = card(current);
+		var $c = card(current), kind = $('#dze-klav-e-kind').val() || 'launch';
 		$c.find('.dze-f-subject').val($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-f-preview').val($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
+		$c.find('.dze-f-kind').val(kind);
 		$c.find('.dze-f-body').val(body().val() || '');
 		$c.find('.dze-mail-subject').text($('#dze-klav-e-subject').val() || '');
+		$c.find('.dze-mail-kind').text($('#dze-klav-e-kind option:selected').text().split(' — ')[0]);
+		$c.find('.dze-mail-when').contents().first().replaceWith($('#dze-klav-e-when').val() || '');
+		$('#dze-mail-title').text($c.find('.dze-mail-kind').text());
 		thumb(current);
 	}
-	$(document).on('input change', '#dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
+	$(document).on('input change', '#dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when, #dze-klav-e-kind', commit);
+	// Changing the moment of an email that has no date yet fills the date in
+	// from the promotion's own window. It never overwrites a day already set:
+	// a date the owner chose is a decision, not a default.
+	$(document).on('change', '#dze-klav-e-kind', function () {
+		var $when = $('#dze-klav-e-when');
+		if ($.trim($when.val() || '')) { return; }
+		var map = $('#dze-klav-editor').data('when') || {};
+		if (map[$(this).val()]) { $when.val(map[$(this).val()]); commit(); }
+	});
 	$(document).on('input', '#dze-klav-e-body', function () {
 		commit();
 		window.clearTimeout(pending);
 		pending = window.setTimeout(render, 250);
 	});
 
-	function open(kind) {
-		var $c = card(kind);
-		if (!$c.length || !$c.find('.dze-f-exists').val()) { return; }
-		current = kind;
+	function open(id) {
+		var $c = card(id);
+		if (!$c.length) { return; }
+		current = id;
 		$('.dze-mail').removeClass('is-on');
 		$c.addClass('is-on');
-		$('#dze-mail-title').text($c.find('.dze-mail-what strong').text());
+		$('#dze-klav-e-kind').val($c.find('.dze-f-kind').val() || 'launch');
+		$('#dze-mail-title').text($('#dze-klav-e-kind option:selected').text().split(' — ')[0]);
 		$('#dze-klav-e-subject').val($c.find('.dze-f-subject').val() || '');
 		$('#dze-klav-e-preview').val($c.find('.dze-f-preview').val() || '');
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
@@ -215,39 +229,45 @@
 		view('view');
 	}
 
-	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('kind')); });
+	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('id')); });
 
-	$(document).on('click', '.dze-mail-add', function () {
-		var $c = $(this).closest('.dze-mail');
-		$c.find('.dze-f-exists').val('1');
-		$c.removeClass('is-empty');
-		$(this).replaceWith(
-			$('<button type="button" class="button button-small dze-mail-open"/>').text(cfg.i18n.openMail)
-		);
-		$c.find('.dze-mail-act').append(
-			$('<button type="button" class="button-link dze-mail-drop"/>').html('&times;')
-		);
-		open($c.data('kind'));
+	// A promotion holds as many emails as it deserves, not four. An id is
+	// minted here and never reused, so two emails added in the same minute
+	// cannot collide and overwrite one another on save.
+	var minted = 0;
+	function mintId() {
+		minted += 1;
+		return 'e' + Date.now().toString(36) + minted.toString(36);
+	}
+
+	$(document).on('click', '#dze-mail-new', function () {
+		var id = mintId(),
+			map = $('#dze-klav-editor').data('when') || {},
+			html = $('#dze-mail-blank').html().split('__ID__').join(id),
+			$c = $($.trim(html));
+		$c.find('.dze-f-when').val(map.launch || '');
+		$('.dze-mail-list').append($c);
+		open(id);
+		$('#dze-klav-e-kind').val('launch');
+		commit();
 	});
 
 	$(document).on('click', '.dze-mail-drop', function () {
 		if (!window.confirm(cfg.i18n.dropMail)) { return; }
-		var $c = $(this).closest('.dze-mail'), kind = $c.data('kind');
-		$c.find('.dze-f-exists, .dze-f-subject, .dze-f-preview, .dze-f-picture').val('');
-		$c.find('.dze-f-body').val('');
-		$c.find('.dze-mail-subject').text('');
-		$c.addClass('is-empty').removeClass('is-on');
-		$c.find('.dze-mail-act').empty().append(
-			$('<button type="button" class="button button-small dze-mail-add"/>').text(cfg.i18n.addMail)
-		);
-		thumb(kind);
-		if (current === kind) { current = null; $('#dze-mail-edit').hide(); }
+		var $c = $(this).closest('.dze-mail'), id = $c.data('id');
+		// Removed from the form, so the save simply never hears about it —
+		// there is no "deleted" state to keep in step with anything.
+		$c.remove();
+		if (current === id) {
+			current = null;
+			$('#dze-mail-edit').hide();
+		}
 	});
 
 	$(function () {
-		$('.dze-mail').each(function () { thumb($(this).data('kind')); });
-		var $first = $('.dze-mail').not('.is-empty').first();
-		if ($first.length) { open($first.data('kind')); }
+		$('.dze-mail').each(function () { thumb($(this).data('id')); });
+		var $first = $('.dze-mail').first();
+		if ($first.length) { open($first.data('id')); }
 	});
 
 	// ---- Settings: the template, previewed the same way ----
