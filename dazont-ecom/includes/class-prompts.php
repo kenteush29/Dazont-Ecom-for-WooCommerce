@@ -50,6 +50,19 @@ final class DZE_Prompts {
 		return $w ? (string) $w['default'] : '';
 	}
 
+	/**
+	 * Is this an id the registry can write back?
+	 *
+	 * Asked by the "Make this the default" control, which used to decide from
+	 * the shipped TEXT: a prompt shipped deliberately empty — the home page
+	 * picture — then had no star, so the shop could never make its own text
+	 * the default. Being registered is the question; having a shipped text is
+	 * not the same one.
+	 */
+	public static function registered( string $id ): bool {
+		return null !== self::writer( $id );
+	}
+
 	private static function writer( string $id ): ?array {
 		// A product field or an image template: one registry row.
 		if ( 0 === strpos( $id, 'content_' ) && class_exists( 'DZE_Content' ) ) {
@@ -69,6 +82,7 @@ final class DZE_Prompts {
 			'translate'  => [ 'DZE_Translate', 'prompt', 'default_prompt' ],
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
 			'promo_i18n' => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt', 'default_promo_i18n_prompt' ],
+			'hero_image' => [ 'DZE_Marketing_Ai', 'hero_prompt', 'default_hero_prompt' ],
 			'promo_email' => [ 'DZE_Klaviyo', 'email_prompt', 'default_email_prompt' ],
 			'promo_plan'  => [ 'DZE_Klaviyo', 'plan_prompt', 'default_plan_prompt' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
@@ -90,6 +104,7 @@ final class DZE_Prompts {
 			'translate'    => [ 'DZE_Translate', 'prompt' ],
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 			'promo_i18n'   => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
+			'hero_image'   => [ 'DZE_Marketing_Ai', 'hero_prompt' ],
 			'promo_email'  => [ 'DZE_Klaviyo', 'email_prompt' ],
 			'promo_plan'   => [ 'DZE_Klaviyo', 'plan_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
@@ -223,6 +238,15 @@ final class DZE_Prompts {
 				'tab'   => 'events',
 				'frag'  => 'dze-mai-prompt',
 			];
+			if ( self::module_on( 'discounts' ) ) {
+				$out['hero_image'] = [
+					'label' => __( 'Home page picture for an event', 'dazont-ecom' ),
+					'owner' => 'DZE_Marketing_Ai',
+					'text'  => [ 'DZE_Marketing_Ai', 'hero_prompt' ],
+					'tab'   => 'events',
+					'frag'  => 'dze-mai-hero-prompt',
+				];
+			}
 			$out['promo_i18n'] = [
 				'label' => __( 'Promotion translations', 'dazont-ecom' ),
 				'owner' => 'DZE_Marketing_Ai',
@@ -369,6 +393,63 @@ final class DZE_Prompts {
 			admin_url( 'admin.php' )
 		);
 		return '' !== $row['frag'] ? $url . '#' . $row['frag'] : $url;
+	}
+
+	/** The card styling + its toggle, printed once per screen. */
+	private static bool $cards = false;
+
+	/**
+	 * A shut card around one prompt — the presentation the Product content
+	 * screen was given, made available to every screen that carries more than
+	 * one prompt.
+	 *
+	 * Five prompts as five open textareas is a page nobody scrolls: what a
+	 * shop looks for is ONE of them, and it cannot see which is which until
+	 * it has read all five. Shut, the list is five titles; open, it is the one
+	 * being worked on. Nothing else changes — the field inside keeps its name,
+	 * its id and its controls, so what is saved is exactly what was saved
+	 * before, by the page's own Save button.
+	 *
+	 * @param string $anchor id of the card, so a deep link can open it.
+	 * @param string $title  What this prompt writes.
+	 * @param string $note   One line on what it does, shown on the shut row.
+	 */
+	public static function card_open( string $anchor, string $title, string $note = '' ): void {
+		if ( ! self::$cards ) {
+			self::$cards = true;
+			if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
+				wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+			}
+			?>
+			<script>
+			jQuery( function ( $ ) {
+				// One card open at a time, which is the point of shutting them.
+				$( document ).on( 'click', '.dze-prc-toggle', function () {
+					var $c = $( this ).closest( '.dze-prc' ), open = ! $c.hasClass( 'is-open' );
+					$( '.dze-prc' ).removeClass( 'is-open' ).find( '.dze-prb-body' ).hide()
+						.end().find( '.dze-prc-toggle' ).attr( 'aria-expanded', 'false' ).find( '.dze-prb-caret' ).text( '▸' );
+					if ( open ) {
+						$c.addClass( 'is-open' ).find( '.dze-prb-body' ).show();
+						$c.find( '.dze-prc-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
+					}
+				} );
+			} );
+			</script>
+			<?php
+		}
+		?>
+		<div class="dze-prb dze-prc" id="<?php echo esc_attr( $anchor ); ?>" style="margin:0 0 8px;max-width:880px;">
+			<div class="dze-prb-head">
+				<strong class="dze-prb-name" style="flex:0 1 320px;"><?php echo esc_html( $title ); ?></strong>
+				<span class="dze-prb-dest"><?php echo esc_html( $note ); ?></span>
+				<button type="button" class="dze-prb-toggle dze-prc-toggle" aria-expanded="false"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?> <span class="dze-prb-caret">▸</span></button>
+			</div>
+			<div class="dze-prb-body dze-pd-scope" style="display:none;">
+		<?php
+	}
+
+	public static function card_close(): void {
+		echo '</div></div>';
 	}
 
 	/**

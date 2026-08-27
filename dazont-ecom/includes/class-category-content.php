@@ -2111,40 +2111,54 @@ PROMPT;
 						<p class="description"><?php esc_html_e( 'This is the speed lever, and it does not cost quality: a category description is buying-guide copy, which Sonnet writes about three times faster than Opus for the same result. Each section is one call, so the model choice shows directly in how long a run takes.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
-				<tr>
-					<th scope="row"><label for="dze-cc-prompt"><?php esc_html_e( 'Writing prompt', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<textarea id="dze-cc-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="12" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
-						<p class="description">
-							<?php esc_html_e( 'Empty = shipped default (shown greyed). The category data, the queries, the link list, the language and the length are added automatically.', 'dazont-ecom' ); ?>
-							<button type="button" class="button-link" id="dze-cc-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_desc', '#dze-cc-prompt' ); } ?>
-						</p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="dze-cc-sift-prompt"><?php esc_html_e( 'Choosing the buyer questions', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<textarea id="dze-cc-sift-prompt" name="<?php echo esc_attr( self::OPT ); ?>[sift_prompt]" rows="8" class="large-text code"><?php echo esc_textarea( self::sift_prompt() ); ?></textarea>
-						<p class="description">
-							<?php esc_html_e( 'The pass that reads the real search queries and keeps the ones this page should answer. Empty = shipped default.', 'dazont-ecom' ); ?>
-							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-sift-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_sift', '#dze-cc-sift-prompt' ); } ?>
-						</p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="dze-cc-links-prompt"><?php esc_html_e( 'Internal linking prompt', 'dazont-ecom' ); ?></label></th>
-					<td>
-						<textarea id="dze-cc-links-prompt" name="<?php echo esc_attr( self::OPT ); ?>[links_prompt]" rows="10" class="large-text code"><?php echo esc_textarea( self::links_prompt() ); ?></textarea>
-						<p class="description">
-							<?php esc_html_e( 'The pass that weaves links into a description once it is written. Empty = shipped default.', 'dazont-ecom' ); ?>
-							<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-links-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_links', '#dze-cc-links-prompt' ); } ?>
-						</p>
-					</td>
-				</tr>
 			</table>
+
+			<h2 class="title"><?php esc_html_e( 'Prompts — what the plugin writes, and how', 'dazont-ecom' ); ?></h2>
+			<?php
+			// Shut cards, one per prompt: the same presentation as the Product
+			// content screen, so a shop that has learnt one list has learnt
+			// them all. The fields are unchanged — same names, same ids, saved
+			// by this page's own Save button.
+			$dze_card = class_exists( 'DZE_Prompts' );
+			if ( $dze_card ) {
+				DZE_Prompts::card_open( 'dze-cc-prompt-card', __( 'Category description', 'dazont-ecom' ), __( 'What the page says, and how it is built', 'dazont-ecom' ) );
+			}
+			?>
+				<textarea id="dze-cc-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="12" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
+				<p class="description">
+					<?php esc_html_e( 'Empty = shipped default (shown greyed). The category data, the queries, the link list, the language and the length are added automatically.', 'dazont-ecom' ); ?>
+					<button type="button" class="button-link" id="dze-cc-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_desc', '#dze-cc-prompt' ); } ?>
+				</p>
+			<?php
+			if ( $dze_card ) {
+				DZE_Prompts::card_close();
+				DZE_Prompts::card_open( 'dze-cc-sift-card', __( 'Choosing the buyer questions', 'dazont-ecom' ), __( 'Which real search queries this page should answer', 'dazont-ecom' ) );
+			}
+			?>
+				<textarea id="dze-cc-sift-prompt" name="<?php echo esc_attr( self::OPT ); ?>[sift_prompt]" rows="8" class="large-text code"><?php echo esc_textarea( self::sift_prompt() ); ?></textarea>
+				<p class="description">
+					<?php esc_html_e( 'The pass that reads the real search queries and keeps the ones this page should answer. Empty = shipped default.', 'dazont-ecom' ); ?>
+					<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-sift-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_sift', '#dze-cc-sift-prompt' ); } ?>
+				</p>
+			<?php
+			if ( $dze_card ) {
+				DZE_Prompts::card_close();
+				DZE_Prompts::card_open( 'dze-cc-links-card', __( 'Internal linking pass', 'dazont-ecom' ), __( 'How links are woven into a description once written', 'dazont-ecom' ) );
+			}
+			?>
+				<textarea id="dze-cc-links-prompt" name="<?php echo esc_attr( self::OPT ); ?>[links_prompt]" rows="10" class="large-text code"><?php echo esc_textarea( self::links_prompt() ); ?></textarea>
+				<p class="description">
+					<?php esc_html_e( 'The pass that weaves links into a description once it is written. Empty = shipped default.', 'dazont-ecom' ); ?>
+					<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-links-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_links', '#dze-cc-links-prompt' ); } ?>
+				</p>
+			<?php
+			if ( $dze_card ) {
+				DZE_Prompts::card_close();
+			}
+			?>
 			<?php submit_button( __( 'Save category settings', 'dazont-ecom' ) ); ?>
 		</form>
 		</div>

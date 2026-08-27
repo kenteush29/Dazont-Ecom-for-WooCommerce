@@ -114,7 +114,17 @@ final class DZE_Discounts {
 			add_action( 'admin_post_dze_discount_exclusions', [ $this, 'handle_exclusions_save' ] );
 			add_action( 'admin_post_dze_sale_resync',     [ $this, 'handle_resync' ] );
 			add_action( 'wp_ajax_dze_auto_count',         [ $this, 'ajax_auto_count' ] );
+			add_action( 'wp_ajax_dze_hero_image',         [ $this, 'ajax_hero_image' ] );
 		}
+		// The home page's picture is read from the home page, so the reading
+		// is thrown away when that page is saved — a shop that changes its
+		// hero must not wait six hours for the plugin to notice.
+		add_action( 'save_post', static function ( $post_id ): void {
+			if ( (int) $post_id === (int) get_option( 'page_on_front' ) ) {
+				self::forget_hero();
+			}
+		} );
+		add_action( 'update_option_page_on_front', [ self::class, 'forget_hero' ] );
 
 		// The pricing engine must run on the front end, on cart AJAX and on the
 		// Store API (REST) — everywhere WooCommerce computes prices/totals.
@@ -1929,13 +1939,174 @@ final class DZE_Discounts {
 		if ( null !== $this->hero_map ) {
 			return $this->hero_map;
 		}
-		$map = [];
+		$map    = [];
+		$source = null;
 		foreach ( $this->rules_of_type( 'sale' ) as $rule ) {
-			if ( ! empty( $rule['hero_swap_enabled'] ) && ! empty( $rule['hero_source_id'] ) && ! empty( $rule['hero_event_id'] ) ) {
-				$map[ (int) $rule['hero_source_id'] ] = (int) $rule['hero_event_id'];
+			if ( empty( $rule['hero_swap_enabled'] ) || empty( $rule['hero_event_id'] ) ) {
+				continue;
+			}
+			// The picture the home page shows is the SHOP's, not the event's:
+			// it is the same for every promotion, so it is answered once here
+			// rather than asked again on every event screen. Read only when a
+			// promotion actually swaps something — a shop with no swap running
+			// must not pay for the question.
+			if ( null === $source ) {
+				$source = self::hero_source();
+			}
+			$from = $source ?: (int) ( $rule['hero_source_id'] ?? 0 ); // promotions saved before that rule.
+			if ( $from ) {
+				$map[ $from ] = (int) $rule['hero_event_id'];
 			}
 		}
 		return $this->hero_map = $map;
+	}
+
+	/**
+	 * The picture the home page opens on.
+	 *
+	 * Read FROM the home page, so it follows when the shop changes it — the
+	 * setting beside it is an override for a home page whose hero the reading
+	 * cannot see, and an override that points at nothing is ignored rather
+	 * than obeyed.
+	 */
+	public static function hero_source(): int {
+		$own = class_exists( 'DZE_Marketing_Ai' ) ? (int) ( DZE_Marketing_Ai::get_settings()['hero_source_id'] ?? 0 ) : 0;
+		return $own ?: self::detect_hero();
+	}
+
+	/**
+	 * Which attachment the front page's main image is, worked out from the page
+	 * itself: its featured image, failing that the first image in its content.
+	 *
+	 * Cached, because it costs a post read and the answer changes about once a
+	 * year. NEVER returns an image a promotion uses as its EVENT picture: while
+	 * a swap is running the home page shows that one, and mistaking it for the
+	 * page's own would map it onto itself — the original would be replaced by
+	 * nothing and lost the day the promotion ended.
+	 */
+	public static function detect_hero(): int {
+		$cached = get_transient( 'dze_hero_src' );
+		if ( false !== $cached ) {
+			return (int) $cached;
+		}
+		$id    = 0;
+		$front = (int) get_option( 'page_on_front' );
+		if ( $front ) {
+			$id = (int) get_post_thumbnail_id( $front );
+			if ( ! $id ) {
+				$post = get_post( $front );
+				$body = $post ? (string) $post->post_content : '';
+				if ( preg_match( '/wp-image-(\d+)/', $body, $m ) ) {
+					$id = (int) $m[1];
+				} elseif ( preg_match( '/<img[^>]+src=["\']([^"\']+)["\']/i', $body, $m ) ) {
+					$id = (int) attachment_url_to_postid( $m[1] );
+				}
+			}
+		}
+		foreach ( self::get_rules() as $rule ) {
+			if ( $id && (int) ( $rule['hero_event_id'] ?? 0 ) === $id ) {
+				$id = 0; // that is an event picture, not the page's own.
+				break;
+			}
+		}
+		set_transient( 'dze_hero_src', $id, 6 * HOUR_IN_SECONDS );
+		return $id;
+	}
+
+	/** The home page changed: read it again rather than serve yesterday's answer. */
+	public static function forget_hero(): void {
+		delete_transient( 'dze_hero_src' );
+	}
+
+	/**
+	 * Makes the picture that replaces the home page's own while an event runs.
+	 *
+	 * The instructions are the shop's, and they ship EMPTY: what that picture
+	 * should look like is not something this plugin has an opinion about. What
+	 * it does impose is the two facts no prompt should have to repeat — the
+	 * promotion's title and the days it runs — and the home page's own picture
+	 * as the image to work from, so what comes back fits the same place at the
+	 * same shape.
+	 *
+	 * @return array{id:int,url:string}
+	 * @throws RuntimeException When there is nothing to work from, or fal fails.
+	 */
+	public static function make_hero_image( array $rule, string $prompt = '' ): array {
+		if ( ! class_exists( 'DZE_Content' ) ) {
+			throw new RuntimeException( __( 'The product content module is off, and it is the one that talks to fal.ai.', 'dazont-ecom' ) );
+		}
+		$source = self::hero_source();
+		if ( ! $source || ! wp_attachment_is_image( $source ) ) {
+			throw new RuntimeException( __( 'The home page picture could not be read. Set it under Settings → Marketing events first.', 'dazont-ecom' ) );
+		}
+		$content = DZE_Content::instance();
+		$fmt     = get_option( 'date_format' ) ?: 'Y-m-d';
+		$day     = static function ( $ymd ) use ( $fmt ): string {
+			$ts = $ymd ? strtotime( (string) $ymd . ' 00:00:00' ) : false;
+			return $ts ? (string) wp_date( $fmt, $ts ) : '';
+		};
+		$title = trim( (string) ( $rule['title'] ?? '' ) );
+		$text  = trim( $prompt );
+		$text .= ( '' !== $text ? "\n\n" : '' ) . '--- THE PROMOTION ---' . "\n"
+			. 'Title: ' . ( '' !== $title ? $title : __( 'Promotion', 'dazont-ecom' ) ) . "\n"
+			. 'Runs: ' . $day( $rule['start'] ?? '' ) . ' → ' . $day( $rule['end'] ?? '' );
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		DZE_Ai_Usage::unit( 'hero_image' );
+		try {
+			// The home page picture is the only reference, and the ratio is
+			// its own: this image is going to sit exactly where that one sits.
+			$url = $content->fal_generate( $text, [ $content->fal_source_data_uri( $source, 'full' ) ], 'auto' );
+		} finally {
+			DZE_Ai_Usage::unit();
+		}
+		DZE_Ai_Usage::finished( 'hero_image' );
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		$tmp = download_url( $url, 120 );
+		if ( is_wp_error( $tmp ) ) {
+			throw new RuntimeException( $tmp->get_error_message() );
+		}
+		$name = mb_substr( '' !== $title ? $title : __( 'Promotion', 'dazont-ecom' ), 0, 80 );
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$att  = $content->file_to_library(
+			(string) $tmp,
+			strtolower( (string) pathinfo( $path, PATHINFO_EXTENSION ) ),
+			sanitize_title( $name ),
+			$name
+		);
+		if ( ! $att ) {
+			throw new RuntimeException( __( 'The picture came back but could not be filed in the library.', 'dazont-ecom' ) );
+		}
+		return [
+			'id'  => (int) $att,
+			'url' => (string) ( wp_get_attachment_image_url( (int) $att, 'medium' ) ?: $url ),
+		];
+	}
+
+	/** The button beside the event picture. */
+	public function ajax_hero_image(): void {
+		check_ajax_referer( self::SAVE_NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		// Read from the FORM, not from storage: the picture is asked for while
+		// the promotion is being written, and a title typed a minute ago has
+		// not been saved yet.
+		$rule = [
+			'title' => isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '',
+			'start' => isset( $_POST['start'] ) ? sanitize_text_field( wp_unslash( $_POST['start'] ) ) : '',
+			'end'   => isset( $_POST['end'] ) ? sanitize_text_field( wp_unslash( $_POST['end'] ) ) : '',
+		];
+		$prompt = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::hero_prompt() : '';
+		try {
+			$made = self::make_hero_image( $rule, $prompt );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( $made );
 	}
 
 	public function swap_image_src( $image, $attachment_id, $size, $icon ) {
@@ -2013,6 +2184,9 @@ final class DZE_Discounts {
 				'translated'  => __( 'Written — check them, then save.', 'dazont-ecom' ),
 				'trFailed'    => __( 'Could not write them.', 'dazont-ecom' ),
 				'pickRows'    => __( 'Tick the promotions you mean first.', 'dazont-ecom' ),
+				'heroMaking'  => __( 'Making the picture… this takes about a minute.', 'dazont-ecom' ),
+				'heroDone'    => __( 'Made — check it, then save the event.', 'dazont-ecom' ),
+				'heroFailed'  => __( 'The picture could not be made.', 'dazont-ecom' ),
 				'error'    => __( 'Could not count.', 'dazont-ecom' ),
 				/* translators: 1: total matching, 2: number that will be discounted */
 				'result'    => __( '%1$s products match — the top %2$s will be discounted.', 'dazont-ecom' ),
@@ -2210,7 +2384,13 @@ final class DZE_Discounts {
 			// the ones it has.
 			'languages'         => self::languages_from( $in, (array) ( $rules[ $id ]['languages'] ?? [] ) ),
 			'hero_swap_enabled' => ! empty( $in['hero_swap_enabled'] ),
-			'hero_source_id'    => absint( $in['hero_source_id'] ?? 0 ),
+			// The image to replace is the shop's, not this promotion's: the
+			// field is gone from this screen, so what an older promotion
+			// recorded is kept rather than blanked by a save that never
+			// carried it.
+			'hero_source_id'    => array_key_exists( 'hero_source_id', $in )
+				? absint( $in['hero_source_id'] )
+				: absint( $rules[ $id ]['hero_source_id'] ?? 0 ),
 			'hero_event_id'     => absint( $in['hero_event_id'] ?? 0 ),
 		];
 

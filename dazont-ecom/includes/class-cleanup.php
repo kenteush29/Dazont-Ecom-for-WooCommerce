@@ -52,7 +52,7 @@ final class DZE_Cleanup {
 			'discounts' => [
 				'options'    => [ 'dze_discount_rules', 'dze_discount_exclusions', 'dze_sale_sync_queue' ],
 				'post_meta'  => [ '_dze_sale_rule', '_dze_sale_managed', '_dze_sale_prev', '_dze_price_prev', '_dze_sale_prev_from', '_dze_sale_prev_to' ],
-				'transients' => [ 'dze_discount_notice' ],
+				'transients' => [ 'dze_discount_notice', 'dze_hero_src' ],
 			],
 			'gmc' => [
 				'options'    => [ 'dze_gmc_credentials', 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only', 'dze_gmc_auto' ],

@@ -8,7 +8,7 @@ defined( 'ABSPATH' ) || exit;
  *
  * Three layers, from automatic to manual (the historical spreadsheet process,
  * brought into WordPress):
- *   1. Auto-mark (whole catalogue or one product): simple products and
+ *   1. Auto-mark, product by product: simple products and
  *      variable parents are enabled; variations with an ORIGINAL image are
  *      enabled (first of each distinct image, duplicates skipped); when no
  *      variation has an image, the first variation of each value of a
@@ -53,8 +53,6 @@ final class DZE_Gmc_Activation {
 		add_action( 'admin_footer', [ $this, 'footer_modal' ] );
 		add_action( 'wp_ajax_dze_gmca_save', [ $this, 'ajax_save' ] );
 		add_action( 'wp_ajax_dze_gmca_strategy', [ $this, 'ajax_strategy' ] );
-		// Catalogue-wide auto-mark (batched).
-		add_action( 'wp_ajax_dze_gmca_run', [ $this, 'ajax_run' ] );
 		// Products list: the GMC icon opens the same panel in a popup.
 		add_action( 'wp_ajax_dze_gmca_panel', [ $this, 'ajax_panel' ] );
 		add_action( 'admin_footer-edit.php', [ $this, 'list_modal' ] );
@@ -75,54 +73,11 @@ final class DZE_Gmc_Activation {
 
 	// =========================================================================
 	// WPML helpers — the activation flag is a PRODUCT decision, not a
-	// language decision: every write is mirrored to all translations, and the
-	// catalogue run walks original-language products only.
+	// language decision: every write is mirrored to all translations.
 	// =========================================================================
 
 	private static function wpml_active(): bool {
 		return defined( 'ICL_SITEPRESS_VERSION' );
-	}
-
-	/** Original-language published product ids (all products when WPML is absent). */
-	private static function original_product_ids( int $offset, int $limit ): array {
-		if ( self::wpml_active() ) {
-			global $wpdb;
-			return array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare(
-				"SELECT p.ID FROM {$wpdb->posts} p
-				 INNER JOIN {$wpdb->prefix}icl_translations t
-				 ON t.element_id = p.ID AND t.element_type = 'post_product'
-				 WHERE p.post_type = 'product' AND p.post_status = 'publish'
-				 AND t.source_language_code IS NULL
-				 ORDER BY p.ID ASC LIMIT %d OFFSET %d",
-				$limit,
-				$offset
-			) ) );
-		}
-		return get_posts( [
-			'post_type'      => 'product',
-			'post_status'    => 'publish',
-			'fields'         => 'ids',
-			'orderby'        => 'ID',
-			'order'          => 'ASC',
-			'posts_per_page' => $limit,
-			'offset'         => $offset,
-		] );
-	}
-
-	/** How many products the catalogue run will process (originals only). */
-	public static function original_count(): int {
-		if ( self::wpml_active() ) {
-			global $wpdb;
-			return (int) $wpdb->get_var(
-				"SELECT COUNT(p.ID) FROM {$wpdb->posts} p
-				 INNER JOIN {$wpdb->prefix}icl_translations t
-				 ON t.element_id = p.ID AND t.element_type = 'post_product'
-				 WHERE p.post_type = 'product' AND p.post_status = 'publish'
-				 AND t.source_language_code IS NULL"
-			);
-		}
-		$counts = wp_count_posts( 'product' );
-		return (int) ( $counts->publish ?? 0 );
 	}
 
 	// =========================================================================
@@ -686,35 +641,6 @@ final class DZE_Gmc_Activation {
 		<?php
 	}
 
-	/** Catalogue-wide auto-mark, batched (offset/limit) for large catalogues. */
-	public function ajax_run(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
-		}
-		$offset = isset( $_POST['offset'] ) ? absint( $_POST['offset'] ) : 0;
-		$limit  = 40;
-		if ( function_exists( 'set_time_limit' ) ) {
-			@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		}
-		// WPML: originals only — every flag write is mirrored to translations.
-		$ids = self::original_product_ids( $offset, $limit );
-		$marked = 0;
-		foreach ( $ids as $pid ) {
-			$product = wc_get_product( (int) $pid );
-			if ( $product ) {
-				self::auto_mark( $product );
-				$marked++;
-			}
-		}
-		wp_send_json_success( [
-			'processed' => count( $ids ),
-			'marked'    => $marked,
-			'offset'    => $offset + count( $ids ),
-			'done'      => count( $ids ) < $limit,
-		] );
-	}
-
 	// =========================================================================
 	// Settings tab (invoked from the Settings page)
 	// =========================================================================
@@ -723,7 +649,6 @@ final class DZE_Gmc_Activation {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		$total = self::original_count();
 		?>
 		<div class="dze-admin">
 		<p class="description" style="max-width:880px;">
@@ -737,50 +662,9 @@ final class DZE_Gmc_Activation {
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Special cases (e.g. a rug where only one size matches the photo) are refined product by product: "GMC activation" button in the Dazont Ecom box on the product page.', 'dazont-ecom' ); ?>
 			<?php if ( self::wpml_active() ) : ?>
-				<br /><strong>WPML:</strong> <?php esc_html_e( 'the run walks original-language products only, and every choice (automatic or manual) is copied to all translations — one decision per product, whatever the language.', 'dazont-ecom' ); ?>
+				<br /><strong>WPML:</strong> <?php esc_html_e( 'every choice is copied to all translations — one decision per product, whatever the language.', 'dazont-ecom' ); ?>
 			<?php endif; ?>
 		</p>
-		<hr />
-		<h2><?php esc_html_e( 'Mark the whole catalogue', 'dazont-ecom' ); ?></h2>
-		<p class="description"><?php printf( /* translators: %s: product count */ esc_html__( 'Applies the rules above to the %s products of the catalogue. Existing manual variation choices are overwritten — refine the tricky ones afterwards.', 'dazont-ecom' ), number_format_i18n( $total ) ); ?></p>
-		<p>
-			<button type="button" class="button button-primary" id="dze-gmca-runall"><?php esc_html_e( 'Run automatic marking', 'dazont-ecom' ); ?></button>
-		</p>
-		<div id="dze-gmca-bar" style="display:none;max-width:480px;height:10px;background:#e2e4e7;border-radius:5px;overflow:hidden;"><div id="dze-gmca-fill" style="height:100%;width:0;background:#2271b1;transition:width .3s;"></div></div>
-		<p id="dze-gmca-progress" class="description"></p>
-		<script>
-		jQuery( function ( $ ) {
-			var total = <?php echo (int) $total; ?>;
-			$( '#dze-gmca-runall' ).on( 'click', function () {
-				if ( ! window.confirm( '<?php echo esc_js( __( 'Apply the automatic marking to the whole catalogue? Manual variation choices will be overwritten.', 'dazont-ecom' ) ); ?>' ) ) { return; }
-				var $btn = $( this ).prop( 'disabled', true );
-				$( '#dze-gmca-bar' ).show();
-				var done = 0;
-				function step( offset ) {
-					$.post( window.ajaxurl, { action: 'dze_gmca_run', nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>', offset: offset } )
-						.done( function ( res ) {
-							if ( ! res || ! res.success ) {
-								$( '#dze-gmca-progress' ).text( ( res && res.data && res.data.message ) || 'Error' );
-								$btn.prop( 'disabled', false );
-								return;
-							}
-							done += res.data.processed;
-							$( '#dze-gmca-fill' ).css( 'width', Math.min( 100, total ? Math.round( 100 * done / total ) : 100 ) + '%' );
-							$( '#dze-gmca-progress' ).text( done + ' / ' + total );
-							if ( res.data.done ) {
-								$( '#dze-gmca-fill' ).css( 'width', '100%' );
-								$( '#dze-gmca-progress' ).text( '✓ ' + done + ' <?php echo esc_js( __( 'products marked.', 'dazont-ecom' ) ); ?>' );
-								$btn.prop( 'disabled', false );
-							} else {
-								step( res.data.offset );
-							}
-						} )
-						.fail( function () { $( '#dze-gmca-progress' ).text( 'Error' ); $btn.prop( 'disabled', false ); } );
-				}
-				step( 0 );
-			} );
-		} );
-		</script>
 		</div>
 		<?php
 	}

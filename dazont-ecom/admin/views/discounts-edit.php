@@ -355,25 +355,32 @@ $banner_location = (string) $e( 'banner_location', DZE_Discounts::default_locati
 			</table>
 
 			<h3><?php esc_html_e( 'Homepage image swap (big events)', 'dazont-ecom' ); ?></h3>
+			<?php
+			$hero_event_id   = (int) $e( 'hero_event_id', 0 );
+			$hero_event_url  = $hero_event_id ? wp_get_attachment_image_url( $hero_event_id, [ 80, 80 ] ) : '';
+			// What it replaces is the shop's home page picture, read from the
+			// home page itself and set once under Settings → Marketing events.
+			// It is shown here, not asked for here: it is the same for every
+			// promotion, and a copy of it on each one is a copy that drifts.
+			$hero_source_id  = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::hero_source() : 0;
+			$hero_source_url = $hero_source_id ? wp_get_attachment_image_url( $hero_source_id, [ 40, 40 ] ) : '';
+			?>
 			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Swap an image', 'dazont-ecom' ); ?></th>
-					<td><label><input type="checkbox" name="hero_swap_enabled" value="1" <?php checked( ! empty( $editing['hero_swap_enabled'] ) ); ?> /> <?php esc_html_e( 'Replace an image while this event is active (auto-reverts at the end)', 'dazont-ecom' ); ?></label></td>
-				</tr>
-				<?php
-				$hero_source_id  = (int) $e( 'hero_source_id', 0 );
-				$hero_event_id   = (int) $e( 'hero_event_id', 0 );
-				$hero_source_url = $hero_source_id ? wp_get_attachment_image_url( $hero_source_id, [ 80, 80 ] ) : '';
-				$hero_event_url  = $hero_event_id ? wp_get_attachment_image_url( $hero_event_id, [ 80, 80 ] ) : '';
-				?>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'Current image', 'dazont-ecom' ); ?></th>
-					<td class="dze-hero-picker" data-target="hero_source_id">
-						<input type="hidden" name="hero_source_id" value="<?php echo esc_attr( $hero_source_id ); ?>" />
-						<img class="dze-hero-preview" src="<?php echo esc_url( $hero_source_url ); ?>" alt="" style="<?php echo $hero_source_url ? '' : 'display:none;'; ?>width:80px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;vertical-align:middle;margin-right:8px;" />
-						<button type="button" class="button dze-hero-select"><?php esc_html_e( 'Select image', 'dazont-ecom' ); ?></button>
-						<button type="button" class="button-link dze-hero-clear" style="<?php echo $hero_source_url ? '' : 'display:none;'; ?>margin-left:6px;"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
-						<p class="description"><?php esc_html_e( 'The image currently displayed that you want to replace during the event.', 'dazont-ecom' ); ?></p>
+					<td>
+						<label><input type="checkbox" name="hero_swap_enabled" value="1" <?php checked( ! empty( $editing['hero_swap_enabled'] ) ); ?> /> <?php esc_html_e( 'Replace the home page picture while this event is active (auto-reverts at the end)', 'dazont-ecom' ); ?></label>
+						<p style="margin:6px 0 0;display:flex;align-items:center;gap:8px;">
+							<?php if ( $hero_source_url ) : ?>
+								<img src="<?php echo esc_url( $hero_source_url ); ?>" alt="" style="width:40px;height:40px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+							<?php endif; ?>
+							<span class="description">
+								<?php echo $hero_source_id
+									? esc_html__( 'The picture it replaces, read from your home page.', 'dazont-ecom' )
+									: esc_html__( 'No home page picture found — set one before this can swap anything.', 'dazont-ecom' ); ?>
+								<a href="<?php echo esc_url( admin_url( 'admin.php?page=dazont-ecom-ai&tab=events#dze-mai-hero' ) ); ?>"><?php esc_html_e( 'Change it', 'dazont-ecom' ); ?></a>
+							</span>
+						</p>
 					</td>
 				</tr>
 				<tr>
@@ -382,8 +389,17 @@ $banner_location = (string) $e( 'banner_location', DZE_Discounts::default_locati
 						<input type="hidden" name="hero_event_id" value="<?php echo esc_attr( $hero_event_id ); ?>" />
 						<img class="dze-hero-preview" src="<?php echo esc_url( $hero_event_url ); ?>" alt="" style="<?php echo $hero_event_url ? '' : 'display:none;'; ?>width:80px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;vertical-align:middle;margin-right:8px;" />
 						<button type="button" class="button dze-hero-select"><?php esc_html_e( 'Select image', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button" id="dze-hero-make"><?php esc_html_e( 'Generate event image', 'dazont-ecom' ); ?></button>
+						<?php
+						// The instructions that button follows, read and edited
+						// where it is pressed. They ship empty: what this
+						// picture looks like is the shop's to decide.
+						if ( class_exists( 'DZE_Prompts' ) ) {
+							DZE_Prompts::the_button( 'hero_image' );
+						}
+						?>
 						<button type="button" class="button-link dze-hero-clear" style="<?php echo $hero_event_url ? '' : 'display:none;'; ?>margin-left:6px;"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
-						<p class="description"><?php esc_html_e( 'The event image (e.g. Black Friday) shown instead for the duration. Media Library images only.', 'dazont-ecom' ); ?></p>
+						<span id="dze-hero-msg" class="description" style="margin-left:8px;"></span>
 					</td>
 				</tr>
 			</table>

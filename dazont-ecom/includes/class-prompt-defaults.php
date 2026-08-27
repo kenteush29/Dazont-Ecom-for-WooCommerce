@@ -100,7 +100,15 @@ final class DZE_Prompt_Defaults {
 
 	/** Is this an id we know how to answer for? */
 	public static function knows( string $id ): bool {
-		return '' !== $id && ( '' !== self::shipped( $id ) || self::has( $id ) );
+		if ( '' === $id ) {
+			return false;
+		}
+		// Registered is the question. A prompt can ship empty on purpose and
+		// still be one the shop is allowed to set its own default for.
+		if ( class_exists( 'DZE_Prompts' ) && DZE_Prompts::registered( $id ) ) {
+			return true;
+		}
+		return '' !== self::shipped( $id ) || self::has( $id );
 	}
 
 	/**

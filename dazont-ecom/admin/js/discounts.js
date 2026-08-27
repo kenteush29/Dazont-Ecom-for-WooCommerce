@@ -137,6 +137,38 @@
 		$(this).hide();
 	});
 
+	// ---- The picture that replaces the home page's own ----
+	// Asked for from the form as it stands: the title and the dates typed a
+	// minute ago have not been saved yet, and a picture made for last week's
+	// title is a picture made for nothing.
+	$(document).on('click', '#dze-hero-make', function () {
+		if (typeof dzeDiscounts === 'undefined') { return; }
+		var cfg = dzeDiscounts, $b = $(this), $msg = $('#dze-hero-msg'),
+			$cell = $(this).closest('.dze-hero-picker');
+		$b.prop('disabled', true);
+		$msg.css('color', '#646970').text(cfg.i18n.heroMaking);
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_hero_image',
+			nonce: cfg.nonce,
+			title: $('#dze-title').val() || '',
+			start: $('input[name="start"]').val() || '',
+			end: $('input[name="end"]').val() || ''
+		}).done(function (res) {
+			$b.prop('disabled', false);
+			if (!res || !res.success) {
+				$msg.css('color', '#b32d2e').text((res && res.data && res.data.message) || cfg.i18n.heroFailed);
+				return;
+			}
+			$cell.find('input[type=hidden]').val(res.data.id);
+			$cell.find('.dze-hero-preview').attr('src', res.data.url).show();
+			$cell.find('.dze-hero-clear').show();
+			$msg.css('color', '#0a7040').text(cfg.i18n.heroDone);
+		}).fail(function () {
+			$b.prop('disabled', false);
+			$msg.css('color', '#b32d2e').text(cfg.i18n.heroFailed);
+		});
+	});
+
 	// ---- The banner line in the shop's other languages ----
 	// Asked for on demand, shown in the fields, saved with the promotion like
 	// anything else typed on this screen.
