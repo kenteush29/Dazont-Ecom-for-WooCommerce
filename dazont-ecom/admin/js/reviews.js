@@ -100,7 +100,7 @@
 	// Generate = preview only. Nothing is written before "Push".
 	$(document).on('click', '.dze-rev-gen', function () {
 		var $box = $(this).closest('.dze-rev-box'), $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-rev-status').css('color', '#646970').html('<span class="dze-cx-spin"></span> ' + esc(i18n.working));
+		var $st = $box.find('.dze-rev-status').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span> ' + esc(i18n.working));
 		var $p = $box.find('.dze-rev-pwrap');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_reviews_generate', nonce: $box.data('nonce'),
@@ -110,12 +110,12 @@
 		})
 			.done(function (res) {
 				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
+				if (!res || !res.success) { $st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error); return; }
 				$st.text('');
 				drafts[$box.data('post')] = res.data.reviews;
 				renderDrafts($box);
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });
 	});
 
 	$(document).on('click', '.dze-rev-push', function () {
@@ -123,17 +123,17 @@
 		var list = drafts[id] || [];
 		if (!list.length) { return; }
 		var $btn = $(this).prop('disabled', true);
-		var $st = $box.find('.dze-rev-status').css('color', '#646970').html('<span class="dze-cx-spin"></span>');
+		var $st = $box.find('.dze-rev-status').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span>');
 		$.post(cfg.ajaxUrl, { action: 'dze_reviews_publish', nonce: $box.data('nonce'), post: id, reviews: list })
 			.done(function (res) {
 				$btn.prop('disabled', false);
-				if (!res || !res.success) { $st.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error); return; }
-				$st.css('color', '#0a7040').text(res.data.created + ' ' + (res.data.held ? i18n.pending : i18n.published));
+				if (!res || !res.success) { $st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error); return; }
+				$st.css('color', '#0a7040').removeClass('is-ko').text(res.data.created + ' ' + (res.data.held ? i18n.pending : i18n.published));
 				drafts[id] = [];
 				renderDrafts($box);
 				setCount(id, res.data.total);
 			})
-			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').text(i18n.error); });
+			.fail(function () { $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });
 	});
 
 	$(document).on('click', '.dze-rev-discard', function () {

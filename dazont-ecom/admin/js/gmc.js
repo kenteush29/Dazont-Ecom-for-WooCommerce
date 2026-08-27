@@ -13,12 +13,12 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_gmc_test', nonce: cfg.nonce })
 		.done(function (res) {
 			if (res.success) {
-				$status.css('color', '#0a7040').text('✓ ' + res.data.message);
+				$status.css('color', '#0a7040').removeClass('is-ko').text('✓ ' + res.data.message);
 			} else {
-				$status.css('color', '#b32d2e').text('✕ ' + ((res.data && res.data.message) || i18n.error));
+				$status.css('color', '#b32d2e').addClass('is-ko').text('✕ ' + ((res.data && res.data.message) || i18n.error));
 			}
 		})
-		.fail(function () { $status.css('color', '#b32d2e').text(i18n.error); })
+		.fail(function () { $status.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); })
 		.always(function () { $btn.prop('disabled', false); });
 	});
 
@@ -28,7 +28,7 @@
 		var $status = $btn.siblings('.dze-gmc-verify-status');
 		var mid     = ($('#' + $btn.data('target')).val() || '').replace(/[^0-9]/g, '');
 		if (!mid) {
-			$status.css('color', '#b32d2e').text('✕ ' + (i18n.error));
+			$status.css('color', '#b32d2e').addClass('is-ko').text('✕ ' + (i18n.error));
 			return;
 		}
 		$btn.prop('disabled', true);
@@ -36,12 +36,12 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_gmc_verify', nonce: cfg.nonce, merchant_id: mid })
 		.done(function (res) {
 			if (res.success) {
-				$status.css('color', '#0a7040').text('✓ ' + res.data.message);
+				$status.css('color', '#0a7040').removeClass('is-ko').text('✓ ' + res.data.message);
 			} else {
-				$status.css('color', '#b32d2e').text('✕ ' + ((res.data && res.data.message) || i18n.error));
+				$status.css('color', '#b32d2e').addClass('is-ko').text('✕ ' + ((res.data && res.data.message) || i18n.error));
 			}
 		})
-		.fail(function () { $status.css('color', '#b32d2e').text(i18n.error); })
+		.fail(function () { $status.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); })
 		.always(function () { $btn.prop('disabled', false); });
 	});
 
@@ -51,7 +51,7 @@
 		var $status = $btn.siblings('.dze-gmc-verify-status');
 		var mid     = ($('#' + $btn.data('target')).val() || '').replace(/[^0-9]/g, '');
 		if (!mid) {
-			$status.css('color', '#b32d2e').text('✕ ' + (i18n.error));
+			$status.css('color', '#b32d2e').addClass('is-ko').text('✕ ' + (i18n.error));
 			return;
 		}
 		$btn.prop('disabled', true);
@@ -59,12 +59,12 @@
 		$.post(cfg.ajaxUrl, { action: 'dze_gmc_register', nonce: cfg.nonce, merchant_id: mid })
 		.done(function (res) {
 			if (res.success) {
-				$status.css('color', '#0a7040').text('✓ ' + res.data.message);
+				$status.css('color', '#0a7040').removeClass('is-ko').text('✓ ' + res.data.message);
 			} else {
-				$status.css('color', '#b32d2e').text('✕ ' + ((res.data && res.data.message) || i18n.error));
+				$status.css('color', '#b32d2e').addClass('is-ko').text('✕ ' + ((res.data && res.data.message) || i18n.error));
 			}
 		})
-		.fail(function () { $status.css('color', '#b32d2e').text(i18n.error); })
+		.fail(function () { $status.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); })
 		.always(function () { $btn.prop('disabled', false); });
 	});
 
@@ -122,10 +122,10 @@
 						.closest('td').find('div').first().replaceWith('<div style="margin-bottom:3px;">' + badges[rid] + '</div>');
 				});
 			} else if ($feedback) {
-				$feedback.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error);
+				$feedback.css('color', '#b32d2e').addClass('is-ko').text((res.data && res.data.message) || i18n.error);
 			}
 		})
-		.fail(function () { if ($feedback) { $feedback.css('color', '#b32d2e').text(i18n.error); } });
+		.fail(function () { if ($feedback) { $feedback.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); } });
 	}
 
 	$(document).on('click', '.dze-gmc-sync-one', function (e) {
@@ -145,13 +145,13 @@
 	$(document).on('click', '#dze-gmc-promos', function () {
 		var $b = $(this), $m = $('#dze-gmc-promos-msg'), $out = $('#dze-gmc-promos-out');
 		$b.prop('disabled', true);
-		$m.css('color', '#646970').text(dzeGmc.i18n.reading);
+		$m.css('color', '#646970').removeClass('is-ko').text(dzeGmc.i18n.reading);
 		$out.empty();
 		$.post(dzeGmc.ajaxUrl, { action: 'dze_gmc_promotions', nonce: dzeGmc.nonce })
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || dzeGmc.i18n.error);
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || dzeGmc.i18n.error);
 					return;
 				}
 				$m.text('');
@@ -197,7 +197,7 @@
 			})
 			.fail(function () {
 				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').text(dzeGmc.i18n.error);
+				$m.css('color', '#b32d2e').addClass('is-ko').text(dzeGmc.i18n.error);
 			});
 	});
 
@@ -220,12 +220,12 @@
 					return;
 				}
 				$b.prop('disabled', false).text(dzeGmc.i18n.end);
-				$('#dze-gmc-promos-msg').css('color', '#b32d2e')
+				$('#dze-gmc-promos-msg').css('color', '#b32d2e').addClass('is-ko')
 					.text((res && res.data && res.data.message) || dzeGmc.i18n.error);
 			})
 			.fail(function () {
 				$b.prop('disabled', false).text(dzeGmc.i18n.end);
-				$('#dze-gmc-promos-msg').css('color', '#b32d2e').text(dzeGmc.i18n.error);
+				$('#dze-gmc-promos-msg').css('color', '#b32d2e').addClass('is-ko').text(dzeGmc.i18n.error);
 			});
 	});
 

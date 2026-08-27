@@ -58,6 +58,43 @@ final class DZE_Health {
 		add_action( 'wp_ajax_dze_health_run',   [ __CLASS__, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_health_clear', [ __CLASS__, 'ajax_clear' ] );
 		add_action( 'wp_ajax_dze_health_auto',  [ __CLASS__, 'ajax_auto' ] );
+		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_log_link' ] );
+	}
+
+	/**
+	 * The link from a failure to the log, on every screen of this plugin.
+	 *
+	 * Loaded where our own screens are — our pages, the product screens and
+	 * the product categories — and nowhere else: a shop page and the rest of
+	 * the admin have no failure of ours to explain.
+	 */
+	public static function enqueue_log_link( string $hook = '' ): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		$id     = $screen ? (string) $screen->id : '';
+		$ours   = false !== strpos( (string) $hook, 'dazont-ecom' )
+			|| false !== strpos( $id, 'dazont-ecom' )
+			|| in_array( $id, [ 'product', 'edit-product', 'edit-product_cat' ], true );
+		if ( ! $ours ) {
+			return;
+		}
+		wp_enqueue_script( 'dze-log-link', DZE_URL . 'admin/js/log-link.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-log-link', 'dzeLogLink', [
+			'url'   => self::log_url(),
+			'label' => __( 'see the log', 'dazont-ecom' ) . ' ↗',
+			'title' => __( 'What the service actually answered, when, and how often — in a new tab', 'dazont-ecom' ),
+		] );
+		wp_add_inline_style( 'common', '.dze-logl{margin-left:8px;font-size:11px;text-decoration:underline;white-space:nowrap;}' );
+	}
+
+	/** Where the failures are written down. */
+	public static function log_url(): string {
+		return add_query_arg(
+			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => 'health' ],
+			admin_url( 'admin.php' )
+		) . '#dze-health-log';
 	}
 
 	// =========================================================================
@@ -513,7 +550,7 @@ final class DZE_Health {
 			</tbody>
 		</table>
 
-		<h2 class="title" style="margin-top:26px;"><?php esc_html_e( 'What failed since last time', 'dazont-ecom' ); ?></h2>
+		<h2 class="title" id="dze-health-log" style="margin-top:26px;"><?php esc_html_e( 'What failed since last time', 'dazont-ecom' ); ?></h2>
 		<?php $log = self::entries(); ?>
 		<?php if ( ! $log ) : ?>
 			<p class="description"><?php esc_html_e( 'Nothing. A shop that works writes nothing here.', 'dazont-ecom' ); ?></p>
