@@ -445,11 +445,16 @@
 			el.value = el.value.split(cfg.pictureMark).join(url);
 		} else if (old && el.value.indexOf(old) !== -1) {
 			el.value = el.value.split(old).join(url);
-		} else if (!/<img\b/i.test(el.value || '')) {
-			// Only when the email has no photograph at all. Prepending one to a
-			// body that already has an image is how an email ends up with two,
-			// and that is exactly what happened when the marker was being eaten
-			// by the sanitiser and could not be found here.
+		} else if (el.value.indexOf(url) === -1) {
+			// Nothing to swap: the writing left no place for a picture, or the
+			// place it left has already been filled by another one. The
+			// picture goes at the top, which is where an opening picture goes.
+			//
+			// This used to happen ONLY when the email had no image at all, and
+			// a body with any image in it fell through every branch: "Use it in
+			// this email" then did nothing whatsoever, silently. Guarded on the
+			// URL itself instead, which is the real question — the same picture
+			// must not be added twice, another one may.
 			el.value = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
 				'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' + (el.value || '');
 		}
@@ -478,6 +483,7 @@
 				if (res && res.success) {
 					if (test) { showTest(res.data.url, res.data.full); }
 					else { setPicture(res.data.url); }
+					hosted = res.data.warning || '';
 				} else {
 					// No photograph: the email keeps its layout and loses its
 					// hole, rather than shipping a broken image. A test that
@@ -496,7 +502,7 @@
 
 	// A test picture is looked at, not filed: it is how a description is
 	// judged before an email is built on it.
-	var tested = '';
+	var tested = '', hosted = '';
 	function showTest(url, full) {
 		tested = url;
 		// data-full is what the plugin's zoom opens: the button is planted on
@@ -655,6 +661,7 @@
 		var $b = $(this), $m = $('#dze-klav-shot-msg');
 		makePicture($b, $m, '', function () {
 			$b.prop('disabled', false);
+			if (hosted) { $m.css('color', '#b26a00').removeClass('is-ko').text(hosted); return; }
 			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shotTest);
 		}, true);
 	});
