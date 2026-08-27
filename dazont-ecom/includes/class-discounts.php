@@ -769,7 +769,9 @@ final class DZE_Discounts {
 			// the filter is not even hung when it is set to leave the shop's
 			// own badge alone.
 			if ( 'saved' === self::badge_mode() ) {
-				add_filter( 'woocommerce_sale_flash', [ $this, 'saved_flash' ], 20, 3 );
+				// Late, so the theme has already produced its badge and this only
+				// rewrites the words inside it.
+				add_filter( 'woocommerce_sale_flash', [ $this, 'saved_flash' ], 99, 3 );
 			}
 			// Feed our discounted products into WooCommerce's on-sale product list so
 			// [products on_sale="true"], the On-Sale page and widgets include them.
@@ -1335,10 +1337,23 @@ final class DZE_Discounts {
 			? sprintf( __( 'Save up to %s', 'dazont-ecom' ), wc_price( $saved ) )
 			/* translators: %s: amount saved, e.g. $12.00 */
 			: sprintf( __( 'Save %s', 'dazont-ecom' ), wc_price( $saved ) );
-		// WooCommerce's own markup, to the letter: the theme dresses this badge
-		// and it must dress ours identically. A class of our own would be a
-		// second appearance to keep in step with the first.
-		return '<span class="onsale">' . wp_kses_post( $said ) . '</span>';
+		// ONLY the words change. Rebuilding the badge — even as WooCommerce's
+		// own <span class="onsale">Sale!</span> — throws away whatever the
+		// theme put around it or on it, and the badge came back a different
+		// shape: Astra dresses its own markup, not the markup WooCommerce
+		// ships. So the first piece of text inside what the theme produced is
+		// swapped, and every tag, class and attribute it wrote is left exactly
+		// as it was.
+		$out = preg_replace_callback(
+			'/>([^<>]*\S[^<>]*)</',
+			static fn( array $m ): string => '>' . $said . '<',
+			$html,
+			1,
+			$done
+		);
+		// A badge with no text in it at all — an icon, a background image — is
+		// not one we can rewrite. It keeps what it had rather than losing it.
+		return ( null !== $out && $done ) ? $out : $html;
 	}
 
 	/**
