@@ -4522,7 +4522,7 @@ final class DZE_Klaviyo {
 				<button type="button" class="button" id="dze-mail-new">+ <?php esc_html_e( 'Add an email', 'dazont-ecom' ); ?></button>
 				<span style="flex:1;"></span>
 				<button type="button" class="button" id="dze-mail-plan"><?php esc_html_e( 'Plan the campaign', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button button-primary" id="dze-mail-all"><?php esc_html_e( 'Write them all', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-primary" id="dze-mail-all"><?php esc_html_e( 'Generate them all', 'dazont-ecom' ); ?></button>
 				<?php
 				// The whole promotion, in one gesture, in date order. Klaviyo
 				// has no campaign that holds four emails sent on four days — a
@@ -4689,13 +4689,22 @@ final class DZE_Klaviyo {
 					</div>
 				<?php endif; ?>
 				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
-					<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Write the email', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button button-primary" id="dze-klav-e-write"><?php esc_html_e( 'Generate the email', 'dazont-ecom' ); ?></button>
 					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
 					<span style="flex:1;"></span>
 					<span class="dze-klav-switch">
 						<button type="button" class="button dze-klav-tab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
 					</span>
 				</p>
+				<?php
+				// The message belongs under the button that produces it. It used
+				// to be printed at the very bottom of the editor, past the
+				// preview — so "Writing and laying out the email…" answered a
+				// click that had happened a screen and a half further up, and
+				// the only way to see it was to scroll away from what you were
+				// looking at.
+				?>
+				<p style="margin:0 0 8px;"><span id="dze-klav-write-msg" style="font-size:13px;"></span></p>
 				<textarea id="dze-klav-e-body" rows="18" class="large-text code" style="display:none;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"></textarea>
 				<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;height:700px;border:1px solid #dcdcde;background:#fff;"></iframe>
 
