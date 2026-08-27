@@ -610,6 +610,40 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * Turns [[PRODUCT n]] into the shop's own product block.
+	 *
+	 * The writing never sees a card and never writes one: it says where a
+	 * product goes and the shop puts it there. That is what makes the card
+	 * unchangeable — a model cannot restyle HTML it was never given — and it
+	 * is also what keeps the answer short enough to come back whole. Handing
+	 * over nine ready-made blocks and asking for them back is several thousand
+	 * tokens of HTML travelling in both directions, and an answer cut off in
+	 * the middle is not an email.
+	 *
+	 * A marker pointing at a product that does not exist is removed rather
+	 * than left on screen: it is our syntax, not something a reader should
+	 * ever meet.
+	 *
+	 * @param string[] $cards The blocks, in the order the writing was shown them.
+	 */
+	public static function place_products( string $html, array $cards ): string {
+		// The guard has to be at least as forgiving as the pattern below, or a
+		// marker written with a space in it survives into the inbox.
+		if ( false === strpos( $html, '[[' ) ) {
+			return $html;
+		}
+		$cards = array_values( $cards );
+		return (string) preg_replace_callback(
+			'/\[\[\s*PRODUCT\s*(\d+)\s*\]\]/i',
+			static function ( array $m ) use ( $cards ): string {
+				$i = (int) $m[1] - 1;
+				return $cards[ $i ] ?? '';
+			},
+			$html
+		);
+	}
+
+	/**
 	 * One product card, in the shop's own style.
 	 *
 	 * The ONLY place a product is dressed. The email uses it, the settings
@@ -692,6 +726,12 @@ final class DZE_Klaviyo {
 			foreach ( [ 'included', 'excluded' ] as $id_field ) {
 				if ( array_key_exists( $id_field, $in ) ) {
 					$out[ $id_field ] = sanitize_text_field( (string) $in[ $id_field ] );
+				}
+				// The name travels with the id. Without it the screen has to
+				// ask Klaviyo what its own saved setting is called, and says
+				// "RpAZid" for twelve hours whenever the cache has expired.
+				if ( array_key_exists( $id_field . '_name', $in ) ) {
+					$out[ $id_field . '_name' ] = sanitize_text_field( (string) $in[ $id_field . '_name' ] );
 				}
 			}
 		}
@@ -868,6 +908,25 @@ final class DZE_Klaviyo {
 				'' !== $detail ? ' — ' . mb_substr( $detail, 0, 220 ) : ''
 			)
 		);
+	}
+
+	/**
+	 * What to call a chosen list, segment or template on screen.
+	 *
+	 * The account's own name for it when the cache holds one, the name saved
+	 * beside the choice when it does not, and only then the raw id. A screen
+	 * that answers "RpAZid" has not lost the setting, but it has lost the
+	 * owner, which comes to the same thing.
+	 */
+	public static function label_for( string $id, array $cat, string $remembered = '' ): string {
+		if ( '' === $id ) {
+			return '';
+		}
+		$known = (string) ( $cat['audiences'][ $id ] ?? ( $cat['templates'][ $id ] ?? '' ) );
+		if ( '' !== $known ) {
+			return $known;
+		}
+		return '' !== $remembered ? $remembered : $id;
 	}
 
 	/**
@@ -2222,10 +2281,7 @@ final class DZE_Klaviyo {
 				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
 				: "The shop returned no product. Write the email without a product.\n" );
 		if ( ! empty( $mat['cards'] ) ) {
-			$user .= "\nEach one is ALREADY BUILT, in the shop's own type and colour. Paste the block for a product exactly as it stands — do not restyle it, do not rewrite its link text, do not rebuild it from the lines above. How many you show, how they are grouped and where they go is yours; what one of them looks like is the shop's.\n\n";
-			foreach ( $mat['cards'] as $i => $card ) {
-				$user .= 'PRODUCT BLOCK ' . ( $i + 1 ) . ":\n" . $card . "\n\n";
-			}
+			$user .= "\nDo NOT build a product yourself. Write [[PRODUCT n]] on a line of its own where product n should appear — [[PRODUCT 1]], [[PRODUCT 2]] — and the shop drops its own block there, photograph, name, both prices and button, in its own type and colour. Put each one in its own table cell when you want them side by side. How many you show, how they are grouped and where they go is yours; what one of them looks like is the shop's.\n";
 		}
 		$user .= "\n--- THE SHOP'S OWN TYPE AND COLOUR ---\n"
 			. 'Headings font-family: ' . $t['head'] . "\n"
@@ -2243,7 +2299,7 @@ final class DZE_Klaviyo {
 			. "\n--- THE SHOP'S OWN RULES, WHICH OVERRIDE THE INSTRUCTIONS ABOVE ---\n"
 			. "- The header and the footer are added around your body. They ALREADY carry the shop's service promises — worldwide delivery, customer support, secure payment — as badges. Never write those promises in the body: not as a line, not as a reassurance, not as a closing sentence. The reader sees them once, under what you wrote.\n"
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
-			. "- Use the product blocks exactly as they were handed to you.\n"
+			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
@@ -2253,7 +2309,7 @@ final class DZE_Klaviyo {
 				'You write and lay out the promotional emails of an online shop. You answer with JSON only, and the body is email-ready HTML.',
 				$user,
 				'',
-				4000,
+				6000,
 				150
 			);
 		} finally {
@@ -2262,7 +2318,13 @@ final class DZE_Klaviyo {
 		$json = json_decode( trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
 		$body = is_array( $json ) ? (string) ( $json['body'] ?? '' ) : '';
 		if ( '' === trim( $body ) ) {
-			throw new RuntimeException( __( 'Nothing usable came back — try again.', 'dazont-ecom' ) );
+			// An answer that started well and stopped mid-sentence is a
+			// different problem from an empty one, and saying "try again" to
+			// both sends somebody round in circles.
+			$cut = '' !== trim( (string) $out ) && ! is_array( $json );
+			throw new RuntimeException( $cut
+				? __( 'The answer came back cut off, so it could not be read. Shorten the email prompt, or ask for fewer products, and try again.', 'dazont-ecom' )
+				: __( 'Nothing came back — try again.', 'dazont-ecom' ) );
 		}
 		[ $body, $warning ] = self::vouch( $body, $mat, $picture );
 
@@ -2270,7 +2332,7 @@ final class DZE_Klaviyo {
 		return [
 			'subject' => mb_substr( sanitize_text_field( (string) ( $json['subject'] ?? '' ) ), 0, 150 ),
 			'preview' => mb_substr( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ), 0, 150 ),
-			'body'    => self::clean_html( $body ),
+			'body'    => self::place_products( self::clean_html( $body ), $mat['cards'] ),
 			'warning' => $warning,
 			// What the picture should show, in the writing's own words. The
 			// browser asks for it next, as a call of its own — one long request
@@ -2851,6 +2913,9 @@ final class DZE_Klaviyo {
 			// screen. It is the very frame the email is sent inside.
 			'shell'    => self::preview_shell(),
 			'mark'     => self::BODY_MARK,
+			// The option name, so the browser can address the hidden fields
+			// that carry a choice's NAME beside its id.
+			'opt'      => self::OPT,
 			'pictureMark' => self::PICTURE_MARK,
 			'shopName' => get_bloginfo( 'name' ),
 			'sample'   => $config ? self::sample_body() : '',
@@ -3113,18 +3178,31 @@ final class DZE_Klaviyo {
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Answered once, used by every promotion.', 'dazont-ecom' ); ?>
 		</p>
+		<?php
+		// The list of everything in the account is a CACHE and it goes stale;
+		// the one thing chosen out of it is a SETTING and must not. So the
+		// name of each choice is remembered beside its id, and the screen
+		// reads the same whether the cache is warm or cold.
+		$dze_inc_name = self::label_for( $inc, $cat, (string) ( $s['included_name'] ?? '' ) );
+		$dze_exc_name = self::label_for( $exc, $cat, (string) ( $s['excluded_name'] ?? '' ) );
+		?>
 		<p>
 			<button type="button" class="button" id="dze-klav-refresh" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Read my Klaviyo account', 'dazont-ecom' ); ?></button>
 			<span id="dze-klav-refresh-msg" style="margin-left:8px;font-size:13px;">
 				<?php
-				if ( empty( $cat['audiences'] ) ) {
-					esc_html_e( 'Not read yet — press the button once and the two menus fill in.', 'dazont-ecom' );
-				} else {
+				if ( ! empty( $cat['audiences'] ) ) {
 					printf(
 						/* translators: %s: when the account was last read */
 						esc_html__( 'Last read %s ago.', 'dazont-ecom' ),
 						esc_html( human_time_diff( (int) ( $cat['read'] ?? time() ) ) )
 					);
+				} elseif ( '' !== $inc ) {
+					// Configured, but the account has not been re-read lately.
+					// Saying "not read yet" here reads as "nothing is set up"
+					// and sends somebody looking for settings that never left.
+					esc_html_e( 'Your choices below are saved. Press the button to list everything in the account again and change them.', 'dazont-ecom' );
+				} else {
+					esc_html_e( 'Not read yet — press the button once and the two menus fill in.', 'dazont-ecom' );
 				}
 				?>
 			</span>
@@ -3139,9 +3217,10 @@ final class DZE_Klaviyo {
 							<option value="<?php echo esc_attr( $id ); ?>" <?php selected( $id, $inc ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
 						<?php if ( '' !== $inc && ! isset( $cat['audiences'][ $inc ] ) ) : ?>
-							<option value="<?php echo esc_attr( $inc ); ?>" selected><?php echo esc_html( $inc ); ?></option>
+							<option value="<?php echo esc_attr( $inc ); ?>" selected><?php echo esc_html( $dze_inc_name ); ?></option>
 						<?php endif; ?>
 					</select>
+					<input type="hidden" name="<?php echo esc_attr( self::OPT . '[included_name]' ); ?>" value="<?php echo esc_attr( $dze_inc_name ); ?>" />
 					<p class="description"><?php esc_html_e( 'Normally all your contacts. Klaviyo serves each reader in his own language, so one campaign covers every market.', 'dazont-ecom' ); ?></p>
 				</td>
 			</tr>
@@ -3154,9 +3233,10 @@ final class DZE_Klaviyo {
 							<option value="<?php echo esc_attr( $id ); ?>" <?php selected( $id, $exc ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
 						<?php if ( '' !== $exc && ! isset( $cat['audiences'][ $exc ] ) ) : ?>
-							<option value="<?php echo esc_attr( $exc ); ?>" selected><?php echo esc_html( $exc ); ?></option>
+							<option value="<?php echo esc_attr( $exc ); ?>" selected><?php echo esc_html( $dze_exc_name ); ?></option>
 						<?php endif; ?>
 					</select>
+					<input type="hidden" name="<?php echo esc_attr( self::OPT . '[excluded_name]' ); ?>" value="<?php echo esc_attr( $dze_exc_name ); ?>" />
 					<p class="description" style="max-width:820px;margin-bottom:8px;">
 						<?php esc_html_e( 'Put your recent buyers here — a sale announced to somebody who paid full price three days ago earns a refund request. No segment for it yet?', 'dazont-ecom' ); ?>
 					</p>
@@ -3201,13 +3281,16 @@ final class DZE_Klaviyo {
 						<?php foreach ( $dze_tpls as $dze_id => $dze_name ) : ?>
 							<option value="<?php echo esc_attr( $dze_id ); ?>" <?php selected( $dze_pick, (string) $dze_id ); ?>><?php echo esc_html( $dze_name ); ?></option>
 						<?php endforeach; ?>
+						<?php if ( '' !== $dze_pick && ! isset( $dze_tpls[ $dze_pick ] ) ) : ?>
+							<option value="<?php echo esc_attr( $dze_pick ); ?>" selected><?php echo esc_html( self::label_for( $dze_pick, $cat, $dze_from ) ); ?></option>
+						<?php endif; ?>
 					</select>
 					<button type="button" class="button" id="dze-klav-take" style="margin-left:8px;"><?php esc_html_e( 'Read it', 'dazont-ecom' ); ?></button>
 					<input type="hidden" id="dze-klav-fid" name="<?php echo esc_attr( self::OPT . '[frame_id]' ); ?>" value="<?php echo esc_attr( $dze_pick ); ?>" />
 					<input type="hidden" id="dze-klav-fname" name="<?php echo esc_attr( self::OPT . '[frame_name]' ); ?>" value="<?php echo esc_attr( $dze_from ); ?>" />
 					<p class="description" id="dze-klav-tpl-hint">
 						<?php
-						if ( ! $dze_tpls ) {
+						if ( '' === $dze_from && ! $dze_tpls ) {
 							esc_html_e( 'Press "Read my Klaviyo account" above to list your templates.', 'dazont-ecom' );
 						} elseif ( '' !== $dze_from && $dze_when ) {
 							printf(
