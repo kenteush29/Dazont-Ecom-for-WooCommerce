@@ -4991,6 +4991,7 @@ Answer with STRICT JSON and nothing else: "
 			'paste'      => __( 'Paste an image here (Ctrl+V), drop files, or', 'dazont-ecom' ),
 			'upload'     => __( 'Upload', 'dazont-ecom' ),
 			'addMore'    => __( 'Add another', 'dazont-ecom' ),
+			'more'       => __( 'paste another (Ctrl+V) or drop it here', 'dazont-ecom' ),
 			'added1'     => __( '1 image added', 'dazont-ecom' ),
 			/* translators: %s: number of images added */
 			'addedN'     => __( '%s images added', 'dazont-ecom' ),
