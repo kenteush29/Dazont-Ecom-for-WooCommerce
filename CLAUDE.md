@@ -167,6 +167,13 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
+- **`php tools/check-prompts.php dazont-ecom` must pass too.** Every prompt
+  offered a "Make this the default" control has to be answerable by the
+  prompt registry: `DZE_Prompt_Defaults::control()` draws NOTHING for an id
+  it does not know, so a prompt registered in one list and not the other
+  loses its star in silence — the screen still shows "Restore default", so
+  nothing looks broken, and the owner simply cannot make his own text the
+  default. `promo_email` and `promo_i18n` sat like that.
 - Lint every file AND exercise every ENTRY POINT of what changed — the render,
   the enqueue, the ajax handler, the sanitizer. A class that loads is not a
   screen that works, and the path nobody ran is the path that is broken.
