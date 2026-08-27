@@ -377,7 +377,6 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 						foreach ( $loc_choices as $key => $label ) : ?>
 							<label style="display:block;margin-bottom:4px;"><input type="radio" name="banner_location" value="<?php echo esc_attr( $key ); ?>" <?php checked( $banner_location, $key ); ?> class="dze-banner-loc" /> <?php echo esc_html( $label ); ?></label>
 						<?php endforeach; ?>
-						<p class="description"><?php esc_html_e( 'Pick one location. “Below the header” uses the Astra astra_header_after hook.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr class="dze-field-product-position">
@@ -483,7 +482,6 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 		?>
 		<?php if ( $is_events && class_exists( 'DZE_Gmc' ) && DZE_Gmc::instance()->is_configured() ) : ?>
 			<button type="submit" name="push_gmc" value="1" class="button" style="margin-left:6px;"><?php esc_html_e( 'Save & Push to GMC', 'dazont-ecom' ); ?></button>
-			<p class="description" style="margin-top:6px;"><?php esc_html_e( 'Pushes this event to every configured Merchant Center country/language after saving.', 'dazont-ecom' ); ?></p>
 		<?php endif; ?>
 	</form>
 </div>

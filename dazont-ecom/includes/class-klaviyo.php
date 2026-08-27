@@ -2939,7 +2939,7 @@ final class DZE_Klaviyo {
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
-				'dropMail' => __( 'Remove this email from the promotion? What was written for it is lost when you save.', 'dazont-ecom' ),
+				'dropMail' => __( 'Remove this email? What was written for it is lost when you save.', 'dazont-ecom' ),
 				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
@@ -3004,31 +3004,29 @@ final class DZE_Klaviyo {
 		$emails = self::emails_for( $rule_id, $rule );
 		$kinds  = self::kinds();
 		$fmt    = get_option( 'date_format' ) ?: 'Y-m-d';
-		$first  = '';
+		$first  = (string) ( array_key_first( $emails ) ?? '' );
+		// The day each moment would fall on for THIS promotion, so a new email
+		// gets a sensible date the instant it is created rather than after a
+		// round trip.
+		$when_for = [];
 		foreach ( $kinds as $kind => $meta ) {
-			if ( isset( $emails[ $kind ] ) && '' === $first ) {
-				$first = $kind;
-			}
+			$when_for[ $kind ] = self::default_when( $kind, $rule );
 		}
 		?>
 		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
-		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'One promotion, several emails. Each is saved by the Save button at the bottom of this page, and sent to Klaviyo as a draft — never sent from here.', 'dazont-ecom' ); ?>
-		</p>
 
-		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>">
+		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>">
 			<div class="dze-mail-list">
-				<?php foreach ( $kinds as $kind => $meta ) :
-					$has  = isset( $emails[ $kind ] );
-					$mail = (array) ( $emails[ $kind ] ?? [] );
-					$when = (string) ( $mail['when'] ?? self::default_when( $kind, $rule ) );
-					$ts   = strtotime( str_replace( 'T', ' ', $when ) );
+				<?php foreach ( $emails as $mail_id => $mail ) :
+					$kind = (string) ( $mail['kind'] ?? 'launch' );
+					$when = (string) ( $mail['when'] ?? $when_for[ $kind ] ?? '' );
+					$ts   = strtotime( $when );
 					?>
-					<div class="dze-mail<?php echo $has ? '' : ' is-empty'; ?>" data-kind="<?php echo esc_attr( $kind ); ?>">
+					<div class="dze-mail" data-id="<?php echo esc_attr( $mail_id ); ?>">
 						<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 						<div class="dze-mail-what">
-							<strong><?php echo esc_html( $meta['label'] ); ?></strong>
-							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $meta['when'] ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
+							<strong class="dze-mail-kind"><?php echo esc_html( (string) ( $kinds[ $kind ]['label'] ?? $kind ) ); ?></strong>
+							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
 						</div>
 						<div class="dze-mail-state">
@@ -3039,24 +3037,52 @@ final class DZE_Klaviyo {
 							<?php endif; ?>
 						</div>
 						<div class="dze-mail-act">
-							<?php if ( $has ) : ?>
-								<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Open', 'dazont-ecom' ); ?></button>
-								<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email from the promotion', 'dazont-ecom' ); ?>">&times;</button>
-							<?php else : ?>
-								<button type="button" class="button button-small dze-mail-add"><?php esc_html_e( 'Add', 'dazont-ecom' ); ?></button>
-							<?php endif; ?>
+							<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Open', 'dazont-ecom' ); ?></button>
+							<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
 						</div>
 						<?php // Every email keeps its fields in the form, so ONE Save keeps them all. ?>
-						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $kind ); ?>][exists]" value="<?php echo $has ? '1' : ''; ?>" />
-						<input type="hidden" name="dze_email[<?php echo esc_attr( $kind ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
-						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $kind ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
-						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $kind ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
-						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $kind ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
-						<input type="hidden" class="dze-f-when" name="dze_email[<?php echo esc_attr( $kind ); ?>][when]" value="<?php echo esc_attr( $when ); ?>" />
-						<textarea class="dze-f-body" name="dze_email[<?php echo esc_attr( $kind ); ?>][body]" style="display:none;"><?php echo esc_textarea( (string) ( $mail['body'] ?? '' ) ); ?></textarea>
+						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][exists]" value="1" />
+						<input type="hidden" class="dze-f-kind" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
+						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
+						<input type="hidden" class="dze-f-when" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][when]" value="<?php echo esc_attr( $when ); ?>" />
+						<textarea class="dze-f-body" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][body]" style="display:none;"><?php echo esc_textarea( (string) ( $mail['body'] ?? '' ) ); ?></textarea>
 					</div>
 				<?php endforeach; ?>
 			</div>
+
+			<p style="margin:10px 0 0;">
+				<button type="button" class="button" id="dze-mail-new">+ <?php esc_html_e( 'Add an email', 'dazont-ecom' ); ?></button>
+			</p>
+
+			<?php
+			// The row a new email is made from. It is the SAME markup as the
+			// rows above — one template, so a field added to an email cannot be
+			// added to four rows and forgotten on the fifth.
+			?>
+			<script type="text/template" id="dze-mail-blank">
+				<div class="dze-mail" data-id="__ID__">
+					<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
+					<div class="dze-mail-what">
+						<strong class="dze-mail-kind"></strong>
+						<span class="dze-mail-when"><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
+						<span class="dze-mail-subject"></span>
+					</div>
+					<div class="dze-mail-state"></div>
+					<div class="dze-mail-act">
+						<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Open', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
+					</div>
+					<input type="hidden" class="dze-f-exists" name="dze_email[__ID__][exists]" value="1" />
+					<input type="hidden" class="dze-f-kind" name="dze_email[__ID__][kind]" value="launch" />
+					<input type="hidden" class="dze-f-picture" name="dze_email[__ID__][picture]" value="" />
+					<input type="hidden" class="dze-f-subject" name="dze_email[__ID__][subject]" value="" />
+					<input type="hidden" class="dze-f-preview" name="dze_email[__ID__][preview]" value="" />
+					<input type="hidden" class="dze-f-when" name="dze_email[__ID__][when]" value="" />
+					<textarea class="dze-f-body" name="dze_email[__ID__][body]" style="display:none;"></textarea>
+				</div>
+			</script>
 
 			<div id="dze-mail-edit" style="<?php echo '' === $first ? 'display:none;' : ''; ?>">
 				<h4 id="dze-mail-title" style="margin:18px 0 6px;"></h4>
@@ -3070,6 +3096,20 @@ final class DZE_Klaviyo {
 						<td><input type="text" id="dze-klav-e-preview" class="large-text" /></td>
 					</tr>
 					<tr>
+						<th scope="row"><label for="dze-klav-e-kind"><?php esc_html_e( 'Moment', 'dazont-ecom' ); ?></label></th>
+						<td>
+							<?php // Which of the promotion's moments this email is. It
+							// decides how the writing is briefed, and it is a FIELD
+							// rather than a slot, so a promotion can carry two
+							// reminders, three, or no warm-up at all. ?>
+							<select id="dze-klav-e-kind">
+								<?php foreach ( $kinds as $dze_k => $dze_meta ) : ?>
+									<option value="<?php echo esc_attr( $dze_k ); ?>"><?php echo esc_html( $dze_meta['label'] . ' — ' . $dze_meta['when'] ); ?></option>
+								<?php endforeach; ?>
+							</select>
+						</td>
+					</tr>
+					<tr>
 						<th scope="row"><label for="dze-klav-e-when"><?php esc_html_e( 'Sends on', 'dazont-ecom' ); ?></label></th>
 						<td>
 							<?php // The day is the shop's decision; the hour is Klaviyo's. ?>
@@ -3081,7 +3121,6 @@ final class DZE_Klaviyo {
 							</span>
 							<button type="button" class="button-link" id="dze-klav-hours" style="margin-left:10px;"><?php esc_html_e( 'Which days work best?', 'dazont-ecom' ); ?></button>
 							<div id="dze-klav-hours-out" style="display:none;margin:8px 0 0;"></div>
-							<p class="description"><?php esc_html_e( 'Nothing goes out until you press send in Klaviyo.', 'dazont-ecom' ); ?></p>
 						</td>
 					</tr>
 				</table>
@@ -3113,7 +3152,6 @@ final class DZE_Klaviyo {
 				.dze-mail{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid #f0f0f1;}
 				.dze-mail:last-child{border-bottom:0;}
 				.dze-mail.is-on{background:#f6f7f7;box-shadow:inset 3px 0 0 #2271b1;}
-				.dze-mail.is-empty{opacity:.55;}
 				.dze-mail-thumb{width:76px;height:56px;flex:0 0 76px;border:1px solid #e6e6e6;background:#fff;overflow:hidden;position:relative;}
 				.dze-mail-thumb iframe{position:absolute;top:0;left:0;width:600px;height:440px;border:0;transform:scale(.1266);transform-origin:0 0;pointer-events:none;}
 				.dze-mail-what{flex:1;min-width:0;}
@@ -3196,12 +3234,7 @@ final class DZE_Klaviyo {
 						esc_html__( 'Last read %s ago.', 'dazont-ecom' ),
 						esc_html( human_time_diff( (int) ( $cat['read'] ?? time() ) ) )
 					);
-				} elseif ( '' !== $inc ) {
-					// Configured, but the account has not been re-read lately.
-					// Saying "not read yet" here reads as "nothing is set up"
-					// and sends somebody looking for settings that never left.
-					esc_html_e( 'Your choices below are saved. Press the button to list everything in the account again and change them.', 'dazont-ecom' );
-				} else {
+				} elseif ( '' === $inc ) {
 					esc_html_e( 'Not read yet — press the button once and the two menus fill in.', 'dazont-ecom' );
 				}
 				?>
