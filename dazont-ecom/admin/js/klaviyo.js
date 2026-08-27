@@ -137,7 +137,6 @@
 	// What the writing said the picture should show, kept until somebody asks
 	// for it. Cleared when another email is opened: a description belongs to
 	// the email it was written for.
-	var idea = '';
 
 	function card(id)     { return $('.dze-mail[data-id="' + id + '"]'); }
 	function ruleId()     { return $('#dze-klav-editor').data('rule'); }
@@ -209,7 +208,6 @@
 		var $c = card(current), kind = $('#dze-klav-e-type').val() || '', name = typeName(kind);
 		$c.find('.dze-f-kind').val(kind);
 		$c.find('.dze-f-want').val($('#dze-klav-e-want').is(':checked') ? '1' : '0');
-		$c.find('.dze-f-idea').val($('#dze-klav-e-idea').val() || '');
 		$c.find('.dze-f-subject').val($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-f-preview').val($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
@@ -220,7 +218,7 @@
 		$('#dze-mail-title').text($c.find('.dze-mail-name').text());
 		thumb(current);
 	}
-	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-idea, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
+	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 
 	// Choosing the type also sets the day it falls on, from the type's own
 	// rule. A day changed afterwards stays changed — nothing here runs again
@@ -255,10 +253,9 @@
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
 		body().val($c.find('.dze-f-body').val() || '');
 		$('#dze-klav-e-msg').text('');
-		// The picture bench belongs to the email that is open: what it should
-		// show, and whether the next writing makes it.
-		idea = $c.find('.dze-f-idea').val() || '';
-		$('#dze-klav-e-idea').val(idea);
+		// The picture bench belongs to the email that is open: whether the
+		// next writing makes its picture. WHAT the picture shows is one prompt
+		// for the shop, not a sentence per email.
 		$('#dze-klav-e-want').prop('checked', '1' === ($c.find('.dze-f-want').val() || '0'));
 		$('#dze-klav-shot-out').hide();
 		$('#dze-klav-shot-msg').text('').removeClass('is-ko');
@@ -547,16 +544,15 @@
 				// illustrate. The description is kept for the button beside
 				// this one, and the screen says it is waiting.
 				if (res.data.picture) {
-					// What the writing decided the picture should show. A
-					// description typed on the bench is the shop's and is not
-					// overwritten by it.
-					idea = res.data.picture;
-					if (!$.trim($('#dze-klav-e-idea').val() || '')) { $('#dze-klav-e-idea').val(idea); }
-					commit();
+					// The email left a place for a picture. What that picture
+					// shows is the shop's own picture prompt, not a sentence
+					// this writing came up with — so there is nothing to carry
+					// from here but the fact that a place exists.
 					if ($('#dze-klav-e-want').is(':checked')) {
-						// Ready: the real picture is made in the same pass, and
-						// lands in the email.
-						makePicture($('#dze-klav-e-shot'), $m, $.trim($('#dze-klav-e-idea').val() || '') || idea, function () {
+						// Ready: the real picture is made in the same pass,
+						// AFTER the email — so the picture prompt is given what
+						// this email turned out to be, and its subject line.
+						makePicture($('#dze-klav-e-shot'), $m, '', function () {
 							$('#dze-klav-e-shot').prop('disabled', false);
 							$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
 							view('view');
@@ -656,7 +652,7 @@
 	// edit right here, none of them touching the email.
 	$(document).on('click', '#dze-klav-e-shot', function () {
 		var $b = $(this), $m = $('#dze-klav-shot-msg');
-		makePicture($b, $m, $.trim($('#dze-klav-e-idea').val() || '') || idea, function () {
+		makePicture($b, $m, '', function () {
 			$b.prop('disabled', false);
 			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shotTest);
 		}, true);
