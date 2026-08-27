@@ -379,8 +379,8 @@
 								'<details class="dze-cx-acc dze-cx-else">' +
 									'<summary>' + esc(i18n.stepElse) + '</summary>' +
 									'<div id="dze-cx-else"></div>' +
-									'<label class="dze-one-withprod"><input type="checkbox" id="dze-cx-basemain" /> ' +
-										esc(i18n.baseMain) + '</label>' +
+									'<label class="dze-basemain" title="' + esc(i18n.baseMainTip) + '">' +
+										'<input type="checkbox" id="dze-cx-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
 								'</details>' +
 							'</div>' +
 						'</div>' : '')
@@ -1402,8 +1402,8 @@
 					// on its own — what you added became the thing to
 					// photograph — so there was no way to say "keep this
 					// product, exactly this one, and put it in that scene".
-					'<label class="dze-one-withprod"><input type="checkbox" id="dze-one-basemain" /> ' +
-						esc(i18n.baseMain) + '</label>' +
+					'<label class="dze-basemain" title="' + esc(i18n.baseMainTip) + '">' +
+						'<input type="checkbox" id="dze-one-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
 				'</div>' +
 			'</div>' +
 
