@@ -2227,7 +2227,17 @@ final class DZE_Discounts {
 			}
 		}
 
-		$rules[ $id ] = $rule;
+		// MERGED onto what is stored, never substituted for it. This array is
+		// built from the form, and a promotion carries things no form ever
+		// shows: gmc_sync — the record of which Merchant Center accounts hold
+		// this promotion and under which id — is the one that matters. Rebuilt
+		// from scratch, every save of a promotion threw that record away, so
+		// the sync dots went blank on a promotion Google was really running,
+		// and cancel_rule(), which walks exactly those records to take a
+		// promotion down, had nothing left to walk: deleting the promotion
+		// stopped reaching Google at all. The form's fields win; everything
+		// else stays.
+		$rules[ $id ] = array_merge( (array) ( $rules[ $id ] ?? [] ), $rule );
 		self::save_rules( $rules );
 		$this->queue_sale_sync();
 		self::schedule_i18n( $id );
