@@ -72,8 +72,10 @@
 	// a result you cannot trace back to a prompt is a result you cannot fix.
 	function promptBtn(id) {
 		if (!id) { return ''; }
+		// The same button, with the same word on it, as every other prompt in
+		// the plugin: a lone pencil is a symbol you have to learn.
 		return '<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(id) +
-			'" title="' + esc(i18n.promptTip) + '">&#9998;</button>';
+			'" title="' + esc(i18n.promptTip) + '">&#9998; ' + esc(i18n.promptWord) + '</button>';
 	}
 
 	function tplUsed() {

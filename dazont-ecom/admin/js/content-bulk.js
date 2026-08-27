@@ -648,7 +648,7 @@
 					'<button type="button" class="button button-small dze-cb-now" data-field="' + fid + '" title="' + esc(i18n.compareHelp) + '">' + esc(i18n.compare) + '</button>' +
 					'<button type="button" class="button button-small dze-cb-redo" data-field="' + fid + '" title="' + esc(i18n.redoOne) + '">↻ ' + esc(i18n.redoShort) + '</button>' +
 					// The instructions this text came out of, one click away.
-					'<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(fid) + '" title="' + esc(i18n.promptTip) + '">&#9998;</button>' +
+					'<button type="button" class="dze-prompt-peek" data-prompt="content_' + esc(fid) + '" title="' + esc(i18n.promptTip) + '">&#9998; ' + esc(i18n.promptWord) + '</button>' +
 				'</div>' +
 				'<div class="dze-cb-fbody" style="display:none;"></div>' +
 			'</div>';

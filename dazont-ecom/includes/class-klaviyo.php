@@ -3600,8 +3600,10 @@ final class DZE_Klaviyo {
 			$name
 		);
 		return [
-			'id'  => (int) $att,
-			'url' => (string) ( wp_get_attachment_image_url( (int) $att, 'large' ) ?: $url ),
+			'id'   => (int) $att,
+			'url'  => (string) ( wp_get_attachment_image_url( (int) $att, 'large' ) ?: $url ),
+			// What the zoom opens: judging a photograph is done full size.
+			'full' => (string) ( wp_get_attachment_image_url( (int) $att, 'full' ) ?: $url ),
 		];
 	}
 
@@ -3623,7 +3625,7 @@ final class DZE_Klaviyo {
 		if ( ! $test ) {
 			self::keep_picture( $rule_id, $email_id, $made['url'] );
 		}
-		wp_send_json_success( [ 'url' => $made['url'], 'test' => $test ] );
+		wp_send_json_success( [ 'url' => $made['url'], 'full' => (string) ( $made['full'] ?? $made['url'] ), 'test' => $test ] );
 	}
 
 	// =========================================================================
@@ -3929,6 +3931,16 @@ final class DZE_Klaviyo {
 		// The logo and the event image are picked in the media library, so its
 		// own script has to be there.
 		wp_enqueue_media();
+		// The plugin's own zoom, so a test picture is judged full size like
+		// every other image it makes.
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
+			'zoom'  => __( 'See this image full size', 'dazont-ecom' ),
+			'close' => __( 'Close', 'dazont-ecom' ),
+			'prev'  => __( 'Previous image', 'dazont-ecom' ),
+			'next'  => __( 'Next image', 'dazont-ecom' ),
+		] );
 		wp_enqueue_script( 'dze-klaviyo', DZE_URL . 'admin/js/klaviyo.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-klaviyo', 'dzeKlav', [
 			'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
@@ -4206,15 +4218,25 @@ final class DZE_Klaviyo {
 							// edited where it is pressed: read the result,
 							// correct the prompt, press again.
 							if ( class_exists( 'DZE_Prompts' ) ) {
-								DZE_Prompts::the_button( 'promo_email_img', __( 'the picture prompt', 'dazont-ecom' ) );
+								// The same pencil as everywhere else, with the
+								// same word on it: one gesture, one wording.
+								DZE_Prompts::the_button( 'promo_email_img' );
 							}
 							?>
 							<span id="dze-klav-shot-msg" class="description"></span>
 						</p>
 						<p id="dze-klav-shot-out" style="display:none;align-items:center;gap:10px;margin:8px 0 0;">
-							<img id="dze-klav-shot-img" src="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+							<?php
+							// The zoom every other strip in the plugin uses: a
+							// button planted on the thumbnail itself, opening
+							// it full size. A link beside the picture was a
+							// second way of doing the one thing this plugin
+							// already does one way.
+							?>
+							<span class="dze-zoomgroup" style="position:relative;display:inline-block;line-height:0;">
+								<img id="dze-klav-shot-img" src="" data-full="" alt="" style="width:120px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+							</span>
 							<button type="button" class="button button-small" id="dze-klav-e-usepic"><?php esc_html_e( 'Use it in this email', 'dazont-ecom' ); ?></button>
-							<a href="#" id="dze-klav-shot-full" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Full size ↗', 'dazont-ecom' ); ?></a>
 						</p>
 					</div>
 				<?php endif; ?>
