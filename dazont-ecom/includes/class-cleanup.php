@@ -50,7 +50,7 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_trending_' ],
 			],
 			'discounts' => [
-				'options'    => [ 'dze_discount_rules', 'dze_discount_exclusions', 'dze_sale_sync_queue' ],
+				'options'    => [ 'dze_discount_rules', 'dze_discount_exclusions', 'dze_sale_sync_queue', 'dze_discount_badge' ],
 				'post_meta'  => [ '_dze_sale_rule', '_dze_sale_managed', '_dze_sale_prev', '_dze_price_prev', '_dze_sale_prev_from', '_dze_sale_prev_to' ],
 				'transients' => [ 'dze_discount_notice', 'dze_hero_src' ],
 			],

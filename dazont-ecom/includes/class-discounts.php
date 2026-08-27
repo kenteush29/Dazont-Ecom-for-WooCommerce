@@ -74,6 +74,9 @@ final class DZE_Discounts {
 	/** Global "never discount" list, applied to EVERY promotion. */
 	public const OPT_EXCLUSIONS = 'dze_discount_exclusions';
 
+	/** What the corner badge says on a product page: 'saved' or 'sale'. */
+	public const OPT_BADGE = 'dze_discount_badge';
+
 	// Sale-price materialisation (writes native _sale_price into product data so
 	// weekly feeds/exports — e.g. GMC — pick promotions up).
 	public const SYNC_HOOK        = 'dze_sale_sync';
@@ -105,6 +108,19 @@ final class DZE_Discounts {
 
 	private function __construct() {
 		if ( is_admin() ) {
+			// Registered by the module itself: switched off, the setting is not
+			// registered, its tab is not drawn, and nothing of it remains.
+			add_action( 'admin_init', static function (): void {
+				register_setting( 'dze_discount_display_options', self::OPT_BADGE, [
+					'type'              => 'string',
+					'sanitize_callback' => static fn( $v ): string => 'saved' === $v ? 'saved' : 'sale',
+					// Autoloaded on purpose, like the price ending: the badge
+					// filter reads it on a product page, and a non-autoloaded
+					// row would cost an extra query there. It is five letters.
+					'autoload'          => true,
+					'default'           => 'saved',
+				] );
+			} );
 			add_action( 'admin_menu',            [ $this, 'register_menu' ] );
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 			add_action( 'admin_post_dze_discount_save',   [ $this, 'handle_save' ] );
@@ -738,10 +754,14 @@ final class DZE_Discounts {
 			// Make sure the struck-through "on sale" price + Sale! badge actually
 			// render for our dynamic discount (WooCommerce only knows native sales).
 			add_filter( 'woocommerce_product_is_on_sale',           [ $this, 'filter_is_on_sale' ], 20, 2 );
-			// And that badge says the only thing a shopper wants from it: how
-			// much this product saves him today. "Sale!" is a claim; a figure
-			// is a reason.
-			add_filter( 'woocommerce_sale_flash', [ $this, 'saved_flash' ], 20, 3 );
+			// And that badge can say the only thing a shopper wants from it:
+			// how much this product saves him today. "Sale!" is a claim; a
+			// figure is a reason. Settings → Discounts → General decides, and
+			// the filter is not even hung when it is set to leave the shop's
+			// own badge alone.
+			if ( 'saved' === self::badge_mode() ) {
+				add_filter( 'woocommerce_sale_flash', [ $this, 'saved_flash' ], 20, 3 );
+			}
 			// Feed our discounted products into WooCommerce's on-sale product list so
 			// [products on_sale="true"], the On-Sale page and widgets include them.
 			add_filter( 'transient_wc_products_onsale',             [ $this, 'filter_onsale_ids' ] );
@@ -1212,8 +1232,54 @@ final class DZE_Discounts {
 	 * @param mixed      $product The product the badge belongs to.
 	 * @return string
 	 */
+	/**
+	 * The general settings of everything this module does to the shop.
+	 *
+	 * One screen for the decisions that are not a promotion — what the corner
+	 * badge says, and, beside it, the price ending every computed price lands
+	 * on. They were scattered between a tab about API keys and nowhere at all;
+	 * a shop looking for "how my discounts behave" now has one place to look.
+	 */
+	public static function render_general_settings(): void {
+		$mode = self::badge_mode();
+		?>
+		<h2><?php esc_html_e( 'The badge on a product', 'dazont-ecom' ); ?></h2>
+		<form method="post" action="options.php" class="dze-admin">
+			<?php settings_fields( 'dze_discount_display_options' ); ?>
+			<p class="description">
+				<?php esc_html_e( 'What the corner badge says while a promotion is running. It is WooCommerce\'s own badge, in its own place, dressed by your theme — only the words change, and only on the page of the product itself: a category page keeps "Sale!", because thirty figures in a grid is a wall of numbers.', 'dazont-ecom' ); ?>
+			</p>
+			<p>
+				<select name="<?php echo esc_attr( self::OPT_BADGE ); ?>">
+					<option value="saved" <?php selected( 'saved', $mode ); ?>><?php esc_html_e( 'The amount saved — "Save $12.00"', 'dazont-ecom' ); ?></option>
+					<option value="sale" <?php selected( 'sale', $mode ); ?>><?php esc_html_e( 'Leave the shop\'s own badge alone — "Sale!"', 'dazont-ecom' ); ?></option>
+				</select>
+				<?php submit_button( __( 'Save', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
+			</p>
+			<p class="description">
+				<?php esc_html_e( 'The figure is the difference between the price struck through and the price charged, in the shop\'s currency, so it can never contradict the two prices printed under it. A variable product whose variations do not all save the same says "Save up to".', 'dazont-ecom' ); ?>
+			</p>
+		</form>
+		<?php
+	}
+
+	public static function badge_mode(): string {
+		return 'saved' === (string) get_option( self::OPT_BADGE, 'saved' ) ? 'saved' : 'sale';
+	}
+
 	public function saved_flash( $html, $post, $product ) {
 		if ( ! $product instanceof \WC_Product || ! function_exists( 'wc_price' ) ) {
+			return $html;
+		}
+		// The product's OWN page, and only it. A category page is thirty tiles
+		// and a figure on each of them is a wall of numbers — the badge there
+		// says "on sale", which is all a list has to say. The related products
+		// at the bottom of a product page are a list too, so the check is the
+		// product being looked at, not the kind of page.
+		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
+			return $html;
+		}
+		if ( (int) $product->get_id() !== (int) get_queried_object_id() ) {
 			return $html;
 		}
 		$spread = false;
@@ -1238,7 +1304,10 @@ final class DZE_Discounts {
 			? sprintf( __( 'Save up to %s', 'dazont-ecom' ), wc_price( $saved ) )
 			/* translators: %s: amount saved, e.g. $12.00 */
 			: sprintf( __( 'Save %s', 'dazont-ecom' ), wc_price( $saved ) );
-		return '<span class="onsale dze-saved">' . wp_kses_post( $said ) . '</span>';
+		// WooCommerce's own markup, to the letter: the theme dresses this badge
+		// and it must dress ours identically. A class of our own would be a
+		// second appearance to keep in step with the first.
+		return '<span class="onsale">' . wp_kses_post( $said ) . '</span>';
 	}
 
 	/**
