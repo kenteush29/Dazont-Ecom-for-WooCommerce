@@ -251,6 +251,7 @@
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
 		body().val($c.find('.dze-f-body').val() || '');
 		$('#dze-klav-e-msg').text('');
+		$('#dze-klav-write-msg').text('').removeClass('is-ko');
 		// The picture bench belongs to the email that is open: whether the
 		// next writing makes its picture. WHAT the picture shows is one prompt
 		// for the shop, not a sentence per email.
@@ -545,12 +546,14 @@
 			rule: ruleId(), email: current, url: url, body: el.value || ''
 		}).done(function (res) {
 			if (res && res.success) { return; }
-			$('#dze-klav-e-msg').css('color', '#b32d2e').addClass('is-ko')
+			// Beside the picture it is about, like every other message on this
+			// screen sits beside the button that produced it.
+			$('#dze-klav-shot-msg').css('color', '#b32d2e').addClass('is-ko')
 				.text((res && res.data && res.data.message) || i18n.error);
 		}).fail(function (xhr) {
 			// Silence here means the picture is on screen and nowhere else,
 			// which is exactly the failure this call exists to prevent.
-			$('#dze-klav-e-msg').css('color', '#b32d2e').addClass('is-ko')
+			$('#dze-klav-shot-msg').css('color', '#b32d2e').addClass('is-ko')
 				.text('HTTP ' + (xhr ? xhr.status : 0));
 		});
 	}
@@ -672,7 +675,8 @@
 	// without one, so the writing makes it first when the event has none.
 	$(document).on('click', '#dze-klav-e-write', function () {
 		if (!current) { return; }
-		writeEmail($(this), $('#dze-klav-e-msg'));
+		// Under the button that was pressed, not at the foot of the editor.
+		writeEmail($(this), $('#dze-klav-write-msg'));
 	});
 
 	// What this list actually does with its mornings — read from the account's
