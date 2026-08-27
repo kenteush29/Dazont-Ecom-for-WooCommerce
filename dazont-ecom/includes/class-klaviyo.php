@@ -1544,13 +1544,23 @@ final class DZE_Klaviyo {
 	 * an empty one.
 	 */
 	public static function save_copy( string $rule_id, array $rule, array $in ): void {
-		if ( ! isset( $in['dze_email'] ) || ! is_array( $in['dze_email'] ) ) {
+		// A screen that showed the emails says so, whether it ended up with
+		// any or none. Without that marker an emptied list is indistinguishable
+		// from a form that never carried the section, and the guard below —
+		// which exists so another form cannot wipe the emails — would read
+		// "the owner deleted the last one" as "this is not about emails" and
+		// leave it in place. That is exactly what it did: deleting the only
+		// email of a promotion never took, because deleting the row is what
+		// removes dze_email from the form.
+		$shown = ! empty( $in['dze_email_shown'] );
+		$rows   = ( isset( $in['dze_email'] ) && is_array( $in['dze_email'] ) ) ? $in['dze_email'] : [];
+		if ( ! $shown && ! $rows ) {
 			return; // the section was not on the screen: nothing to say about it.
 		}
 		$kinds = self::kinds();
 		$live  = self::emails_for( $rule_id, $rule );
 		$out   = [];
-		foreach ( (array) $in['dze_email'] as $email_id => $posted ) {
+		foreach ( $rows as $email_id => $posted ) {
 			$email_id = sanitize_key( (string) $email_id );
 			if ( '' === $email_id || ! is_array( $posted ) ) {
 				continue;
@@ -2772,6 +2782,25 @@ final class DZE_Klaviyo {
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		// Kept the moment it exists. Writing an email costs a call to the
+		// model and a minute of waiting; losing it to a page reload, or to a
+		// browser closed before somebody thought to press Save, is losing
+		// something that cannot be got back by asking again — what comes back
+		// the second time is a different email. It goes through put_email(),
+		// the same writer the draft and the picture use, so there is no second
+		// way for an email to reach the database.
+		$keep = [
+			'subject' => (string) ( $made['subject'] ?? '' ),
+			'preview' => (string) ( $made['preview'] ?? '' ),
+			'body'    => (string) ( $made['body'] ?? '' ),
+		];
+		// The name is the one thing a rewrite does not take back: pressing
+		// "Write the email" asks for new words, not for the label the owner
+		// chose for it in his campaign list.
+		if ( '' === trim( (string) ( self::email_for( $rule_id, $email_id, $rule )['name'] ?? '' ) ) ) {
+			$keep['name'] = (string) ( $made['name'] ?? '' );
+		}
+		self::put_email( $rule_id, $email_id, $keep );
 		wp_send_json_success( $made );
 	}
 
@@ -3327,6 +3356,8 @@ final class DZE_Klaviyo {
 		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
 
 		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>">
+			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
+			<input type="hidden" name="dze_email_shown" value="1" />
 			<div class="dze-mail-list">
 				<?php foreach ( $emails as $mail_id => $mail ) :
 					$kind = (string) ( $mail['kind'] ?? 'launch' );
