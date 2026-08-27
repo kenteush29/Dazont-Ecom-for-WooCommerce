@@ -257,6 +257,7 @@
 		$('#dze-klav-e-want').prop('checked', '1' === ($c.find('.dze-f-want').val() || '0'));
 		$('#dze-klav-shot-out').hide();
 		$('#dze-klav-shot-msg').text('').removeClass('is-ko');
+		drawHasPic();
 		$('#dze-mail-edit').show();
 		view('view');
 	}
@@ -492,11 +493,21 @@
 
 	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
 
-	function picture()    { return $('#dze-klav-e-pic'); }
-
 	// The email is laid out by the model, which places the picture itself. So a
 	// new picture SWAPS the one already in the email rather than being pasted
 	// somewhere: the layout that was written stays the layout that was written.
+	// What this email already holds, said on the screen where a new one is
+	// made. Rewriting an email KEEPS its picture — the writing is handed the
+	// URL and told to use it as it stands — and nothing said so, so the only
+	// way to find out was to spend a minute and a few cents finding out.
+	function drawHasPic() {
+		var $p = $('#dze-klav-haspic');
+		if (!$p.length) { return; }
+		var url = $.trim(picture().val() || '');
+		if (!url) { $p.hide(); return; }
+		$p.css('display', 'flex').find('img').attr('src', url).attr('data-full', url);
+	}
+
 	function setPicture(url) {
 		var el = body()[0], old = $.trim(picture().val() || '');
 		picture().val(url);
@@ -525,6 +536,7 @@
 		// without it.
 		commit();
 		render();
+		drawHasPic();
 		// Kept with the email at once, like the writing keeps itself. It used
 		// to wait for the event's Save, so a reload before that threw away the
 		// photograph, the paragraph it sat in, and what it cost.
@@ -749,6 +761,39 @@
 			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shotTest);
 		}, true);
 	});
+	// Off the email, not out of Klaviyo: the photograph stays where it is
+	// hosted and paid for, and what goes is this email's claim on it. The
+	// marker goes back where the URL was, so the place a picture belongs in is
+	// still there and the next writing can fill it.
+	$(document).on('click', '#dze-klav-e-nopic', function () {
+		var url = $.trim(picture().val() || '');
+		if (!url || !window.confirm(cfg.i18n.dropPic)) { return; }
+		var el = body()[0];
+		if (el && el.value.indexOf(url) !== -1) {
+			el.value = el.value.split('src="' + url + '"').join('src="' + cfg.pictureMark + '"').split(url).join(cfg.pictureMark);
+		}
+		picture().val('');
+		commit();
+		render();
+		drawHasPic();
+		var $m = $('#dze-klav-shot-msg');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_droppic',
+			nonce: cfg.nonce,
+			rule: ruleId(),
+			email: current,
+			body: body().val() || ''
+		})
+			.done(function (res) {
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.pictureOff);
+			})
+			.fail(function () { $m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });
+	});
+
 	$(document).on('click', '#dze-klav-e-usepic', function () {
 		if (!tested) { return; }
 		setPicture(tested);
