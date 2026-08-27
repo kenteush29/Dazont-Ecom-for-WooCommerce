@@ -1297,6 +1297,14 @@
 				'<div class="dze-ps-ins">' + boxes + '</div>' +
 			'</details>' + pair;
 	}
+	// The count in the summary is what that block SENDS. Drawn once and never
+	// touched again, it went on saying five while the boxes under it said
+	// three — and the only way to see the real number was to save and reload.
+	$(document).on('change', '.dze-ps-data input[type=checkbox]', function () {
+		var $d = $(this).closest('.dze-ps-data');
+		$d.children('summary').text(i18n.psData + ' (' + $d.find('input[type=checkbox]:checked').length + ')');
+	});
+
 	function oneFillSettings(rowId) {
 		$('#dze-one-psets').html(rowId ? promptSettings(rowId) : '');
 	}
