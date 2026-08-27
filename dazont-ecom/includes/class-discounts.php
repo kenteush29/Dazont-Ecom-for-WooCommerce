@@ -396,20 +396,52 @@ final class DZE_Discounts {
 	 *
 	 * A style chosen event by event is a shop whose banner looks different
 	 * every month. Decided once, under Settings → Marketing events, and read
-	 * here by everything that draws a banner.
+	 * here by everything that draws a banner: the colours, the text size and
+	 * the padding. The face and the weight stay the theme's.
 	 *
-	 * @return array{bg:string,color:string}
+	 * @return array{bg:string,color:string,size:int,pad:int}
 	 */
 	public static function banner_style(): array {
 		$s = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::get_settings() : [];
-		$hex = static function ( $v, string $fallback ): string {
-			$v = is_string( $v ) ? trim( $v ) : '';
-			return preg_match( '/^#[0-9a-fA-F]{6}$/', $v ) ? $v : $fallback;
-		};
 		return [
-			'bg'    => $hex( $s['banner_bg'] ?? '', '#111111' ),
-			'color' => $hex( $s['banner_color'] ?? '', '#ffffff' ),
+			'bg'    => self::hex( $s['banner_bg'] ?? '', '#111111' ),
+			'color' => self::hex( $s['banner_color'] ?? '', '#ffffff' ),
+			// Zero means "the theme decides", which is what this did before
+			// there was a field for it and what a shop that never touches it
+			// keeps.
+			'size'  => self::px( $s['banner_size'] ?? 0, 0, 40 ),
+			'pad'   => self::px( $s['banner_pad'] ?? 10, 0, 60 ),
 		];
+	}
+
+	/** A pixel value the shop typed, kept inside what a banner can survive. */
+	public static function px( $value, int $min, int $max ): int {
+		// A plain cast rather than stripping non-digits: stripping turned
+		// "-5" into 5, which is a bigger number than the one that was typed
+		// and the opposite of what somebody meant by it.
+		$n = (int) trim( (string) $value );
+		return max( $min, min( $max, $n ) );
+	}
+
+	/**
+	 * A colour the shop typed, made canonical — or the fallback.
+	 *
+	 * The fields are typed into now, not only clicked, so what arrives is
+	 * whatever a person writes down: "fff", "#FFF", a stray space. Refusing
+	 * those and quietly falling back to black is losing a setting the owner
+	 * believes he made. Only something that is not a colour at all falls back.
+	 *
+	 * One rule, in one place: the sanitiser that writes it and the reader that
+	 * uses it call the same function, so a colour cannot be accepted on the
+	 * way in and rejected on the way out.
+	 */
+	public static function hex( $value, string $fallback ): string {
+		$v = is_string( $value ) ? strtolower( trim( $value ) ) : '';
+		$v = ltrim( $v, '#' );
+		if ( preg_match( '/^[0-9a-f]{3}$/', $v ) ) {
+			return '#' . $v[0] . $v[0] . $v[1] . $v[1] . $v[2] . $v[2];
+		}
+		return preg_match( '/^[0-9a-f]{6}$/', $v ) ? '#' . $v : $fallback;
 	}
 
 	/**
@@ -1781,14 +1813,17 @@ final class DZE_Discounts {
 			}
 		}
 
-		// Typography is intentionally left to the theme (no font-size / weight
-		// override) — only the background, colour and padding are set.
+		// The weight and the face still come from the theme. The size is set
+		// only when the shop asked for one: left at zero, the banner reads in
+		// whatever the theme puts there, which is what it always did.
 		printf(
-			'<div class="dze-promo-banner" style="background:%1$s;color:%2$s;text-align:center;padding:10px 16px;">%3$s%4$s</div>',
+			'<div class="dze-promo-banner" style="background:%1$s;color:%2$s;text-align:center;padding:%5$dpx;%6$s">%3$s%4$s</div>',
 			esc_attr( $bg ),
 			esc_attr( $color ),
 			esc_html( $text ),
-			$timer // already-escaped markup built above.
+			$timer, // already-escaped markup built above.
+			(int) $style['pad'],
+			$style['size'] > 0 ? 'font-size:' . (int) $style['size'] . 'px;' : ''
 		);
 	}
 
