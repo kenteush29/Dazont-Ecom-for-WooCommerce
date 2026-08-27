@@ -5289,7 +5289,12 @@ Answer with STRICT JSON and nothing else: "
 		return 'data:' . $mime . ';base64,' . base64_encode( $bytes ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- data URI.
 	}
 
-	public function fal_generate( string $prompt, array $image_urls ): string {
+	/**
+	 * @param string $ratio The shape asked for. 'auto' keeps the source's own,
+	 *                      which is right for a product image replacing another
+	 *                      and wrong for a banner that has to be wide.
+	 */
+	public function fal_generate( string $prompt, array $image_urls, string $ratio = 'auto' ): string {
 		$resp = wp_remote_post( self::FAL_ENDPOINT, [
 			'timeout' => 120,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],
@@ -5297,7 +5302,7 @@ Answer with STRICT JSON and nothing else: "
 				'prompt'        => $prompt,
 				'image_urls'    => array_values( $image_urls ),
 				'num_images'    => 1,
-				'aspect_ratio'  => 'auto',
+				'aspect_ratio'  => $ratio,
 				// Photographs, on a shop: JPEG. A PNG product image is three to
 				// five times the weight for no visible gain and slows the page
 				// down for every visitor.
