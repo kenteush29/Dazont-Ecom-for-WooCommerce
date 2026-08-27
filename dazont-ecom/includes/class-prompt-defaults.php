@@ -95,30 +95,7 @@ final class DZE_Prompt_Defaults {
 	 * module, and this class holds none of them.
 	 */
 	private static function ask( string $id ): string {
-		if ( 0 === strpos( $id, 'content_' ) && class_exists( 'DZE_Content' ) ) {
-			return DZE_Content::default_prompt_for( substr( $id, strlen( 'content_' ) ) );
-		}
-		switch ( $id ) {
-			case 'feature_rules':
-				return class_exists( 'DZE_Content' ) ? DZE_Content::default_feature_prompt() : '';
-			case 'cat_desc':
-				return class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::default_prompt() : '';
-			case 'cat_sift':
-				return class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::default_sift_prompt() : '';
-			case 'cat_links':
-				return class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::default_links_prompt() : '';
-			case 'reviews':
-				return class_exists( 'DZE_Reviews' ) ? DZE_Reviews::default_prompt() : '';
-			case 'translate':
-				return class_exists( 'DZE_Translate' ) ? DZE_Translate::default_prompt() : '';
-			case 'events':
-				return class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::DEFAULT_EVENTS_PROMPT : '';
-			case 'keyword_match':
-				return class_exists( 'DZE_Keywords' ) ? DZE_Keywords::DEFAULT_MATCH_RULES : '';
-			case 'sourcing_report':
-				return class_exists( 'DZE_Explorer' ) ? DZE_Explorer::DEFAULT_REPORT_GUIDANCE : '';
-		}
-		return '';
+		return class_exists( 'DZE_Prompts' ) ? DZE_Prompts::shipped_for( $id ) : '';
 	}
 
 	/** Is this an id we know how to answer for? */

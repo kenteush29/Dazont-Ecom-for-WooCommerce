@@ -36,6 +36,20 @@ final class DZE_Prompts {
 	 *
 	 * @return array{save:callable,default:string}|null
 	 */
+	/**
+	 * The shipped text of one prompt, from the one registry that knows.
+	 *
+	 * DZE_Prompt_Defaults used to keep a switch of its own beside this map,
+	 * and the two drifted the moment a prompt was added to one and not the
+	 * other: promo_email and promo_i18n were registered here, missing there,
+	 * and "Make this the default" silently refused to draw itself on those two
+	 * screens for want of a case. One list now answers both.
+	 */
+	public static function shipped_for( string $id ): string {
+		$w = self::writer( $id );
+		return $w ? (string) $w['default'] : '';
+	}
+
 	private static function writer( string $id ): ?array {
 		// A product field or an image template: one registry row.
 		if ( 0 === strpos( $id, 'content_' ) && class_exists( 'DZE_Content' ) ) {

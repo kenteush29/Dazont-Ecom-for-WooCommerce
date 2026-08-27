@@ -609,18 +609,32 @@ final class DZE_Klaviyo {
 		];
 	}
 
+	/** How many products sit side by side on a desktop screen. */
+	public static function per_row(): int {
+		return max( 1, min( 4, (int) self::conf( 'per_row', 2 ) ) );
+	}
+
 	/**
-	 * Turns [[PRODUCT n]] into the shop's own product block.
+	 * Turns [[PRODUCT n]] into the shop's own product block, laid out in rows.
 	 *
 	 * The writing never sees a card and never writes one: it says where a
 	 * product goes and the shop puts it there. That is what makes the card
 	 * unchangeable — a model cannot restyle HTML it was never given — and it
-	 * is also what keeps the answer short enough to come back whole. Handing
-	 * over nine ready-made blocks and asking for them back is several thousand
-	 * tokens of HTML travelling in both directions, and an answer cut off in
-	 * the middle is not an email.
+	 * is also what keeps the answer short enough to come back whole.
 	 *
-	 * A marker pointing at a product that does not exist is removed rather
+	 * Markers written one after another are laid out TOGETHER, as many per row
+	 * as the settings say. The shop builds that row, not the writing, which is
+	 * how "a row of three holding one product and two holes" stops being
+	 * possible: a row is only ever as wide as the products actually in it, and
+	 * the last one takes the width it needs.
+	 *
+	 * It stacks on a phone without a media query. Each card is an
+	 * inline-block that is 100% wide but no wider than its share of the
+	 * column, so on a desktop they sit side by side and on a narrow screen the
+	 * second one simply wraps under the first. Outlook, which ignores
+	 * inline-block, gets a real table through the conditional comments.
+	 *
+	 * A marker pointing at a product that does not exist is dropped rather
 	 * than left on screen: it is our syntax, not something a reader should
 	 * ever meet.
 	 *
@@ -633,14 +647,57 @@ final class DZE_Klaviyo {
 			return $html;
 		}
 		$cards = array_values( $cards );
+		$per   = self::per_row();
 		return (string) preg_replace_callback(
-			'/\[\[\s*PRODUCT\s*(\d+)\s*\]\]/i',
-			static function ( array $m ) use ( $cards ): string {
-				$i = (int) $m[1] - 1;
-				return $cards[ $i ] ?? '';
+			'/(?:\[\[\s*PRODUCT\s*\d+\s*\]\]\s*)+/i',
+			static function ( array $m ) use ( $cards, $per ): string {
+				preg_match_all( '/\d+/', $m[0], $nums );
+				$run = [];
+				foreach ( $nums[0] as $n ) {
+					$card = $cards[ (int) $n - 1 ] ?? '';
+					if ( '' !== $card ) {
+						$run[] = $card;
+					}
+				}
+				return $run ? self::product_rows( $run, $per ) : '';
 			},
 			$html
 		);
+	}
+
+	/**
+	 * A run of product blocks, laid out N to a row.
+	 *
+	 * @param string[] $run One card's HTML per product, in order.
+	 */
+	private static function product_rows( array $run, int $per ): string {
+		// The column the body sits in is 600 wide less its 24px inset on each
+		// side. Everything here is a share of that.
+		$inner = 552;
+		$out   = '';
+		foreach ( array_chunk( $run, max( 1, $per ) ) as $row ) {
+			$n     = count( $row );
+			$width = max( 120, (int) floor( $inner / $n ) - 6 );
+			$cells = '';
+			$ghost = (int) floor( 100 / $n );
+			foreach ( $row as $i => $card ) {
+				$cells .= '<!--[if mso]><td width="' . $ghost . '%" valign="top"><![endif]-->'
+					. '<div style="display:inline-block;width:100%;max-width:' . $width . 'px;vertical-align:top;">'
+					. $card
+					. '</div>'
+					. ( $i + 1 < $n ? '<!--[if mso]></td><![endif]-->' : '' );
+			}
+			$out .= '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+				. '<tr><td align="center" style="font-size:0;padding:8px 0;">'
+				// font-size:0 on the cell removes the whitespace an inline-block
+				// pair would otherwise be pushed apart by; the cards set their
+				// own type back.
+				. '<!--[if mso]><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><![endif]-->'
+				. $cells
+				. '<!--[if mso]></td></tr></table><![endif]-->'
+				. '</td></tr></table>';
+		}
+		return $out;
 	}
 
 	/**
@@ -761,6 +818,9 @@ final class DZE_Klaviyo {
 		}
 		if ( array_key_exists( 'days', $in ) ) {
 			$out['days'] = max( 1, min( 365, (int) $in['days'] ) );
+		}
+		if ( array_key_exists( 'per_row', $in ) ) {
+			$out['per_row'] = max( 1, min( 4, (int) $in['per_row'] ) );
 		}
 		if ( array_key_exists( 'test_to', $in ) ) {
 			$to = array_filter( array_map( 'sanitize_email', array_map( 'trim', explode( ',', (string) $in['test_to'] ) ) ) );
@@ -2341,7 +2401,10 @@ final class DZE_Klaviyo {
 				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
 				: "The shop returned no product. Write the email without a product.\n" );
 		if ( ! empty( $mat['cards'] ) ) {
-			$user .= "\nDo NOT build a product yourself. Write [[PRODUCT n]] on a line of its own where product n should appear — [[PRODUCT 1]], [[PRODUCT 2]] — and the shop drops its own block there, photograph, name, both prices and button, in its own type and colour. Put each one in its own table cell when you want them side by side. How many you show, how they are grouped and where they go is yours; what one of them looks like is the shop's.\n";
+			$user .= sprintf(
+				"\nDo NOT build a product yourself, and do NOT build a row or a table for them. Write [[PRODUCT n]] where product n should appear — [[PRODUCT 1]], [[PRODUCT 2]] — and the shop drops its own block there. Markers written one after another are laid out together, %d to a row, and the row stacks on a phone: that is done for you. How many products you show, in how many groups, and where those groups sit in the email is yours; what a product looks like and how a row is built is the shop's.\n",
+				self::per_row()
+			);
 		}
 		$user .= "\n--- THE SHOP'S OWN TYPE AND COLOUR ---\n"
 			. 'Headings font-family: ' . $t['head'] . "\n"
@@ -3427,6 +3490,17 @@ final class DZE_Klaviyo {
 					<input type="number" id="dze-klav-days" name="<?php echo esc_attr( self::OPT . '[days]' ); ?>" value="<?php echo esc_attr( (string) self::window_days() ); ?>" min="1" max="365" class="small-text" />
 					<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
 					<p class="description"><?php esc_html_e( 'A quiet window falls back to catalogue popularity.', 'dazont-ecom' ); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="dze-klav-row"><?php esc_html_e( 'Products per row', 'dazont-ecom' ); ?></label></th>
+				<td>
+					<select id="dze-klav-row" name="<?php echo esc_attr( self::OPT . '[per_row]' ); ?>">
+						<?php foreach ( [ 1, 2, 3, 4 ] as $dze_n ) : ?>
+							<option value="<?php echo esc_attr( (string) $dze_n ); ?>" <?php selected( $dze_n, self::per_row() ); ?>><?php echo esc_html( (string) $dze_n ); ?></option>
+						<?php endforeach; ?>
+					</select>
+					<p class="description"><?php esc_html_e( 'On a phone they stack, whatever this says.', 'dazont-ecom' ); ?></p>
 				</td>
 			</tr>
 		</table>
