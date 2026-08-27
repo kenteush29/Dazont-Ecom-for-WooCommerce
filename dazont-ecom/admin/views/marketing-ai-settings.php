@@ -166,6 +166,17 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 				<p class="description" style="max-width:820px;">
 					<?php esc_html_e( 'One style for every promotion, so the shop looks like itself whatever is running. Only the background and the text colour are set — the font comes from your theme.', 'dazont-ecom' ); ?>
 				</p>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><label for="dze-banner-where"><?php esc_html_e( 'Where it goes', 'dazont-ecom' ); ?></label></th>
+			<td>
+				<?php // Every promotion starts here — the one made by hand, the one the calendar proposes, the whole of a bulk creation — and any of them can still be moved on its own screen. ?>
+				<select id="dze-banner-where" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[banner_location]' ); ?>">
+					<?php foreach ( DZE_Discounts::locations() as $dze_k => $dze_label ) : ?>
+						<option value="<?php echo esc_attr( $dze_k ); ?>" <?php selected( DZE_Discounts::default_location(), $dze_k ); ?>><?php echo esc_html( $dze_label ); ?></option>
+					<?php endforeach; ?>
+				</select>
 				<script>
 				jQuery( function ( $ ) {
 					if ( ! $.fn.wpColorPicker ) { return; }

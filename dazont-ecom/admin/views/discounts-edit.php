@@ -19,7 +19,7 @@ $is_events  = ( 'events' === $mode );
 $e = static function ( $key, $default = '' ) use ( $editing ) {
 	return ( is_array( $editing ) && isset( $editing[ $key ] ) ) ? $editing[ $key ] : $default;
 };
-$banner_location = (string) $e( 'banner_location', 'top' );
+$banner_location = (string) $e( 'banner_location', DZE_Discounts::default_location() );
 ?>
 <div class="wrap dze-wrap">
 	<h1 class="wp-heading-inline"><?php
@@ -40,8 +40,22 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="dze-title"><?php esc_html_e( 'Title', 'dazont-ecom' ); ?></label></th>
-				<td><input type="text" id="dze-title" name="title" class="regular-text" value="<?php echo esc_attr( $e( 'title' ) ); ?>" placeholder="<?php esc_attr_e( 'e.g. Summer sale -20%', 'dazont-ecom' ); ?>" /></td>
+				<td>
+					<input type="text" id="dze-title" name="title" class="regular-text" value="<?php echo esc_attr( $e( 'title' ) ); ?>" placeholder="<?php esc_attr_e( 'e.g. Summer sale -20%', 'dazont-ecom' ); ?>" />
+					<?php if ( $is_events ) : ?>
+						<p class="description"><?php esc_html_e( 'Also what the promo banner says on the site.', 'dazont-ecom' ); ?></p>
+					<?php endif; ?>
+				</td>
 			</tr>
+			<?php
+			// The markets belong beside the sentence they translate, not three
+			// screens down beside the banner's colours. What is written here IS
+			// what each market reads.
+			if ( $is_events ) {
+				$dze_i18n_here = true;
+				require DZE_DIR . 'admin/views/partials/promo-markets.php';
+			}
+			?>
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Enabled', 'dazont-ecom' ); ?></th>
 				<td><label><input type="checkbox" name="enabled" value="1" <?php checked( ! $editing || ! empty( $editing['enabled'] ) ); ?> /> <?php esc_html_e( 'Promotion is active', 'dazont-ecom' ); ?></label></td>
@@ -282,79 +296,6 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					<th scope="row"><?php esc_html_e( 'Show banner', 'dazont-ecom' ); ?></th>
 					<td><label><input type="checkbox" name="banner_enabled" value="1" <?php checked( ! empty( $editing['banner_enabled'] ) ); ?> /> <?php esc_html_e( 'Display a banner while this sale is active', 'dazont-ecom' ); ?></label></td>
 				</tr>
-				<?php // What the banner says IS the title of the event. Two fields
-				// that had to say the same thing meant one of them was always
-				// out of date; the title above is the one that is read. ?>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'What it says', 'dazont-ecom' ); ?></th>
-					<td>
-						<p style="margin:0;font-size:15px;">
-							<code style="background:#f0f0f1;padding:3px 8px;border-radius:3px;"><?php
-								echo esc_html( DZE_Discounts::banner_line(
-									[ 'percent' => (float) ( $editing['percent'] ?? 0 ) ],
-									(string) ( $editing['title'] ?? __( 'The title of the event', 'dazont-ecom' ) )
-								) );
-							?></code>
-						</p>
-						<?php
-						// A sentence that does not name the discount is a banner
-						// that does not announce one, and there is nothing the
-						// plugin can add in the reader's language without
-						// writing half of it in English. So it is said here,
-						// once, where the sentence is written.
-						$dze_says = (string) ( $editing['title'] ?? '' );
-						if ( (float) ( $editing['percent'] ?? 0 ) > 0 && '' !== $dze_says && ! DZE_Discounts::says_percent( $dze_says ) ) :
-							?>
-							<p class="description" style="color:#b26a00;">
-								<?php esc_html_e( 'This does not mention the discount. Write it into the title — the figure is kept up to date on its own, and each market gets it in its own words.', 'dazont-ecom' ); ?>
-							</p>
-						<?php endif; ?>
-					</td>
-				</tr>
-				<?php
-				// The banner line in the other languages: one row that folds
-				// away, not one row per language pushing everything else down.
-				$dze_promo_langs = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::promo_langs() : [];
-				if ( $dze_promo_langs ) :
-					$i18n    = (array) ( $editing['banner_text_i18n'] ?? [] );
-					$dze_got = 0;
-					foreach ( $dze_promo_langs as $dze_code => $dze_name ) {
-						$dze_got += empty( $i18n[ $dze_code ] ) ? 0 : 1;
-					}
-					?>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'The title in your other markets', 'dazont-ecom' ); ?></th>
-					<td>
-						<button type="button" class="button-link" id="dze-banner-translate">&#127760; <?php esc_html_e( 'Write it for my other markets', 'dazont-ecom' ); ?></button>
-						<span id="dze-banner-tr-status" class="description" style="margin-left:8px;"></span>
-						<details id="dze-banner-i18n" style="margin:6px 0 0;"<?php echo $dze_got ? '' : ' open'; ?>>
-							<summary style="cursor:pointer;font-size:12px;color:#2271b1;">
-								<?php
-								printf(
-									/* translators: 1: translations written, 2: languages to fill */
-									esc_html__( 'The title in your other languages (%1$d of %2$d written)', 'dazont-ecom' ),
-									(int) $dze_got,
-									count( $dze_promo_langs )
-								);
-								?>
-							</summary>
-							<?php foreach ( $dze_promo_langs as $dze_code => $dze_name ) : ?>
-								<p style="margin:6px 0 0;display:flex;align-items:center;gap:8px;">
-									<label style="min-width:110px;font-size:12px;color:#646970;"><?php echo esc_html( $dze_name ); ?></label>
-									<input type="text" name="banner_text_i18n[<?php echo esc_attr( $dze_code ); ?>]" class="large-text dze-banner-i18n-field" data-lang="<?php echo esc_attr( $dze_code ); ?>" value="<?php echo esc_attr( $i18n[ $dze_code ] ?? '' ); ?>" placeholder="<?php echo esc_attr( sprintf( __( 'Translation for %s', 'dazont-ecom' ), $dze_name ) ); ?>" />
-								</p>
-							<?php endforeach; ?>
-							<p class="description" style="margin:6px 0 0;">
-								<?php
-								echo class_exists( 'DZE_Marketing_Ai' ) && DZE_Marketing_Ai::promo_i18n_on()
-									? esc_html__( 'A language left empty is a language this promotion does not run in. They are written for you shortly after saving; a line you type here is never overwritten.', 'dazont-ecom' )
-									: esc_html__( 'A language left empty is a language this promotion does not run in. "Translate on save" is off in Settings → Marketing events, so these are yours to fill — or use the button above.', 'dazont-ecom' );
-								?>
-							</p>
-						</details>
-					</td>
-				</tr>
-				<?php endif; ?>
 				<?php
 				// The banner's colours are the shop's, not this promotion's: a
 				// style chosen event by event is a shop whose banner looks
@@ -381,12 +322,7 @@ $banner_location = (string) $e( 'banner_location', 'top' );
 					<th scope="row"><?php esc_html_e( 'Location', 'dazont-ecom' ); ?></th>
 					<td>
 						<?php
-						$loc_choices = [
-							'top'          => __( 'Top of site — above the header', 'dazont-ecom' ),
-							'below_header' => __( 'Below the header — under the menu', 'dazont-ecom' ),
-							'product'      => __( 'Product page', 'dazont-ecom' ),
-						];
-						foreach ( $loc_choices as $key => $label ) : ?>
+						foreach ( DZE_Discounts::locations() as $key => $label ) : ?>
 							<label style="display:block;margin-bottom:4px;"><input type="radio" name="banner_location" value="<?php echo esc_attr( $key ); ?>" <?php checked( $banner_location, $key ); ?> class="dze-banner-loc" /> <?php echo esc_html( $label ); ?></label>
 						<?php endforeach; ?>
 					</td>

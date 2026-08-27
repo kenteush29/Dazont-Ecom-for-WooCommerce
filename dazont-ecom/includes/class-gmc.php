@@ -94,6 +94,59 @@ final class DZE_Gmc {
 	}
 
 	/**
+	 * What to call one Merchant Center account on screen.
+	 *
+	 * The name Google gave it when the account was verified, and only then the
+	 * bare id. An account is a shop with a name; a fifteen-digit number is not
+	 * something anybody matches to one of five markets under pressure.
+	 */
+	public function account_label( string $merchant_id ): string {
+		foreach ( self::get_accounts() as $key => $acc ) {
+			if ( (string) ( $acc['merchant_id'] ?? '' ) === $merchant_id ) {
+				$name = trim( (string) ( $acc['name'] ?? '' ) );
+				return '' !== $name ? $name : strtoupper( (string) $key ) . ' · ' . $merchant_id;
+			}
+		}
+		return $merchant_id;
+	}
+
+	/**
+	 * Writes Google's own name for an account beside its id.
+	 *
+	 * Through the option's own sanitizer, on a full array, so it stays the one
+	 * shape the rest of the plugin reads — and only ever on an explicit click.
+	 */
+	private function remember_account_name( string $merchant_id, string $name ): void {
+		$name = trim( $name );
+		if ( '' === $name || $name === $merchant_id ) {
+			return;
+		}
+		$accounts = self::get_accounts();
+		$touched  = false;
+		foreach ( $accounts as $key => $acc ) {
+			if ( (string) ( $acc['merchant_id'] ?? '' ) === $merchant_id && ( $acc['name'] ?? '' ) !== $name ) {
+				$accounts[ $key ]['name'] = $name;
+				$touched = true;
+			}
+		}
+		if ( $touched ) {
+			update_option( self::OPT_ACCOUNTS, $accounts, false );
+		}
+	}
+
+	/** Every configured account, by id, as it should be named on screen. */
+	public function account_names(): array {
+		$out = [];
+		foreach ( self::get_accounts() as $acc ) {
+			$id = (string) ( $acc['merchant_id'] ?? '' );
+			if ( '' !== $id ) {
+				$out[ $id ] = $this->account_label( $id );
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * The countries a Merchant Center account can actually run promotions in.
 	 *
 	 * Read from the account itself — the promotion data sources it holds, each
@@ -481,9 +534,15 @@ final class DZE_Gmc {
 		$clean = [];
 		foreach ( $value as $key => $acc ) {
 			$key = sanitize_key( $key );
+			$was  = (array) ( self::get_accounts()[ $key ] ?? [] );
+			$name = array_key_exists( 'name', (array) $acc ) ? (string) $acc['name'] : (string) ( $was['name'] ?? '' );
 			$clean[ $key ] = [
 				'merchant_id' => preg_replace( '/[^0-9]/', '', (string) ( $acc['merchant_id'] ?? '' ) ),
 				'language'    => sanitize_key( $acc['language'] ?? $key ),
+				// Learned from Google when the account is verified. The form
+				// does not carry it, so it is kept from what is stored rather
+				// than blanked by every save.
+				'name'        => sanitize_text_field( $name ),
 			];
 		}
 		return $clean;
@@ -499,6 +558,7 @@ final class DZE_Gmc {
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
 			'i18n'    => [
+				'liveOn'  => __( 'Live on Merchant Center:', 'dazont-ecom' ),
 				'syncing'   => __( 'Syncing…', 'dazont-ecom' ),
 				'testing'   => __( 'Testing…', 'dazont-ecom' ),
 				'verifying' => __( 'Verifying…', 'dazont-ecom' ),
@@ -662,11 +722,24 @@ final class DZE_Gmc {
 					'message'      => '',
 					'promotion_id' => $promotion['promotionId'],
 					'merchant_id'  => $t['merchant_id'],
+					// The account by NAME, written down with the result. A line
+					// reading "US: Promotion program not enabled for 5581970069"
+					// names a country the shop did not choose and a number
+					// nobody recognises; the account is what actually failed.
+					'account'      => $this->account_label( $t['merchant_id'] ),
 					'language'     => $t['language'],
+					'country'      => $t['country'],
 					'time'         => time(),
 				];
 			} catch ( \Throwable $e ) {
-				$statuses[ $sk ] = [ 'status' => 'error', 'message' => $e->getMessage(), 'time' => time() ];
+				$statuses[ $sk ] = [
+					'status'      => 'error',
+					'message'     => $e->getMessage(),
+					'merchant_id' => $t['merchant_id'],
+					'account'     => $this->account_label( $t['merchant_id'] ),
+					'country'     => $t['country'],
+					'time'        => time(),
+				];
 			}
 		}
 
@@ -1108,10 +1181,29 @@ final class DZE_Gmc {
 		}
 
 		$results = [];
+		$badges  = [];
+		$rules   = DZE_Discounts::get_rules();
 		foreach ( $ids as $id ) {
 			$results[ $id ] = $this->sync_rule( $id );
 		}
-		wp_send_json_success( [ 'results' => $results ] );
+		// The dots are drawn when the page loads and were never redrawn after
+		// a sync, so a promotion could go live on Google and the screen went on
+		// showing it as pending until somebody reloaded. They are sent back
+		// with the result, built by the same function the page used, so the two
+		// cannot say different things.
+		$rules = DZE_Discounts::get_rules();
+		foreach ( $ids as $id ) {
+			if ( isset( $rules[ $id ] ) ) {
+				$badges[ $id ] = $this->sync_badges_html( $rules[ $id ] );
+			}
+		}
+		wp_send_json_success( [
+			'results'  => $results,
+			'badges'   => $badges,
+			// Google's own name for each account, so a failure reads as the
+			// shop that failed and not as a number nobody recognises.
+			'accounts' => $this->account_names(),
+		] );
 	}
 
 	/**
@@ -1366,6 +1458,10 @@ final class DZE_Gmc {
 		}
 		try {
 			$name = $this->verify_account( $merchant_id );
+			// Remembered against the id, so every screen that reports on this
+			// account afterwards can name it. Verifying is the one moment
+			// Google tells us what it is called.
+			$this->remember_account_name( $merchant_id, $name );
 			wp_send_json_success( [ 'message' => sprintf(
 				/* translators: %s: Merchant Center account name */
 				__( 'Reachable: %s', 'dazont-ecom' ),

@@ -378,6 +378,11 @@ final class DZE_Marketing_Ai {
 			if ( $has( 'banner_pad' ) ) {
 				$write['banner_pad'] = DZE_Discounts::px( $in['banner_pad'], 0, 60 );
 			}
+			if ( $has( 'banner_location' ) ) {
+				$write['banner_location'] = array_key_exists( (string) $in['banner_location'], DZE_Discounts::locations() )
+					? (string) $in['banner_location']
+					: 'below_header';
+			}
 			return array_merge( $existing, $write );
 		}
 
@@ -1868,7 +1873,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			'threshold'     => 0.0,
 			'banner_enabled'   => true,
 			'banner_text'      => $ev['title'],
-			'banner_location'  => 'top',
+			'banner_location'  => DZE_Discounts::default_location(),
 			'product_position' => 'before_product',
 			'banner_hooks'     => '',
 			// A countdown belongs to the few moments of the year that carry a
