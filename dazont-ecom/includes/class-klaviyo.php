@@ -1085,10 +1085,48 @@ final class DZE_Klaviyo {
 	// it cannot work yet. One frame, one place, no drift.
 	// =========================================================================
 
-	/** The frame in force, or an empty string while none has been read. */
+	/**
+	 * The frame in force, or an empty string while none has been read.
+	 *
+	 * The frame is a SNAPSHOT of the owner's Klaviyo template, taken the day
+	 * he pressed Read it. Anything of ours baked into that snapshot is frozen
+	 * with it: the column the email is written into used to be stored inside
+	 * the frame, so when its margin changed, every shop that had already read
+	 * its template kept the old one for ever and had no way of knowing why.
+	 * The frame holds the marker now and the column is put on at build time —
+	 * and a frame saved the old way is unwrapped here, so nobody has to read
+	 * his template again to get a fix.
+	 */
 	public static function shell(): string {
 		$saved = trim( (string) ( self::settings()['shell'] ?? '' ) );
-		return ( '' !== $saved && false !== strpos( $saved, self::BODY_MARK ) ) ? $saved : '';
+		if ( '' === $saved || false === strpos( $saved, self::BODY_MARK ) ) {
+			return '';
+		}
+		return self::unwrap_slot( $saved );
+	}
+
+	/**
+	 * Strips a column this plugin baked into a frame before it knew better.
+	 *
+	 * Exact rather than clever: the opening and the closing are our own
+	 * constants, so the cut is the one we made. A frame that does not carry
+	 * them is handed back untouched.
+	 */
+	private static function unwrap_slot( string $frame ): string {
+		// Matched on the class, not on the whole opening tag: the styles inside
+		// it are exactly what changes between versions, so a frame saved before
+		// the margin existed would never match its own successor and would end
+		// up wearing TWO columns, one padded and one not.
+		$at = strpos( $frame, '<div class="' . self::SLOT_CLASS );
+		if ( false === $at ) {
+			return $frame;
+		}
+		$mark = strpos( $frame, self::BODY_MARK, $at );
+		$end  = ( false === $mark ) ? false : strpos( $frame, self::SLOT_CLOSE, $mark );
+		if ( false === $end ) {
+			return $frame;
+		}
+		return substr( $frame, 0, $at ) . self::BODY_MARK . substr( $frame, $end + strlen( self::SLOT_CLOSE ) );
 	}
 
 	/**
@@ -1327,7 +1365,7 @@ final class DZE_Klaviyo {
 			// and no unsubscribe line — is worse than not sending at all.
 			throw new RuntimeException( __( 'No header and footer yet. Settings → Email campaigns → Header and footer: choose your Klaviyo template and press Read it.', 'dazont-ecom' ) );
 		}
-		$html = str_replace( self::BODY_MARK, $body, $shell );
+		$html = str_replace( self::BODY_MARK, self::slot( $body ), $shell );
 		return $preview ? self::readable( $html ) : $html;
 	}
 
@@ -1362,8 +1400,16 @@ final class DZE_Klaviyo {
 	 * from the email that is sent.
 	 */
 	public static function preview_shell(): string {
-		$keep = '@@DZE_BODY@@';
-		return str_replace( $keep, self::BODY_MARK, self::readable( str_replace( self::BODY_MARK, $keep, self::shell() ) ) );
+		$shell = self::shell();
+		if ( '' === $shell ) {
+			return '';
+		}
+		// The column goes on HERE, with the marker still inside it, so the
+		// browser can keep doing the one thing it does — put the body where
+		// the marker is — and still show the margin the email is sent with.
+		$shell = str_replace( self::BODY_MARK, self::slot( self::BODY_MARK ), $shell );
+		$keep  = '@@DZE_BODY@@';
+		return str_replace( $keep, self::BODY_MARK, self::readable( str_replace( self::BODY_MARK, $keep, $shell ) ) );
 	}
 
 	// =========================================================================
@@ -3385,7 +3431,7 @@ final class DZE_Klaviyo {
 		}
 		$frame = substr( $html, 0, $open )
 			. '<div class="kl-column" style="display:table-cell;vertical-align:top;width:100%;">'
-			. self::BODY_SLOT
+			. self::BODY_MARK
 			. '</div>'
 			. substr( $html, $end + 1 );
 		// The renderer answers a template's links with the placeholders a SENT
@@ -3421,12 +3467,20 @@ final class DZE_Klaviyo {
 	 * margin costs a full-bleed photograph; a photograph is worth less than an
 	 * email that is never malformed.
 	 */
-	private const BODY_SLOT = '<div class="mj-column-per-100 mj-outlook-group-fix component-wrapper kl-text-table-layout" style="font-size:0px;text-align:left;direction:ltr;vertical-align:top;width:100%;">'
+	/** What every version of the column has in common, and the only thing matched on. */
+	public const SLOT_CLASS = 'mj-column-per-100 mj-outlook-group-fix component-wrapper kl-text-table-layout';
+
+	public const SLOT_OPEN = '<div class="' . self::SLOT_CLASS . '" style="font-size:0px;text-align:left;direction:ltr;vertical-align:top;width:100%;">'
 		. '<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;" width="100%"><tbody><tr>'
 		. '<td align="left" class="kl-text" style="font-size:0px;padding:24px;word-break:break-word;">'
-		. '<div style="font-family:\'Roboto\', Helvetica, Arial, sans-serif;font-size:16px;font-weight:400;line-height:1.3;text-align:left;">'
-		. self::BODY_MARK
-		. '</div></td></tr></tbody></table></div>';
+		. '<div style="font-family:\'Roboto\', Helvetica, Arial, sans-serif;font-size:16px;font-weight:400;line-height:1.3;text-align:left;">';
+
+	public const SLOT_CLOSE = '</div></td></tr></tbody></table></div>';
+
+	/** The body, dressed in the slot. */
+	public static function slot( string $body ): string {
+		return self::SLOT_OPEN . $body . self::SLOT_CLOSE;
+	}
 
 	/** Reads the chosen template and hands the frame back for the field. */
 	public static function ajax_frame(): void {
