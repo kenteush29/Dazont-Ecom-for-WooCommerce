@@ -138,6 +138,15 @@
 			for (var i = 0; i < items.length; i++) {
 				if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
 					e.preventDefault();
+					// And it goes no further. The screens that host this box
+					// ALSO listen for Ctrl+V on the document — they have to,
+					// because a paste only fires on what has the focus and the
+					// focus is usually nowhere — and that handler hands the
+					// same file back to this same box. Pasting with the box
+					// focused therefore added the image twice, once by each
+					// route. Stopped here, whichever route the paste takes it
+					// arrives once.
+					e.stopPropagation();
 					readFile(items[i].getAsFile());
 					return;
 				}
