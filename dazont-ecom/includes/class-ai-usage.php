@@ -77,6 +77,7 @@ final class DZE_Ai_Usage {
 			'promo_email' => __( 'Promotion email', 'dazont-ecom' ),
 			'promo_email_img' => __( 'Promotion email picture', 'dazont-ecom' ),
 			'hero_image'  => __( 'Home page picture for an event', 'dazont-ecom' ),
+			'prompt_draft'=> __( 'Drafting a prompt', 'dazont-ecom' ),
 			'sourcing'    => __( 'Sourcing analysis', 'dazont-ecom' ),
 			'other'       => __( 'Everything else', 'dazont-ecom' ),
 		];
