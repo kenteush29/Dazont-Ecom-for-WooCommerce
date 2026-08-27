@@ -1655,7 +1655,25 @@ final class DZE_Klaviyo {
 			'a'   => $attrs + [ 'href' => true, 'target' => true, 'rel' => true, 'title' => true ],
 			'img' => $attrs + [ 'src' => true, 'alt' => true, 'title' => true ],
 		];
-		return trim( wp_kses( $html, $allowed ) );
+		// wp_kses judges every src against WordPress's list of allowed
+		// protocols, and "dze:" is not on it: the marker came out as a bare
+		// "picture", a relative URL pointing at nothing. The browser then
+		// could not find the marker it was meant to swap, decided the email
+		// had no picture in it and PREPENDED one — which is how an email ended
+		// up with a photograph at the top and a broken image with the alt text
+		// still sitting where the writing had put it. The protocol is allowed
+		// for the length of this call and taken straight back out.
+		$allow = static function ( array $protocols ): array {
+			$protocols[] = strtok( self::PICTURE_MARK, ':' );
+			return $protocols;
+		};
+		add_filter( 'kses_allowed_protocols', $allow );
+		try {
+			$clean = wp_kses( $html, $allowed );
+		} finally {
+			remove_filter( 'kses_allowed_protocols', $allow );
+		}
+		return trim( $clean );
 	}
 
 	/**
@@ -2776,6 +2794,7 @@ final class DZE_Klaviyo {
 	 * with one image fewer is an email; an email with a broken one is not.
 	 */
 	public static function settle_picture( string $html, array $rule ): string {
+		$html = self::drop_broken_images( $html );
 		if ( false === strpos( $html, self::PICTURE_MARK ) ) {
 			return $html;
 		}
@@ -2784,6 +2803,32 @@ final class DZE_Klaviyo {
 			return str_replace( self::PICTURE_MARK, esc_url( $fallback ), $html );
 		}
 		return (string) preg_replace( '/<img[^>]*' . preg_quote( self::PICTURE_MARK, '/' ) . '[^>]*>/i', '', $html );
+	}
+
+	/**
+	 * Images that lost their source, dropped rather than sent.
+	 *
+	 * An <img> with no src, or with the mangled remains of a marker, is a
+	 * broken picture in an inbox and nothing else. Bodies written while the
+	 * marker was being eaten by the sanitiser carry exactly that, so they are
+	 * cleared on the way out instead of being left for somebody to notice.
+	 */
+	public static function drop_broken_images( string $html ): string {
+		if ( false === stripos( $html, '<img' ) ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'/<img\b[^>]*>/i',
+			static function ( array $m ): string {
+				if ( ! preg_match( '/\ssrc\s*=\s*("|\x27)(.*?)\1/is', $m[0], $src ) ) {
+					return ''; // no source at all.
+				}
+				$url = trim( html_entity_decode( $src[2] ) );
+				// A relative "picture" is what wp_kses left of the marker.
+				return ( '' === $url || 'picture' === strtolower( $url ) ) ? '' : $m[0];
+			},
+			$html
+		);
 	}
 
 	/** What each moment of a promotion has to do that the others do not. */

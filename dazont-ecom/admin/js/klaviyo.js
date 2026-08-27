@@ -141,11 +141,24 @@
 	function frame()      { return $('#dze-klav-e-iframe'); }
 	function picture()    { return current ? card(current).find('.dze-f-picture') : $(); }
 
+	// An <img> with no source, or with the mangled remains of the picture
+	// marker, is a broken picture and nothing else. The server drops them on
+	// the way out, so the preview drops them too — a preview that shows
+	// something the email will not is worse than no preview.
+	function sound(html) {
+		return String(html).replace(/<img\b[^>]*>/gi, function (tag) {
+			var src = tag.match(/\ssrc\s*=\s*("|')(.*?)\1/i);
+			if (!src) { return ''; }
+			var url = $.trim(src[2]);
+			return (!url || url.toLowerCase() === 'picture') ? '' : tag;
+		});
+	}
+
 	function draw($frame, html) {
 		var f = $frame[0];
 		if (!f) { return; }
 		f.setAttribute('sandbox', 'allow-same-origin');
-		f.srcdoc = html;
+		f.srcdoc = sound(html);
 	}
 
 	function assemble(shell, inner) {
@@ -406,7 +419,11 @@
 			el.value = el.value.split(cfg.pictureMark).join(url);
 		} else if (old && el.value.indexOf(old) !== -1) {
 			el.value = el.value.split(old).join(url);
-		} else {
+		} else if (!/<img\b/i.test(el.value || '')) {
+			// Only when the email has no photograph at all. Prepending one to a
+			// body that already has an image is how an email ends up with two,
+			// and that is exactly what happened when the marker was being eaten
+			// by the sanitiser and could not be found here.
 			el.value = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
 				'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' + (el.value || '');
 		}
