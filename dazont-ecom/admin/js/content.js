@@ -384,6 +384,17 @@
 									'<label class="dze-basemain" title="' + esc(i18n.baseMainTip) + '">' +
 										'<input type="checkbox" id="dze-cx-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
 								'</details>' +
+								// What no photograph of this product shows. It
+								// travels with every image made here, and it
+								// was only editable in the one-function popup —
+								// so a run started from this screen used a note
+								// nobody could see, let alone write.
+								'<details class="dze-cx-acc dze-cx-else" id="dze-cx-notewrap">' +
+									'<summary>' + esc(i18n.noteTitle) + '</summary>' +
+									'<p class="description">' + esc(i18n.noteHelp) + '</p>' +
+									'<textarea id="dze-cx-note" rows="2" class="large-text" placeholder="' + esc(i18n.notePh) + '"></textarea>' +
+									'<span class="dze-one-notestate"></span>' +
+								'</details>' +
 							'</div>' +
 						'</div>' : '')
 					) +
@@ -467,6 +478,12 @@
 			loadCurrent().then(function (cur) {
 				$('#dze-cx-runstate').empty();
 				$('#dze-cx-who').text(cur.title || '');
+				// The note belongs to the product the popup is on, not to the
+				// page it was loaded with — from the products list, that is a
+				// different product on every row.
+				cfg.note = cur.note || '';
+				$('#dze-one-note, #dze-cx-note').val(cfg.note);
+				$('#dze-cx-notewrap').prop('open', !!cfg.note.trim());
 				if (cur.cost) { $('#dze-cx-cost').val(cur.cost); }
 				drawCurrentImages();
 				markWritten(cur.texts);
@@ -483,6 +500,9 @@
 		loadCurrent().then(function (cur) {
 			drawCurrentImages();
 			markWritten(cur.texts);
+			cfg.note = cur.note || '';
+			$('#dze-one-note, #dze-cx-note').val(cfg.note);
+			$('#dze-cx-notewrap').prop('open', !!cfg.note.trim());
 			if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
 				hydrate(cur.pending);
 			}
@@ -2330,11 +2350,14 @@
 		);
 	}
 	// Saved when you leave it: one line typed once, kept with the product.
-	$(document).on('change blur', '#dze-one-note', function () {
+	$(document).on('change blur', '#dze-one-note, #dze-cx-note', function () {
 		var note = $(this).val() || '';
 		if (note === (cfg.note || '')) { return; }
 		cfg.note = note;
-		var $st = $('.dze-one-notestate').text('…');
+		// The other copy of the same note, on whichever screen is behind this
+		// one: one line about one product, not one per popup.
+		$('#dze-one-note, #dze-cx-note').not(this).val(note);
+		var $st = $(this).closest('details').find('.dze-one-notestate').text('…');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_content_variation_note', nonce: cfg.nonce,
 			post: PID, group: '*', note: note
