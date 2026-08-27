@@ -1694,7 +1694,7 @@ final class DZE_Klaviyo {
 			__( 'The angle the campaign plan wrote for this one, when a plan was run.', 'dazont-ecom' ),
 			__( 'The other emails of the promotion: their day and how far it is from this one, their subject, their headings, how they opened, what their links say and which products they leaned on — so this one repeats none of it.', 'dazont-ecom' ),
 			__( 'The shop, read from itself: name, tagline, best-selling categories and products, price range, currency.', 'dazont-ecom' ),
-			__( 'The products it may show: the best-sellers of the window set below, with their names, links, photographs and both prices — and the rule that a product is placed with [[PRODUCT n]] and never written by hand.', 'dazont-ecom' ),
+			__( 'The products it may show: the best-sellers of the window set below, with their names, links, photographs and both prices — the ones another email of the promotion already showed moved to the end and marked, so this one reads the unused ones first — and the rule that a product is placed with [[PRODUCT n]] and never written by hand.', 'dazont-ecom' ),
 			__( 'The opening picture: the one this email already has, or the permission to describe one.', 'dazont-ecom' ),
 			__( 'Your theme\'s own type and colours: heading font, text font, text colour, link colour, text size.', 'dazont-ecom' ),
 			__( 'The shop\'s own rules, which override the instructions: the header and footer already carry the service promises, the body is written inside the column it is given, a product is never written by hand.', 'dazont-ecom' ),
@@ -3137,16 +3137,30 @@ final class DZE_Klaviyo {
 	 * to; what it may never do is invent one, and it does not have to, because
 	 * everything it needs is written out here.
 	 *
+	 * The products the OTHER emails of the promotion have already shown are
+	 * not merely discouraged, they are moved out of the way: the shortlist is
+	 * asked for wider, the ones already used fall to the end of it and are
+	 * marked as used, and the list is cut back to size — so the products this
+	 * email reads first are products the reader has not been sent yet. Asking
+	 * for that in words did not work, and it could not: the shortlist handed
+	 * over was the same nine products in the same order every time, and the
+	 * first three are the three anybody picks.
+	 *
+	 * @param string[] $shown Links already used by the promotion's other emails.
 	 * @return array{lines:string,images:string[],prices:string[]}
 	 */
-	public static function material( array $rule, int $limit = 9 ): array {
+	public static function material( array $rule, int $limit = 9, array $shown = [] ): array {
 		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [] ];
 		$t   = self::theme_style();
-		$ids = self::best_sellers( self::window_days(), $limit, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
+		// Wider when there is something to step around, so demoting the used
+		// ones leaves real products behind them rather than a shorter list.
+		$want = $shown ? $limit + 6 : $limit;
+		$ids = self::best_sellers( self::window_days(), $want, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return $out;
 		}
-		$n = 0;
+		$fresh = [];
+		$again = [];
 		foreach ( $ids as $id ) {
 			$product = wc_get_product( $id );
 			if ( ! $product instanceof WC_Product ) {
@@ -3168,38 +3182,96 @@ final class DZE_Klaviyo {
 			}
 			$terms = get_the_terms( $id, 'product_cat' );
 			$cat   = ( is_array( $terms ) && isset( $terms[0] ) ) ? $terms[0]->name : '';
+			$link  = (string) $product->get_permalink();
 
+			$row = [
+				'name'  => (string) $product->get_name(),
+				'link'  => $link,
+				'image' => $img,
+				'was'   => $was,
+				'now'   => $now,
+				'cat'   => $cat,
+				'card'  => self::card_html( $link, $img, (string) $product->get_name(), self::price_html( $product, $rule ) ),
+			];
+			if ( $link && in_array( $link, $shown, true ) ) {
+				$again[] = $row;
+			} else {
+				$fresh[] = $row;
+			}
+		}
+		// Fresh first, already-seen behind them, and never more than asked for.
+		$rows = array_slice( array_merge( $fresh, $again ), 0, $limit );
+		$n    = 0;
+		foreach ( $rows as $row ) {
 			$n++;
-			$out['lines'] .= $n . '. ' . $product->get_name() . "\n"
-				. '   link: ' . $product->get_permalink() . "\n"
-				. '   image: ' . $img . "\n"
-				. ( '' !== $was ? '   was: ' . $was . '   now: ' . $now . "\n" : '   price: ' . $now . "\n" )
-				. ( '' !== $cat ? '   category: ' . $cat . "\n" : '' );
+			$out['lines'] .= $n . '. ' . $row['name']
+				. ( in_array( $row['link'], $shown, true ) ? '   [ALREADY SHOWN by another email of this promotion — use only if you must]' : '' ) . "\n"
+				. '   link: ' . $row['link'] . "\n"
+				. '   image: ' . $row['image'] . "\n"
+				. ( '' !== $row['was'] ? '   was: ' . $row['was'] . '   now: ' . $row['now'] . "\n" : '   price: ' . $row['now'] . "\n" )
+				. ( '' !== $row['cat'] ? '   category: ' . $row['cat'] . "\n" : '' );
 			// Its link, so an email written later can be told which products the
 			// earlier ones already leaned on: the link is the one thing a
 			// product block always carries, whatever the writing did around it.
-			$out['links'][ $product->get_name() ] = (string) $product->get_permalink();
+			$out['links'][ $row['name'] ] = $row['link'];
 			// The block itself, built HERE and handed to the writing ready-made.
 			// How many products, how they are grouped and where they sit is the
 			// prompt's decision; what one of them LOOKS like is not, because a
 			// card reinvented on every send is a shop whose products are
 			// dressed differently in every email.
-			$out['cards'][] = self::card_html(
-				(string) $product->get_permalink(),
-				$img,
-				(string) $product->get_name(),
-				self::price_html( $product, $rule )
-			);
-			if ( '' !== $img ) {
-				$out['images'][] = $img;
+			$out['cards'][] = $row['card'];
+			if ( '' !== $row['image'] ) {
+				$out['images'][] = $row['image'];
 			}
-			foreach ( [ $was, $now ] as $p ) {
+			foreach ( [ $row['was'], $row['now'] ] as $p ) {
 				if ( '' !== $p ) {
 					$out['prices'][] = $p;
 				}
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The products the promotion's OTHER emails already put in front of this
+	 * reader, as links.
+	 *
+	 * Read from the bodies themselves rather than from a list kept somewhere:
+	 * an email that was rewritten, or edited by hand, is answered for by what
+	 * it actually says today. Every product block carries the product's own
+	 * link, so the hrefs of the neighbours ARE the answer, and no catalogue
+	 * has to be consulted to work it out.
+	 *
+	 * @return string[]
+	 */
+	public static function shown_links( string $rule_id, array $rule, string $email_id ): array {
+		$all = self::emails_for( $rule_id, $rule );
+		unset( $all[ $email_id ] );
+		$out = [];
+		foreach ( $all as $mail ) {
+			$body = (string) ( $mail['body'] ?? '' );
+			if ( '' === trim( $body ) || ! preg_match_all( '#href\s*=\s*["\']([^"\']+)["\']#i', $body, $m ) ) {
+				continue;
+			}
+			foreach ( $m[1] as $href ) {
+				$href = trim( html_entity_decode( (string) $href, ENT_QUOTES ) );
+				if ( '' !== $href ) {
+					$out[ $href ] = true;
+				}
+			}
+		}
+		return array_keys( $out );
+	}
+
+	/**
+	 * The material for ONE email of a promotion: the shortlist, with the
+	 * products its neighbours already showed moved out of its way.
+	 *
+	 * The one place that pairing is made, so the screen that PRINTS the brief
+	 * and the call that spends the money cannot be handed different products.
+	 */
+	public static function material_for( string $rule_id, array $rule, string $email_id ): array {
+		return self::material( $rule, 9, self::shown_links( $rule_id, $rule, $email_id ) );
 	}
 
 	/** The price this promotion makes, the way the shop itself computes it. */
@@ -3517,7 +3589,7 @@ final class DZE_Klaviyo {
 			. 'What the shop actually sold over ' . $win['label']
 			. ( $win['season'] ? ' — the same days of the year this promotion runs on, so the goods suit its season' : '' ) . ".\n"
 			. ( '' !== $mat['lines']
-				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs.\n\n" . $mat['lines']
+				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs. They are in the order to prefer them: any marked ALREADY SHOWN was sent to this same reader by another email of this promotion, and is there for the rare case where nothing else fits.\n\n" . $mat['lines']
 				: "The shop returned no product. Write the email without a product.\n" );
 		if ( ! empty( $mat['cards'] ) ) {
 			$user .= sprintf(
@@ -3556,7 +3628,7 @@ final class DZE_Klaviyo {
 	public static function write_for( string $rule_id, array $rule, string $email_id = '' ): array {
 		$lang    = class_exists( 'DZE_Content' ) ? DZE_Content::site_language() : 'English';
 		$picture = self::picture_for( $rule_id, $rule, $email_id );
-		$mat     = self::material( $rule );
+		$mat     = self::material_for( $rule_id, $rule, $email_id );
 		$user    = self::brief_for( $rule_id, $rule, $email_id, $mat, $picture );
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::email_prompt() . "\n"
 			// The shop's own rules, added automatically. They are NOT put into
@@ -3808,7 +3880,7 @@ final class DZE_Klaviyo {
 				$rule_id,
 				$rule,
 				$email_id,
-				self::material( $rule ),
+				self::material_for( $rule_id, $rule, $email_id ),
 				self::picture_for( $rule_id, $rule, $email_id )
 			);
 		} catch ( \Throwable $e ) {
