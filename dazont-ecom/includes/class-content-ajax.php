@@ -723,7 +723,27 @@ trait DZE_Content_Ajax {
 			// was all the model ever saw of the product, and it had to guess
 			// the back, the lining, the fastenings and the material.
 			$context = [];
-			if ( $src_id && wp_attachment_is_image( $src_id ) ) {
+			// Photographs from outside that are NOT the subject: the product
+			// stays image 1 and they are read for the setting. Without this,
+			// pasting anything made that thing the subject — so there was no
+			// way to say "keep this product, exactly this one, and put it in
+			// that scene", which is the whole point of pasting an inspiration.
+			$refs      = [];
+			$base_main = ! empty( $_POST['base_main'] );
+			if ( $base_main && $pastes ) {
+				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
+				if ( ! $outside ) {
+					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+				}
+				$refs = $outside;
+				$own  = self::product_source_ids( $pid );
+				$lead = ( $src_id && wp_attachment_is_image( $src_id ) ) ? $src_id : (int) ( $own[0] ?? 0 );
+				if ( ! $lead ) {
+					throw new RuntimeException( __( 'This product has no photograph to start from: set a featured image first.', 'dazont-ecom' ) );
+				}
+				$sources[] = $this->fal_source_data_uri( $lead, 'full' );
+				$context   = array_values( array_diff( $own, [ $lead ] ) );
+			} elseif ( $src_id && wp_attachment_is_image( $src_id ) ) {
 				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
 				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
 			} elseif ( $pastes ) {
@@ -748,7 +768,7 @@ trait DZE_Content_Ajax {
 				// by the first shot plus one more angle.
 				foreach ( array_slice( self::product_source_ids( $pid ), 0, 2 ) as $i => $aid ) {
 					try {
-						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'full' );
+						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
@@ -759,7 +779,11 @@ trait DZE_Content_Ajax {
 			// limit that means anything here.
 			foreach ( array_slice( $context, 0, self::MAX_SOURCES ) as $aid ) {
 				try {
-					$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+					// 'large', not 'medium_large': at 768 px a buckle stops
+					// being a buckle and the model paints something plausible
+					// in its place. The weight is checked image by image just
+					// below, so sharper simply means fewer.
+					$uri = $this->fal_source_data_uri( (int) $aid, 'large' );
 				} catch ( \Throwable $e ) {
 					continue;
 				}
@@ -790,6 +814,17 @@ trait DZE_Content_Ajax {
 					$variants++;
 				}
 			}
+			// The references come after everything that IS the product, and
+			// before the background: the paragraph that names them counts from
+			// there.
+			$ref_n = 0;
+			foreach ( $refs as $uri ) {
+				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+					break;
+				}
+				$sources[] = $uri;
+				$ref_n++;
+			}
 			// The background travels as the LAST image, exactly like a scene: a
 			// surface the model can see beats a colour it has to imagine, and it
 			// is the same file for every product — which is the whole point.
@@ -815,7 +850,7 @@ trait DZE_Content_Ajax {
 			}
 			$prompt = $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ! empty( $pastes ) ) )
+				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ( ! empty( $pastes ) && ! $base_main ) ), $ref_n )
 				. self::note_lines( $pid );
 
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -967,11 +1002,39 @@ trait DZE_Content_Ajax {
 		try {
 			// Sources: fal's own CDN URLs pass through; local files go as data URIs
 			// (fal cannot always fetch staging/hotlink-protected site URLs).
-			$sources = [];
-			$weight  = 0;
+			$sources  = [];
+			$weight   = 0;
+			$refs_out = [];
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its own.
 				$sources[] = $src;
+			} elseif ( $pastes && ! empty( $_POST['base_main'] ) ) {
+				// The product stays the subject and the pasted photographs are
+				// references for the setting. Pasting used to mean "this is now
+				// the thing to photograph", so there was no way to say "keep
+				// this product, exactly this one, and put it in that scene" —
+				// which is what an inspiration shot is for, and what keeps the
+				// colours of the real product.
+				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
+				if ( ! $outside ) {
+					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+				}
+				$refs_out = $outside;
+				foreach ( array_slice( $product_ids, 0, 3 ) as $i => $aid ) {
+					try {
+						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+					if ( $i > 0 && ( $weight + strlen( $uri ) ) > self::MAX_PAYLOAD ) {
+						break;
+					}
+					$weight   += strlen( $uri );
+					$sources[] = $uri;
+				}
+				if ( ! $sources ) {
+					throw new RuntimeException( __( 'This product has no photograph to start from: set a featured image first.', 'dazont-ecom' ) );
+				}
 			} elseif ( $pastes ) {
 				// The pasted photographs come first — the first of them is the
 				// subject, the others say what it does not show — and the
@@ -993,7 +1056,7 @@ trait DZE_Content_Ajax {
 				$ctx_max = '' !== $v_value ? 2 : 4;
 				foreach ( array_slice( $product_ids, 0, $ctx_max ) as $aid ) {
 					try {
-						$uri = $this->fal_source_data_uri( (int) $aid, 'medium_large' );
+						$uri = $this->fal_source_data_uri( (int) $aid, 'large' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
@@ -1015,16 +1078,21 @@ trait DZE_Content_Ajax {
 				// gallery shot, in a setting of its own — so the main lane sends
 				// the featured image plus two, exactly like the toolbox that
 				// does this well.
+				// Six at most on a gallery run, not the whole album: a seventh
+				// angle of the same product adds weight and divides attention,
+				// and what suffers first is exactly what a technical product is
+				// judged on — the hardware and the markings.
 				$ids_out = ( 'main' === $target || 0 === strpos( $target, 'variation:' ) )
 					? array_slice( $product_ids, 0, 3 )
-					: $product_ids;
+					: array_slice( $product_ids, 0, 6 );
 				foreach ( $ids_out as $i => $aid ) {
 					try {
 						// The featured image is the one the result is built on,
-						// so it goes at full working size; the others are read
-						// for information only and travel smaller — a lighter
-						// request body and a faster answer, same understanding.
-						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'medium_large' : 'full' );
+						// so it goes at full working size; the others at 'large'
+						// — 768 px was small enough that a buckle or a label
+						// stopped being readable, and an unreadable detail is
+						// one the model paints from imagination.
+						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
@@ -1082,14 +1150,24 @@ trait DZE_Content_Ajax {
 					$avoid++;
 				}
 			}
+			// The references handed in from outside, after everything that is
+			// the product and before the scene, which is always last.
+			$ref_n = 0;
+			foreach ( $refs_out as $uri ) {
+				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+					break;
+				}
+				$sources[] = $uri;
+				$ref_n++;
+			}
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
 			// Is there a SUBJECT? A photograph being edited, a set pasted in, or
 			// the shot this colour already has: then image 1 is the product and
 			// the rest is context, which is a different sentence entirely.
-			$subject_first = ( '' !== $src ) || ! empty( $pastes ) || ( '' !== $v_value && $v_own );
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first );
+			$subject_first = ( '' !== $src ) || ( ! empty( $pastes ) && ! $ref_n ) || ( '' !== $v_value && $v_own );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first, $ref_n );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.

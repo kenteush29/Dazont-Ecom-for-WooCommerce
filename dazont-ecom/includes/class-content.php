@@ -1194,7 +1194,7 @@ EOT;
 	 * @param int        $variants Photographs of OTHER COLOURS of the same
 	 *                          product, sent right after the product's own.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0 ): string {
 		$out = "\n\n";
 		if ( $count > 1 && $subject_first ) {
 			// A run with a SUBJECT — a photograph pasted in, a photograph
@@ -1256,12 +1256,35 @@ EOT;
 				. ( 1 === $avoid ? 'it' : 'them' )
 				. ' as the reference for what the product looks like: that is what the product photographs above are for.';
 		}
+		// Photographs handed in from outside while the PRODUCT stays image 1 —
+		// a scene to copy, a styling to follow, a mood. They are named for what
+		// they are, or the model reads them as the product and hands back
+		// something wearing their colours.
+		if ( $refs > 0 ) {
+			$first = $count + $variants + $avoid + 1;
+			$out  .= ' ' . (
+				1 === $refs
+					? sprintf( 'IMAGE %d IS A REFERENCE YOU WERE HANDED', $first )
+					: sprintf( 'IMAGES %1$d TO %2$d ARE REFERENCES YOU WERE HANDED', $first, $first + $refs - 1 )
+			);
+			$out .= ' for the SETTING: the place, the light, the framing, the styling and the mood. The product is image 1 and nothing else. Never take a colour, a pattern, a material, a shape or a marking from '
+				. ( 1 === $refs ? 'it' : 'them' )
+				. ', and never put an object from '
+				. ( 1 === $refs ? 'it' : 'them' )
+				. ' into the picture unless the instructions above ask for it.';
+		}
+		// Technical goods are lost in the details: a buckle, a webbing pitch, a
+		// label, a seam. The model reads a soft photograph, cannot make the
+		// detail out, and paints something plausible instead — which on a
+		// tactical product is immediately, obviously wrong. Said explicitly,
+		// and said as a preference for LESS rather than for invention.
+		$out .= ' Reproduce every fitting the photographs show — buckles, zips, sliders, webbing, straps, labels, seams and printed markings — exactly as they are, in the same places. Where a detail is not readable in the photographs, leave that part out of frame or out of focus rather than approximating it: a missing detail is a photograph, an invented one is a fake.';
 		if ( $scene ) {
 			// Deliberately says WHAT it is and not what it may not be: a shelf
 			// image can be a blank product to print on, and a sentence
 			// forbidding a scene from looking like a product fought the prompt
 			// that asked for exactly that.
-			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $variants + $avoid + 1 );
+			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $variants + $avoid + $refs + 1 );
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
@@ -4065,6 +4088,9 @@ Answer with STRICT JSON and nothing else: "
 				// A field that already holds something is rewritten, not
 				// written: the button says which of the two it is about to do.
 				'relaunch'   => __( 'Regenerate', 'dazont-ecom' ),
+				// Which of the two is the subject when a photograph is handed
+				// in from outside.
+				'baseMain'   => __( 'Keep the product\'s own photograph as the subject (the ones added are only references for the setting)', 'dazont-ecom' ),
 				'written'    => __( '· written', 'dazont-ecom' ),
 				'writtenTip' => __( 'This product already has one. Running it again writes a different text, not the same one back.', 'dazont-ecom' ),
 				'whatToGen'  => __( 'What to generate', 'dazont-ecom' ),

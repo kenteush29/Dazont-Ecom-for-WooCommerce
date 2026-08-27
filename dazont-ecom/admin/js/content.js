@@ -379,6 +379,8 @@
 								'<details class="dze-cx-acc dze-cx-else">' +
 									'<summary>' + esc(i18n.stepElse) + '</summary>' +
 									'<div id="dze-cx-else"></div>' +
+									'<label class="dze-one-withprod"><input type="checkbox" id="dze-cx-basemain" /> ' +
+										esc(i18n.baseMain) + '</label>' +
 								'</details>' +
 							'</div>' +
 						'</div>' : '')
@@ -842,7 +844,10 @@
 		// Whatever was handed to this run from outside the shop travels with
 		// every image it makes.
 		var outside = cxPaste ? cxPaste.list() : [];
-		if (outside.length) { data.pastes = outside; }
+		if (outside.length) {
+			data.pastes = outside;
+			if ($('#dze-cx-basemain').is(':checked')) { data.base_main = 1; }
+		}
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
@@ -1393,6 +1398,12 @@
 					// with it unless you say otherwise.
 					'<label class="dze-one-withprod"><input type="checkbox" id="dze-one-withprod" checked /> ' +
 						esc(i18n.withProduct) + '</label>' +
+					// Which of the two is the SUBJECT. Pasting used to decide it
+					// on its own — what you added became the thing to
+					// photograph — so there was no way to say "keep this
+					// product, exactly this one, and put it in that scene".
+					'<label class="dze-one-withprod"><input type="checkbox" id="dze-one-basemain" /> ' +
+						esc(i18n.baseMain) + '</label>' +
 				'</div>' +
 			'</div>' +
 
@@ -1677,6 +1688,7 @@
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 			pastes: onePastes(),
 			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
+			base_main: $('#dze-one-basemain').is(':checked') ? 1 : 0,
 			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
 			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt
