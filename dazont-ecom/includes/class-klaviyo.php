@@ -1691,7 +1691,7 @@ final class DZE_Klaviyo {
 			__( 'The promotion: its title, its discount, its dates, how many days it runs, what it covers, and the shop address.', 'dazont-ecom' ),
 			__( 'Which email this is: its type, what that type means, the day it goes out, and its place in the sequence.', 'dazont-ecom' ),
 			__( 'The angle the campaign plan wrote for this one, when a plan was run.', 'dazont-ecom' ),
-			__( 'The other emails of the promotion: their subject, how they opened, and which products they leaned on — so this one repeats none of it.', 'dazont-ecom' ),
+			__( 'The other emails of the promotion: their day and how far it is from this one, their subject, their headings, how they opened, what their links say and which products they leaned on — so this one repeats none of it.', 'dazont-ecom' ),
 			__( 'The shop, read from itself: name, tagline, best-selling categories and products, price range, currency.', 'dazont-ecom' ),
 			__( 'The products it may show: the best-sellers of the window set below, with their names, links, photographs and both prices — and the rule that a product is placed with [[PRODUCT n]] and never written by hand.', 'dazont-ecom' ),
 			__( 'The opening picture: the one this email already has, or the permission to describe one.', 'dazont-ecom' ),
@@ -1871,7 +1871,8 @@ final class DZE_Klaviyo {
 	 * @param array $mat The material, so a product can be recognised by its link.
 	 */
 	private static function siblings_brief( string $rule_id, array $rule, string $email_id, array $mat ): string {
-		$all = self::emails_for( $rule_id, $rule );
+		$all  = self::emails_for( $rule_id, $rule );
+		$mine = strtotime( self::just_day( (string) ( $all[ $email_id ]['when'] ?? '' ) ) ?: '' );
 		unset( $all[ $email_id ] );
 		if ( ! $all ) {
 			return '';
@@ -1883,22 +1884,50 @@ final class DZE_Klaviyo {
 			if ( ++$n > 6 ) {
 				break;
 			}
-			$ts   = strtotime( (string) ( $mail['when'] ?? '' ) );
+			$ts   = strtotime( self::just_day( (string) ( $mail['when'] ?? '' ) ) ?: '' );
+			// How far apart the two are, said in days. "It goes out five days
+			// after the launch" is what tells the writing that the reader has
+			// already had one of these — a date on its own does not.
+			$gap  = '';
+			if ( $ts && $mine ) {
+				$days = (int) round( ( $mine - $ts ) / DAY_IN_SECONDS );
+				if ( 0 !== $days ) {
+					$gap = sprintf(
+						' (%d days %s this one)',
+						abs( $days ),
+						$days > 0 ? 'before' : 'after'
+					);
+				}
+			}
 			$line = $n . '. "' . self::email_name( $mail ) . '"'
-				. ( $ts ? ' — ' . wp_date( $fmt, $ts ) : '' );
-			$body = trim( wp_strip_all_tags( (string) ( $mail['body'] ?? '' ) ) );
+				. ( $ts ? ' — ' . wp_date( $fmt, $ts ) : '' ) . $gap;
+			$html = (string) ( $mail['body'] ?? '' );
+			$body = trim( wp_strip_all_tags( $html ) );
 			if ( '' === $body ) {
 				$out .= $line . ' — ' . __( 'not written yet', 'dazont-ecom' ) . "\n";
 				continue;
 			}
 			$subject = trim( (string) ( $mail['subject'] ?? '' ) );
 			$out    .= $line . ( '' !== $subject ? ' — subject: "' . $subject . '"' : '' ) . "\n";
-			$out    .= '   opens: ' . mb_substr( preg_replace( '/\s+/u', ' ', $body ), 0, 180 ) . "…\n";
+			// Its headings and its button. Two emails of the same promotion
+			// are told apart by exactly these three things — the subject, the
+			// big words in the middle, and what the button says — and showing
+			// only the first sentence let the second email repeat all of them
+			// while opening differently, which is the shape the owner saw.
+			$heads = self::text_of( $html, '#<h[1-6][^>]*>(.*?)</h[1-6]>#is', 4 );
+			if ( $heads ) {
+				$out .= '   headings: ' . implode( ' | ', $heads ) . "\n";
+			}
+			$out .= '   opens: ' . mb_substr( (string) preg_replace( '/\s+/u', ' ', $body ), 0, 260 ) . "…\n";
+			$cta = self::text_of( $html, '#<a\b[^>]*>(.*?)</a>#is', 3 );
+			if ( $cta ) {
+				$out .= '   its links say: ' . implode( ' | ', $cta ) . "\n";
+			}
 			// Which of the shortlist it showed, found by the one thing a
 			// product block always carries: the product's own link.
 			$shown = [];
 			foreach ( (array) ( $mat['links'] ?? [] ) as $name => $link ) {
-				if ( '' !== $link && false !== strpos( (string) $mail['body'], $link ) ) {
+				if ( '' !== $link && false !== strpos( $html, $link ) ) {
 					$shown[] = $name;
 				}
 			}
@@ -1907,6 +1936,29 @@ final class DZE_Klaviyo {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * The plain text of what a pattern matches in an email, de-duplicated.
+	 *
+	 * @return string[] At most $max entries, each short enough to be read.
+	 */
+	private static function text_of( string $html, string $pattern, int $max ): array {
+		if ( ! preg_match_all( $pattern, $html, $m ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( (array) $m[1] as $one ) {
+			$one = trim( (string) preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) $one ) ) );
+			if ( '' === $one || isset( $out[ mb_strtolower( $one ) ] ) ) {
+				continue;
+			}
+			$out[ mb_strtolower( $one ) ] = mb_substr( $one, 0, 80 );
+			if ( count( $out ) >= $max ) {
+				break;
+			}
+		}
+		return array_values( $out );
 	}
 
 	/**
@@ -3447,7 +3499,7 @@ final class DZE_Klaviyo {
 		$others = self::siblings_brief( $rule_id, $rule, $email_id, $mat );
 		if ( '' !== $others ) {
 			$user .= "\n--- THE OTHER EMAILS OF THIS PROMOTION ---\n"
-				. "In the order they go out. Do not repeat their subject lines, do not open the way they opened, and lean on OTHER products than the ones they showed — a reader who gets the same photographs twice stops opening the third.\n\n"
+				. "In the order they go out, with how many days separate each of them from this one. Do not repeat their subject lines, their headings or what their links say, do not open the way they opened, and lean on OTHER products than the ones they showed — a reader who gets the same photographs twice stops opening the third.\n\n"
 				. $others;
 		}
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
@@ -3496,6 +3548,7 @@ final class DZE_Klaviyo {
 			. "- The header and the footer are added around your body. They ALREADY carry the shop's service promises — worldwide delivery, customer support, secure payment — as badges. Never write those promises in the body: not as a line, not as a reassurance, not as a closing sentence. The reader sees them once, under what you wrote.\n"
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
 			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
+			. "- When other emails of this promotion are listed above, this one has to be recognisable as a DIFFERENT email at a glance: another subject line, other headings, another opening sentence, other products first. If the only difference you can find is the same offer said in other words, you have the wrong angle — go back to what this moment of the promotion is for and write from there.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
