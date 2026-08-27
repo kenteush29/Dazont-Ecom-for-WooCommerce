@@ -4513,7 +4513,16 @@ final class DZE_Klaviyo {
 		}());
 		</script>
 
-		<h2 class="title"><?php esc_html_e( 'Campaign plan prompt', 'dazont-ecom' ); ?></h2>
+		<h2 class="title"><?php esc_html_e( 'Prompts — what the plugin writes, and how', 'dazont-ecom' ); ?></h2>
+		<?php
+		// Shut cards, one per prompt — the presentation the Product content and
+		// Categories screens use. The fields are unchanged: same names, same
+		// ids, saved by this page's own Save button.
+		$dze_card = class_exists( 'DZE_Prompts' );
+		if ( $dze_card ) {
+			DZE_Prompts::card_open( 'dze-klav-plan-card', __( 'Campaign plan', 'dazont-ecom' ), __( 'How many emails a promotion gets, on which days, and what each is for', 'dazont-ecom' ) );
+		}
+		?>
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Decides how many emails a promotion gets, on which days, and what each one is for. It writes no email: it briefs the prompt below, one email at a time.', 'dazont-ecom' ); ?>
 		</p>
@@ -4531,7 +4540,12 @@ final class DZE_Klaviyo {
 			}());
 			</script>
 
-		<h2 class="title"><?php esc_html_e( 'Email copy prompt', 'dazont-ecom' ); ?></h2>
+		<?php
+		if ( $dze_card ) {
+			DZE_Prompts::card_close();
+			DZE_Prompts::card_open( 'dze-klav-prompt-card', __( 'Email copy', 'dazont-ecom' ), __( 'The whole email: the words and the layout', 'dazont-ecom' ) );
+		}
+		?>
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Decides the whole email: the words and the layout. Products, photographs, links and prices are handed over by the shop and checked on the way back.', 'dazont-ecom' ); ?>
 		</p>
@@ -4566,7 +4580,12 @@ final class DZE_Klaviyo {
 			}());
 			</script>
 
-			<?php submit_button( __( 'Save email settings', 'dazont-ecom' ) ); ?>
+			<?php
+			if ( $dze_card ) {
+				DZE_Prompts::card_close();
+			}
+			submit_button( __( 'Save email settings', 'dazont-ecom' ) );
+			?>
 		</form>
 		<?php
 	}

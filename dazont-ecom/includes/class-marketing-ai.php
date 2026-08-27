@@ -152,6 +152,12 @@ final class DZE_Marketing_Ai {
 			'timer_auto'        => 1,  // let the rule below decide the countdown.
 			'timer_min_percent' => 20, // nothing under this is worth a deadline.
 			'timer_max_days'    => 7,  // a deadline weeks away presses nobody.
+			// The home page's own picture, and the instructions for making the
+			// one that replaces it during a big event. The picture itself is
+			// read from the home page; this is only the override, for a shop
+			// whose hero is somewhere the reading cannot see.
+			'hero_source_id'    => 0,
+			'hero_prompt'       => '',
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
 			'match_model'   => '', // keyword-matching model; empty = Haiku default.
@@ -369,6 +375,12 @@ final class DZE_Marketing_Ai {
 			if ( $has( 'timer_max_days' ) ) {
 				$write['timer_max_days'] = min( 120, max( 1, (int) $in['timer_max_days'] ) );
 			}
+			if ( $has( 'hero_source_id' ) ) {
+				$write['hero_source_id'] = absint( $in['hero_source_id'] );
+			}
+			if ( $has( 'hero_prompt' ) ) {
+				$write['hero_prompt'] = sanitize_textarea_field( (string) $in['hero_prompt'] );
+			}
 			if ( $has( 'events_prompt' ) ) {
 				$write['events_prompt'] = sanitize_textarea_field( $events_prompt );
 			}
@@ -453,6 +465,12 @@ final class DZE_Marketing_Ai {
 	 * @return string[]
 	 */
 	public static function prompt_data( string $id ): array {
+		if ( 'hero_image' === $id ) {
+			return [
+				__( 'The promotion: its title, and the days it runs.', 'dazont-ecom' ),
+				__( 'The picture the home page shows today, as the image to work from — so what comes back fits the same place, at the same shape.', 'dazont-ecom' ),
+			];
+		}
 		if ( 'promo_i18n' === $id ) {
 			return [
 				__( 'The line to adapt, exactly as it stands on the promotion.', 'dazont-ecom' ),
@@ -467,6 +485,21 @@ final class DZE_Marketing_Ai {
 			__( 'The rules added whatever your text says: every event maps to a real occasion named in its rationale, the title names that occasion in the words customers use, a stretch with no occasion in it comes back empty.', 'dazont-ecom' ),
 			__( 'The answer format — title, dates, percentage, countdown, one-sentence rationale.', 'dazont-ecom' ),
 		];
+	}
+
+	/**
+	 * The instructions for the picture that replaces the home page's own
+	 * during a big event. Shipped EMPTY on purpose: what that picture should
+	 * look like is the shop's business, and a default of ours would be a
+	 * house style nobody asked for. The promotion's title and dates are sent
+	 * whatever it says.
+	 */
+	public static function hero_prompt(): string {
+		return (string) ( self::get_settings()['hero_prompt'] ?? '' );
+	}
+
+	public static function default_hero_prompt(): string {
+		return class_exists( 'DZE_Prompt_Defaults' ) ? DZE_Prompt_Defaults::pick( 'hero_image', '' ) : '';
 	}
 
 	/** Is the countdown decided by the rule below rather than by the model? */
@@ -654,18 +687,88 @@ final class DZE_Marketing_Ai {
 			$tab = 'general';
 		}
 
+		// Tabs that belong together stand together. Sixteen tabs in one row
+		// is a row nobody reads: what a shop actually looks for is "the
+		// content of my shop" or "my promotions", and the exact screen is
+		// picked underneath — the way WooCommerce's own settings do it. The
+		// tab keys do not change, so every link ever printed at one of these
+		// screens still lands on it.
+		$groups = [
+			'shop'    => [
+				'label' => __( 'Shop content', 'dazont-ecom' ),
+				'tabs'  => [ 'categories', 'content', 'gmc_activation', 'reviews' ],
+			],
+			'promo'   => [
+				'label' => __( 'Marketing events', 'dazont-ecom' ),
+				'tabs'  => [ 'events', 'email' ],
+			],
+		];
+		// Sections read the same as the tab they were, except where the group
+		// already says it: "Marketing events → Marketing events" says it twice.
+		$section_labels = [ 'events' => __( 'Events', 'dazont-ecom' ) ];
+
 		echo '<div class="wrap dze-wrap">';
 		echo '<h1>' . esc_html__( 'Settings', 'dazont-ecom' ) . '</h1>';
+		$link = static fn( string $key ): string => esc_url( add_query_arg(
+			[ 'page' => self::MENU_SLUG, 'tab' => $key ],
+			admin_url( 'admin.php' )
+		) );
+		// Which group each tab that is in one belongs to, and which tabs each
+		// group really has on this shop — a group whose modules are all off is
+		// not drawn at all.
+		$group_of = [];
+		$members  = [];
+		foreach ( $groups as $gid => $group ) {
+			foreach ( $group['tabs'] as $key ) {
+				if ( isset( $tabs[ $key ] ) ) {
+					$group_of[ $key ] = $gid;
+					$members[ $gid ][] = $key;
+				}
+			}
+		}
+		$here = $group_of[ $tab ] ?? '';
+
 		echo '<nav class="nav-tab-wrapper" style="margin-bottom:16px;">';
+		$drawn = [];
 		foreach ( $tabs as $key => $label ) {
+			$gid = $group_of[ $key ] ?? '';
+			if ( '' !== $gid ) {
+				if ( isset( $drawn[ $gid ] ) ) {
+					continue; // its group is already on the row.
+				}
+				$drawn[ $gid ] = true;
+				printf(
+					'<a href="%1$s" class="nav-tab%2$s">%3$s</a>',
+					$link( (string) $members[ $gid ][0] ),
+					$gid === $here ? ' nav-tab-active' : '',
+					esc_html( (string) $groups[ $gid ]['label'] )
+				);
+				continue;
+			}
 			printf(
 				'<a href="%1$s" class="nav-tab%2$s">%3$s</a>',
-				esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $key ], admin_url( 'admin.php' ) ) ),
+				$link( (string) $key ),
 				$key === $tab ? ' nav-tab-active' : '',
 				esc_html( $label )
 			);
 		}
 		echo '</nav>';
+
+		// The screens inside the group, in WordPress's own quiet sub-navigation.
+		if ( '' !== $here && count( (array) $members[ $here ] ) > 1 ) {
+			echo '<ul class="subsubsub" style="margin:-8px 0 16px;float:none;">';
+			$last = end( $members[ $here ] );
+			foreach ( $members[ $here ] as $key ) {
+				printf(
+					'<li><a href="%1$s"%2$s>%3$s</a>%4$s</li>',
+					$link( (string) $key ),
+					$key === $tab ? ' class="current"' : '',
+					esc_html( (string) ( $section_labels[ $key ] ?? $tabs[ $key ] ) ),
+					$key === $last ? '' : ' | '
+				);
+			}
+			echo '</ul><div style="clear:both;"></div>';
+		}
 
 		// A tab that dies takes the whole screen with it, and a white page
 		// tells nobody anything — not the owner, who sees a broken plugin, and
@@ -2010,6 +2113,9 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( strpos( $hook, self::MENU_SLUG ) !== false ) {
 			wp_enqueue_style( 'wp-color-picker' );
 			wp_enqueue_script( 'wp-color-picker' );
+			// The Marketing events tab picks the home page image from the
+			// library, with WordPress's own picker and nobody else's.
+			wp_enqueue_media();
 		}
 		if ( ! class_exists( 'DZE_Discounts' ) || strpos( $hook, DZE_Discounts::MENU_SLUG_EVENTS ) === false ) {
 			return;
