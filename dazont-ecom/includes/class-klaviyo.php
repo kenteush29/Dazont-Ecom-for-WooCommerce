@@ -1247,20 +1247,36 @@ final class DZE_Klaviyo {
 		// Exactly the line the Discounts module prices with — same rounding,
 		// same direction. Any other arithmetic here would put a figure in the
 		// inbox that the product page then contradicts.
-		$now = self::sale_price( $reg, $pct );
-		$t = self::theme_style();
+		return self::price_line( $reg, self::sale_price( $reg, $pct ) );
+	}
+
+	/**
+	 * Two prices and what they save, drawn once for everybody.
+	 *
+	 * The settings screen used to build this line itself, beside a comment
+	 * promising it called "the very function the email calls" — it called that
+	 * function for the CARD and hand-wrote the prices inside it. So the saving
+	 * appeared in every email and in no preview, and the owner was right to
+	 * ask where it had gone. One renderer, two callers, nothing to keep in
+	 * step.
+	 */
+	private static function price_line( float $was, float $now ): string {
+		if ( ! function_exists( 'wc_price' ) ) {
+			return '';
+		}
+		$t    = self::theme_style();
 		$line = sprintf(
 			'<span style="color:%3$s;text-decoration:line-through;">%1$s</span> <span style="color:%4$s;font-weight:700;">%2$s</span>',
-			wp_kses_post( wc_price( $reg ) ),
+			wp_kses_post( wc_price( $was ) ),
 			wp_kses_post( wc_price( $now ) ),
 			esc_attr( $t['muted'] ),
 			esc_attr( $t['sale'] )
 		);
-		// The figure that decides, said in the same words as the badge on the
-		// shop's own product tiles. Two prices ask the reader to subtract; the
-		// saving is what he was going to work out anyway, and an email is read
-		// in four seconds.
-		$saved = round( $reg - $now, 2 );
+		// The figure that decides, in the same words as the badge on the shop's
+		// own product tiles. Two prices ask the reader to subtract; the saving
+		// is what he was going to work out anyway, and an email is read in four
+		// seconds.
+		$saved = round( $was - $now, 2 );
 		if ( $saved > 0 ) {
 			$line .= sprintf(
 				'<br /><span style="color:%2$s;font-size:12px;">%1$s</span>',
@@ -4975,13 +4991,11 @@ final class DZE_Klaviyo {
 							// show here is the STYLE, not the stock.
 							(string) ( function_exists( 'wc_placeholder_img_src' ) ? wc_placeholder_img_src( 'medium' ) : '' ),
 							__( 'A product from your shop', 'dazont-ecom' ),
-							sprintf(
-								'<span style="color:%1$s;text-decoration:line-through;">%3$s</span> <span style="color:%2$s;font-weight:700;">%4$s</span>',
-								esc_attr( $dze_t['muted'] ),
-								esc_attr( $dze_t['sale'] ),
-								esc_html( function_exists( 'wc_price' ) ? wp_strip_all_tags( wc_price( 222.90 ) ) : '222.90' ),
-								esc_html( function_exists( 'wc_price' ) ? wp_strip_all_tags( wc_price( 188.90 ) ) : '188.90' )
-							)
+							// The price line of a real product, on made-up
+							// figures: the same renderer the email uses, so
+							// what is on show here is what goes out — the
+							// saving included.
+							self::price_line( 222.90, 188.90 )
 						)
 					);
 					?>
