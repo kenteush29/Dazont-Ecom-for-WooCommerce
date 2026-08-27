@@ -1317,6 +1317,23 @@ final class DZE_Gmc {
 				esc_html( $label )
 			);
 		}
+
+		// When it last went to Google, or that it never has. Five empty
+		// circles look the same whether nothing was ever sent or the record
+		// was lost, and the owner cannot act on a state he cannot tell apart.
+		$last = 0;
+		foreach ( $sync as $one ) {
+			$last = max( $last, (int) ( $one['time'] ?? 0 ) );
+		}
+		$out .= '<div style="font-size:11px;color:#646970;margin-top:2px;">' . esc_html(
+			$last
+				? sprintf(
+					/* translators: %s: how long ago, e.g. "2 hours" */
+					__( 'Sent %s ago', 'dazont-ecom' ),
+					human_time_diff( $last )
+				)
+				: __( 'Never sent', 'dazont-ecom' )
+		) . '</div>';
 		return $out;
 	}
 
