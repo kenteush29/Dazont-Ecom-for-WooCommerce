@@ -2690,7 +2690,18 @@ final class DZE_Klaviyo {
 		}
 
 		$emails = self::emails_for( $rule_id, $rule );
-		$seen   = [];
+		// The days already taken count as seen. The plan ADDS to what a
+		// promotion holds rather than replacing it, so without this a second
+		// planning would put a second email on a day that already has one —
+		// and two emails on the same morning is the one thing the plan prompt
+		// is told never to do.
+		$seen = [];
+		foreach ( $emails as $had ) {
+			$day = self::just_day( (string) ( $had['when'] ?? '' ) );
+			if ( '' !== $day ) {
+				$seen[ $day ] = true;
+			}
+		}
 		foreach ( $rows as $row ) {
 			if ( ! is_array( $row ) ) {
 				continue;
