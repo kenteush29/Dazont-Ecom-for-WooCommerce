@@ -4090,7 +4090,8 @@ Answer with STRICT JSON and nothing else: "
 				'relaunch'   => __( 'Regenerate', 'dazont-ecom' ),
 				// Which of the two is the subject when a photograph is handed
 				// in from outside.
-				'baseMain'   => __( 'Keep the product\'s own photograph as the subject (the ones added are only references for the setting)', 'dazont-ecom' ),
+				'baseMain'   => __( 'Keep the product\'s own photograph as the subject', 'dazont-ecom' ),
+				'baseMainTip'=> __( 'What you add is then read for the place, the light and the styling only — never for the product\'s colours, its pattern or its shape.', 'dazont-ecom' ),
 				'written'    => __( '· written', 'dazont-ecom' ),
 				'writtenTip' => __( 'This product already has one. Running it again writes a different text, not the same one back.', 'dazont-ecom' ),
 				'whatToGen'  => __( 'What to generate', 'dazont-ecom' ),
@@ -4977,10 +4978,7 @@ Answer with STRICT JSON and nothing else: "
 			'added1'     => __( '1 image added', 'dazont-ecom' ),
 			/* translators: %s: number of images added */
 			'addedN'     => __( '%s images added', 'dazont-ecom' ),
-			'workedFrom' => __( 'Base image', 'dazont-ecom' ),
-			'first'      => __( 'Use this one as the base image', 'dazont-ecom' ),
 			'remove'     => __( 'Remove', 'dazont-ecom' ),
-			'help'       => __( 'The base image is the photograph that gets transformed — the new image is made from it. The others are only sent so the model knows the product; nothing of them is copied into the result.', 'dazont-ecom' ),
 			'tooBig'     => __( 'That image would make the request too heavy. Remove one of the others, or use a lighter file.', 'dazont-ecom' ),
 		] );
 	}

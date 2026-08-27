@@ -52,23 +52,20 @@
 		function draw() {
 			var n = list.length;
 			var $g = $box.find('.dze-pb-list').empty();
+			// Tiles, and nothing else on them. There used to be a "Base image"
+			// badge on the first and an arrow on the others to promote one —
+			// a question the owner should never have been asked: the prompt
+			// works with the photographs it is given, and which one the model
+			// starts from is not a decision to hand to somebody writing a
+			// product page.
 			list.forEach(function (u, i) {
-				var $tile = $('<span class="dze-pb-tile"></span>').append(
-					$('<img />').attr('src', u).attr('alt', ''),
-					$('<button type="button" class="dze-pb-del"></button>')
-						.attr('title', i18n.remove || '').attr('data-i', i).html('&times;')
+				$g.append(
+					$('<span class="dze-pb-tile"></span>').append(
+						$('<img />').attr('src', u).attr('alt', ''),
+						$('<button type="button" class="dze-pb-del"></button>')
+							.attr('title', i18n.remove || '').attr('data-i', i).html('&times;')
+					)
 				);
-				if (0 === i) {
-					// The first one is what the image is BUILT from, and it says
-					// so rather than leaving the order to be guessed.
-					$tile.append($('<span class="dze-pb-tag"></span>').text(i18n.workedFrom || ''));
-				} else {
-					$tile.append(
-						$('<button type="button" class="dze-pb-first"></button>')
-							.attr('title', i18n.first || '').attr('data-i', i).text('↑')
-					);
-				}
-				$g.append($tile);
 			});
 			$box.toggleClass('has-img', n > 0);
 			$box.find('.dze-qm-dropmsg').text(
@@ -77,7 +74,6 @@
 			// The button says what it does at that moment: an upload while the
 			// box is empty, one more image once something is in it.
 			$box.find('.dze-pb-browse').toggle(n < max).text(n ? (i18n.addMore || '') : (i18n.upload || ''));
-			$box.find('.dze-pb-help').toggle(n > 1).text(i18n.help || '');
 			if (typeof opts.onChange === 'function') { opts.onChange(list.slice()); }
 		}
 		function add(uri) {
@@ -118,12 +114,6 @@
 			e.preventDefault();
 			e.stopPropagation();
 			list.splice(parseInt($(this).data('i'), 10) || 0, 1);
-			draw();
-		});
-		$box.on('click', '.dze-pb-first', function (e) {
-			e.preventDefault();
-			e.stopPropagation();
-			list.unshift(list.splice(parseInt($(this).data('i'), 10) || 0, 1)[0]);
 			draw();
 		});
 		$box.on('dragover', function (e) { e.preventDefault(); $box.addClass('is-over'); });
