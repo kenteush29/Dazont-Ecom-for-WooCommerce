@@ -3441,7 +3441,7 @@ Answer with STRICT JSON and nothing else: "
 								<span><?php esc_html_e( 'Today\'s main image', 'dazont-ecom' ); ?></span>
 								<select id="dze-cb-oldmain">
 									<option value="1"><?php esc_html_e( 'goes to the gallery', 'dazont-ecom' ); ?></option>
-									<option value="0"><?php esc_html_e( 'leaves the product', 'dazont-ecom' ); ?></option>
+									<option value="0"><?php esc_html_e( 'is removed and deleted from the site', 'dazont-ecom' ); ?></option>
 								</select>
 							</label>
 						</div>
@@ -3754,7 +3754,7 @@ Answer with STRICT JSON and nothing else: "
 					// the strip that is about to replace it.
 					'oldMain'     => __( 'Today\'s main image', 'dazont-ecom' ),
 					'oldKeep'     => __( 'goes to the gallery', 'dazont-ecom' ),
-					'oldDrop'     => __( 'leaves the product', 'dazont-ecom' ),
+					'oldDrop'     => __( 'is removed and deleted from the site', 'dazont-ecom' ),
 					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
 					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
 					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
@@ -4070,7 +4070,7 @@ Answer with STRICT JSON and nothing else: "
 				'putHelp'    => __( 'Where the images made by this prompt go.', 'dazont-ecom' ),
 				'putIt'      => __( 'Put it', 'dazont-ecom' ),
 				'oldKeep'    => __( 'goes to the gallery', 'dazont-ecom' ),
-				'oldDrop'    => __( 'leaves the product', 'dazont-ecom' ),
+				'oldDrop'    => __( 'is removed and deleted from the site', 'dazont-ecom' ),
 				'oneOthers'  => __( 'Write just one block:', 'dazont-ecom' ),
 				'shotsLabel' => __( 'Generated images — tick the ones to keep, then save', 'dazont-ecom' ),
 				'shotDrop'   => __( 'Throw this image away', 'dazont-ecom' ),
@@ -4884,6 +4884,56 @@ Answer with STRICT JSON and nothing else: "
 	 *
 	 * @param string $tmp Temporary file; consumed (moved or deleted) either way.
 	 */
+	/**
+	 * Deletes a photograph from the site — the file included — once nothing
+	 * else on the shop is using it.
+	 *
+	 * "Remove + delete" means what it says: the image leaves the product and
+	 * the media library, and the file leaves the disk. It is checked first all
+	 * the same, because one photograph shared by two products is common and
+	 * deleting it would break the other one silently: still the main image of
+	 * another post, or still listed in another product's gallery, and it stays
+	 * where it is. What was skipped is written to the log rather than guessed
+	 * at afterwards.
+	 *
+	 * @param int $att_id The attachment to erase.
+	 * @param int $pid    The product it is leaving, which does not count as a use.
+	 */
+	public static function erase_image( int $att_id, int $pid ): void {
+		if ( $att_id <= 0 || ! wp_attachment_is_image( $att_id ) ) {
+			return;
+		}
+		global $wpdb;
+		$used_as_main = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_thumbnail_id' AND meta_value = %d AND post_id <> %d LIMIT 1",
+			$att_id,
+			$pid
+		) );
+		// A gallery is a comma-separated list, so the id is looked for as a
+		// whole item — 12 must not match 120 — by padding both sides.
+		$in_gallery = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_product_image_gallery' AND post_id <> %d AND CONCAT(',', REPLACE(meta_value, ' ', ''), ',') LIKE %s LIMIT 1",
+			$pid,
+			'%,' . $wpdb->esc_like( (string) $att_id ) . ',%'
+		) );
+		if ( $used_as_main || $in_gallery ) {
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log(
+					'images',
+					'delete old main image',
+					sprintf(
+						/* translators: 1: attachment id, 2: the post still using it */
+						__( 'Image %1$d was taken off the product but kept: post %2$d still uses it.', 'dazont-ecom' ),
+						$att_id,
+						$used_as_main ?: $in_gallery
+					)
+				);
+			}
+			return;
+		}
+		wp_delete_attachment( $att_id, true );
+	}
+
 	public function attach_file( string $tmp, string $ext, int $pid, string $target, string $recipe_id = '', bool $keep_old = true ): int {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -4944,15 +4994,18 @@ Answer with STRICT JSON and nothing else: "
 				if ( $keep_old ) {
 					array_unshift( $ids, $old );
 				} else {
-					// Asked to go: off the product, but still in the library —
-					// a photograph leaving a page is not a photograph deleted.
+					// Asked to go: off the product AND out of the library. A
+					// supplier photograph replaced by a proper one is not worth
+					// keeping, and a media library that fills up with the
+					// rejects of every generation is a cost of its own.
 					$ids = array_values( array_diff( $ids, [ $old ] ) );
-					// And off the variations that were using it. A main image
+					// Off the variations that were using it first. A main image
 					// is often the photograph one colour was given, so taking
 					// it off the product while a variation still points at it
 					// leaves the shop showing exactly the image that was
 					// supposed to be gone: those variations take the new one.
 					self::replace_variation_image( $pid, $old, (int) $att_id );
+					self::erase_image( $old, $pid );
 				}
 			}
 			update_post_meta( $pid, '_product_image_gallery', implode( ',', array_unique( $ids ) ) );
