@@ -197,6 +197,17 @@
 		thumb(current);
 	}
 	$(document).on('input change', '#dze-klav-e-name, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
+
+	// Picking one of the four names proposes its day: warm-up two days out,
+	// launch on the opening day, reminder five days in, last chance two days
+	// before it closes. Typing a name of your own proposes nothing — it is a
+	// name nobody can date for you — and a day you set afterwards stays, since
+	// nothing here runs again until you pick from the list a second time.
+	$(document).on('change', '#dze-klav-e-name', function () {
+		var map = $('#dze-klav-editor').data('when') || {},
+			day = map[$.trim($(this).val() || '')];
+		if (day) { $('#dze-klav-e-when').val(day); commit(); }
+	});
 	$(document).on('input', '#dze-klav-e-body', function () {
 		commit();
 		window.clearTimeout(pending);
@@ -233,12 +244,11 @@
 
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
-			map = $('#dze-klav-editor').data('when') || {},
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
 			$c = $($.trim(html));
 		// A new email opens on the day the promotion does; the moment it
 		// belongs to follows from whatever day it ends up on.
-		$c.find('.dze-f-when').val(map.launch || '');
+		$c.find('.dze-f-when').val($('#dze-klav-editor').data('newday') || '');
 		$('.dze-mail-list').append($c);
 		open(id);
 		commit();

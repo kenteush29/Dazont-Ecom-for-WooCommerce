@@ -1373,13 +1373,13 @@ final class DZE_Klaviyo {
 			],
 			'reminder' => [
 				'label' => __( 'Reminder', 'dazont-ecom' ),
-				'when'  => __( 'While it runs', 'dazont-ecom' ),
-				'days'  => 'mid', // halfway through the promotion.
+				'when'  => __( 'Five days in', 'dazont-ecom' ),
+				'days'  => 5,
 			],
 			'last'     => [
 				'label' => __( 'Last chance', 'dazont-ecom' ),
-				'when'  => __( 'Before it closes', 'dazont-ecom' ),
-				'days'  => 'end',
+				'when'  => __( 'Two days before it closes', 'dazont-ecom' ),
+				'days'  => 'end-2',
 			],
 		];
 	}
@@ -1397,6 +1397,11 @@ final class DZE_Klaviyo {
 		}
 		if ( 'end' === $days ) {
 			$ts = $end ?: $start;
+		} elseif ( 'end-2' === $days ) {
+			// Two days before the last one, but never before the sale opens:
+			// a three-day promotion has no room for it, and a last call dated
+			// before the launch is a briefing that contradicts itself.
+			$ts = $end ? max( $start, $end - 2 * DAY_IN_SECONDS ) : $start;
 		} elseif ( 'mid' === $days ) {
 			$ts = ( $end && $end > $start ) ? (int) ( ( $start + $end ) / 2 ) : $start;
 		} else {
@@ -1493,9 +1498,10 @@ final class DZE_Klaviyo {
 		if ( ! $end || $end <= $start || $day <= $start ) {
 			return 'launch';
 		}
-		// The last day of the sale, and the one before it, are the closing
-		// call; anything between the opening and that is a reminder.
-		return ( $day >= $end - DAY_IN_SECONDS ) ? 'last' : 'reminder';
+		// The closing call is the preset day and everything after it, so the
+		// two halves agree: an email dated by the "Last chance" preset comes
+		// back as a last chance rather than as a reminder.
+		return ( $day >= $end - 2 * DAY_IN_SECONDS ) ? 'last' : 'reminder';
 	}
 
 	/**
@@ -1754,7 +1760,7 @@ final class DZE_Klaviyo {
 		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
 			? (string) $in['body']
 			: self::body_for( $rule, $rule_id, $email_id );
-		$html    = self::layout( $body );
+		$html    = self::layout( self::settle_picture( $body, $rule ) );
 		$in      = $in + [ 'datetime' => (string) ( $copy['when'] ?? '' ) ];
 		$warning = '';
 
@@ -2741,12 +2747,43 @@ final class DZE_Klaviyo {
 	 * An email whose main picture has to be asked for separately is an email
 	 * that goes out without one, which is what kept happening.
 	 */
+	/**
+	 * The picture this email already has — its OWN, and nothing else.
+	 *
+	 * It used to fall back to the event's image here, and that fallback was
+	 * read further up as "this email already has its picture, use this URL and
+	 * do not describe another". So a brand-new email inherited whatever the
+	 * promotion happened to carry and was never once asked for a photograph of
+	 * its own: four emails, one picture, chosen for none of them.
+	 *
+	 * A kept picture is a decision — somebody made it for THIS email, or put it
+	 * there by hand — and a rewrite does not take it back. Nothing kept means
+	 * nothing decided, and the writing is asked for one. The event's image is
+	 * still the last resort, but at the end, in settle_picture(), where a
+	 * fallback belongs: it fills a hole rather than preventing a choice.
+	 */
 	public static function picture_for( string $rule_id, array $rule, string $email_id = '' ): string {
-		$kept = (string) ( self::email_for( $rule_id, $email_id, $rule )['picture'] ?? '' );
-		if ( '' !== $kept ) {
-			return $kept;
+		return (string) ( self::email_for( $rule_id, $email_id, $rule )['picture'] ?? '' );
+	}
+
+	/**
+	 * The body as it goes out: any picture never made is settled here.
+	 *
+	 * fal.ai can be slow, refused or switched off, and an email carrying
+	 * src="dze:picture" is a broken image in an inbox. So the marker is
+	 * answered at the last moment — by the promotion's own image if it has
+	 * one, and by removing the picture altogether if it does not. An email
+	 * with one image fewer is an email; an email with a broken one is not.
+	 */
+	public static function settle_picture( string $html, array $rule ): string {
+		if ( false === strpos( $html, self::PICTURE_MARK ) ) {
+			return $html;
 		}
-		return self::event_image( $rule );
+		$fallback = self::event_image( $rule );
+		if ( '' !== $fallback ) {
+			return str_replace( self::PICTURE_MARK, esc_url( $fallback ), $html );
+		}
+		return (string) preg_replace( '/<img[^>]*' . preg_quote( self::PICTURE_MARK, '/' ) . '[^>]*>/i', '', $html );
 	}
 
 	/** What each moment of a promotion has to do that the others do not. */
@@ -3031,7 +3068,7 @@ final class DZE_Klaviyo {
 			$to = [ (string) get_option( 'admin_email', '' ) ];
 		}
 		try {
-			self::test_send( self::layout( $body ), $to );
+			self::test_send( self::layout( self::settle_picture( $body, $rule ) ), $to );
 			self::remember( [ 'test_to' => implode( ', ', array_filter( array_map( 'sanitize_email', $to ) ) ) ] );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -3350,12 +3387,15 @@ final class DZE_Klaviyo {
 		// round trip.
 		$when_for = [];
 		foreach ( $kinds as $kind => $meta ) {
-			$when_for[ $kind ] = self::default_when( $kind, $rule );
+			// Keyed by the LABEL, because the label is what the owner picks
+			// from the list: choosing "Last chance" proposes its day without
+			// anything having to translate one into the other.
+			$when_for[ (string) $meta['label'] ] = self::default_when( $kind, $rule );
 		}
 		?>
 		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
 
-		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>">
+		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-newday="<?php echo esc_attr( self::default_when( 'launch', $rule ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
 			<input type="hidden" name="dze_email_shown" value="1" />
 			<div class="dze-mail-list">
@@ -3447,19 +3487,18 @@ final class DZE_Klaviyo {
 							<?php // Admin only — it never reaches a reader. It travels
 							// with the campaign to Klaviyo, because the campaign list
 							// there is the other place this email is looked for. ?>
-							<input type="text" id="dze-klav-e-name" class="regular-text" maxlength="80" />
-							<p class="description">
-								<?php
-								// Not an explanation of the field — a suggestion of what
-								// a promotion is usually worth. The moment each email
-								// belongs to follows from the day it goes out, so this
-								// is the only place the four are named.
-								echo esc_html( implode( ' · ', array_map(
-									static fn( array $m ): string => $m['label'] . ' (' . strtolower( $m['when'] ) . ')',
-									self::kinds()
-								) ) );
-								?>
-							</p>
+							<?php
+							// A list to pick from AND a field to type in: the four
+							// moments are what an email is usually called, so they
+							// are one click away, and anything else is still just
+							// typed over them. One control, not a menu beside a box.
+							?>
+							<input type="text" id="dze-klav-e-name" class="regular-text" maxlength="80" list="dze-klav-names" autocomplete="off" />
+							<datalist id="dze-klav-names">
+								<?php foreach ( self::kinds() as $dze_meta ) : ?>
+									<option value="<?php echo esc_attr( $dze_meta['label'] ); ?>"><?php echo esc_attr( $dze_meta['when'] ); ?></option>
+								<?php endforeach; ?>
+							</datalist>
 						</td>
 					</tr>
 					<tr>
