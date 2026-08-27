@@ -1552,8 +1552,48 @@ trait DZE_Content_Ajax {
 		wp_send_json_success( [
 			'thumb_html' => function_exists( '_wp_post_thumbnail_html' ) ? _wp_post_thumbnail_html( $thumb ?: null, $pid ) : '',
 			'gallery'    => $shots,
+			// The gallery's rows, built here rather than copied from a row
+			// already on the screen. The browser used to clone the first
+			// existing one — which works beautifully until the gallery is
+			// EMPTY, and then there is nothing to clone and nothing appears:
+			// the first picture added to a product only showed up after a
+			// reload, and it looked like a save that had half worked.
+			'gallery_html' => self::gallery_rows_html( $gallery ),
 			'gallery_ids'=> implode( ',', $gallery ),
 		] );
+	}
+
+	/**
+	 * WooCommerce's own gallery rows, as its meta box draws them.
+	 *
+	 * Kept beside the call that sends them and written the way WooCommerce
+	 * writes them (html-product-images.php), so a gallery redrawn without a
+	 * page reload is the same list the page would have shown — same classes,
+	 * same delete action, same thumbnail size.
+	 */
+	private static function gallery_rows_html( array $ids ): string {
+		$out = '';
+		foreach ( $ids as $aid ) {
+			$aid = (int) $aid;
+			if ( ! $aid ) {
+				continue;
+			}
+			$img = wp_get_attachment_image( $aid, 'thumbnail' );
+			if ( '' === $img ) {
+				continue; // deleted from the library: not a row, a hole.
+			}
+			$out .= '<li class="image" data-attachment_id="' . esc_attr( (string) $aid ) . '">'
+				. $img
+				. '<ul class="actions"><li><a href="#" class="delete tips" data-tip="'
+				// The word is WooCommerce's, in whatever language this admin
+				// is in — ours would read as a second plugin's button.
+				// phpcs:ignore WordPress.WP.I18n.TextDomainMismatch, WordPress.WP.I18n.NonSingularStringLiteralText
+				. esc_attr( function_exists( 'WC' ) ? __( 'Delete image', 'woocommerce' ) : 'Delete image' ) . '">'
+				// phpcs:ignore WordPress.WP.I18n.TextDomainMismatch, WordPress.WP.I18n.NonSingularStringLiteralText
+				. esc_html( function_exists( 'WC' ) ? __( 'Delete', 'woocommerce' ) : 'Delete' )
+				. '</a></li></ul></li>';
+		}
+		return $out;
 	}
 
 	public function ajax_image_attach(): void {
