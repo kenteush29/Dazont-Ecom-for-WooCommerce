@@ -1104,7 +1104,19 @@ trait DZE_Content_Ajax {
 			}
 			$att_id = $this->sideload_seo( $image_url, $pid, $target, (string) ( $tpl['id'] ?? '' ) );
 		} catch ( \Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+			// Never "something went wrong". An exception with no message of its
+			// own — a type error, a library throwing bare — used to reach the
+			// screen as an empty string, and the screen said the one thing it
+			// could say, which told nobody anything. What it was, and where,
+			// goes to the screen AND to the weekly checkup.
+			$why = trim( $e->getMessage() );
+			if ( '' === $why ) {
+				$why = get_class( $e ) . ' — ' . basename( $e->getFile() ) . ':' . $e->getLine();
+			}
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'content', 'image generation (product ' . $pid . ')', $why );
+			}
+			wp_send_json_error( [ 'message' => $why ] );
 		}
 		wp_send_json_success( [
 			'attachment' => (int) $att_id,

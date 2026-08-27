@@ -3818,6 +3818,7 @@ Answer with STRICT JSON and nothing else: "
 				'apply'      => __( 'Apply', 'dazont-ecom' ),
 				'applied'    => __( 'Applied ✓', 'dazont-ecom' ),
 				'error'      => __( 'Something went wrong.', 'dazont-ecom' ),
+				'badAnswer'  => __( 'The server did not answer with a result. It said:', 'dazont-ecom' ),
 				'previewOnly'=> __( 'Preview only — validate the prompts to apply.', 'dazont-ecom' ),
 				'productData'=> __( 'Complete product data (used as context)', 'dazont-ecom' ),
 				'pTitle'     => __( 'Title', 'dazont-ecom' ),
