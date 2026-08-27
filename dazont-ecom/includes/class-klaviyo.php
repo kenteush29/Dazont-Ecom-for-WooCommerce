@@ -3475,10 +3475,10 @@ final class DZE_Klaviyo {
 	 * owns — the picture chosen for the event, or the product that is actually
 	 * selling — and puts it in the setting the promotion evokes, through the
 	 * same generator, the same key and the same budget guard as the product
-	 * images. It lands in the media library like any other image, so it can be
-	 * reused, replaced, or simply looked at later.
+	 * images. It is hosted by Klaviyo, where the email that carries it lives —
+	 * never in the shop's media library, which is for the shop's products.
 	 *
-	 * @return array{url:string,id:int}
+	 * @return array{url:string,full:string,warning:string}
 	 * @throws RuntimeException
 	 */
 	public static function make_image( array $rule, string $prompt = '', array $email = [] ): array {
@@ -3586,25 +3586,54 @@ final class DZE_Klaviyo {
 		}
 		DZE_Ai_Usage::finished( 'promo_email_img' );
 
-		require_once ABSPATH . 'wp-admin/includes/file.php';
-		$tmp = download_url( $url, 120 );
-		if ( is_wp_error( $tmp ) ) {
-			throw new RuntimeException( $tmp->get_error_message() );
-		}
+		// Hosted where the email lives, and NOWHERE on the shop. A picture
+		// made for one campaign is not a product photograph: filing it in the
+		// media library filled the shop's own library with pictures nobody
+		// would ever pick from it, and every test made another one. Klaviyo
+		// hosts the images of the emails Klaviyo sends; that is where it goes.
 		$name = mb_substr( '' !== $title ? $title : __( 'Promotion email', 'dazont-ecom' ), 0, 80 );
-		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
-		$att  = $content->file_to_library(
-			(string) $tmp,
-			strtolower( (string) pathinfo( $path, PATHINFO_EXTENSION ) ),
-			sanitize_title( $name ),
-			$name
-		);
+		[ $hosted, $why ] = self::host_image( $url, $name );
 		return [
-			'id'   => (int) $att,
-			'url'  => (string) ( wp_get_attachment_image_url( (int) $att, 'large' ) ?: $url ),
-			// What the zoom opens: judging a photograph is done full size.
-			'full' => (string) ( wp_get_attachment_image_url( (int) $att, 'full' ) ?: $url ),
+			'url'  => $hosted ?: $url,
+			// The zoom opens the same file: there is one, and it is not ours.
+			'full' => $hosted ?: $url,
+			// Not hosted is not a failure to hide: the picture works today,
+			// from the provider's own address, and stops working the day that
+			// address expires. The screen says so rather than finding out in
+			// an inbox.
+			'warning' => $hosted ? '' : sprintf(
+				/* translators: %s: what Klaviyo answered */
+				__( 'Klaviyo did not take the picture (%s), so it is used straight from the provider — give the API key image access, or it may stop loading later.', 'dazont-ecom' ),
+				$why
+			),
 		];
+	}
+
+	/**
+	 * Puts one picture in the Klaviyo account's own image library.
+	 *
+	 * The email is sent by Klaviyo, so its pictures belong there: the shop's
+	 * media library is for the shop's products, and a campaign picture in it
+	 * is clutter nobody asked for. Needs an API key with image access.
+	 *
+	 * @return array{0:string,1:string} the hosted URL, or '' and the reason.
+	 */
+	public static function host_image( string $url, string $name ): array {
+		$res = self::request( 'POST', 'images/', [
+			'data' => [
+				'type'       => 'image',
+				'attributes' => [
+					'import_from_url' => $url,
+					'name'            => mb_substr( $name, 0, 100 ),
+					'hidden'          => false,
+				],
+			],
+		], 90 );
+		if ( is_wp_error( $res ) ) {
+			return [ '', $res->get_error_message() ];
+		}
+		$hosted = (string) ( $res['data']['attributes']['image_url'] ?? '' );
+		return [ $hosted, '' !== $hosted ? '' : __( 'it answered without an address', 'dazont-ecom' ) ];
 	}
 
 	public static function ajax_image(): void {
@@ -3625,7 +3654,12 @@ final class DZE_Klaviyo {
 		if ( ! $test ) {
 			self::keep_picture( $rule_id, $email_id, $made['url'] );
 		}
-		wp_send_json_success( [ 'url' => $made['url'], 'full' => (string) ( $made['full'] ?? $made['url'] ), 'test' => $test ] );
+		wp_send_json_success( [
+			'url'     => $made['url'],
+			'full'    => (string) ( $made['full'] ?? $made['url'] ),
+			'warning' => (string) ( $made['warning'] ?? '' ),
+			'test'    => $test,
+		] );
 	}
 
 	// =========================================================================
@@ -3986,7 +4020,7 @@ final class DZE_Klaviyo {
 				'pickedFrom' => __( 'The logo row and everything from the unsubscribe line down are kept; whatever the campaign had in between is dropped. Check the preview, then save.', 'dazont-ecom' ),
 				'shooting' => __( 'Making the picture — this takes a minute…', 'dazont-ecom' ),
 				'writing'  => __( 'Writing and laying out the email…', 'dazont-ecom' ),
-				'shot'     => __( 'In the email, and filed in the media library.', 'dazont-ecom' ),
+				'shot'     => __( 'In the email. It is hosted by Klaviyo, not by the shop.', 'dazont-ecom' ),
 				'shotTest' => __( 'Test picture — look at it, correct the picture prompt, try again.', 'dazont-ecom' ),
 				'pictureReady' => __( 'Written, with a place for its picture — test one above, and tick the box to have the next writing make it.', 'dazont-ecom' ),
 				'sending'  => __( 'Handing it to Klaviyo…', 'dazont-ecom' ),
