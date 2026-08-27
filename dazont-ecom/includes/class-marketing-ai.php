@@ -460,6 +460,7 @@ final class DZE_Marketing_Ai {
 			. "- Use that market's own commercial vocabulary. What a shop calls a discount campaign differs by country, and the literal word is usually the wrong one.\n"
 			. "- Watch the regulated words. In France \"soldes\" may only be used during the official sales periods set by law; outside them a shop writes \"promo\", \"offre\" or the name of its own event. Prefer a neutral commercial word when in doubt.\n"
 			. "- Keep the figures exactly as they are: the percentage, the dates, the product names, the brand name.\n"
+			. "- The DISCOUNT is part of the line and has to be said in that market's own way — the figure unchanged, the words and the typography local. \"-20% OFF\" left in English inside a French sentence is the failure this line exists to prevent.\n"
 			. "- Keep it the same length or shorter. A banner line that wraps is a broken banner.\n"
 			. "- Keep the register and the punctuation of the original, emoji included. Add nothing it does not say: no extra exclamation mark, no invented urgency, no \"limited time\" the original never claimed.\n"
 			. '- Never quote the result and never explain it: the line itself, nothing else.';
