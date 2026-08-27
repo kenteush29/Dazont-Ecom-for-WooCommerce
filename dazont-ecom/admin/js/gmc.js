@@ -119,7 +119,7 @@
 				var badges = (res.data && res.data.badges) || {};
 				Object.keys(badges).forEach(function (rid) {
 					$('.dze-gmc-sync-one[data-rule="' + rid + '"]')
-						.closest('td').find('div').first().html(badges[rid]);
+						.closest('td').find('div').first().replaceWith('<div style="margin-bottom:3px;">' + badges[rid] + '</div>');
 				});
 			} else if ($feedback) {
 				$feedback.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error);
