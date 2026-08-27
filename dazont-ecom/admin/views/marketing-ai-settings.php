@@ -158,27 +158,36 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	<?php
 	// The swap itself belongs to the Discounts module: switched off, the
 	// picture it would replace is not a question this screen asks.
-	$dze_hero_on    = class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'discounts' ) && class_exists( 'DZE_Discounts' );
+	$dze_hero_on  = class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'discounts' ) && class_exists( 'DZE_Discounts' );
 	if ( $dze_hero_on ) :
-	$dze_hero_own   = (int) ( $settings['hero_source_id'] ?? 0 );
-	$dze_hero_id    = DZE_Discounts::hero_source();
-	$dze_hero_url   = $dze_hero_id ? wp_get_attachment_image_url( $dze_hero_id, [ 80, 80 ] ) : '';
+		$dze_hero_id   = DZE_Discounts::hero_source();
+		$dze_hero_url  = $dze_hero_id ? wp_get_attachment_image_url( $dze_hero_id, [ 80, 80 ] ) : '';
+		$dze_front     = (int) get_option( 'page_on_front' );
+		$dze_front_url = $dze_front ? (string) get_edit_post_link( $dze_front ) : '';
 	?>
 	<h2 class="title" id="dze-mai-hero"><?php esc_html_e( 'The home page picture', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>
 			<th scope="row"><?php esc_html_e( 'What a big event replaces', 'dazont-ecom' ); ?></th>
-			<td class="dze-hero-picker" data-target="hero_source_id">
-				<input type="hidden" id="dze-mai-hero-id" name="<?php echo esc_attr( $dze_opt . '[hero_source_id]' ); ?>" value="<?php echo esc_attr( (string) $dze_hero_own ); ?>" />
-				<img class="dze-hero-preview" src="<?php echo esc_url( $dze_hero_url ); ?>" alt="" style="<?php echo $dze_hero_url ? '' : 'display:none;'; ?>width:80px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;vertical-align:middle;margin-right:8px;" />
-				<button type="button" class="button dze-hero-select"><?php esc_html_e( 'Choose another', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button-link dze-hero-clear" style="<?php echo $dze_hero_own ? '' : 'display:none;'; ?>margin-left:6px;"><?php esc_html_e( 'Read it from the home page again', 'dazont-ecom' ); ?></button>
-				<p class="description" style="max-width:820px;">
-					<?php echo $dze_hero_own
-						? esc_html__( 'Chosen by you. Cleared, it goes back to reading the home page.', 'dazont-ecom' )
-						: ( $dze_hero_id
+			<td>
+				<?php
+				// Shown, never chosen. The home page's picture is changed on
+				// the home page — a second place to answer that question is a
+				// second answer, and the day the two disagree the shop is
+				// swapping a picture it stopped showing months ago.
+				?>
+				<p style="display:flex;align-items:center;gap:10px;margin:0;">
+					<?php if ( $dze_hero_url ) : ?>
+						<img src="<?php echo esc_url( $dze_hero_url ); ?>" alt="" style="width:80px;height:80px;object-fit:cover;border:1px solid #dcdcde;border-radius:4px;" />
+					<?php endif; ?>
+					<span class="description" style="max-width:640px;">
+						<?php echo $dze_hero_id
 							? esc_html__( 'Read from your home page, and read again whenever you change it.', 'dazont-ecom' )
-							: esc_html__( 'Nothing found on your home page — choose it here, or no event can swap it.', 'dazont-ecom' ) ); ?>
+							: esc_html__( 'No picture found on your home page, so there is nothing for an event to replace.', 'dazont-ecom' ); ?>
+						<?php if ( '' !== $dze_front_url ) : ?>
+							<a href="<?php echo esc_url( $dze_front_url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Edit the home page ↗', 'dazont-ecom' ); ?></a>
+						<?php endif; ?>
+					</span>
 				</p>
 			</td>
 		</tr>
@@ -190,30 +199,6 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	<p>
 		<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'hero_image', '#dze-mai-hero-prompt' ); } ?>
 	</p>
-	<script>
-	jQuery( function ( $ ) {
-		var frame = null;
-		$( '#dze-mai-hero .dze-hero-select, .dze-hero-picker .dze-hero-select' ).on( 'click', function ( e ) {
-			e.preventDefault();
-			var $cell = $( this ).closest( '.dze-hero-picker' );
-			frame = wp.media( { title: '<?php echo esc_js( __( 'Select image', 'dazont-ecom' ) ); ?>', button: { text: '<?php echo esc_js( __( 'Use this image', 'dazont-ecom' ) ); ?>' }, library: { type: 'image' }, multiple: false } );
-			frame.on( 'select', function () {
-				var att = frame.state().get( 'selection' ).first().toJSON(),
-					url = ( att.sizes && att.sizes.thumbnail ) ? att.sizes.thumbnail.url : att.url;
-				$cell.find( 'input[type=hidden]' ).val( att.id );
-				$cell.find( '.dze-hero-preview' ).attr( 'src', url ).show();
-				$cell.find( '.dze-hero-clear' ).show();
-			} );
-			frame.open();
-		} );
-		$( '.dze-hero-picker .dze-hero-clear' ).on( 'click', function ( e ) {
-			e.preventDefault();
-			var $cell = $( this ).closest( '.dze-hero-picker' );
-			$cell.find( 'input[type=hidden]' ).val( '' );
-			$( this ).hide();
-		} );
-	} );
-	</script>
 	<?php endif; // $dze_hero_on ?>
 
 	<h2 class="title"><?php esc_html_e( 'The promo banner', 'dazont-ecom' ); ?></h2>

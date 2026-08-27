@@ -1964,19 +1964,20 @@ final class DZE_Discounts {
 	/**
 	 * The picture the home page opens on.
 	 *
-	 * Read FROM the home page, so it follows when the shop changes it — the
-	 * setting beside it is an override for a home page whose hero the reading
-	 * cannot see, and an override that points at nothing is ignored rather
-	 * than obeyed.
+	 * Read FROM the home page, and from nowhere else. There was a field beside
+	 * it to point at another one, and it was a second answer to a question
+	 * that has one: the day the two disagreed, the shop would have been
+	 * swapping a picture it had stopped showing months earlier. The home page
+	 * is where that picture is changed, so the home page is what is read.
 	 */
 	public static function hero_source(): int {
-		$own = class_exists( 'DZE_Marketing_Ai' ) ? (int) ( DZE_Marketing_Ai::get_settings()['hero_source_id'] ?? 0 ) : 0;
-		return $own ?: self::detect_hero();
+		return self::detect_hero();
 	}
 
 	/**
 	 * Which attachment the front page's main image is, worked out from the page
-	 * itself: its featured image, failing that the first image in its content.
+	 * itself: its featured image, failing that the first image in its content,
+	 * failing that the first one a page builder named in its own data.
 	 *
 	 * Cached, because it costs a post read and the answer changes about once a
 	 * year. NEVER returns an image a promotion uses as its EVENT picture: while
@@ -2000,6 +2001,16 @@ final class DZE_Discounts {
 					$id = (int) $m[1];
 				} elseif ( preg_match( '/<img[^>]+src=["\']([^"\']+)["\']/i', $body, $m ) ) {
 					$id = (int) attachment_url_to_postid( $m[1] );
+				}
+			}
+			if ( ! $id ) {
+				// A page built with a page builder keeps its content in meta,
+				// not in the post: the first library image it names answers.
+				// No builder is required and none is named — a page that has
+				// no such meta simply matches nothing.
+				$built = (string) get_post_meta( $front, '_elementor_data', true );
+				if ( '' !== $built && preg_match( '~"url":"([^"]+/wp-content/uploads/[^"]+\.(?:jpe?g|png|webp))"~i', $built, $m ) ) {
+					$id = (int) attachment_url_to_postid( str_replace( '\\/', '/', $m[1] ) );
 				}
 			}
 		}

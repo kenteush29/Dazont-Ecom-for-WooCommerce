@@ -152,11 +152,10 @@ final class DZE_Marketing_Ai {
 			'timer_auto'        => 1,  // let the rule below decide the countdown.
 			'timer_min_percent' => 20, // nothing under this is worth a deadline.
 			'timer_max_days'    => 7,  // a deadline weeks away presses nobody.
-			// The home page's own picture, and the instructions for making the
-			// one that replaces it during a big event. The picture itself is
-			// read from the home page; this is only the override, for a shop
-			// whose hero is somewhere the reading cannot see.
-			'hero_source_id'    => 0,
+			// The instructions for the picture that replaces the home page's
+			// own during a big event. WHICH picture that is is not a setting:
+			// it is read from the home page, because that is where it is
+			// changed.
 			'hero_prompt'       => '',
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
@@ -374,9 +373,6 @@ final class DZE_Marketing_Ai {
 			}
 			if ( $has( 'timer_max_days' ) ) {
 				$write['timer_max_days'] = min( 120, max( 1, (int) $in['timer_max_days'] ) );
-			}
-			if ( $has( 'hero_source_id' ) ) {
-				$write['hero_source_id'] = absint( $in['hero_source_id'] );
 			}
 			if ( $has( 'hero_prompt' ) ) {
 				$write['hero_prompt'] = sanitize_textarea_field( (string) $in['hero_prompt'] );
@@ -2115,9 +2111,6 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( strpos( $hook, self::MENU_SLUG ) !== false ) {
 			wp_enqueue_style( 'wp-color-picker' );
 			wp_enqueue_script( 'wp-color-picker' );
-			// The Marketing events tab picks the home page image from the
-			// library, with WordPress's own picker and nobody else's.
-			wp_enqueue_media();
 		}
 		if ( ! class_exists( 'DZE_Discounts' ) || strpos( $hook, DZE_Discounts::MENU_SLUG_EVENTS ) === false ) {
 			return;
