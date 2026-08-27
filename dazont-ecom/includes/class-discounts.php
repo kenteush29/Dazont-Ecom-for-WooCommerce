@@ -414,6 +414,30 @@ final class DZE_Discounts {
 		];
 	}
 
+	/**
+	 * Where a banner goes when nobody said otherwise.
+	 *
+	 * Chosen once, under Settings → Marketing events, and used by every
+	 * promotion that does not name a place of its own — the one made by hand,
+	 * the one the calendar proposes, the whole of a bulk creation. A default
+	 * that lives in three files as the string 'top' is three places to change
+	 * the day the shop's header moves.
+	 */
+	public static function default_location(): string {
+		$s = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::get_settings() : [];
+		$v = (string) ( $s['banner_location'] ?? '' );
+		return in_array( $v, [ 'top', 'below_header', 'product' ], true ) ? $v : 'below_header';
+	}
+
+	/** The places a banner can be put, named. */
+	public static function locations(): array {
+		return [
+			'top'          => __( 'Top of site — above the header', 'dazont-ecom' ),
+			'below_header' => __( 'Below the header — under the menu', 'dazont-ecom' ),
+			'product'      => __( 'Product page', 'dazont-ecom' ),
+		];
+	}
+
 	/** A pixel value the shop typed, kept inside what a banner can survive. */
 	public static function px( $value, int $min, int $max ): int {
 		// A plain cast rather than stripping non-digits: stripping turned
@@ -2137,7 +2161,7 @@ final class DZE_Discounts {
 		if ( in_array( $type, self::EVENT_TYPES, true ) ) {
 			$scope = 'all'; // a marketing event is the whole shop on sale.
 		}
-		$b_loc   = in_array( $in['banner_location'] ?? '', [ 'top', 'below_header', 'product' ], true ) ? $in['banner_location'] : 'top';
+		$b_loc   = in_array( $in['banner_location'] ?? '', [ 'top', 'below_header', 'product' ], true ) ? $in['banner_location'] : self::default_location();
 		$b_pos   = array_key_exists( $in['product_position'] ?? '', self::product_positions() ) ? $in['product_position'] : 'before_product';
 		$created = ( isset( $rules[ $id ]['created_at'] ) && $rules[ $id ]['created_at'] ) ? (int) $rules[ $id ]['created_at'] : time();
 

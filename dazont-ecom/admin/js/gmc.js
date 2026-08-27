@@ -72,21 +72,35 @@
 	// Flattens the { ruleId: { "lang|COUNTRY": {status,message} } } response
 	// into a short, human-readable outcome so a sync is never silent.
 	function summarize(results) {
-		var parts = [], ok = 0, err = 0, total = 0;
+		var ok = 0, err = 0, total = 0, failed = {}, done = 0;
 		Object.keys(results || {}).forEach(function (rid) {
 			var statuses = results[rid] || {};
 			Object.keys(statuses).forEach(function (sk) {
 				total++;
-				var s = statuses[sk] || {};
-				var country = sk.split('|').pop();
-				if (s.status === 'synced') { ok++; parts.push(country + ': ✓'); }
-				else { err++; parts.push(country + ': ' + (s.message || 'error')); }
+				var s = statuses[sk] || {},
+					// The ACCOUNT is what succeeded or failed. The country used
+					// to be printed instead, which named a market the shop
+					// never chose and left the account as a raw id inside
+					// Google's message.
+					who = s.account || sk.split('|').pop();
+				if (s.status === 'synced') { ok++; done++; return; }
+				err++;
+				// One line per account, however many of its countries failed
+				// the same way: five copies of one sentence is not five faults.
+				if (!failed[who]) { failed[who] = s.message || 'error'; }
 			});
 		});
 		if (total === 0) {
 			return { color: '#b32d2e', text: 'No sync target — check the promo has start+end dates and at least one target country configured.' };
 		}
-		return { color: err ? '#b32d2e' : '#0a7040', text: (err ? '✕ ' : '✓ ') + parts.join('  |  ') };
+		if (!err) {
+			return { color: '#0a7040', text: '✓ ' + (i18n.liveOn || 'Live on') + ' ' + done + '/' + total };
+		}
+		var lines = Object.keys(failed).map(function (who) { return who + ': ' + failed[who]; });
+		return {
+			color: ok ? '#b26a00' : '#b32d2e',
+			text: (ok ? '✓ ' + ok + '/' + total + ' — ' : '✕ ') + lines.join('  |  ')
+		};
 	}
 
 	function sync(ids, $feedback) {
@@ -97,6 +111,16 @@
 			if (res.success) {
 				var out = summarize(res.data && res.data.results);
 				if ($feedback) { $feedback.css('color', out.color).text(out.text); }
+				// The dots were drawn when the page loaded and never again, so
+				// a promotion could go live on Google and the row went on
+				// showing it as pending until somebody reloaded. They come back
+				// with the result now, built by the same function the page
+				// used, and are put in place here.
+				var badges = (res.data && res.data.badges) || {};
+				Object.keys(badges).forEach(function (rid) {
+					$('.dze-gmc-sync-one[data-rule="' + rid + '"]')
+						.closest('td').find('div').first().html(badges[rid]);
+				});
 			} else if ($feedback) {
 				$feedback.css('color', '#b32d2e').text((res.data && res.data.message) || i18n.error);
 			}
