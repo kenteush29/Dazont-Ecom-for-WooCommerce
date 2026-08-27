@@ -121,6 +121,42 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		}
 	}());
 	</script>
+	<?php
+	$dze_timer_rule = DZE_Marketing_Ai::timer_rule();
+	$dze_opt        = DZE_Marketing_Ai::OPT_SETTINGS;
+	?>
+	<h2 class="title"><?php esc_html_e( 'The countdown', 'dazont-ecom' ); ?></h2>
+	<table class="form-table" role="presentation">
+		<tr>
+			<th scope="row"><?php esc_html_e( 'On generated events', 'dazont-ecom' ); ?></th>
+			<td>
+				<label>
+					<input type="checkbox" name="<?php echo esc_attr( $dze_opt . '[timer_auto]' ); ?>" value="1" <?php checked( DZE_Marketing_Ai::timer_auto_on() ); ?> />
+					<?php esc_html_e( 'Switch the countdown on by itself', 'dazont-ecom' ); ?>
+				</label>
+				<p style="margin:8px 0 0;">
+					<label>
+						<?php esc_html_e( 'from', 'dazont-ecom' ); ?>
+						<input type="number" min="1" max="90" step="1" style="width:70px;" name="<?php echo esc_attr( $dze_opt . '[timer_min_percent]' ); ?>" value="<?php echo esc_attr( $dze_timer_rule[0] ); ?>" /> %
+					</label>
+					<label style="margin-left:16px;">
+						<?php esc_html_e( 'running', 'dazont-ecom' ); ?>
+						<input type="number" min="1" max="120" step="1" style="width:70px;" name="<?php echo esc_attr( $dze_opt . '[timer_min_days]' ); ?>" value="<?php echo esc_attr( $dze_timer_rule[1] ); ?>" />
+						<?php esc_html_e( 'to', 'dazont-ecom' ); ?>
+						<input type="number" min="1" max="120" step="1" style="width:70px;" name="<?php echo esc_attr( $dze_opt . '[timer_max_days]' ); ?>" value="<?php echo esc_attr( $dze_timer_rule[2] ); ?>" />
+						<?php esc_html_e( 'days', 'dazont-ecom' ); ?>
+					</label>
+				</p>
+				<p class="description" style="max-width:820px;">
+					<?php esc_html_e( 'An event that clears the bar is generated with the countdown on, one that does not is generated without it — either way it stays a tick box on the event itself.', 'dazont-ecom' ); ?>
+					<br />
+					<strong><?php esc_html_e( 'Recommended: 20% or more, over a week at most.', 'dazont-ecom' ); ?></strong>
+					<?php esc_html_e( 'That is two or three moments a year — Black Friday, the last days before Christmas delivery, the end of an official sale period. A deadline three weeks away presses nobody, a discount the shop shows every month is not one either, and a banner that always counts down is a banner nobody hurries for: the countdown is worth what it is kept rare for.', 'dazont-ecom' ); ?>
+				</p>
+			</td>
+		</tr>
+	</table>
+
 	<h2 class="title"><?php esc_html_e( 'The promo banner', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>
