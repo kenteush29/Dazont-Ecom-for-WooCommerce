@@ -5074,7 +5074,13 @@ Answer with STRICT JSON and nothing else: "
 	 * on one screen and left as it was on the other two.
 	 */
 	private static function enqueue_paste_box(): void {
-		wp_enqueue_script( 'dze-paste-box', DZE_URL . 'admin/js/paste-box.js', [ 'jquery' ], DZE_VERSION, true );
+		// The tiles are photographs, so they carry the plugin's zoom button like
+		// every other photograph it shows. The box brings the viewer with it
+		// instead of trusting the screen that mounted it to have one: that trust
+		// is exactly why these tiles had no zoom.
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_enqueue_script( 'dze-paste-box', DZE_URL . 'admin/js/paste-box.js', [ 'jquery', 'dze-hzoom' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-paste-box', 'dzePasteI18n', [
 			'paste'      => __( 'Paste an image here (Ctrl+V), drop files, or', 'dazont-ecom' ),
 			'upload'     => __( 'Upload', 'dazont-ecom' ),

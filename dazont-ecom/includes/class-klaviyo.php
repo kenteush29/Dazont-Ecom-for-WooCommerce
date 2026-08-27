@@ -2083,6 +2083,64 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * Every campaign of one promotion carries that promotion's name as a TAG.
+	 *
+	 * Klaviyo has no "campaign holding four emails sent on four days": a
+	 * campaign is ONE send, with one audience and one moment, and several
+	 * messages inside it are variations of that one send. A promotion spread
+	 * over a fortnight is therefore four campaigns — and what makes them read
+	 * as one thing in the account is the tag they share. Filter the campaign
+	 * list on it and the promotion is there, in date order, whole.
+	 *
+	 * @return string '' when it worked, what Klaviyo said otherwise.
+	 */
+	public static function tag_campaign( string $rule_id, string $camp_id, string $label ): string {
+		$label = trim( $label );
+		if ( '' === $camp_id || '' === $label ) {
+			return '';
+		}
+		$tag = self::tag_id( $rule_id, $label );
+		if ( '' === $tag ) {
+			return __( 'The campaign was created but could not be tagged with the promotion.', 'dazont-ecom' );
+		}
+		$res = self::request( 'POST', 'tags/' . $tag . '/relationships/campaigns/', [
+			'data' => [ [ 'type' => 'campaign', 'id' => $camp_id ] ],
+		], 20 );
+		// Already tagged is not a failure: drafting an email again re-tags the
+		// campaign it replaces, and Klaviyo says so plainly.
+		if ( is_wp_error( $res ) && false === stripos( $res->get_error_message(), 'already' ) ) {
+			return $res->get_error_message();
+		}
+		return '';
+	}
+
+	/** The tag id for this promotion, found by name, created once, remembered. */
+	private static function tag_id( string $rule_id, string $label ): string {
+		$all  = get_option( self::OPT_COPY, [] );
+		$all  = is_array( $all ) ? $all : [];
+		$kept = (string) ( $all[ $rule_id ]['tag'] ?? '' );
+		if ( '' !== $kept ) {
+			return $kept;
+		}
+		$name  = mb_substr( str_replace( '"', '', $label ), 0, 50 );
+		$found = self::request( 'GET', 'tags/?filter=' . rawurlencode( 'equals(name,"' . $name . '")' ), null, 20 );
+		$id    = ( ! is_wp_error( $found ) && ! empty( $found['data'][0]['id'] ) ) ? (string) $found['data'][0]['id'] : '';
+		if ( '' === $id ) {
+			$made = self::request( 'POST', 'tags/', [
+				'data' => [ 'type' => 'tag', 'attributes' => [ 'name' => $name ] ],
+			], 20 );
+			$id = is_wp_error( $made ) ? '' : (string) ( $made['data']['id'] ?? '' );
+		}
+		if ( '' !== $id ) {
+			$one          = (array) ( $all[ $rule_id ] ?? [] );
+			$one['tag']   = $id;
+			$all[ $rule_id ] = $one;
+			update_option( self::OPT_COPY, $all, false );
+		}
+		return $id;
+	}
+
+	/**
 	 * What a promotion has spent on pictures, and how many it has made.
 	 *
 	 * Beside the button that spends the next one: a promotion whose pictures
@@ -2249,6 +2307,23 @@ final class DZE_Klaviyo {
 	 * @return array{campaign:string,message:string,template:string,url:string,warning:string}
 	 * @throws RuntimeException with what failed, at the step it failed.
 	 */
+	/**
+	 * Is the campaign made for this email still a draft we may rewrite?
+	 *
+	 * False for a campaign that was scheduled, sent, or deleted in Klaviyo
+	 * since — and false when the account cannot be reached, which is the safe
+	 * answer: a new draft beside an old one is a nuisance, overwriting one that
+	 * is about to go out is not.
+	 */
+	private static function draft_open( string $camp_id ): bool {
+		$got = self::request( 'GET', 'campaigns/' . rawurlencode( $camp_id ) . '?fields[campaign]=status', null, 20 );
+		if ( is_wp_error( $got ) ) {
+			return false;
+		}
+		$status = strtolower( trim( (string) ( $got['data']['attributes']['status'] ?? '' ) ) );
+		return '' === $status || 0 === strpos( $status, 'draft' );
+	}
+
 	public static function draft( string $rule_id, string $email_id, array $in = [] ): array {
 		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
 		$rule  = (array) ( $rules[ $rule_id ] ?? [] );
@@ -2283,107 +2358,183 @@ final class DZE_Klaviyo {
 		$in      = $in + [ 'datetime' => (string) ( $copy['when'] ?? '' ) ];
 		$warning = '';
 
-		// 1. The email itself becomes a template in the account, so the campaign
-		//    can be opened, read and edited in Klaviyo like any other.
-		$made = self::request( 'POST', 'templates/', [
-			'data' => [
-				'type'       => 'template',
-				'attributes' => [
-					'name'        => mb_substr( $name, 0, 120 ),
-					'editor_type' => 'CODE',
-					'html'        => $html,
-				],
-			],
-		], 40 );
-		if ( is_wp_error( $made ) ) {
-			throw new RuntimeException( $made->get_error_message() );
-		}
-		$tpl_id = (string) ( $made['data']['id'] ?? '' );
-		if ( '' === $tpl_id ) {
-			throw new RuntimeException( __( 'Klaviyo saved nothing back.', 'dazont-ecom' ) );
+		// The same email put in Klaviyo twice is ONE campaign, not two.
+		//
+		// Preparing a promotion means clicking this button again after every
+		// correction, and a new campaign per click would leave the account with
+		// six versions of the same email and no way to tell which one is the good
+		// one. So the campaign this email already has is rewritten in place —
+		// unless it is no longer a draft, in which case it is left exactly as it
+		// is and a new one is made beside it: what is scheduled or sent is the
+		// owner's, never ours to overwrite.
+		$prev    = (array) ( $copy['draft'] ?? [] );
+		$camp_id = (string) ( $prev['campaign'] ?? '' );
+		$msg_id  = (string) ( $prev['message'] ?? '' );
+		$tpl_id  = (string) ( $prev['template'] ?? '' );
+		$again   = ( '' !== $camp_id && '' !== $msg_id && '' !== $tpl_id && self::draft_open( $camp_id ) );
+		if ( ! $again && '' !== $camp_id ) {
+			$warning = __( 'The campaign this email had is no longer a draft, so it was left alone and a new one was made.', 'dazont-ecom' );
+			$camp_id = '';
+			$msg_id  = '';
+			$tpl_id  = '';
 		}
 
-		// 2. The campaign — the audience answered once, in the settings.
-		$exc  = (string) self::conf( 'excluded' );
-		$body = [
-			'data' => [
-				'type'       => 'campaign',
-				'attributes' => [
-					'name'          => mb_substr( $name, 0, 120 ),
-					'audiences'     => [
-						'included' => [ $inc ],
-						'excluded' => '' !== $exc ? [ $exc ] : [],
+		if ( $again ) {
+			// 1. The template that campaign already reads from, rewritten. The
+			//    campaign keeps its id, so a link the owner has open still works.
+			$saved = self::request( 'PATCH', 'templates/' . rawurlencode( $tpl_id ) . '/', [
+				'data' => [
+					'type'       => 'template',
+					'id'         => $tpl_id,
+					'attributes' => [
+						'name' => mb_substr( $name, 0, 120 ),
+						'html' => $html,
 					],
-					'send_strategy' => self::strategy( $in, $rule ),
-					'send_options'  => [ 'use_smart_sending' => true ],
-					'campaign-messages' => [
-						'data' => [
-							[
-								'type'       => 'campaign-message',
-								'attributes' => [
-									'definition' => [
-										'channel' => 'email',
-										'label'   => mb_substr( $name, 0, 120 ),
-										// No sender of ours: the account sender is
-										// the verified one, and the one every
-										// other campaign of this shop goes out
-										// with.
-										'content' => array_filter( [
-											'subject'      => $subject,
-											'preview_text' => $preview,
-										] ),
+				],
+			], 40 );
+			if ( is_wp_error( $saved ) ) {
+				throw new RuntimeException( $saved->get_error_message() );
+			}
+
+			// 2. The name and the day, in case either changed since.
+			$upd = self::request( 'PATCH', 'campaigns/' . rawurlencode( $camp_id ) . '/', [
+				'data' => [
+					'type'       => 'campaign',
+					'id'         => $camp_id,
+					'attributes' => [
+						'name'          => mb_substr( $name, 0, 120 ),
+						'send_strategy' => self::strategy( $in, $rule ),
+					],
+				],
+			], 30 );
+			if ( is_wp_error( $upd ) ) {
+				$warning = trim( $warning . ' ' . $upd->get_error_message() );
+			}
+
+			// 3. The subject line and the preview text.
+			$upd = self::request( 'PATCH', 'campaign-messages/' . rawurlencode( $msg_id ) . '/', [
+				'data' => [
+					'type'       => 'campaign-message',
+					'id'         => $msg_id,
+					'attributes' => [
+						'definition' => [
+							'channel' => 'email',
+							'label'   => mb_substr( $name, 0, 120 ),
+							'content' => array_filter( [
+								'subject'      => $subject,
+								'preview_text' => $preview,
+							] ),
+						],
+					],
+				],
+			], 30 );
+			if ( is_wp_error( $upd ) ) {
+				$warning = trim( $warning . ' ' . $upd->get_error_message() );
+			}
+		} else {
+			// 1. The email itself becomes a template in the account, so the campaign
+			//    can be opened, read and edited in Klaviyo like any other.
+			$made = self::request( 'POST', 'templates/', [
+				'data' => [
+					'type'       => 'template',
+					'attributes' => [
+						'name'        => mb_substr( $name, 0, 120 ),
+						'editor_type' => 'CODE',
+						'html'        => $html,
+					],
+				],
+			], 40 );
+			if ( is_wp_error( $made ) ) {
+				throw new RuntimeException( $made->get_error_message() );
+			}
+			$tpl_id = (string) ( $made['data']['id'] ?? '' );
+			if ( '' === $tpl_id ) {
+				throw new RuntimeException( __( 'Klaviyo saved nothing back.', 'dazont-ecom' ) );
+			}
+
+			// 2. The campaign — the audience answered once, in the settings.
+			$exc  = (string) self::conf( 'excluded' );
+			$body = [
+				'data' => [
+					'type'       => 'campaign',
+					'attributes' => [
+						'name'          => mb_substr( $name, 0, 120 ),
+						'audiences'     => [
+							'included' => [ $inc ],
+							'excluded' => '' !== $exc ? [ $exc ] : [],
+						],
+						'send_strategy' => self::strategy( $in, $rule ),
+						'send_options'  => [ 'use_smart_sending' => true ],
+						'campaign-messages' => [
+							'data' => [
+								[
+									'type'       => 'campaign-message',
+									'attributes' => [
+										'definition' => [
+											'channel' => 'email',
+											'label'   => mb_substr( $name, 0, 120 ),
+											// No sender of ours: the account sender is
+											// the verified one, and the one every
+											// other campaign of this shop goes out
+											// with.
+											'content' => array_filter( [
+												'subject'      => $subject,
+												'preview_text' => $preview,
+											] ),
+										],
 									],
 								],
 							],
 						],
 					],
 				],
-			],
-		];
-		$camp = self::request( 'POST', 'campaigns/', $body, 30 );
-		if ( is_wp_error( $camp ) && 'smart_send_time' === ( $body['data']['attributes']['send_strategy']['method'] ?? '' ) ) {
-			// Smart Send Time needs history Klaviyo may decide this account does
-			// not have yet. A draft that does not exist is a worse answer than a
-			// draft carrying a plain hour, so it is made the other way and the
-			// refusal is reported instead of thrown.
-			$warning = $camp->get_error_message();
-			// Nine in the morning, in each reader's own time zone: the plain
-			// answer for an account Klaviyo will not work the hour out for yet.
-			$body['data']['attributes']['send_strategy'] = [
-				'method'   => 'static',
-				'datetime' => self::strategy( $in, $rule )['date'] . 'T09:00:00',
-				'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => true ],
 			];
 			$camp = self::request( 'POST', 'campaigns/', $body, 30 );
-		}
-		if ( is_wp_error( $camp ) ) {
-			throw new RuntimeException( $camp->get_error_message() );
-		}
-		$camp_id = (string) ( $camp['data']['id'] ?? '' );
-		$msg_id  = (string) ( $camp['data']['relationships']['campaign-messages']['data'][0]['id'] ?? '' );
-		if ( '' === $msg_id ) {
-			foreach ( (array) ( $camp['included'] ?? [] ) as $row ) {
-				if ( 'campaign-message' === ( $row['type'] ?? '' ) ) {
-					$msg_id = (string) $row['id'];
-					break;
+			if ( is_wp_error( $camp ) && 'smart_send_time' === ( $body['data']['attributes']['send_strategy']['method'] ?? '' ) ) {
+				// Smart Send Time needs history Klaviyo may decide this account does
+				// not have yet. A draft that does not exist is a worse answer than a
+				// draft carrying a plain hour, so it is made the other way and the
+				// refusal is reported instead of thrown.
+				$warning = trim( $warning . ' ' . $camp->get_error_message() );
+				// Nine in the morning, in each reader's own time zone: the plain
+				// answer for an account Klaviyo will not work the hour out for yet.
+				$body['data']['attributes']['send_strategy'] = [
+					'method'   => 'static',
+					'datetime' => self::strategy( $in, $rule )['date'] . 'T09:00:00',
+					'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => true ],
+				];
+				$camp = self::request( 'POST', 'campaigns/', $body, 30 );
+			}
+			if ( is_wp_error( $camp ) ) {
+				throw new RuntimeException( $camp->get_error_message() );
+			}
+			$camp_id = (string) ( $camp['data']['id'] ?? '' );
+			$msg_id  = (string) ( $camp['data']['relationships']['campaign-messages']['data'][0]['id'] ?? '' );
+			if ( '' === $msg_id ) {
+				foreach ( (array) ( $camp['included'] ?? [] ) as $row ) {
+					if ( 'campaign-message' === ( $row['type'] ?? '' ) ) {
+						$msg_id = (string) $row['id'];
+						break;
+					}
 				}
 			}
-		}
 
-		// 3. The email becomes the content of that campaign.
-		if ( '' !== $msg_id ) {
-			$assign = self::request( 'POST', 'campaign-message-assign-template/', [
-				'data' => [
-					'type'          => 'campaign-message',
-					'id'            => $msg_id,
-					'relationships' => [ 'template' => [ 'data' => [ 'type' => 'template', 'id' => $tpl_id ] ] ],
-				],
-			], 30 );
-			if ( is_wp_error( $assign ) ) {
-				$warning = trim( $warning . ' ' . $assign->get_error_message() );
+			// 3. The email becomes the content of that campaign.
+			if ( '' !== $msg_id ) {
+				$assign = self::request( 'POST', 'campaign-message-assign-template/', [
+					'data' => [
+						'type'          => 'campaign-message',
+						'id'            => $msg_id,
+						'relationships' => [ 'template' => [ 'data' => [ 'type' => 'template', 'id' => $tpl_id ] ] ],
+					],
+				], 30 );
+				if ( is_wp_error( $assign ) ) {
+					$warning = trim( $warning . ' ' . $assign->get_error_message() );
+				}
+			} else {
+				$warning = __( 'The campaign was created but Klaviyo did not name its message, so the email was left unassigned.', 'dazont-ecom' );
 			}
-		} else {
-			$warning = __( 'The campaign was created but Klaviyo did not name its message, so the email was left unassigned.', 'dazont-ecom' );
+
 		}
 
 		// 4. The one line a machine translator writes worse than the shop does.
@@ -2391,6 +2542,16 @@ final class DZE_Klaviyo {
 			$pushed = self::push_subjects( $msg_id, $rule );
 			if ( '' !== $pushed ) {
 				$warning = trim( $warning . ' ' . $pushed );
+			}
+		}
+
+		// 5. The promotion's own name, as a tag on the campaign: four campaigns
+		//    with one tag is what "the emails of this promotion" looks like in
+		//    an account, and Klaviyo has nothing closer to it.
+		if ( '' !== $camp_id ) {
+			$tagged = self::tag_campaign( $rule_id, $camp_id, (string) ( $rule['title'] ?? '' ) );
+			if ( '' !== $tagged ) {
+				$warning = trim( $warning . ' ' . $tagged );
 			}
 		}
 
@@ -4090,6 +4251,10 @@ final class DZE_Klaviyo {
 				'writing1' => __( 'Writing %1$d of %2$d…', 'dazont-ecom' ),
 				'allDone'  => __( 'All written. Read them, then save the event.', 'dazont-ecom' ),
 				'nothing'  => __( 'No email to write yet — plan the campaign or add one.', 'dazont-ecom' ),
+				'drafting1' => __( 'Putting %1$d of %2$d in Klaviyo…', 'dazont-ecom' ),
+				'draftAll'  => __( 'All of them are in Klaviyo now, one campaign each, in date order, tagged with the promotion. Nothing was sent.', 'dazont-ecom' ),
+				'draftSome' => __( '%1$d in Klaviyo, %2$d refused — put those back one by one to read what Klaviyo said.', 'dazont-ecom' ),
+				'noWritten' => __( 'Write the emails first — an empty one has nothing to put in Klaviyo.', 'dazont-ecom' ),
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
@@ -4222,6 +4387,14 @@ final class DZE_Klaviyo {
 				<span style="flex:1;"></span>
 				<button type="button" class="button" id="dze-mail-plan"><?php esc_html_e( 'Plan the campaign', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button button-primary" id="dze-mail-all"><?php esc_html_e( 'Write them all', 'dazont-ecom' ); ?></button>
+				<?php
+				// The whole promotion, in one gesture, in date order. Klaviyo
+				// has no campaign that holds four emails sent on four days — a
+				// campaign is ONE send — so a promotion is four campaigns
+				// carrying the promotion's name as a tag, which is what makes
+				// them read as one thing in the account.
+				?>
+				<button type="button" class="button" id="dze-mail-draftall"><?php esc_html_e( 'Put them all in Klaviyo', 'dazont-ecom' ); ?></button>
 				<span id="dze-mail-plan-msg" style="font-size:13px;"></span>
 			</p>
 
@@ -4255,7 +4428,6 @@ final class DZE_Klaviyo {
 			</script>
 
 			<div id="dze-mail-edit" style="<?php echo '' === $first ? 'display:none;' : ''; ?>">
-				<h4 id="dze-mail-title" style="margin:18px 0 6px;"></h4>
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row"><label for="dze-klav-e-subject"><?php esc_html_e( 'Subject', 'dazont-ecom' ); ?></label></th>
@@ -4376,7 +4548,8 @@ final class DZE_Klaviyo {
 				<iframe id="dze-klav-e-iframe" title="<?php esc_attr_e( 'Email preview', 'dazont-ecom' ); ?>" sandbox="allow-same-origin" style="width:100%;height:700px;border:1px solid #dcdcde;background:#fff;"></iframe>
 
 				<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-					<button type="button" class="button" id="dze-klav-e-draft"><?php esc_html_e( 'Create the draft in Klaviyo', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button" id="dze-klav-e-draft"><?php esc_html_e( 'Put this one in Klaviyo', 'dazont-ecom' ); ?></button>
+					<span class="description"><?php esc_html_e( 'As a campaign of its own, on its day, tagged with the promotion. Nothing is sent until you press send in Klaviyo.', 'dazont-ecom' ); ?></span>
 					<span style="flex:1;"></span>
 					<label for="dze-klav-e-to"><?php esc_html_e( 'Test to', 'dazont-ecom' ); ?></label>
 					<input type="text" id="dze-klav-e-to" class="regular-text" value="<?php echo esc_attr( (string) self::conf( 'test_to', (string) get_option( 'admin_email', '' ) ) ); ?>" />
