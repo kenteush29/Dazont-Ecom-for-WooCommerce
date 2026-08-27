@@ -77,6 +77,9 @@ final class DZE_Discounts {
 	/** What the corner badge says on a product page: 'saved' or 'sale'. */
 	public const OPT_BADGE = 'dze_discount_badge';
 
+	/** Where it says it: 'product', 'lists' or 'both'. */
+	public const OPT_BADGE_WHERE = 'dze_discount_badge_where';
+
 	// Sale-price materialisation (writes native _sale_price into product data so
 	// weekly feeds/exports — e.g. GMC — pick promotions up).
 	public const SYNC_HOOK        = 'dze_sale_sync';
@@ -119,6 +122,12 @@ final class DZE_Discounts {
 					// row would cost an extra query there. It is five letters.
 					'autoload'          => true,
 					'default'           => 'saved',
+				] );
+				register_setting( 'dze_discount_display_options', self::OPT_BADGE_WHERE, [
+					'type'              => 'string',
+					'sanitize_callback' => static fn( $v ): string => in_array( $v, [ 'product', 'lists', 'both' ], true ) ? (string) $v : 'product',
+					'autoload'          => true,
+					'default'           => 'product',
 				] );
 			} );
 			add_action( 'admin_menu',            [ $this, 'register_menu' ] );
@@ -1241,20 +1250,30 @@ final class DZE_Discounts {
 	 * a shop looking for "how my discounts behave" now has one place to look.
 	 */
 	public static function render_general_settings(): void {
-		$mode = self::badge_mode();
+		$mode  = self::badge_mode();
+		$where = self::badge_where();
 		?>
 		<h2><?php esc_html_e( 'The badge on a product', 'dazont-ecom' ); ?></h2>
 		<form method="post" action="options.php" class="dze-admin">
 			<?php settings_fields( 'dze_discount_display_options' ); ?>
 			<p class="description">
-				<?php esc_html_e( 'What the corner badge says while a promotion is running. It is WooCommerce\'s own badge, in its own place, dressed by your theme — only the words change, and only on the page of the product itself: a category page keeps "Sale!", because thirty figures in a grid is a wall of numbers.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'What the corner badge says while a promotion is running. It is WooCommerce\'s own badge, in its own place, dressed by your theme — only the words change.', 'dazont-ecom' ); ?>
 			</p>
 			<p>
 				<select name="<?php echo esc_attr( self::OPT_BADGE ); ?>">
 					<option value="saved" <?php selected( 'saved', $mode ); ?>><?php esc_html_e( 'The amount saved — "Save $12.00"', 'dazont-ecom' ); ?></option>
 					<option value="sale" <?php selected( 'sale', $mode ); ?>><?php esc_html_e( 'Leave the shop\'s own badge alone — "Sale!"', 'dazont-ecom' ); ?></option>
 				</select>
+				<label for="dze-badge-where" style="margin-left:10px;"><?php esc_html_e( 'Shown', 'dazont-ecom' ); ?></label>
+				<select name="<?php echo esc_attr( self::OPT_BADGE_WHERE ); ?>" id="dze-badge-where">
+					<option value="product" <?php selected( 'product', $where ); ?>><?php esc_html_e( 'on the product\'s own page', 'dazont-ecom' ); ?></option>
+					<option value="lists" <?php selected( 'lists', $where ); ?>><?php esc_html_e( 'on category pages', 'dazont-ecom' ); ?></option>
+					<option value="both" <?php selected( 'both', $where ); ?>><?php esc_html_e( 'in both places', 'dazont-ecom' ); ?></option>
+				</select>
 				<?php submit_button( __( 'Save', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
+			</p>
+			<p class="description">
+				<?php esc_html_e( '"On the product\'s own page" means the product being looked at, and nothing else on that page: the related products underneath are a grid of tiles and are treated as one. "On category pages" covers every grid — a category, a search, the home page, those related products — where thirty figures side by side is a wall of numbers.', 'dazont-ecom' ); ?>
 			</p>
 			<p class="description">
 				<?php esc_html_e( 'The figure is the difference between the price struck through and the price charged, in the shop\'s currency, so it can never contradict the two prices printed under it. A variable product whose variations do not all save the same says "Save up to".', 'dazont-ecom' ); ?>
@@ -1267,19 +1286,31 @@ final class DZE_Discounts {
 		return 'saved' === (string) get_option( self::OPT_BADGE, 'saved' ) ? 'saved' : 'sale';
 	}
 
+	/**
+	 * Where the saving is allowed to speak.
+	 *
+	 * Two places, and they are not "product page" and "category page" — they
+	 * are the product being LOOKED AT, and every grid of tiles: a category, a
+	 * search, the home page, and the related products at the foot of a product
+	 * page, which is a grid like any other and reads like one.
+	 */
+	public static function badge_where(): string {
+		$w = (string) get_option( self::OPT_BADGE_WHERE, 'product' );
+		return in_array( $w, [ 'product', 'lists', 'both' ], true ) ? $w : 'product';
+	}
+
 	public function saved_flash( $html, $post, $product ) {
 		if ( ! $product instanceof \WC_Product || ! function_exists( 'wc_price' ) ) {
 			return $html;
 		}
-		// The product's OWN page, and only it. A category page is thirty tiles
-		// and a figure on each of them is a wall of numbers — the badge there
-		// says "on sale", which is all a list has to say. The related products
-		// at the bottom of a product page are a list too, so the check is the
-		// product being looked at, not the kind of page.
-		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
-			return $html;
-		}
-		if ( (int) $product->get_id() !== (int) get_queried_object_id() ) {
+		// The product being LOOKED AT, or a tile in a grid — those are the two
+		// places, and the shop says which of them it wants. The related
+		// products at the foot of a product page are a grid like any other, so
+		// the test is the product, never the kind of page.
+		$main  = function_exists( 'is_product' ) && is_product()
+			&& (int) $product->get_id() === (int) get_queried_object_id();
+		$where = self::badge_where();
+		if ( ( 'product' === $where && ! $main ) || ( 'lists' === $where && $main ) ) {
 			return $html;
 		}
 		$spread = false;
