@@ -1385,10 +1385,14 @@ final class DZE_Klaviyo {
 			if ( ! is_array( $email ) ) {
 				continue;
 			}
-			$kind = isset( $kinds[ $email['kind'] ?? '' ] ) ? (string) $email['kind'] : 'launch';
+			$when = self::just_day( (string) ( $email['when'] ?? '' ) );
+			$kind = '' !== $when && $rule
+				? self::kind_for( $when, $rule )
+				: ( isset( $kinds[ $email['kind'] ?? '' ] ) ? (string) $email['kind'] : 'launch' );
 			$out[ (string) $id ] = [
 				'kind'    => $kind,
-				'when'    => self::just_day( (string) ( $email['when'] ?? '' ) ) ?: self::default_when( $kind, $rule ),
+				'name'    => (string) ( $email['name'] ?? '' ),
+				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => (string) ( $email['subject'] ?? '' ),
 				'preview' => (string) ( $email['preview'] ?? '' ),
 				'body'    => (string) ( $email['body'] ?? '' ),
@@ -1398,6 +1402,55 @@ final class DZE_Klaviyo {
 		}
 		uasort( $out, static fn( array $a, array $b ): int => strcmp( $a['when'], $b['when'] ) );
 		return $out;
+	}
+
+	/**
+	 * Which moment of the promotion a day falls in.
+	 *
+	 * The moment used to be a field of its own, and a field of its own can
+	 * contradict the date beside it — a "Warm-up" dated three days after the
+	 * sale opened is a briefing that tells the writing to promise something
+	 * already on sale. There is one decision here, the day it goes out, and
+	 * the moment follows from it.
+	 */
+	public static function kind_for( string $when, array $rule ): string {
+		$day   = strtotime( self::just_day( $when ) ?: '' );
+		$start = strtotime( self::just_day( (string) ( $rule['start'] ?? '' ) ) ?: '' );
+		$end   = strtotime( self::just_day( (string) ( $rule['end'] ?? '' ) ) ?: '' );
+		if ( ! $day || ! $start ) {
+			return 'launch';
+		}
+		if ( $day < $start ) {
+			return 'warm';
+		}
+		if ( ! $end || $end <= $start || $day <= $start ) {
+			return 'launch';
+		}
+		// The last day of the sale, and the one before it, are the closing
+		// call; anything between the opening and that is a reminder.
+		return ( $day >= $end - DAY_IN_SECONDS ) ? 'last' : 'reminder';
+	}
+
+	/**
+	 * What to call one email.
+	 *
+	 * The owner's own name for it when he gave one, the moment's label
+	 * otherwise. It is an ADMIN name and nothing else — no reader ever sees
+	 * it — which is why it is free text: "Black Friday J-2" and "relance
+	 * stock" are what a campaign list is actually read by, and neither is a
+	 * moment. It goes to Klaviyo with the campaign for the same reason.
+	 *
+	 * @param array $mail  One email, as emails_for() returns it.
+	 * @param array $kinds The moments, passed in so a loop does not rebuild them.
+	 */
+	public static function email_name( array $mail, array $kinds = [] ): string {
+		$own = trim( (string) ( $mail['name'] ?? '' ) );
+		if ( '' !== $own ) {
+			return $own;
+		}
+		$kinds = $kinds ?: self::kinds();
+		$kind  = (string) ( $mail['kind'] ?? 'launch' );
+		return (string) ( $kinds[ $kind ]['label'] ?? $kind );
 	}
 
 	/** One email of a promotion, empty when it does not exist. */
@@ -1445,16 +1498,23 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			$was  = (array) ( $live[ $email_id ] ?? [] );
-			$kind = isset( $kinds[ $posted['kind'] ?? '' ] ) ? (string) $posted['kind'] : (string) ( $was['kind'] ?? 'launch' );
+			$when = array_key_exists( 'when', $posted )
+				? self::just_day( sanitize_text_field( (string) $posted['when'] ) )
+				: (string) ( $was['when'] ?? '' );
+			// Worked out from the day, never taken from the form: the moment
+			// is a consequence, and a consequence posted by a browser is a
+			// consequence that can arrive wrong.
+			$kind = self::kind_for( $when, $rule );
 			$body = array_key_exists( 'body', $posted ) ? self::clean_html( (string) $posted['body'] ) : (string) ( $was['body'] ?? '' );
 			if ( '' === trim( $body ) ) {
 				$body = (string) ( $was['body'] ?? '' );
 			}
 			$out[ $email_id ] = [
 				'kind'    => $kind,
-				'when'    => array_key_exists( 'when', $posted )
-					? self::just_day( sanitize_text_field( (string) $posted['when'] ) )
-					: (string) ( $was['when'] ?? self::default_when( $kind, $rule ) ),
+				'name'    => array_key_exists( 'name', $posted )
+					? mb_substr( sanitize_text_field( (string) $posted['name'] ), 0, 80 )
+					: (string) ( $was['name'] ?? '' ),
+				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => array_key_exists( 'subject', $posted )
 					? mb_substr( sanitize_text_field( (string) $posted['subject'] ), 0, 150 )
 					: (string) ( $was['subject'] ?? '' ),
@@ -1612,7 +1672,7 @@ final class DZE_Klaviyo {
 		// The campaign carries the promotion's name AND which of its emails
 		// this is, so the account's campaign list can be read at a glance.
 		$name    = trim( (string) ( $rule['title'] ?? __( 'Promotion', 'dazont-ecom' ) ) )
-			. ' — ' . (string) ( $kinds[ $kind ]['label'] ?? $kind );
+			. ' — ' . self::email_name( $copy, $kinds );
 		// What is on screen wins over what was last saved: the draft is made of
 		// the email the owner is looking at.
 		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
@@ -2936,6 +2996,7 @@ final class DZE_Klaviyo {
 				'thenSave' => __( 'Save the settings below to keep it.', 'dazont-ecom' ),
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
 				'openMail' => __( 'Open', 'dazont-ecom' ),
+				'unnamed'  => __( 'Untitled email', 'dazont-ecom' ),
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
@@ -3025,7 +3086,7 @@ final class DZE_Klaviyo {
 					<div class="dze-mail" data-id="<?php echo esc_attr( $mail_id ); ?>">
 						<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 						<div class="dze-mail-what">
-							<strong class="dze-mail-kind"><?php echo esc_html( (string) ( $kinds[ $kind ]['label'] ?? $kind ) ); ?></strong>
+							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail, $kinds ) ); ?></strong>
 							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
 						</div>
@@ -3042,7 +3103,7 @@ final class DZE_Klaviyo {
 						</div>
 						<?php // Every email keeps its fields in the form, so ONE Save keeps them all. ?>
 						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][exists]" value="1" />
-						<input type="hidden" class="dze-f-kind" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
+						<input type="hidden" class="dze-f-name" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][name]" value="<?php echo esc_attr( (string) ( $mail['name'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
@@ -3065,7 +3126,7 @@ final class DZE_Klaviyo {
 				<div class="dze-mail" data-id="__ID__">
 					<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 					<div class="dze-mail-what">
-						<strong class="dze-mail-kind"></strong>
+						<strong class="dze-mail-name"></strong>
 						<span class="dze-mail-when"><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 						<span class="dze-mail-subject"></span>
 					</div>
@@ -3075,7 +3136,7 @@ final class DZE_Klaviyo {
 						<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
 					</div>
 					<input type="hidden" class="dze-f-exists" name="dze_email[__ID__][exists]" value="1" />
-					<input type="hidden" class="dze-f-kind" name="dze_email[__ID__][kind]" value="launch" />
+					<input type="hidden" class="dze-f-name" name="dze_email[__ID__][name]" value="" />
 					<input type="hidden" class="dze-f-picture" name="dze_email[__ID__][picture]" value="" />
 					<input type="hidden" class="dze-f-subject" name="dze_email[__ID__][subject]" value="" />
 					<input type="hidden" class="dze-f-preview" name="dze_email[__ID__][preview]" value="" />
@@ -3096,17 +3157,24 @@ final class DZE_Klaviyo {
 						<td><input type="text" id="dze-klav-e-preview" class="large-text" /></td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="dze-klav-e-kind"><?php esc_html_e( 'Moment', 'dazont-ecom' ); ?></label></th>
+						<th scope="row"><label for="dze-klav-e-name"><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></label></th>
 						<td>
-							<?php // Which of the promotion's moments this email is. It
-							// decides how the writing is briefed, and it is a FIELD
-							// rather than a slot, so a promotion can carry two
-							// reminders, three, or no warm-up at all. ?>
-							<select id="dze-klav-e-kind">
-								<?php foreach ( $kinds as $dze_k => $dze_meta ) : ?>
-									<option value="<?php echo esc_attr( $dze_k ); ?>"><?php echo esc_html( $dze_meta['label'] . ' — ' . $dze_meta['when'] ); ?></option>
-								<?php endforeach; ?>
-							</select>
+							<?php // Admin only — it never reaches a reader. It travels
+							// with the campaign to Klaviyo, because the campaign list
+							// there is the other place this email is looked for. ?>
+							<input type="text" id="dze-klav-e-name" class="regular-text" maxlength="80" />
+							<p class="description">
+								<?php
+								// Not an explanation of the field — a suggestion of what
+								// a promotion is usually worth. The moment each email
+								// belongs to follows from the day it goes out, so this
+								// is the only place the four are named.
+								echo esc_html( implode( ' · ', array_map(
+									static fn( array $m ): string => $m['label'] . ' (' . strtolower( $m['when'] ) . ')',
+									self::kinds()
+								) ) );
+								?>
+							</p>
 						</td>
 					</tr>
 					<tr>

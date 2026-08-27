@@ -184,28 +184,19 @@
 	// Editor → the email's own fields, on every keystroke.
 	function commit() {
 		if (!current) { return; }
-		var $c = card(current), kind = $('#dze-klav-e-kind').val() || 'launch';
+		var $c = card(current), name = $.trim($('#dze-klav-e-name').val() || '');
+		$c.find('.dze-f-name').val(name);
 		$c.find('.dze-f-subject').val($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-f-preview').val($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
-		$c.find('.dze-f-kind').val(kind);
 		$c.find('.dze-f-body').val(body().val() || '');
 		$c.find('.dze-mail-subject').text($('#dze-klav-e-subject').val() || '');
-		$c.find('.dze-mail-kind').text($('#dze-klav-e-kind option:selected').text().split(' — ')[0]);
+		$c.find('.dze-mail-name').text(name || cfg.i18n.unnamed);
 		$c.find('.dze-mail-when').contents().first().replaceWith($('#dze-klav-e-when').val() || '');
-		$('#dze-mail-title').text($c.find('.dze-mail-kind').text());
+		$('#dze-mail-title').text($c.find('.dze-mail-name').text());
 		thumb(current);
 	}
-	$(document).on('input change', '#dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when, #dze-klav-e-kind', commit);
-	// Changing the moment of an email that has no date yet fills the date in
-	// from the promotion's own window. It never overwrites a day already set:
-	// a date the owner chose is a decision, not a default.
-	$(document).on('change', '#dze-klav-e-kind', function () {
-		var $when = $('#dze-klav-e-when');
-		if ($.trim($when.val() || '')) { return; }
-		var map = $('#dze-klav-editor').data('when') || {};
-		if (map[$(this).val()]) { $when.val(map[$(this).val()]); commit(); }
-	});
+	$(document).on('input change', '#dze-klav-e-name, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 	$(document).on('input', '#dze-klav-e-body', function () {
 		commit();
 		window.clearTimeout(pending);
@@ -218,8 +209,8 @@
 		current = id;
 		$('.dze-mail').removeClass('is-on');
 		$c.addClass('is-on');
-		$('#dze-klav-e-kind').val($c.find('.dze-f-kind').val() || 'launch');
-		$('#dze-mail-title').text($('#dze-klav-e-kind option:selected').text().split(' — ')[0]);
+		$('#dze-klav-e-name').val($c.find('.dze-f-name').val() || '');
+		$('#dze-mail-title').text($.trim($c.find('.dze-mail-name').text()));
 		$('#dze-klav-e-subject').val($c.find('.dze-f-subject').val() || '');
 		$('#dze-klav-e-preview').val($c.find('.dze-f-preview').val() || '');
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
@@ -245,10 +236,11 @@
 			map = $('#dze-klav-editor').data('when') || {},
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
 			$c = $($.trim(html));
+		// A new email opens on the day the promotion does; the moment it
+		// belongs to follows from whatever day it ends up on.
 		$c.find('.dze-f-when').val(map.launch || '');
 		$('.dze-mail-list').append($c);
 		open(id);
-		$('#dze-klav-e-kind').val('launch');
 		commit();
 	});
 
