@@ -2314,11 +2314,30 @@ final class DZE_Klaviyo {
 	 * per reader.
 	 */
 	private static function strategy( array $in, array $rule ): array {
+		return [ 'method' => 'smart_send_time', 'date' => self::send_day( $in, $rule ) ];
+	}
+
+	/**
+	 * The day this campaign is for — never one that has already gone.
+	 *
+	 * Klaviyo does not argue with a day in the past: it accepts the campaign
+	 * and quietly stores no date at all, and what lands in the account is a
+	 * draft with nothing in its calendar. The owner then finds a campaign that
+	 * looks right, opens it, and is asked for a date he thought he had given.
+	 *
+	 * An email dated yesterday still has to answer for a day, so it is moved to
+	 * tomorrow — the same answer default_when() gives when a type has none.
+	 */
+	private static function send_day( array $in, array $rule ): string {
 		$day = self::just_day( (string) ( $in['datetime'] ?? '' ) );
 		if ( '' === $day ) {
-			$day = self::default_when( self::first_kind(), $rule );
+			return self::default_when( self::first_kind(), $rule );
 		}
-		return [ 'method' => 'smart_send_time', 'date' => $day ];
+		$ts = strtotime( $day . ' 00:00:00' );
+		if ( ! $ts || $ts < time() ) {
+			return gmdate( 'Y-m-d', time() + DAY_IN_SECONDS );
+		}
+		return $day;
 	}
 
 
@@ -2481,6 +2500,8 @@ final class DZE_Klaviyo {
 			], 30 );
 			if ( is_wp_error( $upd ) ) {
 				$warning = trim( $warning . ' ' . $upd->get_error_message() );
+			} elseif ( '' === self::just_day( (string) ( $upd['data']['attributes']['send_strategy']['date'] ?? '' ) ) ) {
+				$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
 			}
 
 			// 3. The subject line and the preview text.
@@ -2581,6 +2602,13 @@ final class DZE_Klaviyo {
 				throw new RuntimeException( $camp->get_error_message() );
 			}
 			$camp_id = (string) ( $camp['data']['id'] ?? '' );
+			// What Klaviyo actually KEPT of the day. It answers 200 to a
+			// strategy it then stores empty, and a draft with no date in it is
+			// a draft the owner has to notice by himself — which is exactly
+			// what happened.
+			if ( '' === self::just_day( (string) ( $camp['data']['attributes']['send_strategy']['date'] ?? '' ) ) ) {
+				$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
+			}
 			$msg_id  = (string) ( $camp['data']['relationships']['campaign-messages']['data'][0]['id'] ?? '' );
 			if ( '' === $msg_id ) {
 				foreach ( (array) ( $camp['included'] ?? [] ) as $row ) {
@@ -4367,7 +4395,7 @@ final class DZE_Klaviyo {
 				'unsub'    => __( 'Unsubscribe', 'dazont-ecom' ),
 				'loading'  => __( 'Reading your Klaviyo account…', 'dazont-ecom' ),
 				'creating' => __( 'Creating the draft in Klaviyo…', 'dazont-ecom' ),
-				'made'     => __( 'Draft ready in Klaviyo — nothing was sent.', 'dazont-ecom' ),
+				'made'     => __( 'Draft ready in Klaviyo — nothing was sent. It opens on Recipients; press Next for the email.', 'dazont-ecom' ),
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
 				'subject'  => __( 'Write a subject line first.', 'dazont-ecom' ),
 				'open'     => __( 'Open draft ↗', 'dazont-ecom' ),
