@@ -378,7 +378,15 @@ $banner_location = (string) $e( 'banner_location', DZE_Discounts::default_locati
 								<?php echo $hero_source_id
 									? esc_html__( 'The picture it replaces, read from your home page.', 'dazont-ecom' )
 									: esc_html__( 'No home page picture found — set one before this can swap anything.', 'dazont-ecom' ); ?>
-								<a href="<?php echo esc_url( admin_url( 'admin.php?page=dazont-ecom-ai&tab=events#dze-mai-hero' ) ); ?>"><?php esc_html_e( 'Change it', 'dazont-ecom' ); ?></a>
+								<?php
+								// Changed where it lives, which is the home
+								// page itself — never from here.
+								$dze_front = (int) get_option( 'page_on_front' );
+								$dze_edit  = $dze_front ? (string) get_edit_post_link( $dze_front ) : '';
+								if ( '' !== $dze_edit ) :
+									?>
+									<a href="<?php echo esc_url( $dze_edit ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Edit the home page ↗', 'dazont-ecom' ); ?></a>
+								<?php endif; ?>
 							</span>
 						</p>
 					</td>
