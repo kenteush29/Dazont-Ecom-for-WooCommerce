@@ -70,6 +70,7 @@ final class DZE_Prompts {
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
 			'promo_i18n' => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt', 'default_promo_i18n_prompt' ],
 			'promo_email' => [ 'DZE_Klaviyo', 'email_prompt', 'default_email_prompt' ],
+			'promo_plan'  => [ 'DZE_Klaviyo', 'plan_prompt', 'default_plan_prompt' ],
 			'sourcing_report' => [ 'DZE_Explorer', 'report_guidance', 'default_report_guidance' ],
 			'keyword_match'   => [ 'DZE_Keywords', 'match_rules', 'default_match_rules' ],
 		];
@@ -90,6 +91,7 @@ final class DZE_Prompts {
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
 			'promo_i18n'   => [ 'DZE_Marketing_Ai', 'promo_i18n_prompt' ],
 			'promo_email'  => [ 'DZE_Klaviyo', 'email_prompt' ],
+			'promo_plan'   => [ 'DZE_Klaviyo', 'plan_prompt' ],
 			'sourcing_report' => [ 'DZE_Marketing_Ai', 'report_guidance' ],
 			'keyword_match'   => [ 'DZE_Marketing_Ai', 'match_rules' ],
 		][ $id ];
@@ -228,6 +230,12 @@ final class DZE_Prompts {
 			];
 		}
 		if ( class_exists( 'DZE_Klaviyo' ) && self::module_on( 'klaviyo' ) ) {
+			$out['promo_plan'] = [
+				'label' => __( 'Promotion campaign plan', 'dazont-ecom' ),
+				'text'  => [ 'DZE_Klaviyo', 'plan_prompt' ],
+				'tab'   => 'email',
+				'frag'  => 'dze-klav-plan',
+			];
 			$out['promo_email'] = [
 				'label' => __( 'Promotion email', 'dazont-ecom' ),
 				'text'  => [ 'DZE_Klaviyo', 'email_prompt' ],

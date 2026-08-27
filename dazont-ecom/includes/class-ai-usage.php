@@ -73,6 +73,7 @@ final class DZE_Ai_Usage {
 			'translate'   => __( 'Product translation (one language)', 'dazont-ecom' ),
 			'calendar'    => __( 'Marketing calendar', 'dazont-ecom' ),
 			'promo_i18n'  => __( 'Promotion translations (one event)', 'dazont-ecom' ),
+			'promo_plan'  => __( 'Promotion campaign plan', 'dazont-ecom' ),
 			'promo_email' => __( 'Promotion email', 'dazont-ecom' ),
 			'promo_email_img' => __( 'Promotion email picture', 'dazont-ecom' ),
 			'sourcing'    => __( 'Sourcing analysis', 'dazont-ecom' ),

@@ -87,6 +87,7 @@ final class DZE_Klaviyo {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
+		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
@@ -809,6 +810,10 @@ final class DZE_Klaviyo {
 		// that used to describe it separately is gone, and what was stored for
 		// it goes rather than sitting in the database meaning nothing.
 		unset( $out['image_prompt'] );
+		if ( array_key_exists( 'plan_prompt', $in ) ) {
+			$text = trim( sanitize_textarea_field( (string) $in['plan_prompt'] ) );
+			$out['plan_prompt'] = ( $text === trim( self::default_plan_prompt() ) ) ? '' : $text;
+		}
 		if ( array_key_exists( 'email_prompt', $in ) ) {
 			// Same treatment as every other prompt of the plugin: shipped text
 			// saved as it stands means "no custom prompt".
@@ -875,6 +880,7 @@ final class DZE_Klaviyo {
 			. "\n"
 			. "SUBJECT: it decides whether the email is opened. Say the offer, not the season. Six to nine words, no more — past that a phone cuts it off. Figures are welcome, and they are the ones given.\n"
 			. "PREVIEW TEXT: it continues the subject, it does not repeat it — the second half of the sentence read in the inbox. Four to eight words.\n"
+			. "NAME: what this email is called in the campaign list — for the shop, never for a reader. Say which email of the promotion it is and in what words, three to six of them: \"Warm-up, two days out\", \"Launch day\", \"Last call, closes tonight\". Not the subject line again.\n"
 			. "\n"
 			. "BODY: you decide everything about it. What comes first, how many paragraphs, how many products in a row and how many rows, what gets a heading and what does not, where the buttons go. An email of four parts and an email of fourteen are both right if the promotion deserves it.\n"
 			. "\n"
@@ -1452,6 +1458,7 @@ final class DZE_Klaviyo {
 			$out[ (string) $id ] = [
 				'kind'    => $kind,
 				'name'    => (string) ( $email['name'] ?? '' ),
+				'angle'   => (string) ( $email['angle'] ?? '' ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => (string) ( $email['subject'] ?? '' ),
 				'preview' => (string) ( $email['preview'] ?? '' ),
@@ -1494,23 +1501,19 @@ final class DZE_Klaviyo {
 	/**
 	 * What to call one email.
 	 *
-	 * The owner's own name for it when he gave one, the moment's label
-	 * otherwise. It is an ADMIN name and nothing else — no reader ever sees
-	 * it — which is why it is free text: "Black Friday J-2" and "relance
-	 * stock" are what a campaign list is actually read by, and neither is a
-	 * moment. It goes to Klaviyo with the campaign for the same reason.
-	 *
-	 * @param array $mail  One email, as emails_for() returns it.
-	 * @param array $kinds The moments, passed in so a loop does not rebuild them.
+	 * The writing names it — a name is a sentence about the email, which is
+	 * the writing's job and not arithmetic on a date. The owner overwrites it
+	 * whenever he likes. Nothing else decides: an email with no name yet is
+	 * called by its subject, and that is the whole rule.
 	 */
-	public static function email_name( array $mail, array $kinds = [] ): string {
-		$own = trim( (string) ( $mail['name'] ?? '' ) );
-		if ( '' !== $own ) {
-			return $own;
+	public static function email_name( array $mail ): string {
+		foreach ( [ 'name', 'subject' ] as $key ) {
+			$try = trim( (string) ( $mail[ $key ] ?? '' ) );
+			if ( '' !== $try ) {
+				return $try;
+			}
 		}
-		$kinds = $kinds ?: self::kinds();
-		$kind  = (string) ( $mail['kind'] ?? 'launch' );
-		return (string) ( $kinds[ $kind ]['label'] ?? $kind );
+		return __( 'Untitled email', 'dazont-ecom' );
 	}
 
 	/** One email of a promotion, empty when it does not exist. */
@@ -1574,6 +1577,9 @@ final class DZE_Klaviyo {
 				'name'    => array_key_exists( 'name', $posted )
 					? mb_substr( sanitize_text_field( (string) $posted['name'] ), 0, 80 )
 					: (string) ( $was['name'] ?? '' ),
+				// The brief the plan wrote. The screen never posts it, so it
+				// survives every save of the email it belongs to.
+				'angle'   => (string) ( $was['angle'] ?? '' ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => array_key_exists( 'subject', $posted )
 					? mb_substr( sanitize_text_field( (string) $posted['subject'] ), 0, 150 )
@@ -1732,7 +1738,7 @@ final class DZE_Klaviyo {
 		// The campaign carries the promotion's name AND which of its emails
 		// this is, so the account's campaign list can be read at a glance.
 		$name    = trim( (string) ( $rule['title'] ?? __( 'Promotion', 'dazont-ecom' ) ) )
-			. ' — ' . self::email_name( $copy, $kinds );
+			. ' — ' . self::email_name( $copy );
 		// What is on screen wins over what was last saved: the draft is made of
 		// the email the owner is looking at.
 		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
@@ -2334,6 +2340,173 @@ final class DZE_Klaviyo {
 			: round( $regular * ( 1 - $percent / 100 ), 2 );
 	}
 
+	// =========================================================================
+	// Planning the campaign
+	//
+	// Two prompts, one feeding the other. The first is asked what this
+	// promotion deserves — how many emails, on which days, and what each one
+	// says that the others do not. The second, the one that already existed,
+	// writes each of them and is handed that answer as its brief.
+	//
+	// It is the same idea as one person briefing another: the plan is a
+	// short, readable thing the owner can look at and change before a single
+	// email is written, and both halves are ordinary editable prompts. What it
+	// is NOT is a second way of writing an email — the writing has one code
+	// path, and the plan only decides what to ask it for.
+	// =========================================================================
+
+	/** The campaign plan prompt in force: the owner's own, or the shipped one. */
+	public static function plan_prompt(): string {
+		$custom = trim( (string) ( self::settings()['plan_prompt'] ?? '' ) );
+		if ( '' !== $custom ) {
+			return $custom;
+		}
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'promo_plan', self::default_plan_prompt() )
+			: self::default_plan_prompt();
+	}
+
+	public static function default_plan_prompt(): string {
+		return "Decide what this promotion is worth in emails.\n"
+			. "\n"
+			. "Not a fixed set. A three-day flash sale is one email, maybe two. A ten-day seasonal sale earns four. Ask what a reader would tolerate hearing about this offer, and stop there — one email too many costs more than one too few.\n"
+			. "\n"
+			. "The moments worth using, in the order they happen:\n"
+			. "- A WARM-UP, a day or two before it opens: something is coming, no prices yet, nothing has started.\n"
+			. "- The LAUNCH, on the opening day: the offer, plainly, with the products.\n"
+			. "- A REMINDER while it runs: not the announcement again — a different way in. Another category, another argument, what is selling.\n"
+			. "- A LAST CALL on the closing day or the one before: short, and about the ending.\n"
+			. "\n"
+			. "For each email, give:\n"
+			. "- name: what it is called in the shop's own campaign list. Three to six words. Never seen by a reader.\n"
+			. "- date: the day it goes out, YYYY-MM-DD, inside or just before the promotion's window.\n"
+			. "- angle: one or two sentences telling the writer what THIS email does that the others do not. It is a brief, not a subject line: name the argument, the products to lean on, the tone.\n"
+			. "\n"
+			. "Two emails on the same day is a mistake. So is a warm-up dated after the sale opened.";
+	}
+
+	/**
+	 * Asks the plan prompt what this promotion deserves, and creates the rows.
+	 *
+	 * Nothing is written here: what comes back is a list of empty emails, each
+	 * with its day and its brief, ready for the writing prompt. That split is
+	 * deliberate — the owner reads the plan, moves a date, drops one, and only
+	 * then spends anything on writing them.
+	 *
+	 * @return array<string,array> the emails as they now stand.
+	 */
+	public static function plan_for( string $rule_id, array $rule ): array {
+		$fmt  = 'Y-m-d';
+		$pct  = rtrim( rtrim( number_format( (float) ( $rule['percent'] ?? 0 ), 2, '.', '' ), '0' ), '.' );
+		$s_ts = strtotime( self::just_day( (string) ( $rule['start'] ?? '' ) ) ?: '' );
+		$e_ts = strtotime( self::just_day( (string) ( $rule['end'] ?? '' ) ) ?: '' );
+		if ( ! $s_ts ) {
+			throw new RuntimeException( __( 'Give the promotion its dates first — a campaign is planned around them.', 'dazont-ecom' ) );
+		}
+		$days = ( $e_ts && $e_ts > $s_ts ) ? (int) round( ( $e_ts - $s_ts ) / DAY_IN_SECONDS ) + 1 : 1;
+
+		$user = "--- THE PROMOTION ---\n"
+			. 'Title: ' . (string) ( $rule['title'] ?? '' ) . "\n"
+			. 'Discount: ' . $pct . "%\n"
+			. 'Opens: ' . gmdate( $fmt, $s_ts ) . "\n"
+			. 'Closes: ' . ( $e_ts ? gmdate( $fmt, $e_ts ) : gmdate( $fmt, $s_ts ) ) . "\n"
+			. 'Length: ' . $days . " days\n"
+			. 'It covers ' . ( ! empty( $rule['category_ids'] ) ? 'some categories only' : 'the whole shop' ) . ".\n"
+			. 'Today: ' . gmdate( $fmt ) . "\n";
+		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
+			$about = trim( (string) DZE_Marketing_Ai::instance()->shop_context_text() );
+			if ( '' !== $about ) {
+				$user .= "\n--- THE SHOP ---\n" . mb_substr( $about, 0, 1200 ) . "\n";
+			}
+		}
+		$user .= "\n--- INSTRUCTIONS ---\n" . self::plan_prompt() . "\n"
+			. "\n--- OUTPUT ---\nJSON only: {\"emails\":[{\"name\":\"…\",\"date\":\"YYYY-MM-DD\",\"angle\":\"…\"}]}. No other key, no comment, no markdown fence.";
+
+		DZE_Ai_Usage::unit( 'promo_plan' );
+		try {
+			$out = DZE_Marketing_Ai::complete(
+				'You plan the email campaign of an online shop\'s promotion. You answer with JSON only.',
+				$user,
+				'',
+				1500,
+				60
+			);
+		} finally {
+			DZE_Ai_Usage::unit();
+		}
+		$json = json_decode( trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', (string) $out ) ), true );
+		$rows = is_array( $json ) ? (array) ( $json['emails'] ?? [] ) : [];
+		if ( ! $rows ) {
+			throw new RuntimeException( __( 'The plan came back unreadable — try again.', 'dazont-ecom' ) );
+		}
+
+		$emails = self::emails_for( $rule_id, $rule );
+		$seen   = [];
+		foreach ( $rows as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$when = self::just_day( (string) ( $row['date'] ?? '' ) );
+			if ( '' === $when || isset( $seen[ $when ] ) ) {
+				continue; // no day twice, and no email without one.
+			}
+			$seen[ $when ] = true;
+			// Minted here rather than by the browser: the plan can be run by
+			// cron one day, and an id that only exists when somebody has a
+			// page open is an id the automation cannot make.
+			$id = 'e' . substr( md5( $rule_id . $when . microtime() ), 0, 10 );
+			$emails[ $id ] = [
+				'kind'    => self::kind_for( $when, $rule ),
+				'name'    => mb_substr( sanitize_text_field( (string) ( $row['name'] ?? '' ) ), 0, 80 ),
+				'angle'   => mb_substr( sanitize_textarea_field( (string) ( $row['angle'] ?? '' ) ), 0, 600 ),
+				'when'    => $when,
+				'subject' => '',
+				'preview' => '',
+				'body'    => '',
+				'picture' => '',
+				'draft'   => [],
+			];
+		}
+		uasort( $emails, static fn( array $a, array $b ): int => strcmp( (string) $a['when'], (string) $b['when'] ) );
+
+		$all = get_option( self::OPT_COPY, [] );
+		$all = is_array( $all ) ? $all : [];
+		$all[ $rule_id ] = [ 'emails' => $emails ];
+		update_option( self::OPT_COPY, $all, false );
+
+		DZE_Ai_Usage::finished( 'promo_plan' );
+		return $emails;
+	}
+
+	/** Plans the campaign and hands the rows back for the screen to draw. */
+	public static function ajax_plan(): void {
+		self::guard();
+		[ $rule_id, $rule ] = self::target();
+		try {
+			$emails = self::plan_for( $rule_id, $rule );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'emails'  => array_map(
+				static fn( string $id, array $m ): array => [
+					'id'      => $id,
+					'name'    => (string) $m['name'],
+					'when'    => (string) $m['when'],
+					'angle'   => (string) ( $m['angle'] ?? '' ),
+					'subject' => (string) $m['subject'],
+				],
+				array_keys( $emails ),
+				$emails
+			),
+			'message' => sprintf(
+				/* translators: %d: how many emails the plan holds */
+				_n( '%d email planned. Write them, then look at each one.', '%d emails planned. Write them, then look at each one.', count( $emails ), 'dazont-ecom' ),
+				count( $emails )
+			),
+		] );
+	}
+
 	/**
 	 * The whole email for one promotion — subject, preview line and body.
 	 *
@@ -2386,6 +2559,14 @@ final class DZE_Klaviyo {
 				. $kinds[ $kind ]['label'] . ' — ' . $kinds[ $kind ]['when'] . ".\n"
 				. self::kind_brief( $kind ) . "\n";
 		}
+		$angle = trim( (string) ( $moment['angle'] ?? '' ) );
+		if ( '' !== $angle ) {
+			// Written by the campaign plan, which was asked what each email of
+			// this promotion should do that the others do not. One prompt
+			// briefing another: this is that brief, and it outranks the
+			// general description of the moment above.
+			$user .= "\n--- WHAT THIS ONE IS FOR ---\n" . $angle . "\n";
+		}
 		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
 			$about = trim( (string) DZE_Marketing_Ai::instance()->shop_context_text() );
 			if ( '' !== $about ) {
@@ -2424,7 +2605,7 @@ final class DZE_Klaviyo {
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
 			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
-			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
+			. "\n--- OUTPUT ---\nJSON only: {\"name\":\"…\",\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
 
 		DZE_Ai_Usage::unit( 'promo_email' );
 		try {
@@ -2453,6 +2634,7 @@ final class DZE_Klaviyo {
 
 		DZE_Ai_Usage::finished( 'promo_email' );
 		return [
+			'name'    => mb_substr( sanitize_text_field( (string) ( $json['name'] ?? '' ) ), 0, 80 ),
 			'subject' => mb_substr( sanitize_text_field( (string) ( $json['subject'] ?? '' ) ), 0, 150 ),
 			'preview' => mb_substr( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ), 0, 150 ),
 			'body'    => self::place_products( self::clean_html( $body ), $mat['cards'] ),
@@ -3060,6 +3242,11 @@ final class DZE_Klaviyo {
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
 				'openMail' => __( 'Open', 'dazont-ecom' ),
 				'unnamed'  => __( 'Untitled email', 'dazont-ecom' ),
+				'planning' => __( 'Asking what this promotion deserves…', 'dazont-ecom' ),
+				'replan'   => __( 'Plan the campaign again? The emails already written are kept; the plan adds to them.', 'dazont-ecom' ),
+				'writing1' => __( 'Writing %1$d of %2$d…', 'dazont-ecom' ),
+				'allDone'  => __( 'All written. Read them, then save the event.', 'dazont-ecom' ),
+				'nothing'  => __( 'No email to write yet — plan the campaign or add one.', 'dazont-ecom' ),
 				'reading'  => __( 'Asking Klaviyo…', 'dazont-ecom' ),
 				'whenOpen' => __( 'Which days work best?', 'dazont-ecom' ),
 				'addMail'  => __( 'Add', 'dazont-ecom' ),
@@ -3149,7 +3336,7 @@ final class DZE_Klaviyo {
 					<div class="dze-mail" data-id="<?php echo esc_attr( $mail_id ); ?>">
 						<div class="dze-mail-thumb"><iframe title="" sandbox="allow-same-origin" scrolling="no"></iframe></div>
 						<div class="dze-mail-what">
-							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail, $kinds ) ); ?></strong>
+							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail ) ); ?></strong>
 							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
 						</div>
@@ -3176,8 +3363,12 @@ final class DZE_Klaviyo {
 				<?php endforeach; ?>
 			</div>
 
-			<p style="margin:10px 0 0;">
+			<p style="margin:10px 0 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 				<button type="button" class="button" id="dze-mail-new">+ <?php esc_html_e( 'Add an email', 'dazont-ecom' ); ?></button>
+				<span style="flex:1;"></span>
+				<button type="button" class="button" id="dze-mail-plan"><?php esc_html_e( 'Plan the campaign', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-primary" id="dze-mail-all"><?php esc_html_e( 'Write them all', 'dazont-ecom' ); ?></button>
+				<span id="dze-mail-plan-msg" style="font-size:13px;"></span>
 			</p>
 
 			<?php
@@ -3592,6 +3783,24 @@ final class DZE_Klaviyo {
 				</div>
 			</div>
 		</div>
+
+		<h2 class="title"><?php esc_html_e( 'Campaign plan prompt', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:880px;">
+			<?php esc_html_e( 'Decides how many emails a promotion gets, on which days, and what each one is for. It writes no email: it briefs the prompt below, one email at a time.', 'dazont-ecom' ); ?>
+		</p>
+			<textarea id="dze-klav-plan" name="<?php echo esc_attr( self::OPT . '[plan_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::plan_prompt() ); ?></textarea>
+			<p>
+				<button type="button" class="button-link" id="dze-klav-plan-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+				<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'promo_plan', '#dze-klav-plan' ); } ?>
+			</p>
+			<script>
+			(function () {
+				var shipped = <?php echo wp_json_encode( self::default_plan_prompt() ); ?>;
+				var btn = document.getElementById('dze-klav-plan-reset');
+				var ta  = document.getElementById('dze-klav-plan');
+				if ( btn && ta ) { btn.addEventListener('click', function () { ta.value = shipped; }); }
+			}());
+			</script>
 
 		<h2 class="title"><?php esc_html_e( 'Email copy prompt', 'dazont-ecom' ); ?></h2>
 		<p class="description" style="max-width:880px;">

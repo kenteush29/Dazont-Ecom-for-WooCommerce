@@ -244,6 +244,83 @@
 		commit();
 	});
 
+
+	// The plan: one prompt decides what the promotion deserves, the rows
+	// appear, and the writing prompt is run on each of them afterwards. Two
+	// requests of different shapes, never one long one — a host that cuts a
+	// request off in the middle would otherwise cost the whole campaign.
+	$(document).on('click', '#dze-mail-plan', function () {
+		var $b = $(this), $m = $('#dze-mail-plan-msg');
+		if ($('.dze-mail').length && !window.confirm(cfg.i18n.replan)) { return; }
+		$b.prop('disabled', true);
+		$m.css('color', '#646970').text(cfg.i18n.planning);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_plan', nonce: cfg.nonce, rule: ruleId() })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (!res || !res.success) {
+					$m.css('color', '#b32d2e').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				// The plan is already stored; the rows are redrawn from what it
+				// returned so the page shows the same thing a reload would.
+				$('.dze-mail-list').empty();
+				$.each(res.data.emails, function (i, mail) {
+					var html = $('#dze-mail-blank').html().split('__ID__').join(mail.id),
+						$c = $($.trim(html));
+					$c.find('.dze-f-when').val(mail.when);
+					$c.find('.dze-f-name').val(mail.name);
+					$c.find('.dze-mail-name').text(mail.name || cfg.i18n.unnamed);
+					$c.find('.dze-mail-when').contents().first().replaceWith(mail.when);
+					$('.dze-mail-list').append($c);
+				});
+				current = null;
+				$('#dze-mail-edit').hide();
+				var $first = $('.dze-mail').first();
+				if ($first.length) { open($first.data('id')); }
+				$m.css('color', '#0a7040').text(res.data.message);
+			})
+			.fail(function () {
+				$b.prop('disabled', false);
+				$m.css('color', '#b32d2e').text(i18n.error);
+			});
+	});
+
+	// Writing every email, one request each, in order. The same endpoint one
+	// button uses for one email: there is no second way to write one, so a
+	// batch cannot drift from what a single click does.
+	$(document).on('click', '#dze-mail-all', function () {
+		var $b = $(this), $m = $('#dze-mail-plan-msg'),
+			ids = $('.dze-mail').map(function () { return $(this).data('id'); }).get();
+		if (!ids.length) { $m.css('color', '#b26a00').text(cfg.i18n.nothing); return; }
+		$b.prop('disabled', true);
+		(function next(i) {
+			if (i >= ids.length) {
+				$b.prop('disabled', false);
+				$m.css('color', '#0a7040').text(cfg.i18n.allDone);
+				return;
+			}
+			$m.css('color', '#646970').text(cfg.i18n.writing1.replace('%1$d', i + 1).replace('%2$d', ids.length));
+			open(ids[i]);
+			$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: ids[i] })
+				.done(function (res) {
+					if (res && res.success) {
+						$('#dze-klav-e-subject').val(res.data.subject || '');
+						if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
+						if (res.data.name && !$.trim($('#dze-klav-e-name').val() || '')) {
+							$('#dze-klav-e-name').val(res.data.name);
+						}
+						body().val(res.data.body || '');
+						commit();
+					}
+					// One that failed does not stop the rest: the others are
+					// worth having, and the one that failed is still there to
+					// try again on its own.
+					next(i + 1);
+				})
+				.fail(function () { next(i + 1); });
+		}(0));
+	});
+
 	$(document).on('click', '.dze-mail-drop', function () {
 		if (!window.confirm(cfg.i18n.dropMail)) { return; }
 		var $c = $(this).closest('.dze-mail'), id = $c.data('id');
@@ -376,6 +453,11 @@
 				}
 				$('#dze-klav-e-subject').val(res.data.subject);
 				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
+				// The writing names the email too. A name the owner typed is
+				// his, so it is only filled in when the field is empty.
+				if (res.data.name && !$.trim($('#dze-klav-e-name').val() || '')) {
+					$('#dze-klav-e-name').val(res.data.name);
+				}
 				commit();
 				body().val(res.data.body);
 				commit();
