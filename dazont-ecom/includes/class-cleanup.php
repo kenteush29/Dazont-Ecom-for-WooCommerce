@@ -55,8 +55,8 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_discount_notice' ],
 			],
 			'gmc' => [
-				'options'    => [ 'dze_gmc_credentials', 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only' ],
-				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_ads_', 'dze_gmc_pc_' ],
+				'options'    => [ 'dze_gmc_credentials', 'dze_gmc_accounts', 'dze_gmc_oauth', 'dze_gmc_advanced', 'dze_gmc_connection', 'dze_gmc_datasources', 'dze_gmc_ads_only', 'dze_gmc_auto' ],
+				'transients' => [ 'dze_gmc_oauth_token', 'dze_gmc_ads_', 'dze_gmc_pc_', 'dze_gmc_run_', 'dze_gmc_q_' ],
 			],
 			'gmc_activation' => [
 				'post_meta' => [ '_merchant_center_activation' ],

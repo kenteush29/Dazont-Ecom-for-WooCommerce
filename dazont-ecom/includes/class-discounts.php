@@ -2093,6 +2093,11 @@ final class DZE_Discounts {
 			delete_transient( 'dze_discount_notice' );
 		}
 		$events_tabs = ( 'events' === $mode ) ? $this->events_tabs_html( 'events' ) : '';
+		// Opening the list is also the moment to notice that Google is behind
+		// — on a promotion saved before the automatic sync existed, or one a
+		// failed account left half-sent. Nothing is fetched here: the work is
+		// put in the queue and done in the background.
+		self::gmc_follow_all();
 		require DZE_DIR . 'admin/views/discounts-page.php';
 	}
 
@@ -2246,17 +2251,39 @@ final class DZE_Discounts {
 		// this page is saved by this very submit, not by a save of their own.
 		do_action( 'dze_discount_saved', $id, $rule, $in );
 
-		// "Save & Push to GMC": sync straight after saving (all configured targets).
-		if ( ! empty( $in['push_gmc'] ) && 'sale' === $type && class_exists( 'DZE_Gmc' ) && DZE_Gmc::instance()->is_configured() ) {
-			$statuses = DZE_Gmc::instance()->sync_rule( $id );
-			$errors   = array_filter( $statuses, static fn( $s ) => ( $s['status'] ?? '' ) === 'error' );
-			set_transient( 'dze_discount_notice', empty( $errors )
-				? __( 'Saved and pushed to Google Merchant Center.', 'dazont-ecom' )
-				: __( 'Saved. Some Merchant Center targets reported an error — see the GMC sync column.', 'dazont-ecom' ), 60 );
-		}
+		self::gmc_follow( $id );
 
 		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	/**
+	 * The same, for every promotion at once — used where the state of all of
+	 * them is about to be shown.
+	 */
+	public static function gmc_follow_all(): void {
+		foreach ( self::get_rules() as $id => $rule ) {
+			if ( ( $rule['type'] ?? '' ) === 'sale' ) {
+				self::gmc_follow( (string) $id );
+			}
+		}
+	}
+
+	/**
+	 * Google is told what changed — from every path that changes a promotion.
+	 *
+	 * Saving one, switching one on, switching a batch off: each of them ends
+	 * here, and what has to happen (send it, re-send it, take it down, or
+	 * nothing at all) is decided in one place rather than three. The owner has
+	 * nothing to press: a promotion that is on and dated reaches Merchant
+	 * Center by itself, shortly after the save, and only when something Google
+	 * would actually see has changed.
+	 */
+	public static function gmc_follow( string $id ): void {
+		if ( '' === $id || ! class_exists( 'DZE_Modules' ) || ! DZE_Modules::enabled( 'gmc' ) || ! class_exists( 'DZE_Gmc' ) ) {
+			return;
+		}
+		DZE_Gmc::instance()->on_rule_saved( $id );
 	}
 
 	/**
@@ -2325,6 +2352,11 @@ final class DZE_Discounts {
 
 		self::save_rules( $rules );
 		$this->queue_sale_sync();
+		if ( 'delete' !== $what ) {
+			foreach ( $ids as $id ) {
+				self::gmc_follow( $id );
+			}
+		}
 
 		if ( 'delete' === $what ) {
 			$args['deleted'] = 1;
@@ -2462,6 +2494,7 @@ final class DZE_Discounts {
 			$rules[ $id ]['enabled'] = $enabling;
 			self::save_rules( $rules );
 			$this->queue_sale_sync();
+			self::gmc_follow( $id );
 			if ( $enabling ) {
 				self::schedule_i18n( $id );
 			}
