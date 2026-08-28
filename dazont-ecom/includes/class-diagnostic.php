@@ -1572,7 +1572,7 @@ final class DZE_Diagnostic {
 			. esc_html__( 'What the Diagnostic screen reads the shop against: a name, what is looked at, and the comparison it has to fail to be counted — the same vocabulary you filter an export with. Add your own, change a figure, remove one you do not care about. Every criterion you switch off simply stops being counted as work waiting to be done; nothing on the shop changes.', 'dazont-ecom' )
 			. '</p>';
 		echo '<p class="description" style="max-width:900px;">'
-			. esc_html__( 'Your PROMPTS answer for themselves and are not in this list: each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it.', 'dazont-ecom' )
+			. esc_html__( 'Your PROMPTS bring criteria of their own — each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it. They are listed at the foot of this page, where each can be switched off.', 'dazont-ecom' )
 			. '</p>';
 		$lang = self::main_language();
 		if ( '' !== $lang ) {
