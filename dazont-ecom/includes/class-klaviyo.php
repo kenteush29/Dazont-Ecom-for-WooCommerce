@@ -2435,6 +2435,58 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * The same day, said the way Klaviyo actually keeps.
+	 *
+	 * Asked for smart_send_time with a date, Klaviyo answers 200 and stores
+	 * `date: null` — the method survives, the day does not, and what lands in
+	 * the account is a draft with an empty calendar. Tried against the shop's
+	 * own account: the same campaign patched to a STATIC datetime keeps it,
+	 * which is also the shape every campaign this shop has ever sent carries.
+	 *
+	 * Nine in the morning in each reader's own time zone: not Klaviyo working
+	 * the hour out per person, but a real hour on the right day, which beats
+	 * a perfect hour on no day at all.
+	 */
+	/**
+	 * The day a campaign is actually holding, whichever way it is written.
+	 *
+	 * A smart-send campaign carries `date`, a static one carries `datetime`.
+	 * One reader for both, or half the checks in this class would be right
+	 * about one shape and blind to the other.
+	 */
+	private static function kept_day( array $campaign ): string {
+		$how = (array) ( $campaign['attributes']['send_strategy'] ?? [] );
+		return self::just_day( (string) ( $how['date'] ?? ( $how['datetime'] ?? '' ) ) );
+	}
+
+	/**
+	 * The day, sent again the way this account keeps it.
+	 *
+	 * @return string the day Klaviyo now holds, or '' if it still holds none.
+	 */
+	private static function pin_day( string $camp_id, array $in, array $rule ): string {
+		if ( '' === $camp_id ) {
+			return '';
+		}
+		$fix = self::request( 'PATCH', 'campaigns/' . rawurlencode( $camp_id ) . '/', [
+			'data' => [
+				'type'       => 'campaign',
+				'id'         => $camp_id,
+				'attributes' => [ 'send_strategy' => self::dated_strategy( $in, $rule ) ],
+			],
+		], 30 );
+		return is_wp_error( $fix ) ? '' : self::kept_day( $fix['data'] ?? [] );
+	}
+
+	private static function dated_strategy( array $in, array $rule ): array {
+		return [
+			'method'   => 'static',
+			'datetime' => self::send_day( $in, $rule ) . 'T09:00:00+00:00',
+			'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => false ],
+		];
+	}
+
+	/**
 	 * The day this campaign is for — never one that has already gone.
 	 *
 	 * Klaviyo does not argue with a day in the past: it accepts the campaign
@@ -3348,7 +3400,10 @@ final class DZE_Klaviyo {
 			if ( is_wp_error( $upd ) ) {
 				$warning = trim( $warning . ' ' . $upd->get_error_message() );
 			} else {
-				$kept_day = self::just_day( (string) ( $upd['data']['attributes']['send_strategy']['date'] ?? '' ) );
+				$kept_day = self::kept_day( $upd['data'] ?? [] );
+				if ( '' === $kept_day ) {
+					$kept_day = self::pin_day( $camp_id, $in, $rule );
+				}
 				if ( '' === $kept_day ) {
 					$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
 				}
@@ -3436,12 +3491,18 @@ final class DZE_Klaviyo {
 			if ( is_wp_error( $camp ) ) {
 				throw new RuntimeException( $camp->get_error_message() );
 			}
-			$camp_id = (string) ( $camp['data']['id'] ?? '' );
 			// What Klaviyo actually KEPT of the day. It answers 200 to a
 			// strategy it then stores empty, and a draft with no date in it is
 			// a draft the owner has to notice by himself — which is exactly
 			// what happened.
-			$kept_day = self::just_day( (string) ( $camp['data']['attributes']['send_strategy']['date'] ?? '' ) );
+			$camp_id  = (string) ( $camp['data']['id'] ?? '' );
+			$kept_day = self::kept_day( $camp['data'] ?? [] );
+			if ( '' === $kept_day && '' !== $camp_id ) {
+				// Klaviyo took the campaign and dropped the day. Said once at
+				// the hand-over, that left the owner to notice by himself; the
+				// day is simply sent again, the way this account keeps it.
+				$kept_day = self::pin_day( $camp_id, $in, $rule );
+			}
 			if ( '' === $kept_day ) {
 				$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
 			}
