@@ -100,78 +100,145 @@ final class DZE_Diagnostic {
 		return is_array( $s ) ? $s : [];
 	}
 
-	/** One standard, with the shipped figure when the shop has not moved it. */
-	public static function conf( string $key = '' ) {
-		$s   = self::settings();
-		$def = [
-			'prod_desc_words'  => 120,
-			'prod_gallery_min' => 3,
-			'cat_desc_words'   => 150,
-			'cat_links_min'    => 2,
+	/**
+	 * What the shop can be read against, and what each answer IS.
+	 *
+	 * One menu rather than two: "Product · description" says the scope and the
+	 * field in the words the owner already uses, and nothing has to be kept in
+	 * step between them. A field answers with TEXT or with a COUNT, and that
+	 * is what decides which rules can be asked of it.
+	 *
+	 * @return array<string,array{scope:string,label:string,kind:string,key?:bool}>
+	 */
+	public static function fields(): array {
+		return [
+			'product.title'             => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · title', 'dazont-ecom' ) ],
+			'product.description'       => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · description', 'dazont-ecom' ) ],
+			'product.short_description' => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · short description', 'dazont-ecom' ) ],
+			'product.seo_title'         => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · SEO title', 'dazont-ecom' ) ],
+			'product.seo_desc'          => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · SEO description', 'dazont-ecom' ) ],
+			'product.meta'              => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · custom field', 'dazont-ecom' ), 'key' => true ],
+			'product.main_image'        => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · main photograph', 'dazont-ecom' ) ],
+			'product.gallery'           => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · gallery photographs', 'dazont-ecom' ) ],
+			'product.image_meta'        => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · photograph in a custom field', 'dazont-ecom' ), 'key' => true ],
+			'product.links'             => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · links in the description', 'dazont-ecom' ) ],
+			'category.description'      => [ 'scope' => 'category', 'kind' => 'text',  'label' => __( 'Category · description', 'dazont-ecom' ) ],
+			'category.links'            => [ 'scope' => 'category', 'kind' => 'count', 'label' => __( 'Category · internal links', 'dazont-ecom' ) ],
+			'post.links'                => [ 'scope' => 'post',     'kind' => 'count', 'label' => __( 'Article or page · internal links', 'dazont-ecom' ) ],
 		];
-		$out = [];
-		foreach ( $def as $k => $v ) {
-			$out[ $k ] = isset( $s[ $k ] ) && '' !== $s[ $k ] ? max( 0, (int) $s[ $k ] ) : $v;
-		}
-		$out['off'] = (array) ( $s['off'] ?? [] );
-		return '' === $key ? $out : ( $out[ $key ] ?? null );
+	}
+
+	/** The three rules a field can be held to. */
+	public static function tests(): array {
+		return [
+			'empty'     => __( 'is empty', 'dazont-ecom' ),
+			'min_words' => __( 'holds fewer than N words', 'dazont-ecom' ),
+			'min_count' => __( 'there are fewer than N', 'dazont-ecom' ),
+		];
 	}
 
 	/**
-	 * Every criterion the shop is read against.
+	 * The criteria as they ship.
+	 *
+	 * Rows, not code — the same shape the shop edits, so "restore the default"
+	 * is putting these back and nothing else. What is shipped is what a shop
+	 * of any kind would ask first; everything past that is the owner's.
+	 */
+	public static function default_rows(): array {
+		return [
+			[ 'id' => 'prod_desc',    'label' => __( 'Description too short', 'dazont-ecom' ),        'field' => 'product.description',       'test' => 'min_words', 'value' => 120, 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_short',   'label' => __( 'No short description', 'dazont-ecom' ),          'field' => 'product.short_description', 'test' => 'empty',     'value' => 0,   'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_main',    'label' => __( 'No main photograph', 'dazont-ecom' ),            'field' => 'product.main_image',        'test' => 'empty',     'value' => 0,   'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_gallery', 'label' => __( 'Gallery too thin', 'dazont-ecom' ),              'field' => 'product.gallery',           'test' => 'min_count', 'value' => 3,   'key' => '', 'on' => 1 ],
+			[ 'id' => 'cat_desc',     'label' => __( 'Category description too short', 'dazont-ecom' ),'field' => 'category.description',      'test' => 'min_words', 'value' => 150, 'key' => '', 'on' => 1 ],
+			[ 'id' => 'cat_links',    'label' => __( 'Category points at too little', 'dazont-ecom' ), 'field' => 'category.links',            'test' => 'min_count', 'value' => 2,   'key' => '', 'on' => 1 ],
+			[ 'id' => 'post_links',   'label' => __( 'Article under its link target', 'dazont-ecom' ), 'field' => 'post.links',                'test' => 'min_count', 'value' => 0,   'key' => '', 'on' => 1 ],
+		];
+	}
+
+	/** The criteria in force: the shop's own, or the shipped ones. */
+	public static function rows(): array {
+		$saved = self::settings()['rows'] ?? null;
+		$rows  = is_array( $saved ) ? self::clean_rows( $saved ) : [];
+		return $rows ?: self::default_rows();
+	}
+
+	/** Rows as a form posted them, made safe and complete. */
+	public static function clean_rows( array $in ): array {
+		$fields = self::fields();
+		$tests  = self::tests();
+		$out    = [];
+		$seen   = [];
+		foreach ( $in as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$label = trim( sanitize_text_field( (string) ( $row['label'] ?? '' ) ) );
+			$field = (string) ( $row['field'] ?? '' );
+			if ( '' === $label || ! isset( $fields[ $field ] ) ) {
+				continue; // a criterion with no name, or reading nothing, is not one.
+			}
+			$id = sanitize_key( (string) ( $row['id'] ?? '' ) );
+			if ( '' === $id ) {
+				$id = sanitize_key( sanitize_title( $label ) ) ?: ( 'c' . ( count( $out ) + 1 ) );
+			}
+			while ( isset( $seen[ $id ] ) ) {
+				$id .= '2';
+			}
+			$seen[ $id ] = true;
+			$test = (string) ( $row['test'] ?? '' );
+			$out[] = [
+				'id'    => $id,
+				'label' => mb_substr( $label, 0, 80 ),
+				'field' => $field,
+				'test'  => isset( $tests[ $test ] ) ? $test : 'empty',
+				'value' => max( 0, min( 5000, (int) ( $row['value'] ?? 0 ) ) ),
+				'key'   => ! empty( $fields[ $field ]['key'] ) ? sanitize_text_field( (string) ( $row['key'] ?? '' ) ) : '',
+				'on'    => empty( $row['on'] ) ? 0 : 1,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Every criterion the shop is read against: its own, then the ones its
+	 * PROMPTS answer for.
 	 *
 	 * @return array<string,array{scope:string,label:string,why:string,fix:string}>
 	 */
 	public static function checks(): array {
-		$c   = self::conf();
-		$out = [
-			'prod_desc' => [
-				'scope' => 'product',
-				'label' => sprintf(
-					/* translators: %d: the number of words a description should reach */
-					__( 'Description under %d words', 'dazont-ecom' ),
-					(int) $c['prod_desc_words']
-				),
-				'why'   => __( 'A product page with nothing to read ranks on nothing and answers no question a buyer has.', 'dazont-ecom' ),
-				'fix'   => __( 'The description prompt, on the product screen or in bulk.', 'dazont-ecom' ),
-			],
-			'prod_short' => [
-				'scope' => 'product',
-				'label' => __( 'No short description', 'dazont-ecom' ),
-				'why'   => __( 'It is the paragraph beside the price, and the one WooCommerce hands to the cart and to Merchant Center.', 'dazont-ecom' ),
-				'fix'   => __( 'The short-description prompt.', 'dazont-ecom' ),
-			],
-			'prod_main' => [
-				'scope' => 'product',
-				'label' => __( 'No main photograph', 'dazont-ecom' ),
-				'why'   => __( 'A product with no featured image is invisible in every grid of the shop and refused by Merchant Center.', 'dazont-ecom' ),
-				'fix'   => __( 'The Main image lane on the product screen.', 'dazont-ecom' ),
-			],
-			'prod_gallery' => [
-				'scope' => 'product',
-				'label' => sprintf(
-					/* translators: %d: how many photographs a gallery should hold */
-					__( 'Fewer than %d photographs in the gallery', 'dazont-ecom' ),
-					(int) $c['prod_gallery_min']
-				),
-				'why'   => __( 'One angle sells nothing and leaves the model nothing to work from either.', 'dazont-ecom' ),
-				'fix'   => __( 'The image prompts on the product screen.', 'dazont-ecom' ),
-			],
-		];
+		$fields = self::fields();
+		$out    = [];
+		foreach ( self::rows() as $row ) {
+			if ( empty( $row['on'] ) ) {
+				continue;
+			}
+			$field = $fields[ $row['field'] ];
+			$out[ (string) $row['id'] ] = [
+				'scope' => (string) $field['scope'],
+				'label' => (string) $row['label'],
+				'why'   => self::rule_said( $row, $field ),
+				'fix'   => '',
+				'row'   => $row,
+			];
+		}
 
 		// The shop's own prompts, each answering for what it writes. Only the
 		// ones that write somewhere a page can be EMPTY: a prompt that writes
-		// the description is already answered by the criterion above it, and
-		// counting it twice would make the same product look like two jobs.
+		// the description is already answered by a criterion above, and
+		// counting it twice would make one product look like two jobs.
 		if ( class_exists( 'DZE_Content' ) && DZE_Modules::enabled( 'content' ) ) {
-			foreach ( DZE_Content::registry() as $row ) {
-				$id = (string) ( $row['id'] ?? '' );
-				if ( '' === $id || empty( $row['enabled'] ) || 'text' !== ( $row['type'] ?? 'text' ) ) {
+			foreach ( DZE_Content::registry() as $prompt ) {
+				$id = (string) ( $prompt['id'] ?? '' );
+				if ( '' === $id || empty( $prompt['enabled'] ) || 'text' !== ( $prompt['type'] ?? 'text' ) ) {
 					continue;
 				}
 				$dest = DZE_Content::dest_for( $id );
-				$name = (string) ( $row['name'] ?? $id );
+				$name = (string) ( $prompt['name'] ?? $id );
 				if ( in_array( (string) $dest['type'], [ 'meta', 'seo_title', 'seo_desc' ], true ) ) {
+					$key = 'meta' === $dest['type']
+						? (string) ( $dest['key'] ?? '' )
+						: (string) ( DZE_Content::seo_keys()[ 'seo_title' === $dest['type'] ? 'title' : 'desc' ] ?? '' );
 					$out[ 'field_' . $id ] = [
 						'scope' => 'product',
 						'label' => sprintf(
@@ -179,15 +246,11 @@ final class DZE_Diagnostic {
 							__( '%s: empty', 'dazont-ecom' ),
 							$name
 						),
-						'why'   => __( 'A prompt of yours writes here and this product has nothing in it.', 'dazont-ecom' ),
+						'why'   => __( 'One of your own prompts writes here, and this product has nothing in it.', 'dazont-ecom' ),
 						'fix'   => $name,
-						'meta'  => 'meta' === $dest['type']
-							? (string) ( $dest['key'] ?? '' )
-							: (string) ( DZE_Content::seo_keys()[ 'seo_title' === $dest['type'] ? 'title' : 'desc' ] ?? '' ),
+						'row'   => [ 'field' => 'product.meta', 'test' => 'empty', 'value' => 0, 'key' => $key ],
 					];
 				}
-				// The photograph a text block argues about: written by the same
-				// prompt, missing on its own.
 				$img = DZE_Content::companion_meta( $id );
 				if ( '' !== $img ) {
 					$out[ 'shot_' . $id ] = [
@@ -199,49 +262,41 @@ final class DZE_Diagnostic {
 						),
 						'why'   => __( 'That block is written against a photograph, and there is none on this product.', 'dazont-ecom' ),
 						'fix'   => $name,
-						'meta'  => $img,
+						'row'   => [ 'field' => 'product.image_meta', 'test' => 'empty', 'value' => 0, 'key' => $img ],
 					];
 				}
 			}
 		}
-
-		if ( class_exists( 'DZE_Category_Content' ) && DZE_Modules::enabled( 'category_content' ) ) {
-			$out['cat_desc'] = [
-				'scope' => 'category',
-				'label' => sprintf(
-					/* translators: %d: the number of words a category description should reach */
-					__( 'Category description under %d words', 'dazont-ecom' ),
-					(int) $c['cat_desc_words']
-				),
-				'why'   => __( 'A category page is the aisle: with no text it competes with nothing.', 'dazont-ecom' ),
-				'fix'   => __( 'The category description prompt, or the nightly pass.', 'dazont-ecom' ),
-			];
-			$out['cat_links'] = [
-				'scope' => 'category',
-				'label' => sprintf(
-					/* translators: %d: how many internal links a category should carry */
-					__( 'Category carrying fewer than %d internal links', 'dazont-ecom' ),
-					(int) $c['cat_links_min']
-				),
-				'why'   => __( 'A page that points at nothing passes nothing on to the rest of the shop.', 'dazont-ecom' ),
-				'fix'   => __( 'The "Add internal links only" pass.', 'dazont-ecom' ),
-			];
-		}
-
-		if ( class_exists( 'DZE_Post_Links' ) && DZE_Modules::enabled( 'category_content' ) ) {
-			$out['post_links'] = [
-				'scope' => 'post',
-				'label' => __( 'Article or page under its own link target', 'dazont-ecom' ),
-				'why'   => __( 'The target is worked out from the length of the text itself: a long article pointing nowhere is half a mesh.', 'dazont-ecom' ),
-				'fix'   => __( 'The article linking pass.', 'dazont-ecom' ),
-			];
-		}
-
-		// Switched off by the shop: read, but not counted against it.
-		foreach ( (array) $c['off'] as $id ) {
-			unset( $out[ (string) $id ] );
-		}
 		return $out;
+	}
+
+	/** One criterion said in words, for the screen. */
+	private static function rule_said( array $row, array $field ): string {
+		$what = (string) $field['label'];
+		if ( 'min_words' === $row['test'] ) {
+			return sprintf(
+				/* translators: 1: what is read, 2: how many words */
+				__( '%1$s holds fewer than %2$d words.', 'dazont-ecom' ),
+				$what,
+				(int) $row['value']
+			);
+		}
+		if ( 'min_count' === $row['test'] ) {
+			if ( 0 === (int) $row['value'] && 'post.links' === $row['field'] ) {
+				return __( 'The article carries fewer links than its own length calls for — the figure the linking pass works out, not one set here.', 'dazont-ecom' );
+			}
+			return sprintf(
+				/* translators: 1: what is counted, 2: how many there should be */
+				__( '%1$s: fewer than %2$d.', 'dazont-ecom' ),
+				$what,
+				(int) $row['value']
+			);
+		}
+		return sprintf(
+			/* translators: %s: what is read */
+			__( '%s is empty.', 'dazont-ecom' ),
+			$what
+		);
 	}
 
 	// =========================================================================
@@ -310,7 +365,6 @@ final class DZE_Diagnostic {
 		if ( ! $wanted || ! post_type_exists( 'product' ) ) {
 			return;
 		}
-		$c    = self::conf();
 		$page = 1;
 		do {
 			$q = new WP_Query( [
@@ -327,11 +381,10 @@ final class DZE_Diagnostic {
 				'suppress_filters'       => true,
 			] );
 			foreach ( $q->posts as $post ) {
-				$pid = (int) $post->ID;
 				$seen['product']++;
 				foreach ( $wanted as $id => $check ) {
-					if ( self::product_fails( $id, $check, $post, $c ) ) {
-						$hits[ $id ][] = $pid;
+					if ( self::fails( (array) $check['row'], 'product', $post ) ) {
+						$hits[ $id ][] = (int) $post->ID;
 					}
 				}
 			}
@@ -350,44 +403,118 @@ final class DZE_Diagnostic {
 		return (int) preg_match_all( '/\p{L}+/u', wp_strip_all_tags( $html ) );
 	}
 
-	/** Whether one product falls short of one criterion. */
-	private static function product_fails( string $id, array $check, WP_Post $post, array $c ): bool {
-		$pid = (int) $post->ID;
-		if ( 'prod_desc' === $id ) {
-			return self::words( (string) $post->post_content ) < (int) $c['prod_desc_words'];
+	/**
+	 * What one page actually holds, for one field.
+	 *
+	 * @param mixed $object A WP_Post, a term, or the linking pass's own row.
+	 * @return array{text:string,count:int}
+	 */
+	private static function measure( string $field, string $scope, $object, string $key ): array {
+		$out = [ 'text' => '', 'count' => 0 ];
+		if ( 'product' === $scope && $object instanceof WP_Post ) {
+			$pid = (int) $object->ID;
+			switch ( $field ) {
+				case 'product.title':
+					$out['text'] = (string) $object->post_title;
+					break;
+				case 'product.description':
+					$out['text'] = (string) $object->post_content;
+					break;
+				case 'product.short_description':
+					$out['text'] = (string) $object->post_excerpt;
+					break;
+				case 'product.seo_title':
+				case 'product.seo_desc':
+					$keys        = class_exists( 'DZE_Content' ) ? DZE_Content::seo_keys() : [];
+					$seo         = (string) ( $keys[ 'product.seo_title' === $field ? 'title' : 'desc' ] ?? '' );
+					$out['text'] = '' !== $seo ? (string) get_post_meta( $pid, $seo, true ) : '';
+					break;
+				case 'product.meta':
+					$out['text'] = '' !== $key ? (string) get_post_meta( $pid, $key, true ) : '';
+					break;
+				case 'product.image_meta':
+					$out['count'] = ( '' !== $key && (int) get_post_meta( $pid, $key, true ) > 0 ) ? 1 : 0;
+					break;
+				case 'product.main_image':
+					$out['count'] = (int) get_post_thumbnail_id( $pid ) ? 1 : 0;
+					break;
+				case 'product.gallery':
+					$gal          = array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) );
+					$out['count'] = count( $gal );
+					break;
+				case 'product.links':
+					$out['count'] = (int) preg_match_all( '/<a\s[^>]*href=/i', (string) $object->post_content );
+					break;
+			}
+			return $out;
 		}
-		if ( 'prod_short' === $id ) {
-			return '' === trim( wp_strip_all_tags( (string) $post->post_excerpt ) );
+		if ( 'category' === $scope && is_object( $object ) ) {
+			$text = (string) ( $object->description ?? '' );
+			if ( 'category.links' === $field ) {
+				$out['count'] = (int) preg_match_all( '/<a\s[^>]*href=/i', $text );
+			} else {
+				$out['text'] = $text;
+			}
+			return $out;
 		}
-		if ( 'prod_main' === $id ) {
-			return ! (int) get_post_thumbnail_id( $pid );
+		if ( 'post' === $scope && is_array( $object ) ) {
+			$out['count'] = (int) ( $object['out'] ?? 0 );
+			$out['text']  = '';
 		}
-		if ( 'prod_gallery' === $id ) {
-			$gal = array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) );
-			return count( $gal ) < (int) $c['prod_gallery_min'];
+		return $out;
+	}
+
+	/** Whether a field answers with text or with a number. */
+	private static function kind_of( string $field ): string {
+		return (string) ( self::fields()[ $field ]['kind'] ?? 'text' );
+	}
+
+	/**
+	 * Whether one page falls short of one criterion.
+	 *
+	 * @param mixed $object
+	 */
+	private static function fails( array $row, string $scope, $object ): bool {
+		$field = (string) ( $row['field'] ?? '' );
+		$test  = (string) ( $row['test'] ?? 'empty' );
+		$want  = (int) ( $row['value'] ?? 0 );
+		$m     = self::measure( $field, $scope, $object, (string) ( $row['key'] ?? '' ) );
+
+		if ( 'min_words' === $test ) {
+			return self::words( $m['text'] ) < $want;
 		}
-		$key = (string) ( $check['meta'] ?? '' );
-		return '' !== $key && '' === trim( (string) get_post_meta( $pid, $key, true ) );
+		if ( 'min_count' === $test ) {
+			// An article is held to the figure the linking pass works out from
+			// its own length — asked here a second way, the two screens would
+			// disagree about the same article. A number typed in the row wins
+			// when there is one.
+			if ( 'post.links' === $field && $want <= 0 ) {
+				$target = is_array( $object ) ? (int) ( $object['target'] ?? 0 ) : 0;
+				return $target > 0 && $m['count'] < $target;
+			}
+			return $m['count'] < $want;
+		}
+		return 'count' === self::kind_of( $field )
+			? $m['count'] <= 0
+			: '' === trim( wp_strip_all_tags( $m['text'] ) );
 	}
 
 	/** @param array<string,int[]> $hits */
 	private static function scan_categories( array $checks, array &$hits, array &$seen ): void {
-		if ( ! isset( $checks['cat_desc'] ) && ! isset( $checks['cat_links'] ) ) {
+		$wanted = array_filter( $checks, static fn( array $c ): bool => 'category' === $c['scope'] );
+		if ( ! $wanted ) {
 			return;
 		}
 		$terms = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false ] );
 		if ( is_wp_error( $terms ) ) {
 			return;
 		}
-		$c = self::conf();
 		foreach ( $terms as $term ) {
 			$seen['category']++;
-			$text = (string) $term->description;
-			if ( isset( $checks['cat_desc'] ) && self::words( $text ) < (int) $c['cat_desc_words'] ) {
-				$hits['cat_desc'][] = (int) $term->term_id;
-			}
-			if ( isset( $checks['cat_links'] ) && (int) preg_match_all( '/<a\s[^>]*href=/i', $text ) < (int) $c['cat_links_min'] ) {
-				$hits['cat_links'][] = (int) $term->term_id;
+			foreach ( $wanted as $id => $check ) {
+				if ( self::fails( (array) $check['row'], 'category', $term ) ) {
+					$hits[ $id ][] = (int) $term->term_id;
+				}
 			}
 		}
 	}
@@ -402,13 +529,16 @@ final class DZE_Diagnostic {
 	 * @param array<string,int[]> $hits
 	 */
 	private static function scan_posts( array $checks, array &$hits, array &$seen ): void {
-		if ( ! isset( $checks['post_links'] ) || ! class_exists( 'DZE_Post_Links' ) ) {
+		$wanted = array_filter( $checks, static fn( array $c ): bool => 'post' === $c['scope'] );
+		if ( ! $wanted || ! class_exists( 'DZE_Post_Links' ) ) {
 			return;
 		}
 		foreach ( DZE_Post_Links::census( true ) as $pid => $row ) {
 			$seen['post']++;
-			if ( (int) ( $row['target'] ?? 0 ) > 0 && (int) ( $row['out'] ?? 0 ) < (int) $row['target'] ) {
-				$hits['post_links'][] = (int) $pid;
+			foreach ( $wanted as $id => $check ) {
+				if ( self::fails( (array) $check['row'], 'post', $row ) ) {
+					$hits[ $id ][] = (int) $pid;
+				}
 			}
 		}
 	}
@@ -460,16 +590,11 @@ final class DZE_Diagnostic {
 			return self::settings();
 		}
 		$out = self::settings();
-		foreach ( [ 'prod_desc_words', 'prod_gallery_min', 'cat_desc_words', 'cat_links_min' ] as $k ) {
-			if ( array_key_exists( $k, $in ) ) {
-				$out[ $k ] = max( 0, min( 5000, (int) $in[ $k ] ) );
-			}
-		}
-		// A list of switched-off criteria: the form carries the marker even
-		// when every box is ticked, or unticking the last one would read as
-		// "this form was not about criteria" and never take.
-		if ( ! empty( $in['checks_shown'] ) ) {
-			$out['off'] = array_values( array_map( 'sanitize_key', (array) ( $in['off'] ?? [] ) ) );
+		// The form carries a marker even when every criterion was deleted, or
+		// emptying the list would read as "this form was not about criteria"
+		// and never take — the same trap the emails of a promotion fell into.
+		if ( ! empty( $in['rows_shown'] ) ) {
+			$out['rows'] = self::clean_rows( (array) ( $in['rows'] ?? [] ) );
 		}
 		return $out;
 	}
@@ -544,7 +669,9 @@ final class DZE_Diagnostic {
 			$total = (int) ( $seen[ $check['scope'] ] ?? 0 );
 			echo '<tr>';
 			echo '<td><strong>' . esc_html( $check['label'] ) . '</strong><br />'
-				. '<span class="description">' . esc_html( $check['why'] ) . ' ' . esc_html( $check['fix'] ) . '</span></td>';
+				. '<span class="description">'
+				. esc_html( trim( (string) $check['why'] . ' ' . (string) ( $check['fix'] ?? '' ) ) )
+				. '</span></td>';
 			echo '<td>' . esc_html( $where[ $check['scope'] ] ?? $check['scope'] ) . '</td>';
 			echo '<td style="text-align:right;font-size:15px;">' . ( $n ? '<strong>' . (int) $n . '</strong>' : '—' );
 			if ( $n && $total > 0 ) {
@@ -563,7 +690,7 @@ final class DZE_Diagnostic {
 		}
 		echo '</tbody></table>';
 		echo '<p class="description" style="margin-top:14px;max-width:760px;">'
-			. esc_html__( 'The standards themselves — how many words, how many photographs — and the criteria you would rather not be counted against are under Settings → Diagnostic.', 'dazont-ecom' )
+			. esc_html__( 'The criteria themselves — what is looked at, the figure it has to reach, and the ones you would rather not be counted against — are under Settings → Diagnostic. Your own prompts add their lines here by themselves.', 'dazont-ecom' )
 			. '</p>';
 		$this->print_script();
 	}
@@ -676,62 +803,159 @@ final class DZE_Diagnostic {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		$c   = self::conf();
-		$opt = self::OPT;
+		$opt    = self::OPT;
+		$fields = self::fields();
+		$tests  = self::tests();
 		echo '<form method="post" action="options.php">';
 		settings_fields( 'dze_diagnostic_options' );
-		echo '<p class="description" style="max-width:760px;">'
-			. esc_html__( 'The standards the Diagnostic screen reads the shop against. They are yours: a shop of accessories and a shop of jackets do not need the same description.', 'dazont-ecom' )
+		echo '<h2 class="title">' . esc_html__( 'Criteria', 'dazont-ecom' ) . '</h2>';
+		echo '<p class="description" style="max-width:900px;">'
+			. esc_html__( 'What the Diagnostic screen reads the shop against. A name, what is looked at, and the rule it has to pass — add your own, change a figure, remove one you do not care about. Every criterion you switch off simply stops being counted as work waiting to be done; nothing on the shop changes.', 'dazont-ecom' )
 			. '</p>';
-		echo '<table class="form-table" role="presentation">';
-		$rows = [
-			'prod_desc_words'  => __( 'Product description, in words', 'dazont-ecom' ),
-			'prod_gallery_min' => __( 'Photographs in a product gallery', 'dazont-ecom' ),
-			'cat_desc_words'   => __( 'Category description, in words', 'dazont-ecom' ),
-			'cat_links_min'    => __( 'Internal links in a category description', 'dazont-ecom' ),
-		];
-		foreach ( $rows as $key => $label ) {
-			printf(
-				'<tr><th scope="row"><label for="dze-diag-%1$s">%2$s</label></th><td>'
-				. '<input type="number" min="0" step="1" id="dze-diag-%1$s" name="%3$s[%1$s]" value="%4$d" style="width:100px;" /></td></tr>',
-				esc_attr( $key ),
-				esc_html( $label ),
-				esc_attr( $opt ),
-				(int) $c[ $key ]
-			);
-		}
-		echo '</table>';
+		echo '<p class="description" style="max-width:900px;">'
+			. esc_html__( 'Your PROMPTS answer for themselves and are not in this list: each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it.', 'dazont-ecom' )
+			. '</p>';
 
-		echo '<h2>' . esc_html__( 'What is counted', 'dazont-ecom' ) . '</h2>';
-		echo '<p class="description" style="max-width:760px;">'
-			. esc_html__( 'Untick a line and it disappears from the diagnostic. Nothing is deleted and nothing changes on the shop — it stops being counted as work waiting to be done.', 'dazont-ecom' )
-			. '</p>';
-		echo '<input type="hidden" name="' . esc_attr( $opt ) . '[checks_shown]" value="1" />';
-		// The list is drawn from the criteria as they stand WITH the switched
-		// off ones put back, or a criterion could never be switched on again.
-		$off = (array) $c['off'];
-		$all = self::checks();
-		foreach ( $off as $id ) {
-			if ( ! isset( $all[ $id ] ) ) {
-				$all[ (string) $id ] = [ 'label' => (string) $id, 'scope' => '', 'why' => '', 'fix' => '' ];
-			}
-		}
-		echo '<ul style="margin:0 0 18px;">';
-		foreach ( $all as $id => $check ) {
+		echo '<table class="widefat striped" style="max-width:1000px;"><thead><tr>'
+			. '<th style="width:26%;">' . esc_html__( 'Name', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:30%;">' . esc_html__( 'What is looked at', 'dazont-ecom' ) . '</th>'
+			. '<th>' . esc_html__( 'It falls short when', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:60px;">' . esc_html__( 'On', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:40px;"></th>'
+			. '</tr></thead><tbody id="dze-diag-rows">';
+		$i = 0;
+		foreach ( self::rows() as $row ) {
+			$needs_key = ! empty( $fields[ $row['field'] ]['key'] );
+			echo '<tr class="dze-diag-row"><td>';
 			printf(
-				'<li><label><input type="checkbox" name="%1$s[off][]" value="%2$s"%3$s /> %4$s</label></li>',
+				'<input type="hidden" name="%1$s[rows][%2$d][id]" value="%3$s" />'
+				. '<input type="text" class="large-text" name="%1$s[rows][%2$d][label]" value="%4$s" />',
 				esc_attr( $opt ),
-				esc_attr( $id ),
-				in_array( (string) $id, array_map( 'strval', $off ), true ) ? ' checked="checked"' : '',
-				esc_html( sprintf(
-					/* translators: %s: the criterion */
-					__( 'Do not count: %s', 'dazont-ecom' ),
-					(string) $check['label']
-				) )
+				(int) $i,
+				esc_attr( (string) $row['id'] ),
+				esc_attr( (string) $row['label'] )
 			);
+			echo '</td><td>';
+			printf( '<select name="%1$s[rows][%2$d][field]" class="dze-diag-field">', esc_attr( $opt ), (int) $i );
+			foreach ( $fields as $fid => $meta ) {
+				printf(
+					'<option value="%s"%s>%s</option>',
+					esc_attr( $fid ),
+					selected( $fid, (string) $row['field'], false ),
+					esc_html( (string) $meta['label'] )
+				);
+			}
+			echo '</select> ';
+			printf(
+				'<input type="text" class="dze-diag-key" placeholder="%1$s" name="%2$s[rows][%3$d][key]" value="%4$s" style="width:150px;%5$s" />',
+				esc_attr__( 'meta key', 'dazont-ecom' ),
+				esc_attr( $opt ),
+				(int) $i,
+				esc_attr( (string) $row['key'] ),
+				$needs_key ? '' : 'display:none;'
+			);
+			echo '</td><td>';
+			printf( '<select name="%1$s[rows][%2$d][test]">', esc_attr( $opt ), (int) $i );
+			foreach ( $tests as $tid => $label ) {
+				printf(
+					'<option value="%s"%s>%s</option>',
+					esc_attr( $tid ),
+					selected( $tid, (string) $row['test'], false ),
+					esc_html( $label )
+				);
+			}
+			echo '</select> ';
+			printf(
+				'<input type="number" min="0" step="1" style="width:80px;" name="%1$s[rows][%2$d][value]" value="%3$d" />',
+				esc_attr( $opt ),
+				(int) $i,
+				(int) $row['value']
+			);
+			echo '</td><td>';
+			printf(
+				'<input type="checkbox" name="%1$s[rows][%2$d][on]" value="1"%3$s />',
+				esc_attr( $opt ),
+				(int) $i,
+				checked( 1, (int) $row['on'], false )
+			);
+			echo '</td><td><button type="button" class="button-link dze-diag-drop" title="' . esc_attr__( 'Remove this criterion', 'dazont-ecom' ) . '">&times;</button></td></tr>';
+			$i++;
 		}
-		echo '</ul>';
+		echo '</tbody></table>';
+		echo '<input type="hidden" name="' . esc_attr( $opt ) . '[rows_shown]" value="1" />';
+		echo '<p>'
+			. '<button type="button" class="button" id="dze-diag-add">' . esc_html__( 'Add a criterion', 'dazont-ecom' ) . '</button>'
+			. '<button type="button" class="button-link" id="dze-diag-reset" style="margin-left:10px;">&#8634; ' . esc_html__( 'Restore default', 'dazont-ecom' ) . '</button>'
+			. '<span class="description" style="margin-left:10px;">' . esc_html__( 'An article held to "there are fewer than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</span>'
+			. '</p>';
+		self::print_rows_script();
 		submit_button();
 		echo '</form>';
+	}
+
+	/** The row editor: the same gesture as the email types, one table over. */
+	private static function print_rows_script(): void {
+		$fields = [];
+		foreach ( self::fields() as $fid => $meta ) {
+			$fields[] = [ 'id' => $fid, 'label' => (string) $meta['label'], 'key' => ! empty( $meta['key'] ) ];
+		}
+		?>
+		<script>
+		(function () {
+			var opt = <?php echo wp_json_encode( self::OPT ); ?>,
+				fields = <?php echo wp_json_encode( $fields ); ?>,
+				tests = <?php echo wp_json_encode( self::tests() ); ?>,
+				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>,
+				$rows = jQuery('#dze-diag-rows');
+			function nextIndex() { return $rows.find('tr').length + Math.floor(Math.random() * 1000) + 100; }
+			function name(i, key) { return opt + '[rows][' + i + '][' + key + ']'; }
+			function needsKey(id) {
+				for (var n = 0; n < fields.length; n++) { if (fields[n].id === id) { return fields[n].key; } }
+				return false;
+			}
+			function row(r) {
+				var i = nextIndex(),
+					$field = jQuery('<select class="dze-diag-field"></select>').attr('name', name(i, 'field')),
+					$test = jQuery('<select></select>').attr('name', name(i, 'test')),
+					$key = jQuery('<input type="text" class="dze-diag-key" style="width:150px;"/>')
+						.attr({ name: name(i, 'key'), placeholder: <?php echo wp_json_encode( __( 'meta key', 'dazont-ecom' ) ); ?> })
+						.val(r.key || '');
+				jQuery.each(fields, function (n, f) {
+					$field.append(jQuery('<option></option>').attr('value', f.id).text(f.label));
+				});
+				jQuery.each(tests, function (id, label) {
+					$test.append(jQuery('<option></option>').attr('value', id).text(label));
+				});
+				$field.val(r.field || fields[0].id);
+				$test.val(r.test || 'empty');
+				$key.toggle(needsKey($field.val()));
+				return jQuery('<tr class="dze-diag-row"></tr>').append(
+					jQuery('<td></td>')
+						.append(jQuery('<input type="hidden"/>').attr('name', name(i, 'id')).val(r.id || ('c' + Date.now().toString(36) + i)))
+						.append(jQuery('<input type="text" class="large-text"/>').attr('name', name(i, 'label')).val(r.label || '')),
+					jQuery('<td></td>').append($field).append(' ').append($key),
+					jQuery('<td></td>').append($test).append(' ').append(
+						jQuery('<input type="number" min="0" step="1" style="width:80px;"/>').attr('name', name(i, 'value')).val(r.value || 0)
+					),
+					jQuery('<td></td>').append(
+						jQuery('<input type="checkbox" value="1"/>').attr('name', name(i, 'on')).prop('checked', r.on !== 0)
+					),
+					jQuery('<td></td>').append(jQuery('<button type="button" class="button-link dze-diag-drop">&times;</button>'))
+				);
+			}
+			// A custom field is the only thing that needs a key, so the box for
+			// it appears with it and never before.
+			jQuery(document).on('change', '.dze-diag-field', function () {
+				jQuery(this).closest('tr').find('.dze-diag-key').toggle(needsKey(jQuery(this).val()));
+			});
+			jQuery('#dze-diag-add').on('click', function () { $rows.append(row({ on: 1 })); });
+			jQuery(document).on('click', '.dze-diag-drop', function () { jQuery(this).closest('tr').remove(); });
+			jQuery('#dze-diag-reset').on('click', function () {
+				$rows.empty();
+				jQuery.each(shipped, function (n, r) { $rows.append(row(r)); });
+			});
+		}());
+		</script>
+		<?php
 	}
 }
