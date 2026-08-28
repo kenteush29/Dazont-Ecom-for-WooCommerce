@@ -86,7 +86,11 @@ $GLOBALS['dze_asked'] = [];
 class DZE_Marketing_Ai {
 	public static function complete( $system, $user, $model = '', $max = 2000, $timeout = 90 ) {
 		$GLOBALS['dze_asked'][] = [ 'model' => $model, 'system' => $system, 'user' => $user, 'timeout' => $timeout ];
-		// Answer every numbered piece it was handed, in order.
+		// A queued answer when the test staged one — the plan, a written email
+		// — otherwise the translator's echo: every numbered piece, in order.
+		if ( ! empty( $GLOBALS['dze_answers'] ) ) {
+			return array_shift( $GLOBALS['dze_answers'] );
+		}
 		preg_match_all( '/^### (\d+)$/m', $user, $m );
 		$out = [];
 		foreach ( $m[1] as $n ) { $out[ $n ] = 'translated ' . $n; }
@@ -96,7 +100,16 @@ class DZE_Marketing_Ai {
 	public static function instance() { return new self(); }
 	public function shop_context_text() { return 'Kula Tactical: tactical and military equipment.'; }
 }
-class DZE_Discounts { public static function get_rules() { return [ 'promo' => [ 'title' => 'Summer' ] ]; } }
+class DZE_Discounts { public static function get_rules() { return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; } }
+class DZE_Ai_Usage {
+	public static function over_budget() { return ! empty( $GLOBALS['dze_broke'] ); }
+	public static function budget_message() { return 'budget spent'; }
+	public static function unit( $u = '' ) {}
+	public static function finished( $u = '' ) {}
+}
+$GLOBALS['dze_cron'] = [];
+function wp_schedule_single_event( $ts, $hook, $args = [] ) { $GLOBALS['dze_cron'][] = [ $ts, $hook, $args ]; return true; }
+function wp_clear_scheduled_hook( $hook ) {}
 class DZE_Wpml {
 	public static function is_active() { return true; }
 	public static function default_language() { return 'en'; }
@@ -153,6 +166,7 @@ class DZE_Test_Wpdb {
 $GLOBALS['wpdb'] = new DZE_Test_Wpdb();
 
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo.php';
+require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-auto.php';
 
 $fails = 0;
 $ran   = 0;
@@ -527,6 +541,203 @@ ok( 'and it is shown the launch email', false !== strpos( $brief, 'It is live' )
 // others — not the same nine with a warning label on every one of them.
 ok( 'with fresh products to lean on',   false !== strpos( $brief, '[ALREADY SHOWN' ), false );
 ok( 'and nine of them to choose from',  substr_count( $brief, '   link: ' ), 9 );
+
+
+echo "The plan deals the products\n";
+// The shop's complaint, before this existed: three emails drew on one shared
+// nine-product list, so the third had nothing fresh left and every line it
+// was handed read ALREADY SHOWN. The plan now DEALS the pool: each email is
+// created with its own products, and the writing is handed exactly those.
+$tomorrow2 = gmdate( 'Y-m-d', time() + 86400 );
+$in5       = gmdate( 'Y-m-d', time() + 5 * 86400 );
+$promo2    = [ 'title' => 'Back to School', 'percent' => 10, 'start' => $tomorrow2, 'end' => gmdate( 'Y-m-d', time() + 12 * 86400 ) ];
+
+$GLOBALS['dze_opts'][ $copy ] = [];
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
+	[ 'date' => $tomorrow2, 'angle' => 'Tease it',  'products' => [ 3, 1 ] ],
+	[ 'date' => $in5,       'angle' => 'Launch it', 'products' => [ 1, 2, 4, 99 ] ],
+	[ 'date' => '2020-01-01', 'angle' => 'Too late', 'products' => [ 5 ] ],
+] ] ) ];
+$planned = DZE_Klaviyo::plan_for( 'promo', $promo2 );
+ok( 'the plan was handed the numbered pool',
+	false !== strpos( $GLOBALS['dze_asked'][0]['user'] ?? '', 'THE PRODUCTS TO DEAL OUT' ), true );
+ok( 'with real products on it',
+	false !== strpos( $GLOBALS['dze_asked'][0]['user'] ?? '', '1. Product 1' ), true );
+ok( 'a day already gone makes no email', count( $planned ), 2 );
+$ids2  = array_keys( $planned );
+ok( 'the first email keeps its deal',    $planned[ $ids2[0] ]['products'], [ 3, 1 ] );
+ok( 'a product dealt twice stays with the first, an unknown number is dropped',
+	$planned[ $ids2[1] ]['products'], [ 2, 4 ] );
+
+// The writing is handed exactly the deal, in its order — nothing marked,
+// nothing to step around.
+$mat2 = DZE_Klaviyo::material_for( 'promo', $promo2, $ids2[0] );
+ok( 'the material is the deal, in order',
+	array_values( $mat2['ids'] ), [ 3, 1 ] );
+ok( 'and none of it is second-hand',     false !== strpos( $mat2['lines'], 'ALREADY SHOWN' ), false );
+$brief2 = DZE_Klaviyo::brief_for( 'promo', $promo2, $ids2[0], $mat2, '' );
+ok( 'the brief says whose products they are',
+	false !== strpos( $brief2, 'The campaign plan chose these products for THIS email' ), true );
+ok( 'and hands over exactly those',      substr_count( $brief2, '   link: ' ), 2 );
+
+// The deal survives the event's own Save, which never posts it.
+DZE_Klaviyo::save_copy( 'promo', $promo2, [
+	'dze_email_shown' => 1,
+	'dze_email' => [ $ids2[0] => [ 'exists' => 1, 'kind' => 'launch', 'when' => $tomorrow2, 'subject' => 'Hey' ] ],
+] );
+ok( 'a form save keeps the deal',
+	get_option( $copy )['promo']['emails'][ $ids2[0] ]['products'] ?? [], [ 3, 1 ] );
+
+echo "The autopilot decides\n";
+// The one function that says what a promotion still needs. Everything the
+// pilot does hangs on these answers, so they are pinned one by one.
+$today3    = gmdate( 'Y-m-d' );
+$tomorrow3 = gmdate( 'Y-m-d', time() + 86400 );
+$ctx = [ 'mode' => 'schedule', 'images' => true, 'langs' => [ 'fr', 'de' ], 'audience' => true,
+	'frame' => true, 'key' => true, 'budget' => true, 'today' => $today3, 'tomorrow' => $tomorrow3 ];
+$live_rule = [ 'type' => 'sale', 'enabled' => 1, 'start' => $today3, 'end' => gmdate( 'Y-m-d', time() + 10 * 86400 ) ];
+$mk = static fn( array $over = [] ): array => array_merge( [
+	'kind' => 'launch', 'when' => $tomorrow3, 'subject' => 'S', 'preview' => '', 'body' => '<p>B</p>',
+	'picture' => 'https://cdn/pic.jpg', 'draft' => [ 'campaign' => 'C1', 'done_langs' => [ 'fr', 'de' ] ], 'products' => [],
+], $over );
+$next = static fn( array $rule, array $emails, array $auto = [], array $c = [] ): string =>
+	DZE_Klaviyo_Auto::next_step( $rule, $emails, $auto, array_merge( $ctx, $c ) )['do'];
+
+ok( 'off when the setting is off',       $next( $live_rule, [], [], [ 'mode' => '' ] ), 'off' );
+ok( 'off on a disabled event',           $next( array_merge( $live_rule, [ 'enabled' => 0 ] ), [] ), 'off' );
+ok( 'blocked without dates',             $next( [ 'type' => 'sale', 'enabled' => 1 ], [] ), 'blocked' );
+ok( 'done once the promotion is over',   $next( array_merge( $live_rule, [ 'start' => '2020-01-01', 'end' => '2020-01-05' ] ), [] ), 'done' );
+ok( 'blocked without a key',             $next( $live_rule, [], [], [ 'key' => false ] ), 'blocked' );
+ok( 'blocked when the budget is spent',  $next( $live_rule, [], [], [ 'budget' => false ] ), 'blocked' );
+ok( 'no emails yet: plan',               $next( $live_rule, [] ), 'plan' );
+ok( 'but only once per promotion',       $next( $live_rule, [], [ 'planned' => 1 ] ), 'done' );
+ok( 'an empty email is written',         $next( $live_rule, [ 'm1' => $mk( [ 'subject' => '', 'body' => '' ] ) ] ), 'write' );
+ok( 'a half-written one is left alone',  $next( $live_rule, [ 'm1' => $mk( [ 'body' => '' ] ) ] ), 'done' );
+ok( 'a marker still open wants its picture',
+	$next( $live_rule, [ 'm1' => $mk( [ 'picture' => '', 'body' => '<img src="dze:picture" />' ] ) ] ), 'image' );
+ok( 'pictures off: straight to the draft',
+	$next( $live_rule, [ 'm1' => $mk( [ 'picture' => '', 'body' => '<img src="dze:picture" />', 'draft' => [] ] ) ], [], [ 'images' => false ] ), 'draft' );
+ok( 'written and not in Klaviyo: draft', $next( $live_rule, [ 'm1' => $mk( [ 'draft' => [] ] ) ] ), 'draft' );
+ok( 'unless the audience is not chosen', $next( $live_rule, [ 'm1' => $mk( [ 'draft' => [] ] ) ], [], [ 'audience' => false ] ), 'blocked' );
+ok( 'drafted with a language missing: translate',
+	$next( $live_rule, [ 'm1' => $mk( [ 'draft' => [ 'campaign' => 'C1', 'done_langs' => [ 'fr' ] ] ] ) ] ), 'translate' );
+ok( 'prepare mode stops at translated drafts',
+	$next( $live_rule, [ 'm1' => $mk() ], [], [ 'mode' => 'prepare' ] ), 'done' );
+ok( 'schedule mode schedules a future day', $next( $live_rule, [ 'm1' => $mk() ] ), 'schedule' );
+ok( 'never a day already here',
+	$next( $live_rule, [ 'm1' => $mk( [ 'when' => $today3 ] ) ] ), 'done' );
+ok( 'a sent one is left alone',
+	$next( $live_rule, [ 'm1' => $mk( [ 'draft' => [ 'campaign' => 'C1', 'done_langs' => [ 'fr', 'de' ], 'sent' => 123 ] ] ) ] ), 'done' );
+// The update guard, in one line: emails the pilot did not prepare are
+// completed but never scheduled — an update must not start sending drafts
+// that were filed under different rules.
+ok( 'a legacy campaign is never scheduled',
+	$next( $live_rule, [ 'm1' => $mk() ], [ 'planned' => 1, 'legacy' => 1 ] ), 'done' );
+ok( 'its missing languages are still written',
+	$next( $live_rule, [ 'm1' => $mk( [ 'draft' => [ 'campaign' => 'C1', 'done_langs' => [ 'fr' ] ] ] ) ], [ 'planned' => 1, 'legacy' => 1 ] ), 'translate' );
+ok( 'the second email gets its turn',
+	DZE_Klaviyo_Auto::next_step( $live_rule, [ 'm1' => $mk(), 'm2' => $mk( [ 'when' => gmdate( 'Y-m-d', time() + 8 * 86400 ), 'subject' => '', 'body' => '' ] ) ], [ 'planned' => 1 ], array_merge( $ctx, [ 'mode' => 'prepare' ] ) )['email'], 'm2' );
+
+echo "The autopilot acts\n";
+// One promotion, walked through its real steps — the same functions the
+// buttons call, dispatched by the pilot, with what happened written down.
+$GLOBALS['dze_rules'] = [ 'auto1' => [
+	'type' => 'sale', 'enabled' => 1, 'title' => 'Autumn', 'percent' => 15,
+	'start' => $tomorrow3, 'end' => gmdate( 'Y-m-d', time() + 9 * 86400 ),
+] ];
+$GLOBALS['dze_opts']['dze_klaviyo'] = [ 'included' => 'SEG1', 'shell' => 'frame' ];
+$GLOBALS['dze_opts'][ $copy ]       = [];
+$GLOBALS['dze_transients']          = [];
+
+// A promotion that ALREADY holds an email when the pilot first sees it is
+// marked as somebody else's work: completed, never scheduled.
+$GLOBALS['dze_opts'][ $copy ] = [ 'auto1' => [ 'emails' => [ 'old1' => [
+	'kind' => 'launch', 'when' => $tomorrow3, 'subject' => 'Old', 'body' => '<p>Old</p>',
+	'draft' => [ 'campaign' => 'C8', 'done_langs' => [ 'fr', 'de' ] ],
+] ] ] ];
+$did = DZE_Klaviyo_Auto::step( 'auto1' );
+ok( 'pre-existing emails are marked at first sight',
+	(int) ( DZE_Klaviyo_Auto::auto_of( 'auto1' )['legacy'] ?? 0 ), 1 );
+ok( 'and left unscheduled',              $did['do'], 'done' );
+$line = DZE_Klaviyo_Auto::status_line( 'auto1', $GLOBALS['dze_rules']['auto1'] );
+ok( 'with the reason on the event',      false !== strpos( $line, 'made before the autopilot' ), true );
+
+// The owner deletes them and saves: the pilot replans, and the campaign is
+// its own from here on.
+$GLOBALS['dze_opts'][ $copy ] = [ 'auto1' => [ 'auto' => DZE_Klaviyo_Auto::auto_of( 'auto1' ), 'emails' => [] ] ];
+$GLOBALS['dze_opts'][ $copy ]['auto1']['auto']['planned'] = 0;
+
+// Step 1: it plans.
+$GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
+	[ 'date' => $tomorrow3, 'angle' => 'Open it', 'products' => [ 1, 2, 3 ] ],
+] ] ) ];
+$did = DZE_Klaviyo_Auto::step( 'auto1' );
+ok( 'first, the plan',                   $did['do'], 'plan' );
+ok( 'a plan of its own ends the legacy mark',
+	(int) ( DZE_Klaviyo_Auto::auto_of( 'auto1' )['legacy'] ?? 0 ), 0 );
+ok( 'and it went through',               $did['error'], '' );
+$autorow = DZE_Klaviyo_Auto::auto_of( 'auto1' );
+ok( 'planned once, remembered',          (int) ( $autorow['planned'] ?? 0 ), 1 );
+$made = DZE_Klaviyo::emails_for( 'auto1', $GLOBALS['dze_rules']['auto1'] );
+ok( 'the campaign exists',               count( $made ), 1 );
+$auto_mail = (string) array_key_first( $made );
+
+// Step 2: it writes, through write_for, and keeps what came back.
+$GLOBALS['dze_answers'] = [ json_encode( [
+	'subject' => 'Autumn is here', 'preview' => '15% off', 'picture' => '',
+	'body'    => '<h1>Autumn</h1><p>Everything 15% off.</p>[[PRODUCT 1]]',
+] ) ];
+$did = DZE_Klaviyo_Auto::step( 'auto1' );
+ok( 'then the writing',                  $did['do'], 'write' );
+ok( 'on the planned email',              $did['email'], $auto_mail );
+$mail3 = DZE_Klaviyo::emails_for( 'auto1', $GLOBALS['dze_rules']['auto1'] )[ $auto_mail ];
+ok( 'and the email is kept at once',     $mail3['subject'], 'Autumn is here' );
+ok( 'body included',                     '' !== trim( (string) $mail3['body'] ), true );
+
+// Step 3 would file the draft in Klaviyo. The account is a stub with no real
+// template behind it, so the step FAILS — which is the path worth proving:
+// the failure is recorded on the event, retried only a few times, and the
+// status line says what stopped rather than nothing.
+$GLOBALS['dze_answers'] = [];
+$did = DZE_Klaviyo_Auto::step( 'auto1' );
+ok( 'next it tries the draft',           $did['do'], 'draft' );
+ok( 'the miss is reported, not hidden',  '' !== $did['error'], true );
+$autorow = DZE_Klaviyo_Auto::auto_of( 'auto1' );
+ok( 'written on the event',              '' !== (string) ( $autorow['note'] ?? '' ), true );
+ok( 'and counted',                       (int) ( $autorow['fails'] ?? 0 ), 1 );
+DZE_Klaviyo_Auto::step( 'auto1' );
+DZE_Klaviyo_Auto::step( 'auto1' );
+$line = DZE_Klaviyo_Auto::status_line( 'auto1', $GLOBALS['dze_rules']['auto1'] );
+ok( 'after three misses it says it stopped', false !== strpos( $line, 'stopped after several failed tries' ), true );
+DZE_Klaviyo_Auto::follow( 'auto1' );
+ok( 'a save clears the way',             (int) ( DZE_Klaviyo_Auto::auto_of( 'auto1' )['fails'] ?? 0 ), 0 );
+
+// Scheduling, on an email that is fully ready: the pilot creates the send
+// job and keeps what Klaviyo answered — the same path the button takes.
+DZE_Klaviyo::put_email( 'auto1', $auto_mail, [ 'draft' => [
+	'campaign' => 'C9', 'message' => '01X', 'done_langs' => [ 'fr', 'de' ], 'day' => $in5,
+] ] );
+$GLOBALS['dze_opts'][ $copy ]['auto1']['auto']['planned'] = 1;
+$draft9 = static fn( string $status ): string => json_encode( [ 'data' => [ 'id' => 'C9', 'attributes' => [
+	'status' => $status, 'send_strategy' => [ 'method' => 'static', 'datetime' => $in5 . 'T09:00:00+00:00' ],
+	'send_time' => $in5 . 'T09:00:00+00:00' ] ] ] );
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $draft9( 'Draft' ) ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C9","attributes":{"status":"queued"}}}' ],
+	[ 'code' => 200, 'body' => $draft9( 'Queued' ) ],
+];
+$did = DZE_Klaviyo_Auto::step( 'auto1' );
+ok( 'ready and dated ahead: it schedules', $did['do'], 'schedule' );
+ok( 'without a hitch',                     $did['error'], '' );
+$mail9 = DZE_Klaviyo::emails_for( 'auto1', $GLOBALS['dze_rules']['auto1'] )[ $auto_mail ];
+ok( 'and the event knows the day it goes', $mail9['draft']['goes'] ?? '', $in5 );
+
+$line = DZE_Klaviyo_Auto::status_line( 'auto1', $GLOBALS['dze_rules']['auto1'] );
+ok( 'the status line counts it all',
+	false !== strpos( $line, 'written 1/1' ) && false !== strpos( $line, 'scheduled 1/1' ), true );
+$GLOBALS['dze_rules'] = null;
+$GLOBALS['dze_queue'] = [];
 
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

@@ -2125,6 +2125,12 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			}
 		}
 		update_option( DZE_Discounts::OPTION, $rules, false );
+		// An accepted event is a running one, and its channels follow at once
+		// rather than on the next hourly look: the emails start being planned
+		// in the background exactly as a saved event's would.
+		if ( class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'klaviyo' ) && class_exists( 'DZE_Klaviyo_Auto' ) ) {
+			DZE_Klaviyo_Auto::follow( $id );
+		}
 		return $id;
 	}
 

@@ -2857,6 +2857,11 @@ final class DZE_Discounts {
 			self::gmc_follow( $id );
 			if ( $enabling ) {
 				self::schedule_i18n( $id );
+				// The emails follow an event switched on, exactly as Google
+				// does — the pilot looks at what this event still needs.
+				if ( DZE_Modules::enabled( 'klaviyo' ) && class_exists( 'DZE_Klaviyo_Auto' ) ) {
+					DZE_Klaviyo_Auto::follow( $id );
+				}
 			}
 		}
 		wp_safe_redirect( add_query_arg( [ 'page' => $back ], admin_url( 'admin.php' ) ) );

@@ -868,6 +868,10 @@ final class DZE_Klaviyo {
 			$out['email_prompt'] = ( $text === trim( self::default_email_prompt() ) ) ? '' : $text;
 			unset( $out['subject_prompt'] );
 		}
+		if ( array_key_exists( 'auto', $in ) ) {
+			$mode = (string) $in['auto'];
+			$out['auto'] = in_array( $mode, [ '', 'prepare', 'schedule' ], true ) ? $mode : 'schedule';
+		}
 		if ( array_key_exists( 'days', $in ) ) {
 			$out['days'] = max( 1, min( 365, (int) $in['days'] ) );
 		}
@@ -1914,6 +1918,10 @@ final class DZE_Klaviyo {
 				// Whether writing this one also makes its picture.
 				'want_picture' => ! empty( $email['want_picture'] ),
 				'angle'   => (string) ( $email['angle'] ?? '' ),
+				// The products the campaign plan chose for THIS email — ids,
+				// in the order to show them. Empty means no plan chose any,
+				// and the material falls back to the shared shortlist.
+				'products' => array_values( array_filter( array_map( 'absint', (array) ( $email['products'] ?? [] ) ) ) ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => (string) ( $email['subject'] ?? '' ),
 				'preview' => (string) ( $email['preview'] ?? '' ),
@@ -2157,9 +2165,11 @@ final class DZE_Klaviyo {
 			}
 			$out[ $email_id ] = [
 				'kind'    => $kind,
-				// The brief the plan wrote. The screen never posts it, so it
-				// survives every save of the email it belongs to.
-				'angle'   => (string) ( $was['angle'] ?? '' ),
+				// The brief the plan wrote, and the products it dealt this
+				// email. The screen never posts either, so both survive every
+				// save of the email they belong to.
+				'angle'    => (string) ( $was['angle'] ?? '' ),
+				'products' => array_values( array_map( 'absint', (array) ( $was['products'] ?? [] ) ) ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => array_key_exists( 'subject', $posted )
 					? mb_substr( sanitize_text_field( (string) $posted['subject'] ), 0, 150 )
@@ -4204,18 +4214,25 @@ final class DZE_Klaviyo {
 	 * @param string[] $shown Links already used by the promotion's other emails.
 	 * @return array{lines:string,images:string[],prices:string[]}
 	 */
-	public static function material( array $rule, int $limit = 9, array $shown = [] ): array {
+	public static function material( array $rule, int $limit = 9, array $shown = [], array $only = [] ): array {
 		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [], 'ids' => [] ];
 		$t   = self::theme_style();
-		// Wider when there is something to step around, so demoting the used
-		// ones leaves real products behind them rather than a shorter list —
-		// and wider BY HOW MUCH WAS USED, not by a fixed six. Six was enough
-		// for the second email of a promotion and not for the third: the two
-		// before it had between them shown every product in the pool, so the
-		// third was handed nine products all marked ALREADY SHOWN and no way
-		// to obey the instruction it was given.
-		$want = $shown ? min( 40, $limit + count( $shown ) + 6 ) : $limit;
-		$ids = self::best_sellers( self::window_days(), $want, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
+		if ( $only ) {
+			// The campaign plan already chose this email's products, so the
+			// material is exactly those, in the plan's order — no shortlist to
+			// step around, no neighbour to dodge, no marking. This is the one
+			// path a PLANNED email travels; the shared-shortlist path below is
+			// for an email written by hand, which has no deal of its own.
+			$out['dealt'] = true;
+			$ids   = array_slice( array_values( array_filter( array_map( 'absint', $only ) ) ), 0, $limit );
+			$shown = [];
+		} else {
+			// Wider when there is something to step around, so demoting the
+			// used ones leaves real products behind them rather than a shorter
+			// list — and wider BY HOW MUCH WAS USED, not by a fixed six.
+			$want = $shown ? min( 40, $limit + count( $shown ) + 6 ) : $limit;
+			$ids  = self::best_sellers( self::window_days(), $want, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
+		}
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return $out;
 		}
@@ -4340,6 +4357,10 @@ final class DZE_Klaviyo {
 	 * and the call that spends the money cannot be handed different products.
 	 */
 	public static function material_for( string $rule_id, array $rule, string $email_id ): array {
+		$mine = (array) ( self::email_for( $rule_id, $email_id, $rule )['products'] ?? [] );
+		if ( $mine ) {
+			return self::material( $rule, 9, [], $mine );
+		}
 		return self::material( $rule, 9, self::shown_links( $rule_id, $rule, $email_id ) );
 	}
 
@@ -4390,11 +4411,13 @@ final class DZE_Klaviyo {
 	}
 
 	public static function default_image_prompt(): string {
-		return "Photograph the products in a scene that belongs to this promotion, as the opening picture of a marketing email.\n"
+		return "Photograph THE MOMENT of this promotion, as the opening picture of a marketing email.\n"
 			. "\n"
-			. "A COMPOSED photograph, not objects laid out on the ground. One clear subject, large in the frame, worn or held or in use — or, if nothing is being worn, arranged deliberately on a real surface at eye level, the way a catalogue shoots a still life. Everything else supports it and falls out of focus.\n"
+			. "The email lists its products below this picture, as catalogue cards with prices. So the picture's job is everything a card cannot do: the season, the place, the situation the promotion belongs to — gear being LIVED IN, not displayed. A picture that lines the products up again is the catalogue twice, and it is the one picture this email must not open on.\n"
 			. "\n"
-			. "Real light and real materials: the hour and the weather the promotion evokes, shadows that agree with them, a background that says where this is without competing with the product.\n"
+			. "A COMPOSED photograph: one clear subject from the reference images, worn or held or in use by someone doing the thing this gear is for, large in the frame. At most two of the reference products appear; the rest simply stay out of frame. Everything else supports the subject and falls out of focus.\n"
+			. "\n"
+			. "Real light and real materials: the hour and the weather the promotion evokes, shadows that agree with them, a background that says where this is without competing with the subject.\n"
 			. "\n"
 			. "No text of any kind in the image: no title, no price, no badge, no logo, no watermark. The words go over it in the email itself.";
 	}
@@ -4423,8 +4446,39 @@ final class DZE_Klaviyo {
 			. "For each email, give:\n"
 			. "- date: the day it goes out, YYYY-MM-DD, inside or just before the promotion's window.\n"
 			. "- angle: one or two sentences telling the writer what THIS email does that the others do not. It is a brief, not a subject line: name the argument, the products to lean on, the tone.\n"
+			. "- products: which of the listed products this email shows, by their numbers. Deal the list out — a reader who meets the same product in two emails stops opening the third — and match the moment: a tease shows little, the launch shows the spread, a last call shows a handful.\n"
 			. "\n"
 			. "Two emails on the same day is a mistake. So is a warm-up dated after the sale opened.";
+	}
+
+	/**
+	 * The products a campaign plan may deal out, numbered.
+	 *
+	 * A compact list — name, category, price — because the plan chooses and
+	 * distributes; the links, images and exact price lines belong to the
+	 * writing, which is handed them later for exactly the products dealt.
+	 *
+	 * @return array{lines:string,ids:array<int,int>} the printed list, and
+	 *         number → product id.
+	 */
+	public static function plan_pool( array $rule ): array {
+		$out = [ 'lines' => '', 'ids' => [] ];
+		$ids = self::best_sellers( self::window_days(), 24, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
+		$n   = 0;
+		foreach ( $ids as $id ) {
+			$product = function_exists( 'wc_get_product' ) ? wc_get_product( $id ) : null;
+			if ( ! $product instanceof WC_Product ) {
+				continue;
+			}
+			$n++;
+			$out['ids'][ $n ] = (int) $id;
+			$terms = get_the_terms( $id, 'product_cat' );
+			$cat   = ( is_array( $terms ) && isset( $terms[0] ) ) ? $terms[0]->name : '';
+			$out['lines'] .= $n . '. ' . $product->get_name()
+				. ( '' !== $cat ? ' — ' . $cat : '' )
+				. ' — ' . wp_strip_all_tags( (string) $product->get_price_html() ) . "\n";
+		}
+		return $out;
 	}
 
 	/**
@@ -4461,8 +4515,20 @@ final class DZE_Klaviyo {
 				$user .= "\n--- THE SHOP ---\n" . mb_substr( $about, 0, 1200 ) . "\n";
 			}
 		}
+		// The products the promotion has to work with, numbered, so the plan
+		// can DEAL them between its emails. Distributed once, up front, by the
+		// same decision that fixes the dates and the angles — not dodged at
+		// writing time by each email stepping around what its neighbours
+		// already used, which is how three emails ended up drawing on one
+		// nine-product list and the third had nothing fresh left to show.
+		$pool = self::plan_pool( $rule );
+		if ( $pool['lines'] ) {
+			$user .= "\n--- THE PRODUCTS TO DEAL OUT ---\n"
+				. "What the shop actually sold over the right window, best first. Deal them between the emails: each email gets the products IT shows, by their numbers. A product goes to ONE email — the whole point of several emails is that the reader is not shown the same goods twice. Lead products first. How many an email gets follows from its moment: a warm-up teases with two or three, a launch shows a real spread, a last call needs only a handful.\n\n"
+				. $pool['lines'];
+		}
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::plan_prompt() . "\n"
-			. "\n--- OUTPUT ---\nJSON only: {\"emails\":[{\"date\":\"YYYY-MM-DD\",\"angle\":\"…\"}]}. No other key, no comment, no markdown fence.";
+			. "\n--- OUTPUT ---\nJSON only: {\"emails\":[{\"date\":\"YYYY-MM-DD\",\"angle\":\"…\",\"products\":[1,4,7]}]}, products being numbers from the list above. No other key, no comment, no markdown fence.";
 
 		DZE_Ai_Usage::unit( 'promo_plan' );
 		try {
@@ -4488,11 +4554,17 @@ final class DZE_Klaviyo {
 		// planning would put a second email on a day that already has one —
 		// and two emails on the same morning is the one thing the plan prompt
 		// is told never to do.
-		$seen = [];
+		$seen  = [];
+		$dealt = [];
 		foreach ( $emails as $had ) {
 			$day = self::just_day( (string) ( $had['when'] ?? '' ) );
 			if ( '' !== $day ) {
 				$seen[ $day ] = true;
+			}
+			// Products already belonging to an email this promotion holds are
+			// not dealt a second time.
+			foreach ( (array) ( $had['products'] ?? [] ) as $pid ) {
+				$dealt[ (int) $pid ] = true;
 			}
 		}
 		foreach ( $rows as $row ) {
@@ -4500,8 +4572,11 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			$when = self::just_day( (string) ( $row['date'] ?? '' ) );
-			if ( '' === $when || isset( $seen[ $when ] ) ) {
-				continue; // no day twice, and no email without one.
+			if ( '' === $when || $when < (string) wp_date( 'Y-m-d' ) || isset( $seen[ $when ] ) ) {
+				// No day twice, no email without one — and none for a day
+				// already gone: a plan run mid-promotion writes the emails
+				// that can still go out, not the ones that missed their day.
+				continue;
 			}
 			$seen[ $when ] = true;
 			// Minted here rather than by the browser: the plan can be run by
@@ -4509,18 +4584,32 @@ final class DZE_Klaviyo {
 			// page open is an id the automation cannot make.
 			$id   = 'e' . substr( md5( $rule_id . $when . microtime() ), 0, 10 );
 			$kind = self::kind_for( $when, $rule );
+			// The numbers the plan dealt this email, turned back into product
+			// ids. A number that is not on the list is dropped; a product the
+			// plan dealt twice stays with the FIRST email that got it, because
+			// one product in two emails is the repetition this exists to end.
+			$mine = [];
+			foreach ( (array) ( $row['products'] ?? [] ) as $n ) {
+				$pid = (int) ( $pool['ids'][ (int) $n ] ?? 0 );
+				if ( $pid > 0 && ! isset( $dealt[ $pid ] ) ) {
+					$dealt[ $pid ] = true;
+					$mine[]        = $pid;
+				}
+			}
 			$emails[ $id ] = [
-				// The plan decides WHEN each email goes out and what it is
-				// for; which TYPE that makes it follows from the day, and the
-				// owner can change it on the email like any other.
-				'kind'    => $kind,
-				'angle'   => mb_substr( sanitize_textarea_field( (string) ( $row['angle'] ?? '' ) ), 0, 600 ),
-				'when'    => $when,
-				'subject' => '',
-				'preview' => '',
-				'body'    => '',
-				'picture' => '',
-				'draft'   => [],
+				// The plan decides WHEN each email goes out, what it is for
+				// and which PRODUCTS it shows; which TYPE that makes it
+				// follows from the day, and the owner can change it on the
+				// email like any other.
+				'kind'     => $kind,
+				'angle'    => mb_substr( sanitize_textarea_field( (string) ( $row['angle'] ?? '' ) ), 0, 600 ),
+				'products' => $mine,
+				'when'     => $when,
+				'subject'  => '',
+				'preview'  => '',
+				'body'     => '',
+				'picture'  => '',
+				'draft'    => [],
 			];
 		}
 		uasort( $emails, static fn( array $a, array $b ): int => strcmp( (string) $a['when'], (string) $b['when'] ) );
@@ -4654,13 +4743,20 @@ final class DZE_Klaviyo {
 			$user .= "This shop does not open its emails on a made photograph. Do NOT place an image of your own and leave the \"picture\" field empty: open on the words, and let the product blocks carry the pictures.\n";
 		}
 		$win   = self::sellers_window( $rule );
-		$user .= "\n--- THE PRODUCTS YOU MAY SHOW ---\n"
-			. 'What the shop actually sold over ' . $win['label']
-			. ( $win['season'] ? ' — the same days of the year this promotion runs on, so the goods suit its season' : '' ) . ".\n"
-			. ( '' !== $mat['lines']
-				? "Use only these, with the name, the link, the image URL and the prices exactly as written. They are in the order to prefer them: any marked ALREADY SHOWN was sent to this same reader by another email of this promotion, and is there for the rare case where nothing else fits.\n"
-					. self::kind_products( $kind ) . "\n\n" . $mat['lines']
-				: "The shop returned no product. Write the email without a product.\n" );
+		$user .= "\n--- THE PRODUCTS YOU MAY SHOW ---\n";
+		if ( ! empty( $mat['dealt'] ) && '' !== $mat['lines'] ) {
+			// A planned email: the campaign plan dealt it these products, and
+			// its neighbours carry their own — so there is nothing to dodge
+			// and nothing to mark. Show them, all of them, in this order.
+			$user .= "The campaign plan chose these products for THIS email; the other emails of the promotion carry their own. Use only these, with the name, the link, the image URL and the prices exactly as written, in this order.\n\n" . $mat['lines'];
+		} elseif ( '' !== $mat['lines'] ) {
+			$user .= 'What the shop actually sold over ' . $win['label']
+				. ( $win['season'] ? ' — the same days of the year this promotion runs on, so the goods suit its season' : '' ) . ".\n"
+				. "Use only these, with the name, the link, the image URL and the prices exactly as written. They are in the order to prefer them: any marked ALREADY SHOWN was sent to this same reader by another email of this promotion, and is there for the rare case where nothing else fits.\n"
+				. self::kind_products( $kind ) . "\n\n" . $mat['lines'];
+		} else {
+			$user .= "The shop returned no product. Write the email without a product.\n";
+		}
 		if ( ! empty( $mat['cards'] ) ) {
 			$user .= sprintf(
 				"\nDo NOT build a product yourself, and do NOT build a row or a table for them. Write [[PRODUCT n]] where product n should appear — [[PRODUCT 1]], [[PRODUCT 2]] — and the shop drops its own block there. Markers written one after another are laid out together, %d to a row, and the row stacks on a phone: that is done for you. How many products you show, in how many groups, and where those groups sit in the email is yours; what a product looks like and how a row is built is the shop's.\n",
@@ -5199,8 +5295,14 @@ final class DZE_Klaviyo {
 			$sources[] = $hero; // on the rare event that carries one already.
 		}
 		foreach ( self::picture_products( $rule, $email, $mat ) as $pid ) {
-			if ( count( $sources ) >= 4 ) {
-				break; // four references is what the model composes well from.
+			if ( count( $sources ) >= 3 ) {
+				// TWO product references (plus the event's own image when it
+				// has one), and no more. Four references composed together
+				// gave a product line-up — the catalogue again, above the
+				// product cards that already are the catalogue. The picture
+				// leads on this email's first product, in use; the rest of the
+				// email carries the rest of the products.
+				break;
 			}
 			$product = function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
 			$img     = $product instanceof WC_Product ? (int) $product->get_image_id() : 0;
@@ -5253,7 +5355,7 @@ final class DZE_Klaviyo {
 		// carte blanche over the SETTING; it cannot mean carte blanche over
 		// the goods, because a photograph of gear this shop does not sell is
 		// worth less than no photograph at all.
-		$prompt .= "\n\nThe reference images are real products from this shop, and most of them are catalogue shots on a plain background. Photograph those products somewhere real instead. Keep each one EXACTLY as it is — same shape, same colour, same pattern, same markings, same proportions — and build the scene around them. Do not redraw them, do not restyle them, do not add a single item that is not in the references, and do not invent goods this shop does not sell. Do not simply lay them on the floor: a product dropped on the ground is a photograph nobody would put in a catalogue. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
+		$prompt .= "\n\nThe reference images are real products from this shop, most of them catalogue shots on a plain background. Photograph one or two of them somewhere real instead — worn, held, in use — and keep each one you show EXACTLY as it is: same shape, same colour, same pattern, same markings, same proportions. A reference you do not show simply stays out of frame. Do not redraw them, do not restyle them, do not line them all up side by side, and do not invent goods this shop does not sell — every piece of gear in the frame must come from the references. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
 
 		$refs = [];
 		foreach ( $sources as $id ) {
@@ -5943,6 +6045,17 @@ final class DZE_Klaviyo {
 		}
 		?>
 		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
+		<?php
+		// Where the campaign stands, before any button: what the pilot has
+		// done, what it does next, or the one sentence saying why it stopped.
+		$dze_auto_line = class_exists( 'DZE_Klaviyo_Auto' ) ? DZE_Klaviyo_Auto::status_line( $rule_id, $rule ) : '';
+		if ( '' !== $dze_auto_line ) :
+			$dze_auto_stuck = false !== strpos( $dze_auto_line, __( 'Autopilot: stopped', 'dazont-ecom' ) );
+			?>
+			<p style="max-width:880px;margin:0 0 10px;padding:8px 12px;border-left:4px solid <?php echo $dze_auto_stuck ? '#dba617' : '#00794b'; ?>;background:<?php echo $dze_auto_stuck ? '#fcf9e8' : '#edfaef'; ?>;font-size:13px;">
+				<?php echo esc_html( $dze_auto_line ); ?>
+			</p>
+		<?php endif; ?>
 
 		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
@@ -6366,6 +6479,24 @@ final class DZE_Klaviyo {
 								<?php esc_html_e( 'Klaviyo → Settings → API keys → Create private API key, with campaigns, templates and lists/segments enabled.', 'dazont-ecom' ); ?>
 							</p>
 						<?php endif; ?>
+					</td>
+				</tr>
+			</table>
+
+			<h2 class="title"><?php esc_html_e( 'Autopilot', 'dazont-ecom' ); ?></h2>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><label for="dze-klav-auto"><?php esc_html_e( 'When an event is switched on', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<?php $dze_auto = class_exists( 'DZE_Klaviyo_Auto' ) ? DZE_Klaviyo_Auto::mode() : 'schedule'; ?>
+						<select id="dze-klav-auto" name="<?php echo esc_attr( self::OPT . '[auto]' ); ?>">
+							<option value="schedule" <?php selected( 'schedule', $dze_auto ); ?>><?php esc_html_e( 'Prepare its emails and schedule them — they go out on their day', 'dazont-ecom' ); ?></option>
+							<option value="prepare" <?php selected( 'prepare', $dze_auto ); ?>><?php esc_html_e( 'Prepare its emails as Klaviyo drafts — nothing goes out until you schedule', 'dazont-ecom' ); ?></option>
+							<option value="" <?php selected( '', $dze_auto ); ?>><?php esc_html_e( 'Do nothing — emails are made by hand, on the event', 'dazont-ecom' ); ?></option>
+						</select>
+						<p class="description" style="max-width:820px;">
+							<?php esc_html_e( 'The plan decides how many emails the event deserves — a short flash sale gets one — then each is written, given its picture, filed in Klaviyo, translated, and scheduled on its own day. It runs in the background, days before anything goes out, and the event shows where it stands. Emails you write or edit yourself are never touched.', 'dazont-ecom' ); ?>
+						</p>
 					</td>
 				</tr>
 			</table>
