@@ -52,6 +52,9 @@ function get_transient( $k ) { return $GLOBALS['dze_transients'][ $k ] ?? false;
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['dze_transients'][ $k ] = $v; return true; }
 function delete_transient( $k ) { unset( $GLOBALS['dze_transients'][ $k ] ); return true; }
 function add_action() {} function add_filter() {} function remove_filter() {} function register_setting() {}
+function wp_kses( $html, $allowed = [], $protocols = [] ) { return (string) $html; }
+function wp_kses_post( $html ) { return (string) $html; }
+function wp_unslash( $v ) { return $v; }
 function apply_filters( $t, $v = null, ...$r ) { return $v; }
 function do_action( $t, ...$a ) {}
 function current_user_can( $c ) { return true; }
@@ -247,6 +250,45 @@ ok( 'one language alone still files',   $got['langs'] ?? [], [ 'fr' ] );
 $threw = '';
 try { DZE_Klaviyo::save_translations( 'promo', 'mail1' ); } catch ( Throwable $e ) { $threw = $e->getMessage(); }
 ok( 'nothing to file is said, not sent', false !== strpos( $threw, 'Nothing came back' ), true );
+
+echo "The day an email may go out\n";
+$today    = gmdate( 'Y-m-d' );
+$tomorrow = gmdate( 'Y-m-d', time() + 86400 );
+$next     = gmdate( 'Y-m-d', time() + 5 * 86400 );
+$gone     = gmdate( 'Y-m-d', time() - 5 * 86400 );
+ok( 'the earliest day is tomorrow',     DZE_Klaviyo::earliest_day(), $tomorrow );
+ok( 'today is moved to tomorrow',       DZE_Klaviyo::day_from_tomorrow( $today ), $tomorrow );
+ok( 'a day gone by too',                DZE_Klaviyo::day_from_tomorrow( $gone ), $tomorrow );
+ok( 'tomorrow is kept',                 DZE_Klaviyo::day_from_tomorrow( $tomorrow ), $tomorrow );
+ok( 'and any day after it',             DZE_Klaviyo::day_from_tomorrow( $next ), $next );
+ok( 'an hour is still cut off the day', DZE_Klaviyo::day_from_tomorrow( $next . ' 14:30' ), $next );
+ok( 'nothing typed stays nothing',      DZE_Klaviyo::day_from_tomorrow( '' ), '' );
+// Reading is not writing: the day an email actually went out on is history,
+// and moving it would be this plugin rewriting the promotion's own record.
+ok( 'reading a past day leaves it',     DZE_Klaviyo::just_day( $gone ), $gone );
+
+// The helper being right is not the same as the SAVE using it. A day gone by,
+// posted by the form, must come back as tomorrow — that is the path the shop
+// actually travels.
+$GLOBALS['dze_opts'][ $copy ] = [];
+DZE_Klaviyo::save_copy( 'promo', [ 'title' => 'Summer' ], [
+	'dze_email_shown' => 1,
+	'dze_email' => [ 'mail9' => [
+		'exists' => 1, 'kind' => 'launch', 'when' => $gone,
+		'subject' => 'Hello', 'preview' => '', 'body' => '<p>Hi</p>',
+	] ],
+] );
+$saved = get_option( $copy )['promo']['emails']['mail9'] ?? [];
+ok( 'a past day cannot be saved',       $saved['when'] ?? '', $tomorrow );
+
+DZE_Klaviyo::save_copy( 'promo', [ 'title' => 'Summer' ], [
+	'dze_email_shown' => 1,
+	'dze_email' => [ 'mail9' => [
+		'exists' => 1, 'kind' => 'launch', 'when' => $next,
+		'subject' => 'Hello', 'preview' => '', 'body' => '<p>Hi</p>',
+	] ],
+] );
+ok( 'a real day is saved as it is',     get_option( $copy )['promo']['emails']['mail9']['when'] ?? '', $next );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

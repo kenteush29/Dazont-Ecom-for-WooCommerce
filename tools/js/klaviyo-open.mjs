@@ -46,6 +46,7 @@ function ok( what, got, want ) {
 }
 
 // The email screen, cut to what these handlers actually touch.
+const day = ms => new Date( Date.now() + ms ).toISOString().slice( 0, 10 );
 const page_html = `
 <div id="dze-klav-editor" data-rule="promo" data-when="{}" data-names="{}" data-newkind="launch" data-newday="2026-09-01">
   <div class="dze-mail-list">
@@ -74,7 +75,8 @@ const page_html = `
   <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-act"><button class="dze-mail-open">Open</button></div></div></script>
   <div id="dze-mail-edit" style="display:none;">
     <select id="dze-klav-e-type"><option value="launch">Launch</option></select>
-    <input id="dze-klav-e-subject" /><input id="dze-klav-e-preview" /><input id="dze-klav-e-when" />
+    <input id="dze-klav-e-subject" /><input id="dze-klav-e-preview" />
+    <input type="date" id="dze-klav-e-when" min="__TOMORROW__" />
     <span id="dze-klav-e-msg"></span><span id="dze-klav-e-kept"></span><span id="dze-klav-write-msg"></span>
     <input type="checkbox" id="dze-klav-e-want" />
     <div id="dze-klav-shot-out"></div><span id="dze-klav-shot-msg"></span>
@@ -93,7 +95,8 @@ const cfg = {
 	shell: '<html><body><!--DZE--></body></html>', shopName: 'Kula',
 	inactive: [],
 	i18n: { loading: 'l', error: 'e', working: 'w', thenSave: 's', unsub: 'u', asSent: 'a',
-	        creating: 'c', made: 'm', pickedFrom: 'p' },
+	        creating: 'c', made: 'm', pickedFrom: 'p',
+	        notBefore: 'The earliest an email can go out is tomorrow — moved.' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
 	i18nDone: 'Translated — %d texts in %s', i18nAgain: 'Translate again',
 	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.'
@@ -121,7 +124,7 @@ await page.route( 'http://dze.test/ajax*', route => {
 // and every handler would look broken for a reason the shop does not have.
 await page.route( 'http://dze.test/', route => route.fulfill( {
 	status: 200, contentType: 'text/html',
-	body: `<!doctype html><html><body>${page_html}</body></html>`
+	body: `<!doctype html><html><body>${page_html.replace( '__TOMORROW__', day( 86400000 ) )}</body></html>`
 } ) );
 await page.goto( 'http://dze.test/' );
 await page.addScriptTag( { path: jq } );
@@ -161,6 +164,18 @@ ok( 'and files them in a single call',
 ok( 'the row says what happened',
 	/Translated/.test( await page.textContent( '.dze-mail-langs' ) ), true );
 ok( 'and nothing was raised on the way', errors, [] );
+
+// The day an email goes out: tomorrow at the earliest, and a date typed by
+// hand rather than picked is corrected where it is typed.
+ok( 'the picker refuses today', await page.getAttribute( '#dze-klav-e-when', 'min' ), day( 86400000 ) );
+await page.fill( '#dze-klav-e-when', day( 0 ) );
+await page.waitForTimeout( 150 );
+ok( 'a day typed by hand is moved', await page.inputValue( '#dze-klav-e-when' ), day( 86400000 ) );
+ok( 'and the screen says it moved',
+	/tomorrow/.test( await page.textContent( '#dze-klav-e-kept' ) ), true );
+await page.fill( '#dze-klav-e-when', day( 5 * 86400000 ) );
+await page.waitForTimeout( 150 );
+ok( 'a later day is left alone', await page.inputValue( '#dze-klav-e-when' ), day( 5 * 86400000 ) );
 
 await page.close();
 }

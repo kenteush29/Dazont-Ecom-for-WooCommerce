@@ -328,6 +328,18 @@
 
 	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('id')); });
 
+	// The picker will not offer a day before tomorrow, but a date can still be
+	// typed into it. Corrected where it is typed, and said — a field that
+	// silently changes what somebody wrote is worse than one that refuses it.
+	$(document).on('change', '#dze-klav-e-when', function () {
+		var min = this.getAttribute('min') || '', v = this.value || '';
+		if (!min || !v || v >= min) { return; }
+		this.value = min;
+		$('#dze-klav-e-kept').css('color', '#b26a00')
+			.text(cfg.i18n.notBefore || 'The earliest an email can go out is tomorrow — moved.');
+		$(this).trigger('input');
+	});
+
 	// The other languages, written by the shop rather than left to Klaviyo.
 	// ONE request per language, driven from here, so the shop sees each one
 	// land instead of watching a button for four minutes and wondering. A
