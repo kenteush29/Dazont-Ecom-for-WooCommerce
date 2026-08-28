@@ -89,6 +89,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
 		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
+		add_action( 'wp_ajax_dze_klav_meta',   [ __CLASS__, 'ajax_meta' ] );
 		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
 		add_action( 'wp_ajax_dze_klav_drop',    [ __CLASS__, 'ajax_drop' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
@@ -3976,6 +3977,51 @@ final class DZE_Klaviyo {
 		wp_send_json_success( [ 'brief' => $text ] );
 	}
 
+	/**
+	 * The TYPE and the DAY, kept the moment they are chosen.
+	 *
+	 * They were the last two things on this screen that lived in a form field
+	 * and nowhere else: everything that changes an email saves itself — the
+	 * writing, the picture, the deletion — and these waited for the event's
+	 * Save. Two consequences, and the second is the one that cost real work.
+	 * The obvious one: the type went back to what was stored the moment the
+	 * rows were redrawn. The quiet one: the WRITING is told what this email is
+	 * from what is STORED, so an email set to "Reminder" on screen and still
+	 * "Launch" underneath was written as a second announcement — which is
+	 * exactly what a reminder must never be.
+	 *
+	 * Only for an email the shop already holds. One that was just added on
+	 * screen and never saved does not exist yet, and inventing a row for it
+	 * here would leave a ghost behind every abandoned click on "Add an email".
+	 */
+	public static function ajax_meta(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		if ( ! self::email_for( $rule_id, $email_id, $rule ) ) {
+			wp_send_json_success( [ 'kept' => false ] );
+		}
+		$write = [];
+		if ( isset( $_POST['kind'] ) ) {
+			$kind = sanitize_key( wp_unslash( $_POST['kind'] ) );
+			// Checked against the list the shop actually has, never trusted as
+			// it arrives: a type deleted since would otherwise be written back.
+			if ( isset( self::kinds()[ $kind ] ) ) {
+				$write['kind'] = $kind;
+			}
+		}
+		if ( isset( $_POST['when'] ) ) {
+			$day = self::just_day( sanitize_text_field( wp_unslash( $_POST['when'] ) ) );
+			if ( '' !== $day ) {
+				$write['when'] = $day;
+			}
+		}
+		if ( ! $write ) {
+			wp_send_json_success( [ 'kept' => false ] );
+		}
+		self::put_email( $rule_id, $email_id, $write );
+		wp_send_json_success( [ 'kept' => true ] );
+	}
+
 	/** The promotion and the email an AJAX call is about. @return array{0:string,1:array,2:string} */
 	private static function target(): array {
 		$rule_id  = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
@@ -4721,6 +4767,7 @@ final class DZE_Klaviyo {
 				'nothing'  => __( 'No email to write yet — plan the campaign or add one.', 'dazont-ecom' ),
 				'briefing' => __( 'Reading what this email is told…', 'dazont-ecom' ),
 				'asSent'   => __( 'Building it in Klaviyo and asking Klaviyo to draw it…', 'dazont-ecom' ),
+				'kept'     => __( 'Kept.', 'dazont-ecom' ),
 				'drafting1' => __( 'Putting %1$d of %2$d in Klaviyo…', 'dazont-ecom' ),
 				'draftAll'  => __( 'All of them are in Klaviyo now, one campaign each, in date order, tagged with the promotion. Nothing was sent.', 'dazont-ecom' ),
 				'draftSome' => __( '%1$d in Klaviyo, %2$d refused — put those back one by one to read what Klaviyo said.', 'dazont-ecom' ),
@@ -4941,6 +4988,7 @@ final class DZE_Klaviyo {
 							<?php // Said BESIDE the field, not in small print under it: a
 							// note nobody reads is a note that is not there. ?>
 							<input type="date" id="dze-klav-e-when" />
+							<span id="dze-klav-e-kept" class="description" style="margin-left:8px;"></span>
 							<span class="dze-smart" title="<?php esc_attr_e( 'Klaviyo works out, for each person on the list, the hour that reader actually opens his mail.', 'dazont-ecom' ); ?>">
 								<?php esc_html_e( 'Hour: Klaviyo Smart Send Time', 'dazont-ecom' ); ?>
 							</span>
