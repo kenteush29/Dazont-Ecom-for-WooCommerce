@@ -138,6 +138,35 @@
 	// for it. Cleared when another email is opened: a description belongs to
 	// the email it was written for.
 
+	// A day written the way the shop writes days. The server sends its own
+	// format and its own month names, so a row added here and a row drawn by
+	// WordPress cannot read differently — which is what "2026-08-29" beside
+	// "28/08/2026" on the same list was.
+	function niceDay(iso) {
+		var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || '').slice(0, 10));
+		if (!m) { return String(iso || ''); }
+		var y = m[1], mo = parseInt(m[2], 10), d = parseInt(m[3], 10),
+			names = (cfg.months || [])[mo - 1] || {},
+			pad = function (n) { return (n < 10 ? '0' : '') + n; },
+			out = '';
+		String(cfg.dateFmt || 'Y-m-d').split('').forEach(function (c, i, all) {
+			if ('\\' === all[i - 1]) { out += c; return; }
+			switch (c) {
+				case 'd': out += pad(d); break;
+				case 'j': out += d; break;
+				case 'm': out += pad(mo); break;
+				case 'n': out += mo; break;
+				case 'Y': out += y; break;
+				case 'y': out += y.slice(2); break;
+				case 'F': out += names.F || mo; break;
+				case 'M': out += names.M || mo; break;
+				case '\\': break;
+				default: out += c;
+			}
+		});
+		return out;
+	}
+
 	function card(id)     { return $('.dze-mail[data-id="' + id + '"]'); }
 	function ruleId()     { return $('#dze-klav-editor').data('rule'); }
 	function body()       { return $('#dze-klav-e-body'); }
@@ -243,7 +272,7 @@
 		$c.find('.dze-f-body').val(body().val() || '');
 		$c.find('.dze-mail-subject').text($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-mail-name').text(name || cfg.i18n.unnamed);
-		$c.find('.dze-mail-when').contents().first().replaceWith($('#dze-klav-e-when').val() || '');
+		$c.find('.dze-mail-when').contents().first().replaceWith(niceDay($('#dze-klav-e-when').val() || ''));
 		thumb(current);
 	}
 	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
@@ -496,7 +525,7 @@
 					$c.find('.dze-f-when').val(mail.when);
 					$c.find('.dze-f-kind').val(mail.kind || '');
 					$c.find('.dze-mail-name').text(mail.name || cfg.i18n.unnamed);
-					$c.find('.dze-mail-when').contents().first().replaceWith(mail.when);
+					$c.find('.dze-mail-when').contents().first().replaceWith(niceDay(mail.when));
 					$('.dze-mail-list').append($c);
 				});
 				current = null;
