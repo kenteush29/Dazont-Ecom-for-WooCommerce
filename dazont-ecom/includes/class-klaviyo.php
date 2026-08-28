@@ -2636,60 +2636,73 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * Whether this account's profiles can be translated to at all.
+	 * The profile properties a shop keeps a language in.
 	 *
-	 * Klaviyo does not guess a reader's language: it reads the LOCALE on his
-	 * profile, and a profile without one is served the fallback. So a shop can
-	 * have its languages declared, its blocks translated, and still send every
-	 * reader the same English email — with nothing anywhere saying why. This
-	 * samples the account and answers with a figure.
+	 * Klaviyo does not impose one. Its own Translations settings ask WHICH
+	 * property decides a reader's language, and a shop usually answers with a
+	 * custom one called "Language" rather than the built-in locale. That
+	 * choice is not readable through the API — so rather than assert which
+	 * field matters, the check looks for any of the names a language is
+	 * plausibly kept under, and says which one it found.
+	 */
+	private const LANG_KEYS = [ 'locale', 'language', 'langue', 'lang', 'preferred language', 'preferred_language', 'idioma', 'sprache', 'taal', 'lingua' ];
+
+	/**
+	 * What this account's profiles actually carry as a language.
+	 *
+	 * The half of a translation that is neither in this plugin nor in the
+	 * email: Klaviyo serves a reader the language his profile says, and a
+	 * profile that says nothing is served the fallback. A shop can have its
+	 * languages declared, its blocks translated, and still send everyone
+	 * English — this is what tells it so, from its own profiles.
 	 *
 	 * Behind a click. One page of profiles, never on a page load.
 	 *
-	 * @return array{seen:int,with:int}
+	 * @return array{seen:int,with:int,field:string}
 	 */
 	public static function locale_sample( int $size = 100 ): array {
 		$res = self::request(
 			'GET',
-			'profiles/?fields%5Bprofile%5D=locale&page%5Bsize%5D=' . max( 1, min( 100, $size ) ),
+			'profiles/?fields%5Bprofile%5D=locale,properties&page%5Bsize%5D=' . max( 1, min( 100, $size ) ),
 			null,
-			25
+			30
 		);
 		if ( is_wp_error( $res ) ) {
 			throw new RuntimeException( $res->get_error_message() );
 		}
-		$rows = (array) ( $res['data'] ?? [] );
-		$with = 0;
+		$rows  = (array) ( $res['data'] ?? [] );
+		$with  = 0;
+		$field = '';
 		foreach ( $rows as $row ) {
-			if ( '' !== trim( (string) ( $row['attributes']['locale'] ?? '' ) ) ) {
+			$said = self::language_of( (array) ( $row['attributes'] ?? [] ) );
+			if ( '' !== $said[1] ) {
 				$with++;
+				if ( '' === $field ) {
+					$field = $said[0];
+				}
 			}
 		}
-		return [ 'seen' => count( $rows ), 'with' => $with ];
+		return [ 'seen' => count( $rows ), 'with' => $with, 'field' => $field ];
 	}
 
-	/** The button on an email that writes its other languages. */
-	public static function ajax_translate(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+	/**
+	 * The language one profile carries, and what it is kept under.
+	 *
+	 * @return array{0:string,1:string} the property's name, and its value
+	 */
+	private static function language_of( array $attributes ): array {
+		$flat = [ 'locale' => (string) ( $attributes['locale'] ?? '' ) ];
+		foreach ( (array) ( $attributes['properties'] ?? [] ) as $key => $value ) {
+			if ( is_scalar( $value ) ) {
+				$flat[ (string) $key ] = (string) $value;
+			}
 		}
-		$rule_id  = sanitize_text_field( (string) ( $_POST['rule'] ?? '' ) );
-		$email_id = sanitize_key( (string) ( $_POST['email'] ?? '' ) );
-		try {
-			$got = self::translate_email( $rule_id, $email_id );
-		} catch ( Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		foreach ( $flat as $key => $value ) {
+			if ( '' !== trim( $value ) && in_array( strtolower( trim( $key ) ), self::LANG_KEYS, true ) ) {
+				return [ (string) $key, trim( $value ) ];
+			}
 		}
-		wp_send_json_success( [
-			'langs'   => $got['langs'],
-			'message' => sprintf(
-				/* translators: 1: how many pieces of text, 2: the languages */
-				__( '%1$d texts translated into %2$s.', 'dazont-ecom' ),
-				(int) $got['done'],
-				strtoupper( implode( ', ', $got['langs'] ) )
-			),
-		] );
+		return [ '', '' ];
 	}
 
 	/** The check behind the button beside the languages. */
@@ -2705,26 +2718,27 @@ final class DZE_Klaviyo {
 		}
 		[ $source ] = self::locales();
 		if ( ! $got['seen'] ) {
-			wp_send_json_success( [ 'message' => __( 'No profiles read.', 'dazont-ecom' ), 'ok' => false ] );
+			wp_send_json_success( [ 'ok' => false, 'message' => __( 'No profiles read.', 'dazont-ecom' ) ] );
 		}
 		if ( ! $got['with'] ) {
 			wp_send_json_success( [
 				'ok'      => false,
 				'message' => sprintf(
-					/* translators: 1: how many profiles were read, 2: the language they would all get */
-					__( 'None of the %1$d profiles read carries a language. As things stand every reader gets %2$s, whatever is translated.', 'dazont-ecom' ),
+					/* translators: 1: how many profiles were read, 2: the language they would all be served */
+					__( 'None of the %1$d profiles read carries a language. Until they do, every reader is served %2$s whatever is translated.', 'dazont-ecom' ),
 					(int) $got['seen'],
 					strtoupper( $source )
 				),
 			] );
 		}
 		wp_send_json_success( [
-			'ok'      => $got['with'] === $got['seen'],
+			'ok'      => true,
 			'message' => sprintf(
-				/* translators: 1: how many carry a language, 2: how many were read, 3: the fallback language */
-				__( '%1$d of the %2$d profiles read carry a language. The rest are served %3$s.', 'dazont-ecom' ),
+				/* translators: 1: how many carry a language, 2: how many were read, 3: the property it is kept in, 4: the fallback */
+				__( '%1$d of the %2$d profiles read carry a language, in "%3$s". Klaviyo must be set to read that property; the rest are served %4$s.', 'dazont-ecom' ),
 				(int) $got['with'],
 				(int) $got['seen'],
+				(string) $got['field'],
 				strtoupper( $source )
 			),
 		] );
@@ -5830,12 +5844,12 @@ final class DZE_Klaviyo {
 					// to be checkable rather than asserted.
 					?>
 					<p style="max-width:640px;margin-top:10px;padding:10px 12px;border-left:4px solid #dba617;background:#fcf9e8;">
-						<strong><?php esc_html_e( 'Your customers need a language on their Klaviyo profile.', 'dazont-ecom' ); ?></strong><br />
+						<strong><?php esc_html_e( 'One thing has to be set up in Klaviyo, or none of this is served.', 'dazont-ecom' ); ?></strong><br />
 						<?php
 						printf(
-							/* translators: 1: the property name, 2: the language served without it */
-							esc_html__( 'Klaviyo does not guess: it reads the %1$s property on each profile and serves that language. A profile without one is served %2$s, however well the email is translated. Set it where profiles are created — the sign-up form, the checkout, the import — or fill it in bulk in Klaviyo.', 'dazont-ecom' ),
-							'<code>locale</code>',
+							/* translators: 1: the Klaviyo screen to open, 2: the language served without it */
+							esc_html__( 'Klaviyo decides a reader\'s language from a PROPERTY ON HIS PROFILE, and you choose which one under %1$s — "How to determine preferred language". A profile with nothing in that property is served %2$s, however well the email is translated. Klaviyo does not expose that choice to this plugin, so the button below reads your own profiles instead and says what they carry and under which name: if that name is not the property Klaviyo is set to read, the translations go nowhere.', 'dazont-ecom' ),
+							'<a href="https://www.klaviyo.com/settings" target="_blank" rel="noopener noreferrer"><strong>' . esc_html__( 'Klaviyo → Settings → Translations ↗', 'dazont-ecom' ) . '</strong></a>',
 							'<strong>' . esc_html( strtoupper( $dze_src ) ) . '</strong>'
 						);
 						?>
