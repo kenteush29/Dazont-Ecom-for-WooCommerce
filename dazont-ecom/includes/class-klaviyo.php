@@ -88,6 +88,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
+		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
 		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
 		add_action( 'wp_ajax_dze_klav_drop',    [ __CLASS__, 'ajax_drop' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
@@ -1471,24 +1472,6 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * The whole email: the stored frame, and inside it the body written for
-	 * this promotion.
-	 *
-	 * @param bool $preview True to read Klaviyo's own tags as a person would.
-	 */
-	public static function layout( string $body, bool $preview = false ): string {
-		$shell = self::shell();
-		if ( '' === $shell ) {
-			// Loudly, and only ever on a click: no frame means no email, and
-			// the alternative — sending the body on its own, with no header
-			// and no unsubscribe line — is worse than not sending at all.
-			throw new RuntimeException( __( 'No header and footer yet. Settings → Email campaigns → Header and footer: choose your Klaviyo template and press Read it.', 'dazont-ecom' ) );
-		}
-		$html = self::with_mobile_rule( str_replace( self::BODY_MARK, self::slot( $body ), $shell ) );
-		return $preview ? self::readable( $html ) : $html;
-	}
-
-	/**
 	 * The one rule of ours the frame carries, put in its head at build time.
 	 *
 	 * A product card is an inline-block capped at its share of the column, so
@@ -2452,6 +2435,118 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * The email as a DRAG-AND-DROP template definition.
+	 *
+	 * This is the one thing that makes a campaign translatable: Klaviyo reads
+	 * its per-language texts, links and pictures out of BLOCKS, and a template
+	 * filed as one lump of HTML has none — which is why every email this
+	 * plugin sent went out in one language whatever the account was set to.
+	 *
+	 * The owner's own template is read fresh each time rather than from the
+	 * snapshot the preview uses: what goes to a customer must be his header
+	 * and his footer AS THEY ARE, and a frame stored in the database is a
+	 * frame that stopped following him the day he last pressed Read it.
+	 *
+	 * It fails loudly. There is no falling back to an HTML template, because
+	 * that fallback is exactly the email nobody can translate, and a shop that
+	 * silently got one would never find out.
+	 *
+	 * @param string $html The email body, as it is stored and previewed.
+	 * @throws RuntimeException When the frame cannot answer for blocks.
+	 */
+	public static function dnd_definition( string $html ): array {
+		$fid = trim( (string) self::conf( 'frame_id' ) );
+		if ( '' === $fid ) {
+			throw new RuntimeException( __( 'No Klaviyo template chosen yet. Settings → Email campaigns → Header and footer: choose your template and press Read it.', 'dazont-ecom' ) );
+		}
+		$res = self::request(
+			'GET',
+			'templates/' . rawurlencode( $fid ) . '/?additional-fields%5Btemplate%5D=definition',
+			null,
+			30
+		);
+		if ( is_wp_error( $res ) ) {
+			throw new RuntimeException( $res->get_error_message() );
+		}
+		$editor = (string) ( $res['data']['attributes']['editor_type'] ?? '' );
+		if ( 'SYSTEM_DRAGGABLE' !== $editor ) {
+			throw new RuntimeException( sprintf(
+				/* translators: %s: the editor Klaviyo reports for that template */
+				__( 'The template chosen for the header and footer is not a drag-and-drop one (%s), so the email cannot be built in blocks and Klaviyo could not translate it. Choose a drag-and-drop template under Settings → Email campaigns.', 'dazont-ecom' ),
+				$editor ?: __( 'unknown', 'dazont-ecom' )
+			) );
+		}
+		$definition = (array) ( $res['data']['attributes']['definition'] ?? [] );
+		if ( ! $definition ) {
+			throw new RuntimeException( __( 'Klaviyo returned that template without its blocks.', 'dazont-ecom' ) );
+		}
+		// Filled FIRST, stripped after: which section the email goes into is
+		// decided partly by universal_id — a saved section is never written
+		// into — and stripping the ids first would take that answer away.
+		$definition = DZE_Klaviyo_Blocks::fill(
+			$definition,
+			DZE_Klaviyo_Blocks::rows( $html, self::theme_style() )
+		);
+		// The ids belong to HIS template: kept, they would ask two templates to
+		// share an identity, and Klaviyo refuses universal_id outright.
+		$definition = DZE_Klaviyo_Blocks::strip_ids( $definition );
+		unset( $definition['template_id'] );
+		return $definition;
+	}
+
+	/**
+	 * The email filed in the account, as a template made of blocks.
+	 *
+	 * One writer for both cases — the first draft and every correction after
+	 * it — because they differ by one id and nothing else. A template that
+	 * refuses to be rewritten is not an error to report: it is the one an
+	 * older version of this plugin filed as HTML, which cannot become blocks,
+	 * so a new one is made and the caller is told to point the campaign at it.
+	 *
+	 * @param string $id The template to rewrite, when there is one.
+	 * @return string The id of the template that now holds this email.
+	 * @throws RuntimeException When Klaviyo will not take it at all.
+	 */
+	private static function put_template( string $name, array $definition, string $id = '' ): string {
+		$attrs = [
+			'name'        => mb_substr( $name, 0, 120 ),
+			'editor_type' => 'SYSTEM_DRAGGABLE',
+			'definition'  => $definition,
+		];
+		if ( '' !== $id ) {
+			$saved = self::request( 'PATCH', 'templates/' . rawurlencode( $id ) . '/', [
+				'data' => [ 'type' => 'template', 'id' => $id, 'attributes' => $attrs ],
+			], 40 );
+			if ( ! is_wp_error( $saved ) ) {
+				return $id;
+			}
+		}
+		$made = self::request( 'POST', 'templates/', [
+			'data' => [ 'type' => 'template', 'attributes' => $attrs ],
+		], 40 );
+		if ( is_wp_error( $made ) ) {
+			throw new RuntimeException( $made->get_error_message() );
+		}
+		$new = (string) ( $made['data']['id'] ?? '' );
+		if ( '' === $new ) {
+			throw new RuntimeException( __( 'Klaviyo saved nothing back.', 'dazont-ecom' ) );
+		}
+		return $new;
+	}
+
+	/** Points one campaign message at one template. @return string A warning, or ''. */
+	private static function assign_template( string $msg_id, string $tpl_id ): string {
+		$assign = self::request( 'POST', 'campaign-message-assign-template/', [
+			'data' => [
+				'type'          => 'campaign-message',
+				'id'            => $msg_id,
+				'relationships' => [ 'template' => [ 'data' => [ 'type' => 'template', 'id' => $tpl_id ] ] ],
+			],
+		], 30 );
+		return is_wp_error( $assign ) ? $assign->get_error_message() : '';
+	}
+
+	/**
 	 * Is the campaign made for this email still a draft we may rewrite?
 	 *
 	 * False for a campaign that was scheduled, sent, or deleted in Klaviyo
@@ -2498,7 +2593,9 @@ final class DZE_Klaviyo {
 		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
 			? (string) $in['body']
 			: self::body_for( $rule, $rule_id, $email_id );
-		$html    = self::layout( self::settle_picture( $body, $rule, (string) ( $copy['picture'] ?? '' ) ) );
+		// Blocks, not HTML: this is what Klaviyo can translate, and the frame
+		// around them is read from the owner's own template as it stands today.
+		$blocks  = self::dnd_definition( self::settle_picture( $body, $rule, (string) ( $copy['picture'] ?? '' ) ) );
 		$in      = $in + [ 'datetime' => (string) ( $copy['when'] ?? '' ) ];
 		$warning = '';
 
@@ -2526,18 +2623,15 @@ final class DZE_Klaviyo {
 		if ( $again ) {
 			// 1. The template that campaign already reads from, rewritten. The
 			//    campaign keeps its id, so a link the owner has open still works.
-			$saved = self::request( 'PATCH', 'templates/' . rawurlencode( $tpl_id ) . '/', [
-				'data' => [
-					'type'       => 'template',
-					'id'         => $tpl_id,
-					'attributes' => [
-						'name' => mb_substr( $name, 0, 120 ),
-						'html' => $html,
-					],
-				],
-			], 40 );
-			if ( is_wp_error( $saved ) ) {
-				throw new RuntimeException( $saved->get_error_message() );
+			//    An email filed by an older version is HTML and cannot become
+			//    blocks, so a new template is made and the message re-pointed.
+			$was    = $tpl_id;
+			$tpl_id = self::put_template( $name, $blocks, $tpl_id );
+			if ( $tpl_id !== $was ) {
+				$moved = self::assign_template( $msg_id, $tpl_id );
+				if ( '' !== $moved ) {
+					$warning = trim( $warning . ' ' . $moved );
+				}
 			}
 
 			// 2. The name and the day, in case either changed since.
@@ -2579,24 +2673,9 @@ final class DZE_Klaviyo {
 			}
 		} else {
 			// 1. The email itself becomes a template in the account, so the campaign
-			//    can be opened, read and edited in Klaviyo like any other.
-			$made = self::request( 'POST', 'templates/', [
-				'data' => [
-					'type'       => 'template',
-					'attributes' => [
-						'name'        => mb_substr( $name, 0, 120 ),
-						'editor_type' => 'CODE',
-						'html'        => $html,
-					],
-				],
-			], 40 );
-			if ( is_wp_error( $made ) ) {
-				throw new RuntimeException( $made->get_error_message() );
-			}
-			$tpl_id = (string) ( $made['data']['id'] ?? '' );
-			if ( '' === $tpl_id ) {
-				throw new RuntimeException( __( 'Klaviyo saved nothing back.', 'dazont-ecom' ) );
-			}
+			//    can be opened, read, edited and TRANSLATED in Klaviyo like any
+			//    other drag-and-drop email.
+			$tpl_id = self::put_template( $name, $blocks );
 
 			// 2. The campaign — the audience answered once, in the settings.
 			$exc  = (string) self::conf( 'excluded' );
@@ -2674,15 +2753,9 @@ final class DZE_Klaviyo {
 
 			// 3. The email becomes the content of that campaign.
 			if ( '' !== $msg_id ) {
-				$assign = self::request( 'POST', 'campaign-message-assign-template/', [
-					'data' => [
-						'type'          => 'campaign-message',
-						'id'            => $msg_id,
-						'relationships' => [ 'template' => [ 'data' => [ 'type' => 'template', 'id' => $tpl_id ] ] ],
-					],
-				], 30 );
-				if ( is_wp_error( $assign ) ) {
-					$warning = trim( $warning . ' ' . $assign->get_error_message() );
+				$assign = self::assign_template( $msg_id, $tpl_id );
+				if ( '' !== $assign ) {
+					$warning = trim( $warning . ' ' . $assign );
 				}
 			} else {
 				$warning = __( 'The campaign was created but Klaviyo did not name its message, so the email was left unassigned.', 'dazont-ecom' );
@@ -4237,6 +4310,62 @@ final class DZE_Klaviyo {
 	// =========================================================================
 
 	/**
+	 * The email on the bench: one template in the account, rewritten each time.
+	 *
+	 * The very template a campaign gets — the same blocks, the owner's own
+	 * frame, the same builder — so what a test sends and what the screen shows
+	 * as "As sent" are the email itself and not a drawing of it. It used to be
+	 * filed as HTML while the campaign was filed as blocks: two emails, and
+	 * the one that was read was not the one that went out.
+	 *
+	 * An account that fills up with "test 1", "test 2"… is an account nobody
+	 * can find anything in, so there is one and it is reused.
+	 *
+	 * @param string $html The email BODY; the frame is put around it here.
+	 * @throws RuntimeException
+	 */
+	private static function bench_template( string $html ): string {
+		$name = sprintf(
+			/* translators: %s: the shop name */
+			__( '%s — Dazont test send', 'dazont-ecom' ),
+			get_bloginfo( 'name' )
+		);
+		$was = trim( (string) ( self::settings()['test_template'] ?? '' ) );
+		$tpl = self::put_template( $name, self::dnd_definition( $html ), $was );
+		if ( $tpl !== $was ) {
+			self::remember( [ 'test_template' => $tpl ] );
+		}
+		return $tpl;
+	}
+
+	/**
+	 * The email as KLAVIYO builds it, drawn by Klaviyo itself.
+	 *
+	 * The fast preview beside it is a browser putting the body inside a
+	 * snapshot of the frame — right enough to write against, and not the same
+	 * thing as an email made of blocks inside the live template. This asks for
+	 * the real one: the blocks are filed on the bench template and Klaviyo's
+	 * own renderer answers with the HTML an inbox receives.
+	 *
+	 * On a click, never while typing: it writes to the account and costs a
+	 * round trip.
+	 */
+	public static function ajax_as_sent(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		$body = isset( $_POST['body'] )
+			? self::clean_html( (string) wp_unslash( $_POST['body'] ) )
+			: self::body_for( $rule, $rule_id, $email_id );
+		try {
+			$tpl  = self::bench_template( self::settle_picture( $body, $rule, self::picture_for( $rule_id, $rule, $email_id ) ) );
+			$html = self::render_template( $tpl );
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'html' => $html ] );
+	}
+
+	/**
 	 * Sends the email as it stands to a handful of addresses, through Klaviyo.
 	 *
 	 * The preview in the admin is drawn by a browser; an inbox is not a
@@ -4248,7 +4377,9 @@ final class DZE_Klaviyo {
 	 * that fills up with "test 1", "test 2"… is an account nobody can find
 	 * anything in.
 	 *
-	 * @param string[] $to Up to five addresses; Klaviyo refuses more.
+	 * @param string   $html The email BODY — the frame is put around it here,
+	 *                        by the same builder the campaign uses.
+	 * @param string[] $to   Up to five addresses; Klaviyo refuses more.
 	 * @throws RuntimeException
 	 */
 	public static function test_send( string $html, array $to ): void {
@@ -4258,38 +4389,7 @@ final class DZE_Klaviyo {
 		}
 		$to = array_slice( $to, 0, 5 );
 
-		$name    = sprintf(
-			/* translators: %s: the shop name */
-			__( '%s — Dazont test send', 'dazont-ecom' ),
-			get_bloginfo( 'name' )
-		);
-		$tpl     = trim( (string) ( self::settings()['test_template'] ?? '' ) );
-		$payload = [
-			'data' => [
-				'type'       => 'template',
-				'attributes' => [ 'name' => mb_substr( $name, 0, 120 ), 'editor_type' => 'CODE', 'html' => $html ],
-			],
-		];
-		$made = null;
-		if ( '' !== $tpl ) {
-			$payload['data']['id'] = $tpl;
-			$made = self::request( 'PATCH', 'templates/' . rawurlencode( $tpl ) . '/', $payload, 40 );
-			if ( is_wp_error( $made ) ) {
-				$made = null; // deleted in Klaviyo since: make a new one rather than fail.
-				unset( $payload['data']['id'] );
-			}
-		}
-		if ( null === $made ) {
-			$made = self::request( 'POST', 'templates/', $payload, 40 );
-			if ( is_wp_error( $made ) ) {
-				throw new RuntimeException( $made->get_error_message() );
-			}
-			$tpl = (string) ( $made['data']['id'] ?? '' );
-			if ( '' === $tpl ) {
-				throw new RuntimeException( __( 'Klaviyo saved nothing back.', 'dazont-ecom' ) );
-			}
-			self::remember( [ 'test_template' => $tpl ] );
-		}
+		$tpl = self::bench_template( $html );
 
 		// The beta track. Sending a preview is not part of the stable revision:
 		// asked for there, Klaviyo answers "No valid revisions found for
@@ -4320,7 +4420,7 @@ final class DZE_Klaviyo {
 			$to = [ (string) get_option( 'admin_email', '' ) ];
 		}
 		try {
-			self::test_send( self::layout( self::settle_picture( $body, $rule, self::picture_for( $rule_id, $rule, $email_id ) ) ), $to );
+			self::test_send( self::settle_picture( $body, $rule, self::picture_for( $rule_id, $rule, $email_id ) ), $to );
 			self::remember( [ 'test_to' => implode( ', ', array_filter( array_map( 'sanitize_email', $to ) ) ) ] );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -4464,6 +4564,15 @@ final class DZE_Klaviyo {
 		return self::SLOT_OPEN . $body . self::SLOT_CLOSE;
 	}
 
+	/** Which editor Klaviyo says a template uses. @throws RuntimeException */
+	private static function editor_of( string $id ): string {
+		$res = self::request( 'GET', 'templates/' . rawurlencode( $id ) . '/?fields%5Btemplate%5D=editor_type', null, 25 );
+		if ( is_wp_error( $res ) ) {
+			throw new RuntimeException( $res->get_error_message() );
+		}
+		return (string) ( $res['data']['attributes']['editor_type'] ?? '' );
+	}
+
 	/** Reads the chosen template and hands the frame back for the field. */
 	public static function ajax_frame(): void {
 		self::guard();
@@ -4472,6 +4581,19 @@ final class DZE_Klaviyo {
 			wp_send_json_error( [ 'message' => __( 'Choose a template first.', 'dazont-ecom' ) ] );
 		}
 		try {
+			// Said HERE, where the template is chosen, and not weeks later on
+			// the first draft: an email is built out of the blocks of this
+			// template, and a template with no blocks is a promotion that
+			// cannot be translated. The module says what it needs where the
+			// work happens.
+			$kind = self::editor_of( $id );
+			if ( 'SYSTEM_DRAGGABLE' !== $kind ) {
+				wp_send_json_error( [ 'message' => sprintf(
+					/* translators: %s: what Klaviyo calls that template's editor */
+					__( 'That template is not a drag-and-drop one (%s). The emails are built from its blocks, and Klaviyo only translates blocks — choose a drag-and-drop template, with one empty section between your header and your footer.', 'dazont-ecom' ),
+					'' !== $kind ? $kind : __( 'unknown', 'dazont-ecom' )
+				) ] );
+			}
 			$html = self::frame_from_render( self::render_template( $id ) );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -4584,6 +4706,7 @@ final class DZE_Klaviyo {
 				'allDone'  => __( 'All written. Read them, then save the event.', 'dazont-ecom' ),
 				'nothing'  => __( 'No email to write yet — plan the campaign or add one.', 'dazont-ecom' ),
 				'briefing' => __( 'Reading what this email is told…', 'dazont-ecom' ),
+				'asSent'   => __( 'Building it in Klaviyo and asking Klaviyo to draw it…', 'dazont-ecom' ),
 				'drafting1' => __( 'Putting %1$d of %2$d in Klaviyo…', 'dazont-ecom' ),
 				'draftAll'  => __( 'All of them are in Klaviyo now, one campaign each, in date order, tagged with the promotion. Nothing was sent.', 'dazont-ecom' ),
 				'draftSome' => __( '%1$d in Klaviyo, %2$d refused — put those back one by one to read what Klaviyo said.', 'dazont-ecom' ),
@@ -4894,7 +5017,7 @@ final class DZE_Klaviyo {
 					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'promo_email' ); } ?>
 					<span style="flex:1;"></span>
 					<span class="dze-klav-switch">
-						<button type="button" class="button dze-klav-tab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button dze-klav-tab is-on" data-tab="view"><?php esc_html_e( 'Preview', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="sent" title="<?php esc_attr_e( 'Built in Klaviyo, drawn by Klaviyo: the email an inbox receives.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'As sent', 'dazont-ecom' ); ?></button><button type="button" class="button dze-klav-tab" data-tab="code"><?php esc_html_e( 'HTML', 'dazont-ecom' ); ?></button>
 					</span>
 				</p>
 				<?php

@@ -3736,7 +3736,11 @@ Answer with STRICT JSON and nothing else: "
 					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
 					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 					'promptWord'=> __( 'Prompt', 'dazont-ecom' ),
-					'spendTip'  => __( 'What this product has cost in images so far. Counted per generation, at the price per image set under Settings → Product content.', 'dazont-ecom' ),
+					'spendTip'  => sprintf(
+						/* translators: %s: the price per image the shop set */
+						__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
+						'$' . number_format_i18n( self::fal_image_cost(), 3 )
+					),
 					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
 					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
 					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
@@ -3970,7 +3974,11 @@ Answer with STRICT JSON and nothing else: "
 				'redoShort'  => __( 'Generate', 'dazont-ecom' ),
 				'promptTip'  => __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
 				'promptWord' => __( 'Prompt', 'dazont-ecom' ),
-				'spendTip'   => __( 'What this product has cost in images so far. Counted per generation, at the price per image set under Settings → Product content.', 'dazont-ecom' ),
+				'spendTip'   => sprintf(
+					/* translators: %s: the price per image the shop set */
+					__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
+					'$' . number_format_i18n( self::fal_image_cost(), 3 )
+				),
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
@@ -5571,9 +5579,11 @@ Answer with STRICT JSON and nothing else: "
 		// The price OF a unit is the shop's own — it is on the invoice, not in
 		// the response — and it is asked for once in the settings.
 		$units = (float) wp_remote_retrieve_header( $resp, 'x-fal-billable-units' );
-		if ( $units <= 0 ) {
-			$units = 1.0;
-		}
+		// Failing that, what came back: a call that answers with three pictures
+		// was billed for three, whatever it did or did not put in a header.
+		// Never fewer than one — a request that reached the provider is paid
+		// for even when the answer is unusable.
+		$units = max( $units, (float) count( (array) ( $body['images'] ?? [] ) ), 1.0 );
 		self::$last_cost = round( $units * self::fal_image_cost(), 4 );
 		if ( $url && class_exists( 'DZE_Ai_Usage' ) ) {
 			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost );
