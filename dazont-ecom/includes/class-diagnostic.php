@@ -1160,10 +1160,20 @@ final class DZE_Diagnostic {
 		// What is to be DONE, worst first, kept apart from what is already
 		// right. Twenty lines reading "—" is a screen where the four that
 		// matter are hard to find.
+		$read  = (array) ( $census['checks'] ?? [] );
 		$found = [];
 		$clean = [];
+		$fresh = [];
 		foreach ( $checks as $id => $check ) {
-			$n = (int) ( $census['checks'][ $id ] ?? 0 );
+			// A criterion the last reading did not cover is not a criterion
+			// that found nothing — it is one nobody has looked at. Reported as
+			// zero, a criterion added five minutes ago says the shop is fine
+			// on a question it has never been asked.
+			if ( ! array_key_exists( $id, $read ) ) {
+				$fresh[ $id ] = $check;
+				continue;
+			}
+			$n = (int) $read[ $id ];
 			if ( $n > 0 ) {
 				$found[ $id ] = $n;
 			} else {
@@ -1171,6 +1181,19 @@ final class DZE_Diagnostic {
 			}
 		}
 		arsort( $found );
+
+		if ( $fresh && $at ) {
+			echo '<div class="notice notice-warning inline" style="max-width:1100px;margin:12px 0;"><p>';
+			printf(
+				/* translators: %s: the criteria that have never been read, by name */
+				esc_html__( 'Not read yet: %s. Press "Read the shop again" to have them counted.', 'dazont-ecom' ),
+				'<strong>' . esc_html( implode( ', ', array_map(
+					static fn( array $c ): string => (string) $c['label'],
+					$fresh
+				) ) ) . '</strong>'
+			);
+			echo '</p></div>';
+		}
 
 		if ( $at && $short ) {
 			// One tile per scope, saying how many THINGS need something rather
@@ -1237,15 +1260,19 @@ final class DZE_Diagnostic {
 				echo '<tr>';
 				echo '<td><strong>' . esc_html( $check['label'] ) . '</strong><br />'
 					. '<span class="description">' . esc_html( (string) $check['why'] ) . '</span></td>';
-				echo '<td style="width:90px;text-align:right;font-size:17px;line-height:1.2;"><strong>' . (int) $n . '</strong></td>';
-				// The bar says at a glance whether this is the whole shop or a
-				// handful, which a number on its own never does. Said once —
-				// the figure was printed three times over on one line.
-				echo '<td style="width:170px;">';
+				// The count and its bar in ONE cell, on one line: in two, the
+				// number was centred against a taller block and read as if it
+				// belonged to the row above.
+				echo '<td style="width:280px;vertical-align:middle;">';
 				printf(
-					'<div style="background:#f0f0f1;border-radius:2px;height:6px;overflow:hidden;">'
-					. '<div style="background:%1$s;height:6px;width:%2$d%%;"></div></div>'
-					. '<span class="description">%3$s</span>',
+					'<div style="display:flex;align-items:center;gap:12px;">'
+					. '<strong style="font-size:17px;line-height:1;min-width:54px;text-align:right;">%1$d</strong>'
+					. '<span style="flex:1 1 auto;">'
+					. '<span style="display:block;background:#f0f0f1;border-radius:2px;height:6px;overflow:hidden;">'
+					. '<span style="display:block;background:%2$s;height:6px;width:%3$d%%;"></span></span>'
+					. '<span class="description" style="display:block;margin-top:3px;">%4$s</span>'
+					. '</span></div>',
+					(int) $n,
 					esc_attr( $pc >= 50 ? '#d63638' : ( $pc >= 15 ? '#dba617' : '#8c8f94' ) ),
 					max( 2, min( 100, $pc ) ),
 					esc_html( sprintf(
