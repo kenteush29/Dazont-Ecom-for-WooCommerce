@@ -47,9 +47,10 @@ function sanitize_textarea_field( $s ) { return trim( strip_tags( (string) $s ) 
 function absint( $n ) { return abs( (int) $n ); }
 function get_option( $k, $d = false ) { return $GLOBALS['dze_opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['dze_opts'][ $k ] = $v; return true; }
-function get_transient( $k ) { return false; }
-function set_transient( $k, $v, $t = 0 ) { return true; }
-function delete_transient( $k ) { return true; }
+$GLOBALS['dze_transients'] = [];
+function get_transient( $k ) { return $GLOBALS['dze_transients'][ $k ] ?? false; }
+function set_transient( $k, $v, $t = 0 ) { $GLOBALS['dze_transients'][ $k ] = $v; return true; }
+function delete_transient( $k ) { unset( $GLOBALS['dze_transients'][ $k ] ); return true; }
 function add_action() {} function add_filter() {} function remove_filter() {} function register_setting() {}
 function apply_filters( $t, $v = null, ...$r ) { return $v; }
 function do_action( $t, ...$a ) {}
@@ -76,6 +77,28 @@ class WP_Error {
 }
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
 class DZE_Health { public static function log( ...$a ) {} }
+
+// Enough of a shop to hold one promotion with one filed email.
+$GLOBALS['dze_asked'] = [];
+class DZE_Marketing_Ai {
+	public static function complete( $system, $user, $model = '', $max = 2000, $timeout = 90 ) {
+		$GLOBALS['dze_asked'][] = [ 'model' => $model, 'system' => $system, 'user' => $user, 'timeout' => $timeout ];
+		// Answer every numbered piece it was handed, in order.
+		preg_match_all( '/^### (\d+)$/m', $user, $m );
+		$out = [];
+		foreach ( $m[1] as $n ) { $out[ $n ] = 'translated ' . $n; }
+		return json_encode( $out );
+	}
+	public static function get_settings() { return []; }
+}
+class DZE_Discounts { public static function get_rules() { return [ 'promo' => [ 'title' => 'Summer' ] ]; } }
+class DZE_Wpml {
+	public static function is_active() { return true; }
+	public static function default_language() { return 'en'; }
+	public static function get_active_languages() {
+		return [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
+	}
+}
 
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo.php';
 
@@ -168,6 +191,62 @@ $GLOBALS['dze_queue'] = [ [ 'code' => 404, 'body' => $no_rev ], [ 'code' => 200,
 DZE_Klaviyo::request( 'GET', 'lists/' );
 ok( 'lists/ is asked once and no more', count( $GLOBALS['dze_sent'] ), 1 );
 $GLOBALS['dze_queue'] = [];
+
+echo "Writing one email in several languages\n";
+// The collection Klaviyo answers with, and the email the shop has filed.
+$values = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
+	[ 'id' => 'x::subject', 'source_value' => 'Summer sale' ],
+	[ 'id' => 'y::data.content', 'source_value' => '<p>Everything must go</p>' ],
+	[ 'id' => 'z::data.attributes.href', 'source_value' => 'https://kula.test/shop' ],
+] ] ] ] );
+$copy = ( new ReflectionClass( 'DZE_Klaviyo' ) )->getConstant( 'OPT_COPY' );
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
+	'kind' => 'launch', 'subject' => 'Summer sale',
+	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'fr', 'de' ] ],
+] ] ] ];
+$GLOBALS['dze_opts']['dze_klaviyo'] = [];
+
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_asked'] = [];
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $values ];
+$n = DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' );
+ok( 'only the words are translated',    $n, 2 );
+ok( 'a link is never sent to be translated', false === strpos( $GLOBALS['dze_asked'][0]['user'] ?? '', 'kula.test' ), true );
+ok( 'and nothing is written yet',       count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) ), 0 );
+ok( 'the fast model does the writing',  false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['model'] ?? '' ), 'haiku' ), true );
+
+DZE_Klaviyo::translate_language( 'promo', 'mail1', 'de' );
+ok( 'the second language too',          count( $GLOBALS['dze_asked'] ), 2 );
+
+$GLOBALS['dze_sent'] = [];
+$got = DZE_Klaviyo::save_translations( 'promo', 'mail1' );
+$patches = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) );
+ok( 'one write, not one per language',  count( $patches ), 1 );
+$body = json_decode( (string) ( $patches[0]['body'] ?? '' ), true );
+$sent = [];
+foreach ( (array) ( $body['data']['attributes']['values'] ?? [] ) as $v ) { $sent[ $v['id'] ] = array_keys( $v['translations'] ); }
+ok( 'both languages in the same write', $sent['x::subject'] ?? [], [ 'fr', 'de' ] );
+ok( 'and every text of them',           count( $sent ), 2 );
+ok( 'the body names the campaign plainly', $body['data']['id'] ?? '', 'campaign-variation::email::01ABC' );
+ok( 'the answer says what went',        $got['langs'] ?? [], [ 'fr', 'de' ] );
+
+// What the email now SAYS about itself, read from what was stored.
+$mail = ( get_option( $copy )['promo']['emails']['mail1'] ?? [] );
+ok( 'the email records its languages',  $mail['draft']['done_langs'] ?? [], [ 'fr', 'de' ] );
+ok( 'and how many texts',               $mail['draft']['texts'] ?? 0, 2 );
+ok( "Klaviyo's own list is left alone", $mail['draft']['langs'] ?? [], [ 'fr', 'de' ] );
+
+// A language that never came back must not stop the ones that did.
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['mail1']['draft']['done_langs'] = [];
+DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' );
+$GLOBALS['dze_sent'] = [];
+$got = DZE_Klaviyo::save_translations( 'promo', 'mail1' );
+ok( 'one language alone still files',   $got['langs'] ?? [], [ 'fr' ] );
+
+// And nothing at all is an error rather than an empty write.
+$threw = '';
+try { DZE_Klaviyo::save_translations( 'promo', 'mail1' ); } catch ( Throwable $e ) { $threw = $e->getMessage(); }
+ok( 'nothing to file is said, not sent', false !== strpos( $threw, 'Nothing came back' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

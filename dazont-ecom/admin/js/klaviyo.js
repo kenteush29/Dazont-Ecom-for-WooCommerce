@@ -335,44 +335,80 @@
 		$b.prop('disabled', true).text(cfg.i18nBusy || 'Translating…');
 
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_langs', nonce: cfg.nonce }).done(function (r) {
-			var langs = (r && r.data && r.data.langs) || [], done = [], texts = 0;
+			var langs = (r && r.data && r.data.langs) || [], done = [], failed = [], msg = '';
 			if (!langs.length) {
 				stop('#b32d2e', cfg.i18nNone || 'No languages to translate into.');
 				return;
 			}
-			next(0);
 
-			function next(i) {
-				if (i >= langs.length) {
-					stop('#00794b', (cfg.i18nDone || 'Translated — %d texts in %s')
-						.replace('%d', texts).replace('%s', done.join(', ').toUpperCase()));
-					$b.text(cfg.i18nAgain || 'Translate again');
-					return;
-				}
-				// Said before the request, not after: this is the slow part and
-				// the shop has to know which language it is waiting on.
-				$said.css('color', '').text((cfg.i18nDoing || 'Writing %s… (%i of %n)')
-					.replace('%s', langs[i].toUpperCase())
-					.replace('%i', i + 1).replace('%n', langs.length)
-					+ (done.length ? ' · ' + done.join(', ').toUpperCase() + ' ✓' : ''));
+			// The languages are written AT THE SAME TIME. One after another was
+			// one model call after another — minutes of somebody watching a
+			// button — and they have nothing to say to each other. A few at a
+			// time, not all of them: a shop with fifteen languages would ask
+			// its own server for fifteen workers at once.
+			var next = 0, live = 0, cap = Math.min(4, langs.length);
+			tell();
+			while (live < cap) { start(); }
+
+			function start() {
+				if (next >= langs.length) { return; }
+				var lang = langs[next++];
+				live++;
 				$.post(cfg.ajaxUrl, {
 					action: 'dze_klav_i18n', nonce: cfg.nonce,
-					rule: rule, email: mail, lang: langs[i]
+					rule: rule, email: mail, lang: lang
 				}).done(function (one) {
-					if (one && one.success) {
-						done.push(langs[i]);
-						texts = (one.data && one.data.done) || texts;
-						next(i + 1);
-					} else {
-						stop('#b32d2e', ((one && one.data && one.data.message) || '')
-							+ (done.length ? ' — ' + done.join(', ').toUpperCase() + ' ' + (cfg.i18nKept || 'were written.') : ''));
+					if (one && one.success) { done.push(lang); }
+					else {
+						failed.push(lang);
+						msg = msg || (one && one.data && one.data.message) || '';
 					}
 				}).fail(function (xhr) {
-					// A dead end says WHERE it died. "The translation did not
-					// finish" on its own is a message nobody can act on — not
-					// the shop, not us.
-					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr)
-						+ (done.length ? ' ' + done.join(', ').toUpperCase() + ' ' + (cfg.i18nKept || 'were written.') : ''));
+					failed.push(lang);
+					msg = msg || ((cfg.i18nFail || 'The translation did not finish.') + why(xhr));
+				}).always(function () {
+					live--;
+					tell();
+					if (next < langs.length) { start(); } else if (!live) { save(); }
+				});
+			}
+
+			// Said as it happens: which are in, which are still being written.
+			function tell() {
+				var waiting = langs.filter(function (l) {
+					return -1 === $.inArray(l, done) && -1 === $.inArray(l, failed);
+				});
+				$said.css('color', '').text(
+					(cfg.i18nDoing || 'Writing %s… (%i of %n)')
+						.replace('%s', waiting.join(', ').toUpperCase())
+						.replace('%i', done.length + failed.length).replace('%n', langs.length)
+					+ (done.length ? ' · ' + done.join(', ').toUpperCase() + ' ✓' : '')
+				);
+			}
+
+			// Nothing has reached Klaviyo yet: every language goes in one call,
+			// so four writers never race on the same campaign.
+			function save() {
+				if (!done.length) {
+					stop('#b32d2e', msg || (cfg.i18nFail || 'The translation did not finish.'));
+					return;
+				}
+				$said.css('color', '').text(cfg.i18nSaving || 'Filing them in Klaviyo…');
+				$.post(cfg.ajaxUrl, {
+					action: 'dze_klav_i18nsave', nonce: cfg.nonce, rule: rule, email: mail
+				}).done(function (r2) {
+					if (!r2 || !r2.success) {
+						stop('#b32d2e', (r2 && r2.data && r2.data.message) || (cfg.i18nFail || 'The translation did not finish.'));
+						return;
+					}
+					var d = r2.data || {};
+					stop('#00794b', (cfg.i18nDone || 'Translated — %d texts in %s')
+						.replace('%d', d.done || 0)
+						.replace('%s', (d.langs || done).join(', ').toUpperCase())
+						+ (failed.length ? ' · ' + failed.join(', ').toUpperCase() + ' — ' + (msg || '') : ''));
+					$b.text(cfg.i18nAgain || 'Translate again');
+				}).fail(function (xhr) {
+					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr));
 				});
 			}
 

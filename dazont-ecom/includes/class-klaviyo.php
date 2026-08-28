@@ -45,6 +45,10 @@ final class DZE_Klaviyo {
 	// missing endpoint and is really an expired pin. It is the single thing in
 	// this file that goes stale on its own, which is why the weekly checkup
 	// names it by hand when Klaviyo refuses.
+	// Translating is mechanical and heavily constrained; the fastest model
+	// does it in seconds where the big one takes a minute a language, and the
+	// answer is checked against what was sent whichever writes it.
+	private const I18N_MODEL = 'claude-haiku-4-5-20251001';
 	private const REV   = '2026-07-15';      // stable API revision.
 	private const REV_B = '2026-07-15.pre';  // the localisation endpoints are beta.
 	private const NONCE = 'dze_klaviyo';
@@ -89,6 +93,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_locales', [ __CLASS__, 'ajax_locales' ] );
 		add_action( 'wp_ajax_dze_klav_langs',   [ __CLASS__, 'ajax_langs' ] );
 		add_action( 'wp_ajax_dze_klav_i18n',    [ __CLASS__, 'ajax_translate' ] );
+		add_action( 'wp_ajax_dze_klav_i18nsave', [ __CLASS__, 'ajax_translate_save' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
 		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
@@ -2522,25 +2527,37 @@ final class DZE_Klaviyo {
 	/**
 	 * The email, written in the shop's other languages.
 	 *
-	 * Klaviyo holds the languages of a campaign and exposes every block as a
-	 * field, and leaves the words to somebody. Left to the account, that is a
-	 * machine translating a line at a time with no idea what the promotion is;
-	 * done here, it is the shop's own model, told what the email IS and what it
-	 * is selling, handed all of the email's text at once so a heading and the
-	 * paragraph under it are turned by the same hand.
+	 * Three pieces rather than one, because the slow part is the writing and
+	 * the browser can have all of it happening at once: READ the collection,
+	 * write ONE language, and — when every language is in — send the lot to
+	 * Klaviyo in a single call. Four languages one after another was four
+	 * model calls end to end, minutes of somebody watching a button.
 	 *
-	 * ONE language per call, because one call for all of them is minutes of
-	 * model time on a single request: the browser gives up, and the screen is
-	 * left saying nothing. The button walks the languages itself and says
-	 * which one it is on. What comes back is checked against what was sent —
-	 * an id that was not asked about is dropped rather than written — and that
-	 * language goes to Klaviyo in one call.
-	 *
-	 * @param string $only One target language, or '' for every one of them.
+	 * The single write is not only faster, it is safer: four requests each
+	 * patching the same collection is four writers on one row, and whether
+	 * Klaviyo merges them or keeps the last is not a thing to find out on a
+	 * shop's live campaign.
 	 *
 	 * @return array{done:int,langs:string[],skipped:int}
 	 */
 	public static function translate_email( string $rule_id, string $email_id, string $only = '' ): array {
+		[ , , , $targets ] = self::collection_of( $rule_id, $email_id, $only );
+		foreach ( $targets as $lang ) {
+			self::translate_language( $rule_id, $email_id, $lang );
+		}
+		return self::save_translations( $rule_id, $email_id );
+	}
+
+	/**
+	 * What Klaviyo holds for this email, and what may be asked of it.
+	 *
+	 * @return array{0:string,1:array<string,string>,2:string,3:string[],4:string}
+	 *         the collection id as it goes in the PATH, the texts worth
+	 *         translating, the source language, the languages wanted, and the
+	 *         collection id as it goes in the BODY — Klaviyo wants the message
+	 *         escaped in one and plain in the other.
+	 */
+	private static function collection_of( string $rule_id, string $email_id, string $only = '' ): array {
 		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
 		$msg  = (string) ( $mail['draft']['message'] ?? '' );
 		if ( '' === $msg ) {
@@ -2560,22 +2577,71 @@ final class DZE_Klaviyo {
 		if ( is_wp_error( $got ) ) {
 			throw new RuntimeException( $got->get_error_message() );
 		}
-		$values = (array) ( $got['data']['attributes']['values'] ?? [] );
-		$source_texts = self::translatable( $values );
-		if ( ! $source_texts ) {
+		$texts = self::translatable( (array) ( $got['data']['attributes']['values'] ?? [] ) );
+		if ( ! $texts ) {
 			throw new RuntimeException( __( 'Klaviyo has no text to translate on that campaign. File the draft again and try once more.', 'dazont-ecom' ) );
 		}
+		return [ $id, $texts, $source, array_values( $targets ), 'campaign-variation::email::' . $msg ];
+	}
 
+	/**
+	 * Where one language waits for the others.
+	 *
+	 * A basket per LANGUAGE, never one shared basket: the languages are
+	 * written at the same time now, and two requests reading and writing the
+	 * same row is how the third one quietly disappears.
+	 */
+	private static function basket( string $rule_id, string $email_id, string $lang ): string {
+		return 'dze_klav_i18n_' . md5( $rule_id . '|' . $email_id . '|' . $lang );
+	}
+
+	/**
+	 * ONE language, written and put aside. Nothing reaches Klaviyo here.
+	 *
+	 * @return int how many texts came back.
+	 */
+	public static function translate_language( string $rule_id, string $email_id, string $lang ): int {
+		[ , $texts, $source, $targets ] = self::collection_of( $rule_id, $email_id, $lang );
+		$lang = (string) reset( $targets );
+		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
 		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$rule  = (array) ( $rules[ $rule_id ] ?? [] );
-		$done  = [];
+		$said  = self::ask_translation( $texts, $source, $lang, (array) ( $rules[ $rule_id ] ?? [] ), $mail );
+		$keep  = [];
+		foreach ( $said as $vid => $text ) {
+			// Only what was asked about, and only where something came back.
+			if ( isset( $texts[ $vid ] ) && '' !== trim( (string) $text ) ) {
+				$keep[ $vid ] = (string) $text;
+			}
+		}
+		if ( ! $keep ) {
+			throw new RuntimeException( sprintf(
+				/* translators: %s: a language code */
+				__( 'Nothing came back for %s. Nothing was written to Klaviyo.', 'dazont-ecom' ),
+				strtoupper( $lang )
+			) );
+		}
+		set_transient( self::basket( $rule_id, $email_id, $lang ), $keep, HOUR_IN_SECONDS );
+		return count( $keep );
+	}
+
+	/**
+	 * Every language written so far, sent to Klaviyo in one call.
+	 *
+	 * @return array{done:int,langs:string[],skipped:int}
+	 */
+	public static function save_translations( string $rule_id, string $email_id ): array {
+		[ $id, $texts, , $targets, $body_id ] = self::collection_of( $rule_id, $email_id );
+		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
+		$done = [];
+		$langs = [];
 		foreach ( $targets as $lang ) {
-			$said = self::ask_translation( $source_texts, $source, $lang, $rule, $mail );
-			foreach ( $said as $vid => $text ) {
-				// Only what was asked about, and only where something came back.
-				if ( isset( $source_texts[ $vid ] ) && '' !== trim( (string) $text ) ) {
-					$done[ $vid ][ $lang ] = (string) $text;
-				}
+			$slot = get_transient( self::basket( $rule_id, $email_id, $lang ) );
+			if ( ! is_array( $slot ) || ! $slot ) {
+				continue; // that language did not come back; the rest still go.
+			}
+			$langs[] = $lang;
+			foreach ( $slot as $vid => $text ) {
+				$done[ (string) $vid ][ $lang ] = (string) $text;
 			}
 		}
 		if ( ! $done ) {
@@ -2588,30 +2654,33 @@ final class DZE_Klaviyo {
 		$put = self::request( 'PATCH', 'translations/' . $id . '/', [
 			'data' => [
 				'type'       => 'translation',
-				'id'         => 'campaign-variation::email::' . $msg,
+				'id'         => $body_id,
 				'attributes' => [ 'values' => $write ],
 			],
 		], 60 );
 		if ( is_wp_error( $put ) ) {
 			throw new RuntimeException( $put->get_error_message() );
 		}
+		foreach ( $langs as $lang ) {
+			delete_transient( self::basket( $rule_id, $email_id, $lang ) );
+		}
 		// What the email HAS been written in, added to rather than replaced:
-		// the languages arrive one request at a time, and a run that wrote
-		// French must not erase the German written a minute earlier. 'langs'
-		// is left alone — that is what Klaviyo opened the campaign for, which
-		// is a different fact from what we have actually translated.
+		// a run that only got two languages through says two, and the German
+		// written last week is not erased by this week's French. 'langs' is
+		// left alone — that is what Klaviyo opened the campaign for, which is
+		// a different fact from what we have actually translated.
 		$was = array_values( array_filter( (array) ( $mail['draft']['done_langs'] ?? [] ), 'is_string' ) );
 		self::put_email( $rule_id, $email_id, [
 			'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
-				'done_langs' => array_values( array_unique( array_merge( $was, array_values( $targets ) ) ) ),
+				'done_langs' => array_values( array_unique( array_merge( $was, $langs ) ) ),
 				'translated' => time(),
 				'texts'      => count( $write ),
 			] ),
 		] );
 		return [
 			'done'    => count( $write ),
-			'langs'   => array_values( $targets ),
-			'skipped' => max( 0, count( $source_texts ) - count( $write ) ),
+			'langs'   => $langs,
+			'skipped' => max( 0, count( $texts ) - count( $write ) ),
 		];
 	}
 
@@ -2648,7 +2717,12 @@ final class DZE_Klaviyo {
 			$lang,
 			implode( "\n\n", $rows )
 		);
-		$said = DZE_Marketing_Ai::complete( $system, $user, '', 8000, 180 );
+		// Translation is the one job here that is mechanical: strict rules, a
+		// checked answer, no judgement to make. Run on the big model it took
+		// minutes a language and the shop watched a button; run on the fast
+		// one it is seconds, and what comes back is verified against what was
+		// sent either way.
+		$said = DZE_Marketing_Ai::complete( $system, $user, self::I18N_MODEL, 8000, 120 );
 		$json = json_decode( self::json_of( $said ), true );
 		if ( ! is_array( $json ) ) {
 			return [];
@@ -2844,7 +2918,29 @@ final class DZE_Klaviyo {
 			wp_send_json_error( [ 'message' => __( 'Which email? Save the promotion first, then translate.', 'dazont-ecom' ) ] );
 		}
 		try {
-			$got = self::translate_email( $rule, $email, $lang );
+			// One language, written and put aside. The languages are asked for
+			// at the same time and nothing reaches Klaviyo until they are all
+			// in: quicker, and one write instead of four on the same row.
+			$n = self::translate_language( $rule, $email, $lang );
+		} catch ( Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [ 'lang' => $lang, 'done' => $n ] );
+	}
+
+	/** Every language that came back, filed in Klaviyo in one call. */
+	public static function ajax_translate_save(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$rule  = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
+		$email = isset( $_POST['email'] ) ? sanitize_key( wp_unslash( $_POST['email'] ) ) : '';
+		if ( '' === $rule || '' === $email ) {
+			wp_send_json_error( [ 'message' => __( 'Which email? Save the promotion first, then translate.', 'dazont-ecom' ) ] );
+		}
+		try {
+			$got = self::save_translations( $rule, $email );
 		} catch ( Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -5373,6 +5469,7 @@ final class DZE_Klaviyo {
 			'i18nBusy'  => __( 'Translating…', 'dazont-ecom' ),
 			/* translators: %s: a language, %i: which one, %n: how many in all */
 			'i18nDoing' => __( 'Writing %s… (%i of %n)', 'dazont-ecom' ),
+			'i18nSaving'=> __( 'Filing them in Klaviyo…', 'dazont-ecom' ),
 			/* translators: %d: how many texts, %s: the languages */
 			'i18nDone'  => __( 'Translated — %d texts in %s', 'dazont-ecom' ),
 			'i18nAgain' => __( 'Translate again', 'dazont-ecom' ),
