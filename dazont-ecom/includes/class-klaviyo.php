@@ -867,8 +867,15 @@ final class DZE_Klaviyo {
 		}
 		// A checkbox the submitted section owns: unticked it posts nothing, so
 		// it is read from the section's own marker rather than from itself.
+		if ( array_key_exists( 'locales', $in ) ) {
+			$out['locales'] = implode( ', ', array_slice( array_filter( array_map(
+				static fn( string $one ): string => sanitize_text_field( strtolower( trim( $one ) ) ),
+				explode( ',', (string) $in['locales'] )
+			) ), 0, 20 ) );
+		}
 		if ( ! empty( $in['form'] ) ) {
 			$out['images'] = ! empty( $in['images'] ) ? 1 : 0;
+			$out['translate'] = ! empty( $in['translate'] ) ? 1 : 0;
 			// The list of types belongs to this form and to no other. Emptied
 			// on purpose, it means the shipped list — the same thing the
 			// "Restore default" beside it does, so the two agree.
@@ -2388,6 +2395,118 @@ final class DZE_Klaviyo {
 	}
 
 
+	/**
+	 * The languages a campaign is opened for translation in.
+	 *
+	 * Read from the shop itself: WPML already knows which markets this shop
+	 * sells to, and asking the owner to type them a second time is asking him
+	 * to keep two lists in step. What he types in the settings wins when he
+	 * types something, because Klaviyo's locales and WPML's codes are not
+	 * always spelled the same ("pt-pt", "zh-hans"), and a shop that has to
+	 * correct one of them must be able to.
+	 *
+	 * @return array{0:string,1:string[]} The source locale, and the targets.
+	 */
+	public static function locales(): array {
+		$source = 'en';
+		$targets = [];
+		if ( class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active() ) {
+			$source = DZE_Wpml::default_language() ?: 'en';
+			foreach ( DZE_Wpml::get_active_languages() as $one ) {
+				$code = (string) ( $one['code'] ?? '' );
+				if ( '' !== $code && $code !== $source ) {
+					$targets[] = $code;
+				}
+			}
+		}
+		$said = trim( (string) self::conf( 'locales' ) );
+		if ( '' !== $said ) {
+			$targets = array_values( array_filter( array_map(
+				static fn( string $one ): string => strtolower( trim( $one ) ),
+				explode( ',', $said )
+			) ) );
+			$targets = array_values( array_diff( array_unique( $targets ), [ $source ] ) );
+		}
+		return [ $source, $targets ];
+	}
+
+	/** Whether the shop asks Klaviyo to open its campaigns for translation. */
+	public static function translating(): bool {
+		$said = self::conf( 'translate', null );
+		if ( null === $said || '' === $said ) {
+			// Never answered: a shop with more than one language wants this,
+			// and a shop with one has nothing to translate into.
+			return (bool) self::locales()[1];
+		}
+		return (bool) $said;
+	}
+
+	/**
+	 * The campaign, opened for translation in the shop's own languages.
+	 *
+	 * Klaviyo does not translate a campaign because it CAN: the languages are
+	 * declared per message, in a "translation collection", and a message
+	 * without one simply has no other language — which is what a campaign
+	 * built by this plugin had, however carefully it was built in blocks. The
+	 * blocks are what make the translation possible; this is what asks for it.
+	 *
+	 * The collection's id is derived from the message, so asking twice is
+	 * reading it back and setting the same languages rather than making a
+	 * second one.
+	 *
+	 * @return string A warning for the owner, or '' when all is well.
+	 */
+	private static function put_translation( string $msg_id ): string {
+		if ( '' === $msg_id || ! self::translating() ) {
+			return '';
+		}
+		[ $source, $targets ] = self::locales();
+		if ( ! $targets ) {
+			return '';
+		}
+		// The id Klaviyo mints for the collection of a message. Colons belong
+		// in the path as they stand; only the message is escaped, and a
+		// message id is alphanumeric anyway.
+		$id   = 'campaign-variation::email::' . rawurlencode( $msg_id );
+		$attr = [
+			'channel'         => 'email',
+			'source_locale'   => $source,
+			'fallback_locale' => $source,
+			'target_locales'  => array_values( $targets ),
+		];
+		$has = self::request( 'GET', 'translations/' . $id . '/?fields%5Btranslation%5D=target_locales', null, 20 );
+		if ( ! is_wp_error( $has ) ) {
+			$now = (array) ( $has['data']['attributes']['target_locales'] ?? [] );
+			sort( $now );
+			$want = $targets;
+			sort( $want );
+			if ( $now === $want ) {
+				return '';
+			}
+			$res = self::request( 'PATCH', 'translations/' . $id . '/', [
+				'data' => [ 'type' => 'translation', 'id' => 'campaign-variation::email::' . $msg_id, 'attributes' => $attr ],
+			], 25 );
+		} else {
+			$res = self::request( 'POST', 'translations/', [
+				'data' => [
+					'type'          => 'translation',
+					'attributes'    => $attr,
+					'relationships' => [
+						'campaign-variation' => [ 'data' => [ 'type' => 'campaign-variation', 'id' => $msg_id ] ],
+					],
+				],
+			], 25 );
+		}
+		if ( is_wp_error( $res ) ) {
+			return sprintf(
+				/* translators: %s: what Klaviyo answered */
+				__( 'The campaign was made, but Klaviyo would not open it for translation (%s). Open it in Klaviyo and add the languages there.', 'dazont-ecom' ),
+				$res->get_error_message()
+			);
+		}
+		return '';
+	}
+
 	public static function campaign_url( string $campaign_id ): string {
 		return 'https://www.klaviyo.com/campaign/' . rawurlencode( $campaign_id ) . '/wizard';
 	}
@@ -2795,6 +2914,13 @@ final class DZE_Klaviyo {
 			$pushed = self::push_subjects( $msg_id, $rule );
 			if ( '' !== $pushed ) {
 				$warning = trim( $warning . ' ' . $pushed );
+			}
+			// 4b. And the languages the rest of it is to be translated into.
+			//     Done every time rather than on creation only: the shop can
+			//     add a market between two emails of the same promotion.
+			$opened = self::put_translation( $msg_id );
+			if ( '' !== $opened ) {
+				$warning = trim( $warning . ' ' . $opened );
 			}
 		}
 
@@ -5328,6 +5454,43 @@ final class DZE_Klaviyo {
 							esc_html_e( 'Nothing read yet. Choose your template and press Read it.', 'dazont-ecom' );
 						}
 						?>
+					</p>
+				</td>
+			</tr>
+			<?php
+			// The languages, right under the frame, because both answer the
+			// same question: what the email is wrapped in before it is sent.
+			[ $dze_src, $dze_tgt ] = self::locales();
+			?>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Translations', 'dazont-ecom' ); ?></th>
+				<td>
+					<label>
+						<input type="checkbox" name="<?php echo esc_attr( self::OPT . '[translate]' ); ?>" value="1" <?php checked( self::translating() ); ?> />
+						<?php esc_html_e( 'Open every campaign for translation in Klaviyo', 'dazont-ecom' ); ?>
+					</label>
+					<p style="margin:8px 0 4px;">
+						<label>
+							<span style="color:#646970;font-size:12px;"><?php esc_html_e( 'Into', 'dazont-ecom' ); ?></span>
+							<input type="text" style="width:340px;margin-left:6px;" name="<?php echo esc_attr( self::OPT . '[locales]' ); ?>"
+								value="<?php echo esc_attr( (string) ( $s['locales'] ?? '' ) ); ?>"
+								placeholder="<?php echo esc_attr( implode( ', ', $dze_tgt ) ); ?>" />
+						</label>
+					</p>
+					<p class="description" style="max-width:640px;">
+						<?php
+						if ( $dze_tgt ) {
+							printf(
+								/* translators: 1: the shop's main language, 2: the other languages */
+								esc_html__( 'Written in %1$s and offered for translation into %2$s. Left empty, the list is your own languages as WPML declares them — fill it only when Klaviyo spells one of them differently.', 'dazont-ecom' ),
+								'<strong>' . esc_html( $dze_src ) . '</strong>',
+								'<strong>' . esc_html( implode( ', ', $dze_tgt ) ) . '</strong>'
+							);
+						} else {
+							esc_html_e( 'This shop has one language, so there is nothing to translate into. Add the Klaviyo locales here — fr, de, es — if you send in more languages than the site is written in.', 'dazont-ecom' );
+						}
+						?>
+						<br /><?php esc_html_e( 'Klaviyo needs this to be asked for: a campaign nobody asked to translate has one language whatever it is built of. The text itself is translated in Klaviyo, block by block, which is why the email is sent in blocks at all.', 'dazont-ecom' ); ?>
 					</p>
 				</td>
 			</tr>
