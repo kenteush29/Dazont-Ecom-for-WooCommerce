@@ -53,6 +53,7 @@ function add_action() {} function add_filter() {} function register_setting() {}
 function current_user_can( $c ) { return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
 function is_admin() { return true; }
+function wp_unslash( $v ) { return $v; }
 function wp_style_is( $h, $l = 'enqueued' ) { return true; }
 function wp_enqueue_style( ...$a ) {}
 function wp_enqueue_script( ...$a ) {}
@@ -210,14 +211,26 @@ ok( 'a text is measured in characters', judge( rule( '_text', 'lt', 5 ), 7 ), fa
 
 echo "The name a criterion is given\n";
 $named = DZE_Diagnostic::clean_rows( [
-	[ 'id' => '', 'label' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_block_image_1', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ],
-	[ 'id' => '', 'label' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_block_text_2',  'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ],
-	[ 'id' => '', 'label' => '', 'scope' => 'product', 'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 120, 'find' => '', 'on' => 1 ],
+	[ 'id' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_block_image_1', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ],
+	[ 'id' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_block_text_2',  'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ],
+	[ 'id' => '', 'scope' => 'product', 'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 120, 'find' => '', 'on' => 1 ],
+	// A title typed by hand is not kept: the rule names itself, always.
+	[ 'id' => '', 'label' => 'My own title', 'note' => 'Add more photographs.', 'scope' => 'product', 'field' => 'product.gallery', 'key' => '', 'test' => 'lt', 'value' => 3, 'find' => '', 'on' => 1 ],
 ] );
 ok( 'named after the key it reads',    $named[0]['label'] ?? '', '_block_image_1 is empty' );
 ok( 'the other key, the other name',   $named[1]['label'] ?? '', '_block_text_2 is empty' );
 ok( 'two keys, two ids',               ( $named[0]['id'] ?? '' ) !== ( $named[1]['id'] ?? '' ), true );
 ok( 'an ordinary field keeps its own', $named[2]['label'] ?? '', 'Description is less than 120 words' );
+ok( 'a hand-written title is not kept', $named[3]['label'] ?? '', 'Gallery photographs is less than 3 photographs' );
+ok( 'the description is what is kept',  $named[3]['note'] ?? '', 'Add more photographs.' );
+
+// The name follows the rule. Change the figure and the name changes with it —
+// but the id does not, or the last reading would be filed under nothing.
+$moved = DZE_Diagnostic::clean_rows( [
+	[ 'id' => 'thin', 'scope' => 'product', 'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'on' => 1 ],
+] );
+ok( 'the name follows the figure',      $moved[0]['label'] ?? '', 'Description is less than 50 words' );
+ok( 'and the id stays where it was',    $moved[0]['id'] ?? '', 'thin' );
 
 echo "Rows written against fields that no longer exist\n";
 $old = DZE_Diagnostic::clean_rows( [
@@ -306,6 +319,77 @@ $html = drawn();
 ok( 'an unnarrowed reading says so',        false !== strpos( $html, 'count EVERY language' ), true );
 ok( 'and names the post type',              false !== strpos( $html, 'Products</strong>' ), true );
 ok( 'without also claiming the language',   false !== strpos( $html, 'Read in <strong>English</strong> only' ), false );
+
+echo "What a criterion is FOR\n";
+$g = DZE_Diagnostic::clean_rows( [
+	// Both ticked, one ticked, and both deliberately cleared — the card posts
+	// the key either way, so "neither" has to survive a save.
+	[ 'id' => 'both', 'label' => 'Both', 'scope' => 'product', 'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'goals' => [ 'seo', 'cro' ], 'on' => 1 ],
+	[ 'id' => 'one',  'label' => 'One',  'scope' => 'product', 'field' => 'product.gallery',     'key' => '', 'test' => 'lt', 'value' => 3,  'find' => '', 'goals' => [ '', 'cro' ], 'on' => 1 ],
+	[ 'id' => 'none', 'label' => 'None', 'scope' => 'product', 'field' => 'product.sku',         'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'goals' => [ '' ], 'on' => 1 ],
+	[ 'id' => 'junk', 'label' => 'Junk', 'scope' => 'product', 'field' => 'product.title',       'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'goals' => [ 'seo', 'astrology' ], 'on' => 1 ],
+] );
+ok( 'both goals kept',                 $g[0]['goals'] ?? null, [ 'seo', 'cro' ] );
+ok( 'one goal kept, the blank dropped', $g[1]['goals'] ?? null, [ 'cro' ] );
+ok( 'neither is an answer, and it sticks', $g[2]['goals'] ?? null, [] );
+ok( 'a goal we do not know is dropped', $g[3]['goals'] ?? null, [ 'seo' ] );
+
+// A row saved before goals existed carries no key at all: shipped criteria
+// take what they ship with, the shop's own take both, and neither is lost.
+$was = DZE_Diagnostic::clean_rows( [
+	[ 'id' => 'prod_seo_t', 'label' => 'SEO title too long', 'scope' => 'product', 'field' => 'product.seo_title', 'key' => '', 'test' => 'gt', 'value' => 60, 'find' => '', 'on' => 1 ],
+	[ 'id' => 'mine', 'label' => 'Mine', 'scope' => 'product', 'field' => 'product.price', 'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ],
+] );
+ok( 'an old shipped row takes its own',  $was[0]['goals'] ?? null, [ 'seo' ] );
+ok( "an old row of the shop's takes both", $was[1]['goals'] ?? null, [ 'seo', 'cro' ] );
+
+echo "The opportunity, counted per goal\n";
+// Three products. Two fall short on a CRO criterion AND on an SEO one; the
+// third only on the SEO one. CRO is 2 things to open, SEO is 3 — never 5.
+$GLOBALS['dze_posts']['product'] = [];
+foreach ( [ 101, 102, 103 ] as $one ) {
+	$p = new WP_Post();
+	$p->ID = $one;
+	$p->post_content = 103 === $one ? str_repeat( 'word ', 80 ) : 'Short.';
+	$GLOBALS['dze_meta'][ $one ]['_yoast_wpseo_title'] = '';
+	$GLOBALS['dze_posts']['product'][] = $p;
+}
+$GLOBALS['dze_icl'] = [ 'post_product' => [ 'en' => [ 101, 102, 103 ] ] ];
+$GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
+	[ 'id' => 'thin',  'note' => 'Write a real description.', 'scope' => 'product', 'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'goals' => [ 'seo', 'cro' ], 'on' => 1 ],
+	[ 'id' => 'nopic', 'note' => 'Shoot these products.',      'scope' => 'product', 'field' => 'product.main_image',  'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'goals' => [ 'cro' ], 'on' => 1 ],
+	[ 'id' => 'nosku', 'note' => 'Give them a reference.',     'scope' => 'product', 'field' => 'product.sku',         'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'goals' => [], 'on' => 1 ],
+] ];
+$GLOBALS['dze_transients'] = [];
+$census = DZE_Diagnostic::scan();
+ok( 'the thin ones are two',            $census['checks']['thin'] ?? -1, 2 );
+ok( 'all three have no photograph',     $census['checks']['nopic'] ?? -1, 3 );
+ok( 'CRO counts each thing once',       $census['goals']['cro'] ?? -1, 3 );
+ok( 'SEO counts only its own',          $census['goals']['seo'] ?? -1, 2 );
+ok( 'a criterion for neither is in no goal', ( $census['goals']['cro'] ?? 0 ) + ( $census['goals']['seo'] ?? 0 ) < 3 + 3, true );
+
+echo "Choosing a goal on the screen\n";
+$GLOBALS['dze_opts']['dze_diagnostic_census'] = $census;
+unset( $_GET['goal'] );
+$html = drawn();
+ok( 'both goals are offered',           false !== strpos( $html, 'goal=cro' ) && false !== strpos( $html, 'goal=seo' ), true );
+ok( 'and everything is listed',         false !== strpos( $html, 'SKU is empty' ), true );
+ok( 'each line says what to do',        false !== strpos( $html, 'Write a real description.' ), true );
+
+$_GET['goal'] = 'seo';
+$html = drawn();
+ok( "SEO's own criteria are shown",     false !== strpos( $html, 'Description is less than 50 words' ), true );
+ok( 'and CRO-only ones are not',        false !== strpos( $html, 'Main photograph is empty' ), false );
+ok( 'nor the ones for neither',         false !== strpos( $html, 'SKU is empty' ), false );
+
+$_GET['goal'] = 'cro';
+$html = drawn();
+ok( "CRO's own criteria are shown",     false !== strpos( $html, 'Main photograph is empty' ), true );
+ok( 'a goal nobody typed is ignored',   true, true );
+$_GET['goal'] = 'astrology';
+$html = drawn();
+ok( 'an unknown goal shows everything', false !== strpos( $html, 'SKU is empty' ), true );
+unset( $_GET['goal'] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
