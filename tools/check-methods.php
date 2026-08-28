@@ -61,5 +61,58 @@ foreach ($files as $f => $src) {
 		}
 	}
 }
+
+// A hook's callback is the same fatal wearing a different hat, and a worse
+// one: [ __CLASS__, 'ajax_thing' ] on an action nobody wrote answers a click
+// with a 400 and no message at all. wp_ajax_dze_klav_langs pointed at a method
+// that had been lost in an edit, so the Translate button died on its first
+// request and said only "the translation did not finish". Nothing above sees
+// it — there is no :: in a callable array — so it is looked for on its own.
+// Only the forms that can ONLY be a callback. [ 'DZE_Content', 'prompt' ] is
+// just as often a pair of strings — the class that owns an option and the key
+// it keeps it under, which is exactly what the prompt registry stores — and a
+// checker that cries wolf on those is a checker somebody stops reading.
+$q  = '[\x27"]';
+$re = '/(?:\[|array\s*\()\s*(__CLASS__|self::class|static::class|\$this)\s*,\s*'
+	. $q . '(\w+)' . $q . '\s*(?:\]|\))/';
+foreach ($files as $f => $src) {
+	$own = null;
+	if (preg_match('/^\s*(?:final\s+|abstract\s+)?class\s+(\w+)/m', $src, $m)) { $own = $m[1]; }
+	if (!preg_match_all($re, $src, $mm, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) { continue; }
+	foreach ($mm as $call) {
+		$meth = $call[2][0];
+		$cls  = $own;
+		if (!$cls || !isset($defined[$cls])) { continue; }   // not a class of ours
+		if (isset($defined[$cls][$meth])) { continue; }
+		printf("MISSING  %s::%s()  — %s:%d  (callback)\n", $cls, $meth, basename($f),
+			substr_count(substr($src, 0, $call[0][1]), "\n") + 1);
+		$bad++;
+	}
+}
+
+// The other half of the same failure: a button that posts an action nobody
+// registered. WordPress answers those with a bare 400 and no message, so the
+// screen says whatever its own "something went wrong" string is and the shop
+// has nothing to go on. dze_klav_langs was one of those.
+$hooked = [];
+foreach ($files as $src) {
+	if (preg_match_all('/wp_ajax_(?:nopriv_)?([a-z0-9_]+)/i', $src, $mm)) {
+		foreach ($mm[1] as $one) { $hooked[$one] = true; }
+	}
+}
+foreach (glob("$dir/admin/js/*.js") as $f) {
+	$src   = file_get_contents($f);
+	$lines = explode("\n", $src);
+	foreach ($lines as $i => $line) {
+		if (!preg_match_all('/action\s*:\s*[\x27"]([a-z0-9_]+)[\x27"]/i', $line, $mm)) { continue; }
+		foreach ($mm[1] as $one) {
+			// Only ours: WordPress and other plugins register their own.
+			if (0 !== strpos($one, 'dze_') || isset($hooked[$one])) { continue; }
+			printf("MISSING  wp_ajax_%s  — %s:%d  (posted, never registered)\n", $one, basename($f), $i + 1);
+			$bad++;
+		}
+	}
+}
+
 echo $bad ? "\n$bad undefined method call(s)\n" : "\nno undefined method calls\n";
 exit($bad ? 1 : 0);
