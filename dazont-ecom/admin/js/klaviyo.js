@@ -321,32 +321,66 @@
 	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('id')); });
 
 	// The other languages, written by the shop rather than left to Klaviyo.
-	// One request per language, so it is slow on purpose and says so.
+	// ONE request per language, driven from here, so the shop sees each one
+	// land instead of watching a button for four minutes and wondering. A
+	// single request doing all four is also a request that times out.
 	$(document).on('click', '.dze-mail-i18n', function () {
 		var $b = $(this),
 			$row = $b.closest('.dze-mail'),
 			$said = $row.find('.dze-mail-langs'),
+			rule = $('#dze-klav-editor').data('rule'),
+			mail = $row.data('id'),
 			was = $b.text();
+
 		$b.prop('disabled', true).text(cfg.i18nBusy || 'Translating…');
-		$said.css('color', '').text(cfg.i18nWait || 'Writing the other languages — one request per language, this takes a moment.');
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_i18n',
-			nonce: cfg.nonce,
-			rule: $('#dze-klav-editor').data('rule'),
-			email: $row.data('id')
-		}).done(function (r) {
-			if (r && r.success) {
-				$said.css('color', '#00794b').text((r.data && r.data.message) || '');
-				$b.text(cfg.i18nAgain || 'Translate again');
-			} else {
-				$said.css('color', '#b32d2e').text((r && r.data && r.data.message) || '');
-				$b.text(was);
+
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_langs', nonce: cfg.nonce }).done(function (r) {
+			var langs = (r && r.data && r.data.langs) || [], done = [], texts = 0;
+			if (!langs.length) {
+				stop('#b32d2e', cfg.i18nNone || 'No languages to translate into.');
+				return;
+			}
+			next(0);
+
+			function next(i) {
+				if (i >= langs.length) {
+					stop('#00794b', (cfg.i18nDone || 'Translated — %d texts in %s')
+						.replace('%d', texts).replace('%s', done.join(', ').toUpperCase()));
+					$b.text(cfg.i18nAgain || 'Translate again');
+					return;
+				}
+				// Said before the request, not after: this is the slow part and
+				// the shop has to know which language it is waiting on.
+				$said.css('color', '').text((cfg.i18nDoing || 'Writing %s… (%i of %n)')
+					.replace('%s', langs[i].toUpperCase())
+					.replace('%i', i + 1).replace('%n', langs.length)
+					+ (done.length ? ' · ' + done.join(', ').toUpperCase() + ' ✓' : ''));
+				$.post(cfg.ajaxUrl, {
+					action: 'dze_klav_i18n', nonce: cfg.nonce,
+					rule: rule, email: mail, lang: langs[i]
+				}).done(function (one) {
+					if (one && one.success) {
+						done.push(langs[i]);
+						texts = (one.data && one.data.done) || texts;
+						next(i + 1);
+					} else {
+						stop('#b32d2e', ((one && one.data && one.data.message) || '')
+							+ (done.length ? ' — ' + done.join(', ').toUpperCase() + ' ' + (cfg.i18nKept || 'were written.') : ''));
+					}
+				}).fail(function () {
+					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.')
+						+ (done.length ? ' ' + done.join(', ').toUpperCase() + ' ' + (cfg.i18nKept || 'were written.') : ''));
+				});
+			}
+
+			function stop(colour, text) {
+				$said.css('color', colour).text(text);
+				$b.prop('disabled', false);
+				if ('#00794b' !== colour) { $b.text(was); }
 			}
 		}).fail(function () {
 			$said.css('color', '#b32d2e').text(cfg.i18nFail || 'The translation did not finish.');
-			$b.text(was);
-		}).always(function () {
-			$b.prop('disabled', false);
+			$b.prop('disabled', false).text(was);
 		});
 	});
 
