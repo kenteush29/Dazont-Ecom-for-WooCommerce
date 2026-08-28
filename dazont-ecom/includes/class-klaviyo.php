@@ -1818,11 +1818,8 @@ final class DZE_Klaviyo {
 		// A type the shop has since deleted still has to answer with a day:
 		// the promotion opens, and that is the day.
 		$ts = self::type_ts( self::kinds()[ $kind ] ?? [ 'anchor' => 'start', 'offset' => 0 ], $rule );
-		// A date already gone is not a send date.
-		if ( $ts < time() + HOUR_IN_SECONDS ) {
-			$ts = time() + DAY_IN_SECONDS;
-		}
-		return gmdate( 'Y-m-d', $ts );
+		// A date already gone is not a send date, and neither is today.
+		return self::day_from_tomorrow( gmdate( 'Y-m-d', $ts ) );
 	}
 
 	/**
@@ -1836,6 +1833,34 @@ final class DZE_Klaviyo {
 	 */
 	public static function just_day( string $when ): string {
 		return preg_match( '/^(\d{4}-\d{2}-\d{2})/', trim( $when ), $m ) ? $m[1] : '';
+	}
+
+	/**
+	 * The earliest day an email may be sent on: TOMORROW.
+	 *
+	 * Not today, and not yesterday. A campaign filed for today has already
+	 * lost most of the day it was meant to have — Klaviyo picks each reader's
+	 * hour, and the hours that are left are the ones nobody opens — and a
+	 * campaign filed for a day gone by is a campaign that will never go out at
+	 * all. The shop's own calendar, not the server's: the picker shows the
+	 * owner's dates, and an earliest day a day off from what he sees is worse
+	 * than none.
+	 */
+	public static function earliest_day(): string {
+		return function_exists( 'wp_date' ) ? (string) wp_date( 'Y-m-d', time() + DAY_IN_SECONDS ) : gmdate( 'Y-m-d', time() + DAY_IN_SECONDS );
+	}
+
+	/**
+	 * A day, never earlier than the earliest one.
+	 *
+	 * Applied where a day is WRITTEN and nowhere else: clamping on the way out
+	 * as well would rewrite the day an email already went out on, and a
+	 * promotion's own history is not ours to move.
+	 */
+	public static function day_from_tomorrow( string $when ): string {
+		$day = self::just_day( $when );
+		$min = self::earliest_day();
+		return ( '' !== $day && $day < $min ) ? $min : $day;
 	}
 
 	/**
@@ -2112,7 +2137,7 @@ final class DZE_Klaviyo {
 			}
 			$was  = (array) ( $live[ $email_id ] ?? [] );
 			$when = array_key_exists( 'when', $posted )
-				? self::just_day( sanitize_text_field( (string) $posted['when'] ) )
+				? self::day_from_tomorrow( sanitize_text_field( (string) $posted['when'] ) )
 				: (string) ( $was['when'] ?? '' );
 			// The type is a CHOICE, so it comes from the form — checked
 			// against the list the shop actually has, never trusted as it
@@ -5487,6 +5512,7 @@ final class DZE_Klaviyo {
 				'creating' => __( 'Creating the draft in Klaviyo…', 'dazont-ecom' ),
 				'made'     => __( 'Draft ready in Klaviyo — nothing was sent. It opens on Recipients; press Next for the email.', 'dazont-ecom' ),
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
+				'notBefore'=> __( 'The earliest an email can go out is tomorrow — moved.', 'dazont-ecom' ),
 				'subject'  => __( 'Write a subject line first.', 'dazont-ecom' ),
 				'open'     => __( 'Open draft ↗', 'dazont-ecom' ),
 				'again'    => __( 'Again', 'dazont-ecom' ),
@@ -5774,7 +5800,10 @@ final class DZE_Klaviyo {
 							<?php // The day is the shop's decision; the hour is Klaviyo's. ?>
 							<?php // Said BESIDE the field, not in small print under it: a
 							// note nobody reads is a note that is not there. ?>
-							<input type="date" id="dze-klav-e-when" />
+							<?php // The earliest day is tomorrow, and the picker enforces it:
+							// a day that cannot be chosen is better than a day that is
+							// refused after the fact. ?>
+							<input type="date" id="dze-klav-e-when" min="<?php echo esc_attr( self::earliest_day() ); ?>" />
 							<span id="dze-klav-e-kept" class="description" style="margin-left:8px;"></span>
 							<span class="dze-smart" title="<?php esc_attr_e( 'Klaviyo works out, for each person on the list, the hour that reader actually opens his mail.', 'dazont-ecom' ); ?>">
 								<?php esc_html_e( 'Hour: Klaviyo Smart Send Time', 'dazont-ecom' ); ?>
