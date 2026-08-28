@@ -68,6 +68,7 @@ final class DZE_Diagnostic {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
 		add_action( 'admin_init', [ __CLASS__, 'schedule' ] );
 		add_action( 'wp_ajax_dze_diag_scan', [ __CLASS__, 'ajax_scan' ] );
+		add_action( 'wp_ajax_dze_diag_keys', [ __CLASS__, 'ajax_keys' ] );
 	}
 
 	/** Once a day, and never twice. */
@@ -1054,6 +1055,25 @@ final class DZE_Diagnostic {
 		return $out;
 	}
 
+	/**
+	 * The custom fields of one post type, asked for when a card is switched
+	 * to it.
+	 *
+	 * Behind a click, never on a page load: the shop that never writes a
+	 * criterion about Funnels never pays for reading what a funnel carries.
+	 */
+	public static function ajax_keys(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$type = sanitize_key( (string) ( $_POST['type'] ?? '' ) );
+		if ( ! isset( self::scopes()[ $type ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown post type.', 'dazont-ecom' ) ], 400 );
+		}
+		wp_send_json_success( [ 'keys' => self::meta_keys( $type ) ] );
+	}
+
 	public static function ajax_scan(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -1111,13 +1131,20 @@ final class DZE_Diagnostic {
 		);
 		echo '<span id="dze-diag-msg" class="description">';
 		if ( $at ) {
+			// What was read, by post type: the line named three of them when
+			// the shop could have thirteen, and a shop that reads its Funnels
+			// would have been told about articles it never asked for.
+			$said = [];
+			foreach ( $where as $scope => $label ) {
+				if ( isset( $seen[ $scope ] ) ) {
+					$said[] = sprintf( '%s %d', $label, (int) $seen[ $scope ] );
+				}
+			}
 			printf(
-				/* translators: 1: how long ago, 2: products, 3: categories, 4: articles */
-				esc_html__( 'Read %1$s ago — %2$d products, %3$d categories, %4$d articles and pages.', 'dazont-ecom' ),
+				/* translators: 1: how long ago, 2: what was read, by post type */
+				esc_html__( 'Read %1$s ago — %2$s.', 'dazont-ecom' ),
 				esc_html( human_time_diff( $at ) ),
-				(int) ( $seen['product'] ?? 0 ),
-				(int) ( $seen['category'] ?? 0 ),
-				(int) ( $seen['post'] ?? 0 )
+				esc_html( implode( ' · ', $said ) )
 			);
 		} else {
 			esc_html_e( 'Never read yet — press the button, or wait for tonight.', 'dazont-ecom' );
@@ -1181,8 +1208,15 @@ final class DZE_Diagnostic {
 			// than how many criteria fired: a product short of four things is
 			// one product to open, and it is the figure the afternoon is
 			// planned against.
+			$asked = [];
+			foreach ( $checks as $check ) {
+				$asked[ (string) $check['scope'] ] = true;
+			}
 			echo '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 20px;">';
 			foreach ( $where as $scope => $label ) {
+				if ( empty( $asked[ $scope ] ) ) {
+					continue; // a type nothing is asked about has no tile and no reading.
+				}
 				$n     = (int) ( $short[ $scope ] ?? 0 );
 				$total = (int) ( $seen[ $scope ] ?? 0 );
 				$pc    = $total > 0 ? (int) round( $n / $total * 100 ) : 0;
@@ -1617,11 +1651,18 @@ final class DZE_Diagnostic {
 		// criterion on "_bloc_text_2" is then picked from a list instead of
 		// remembered — and it is still an ordinary criterion, written here
 		// like every other one.
-		// One list of custom fields per post type, read from the database, so
-		// the branding blocks this shop actually writes are in the menu
-		// whatever wrote them.
-		foreach ( array_keys( self::scopes() ) as $sid ) {
-			$keys = self::meta_keys( $sid );
+		// The custom fields of a post type, read from the database, so the
+		// branding blocks this shop writes are in the menu whatever wrote
+		// them. Only for the types a criterion is actually about: a DISTINCT
+		// over postmeta is not a query to run thirteen times because a site
+		// has thirteen public post types and a settings page was opened. The
+		// rest are fetched the moment a card is switched to them.
+		$used = [];
+		foreach ( $rows as $row ) {
+			$used[ (string) ( $row['scope'] ?? '' ) ] = true;
+		}
+		foreach ( array_keys( $used ) as $sid ) {
+			$keys = isset( self::scopes()[ $sid ] ) ? self::meta_keys( $sid ) : [];
 			if ( ! $keys ) {
 				continue;
 			}
@@ -1651,19 +1692,31 @@ final class DZE_Diagnostic {
 			. '</label>'
 			. '</p>';
 
+		// A site can declare a dozen public post types — a funnel plugin alone
+		// brings eight. A heading for each, with nothing under it, is a page
+		// of headings: only the types this shop has written a criterion about
+		// get one. The others are still in the "On" menu, which is where a
+		// type is chosen.
+		$by = [];
+		foreach ( $rows as $row ) {
+			$by[ (string) ( $row['scope'] ?? '' ) ][] = $row;
+		}
 		echo '<div id="dze-diag-lib" style="max-width:900px;">';
 		$i = 0;
 		foreach ( self::scopes() as $scope => $label ) {
+			if ( empty( $by[ $scope ] ) ) {
+				continue;
+			}
 			echo '<h3 class="dze-pr-grouphead">' . esc_html( $label ) . '</h3>';
 			echo '<div class="dze-prlist" data-scope="' . esc_attr( $scope ) . '">';
-			foreach ( $rows as $row ) {
-				if ( $scope !== ( $row['scope'] ?? '' ) ) {
-					continue;
-				}
+			foreach ( $by[ $scope ] as $row ) {
 				echo self::card( $row, (string) $i ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card().
 				$i++;
 			}
 			echo '</div>';
+		}
+		if ( ! $rows ) {
+			echo '<p class="description">' . esc_html__( 'No criteria yet. Add one — the shipped list is one click away too.', 'dazont-ecom' ) . '</p>';
 		}
 		echo '<div class="dze-prlist dze-prlist-new" id="dze-diag-new" style="margin-top:8px;"></div>';
 		echo '</div>';
@@ -1712,7 +1765,8 @@ final class DZE_Diagnostic {
 		<script type="text/template" id="dze-diag-tpl"><?php echo self::card( $blank, '__I__' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card(). ?></script>
 		<script>
 		jQuery( function ( $ ) {
-			var fields = <?php echo wp_json_encode( $keys ); ?>,
+			var nonce = <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?>,
+				fields = <?php echo wp_json_encode( $keys ); ?>,
 				scopes = <?php echo wp_json_encode( $by_scope ); ?>,
 				ops = <?php echo wp_json_encode( $ops ); ?>,
 				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>,
@@ -1764,6 +1818,27 @@ final class DZE_Diagnostic {
 				} );
 				$sel.val( meta.fields.indexOf( keep ) > -1 ? keep : meta.fields[0] );
 				$card.find( '.dze-diag-key' ).attr( 'list', 'dze-diag-keys-' + scope );
+				loadKeys( scope );
+			}
+
+			// The custom fields of a post type nobody had a criterion about:
+			// asked for once, when a card is switched to it, and never on a
+			// page load.
+			var asked = {};
+			function loadKeys( scope ) {
+				if ( ! scope || asked[ scope ] || jQuery( '#dze-diag-keys-' + scope ).length ) {
+					return;
+				}
+				asked[ scope ] = true;
+				jQuery.post( ajaxurl, { action: 'dze_diag_keys', nonce: nonce, type: scope } )
+					.done( function ( r ) {
+						var keys = ( r && r.data && r.data.keys ) || [],
+							$list = jQuery( '<datalist></datalist>' ).attr( 'id', 'dze-diag-keys-' + scope );
+						jQuery.each( keys, function ( n, k ) {
+							$list.append( jQuery( '<option></option>' ).attr( 'value', k ) );
+						} );
+						jQuery( 'body' ).append( $list );
+					} );
 			}
 
 			// What a shut card says, kept true the moment a dropdown moves.
@@ -1810,6 +1885,9 @@ final class DZE_Diagnostic {
 					$card.find( '.dze-diag-key' ).val( row.key || '' );
 					$card.find( '.dze-switch input' ).prop( 'checked', 0 !== row.on );
 				}
+				// A restored criterion joins its own type's list when that list
+				// is on the page; anything else — a new card, a type with no
+				// heading yet — goes to the foot, where it is visible.
 				var scope = $card.find( '.dze-diag-scope' ).val(),
 					$list = row ? $( '#dze-diag-lib .dze-prlist[data-scope="' + scope + '"]' ) : $();
 				( $list.length ? $list : $( '#dze-diag-new' ) ).append( $card );
