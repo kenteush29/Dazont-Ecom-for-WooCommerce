@@ -48,6 +48,7 @@ final class DZE_Klaviyo_Blocks {
 		$nodes = self::top_level( $html );
 		$rows  = [];
 		$run   = [];
+		$full  = class_exists( 'DZE_Klaviyo' ) ? DZE_Klaviyo::card_width( 1 ) : 546;
 		foreach ( $nodes as $node ) {
 			$cards = self::cards_in( $node );
 			if ( $cards ) {
@@ -62,7 +63,7 @@ final class DZE_Klaviyo_Blocks {
 				}
 				continue;
 			}
-			foreach ( self::blocks_of( $node, $t ) as $block ) {
+			foreach ( self::blocks_of( $node, $t, $full ) as $block ) {
 				$run[] = $block;
 			}
 		}
@@ -173,6 +174,18 @@ final class DZE_Klaviyo_Blocks {
 			if ( 'id' === $key || 'data_id' === $key || 'universal_id' === $key ) {
 				continue;
 			}
+			// A `properties` bag is CONTENT, not structure: the body's own
+			// properties are the HTML id and class Klaviyo's stylesheet is
+			// written against ("bodyTable" / "root-container"), and a picture's
+			// are its source and its asset. Walking into it dropped the body's
+			// id, Klaviyo filled the gap by shifting the class into it, and the
+			// rules that draw the drop shadow under the header stopped matching
+			// anything — a template that looked right in the editor and lost
+			// its shadow in every inbox.
+			if ( 'properties' === $key ) {
+				$out[ $key ] = $value;
+				continue;
+			}
 			$out[ $key ] = is_array( $value ) ? self::strip_ids( $value ) : $value;
 		}
 		return $out;
@@ -272,13 +285,14 @@ final class DZE_Klaviyo_Blocks {
 	 *
 	 * @return array[]
 	 */
-	private static function blocks_of( DOMElement $node, array $t ): array {
+	private static function blocks_of( DOMElement $node, array $t, int $width ): array {
 		$img = self::only_image( $node );
 		if ( $img ) {
 			return [ self::image_block(
 				(string) $img->getAttribute( 'src' ),
 				self::link_around( $img ),
-				(string) $img->getAttribute( 'alt' )
+				(string) $img->getAttribute( 'alt' ),
+				$width
 			) ];
 		}
 		$button = self::only_button( $node );
@@ -377,13 +391,19 @@ final class DZE_Klaviyo_Blocks {
 	 *                 what the writing asked for, not a mistake.
 	 */
 	private static function card_rows( array $cards, array $t ): array {
-		$per     = class_exists( 'DZE_Klaviyo' ) ? DZE_Klaviyo::per_row() : 3;
+		$per   = class_exists( 'DZE_Klaviyo' ) ? DZE_Klaviyo::per_row() : 3;
+		$per   = max( 1, min( 4, $per ) );
+		// A card's picture is sent at the width the card is drawn for — the
+		// very figure the HTML card uses — because a Klaviyo image with no
+		// width of its own is laid out from `max_width` alone, and 100 there
+		// means one hundred PIXELS. That is the thumbnail the shop was sent.
+		$width   = class_exists( 'DZE_Klaviyo' ) ? DZE_Klaviyo::card_width( $per ) : 178;
 		$columns = [];
 		foreach ( $cards as $card ) {
-			$columns[] = [ 'data' => [], 'blocks' => self::card_blocks( $card, $t ) ];
+			$columns[] = [ 'data' => [], 'blocks' => self::card_blocks( $card, $t, $width ) ];
 		}
 		$out = [];
-		foreach ( array_chunk( $columns, max( 1, min( 4, $per ) ) ) as $chunk ) {
+		foreach ( array_chunk( $columns, $per ) as $chunk ) {
 			$out[] = [
 				'data'    => [ 'styles' => [ 'column_layout' => self::layout_for( count( $chunk ) ) ] ],
 				'columns' => array_values( $chunk ),
@@ -411,7 +431,7 @@ final class DZE_Klaviyo_Blocks {
 	 * saw in the preview — and a card edited by hand before the draft is the
 	 * card that goes out.
 	 */
-	private static function card_blocks( DOMElement $card, array $t ): array {
+	private static function card_blocks( DOMElement $card, array $t, int $width ): array {
 		$img   = $card->getElementsByTagName( 'img' )->item( 0 );
 		$links = $card->getElementsByTagName( 'a' );
 		$href  = ( $links->length && $links->item( 0 ) instanceof DOMElement )
@@ -422,7 +442,9 @@ final class DZE_Klaviyo_Blocks {
 			$out[] = self::image_block(
 				(string) $img->getAttribute( 'src' ),
 				$href,
-				(string) $img->getAttribute( 'alt' )
+				(string) $img->getAttribute( 'alt' ),
+				$width,
+				(string) ( $t['card'] ?? '' )
 			);
 		}
 		// The name and the prices, exactly as the card prints them: the divs
@@ -442,7 +464,7 @@ final class DZE_Klaviyo_Blocks {
 			$said .= '<div style="text-align:center;">' . $inside . '</div>';
 		}
 		if ( '' !== $said ) {
-			$out[] = self::text_block( $said, 6, 6 );
+			$out[] = self::text_block( $said, 6, 6, 8, (string) ( $t['card'] ?? '' ) );
 		}
 		$label = '';
 		for ( $i = $links->length - 1; $i >= 0; $i-- ) {
@@ -453,24 +475,28 @@ final class DZE_Klaviyo_Blocks {
 			}
 		}
 		if ( '' !== $label && '' !== $href ) {
-			$out[] = self::button_block( $label, $href, $t );
+			$out[] = self::button_block( $label, $href, $t, true );
 		}
 		return $out;
 	}
 
-	private static function text_block( string $html, int $top = 10, int $bottom = 10 ): array {
+	private static function text_block( string $html, int $top = 10, int $bottom = 10, int $side = 18, string $behind = '' ): array {
+		$styles = [
+			'inner_padding_top'    => $top,
+			'inner_padding_bottom' => $bottom,
+			'inner_padding_left'   => $side,
+			'inner_padding_right'  => $side,
+		];
+		if ( '' !== trim( $behind ) ) {
+			$styles['block_background_color'] = $behind;
+		}
 		return [
 			'content_type' => 'block',
 			'type'         => 'text',
 			'data'         => [
 				'content'         => $html,
 				'display_options' => [],
-				'styles'          => [
-					'inner_padding_top'    => $top,
-					'inner_padding_bottom' => $bottom,
-					'inner_padding_left'   => 18,
-					'inner_padding_right'  => 18,
-				],
+				'styles'          => $styles,
 			],
 		];
 	}
@@ -483,7 +509,7 @@ final class DZE_Klaviyo_Blocks {
 	 * photographs are the shop's — uploading nine of them per email would fill
 	 * the account's library with copies nobody chose and nobody can weed.
 	 */
-	private static function image_block( string $src, string $href, string $alt ): array {
+	private static function image_block( string $src, string $href, string $alt, int $width, string $behind = '' ): array {
 		$props = [ 'dynamic' => true, 'src' => $src ];
 		if ( '' !== trim( $href ) ) {
 			$props['href'] = $href;
@@ -491,19 +517,44 @@ final class DZE_Klaviyo_Blocks {
 		if ( '' !== trim( $alt ) ) {
 			$props['alt_text'] = $alt;
 		}
+		// `max_width` is a number of PIXELS, not a percentage — read back off
+		// Klaviyo's own renderer, which turned max_width:100 into a 100px
+		// cell and a 100px photograph, which is the thumbnail the shop was
+		// sent. So it is given the width the picture is meant to occupy: the
+		// body's own width for a picture on its own line, the card's width in
+		// a row of products. full_width_mobile hands the whole screen back on
+		// a phone, where a 178px card is the entire column.
+		$styles = [
+			'align'             => 'center',
+			'max_width'         => max( 40, $width ),
+			'full_width_mobile' => true,
+		];
+		if ( '' !== trim( $behind ) ) {
+			$styles['block_background_color'] = $behind;
+		}
 		return [
 			'content_type' => 'block',
 			'type'         => 'image',
 			'data'         => [
 				'properties'      => $props,
 				'display_options' => [],
-				'styles'          => [ 'align' => 'center', 'max_width' => 100 ],
+				'styles'          => $styles,
 			],
 		];
 	}
 
-	/** A button, in the shop's own colour. */
-	private static function button_block( string $label, string $href, array $t ): array {
+	/**
+	 * A button, in the shop's own colour and at the shop's own size.
+	 *
+	 * The padding INSIDE the button is what makes it a button: left to
+	 * Klaviyo's own default it comes out as a coloured word. The figures are
+	 * the ones the HTML card already uses — 11px by 20px on a card, roomier
+	 * on the call to action that stands on its own line — so the two versions
+	 * of the same email are the same email.
+	 */
+	private static function button_block( string $label, string $href, array $t, bool $in_card = false ): array {
+		$pad_y = $in_card ? 11 : 14;
+		$pad_x = $in_card ? 20 : 30;
 		return [
 			'content_type' => 'block',
 			'type'         => 'button',
@@ -512,12 +563,25 @@ final class DZE_Klaviyo_Blocks {
 				'properties'      => [ 'href' => $href ],
 				'display_options' => [],
 				'styles'          => [
-					'background_color' => (string) ( $t['btn_bg'] ?: '#5B594E' ),
-					'color'            => (string) ( $t['btn_ink'] ?: '#FFFFFF' ),
-					'border_radius'    => (int) ( $t['radius'] ?? 4 ),
-					'font_family'      => (string) ( $t['body'] ?? '' ),
-					'text_align'       => 'center',
-				],
+					'background_color'     => (string) ( $t['btn_bg'] ?: '#5B594E' ),
+					'color'                => (string) ( $t['btn_ink'] ?: '#FFFFFF' ),
+					'border_radius'        => (int) ( $t['radius'] ?? 4 ),
+					'font_family'          => (string) ( $t['body'] ?? '' ),
+					'font_size'            => $in_card ? 14 : 16,
+					'font_weight'          => '400',
+					'text_align'           => 'center',
+					'inner_padding_top'    => $pad_y,
+					'inner_padding_bottom' => $pad_y,
+					'inner_padding_left'   => $pad_x,
+					'inner_padding_right'  => $pad_x,
+					'block_padding_top'    => $in_card ? 4 : 10,
+					'block_padding_bottom' => $in_card ? 14 : 22,
+					'block_padding_left'   => 18,
+					'block_padding_right'  => 18,
+				]
+				+ ( ( $in_card && '' !== trim( (string) ( $t['card'] ?? '' ) ) )
+					? [ 'block_background_color' => (string) $t['card'] ]
+					: [] ),
 			],
 		];
 	}

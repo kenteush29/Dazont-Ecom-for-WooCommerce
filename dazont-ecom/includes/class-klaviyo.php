@@ -690,19 +690,29 @@ final class DZE_Klaviyo {
 		);
 	}
 
+	/** The column the body sits in: 600 wide, less its 24px inset on each side. */
+	public const BODY_WIDTH = 552;
+
+	/**
+	 * How wide one product card is when N of them share a line.
+	 *
+	 * Asked by the HTML cards AND by the blocks sent to Klaviyo, so a picture
+	 * arrives at the size the card was drawn for and the two cannot drift.
+	 */
+	public static function card_width( int $n ): int {
+		return max( 120, (int) floor( self::BODY_WIDTH / max( 1, $n ) ) - 6 );
+	}
+
 	/**
 	 * A run of product blocks, laid out N to a row.
 	 *
 	 * @param string[] $run One card's HTML per product, in order.
 	 */
 	private static function product_rows( array $run, int $per ): string {
-		// The column the body sits in is 600 wide less its 24px inset on each
-		// side. Everything here is a share of that.
-		$inner = 552;
-		$out   = '';
+		$out = '';
 		foreach ( array_chunk( $run, max( 1, $per ) ) as $row ) {
 			$n     = count( $row );
-			$width = max( 120, (int) floor( $inner / $n ) - 6 );
+			$width = self::card_width( $n );
 			$cells = '';
 			$ghost = (int) floor( 100 / $n );
 			foreach ( $row as $i => $card ) {
