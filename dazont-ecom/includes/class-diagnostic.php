@@ -1940,7 +1940,6 @@ final class DZE_Diagnostic {
 				. checked( true, in_array( $gid, $mine, true ), false ) . ' /> '
 				. esc_html( (string) $goal['label'] ) . '</label>';
 		}
-		$out .= '<span class="description">' . esc_html__( 'The Diagnostic can then show one at a time — the shop is never working on both at once.', 'dazont-ecom' ) . '</span>';
 		$out .= '</p>';
 		// The description: written by the shop, shown on the Diagnostic under
 		// the rule, and the place where "why this matters" belongs — the rule
@@ -1949,7 +1948,6 @@ final class DZE_Diagnostic {
 			. '<input type="text" class="dze-diag-note" style="width:100%;max-width:640px;" name="' . $name( 'note' ) . '"'
 			. ' value="' . esc_attr( (string) ( $row['note'] ?? '' ) ) . '"'
 			. ' placeholder="' . esc_attr__( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ) . '" /></label></p>';
-		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. A custom field is read as it is stored: a number when it holds one, how many entries when it holds a list, how many characters otherwise; "is empty" means nothing was ever put in it, so a stored 0 counts as an answer. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
 		$out .= '</div></div>';
 		return $out;
 	}
@@ -1975,10 +1973,7 @@ final class DZE_Diagnostic {
 		settings_fields( 'dze_diagnostic_options' );
 		echo '<h2 class="title">' . esc_html__( 'Criteria', 'dazont-ecom' ) . '</h2>';
 		echo '<p class="description" style="max-width:900px;">'
-			. esc_html__( 'What the Diagnostic screen reads the shop against: a name, what is looked at, and the comparison it has to fail to be counted — the same vocabulary you filter an export with. Add your own, change a figure, remove one you do not care about. Every criterion you switch off simply stops being counted as work waiting to be done; nothing on the shop changes.', 'dazont-ecom' )
-			. '</p>';
-		echo '<p class="description" style="max-width:900px;">'
-			. esc_html__( 'This list is the whole of it. Nothing else adds a line to the Diagnostic: what is on that screen is what is written here, in the order you wrote it.', 'dazont-ecom' )
+			. esc_html__( 'What the Diagnostic reads the shop against. Switching one off stops it being counted; nothing on the shop changes.', 'dazont-ecom' )
 			. '</p>';
 		// The shop's own custom fields, offered where a key is typed. A
 		// criterion on "_bloc_text_2" is then picked from a list instead of
