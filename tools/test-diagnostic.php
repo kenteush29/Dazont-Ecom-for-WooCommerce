@@ -24,6 +24,7 @@ define( 'DZE_VERSION', 'test' );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'HOUR_IN_SECONDS', 3600 );
 define( 'MINUTE_IN_SECONDS', 60 );
+define( 'ARRAY_A', 'ARRAY_A' );
 
 $GLOBALS['dze_meta']  = [];
 $GLOBALS['dze_opts']  = [];
@@ -100,11 +101,40 @@ class DZE_Diag_Test_Wpdb {
 		[ $type, $lang ] = $q[1];
 		return $GLOBALS['dze_icl'][ $type ][ $lang ] ?? [];
 	}
-	public function get_results( $q, $m = null ) { return []; }
+	public function get_results( $q, $m = null ) {
+		$sql = is_array( $q ) ? (string) $q[0] : (string) $q;
+		if ( false === strpos( $sql, 'product_variation' ) ) { return []; }
+		$key = is_array( $q ) ? (string) ( $q[1][0] ?? '' ) : '';
+		$GLOBALS['dze_sql'][] = [ $sql, $key ];
+		$out = [];
+		foreach ( $GLOBALS['dze_variations'] as $v ) {
+			// The stub answers what the SQL actually ASKS, clause by clause —
+			// not what the function is supposed to want. A stub that filters
+			// on its own idea of the query passes on code that stopped
+			// filtering, which is worse than having no test at all.
+			if ( '' !== $key ) {
+				if ( ! isset( $v[ $key ] ) ) { continue; }
+				// The attribute must have a value, when the query says so.
+				if ( false !== strpos( $sql, "a.meta_value <> ''" ) && '' === (string) $v[ $key ] ) { continue; }
+			}
+			if ( false !== strpos( $sql, 't.meta_value IS NULL' ) && ! empty( $v['_thumbnail_id'] ) ) { continue; }
+			if ( false !== strpos( $sql, "v.post_status = 'publish'" ) && isset( $v['draft'] ) ) { continue; }
+			$out[ (int) $v['parent'] ] = ( $out[ (int) $v['parent'] ] ?? 0 ) + 1;
+		}
+		$rows = [];
+		foreach ( $out as $pid => $n ) {
+			$rows[] = false !== strpos( $sql, 'v.post_parent AS pid' )
+				? [ 'pid' => $pid, 'n' => $n ]
+				: [ 'post_parent' => $pid, 'n' => $n ];
+		}
+		return $rows;
+	}
 }
 $GLOBALS['wpdb']        = new DZE_Diag_Test_Wpdb();
 $GLOBALS['dze_has_icl'] = true;
 $GLOBALS['dze_icl']     = [];
+$GLOBALS['dze_variations'] = [];
+$GLOBALS['dze_sql']        = [];
 $GLOBALS['dze_posts']   = [];
 
 // WPML, as far as this plugin ever asks.
@@ -390,6 +420,59 @@ $_GET['goal'] = 'astrology';
 $html = drawn();
 ok( 'an unknown goal shows everything', false !== strpos( $html, 'SKU is empty' ), true );
 unset( $_GET['goal'] );
+
+echo "Variations with no photograph of their own\n";
+// One product, six variations: two colours x three sizes. The olive ones have
+// a photograph, the black ones have none — so on the COLOUR attribute this
+// product has three variations missing one, and six on no attribute at all
+// (the three black, plus the three olive... no: the olive ones have one).
+$GLOBALS['dze_variations'] = [
+	[ 'parent' => 501, 'attribute_pa_couleur' => 'olive', 'attribute_pa_taille' => 's', '_thumbnail_id' => 91 ],
+	[ 'parent' => 501, 'attribute_pa_couleur' => 'olive', 'attribute_pa_taille' => 'm', '_thumbnail_id' => 91 ],
+	[ 'parent' => 501, 'attribute_pa_couleur' => 'olive', 'attribute_pa_taille' => 'l', '_thumbnail_id' => 91 ],
+	[ 'parent' => 501, 'attribute_pa_couleur' => 'noir',  'attribute_pa_taille' => 's', '_thumbnail_id' => 0 ],
+	[ 'parent' => 501, 'attribute_pa_couleur' => 'noir',  'attribute_pa_taille' => 'm', '_thumbnail_id' => 0 ],
+	[ 'parent' => 501, 'attribute_pa_couleur' => 'noir',  'attribute_pa_taille' => 'l', '_thumbnail_id' => 0 ],
+	// "Any colour", with no photograph: it belongs to no colour in particular,
+	// so a criterion about the colours must not count it.
+	[ 'parent' => 501, 'attribute_pa_couleur' => '',      'attribute_pa_taille' => 'xl', '_thumbnail_id' => 0 ],
+];
+function gaps( string $key, int $pid ): int {
+	static $m = null;
+	if ( null === $m ) { $m = new ReflectionMethod( 'DZE_Diagnostic', 'variation_gaps' ); $m->setAccessible( true ); }
+	return (int) ( $m->invoke( null, $key )[ $pid ] ?? 0 );
+}
+ok( 'the colours missing a photograph', gaps( 'attribute_pa_couleur', 501 ), 3 );
+ok( 'every variation, no attribute',    gaps( '', 501 ), 4 );
+ok( 'an attribute nobody uses',         gaps( 'attribute_pa_matiere', 501 ), 0 );
+ok( 'the query asks for one attribute', $GLOBALS['dze_sql'][0][1] ?? '', 'attribute_pa_couleur' );
+ok( 'and it reads the variations',      false !== strpos( $GLOBALS['dze_sql'][0][0] ?? '', "post_type = 'product_variation'" ), true );
+ok( 'only the published ones',          false !== strpos( $GLOBALS['dze_sql'][0][0] ?? '', "post_status = 'publish'" ), true );
+ok( 'an empty attribute is not a value', false !== strpos( $GLOBALS['dze_sql'][0][0] ?? '', "a.meta_value <> ''" ), true );
+
+// And the criterion, end to end: "more than 0 colours with no photograph".
+$p = new WP_Post();
+$p->ID = 501;
+$row = [ 'field' => 'product.variation_images', 'key' => 'attribute_pa_couleur', 'test' => 'gt', 'value' => 0, 'find' => '' ];
+ok( 'the product falls short',          judge( $row, 501 ), true );
+$row['value'] = 5;
+ok( 'but not past its own number',      judge( $row, 501 ), false );
+$row = [ 'field' => 'product.variation_images', 'key' => 'attribute_pa_matiere', 'test' => 'gt', 'value' => 0, 'find' => '' ];
+ok( 'nor on an attribute it has not',   judge( $row, 501 ), false );
+
+echo "What that criterion is called\n";
+$named = DZE_Diagnostic::clean_rows( [
+	[ 'id' => '', 'scope' => 'product', 'field' => 'product.variation_images', 'key' => 'attribute_pa_couleur', 'test' => 'gt', 'value' => 0, 'find' => '', 'on' => 1 ],
+] );
+ok( 'the field keeps its name, with the key',
+	$named[0]['label'] ?? '', 'Variations with no photograph of their own (attribute_pa_couleur) is more than 0' );
+$tool = new ReflectionMethod( 'DZE_Diagnostic', 'tool_for' );
+$tool->setAccessible( true );
+ok( 'and it is sent to the image lab',
+	$tool->invoke( null, 'product.variation_images', 'product' )['label'] ?? '', 'Image lab' );
+ok( 'a custom field is still named by its key alone',
+	DZE_Diagnostic::clean_rows( [ [ 'id' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_bloc_1', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ] ] )[0]['label'] ?? '',
+	'_bloc_1 is empty' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

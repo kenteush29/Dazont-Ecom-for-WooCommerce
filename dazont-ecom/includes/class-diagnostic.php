@@ -127,7 +127,7 @@ final class DZE_Diagnostic {
 			// repeaters, and none of them is "text" or "number". The key is
 			// typed, the value is read as it stands, and what the comparison
 			// means is written under the row.
-			'product.meta'              => [ 'scope' => 'product',  'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true ],
+			'product.meta'              => [ 'scope' => 'product',  'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true , 'keyname' => true ],
 			// --- Products, read as a number ---------------------------------
 			'product.main_image'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'main photograph', 'dazont-ecom' ) ],
 			'product.main_image_width'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, width', 'dazont-ecom' ) ],
@@ -143,6 +143,11 @@ final class DZE_Diagnostic {
 			'product.tags'              => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'tags',       'label' => __( 'tags', 'dazont-ecom' ) ],
 			'product.attributes'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'attributes', 'label' => __( 'attributes', 'dazont-ecom' ) ],
 			'product.variations'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'variations', 'label' => __( 'variations', 'dazont-ecom' ) ],
+			// Variations of ONE attribute, so "the colours with no photograph"
+			// is a criterion. A shop selling the same jacket in six colours
+			// shows the same photograph six times until somebody notices, and
+			// nobody notices from the product list.
+			'product.variation_images'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'variations with no photograph of their own', 'dazont-ecom' ), 'key' => true ],
 			'product.reviews'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'reviews',    'label' => __( 'reviews', 'dazont-ecom' ) ],
 			'product.rating'            => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'stars',      'label' => __( 'average rating', 'dazont-ecom' ) ],
 			'product.age'               => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'days',       'label' => __( 'days since published', 'dazont-ecom' ) ],
@@ -156,7 +161,7 @@ final class DZE_Diagnostic {
 			'post.excerpt'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'excerpt', 'dazont-ecom' ) ],
 			'post.seo_title'            => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) ],
 			'post.seo_desc'             => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) ],
-			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true ],
+			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true , 'keyname' => true ],
 			'post.updated'              => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'last updated', 'dazont-ecom' ) ],
 			'post.age'                  => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'published', 'dazont-ecom' ) ],
 			'post.main_image'           => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'photographs','label' => __( 'featured image', 'dazont-ecom' ) ],
@@ -277,6 +282,7 @@ final class DZE_Diagnostic {
 			[ 'id' => 'prod_main',    'scope' => 'product', 'field' => 'product.main_image',        'test' => 'empty', 'value' => 0,   'note' => __( 'Give these products a main photograph. A product with no picture is not bought and is not indexed.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro', 'seo' ], 'on' => 1 ],
 			[ 'id' => 'prod_shot_px', 'scope' => 'product', 'field' => 'product.main_image_side',   'test' => 'lt',    'value' => 800, 'note' => __( 'Replace these main photographs with larger ones: under 800 px they cannot be shown big anywhere.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro' ], 'on' => 1 ],
 			[ 'id' => 'prod_gallery', 'scope' => 'product', 'field' => 'product.gallery',           'test' => 'lt',    'value' => 3,   'note' => __( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro' ], 'on' => 1 ],
+			[ 'id' => 'prod_var_img', 'scope' => 'product', 'field' => 'product.variation_images', 'test' => 'gt', 'value' => 0, 'note' => __( 'Give these variations a photograph of their own — put the attribute in the box (attribute_pa_couleur, attribute_pa_version), then make them in the Image lab, one per colour.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro' ], 'on' => 0 ],
 			[ 'id' => 'prod_seo_t',   'scope' => 'product', 'field' => 'product.seo_title',         'test' => 'gt',    'value' => 60,  'note' => __( 'Shorten these SEO titles: past 60 characters Google cuts them off mid-sentence.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 0 ],
 			[ 'id' => 'cat_desc',     'scope' => 'category', 'field' => 'category.description',      'test' => 'lt',    'value' => 150, 'note' => __( 'Write a real description on these categories — a category page with no text ranks for nothing.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 1 ],
 			[ 'id' => 'cat_links',    'scope' => 'category', 'field' => 'category.links',            'test' => 'lt',    'value' => 2,   'note' => __( 'Point these categories at more of the shop, so a visitor and a crawler both have somewhere to go next.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 1 ],
@@ -358,7 +364,7 @@ final class DZE_Diagnostic {
 			$seen[ $id ] = true;
 			$out[] = [
 				'id'    => $id,
-				'label' => mb_substr( $label, 0, 80 ),
+				'label' => mb_substr( $label, 0, 120 ),
 				'note'  => mb_substr( sanitize_text_field( (string) ( $row['note'] ?? '' ) ), 0, 200 ),
 				'scope' => $scope,
 				'field' => $field,
@@ -499,8 +505,16 @@ final class DZE_Diagnostic {
 	 * one thing the owner needs to see on that line is WHICH field.
 	 */
 	private static function field_named( array $row, array $field ): string {
-		$key = trim( (string) ( $row['key'] ?? '' ) );
-		return ( ! empty( $field['key'] ) && '' !== $key ) ? $key : (string) ( $field['label'] ?? '' );
+		$key   = trim( (string) ( $row['key'] ?? '' ) );
+		$label = (string) ( $field['label'] ?? '' );
+		if ( empty( $field['key'] ) || '' === $key ) {
+			return $label;
+		}
+		// The custom field IS its key — there is nothing else to call it. Every
+		// other keyed field keeps its own name and carries the key beside it:
+		// "variations with no photograph of their own (attribute_pa_couleur)"
+		// says which variations, where the key alone would say nothing.
+		return ! empty( $field['keyname'] ) ? $key : $label . ' (' . $key . ')';
 	}
 
 	/**
@@ -544,7 +558,7 @@ final class DZE_Diagnostic {
 		// the symbols setting is flipped back.
 		$said = trim( self::field_named( $row, $field ) . ' ' . self::rule_clause( $row, true ) );
 		$said = mb_strtoupper( mb_substr( $said, 0, 1 ) ) . mb_substr( $said, 1 );
-		return mb_substr( $said, 0, 80 ) ?: __( 'Criterion', 'dazont-ecom' );
+		return mb_substr( $said, 0, 120 ) ?: __( 'Criterion', 'dazont-ecom' );
 	}
 
 	// =========================================================================
@@ -928,6 +942,8 @@ final class DZE_Diagnostic {
 				return (float) ( is_array( $att ) ? count( $att ) : 0 );
 			case 'product.variations':
 				return (float) ( self::variation_counts()[ $pid ] ?? 0 );
+			case 'product.variation_images':
+				return (float) ( self::variation_gaps( $key )[ $pid ] ?? 0 );
 			case 'product.categories':
 			case 'product.tags':
 				$terms = get_the_terms( $pid, 'product.tags' === $field ? 'product_tag' : 'product_cat' );
@@ -986,6 +1002,59 @@ final class DZE_Diagnostic {
 			$counts[ (int) $r['post_parent'] ] = (int) $r['n'];
 		}
 		return $counts;
+	}
+
+	/**
+	 * How many of each product's variations have no photograph OF THEIR OWN.
+	 *
+	 * Not the one WooCommerce lends them from the parent: a colour showing the
+	 * parent's photograph is exactly the gap this counts, and it is the gap the
+	 * image lab was built to fill. Restricted to one attribute when a key is
+	 * given — "the colours", "the versions" — and a variation set to "any
+	 * colour" belongs to no colour in particular, so it is not counted as one
+	 * missing a photograph.
+	 *
+	 * One grouped query for the whole shop, held for the length of the scan
+	 * and keyed by the attribute, because a shop can have a criterion on the
+	 * colours and another on the versions.
+	 *
+	 * @param string $key A variation attribute meta key, e.g. attribute_pa_couleur.
+	 * @return array<int,int>
+	 */
+	private static function variation_gaps( string $key = '' ): array {
+		static $done = [];
+		$key = sanitize_key( $key );
+		if ( isset( $done[ $key ] ) ) {
+			return $done[ $key ];
+		}
+		global $wpdb;
+		$where = '';
+		$args  = [];
+		if ( '' !== $key ) {
+			// The attribute has to be ON the variation and have a value: an
+			// empty one is "any colour", which is not a colour.
+			$where  = " INNER JOIN {$wpdb->postmeta} a ON a.post_id = v.ID AND a.meta_key = %s AND a.meta_value <> '' ";
+			$args[] = $key;
+		}
+		$sql = "SELECT v.post_parent AS pid, COUNT(*) AS n
+			 FROM {$wpdb->posts} v
+			 {$where}
+			 LEFT JOIN {$wpdb->postmeta} t ON t.post_id = v.ID AND t.meta_key = '_thumbnail_id'
+			 WHERE v.post_type = 'product_variation' AND v.post_status = 'publish'
+			   AND ( t.meta_value IS NULL OR t.meta_value = '' OR t.meta_value = '0' )
+			 GROUP BY v.post_parent";
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.NotPrepared
+		$rows = (array) $wpdb->get_results(
+			$args ? $wpdb->prepare( $sql, ...$args ) : $sql,
+			ARRAY_A
+		);
+		// phpcs:enable
+		$out = [];
+		foreach ( $rows as $r ) {
+			$out[ (int) $r['pid'] ] = (int) $r['n'];
+		}
+		$done[ $key ] = $out;
+		return $out;
 	}
 
 	private static function kind_of( string $field ): string {
@@ -1841,6 +1910,22 @@ final class DZE_Diagnostic {
 			)
 		);
 		$keys = array_values( array_map( 'strval', $keys ) );
+		// A variation's attribute is a meta key too, but on the VARIATION, so
+		// the products' own list never held it. Offered here, "the colours" is
+		// picked from a list instead of remembered as attribute_pa_couleur.
+		if ( 'product' === $type ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$attrs = (array) $wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT DISTINCT pm.meta_key FROM {$wpdb->postmeta} pm
+					 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+					 WHERE p.post_type = 'product_variation' AND pm.meta_key LIKE %s
+					 ORDER BY pm.meta_key LIMIT 60",
+					$wpdb->esc_like( 'attribute_' ) . '%'
+				)
+			);
+			$keys = array_values( array_unique( array_merge( $keys, array_map( 'strval', $attrs ) ) ) );
+		}
 		set_transient( $slot, $keys, HOUR_IN_SECONDS );
 		return $keys;
 	}
@@ -2065,6 +2150,7 @@ final class DZE_Diagnostic {
 			$keys[ $fid ] = [
 				'label' => (string) $meta['label'],
 				'key'   => ! empty( $meta['key'] ),
+				'keyname' => ! empty( $meta['keyname'] ),
 				'scope' => (string) $meta['scope'],
 				'kind'  => (string) $meta['kind'],
 				'unit'  => (string) ( $meta['unit'] ?? '' ),
@@ -2190,7 +2276,8 @@ final class DZE_Diagnostic {
 					// A criterion on a custom field is called by its key, on
 					// the shut line and in the name it is given — the same
 					// rule the server writes it under.
-					named = ( meta.key && $.trim( $card.find( '.dze-diag-key' ).val() || '' ) ) || meta.label;
+					k = meta.key ? $.trim( $card.find( '.dze-diag-key' ).val() || '' ) : '',
+					named = ! k ? meta.label : ( meta.keyname ? k : meta.label + ' (' + k + ')' );
 				fitOps( $card, meta.kind );
 				var op = $card.find( '.dze-diag-test' ).val(),
 					takes = ( ops[ op ] || {} ).takes || '',
