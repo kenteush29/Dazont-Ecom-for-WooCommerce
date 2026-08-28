@@ -196,13 +196,20 @@ final class DZE_Diagnostic {
 		return ! empty( self::settings()['signs'] );
 	}
 
-	/** One comparison, written the way this shop asked for it. */
-	public static function op_label( string $op ): string {
+	/**
+	 * One comparison, written the way this shop asked for it.
+	 *
+	 * @param bool $words Force the words even where the shop reads symbols —
+	 *                    for a criterion's own NAME, which is written once and
+	 *                    must not read differently the week the setting is
+	 *                    flipped.
+	 */
+	public static function op_label( string $op, bool $words = false ): string {
 		$row = self::operators()[ $op ] ?? null;
 		if ( ! $row ) {
 			return $op;
 		}
-		return self::signs() ? (string) $row['sign'] : (string) $row['word'];
+		return ( ! $words && self::signs() ) ? (string) $row['sign'] : (string) $row['word'];
 	}
 
 	/**
@@ -271,17 +278,9 @@ final class DZE_Diagnostic {
 			if ( '' === $scope || ! isset( self::scopes()[ $scope ] ) || self::family( $scope ) !== $want ) {
 				$scope = ( 'post' === $want ) ? 'post' : $want;
 			}
-			if ( '' === $label || ! isset( $fields[ $field ] ) ) {
-				continue; // a criterion with no name, or reading nothing, is not one.
+			if ( ! isset( $fields[ $field ] ) ) {
+				continue; // a criterion reading nothing is not one.
 			}
-			$id = sanitize_key( (string) ( $row['id'] ?? '' ) );
-			if ( '' === $id ) {
-				$id = sanitize_key( sanitize_title( $label ) ) ?: ( 'c' . ( count( $out ) + 1 ) );
-			}
-			while ( isset( $seen[ $id ] ) ) {
-				$id .= '2';
-			}
-			$seen[ $id ] = true;
 			$op = self::op_now( (string) ( $row['test'] ?? '' ) );
 			// A comparison a field cannot answer is not saved as one: "contains"
 			// asked of a count would be a criterion that never fires and never
@@ -289,6 +288,28 @@ final class DZE_Diagnostic {
 			if ( ! isset( $ops[ $op ] ) || ! in_array( (string) $fields[ $field ]['kind'], (array) $ops[ $op ]['kinds'], true ) ) {
 				$op = 'empty';
 			}
+			// A criterion is never lost for want of a name. The card carries a
+			// name box with nothing but a placeholder in it, and the sentence
+			// beside it already reads like a name — so a rule built, saved,
+			// and silently thrown away on the way in is exactly what happened.
+			// It is named after what it does instead, and the owner renames it
+			// if he wants to.
+			if ( '' === $label ) {
+				$label = self::rule_named( [
+					'field' => $field,
+					'test'  => $op,
+					'value' => (int) ( $row['value'] ?? 0 ),
+					'find'  => (string) ( $row['find'] ?? '' ),
+				], $fields[ $field ] );
+			}
+			$id = sanitize_key( (string) ( $row['id'] ?? '' ) );
+			if ( '' === $id ) {
+				$id = trim( sanitize_key( sanitize_title( $label ) ), '-_' ) ?: ( 'c' . ( count( $out ) + 1 ) );
+			}
+			while ( isset( $seen[ $id ] ) ) {
+				$id .= '2';
+			}
+			$seen[ $id ] = true;
 			$out[] = [
 				'id'    => $id,
 				'label' => mb_substr( $label, 0, 80 ),
@@ -405,22 +426,39 @@ final class DZE_Diagnostic {
 	 * words"). Written twice they would drift, and the screen would explain
 	 * one thing while the reading did another.
 	 */
-	private static function rule_clause( array $row ): string {
+	private static function rule_clause( array $row, bool $words = false ): string {
 		$op = self::op_now( (string) ( $row['test'] ?? 'empty' ) );
 		if ( 'post.links' === ( $row['field'] ?? '' ) && 'lt' === $op && 0 === (int) ( $row['value'] ?? 0 ) ) {
 			return __( 'holds fewer links than its own length calls for', 'dazont-ecom' );
 		}
 		$takes = (string) ( self::operators()[ $op ]['takes'] ?? '' );
 		if ( 'text' === $takes ) {
-			return self::op_label( $op ) . ' "' . (string) ( $row['find'] ?? '' ) . '"';
+			return self::op_label( $op, $words ) . ' "' . (string) ( $row['find'] ?? '' ) . '"';
 		}
 		if ( 'number' === $takes ) {
 			// The unit is the field's own and can be blank (a price, a weight),
 			// so the clause is assembled rather than templated: "is less than
 			// 800 px" and "is more than 50" both have to come out clean.
-			return trim( self::op_label( $op ) . ' ' . (int) ( $row['value'] ?? 0 ) . ' ' . self::unit_of( (string) ( $row['field'] ?? '' ) ) );
+			return trim( self::op_label( $op, $words ) . ' ' . (int) ( $row['value'] ?? 0 ) . ' ' . self::unit_of( (string) ( $row['field'] ?? '' ) ) );
 		}
-		return self::op_label( $op );
+		return self::op_label( $op, $words );
+	}
+
+	/**
+	 * A name for a criterion nobody named.
+	 *
+	 * The field and the comparison already say what the rule is, so the rule
+	 * says its own name: "Price is empty", "Description is less than 120
+	 * words". Not the post type — the card sits under its type's heading and
+	 * the sentence beside the name repeats it. Renaming it is typing over it.
+	 */
+	private static function rule_named( array $row, array $field ): string {
+		// In words, never in symbols: a name is written once and stored, and
+		// "Price < 800 px" would read as somebody else's criterion the week
+		// the symbols setting is flipped back.
+		$said = trim( (string) $field['label'] . ' ' . self::rule_clause( $row, true ) );
+		$said = mb_strtoupper( mb_substr( $said, 0, 1 ) ) . mb_substr( $said, 1 );
+		return mb_substr( $said, 0, 80 ) ?: __( 'Criterion', 'dazont-ecom' );
 	}
 
 	// =========================================================================
@@ -1573,7 +1611,12 @@ final class DZE_Diagnostic {
 			. '<input type="checkbox" name="' . $name( 'on' ) . '" value="1"' . checked( 1, (int) ( $row['on'] ?? 1 ), false ) . ' />'
 			. '<span class="dze-switch-slider"></span></label>';
 		$out .= '<input type="hidden" name="' . $name( 'id' ) . '" value="' . esc_attr( (string) ( $row['id'] ?? '' ) ) . '" />';
-		$out .= '<input type="text" class="dze-prb-name" name="' . $name( 'label' ) . '" value="' . esc_attr( (string) ( $row['label'] ?? '' ) ) . '" placeholder="' . esc_attr__( 'Name this criterion', 'dazont-ecom' ) . '" />';
+		// The placeholder is not a hint, it is the name the criterion will be
+		// saved under if the box is left empty — the very name clean_rows()
+		// writes. Nothing is lost for want of a name, and nothing comes back
+		// called something the screen never showed.
+		$out .= '<input type="text" class="dze-prb-name" name="' . $name( 'label' ) . '" value="' . esc_attr( (string) ( $row['label'] ?? '' ) ) . '"'
+			. ' placeholder="' . esc_attr( self::rule_named( [ 'field' => $field, 'test' => $op, 'value' => (int) ( $row['value'] ?? 0 ), 'find' => (string) ( $row['find'] ?? '' ) ], $fields[ $field ] ?? [ 'label' => '' ] ) ) . '" />';
 		$out .= '<span class="dze-prb-dest dze-diag-said">'
 			. esc_html( trim( (string) ( self::scopes()[ $scope ] ?? $scope ) . ' · '
 				. (string) ( $fields[ $field ]['label'] ?? '' ) . ' — ' . self::rule_clause( $row ) ) )
@@ -1770,12 +1813,25 @@ final class DZE_Diagnostic {
 				scopes = <?php echo wp_json_encode( $by_scope ); ?>,
 				ops = <?php echo wp_json_encode( $ops ); ?>,
 				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>,
-				target = <?php echo wp_json_encode( __( 'holds fewer links than its own length calls for', 'dazont-ecom' ) ); ?>;
+				target = <?php echo wp_json_encode( __( 'holds fewer links than its own length calls for', 'dazont-ecom' ) ); ?>,
+				name0 = <?php echo wp_json_encode( __( 'Name this criterion — or leave it, it names itself', 'dazont-ecom' ) ); ?>;
 
 			function signs() { return $( '#dze-diag-signs' ).is( ':checked' ); }
-			function opLabel( id ) {
+			function opLabel( id, words ) {
 				var o = ops[ id ]; if ( ! o ) { return id; }
-				return signs() ? o.sign : o.word;
+				return ( ! words && signs() ) ? o.sign : o.word;
+			}
+
+			// The comparison half of a criterion. One source for it: the shut
+			// card reads it with whatever this shop writes comparisons in, the
+			// name box offers the same rule in words.
+			function clause( f, op, takes, v, find, meta, words ) {
+				if ( 'post.links' === f && 'lt' === op && 0 === v ) { return target; }
+				if ( 'text' === takes ) { return opLabel( op, words ) + ' "' + find + '"'; }
+				if ( 'number' === takes ) {
+					return ( opLabel( op, words ) + ' ' + v + ' ' + meta.unit ).replace( /\s+$/, '' );
+				}
+				return opLabel( op, words );
 			}
 
 			// The card's own number. New cards are given one past every card on
@@ -1850,24 +1906,21 @@ final class DZE_Diagnostic {
 				var op = $card.find( '.dze-diag-test' ).val(),
 					takes = ( ops[ op ] || {} ).takes || '',
 					v = parseInt( $card.find( '.dze-diag-value' ).val(), 10 ) || 0,
-					find = $card.find( '.dze-diag-find' ).val() || '',
-					said;
+					find = $card.find( '.dze-diag-find' ).val() || '';
 				$card.find( '.dze-diag-key' ).toggle( !! meta.key );
 				$card.find( '.dze-diag-value' ).toggle( 'number' === takes );
 				$card.find( '.dze-diag-find' ).toggle( 'text' === takes );
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
-				if ( 'post.links' === f && 'lt' === op && 0 === v ) {
-					said = meta.label + ' — ' + target;
-				} else if ( 'text' === takes ) {
-					said = meta.label + ' — ' + opLabel( op ) + ' "' + find + '"';
-				} else if ( 'number' === takes ) {
-					said = ( meta.label + ' — ' + opLabel( op ) + ' ' + v + ' ' + meta.unit ).replace( /\s+$/, '' );
-				} else {
-					said = meta.label + ' — ' + opLabel( op );
-				}
 				$card.find( '.dze-diag-said' ).text(
-					( ( scopes[ $card.find( '.dze-diag-scope' ).val() ] || {} ).label || '' ) + ' · ' + said
+					( ( scopes[ $card.find( '.dze-diag-scope' ).val() ] || {} ).label || '' )
+					+ ' · ' + meta.label + ' — ' + clause( f, op, takes, v, find, meta, false )
 				);
+				// The name box shows the name the criterion will be given if it
+				// is left empty — the same one the shop writes on save, so a
+				// rule nobody named is still a rule, and it is never a surprise
+				// what it came back called.
+				var auto = ( meta.label + ' ' + clause( f, op, takes, v, find, meta, true ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
+				$card.find( '.dze-prb-name' ).attr( 'placeholder', auto ? auto.charAt( 0 ).toUpperCase() + auto.slice( 1 ) : name0 );
 			}
 
 			function add( row ) {
