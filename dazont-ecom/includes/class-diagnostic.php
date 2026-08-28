@@ -20,13 +20,14 @@ defined( 'ABSPATH' ) || exit;
  * or decides: it is a to-do list, and every line of it points at the screen
  * that already knows how to fix that one thing.
  *
- * The criteria are not a list of this plugin's opinions. The structural ones
- * are the shop's — how many words a description needs, how many photographs a
- * gallery needs — and every other one is READ FROM THE PROMPT REGISTRY: each
- * prompt already declares what it writes and where, so "the custom block 2 is
- * empty on 340 products" is a question the shop can already answer about
- * itself. Add a prompt and its criterion appears; disable it and the criterion
- * goes with it. There is no second list to keep in step.
+ * The criteria are not a list of this plugin's opinions, and they are not two
+ * lists either. ONE list, written by the shop: a criterion is a field, a
+ * comparison and a figure — "the description holds fewer than 120 words", "the
+ * custom field _bloc_text_2 is empty" — and it exists because somebody wrote
+ * it. Nothing else adds a line. Criteria used to arrive from the prompt
+ * registry as well, cleverly and invisibly: they could not be found, edited or
+ * explained, and a screen that answers questions nobody asked is a screen
+ * nobody trusts.
  *
  * The reading is done in cron and kept. A screen that counted a thousand
  * products on every load would be a screen nobody opens twice.
@@ -359,24 +360,6 @@ final class DZE_Diagnostic {
 		);
 	}
 
-	/**
-	 * Set while the settings screen lists the criteria it can switch back on.
-	 *
-	 * checks() hides what is silenced, which is right everywhere except on the
-	 * one screen that undoes it — a switch you cannot see is a switch you
-	 * cannot flick.
-	 */
-	private static bool $ignore_off = false;
-
-	/** The criteria the shop has switched off — prompt-derived ones included. */
-	public static function silenced(): array {
-		if ( self::$ignore_off ) {
-			return [];
-		}
-		$off = self::settings()['off'] ?? [];
-		return is_array( $off ) ? array_values( array_filter( array_map( 'sanitize_key', $off ) ) ) : [];
-	}
-
 	public static function checks(): array {
 		$fields = self::fields();
 		$out    = [];
@@ -389,77 +372,44 @@ final class DZE_Diagnostic {
 				'scope' => (string) $field['scope'],
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $field ),
-				'fix'   => '',
 				'tool'  => self::tool_for( (string) $row['field'] ),
-				'own'   => true,
 				'row'   => $row,
 			];
-		}
-
-		// The shop's own prompts, each answering for what it writes. Only the
-		// ones that write somewhere a page can be EMPTY: a prompt that writes
-		// the description is already answered by a criterion above, and
-		// counting it twice would make one product look like two jobs.
-		if ( class_exists( 'DZE_Content' ) && DZE_Modules::enabled( 'content' ) ) {
-			foreach ( DZE_Content::registry() as $prompt ) {
-				$id = (string) ( $prompt['id'] ?? '' );
-				if ( '' === $id || empty( $prompt['enabled'] ) || 'text' !== ( $prompt['type'] ?? 'text' ) ) {
-					continue;
-				}
-				$dest = DZE_Content::dest_for( $id );
-				$name = (string) ( $prompt['name'] ?? $id );
-				if ( in_array( (string) $dest['type'], [ 'meta', 'seo_title', 'seo_desc' ], true ) ) {
-					$key = 'meta' === $dest['type']
-						? (string) ( $dest['key'] ?? '' )
-						: (string) ( DZE_Content::seo_keys()[ 'seo_title' === $dest['type'] ? 'title' : 'desc' ] ?? '' );
-					$out[ 'field_' . $id ] = [
-						'scope' => 'product',
-						'label' => sprintf(
-							/* translators: %s: the name of one of the shop's own prompts */
-							__( '%s: empty', 'dazont-ecom' ),
-							$name
-						),
-						'why'   => __( 'One of your own prompts writes here, and this product has nothing in it.', 'dazont-ecom' ),
-						'fix'   => $name,
-						'tool'  => [ 'label' => $name, 'url' => self::prompt_url( $id ) ],
-						'own'   => false,
-						'row'   => [ 'field' => 'product.meta', 'test' => 'empty', 'value' => 0, 'key' => $key ],
-					];
-				}
-				$img = DZE_Content::companion_meta( $id );
-				if ( '' !== $img ) {
-					$out[ 'shot_' . $id ] = [
-						'scope' => 'product',
-						'label' => sprintf(
-							/* translators: %s: the name of one of the shop's own prompts */
-							__( '%s: no photograph', 'dazont-ecom' ),
-							$name
-						),
-						'why'   => __( 'That block is written against a photograph, and there is none on this product.', 'dazont-ecom' ),
-						'fix'   => $name,
-						'tool'  => self::tool_for( 'product.image_meta' ),
-						'own'   => false,
-						'row'   => [ 'field' => 'product.image_meta', 'test' => 'empty', 'value' => 0, 'key' => $img ],
-					];
-				}
-			}
-		}
-		// A criterion the shop has switched off is not read, not counted and
-		// not shown — the same as unticking one of its own, and undone in the
-		// same place.
-		foreach ( self::silenced() as $id ) {
-			unset( $out[ $id ] );
 		}
 		return $out;
 	}
 
-	/** The screen where one of the shop's own prompts is edited. */
-	private static function prompt_url( string $prompt_id ): string {
-		$url = add_query_arg(
-			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => 'content' ],
-			admin_url( 'admin.php' )
-		);
-		return $url . '#dze-pr-row-' . rawurlencode( $prompt_id );
+	/**
+	 * The custom fields this shop actually writes into.
+	 *
+	 * Offered beside the key box so a criterion on "_bloc_text_2" is picked
+	 * from a list rather than remembered. Data, not machinery: nothing here
+	 * creates a criterion, and a key typed by hand is as good as a key
+	 * chosen.
+	 *
+	 * @return string[]
+	 */
+	public static function known_keys(): array {
+		if ( ! class_exists( 'DZE_Content' ) || ! class_exists( 'DZE_Modules' ) || ! DZE_Modules::enabled( 'content' ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( DZE_Content::registry() as $prompt ) {
+			$id = (string) ( $prompt['id'] ?? '' );
+			if ( '' === $id ) {
+				continue;
+			}
+			$dest = DZE_Content::dest_for( $id );
+			if ( 'meta' === ( $dest['type'] ?? '' ) && '' !== (string) ( $dest['key'] ?? '' ) ) {
+				$out[] = (string) $dest['key'];
+			}
+			$img = DZE_Content::companion_meta( $id );
+			if ( '' !== $img ) {
+				$out[] = $img;
+			}
+		}
+		sort( $out );
+		return array_values( array_unique( $out ) );
 	}
 
 	/** One criterion said in words, for the screen. */
@@ -1107,28 +1057,12 @@ final class DZE_Diagnostic {
 		// The form carries a marker even when every criterion was deleted, or
 		// emptying the list would read as "this form was not about criteria"
 		// and never take — the same trap the emails of a promotion fell into.
-		// The prompts' own criteria: a switch the submitted section owns, so
-		// what is NOT ticked is what is off — read from the section's marker
-		// rather than from a checkbox that posts nothing when unticked.
-		if ( ! empty( $in['checks_shown'] ) ) {
-			$on  = array_map( 'sanitize_key', array_keys( (array) ( $in['on_check'] ?? [] ) ) );
-			$off = [];
-			$was = self::$ignore_off;
-			self::$ignore_off = true;
-			foreach ( array_keys( self::checks() ) as $id ) {
-				if ( ! in_array( $id, $on, true ) ) {
-					$off[] = (string) $id;
-				}
-			}
-			self::$ignore_off = $was;
-			// Only the prompts' own lines are silenced here; the shop's own
-			// criteria have their switch on their own card.
-			$mine = [];
-			foreach ( self::rows() as $row ) {
-				$mine[ (string) $row['id'] ] = true;
-			}
-			$out['off'] = array_values( array_filter( $off, static fn( string $id ): bool => ! isset( $mine[ $id ] ) ) );
-		}
+		// Criteria used to arrive from two places: this list, and the prompt
+		// library, which added lines of its own that could not be edited here.
+		// One kind of thing now — a condition the shop wrote — so what was
+		// stored for the other kind goes rather than sitting in the database
+		// meaning nothing.
+		unset( $out['off'] );
 		if ( ! empty( $in['rows_shown'] ) ) {
 			$out['rows'] = self::clean_rows( (array) ( $in['rows'] ?? [] ) );
 			// A checkbox the submitted section owns: unticked it posts nothing,
@@ -1361,7 +1295,7 @@ final class DZE_Diagnostic {
 
 		printf(
 			'<p class="description" style="margin-top:14px;max-width:760px;">%s <a href="%s">%s</a></p>',
-			esc_html__( 'Every line above is a criterion of yours, or one of your own prompts answering for what it writes. Change a figure, switch one off, add your own:', 'dazont-ecom' ),
+			esc_html__( 'Every line above is one of your criteria and nothing else. Change a figure, switch one off, add your own:', 'dazont-ecom' ),
 			esc_url( self::settings_url() ),
 			esc_html__( 'the criteria &rarr;', 'dazont-ecom' )
 		);
@@ -1526,7 +1460,7 @@ final class DZE_Diagnostic {
 		}
 		$out .= '</select></label>';
 		$out .= '<input type="text" class="dze-diag-key" name="' . $name( 'key' ) . '" value="' . esc_attr( (string) ( $row['key'] ?? '' ) ) . '"'
-			. ' placeholder="' . esc_attr__( 'meta key', 'dazont-ecom' ) . '" style="width:170px;'
+			. ' list="dze-diag-keys" placeholder="' . esc_attr__( 'meta key', 'dazont-ecom' ) . '" style="width:200px;'
 			. ( empty( $fields[ $field ]['key'] ) ? 'display:none;' : '' ) . '" />';
 		$out .= '<label><span>' . esc_html__( 'Falls short when it', 'dazont-ecom' ) . '</span>'
 			. '<select class="dze-diag-test" name="' . $name( 'test' ) . '">';
@@ -1543,7 +1477,7 @@ final class DZE_Diagnostic {
 			. ' placeholder="' . esc_attr__( 'text to look for', 'dazont-ecom' ) . '" />';
 		$out .= '<span class="dze-diag-unit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
 		$out .= '</p>';
-		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
+		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. A custom field is named by its key, and the box offers the ones this shop writes into. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
 		$out .= '</div></div>';
 		return $out;
 	}
@@ -1572,8 +1506,20 @@ final class DZE_Diagnostic {
 			. esc_html__( 'What the Diagnostic screen reads the shop against: a name, what is looked at, and the comparison it has to fail to be counted — the same vocabulary you filter an export with. Add your own, change a figure, remove one you do not care about. Every criterion you switch off simply stops being counted as work waiting to be done; nothing on the shop changes.', 'dazont-ecom' )
 			. '</p>';
 		echo '<p class="description" style="max-width:900px;">'
-			. esc_html__( 'Your PROMPTS bring criteria of their own — each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it. They are listed at the foot of this page, where each can be switched off.', 'dazont-ecom' )
+			. esc_html__( 'This list is the whole of it. Nothing else adds a line to the Diagnostic: what is on that screen is what is written here, in the order you wrote it.', 'dazont-ecom' )
 			. '</p>';
+		// The shop's own custom fields, offered where a key is typed. A
+		// criterion on "_bloc_text_2" is then picked from a list instead of
+		// remembered — and it is still an ordinary criterion, written here
+		// like every other one.
+		$keys = self::known_keys();
+		if ( $keys ) {
+			echo '<datalist id="dze-diag-keys">';
+			foreach ( $keys as $one ) {
+				echo '<option value="' . esc_attr( $one ) . '"></option>';
+			}
+			echo '</datalist>';
+		}
 		$lang = self::main_language();
 		if ( '' !== $lang ) {
 			echo '<p class="description" style="max-width:900px;">';
@@ -1610,61 +1556,6 @@ final class DZE_Diagnostic {
 		}
 		echo '<div class="dze-prlist dze-prlist-new" id="dze-diag-new" style="margin-top:8px;"></div>';
 		echo '</div>';
-
-		// The criteria the shop never typed, and used to have no way of
-		// finding: each prompt answers for what it writes, so its line appears
-		// on the diagnostic by itself. That is right, and it was invisible —
-		// a line nobody could trace, edit or switch off. Here they are, named,
-		// each linking to the prompt that owns it, each with the same switch
-		// as any other criterion.
-		$mine = [];
-		foreach ( self::rows() as $row ) {
-			$mine[ (string) $row['id'] ] = true;
-		}
-		$off  = self::silenced();
-		$from = [];
-		// Read with nothing silenced, or a criterion switched off would vanish
-		// from the only screen that can switch it back on.
-		$was = self::$ignore_off;
-		self::$ignore_off = true;
-		foreach ( self::checks() as $id => $check ) {
-			if ( ! isset( $mine[ $id ] ) ) {
-				$from[ $id ] = $check;
-			}
-		}
-		self::$ignore_off = $was;
-
-		echo '<h3 class="dze-pr-grouphead" style="max-width:900px;">' . esc_html__( 'Answered by your prompts', 'dazont-ecom' ) . '</h3>';
-		echo '<p class="description" style="max-width:900px;margin-top:-2px;">'
-			. esc_html__( 'Not typed here and not editable here: each prompt already says what it writes and where, so its line follows the prompt when you rename, move or disable it. Switch one off to stop counting it as work; the prompt itself is untouched.', 'dazont-ecom' )
-			. '</p>';
-		echo '<div class="dze-prlist" id="dze-diag-from" style="max-width:900px;">';
-		if ( ! $from ) {
-			echo '<p class="description">' . esc_html__( 'None yet — a text prompt that writes into a custom field or a SEO meta adds its line here.', 'dazont-ecom' ) . '</p>';
-		}
-		foreach ( $from as $id => $check ) {
-			$tool = (array) ( $check['tool'] ?? [] );
-			echo '<div class="dze-prb"><div class="dze-prb-head">';
-			printf(
-				'<label class="dze-switch dze-prb-on" title="%1$s"><input type="checkbox" name="%2$s[on_check][%3$s]" value="1"%4$s /><span class="dze-switch-slider"></span></label>',
-				esc_attr__( 'Count this criterion', 'dazont-ecom' ),
-				esc_attr( $opt ),
-				esc_attr( $id ),
-				checked( ! in_array( $id, $off, true ), true, false )
-			);
-			echo '<strong class="dze-prb-name" style="flex:0 1 300px;">' . esc_html( (string) $check['label'] ) . '</strong>';
-			echo '<span class="dze-prb-dest">' . esc_html( (string) $check['why'] ) . '</span>';
-			if ( ! empty( $tool['url'] ) ) {
-				printf(
-					'<a class="button button-small" href="%s">%s &rarr;</a>',
-					esc_url( (string) $tool['url'] ),
-					esc_html( (string) $tool['label'] )
-				);
-			}
-			echo '</div></div>';
-		}
-		echo '</div>';
-		echo '<input type="hidden" name="' . esc_attr( $opt ) . '[checks_shown]" value="1" />';
 
 		// Even a list emptied to nothing has to reach the sanitizer as a
 		// deliberate emptiness, or it reads as a form that was about something
