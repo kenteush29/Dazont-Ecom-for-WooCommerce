@@ -2512,16 +2512,27 @@ final class DZE_Klaviyo {
 			'name'       => mb_substr( $name, 0, 120 ),
 			'definition' => $definition,
 		];
+		// Rewritten only when it CAN be. Two things are refused by Klaviyo and
+		// both used to be tried anyway, once per correction, filling the log
+		// with a red line for something that then worked: editor_type is what
+		// a template IS and an update may not carry it, and a template filed
+		// as HTML by an older version has no blocks to replace. Asked first,
+		// neither is attempted — and a template deleted in Klaviyo since
+		// answers the same way, so it is remade instead of failing.
 		if ( '' !== $id ) {
-			// No editor_type here. It is what a template IS, not something an
-			// update may set: sent on a PATCH, Klaviyo answers "an invalid
-			// field type was passed in" and the correction the owner asked for
-			// silently became a second template beside the first.
-			$saved = self::request( 'PATCH', 'templates/' . rawurlencode( $id ) . '/', [
-				'data' => [ 'type' => 'template', 'id' => $id, 'attributes' => $attrs ],
-			], 40 );
-			if ( ! is_wp_error( $saved ) ) {
-				return $id;
+			$kind = '';
+			try {
+				$kind = self::editor_of( $id );
+			} catch ( \Throwable $e ) {
+				$kind = '';
+			}
+			if ( 'SYSTEM_DRAGGABLE' === $kind ) {
+				$saved = self::request( 'PATCH', 'templates/' . rawurlencode( $id ) . '/', [
+					'data' => [ 'type' => 'template', 'id' => $id, 'attributes' => $attrs ],
+				], 40 );
+				if ( ! is_wp_error( $saved ) ) {
+					return $id;
+				}
 			}
 		}
 		$made = self::request( 'POST', 'templates/', [
