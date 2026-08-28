@@ -192,8 +192,37 @@
 
 	function view(which) {
 		$('.dze-klav-tab').removeClass('is-on').filter('[data-tab="' + which + '"]').addClass('is-on');
-		if (which === 'view') { body().hide(); frame().show(); render(); }
-		else { frame().hide(); body().show(); }
+		if (which === 'view') { body().hide(); frame().show(); render(); return; }
+		// What Klaviyo itself makes of the blocks, drawn by Klaviyo. The fast
+		// preview beside it is the browser putting the body inside a snapshot
+		// of the frame: right enough to write against, and not the email.
+		if (which === 'sent') {
+			body().hide(); frame().show();
+			if (!current) { return; }
+			var $m = $('#dze-klav-write-msg');
+			draw(frame(), '');
+			$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.asSent);
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_klav_assent', nonce: cfg.nonce,
+				rule: ruleId(), email: current, body: body().val() || ''
+			})
+				.done(function (res) {
+					if (!res || !res.success) {
+						$m.css('color', '#b32d2e').addClass('is-ko')
+							.text((res && res.data && res.data.message) || i18n.error);
+						view('view');
+						return;
+					}
+					$m.text('');
+					draw(frame(), res.data.html || '');
+				})
+				.fail(function () {
+					$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
+					view('view');
+				});
+			return;
+		}
+		frame().hide(); body().show();
 	}
 	$(document).on('click', '.dze-klav-tab', function () { view($(this).data('tab')); });
 
