@@ -303,5 +303,37 @@ ok( 'an old draft says nothing',        $says( [ 'campaign' => 'C1' ] ), false )
 ok( 'a draft Klaviyo dated says nothing', $says( [ 'campaign' => 'C1', 'day' => '2026-09-04' ] ), false );
 ok( 'a draft with no date says so',     $says( [ 'campaign' => 'C1', 'day' => '' ] ), true );
 
+echo "The day Klaviyo actually keeps\n";
+$kept = new ReflectionMethod( 'DZE_Klaviyo', 'kept_day' );  $kept->setAccessible( true );
+$dated = new ReflectionMethod( 'DZE_Klaviyo', 'dated_strategy' ); $dated->setAccessible( true );
+$pin  = new ReflectionMethod( 'DZE_Klaviyo', 'pin_day' );   $pin->setAccessible( true );
+
+// Both shapes read by one reader: smart-send carries `date`, static `datetime`.
+ok( 'a smart-send day is read',   $kept->invoke( null, [ 'attributes' => [ 'send_strategy' => [ 'method' => 'smart_send_time', 'date' => '2026-09-04' ] ] ] ), '2026-09-04' );
+ok( 'a static day is read too',   $kept->invoke( null, [ 'attributes' => [ 'send_strategy' => [ 'method' => 'static', 'datetime' => '2026-09-04T09:00:00+00:00' ] ] ] ), '2026-09-04' );
+// This is the answer Klaviyo actually gives: 200, method kept, day gone.
+ok( 'a dropped day reads as none', $kept->invoke( null, [ 'attributes' => [ 'send_strategy' => [ 'method' => 'smart_send_time', 'date' => null ] ] ] ), '' );
+
+$want = $dated->invoke( null, [ 'datetime' => $next ], [] );
+ok( 'the day that sticks is static', $want['method'] ?? '', 'static' );
+ok( 'on the day that was asked for', substr( (string) ( $want['datetime'] ?? '' ), 0, 10 ), $next );
+ok( "in each reader's own time zone", $want['options']['is_local'] ?? null, true );
+
+// And the repair: the campaign is patched, and what it says afterwards is what
+// is believed — never what we sent it.
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C1', 'attributes' => [
+	'send_strategy' => [ 'method' => 'static', 'datetime' => $next . 'T09:00:00+00:00' ] ] ] ] ) ];
+ok( 'the day is pinned and read back', $pin->invoke( null, 'C1', [ 'datetime' => $next ], [] ), $next );
+$sent_body = json_decode( (string) ( last_sent()['body'] ?? '' ), true );
+ok( 'by patching that campaign',      last_sent()['method'] ?? '', 'PATCH' );
+ok( 'with a static strategy',         $sent_body['data']['attributes']['send_strategy']['method'] ?? '', 'static' );
+
+// Klaviyo dropping it a second time is not a day: it must not be claimed.
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C1', 'attributes' => [
+	'send_strategy' => [ 'method' => 'static', 'datetime' => null ] ] ] ] ) ];
+ok( 'a second refusal is still none',  $pin->invoke( null, 'C1', [ 'datetime' => $next ], [] ), '' );
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => '{"data":{"id":"x"}}' ];
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
