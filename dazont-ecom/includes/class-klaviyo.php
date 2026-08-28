@@ -5522,6 +5522,18 @@ final class DZE_Klaviyo {
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
 				'openMail' => __( 'Open', 'dazont-ecom' ),
 				'unnamed'  => __( 'Untitled email', 'dazont-ecom' ),
+				// A day added in the browser used to land as 2026-08-29 beside
+				// a saved one reading 28/08/2026: the same screen writing the
+				// same thing two ways. The shop's own format travels, with the
+				// month names WordPress would have used.
+				'dateFmt'  => (string) ( get_option( 'date_format' ) ?: 'Y-m-d' ),
+				'months'   => array_map(
+					static fn( int $m ): array => [
+						'F' => (string) wp_date( 'F', mktime( 0, 0, 0, $m, 1, 2026 ) ),
+						'M' => (string) wp_date( 'M', mktime( 0, 0, 0, $m, 1, 2026 ) ),
+					],
+					range( 1, 12 )
+				),
 				'planning' => __( 'Asking what this promotion deserves…', 'dazont-ecom' ),
 				'replan'   => __( 'Plan the campaign again? The emails already written are kept; the plan adds to them.', 'dazont-ecom' ),
 				'writing1' => __( 'Writing %1$d of %2$d…', 'dazont-ecom' ),
@@ -5700,7 +5712,7 @@ final class DZE_Klaviyo {
 							<?php endif; ?>
 						</div>
 						<div class="dze-mail-act">
-							<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Open', 'dazont-ecom' ); ?></button>
+							<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?></button>
 							<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
 						</div>
 						<?php // Every email keeps its fields in the form, so ONE Save keeps them all. ?>
@@ -5747,7 +5759,7 @@ final class DZE_Klaviyo {
 					</div>
 					<div class="dze-mail-state"></div>
 					<div class="dze-mail-act">
-						<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Open', 'dazont-ecom' ); ?></button>
+						<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?></button>
 						<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
 					</div>
 					<input type="hidden" class="dze-f-exists" name="dze_email[__ID__][exists]" value="1" />

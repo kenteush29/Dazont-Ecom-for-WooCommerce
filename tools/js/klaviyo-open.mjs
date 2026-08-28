@@ -53,13 +53,13 @@ const page_html = `
     <div class="dze-mail" data-id="mail1">
       <div class="dze-mail-thumb"><iframe title=""></iframe></div>
       <div class="dze-mail-what"><strong class="dze-mail-name">Launch</strong>
-        <span class="dze-mail-when"></span><span class="dze-mail-subject">Back to school</span></div>
+        <span class="dze-mail-when">old<span class="dze-smart">Smart</span></span><span class="dze-mail-subject">Back to school</span></div>
       <div class="dze-mail-state">
         <span class="dze-mail-langs">EN only</span>
         <button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>
       </div>
       <div class="dze-mail-act">
-        <button type="button" class="button button-small dze-mail-open">Open</button>
+        <button type="button" class="button button-small dze-mail-open">Edit</button>
         <button type="button" class="button-link dze-mail-drop">&times;</button>
       </div>
       <input type="hidden" class="dze-f-exists" value="1" />
@@ -99,7 +99,9 @@ const cfg = {
 	        notBefore: 'The earliest an email can go out is tomorrow — moved.' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
 	i18nDone: 'Translated — %d texts in %s', i18nAgain: 'Translate again',
-	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.'
+	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.',
+	dateFmt: 'd/m/Y',
+	months: Array.from( { length: 12 }, ( _, i ) => ( { F: 'M' + ( i + 1 ), M: 'm' + ( i + 1 ) } ) )
 };
 
 const browser = await chromium.launch();
@@ -176,6 +178,16 @@ ok( 'and the screen says it moved',
 await page.fill( '#dze-klav-e-when', day( 5 * 86400000 ) );
 await page.waitForTimeout( 150 );
 ok( 'a later day is left alone', await page.inputValue( '#dze-klav-e-when' ), day( 5 * 86400000 ) );
+
+// A day the browser writes into the list must read like a day the server
+// wrote: the same screen saying the same thing two ways is the bug.
+await page.fill( '#dze-klav-e-when', '2026-08-29' );
+await page.dispatchEvent( '#dze-klav-e-when', 'change' );
+await page.waitForTimeout( 150 );
+ok( "a day added here uses the shop's format",
+	( await page.textContent( '.dze-mail-when' ) ).replace( 'Smart', '' ).trim(), '29/08/2026' );
+ok( 'and the button says what it does',
+	( await page.textContent( '.dze-mail-open' ) ).trim(), 'Edit' );
 
 await page.close();
 }
