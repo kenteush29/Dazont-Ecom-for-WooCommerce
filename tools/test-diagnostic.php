@@ -45,12 +45,27 @@ function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function absint( $n ) { return abs( (int) $n ); }
 function get_option( $k, $d = false ) { return $GLOBALS['dze_opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['dze_opts'][ $k ] = $v; return true; }
-function get_transient( $k ) { return false; }
-function set_transient( $k, $v, $t = 0 ) { return true; }
-function delete_transient( $k ) { return true; }
+$GLOBALS['dze_transients'] = [];
+function get_transient( $k ) { return $GLOBALS['dze_transients'][ $k ] ?? false; }
+function set_transient( $k, $v, $t = 0 ) { $GLOBALS['dze_transients'][ $k ] = $v; return true; }
+function delete_transient( $k ) { unset( $GLOBALS['dze_transients'][ $k ] ); return true; }
 function add_action() {} function add_filter() {} function register_setting() {}
 function current_user_can( $c ) { return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
+function is_admin() { return true; }
+function wp_style_is( $h, $l = 'enqueued' ) { return true; }
+function wp_enqueue_style( ...$a ) {}
+function wp_enqueue_script( ...$a ) {}
+function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d ); }
+function wp_date( $f, $t = null ) { return date( 'Y-m-d H:i', (int) $t ); }
+function human_time_diff( $a, $b = 0 ) { return '1 hour'; }
+function checked( $a, $b, $e = true ) { return ''; }
+function selected( $a, $b, $e = true ) { return ''; }
+function submit_button( $t = null ) {}
+function settings_fields( $g ) {}
+function get_admin_page_title() { return 'Diagnostic'; }
+function add_query_arg( ...$a ) { return is_array( $a[0] ?? null ) ? ( ( $a[1] ?? '' ) . '?' . http_build_query( $a[0] ) ) : ''; }
+function wp_parse_args( $a, $d = [] ) { return array_merge( (array) $d, (array) $a ); }
 function wp_create_nonce( $a = '' ) { return 'nonce'; }
 function post_type_exists( $t ) { return true; }
 function get_post_types( $args = [], $out = 'names' ) {
@@ -72,14 +87,54 @@ class WP_Post { public $ID = 0; public $post_title = ''; public $post_content = 
 class WP_Error {}
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
 class DZE_Diag_Test_Wpdb {
-	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts';
-	public function prepare( $q, ...$a ) { return $q; }
+	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
+	public function prepare( $q, ...$a ) { return [ $q, $a ]; }
 	public function esc_like( $t ) { return $t; }
-	public function get_col( $q ) { return []; }
+	public function get_var( $q ) {
+		// SHOW TABLES LIKE — the icl_translations table is there in this shop.
+		return $GLOBALS['dze_has_icl'] ? ( is_array( $q ) ? (string) ( $q[1][0] ?? '' ) : '' ) : '';
+	}
+	public function get_col( $q ) {
+		if ( ! is_array( $q ) || false === strpos( (string) $q[0], 'icl_translations' ) ) { return []; }
+		[ $type, $lang ] = $q[1];
+		return $GLOBALS['dze_icl'][ $type ][ $lang ] ?? [];
+	}
 	public function get_results( $q, $m = null ) { return []; }
 }
-$GLOBALS['wpdb'] = new DZE_Diag_Test_Wpdb();
+$GLOBALS['wpdb']        = new DZE_Diag_Test_Wpdb();
+$GLOBALS['dze_has_icl'] = true;
+$GLOBALS['dze_icl']     = [];
+$GLOBALS['dze_posts']   = [];
 
+// WPML, as far as this plugin ever asks.
+define( 'ICL_SITEPRESS_VERSION', '4.6.0' );
+$GLOBALS['dze_lang'] = 'en';
+function apply_filters( $tag, $value = null, ...$rest ) {
+	if ( 'wpml_default_language' === $tag || 'wpml_current_language' === $tag ) { return $GLOBALS['dze_lang']; }
+	if ( 'wpml_active_languages' === $tag ) {
+		return [ 'en' => [ 'native_name' => 'English', 'english_name' => 'English' ],
+		         'fr' => [ 'native_name' => 'Français', 'english_name' => 'French' ] ];
+	}
+	return $value;
+}
+function do_action( $tag, ...$a ) {}
+function get_terms( $args = [] ) { return []; }
+function wp_next_scheduled( $h ) { return 0; }
+function wp_schedule_event() {} function wp_unschedule_event() {}
+
+// One page of products, then nothing — the shape WP_Query answers in.
+class WP_Query {
+	public $posts = []; public $post_count = 0;
+	public function __construct( $args = [] ) {
+		$page = (int) ( $args['paged'] ?? 1 );
+		$type = (string) ( $args['post_type'] ?? '' );
+		$all  = $GLOBALS['dze_posts'][ $type ] ?? [];
+		$this->posts      = 1 === $page ? $all : [];
+		$this->post_count = count( $this->posts );
+	}
+}
+
+require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
 require __DIR__ . '/../' . $dir . '/includes/class-diagnostic.php';
 
 // --- the harness ------------------------------------------------------------
@@ -184,6 +239,73 @@ foreach ( DZE_Diagnostic::operators() as $id => $meta ) {
 }
 ok( 'every comparison, not two of them', count( $asked ), count( DZE_Diagnostic::operators() ) );
 ok( 'one custom field per post type',    isset( DZE_Diagnostic::fields()['product.meta'] ) && ! isset( DZE_Diagnostic::fields()['product.meta_number'] ), true );
+
+echo "Reading a shop that sells in more than one language\n";
+// Six products in the database: three written in English, three of them
+// WPML's French copies. A shop of three, not a shop of six.
+$GLOBALS['dze_posts']['product'] = [];
+foreach ( [ 101, 102, 103, 201, 202, 203 ] as $one ) {
+	$p = new WP_Post();
+	$p->ID = $one;
+	$p->post_content = 'A short line.';
+	$GLOBALS['dze_posts']['product'][] = $p;
+}
+$GLOBALS['dze_icl'] = [ 'post_product' => [ 'en' => [ 101, 102, 103 ], 'fr' => [ 201, 202, 203 ] ] ];
+$GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
+	[ 'id' => 'thin', 'label' => 'Description too short', 'scope' => 'product',
+	  'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'on' => 1 ],
+] ];
+
+$census = DZE_Diagnostic::scan();
+ok( 'the translations are not products',  $census['seen']['product'] ?? 0, 3 );
+ok( 'and the shortfall is not doubled',   $census['checks']['thin'] ?? -1, 3 );
+ok( 'the language it was read in',        $census['lang'] ?? '', 'en' );
+ok( 'nothing went unnarrowed',            $census['every'] ?? null, [] );
+
+// WPML there, its table not readable: the pass must count everything rather
+// than nothing, AND say so — a number silently 6 instead of 3 is the bug.
+$GLOBALS['dze_has_icl'] = false;
+delete_transient( 'x' );
+$GLOBALS['dze_transients'] = [];
+$census = DZE_Diagnostic::scan();
+ok( 'unaskable WPML counts everything',   $census['seen']['product'] ?? 0, 6 );
+ok( 'and the screen is told to say so',   in_array( 'product', (array) ( $census['every'] ?? [] ), true ), true );
+$GLOBALS['dze_has_icl'] = true;
+
+// No WPML at all: nothing is skipped and nothing is warned about.
+$GLOBALS['dze_lang'] = '';
+$census = DZE_Diagnostic::scan();
+ok( 'a shop in one language reads all',   $census['seen']['product'] ?? 0, 6 );
+ok( 'with no warning to give',            $census['every'] ?? null, [] );
+$GLOBALS['dze_lang'] = 'en';
+
+echo "What the screen says about that count\n";
+// The warning is the whole point of knowing: a count that quietly includes
+// every translation must not look like a count that does not.
+function drawn(): string {
+	static $m = null;
+	if ( null === $m ) {
+		$m = new ReflectionMethod( 'DZE_Diagnostic', 'render_overview' );
+		$m->setAccessible( true );
+	}
+	ob_start();
+	$m->invoke( DZE_Diagnostic::instance() );
+	return (string) ob_get_clean();
+}
+$GLOBALS['dze_opts']['dze_diagnostic_census'] = [
+	'at' => time() - 60, 'lang' => 'en', 'every' => [],
+	'seen' => [ 'product' => 3 ], 'short' => [ 'product' => 3 ], 'checks' => [ 'thin' => 3 ],
+];
+$html = drawn();
+ok( 'a narrowed reading says the language', false !== strpos( $html, 'Read in <strong>English</strong> only' ), true );
+ok( 'and warns about nothing',              false !== strpos( $html, 'count EVERY language' ), false );
+
+$GLOBALS['dze_opts']['dze_diagnostic_census']['every'] = [ 'product' ];
+$GLOBALS['dze_opts']['dze_diagnostic_census']['seen']  = [ 'product' => 6 ];
+$html = drawn();
+ok( 'an unnarrowed reading says so',        false !== strpos( $html, 'count EVERY language' ), true );
+ok( 'and names the post type',              false !== strpos( $html, 'Products</strong>' ), true );
+ok( 'without also claiming the language',   false !== strpos( $html, 'Read in <strong>English</strong> only' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -66,6 +66,69 @@ final class DZE_Wpml {
 	}
 
 	/**
+	 * The elements of one type that ARE in a language.
+	 *
+	 * WPML narrows an ordinary query through filters of its own, and those
+	 * filters are not reliably in place where this plugin READS the shop: a
+	 * cron run and an admin-ajax request are not a front-end page, and a pass
+	 * that runs there sees every translation as another product — a catalogue
+	 * of a thousand reported as nine thousand. Asking each post its language
+	 * one at a time is a query per post, which is worse. So the question is
+	 * asked once, of the table WPML keeps the answer in.
+	 *
+	 * @param string $element_type WPML's own name for the kind: 'post_product',
+	 *                             'post_page', 'tax_product_cat'. For a
+	 *                             taxonomy the ids are TERM TAXONOMY ids, not
+	 *                             term ids — that is WPML's schema, not ours.
+	 * @return array<int,true>|null The ids as a set, or NULL when WPML cannot
+	 *                             be asked. Null means "do not narrow"; it
+	 *                             never means "narrow to nothing", because a
+	 *                             shop reported as empty is worse than a shop
+	 *                             reported twice.
+	 */
+	public static function ids_in_language( string $element_type, string $language ): ?array {
+		global $wpdb;
+		if ( ! self::is_active() || '' === $language || ! $wpdb ) {
+			return null;
+		}
+		$table = $wpdb->prefix . 'icl_translations';
+		if ( ! self::has_table( $table ) ) {
+			return null;
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery -- WPML's own table; there is no API that answers this in one query.
+		$rows = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT element_id FROM {$table} WHERE element_type = %s AND language_code = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$element_type,
+				$language
+			)
+		);
+		// phpcs:enable
+		if ( ! is_array( $rows ) || ! $rows ) {
+			return null;
+		}
+		$out = [];
+		foreach ( $rows as $one ) {
+			$out[ (int) $one ] = true;
+		}
+		return $out;
+	}
+
+	/** Whether a table is really there. Asked once a day, not once a query. */
+	private static function has_table( string $table ): bool {
+		global $wpdb;
+		$slot = 'dze_wpml_tbl_' . md5( $table );
+		$has  = get_transient( $slot );
+		if ( false !== $has ) {
+			return '1' === $has;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$found = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		set_transient( $slot, $found === $table ? '1' : '0', DAY_IN_SECONDS );
+		return $found === $table;
+	}
+
+	/**
 	 * Canonical (default-language) id for a post. Falls back to the given id
 	 * when WPML is inactive or no translation exists.
 	 */
