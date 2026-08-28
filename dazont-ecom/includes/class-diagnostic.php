@@ -434,12 +434,24 @@ final class DZE_Diagnostic {
 		} finally {
 			delete_transient( self::LOCK );
 		}
-		$out   = [ 'at' => time(), 'seen' => $seen, 'checks' => [] ];
+		$out   = [ 'at' => time(), 'seen' => $seen, 'short' => [ 'product' => 0, 'category' => 0, 'post' => 0 ], 'checks' => [] ];
 		$lists = [];
+		// How many THINGS need work, not how many criteria fired: a product
+		// short of four things is one product to open, and the sum of the
+		// criteria says four. Counted here, where the full lists are still in
+		// hand, rather than from the capped ones the screen reads.
+		$short = [ 'product' => [], 'category' => [], 'post' => [] ];
 		foreach ( $checks as $id => $meta ) {
 			$ids                  = array_values( array_unique( (array) ( $hits[ $id ] ?? [] ) ) );
 			$out['checks'][ $id ] = count( $ids );
 			$lists[ $id ]         = array_slice( $ids, 0, self::KEEP_IDS );
+			$scope                = (string) $meta['scope'];
+			foreach ( $ids as $one ) {
+				$short[ $scope ][ (int) $one ] = true;
+			}
+		}
+		foreach ( $short as $scope => $set ) {
+			$out['short'][ $scope ] = count( $set );
 		}
 		update_option( self::OPT_CENSUS, $out, false );
 		update_option( self::OPT_LISTS, $lists, false );
@@ -894,11 +906,22 @@ final class DZE_Diagnostic {
 		echo '</div>';
 	}
 
+	/**
+	 * The to-do list.
+	 *
+	 * Read from the top and stop when you run out of afternoon: what needs
+	 * doing, most of it first, grouped by the screen you would go and do it
+	 * on. A criterion nothing falls short of is not work and is not a line —
+	 * it is named under the table, so one that quietly stopped matching is
+	 * still somewhere you can see it.
+	 */
 	private function render_overview(): void {
 		$census = self::census();
 		$checks = self::checks();
 		$seen   = (array) ( $census['seen'] ?? [] );
+		$short  = (array) ( $census['short'] ?? [] );
 		$at     = (int) ( $census['at'] ?? 0 );
+		$where  = self::scopes();
 
 		echo '<h1>' . esc_html__( 'Diagnostic', 'dazont-ecom' ) . '</h1>';
 		echo '<p class="description" style="max-width:760px;">'
@@ -922,44 +945,131 @@ final class DZE_Diagnostic {
 		}
 		echo '</span></p>';
 
-		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>'
-			. '<th>' . esc_html__( 'What is missing', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:120px;">' . esc_html__( 'Where', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:110px;text-align:right;">' . esc_html__( 'How many', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:90px;"></th>'
-			. '</tr></thead><tbody>';
-		$where = [
-			'product'  => __( 'Products', 'dazont-ecom' ),
-			'category' => __( 'Categories', 'dazont-ecom' ),
-			'post'     => __( 'Articles', 'dazont-ecom' ),
-		];
+		// What is to be DONE, worst first, kept apart from what is already
+		// right. Twenty lines reading "—" is a screen where the four that
+		// matter are hard to find.
+		$found = [];
+		$clean = [];
 		foreach ( $checks as $id => $check ) {
-			$n     = (int) ( $census['checks'][ $id ] ?? 0 );
-			$total = (int) ( $seen[ $check['scope'] ] ?? 0 );
-			echo '<tr>';
-			echo '<td><strong>' . esc_html( $check['label'] ) . '</strong><br />'
-				. '<span class="description">'
-				. esc_html( trim( (string) $check['why'] . ' ' . (string) ( $check['fix'] ?? '' ) ) )
-				. '</span></td>';
-			echo '<td>' . esc_html( $where[ $check['scope'] ] ?? $check['scope'] ) . '</td>';
-			echo '<td style="text-align:right;font-size:15px;">' . ( $n ? '<strong>' . (int) $n . '</strong>' : '—' );
-			if ( $n && $total > 0 ) {
-				echo '<br /><span class="description">' . esc_html( sprintf( '%d%%', (int) round( $n / $total * 100 ) ) ) . '</span>';
+			$n = (int) ( $census['checks'][ $id ] ?? 0 );
+			if ( $n > 0 ) {
+				$found[ $id ] = $n;
+			} else {
+				$clean[ $id ] = $check;
 			}
-			echo '</td>';
-			echo '<td>';
-			if ( $n ) {
+		}
+		arsort( $found );
+
+		if ( $at && $short ) {
+			// One tile per scope, saying how many THINGS need something rather
+			// than how many criteria fired: a product short of four things is
+			// one product to open, and it is the figure the afternoon is
+			// planned against.
+			echo '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 20px;">';
+			foreach ( $where as $scope => $label ) {
+				$n     = (int) ( $short[ $scope ] ?? 0 );
+				$total = (int) ( $seen[ $scope ] ?? 0 );
+				$pc    = $total > 0 ? (int) round( $n / $total * 100 ) : 0;
 				printf(
-					'<a class="button button-small" href="%s">%s</a>',
+					'<div style="flex:1 1 200px;min-width:180px;background:#fff;border:1px solid %1$s;border-left:4px solid %1$s;border-radius:4px;padding:10px 14px;">'
+					. '<div style="font-size:22px;line-height:1.2;">%2$s</div>'
+					. '<div class="description" style="margin-top:2px;">%3$s</div></div>',
+					esc_attr( $n ? '#d63638' : '#00794b' ),
+					$n
+						? esc_html( sprintf( '%d / %d', $n, $total ) )
+						: esc_html( sprintf( '%d', $total ) ),
+					$n
+						? esc_html( sprintf(
+							/* translators: 1: what is counted (Products, Categories…), 2: a share of the shop */
+							__( '%1$s need something — %2$d%%', 'dazont-ecom' ),
+							$label,
+							$pc
+						) )
+						: esc_html( sprintf(
+							/* translators: %s: what is counted (Products, Categories…) */
+							__( '%s — nothing to do', 'dazont-ecom' ),
+							$label
+						) )
+				);
+			}
+			echo '</div>';
+		}
+
+		if ( ! $found ) {
+			echo '<div class="notice notice-info inline" style="max-width:760px;margin:12px 0;"><p>';
+			echo $at
+				? esc_html__( 'Nothing falls short. Every criterion you have switched on is met, everywhere.', 'dazont-ecom' )
+				: esc_html__( 'The shop has not been read yet — press "Read the shop again", or wait for tonight.', 'dazont-ecom' );
+			echo '</p></div>';
+		}
+
+		// Grouped by where the work is done, because that is how it is done:
+		// an afternoon on the products, another on the categories.
+		foreach ( $where as $scope => $label ) {
+			$rows = array_filter(
+				array_keys( $found ),
+				static fn( string $id ): bool => $scope === ( $checks[ $id ]['scope'] ?? '' )
+			);
+			if ( ! $rows ) {
+				continue;
+			}
+			echo '<h2 style="margin:22px 0 6px;font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:#646970;">'
+				. esc_html( $label ) . '</h2>';
+			echo '<table class="widefat striped" style="max-width:1100px;"><tbody>';
+			foreach ( $rows as $id ) {
+				$check = $checks[ $id ];
+				$n     = (int) $found[ $id ];
+				$total = (int) ( $seen[ $scope ] ?? 0 );
+				$pc    = $total > 0 ? (int) round( $n / $total * 100 ) : 0;
+				echo '<tr>';
+				echo '<td><strong>' . esc_html( $check['label'] ) . '</strong><br />'
+					. '<span class="description">'
+					. esc_html( trim( (string) $check['why'] . ' ' . (string) ( $check['fix'] ?? '' ) ) )
+					. '</span></td>';
+				// The bar says at a glance whether this is the whole shop or a
+				// handful, which a number on its own never does.
+				echo '<td style="width:180px;">';
+				printf(
+					'<div style="background:#f0f0f1;border-radius:2px;height:8px;overflow:hidden;" title="%1$s">'
+					. '<div style="background:%2$s;height:8px;width:%3$d%%;"></div></div>',
+					esc_attr( sprintf( '%d%%', $pc ) ),
+					esc_attr( $pc >= 50 ? '#d63638' : ( $pc >= 15 ? '#dba617' : '#8c8f94' ) ),
+					max( 2, min( 100, $pc ) )
+				);
+				echo '</td>';
+				echo '<td style="width:110px;text-align:right;font-size:15px;"><strong>' . (int) $n . '</strong>';
+				if ( $total > 0 ) {
+					echo '<br /><span class="description">' . esc_html( sprintf( '%d%%', $pc ) ) . '</span>';
+				}
+				echo '</td>';
+				printf(
+					'<td style="width:90px;"><a class="button button-small" href="%s">%s</a></td>',
 					esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id ], admin_url( 'admin.php' ) ) ),
 					esc_html__( 'The list', 'dazont-ecom' )
 				);
+				echo '</tr>';
 			}
-			echo '</td></tr>';
+			echo '</tbody></table>';
 		}
-		echo '</tbody></table>';
+
+		if ( $clean && $at ) {
+			echo '<details style="margin-top:18px;max-width:1100px;"><summary style="cursor:pointer;color:#2271b1;">';
+			printf(
+				/* translators: %d: how many criteria nothing falls short of */
+				esc_html( _n( '%d criterion found nothing', '%d criteria found nothing', count( $clean ), 'dazont-ecom' ) ),
+				(int) count( $clean )
+			);
+			echo '</summary><p class="description" style="margin:8px 0 0;">';
+			$said = [];
+			foreach ( $clean as $check ) {
+				$said[] = sprintf( '%s (%s)', (string) $check['label'], (string) ( $where[ $check['scope'] ] ?? $check['scope'] ) );
+			}
+			echo esc_html( implode( ' · ', $said ) );
+			echo '</p></details>';
+		}
+
 		echo '<p class="description" style="margin-top:14px;max-width:760px;">'
-			. esc_html__( 'The criteria themselves — what is looked at, the figure it has to reach, and the ones you would rather not be counted against — are under Settings → Diagnostic. Your own prompts add their lines here by themselves.', 'dazont-ecom' )
+			. esc_html__( 'The criteria themselves — what is looked at, the comparison it has to fail, and the ones you would rather not be counted against — are under Settings → Diagnostic. Your own prompts add their lines here by themselves.', 'dazont-ecom' )
 			. '</p>';
 		$this->print_script();
 	}
