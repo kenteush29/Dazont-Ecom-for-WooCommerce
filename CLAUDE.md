@@ -225,6 +225,9 @@ owner communicates in French.
 - **`php tools/check-methods.php dazont-ecom` must pass before every release.**
   `php -l` proves a file PARSES, not that it runs: a call to a method nobody
   wrote parses perfectly and dies the moment the line executes.
+  It also reads the admin JavaScript for jQuery helpers removed in 4.0 —
+  `$.trim`, `$.proxy`, `$.isArray` — which work and warn on WordPress's own
+  jQuery and die silently the day a shop installs an updater.
   `DZE_Klaviyo::sample_body()` was called from `admin_enqueue_scripts` on one
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
@@ -239,6 +242,15 @@ owner communicates in French.
   pass. A provider's own answers cannot be run from here, so the Klaviyo one
   stubs the transport and reads the REQUEST — its method, its URL, its headers,
   its body. "No valid revisions found for method" was one header on six calls.
+- **`node tools/js/klaviyo-open.mjs` and `node tools/js/diagnostic-card.mjs`
+  must pass.** They open the real screens in a real browser, on BOTH the
+  jQuery WordPress ships today and the jQuery 4 it will ship, click the
+  buttons and read back what the page did. `node --check` proves a script
+  parses; it does not prove that Open opens anything. A card sitting under
+  POSTS while its own menu said "Products", a field chosen fresh keeping the
+  last field's figure, a handler dying halfway on `$.trim` — none of those
+  exist until somebody clicks, and all of them look like a button that does
+  nothing and says nothing.
 - **`php tools/check-prompts.php dazont-ecom` must pass too.** Every prompt
   offered a "Make this the default" control has to be answerable by the
   prompt registry: `DZE_Prompt_Defaults::control()` draws NOTHING for an id

@@ -8,3 +8,5 @@ dazont-ecom-*.zip
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+tools/js/node_modules/
+tools/js/package*.json

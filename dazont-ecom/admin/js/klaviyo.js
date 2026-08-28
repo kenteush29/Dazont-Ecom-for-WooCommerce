@@ -47,7 +47,7 @@
 		$.each({ '#dze-klav-inc': 'included', '#dze-klav-exc': 'excluded' }, function (sel, key) {
 			var $s = $(sel);
 			if (!$s.length) { return; }
-			var text = $.trim($s.find('option:selected').text());
+			var text = String( $s.find('option:selected').text() ).trim();
 			$('input[name="' + cfg.opt + '[' + key + '_name]"]').val($s.val() ? text : '');
 		});
 	}
@@ -55,7 +55,7 @@
 
 	function tools() {
 		var chosen = $('#dze-klav-exc').val();
-		$('#dze-klav-activate').toggle(!!chosen && $.inArray(chosen, inactive) !== -1);
+		$('#dze-klav-activate').toggle(!!chosen && ( inactive ).indexOf( chosen ) !== -1);
 	}
 	$(document).on('change', '#dze-klav-exc', function () {
 		$('#dze-klav-seg-msg').text('');
@@ -152,7 +152,7 @@
 		return String(html).replace(/<img\b[^>]*>/gi, function (tag) {
 			var src = tag.match(/\ssrc\s*=\s*("|')(.*?)\1/i);
 			if (!src) { return ''; }
-			var url = $.trim(src[2]);
+			var url = String( src[2] ).trim();
 			return (!url || url.toLowerCase() === 'picture') ? '' : tag;
 		});
 	}
@@ -186,7 +186,7 @@
 	// The thumbnails are the emails themselves, drawn small — the same HTML
 	// that will be sent, so a card can never show something the email is not.
 	function thumb(id) {
-		var $c = card(id), html = $.trim($c.find('.dze-f-body').val() || '');
+		var $c = card(id), html = String( $c.find('.dze-f-body').val() || '' ).trim();
 		draw($c.find('.dze-mail-thumb iframe'), html ? assemble(cfg.shell, html) : '');
 	}
 
@@ -316,6 +316,14 @@
 		briefReset();
 		$('#dze-mail-edit').show();
 		view('view');
+		// The editor sits UNDER the list, and a promotion with one email opens
+		// on that email already: clicking Open then changed nothing anybody
+		// could see, which reads exactly like a broken button. It goes to the
+		// editor now, every time.
+		var el = document.getElementById('dze-mail-edit');
+		if (el && el.scrollIntoView) {
+			el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}
 	}
 
 	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('id')); });
@@ -376,7 +384,7 @@
 			// Said as it happens: which are in, which are still being written.
 			function tell() {
 				var waiting = langs.filter(function (l) {
-					return -1 === $.inArray(l, done) && -1 === $.inArray(l, failed);
+					return -1 === ( done ).indexOf( l ) && -1 === ( failed ).indexOf( l );
 				});
 				$said.css('color', '').text(
 					(cfg.i18nDoing || 'Writing %s… (%i of %n)')
@@ -440,7 +448,7 @@
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
-			$c = $($.trim(html));
+			$c = $(String( html ).trim());
 		// A new email opens on the day the promotion does; the moment it
 		// belongs to follows from whatever day it ends up on.
 		$c.find('.dze-f-when').val($('#dze-klav-editor').data('newday') || '');
@@ -472,7 +480,7 @@
 				$('.dze-mail-list').empty();
 				$.each(res.data.emails, function (i, mail) {
 					var html = $('#dze-mail-blank').html().split('__ID__').join(mail.id),
-						$c = $($.trim(html));
+						$c = $(String( html ).trim());
 					$c.find('.dze-f-when').val(mail.when);
 					$c.find('.dze-f-kind').val(mail.kind || '');
 					$c.find('.dze-mail-name').text(mail.name || cfg.i18n.unnamed);
@@ -542,8 +550,8 @@
 			var $c = $(this);
 			return {
 				id: $c.data('id'),
-				when: $.trim($c.find('.dze-f-when').val() || ''),
-				body: $.trim($c.find('.dze-f-body').val() || '')
+				when: String( $c.find('.dze-f-when').val() || '' ).trim(),
+				body: String( $c.find('.dze-f-body').val() || '' ).trim()
 			};
 		}).get().filter(function (j) { return j.body; });
 		if (!jobs.length) { $m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.noWritten); return; }
@@ -667,13 +675,13 @@
 	function drawHasPic() {
 		var $p = $('#dze-klav-haspic');
 		if (!$p.length) { return; }
-		var url = $.trim(picture().val() || '');
+		var url = String( picture().val() || '' ).trim();
 		if (!url) { $p.hide(); return; }
 		$p.css('display', 'flex').find('img').attr('src', url).attr('data-full', url);
 	}
 
 	function setPicture(url) {
-		var el = body()[0], old = $.trim(picture().val() || '');
+		var el = body()[0], old = String( picture().val() || '' ).trim();
 		picture().val(url);
 		if (!el) { commit(); return; }
 		if (el.value.indexOf(cfg.pictureMark) !== -1) {
@@ -965,7 +973,7 @@
 	// marker goes back where the URL was, so the place a picture belongs in is
 	// still there and the next writing can fill it.
 	$(document).on('click', '#dze-klav-e-nopic', function () {
-		var url = $.trim(picture().val() || '');
+		var url = String( picture().val() || '' ).trim();
 		if (!url || !window.confirm(cfg.i18n.dropPic)) { return; }
 		var el = body()[0];
 		if (el && el.value.indexOf(url) !== -1) {

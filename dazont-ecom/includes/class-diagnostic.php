@@ -116,10 +116,10 @@ final class DZE_Diagnostic {
 		return [
 			// --- Products, read as text -------------------------------------
 			'product.title'             => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'title', 'dazont-ecom' ) ],
-			'product.description'       => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'description', 'dazont-ecom' ) ],
+			'product.description'       => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'description', 'dazont-ecom' ) , 'rule' => [ 'lt', 120 ] ],
 			'product.short_description' => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'short description', 'dazont-ecom' ) ],
-			'product.seo_title'         => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) ],
-			'product.seo_desc'          => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) ],
+			'product.seo_title'         => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) , 'rule' => [ 'gt', 60 ] ],
+			'product.seo_desc'          => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) , 'rule' => [ 'gt', 160 ] ],
 			'product.sku'               => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SKU', 'dazont-ecom' ) ],
 			// ONE custom field, whatever it holds. Splitting it into a text one
 			// and a number one was this plugin deciding what ACF is allowed to
@@ -127,13 +127,13 @@ final class DZE_Diagnostic {
 			// repeaters, and none of them is "text" or "number". The key is
 			// typed, the value is read as it stands, and what the comparison
 			// means is written under the row.
-			'product.meta'              => [ 'scope' => 'product',  'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true , 'keyname' => true ],
+			'product.meta'              => [ 'scope' => 'product',  'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true , 'keyname' => true, 'keyhint' => 'e.g. _bloc_text_2' ],
 			// --- Products, read as a number ---------------------------------
 			'product.main_image'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'main photograph', 'dazont-ecom' ) ],
-			'product.main_image_width'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, width', 'dazont-ecom' ) ],
-			'product.main_image_height' => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, height', 'dazont-ecom' ) ],
-			'product.main_image_side'   => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, smallest side', 'dazont-ecom' ) ],
-			'product.gallery'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'gallery photographs', 'dazont-ecom' ) ],
+			'product.main_image_width'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, width', 'dazont-ecom' ) , 'rule' => [ 'lt', 800 ] ],
+			'product.main_image_height' => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, height', 'dazont-ecom' ) , 'rule' => [ 'lt', 800 ] ],
+			'product.main_image_side'   => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, smallest side', 'dazont-ecom' ) , 'rule' => [ 'lt', 800 ] ],
+			'product.gallery'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'gallery photographs', 'dazont-ecom' ) , 'rule' => [ 'lt', 3 ] ],
 			'product.links'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'links',      'label' => __( 'links in the description', 'dazont-ecom' ) ],
 			'product.price'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'price', 'dazont-ecom' ) ],
 			'product.sale_price'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'sale price', 'dazont-ecom' ) ],
@@ -147,23 +147,23 @@ final class DZE_Diagnostic {
 			// is a criterion. A shop selling the same jacket in six colours
 			// shows the same photograph six times until somebody notices, and
 			// nobody notices from the product list.
-			'product.variation_images'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'variations with no photograph of their own', 'dazont-ecom' ), 'key' => true ],
+			'product.variation_images'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'variations with no photograph of their own', 'dazont-ecom' ), 'key' => true, 'keyhint' => 'which ones — attribute_pa_couleur', 'rule' => [ 'gt', 0 ] ],
 			'product.reviews'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'reviews',    'label' => __( 'reviews', 'dazont-ecom' ) ],
-			'product.rating'            => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'stars',      'label' => __( 'average rating', 'dazont-ecom' ) ],
+			'product.rating'            => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'stars',      'label' => __( 'average rating', 'dazont-ecom' ) , 'rule' => [ 'lt', 4 ] ],
 			'product.age'               => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'days',       'label' => __( 'days since published', 'dazont-ecom' ) ],
 			// --- Categories and articles ------------------------------------
-			'category.description'      => [ 'scope' => 'category', 'kind' => 'text',   'unit' => 'words',      'label' => __( 'description', 'dazont-ecom' ) ],
-			'category.links'            => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'links',      'label' => __( 'internal links', 'dazont-ecom' ) ],
+			'category.description'      => [ 'scope' => 'category', 'kind' => 'text',   'unit' => 'words',      'label' => __( 'description', 'dazont-ecom' ) , 'rule' => [ 'lt', 150 ] ],
+			'category.links'            => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'links',      'label' => __( 'internal links', 'dazont-ecom' ) , 'rule' => [ 'lt', 2 ] ],
 			'category.products'         => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'products',   'label' => __( 'products in it', 'dazont-ecom' ) ],
-			'post.links'                => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'links',      'label' => __( 'internal links', 'dazont-ecom' ) ],
-			'post.content'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'the text itself', 'dazont-ecom' ) ],
+			'post.links'                => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'links',      'label' => __( 'internal links', 'dazont-ecom' ) , 'rule' => [ 'lt', 0 ] ],
+			'post.content'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'the text itself', 'dazont-ecom' ) , 'rule' => [ 'lt', 300 ] ],
 			'post.title'                => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'title', 'dazont-ecom' ) ],
 			'post.excerpt'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'excerpt', 'dazont-ecom' ) ],
-			'post.seo_title'            => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) ],
-			'post.seo_desc'             => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) ],
-			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true , 'keyname' => true ],
-			'post.updated'              => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'last updated', 'dazont-ecom' ) ],
-			'post.age'                  => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'published', 'dazont-ecom' ) ],
+			'post.seo_title'            => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) , 'rule' => [ 'gt', 60 ] ],
+			'post.seo_desc'             => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) , 'rule' => [ 'gt', 160 ] ],
+			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true , 'keyname' => true, 'keyhint' => 'e.g. _bloc_text_2' ],
+			'post.updated'              => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'last updated', 'dazont-ecom' ) , 'rule' => [ 'gt', 365 ] ],
+			'post.age'                  => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'published', 'dazont-ecom' ) , 'rule' => [ 'gt', 365 ] ],
 			'post.main_image'           => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'photographs','label' => __( 'featured image', 'dazont-ecom' ) ],
 			'post.images'               => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'photographs','label' => __( 'images in the text', 'dazont-ecom' ) ],
 			'post.headings'             => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'headings',   'label' => __( 'headings', 'dazont-ecom' ) ],
@@ -266,6 +266,26 @@ final class DZE_Diagnostic {
 	 */
 	public static function unit_of( string $field ): string {
 		return (string) ( self::fields()[ $field ]['unit'] ?? '' );
+	}
+
+	/**
+	 * The question a field is asked when it is first chosen.
+	 *
+	 * Changing the field used to leave the comparison and the figure where the
+	 * last field left them, which is how "variations with no photograph of
+	 * their own is less than 120" gets built: a rule true of every product in
+	 * the shop, that means nothing and finds everything. Each field says what
+	 * it is normally asked; a field with no figure worth defaulting is asked
+	 * whether it is empty, which is always a real question.
+	 *
+	 * @return array{0:string,1:int}
+	 */
+	public static function default_rule( string $field ): array {
+		$meta = self::fields()[ $field ] ?? [];
+		if ( ! empty( $meta['rule'] ) ) {
+			return [ (string) $meta['rule'][0], (int) $meta['rule'][1] ];
+		}
+		return [ 'empty', 0 ];
 	}
 
 	/**
@@ -1992,7 +2012,7 @@ final class DZE_Diagnostic {
 		}
 		$out .= '</select></label>';
 		$out .= '<input type="text" class="dze-diag-key" name="' . $name( 'key' ) . '" value="' . esc_attr( (string) ( $row['key'] ?? '' ) ) . '"'
-			. ' list="dze-diag-keys-' . esc_attr( $scope ) . '" placeholder="' . esc_attr__( 'choose a custom field', 'dazont-ecom' ) . '" style="width:230px;'
+			. ' list="dze-diag-keys-' . esc_attr( $scope ) . '" placeholder="' . esc_attr( (string) ( $fields[ $field ]['keyhint'] ?? __( 'choose a custom field', 'dazont-ecom' ) ) ) . '" style="width:230px;'
 			. ( empty( $fields[ $field ]['key'] ) ? 'display:none;' : '' ) . '" />';
 		$out .= '<label><span>' . esc_html__( 'Falls short when it', 'dazont-ecom' ) . '</span>'
 			. '<select class="dze-diag-test" name="' . $name( 'test' ) . '">';
@@ -2151,6 +2171,8 @@ final class DZE_Diagnostic {
 				'label' => (string) $meta['label'],
 				'key'   => ! empty( $meta['key'] ),
 				'keyname' => ! empty( $meta['keyname'] ),
+				'keyhint' => (string) ( $meta['keyhint'] ?? '' ),
+				'rule'    => self::default_rule( $fid ),
 				'scope' => (string) $meta['scope'],
 				'kind'  => (string) $meta['kind'],
 				'unit'  => (string) ( $meta['unit'] ?? '' ),
@@ -2174,7 +2196,8 @@ final class DZE_Diagnostic {
 				'kinds' => array_values( (array) $meta['kinds'] ),
 			];
 		}
-		$blank = [ 'id' => '', 'note' => '', 'scope' => (string) array_key_first( self::scopes() ), 'field' => 'product.description', 'test' => 'lt', 'value' => 120, 'find' => '', 'key' => '', 'goals' => array_keys( self::goals() ), 'on' => 1 ];
+		[ $b_op, $b_val ] = self::default_rule( 'product.description' );
+		$blank = [ 'id' => '', 'note' => '', 'scope' => (string) array_key_first( self::scopes() ), 'field' => 'product.description', 'test' => $b_op, 'value' => $b_val, 'find' => '', 'key' => '', 'goals' => array_keys( self::goals() ), 'on' => 1 ];
 		?>
 		<script type="text/template" id="dze-diag-tpl"><?php echo self::card( $blank, '__I__' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card(). ?></script>
 		<script>
@@ -2276,14 +2299,15 @@ final class DZE_Diagnostic {
 					// A criterion on a custom field is called by its key, on
 					// the shut line and in the name it is given — the same
 					// rule the server writes it under.
-					k = meta.key ? $.trim( $card.find( '.dze-diag-key' ).val() || '' ) : '',
+					k = meta.key ? String( $card.find( '.dze-diag-key' ).val() || '' ).trim() : '',
 					named = ! k ? meta.label : ( meta.keyname ? k : meta.label + ' (' + k + ')' );
 				fitOps( $card, meta.kind );
 				var op = $card.find( '.dze-diag-test' ).val(),
 					takes = ( ops[ op ] || {} ).takes || '',
 					v = parseInt( $card.find( '.dze-diag-value' ).val(), 10 ) || 0,
 					find = $card.find( '.dze-diag-find' ).val() || '';
-				$card.find( '.dze-diag-key' ).toggle( !! meta.key );
+				$card.find( '.dze-diag-key' ).toggle( !! meta.key )
+					.attr( 'placeholder', meta.keyhint || '' );
 				$card.find( '.dze-diag-value' ).toggle( 'number' === takes );
 				$card.find( '.dze-diag-find' ).toggle( 'text' === takes );
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
@@ -2293,6 +2317,29 @@ final class DZE_Diagnostic {
 				var auto = ( named + ' ' + clause( f, op, takes, v, find, meta, true ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
 				$card.find( '.dze-diag-name' ).text( auto ? auto.charAt( 0 ).toUpperCase() + auto.slice( 1 ) : name0 );
 				$card.find( '.dze-diag-said' ).text( $card.find( '.dze-diag-note' ).val() || '' );
+			}
+
+			// Where a card belongs: under its own post type's heading when the
+			// page has one, and otherwise at the foot with a heading of its
+			// own, so it is never filed under somebody else's.
+			function home( $card ) {
+				var scope = $card.find( '.dze-diag-scope' ).val(),
+					$list = $( '#dze-diag-lib .dze-prlist[data-scope="' + scope + '"]' );
+				if ( $list.length ) {
+					$list.append( $card );
+					$( '#dze-diag-new' ).each( function () {
+						var $n = $( this );
+						if ( ! $n.children().length ) { $n.prev( '.dze-pr-grouphead.is-new' ).remove(); }
+					} );
+					return;
+				}
+				var label = ( scopes[ scope ] || {} ).label || '';
+				var $head = $( '#dze-diag-new' ).prev( '.dze-pr-grouphead.is-new' );
+				if ( ! $head.length ) {
+					$head = $( '<h3 class="dze-pr-grouphead is-new"></h3>' ).insertBefore( $( '#dze-diag-new' ) );
+				}
+				$head.text( label );
+				$( '#dze-diag-new' ).attr( 'data-scope', scope ).append( $card );
 			}
 
 			function add( row ) {
@@ -2309,16 +2356,11 @@ final class DZE_Diagnostic {
 					$card.find( '.dze-diag-find' ).val( row.find || '' );
 					$card.find( '.dze-diag-key' ).val( row.key || '' );
 					$card.find( '.dze-diag-goal' ).each( function () {
-						this.checked = -1 !== $.inArray( this.value, row.goals || [] );
+						this.checked = -1 !== ( row.goals || [] ).indexOf( this.value );
 					} );
 					$card.find( '.dze-switch input' ).prop( 'checked', 0 !== row.on );
 				}
-				// A restored criterion joins its own type's list when that list
-				// is on the page; anything else — a new card, a type with no
-				// heading yet — goes to the foot, where it is visible.
-				var scope = $card.find( '.dze-diag-scope' ).val(),
-					$list = row ? $( '#dze-diag-lib .dze-prlist[data-scope="' + scope + '"]' ) : $();
-				( $list.length ? $list : $( '#dze-diag-new' ) ).append( $card );
+				home( $card );
 				retell( $card );
 				return $card;
 			}
@@ -2332,6 +2374,24 @@ final class DZE_Diagnostic {
 					$c.addClass( 'is-open' ).find( '.dze-prb-body' ).show();
 					$c.find( '.dze-diag-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
 				}
+			} );
+			// Choosing another field asks that field's OWN question. Keeping the
+			// last one's comparison and figure is how "variations with no
+			// photograph is less than 120" happens: a rule that finds every
+			// product in the shop and says nothing about any of them.
+			$( document ).on( 'change', '.dze-diag-field', function () {
+				var $card = $( this ).closest( '.dze-diag-card' ),
+					rule = ( fields[ $( this ).val() ] || {} ).rule || [ 'empty', 0 ];
+				$card.find( '.dze-diag-test' ).val( rule[0] );
+				$card.find( '.dze-diag-value' ).val( rule[1] );
+				retell( $card );
+			} );
+			// A card says which post type it is about, so it belongs under that
+			// type's heading — not at the foot of the page under whatever
+			// happened to be last, which is where a new one used to land while
+			// its own menu said "Products".
+			$( document ).on( 'change', '.dze-diag-scope', function () {
+				home( $( this ).closest( '.dze-diag-card' ) );
 			} );
 			$( document ).on( 'change keyup', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key, .dze-diag-note', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );

@@ -28,7 +28,7 @@
 		if (!$el.hasClass('is-ko')) { return; }
 		if ($el.find('.dze-logl').length) { return; }
 		// No message yet: an empty red box has nothing to explain.
-		if (!$.trim($el.text())) { return; }
+		if (!String( $el.text() ).trim()) { return; }
 		$el.append(
 			$('<a class="dze-logl"></a>')
 				.attr({ href: cfg.url, target: '_blank', rel: 'noopener noreferrer', title: cfg.title || '' })

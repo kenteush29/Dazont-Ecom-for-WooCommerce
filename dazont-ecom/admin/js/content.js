@@ -39,8 +39,8 @@
 	// "Something went wrong." with nothing to act on. It is now quoted.
 	function answerError(r) {
 		if (r && r.data && r.data.message) { return r.data.message; }
-		if (typeof r === 'string' && $.trim(r)) {
-			return (i18n.badAnswer || '') + ' ' + $.trim($('<i></i>').html(r).text()).slice(0, 300);
+		if (typeof r === 'string' && String( r ).trim()) {
+			return (i18n.badAnswer || '') + ' ' + String( $('<i></i>').html(r).text() ).trim().slice(0, 300);
 		}
 		return i18n.error;
 	}
@@ -627,7 +627,7 @@
 	function markWritten(texts) {
 		texts = texts || {};
 		$('.dze-cx-f').each(function () {
-			var $f = $(this), has = !!$.trim(String(texts[$f.val()] || '').replace(/<[^>]*>/g, ''));
+			var $f = $(this), has = !!String( String(texts[$f.val()] || '').replace(/<[^>]*>/g, '') ).trim();
 			$f.attr('data-written', has ? '1' : '0');
 			var $line = $f.closest('.dze-cb-checkline');
 			$line.find('.dze-cx-has').remove();

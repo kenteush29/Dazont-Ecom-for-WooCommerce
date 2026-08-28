@@ -182,7 +182,7 @@
 		// were merged, so it always answered "write the banner text first" on a
 		// promotion whose banner text was on the screen above it.
 		var $src = $('#dze-banner-text').length ? $('#dze-banner-text') : $('#dze-title');
-		var line = $.trim($src.val() || '');
+		var line = String( $src.val() || '' ).trim();
 		if (!line) {
 			$st.css('color', '#b32d2e').addClass('is-ko').text(cfg.i18n.titleFirst);
 			$src.trigger('focus');
@@ -198,7 +198,7 @@
 						var v = res.data.i18n[$(this).data('lang')];
 						// A line already written by hand stays: this fills the
 						// gaps, it does not take the screen over.
-						if (typeof v === 'string' && !$.trim($(this).val() || '')) { $(this).val(v); }
+						if (typeof v === 'string' && !String( $(this).val() || '' ).trim()) { $(this).val(v); }
 					});
 					$('#dze-banner-i18n').prop('open', true);
 					$st.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.translated);
