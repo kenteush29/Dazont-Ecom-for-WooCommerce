@@ -255,7 +255,31 @@
 		var map = $('#dze-klav-editor').data('when') || {}, day = map[$(this).val()];
 		if (day) { $('#dze-klav-e-when').val(day); }
 		commit();
+		keepMeta();
 	});
+	$(document).on('change', '#dze-klav-e-when', function () { keepMeta(); });
+
+	// The type and the day are kept the moment they are chosen, like every
+	// other thing on this screen that CHANGES an email. They used to wait for
+	// the event's Save, which lost them to any redraw — and, worse, left the
+	// writing being told this email was still what it used to be.
+	var keeping = null;
+	function keepMeta() {
+		if (!current) { return; }
+		window.clearTimeout(keeping);
+		keeping = window.setTimeout(function () {
+			var id = current, $m = $('#dze-klav-e-kept');
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_klav_meta', nonce: cfg.nonce, rule: ruleId(), email: id,
+				kind: $('#dze-klav-e-type').val() || '',
+				when: $('#dze-klav-e-when').val() || ''
+			}).done(function (res) {
+				if (!res || !res.success || !res.data || !res.data.kept || id !== current) { return; }
+				$m.text(cfg.i18n.kept);
+				window.setTimeout(function () { $m.text(''); }, 1600);
+			});
+		}, 400);
+	}
 	$(document).on('input', '#dze-klav-e-body', function () {
 		commit();
 		window.clearTimeout(pending);
@@ -280,6 +304,7 @@
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
 		body().val($c.find('.dze-f-body').val() || '');
 		$('#dze-klav-e-msg').text('');
+		$('#dze-klav-e-kept').text('');
 		$('#dze-klav-write-msg').text('').removeClass('is-ko');
 		// The picture bench belongs to the email that is open: whether the
 		// next writing makes its picture. WHAT the picture shows is one prompt
