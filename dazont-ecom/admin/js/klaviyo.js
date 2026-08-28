@@ -320,6 +320,36 @@
 
 	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('id')); });
 
+	// The other languages, written by the shop rather than left to Klaviyo.
+	// One request per language, so it is slow on purpose and says so.
+	$(document).on('click', '.dze-mail-i18n', function () {
+		var $b = $(this),
+			$row = $b.closest('.dze-mail'),
+			$said = $row.find('.dze-mail-langs'),
+			was = $b.text();
+		$b.prop('disabled', true).text(cfg.i18nBusy || 'Translating…');
+		$said.css('color', '').text(cfg.i18nWait || 'Writing the other languages — one request per language, this takes a moment.');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_i18n',
+			nonce: cfg.nonce,
+			rule: $('#dze-klav-editor').data('rule'),
+			email: $row.data('id')
+		}).done(function (r) {
+			if (r && r.success) {
+				$said.css('color', '#00794b').text((r.data && r.data.message) || '');
+				$b.text(cfg.i18nAgain || 'Translate again');
+			} else {
+				$said.css('color', '#b32d2e').text((r && r.data && r.data.message) || '');
+				$b.text(was);
+			}
+		}).fail(function () {
+			$said.css('color', '#b32d2e').text(cfg.i18nFail || 'The translation did not finish.');
+			$b.text(was);
+		}).always(function () {
+			$b.prop('disabled', false);
+		});
+	});
+
 	// A promotion holds as many emails as it deserves, not four. An id is
 	// minted here and never reused, so two emails added in the same minute
 	// cannot collide and overwrite one another on save.
