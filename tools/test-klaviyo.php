@@ -290,5 +290,18 @@ DZE_Klaviyo::save_copy( 'promo', [ 'title' => 'Summer' ], [
 ] );
 ok( 'a real day is saved as it is',     get_option( $copy )['promo']['emails']['mail9']['when'] ?? '', $next );
 
+echo "What the row says about a draft\n";
+// The day Klaviyo KEPT is stored, and it is not always the day it was sent.
+$row = new ReflectionMethod( 'DZE_Klaviyo', 'just_day' );
+ok( 'a kept day is a day',              DZE_Klaviyo::just_day( '2026-09-04' ), '2026-09-04' );
+// An email filed before this version carries no answer either way, and the
+// screen must not invent one: only an explicit empty means "no date".
+$says = static function ( array $draft ): bool {
+	return array_key_exists( 'day', $draft ) && '' === (string) $draft['day'];
+};
+ok( 'an old draft says nothing',        $says( [ 'campaign' => 'C1' ] ), false );
+ok( 'a draft Klaviyo dated says nothing', $says( [ 'campaign' => 'C1', 'day' => '2026-09-04' ] ), false );
+ok( 'a draft with no date says so',     $says( [ 'campaign' => 'C1', 'day' => '' ] ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
