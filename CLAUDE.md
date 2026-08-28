@@ -94,6 +94,25 @@ owner communicates in French.
   a quoted title, never a "See X for more" bolted on at the end, never
   "here"/"this page"/"learn more", never an ambiguous destination. Applies to
   every generator that inserts links.
+- **Simple, or it is not finished.** Every function and every screen is judged
+  from the chair of the person using it, not from the code that produces it.
+  Before shipping anything, three cuts:
+  - **What can be REMOVED?** A setting the shop would never change, an
+    explanation of a mechanism nobody has to know, a second control that says
+    what the first already says — all of it goes. A paragraph explaining a
+    checkbox usually means the checkbox is wrong.
+  - **What does the owner actually need to SEE?** Usually a state and one
+    action: "Translations — Activated", "Translate it". Not the reasoning that
+    produced the state, not the API behind it, not our excuses for what we
+    cannot read. When something cannot be checked, ONE sentence of warning is
+    the whole of it.
+  - **Does every action say what happened?** A button that starts work says it
+    is working, says when each part is done, and says the result in words. A
+    click that leaves the shop wondering whether it worked is a broken
+    function, however correct the code underneath.
+  This is the rule most often broken here, and breaking it is not a detail: a
+  screen the owner has to be walked through is a screen he will not use.
+
 - **This plugin is built to be HANDED OVER.** The shop is meant to be
   resellable, and the next owner will have none of this conversation. So
   nothing may depend on knowing what was said here:
