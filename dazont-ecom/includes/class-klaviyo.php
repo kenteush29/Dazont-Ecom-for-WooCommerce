@@ -94,6 +94,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_langs',   [ __CLASS__, 'ajax_langs' ] );
 		add_action( 'wp_ajax_dze_klav_i18n',    [ __CLASS__, 'ajax_translate' ] );
 		add_action( 'wp_ajax_dze_klav_i18nsave', [ __CLASS__, 'ajax_translate_save' ] );
+		add_action( 'wp_ajax_dze_klav_schedule', [ __CLASS__, 'ajax_schedule' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
 		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
@@ -3005,6 +3006,56 @@ final class DZE_Klaviyo {
 		wp_send_json_success( [ 'lang' => $lang, 'done' => $n ] );
 	}
 
+	/**
+	 * The draft, scheduled — or put back to a draft.
+	 *
+	 * One handler for both directions, because they are one decision with two
+	 * answers and a screen that can only go one way is a trap.
+	 */
+	public static function ajax_schedule(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$rule  = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
+		$email = isset( $_POST['email'] ) ? sanitize_key( wp_unslash( $_POST['email'] ) ) : '';
+		$undo  = ! empty( $_POST['undo'] );
+		$mail  = self::emails_for( $rule )[ $email ] ?? [];
+		$camp  = (string) ( $mail['draft']['campaign'] ?? '' );
+		if ( '' === $camp ) {
+			wp_send_json_error( [ 'message' => __( 'This email is not in Klaviyo yet. Create the draft first.', 'dazont-ecom' ) ] );
+		}
+		if ( $undo ) {
+			$said = self::unschedule( $camp );
+			if ( '' !== $said ) {
+				wp_send_json_error( [ 'message' => $said ] );
+			}
+			self::put_email( $rule, $email, [
+				'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [ 'scheduled' => 0, 'goes' => '' ] ),
+			] );
+			wp_send_json_success( [ 'scheduled' => 0, 'message' => __( 'Back to a draft in Klaviyo. Nothing will go out.', 'dazont-ecom' ) ] );
+		}
+		[ $day, $said ] = self::schedule( $camp );
+		if ( '' !== $said ) {
+			wp_send_json_error( [ 'message' => $said ] );
+		}
+		// What was actually DONE, read from Klaviyo and kept: the row says
+		// "Scheduled for 28/09/2026" from this, never from the day the shop
+		// typed, which is intent and not a fact.
+		self::put_email( $rule, $email, [
+			'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [ 'scheduled' => time(), 'goes' => $day ] ),
+		] );
+		wp_send_json_success( [
+			'scheduled' => 1,
+			'day'       => $day,
+			'message'   => sprintf(
+				/* translators: %s: the day it goes out */
+				__( 'Scheduled in Klaviyo for %s. Nothing else to do.', 'dazont-ecom' ),
+				$day
+			),
+		] );
+	}
+
 	/** Every language that came back, filed in Klaviyo in one call. */
 	public static function ajax_translate_save(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
@@ -3142,6 +3193,95 @@ final class DZE_Klaviyo {
 	 *
 	 * @return string '' when the send job was accepted, otherwise what to say.
 	 */
+	/**
+	 * The campaign, SCHEDULED — its own day, without anybody opening Klaviyo.
+	 *
+	 * Measured on the shop's own account before this was written, because the
+	 * comment that used to sit here said the opposite: a send job on a campaign
+	 * carrying a future date does not send it, it SCHEDULES it. Klaviyo says so
+	 * in its own words when something is missing — "Unable to SCHEDULE campaign
+	 * … as message does not have a template" — and a probe dated a month out
+	 * came back `queued`, with send_time a month away and nothing sent.
+	 *
+	 * Two things have to be true first, and both are checked rather than
+	 * assumed: the campaign must hold a day, and its message must hold a
+	 * template. Neither is our news to break at the moment of scheduling.
+	 *
+	 * The strategy is NOT touched here. That is the whole difference from
+	 * send_now(), which rewrites it to "immediate" on purpose: a campaign
+	 * whose date is quietly replaced on the way to being scheduled is a
+	 * campaign that goes out on the wrong day.
+	 *
+	 * @return array{0:string,1:string} the day it is scheduled for, and what to
+	 *                                  say when it is not scheduled at all.
+	 */
+	public static function schedule( string $camp_id ): array {
+		if ( '' === $camp_id ) {
+			return [ '', __( 'There is no campaign to schedule yet.', 'dazont-ecom' ) ];
+		}
+		$has = self::request( 'GET', 'campaigns/' . rawurlencode( $camp_id ) . '/?fields%5Bcampaign%5D=status,send_strategy,send_time', null, 25 );
+		if ( is_wp_error( $has ) ) {
+			return [ '', $has->get_error_message() ];
+		}
+		$status = (string) ( $has['data']['attributes']['status'] ?? '' );
+		if ( 'Draft' !== $status ) {
+			// Already scheduled, already sent, already cancelled: whatever it
+			// is, it is not ours to put through a sender a second time.
+			return [ self::kept_day( $has['data'] ?? [] ), sprintf(
+				/* translators: %s: what Klaviyo calls the campaign's state */
+				__( 'This campaign is not a draft any more (%s), so it was left exactly as it is.', 'dazont-ecom' ),
+				$status
+			) ];
+		}
+		if ( '' === self::kept_day( $has['data'] ?? [] ) ) {
+			return [ '', __( 'This campaign has no send day in Klaviyo, so there is nothing to schedule it for. File the draft again.', 'dazont-ecom' ) ];
+		}
+		$job = self::request( 'POST', 'campaign-send-jobs/', [
+			'data' => [ 'type' => 'campaign-send-job', 'id' => $camp_id ],
+		], 30 );
+		if ( is_wp_error( $job ) ) {
+			return [ '', $job->get_error_message() ];
+		}
+		// What Klaviyo holds NOW, never what we asked for: a job it accepted is
+		// not the same thing as a campaign it will send.
+		$now = self::request( 'GET', 'campaigns/' . rawurlencode( $camp_id ) . '/?fields%5Bcampaign%5D=status,send_strategy,send_time', null, 25 );
+		if ( is_wp_error( $now ) ) {
+			return [ '', $now->get_error_message() ];
+		}
+		$day = self::just_day( (string) ( $now['data']['attributes']['send_time'] ?? '' ) )
+			?: self::kept_day( $now['data'] ?? [] );
+		$state = (string) ( $now['data']['attributes']['status'] ?? '' );
+		if ( 'Draft' === $state ) {
+			return [ '', __( 'Klaviyo took the request but the campaign is still a draft. Open it and schedule it there.', 'dazont-ecom' ) ];
+		}
+		return [ $day, '' ];
+	}
+
+	/**
+	 * A scheduled campaign put back to being a draft.
+	 *
+	 * The other half of scheduling: a day chosen by mistake has to be
+	 * undoable from the same screen that chose it, or the shop is sent to
+	 * Klaviyo to fix what this plugin did.
+	 *
+	 * @return string '' when it is a draft again, otherwise what to say.
+	 */
+	public static function unschedule( string $camp_id ): string {
+		if ( '' === $camp_id ) {
+			return __( 'There is no campaign to unschedule.', 'dazont-ecom' );
+		}
+		$back = self::request( 'PATCH', 'campaign-send-jobs/' . rawurlencode( $camp_id ) . '/', [
+			'data' => [
+				'type'       => 'campaign-send-job',
+				'id'         => $camp_id,
+				// "revert" puts it back to Draft; "cancel" would kill the
+				// campaign for good, which is not what unscheduling means.
+				'attributes' => [ 'action' => 'revert' ],
+			],
+		], 30 );
+		return is_wp_error( $back ) ? $back->get_error_message() : '';
+	}
+
 	public static function send_now( string $camp_id ): string {
 		if ( '' === $camp_id ) {
 			return __( 'There is no campaign to send yet.', 'dazont-ecom' );
@@ -5585,6 +5725,8 @@ final class DZE_Klaviyo {
 				'made'     => __( 'Draft ready in Klaviyo — nothing was sent. It opens on Recipients; press Next for the email.', 'dazont-ecom' ),
 				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
 				'notBefore'=> __( 'The earliest an email can go out is tomorrow — moved.', 'dazont-ecom' ),
+				'schedule' => __( 'Schedule it', 'dazont-ecom' ),
+				'unschedule'=> __( 'Unschedule', 'dazont-ecom' ),
 				'subject'  => __( 'Write a subject line first.', 'dazont-ecom' ),
 				'open'     => __( 'Open draft ↗', 'dazont-ecom' ),
 				'again'    => __( 'Again', 'dazont-ecom' ),
@@ -5732,7 +5874,7 @@ final class DZE_Klaviyo {
 								// say only where the draft was — not that Klaviyo is what
 								// sends it, nor what is left to do there. ?>
 								<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
-									<?php esc_html_e( 'Draft in Klaviyo — schedule it there ↗', 'dazont-ecom' ); ?>
+									<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
 								</a>
 								<?php
 								// Klaviyo answers 200 to a day it then stores empty. What
@@ -5741,11 +5883,37 @@ final class DZE_Klaviyo {
 								// when it mattered, so the row keeps saying it. Only when
 								// it is known: an email filed by an older version carries
 								// no answer, and silence is better than a guess.
-								if ( array_key_exists( 'day', (array) $mail['draft'] ) && '' === (string) $mail['draft']['day'] ) :
+								$dze_goes = (string) ( $mail['draft']['goes'] ?? '' );
+								$dze_on   = ! empty( $mail['draft']['scheduled'] ) && '' !== $dze_goes;
+								$dze_noday = array_key_exists( 'day', (array) $mail['draft'] ) && '' === (string) $mail['draft']['day'];
+								if ( $dze_on ) :
+									$dze_ts = strtotime( $dze_goes ) ?: 0;
 									?>
+									<span style="display:block;font-size:12px;color:#00794b;font-weight:600;">
+										<?php
+										printf(
+											/* translators: %s: the day it goes out */
+											esc_html__( 'Scheduled in Klaviyo for %s', 'dazont-ecom' ),
+											esc_html( $dze_ts ? wp_date( $fmt, $dze_ts ) : $dze_goes )
+										);
+										?>
+									</span>
+								<?php elseif ( $dze_noday ) : ?>
 									<span style="display:block;font-size:12px;color:#b26a00;">
 										<?php esc_html_e( 'No date in Klaviyo — choose it there before scheduling.', 'dazont-ecom' ); ?>
 									</span>
+								<?php endif; ?>
+								<?php
+								// Scheduling is what makes the email go out, and it is one
+								// click here rather than a trip to Klaviyo — which is also
+								// what lets a promotion be handed over without a person.
+								if ( ! $dze_noday ) :
+									?>
+									<button type="button" class="button button-small dze-mail-sched" style="margin-top:4px;"
+										data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
+										<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>
+									</button>
+									<span class="dze-mail-sched-msg description" style="display:block;font-size:12px;"></span>
 								<?php endif; ?>
 								<?php
 								// In how many languages this one actually went out. A
