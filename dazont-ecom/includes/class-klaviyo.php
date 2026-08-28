@@ -1480,7 +1480,13 @@ final class DZE_Klaviyo {
 	 * @return int[]
 	 */
 	private static function best_sellers( int $days, int $limit, array $categories = [], array $rule = [] ): array {
-		$limit  = max( 1, min( 9, $limit ) );
+		// A POOL, not a shortlist. This was capped at nine, and nine is what
+		// one email shows — so a promotion of three emails ran out of products
+		// after the second, and the third was handed nine products every one
+		// of which was marked ALREADY SHOWN. What an email SHOWS is cut to
+		// size by material(); what it may choose from has to be wider than
+		// that, or there is nothing left to choose.
+		$limit  = max( 1, min( 40, $limit ) );
 		$window = self::sellers_window( $rule );
 		$ids    = self::sold_between( (int) $window['from'], (int) $window['to'] );
 
@@ -1717,7 +1723,7 @@ final class DZE_Klaviyo {
 			return [
 				__( 'The promotion: its title, the days it runs and its discount.', 'dazont-ecom' ),
 				__( 'Which email the picture opens, and that email\'s subject line — once it is written.', 'dazont-ecom' ),
-				__( 'Up to four real photographs of the promotion\'s own best-sellers, as the images to work from.', 'dazont-ecom' ),
+				__( 'Up to four real photographs of the products THIS email leads on — the ones it shows, then the rest of its own shortlist — as the images to work from.', 'dazont-ecom' ),
 				__( 'The rule no prompt overrides: keep those products exactly as they are, add nothing that is not in them, and no text anywhere in the image.', 'dazont-ecom' ),
 			];
 		}
@@ -4199,11 +4205,16 @@ final class DZE_Klaviyo {
 	 * @return array{lines:string,images:string[],prices:string[]}
 	 */
 	public static function material( array $rule, int $limit = 9, array $shown = [] ): array {
-		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [] ];
+		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [], 'ids' => [] ];
 		$t   = self::theme_style();
 		// Wider when there is something to step around, so demoting the used
-		// ones leaves real products behind them rather than a shorter list.
-		$want = $shown ? $limit + 6 : $limit;
+		// ones leaves real products behind them rather than a shorter list —
+		// and wider BY HOW MUCH WAS USED, not by a fixed six. Six was enough
+		// for the second email of a promotion and not for the third: the two
+		// before it had between them shown every product in the pool, so the
+		// third was handed nine products all marked ALREADY SHOWN and no way
+		// to obey the instruction it was given.
+		$want = $shown ? min( 40, $limit + count( $shown ) + 6 ) : $limit;
 		$ids = self::best_sellers( self::window_days(), $want, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
 			return $out;
@@ -4234,6 +4245,7 @@ final class DZE_Klaviyo {
 			$link  = (string) $product->get_permalink();
 
 			$row = [
+				'id'    => (int) $id,
 				'name'  => (string) $product->get_name(),
 				'link'  => $link,
 				'image' => $img,
@@ -4263,6 +4275,14 @@ final class DZE_Klaviyo {
 			// earlier ones already leaned on: the link is the one thing a
 			// product block always carries, whatever the writing did around it.
 			$out['links'][ $row['name'] ] = $row['link'];
+			// The product behind that link, in the same order. The opening
+			// picture is composed from real photographs, and the photographs
+			// it should be composed from are THIS email's products — not the
+			// promotion's top sellers, which are one list for all of its
+			// emails and gave every one of them the same picture.
+			if ( '' !== $row['link'] ) {
+				$out['ids'][ $row['link'] ] = $row['id'];
+			}
 			// The block itself, built HERE and handed to the writing ready-made.
 			// How many products, how they are grouped and where they sit is the
 			// prompt's decision; what one of them LOOKS like is not, because a
@@ -4638,7 +4658,8 @@ final class DZE_Klaviyo {
 			. 'What the shop actually sold over ' . $win['label']
 			. ( $win['season'] ? ' — the same days of the year this promotion runs on, so the goods suit its season' : '' ) . ".\n"
 			. ( '' !== $mat['lines']
-				? "Use only these, with the name, the link, the image URL and the prices exactly as written. Show as many or as few as the email needs. They are in the order to prefer them: any marked ALREADY SHOWN was sent to this same reader by another email of this promotion, and is there for the rare case where nothing else fits.\n\n" . $mat['lines']
+				? "Use only these, with the name, the link, the image URL and the prices exactly as written. They are in the order to prefer them: any marked ALREADY SHOWN was sent to this same reader by another email of this promotion, and is there for the rare case where nothing else fits.\n"
+					. self::kind_products( $kind ) . "\n\n" . $mat['lines']
 				: "The shop returned no product. Write the email without a product.\n" );
 		if ( ! empty( $mat['cards'] ) ) {
 			$user .= sprintf(
@@ -4913,6 +4934,31 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * How many products this moment of a promotion shows, and which.
+	 *
+	 * The shortlist is the same for every email; what to DO with it is not. A
+	 * last call that opens on a nine-product grid is not a last call, and a
+	 * warm-up that prices everything has given the offer away two days early.
+	 * Read from WHEN the type falls, like the brief above, so a type the shop
+	 * invented is answered for as well as the four shipped ones.
+	 */
+	private static function kind_products( string $kind ): string {
+		$meta   = self::kinds()[ $kind ] ?? [];
+		$anchor = (string) ( $meta['anchor'] ?? 'start' );
+		$offset = (int) ( $meta['offset'] ?? 0 );
+		if ( 'start' === $anchor && $offset < 0 ) {
+			return 'Nothing is on sale yet, so this one teases: two or three products at most, and never the discounted prices — they belong to the email that opens the promotion.';
+		}
+		if ( 'end' === $anchor && $offset <= 0 ) {
+			return 'This is a last call, not a shop window: one to three products, chosen from the ones the earlier emails did NOT show. A grid of nine here reads like the announcement all over again.';
+		}
+		if ( 'start' === $anchor && $offset > 0 ) {
+			return 'The reader has already seen the announcement and what it showed. Lean on products marked here that no other email of this promotion used — showing him the same goods again is the reason this email exists and the reason it would fail.';
+		}
+		return 'This one is the shop window: show a real spread of the promotion, in more than one group if the email is long enough to carry them.';
+	}
+
+	/**
 	 * What this email will be told, printed for the owner.
 	 *
 	 * Built by the very function the writing uses, with no model call and
@@ -5075,6 +5121,40 @@ final class DZE_Klaviyo {
 	// =========================================================================
 
 	/**
+	 * The products THIS email's opening picture is composed from, in order.
+	 *
+	 * It used to be the promotion's best-sellers — one list, read afresh for
+	 * every email of the promotion, so every email opened on a photograph of
+	 * the same four packshots however different its words were. It is the
+	 * email's OWN shortlist now: the products it is being told to prefer,
+	 * with the ones it actually shows in front, so the picture at the top is a
+	 * picture of what is inside.
+	 *
+	 * @param array $mat The material this email was handed, from material_for().
+	 *
+	 * @return int[]
+	 */
+	private static function picture_products( array $rule, array $email = [], array $mat = [] ): array {
+		if ( empty( $mat['ids'] ) ) {
+			// Asked for outside the editor — a test picture on a promotion
+			// with no email open. The same shortlist, without a neighbour to
+			// step around: one way of choosing products, never two.
+			$mat = self::material( $rule, 9 );
+		}
+		$body = (string) ( $email['body'] ?? '' );
+		$mine = [];
+		$rest = [];
+		foreach ( (array) ( $mat['ids'] ?? [] ) as $link => $pid ) {
+			if ( '' !== $body && '' !== (string) $link && false !== strpos( $body, (string) $link ) ) {
+				$mine[] = (int) $pid;
+			} else {
+				$rest[] = (int) $pid;
+			}
+		}
+		return array_values( array_unique( array_merge( $mine, $rest ) ) );
+	}
+
+	/**
 	 * Generates the opening picture of the email with fal.ai.
 	 *
 	 * An email that opens on a product cut out on white is an email that looks
@@ -5088,7 +5168,7 @@ final class DZE_Klaviyo {
 	 * @return array{url:string,full:string,warning:string}
 	 * @throws RuntimeException
 	 */
-	public static function make_image( array $rule, string $prompt = '', array $email = [] ): array {
+	public static function make_image( array $rule, string $prompt = '', array $email = [], array $mat = [] ): array {
 		if ( ! self::images_on() ) {
 			throw new RuntimeException( __( 'Generated pictures are switched off under Settings → Email campaigns.', 'dazont-ecom' ) );
 		}
@@ -5118,7 +5198,7 @@ final class DZE_Klaviyo {
 		if ( $hero && wp_attachment_is_image( $hero ) ) {
 			$sources[] = $hero; // on the rare event that carries one already.
 		}
-		foreach ( self::best_sellers( self::window_days(), 6, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule ) as $pid ) {
+		foreach ( self::picture_products( $rule, $email, $mat ) as $pid ) {
 			if ( count( $sources ) >= 4 ) {
 				break; // four references is what the model composes well from.
 			}
@@ -5306,7 +5386,15 @@ final class DZE_Klaviyo {
 		// email is filed on the email.
 		$test = ! empty( $_POST['test'] );
 		try {
-			$made = self::make_image( $rule, '', self::email_for( $rule_id, $email_id, $rule ) );
+			// The same material the WRITING is handed, so the picture and the
+			// words of one email are about the same products. One pairing,
+			// made in one place: material_for().
+			$made = self::make_image(
+				$rule,
+				'',
+				self::email_for( $rule_id, $email_id, $rule ),
+				self::material_for( $rule_id, $rule, $email_id )
+			);
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -5736,6 +5824,11 @@ final class DZE_Klaviyo {
 				'pickTpl'  => __( 'Choose the template the header comes from.', 'dazont-ecom' ),
 				'openMail' => __( 'Open', 'dazont-ecom' ),
 				'unnamed'  => __( 'Untitled email', 'dazont-ecom' ),
+				// Two emails of one type are written from the same brief and
+				// read alike in the inbox. The promotion that showed this up
+				// had three, all of them "Launch", all three announcing that
+				// the sale opened today.
+				'sameType' => __( 'Same type as another email — both will be written as that moment.', 'dazont-ecom' ),
 				// A day added in the browser used to land as 2026-08-29 beside
 				// a saved one reading 28/08/2026: the same screen writing the
 				// same thing two ways. The shop's own format travels, with the
@@ -5851,7 +5944,7 @@ final class DZE_Klaviyo {
 		?>
 		<h3><?php esc_html_e( 'Emails', 'dazont-ecom' ); ?></h3>
 
-		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
+		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
 			<input type="hidden" name="dze_email_shown" value="1" />
 			<?php [ $dze_src_now, $dze_tgt_now ] = self::locales(); ?>
@@ -6226,6 +6319,7 @@ final class DZE_Klaviyo {
 				.dze-mail-state{font-size:12px;white-space:nowrap;}
 				.dze-mail-act{white-space:nowrap;}
 				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
+				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
 				.dze-klav-switch .button{border-radius:0;margin:0;}
 				.dze-klav-switch .button:first-child{border-radius:3px 0 0 3px;}
 				.dze-klav-switch .button:last-child{border-radius:0 3px 3px 0;margin-left:-1px;}

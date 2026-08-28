@@ -93,6 +93,8 @@ class DZE_Marketing_Ai {
 		return json_encode( $out );
 	}
 	public static function get_settings() { return []; }
+	public static function instance() { return new self(); }
+	public function shop_context_text() { return 'Kula Tactical: tactical and military equipment.'; }
 }
 class DZE_Discounts { public static function get_rules() { return [ 'promo' => [ 'title' => 'Summer' ] ]; } }
 class DZE_Wpml {
@@ -102,6 +104,53 @@ class DZE_Wpml {
 		return [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Enough of a WooCommerce shop to answer "which products may this email show".
+// Twenty products, all sold, so the pool is genuinely wider than one email.
+// ---------------------------------------------------------------------------
+function current_time( $t = 'timestamp', $gmt = 0 ) { return 'timestamp' === $t ? time() : gmdate( 'Y-m-d H:i:s' ); }
+function wp_date( $f, $ts = null, $tz = null ) { return gmdate( $f, $ts ?? time() ); }
+function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
+function get_bloginfo( $k = '' ) { return 'Kula'; }
+function wc_price( $n ) { return '$' . number_format( (float) $n, 2 ); }
+function wc_placeholder_img_src( $s = '' ) { return 'https://kula.test/placeholder.jpg'; }
+function wp_get_attachment_image_url( $id, $size = '' ) { return $id ? 'https://kula.test/img/' . (int) $id . '.jpg' : ''; }
+function wp_attachment_is_image( $id ) { return (int) $id > 0; }
+function get_the_terms( $id, $tax ) { return [ (object) [ 'name' => 'Gear' ] ]; }
+function has_term( $t, $tax, $id ) { return true; }
+function wc_get_products( $a = [] ) { return []; }
+function wp_get_global_settings( ...$a ) { return []; }
+function wp_get_global_styles( ...$a ) { return []; }
+function get_theme_support( ...$a ) { return false; }
+function get_theme_mod( $k, $d = false ) { return $d; }
+function wp_get_theme() { return new class { public function get( $k ) { return ''; } public $stylesheet = 'x'; }; }
+function get_stylesheet() { return 'x'; }
+function current_theme_supports( ...$a ) { return false; }
+function wp_enqueue_style( ...$a ) {} function wp_enqueue_script( ...$a ) {} function wp_localize_script( ...$a ) {}
+
+class WC_Product {
+	public $id;
+	public function __construct( $id ) { $this->id = (int) $id; }
+	public function get_id() { return $this->id; }
+	public function get_name() { return 'Product ' . $this->id; }
+	public function get_permalink() { return 'https://kula.test/p/' . $this->id; }
+	public function get_image_id() { return 900 + $this->id; }
+	public function get_regular_price() { return 20 + $this->id; }
+	public function get_price_html() { return '$' . ( 20 + $this->id ); }
+	public function get_variation_regular_price( $a = 'min', $b = true ) { return 20 + $this->id; }
+	public function is_type( $t ) { return 'simple' === $t; }
+	public function is_visible() { return true; }
+}
+function wc_get_product( $id ) { return (int) $id > 0 ? new WC_Product( (int) $id ) : null; }
+
+class DZE_Test_Wpdb {
+	public $prefix = 'wp_';
+	public function prepare( $sql, ...$a ) { return $sql; }
+	public function get_var( $sql ) { return 'wp_wc_order_product_lookup'; }
+	public function get_col( $sql ) { return range( 1, 20 ); }
+}
+$GLOBALS['wpdb'] = new DZE_Test_Wpdb();
 
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo.php';
 
@@ -395,6 +444,90 @@ ok( 'it patches the send job',           $rev['method'] ?? '', 'PATCH' );
 ok( 'asking to revert, never to cancel',
 	json_decode( (string) ( $rev['body'] ?? '' ), true )['data']['attributes']['action'] ?? '', 'revert' );
 $GLOBALS['dze_queue'] = [];
+
+echo "The products ONE email of a promotion may show\n";
+// The bug the shop reported, in figures. A promotion of three emails: the
+// first two showed nine products between them, and the third was handed a
+// shortlist of nine on which EVERY line read "ALREADY SHOWN by another email
+// of this promotion — use only if you must". The instruction it was given
+// (lean on other products) could not be obeyed, because there were no others:
+// the pool was capped at nine, which is what a single email shows.
+$promo = [ 'title' => 'Back to School', 'percent' => 10, 'start' => gmdate( 'Y-m-d' ), 'end' => gmdate( 'Y-m-d', time() + 12 * 86400 ) ];
+
+$first = DZE_Klaviyo::material( $promo, 9 );
+ok( 'the first email gets nine products', count( $first['cards'] ), 9 );
+ok( 'and none of them is second-hand',   false !== strpos( $first['lines'], 'ALREADY SHOWN' ), false );
+ok( 'each line carries its product',     count( $first['ids'] ), 9 );
+
+// What those nine emails showed, as the neighbours' links are read back.
+$shown = array_keys( $first['ids'] );
+$third = DZE_Klaviyo::material( $promo, 9, $shown );
+ok( 'the next email still gets nine',    count( $third['cards'] ), 9 );
+ok( 'and every one of them is fresh',    false !== strpos( $third['lines'], 'ALREADY SHOWN' ), false );
+ok( 'none of them was shown before',     array_intersect( array_keys( $third['ids'] ), $shown ), [] );
+
+// Two emails' worth used up: the third still finds two more, and only says
+// ALREADY SHOWN once it genuinely has to reuse one.
+$more  = array_merge( $shown, array_keys( $third['ids'] ) );
+$last  = DZE_Klaviyo::material( $promo, 9, $more );
+ok( 'a third helping is found',          count( $last['cards'] ), 9 );
+ok( 'fresh ones come first',             substr_count( substr( $last['lines'], 0, strpos( $last['lines'], "2." ) ), 'ALREADY SHOWN' ), 0 );
+
+echo "The photographs the opening picture is built from\n";
+$pics = new ReflectionMethod( 'DZE_Klaviyo', 'picture_products' );
+$pics->setAccessible( true );
+$mat  = DZE_Klaviyo::material( $promo, 9 );
+$ids  = array_values( $mat['ids'] );
+
+// No email written yet: its own shortlist, in its own order.
+ok( 'it works from this email\'s shortlist', array_slice( $pics->invoke( null, $promo, [], $mat ), 0, 3 ), array_slice( $ids, 0, 3 ) );
+
+// Written: the products the email ACTUALLY shows come first, so the picture
+// at the top is a picture of what is inside. It used to be the promotion's
+// top sellers whatever the email said, which is why every email of a
+// promotion opened on the same four packshots.
+$links = array_keys( $mat['ids'] );
+$body  = '<p><a href="' . $links[7] . '">Seven</a> and <a href="' . $links[5] . '">Five</a></p>';
+$order = $pics->invoke( null, $promo, [ 'body' => $body ], $mat );
+$want  = [ $mat['ids'][ $links[5] ], $mat['ids'][ $links[7] ] ];
+sort( $want );
+$got   = array_slice( $order, 0, 2 );
+sort( $got );
+ok( 'a written email leads on its own products', $got, $want );
+ok( 'and the rest of its shortlist follows',     count( $order ), count( $ids ) );
+
+echo "What each moment is told to do with those products\n";
+$kp = new ReflectionMethod( 'DZE_Klaviyo', 'kind_products' );
+$kp->setAccessible( true );
+ok( 'a warm-up teases and does not price',  false !== stripos( $kp->invoke( null, 'warm' ), 'never the discounted prices' ), true );
+ok( 'a launch is the shop window',          false !== stripos( $kp->invoke( null, 'launch' ), 'shop window' ), true );
+ok( 'a reminder leans on the unused ones',  false !== stripos( $kp->invoke( null, 'reminder' ), 'no other email' ), true );
+ok( 'a last call shows one to three',       false !== stripos( $kp->invoke( null, 'last' ), 'one to three products' ), true );
+
+echo "The brief a last-chance email is actually handed\n";
+// Read end to end, because this is the block the shop pasted back: an email
+// two days before the promotion CLOSED, briefed as the one that announces it.
+// The launch email, with the nine products it really showed in its body —
+// that is how the next email is told what this reader has already seen.
+$launch_body = '<h1>Live</h1>';
+foreach ( array_keys( $first['ids'] ) as $l ) {
+	$launch_body .= '<a href="' . $l . '">Shop now</a>';
+}
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [
+	'm1' => [ 'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 86400 ), 'subject' => 'It is live', 'body' => $launch_body ],
+	'm2' => [ 'kind' => 'last', 'when' => gmdate( 'Y-m-d', time() + 11 * 86400 ), 'subject' => '', 'body' => '' ],
+] ] ];
+$brief = DZE_Klaviyo::brief_for( 'promo', $promo, 'm2', DZE_Klaviyo::material_for( 'promo', $promo, 'm2' ), '' );
+ok( 'it is told which moment it is',    false !== strpos( $brief, 'Type: Last chance' ), true );
+ok( 'and that the promotion is closing', false !== stripos( $brief, 'goes out just before the promotion closes' ), true );
+ok( 'never that it opens today',        false !== stripos( $brief, 'on the day it opens' ), false );
+ok( 'its products are cut to the moment', false !== stripos( $brief, 'one to three products' ), true );
+ok( 'and it is shown the launch email', false !== strpos( $brief, 'It is live' ), true );
+// The nine the launch used are out of its way, and what it is offered is nine
+// others — not the same nine with a warning label on every one of them.
+ok( 'with fresh products to lean on',   false !== strpos( $brief, '[ALREADY SHOWN' ), false );
+ok( 'and nine of them to choose from',  substr_count( $brief, '   link: ' ), 9 );
+
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
