@@ -48,7 +48,7 @@ function ok( what, got, want ) {
 // The email screen, cut to what these handlers actually touch.
 const day = ms => new Date( Date.now() + ms ).toISOString().slice( 0, 10 );
 const page_html = `
-<div id="dze-klav-editor" data-rule="promo" data-when='{"warm":"2026-08-24","launch":"2026-08-26","reminder":"2026-08-31","last":"2026-09-05"}' data-names='{"warm":"Warm-up","launch":"Launch","reminder":"Reminder","last":"Last chance"}'>
+<div id="dze-klav-editor" data-rule="promo" data-when='{"warm":"2026-08-24","launch":"2026-08-26","reminder":"2026-08-31","last":"2026-09-05"}' data-names='{"warm":"Warm-up","launch":"Launch","reminder":"Reminder","last":"Last chance"}' data-newkind="launch" data-newday="2026-08-26">
   <div class="dze-mail-list">
     <div class="dze-mail" data-id="mail1">
       <div class="dze-mail-thumb"><iframe title=""></iframe></div>
@@ -223,41 +223,31 @@ ok( 'and says it is a draft again',
 	/draft/i.test( await page.textContent( '.dze-mail-sched-msg' ) ), true );
 ok( 'nothing was raised scheduling', errors, [] );
 
-// A promotion is a SEQUENCE, and an added email has to be the moment the
-// sequence is still missing. It used to be the first type full stop, so every
-// email added was another Launch — and each of them was written, correctly, as
-// the email that announces the sale opens today. The shop had three.
+// An added email is the announcement on the opening day — most promotions
+// need exactly that one, and a SEQUENCE is the plan prompt's decision. The
+// button briefly guessed "the next unused moment" instead, which pushed a
+// four-email rhythm on promotions that wanted one email.
 await page.click( '#dze-mail-new' );
 await page.waitForTimeout( 150 );
-ok( 'an added email takes an unused type',
-	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-kind' )[1].value ), 'warm' );
-ok( 'and the day that type falls on',
-	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-when' )[1].value ), '2026-08-24' );
-ok( 'the row is named after it',
-	( await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-mail-name' )[1].textContent ) ).trim(), 'Warm-up' );
+ok( 'an added email is the launch',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-kind' )[1].value ), 'launch' );
+ok( 'on the day the promotion opens',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-when' )[1].value ), '2026-08-26' );
 
-await page.click( '#dze-mail-new' );
-await page.waitForTimeout( 150 );
-ok( 'the next one takes the next moment',
-	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-kind' )[2].value ), 'reminder' );
-ok( 'and no two of them are the same',
-	await page.evaluate( () => Array.from( document.querySelectorAll( '.dze-mail .dze-f-kind' ) ).map( i => i.value ) ),
-	[ 'launch', 'warm', 'reminder' ] );
-ok( 'so nothing is flagged as a repeat',
-	await page.evaluate( () => document.querySelectorAll( '.dze-mail-dupe' ).length ), 0 );
-
-// Chosen by hand, two emails CAN be the same moment. The screen says so where
-// the emails are, rather than leaving it to the inbox.
-await page.selectOption( '#dze-klav-e-type', 'launch' );
-await page.waitForTimeout( 150 );
-ok( 'a repeated type is said on both rows',
+// The first email of this page is a launch too — so the two rows now say so,
+// where the emails are, rather than leaving it to be found in the inbox.
+ok( 'two of one type is said on both rows',
 	await page.evaluate( () => document.querySelectorAll( '.dze-mail-dupe' ).length ), 2 );
 ok( 'and it says what the trouble is',
 	/Same type/.test( await page.textContent( '.dze-mail-dupe' ) ), true );
+
+// Corrected on either row, the warning goes on both.
 await page.selectOption( '#dze-klav-e-type', 'reminder' );
 await page.waitForTimeout( 150 );
 ok( 'corrected, the warning goes',
 	await page.evaluate( () => document.querySelectorAll( '.dze-mail-dupe' ).length ), 0 );
+ok( 'and the day follows the chosen type',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-when' )[1].value ), '2026-08-31' );
 
 // The picture bench: a candidate is looked at, and once it IS the email's
 // picture the bench steps aside. It used to keep showing it beside the block
