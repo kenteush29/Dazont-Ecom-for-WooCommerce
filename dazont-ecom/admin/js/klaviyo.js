@@ -523,21 +523,6 @@
 		return 'e' + Date.now().toString(36) + minted.toString(36);
 	}
 
-	// The type an added email takes: the first one this promotion has not used
-	// yet, in the shop's own order. It used to be the first type FULL STOP, so
-	// the second and third emails of a promotion were more Launches — and the
-	// writing, correctly told it was the launch, announced that the sale
-	// opened today, two days before the sale closed. Read off the menu, which
-	// carries the types in order and is what the email is saved as.
-	function nextKind() {
-		var used = {}, pick = '', $opt = $('#dze-klav-e-type option');
-		$('.dze-mail .dze-f-kind').each(function () { used[$(this).val() || ''] = true; });
-		$opt.each(function () { if (!pick && !used[this.value]) { pick = this.value; } });
-		// Every type already used: the promotion wants more emails than it has
-		// moments, and the owner picks. The menu's first is the starting point.
-		return pick || $opt.first().val() || '';
-	}
-
 	// Two emails of the same type are handed the same brief and read alike.
 	// Said on the row rather than left to be found in the inbox.
 	function markDupes() {
@@ -558,14 +543,15 @@
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
-			$c = $(String( html ).trim()),
-			kind = nextKind(),
-			map = $('#dze-klav-editor').data('when') || {};
-		// The moment this promotion is still missing, and the day that moment
-		// falls on — the same map the type menu uses, so choosing a type by
-		// hand and having one chosen here cannot land on different days.
-		$c.find('.dze-f-kind').val(kind);
-		$c.find('.dze-f-when').val(map[kind] || '');
+			$c = $(String( html ).trim());
+		// A new email is the promotion's announcement on its opening day —
+		// most promotions need exactly that one. A SEQUENCE is the plan
+		// prompt's decision, never this button's: it briefly guessed the next
+		// unused moment here, which pushed a rhythm on promotions that only
+		// wanted one email. If two emails end up the same type, the rows say
+		// so and the owner picks the one to change.
+		$c.find('.dze-f-when').val($('#dze-klav-editor').data('newday') || '');
+		$c.find('.dze-f-kind').val($('#dze-klav-editor').data('newkind') || '');
 		$('.dze-mail-list').append($c);
 		open(id);
 		commit();
