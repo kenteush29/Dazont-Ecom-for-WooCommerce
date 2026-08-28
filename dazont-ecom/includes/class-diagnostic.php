@@ -195,6 +195,41 @@ final class DZE_Diagnostic {
 		];
 	}
 
+	/**
+	 * What a criterion is FOR.
+	 *
+	 * A shop is never working on everything at once. "Description too short"
+	 * and "No main photograph" are both work, but one of them is why nobody
+	 * finds the product and the other is why nobody buys it — and a shop whose
+	 * quarter is about conversion needs to see its own half of the list
+	 * without reading the other.
+	 *
+	 * Two, because two is what this shop actually separates. A third is one
+	 * line here and nothing else: every screen reads this list rather than
+	 * naming SEO and CRO of its own.
+	 *
+	 * @return array<string,array{label:string,what:string}>
+	 */
+	public static function goals(): array {
+		return [
+			'seo' => [
+				'label' => __( 'SEO', 'dazont-ecom' ),
+				'what'  => __( 'being found: what a search engine reads before anybody arrives.', 'dazont-ecom' ),
+			],
+			'cro' => [
+				'label' => __( 'CRO', 'dazont-ecom' ),
+				'what'  => __( 'turning a visit into an order: what somebody already on the page needs to decide.', 'dazont-ecom' ),
+			],
+		];
+	}
+
+	/** The goals of one row, only the ones this plugin knows. */
+	public static function goals_of( array $row ): array {
+		$known = array_keys( self::goals() );
+		$has   = array_map( 'strval', (array) ( $row['goals'] ?? [] ) );
+		return array_values( array_intersect( $known, $has ) );
+	}
+
 	/** Whether the shop reads its comparisons as symbols rather than words. */
 	public static function signs(): bool {
 		return ! empty( self::settings()['signs'] );
@@ -237,16 +272,16 @@ final class DZE_Diagnostic {
 	 */
 	public static function default_rows(): array {
 		return [
-			[ 'id' => 'prod_desc',    'scope' => 'product', 'label' => __( 'Description too short', 'dazont-ecom' ),           'field' => 'product.description',       'test' => 'lt',    'value' => 120, 'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_short',   'scope' => 'product', 'label' => __( 'No short description', 'dazont-ecom' ),            'field' => 'product.short_description', 'test' => 'empty', 'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_main',    'scope' => 'product', 'label' => __( 'No main photograph', 'dazont-ecom' ),              'field' => 'product.main_image',        'test' => 'empty', 'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_shot_px', 'scope' => 'product', 'label' => __( 'Main photograph too small', 'dazont-ecom' ),       'field' => 'product.main_image_side',   'test' => 'lt',    'value' => 800, 'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_gallery', 'scope' => 'product', 'label' => __( 'Gallery too thin', 'dazont-ecom' ),                'field' => 'product.gallery',           'test' => 'lt',    'value' => 3,   'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_seo_t',   'scope' => 'product', 'label' => __( 'SEO title too long', 'dazont-ecom' ),              'field' => 'product.seo_title',         'test' => 'gt',    'value' => 60,  'find' => '', 'key' => '', 'on' => 0 ],
-			[ 'id' => 'cat_desc',     'scope' => 'category', 'label' => __( 'Category description too short', 'dazont-ecom' ),  'field' => 'category.description',      'test' => 'lt',    'value' => 150, 'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'cat_links',    'scope' => 'category', 'label' => __( 'Category points at too little', 'dazont-ecom' ),   'field' => 'category.links',            'test' => 'lt',    'value' => 2,   'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'post_links',   'scope' => 'post', 'label' => __( 'Article under its link target', 'dazont-ecom' ),   'field' => 'post.links',                'test' => 'lt',    'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
-			[ 'id' => 'post_stale',   'scope' => 'post', 'label' => __( 'Article going stale', 'dazont-ecom' ),            'field' => 'post.updated',              'test' => 'gt',    'value' => 365, 'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_desc',    'scope' => 'product', 'field' => 'product.description',       'test' => 'lt',    'value' => 120, 'note' => __( 'Write a real description on these products: it is what a search engine reads, and what a buyer reads before deciding.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo', 'cro' ], 'on' => 1 ],
+			[ 'id' => 'prod_short',   'scope' => 'product', 'field' => 'product.short_description', 'test' => 'empty', 'value' => 0,   'note' => __( 'Add the short description — it is the line beside the price, and the last thing read before Add to basket.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro' ], 'on' => 1 ],
+			[ 'id' => 'prod_main',    'scope' => 'product', 'field' => 'product.main_image',        'test' => 'empty', 'value' => 0,   'note' => __( 'Give these products a main photograph. A product with no picture is not bought and is not indexed.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro', 'seo' ], 'on' => 1 ],
+			[ 'id' => 'prod_shot_px', 'scope' => 'product', 'field' => 'product.main_image_side',   'test' => 'lt',    'value' => 800, 'note' => __( 'Replace these main photographs with larger ones: under 800 px they cannot be shown big anywhere.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro' ], 'on' => 1 ],
+			[ 'id' => 'prod_gallery', 'scope' => 'product', 'field' => 'product.gallery',           'test' => 'lt',    'value' => 3,   'note' => __( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'cro' ], 'on' => 1 ],
+			[ 'id' => 'prod_seo_t',   'scope' => 'product', 'field' => 'product.seo_title',         'test' => 'gt',    'value' => 60,  'note' => __( 'Shorten these SEO titles: past 60 characters Google cuts them off mid-sentence.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 0 ],
+			[ 'id' => 'cat_desc',     'scope' => 'category', 'field' => 'category.description',      'test' => 'lt',    'value' => 150, 'note' => __( 'Write a real description on these categories — a category page with no text ranks for nothing.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 1 ],
+			[ 'id' => 'cat_links',    'scope' => 'category', 'field' => 'category.links',            'test' => 'lt',    'value' => 2,   'note' => __( 'Point these categories at more of the shop, so a visitor and a crawler both have somewhere to go next.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 1 ],
+			[ 'id' => 'post_links',   'scope' => 'post', 'field' => 'post.links',                'test' => 'lt',    'value' => 0,   'note' => __( 'Add internal links to these articles: a text that links nowhere passes nothing to the pages it is about.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 1 ],
+			[ 'id' => 'post_stale',   'scope' => 'post', 'field' => 'post.updated',              'test' => 'gt',    'value' => 365, 'note' => __( 'Bring these articles up to date — a year-old page loses its ranking to the ones being kept.', 'dazont-ecom' ), 'find' => '', 'key' => '', 'goals' => [ 'seo' ], 'on' => 1 ],
 		];
 	}
 
@@ -267,7 +302,6 @@ final class DZE_Diagnostic {
 			if ( ! is_array( $row ) ) {
 				continue;
 			}
-			$label = trim( sanitize_text_field( (string) ( $row['label'] ?? '' ) ) );
 			// An article's length used to be a number of its own; it is the
 			// length of its text, which the text field answers along with
 			// everything else that can be asked of a text.
@@ -298,21 +332,22 @@ final class DZE_Diagnostic {
 			if ( ! isset( $ops[ $op ] ) || ! in_array( (string) $fields[ $field ]['kind'], (array) $ops[ $op ]['kinds'], true ) ) {
 				$op = 'empty';
 			}
-			// A criterion is never lost for want of a name. The card carries a
-			// name box with nothing but a placeholder in it, and the sentence
-			// beside it already reads like a name — so a rule built, saved,
-			// and silently thrown away on the way in is exactly what happened.
-			// It is named after what it does instead, and the owner renames it
-			// if he wants to.
-			if ( '' === $label ) {
-				$label = self::rule_named( [
-					'field' => $field,
-					'test'  => $op,
-					'value' => (int) ( $row['value'] ?? 0 ),
-					'find'  => (string) ( $row['find'] ?? '' ),
-					'key'   => (string) ( $row['key'] ?? '' ),
-				], $fields[ $field ] );
-			}
+			// A criterion is NAMED BY WHAT IT DOES, always, and there is no box
+			// to type another name in. A hand-written title is one more thing
+			// to keep in step — change the figure from 50 to 80 and "Description
+			// too short" still says 50 to nobody — and it says nothing the rule
+			// does not already say. What the shop writes instead is a
+			// DESCRIPTION: what to do about it, which the rule cannot know.
+			$label = self::rule_named( [
+				'field' => $field,
+				'test'  => $op,
+				'value' => (int) ( $row['value'] ?? 0 ),
+				'find'  => (string) ( $row['find'] ?? '' ),
+				'key'   => (string) ( $row['key'] ?? '' ),
+			], $fields[ $field ] );
+			// The id is minted once and never again: the name follows the rule
+			// and changes with it, and a reading filed under the old name must
+			// not become a reading about nothing.
 			$id = sanitize_key( (string) ( $row['id'] ?? '' ) );
 			if ( '' === $id ) {
 				$id = trim( sanitize_key( sanitize_title( $label ) ), '-_' ) ?: ( 'c' . ( count( $out ) + 1 ) );
@@ -324,16 +359,41 @@ final class DZE_Diagnostic {
 			$out[] = [
 				'id'    => $id,
 				'label' => mb_substr( $label, 0, 80 ),
+				'note'  => mb_substr( sanitize_text_field( (string) ( $row['note'] ?? '' ) ), 0, 200 ),
 				'scope' => $scope,
 				'field' => $field,
 				'test'  => $op,
 				'value' => max( 0, min( 100000, (int) ( $row['value'] ?? 0 ) ) ),
 				'find'  => mb_substr( sanitize_text_field( (string) ( $row['find'] ?? '' ) ), 0, 120 ),
 				'key'   => ! empty( $fields[ $field ]['key'] ) ? sanitize_text_field( (string) ( $row['key'] ?? '' ) ) : '',
+				'goals' => self::goals_for( $row, $id ),
 				'on'    => empty( $row['on'] ) ? 0 : 1,
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * What a row is FOR, taking a shop that has never been asked into account.
+	 *
+	 * The card always posts the key, so an empty answer means "neither" and is
+	 * kept as one — some criteria really are neither, and being told so is
+	 * better than being given a goal we made up. A row that arrives with no
+	 * `goals` key at all is a row saved by a version that had none: a shipped
+	 * criterion takes the goals it ships with, and a criterion the shop wrote
+	 * itself takes both, because the alternative is a shop that reads its own
+	 * list and finds half of it missing under either heading.
+	 */
+	private static function goals_for( array $row, string $id ): array {
+		if ( array_key_exists( 'goals', $row ) ) {
+			return self::goals_of( $row );
+		}
+		foreach ( self::default_rows() as $shipped ) {
+			if ( $id === (string) $shipped['id'] ) {
+				return self::goals_of( $shipped );
+			}
+		}
+		return array_keys( self::goals() );
 	}
 
 	/**
@@ -415,6 +475,8 @@ final class DZE_Diagnostic {
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $fields[ $row['field'] ] ),
 				'tool'  => self::tool_for( (string) $row['field'], (string) $row['scope'] ),
+				'goals' => self::goals_of( $row ),
+				'note'  => (string) ( $row['note'] ?? '' ),
 				'row'   => $row,
 			];
 		}
@@ -612,6 +674,22 @@ final class DZE_Diagnostic {
 				$short[ $scope ][ (int) $one ] = true;
 			}
 		}
+		// The same count, asked per goal: how many THINGS need work for SEO,
+		// how many for CRO. Deduplicated here, where the full lists are still
+		// in hand — a product short of three CRO criteria is one product to
+		// open, and adding the three counts up would say three.
+		$by_goal = array_fill_keys( array_keys( self::goals() ), [] );
+		foreach ( $checks as $id => $meta ) {
+			foreach ( (array) ( $meta['goals'] ?? [] ) as $goal ) {
+				if ( ! isset( $by_goal[ $goal ] ) ) {
+					continue;
+				}
+				foreach ( (array) ( $hits[ $id ] ?? [] ) as $one ) {
+					$by_goal[ $goal ][ (string) $meta['scope'] . ':' . (int) $one ] = true;
+				}
+			}
+		}
+		$out['goals'] = array_map( 'count', $by_goal );
 		foreach ( $short as $scope => $set ) {
 			$out['short'][ $scope ] = count( $set );
 		}
@@ -1320,6 +1398,44 @@ final class DZE_Diagnostic {
 			echo '</p></div>';
 		}
 
+		// WHICH work. A shop is never doing SEO and CRO in the same month, and
+		// a list holding both is a list read twice. One click, in the address
+		// — so the shop that is on conversion this quarter bookmarks its own
+		// half and finds it there tomorrow, with no setting to keep in step.
+		$goal = isset( $_GET['goal'] ) ? sanitize_key( wp_unslash( $_GET['goal'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$goal = isset( self::goals()[ $goal ] ) ? $goal : '';
+		$tally = (array) ( $census['goals'] ?? [] );
+		if ( $at ) {
+			echo '<p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0 4px;">';
+			$tabs = [ '' => __( 'Everything', 'dazont-ecom' ) ] + array_map(
+				static fn( array $g ): string => (string) $g['label'],
+				self::goals()
+			);
+			foreach ( $tabs as $gid => $label ) {
+				$on  = $gid === $goal;
+				$url = add_query_arg(
+					'' === $gid ? [ 'page' => self::MENU_SLUG ] : [ 'page' => self::MENU_SLUG, 'goal' => $gid ],
+					admin_url( 'admin.php' )
+				);
+				// The number beside each one is the OPPORTUNITY: how many
+				// things that goal has waiting, counted once each however many
+				// criteria they fall short of.
+				$n = '' === $gid ? array_sum( array_map( 'intval', $short ) ) : (int) ( $tally[ $gid ] ?? 0 );
+				printf(
+					'<a href="%1$s" class="button%2$s">%3$s <span style="opacity:.75;">%4$s</span></a>',
+					esc_url( $url ),
+					$on ? ' button-primary' : '',
+					esc_html( $label ),
+					esc_html( number_format_i18n( $n ) )
+				);
+			}
+			echo '</p>';
+			if ( '' !== $goal ) {
+				echo '<p class="description" style="max-width:760px;margin:0 0 6px;">'
+					. esc_html( (string) ( self::goals()[ $goal ]['what'] ?? '' ) ) . '</p>';
+			}
+		}
+
 		// What is to be DONE, worst first, kept apart from what is already
 		// right. Twenty lines reading "—" is a screen where the four that
 		// matter are hard to find.
@@ -1328,6 +1444,9 @@ final class DZE_Diagnostic {
 		$clean = [];
 		$fresh = [];
 		foreach ( $checks as $id => $check ) {
+			if ( '' !== $goal && ! in_array( $goal, (array) ( $check['goals'] ?? [] ), true ) ) {
+				continue;
+			}
 			// A criterion the last reading did not cover is not a criterion
 			// that found nothing — it is one nobody has looked at. Reported as
 			// zero, a criterion added five minutes ago says the shop is fine
@@ -1402,9 +1521,17 @@ final class DZE_Diagnostic {
 
 		if ( ! $found ) {
 			echo '<div class="notice notice-info inline" style="max-width:760px;margin:12px 0;"><p>';
-			echo $at
-				? esc_html__( 'Nothing falls short. Every criterion you have switched on is met, everywhere.', 'dazont-ecom' )
-				: esc_html__( 'The shop has not been read yet — press "Read the shop again", or wait for tonight.', 'dazont-ecom' );
+			if ( ! $at ) {
+				esc_html_e( 'The shop has not been read yet — press "Read the shop again", or wait for tonight.', 'dazont-ecom' );
+			} elseif ( '' !== $goal ) {
+				printf(
+					/* translators: %s: a goal, e.g. CRO */
+					esc_html__( 'Nothing waiting for %s. Every criterion you keep for it is met, everywhere.', 'dazont-ecom' ),
+					'<strong>' . esc_html( (string) ( self::goals()[ $goal ]['label'] ?? $goal ) ) . '</strong>'
+				);
+			} else {
+				esc_html_e( 'Nothing falls short. Every criterion you have switched on is met, everywhere.', 'dazont-ecom' );
+			}
 			echo '</p></div>';
 		}
 
@@ -1428,8 +1555,17 @@ final class DZE_Diagnostic {
 				$pc    = $total > 0 ? (int) round( $n / $total * 100 ) : 0;
 				$tool = (array) ( $check['tool'] ?? [] );
 				echo '<tr>';
-				echo '<td><strong>' . esc_html( $check['label'] ) . '</strong><br />'
-					. '<span class="description">' . esc_html( (string) $check['why'] ) . '</span></td>';
+				echo '<td><strong>' . esc_html( $check['label'] ) . '</strong>';
+				// A line always says which goal it belongs to, so the number
+				// on it is attributable without opening the criteria.
+				foreach ( (array) ( $check['goals'] ?? [] ) as $gid ) {
+					echo '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:9px;background:#f0f0f1;color:#50575e;font-size:11px;font-weight:600;vertical-align:middle;">'
+						. esc_html( (string) ( self::goals()[ $gid ]['label'] ?? $gid ) ) . '</span>';
+				}
+				if ( '' !== (string) ( $check['note'] ?? '' ) ) {
+					echo '<br /><span>' . esc_html( (string) $check['note'] ) . '</span>';
+				}
+				echo '<br /><span class="description" style="font-size:12px;">' . esc_html( (string) $check['why'] ) . '</span></td>';
 				// The share reads big, beside the bar it belongs to, and the two
 				// counts read under it: "75%" over "153 of 203". The other way
 				// round it said "75% of 203", which is not a sentence about
@@ -1739,19 +1875,17 @@ final class DZE_Diagnostic {
 			. '<input type="checkbox" name="' . $name( 'on' ) . '" value="1"' . checked( 1, (int) ( $row['on'] ?? 1 ), false ) . ' />'
 			. '<span class="dze-switch-slider"></span></label>';
 		$out .= '<input type="hidden" name="' . $name( 'id' ) . '" value="' . esc_attr( (string) ( $row['id'] ?? '' ) ) . '" />';
-		// The placeholder is not a hint, it is the name the criterion will be
-		// saved under if the box is left empty — the very name clean_rows()
-		// writes. Nothing is lost for want of a name, and nothing comes back
-		// called something the screen never showed.
-		$out .= '<input type="text" class="dze-prb-name" name="' . $name( 'label' ) . '" value="' . esc_attr( (string) ( $row['label'] ?? '' ) ) . '"'
-			. ' placeholder="' . esc_attr( self::rule_named(
+		// The rule's own name, printed rather than typed. There is no title
+		// box: a hand-written one says nothing the rule does not, and it stops
+		// being true the moment a figure is changed. The scope is not repeated
+		// either — the card sits under its post type's heading.
+		$out .= '<strong class="dze-prb-name dze-diag-name" style="flex:0 1 auto;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+			. esc_html( self::rule_named(
 				[ 'field' => $field, 'test' => $op, 'value' => (int) ( $row['value'] ?? 0 ), 'find' => (string) ( $row['find'] ?? '' ), 'key' => (string) ( $row['key'] ?? '' ) ],
 				$fields[ $field ] ?? [ 'label' => '' ]
-			) ) . '" />';
-		$out .= '<span class="dze-prb-dest dze-diag-said">'
-			. esc_html( trim( (string) ( self::scopes()[ $scope ] ?? $scope ) . ' · '
-				. self::field_named( $row, $fields[ $field ] ?? [] ) . ' — ' . self::rule_clause( $row ) ) )
-			. '</span>';
+			) ) . '</strong>';
+		// Beside it, the one thing the rule cannot say: what to DO about it.
+		$out .= '<span class="dze-prb-dest dze-diag-said">' . esc_html( (string) ( $row['note'] ?? '' ) ) . '</span>';
 		$out .= '<button type="button" class="dze-prb-toggle dze-diag-toggle" aria-expanded="false">' . esc_html__( 'Edit', 'dazont-ecom' ) . ' <span class="dze-prb-caret">&#9656;</span></button>';
 		$out .= '<button type="button" class="dze-pr-del dze-diag-drop" title="' . esc_attr__( 'Remove this criterion', 'dazont-ecom' ) . '">&#10005;</button>';
 		$out .= '</div>';
@@ -1790,6 +1924,31 @@ final class DZE_Diagnostic {
 			. ' placeholder="' . esc_attr__( 'text to look for', 'dazont-ecom' ) . '" />';
 		$out .= '<span class="dze-diag-unit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
 		$out .= '</p>';
+		// What this criterion is FOR. The hidden field goes first so the key
+		// always arrives: without it, a criterion with both boxes cleared
+		// would post nothing at all, and "neither" would be indistinguishable
+		// from a form that was never asked — which is how a setting gets
+		// quietly given back a value nobody chose.
+		$mine = self::goals_of( $row );
+		$out .= '<p class="dze-prb-line" style="align-items:center;">';
+		$out .= '<span style="margin-right:2px;">' . esc_html__( 'Worth doing for', 'dazont-ecom' ) . '</span>';
+		$out .= '<input type="hidden" name="' . esc_attr( $opt . '[rows][' . $index . '][goals][]' ) . '" value="" />';
+		foreach ( self::goals() as $gid => $goal ) {
+			$out .= '<label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-weight:600;" title="' . esc_attr( (string) $goal['what'] ) . '">'
+				. '<input type="checkbox" class="dze-diag-goal" value="' . esc_attr( $gid ) . '"'
+				. ' name="' . esc_attr( $opt . '[rows][' . $index . '][goals][]' ) . '"'
+				. checked( true, in_array( $gid, $mine, true ), false ) . ' /> '
+				. esc_html( (string) $goal['label'] ) . '</label>';
+		}
+		$out .= '<span class="description">' . esc_html__( 'The Diagnostic can then show one at a time — the shop is never working on both at once.', 'dazont-ecom' ) . '</span>';
+		$out .= '</p>';
+		// The description: written by the shop, shown on the Diagnostic under
+		// the rule, and the place where "why this matters" belongs — the rule
+		// itself only knows what it measures.
+		$out .= '<p class="dze-prb-line"><label style="flex:1 1 100%;"><span>' . esc_html__( 'What to do about it', 'dazont-ecom' ) . '</span>'
+			. '<input type="text" class="dze-diag-note" style="width:100%;max-width:640px;" name="' . $name( 'note' ) . '"'
+			. ' value="' . esc_attr( (string) ( $row['note'] ?? '' ) ) . '"'
+			. ' placeholder="' . esc_attr__( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ) . '" /></label></p>';
 		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. A custom field is read as it is stored: a number when it holds one, how many entries when it holds a list, how many characters otherwise; "is empty" means nothing was ever put in it, so a stored 0 counts as an answer. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
 		$out .= '</div></div>';
 		return $out;
@@ -1934,7 +2093,7 @@ final class DZE_Diagnostic {
 				'kinds' => array_values( (array) $meta['kinds'] ),
 			];
 		}
-		$blank = [ 'id' => '', 'label' => '', 'scope' => (string) array_key_first( self::scopes() ), 'field' => 'product.description', 'test' => 'lt', 'value' => 120, 'find' => '', 'key' => '', 'on' => 1 ];
+		$blank = [ 'id' => '', 'note' => '', 'scope' => (string) array_key_first( self::scopes() ), 'field' => 'product.description', 'test' => 'lt', 'value' => 120, 'find' => '', 'key' => '', 'goals' => array_keys( self::goals() ), 'on' => 1 ];
 		?>
 		<script type="text/template" id="dze-diag-tpl"><?php echo self::card( $blank, '__I__' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card(). ?></script>
 		<script>
@@ -1945,7 +2104,7 @@ final class DZE_Diagnostic {
 				ops = <?php echo wp_json_encode( $ops ); ?>,
 				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>,
 				target = <?php echo wp_json_encode( __( 'holds fewer links than its own length calls for', 'dazont-ecom' ) ); ?>,
-				name0 = <?php echo wp_json_encode( __( 'Name this criterion — or leave it, it names itself', 'dazont-ecom' ) ); ?>;
+				name0 = <?php echo wp_json_encode( __( 'A criterion', 'dazont-ecom' ) ); ?>;
 
 			function signs() { return $( '#dze-diag-signs' ).is( ':checked' ); }
 			function opLabel( id, words ) {
@@ -2046,23 +2205,19 @@ final class DZE_Diagnostic {
 				$card.find( '.dze-diag-value' ).toggle( 'number' === takes );
 				$card.find( '.dze-diag-find' ).toggle( 'text' === takes );
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
-				$card.find( '.dze-diag-said' ).text(
-					( ( scopes[ $card.find( '.dze-diag-scope' ).val() ] || {} ).label || '' )
-					+ ' · ' + named + ' — ' + clause( f, op, takes, v, find, meta, false )
-				);
-				// The name box shows the name the criterion will be given if it
-				// is left empty — the same one the shop writes on save, so a
-				// rule nobody named is still a rule, and it is never a surprise
-				// what it came back called.
+				// The head IS the rule, written out — so it follows every menu
+				// and every figure as they move, and there is never a title on
+				// screen that stopped being true two edits ago.
 				var auto = ( named + ' ' + clause( f, op, takes, v, find, meta, true ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
-				$card.find( '.dze-prb-name' ).attr( 'placeholder', auto ? auto.charAt( 0 ).toUpperCase() + auto.slice( 1 ) : name0 );
+				$card.find( '.dze-diag-name' ).text( auto ? auto.charAt( 0 ).toUpperCase() + auto.slice( 1 ) : name0 );
+				$card.find( '.dze-diag-said' ).text( $card.find( '.dze-diag-note' ).val() || '' );
 			}
 
 			function add( row ) {
 				var html = $( '#dze-diag-tpl' ).html().replace( /__I__/g, String( nextIndex() ) ),
 					$card = $( html );
 				if ( row ) {
-					$card.find( '.dze-prb-name' ).val( row.label || '' );
+					$card.find( '.dze-diag-note' ).val( row.note || '' );
 					$card.find( 'input[name$="[id]"]' ).val( row.id || '' );
 					$card.find( '.dze-diag-scope' ).val( row.scope || 'product' );
 					fitFields( $card );
@@ -2071,6 +2226,9 @@ final class DZE_Diagnostic {
 					$card.find( '.dze-diag-value' ).val( row.value );
 					$card.find( '.dze-diag-find' ).val( row.find || '' );
 					$card.find( '.dze-diag-key' ).val( row.key || '' );
+					$card.find( '.dze-diag-goal' ).each( function () {
+						this.checked = -1 !== $.inArray( this.value, row.goals || [] );
+					} );
 					$card.find( '.dze-switch input' ).prop( 'checked', 0 !== row.on );
 				}
 				// A restored criterion joins its own type's list when that list
@@ -2093,7 +2251,7 @@ final class DZE_Diagnostic {
 					$c.find( '.dze-diag-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
 				}
 			} );
-			$( document ).on( 'change keyup', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key', function () {
+			$( document ).on( 'change keyup', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key, .dze-diag-note', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );
 			} );
 			$( document ).on( 'click', '.dze-diag-drop', function () {
