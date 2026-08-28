@@ -290,6 +290,73 @@ final class DZE_Diagnostic {
 		return (string) ( $was[ $op ] ?? $op );
 	}
 
+	/**
+	 * The screen that FIXES one kind of shortfall.
+	 *
+	 * A to-do list that says what is wrong and not where to go is a list you
+	 * read twice. Every line names its tool and links straight at it — and
+	 * there is one map, read from the FIELD, so a criterion the shop invents
+	 * tomorrow arrives with its tool already attached.
+	 *
+	 * @return array{label:string,url:string}
+	 */
+	private static function tool_for( string $field ): array {
+		$tab = static fn( string $t ): string => add_query_arg(
+			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => $t ],
+			admin_url( 'admin.php' )
+		);
+		$bulk = add_query_arg(
+			[ 'post_type' => 'product', 'page' => class_exists( 'DZE_Content' ) ? DZE_Content::BULK_SLUG : 'dazont-content-bulk' ],
+			admin_url( 'edit.php' )
+		);
+		$scope = (string) ( self::fields()[ $field ]['scope'] ?? 'product' );
+		if ( 'category' === $scope ) {
+			return [ 'label' => __( 'Categories', 'dazont-ecom' ), 'url' => $tab( 'categories' ) ];
+		}
+		if ( 'post' === $scope ) {
+			return [ 'label' => __( 'Automation', 'dazont-ecom' ), 'url' => $tab( 'automation' ) ];
+		}
+		// A photograph is never fixed by writing, and a paragraph is never
+		// fixed in the image lab: the two halves of a product go to two
+		// different screens.
+		if ( false !== strpos( $field, 'image' ) || 'product.gallery' === $field ) {
+			return [ 'label' => __( 'Image lab', 'dazont-ecom' ), 'url' => $tab( 'lab' ) ];
+		}
+		if ( in_array( $field, [ 'product.price', 'product.sale_price' ], true ) ) {
+			return [ 'label' => __( 'Discounts', 'dazont-ecom' ), 'url' => $tab( 'discounts' ) ];
+		}
+		if ( in_array( $field, [ 'product.stock', 'product.sku', 'product.weight', 'product.categories', 'product.tags', 'product.attributes', 'product.variations', 'product.reviews', 'product.rating', 'product.age' ], true ) ) {
+			return [ 'label' => __( 'Products', 'dazont-ecom' ), 'url' => admin_url( 'edit.php?post_type=product' ) ];
+		}
+		return [ 'label' => __( 'Bulk writing', 'dazont-ecom' ), 'url' => $bulk ];
+	}
+
+	/** Where the criteria themselves are edited. */
+	public static function settings_url(): string {
+		return add_query_arg(
+			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => 'diagnostic' ],
+			admin_url( 'admin.php' )
+		);
+	}
+
+	/**
+	 * Set while the settings screen lists the criteria it can switch back on.
+	 *
+	 * checks() hides what is silenced, which is right everywhere except on the
+	 * one screen that undoes it — a switch you cannot see is a switch you
+	 * cannot flick.
+	 */
+	private static bool $ignore_off = false;
+
+	/** The criteria the shop has switched off — prompt-derived ones included. */
+	public static function silenced(): array {
+		if ( self::$ignore_off ) {
+			return [];
+		}
+		$off = self::settings()['off'] ?? [];
+		return is_array( $off ) ? array_values( array_filter( array_map( 'sanitize_key', $off ) ) ) : [];
+	}
+
 	public static function checks(): array {
 		$fields = self::fields();
 		$out    = [];
@@ -303,6 +370,8 @@ final class DZE_Diagnostic {
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $field ),
 				'fix'   => '',
+				'tool'  => self::tool_for( (string) $row['field'] ),
+				'own'   => true,
 				'row'   => $row,
 			];
 		}
@@ -332,6 +401,8 @@ final class DZE_Diagnostic {
 						),
 						'why'   => __( 'One of your own prompts writes here, and this product has nothing in it.', 'dazont-ecom' ),
 						'fix'   => $name,
+						'tool'  => [ 'label' => $name, 'url' => self::prompt_url( $id ) ],
+						'own'   => false,
 						'row'   => [ 'field' => 'product.meta', 'test' => 'empty', 'value' => 0, 'key' => $key ],
 					];
 				}
@@ -346,12 +417,29 @@ final class DZE_Diagnostic {
 						),
 						'why'   => __( 'That block is written against a photograph, and there is none on this product.', 'dazont-ecom' ),
 						'fix'   => $name,
+						'tool'  => self::tool_for( 'product.image_meta' ),
+						'own'   => false,
 						'row'   => [ 'field' => 'product.image_meta', 'test' => 'empty', 'value' => 0, 'key' => $img ],
 					];
 				}
 			}
 		}
+		// A criterion the shop has switched off is not read, not counted and
+		// not shown — the same as unticking one of its own, and undone in the
+		// same place.
+		foreach ( self::silenced() as $id ) {
+			unset( $out[ $id ] );
+		}
 		return $out;
+	}
+
+	/** The screen where one of the shop's own prompts is edited. */
+	private static function prompt_url( string $prompt_id ): string {
+		$url = add_query_arg(
+			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => 'content' ],
+			admin_url( 'admin.php' )
+		);
+		return $url . '#dze-pr-row-' . rawurlencode( $prompt_id );
 	}
 
 	/** One criterion said in words, for the screen. */
@@ -914,6 +1002,28 @@ final class DZE_Diagnostic {
 		// The form carries a marker even when every criterion was deleted, or
 		// emptying the list would read as "this form was not about criteria"
 		// and never take — the same trap the emails of a promotion fell into.
+		// The prompts' own criteria: a switch the submitted section owns, so
+		// what is NOT ticked is what is off — read from the section's marker
+		// rather than from a checkbox that posts nothing when unticked.
+		if ( ! empty( $in['checks_shown'] ) ) {
+			$on  = array_map( 'sanitize_key', array_keys( (array) ( $in['on_check'] ?? [] ) ) );
+			$off = [];
+			$was = self::$ignore_off;
+			self::$ignore_off = true;
+			foreach ( array_keys( self::checks() ) as $id ) {
+				if ( ! in_array( $id, $on, true ) ) {
+					$off[] = (string) $id;
+				}
+			}
+			self::$ignore_off = $was;
+			// Only the prompts' own lines are silenced here; the shop's own
+			// criteria have their switch on their own card.
+			$mine = [];
+			foreach ( self::rows() as $row ) {
+				$mine[ (string) $row['id'] ] = true;
+			}
+			$out['off'] = array_values( array_filter( $off, static fn( string $id ): bool => ! isset( $mine[ $id ] ) ) );
+		}
 		if ( ! empty( $in['rows_shown'] ) ) {
 			$out['rows'] = self::clean_rows( (array) ( $in['rows'] ?? [] ) );
 			// A checkbox the submitted section owns: unticked it posts nothing,
@@ -974,6 +1084,11 @@ final class DZE_Diagnostic {
 
 		echo '<p style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
 		echo '<button type="button" class="button button-primary" id="dze-diag-scan">' . esc_html__( 'Read the shop again', 'dazont-ecom' ) . '</button>';
+		printf(
+			'<a class="button" href="%s">%s</a>',
+			esc_url( self::settings_url() ),
+			esc_html__( 'Criteria', 'dazont-ecom' )
+		);
 		echo '<span id="dze-diag-msg" class="description">';
 		if ( $at ) {
 			printf(
@@ -1079,33 +1194,46 @@ final class DZE_Diagnostic {
 				$n     = (int) $found[ $id ];
 				$total = (int) ( $seen[ $scope ] ?? 0 );
 				$pc    = $total > 0 ? (int) round( $n / $total * 100 ) : 0;
+				$tool = (array) ( $check['tool'] ?? [] );
 				echo '<tr>';
 				echo '<td><strong>' . esc_html( $check['label'] ) . '</strong><br />'
-					. '<span class="description">'
-					. esc_html( trim( (string) $check['why'] . ' ' . (string) ( $check['fix'] ?? '' ) ) )
-					. '</span></td>';
+					. '<span class="description">' . esc_html( (string) $check['why'] ) . '</span></td>';
+				echo '<td style="width:90px;text-align:right;font-size:17px;line-height:1.2;"><strong>' . (int) $n . '</strong></td>';
 				// The bar says at a glance whether this is the whole shop or a
-				// handful, which a number on its own never does.
-				echo '<td style="width:180px;">';
+				// handful, which a number on its own never does. Said once —
+				// the figure was printed three times over on one line.
+				echo '<td style="width:170px;">';
 				printf(
-					'<div style="background:#f0f0f1;border-radius:2px;height:8px;overflow:hidden;" title="%1$s">'
-					. '<div style="background:%2$s;height:8px;width:%3$d%%;"></div></div>',
-					esc_attr( sprintf( '%d%%', $pc ) ),
+					'<div style="background:#f0f0f1;border-radius:2px;height:6px;overflow:hidden;">'
+					. '<div style="background:%1$s;height:6px;width:%2$d%%;"></div></div>'
+					. '<span class="description">%3$s</span>',
 					esc_attr( $pc >= 50 ? '#d63638' : ( $pc >= 15 ? '#dba617' : '#8c8f94' ) ),
-					max( 2, min( 100, $pc ) )
+					max( 2, min( 100, $pc ) ),
+					esc_html( sprintf(
+						/* translators: 1: a share of the shop, 2: how many were read */
+						__( '%1$d%% of %2$d', 'dazont-ecom' ),
+						$pc,
+						$total
+					) )
 				);
 				echo '</td>';
-				echo '<td style="width:110px;text-align:right;font-size:15px;"><strong>' . (int) $n . '</strong>';
-				if ( $total > 0 ) {
-					echo '<br /><span class="description">' . esc_html( sprintf( '%d%%', $pc ) ) . '</span>';
-				}
-				echo '</td>';
+				// The two things a line is for: seeing WHICH ones, and going to
+				// the screen that mends them. Named rather than numbered — the
+				// owner knows "Image lab", he does not know "check 4".
+				echo '<td style="width:230px;text-align:right;white-space:nowrap;">';
 				printf(
-					'<td style="width:90px;"><a class="button button-small" href="%s">%s</a></td>',
+					'<a class="button button-small" href="%s">%s</a>',
 					esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id ], admin_url( 'admin.php' ) ) ),
 					esc_html__( 'The list', 'dazont-ecom' )
 				);
-				echo '</tr>';
+				if ( ! empty( $tool['url'] ) ) {
+					printf(
+						' <a class="button button-small button-primary" href="%s">%s &rarr;</a>',
+						esc_url( (string) $tool['url'] ),
+						esc_html( (string) $tool['label'] )
+					);
+				}
+				echo '</td></tr>';
 			}
 			echo '</tbody></table>';
 		}
@@ -1126,9 +1254,12 @@ final class DZE_Diagnostic {
 			echo '</p></details>';
 		}
 
-		echo '<p class="description" style="margin-top:14px;max-width:760px;">'
-			. esc_html__( 'The criteria themselves — what is looked at, the comparison it has to fail, and the ones you would rather not be counted against — are under Settings → Diagnostic. Your own prompts add their lines here by themselves.', 'dazont-ecom' )
-			. '</p>';
+		printf(
+			'<p class="description" style="margin-top:14px;max-width:760px;">%s <a href="%s">%s</a></p>',
+			esc_html__( 'Every line above is a criterion of yours, or one of your own prompts answering for what it writes. Change a figure, switch one off, add your own:', 'dazont-ecom' ),
+			esc_url( self::settings_url() ),
+			esc_html__( 'the criteria &rarr;', 'dazont-ecom' )
+		);
 		$this->print_script();
 	}
 
@@ -1374,6 +1505,61 @@ final class DZE_Diagnostic {
 		}
 		echo '<div class="dze-prlist dze-prlist-new" id="dze-diag-new" style="margin-top:8px;"></div>';
 		echo '</div>';
+
+		// The criteria the shop never typed, and used to have no way of
+		// finding: each prompt answers for what it writes, so its line appears
+		// on the diagnostic by itself. That is right, and it was invisible —
+		// a line nobody could trace, edit or switch off. Here they are, named,
+		// each linking to the prompt that owns it, each with the same switch
+		// as any other criterion.
+		$mine = [];
+		foreach ( self::rows() as $row ) {
+			$mine[ (string) $row['id'] ] = true;
+		}
+		$off  = self::silenced();
+		$from = [];
+		// Read with nothing silenced, or a criterion switched off would vanish
+		// from the only screen that can switch it back on.
+		$was = self::$ignore_off;
+		self::$ignore_off = true;
+		foreach ( self::checks() as $id => $check ) {
+			if ( ! isset( $mine[ $id ] ) ) {
+				$from[ $id ] = $check;
+			}
+		}
+		self::$ignore_off = $was;
+
+		echo '<h3 class="dze-pr-grouphead" style="max-width:900px;">' . esc_html__( 'Answered by your prompts', 'dazont-ecom' ) . '</h3>';
+		echo '<p class="description" style="max-width:900px;margin-top:-2px;">'
+			. esc_html__( 'Not typed here and not editable here: each prompt already says what it writes and where, so its line follows the prompt when you rename, move or disable it. Switch one off to stop counting it as work; the prompt itself is untouched.', 'dazont-ecom' )
+			. '</p>';
+		echo '<div class="dze-prlist" id="dze-diag-from" style="max-width:900px;">';
+		if ( ! $from ) {
+			echo '<p class="description">' . esc_html__( 'None yet — a text prompt that writes into a custom field or a SEO meta adds its line here.', 'dazont-ecom' ) . '</p>';
+		}
+		foreach ( $from as $id => $check ) {
+			$tool = (array) ( $check['tool'] ?? [] );
+			echo '<div class="dze-prb"><div class="dze-prb-head">';
+			printf(
+				'<label class="dze-switch dze-prb-on" title="%1$s"><input type="checkbox" name="%2$s[on_check][%3$s]" value="1"%4$s /><span class="dze-switch-slider"></span></label>',
+				esc_attr__( 'Count this criterion', 'dazont-ecom' ),
+				esc_attr( $opt ),
+				esc_attr( $id ),
+				checked( ! in_array( $id, $off, true ), true, false )
+			);
+			echo '<strong class="dze-prb-name" style="flex:0 1 300px;">' . esc_html( (string) $check['label'] ) . '</strong>';
+			echo '<span class="dze-prb-dest">' . esc_html( (string) $check['why'] ) . '</span>';
+			if ( ! empty( $tool['url'] ) ) {
+				printf(
+					'<a class="button button-small" href="%s">%s &rarr;</a>',
+					esc_url( (string) $tool['url'] ),
+					esc_html( (string) $tool['label'] )
+				);
+			}
+			echo '</div></div>';
+		}
+		echo '</div>';
+		echo '<input type="hidden" name="' . esc_attr( $opt ) . '[checks_shown]" value="1" />';
 
 		// Even a list emptied to nothing has to reach the sanitizer as a
 		// deliberate emptiness, or it reads as a form that was about something
