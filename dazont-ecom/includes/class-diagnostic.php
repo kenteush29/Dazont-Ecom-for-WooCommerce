@@ -112,29 +112,96 @@ final class DZE_Diagnostic {
 	 */
 	public static function fields(): array {
 		return [
-			'product.title'             => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · title', 'dazont-ecom' ) ],
-			'product.description'       => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · description', 'dazont-ecom' ) ],
-			'product.short_description' => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · short description', 'dazont-ecom' ) ],
-			'product.seo_title'         => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · SEO title', 'dazont-ecom' ) ],
-			'product.seo_desc'          => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · SEO description', 'dazont-ecom' ) ],
-			'product.meta'              => [ 'scope' => 'product',  'kind' => 'text',  'label' => __( 'Product · custom field', 'dazont-ecom' ), 'key' => true ],
-			'product.main_image'        => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · main photograph', 'dazont-ecom' ) ],
-			'product.gallery'           => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · gallery photographs', 'dazont-ecom' ) ],
-			'product.image_meta'        => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · photograph in a custom field', 'dazont-ecom' ), 'key' => true ],
-			'product.links'             => [ 'scope' => 'product',  'kind' => 'count', 'label' => __( 'Product · links in the description', 'dazont-ecom' ) ],
-			'category.description'      => [ 'scope' => 'category', 'kind' => 'text',  'label' => __( 'Category · description', 'dazont-ecom' ) ],
-			'category.links'            => [ 'scope' => 'category', 'kind' => 'count', 'label' => __( 'Category · internal links', 'dazont-ecom' ) ],
-			'post.links'                => [ 'scope' => 'post',     'kind' => 'count', 'label' => __( 'Article or page · internal links', 'dazont-ecom' ) ],
+			// --- Products, read as text -------------------------------------
+			'product.title'             => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Product · title', 'dazont-ecom' ) ],
+			'product.description'       => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'Product · description', 'dazont-ecom' ) ],
+			'product.short_description' => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'Product · short description', 'dazont-ecom' ) ],
+			'product.seo_title'         => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Product · SEO title', 'dazont-ecom' ) ],
+			'product.seo_desc'          => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Product · SEO description', 'dazont-ecom' ) ],
+			'product.sku'               => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Product · SKU', 'dazont-ecom' ) ],
+			'product.meta'              => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'Product · custom field (text)', 'dazont-ecom' ), 'key' => true ],
+			// --- Products, read as a number ---------------------------------
+			'product.meta_number'       => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'Product · custom field (number)', 'dazont-ecom' ), 'key' => true ],
+			'product.main_image'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'Product · main photograph', 'dazont-ecom' ) ],
+			'product.main_image_width'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'Product · main photograph, width', 'dazont-ecom' ) ],
+			'product.main_image_height' => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'Product · main photograph, height', 'dazont-ecom' ) ],
+			'product.main_image_side'   => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'Product · main photograph, smallest side', 'dazont-ecom' ) ],
+			'product.gallery'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'Product · gallery photographs', 'dazont-ecom' ) ],
+			'product.image_meta'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'Product · photograph in a custom field', 'dazont-ecom' ), 'key' => true ],
+			'product.links'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'links',      'label' => __( 'Product · links in the description', 'dazont-ecom' ) ],
+			'product.price'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'Product · price', 'dazont-ecom' ) ],
+			'product.sale_price'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'Product · sale price', 'dazont-ecom' ) ],
+			'product.stock'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'in stock',   'label' => __( 'Product · stock', 'dazont-ecom' ) ],
+			'product.weight'            => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'Product · weight', 'dazont-ecom' ) ],
+			'product.categories'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'categories', 'label' => __( 'Product · categories', 'dazont-ecom' ) ],
+			'product.tags'              => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'tags',       'label' => __( 'Product · tags', 'dazont-ecom' ) ],
+			'product.attributes'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'attributes', 'label' => __( 'Product · attributes', 'dazont-ecom' ) ],
+			'product.variations'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'variations', 'label' => __( 'Product · variations', 'dazont-ecom' ) ],
+			'product.reviews'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'reviews',    'label' => __( 'Product · reviews', 'dazont-ecom' ) ],
+			'product.rating'            => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'stars',      'label' => __( 'Product · average rating', 'dazont-ecom' ) ],
+			'product.age'               => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'days',       'label' => __( 'Product · days since published', 'dazont-ecom' ) ],
+			// --- Categories and articles ------------------------------------
+			'category.description'      => [ 'scope' => 'category', 'kind' => 'text',   'unit' => 'words',      'label' => __( 'Category · description', 'dazont-ecom' ) ],
+			'category.links'            => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'links',      'label' => __( 'Category · internal links', 'dazont-ecom' ) ],
+			'category.products'         => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'products',   'label' => __( 'Category · products in it', 'dazont-ecom' ) ],
+			'post.links'                => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'links',      'label' => __( 'Article or page · internal links', 'dazont-ecom' ) ],
+			'post.words'                => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'words',      'label' => __( 'Article or page · length', 'dazont-ecom' ) ],
 		];
 	}
 
-	/** The three rules a field can be held to. */
-	public static function tests(): array {
+	/**
+	 * The comparisons a criterion can be written with.
+	 *
+	 * The same vocabulary the shop already uses to filter an export — equals,
+	 * greater than, less than or equal, contains — rather than three canned
+	 * rules. `sign` is the same comparison written as a symbol, for the shop
+	 * that reads `< 120` faster than "fewer than 120": one preference, one
+	 * list, no second table to keep in step.
+	 *
+	 * `takes` says what the comparison needs beside it: a NUMBER, a piece of
+	 * TEXT to look for, or nothing at all.
+	 *
+	 * @return array<string,array{word:string,sign:string,takes:string,kinds:string[]}>
+	 */
+	public static function operators(): array {
 		return [
-			'empty'     => __( 'is empty', 'dazont-ecom' ),
-			'min_words' => __( 'holds fewer than N words', 'dazont-ecom' ),
-			'min_count' => __( 'there are fewer than N', 'dazont-ecom' ),
+			'empty'        => [ 'word' => __( 'is empty', 'dazont-ecom' ),              'sign' => __( 'is empty', 'dazont-ecom' ),     'takes' => '',       'kinds' => [ 'text', 'number' ] ],
+			'filled'       => [ 'word' => __( 'is not empty', 'dazont-ecom' ),          'sign' => __( 'is not empty', 'dazont-ecom' ), 'takes' => '',       'kinds' => [ 'text', 'number' ] ],
+			'lt'           => [ 'word' => __( 'is less than', 'dazont-ecom' ),          'sign' => '<',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
+			'lte'          => [ 'word' => __( 'is at most', 'dazont-ecom' ),            'sign' => '≤',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
+			'gt'           => [ 'word' => __( 'is more than', 'dazont-ecom' ),          'sign' => '>',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
+			'gte'          => [ 'word' => __( 'is at least', 'dazont-ecom' ),           'sign' => '≥',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
+			'eq'           => [ 'word' => __( 'equals', 'dazont-ecom' ),                'sign' => '=',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
+			'neq'          => [ 'word' => __( 'does not equal', 'dazont-ecom' ),        'sign' => '≠',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
+			'contains'     => [ 'word' => __( 'contains', 'dazont-ecom' ),              'sign' => '⊃',                                 'takes' => 'text',   'kinds' => [ 'text' ] ],
+			'not_contains' => [ 'word' => __( 'does not contain', 'dazont-ecom' ),      'sign' => '⊅',                                 'takes' => 'text',   'kinds' => [ 'text' ] ],
 		];
+	}
+
+	/** Whether the shop reads its comparisons as symbols rather than words. */
+	public static function signs(): bool {
+		return ! empty( self::settings()['signs'] );
+	}
+
+	/** One comparison, written the way this shop asked for it. */
+	public static function op_label( string $op ): string {
+		$row = self::operators()[ $op ] ?? null;
+		if ( ! $row ) {
+			return $op;
+		}
+		return self::signs() ? (string) $row['sign'] : (string) $row['word'];
+	}
+
+	/**
+	 * What a text field's number MEANS.
+	 *
+	 * A description is judged in words and a SEO title in characters, because
+	 * that is what each of them is actually short of. The unit is the field's,
+	 * not the criterion's, so it cannot be set to something the field cannot
+	 * answer.
+	 */
+	public static function unit_of( string $field ): string {
+		return (string) ( self::fields()[ $field ]['unit'] ?? '' );
 	}
 
 	/**
@@ -146,13 +213,15 @@ final class DZE_Diagnostic {
 	 */
 	public static function default_rows(): array {
 		return [
-			[ 'id' => 'prod_desc',    'label' => __( 'Description too short', 'dazont-ecom' ),        'field' => 'product.description',       'test' => 'min_words', 'value' => 120, 'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_short',   'label' => __( 'No short description', 'dazont-ecom' ),          'field' => 'product.short_description', 'test' => 'empty',     'value' => 0,   'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_main',    'label' => __( 'No main photograph', 'dazont-ecom' ),            'field' => 'product.main_image',        'test' => 'empty',     'value' => 0,   'key' => '', 'on' => 1 ],
-			[ 'id' => 'prod_gallery', 'label' => __( 'Gallery too thin', 'dazont-ecom' ),              'field' => 'product.gallery',           'test' => 'min_count', 'value' => 3,   'key' => '', 'on' => 1 ],
-			[ 'id' => 'cat_desc',     'label' => __( 'Category description too short', 'dazont-ecom' ),'field' => 'category.description',      'test' => 'min_words', 'value' => 150, 'key' => '', 'on' => 1 ],
-			[ 'id' => 'cat_links',    'label' => __( 'Category points at too little', 'dazont-ecom' ), 'field' => 'category.links',            'test' => 'min_count', 'value' => 2,   'key' => '', 'on' => 1 ],
-			[ 'id' => 'post_links',   'label' => __( 'Article under its link target', 'dazont-ecom' ), 'field' => 'post.links',                'test' => 'min_count', 'value' => 0,   'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_desc',    'label' => __( 'Description too short', 'dazont-ecom' ),           'field' => 'product.description',       'test' => 'lt',    'value' => 120, 'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_short',   'label' => __( 'No short description', 'dazont-ecom' ),            'field' => 'product.short_description', 'test' => 'empty', 'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_main',    'label' => __( 'No main photograph', 'dazont-ecom' ),              'field' => 'product.main_image',        'test' => 'empty', 'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_shot_px', 'label' => __( 'Main photograph too small', 'dazont-ecom' ),       'field' => 'product.main_image_side',   'test' => 'lt',    'value' => 800, 'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_gallery', 'label' => __( 'Gallery too thin', 'dazont-ecom' ),                'field' => 'product.gallery',           'test' => 'lt',    'value' => 3,   'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'prod_seo_t',   'label' => __( 'SEO title too long', 'dazont-ecom' ),              'field' => 'product.seo_title',         'test' => 'gt',    'value' => 60,  'find' => '', 'key' => '', 'on' => 0 ],
+			[ 'id' => 'cat_desc',     'label' => __( 'Category description too short', 'dazont-ecom' ),  'field' => 'category.description',      'test' => 'lt',    'value' => 150, 'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'cat_links',    'label' => __( 'Category points at too little', 'dazont-ecom' ),   'field' => 'category.links',            'test' => 'lt',    'value' => 2,   'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'post_links',   'label' => __( 'Article under its link target', 'dazont-ecom' ),   'field' => 'post.links',                'test' => 'lt',    'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
 		];
 	}
 
@@ -166,7 +235,7 @@ final class DZE_Diagnostic {
 	/** Rows as a form posted them, made safe and complete. */
 	public static function clean_rows( array $in ): array {
 		$fields = self::fields();
-		$tests  = self::tests();
+		$ops    = self::operators();
 		$out    = [];
 		$seen   = [];
 		foreach ( $in as $row ) {
@@ -186,13 +255,20 @@ final class DZE_Diagnostic {
 				$id .= '2';
 			}
 			$seen[ $id ] = true;
-			$test = (string) ( $row['test'] ?? '' );
+			$op = self::op_now( (string) ( $row['test'] ?? '' ) );
+			// A comparison a field cannot answer is not saved as one: "contains"
+			// asked of a count would be a criterion that never fires and never
+			// says why.
+			if ( ! isset( $ops[ $op ] ) || ! in_array( (string) $fields[ $field ]['kind'], (array) $ops[ $op ]['kinds'], true ) ) {
+				$op = 'empty';
+			}
 			$out[] = [
 				'id'    => $id,
 				'label' => mb_substr( $label, 0, 80 ),
 				'field' => $field,
-				'test'  => isset( $tests[ $test ] ) ? $test : 'empty',
-				'value' => max( 0, min( 5000, (int) ( $row['value'] ?? 0 ) ) ),
+				'test'  => $op,
+				'value' => max( 0, min( 100000, (int) ( $row['value'] ?? 0 ) ) ),
+				'find'  => mb_substr( sanitize_text_field( (string) ( $row['find'] ?? '' ) ), 0, 120 ),
 				'key'   => ! empty( $fields[ $field ]['key'] ) ? sanitize_text_field( (string) ( $row['key'] ?? '' ) ) : '',
 				'on'    => empty( $row['on'] ) ? 0 : 1,
 			];
@@ -201,11 +277,19 @@ final class DZE_Diagnostic {
 	}
 
 	/**
-	 * Every criterion the shop is read against: its own, then the ones its
-	 * PROMPTS answer for.
+	 * A criterion saved before the comparisons existed, read as one now.
 	 *
-	 * @return array<string,array{scope:string,label:string,why:string,fix:string}>
+	 * The three canned rules were "empty", "fewer than N words" and "fewer
+	 * than N" — all three are `less than` against the field's own unit, and a
+	 * shop that saved them keeps exactly the criteria it saved. Migration on
+	 * READ, so nothing has to be rewritten in the database and a version put
+	 * back does not find rows it cannot understand.
 	 */
+	private static function op_now( string $op ): string {
+		$was = [ 'min_words' => 'lt', 'min_count' => 'lt' ];
+		return (string) ( $was[ $op ] ?? $op );
+	}
+
 	public static function checks(): array {
 		$fields = self::fields();
 		$out    = [];
@@ -272,31 +356,34 @@ final class DZE_Diagnostic {
 
 	/** One criterion said in words, for the screen. */
 	private static function rule_said( array $row, array $field ): string {
-		$what = (string) $field['label'];
-		if ( 'min_words' === $row['test'] ) {
-			return sprintf(
-				/* translators: 1: what is read, 2: how many words */
-				__( '%1$s holds fewer than %2$d words.', 'dazont-ecom' ),
-				$what,
-				(int) $row['value']
-			);
+		return trim( (string) $field['label'] . ' ' . self::rule_clause( $row ) ) . '.';
+	}
+
+	/**
+	 * The comparison half of a criterion, without the field's name.
+	 *
+	 * One source for it, because the same words are printed twice: on the
+	 * diagnostic ("Product · description is less than 120 words.") and on the
+	 * shut card in the settings ("Product · description — is less than 120
+	 * words"). Written twice they would drift, and the screen would explain
+	 * one thing while the reading did another.
+	 */
+	private static function rule_clause( array $row ): string {
+		$op = self::op_now( (string) ( $row['test'] ?? 'empty' ) );
+		if ( 'post.links' === ( $row['field'] ?? '' ) && 'lt' === $op && 0 === (int) ( $row['value'] ?? 0 ) ) {
+			return __( 'holds fewer links than its own length calls for', 'dazont-ecom' );
 		}
-		if ( 'min_count' === $row['test'] ) {
-			if ( 0 === (int) $row['value'] && 'post.links' === $row['field'] ) {
-				return __( 'The article carries fewer links than its own length calls for — the figure the linking pass works out, not one set here.', 'dazont-ecom' );
-			}
-			return sprintf(
-				/* translators: 1: what is counted, 2: how many there should be */
-				__( '%1$s: fewer than %2$d.', 'dazont-ecom' ),
-				$what,
-				(int) $row['value']
-			);
+		$takes = (string) ( self::operators()[ $op ]['takes'] ?? '' );
+		if ( 'text' === $takes ) {
+			return self::op_label( $op ) . ' "' . (string) ( $row['find'] ?? '' ) . '"';
 		}
-		return sprintf(
-			/* translators: %s: what is read */
-			__( '%s is empty.', 'dazont-ecom' ),
-			$what
-		);
+		if ( 'number' === $takes ) {
+			// The unit is the field's own and can be blank (a price, a weight),
+			// so the clause is assembled rather than templated: "is less than
+			// 800 px" and "is more than 50" both have to come out clean.
+			return trim( self::op_label( $op ) . ' ' . (int) ( $row['value'] ?? 0 ) . ' ' . self::unit_of( (string) ( $row['field'] ?? '' ) ) );
+		}
+		return self::op_label( $op );
 	}
 
 	// =========================================================================
@@ -365,6 +452,19 @@ final class DZE_Diagnostic {
 		if ( ! $wanted || ! post_type_exists( 'product' ) ) {
 			return;
 		}
+		// What the criteria in force actually need loading. Categories and
+		// tags cost a term query per page and photograph sizes cost a meta
+		// query per page — neither is paid for by a shop that asks for
+		// neither.
+		$fields = [];
+		foreach ( $wanted as $check ) {
+			$fields[ (string) ( $check['row']['field'] ?? '' ) ] = true;
+		}
+		$needs_terms = isset( $fields['product.categories'] ) || isset( $fields['product.tags'] );
+		$needs_size  = isset( $fields['product.main_image_width'] )
+			|| isset( $fields['product.main_image_height'] )
+			|| isset( $fields['product.main_image_side'] );
+
 		$page = 1;
 		do {
 			$q = new WP_Query( [
@@ -376,10 +476,13 @@ final class DZE_Diagnostic {
 				'order'                  => 'ASC',
 				'ignore_sticky_posts'    => true,
 				'no_found_rows'          => true,
-				'update_post_term_cache' => false,
+				'update_post_term_cache' => $needs_terms,
 				'update_post_meta_cache' => true,
 				'suppress_filters'       => true,
 			] );
+			if ( $needs_size ) {
+				self::prime_thumbs( $q->posts );
+			}
 			foreach ( $q->posts as $post ) {
 				$seen['product']++;
 				foreach ( $wanted as $id => $check ) {
@@ -399,6 +502,28 @@ final class DZE_Diagnostic {
 	 * French description as a shorter English one: "matériel léger" is two
 	 * words, and the C function counts the accented halves as their own.
 	 */
+	/**
+	 * The metadata of a page of products' main photographs, in one query.
+	 *
+	 * Without this, asking for the photograph's size is one query per product
+	 * — a thousand queries to answer one criterion, which is exactly the shape
+	 * of thing that takes a shop down at the worst moment.
+	 *
+	 * @param WP_Post[] $posts
+	 */
+	private static function prime_thumbs( array $posts ): void {
+		$ids = [];
+		foreach ( $posts as $post ) {
+			$id = (int) get_post_thumbnail_id( (int) $post->ID );
+			if ( $id ) {
+				$ids[ $id ] = true;
+			}
+		}
+		if ( $ids ) {
+			update_meta_cache( 'post', array_keys( $ids ) );
+		}
+	}
+
 	public static function words( string $html ): int {
 		return (int) preg_match_all( '/\p{L}+/u', wp_strip_all_tags( $html ) );
 	}
@@ -409,97 +534,237 @@ final class DZE_Diagnostic {
 	 * @param mixed $object A WP_Post, a term, or the linking pass's own row.
 	 * @return array{text:string,count:int}
 	 */
-	private static function measure( string $field, string $scope, $object, string $key ): array {
-		$out = [ 'text' => '', 'count' => 0 ];
+	/**
+	 * What one field ANSWERS on one thing.
+	 *
+	 * A string for a field read as text, a number for a field read as a
+	 * number — never both, so nothing downstream has to guess which half of
+	 * the answer it is looking at.
+	 *
+	 * Everything here is answered from caches primed a page at a time: no
+	 * query is made inside this function, because it is called once per
+	 * criterion per product and the shop has thousands of them.
+	 *
+	 * @return string|float
+	 */
+	private static function measure( string $field, string $scope, $object, string $key ) {
 		if ( 'product' === $scope && $object instanceof WP_Post ) {
-			$pid = (int) $object->ID;
-			switch ( $field ) {
-				case 'product.title':
-					$out['text'] = (string) $object->post_title;
-					break;
-				case 'product.description':
-					$out['text'] = (string) $object->post_content;
-					break;
-				case 'product.short_description':
-					$out['text'] = (string) $object->post_excerpt;
-					break;
-				case 'product.seo_title':
-				case 'product.seo_desc':
-					$keys        = class_exists( 'DZE_Content' ) ? DZE_Content::seo_keys() : [];
-					$seo         = (string) ( $keys[ 'product.seo_title' === $field ? 'title' : 'desc' ] ?? '' );
-					$out['text'] = '' !== $seo ? (string) get_post_meta( $pid, $seo, true ) : '';
-					break;
-				case 'product.meta':
-					$out['text'] = '' !== $key ? (string) get_post_meta( $pid, $key, true ) : '';
-					break;
-				case 'product.image_meta':
-					$out['count'] = ( '' !== $key && (int) get_post_meta( $pid, $key, true ) > 0 ) ? 1 : 0;
-					break;
-				case 'product.main_image':
-					$out['count'] = (int) get_post_thumbnail_id( $pid ) ? 1 : 0;
-					break;
-				case 'product.gallery':
-					$gal          = array_filter( array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) ) );
-					$out['count'] = count( $gal );
-					break;
-				case 'product.links':
-					$out['count'] = (int) preg_match_all( '/<a\s[^>]*href=/i', (string) $object->post_content );
-					break;
-			}
-			return $out;
+			return self::measure_product( $field, $object, $key );
 		}
 		if ( 'category' === $scope && is_object( $object ) ) {
 			$text = (string) ( $object->description ?? '' );
 			if ( 'category.links' === $field ) {
-				$out['count'] = (int) preg_match_all( '/<a\s[^>]*href=/i', $text );
-			} else {
-				$out['text'] = $text;
+				return (float) preg_match_all( '/<a\s[^>]*href=/i', $text );
 			}
-			return $out;
+			if ( 'category.products' === $field ) {
+				return (float) ( $object->count ?? 0 );
+			}
+			return $text;
 		}
 		if ( 'post' === $scope && is_array( $object ) ) {
-			$out['count'] = (int) ( $object['out'] ?? 0 );
-			$out['text']  = '';
+			return 'post.words' === $field
+				? (float) ( $object['words'] ?? 0 )
+				: (float) ( $object['out'] ?? 0 );
 		}
-		return $out;
+		return '';
 	}
 
-	/** Whether a field answers with text or with a number. */
+	/** @return string|float */
+	private static function measure_product( string $field, WP_Post $post, string $key ) {
+		$pid  = (int) $post->ID;
+		$meta = static fn( string $k ): string => (string) get_post_meta( $pid, $k, true );
+		switch ( $field ) {
+			case 'product.title':
+				return (string) $post->post_title;
+			case 'product.description':
+				return (string) $post->post_content;
+			case 'product.short_description':
+				return (string) $post->post_excerpt;
+			case 'product.seo_title':
+			case 'product.seo_desc':
+				$keys = class_exists( 'DZE_Content' ) ? DZE_Content::seo_keys() : [];
+				$seo  = (string) ( $keys[ 'product.seo_title' === $field ? 'title' : 'desc' ] ?? '' );
+				return '' !== $seo ? $meta( $seo ) : '';
+			case 'product.sku':
+				return $meta( '_sku' );
+			case 'product.meta':
+				return '' !== $key ? $meta( $key ) : '';
+			case 'product.meta_number':
+				return '' !== $key ? (float) $meta( $key ) : 0.0;
+			case 'product.image_meta':
+				return ( '' !== $key && (int) $meta( $key ) > 0 ) ? 1.0 : 0.0;
+			case 'product.main_image':
+				return get_post_thumbnail_id( $pid ) ? 1.0 : 0.0;
+			case 'product.main_image_width':
+			case 'product.main_image_height':
+			case 'product.main_image_side':
+				$size = self::thumb_size( $pid );
+				if ( 'product.main_image_width' === $field ) {
+					return (float) $size['w'];
+				}
+				if ( 'product.main_image_height' === $field ) {
+					return (float) $size['h'];
+				}
+				// The smallest side is the one that decides whether a
+				// photograph can be shown large anywhere: a 2000×400 banner is
+				// not a 2000px product shot.
+				return (float) min( $size['w'], $size['h'] );
+			case 'product.gallery':
+				return (float) count( array_filter( array_map( 'absint', explode( ',', $meta( '_product_image_gallery' ) ) ) ) );
+			case 'product.links':
+				return (float) preg_match_all( '/<a\s[^>]*href=/i', (string) $post->post_content );
+			case 'product.price':
+				return (float) $meta( '_price' );
+			case 'product.sale_price':
+				return (float) $meta( '_sale_price' );
+			case 'product.stock':
+				return (float) $meta( '_stock' );
+			case 'product.weight':
+				return (float) $meta( '_weight' );
+			case 'product.reviews':
+				return (float) $meta( '_wc_review_count' );
+			case 'product.rating':
+				return (float) $meta( '_wc_average_rating' );
+			case 'product.attributes':
+				$att = maybe_unserialize( $meta( '_product_attributes' ) );
+				return (float) ( is_array( $att ) ? count( $att ) : 0 );
+			case 'product.variations':
+				return (float) ( self::variation_counts()[ $pid ] ?? 0 );
+			case 'product.categories':
+			case 'product.tags':
+				$terms = get_the_terms( $pid, 'product.tags' === $field ? 'product_tag' : 'product_cat' );
+				return (float) ( is_array( $terms ) ? count( $terms ) : 0 );
+			case 'product.age':
+				$at = strtotime( (string) $post->post_date_gmt ) ?: 0;
+				return $at ? (float) floor( ( time() - $at ) / DAY_IN_SECONDS ) : 0.0;
+		}
+		return '';
+	}
+
+	/**
+	 * The main photograph's pixel size.
+	 *
+	 * Read from the attachment's own metadata, which the scan primes one page
+	 * of products at a time — asked product by product it would be one query
+	 * per product, and the shop has thousands.
+	 *
+	 * @return array{w:int,h:int}
+	 */
+	private static function thumb_size( int $product_id ): array {
+		$id = (int) get_post_thumbnail_id( $product_id );
+		if ( ! $id ) {
+			return [ 'w' => 0, 'h' => 0 ];
+		}
+		$meta = wp_get_attachment_metadata( $id );
+		return [
+			'w' => (int) ( $meta['width'] ?? 0 ),
+			'h' => (int) ( $meta['height'] ?? 0 ),
+		];
+	}
+
+	/**
+	 * How many published variations each variable product has.
+	 *
+	 * One grouped query for the whole shop, held for the length of the scan.
+	 * The alternative is a query per product, which is the same figure at a
+	 * thousand times the cost.
+	 *
+	 * @return array<int,int>
+	 */
+	private static function variation_counts(): array {
+		static $counts = null;
+		if ( null !== $counts ) {
+			return $counts;
+		}
+		global $wpdb;
+		$counts = [];
+		$rows   = (array) $wpdb->get_results(
+			"SELECT post_parent, COUNT(*) AS n FROM {$wpdb->posts}
+			 WHERE post_type = 'product_variation' AND post_status = 'publish'
+			 GROUP BY post_parent",
+			ARRAY_A
+		);
+		foreach ( $rows as $r ) {
+			$counts[ (int) $r['post_parent'] ] = (int) $r['n'];
+		}
+		return $counts;
+	}
+
 	private static function kind_of( string $field ): string {
 		return (string) ( self::fields()[ $field ]['kind'] ?? 'text' );
 	}
 
 	/**
-	 * Whether one page falls short of one criterion.
+	 * Whether one thing falls short of one criterion.
 	 *
-	 * @param mixed $object
+	 * A text field answers the comparisons with its LENGTH — in words or in
+	 * characters, whichever that field is judged in — and answers "contains"
+	 * with itself. A number field answers with its number. One place, so a
+	 * criterion means the same thing on the overview, in the list and in the
+	 * sentence the screen prints under it.
 	 */
 	private static function fails( array $row, string $scope, $object ): bool {
 		$field = (string) ( $row['field'] ?? '' );
-		$test  = (string) ( $row['test'] ?? 'empty' );
-		$want  = (int) ( $row['value'] ?? 0 );
+		$op    = self::op_now( (string) ( $row['test'] ?? 'empty' ) );
+		$want  = (float) ( $row['value'] ?? 0 );
 		$m     = self::measure( $field, $scope, $object, (string) ( $row['key'] ?? '' ) );
 
-		if ( 'min_words' === $test ) {
-			return self::words( $m['text'] ) < $want;
-		}
-		if ( 'min_count' === $test ) {
-			// An article is held to the figure the linking pass works out from
-			// its own length — asked here a second way, the two screens would
-			// disagree about the same article. A number typed in the row wins
-			// when there is one.
-			if ( 'post.links' === $field && $want <= 0 ) {
-				$target = is_array( $object ) ? (int) ( $object['target'] ?? 0 ) : 0;
-				return $target > 0 && $m['count'] < $target;
+		if ( 'text' === self::kind_of( $field ) ) {
+			$text = trim( wp_strip_all_tags( is_string( $m ) ? $m : '' ) );
+			if ( 'empty' === $op ) {
+				return '' === $text;
 			}
-			return $m['count'] < $want;
+			if ( 'filled' === $op ) {
+				return '' !== $text;
+			}
+			$find = trim( (string) ( $row['find'] ?? '' ) );
+			if ( 'contains' === $op ) {
+				return '' !== $find && false !== mb_stripos( $text, $find );
+			}
+			if ( 'not_contains' === $op ) {
+				return '' !== $find && false === mb_stripos( $text, $find );
+			}
+			$have = 'characters' === self::unit_of( $field ) ? (float) mb_strlen( $text ) : (float) self::words( $text );
+			return self::compare( $op, $have, $want );
 		}
-		return 'count' === self::kind_of( $field )
-			? $m['count'] <= 0
-			: '' === trim( wp_strip_all_tags( $m['text'] ) );
+
+		$have = is_numeric( $m ) ? (float) $m : 0.0;
+		if ( 'empty' === $op ) {
+			return $have <= 0;
+		}
+		if ( 'filled' === $op ) {
+			return $have > 0;
+		}
+		// An article is held to the figure the linking pass works out from its
+		// own length — asked here a second way, the two screens would disagree
+		// about the same article. A number typed in the row wins when there is
+		// one.
+		if ( 'post.links' === $field && 'lt' === $op && $want <= 0 ) {
+			$target = is_array( $object ) ? (float) ( $object['target'] ?? 0 ) : 0.0;
+			return $target > 0 && $have < $target;
+		}
+		return self::compare( $op, $have, $want );
 	}
 
-	/** @param array<string,int[]> $hits */
+	/** The six comparisons, in one place. */
+	private static function compare( string $op, float $have, float $want ): bool {
+		switch ( $op ) {
+			case 'lt':
+				return $have < $want;
+			case 'lte':
+				return $have <= $want;
+			case 'gt':
+				return $have > $want;
+			case 'gte':
+				return $have >= $want;
+			case 'eq':
+				return abs( $have - $want ) < 0.0001;
+			case 'neq':
+				return abs( $have - $want ) >= 0.0001;
+		}
+		return false;
+	}
+
 	private static function scan_categories( array $checks, array &$hits, array &$seen ): void {
 		$wanted = array_filter( $checks, static fn( array $c ): bool => 'category' === $c['scope'] );
 		if ( ! $wanted ) {
@@ -595,6 +860,10 @@ final class DZE_Diagnostic {
 		// and never take — the same trap the emails of a promotion fell into.
 		if ( ! empty( $in['rows_shown'] ) ) {
 			$out['rows'] = self::clean_rows( (array) ( $in['rows'] ?? [] ) );
+			// A checkbox the submitted section owns: unticked it posts nothing,
+			// so its absence IS the answer — but only in a form that carried
+			// the criteria at all.
+			$out['signs'] = empty( $in['signs'] ) ? 0 : 1;
 		}
 		return $out;
 	}
@@ -805,35 +1074,11 @@ final class DZE_Diagnostic {
 	}
 
 	/**
-	 * The rule, as a sentence, with its figure in it.
-	 *
-	 * The dropdown says "holds fewer than N words" because a dropdown cannot
-	 * know the figure yet; a shut card can, and "holds fewer than 120 words" is
-	 * the whole criterion read at a glance, which is the point of shutting it.
-	 */
-	private static function test_said( string $test, int $value, string $field = '' ): string {
-		if ( 'post.links' === $field && 'min_count' === $test && 0 === $value ) {
-			return __( 'holds fewer links than its own length calls for', 'dazont-ecom' );
-		}
-		switch ( $test ) {
-			case 'min_words':
-				/* translators: %d: a number of words */
-				return sprintf( __( 'holds fewer than %d words', 'dazont-ecom' ), $value );
-			case 'min_count':
-				/* translators: %d: how many there have to be */
-				return sprintf( __( 'there are fewer than %d', 'dazont-ecom' ), $value );
-			default:
-				return __( 'is empty', 'dazont-ecom' );
-		}
-	}
-
-	/**
 	 * One criterion, as the card the prompts are edited in.
 	 *
 	 * The same card as the prompt library, on purpose: shut, it is a name and
-	 * the rule in words; open, it is the two dropdowns that make it. A table of
-	 * seven rows of dropdowns was three screens tall, and the button that adds
-	 * one was below all of it.
+	 * the rule in words; open, it is the field, the comparison and the figure
+	 * that make it.
 	 *
 	 * @param array  $row   The criterion.
 	 * @param string $index What the field names are numbered with — an integer
@@ -844,8 +1089,8 @@ final class DZE_Diagnostic {
 		$opt    = self::OPT;
 		$fields = self::fields();
 		$field  = (string) ( $row['field'] ?? '' );
-		$test   = (string) ( $row['test'] ?? 'empty' );
-		$value  = (int) ( $row['value'] ?? 0 );
+		$op     = self::op_now( (string) ( $row['test'] ?? 'empty' ) );
+		$takes  = (string) ( self::operators()[ $op ]['takes'] ?? '' );
 		$name   = static fn( string $key ): string => esc_attr( $opt . '[rows][' . $index . '][' . $key . ']' );
 
 		$out  = '<div class="dze-prb dze-diag-card">';
@@ -856,7 +1101,7 @@ final class DZE_Diagnostic {
 		$out .= '<input type="hidden" name="' . $name( 'id' ) . '" value="' . esc_attr( (string) ( $row['id'] ?? '' ) ) . '" />';
 		$out .= '<input type="text" class="dze-prb-name" name="' . $name( 'label' ) . '" value="' . esc_attr( (string) ( $row['label'] ?? '' ) ) . '" placeholder="' . esc_attr__( 'Name this criterion', 'dazont-ecom' ) . '" />';
 		$out .= '<span class="dze-prb-dest dze-diag-said">'
-			. esc_html( (string) ( $fields[ $field ]['label'] ?? '' ) ) . ' &mdash; ' . esc_html( self::test_said( $test, $value, $field ) )
+			. esc_html( trim( (string) ( $fields[ $field ]['label'] ?? '' ) . ' — ' . self::rule_clause( $row ) ) )
 			. '</span>';
 		$out .= '<button type="button" class="dze-prb-toggle dze-diag-toggle" aria-expanded="false">' . esc_html__( 'Edit', 'dazont-ecom' ) . ' <span class="dze-prb-caret">&#9656;</span></button>';
 		$out .= '<button type="button" class="dze-pr-del dze-diag-drop" title="' . esc_attr__( 'Remove this criterion', 'dazont-ecom' ) . '">&#10005;</button>';
@@ -865,23 +1110,36 @@ final class DZE_Diagnostic {
 		$out .= '<div class="dze-prb-body" style="display:none;"><p class="dze-prb-line">';
 		$out .= '<label><span>' . esc_html__( 'Looks at', 'dazont-ecom' ) . '</span>'
 			. '<select class="dze-diag-field" name="' . $name( 'field' ) . '">';
-		foreach ( $fields as $fid => $meta ) {
-			$out .= '<option value="' . esc_attr( $fid ) . '"' . selected( $fid, $field, false ) . '>' . esc_html( (string) $meta['label'] ) . '</option>';
+		foreach ( self::scopes() as $scope => $group ) {
+			$out .= '<optgroup label="' . esc_attr( $group ) . '">';
+			foreach ( $fields as $fid => $meta ) {
+				if ( $scope !== ( $meta['scope'] ?? '' ) ) {
+					continue;
+				}
+				$out .= '<option value="' . esc_attr( $fid ) . '"' . selected( $fid, $field, false ) . '>' . esc_html( (string) $meta['label'] ) . '</option>';
+			}
+			$out .= '</optgroup>';
 		}
 		$out .= '</select></label>';
 		$out .= '<input type="text" class="dze-diag-key" name="' . $name( 'key' ) . '" value="' . esc_attr( (string) ( $row['key'] ?? '' ) ) . '"'
 			. ' placeholder="' . esc_attr__( 'meta key', 'dazont-ecom' ) . '" style="width:170px;'
 			. ( empty( $fields[ $field ]['key'] ) ? 'display:none;' : '' ) . '" />';
-		$out .= '<label><span>' . esc_html__( 'Falls short when', 'dazont-ecom' ) . '</span>'
+		$out .= '<label><span>' . esc_html__( 'Falls short when it', 'dazont-ecom' ) . '</span>'
 			. '<select class="dze-diag-test" name="' . $name( 'test' ) . '">';
-		foreach ( self::tests() as $tid => $label ) {
-			$out .= '<option value="' . esc_attr( $tid ) . '"' . selected( $tid, $test, false ) . '>' . esc_html( $label ) . '</option>';
+		foreach ( self::operators() as $oid => $meta ) {
+			$out .= '<option value="' . esc_attr( $oid ) . '" data-takes="' . esc_attr( (string) $meta['takes'] ) . '"'
+				. ' data-kinds="' . esc_attr( implode( ',', (array) $meta['kinds'] ) ) . '"'
+				. selected( $oid, $op, false ) . '>' . esc_html( self::op_label( $oid ) ) . '</option>';
 		}
 		$out .= '</select></label>';
-		$out .= '<input type="number" class="dze-diag-value" min="0" step="1" style="width:90px;' . ( 'empty' === $test ? 'display:none;' : '' ) . '"'
-			. ' name="' . $name( 'value' ) . '" value="' . esc_attr( (string) $value ) . '" />';
+		$out .= '<input type="number" class="dze-diag-value" min="0" step="1" style="width:100px;' . ( 'number' === $takes ? '' : 'display:none;' ) . '"'
+			. ' name="' . $name( 'value' ) . '" value="' . esc_attr( (string) (int) ( $row['value'] ?? 0 ) ) . '" />';
+		$out .= '<input type="text" class="dze-diag-find" style="width:200px;' . ( 'text' === $takes ? '' : 'display:none;' ) . '"'
+			. ' name="' . $name( 'find' ) . '" value="' . esc_attr( (string) ( $row['find'] ?? '' ) ) . '"'
+			. ' placeholder="' . esc_attr__( 'text to look for', 'dazont-ecom' ) . '" />';
+		$out .= '<span class="dze-diag-unit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
 		$out .= '</p>';
-		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'An article held to "there are fewer than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
+		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
 		$out .= '</div></div>';
 		return $out;
 	}
@@ -907,18 +1165,19 @@ final class DZE_Diagnostic {
 		settings_fields( 'dze_diagnostic_options' );
 		echo '<h2 class="title">' . esc_html__( 'Criteria', 'dazont-ecom' ) . '</h2>';
 		echo '<p class="description" style="max-width:900px;">'
-			. esc_html__( 'What the Diagnostic screen reads the shop against. A name, what is looked at, and the rule it has to pass — add your own, change a figure, remove one you do not care about. Every criterion you switch off simply stops being counted as work waiting to be done; nothing on the shop changes.', 'dazont-ecom' )
+			. esc_html__( 'What the Diagnostic screen reads the shop against: a name, what is looked at, and the comparison it has to fail to be counted — the same vocabulary you filter an export with. Add your own, change a figure, remove one you do not care about. Every criterion you switch off simply stops being counted as work waiting to be done; nothing on the shop changes.', 'dazont-ecom' )
 			. '</p>';
 		echo '<p class="description" style="max-width:900px;">'
 			. esc_html__( 'Your PROMPTS answer for themselves and are not in this list: each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it.', 'dazont-ecom' )
 			. '</p>';
 
-		// The button that adds one sits ABOVE the list as well as below it: the
-		// list is the length of the shop's own standards, and a control you have
-		// to scroll past seven criteria to find is a control nobody finds.
-		echo '<p style="margin:14px 0 10px;">'
+		echo '<p style="margin:14px 0 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
 			. '<button type="button" class="button button-secondary" id="dze-diag-add">&#43; ' . esc_html__( 'Add a criterion', 'dazont-ecom' ) . '</button>'
-			. '<button type="button" class="button" id="dze-diag-reset" style="margin-left:8px;">&#8634; ' . esc_html__( 'Restore the shipped criteria', 'dazont-ecom' ) . '</button>'
+			. '<button type="button" class="button" id="dze-diag-reset">&#8634; ' . esc_html__( 'Restore the shipped criteria', 'dazont-ecom' ) . '</button>'
+			. '<label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;">'
+			. '<input type="checkbox" id="dze-diag-signs" name="' . esc_attr( $opt ) . '[signs]" value="1"' . checked( true, self::signs(), false ) . ' /> '
+			. esc_html__( 'Write the comparisons as symbols (<, ≤, =)', 'dazont-ecom' )
+			. '</label>'
 			. '</p>';
 
 		echo '<div id="dze-diag-lib" style="max-width:900px;">';
@@ -951,21 +1210,38 @@ final class DZE_Diagnostic {
 	private static function print_rows_script(): void {
 		$keys = [];
 		foreach ( self::fields() as $fid => $meta ) {
-			$keys[ $fid ] = [ 'label' => (string) $meta['label'], 'key' => ! empty( $meta['key'] ), 'scope' => (string) $meta['scope'] ];
+			$keys[ $fid ] = [
+				'label' => (string) $meta['label'],
+				'key'   => ! empty( $meta['key'] ),
+				'scope' => (string) $meta['scope'],
+				'kind'  => (string) $meta['kind'],
+				'unit'  => (string) ( $meta['unit'] ?? '' ),
+			];
 		}
-		$blank = [ 'id' => '', 'label' => '', 'field' => 'product.description', 'test' => 'min_words', 'value' => 120, 'key' => '', 'on' => 1 ];
+		$ops = [];
+		foreach ( self::operators() as $oid => $meta ) {
+			$ops[ $oid ] = [
+				'word'  => (string) $meta['word'],
+				'sign'  => (string) $meta['sign'],
+				'takes' => (string) $meta['takes'],
+				'kinds' => array_values( (array) $meta['kinds'] ),
+			];
+		}
+		$blank = [ 'id' => '', 'label' => '', 'field' => 'product.description', 'test' => 'lt', 'value' => 120, 'find' => '', 'key' => '', 'on' => 1 ];
 		?>
 		<script type="text/template" id="dze-diag-tpl"><?php echo self::card( $blank, '__I__' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card(). ?></script>
 		<script>
 		jQuery( function ( $ ) {
 			var fields = <?php echo wp_json_encode( $keys ); ?>,
-				said = <?php echo wp_json_encode( [
-					'empty'     => __( 'is empty', 'dazont-ecom' ),
-					'min_words' => __( 'holds fewer than %d words', 'dazont-ecom' ),
-					'min_count' => __( 'there are fewer than %d', 'dazont-ecom' ),
-					'target'    => __( 'holds fewer links than its own length calls for', 'dazont-ecom' ),
-				] ); ?>,
-				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>;
+				ops = <?php echo wp_json_encode( $ops ); ?>,
+				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>,
+				target = <?php echo wp_json_encode( __( 'holds fewer links than its own length calls for', 'dazont-ecom' ) ); ?>;
+
+			function signs() { return $( '#dze-diag-signs' ).is( ':checked' ); }
+			function opLabel( id ) {
+				var o = ops[ id ]; if ( ! o ) { return id; }
+				return signs() ? o.sign : o.word;
+			}
 
 			// The card's own number. New cards are given one past every card on
 			// the page, so two added in a row never post into the same slot.
@@ -978,18 +1254,43 @@ final class DZE_Diagnostic {
 				return max + 1;
 			}
 
+			// Only the comparisons this field can answer: "contains" asked of a
+			// count is a criterion that never fires and never says why.
+			function fitOps( $card, kind ) {
+				var $sel = $card.find( '.dze-diag-test' ), keep = $sel.val(), ok = false;
+				$sel.find( 'option' ).each( function () {
+					var $o = $( this ),
+						fits = ( $o.data( 'kinds' ) + '' ).split( ',' ).indexOf( kind ) > -1;
+					$o.prop( 'disabled', ! fits ).toggle( fits ).text( opLabel( $o.attr( 'value' ) ) );
+					if ( fits && $o.attr( 'value' ) === keep ) { ok = true; }
+				} );
+				if ( ! ok ) { $sel.val( 'empty' ); }
+			}
+
 			// What a shut card says, kept true the moment a dropdown moves.
 			function retell( $card ) {
 				var f = $card.find( '.dze-diag-field' ).val(),
-					t = $card.find( '.dze-diag-test' ).val(),
+					meta = fields[ f ] || { label: '', key: false, kind: 'text', unit: '' };
+				fitOps( $card, meta.kind );
+				var op = $card.find( '.dze-diag-test' ).val(),
+					takes = ( ops[ op ] || {} ).takes || '',
 					v = parseInt( $card.find( '.dze-diag-value' ).val(), 10 ) || 0,
-					meta = fields[ f ] || { label: '', key: false },
-					rule = ( 'post.links' === f && 'min_count' === t && 0 === v )
-						? said.target
-						: ( said[ t ] || '' ).replace( '%d', String( v ) );
-				$card.find( '.dze-diag-said' ).text( meta.label + ' — ' + rule );
+					find = $card.find( '.dze-diag-find' ).val() || '',
+					said;
 				$card.find( '.dze-diag-key' ).toggle( !! meta.key );
-				$card.find( '.dze-diag-value' ).toggle( 'empty' !== t );
+				$card.find( '.dze-diag-value' ).toggle( 'number' === takes );
+				$card.find( '.dze-diag-find' ).toggle( 'text' === takes );
+				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
+				if ( 'post.links' === f && 'lt' === op && 0 === v ) {
+					said = meta.label + ' — ' + target;
+				} else if ( 'text' === takes ) {
+					said = meta.label + ' — ' + opLabel( op ) + ' "' + find + '"';
+				} else if ( 'number' === takes ) {
+					said = ( meta.label + ' — ' + opLabel( op ) + ' ' + v + ' ' + meta.unit ).replace( /\s+$/, '' );
+				} else {
+					said = meta.label + ' — ' + opLabel( op );
+				}
+				$card.find( '.dze-diag-said' ).text( said );
 			}
 
 			function add( row ) {
@@ -1001,6 +1302,7 @@ final class DZE_Diagnostic {
 					$card.find( '.dze-diag-field' ).val( row.field );
 					$card.find( '.dze-diag-test' ).val( row.test );
 					$card.find( '.dze-diag-value' ).val( row.value );
+					$card.find( '.dze-diag-find' ).val( row.find || '' );
 					$card.find( '.dze-diag-key' ).val( row.key || '' );
 					$card.find( '.dze-switch input' ).prop( 'checked', 0 !== row.on );
 				}
@@ -1021,11 +1323,17 @@ final class DZE_Diagnostic {
 					$c.find( '.dze-diag-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
 				}
 			} );
-			$( document ).on( 'change keyup', '.dze-diag-field, .dze-diag-test, .dze-diag-value', function () {
+			$( document ).on( 'change keyup', '.dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );
 			} );
 			$( document ).on( 'click', '.dze-diag-drop', function () {
 				$( this ).closest( '.dze-diag-card' ).remove();
+			} );
+			// Symbols or words is a preference with a visible consequence, so
+			// the list is rewritten the moment it is ticked rather than after
+			// a save nobody would connect to it.
+			$( '#dze-diag-signs' ).on( 'change', function () {
+				$( '.dze-diag-card' ).each( function () { retell( $( this ) ); } );
 			} );
 			$( '#dze-diag-add' ).on( 'click', function () {
 				add( null ).addClass( 'is-open' ).find( '.dze-prb-body' ).show().end()
@@ -1035,6 +1343,7 @@ final class DZE_Diagnostic {
 				$( '#dze-diag-lib .dze-prb' ).remove();
 				$.each( shipped, function ( n, r ) { add( r ); } );
 			} );
+			$( '.dze-diag-card' ).each( function () { retell( $( this ) ); } );
 		} );
 		</script>
 		<?php
