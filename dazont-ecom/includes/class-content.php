@@ -1994,6 +1994,9 @@ Answer with STRICT JSON and nothing else: "
 			$c = (float) $in['fal_image_cost'];
 			$out['fal_image_cost'] = $c > 0 ? round( $c, 4 ) : 0.0;
 		}
+		if ( array_key_exists( 'img_sources', $in ) ) {
+			$out['img_sources'] = max( 1, min( self::MAX_SOURCES, (int) $in['img_sources'] ) );
+		}
 		// The General-tab mini form (explicit marker) only carries key + price:
 		// don't touch the rest then. A key-count heuristic was used before and
 		// misfired on slim installs, silently discarding programmatic saves.
@@ -2207,6 +2210,16 @@ Answer with STRICT JSON and nothing else: "
 						<input type="password" id="dze-fal-key" class="regular-text" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_key]" value="" autocomplete="new-password" placeholder="<?php echo $has_fal ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : esc_attr__( 'Paste your fal.ai key', 'dazont-ecom' ); ?>" />
 						<p class="description"><?php esc_html_e( 'Used for image generation (fal.ai nano-banana-2/edit). For production, define DZE_FAL_API_KEY in wp-config.php.', 'dazont-ecom' ); ?></p>
 					<?php endif; ?>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label for="dze-img-sources"><?php esc_html_e( 'Photographs sent per image', 'dazont-ecom' ); ?></label></th>
+				<td>
+					<input type="number" id="dze-img-sources" step="1" min="1" max="<?php echo (int) self::MAX_SOURCES; ?>" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[img_sources]" value="<?php echo (int) self::source_cap(); ?>" style="width:80px;" />
+					<p class="description">
+						<?php esc_html_e( 'How many of the product\'s own photographs go with every image request, main image first. Two is the balance: the shot itself, and one more angle so a shape the first one hides is not invented.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'More is not better — an edit model handed six angles of one bag reads them as six things to reconcile and hands back a seventh, with the back view\'s mesh on the front and a buckle where no buckle is. Raise it only for a product whose shape one photograph really cannot tell.', 'dazont-ecom' ); ?>
+					</p>
 				</td>
 			</tr>
 			<tr>
@@ -5484,8 +5497,25 @@ Answer with STRICT JSON and nothing else: "
 		return $out;
 	}
 
+	/**
+	 * How many of a product's photographs go with an image request.
+	 *
+	 * Not a detail. An edit model handed six angles of one bag reads them as
+	 * six things to reconcile and hands back a seventh: the mesh panel of the
+	 * back view on the front, a buckle from the detail shot where no buckle
+	 * is, straps redrawn. Handed one clean photograph it keeps that
+	 * photograph. Two is the balance — the shot itself, and one more angle so
+	 * a shape the first hides is not invented — and it is the shop's to move,
+	 * because a flat-lay product and a garment on a model do not need the
+	 * same number.
+	 */
+	public static function source_cap(): int {
+		$n = (int) ( self::get_settings()['img_sources'] ?? 0 );
+		return $n > 0 ? max( 1, min( self::MAX_SOURCES, $n ) ) : 2;
+	}
+
 	public static function product_source_ids( int $pid ): array {
-		return array_slice( self::product_own_image_ids( $pid ), 0, self::MAX_SOURCES );
+		return array_slice( self::product_own_image_ids( $pid ), 0, self::source_cap() );
 	}
 
 	public function fal_source_data_uri( int $attachment_id, string $wanted = 'large' ): string {

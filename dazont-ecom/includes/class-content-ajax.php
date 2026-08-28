@@ -778,10 +778,11 @@ trait DZE_Content_Ajax {
 				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
 				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
 			} else {
-				// The product's own photographs, main first. Two are enough here:
-				// this lane is about speed, and the shape of a product is settled
-				// by the first shot plus one more angle.
-				foreach ( array_slice( self::product_source_ids( $pid ), 0, 2 ) as $i => $aid ) {
+				// The product's own photographs, main first — as many as the
+				// shop says under Settings → Product content, which is two
+				// unless it was moved: the shot itself, and one more angle so
+				// a shape the first one hides is not invented.
+				foreach ( self::product_source_ids( $pid ) as $i => $aid ) {
 					try {
 						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
 					} catch ( \Throwable $e ) {
@@ -970,8 +971,10 @@ trait DZE_Content_Ajax {
 			// product image, which is what the generic reader error would blame.
 			wp_send_json_error( [ 'message' => __( 'The scene image is missing from the media library — pick it again under Settings → Product content.', 'dazont-ecom' ) ] );
 		}
-		// Every photograph of the product goes out, not just the featured one:
-		// a single cropped shot is what makes the model invent the rest.
+		// The product's photographs, as many as the shop asks for. Not all of
+		// them: an edit model handed six angles of one bag reconciles them into
+		// a seventh bag. Not one either — a single cropped shot is what makes
+		// it invent the rest. The number is a setting, beside the fal.ai key.
 		$product_ids = self::product_source_ids( $pid );
 		// Working on one colour: the photograph that colour already has is the
 		// subject, and it goes first. When it has none — the case this whole
@@ -1153,11 +1156,15 @@ trait DZE_Content_Ajax {
 			// is one image per colour.
 			$avoid = 0;
 			if ( '' === $src && 'main' !== $target && '' === $v_value ) {
-				// Two, not four. These are images the model MADE, and each one
-				// is a chance for a detail it invented last time to come back
-				// as a reference this time. They are here to be different
-				// from, and two says "not like these" as well as four did.
-				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 2 ) as $ref ) {
+				// ONE, not two, and not four before that. These are images the
+				// model MADE: every one of them is a chance for a detail it
+				// invented last time to come back as a reference this time, and
+				// a product photographed six ways that then gets its own bad
+				// guesses handed back to it is how a run of images drifts
+				// further from the product with each attempt. One says "not
+				// like this" as clearly as two did, and contaminates half as
+				// much.
+				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 1 ) as $ref ) {
 					if ( is_int( $ref ) ) {
 						// One already on the product: read from disk, and only
 						// while the request body stays a sane size.
