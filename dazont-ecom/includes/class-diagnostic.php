@@ -121,15 +121,19 @@ final class DZE_Diagnostic {
 			'product.seo_title'         => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) ],
 			'product.seo_desc'          => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) ],
 			'product.sku'               => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SKU', 'dazont-ecom' ) ],
-			'product.meta'              => [ 'scope' => 'product',  'kind' => 'text',   'unit' => 'words',      'label' => __( 'custom field (text)', 'dazont-ecom' ), 'key' => true ],
+			// ONE custom field, whatever it holds. Splitting it into a text one
+			// and a number one was this plugin deciding what ACF is allowed to
+			// store: a shop has image fields, galleries, true/false, selects,
+			// repeaters, and none of them is "text" or "number". The key is
+			// typed, the value is read as it stands, and what the comparison
+			// means is written under the row.
+			'product.meta'              => [ 'scope' => 'product',  'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true ],
 			// --- Products, read as a number ---------------------------------
-			'product.meta_number'       => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'custom field (number)', 'dazont-ecom' ), 'key' => true ],
 			'product.main_image'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'main photograph', 'dazont-ecom' ) ],
 			'product.main_image_width'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, width', 'dazont-ecom' ) ],
 			'product.main_image_height' => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, height', 'dazont-ecom' ) ],
 			'product.main_image_side'   => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'px',         'label' => __( 'main photograph, smallest side', 'dazont-ecom' ) ],
 			'product.gallery'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'gallery photographs', 'dazont-ecom' ) ],
-			'product.image_meta'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'photographs','label' => __( 'photograph in a custom field', 'dazont-ecom' ), 'key' => true ],
 			'product.links'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'links',      'label' => __( 'links in the description', 'dazont-ecom' ) ],
 			'product.price'             => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'price', 'dazont-ecom' ) ],
 			'product.sale_price'        => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'sale price', 'dazont-ecom' ) ],
@@ -152,7 +156,7 @@ final class DZE_Diagnostic {
 			'post.excerpt'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'excerpt', 'dazont-ecom' ) ],
 			'post.seo_title'            => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO title', 'dazont-ecom' ) ],
 			'post.seo_desc'             => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'SEO description', 'dazont-ecom' ) ],
-			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true ],
+			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'meta',   'unit' => '',           'label' => __( 'custom field', 'dazont-ecom' ), 'key' => true ],
 			'post.updated'              => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'last updated', 'dazont-ecom' ) ],
 			'post.age'                  => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'published', 'dazont-ecom' ) ],
 			'post.main_image'           => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'photographs','label' => __( 'featured image', 'dazont-ecom' ) ],
@@ -178,16 +182,16 @@ final class DZE_Diagnostic {
 	 */
 	public static function operators(): array {
 		return [
-			'empty'        => [ 'word' => __( 'is empty', 'dazont-ecom' ),              'sign' => __( 'is empty', 'dazont-ecom' ),     'takes' => '',       'kinds' => [ 'text', 'number' ] ],
-			'filled'       => [ 'word' => __( 'is not empty', 'dazont-ecom' ),          'sign' => __( 'is not empty', 'dazont-ecom' ), 'takes' => '',       'kinds' => [ 'text', 'number' ] ],
-			'lt'           => [ 'word' => __( 'is less than', 'dazont-ecom' ),          'sign' => '<',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
-			'lte'          => [ 'word' => __( 'is at most', 'dazont-ecom' ),            'sign' => '≤',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
-			'gt'           => [ 'word' => __( 'is more than', 'dazont-ecom' ),          'sign' => '>',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
-			'gte'          => [ 'word' => __( 'is at least', 'dazont-ecom' ),           'sign' => '≥',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
-			'eq'           => [ 'word' => __( 'equals', 'dazont-ecom' ),                'sign' => '=',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
-			'neq'          => [ 'word' => __( 'does not equal', 'dazont-ecom' ),        'sign' => '≠',                                 'takes' => 'number', 'kinds' => [ 'text', 'number' ] ],
-			'contains'     => [ 'word' => __( 'contains', 'dazont-ecom' ),              'sign' => '⊃',                                 'takes' => 'text',   'kinds' => [ 'text' ] ],
-			'not_contains' => [ 'word' => __( 'does not contain', 'dazont-ecom' ),      'sign' => '⊅',                                 'takes' => 'text',   'kinds' => [ 'text' ] ],
+			'empty'        => [ 'word' => __( 'is empty', 'dazont-ecom' ),              'sign' => __( 'is empty', 'dazont-ecom' ),     'takes' => '',       'kinds' => [ 'text', 'number', 'meta' ] ],
+			'filled'       => [ 'word' => __( 'is not empty', 'dazont-ecom' ),          'sign' => __( 'is not empty', 'dazont-ecom' ), 'takes' => '',       'kinds' => [ 'text', 'number', 'meta' ] ],
+			'lt'           => [ 'word' => __( 'is less than', 'dazont-ecom' ),          'sign' => '<',                                 'takes' => 'number', 'kinds' => [ 'text', 'number', 'meta' ] ],
+			'lte'          => [ 'word' => __( 'is at most', 'dazont-ecom' ),            'sign' => '≤',                                 'takes' => 'number', 'kinds' => [ 'text', 'number', 'meta' ] ],
+			'gt'           => [ 'word' => __( 'is more than', 'dazont-ecom' ),          'sign' => '>',                                 'takes' => 'number', 'kinds' => [ 'text', 'number', 'meta' ] ],
+			'gte'          => [ 'word' => __( 'is at least', 'dazont-ecom' ),           'sign' => '≥',                                 'takes' => 'number', 'kinds' => [ 'text', 'number', 'meta' ] ],
+			'eq'           => [ 'word' => __( 'equals', 'dazont-ecom' ),                'sign' => '=',                                 'takes' => 'number', 'kinds' => [ 'text', 'number', 'meta' ] ],
+			'neq'          => [ 'word' => __( 'does not equal', 'dazont-ecom' ),        'sign' => '≠',                                 'takes' => 'number', 'kinds' => [ 'text', 'number', 'meta' ] ],
+			'contains'     => [ 'word' => __( 'contains', 'dazont-ecom' ),              'sign' => '⊃',                                 'takes' => 'text',   'kinds' => [ 'text', 'meta' ] ],
+			'not_contains' => [ 'word' => __( 'does not contain', 'dazont-ecom' ),      'sign' => '⊅',                                 'takes' => 'text',   'kinds' => [ 'text', 'meta' ] ],
 		];
 	}
 
@@ -269,6 +273,12 @@ final class DZE_Diagnostic {
 			// everything else that can be asked of a text.
 			$field = (string) ( $row['field'] ?? '' );
 			$field = ( 'post.words' === $field ) ? 'post.content' : $field;
+			// The custom field used to be three fields — a text one, a number
+			// one and one that only looked for a photograph — which was this
+			// plugin deciding what an ACF field is allowed to hold. One field
+			// now, read as it is stored; the rows written against the old
+			// three keep working and keep their key.
+			$field = in_array( $field, [ 'product.meta_number', 'product.image_meta' ], true ) ? 'product.meta' : $field;
 			// A criterion says which post type it is about. Written before
 			// that was asked, it is about the one its field belongs to — and
 			// an article criterion is about articles, which is what "post"
@@ -300,6 +310,7 @@ final class DZE_Diagnostic {
 					'test'  => $op,
 					'value' => (int) ( $row['value'] ?? 0 ),
 					'find'  => (string) ( $row['find'] ?? '' ),
+					'key'   => (string) ( $row['key'] ?? '' ),
 				], $fields[ $field ] );
 			}
 			$id = sanitize_key( (string) ( $row['id'] ?? '' ) );
@@ -413,8 +424,21 @@ final class DZE_Diagnostic {
 	/** One criterion said in words, for the screen. */
 	private static function rule_said( array $row, array $field ): string {
 		$scope = (string) ( $row['scope'] ?? '' );
-		$named = trim( (string) ( self::scopes()[ $scope ] ?? '' ) . ' · ' . (string) $field['label'], ' ·' );
+		$named = trim( (string) ( self::scopes()[ $scope ] ?? '' ) . ' · ' . self::field_named( $row, $field ), ' ·' );
 		return trim( $named . ' ' . self::rule_clause( $row ) ) . '.';
+	}
+
+	/**
+	 * What the field is CALLED on this row.
+	 *
+	 * A criterion on a custom field is named after the key it reads, never
+	 * after the words "custom field": two rules on two different keys read the
+	 * same otherwise, on the screen and in the name they are given — and the
+	 * one thing the owner needs to see on that line is WHICH field.
+	 */
+	private static function field_named( array $row, array $field ): string {
+		$key = trim( (string) ( $row['key'] ?? '' ) );
+		return ( ! empty( $field['key'] ) && '' !== $key ) ? $key : (string) ( $field['label'] ?? '' );
 	}
 
 	/**
@@ -456,7 +480,7 @@ final class DZE_Diagnostic {
 		// In words, never in symbols: a name is written once and stored, and
 		// "Price < 800 px" would read as somebody else's criterion the week
 		// the symbols setting is flipped back.
-		$said = trim( (string) $field['label'] . ' ' . self::rule_clause( $row, true ) );
+		$said = trim( self::field_named( $row, $field ) . ' ' . self::rule_clause( $row, true ) );
 		$said = mb_strtoupper( mb_substr( $said, 0, 1 ) ) . mb_substr( $said, 1 );
 		return mb_substr( $said, 0, 80 ) ?: __( 'Criterion', 'dazont-ecom' );
 	}
@@ -728,7 +752,7 @@ final class DZE_Diagnostic {
 				$seo  = (string) ( $keys[ 'post.seo_title' === $field ? 'title' : 'desc' ] ?? '' );
 				return '' !== $seo ? $meta( $seo ) : '';
 			case 'post.meta':
-				return '' !== $key ? $meta( $key ) : '';
+				return '' !== $key ? get_post_meta( $pid, $key, true ) : '';
 			case 'post.updated':
 				return $days( (string) $post->post_modified_gmt );
 			case 'post.age':
@@ -766,11 +790,10 @@ final class DZE_Diagnostic {
 			case 'product.sku':
 				return $meta( '_sku' );
 			case 'product.meta':
-				return '' !== $key ? $meta( $key ) : '';
-			case 'product.meta_number':
-				return '' !== $key ? (float) $meta( $key ) : 0.0;
-			case 'product.image_meta':
-				return ( '' !== $key && (int) $meta( $key ) > 0 ) ? 1.0 : 0.0;
+				// Raw, not cast: an image field holds an id, a gallery holds a
+				// list, a true/false holds "1". Casting it here would decide
+				// what the shop's fields are allowed to be.
+				return '' !== $key ? get_post_meta( $pid, $key, true ) : '';
 			case 'product.main_image':
 				return get_post_thumbnail_id( $pid ) ? 1.0 : 0.0;
 			case 'product.main_image_width':
@@ -887,6 +910,10 @@ final class DZE_Diagnostic {
 		$want  = (float) ( $row['value'] ?? 0 );
 		$m     = self::measure( $field, $scope, $object, (string) ( $row['key'] ?? '' ) );
 
+		if ( 'meta' === self::kind_of( $field ) ) {
+			return self::fails_meta( $op, $m, $want, trim( (string) ( $row['find'] ?? '' ) ) );
+		}
+
 		if ( 'text' === self::kind_of( $field ) ) {
 			$text = trim( wp_strip_all_tags( is_string( $m ) ? $m : '' ) );
 			if ( 'empty' === $op ) {
@@ -920,6 +947,51 @@ final class DZE_Diagnostic {
 		if ( 'post.links' === $field && 'lt' === $op && $want <= 0 && $object instanceof WP_Post ) {
 			$target = (float) self::link_target( $object, self::words( (string) $object->post_content ) );
 			return $target > 0 && $have < $target;
+		}
+		return self::compare( $op, $have, $want );
+	}
+
+	/**
+	 * A custom field, judged on what it actually holds.
+	 *
+	 * There is no telling in advance: the same shop keeps text in one ACF
+	 * field, an attachment id in the next, a list of them in the one after,
+	 * and "1" in a true/false. So the value decides how it is read, by one
+	 * rule written under the row and nowhere else:
+	 *
+	 * - empty / not empty — nothing stored, an empty string, or an empty list.
+	 *   A stored "0" is an ANSWER, not an absence: an unticked box was filled
+	 *   in, and a field nobody ever touched was not.
+	 * - contains — looked for in the text, a list read as its own values.
+	 * - a number — the value if it IS a number (a price, an id, a repeater's
+	 *   count), the length of the list if it is a list, and the number of
+	 *   characters otherwise.
+	 *
+	 * @param mixed $raw What get_post_meta gave back, uncast.
+	 */
+	private static function fails_meta( string $op, $raw, float $want, string $find ): bool {
+		$list = is_array( $raw ) ? array_filter( $raw, 'is_scalar' ) : null;
+		$text = null === $list
+			? ( is_scalar( $raw ) ? trim( wp_strip_all_tags( (string) $raw ) ) : '' )
+			: trim( implode( ' ', array_map( 'strval', $list ) ) );
+		$has  = null === $list ? '' !== $text : (bool) $list;
+
+		if ( 'empty' === $op ) {
+			return ! $has;
+		}
+		if ( 'filled' === $op ) {
+			return $has;
+		}
+		if ( 'contains' === $op ) {
+			return '' !== $find && false !== mb_stripos( $text, $find );
+		}
+		if ( 'not_contains' === $op ) {
+			return '' !== $find && false === mb_stripos( $text, $find );
+		}
+		if ( null !== $list ) {
+			$have = (float) count( $list );
+		} else {
+			$have = is_numeric( $text ) ? (float) $text : (float) mb_strlen( $text );
 		}
 		return self::compare( $op, $have, $want );
 	}
@@ -1616,10 +1688,13 @@ final class DZE_Diagnostic {
 		// writes. Nothing is lost for want of a name, and nothing comes back
 		// called something the screen never showed.
 		$out .= '<input type="text" class="dze-prb-name" name="' . $name( 'label' ) . '" value="' . esc_attr( (string) ( $row['label'] ?? '' ) ) . '"'
-			. ' placeholder="' . esc_attr( self::rule_named( [ 'field' => $field, 'test' => $op, 'value' => (int) ( $row['value'] ?? 0 ), 'find' => (string) ( $row['find'] ?? '' ) ], $fields[ $field ] ?? [ 'label' => '' ] ) ) . '" />';
+			. ' placeholder="' . esc_attr( self::rule_named(
+				[ 'field' => $field, 'test' => $op, 'value' => (int) ( $row['value'] ?? 0 ), 'find' => (string) ( $row['find'] ?? '' ), 'key' => (string) ( $row['key'] ?? '' ) ],
+				$fields[ $field ] ?? [ 'label' => '' ]
+			) ) . '" />';
 		$out .= '<span class="dze-prb-dest dze-diag-said">'
 			. esc_html( trim( (string) ( self::scopes()[ $scope ] ?? $scope ) . ' · '
-				. (string) ( $fields[ $field ]['label'] ?? '' ) . ' — ' . self::rule_clause( $row ) ) )
+				. self::field_named( $row, $fields[ $field ] ?? [] ) . ' — ' . self::rule_clause( $row ) ) )
 			. '</span>';
 		$out .= '<button type="button" class="dze-prb-toggle dze-diag-toggle" aria-expanded="false">' . esc_html__( 'Edit', 'dazont-ecom' ) . ' <span class="dze-prb-caret">&#9656;</span></button>';
 		$out .= '<button type="button" class="dze-pr-del dze-diag-drop" title="' . esc_attr__( 'Remove this criterion', 'dazont-ecom' ) . '">&#10005;</button>';
@@ -1659,7 +1734,7 @@ final class DZE_Diagnostic {
 			. ' placeholder="' . esc_attr__( 'text to look for', 'dazont-ecom' ) . '" />';
 		$out .= '<span class="dze-diag-unit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
 		$out .= '</p>';
-		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. A custom field is named by its key, and the box offers the ones this shop writes into. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
+		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'A text is compared by its length — words for a description, characters for a title. A custom field is read as it is stored: a number when it holds one, how many entries when it holds a list, how many characters otherwise; "is empty" means nothing was ever put in it, so a stored 0 counts as an answer. An article held to "links is less than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
 		$out .= '</div></div>';
 		return $out;
 	}
@@ -1901,7 +1976,11 @@ final class DZE_Diagnostic {
 			function retell( $card ) {
 				fitFields( $card );
 				var f = $card.find( '.dze-diag-field' ).val(),
-					meta = fields[ f ] || { label: '', key: false, kind: 'text', unit: '' };
+					meta = fields[ f ] || { label: '', key: false, kind: 'text', unit: '' },
+					// A criterion on a custom field is called by its key, on
+					// the shut line and in the name it is given — the same
+					// rule the server writes it under.
+					named = ( meta.key && $.trim( $card.find( '.dze-diag-key' ).val() || '' ) ) || meta.label;
 				fitOps( $card, meta.kind );
 				var op = $card.find( '.dze-diag-test' ).val(),
 					takes = ( ops[ op ] || {} ).takes || '',
@@ -1913,13 +1992,13 @@ final class DZE_Diagnostic {
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
 				$card.find( '.dze-diag-said' ).text(
 					( ( scopes[ $card.find( '.dze-diag-scope' ).val() ] || {} ).label || '' )
-					+ ' · ' + meta.label + ' — ' + clause( f, op, takes, v, find, meta, false )
+					+ ' · ' + named + ' — ' + clause( f, op, takes, v, find, meta, false )
 				);
 				// The name box shows the name the criterion will be given if it
 				// is left empty — the same one the shop writes on save, so a
 				// rule nobody named is still a rule, and it is never a surprise
 				// what it came back called.
-				var auto = ( meta.label + ' ' + clause( f, op, takes, v, find, meta, true ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
+				var auto = ( named + ' ' + clause( f, op, takes, v, find, meta, true ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
 				$card.find( '.dze-prb-name' ).attr( 'placeholder', auto ? auto.charAt( 0 ).toUpperCase() + auto.slice( 1 ) : name0 );
 			}
 
@@ -1958,7 +2037,7 @@ final class DZE_Diagnostic {
 					$c.find( '.dze-diag-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
 				}
 			} );
-			$( document ).on( 'change keyup', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find', function () {
+			$( document ).on( 'change keyup', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );
 			} );
 			$( document ).on( 'click', '.dze-diag-drop', function () {
