@@ -2509,11 +2509,14 @@ final class DZE_Klaviyo {
 	 */
 	private static function put_template( string $name, array $definition, string $id = '' ): string {
 		$attrs = [
-			'name'        => mb_substr( $name, 0, 120 ),
-			'editor_type' => 'SYSTEM_DRAGGABLE',
-			'definition'  => $definition,
+			'name'       => mb_substr( $name, 0, 120 ),
+			'definition' => $definition,
 		];
 		if ( '' !== $id ) {
+			// No editor_type here. It is what a template IS, not something an
+			// update may set: sent on a PATCH, Klaviyo answers "an invalid
+			// field type was passed in" and the correction the owner asked for
+			// silently became a second template beside the first.
 			$saved = self::request( 'PATCH', 'templates/' . rawurlencode( $id ) . '/', [
 				'data' => [ 'type' => 'template', 'id' => $id, 'attributes' => $attrs ],
 			], 40 );
@@ -2522,7 +2525,7 @@ final class DZE_Klaviyo {
 			}
 		}
 		$made = self::request( 'POST', 'templates/', [
-			'data' => [ 'type' => 'template', 'attributes' => $attrs ],
+			'data' => [ 'type' => 'template', 'attributes' => [ 'editor_type' => 'SYSTEM_DRAGGABLE' ] + $attrs ],
 		], 40 );
 		if ( is_wp_error( $made ) ) {
 			throw new RuntimeException( $made->get_error_message() );

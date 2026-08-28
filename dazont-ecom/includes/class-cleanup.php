@@ -89,6 +89,10 @@ final class DZE_Cleanup {
 				'user_meta'  => [ 'dze_cc_sitemap_notice_off' ],
 				'transients' => [ 'dze_cc_pages', 'dze_cc_cats', 'dze_cc_pcount_', 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock' ],
 			],
+			'diagnostic' => [
+				'options'    => [ 'dze_diagnostic', 'dze_diagnostic_census' ],
+				'transients' => [ 'dze_diag_lock' ],
+			],
 			'automation' => [
 				'options'    => [ 'dze_auto_settings', 'dze_auto_state' ],
 				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],

@@ -674,6 +674,9 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'klaviyo' ) ) {
 			$tabs['email'] = __( 'Email campaigns', 'dazont-ecom' );
 		}
+		if ( $mod_on( 'diagnostic' ) ) {
+			$tabs['diagnostic'] = __( 'Diagnostic', 'dazont-ecom' );
+		}
 		if ( $mod_on( 'automation' ) ) {
 			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );
 		}
@@ -906,6 +909,10 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'email' === $tab ) {
 			if ( class_exists( 'DZE_Klaviyo' ) && $mod_on( 'klaviyo' ) ) {
 				DZE_Klaviyo::render_settings();
+			}
+		} elseif ( 'diagnostic' === $tab ) {
+			if ( class_exists( 'DZE_Diagnostic' ) && $mod_on( 'diagnostic' ) ) {
+				DZE_Diagnostic::render_settings();
 			}
 		} elseif ( 'automation' === $tab ) {
 			if ( class_exists( 'DZE_Automation' ) && $mod_on( 'automation' ) ) {

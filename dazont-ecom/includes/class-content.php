@@ -1947,7 +1947,7 @@ Answer with STRICT JSON and nothing else: "
 	 * Where a field's output goes: the mapped destination if set, else the
 	 * field's default. @return array{type:string,key?:string}
 	 */
-	private static function dest_for( string $field ): array {
+	public static function dest_for( string $field ): array {
 		$r = self::registry_row( $field );
 		$sel = $r ? (string) ( $r['output'] ?? 'meta' ) : 'meta';
 		if ( 'meta' === $sel ) {
