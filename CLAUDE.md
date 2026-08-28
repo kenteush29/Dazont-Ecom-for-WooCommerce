@@ -201,6 +201,25 @@ owner communicates in French.
 - Every fal/Anthropic call records usage in `DZE_Ai_Usage` and respects the
   monthly budget guard.
 
+- **A new function is TESTED before it goes online, not after.** The owner is
+  not the test bench. Every new function, and every function whose behaviour
+  changes, is EXERCISED before the release — with real values, through the
+  real code path, asserting the real answer — and the release only happens if
+  that passes. Not "the file parses", not "the class loads", not "the method
+  exists": those three all passed on the day the Translate button had no
+  endpoint behind it, on the day a criterion was thrown away for having no
+  name, and on the day a settings tab was a white page for six versions.
+  - The test lives in `tools/` and is RUN AGAIN at every release, beside
+    `check-methods.php` and `check-prompts.php` — a check that ran once is a
+    check that will not catch the regression.
+  - It must be shown to FAIL on the bug it is about: break the fix, watch the
+    test go red, put it back. A test that passes on broken code is worse than
+    none, because it is believed.
+  - Where a real run is genuinely impossible (a paid model call, a live
+    provider write), test everything up to that line — what is built, what is
+    sent, what is stored, what the screen says — and say plainly, in the
+    release note, which single step was not run.
+
 ## Release pipeline
 
 - **`php tools/check-methods.php dazont-ecom` must pass before every release.**
@@ -210,6 +229,13 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
+- **`php tools/test-diagnostic.php dazont-ecom` must pass**, and every other
+  `tools/test-*.php` beside it. They run the code against a fake shop and
+  check the ANSWERS — that a criterion on `_block_image_1` fires on a product
+  where that field is empty, that a gallery is counted rather than read as
+  text, that a row written against a field id we have since dropped still
+  works. Add one for every new function; never delete one to make a release
+  pass.
 - **`php tools/check-prompts.php dazont-ecom` must pass too.** Every prompt
   offered a "Make this the default" control has to be answerable by the
   prompt registry: `DZE_Prompt_Defaults::control()` draws NOTHING for an id
