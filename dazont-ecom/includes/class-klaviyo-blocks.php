@@ -192,6 +192,36 @@ final class DZE_Klaviyo_Blocks {
 	}
 
 	/**
+	 * The drop shadows, left for Klaviyo to colour.
+	 *
+	 * A shadow block carries `shadow_color`, and the API takes three words for
+	 * it — light, medium, dark. Klaviyo's RENDERER turns each of those into a
+	 * file name that does not exist: "light" comes out as
+	 * bottom_shadow_light.png, which is a broken image under the header of
+	 * every email. The files it actually serves are named after a colour —
+	 * bottom_shadow_444.png, bottom_shadow_666.png — and the owner's own
+	 * template renders one of those, because a SAVED section is drawn from
+	 * what Klaviyo stores rather than from the copy in the definition. Ours is
+	 * a plain section, so the word reaches the renderer and the image breaks.
+	 *
+	 * Sending nothing is what mends it: the renderer then uses its own
+	 * default, which is a real file. Verified by rendering all four cases in
+	 * the account itself. The shadow may be a shade off the owner's; a shadow
+	 * a shade off is not a broken image.
+	 */
+	public static function sane_shadows( array $node ): array {
+		if ( 'drop_shadow' === ( $node['type'] ?? '' ) ) {
+			unset( $node['data']['styles']['shadow_color'] );
+		}
+		foreach ( $node as $key => $value ) {
+			if ( is_array( $value ) ) {
+				$node[ $key ] = self::sane_shadows( $value );
+			}
+		}
+		return $node;
+	}
+
+	/**
 	 * Whether a section is the one the email goes into.
 	 *
 	 * Empty means empty: no block anywhere in it. A SAVED section is never

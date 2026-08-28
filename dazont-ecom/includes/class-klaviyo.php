@@ -2621,6 +2621,10 @@ final class DZE_Klaviyo {
 		// share an identity, and Klaviyo refuses universal_id outright.
 		$definition = DZE_Klaviyo_Blocks::strip_ids( $definition );
 		unset( $definition['template_id'] );
+		// And the one value his template gets away with and a copy of it does
+		// not: the shadow's colour, which the renderer turns into a file that
+		// is not there.
+		$definition = DZE_Klaviyo_Blocks::sane_shadows( $definition );
 		// And last, the one PHP cannot express: {} and [] are the same array
 		// here and two different things there.
 		return (array) DZE_Klaviyo_Blocks::objects( $definition );
