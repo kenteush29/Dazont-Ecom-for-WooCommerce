@@ -551,6 +551,7 @@ final class DZE_Diagnostic {
 		}
 		$checks = self::checks();
 		$hits   = [];
+		$unread = [];
 		$seen   = array_fill_keys( array_keys( self::scopes() ), 0 );
 		// The shop is read in its MAIN language and nowhere else. A translation
 		// is not a product waiting to be written: it is WPML's copy of one, and
@@ -570,12 +571,20 @@ final class DZE_Diagnostic {
 				if ( ! $wanted ) {
 					continue; // a post type no criterion asks about is a post type nobody reads.
 				}
+				// Which of this type's things are IN the main language. Asked
+				// once per post type, and never trusted to WPML's query
+				// filters: they are not in place in cron or in admin-ajax,
+				// which is exactly where this pass runs.
+				$mine = '' === $lang ? null : DZE_Wpml::ids_in_language( self::element_type( $scope ), $lang );
+				if ( '' !== $lang && null === $mine ) {
+					$unread[] = $scope;
+				}
 				if ( 'product' === $scope ) {
-					self::scan_products( $wanted, $scope, $hits, $seen );
+					self::scan_products( $wanted, $scope, $hits, $seen, $mine );
 				} elseif ( 'category' === $scope ) {
-					self::scan_categories( $wanted, $scope, $hits, $seen );
+					self::scan_categories( $wanted, $scope, $hits, $seen, $mine );
 				} else {
-					self::scan_posts( $wanted, $scope, $hits, $seen );
+					self::scan_posts( $wanted, $scope, $hits, $seen, $mine );
 				}
 			}
 		} finally {
@@ -584,7 +593,10 @@ final class DZE_Diagnostic {
 			}
 			delete_transient( self::LOCK );
 		}
-		$out   = [ 'at' => time(), 'lang' => $lang, 'seen' => $seen, 'short' => array_fill_keys( array_keys( self::scopes() ), 0 ), 'checks' => [] ];
+		// Whether the count really is the main language's. A number nobody can
+		// account for is a number nobody believes, and this is the one thing
+		// that decides it.
+		$out   = [ 'at' => time(), 'lang' => $lang, 'every' => $unread, 'seen' => $seen, 'short' => array_fill_keys( array_keys( self::scopes() ), 0 ), 'checks' => [] ];
 		$lists = [];
 		// How many THINGS need work, not how many criteria fired: a product
 		// short of four things is one product to open, and the sum of the
@@ -609,7 +621,7 @@ final class DZE_Diagnostic {
 	}
 
 	/** @param array<string,int[]> $hits */
-	private static function scan_products( array $wanted, string $scope, array &$hits, array &$seen ): void {
+	private static function scan_products( array $wanted, string $scope, array &$hits, array &$seen, ?array $mine = null ): void {
 		if ( ! post_type_exists( 'product' ) ) {
 			return;
 		}
@@ -648,6 +660,13 @@ final class DZE_Diagnostic {
 				self::prime_thumbs( $q->posts );
 			}
 			foreach ( $q->posts as $post ) {
+				// A translation is not a product waiting to be written. It is
+				// skipped before it is counted, or the shop is told it has
+				// nine thousand products and every figure on the screen is
+				// out by the number of languages it sells in.
+				if ( null !== $mine && ! isset( $mine[ (int) $post->ID ] ) ) {
+					continue;
+				}
 				$seen[ $scope ]++;
 				foreach ( $wanted as $id => $check ) {
 					if ( self::fails( (array) $check['row'], 'product', $post ) ) {
@@ -1015,12 +1034,18 @@ final class DZE_Diagnostic {
 		return false;
 	}
 
-	private static function scan_categories( array $wanted, string $scope, array &$hits, array &$seen ): void {
+	private static function scan_categories( array $wanted, string $scope, array &$hits, array &$seen, ?array $mine = null ): void {
 		$terms = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false ] );
 		if ( is_wp_error( $terms ) ) {
 			return;
 		}
 		foreach ( $terms as $term ) {
+			// WPML files a taxonomy under its TERM TAXONOMY id, not its term
+			// id. Comparing the wrong one of the two would drop every
+			// category on some shops and none on others.
+			if ( null !== $mine && ! isset( $mine[ (int) ( $term->term_taxonomy_id ?? 0 ) ] ) ) {
+				continue;
+			}
 			$seen[ $scope ]++;
 			foreach ( $wanted as $id => $check ) {
 				if ( self::fails( (array) $check['row'], 'category', $term ) ) {
@@ -1051,7 +1076,7 @@ final class DZE_Diagnostic {
 	 * the target is worked out by its own public function rather than by a
 	 * second formula living here.
 	 */
-	private static function scan_posts( array $wanted, string $scope, array &$hits, array &$seen ): void {
+	private static function scan_posts( array $wanted, string $scope, array &$hits, array &$seen, ?array $mine = null ): void {
 		if ( ! post_type_exists( $scope ) ) {
 			return;
 		}
@@ -1071,6 +1096,9 @@ final class DZE_Diagnostic {
 				'suppress_filters'       => '' === self::main_language(),
 			] );
 			foreach ( $q->posts as $post ) {
+				if ( null !== $mine && ! isset( $mine[ (int) $post->ID ] ) ) {
+					continue; // WPML's copy of an article, not another article.
+				}
 				$seen[ $scope ]++;
 				foreach ( $wanted as $id => $check ) {
 					if ( self::fails( (array) $check['row'], 'post', $post ) ) {
@@ -1264,8 +1292,9 @@ final class DZE_Diagnostic {
 		// A shop in five languages has to be told which one it is looking at,
 		// or a thousand products against WooCommerce's five thousand reads as
 		// a broken screen rather than a deliberate one.
-		$lang = (string) ( $census['lang'] ?? self::main_language() );
-		if ( '' !== $lang ) {
+		$lang  = (string) ( $census['lang'] ?? self::main_language() );
+		$every = (array) ( $census['every'] ?? [] );
+		if ( '' !== $lang && ! $every ) {
 			echo '<p class="description" style="max-width:760px;margin-top:-6px;">';
 			printf(
 				/* translators: %s: the shop's main language, e.g. English */
@@ -1273,6 +1302,22 @@ final class DZE_Diagnostic {
 				'<strong>' . esc_html( self::language_name( $lang ) ) . '</strong>'
 			);
 			echo '</p>';
+		} elseif ( '' !== $lang ) {
+			// The one thing that makes these numbers wrong, said where the
+			// numbers are. A count that silently includes every translation
+			// is a count the shop cannot act on, and cannot tell apart from a
+			// count that does not.
+			echo '<div class="notice notice-warning inline" style="max-width:1100px;margin:12px 0;"><p>';
+			printf(
+				/* translators: 1: the shop's main language, 2: the post types affected */
+				esc_html__( 'These numbers count EVERY language, not %1$s alone: WPML could not be asked which %2$s are translations, so each one is counted once per language it exists in. The figures are too high by that much.', 'dazont-ecom' ),
+				'<strong>' . esc_html( self::language_name( $lang ) ) . '</strong>',
+				'<strong>' . esc_html( implode( ', ', array_map(
+					static fn( string $one ): string => (string) ( self::scopes()[ $one ] ?? $one ),
+					$every
+				) ) ) . '</strong>'
+			);
+			echo '</p></div>';
 		}
 
 		// What is to be DONE, worst first, kept apart from what is already
@@ -1586,6 +1631,17 @@ final class DZE_Diagnostic {
 		}
 		$done = $out;
 		return $out;
+	}
+
+	/**
+	 * What WPML calls this scope in its own table.
+	 *
+	 * One place, because getting it wrong is silent: 'tax_product_cat' asked
+	 * as 'post_product_cat' answers nothing, and a scope narrowed to nothing
+	 * reads on the screen as a shop with no categories at all.
+	 */
+	private static function element_type( string $scope ): string {
+		return 'category' === $scope ? 'tax_product_cat' : 'post_' . $scope;
 	}
 
 	/** Which set of fields a scope is asked with. */
