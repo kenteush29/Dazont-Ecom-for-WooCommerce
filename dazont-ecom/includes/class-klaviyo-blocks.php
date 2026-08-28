@@ -104,6 +104,53 @@ final class DZE_Klaviyo_Blocks {
 	}
 
 	/**
+	 * The keys whose value is a LIST. Everything else that is empty is a map.
+	 *
+	 * PHP has one array and JSON has two, and json_decode() into an
+	 * associative array throws the difference away: {} and [] both come back
+	 * as [], and both go back out as []. Klaviyo answers that with "an invalid
+	 * field type was passed in" — a message that names no field and points at
+	 * nothing, for a template that was read from Klaviyo itself moments
+	 * earlier and handed straight back.
+	 */
+	private const LISTS = [
+		'sections', 'rows', 'columns', 'blocks', 'subblocks',
+		'condition_groups', 'conditions', 'variations',
+		'custom_tracking_params', 'message_hierarchy', 'action_buttons',
+		'cards', 'suggestions',
+	];
+
+	/**
+	 * The definition with its empty maps travelling as maps.
+	 *
+	 * A section's properties, a block's display options, a column's data: all
+	 * of them are {} in the template Klaviyo sent, all of them are [] once PHP
+	 * has read it, and every one of them is refused on the way back. An empty
+	 * LIST is a different thing — it says nothing, so it is left out entirely
+	 * rather than turned into an object that would say something wrong.
+	 *
+	 * @param mixed $value
+	 * @return mixed
+	 */
+	public static function objects( $value, string $key = '' ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+		if ( ! $value ) {
+			return in_array( $key, self::LISTS, true ) ? null : new stdClass();
+		}
+		$out = [];
+		foreach ( $value as $k => $v ) {
+			$one = self::objects( $v, (string) $k );
+			if ( null === $one && in_array( (string) $k, self::LISTS, true ) ) {
+				continue;
+			}
+			$out[ $k ] = $one;
+		}
+		return $out;
+	}
+
+	/**
 	 * The frame's own ids, dropped.
 	 *
 	 * Every section, row, column and block of the template carries an id
