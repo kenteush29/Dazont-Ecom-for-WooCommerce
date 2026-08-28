@@ -795,6 +795,97 @@ final class DZE_Diagnostic {
 		<?php
 	}
 
+	/** The three scopes, in the order the shop thinks about them. */
+	private static function scopes(): array {
+		return [
+			'product'  => __( 'Products', 'dazont-ecom' ),
+			'category' => __( 'Product categories', 'dazont-ecom' ),
+			'post'     => __( 'Articles and pages', 'dazont-ecom' ),
+		];
+	}
+
+	/**
+	 * The rule, as a sentence, with its figure in it.
+	 *
+	 * The dropdown says "holds fewer than N words" because a dropdown cannot
+	 * know the figure yet; a shut card can, and "holds fewer than 120 words" is
+	 * the whole criterion read at a glance, which is the point of shutting it.
+	 */
+	private static function test_said( string $test, int $value, string $field = '' ): string {
+		if ( 'post.links' === $field && 'min_count' === $test && 0 === $value ) {
+			return __( 'holds fewer links than its own length calls for', 'dazont-ecom' );
+		}
+		switch ( $test ) {
+			case 'min_words':
+				/* translators: %d: a number of words */
+				return sprintf( __( 'holds fewer than %d words', 'dazont-ecom' ), $value );
+			case 'min_count':
+				/* translators: %d: how many there have to be */
+				return sprintf( __( 'there are fewer than %d', 'dazont-ecom' ), $value );
+			default:
+				return __( 'is empty', 'dazont-ecom' );
+		}
+	}
+
+	/**
+	 * One criterion, as the card the prompts are edited in.
+	 *
+	 * The same card as the prompt library, on purpose: shut, it is a name and
+	 * the rule in words; open, it is the two dropdowns that make it. A table of
+	 * seven rows of dropdowns was three screens tall, and the button that adds
+	 * one was below all of it.
+	 *
+	 * @param array  $row   The criterion.
+	 * @param string $index What the field names are numbered with — an integer
+	 *                      for a saved row, __I__ for the blank one JavaScript
+	 *                      clones, so the markup has one source and not two.
+	 */
+	private static function card( array $row, string $index ): string {
+		$opt    = self::OPT;
+		$fields = self::fields();
+		$field  = (string) ( $row['field'] ?? '' );
+		$test   = (string) ( $row['test'] ?? 'empty' );
+		$value  = (int) ( $row['value'] ?? 0 );
+		$name   = static fn( string $key ): string => esc_attr( $opt . '[rows][' . $index . '][' . $key . ']' );
+
+		$out  = '<div class="dze-prb dze-diag-card">';
+		$out .= '<div class="dze-prb-head">';
+		$out .= '<label class="dze-switch dze-prb-on" title="' . esc_attr__( 'Count this criterion', 'dazont-ecom' ) . '">'
+			. '<input type="checkbox" name="' . $name( 'on' ) . '" value="1"' . checked( 1, (int) ( $row['on'] ?? 1 ), false ) . ' />'
+			. '<span class="dze-switch-slider"></span></label>';
+		$out .= '<input type="hidden" name="' . $name( 'id' ) . '" value="' . esc_attr( (string) ( $row['id'] ?? '' ) ) . '" />';
+		$out .= '<input type="text" class="dze-prb-name" name="' . $name( 'label' ) . '" value="' . esc_attr( (string) ( $row['label'] ?? '' ) ) . '" placeholder="' . esc_attr__( 'Name this criterion', 'dazont-ecom' ) . '" />';
+		$out .= '<span class="dze-prb-dest dze-diag-said">'
+			. esc_html( (string) ( $fields[ $field ]['label'] ?? '' ) ) . ' &mdash; ' . esc_html( self::test_said( $test, $value, $field ) )
+			. '</span>';
+		$out .= '<button type="button" class="dze-prb-toggle dze-diag-toggle" aria-expanded="false">' . esc_html__( 'Edit', 'dazont-ecom' ) . ' <span class="dze-prb-caret">&#9656;</span></button>';
+		$out .= '<button type="button" class="dze-pr-del dze-diag-drop" title="' . esc_attr__( 'Remove this criterion', 'dazont-ecom' ) . '">&#10005;</button>';
+		$out .= '</div>';
+
+		$out .= '<div class="dze-prb-body" style="display:none;"><p class="dze-prb-line">';
+		$out .= '<label><span>' . esc_html__( 'Looks at', 'dazont-ecom' ) . '</span>'
+			. '<select class="dze-diag-field" name="' . $name( 'field' ) . '">';
+		foreach ( $fields as $fid => $meta ) {
+			$out .= '<option value="' . esc_attr( $fid ) . '"' . selected( $fid, $field, false ) . '>' . esc_html( (string) $meta['label'] ) . '</option>';
+		}
+		$out .= '</select></label>';
+		$out .= '<input type="text" class="dze-diag-key" name="' . $name( 'key' ) . '" value="' . esc_attr( (string) ( $row['key'] ?? '' ) ) . '"'
+			. ' placeholder="' . esc_attr__( 'meta key', 'dazont-ecom' ) . '" style="width:170px;'
+			. ( empty( $fields[ $field ]['key'] ) ? 'display:none;' : '' ) . '" />';
+		$out .= '<label><span>' . esc_html__( 'Falls short when', 'dazont-ecom' ) . '</span>'
+			. '<select class="dze-diag-test" name="' . $name( 'test' ) . '">';
+		foreach ( self::tests() as $tid => $label ) {
+			$out .= '<option value="' . esc_attr( $tid ) . '"' . selected( $tid, $test, false ) . '>' . esc_html( $label ) . '</option>';
+		}
+		$out .= '</select></label>';
+		$out .= '<input type="number" class="dze-diag-value" min="0" step="1" style="width:90px;' . ( 'empty' === $test ? 'display:none;' : '' ) . '"'
+			. ' name="' . $name( 'value' ) . '" value="' . esc_attr( (string) $value ) . '" />';
+		$out .= '</p>';
+		$out .= '<p class="description dze-diag-hint">' . esc_html__( 'An article held to "there are fewer than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</p>';
+		$out .= '</div></div>';
+		return $out;
+	}
+
 	// =========================================================================
 	// Settings
 	// =========================================================================
@@ -803,9 +894,15 @@ final class DZE_Diagnostic {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		// The card styling belongs to the prompt library's stylesheet, and this
+		// screen is the same list in the same clothes.
+		if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
+			wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		}
 		$opt    = self::OPT;
 		$fields = self::fields();
-		$tests  = self::tests();
+		$rows   = self::rows();
+
 		echo '<form method="post" action="options.php">';
 		settings_fields( 'dze_diagnostic_options' );
 		echo '<h2 class="title">' . esc_html__( 'Criteria', 'dazont-ecom' ) . '</h2>';
@@ -816,145 +913,129 @@ final class DZE_Diagnostic {
 			. esc_html__( 'Your PROMPTS answer for themselves and are not in this list: each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it.', 'dazont-ecom' )
 			. '</p>';
 
-		echo '<table class="widefat striped" style="max-width:1000px;"><thead><tr>'
-			. '<th style="width:26%;">' . esc_html__( 'Name', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:30%;">' . esc_html__( 'What is looked at', 'dazont-ecom' ) . '</th>'
-			. '<th>' . esc_html__( 'It falls short when', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:60px;">' . esc_html__( 'On', 'dazont-ecom' ) . '</th>'
-			. '<th style="width:40px;"></th>'
-			. '</tr></thead><tbody id="dze-diag-rows">';
-		$i = 0;
-		foreach ( self::rows() as $row ) {
-			$needs_key = ! empty( $fields[ $row['field'] ]['key'] );
-			echo '<tr class="dze-diag-row"><td>';
-			printf(
-				'<input type="hidden" name="%1$s[rows][%2$d][id]" value="%3$s" />'
-				. '<input type="text" class="large-text" name="%1$s[rows][%2$d][label]" value="%4$s" />',
-				esc_attr( $opt ),
-				(int) $i,
-				esc_attr( (string) $row['id'] ),
-				esc_attr( (string) $row['label'] )
-			);
-			echo '</td><td>';
-			printf( '<select name="%1$s[rows][%2$d][field]" class="dze-diag-field">', esc_attr( $opt ), (int) $i );
-			foreach ( $fields as $fid => $meta ) {
-				printf(
-					'<option value="%s"%s>%s</option>',
-					esc_attr( $fid ),
-					selected( $fid, (string) $row['field'], false ),
-					esc_html( (string) $meta['label'] )
-				);
-			}
-			echo '</select> ';
-			printf(
-				'<input type="text" class="dze-diag-key" placeholder="%1$s" name="%2$s[rows][%3$d][key]" value="%4$s" style="width:150px;%5$s" />',
-				esc_attr__( 'meta key', 'dazont-ecom' ),
-				esc_attr( $opt ),
-				(int) $i,
-				esc_attr( (string) $row['key'] ),
-				$needs_key ? '' : 'display:none;'
-			);
-			echo '</td><td>';
-			printf( '<select name="%1$s[rows][%2$d][test]">', esc_attr( $opt ), (int) $i );
-			foreach ( $tests as $tid => $label ) {
-				printf(
-					'<option value="%s"%s>%s</option>',
-					esc_attr( $tid ),
-					selected( $tid, (string) $row['test'], false ),
-					esc_html( $label )
-				);
-			}
-			echo '</select> ';
-			printf(
-				'<input type="number" min="0" step="1" style="width:80px;" name="%1$s[rows][%2$d][value]" value="%3$d" />',
-				esc_attr( $opt ),
-				(int) $i,
-				(int) $row['value']
-			);
-			echo '</td><td>';
-			printf(
-				'<input type="checkbox" name="%1$s[rows][%2$d][on]" value="1"%3$s />',
-				esc_attr( $opt ),
-				(int) $i,
-				checked( 1, (int) $row['on'], false )
-			);
-			echo '</td><td><button type="button" class="button-link dze-diag-drop" title="' . esc_attr__( 'Remove this criterion', 'dazont-ecom' ) . '">&times;</button></td></tr>';
-			$i++;
-		}
-		echo '</tbody></table>';
-		echo '<input type="hidden" name="' . esc_attr( $opt ) . '[rows_shown]" value="1" />';
-		echo '<p>'
-			. '<button type="button" class="button" id="dze-diag-add">' . esc_html__( 'Add a criterion', 'dazont-ecom' ) . '</button>'
-			. '<button type="button" class="button-link" id="dze-diag-reset" style="margin-left:10px;">&#8634; ' . esc_html__( 'Restore default', 'dazont-ecom' ) . '</button>'
-			. '<span class="description" style="margin-left:10px;">' . esc_html__( 'An article held to "there are fewer than 0" is held to the figure its own length calls for.', 'dazont-ecom' ) . '</span>'
+		// The button that adds one sits ABOVE the list as well as below it: the
+		// list is the length of the shop's own standards, and a control you have
+		// to scroll past seven criteria to find is a control nobody finds.
+		echo '<p style="margin:14px 0 10px;">'
+			. '<button type="button" class="button button-secondary" id="dze-diag-add">&#43; ' . esc_html__( 'Add a criterion', 'dazont-ecom' ) . '</button>'
+			. '<button type="button" class="button" id="dze-diag-reset" style="margin-left:8px;">&#8634; ' . esc_html__( 'Restore the shipped criteria', 'dazont-ecom' ) . '</button>'
 			. '</p>';
+
+		echo '<div id="dze-diag-lib" style="max-width:900px;">';
+		$i = 0;
+		foreach ( self::scopes() as $scope => $label ) {
+			echo '<h3 class="dze-pr-grouphead">' . esc_html( $label ) . '</h3>';
+			echo '<div class="dze-prlist" data-scope="' . esc_attr( $scope ) . '">';
+			foreach ( $rows as $row ) {
+				if ( $scope !== ( $fields[ $row['field'] ]['scope'] ?? '' ) ) {
+					continue;
+				}
+				echo self::card( $row, (string) $i ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card().
+				$i++;
+			}
+			echo '</div>';
+		}
+		echo '<div class="dze-prlist dze-prlist-new" id="dze-diag-new" style="margin-top:8px;"></div>';
+		echo '</div>';
+
+		// Even a list emptied to nothing has to reach the sanitizer as a
+		// deliberate emptiness, or it reads as a form that was about something
+		// else and the criteria come back on the next page load.
+		echo '<input type="hidden" name="' . esc_attr( $opt ) . '[rows_shown]" value="1" />';
 		self::print_rows_script();
 		submit_button();
 		echo '</form>';
 	}
 
-	/** The row editor: the same gesture as the email types, one table over. */
+	/** The card list's own behaviour: open one, add one, drop one, put them back. */
 	private static function print_rows_script(): void {
-		$fields = [];
+		$keys = [];
 		foreach ( self::fields() as $fid => $meta ) {
-			$fields[] = [ 'id' => $fid, 'label' => (string) $meta['label'], 'key' => ! empty( $meta['key'] ) ];
+			$keys[ $fid ] = [ 'label' => (string) $meta['label'], 'key' => ! empty( $meta['key'] ), 'scope' => (string) $meta['scope'] ];
 		}
+		$blank = [ 'id' => '', 'label' => '', 'field' => 'product.description', 'test' => 'min_words', 'value' => 120, 'key' => '', 'on' => 1 ];
 		?>
+		<script type="text/template" id="dze-diag-tpl"><?php echo self::card( $blank, '__I__' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping in card(). ?></script>
 		<script>
-		(function () {
-			var opt = <?php echo wp_json_encode( self::OPT ); ?>,
-				fields = <?php echo wp_json_encode( $fields ); ?>,
-				tests = <?php echo wp_json_encode( self::tests() ); ?>,
-				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>,
-				$rows = jQuery('#dze-diag-rows');
-			function nextIndex() { return $rows.find('tr').length + Math.floor(Math.random() * 1000) + 100; }
-			function name(i, key) { return opt + '[rows][' + i + '][' + key + ']'; }
-			function needsKey(id) {
-				for (var n = 0; n < fields.length; n++) { if (fields[n].id === id) { return fields[n].key; } }
-				return false;
+		jQuery( function ( $ ) {
+			var fields = <?php echo wp_json_encode( $keys ); ?>,
+				said = <?php echo wp_json_encode( [
+					'empty'     => __( 'is empty', 'dazont-ecom' ),
+					'min_words' => __( 'holds fewer than %d words', 'dazont-ecom' ),
+					'min_count' => __( 'there are fewer than %d', 'dazont-ecom' ),
+					'target'    => __( 'holds fewer links than its own length calls for', 'dazont-ecom' ),
+				] ); ?>,
+				shipped = <?php echo wp_json_encode( array_values( self::default_rows() ) ); ?>;
+
+			// The card's own number. New cards are given one past every card on
+			// the page, so two added in a row never post into the same slot.
+			function nextIndex() {
+				var max = 0;
+				$( '#dze-diag-lib [name^="<?php echo esc_js( self::OPT ); ?>[rows]["]' ).each( function () {
+					var m = /\[rows\]\[(\d+)\]/.exec( this.name );
+					if ( m ) { max = Math.max( max, parseInt( m[1], 10 ) ); }
+				} );
+				return max + 1;
 			}
-			function row(r) {
-				var i = nextIndex(),
-					$field = jQuery('<select class="dze-diag-field"></select>').attr('name', name(i, 'field')),
-					$test = jQuery('<select></select>').attr('name', name(i, 'test')),
-					$key = jQuery('<input type="text" class="dze-diag-key" style="width:150px;"/>')
-						.attr({ name: name(i, 'key'), placeholder: <?php echo wp_json_encode( __( 'meta key', 'dazont-ecom' ) ); ?> })
-						.val(r.key || '');
-				jQuery.each(fields, function (n, f) {
-					$field.append(jQuery('<option></option>').attr('value', f.id).text(f.label));
-				});
-				jQuery.each(tests, function (id, label) {
-					$test.append(jQuery('<option></option>').attr('value', id).text(label));
-				});
-				$field.val(r.field || fields[0].id);
-				$test.val(r.test || 'empty');
-				$key.toggle(needsKey($field.val()));
-				return jQuery('<tr class="dze-diag-row"></tr>').append(
-					jQuery('<td></td>')
-						.append(jQuery('<input type="hidden"/>').attr('name', name(i, 'id')).val(r.id || ('c' + Date.now().toString(36) + i)))
-						.append(jQuery('<input type="text" class="large-text"/>').attr('name', name(i, 'label')).val(r.label || '')),
-					jQuery('<td></td>').append($field).append(' ').append($key),
-					jQuery('<td></td>').append($test).append(' ').append(
-						jQuery('<input type="number" min="0" step="1" style="width:80px;"/>').attr('name', name(i, 'value')).val(r.value || 0)
-					),
-					jQuery('<td></td>').append(
-						jQuery('<input type="checkbox" value="1"/>').attr('name', name(i, 'on')).prop('checked', r.on !== 0)
-					),
-					jQuery('<td></td>').append(jQuery('<button type="button" class="button-link dze-diag-drop">&times;</button>'))
-				);
+
+			// What a shut card says, kept true the moment a dropdown moves.
+			function retell( $card ) {
+				var f = $card.find( '.dze-diag-field' ).val(),
+					t = $card.find( '.dze-diag-test' ).val(),
+					v = parseInt( $card.find( '.dze-diag-value' ).val(), 10 ) || 0,
+					meta = fields[ f ] || { label: '', key: false },
+					rule = ( 'post.links' === f && 'min_count' === t && 0 === v )
+						? said.target
+						: ( said[ t ] || '' ).replace( '%d', String( v ) );
+				$card.find( '.dze-diag-said' ).text( meta.label + ' — ' + rule );
+				$card.find( '.dze-diag-key' ).toggle( !! meta.key );
+				$card.find( '.dze-diag-value' ).toggle( 'empty' !== t );
 			}
-			// A custom field is the only thing that needs a key, so the box for
-			// it appears with it and never before.
-			jQuery(document).on('change', '.dze-diag-field', function () {
-				jQuery(this).closest('tr').find('.dze-diag-key').toggle(needsKey(jQuery(this).val()));
-			});
-			jQuery('#dze-diag-add').on('click', function () { $rows.append(row({ on: 1 })); });
-			jQuery(document).on('click', '.dze-diag-drop', function () { jQuery(this).closest('tr').remove(); });
-			jQuery('#dze-diag-reset').on('click', function () {
-				$rows.empty();
-				jQuery.each(shipped, function (n, r) { $rows.append(row(r)); });
-			});
-		}());
+
+			function add( row ) {
+				var html = $( '#dze-diag-tpl' ).html().replace( /__I__/g, String( nextIndex() ) ),
+					$card = $( html );
+				if ( row ) {
+					$card.find( '.dze-prb-name' ).val( row.label || '' );
+					$card.find( 'input[name$="[id]"]' ).val( row.id || '' );
+					$card.find( '.dze-diag-field' ).val( row.field );
+					$card.find( '.dze-diag-test' ).val( row.test );
+					$card.find( '.dze-diag-value' ).val( row.value );
+					$card.find( '.dze-diag-key' ).val( row.key || '' );
+					$card.find( '.dze-switch input' ).prop( 'checked', 0 !== row.on );
+				}
+				var scope = ( fields[ $card.find( '.dze-diag-field' ).val() ] || {} ).scope,
+					$list = row ? $( '#dze-diag-lib .dze-prlist[data-scope="' + scope + '"]' ) : $();
+				( $list.length ? $list : $( '#dze-diag-new' ) ).append( $card );
+				retell( $card );
+				return $card;
+			}
+
+			// One card open at a time — the same gesture as the prompt library.
+			$( document ).on( 'click', '.dze-diag-toggle', function () {
+				var $c = $( this ).closest( '.dze-diag-card' ), open = ! $c.hasClass( 'is-open' );
+				$( '.dze-diag-card' ).removeClass( 'is-open' ).find( '.dze-prb-body' ).hide()
+					.end().find( '.dze-diag-toggle' ).attr( 'aria-expanded', 'false' ).find( '.dze-prb-caret' ).text( '▸' );
+				if ( open ) {
+					$c.addClass( 'is-open' ).find( '.dze-prb-body' ).show();
+					$c.find( '.dze-diag-toggle' ).attr( 'aria-expanded', 'true' ).find( '.dze-prb-caret' ).text( '▾' );
+				}
+			} );
+			$( document ).on( 'change keyup', '.dze-diag-field, .dze-diag-test, .dze-diag-value', function () {
+				retell( $( this ).closest( '.dze-diag-card' ) );
+			} );
+			$( document ).on( 'click', '.dze-diag-drop', function () {
+				$( this ).closest( '.dze-diag-card' ).remove();
+			} );
+			$( '#dze-diag-add' ).on( 'click', function () {
+				add( null ).addClass( 'is-open' ).find( '.dze-prb-body' ).show().end()
+					.find( '.dze-prb-name' ).trigger( 'focus' );
+			} );
+			$( '#dze-diag-reset' ).on( 'click', function () {
+				$( '#dze-diag-lib .dze-prb' ).remove();
+				$.each( shipped, function ( n, r ) { add( r ); } );
+			} );
+		} );
 		</script>
 		<?php
 	}
