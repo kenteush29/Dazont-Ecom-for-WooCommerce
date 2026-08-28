@@ -145,7 +145,18 @@ final class DZE_Diagnostic {
 			'category.links'            => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'links',      'label' => __( 'Category · internal links', 'dazont-ecom' ) ],
 			'category.products'         => [ 'scope' => 'category', 'kind' => 'number', 'unit' => 'products',   'label' => __( 'Category · products in it', 'dazont-ecom' ) ],
 			'post.links'                => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'links',      'label' => __( 'Article or page · internal links', 'dazont-ecom' ) ],
-			'post.words'                => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'words',      'label' => __( 'Article or page · length', 'dazont-ecom' ) ],
+			'post.content'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'Article or page · the text itself', 'dazont-ecom' ) ],
+			'post.title'                => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Article or page · title', 'dazont-ecom' ) ],
+			'post.excerpt'              => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'Article or page · excerpt', 'dazont-ecom' ) ],
+			'post.seo_title'            => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Article or page · SEO title', 'dazont-ecom' ) ],
+			'post.seo_desc'             => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'characters', 'label' => __( 'Article or page · SEO description', 'dazont-ecom' ) ],
+			'post.meta'                 => [ 'scope' => 'post',     'kind' => 'text',   'unit' => 'words',      'label' => __( 'Article or page · custom field', 'dazont-ecom' ), 'key' => true ],
+			'post.updated'              => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'Article or page · last updated', 'dazont-ecom' ) ],
+			'post.age'                  => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'days ago',   'label' => __( 'Article or page · published', 'dazont-ecom' ) ],
+			'post.main_image'           => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'photographs','label' => __( 'Article or page · featured image', 'dazont-ecom' ) ],
+			'post.images'               => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'photographs','label' => __( 'Article or page · images in the text', 'dazont-ecom' ) ],
+			'post.headings'             => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'headings',   'label' => __( 'Article or page · headings', 'dazont-ecom' ) ],
+			'post.comments'             => [ 'scope' => 'post',     'kind' => 'number', 'unit' => 'comments',   'label' => __( 'Article or page · comments', 'dazont-ecom' ) ],
 		];
 	}
 
@@ -222,6 +233,7 @@ final class DZE_Diagnostic {
 			[ 'id' => 'cat_desc',     'label' => __( 'Category description too short', 'dazont-ecom' ),  'field' => 'category.description',      'test' => 'lt',    'value' => 150, 'find' => '', 'key' => '', 'on' => 1 ],
 			[ 'id' => 'cat_links',    'label' => __( 'Category points at too little', 'dazont-ecom' ),   'field' => 'category.links',            'test' => 'lt',    'value' => 2,   'find' => '', 'key' => '', 'on' => 1 ],
 			[ 'id' => 'post_links',   'label' => __( 'Article under its link target', 'dazont-ecom' ),   'field' => 'post.links',                'test' => 'lt',    'value' => 0,   'find' => '', 'key' => '', 'on' => 1 ],
+			[ 'id' => 'post_stale',   'label' => __( 'Article going stale', 'dazont-ecom' ),            'field' => 'post.updated',              'test' => 'gt',    'value' => 365, 'find' => '', 'key' => '', 'on' => 1 ],
 		];
 	}
 
@@ -243,7 +255,11 @@ final class DZE_Diagnostic {
 				continue;
 			}
 			$label = trim( sanitize_text_field( (string) ( $row['label'] ?? '' ) ) );
+			// An article's length used to be a number of its own; it is the
+			// length of its text, which the text field answers along with
+			// everything else that can be asked of a text.
 			$field = (string) ( $row['field'] ?? '' );
+			$field = ( 'post.words' === $field ) ? 'post.content' : $field;
 			if ( '' === $label || ! isset( $fields[ $field ] ) ) {
 				continue; // a criterion with no name, or reading nothing, is not one.
 			}
@@ -314,7 +330,11 @@ final class DZE_Diagnostic {
 			return [ 'label' => __( 'Categories', 'dazont-ecom' ), 'url' => $tab( 'categories' ) ];
 		}
 		if ( 'post' === $scope ) {
-			return [ 'label' => __( 'Automation', 'dazont-ecom' ), 'url' => $tab( 'automation' ) ];
+			// Only the links have a tool of their own; the rest of an article
+			// is written where articles are written.
+			return 'post.links' === $field
+				? [ 'label' => __( 'Automation', 'dazont-ecom' ), 'url' => $tab( 'automation' ) ]
+				: [ 'label' => __( 'Articles', 'dazont-ecom' ), 'url' => admin_url( 'edit.php' ) ];
 		}
 		// A photograph is never fixed by writing, and a paragraph is never
 		// fixed in the image lab: the two halves of a product go to two
@@ -705,10 +725,48 @@ final class DZE_Diagnostic {
 			}
 			return $text;
 		}
-		if ( 'post' === $scope && is_array( $object ) ) {
-			return 'post.words' === $field
-				? (float) ( $object['words'] ?? 0 )
-				: (float) ( $object['out'] ?? 0 );
+		if ( 'post' === $scope && $object instanceof WP_Post ) {
+			return self::measure_post( $field, $object, $key );
+		}
+		return '';
+	}
+
+	/** @return string|float */
+	private static function measure_post( string $field, WP_Post $post, string $key ) {
+		$pid  = (int) $post->ID;
+		$meta = static fn( string $k ): string => (string) get_post_meta( $pid, $k, true );
+		$days = static function ( string $when ): float {
+			$at = strtotime( $when ) ?: 0;
+			return $at ? (float) floor( ( time() - $at ) / DAY_IN_SECONDS ) : 0.0;
+		};
+		switch ( $field ) {
+			case 'post.title':
+				return (string) $post->post_title;
+			case 'post.content':
+				return (string) $post->post_content;
+			case 'post.excerpt':
+				return (string) $post->post_excerpt;
+			case 'post.seo_title':
+			case 'post.seo_desc':
+				$keys = class_exists( 'DZE_Content' ) ? DZE_Content::seo_keys() : [];
+				$seo  = (string) ( $keys[ 'post.seo_title' === $field ? 'title' : 'desc' ] ?? '' );
+				return '' !== $seo ? $meta( $seo ) : '';
+			case 'post.meta':
+				return '' !== $key ? $meta( $key ) : '';
+			case 'post.updated':
+				return $days( (string) $post->post_modified_gmt );
+			case 'post.age':
+				return $days( (string) $post->post_date_gmt );
+			case 'post.main_image':
+				return get_post_thumbnail_id( $pid ) ? 1.0 : 0.0;
+			case 'post.images':
+				return (float) preg_match_all( '/<img\b/i', (string) $post->post_content );
+			case 'post.headings':
+				return (float) preg_match_all( '/<h[23]\b/i', (string) $post->post_content );
+			case 'post.comments':
+				return (float) $post->comment_count;
+			case 'post.links':
+				return (float) preg_match_all( '/<a\s[^>]*href=/i', (string) $post->post_content );
 		}
 		return '';
 	}
@@ -883,8 +941,8 @@ final class DZE_Diagnostic {
 		// own length — asked here a second way, the two screens would disagree
 		// about the same article. A number typed in the row wins when there is
 		// one.
-		if ( 'post.links' === $field && 'lt' === $op && $want <= 0 ) {
-			$target = is_array( $object ) ? (float) ( $object['target'] ?? 0 ) : 0.0;
+		if ( 'post.links' === $field && 'lt' === $op && $want <= 0 && $object instanceof WP_Post ) {
+			$target = (float) self::link_target( $object, self::words( (string) $object->post_content ) );
 			return $target > 0 && $have < $target;
 		}
 		return self::compare( $op, $have, $want );
@@ -937,24 +995,71 @@ final class DZE_Diagnostic {
 	 *
 	 * @param array<string,int[]> $hits
 	 */
+	/**
+	 * The articles and pages, read the way the products are.
+	 *
+	 * It used to walk the linking pass's own census, which is a cache of the
+	 * FIVE HUNDRED most recently modified posts — so the articles this screen
+	 * is most often asked about, the ones nobody has touched in a year, were
+	 * exactly the ones it could not see. The census is still what answers for
+	 * links: it is asked, per post, for the target IT works out, so the two
+	 * screens cannot disagree about the same article; beyond its five hundred,
+	 * the target is worked out by its own public function rather than by a
+	 * second formula living here.
+	 */
 	private static function scan_posts( array $checks, array &$hits, array &$seen ): void {
 		$wanted = array_filter( $checks, static fn( array $c ): bool => 'post' === $c['scope'] );
-		if ( ! $wanted || ! class_exists( 'DZE_Post_Links' ) ) {
+		if ( ! $wanted ) {
 			return;
 		}
-		foreach ( DZE_Post_Links::census( true ) as $pid => $row ) {
-			$seen['post']++;
-			foreach ( $wanted as $id => $check ) {
-				if ( self::fails( (array) $check['row'], 'post', $row ) ) {
-					$hits[ $id ][] = (int) $pid;
+		$types = class_exists( 'DZE_Post_Links' ) ? (array) DZE_Post_Links::TYPES : [ 'post', 'page' ];
+		$page  = 1;
+		do {
+			$q = new WP_Query( [
+				'post_type'              => $types,
+				'post_status'            => 'publish',
+				'posts_per_page'         => 200,
+				'paged'                  => $page,
+				'orderby'                => 'ID',
+				'order'                  => 'ASC',
+				'ignore_sticky_posts'    => true,
+				'no_found_rows'          => true,
+				'update_post_term_cache' => false,
+				'update_post_meta_cache' => true,
+				'suppress_filters'       => '' === self::main_language(),
+			] );
+			foreach ( $q->posts as $post ) {
+				$seen['post']++;
+				foreach ( $wanted as $id => $check ) {
+					if ( self::fails( (array) $check['row'], 'post', $post ) ) {
+						$hits[ $id ][] = (int) $post->ID;
+					}
 				}
 			}
-		}
+			$page++;
+		} while ( $q->post_count > 0 );
 	}
 
-	// =========================================================================
-	// The screen
-	// =========================================================================
+	/**
+	 * How many internal links this article ought to carry.
+	 *
+	 * The linking pass's figure, asked of the linking pass — from its census
+	 * when it holds the article, from its own public formula when it does not.
+	 */
+	private static function link_target( WP_Post $post, int $words ): int {
+		if ( ! class_exists( 'DZE_Post_Links' ) ) {
+			return 0;
+		}
+		static $census = null;
+		if ( null === $census ) {
+			$census = (array) DZE_Post_Links::census();
+		}
+		$row = $census[ (int) $post->ID ] ?? null;
+		if ( is_array( $row ) && isset( $row['target'] ) ) {
+			return (int) $row['target'];
+		}
+		return (int) DZE_Post_Links::target_links( $words );
+	}
 
 	public function register_menu(): void {
 		$waiting = self::waiting();
