@@ -273,6 +273,7 @@
 		$c.find('.dze-mail-subject').text($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-mail-name').text(name || cfg.i18n.unnamed);
 		$c.find('.dze-mail-when').contents().first().replaceWith(niceDay($('#dze-klav-e-when').val() || ''));
+		markDupes();
 		thumb(current);
 	}
 	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
@@ -522,14 +523,49 @@
 		return 'e' + Date.now().toString(36) + minted.toString(36);
 	}
 
+	// The type an added email takes: the first one this promotion has not used
+	// yet, in the shop's own order. It used to be the first type FULL STOP, so
+	// the second and third emails of a promotion were more Launches — and the
+	// writing, correctly told it was the launch, announced that the sale
+	// opened today, two days before the sale closed. Read off the menu, which
+	// carries the types in order and is what the email is saved as.
+	function nextKind() {
+		var used = {}, pick = '', $opt = $('#dze-klav-e-type option');
+		$('.dze-mail .dze-f-kind').each(function () { used[$(this).val() || ''] = true; });
+		$opt.each(function () { if (!pick && !used[this.value]) { pick = this.value; } });
+		// Every type already used: the promotion wants more emails than it has
+		// moments, and the owner picks. The menu's first is the starting point.
+		return pick || $opt.first().val() || '';
+	}
+
+	// Two emails of the same type are handed the same brief and read alike.
+	// Said on the row rather than left to be found in the inbox.
+	function markDupes() {
+		var count = {};
+		$('.dze-mail').each(function () {
+			var k = $(this).find('.dze-f-kind').val() || '';
+			if (k) { count[k] = (count[k] || 0) + 1; }
+		});
+		$('.dze-mail').each(function () {
+			var $c = $(this), k = $c.find('.dze-f-kind').val() || '', $w = $c.find('.dze-mail-what');
+			$c.find('.dze-mail-dupe').remove();
+			if (k && count[k] > 1 && $w.length) {
+				$w.append($('<span class="dze-mail-dupe"></span>').text(cfg.i18n.sameType || ''));
+			}
+		});
+	}
+
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
-			$c = $(String( html ).trim());
-		// A new email opens on the day the promotion does; the moment it
-		// belongs to follows from whatever day it ends up on.
-		$c.find('.dze-f-when').val($('#dze-klav-editor').data('newday') || '');
-		$c.find('.dze-f-kind').val($('#dze-klav-editor').data('newkind') || '');
+			$c = $(String( html ).trim()),
+			kind = nextKind(),
+			map = $('#dze-klav-editor').data('when') || {};
+		// The moment this promotion is still missing, and the day that moment
+		// falls on — the same map the type menu uses, so choosing a type by
+		// hand and having one chosen here cannot land on different days.
+		$c.find('.dze-f-kind').val(kind);
+		$c.find('.dze-f-when').val(map[kind] || '');
 		$('.dze-mail-list').append($c);
 		open(id);
 		commit();
@@ -566,6 +602,7 @@
 				});
 				current = null;
 				$('#dze-mail-edit').hide();
+				markDupes();
 				var $first = $('.dze-mail').first();
 				if ($first.length) { open($first.data('id')); }
 				$m.css('color', '#0a7040').removeClass('is-ko').text(res.data.message);
@@ -680,6 +717,7 @@
 		// next reload is the same email twice, and the owner is right to call
 		// that broken.
 		$c.remove();
+		markDupes();
 		if (current === id) {
 			current = null;
 			$('#dze-mail-edit').hide();
@@ -695,6 +733,7 @@
 
 	$(function () {
 		$('.dze-mail').each(function () { thumb($(this).data('id')); });
+		markDupes();
 		var $first = $('.dze-mail').first();
 		if ($first.length) { open($first.data('id')); }
 	});
@@ -753,6 +792,11 @@
 		var $p = $('#dze-klav-haspic');
 		if (!$p.length) { return; }
 		var url = String( picture().val() || '' ).trim();
+		// The bench shows a candidate; this shows what the email holds. Once
+		// they are the same photograph the bench has done its job and steps
+		// aside: two identical thumbnails one above the other is the screen
+		// asking a question it has already answered.
+		if (url && url === tested) { $('#dze-klav-shot-out').hide(); }
 		if (!url) { $p.hide(); return; }
 		$p.css('display', 'flex').find('img').attr('src', url).attr('data-full', url);
 	}

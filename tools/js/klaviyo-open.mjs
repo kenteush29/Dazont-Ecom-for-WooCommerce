@@ -48,7 +48,7 @@ function ok( what, got, want ) {
 // The email screen, cut to what these handlers actually touch.
 const day = ms => new Date( Date.now() + ms ).toISOString().slice( 0, 10 );
 const page_html = `
-<div id="dze-klav-editor" data-rule="promo" data-when="{}" data-names="{}" data-newkind="launch" data-newday="2026-09-01">
+<div id="dze-klav-editor" data-rule="promo" data-when='{"warm":"2026-08-24","launch":"2026-08-26","reminder":"2026-08-31","last":"2026-09-05"}' data-names='{"warm":"Warm-up","launch":"Launch","reminder":"Reminder","last":"Last chance"}'>
   <div class="dze-mail-list">
     <div class="dze-mail" data-id="mail1">
       <div class="dze-mail-thumb"><iframe title=""></iframe></div>
@@ -74,15 +74,18 @@ const page_html = `
       <textarea class="dze-f-body" style="display:none;">&lt;h1&gt;Sale&lt;/h1&gt;</textarea>
     </div>
   </div>
-  <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-act"><button class="dze-mail-open">Open</button></div></div></script>
+  <button type="button" id="dze-mail-new">+ Add an email</button>
+  <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-want" value="0" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
   <div id="dze-mail-edit" style="display:none;">
-    <select id="dze-klav-e-type"><option value="launch">Launch</option></select>
+    <select id="dze-klav-e-type"><option value="warm">Warm-up</option><option value="launch">Launch</option><option value="reminder">Reminder</option><option value="last">Last chance</option></select>
     <input id="dze-klav-e-subject" /><input id="dze-klav-e-preview" />
     <input type="date" id="dze-klav-e-when" min="__TOMORROW__" />
     <span id="dze-klav-e-msg"></span><span id="dze-klav-e-kept"></span><span id="dze-klav-write-msg"></span>
     <input type="checkbox" id="dze-klav-e-want" />
-    <div id="dze-klav-shot-out"></div><span id="dze-klav-shot-msg"></span>
-    <div id="dze-klav-haspic"></div>
+    <button type="button" id="dze-klav-e-shot">Generate test picture</button>
+    <p id="dze-klav-shot-out" style="display:none;"><img id="dze-klav-shot-img" src="" data-full="" alt="" /><button type="button" id="dze-klav-e-usepic">Use it in this email</button></p>
+    <span id="dze-klav-shot-msg"></span><span id="dze-klav-spend"></span>
+    <p id="dze-klav-haspic" style="display:none;"><span class="dze-zoomgroup"><span><img src="" data-full="" alt="" /></span></span><button type="button" id="dze-klav-e-nopic">Take it off</button></p>
     <button class="dze-klav-tab is-on" data-tab="view">Preview</button>
     <button class="dze-klav-tab" data-tab="sent">As sent</button>
     <button class="dze-klav-tab" data-tab="code">HTML</button>
@@ -97,7 +100,8 @@ const cfg = {
 	shell: '<html><body><!--DZE--></body></html>', shopName: 'Kula',
 	inactive: [],
 	i18n: { loading: 'l', error: 'e', working: 'w', thenSave: 's', unsub: 'u', asSent: 'a',
-	        creating: 'c', made: 'm', pickedFrom: 'p',
+	        creating: 'c', made: 'm', pickedFrom: 'p', unnamed: 'Untitled email',
+	        sameType: 'Same type as another email — both will be written as that moment.',
 	        notBefore: 'The earliest an email can go out is tomorrow — moved.',
 	        schedule: 'Schedule it', unschedule: 'Unschedule' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
@@ -218,6 +222,69 @@ ok( 'the same button undoes it', posted[1] && posted[1].undo, '1' );
 ok( 'and says it is a draft again',
 	/draft/i.test( await page.textContent( '.dze-mail-sched-msg' ) ), true );
 ok( 'nothing was raised scheduling', errors, [] );
+
+// A promotion is a SEQUENCE, and an added email has to be the moment the
+// sequence is still missing. It used to be the first type full stop, so every
+// email added was another Launch — and each of them was written, correctly, as
+// the email that announces the sale opens today. The shop had three.
+await page.click( '#dze-mail-new' );
+await page.waitForTimeout( 150 );
+ok( 'an added email takes an unused type',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-kind' )[1].value ), 'warm' );
+ok( 'and the day that type falls on',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-when' )[1].value ), '2026-08-24' );
+ok( 'the row is named after it',
+	( await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-mail-name' )[1].textContent ) ).trim(), 'Warm-up' );
+
+await page.click( '#dze-mail-new' );
+await page.waitForTimeout( 150 );
+ok( 'the next one takes the next moment',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail .dze-f-kind' )[2].value ), 'reminder' );
+ok( 'and no two of them are the same',
+	await page.evaluate( () => Array.from( document.querySelectorAll( '.dze-mail .dze-f-kind' ) ).map( i => i.value ) ),
+	[ 'launch', 'warm', 'reminder' ] );
+ok( 'so nothing is flagged as a repeat',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail-dupe' ).length ), 0 );
+
+// Chosen by hand, two emails CAN be the same moment. The screen says so where
+// the emails are, rather than leaving it to the inbox.
+await page.selectOption( '#dze-klav-e-type', 'launch' );
+await page.waitForTimeout( 150 );
+ok( 'a repeated type is said on both rows',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail-dupe' ).length ), 2 );
+ok( 'and it says what the trouble is',
+	/Same type/.test( await page.textContent( '.dze-mail-dupe' ) ), true );
+await page.selectOption( '#dze-klav-e-type', 'reminder' );
+await page.waitForTimeout( 150 );
+ok( 'corrected, the warning goes',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail-dupe' ).length ), 0 );
+
+// The picture bench: a candidate is looked at, and once it IS the email's
+// picture the bench steps aside. It used to keep showing it beside the block
+// that had just claimed it — the same photograph twice, one above the other.
+await page.unroute( 'http://dze.test/ajax*' );
+await page.route( 'http://dze.test/ajax*', route => route.fulfill( {
+	status: 200, contentType: 'application/json',
+	body: JSON.stringify( { success: true, data: { url: 'https://cdn.test/shot.jpg', full: 'https://cdn.test/shot.jpg' } } )
+} ) );
+// The photograph itself: Klaviyo hosts it in the shop, nothing does here, and
+// a thumbnail that cannot load is a console error rather than a broken screen.
+await page.route( 'https://cdn.test/**', route => route.fulfill( {
+	status: 200, contentType: 'image/gif',
+	body: Buffer.from( 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64' )
+} ) );
+await page.click( '#dze-klav-e-shot' );
+await page.waitForFunction( () => document.querySelector( '#dze-klav-shot-out' ).offsetParent !== null, null, { timeout: 5000 } );
+ok( 'a test picture is shown on the bench', await page.isVisible( '#dze-klav-shot-out' ), true );
+ok( 'and the email does not have it yet',   await page.isVisible( '#dze-klav-haspic' ), false );
+
+await page.click( '#dze-klav-e-usepic' );
+await page.waitForTimeout( 250 );
+ok( 'using it files it on the email',       await page.isVisible( '#dze-klav-haspic' ), true );
+ok( 'and the bench stops showing it twice', await page.isVisible( '#dze-klav-shot-out' ), false );
+ok( 'the email carries that picture',
+	await page.evaluate( () => document.querySelector( '.dze-mail.is-on .dze-f-picture' ).value ), 'https://cdn.test/shot.jpg' );
+ok( 'nothing was raised on the bench', errors, [] );
 
 await page.close();
 }
