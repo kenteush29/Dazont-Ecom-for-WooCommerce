@@ -229,13 +229,16 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
-- **`php tools/test-diagnostic.php dazont-ecom` must pass**, and every other
-  `tools/test-*.php` beside it. They run the code against a fake shop and
+- **`php tools/test-diagnostic.php dazont-ecom` and
+  `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
+  `tools/test-*.php` beside them. They run the code against a fake shop and
   check the ANSWERS — that a criterion on `_block_image_1` fires on a product
   where that field is empty, that a gallery is counted rather than read as
   text, that a row written against a field id we have since dropped still
   works. Add one for every new function; never delete one to make a release
-  pass.
+  pass. A provider's own answers cannot be run from here, so the Klaviyo one
+  stubs the transport and reads the REQUEST — its method, its URL, its headers,
+  its body. "No valid revisions found for method" was one header on six calls.
 - **`php tools/check-prompts.php dazont-ecom` must pass too.** Every prompt
   offered a "Make this the default" control has to be answerable by the
   prompt registry: `DZE_Prompt_Defaults::control()` draws NOTHING for an id

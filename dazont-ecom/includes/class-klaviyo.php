@@ -973,6 +973,29 @@ final class DZE_Klaviyo {
 	// =========================================================================
 
 	/**
+	 * Which API revision a call goes out with.
+	 *
+	 * The revision follows the ENDPOINT, never the call site. Localisation is
+	 * still a beta endpoint at Klaviyo, and asked on the stable revision it
+	 * answers "HTTP 404 — No valid revisions found for method": a sentence
+	 * that reads like a missing campaign and is in fact a missing header.
+	 * Three calls in this class remembered to ask for the beta revision and
+	 * three later ones did not, which is what a rule kept in a caller's head
+	 * always comes to. Kept here, a translations call written next year is
+	 * right without anybody remembering anything.
+	 */
+	private static function revisions_for( string $path, bool $beta = false ): array {
+		if ( $beta || 0 === strpos( ltrim( $path, '/' ), 'translations' ) ) {
+			// The beta one first, and the stable one behind it. Not a guess
+			// hedged twice: an endpoint in beta today is a stable endpoint in
+			// six months, and the day Klaviyo promotes localisation this
+			// function keeps working with nobody to notice it needed to.
+			return [ self::REV_B, self::REV ];
+		}
+		return [ self::REV ];
+	}
+
+	/**
 	 * One request. Returns the decoded body, or a WP_Error carrying what
 	 * Klaviyo itself said — an owner reading "HTTP 400" learns nothing.
 	 *
@@ -989,7 +1012,6 @@ final class DZE_Klaviyo {
 			'redirection' => 2,
 			'headers'     => [
 				'Authorization' => 'Klaviyo-API-Key ' . $key,
-				'revision'      => $beta ? self::REV_B : self::REV,
 				'accept'        => 'application/vnd.api+json',
 				'content-type'  => 'application/vnd.api+json',
 			],
@@ -997,21 +1019,36 @@ final class DZE_Klaviyo {
 		if ( null !== $body ) {
 			$args['body'] = wp_json_encode( $body );
 		}
-		$doing = $method . ' ' . ltrim( $path, '/' );
-		$resp  = wp_remote_request( self::API . ltrim( $path, '/' ), $args );
-		if ( is_wp_error( $resp ) ) {
-			DZE_Health::log( 'klaviyo', $doing, $resp->get_error_message() );
-			return $resp;
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		$raw  = (string) wp_remote_retrieve_body( $resp );
-		$data = json_decode( $raw, true );
-		if ( $code >= 200 && $code < 300 ) {
-			return is_array( $data ) ? $data : [];
-		}
-		$detail = '';
-		if ( is_array( $data ) && ! empty( $data['errors'][0]['detail'] ) ) {
-			$detail = (string) $data['errors'][0]['detail'];
+		$doing     = $method . ' ' . ltrim( $path, '/' );
+		$revisions = self::revisions_for( $path, $beta );
+		$last      = count( $revisions ) - 1;
+		$code      = 0;
+		$detail    = '';
+		foreach ( $revisions as $i => $revision ) {
+			$args['headers']['revision'] = $revision;
+			$resp = wp_remote_request( self::API . ltrim( $path, '/' ), $args );
+			if ( is_wp_error( $resp ) ) {
+				DZE_Health::log( 'klaviyo', $doing, $resp->get_error_message() );
+				return $resp;
+			}
+			$code = (int) wp_remote_retrieve_response_code( $resp );
+			$raw  = (string) wp_remote_retrieve_body( $resp );
+			$data = json_decode( $raw, true );
+			if ( $code >= 200 && $code < 300 ) {
+				return is_array( $data ) ? $data : [];
+			}
+			$detail = ( is_array( $data ) && ! empty( $data['errors'][0]['detail'] ) )
+				? (string) $data['errors'][0]['detail']
+				: '';
+			// The one refusal worth asking again about: "No valid revisions
+			// found for method" is Klaviyo saying the endpoint is not on THAT
+			// revision. Any other refusal is about the request itself, and
+			// sending it twice would only fail twice.
+			if ( $i < $last && 404 === $code && false !== stripos( $detail, 'revision' ) ) {
+				DZE_Health::log( 'klaviyo', $doing, 'revision ' . $revision . ' — ' . $detail . '; trying ' . $revisions[ $i + 1 ] );
+				continue;
+			}
+			break;
 		}
 		DZE_Health::log( 'klaviyo', $doing, 'HTTP ' . $code . ( '' !== $detail ? ' — ' . $detail : '' ) );
 		return new WP_Error(
