@@ -3307,7 +3307,8 @@ final class DZE_Klaviyo {
 		// unless it is no longer a draft, in which case it is left exactly as it
 		// is and a new one is made beside it: what is scheduled or sent is the
 		// owner's, never ours to overwrite.
-		$prev    = (array) ( $copy['draft'] ?? [] );
+		$prev     = (array) ( $copy['draft'] ?? [] );
+		$kept_day = '';
 		$camp_id = (string) ( $prev['campaign'] ?? '' );
 		$msg_id  = (string) ( $prev['message'] ?? '' );
 		$tpl_id  = (string) ( $prev['template'] ?? '' );
@@ -3346,8 +3347,11 @@ final class DZE_Klaviyo {
 			], 30 );
 			if ( is_wp_error( $upd ) ) {
 				$warning = trim( $warning . ' ' . $upd->get_error_message() );
-			} elseif ( '' === self::just_day( (string) ( $upd['data']['attributes']['send_strategy']['date'] ?? '' ) ) ) {
-				$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
+			} else {
+				$kept_day = self::just_day( (string) ( $upd['data']['attributes']['send_strategy']['date'] ?? '' ) );
+				if ( '' === $kept_day ) {
+					$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
+				}
 			}
 
 			// 3. The subject line and the preview text.
@@ -3437,7 +3441,8 @@ final class DZE_Klaviyo {
 			// strategy it then stores empty, and a draft with no date in it is
 			// a draft the owner has to notice by himself — which is exactly
 			// what happened.
-			if ( '' === self::just_day( (string) ( $camp['data']['attributes']['send_strategy']['date'] ?? '' ) ) ) {
+			$kept_day = self::just_day( (string) ( $camp['data']['attributes']['send_strategy']['date'] ?? '' ) );
+			if ( '' === $kept_day ) {
 				$warning = trim( $warning . ' ' . __( 'Klaviyo kept the campaign but not its day: open it and choose the date before scheduling.', 'dazont-ecom' ) );
 			}
 			$msg_id  = (string) ( $camp['data']['relationships']['campaign-messages']['data'][0]['id'] ?? '' );
@@ -3512,6 +3517,12 @@ final class DZE_Klaviyo {
 				'name'     => $name,
 				'at'       => time(),
 				'sent'     => $sent ? time() : 0,
+				// The day KLAVIYO holds, which is not always the day that was
+				// sent to it: it answers 200 and stores nothing, and a draft
+				// with an empty calendar is a draft that will never go out.
+				// Said once at the hand-over and then forgotten was no use —
+				// the row has to keep saying it.
+				'day'      => $kept_day,
 				// What it went out IN. Written from what Klaviyo accepted, not
 				// from the setting, so an email filed before the shop had
 				// languages does not claim to have them.
@@ -5656,9 +5667,25 @@ final class DZE_Klaviyo {
 						</div>
 						<div class="dze-mail-state">
 							<?php if ( ! empty( $mail['draft']['campaign'] ) ) : ?>
+								<?php // Nothing is ever sent from here, and the link used to
+								// say only where the draft was — not that Klaviyo is what
+								// sends it, nor what is left to do there. ?>
 								<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
-									<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
+									<?php esc_html_e( 'Draft in Klaviyo — schedule it there ↗', 'dazont-ecom' ); ?>
 								</a>
+								<?php
+								// Klaviyo answers 200 to a day it then stores empty. What
+								// it KEPT was checked at the hand-over and said once; a
+								// sentence said once is a sentence nobody was reading
+								// when it mattered, so the row keeps saying it. Only when
+								// it is known: an email filed by an older version carries
+								// no answer, and silence is better than a guess.
+								if ( array_key_exists( 'day', (array) $mail['draft'] ) && '' === (string) $mail['draft']['day'] ) :
+									?>
+									<span style="display:block;font-size:12px;color:#b26a00;">
+										<?php esc_html_e( 'No date in Klaviyo — choose it there before scheduling.', 'dazont-ecom' ); ?>
+									</span>
+								<?php endif; ?>
 								<?php
 								// In how many languages this one actually went out. A
 								// shop selling in five markets has to be able to see,
