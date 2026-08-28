@@ -416,6 +416,32 @@ final class DZE_Diagnostic {
 	 * for otherwise: a thousand products is a thousand descriptions to weigh,
 	 * and that is a job, not a page load.
 	 */
+	/**
+	 * The language the shop is read in, or '' when there is only one.
+	 *
+	 * WPML's own default language, asked through the plugin's own helper so
+	 * there is one answer to this question on this site and not two.
+	 */
+	public static function main_language(): string {
+		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return '';
+		}
+		return DZE_Wpml::default_language();
+	}
+
+	/** That language written the way a person reads it ("English", not "en"). */
+	private static function language_name( string $code ): string {
+		if ( '' === $code || ! class_exists( 'DZE_Wpml' ) ) {
+			return $code;
+		}
+		foreach ( DZE_Wpml::get_active_languages() as $one ) {
+			if ( $code === ( $one['code'] ?? '' ) ) {
+				return (string) ( $one['english_name'] ?: ( $one['native_name'] ?: $code ) );
+			}
+		}
+		return $code;
+	}
+
 	public static function scan(): array {
 		if ( get_transient( self::LOCK ) ) {
 			return self::census();
@@ -427,14 +453,29 @@ final class DZE_Diagnostic {
 		$checks = self::checks();
 		$hits   = [];
 		$seen   = [ 'product' => 0, 'category' => 0, 'post' => 0 ];
+		// The shop is read in its MAIN language and nowhere else. A translation
+		// is not a product waiting to be written: it is WPML's copy of one, and
+		// counting it would report five thousand products on a shop of a
+		// thousand and send the owner to fix a French description that is meant
+		// to be translated, not written. The linking pass already reads its
+		// articles this way; products and categories now do the same, so the
+		// two screens can never disagree about the same shop.
+		$lang = self::main_language();
+		$back = '' !== $lang ? DZE_Wpml::current_language() : '';
+		if ( '' !== $lang ) {
+			do_action( 'wpml_switch_language', $lang );
+		}
 		try {
 			self::scan_products( $checks, $hits, $seen );
 			self::scan_categories( $checks, $hits, $seen );
 			self::scan_posts( $checks, $hits, $seen );
 		} finally {
+			if ( '' !== $lang ) {
+				do_action( 'wpml_switch_language', '' !== $back ? $back : null );
+			}
 			delete_transient( self::LOCK );
 		}
-		$out   = [ 'at' => time(), 'seen' => $seen, 'short' => [ 'product' => 0, 'category' => 0, 'post' => 0 ], 'checks' => [] ];
+		$out   = [ 'at' => time(), 'lang' => $lang, 'seen' => $seen, 'short' => [ 'product' => 0, 'category' => 0, 'post' => 0 ], 'checks' => [] ];
 		$lists = [];
 		// How many THINGS need work, not how many criteria fired: a product
 		// short of four things is one product to open, and the sum of the
@@ -490,7 +531,10 @@ final class DZE_Diagnostic {
 				'no_found_rows'          => true,
 				'update_post_term_cache' => $needs_terms,
 				'update_post_meta_cache' => true,
-				'suppress_filters'       => true,
+				// WPML narrows the query to the language the scan switched to,
+				// and it does that through the very clauses `suppress_filters`
+				// turns off. A shop without WPML keeps the query it had.
+				'suppress_filters'       => '' === self::main_language(),
 			] );
 			if ( $needs_size ) {
 				self::prime_thumbs( $q->posts );
@@ -945,6 +989,20 @@ final class DZE_Diagnostic {
 		}
 		echo '</span></p>';
 
+		// A shop in five languages has to be told which one it is looking at,
+		// or a thousand products against WooCommerce's five thousand reads as
+		// a broken screen rather than a deliberate one.
+		$lang = (string) ( $census['lang'] ?? self::main_language() );
+		if ( '' !== $lang ) {
+			echo '<p class="description" style="max-width:760px;margin-top:-6px;">';
+			printf(
+				/* translators: %s: the shop's main language, e.g. English */
+				esc_html__( 'Read in %s only — the shop\'s main language. Translations are WPML\'s copies of these pages: they are translated, not written, so they are not counted here.', 'dazont-ecom' ),
+				'<strong>' . esc_html( self::language_name( $lang ) ) . '</strong>'
+			);
+			echo '</p>';
+		}
+
 		// What is to be DONE, worst first, kept apart from what is already
 		// right. Twenty lines reading "—" is a screen where the four that
 		// matter are hard to find.
@@ -1280,6 +1338,16 @@ final class DZE_Diagnostic {
 		echo '<p class="description" style="max-width:900px;">'
 			. esc_html__( 'Your PROMPTS answer for themselves and are not in this list: each one already says what it writes and where, so "Custom bloc text 2: empty" appears on the diagnostic by itself and follows the prompt when you rename, move or disable it.', 'dazont-ecom' )
 			. '</p>';
+		$lang = self::main_language();
+		if ( '' !== $lang ) {
+			echo '<p class="description" style="max-width:900px;">';
+			printf(
+				/* translators: %s: the shop's main language, e.g. English */
+				esc_html__( 'Every criterion is read in %s, the shop\'s main language. A translation is WPML\'s copy of a page and is never counted as work waiting to be done.', 'dazont-ecom' ),
+				'<strong>' . esc_html( self::language_name( $lang ) ) . '</strong>'
+			);
+			echo '</p>';
+		}
 
 		echo '<p style="margin:14px 0 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
 			. '<button type="button" class="button button-secondary" id="dze-diag-add">&#43; ' . esc_html__( 'Add a criterion', 'dazont-ecom' ) . '</button>'
