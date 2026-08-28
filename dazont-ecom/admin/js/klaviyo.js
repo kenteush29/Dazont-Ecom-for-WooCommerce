@@ -357,6 +357,42 @@
 
 	$(document).on('click', '.dze-mail-open', function () { open($(this).closest('.dze-mail').data('id')); });
 
+	// Scheduling, and unscheduling: the email goes out on its own day without
+	// anybody opening Klaviyo, and a day chosen by mistake is undone from the
+	// same button that chose it.
+	$(document).on('click', '.dze-mail-sched', function () {
+		var $b = $(this),
+			$row = $b.closest('.dze-mail'),
+			$msg = $row.find('.dze-mail-sched-msg'),
+			undo = '1' === String($b.data('undo')),
+			was = $b.text();
+		$b.prop('disabled', true).text(cfg.i18n.working || 'Working…');
+		$msg.css('color', '').text('');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_schedule', nonce: cfg.nonce,
+			rule: ruleId(), email: $row.data('id'), undo: undo ? 1 : 0
+		}).done(function (r) {
+			$b.prop('disabled', false);
+			if (!r || !r.success) {
+				$b.text(was);
+				$msg.css('color', '#b32d2e').text((r && r.data && r.data.message) || (cfg.i18n.error || 'Something went wrong.'));
+				return;
+			}
+			var on = !!(r.data && r.data.scheduled);
+			$b.data('undo', on ? '1' : '0')
+				.text(on ? (cfg.i18n.unschedule || 'Unschedule') : (cfg.i18n.schedule || 'Schedule it'));
+			$msg.css('color', on ? '#00794b' : '#646970').text((r.data && r.data.message) || '');
+		}).fail(function (xhr) {
+			$b.prop('disabled', false).text(was);
+			$msg.css('color', '#b32d2e').text((cfg.i18n.error || 'Something went wrong.') + why(xhr));
+		});
+
+		function why(xhr) {
+			var st = xhr && xhr.status;
+			return st ? ' (' + st + ')' : '';
+		}
+	});
+
 	// The picker will not offer a day before tomorrow, but a date can still be
 	// typed into it. Corrected where it is typed, and said — a field that
 	// silently changes what somebody wrote is worse than one that refuses it.

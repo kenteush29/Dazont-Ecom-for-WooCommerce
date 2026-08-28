@@ -57,6 +57,8 @@ const page_html = `
       <div class="dze-mail-state">
         <span class="dze-mail-langs">EN only</span>
         <button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>
+        <button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>
+        <span class="dze-mail-sched-msg description"></span>
       </div>
       <div class="dze-mail-act">
         <button type="button" class="button button-small dze-mail-open">Edit</button>
@@ -96,7 +98,8 @@ const cfg = {
 	inactive: [],
 	i18n: { loading: 'l', error: 'e', working: 'w', thenSave: 's', unsub: 'u', asSent: 'a',
 	        creating: 'c', made: 'm', pickedFrom: 'p',
-	        notBefore: 'The earliest an email can go out is tomorrow — moved.' },
+	        notBefore: 'The earliest an email can go out is tomorrow — moved.',
+	        schedule: 'Schedule it', unschedule: 'Unschedule' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
 	i18nDone: 'Translated — %d texts in %s', i18nAgain: 'Translate again',
 	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.',
@@ -188,6 +191,33 @@ ok( "a day added here uses the shop's format",
 	( await page.textContent( '.dze-mail-when' ) ).replace( 'Smart', '' ).trim(), '29/08/2026' );
 ok( 'and the button says what it does',
 	( await page.textContent( '.dze-mail-open' ) ).trim(), 'Edit' );
+
+// Scheduling from the plugin: one click, and the button becomes its own undo.
+posted.length = 0;
+await page.unroute( 'http://dze.test/ajax*' );
+await page.route( 'http://dze.test/ajax*', route => {
+	const body = new URLSearchParams( route.request().postData() || '' );
+	posted.push( { action: body.get( 'action' ), undo: body.get( 'undo' ) } );
+	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
+		success: true,
+		data: '1' === body.get( 'undo' )
+			? { scheduled: 0, message: 'Back to a draft in Klaviyo.' }
+			: { scheduled: 1, day: '2026-09-28', message: 'Scheduled in Klaviyo for 2026-09-28.' }
+	} ) } );
+} );
+await page.click( '.dze-mail-sched' );
+await page.waitForFunction( () => 'Unschedule' === document.querySelector( '.dze-mail-sched' ).textContent.trim(), null, { timeout: 5000 } );
+ok( 'Schedule asks the right action', posted[0] && posted[0].action, 'dze_klav_schedule' );
+ok( 'and does not ask to undo', posted[0] && posted[0].undo, '0' );
+ok( 'the row says when it goes out',
+	/Scheduled in Klaviyo for 2026-09-28/.test( await page.textContent( '.dze-mail-sched-msg' ) ), true );
+
+await page.click( '.dze-mail-sched' );
+await page.waitForFunction( () => 'Schedule it' === document.querySelector( '.dze-mail-sched' ).textContent.trim(), null, { timeout: 5000 } );
+ok( 'the same button undoes it', posted[1] && posted[1].undo, '1' );
+ok( 'and says it is a draft again',
+	/draft/i.test( await page.textContent( '.dze-mail-sched-msg' ) ), true );
+ok( 'nothing was raised scheduling', errors, [] );
 
 await page.close();
 }

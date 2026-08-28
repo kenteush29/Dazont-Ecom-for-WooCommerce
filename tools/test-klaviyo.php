@@ -335,5 +335,66 @@ $GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'i
 ok( 'a second refusal is still none',  $pin->invoke( null, 'C1', [ 'datetime' => $next ], [] ), '' );
 $GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => '{"data":{"id":"x"}}' ];
 
+echo "Scheduling a draft from the plugin\n";
+// Measured on the shop's own account: a send job on a campaign carrying a
+// future date SCHEDULES it. These check what we send to get there.
+$draft = static fn( string $status, string $when ): string => json_encode( [ 'data' => [ 'id' => 'C1', 'attributes' => [
+	'status' => $status, 'send_strategy' => [ 'method' => 'static', 'datetime' => $when . 'T09:00:00+00:00' ],
+	'send_time' => $when . 'T09:00:00+00:00' ] ] ] );
+
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $draft( 'Draft', $next ) ],                       // read before
+	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"queued"}}}' ], // the job
+	[ 'code' => 200, 'body' => $draft( 'Queued', $next ) ],                      // read after
+];
+[ $day, $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'it schedules for the campaign day', $day, $next );
+ok( 'and says nothing went wrong',       $said, '' );
+$job = $GLOBALS['dze_sent'][1] ?? [];
+ok( 'by creating a send job',            $job['method'] ?? '', 'POST' );
+ok( 'on the send-jobs endpoint',         false !== strpos( (string) ( $job['url'] ?? '' ), 'campaign-send-jobs/' ), true );
+ok( 'naming that campaign',              json_decode( (string) ( $job['body'] ?? '' ), true )['data']['id'] ?? '', 'C1' );
+// The whole difference from "send now": the day must not be touched.
+ok( 'and never rewriting the day',
+	count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) ), 0 );
+
+// A campaign with no day in Klaviyo cannot be scheduled, and is not tried.
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C1', 'attributes' => [
+	'status' => 'Draft', 'send_strategy' => [ 'method' => 'smart_send_time', 'date' => null ] ] ] ] ) ] ];
+[ $day, $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'no day means no scheduling',        $day, '' );
+ok( 'and it says why',                   false !== strpos( $said, 'no send day' ), true );
+ok( 'without asking for a send job',     count( $GLOBALS['dze_sent'] ), 1 );
+
+// Nor is anything already scheduled or sent put through a sender again.
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => $draft( 'Sent', $next ) ] ];
+[ , $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'a sent campaign is left alone',     count( $GLOBALS['dze_sent'] ), 1 );
+ok( 'and the state is named',            false !== strpos( $said, 'Sent' ), true );
+
+// Klaviyo taking the job and leaving a draft is not a scheduled campaign.
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $draft( 'Draft', $next ) ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"queued"}}}' ],
+	[ 'code' => 200, 'body' => $draft( 'Draft', $next ) ],
+];
+[ $day, $said ] = DZE_Klaviyo::schedule( 'C1' );
+ok( 'a draft afterwards is not a claim', $day, '' );
+ok( 'and it says so',                    false !== strpos( $said, 'still a draft' ), true );
+
+echo "Putting it back to a draft\n";
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C1"}}' ] ];
+ok( 'unscheduling says nothing is wrong', DZE_Klaviyo::unschedule( 'C1' ), '' );
+$rev = last_sent();
+ok( 'it patches the send job',           $rev['method'] ?? '', 'PATCH' );
+ok( 'asking to revert, never to cancel',
+	json_decode( (string) ( $rev['body'] ?? '' ), true )['data']['attributes']['action'] ?? '', 'revert' );
+$GLOBALS['dze_queue'] = [];
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
