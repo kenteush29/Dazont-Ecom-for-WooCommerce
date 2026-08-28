@@ -87,6 +87,7 @@ final class DZE_Klaviyo {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_locales', [ __CLASS__, 'ajax_locales' ] );
+		add_action( 'wp_ajax_dze_klav_langs',   [ __CLASS__, 'ajax_langs' ] );
 		add_action( 'wp_ajax_dze_klav_i18n',    [ __CLASS__, 'ajax_translate' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
@@ -2491,19 +2492,29 @@ final class DZE_Klaviyo {
 	 * is selling, handed all of the email's text at once so a heading and the
 	 * paragraph under it are turned by the same hand.
 	 *
-	 * One request per language. What comes back is checked against what was
-	 * sent — an id that was not asked about is dropped rather than written —
-	 * and the whole lot goes to Klaviyo in one call.
+	 * ONE language per call, because one call for all of them is minutes of
+	 * model time on a single request: the browser gives up, and the screen is
+	 * left saying nothing. The button walks the languages itself and says
+	 * which one it is on. What comes back is checked against what was sent —
+	 * an id that was not asked about is dropped rather than written — and that
+	 * language goes to Klaviyo in one call.
+	 *
+	 * @param string $only One target language, or '' for every one of them.
 	 *
 	 * @return array{done:int,langs:string[],skipped:int}
 	 */
-	public static function translate_email( string $rule_id, string $email_id ): array {
+	public static function translate_email( string $rule_id, string $email_id, string $only = '' ): array {
 		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
 		$msg  = (string) ( $mail['draft']['message'] ?? '' );
 		if ( '' === $msg ) {
 			throw new RuntimeException( __( 'This email is not in Klaviyo yet. Create the draft first — there is nothing to translate until there is a campaign.', 'dazont-ecom' ) );
 		}
 		[ $source, $targets ] = self::locales();
+		if ( '' !== $only ) {
+			// A language the shop does not have is not written, whatever asked
+			// for it: the button walks the list this same function answers.
+			$targets = in_array( $only, $targets, true ) ? [ $only ] : [];
+		}
 		if ( ! $targets ) {
 			throw new RuntimeException( __( 'No languages to translate into. Settings → Email campaigns → Translations.', 'dazont-ecom' ) );
 		}
@@ -2547,9 +2558,15 @@ final class DZE_Klaviyo {
 		if ( is_wp_error( $put ) ) {
 			throw new RuntimeException( $put->get_error_message() );
 		}
+		// What the email HAS been written in, added to rather than replaced:
+		// the languages arrive one request at a time, and a run that wrote
+		// French must not erase the German written a minute earlier. 'langs'
+		// is left alone — that is what Klaviyo opened the campaign for, which
+		// is a different fact from what we have actually translated.
+		$was = array_values( array_filter( (array) ( $mail['draft']['done_langs'] ?? [] ), 'is_string' ) );
 		self::put_email( $rule_id, $email_id, [
 			'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
-				'langs'      => array_values( $targets ),
+				'done_langs' => array_values( array_unique( array_merge( $was, array_values( $targets ) ) ) ),
 				'translated' => time(),
 				'texts'      => count( $write ),
 			] ),
@@ -2752,6 +2769,49 @@ final class DZE_Klaviyo {
 			}
 		}
 		return [ '', '' ];
+	}
+
+	/**
+	 * The languages the button has to walk.
+	 *
+	 * Asked before the first translation rather than printed into the page:
+	 * a screen opened this morning would otherwise translate into the
+	 * languages the shop had this morning.
+	 */
+	public static function ajax_langs(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		[ , $targets ] = self::locales();
+		wp_send_json_success( [ 'langs' => array_values( $targets ) ] );
+	}
+
+	/**
+	 * One email, one language, one request.
+	 *
+	 * Everything that can go wrong comes back as a sentence the owner can act
+	 * on — no campaign yet, no languages, nothing in the collection, Klaviyo
+	 * refusing the write — because a button that fails silently is the same
+	 * to him as a button that does nothing.
+	 */
+	public static function ajax_translate(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$rule  = isset( $_POST['rule'] ) ? sanitize_key( wp_unslash( $_POST['rule'] ) ) : '';
+		$email = isset( $_POST['email'] ) ? sanitize_key( wp_unslash( $_POST['email'] ) ) : '';
+		$lang  = isset( $_POST['lang'] ) ? sanitize_key( wp_unslash( $_POST['lang'] ) ) : '';
+		if ( '' === $rule || '' === $email ) {
+			wp_send_json_error( [ 'message' => __( 'Which email? Save the promotion first, then translate.', 'dazont-ecom' ) ] );
+		}
+		try {
+			$got = self::translate_email( $rule, $email, $lang );
+		} catch ( Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( $got );
 	}
 
 	/** The check behind the button beside the languages. */
@@ -3648,6 +3708,57 @@ final class DZE_Klaviyo {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
+	}
+
+	/**
+	 * The exclusion every promotion wants, built from here.
+	 *
+	 * Klaviyo does the building; this is the button's end of it. The segment
+	 * is CREATED, not sent: the picker lands on it and the page still has to
+	 * be saved, like every other setting on it.
+	 */
+	public static function ajax_make_segment(): void {
+		self::guard();
+		$weeks = isset( $_POST['weeks'] ) ? (int) $_POST['weeks'] : 3;
+		try {
+			$made = self::make_buyers_segment( $weeks );
+			$cat  = self::refresh();
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'id'        => $made['id'],
+			'audiences' => $cat['audiences'],
+			'inactive'  => $cat['inactive'],
+			/* translators: %s: the segment's name */
+			'message'   => sprintf( __( '"%s" created in Klaviyo and chosen here.', 'dazont-ecom' ), $made['name'] ),
+		] );
+	}
+
+	/**
+	 * A segment Klaviyo has paused, switched back on from here.
+	 *
+	 * An inactive segment stops being maintained: it is still in the account,
+	 * it is still chosen on this page, and it quietly excludes nobody. The
+	 * picker names those, and this is the one gesture that fixes it.
+	 */
+	public static function ajax_activate(): void {
+		self::guard();
+		$id = isset( $_POST['segment'] ) ? sanitize_text_field( wp_unslash( $_POST['segment'] ) ) : '';
+		if ( '' === $id ) {
+			wp_send_json_error( [ 'message' => __( 'Choose the segment first.', 'dazont-ecom' ) ] );
+		}
+		try {
+			self::activate( $id );
+			$cat = self::refresh();
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'audiences' => $cat['audiences'],
+			'inactive'  => $cat['inactive'],
+			'message'   => __( 'Switched back on in Klaviyo. It is maintained again from now.', 'dazont-ecom' ),
+		] );
 	}
 
 	public static function ajax_load(): void {
@@ -5380,30 +5491,37 @@ final class DZE_Klaviyo {
 								// In how many languages this one actually went out. A
 								// shop selling in five markets has to be able to see,
 								// without opening Klaviyo, whether an email is one of
-								// them or all of them.
-								$dze_langs = (array) ( $mail['draft']['langs'] ?? [] );
-								[ $dze_src ] = self::locales();
-								?>
-								<?php
-								$dze_when_i18n = (int) ( $mail['draft']['translated'] ?? 0 );
-								// What has actually been written, language by language.
-								$dze_langs     = (array) ( $mail['draft']['done_langs'] ?? $dze_langs );
+								// them or all of them. Two different facts, and the
+								// line says which: the languages Klaviyo opened the
+								// campaign for, and the ones we have WRITTEN.
+								[ $dze_src ]   = self::locales();
+								$dze_open      = (array) ( $mail['draft']['langs'] ?? [] );
+								$dze_done      = (array) ( $mail['draft']['done_langs'] ?? [] );
+								$dze_when_i18n = $dze_done ? (int) ( $mail['draft']['translated'] ?? 0 ) : 0;
+								$dze_left      = array_values( array_diff( $dze_open, $dze_done ) );
 								?>
 								<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
 									<?php
-									if ( $dze_when_i18n && $dze_langs ) {
+									if ( $dze_when_i18n ) {
 										printf(
 											/* translators: 1: how many texts, 2: the languages they were written in */
 											esc_html__( 'Translated — %1$d texts in %2$s', 'dazont-ecom' ),
 											(int) ( $mail['draft']['texts'] ?? 0 ),
-											esc_html( strtoupper( implode( ', ', $dze_langs ) ) )
+											esc_html( strtoupper( implode( ', ', $dze_done ) ) )
 										);
-									} elseif ( $dze_langs ) {
+										if ( $dze_left ) {
+											printf(
+												/* translators: %s: the languages still to write */
+												esc_html__( ' · %s still to write', 'dazont-ecom' ),
+												esc_html( strtoupper( implode( ', ', $dze_left ) ) )
+											);
+										}
+									} elseif ( $dze_open ) {
 										printf(
 											/* translators: 1: the language it is written in, 2: the languages Klaviyo will accept */
 											esc_html__( '%1$s written, %2$s open — not translated yet', 'dazont-ecom' ),
 											esc_html( strtoupper( $dze_src ) ),
-											esc_html( strtoupper( implode( ', ', $dze_langs ) ) )
+											esc_html( strtoupper( implode( ', ', $dze_open ) ) )
 										);
 									} else {
 										printf(

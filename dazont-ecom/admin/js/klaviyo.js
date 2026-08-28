@@ -367,8 +367,11 @@
 						stop('#b32d2e', ((one && one.data && one.data.message) || '')
 							+ (done.length ? ' — ' + done.join(', ').toUpperCase() + ' ' + (cfg.i18nKept || 'were written.') : ''));
 					}
-				}).fail(function () {
-					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.')
+				}).fail(function (xhr) {
+					// A dead end says WHERE it died. "The translation did not
+					// finish" on its own is a message nobody can act on — not
+					// the shop, not us.
+					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr)
 						+ (done.length ? ' ' + done.join(', ').toUpperCase() + ' ' + (cfg.i18nKept || 'were written.') : ''));
 				});
 			}
@@ -378,10 +381,15 @@
 				$b.prop('disabled', false);
 				if ('#00794b' !== colour) { $b.text(was); }
 			}
-		}).fail(function () {
-			$said.css('color', '#b32d2e').text(cfg.i18nFail || 'The translation did not finish.');
+		}).fail(function (xhr) {
+			$said.css('color', '#b32d2e').text((cfg.i18nFail || 'The translation did not finish.') + why(xhr));
 			$b.prop('disabled', false).text(was);
 		});
+
+		function why(xhr) {
+			var s = xhr && xhr.status;
+			return s ? ' (' + s + (403 === s || 400 === s ? ' — reload the page and try again' : '') + ')' : '';
+		}
 	});
 
 	// A promotion holds as many emails as it deserves, not four. An id is
