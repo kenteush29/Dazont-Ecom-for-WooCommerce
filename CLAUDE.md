@@ -94,6 +94,30 @@ owner communicates in French.
   a quoted title, never a "See X for more" bolted on at the end, never
   "here"/"this page"/"learn more", never an ambiguous destination. Applies to
   every generator that inserts links.
+- **This plugin is built to be HANDED OVER.** The shop is meant to be
+  resellable, and the next owner will have none of this conversation. So
+  nothing may depend on knowing what was said here:
+  - **A function that needs something set up OUTSIDE the plugin says so, where
+    the setting is made.** Klaviyo will not translate an email unless each
+    profile carries a `locale`; the shop can have its languages declared, its
+    blocks translated, and still send everyone English, with nothing anywhere
+    saying why. That sentence belongs beside the language field — not in a
+    changelog, not in a chat. Where the plugin can CHECK the outside condition,
+    it offers the check behind a button rather than asserting it.
+  - **A screen says what state a thing is IN, not only what it can do.** An
+    email that went out in one language and an email that went out in five look
+    the same until one of them says so. Every produced thing carries its own
+    plain statement of what was actually done to it, read from what was stored
+    when it was done — never from the setting, which says intent.
+  - **Few settings, and no hidden ones** — except what is genuinely invariable
+    and would only ever be got wrong (an API path, a marker, a cache TTL).
+    Anything the owner could reasonably want different is on a screen with its
+    consequence written next to it. Anything he cannot change is not a setting
+    and is not shown as one.
+  - The test is one question: could somebody who has never spoken to us open
+    this admin and understand what the plugin does, what is set up, what is
+    missing, and what to press? If not, the screen is unfinished.
+
 - WPML compatibility everywhere.
 - **Both channels are released in the same pass, by default.** Fixes AND
   additions to a module that already exists — a new control on an existing

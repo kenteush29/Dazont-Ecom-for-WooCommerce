@@ -86,6 +86,7 @@ final class DZE_Klaviyo {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
+		add_action( 'wp_ajax_dze_klav_locales', [ __CLASS__, 'ajax_locales' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
 		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
@@ -2456,6 +2457,77 @@ final class DZE_Klaviyo {
 	 *
 	 * @return string A warning for the owner, or '' when all is well.
 	 */
+	/**
+	 * Whether this account's profiles can be translated to at all.
+	 *
+	 * Klaviyo does not guess a reader's language: it reads the LOCALE on his
+	 * profile, and a profile without one is served the fallback. So a shop can
+	 * have its languages declared, its blocks translated, and still send every
+	 * reader the same English email — with nothing anywhere saying why. This
+	 * samples the account and answers with a figure.
+	 *
+	 * Behind a click. One page of profiles, never on a page load.
+	 *
+	 * @return array{seen:int,with:int}
+	 */
+	public static function locale_sample( int $size = 100 ): array {
+		$res = self::request(
+			'GET',
+			'profiles/?fields%5Bprofile%5D=locale&page%5Bsize%5D=' . max( 1, min( 100, $size ) ),
+			null,
+			25
+		);
+		if ( is_wp_error( $res ) ) {
+			throw new RuntimeException( $res->get_error_message() );
+		}
+		$rows = (array) ( $res['data'] ?? [] );
+		$with = 0;
+		foreach ( $rows as $row ) {
+			if ( '' !== trim( (string) ( $row['attributes']['locale'] ?? '' ) ) ) {
+				$with++;
+			}
+		}
+		return [ 'seen' => count( $rows ), 'with' => $with ];
+	}
+
+	/** The check behind the button beside the languages. */
+	public static function ajax_locales(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		try {
+			$got = self::locale_sample();
+		} catch ( Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		[ $source ] = self::locales();
+		if ( ! $got['seen'] ) {
+			wp_send_json_success( [ 'message' => __( 'No profiles read.', 'dazont-ecom' ), 'ok' => false ] );
+		}
+		if ( ! $got['with'] ) {
+			wp_send_json_success( [
+				'ok'      => false,
+				'message' => sprintf(
+					/* translators: 1: how many profiles were read, 2: the language they would all get */
+					__( 'None of the %1$d profiles read carries a language. As things stand every reader gets %2$s, whatever is translated.', 'dazont-ecom' ),
+					(int) $got['seen'],
+					strtoupper( $source )
+				),
+			] );
+		}
+		wp_send_json_success( [
+			'ok'      => $got['with'] === $got['seen'],
+			'message' => sprintf(
+				/* translators: 1: how many carry a language, 2: how many were read, 3: the fallback language */
+				__( '%1$d of the %2$d profiles read carry a language. The rest are served %3$s.', 'dazont-ecom' ),
+				(int) $got['with'],
+				(int) $got['seen'],
+				strtoupper( $source )
+			),
+		] );
+	}
+
 	private static function put_translation( string $msg_id ): string {
 		if ( '' === $msg_id || ! self::translating() ) {
 			return '';
@@ -2914,6 +2986,7 @@ final class DZE_Klaviyo {
 		}
 
 		// 4. The one line a machine translator writes worse than the shop does.
+		$langs = [];
 		if ( '' !== $msg_id ) {
 			$pushed = self::push_subjects( $msg_id, $rule );
 			if ( '' !== $pushed ) {
@@ -2925,6 +2998,8 @@ final class DZE_Klaviyo {
 			$opened = self::put_translation( $msg_id );
 			if ( '' !== $opened ) {
 				$warning = trim( $warning . ' ' . $opened );
+			} elseif ( self::translating() ) {
+				$langs = self::locales()[1];
 			}
 		}
 
@@ -2960,6 +3035,10 @@ final class DZE_Klaviyo {
 				'name'     => $name,
 				'at'       => time(),
 				'sent'     => $sent ? time() : 0,
+				// What it went out IN. Written from what Klaviyo accepted, not
+				// from the setting, so an email filed before the shop had
+				// languages does not claim to have them.
+				'langs'    => array_values( $langs ),
 			],
 		] );
 
@@ -5026,6 +5105,32 @@ final class DZE_Klaviyo {
 								<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
 									<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
 								</a>
+								<?php
+								// In how many languages this one actually went out. A
+								// shop selling in five markets has to be able to see,
+								// without opening Klaviyo, whether an email is one of
+								// them or all of them.
+								$dze_langs = (array) ( $mail['draft']['langs'] ?? [] );
+								[ $dze_src ] = self::locales();
+								?>
+								<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_langs ? '#00794b' : '#996800'; ?>;">
+									<?php
+									if ( $dze_langs ) {
+										printf(
+											/* translators: 1: the language it is written in, 2: the languages it is offered in */
+											esc_html__( '%1$s + %2$s', 'dazont-ecom' ),
+											esc_html( strtoupper( $dze_src ) ),
+											esc_html( strtoupper( implode( ', ', $dze_langs ) ) )
+										);
+									} else {
+										printf(
+											/* translators: %s: the language it is written in */
+											esc_html__( '%s only — no translation', 'dazont-ecom' ),
+											esc_html( strtoupper( $dze_src ) )
+										);
+									}
+									?>
+								</span>
 							<?php endif; ?>
 						</div>
 						<div class="dze-mail-act">
@@ -5496,6 +5601,46 @@ final class DZE_Klaviyo {
 						?>
 						<br /><?php esc_html_e( 'Klaviyo needs this to be asked for: a campaign nobody asked to translate has one language whatever it is built of. The text itself is translated in Klaviyo, block by block, which is why the email is sent in blocks at all.', 'dazont-ecom' ); ?>
 					</p>
+					<?php
+					// The half of this that is not in the plugin at all, and
+					// without which everything above is decoration. It has to
+					// be said HERE, where the languages are chosen, and it has
+					// to be checkable rather than asserted.
+					?>
+					<p style="max-width:640px;margin-top:10px;padding:10px 12px;border-left:4px solid #dba617;background:#fcf9e8;">
+						<strong><?php esc_html_e( 'Your customers need a language on their Klaviyo profile.', 'dazont-ecom' ); ?></strong><br />
+						<?php
+						printf(
+							/* translators: 1: the property name, 2: the language served without it */
+							esc_html__( 'Klaviyo does not guess: it reads the %1$s property on each profile and serves that language. A profile without one is served %2$s, however well the email is translated. Set it where profiles are created — the sign-up form, the checkout, the import — or fill it in bulk in Klaviyo.', 'dazont-ecom' ),
+							'<code>locale</code>',
+							'<strong>' . esc_html( strtoupper( $dze_src ) ) . '</strong>'
+						);
+						?>
+						<br />
+						<button type="button" class="button button-small" id="dze-klav-loc" style="margin-top:8px;" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Check my profiles', 'dazont-ecom' ); ?></button>
+						<span id="dze-klav-loc-msg" style="margin-left:8px;font-size:13px;"></span>
+					</p>
+					<script>
+					jQuery( function ( $ ) {
+						$( '#dze-klav-loc' ).on( 'click', function () {
+							var $b = $( this ), $m = $( '#dze-klav-loc-msg' );
+							$b.prop( 'disabled', true );
+							$m.css( 'color', '' ).text( <?php echo wp_json_encode( __( 'Reading…', 'dazont-ecom' ) ); ?> );
+							$.post( ajaxurl, {
+								action: 'dze_klav_locales',
+								nonce: <?php echo wp_json_encode( wp_create_nonce( self::NONCE ) ); ?>
+							} ).done( function ( r ) {
+								var d = ( r && r.data ) || {};
+								$m.css( 'color', d.ok ? '#00794b' : '#b26a00' ).text( d.message || '' );
+							} ).fail( function () {
+								$m.css( 'color', '#b32d2e' ).text( <?php echo wp_json_encode( __( 'Klaviyo did not answer.', 'dazont-ecom' ) ); ?> );
+							} ).always( function () {
+								$b.prop( 'disabled', false );
+							} );
+						} );
+					} );
+					</script>
 				</td>
 			</tr>
 		</table>
