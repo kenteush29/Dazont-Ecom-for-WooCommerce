@@ -87,6 +87,7 @@ final class DZE_Klaviyo {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'wp_ajax_dze_klav_load',    [ __CLASS__, 'ajax_load' ] );
 		add_action( 'wp_ajax_dze_klav_locales', [ __CLASS__, 'ajax_locales' ] );
+		add_action( 'wp_ajax_dze_klav_i18n',    [ __CLASS__, 'ajax_translate' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
 		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
@@ -2458,6 +2459,183 @@ final class DZE_Klaviyo {
 	 * @return string A warning for the owner, or '' when all is well.
 	 */
 	/**
+	 * The pieces of one campaign that are worth translating.
+	 *
+	 * Klaviyo breaks a drag-and-drop email into a hundred fields, and most of
+	 * them are not words: a photograph's address, a button's link, the sender's
+	 * name. Translating those would break the email — a URL run through a
+	 * translator is a dead link — so only what a READER reads is kept: the
+	 * subject, the preview line, the text of every block, a button's label and
+	 * a photograph's alt text.
+	 *
+	 * @param array $values What Klaviyo answered for the collection.
+	 * @return array<string,string> value id => the English it holds
+	 */
+	private static function translatable( array $values ): array {
+		$out = [];
+		foreach ( $values as $row ) {
+			$id   = (string) ( $row['id'] ?? '' );
+			$said = (string) ( $row['source_value'] ?? '' );
+			if ( '' === $id || '' === trim( wp_strip_all_tags( $said ) ) ) {
+				continue;
+			}
+			$words = self::str_ends( $id, '::subject' )
+				|| self::str_ends( $id, '::preview_text' )
+				|| self::str_ends( $id, '::data.content' )
+				|| self::str_ends( $id, '::data.attributes.alt_text' );
+			if ( $words ) {
+				$out[ $id ] = $said;
+			}
+		}
+		return $out;
+	}
+
+	/** PHP 7 has no str_ends_with, and this plugin still runs on shops that do not. */
+	private static function str_ends( string $haystack, string $needle ): bool {
+		$at = strlen( $haystack ) - strlen( $needle );
+		return $at >= 0 && substr( $haystack, $at ) === $needle;
+	}
+
+	/**
+	 * The email, written in the shop's other languages.
+	 *
+	 * Klaviyo holds the languages of a campaign and exposes every block as a
+	 * field, and leaves the words to somebody. Left to the account, that is a
+	 * machine translating a line at a time with no idea what the promotion is;
+	 * done here, it is the shop's own model, told what the email IS and what it
+	 * is selling, handed all of the email's text at once so a heading and the
+	 * paragraph under it are turned by the same hand.
+	 *
+	 * One request per language. What comes back is checked against what was
+	 * sent — an id that was not asked about is dropped rather than written —
+	 * and the whole lot goes to Klaviyo in one call.
+	 *
+	 * @return array{done:int,langs:string[],skipped:int}
+	 */
+	public static function translate_email( string $rule_id, string $email_id ): array {
+		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
+		$msg  = (string) ( $mail['draft']['message'] ?? '' );
+		if ( '' === $msg ) {
+			throw new RuntimeException( __( 'This email is not in Klaviyo yet. Create the draft first — there is nothing to translate until there is a campaign.', 'dazont-ecom' ) );
+		}
+		[ $source, $targets ] = self::locales();
+		if ( ! $targets ) {
+			throw new RuntimeException( __( 'No languages to translate into. Settings → Email campaigns → Translations.', 'dazont-ecom' ) );
+		}
+		$id  = 'campaign-variation::email::' . rawurlencode( $msg );
+		$got = self::request( 'GET', 'translations/' . $id . '/?additional-fields%5Btranslation%5D=values', null, 40 );
+		if ( is_wp_error( $got ) ) {
+			throw new RuntimeException( $got->get_error_message() );
+		}
+		$values = (array) ( $got['data']['attributes']['values'] ?? [] );
+		$source_texts = self::translatable( $values );
+		if ( ! $source_texts ) {
+			throw new RuntimeException( __( 'Klaviyo has no text to translate on that campaign. File the draft again and try once more.', 'dazont-ecom' ) );
+		}
+
+		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
+		$rule  = (array) ( $rules[ $rule_id ] ?? [] );
+		$done  = [];
+		foreach ( $targets as $lang ) {
+			$said = self::ask_translation( $source_texts, $source, $lang, $rule, $mail );
+			foreach ( $said as $vid => $text ) {
+				// Only what was asked about, and only where something came back.
+				if ( isset( $source_texts[ $vid ] ) && '' !== trim( (string) $text ) ) {
+					$done[ $vid ][ $lang ] = (string) $text;
+				}
+			}
+		}
+		if ( ! $done ) {
+			throw new RuntimeException( __( 'Nothing came back from the model. Nothing was written to Klaviyo.', 'dazont-ecom' ) );
+		}
+		$write = [];
+		foreach ( $done as $vid => $per_lang ) {
+			$write[] = [ 'id' => $vid, 'translations' => $per_lang ];
+		}
+		$put = self::request( 'PATCH', 'translations/' . $id . '/', [
+			'data' => [
+				'type'       => 'translation',
+				'id'         => 'campaign-variation::email::' . $msg,
+				'attributes' => [ 'values' => $write ],
+			],
+		], 60 );
+		if ( is_wp_error( $put ) ) {
+			throw new RuntimeException( $put->get_error_message() );
+		}
+		self::put_email( $rule_id, $email_id, [
+			'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
+				'langs'      => array_values( $targets ),
+				'translated' => time(),
+				'texts'      => count( $write ),
+			] ),
+		] );
+		return [
+			'done'    => count( $write ),
+			'langs'   => array_values( $targets ),
+			'skipped' => max( 0, count( $source_texts ) - count( $write ) ),
+		];
+	}
+
+	/**
+	 * One language, in one request.
+	 *
+	 * The whole email goes at once, numbered, and comes back numbered: a
+	 * translator handed thirty separate sentences writes thirty unrelated
+	 * ones, and the heading stops agreeing with the paragraph under it.
+	 *
+	 * @param array<string,string> $texts
+	 * @return array<string,string>
+	 */
+	private static function ask_translation( array $texts, string $source, string $lang, array $rule, array $mail ): array {
+		$keys = array_keys( $texts );
+		$rows = [];
+		foreach ( array_values( $texts ) as $i => $one ) {
+			$rows[] = '### ' . ( $i + 1 ) . "\n" . $one;
+		}
+		$system = "You translate a marketing email for an online shop, from " . $source . " into " . $lang . ".\n"
+			. "\n"
+			. "RULES, all of them absolute:\n"
+			. "- Translate the WORDS ONLY. Every HTML tag, attribute and style stays exactly as it is, in the same order.\n"
+			. "- Never translate or alter a URL, an email address, a price, a currency symbol, a figure, a product name, or anything between {{ }} or {% %}.\n"
+			. "- Keep the length close to the original: this text sits in a fixed layout, and a heading twice as long breaks the email.\n"
+			. "- Write the way a shop writes to its customers in " . $lang . " — not the way a machine renders " . $source . " word by word.\n"
+			. "- Answer with JSON and nothing else: an object whose keys are the numbers you were given and whose values are the translations. No commentary, no code fence.";
+		$user = sprintf(
+			"This email announces: %s\nIt is a %s email.\nSubject in %s: %s\n\nTranslate each numbered piece into %s.\n\n%s",
+			(string) ( $rule['title'] ?? '' ),
+			(string) ( self::kinds()[ (string) ( $mail['kind'] ?? '' ) ]['label'] ?? '' ),
+			$source,
+			(string) ( $mail['subject'] ?? '' ),
+			$lang,
+			implode( "\n\n", $rows )
+		);
+		$said = DZE_Marketing_Ai::complete( $system, $user, '', 8000, 180 );
+		$json = json_decode( self::json_of( $said ), true );
+		if ( ! is_array( $json ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $json as $n => $text ) {
+			$i = (int) $n - 1;
+			if ( isset( $keys[ $i ] ) && is_string( $text ) ) {
+				$out[ $keys[ $i ] ] = $text;
+			}
+		}
+		return $out;
+	}
+
+	/** The JSON inside an answer that may have been wrapped in a code fence. */
+	private static function json_of( string $said ): string {
+		$said = trim( $said );
+		if ( preg_match( '/```(?:json)?\s*(.+?)```/s', $said, $m ) ) {
+			return trim( $m[1] );
+		}
+		$open = strpos( $said, '{' );
+		$shut = strrpos( $said, '}' );
+		return ( false !== $open && false !== $shut && $shut > $open ) ? substr( $said, $open, $shut - $open + 1 ) : $said;
+	}
+
+	/**
 	 * Whether this account's profiles can be translated to at all.
 	 *
 	 * Klaviyo does not guess a reader's language: it reads the LOCALE on his
@@ -2488,6 +2666,30 @@ final class DZE_Klaviyo {
 			}
 		}
 		return [ 'seen' => count( $rows ), 'with' => $with ];
+	}
+
+	/** The button on an email that writes its other languages. */
+	public static function ajax_translate(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$rule_id  = sanitize_text_field( (string) ( $_POST['rule'] ?? '' ) );
+		$email_id = sanitize_key( (string) ( $_POST['email'] ?? '' ) );
+		try {
+			$got = self::translate_email( $rule_id, $email_id );
+		} catch ( Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( [
+			'langs'   => $got['langs'],
+			'message' => sprintf(
+				/* translators: 1: how many pieces of text, 2: the languages */
+				__( '%1$d texts translated into %2$s.', 'dazont-ecom' ),
+				(int) $got['done'],
+				strtoupper( implode( ', ', $got['langs'] ) )
+			),
+		] );
 	}
 
 	/** The check behind the button beside the languages. */
@@ -4961,6 +5163,12 @@ final class DZE_Klaviyo {
 			// that carry a choice's NAME beside its id.
 			'opt'      => self::OPT,
 			'pictureMark' => self::PICTURE_MARK,
+			// The translation pass takes one request per language, so the
+			// screen has to say it is working rather than look stuck.
+			'i18nBusy'  => __( 'Translating…', 'dazont-ecom' ),
+			'i18nWait'  => __( 'Writing the other languages — one request per language, this takes a moment.', 'dazont-ecom' ),
+			'i18nAgain' => __( 'Translate again', 'dazont-ecom' ),
+			'i18nFail'  => __( 'The translation did not finish. Nothing was written to Klaviyo.', 'dazont-ecom' ),
 			'shopName' => get_bloginfo( 'name' ),
 			'sample'   => $config ? self::sample_body() : '',
 			// The segments Klaviyo is not maintaining, so the settings screen
@@ -5087,6 +5295,7 @@ final class DZE_Klaviyo {
 		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
 			<input type="hidden" name="dze_email_shown" value="1" />
+			<?php [ $dze_src_now, $dze_tgt_now ] = self::locales(); ?>
 			<div class="dze-mail-list">
 				<?php foreach ( $emails as $mail_id => $mail ) :
 					$kind = (string) ( $mail['kind'] ?? self::first_kind() );
@@ -5113,12 +5322,20 @@ final class DZE_Klaviyo {
 								$dze_langs = (array) ( $mail['draft']['langs'] ?? [] );
 								[ $dze_src ] = self::locales();
 								?>
-								<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_langs ? '#00794b' : '#996800'; ?>;">
+								<?php $dze_when_i18n = (int) ( $mail['draft']['translated'] ?? 0 ); ?>
+								<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
 									<?php
-									if ( $dze_langs ) {
+									if ( $dze_when_i18n && $dze_langs ) {
 										printf(
-											/* translators: 1: the language it is written in, 2: the languages it is offered in */
-											esc_html__( '%1$s + %2$s', 'dazont-ecom' ),
+											/* translators: 1: how many texts, 2: the languages they were written in */
+											esc_html__( 'Translated — %1$d texts in %2$s', 'dazont-ecom' ),
+											(int) ( $mail['draft']['texts'] ?? 0 ),
+											esc_html( strtoupper( implode( ', ', $dze_langs ) ) )
+										);
+									} elseif ( $dze_langs ) {
+										printf(
+											/* translators: 1: the language it is written in, 2: the languages Klaviyo will accept */
+											esc_html__( '%1$s written, %2$s open — not translated yet', 'dazont-ecom' ),
 											esc_html( strtoupper( $dze_src ) ),
 											esc_html( strtoupper( implode( ', ', $dze_langs ) ) )
 										);
@@ -5131,6 +5348,11 @@ final class DZE_Klaviyo {
 									}
 									?>
 								</span>
+								<?php if ( $dze_tgt_now ) : ?>
+									<button type="button" class="button button-small dze-mail-i18n" style="margin-top:4px;" data-email="<?php echo esc_attr( $mail_id ); ?>">
+										<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
+									</button>
+								<?php endif; ?>
 							<?php endif; ?>
 						</div>
 						<div class="dze-mail-act">
