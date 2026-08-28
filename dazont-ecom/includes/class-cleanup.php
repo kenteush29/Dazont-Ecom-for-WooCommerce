@@ -69,7 +69,7 @@ final class DZE_Cleanup {
 			// to erase: what we hold is the key, the choices and the links.
 			'klaviyo' => [
 				'options'    => [ 'dze_klaviyo', 'dze_klaviyo_drafts', 'dze_klaviyo_copy' ],
-				'transients' => [ 'dze_klaviyo_cat', 'dze_klaviyo_hours' ],
+				'transients' => [ 'dze_klaviyo_cat', 'dze_klaviyo_hours', 'dze_klav_i18n_', 'dze_klav_auto_' ],
 			],
 			// The failure log and the last checkup. Both are ours, both are
 			// bounded, and erasing them costs nothing but the history.
