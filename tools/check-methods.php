@@ -114,5 +114,29 @@ foreach (glob("$dir/admin/js/*.js") as $f) {
 	}
 }
 
+// jQuery removed a dozen helpers in 4.0 — $.trim, $.isArray, $.proxy and the
+// rest. WordPress still ships 3.7, where they work and warn; the day a shop
+// installs a jQuery updater, every handler that uses one dies where it stands,
+// and a dead handler looks exactly like a button that does nothing. Nothing in
+// PHP, in `node --check` or in a screenshot shows it, so it is looked for here.
+$gone = ['trim', 'isArray', 'isFunction', 'isNumeric', 'isWindow', 'type', 'now',
+	'parseJSON', 'proxy', 'holdReady', 'unique', 'nodeName', 'camelCase', 'inArray'];
+$js = array_merge(
+	glob("$dir/admin/js/*.js"),
+	glob("$dir/includes/*.php"),   // inline <script> lives in these
+	glob("$dir/admin/views/*.php")
+);
+foreach ($js as $f) {
+	$src   = file_get_contents($f);
+	$lines = explode("\n", $src);
+	foreach ($lines as $i => $line) {
+		foreach ($gone as $one) {
+			if (false === strpos($line, '$.' . $one . '(') && false === strpos($line, 'jQuery.' . $one . '(')) { continue; }
+			printf("MISSING  $.%s()  — %s:%d  (removed in jQuery 4)\n", $one, basename($f), $i + 1);
+			$bad++;
+		}
+	}
+}
+
 echo $bad ? "\n$bad undefined method call(s)\n" : "\nno undefined method calls\n";
 exit($bad ? 1 : 0);

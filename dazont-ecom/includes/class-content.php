@@ -2357,7 +2357,7 @@ Answer with STRICT JSON and nothing else: "
 						// The image already has a name in the library; retyping it
 						// is busywork. A name written by hand is left alone.
 						var $nm = $cell.find( 'input[name$="[sc_name][]"]' );
-						if ( ! $.trim( $nm.val() ) ) { $nm.val( a.title || a.filename || '' ); }
+						if ( ! String( $nm.val() ).trim() ) { $nm.val( a.title || a.filename || '' ); }
 						$cell.find( '.dze-sc-thumb' ).html(
 							$( '<img />' ).attr( 'src', url ).attr( 'alt', '' ).css( { maxWidth: '90px', height: 'auto', borderRadius: '4px' } )
 						);

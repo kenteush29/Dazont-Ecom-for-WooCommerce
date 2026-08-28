@@ -289,7 +289,7 @@ final class DZE_Prompt_Defaults {
 				e.preventDefault();
 				var $b = $( this ), $w = $b.closest( '.dze-pd' ), $f = field( $b );
 				var id = $w.attr( 'data-prompt' ) || '', text = $f.length ? String( $f.val() || '' ) : '';
-				if ( ! id || ! $.trim( text ) ) {
+				if ( ! id || ! String( text ).trim() ) {
 					say( $w, '<?php echo esc_js( __( 'Nothing in the box.', 'dazont-ecom' ) ); ?>', true );
 					return;
 				}

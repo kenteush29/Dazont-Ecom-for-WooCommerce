@@ -104,7 +104,7 @@
 		var html = '<option value="">' + esc(i18n.anyIntent) + '</option>', seen = {};
 		list.forEach(function (v) {
 			(v || '').split(',').forEach(function (piece) {
-				piece = $.trim(piece);
+				piece = String( piece ).trim();
 				if (piece && !seen[piece]) { seen[piece] = true; html += '<option value="' + esc(piece) + '">' + esc(piece) + '</option>'; }
 			});
 		});

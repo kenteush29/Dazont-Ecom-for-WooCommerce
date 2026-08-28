@@ -49,7 +49,7 @@
 	function rowI18n($row) {
 		var out = {};
 		$row.find('.dze-f-i18n').each(function () {
-			var v = $.trim($(this).val() || '');
+			var v = String( $(this).val() || '' ).trim();
 			if (v) { out[$(this).data('lang')] = v; }
 		});
 		return out;
@@ -120,7 +120,7 @@
 	function getI18n() {
 		var out = {};
 		i18nFields().each(function () {
-			var v = $.trim($(this).val() || '');
+			var v = String( $(this).val() || '' ).trim();
 			if (v) { out[$(this).data('lang')] = v; }
 		});
 		return out;
@@ -159,7 +159,7 @@
 
 	$(document).on('click', '#dze-ev-translate', function () {
 		var $b = $(this), $st = $('#dze-ev-tr-status');
-		var title = $.trim($('#dze-ev-name').val() || '');
+		var title = String( $('#dze-ev-name').val() || '' ).trim();
 		if (!title) {
 			$st.css('color', '#b32d2e').addClass('is-ko').text(i18n.titleFirst);
 			$('#dze-ev-name').trigger('focus');
