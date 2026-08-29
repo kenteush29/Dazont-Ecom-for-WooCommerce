@@ -624,7 +624,11 @@ ok( 'done once the promotion is over',   $next( array_merge( $live_rule, [ 'star
 ok( 'blocked without a key',             $next( $live_rule, [], [], [ 'key' => false ] ), 'blocked' );
 ok( 'blocked when the budget is spent',  $next( $live_rule, [], [], [ 'budget' => false ] ), 'blocked' );
 ok( 'no emails yet: plan',               $next( $live_rule, [] ), 'plan' );
-ok( 'but only once per promotion',       $next( $live_rule, [], [ 'planned' => 1 ] ), 'done' );
+// The deadlock the owner hit, pinned for good: his event was seen WITH its
+// old emails (so the pilot had a record on it), he deleted them all to start
+// over, and a "planned once" flag answered every save with silence. Deleting
+// every email of an event MEANS "start this campaign over".
+ok( 'an emptied event is planned afresh', $next( $live_rule, [], [ 'planned' => 1, 'legacy' => 1, 'note' => 'x' ] ), 'plan' );
 ok( 'an empty email is written',         $next( $live_rule, [ 'm1' => $mk( [ 'subject' => '', 'body' => '' ] ) ] ), 'write' );
 ok( 'a half-written one is left alone',  $next( $live_rule, [ 'm1' => $mk( [ 'body' => '' ] ) ] ), 'done' );
 ok( 'a marker still open wants its picture',
@@ -679,7 +683,6 @@ ok( 'with the reason on the event',      false !== strpos( $line, 'made before t
 // The owner deletes them and saves: the pilot replans, and the campaign is
 // its own from here on.
 $GLOBALS['dze_opts'][ $copy ] = [ 'auto1' => [ 'auto' => DZE_Klaviyo_Auto::auto_of( 'auto1' ), 'emails' => [] ] ];
-$GLOBALS['dze_opts'][ $copy ]['auto1']['auto']['planned'] = 0;
 
 // Step 1: it plans.
 $GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
@@ -690,8 +693,6 @@ ok( 'first, the plan',                   $did['do'], 'plan' );
 ok( 'a plan of its own ends the legacy mark',
 	(int) ( DZE_Klaviyo_Auto::auto_of( 'auto1' )['legacy'] ?? 0 ), 0 );
 ok( 'and it went through',               $did['error'], '' );
-$autorow = DZE_Klaviyo_Auto::auto_of( 'auto1' );
-ok( 'planned once, remembered',          (int) ( $autorow['planned'] ?? 0 ), 1 );
 $made = DZE_Klaviyo::emails_for( 'auto1', $GLOBALS['dze_rules']['auto1'] );
 ok( 'the campaign exists',               count( $made ), 1 );
 $auto_mail = (string) array_key_first( $made );
@@ -707,6 +708,21 @@ ok( 'on the planned email',              $did['email'], $auto_mail );
 $mail3 = DZE_Klaviyo::emails_for( 'auto1', $GLOBALS['dze_rules']['auto1'] )[ $auto_mail ];
 ok( 'and the email is kept at once',     $mail3['subject'], 'Autumn is here' );
 ok( 'body included',                     '' !== trim( (string) $mail3['body'] ), true );
+// The human quality control: what the pilot wrote asks to be READ. The mark
+// travels with the email, survives the event's Save, is counted on the
+// status line, and only a person takes it off.
+ok( 'and marked for a human to check',   ! empty( $mail3['auto_made'] ), true );
+DZE_Klaviyo::save_copy( 'auto1', $GLOBALS['dze_rules']['auto1'], [
+	'dze_email_shown' => 1,
+	'dze_email' => [ $auto_mail => [ 'exists' => 1, 'kind' => 'launch', 'when' => $tomorrow3, 'subject' => 'Autumn is here' ] ],
+] );
+ok( 'the mark survives the form save',
+	! empty( get_option( $copy )['auto1']['emails'][ $auto_mail ]['auto_made'] ), true );
+$line = DZE_Klaviyo_Auto::status_line( 'auto1', $GLOBALS['dze_rules']['auto1'] );
+ok( 'the status line counts the unread', false !== strpos( $line, '1 TO CHECK' ), true );
+DZE_Klaviyo::put_email( 'auto1', $auto_mail, [ 'auto_made' => 0 ] );
+ok( 'a person read it: the mark goes',
+	! empty( DZE_Klaviyo::emails_for( 'auto1', $GLOBALS['dze_rules']['auto1'] )[ $auto_mail ]['auto_made'] ), false );
 
 // Step 3 would file the draft in Klaviyo. The account is a stub with no real
 // template behind it, so the step FAILS — which is the path worth proving:
@@ -731,7 +747,6 @@ ok( 'a save clears the way',             (int) ( DZE_Klaviyo_Auto::auto_of( 'aut
 DZE_Klaviyo::put_email( 'auto1', $auto_mail, [ 'draft' => [
 	'campaign' => 'C9', 'message' => '01X', 'done_langs' => [ 'fr', 'de' ], 'day' => $in5,
 ] ] );
-$GLOBALS['dze_opts'][ $copy ]['auto1']['auto']['planned'] = 1;
 $draft9 = static fn( string $status ): string => json_encode( [ 'data' => [ 'id' => 'C9', 'attributes' => [
 	'status' => $status, 'send_strategy' => [ 'method' => 'static', 'datetime' => $in5 . 'T09:00:00+00:00' ],
 	'send_time' => $in5 . 'T09:00:00+00:00' ] ] ] );
