@@ -589,6 +589,19 @@ DZE_Klaviyo::save_copy( 'promo', $promo2, [
 ok( 'a form save keeps the deal',
 	get_option( $copy )['promo']['emails'][ $ids2[0] ]['products'] ?? [], [ 3, 1 ] );
 
+echo "What the autopilot does when nobody chose\n";
+// The default is the safe one: a shop that never touched the setting gets
+// its campaigns PREPARED — written, drafted, translated — and nothing is
+// ever scheduled. An update must not start sending marketing emails on its
+// own; going live is one explicit selection, made by a person.
+$GLOBALS['dze_opts']['dze_klaviyo'] = [];
+ok( 'never chosen means prepare, not send', DZE_Klaviyo_Auto::mode(), 'prepare' );
+$GLOBALS['dze_opts']['dze_klaviyo'] = [ 'auto' => 'schedule' ];
+ok( 'chosen, it goes all the way',          DZE_Klaviyo_Auto::mode(), 'schedule' );
+$GLOBALS['dze_opts']['dze_klaviyo'] = [ 'auto' => '' ];
+ok( 'and off means off',                    DZE_Klaviyo_Auto::mode(), '' );
+$GLOBALS['dze_opts']['dze_klaviyo'] = [];
+
 echo "The autopilot decides\n";
 // The one function that says what a promotion still needs. Everything the
 // pilot does hangs on these answers, so they are pinned one by one.
@@ -646,7 +659,7 @@ $GLOBALS['dze_rules'] = [ 'auto1' => [
 	'type' => 'sale', 'enabled' => 1, 'title' => 'Autumn', 'percent' => 15,
 	'start' => $tomorrow3, 'end' => gmdate( 'Y-m-d', time() + 9 * 86400 ),
 ] ];
-$GLOBALS['dze_opts']['dze_klaviyo'] = [ 'included' => 'SEG1', 'shell' => 'frame' ];
+$GLOBALS['dze_opts']['dze_klaviyo'] = [ 'included' => 'SEG1', 'shell' => 'frame', 'auto' => 'schedule' ];
 $GLOBALS['dze_opts'][ $copy ]       = [];
 $GLOBALS['dze_transients']          = [];
 

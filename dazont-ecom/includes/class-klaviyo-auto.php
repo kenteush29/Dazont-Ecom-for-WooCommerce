@@ -82,13 +82,18 @@ final class DZE_Klaviyo_Auto {
 	// =========================================================================
 
 	/**
-	 * How far the pilot goes on its own: 'schedule' (all the way, the
-	 * default), 'prepare' (up to translated drafts in Klaviyo), '' (off).
+	 * How far the pilot goes on its own: 'schedule' (all the way),
+	 * 'prepare' (up to translated drafts in Klaviyo — the default), '' (off).
+	 *
+	 * The default is PREPARE, deliberately: a shop that never chose must not
+	 * find an update sending marketing emails by itself. Going live is one
+	 * explicit selection on the settings screen, made by a person — and made
+	 * once, since the choice is stored.
 	 */
 	public static function mode(): string {
 		$s = DZE_Klaviyo::settings();
-		$m = array_key_exists( 'auto', $s ) ? (string) $s['auto'] : 'schedule';
-		return in_array( $m, [ '', 'prepare', 'schedule' ], true ) ? $m : 'schedule';
+		$m = array_key_exists( 'auto', $s ) ? (string) $s['auto'] : 'prepare';
+		return in_array( $m, [ '', 'prepare', 'schedule' ], true ) ? $m : 'prepare';
 	}
 
 	// =========================================================================

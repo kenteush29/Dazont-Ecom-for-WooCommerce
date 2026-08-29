@@ -870,7 +870,7 @@ final class DZE_Klaviyo {
 		}
 		if ( array_key_exists( 'auto', $in ) ) {
 			$mode = (string) $in['auto'];
-			$out['auto'] = in_array( $mode, [ '', 'prepare', 'schedule' ], true ) ? $mode : 'schedule';
+			$out['auto'] = in_array( $mode, [ '', 'prepare', 'schedule' ], true ) ? $mode : 'prepare';
 		}
 		if ( array_key_exists( 'days', $in ) ) {
 			$out['days'] = max( 1, min( 365, (int) $in['days'] ) );
@@ -6488,10 +6488,10 @@ final class DZE_Klaviyo {
 				<tr>
 					<th scope="row"><label for="dze-klav-auto"><?php esc_html_e( 'When an event is switched on', 'dazont-ecom' ); ?></label></th>
 					<td>
-						<?php $dze_auto = class_exists( 'DZE_Klaviyo_Auto' ) ? DZE_Klaviyo_Auto::mode() : 'schedule'; ?>
+						<?php $dze_auto = class_exists( 'DZE_Klaviyo_Auto' ) ? DZE_Klaviyo_Auto::mode() : 'prepare'; ?>
 						<select id="dze-klav-auto" name="<?php echo esc_attr( self::OPT . '[auto]' ); ?>">
-							<option value="schedule" <?php selected( 'schedule', $dze_auto ); ?>><?php esc_html_e( 'Prepare its emails and schedule them — they go out on their day', 'dazont-ecom' ); ?></option>
-							<option value="prepare" <?php selected( 'prepare', $dze_auto ); ?>><?php esc_html_e( 'Prepare its emails as Klaviyo drafts — nothing goes out until you schedule', 'dazont-ecom' ); ?></option>
+							<option value="prepare" <?php selected( 'prepare', $dze_auto ); ?>><?php esc_html_e( 'Prepare its emails as Klaviyo drafts — nothing ever goes out by itself', 'dazont-ecom' ); ?></option>
+							<option value="schedule" <?php selected( 'schedule', $dze_auto ); ?>><?php esc_html_e( 'Prepare AND schedule them — they really go out on their day', 'dazont-ecom' ); ?></option>
 							<option value="" <?php selected( '', $dze_auto ); ?>><?php esc_html_e( 'Do nothing — emails are made by hand, on the event', 'dazont-ecom' ); ?></option>
 						</select>
 						<p class="description" style="max-width:820px;">
