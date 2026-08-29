@@ -232,7 +232,13 @@ final class DZE_Klaviyo_Auto {
 				continue;
 			}
 			if ( $ctx['images'] && '' === trim( (string) ( $mail['picture'] ?? '' ) )
-				&& false !== strpos( (string) ( $mail['body'] ?? '' ), DZE_Klaviyo::PICTURE_MARK ) ) {
+				&& ( false !== strpos( (string) ( $mail['body'] ?? '' ), DZE_Klaviyo::PICTURE_MARK )
+					|| ! empty( $mail['auto_made'] ) ) ) {
+				// A pilot email gets its picture even when the writing forgot
+				// to mark a place for one — it goes at the top then, exactly
+				// as the browser's own fallback puts it. Only an email a
+				// PERSON made without a marker is read as "no picture wanted":
+				// forcing one there would be touching their work.
 				return $no( 'image', '', $email_id );
 			}
 			if ( '' === (string) ( $mail['draft']['campaign'] ?? '' ) ) {
@@ -412,6 +418,18 @@ final class DZE_Klaviyo_Auto {
 				);
 				DZE_Klaviyo::keep_picture( $rule_id, $email_id, (string) $made['url'] );
 				DZE_Klaviyo::charge_promo( $rule_id, class_exists( 'DZE_Content' ) ? DZE_Content::last_image_cost() : 0.0 );
+				// A picture that arrives AFTER the draft was filed leaves that
+				// draft showing yesterday's email. It is refiled in place —
+				// the same campaign, rewritten by the same function a click
+				// uses — and its translations are owed again, so the next
+				// passes write them against the body Klaviyo now holds.
+				$mail = DZE_Klaviyo::emails_for( $rule_id, $rule )[ $email_id ] ?? [];
+				if ( '' !== (string) ( $mail['draft']['campaign'] ?? '' ) ) {
+					DZE_Klaviyo::put_email( $rule_id, $email_id, [
+						'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [ 'done_langs' => [] ] ),
+					] );
+					DZE_Klaviyo::draft( $rule_id, $email_id );
+				}
 				return;
 			case 'draft':
 				DZE_Klaviyo::draft( $rule_id, $email_id );
@@ -523,6 +541,11 @@ final class DZE_Klaviyo_Auto {
 		if ( $unread > 0 ) {
 			// The human quality control: what the pilot made and nobody read.
 			$bits[] = sprintf( _n( '%d TO CHECK', '%d TO CHECK', $unread, 'dazont-ecom' ), $unread );
+		}
+		if ( ! $ctx['images'] ) {
+			// The one reason an email comes out with no opening picture that
+			// nothing else on this screen would ever say.
+			$bits[] = __( 'pictures OFF in the settings', 'dazont-ecom' );
 		}
 		$line = $word . ' ' . implode( ' · ', $bits );
 		if ( 'done' === $next['do'] ) {

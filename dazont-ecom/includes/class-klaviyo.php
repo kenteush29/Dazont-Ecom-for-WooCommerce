@@ -2316,8 +2316,17 @@ final class DZE_Klaviyo {
 		// reload — had to remember to put the two back together, and one of
 		// them always forgot.
 		$body = (string) ( self::email_for( $rule_id, $email_id )['body'] ?? '' );
-		if ( '' !== $url && '' !== $body && false !== strpos( $body, self::PICTURE_MARK ) ) {
-			$write['body'] = str_replace( self::PICTURE_MARK, $url, $body );
+		if ( '' !== $url && '' !== $body ) {
+			if ( false !== strpos( $body, self::PICTURE_MARK ) ) {
+				$write['body'] = str_replace( self::PICTURE_MARK, $url, $body );
+			} elseif ( false === strpos( $body, $url ) ) {
+				// The writing left no hole — a model that forgot the marker,
+				// or an older email. An opening picture opens: it goes at the
+				// top, in exactly the markup the browser's own fallback uses,
+				// so the two paths cannot drift apart.
+				$write['body'] = '<p style="margin:0 0 14px;"><img src="' . esc_url( $url ) . '" width="544" alt="" '
+					. 'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' . $body;
+			}
 		}
 		self::put_email( $rule_id, $email_id, $write );
 	}
@@ -6127,7 +6136,7 @@ final class DZE_Klaviyo {
 		if ( '' !== $dze_auto_line ) :
 			$dze_auto_stuck = false !== strpos( $dze_auto_line, __( 'Autopilot: stopped', 'dazont-ecom' ) );
 			?>
-			<p style="max-width:880px;margin:0 0 10px;padding:8px 12px;border-left:4px solid <?php echo $dze_auto_stuck ? '#dba617' : '#00794b'; ?>;background:<?php echo $dze_auto_stuck ? '#fcf9e8' : '#edfaef'; ?>;font-size:13px;">
+			<p style="max-width:1400px;margin:0 0 10px;padding:8px 12px;border-left:4px solid <?php echo $dze_auto_stuck ? '#dba617' : '#00794b'; ?>;background:<?php echo $dze_auto_stuck ? '#fcf9e8' : '#edfaef'; ?>;font-size:13px;">
 				<?php echo esc_html( $dze_auto_line ); ?>
 			</p>
 		<?php endif; ?>
@@ -6499,18 +6508,18 @@ final class DZE_Klaviyo {
 			</div>
 
 			<style>
-				.dze-mail-list{max-width:880px;border:1px solid #dcdcde;border-radius:4px;overflow:hidden;background:#fff;}
-				.dze-mail{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid #f0f0f1;}
+				.dze-mail-list{max-width:1400px;border:1px solid #dcdcde;border-radius:4px;overflow:hidden;background:#fff;}
+				.dze-mail{display:flex;align-items:center;gap:22px;padding:14px 18px;border-bottom:1px solid #f0f0f1;}
 				.dze-mail:last-child{border-bottom:0;}
 				.dze-mail.is-on{background:#f6f7f7;box-shadow:inset 3px 0 0 #2271b1;}
-				.dze-mail-thumb{width:76px;height:56px;flex:0 0 76px;border:1px solid #e6e6e6;background:#fff;overflow:hidden;position:relative;}
-				.dze-mail-thumb iframe{position:absolute;top:0;left:0;width:600px;height:440px;border:0;transform:scale(.1266);transform-origin:0 0;pointer-events:none;}
-				.dze-mail-what{flex:1;min-width:0;}
-				.dze-mail-what strong{margin-right:8px;}
+				.dze-mail-thumb{width:110px;height:82px;flex:0 0 110px;border:1px solid #e6e6e6;background:#fff;overflow:hidden;position:relative;border-radius:3px;}
+				.dze-mail-thumb iframe{position:absolute;top:0;left:0;width:600px;height:448px;border:0;transform:scale(.1833);transform-origin:0 0;pointer-events:none;}
+				.dze-mail-what{flex:1;min-width:0;line-height:1.7;}
+				.dze-mail-what strong{margin-right:8px;font-size:14px;}
 				.dze-mail-when{color:#646970;font-size:12px;}
 				.dze-smart{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#eef4fb;color:#2271b1;font-size:11px;white-space:nowrap;vertical-align:1px;}
 				.dze-mail-subject{display:block;color:#50575e;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-				.dze-mail-state{font-size:12px;white-space:nowrap;}
+				.dze-mail-state{font-size:12px;white-space:nowrap;line-height:2;text-align:right;}
 				.dze-mail-act{white-space:nowrap;}
 				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
 				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}

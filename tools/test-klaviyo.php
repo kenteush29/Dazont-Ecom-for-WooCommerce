@@ -45,6 +45,7 @@ function sanitize_title( $s ) { return trim( preg_replace( '/[^a-z0-9]+/', '-', 
 function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function sanitize_textarea_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function absint( $n ) { return abs( (int) $n ); }
+function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
 function get_option( $k, $d = false ) { return $GLOBALS['dze_opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['dze_opts'][ $k ] = $v; return true; }
 $GLOBALS['dze_transients'] = [];
@@ -101,6 +102,18 @@ class DZE_Marketing_Ai {
 	public function shop_context_text() { return 'Kula Tactical: tactical and military equipment.'; }
 }
 class DZE_Discounts { public static function get_rules() { return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; } }
+class DZE_Modules { public static function enabled( $id ) { return true; } }
+class DZE_Content {
+	public static function fal_key() { return 'fal_test_key'; }
+	public static function instance() { return new self(); }
+	public static function site_language() { return 'English'; }
+	public static function last_image_cost() { return 0.05; }
+	public function fal_source_data_uri( $id, $size = 'full' ) { return 'data:ref-' . (int) $id; }
+	public function fal_generate( $prompt, $refs, $ratio = '' ) {
+		$GLOBALS['dze_fal'][] = [ 'prompt' => $prompt, 'refs' => $refs, 'ratio' => $ratio ];
+		return 'https://fal.test/made.jpg';
+	}
+}
 class DZE_Ai_Usage {
 	public static function over_budget() { return ! empty( $GLOBALS['dze_broke'] ); }
 	public static function budget_message() { return 'budget spent'; }
@@ -633,6 +646,14 @@ ok( 'an empty email is written',         $next( $live_rule, [ 'm1' => $mk( [ 'su
 ok( 'a half-written one is left alone',  $next( $live_rule, [ 'm1' => $mk( [ 'body' => '' ] ) ] ), 'done' );
 ok( 'a marker still open wants its picture',
 	$next( $live_rule, [ 'm1' => $mk( [ 'picture' => '', 'body' => '<img src="dze:picture" />' ] ) ] ), 'image' );
+// The shop's report: three pilot emails, drafted and translated, none with
+// an opening picture and nothing saying why. A pilot email whose writing
+// left no marker still gets its picture — at the top, like the browser's
+// own fallback; only a marker-less email a PERSON wrote is left alone.
+ok( 'a pilot email without a marker still gets one',
+	$next( $live_rule, [ 'm1' => $mk( [ 'picture' => '', 'auto_made' => 1 ] ) ] ), 'image' );
+ok( 'a hand-made one without a marker is left alone',
+	$next( $live_rule, [ 'm1' => $mk( [ 'picture' => '', 'draft' => [] ] ) ] ), 'draft' );
 ok( 'pictures off: straight to the draft',
 	$next( $live_rule, [ 'm1' => $mk( [ 'picture' => '', 'body' => '<img src="dze:picture" />', 'draft' => [] ] ) ], [], [ 'images' => false ] ), 'draft' );
 ok( 'written and not in Klaviyo: draft', $next( $live_rule, [ 'm1' => $mk( [ 'draft' => [] ] ) ] ), 'draft' );
@@ -845,6 +866,54 @@ $GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'gone2' => [
 $GLOBALS['dze_sent'] = [];
 ok( 'no campaign, no words',           DZE_Klaviyo::forget_email( 'promo', 'gone2' ), '' );
 ok( 'and no call to Klaviyo',          count( $GLOBALS['dze_sent'] ), 0 );
+$GLOBALS['dze_queue'] = [];
+
+
+echo "The pilot makes the picture, and the email carries it\n";
+// One pilot email, written without a marker, not yet in Klaviyo: the image
+// step runs the real chain — the email's own products as references, fal,
+// hosting by Klaviyo — and the photograph opens the body.
+$GLOBALS['dze_rules'] = [ 'auto2' => [
+	'type' => 'sale', 'enabled' => 1, 'title' => 'Winter', 'percent' => 12,
+	'start' => $tomorrow3, 'end' => gmdate( 'Y-m-d', time() + 8 * 86400 ),
+] ];
+$GLOBALS['dze_opts'][ $copy ]['auto2'] = [ 'auto' => [ 'legacy' => 0 ], 'emails' => [ 'p1' => [
+	'kind' => 'launch', 'when' => $tomorrow3, 'subject' => 'Winter is here', 'preview' => '',
+	'body' => '<h1>Winter</h1><p>12% off.</p>', 'picture' => '', 'auto_made' => 1,
+	'products' => [ 4, 7 ], 'draft' => [],
+] ] ];
+$GLOBALS['dze_fal']   = [];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'attributes' => [
+	'image_url' => 'https://klaviyo.img/hosted.jpg' ] ] ] ) ] ];
+$did = DZE_Klaviyo_Auto::step( 'auto2' );
+ok( 'the missing picture is the next step', $did['do'], 'image' );
+ok( 'and it is made without a hitch',       $did['error'], '' );
+$shot = $GLOBALS['dze_fal'][0] ?? [];
+ok( 'from the products of THIS email',      $shot['refs'] ?? [], [ 'data:ref-904', 'data:ref-907' ] );
+ok( 'as a wide banner',                     $shot['ratio'] ?? '', '3:2' );
+ok( 'the brief asks for the moment, not a line-up',
+	false !== stripos( (string) ( $shot['prompt'] ?? '' ), 'photograph one or two of them somewhere real' ), true );
+$p1 = DZE_Klaviyo::emails_for( 'auto2', $GLOBALS['dze_rules']['auto2'] )['p1'];
+ok( 'the email keeps the hosted address',   $p1['picture'], 'https://klaviyo.img/hosted.jpg' );
+ok( 'and OPENS on it, marker or none',
+	0 === strpos( (string) $p1['body'], '<p style="margin:0 0 14px;"><img src="https://klaviyo.img/hosted.jpg"' ), true );
+
+// The same, when the draft was already filed: the picture arriving late owes
+// Klaviyo a refile and the translations a second pass — both are set in
+// motion, and what is stored says so.
+$GLOBALS['dze_opts'][ $copy ]['auto2']['emails']['p1'] = [
+	'kind' => 'launch', 'when' => $tomorrow3, 'subject' => 'Winter is here', 'preview' => '',
+	'body' => '<h1>Winter</h1><p>12% off.</p>', 'picture' => '', 'auto_made' => 1,
+	'products' => [ 4 ], 'draft' => [ 'campaign' => 'C5', 'message' => '01M', 'done_langs' => [ 'fr', 'de' ] ],
+];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'attributes' => [
+	'image_url' => 'https://klaviyo.img/hosted2.jpg' ] ] ] ) ] ];
+$did = DZE_Klaviyo_Auto::step( 'auto2' );
+$p1  = DZE_Klaviyo::emails_for( 'auto2', $GLOBALS['dze_rules']['auto2'] )['p1'];
+ok( 'a late picture is still kept',         $p1['picture'], 'https://klaviyo.img/hosted2.jpg' );
+ok( 'and the translations are owed again',  $p1['draft']['done_langs'] ?? null, [] );
+$GLOBALS['dze_rules'] = null;
 $GLOBALS['dze_queue'] = [];
 
 
