@@ -694,6 +694,16 @@
 		}(0));
 	});
 
+	// A person has read what the autopilot wrote: the mark goes, at once and
+	// in the database, like everything on this screen that changes an email.
+	$(document).on('click', '.dze-mail-checked', function () {
+		var $c = $(this).closest('.dze-mail'), $line = $(this).closest('.dze-mail-check');
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_check', nonce: cfg.nonce, rule: ruleId(), email: $c.data('id') })
+			.done(function (res) {
+				if (res && res.success) { $line.remove(); }
+			});
+	});
+
 	$(document).on('click', '.dze-mail-drop', function () {
 		if (!window.confirm(cfg.i18n.dropMail)) { return; }
 		var $c = $(this).closest('.dze-mail'), id = $c.data('id'), $m = $('#dze-mail-plan-msg');

@@ -101,6 +101,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_meta',   [ __CLASS__, 'ajax_meta' ] );
 		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
 		add_action( 'wp_ajax_dze_klav_drop',    [ __CLASS__, 'ajax_drop' ] );
+		add_action( 'wp_ajax_dze_klav_check',   [ __CLASS__, 'ajax_checked' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
@@ -1918,6 +1919,8 @@ final class DZE_Klaviyo {
 				// Whether writing this one also makes its picture.
 				'want_picture' => ! empty( $email['want_picture'] ),
 				'angle'   => (string) ( $email['angle'] ?? '' ),
+				// Written by the autopilot and not yet read by a person.
+				'auto_made' => ! empty( $email['auto_made'] ),
 				// The products the campaign plan chose for THIS email — ids,
 				// in the order to show them. Empty means no plan chose any,
 				// and the material falls back to the shared shortlist.
@@ -2170,6 +2173,9 @@ final class DZE_Klaviyo {
 				// save of the email they belong to.
 				'angle'    => (string) ( $was['angle'] ?? '' ),
 				'products' => array_values( array_map( 'absint', (array) ( $was['products'] ?? [] ) ) ),
+				// Whether the autopilot's writing has been read by a person:
+				// cleared by its own button, never by a form save.
+				'auto_made' => ! empty( $was['auto_made'] ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => array_key_exists( 'subject', $posted )
 					? mb_substr( sanitize_text_field( (string) $posted['subject'] ), 0, 150 )
@@ -2270,6 +2276,23 @@ final class DZE_Klaviyo {
 			self::request( 'DELETE', 'templates/' . rawurlencode( $tpl_id ) . '/', null, 30 );
 		}
 		return __( 'Its draft in Klaviyo was deleted too.', 'dazont-ecom' );
+	}
+
+	/**
+	 * A person read an email the autopilot wrote: the "To check" mark goes.
+	 *
+	 * The quality control the automation cannot do itself is a human reading
+	 * the result — so what the pilot makes is LISTED as unchecked until
+	 * somebody says otherwise, and this is them saying it.
+	 */
+	public static function ajax_checked(): void {
+		self::guard();
+		[ $rule_id, , $email_id ] = self::target();
+		if ( '' === $email_id ) {
+			wp_send_json_error( [ 'message' => __( 'Which email?', 'dazont-ecom' ) ] );
+		}
+		self::put_email( $rule_id, $email_id, [ 'auto_made' => 0 ] );
+		wp_send_json_success( [ 'checked' => $email_id ] );
 	}
 
 	/** Removes the email the screen just dropped. */
@@ -6125,6 +6148,12 @@ final class DZE_Klaviyo {
 							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail ) ); ?></strong>
 							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
+							<?php if ( ! empty( $mail['auto_made'] ) ) : ?>
+								<span class="dze-mail-check" style="display:block;margin-top:3px;font-size:12px;color:#996800;">
+									<?php esc_html_e( 'Written by the autopilot — read it before it goes anywhere.', 'dazont-ecom' ); ?>
+									<button type="button" class="button-link dze-mail-checked" style="font-size:12px;"><?php esc_html_e( 'Checked ✓', 'dazont-ecom' ); ?></button>
+								</span>
+							<?php endif; ?>
 						</div>
 						<div class="dze-mail-state">
 							<?php if ( ! empty( $mail['draft']['campaign'] ) ) : ?>
@@ -6536,18 +6565,33 @@ final class DZE_Klaviyo {
 			</table>
 
 			<h2 class="title"><?php esc_html_e( 'Autopilot', 'dazont-ecom' ); ?></h2>
+			<p class="description" style="max-width:880px;">
+				<?php esc_html_e( 'Three steps, climbed in order as confidence grows. Whatever the step, the buttons on an event keep working — writing by hand is always there, and it is how the prompts get tuned.', 'dazont-ecom' ); ?>
+			</p>
 			<table class="form-table" role="presentation">
 				<tr>
-					<th scope="row"><label for="dze-klav-auto"><?php esc_html_e( 'When an event is switched on', 'dazont-ecom' ); ?></label></th>
+					<th scope="row"><?php esc_html_e( 'When an event is enabled', 'dazont-ecom' ); ?></th>
 					<td>
 						<?php $dze_auto = class_exists( 'DZE_Klaviyo_Auto' ) ? DZE_Klaviyo_Auto::mode() : 'prepare'; ?>
-						<select id="dze-klav-auto" name="<?php echo esc_attr( self::OPT . '[auto]' ); ?>">
-							<option value="prepare" <?php selected( 'prepare', $dze_auto ); ?>><?php esc_html_e( 'Prepare its emails as Klaviyo drafts — nothing ever goes out by itself', 'dazont-ecom' ); ?></option>
-							<option value="schedule" <?php selected( 'schedule', $dze_auto ); ?>><?php esc_html_e( 'Prepare AND schedule them — they really go out on their day', 'dazont-ecom' ); ?></option>
-							<option value="" <?php selected( '', $dze_auto ); ?>><?php esc_html_e( 'Do nothing — emails are made by hand, on the event', 'dazont-ecom' ); ?></option>
-						</select>
+						<fieldset style="display:grid;gap:10px;max-width:820px;">
+							<label>
+								<input type="radio" name="<?php echo esc_attr( self::OPT . '[auto]' ); ?>" value="" <?php checked( '', $dze_auto ); ?> />
+								<strong><?php esc_html_e( '1 · Tuning', 'dazont-ecom' ); ?></strong> —
+								<?php esc_html_e( 'the pilot does nothing. You plan and generate emails on the event with its buttons, adjust the prompts, and read the results. Nothing reaches Klaviyo unless you press "Put them all in Klaviyo".', 'dazont-ecom' ); ?>
+							</label>
+							<label>
+								<input type="radio" name="<?php echo esc_attr( self::OPT . '[auto]' ); ?>" value="prepare" <?php checked( 'prepare', $dze_auto ); ?> />
+								<strong><?php esc_html_e( '2 · Prepare', 'dazont-ecom' ); ?></strong> —
+								<?php esc_html_e( 'the pilot plans, writes, makes the pictures, files translated drafts in Klaviyo. NOTHING is ever sent by itself: each email waits as a draft, marked "to check" until you have read it, and goes out only when you press Schedule on its row.', 'dazont-ecom' ); ?>
+							</label>
+							<label>
+								<input type="radio" name="<?php echo esc_attr( self::OPT . '[auto]' ); ?>" value="schedule" <?php checked( 'schedule', $dze_auto ); ?> />
+								<strong><?php esc_html_e( '3 · Full cycle', 'dazont-ecom' ); ?></strong> —
+								<?php esc_html_e( 'everything of step 2, plus the scheduling: emails really go out on their day, including for events accepted from the AI calendar. For when the whole chain has proved itself.', 'dazont-ecom' ); ?>
+							</label>
+						</fieldset>
 						<p class="description" style="max-width:820px;">
-							<?php esc_html_e( 'The plan decides how many emails the event deserves — a short flash sale gets one — then each is written, given its picture, filed in Klaviyo, translated, and scheduled on its own day. It runs in the background, days before anything goes out, and the event shows where it stands. Emails you write or edit yourself are never touched.', 'dazont-ecom' ); ?>
+							<?php esc_html_e( 'It runs in the background, days before anything goes out, under the monthly budget; the event shows where it stands. An email you wrote or edited yourself is never touched, and deleting every email of an event makes the pilot plan that campaign afresh.', 'dazont-ecom' ); ?>
 						</p>
 					</td>
 				</tr>
