@@ -187,12 +187,16 @@ await page.waitForTimeout( 150 );
 ok( 'a later day is left alone', await page.inputValue( '#dze-klav-e-when' ), day( 5 * 86400000 ) );
 
 // A day the browser writes into the list must read like a day the server
-// wrote: the same screen saying the same thing two ways is the bug.
-await page.fill( '#dze-klav-e-when', '2026-08-29' );
+// wrote: the same screen saying the same thing two ways is the bug. A
+// RELATIVE day, never a literal: a date written into this file is in the
+// future on the day the test is written and in the past ever after.
+const in3 = day( 3 * 86400000 );
+await page.fill( '#dze-klav-e-when', in3 );
 await page.dispatchEvent( '#dze-klav-e-when', 'change' );
 await page.waitForTimeout( 150 );
 ok( "a day added here uses the shop's format",
-	( await page.textContent( '.dze-mail-when' ) ).replace( 'Smart', '' ).trim(), '29/08/2026' );
+	( await page.textContent( '.dze-mail-when' ) ).replace( 'Smart', '' ).trim(),
+	in3.slice( 8, 10 ) + '/' + in3.slice( 5, 7 ) + '/' + in3.slice( 0, 4 ) );
 ok( 'and the button says what it does',
 	( await page.textContent( '.dze-mail-open' ) ).trim(), 'Edit' );
 

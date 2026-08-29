@@ -712,6 +712,16 @@
 			.done(function (res) {
 				if (!res || !res.success) {
 					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				// What happened to its campaign in Klaviyo — deleted with it,
+				// left as history, or a warning that needs reading. Deleting a
+				// row used to say nothing, and a draft (or worse, a SCHEDULED
+				// send) lived on in the account with nothing here saying so.
+				var said = res.data && res.data.message;
+				if (said) {
+					var ko = /WILL go out|could not be reached/.test(said);
+					$m.css('color', ko ? '#b32d2e' : '#646970').toggleClass('is-ko', ko).text(said);
 				}
 			})
 			.fail(function () { $m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });

@@ -2206,7 +2206,7 @@ final class DZE_Klaviyo {
 	 * — an email appears when it is written and disappears when it is
 	 * removed, both without waiting for anything.
 	 */
-	public static function forget_email( string $rule_id, string $email_id ): void {
+	public static function forget_email( string $rule_id, string $email_id ): string {
 		$all = get_option( self::OPT_COPY, [] );
 		$all = is_array( $all ) ? $all : [];
 		$one = (array) ( $all[ $rule_id ] ?? [] );
@@ -2215,9 +2215,61 @@ final class DZE_Klaviyo {
 		// call is meant to take away.
 		$one['emails'] = self::emails_for( $rule_id );
 		unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
+		$gone = (array) ( $one['emails'][ $email_id ] ?? [] );
 		unset( $one['emails'][ $email_id ] );
 		$all[ $rule_id ] = $one;
 		update_option( self::OPT_COPY, $all, false );
+		// And its campaign goes with it. An email deleted here that kept a
+		// draft over there was two versions of one decision — worse when the
+		// draft was SCHEDULED, because the row disappeared from the screen
+		// and the email still went out on its day.
+		return self::withdraw_campaign(
+			(string) ( $gone['draft']['campaign'] ?? '' ),
+			(string) ( $gone['draft']['template'] ?? '' )
+		);
+	}
+
+	/**
+	 * Takes one campaign out of Klaviyo because its email is gone here.
+	 *
+	 * A draft is deleted, and its template with it. A scheduled one is first
+	 * returned to a draft — nothing may go out for an email that no longer
+	 * exists — then deleted; when its send history stops Klaviyo hard-deleting
+	 * it, being a harmless draft again is enough, and that is said. One that
+	 * was actually SENT is history, not clutter, and is left exactly as it is.
+	 *
+	 * @return string What was done, for the screen. '' when there was nothing.
+	 */
+	public static function withdraw_campaign( string $camp_id, string $tpl_id = '' ): string {
+		if ( '' === $camp_id ) {
+			return '';
+		}
+		$got = self::request( 'GET', 'campaigns/' . rawurlencode( $camp_id ) . '?fields[campaign]=status', null, 20 );
+		if ( is_wp_error( $got ) ) {
+			return __( 'Klaviyo could not be reached — its copy of this email may remain. Check the account.', 'dazont-ecom' );
+		}
+		$status = strtolower( trim( (string) ( $got['data']['attributes']['status'] ?? '' ) ) );
+		if ( in_array( $status, [ 'sent', 'sending' ], true ) ) {
+			return __( 'Its campaign already went out in Klaviyo, so it stays there as history.', 'dazont-ecom' );
+		}
+		if ( ! ( '' === $status || 0 === strpos( $status, 'draft' ) || 'cancelled' === $status ) ) {
+			// Queued or scheduled: back to a draft FIRST, so nothing can go
+			// out between this moment and the delete — or instead of it.
+			$said = self::unschedule( $camp_id );
+			if ( '' !== $said ) {
+				return __( 'It is scheduled in Klaviyo and could not be unscheduled — it WILL go out unless you stop it there:', 'dazont-ecom' ) . ' ' . $said;
+			}
+		}
+		$dead = self::request( 'DELETE', 'campaigns/' . rawurlencode( $camp_id ) . '/', null, 30 );
+		if ( is_wp_error( $dead ) ) {
+			// Klaviyo refuses to hard-delete a campaign that has been through
+			// a send job. A draft that nothing will ever send is enough.
+			return __( 'Its campaign in Klaviyo is back to a harmless draft; Klaviyo keeps it because it once held a send job.', 'dazont-ecom' );
+		}
+		if ( '' !== $tpl_id ) {
+			self::request( 'DELETE', 'templates/' . rawurlencode( $tpl_id ) . '/', null, 30 );
+		}
+		return __( 'Its draft in Klaviyo was deleted too.', 'dazont-ecom' );
 	}
 
 	/** Removes the email the screen just dropped. */
@@ -2227,8 +2279,8 @@ final class DZE_Klaviyo {
 		if ( '' === $email_id ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing to remove.', 'dazont-ecom' ) ] );
 		}
-		self::forget_email( $rule_id, $email_id );
-		wp_send_json_success( [ 'removed' => $email_id ] );
+		$said = self::forget_email( $rule_id, $email_id );
+		wp_send_json_success( [ 'removed' => $email_id, 'message' => $said ] );
 	}
 
 	/** Remembers the picture made for one email. */
