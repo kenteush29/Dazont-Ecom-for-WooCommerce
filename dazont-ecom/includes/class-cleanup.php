@@ -62,7 +62,7 @@ final class DZE_Cleanup {
 				'post_meta' => [ '_merchant_center_activation' ],
 			],
 			'marketing_ai' => [
-				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage' ],
+				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage', 'dze_ai_trace' ],
 				'transients' => [ 'dze_mai_shop_context', 'dze_mai_models' ],
 			],
 			// The drafts themselves live in Klaviyo, which is not our database

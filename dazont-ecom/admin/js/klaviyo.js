@@ -923,6 +923,9 @@
 	function briefReset() {
 		$('#dze-klav-brief').prop('open', false).data('for', '');
 		$('#dze-klav-brief-txt').text('');
+		$('#dze-klav-picbrief').prop('open', false).data('for', '');
+		$('#dze-klav-picbrief-txt').text('');
+		$('#dze-klav-picbrief-refs').empty();
 	}
 
 	// <details> fires "toggle", which does not bubble — so the summary's own
@@ -940,6 +943,32 @@
 				}
 				$d.data('for', current);
 				$out.text(res.data.brief || '');
+			})
+			.fail(function () { $out.text(i18n.error); });
+	});
+
+	// The picture's own brief, the same gesture as the writing's: opened, it
+	// asks once per email and shows the exact prompt and the exact reference
+	// photographs the next Generate sends.
+	$(document).on('click', '#dze-klav-picbrief > summary', function () {
+		var $d = $(this).closest('details'), $out = $('#dze-klav-picbrief-txt'), $refs = $('#dze-klav-picbrief-refs');
+		if ($d.prop('open') || !current || $d.data('for') === current) { return; }
+		$out.text(cfg.i18n.briefing);
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_picbrief', nonce: cfg.nonce, rule: ruleId(), email: current })
+			.done(function (res) {
+				if (!res || !res.success) {
+					$out.text((res && res.data && res.data.message) || i18n.error);
+					return;
+				}
+				$d.data('for', current);
+				$out.text((res.data.note ? res.data.note + '\n\n' : '') + (res.data.prompt || ''));
+				$refs.empty();
+				$.each(res.data.refs || [], function (i, url) {
+					$refs.append($('<img/>', { src: url, alt: '' }).css({
+						width: '86px', height: '64px', 'object-fit': 'cover',
+						border: '1px solid #dcdcde', 'border-radius': '4px'
+					}));
+				});
 			})
 			.fail(function () { $out.text(i18n.error); });
 	});

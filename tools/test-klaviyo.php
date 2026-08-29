@@ -917,5 +917,21 @@ $GLOBALS['dze_rules'] = null;
 $GLOBALS['dze_queue'] = [];
 
 
+echo "A preview an inbox can show\n";
+// The owner's screenshot: "Best-sellers across headwear, balaclavas and
+// pouches, now 10% off the whole shop." — thirteen words against a prompt
+// that asks for eight. A rule the code does not hold is a rule that holds
+// until it does not: the cut is mechanical now, on a word, at ninety chars.
+ok( 'a short preview is left alone',
+	DZE_Klaviyo::tight_preview( 'Everything 10% off until Sunday' ), 'Everything 10% off until Sunday' );
+$long = 'Best-sellers across headwear, balaclavas and pouches, now 10% off the whole shop until Sunday night only';
+$cut  = DZE_Klaviyo::tight_preview( $long );
+ok( 'a rambling one is cut',            mb_strlen( $cut ) <= 90, true );
+ok( 'on a word, never inside one',      preg_match( '/\w$/u', $cut ) === 1 && str_starts_with( $long, $cut ), true );
+$GLOBALS['dze_answers'] = [ json_encode( [ 'subject' => 'S', 'preview' => $long, 'body' => '<p>Short.</p>' ] ) ];
+$made = DZE_Klaviyo::write_for( 'promo', $promo2, $ids2[0] );
+ok( 'and the writing path really uses it', mb_strlen( (string) $made['preview'] ) <= 90, true );
+
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

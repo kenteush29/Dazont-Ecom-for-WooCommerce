@@ -61,6 +61,89 @@ final class DZE_Ai_Usage {
 		self::$unit = sanitize_key( $unit );
 	}
 
+	// =========================================================================
+	// The trace: the last AI calls, wording included
+	// =========================================================================
+
+	/** Where the last calls are kept. Never autoloaded — read on one screen. */
+	private const TRACE = 'dze_ai_trace';
+
+	/** How many calls the trace holds before the oldest rolls off. */
+	private const TRACE_KEEP = 12;
+
+	/**
+	 * One AI call, written down whole: which tool asked, on which model, WHAT
+	 * WAS SENT and WHAT CAME BACK, and how long it took.
+	 *
+	 * This is the debugging the owner actually asked for, in his words: "je ne
+	 * sais pas exactement ce qui se passe côté code". Every text call goes
+	 * through complete() and every image through fal_generate(), so writing it
+	 * down there covers every AI feature of the plugin at once — the emails,
+	 * the pictures, the plans, the translations, the diagnostics to come. A
+	 * failure is written down too, with the error where the answer would be,
+	 * because the call that FAILED is the one worth reading.
+	 */
+	public static function trace( string $provider, string $model, string $sent, string $got, float $secs ): void {
+		$rows   = get_option( self::TRACE, [] );
+		$rows   = is_array( $rows ) ? $rows : [];
+		$rows[] = [
+			't'        => time(),
+			'unit'     => '' !== self::$unit ? self::$unit : 'other',
+			'provider' => sanitize_key( $provider ),
+			'model'    => sanitize_text_field( $model ),
+			'secs'     => round( max( 0, $secs ), 1 ),
+			// Whole enough to read, bounded enough to store: a prompt is a few
+			// KB of text; reference photographs travel as base64 and would be
+			// megabytes of noise, so callers describe them in a line instead.
+			'sent'     => mb_substr( $sent, 0, 20000 ),
+			'got'      => mb_substr( $got, 0, 10000 ),
+		];
+		update_option( self::TRACE, array_slice( $rows, -self::TRACE_KEEP ), false );
+	}
+
+	/** The last calls, newest first. @return array[] */
+	public static function trace_rows(): array {
+		$rows = get_option( self::TRACE, [] );
+		return array_reverse( is_array( $rows ) ? $rows : [] );
+	}
+
+	/**
+	 * The trace, on screen: one line per call, the whole exchange behind a
+	 * click. Everything the model was told and everything it answered, for
+	 * the last dozen calls, whatever tool made them.
+	 */
+	public static function render_trace(): void {
+		$rows = self::trace_rows();
+		echo '<p class="description" style="max-width:880px;">'
+			. esc_html__( 'The last calls this plugin made to a model — what was sent, what came back, how long it took. When a result is wrong (a preview too long, an invented detail on a picture), the cause is in here: open the call, read what was actually asked.', 'dazont-ecom' )
+			. '</p>';
+		if ( ! $rows ) {
+			echo '<p>' . esc_html__( 'No call recorded yet — the trace fills as the tools are used.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		$units = self::units();
+		foreach ( $rows as $row ) {
+			$unit = (string) ( $units[ (string) ( $row['unit'] ?? '' ) ] ?? $row['unit'] ?? '' );
+			$ko   = 0 === strpos( (string) ( $row['got'] ?? '' ), 'ERROR' );
+			printf(
+				'<details style="max-width:1100px;margin:0 0 6px;border:1px solid %5$s;border-radius:4px;background:#fff;">'
+				. '<summary style="cursor:pointer;padding:8px 12px;font-size:13px;%6$s">%1$s · <strong>%2$s</strong> · %3$s · %4$s</summary>',
+				esc_html( human_time_diff( (int) ( $row['t'] ?? 0 ), time() ) . ' ' . __( 'ago', 'dazont-ecom' ) ),
+				esc_html( $unit ),
+				esc_html( (string) ( $row['model'] ?? '' ) ),
+				esc_html( ( (float) ( $row['secs'] ?? 0 ) ) . ' s' ),
+				$ko ? '#b32d2e' : '#dcdcde',
+				$ko ? 'color:#b32d2e;' : ''
+			);
+			echo '<div style="padding:0 12px 10px;">';
+			echo '<p style="margin:6px 0 4px;font-weight:600;font-size:12px;">' . esc_html__( 'Sent', 'dazont-ecom' ) . '</p>';
+			echo '<pre style="max-height:320px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;">' . esc_html( (string) ( $row['sent'] ?? '' ) ) . '</pre>';
+			echo '<p style="margin:10px 0 4px;font-weight:600;font-size:12px;">' . esc_html__( 'Answer', 'dazont-ecom' ) . '</p>';
+			echo '<pre style="max-height:240px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;">' . esc_html( (string) ( $row['got'] ?? '' ) ) . '</pre>';
+			echo '</div></details>';
+		}
+	}
+
 	/** Human labels for the units the plugin charges to. */
 	public static function units(): array {
 		return [
