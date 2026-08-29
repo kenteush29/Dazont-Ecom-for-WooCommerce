@@ -753,5 +753,85 @@ $GLOBALS['dze_rules'] = null;
 $GLOBALS['dze_queue'] = [];
 
 
+echo "Deleting an email takes its campaign out of Klaviyo\n";
+// The gap the owner found by asking: the cross removed the row here and left
+// the campaign there — clutter when it was a draft, a real send when it was
+// scheduled. Now the campaign follows the email, and each case says itself.
+$wipe = static function ( string $status ) use ( $copy ): void {
+	$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'gone1' => [
+		'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 3 * 86400 ), 'subject' => 'Bye', 'body' => '<p>B</p>',
+		'draft' => [ 'campaign' => 'C7', 'template' => 'T7', 'status_seed' => $status ],
+	] ] ] ];
+};
+
+// A plain draft: campaign deleted, template deleted, row gone.
+$wipe( 'Draft' );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C7","attributes":{"status":"Draft"}}}' ],
+	[ 'code' => 204, 'body' => '' ],
+	[ 'code' => 204, 'body' => '' ],
+];
+$said = DZE_Klaviyo::forget_email( 'promo', 'gone1' );
+ok( 'the row is gone here',           isset( get_option( $copy )['promo']['emails']['gone1'] ), false );
+$dels = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'DELETE' === ( $c['method'] ?? '' ) ) );
+ok( 'the draft is deleted over there', false !== strpos( (string) ( $dels[0]['url'] ?? '' ), 'campaigns/C7/' ), true );
+ok( 'and its template with it',        false !== strpos( (string) ( $dels[1]['url'] ?? '' ), 'templates/T7/' ), true );
+ok( 'and the screen is told',          false !== strpos( $said, 'deleted too' ), true );
+
+// A SCHEDULED one: back to a draft FIRST, then deleted — nothing may go out
+// for an email that no longer exists.
+$wipe( 'Scheduled' );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C7","attributes":{"status":"Scheduled"}}}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C7"}}' ],
+	[ 'code' => 204, 'body' => '' ],
+	[ 'code' => 204, 'body' => '' ],
+];
+DZE_Klaviyo::forget_email( 'promo', 'gone1' );
+$revert = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => false !== strpos( (string) ( $c['url'] ?? '' ), 'campaign-send-jobs/' ) ) );
+ok( 'a scheduled one is unscheduled first',
+	json_decode( (string) ( $revert[0]['body'] ?? '' ), true )['data']['attributes']['action'] ?? '', 'revert' );
+ok( 'then deleted',
+	count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'DELETE' === ( $c['method'] ?? '' ) ) ) >= 1, true );
+
+// One that cannot be unscheduled is the dangerous case, and it SHOUTS.
+$wipe( 'Scheduled' );
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C7","attributes":{"status":"Scheduled"}}}' ],
+	[ 'code' => 409, 'body' => '{"errors":[{"detail":"Job is running"}]}' ],
+];
+$said = DZE_Klaviyo::forget_email( 'promo', 'gone1' );
+ok( 'a stuck schedule is said in capitals', false !== strpos( $said, 'WILL go out' ), true );
+
+// A sent one is history, and history is left alone.
+$wipe( 'Sent' );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C7","attributes":{"status":"Sent"}}}' ] ];
+$said = DZE_Klaviyo::forget_email( 'promo', 'gone1' );
+ok( 'a sent campaign is left in Klaviyo',
+	count( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'DELETE' === ( $c['method'] ?? '' ) ) ), 0 );
+ok( 'and named as history',            false !== strpos( $said, 'history' ), true );
+
+// Klaviyo refusing the hard delete (a past send job) still ends safe.
+$wipe( 'Draft' );
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C7","attributes":{"status":"Draft"}}}' ],
+	[ 'code' => 409, 'body' => '{"errors":[{"detail":"Cannot delete"}]}' ],
+];
+$said = DZE_Klaviyo::forget_email( 'promo', 'gone1' );
+ok( 'a refused delete stays a harmless draft', false !== strpos( $said, 'harmless draft' ), true );
+
+// An email that never reached Klaviyo says nothing at all.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'gone2' => [
+	'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 3 * 86400 ), 'subject' => '', 'body' => '',
+] ] ] ];
+$GLOBALS['dze_sent'] = [];
+ok( 'no campaign, no words',           DZE_Klaviyo::forget_email( 'promo', 'gone2' ), '' );
+ok( 'and no call to Klaviyo',          count( $GLOBALS['dze_sent'] ), 0 );
+$GLOBALS['dze_queue'] = [];
+
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
