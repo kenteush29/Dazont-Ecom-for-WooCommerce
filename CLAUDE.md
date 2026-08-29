@@ -234,7 +234,11 @@ owner communicates in French.
   error handling, and a white page carries no message.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
-  `tools/test-*.php` beside them. They run the code against a fake shop and
+  `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo
+  blocks splitter, fed the shapes a model actually writes: one wrapper table
+  around the whole email once cost every written word of the draft) and
+  `test-trace.php` (the AI trace: a real `complete()` call with only the HTTP
+  transport stubbed must leave a readable row, failures included) among them. They run the code against a fake shop and
   check the ANSWERS — that a criterion on `_block_image_1` fires on a product
   where that field is empty, that a gallery is counted rather than read as
   text, that a row written against a field id we have since dropped still

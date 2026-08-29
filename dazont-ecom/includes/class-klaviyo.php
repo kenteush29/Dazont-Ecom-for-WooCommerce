@@ -97,6 +97,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_schedule', [ __CLASS__, 'ajax_schedule' ] );
 		add_action( 'wp_ajax_dze_klav_write',   [ __CLASS__, 'ajax_write' ] );
 		add_action( 'wp_ajax_dze_klav_brief',   [ __CLASS__, 'ajax_brief' ] );
+		add_action( 'wp_ajax_dze_klav_picbrief', [ __CLASS__, 'ajax_picture_brief' ] );
 		add_action( 'wp_ajax_dze_klav_assent', [ __CLASS__, 'ajax_as_sent' ] );
 		add_action( 'wp_ajax_dze_klav_meta',   [ __CLASS__, 'ajax_meta' ] );
 		add_action( 'wp_ajax_dze_klav_plan',    [ __CLASS__, 'ajax_plan' ] );
@@ -4891,6 +4892,7 @@ final class DZE_Klaviyo {
 			. "- The header and the footer are added around your body. They ALREADY carry the shop's service promises — worldwide delivery, customer support, secure payment — as badges. Never write those promises in the body: not as a line, not as a reassurance, not as a closing sentence. The reader sees them once, under what you wrote.\n"
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
 			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
+			. "- PREVIEW TEXT: eight words at the very most. An inbox shows around forty characters of it — everything past that is written for nobody.\n"
 			. "- When other emails of this promotion are listed above, this one has to be recognisable as a DIFFERENT email at a glance: another subject line, other headings, another opening sentence, other products first. If the only difference you can find is the same offer said in other words, you have the wrong angle — go back to what this moment of the promotion is for and write from there.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
@@ -4923,7 +4925,7 @@ final class DZE_Klaviyo {
 		DZE_Ai_Usage::finished( 'promo_email' );
 		return [
 			'subject' => mb_substr( sanitize_text_field( (string) ( $json['subject'] ?? '' ) ), 0, 150 ),
-			'preview' => mb_substr( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ), 0, 150 ),
+			'preview' => self::tight_preview( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ) ),
 			'body'    => self::place_products( self::clean_html( $body ), $mat['cards'] ),
 			'warning' => $warning,
 			// Whether this email left a place for a picture. The browser makes
@@ -4932,6 +4934,24 @@ final class DZE_Klaviyo {
 			// prompt, never from a sentence written here.
 			'picture' => ( '' === $picture && false !== strpos( $body, self::PICTURE_MARK ) ) ? '1' : '',
 		];
+	}
+
+	/**
+	 * A preview text an inbox can actually show.
+	 *
+	 * The prompt asks for eight words; the model writes thirteen anyway, and a
+	 * rule the code does not hold is a rule that holds until it does not. Cut
+	 * at ninety characters, on a word, because an inbox cuts harder than that
+	 * — what this trims was never going to be read.
+	 */
+	public static function tight_preview( string $text ): string {
+		$text = trim( $text );
+		if ( mb_strlen( $text ) <= 90 ) {
+			return $text;
+		}
+		$cut = mb_substr( $text, 0, 90 );
+		$at  = (int) mb_strrpos( $cut, ' ' );
+		return rtrim( $at > 40 ? mb_substr( $cut, 0, $at ) : $cut, " ,;:.\u{2026}" );
 	}
 
 	/**
@@ -5147,6 +5167,37 @@ final class DZE_Klaviyo {
 	 * was never shown the neighbour or one that ignored it — and this is how
 	 * to tell which, without taking anybody's word for it.
 	 */
+	/**
+	 * What the PICTURE will be told, printed for the owner — the full prompt
+	 * as fal receives it, and thumbnails of the exact reference photographs.
+	 * Built by image_brief(), the very function the generation uses.
+	 */
+	public static function ajax_picture_brief(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		try {
+			$brief = self::image_brief(
+				$rule,
+				self::email_for( $rule_id, $email_id, $rule ),
+				self::material_for( $rule_id, $rule, $email_id )
+			);
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		$refs = [];
+		foreach ( (array) $brief['sources'] as $att ) {
+			$thumb = (string) wp_get_attachment_image_url( (int) $att, 'medium' );
+			if ( '' !== $thumb ) {
+				$refs[] = $thumb;
+			}
+		}
+		wp_send_json_success( [
+			'prompt' => (string) $brief['prompt'],
+			'refs'   => $refs,
+			'note'   => self::images_on() ? '' : __( 'Generated pictures are switched OFF under Settings → Email campaigns — this is what would be sent if they were on.', 'dazont-ecom' ),
+		] );
+	}
+
 	public static function ajax_brief(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
@@ -5335,44 +5386,15 @@ final class DZE_Klaviyo {
 	}
 
 	/**
-	 * Generates the opening picture of the email with fal.ai.
+	 * Exactly what the picture generator will be told, and from which
+	 * photographs — built by the one function the generation itself uses, so
+	 * what the screen shows IS what the next click sends. This is where an
+	 * invented detail on a picture is hunted down: read the words, look at
+	 * the references, correct the prompt.
 	 *
-	 * An email that opens on a product cut out on white is an email that looks
-	 * like a catalogue page. This takes a real photograph the shop already
-	 * owns — the picture chosen for the event, or the product that is actually
-	 * selling — and puts it in the setting the promotion evokes, through the
-	 * same generator, the same key and the same budget guard as the product
-	 * images. It is hosted by Klaviyo, where the email that carries it lives —
-	 * never in the shop's media library, which is for the shop's products.
-	 *
-	 * @return array{url:string,full:string,warning:string}
-	 * @throws RuntimeException
+	 * @return array{prompt:string,sources:int[]}
 	 */
-	public static function make_image( array $rule, string $prompt = '', array $email = [], array $mat = [] ): array {
-		if ( ! self::images_on() ) {
-			throw new RuntimeException( __( 'Generated pictures are switched off under Settings → Email campaigns.', 'dazont-ecom' ) );
-		}
-		if ( ! class_exists( 'DZE_Content' ) || ! DZE_Modules::enabled( 'content' ) ) {
-			throw new RuntimeException( __( 'Product content is switched off, and it is what talks to fal.ai.', 'dazont-ecom' ) );
-		}
-		if ( '' === DZE_Content::fal_key() ) {
-			throw new RuntimeException( __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) );
-		}
-		if ( DZE_Ai_Usage::over_budget() ) {
-			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
-		}
-		$content = DZE_Content::instance();
-
-		// What it works from. This used to be ONE photograph, and one is what
-		// made the pictures generic: nano-banana-2 is an EDIT model, so a
-		// single packshot plus a loose brief gives it nothing to hold on to
-		// and it invents gear that the shop does not sell. Several real
-		// photographs of the promotion's own best-sellers anchor it — the
-		// products in the answer are then the products in the references.
-		// Almost always product photographs, because a promotion usually has no
-		// image of its own — making one is the whole point of being here. So
-		// the references are packshots, and the brief has to say what to do
-		// with a packshot rather than assume a scene it can extend.
+	public static function image_brief( array $rule, array $email = [], array $mat = [], string $prompt = '' ): array {
 		$sources = [];
 		$hero    = (int) ( $rule['hero_event_id'] ?? 0 );
 		if ( $hero && wp_attachment_is_image( $hero ) ) {
@@ -5393,9 +5415,6 @@ final class DZE_Klaviyo {
 			if ( $img && wp_attachment_is_image( $img ) && ! in_array( $img, $sources, true ) ) {
 				$sources[] = $img;
 			}
-		}
-		if ( ! $sources ) {
-			throw new RuntimeException( __( 'No photograph to work from: pick an image for the event, or let the shop record a sale first.', 'dazont-ecom' ) );
 		}
 
 		// The shop's own picture prompt, and the promotion's facts appended to
@@ -5441,6 +5460,53 @@ final class DZE_Klaviyo {
 		// worth less than no photograph at all.
 		$prompt .= "\n\nThe reference images are real products from this shop, most of them catalogue shots on a plain background. Photograph one or two of them somewhere real instead — worn, held, in use — and keep each one you show EXACTLY as it is: same shape, same colour, same pattern, same markings, same proportions. A reference you do not show simply stays out of frame. Do not redraw them, do not restyle them, do not line them all up side by side, and do not invent goods this shop does not sell — every piece of gear in the frame must come from the references. No text of any kind in the image: no title, no price, no badge, no logo, no watermark.";
 
+		return [ 'prompt' => $prompt, 'sources' => $sources ];
+	}
+
+	/**
+	 * Generates the opening picture of the email with fal.ai.
+	 *
+	 * An email that opens on a product cut out on white is an email that looks
+	 * like a catalogue page. This takes a real photograph the shop already
+	 * owns — the picture chosen for the event, or the product that is actually
+	 * selling — and puts it in the setting the promotion evokes, through the
+	 * same generator, the same key and the same budget guard as the product
+	 * images. It is hosted by Klaviyo, where the email that carries it lives —
+	 * never in the shop's media library, which is for the shop's products.
+	 *
+	 * @return array{url:string,full:string,warning:string}
+	 * @throws RuntimeException
+	 */
+	public static function make_image( array $rule, string $prompt = '', array $email = [], array $mat = [] ): array {
+		if ( ! self::images_on() ) {
+			throw new RuntimeException( __( 'Generated pictures are switched off under Settings → Email campaigns.', 'dazont-ecom' ) );
+		}
+		if ( ! class_exists( 'DZE_Content' ) || ! DZE_Modules::enabled( 'content' ) ) {
+			throw new RuntimeException( __( 'Product content is switched off, and it is what talks to fal.ai.', 'dazont-ecom' ) );
+		}
+		if ( '' === DZE_Content::fal_key() ) {
+			throw new RuntimeException( __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) );
+		}
+		if ( DZE_Ai_Usage::over_budget() ) {
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
+		}
+		$content = DZE_Content::instance();
+
+		// What it works from. This used to be ONE photograph, and one is what
+		// made the pictures generic: nano-banana-2 is an EDIT model, so a
+		// single packshot plus a loose brief gives it nothing to hold on to
+		// and it invents gear that the shop does not sell. Several real
+		// photographs of the promotion's own best-sellers anchor it — the
+		// products in the answer are then the products in the references.
+		// Almost always product photographs, because a promotion usually has no
+		// image of its own — making one is the whole point of being here. So
+		// the references are packshots, and the brief has to say what to do
+		// with a packshot rather than assume a scene it can extend.
+		[ 'prompt' => $prompt, 'sources' => $sources ] = self::image_brief( $rule, $email, $mat, $prompt );
+		if ( ! $sources ) {
+			throw new RuntimeException( __( 'No photograph to work from: pick an image for the event, or let the shop record a sale first.', 'dazont-ecom' ) );
+		}
+
 		$refs = [];
 		foreach ( $sources as $id ) {
 			$refs[] = $content->fal_source_data_uri( $id, 'full' );
@@ -5464,7 +5530,8 @@ final class DZE_Klaviyo {
 		// media library filled the shop's own library with pictures nobody
 		// would ever pick from it, and every test made another one. Klaviyo
 		// hosts the images of the emails Klaviyo sends; that is where it goes.
-		$name = mb_substr( '' !== $title ? $title : __( 'Promotion email', 'dazont-ecom' ), 0, 80 );
+		$title = trim( (string) ( $rule['title'] ?? '' ) );
+		$name  = mb_substr( '' !== $title ? $title : __( 'Promotion email', 'dazont-ecom' ), 0, 80 );
 		[ $hosted, $why ] = self::host_image( $url, $name );
 		return [
 			'url'  => $hosted ?: $url,
@@ -6443,6 +6510,12 @@ final class DZE_Klaviyo {
 						// only way to find out was to spend a minute and a few
 						// cents finding out.
 						?>
+						<details id="dze-klav-picbrief" style="margin:8px 0 0;">
+							<summary style="cursor:pointer;font-size:13px;"><?php esc_html_e( 'What the picture is told', 'dazont-ecom' ); ?></summary>
+							<p class="description" style="margin:6px 0;"><?php esc_html_e( 'The full instructions fal.ai receives — your picture prompt, the promotion\'s facts appended to it, the shop\'s own rule — and the exact reference photographs. Built by the function that makes the picture, so this is what the next Generate really sends. An invented detail starts here: read the words, look at the references, correct the prompt.', 'dazont-ecom' ); ?></p>
+							<p id="dze-klav-picbrief-refs" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0;"></p>
+							<pre id="dze-klav-picbrief-txt" style="max-height:280px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;"></pre>
+						</details>
 						<p id="dze-klav-haspic" style="display:none;align-items:center;gap:10px;margin:8px 0 0;">
 							<span class="dze-zoomgroup" style="display:inline-block;line-height:0;">
 								<span style="display:inline-block;line-height:0;">

@@ -45,32 +45,77 @@ final class DZE_Klaviyo_Blocks {
 	 * @return array[] Klaviyo row definitions.
 	 */
 	public static function rows( string $html, array $t ): array {
-		$nodes = self::top_level( $html );
 		$rows  = [];
 		$run   = [];
+		$cards = [];
 		$full  = class_exists( 'DZE_Klaviyo' ) ? DZE_Klaviyo::card_width( 1 ) : 546;
-		foreach ( $nodes as $node ) {
-			$cards = self::cards_in( $node );
-			if ( $cards ) {
-				// A row of products closes whatever was being collected: it is
-				// a row of its own, with a column per card.
-				if ( $run ) {
-					$rows[] = self::one_column( $run );
-					$run    = [];
-				}
-				foreach ( self::card_rows( $cards, $t ) as $row ) {
-					$rows[] = $row;
-				}
-				continue;
-			}
-			foreach ( self::blocks_of( $node, $t, $full ) as $block ) {
-				$run[] = $block;
-			}
+		foreach ( self::top_level( $html ) as $node ) {
+			self::walk( $node, $t, $full, $rows, $run, $cards );
 		}
+		self::flush_cards( $rows, $cards, $t );
+		self::flush_run( $rows, $run );
+		return $rows;
+	}
+
+	/**
+	 * One node, sorted into the three piles: a product card, a container that
+	 * HOLDS cards somewhere inside, or a leaf of ordinary content.
+	 *
+	 * The middle case is the one that was wrong. A node holding cards used to
+	 * become its card rows and NOTHING ELSE — right for the tidy wrapper the
+	 * shop's own product rows make, and silently destructive the day the
+	 * model wrapped the whole email in one table: every heading and every
+	 * paragraph inside that table vanished, and the draft Klaviyo held was an
+	 * email of pictures and prices with not a written word on it. So a
+	 * container is DESCENDED instead: the text before, between and after the
+	 * cards survives in order, and consecutive cards still group into rows.
+	 */
+	private static function walk( $node, array $t, int $full, array &$rows, array &$run, array &$cards ): void {
+		if ( $node instanceof DOMText ) {
+			if ( '' === trim( $node->textContent ) ) {
+				return;
+			}
+			// Loose text inside a container is still something somebody wrote.
+			$wrap = $node->ownerDocument->createElement( 'div' );
+			$wrap->appendChild( $node->cloneNode( true ) );
+			$node = $wrap;
+		}
+		if ( ! $node instanceof DOMElement ) {
+			return; // comments, and the mso conditionals around card rows.
+		}
+		if ( false !== strpos( (string) $node->getAttribute( 'class' ), self::CARD ) ) {
+			self::flush_run( $rows, $run );
+			$cards[] = $node;
+			return;
+		}
+		if ( self::cards_in( $node ) ) {
+			foreach ( $node->childNodes as $child ) {
+				self::walk( $child, $t, $full, $rows, $run, $cards );
+			}
+			return;
+		}
+		self::flush_cards( $rows, $cards, $t );
+		foreach ( self::blocks_of( $node, $t, $full ) as $block ) {
+			$run[] = $block;
+		}
+	}
+
+	/** Whatever text and pictures were being collected become one row. */
+	private static function flush_run( array &$rows, array &$run ): void {
 		if ( $run ) {
 			$rows[] = self::one_column( $run );
+			$run    = [];
 		}
-		return $rows;
+	}
+
+	/** Whatever cards were being collected become their product rows. */
+	private static function flush_cards( array &$rows, array &$cards, array $t ): void {
+		if ( $cards ) {
+			foreach ( self::card_rows( $cards, $t ) as $row ) {
+				$rows[] = $row;
+			}
+			$cards = [];
+		}
 	}
 
 	/**

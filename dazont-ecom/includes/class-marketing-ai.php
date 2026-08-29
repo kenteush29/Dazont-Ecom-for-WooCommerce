@@ -866,6 +866,9 @@ final class DZE_Marketing_Ai {
 			echo '<hr style="margin:28px 0;" />';
 			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
+			echo '<hr style="margin:28px 0;" />';
+			echo '<h2>' . esc_html__( 'Last AI calls', 'dazont-ecom' ) . '</h2>';
+			DZE_Ai_Usage::render_trace();
 		} elseif ( 'discounts' === $tab ) {
 			// Everything the Discounts module decides about the shop that is
 			// not one promotion: the badge, and the ending every computed price
@@ -1687,6 +1690,10 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			throw new RuntimeException( __( 'Add your Anthropic API key under Settings first.', 'dazont-ecom' ) );
 		}
 		$model    = '' !== $model ? $model : self::chosen_model();
+		// The trace holds the exchange as the model reads it, so a wrong
+		// answer can be traced to the words that produced it.
+		$asked = "SYSTEM:\n" . $system . "\n\nUSER:\n" . $user;
+		$t0    = microtime( true );
 		$response = wp_remote_post( self::API_URL, [
 			'timeout' => max( 30, $timeout ),
 			'headers' => [
@@ -1703,6 +1710,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		] );
 		if ( is_wp_error( $response ) ) {
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );
+			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — ' . $response->get_error_message(), microtime( true ) - $t0 );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
@@ -1710,6 +1718,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
+			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $t0 );
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
@@ -1719,6 +1728,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				$text .= (string) ( $block['text'] ?? '' );
 			}
 		}
+		DZE_Ai_Usage::trace( 'anthropic', $model, $asked, trim( $text ), microtime( true ) - $t0 );
 		return trim( $text );
 	}
 
@@ -1755,7 +1765,11 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		}
 		$content[] = [ 'type' => 'text', 'text' => $user ];
 
-		$model    = '' !== $model ? $model : self::chosen_model();
+		$model = '' !== $model ? $model : self::chosen_model();
+		// Base64 photographs would be megabytes of noise in the trace: they
+		// are counted instead, and the words travel whole.
+		$asked = sprintf( "SYSTEM:\n%s\n\n[%d photograph(s) attached]\n\nUSER:\n%s", $system, count( $images ), $user );
+		$t0    = microtime( true );
 		$response = wp_remote_post( self::API_URL, [
 			'timeout' => max( 30, $timeout ),
 			'headers' => [
@@ -1772,6 +1786,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		] );
 		if ( is_wp_error( $response ) ) {
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );
+			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — ' . $response->get_error_message(), microtime( true ) - $t0 );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
@@ -1779,6 +1794,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
+			DZE_Ai_Usage::trace( 'anthropic', $model, $asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $t0 );
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), $model );
@@ -1788,6 +1804,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				$text .= (string) ( $block['text'] ?? '' );
 			}
 		}
+		DZE_Ai_Usage::trace( 'anthropic', $model, $asked, trim( $text ), microtime( true ) - $t0 );
 		return trim( $text );
 	}
 
@@ -1795,6 +1812,8 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( DZE_Ai_Usage::over_budget() ) {
 			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
 		}
+		$dze_asked = "SYSTEM:\n" . $system . "\n\nUSER:\n" . $user;
+		$dze_t0    = microtime( true );
 		$response = wp_remote_post( self::API_URL, [
 			'timeout' => 90,
 			'headers' => [
@@ -1811,6 +1830,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		] );
 		if ( is_wp_error( $response ) ) {
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', $response->get_error_message() );
+			DZE_Ai_Usage::trace( 'anthropic', self::chosen_model(), $dze_asked, 'ERROR — ' . $response->get_error_message(), microtime( true ) - $dze_t0 );
 			throw new RuntimeException( $response->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $response );
@@ -1818,6 +1838,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( $code < 200 || $code >= 300 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
 			DZE_Health::log( 'anthropic', 'POST /v1/messages', 'HTTP ' . $code . ' — ' . $msg );
+			DZE_Ai_Usage::trace( 'anthropic', self::chosen_model(), $dze_asked, 'ERROR — HTTP ' . $code . ' — ' . $msg, microtime( true ) - $dze_t0 );
 			throw new RuntimeException( sprintf( __( 'Anthropic API error: %s', 'dazont-ecom' ), $msg ) );
 		}
 		DZE_Ai_Usage::record( 'anthropic', (int) ( $data['usage']['input_tokens'] ?? 0 ), (int) ( $data['usage']['output_tokens'] ?? 0 ), self::chosen_model() );
@@ -1828,6 +1849,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				$text .= (string) ( $block['text'] ?? '' );
 			}
 		}
+		DZE_Ai_Usage::trace( 'anthropic', self::chosen_model(), $dze_asked, trim( $text ), microtime( true ) - $dze_t0 );
 		return $text;
 	}
 

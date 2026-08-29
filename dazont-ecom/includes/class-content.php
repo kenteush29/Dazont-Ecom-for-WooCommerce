@@ -5562,6 +5562,12 @@ Answer with STRICT JSON and nothing else: "
 	 *                      and wrong for a banner that has to be wide.
 	 */
 	public function fal_generate( string $prompt, array $image_urls, string $ratio = 'auto' ): string {
+		// The trace: the prompt whole, the reference photographs counted — as
+		// base64 they would be megabytes of noise beside the words that
+		// actually decide the picture. This is where an invented detail is
+		// hunted down: read what was asked, look at what came back.
+		$dze_asked = $prompt . sprintf( "\n\n[%d reference photograph(s) attached · aspect ratio %s]", count( $image_urls ), $ratio );
+		$dze_t0    = microtime( true );
 		$resp = wp_remote_post( self::FAL_ENDPOINT, [
 			'timeout' => 120,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],
@@ -5578,6 +5584,7 @@ Answer with STRICT JSON and nothing else: "
 		] );
 		if ( is_wp_error( $resp ) ) {
 			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $resp->get_error_message() );
+			DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $resp->get_error_message(), microtime( true ) - $dze_t0 );
 			throw new RuntimeException( $resp->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $resp );
@@ -5600,6 +5607,7 @@ Answer with STRICT JSON and nothing else: "
 				}
 			}
 			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $msg );
+			DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $msg, microtime( true ) - $dze_t0 );
 			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
 		$url = $body['images'][0]['url'] ?? '';
@@ -5618,6 +5626,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( $url && class_exists( 'DZE_Ai_Usage' ) ) {
 			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost );
 		}
+		DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $dze_t0 );
 		if ( ! $url ) {
 			throw new RuntimeException( __( 'fal.ai returned no image.', 'dazont-ecom' ) );
 		}
