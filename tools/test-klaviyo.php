@@ -52,8 +52,27 @@ $GLOBALS['dze_transients'] = [];
 function get_transient( $k ) { return $GLOBALS['dze_transients'][ $k ] ?? false; }
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['dze_transients'][ $k ] = $v; return true; }
 function delete_transient( $k ) { unset( $GLOBALS['dze_transients'][ $k ] ); return true; }
-function add_action() {} function add_filter() {} function remove_filter() {} function register_setting() {}
-function wp_kses( $html, $allowed = [], $protocols = [] ) { return (string) $html; }
+function add_action() {} function register_setting() {}
+// HOSTILE on purpose, like the real one: WordPress's kses strips HTML
+// comments and judges every URL protocol. A friendly stub here is how two
+// real bugs shipped — the picture marker's dze: protocol, and the Outlook
+// conditionals printed as text in an inbox. What clean_html() protects must
+// survive THIS; what it does not protect must visibly die here first.
+$GLOBALS['dze_protocols'] = [ 'http', 'https' ];
+function wp_kses( $html, $allowed = [], $protocols = [] ) {
+	$html = (string) preg_replace( '/<!--.*?-->/s', '', (string) $html );
+	$html = str_replace( [ '<!--', '-->' ], [ '&lt;!--', '--&gt;' ], $html );
+	$ok   = $GLOBALS['dze_protocols'];
+	return (string) preg_replace_callback(
+		'/\b(src|href)\s*=\s*"([a-z][a-z0-9+.\-]*):/i',
+		static function ( array $m ) use ( $ok ): string {
+			return in_array( strtolower( $m[2] ), $ok, true ) ? $m[0] : $m[1] . '="';
+		},
+		$html
+	);
+}
+function add_filter( $tag, $cb = null ) { if ( 'kses_allowed_protocols' === $tag && $cb ) { $GLOBALS['dze_protocols'] = $cb( $GLOBALS['dze_protocols'] ); } }
+function remove_filter( $tag, $cb = null ) { if ( 'kses_allowed_protocols' === $tag ) { $GLOBALS['dze_protocols'] = [ 'http', 'https' ]; } }
 function wp_kses_post( $html ) { return (string) $html; }
 function wp_unslash( $v ) { return $v; }
 function apply_filters( $t, $v = null, ...$r ) { return $v; }
@@ -180,6 +199,7 @@ $GLOBALS['wpdb'] = new DZE_Test_Wpdb();
 
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo.php';
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-auto.php';
+require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-blocks.php';
 
 $fails = 0;
 $ran   = 0;
@@ -931,6 +951,41 @@ ok( 'on a word, never inside one',      preg_match( '/\w$/u', $cut ) === 1 && st
 $GLOBALS['dze_answers'] = [ json_encode( [ 'subject' => 'S', 'preview' => $long, 'body' => '<p>Short.</p>' ] ) ];
 $made = DZE_Klaviyo::write_for( 'promo', $promo2, $ids2[0] );
 ok( 'and the writing path really uses it', mb_strlen( (string) $made['preview'] ) <= 90, true );
+
+
+echo "From the model's answer to Klaviyo blocks, end to end\n";
+// The whole real path in one breath — the model's JSON, the hostile kses
+// wash, the product cards dropped in, storage, and the block splitter — so
+// no friendly stub can ever again hide what an inbox will actually show.
+$GLOBALS['dze_answers'] = [ json_encode( [
+	'subject' => 'End to end', 'preview' => 'Short.', 'picture' => '',
+	'body'    => '<table role="presentation"><tr><td><h1>The words</h1><p>Must arrive.</p>[[PRODUCT 1]][[PRODUCT 2]]<p>Every one of them.</p></td></tr></table>',
+] ) ];
+$made  = DZE_Klaviyo::write_for( 'promo', $promo2, $ids2[1] );
+$rows9 = DZE_Klaviyo_Blocks::rows( (string) $made['body'], [ 'head' => 'A', 'body' => 'B', 'ink' => '#111', 'link' => '#0a0', 'size' => 16, 'btn_bg' => '#0a0', 'btn_ink' => '#fff', 'card' => '#fff', 'border' => '#eee', 'radius' => 4, 'sale' => '#900', 'strike' => '#999' ] );
+$flat9 = wp_strip_all_tags( (string) json_encode( $rows9 ) );
+ok( 'the heading reaches the blocks',     false !== strpos( $flat9, 'The words' ), true );
+ok( 'the paragraphs too',                 false !== strpos( $flat9, 'Must arrive.' ) && false !== strpos( $flat9, 'Every one of them.' ), true );
+ok( 'the products sit side by side',      false !== strpos( (string) json_encode( $rows9 ), '2-columns' ), true );
+ok( 'and no Outlook plumbing prints as text', false === strpos( $flat9, '[if mso]' ), true );
+
+echo "What must survive the kses wash\n";
+// The stub kses above is hostile like WordPress's own — comments stripped,
+// unknown protocols cut. What clean_html() promises to protect has to come
+// through it whole, wash after wash, because a body is washed on every save.
+$plumbed = '<p>Words.</p><!--[if mso]><table><tr><![endif]--><div>x</div><!--[if mso]></tr></table><![endif]-->';
+$once  = DZE_Klaviyo::clean_html( $plumbed );
+ok( 'Outlook plumbing survives the wash', substr_count( $once, '<!--[if mso]>' ), 2 );
+ok( 'closings too',                       substr_count( $once, '<![endif]-->' ), 2 );
+ok( 'twice over, unchanged',              DZE_Klaviyo::clean_html( $once ), $once );
+ok( 'the picture marker survives it too',
+	false !== strpos( DZE_Klaviyo::clean_html( '<img src="dze:picture" />' ), 'dze:picture' ), true );
+// And a body mangled by an EARLIER version — the literal "&lt;!--[if
+// mso]&gt;" the shop saw printed in an inbox — is mended on its next wash.
+$mangled2 = '<p>Words.</p>&lt;!--[if mso]&gt;<div>x</div>&lt;![endif]--&gt;';
+$mended   = DZE_Klaviyo::clean_html( $mangled2 );
+ok( 'an earlier mangling is mended',      substr_count( $mended, '<!--[if mso]>' ), 1 );
+ok( 'and prints nowhere as text',         false === strpos( wp_strip_all_tags( $mended ), '[if mso]' ), true );
 
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

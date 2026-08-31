@@ -124,6 +124,19 @@ $rows = DZE_Klaviyo_Blocks::rows( $mso, $t );
 ok( 'Outlook conditionals are passed over', in_array( 'text:After the card.', flat( $rows ), true ), true );
 ok( 'and the card is still a card', str_contains( (string) json_encode( $rows ), '1-column' ), true );
 
+// The shape the shop actually SAW in an inbox: the mso delimiters mangled
+// into literal text between the cards by an earlier kses wash. They must
+// vanish, and the cards must come back together side by side.
+$mangled = '<p>Intro.</p><table><tr><td>'
+	. '&lt;!--[if mso]&gt;' . $card( 1 ) . '&lt;![endif]--&gt;&lt;!--[if mso]&gt;' . $card( 2 ) . '&lt;![endif]--&gt;'
+	. '</td></tr></table>';
+$rows = DZE_Klaviyo_Blocks::rows( $mangled, $t );
+$printed = implode( ' ', flat( $rows ) );
+ok( 'mangled mso remains print nowhere', false === strpos( $printed, '[if mso]' ), true );
+ok( 'and the cards come back together',  str_contains( (string) json_encode( $rows ), '2-columns' ), true );
+ok( 'in one row, not two',
+	count( array_filter( $rows, static fn( $r ) => str_contains( (string) json_encode( $r ), 'columns-equal' ) ) ), 1 );
+
 ok( 'an empty body is no rows at all', DZE_Klaviyo_Blocks::rows( '  ', $t ), [] );
 $rows = DZE_Klaviyo_Blocks::rows( 'Bare words with no tag at all', $t );
 ok( 'bare text is still an email', types( $rows ), [ 'text' => 1 ] );
