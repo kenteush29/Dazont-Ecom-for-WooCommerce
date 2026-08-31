@@ -302,6 +302,19 @@ final class DZE_Klaviyo_Blocks {
 	 * @return DOMElement[]
 	 */
 	private static function top_level( string $html ): array {
+		// Outlook's conditional comments have no business in Klaviyo blocks —
+		// Klaviyo writes its own Outlook handling — and they arrive in two
+		// states: as real comments, and as the LITERAL TEXT WordPress's kses
+		// leaves of them. The second is what the shop saw in an inbox:
+		// "<!--[if mso]>" printed between two product cards, and every such
+		// scrap of text breaking the cards apart into one-per-row. Both forms
+		// go, before the parser ever sees them; the ghost markup they carried
+		// is harmless — the cards inside are found wherever they sit.
+		$html = (string) preg_replace(
+			'/<!--\[if [^\]]*\]>|<!\[endif\]-->|<!--\[endif\]-->|&lt;!--\[if [^&]*?\]&gt;|&lt;!\[endif\]--&gt;|&lt;!--\[endif\]--&gt;/i',
+			'',
+			$html
+		);
 		if ( '' === trim( $html ) || ! class_exists( 'DOMDocument' ) ) {
 			return [];
 		}

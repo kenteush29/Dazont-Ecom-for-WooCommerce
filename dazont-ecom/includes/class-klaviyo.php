@@ -2476,12 +2476,40 @@ final class DZE_Klaviyo {
 			$protocols[] = strtok( self::PICTURE_MARK, ':' );
 			return $protocols;
 		};
+		// Outlook's conditional comments do not survive kses: it strips or
+		// escapes them, and the escaped remains print as literal "<!--[if
+		// mso]>" text in the finished email. First the remains of an earlier
+		// mangling are mended back into real comments, then the delimiters are
+		// swapped for plain-text tokens for the length of the wash and put
+		// back after — so a body can be cleaned any number of times and the
+		// Outlook plumbing in the product rows is still plumbing at the end.
+		$html = str_ireplace(
+			[ '&lt;!--[if mso]&gt;', '&lt;![endif]--&gt;', '&lt;!--[endif]--&gt;' ],
+			[ '<!--[if mso]>', '<![endif]-->', '<![endif]-->' ],
+			$html
+		);
+		$mso  = [];
+		$html = (string) preg_replace_callback(
+			'/<!--\[if [^\]]*\]>|<!\[endif\]-->/i',
+			static function ( array $m ) use ( &$mso ): string {
+				$mso[] = $m[0];
+				return '@@DZEMSO' . ( count( $mso ) - 1 ) . '@@';
+			},
+			$html
+		);
 		add_filter( 'kses_allowed_protocols', $allow );
 		try {
 			$clean = wp_kses( $html, $allowed );
 		} finally {
 			remove_filter( 'kses_allowed_protocols', $allow );
 		}
+		$clean = (string) preg_replace_callback(
+			'/@@DZEMSO(\d+)@@/',
+			static function ( array $m ) use ( $mso ): string {
+				return (string) ( $mso[ (int) $m[1] ] ?? '' );
+			},
+			$clean
+		);
 		return trim( $clean );
 	}
 
