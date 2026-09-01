@@ -104,6 +104,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_drop',    [ __CLASS__, 'ajax_drop' ] );
 		add_action( 'wp_ajax_dze_klav_check',   [ __CLASS__, 'ajax_checked' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
+		add_action( 'wp_ajax_dze_klav_find',    [ __CLASS__, 'ajax_find' ] );
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
 		add_action( 'wp_ajax_dze_klav_image',    [ __CLASS__, 'ajax_image' ] );
@@ -2987,19 +2988,36 @@ final class DZE_Klaviyo {
 	 *
 	 * @return array{campaign:string,message:string,template:string,status:string}|null
 	 */
-	private static function draft_named( string $name ): ?array {
+	private static function draft_named( string $name, string $subject = '' ): ?array {
 		$name = trim( $name );
 		if ( '' === $name ) {
 			return null;
 		}
-		$got = self::request(
-			'GET',
-			'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $name ) . '"))' )
-				. '&include=campaign-messages',
-			null,
-			25
-		);
-		if ( is_wp_error( $got ) || empty( $got['data'][0]['id'] ) ) {
+		// By its exact name first — that is what this plugin calls a campaign
+		// it made. Then by its SUBJECT LINE, because a campaign made in
+		// Klaviyo, or by an older version of this plugin, carries the subject
+		// as its name: "The Back to School Sale is live: 10% off everything"
+		// is sitting in the account under that, and an exact-name search will
+		// never find it.
+		$tries = [ $name ];
+		if ( '' !== trim( $subject ) && trim( $subject ) !== $name ) {
+			$tries[] = trim( $subject );
+		}
+		$got = null;
+		foreach ( $tries as $what ) {
+			$one = self::request(
+				'GET',
+				'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $what ) . '"))' )
+					. '&include=campaign-messages',
+				null,
+				25
+			);
+			if ( ! is_wp_error( $one ) && ! empty( $one['data'][0]['id'] ) ) {
+				$got = $one;
+				break;
+			}
+		}
+		if ( ! is_array( $got ) || empty( $got['data'][0]['id'] ) ) {
 			return null;
 		}
 		// The newest of them, when a shop has been round this more than once.
@@ -4002,7 +4020,16 @@ final class DZE_Klaviyo {
 		// would do, and it is the difference between "the Back to School
 		// launch is no longer synced" and a second one beside the first.
 		if ( ! $again ) {
-			$found = self::draft_named( $name );
+			$found = self::draft_named( $name, (string) ( $copy['subject'] ?? '' ) );
+			// A campaign that has GONE OUT is history: it is neither rewritten
+			// nor adopted, because an email regenerated here and pointed at a
+			// sent campaign would leave two different versions of one email in
+			// the account — the one people received, and the one this screen
+			// believes in. A new campaign is made beside it and the row says so.
+			if ( $found && 'sent' === strtolower( (string) $found['status'] ) ) {
+				$warning = trim( $warning . ' ' . __( 'A campaign of this name has already gone out in Klaviyo. It is left exactly as it was sent, and this one was filed as a new campaign beside it.', 'dazont-ecom' ) );
+				$found   = null;
+			}
 			if ( $found ) {
 				$camp_id = (string) $found['campaign'];
 				$msg_id  = (string) $found['message'];
@@ -5830,6 +5857,53 @@ final class DZE_Klaviyo {
 		return '';
 	}
 
+	/**
+	 * Links a row to a campaign that is ALREADY in Klaviyo, writing nothing.
+	 *
+	 * "Je ne vois toujours pas mon ancien email déjà présent sur klaviyo,
+	 * synchro avec dazont." It is there; what was missing is the id beside the
+	 * email. This looks for it by the name this plugin would have given it and
+	 * by the email's own subject line — which is what a campaign made in
+	 * Klaviyo is called — and files the id. Not one word of the campaign is
+	 * touched, whatever state it is in.
+	 */
+	public static function ajax_find(): void {
+		self::guard();
+		[ $rule_id, $rule, $email_id ] = self::target();
+		$copy = self::email_for( $rule_id, $email_id, $rule );
+		if ( ! $copy ) {
+			wp_send_json_error( [ 'message' => __( 'That email no longer exists.', 'dazont-ecom' ) ] );
+		}
+		$name  = trim( (string) ( $rule['title'] ?? '' ) ) . ' — ' . self::email_name( $copy );
+		$found = self::draft_named( $name, (string) ( $copy['subject'] ?? '' ) );
+		if ( ! $found ) {
+			wp_send_json_error( [
+				'message' => __( 'Nothing of this name or subject is in Klaviyo. Put it there with the button beside it.', 'dazont-ecom' ),
+			] );
+		}
+		$state = strtolower( (string) $found['status'] );
+		self::put_email( $rule_id, $email_id, [
+			'draft' => array_merge( (array) ( $copy['draft'] ?? [] ), [
+				'campaign'  => (string) $found['campaign'],
+				'message'   => (string) $found['message'],
+				'template'  => (string) $found['template'],
+				'name'      => $name,
+				'at'        => time(),
+				'scheduled' => in_array( $state, [ 'scheduled', 'queued without recipients', 'preparing to send' ], true ) ? time() : 0,
+				'sent'      => 'sent' === $state ? time() : 0,
+			] ),
+		] );
+		wp_send_json_success( [
+			'url'     => self::campaign_url( (string) $found['campaign'] ),
+			'state'   => self::state_cell( $email_id, self::email_for( $rule_id, $email_id, $rule ) ),
+			'message' => sprintf(
+				/* translators: %s: the campaign's state in Klaviyo */
+				__( 'Found in Klaviyo (%s) and linked. Nothing was changed there.', 'dazont-ecom' ),
+				$state
+			),
+		] );
+	}
+
 	public static function ajax_draft(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
@@ -6612,6 +6686,7 @@ final class DZE_Klaviyo {
 				'rowPutting' => __( 'Putting it in Klaviyo…', 'dazont-ecom' ),
 				'rowPut'     => __( 'In Klaviyo ✓', 'dazont-ecom' ),
 				'rowSame'    => __( 'Already up to date', 'dazont-ecom' ),
+				'rowFinding' => __( 'Looking in Klaviyo…', 'dazont-ecom' ),
 				/* translators: 1: how many were put in Klaviyo, 2: how many were already up to date */
 				'draftSkip'  => __( '%1$d put in Klaviyo · %2$d already up to date.', 'dazont-ecom' ),
 				// A day added in the browser used to land as 2026-08-29 beside
@@ -6760,6 +6835,8 @@ final class DZE_Klaviyo {
 				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
 				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
 				.dze-mail-links,.dze-mail-langs{white-space:normal;}
+				.dze-mail-synced{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:9px;
+					background:#edfaef;color:#00794b;font-size:11px;font-weight:600;white-space:nowrap;}
 				/* A language, drawn the way WPML draws one: flag, code, state. */
 				.dze-langs{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:6px;vertical-align:middle;}
 				.dze-lang{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border:1px solid #dcdcde;
@@ -6795,11 +6872,27 @@ CSS;
 		ob_start();
 		?>
 		<?php if ( ! empty( $mail['draft']['campaign'] ) ) : ?>
-			<?php // Nothing is ever sent from here, and the link used to
-			// say only where the draft was — not that Klaviyo is what
-			// sends it, nor what is left to do there. ?>
+			<?php
+			// IS it in Klaviyo — said plainly, whatever state it is in there.
+			// The row said "Draft in Klaviyo" and nothing else, so an email
+			// that had been scheduled or sent read as though it had never
+			// arrived. One badge, one word for the state, one link.
+			$dze_sent_at = (int) ( $mail['draft']['sent'] ?? 0 );
+			$dze_state   = $dze_sent_at
+				? __( 'sent', 'dazont-ecom' )
+				: ( ! empty( $mail['draft']['scheduled'] ) ? __( 'scheduled', 'dazont-ecom' ) : __( 'draft', 'dazont-ecom' ) );
+			?>
+			<span class="dze-mail-synced" title="<?php esc_attr_e( 'This email exists in Klaviyo — the plugin and the account are linked.', 'dazont-ecom' ); ?>">
+				&#10003; <?php
+				printf(
+					/* translators: %s: what it is in Klaviyo — draft, scheduled or sent */
+					esc_html__( 'Synced with Klaviyo · %s', 'dazont-ecom' ),
+					esc_html( $dze_state )
+				);
+				?>
+			</span>
 			<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
-				<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'Open in Klaviyo ↗', 'dazont-ecom' ); ?>
 			</a>
 			<?php
 			// Klaviyo answers 200 to a day it then stores empty. What
@@ -6925,6 +7018,20 @@ CSS;
 						<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
+			</div>
+			<span class="dze-mail-sched-msg description"></span>
+		<?php else : ?>
+			<?php
+			// Not linked to anything here — which does not mean it is not in
+			// Klaviyo: a campaign made before this plugin knew about it, or one
+			// whose id was lost, is sitting in the account under its own name.
+			// This looks for it and links the two WITHOUT writing a word.
+			?>
+			<span class="description"><?php esc_html_e( 'Not in Klaviyo yet', 'dazont-ecom' ); ?></span>
+			<div class="dze-mail-does">
+				<button type="button" class="button button-small dze-mail-find" data-email="<?php echo esc_attr( $mail_id ); ?>">
+					<?php esc_html_e( 'Find it in Klaviyo', 'dazont-ecom' ); ?>
+				</button>
 			</div>
 			<span class="dze-mail-sched-msg description"></span>
 		<?php endif; ?>
