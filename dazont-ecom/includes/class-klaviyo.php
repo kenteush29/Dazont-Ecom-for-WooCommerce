@@ -105,6 +105,7 @@ final class DZE_Klaviyo {
 		add_action( 'wp_ajax_dze_klav_check',   [ __CLASS__, 'ajax_checked' ] );
 		add_action( 'wp_ajax_dze_klav_draft',   [ __CLASS__, 'ajax_draft' ] );
 		add_action( 'wp_ajax_dze_klav_find',    [ __CLASS__, 'ajax_find' ] );
+		add_action( 'wp_ajax_dze_klav_state',   [ __CLASS__, 'ajax_state' ] );
 		add_action( 'wp_ajax_dze_klav_activate', [ __CLASS__, 'ajax_activate' ] );
 		add_action( 'wp_ajax_dze_klav_segment',  [ __CLASS__, 'ajax_make_segment' ] );
 		add_action( 'wp_ajax_dze_klav_image',    [ __CLASS__, 'ajax_image' ] );
@@ -1071,7 +1072,12 @@ final class DZE_Klaviyo {
 				__( 'Klaviyo refused (HTTP %1$d)%2$s', 'dazont-ecom' ),
 				$code,
 				'' !== $detail ? ' — ' . mb_substr( $detail, 0, 220 ) : ''
-			)
+			),
+			// The status itself, not only its wording: "this campaign is gone"
+			// and "the account could not be reached" call for opposite
+			// answers, and reading them out of a translated sentence is how a
+			// check starts believing whatever language the shop runs in.
+			[ 'status' => $code ]
 		);
 	}
 
@@ -5966,6 +5972,164 @@ final class DZE_Klaviyo {
 		return '';
 	}
 
+	/** The HTTP status behind a refusal from Klaviyo, 0 when it was not one. */
+	private static function refusal_code( $answer ): int {
+		if ( ! is_wp_error( $answer ) || ! method_exists( $answer, 'get_error_data' ) ) {
+			return 0;
+		}
+		$data = $answer->get_error_data();
+		return is_array( $data ) ? (int) ( $data['status'] ?? 0 ) : 0;
+	}
+
+	/** Klaviyo's own words for a campaign that has a send time and is on its way. */
+	private static function on_its_way( string $status ): bool {
+		return in_array( strtolower( trim( $status ) ), [
+			'scheduled', 'queued without recipients', 'preparing to send',
+			'preparing to schedule', 'sending',
+		], true );
+	}
+
+	/**
+	 * A campaign that is already in Klaviyo, filed beside an email.
+	 *
+	 * One writer for the two ways a row gets linked — the button the owner
+	 * presses, and the check the screen runs when it opens — so a link cannot
+	 * be filed in two different shapes.
+	 *
+	 * @return string The campaign's state in Klaviyo, lowercased.
+	 */
+	private static function link_row( string $rule_id, string $email_id, array $copy, array $found, string $name ): string {
+		$state = strtolower( trim( (string) ( $found['status'] ?? '' ) ) );
+		self::put_email( $rule_id, $email_id, [
+			'draft' => array_merge( (array) ( $copy['draft'] ?? [] ), [
+				'campaign'  => (string) $found['campaign'],
+				'message'   => (string) $found['message'],
+				'template'  => (string) $found['template'],
+				'name'      => $name,
+				'at'        => time(),
+				'scheduled' => self::on_its_way( $state ) ? time() : 0,
+				'sent'      => 'sent' === $state ? time() : 0,
+			] ),
+		] );
+		return $state;
+	}
+
+	/**
+	 * The rows put back in line with what Klaviyo actually HOLDS.
+	 *
+	 * A row reads from what was filed here, and the account moves without us:
+	 * a campaign archived by hand, scheduled in Klaviyo itself, deleted there.
+	 * The screen then goes on saying "Synced with Klaviyo · draft" about a
+	 * campaign nobody can see any more — which is exactly what this shop was
+	 * looking at, its rows pointing at drafts archived days before while the
+	 * real scheduled campaign sat beside them.
+	 *
+	 * Three answers, and each is a different fact:
+	 *  - the campaign is THERE — its state is written down as Klaviyo holds
+	 *    it, so a campaign scheduled in Klaviyo stops reading as a draft here;
+	 *  - it is ARCHIVED or deleted — the link is let go of, and the live
+	 *    campaign of that name is claimed instead when the account has one;
+	 *  - the account could not be REACHED — nothing is touched. That is news
+	 *    about the network, and a row rewritten on it would be a lie of ours.
+	 *
+	 * Asked once, after the screen has drawn, and never while a page is being
+	 * rendered: one campaign is one cheap call, and a promotion is a handful.
+	 *
+	 * @return array{rows:array<string,string>,message:string} Only the rows
+	 *         whose cell CHANGED, ready to be put in place of what is drawn.
+	 */
+	public static function reconcile( string $rule_id, array $rule = [] ): array {
+		$out   = [ 'rows' => [], 'message' => '' ];
+		$moved = [];
+		$lost  = [];
+		foreach ( self::emails_for( $rule_id, $rule ) as $email_id => $mail ) {
+			$camp = (string) ( $mail['draft']['campaign'] ?? '' );
+			if ( '' === $camp ) {
+				continue;
+			}
+			$was = self::state_cell( (string) $email_id, $mail );
+			$now = self::request(
+				'GET',
+				'campaigns/' . rawurlencode( $camp ) . '/?fields%5Bcampaign%5D=status,archived,send_time,send_strategy',
+				null,
+				20
+			);
+			$missing = 404 === self::refusal_code( $now );
+			if ( is_wp_error( $now ) && ! $missing ) {
+				continue;
+			}
+			if ( $missing || ! empty( $now['data']['attributes']['archived'] ) ) {
+				$name  = trim( (string) ( $rule['title'] ?? '' ) ) . ' — ' . self::email_name( $mail );
+				$found = self::draft_named( $name, (string) ( $mail['subject'] ?? '' ) );
+				if ( $found ) {
+					self::link_row( $rule_id, (string) $email_id, $mail, $found, $name );
+					$moved[] = self::email_name( $mail );
+				} else {
+					// Nothing of this email is in the account any more. The
+					// row says so and offers to put it there — better than a
+					// tick beside a campaign that does not exist.
+					self::put_email( $rule_id, (string) $email_id, [ 'draft' => [] ] );
+					$lost[] = self::email_name( $mail );
+				}
+			} else {
+				$state = strtolower( trim( (string) ( $now['data']['attributes']['status'] ?? '' ) ) );
+				$day   = self::just_day( (string) ( $now['data']['attributes']['send_time'] ?? '' ) )
+					?: self::kept_day( (array) ( $now['data'] ?? [] ) );
+				self::put_email( $rule_id, (string) $email_id, [
+					'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
+						// The day it was first seen scheduled is kept when it
+						// was already known: this reads the account, it does
+						// not restart the clock on what it reads.
+						'scheduled' => self::on_its_way( $state ) ? ( (int) ( $mail['draft']['scheduled'] ?? 0 ) ?: time() ) : 0,
+						'sent'      => 'sent' === $state ? ( (int) ( $mail['draft']['sent'] ?? 0 ) ?: time() ) : 0,
+						'goes'      => $day,
+					] ),
+				] );
+			}
+			$fresh = self::state_cell( (string) $email_id, self::email_for( $rule_id, (string) $email_id, $rule ) );
+			if ( $fresh !== $was ) {
+				$out['rows'][ (string) $email_id ] = $fresh;
+			}
+		}
+		$said = [];
+		if ( $moved ) {
+			$said[] = sprintf(
+				/* translators: %s: the emails concerned, e.g. "Launch, Last chance" */
+				__( 'Klaviyo had moved: %s now points at the campaign that is really there.', 'dazont-ecom' ),
+				implode( ', ', $moved )
+			);
+		}
+		if ( $lost ) {
+			$said[] = sprintf(
+				/* translators: %s: the emails concerned */
+				__( '%s: the campaign it was filed under is archived or deleted in Klaviyo, and nothing of that name is left there. Put it in Klaviyo again.', 'dazont-ecom' ),
+				implode( ', ', $lost )
+			);
+		}
+		$out['message'] = implode( ' ', $said );
+		return $out;
+	}
+
+	/**
+	 * The check above, run for the screen that has just drawn.
+	 *
+	 * Not oftener than once every two minutes for one promotion: a reload is
+	 * a cheap gesture and the account is not.
+	 */
+	public static function ajax_state(): void {
+		self::guard();
+		[ $rule_id, $rule ] = self::target();
+		if ( '' === $rule_id ) {
+			wp_send_json_error( [ 'message' => __( 'Which promotion?', 'dazont-ecom' ) ] );
+		}
+		$slot = 'dze_klav_seen_' . md5( $rule_id );
+		if ( get_transient( $slot ) ) {
+			wp_send_json_success( [ 'rows' => [], 'message' => '', 'asked' => false ] );
+		}
+		set_transient( $slot, 1, 2 * MINUTE_IN_SECONDS );
+		wp_send_json_success( self::reconcile( $rule_id, $rule ) + [ 'asked' => true ] );
+	}
+
 	/**
 	 * Links a row to a campaign that is ALREADY in Klaviyo, writing nothing.
 	 *
@@ -5990,18 +6154,7 @@ final class DZE_Klaviyo {
 				'message' => __( 'Nothing of this name or subject is in Klaviyo. Put it there with the button beside it.', 'dazont-ecom' ),
 			] );
 		}
-		$state = strtolower( (string) $found['status'] );
-		self::put_email( $rule_id, $email_id, [
-			'draft' => array_merge( (array) ( $copy['draft'] ?? [] ), [
-				'campaign'  => (string) $found['campaign'],
-				'message'   => (string) $found['message'],
-				'template'  => (string) $found['template'],
-				'name'      => $name,
-				'at'        => time(),
-				'scheduled' => in_array( $state, [ 'scheduled', 'queued without recipients', 'preparing to send' ], true ) ? time() : 0,
-				'sent'      => 'sent' === $state ? time() : 0,
-			] ),
-		] );
+		$state = self::link_row( $rule_id, $email_id, $copy, $found, $name );
 		wp_send_json_success( [
 			'url'     => self::campaign_url( (string) $found['campaign'] ),
 			'state'   => self::state_cell( $email_id, self::email_for( $rule_id, $email_id, $rule ) ),

@@ -85,6 +85,17 @@ function wp_get_attachment_metadata( $id ) { return []; }
 function get_permalink( $id = 0 ) { return 'http://example.test/?p=' . $id; }
 function get_edit_post_link( $id = 0, $c = '' ) { return 'http://example.test/edit/' . $id; }
 function get_post( $id = 0 ) { return $GLOBALS['dze_posts'][ (int) $id ] ?? null; }
+// The list, read in one go the way WordPress reads it — in the order asked
+// for, and only the ids that still exist.
+function get_posts( $args = [] ) {
+	$GLOBALS['dze_read_calls'][] = (array) ( $args['post__in'] ?? [] );
+	$out = [];
+	foreach ( (array) ( $args['post__in'] ?? [] ) as $id ) {
+		if ( isset( $GLOBALS['dze_posts'][ (int) $id ] ) ) { $out[] = $GLOBALS['dze_posts'][ (int) $id ]; }
+	}
+	return $out;
+}
+function update_meta_cache( $type, $ids ) { return true; }
 function wp_kses_post( $s ) { return (string) $s; }
 function wc_price( $n ) { return '<span class="amount">$' . number_format( (float) $n, 2 ) . '</span>'; }
 function paginate_links( $a = [] ) { return ''; }
@@ -113,6 +124,20 @@ class DZE_Diag_Test_Wpdb {
 	public function prepare( $q, ...$a ) { return [ $q, $a ]; }
 	public function esc_like( $t ) { return $t; }
 	public function get_var( $q ) {
+		$sql = is_array( $q ) ? (string) $q[0] : (string) $q;
+		// The last edit made to a list — what makes a kept reading die at the
+		// right moment. Answered from the posts themselves, so a test that
+		// mends a product the way the shop does (its post_modified moves) sees
+		// the list judged again.
+		if ( false !== strpos( $sql, 'MAX( post_modified_gmt )' ) ) {
+			$max = '';
+			foreach ( (array) $GLOBALS['dze_posts'] as $id => $post ) {
+				if ( ! is_object( $post ) || false === strpos( $sql, (string) $id ) ) { continue; }
+				$was = (string) ( $post->post_modified_gmt ?? '' );
+				$max = $was > $max ? $was : $max;
+			}
+			return $max;
+		}
 		// SHOW TABLES LIKE — the icl_translations table is there in this shop.
 		return $GLOBALS['dze_has_icl'] ? ( is_array( $q ) ? (string) ( $q[1][0] ?? '' ) : '' ) : '';
 	}
@@ -590,18 +615,50 @@ $GLOBALS['dze_missing'] = [];
 ok( 'and nothing is said when all is known',
 	false !== strpos( $show( [ 'by' => 'rev' ] ), 'are left out' ), false );
 
-// A product FIXED since the last reading must say so, on the list where the
-// shop went looking for it: "J'ai mis à jour un produit, il est toujours
-// dans la liste". The rows on screen are re-judged against the shop as it
-// stands, not against the photograph the scan took.
+// The work to do and the work DONE, on two tabs. "Pour mieux organiser le
+// travail, il est préférable de créer 2 onglets : un qui reprend les posts à
+// retravailler, un qui reprend ceux qui sont fixed." The whole list is
+// re-judged against the shop as it stands — not against the photograph the
+// scan took — so a product mended after the reading leaves the list the shop
+// is working through.
+$GLOBALS['dze_transients'] = [];
 $GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
+$GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-01 12:00:00'; // as a save moves it
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-ok( 'the mended one is marked',         false !== strpos( $html, 'fixed ✓' ), true );
-ok( 'and it is said under the table',   false !== strpos( $html, 'has been fixed since the last reading' ), true );
-ok( 'the others are left as they are',  substr_count( $html, 'fixed ✓' ), 1 );
+ok( 'the tab says how much work is left',  false !== strpos( $html, 'To work on (2)' ), true );
+ok( 'and how much is done',                false !== strpos( $html, 'Fixed (1)' ), true );
+ok( 'the mended one is off the work list',
+	in_array( 'Ancient cap', $order( $html ), true ), false );
+ok( 'and it is on the other tab',
+	$order( $show( [ 'show' => 'fixed' ] ) ), [ 'Ancient cap' ] );
+ok( 'which says what it is showing',
+	false !== strpos( $show( [ 'show' => 'fixed' ] ), 'has been mended since the last reading' ), true );
+ok( 'sorting stays on the tab it was asked on',
+	false !== strpos( $show( [ 'show' => 'fixed' ] ), 'show=fixed&by=sales' ), true );
+
+// A reading kept for a few minutes: paging and sorting a list must not read
+// the whole shop again.
+$GLOBALS['dze_read_calls'] = [];
+$show( [ 'by' => 'price' ] );
+$show( [ 'by' => 'name' ] );
+ok( 'the list is not re-read on every look', count( $GLOBALS['dze_read_calls'] ), 0 );
+// Until the shop moves. Then it is read again, and the row goes back where
+// it belongs — which is the whole point of the two tabs.
 unset( $GLOBALS['dze_meta'][102]['_product_image_gallery'] );
-ok( 'and nothing is marked when nothing changed',
-	false !== strpos( $show( [] ), 'fixed ✓' ), false );
+$GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-02 08:00:00';
+$html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
+ok( 'an edit makes it read again',      count( $GLOBALS['dze_read_calls'] ) > 0, true );
+ok( 'and the row comes back to the work list', false !== strpos( $html, 'To work on (3)' ), true );
+ok( 'with nothing left on the other tab',      false !== strpos( $html, 'Fixed (0)' ), true );
+
+// A product deleted since the reading is nobody's work: it is on neither tab.
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103, 999 ] ] );
+$GLOBALS['dze_transients'] = [];
+$html = $show( [] );
+ok( 'a deleted row is not work to do',  false !== strpos( $html, 'To work on (3)' ), true );
+ok( 'and it is not "fixed" either',     false !== strpos( $html, 'Fixed (0)' ), true );
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
+$GLOBALS['dze_transients'] = [];
 
 // A title carrying markup is a title, not markup: "<span> Military Patch
 // </span> Russian Z" was printed at the shop, tags and all.

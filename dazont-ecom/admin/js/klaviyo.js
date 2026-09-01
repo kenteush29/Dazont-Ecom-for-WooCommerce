@@ -844,11 +844,37 @@
 			.fail(function () { $m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error); });
 	});
 
+	// What KLAVIYO holds, read once the screen has drawn.
+	//
+	// The rows are drawn from what was filed here, and the account moves
+	// without us: a campaign archived by hand, scheduled in Klaviyo itself,
+	// deleted there. The shop was reading "Synced with Klaviyo · draft" off a
+	// campaign it had archived days before. Asked AFTER the page is up, never
+	// during it, and the server refuses to ask the account twice in two
+	// minutes. A row whose cell has not changed is not touched.
+	function verify() {
+		if (!$('.dze-mail').length || !ruleId()) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_state', nonce: cfg.nonce, rule: ruleId() })
+			.done(function (res) {
+				if (!res || !res.success || !res.data) { return; }
+				var rows = res.data.rows || {}, id;
+				for (id in rows) {
+					if (Object.prototype.hasOwnProperty.call(rows, id)) {
+						card(id).find('.dze-mail-state').html(rows[id]);
+					}
+				}
+				if (res.data.message) {
+					$('#dze-mail-plan-msg').css('color', '#b26a00').removeClass('is-ko').text(res.data.message);
+				}
+			});
+	}
+
 	$(function () {
 		$('.dze-mail').each(function () { thumb($(this).data('id')); });
 		markDupes();
 		var $first = $('.dze-mail').first();
 		if ($first.length) { open($first.data('id')); }
+		verify();
 	});
 
 	// ---- Settings: the template, previewed the same way ----
