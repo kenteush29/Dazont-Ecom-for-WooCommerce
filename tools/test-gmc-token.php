@@ -115,7 +115,10 @@ $GLOBALS['reply'] = [ 'body' => json_encode( [
 [ $tok, $err ] = token();
 ok( 'no token, and a sentence instead',  $tok, '' );
 ok( 'in the shop\'s words, not Google\'s', false !== strpos( $err, 'Google has revoked this connection' ), true );
-ok( 'with the one thing to do',          false !== strpos( $err, 'Connect your Google account' ), true );
+// The path is the one that EXISTS: this sentence used to send the shop to
+// "Settings → Google Merchant Center", which is not a place in this plugin.
+ok( 'with the one thing to do',          false !== strpos( $err, 'Connect Google account again' ), true );
+ok( 'and where that screen really is',   false !== strpos( $err, 'Marketing events' ), true );
 ok( 'and it is written down',            DZE_Gmc::broken_since() > 0, true );
 ok( 'the dead access token is dropped',  get_transient( 'dze_gmc_oauth_token' ), false );
 
