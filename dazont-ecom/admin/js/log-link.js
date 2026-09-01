@@ -30,6 +30,13 @@
 		// sixteen pixels across, and a link appended inside it ran across the
 		// sentence beside it.
 		if ($el.hasClass('dze-why') || $el.closest('.dze-why').length) { return; }
+		// Nor on a LANGUAGE block. A feed that Google refused draws the same
+		// badge the rest of the plugin draws — a flag, its code, a cross —
+		// and the badge already carries what Google said, on its own tooltip.
+		// A link bolted onto it read "FR ✗ see the log ↗" on the events
+		// screen: three words of ours beside two characters of state, on a
+		// row that can carry five languages.
+		if ($el.hasClass('dze-lang') || $el.closest('.dze-lang').length) { return; }
 		if ($el.find('.dze-logl').length) { return; }
 		// No message yet: an empty red box has nothing to explain.
 		if (!String( $el.text() ).trim()) { return; }

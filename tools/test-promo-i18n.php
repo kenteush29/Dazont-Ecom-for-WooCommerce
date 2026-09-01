@@ -178,5 +178,38 @@ ok( 'and nothing else is touched',
 	DZE_Discounts::instance()->keep_menu_open( 'whatever' ), 'whatever' );
 $_GET = [];
 
+echo "What the customer actually sees, said on the events list\n";
+// "On montre aussi sur la page des events si le countdown est activé — et la
+// banière." A promotion that shows nothing and a promotion that shows a
+// counting-down banner looked identical on that list. Both are read from what
+// the shop would actually DRAW, never from the tick box alone: a countdown
+// lives inside the banner, so a promotion with the countdown ticked and the
+// banner off shows nothing at all, and saying "Countdown" there would be a
+// claim the shop never makes.
+$dze_live = [ 'type' => 'sale', 'title' => 'Patriot Day', 'end' => '2026-09-12',
+	'banner_enabled' => 1, 'banner_text' => '15% off everything', 'banner_timer' => 1 ];
+ok( 'a banner that counts down says both',
+	DZE_Discounts::shows( $dze_live ), [ 'banner' => true, 'countdown' => true ] );
+ok( 'the banner alone says only the banner',
+	DZE_Discounts::shows( array_merge( $dze_live, [ 'banner_timer' => 0 ] ) ),
+	[ 'banner' => true, 'countdown' => false ] );
+ok( 'a countdown with no banner shows nothing',
+	DZE_Discounts::shows( array_merge( $dze_live, [ 'banner_enabled' => 0 ] ) ),
+	[ 'banner' => false, 'countdown' => false ] );
+ok( 'nor does one with no end date',
+	DZE_Discounts::shows( array_merge( $dze_live, [ 'end' => '' ] ) ),
+	[ 'banner' => true, 'countdown' => false ] );
+// A banner with nothing written in it is not a banner. The title stands in
+// for the text, which is what the front does.
+ok( 'an empty banner with a title still shows',
+	DZE_Discounts::shows( array_merge( $dze_live, [ 'banner_text' => '' ] ) )['banner'], true );
+ok( 'and one with neither shows nothing',
+	DZE_Discounts::shows( array_merge( $dze_live, [ 'banner_text' => '', 'title' => '' ] ) )['banner'], false );
+// The words, because a glyph nobody recognises is a state nobody reads.
+ok( 'the cell names both in words',
+	DZE_Discounts::shows_html( $dze_live ), 'Banner · Countdown' );
+ok( 'and says plainly when nothing is shown',
+	DZE_Discounts::shows_html( array_merge( $dze_live, [ 'banner_enabled' => 0 ] ) ), 'No banner' );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

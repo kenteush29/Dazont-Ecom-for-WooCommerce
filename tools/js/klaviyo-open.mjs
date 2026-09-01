@@ -392,9 +392,18 @@ await page.route( 'http://dze.test/ajax*', route => {
 	posted.push( { action: body.get( 'action' ), undo: body.get( 'undo' ) } );
 	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
 		success: true,
+		// The cell the server draws travels with the answer: scheduled, it
+		// offers no rewrite; back to a draft, Translate again is on the row
+		// again. Without it the row kept saying "scheduled" and the buttons
+		// stayed gone until somebody reloaded.
 		data: '1' === body.get( 'undo' )
-			? { scheduled: 0, message: 'Back to a draft in Klaviyo.' }
-			: { scheduled: 1, day: '2026-09-28', message: 'Scheduled in Klaviyo for 2026-09-28.' }
+			? { scheduled: 0, message: 'Back to a draft in Klaviyo.',
+				state: '<button type="button" class="button dze-mail-sched" data-undo="0">Schedule it</button>'
+					+ ' <button type="button" class="button dze-mail-i18n dze-back">Translate again</button>'
+					+ '<span class="dze-mail-sched-msg description"></span>' }
+			: { scheduled: 1, day: '2026-09-28', message: 'Scheduled in Klaviyo for 2026-09-28.',
+				state: '<button type="button" class="button dze-mail-sched" data-undo="1">Unschedule</button>'
+					+ '<span class="dze-mail-sched-msg description"></span>' }
 	} ) } );
 } );
 await page.click( '.dze-mail-sched' );
@@ -409,6 +418,17 @@ await page.waitForFunction( () => 'Schedule it' === document.querySelector( '.dz
 ok( 'the same button undoes it', posted[1] && posted[1].undo, '1' );
 ok( 'and says it is a draft again',
 	/draft/i.test( await page.textContent( '.dze-mail-sched-msg' ) ), true );
+// The whole point of undoing it: the row is writable again. A scheduled
+// campaign is locked in Klaviyo, so its cell drops Update and Translate
+// again — and the row went on showing neither, with "scheduled" still on it,
+// until the page was reloaded.
+// Asserted on the cell the SERVER sent, never on what the browser could have
+// written by itself: the row already carried a Translate again button before
+// the click, so "it is there afterwards" is a check that passes on the bug.
+ok( 'the row the server drew is the one on screen',
+	await page.isVisible( '.dze-mail-i18n.dze-back' ), true );
+ok( 'and it replaced the old cell rather than joining it',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail-sched' ).length ), 1 );
 ok( 'nothing was raised scheduling', errors, [] );
 
 // An added email is the announcement on the opening day — most promotions
@@ -667,12 +687,21 @@ await page.evaluate( () => {
 	const row = document.querySelector( '.dze-mail-state' );
 	row.insertAdjacentHTML( 'beforeend',
 		'<span class="dze-mail-lost">Not written in DE <span class="dze-why is-bad" title="504">i</span></span>'
+		// A feed Google refused: the same badge the whole plugin draws, with
+		// what Google said on its own tooltip. "FR ✗ see the log ↗" put three
+		// words of ours beside two characters of state, on a row that can
+		// carry five languages.
+		+ '<span class="dze-lang is-ko" title="FR — Google refused it"><span class="dze-lang-code">FR</span><b>✗</b></span>'
 		+ '<span class="dze-mail-note is-ko">Klaviyo said no.</span>' );
 } );
 await page.addScriptTag( { path: join( root, 'dazont-ecom/admin/js/log-link.js' ) } );
 await page.waitForTimeout( 250 );
 ok( 'the badge is left alone',
 	await page.evaluate( () => document.querySelectorAll( '.dze-why .dze-logl' ).length ), 0 );
+ok( 'a refused language is left alone too',
+	await page.evaluate( () => document.querySelectorAll( '.dze-lang .dze-logl' ).length ), 0 );
+ok( 'and it says what happened on hover',
+	await page.getAttribute( '.dze-lang.is-ko', 'title' ), 'FR — Google refused it' );
 ok( 'and the message still carries the link',
 	await page.evaluate( () => document.querySelectorAll( '.dze-mail-note.is-ko .dze-logl' ).length ), 1 );
 ok( 'the warning reads as one sentence',
