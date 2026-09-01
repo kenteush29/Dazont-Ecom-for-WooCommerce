@@ -276,6 +276,7 @@
 		$c.find('.dze-mail-when').contents().first().replaceWith(niceDay($('#dze-klav-e-when').val() || ''));
 		markDupes();
 		spacing();
+		shotsBox();
 		thumb(current);
 	}
 	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
@@ -652,6 +653,25 @@
 		spacing();
 	});
 
+	// "with their pictures": the per-email permission, set on every row of the
+	// promotion at once. Not a second setting — the very field the editor's own
+	// tick box writes, so the two can never disagree.
+	$(document).on('change', '#dze-mail-shots', function () {
+		var on = $(this).is(':checked') ? '1' : '0';
+		$('.dze-mail').each(function () { $(this).find('.dze-f-want').val(on); });
+		$('#dze-klav-e-want').prop('checked', '1' === on);
+	});
+	function shotsBox() {
+		var $box = $('#dze-mail-shots'), rows = $('.dze-mail');
+		if (!$box.length || !rows.length) { return; }
+		// Ticked when every row already asks for one — read from the rows, so
+		// the box says what the promotion holds rather than what was last
+		// clicked.
+		$box.prop('checked', rows.filter(function () {
+			return '1' === String($(this).find('.dze-f-want').val() || '0');
+		}).length === rows.length);
+	}
+
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
@@ -769,16 +789,44 @@
 				when: card(ids[i]).find('.dze-f-when').val() || ''
 			})
 				.done(function (res) {
-					rowNote(card(ids[i]), (res && res.success) ? cfg.i18n.rowWrote : ((res && res.data && res.data.message) || i18n.error), (res && res.success) ? 'ok' : 'ko');
-					if (res && res.success) {
-						$('#dze-klav-e-subject').val(res.data.subject || '');
-						if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-						body().val(res.data.body || '');
-						commit();
+					if (!res || !res.success) {
+						rowNote(card(ids[i]), (res && res.data && res.data.message) || i18n.error, 'ko');
+						// One that failed does not stop the rest: the others
+						// are worth having, and the one that failed is still
+						// there to try again on its own.
+						next(i + 1);
+						return;
 					}
-					// One that failed does not stop the rest: the others are
-					// worth having, and the one that failed is still there to
-					// try again on its own.
+					$('#dze-klav-e-subject').val(res.data.subject || '');
+					if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
+					body().val(res.data.body || '');
+					commit();
+					// The PICTURE, made here rather than left for somebody to
+					// open each email and press its own button. Two conditions,
+					// both the email's own: the row asks for one — the same
+					// per-email permission the editor's tick box sets — and the
+					// writing actually left a place for it. Made AFTER the
+					// email, so the picture prompt is given what this email
+					// turned out to be, and through the same call the single
+					// button uses.
+					var wants = '1' === String(card(ids[i]).find('.dze-f-want').val() || '0');
+					if (wants && res.data.picture) {
+						rowNote(card(ids[i]), cfg.i18n.rowShot || 'Making its picture…', 'work');
+						makePicture($b, $m, '', function () {
+							rowNote(card(ids[i]), cfg.i18n.rowShotOk || cfg.i18n.rowWrote, 'ok');
+							next(i + 1);
+						})
+							// A picture that never came back must not stop the
+							// run: the emails after it are worth having, and
+							// the row says which one lost its picture.
+							.fail(function () {
+								$b.prop('disabled', true);
+								rowNote(card(ids[i]), i18n.error, 'ko');
+								next(i + 1);
+							});
+						return;
+					}
+					rowNote(card(ids[i]), cfg.i18n.rowWrote, 'ok');
 					next(i + 1);
 				})
 				.fail(function () { rowNote(card(ids[i]), i18n.error, 'ko'); next(i + 1); });
@@ -979,6 +1027,7 @@
 		$('.dze-mail').each(function () { thumb($(this).data('id')); });
 		markDupes();
 		spacing();
+		shotsBox();
 		var $first = $('.dze-mail').first();
 		if ($first.length) { open($first.data('id')); }
 		verify();

@@ -7204,6 +7204,10 @@ final class DZE_Klaviyo {
 				'rowPut'     => __( 'In Klaviyo ✓', 'dazont-ecom' ),
 				'rowSame'    => __( 'Already up to date', 'dazont-ecom' ),
 				'rowFinding' => __( 'Looking in Klaviyo…', 'dazont-ecom' ),
+				// The picture, made on the row it belongs to while a batch
+				// works through the promotion.
+				'rowShot'    => __( 'Making its picture…', 'dazont-ecom' ),
+				'rowShotOk'  => __( 'Written, with its picture ✓', 'dazont-ecom' ),
 				/* translators: 1: how many were put in Klaviyo, 2: how many were already up to date */
 				'draftSkip'  => __( '%1$d put in Klaviyo · %2$d already up to date.', 'dazont-ecom' ),
 				// A day added in the browser used to land as 2026-08-29 beside
@@ -7669,6 +7673,21 @@ CSS;
 				<button type="button" class="button" id="dze-mail-new">+ <?php esc_html_e( 'Add an email', 'dazont-ecom' ); ?></button>
 				<span style="flex:1;"></span>
 				<button type="button" class="button" id="dze-mail-plan"><?php esc_html_e( 'Plan the campaign', 'dazont-ecom' ); ?></button>
+				<?php if ( self::images_on() ) : ?>
+					<?php
+					// "Generate them all" wrote the emails and stopped there:
+					// the picture waited for somebody to open each one and
+					// press its own button. This ticks the SAME per-email
+					// permission on every row at once — it is not a second
+					// setting, it is the one that already exists, set for the
+					// whole promotion — and the batch then makes each picture
+					// straight after the email it belongs to.
+					?>
+					<label style="font-size:13px;display:inline-flex;align-items:center;gap:5px;" title="<?php esc_attr_e( 'Each picture is made after its own email, from the shop\'s picture prompt. It costs a fal.ai call and about a minute per email.', 'dazont-ecom' ); ?>">
+						<input type="checkbox" id="dze-mail-shots" />
+						<?php esc_html_e( 'with their pictures', 'dazont-ecom' ); ?>
+					</label>
+				<?php endif; ?>
 				<button type="button" class="button button-primary" id="dze-mail-all"><?php esc_html_e( 'Generate them all', 'dazont-ecom' ); ?></button>
 				<?php
 				// The whole promotion, in one gesture, in date order. Klaviyo
