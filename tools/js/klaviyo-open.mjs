@@ -307,7 +307,8 @@ await page.route( 'http://dze.test/ajax*', route => {
 					url: 'https://klaviyo.test/campaign/C1',
 					// The state cell, as PHP renders it: what the row has just
 					// earned by reaching Klaviyo.
-					state: '<a href="https://klaviyo.test/campaign/C1" target="_blank" rel="noopener noreferrer">Draft in Klaviyo \u2197</a>'
+					state: '<span class="dze-mail-synced">\u2713 Synced with Klaviyo \u00b7 draft</span>'
+						+ '<a href="https://klaviyo.test/campaign/C1" target="_blank" rel="noopener noreferrer">Open in Klaviyo \u2197</a>'
 						+ '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
 						+ '<span class="dze-mail-sched-msg description"></span>'
 						+ '<span class="dze-mail-langs">EN written, FR, DE open \u2014 not translated yet</span>'
@@ -336,6 +337,8 @@ ok( 'and carries its fresh draft link',
 // "Tout ça apparaît seulement après rafraichissement de la page": the row used
 // to keep the bare link and nothing else. Everything the email has just earned
 // must be there to press, without reloading anything.
+ok( 'the row says it is synced, whatever its state',
+	( await page.textContent( '.dze-mail[data-id="mail1"] .dze-mail-synced' ) ).includes( 'Synced with Klaviyo' ), true );
 ok( 'the row can now be scheduled',
 	await page.evaluate( () => !! document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-sched' ) ), true );
 ok( 'and translated',
@@ -360,7 +363,7 @@ await page.setViewportSize( { width: 1440, height: 900 } );
 await page.evaluate( () => {
 	const row = document.querySelector( '.dze-mail[data-id="mail1"]' );
 	row.querySelector( '.dze-mail-state' ).innerHTML =
-		'<a href="#">Draft in Klaviyo</a>'
+		'<span class="dze-mail-synced">\u2713 Synced with Klaviyo \u00b7 draft</span><a href="#">Open in Klaviyo</a>'
 		+ '<span class="dze-mail-langs">Translated — 42 texts in FR, PL, ES · DE still to write</span>'
 		+ '<span class="dze-mail-links">Links did NOT move for FR, PL, ES — WPML gave the same address back, '
 		+ 'so those readers land on the English page. Check WPML → Languages → how URLs look, and that the '

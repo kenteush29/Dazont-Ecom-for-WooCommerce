@@ -1259,6 +1259,52 @@ ok( 'a changed email goes on its own',
 		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T9' ) ) ), 1 );
 $GLOBALS['dze_queue'] = [];
 
+echo "The row says whether it is in Klaviyo, whatever state it is in\n";
+// "J'aimerai en plus dans l'UI une mention Synced with klaviyo peu importe le
+// status de l'email, draft ou pas." It said "Draft in Klaviyo" and nothing
+// else, so an email that had been scheduled — or sent — read as though it had
+// never arrived.
+$cell = DZE_Klaviyo::state_cell( 's1', [ 'kind' => 'launch', 'draft' => [ 'campaign' => 'C1' ] ] );
+ok( 'a draft says it is synced',        str_contains( $cell, 'Synced with Klaviyo · draft' ), true );
+$cell = DZE_Klaviyo::state_cell( 's1', [ 'kind' => 'launch', 'draft' => [ 'campaign' => 'C1', 'scheduled' => time(), 'goes' => '2026-09-20' ] ] );
+ok( 'a scheduled one says so too',      str_contains( $cell, 'Synced with Klaviyo · scheduled' ), true );
+$cell = DZE_Klaviyo::state_cell( 's1', [ 'kind' => 'launch', 'draft' => [ 'campaign' => 'C1', 'sent' => time() ] ] );
+ok( 'and one that has gone out',        str_contains( $cell, 'Synced with Klaviyo · sent' ), true );
+// And an email that is NOT there offers to go and look for it.
+$cell = DZE_Klaviyo::state_cell( 's1', [ 'kind' => 'launch' ] );
+ok( 'an unsynced row says that plainly', str_contains( $cell, 'Not in Klaviyo yet' ), true );
+ok( 'and offers to find it',             str_contains( $cell, 'dze-mail-find' ), true );
+
+echo "An email already in Klaviyo, linked back without writing a word\n";
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'f1' => [
+	'kind' => 'launch', 'subject' => 'The Back to School Sale is live: 10% off everything',
+] ] ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	// Not under the name this plugin would give it…
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	// …but under its own SUBJECT, which is what a campaign made in Klaviyo is
+	// called. This is the email the shop could not see.
+	[ 'code' => 200, 'body' => json_encode( [
+		'data'     => [ [ 'id' => 'C-BTS', 'attributes' => [ 'status' => 'Scheduled', 'created_at' => '2026-08-29T10:00:00Z' ],
+			'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-BTS' ] ] ] ] ] ],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-BTS' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-BTS"}}' ],
+];
+$_POST = [ 'rule' => 'promo', 'email' => 'f1' ];
+$said  = null;
+try { DZE_Klaviyo::ajax_find(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'it is found by its subject line',  $said['url'] ?? '', 'https://www.klaviyo.com/campaign/C-BTS/wizard' );
+ok( 'and nothing was written there',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => in_array( ( $c['method'] ?? '' ), [ 'POST', 'PATCH', 'DELETE' ], true ) ) ), 0 );
+$linked = get_option( $copy )['promo']['emails']['f1']['draft'] ?? [];
+ok( 'the id is filed beside the email', $linked['campaign'] ?? '', 'C-BTS' );
+ok( 'and it knows it is scheduled',     ( (int) ( $linked['scheduled'] ?? 0 ) ) > 0, true );
+ok( 'the row now says it is synced',
+	str_contains( (string) ( $said['state'] ?? '' ), 'Synced with Klaviyo' ), true );
+$_POST = [];
+
 echo "An email whose campaign the shop already has is not made twice\n";
 // "Des emails déjà syncro par le passé ne le sont plus, notamment celui de
 // lancement du back to school." The campaign is still in the account; what
@@ -1333,11 +1379,48 @@ $kept = get_option( $copy )['promo']['emails']['ad1']['draft'] ?? [];
 ok( 'the email keeps the id from now on',   $kept['campaign'] ?? '', 'C-SCHED' );
 ok( 'and knows it is scheduled',            ( (int) ( $kept['scheduled'] ?? 0 ) ) > 0, true );
 
+// A campaign that has GONE OUT is never adopted. "Si un email est envoyé sur
+// klaviyo et n'est pas supprimé, puis regénéré sur dazont et resynchro avec
+// l'ancien email klaviyo, on se retrouve avec 2 versions différentes": one
+// version in people's inboxes and another this screen believes in. History is
+// left alone and a new campaign is made beside it, said in words.
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['ad1']['draft'] = [];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => json_encode( [
+		'data'     => [ [ 'id' => 'C-GONE', 'attributes' => [ 'status' => 'Sent', 'created_at' => '2026-08-01T10:00:00Z' ],
+			'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-GONE' ] ] ] ] ] ],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-GONE' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-GONE"}}' ],
+	[ 'code' => 200, 'body' => $frame_def ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-NEW"}}' ],
+	// The campaign, WITH the message Klaviyo names for it: a creation that
+	// stops halfway raises a warning of its own and hides the one under test.
+	[ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C-NEW',
+		'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-NEW' ] ] ] ] ] ] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"M-NEW"}}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"tag1"}}' ],
+	[ 'code' => 200, 'body' => '{}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C-NEW","attributes":{"status":"Draft"}}}' ],
+];
+$made = null;
+try { $made = DZE_Klaviyo::draft( 'promo', 'ad1' ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+ok( 'a sent campaign is never rewritten',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'T-GONE' ) ) ), 0 );
+ok( 'nor adopted as this email',
+	get_option( $copy )['promo']['emails']['ad1']['draft']['campaign'] ?? '', 'C-NEW' );
+ok( 'and the shop is told there are now two',
+	false !== strpos( (string) ( $made['warning'] ?? '' ), 'already gone out' ), true );
+
 // Nothing of that name in the account: the ordinary path, one campaign made.
 $GLOBALS['dze_opts'][ $copy ]['promo']['emails']['ad1']['draft'] = [];
 $GLOBALS['dze_sent']  = [];
 $GLOBALS['dze_queue'] = [
 	[ 'code' => 200, 'body' => '{"data":[]}' ],   // asked by name, nothing there
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // and by its subject line either
 	[ 'code' => 200, 'body' => $frame_def ],
 	[ 'code' => 200, 'body' => '{"data":{"id":"T-NEW"}}' ],
 	[ 'code' => 200, 'body' => '{"data":{"id":"C-NEW"}}' ],
@@ -1519,7 +1602,8 @@ $cell = DZE_Klaviyo::state_cell( 'm9', [
 	'kind'  => 'launch',
 	'draft' => [ 'campaign' => 'C9', 'message' => 'M9', 'langs' => [ 'fr', 'de' ] ],
 ] );
-ok( 'the draft is linked',              str_contains( $cell, 'Draft in Klaviyo' ), true );
+ok( 'the campaign is linked',           str_contains( $cell, 'Open in Klaviyo' ), true );
+ok( 'and the row says it IS synced',    str_contains( $cell, 'Synced with Klaviyo' ), true );
 ok( 'it can be scheduled from the row', str_contains( $cell, 'dze-mail-sched' ), true );
 // The languages are drawn as WPML draws them everywhere else in this admin:
 // a flag and a code per language, ticked when written, hollow when owed.
@@ -1549,9 +1633,11 @@ ok( 'and offers to undo it',            str_contains( $cell, 'Unschedule' ), tru
 ok( 'a translated one counts its texts', str_contains( $cell, 'Translated — 24 texts' ), true );
 ok( 'with each language ticked',        substr_count( $cell, 'dze-lang is-done' ), 2 );
 
-// An email that has never been to Klaviyo has nothing to say and says nothing.
-ok( 'an email with no campaign is a blank cell',
-	trim( DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch' ] ) ), '' );
+// An email that has never been to Klaviyo says THAT, and offers the one thing
+// worth doing about it: an empty cell was a row that looked broken.
+$cell = DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch' ] );
+ok( 'an email with no campaign says so', str_contains( $cell, 'Not in Klaviyo yet' ), true );
+ok( 'and nothing is claimed about it',   str_contains( $cell, 'Synced with Klaviyo' ), false );
 
 echo "The email settings screen actually draws\n";
 // A class that loads is not a screen that works. This tab carries the

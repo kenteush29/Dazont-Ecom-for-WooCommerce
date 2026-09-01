@@ -782,6 +782,25 @@
 			.fail(function () { $b.prop('disabled', false); rowNote(card(id), i18n.error, 'ko'); });
 	});
 
+	// An email that is already in Klaviyo, linked back to its row. Writes
+	// nothing there — it only puts the id back beside the email.
+	$(document).on('click', '.dze-mail-find', function () {
+		var $b = $(this), $c = $b.closest('.dze-mail'), id = $c.data('id');
+		$b.prop('disabled', true);
+		rowNote($c, cfg.i18n.rowFinding || 'Looking in Klaviyo…', 'work');
+		$.post(cfg.ajaxUrl, { action: 'dze_klav_find', nonce: cfg.nonce, rule: ruleId(), email: id })
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (res && res.success && res.data) {
+					drawState(card(id), res.data);
+					rowNote(card(id), res.data.message || '', 'ok');
+					return;
+				}
+				rowNote($c, (res && res.data && res.data.message) || i18n.error, 'ko');
+			})
+			.fail(function () { $b.prop('disabled', false); rowNote($c, i18n.error, 'ko'); });
+	});
+
 	// A person has read what the autopilot wrote: the mark goes, at once and
 	// in the database, like everything on this screen that changes an email.
 	$(document).on('click', '.dze-mail-checked', function () {
