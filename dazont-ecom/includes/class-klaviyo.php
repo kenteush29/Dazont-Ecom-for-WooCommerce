@@ -2974,6 +2974,31 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * The same answer with the ARCHIVED campaigns taken out of it.
+	 *
+	 * Archiving a campaign in Klaviyo is how the shop puts one away, and
+	 * Klaviyo's own campaign list stops showing it — but the API hands it
+	 * back like any other unless it is asked not to. The filter asks; this
+	 * reads the answer as well, because a campaign this plugin adopts is one
+	 * the owner can still see. The account had two archived drafts made the
+	 * same day sitting in front of the real scheduled campaign: newest wins
+	 * handed back the one nobody would ever open again.
+	 *
+	 * @param array|WP_Error $got What the account answered.
+	 * @return array|WP_Error The same, minus the archived rows.
+	 */
+	private static function not_archived( $got ) {
+		if ( is_wp_error( $got ) || ! is_array( $got ) || ! isset( $got['data'] ) || ! is_array( $got['data'] ) ) {
+			return $got;
+		}
+		$got['data'] = array_values( array_filter(
+			$got['data'],
+			static fn( $row ) => empty( $row['attributes']['archived'] )
+		) );
+		return $got;
+	}
+
+	/**
 	 * A DRAFT campaign already in the account under this exact name.
 	 *
 	 * Klaviyo can be asked for campaigns by name, and a name here is the
@@ -3010,11 +3035,12 @@ final class DZE_Klaviyo {
 			}
 			$one = self::request(
 				'GET',
-				'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $what ) . '"))' )
+				'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(archived,false),equals(name,"' . str_replace( '"', '', $what ) . '"))' )
 					. '&include=campaign-messages',
 				null,
 				25
 			);
+			$one = self::not_archived( $one );
 			if ( ! is_wp_error( $one ) && ! empty( $one['data'][0]['id'] ) ) {
 				$got = $one;
 				break;
@@ -3033,11 +3059,12 @@ final class DZE_Klaviyo {
 			if ( '' !== $kind ) {
 				$one = self::request(
 					'GET',
-					'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),contains(name,"' . str_replace( '"', '', $kind ) . '"))' )
+					'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(archived,false),contains(name,"' . str_replace( '"', '', $kind ) . '"))' )
 						. '&include=campaign-messages&sort=-created_at',
 					null,
 					25
 				);
+				$one = self::not_archived( $one );
 				if ( ! is_wp_error( $one ) ) {
 					foreach ( (array) ( $one['data'] ?? [] ) as $i => $row ) {
 						$there = (string) ( $row['attributes']['name'] ?? '' );
@@ -4009,9 +4036,16 @@ final class DZE_Klaviyo {
 	 * answer: a new draft beside an old one is a nuisance, overwriting one that
 	 * is about to go out is not.
 	 */
-	private static function draft_open( string $camp_id ): bool {
-		$got = self::request( 'GET', 'campaigns/' . rawurlencode( $camp_id ) . '?fields[campaign]=status', null, 20 );
+	private static function draft_open( string $camp_id, ?string &$why = null ): bool {
+		$why = '';
+		$got = self::request( 'GET', 'campaigns/' . rawurlencode( $camp_id ) . '?fields[campaign]=status,archived', null, 20 );
 		if ( is_wp_error( $got ) ) {
+			return false;
+		}
+		// ARCHIVED is the owner putting it away: it is out of his campaign
+		// list, so writing into it would be writing where nobody looks.
+		if ( ! empty( $got['data']['attributes']['archived'] ) ) {
+			$why = 'archived';
 			return false;
 		}
 		$status = strtolower( trim( (string) ( $got['data']['attributes']['status'] ?? '' ) ) );
@@ -4079,7 +4113,8 @@ final class DZE_Klaviyo {
 		$camp_id = (string) ( $prev['campaign'] ?? '' );
 		$msg_id  = (string) ( $prev['message'] ?? '' );
 		$tpl_id  = (string) ( $prev['template'] ?? '' );
-		$again   = ( '' !== $camp_id && '' !== $msg_id && '' !== $tpl_id && self::draft_open( $camp_id ) );
+		$shut    = '';
+		$again   = ( '' !== $camp_id && '' !== $msg_id && '' !== $tpl_id && self::draft_open( $camp_id, $shut ) );
 
 		// Not ours to rewrite, and no id remembered: is it already THERE? A
 		// campaign this plugin made and then lost the id of — a promotion
@@ -4162,7 +4197,13 @@ final class DZE_Klaviyo {
 		// check exists to avoid.
 		$blocks  = self::dnd_definition( self::settle_picture( $body, $rule, (string) ( $copy['picture'] ?? '' ) ) );
 		if ( ! $again && '' !== $camp_id ) {
-			$warning = __( 'The campaign this email had is no longer a draft, so it was left alone and a new one was made.', 'dazont-ecom' );
+			// Which of the two refusals it was, because they are different
+			// facts: one campaign is on its way out, the other was put away
+			// by hand. Either way a campaign appears in the account for the
+			// second time, and the screen has to say why.
+			$warning = trim( $warning . ' ' . ( 'archived' === $shut
+				? __( 'The campaign this email was filed under is archived in Klaviyo. It is left where it is, and this one was put there as a new campaign.', 'dazont-ecom' )
+				: __( 'The campaign this email had is no longer a draft, so it was left alone and a new one was made.', 'dazont-ecom' ) ) );
 			$camp_id = '';
 			$msg_id  = '';
 			$tpl_id  = '';

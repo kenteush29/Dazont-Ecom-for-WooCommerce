@@ -1357,6 +1357,106 @@ ok( 'and nothing was written in the account',
 $_POST = [];
 $GLOBALS['dze_rules'] = null;
 
+echo "An ARCHIVED campaign is never the one taken\n";
+// "des mails archivés aussi étaient utilisés pour les syncro. N'utiliser que
+// des mails non archivés." Klaviyo hands archived campaigns back like any
+// other unless it is told not to: this account held two archived drafts made
+// TODAY in front of the real scheduled Back to School campaign, and
+// newest-wins adopted one of those — a campaign the owner has put away and
+// will never open again.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'bts' => [
+	'kind' => 'launch', 'subject' => 'Something else entirely',
+] ] ] ];
+$GLOBALS['dze_rules'] = [ 'promo' => [ 'title' => 'Back to School Sale' ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	// The account's real answer, archived flags and all.
+	[ 'code' => 200, 'body' => json_encode( [
+		'data' => [
+			[ 'id' => 'C-ARCH', 'attributes' => [ 'name' => 'Back to School Sale! -10% Off the entire shop — Launch', 'status' => 'Draft', 'archived' => true, 'created_at' => '2026-09-01T13:07:18Z' ],
+				'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-ARCH' ] ] ] ] ],
+			[ 'id' => 'C-BTS', 'attributes' => [ 'name' => 'Back to School Sale! -10% Off the entire shop — Launch', 'status' => 'Scheduled', 'archived' => false, 'created_at' => '2026-08-29T13:06:49Z' ],
+				'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-BTS' ] ] ] ] ],
+		],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-BTS' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-BTS"}}' ],
+];
+$_POST = [ 'rule' => 'promo', 'email' => 'bts' ];
+$said  = null;
+try { DZE_Klaviyo::ajax_find(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'the live campaign is the one taken',
+	false !== strpos( (string) ( $said['url'] ?? '' ), 'C-BTS' ), true );
+ok( 'never the archived one, newer though it is',
+	false !== strpos( (string) ( $said['url'] ?? '' ), 'C-ARCH' ), false );
+$asked_live = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	false !== strpos( (string) ( $c['url'] ?? '' ), 'campaigns/?filter=' ) ) );
+ok( 'three questions were asked of the account', count( $asked_live ), 3 );
+ok( 'and every one of them asked for live campaigns only',
+	count( array_filter( $asked_live, static fn( $c ) =>
+		false !== strpos( rawurldecode( (string) $c['url'] ), 'equals(archived,false)' ) ) ), 3 );
+$_POST = [];
+$GLOBALS['dze_rules'] = null;
+
+// The id already filed beside the email, when THAT campaign has been
+// archived since: not ours to rewrite either — it is out of the owner's
+// campaign list, so a rewrite would go where nobody looks.
+$open = new ReflectionMethod( 'DZE_Klaviyo', 'draft_open' );
+$open->setAccessible( true );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C-ARCH","attributes":{"status":"Draft","archived":true}}}' ] ];
+$shut = '';
+ok( 'an archived draft is not open for rewriting', $open->invokeArgs( null, [ 'C-ARCH', &$shut ] ), false );
+ok( 'and it says which refusal it is',  $shut, 'archived' );
+ok( 'the account was asked whether it is archived',
+	false !== strpos( (string) ( $GLOBALS['dze_sent'][0]['url'] ?? '' ), 'archived' ), true );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C-D","attributes":{"status":"Draft","archived":false}}}' ] ];
+$shut = '';
+ok( 'a live draft still is',            $open->invokeArgs( null, [ 'C-D', &$shut ] ), true );
+ok( 'with no refusal to report',        $shut, '' );
+
+// End to end: the email is filed under an archived campaign, and pressing
+// the button puts it in the account as a NEW one, saying so.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'ar1' => [
+	'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 4 * 86400 ),
+	'subject' => 'Back to School', 'preview' => 'P', 'body' => '<p>Words.</p>',
+	'draft' => [ 'campaign' => 'C-ARCH', 'message' => 'M-ARCH', 'template' => 'T-ARCH' ],
+] ] ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C-ARCH","attributes":{"status":"Draft","archived":true}}}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // nothing live under that name
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // nor its subject
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // nor its type
+	[ 'code' => 200, 'body' => $frame_def ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-NEW"}}' ],
+	// The new campaign, with the message Klaviyo names for it and the day it
+	// kept — so the answer this test reads is the sentence about archiving
+	// and not a complaint about something else.
+	[ 'code' => 200, 'body' => json_encode( [ 'data' => [
+		'id'            => 'C-NEW',
+		'attributes'    => [ 'send_strategy' => [ 'method' => 'static', 'datetime' => gmdate( 'Y-m-d', time() + 4 * 86400 ) . 'T09:00:00+00:00' ] ],
+		'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-NEW' ] ] ] ],
+	] ] ) ],
+];
+$was_reply = $GLOBALS['dze_reply'];
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => '{"data":{"id":"C-NEW","attributes":{"status":"Draft","editor_type":"SYSTEM_DRAGGABLE"}}}' ];
+$made = null;
+try { $made = DZE_Klaviyo::draft( 'promo', 'ar1' ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+$GLOBALS['dze_reply'] = $was_reply;
+ok( 'the archived template is not rewritten',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'T-ARCH' ) ) ), 0 );
+ok( 'a campaign is created instead',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		'POST' === ( $c['method'] ?? '' ) && preg_match( '#/api/campaigns/$#', (string) $c['url'] ) ) ), 1 );
+ok( 'and the screen says why there are now two',
+	false !== strpos( (string) ( $made['warning'] ?? '' ), 'archived in Klaviyo' ), true );
+$GLOBALS['dze_queue'] = [];
+
 echo "An email whose campaign the shop already has is not made twice\n";
 // "Des emails déjà syncro par le passé ne le sont plus, notamment celui de
 // lancement du back to school." The campaign is still in the account; what
