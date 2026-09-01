@@ -484,6 +484,62 @@ $threw = '';
 try { DZE_Klaviyo::save_translations( 'promo', 'mail1' ); } catch ( Throwable $e ) { $threw = $e->getMessage(); }
 ok( 'nothing to file is said, not sent', false !== strpos( $threw, 'Nothing came back' ), true );
 
+// A language that did not come back is a fact the row keeps: which one, what
+// refused, and what to press. "Translated — 43 texts in FR, PL, ES · DE — The
+// translation did not finish. (504) > Impossible de dire d'où ça vient."
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['mail1']['draft']['done_langs'] = [];
+DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' );
+$got = DZE_Klaviyo::save_translations( 'promo', 'mail1', [ 'de' ], 'Writing DE did not finish (504)' );
+$mail = ( get_option( $copy )['promo']['emails']['mail1'] ?? [] );
+ok( 'what did not come back is filed',  $mail['draft']['i18n_fail'] ?? [], [ 'de' ] );
+ok( 'with the reason it gave',          $mail['draft']['i18n_why'] ?? '', 'Writing DE did not finish (504)' );
+ok( 'the answer carries the whole row',
+	str_contains( (string) ( $got['state'] ?? '' ), 'dze-mail-langs' ), true );
+ok( 'and the row names the language that is missing',
+	str_contains( (string) ( $got['state'] ?? '' ), 'Not written in DE' ), true );
+ok( 'with the reason behind the i',
+	str_contains( (string) ( $got['state'] ?? '' ), 'title="Writing DE did not finish (504)"' ), true );
+
+echo "A campaign Klaviyo has locked takes no writing\n";
+// "Il est impossible d'éditer un email après l'avoir schedulé. Rendre donc
+// indisponible les boutons de translate ou update." Klaviyo locks a scheduled
+// campaign; a button that answers "no" when pressed should not be there.
+$sched = [ 'kind' => 'launch', 'when' => '2026-09-20', 'subject' => 'S',
+	'draft' => [ 'campaign' => 'C9', 'message' => 'M9', 'template' => 'T9', 'scheduled' => time(), 'goes' => '2026-09-20' ] ];
+$cell = DZE_Klaviyo::state_cell( 'm9', $sched );
+ok( 'no Update in Klaviyo on a scheduled email', str_contains( $cell, 'dze-mail-push' ), false );
+ok( 'no Translate either',              str_contains( $cell, 'dze-mail-i18n' ), false );
+ok( 'but it can still be unscheduled',  str_contains( $cell, 'data-undo="1"' ), true );
+ok( 'and the row says why',             str_contains( $cell, 'unschedule it to change anything' ), true );
+// One that has GONE OUT is history: not even a day to undo.
+$sent_cell = DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch',
+	'draft' => [ 'campaign' => 'C9', 'sent' => time() ] ] );
+ok( 'a sent email offers nothing that writes', str_contains( $sent_cell, 'dze-mail-push' ), false );
+ok( 'nor a day to schedule',            str_contains( $sent_cell, 'data-undo=' ), false );
+ok( 'and says so plainly',              str_contains( $sent_cell, 'nothing here can change it any more' ), true );
+
+// The screen is not the lock: the endpoints answer the same.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'lk' => $sched ] ] ];
+ok( 'a scheduled email is locked',
+	str_contains( DZE_Klaviyo::locked_reason( 'promo', 'lk' ), 'Unschedule' ), true );
+$GLOBALS['dze_sent'] = [];
+$_POST = [ 'rule' => 'promo', 'email' => 'lk', 'body' => '<p>Words.</p>' ];
+$said = null;
+try { DZE_Klaviyo::ajax_draft(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'Update in Klaviyo is refused',     str_contains( (string) ( $said['message'] ?? '' ), 'scheduled in Klaviyo' ), true );
+ok( 'and nothing was written there',    count( $GLOBALS['dze_sent'] ), 0 );
+$said = null;
+$GLOBALS['dze_asked'] = [];
+$_POST = [ 'rule' => 'promo', 'email' => 'lk', 'lang' => 'fr' ];
+try { DZE_Klaviyo::ajax_translate(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'translating is refused too',       str_contains( (string) ( $said['message'] ?? '' ), 'scheduled in Klaviyo' ), true );
+ok( 'and no model call was spent',      count( $GLOBALS['dze_asked'] ?? [] ), 0 );
+// A draft is not locked, and the row keeps both buttons.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'dr' => [ 'kind' => 'launch',
+	'draft' => [ 'campaign' => 'C9', 'message' => 'M9', 'template' => 'T9' ] ] ] ] ];
+ok( 'a draft is not locked',            DZE_Klaviyo::locked_reason( 'promo', 'dr' ), '' );
+$_POST = [];
+
 echo "The day an email may go out\n";
 $today    = gmdate( 'Y-m-d' );
 $tomorrow = gmdate( 'Y-m-d', time() + 86400 );

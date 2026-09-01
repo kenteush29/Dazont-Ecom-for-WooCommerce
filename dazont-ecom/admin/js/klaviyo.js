@@ -410,20 +410,41 @@
 	// ONE request per language, driven from here, so the shop sees each one
 	// land instead of watching a button for four minutes and wondering. A
 	// single request doing all four is also a request that times out.
-	$(document).on('click', '.dze-mail-i18n', function () {
-		var $b = $(this),
-			$row = $b.closest('.dze-mail'),
-			$said = $row.find('.dze-mail-langs'),
+	// Translating ONE email, wherever it is asked for: the button on the row,
+	// and the run that puts the whole promotion in Klaviyo. One function, so a
+	// promotion translated in a batch cannot end up in a different state from
+	// one translated by hand.
+	//
+	// What it ends with is NOT composed here. Every step writes its progress on
+	// the row — that is live and belongs to the browser — but the final state
+	// is the cell the server draws, the same one a reload would give. The row
+	// used to say "Translated — 43 texts in FR, PL, ES" in the browser's own
+	// words, and something else entirely after F5.
+	function translateRow($b, $row, then) {
+		var $said = $row.find('.dze-mail-langs'),
 			rule = $('#dze-klav-editor').data('rule'),
 			mail = $row.data('id'),
-			was = $b.text();
+			was = $b.length ? $b.text() : '';
 
-		$b.prop('disabled', true).text(cfg.i18nBusy || 'Translating…');
+		if ($b.length) { $b.prop('disabled', true).text(cfg.i18nBusy || 'Translating…'); }
+
+		function why(xhr) {
+			var s = xhr && xhr.status;
+			return s ? ' (' + s + (403 === s || 400 === s ? ' — reload the page and try again' : '') + ')' : '';
+		}
+		function done_(colour, text) {
+			if ($b.length) {
+				$b.prop('disabled', false);
+				if ('#00794b' !== colour) { $b.text(was); }
+			}
+			if (text) { $said.css('color', colour).text(text); }
+			if (then) { then('#00794b' === colour); }
+		}
 
 		$.post(cfg.ajaxUrl, { action: 'dze_klav_langs', nonce: cfg.nonce }).done(function (r) {
 			var langs = (r && r.data && r.data.langs) || [], done = [], failed = [], msg = '';
 			if (!langs.length) {
-				stop('#b32d2e', cfg.i18nNone || 'No languages to translate into.');
+				done_('#b32d2e', cfg.i18nNone || 'No languages to translate into.');
 				return;
 			}
 
@@ -451,7 +472,9 @@
 					}
 				}).fail(function (xhr) {
 					failed.push(lang);
-					msg = msg || ((cfg.i18nFail || 'The translation did not finish.') + why(xhr));
+					// Named where it happened: this is the model writing one
+					// language, not Klaviyo refusing the email.
+					msg = msg || ((cfg.i18nWriteFail || 'Writing %s did not finish').replace('%s', lang.toUpperCase()) + why(xhr));
 				}).always(function () {
 					live--;
 					tell();
@@ -476,50 +499,37 @@
 			// so four writers never race on the same campaign.
 			function save() {
 				if (!done.length) {
-					stop('#b32d2e', msg || (cfg.i18nFail || 'The translation did not finish.'));
+					done_('#b32d2e', msg || (cfg.i18nFail || 'The translation did not finish.'));
 					return;
 				}
 				$said.css('color', '').text(cfg.i18nSaving || 'Filing them in Klaviyo…');
 				$.post(cfg.ajaxUrl, {
-					action: 'dze_klav_i18nsave', nonce: cfg.nonce, rule: rule, email: mail
+					action: 'dze_klav_i18nsave', nonce: cfg.nonce, rule: rule, email: mail,
+					// What did NOT come back, and what it said. Filed with the
+					// rest, so the row still says it tomorrow instead of only
+					// in the minute the run ended.
+					failed: failed, why: msg
 				}).done(function (r2) {
 					if (!r2 || !r2.success) {
-						stop('#b32d2e', (r2 && r2.data && r2.data.message) || (cfg.i18nFail || 'The translation did not finish.'));
+						done_('#b32d2e', (r2 && r2.data && r2.data.message) || (cfg.i18nFail || 'The translation did not finish.'));
 						return;
 					}
-					var d = r2.data || {};
-					stop('#00794b', (cfg.i18nDone || 'Translated — %d texts in %s')
-						.replace('%d', d.done || 0)
-						.replace('%s', (d.langs || done).join(', ').toUpperCase())
-						+ (failed.length ? ' · ' + failed.join(', ').toUpperCase() + ' — ' + (msg || '') : ''));
-					// What the LINKS became, said straight away and in the same
-					// place the page will say it after a reload.
-					if (d.note) {
-						var ko = d.note.indexOf('did NOT move') !== -1;
-						var $ln = $row.find('.dze-mail-links');
-						if (!$ln.length) { $ln = $('<span class="dze-mail-links" style="display:block;font-size:12px;margin-top:2px;white-space:normal;text-align:right;"></span>').insertAfter($said); }
-						$ln.css('color', ko ? '#b26a00' : '#00794b').text(d.note);
-					}
-					$b.text(cfg.i18nAgain || 'Translate again');
+					// The row, as the page itself draws it — flags, notes and
+					// buttons, all of it from the one function that builds the
+					// cell. Nothing composed here.
+					drawState($row, r2.data || {});
+					done_('#00794b', '');
 				}).fail(function (xhr) {
-					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr));
+					done_('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr));
 				});
 			}
-
-			function stop(colour, text) {
-				$said.css('color', colour).text(text);
-				$b.prop('disabled', false);
-				if ('#00794b' !== colour) { $b.text(was); }
-			}
 		}).fail(function (xhr) {
-			$said.css('color', '#b32d2e').text((cfg.i18nFail || 'The translation did not finish.') + why(xhr));
-			$b.prop('disabled', false).text(was);
+			done_('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr));
 		});
+	}
 
-		function why(xhr) {
-			var s = xhr && xhr.status;
-			return s ? ' (' + s + (403 === s || 400 === s ? ' — reload the page and try again' : '') + ')' : '';
-		}
+	$(document).on('click', '.dze-mail-i18n', function () {
+		translateRow($(this), $(this).closest('.dze-mail'));
 	});
 
 	// A promotion holds as many emails as it deserves, not four. An id is
@@ -862,22 +872,41 @@
 				body: jobs[i].body
 			})
 				.done(function (res) {
-					if (res && res.success && res.data && res.data.url) {
-						drawState(card(jobs[i].id), res.data);
-						// An email nobody has touched since it was filed is not
-						// filed again: re-sending five identical templates is
-						// work Klaviyo did not need and the shop did not ask
-						// for. The row says which of the two happened.
-						if (res.data.skipped) {
-							same += 1;
-							rowNote(card(jobs[i].id), cfg.i18n.rowSame, 'ok');
-						} else {
-							made += 1;
-							rowNote(card(jobs[i].id), cfg.i18n.rowPut, 'ok');
-						}
-					} else {
+					if (!res || !res.success || !res.data || !res.data.url) {
 						failed += 1;
 						rowNote(card(jobs[i].id), (res && res.data && res.data.message) || i18n.error, 'ko');
+						next(i + 1);
+						return;
+					}
+					var $c = card(jobs[i].id);
+					drawState($c, res.data);
+					// An email nobody has touched since it was filed is not
+					// filed again: re-sending five identical templates is
+					// work Klaviyo did not need and the shop did not ask
+					// for. The row says which of the two happened.
+					if (res.data.skipped) {
+						same += 1;
+						rowNote($c, cfg.i18n.rowSame, 'ok');
+					} else {
+						made += 1;
+						rowNote($c, cfg.i18n.rowPut, 'ok');
+					}
+					// AND ITS LANGUAGES. "Put them all in Klaviyo > devrait
+					// aussi traduire directement": a template rewritten in
+					// English leaves its translations describing the email it
+					// used to be, so translating is part of putting it there,
+					// not a second round of clicking. Only where there is
+					// something to translate into — the row offers the button
+					// only then — and an email nothing changed in is left
+					// alone unless it has never been translated at all.
+					var owes = ! $c.find('.dze-lang.is-done').length;
+					if ($c.find('.dze-mail-i18n').length && (!res.data.skipped || owes)) {
+						rowNote($c, cfg.i18nBusy || 'Translating…', 'work');
+						translateRow($(), $c, function (ok) {
+							rowNote($c, ok ? cfg.i18n.rowPut : ((cfg.i18nFail || 'The translation did not finish.')), ok ? 'ok' : 'ko');
+							next(i + 1);
+						});
+						return;
 					}
 					next(i + 1);
 				})
