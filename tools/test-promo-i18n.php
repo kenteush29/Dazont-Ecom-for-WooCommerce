@@ -58,6 +58,7 @@ class DZE_Marketing_Ai {
 	public static function promo_i18n_prompt() { return 'Write the line a shop in that market would write.'; }
 	public static function promo_i18n_on() { return true; }
 	public static function get_settings() { return []; }
+	public static function pending_count() { return 2; }
 }
 class DZE_Ai_Usage {
 	public static function unit( $u = '' ) {}
@@ -72,6 +73,23 @@ class DZE_Wpml {
 }
 class DZE_Health { public static function log( ...$a ) {} }
 class DZE_Modules { public static function enabled( $id ) { return true; } }
+class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
+// WordPress's own two calls, remembered: a page is registered, and a page is
+// taken out of the menu without being unregistered.
+$GLOBALS['menu'] = [];
+function add_submenu_page( $parent, $title, $label, $cap, $slug, $cb = null ) {
+	$GLOBALS['menu'][ $slug ] = [ 'label' => $label, 'shown' => true ];
+	return 'x';
+}
+function remove_submenu_page( $parent, $slug ) {
+	if ( isset( $GLOBALS['menu'][ $slug ] ) ) { $GLOBALS['menu'][ $slug ]['shown'] = false; }
+	return [];
+}
+function number_format_i18n( $n ) { return (string) $n; }
+function add_shortcode( ...$a ) {}
+function register_setting( ...$a ) {}
+function wp_create_nonce( $a = '' ) { return 'n'; }
+function wp_unslash( $v ) { return $v; }
 
 require __DIR__ . '/../' . $dir . '/includes/class-discounts.php';
 
@@ -130,6 +148,35 @@ DZE_Discounts::fill_i18n( 'ev1' );
 $sent = (string) ( $GLOBALS['asked'][0]['user'] ?? '' );
 ok( 'the same dates, written by itself', false !== strpos( $sent, '2026-09-11' ), true );
 ok( 'and the same discount',             false !== strpos( $sent, '20%' ), true );
+
+echo "One Marketing menu, opening on its first tab\n";
+// "Pas besoin des menu marketing events et marketing. Juste marketing suffit,
+// avec redirection vers le premier onglet (events & calendar)." Two lines in
+// the menu saying nearly the same word, for one screen with tabs.
+$GLOBALS['menu'] = [];
+DZE_Discounts::instance()->register_menu();
+$shown = array_keys( array_filter( $GLOBALS['menu'], static fn( $one ) => $one['shown'] ) );
+ok( 'one entry in the menu, no more',   count( $shown ), 1 );
+ok( 'and it opens on events & calendar', $shown[0] ?? '', DZE_Discounts::MENU_SLUG_EVENTS );
+ok( 'called Marketing and nothing else',
+	false !== strpos( (string) ( $GLOBALS['menu'][ DZE_Discounts::MENU_SLUG_EVENTS ]['label'] ?? '' ), 'Marketing' ), true );
+ok( 'never "Marketing events" again',
+	false !== strpos( (string) ( $GLOBALS['menu'][ DZE_Discounts::MENU_SLUG_EVENTS ]['label'] ?? '' ), 'Marketing events' ), false );
+// The discount rules are a TAB of that screen: the page must still exist, or
+// the tab opens on nothing.
+ok( 'the discount rules page is still registered',
+	isset( $GLOBALS['menu'][ DZE_Discounts::MENU_SLUG ] ), true );
+ok( 'and only hidden from the menu',
+	$GLOBALS['menu'][ DZE_Discounts::MENU_SLUG ]['shown'] ?? true, false );
+// A page out of the menu highlights nothing, and a menu with no highlight is
+// a shop that cannot tell where it is.
+$_GET['page'] = DZE_Discounts::MENU_SLUG;
+ok( 'the Marketing entry stays lit on it',
+	DZE_Discounts::instance()->keep_menu_open( 'whatever' ), DZE_Discounts::MENU_SLUG_EVENTS );
+$_GET['page'] = 'something-else';
+ok( 'and nothing else is touched',
+	DZE_Discounts::instance()->keep_menu_open( 'whatever' ), 'whatever' );
+$_GET = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

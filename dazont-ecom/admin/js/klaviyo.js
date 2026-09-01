@@ -271,6 +271,7 @@
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
 		$c.find('.dze-f-body').val(body().val() || '');
 		$c.find('.dze-mail-subject').text($('#dze-klav-e-subject').val() || '');
+		$c.find('.dze-mail-preview').text($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-mail-name').text(name || cfg.i18n.unnamed);
 		$c.find('.dze-mail-when').contents().first().replaceWith(niceDay($('#dze-klav-e-when').val() || ''));
 		markDupes();
@@ -595,16 +596,22 @@
 		});
 		return best;
 	}
+	// One sentence, one set of holes, filled in its own order. Chaining the
+	// replacements across two different sentences put the DAY where the name
+	// of the other email belongs and then printed the day twice: "2 days from
+	// 2026-09-08 (2026-09-08)".
 	function clashText(hit) {
 		if (!hit) { return ''; }
 		if (0 === hit.apart) {
 			return String(cfg.i18n.clashSame || 'Same day as %1$s (%2$s).')
 				.replace('%1$s', hit.label).replace('%2$s', niceDay(hit.day));
 		}
-		return String(1 === hit.apart ? (cfg.i18n.clashOne || '1 day from %1$s (%2$s).')
-			: (cfg.i18n.clashNear || '%1$d days from %2$s (%3$s).'))
-			.replace('%1$d', hit.apart).replace('%1$s', hit.label).replace('%2$s', niceDay(hit.day))
-			.replace('%2$s', hit.label).replace('%3$s', niceDay(hit.day));
+		if (1 === hit.apart) {
+			return String(cfg.i18n.clashOne || '1 day from %1$s (%2$s).')
+				.replace('%1$s', hit.label).replace('%2$s', niceDay(hit.day));
+		}
+		return String(cfg.i18n.clashNear || '%1$d days from %2$s (%3$s).')
+			.replace('%1$d', hit.apart).replace('%2$s', hit.label).replace('%3$s', niceDay(hit.day));
 	}
 	// The first day, from the one asked for outwards, that clears everything.
 	// Offered, never applied: one press away, and it is the shop pressing.

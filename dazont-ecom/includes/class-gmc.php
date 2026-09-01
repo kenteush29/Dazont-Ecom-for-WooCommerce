@@ -1596,15 +1596,16 @@ final class DZE_Gmc {
 			// every screen of this plugin: WPML's own flag, its code, and the
 			// state beside it. A row of letters was a vocabulary of ours.
 			$flag = ( 'default' !== $key && method_exists( 'DZE_Wpml', 'flag_html' ) )
-				? DZE_Wpml::flag_html( $key, 'synced' === $state ? 'done' : ( 'error' === $state ? '' : 'todo' ), $label . ' — ' . $title )
+				? DZE_Wpml::flag_html( $key, 'synced' === $state ? 'done' : ( 'error' === $state ? 'ko' : 'todo' ), $label . ' — ' . $title )
 				: '';
+			// The block says the state itself — a tick, a hollow circle or a
+			// cross. The dot that used to follow it said the same thing a
+			// second time: "EN ✓ ●".
 			$out .= '' !== $flag
 				? sprintf(
-					'<span style="color:%s;margin-right:8px;white-space:nowrap;" title="%s">%s %s</span>',
-					esc_attr( $color ),
+					'<span style="margin-right:8px;white-space:nowrap;" title="%s">%s</span>',
 					esc_attr( $label . ' — ' . $title ),
-					$flag, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
-					esc_html( $dot )
+					$flag // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
 				)
 				: sprintf(
 					'<span title="%s" style="color:%s;margin-right:8px;white-space:nowrap;">%s %s</span>',

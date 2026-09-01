@@ -5283,7 +5283,60 @@ final class DZE_Klaviyo {
 	 *
 	 * @return array<string,array> the emails as they now stand.
 	 */
-	public static function plan_for( string $rule_id, array $rule ): array {
+	/** A day as a whole number of days, so two days can be compared without an hour getting in the way. */
+	private static function day_num( string $day ): int {
+		$ts = strtotime( $day . ' 00:00:00 UTC' );
+		return $ts ? (int) floor( $ts / DAY_IN_SECONDS ) : 0;
+	}
+
+	/**
+	 * The day this email may actually go out on.
+	 *
+	 * The one asked for when it already clears every other email of the shop
+	 * by the minimum; otherwise the NEAREST day that does, inside the
+	 * promotion's own window — a fortnight before it opens at the earliest,
+	 * its closing day at the latest, and never before tomorrow. An empty
+	 * string when the window has no such day left: an email nobody can place
+	 * is not an email, and inventing a date outside the promotion is worse
+	 * than saying so.
+	 *
+	 * @param array<string,bool> $seen Days already carrying an email, keyed by day.
+	 */
+	private static function day_apart( string $when, array $seen, int $gap, int $s_ts, int $e_ts ): string {
+		if ( $gap < 1 || '' === $when ) {
+			return $when;
+		}
+		$min = max( self::earliest_day(), gmdate( 'Y-m-d', $s_ts - 14 * DAY_IN_SECONDS ) );
+		$max = gmdate( 'Y-m-d', max( $e_ts, $s_ts ) );
+		$taken = array_map( [ __CLASS__, 'day_num' ], array_keys( $seen ) );
+		$clear = static function ( string $day ) use ( $taken, $gap ): bool {
+			$n = self::day_num( $day );
+			foreach ( $taken as $one ) {
+				if ( $one && abs( $n - $one ) < $gap ) {
+					return false;
+				}
+			}
+			return true;
+		};
+		if ( $when >= $min && $when <= $max && $clear( $when ) ) {
+			return $when;
+		}
+		$from = self::day_num( $when );
+		for ( $step = 1; $step <= 60; $step++ ) {
+			foreach ( [ -1, 1 ] as $side ) {
+				$day = gmdate( 'Y-m-d', ( $from + $side * $step ) * DAY_IN_SECONDS );
+				if ( $day < $min || $day > $max ) {
+					continue;
+				}
+				if ( $clear( $day ) ) {
+					return $day;
+				}
+			}
+		}
+		return '';
+	}
+
+	public static function plan_for( string $rule_id, array $rule, ?array &$notes = null ): array {
 		$fmt  = 'Y-m-d';
 		$pct  = rtrim( rtrim( number_format( (float) ( $rule['percent'] ?? 0 ), 2, '.', '' ), '0' ), '.' );
 		$s_ts = strtotime( self::just_day( (string) ( $rule['start'] ?? '' ) ) ?: '' );
@@ -5319,6 +5372,30 @@ final class DZE_Klaviyo {
 				. "What the shop actually sold over the right window, best first. Deal them between the emails: each email gets the products IT shows, by their numbers. A product goes to ONE email — the whole point of several emails is that the reader is not shown the same goods twice. Lead products first. How many an email gets follows from its moment: a warm-up teases with two or three, a launch shows a real spread, a last call needs only a handful.\n\n"
 				. $pool['lines'];
 		}
+		// The shop's own rhythm, appended to the owner's prompt rather than
+		// written into it: two emails closer together than this are two
+		// emails the same reader gets in the same breath, and the reader is
+		// on ONE list — the days already taken by other promotions count.
+		$gap  = self::gap();
+		$busy = [];
+		foreach ( self::calendar( $rule_id ) as $one ) {
+			$busy[ (string) $one['day'] ] = true;
+		}
+		foreach ( self::emails_for( $rule_id, $rule ) as $had ) {
+			$day = self::just_day( (string) ( $had['when'] ?? '' ) );
+			if ( '' !== $day ) {
+				$busy[ $day ] = true;
+			}
+		}
+		ksort( $busy );
+		if ( $gap > 0 ) {
+			$user .= "\n--- THE SHOP'S RULE ---\n"
+				. 'Leave at least ' . $gap . " days between two emails, and never two on one day.\n"
+				. ( $busy
+					? 'These days already carry an email of this shop, promotions included: '
+						. implode( ', ', array_keys( $busy ) ) . ". Stay clear of them by the same number of days.\n"
+					: '' );
+		}
 		$user .= "\n--- INSTRUCTIONS ---\n" . self::plan_prompt() . "\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"emails\":[{\"date\":\"YYYY-MM-DD\",\"angle\":\"…\",\"products\":[1,4,7]}]}, products being numbers from the list above. No other key, no comment, no markdown fence.";
 
@@ -5346,8 +5423,15 @@ final class DZE_Klaviyo {
 		// planning would put a second email on a day that already has one —
 		// and two emails on the same morning is the one thing the plan prompt
 		// is told never to do.
-		$seen  = [];
-		$dealt = [];
+		$seen     = [];
+		$dealt    = [];
+		$shifted  = 0;
+		$squeezed = 0;
+		// Every day the SHOP already has an email on, not only this
+		// promotion's: the reader is on one list.
+		foreach ( self::calendar( $rule_id ) as $one ) {
+			$seen[ (string) $one['day'] ] = true;
+		}
 		foreach ( $emails as $had ) {
 			$day = self::just_day( (string) ( $had['when'] ?? '' ) );
 			if ( '' !== $day ) {
@@ -5364,11 +5448,36 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			$when = self::just_day( (string) ( $row['date'] ?? '' ) );
-			if ( '' === $when || $when < (string) wp_date( 'Y-m-d' ) || isset( $seen[ $when ] ) ) {
-				// No day twice, no email without one — and none for a day
-				// already gone: a plan run mid-promotion writes the emails
-				// that can still go out, not the ones that missed their day.
+			// No email without a day, and none for a day already gone: a plan
+			// run mid-promotion writes the emails that can still go out, not
+			// the ones that missed their day.
+			if ( '' === $when || $when < (string) wp_date( 'Y-m-d' ) ) {
 				continue;
+			}
+			// No day twice. Said here only for a shop that has turned the
+			// rhythm off; with a rhythm, a day already taken is a day the
+			// step below moves off, and dropping the email instead would
+			// throw away one the plan asked for.
+			if ( $gap < 1 && isset( $seen[ $when ] ) ) {
+				continue;
+			}
+			// The minimum between two emails, HELD rather than asked for. The
+			// model was told the rule and came back with a warm-up on the 7th,
+			// a launch on the 8th and a last chance on the 10th; a rule that
+			// lives only in a prompt is a rule the shop finds broken on its
+			// own screen. Moved to the nearest day that clears everything,
+			// inside the promotion's own window — a fortnight before it opens
+			// at the earliest, its closing day at the latest — and dropped
+			// when there is no such day, because an email nobody can place is
+			// not an email.
+			$moved = self::day_apart( $when, $seen, $gap, $s_ts, $e_ts ?: $s_ts );
+			if ( '' === $moved ) {
+				$squeezed++;
+				continue;
+			}
+			if ( $moved !== $when ) {
+				$shifted++;
+				$when = $moved;
 			}
 			$seen[ $when ] = true;
 			// Minted here rather than by the browser: the plan can be run by
@@ -5412,15 +5521,48 @@ final class DZE_Klaviyo {
 		update_option( self::OPT_COPY, $all, false );
 
 		DZE_Ai_Usage::finished( 'promo_plan' );
+		// What had to be done to the plan to keep the shop's rhythm. Handed
+		// back rather than kept quiet: a day moved without a word is a day the
+		// owner finds changed and cannot explain.
+		$notes = [ 'moved' => $shifted, 'dropped' => $squeezed ];
 		return $emails;
+	}
+
+	/**
+	 * What the shop's rhythm did to the plan, in words.
+	 *
+	 * '' when it did nothing, which is the ordinary case: a screen that
+	 * explains what did not happen is a screen nobody reads.
+	 */
+	private static function plan_note( array $notes ): string {
+		$said = [];
+		$moved = (int) ( $notes['moved'] ?? 0 );
+		$gone  = (int) ( $notes['dropped'] ?? 0 );
+		if ( $moved ) {
+			$said[] = sprintf(
+				/* translators: 1: how many emails were moved, 2: the fewest days between two emails */
+				_n( '%1$d was moved to keep %2$d days between two emails.', '%1$d were moved to keep %2$d days between two emails.', $moved, 'dazont-ecom' ),
+				$moved,
+				self::gap()
+			);
+		}
+		if ( $gone ) {
+			$said[] = sprintf(
+				/* translators: %d: how many the promotion had no free day for */
+				_n( '%d had no free day left in the promotion and was dropped.', '%d had no free day left in the promotion and were dropped.', $gone, 'dazont-ecom' ),
+				$gone
+			);
+		}
+		return implode( ' ', $said );
 	}
 
 	/** Plans the campaign and hands the rows back for the screen to draw. */
 	public static function ajax_plan(): void {
 		self::guard();
 		[ $rule_id, $rule ] = self::target();
+		$notes = [];
 		try {
-			$emails = self::plan_for( $rule_id, $rule );
+			$emails = self::plan_for( $rule_id, $rule, $notes );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -5437,11 +5579,11 @@ final class DZE_Klaviyo {
 				array_keys( $emails ),
 				$emails
 			),
-			'message' => sprintf(
+			'message' => trim( sprintf(
 				/* translators: %d: how many emails the plan holds */
 				_n( '%d email planned. Write them, then look at each one.', '%d emails planned. Write them, then look at each one.', count( $emails ), 'dazont-ecom' ),
 				count( $emails )
-			),
+			) . ' ' . self::plan_note( $notes ) ),
 		] );
 	}
 
@@ -7122,25 +7264,21 @@ final class DZE_Klaviyo {
 			echo '<span style="color:#a7aaad;">—</span>';
 			return;
 		}
+		// ONE line, and it is the only thing the shop wants from this column:
+		// how many of this promotion's emails are actually in Klaviyo. Two
+		// lines — "2 emails" over "2 in Klaviyo" — made the reader do the
+		// division himself.
 		printf(
-			'<span title="%1$s">✉ %2$s</span>',
-			esc_attr__( 'Emails written for this promotion', 'dazont-ecom' ),
+			'<span title="%1$s" style="color:%2$s;font-weight:600;">✉ %3$s</span>',
+			esc_attr__( 'Emails of this promotion that are in Klaviyo', 'dazont-ecom' ),
+			esc_attr( $n['drafts'] >= $n['emails'] ? '#0a7040' : '#b26a00' ),
 			esc_html( sprintf(
-				/* translators: %d: number of emails */
-				_n( '%d email', '%d emails', $n['emails'], 'dazont-ecom' ),
-				$n['emails']
+				/* translators: 1: how many are in Klaviyo, 2: how many emails the promotion has */
+				__( '%1$d/%2$d emails in Klaviyo', 'dazont-ecom' ),
+				(int) $n['drafts'],
+				(int) $n['emails']
 			) )
 		);
-		if ( $n['drafts'] ) {
-			printf(
-				'<span style="display:block;font-size:12px;color:#0a7040;">%s</span>',
-				esc_html( sprintf(
-					/* translators: %d: number of drafts */
-					_n( '%d in Klaviyo', '%d in Klaviyo', $n['drafts'], 'dazont-ecom' ),
-					$n['drafts']
-				) )
-			);
-		}
 	}
 
 	/**
@@ -7212,6 +7350,8 @@ final class DZE_Klaviyo {
 				   duplicate-type warning above: one line, amber, under the
 				   subject, never a badge fighting the state column. */
 				.dze-mail-clash{display:none;font-size:12px;color:#b26a00;font-weight:600;}
+				/* The subject and the preview text, as an inbox stacks them. */
+				.dze-mail-preview{display:block;font-size:12px;color:#646970;}
 				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
 				.dze-mail-links,.dze-mail-langs{white-space:normal;}
 				.dze-mail-synced{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:9px;
@@ -7320,31 +7460,44 @@ CSS;
 			$dze_when_i18n = $dze_done ? (int) ( $mail['draft']['translated'] ?? 0 ) : 0;
 			$dze_left      = array_values( array_diff( $dze_open, $dze_done ) );
 			?>
+			<?php
+			// The FLAGS, and nothing else in words.
+			//
+			// "Translated — 21 texts" and "Links point at each language" both
+			// said what is simply true of every translated email here: they
+			// were two lines of prose per row saying nothing had gone wrong.
+			// What is worth a row is the state — which languages are written
+			// — and the flags say that at a glance. The counting and the link
+			// report live behind the ⓘ, where somebody who wants them looks
+			// once.
+			$dze_links = trim( (string) ( $mail['draft']['links_note'] ?? '' ) );
+			$dze_ko    = '' !== $dze_links && false !== strpos( $dze_links, 'did NOT move' );
+			$dze_told  = [];
+			if ( $dze_when_i18n ) {
+				$dze_told[] = sprintf(
+					/* translators: %d: how many texts were written */
+					__( 'Translated — %d texts', 'dazont-ecom' ),
+					(int) ( $mail['draft']['texts'] ?? 0 )
+				);
+			}
+			if ( '' !== $dze_links ) {
+				$dze_told[] = $dze_links;
+			}
+			?>
 			<span class="dze-mail-langs" style="color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
 				<?php
 				// The languages as WPML draws them everywhere else in this
 				// admin — a flag, its code, a tick when it is written and a
-				// hollow circle when it is owed. "FR, DE, PL, ES" was a
-				// vocabulary of ours that the shop had to learn.
+				// hollow circle when it is owed, in WPML's own order.
 				$dze_flags = method_exists( 'DZE_Wpml', 'flags_html' )
 					? DZE_Wpml::flags_html(
 						$dze_when_i18n ? $dze_done : [],
 						$dze_when_i18n ? $dze_left : ( $dze_open ?: [] )
 					)
 					: '';
-				if ( $dze_when_i18n ) {
-					printf(
-						/* translators: %d: how many texts were written */
-						esc_html__( 'Translated — %d texts', 'dazont-ecom' ),
-						(int) ( $mail['draft']['texts'] ?? 0 )
-					);
-				} elseif ( $dze_open ) {
-					printf(
-						/* translators: %s: the language it is written in */
-						esc_html__( 'Written in %s — not translated yet', 'dazont-ecom' ),
-						esc_html( strtoupper( $dze_src ) )
-					);
-				} else {
+				// Only when there is nothing to show: a row with no flags and
+				// no sentence says nothing at all.
+				if ( ! $dze_when_i18n && ! $dze_open ) {
 					printf(
 						/* translators: %s: the language it is written in */
 						esc_html__( '%s only — no translation', 'dazont-ecom' ),
@@ -7352,28 +7505,21 @@ CSS;
 					);
 				}
 				echo $dze_flags; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping.
-				?>
+				if ( $dze_told ) :
+					$dze_note = implode( ' · ', $dze_told );
+					?>
+					<span class="dze-why<?php echo $dze_ko ? ' is-ko' : ''; ?>" tabindex="0" role="button" title="<?php echo esc_attr( $dze_note ); ?>" aria-label="<?php echo esc_attr( $dze_note ); ?>">i</span>
+				<?php endif; ?>
 			</span>
 			<?php
-			// What the LINKS became, read back from what was written rather
-			// than assumed. Amber when a language kept the English address:
-			// the email is translated and its links are not, and that is
-			// invisible everywhere else until a customer clicks one.
-			$dze_links = trim( (string) ( $mail['draft']['links_note'] ?? '' ) );
-			if ( '' !== $dze_links ) :
-				$dze_ko = false !== strpos( $dze_links, 'did NOT move' );
+			// A link that did NOT move is the one thing here worth a row of
+			// its own: the email is translated and its readers land on the
+			// English page, which nothing else on this screen would show.
+			if ( $dze_ko ) :
 				?>
-				<span class="dze-mail-links" style="color:<?php echo $dze_ko ? '#b26a00' : '#00794b'; ?>;">
-					<?php
-					// The short of it on the row, the whole of it behind the
-					// mark: a paragraph in a narrow column is a paragraph
-					// nobody reads and something else nobody can see past.
-					$dze_short = $dze_ko
-						? __( 'Links did not move — see why', 'dazont-ecom' )
-						: __( 'Links point at each language', 'dazont-ecom' );
-					echo esc_html( $dze_short );
-					?>
-					<span class="dze-why" tabindex="0" role="button" title="<?php echo esc_attr( $dze_links ); ?>" aria-label="<?php echo esc_attr( $dze_links ); ?>">i</span>
+				<span class="dze-mail-links" style="color:#b26a00;">
+					<?php esc_html_e( 'Links did not move — see why', 'dazont-ecom' ); ?>
+					<span class="dze-why is-ko" tabindex="0" role="button" title="<?php echo esc_attr( $dze_links ); ?>" aria-label="<?php echo esc_attr( $dze_links ); ?>">i</span>
 				</span>
 			<?php endif; ?>
 			<?php
@@ -7485,6 +7631,13 @@ CSS;
 							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail ) ); ?></strong>
 							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
+							<?php
+							// The preview text under it, because those two ARE
+							// the email in an inbox: the line that decides
+							// whether it is opened, and the line under it.
+							// Judging them meant opening each email one by one.
+							?>
+							<span class="dze-mail-preview"><?php echo esc_html( (string) ( $mail['preview'] ?? '' ) ); ?></span>
 							<?php // Filled by the screen: another email falling too close to this one. ?>
 							<span class="dze-mail-clash"></span>
 							<?php if ( ! empty( $mail['auto_made'] ) ) : ?>
@@ -7540,6 +7693,7 @@ CSS;
 						<strong class="dze-mail-name"></strong>
 						<span class="dze-mail-when"><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 						<span class="dze-mail-subject"></span>
+						<span class="dze-mail-preview"></span>
 						<span class="dze-mail-clash"></span>
 					</div>
 					<div class="dze-mail-state"></div>

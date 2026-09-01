@@ -759,6 +759,60 @@ DZE_Klaviyo::save_copy( 'promo', $promo2, [
 ok( 'a form save keeps the deal',
 	get_option( $copy )['promo']['emails'][ $ids2[0] ]['products'] ?? [], [ 3, 1 ] );
 
+echo "The plan keeps the shop's own rhythm\n";
+// The screen the owner sent back: a warm-up on the 7th, a launch on the 8th,
+// a last chance on the 10th and a reminder on the 12th — every row carrying
+// the warning that the one beside it is a day away. The rule was in the
+// prompt and nowhere else, and a rule that lives only in a prompt is a rule
+// the shop finds broken on its own screen.
+$d = static fn( int $n ): string => gmdate( 'Y-m-d', time() + $n * 86400 );
+$promo3 = [ 'title' => 'Back to School', 'percent' => 10, 'start' => $d( 6 ), 'end' => $d( 16 ) ];
+$GLOBALS['dze_opts'][ $copy ] = [];
+$GLOBALS['dze_rules'] = [ 'promo' => $promo3 ];
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
+	[ 'date' => $d( 6 ), 'angle' => 'Tease',     'products' => [ 1 ] ],
+	[ 'date' => $d( 7 ), 'angle' => 'Launch',    'products' => [ 2 ] ],
+	[ 'date' => $d( 9 ), 'angle' => 'Last call', 'products' => [ 3 ] ],
+	[ 'date' => $d( 11 ), 'angle' => 'Reminder', 'products' => [ 4 ] ],
+] ] ) ];
+$notes3  = [];
+$planned3 = DZE_Klaviyo::plan_for( 'promo', $promo3, $notes3 );
+$days3    = array_values( array_map( static fn( $m ) => (string) $m['when'], $planned3 ) );
+ok( 'every email the plan asked for is kept', count( $days3 ), 4 );
+ok( 'and none of them is closer than three days',
+	( static function ( array $days ): bool {
+		sort( $days );
+		for ( $i = 1; $i < count( $days ); $i++ ) {
+			if ( ( strtotime( $days[ $i ] ) - strtotime( $days[ $i - 1 ] ) ) < 3 * 86400 ) { return false; }
+		}
+		return true;
+	} )( $days3 ), true );
+ok( 'the first one is left where the plan put it', $days3[0], $d( 6 ) );
+ok( 'and the screen is told what moved', ( (int) ( $notes3['moved'] ?? 0 ) ) > 0, true );
+// The rule is in the ASK as well: a model told the rhythm plans it right the
+// first time, and enforcing it afterwards is the net, not the plan.
+ok( 'the model is told the minimum',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), 'Leave at least 3 days between two emails' ), true );
+
+// And the days another promotion already holds are days this one stays off.
+$GLOBALS['dze_opts'][ $copy ] = [ 'patriot' => [ 'emails' => [
+	'w' => [ 'kind' => 'warm', 'when' => $d( 7 ), 'subject' => 'Coming' ],
+] ] ];
+$GLOBALS['dze_rules'] = [ 'promo' => $promo3, 'patriot' => [ 'title' => 'Patriot Day Sale' ] ];
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
+	[ 'date' => $d( 6 ), 'angle' => 'Tease', 'products' => [ 1 ] ],
+] ] ) ];
+$notes4   = [];
+$planned4 = DZE_Klaviyo::plan_for( 'promo', $promo3, $notes4 );
+$days4    = array_values( array_map( static fn( $m ) => (string) $m['when'], $planned4 ) );
+ok( 'a day beside another promotion is moved',
+	in_array( $days4[0] ?? '', [ $d( 6 ), $d( 7 ) ], true ), false );
+ok( 'the model was told which days are taken',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), $d( 7 ) ), true );
+$GLOBALS['dze_rules'] = null;
+
 echo "What the autopilot does when nobody chose\n";
 // The default is the safe one: a shop that never touched the setting gets
 // its campaigns PREPARED — written, drafted, translated — and nothing is
@@ -1866,10 +1920,12 @@ ok( 'and the row says it IS synced',    str_contains( $cell, 'Synced with Klaviy
 ok( 'it can be scheduled from the row', str_contains( $cell, 'dze-mail-sched' ), true );
 // The languages are drawn as WPML draws them everywhere else in this admin:
 // a flag and a code per language, ticked when written, hollow when owed.
-ok( 'it says which language it is written in',
-	str_contains( $cell, 'Written in EN' ), true );
-ok( 'and shows the others as languages, not as a list',
+// The languages it OWES, drawn as WPML draws them — and not a sentence
+// beside them saying the same thing in our own words.
+ok( 'the languages it owes are shown',
 	str_contains( $cell, 'dze-lang' ) && str_contains( $cell, '>FR<' ) && str_contains( $cell, '>DE<' ), true );
+ok( 'each of them marked as owed',      substr_count( $cell, 'dze-lang is-todo' ), 2 );
+ok( 'and nothing repeats it in prose',  str_contains( $cell, 'not translated yet' ), false );
 ok( 'and it can be translated from the row', str_contains( $cell, 'dze-mail-i18n' ), true );
 // The two buttons sit TOGETHER at the end of the cell. They used to be one
 // above the other with sentences between them, which is the screen the shop
@@ -1914,6 +1970,50 @@ $cell = DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch' ] );
 ok( 'an email with no campaign says so', str_contains( $cell, 'Not in Klaviyo yet' ), true );
 ok( 'and nothing is claimed about it',   str_contains( $cell, 'Synced with Klaviyo' ), false );
 
+echo "The row says the state, and keeps the standard behind the i\n";
+// "Links point at each language ⓘ > inutile, c'est la norme dans notre setup
+// multilingue. Comme Translated — 21 texts > on s'en fiche aussi." Both said
+// that nothing had gone wrong, in two lines of prose per row. What is worth a
+// row is WHICH languages are written, and the flags say it.
+$cell = DZE_Klaviyo::state_cell( 'm9', [
+	'kind' => 'launch', 'when' => '2026-09-20',
+	'draft' => [ 'campaign' => 'C9', 'scheduled' => time(), 'goes' => '2026-09-20',
+		'langs' => [ 'fr', 'de' ], 'done_langs' => [ 'fr', 'de' ], 'translated' => time(), 'texts' => 21,
+		'links_note' => 'Links point at the FR, DE pages of the shop.' ],
+] );
+ok( 'the flags carry the state',        substr_count( $cell, 'dze-lang is-done' ), 2 );
+ok( 'the counting is behind the i',     str_contains( $cell, 'Translated — 21 texts ·' ), true );
+ok( 'and not on the row',               str_contains( strip_tags( $cell ), 'Translated' ), false );
+ok( 'nor is a link note that says all is well',
+	str_contains( strip_tags( $cell ), 'Links point at' ), false );
+
+// A link that did NOT move is another matter: the email is translated and its
+// readers land on the English page, and nothing else on this screen shows it.
+$bad = DZE_Klaviyo::state_cell( 'm9', [
+	'kind' => 'launch',
+	'draft' => [ 'campaign' => 'C9', 'langs' => [ 'fr' ], 'done_langs' => [ 'fr' ], 'translated' => time(),
+		'links_note' => 'Links did NOT move for FR — WPML gave the same address back.' ],
+] );
+ok( 'a broken link is still said out loud',
+	str_contains( strip_tags( $bad ), 'Links did not move' ), true );
+
+echo "The promotions list says how many emails are IN Klaviyo\n";
+// "✉ 2 emails / 2 in Klaviyo > A changer en x/x emails in klaviyo." Two lines
+// left the division to the reader.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [
+	'a' => [ 'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 86400 ), 'subject' => 'A', 'draft' => [ 'campaign' => 'C1' ] ],
+	'b' => [ 'kind' => 'last', 'when' => gmdate( 'Y-m-d', time() + 6 * 86400 ), 'subject' => 'B' ],
+] ] ];
+ob_start();
+DZE_Klaviyo::instance()->render_cell( 'promo', [ 'title' => 'Summer' ] );
+$col = (string) ob_get_clean();
+ok( 'one line, and it is the fraction', str_contains( $col, '1/2 emails in Klaviyo' ), true );
+ok( 'the old second line is gone',      str_contains( $col, '1 in Klaviyo<' ), false );
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [] ] ];
+ob_start();
+DZE_Klaviyo::instance()->render_cell( 'promo', [ 'title' => 'Summer' ] );
+ok( 'a promotion with no emails says nothing', str_contains( (string) ob_get_clean(), '—' ), true );
+
 echo "Two emails too close together, whichever promotion they belong to\n";
 // "J'ai un email qui part le 05 pour l'offre du back to school. L'offre du
 // patriot day suit juste derrière. Le warm-up est prévu le 06/09. Ce n'est pas
@@ -1931,7 +2031,7 @@ $GLOBALS['dze_rules'] = [
 ];
 $GLOBALS['dze_opts'][ $copy ] = [
 	'bts' => [ 'emails' => [
-		'l' => [ 'kind' => 'last', 'when' => '2026-09-05', 'subject' => 'Two days left' ],
+		'l' => [ 'kind' => 'last', 'when' => '2026-09-05', 'subject' => 'Two days left', 'preview' => 'Ends Sunday night' ],
 	] ],
 	'patriot' => [ 'emails' => [
 		'w' => [ 'kind' => 'warm', 'when' => '2026-09-06', 'subject' => 'Coming' ],
@@ -1958,6 +2058,15 @@ ok( 'and the other promotions\' emails',
 	false !== strpos( $screen, 'data-calendar' ) && false !== strpos( $screen, 'Patriot Day Sale' ), true );
 ok( 'with a place to say it on the row', false !== strpos( $screen, 'dze-mail-clash' ), true );
 ok( 'and the day it would move to',     false !== strpos( $screen, 'dze-klav-e-free' ), true );
+// The two lines an inbox shows: the subject, and the preview text under it.
+// Judging them meant opening each email one at a time.
+// Read where the ROW shows them, never where the form carries them: every
+// field of every email travels in a hidden input, so a screen that lost the
+// line still holds the words.
+ok( 'each row shows its subject',
+	false !== strpos( $screen, 'dze-mail-subject">Two days left' ), true );
+ok( 'and its preview text',
+	false !== strpos( $screen, 'dze-mail-preview">Ends Sunday night' ), true );
 // The setting is written only by a form that carried it, like every other
 // one here: a screen saving something else must not take the shop's rhythm
 // down with it.

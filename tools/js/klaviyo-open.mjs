@@ -264,6 +264,21 @@ ok( 'pressing it moves the day', await page.inputValue( '#dze-klav-e-when' ), da
 ok( 'and the warning goes with it',
 	( await page.textContent( '.dze-mail-clash' ) ).trim(), '' );
 ok( 'nothing was raised judging the calendar', errors, [] );
+// Two days apart is another sentence, with another set of holes. Chained
+// replacements put the day where the name belongs and printed it twice —
+// "2 days from 2026-09-08 (2026-09-08)" — which named nothing at all.
+await page.fill( '#dze-klav-e-when', day( 4 * 86400000 ) );
+await page.dispatchEvent( '#dze-klav-e-when', 'change' );
+await page.waitForTimeout( 200 );
+{
+	const said = ( await page.textContent( '.dze-mail-clash' ) ).trim();
+	const when = day( 6 * 86400000 );
+	ok( 'two days apart names the other email',
+		said, '2 days from Patriot Day Sale — Warm-up ('
+			+ when.slice( 8, 10 ) + '/' + when.slice( 5, 7 ) + '/' + when.slice( 0, 4 ) + ').' );
+	ok( 'and says the day once', said.split( when.slice( 8, 10 ) + '/' ).length - 1, 1 );
+}
+
 // A day that clashes with nothing says nothing: a warning that is always
 // there is a warning nobody reads.
 await page.fill( '#dze-klav-e-when', day( 20 * 86400000 ) );
