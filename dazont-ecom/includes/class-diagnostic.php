@@ -1814,21 +1814,52 @@ final class DZE_Diagnostic {
 		if ( $goods ) {
 			echo '<th style="width:110px;text-align:right;">' . $head( 'price', __( 'Price', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 			echo '<th style="width:90px;text-align:right;">' . $head( 'sales', __( 'Sold', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
-			echo '<th style="width:120px;text-align:right;">' . $head( 'rev', __( 'Revenue', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+			// The window is IN the heading: a figure whose period is written
+			// somewhere else is a figure read as "since the shop opened".
+			echo '<th style="width:130px;text-align:right;" title="' . esc_attr__( 'Converted into the shop\'s own currency, whatever the buyer paid in.', 'dazont-ecom' ) . '">'
+				. $head( 'rev', sprintf(
+					/* translators: %d: how many months revenue looks back */
+					__( 'Revenue (%d mo)', 'dazont-ecom' ),
+					class_exists( 'DZE_Sales' ) ? DZE_Sales::MONTHS : 24
+				) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 			echo '<th style="width:140px;">' . $head( 'edited', __( 'Last edited', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
 		$gap = (array) ( $facts['_missing'] ?? [] );
 		unset( $facts['_missing'] );
+
+		// The rows on THIS page, re-judged against the criterion as the shop
+		// stands right now. The list is a photograph taken by the last scan,
+		// and a shop that fixes a product and comes back to the list finds it
+		// still there, which reads as "the fix did not work". Fifty rows are
+		// re-read, not a thousand: the page you are looking at is the page
+		// that has to be true.
+		$row_now = self::rows_by_id();
+		$mended  = 0;
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
 			if ( '' === $name ) {
 				continue;
 			}
-			echo '<tr><td>';
-			printf( '<a href="%s"><strong>%s</strong></a>', esc_url( $link ), esc_html( $name ) );
+			// Still short of it? Asked of the shop, not of the scan.
+			$still = true;
+			if ( isset( $row_now[ $id ] ) && 'category' !== (string) $check['scope'] ) {
+				$post  = get_post( $oid );
+				$still = $post ? (bool) self::fails( $row_now[ $id ], (string) $check['scope'], $post ) : true;
+			}
+			if ( ! $still ) {
+				$mended++;
+			}
+			echo '<tr' . ( $still ? '' : ' style="opacity:.55;"' ) . '><td>';
+			// A title with markup in it — "<span> Military Patch </span> Russian
+			// Z" — is a title with markup in it: the tags are the shop's, not
+			// something to print at it.
+			printf( '<a href="%s"><strong>%s</strong></a>', esc_url( $link ), esc_html( wp_strip_all_tags( $name ) ) );
+			if ( ! $still ) {
+				echo ' <span style="color:#00794b;font-weight:600;">' . esc_html__( 'fixed ✓', 'dazont-ecom' ) . '</span>';
+			}
 			if ( ! empty( $also[ $oid ] ) ) {
 				echo '<br /><span class="description">' . esc_html__( 'also:', 'dazont-ecom' ) . ' '
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
@@ -1855,6 +1886,21 @@ final class DZE_Diagnostic {
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
+		if ( $mended > 0 ) {
+			printf(
+				'<p class="description" style="max-width:1100px;color:#00794b;">%s</p>',
+				esc_html( sprintf(
+					/* translators: %d: how many rows have since been fixed */
+					_n(
+						'%d of these has been fixed since the last reading — it will leave the list at the next one.',
+						'%d of these have been fixed since the last reading — they leave the list at the next one.',
+						$mended,
+						'dazont-ecom'
+					),
+					$mended
+				) )
+			);
+		}
 		if ( $gap ) {
 			// A total that is short must SAY it is short. Counting an
 			// unconvertible order at one to one would be a figure the shop
@@ -1934,6 +1980,15 @@ final class DZE_Diagnostic {
 			}
 		}
 		$out['_missing'] = (array) ( $money['missing'] ?? [] );
+		return $out;
+	}
+
+	/** The criteria, keyed by their id — for a screen that has one in hand. */
+	private static function rows_by_id(): array {
+		$out = [];
+		foreach ( self::rows() as $row ) {
+			$out[ (string) ( $row['id'] ?? '' ) ] = $row;
+		}
 		return $out;
 	}
 

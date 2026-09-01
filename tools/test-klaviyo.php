@@ -169,6 +169,13 @@ class DZE_Wpml {
 	public static function get_active_languages() {
 		return [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
 	}
+	/**
+	 * The original product behind a translation — WPML's own answer, and the
+	 * one the sales table does NOT give: it holds the product that was bought.
+	 */
+	public static function canonical_id( $id, $type = 'product' ) {
+		return (int) ( $GLOBALS['dze_origin'][ (int) $id ] ?? (int) $id );
+	}
 	/** A shop whose languages live in a directory, which is WPML's usual shape. */
 	public static function url_in_language( $url, $lang, &$why = null ) {
 		$url = (string) $url;
@@ -1278,6 +1285,21 @@ ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_
 ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
 $GLOBALS['dze_queue'] = [];
 
+echo "The products of an email are the shop's own, not the buyer's\n";
+// "Bug titre produit en français dans le template email: Cagoule noire 2
+// trous" — in an English email. The sales table holds the product that was
+// BOUGHT, and a French customer bought the French post: used as it stands,
+// that id puts a French title and a French link in every language's email.
+// Every id is brought back to the original product first.
+$GLOBALS['dze_origin'] = [ 501 => 7, 502 => 7, 503 => 9 ];
+ok( 'a translation is read as its original',
+	DZE_Klaviyo::in_shop_language( [ 501, 503 ] ), [ 7, 9 ] );
+ok( 'and two translations of one product are ONE product',
+	DZE_Klaviyo::in_shop_language( [ 501, 502, 503 ] ), [ 7, 9 ] );
+ok( 'an untranslated shop is left exactly as it is',
+	DZE_Klaviyo::in_shop_language( [ 11, 12 ] ), [ 11, 12 ] );
+$GLOBALS['dze_origin'] = [];
+
 echo "A language that comes back empty is asked once more\n";
 // "Translated — 46 texts in FR, PL, ES · DE — Nothing came back for DE." Four
 // languages written and one empty is a model that hiccuped. Asking again is
@@ -1309,6 +1331,7 @@ echo "A product link in each language, from the id the shop already has\n";
 // complication — url_to_postid() does not answer for a WooCommerce product,
 // so that lookup was dead on this shop and every link stayed English.
 $GLOBALS['dze_trans']    = [ 7 => [ 'fr' => 77, 'de' => 78 ] ];
+$GLOBALS['dze_origin']   = [];
 $GLOBALS['dze_perma']    = [ 77 => 'https://kula.test/fr/cagoule', 78 => 'https://kula.test/de/sturmhaube' ];
 $GLOBALS['dze_resolved'] = [];
 $map = DZE_Klaviyo::link_map( [ 7 ], [ 'fr', 'de' ] );

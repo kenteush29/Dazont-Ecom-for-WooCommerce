@@ -1474,7 +1474,37 @@ final class DZE_Klaviyo {
 			gmdate( 'Y-m-d H:i:s', $to ),
 			$cap
 		) );
-		return array_map( 'absint', (array) $rows );
+		return self::in_shop_language( array_map( 'absint', (array) $rows ) );
+	}
+
+	/**
+	 * Product ids brought back to the language the shop writes in.
+	 *
+	 * The sales table holds the product that was BOUGHT, and on a shop selling
+	 * in five languages that is whichever translation the customer was
+	 * reading: a French order carries the French post. Used as it stands, that
+	 * id put "Cagoule noire 2 trous" in an English email, with a French link
+	 * under it, and left the translation lookups starting from the wrong end.
+	 *
+	 * Every id this module works from is the ORIGINAL product; the
+	 * translations are found from it, never the other way round.
+	 *
+	 * @param int[] $ids
+	 * @return int[] in the same order, without the duplicates that merging
+	 *               translations of one product necessarily creates.
+	 */
+	public static function in_shop_language( array $ids ): array {
+		if ( ! $ids || ! method_exists( 'DZE_Wpml', 'canonical_id' ) || ! DZE_Wpml::is_active() ) {
+			return $ids;
+		}
+		$out = [];
+		foreach ( $ids as $id ) {
+			$one = (int) DZE_Wpml::canonical_id( (int) $id, 'product' );
+			if ( $one > 0 ) {
+				$out[ $one ] = true;
+			}
+		}
+		return array_keys( $out );
 	}
 
 	/**
@@ -1506,14 +1536,14 @@ final class DZE_Klaviyo {
 		// Nothing sold at all (a new shop, or Analytics not synced): the
 		// catalogue's own popularity answers.
 		if ( ! $ids && function_exists( 'wc_get_products' ) ) {
-			$ids = (array) wc_get_products( [
+			$ids = self::in_shop_language( (array) wc_get_products( [
 				'limit'      => 60,
 				'status'     => 'publish',
 				'orderby'    => 'popularity',
 				'order'      => 'DESC',
 				'visibility' => 'catalog',
 				'return'     => 'ids',
-			] );
+			] ) );
 		}
 		if ( $categories && $ids ) {
 			$in = array_values( array_filter( $ids ) );
