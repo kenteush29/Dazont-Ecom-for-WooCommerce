@@ -249,6 +249,13 @@ owner communicates in French.
   pass. A provider's own answers cannot be run from here, so the Klaviyo one
   stubs the transport and reads the REQUEST — its method, its URL, its headers,
   its body. "No valid revisions found for method" was one header on six calls.
+- **`php tools/test-prompt-block.php dazont-ecom` must pass**, and the Klaviyo
+  suite RENDERS the whole email settings tab (`render_settings()` into a
+  buffer) rather than only calling its pieces. The "What this prompt is sent
+  with" block was added to eight screens in one pass and nothing executed it:
+  a grep proved it was CALLED, which is what `check-prompts.php` does, and a
+  grep has never rendered anything. A settings tab that dies takes the whole
+  page white, before any of our own error handling.
 - **`node tools/js/klaviyo-open.mjs` and `node tools/js/diagnostic-card.mjs`
   must pass.** They open the real screens in a real browser, on BOTH the
   jQuery WordPress ships today and the jQuery 4 it will ship, click the
