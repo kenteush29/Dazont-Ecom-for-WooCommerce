@@ -1969,6 +1969,39 @@ $GLOBALS['dze_trans'] = [];
 ok( 'no translation, no invented name',  DZE_Klaviyo::name_map( [ 7 ], [ 'de' ] ), [] );
 $GLOBALS['dze_trans'] = [ 7 => [ 'fr' => 77, 'de' => 78 ] ];
 
+// THE CARD, which is where the shop reads the name — and where the name sits
+// inside HTML with the prices beside it, not as a value of its own:
+//   <div>A-Tacs FG Military Combat Uniform</div><div>$148.90 $125.90</div>
+// A model asked to leave product names alone left that one and translated the
+// two beside it. So the name never reaches the model: it goes out as a marker
+// and comes back as the shop's own German name.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'card' => [
+	'kind' => 'launch', 'subject' => 'Patriot Day', 'products' => [ 7 ],
+	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'de' ] ],
+] ] ] ];
+$card = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
+	[ 'id' => 'c::data.content',
+		'source_value' => '<div style="text-align:center;">A-Tacs FG Military Combat Uniform</div><div style="text-align:center;">$148.90 $125.90</div>' ],
+] ] ] ] );
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $card ];
+$GLOBALS['dze_asked']   = [];
+// A model that does what a model does: it keeps the marker and translates the
+// words around it.
+$GLOBALS['dze_answers'] = [ '{"1":"<div style=\"text-align:center;\">[[NAME1]]</div><div style=\"text-align:center;\">$148.90 $125.90</div>"}' ];
+DZE_Klaviyo::translate_language( 'promo', 'card', 'de' );
+$sent_txt = (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' );
+ok( 'the model never sees the product name',
+	false !== strpos( $sent_txt, 'A-Tacs FG Military Combat Uniform' ), false );
+ok( 'it sees a marker instead',         false !== strpos( $sent_txt, '[[NAME1]]' ), true );
+$kept = get_transient( 'dze_klav_i18n_' . md5( 'promo|card|de' ) );
+$kept = is_array( $kept ) ? (string) reset( $kept ) : '';
+ok( 'and the card comes back with the German name',
+	false !== strpos( $kept, 'A-Tacs FG Gefechtsuniform' ), true );
+ok( 'with no marker left in it',        false !== strpos( $kept, '[[NAME' ), false );
+ok( 'and the prices untouched',         false !== strpos( $kept, '$148.90' ), true );
+$GLOBALS['dze_answers'] = [];
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $values ];
+
 // A product NOBODY has translated keeps the page that exists. It used to get
 // the language's URL rule — the right domain with the English slug — and that
 // is a 404 dressed up as a translation: the shop found eight of them in one
