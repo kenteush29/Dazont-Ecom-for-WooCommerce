@@ -2756,7 +2756,7 @@ final class DZE_Klaviyo {
 	 * @param string[] $targets The languages wanted.
 	 * @return array<string,array<string,string>> value id => lang => value
 	 */
-	private static function mechanical( array $values, array $targets ): array {
+	private static function mechanical( array $values, array $targets, array $map = [] ): array {
 		$words = self::translatable( $values );
 		$out   = [];
 		foreach ( $values as $row ) {
@@ -2766,9 +2766,60 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			foreach ( $targets as $lang ) {
+				// A product this email carries: the shop already knows its page
+				// in every language. Anything else — the shop's home page, a
+				// category, a Klaviyo variable, a photograph — goes through the
+				// language's URL rule, which leaves what is not ours alone.
+				if ( isset( $map[ $said ][ $lang ] ) ) {
+					$out[ $id ][ $lang ] = (string) $map[ $said ][ $lang ];
+					continue;
+				}
 				$out[ $id ][ $lang ] = method_exists( 'DZE_Wpml', 'url_in_language' )
 					? DZE_Wpml::url_in_language( $said, (string) $lang )
 					: $said;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The shop's own answer: this product, in each language.
+	 *
+	 * No URL is resolved back into a post here. The plugin CHOSE these
+	 * products — it holds their ids — and WordPress holds their translations,
+	 * which is the same answer the product edit screen prints and the same one
+	 * the language switcher puts on the shop. Going the other way, from an
+	 * address back to a post, is where this went wrong: url_to_postid() does
+	 * not reliably answer for a WooCommerce product, so the whole lookup was
+	 * dead on this shop and every link stayed English.
+	 *
+	 * @param int[]    $ids   Product ids the email carries.
+	 * @param string[] $langs The languages wanted.
+	 * @return array<string,array<string,string>> the English link => lang => link
+	 */
+	public static function link_map( array $ids, array $langs ): array {
+		$out = [];
+		if ( ! $ids || ! $langs || ! function_exists( 'wc_get_product' ) ) {
+			return $out;
+		}
+		foreach ( $ids as $pid ) {
+			$pid  = (int) $pid;
+			$one  = $pid ? wc_get_product( $pid ) : null;
+			$here = ( $one && is_object( $one ) ) ? (string) $one->get_permalink() : '';
+			if ( '' === $here ) {
+				continue;
+			}
+			foreach ( $langs as $lang ) {
+				$tid  = (int) apply_filters( 'wpml_object_id', $pid, 'product', true, (string) $lang );
+				$link = ( $tid && $tid !== $pid ) ? (string) get_permalink( $tid ) : '';
+				// No translation of its own: the language's URL rule still puts
+				// the reader on his side of the shop.
+				if ( '' === $link && method_exists( 'DZE_Wpml', 'url_in_language' ) ) {
+					$link = DZE_Wpml::url_in_language( $here, (string) $lang );
+				}
+				if ( '' !== $link ) {
+					$out[ $here ][ (string) $lang ] = $link;
+				}
 			}
 		}
 		return $out;
@@ -2788,7 +2839,7 @@ final class DZE_Klaviyo {
 	 */
 	public static function link_sample(): array {
 		$out = [ 'url' => '', 'rows' => [] ];
-		if ( ! method_exists( 'DZE_Wpml', 'url_in_language' ) || ! function_exists( 'wc_get_products' ) ) {
+		if ( ! function_exists( 'wc_get_products' ) ) {
 			return $out;
 		}
 		[ , $targets ] = self::locales();
@@ -2799,13 +2850,20 @@ final class DZE_Klaviyo {
 		// question, and the answer is the same for the whole catalogue.
 		$found = wc_get_products( [ 'limit' => 1, 'status' => 'publish', 'return' => 'objects' ] );
 		$one   = is_array( $found ) ? reset( $found ) : null;
-		$url   = ( $one && is_object( $one ) && method_exists( $one, 'get_permalink' ) ) ? (string) $one->get_permalink() : (string) home_url( '/' );
+		if ( ! $one || ! is_object( $one ) ) {
+			return $out;
+		}
+		// The same function the emails use, on a real product: what this screen
+		// shows IS what a translated email will contain, not an illustration
+		// of it.
+		$url = (string) $one->get_permalink();
+		$map = self::link_map( [ (int) $one->get_id() ], $targets );
 		if ( '' === $url ) {
 			return $out;
 		}
-		$out['url'] = $url;
+		$out['url']  = $url;
 		foreach ( $targets as $lang ) {
-			$out['rows'][ (string) $lang ] = DZE_Wpml::url_in_language( $url, (string) $lang );
+			$out['rows'][ (string) $lang ] = (string) ( $map[ $url ][ $lang ] ?? $url );
 		}
 		return $out;
 	}
@@ -3006,7 +3064,13 @@ final class DZE_Klaviyo {
 		// only ever filled for the languages that actually came back: an email
 		// half translated must not claim a German link on a German text that
 		// does not exist.
-		$mech = self::mechanical( $values, $langs );
+		// The products THIS email carries, which is how its links are known
+		// without reading a single URL back.
+		$mech = self::mechanical(
+			$values,
+			$langs,
+			self::link_map( (array) ( $mail['products'] ?? [] ), $langs )
+		);
 		foreach ( $mech as $vid => $per_lang ) {
 			foreach ( $per_lang as $lang => $value ) {
 				$done[ (string) $vid ][ (string) $lang ] = (string) $value;
