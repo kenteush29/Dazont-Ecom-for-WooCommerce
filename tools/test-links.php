@@ -253,6 +253,27 @@ ok( 'a row holds both',                 substr_count( $row, 'dze-lang ' ) + subs
 ok( 'nothing at all draws nothing',     DZE_Wpml::flags_html( [], [] ), '' );
 ok( 'and a language nobody has is not invented',
 	false !== strpos( DZE_Wpml::flag_html( 'zz' ), '>ZZ<' ), true );
+ok( 'a refused one carries its own mark',
+	false !== strpos( DZE_Wpml::flag_html( 'fr', 'ko' ), 'is-ko' ), true );
+
+// WPML'S OWN ORDER, everywhere. The shop has EN, DE, FR in that order; a row
+// showing what is written and what is owed must read in that order too, not
+// the written ones first. Five languages that read differently on two rows of
+// one screen make the eye start again on every row.
+$order = static function ( string $html ): array {
+	preg_match_all( '#<span class="dze-lang-code">([A-Z]+)</span>#', $html, $m );
+	return $m[1];
+};
+ok( "the row follows WPML's order, not ours",
+	$order( DZE_Wpml::flags_html( [ 'fr' ], [ 'de' ] ) ), [ 'DE', 'FR' ] );
+ok( 'whichever of them is written',
+	$order( DZE_Wpml::flags_html( [ 'de' ], [ 'fr' ] ) ), [ 'DE', 'FR' ] );
+ok( 'and the states still travel with them',
+	substr_count( DZE_Wpml::flags_html( [ 'de' ], [ 'fr' ] ), 'is-done' ), 1 );
+// A language the shop has dropped is still a fact about an email written in
+// it: it goes last rather than vanishing off the row.
+ok( 'a language the shop no longer has is kept',
+	$order( DZE_Wpml::flags_html( [ 'pl', 'de' ], [] ) ), [ 'DE', 'PL' ] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

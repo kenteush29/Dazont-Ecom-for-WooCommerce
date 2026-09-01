@@ -79,8 +79,12 @@ final class DZE_Wpml {
 		$one  = $all[ $code ] ?? [];
 		$name = (string) ( $one['native_name'] ?? strtoupper( $code ) );
 		$flag = (string) ( $one['flag'] ?? '' );
-		$mark = 'done' === $state ? '&#10003;' : ( 'todo' === $state ? '&#9675;' : '' );
-		$tint = 'done' === $state ? '#00794b' : ( 'todo' === $state ? '#b26a00' : '#646970' );
+		// Three states, one badge: written, owed, refused. The mark lives
+		// INSIDE the block — a tick, a hollow circle, a cross — because a dot
+		// printed after the block was a second way of saying the same thing,
+		// and two marks per language is a row nobody reads.
+		$mark = 'done' === $state ? '&#10003;' : ( 'todo' === $state ? '&#9675;' : ( 'ko' === $state ? '&#10007;' : '' ) );
+		$tint = 'done' === $state ? '#00794b' : ( 'todo' === $state ? '#b26a00' : ( 'ko' === $state ? '#b32d2e' : '#646970' ) );
 		return sprintf(
 			'<span class="dze-lang%1$s" title="%2$s">%3$s<span class="dze-lang-code">%4$s</span>%5$s</span>',
 			'' !== $state ? ' is-' . esc_attr( $state ) : '',
@@ -99,12 +103,35 @@ final class DZE_Wpml {
 	 * @param string[] $todo
 	 */
 	public static function flags_html( array $done, array $todo = [] ): string {
-		$out = '';
-		foreach ( $done as $code ) {
-			$out .= self::flag_html( (string) $code, 'done' );
+		$done = array_map( 'strtolower', array_map( 'strval', $done ) );
+		$todo = array_map( 'strtolower', array_map( 'strval', $todo ) );
+		// WPML'S OWN ORDER, everywhere the shop meets a row of flags — the
+		// order it has already put its languages in, on the products list and
+		// in its own switcher. Drawing the written ones first and the owed
+		// ones after was an order of ours: the same five languages then read
+		// differently on two rows of the same screen, and the eye has to
+		// start again on each.
+		$order = [];
+		foreach ( self::get_active_languages() as $one ) {
+			$code = strtolower( (string) ( $one['code'] ?? '' ) );
+			if ( '' !== $code ) {
+				$order[] = $code;
+			}
 		}
-		foreach ( $todo as $code ) {
-			$out .= self::flag_html( (string) $code, 'todo' );
+		// A language the shop no longer has is still a fact about the email
+		// that was written in it, so it goes last rather than vanishing.
+		foreach ( array_merge( $done, $todo ) as $code ) {
+			if ( '' !== $code && ! in_array( $code, $order, true ) ) {
+				$order[] = $code;
+			}
+		}
+		$out = '';
+		foreach ( $order as $code ) {
+			if ( in_array( $code, $done, true ) ) {
+				$out .= self::flag_html( $code, 'done' );
+			} elseif ( in_array( $code, $todo, true ) ) {
+				$out .= self::flag_html( $code, 'todo' );
+			}
 		}
 		return '' !== $out ? '<span class="dze-langs">' . $out . '</span>' : '';
 	}

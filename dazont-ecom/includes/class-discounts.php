@@ -130,6 +130,7 @@ final class DZE_Discounts {
 					'default'           => 'product',
 				] );
 			} );
+			add_filter( 'submenu_file',          [ $this, 'keep_menu_open' ] );
 			add_action( 'admin_menu',            [ $this, 'register_menu' ] );
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 			add_action( 'admin_post_dze_discount_save',   [ $this, 'handle_save' ] );
@@ -2344,34 +2345,53 @@ final class DZE_Discounts {
 	// =========================================================================
 
 	public function register_menu(): void {
-		// The count rides on the menu label, as everywhere else in the plugin:
+		// ONE entry: Marketing. It opens on the first of its tabs — events and
+		// the calendar — and the discount rules are the tab beside it, not a
+		// second line in the menu saying nearly the same word. "Pas besoin des
+		// menu marketing events et marketing. Juste marketing suffit."
+		//
+		// The count rides on the label, as everywhere else in the plugin:
 		// suggested events waiting for a yes or a no are visible without
 		// opening the screen they wait on.
-		$ev_label = __( 'Marketing events', 'dazont-ecom' );
-		$ev_wait  = ( class_exists( 'DZE_Marketing_Ai' ) && DZE_Modules::enabled( 'marketing_ai' ) )
+		$label   = __( 'Marketing', 'dazont-ecom' );
+		$ev_wait = ( class_exists( 'DZE_Marketing_Ai' ) && DZE_Modules::enabled( 'marketing_ai' ) )
 			? DZE_Marketing_Ai::pending_count()
 			: 0;
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			$ev_label,
+			$label,
 			$ev_wait
-				? $ev_label . ' <span class="update-plugins count-' . (int) $ev_wait . '"><span class="plugin-count">'
+				? $label . ' <span class="update-plugins count-' . (int) $ev_wait . '"><span class="plugin-count">'
 					. esc_html( number_format_i18n( $ev_wait ) ) . '</span></span>'
-				: $ev_label,
+				: $label,
 			'manage_woocommerce',
 			self::MENU_SLUG_EVENTS,
 			[ $this, 'render_events_page' ]
 		);
-		// "Discounts" said what the screen holds; "Marketing" says what it is
-		// FOR, and puts it beside Marketing events where the shop looks for it.
+		// The discount rules still need a PAGE — the tab has to open on
+		// something — but not a place in the menu. Registered, then taken out
+		// of the menu: WordPress's own way of keeping a screen reachable
+		// without listing it.
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Marketing', 'dazont-ecom' ),
-			__( 'Marketing', 'dazont-ecom' ),
+			__( 'Discount rules', 'dazont-ecom' ),
+			__( 'Discount rules', 'dazont-ecom' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_discounts_page' ]
 		);
+		remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );
+	}
+
+	/**
+	 * The Marketing entry stays lit on the screens that hang off it.
+	 *
+	 * A page taken out of the menu highlights nothing, and a menu with no
+	 * highlight is a shop that cannot tell where it is.
+	 */
+	public function keep_menu_open( $file ) {
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which screen is open.
+		return self::MENU_SLUG === $page ? self::MENU_SLUG_EVENTS : $file;
 	}
 
 	public function enqueue_assets( string $hook ): void {
@@ -2474,7 +2494,9 @@ final class DZE_Discounts {
 		}
 
 		$menu_slug   = ( 'events' === $mode ) ? self::MENU_SLUG_EVENTS : self::MENU_SLUG;
-		$page_title  = ( 'events' === $mode ) ? __( 'Marketing Events', 'dazont-ecom' ) : __( 'Discounts', 'dazont-ecom' );
+		// One name for the screen, whichever tab is open: the tab bar under it
+		// says which of the two this is.
+		$page_title  = __( 'Marketing', 'dazont-ecom' );
 		$type_labels = self::types_for_mode( $mode );
 		$rules       = array_filter( self::get_rules(), static fn( $r ) => array_key_exists( $r['type'] ?? '', $type_labels ) );
 		$languages   = DZE_Wpml::get_active_languages();
