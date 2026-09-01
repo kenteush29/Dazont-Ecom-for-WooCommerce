@@ -2812,13 +2812,19 @@ final class DZE_Klaviyo {
 			foreach ( $langs as $lang ) {
 				$tid  = (int) apply_filters( 'wpml_object_id', $pid, 'product', true, (string) $lang );
 				$link = ( $tid && $tid !== $pid ) ? (string) get_permalink( $tid ) : '';
-				// No translation of its own: the language's URL rule still puts
-				// the reader on his side of the shop.
-				if ( '' === $link && method_exists( 'DZE_Wpml', 'url_in_language' ) ) {
-					$link = DZE_Wpml::url_in_language( $here, (string) $lang );
-				}
-				if ( '' !== $link ) {
+				if ( '' !== $link && $link !== $here ) {
 					$out[ $here ][ (string) $lang ] = $link;
+					continue;
+				}
+				// No translation of its own: the language's URL rule still puts
+				// the reader on his side of the shop. Same chain as any other
+				// address of this shop, so there is one way of answering this
+				// question and not two that drift.
+				if ( method_exists( 'DZE_Wpml', 'url_in_language' ) ) {
+					$link = DZE_Wpml::url_in_language( $here, (string) $lang );
+					if ( '' !== $link ) {
+						$out[ $here ][ (string) $lang ] = $link;
+					}
 				}
 			}
 		}
@@ -2835,11 +2841,11 @@ final class DZE_Klaviyo {
 	 * ever written. A wrong link found here costs a glance; found in an inbox
 	 * it costs a campaign.
 	 *
-	 * @return array{url:string,rows:array<string,string>}
+	 * @return array{url:string,rows:array<string,string>,why:array<string,string>}
 	 */
 	public static function link_sample(): array {
-		$out = [ 'url' => '', 'rows' => [] ];
-		if ( ! function_exists( 'wc_get_products' ) ) {
+		$out = [ 'url' => '', 'rows' => [], 'why' => [] ];
+		if ( ! function_exists( 'wc_get_products' ) || ! method_exists( 'DZE_Wpml', 'url_in_language' ) ) {
 			return $out;
 		}
 		[ , $targets ] = self::locales();
@@ -2863,7 +2869,18 @@ final class DZE_Klaviyo {
 		}
 		$out['url']  = $url;
 		foreach ( $targets as $lang ) {
-			$out['rows'][ (string) $lang ] = (string) ( $map[ $url ][ $lang ] ?? $url );
+			$why = '';
+			// Asked through the same chain the emails use, and the STEP that
+			// answered is kept: "it did not move" is not a diagnosis, and this
+			// shop has spent enough evenings guessing which link in the chain
+			// was the broken one.
+			$link = DZE_Wpml::url_in_language( $url, (string) $lang, $why );
+			if ( isset( $map[ $url ][ $lang ] ) && $map[ $url ][ $lang ] !== $url ) {
+				$link = (string) $map[ $url ][ $lang ];
+				$why  = 'translation';
+			}
+			$out['rows'][ (string) $lang ] = $link;
+			$out['why'][ (string) $lang ]  = $why;
 		}
 		return $out;
 	}
@@ -7192,9 +7209,19 @@ final class DZE_Klaviyo {
 										} elseif ( 0 === $dze_i ) {
 											echo '<code>' . esc_html( $dze_link ) . '</code>';
 										} elseif ( $dze_link === (string) ( $dze_smp['url'] ?? '' ) ) {
-											// The failure the shop paid for twice, said where
-											// it can be fixed instead of found in an inbox.
-											echo '<span style="color:#b26a00;">' . esc_html__( 'the ENGLISH page — WPML gives no address of its own for this language', 'dazont-ecom' ) . '</span>';
+											// The failure the shop paid for three times. Not
+											// "it did not move" — WHICH step answered that
+											// way, in words, so the thing to fix is named.
+											$dze_why  = (string) ( $dze_smp['why'][ $dze_code ] ?? '' );
+											$dze_says = [
+												'no-wpml'        => __( 'WPML is not active on this site.', 'dazont-ecom' ),
+												'not-ours'       => __( 'That address is not on this site.', 'dazont-ecom' ),
+												'no-page'        => __( 'The English page could not be found in the database by its slug — so no translation can be looked up.', 'dazont-ecom' ),
+												'not-translated' => __( 'This product has no page in this language, and WPML returns no address of its own for it either.', 'dazont-ecom' ),
+											];
+											echo '<span style="color:#b26a00;">' . esc_html__( 'the ENGLISH page', 'dazont-ecom' ) . ' — '
+												. esc_html( $dze_says[ $dze_why ] ?? __( 'WPML gave the same address back.', 'dazont-ecom' ) )
+												. ' <code>' . esc_html( $dze_why ) . '</code></span>';
 										} else {
 											echo '<span style="color:#00794b;">&#10003;</span> <code>' . esc_html( $dze_link ) . '</code>';
 										}

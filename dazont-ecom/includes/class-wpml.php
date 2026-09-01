@@ -144,55 +144,103 @@ final class DZE_Wpml {
 	 * their CDN, another site — comes back exactly as it went in. Falling back
 	 * to the English page is a page; a mangled URL is a dead link.
 	 */
-	public static function url_in_language( string $url, string $lang ): string {
+	public static function url_in_language( string $url, string $lang, ?string &$why = null ): string {
+		$why  = 'unchanged';
 		$url  = trim( $url );
 		$lang = trim( $lang );
-		if ( ! self::is_active() || '' === $url || '' === $lang || $lang === self::default_language() ) {
+		if ( ! self::is_active() ) {
+			$why = 'no-wpml';
+			return $url;
+		}
+		if ( '' === $url || '' === $lang || $lang === self::default_language() ) {
+			$why = 'no-language';
 			return $url;
 		}
 		$host = wp_parse_url( $url, PHP_URL_HOST );
 		$mine = wp_parse_url( home_url(), PHP_URL_HOST );
 		if ( ! $host || ! $mine || strtolower( (string) $host ) !== strtolower( (string) $mine ) ) {
+			$why = 'not-ours';
 			return $url;
 		}
-		// Asked once per address however many languages want it: url_to_postid()
-		// is a query, and an email carries the same product link twice — once on
-		// the photograph, once on the button.
-		static $posts = [];
-		$key = md5( $url );
-		if ( ! array_key_exists( $key, $posts ) ) {
-			$posts[ $key ] = (int) url_to_postid( $url );
-		}
-		if ( $posts[ $key ] > 0 ) {
-			// ONLY when it is genuinely another post. Asked with the original as
-			// its fallback, WPML answers with the post it was given when there
-			// is no translation — and returning THAT permalink is how every
-			// link in a German email stayed on the English page: the answer
-			// looked successful, so the language's own URL rule below was never
-			// reached. A product nobody translated still has a German address.
-			$type = (string) ( get_post_type( $posts[ $key ] ) ?: 'post' );
-			$id   = (int) apply_filters( 'wpml_object_id', $posts[ $key ], $type, true, $lang );
-			if ( $id && $id !== $posts[ $key ] ) {
-				$link = get_permalink( $id );
-				if ( is_string( $link ) && '' !== $link ) {
+		// 1. WHICH page is this? By its slug, read straight from the posts
+		//    table. NOT url_to_postid(): that one walks the rewrite rules and
+		//    does not reliably answer for a WooCommerce product — it returned
+		//    nothing on this shop, so every lookup after it was dead and every
+		//    German email linked to the English page.
+		$id = self::post_of( $url );
+		if ( $id > 0 ) {
+			// 2. Its translation, the same one the product edit screen lists
+			//    and the language switcher links to. Only when it is genuinely
+			//    another post: asked with the original as fallback, WPML hands
+			//    back the post it was given when nothing is translated.
+			$type = (string) ( get_post_type( $id ) ?: 'post' );
+			$tid  = (int) apply_filters( 'wpml_object_id', $id, $type, true, $lang );
+			if ( $tid && $tid !== $id ) {
+				$link = get_permalink( $tid );
+				if ( is_string( $link ) && '' !== $link && $link !== $url ) {
+					$why = 'translation';
 					return $link;
 				}
 			}
 		}
-		// The language's URL rule, asked of WPML itself. convert_url() is the
-		// method WPML uses on its own links and it knows all three shapes — a
-		// directory, a subdomain, a parameter. The filter is the documented
-		// door to the same answer and covers the versions that have no
-		// $sitepress, so both are tried before giving up.
+		// 3. No translation of its own: the language's URL rule still puts the
+		//    reader on his side of the shop. convert_url() is what WPML calls
+		//    on its own links and knows all three shapes — a directory, a
+		//    subdomain, a parameter.
 		global $sitepress;
 		if ( is_object( $sitepress ) && method_exists( $sitepress, 'convert_url' ) ) {
 			$conv = $sitepress->convert_url( $url, $lang );
 			if ( is_string( $conv ) && '' !== $conv && $conv !== $url ) {
+				$why = 'url-rule';
 				return $conv;
 			}
 		}
+		// 4. The documented filter, for the versions with no $sitepress.
 		$conv = apply_filters( 'wpml_permalink', $url, $lang, true );
-		return ( is_string( $conv ) && '' !== $conv ) ? $conv : $url;
+		if ( is_string( $conv ) && '' !== $conv && $conv !== $url ) {
+			$why = 'filter';
+			return $conv;
+		}
+		$why = $id > 0 ? 'not-translated' : 'no-page';
+		return $url;
+	}
+
+	/**
+	 * The post one of this shop's addresses points at, by SLUG.
+	 *
+	 * get_page_by_path() reads post_name in the posts table. It does not care
+	 * how the permalinks are built, which rewrite rules are loaded, or whether
+	 * this is a front-end request — and admin-ajax, where the emails are
+	 * written, is not a front-end request. url_to_postid() cares about all
+	 * three, which is why it answered 0 here.
+	 *
+	 * Products first: an email links to products. Then a page (its whole path,
+	 * because pages nest), then a post.
+	 */
+	public static function post_of( string $url ): int {
+		static $seen = [];
+		$key = md5( $url );
+		if ( array_key_exists( $key, $seen ) ) {
+			return $seen[ $key ];
+		}
+		$path  = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		$seen[ $key ] = 0;
+		if ( '' === $path || ! function_exists( 'get_page_by_path' ) ) {
+			return 0;
+		}
+		$parts = explode( '/', $path );
+		$slug  = urldecode( (string) end( $parts ) );
+		foreach ( [ [ $slug, 'product' ], [ $path, 'page' ], [ $slug, 'post' ] ] as [ $what, $type ] ) {
+			if ( '' === $what ) {
+				continue;
+			}
+			$found = get_page_by_path( $what, OBJECT, $type );
+			if ( $found && ! empty( $found->ID ) ) {
+				$seen[ $key ] = (int) $found->ID;
+				return $seen[ $key ];
+			}
+		}
+		return 0;
 	}
 
 	/**
