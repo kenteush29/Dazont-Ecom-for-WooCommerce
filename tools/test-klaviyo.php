@@ -119,8 +119,10 @@ function wp_remote_retrieve_response_code( $r ) { return $r['response']['code'] 
 function wp_remote_retrieve_body( $r ) { return $r['body'] ?? ''; }
 class WP_Error {
 	private $msg;
-	public function __construct( $c = '', $m = '' ) { $this->msg = $m; }
+	private $data;
+	public function __construct( $c = '', $m = '', $d = null ) { $this->msg = $m; $this->data = $d; }
 	public function get_error_message() { return $this->msg; }
+	public function get_error_data() { return $this->data; }
 }
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
 class DZE_Health { public static function log( ...$a ) {} }
@@ -1456,6 +1458,104 @@ ok( 'a campaign is created instead',
 ok( 'and the screen says why there are now two',
 	false !== strpos( (string) ( $made['warning'] ?? '' ), 'archived in Klaviyo' ), true );
 $GLOBALS['dze_queue'] = [];
+
+echo "The rows are put back in line with what Klaviyo really holds\n";
+// "Emails dazont toujours syncro avec des emails klaviyo draft, visiblement."
+// They were: the rows pointed at drafts archived days before, while the real
+// scheduled campaign sat beside them in the account. A row is drawn from what
+// was filed here, and the account moves without us.
+$GLOBALS['dze_rules'] = [ 'promo' => [ 'title' => 'Back to School Sale' ] ];
+
+// 1. Archived there, and the live campaign of that name is claimed instead.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'l1' => [
+	'kind' => 'launch', 'subject' => 'The Back to School Sale is live',
+	'draft' => [ 'campaign' => 'C-ARCH', 'message' => 'M-ARCH', 'template' => 'T-ARCH' ],
+] ] ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C-ARCH","attributes":{"status":"Draft","archived":true}}}' ],
+	[ 'code' => 200, 'body' => json_encode( [
+		'data'     => [ [ 'id' => 'C-BTS', 'attributes' => [ 'status' => 'Scheduled', 'created_at' => '2026-08-29T13:06:49Z' ],
+			'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-BTS' ] ] ] ] ] ],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-BTS' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-BTS"}}' ],
+];
+$seen = DZE_Klaviyo::reconcile( 'promo', [ 'title' => 'Back to School Sale' ] );
+$now  = get_option( $copy )['promo']['emails']['l1']['draft'] ?? [];
+ok( 'the archived link is let go of',   $now['campaign'] ?? '', 'C-BTS' );
+ok( 'and the live one is filed instead', ( (int) ( $now['scheduled'] ?? 0 ) ) > 0, true );
+ok( 'the row is handed back redrawn',
+	str_contains( (string) ( $seen['rows']['l1'] ?? '' ), 'Synced with Klaviyo' ), true );
+ok( 'and the screen is told what moved',
+	false !== strpos( (string) $seen['message'], 'Launch' ), true );
+ok( 'nothing was written in the account',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => in_array( ( $c['method'] ?? '' ), [ 'POST', 'PATCH', 'DELETE' ], true ) ) ), 0 );
+
+// 2. Deleted there, and nothing of that name left: the row stops claiming it.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'l2' => [
+	'kind' => 'launch', 'subject' => 'Gone from the account',
+	'draft' => [ 'campaign' => 'C-DEAD', 'message' => 'M', 'template' => 'T' ],
+] ] ] ];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 404, 'body' => '{"errors":[{"detail":"Campaign not found"}]}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+];
+$seen = DZE_Klaviyo::reconcile( 'promo', [ 'title' => 'Back to School Sale' ] );
+ok( 'a deleted campaign is not still claimed',
+	( get_option( $copy )['promo']['emails']['l2']['draft']['campaign'] ?? '' ), '' );
+ok( 'and the row says it is not there',
+	str_contains( (string) ( $seen['rows']['l2'] ?? '' ), 'Not in Klaviyo yet' ), true );
+ok( 'with what to do about it',
+	false !== strpos( (string) $seen['message'], 'Put it in Klaviyo again' ), true );
+
+// 3. Scheduled in Klaviyo itself: the row stops calling it a draft.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'l3' => [
+	'kind' => 'launch', 'subject' => 'Scheduled over there',
+	'draft' => [ 'campaign' => 'C9', 'message' => 'M9', 'template' => 'T9' ],
+] ] ] ];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"C9","attributes":{"status":"Scheduled","archived":false,"send_time":"2026-09-05T09:00:00+00:00"}}}' ],
+];
+$seen = DZE_Klaviyo::reconcile( 'promo', [ 'title' => 'Back to School Sale' ] );
+$now  = get_option( $copy )['promo']['emails']['l3']['draft'] ?? [];
+ok( 'a campaign scheduled in Klaviyo reads as scheduled here',
+	( (int) ( $now['scheduled'] ?? 0 ) ) > 0, true );
+ok( 'and the day it goes out comes with it', $now['goes'] ?? '', '2026-09-05' );
+ok( 'the row says so',
+	str_contains( (string) ( $seen['rows']['l3'] ?? '' ), 'Synced with Klaviyo · scheduled' ), true );
+
+// 4. The account cannot be reached. Nothing is touched: that is news about
+//    the network, and a row rewritten on it would be a lie of ours.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'l4' => [
+	'kind' => 'launch', 'subject' => 'Still fine',
+	'draft' => [ 'campaign' => 'C7', 'message' => 'M7', 'template' => 'T7' ],
+] ] ] ];
+$GLOBALS['dze_queue'] = [ [ 'code' => 500, 'body' => '{"errors":[{"detail":"Server error"}]}' ] ];
+$seen = DZE_Klaviyo::reconcile( 'promo', [ 'title' => 'Back to School Sale' ] );
+ok( 'a shop offline keeps its link',
+	( get_option( $copy )['promo']['emails']['l4']['draft']['campaign'] ?? '' ), 'C7' );
+ok( 'and no row is redrawn on it',      count( $seen['rows'] ), 0 );
+ok( 'and nothing is claimed about it',  $seen['message'], '' );
+
+// 5. The screen asks once. A reload is a cheap gesture; the account is not.
+$GLOBALS['dze_transients'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C7","attributes":{"status":"Draft","archived":false}}}' ] ];
+$GLOBALS['dze_sent']  = [];
+$_POST = [ 'rule' => 'promo' ];
+$said  = null;
+try { DZE_Klaviyo::ajax_state(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'the first look asks the account',  ! empty( $said['asked'] ), true );
+$before = count( $GLOBALS['dze_sent'] );
+try { DZE_Klaviyo::ajax_state(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'the second look does not',         ! empty( $said['asked'] ), false );
+ok( 'and asks Klaviyo nothing at all',  count( $GLOBALS['dze_sent'] ), $before );
+$_POST = [];
+$GLOBALS['dze_transients'] = [];
+$GLOBALS['dze_queue'] = [];
+$GLOBALS['dze_rules'] = null;
 
 echo "An email whose campaign the shop already has is not made twice\n";
 // "Des emails déjà syncro par le passé ne le sont plus, notamment celui de

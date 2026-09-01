@@ -135,11 +135,23 @@ page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() )
 // and remembered, because WHICH calls a button makes is half of what it does.
 const posted = [];
 await page.route( 'http://dze.test/ajax*', route => {
-	posted.push( new URLSearchParams( route.request().postData() || '' ).get( 'action' ) );
-	route.fulfill( {
-		status: 200, contentType: 'application/json',
-		body: JSON.stringify( { success: true, data: { langs: [ 'fr', 'de' ], done: 12, html: '<p>ok</p>' } } )
-	} );
+	const asked = new URLSearchParams( route.request().postData() || '' ).get( 'action' );
+	posted.push( asked );
+	// What Klaviyo really holds, asked for the moment the screen has drawn.
+	// Answered as the server answers it: the rows whose cell CHANGED, and one
+	// line saying what moved.
+	const body = 'dze_klav_state' === asked
+		? { success: true, data: { asked: true, message: 'Klaviyo had moved: Launch now points at the campaign that is really there.',
+			// The WHOLE cell, as the server draws it — badge and buttons
+			// together. A redraw that hands back only the new sentence would
+			// take the row's buttons away with it.
+			rows: { mail1: '<span class="dze-mail-synced">&#10003; Synced with Klaviyo · scheduled</span>'
+				+ '<span class="dze-mail-langs">EN only</span>'
+				+ '<button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>'
+				+ '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
+				+ '<span class="dze-mail-sched-msg description"></span>' } } }
+		: { success: true, data: { langs: [ 'fr', 'de' ], done: 12, html: '<p>ok</p>' } };
+	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( body ) } );
 } );
 
 // Served from a real origin: a page with no base URL cannot POST anywhere,
@@ -157,6 +169,17 @@ await page.addScriptTag( { path: join( root, 'dazont-ecom/admin/js/klaviyo.js' )
 
 console.log( `The email screen, in a browser — jQuery ${label}` );
 ok( 'the script loads without an error', errors, [] );
+
+// The rows are drawn from what was filed in the shop, and the account moves
+// without it: the screen asks Klaviyo what it holds as soon as it is up, and
+// redraws what has changed. Nothing of this exists until the page is opened.
+await page.waitForTimeout( 300 );
+ok( 'the screen asks Klaviyo what it holds', posted.includes( 'dze_klav_state' ), true );
+ok( 'a row that moved is redrawn',
+	/Synced with Klaviyo · scheduled/.test( await page.textContent( '.dze-mail[data-id="mail1"] .dze-mail-state' ) ), true );
+ok( 'and the screen says what moved',
+	/Klaviyo had moved/.test( await page.textContent( '#dze-mail-plan-msg' ) ), true );
+ok( 'asking raised nothing',             errors, [] );
 
 await page.click( '.dze-mail-open' );
 await page.waitForTimeout( 250 );

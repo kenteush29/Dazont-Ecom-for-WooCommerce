@@ -1731,13 +1731,114 @@ final class DZE_Diagnostic {
 		$this->print_script();
 	}
 
+	/**
+	 * The list in two: what still falls short, and what has been MENDED.
+	 *
+	 * "Pour mieux organiser le travail, il est préférable de créer 2 onglets :
+	 * un qui reprend les posts à retravailler, un qui reprend ceux qui sont
+	 * fixed." The list is a photograph taken by the last reading, and a shop
+	 * that mends a product finds it still sitting there — which reads as "the
+	 * fix did not work". So the whole list is re-read against the criterion as
+	 * the shop stands NOW, and the work to do is never mixed with the work
+	 * done.
+	 *
+	 * Read in batches of two hundred, primed the way the scan primes them, and
+	 * kept for a few minutes under a key that carries the criterion, the list
+	 * and the last edit made to it: touch a product and the reading is redone,
+	 * leave the screen alone and paging through it costs nothing.
+	 *
+	 * A category cannot be re-read — nothing here can ask a term whether it
+	 * still falls short — so that list is handed back whole and says so.
+	 *
+	 * @param int[] $ids
+	 * @return array{todo:int[],done:int[],live:bool}
+	 */
+	private static function split( string $id, array $check, array $ids ): array {
+		$scope = (string) ( $check['scope'] ?? '' );
+		$rule  = (array) ( self::rows_by_id()[ $id ] ?? [] );
+		$ids   = array_values( array_filter( array_map( 'absint', $ids ) ) );
+		if ( ! $rule || ! $ids || 'category' === $scope ) {
+			return [ 'todo' => $ids, 'done' => [], 'live' => false ];
+		}
+		$slot = 'dze_diag_split_' . md5( $id . '|' . (string) wp_json_encode( $rule ) . '|' . implode( ',', $ids ) . '|' . self::touched( $ids ) );
+		$got  = get_transient( $slot );
+		if ( is_array( $got ) && isset( $got['todo'], $got['done'] ) ) {
+			return $got;
+		}
+		$verdict = [];
+		foreach ( array_chunk( $ids, 200 ) as $some ) {
+			$posts = get_posts( [
+				'post__in'               => $some,
+				// The scope IS the post type here — 'product', 'post', 'page'
+				// — and asking for that one rather than "any" keeps a list
+				// honest when a shop has a post type WordPress leaves out of
+				// "any".
+				'post_type'              => $scope,
+				'post_status'            => 'any',
+				'posts_per_page'         => count( $some ),
+				'orderby'                => 'post__in',
+				'ignore_sticky_posts'    => true,
+				'no_found_rows'          => true,
+				'update_post_meta_cache' => true,
+				'suppress_filters'       => '' === self::main_language(),
+			] );
+			self::prime_thumbs( $posts );
+			foreach ( $posts as $post ) {
+				$verdict[ (int) $post->ID ] = (bool) self::fails( $rule, $scope, $post );
+			}
+		}
+		$todo = [];
+		$done = [];
+		foreach ( $ids as $one ) {
+			if ( ! array_key_exists( $one, $verdict ) ) {
+				continue; // deleted since the reading: not work waiting for anybody.
+			}
+			if ( $verdict[ $one ] ) {
+				$todo[] = $one;
+			} else {
+				$done[] = $one;
+			}
+		}
+		$out = [ 'todo' => $todo, 'done' => $done, 'live' => true ];
+		set_transient( $slot, $out, 5 * MINUTE_IN_SECONDS );
+		return $out;
+	}
+
+	/**
+	 * The most recent edit in a list of posts.
+	 *
+	 * What makes a kept reading die at the right moment: mend a product and
+	 * its post_modified moves, so the key changes and the list is judged
+	 * again. One query, over ids this class has already bounded.
+	 *
+	 * @param int[] $ids
+	 */
+	private static function touched( array $ids ): string {
+		global $wpdb;
+		if ( ! $wpdb || ! $ids ) {
+			return '';
+		}
+		$in = implode( ',', array_map( 'intval', $ids ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids cast to int on the line above.
+		return (string) $wpdb->get_var( "SELECT MAX( post_modified_gmt ) FROM {$wpdb->posts} WHERE ID IN ( {$in} )" );
+	}
+
 	private function render_list( string $id ): void {
 		$check  = self::checks()[ $id ];
 		$census = self::census();
 		$lists  = self::lists();
-		$ids    = (array) ( $lists[ $id ] ?? [] );
+		$all    = (array) ( $lists[ $id ] ?? [] );
 		$n      = (int) ( $census['checks'][ $id ] ?? 0 );
 		$page   = isset( $_GET['paged'] ) ? max( 1, absint( $_GET['paged'] ) ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+
+		// The work to do, and the work done. Two lists, never mixed: what is
+		// mended has nothing left to say to somebody working through the
+		// other one.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- choosing a tab is navigation.
+		$show   = ( isset( $_GET['show'] ) && 'fixed' === $_GET['show'] ) ? 'fixed' : 'todo';
+		$split  = self::split( $id, $check, $all );
+		$show   = $split['live'] ? $show : 'todo';
+		$ids    = 'fixed' === $show ? $split['done'] : $split['todo'];
 
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- ordering a list is navigation.
 		$by   = isset( $_GET['by'] ) ? sanitize_key( wp_unslash( $_GET['by'] ) ) : 'found';
@@ -1771,14 +1872,53 @@ final class DZE_Diagnostic {
 			esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
 			esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
 		);
+		if ( $split['live'] ) {
+			// WordPress's own tabs, because that is what every other screen of
+			// this admin uses to say "the same list, seen two ways".
+			echo '<h2 class="nav-tab-wrapper" style="margin:14px 0 0;">';
+			foreach ( [
+				'todo'  => sprintf(
+					/* translators: %d: how many still fall short */
+					__( 'To work on (%d)', 'dazont-ecom' ),
+					count( $split['todo'] )
+				),
+				'fixed' => sprintf(
+					/* translators: %d: how many have been mended since the reading */
+					__( 'Fixed (%d)', 'dazont-ecom' ),
+					count( $split['done'] )
+				),
+			] as $dze_tab => $dze_label ) {
+				printf(
+					'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
+					$show === $dze_tab ? ' nav-tab-active' : '',
+					esc_url( add_query_arg(
+						[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $dze_tab, 'by' => $by, 'dir' => $dir ],
+						admin_url( 'admin.php' )
+					) ),
+					esc_html( $dze_label )
+				);
+			}
+			echo '</h2>';
+		}
 		printf(
-			'<p class="description">%s</p>',
-			esc_html( sprintf(
-				/* translators: 1: how many fall short, 2: how many are listed */
-				__( '%1$d fall short. %2$d listed here — the count is exact whatever the list can show.', 'dazont-ecom' ),
-				$n,
-				count( $ids )
-			) )
+			'<p class="description" style="margin-top:10px;">%s</p>',
+			esc_html( 'fixed' === $show
+				? sprintf(
+					/* translators: %d: how many have been mended */
+					_n(
+						'%d has been mended since the last reading. It leaves the list at the next one.',
+						'%d have been mended since the last reading. They leave the list at the next one.',
+						count( $ids ),
+						'dazont-ecom'
+					),
+					count( $ids )
+				)
+				: sprintf(
+					/* translators: 1: how many fall short, 2: how many are listed */
+					__( '%1$d fall short. %2$d listed here — the count is exact whatever the list can show.', 'dazont-ecom' ),
+					$n,
+					count( $ids )
+				) )
 		);
 
 		// What ELSE each one is short of: read from the same reading, so a
@@ -1795,13 +1935,13 @@ final class DZE_Diagnostic {
 
 		// A sortable header, or nothing at all where there is nothing to sort:
 		// a category has no price and no sales.
-		$head = static function ( string $key, string $label ) use ( $id, $by, $dir ): string {
+		$head = static function ( string $key, string $label ) use ( $id, $by, $dir, $show ): string {
 			$next = ( $by === $key && 'desc' === $dir ) ? 'asc' : 'desc';
 			$mark = $by === $key ? ( 'desc' === $dir ? ' ↓' : ' ↑' ) : '';
 			return sprintf(
 				'<a href="%s" style="text-decoration:none;">%s%s</a>',
 				esc_url( add_query_arg(
-					[ 'page' => self::MENU_SLUG, 'check' => $id, 'by' => $key, 'dir' => $next ],
+					[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $key, 'dir' => $next ],
 					admin_url( 'admin.php' )
 				) ),
 				esc_html( $label ),
@@ -1829,37 +1969,20 @@ final class DZE_Diagnostic {
 		$gap = (array) ( $facts['_missing'] ?? [] );
 		unset( $facts['_missing'] );
 
-		// The rows on THIS page, re-judged against the criterion as the shop
-		// stands right now. The list is a photograph taken by the last scan,
-		// and a shop that fixes a product and comes back to the list finds it
-		// still there, which reads as "the fix did not work". Fifty rows are
-		// re-read, not a thousand: the page you are looking at is the page
-		// that has to be true.
-		$row_now = self::rows_by_id();
-		$mended  = 0;
+		// The rows of this page. Which list they belong to was settled once,
+		// above, for the whole list: judging them again here would be a second
+		// answer to the same question.
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
 			if ( '' === $name ) {
 				continue;
 			}
-			// Still short of it? Asked of the shop, not of the scan.
-			$still = true;
-			if ( isset( $row_now[ $id ] ) && 'category' !== (string) $check['scope'] ) {
-				$post  = get_post( $oid );
-				$still = $post ? (bool) self::fails( $row_now[ $id ], (string) $check['scope'], $post ) : true;
-			}
-			if ( ! $still ) {
-				$mended++;
-			}
-			echo '<tr' . ( $still ? '' : ' style="opacity:.55;"' ) . '><td>';
+			echo '<tr><td>';
 			// A title with markup in it — "<span> Military Patch </span> Russian
 			// Z" — is a title with markup in it: the tags are the shop's, not
 			// something to print at it.
 			printf( '<a href="%s"><strong>%s</strong></a>', esc_url( $link ), esc_html( wp_strip_all_tags( $name ) ) );
-			if ( ! $still ) {
-				echo ' <span style="color:#00794b;font-weight:600;">' . esc_html__( 'fixed ✓', 'dazont-ecom' ) . '</span>';
-			}
 			if ( ! empty( $also[ $oid ] ) ) {
 				echo '<br /><span class="description">' . esc_html__( 'also:', 'dazont-ecom' ) . ' '
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
@@ -1886,19 +2009,13 @@ final class DZE_Diagnostic {
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
-		if ( $mended > 0 ) {
+		if ( ! $ids ) {
 			printf(
-				'<p class="description" style="max-width:1100px;color:#00794b;">%s</p>',
-				esc_html( sprintf(
-					/* translators: %d: how many rows have since been fixed */
-					_n(
-						'%d of these has been fixed since the last reading — it will leave the list at the next one.',
-						'%d of these have been fixed since the last reading — they leave the list at the next one.',
-						$mended,
-						'dazont-ecom'
-					),
-					$mended
-				) )
+				'<p style="max-width:1100px;color:%s;font-weight:600;">%s</p>',
+				'fixed' === $show ? '#50575e' : '#00794b',
+				esc_html( 'fixed' === $show
+					? __( 'Nothing has been mended since the last reading.', 'dazont-ecom' )
+					: __( 'Nothing falls short of this any more.', 'dazont-ecom' ) )
 			);
 		}
 		if ( $gap ) {
@@ -1918,7 +2035,7 @@ final class DZE_Diagnostic {
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
 		if ( $pages > 1 ) {
 			echo '<p style="margin-top:12px;">' . wp_kses_post( paginate_links( [
-				'base'      => add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'by' => $by, 'dir' => $dir, 'paged' => '%#%' ], admin_url( 'admin.php' ) ),
+				'base'      => add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $by, 'dir' => $dir, 'paged' => '%#%' ], admin_url( 'admin.php' ) ),
 				'format'    => '',
 				'current'   => $page,
 				'total'     => $pages,
