@@ -3463,7 +3463,7 @@ final class DZE_Klaviyo {
 		// name" was in the prompt, and the shop got "A-Tacs FG Military Combat
 		// Uniform" on the German card beside two names the model had
 		// translated anyway. What a model must not decide, it is not shown.
-		$goods = (array) ( $mail['products'] ?? [] );
+		$goods = self::goods_of( $rule_id, (array) ( $rules[ $rule_id ] ?? [] ), $email_id );
 		$said  = self::ask_translation(
 			$texts,
 			$source,
@@ -3525,7 +3525,8 @@ final class DZE_Klaviyo {
 		// does not exist.
 		// The products THIS email carries, which is how its links are known
 		// without reading a single URL back.
-		$goods = (array) ( $mail['products'] ?? [] );
+		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
+		$goods = self::goods_of( $rule_id, (array) ( $rules[ $rule_id ] ?? [] ), $email_id );
 		$names = self::name_map( $goods, $langs );
 		$mech  = self::mechanical( $values, $langs, self::link_map( $goods, $langs ), $names );
 		foreach ( $mech as $vid => $per_lang ) {
@@ -5388,6 +5389,36 @@ final class DZE_Klaviyo {
 	 * The one place that pairing is made, so the screen that PRINTS the brief
 	 * and the call that spends the money cannot be handed different products.
 	 */
+	/**
+	 * The products THIS email is about — whatever it was made from.
+	 *
+	 * The plan deals products to each email and writes the ids down, and
+	 * everything mechanical leans on that list: the links per language, the
+	 * names per language. An email the plan never dealt to — one added by
+	 * hand, one written before the plan existed — carries no ids at all, and
+	 * the pass then had nothing to work with: the model translated the product
+	 * names itself ("Modularer Chest Rig für Special Forces") and the links
+	 * fell through to a rule. So when the email has no list of its own, the
+	 * shortlist the WRITING was handed is used — the same function, the same
+	 * answer, so the ids are the products the email really shows.
+	 *
+	 * @return int[]
+	 */
+	public static function goods_of( string $rule_id, array $rule, string $email_id ): array {
+		static $seen = [];
+		$key = $rule_id . '|' . $email_id;
+		if ( isset( $seen[ $key ] ) ) {
+			return $seen[ $key ];
+		}
+		$mine = array_values( array_filter( array_map( 'absint', (array) ( self::email_for( $rule_id, $email_id, $rule )['products'] ?? [] ) ) ) );
+		if ( ! $mine ) {
+			$mat  = self::material_for( $rule_id, $rule, $email_id );
+			$mine = array_values( array_filter( array_map( 'absint', (array) ( $mat['ids'] ?? [] ) ) ) );
+		}
+		$seen[ $key ] = $mine;
+		return $mine;
+	}
+
 	public static function material_for( string $rule_id, array $rule, string $email_id ): array {
 		$mine = (array) ( self::email_for( $rule_id, $email_id, $rule )['products'] ?? [] );
 		if ( $mine ) {
