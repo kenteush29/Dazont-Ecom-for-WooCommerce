@@ -6504,6 +6504,68 @@ final class DZE_Klaviyo {
 	 * a screen saying less than it knows. The AJAX answer carries this same
 	 * markup, so what the row shows after the click IS what a reload shows.
 	 */
+	/**
+	 * The stylesheet of the email list.
+	 *
+	 * Held here rather than typed into the page so a browser test can load
+	 * exactly what the shop is served: the row is a GRID, and a grid that
+	 * collapses — the title set one word per line, a warning running under
+	 * the buttons — is a bug nothing but a browser can see.
+	 */
+	public static function list_css(): string {
+		return <<<'CSS'
+				.dze-mail-list{max-width:1400px;border:1px solid #dcdcde;border-radius:4px;overflow:hidden;background:#fff;}
+				/* A grid, not a flex row: the state column carries whole
+				   sentences now — what was translated, where the links point,
+				   why one did not move — and a flex row let that column push
+				   the title down to one word per line. Each column has a size
+				   of its own, and the text wraps inside it. */
+				.dze-mail{display:grid;grid-template-columns:110px minmax(0,1fr) minmax(300px,360px) auto;
+					align-items:start;gap:20px;padding:14px 18px;border-bottom:1px solid #f0f0f1;}
+				.dze-mail:last-child{border-bottom:0;}
+				.dze-mail.is-on{background:#f6f7f7;box-shadow:inset 3px 0 0 #2271b1;}
+				.dze-mail-thumb{width:110px;height:82px;flex:0 0 110px;border:1px solid #e6e6e6;background:#fff;overflow:hidden;position:relative;border-radius:3px;}
+				.dze-mail-thumb iframe{position:absolute;top:0;left:0;width:600px;height:448px;border:0;transform:scale(.1833);transform-origin:0 0;pointer-events:none;}
+				.dze-mail-what{min-width:0;line-height:1.6;}
+				.dze-mail-what strong{margin-right:8px;font-size:14px;}
+				.dze-mail-when{color:#646970;font-size:12px;}
+				.dze-smart{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#eef4fb;color:#2271b1;font-size:11px;white-space:nowrap;vertical-align:1px;}
+				.dze-mail-subject{display:block;color:#50575e;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+				/* Left-aligned and wrapping: a warning is a sentence, and a
+				   sentence set flush right in a nowrap column is a sentence
+				   that runs over its neighbours. */
+				.dze-mail-state{font-size:12px;line-height:1.6;text-align:left;min-width:0;
+					display:flex;flex-direction:column;align-items:flex-start;gap:3px;}
+				.dze-mail-state > *{max-width:100%;}
+				.dze-mail-state a{word-break:break-word;}
+				.dze-mail-does{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+				.dze-mail-sched-msg{display:block;font-size:12px;}
+				.dze-mail-act{display:flex;flex-direction:column;align-items:flex-end;gap:6px;white-space:nowrap;}
+				/* Narrow screens: the four columns become two, and nothing is
+				   squeezed to a word per line. */
+				@media (max-width:1100px){
+					.dze-mail{grid-template-columns:110px minmax(0,1fr);}
+					.dze-mail-state,.dze-mail-act{grid-column:2;align-items:flex-start;}
+				}
+				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
+				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
+				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
+				.dze-mail-links,.dze-mail-langs{white-space:normal;}
+				.dze-mail-check{display:block;margin-top:3px;font-size:12px;color:#996800;}
+				.dze-mail.is-syncing{background:#f4f9ff;}
+				.dze-klav-switch .button{border-radius:0;margin:0;}
+				.dze-klav-switch .button:first-child{border-radius:3px 0 0 3px;}
+				.dze-klav-switch .button:last-child{border-radius:0 3px 3px 0;margin-left:-1px;}
+				.dze-klav-switch .button.is-on{background:#2271b1;border-color:#2271b1;color:#fff;}
+				.dze-hours{display:flex;align-items:flex-end;gap:6px;height:56px;max-width:360px;}
+				.dze-hour{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;}
+				.dze-hour i{display:block;width:100%;background:#c3c4c7;}
+				.dze-hour b{font:400 11px/1.4 inherit;color:#646970;text-align:center;}
+				.dze-hour.is-peak i{background:#2271b1;}
+				.dze-hour.is-peak b{color:#2271b1;font-weight:600;}
+CSS;
+	}
+
 	public static function state_cell( string $mail_id, array $mail ): string {
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
 		[ $dze_src, $dze_tgt ] = self::locales();
@@ -6529,7 +6591,7 @@ final class DZE_Klaviyo {
 			if ( $dze_on ) :
 				$dze_ts = strtotime( $dze_goes ) ?: 0;
 				?>
-				<span style="display:block;font-size:12px;color:#00794b;font-weight:600;">
+				<span style="color:#00794b;font-weight:600;">
 					<?php
 					printf(
 						/* translators: %s: the day it goes out */
@@ -6539,21 +6601,9 @@ final class DZE_Klaviyo {
 					?>
 				</span>
 			<?php elseif ( $dze_noday ) : ?>
-				<span style="display:block;font-size:12px;color:#b26a00;">
+				<span style="color:#b26a00;">
 					<?php esc_html_e( 'No date in Klaviyo — choose it there before scheduling.', 'dazont-ecom' ); ?>
 				</span>
-			<?php endif; ?>
-			<?php
-			// Scheduling is what makes the email go out, and it is one
-			// click here rather than a trip to Klaviyo — which is also
-			// what lets a promotion be handed over without a person.
-			if ( ! $dze_noday ) :
-				?>
-				<button type="button" class="button button-small dze-mail-sched" style="margin-top:4px;"
-					data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
-					<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>
-				</button>
-				<span class="dze-mail-sched-msg description" style="display:block;font-size:12px;"></span>
 			<?php endif; ?>
 			<?php
 			// In how many languages this one actually went out. A
@@ -6567,7 +6617,7 @@ final class DZE_Klaviyo {
 			$dze_when_i18n = $dze_done ? (int) ( $mail['draft']['translated'] ?? 0 ) : 0;
 			$dze_left      = array_values( array_diff( $dze_open, $dze_done ) );
 			?>
-			<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
+			<span class="dze-mail-langs" style="color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
 				<?php
 				if ( $dze_when_i18n ) {
 					printf(
@@ -6608,15 +6658,33 @@ final class DZE_Klaviyo {
 			if ( '' !== $dze_links ) :
 				$dze_ko = false !== strpos( $dze_links, 'did NOT move' );
 				?>
-				<span class="dze-mail-links" style="display:block;font-size:12px;margin-top:2px;white-space:normal;text-align:right;color:<?php echo $dze_ko ? '#b26a00' : '#00794b'; ?>;">
+				<span class="dze-mail-links" style="color:<?php echo $dze_ko ? '#b26a00' : '#00794b'; ?>;">
 					<?php echo esc_html( $dze_links ); ?>
 				</span>
 			<?php endif; ?>
-			<?php if ( $dze_tgt ) : ?>
-				<button type="button" class="button button-small dze-mail-i18n" style="margin-top:4px;" data-email="<?php echo esc_attr( $mail_id ); ?>">
-					<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
-				</button>
-			<?php endif; ?>
+			<?php
+			// The two things a person does from this row, side by side at the
+			// bottom of it. They used to sit one above the other with a line
+			// of prose between them, so the row read as a paragraph with
+			// buttons dropped into it wherever they happened to fall.
+			//
+			// Scheduling is what makes the email go out, and it is one click
+			// here rather than a trip to Klaviyo — which is also what lets a
+			// promotion be handed over without a person.
+			?>
+			<div class="dze-mail-does">
+				<?php if ( ! $dze_noday ) : ?>
+					<button type="button" class="button button-small dze-mail-sched" data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
+						<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>
+					</button>
+				<?php endif; ?>
+				<?php if ( $dze_tgt ) : ?>
+					<button type="button" class="button button-small dze-mail-i18n" data-email="<?php echo esc_attr( $mail_id ); ?>">
+						<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
+					</button>
+				<?php endif; ?>
+			</div>
+			<span class="dze-mail-sched-msg description"></span>
 		<?php endif; ?>
 		<?php
 		return (string) ob_get_clean();
@@ -6675,7 +6743,7 @@ final class DZE_Klaviyo {
 							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
 							<?php if ( ! empty( $mail['auto_made'] ) ) : ?>
-								<span class="dze-mail-check" style="display:block;margin-top:3px;font-size:12px;color:#996800;">
+								<span class="dze-mail-check">
 									<?php esc_html_e( 'Written by the autopilot — read it before it goes anywhere.', 'dazont-ecom' ); ?>
 									<button type="button" class="button-link dze-mail-checked" style="font-size:12px;"><?php esc_html_e( 'Checked ✓', 'dazont-ecom' ); ?></button>
 								</span>
@@ -6933,33 +7001,7 @@ final class DZE_Klaviyo {
 			</div>
 
 			<style>
-				.dze-mail-list{max-width:1400px;border:1px solid #dcdcde;border-radius:4px;overflow:hidden;background:#fff;}
-				.dze-mail{display:flex;align-items:center;gap:22px;padding:14px 18px;border-bottom:1px solid #f0f0f1;}
-				.dze-mail:last-child{border-bottom:0;}
-				.dze-mail.is-on{background:#f6f7f7;box-shadow:inset 3px 0 0 #2271b1;}
-				.dze-mail-thumb{width:110px;height:82px;flex:0 0 110px;border:1px solid #e6e6e6;background:#fff;overflow:hidden;position:relative;border-radius:3px;}
-				.dze-mail-thumb iframe{position:absolute;top:0;left:0;width:600px;height:448px;border:0;transform:scale(.1833);transform-origin:0 0;pointer-events:none;}
-				.dze-mail-what{flex:1;min-width:0;line-height:1.7;}
-				.dze-mail-what strong{margin-right:8px;font-size:14px;}
-				.dze-mail-when{color:#646970;font-size:12px;}
-				.dze-smart{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:9px;background:#eef4fb;color:#2271b1;font-size:11px;white-space:nowrap;vertical-align:1px;}
-				.dze-mail-subject{display:block;color:#50575e;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-				.dze-mail-state{font-size:12px;white-space:nowrap;line-height:2;text-align:right;}
-				.dze-mail-act{white-space:nowrap;}
-				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
-				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
-				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
-				.dze-mail.is-syncing{background:#f4f9ff;}
-				.dze-klav-switch .button{border-radius:0;margin:0;}
-				.dze-klav-switch .button:first-child{border-radius:3px 0 0 3px;}
-				.dze-klav-switch .button:last-child{border-radius:0 3px 3px 0;margin-left:-1px;}
-				.dze-klav-switch .button.is-on{background:#2271b1;border-color:#2271b1;color:#fff;}
-				.dze-hours{display:flex;align-items:flex-end;gap:6px;height:56px;max-width:360px;}
-				.dze-hour{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;}
-				.dze-hour i{display:block;width:100%;background:#c3c4c7;}
-				.dze-hour b{font:400 11px/1.4 inherit;color:#646970;text-align:center;}
-				.dze-hour.is-peak i{background:#2271b1;}
-				.dze-hour.is-peak b{color:#2271b1;font-weight:600;}
+			<?php echo self::list_css(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- a stylesheet of our own. ?>
 			</style>
 		</div>
 		<?php

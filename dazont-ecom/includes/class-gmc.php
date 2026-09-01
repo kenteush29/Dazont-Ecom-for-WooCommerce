@@ -453,6 +453,10 @@ final class DZE_Gmc {
 		}
 
 		$conn['refresh_token'] = $refresh;
+		// A fresh authorisation is the cure for a revoked one: what was
+		// written down about the old connection goes with it, so the screens
+		// stop saying "reconnect" the moment it IS reconnected.
+		unset( $conn['broken'], $conn['broken_why'] );
 		if ( ! empty( $data['access_token'] ) ) {
 			$email = $this->fetch_account_email( $data['access_token'] );
 			if ( $email !== '' ) {
@@ -494,6 +498,45 @@ final class DZE_Gmc {
 		exit;
 	}
 
+	/**
+	 * The connection is gone, and this is where that is written down.
+	 *
+	 * Five feeds meant five identical Google errors on one screen, none of
+	 * them saying what to do. The state belongs to the CONNECTION, not to the
+	 * run that happened to discover it, so every screen can say it and the
+	 * next sync can stop before asking Google again.
+	 */
+	private static function mark_broken( string $said ): void {
+		$conn = self::get_connection();
+		if ( (int) ( $conn['broken'] ?? 0 ) > 0 ) {
+			return; // already known; the first time is the one that counts.
+		}
+		$conn['broken']     = time();
+		$conn['broken_why'] = mb_substr( $said, 0, 300 );
+		update_option( self::OPT_CONNECTION, $conn, false );
+		delete_transient( 'dze_gmc_oauth_token' );
+	}
+
+	/** Google answered: the connection is alive again. */
+	private static function mark_working(): void {
+		$conn = self::get_connection();
+		if ( empty( $conn['broken'] ) ) {
+			return;
+		}
+		unset( $conn['broken'], $conn['broken_why'] );
+		update_option( self::OPT_CONNECTION, $conn, false );
+	}
+
+	/** When was this connection found revoked? 0 when it is fine. */
+	public static function broken_since(): int {
+		return (int) ( self::get_connection()['broken'] ?? 0 );
+	}
+
+	/** The one sentence, and the one action. */
+	public static function broken_message(): string {
+		return __( 'Google has revoked this connection — nothing will sync until it is reconnected. Settings → Google Merchant Center → Connect your Google account.', 'dazont-ecom' );
+	}
+
 	private function oauth_access_token(): string {
 		$cached = get_transient( 'dze_gmc_oauth_token' );
 		if ( is_string( $cached ) && $cached !== '' ) {
@@ -518,9 +561,22 @@ final class DZE_Gmc {
 		}
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( empty( $data['access_token'] ) ) {
-			$msg = $data['error_description'] ?? ( $data['error'] ?? 'Unknown refresh error' );
+			$msg  = (string) ( $data['error_description'] ?? ( $data['error'] ?? 'Unknown refresh error' ) );
+			$code = (string) ( $data['error'] ?? '' );
+			// Google says "invalid_grant / Token has been expired or revoked"
+			// when the connection itself is gone — the account was
+			// disconnected, the password changed, or the consent was
+			// withdrawn. No number of retries fixes that and no shop should
+			// have to read it five times, once per feed: it is written down
+			// once, and every screen says the one thing to do about it.
+			if ( 'invalid_grant' === $code || false !== stripos( $msg, 'expired or revoked' ) ) {
+				self::mark_broken( $msg );
+				throw new RuntimeException( self::broken_message() );
+			}
 			throw new RuntimeException( sprintf( __( 'Google token refresh failed: %s', 'dazont-ecom' ), $msg ) );
 		}
+		// It answered: whatever was wrong before is not wrong now.
+		self::mark_working();
 		set_transient( 'dze_gmc_oauth_token', $data['access_token'], min( (int) ( $data['expires_in'] ?? 3600 ) - 60, self::TOKEN_TTL ) );
 		return $data['access_token'];
 	}
@@ -627,6 +683,12 @@ final class DZE_Gmc {
 		$oauth = self::get_oauth();
 		$conn  = self::get_connection();
 		if ( ! empty( $conn['refresh_token'] ) ) {
+			// Known revoked: say so without asking Google again. Syncing five
+			// feeds asked five times and printed the same refusal five times,
+			// which is neither faster nor clearer than saying it once.
+			if ( ! empty( $conn['broken'] ) ) {
+				throw new RuntimeException( self::broken_message() );
+			}
 			return $this->oauth_access_token();
 		}
 

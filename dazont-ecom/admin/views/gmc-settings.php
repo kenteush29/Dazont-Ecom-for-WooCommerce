@@ -31,7 +31,33 @@ foreach ( $languages as $l ) {
 
 	<h2 class="title"><?php esc_html_e( 'Connect with Google (recommended)', 'dazont-ecom' ); ?></h2>
 	<div style="background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:14px 18px;max-width:820px;">
-		<?php if ( $connected ) : ?>
+		<?php
+		// Google can revoke a connection without anybody touching this screen
+		// — a password change, a consent withdrawn, an app left in testing.
+		// The shop then reads the same refusal once per feed at sync time and
+		// nothing anywhere says what to do. It says it HERE, where the
+		// reconnecting is done, and it stays said until it is fixed.
+		$dze_dead = class_exists( 'DZE_Gmc' ) ? DZE_Gmc::broken_since() : 0;
+		if ( $connected && $dze_dead ) :
+			?>
+			<p style="margin-top:0;">
+				<span style="color:#b32d2e;font-weight:600;">&#9888; <?php esc_html_e( 'Revoked by Google', 'dazont-ecom' ); ?></span>
+				<?php if ( ! empty( $connection['email'] ) ) : ?> — <code><?php echo esc_html( $connection['email'] ); ?></code><?php endif; ?>
+			</p>
+			<p style="max-width:820px;">
+				<?php
+				printf(
+					/* translators: %s: how long ago, e.g. "2 hours" */
+					esc_html__( 'Google refused this connection %s ago and nothing has synced since. Connect the account again — the Client ID and Secret below are still good, only the authorisation has to be given afresh.', 'dazont-ecom' ),
+					esc_html( human_time_diff( $dze_dead, time() ) )
+				);
+				?>
+			</p>
+			<?php if ( $authorize_url ) : ?>
+				<a href="<?php echo esc_url( $authorize_url ); ?>" class="button button-primary"><?php esc_html_e( 'Connect Google account again', 'dazont-ecom' ); ?></a>
+			<?php endif; ?>
+			<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=dze_gmc_disconnect' ), 'dze_gmc_disconnect' ) ); ?>" class="button"><?php esc_html_e( 'Disconnect', 'dazont-ecom' ); ?></a>
+		<?php elseif ( $connected ) : ?>
 			<p style="margin-top:0;">
 				<span style="color:#0a7040;font-weight:600;">&#10003; <?php esc_html_e( 'Connected', 'dazont-ecom' ); ?></span>
 				<?php if ( ! empty( $connection['email'] ) ) : ?> — <code><?php echo esc_html( $connection['email'] ); ?></code><?php endif; ?>
