@@ -81,6 +81,11 @@ function get_page_by_path( $path, $output = OBJECT, $type = 'page' ) {
 function get_post_types( $args = [], $out = 'names' ) { return $GLOBALS['ptypes'] ?? [ 'post', 'page', 'product' ]; }
 function get_post_type( $id ) { return $GLOBALS['types'][ (int) $id ] ?? ''; }
 function get_permalink( $id ) { return $GLOBALS['perma'][ (int) $id ] ?? ''; }
+// The posts table itself. get_post_field() with the 'raw' context is the one
+// read no filter can rewrite, which is the whole point of asking it.
+function get_post_field( $field, $id, $context = 'display' ) {
+	return 'post_name' === $field ? (string) ( $GLOBALS['post_name'][ (int) $id ] ?? '' ) : '';
+}
 
 // The lookup that does not work where the emails are written. Anything that
 // calls it is counted, and the count must stay zero.
@@ -215,6 +220,56 @@ ok( 'and the step says translation',     $why, 'translation' );
 // A link already written on a language domain is still this shop's link.
 ok( 'a language domain is ours too',
 	to( 'https://kula.de/sturmhaube-spetsnaz', 'fr' )[1] !== 'not-ours', true );
+
+echo "The SLUG comes from the posts table, never from a filtered permalink\n";
+// His own case, twice over: kula-tactical.de/a-tacs-fg-military-combat-uniform
+// where the page is kula-tactical.de/a-tacs-fg-gefechtsuniform. The German
+// product IS found — its German NAME came out right in the same email — so the
+// half that fails is the address: get_permalink() on this shop hands back the
+// source slug for the translation, and a host swap on top of it produces the
+// right domain carrying the English slug. The German post's own post_name is a
+// fact in the database that no filter can be absent for.
+$GLOBALS['mode'] = 'domain';
+shop( 2, [ 'de' => 'kula.de', 'fr' => 'kula.fr' ] );
+$GLOBALS['types'][13]  = 'product';
+$GLOBALS['types'][113] = 'product';
+$GLOBALS['slugs']['product']['a-tacs-fg-military-combat-uniform'] = 13;
+$GLOBALS['icl_rows']['post_product'][13] = [ 'de' => 113 ];
+$GLOBALS['perma'][13]  = 'https://kula.test/a-tacs-fg-military-combat-uniform';
+$GLOBALS['perma'][113] = 'https://kula.test/a-tacs-fg-military-combat-uniform';
+$GLOBALS['post_name'][13]  = 'a-tacs-fg-military-combat-uniform';
+$GLOBALS['post_name'][113] = 'a-tacs-fg-gefechtsuniform';
+[ $url, $why ] = to( 'https://kula.test/a-tacs-fg-military-combat-uniform', 'de' );
+ok( "the German product's own slug, on the German domain",
+	$url, 'https://kula.de/a-tacs-fg-gefechtsuniform' );
+ok( 'and the step still says translation', $why, 'translation' );
+ok( 'no English slug survives anywhere in it',
+	false === strpos( $url, 'military-combat-uniform' ), true );
+// The same product asked for straight, which is the call the emails make.
+ok( 'asked as a product id, the same answer',
+	DZE_Wpml::post_url_in_language( 13, 'product', 'de' ),
+	'https://kula.de/a-tacs-fg-gefechtsuniform' );
+// A shop whose permalinks already carry the right slug must not be touched.
+$GLOBALS['types'][14]  = 'product';
+$GLOBALS['types'][114] = 'product';
+$GLOBALS['icl_rows']['post_product'][14] = [ 'de' => 114 ];
+$GLOBALS['perma'][14]  = 'https://kula.test/jpc-2-0-plate-carrier';
+$GLOBALS['perma'][114] = 'https://kula.test/produkt/jpc-2-0-plattentraeger/';
+$GLOBALS['post_name'][114] = 'jpc-2-0-plattentraeger';
+ok( 'a permalink that is already right is left exactly as it stands',
+	DZE_Wpml::post_url_in_language( 14, 'product', 'de' ),
+	'https://kula.de/produkt/jpc-2-0-plattentraeger/' );
+// A shop with no pretty permalinks has no slug in the address at all: there is
+// nothing to set, and setting one would invent a page.
+$GLOBALS['types'][15]  = 'product';
+$GLOBALS['types'][115] = 'product';
+$GLOBALS['icl_rows']['post_product'][15] = [ 'de' => 115 ];
+$GLOBALS['perma'][15]  = 'https://kula.test/?p=15';
+$GLOBALS['perma'][115] = 'https://kula.test/?p=115';
+$GLOBALS['post_name'][115] = 'sturmhaube';
+ok( 'an address with no slug in it is not given one',
+	DZE_Wpml::post_url_in_language( 15, 'product', 'de' ), 'https://kula.de/?p=115' );
+$GLOBALS['mode'] = 'dir';
 
 echo "A product nobody has translated: the page that EXISTS\n";
 // "CA ARRIVE d'avoir un produit qui manque des traductions. Dans ce cas oui
