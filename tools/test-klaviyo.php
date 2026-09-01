@@ -2067,23 +2067,23 @@ ok( 'each row shows its subject',
 	false !== strpos( $screen, 'dze-mail-subject">Two days left' ), true );
 ok( 'and its preview text',
 	false !== strpos( $screen, 'dze-mail-preview">Ends Sunday night' ), true );
-// "Comment générer les images directement en cliquant sur Generate them all ?"
-// The permission is per email; this sets it on every row of the promotion at
-// once, beside the button that writes them.
+// The picture is PART of writing an email, so there is nothing to tick: not
+// beside the button that writes them all, not on the email, not in the form.
+// "Ça devrait pas exister et être toujours inclus dans la rédaction entière
+// de l'email."
 $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['images'] = 1;
 ob_start();
 DZE_Klaviyo::instance()->render_editor( 'bts', $GLOBALS['dze_rules']['bts'] );
 $with = (string) ob_get_clean();
-ok( 'the pictures can be asked for on the whole run',
-	false !== strpos( $with, 'dze-mail-shots' ), true );
-$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['images'] = 0;
-ob_start();
-DZE_Klaviyo::instance()->render_editor( 'bts', $GLOBALS['dze_rules']['bts'] );
-ok( 'and not offered at all when pictures are off',
-	false !== strpos( (string) ob_get_clean(), 'dze-mail-shots' ), false );
-// Put back as this shop has it: a test that leaves a setting off takes the
-// next screen's picture prompt away with it.
-$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['images'] = 1;
+ok( 'nothing is asked beside the button',
+	false !== strpos( $with, 'dze-mail-shots' ), false );
+ok( 'nor on the email itself',          false !== strpos( $with, 'dze-klav-e-want' ), false );
+ok( 'and the form carries no such field',
+	false !== strpos( $with, 'want_picture' ), false );
+// What the shop DOES decide is still there: the prompt, and the test that
+// judges it without spending an email.
+ok( 'the picture prompt is still tried here',
+	false !== strpos( $with, 'dze-klav-e-shot' ), true );
 // The setting is written only by a form that carried it, like every other
 // one here: a screen saving something else must not take the shop's rhythm
 // down with it.

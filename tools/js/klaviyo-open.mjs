@@ -75,7 +75,6 @@ const page_html = `
       <input type="hidden" class="dze-f-exists" value="1" />
       <input type="hidden" class="dze-f-kind" value="launch" />
       <input type="hidden" class="dze-f-picture" value="" />
-      <input type="hidden" class="dze-f-want" value="0" />
       <input type="hidden" class="dze-f-subject" value="Back to school" />
       <input type="hidden" class="dze-f-preview" value="10% off" />
       <input type="hidden" class="dze-f-when" value="2026-08-28 09:00" />
@@ -83,17 +82,16 @@ const page_html = `
     </div>
   </div>
   <button type="button" id="dze-mail-new">+ Add an email</button>
-  <label><input type="checkbox" id="dze-mail-shots" /> with their pictures</label>
   <button type="button" class="button button-primary" id="dze-mail-all">Generate them all</button>
   <button type="button" id="dze-mail-draftall">Put them all in Klaviyo</button>
   <span id="dze-mail-plan-msg"></span>
-  <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span><span class="dze-mail-clash"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-want" value="0" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
+  <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span><span class="dze-mail-clash"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
   <div id="dze-mail-edit" style="display:none;">
     <select id="dze-klav-e-type"><option value="warm">Warm-up</option><option value="launch">Launch</option><option value="reminder">Reminder</option><option value="last">Last chance</option></select>
     <input id="dze-klav-e-subject" /><input id="dze-klav-e-preview" />
     <input type="date" id="dze-klav-e-when" min="__TOMORROW__" />
     <span id="dze-klav-e-msg"></span><span id="dze-klav-e-kept"></span><span id="dze-klav-e-clash" style="display:none;"></span><button type="button" id="dze-klav-e-free" style="display:none;"></button><span id="dze-klav-write-msg"></span>
-    <input type="checkbox" id="dze-klav-e-want" />
+    <button type="button" id="dze-klav-e-write">Write this email</button>
     <button type="button" id="dze-klav-e-shot">Generate test picture</button>
     <p id="dze-klav-shot-out" style="display:none;"><img id="dze-klav-shot-img" src="" data-full="" alt="" /><button type="button" id="dze-klav-e-usepic">Use it in this email</button></p>
     <span id="dze-klav-shot-msg"></span><span id="dze-klav-spend"></span>
@@ -305,14 +303,9 @@ await page.waitForTimeout( 200 );
 // each one. The tick box beside the button sets the SAME per-email permission
 // the editor's own box sets, on every row at once, and the batch then makes
 // each picture straight after the email it belongs to.
-ok( 'no row asks for a picture to begin with',
-	await page.inputValue( '.dze-mail[data-id="mail1"] .dze-f-want' ), '0' );
-await page.check( '#dze-mail-shots' );
-await page.waitForTimeout( 100 );
-ok( 'ticking it asks on every row',
-	await page.inputValue( '.dze-mail[data-id="mail1"] .dze-f-want' ), '1' );
-ok( "and the open email's own box agrees",
-	await page.isChecked( '#dze-klav-e-want' ), true );
+// No box to tick anywhere: writing an email includes its picture.
+ok( 'nothing is asked for on the row',
+	await page.evaluate( () => !! document.querySelector( '.dze-f-want, #dze-mail-shots, #dze-klav-e-want' ) ), false );
 posted.length = 0;
 await page.click( '#dze-mail-all' );
 for ( let i = 0; i < 100 && ! posted.includes( 'dze_klav_image' ); i++ ) { await page.waitForTimeout( 100 ); }
@@ -324,15 +317,34 @@ ok( 'the picture is made AFTER the email',
 ok( 'and the row says what it got',
 	/with its picture/.test( await page.textContent( '.dze-mail[data-id="mail1"] .dze-mail-note' ) ), true );
 
-// Unticked, it writes and nothing else: a picture costs money and a minute,
-// and a batch that spends both without being asked is a bill.
-await page.uncheck( '#dze-mail-shots' );
+// The single Write button follows the same rule — it is the other way into
+// the same decision, and a rule held in one of two places is a rule that will
+// be found broken in the other.
+posted.length = 0;
+await page.click( '#dze-klav-e-write' );
+for ( let i = 0; i < 100 && ! posted.includes( 'dze_klav_image' ); i++ ) { await page.waitForTimeout( 100 ); }
+await page.waitForTimeout( 200 );
+ok( 'writing one email makes its picture too',
+	posted.filter( a => 'dze_klav_image' === a ).length, 1 );
+
+// And an email the writing left NO place for a picture in gets none: the
+// shop's own setting decides that, in the writing itself, not a box here.
+await page.unroute( 'http://dze.test/ajax*' );
+await page.route( 'http://dze.test/ajax*', route => {
+	const asked = new URLSearchParams( route.request().postData() || '' ).get( 'action' );
+	posted.push( asked );
+	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify(
+		'dze_klav_write' === asked
+			? { success: true, data: { subject: 'No picture here', body: '<h1>Sale</h1>', picture: 0 } }
+			: { success: true, data: { langs: [ 'fr', 'de' ], done: 12, html: '<p>ok</p>' } } ) } );
+} );
 posted.length = 0;
 await page.click( '#dze-mail-all' );
 for ( let i = 0; i < 100 && ! posted.includes( 'dze_klav_write' ); i++ ) { await page.waitForTimeout( 100 ); }
 await page.waitForTimeout( 400 );
-ok( 'unticked, it writes',                  posted.filter( a => 'dze_klav_write' === a ).length, 1 );
-ok( 'and makes no picture at all',          posted.filter( a => 'dze_klav_image' === a ).length, 0 );
+ok( 'an email with no place for one writes alone',
+	posted.filter( a => 'dze_klav_write' === a ).length, 1 );
+ok( 'and no picture is made',               posted.filter( a => 'dze_klav_image' === a ).length, 0 );
 
 // A day that clashes with nothing says nothing: a warning that is always
 // there is a warning nobody reads.
