@@ -395,6 +395,58 @@ final class DZE_Prompts {
 		return array_values( array_filter( array_map( 'strval', $out ) ) );
 	}
 
+	/**
+	 * What travels with this prompt, printed beside the prompt itself.
+	 *
+	 * The list existed, and only the popup on the product screens showed it —
+	 * so the one place a prompt is actually WRITTEN was the one place that
+	 * never said what the prompt is given. "Je ne sais pas ce qui est écrit
+	 * dans les paramètres par rapport à ce preview texte" is that gap: a
+	 * sentence is added to the instructions asking for something the plugin
+	 * already sends, or a figure is asked for that never arrives, and nothing
+	 * on the screen tells either way.
+	 *
+	 * Shut by default — this is read when a result disappoints, not on every
+	 * visit — and it ends where the real answer is: the last calls, with the
+	 * exact words that went out.
+	 */
+	public static function the_data( string $id ): void {
+		$rows = self::data_for( $id );
+		if ( ! $rows ) {
+			return;
+		}
+		?>
+		<details style="max-width:880px;margin:0 0 10px;border:1px solid #dcdcde;border-radius:4px;background:#fff;">
+			<summary style="cursor:pointer;padding:8px 12px;font-size:13px;">
+				<?php
+				printf(
+					/* translators: %d: how many things are sent */
+					esc_html( _n( 'What the plugin sends with this prompt — %d thing', 'What the plugin sends with this prompt — %d things', count( $rows ), 'dazont-ecom' ) ),
+					count( $rows )
+				);
+				?>
+			</summary>
+			<div style="padding:0 12px 10px;">
+				<p class="description" style="margin:4px 0 8px;">
+					<?php esc_html_e( 'Sent every time, around your instructions. Asking for any of it again in the text below changes nothing.', 'dazont-ecom' ); ?>
+				</p>
+				<ul style="margin:0;list-style:disc;padding-left:20px;font-size:13px;line-height:1.6;">
+					<?php foreach ( $rows as $one ) : ?>
+						<li><?php echo esc_html( $one ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+				<?php if ( class_exists( 'DZE_Marketing_Ai' ) ) : ?>
+					<p style="margin:10px 0 0;font-size:13px;">
+						<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ) . '#dze-ai-trace' ); ?>">
+							<?php esc_html_e( 'See the last calls — the exact words that were sent ↗', 'dazont-ecom' ); ?>
+						</a>
+					</p>
+				<?php endif; ?>
+			</div>
+		</details>
+		<?php
+	}
+
 	private static function module_on( string $id ): bool {
 		return ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
 	}

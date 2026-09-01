@@ -238,7 +238,10 @@ owner communicates in French.
   blocks splitter, fed the shapes a model actually writes: one wrapper table
   around the whole email once cost every written word of the draft) and
   `test-trace.php` (the AI trace: a real `complete()` call with only the HTTP
-  transport stubbed must leave a readable row, failures included) among them. They run the code against a fake shop and
+  transport stubbed must leave a readable row, failures included) and
+  `test-links.php` (a page of the shop in the reader's language: the shop's
+  own German emails linked every product to its ENGLISH page for months,
+  because nothing ever filled Klaviyo's per-language href) among them. They run the code against a fake shop and
   check the ANSWERS — that a criterion on `_block_image_1` fires on a product
   where that field is empty, that a gallery is counted rather than read as
   text, that a row written against a field id we have since dropped still

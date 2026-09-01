@@ -867,7 +867,7 @@ final class DZE_Marketing_Ai {
 			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_graph();
 			echo '<hr style="margin:28px 0;" />';
-			echo '<h2>' . esc_html__( 'Last AI calls', 'dazont-ecom' ) . '</h2>';
+			echo '<h2 id="dze-ai-trace">' . esc_html__( 'Last AI calls', 'dazont-ecom' ) . '</h2>';
 			DZE_Ai_Usage::render_trace();
 		} elseif ( 'discounts' === $tab ) {
 			// Everything the Discounts module decides about the shop that is

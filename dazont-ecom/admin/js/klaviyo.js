@@ -608,6 +608,19 @@
 	// owner could not tell WHICH email was travelling or which one failed.
 	// One note per row, one helper for every loop, so the two batches cannot
 	// drift apart in wording or placement.
+	// The row's state cell, as the server draws it on the page. An email that
+	// has just reached Klaviyo can be scheduled and translated, and the row has
+	// to offer both AT ONCE: it used to show a bare link, and Schedule it /
+	// Translate it only appeared to somebody who thought to reload the page.
+	// The markup comes from the same PHP the page is built with, so there is no
+	// second version of that cell to keep in step.
+	function drawState($c, data) {
+		var $state = $c.find('.dze-mail-state');
+		if (data && data.state) { $state.html(data.state); return; }
+		$state.empty().append($('<a target="_blank" rel="noopener noreferrer"/>')
+			.attr('href', (data && data.url) || '#').text(i18n.open));
+	}
+
 	function rowNote($c, text, tone) {
 		var $n = $c.find('.dze-mail-note');
 		if (!text) { $n.remove(); $c.removeClass('is-syncing'); return; }
@@ -703,9 +716,7 @@
 				.done(function (res) {
 					if (res && res.success && res.data && res.data.url) {
 						made += 1;
-						card(jobs[i].id).find('.dze-mail-state').empty()
-							.append($('<a target="_blank" rel="noopener noreferrer"/>')
-								.attr('href', res.data.url).text(i18n.open));
+						drawState(card(jobs[i].id), res.data);
 						rowNote(card(jobs[i].id), cfg.i18n.rowPut, 'ok');
 					} else {
 						failed += 1;
@@ -1123,9 +1134,7 @@
 					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 					return;
 				}
-				var $state = card(current).find('.dze-mail-state').empty();
-				$state.append($('<a target="_blank" rel="noopener noreferrer"/>')
-					.attr('href', res.data.url).text(i18n.open));
+				drawState(card(current), res.data);
 				$m.css('color', res.data.warning ? '#b26a00' : '#0a7040')
 					.text(res.data.warning || (res.data.sent ? cfg.i18n.sentOk : i18n.made));
 				window.open(res.data.url, '_blank', 'noopener');
