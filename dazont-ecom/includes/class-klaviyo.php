@@ -2972,6 +2972,56 @@ final class DZE_Klaviyo {
 		);
 	}
 
+	/**
+	 * A DRAFT campaign already in the account under this exact name.
+	 *
+	 * Klaviyo can be asked for campaigns by name, and a name here is the
+	 * promotion plus which of its emails this is — precise enough that a
+	 * match is the same email and not a coincidence. Only a draft is ever
+	 * adopted: what is scheduled or sent belongs to the shop.
+	 *
+	 * @return array{campaign:string,message:string,template:string}|null
+	 */
+	private static function draft_named( string $name ): ?array {
+		$name = trim( $name );
+		if ( '' === $name ) {
+			return null;
+		}
+		$got = self::request(
+			'GET',
+			'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $name ) . '"),equals(status,"Draft"))' )
+				. '&include=campaign-messages',
+			null,
+			25
+		);
+		if ( is_wp_error( $got ) || empty( $got['data'][0]['id'] ) ) {
+			return null;
+		}
+		$camp = (string) $got['data'][0]['id'];
+		$msg  = '';
+		foreach ( (array) ( $got['included'] ?? [] ) as $one ) {
+			if ( 'campaign-message' === (string) ( $one['type'] ?? '' ) ) {
+				$msg = (string) ( $one['id'] ?? '' );
+				break;
+			}
+		}
+		if ( '' === $msg ) {
+			$msg = (string) ( $got['data'][0]['relationships']['campaign-messages']['data'][0]['id'] ?? '' );
+		}
+		if ( '' === $msg ) {
+			return null;
+		}
+		// Which template that message reads — asked, never assumed: opening a
+		// campaign for translation makes Klaviyo clone the template and point
+		// the message at the clone.
+		$reads = self::request( 'GET', 'campaign-messages/' . rawurlencode( $msg ) . '/relationships/template/', null, 20 );
+		$tpl   = ( ! is_wp_error( $reads ) ) ? (string) ( $reads['data']['id'] ?? '' ) : '';
+		if ( '' === $tpl ) {
+			return null;
+		}
+		return [ 'campaign' => $camp, 'message' => $msg, 'template' => $tpl ];
+	}
+
 	/** PHP 7 has no str_ends_with, and this plugin still runs on shops that do not. */
 	private static function str_ends( string $haystack, string $needle ): bool {
 		$at = strlen( $haystack ) - strlen( $needle );
@@ -3930,6 +3980,23 @@ final class DZE_Klaviyo {
 		$msg_id  = (string) ( $prev['message'] ?? '' );
 		$tpl_id  = (string) ( $prev['template'] ?? '' );
 		$again   = ( '' !== $camp_id && '' !== $msg_id && '' !== $tpl_id && self::draft_open( $camp_id ) );
+
+		// Not ours to rewrite, and no id remembered: is it already THERE? A
+		// campaign this plugin made and then lost the id of — a promotion
+		// re-saved, a row rebuilt, a database restored — sits in the account
+		// as a draft under exactly this name. Adopting it is what a person
+		// would do, and it is the difference between "the Back to School
+		// launch is no longer synced" and a second one beside the first.
+		if ( ! $again ) {
+			$found = self::draft_named( $name );
+			if ( $found ) {
+				$camp_id = (string) $found['campaign'];
+				$msg_id  = (string) $found['message'];
+				$tpl_id  = (string) $found['template'];
+				$again   = true;
+				$warning = trim( $warning . ' ' . __( 'This email was already in Klaviyo under the same name, so that draft was updated instead of a second one being made.', 'dazont-ecom' ) );
+			}
+		}
 
 		// Nothing changed since the last time it was filed: say so and stop.
 		// Pressing the button for ONE email always sends it, whatever the

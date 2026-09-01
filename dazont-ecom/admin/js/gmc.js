@@ -97,10 +97,31 @@
 			return { color: '#0a7040', text: '✓ ' + (i18n.liveOn || 'Live on') + ' ' + done + '/' + total };
 		}
 		var lines = Object.keys(failed).map(function (who) { return who + ': ' + failed[who]; });
+		// A short verdict, and the detail behind an ⓘ. Five accounts each
+		// refusing in a full sentence made a paragraph across the screen that
+		// nobody could read and nothing could be done with: what the shop
+		// needs at a glance is how many failed, and the reasons when it asks.
 		return {
 			color: ok ? '#b26a00' : '#b32d2e',
-			text: (ok ? '✓ ' + ok + '/' + total + ' — ' : '✕ ') + lines.join('  |  ')
+			text: (ok ? '✓ ' + ok + '/' + total + ' — ' : '✕ ') + err + (err > 1 ? ' failed' : ' failed'),
+			detail: lines.join('\n')
 		};
+	}
+
+	/**
+	 * Says one line, and keeps the long of it behind a mark you hover.
+	 *
+	 * The pattern the whole plugin uses from here on: a screen that has a lot
+	 * to say says the short of it, and the rest is one hover away.
+	 */
+	function tell($where, out) {
+		if (!$where || !$where.length) { return; }
+		$where.css('color', out.color).text(out.text);
+		if (!out.detail) { return; }
+		$('<span class="dze-why" tabindex="0" role="button">i</span>')
+			.attr('title', out.detail)
+			.attr('aria-label', out.detail)
+			.appendTo($where);
 	}
 
 	function sync(ids, $feedback) {
@@ -110,7 +131,7 @@
 		.done(function (res) {
 			if (res.success) {
 				var out = summarize(res.data && res.data.results);
-				if ($feedback) { $feedback.css('color', out.color).text(out.text); }
+				tell($feedback, out);
 				// The dots were drawn when the page loaded and never again, so
 				// a promotion could go live on Google and the row went on
 				// showing it as pending until somebody reloaded. They come back

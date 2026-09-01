@@ -1237,6 +1237,66 @@ ok( 'a changed email goes on its own',
 		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T9' ) ) ), 1 );
 $GLOBALS['dze_queue'] = [];
 
+echo "An email whose campaign the shop already has is not made twice\n";
+// "Des emails déjà syncro par le passé ne le sont plus, notamment celui de
+// lancement du back to school." The campaign is still in the account; what
+// was lost is the id beside the email. Before making a second one, the
+// account is asked whether a DRAFT of exactly this name is already there.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'ad1' => [
+	'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 4 * 86400 ),
+	'subject' => 'Back to School', 'preview' => 'P', 'body' => '<p>Words.</p>',
+] ] ] ]; // no draft: the id is gone
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	// The account, asked by name — and it HAS it.
+	[ 'code' => 200, 'body' => json_encode( [
+		'data'     => [ [ 'id' => 'C-OLD', 'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-OLD' ] ] ] ] ] ],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-OLD' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-OLD"}}' ],   // what that message reads
+	[ 'code' => 200, 'body' => $frame_def ],                                    // the shop's own header
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-OLD"}}' ],   // asked again by the rewrite
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-OLD","attributes":{"editor_type":"SYSTEM_DRAGGABLE"}}}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-OLD"}}' ],                     // PATCH
+	[ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C-OLD', 'attributes' => [
+		'send_strategy' => [ 'method' => 'static', 'datetime' => gmdate( 'Y-m-d', time() + 4 * 86400 ) . 'T09:00:00+00:00' ] ] ] ] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"M-OLD"}}' ],
+	[ 'code' => 200, 'body' => '{"data":[]}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"tag1"}}' ],
+	[ 'code' => 200, 'body' => '{}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C-OLD","attributes":{"status":"Draft"}}}' ],
+];
+try { DZE_Klaviyo::draft( 'promo', 'ad1' ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+$asked_by_name = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	false !== strpos( (string) ( $c['url'] ?? '' ), 'campaigns/?filter=' ) ) );
+ok( 'the account is asked by name',     count( $asked_by_name ), 1 );
+ok( 'for a DRAFT of this email',
+	false !== strpos( rawurldecode( (string) $asked_by_name[0]['url'] ), 'equals(status,"Draft")' ), true );
+ok( 'no second campaign is created',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		// The CREATE endpoint, not the tag relationship that also ends in
+		// "campaigns/": a check that matches both proves nothing.
+		'POST' === ( $c['method'] ?? '' ) && preg_match( '#/api/campaigns/$#', (string) $c['url'] ) ) ), 0 );
+ok( 'the found draft is the one rewritten',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T-OLD' ) ) ), 1 );
+$mail_now = get_option( $copy )['promo']['emails']['ad1']['draft'] ?? [];
+ok( 'and the email keeps its id this time', $mail_now['campaign'] ?? '', 'C-OLD' );
+
+// Nothing of that name in the account: the ordinary path, one campaign made.
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['ad1']['draft'] = [];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // asked by name, nothing there
+	[ 'code' => 200, 'body' => $frame_def ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-NEW"}}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C-NEW"}}' ],
+];
+try { DZE_Klaviyo::draft( 'promo', 'ad1' ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+ok( 'an email nobody has filed is filed afresh',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => 'POST' === ( $c['method'] ?? '' ) ) ) > 0, true );
+$GLOBALS['dze_queue'] = [];
+
 echo "Deleting the EVENT takes its campaigns out of Klaviyo\n";
 // Where the account's look-alike orphans came from: the owner deleted or
 // redid a promotion, the local rows vanished, and the drafts lived on in
