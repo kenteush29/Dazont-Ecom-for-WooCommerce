@@ -67,6 +67,7 @@ function wp_remote_post( $url, $args = [] ) {
 	return $GLOBALS['reply'];
 }
 function wp_remote_get( $url, $args = [] ) { return $GLOBALS['reply']; }
+function wp_remote_request( $url, $args = [] ) { $GLOBALS['asked'][] = [ 'url' => $url ]; return $GLOBALS['reply']; }
 function wp_remote_retrieve_body( $r ) { return (string) ( $r['body'] ?? '' ); }
 function wp_remote_retrieve_response_code( $r ) { return (int) ( $r['response']['code'] ?? 200 ); }
 function is_wp_error( $t ) { return false; }
@@ -152,6 +153,32 @@ $GLOBALS['reply'] = [ 'body' => json_encode( [ 'error' => 'invalid_client', 'err
 [ , $err ] = token();
 ok( 'it is reported as it came',        false !== strpos( $err, 'Google token refresh failed: Unauthorized' ), true );
 ok( 'and nothing is flagged',           DZE_Gmc::broken_since(), 0 );
+
+echo "Whose fault it is, when Google Ads cannot be read\n";
+// "Google Ads: link not readable — même sur les comptes avec un google ads
+// actif." Two different faults wore the same words: an account whose Ads
+// link genuinely cannot be read, and a CONNECTION that is gone — which makes
+// every account say it at once and sends the shop hunting through Merchant
+// Center for a problem that is one authorisation.
+connected();
+$GLOBALS['reply'] = [ 'body' => json_encode( [
+	'error' => 'invalid_grant', 'error_description' => 'Token has been expired or revoked.',
+] ) ];
+token(); // the connection is marked gone
+$ads = DZE_Gmc::instance()->ads_links_state( '5581970069' );
+ok( 'it is named as the connection',    ! empty( $ads['gone'] ), true );
+ok( 'and no link is claimed',           $ads['links'], [] );
+
+// A live connection whose account simply refuses: that IS the account's own
+// fault, and the reason is kept for the ⓘ.
+connected();
+$GLOBALS['trans'] = [];
+$GLOBALS['reply'] = [ 'body' => json_encode( [ 'access_token' => 'A9', 'expires_in' => 3600 ] ) ];
+token();
+$GLOBALS['reply'] = [ 'response' => [ 'code' => 403 ], 'body' => json_encode( [ 'error' => [ 'message' => 'Merchant API disabled' ] ] ) ];
+$ads = DZE_Gmc::instance()->ads_links_state( '711906774' );
+ok( 'a live connection is not blamed',  ! empty( $ads['gone'] ), false );
+ok( "and Google's own words are kept",  false !== strpos( (string) $ads['error'], 'Merchant API' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
