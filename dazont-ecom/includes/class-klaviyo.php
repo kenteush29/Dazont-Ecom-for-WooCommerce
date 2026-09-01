@@ -2905,7 +2905,7 @@ final class DZE_Klaviyo {
 		return true;
 	}
 
-	private static function mechanical( array $values, array $targets, array $map = [] ): array {
+	private static function mechanical( array $values, array $targets, array $map = [], array $names = [] ): array {
 		$words = self::translatable( $values );
 		$out   = [];
 		foreach ( $values as $row ) {
@@ -2915,6 +2915,12 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			foreach ( $targets as $lang ) {
+				// The product's own NAME in that language, when this field
+				// holds a name — a photograph's alt text usually does.
+				if ( isset( $names[ trim( $said ) ][ $lang ] ) ) {
+					$out[ $id ][ $lang ] = (string) $names[ trim( $said ) ][ $lang ];
+					continue;
+				}
 				// A product this email carries: the shop already knows its page
 				// in every language. Anything else — the shop's home page, a
 				// category, a Klaviyo variable, a photograph — goes through the
@@ -2959,6 +2965,47 @@ final class DZE_Klaviyo {
 	 * @param string[] $langs The languages wanted.
 	 * @return array<string,array<string,string>> the English link => lang => link
 	 */
+	/**
+	 * The NAME of each product, as each language calls it.
+	 *
+	 * "A-Tacs FG Military Combat Uniform qui devrait être A-Tacs FG
+	 * Gefechtsuniform." The German page exists and carries a German title, and
+	 * the email showed the English one — because a product name is the one
+	 * piece of writing the translator is told never to touch. That rule is
+	 * right: a model asked to translate a product name invents one, and the
+	 * shop then has a name that exists nowhere. The answer is not to let it
+	 * try, it is to take the name the shop itself gave that product in that
+	 * language.
+	 *
+	 * @param int[]    $ids
+	 * @param string[] $langs
+	 * @return array<string,array<string,string>> the English name => lang => name
+	 */
+	public static function name_map( array $ids, array $langs ): array {
+		$out = [];
+		if ( ! $ids || ! $langs || ! method_exists( 'DZE_Wpml', 'translated_id' ) ) {
+			return $out;
+		}
+		foreach ( $ids as $pid ) {
+			$pid  = (int) $pid;
+			$here = $pid ? trim( wp_strip_all_tags( (string) get_the_title( $pid ) ) ) : '';
+			if ( '' === $here ) {
+				continue;
+			}
+			foreach ( $langs as $lang ) {
+				$tid = DZE_Wpml::translated_id( $pid, 'product', (string) $lang );
+				if ( ! $tid ) {
+					continue; // no German product, no German name: the shop's own is kept.
+				}
+				$name = trim( wp_strip_all_tags( (string) get_the_title( $tid ) ) );
+				if ( '' !== $name && $name !== $here ) {
+					$out[ $here ][ (string) $lang ] = $name;
+				}
+			}
+		}
+		return $out;
+	}
+
 	public static function link_map( array $ids, array $langs ): array {
 		$out = [];
 		if ( ! $ids || ! $langs || ! function_exists( 'wc_get_product' ) ) {
@@ -3037,7 +3084,10 @@ final class DZE_Klaviyo {
 		if ( '' === $url ) {
 			return $out;
 		}
-		$out['url']  = $url;
+		$out['url']   = $url;
+		$out['name']  = trim( wp_strip_all_tags( (string) $one->get_name() ) );
+		$out['names'] = [];
+		$names        = self::name_map( [ (int) $one->get_id() ], $targets );
 		foreach ( $targets as $lang ) {
 			$why = '';
 			// Asked through the same chain the emails use, and the STEP that
@@ -3049,8 +3099,20 @@ final class DZE_Klaviyo {
 				$link = (string) $map[ $url ][ $lang ];
 				$why  = 'translation';
 			}
-			$out['rows'][ (string) $lang ] = $link;
-			$out['why'][ (string) $lang ]  = $why;
+			// WHICH post answered, and HOW it was found. The whole of this
+			// shop's link trouble was one question nobody could see the answer
+			// to: is this product translated at all, and did WPML say so? A
+			// filter that is not loaded says no as loudly as a product that
+			// was never translated, and the two need opposite fixes.
+			$how = '';
+			$tid = method_exists( 'DZE_Wpml', 'translated_id' )
+				? DZE_Wpml::translated_id( (int) $one->get_id(), 'product', (string) $lang, $how )
+				: 0;
+			$out['rows'][ (string) $lang ]  = $link;
+			$out['why'][ (string) $lang ]   = $why;
+			$out['ids'][ (string) $lang ]   = $tid;
+			$out['how'][ (string) $lang ]   = $how;
+			$out['names'][ (string) $lang ] = (string) ( $names[ $out['name'] ][ (string) $lang ] ?? '' );
 		}
 		return $out;
 	}
@@ -3429,14 +3491,38 @@ final class DZE_Klaviyo {
 		// does not exist.
 		// The products THIS email carries, which is how its links are known
 		// without reading a single URL back.
-		$mech = self::mechanical(
-			$values,
-			$langs,
-			self::link_map( (array) ( $mail['products'] ?? [] ), $langs )
-		);
+		$goods = (array) ( $mail['products'] ?? [] );
+		$names = self::name_map( $goods, $langs );
+		$mech  = self::mechanical( $values, $langs, self::link_map( $goods, $langs ), $names );
 		foreach ( $mech as $vid => $per_lang ) {
 			foreach ( $per_lang as $lang => $value ) {
 				$done[ (string) $vid ][ (string) $lang ] = (string) $value;
+			}
+		}
+		// And over the WORDS: a value that is exactly a product's name is that
+		// product's name in the reader's language, whatever came back from the
+		// model. The translator is told never to touch a product name — right,
+		// because it invents one — so nothing else could fill it, and the
+		// German card carried the English title on a shop with a German page
+		// for it.
+		if ( $names ) {
+			$source = [];
+			foreach ( $values as $row ) {
+				$vid = (string) ( $row['id'] ?? '' );
+				if ( '' !== $vid ) {
+					$source[ $vid ] = trim( wp_strip_all_tags( (string) ( $row['source_value'] ?? '' ) ) );
+				}
+			}
+			foreach ( $done as $vid => $per_lang ) {
+				$was = $source[ (string) $vid ] ?? '';
+				if ( '' === $was || ! isset( $names[ $was ] ) ) {
+					continue;
+				}
+				foreach ( $per_lang as $lang => $ignored ) {
+					if ( isset( $names[ $was ][ (string) $lang ] ) ) {
+						$done[ (string) $vid ][ (string) $lang ] = (string) $names[ $was ][ (string) $lang ];
+					}
+				}
 			}
 		}
 		$link_note = self::link_note( $values, $mech );
@@ -8380,7 +8466,40 @@ CSS;
 										} else {
 											echo '<span style="color:#00794b;">&#10003;</span> <code>' . esc_html( $dze_link ) . '</code>';
 										}
-										?>
+										// WHICH post answered and HOW it was found —
+										// the one question nobody could see the answer
+										// to. A filter that is not loaded on this
+										// request says "not translated" as loudly as a
+										// product that never was, and the two need
+										// opposite fixes: one is a page to write, the
+										// other is this plugin reading WPML's table
+										// instead. It says which, per language, and the
+										// NAME that language will read on the card.
+										if ( 0 !== $dze_i ) :
+											$dze_tid  = (int) ( $dze_smp['ids'][ $dze_code ] ?? 0 );
+											$dze_how  = (string) ( $dze_smp['how'][ $dze_code ] ?? '' );
+											$dze_name = (string) ( $dze_smp['names'][ $dze_code ] ?? '' );
+											$dze_route = [
+												'filter'  => __( 'WPML answered', 'dazont-ecom' ),
+												'table'   => __( "read from WPML's own table — its filters are not loaded here", 'dazont-ecom' ),
+												'none'    => __( 'no translation of this product', 'dazont-ecom' ),
+												'no-wpml' => __( 'WPML is not active', 'dazont-ecom' ),
+											];
+											?>
+											<span class="description" style="display:block;margin-top:3px;">
+												<?php
+												echo esc_html( $dze_tid
+													? sprintf(
+														/* translators: 1: the translated product's id, 2: how it was found */
+														__( 'product #%1$d · %2$s', 'dazont-ecom' ),
+														$dze_tid,
+														(string) ( $dze_route[ $dze_how ] ?? $dze_how )
+													)
+													: (string) ( $dze_route[ $dze_how ] ?? $dze_how ) );
+												echo '' !== $dze_name ? ' · ' . esc_html( $dze_name ) : '';
+												?>
+											</span>
+										<?php endif; ?>
 									</td>
 								</tr>
 							<?php endforeach; ?>

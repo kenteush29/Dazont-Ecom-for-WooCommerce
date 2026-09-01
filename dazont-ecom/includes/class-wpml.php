@@ -376,14 +376,17 @@ final class DZE_Wpml {
 	 * @param string $type A post type: 'product', 'page', 'post'.
 	 * @return int 0 when there is no translation in that language.
 	 */
-	public static function translated_id( int $post_id, string $type, string $lang ): int {
+	public static function translated_id( int $post_id, string $type, string $lang, ?string &$how = null ): int {
+		$how  = 'none';
 		$lang = strtolower( trim( $lang ) );
 		if ( $post_id <= 0 || '' === $lang || ! self::is_active() ) {
+			$how = 'no-wpml';
 			return 0;
 		}
 		$type = '' !== $type ? $type : 'post';
 		$got  = (int) apply_filters( 'wpml_object_id', $post_id, $type, false, $lang );
 		if ( $got && $got !== $post_id ) {
+			$how = 'filter';
 			return $got;
 		}
 		global $wpdb;
@@ -397,6 +400,7 @@ final class DZE_Wpml {
 		static $seen = [];
 		$key = $post_id . '|' . $type . '|' . $lang;
 		if ( array_key_exists( $key, $seen ) ) {
+			$how = $seen[ $key ] ? 'table' : 'none';
 			return $seen[ $key ];
 		}
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table; no API answers this without its hooks.
@@ -413,6 +417,7 @@ final class DZE_Wpml {
 		);
 		// phpcs:enable
 		$seen[ $key ] = ( $id && $id !== $post_id ) ? $id : 0;
+		$how          = $seen[ $key ] ? 'table' : 'none';
 		return $seen[ $key ];
 	}
 
