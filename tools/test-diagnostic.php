@@ -94,6 +94,7 @@ class WP_Error {}
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
 /** What each product brought in, already in the shop's own currency. */
 class DZE_Sales {
+	const MONTHS = 24;
 	public static function revenue( $ids = [] ) {
 		$rev = [];
 		foreach ( (array) ( $GLOBALS['dze_rev'] ?? [] ) as $pid => $amount ) {
@@ -588,6 +589,27 @@ ok( 'what could not be converted is said', false !== strpos( $html, 'Orders paid
 $GLOBALS['dze_missing'] = [];
 ok( 'and nothing is said when all is known',
 	false !== strpos( $show( [ 'by' => 'rev' ] ), 'are left out' ), false );
+
+// A product FIXED since the last reading must say so, on the list where the
+// shop went looking for it: "J'ai mis à jour un produit, il est toujours
+// dans la liste". The rows on screen are re-judged against the shop as it
+// stands, not against the photograph the scan took.
+$GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
+$html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
+ok( 'the mended one is marked',         false !== strpos( $html, 'fixed ✓' ), true );
+ok( 'and it is said under the table',   false !== strpos( $html, 'has been fixed since the last reading' ), true );
+ok( 'the others are left as they are',  substr_count( $html, 'fixed ✓' ), 1 );
+unset( $GLOBALS['dze_meta'][102]['_product_image_gallery'] );
+ok( 'and nothing is marked when nothing changed',
+	false !== strpos( $show( [] ), 'fixed ✓' ), false );
+
+// A title carrying markup is a title, not markup: "<span> Military Patch
+// </span> Russian Z" was printed at the shop, tags and all.
+$GLOBALS['dze_posts'][101]->post_title = '<span> Military Patch </span> Russian Z';
+$html = $show( [] );
+ok( 'the tags are stripped from a title', false !== strpos( $html, '&lt;span&gt;' ), false );
+ok( 'and the words are still there',      false !== strpos( $html, 'Military Patch' ), true );
+$GLOBALS['dze_posts'][101]->post_title = 'Balaclava';
 
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 ok( 'the figures are on the row',       false !== strpos( $html, '250' ), true );

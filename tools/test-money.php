@@ -17,6 +17,7 @@ $dir = $argv[1] ?? 'dazont-ecom';
 
 define( 'ABSPATH', '/wp/' );
 define( 'HOUR_IN_SECONDS', 3600 );
+define( 'DAY_IN_SECONDS', 86400 );
 define( 'ARRAY_A', 'ARRAY_A' );
 
 function __( $s, $d = '' ) { return $s; }
@@ -142,6 +143,27 @@ $GLOBALS['hpos'] = false;
 DZE_Sales::revenue();
 ok( 'an older shop reads the meta row',  false !== strpos( end( $GLOBALS['wpdb']->queries ), '_order_currency' ), true );
 $GLOBALS['hpos'] = true;
+
+echo "Money earned in another era is not this year's money\n";
+// The screenshot: "$19,388.43" beside a product sold 60 times at $15.90, and
+// "-$2,258.23" on another. This shop kept its books in roubles before it kept
+// them in dollars; the sales table remembers the amount and not what a rouble
+// was worth that year, so those lines converted at today's rate are numbers
+// from nowhere — and a refund on the dollar side of a rouble-era product
+// turns the total NEGATIVE. Revenue reads a horizon.
+$asked = null;
+$GLOBALS['lines'] = [ [ 'pid' => 7, 'cur' => 'USD', 'qty' => 60, 'rev' => 954 ] ];
+DZE_Sales::revenue();
+$sql = end( $GLOBALS['wpdb']->queries );
+ok( 'the query is bounded in time',     false !== strpos( $sql, 'date_created >=' ), true );
+ok( 'to the last two years',            DZE_Sales::MONTHS, 24 );
+// The horizon is a WHERE clause, so a shop asking about one product still
+// gets both conditions and not one instead of the other.
+$GLOBALS['wpdb']->queries = [];
+DZE_Sales::revenue( [ 7 ] );
+$sql = end( $GLOBALS['wpdb']->queries );
+ok( 'and it still narrows to the product',
+	false !== strpos( $sql, 'l.product_id IN ( 7 )' ) && false !== strpos( $sql, 'date_created >=' ), true );
 
 echo "And when there is nothing to read\n";
 $GLOBALS['lookup'] = false;

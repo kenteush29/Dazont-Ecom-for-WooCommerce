@@ -21,6 +21,9 @@ final class DZE_Sales {
 	/** How long a reading of the whole catalogue is kept. */
 	private const TTL = 3 * HOUR_IN_SECONDS;
 
+	/** How far back revenue looks. Older money was earned in another era. */
+	public const MONTHS = 24;
+
 	/**
 	 * Revenue per product, in the shop's currency.
 	 *
@@ -44,7 +47,22 @@ final class DZE_Sales {
 			return $out;
 		}
 		$ids   = array_values( array_filter( array_map( 'absint', $ids ) ) );
-		$where = $ids ? ' WHERE l.product_id IN ( ' . implode( ',', array_map( 'intval', $ids ) ) . ' ) ' : ' ';
+		$parts = [];
+		if ( $ids ) {
+			$parts[] = 'l.product_id IN ( ' . implode( ',', array_map( 'intval', $ids ) ) . ' )';
+		}
+		// A HORIZON, and it is not a detail. This shop kept its books in
+		// roubles before it kept them in dollars, and the lookup table holds
+		// those old lines with no memory of what a rouble was worth that year:
+		// converted at today's rate they came out as "$19,388.43" for a
+		// product sold sixty times at $15.90, and a refund on the dollar side
+		// of a product whose sales were all in the old currency came out
+		// NEGATIVE. Revenue answers "what does this product bring in NOW",
+		// so it reads the last two years and says so on the screen.
+		// The date is one this code generates, not one anybody sends: written
+		// straight in, so the clause is a string here as it is in WordPress.
+		$parts[] = "l.date_created >= '" . gmdate( 'Y-m-d H:i:s', time() - self::MONTHS * 30 * DAY_IN_SECONDS ) . "'";
+		$where = ' WHERE ' . implode( ' AND ', $parts ) . ' ';
 
 		$orders = $wpdb->prefix . 'wc_orders';
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
