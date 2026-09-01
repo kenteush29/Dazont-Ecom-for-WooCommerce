@@ -2775,6 +2775,42 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * One real product link, as each language would receive it.
+	 *
+	 * The mapping cannot be checked from anywhere but this shop: it depends on
+	 * how WPML was set up here — where the languages live in the URL, and
+	 * whether the products are translated at all. So the shop checks it, on
+	 * the screen where its languages are already listed, before an email is
+	 * ever written. A wrong link found here costs a glance; found in an inbox
+	 * it costs a campaign.
+	 *
+	 * @return array{url:string,rows:array<string,string>}
+	 */
+	public static function link_sample(): array {
+		$out = [ 'url' => '', 'rows' => [] ];
+		if ( ! method_exists( 'DZE_Wpml', 'url_in_language' ) || ! function_exists( 'wc_get_products' ) ) {
+			return $out;
+		}
+		[ , $targets ] = self::locales();
+		if ( ! $targets ) {
+			return $out;
+		}
+		// One product, one query, on a settings screen: enough to answer the
+		// question, and the answer is the same for the whole catalogue.
+		$found = wc_get_products( [ 'limit' => 1, 'status' => 'publish', 'return' => 'objects' ] );
+		$one   = is_array( $found ) ? reset( $found ) : null;
+		$url   = ( $one && is_object( $one ) && method_exists( $one, 'get_permalink' ) ) ? (string) $one->get_permalink() : (string) home_url( '/' );
+		if ( '' === $url ) {
+			return $out;
+		}
+		$out['url'] = $url;
+		foreach ( $targets as $lang ) {
+			$out['rows'][ (string) $lang ] = DZE_Wpml::url_in_language( $url, (string) $lang );
+		}
+		return $out;
+	}
+
+	/**
 	 * What the links actually became, in one sentence.
 	 *
 	 * The first version of this filled the links and said nothing, and the
@@ -7051,16 +7087,22 @@ final class DZE_Klaviyo {
 						<span id="dze-klav-loc-msg" style="margin-left:8px;font-size:13px;"></span>
 					</p>
 					<?php if ( $dze_tgt ) : ?>
-						<table class="widefat striped" style="max-width:520px;margin:6px 0 8px;">
+						<table class="widefat striped" style="max-width:900px;margin:6px 0 8px;">
 							<thead><tr>
 								<th><?php esc_html_e( 'Your languages', 'dazont-ecom' ); ?></th>
 								<th style="width:110px;"><?php esc_html_e( 'Sent as', 'dazont-ecom' ); ?></th>
 								<th style="width:150px;"><?php esc_html_e( 'On your contacts', 'dazont-ecom' ); ?></th>
+							<th><?php esc_html_e( 'A product link becomes', 'dazont-ecom' ); ?></th>
 							</tr></thead>
 							<tbody>
 							<?php
 							$dze_vals = (array) ( $dze_chk['values'] ?? [] );
 							$dze_read = (int) ( $dze_chk['seen'] ?? 0 );
+							// What a translated email will really put in front of a
+							// German reader, read from this shop's own WPML rather
+							// than assumed. It was assumed once, and every German
+							// email linked to the English pages.
+							$dze_smp  = self::link_sample();
 							foreach ( array_merge( [ $dze_src ], $dze_tgt ) as $dze_i => $dze_code ) :
 								$dze_n = self::seen_for( $dze_code, $dze_vals );
 								?>
@@ -7077,6 +7119,22 @@ final class DZE_Klaviyo {
 										<?php else : ?>
 											<span style="color:#996800;"><?php esc_html_e( 'nobody', 'dazont-ecom' ); ?></span>
 										<?php endif; ?>
+									</td>
+									<td style="word-break:break-all;font-size:12px;">
+										<?php
+										$dze_link = 0 === $dze_i ? (string) ( $dze_smp['url'] ?? '' ) : (string) ( $dze_smp['rows'][ $dze_code ] ?? '' );
+										if ( '' === $dze_link ) {
+											echo '<span class="description">&mdash;</span>';
+										} elseif ( 0 === $dze_i ) {
+											echo '<code>' . esc_html( $dze_link ) . '</code>';
+										} elseif ( $dze_link === (string) ( $dze_smp['url'] ?? '' ) ) {
+											// The failure the shop paid for twice, said where
+											// it can be fixed instead of found in an inbox.
+											echo '<span style="color:#b26a00;">' . esc_html__( 'the ENGLISH page — WPML gives no address of its own for this language', 'dazont-ecom' ) . '</span>';
+										} else {
+											echo '<span style="color:#00794b;">&#10003;</span> <code>' . esc_html( $dze_link ) . '</code>';
+										}
+										?>
 									</td>
 								</tr>
 							<?php endforeach; ?>

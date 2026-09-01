@@ -107,6 +107,7 @@ class DZE_Health { public static function log( ...$a ) {} }
 // Enough of a shop to hold one promotion with one filed email.
 $GLOBALS['dze_asked'] = [];
 class DZE_Marketing_Ai {
+	const MENU_SLUG = 'dazont-ecom-ai';
 	public static function complete( $system, $user, $model = '', $max = 2000, $timeout = 90 ) {
 		$GLOBALS['dze_asked'][] = [ 'model' => $model, 'system' => $system, 'user' => $user, 'timeout' => $timeout ];
 		// A queued answer when the test staged one — the plan, a written email
@@ -126,6 +127,9 @@ class DZE_Marketing_Ai {
 class DZE_Discounts { public static function get_rules() { return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; } }
 class DZE_Modules { public static function enabled( $id ) { return true; } }
 class DZE_Content {
+	// The prompt registry asks the content module for its per-field prompts;
+	// this bench has no product fields, and an empty registry is a real state.
+	public static function registry() { return []; }
 	public static function fal_key() { return 'fal_test_key'; }
 	public static function instance() { return new self(); }
 	public static function site_language() { return 'English'; }
@@ -141,6 +145,7 @@ class DZE_Ai_Usage {
 	public static function budget_message() { return 'budget spent'; }
 	public static function unit( $u = '' ) {}
 	public static function finished( $u = '' ) {}
+	public static function last_for( $id ) { return $GLOBALS['dze_last'][ $id ] ?? []; }
 }
 $GLOBALS['dze_cron'] = [];
 function wp_schedule_single_event( $ts, $hook, $args = [] ) { $GLOBALS['dze_cron'][] = [ $ts, $hook, $args ]; return true; }
@@ -175,7 +180,13 @@ function wp_get_attachment_image_url( $id, $size = '' ) { return $id ? 'https://
 function wp_attachment_is_image( $id ) { return (int) $id > 0; }
 function get_the_terms( $id, $tax ) { return [ (object) [ 'name' => 'Gear' ] ]; }
 function has_term( $t, $tax, $id ) { return true; }
-function wc_get_products( $a = [] ) { return []; }
+function wc_get_products( $a = [] ) {
+	// The settings screen asks for one published product to show what its link
+	// becomes in each language; every other caller here wants the empty shop.
+	$ids = (array) ( $GLOBALS['dze_products'] ?? [] );
+	if ( ! $ids || 1 !== (int) ( $a['limit'] ?? 0 ) ) { return []; }
+	return [ new WC_Product( (int) $ids[0] ) ];
+}
 function wp_get_global_settings( ...$a ) { return []; }
 function wp_get_global_styles( ...$a ) { return []; }
 function get_theme_support( ...$a ) { return false; }
@@ -184,6 +195,25 @@ function wp_get_theme() { return new class { public function get( $k ) { return 
 function get_stylesheet() { return 'x'; }
 function current_theme_supports( ...$a ) { return false; }
 function wp_enqueue_style( ...$a ) {} function wp_enqueue_script( ...$a ) {} function wp_localize_script( ...$a ) {}
+// Enough of an admin page for a settings tab to be DRAWN, not merely loaded.
+function settings_fields( $g ) { echo '<input type="hidden" name="option_page" value="' . esc_attr( $g ) . '" />'; }
+function submit_button( $t = '', $c = '', $n = '', $w = true ) { echo '<button type="submit">' . esc_html( $t ) . '</button>'; }
+function disabled( $a, $b = true, $echo = true ) { $r = ( $a == $b ) ? ' disabled' : ''; if ( $echo ) { echo $r; } return $r; }
+function checked( $a, $b = true, $echo = true ) { $r = ( $a == $b ) ? ' checked' : ''; if ( $echo ) { echo $r; } return $r; }
+function selected( $a, $b = true, $echo = true ) { $r = ( $a == $b ) ? ' selected' : ''; if ( $echo ) { echo $r; } return $r; }
+function wp_nonce_field( ...$a ) { echo '<input type="hidden" name="_wpnonce" value="n" />'; }
+function do_settings_sections( $p ) {}
+function get_admin_page_title() { return 'Dazont'; }
+function wp_get_attachment_image( $id, $size = '', $icon = false, $attr = [] ) { return '<img />'; }
+class DZE_Api_Keys { public static function status_html( $w, $k, $l = false ) { return '<span>key</span>'; } }
+function wp_style_is( ...$a ) { return true; }
+function did_action( $a ) { return 0; }
+class DZE_Prompt_Defaults {
+	public static function knows( $id ) { return true; }
+	public static function has( $id ) { return false; }
+	public static function control( $id, $sel = '', $label = '' ) { echo '<button class="dze-pd">default</button>'; }
+	public static function pick( $id, $def ) { return $def; }
+}
 
 class WC_Product {
 	public $id;
@@ -211,6 +241,11 @@ $GLOBALS['wpdb'] = new DZE_Test_Wpdb();
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo.php';
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-auto.php';
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-blocks.php';
+// The prompt registry too: the settings tab draws its prompts THROUGH it, and
+// the block that says what each prompt is sent with is drawn by it. Loading
+// the real one is the difference between "the tab renders" and "the tab
+// renders what it is supposed to".
+require __DIR__ . '/../' . $dir . '/includes/class-prompts.php';
 
 $fails = 0;
 $ran   = 0;
@@ -1155,6 +1190,17 @@ ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_
 ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
 $GLOBALS['dze_queue'] = [];
 
+echo "The shop can see what a link becomes, before any email exists\n";
+// The mapping depends on how WPML was set up on THIS shop, and no test here
+// can know that. So the shop is shown the answer where its languages are
+// listed: one real product, and what each language would actually receive.
+$GLOBALS['dze_products'] = [ 7 ];
+$smp = DZE_Klaviyo::link_sample();
+ok( 'a real product is used',           $smp['url'] ?? '', 'https://kula.test/p/7' );
+ok( 'and every language is answered',   array_keys( $smp['rows'] ?? [] ), [ 'fr', 'de' ] );
+ok( 'each one on its own side of the shop',
+	$smp['rows']['de'] ?? '', 'https://kula.test/de/p/7' );
+
 echo "The row says everything it knows, the moment it knows it\n";
 // "Schedule it / EN written, FR, DE, PL, ES open / Translate it > tout ça
 // apparaît seulement après rafraichissement de la page." Putting an email in
@@ -1184,6 +1230,29 @@ ok( 'a translated one counts its texts', str_contains( $cell, 'Translated — 24
 // An email that has never been to Klaviyo has nothing to say and says nothing.
 ok( 'an email with no campaign is a blank cell',
 	trim( DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch' ] ) ), '' );
+
+echo "The email settings screen actually draws\n";
+// A class that loads is not a screen that works. This tab carries the
+// prompts, their "what this prompt is sent with" blocks and the languages
+// table with its link column — all added at once, none of them ever drawn
+// until somebody opened the page. That is how a settings tab was a white
+// page for six versions.
+$GLOBALS['dze_products'] = [ 7 ];
+$screen = '';
+$boom   = '';
+try {
+	ob_start();
+	DZE_Klaviyo::render_settings();
+	$screen = (string) ob_get_clean();
+} catch ( Throwable $e ) {
+	$screen = (string) ob_get_clean();
+	$boom   = $e->getMessage();
+}
+ok( 'it draws without dying',           $boom, '' );
+ok( 'the languages table is there',     str_contains( $screen, 'A product link becomes' ), true );
+ok( 'with the real link in it',         str_contains( $screen, 'https://kula.test/de/p/7' ), true );
+ok( 'and every prompt says what it is sent with',
+	substr_count( $screen, 'What this prompt is sent with' ), 3 );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

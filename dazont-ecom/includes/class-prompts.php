@@ -452,7 +452,11 @@ final class DZE_Prompts {
 	 * says what travels with the prompt even before it has ever run.
 	 */
 	public static function the_data( string $id ): void {
-		$last  = class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::last_for( $id ) : [];
+		// method_exists, not class_exists: this block is drawn on every prompt
+		// of every settings screen now, so anything it calls that might not be
+		// there takes eight screens white with it. A class file always exists;
+		// the method is the question.
+		$last  = method_exists( 'DZE_Ai_Usage', 'last_for' ) ? DZE_Ai_Usage::last_for( $id ) : [];
 		$rows  = self::data_for( $id );
 		$when  = (int) ( $last['t'] ?? 0 );
 		?>
