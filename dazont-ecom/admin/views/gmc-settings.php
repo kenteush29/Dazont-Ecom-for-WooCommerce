@@ -192,9 +192,14 @@ foreach ( $languages as $l ) {
 									'<code>' . esc_html( implode( ', ', $dze_ids ) ) . '</code>'
 								);
 								?>
+							<?php elseif ( ! empty( $dze_state['gone'] ) ) : ?>
+								<?php // One authorisation, not five broken accounts. ?>
+								<span style="color:#b32d2e;">!</span>
+								<?php esc_html_e( 'Google Ads: unknown until the account is reconnected', 'dazont-ecom' ); ?>
 							<?php elseif ( '' !== $dze_err ) : ?>
 								<span style="color:#b32d2e;">!</span>
 								<?php esc_html_e( 'Google Ads: link not readable', 'dazont-ecom' ); ?>
+								<span class="dze-why" tabindex="0" role="button" title="<?php echo esc_attr( $dze_err ); ?>" aria-label="<?php echo esc_attr( $dze_err ); ?>">i</span>
 							<?php else : ?>
 								<span style="color:#a7aaad;">○</span>
 								<?php esc_html_e( 'Google Ads: no link', 'dazont-ecom' ); ?>

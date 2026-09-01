@@ -1687,7 +1687,9 @@ final class DZE_Gmc {
 		try {
 			$token = $this->get_access_token();
 		} catch ( \Throwable $e ) {
-			$state = [ 'links' => [], 'error' => $e->getMessage() ];
+			// No token at all — which on a revoked connection is EVERY account
+			// at once, and must not read as five broken Merchant Centers.
+			$state = [ 'links' => [], 'error' => $e->getMessage(), 'gone' => self::broken_since() > 0 ];
 			set_transient( $key, $state, 15 * MINUTE_IN_SECONDS );
 			return $state;
 		}
@@ -1725,26 +1727,43 @@ final class DZE_Gmc {
 
 		// 2. The Content API, only when the first one could not answer at all.
 		if ( ! $answer ) {
-			try {
-				$parent = preg_replace( '/[^0-9]/', '', (string) get_option( self::OPT_ADVANCED, '' ) );
-				$parent = '' !== $parent ? $parent : $merchant_id;
-				$url    = 'https://shoppingcontent.googleapis.com/content/v2.1/' . $parent . '/accounts/' . $merchant_id;
-				$data   = $this->request( 'GET', $url, $token );
-				foreach ( (array) ( $data['adsLinks'] ?? [] ) as $link ) {
-					$id = (string) ( $link['adsId'] ?? '' );
-					if ( '' === $id ) {
-						continue;
+			// Under its PARENT when the shop has named one, and on its own
+			// otherwise — and if the first refuses, the other is tried. A
+			// standalone account asked as though it hung under an aggregator
+			// is refused by Google, and an account that hangs under one is
+			// refused when asked alone: reading "link not readable" on a shop
+			// whose Google Ads is plainly linked is this, and nothing else.
+			$parent = preg_replace( '/[^0-9]/', '', (string) get_option( self::OPT_ADVANCED, '' ) );
+			$tries  = array_values( array_unique( array_filter( [ $parent, $merchant_id ] ) ) );
+			foreach ( $tries as $under ) {
+				try {
+					$url  = 'https://shoppingcontent.googleapis.com/content/v2.1/' . $under . '/accounts/' . $merchant_id;
+					$data = $this->request( 'GET', $url, $token );
+					foreach ( (array) ( $data['adsLinks'] ?? [] ) as $link ) {
+						$id = (string) ( $link['adsId'] ?? '' );
+						if ( '' === $id ) {
+							continue;
+						}
+						$links[ $id ] = [ 'id' => $id, 'status' => (string) ( $link['status'] ?? 'active' ) ];
 					}
-					$links[ $id ] = [ 'id' => $id, 'status' => (string) ( $link['status'] ?? 'active' ) ];
+					$answer = true;
+					$error  = '';
+					break;
+				} catch ( \Throwable $e ) {
+					$error = '' !== $error ? $error : $e->getMessage();
 				}
-				$answer = true;
-				$error  = '';
-			} catch ( \Throwable $e ) {
-				$error = '' !== $error ? $error : $e->getMessage();
 			}
 		}
 
-		$state = [ 'links' => array_values( $links ), 'error' => $answer ? '' : $error ];
+		// Whose fault it is, said apart: when the CONNECTION is gone, every
+		// account reads "link not readable", which sends the shop looking at
+		// five Merchant Center accounts for a problem that is one Google
+		// authorisation.
+		$state = [
+			'links' => array_values( $links ),
+			'error' => $answer ? '' : $error,
+			'gone'  => ! $answer && self::broken_since() > 0,
+		];
 		// A failure is remembered briefly, an answer for six hours: an account
 		// is not linked and unlinked twice a day.
 		set_transient( $key, $state, $state['error'] ? 15 * MINUTE_IN_SECONDS : 6 * HOUR_IN_SECONDS );
