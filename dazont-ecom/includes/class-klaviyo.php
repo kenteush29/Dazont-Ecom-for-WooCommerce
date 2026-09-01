@@ -6014,6 +6014,41 @@ final class DZE_Klaviyo {
 		return $state;
 	}
 
+	/** One campaign, as Klaviyo holds it: its state, its day, and whether it is archived. */
+	private static function campaign_now( string $camp_id ) {
+		return self::request(
+			'GET',
+			'campaigns/' . rawurlencode( $camp_id ) . '/?fields%5Bcampaign%5D=status,archived,send_time,send_strategy',
+			null,
+			20
+		);
+	}
+
+	/**
+	 * What Klaviyo holds for a campaign, written down beside the email.
+	 *
+	 * One writer, used for a campaign that was already linked and for one
+	 * just claimed back: a row that says "scheduled" and a row that knows
+	 * WHICH day must not be two different pieces of code.
+	 *
+	 * @param array $camp The answer to campaign_now().
+	 */
+	private static function file_live( string $rule_id, string $email_id, array $copy, array $camp ): void {
+		$state = strtolower( trim( (string) ( $camp['data']['attributes']['status'] ?? '' ) ) );
+		$day   = self::just_day( (string) ( $camp['data']['attributes']['send_time'] ?? '' ) )
+			?: self::kept_day( (array) ( $camp['data'] ?? [] ) );
+		self::put_email( $rule_id, $email_id, [
+			'draft' => array_merge( (array) ( $copy['draft'] ?? [] ), [
+				// The moment it was first seen on its way is kept when it was
+				// already known: this reads the account, it does not restart
+				// the clock on what it reads.
+				'scheduled' => self::on_its_way( $state ) ? ( (int) ( $copy['draft']['scheduled'] ?? 0 ) ?: time() ) : 0,
+				'sent'      => 'sent' === $state ? ( (int) ( $copy['draft']['sent'] ?? 0 ) ?: time() ) : 0,
+				'goes'      => $day,
+			] ),
+		] );
+	}
+
 	/**
 	 * The rows put back in line with what Klaviyo actually HOLDS.
 	 *
@@ -6047,13 +6082,8 @@ final class DZE_Klaviyo {
 			if ( '' === $camp ) {
 				continue;
 			}
-			$was = self::state_cell( (string) $email_id, $mail );
-			$now = self::request(
-				'GET',
-				'campaigns/' . rawurlencode( $camp ) . '/?fields%5Bcampaign%5D=status,archived,send_time,send_strategy',
-				null,
-				20
-			);
+			$was     = self::state_cell( (string) $email_id, $mail );
+			$now     = self::campaign_now( $camp );
 			$missing = 404 === self::refusal_code( $now );
 			if ( is_wp_error( $now ) && ! $missing ) {
 				continue;
@@ -6063,6 +6093,13 @@ final class DZE_Klaviyo {
 				$found = self::draft_named( $name, (string) ( $mail['subject'] ?? '' ) );
 				if ( $found ) {
 					self::link_row( $rule_id, (string) $email_id, $mail, $found, $name );
+					// And what THAT one holds, read the same way as any other:
+					// a campaign claimed back with no day written down beside
+					// it is a row that cannot say Klaviyo has it on another.
+					$again = self::campaign_now( (string) $found['campaign'] );
+					if ( ! is_wp_error( $again ) ) {
+						self::file_live( $rule_id, (string) $email_id, self::email_for( $rule_id, (string) $email_id, $rule ), $again );
+					}
 					$moved[] = self::email_name( $mail );
 				} else {
 					// Nothing of this email is in the account any more. The
@@ -6072,19 +6109,7 @@ final class DZE_Klaviyo {
 					$lost[] = self::email_name( $mail );
 				}
 			} else {
-				$state = strtolower( trim( (string) ( $now['data']['attributes']['status'] ?? '' ) ) );
-				$day   = self::just_day( (string) ( $now['data']['attributes']['send_time'] ?? '' ) )
-					?: self::kept_day( (array) ( $now['data'] ?? [] ) );
-				self::put_email( $rule_id, (string) $email_id, [
-					'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
-						// The day it was first seen scheduled is kept when it
-						// was already known: this reads the account, it does
-						// not restart the clock on what it reads.
-						'scheduled' => self::on_its_way( $state ) ? ( (int) ( $mail['draft']['scheduled'] ?? 0 ) ?: time() ) : 0,
-						'sent'      => 'sent' === $state ? ( (int) ( $mail['draft']['sent'] ?? 0 ) ?: time() ) : 0,
-						'goes'      => $day,
-					] ),
-				] );
+				self::file_live( $rule_id, (string) $email_id, $mail, $now );
 			}
 			$fresh = self::state_cell( (string) $email_id, self::email_for( $rule_id, (string) $email_id, $rule ) );
 			if ( $fresh !== $was ) {
@@ -7157,23 +7182,31 @@ CSS;
 				<?php esc_html_e( 'Open in Klaviyo ↗', 'dazont-ecom' ); ?>
 			</a>
 			<?php
-			// Klaviyo answers 200 to a day it then stores empty. What
-			// it KEPT was checked at the hand-over and said once; a
-			// sentence said once is a sentence nobody was reading
-			// when it mattered, so the row keeps saying it. Only when
-			// it is known: an email filed by an older version carries
-			// no answer, and silence is better than a guess.
-			$dze_goes = (string) ( $mail['draft']['goes'] ?? '' );
-			$dze_on   = ! empty( $mail['draft']['scheduled'] ) && '' !== $dze_goes;
+			// The day is NOT said again. It is already on the row, beside
+			// the title, where the shop chose it — and repeating it here
+			// left a hole on every row whose day we happen not to know,
+			// which reads as a row missing something.
+			//
+			// What the left-hand date cannot say is the two DISAGREEING:
+			// Klaviyo holding a day this row does not show. That, and only
+			// that, gets a line.
+			// Scheduled over there is scheduled over there, day known or not:
+			// the button that undoes it hung on knowing the day, so a row
+			// claimed back from Klaviyo offered "Schedule it" for a campaign
+			// already on its way.
+			$dze_on    = ! empty( $mail['draft']['scheduled'] );
+			$dze_goes  = self::just_day( (string) ( $mail['draft']['goes'] ?? '' ) );
+			$dze_ours  = self::just_day( (string) ( $mail['when'] ?? '' ) );
+			$dze_apart = $dze_on && '' !== $dze_goes && '' !== $dze_ours && $dze_goes !== $dze_ours;
 			$dze_noday = array_key_exists( 'day', (array) $mail['draft'] ) && '' === (string) $mail['draft']['day'];
-			if ( $dze_on ) :
+			if ( $dze_apart ) :
 				$dze_ts = strtotime( $dze_goes ) ?: 0;
 				?>
-				<span style="color:#00794b;font-weight:600;">
+				<span style="color:#b26a00;font-weight:600;">
 					<?php
 					printf(
-						/* translators: %s: the day it goes out */
-						esc_html__( 'Scheduled in Klaviyo for %s', 'dazont-ecom' ),
+						/* translators: %s: the day Klaviyo holds it for */
+						esc_html__( 'Klaviyo has it on %s, not the day on this row.', 'dazont-ecom' ),
 						esc_html( $dze_ts ? wp_date( $fmt, $dze_ts ) : $dze_goes )
 					);
 					?>

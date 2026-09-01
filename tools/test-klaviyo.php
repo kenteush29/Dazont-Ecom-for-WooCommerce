@@ -1480,11 +1480,14 @@ $GLOBALS['dze_queue'] = [
 		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-BTS' ] ],
 	] ) ],
 	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-BTS"}}' ],
+	// And what the campaign just claimed back holds: its state and its day.
+	[ 'code' => 200, 'body' => '{"data":{"id":"C-BTS","attributes":{"status":"Scheduled","archived":false,"send_time":"2026-09-05T09:00:00+00:00"}}}' ],
 ];
 $seen = DZE_Klaviyo::reconcile( 'promo', [ 'title' => 'Back to School Sale' ] );
 $now  = get_option( $copy )['promo']['emails']['l1']['draft'] ?? [];
 ok( 'the archived link is let go of',   $now['campaign'] ?? '', 'C-BTS' );
 ok( 'and the live one is filed instead', ( (int) ( $now['scheduled'] ?? 0 ) ) > 0, true );
+ok( 'with the day Klaviyo holds it for', $now['goes'] ?? '', '2026-09-05' );
 ok( 'the row is handed back redrawn',
 	str_contains( (string) ( $seen['rows']['l1'] ?? '' ), 'Synced with Klaviyo' ), true );
 ok( 'and the screen is told what moved',
@@ -1876,13 +1879,29 @@ ok( 'the sentences come before them',
 	strpos( $cell, 'dze-mail-langs' ) < $does, true );
 
 // Already scheduled and already translated: the same cell, other words.
+// The DAY is not repeated — it is on the row already, beside the title, and
+// repeating it left a hole on every row whose day is not known.
 $cell = DZE_Klaviyo::state_cell( 'm9', [
-	'kind'  => 'launch',
+	'kind'  => 'launch', 'when' => '2026-09-20',
 	'draft' => [ 'campaign' => 'C9', 'scheduled' => time(), 'goes' => '2026-09-20',
 		'langs' => [ 'fr', 'de' ], 'done_langs' => [ 'fr', 'de' ], 'translated' => time(), 'texts' => 24 ],
 ] );
-ok( 'a scheduled email says the day',   str_contains( $cell, 'Scheduled in Klaviyo for' ), true );
+ok( 'the day is not said twice',        str_contains( $cell, '2026-09-20' ), false );
 ok( 'and offers to undo it',            str_contains( $cell, 'Unschedule' ), true );
+// A row claimed back from Klaviyo knows it is scheduled before it knows the
+// day. It still offers to undo it: the button hung on knowing the day, so
+// that row offered to SCHEDULE a campaign already on its way.
+ok( 'scheduled with no day still undoes',
+	str_contains( DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch',
+		'draft' => [ 'campaign' => 'C9', 'scheduled' => time() ] ] ), 'Unschedule' ), true );
+// The one thing the date beside the title cannot say: Klaviyo holding
+// another day.
+ok( 'a day that differs IS said',
+	str_contains( DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch', 'when' => '2026-09-20',
+		'draft' => [ 'campaign' => 'C9', 'scheduled' => time(), 'goes' => '2026-09-27' ] ] ),
+		'Klaviyo has it on' ), true );
+ok( 'and not when the two agree',
+	str_contains( $cell, 'Klaviyo has it on' ), false );
 ok( 'a translated one counts its texts', str_contains( $cell, 'Translated — 24 texts' ), true );
 ok( 'with each language ticked',        substr_count( $cell, 'dze-lang is-done' ), 2 );
 
