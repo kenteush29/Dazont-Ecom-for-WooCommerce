@@ -92,6 +92,21 @@ class WP_Post { public $ID = 0; public $post_title = ''; public $post_content = 
 	public $post_modified_gmt = '2026-01-01 00:00:00'; public $post_date_gmt = '2026-01-01 00:00:00'; public $comment_count = 0; }
 class WP_Error {}
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
+/** What each product brought in, already in the shop's own currency. */
+class DZE_Sales {
+	public static function revenue( $ids = [] ) {
+		$rev = [];
+		foreach ( (array) ( $GLOBALS['dze_rev'] ?? [] ) as $pid => $amount ) {
+			if ( ! $ids || in_array( (int) $pid, array_map( 'intval', $ids ), true ) ) { $rev[ (int) $pid ] = (float) $amount; }
+		}
+		return [ 'rev' => $rev, 'qty' => [], 'missing' => (array) ( $GLOBALS['dze_missing'] ?? [] ) ];
+	}
+}
+class DZE_Money {
+	public static function base() { return 'USD'; }
+	public static function say( $n ) { return '$' . number_format( (float) $n, 2 ); }
+}
+
 class DZE_Diag_Test_Wpdb {
 	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
 	public function prepare( $q, ...$a ) { return [ $q, $a ]; }
@@ -157,6 +172,8 @@ $GLOBALS['dze_icl']     = [];
 $GLOBALS['dze_variations'] = [];
 $GLOBALS['dze_sql']        = [];
 $GLOBALS['dze_facts']      = [];
+$GLOBALS['dze_rev']        = [];
+$GLOBALS['dze_missing']    = [];
 $GLOBALS['dze_facts_sql']  = [];
 $GLOBALS['dze_posts']   = [];
 
@@ -554,6 +571,23 @@ ok( 'by price',                         $order( $show( [ 'by' => 'price', 'dir' 
 ok( 'by when they were last edited',    $order( $show( [ 'by' => 'edited', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Balaclava', 'Ancient cap' ] );
 ok( 'and by name',                      $order( $show( [ 'by' => 'name', 'dir' => 'asc' ] ) ), [ 'Ancient cap', 'Balaclava', 'Zulu pouch' ] );
 ok( 'as found, when nothing is asked',  $order( $show( [] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
+
+// What each one BROUGHT IN, in the shop's own currency — the column the shop
+// actually decides on: a product sold 250 times at 9.90 is not the product
+// that brought the most in.
+$GLOBALS['dze_rev'] = [ 101 => 99.50, 102 => 2475.00, 103 => 3960.00 ];
+ok( 'sorted by what they brought in',   $order( $show( [ 'by' => 'rev', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Ancient cap', 'Balaclava' ] );
+$html = $show( [ 'by' => 'rev', 'dir' => 'desc' ] );
+ok( 'and the amount is on the row',     false !== strpos( $html, '3,960.00' ), true );
+ok( 'in the shop\'s own currency',      false !== strpos( $html, '$3,960.00' ), true );
+// A currency with no rate is LEFT OUT and said so: a short total that looks
+// whole is a figure the shop sorts by and believes.
+$GLOBALS['dze_missing'] = [ 'PLN', 'SEK' ];
+$html = $show( [ 'by' => 'rev', 'dir' => 'desc' ] );
+ok( 'what could not be converted is said', false !== strpos( $html, 'Orders paid in PLN, SEK are left out' ), true );
+$GLOBALS['dze_missing'] = [];
+ok( 'and nothing is said when all is known',
+	false !== strpos( $show( [ 'by' => 'rev' ] ), 'are left out' ), false );
 
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 ok( 'the figures are on the row',       false !== strpos( $html, '250' ), true );

@@ -467,19 +467,22 @@ EOT;
 			return [];
 		}
 
-		// Per-product totals (product_id is the parent product; variations roll up).
-		$rows = $wpdb->get_results(
-			"SELECT product_id, SUM(product_qty) AS qty, SUM(product_net_revenue) AS rev
-			 FROM {$table} GROUP BY product_id", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name only.
-			ARRAY_A
-		);
-		if ( empty( $rows ) ) {
+		// Per-product totals (product_id is the parent product; variations roll
+		// up). The revenue column holds each line in the currency it was PAID
+		// in and the table has no currency of its own, so summing it as it
+		// stands added euros to dollars and called the answer money. One
+		// reader converts, for this report and for the diagnostic both.
+		$money = DZE_Sales::all();
+		$prod  = [];
+		foreach ( (array) ( $money['qty'] ?? [] ) as $pid => $qty ) {
+			$prod[ (int) $pid ] = [
+				'qty' => (float) $qty,
+				'rev' => (float) ( $money['rev'][ (int) $pid ] ?? 0 ),
+			];
+		}
+		if ( ! $prod ) {
 			set_transient( 'dze_x_cat_sales_v2', [], 3 * HOUR_IN_SECONDS );
 			return [];
-		}
-		$prod = [];
-		foreach ( $rows as $r ) {
-			$prod[ (int) $r['product_id'] ] = [ 'qty' => (float) $r['qty'], 'rev' => (float) $r['rev'] ];
 		}
 
 		// Product → assigned product_cat term ids.
