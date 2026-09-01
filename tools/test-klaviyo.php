@@ -77,7 +77,20 @@ function add_filter( $tag, $cb = null ) { if ( 'kses_allowed_protocols' === $tag
 function remove_filter( $tag, $cb = null ) { if ( 'kses_allowed_protocols' === $tag ) { $GLOBALS['dze_protocols'] = [ 'http', 'https' ]; } }
 function wp_kses_post( $html ) { return (string) $html; }
 function wp_unslash( $v ) { return $v; }
-function apply_filters( $t, $v = null, ...$r ) { return $v; }
+function apply_filters( $t, $v = null, ...$r ) {
+	// WPML's translation lookup, answering the way WPML answers: the
+	// translated post when there is one, the original otherwise.
+	if ( 'wpml_object_id' === $t ) {
+		$lang = (string) ( $r[2] ?? '' );
+		$id   = (int) ( $GLOBALS['dze_trans'][ (int) $v ][ $lang ] ?? 0 );
+		return $id ?: (int) $v;
+	}
+	return $v;
+}
+function get_permalink( $id ) { return $GLOBALS['dze_perma'][ (int) $id ] ?? ''; }
+// The shop's product URLs do not resolve back into a post — which is exactly
+// the state this shop is in, and why nothing may depend on it.
+function url_to_postid( $url ) { $GLOBALS['dze_resolved'][] = $url; return 0; }
 function do_action( $t, ...$a ) {}
 function current_user_can( $c ) { return true; }
 function is_admin() { return true; }
@@ -1190,6 +1203,42 @@ ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_
 ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
 $GLOBALS['dze_queue'] = [];
 
+echo "A product link in each language, from the id the shop already has\n";
+// "Sur les pages d'édition produit on voit les urls des autres langues." So
+// does the plugin: it CHOSE these products and holds their ids, and
+// WordPress holds their translations. Reading a URL back into a post was the
+// complication — url_to_postid() does not answer for a WooCommerce product,
+// so that lookup was dead on this shop and every link stayed English.
+$GLOBALS['dze_trans']    = [ 7 => [ 'fr' => 77, 'de' => 78 ] ];
+$GLOBALS['dze_perma']    = [ 77 => 'https://kula.test/fr/cagoule', 78 => 'https://kula.test/de/sturmhaube' ];
+$GLOBALS['dze_resolved'] = [];
+$map = DZE_Klaviyo::link_map( [ 7 ], [ 'fr', 'de' ] );
+ok( 'the French page of that product',  $map['https://kula.test/p/7']['fr'] ?? '', 'https://kula.test/fr/cagoule' );
+ok( 'and the German one',               $map['https://kula.test/p/7']['de'] ?? '', 'https://kula.test/de/sturmhaube' );
+ok( 'no URL was resolved back into a post', $GLOBALS['dze_resolved'], [] );
+
+// And it is that map the translation write uses, not a guess.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
+	'kind' => 'launch', 'subject' => 'Summer sale', 'products' => [ 7 ],
+	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'fr', 'de' ] ],
+] ] ] ];
+$vals2 = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
+	[ 'id' => 'x::subject', 'source_value' => 'Summer sale' ],
+	[ 'id' => 'b::data.attributes.href', 'source_value' => 'https://kula.test/p/7' ],
+] ] ] ] );
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $vals2 ];
+DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' );
+$GLOBALS['dze_sent'] = [];
+DZE_Klaviyo::save_translations( 'promo', 'mail1' );
+$patch = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) );
+$sent2 = [];
+foreach ( (array) ( json_decode( (string) ( $patch[0]['body'] ?? '' ), true )['data']['attributes']['values'] ?? [] ) as $v ) {
+	$sent2[ $v['id'] ] = $v['translations'];
+}
+ok( 'the email really carries the French page',
+	$sent2['b::data.attributes.href']['fr'] ?? '', 'https://kula.test/fr/cagoule' );
+$GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $values ];
+
 echo "The shop can see what a link becomes, before any email exists\n";
 // The mapping depends on how WPML was set up on THIS shop, and no test here
 // can know that. So the shop is shown the answer where its languages are
@@ -1198,8 +1247,10 @@ $GLOBALS['dze_products'] = [ 7 ];
 $smp = DZE_Klaviyo::link_sample();
 ok( 'a real product is used',           $smp['url'] ?? '', 'https://kula.test/p/7' );
 ok( 'and every language is answered',   array_keys( $smp['rows'] ?? [] ), [ 'fr', 'de' ] );
-ok( 'each one on its own side of the shop',
-	$smp['rows']['de'] ?? '', 'https://kula.test/de/p/7' );
+// The product's OWN German page, with its own slug — the address the product
+// edit screen shows and the language switcher uses, not a rule applied to a
+// string.
+ok( 'each one on its own page',         $smp['rows']['de'] ?? '', 'https://kula.test/de/sturmhaube' );
 
 echo "The row says everything it knows, the moment it knows it\n";
 // "Schedule it / EN written, FR, DE, PL, ES open / Translate it > tout ça
@@ -1250,7 +1301,7 @@ try {
 }
 ok( 'it draws without dying',           $boom, '' );
 ok( 'the languages table is there',     str_contains( $screen, 'A product link becomes' ), true );
-ok( 'with the real link in it',         str_contains( $screen, 'https://kula.test/de/p/7' ), true );
+ok( 'with the real link in it',         str_contains( $screen, 'https://kula.test/de/sturmhaube' ), true );
 ok( 'and every prompt says what it is sent with',
 	substr_count( $screen, 'What this prompt is sent with' ), 3 );
 
