@@ -61,3 +61,17 @@
 .dze-auto-list { margin: 8px 0 0 22px; }
 .dze-auto-list li { margin: 2px 0; }
 .dze-auto-list code { font-size: 11px; color: #777; }
+
+/* ---------------------------------------------------------------------------
+ * "i" — the long of it, one hover away.
+ *
+ * Five accounts each refusing in a full sentence made a paragraph across the
+ * screen: unreadable, and nothing could be done with it. A screen with a lot
+ * to say says the short of it and keeps the rest behind this mark. Used
+ * wherever that is true, so the gesture is the same everywhere.
+ * --------------------------------------------------------------------------- */
+.dze-why{display:inline-flex;align-items:center;justify-content:center;
+	width:16px;height:16px;margin-left:6px;border-radius:50%;
+	border:1px solid currentColor;font-size:11px;font-style:italic;
+	font-weight:700;line-height:1;cursor:help;vertical-align:middle;opacity:.8;}
+.dze-why:hover,.dze-why:focus{opacity:1;outline:none;}
