@@ -274,6 +274,7 @@
 		$c.find('.dze-mail-name').text(name || cfg.i18n.unnamed);
 		$c.find('.dze-mail-when').contents().first().replaceWith(niceDay($('#dze-klav-e-when').val() || ''));
 		markDupes();
+		spacing();
 		thumb(current);
 	}
 	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
@@ -548,6 +549,102 @@
 		});
 	}
 
+	// ---- Two emails too close together ----
+	//
+	// "J'ai un email qui part le 05 pour l'offre du back to school. L'offre du
+	// patriot day suit juste derrière. Le warm-up est prévu le 06/09." Two
+	// promotions know nothing about each other, and the reader is on ONE list:
+	// he gets both. So the whole shop's calendar is judged here — the rows on
+	// screen, whose days are being edited in their own fields, plus every
+	// email of every other promotion, handed over with the page.
+	//
+	// Nothing is moved by itself. Which of two emails gives way is the shop's
+	// decision, and a day changed behind somebody's back on a promotion he
+	// built around a date is worse than the clash.
+	function gap()   { return parseInt($('#dze-klav-editor').data('gap'), 10) || 0; }
+	function others() {
+		var got = $('#dze-klav-editor').data('calendar');
+		return got && got.length ? got : [];
+	}
+	function daysApart(a, b) {
+		var x = Date.parse(a + 'T00:00:00Z'), y = Date.parse(b + 'T00:00:00Z');
+		if (isNaN(x) || isNaN(y)) { return null; }
+		return Math.round(Math.abs(x - y) / 86400000);
+	}
+	// Every other email of the shop, with the row's own siblings among them.
+	function around(skipId) {
+		var out = [];
+		(others() || []).forEach(function (one) {
+			if (one && one.day) { out.push({ day: String(one.day), label: String(one.label || '') }); }
+		});
+		$('.dze-mail').each(function () {
+			var $c = $(this), day = String($c.find('.dze-f-when').val() || '').slice(0, 10);
+			if (!day || $c.data('id') === skipId) { return; }
+			out.push({ day: day, label: $c.find('.dze-mail-name').text() || '' });
+		});
+		return out;
+	}
+	// The nearest one that is too close, or nothing.
+	function tooClose(day, skipId) {
+		var want = gap(), best = null;
+		if (!day || want < 1) { return null; }
+		around(skipId).forEach(function (one) {
+			var apart = daysApart(day, one.day);
+			if (null === apart || apart >= want) { return; }
+			if (!best || apart < best.apart) { best = { apart: apart, day: one.day, label: one.label }; }
+		});
+		return best;
+	}
+	function clashText(hit) {
+		if (!hit) { return ''; }
+		if (0 === hit.apart) {
+			return String(cfg.i18n.clashSame || 'Same day as %1$s (%2$s).')
+				.replace('%1$s', hit.label).replace('%2$s', niceDay(hit.day));
+		}
+		return String(1 === hit.apart ? (cfg.i18n.clashOne || '1 day from %1$s (%2$s).')
+			: (cfg.i18n.clashNear || '%1$d days from %2$s (%3$s).'))
+			.replace('%1$d', hit.apart).replace('%1$s', hit.label).replace('%2$s', niceDay(hit.day))
+			.replace('%2$s', hit.label).replace('%3$s', niceDay(hit.day));
+	}
+	// The first day, from the one asked for outwards, that clears everything.
+	// Offered, never applied: one press away, and it is the shop pressing.
+	function freeDay(day, skipId) {
+		var min = $('#dze-klav-e-when').attr('min') || '', from = Date.parse(day + 'T00:00:00Z');
+		if (isNaN(from)) { return ''; }
+		for (var step = 1; step <= 60; step++) {
+			for (var side = 0; side < 2; side++) {
+				var when = new Date(from + (side ? step : -step) * 86400000).toISOString().slice(0, 10);
+				if (min && when < min) { continue; }
+				if (!tooClose(when, skipId)) { return when; }
+			}
+		}
+		return '';
+	}
+	function spacing() {
+		$('.dze-mail').each(function () {
+			var $c = $(this), day = String($c.find('.dze-f-when').val() || '').slice(0, 10),
+				hit = tooClose(day, $c.data('id'));
+			$c.find('.dze-mail-clash').text(hit ? clashText(hit) : '').toggle(!!hit);
+		});
+		var $say = $('#dze-klav-e-clash'), $go = $('#dze-klav-e-free');
+		if (!current || !$say.length) { return; }
+		var mine = String($('#dze-klav-e-when').val() || '').slice(0, 10),
+			hit  = tooClose(mine, current);
+		if (!hit) { $say.hide().text(''); $go.hide(); return; }
+		$say.text(clashText(hit) + ' ' + String(cfg.i18n.clashWant || 'Leave %d days between two emails.').replace('%d', gap())).show();
+		var free = freeDay(mine, current);
+		if (!free) { $go.hide(); return; }
+		$go.text(String(cfg.i18n.moveTo || 'Move it to %s').replace('%s', niceDay(free))).data('day', free).show();
+	}
+	$(document).on('click', '#dze-klav-e-free', function () {
+		var day = $(this).data('day');
+		if (!day) { return; }
+		$('#dze-klav-e-when').val(day);
+		commit();
+		keepMeta();
+		spacing();
+	});
+
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
@@ -597,6 +694,7 @@
 				current = null;
 				$('#dze-mail-edit').hide();
 				markDupes();
+				spacing();
 				var $first = $('.dze-mail').first();
 				if ($first.length) { open($first.data('id')); }
 				$m.css('color', '#0a7040').removeClass('is-ko').text(res.data.message);
@@ -821,6 +919,7 @@
 		// that broken.
 		$c.remove();
 		markDupes();
+		spacing();
 		if (current === id) {
 			current = null;
 			$('#dze-mail-edit').hide();
@@ -872,6 +971,7 @@
 	$(function () {
 		$('.dze-mail').each(function () { thumb($(this).data('id')); });
 		markDupes();
+		spacing();
 		var $first = $('.dze-mail').first();
 		if ($first.length) { open($first.data('id')); }
 		verify();

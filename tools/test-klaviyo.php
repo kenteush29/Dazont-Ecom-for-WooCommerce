@@ -1911,6 +1911,61 @@ $cell = DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch' ] );
 ok( 'an email with no campaign says so', str_contains( $cell, 'Not in Klaviyo yet' ), true );
 ok( 'and nothing is claimed about it',   str_contains( $cell, 'Synced with Klaviyo' ), false );
 
+echo "Two emails too close together, whichever promotion they belong to\n";
+// "J'ai un email qui part le 05 pour l'offre du back to school. L'offre du
+// patriot day suit juste derrière. Le warm-up est prévu le 06/09. Ce n'est pas
+// bon. Il doit s'écouler au moins 3 jours entre différents emails."
+ok( 'three days, shipped',              DZE_Klaviyo::gap(), 3 );
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['gap'] = 5;
+ok( 'and the shop may say otherwise',   DZE_Klaviyo::gap(), 5 );
+unset( $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['gap'] );
+
+// The calendar of the WHOLE shop: the clash is never inside one promotion,
+// it is the last chance of one falling beside the warm-up of the next.
+$GLOBALS['dze_rules'] = [
+	'bts'     => [ 'title' => 'Back to School Sale' ],
+	'patriot' => [ 'title' => 'Patriot Day Sale' ],
+];
+$GLOBALS['dze_opts'][ $copy ] = [
+	'bts' => [ 'emails' => [
+		'l' => [ 'kind' => 'last', 'when' => '2026-09-05', 'subject' => 'Two days left' ],
+	] ],
+	'patriot' => [ 'emails' => [
+		'w' => [ 'kind' => 'warm', 'when' => '2026-09-06', 'subject' => 'Coming' ],
+		'x' => [ 'kind' => 'launch', 'subject' => 'No day yet' ],
+	] ],
+];
+$cal = DZE_Klaviyo::calendar( 'bts' );
+ok( 'the other promotion is in the calendar', count( $cal ), 1 );
+ok( 'with the day it goes out',         $cal[0]['day'] ?? '', '2026-09-06' );
+ok( 'and named as the shop names it',
+	false !== strpos( (string) ( $cal[0]['label'] ?? '' ), 'Patriot Day Sale — ' ), true );
+ok( 'an email with no day is not a date', count( DZE_Klaviyo::calendar( 'patriot' ) ), 1 );
+ok( 'and the promotion asked about is left out — its rows are on the screen',
+	implode( ',', array_column( DZE_Klaviyo::calendar( 'bts' ), 'rule' ) ), 'patriot' );
+
+// The screen carries it: the check runs where the days are edited, and dies
+// entirely if the page does not hand it the other promotions.
+$GLOBALS['dze_asked'] = [];
+ob_start();
+DZE_Klaviyo::instance()->render_editor( 'bts', $GLOBALS['dze_rules']['bts'] );
+$screen = (string) ob_get_clean();
+ok( 'the screen carries the gap',       false !== strpos( $screen, 'data-gap="3"' ), true );
+ok( 'and the other promotions\' emails',
+	false !== strpos( $screen, 'data-calendar' ) && false !== strpos( $screen, 'Patriot Day Sale' ), true );
+ok( 'with a place to say it on the row', false !== strpos( $screen, 'dze-mail-clash' ), true );
+ok( 'and the day it would move to',     false !== strpos( $screen, 'dze-klav-e-free' ), true );
+// The setting is written only by a form that carried it, like every other
+// one here: a screen saving something else must not take the shop's rhythm
+// down with it.
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['gap'] = 5;
+$kept = DZE_Klaviyo::instance()->sanitize( [ 'form' => 1, 'days' => 30 ] );
+ok( 'a form that did not carry it leaves it', $kept['gap'] ?? '', 5 );
+$kept = DZE_Klaviyo::instance()->sanitize( [ 'form' => 1, 'gap' => 40 ] );
+ok( 'and an impossible figure is brought back', $kept['gap'] ?? '', 30 );
+unset( $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['gap'] );
+$GLOBALS['dze_rules'] = null;
+
 echo "The email settings screen actually draws\n";
 // A class that loads is not a screen that works. This tab carries the
 // prompts, their "what this prompt is sent with" blocks and the languages
@@ -1931,6 +1986,8 @@ try {
 ok( 'it draws without dying',           $boom, '' );
 ok( 'the languages table is there',     str_contains( $screen, 'A product link becomes' ), true );
 ok( 'with the real link in it',         str_contains( $screen, 'https://kula.test/de/sturmhaube' ), true );
+ok( 'the days between two emails can be set',
+	str_contains( $screen, 'dze-klav-gap' ), true );
 ok( 'and every prompt says what it is sent with',
 	substr_count( $screen, 'What this prompt is sent with' ), 3 );
 

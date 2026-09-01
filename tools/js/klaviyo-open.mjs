@@ -55,12 +55,12 @@ const css = execFileSync( 'php', [ '-r',
 // The email screen, cut to what these handlers actually touch.
 const day = ms => new Date( Date.now() + ms ).toISOString().slice( 0, 10 );
 const page_html = `
-<div id="dze-klav-editor" data-rule="promo" data-when='{"warm":"2026-08-24","launch":"2026-08-26","reminder":"2026-08-31","last":"2026-09-05"}' data-names='{"warm":"Warm-up","launch":"Launch","reminder":"Reminder","last":"Last chance"}' data-newkind="launch" data-newday="2026-08-26">
+<div id="dze-klav-editor" data-rule="promo" data-gap="3" data-calendar='[{"day":"__IN7__","rule":"patriot","label":"Patriot Day Sale — Launch"},{"day":"__IN6__","rule":"patriot","label":"Patriot Day Sale — Warm-up"}]' data-when='{"warm":"2026-08-24","launch":"2026-08-26","reminder":"2026-08-31","last":"2026-09-05"}' data-names='{"warm":"Warm-up","launch":"Launch","reminder":"Reminder","last":"Last chance"}' data-newkind="launch" data-newday="2026-08-26">
   <div class="dze-mail-list">
     <div class="dze-mail" data-id="mail1">
       <div class="dze-mail-thumb"><iframe title=""></iframe></div>
       <div class="dze-mail-what"><strong class="dze-mail-name">Launch</strong>
-        <span class="dze-mail-when">old<span class="dze-smart">Smart</span></span><span class="dze-mail-subject">Back to school</span></div>
+        <span class="dze-mail-when">old<span class="dze-smart">Smart</span></span><span class="dze-mail-subject">Back to school</span><span class="dze-mail-clash"></span></div>
       <div class="dze-mail-state">
         <span class="dze-mail-langs">EN only</span>
         <button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>
@@ -84,12 +84,12 @@ const page_html = `
   <button type="button" id="dze-mail-new">+ Add an email</button>
   <button type="button" id="dze-mail-draftall">Put them all in Klaviyo</button>
   <span id="dze-mail-plan-msg"></span>
-  <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-want" value="0" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
+  <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span><span class="dze-mail-clash"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-want" value="0" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
   <div id="dze-mail-edit" style="display:none;">
     <select id="dze-klav-e-type"><option value="warm">Warm-up</option><option value="launch">Launch</option><option value="reminder">Reminder</option><option value="last">Last chance</option></select>
     <input id="dze-klav-e-subject" /><input id="dze-klav-e-preview" />
     <input type="date" id="dze-klav-e-when" min="__TOMORROW__" />
-    <span id="dze-klav-e-msg"></span><span id="dze-klav-e-kept"></span><span id="dze-klav-write-msg"></span>
+    <span id="dze-klav-e-msg"></span><span id="dze-klav-e-kept"></span><span id="dze-klav-e-clash" style="display:none;"></span><button type="button" id="dze-klav-e-free" style="display:none;"></button><span id="dze-klav-write-msg"></span>
     <input type="checkbox" id="dze-klav-e-want" />
     <button type="button" id="dze-klav-e-shot">Generate test picture</button>
     <p id="dze-klav-shot-out" style="display:none;"><img id="dze-klav-shot-img" src="" data-full="" alt="" /><button type="button" id="dze-klav-e-usepic">Use it in this email</button></p>
@@ -120,6 +120,9 @@ const cfg = {
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
 	i18nDone: 'Translated — %d texts in %s', i18nAgain: 'Translate again',
 	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.',
+	clashSame: 'Same day as %1$s (%2$s).', clashOne: '1 day from %1$s (%2$s).',
+	clashNear: '%1$d days from %2$s (%3$s).', clashWant: 'Leave %d days between two emails.',
+	moveTo: 'Move it to %s',
 	dateFmt: 'd/m/Y',
 	months: Array.from( { length: 12 }, ( _, i ) => ( { F: 'M' + ( i + 1 ), M: 'm' + ( i + 1 ) } ) )
 };
@@ -159,7 +162,7 @@ await page.route( 'http://dze.test/ajax*', route => {
 await page.route( 'http://dze.test/', route => route.fulfill( {
 	status: 200, contentType: 'text/html',
 	body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head>`
-		+ `<body>${page_html.replace( '__TOMORROW__', day( 86400000 ) )}</body></html>`
+		+ `<body>${page_html.replace( '__TOMORROW__', day( 86400000 ) ).replace( '__IN6__', day( 6 * 86400000 ) ).replace( '__IN7__', day( 7 * 86400000 ) )}</body></html>`
 } ) );
 await page.goto( 'http://dze.test/' );
 await page.addScriptTag( { path: jq } );
@@ -236,6 +239,41 @@ ok( "a day added here uses the shop's format",
 	in3.slice( 8, 10 ) + '/' + in3.slice( 5, 7 ) + '/' + in3.slice( 0, 4 ) );
 ok( 'and the button says what it does',
 	( await page.textContent( '.dze-mail-open' ) ).trim(), 'Edit' );
+
+// Two emails too close together, across PROMOTIONS. The shop's Back to School
+// last chance went out on the 5th and the Patriot Day warm-up was set for the
+// 6th: two promotions that know nothing about each other, one reader who gets
+// both. The screen judges its own rows against the whole shop's calendar.
+await page.fill( '#dze-klav-e-when', day( 5 * 86400000 ) );
+await page.dispatchEvent( '#dze-klav-e-when', 'change' );
+await page.waitForTimeout( 200 );
+// The NEAREST of them is the one named — the account holds two Patriot Day
+// emails, one two days away and one the day after.
+ok( 'the row says which email is too close',
+	/1 day from Patriot Day Sale — Warm-up/.test( await page.textContent( '.dze-mail-clash' ) ), true );
+ok( 'the editor says it where the day is chosen',
+	/Leave 3 days between two emails/.test( await page.textContent( '#dze-klav-e-clash' ) ), true );
+ok( 'and offers the nearest day that is free',
+	( await page.textContent( '#dze-klav-e-free' ) ).trim(),
+	// The NEAREST free day, not the first one that comes to mind: three days
+	// before the warm-up clears it, and it is one day from where he put it.
+	'Move it to ' + day( 3 * 86400000 ).slice( 8, 10 ) + '/' + day( 3 * 86400000 ).slice( 5, 7 ) + '/' + day( 3 * 86400000 ).slice( 0, 4 ) );
+await page.click( '#dze-klav-e-free' );
+await page.waitForTimeout( 200 );
+ok( 'pressing it moves the day', await page.inputValue( '#dze-klav-e-when' ), day( 3 * 86400000 ) );
+ok( 'and the warning goes with it',
+	( await page.textContent( '.dze-mail-clash' ) ).trim(), '' );
+ok( 'nothing was raised judging the calendar', errors, [] );
+// A day that clashes with nothing says nothing: a warning that is always
+// there is a warning nobody reads.
+await page.fill( '#dze-klav-e-when', day( 20 * 86400000 ) );
+await page.dispatchEvent( '#dze-klav-e-when', 'change' );
+await page.waitForTimeout( 200 );
+ok( 'a day far from everything is quiet',
+	await page.isVisible( '#dze-klav-e-clash' ), false );
+await page.fill( '#dze-klav-e-when', in3 );
+await page.dispatchEvent( '#dze-klav-e-when', 'change' );
+await page.waitForTimeout( 150 );
 
 // Scheduling from the plugin: one click, and the button becomes its own undo.
 posted.length = 0;
