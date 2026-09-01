@@ -84,6 +84,10 @@ function get_post_thumbnail_id( $id ) { return (int) ( $GLOBALS['dze_meta'][ $id
 function wp_get_attachment_metadata( $id ) { return []; }
 function get_permalink( $id = 0 ) { return 'http://example.test/?p=' . $id; }
 function get_edit_post_link( $id = 0, $c = '' ) { return 'http://example.test/edit/' . $id; }
+function get_post( $id = 0 ) { return $GLOBALS['dze_posts'][ (int) $id ] ?? null; }
+function wp_kses_post( $s ) { return (string) $s; }
+function wc_price( $n ) { return '<span class="amount">$' . number_format( (float) $n, 2 ) . '</span>'; }
+function paginate_links( $a = [] ) { return ''; }
 class WP_Post { public $ID = 0; public $post_title = ''; public $post_content = ''; public $post_excerpt = '';
 	public $post_modified_gmt = '2026-01-01 00:00:00'; public $post_date_gmt = '2026-01-01 00:00:00'; public $comment_count = 0; }
 class WP_Error {}
@@ -103,6 +107,23 @@ class DZE_Diag_Test_Wpdb {
 	}
 	public function get_results( $q, $m = null ) {
 		$sql = is_array( $q ) ? (string) $q[0] : (string) $q;
+		// The list's price / sales / last-edit reading: ONE query for the whole
+		// list, so the shop can sort a thousand products by what they sold.
+		if ( false !== strpos( $sql, 'total_sales' ) ) {
+			$GLOBALS['dze_facts_sql'][] = $sql;
+			$rows = [];
+			foreach ( (array) ( $GLOBALS['dze_facts'] ?? [] ) as $pid => $one ) {
+				if ( false === strpos( $sql, (string) $pid ) ) { continue; }
+				$rows[] = (object) [
+					'ID'            => $pid,
+					'post_title'    => (string) ( $one['title'] ?? '' ),
+					'post_modified' => (string) ( $one['edited'] ?? '' ),
+					'sales'         => (string) ( $one['sales'] ?? '' ),
+					'price'         => (string) ( $one['price'] ?? '' ),
+				];
+			}
+			return $rows;
+		}
 		if ( false === strpos( $sql, 'product_variation' ) ) { return []; }
 		$key = is_array( $q ) ? (string) ( $q[1][0] ?? '' ) : '';
 		$GLOBALS['dze_sql'][] = [ $sql, $key ];
@@ -135,6 +156,8 @@ $GLOBALS['dze_has_icl'] = true;
 $GLOBALS['dze_icl']     = [];
 $GLOBALS['dze_variations'] = [];
 $GLOBALS['dze_sql']        = [];
+$GLOBALS['dze_facts']      = [];
+$GLOBALS['dze_facts_sql']  = [];
 $GLOBALS['dze_posts']   = [];
 
 // WPML, as far as this plugin ever asks.
@@ -473,6 +496,74 @@ ok( 'and it is sent to the image lab',
 ok( 'a custom field is still named by its key alone',
 	DZE_Diagnostic::clean_rows( [ [ 'id' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_bloc_1', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ] ] )[0]['label'] ?? '',
 	'_bloc_1 is empty' );
+
+echo "A shop that never touched its criteria\n";
+// The shipped criteria carry no label — a label is computed from the field,
+// the operator and the figure. Handed over raw, every check on a fresh
+// install had an empty name: a blank heading above its list and a blank line
+// in the report. A shop that had edited its criteria once never saw it.
+update_option( DZE_Diagnostic::OPT, [] );
+$fresh = DZE_Diagnostic::checks();
+ok( 'every shipped check has a name',
+	count( array_filter( $fresh, static fn( $c ) => '' === trim( (string) ( $c['label'] ?? '' ) ) ) ), 0 );
+ok( 'and the gallery one says what it means',
+	$fresh['prod_gallery']['label'] ?? '', 'Gallery photographs is less than 3 photographs' );
+
+echo "The list a shop actually works from\n";
+// "Je veux une option de tri des produits par quantité de vente historique.
+// Je veux aussi que les prix soient affichés. Et dernière date d'édition."
+// The sort is over the WHOLE list, not the fifty rows on screen: a shop
+// looking for its best-sellers is not looking for the best-sellers of page
+// three. And it is one query for the lot, not one per row.
+$GLOBALS['dze_facts'] = [
+	101 => [ 'title' => 'Balaclava',  'edited' => '2026-08-01 10:00:00', 'sales' => '5',   'price' => '19.90' ],
+	102 => [ 'title' => 'Ancient cap','edited' => '2025-02-03 10:00:00', 'sales' => '250', 'price' => '9.90' ],
+	103 => [ 'title' => 'Zulu pouch', 'edited' => '2026-08-30 10:00:00', 'sales' => '40',  'price' => '99.00' ],
+];
+$GLOBALS['dze_posts'] = [];
+foreach ( $GLOBALS['dze_facts'] as $pid => $one ) {
+	$p = new WP_Post();
+	$p->ID = $pid;
+	$p->post_title = $one['title'];
+	$GLOBALS['dze_posts'][ $pid ] = $p;
+}
+// Back to the shipped criteria, so the list under test is a real one.
+update_option( DZE_Diagnostic::OPT, [] );
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
+
+$render = new ReflectionMethod( 'DZE_Diagnostic', 'render_list' );
+$render->setAccessible( true );
+$show = static function ( array $args ) use ( $render ): string {
+	$_GET = $args;
+	$GLOBALS['dze_facts_sql'] = [];
+	ob_start();
+	$render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+	return (string) ob_get_clean();
+};
+/** The product names, in the order the table lists them. */
+$order = static function ( string $html ): array {
+	preg_match_all( '#<strong>([^<]+)</strong>#', $html, $m );
+	return $m[1];
+};
+
+$html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
+ok( 'sorted by what they SOLD',         $order( $html ), [ 'Ancient cap', 'Zulu pouch', 'Balaclava' ] );
+ok( 'and the other way round',          $order( $show( [ 'by' => 'sales', 'dir' => 'asc' ] ) ), [ 'Balaclava', 'Zulu pouch', 'Ancient cap' ] );
+ok( 'by price',                         $order( $show( [ 'by' => 'price', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Balaclava', 'Ancient cap' ] );
+ok( 'by when they were last edited',    $order( $show( [ 'by' => 'edited', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Balaclava', 'Ancient cap' ] );
+ok( 'and by name',                      $order( $show( [ 'by' => 'name', 'dir' => 'asc' ] ) ), [ 'Ancient cap', 'Balaclava', 'Zulu pouch' ] );
+ok( 'as found, when nothing is asked',  $order( $show( [] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
+
+$html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
+ok( 'the figures are on the row',       false !== strpos( $html, '250' ), true );
+ok( 'the price too',                    false !== strpos( $html, '9.90' ), true );
+ok( 'and the day it was last edited',   false !== strpos( $html, '2025' ), true );
+ok( 'read in ONE query for the list',   count( $GLOBALS['dze_facts_sql'] ), 1 );
+// A made-up column is worse than none: an unknown sort falls back rather
+// than ordering by nothing at all.
+ok( 'an order nobody offers is ignored', $order( $show( [ 'by' => 'whatever' ] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
+$_GET = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

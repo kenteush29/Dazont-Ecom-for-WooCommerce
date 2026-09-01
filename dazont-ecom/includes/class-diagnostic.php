@@ -315,7 +315,13 @@ final class DZE_Diagnostic {
 	public static function rows(): array {
 		$saved = self::settings()['rows'] ?? null;
 		$rows  = is_array( $saved ) ? self::clean_rows( $saved ) : [];
-		return $rows ?: self::default_rows();
+		// The shipped rows go through the same cleaning as saved ones. They
+		// carry no label of their own — a label is COMPUTED from the field, the
+		// operator and the figure — so handing them over raw left every check
+		// on a fresh install with an empty name: a blank heading on the list
+		// screen, and a blank line in the report. A shop that had edited its
+		// criteria once never saw it, which is why it lasted.
+		return $rows ?: self::clean_rows( self::default_rows() );
 	}
 
 	/** Rows as a form posted them, made safe and complete. */
@@ -1732,6 +1738,30 @@ final class DZE_Diagnostic {
 		$ids    = (array) ( $lists[ $id ] ?? [] );
 		$n      = (int) ( $census['checks'][ $id ] ?? 0 );
 		$page   = isset( $_GET['paged'] ) ? max( 1, absint( $_GET['paged'] ) ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- ordering a list is navigation.
+		$by   = isset( $_GET['by'] ) ? sanitize_key( wp_unslash( $_GET['by'] ) ) : 'found';
+		$dir  = ( isset( $_GET['dir'] ) && 'asc' === $_GET['dir'] ) ? 'asc' : 'desc';
+		// phpcs:enable
+		$by    = isset( self::orders()[ $by ] ) ? $by : 'found';
+		$goods = 'product' === (string) $check['scope'];
+		// Read once for the WHOLE list: what is sorted is the list, not the
+		// page — a shop looking for its best-sellers is not looking for the
+		// best-sellers of page three.
+		$facts = $goods ? self::facts( $ids ) : [];
+		if ( 'found' !== $by && $facts ) {
+			usort( $ids, static function ( $a, $b ) use ( $facts, $by, $dir ) {
+				$x = $facts[ (int) $a ] ?? [];
+				$y = $facts[ (int) $b ] ?? [];
+				switch ( $by ) {
+					case 'sales':  $c = ( (int) ( $x['sales'] ?? 0 ) ) <=> ( (int) ( $y['sales'] ?? 0 ) ); break;
+					case 'price':  $c = ( (float) ( $x['price'] ?? 0 ) ) <=> ( (float) ( $y['price'] ?? 0 ) ); break;
+					case 'edited': $c = strcmp( (string) ( $x['edited'] ?? '' ), (string) ( $y['edited'] ?? '' ) ); break;
+					default:       $c = strcasecmp( (string) ( $x['title'] ?? '' ), (string) ( $y['title'] ?? '' ) ); break;
+				}
+				return 'asc' === $dir ? $c : -$c;
+			} );
+		}
 		$slice  = array_slice( $ids, ( $page - 1 ) * self::PER_PAGE, self::PER_PAGE );
 
 		printf(
@@ -1762,7 +1792,31 @@ final class DZE_Diagnostic {
 			}
 		}
 
-		echo '<table class="widefat striped" style="max-width:1100px;"><tbody>';
+		// A sortable header, or nothing at all where there is nothing to sort:
+		// a category has no price and no sales.
+		$head = static function ( string $key, string $label ) use ( $id, $by, $dir ): string {
+			$next = ( $by === $key && 'desc' === $dir ) ? 'asc' : 'desc';
+			$mark = $by === $key ? ( 'desc' === $dir ? ' ↓' : ' ↑' ) : '';
+			return sprintf(
+				'<a href="%s" style="text-decoration:none;">%s%s</a>',
+				esc_url( add_query_arg(
+					[ 'page' => self::MENU_SLUG, 'check' => $id, 'by' => $key, 'dir' => $next ],
+					admin_url( 'admin.php' )
+				) ),
+				esc_html( $label ),
+				esc_html( $mark )
+			);
+		};
+
+		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>';
+		echo '<th>' . ( $goods ? $head( 'name', __( 'Product', 'dazont-ecom' ) ) : esc_html__( 'Name', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+		if ( $goods ) {
+			echo '<th style="width:110px;text-align:right;">' . $head( 'price', __( 'Price', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+			echo '<th style="width:90px;text-align:right;">' . $head( 'sales', __( 'Sold', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+			echo '<th style="width:140px;">' . $head( 'edited', __( 'Last edited', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+		}
+		echo '</tr></thead><tbody>';
+		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
@@ -1775,14 +1829,29 @@ final class DZE_Diagnostic {
 				echo '<br /><span class="description">' . esc_html__( 'also:', 'dazont-ecom' ) . ' '
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
 			}
-			echo '</td></tr>';
+			echo '</td>';
+			if ( $goods ) {
+				$one   = $facts[ $oid ] ?? [];
+				$price = (string) ( $one['price'] ?? '' );
+				$when  = strtotime( (string) ( $one['edited'] ?? '' ) ) ?: 0;
+				echo '<td style="text-align:right;">' . ( '' === $price
+					? '<span class="description">&mdash;</span>'
+					: wp_kses_post( function_exists( 'wc_price' ) ? wc_price( (float) $price ) : esc_html( $price ) ) ) . '</td>';
+				// The figure the shop actually decides on: an hour spent on a
+				// product nobody buys is an hour spent for nobody.
+				echo '<td style="text-align:right;">' . esc_html( number_format_i18n( (int) ( $one['sales'] ?? 0 ) ) ) . '</td>';
+				echo '<td>' . ( $when
+					? esc_html( wp_date( $fmt, $when ) )
+					: '<span class="description">&mdash;</span>' ) . '</td>';
+			}
+			echo '</tr>';
 		}
 		echo '</tbody></table>';
 
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
 		if ( $pages > 1 ) {
 			echo '<p style="margin-top:12px;">' . wp_kses_post( paginate_links( [
-				'base'      => add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'paged' => '%#%' ], admin_url( 'admin.php' ) ),
+				'base'      => add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'by' => $by, 'dir' => $dir, 'paged' => '%#%' ], admin_url( 'admin.php' ) ),
 				'format'    => '',
 				'current'   => $page,
 				'total'     => $pages,
@@ -1790,6 +1859,61 @@ final class DZE_Diagnostic {
 				'next_text' => '›',
 			] ) ) . '</p>';
 		}
+	}
+
+	/**
+	 * Price, sales and last edit for a whole list, in ONE query.
+	 *
+	 * The list is what the shop works from, so it has to be sortable by the
+	 * figure that decides which product is worth an hour — what it has SOLD.
+	 * Sorting means knowing the figure for every row of the list, not for the
+	 * fifty on screen, and a query per row would be a thousand queries. One
+	 * query answers all three columns for the whole list, bounded by the
+	 * thousand ids a list keeps.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,array{title:string,edited:string,sales:int,price:string}>
+	 */
+	private static function facts( array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_unique( array_map( 'absint', $ids ) ) );
+		$ids = array_filter( $ids );
+		if ( ! $ids || ! $wpdb ) {
+			return [];
+		}
+		$in = implode( ',', array_map( 'intval', $ids ) );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids are cast to int above; there is no core API that answers this in one query.
+		$rows = $wpdb->get_results(
+			"SELECT p.ID, p.post_title, p.post_modified,
+				MAX( CASE WHEN m.meta_key = 'total_sales' THEN m.meta_value END ) AS sales,
+				MAX( CASE WHEN m.meta_key = '_price'      THEN m.meta_value END ) AS price
+			FROM {$wpdb->posts} p
+			LEFT JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key IN ( 'total_sales', '_price' )
+			WHERE p.ID IN ( {$in} )
+			GROUP BY p.ID, p.post_title, p.post_modified"
+		);
+		// phpcs:enable
+		$out = [];
+		foreach ( (array) $rows as $row ) {
+			$out[ (int) $row->ID ] = [
+				'title'  => (string) $row->post_title,
+				'edited' => (string) $row->post_modified,
+				'sales'  => (int) $row->sales,
+				'price'  => (string) $row->price,
+			];
+		}
+		return $out;
+	}
+
+	/** How a list may be ordered, and what each column is called. */
+	private static function orders(): array {
+		return [
+			'found'  => __( 'As found', 'dazont-ecom' ),
+			'sales'  => __( 'Sales', 'dazont-ecom' ),
+			'price'  => __( 'Price', 'dazont-ecom' ),
+			'edited' => __( 'Last edited', 'dazont-ecom' ),
+			'name'   => __( 'Name', 'dazont-ecom' ),
+		];
 	}
 
 	/** What one object is called and where it is edited. @return array{0:string,1:string} */
