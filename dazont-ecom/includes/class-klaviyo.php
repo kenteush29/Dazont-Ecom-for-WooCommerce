@@ -1912,12 +1912,26 @@ final class DZE_Klaviyo {
 				if ( '' === $day ) {
 					continue;
 				}
+				$draft = (array) ( $mail['draft'] ?? [] );
 				$out[] = [
 					'day'   => $day,
 					'rule'  => $rule_id,
 					// Named as the shop names it: a warning that says "another
 					// email" sends somebody hunting through five promotions.
 					'label' => trim( ( '' !== $title ? $title . ' — ' : '' ) . self::email_name( (array) $mail ) ),
+					'name'  => self::email_name( (array) $mail ),
+					'title' => $title,
+					'subject' => (string) ( $mail['subject'] ?? '' ),
+					// Where it stands in Klaviyo — nothing when it has never
+					// been there. Read from what was filed, like the row.
+					'state' => empty( $draft['campaign'] ) ? ''
+						: ( ! empty( $draft['sent'] ) ? 'sent'
+							: ( ! empty( $draft['scheduled'] ) ? 'scheduled' : 'draft' ) ),
+					// The promotion's own screen, which is where an email is
+					// read, moved or written.
+					'url'   => class_exists( 'DZE_Discounts' )
+						? add_query_arg( [ 'page' => DZE_Discounts::MENU_SLUG_EVENTS, 'edit' => $rule_id ], admin_url( 'admin.php' ) )
+						: '',
 				];
 			}
 		}
