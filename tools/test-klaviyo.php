@@ -2241,27 +2241,29 @@ $GLOBALS['dze_perma']  = [ 77 => 'https://kula.test/fr/cagoule', 78 => 'https://
 $GLOBALS['dze_slugs']  = [];
 $GLOBALS['dze_types']  = [];
 
-echo "The shop can see what a link becomes, before any email exists\n";
-// The mapping depends on how WPML was set up on THIS shop, and no test here
-// can know that. So the shop is shown the answer where its languages are
-// listed: one real product, and what each language would actually receive.
+echo "What a link becomes, asked of the functions the emails actually call\n";
+// This used to be asked through a screen wrapper, link_sample(), and the
+// screen it fed is gone: a per-language table explaining a mechanism nobody
+// has to know. The checks moved onto the functions an email really uses, so
+// nothing here is testing a wrapper nobody calls any more.
 $GLOBALS['dze_products'] = [ 7 ];
-$smp = DZE_Klaviyo::link_sample();
-ok( 'a real product is used',           $smp['url'] ?? '', 'https://kula.test/p/7' );
-// The one question nobody could see the answer to: is this product translated
-// at all, which post is it, and HOW was that found. A filter that is not
-// loaded on the request says "not translated" as loudly as a product that
-// never was, and the two need opposite fixes.
-ok( 'the screen names the translated product',
-	$smp['ids']['de'] ?? 0, 78 );
-ok( 'and how it was found',             in_array( $smp['how']['de'] ?? '', [ 'filter', 'table' ], true ), true );
-ok( 'with the name that language reads',
-	$smp['names']['de'] ?? '', 'A-Tacs FG Gefechtsuniform' );
-ok( 'and every language is answered',   array_keys( $smp['rows'] ?? [] ), [ 'fr', 'de' ] );
+$dze_lm = DZE_Klaviyo::link_map( [ 7 ], [ 'fr', 'de' ] );
+$dze_nm = DZE_Klaviyo::name_map( [ 7 ], [ 'fr', 'de' ] );
+ok( 'every language is answered',       array_keys( $dze_lm['https://kula.test/p/7'] ?? [] ), [ 'fr', 'de' ] );
 // The product's OWN German page, with its own slug — the address the product
 // edit screen shows and the language switcher uses, not a rule applied to a
 // string.
-ok( 'each one on its own page',         $smp['rows']['de'] ?? '', 'https://kula.test/de/sturmhaube' );
+ok( 'each one on its own page',
+	$dze_lm['https://kula.test/p/7']['de'] ?? '', 'https://kula.test/de/sturmhaube' );
+ok( 'and the name that language reads',
+	$dze_nm['A-Tacs FG Military Combat Uniform']['de'] ?? '', 'A-Tacs FG Gefechtsuniform' );
+// WHICH post answered, and how it was found. A filter that is not loaded on
+// the request says "not translated" as loudly as a product that never was,
+// and the two need opposite fixes.
+$dze_how = '';
+ok( 'the translated product is named',
+	DZE_Wpml::translated_id( 7, 'product', 'de', $dze_how ), 78 );
+ok( 'and how it was found',             in_array( $dze_how, [ 'filter', 'table' ], true ), true );
 
 echo "The row says everything it knows, the moment it knows it\n";
 // "Schedule it / EN written, FR, DE, PL, ES open / Translate it > tout ça
@@ -2471,12 +2473,49 @@ try {
 	$boom   = $e->getMessage();
 }
 ok( 'it draws without dying',           $boom, '' );
-ok( 'the languages table is there',     str_contains( $screen, 'A product link becomes' ), true );
-ok( 'with the real link in it',         str_contains( $screen, 'https://kula.test/de/sturmhaube' ), true );
+// The per-language table is GONE: four columns explaining a mechanism nobody
+// has to know, whose last one broke one word per line. What is left is the
+// switch, and the shop's languages drawn as WPML draws them everywhere else.
+ok( 'no table of mechanisms any more',  str_contains( $screen, 'A product link becomes' ), false );
+ok( 'the switch is there',              str_contains( $screen, 'dze_klaviyo[i18n]' ), true );
+ok( 'and the shop\'s languages with it',
+	str_contains( $screen, 'dze-lang' ) && str_contains( $screen, '>DE<' ), true );
 ok( 'the days between two emails can be set',
 	str_contains( $screen, 'dze-klav-gap' ), true );
 ok( 'and every prompt says what it is sent with',
 	substr_count( $screen, 'What this prompt is sent with' ), 3 );
+
+echo "Translating the emails is a switch the shop owns\n";
+// "Vires ce bloc translation et remplace ca par un switch Wpml translation."
+// It used to be derived from WPML alone: a shop with a second language was
+// translating whether it wanted to or not, and the only way to stop was to
+// change WPML. It is a tick box now, and the shop's other languages are still
+// the other half of the answer — nothing to translate into is nothing to
+// translate.
+unset( $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] );
+ok( 'nothing chosen means it translates', DZE_Klaviyo::translating(), true );
+ok( 'and the switch reads as on',         DZE_Klaviyo::i18n_on(), true );
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] = 0;
+ok( 'switched off, it does not translate', DZE_Klaviyo::translating(), false );
+ok( 'and the state says so',               DZE_Klaviyo::i18n_ready(), false );
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] = 1;
+ok( 'switched on, it translates again',    DZE_Klaviyo::translating(), true );
+
+// The rule this plugin has paid for twice: a sanitizer writes a key only when
+// the submitted form actually carried it. A tick box posts NOTHING when it is
+// unticked, so the section that owns it says it was submitted; every other
+// form saving this option leaves the switch exactly as the shop set it.
+$dze_san = DZE_Klaviyo::instance()->sanitize( [ 'form' => 1 ] );
+ok( 'its own form, unticked, switches it off', (int) ( $dze_san['i18n'] ?? 1 ), 0 );
+$dze_san = DZE_Klaviyo::instance()->sanitize( [ 'form' => 1, 'i18n' => '1' ] );
+ok( 'and ticked, on',                          (int) ( $dze_san['i18n'] ?? 0 ), 1 );
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] = 1;
+$dze_san = DZE_Klaviyo::instance()->sanitize( [ 'img_prompt' => 'x' ] );
+ok( 'another form leaves the switch alone',    (int) ( $dze_san['i18n'] ?? 0 ), 1 );
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] = 0;
+ok( 'in both directions',
+	(int) ( DZE_Klaviyo::instance()->sanitize( [ 'img_prompt' => 'x' ] )['i18n'] ?? 1 ), 0 );
+unset( $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

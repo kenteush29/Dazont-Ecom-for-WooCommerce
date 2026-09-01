@@ -850,6 +850,11 @@ final class DZE_Klaviyo {
 		// filter, a half-submitted page — leaves the shop's audience alone,
 		// because "who this shop emails" is not a field to lose in an update.
 		if ( ! empty( $in['form'] ) ) {
+			// A tick box the submitted section OWNS: unticked it posts
+			// nothing, so absence means off — but only for the form that
+			// carries it. Every other form saving this option leaves the
+			// shop's answer exactly as it stands.
+			$out['i18n'] = empty( $in['i18n'] ) ? 0 : 1;
 			foreach ( [ 'included', 'excluded' ] as $id_field ) {
 				if ( array_key_exists( $id_field, $in ) ) {
 					$out[ $id_field ] = sanitize_text_field( (string) $in[ $id_field ] );
@@ -2805,15 +2810,28 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * Is the shop translating its emails at all?
+	 *
+	 * A switch, and on until somebody switches it off — a shop that has just
+	 * added a second language to WPML wants its emails in it. It used to be
+	 * derived from WPML alone, which meant the only way to stop translating
+	 * was to change WPML, and that is a decision about the SHOP, not about a
+	 * mailing.
+	 */
+	public static function i18n_on(): bool {
+		$s = self::settings();
+		return ! array_key_exists( 'i18n', $s ) || ! empty( $s['i18n'] );
+	}
+
+	/**
 	 * Whether campaigns are opened for translation.
 	 *
-	 * Not a switch of its own. A shop with one language has nothing to
-	 * translate into, and a shop whose contacts carry no language would be
-	 * translating into a void — so the answer is the state of those two things
-	 * and nothing the owner has to remember to tick.
+	 * Two halves: the shop asked for it, and there is somewhere to translate
+	 * into. A shop with one language in WPML has nothing to translate into,
+	 * whatever the switch says.
 	 */
 	public static function translating(): bool {
-		return (bool) self::locales()[1];
+		return self::i18n_on() && (bool) self::locales()[1];
 	}
 
 	/**
@@ -3074,85 +3092,6 @@ final class DZE_Klaviyo {
 				// page, which is what the owner asked for and what works.
 				$out[ $here ][ (string) $lang ] = $here;
 			}
-		}
-		return $out;
-	}
-
-	/**
-	 * One real product link, as each language would receive it.
-	 *
-	 * The mapping cannot be checked from anywhere but this shop: it depends on
-	 * how WPML was set up here — where the languages live in the URL, and
-	 * whether the products are translated at all. So the shop checks it, on
-	 * the screen where its languages are already listed, before an email is
-	 * ever written. A wrong link found here costs a glance; found in an inbox
-	 * it costs a campaign.
-	 *
-	 * @return array{url:string,rows:array<string,string>,why:array<string,string>}
-	 */
-	public static function link_sample(): array {
-		$out = [ 'url' => '', 'rows' => [], 'why' => [] ];
-		if ( ! function_exists( 'wc_get_products' ) || ! method_exists( 'DZE_Wpml', 'url_in_language' ) ) {
-			return $out;
-		}
-		[ , $targets ] = self::locales();
-		if ( ! $targets ) {
-			return $out;
-		}
-		// One product, one query, on a settings screen: enough to answer the
-		// question, and the answer is the same for the whole catalogue.
-		$found = wc_get_products( [ 'limit' => 1, 'status' => 'publish', 'return' => 'objects' ] );
-		$one   = is_array( $found ) ? reset( $found ) : null;
-		if ( ! $one || ! is_object( $one ) ) {
-			return $out;
-		}
-		// The same function the emails use, on a real product: what this screen
-		// shows IS what a translated email will contain, not an illustration
-		// of it.
-		$url = (string) $one->get_permalink();
-		$map = self::link_map( [ (int) $one->get_id() ], $targets );
-		if ( '' === $url ) {
-			return $out;
-		}
-		$out['url']   = $url;
-		$out['name']  = trim( wp_strip_all_tags( (string) $one->get_name() ) );
-		$out['names'] = [];
-		$out['slug']  = [];
-		// The slug the ENGLISH page carries. A translated page that still
-		// carries it is the one case this plugin cannot fix from here — the
-		// address is right, the page behind it is the English one — and it is
-		// a field in WordPress, not a setting of ours. So it is named.
-		$dze_mine = method_exists( 'DZE_Wpml', 'post_slug' )
-			? DZE_Wpml::post_slug( (int) $one->get_id() )
-			: '';
-		$names        = self::name_map( [ (int) $one->get_id() ], $targets );
-		foreach ( $targets as $lang ) {
-			$why = '';
-			// Asked through the same chain the emails use, and the STEP that
-			// answered is kept: "it did not move" is not a diagnosis, and this
-			// shop has spent enough evenings guessing which link in the chain
-			// was the broken one.
-			$link = DZE_Wpml::url_in_language( $url, (string) $lang, $why );
-			if ( isset( $map[ $url ][ $lang ] ) && $map[ $url ][ $lang ] !== $url ) {
-				$link = (string) $map[ $url ][ $lang ];
-				$why  = 'translation';
-			}
-			// WHICH post answered, and HOW it was found. The whole of this
-			// shop's link trouble was one question nobody could see the answer
-			// to: is this product translated at all, and did WPML say so? A
-			// filter that is not loaded says no as loudly as a product that
-			// was never translated, and the two need opposite fixes.
-			$how = '';
-			$tid = method_exists( 'DZE_Wpml', 'translated_id' )
-				? DZE_Wpml::translated_id( (int) $one->get_id(), 'product', (string) $lang, $how )
-				: 0;
-			$out['rows'][ (string) $lang ]  = $link;
-			$out['why'][ (string) $lang ]   = $why;
-			$out['ids'][ (string) $lang ]   = $tid;
-			$out['how'][ (string) $lang ]   = $how;
-			$out['names'][ (string) $lang ] = (string) ( $names[ $out['name'] ][ (string) $lang ] ?? '' );
-			$dze_slug = ( $tid && method_exists( 'DZE_Wpml', 'post_slug' ) ) ? DZE_Wpml::post_slug( $tid ) : '';
-			$out['slug'][ (string) $lang ] = ( '' !== $dze_slug && $dze_slug === $dze_mine ) ? $dze_slug : '';
 		}
 		return $out;
 	}
@@ -3796,49 +3735,6 @@ final class DZE_Klaviyo {
 		];
 	}
 
-	/**
-	 * Whether one of the shop's languages is actually on any profile.
-	 *
-	 * A profile says its language in words as often as in a code — "French",
-	 * not "fr" — so a language is matched on its code, its English name and
-	 * its own name, and nothing else has to be kept in step.
-	 */
-	public static function seen_for( string $code, array $values ): int {
-		$names = [ strtolower( $code ) ];
-		if ( class_exists( 'DZE_Wpml' ) ) {
-			foreach ( DZE_Wpml::get_active_languages() as $one ) {
-				if ( strtolower( (string) ( $one['code'] ?? '' ) ) === strtolower( $code ) ) {
-					$names[] = strtolower( (string) ( $one['english_name'] ?? '' ) );
-					$names[] = strtolower( (string) ( $one['native_name'] ?? '' ) );
-				}
-			}
-		}
-		$names = array_filter( array_unique( $names ) );
-		$n     = 0;
-		foreach ( $values as $said => $count ) {
-			$flat = strtolower( trim( (string) $said ) );
-			// "fr-FR" is French, and so is "French".
-			$flat = (string) preg_replace( '/[_-].*$/', '', $flat );
-			if ( in_array( $flat, $names, true ) || in_array( strtolower( trim( (string) $said ) ), $names, true ) ) {
-				$n += (int) $count;
-			}
-		}
-		return $n;
-	}
-
-	/** A language code written the way a person reads it ("French", not "fr"). */
-	public static function language_name( string $code ): string {
-		if ( '' === $code || ! class_exists( 'DZE_Wpml' ) ) {
-			return strtoupper( $code );
-		}
-		foreach ( DZE_Wpml::get_active_languages() as $one ) {
-			if ( strtolower( (string) ( $one['code'] ?? '' ) ) === strtolower( $code ) ) {
-				return (string) ( $one['english_name'] ?: ( $one['native_name'] ?: strtoupper( $code ) ) );
-			}
-		}
-		return strtoupper( $code );
-	}
-
 	/** The last reading of the account's profiles, as the screen shows it. */
 	public static function language_check(): array {
 		$got = self::settings()['i18n_check'] ?? [];
@@ -3847,6 +3743,9 @@ final class DZE_Klaviyo {
 
 	/** Whether Klaviyo is, as far as this shop can tell, set up to serve languages. */
 	public static function i18n_ready(): bool {
+		if ( ! self::i18n_on() ) {
+			return false;
+		}
 		$got = self::language_check();
 		return ! empty( $got['with'] ) && (bool) self::locales()[1];
 	}
@@ -8578,138 +8477,49 @@ CSS;
 			<tr>
 				<th scope="row"><?php esc_html_e( 'Translations', 'dazont-ecom' ); ?></th>
 				<td>
-					<p style="margin:0 0 6px;">
-						<strong style="font-size:15px;color:<?php echo $dze_on ? '#00794b' : '#996800'; ?>;">
-							<?php echo $dze_on ? esc_html__( 'Activated', 'dazont-ecom' ) : esc_html__( 'Disabled', 'dazont-ecom' ); ?>
-						</strong>
-						<button type="button" class="button button-small" id="dze-klav-loc" style="margin-left:10px;" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Check again', 'dazont-ecom' ); ?></button>
-						<span id="dze-klav-loc-msg" style="margin-left:8px;font-size:13px;"></span>
-					</p>
-					<?php if ( $dze_tgt ) : ?>
-						<table class="widefat striped" style="max-width:900px;margin:6px 0 8px;">
-							<thead><tr>
-								<th><?php esc_html_e( 'Your languages', 'dazont-ecom' ); ?></th>
-								<th style="width:110px;"><?php esc_html_e( 'Sent as', 'dazont-ecom' ); ?></th>
-								<th style="width:150px;"><?php esc_html_e( 'On your contacts', 'dazont-ecom' ); ?></th>
-							<th><?php esc_html_e( 'A product link becomes', 'dazont-ecom' ); ?></th>
-							</tr></thead>
-							<tbody>
+					<label>
+						<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[i18n]" value="1" <?php checked( self::i18n_on() ); ?> />
+						<?php esc_html_e( 'Write every email in the other languages of the shop', 'dazont-ecom' ); ?>
+					</label>
+					<p class="description" style="margin:6px 0 0;">
+						<?php if ( ! $dze_tgt ) : ?>
+							<?php esc_html_e( 'WPML has one language on this site, so there is nothing to translate into.', 'dazont-ecom' ); ?>
+						<?php else : ?>
 							<?php
-							$dze_vals = (array) ( $dze_chk['values'] ?? [] );
-							$dze_read = (int) ( $dze_chk['seen'] ?? 0 );
-							// What a translated email will really put in front of a
-							// German reader, read from this shop's own WPML rather
-							// than assumed. It was assumed once, and every German
-							// email linked to the English pages.
-							$dze_smp  = self::link_sample();
-							foreach ( array_merge( [ $dze_src ], $dze_tgt ) as $dze_i => $dze_code ) :
-								$dze_n = self::seen_for( $dze_code, $dze_vals );
-								?>
-								<tr>
-									<td>
-										<?php
-										// The same flag-and-code the emails and the
-										// product screens use, so a language reads the
-										// same wherever the shop meets it.
-										echo method_exists( 'DZE_Wpml', 'flag_html' )
-											? DZE_Wpml::flag_html( $dze_code ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
-											: esc_html( strtoupper( $dze_code ) );
-										?>
-										<?php echo esc_html( self::language_name( $dze_code ) ); ?>
-										<?php if ( 0 === $dze_i ) : ?><span class="description"><?php esc_html_e( '(written in)', 'dazont-ecom' ); ?></span><?php endif; ?>
-									</td>
-									<td><code><?php echo esc_html( $dze_code ); ?></code></td>
-									<td>
-										<?php if ( ! $dze_read ) : ?>
-											<span class="description">&mdash;</span>
-										<?php elseif ( $dze_n ) : ?>
-											<span style="color:#00794b;">&#10003; <?php echo esc_html( sprintf( '%d / %d', $dze_n, $dze_read ) ); ?></span>
-										<?php else : ?>
-											<span style="color:#996800;"><?php esc_html_e( 'nobody', 'dazont-ecom' ); ?></span>
-										<?php endif; ?>
-									</td>
-									<td style="word-break:break-all;font-size:12px;">
-										<?php
-										$dze_link = 0 === $dze_i ? (string) ( $dze_smp['url'] ?? '' ) : (string) ( $dze_smp['rows'][ $dze_code ] ?? '' );
-										if ( '' === $dze_link ) {
-											echo '<span class="description">&mdash;</span>';
-										} elseif ( 0 === $dze_i ) {
-											echo '<code>' . esc_html( $dze_link ) . '</code>';
-										} elseif ( $dze_link === (string) ( $dze_smp['url'] ?? '' ) ) {
-											// The failure the shop paid for three times. Not
-											// "it did not move" — WHICH step answered that
-											// way, in words, so the thing to fix is named.
-											$dze_why  = (string) ( $dze_smp['why'][ $dze_code ] ?? '' );
-											$dze_says = [
-												'no-wpml'        => __( 'WPML is not active on this site.', 'dazont-ecom' ),
-												'not-ours'       => __( 'That address is not on this site.', 'dazont-ecom' ),
-												'no-page'        => __( 'The English page could not be found in the database by its slug — so no translation can be looked up.', 'dazont-ecom' ),
-												'not-translated' => __( 'This product has no page in this language, and WPML returns no address of its own for it either.', 'dazont-ecom' ),
-											];
-											echo '<span style="color:#b26a00;">' . esc_html__( 'the ENGLISH page', 'dazont-ecom' ) . ' — '
-												. esc_html( $dze_says[ $dze_why ] ?? __( 'WPML gave the same address back.', 'dazont-ecom' ) )
-												. ' <code>' . esc_html( $dze_why ) . '</code></span>';
-										} else {
-											echo '<span style="color:#00794b;">&#10003;</span> <code>' . esc_html( $dze_link ) . '</code>';
-										}
-										// WHICH post answered and HOW it was found —
-										// the one question nobody could see the answer
-										// to. A filter that is not loaded on this
-										// request says "not translated" as loudly as a
-										// product that never was, and the two need
-										// opposite fixes: one is a page to write, the
-										// other is this plugin reading WPML's table
-										// instead. It says which, per language, and the
-										// NAME that language will read on the card.
-										if ( 0 !== $dze_i ) :
-											$dze_tid  = (int) ( $dze_smp['ids'][ $dze_code ] ?? 0 );
-											$dze_how  = (string) ( $dze_smp['how'][ $dze_code ] ?? '' );
-											$dze_name = (string) ( $dze_smp['names'][ $dze_code ] ?? '' );
-											$dze_route = [
-												'filter'  => __( 'WPML answered', 'dazont-ecom' ),
-												'table'   => __( "read from WPML's own table — its filters are not loaded here", 'dazont-ecom' ),
-												'none'    => __( 'no translation of this product', 'dazont-ecom' ),
-												'no-wpml' => __( 'WPML is not active', 'dazont-ecom' ),
-											];
-											?>
-											<span class="description" style="display:block;margin-top:3px;">
-												<?php
-												echo esc_html( $dze_tid
-													? sprintf(
-														/* translators: 1: the translated product's id, 2: how it was found */
-														__( 'product #%1$d · %2$s', 'dazont-ecom' ),
-														$dze_tid,
-														(string) ( $dze_route[ $dze_how ] ?? $dze_how )
-													)
-													: (string) ( $dze_route[ $dze_how ] ?? $dze_how ) );
-												echo '' !== $dze_name ? ' · ' . esc_html( $dze_name ) : '';
-												?>
-											<?php if ( '' !== (string) ( $dze_smp['slug'][ $dze_code ] ?? '' ) ) : ?>
-												<br><strong><?php
-												printf(
-													/* translators: %s: the slug both pages share */
-													esc_html__( 'Its page in WordPress still uses the English address (%s) — edit that product\'s permalink in WordPress to translate it.', 'dazont-ecom' ),
-													esc_html( (string) $dze_smp['slug'][ $dze_code ] )
-												);
-												?></strong>
-											<?php endif; ?>
-											</span>
-										<?php endif; ?>
-									</td>
-								</tr>
-							<?php endforeach; ?>
-							</tbody>
-						</table>
-					<?php endif; ?>
-					<p class="description" style="max-width:640px;">
-						<?php
-						printf(
-							/* translators: %s: a link to Klaviyo's own translation settings */
-							esc_html__( 'Klaviyo serves each contact the language written on his profile, and which property it reads is set in %s. This plugin cannot see that setting — it reads your contacts instead, and the column above says how many of them carry each language.', 'dazont-ecom' ),
-							'<a href="https://www.klaviyo.com/settings" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Klaviyo → Settings → Translations ↗', 'dazont-ecom' ) . '</a>'
-						);
-						?>
+							// WPML's own languages, drawn WPML's own way. The
+							// per-language table that used to be here explained
+							// a mechanism nobody has to know, and its last
+							// column broke one word per line.
+							echo method_exists( 'DZE_Wpml', 'flags_html' )
+								? DZE_Wpml::flags_html( $dze_tgt ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+								: esc_html( strtoupper( implode( ', ', $dze_tgt ) ) );
+							?>
+						<?php endif; ?>
 					</p>
+					<?php if ( $dze_tgt && self::i18n_on() ) : ?>
+						<p style="margin:8px 0 0;">
+							<?php esc_html_e( 'Klaviyo:', 'dazont-ecom' ); ?>
+							<strong style="color:<?php echo $dze_on ? '#00794b' : '#996800'; ?>;">
+								<?php echo $dze_on
+									? esc_html__( 'ready to serve them', 'dazont-ecom' )
+									: esc_html__( 'no contact carries a language yet', 'dazont-ecom' ); ?>
+							</strong>
+							<button type="button" class="button button-small" id="dze-klav-loc" style="margin-left:8px;" <?php disabled( ! $has_key ); ?>><?php esc_html_e( 'Check again', 'dazont-ecom' ); ?></button>
+							<span id="dze-klav-loc-msg" style="margin-left:8px;font-size:13px;"></span>
+						</p>
+						<?php if ( ! $dze_on ) : ?>
+							<?php // The condition outside the plugin, said where the setting is made — never in a changelog. ?>
+							<p class="description" style="max-width:640px;">
+								<?php
+								printf(
+									/* translators: %s: a link to Klaviyo's own translation settings */
+									esc_html__( 'Klaviyo serves each contact the language written on his profile. Set which property it reads in %s, and make sure your contacts carry it — without that every reader gets the English email, however many languages are written here.', 'dazont-ecom' ),
+									'<a href="https://www.klaviyo.com/settings" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Klaviyo → Settings → Translations ↗', 'dazont-ecom' ) . '</a>'
+								);
+								?>
+							</p>
+						<?php endif; ?>
+					<?php endif; ?>
 					<script>
 					jQuery( function ( $ ) {
 						$( '#dze-klav-loc' ).on( 'click', function () {
