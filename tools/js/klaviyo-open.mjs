@@ -155,6 +155,22 @@ await page.route( 'http://dze.test/ajax*', route => {
 			success: true, data: { subject: 'Written subject', preview: 'Written preview',
 				body: '<h1>Sale</h1><img src="picture" />', picture: 1 } } ) } );
 	}
+	if ( 'dze_klav_i18nsave' === asked ) {
+		// What the server really answers: the ROW, drawn by the one function
+		// that draws it on the page. The browser composes no sentence of its
+		// own, so a translated email reads the same before and after F5.
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
+			success: true, data: { done: 43, langs: [ 'fr', 'de' ], note: 'Links point at the FR, DE pages of the shop.',
+				state: '<span class="dze-mail-synced">&#10003; Synced with Klaviyo · draft</span>'
+					+ '<span class="dze-mail-langs"><span class="dze-langs">'
+					+ '<span class="dze-lang is-done"><span class="dze-lang-code">FR</span></span>'
+					+ '<span class="dze-lang is-done"><span class="dze-lang-code">DE</span></span>'
+					+ '</span><span class="dze-why" title="Translated — 43 texts · Links point at the FR, DE pages of the shop.">i</span></span>'
+					+ '<div class="dze-mail-does">'
+					+ '<button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>'
+					+ '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
+					+ '<span class="dze-mail-sched-msg description"></span></div>' } } ) } );
+	}
 	if ( 'dze_klav_image' === asked ) {
 		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
 			// A picture the page can really show without leaving the machine:
@@ -229,8 +245,17 @@ ok( 'writes each one',
 	posted.filter( a => 'dze_klav_i18n' === a ).length, 2 );
 ok( 'and files them in a single call',
 	posted.filter( a => 'dze_klav_i18nsave' === a ).length, 1 );
-ok( 'the row says what happened',
-	/Translated/.test( await page.textContent( '.dze-mail-langs' ) ), true );
+// The end state is the SERVER'S cell, never a sentence the browser wrote:
+// the row used to say "Translated — 43 texts in FR, PL, ES" in its own words
+// and something else after a reload.
+ok( 'the row is redrawn by the server',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail[data-id="mail1"] .dze-lang.is-done' ).length ), 2 );
+ok( 'the counting is behind the i, not on the row',
+	/Translated — 43 texts/.test( await page.textContent( '.dze-mail[data-id="mail1"] .dze-mail-state' ) ), false );
+ok( 'and it is in the i',
+	/Translated — 43 texts/.test( await page.getAttribute( '.dze-mail[data-id="mail1"] .dze-why', 'title' ) ), true );
+ok( 'the languages are there without a reload',
+	await page.isVisible( '.dze-mail[data-id="mail1"] .dze-langs' ), true );
 ok( 'and nothing was raised on the way', errors, [] );
 
 // The day an email goes out: tomorrow at the earliest, and a date typed by
@@ -441,8 +466,10 @@ ok( 'nothing was raised on the bench', errors, [] );
 // the bottom never said WHICH email was travelling nor which one failed.
 // One email succeeds, the row it belongs to ends on its note and its link.
 await page.unroute( 'http://dze.test/ajax*' );
+posted.length = 0;
 await page.route( 'http://dze.test/ajax*', route => {
 	const body = new URLSearchParams( route.request().postData() || '' );
+	posted.push( body.get( 'action' ) );
 	if ( 'dze_klav_draft' === body.get( 'action' ) ) {
 		route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify(
 			'mail1' === body.get( 'email' )
@@ -459,6 +486,29 @@ await page.route( 'http://dze.test/ajax*', route => {
 				} }
 				: { success: false, data: { message: 'Klaviyo said no.' } }
 		) } );
+		return;
+	}
+	// Putting a promotion in Klaviyo TRANSLATES it in the same run: a template
+	// rewritten in English leaves its translations describing the email it used
+	// to be. So the chain answers here as it does anywhere else.
+	if ( 'dze_klav_langs' === body.get( 'action' ) ) {
+		route.fulfill( { status: 200, contentType: 'application/json',
+			body: JSON.stringify( { success: true, data: { langs: [ 'fr', 'de' ] } } ) } );
+		return;
+	}
+	if ( 'dze_klav_i18nsave' === body.get( 'action' ) ) {
+		route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
+			success: true, data: { done: 40, langs: [ 'fr', 'de' ],
+				state: '<span class="dze-mail-synced">\u2713 Synced with Klaviyo \u00b7 draft</span>'
+					+ '<a href="https://klaviyo.test/campaign/C1" target="_blank" rel="noopener noreferrer">Open in Klaviyo \u2197</a>'
+					+ '<span class="dze-mail-langs"><span class="dze-langs">'
+					+ '<span class="dze-lang is-done"><span class="dze-lang-code">FR</span></span>'
+					+ '<span class="dze-lang is-done"><span class="dze-lang-code">DE</span></span>'
+					+ '</span></span>'
+					+ '<div class="dze-mail-does">'
+					+ '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
+					+ '<button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>'
+					+ '<span class="dze-mail-sched-msg description"></span></div>' } } ) } );
 		return;
 	}
 	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
@@ -486,9 +536,15 @@ ok( 'the row can now be scheduled',
 	await page.evaluate( () => !! document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-sched' ) ), true );
 ok( 'and translated',
 	await page.evaluate( () => !! document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-i18n' ) ), true );
-ok( 'and says which languages are open',
-	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-langs' )?.textContent ) ) || '',
-	'EN written, FR, DE open — not translated yet' );
+// "Put them all in Klaviyo > devrait aussi traduire directement." It does, in
+// the same run and on the same row, through the very function the Translate
+// button uses.
+ok( 'the run translated it too',
+	posted.filter( a => 'dze_klav_i18nsave' === a ).length, 1 );
+ok( 'and its languages are written on the row',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail[data-id="mail1"] .dze-lang.is-done' ).length ), 2 );
+ok( 'the one that failed was not translated',
+	posted.filter( a => 'dze_klav_i18n' === a ).length, 2 );
 // The note lives inside that cell: replacing the cell must not throw it away.
 ok( 'the note survives the redraw',
 	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-note' )?.textContent ) ) || '', 'In Klaviyo ✓' );

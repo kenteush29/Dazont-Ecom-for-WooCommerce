@@ -3338,7 +3338,7 @@ final class DZE_Klaviyo {
 	 *
 	 * @return array{done:int,langs:string[],skipped:int}
 	 */
-	public static function save_translations( string $rule_id, string $email_id ): array {
+	public static function save_translations( string $rule_id, string $email_id, array $failed = [], string $why = '' ): array {
 		[ $id, $texts, , $targets, $body_id, $values ] = self::collection_of( $rule_id, $email_id );
 		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
 		$done = [];
@@ -3408,6 +3408,13 @@ final class DZE_Klaviyo {
 				'texts'      => $words,
 				// Kept, not just answered: the row has to still say it tomorrow.
 				'links_note' => $link_note,
+				// And what did NOT get written, with the reason as it came
+				// back. "Translated — 43 texts in FR, PL, ES · DE — The
+				// translation did not finish. (504)" named no step and no
+				// remedy; the row now says which language, what refused, and
+				// what to press.
+				'i18n_fail'  => array_values( array_filter( array_map( 'strval', $failed ) ) ),
+				'i18n_why'   => trim( $why ),
 			] ),
 		] );
 		return [
@@ -3419,6 +3426,12 @@ final class DZE_Klaviyo {
 			// nobody can see is a fix nobody believes.
 			'links'   => count( $write ) - $words,
 			'note'    => $link_note,
+			// The row as the PAGE draws it. The browser used to compose its own
+			// sentences here — "Translated — 43 texts in FR, PL, ES" beside a
+			// links note — so a translated email read one way until it was
+			// reloaded and another way after. One cell, one wording, one place
+			// it is built.
+			'state'   => self::state_cell( $email_id, self::email_for( $rule_id, $email_id ) ),
 		];
 	}
 
@@ -3663,6 +3676,12 @@ final class DZE_Klaviyo {
 		if ( '' === $rule || '' === $email ) {
 			wp_send_json_error( [ 'message' => __( 'Which email? Save the promotion first, then translate.', 'dazont-ecom' ) ] );
 		}
+		// Asked before a model call is spent: a scheduled campaign cannot take
+		// the answer anyway.
+		$locked = self::locked_reason( $rule, $email );
+		if ( '' !== $locked ) {
+			wp_send_json_error( [ 'message' => $locked ] );
+		}
 		try {
 			// One language, written and put aside. The languages are asked for
 			// at the same time and nothing reaches Klaviyo until they are all
@@ -3735,8 +3754,25 @@ final class DZE_Klaviyo {
 		if ( '' === $rule || '' === $email ) {
 			wp_send_json_error( [ 'message' => __( 'Which email? Save the promotion first, then translate.', 'dazont-ecom' ) ] );
 		}
+		// A campaign on its way out is not one to rewrite: Klaviyo locks a
+		// scheduled campaign, and a translation written into it either fails
+		// or lands in something the shop believes it has already checked.
+		$dze_shut = self::locked_reason( $rule, $email );
+		if ( '' !== $dze_shut ) {
+			wp_send_json_error( [ 'message' => $dze_shut ] );
+		}
+		// Which languages did not come back, and what the browser was told
+		// when they did not. Sanitised like anything else that arrives.
+		$failed = [];
+		foreach ( (array) ( $_POST['failed'] ?? [] ) as $one ) {
+			$one = strtolower( sanitize_text_field( (string) wp_unslash( $one ) ) );
+			if ( preg_match( '/^[a-z]{2}(-[a-z]{2})?$/', $one ) ) {
+				$failed[] = $one;
+			}
+		}
+		$why = isset( $_POST['why'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['why'] ) ) : '';
 		try {
-			$got = self::save_translations( $rule, $email );
+			$got = self::save_translations( $rule, $email, $failed, $why );
 		} catch ( Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
@@ -6263,6 +6299,31 @@ final class DZE_Klaviyo {
 	}
 
 	/**
+	 * Why this email may not be written to in Klaviyo, or '' when it may.
+	 *
+	 * "Côté UI il est impossible d'éditer un email après l'avoir schedulé."
+	 * It is: Klaviyo locks a campaign the moment it is queued to go out, and
+	 * a shop that presses Update or Translate on one is either refused by the
+	 * API or, worse, believes it has changed something. So the buttons are not
+	 * offered — and the answer is the same here, because a screen is not a
+	 * lock: one sentence, naming the one thing to do about it.
+	 */
+	public static function locked_reason( string $rule_id, string $email_id ): string {
+		$mail  = self::emails_for( $rule_id )[ $email_id ] ?? [];
+		$draft = (array) ( $mail['draft'] ?? [] );
+		if ( empty( $draft['campaign'] ) ) {
+			return '';
+		}
+		if ( ! empty( $draft['sent'] ) ) {
+			return __( 'This campaign has already gone out. What people received is not ours to rewrite.', 'dazont-ecom' );
+		}
+		if ( ! empty( $draft['scheduled'] ) ) {
+			return __( 'This campaign is scheduled in Klaviyo, which locks it. Press Unschedule first, change what you need, then schedule it again.', 'dazont-ecom' );
+		}
+		return '';
+	}
+
+	/**
 	 * The rows put back in line with what Klaviyo actually HOLDS.
 	 *
 	 * A row reads from what was filed here, and the account moves without us:
@@ -6407,6 +6468,13 @@ final class DZE_Klaviyo {
 	public static function ajax_draft(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
+		// A campaign already on its way out is not rewritten from here. The
+		// row does not offer the button; this is the same answer for anything
+		// that reaches the endpoint another way.
+		$locked = self::locked_reason( $rule_id, $email_id );
+		if ( '' !== $locked ) {
+			wp_send_json_error( [ 'message' => $locked ] );
+		}
 		$send = ! empty( $_POST['send'] );
 		if ( $send ) {
 			// An email written for the 24th is not an email to send today, and
@@ -7142,6 +7210,8 @@ final class DZE_Klaviyo {
 			// The translation pass takes one request per language, so the
 			// screen has to say it is working rather than look stuck.
 			'i18nBusy'  => __( 'Translating…', 'dazont-ecom' ),
+			/* translators: %s: a language code, e.g. "DE" — which language did not come back */
+			'i18nWriteFail' => __( 'Writing %s did not finish', 'dazont-ecom' ),
 			/* translators: %s: a language, %i: which one, %n: how many in all */
 			'i18nDoing' => __( 'Writing %s… (%i of %n)', 'dazont-ecom' ),
 			'i18nSaving'=> __( 'Filing them in Klaviyo…', 'dazont-ecom' ),
@@ -7511,6 +7581,28 @@ CSS;
 				<?php endif; ?>
 			</span>
 			<?php
+			// What did NOT get written, and why. A language missing from the
+			// flags is a fact; the REASON it is missing is the thing nobody
+			// could find: "The translation did not finish. (504)" named no
+			// language, no step and nothing to press.
+			$dze_lost = array_values( array_filter( (array) ( $mail['draft']['i18n_fail'] ?? [] ) ) );
+			if ( $dze_lost ) :
+				?>
+				<span class="dze-mail-lost" style="color:#b26a00;font-size:12px;">
+					<?php
+					printf(
+						/* translators: %s: the languages that were not written, e.g. "DE" */
+						esc_html__( 'Not written in %s — press Translate again; the others are kept.', 'dazont-ecom' ),
+						esc_html( strtoupper( implode( ', ', $dze_lost ) ) )
+					);
+					$dze_lost_why = trim( (string) ( $mail['draft']['i18n_why'] ?? '' ) );
+					if ( '' !== $dze_lost_why ) :
+						?>
+						<span class="dze-why is-ko" tabindex="0" role="button" title="<?php echo esc_attr( $dze_lost_why ); ?>" aria-label="<?php echo esc_attr( $dze_lost_why ); ?>">i</span>
+					<?php endif; ?>
+				</span>
+			<?php endif; ?>
+			<?php
 			// A link that did NOT move is the one thing here worth a row of
 			// its own: the email is translated and its readers land on the
 			// English page, which nothing else on this screen would show.
@@ -7531,21 +7623,40 @@ CSS;
 			// here rather than a trip to Klaviyo — which is also what lets a
 			// promotion be handed over without a person.
 			?>
+			<?php
+			// A campaign Klaviyo has LOCKED — scheduled, or already gone out —
+			// takes no writing. The buttons that would write into it are not
+			// drawn at all, and the row says the one thing to do about it: a
+			// button that answers "no" when pressed is a button that should
+			// not have been there.
+			$dze_shut = $dze_sent_at || $dze_on;
+			if ( $dze_shut ) :
+				?>
+				<span class="dze-mail-shut" style="color:#646970;font-size:12px;">
+					<?php
+					echo esc_html( $dze_sent_at
+						? __( 'Sent — nothing here can change it any more.', 'dazont-ecom' )
+						: __( 'Scheduled in Klaviyo, which locks it: unschedule it to change anything.', 'dazont-ecom' ) );
+					?>
+				</span>
+			<?php endif; ?>
 			<div class="dze-mail-does">
 				<?php
 				// This one email, put in Klaviyo on its own. Asked for by name
 				// it always goes, whether or not anything changed — which is
 				// what makes it a button and not a suggestion.
 				?>
-				<button type="button" class="button button-small dze-mail-push" data-email="<?php echo esc_attr( $mail_id ); ?>">
-					<?php esc_html_e( 'Update in Klaviyo', 'dazont-ecom' ); ?>
-				</button>
-				<?php if ( ! $dze_noday ) : ?>
+				<?php if ( ! $dze_shut ) : ?>
+					<button type="button" class="button button-small dze-mail-push" data-email="<?php echo esc_attr( $mail_id ); ?>">
+						<?php esc_html_e( 'Update in Klaviyo', 'dazont-ecom' ); ?>
+					</button>
+				<?php endif; ?>
+				<?php if ( ! $dze_noday && ! $dze_sent_at ) : ?>
 					<button type="button" class="button button-small dze-mail-sched" data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
 						<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
-				<?php if ( $dze_tgt ) : ?>
+				<?php if ( $dze_tgt && ! $dze_shut ) : ?>
 					<button type="button" class="button button-small dze-mail-i18n" data-email="<?php echo esc_attr( $mail_id ); ?>">
 						<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
 					</button>
