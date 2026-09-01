@@ -38,6 +38,9 @@ final class DZE_Klaviyo {
 	public const OPT_MAP  = 'dze_klaviyo_drafts';
 	public const OPT_COPY = 'dze_klaviyo_copy';   // rule id => the email written for it.
 
+	/** The fewest days between two emails, shipped. The shop may say otherwise. */
+	public const GAP = 3;
+
 	private const API   = 'https://a.klaviyo.com/api/';
 	// The API revision Klaviyo answers under. It is a DATE, and Klaviyo retires
 	// old ones: pinned at 2025-07-15 this plugin started getting "revision date
@@ -878,6 +881,9 @@ final class DZE_Klaviyo {
 		}
 		if ( array_key_exists( 'days', $in ) ) {
 			$out['days'] = max( 1, min( 365, (int) $in['days'] ) );
+		}
+		if ( array_key_exists( 'gap', $in ) ) {
+			$out['gap'] = max( 0, min( 30, (int) $in['gap'] ) );
 		}
 		if ( array_key_exists( 'per_row', $in ) ) {
 			$out['per_row'] = max( 1, min( 4, (int) $in['per_row'] ) );
@@ -1861,6 +1867,62 @@ final class DZE_Klaviyo {
 			return (int) ( $end ? max( $start, $end + $offset ) : $start );
 		}
 		return (int) ( $start + $offset );
+	}
+
+	/**
+	 * The fewest days the shop wants between two emails — ANY two.
+	 *
+	 * "J'ai un email qui part le 05 pour l'offre du back to school. L'offre du
+	 * patriot day suit juste derrière. Le warm-up est prévu le 06/09. Ce n'est
+	 * pas bon." Two promotions do not know about each other, and the list a
+	 * reader is on is one list: he gets both. Three days is the shop's rule
+	 * and the shipped answer; it is a field because a shop that mails weekly
+	 * and a shop that mails daily are two different shops.
+	 */
+	public static function gap(): int {
+		$saved = self::conf( 'gap', '' );
+		return '' === (string) $saved ? self::GAP : max( 0, min( 30, (int) $saved ) );
+	}
+
+	/**
+	 * Every email the shop has a day for, across EVERY promotion.
+	 *
+	 * One calendar, because the clash is never inside one event: it is the
+	 * last-chance of one promotion falling the day before the warm-up of the
+	 * next. Read from what is stored, no query of its own beyond the two
+	 * options both screens already read.
+	 *
+	 * @param string $skip A promotion to leave out — its own emails are on the
+	 *                     screen asking, where their days are being edited.
+	 * @return array<int,array{day:string,rule:string,label:string}>
+	 */
+	public static function calendar( string $skip = '' ): array {
+		$all   = get_option( self::OPT_COPY, [] );
+		$all   = is_array( $all ) ? $all : [];
+		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
+		$out   = [];
+		foreach ( $all as $rule_id => $one ) {
+			$rule_id = (string) $rule_id;
+			if ( '' === $rule_id || $rule_id === $skip ) {
+				continue;
+			}
+			$title = trim( (string) ( $rules[ $rule_id ]['title'] ?? '' ) );
+			foreach ( (array) ( $one['emails'] ?? [] ) as $mail ) {
+				$day = self::just_day( (string) ( $mail['when'] ?? '' ) );
+				if ( '' === $day ) {
+					continue;
+				}
+				$out[] = [
+					'day'   => $day,
+					'rule'  => $rule_id,
+					// Named as the shop names it: a warning that says "another
+					// email" sends somebody hunting through five promotions.
+					'label' => trim( ( '' !== $title ? $title . ' — ' : '' ) . self::email_name( (array) $mail ) ),
+				];
+			}
+		}
+		usort( $out, static fn( $a, $b ) => strcmp( $a['day'], $b['day'] ) );
+		return $out;
 	}
 
 	/** The day an email of this type goes out, from the promotion's own window. */
@@ -6966,6 +7028,18 @@ final class DZE_Klaviyo {
 				// had three, all of them "Launch", all three announcing that
 				// the sale opened today.
 				'sameType' => __( 'Same type as another email — both will be written as that moment.', 'dazont-ecom' ),
+				// Two emails too close together, whichever promotions they
+				// belong to: the reader is on one list and gets them both.
+				/* translators: 1: the other email, named with its promotion, 2: the day it goes out */
+				'clashSame' => __( 'Same day as %1$s (%2$s).', 'dazont-ecom' ),
+				/* translators: 1: the other email, named with its promotion, 2: the day it goes out */
+				'clashOne'  => __( '1 day from %1$s (%2$s).', 'dazont-ecom' ),
+				/* translators: 1: how many days apart, 2: the other email, 3: the day it goes out */
+				'clashNear' => __( '%1$d days from %2$s (%3$s).', 'dazont-ecom' ),
+				/* translators: %d: the fewest days the shop wants between two emails */
+				'clashWant' => __( 'Leave %d days between two emails.', 'dazont-ecom' ),
+				/* translators: %s: the nearest day that clears every other email */
+				'moveTo'    => __( 'Move it to %s', 'dazont-ecom' ),
 				// The note a batch writes on the row it is working on: which
 				// email is travelling, and how its trip ended.
 				'rowWriting' => __( 'Writing this email…', 'dazont-ecom' ),
@@ -7120,6 +7194,10 @@ final class DZE_Klaviyo {
 				}
 				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
 				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
+				/* Another email too close to this one. Same voice as the
+				   duplicate-type warning above: one line, amber, under the
+				   subject, never a badge fighting the state column. */
+				.dze-mail-clash{display:none;font-size:12px;color:#b26a00;font-weight:600;}
 				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
 				.dze-mail-links,.dze-mail-langs{white-space:normal;}
 				.dze-mail-synced{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:9px;
@@ -7371,7 +7449,14 @@ CSS;
 			</p>
 		<?php endif; ?>
 
-		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
+		<?php
+		// Every email of every OTHER promotion, with the day it goes out. The
+		// rows of THIS one are on the screen already, in their own fields,
+		// where their days are being edited — so the check reads both from one
+		// place and cannot go out of step with what is on screen.
+		$dze_cal = self::calendar( $rule_id );
+		?>
+		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-gap="<?php echo esc_attr( (string) self::gap() ); ?>" data-calendar="<?php echo esc_attr( (string) wp_json_encode( $dze_cal ) ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
 			<input type="hidden" name="dze_email_shown" value="1" />
 			<div class="dze-mail-list">
@@ -7386,6 +7471,8 @@ CSS;
 							<strong class="dze-mail-name"><?php echo esc_html( self::email_name( $mail ) ); ?></strong>
 							<span class="dze-mail-when"><?php echo esc_html( $ts ? wp_date( $fmt, $ts ) : $when ); ?><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 							<span class="dze-mail-subject"><?php echo esc_html( (string) ( $mail['subject'] ?? '' ) ); ?></span>
+							<?php // Filled by the screen: another email falling too close to this one. ?>
+							<span class="dze-mail-clash"></span>
 							<?php if ( ! empty( $mail['auto_made'] ) ) : ?>
 								<span class="dze-mail-check">
 									<?php esc_html_e( 'Written by the autopilot — read it before it goes anywhere.', 'dazont-ecom' ); ?>
@@ -7439,6 +7526,7 @@ CSS;
 						<strong class="dze-mail-name"></strong>
 						<span class="dze-mail-when"><span class="dze-smart"><?php esc_html_e( 'Smart Send Time', 'dazont-ecom' ); ?></span></span>
 						<span class="dze-mail-subject"></span>
+						<span class="dze-mail-clash"></span>
 					</div>
 					<div class="dze-mail-state"></div>
 					<div class="dze-mail-act">
@@ -7500,6 +7588,9 @@ CSS;
 							// refused after the fact. ?>
 							<input type="date" id="dze-klav-e-when" min="<?php echo esc_attr( self::earliest_day() ); ?>" />
 							<span id="dze-klav-e-kept" class="description" style="margin-left:8px;"></span>
+							<?php // The other emails of the shop, whichever promotion they belong to. ?>
+							<span id="dze-klav-e-clash" style="display:none;margin-left:8px;font-size:13px;color:#b26a00;"></span>
+							<button type="button" class="button button-small" id="dze-klav-e-free" style="display:none;margin-left:6px;"></button>
 							<span class="dze-smart" title="<?php esc_attr_e( 'Klaviyo works out, for each person on the list, the hour that reader actually opens his mail.', 'dazont-ecom' ); ?>">
 								<?php esc_html_e( 'Hour: Klaviyo Smart Send Time', 'dazont-ecom' ); ?>
 							</span>
@@ -7714,6 +7805,15 @@ CSS;
 						</fieldset>
 						<p class="description" style="max-width:820px;">
 							<?php esc_html_e( 'It runs in the background, days before anything goes out, under the monthly budget; the event shows where it stands. An email you wrote or edited yourself is never touched, and deleting every email of an event makes the pilot plan that campaign afresh.', 'dazont-ecom' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="dze-klav-gap"><?php esc_html_e( 'Days between two emails', 'dazont-ecom' ); ?></label></th>
+					<td>
+						<input type="number" id="dze-klav-gap" name="<?php echo esc_attr( self::OPT . '[gap]' ); ?>" value="<?php echo esc_attr( (string) self::gap() ); ?>" min="0" max="30" class="small-text" />
+						<p class="description" style="max-width:820px;">
+							<?php esc_html_e( 'Counted across ALL promotions, not within one: the reader is on one list and gets them all. An email that falls closer than this to another says so on its row, whichever promotion the other belongs to, and offers the nearest free day. Nothing is moved for you — which of the two gives way is your decision.', 'dazont-ecom' ); ?>
 						</p>
 					</td>
 				</tr>
