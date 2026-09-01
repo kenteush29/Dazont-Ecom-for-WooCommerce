@@ -129,6 +129,53 @@ final class DZE_Wpml {
 	}
 
 	/**
+	 * The same page of this shop, in another language.
+	 *
+	 * A translated email that keeps the English links is an email translated
+	 * for nobody: the reader is sent to a page in a language he did not ask
+	 * for, and the shop's own German pages are never seen. WPML holds the
+	 * answer twice — the TRANSLATION of the post, which has its own slug, and
+	 * the language's URL rule (a directory, a subdomain, a parameter). The
+	 * translation is the better answer and is asked for first; the URL rule is
+	 * what answers for everything that is not a post — the home page, a shop
+	 * page, a category.
+	 *
+	 * An address that is not this shop's — a Klaviyo variable, a photograph on
+	 * their CDN, another site — comes back exactly as it went in. Falling back
+	 * to the English page is a page; a mangled URL is a dead link.
+	 */
+	public static function url_in_language( string $url, string $lang ): string {
+		$url  = trim( $url );
+		$lang = trim( $lang );
+		if ( ! self::is_active() || '' === $url || '' === $lang || $lang === self::default_language() ) {
+			return $url;
+		}
+		$host = wp_parse_url( $url, PHP_URL_HOST );
+		$mine = wp_parse_url( home_url(), PHP_URL_HOST );
+		if ( ! $host || ! $mine || strtolower( (string) $host ) !== strtolower( (string) $mine ) ) {
+			return $url;
+		}
+		// Asked once per address however many languages want it: url_to_postid()
+		// is a query, and an email carries the same product link twice — once on
+		// the photograph, once on the button.
+		static $posts = [];
+		$key = md5( $url );
+		if ( ! array_key_exists( $key, $posts ) ) {
+			$posts[ $key ] = (int) url_to_postid( $url );
+		}
+		if ( $posts[ $key ] > 0 ) {
+			$type = (string) ( get_post_type( $posts[ $key ] ) ?: 'post' );
+			$id   = (int) apply_filters( 'wpml_object_id', $posts[ $key ], $type, true, $lang );
+			$link = $id ? get_permalink( $id ) : '';
+			if ( is_string( $link ) && '' !== $link ) {
+				return $link;
+			}
+		}
+		$conv = apply_filters( 'wpml_permalink', $url, $lang, true );
+		return ( is_string( $conv ) && '' !== $conv ) ? $conv : $url;
+	}
+
+	/**
 	 * Canonical (default-language) id for a post. Falls back to the given id
 	 * when WPML is inactive or no translation exists.
 	 */

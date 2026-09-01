@@ -295,7 +295,16 @@ await page.route( 'http://dze.test/ajax*', route => {
 	if ( 'dze_klav_draft' === body.get( 'action' ) ) {
 		route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify(
 			'mail1' === body.get( 'email' )
-				? { success: true, data: { url: 'https://klaviyo.test/campaign/C1' } }
+				? { success: true, data: {
+					url: 'https://klaviyo.test/campaign/C1',
+					// The state cell, as PHP renders it: what the row has just
+					// earned by reaching Klaviyo.
+					state: '<a href="https://klaviyo.test/campaign/C1" target="_blank" rel="noopener noreferrer">Draft in Klaviyo \u2197</a>'
+						+ '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
+						+ '<span class="dze-mail-sched-msg description"></span>'
+						+ '<span class="dze-mail-langs">EN written, FR, DE open \u2014 not translated yet</span>'
+						+ '<button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate it</button>',
+				} }
 				: { success: false, data: { message: 'Klaviyo said no.' } }
 		) } );
 		return;
@@ -316,6 +325,19 @@ ok( 'the row that made it says so',
 	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-note' )?.textContent ) ) || '', 'In Klaviyo ✓' );
 ok( 'and carries its fresh draft link',
 	await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-state a' )?.getAttribute( 'href' ) ), 'https://klaviyo.test/campaign/C1' );
+// "Tout ça apparaît seulement après rafraichissement de la page": the row used
+// to keep the bare link and nothing else. Everything the email has just earned
+// must be there to press, without reloading anything.
+ok( 'the row can now be scheduled',
+	await page.evaluate( () => !! document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-sched' ) ), true );
+ok( 'and translated',
+	await page.evaluate( () => !! document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-i18n' ) ), true );
+ok( 'and says which languages are open',
+	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-langs' )?.textContent ) ) || '',
+	'EN written, FR, DE open — not translated yet' );
+// The note lives inside that cell: replacing the cell must not throw it away.
+ok( 'the note survives the redraw',
+	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-note' )?.textContent ) ) || '', 'In Klaviyo ✓' );
 ok( 'the row that failed says why, in red',
 	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail9"] .dze-mail-note' )?.textContent ) ) || '', 'Klaviyo said no.' );
 ok( 'nothing was raised by the batch', errors, [] );

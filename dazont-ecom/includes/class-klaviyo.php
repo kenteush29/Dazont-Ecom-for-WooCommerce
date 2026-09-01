@@ -1749,7 +1749,7 @@ final class DZE_Klaviyo {
 			__( 'The products it may show: the best-sellers of the window set below, with their names, links, photographs and both prices — the ones another email of the promotion already showed moved to the end and marked, so this one reads the unused ones first — and the rule that a product is placed with [[PRODUCT n]] and never written by hand.', 'dazont-ecom' ),
 			__( 'The opening picture: the one this email already has, or the permission to describe one.', 'dazont-ecom' ),
 			__( 'Your theme\'s own type and colours: heading font, text font, text colour, link colour, text size.', 'dazont-ecom' ),
-			__( 'The shop\'s own rules, which override the instructions: the header and footer already carry the service promises, the body is written inside the column it is given, a product is never written by hand.', 'dazont-ecom' ),
+			__( 'The shop\'s own rules, which override the instructions: the header and footer already carry the service promises, the body is written inside the column it is given, a product is never written by hand, and the preview line is six words at the very most — an inbox shows about forty characters and the plugin cuts what is longer.', 'dazont-ecom' ),
 			__( 'The language to write in, and the answer format — subject, preview line, picture, body.', 'dazont-ecom' ),
 		];
 	}
@@ -2736,6 +2736,44 @@ final class DZE_Klaviyo {
 		return $out;
 	}
 
+	/**
+	 * The fields that are NOT words, and what each language must hold instead.
+	 *
+	 * Klaviyo asks for a value in every language for every field it can carry,
+	 * and a field left empty is a field it shows in red — the shop reads
+	 * "not translated" on an email that is. Worse than the colour: the LINKS
+	 * were among those fields. A German reader clicked a product and landed on
+	 * the English page, on a shop that has German pages, because nothing ever
+	 * filled the German href.
+	 *
+	 * So every field a model has no business writing is filled here, by rule
+	 * and not by a model: a link to one of the shop's own pages becomes that
+	 * same page in the reader's language, and everything else — a photograph's
+	 * address, the sender's name, a Klaviyo variable — is carried over exactly
+	 * as it stands. No call, no cost, and no chance of a translated URL.
+	 *
+	 * @param array    $values  What Klaviyo answered for the collection.
+	 * @param string[] $targets The languages wanted.
+	 * @return array<string,array<string,string>> value id => lang => value
+	 */
+	private static function mechanical( array $values, array $targets ): array {
+		$words = self::translatable( $values );
+		$out   = [];
+		foreach ( $values as $row ) {
+			$id   = (string) ( $row['id'] ?? '' );
+			$said = (string) ( $row['source_value'] ?? '' );
+			if ( '' === $id || '' === trim( $said ) || isset( $words[ $id ] ) ) {
+				continue;
+			}
+			foreach ( $targets as $lang ) {
+				$out[ $id ][ $lang ] = method_exists( 'DZE_Wpml', 'url_in_language' )
+					? DZE_Wpml::url_in_language( $said, (string) $lang )
+					: $said;
+			}
+		}
+		return $out;
+	}
+
 	/** PHP 7 has no str_ends_with, and this plugin still runs on shops that do not. */
 	private static function str_ends( string $haystack, string $needle ): bool {
 		$at = strlen( $haystack ) - strlen( $needle );
@@ -2769,11 +2807,12 @@ final class DZE_Klaviyo {
 	/**
 	 * What Klaviyo holds for this email, and what may be asked of it.
 	 *
-	 * @return array{0:string,1:array<string,string>,2:string,3:string[],4:string}
+	 * @return array{0:string,1:array<string,string>,2:string,3:string[],4:string,5:array}
 	 *         the collection id as it goes in the PATH, the texts worth
-	 *         translating, the source language, the languages wanted, and the
+	 *         translating, the source language, the languages wanted, the
 	 *         collection id as it goes in the BODY — Klaviyo wants the message
-	 *         escaped in one and plain in the other.
+	 *         escaped in one and plain in the other — and every value Klaviyo
+	 *         holds, words and addresses alike, for the fields filled by rule.
 	 */
 	private static function collection_of( string $rule_id, string $email_id, string $only = '' ): array {
 		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
@@ -2799,7 +2838,7 @@ final class DZE_Klaviyo {
 		if ( ! $texts ) {
 			throw new RuntimeException( __( 'Klaviyo has no text to translate on that campaign. File the draft again and try once more.', 'dazont-ecom' ) );
 		}
-		return [ $id, $texts, $source, array_values( $targets ), 'campaign-variation::email::' . $msg ];
+		return [ $id, $texts, $source, array_values( $targets ), 'campaign-variation::email::' . $msg, (array) ( $got['data']['attributes']['values'] ?? [] ) ];
 	}
 
 	/**
@@ -2848,7 +2887,7 @@ final class DZE_Klaviyo {
 	 * @return array{done:int,langs:string[],skipped:int}
 	 */
 	public static function save_translations( string $rule_id, string $email_id ): array {
-		[ $id, $texts, , $targets, $body_id ] = self::collection_of( $rule_id, $email_id );
+		[ $id, $texts, , $targets, $body_id, $values ] = self::collection_of( $rule_id, $email_id );
 		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
 		$done = [];
 		$langs = [];
@@ -2864,6 +2903,20 @@ final class DZE_Klaviyo {
 		}
 		if ( ! $done ) {
 			throw new RuntimeException( __( 'Nothing came back from the model. Nothing was written to Klaviyo.', 'dazont-ecom' ) );
+		}
+		// How many pieces of WRITING went in. The row says "24 texts in FR, DE"
+		// and that has to stay the number of texts: the links filled below are
+		// not translations anybody wrote, and counting them would inflate the
+		// only figure the owner has to judge a translation by.
+		$words = count( $done );
+		// The links and the addresses, in the same write as the words. They are
+		// only ever filled for the languages that actually came back: an email
+		// half translated must not claim a German link on a German text that
+		// does not exist.
+		foreach ( self::mechanical( $values, $langs ) as $vid => $per_lang ) {
+			foreach ( $per_lang as $lang => $value ) {
+				$done[ (string) $vid ][ (string) $lang ] = (string) $value;
+			}
 		}
 		$write = [];
 		foreach ( $done as $vid => $per_lang ) {
@@ -2892,13 +2945,17 @@ final class DZE_Klaviyo {
 			'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [
 				'done_langs' => array_values( array_unique( array_merge( $was, $langs ) ) ),
 				'translated' => time(),
-				'texts'      => count( $write ),
+				'texts'      => $words,
 			] ),
 		] );
 		return [
-			'done'    => count( $write ),
+			'done'    => $words,
 			'langs'   => $langs,
-			'skipped' => max( 0, count( $texts ) - count( $write ) ),
+			'skipped' => max( 0, count( $texts ) - $words ),
+			// The links that now point at the reader's own language, said in
+			// the answer because it is the fix the shop asked for and a fix
+			// nobody can see is a fix nobody believes.
+			'links'   => count( $write ) - $words,
 		];
 	}
 
@@ -4957,7 +5014,8 @@ final class DZE_Klaviyo {
 			. "- The header and the footer are added around your body. They ALREADY carry the shop's service promises — worldwide delivery, customer support, secure payment — as badges. Never write those promises in the body: not as a line, not as a reassurance, not as a closing sentence. The reader sees them once, under what you wrote.\n"
 			. "- The body is placed in a column that is already inset from the edges of the card. Do not add an outer frame or a full-width coloured band of your own; write inside the space you are given.\n"
 			. "- Never write the HTML of a product. [[PRODUCT n]] is how a product is placed, and it is the only way.\n"
-			. "- PREVIEW TEXT: eight words at the very most. An inbox shows around forty characters of it — everything past that is written for nobody.\n"
+			. "- PREVIEW TEXT: SIX words at the very most, and under fifty characters. An inbox shows about forty and cuts the rest off mid-word, so everything past that is written for nobody. It is the second half of the sentence the subject began — one concrete thing: the day it ends, or the one product worth opening for. Never a summary of the offer, never a list of the categories on sale, never the discount already said in the subject.\n"
+			. "- Write about the GOODS and about this moment of the promotion, never about the shop's assortment. A sentence that would fit any shop in any week — 'best-sellers across our categories, now discounted' — is a wasted sentence: name the thing, say what it is for, say what it costs now.\n"
 			. "- When other emails of this promotion are listed above, this one has to be recognisable as a DIFFERENT email at a glance: another subject line, other headings, another opening sentence, other products first. If the only difference you can find is the same offer said in other words, you have the wrong angle — go back to what this moment of the promotion is for and write from there.\n"
 			. "\n--- LANGUAGE ---\nWrite in " . $lang . ".\n"
 			. "\n--- OUTPUT ---\nJSON only: {\"subject\":\"…\",\"preview\":\"…\",\"picture\":\"…\",\"body\":\"…\"}, where body is the HTML. No other key, no comment, no markdown fence.";
@@ -5004,19 +5062,21 @@ final class DZE_Klaviyo {
 	/**
 	 * A preview text an inbox can actually show.
 	 *
-	 * The prompt asks for eight words; the model writes thirteen anyway, and a
-	 * rule the code does not hold is a rule that holds until it does not. Cut
-	 * at ninety characters, on a word, because an inbox cuts harder than that
-	 * — what this trims was never going to be read.
+	 * The prompt asks for six words; the model writes thirteen anyway, and a
+	 * rule the code does not hold is a rule that holds until it does not. The
+	 * cap was ninety characters, which let through 'Best-sellers across
+	 * headwear, balaclavas and pouches, now 10% off the whole shop' — eighty
+	 * characters of which an inbox shows the first forty. Sixty, cut on a
+	 * word: what this trims was never going to be read anywhere.
 	 */
 	public static function tight_preview( string $text ): string {
 		$text = trim( $text );
-		if ( mb_strlen( $text ) <= 90 ) {
+		if ( mb_strlen( $text ) <= 60 ) {
 			return $text;
 		}
-		$cut = mb_substr( $text, 0, 90 );
+		$cut = mb_substr( $text, 0, 60 );
 		$at  = (int) mb_strrpos( $cut, ' ' );
-		return rtrim( $at > 40 ? mb_substr( $cut, 0, $at ) : $cut, " ,;:.\u{2026}" );
+		return rtrim( $at > 30 ? mb_substr( $cut, 0, $at ) : $cut, " ,;:.\u{2026}" );
 	}
 
 	/**
@@ -5409,6 +5469,11 @@ final class DZE_Klaviyo {
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
+		// The row, as the page would draw it now. An email that has just
+		// reached Klaviyo can be scheduled and translated, and the screen has
+		// to SAY so at once: showing only a link, and keeping the rest until
+		// somebody reloads, is a screen that knows more than it tells.
+		$made['state'] = self::state_cell( $email_id, self::email_for( $rule_id, $email_id, $rule ) );
 		wp_send_json_success( $made );
 	}
 
@@ -6242,6 +6307,121 @@ final class DZE_Klaviyo {
 	 * button — the four moments ARE the four emails, so there are no ids to
 	 * invent and nothing to keep in step.
 	 */
+	/**
+	 * The state cell of one email row: where it stands in Klaviyo, and the two
+	 * buttons that move it on — Schedule it, Translate it.
+	 *
+	 * One function because the cell is drawn twice: by the page, and by the
+	 * answer to "Put it in Klaviyo" — the row used to come back with only an
+	 * Open link, and Schedule/Translate appeared on the next reload, which is
+	 * a screen saying less than it knows. The AJAX answer carries this same
+	 * markup, so what the row shows after the click IS what a reload shows.
+	 */
+	public static function state_cell( string $mail_id, array $mail ): string {
+		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
+		[ $dze_src, $dze_tgt ] = self::locales();
+		ob_start();
+		?>
+		<?php if ( ! empty( $mail['draft']['campaign'] ) ) : ?>
+			<?php // Nothing is ever sent from here, and the link used to
+			// say only where the draft was — not that Klaviyo is what
+			// sends it, nor what is left to do there. ?>
+			<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
+				<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
+			</a>
+			<?php
+			// Klaviyo answers 200 to a day it then stores empty. What
+			// it KEPT was checked at the hand-over and said once; a
+			// sentence said once is a sentence nobody was reading
+			// when it mattered, so the row keeps saying it. Only when
+			// it is known: an email filed by an older version carries
+			// no answer, and silence is better than a guess.
+			$dze_goes = (string) ( $mail['draft']['goes'] ?? '' );
+			$dze_on   = ! empty( $mail['draft']['scheduled'] ) && '' !== $dze_goes;
+			$dze_noday = array_key_exists( 'day', (array) $mail['draft'] ) && '' === (string) $mail['draft']['day'];
+			if ( $dze_on ) :
+				$dze_ts = strtotime( $dze_goes ) ?: 0;
+				?>
+				<span style="display:block;font-size:12px;color:#00794b;font-weight:600;">
+					<?php
+					printf(
+						/* translators: %s: the day it goes out */
+						esc_html__( 'Scheduled in Klaviyo for %s', 'dazont-ecom' ),
+						esc_html( $dze_ts ? wp_date( $fmt, $dze_ts ) : $dze_goes )
+					);
+					?>
+				</span>
+			<?php elseif ( $dze_noday ) : ?>
+				<span style="display:block;font-size:12px;color:#b26a00;">
+					<?php esc_html_e( 'No date in Klaviyo — choose it there before scheduling.', 'dazont-ecom' ); ?>
+				</span>
+			<?php endif; ?>
+			<?php
+			// Scheduling is what makes the email go out, and it is one
+			// click here rather than a trip to Klaviyo — which is also
+			// what lets a promotion be handed over without a person.
+			if ( ! $dze_noday ) :
+				?>
+				<button type="button" class="button button-small dze-mail-sched" style="margin-top:4px;"
+					data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
+					<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>
+				</button>
+				<span class="dze-mail-sched-msg description" style="display:block;font-size:12px;"></span>
+			<?php endif; ?>
+			<?php
+			// In how many languages this one actually went out. A
+			// shop selling in five markets has to be able to see,
+			// without opening Klaviyo, whether an email is one of
+			// them or all of them. Two different facts, and the
+			// line says which: the languages Klaviyo opened the
+			// campaign for, and the ones we have WRITTEN.
+			$dze_open      = (array) ( $mail['draft']['langs'] ?? [] );
+			$dze_done      = (array) ( $mail['draft']['done_langs'] ?? [] );
+			$dze_when_i18n = $dze_done ? (int) ( $mail['draft']['translated'] ?? 0 ) : 0;
+			$dze_left      = array_values( array_diff( $dze_open, $dze_done ) );
+			?>
+			<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
+				<?php
+				if ( $dze_when_i18n ) {
+					printf(
+						/* translators: 1: how many texts, 2: the languages they were written in */
+						esc_html__( 'Translated — %1$d texts in %2$s', 'dazont-ecom' ),
+						(int) ( $mail['draft']['texts'] ?? 0 ),
+						esc_html( strtoupper( implode( ', ', $dze_done ) ) )
+					);
+					if ( $dze_left ) {
+						printf(
+							/* translators: %s: the languages still to write */
+							esc_html__( ' · %s still to write', 'dazont-ecom' ),
+							esc_html( strtoupper( implode( ', ', $dze_left ) ) )
+						);
+					}
+				} elseif ( $dze_open ) {
+					printf(
+						/* translators: 1: the language it is written in, 2: the languages Klaviyo will accept */
+						esc_html__( '%1$s written, %2$s open — not translated yet', 'dazont-ecom' ),
+						esc_html( strtoupper( $dze_src ) ),
+						esc_html( strtoupper( implode( ', ', $dze_open ) ) )
+					);
+				} else {
+					printf(
+						/* translators: %s: the language it is written in */
+						esc_html__( '%s only — no translation', 'dazont-ecom' ),
+						esc_html( strtoupper( $dze_src ) )
+					);
+				}
+				?>
+			</span>
+			<?php if ( $dze_tgt ) : ?>
+				<button type="button" class="button button-small dze-mail-i18n" style="margin-top:4px;" data-email="<?php echo esc_attr( $mail_id ); ?>">
+					<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
+				</button>
+			<?php endif; ?>
+		<?php endif; ?>
+		<?php
+		return (string) ob_get_clean();
+	}
+
 	public function render_editor( string $rule_id, array $rule ): void {
 		if ( '' === $rule_id ) {
 			echo '<h3>' . esc_html__( 'Emails', 'dazont-ecom' ) . '</h3>';
@@ -6282,7 +6462,6 @@ final class DZE_Klaviyo {
 		<div id="dze-klav-editor" data-rule="<?php echo esc_attr( $rule_id ); ?>" data-when="<?php echo esc_attr( (string) wp_json_encode( $when_for ) ); ?>" data-names="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-newkind="<?php echo esc_attr( self::first_kind() ); ?>" data-newday="<?php echo esc_attr( self::default_when( self::first_kind(), $rule ) ); ?>">
 			<?php // This screen showed the emails, so an empty list means none — not "the form was not about emails". ?>
 			<input type="hidden" name="dze_email_shown" value="1" />
-			<?php [ $dze_src_now, $dze_tgt_now ] = self::locales(); ?>
 			<div class="dze-mail-list">
 				<?php foreach ( $emails as $mail_id => $mail ) :
 					$kind = (string) ( $mail['kind'] ?? self::first_kind() );
@@ -6302,105 +6481,7 @@ final class DZE_Klaviyo {
 								</span>
 							<?php endif; ?>
 						</div>
-						<div class="dze-mail-state">
-							<?php if ( ! empty( $mail['draft']['campaign'] ) ) : ?>
-								<?php // Nothing is ever sent from here, and the link used to
-								// say only where the draft was — not that Klaviyo is what
-								// sends it, nor what is left to do there. ?>
-								<a href="<?php echo esc_url( self::campaign_url( (string) $mail['draft']['campaign'] ) ); ?>" target="_blank" rel="noopener noreferrer">
-									<?php esc_html_e( 'Draft in Klaviyo ↗', 'dazont-ecom' ); ?>
-								</a>
-								<?php
-								// Klaviyo answers 200 to a day it then stores empty. What
-								// it KEPT was checked at the hand-over and said once; a
-								// sentence said once is a sentence nobody was reading
-								// when it mattered, so the row keeps saying it. Only when
-								// it is known: an email filed by an older version carries
-								// no answer, and silence is better than a guess.
-								$dze_goes = (string) ( $mail['draft']['goes'] ?? '' );
-								$dze_on   = ! empty( $mail['draft']['scheduled'] ) && '' !== $dze_goes;
-								$dze_noday = array_key_exists( 'day', (array) $mail['draft'] ) && '' === (string) $mail['draft']['day'];
-								if ( $dze_on ) :
-									$dze_ts = strtotime( $dze_goes ) ?: 0;
-									?>
-									<span style="display:block;font-size:12px;color:#00794b;font-weight:600;">
-										<?php
-										printf(
-											/* translators: %s: the day it goes out */
-											esc_html__( 'Scheduled in Klaviyo for %s', 'dazont-ecom' ),
-											esc_html( $dze_ts ? wp_date( $fmt, $dze_ts ) : $dze_goes )
-										);
-										?>
-									</span>
-								<?php elseif ( $dze_noday ) : ?>
-									<span style="display:block;font-size:12px;color:#b26a00;">
-										<?php esc_html_e( 'No date in Klaviyo — choose it there before scheduling.', 'dazont-ecom' ); ?>
-									</span>
-								<?php endif; ?>
-								<?php
-								// Scheduling is what makes the email go out, and it is one
-								// click here rather than a trip to Klaviyo — which is also
-								// what lets a promotion be handed over without a person.
-								if ( ! $dze_noday ) :
-									?>
-									<button type="button" class="button button-small dze-mail-sched" style="margin-top:4px;"
-										data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
-										<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>
-									</button>
-									<span class="dze-mail-sched-msg description" style="display:block;font-size:12px;"></span>
-								<?php endif; ?>
-								<?php
-								// In how many languages this one actually went out. A
-								// shop selling in five markets has to be able to see,
-								// without opening Klaviyo, whether an email is one of
-								// them or all of them. Two different facts, and the
-								// line says which: the languages Klaviyo opened the
-								// campaign for, and the ones we have WRITTEN.
-								[ $dze_src ]   = self::locales();
-								$dze_open      = (array) ( $mail['draft']['langs'] ?? [] );
-								$dze_done      = (array) ( $mail['draft']['done_langs'] ?? [] );
-								$dze_when_i18n = $dze_done ? (int) ( $mail['draft']['translated'] ?? 0 ) : 0;
-								$dze_left      = array_values( array_diff( $dze_open, $dze_done ) );
-								?>
-								<span class="dze-mail-langs" style="display:block;font-size:12px;margin-top:2px;color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
-									<?php
-									if ( $dze_when_i18n ) {
-										printf(
-											/* translators: 1: how many texts, 2: the languages they were written in */
-											esc_html__( 'Translated — %1$d texts in %2$s', 'dazont-ecom' ),
-											(int) ( $mail['draft']['texts'] ?? 0 ),
-											esc_html( strtoupper( implode( ', ', $dze_done ) ) )
-										);
-										if ( $dze_left ) {
-											printf(
-												/* translators: %s: the languages still to write */
-												esc_html__( ' · %s still to write', 'dazont-ecom' ),
-												esc_html( strtoupper( implode( ', ', $dze_left ) ) )
-											);
-										}
-									} elseif ( $dze_open ) {
-										printf(
-											/* translators: 1: the language it is written in, 2: the languages Klaviyo will accept */
-											esc_html__( '%1$s written, %2$s open — not translated yet', 'dazont-ecom' ),
-											esc_html( strtoupper( $dze_src ) ),
-											esc_html( strtoupper( implode( ', ', $dze_open ) ) )
-										);
-									} else {
-										printf(
-											/* translators: %s: the language it is written in */
-											esc_html__( '%s only — no translation', 'dazont-ecom' ),
-											esc_html( strtoupper( $dze_src ) )
-										);
-									}
-									?>
-								</span>
-								<?php if ( $dze_tgt_now ) : ?>
-									<button type="button" class="button button-small dze-mail-i18n" style="margin-top:4px;" data-email="<?php echo esc_attr( $mail_id ); ?>">
-										<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>
-									</button>
-								<?php endif; ?>
-							<?php endif; ?>
-						</div>
+						<div class="dze-mail-state"><?php echo self::state_cell( $mail_id, $mail ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped where it is built. ?></div>
 						<div class="dze-mail-act">
 							<button type="button" class="button button-small dze-mail-open"><?php esc_html_e( 'Edit', 'dazont-ecom' ); ?></button>
 							<button type="button" class="button-link dze-mail-drop" title="<?php esc_attr_e( 'Remove this email', 'dazont-ecom' ); ?>">&times;</button>
@@ -7187,6 +7268,7 @@ final class DZE_Klaviyo {
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Decides how many emails a promotion gets, on which days, and what each one is for. It writes no email: it briefs the prompt below, one email at a time.', 'dazont-ecom' ); ?>
 		</p>
+		<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'promo_plan' ); } ?>
 			<textarea id="dze-klav-plan" name="<?php echo esc_attr( self::OPT . '[plan_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::plan_prompt() ); ?></textarea>
 			<p>
 				<button type="button" class="button-link" id="dze-klav-plan-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -7222,6 +7304,7 @@ final class DZE_Klaviyo {
 			?><br />
 			<?php esc_html_e( 'Two things are fixed and no prompt changes them: the product blocks are built by the shop in its own type and colour, and the service badges in the footer are never repeated in the body.', 'dazont-ecom' ); ?>
 		</p>
+		<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'promo_email' ); } ?>
 			<textarea id="dze-klav-prompt" name="<?php echo esc_attr( self::OPT . '[email_prompt]' ); ?>" rows="10" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::email_prompt() ); ?></textarea>
 			<p>
 				<button type="button" class="button-link" id="dze-klav-prompt-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
@@ -7251,6 +7334,7 @@ final class DZE_Klaviyo {
 				<p class="description" style="max-width:880px;">
 					<?php esc_html_e( 'Sent to fal.ai as it stands, with the promotion\'s title, dates and discount added — and, once the email is written, what that email is and its subject line. The products come as real photographs of the promotion\'s own best-sellers; keeping them exactly as they are is imposed and no prompt overrides it. Test it from any email, as many times as you like: a test picture touches nothing.', 'dazont-ecom' ); ?>
 				</p>
+				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'promo_email_img' ); } ?>
 				<textarea id="dze-klav-img-prompt" name="<?php echo esc_attr( self::OPT . '[img_prompt]' ); ?>" rows="8" class="large-text code" style="max-width:880px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;"><?php echo esc_textarea( self::image_prompt() ); ?></textarea>
 				<p>
 					<button type="button" class="button-link" id="dze-klav-img-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>

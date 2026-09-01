@@ -30,6 +30,8 @@ $GLOBALS['dze_opts'] = [];
 
 function __( $s, $d = '' ) { return $s; }
 function _n( $a, $b, $n, $d = '' ) { return $n > 1 ? $b : $a; }
+function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
+function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_html__( $s, $d = '' ) { return esc_html( $s ); }
@@ -147,6 +149,14 @@ class DZE_Wpml {
 	public static function default_language() { return 'en'; }
 	public static function get_active_languages() {
 		return [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
+	}
+	/** A shop whose languages live in a directory, which is WPML's usual shape. */
+	public static function url_in_language( $url, $lang ) {
+		$url = (string) $url;
+		if ( 0 !== strpos( $url, 'https://kula.test/' ) || 'en' === $lang ) {
+			return $url;
+		}
+		return 'https://kula.test/' . $lang . '/' . substr( $url, strlen( 'https://kula.test/' ) );
 	}
 }
 
@@ -297,6 +307,8 @@ $values = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
 	[ 'id' => 'x::subject', 'source_value' => 'Summer sale' ],
 	[ 'id' => 'y::data.content', 'source_value' => '<p>Everything must go</p>' ],
 	[ 'id' => 'z::data.attributes.href', 'source_value' => 'https://kula.test/shop' ],
+	[ 'id' => 'i::data.attributes.src', 'source_value' => 'https://cdn.klaviyo.test/hero.jpg' ],
+	[ 'id' => '01ABC::from_label', 'source_value' => 'Kula Tactical' ],
 ] ] ] ] );
 $copy = ( new ReflectionClass( 'DZE_Klaviyo' ) )->getConstant( 'OPT_COPY' );
 $GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
@@ -325,9 +337,27 @@ $body = json_decode( (string) ( $patches[0]['body'] ?? '' ), true );
 $sent = [];
 foreach ( (array) ( $body['data']['attributes']['values'] ?? [] ) as $v ) { $sent[ $v['id'] ] = array_keys( $v['translations'] ); }
 ok( 'both languages in the same write', $sent['x::subject'] ?? [], [ 'fr', 'de' ] );
-ok( 'and every text of them',           count( $sent ), 2 );
 ok( 'the body names the campaign plainly', $body['data']['id'] ?? '', 'campaign-variation::email::01ABC' );
 ok( 'the answer says what went',        $got['langs'] ?? [], [ 'fr', 'de' ] );
+
+// The bug the shop found in his own account: every href empty in every
+// language, so a German reader clicking a product landed on the English page.
+// Klaviyo shows those fields in red too — "not translated" written across an
+// email that was. The links are filled by RULE, in the same write.
+$val = [];
+foreach ( (array) ( $body['data']['attributes']['values'] ?? [] ) as $v ) { $val[ $v['id'] ] = $v['translations']; }
+ok( 'a product link goes to the reader\'s own language',
+	$val['z::data.attributes.href'] ?? [], [ 'fr' => 'https://kula.test/fr/shop', 'de' => 'https://kula.test/de/shop' ] );
+ok( 'a photograph is carried over as it stands',
+	$val['i::data.attributes.src'] ?? [], [ 'fr' => 'https://cdn.klaviyo.test/hero.jpg', 'de' => 'https://cdn.klaviyo.test/hero.jpg' ] );
+ok( 'and the sender keeps his name',
+	$val['01ABC::from_label'] ?? [], [ 'fr' => 'Kula Tactical', 'de' => 'Kula Tactical' ] );
+ok( 'nothing Klaviyo offered is left empty', count( $sent ), 5 );
+ok( 'the links were never sent to a model', count( $GLOBALS['dze_asked'] ), 2 );
+// And the figure the row shows stays the number of TEXTS: filled links are
+// not translations anybody wrote.
+ok( 'the count is the writing, not the links', $got['done'] ?? 0, 2 );
+ok( 'the links are counted on their own',      $got['links'] ?? 0, 3 );
 
 // What the email now SAYS about itself, read from what was stored.
 $mail = ( get_option( $copy )['promo']['emails']['mail1'] ?? [] );
@@ -938,19 +968,26 @@ $GLOBALS['dze_queue'] = [];
 
 
 echo "A preview an inbox can show\n";
-// The owner's screenshot: "Best-sellers across headwear, balaclavas and
-// pouches, now 10% off the whole shop." — thirteen words against a prompt
-// that asks for eight. A rule the code does not hold is a rule that holds
-// until it does not: the cut is mechanical now, on a word, at ninety chars.
+// The owner's screenshot, twice. First: "Best-sellers across headwear,
+// balaclavas and pouches, now 10% off the whole shop." — thirteen words
+// against a prompt that asks for six, and eighty characters of which an inbox
+// shows about forty. It passed a ninety-character cap, which is how it reached
+// an inbox at all. Sixty, cut on a word.
 ok( 'a short preview is left alone',
 	DZE_Klaviyo::tight_preview( 'Everything 10% off until Sunday' ), 'Everything 10% off until Sunday' );
+$seen = 'Best-sellers across headwear, balaclavas and pouches, now 10% off the whole shop.';
+ok( 'the one he was sent is cut down',  mb_strlen( DZE_Klaviyo::tight_preview( $seen ) ) <= 60, true );
 $long = 'Best-sellers across headwear, balaclavas and pouches, now 10% off the whole shop until Sunday night only';
 $cut  = DZE_Klaviyo::tight_preview( $long );
-ok( 'a rambling one is cut',            mb_strlen( $cut ) <= 90, true );
+ok( 'a rambling one is cut',            mb_strlen( $cut ) <= 60, true );
 ok( 'on a word, never inside one',      preg_match( '/\w$/u', $cut ) === 1 && str_starts_with( $long, $cut ), true );
 $GLOBALS['dze_answers'] = [ json_encode( [ 'subject' => 'S', 'preview' => $long, 'body' => '<p>Short.</p>' ] ) ];
 $made = DZE_Klaviyo::write_for( 'promo', $promo2, $ids2[0] );
-ok( 'and the writing path really uses it', mb_strlen( (string) $made['preview'] ) <= 90, true );
+ok( 'and the writing path really uses it', mb_strlen( (string) $made['preview'] ) <= 60, true );
+// The rule is in what the model is told, not only in what is done to its
+// answer: a cap alone gives a truncated sentence rather than a short one.
+ok( 'and the model is asked for six words',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][ count( $GLOBALS['dze_asked'] ) - 1 ]['user'] ?? '' ), 'SIX words at the very most' ), true );
 
 
 echo "From the model's answer to Klaviyo blocks, end to end\n";
@@ -1095,6 +1132,35 @@ ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_
 ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
 $GLOBALS['dze_queue'] = [];
 
+echo "The row says everything it knows, the moment it knows it\n";
+// "Schedule it / EN written, FR, DE, PL, ES open / Translate it > tout ça
+// apparaît seulement après rafraichissement de la page." Putting an email in
+// Klaviyo answered with a bare link, and the three things the row had just
+// EARNED — its draft link, its Schedule button, its languages — waited for a
+// reload. The cell is one function now, and the answer carries it.
+$cell = DZE_Klaviyo::state_cell( 'm9', [
+	'kind'  => 'launch',
+	'draft' => [ 'campaign' => 'C9', 'message' => 'M9', 'langs' => [ 'fr', 'de' ] ],
+] );
+ok( 'the draft is linked',              str_contains( $cell, 'Draft in Klaviyo' ), true );
+ok( 'it can be scheduled from the row', str_contains( $cell, 'dze-mail-sched' ), true );
+ok( 'it says what is written and what is open',
+	str_contains( $cell, 'EN written, FR, DE open' ), true );
+ok( 'and it can be translated from the row', str_contains( $cell, 'dze-mail-i18n' ), true );
+
+// Already scheduled and already translated: the same cell, other words.
+$cell = DZE_Klaviyo::state_cell( 'm9', [
+	'kind'  => 'launch',
+	'draft' => [ 'campaign' => 'C9', 'scheduled' => time(), 'goes' => '2026-09-20',
+		'langs' => [ 'fr', 'de' ], 'done_langs' => [ 'fr', 'de' ], 'translated' => time(), 'texts' => 24 ],
+] );
+ok( 'a scheduled email says the day',   str_contains( $cell, 'Scheduled in Klaviyo for' ), true );
+ok( 'and offers to undo it',            str_contains( $cell, 'Unschedule' ), true );
+ok( 'a translated one counts its texts', str_contains( $cell, 'Translated — 24 texts in FR, DE' ), true );
+
+// An email that has never been to Klaviyo has nothing to say and says nothing.
+ok( 'an email with no campaign is a blank cell',
+	trim( DZE_Klaviyo::state_cell( 'm9', [ 'kind' => 'launch' ] ) ), '' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
