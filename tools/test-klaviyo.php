@@ -93,6 +93,14 @@ function get_permalink( $id ) { return $GLOBALS['dze_perma'][ (int) $id ] ?? '';
 function url_to_postid( $url ) { $GLOBALS['dze_resolved'][] = $url; return 0; }
 function do_action( $t, ...$a ) {}
 function current_user_can( $c ) { return true; }
+function check_ajax_referer( $a, $b = false, $die = true ) { return true; }
+/** wp_send_json_* ends the request in WordPress; here it ends the call. */
+class DZE_Json_Sent extends Exception {
+	public $payload;
+	public function __construct( $payload, $ok ) { parent::__construct( $ok ? 'success' : 'error' ); $this->payload = $payload; }
+}
+function wp_send_json_success( $d = null ) { throw new DZE_Json_Sent( $d, true ); }
+function wp_send_json_error( $d = null, $code = 0 ) { throw new DZE_Json_Sent( $d, false ); }
 function is_admin() { return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
 function wp_parse_url( $url, $component = -1 ) { return parse_url( (string) $url, $component ); }
@@ -1270,8 +1278,12 @@ try { DZE_Klaviyo::draft( 'promo', 'ad1' ); } catch ( Throwable $e ) { if ( gete
 $asked_by_name = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
 	false !== strpos( (string) ( $c['url'] ?? '' ), 'campaigns/?filter=' ) ) );
 ok( 'the account is asked by name',     count( $asked_by_name ), 1 );
-ok( 'for a DRAFT of this email',
-	false !== strpos( rawurldecode( (string) $asked_by_name[0]['url'] ), 'equals(status,"Draft")' ), true );
+// Every status, not only drafts: the email this shop lost was SCHEDULED,
+// which is precisely the one that must not be duplicated.
+ok( 'whatever status it is in',
+	false !== strpos( rawurldecode( (string) $asked_by_name[0]['url'] ), 'equals(status' ), false );
+ok( 'and by its exact name',
+	false !== strpos( rawurldecode( (string) $asked_by_name[0]['url'] ), 'equals(name,"Summer — Launch")' ), true );
 ok( 'no second campaign is created',
 	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
 		// The CREATE endpoint, not the tag relationship that also ends in
@@ -1282,6 +1294,30 @@ ok( 'the found draft is the one rewritten',
 		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T-OLD' ) ) ), 1 );
 $mail_now = get_option( $copy )['promo']['emails']['ad1']['draft'] ?? [];
 ok( 'and the email keeps its id this time', $mail_now['campaign'] ?? '', 'C-OLD' );
+
+// The case this shop actually had: the campaign is SCHEDULED. It is claimed
+// back so the row stops calling it missing — and not one word of it is
+// rewritten. A second campaign beside a scheduled one is a promotion sent
+// twice.
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['ad1']['draft'] = [];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => json_encode( [
+		'data'     => [ [ 'id' => 'C-SCHED', 'attributes' => [ 'status' => 'Scheduled', 'created_at' => '2026-09-01T10:00:00Z' ],
+			'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-SCHED' ] ] ] ] ] ],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-SCHED' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-SCHED"}}' ],
+];
+$made = DZE_Klaviyo::draft( 'promo', 'ad1' );
+ok( 'a scheduled campaign is claimed back', $made['campaign'] ?? '', 'C-SCHED' );
+ok( 'and nothing at all is rewritten',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => in_array( ( $c['method'] ?? '' ), [ 'PATCH', 'POST' ], true ) ) ), 0 );
+ok( 'the row is told why it was left alone',
+	false !== strpos( (string) ( $made['warning'] ?? '' ), 'Unschedule it in Klaviyo' ), true );
+$kept = get_option( $copy )['promo']['emails']['ad1']['draft'] ?? [];
+ok( 'the email keeps the id from now on',   $kept['campaign'] ?? '', 'C-SCHED' );
+ok( 'and knows it is scheduled',            ( (int) ( $kept['scheduled'] ?? 0 ) ) > 0, true );
 
 // Nothing of that name in the account: the ordinary path, one campaign made.
 $GLOBALS['dze_opts'][ $copy ]['promo']['emails']['ad1']['draft'] = [];
@@ -1344,6 +1380,31 @@ ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_
 	str_contains( (string) $c['url'], 'campaigns/CK' ) ) ), 0 );
 ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
 $GLOBALS['dze_queue'] = [];
+
+echo "The email that is written is the one the screen asked for\n";
+// "Création en manuel d'un mail et choix du type : last chance : toujours
+// bugé, j'ai obtenu un email de lancement." A row added on the screen is not
+// in the database until the event is saved, so the writing read the stored
+// email, found nothing, and fell back to the first type in the list. The row
+// says which type it is before a word is asked for.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'new1' => [] ] ] ];
+$_POST = [ 'rule' => 'promo', 'email' => 'new1', 'kind' => 'last', 'when' => gmdate( 'Y-m-d', time() + 6 * 86400 ) ];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'subject' => 'Last call', 'preview' => 'P', 'body' => '<p>Ends tonight.</p>' ] ) ];
+$GLOBALS['dze_asked']   = [];
+try { DZE_Klaviyo::ajax_write(); } catch ( Throwable $e ) { /* wp_send_json_success stops the world in real life */ }
+$kept = get_option( $copy )['promo']['emails']['new1'] ?? [];
+ok( 'the type is kept before writing',  $kept['kind'] ?? '', 'last' );
+ok( 'and the day with it',              $kept['when'] ?? '', $_POST['when'] );
+ok( 'so the brief is the LAST CHANCE one',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), 'Last chance' ), true );
+// A type nobody offers is not written into the email.
+$_POST = [ 'rule' => 'promo', 'email' => 'new1', 'kind' => 'not-a-type' ];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'subject' => 'S', 'preview' => 'P', 'body' => '<p>B</p>' ] ) ];
+try { DZE_Klaviyo::ajax_write(); } catch ( Throwable $e ) {}
+ok( 'an unknown type is refused, not stored',
+	get_option( $copy )['promo']['emails']['new1']['kind'] ?? '', 'last' );
+$_POST = [];
+$GLOBALS['dze_answers'] = [];
 
 echo "The products of an email are the shop's own, not the buyer's\n";
 // "Bug titre produit en français dans le template email: Cagoule noire 2
