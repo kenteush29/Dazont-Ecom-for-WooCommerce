@@ -1205,6 +1205,30 @@ ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_
 ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
 $GLOBALS['dze_queue'] = [];
 
+echo "A language that comes back empty is asked once more\n";
+// "Translated — 46 texts in FR, PL, ES · DE — Nothing came back for DE." Four
+// languages written and one empty is a model that hiccuped. Asking again is
+// what a person would do, so it is done here rather than left to him.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
+	'kind' => 'launch', 'subject' => 'Summer sale',
+	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'fr', 'de' ] ],
+] ] ] ];
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $values ];
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ 'not json at all', '{"1":"Sommerschlussverkauf","2":"<p>Alles muss raus</p>"}' ];
+$n = DZE_Klaviyo::translate_language( 'promo', 'mail1', 'de' );
+ok( 'the second answer is the one kept', $n, 2 );
+ok( 'and it took exactly two calls',     count( $GLOBALS['dze_asked'] ), 2 );
+// Twice and no more: a model that answers nothing twice is not going to on
+// the fifth, and every try is paid for.
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ 'no', 'still no', '{"1":"never reached"}' ];
+$threw = '';
+try { DZE_Klaviyo::translate_language( 'promo', 'mail1', 'de' ); } catch ( Throwable $e ) { $threw = $e->getMessage(); }
+ok( 'it gives up after two',             count( $GLOBALS['dze_asked'] ), 2 );
+ok( 'and says which language it was',    false !== strpos( $threw, 'DE' ), true );
+$GLOBALS['dze_answers'] = [];
+
 echo "A product link in each language, from the id the shop already has\n";
 // "Sur les pages d'édition produit on voit les urls des autres langues." So
 // does the plugin: it CHOSE these products and holds their ids, and

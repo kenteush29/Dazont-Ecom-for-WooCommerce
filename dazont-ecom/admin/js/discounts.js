@@ -190,18 +190,33 @@
 		}
 		$b.prop('disabled', true);
 		$st.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.translating);
-		$.post(cfg.ajaxUrl, { action: 'dze_mai_translate', nonce: cfg.maiNonce, title: line })
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_mai_translate', nonce: cfg.maiNonce, title: line,
+			// The days it runs, and by how much: a promotion with no calendar
+			// gets dated from the market's own — "Patriot Day Sale" came back
+			// for France as the 14 Juillet.
+			start:    $('input[name="start"]').val() || '',
+			end:      $('input[name="end"]').val() || '',
+			discount: ( $('#dze-percent').val() ? $('#dze-percent').val() + '%' : '' )
+		})
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (res && res.success) {
+					// Pressing this button is an ASKING: it rewrites every
+					// language, including the ones already there. It used to
+					// fill only the empty ones, so a title changed after a
+					// first click kept the lines written for the old one —
+					// four markets announcing a promotion that no longer
+					// exists. The automatic pass at save time is the one that
+					// leaves a hand-written line alone.
+					var n = 0;
 					$('.dze-banner-i18n-field').each(function () {
 						var v = res.data.i18n[$(this).data('lang')];
-						// A line already written by hand stays: this fills the
-						// gaps, it does not take the screen over.
-						if (typeof v === 'string' && !String( $(this).val() || '' ).trim()) { $(this).val(v); }
+						if (typeof v === 'string' && v.trim()) { $(this).val(v); n += 1; }
 					});
 					$('#dze-banner-i18n').prop('open', true);
-					$st.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.translated);
+					$st.css('color', '#0a7040').removeClass('is-ko')
+						.text((cfg.i18n.rewrote || '%d').replace('%d', n) );
 					return;
 				}
 				$st.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || cfg.i18n.trFailed);

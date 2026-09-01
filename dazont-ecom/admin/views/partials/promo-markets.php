@@ -53,8 +53,8 @@ defined( 'ABSPATH' ) || exit;
 						<p class="description" style="margin:6px 0 0;">
 							<?php
 							echo class_exists( 'DZE_Marketing_Ai' ) && DZE_Marketing_Ai::promo_i18n_on()
-								? esc_html__( 'A language left empty is a language this promotion does not run in. They are written for you shortly after saving; a line you type here is never overwritten.', 'dazont-ecom' )
-								: esc_html__( 'A language left empty is a language this promotion does not run in. "Translate on save" is off in Settings → Marketing events, so these are yours to fill — or use the button above.', 'dazont-ecom' );
+								? esc_html__( 'A language left empty is a language this promotion does not run in. They are written for you shortly after saving, and that pass never touches a line you typed. The button above is the other way round: it rewrites every language, so press it again after changing the title.', 'dazont-ecom' )
+								: esc_html__( 'A language left empty is a language this promotion does not run in. "Translate on save" is off in Settings → Marketing events, so these are yours to fill — or use the button above, which rewrites every language each time it is pressed.', 'dazont-ecom' );
 							?>
 						</p>
 					</details>
