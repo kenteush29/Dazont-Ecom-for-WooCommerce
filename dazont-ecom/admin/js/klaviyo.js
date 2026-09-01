@@ -453,24 +453,34 @@
 			// button — and they have nothing to say to each other. A few at a
 			// time, not all of them: a shop with fifteen languages would ask
 			// its own server for fifteen workers at once.
-			var next = 0, live = 0, cap = Math.min(4, langs.length);
+			var next = 0, live = 0, cap = Math.min(4, langs.length), tries = {};
 			tell();
 			while (live < cap) { start(); }
 
 			function start() {
 				if (next >= langs.length) { return; }
-				var lang = langs[next++];
+				ask(langs[next++]);
+			}
+			// One language, in a request of its own — and asked a SECOND time
+			// when that request does not come back. The retry used to live in
+			// PHP, inside the same request: two model calls of up to two
+			// minutes each behind one HTTP call, which is how German came back
+			// as "The translation did not finish. (504)" — the shop's own
+			// server hanging up, with no message in it to read. Two short
+			// requests instead of one long one, and the same second chance.
+			function ask(lang) {
 				live++;
+				tries[lang] = (tries[lang] || 0) + 1;
 				$.post(cfg.ajaxUrl, {
 					action: 'dze_klav_i18n', nonce: cfg.nonce,
 					rule: rule, email: mail, lang: lang
 				}).done(function (one) {
-					if (one && one.success) { done.push(lang); }
-					else {
-						failed.push(lang);
-						msg = msg || (one && one.data && one.data.message) || '';
-					}
+					if (one && one.success) { done.push(lang); return; }
+					if (tries[lang] < 2) { return retry(lang); }
+					failed.push(lang);
+					msg = msg || (one && one.data && one.data.message) || '';
 				}).fail(function (xhr) {
+					if (tries[lang] < 2) { return retry(lang); }
 					failed.push(lang);
 					// Named where it happened: this is the model writing one
 					// language, not Klaviyo refusing the email.
@@ -478,8 +488,16 @@
 				}).always(function () {
 					live--;
 					tell();
-					if (next < langs.length) { start(); } else if (!live) { save(); }
+					// Nothing is filed while a language is waiting to be asked
+					// again: a run that saves at that moment files four of five
+					// and calls the fifth lost.
+					if (next < langs.length) { start(); } else if (!live && !waiting) { save(); }
 				});
+			}
+			var waiting = 0;
+			function retry(lang) {
+				waiting++;
+				window.setTimeout(function () { waiting--; ask(lang); }, 400);
 			}
 
 			// Said as it happens: which are in, which are still being written.

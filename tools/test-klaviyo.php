@@ -1898,27 +1898,31 @@ ok( 'an untranslated shop is left exactly as it is',
 	DZE_Klaviyo::in_shop_language( [ 11, 12 ] ), [ 11, 12 ] );
 $GLOBALS['dze_origin'] = [];
 
-echo "A language that comes back empty is asked once more\n";
-// "Translated — 46 texts in FR, PL, ES · DE — Nothing came back for DE." Four
-// languages written and one empty is a model that hiccuped. Asking again is
-// what a person would do, so it is done here rather than left to him.
+echo "One language, one short request — the retry is the browser's\n";
+// "The translation did not finish. (504)" on German. That is the shop's own
+// gateway hanging up, not the model refusing: the retry lived HERE, inside
+// the same request, so one language could hold an admin-ajax call for four
+// minutes. One call now, under every ordinary gateway limit; the browser asks
+// again in a request of its own, which is where a retry belongs.
 $GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
 	'kind' => 'launch', 'subject' => 'Summer sale',
 	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'fr', 'de' ] ],
 ] ] ] ];
 $GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $values ];
 $GLOBALS['dze_asked']   = [];
-$GLOBALS['dze_answers'] = [ 'not json at all', '{"1":"Sommerschlussverkauf","2":"<p>Alles muss raus</p>"}' ];
+$GLOBALS['dze_answers'] = [ '{"1":"Sommerschlussverkauf","2":"<p>Alles muss raus</p>"}' ];
 $n = DZE_Klaviyo::translate_language( 'promo', 'mail1', 'de' );
-ok( 'the second answer is the one kept', $n, 2 );
-ok( 'and it took exactly two calls',     count( $GLOBALS['dze_asked'] ), 2 );
-// Twice and no more: a model that answers nothing twice is not going to on
-// the fifth, and every try is paid for.
+ok( 'one language is written',           $n, 2 );
+ok( 'in ONE call to the model',          count( $GLOBALS['dze_asked'] ), 1 );
+ok( 'and it waits under a minute for it',
+	( (int) ( $GLOBALS['dze_asked'][0]['timeout'] ?? 0 ) ) <= 55, true );
+// An answer that is not an answer is said, named, and left to be asked again
+// from the screen — where a second attempt costs one short request.
 $GLOBALS['dze_asked']   = [];
-$GLOBALS['dze_answers'] = [ 'no', 'still no', '{"1":"never reached"}' ];
+$GLOBALS['dze_answers'] = [ 'not json at all' ];
 $threw = '';
 try { DZE_Klaviyo::translate_language( 'promo', 'mail1', 'de' ); } catch ( Throwable $e ) { $threw = $e->getMessage(); }
-ok( 'it gives up after two',             count( $GLOBALS['dze_asked'] ), 2 );
+ok( 'it does not ask again itself',      count( $GLOBALS['dze_asked'] ), 1 );
 ok( 'and says which language it was',    false !== strpos( $threw, 'DE' ), true );
 $GLOBALS['dze_answers'] = [];
 
@@ -1940,6 +1944,39 @@ ok( 'and the German one',               $map['https://kula.test/p/7']['de'] ?? '
 ok( 'the English slug is not on the French link',
 	false !== strpos( (string) ( $map['https://kula.test/p/7']['fr'] ?? '' ), 'p/7' ), false );
 ok( 'no URL was resolved back into a post', $GLOBALS['dze_resolved'], [] );
+
+// A product NOBODY has translated keeps the page that exists. It used to get
+// the language's URL rule — the right domain with the English slug — and that
+// is a 404 dressed up as a translation: the shop found eight of them in one
+// email, read back out of its own Klaviyo account.
+$GLOBALS['dze_trans'] = [];
+$none = DZE_Klaviyo::link_map( [ 7 ], [ 'fr', 'de' ] );
+ok( 'an untranslated product keeps its own page',
+	$none['https://kula.test/p/7']['fr'] ?? '', 'https://kula.test/p/7' );
+ok( 'in every language',                $none['https://kula.test/p/7']['de'] ?? '', 'https://kula.test/p/7' );
+ok( 'and no address is invented for it',
+	false !== strpos( (string) ( $none['https://kula.test/p/7']['fr'] ?? '' ), '/fr/' ), false );
+
+// The same rule inside the write: a PAGE address the map does not cover is
+// left alone, while the addresses every language really does share — the home
+// page, a listing — still follow the language.
+$mech = new ReflectionMethod( 'DZE_Klaviyo', 'mechanical' );
+$mech->setAccessible( true );
+$rows = $mech->invoke( null, [
+	[ 'id' => 'a::data.attributes.href', 'source_value' => 'https://kula.test/some-product-nobody-mapped' ],
+	[ 'id' => 'b::data.attributes.href', 'source_value' => 'https://kula.test/' ],
+	[ 'id' => 'c::data.attributes.href', 'source_value' => 'https://kula.test/product-category/balaclavas' ],
+	[ 'id' => 'd::data.attributes.href', 'source_value' => 'https://someone-else.test/thing' ],
+], [ 'fr' ], [] );
+ok( 'a page the map does not cover is left alone',
+	$rows['a::data.attributes.href']['fr'] ?? '', 'https://kula.test/some-product-nobody-mapped' );
+ok( 'the home page follows the language',
+	$rows['b::data.attributes.href']['fr'] ?? '', 'https://kula.test/fr/' );
+ok( 'a listing does too',
+	$rows['c::data.attributes.href']['fr'] ?? '', 'https://kula.test/fr/product-category/balaclavas' );
+ok( "and another shop's address is not ours to move",
+	$rows['d::data.attributes.href']['fr'] ?? '', 'https://someone-else.test/thing' );
+$GLOBALS['dze_trans'] = [ 7 => [ 'fr' => 77, 'de' => 78 ] ];
 
 // And it is that map the translation write uses, not a guess.
 $GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
