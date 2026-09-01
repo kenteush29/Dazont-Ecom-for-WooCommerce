@@ -690,7 +690,8 @@ final class DZE_Klaviyo {
 	 *
 	 * @param string[] $cards The blocks, in the order the writing was shown them.
 	 */
-	public static function place_products( string $html, array $cards ): string {
+	public static function place_products( string $html, array $cards, ?array &$used = null ): string {
+		$used = [];
 		// The guard has to be at least as forgiving as the pattern below, or a
 		// marker written with a space in it survives into the inbox.
 		if ( false === strpos( $html, '[[' ) ) {
@@ -698,21 +699,30 @@ final class DZE_Klaviyo {
 		}
 		$cards = array_values( $cards );
 		$per   = self::per_row();
-		return (string) preg_replace_callback(
+		// WHICH cards actually went in. This is the only moment anything knows
+		// for certain which products an email shows: the writing chose the
+		// markers, the shop filled them, and everything afterwards — the links
+		// per language, the names per language — was left guessing from a
+		// shortlist that moves. It is written down here and kept.
+		$taken = [];
+		$out = (string) preg_replace_callback(
 			'/(?:\[\[\s*PRODUCT\s*\d+\s*\]\]\s*)+/i',
-			static function ( array $m ) use ( $cards, $per ): string {
+			static function ( array $m ) use ( $cards, $per, &$taken ): string {
 				preg_match_all( '/\d+/', $m[0], $nums );
 				$run = [];
 				foreach ( $nums[0] as $n ) {
 					$card = $cards[ (int) $n - 1 ] ?? '';
 					if ( '' !== $card ) {
-						$run[] = $card;
+						$run[]   = $card;
+						$taken[] = (int) $n - 1;
 					}
 				}
 				return $run ? self::product_rows( $run, $per ) : '';
 			},
 			$html
 		);
+		$used = array_values( array_unique( $taken ) );
+		return $out;
 	}
 
 	/** The column the body sits in: 600 wide, less its 24px inset on each side. */
@@ -5404,13 +5414,53 @@ final class DZE_Klaviyo {
 	 *
 	 * @return int[]
 	 */
+	/**
+	 * The products an email's own BODY links to.
+	 *
+	 * Every card the shop builds carries that product's address, so the body
+	 * of an email is a list of its products written in the only language both
+	 * halves agree on. Read by slug, the way this plugin reads every address —
+	 * never url_to_postid(), which does not answer for a product where the
+	 * emails are written.
+	 *
+	 * @return int[]
+	 */
+	public static function goods_in_body( string $html ): array {
+		if ( '' === trim( $html ) || ! method_exists( 'DZE_Wpml', 'post_of' ) ) {
+			return [];
+		}
+		if ( ! preg_match_all( '/href=["\']([^"\']+)["\']/i', $html, $m ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( array_unique( $m[1] ) as $href ) {
+			$pid = DZE_Wpml::post_of( html_entity_decode( (string) $href, ENT_QUOTES ) );
+			if ( $pid && 'product' === (string) get_post_type( $pid ) ) {
+				$out[ $pid ] = true;
+			}
+		}
+		return array_keys( $out );
+	}
+
 	public static function goods_of( string $rule_id, array $rule, string $email_id ): array {
 		static $seen = [];
 		$key = $rule_id . '|' . $email_id;
 		if ( isset( $seen[ $key ] ) ) {
 			return $seen[ $key ];
 		}
-		$mine = array_values( array_filter( array_map( 'absint', (array) ( self::email_for( $rule_id, $email_id, $rule )['products'] ?? [] ) ) ) );
+		$copy = self::email_for( $rule_id, $email_id, $rule );
+		// What the writing actually PUT IN, recorded as it was put in.
+		$mine = array_values( array_filter( array_map( 'absint', (array) ( $copy['shown'] ?? [] ) ) ) );
+		if ( ! $mine ) {
+			// An email written before that was recorded: read the body it
+			// carries. Its product links are the shop's own addresses, and
+			// each one names a product — which is a fact about THIS email,
+			// where a shortlist is only a guess about it.
+			$mine = self::goods_in_body( (string) ( $copy['body'] ?? '' ) );
+		}
+		if ( ! $mine ) {
+			$mine = array_values( array_filter( array_map( 'absint', (array) ( $copy['products'] ?? [] ) ) ) );
+		}
 		if ( ! $mine ) {
 			$mat  = self::material_for( $rule_id, $rule, $email_id );
 			$mine = array_values( array_filter( array_map( 'absint', (array) ( $mat['ids'] ?? [] ) ) ) );
@@ -6044,10 +6094,22 @@ final class DZE_Klaviyo {
 		[ $body, $warning ] = self::vouch( $body, $mat, $picture );
 
 		DZE_Ai_Usage::finished( 'promo_email' );
+		$used  = [];
+		$made  = self::place_products( self::clean_html( $body ), $mat['cards'], $used );
+		$shown = [];
+		foreach ( $used as $at ) {
+			$pid = (int) ( array_values( (array) ( $mat['ids'] ?? [] ) )[ $at ] ?? 0 );
+			if ( $pid ) {
+				$shown[] = $pid;
+			}
+		}
 		return [
 			'subject' => mb_substr( sanitize_text_field( (string) ( $json['subject'] ?? '' ) ), 0, 150 ),
 			'preview' => self::tight_preview( sanitize_text_field( (string) ( $json['preview'] ?? '' ) ) ),
-			'body'    => self::place_products( self::clean_html( $body ), $mat['cards'] ),
+			'body'    => $made,
+			// The products this email really carries, recorded as they are put
+			// in rather than worked out afterwards.
+			'shown'   => $shown,
 			'warning' => $warning,
 			// Whether this email left a place for a picture. The browser makes
 			// it next, as a call of its own — one long request that a host cuts
@@ -6438,6 +6500,11 @@ final class DZE_Klaviyo {
 			'subject' => (string) ( $made['subject'] ?? '' ),
 			'preview' => (string) ( $made['preview'] ?? '' ),
 			'body'    => (string) ( $made['body'] ?? '' ),
+			// And WHICH products went into it. Everything mechanical — the
+			// links per language, the names per language — needs to know
+			// exactly what this email shows, and this is the only moment
+			// anything does.
+			'shown'   => array_values( array_filter( array_map( 'absint', (array) ( $made['shown'] ?? [] ) ) ) ),
 		];
 		self::put_email( $rule_id, $email_id, $keep );
 		wp_send_json_success( $made );
