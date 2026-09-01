@@ -82,6 +82,7 @@ function do_action( $t, ...$a ) {}
 function current_user_can( $c ) { return true; }
 function is_admin() { return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
+function wp_parse_url( $url, $component = -1 ) { return parse_url( (string) $url, $component ); }
 function add_query_arg( ...$a ) { return ''; }
 function wp_create_nonce( $a = '' ) { return 'nonce'; }
 function wp_next_scheduled( $h ) { return 0; }
@@ -358,6 +359,28 @@ ok( 'the links were never sent to a model', count( $GLOBALS['dze_asked'] ), 2 );
 // not translations anybody wrote.
 ok( 'the count is the writing, not the links', $got['done'] ?? 0, 2 );
 ok( 'the links are counted on their own',      $got['links'] ?? 0, 3 );
+ok( 'and the row is told they moved',
+	$got['note'] ?? '', 'Links point at the FR, DE pages of the shop.' );
+ok( 'which the email keeps for the next visit',
+	( get_option( $copy )['promo']['emails']['mail1']['draft']['links_note'] ?? '' ),
+	'Links point at the FR, DE pages of the shop.' );
+
+// The shop's own case: WPML hands the same address back — the products are
+// not translated, or the URL format is not what we think. The links were
+// filled all the same, so Klaviyo looked right and the German reader still
+// landed on kula-tactical.com. Silence is what made that last; the row says
+// it now, in the same place, until it is fixed.
+$stuck = ( new ReflectionMethod( 'DZE_Klaviyo', 'link_note' ) );
+$stuck->setAccessible( true );
+$note = $stuck->invoke( null, [
+	[ 'id' => 'z::data.attributes.href', 'source_value' => 'https://kula.test/shop' ],
+], [ 'z::data.attributes.href' => [ 'fr' => 'https://kula.test/shop', 'de' => 'https://kula.test/de/shop' ] ] );
+ok( 'a link that did not move is SAID',  false !== strpos( $note, 'did NOT move for FR' ), true );
+ok( 'with what to go and look at',       false !== strpos( $note, 'WPML' ), true );
+// And an address that was never ours is not counted either way.
+ok( 'a foreign address is nobody\'s failure',
+	$stuck->invoke( null, [ [ 'id' => 'i::data.attributes.href', 'source_value' => 'https://cdn.klaviyo.test/x.jpg' ] ],
+		[ 'i::data.attributes.href' => [ 'fr' => 'https://cdn.klaviyo.test/x.jpg' ] ] ), '' );
 
 // What the email now SAYS about itself, read from what was stored.
 $mail = ( get_option( $copy )['promo']['emails']['mail1'] ?? [] );

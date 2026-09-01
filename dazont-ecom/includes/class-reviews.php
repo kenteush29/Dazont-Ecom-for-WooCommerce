@@ -859,6 +859,7 @@ PROMPT;
 							<button type="button" class="button-link" id="dze-rev-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'reviews', '#dze-rev-prompt' ); } ?>
 						</p>
+						<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'reviews' ); } ?>
 					</td>
 				</tr>
 			</table>

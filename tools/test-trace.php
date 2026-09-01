@@ -120,5 +120,44 @@ ok( 'the tool label is printed',        false !== strpos( $html, 'Promotion emai
 ok( 'the exchange is behind a click',   substr_count( $html, '<details' ) >= 1, true );
 ok( 'what was sent is shown escaped',   false !== strpos( $html, esc_html( 'xxx' ) ), true );
 
+echo "Every prompt keeps its OWN last call\n";
+// The trace holds a dozen calls for the whole plugin, so the prompt being
+// read is usually not in it — "data reçue par chaque prompt non visible".
+// A call is filed under the prompt it was built from, found in the text that
+// went out, so no call site has to declare anything and a prompt added
+// tomorrow is recognised the first time it runs.
+class DZE_Prompts {
+	public static $texts = [
+		'cat_desc'    => 'Write the category description for this shop, in its own words and at length.',
+		'promo_email' => 'Write the email that announces this promotion — the words AND the layout.',
+	];
+	public static function ids_in( $sent ) {
+		$out = [];
+		foreach ( self::$texts as $id => $text ) {
+			if ( false !== strpos( (string) $sent, substr( $text, 0, 60 ) ) ) { $out[] = $id; }
+		}
+		return $out;
+	}
+}
+$GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [ 'content' => [ [ 'type' => 'text', 'text' => 'A description.' ] ], 'usage' => [] ] ) ];
+DZE_Marketing_Ai::complete( 'S', DZE_Prompts::$texts['cat_desc'] . "\nThe category: Balaclavas." );
+$one = DZE_Ai_Usage::last_for( 'cat_desc' );
+ok( 'the prompt has its own call',      false !== strpos( (string) ( $one['sent'] ?? '' ), 'The category: Balaclavas.' ), true );
+ok( 'with the answer beside it',        $one['got'] ?? '', 'A description.' );
+ok( 'and a prompt never run has none',  DZE_Ai_Usage::last_for( 'promo_email' ), [] );
+
+// Twenty other calls must not push it out: the roll-off is per prompt, not
+// shared with the twelve-row trace.
+for ( $i = 0; $i < 20; $i++ ) { DZE_Marketing_Ai::complete( 'S', 'unrelated ' . $i ); }
+ok( 'and it survives the calls after it',
+	false !== strpos( (string) ( DZE_Ai_Usage::last_for( 'cat_desc' )['sent'] ?? '' ), 'The category: Balaclavas.' ), true );
+ok( 'never autoloaded either',          $GLOBALS['dze_autoload']['dze_ai_last'] ?? null, false );
+
+// Run again, and it is the LAST call that is kept.
+DZE_Marketing_Ai::complete( 'S', DZE_Prompts::$texts['cat_desc'] . "\nThe category: Pouches." );
+ok( 'the newest replaces the older',
+	false !== strpos( (string) ( DZE_Ai_Usage::last_for( 'cat_desc' )['sent'] ?? '' ), 'The category: Pouches.' ), true );
+
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

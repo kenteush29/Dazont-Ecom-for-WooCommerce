@@ -108,6 +108,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'events', '#dze-mai-prompt' ); } ?>
 		<span class="description"><?php echo $prompt_value !== '' ? esc_html__( 'Customised.', 'dazont-ecom' ) : esc_html__( 'Using the default strategy.', 'dazont-ecom' ); ?></span>
 	</p>
+	<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'events' ); } ?>
 	<script>
 	(function () {
 		var shipped = <?php echo wp_json_encode( DZE_Marketing_Ai::default_events_prompt() ); ?>;
@@ -199,6 +200,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	<p>
 		<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'hero_image', '#dze-mai-hero-prompt' ); } ?>
 	</p>
+	<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'hero_image' ); } ?>
 	<?php endif; // $dze_hero_on ?>
 
 	<h2 class="title"><?php esc_html_e( 'The promo banner', 'dazont-ecom' ); ?></h2>
@@ -305,6 +307,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 		<button type="button" class="button-link" id="dze-mai-promo-i18n-reset">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 		<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'promo_i18n', '#dze-mai-promo-i18n' ); } ?>
 	</p>
+	<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'promo_i18n' ); } ?>
 	<script>
 	(function () {
 		var shipped = <?php echo wp_json_encode( DZE_Marketing_Ai::default_promo_i18n_prompt() ); ?>;

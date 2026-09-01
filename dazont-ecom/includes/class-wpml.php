@@ -164,11 +164,31 @@ final class DZE_Wpml {
 			$posts[ $key ] = (int) url_to_postid( $url );
 		}
 		if ( $posts[ $key ] > 0 ) {
+			// ONLY when it is genuinely another post. Asked with the original as
+			// its fallback, WPML answers with the post it was given when there
+			// is no translation — and returning THAT permalink is how every
+			// link in a German email stayed on the English page: the answer
+			// looked successful, so the language's own URL rule below was never
+			// reached. A product nobody translated still has a German address.
 			$type = (string) ( get_post_type( $posts[ $key ] ) ?: 'post' );
 			$id   = (int) apply_filters( 'wpml_object_id', $posts[ $key ], $type, true, $lang );
-			$link = $id ? get_permalink( $id ) : '';
-			if ( is_string( $link ) && '' !== $link ) {
-				return $link;
+			if ( $id && $id !== $posts[ $key ] ) {
+				$link = get_permalink( $id );
+				if ( is_string( $link ) && '' !== $link ) {
+					return $link;
+				}
+			}
+		}
+		// The language's URL rule, asked of WPML itself. convert_url() is the
+		// method WPML uses on its own links and it knows all three shapes — a
+		// directory, a subdomain, a parameter. The filter is the documented
+		// door to the same answer and covers the versions that have no
+		// $sitepress, so both are tried before giving up.
+		global $sitepress;
+		if ( is_object( $sitepress ) && method_exists( $sitepress, 'convert_url' ) ) {
+			$conv = $sitepress->convert_url( $url, $lang );
+			if ( is_string( $conv ) && '' !== $conv && $conv !== $url ) {
+				return $conv;
 			}
 		}
 		$conv = apply_filters( 'wpml_permalink', $url, $lang, true );

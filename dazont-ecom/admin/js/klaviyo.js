@@ -492,6 +492,14 @@
 						.replace('%d', d.done || 0)
 						.replace('%s', (d.langs || done).join(', ').toUpperCase())
 						+ (failed.length ? ' · ' + failed.join(', ').toUpperCase() + ' — ' + (msg || '') : ''));
+					// What the LINKS became, said straight away and in the same
+					// place the page will say it after a reload.
+					if (d.note) {
+						var ko = d.note.indexOf('did NOT move') !== -1;
+						var $ln = $row.find('.dze-mail-links');
+						if (!$ln.length) { $ln = $('<span class="dze-mail-links" style="display:block;font-size:12px;margin-top:2px;white-space:normal;text-align:right;"></span>').insertAfter($said); }
+						$ln.css('color', ko ? '#b26a00' : '#00794b').text(d.note);
+					}
 					$b.text(cfg.i18nAgain || 'Translate again');
 				}).fail(function (xhr) {
 					stop('#b32d2e', (cfg.i18nFail || 'The translation did not finish.') + why(xhr));

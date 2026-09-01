@@ -71,6 +71,12 @@ final class DZE_Ai_Usage {
 	/** How many calls the trace holds before the oldest rolls off. */
 	private const TRACE_KEEP = 12;
 
+	/** The last call of EACH prompt, so every prompt can show its own. */
+	private const LAST = 'dze_ai_last';
+
+	/** How many prompts keep a call of their own before the oldest rolls off. */
+	private const LAST_KEEP = 24;
+
 	/**
 	 * One AI call, written down whole: which tool asked, on which model, WHAT
 	 * WAS SENT and WHAT CAME BACK, and how long it took.
@@ -99,6 +105,53 @@ final class DZE_Ai_Usage {
 			'got'      => mb_substr( $got, 0, 10000 ),
 		];
 		update_option( self::TRACE, array_slice( $rows, -self::TRACE_KEEP ), false );
+		self::remember( end( $rows ) );
+	}
+
+	/**
+	 * The same call, filed under the PROMPT it was built from.
+	 *
+	 * The trace holds a dozen calls for the whole plugin, so the prompt you
+	 * are reading is usually not in it — and a debug screen that is usually
+	 * empty is a debug screen nobody opens. Each prompt keeps its own last
+	 * call instead, found by the registry from the text that went out, so
+	 * every prompt screen can show what that prompt actually received without
+	 * anything being declared by hand at the call sites.
+	 *
+	 * Bounded twice: shorter than the trace's rows, and only the last two
+	 * dozen prompts used. Never autoloaded, read on the prompt screens only.
+	 */
+	private static function remember( $row ): void {
+		if ( ! is_array( $row ) || ! class_exists( 'DZE_Prompts' ) ) {
+			return;
+		}
+		$ids = DZE_Prompts::ids_in( (string) ( $row['sent'] ?? '' ) );
+		if ( ! $ids ) {
+			return;
+		}
+		$row['sent'] = mb_substr( (string) $row['sent'], 0, 6000 );
+		$row['got']  = mb_substr( (string) $row['got'], 0, 3000 );
+		$all = get_option( self::LAST, [] );
+		$all = is_array( $all ) ? $all : [];
+		foreach ( $ids as $id ) {
+			unset( $all[ $id ] ); // re-added at the end: the oldest to roll off is the least used.
+			$all[ $id ] = $row;
+		}
+		if ( count( $all ) > self::LAST_KEEP ) {
+			$all = array_slice( $all, -self::LAST_KEEP, null, true );
+		}
+		update_option( self::LAST, $all, false );
+	}
+
+	/**
+	 * The last call one prompt made, or [] when it has not run yet.
+	 *
+	 * @return array{t:int,unit:string,provider:string,model:string,secs:float,sent:string,got:string}|array{}
+	 */
+	public static function last_for( string $prompt_id ): array {
+		$all = get_option( self::LAST, [] );
+		$row = is_array( $all ) ? ( $all[ $prompt_id ] ?? [] ) : [];
+		return is_array( $row ) ? $row : [];
 	}
 
 	/** The last calls, newest first. @return array[] */
