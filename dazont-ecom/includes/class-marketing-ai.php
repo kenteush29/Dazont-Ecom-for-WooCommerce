@@ -2274,7 +2274,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		require DZE_DIR . 'admin/views/marketing-ai-panel.php';
 
 		echo '<h2 class="title" style="margin-top:24px;">' . esc_html__( 'Calendar', 'dazont-ecom' ) . '</h2>';
-		echo $this->calendar_grid_html( 4 ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping internally.
+		echo $this->calendar_grid_html( 4, true ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping internally.
 	}
 
 	// =========================================================================
@@ -2315,8 +2315,16 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * the front-end shortcode alike. The `$months` argument is ignored (kept for
 	 * backward compatibility with earlier callers).
 	 */
-	public function calendar_grid_html( int $months = 1 ): string {
+	public function calendar_grid_html( int $months = 1, bool $mails = false ): string {
 		$events = $this->sale_events();
+		// The emails PLANNED, on the same calendar as the promotions they
+		// belong to — a promotion is a coloured band across its days, and the
+		// emails are the days something actually reaches a reader. Asked for
+		// by the admin screen and by nothing else: the front-end shortcode
+		// draws the shop's promotions, not its marketing plan.
+		$mail_days = ( $mails && class_exists( 'DZE_Klaviyo' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'klaviyo' ) )
+			? DZE_Klaviyo::calendar()
+			: [];
 
 		$palette = [ '#2563eb', '#0a7040', '#b26a00', '#7c3aed', '#b32d2e', '#0e7490', '#be185d', '#4d7c0f' ];
 		usort( $events, static fn( $a, $b ) => strcmp( $a['start'], $b['start'] ) );
@@ -2350,6 +2358,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		$uid  = 'dze-cal-' . wp_rand( 1000, 9999 ) . '-' . substr( (string) time(), -4 );
 		$data = [
 			'events'   => $data_events,
+			'mails'    => $mail_days,
 			'sow'      => $sow,
 			'weekdays' => $weekdays,
 			'months'   => $months_n,
@@ -2360,6 +2369,10 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				'off'   => __( 'disabled', 'dazont-ecom' ),
 				'empty' => __( 'No scheduled events yet — accept an AI suggestion or add an event.', 'dazont-ecom' ),
 				'today' => __( 'Today', 'dazont-ecom' ),
+				// What an email chip says when it is hovered: where it stands
+				// in Klaviyo, in the shop's own words.
+				'inK'   => __( 'in Klaviyo', 'dazont-ecom' ),
+				'notK'  => __( 'not in Klaviyo yet', 'dazont-ecom' ),
 			],
 		];
 
@@ -2387,6 +2400,14 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			.dze-cal__num{color:#777;font-size:11px;}
 			.dze-cal__chip{display:block;color:#fff;border-radius:3px;padding:1px 5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;line-height:1.6;}
 			.dze-cal__chip.is-off{opacity:.5;}
+			/* An email is one DAY, not a band: a chip of its own, quiet enough
+			   not to fight the promotion it sits on. */
+			.dze-cal__mail{display:block;margin-top:2px;padding:1px 5px;border:1px solid #c3c4c7;border-left:3px solid #2271b1;
+				border-radius:3px;background:#fff;color:#1d2327;font-size:11px;line-height:1.6;text-decoration:none;
+				white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+			a.dze-cal__mail:hover{background:#f6f7f7;}
+			.dze-cal__mail.is-todo{border-left-color:#b26a00;}
+			.dze-cal__mail .dze-cal__tick{color:#00794b;font-weight:700;}
 			.dze-cal__none{color:#777;}
 		</style>
 		<script>
@@ -2402,7 +2423,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 
 			function render() {
 				label.textContent = D.months[m - 1] + ' ' + y;
-				if ( ! D.events.length ) {
+				if ( ! D.events.length && ! ( D.mails || [] ).length ) {
 					body.innerHTML = '<p class="dze-cal__none">' + D.i18n.empty + '</p>';
 					return;
 				}
@@ -2428,6 +2449,20 @@ A safety filter also removes suggestions matching an existing product title.</pr
 							var tip = ev.title + ' (-' + ev.percent + '%)' + (ev.enabled ? '' : ' — ' + D.i18n.off);
 							html += '<span class="dze-cal__chip' + (ev.enabled ? '' : ' is-off') + '" style="background:' + ev.color + '" title="' + tip.replace(/"/g, '&quot;') + '">' + ev.title.replace(/</g, '&lt;') + '</span>';
 						}
+					}
+					// The emails of that day, under the promotions running on it.
+					for (var k = 0; k < (D.mails || []).length; k++) {
+						var ml = D.mails[k];
+						if (ml.day !== ymd) { continue; }
+						var here = ml.state ? (ml.state + ' — ' + D.i18n.inK) : D.i18n.notK,
+							note = (ml.label || '') + ' · ' + here + (ml.subject ? ' · ' + ml.subject : ''),
+							tag  = ml.url ? 'a' : 'span',
+							href = ml.url ? ' href="' + String(ml.url).replace(/"/g, '&quot;') + '"' : '';
+						html += '<' + tag + href + ' class="dze-cal__mail' + (ml.state ? '' : ' is-todo') + '"'
+							+ ' title="' + note.replace(/</g, '&lt;').replace(/"/g, '&quot;') + '">'
+							+ '&#9993; ' + String(ml.name || ml.label || '').replace(/</g, '&lt;')
+							+ (ml.state ? ' <span class="dze-cal__tick">&#10003;</span>' : '')
+							+ '</' + tag + '>';
 					}
 					html += '</td>'; col++;
 				}

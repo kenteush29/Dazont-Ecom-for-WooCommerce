@@ -249,6 +249,13 @@ owner communicates in French.
   pass. A provider's own answers cannot be run from here, so the Klaviyo one
   stubs the transport and reads the REQUEST — its method, its URL, its headers,
   its body. "No valid revisions found for method" was one header on six calls.
+- **`php tools/test-calendar.php dazont-ecom` and
+  `node tools/js/calendar-emails.mjs` must pass.** The marketing calendar is
+  drawn by an inline script: PHP hands over the promotions and the planned
+  emails, and NOTHING appears until a browser runs it — so the PHP gate checks
+  what is handed over (and that the front-end shortcode and a disabled module
+  get none of it), and the browser gate opens the plugin's own rendering and
+  reads the chips back, on the right days, linking to their promotion.
 - **`php tools/test-gmc-token.php dazont-ecom` must pass.** Google answers
   `invalid_grant` / "Token has been expired or revoked" when the authorisation
   is GONE: no retry fixes it, so it is recognised, written down once on the

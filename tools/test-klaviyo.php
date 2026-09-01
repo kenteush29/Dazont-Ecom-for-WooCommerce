@@ -104,7 +104,7 @@ function wp_send_json_error( $d = null, $code = 0 ) { throw new DZE_Json_Sent( $
 function is_admin() { return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
 function wp_parse_url( $url, $component = -1 ) { return parse_url( (string) $url, $component ); }
-function add_query_arg( ...$a ) { return ''; }
+function add_query_arg( ...$a ) { return is_array( $a[0] ?? null ) ? ( ( $a[1] ?? '' ) . '?' . http_build_query( $a[0] ) ) : ''; }
 function wp_create_nonce( $a = '' ) { return 'nonce'; }
 function wp_next_scheduled( $h ) { return 0; }
 function wp_schedule_event() {} function wp_unschedule_event() {}
@@ -147,7 +147,10 @@ class DZE_Marketing_Ai {
 	public static function instance() { return new self(); }
 	public function shop_context_text() { return 'Kula Tactical: tactical and military equipment.'; }
 }
-class DZE_Discounts { public static function get_rules() { return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; } }
+class DZE_Discounts {
+	const MENU_SLUG_EVENTS = 'dazont-ecom-marketing-events';
+	public static function get_rules() { return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; }
+}
 class DZE_Modules { public static function enabled( $id ) { return true; } }
 class DZE_Content {
 	// The prompt registry asks the content module for its per-field prompts;
