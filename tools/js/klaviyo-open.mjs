@@ -373,6 +373,74 @@ ok( 'an email with no place for one writes alone',
 	posted.filter( a => 'dze_klav_write' === a ).length, 1 );
 ok( 'and no picture is made',               posted.filter( a => 'dze_klav_image' === a ).length, 0 );
 
+// "Generate them all devrait générer les emails sans avoir besoin d'ouvrir la
+// fenetre d'aperçu en focus. C'est mal codé. Et plusieurs emails devraient
+// pouvoir etre générés en même temps et pas tous un par un."
+//
+// The run used to OPEN each email in turn — scrolling the page to the editor,
+// filling its fields, and reading the model's answer back out of them — so the
+// answer travelled through whichever email happened to be on screen. Four rows,
+// the editor shut, and nothing touched but the button.
+await page.evaluate( () => {
+	const list = document.querySelector( '.dze-mail-list' );
+	const one  = list.querySelector( '.dze-mail' );
+	for ( const id of [ 'mail2', 'mail3', 'mail4' ] ) {
+		const copy = one.cloneNode( true );
+		copy.dataset.id = id;
+		copy.querySelector( '.dze-f-subject' ).value = '';
+		copy.querySelector( '.dze-f-body' ).value = '';
+		list.appendChild( copy );
+	}
+	document.getElementById( 'dze-mail-edit' ).style.display = 'none';
+	document.querySelectorAll( '.dze-mail' ).forEach( c => c.classList.remove( 'is-on' ) );
+} );
+let live = 0, peak = 0, wrote = 0;
+await page.unroute( 'http://dze.test/ajax*' );
+await page.route( 'http://dze.test/ajax*', async route => {
+	const asked = new URLSearchParams( route.request().postData() || '' ).get( 'action' );
+	const who   = new URLSearchParams( route.request().postData() || '' ).get( 'email' );
+	if ( 'dze_klav_write' === asked ) {
+		live++; wrote++;
+		peak = Math.max( peak, live );
+		await new Promise( r => setTimeout( r, 250 ) );
+		live--;
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify(
+			{ success: true, data: { subject: 'Written for ' + who, preview: 'P ' + who,
+				body: '<h1>' + who + '</h1>', picture: 0 } } ) } );
+	}
+	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
+} );
+await page.click( '#dze-mail-all' );
+for ( let i = 0; i < 200 && wrote < 4; i++ ) { await page.waitForTimeout( 100 ); }
+await page.waitForTimeout( 600 );
+ok( 'every email is written', wrote, 4 );
+// Several at once, and not all at once: a shop's PHP has a limited number of
+// workers, and four model calls landing together is how one starts refusing
+// pages. Two or three in flight, never one.
+ok( 'more than one runs at a time', peak > 1, true );
+ok( 'and never more than three',    peak <= 3, true );
+// The answer lands on the ROW that asked for it. Through the editor it landed
+// on whichever email was open, which is why the run needed one.
+ok( 'each row keeps its own words',
+	await page.evaluate( () => [ 'mail1', 'mail2', 'mail3', 'mail4' ].map(
+		id => document.querySelector( '.dze-mail[data-id="' + id + '"] .dze-f-subject' ).value ) ),
+	[ 'Written for mail1', 'Written for mail2', 'Written for mail3', 'Written for mail4' ] );
+ok( 'and its own body',
+	await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail3"] .dze-f-body' ).value ),
+	'<h1>mail3</h1>' );
+// The editor was never dragged into it.
+ok( 'no email was opened',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail.is-on' ).length ), 0 );
+ok( 'and the editor stayed shut',
+	await page.isVisible( '#dze-mail-edit' ), false );
+ok( 'nothing was raised writing them all', errors, [] );
+// The screen put back the way the checks after this one expect it.
+await page.evaluate( () => {
+	document.querySelectorAll( '.dze-mail' ).forEach( ( c, i ) => { if ( i ) { c.remove(); } } );
+} );
+await page.click( '.dze-mail[data-id="mail1"] .dze-mail-open' );
+await page.waitForTimeout( 150 );
+
 // A day that clashes with nothing says nothing: a warning that is always
 // there is a warning nobody reads.
 await page.fill( '#dze-klav-e-when', day( 20 * 86400000 ) );

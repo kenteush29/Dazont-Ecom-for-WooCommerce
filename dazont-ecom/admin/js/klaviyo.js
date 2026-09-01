@@ -317,12 +317,13 @@
 		pending = window.setTimeout(render, 250);
 	});
 
-	function open(id) {
+	// The editor, filled from ONE email's own fields. The row is what the
+	// plugin writes into; this is the view of it. Called on opening, and again
+	// whenever the email on screen is the one that has just been rewritten —
+	// so a run that rewrites four emails does not have to open any of them.
+	function fill(id) {
 		var $c = card(id);
 		if (!$c.length) { return; }
-		current = id;
-		$('.dze-mail').removeClass('is-on');
-		$c.addClass('is-on');
 		// An email whose type the shop has since deleted falls back to the
 		// first one rather than showing a menu with nothing selected.
 		var $type = $('#dze-klav-e-type'), had = $c.find('.dze-f-kind').val() || '';
@@ -334,6 +335,17 @@
 		$('#dze-klav-e-preview').val($c.find('.dze-f-preview').val() || '');
 		$('#dze-klav-e-when').val($c.find('.dze-f-when').val() || '');
 		body().val($c.find('.dze-f-body').val() || '');
+		drawHasPic();
+		render();
+	}
+
+	function open(id) {
+		var $c = card(id);
+		if (!$c.length) { return; }
+		current = id;
+		$('.dze-mail').removeClass('is-on');
+		$c.addClass('is-on');
+		fill(id);
 		$('#dze-klav-e-msg').text('');
 		$('#dze-klav-e-kept').text('');
 		$('#dze-klav-write-msg').text('').removeClass('is-ko');
@@ -342,7 +354,6 @@
 		// for the shop, not a sentence per email.
 		$('#dze-klav-shot-out').hide();
 		$('#dze-klav-shot-msg').text('').removeClass('is-ko');
-		drawHasPic();
 		briefReset();
 		$('#dze-mail-edit').show();
 		view('view');
@@ -784,68 +795,50 @@
 		}
 	}
 
+	// Several at a time, and not all at once.
+	//
+	// "Plusieurs emails devraient pouvoir etre générés en même temps et pas
+	// tous un par un." One at a time was a quarter of an hour of watching a
+	// button; all at once is worse — every one of these is a model call
+	// holding a PHP worker, and a shop with four workers stops answering its
+	// own pages. Three in flight, which halves the wait and leaves the shop
+	// standing.
+	var AT_ONCE = 3;
+
 	$(document).on('click', '#dze-mail-all', function () {
 		var $b = $(this), $m = $('#dze-mail-plan-msg'),
-			ids = $('.dze-mail').map(function () { return $(this).data('id'); }).get();
+			ids = $('.dze-mail').map(function () { return $(this).data('id'); }).get(),
+			next = 0, done = 0, live = 0;
 		if (!ids.length) { $m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.nothing); return; }
 		$b.prop('disabled', true);
-		(function next(i) {
-			if (i >= ids.length) {
-				$b.prop('disabled', false);
-				$m.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.allDone);
-				return;
+		say();
+		pump();
+
+		function say() {
+			$m.css('color', '#646970').removeClass('is-ko')
+				.text(cfg.i18n.writing1
+					.replace('%1$d', Math.min(done + 1, ids.length))
+					.replace('%2$d', ids.length));
+		}
+		function pump() {
+			while (live < AT_ONCE && next < ids.length) {
+				live++;
+				// One that failed does not stop the rest: the others are worth
+				// having, and the one that failed is still there to try again
+				// on its own. writeOne always resolves, so this is reached.
+				writeOne(ids[next++]).always(function () {
+					live--;
+					done++;
+					if (done >= ids.length) {
+						$b.prop('disabled', false);
+						$m.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.allDone);
+						return;
+					}
+					say();
+					pump();
+				});
 			}
-			$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.writing1.replace('%1$d', i + 1).replace('%2$d', ids.length));
-			open(ids[i]);
-			rowNote(card(ids[i]), cfg.i18n.rowWriting, 'work');
-			$.post(cfg.ajaxUrl, {
-				action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: ids[i],
-				// The type and day AS THEY ARE ON THE ROW: a row added just now
-				// is not in the database yet, and writing from what is stored
-				// gave a launch email to somebody who asked for a last chance.
-				kind: card(ids[i]).find('.dze-f-kind').val() || '',
-				when: card(ids[i]).find('.dze-f-when').val() || ''
-			})
-				.done(function (res) {
-					if (!res || !res.success) {
-						rowNote(card(ids[i]), (res && res.data && res.data.message) || i18n.error, 'ko');
-						// One that failed does not stop the rest: the others
-						// are worth having, and the one that failed is still
-						// there to try again on its own.
-						next(i + 1);
-						return;
-					}
-					$('#dze-klav-e-subject').val(res.data.subject || '');
-					if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-					body().val(res.data.body || '');
-					commit();
-					// The PICTURE is part of writing the email, not a thing to
-					// ask for: the one condition is that the writing left a
-					// place for one, which it does only when the shop allows
-					// pictures at all. Made AFTER the email, so the picture
-					// prompt is given what this email turned out to be, and
-					// through the same call the single button uses.
-					if (res.data.picture) {
-						rowNote(card(ids[i]), cfg.i18n.rowShot || 'Making its picture…', 'work');
-						makePicture($b, $m, '', function () {
-							rowNote(card(ids[i]), cfg.i18n.rowShotOk || cfg.i18n.rowWrote, 'ok');
-							next(i + 1);
-						})
-							// A picture that never came back must not stop the
-							// run: the emails after it are worth having, and
-							// the row says which one lost its picture.
-							.fail(function () {
-								$b.prop('disabled', true);
-								rowNote(card(ids[i]), i18n.error, 'ko');
-								next(i + 1);
-							});
-						return;
-					}
-					rowNote(card(ids[i]), cfg.i18n.rowWrote, 'ok');
-					next(i + 1);
-				})
-				.fail(function () { rowNote(card(ids[i]), i18n.error, 'ko'); next(i + 1); });
-		}(0));
+		}
 	});
 
 	// The whole promotion handed over at once, oldest first.
@@ -1129,53 +1122,41 @@
 		$p.css('display', 'flex').find('img').attr('src', url).attr('data-full', url);
 	}
 
-	function setPicture(url) {
-		var el = body()[0], old = String( picture().val() || '' ).trim();
-		picture().val(url);
-		if (!el) { commit(); return; }
-		if (el.value.indexOf(cfg.pictureMark) !== -1) {
-			el.value = el.value.split(cfg.pictureMark).join(url);
-		} else if (old && el.value.indexOf(old) !== -1) {
-			el.value = el.value.split(old).join(url);
-		} else if (el.value.indexOf(url) === -1) {
+	// A photograph put into ONE email, named. It used to be put into the
+	// editor's textarea, which meant the email had to be open — and a run of
+	// four could only ever illustrate whichever one was on screen.
+	function rowShot(id, url) {
+		var $c = card(id), $body = $c.find('.dze-f-body'),
+			old = String( $c.find('.dze-f-picture').val() || '' ).trim(),
+			html = String( $body.val() || '' );
+		if (!$c.length) { return; }
+		$c.find('.dze-f-picture').val(url);
+		if (html.indexOf(cfg.pictureMark) !== -1) {
+			html = html.split(cfg.pictureMark).join(url);
+		} else if (old && html.indexOf(old) !== -1) {
+			html = html.split(old).join(url);
+		} else if (html.indexOf(url) === -1) {
 			// Nothing to swap: the writing left no place for a picture, or the
 			// place it left has already been filled by another one. The
 			// picture goes at the top, which is where an opening picture goes.
-			//
-			// This used to happen ONLY when the email had no image at all, and
-			// a body with any image in it fell through every branch: "Use it in
-			// this email" then did nothing whatsoever, silently. Guarded on the
-			// URL itself instead, which is the real question — the same picture
-			// must not be added twice, another one may.
-			el.value = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
-				'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' + (el.value || '');
+			html = '<p style="margin:0 0 14px;"><img src="' + url + '" width="544" alt="" ' +
+				'style="display:block;width:100%;max-width:544px;height:auto;border:0;" /></p>' + html;
 		}
-		// AFTER the body was changed, never before: commit is what copies the
-		// editor into the email's own fields, and running it first filed the
-		// body as it stood a line earlier — with the marker still in it. The
-		// picture was made, paid for, shown on screen, and the email saved
-		// without it.
-		commit();
-		render();
-		drawHasPic();
-		// Kept with the email at once, like the writing keeps itself. It used
-		// to wait for the event's Save, so a reload before that threw away the
-		// photograph, the paragraph it sat in, and what it cost.
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_usepic', nonce: cfg.nonce,
-			rule: ruleId(), email: current, url: url, body: el.value || ''
-		}).done(function (res) {
-			if (res && res.success) { return; }
-			// Beside the picture it is about, like every other message on this
-			// screen sits beside the button that produced it.
-			$('#dze-klav-shot-msg').css('color', '#b32d2e').addClass('is-ko')
-				.text((res && res.data && res.data.message) || i18n.error);
-		}).fail(function (xhr) {
-			// Silence here means the picture is on screen and nowhere else,
-			// which is exactly the failure this call exists to prevent.
-			$('#dze-klav-shot-msg').css('color', '#b32d2e').addClass('is-ko')
-				.text('HTTP ' + (xhr ? xhr.status : 0));
-		});
+		$body.val(html);
+		thumb(id);
+		if (id === current) { fill(id); }
+	}
+
+	// The <img> that was waiting for a photograph that never came, on one row.
+	function rowNoShot(id) {
+		var $body = card(id).find('.dze-f-body'), html = String( $body.val() || '' );
+		if (!$body.length || html.indexOf(cfg.pictureMark) === -1) { return; }
+		$body.val(html.replace(
+			new RegExp('<p[^>]*>\\s*<img[^>]*' + cfg.pictureMark + '[^>]*>\\s*<\\/p>|<img[^>]*' + cfg.pictureMark + '[^>]*>', 'gi'),
+			''
+		));
+		thumb(id);
+		if (id === current) { fill(id); }
 	}
 
 	// Making the picture is a call of its own, and a slow one. It runs beside
@@ -1183,33 +1164,31 @@
 	// finish, instead of one that a host cuts off at ninety seconds. The
 	// description comes from the writing — there is one prompt, and it decides
 	// the picture as well as the words.
-	function makePicture($b, $m, prompt, then, test) {
+	// A TEST picture: as many as it takes, on a description you can edit right
+	// here, none of them touching the email. The real one is made by writeOne,
+	// for a named email, through the one routine that puts a photograph into a
+	// body — this used to carry a second copy of that routine, working only on
+	// the email that happened to be open.
+	function makePicture($b, $m, prompt) {
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').removeClass('is-ko').text(i18n.shooting);
 		return $.post(cfg.ajaxUrl, {
 			action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId(), email: current,
-			prompt: prompt || '', test: test ? 1 : 0
+			prompt: prompt || '', test: 1
 		})
 			.done(function (res) {
 				if (res && res.success) {
-					if (test) { showTest(res.data.url, res.data.full); }
-					else { setPicture(res.data.url); }
+					showTest(res.data.url, res.data.full);
 					hosted = res.data.warning || '';
 					if (res.data.spend && res.data.spend.label) {
 						$('#dze-klav-spend').text(res.data.spend.label).show();
 					}
-				} else {
-					// No photograph: the email keeps its layout and loses its
-					// hole, rather than shipping a broken image. A test that
-					// failed changes nothing in the email at all.
-					if (!test) { dropPlaceholder(); }
-					$m.css('color', '#b26a00').removeClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
+					return;
 				}
-				if (then) { then(); } else { $b.prop('disabled', false); }
+				// A test that failed changes nothing in the email at all.
+				$m.css('color', '#b26a00').removeClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
 			})
 			.fail(function () {
-				if (!test) { dropPlaceholder(); }
-				$b.prop('disabled', false);
 				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
 			});
 	}
@@ -1226,16 +1205,6 @@
 	}
 
 	// The <img> that was waiting for a photograph that never came.
-	function dropPlaceholder() {
-		var el = body()[0];
-		if (!el || el.value.indexOf(cfg.pictureMark) === -1) { return; }
-		el.value = el.value.replace(
-			new RegExp('<p[^>]*>\\s*<img[^>]*' + cfg.pictureMark + '[^>]*>\\s*<\\/p>|<img[^>]*' + cfg.pictureMark + '[^>]*>', 'gi'),
-			''
-		);
-		render();
-	}
-
 	// What the writing is TOLD, printed on demand. It is built by the very
 	// function that writes the email, with no model call: what is shown here
 	// is what the next Generate sends, and there is no second version of it
@@ -1295,60 +1264,124 @@
 			.fail(function () { $out.text(i18n.error); });
 	});
 
+	// ONE email written, wherever the click came from, and never through the
+	// editor.
+	//
+	// "Generate them all devrait générer les emails sans avoir besoin d'ouvrir
+	// la fenetre d'aperçu en focus." It did: the run opened each email, poured
+	// the model's answer into the editor's fields and copied them back onto the
+	// row, so the answer travelled through whichever email happened to be on
+	// screen — one at a time, with the page scrolling under the shop. The row
+	// is written into directly now, and the editor is refreshed only when the
+	// email that changed is the one being looked at.
+	//
+	// Always RESOLVES, with { ok, data }: one email that failed must not stop
+	// the ones after it, and the row it failed on says so on its own line.
+	function writeOne(id) {
+		var $c = card(id);
+		rowNote($c, cfg.i18n.rowWriting, 'work');
+		return $.post(cfg.ajaxUrl, {
+			action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: id,
+			// The type and day AS THEY ARE ON THE ROW: a row added just now is
+			// not in the database yet, and writing from what is stored gave a
+			// launch email to somebody who asked for a last chance.
+			kind: $c.find('.dze-f-kind').val() || '',
+			when: $c.find('.dze-f-when').val() || ''
+		}).then(function (res) {
+			if (!res || !res.success) {
+				rowNote($c, (res && res.data && res.data.message) || i18n.error, 'ko');
+				return { ok: false, data: (res && res.data) || {} };
+			}
+			rowPut(id, res.data);
+			// The PICTURE is part of writing the email, not a thing to ask
+			// for: the one condition is that the writing left a place for one.
+			// Made AFTER the words, so the picture prompt is given what this
+			// email turned out to be.
+			if (!res.data.picture) {
+				rowNote($c, cfg.i18n.rowWrote, 'ok');
+				return { ok: true, data: res.data };
+			}
+			rowNote($c, cfg.i18n.rowShot || 'Making its picture…', 'work');
+			return shotFor(id).then(function () {
+				rowNote($c, cfg.i18n.rowShotOk || cfg.i18n.rowWrote, 'ok');
+				return { ok: true, data: res.data };
+			}, function () {
+				// A picture that never came back must not lose the words: the
+				// email is there, and the row says which one lost its picture.
+				rowNote($c, i18n.error, 'ko');
+				return { ok: true, data: res.data };
+			});
+		}, function () {
+			rowNote($c, i18n.error, 'ko');
+			return { ok: false, data: {} };
+		});
+	}
+
+	// The answer, onto the email that asked for it.
+	function rowPut(id, data) {
+		var $c = card(id);
+		if (!$c.length) { return; }
+		if (undefined !== data.subject) {
+			$c.find('.dze-f-subject').val(data.subject || '');
+			$c.find('.dze-mail-subject').text(data.subject || '');
+		}
+		if (data.preview) {
+			$c.find('.dze-f-preview').val(data.preview);
+			$c.find('.dze-mail-preview').text(data.preview);
+		}
+		if (undefined !== data.body) { $c.find('.dze-f-body').val(data.body || ''); }
+		thumb(id);
+		markDupes();
+		if (id === current) { fill(id); }
+	}
+
+	// Its photograph, asked for BY NAME rather than "the one that is open".
+	function shotFor(id) {
+		return $.post(cfg.ajaxUrl, {
+			action: 'dze_klav_image', nonce: cfg.nonce, rule: ruleId(), email: id,
+			prompt: '', test: 0
+		}).then(function (res) {
+			if (!res || !res.success || !res.data || !res.data.url) {
+				rowNoShot(id);
+				return $.Deferred().reject().promise();
+			}
+			rowShot(id, res.data.url);
+			if (res.data.spend && res.data.spend.label) {
+				$('#dze-klav-spend').text(res.data.spend.label).show();
+			}
+			return res.data;
+		}, function () {
+			rowNoShot(id);
+			return $.Deferred().reject().promise();
+		});
+	}
+
 	function writeEmail($b, $m) {
+		if (!current) { return; }
+		var id = current;
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').removeClass('is-ko').text(i18n.writing);
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: current,
-			kind: card(current).find('.dze-f-kind').val() || '',
-			when: card(current).find('.dze-f-when').val() || ''
-		})
-			.done(function (res) {
-				$b.prop('disabled', false);
-				if (!res || !res.success) {
-					$m.css('color', '#b32d2e').addClass('is-ko').text((res && res.data && res.data.message) || i18n.error);
-					return;
-				}
-				$('#dze-klav-e-subject').val(res.data.subject);
-				if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
-				commit();
-				body().val(res.data.body);
-				commit();
-				// This email has changed: what the OTHERS are told about it has too.
-				briefReset();
-				// A warning is not a failure: the email is there, and something
-				// in it is worth reading twice before it goes out.
-				var note = function () {
-					$m.css('color', res.data.warning ? '#b32d2e' : '#b26a00')
-						.toggleClass('is-ko', !!res.data.warning)
-						.text(res.data.warning ? res.data.warning : i18n.written);
-				};
-				view('view');
-				// The writing DESCRIBES the photograph; it does not order it.
-				// Making one costs money and a minute, and firing that off on
-				// every rewrite spends both on emails nobody had decided to
-				// illustrate. The description is kept for the button beside
-				// this one, and the screen says it is waiting.
-				if (res.data.picture) {
-					// The email left a place for a picture, so it gets one —
-					// every time, in the same pass, AFTER the words: the
-					// picture prompt is then given what this email turned out
-					// to be, and its subject line. What that picture shows is
-					// the shop's own picture prompt, judged with the test
-					// button beside it and not email by email.
-					makePicture($('#dze-klav-e-shot'), $m, '', function () {
-						$('#dze-klav-e-shot').prop('disabled', false);
-						$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
-						view('view');
-					});
-					return;
-				}
-				note();
-			})
-			.fail(function () {
-				$b.prop('disabled', false);
-				$m.css('color', '#b32d2e').addClass('is-ko').text(i18n.error);
-			});
+		// The same function the run uses. A rule held in one of two places is
+		// a rule that will be found broken in the other.
+		writeOne(id).always(function (got) {
+			$b.prop('disabled', false);
+			var data = (got && got.data) || {};
+			if (!got || !got.ok) {
+				$m.css('color', '#b32d2e').addClass('is-ko').text(data.message || i18n.error);
+				return;
+			}
+			// This email has changed: what the OTHERS are told about it has too.
+			briefReset();
+			view('view');
+			// A warning is not a failure: the email is there, and something in
+			// it is worth reading twice before it goes out.
+			if (data.warning) {
+				$m.css('color', '#b32d2e').addClass('is-ko').text(data.warning);
+				return;
+			}
+			$m.css('color', data.picture ? '#0a7040' : '#b26a00').removeClass('is-ko')
+				.text(data.picture ? i18n.shot : i18n.written);
+		});
 	}
 
 	// An email opens on a picture. Asking for one separately meant it went out
@@ -1437,11 +1470,11 @@
 	// edit right here, none of them touching the email.
 	$(document).on('click', '#dze-klav-e-shot', function () {
 		var $b = $(this), $m = $('#dze-klav-shot-msg');
-		makePicture($b, $m, '', function () {
+		makePicture($b, $m, '').always(function () {
 			$b.prop('disabled', false);
 			if (hosted) { $m.css('color', '#b26a00').removeClass('is-ko').text(hosted); return; }
 			$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shotTest);
-		}, true);
+		});
 	});
 	// Off the email, not out of Klaviyo: the photograph stays where it is
 	// hosted and paid for, and what goes is this email's claim on it. The
@@ -1478,7 +1511,7 @@
 
 	$(document).on('click', '#dze-klav-e-usepic', function () {
 		if (!tested) { return; }
-		setPicture(tested);
+		rowShot(current, tested);
 		$('#dze-klav-shot-msg').css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
 		view('view');
 	});
