@@ -699,13 +699,18 @@
 		// Date order, and a day nobody set goes last rather than first.
 		jobs.sort(function (a, b) { return (a.when || '9999-12-31').localeCompare(b.when || '9999-12-31'); });
 		$b.prop('disabled', true);
-		var made = 0, failed = 0;
+		var made = 0, failed = 0, same = 0;
 		(function next(i) {
 			if (i >= jobs.length) {
 				$b.prop('disabled', false);
 				if (failed) {
 					$m.css('color', '#b26a00').removeClass('is-ko')
 						.text(cfg.i18n.draftSome.replace('%1$d', made).replace('%2$d', failed));
+				} else if (same) {
+					// What was actually done, not "all done": the shop pressed
+					// this and five identical templates went nowhere.
+					$m.css('color', '#0a7040').removeClass('is-ko')
+						.text((cfg.i18n.draftSkip || '%1$d / %2$d').replace('%1$d', made).replace('%2$d', same));
 				} else {
 					$m.css('color', '#0a7040').removeClass('is-ko').text(cfg.i18n.draftAll);
 				}
@@ -723,9 +728,18 @@
 			})
 				.done(function (res) {
 					if (res && res.success && res.data && res.data.url) {
-						made += 1;
 						drawState(card(jobs[i].id), res.data);
-						rowNote(card(jobs[i].id), cfg.i18n.rowPut, 'ok');
+						// An email nobody has touched since it was filed is not
+						// filed again: re-sending five identical templates is
+						// work Klaviyo did not need and the shop did not ask
+						// for. The row says which of the two happened.
+						if (res.data.skipped) {
+							same += 1;
+							rowNote(card(jobs[i].id), cfg.i18n.rowSame, 'ok');
+						} else {
+							made += 1;
+							rowNote(card(jobs[i].id), cfg.i18n.rowPut, 'ok');
+						}
 					} else {
 						failed += 1;
 						rowNote(card(jobs[i].id), (res && res.data && res.data.message) || i18n.error, 'ko');
@@ -734,6 +748,31 @@
 				})
 				.fail(function () { failed += 1; rowNote(card(jobs[i].id), i18n.error, 'ko'); next(i + 1); });
 		}(0));
+	});
+
+	// One email, put in Klaviyo on its own. The batch skips what has not
+	// changed; this never does — asked for by name, it goes.
+	$(document).on('click', '.dze-mail-push', function () {
+		var $b = $(this), id = $(this).closest('.dze-mail').data('id');
+		commit();
+		var text = String( card(id).find('.dze-f-body').val() || '' ).trim();
+		if (!text) { rowNote(card(id), cfg.i18n.noWritten, 'ko'); return; }
+		$b.prop('disabled', true);
+		rowNote(card(id), cfg.i18n.rowPutting, 'work');
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_draft', nonce: cfg.nonce, rule: ruleId(),
+			email: id, body: text, force: 1
+		})
+			.done(function (res) {
+				$b.prop('disabled', false);
+				if (res && res.success && res.data && res.data.url) {
+					drawState(card(id), res.data);
+					rowNote(card(id), cfg.i18n.rowPut, 'ok');
+					return;
+				}
+				rowNote(card(id), (res && res.data && res.data.message) || i18n.error, 'ko');
+			})
+			.fail(function () { $b.prop('disabled', false); rowNote(card(id), i18n.error, 'ko'); });
 	});
 
 	// A person has read what the autopilot wrote: the mark goes, at once and

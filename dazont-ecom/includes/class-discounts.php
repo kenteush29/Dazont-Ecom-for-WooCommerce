@@ -2347,7 +2347,7 @@ final class DZE_Discounts {
 		// The count rides on the menu label, as everywhere else in the plugin:
 		// suggested events waiting for a yes or a no are visible without
 		// opening the screen they wait on.
-		$ev_label = __( 'Marketing Events', 'dazont-ecom' );
+		$ev_label = __( 'Marketing events', 'dazont-ecom' );
 		$ev_wait  = ( class_exists( 'DZE_Marketing_Ai' ) && DZE_Modules::enabled( 'marketing_ai' ) )
 			? DZE_Marketing_Ai::pending_count()
 			: 0;
@@ -2362,10 +2362,12 @@ final class DZE_Discounts {
 			self::MENU_SLUG_EVENTS,
 			[ $this, 'render_events_page' ]
 		);
+		// "Discounts" said what the screen holds; "Marketing" says what it is
+		// FOR, and puts it beside Marketing events where the shop looks for it.
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Discounts', 'dazont-ecom' ),
-			__( 'Discounts', 'dazont-ecom' ),
+			__( 'Marketing', 'dazont-ecom' ),
+			__( 'Marketing', 'dazont-ecom' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_discounts_page' ]
@@ -2427,18 +2429,35 @@ final class DZE_Discounts {
 		$this->render_page_for( 'events' );
 	}
 
-	/** Tab nav for the Marketing Events page (Events | Google Merchant Center). */
+	/** Where the Google Merchant Center screen lives, in one place. */
+	public static function gmc_url(): string {
+		return add_query_arg(
+			[ 'page' => self::MENU_SLUG_EVENTS, 'tab' => 'gmc' ],
+			admin_url( 'admin.php' )
+		);
+	}
+
+	/**
+	 * The tab bar of the marketing screens.
+	 *
+	 * Three tabs, the same three from every one of them: the shop could not
+	 * find Google Merchant Center because it was a tab that only existed on
+	 * one screen, and nothing on the other said it was there at all.
+	 */
 	public function events_tabs_html( string $active ): string {
-		if ( ! class_exists( 'DZE_Gmc' ) ) {
-			return '';
+		$tabs = [
+			'events'    => [ __( 'Events & calendar', 'dazont-ecom' ), add_query_arg( [ 'page' => self::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) ) ],
+			'discounts' => [ __( 'Discount rules', 'dazont-ecom' ), add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ],
+		];
+		if ( class_exists( 'DZE_Gmc' ) ) {
+			$tabs['gmc'] = [ __( 'Google Merchant Center', 'dazont-ecom' ), self::gmc_url() ];
 		}
-		$events_url = add_query_arg( [ 'page' => self::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) );
-		$gmc_url    = add_query_arg( [ 'page' => self::MENU_SLUG_EVENTS, 'tab' => 'gmc' ], admin_url( 'admin.php' ) );
 		ob_start();
 		?>
 		<h2 class="nav-tab-wrapper" style="margin-bottom:16px;">
-			<a href="<?php echo esc_url( $events_url ); ?>" class="nav-tab<?php echo 'gmc' !== $active ? ' nav-tab-active' : ''; ?>"><?php esc_html_e( 'Events & calendar', 'dazont-ecom' ); ?></a>
-			<a href="<?php echo esc_url( $gmc_url ); ?>" class="nav-tab<?php echo 'gmc' === $active ? ' nav-tab-active' : ''; ?>"><?php esc_html_e( 'Google Merchant Center', 'dazont-ecom' ); ?></a>
+			<?php foreach ( $tabs as $key => $one ) : ?>
+				<a href="<?php echo esc_url( $one[1] ); ?>" class="nav-tab<?php echo $key === $active ? ' nav-tab-active' : ''; ?>"><?php echo esc_html( $one[0] ); ?></a>
+			<?php endforeach; ?>
 		</h2>
 		<?php
 		return (string) ob_get_clean();
@@ -2476,7 +2495,9 @@ final class DZE_Discounts {
 		if ( $notice ) {
 			delete_transient( 'dze_discount_notice' );
 		}
-		$events_tabs = ( 'events' === $mode ) ? $this->events_tabs_html( 'events' ) : '';
+		// The same three tabs on both marketing screens: a tab bar that appears
+		// on one page and vanishes on the next is how a screen goes missing.
+		$events_tabs = $this->events_tabs_html( 'events' === $mode ? 'events' : 'discounts' );
 		// Opening the list is also the moment to notice that Google is behind
 		// — on a promotion saved before the automatic sync existed, or one a
 		// failed account left half-sent. Nothing is fetched here: the work is

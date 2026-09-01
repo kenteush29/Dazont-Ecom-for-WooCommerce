@@ -1124,8 +1124,10 @@ $frame_def = json_encode( [ 'data' => [ 'id' => 'FRAME', 'attributes' => [
 ] ] ] );
 $GLOBALS['dze_sent']  = [];
 $GLOBALS['dze_queue'] = [
-	[ 'code' => 200, 'body' => $frame_def ],                                                       // the frame, read fresh
+	// Is it still a draft (cheap) BEFORE the shop's own header template is
+	// read: an email nobody has touched must cost one question, not a parse.
 	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"Draft"}}}' ],           // draft_open
+	[ 'code' => 200, 'body' => $frame_def ],                                                       // the frame, read fresh
 	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-CLONE"}}' ],                    // what the message READS
 	[ 'code' => 200, 'body' => '{"data":{"id":"T-CLONE","attributes":{"editor_type":"SYSTEM_DRAGGABLE"}}}' ], // editor_of
 	[ 'code' => 200, 'body' => '{"data":{"id":"T-CLONE"}}' ],                                      // PATCH the clone
@@ -1155,6 +1157,77 @@ ok( 'and THAT template is the one rewritten',
 ok( 'never the remembered one',
 	0 === count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
 		false !== strpos( (string) ( $c['url'] ?? '' ), 'templates/T-OURS' ) ) ), true );
+$GLOBALS['dze_queue'] = [];
+
+echo "An email nobody has touched is not filed again\n";
+// "Put them all in Klaviyo > Semble répéter la syncro des emails déjà
+// présents sur klaviyo !!!!!!!!!" It did: every press rewrote every
+// template, whether or not a comma had changed. What is about to be filed is
+// fingerprinted and compared with what WAS filed.
+$again_mail = [
+	'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 4 * 86400 ),
+	'subject' => 'Same as ever', 'preview' => 'P', 'picture' => '',
+	'body' => '<p>Nothing has changed here.</p>',
+	'draft' => [ 'campaign' => 'C9', 'message' => 'M9', 'template' => 'T9' ],
+];
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'sk1' => $again_mail ] ] ];
+// Everything one press of "put it in Klaviyo" asks the account, in order.
+$press = static function () use ( $frame_def ): array {
+	return [
+		// The order a press really asks in: is it still a draft (cheap), and
+		// only then the shop's own header template.
+		[ 'code' => 200, 'body' => '{"data":{"id":"C9","attributes":{"status":"Draft"}}}' ],
+		[ 'code' => 200, 'body' => $frame_def ],
+		[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T9"}}' ],
+		[ 'code' => 200, 'body' => '{"data":{"id":"T9","attributes":{"editor_type":"SYSTEM_DRAGGABLE"}}}' ],
+		[ 'code' => 200, 'body' => '{"data":{"id":"T9"}}' ],
+		[ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C9', 'attributes' => [
+			'send_strategy' => [ 'method' => 'static', 'datetime' => gmdate( 'Y-m-d', time() + 4 * 86400 ) . 'T09:00:00+00:00' ] ] ] ] ) ],
+		[ 'code' => 200, 'body' => '{"data":{"id":"M9"}}' ],
+		[ 'code' => 200, 'body' => '{"data":[]}' ],
+		[ 'code' => 200, 'body' => '{"data":{"id":"tag1"}}' ],
+		[ 'code' => 200, 'body' => '{}' ],
+		[ 'code' => 200, 'body' => '{"data":{"id":"C9","attributes":{"status":"Draft"}}}' ],
+	];
+};
+// First press: it goes, and the fingerprint is written down.
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+try { DZE_Klaviyo::draft( 'promo', 'sk1' ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+$stamp = get_option( $copy )['promo']['emails']['sk1']['draft']['stamp'] ?? '';
+ok( 'the first press files it',         '' !== $stamp, true );
+
+// Second press, nothing changed: one cheap question to Klaviyo (is it still a
+// draft?) and no template rewritten.
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C9","attributes":{"status":"Draft"}}}' ] ];
+$made = DZE_Klaviyo::draft( 'promo', 'sk1' );
+ok( 'the second press files nothing',   ! empty( $made['skipped'] ), true );
+ok( 'and rewrites no template',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) ), 0 );
+// One cheap question — "is it still a draft?" — and nothing else: the shop's
+// own header template is not even read, let alone parsed.
+ok( 'it asks the account once and stops', count( $GLOBALS['dze_sent'] ), 1 );
+ok( 'the row still points at the draft', $made['url'] ?? '', 'https://www.klaviyo.com/campaign/C9/wizard' );
+ok( 'and it carries its state cell',    str_contains( (string) ( $made['state'] ?? '' ), 'dze-mail-does' ), true );
+
+// Asked for BY NAME, it goes whatever the fingerprint says: that is what
+// pressing a button on one row means.
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+try { DZE_Klaviyo::draft( 'promo', 'sk1', [ 'force' => true ] ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+ok( 'forcing rewrites it all the same',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T9' ) ) ), 1 );
+
+// A CHANGED email is filed again without being asked twice.
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['sk1']['body'] = '<p>Something else entirely.</p>';
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+try { DZE_Klaviyo::draft( 'promo', 'sk1' ); } catch ( Throwable $e ) { if ( getenv( 'DZE_DEBUG' ) ) { echo $e->getMessage(), "\n"; } }
+ok( 'a changed email goes on its own',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T9' ) ) ), 1 );
 $GLOBALS['dze_queue'] = [];
 
 echo "Deleting the EVENT takes its campaigns out of Klaviyo\n";

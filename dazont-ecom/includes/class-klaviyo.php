@@ -3868,9 +3868,6 @@ final class DZE_Klaviyo {
 		$body    = ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) )
 			? (string) $in['body']
 			: self::body_for( $rule, $rule_id, $email_id );
-		// Blocks, not HTML: this is what Klaviyo can translate, and the frame
-		// around them is read from the owner's own template as it stands today.
-		$blocks  = self::dnd_definition( self::settle_picture( $body, $rule, (string) ( $copy['picture'] ?? '' ) ) );
 		$in      = $in + [ 'datetime' => (string) ( $copy['when'] ?? '' ) ];
 		$warning = '';
 
@@ -3884,11 +3881,48 @@ final class DZE_Klaviyo {
 		// is and a new one is made beside it: what is scheduled or sent is the
 		// owner's, never ours to overwrite.
 		$prev     = (array) ( $copy['draft'] ?? [] );
+
+		// WHAT this push would put there, as one string. "Put them all in
+		// Klaviyo" re-sent every email of the promotion on every press —
+		// rewriting templates that had not changed a comma, touching their
+		// "last updated" in the account and asking Klaviyo to do work nobody
+		// wanted. An email whose words, picture and day are exactly what was
+		// filed last time is left alone.
+		$stamp = md5( wp_json_encode( [
+			(string) ( $copy['subject'] ?? '' ),
+			(string) ( $copy['preview'] ?? '' ),
+			(string) ( $copy['picture'] ?? '' ),
+			(string) ( $in['datetime'] ?? '' ),
+			$body,
+		] ) );
 		$kept_day = '';
 		$camp_id = (string) ( $prev['campaign'] ?? '' );
 		$msg_id  = (string) ( $prev['message'] ?? '' );
 		$tpl_id  = (string) ( $prev['template'] ?? '' );
 		$again   = ( '' !== $camp_id && '' !== $msg_id && '' !== $tpl_id && self::draft_open( $camp_id ) );
+
+		// Nothing changed since the last time it was filed: say so and stop.
+		// Pressing the button for ONE email always sends it, whatever the
+		// fingerprint says — that is what pressing it means.
+		if ( $again && empty( $in['force'] ) && empty( $in['send'] ) && $stamp === (string) ( $prev['stamp'] ?? '' ) ) {
+			return [
+				'campaign' => $camp_id,
+				'message'  => $msg_id,
+				'template' => $tpl_id,
+				'url'      => self::campaign_url( $camp_id ),
+				'skipped'  => true,
+				'warning'  => '',
+				'sent'     => false,
+				'state'    => self::state_cell( $email_id, $copy ),
+			];
+		}
+
+		// Blocks, not HTML: this is what Klaviyo can translate, and the frame
+		// around them is read from the owner's own template as it stands
+		// today. Built AFTER the decision to file at all: reading and parsing
+		// the shop's template to then throw it away is the work this whole
+		// check exists to avoid.
+		$blocks  = self::dnd_definition( self::settle_picture( $body, $rule, (string) ( $copy['picture'] ?? '' ) ) );
 		if ( ! $again && '' !== $camp_id ) {
 			$warning = __( 'The campaign this email had is no longer a draft, so it was left alone and a new one was made.', 'dazont-ecom' );
 			$camp_id = '';
@@ -4126,6 +4160,9 @@ final class DZE_Klaviyo {
 				// from the setting, so an email filed before the shop had
 				// languages does not claim to have them.
 				'langs'    => array_values( $langs ),
+				// What was filed, so the next press can tell whether there is
+				// anything to file at all.
+				'stamp'    => $stamp,
 			],
 		] );
 
@@ -5652,6 +5689,8 @@ final class DZE_Klaviyo {
 			$made = self::draft( $rule_id, $email_id, [
 				'body' => isset( $_POST['body'] ) ? self::clean_html( (string) wp_unslash( $_POST['body'] ) ) : null,
 				'send' => $send,
+				// One email, asked for by name: it goes, changed or not.
+				'force' => ! empty( $_POST['force'] ),
 			] );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
@@ -6405,6 +6444,9 @@ final class DZE_Klaviyo {
 				'rowWrote'   => __( 'Written ✓', 'dazont-ecom' ),
 				'rowPutting' => __( 'Putting it in Klaviyo…', 'dazont-ecom' ),
 				'rowPut'     => __( 'In Klaviyo ✓', 'dazont-ecom' ),
+				'rowSame'    => __( 'Already up to date', 'dazont-ecom' ),
+				/* translators: 1: how many were put in Klaviyo, 2: how many were already up to date */
+				'draftSkip'  => __( '%1$d put in Klaviyo · %2$d already up to date.', 'dazont-ecom' ),
 				// A day added in the browser used to land as 2026-08-29 beside
 				// a saved one reading 28/08/2026: the same screen writing the
 				// same thing two ways. The shop's own format travels, with the
@@ -6673,6 +6715,14 @@ CSS;
 			// promotion be handed over without a person.
 			?>
 			<div class="dze-mail-does">
+				<?php
+				// This one email, put in Klaviyo on its own. Asked for by name
+				// it always goes, whether or not anything changed — which is
+				// what makes it a button and not a suggestion.
+				?>
+				<button type="button" class="button button-small dze-mail-push" data-email="<?php echo esc_attr( $mail_id ); ?>">
+					<?php esc_html_e( 'Update in Klaviyo', 'dazont-ecom' ); ?>
+				</button>
 				<?php if ( ! $dze_noday ) : ?>
 					<button type="button" class="button button-small dze-mail-sched" data-undo="<?php echo $dze_on ? '1' : '0'; ?>">
 						<?php echo $dze_on ? esc_html__( 'Unschedule', 'dazont-ecom' ) : esc_html__( 'Schedule it', 'dazont-ecom' ); ?>

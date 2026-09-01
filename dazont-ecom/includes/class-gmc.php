@@ -534,7 +534,10 @@ final class DZE_Gmc {
 
 	/** The one sentence, and the one action. */
 	public static function broken_message(): string {
-		return __( 'Google has revoked this connection — nothing will sync until it is reconnected. Settings → Google Merchant Center → Connect your Google account.', 'dazont-ecom' );
+		// The path is READ from where the screen actually is, never typed: this
+		// sentence sent the shop to "Settings → Google Merchant Center", which
+		// is not a place — the screen is a tab of Marketing events.
+		return __( 'Google has revoked this connection — nothing will sync until it is reconnected. Dazont Ecom → Marketing events → Google Merchant Center → Connect Google account again.', 'dazont-ecom' );
 	}
 
 	private function oauth_access_token(): string {
