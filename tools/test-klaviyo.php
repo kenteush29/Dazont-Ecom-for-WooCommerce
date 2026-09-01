@@ -170,11 +170,13 @@ class DZE_Wpml {
 		return [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
 	}
 	/** A shop whose languages live in a directory, which is WPML's usual shape. */
-	public static function url_in_language( $url, $lang ) {
+	public static function url_in_language( $url, $lang, &$why = null ) {
 		$url = (string) $url;
 		if ( 0 !== strpos( $url, 'https://kula.test/' ) || 'en' === $lang ) {
+			$why = 'not-ours';
 			return $url;
 		}
+		$why = 'url-rule';
 		return 'https://kula.test/' . $lang . '/' . substr( $url, strlen( 'https://kula.test/' ) );
 	}
 }
