@@ -91,16 +91,40 @@ ok( 'and the French one',
 	to( 'https://kula.test/spetsnaz-balaclava', 'fr' ), 'https://kula.test/fr/cagoule-spetsnaz' );
 
 echo "A product it has NOT translated\n";
-// The English page is a page. Inventing /de/punisher-balaclava would be a
-// link to nothing, which is worse than a link to the wrong language.
-ok( 'falls back to the page that exists',
-	to( 'https://kula.test/punisher-balaclava', 'de' ), 'https://kula.test/punisher-balaclava' );
+// This is the check that was written wrong, and it shipped the bug it was
+// supposed to catch: WPML, asked for a translation with the original as its
+// fallback, answers with the ORIGINAL post — so the code took that permalink
+// for a success and never reached the language's URL rule. Every link in
+// every German email stayed on kula-tactical.com, which is what the shop saw
+// in Klaviyo: "c'est une copie des liens en .com". An untranslated product
+// still has a German address, and WPML serves it.
+ok( 'still goes to the German side of the shop',
+	to( 'https://kula.test/punisher-balaclava', 'de' ), 'https://de.kula.test/punisher-balaclava' );
 
 echo "Everything that is not a post\n";
 ok( 'the home page follows the language rule',
 	to( 'https://kula.test/', 'de' ), 'https://de.kula.test/' );
 ok( 'so does a category',
 	to( 'https://kula.test/balaclavas/', 'fr' ), 'https://fr.kula.test/balaclavas/' );
+
+echo "WPML's own converter answers first\n";
+// $sitepress->convert_url() is what WPML calls on its own links. When it is
+// there it decides; the filter stays for the versions that have no $sitepress.
+class FakeSitePress {
+	public $asked = [];
+	public function convert_url( $url, $lang ) {
+		$this->asked[] = [ $url, $lang ];
+		return str_replace( 'https://kula.test/', 'https://kula.test/' . $lang . '/', (string) $url );
+	}
+}
+$GLOBALS['sitepress'] = new FakeSitePress();
+ok( 'it is the answer that is used',
+	to( 'https://kula.test/punisher-balaclava', 'de' ), 'https://kula.test/de/punisher-balaclava' );
+ok( 'and it was asked for that language',
+	$GLOBALS['sitepress']->asked[0] ?? [], [ 'https://kula.test/punisher-balaclava', 'de' ] );
+ok( 'a translated post still beats it',
+	to( 'https://kula.test/spetsnaz-balaclava', 'de' ), 'https://kula.test/de/sturmhaube-spetsnaz' );
+unset( $GLOBALS['sitepress'] );
 
 echo "And what must never be touched\n";
 ok( 'a photograph on another host',

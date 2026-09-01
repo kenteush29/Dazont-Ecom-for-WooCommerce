@@ -2526,6 +2526,7 @@ Answer with STRICT JSON and nothing else: "
 								<?php endif; ?>
 								<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'content_' . (string) $r['id'], '.dze-pr-prompt' ); } ?>
 							</p>
+							<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'content_' . (string) $r['id'] ); } ?>
 							<details class="dze-pr-inputs">
 								<summary><?php printf( /* translators: %d: count */ esc_html__( 'Product data sent with it (%d)', 'dazont-ecom' ), count( $sel_in ) ); ?></summary>
 								<?php foreach ( $dze_inputs as $ik => $il ) : ?>
@@ -2565,6 +2566,7 @@ Answer with STRICT JSON and nothing else: "
 								<p class="dze-prb-line">
 									<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'feature_rules', '.dze-pr-imgrules', __( 'Make these the default for every block', 'dazont-ecom' ) ); } ?>
 								</p>
+								<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'feature_rules' ); } ?>
 							</details>
 						</div>
 					</div>

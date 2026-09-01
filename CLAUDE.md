@@ -264,7 +264,11 @@ owner communicates in French.
   it does not know, so a prompt registered in one list and not the other
   loses its star in silence — the screen still shows "Restore default", so
   nothing looks broken, and the owner simply cannot make his own text the
-  default. `promo_email` and `promo_i18n` sat like that.
+  default. `promo_email` and `promo_i18n` sat like that. It also checks that
+  every prompt DRAWN on a screen calls `DZE_Prompts::the_data()` for that same
+  id: the "What this prompt is sent with" block — its last real call, in full —
+  must be on every prompt everywhere, because a screen missing it looks like a
+  prompt that receives nothing.
 - Lint every file AND exercise every ENTRY POINT of what changed — the render,
   the enqueue, the ajax handler, the sanitizer. A class that loads is not a
   screen that works, and the path nobody ran is the path that is broken.

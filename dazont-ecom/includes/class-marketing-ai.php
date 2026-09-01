@@ -1004,6 +1004,7 @@ AFTER your rules: Output: JSON array of {"id":&lt;query id&gt;,"t":"category|pro
 							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-match-rules">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'keyword_match', '#dze-mai-match-rules' ); } ?>
 						</p>
+						<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'keyword_match' ); } ?>
 					</td>
 				</tr>
 				<tr>
@@ -1026,6 +1027,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 							<button type="button" class="button-link dze-mai-restore" data-target="dze-mai-report-guidance">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 							<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'sourcing_report', '#dze-mai-report-guidance' ); } ?>
 						</p>
+						<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'sourcing_report' ); } ?>
 					</td>
 				</tr>
 			</table>

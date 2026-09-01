@@ -2774,6 +2774,63 @@ final class DZE_Klaviyo {
 		return $out;
 	}
 
+	/**
+	 * What the links actually became, in one sentence.
+	 *
+	 * The first version of this filled the links and said nothing, and the
+	 * shop found out by opening Klaviyo: "c'est une copie des liens en .com".
+	 * A mapping that quietly does nothing looks exactly like a mapping that
+	 * works, so the answer is READ BACK — how many links moved into each
+	 * language and how many came out identical — and the row says it.
+	 *
+	 * @param array $values What Klaviyo answered for the collection.
+	 * @param array $mech   value id => lang => what was written.
+	 */
+	private static function link_note( array $values, array $mech ): string {
+		$src = [];
+		foreach ( $values as $row ) {
+			$src[ (string) ( $row['id'] ?? '' ) ] = (string) ( $row['source_value'] ?? '' );
+		}
+		$mine  = strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) );
+		$moved = [];
+		$stuck = [];
+		foreach ( $mech as $vid => $per_lang ) {
+			if ( ! self::str_ends( (string) $vid, 'href' ) ) {
+				continue;
+			}
+			$was  = (string) ( $src[ (string) $vid ] ?? '' );
+			$host = strtolower( (string) wp_parse_url( $was, PHP_URL_HOST ) );
+			if ( '' === $host || $host !== $mine ) {
+				continue; // not one of ours to move.
+			}
+			foreach ( $per_lang as $lang => $value ) {
+				$key = strtoupper( (string) $lang );
+				if ( (string) $value !== $was ) {
+					$moved[ $key ] = ( $moved[ $key ] ?? 0 ) + 1;
+				} else {
+					$stuck[ $key ] = ( $stuck[ $key ] ?? 0 ) + 1;
+				}
+			}
+		}
+		if ( ! $moved && ! $stuck ) {
+			return '';
+		}
+		if ( ! $stuck ) {
+			return sprintf(
+				/* translators: %s: the languages, e.g. "FR, DE" */
+				__( 'Links point at the %s pages of the shop.', 'dazont-ecom' ),
+				implode( ', ', array_keys( $moved ) )
+			);
+		}
+		// The failure is the message. Said with what to look at, because
+		// "links unchanged" without a next step is a shrug.
+		return sprintf(
+			/* translators: %s: the languages whose links did not move */
+			__( 'Links did NOT move for %s — WPML gave the same address back, so those readers land on the English page. Check WPML → Languages → how URLs look, and that the products are translated.', 'dazont-ecom' ),
+			implode( ', ', array_keys( $stuck ) )
+		);
+	}
+
 	/** PHP 7 has no str_ends_with, and this plugin still runs on shops that do not. */
 	private static function str_ends( string $haystack, string $needle ): bool {
 		$at = strlen( $haystack ) - strlen( $needle );
@@ -2913,11 +2970,13 @@ final class DZE_Klaviyo {
 		// only ever filled for the languages that actually came back: an email
 		// half translated must not claim a German link on a German text that
 		// does not exist.
-		foreach ( self::mechanical( $values, $langs ) as $vid => $per_lang ) {
+		$mech = self::mechanical( $values, $langs );
+		foreach ( $mech as $vid => $per_lang ) {
 			foreach ( $per_lang as $lang => $value ) {
 				$done[ (string) $vid ][ (string) $lang ] = (string) $value;
 			}
 		}
+		$link_note = self::link_note( $values, $mech );
 		$write = [];
 		foreach ( $done as $vid => $per_lang ) {
 			$write[] = [ 'id' => $vid, 'translations' => $per_lang ];
@@ -2946,6 +3005,8 @@ final class DZE_Klaviyo {
 				'done_langs' => array_values( array_unique( array_merge( $was, $langs ) ) ),
 				'translated' => time(),
 				'texts'      => $words,
+				// Kept, not just answered: the row has to still say it tomorrow.
+				'links_note' => $link_note,
 			] ),
 		] );
 		return [
@@ -2956,6 +3017,7 @@ final class DZE_Klaviyo {
 			// the answer because it is the fix the shop asked for and a fix
 			// nobody can see is a fix nobody believes.
 			'links'   => count( $write ) - $words,
+			'note'    => $link_note,
 		];
 	}
 
@@ -6412,6 +6474,19 @@ final class DZE_Klaviyo {
 				}
 				?>
 			</span>
+			<?php
+			// What the LINKS became, read back from what was written rather
+			// than assumed. Amber when a language kept the English address:
+			// the email is translated and its links are not, and that is
+			// invisible everywhere else until a customer clicks one.
+			$dze_links = trim( (string) ( $mail['draft']['links_note'] ?? '' ) );
+			if ( '' !== $dze_links ) :
+				$dze_ko = false !== strpos( $dze_links, 'did NOT move' );
+				?>
+				<span class="dze-mail-links" style="display:block;font-size:12px;margin-top:2px;white-space:normal;text-align:right;color:<?php echo $dze_ko ? '#b26a00' : '#00794b'; ?>;">
+					<?php echo esc_html( $dze_links ); ?>
+				</span>
+			<?php endif; ?>
 			<?php if ( $dze_tgt ) : ?>
 				<button type="button" class="button button-small dze-mail-i18n" style="margin-top:4px;" data-email="<?php echo esc_attr( $mail_id ); ?>">
 					<?php echo $dze_when_i18n ? esc_html__( 'Translate again', 'dazont-ecom' ) : esc_html__( 'Translate it', 'dazont-ecom' ); ?>

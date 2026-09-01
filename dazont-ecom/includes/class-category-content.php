@@ -2130,6 +2130,7 @@ PROMPT;
 					<button type="button" class="button-link" id="dze-cc-restore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_desc', '#dze-cc-prompt' ); } ?>
 				</p>
+				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'cat_desc' ); } ?>
 			<?php
 			if ( $dze_card ) {
 				DZE_Prompts::card_close();
@@ -2142,6 +2143,7 @@ PROMPT;
 					<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-sift-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_sift', '#dze-cc-sift-prompt' ); } ?>
 				</p>
+				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'cat_sift' ); } ?>
 			<?php
 			if ( $dze_card ) {
 				DZE_Prompts::card_close();
@@ -2154,6 +2156,7 @@ PROMPT;
 					<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-links-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
 					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_links', '#dze-cc-links-prompt' ); } ?>
 				</p>
+				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'cat_links' ); } ?>
 			<?php
 			if ( $dze_card ) {
 				DZE_Prompts::card_close();

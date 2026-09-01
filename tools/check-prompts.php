@@ -36,6 +36,32 @@ foreach ( $asked as $id ) {
 		$bad++;
 	}
 }
+// ---------------------------------------------------------------------------
+// And every prompt on a screen SAYS what it is sent with.
+//
+// "Attention à ce que ce soit bien présent sur chaque prompt, c'est très
+// important pour du débug ou comprendre quoi améliorer." A block that exists
+// on the email screen and not on Categories is worse than none, because the
+// screen without it looks like a prompt that receives nothing. The block is
+// one function; this is what makes a new prompt carry it — the file that
+// draws the prompt must call DZE_Prompts::the_data() for that same id.
+$missing = 0;
+foreach ( array_merge( glob( "$dir/includes/*.php" ), glob( "$dir/admin/views/*.php" ) ) as $file ) {
+	$code = (string) file_get_contents( $file );
+	preg_match_all( "/Prompt_Defaults::control\(\s*([^,]+),/", $code, $here );
+	foreach ( array_unique( $here[1] ) as $expr ) {
+		$expr = trim( $expr );
+		if ( "''" === $expr ) {
+			continue; // the shared modal, which is the block's own screen.
+		}
+		if ( false === strpos( $code, 'the_data( ' . $expr ) ) {
+			printf( "NO DATA  %s draws the prompt %s and never says what it is sent with\n", basename( $file ), $expr );
+			$missing++;
+		}
+	}
+}
+
 printf( "\n%d prompt control(s) checked against %d registry rows — %s\n",
 	count( $asked ), count( $registry ), $bad ? "$bad unanswerable" : 'all answerable' );
-exit( $bad ? 1 : 0 );
+printf( "%s\n", $missing ? "$missing prompt(s) with no \"what it is sent with\" block" : 'every prompt on screen says what it is sent with' );
+exit( ( $bad || $missing ) ? 1 : 0 );

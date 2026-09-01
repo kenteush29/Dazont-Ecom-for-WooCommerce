@@ -69,6 +69,48 @@ final class DZE_Prompts {
 		return null !== self::writer( $id );
 	}
 
+	/** The text one prompt holds RIGHT NOW — the shop's own, or the shipped one. */
+	public static function text_for( string $id ): string {
+		$row = self::catalog()[ $id ] ?? null;
+		if ( ! $row || ! is_callable( $row['text'] ) ) {
+			return '';
+		}
+		return trim( (string) call_user_func( $row['text'] ) );
+	}
+
+	/**
+	 * Which prompts a call was built from, read from the call itself.
+	 *
+	 * The alternative was a marker set by hand at every call site — a thing to
+	 * remember, forgotten on the next prompt added, and silently wrong on the
+	 * screen that is supposed to explain the plugin. A prompt travels VERBATIM
+	 * inside what is sent, so the call answers the question on its own: the
+	 * opening of each registered prompt is looked for in the text that went
+	 * out. Nothing to keep in step, and a prompt added tomorrow is recognised
+	 * the first time it runs.
+	 *
+	 * @return string[] prompt ids, in registry order.
+	 */
+	public static function ids_in( string $sent ): array {
+		$out = [];
+		if ( '' === trim( $sent ) ) {
+			return $out;
+		}
+		foreach ( array_keys( self::catalog() ) as $id ) {
+			$text = self::text_for( (string) $id );
+			// Short enough to be a heading rather than a prompt, and the match
+			// would be an accident.
+			if ( mb_strlen( $text ) < 40 ) {
+				continue;
+			}
+			$needle = trim( mb_substr( $text, 0, 60 ) );
+			if ( '' !== $needle && false !== strpos( $sent, $needle ) ) {
+				$out[] = (string) $id;
+			}
+		}
+		return $out;
+	}
+
 	private static function writer( string $id ): ?array {
 		// A product field or an image template: one registry row.
 		if ( 0 === strpos( $id, 'content_' ) && class_exists( 'DZE_Content' ) ) {
@@ -396,49 +438,69 @@ final class DZE_Prompts {
 	}
 
 	/**
-	 * What travels with this prompt, printed beside the prompt itself.
+	 * What this prompt is sent with — the same block on every prompt screen.
 	 *
-	 * The list existed, and only the popup on the product screens showed it —
-	 * so the one place a prompt is actually WRITTEN was the one place that
-	 * never said what the prompt is given. "Je ne sais pas ce qui est écrit
-	 * dans les paramètres par rapport à ce preview texte" is that gap: a
-	 * sentence is added to the instructions asking for something the plugin
-	 * already sends, or a figure is asked for that never arrives, and nothing
-	 * on the screen tells either way.
+	 * It used to be a hand-written list, on one screen out of eight. Written
+	 * prose per prompt is prose that goes stale and prose that nobody writes
+	 * for the next prompt; and a debug block that exists on the email screen
+	 * and not on Categories is a debug block you cannot trust. So the block is
+	 * ONE function, called beside every prompt field, and what it shows is
+	 * READ rather than written: the last real call this prompt made, whole —
+	 * everything that was sent, everything that came back.
 	 *
-	 * Shut by default — this is read when a result disappoints, not on every
-	 * visit — and it ends where the real answer is: the last calls, with the
-	 * exact words that went out.
+	 * The written list stays where a module offers one, under the raw text: it
+	 * says what travels with the prompt even before it has ever run.
 	 */
 	public static function the_data( string $id ): void {
-		$rows = self::data_for( $id );
-		if ( ! $rows ) {
-			return;
-		}
+		$last  = class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::last_for( $id ) : [];
+		$rows  = self::data_for( $id );
+		$when  = (int) ( $last['t'] ?? 0 );
 		?>
-		<details style="max-width:880px;margin:0 0 10px;border:1px solid #dcdcde;border-radius:4px;background:#fff;">
+		<details class="dze-prompt-sent" style="max-width:880px;margin:0 0 10px;border:1px solid #dcdcde;border-radius:4px;background:#fff;">
 			<summary style="cursor:pointer;padding:8px 12px;font-size:13px;">
-				<?php
-				printf(
-					/* translators: %d: how many things are sent */
-					esc_html( _n( 'What the plugin sends with this prompt — %d thing', 'What the plugin sends with this prompt — %d things', count( $rows ), 'dazont-ecom' ) ),
-					count( $rows )
-				);
-				?>
+				<?php esc_html_e( 'What this prompt is sent with', 'dazont-ecom' ); ?>
+				<span style="color:#646970;">
+					<?php
+					echo $when
+						? esc_html( sprintf(
+							/* translators: 1: how long ago, 2: the model, 3: seconds */
+							__( '— last call %1$s ago · %2$s · %3$ss', 'dazont-ecom' ),
+							human_time_diff( $when, time() ),
+							(string) ( $last['model'] ?? '' ),
+							(string) ( $last['secs'] ?? '' )
+						) )
+						: esc_html__( '— never run yet', 'dazont-ecom' );
+					?>
+				</span>
 			</summary>
 			<div style="padding:0 12px 10px;">
-				<p class="description" style="margin:4px 0 8px;">
-					<?php esc_html_e( 'Sent every time, around your instructions. Asking for any of it again in the text below changes nothing.', 'dazont-ecom' ); ?>
-				</p>
-				<ul style="margin:0;list-style:disc;padding-left:20px;font-size:13px;line-height:1.6;">
-					<?php foreach ( $rows as $one ) : ?>
-						<li><?php echo esc_html( $one ); ?></li>
-					<?php endforeach; ?>
-				</ul>
+				<?php if ( $when ) : ?>
+					<p class="description" style="margin:6px 0 4px;">
+						<?php esc_html_e( 'The last call, exactly as it went out: your instructions are in here, with everything the plugin added around them.', 'dazont-ecom' ); ?>
+					</p>
+					<p style="margin:8px 0 4px;font-weight:600;font-size:12px;"><?php esc_html_e( 'Sent', 'dazont-ecom' ); ?></p>
+					<pre style="max-height:320px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;"><?php echo esc_html( (string) ( $last['sent'] ?? '' ) ); ?></pre>
+					<p style="margin:10px 0 4px;font-weight:600;font-size:12px;"><?php esc_html_e( 'Answer', 'dazont-ecom' ); ?></p>
+					<pre style="max-height:240px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;"><?php echo esc_html( (string) ( $last['got'] ?? '' ) ); ?></pre>
+				<?php else : ?>
+					<p class="description" style="margin:6px 0 4px;">
+						<?php esc_html_e( 'Run this prompt once and its last call appears here in full — what was sent, what came back.', 'dazont-ecom' ); ?>
+					</p>
+				<?php endif; ?>
+				<?php if ( $rows ) : ?>
+					<p style="margin:12px 0 4px;font-weight:600;font-size:12px;">
+						<?php esc_html_e( 'Added to your instructions on every call', 'dazont-ecom' ); ?>
+					</p>
+					<ul style="margin:0;list-style:disc;padding-left:20px;font-size:13px;line-height:1.6;">
+						<?php foreach ( $rows as $one ) : ?>
+							<li><?php echo esc_html( $one ); ?></li>
+						<?php endforeach; ?>
+					</ul>
+				<?php endif; ?>
 				<?php if ( class_exists( 'DZE_Marketing_Ai' ) ) : ?>
 					<p style="margin:10px 0 0;font-size:13px;">
 						<a href="<?php echo esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'general' ], admin_url( 'admin.php' ) ) . '#dze-ai-trace' ); ?>">
-							<?php esc_html_e( 'See the last calls — the exact words that were sent ↗', 'dazont-ecom' ); ?>
+							<?php esc_html_e( 'All the last calls, every tool ↗', 'dazont-ecom' ); ?>
 						</a>
 					</p>
 				<?php endif; ?>
