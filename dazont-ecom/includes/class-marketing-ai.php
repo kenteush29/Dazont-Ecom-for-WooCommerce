@@ -471,6 +471,7 @@ final class DZE_Marketing_Ai {
 			return [
 				__( 'The line to adapt, exactly as it stands on the promotion.', 'dazont-ecom' ),
 				__( 'The markets to write it for: language code and language name.', 'dazont-ecom' ),
+			__( 'The event itself: the day it opens, the day it closes and its discount — the SAME in every market — with the rule that its occasion is never swapped for a local holiday.', 'dazont-ecom' ),
 				__( 'The answer format — one line per language code, nothing else.', 'dazont-ecom' ),
 			];
 		}
@@ -2044,9 +2045,15 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		// Accepted straight from the list, with no popup opened: the lines are
 		// written now rather than later. One short call, and the event is
 		// ready to run in every language the moment it is switched on.
-		$title = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the caller checked it.
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- the caller checked it.
+		$title = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) );
+		$event = [
+			'start'    => sanitize_text_field( wp_unslash( $_POST['start'] ?? '' ) ),
+			'end'      => sanitize_text_field( wp_unslash( $_POST['end'] ?? '' ) ),
+		];
+		// phpcs:enable
 		try {
-			return class_exists( 'DZE_Discounts' ) ? DZE_Discounts::translate_line( $title, $langs ) : [];
+			return class_exists( 'DZE_Discounts' ) ? DZE_Discounts::translate_line( $title, $langs, $event ) : [];
 		} catch ( \Throwable $e ) {
 			return []; // the event is worth more than its translations.
 		}
@@ -2066,8 +2073,17 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		if ( ! $langs ) {
 			wp_send_json_error( [ 'message' => __( 'This shop sells in one language.', 'dazont-ecom' ) ] );
 		}
+		// The days the promotion runs, sent with it. A title alone gives the
+		// model a name and no calendar, and it fills that gap from the
+		// market's own: "Patriot Day Sale" came back for France as the 14
+		// Juillet. The screen has the dates; they travel with the ask.
+		$event = [
+			'start'    => sanitize_text_field( wp_unslash( $_POST['start'] ?? '' ) ),
+			'end'      => sanitize_text_field( wp_unslash( $_POST['end'] ?? '' ) ),
+			'discount' => sanitize_text_field( wp_unslash( $_POST['discount'] ?? '' ) ),
+		];
 		try {
-			$lines = DZE_Discounts::translate_line( $title, $langs );
+			$lines = DZE_Discounts::translate_line( $title, $langs, $event );
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}

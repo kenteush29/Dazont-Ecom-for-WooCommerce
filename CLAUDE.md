@@ -249,6 +249,14 @@ owner communicates in French.
   pass. A provider's own answers cannot be run from here, so the Klaviyo one
   stubs the transport and reads the REQUEST — its method, its URL, its headers,
   its body. "No valid revisions found for method" was one header on six calls.
+- **`php tools/test-promo-i18n.php dazont-ecom` and
+  `node tools/js/markets-button.mjs` must pass.** A promotion in five markets
+  is ONE promotion: its dates and its discount go WITH the ask, and a shop
+  rule appended to the owner's prompt forbids swapping its occasion for a
+  local holiday — "Patriot Day Sale" came back for France as the 14 Juillet,
+  a different holiday in a different month. And "Write it for my other
+  markets" REWRITES every language each time it is pressed; only the
+  automatic pass at save time leaves a hand-typed line alone.
 - **`php tools/test-money.php dazont-ecom` must pass.** Every figure in MONEY
   is brought back to the shop's own currency before it is shown, summed or
   sorted by: the order lines are kept in the currency they were paid in and

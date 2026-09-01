@@ -167,7 +167,13 @@
 		}
 		$b.prop('disabled', true);
 		$st.css('color', '#646970').removeClass('is-ko').text(i18n.translating);
-		$.post(cfg.ajaxUrl, { action: 'dze_mai_translate', nonce: cfg.nonce, title: title })
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_mai_translate', nonce: cfg.nonce, title: title,
+			// The days it runs travel with it: without them the model dates the
+			// promotion from the market's own calendar.
+			start: $('#dze-ev-start').val() || '',
+			end:   $('#dze-ev-end').val() || ''
+		})
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (res && res.success) {

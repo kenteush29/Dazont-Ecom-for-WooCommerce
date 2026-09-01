@@ -249,7 +249,7 @@ final class DZE_Discounts {
 	 *
 	 * @return array<string,string> code => translated line.
 	 */
-	public static function translate_line( string $line, array $langs ): array {
+	public static function translate_line( string $line, array $langs, array $event = [] ): array {
 		$line = trim( $line );
 		if ( '' === $line || ! $langs || ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			return [];
@@ -258,9 +258,33 @@ final class DZE_Discounts {
 		foreach ( $langs as $code => $name ) {
 			$names[] = $code . ' (' . $name . ')';
 		}
+		// WHEN this promotion runs, and by how much. Without it the model has
+		// only a name to work from and fills the gap with the market's own
+		// calendar: "Patriot Day Sale" came back for France as the 14 Juillet
+		// — another holiday, in another month, on a promotion that runs in
+		// September. The dates are the same in every market and saying so is
+		// what stops the occasion being swapped.
+		$facts = [];
+		foreach ( [ 'start' => __( 'It starts', 'dazont-ecom' ), 'end' => __( 'It ends', 'dazont-ecom' ) ] as $key => $label ) {
+			$when = trim( (string) ( $event[ $key ] ?? '' ) );
+			if ( '' !== $when ) {
+				$facts[] = $label . ': ' . $when;
+			}
+		}
+		$off = trim( (string) ( $event['discount'] ?? '' ) );
+		if ( '' !== $off ) {
+			$facts[] = __( 'The discount', 'dazont-ecom' ) . ': ' . $off;
+		}
+
 		$user = "--- THE LINE TO ADAPT ---\n" . $line . "\n"
+			. ( $facts ? "\n--- THE EVENT, THE SAME ONE IN EVERY MARKET ---\n- " . implode( "\n- ", $facts ) . "\n" : '' )
 			. "\n--- MARKETS ---\n- " . implode( "\n- ", $names ) . "\n"
 			. "\n--- INSTRUCTIONS ---\n" . DZE_Marketing_Ai::promo_i18n_prompt() . "\n"
+			// The shop's own rule, added automatically and never written into
+			// the editable prompt: a rule that lives there only reaches a shop
+			// that never customised it.
+			. "\n--- THE SHOP'S OWN RULE, WHICH OVERRIDES THE INSTRUCTIONS ABOVE ---\n"
+			. "THE OCCASION NEVER CHANGES. This is ONE promotion, running on the dates given, in every market at once. Never replace its occasion with a holiday of that market — a Patriot Day sale does not become the 14 Juillet in France, Thanksgiving does not become anything in Germany, and no date is ever moved. When the occasion means nothing in a market, say the OFFER instead — what is reduced and by how much — and drop the name of the occasion rather than swapping it for another one.\n"
 			. "\n--- OUTPUT ---\nJSON only: an object whose keys are the language codes above and whose values are the adapted lines. No other key, no comment.";
 
 		DZE_Ai_Usage::unit( 'promo_i18n' );
@@ -373,7 +397,11 @@ final class DZE_Discounts {
 			$source = trim( (string) ( $rule['title'] ?? '' ) );
 		}
 		try {
-			$lines = self::translate_line( $source, $missing );
+			$lines = self::translate_line( $source, $missing, [
+				'start'    => (string) ( $rule['start'] ?? '' ),
+				'end'      => (string) ( $rule['end'] ?? '' ),
+				'discount' => ( (float) ( $rule['percent'] ?? 0 ) > 0 ) ? ( (float) $rule['percent'] ) . '%' : '',
+			] );
 		} catch ( \Throwable $e ) {
 			return; // the next save asks again; a promotion is not lost over this.
 		}
@@ -2362,6 +2390,8 @@ final class DZE_Discounts {
 				'titleFirst'  => __( 'Write the promotion\'s title first — it is what the banner says.', 'dazont-ecom' ),
 				'translating' => __( 'Writing…', 'dazont-ecom' ),
 				'translated'  => __( 'Written — check them, then save.', 'dazont-ecom' ),
+				/* translators: %d: how many market lines were rewritten */
+				'rewrote'     => __( 'Rewritten in %d languages — check them, then save.', 'dazont-ecom' ),
 				'trFailed'    => __( 'Could not write them.', 'dazont-ecom' ),
 				'pickRows'    => __( 'Tick the promotions you mean first.', 'dazont-ecom' ),
 				'heroMaking'  => __( 'Making the picture… this takes about a minute.', 'dazont-ecom' ),

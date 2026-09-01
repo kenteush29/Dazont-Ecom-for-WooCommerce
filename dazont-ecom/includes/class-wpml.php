@@ -144,6 +144,101 @@ final class DZE_Wpml {
 	 * their CDN, another site — comes back exactly as it went in. Falling back
 	 * to the English page is a page; a mangled URL is a dead link.
 	 */
+	/**
+	 * How THIS shop writes its language addresses, read from WPML's settings.
+	 *
+	 * Not from a filter: on the front WPML rewrites every link as the page is
+	 * built, and in admin-ajax — where the emails are written — those filters
+	 * are not the ones running. get_permalink() then hands back the German
+	 * product with the English domain still on it, which is exactly what this
+	 * shop saw: kula-tactical.com where kula-tactical.de was expected. The
+	 * settings say it plainly and say it in every context.
+	 *
+	 * @return array{type:int,domains:array<string,string>,default:string}
+	 *         type 1 = a directory (/de/), 2 = a domain of its own, 3 = ?lang=
+	 */
+	public static function url_shape(): array {
+		$s = get_option( 'icl_sitepress_settings', [] );
+		$s = is_array( $s ) ? $s : [];
+		$domains = [];
+		foreach ( (array) ( $s['language_domains'] ?? [] ) as $code => $host ) {
+			$host = (string) preg_replace( '#^https?://#i', '', (string) $host );
+			$host = trim( rtrim( $host, '/' ) );
+			if ( '' !== $host ) {
+				$domains[ strtolower( (string) $code ) ] = $host;
+			}
+		}
+		return [
+			'type'    => (int) ( $s['language_negotiation_type'] ?? 0 ),
+			'domains' => $domains,
+			'default' => (string) ( $s['default_language'] ?? '' ),
+		];
+	}
+
+	/** Every host this shop answers on — one per language, when it has one. */
+	public static function hosts(): array {
+		$out = [];
+		$mine = wp_parse_url( home_url(), PHP_URL_HOST );
+		if ( $mine ) {
+			$out[] = strtolower( (string) $mine );
+		}
+		foreach ( self::url_shape()['domains'] as $host ) {
+			$out[] = strtolower( $host );
+		}
+		return array_values( array_unique( array_filter( $out ) ) );
+	}
+
+	/**
+	 * The same address, written the way this shop writes that language.
+	 *
+	 * Only the ADDRESS is changed — the path is left exactly as it is. It is
+	 * used to put a translated page on its own domain, never to invent a page.
+	 *
+	 * @return string '' when this shop has no shape for that language.
+	 */
+	public static function in_shape( string $url, string $lang ): string {
+		$shape = self::url_shape();
+		$lang  = strtolower( trim( $lang ) );
+		$parts = wp_parse_url( $url );
+		if ( ! $parts || empty( $parts['host'] ) || '' === $lang ) {
+			return '';
+		}
+		if ( 2 === $shape['type'] ) {
+			$host = (string) ( $shape['domains'][ $lang ] ?? '' );
+			if ( '' === $host || strtolower( (string) $parts['host'] ) === $host ) {
+				return '' === $host ? '' : $url;
+			}
+			return (string) preg_replace( '#^(https?://)[^/]+#i', '${1}' . $host, $url );
+		}
+		if ( 1 === $shape['type'] ) {
+			if ( $lang === strtolower( $shape['default'] ) ) {
+				return $url;
+			}
+			$path = (string) ( $parts['path'] ?? '/' );
+			if ( 0 === strpos( ltrim( $path, '/' ) . '/', $lang . '/' ) ) {
+				return $url; // already in that directory.
+			}
+			// Rebuilt from the parts, never str_replace()d: the home page's
+			// path is a single slash, and replacing THAT in an address turns
+			// https:// into https:/de//de/.
+			return sprintf(
+				'%s://%s%s%s%s',
+				(string) ( $parts['scheme'] ?? 'https' ),
+				(string) $parts['host'],
+				'/' . $lang . $path,
+				isset( $parts['query'] ) ? '?' . $parts['query'] : '',
+				isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : ''
+			);
+		}
+		if ( 3 === $shape['type'] ) {
+			if ( $lang === strtolower( $shape['default'] ) ) {
+				return $url;
+			}
+			return $url . ( false === strpos( $url, '?' ) ? '?' : '&' ) . 'lang=' . $lang;
+		}
+		return '';
+	}
+
 	public static function url_in_language( string $url, string $lang, ?string &$why = null ): string {
 		$why  = 'unchanged';
 		$url  = trim( $url );
@@ -156,9 +251,11 @@ final class DZE_Wpml {
 			$why = 'no-language';
 			return $url;
 		}
+		// Ours, on ANY of the shop's hosts: a shop with a domain per language
+		// answers on five, and a link already written on one of them is still
+		// this shop's link.
 		$host = wp_parse_url( $url, PHP_URL_HOST );
-		$mine = wp_parse_url( home_url(), PHP_URL_HOST );
-		if ( ! $host || ! $mine || strtolower( (string) $host ) !== strtolower( (string) $mine ) ) {
+		if ( ! $host || ! in_array( strtolower( (string) $host ), self::hosts(), true ) ) {
 			$why = 'not-ours';
 			return $url;
 		}
@@ -176,17 +273,33 @@ final class DZE_Wpml {
 			$type = (string) ( get_post_type( $id ) ?: 'post' );
 			$tid  = (int) apply_filters( 'wpml_object_id', $id, $type, true, $lang );
 			if ( $tid && $tid !== $id ) {
-				$link = get_permalink( $tid );
-				if ( is_string( $link ) && '' !== $link && $link !== $url ) {
-					$why = 'translation';
-					return $link;
+				$link = (string) get_permalink( $tid );
+				if ( '' !== $link ) {
+					// The permalink gives the translation's own SLUG. Its host
+					// is whatever the current context happens to produce — in
+					// admin-ajax that is the default one, so the German page
+					// came out on the English domain. The shop's own settings
+					// say where that language lives; the address is put there.
+					$moved = self::in_shape( $link, $lang );
+					$why   = 'translation';
+					return '' !== $moved ? $moved : $link;
 				}
 			}
+			// A product nobody has translated: the page that EXISTS. Inventing
+			// an address in a language it was never written in is a 404, and
+			// the shop was explicit — a missing translation falls back to the
+			// original page.
+			$why = 'not-translated';
+			return $url;
 		}
-		// 3. No translation of its own: the language's URL rule still puts the
-		//    reader on his side of the shop. convert_url() is what WPML calls
-		//    on its own links and knows all three shapes — a directory, a
-		//    subdomain, a parameter.
+		// 3. Not a page of ours at all — the home page, a category, a listing.
+		//    Those have the same address in every language, so the language's
+		//    own shape is the whole answer.
+		$moved = self::in_shape( $url, $lang );
+		if ( '' !== $moved && $moved !== $url ) {
+			$why = 'url-rule';
+			return $moved;
+		}
 		global $sitepress;
 		if ( is_object( $sitepress ) && method_exists( $sitepress, 'convert_url' ) ) {
 			$conv = $sitepress->convert_url( $url, $lang );

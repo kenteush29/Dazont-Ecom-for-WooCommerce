@@ -3176,8 +3176,16 @@ final class DZE_Klaviyo {
 		// minutes a language and the shop watched a button; run on the fast
 		// one it is seconds, and what comes back is verified against what was
 		// sent either way.
-		$said = DZE_Marketing_Ai::complete( $system, $user, self::I18N_MODEL, 8000, 120 );
-		$json = json_decode( self::json_of( $said ), true );
+		// Asked twice at most. One language of five coming back empty — "Nothing
+		// came back for DE" on an email whose four other languages were
+		// written — is a model that hiccuped, not a shop that is misconfigured,
+		// and making a person notice it and press the button again is making
+		// him do the retry by hand.
+		$json = null;
+		for ( $try = 0; $try < 2 && ! is_array( $json ); $try++ ) {
+			$said = DZE_Marketing_Ai::complete( $system, $user, self::I18N_MODEL, 8000, 120 );
+			$json = json_decode( self::json_of( $said ), true );
+		}
 		if ( ! is_array( $json ) ) {
 			return [];
 		}

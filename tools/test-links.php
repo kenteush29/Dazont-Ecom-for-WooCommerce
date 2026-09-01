@@ -26,6 +26,23 @@ define( 'DAY_IN_SECONDS', 86400 );
 define( 'OBJECT', 'OBJECT' );
 
 function get_transient( $k ) { return false; }
+/**
+ * WPML's own settings, which is where the shape of a language address is
+ * written — and the only place that answers the same in admin-ajax as on the
+ * front. 2 = a domain per language, which is what this shop runs.
+ */
+function get_option( $k, $d = false ) {
+	if ( 'icl_sitepress_settings' === $k ) {
+		return $GLOBALS['icl'] ?? [];
+	}
+	return $GLOBALS['opts'][ $k ] ?? $d;
+}
+$GLOBALS['opts'] = [];
+$GLOBALS['icl']  = [
+	'language_negotiation_type' => 2,
+	'default_language'          => 'en',
+	'language_domains'          => [ 'de' => 'kula.de', 'fr' => 'kula.fr' ],
+];
 function set_transient( $k, $v, $t = 0 ) { return true; }
 function wp_parse_url( $url, $component = -1 ) { return parse_url( (string) $url, $component ); }
 function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
@@ -114,7 +131,17 @@ function reset_caches(): void {
 	$GLOBALS['resolved'] = [];
 }
 
-$GLOBALS['mode'] = 'dir';
+/** The shop as WPML has it set up: how the languages live in the address. */
+function shop( int $type, array $domains = [] ): void {
+	$GLOBALS['icl'] = [
+		'language_negotiation_type' => $type,
+		'default_language'          => 'en',
+		'language_domains'          => $domains,
+	];
+	$GLOBALS['resolved'] = [];
+}
+
+shop( 1 );
 echo "The page is found by its SLUG, never by walking the rewrite rules\n";
 $GLOBALS['asked_path'] = [];
 ok( 'a product address finds its product',
@@ -128,38 +155,49 @@ ok( 'an address of nothing is nothing',  DZE_Wpml::post_of( 'https://kula.test/n
 ok( 'the home page is not a post',       DZE_Wpml::post_of( 'https://kula.test/' ), 0 );
 ok( 'url_to_postid() was never called',  $GLOBALS['resolved'] ?? [], [] );
 
-echo "A translated product: its OWN page, whatever the URL shape\n";
-foreach ( [ 'dir', 'sub', 'param', 'domain', 'none' ] as $mode ) {
-	$GLOBALS['mode'] = $mode;
-	reset_caches();
-	[ $url, $why ] = to( 'https://kula.test/spetsnaz-balaclava', 'de' );
-	ok( "its German page ($mode)",       $url, 'https://kula.test/de/sturmhaube-spetsnaz' );
-	ok( "and the step says so ($mode)",  $why, 'translation' );
-}
+echo "This shop: a domain per language, and a slug of its own\n";
+// The case the shop sent, in his own words: kula-tactical.com/tactical-phone-
+// pouch-laser-cut-molle exists as kula-tactical.de/taktische-handyhuelle-mit-
+// lasergeschnittenem-molle-system. Both halves have to move — the domain AND
+// the slug — and in admin-ajax get_permalink() gives the German slug on the
+// ENGLISH domain, because WPML's front-end URL filters are not what is
+// running there. The shop's own settings say where German lives.
+shop( 2, [ 'de' => 'kula.de', 'fr' => 'kula.fr' ] );
+[ $url, $why ] = to( 'https://kula.test/spetsnaz-balaclava', 'de' );
+ok( 'the German slug, on the German domain', $url, 'https://kula.de/de/sturmhaube-spetsnaz' );
+ok( 'and the step says translation',     $why, 'translation' );
+// A link already written on a language domain is still this shop's link.
+ok( 'a language domain is ours too',
+	to( 'https://kula.de/sturmhaube-spetsnaz', 'fr' )[1] !== 'not-ours', true );
 
-echo "An UNtranslated product: the language's own URL rule\n";
-$expect = [
-	'dir'    => 'https://kula.test/de/punisher-balaclava',
-	'sub'    => 'https://de.kula.test/punisher-balaclava',
-	'param'  => 'https://kula.test/punisher-balaclava?lang=de',
-	'domain' => 'https://kula.de/punisher-balaclava',
-];
-foreach ( $expect as $mode => $want ) {
-	$GLOBALS['mode'] = $mode;
-	reset_caches();
+echo "A product nobody has translated: the page that EXISTS\n";
+// "CA ARRIVE d'avoir un produit qui manque des traductions. Dans ce cas oui
+// backup vers page d'origine." An invented German address is a 404, which is
+// worse than a page in the wrong language.
+foreach ( [ 1 => [], 2 => [ 'de' => 'kula.de' ], 3 => [] ] as $type => $domains ) {
+	shop( $type, $domains );
 	[ $url, $why ] = to( 'https://kula.test/punisher-balaclava', 'de' );
-	ok( "the German address ($mode)",    $url, $want );
-	ok( "by the URL rule ($mode)",       $why, 'filter' );
+	ok( "the original page ($type)",     $url, 'https://kula.test/punisher-balaclava' );
+	ok( "and it is named ($type)",       $why, 'not-translated' );
 }
-// And the shop where a language simply has no address of its own: the link
-// cannot move, and the screen must be able to SAY which step gave up.
-$GLOBALS['mode'] = 'none';
-reset_caches();
-[ $url, $why ] = to( 'https://kula.test/punisher-balaclava', 'de' );
-ok( 'nothing to move to is left alone', $url, 'https://kula.test/punisher-balaclava' );
-ok( 'and it is named, not guessed',     $why, 'not-translated' );
 
-echo "WPML's own converter, when the object is there\n";
+echo "Everything that is not a page of ours follows the language's shape\n";
+shop( 1 );
+ok( 'the home page, in a directory',     to( 'https://kula.test/', 'de' )[0], 'https://kula.test/de/' );
+ok( 'a category, in a directory',        to( 'https://kula.test/balaclavas/', 'fr' )[0], 'https://kula.test/fr/balaclavas/' );
+shop( 2, [ 'de' => 'kula.de' ] );
+ok( 'the home page, on its own domain',  to( 'https://kula.test/', 'de' )[0], 'https://kula.de/' );
+shop( 3 );
+ok( 'and as a parameter',                to( 'https://kula.test/balaclavas/', 'fr' )[0], 'https://kula.test/balaclavas/?lang=fr' );
+
+echo "The shipped translation always wins over the shape\n";
+shop( 2, [ 'fr' => 'kula.fr' ] );
+ok( 'the French page keeps its own slug', to( 'https://kula.test/spetsnaz-balaclava', 'fr' )[0], 'https://kula.fr/fr/cagoule-spetsnaz' );
+// A translated PAGE, not only products.
+shop( 1 );
+ok( 'a translated page too',             to( 'https://kula.test/about-us', 'de' )[0], 'https://kula.test/de/ueber-uns' );
+
+echo "WPML's own converter, when the settings say nothing\n";
 class FakeSitePress {
 	public $asked = [];
 	public function convert_url( $url, $lang ) {
@@ -167,30 +205,20 @@ class FakeSitePress {
 		return str_replace( 'https://kula.test/', 'https://kula.test/' . $lang . '/', (string) $url );
 	}
 }
-$GLOBALS['mode'] = 'none'; // the filter would answer nothing; convert_url must.
+shop( 0 ); // a shop whose shape we cannot read: the object answers instead.
 $GLOBALS['sitepress'] = new FakeSitePress();
-reset_caches();
-[ $url, $why ] = to( 'https://kula.test/punisher-balaclava', 'fr' );
-ok( 'it answers before the filter',     $url, 'https://kula.test/fr/punisher-balaclava' );
-ok( 'and the step says which',          $why, 'url-rule' );
-ok( 'a translation still beats it',     to( 'https://kula.test/spetsnaz-balaclava', 'fr' )[0], 'https://kula.test/fr/cagoule-spetsnaz' );
+[ $url, $why ] = to( 'https://kula.test/balaclavas/', 'fr' );
+ok( 'it answers for a listing page',     $url, 'https://kula.test/fr/balaclavas/' );
+ok( 'and the step says which',           $why, 'url-rule' );
 unset( $GLOBALS['sitepress'] );
 
-echo "Pages and categories, not only products\n";
-$GLOBALS['mode'] = 'dir';
-reset_caches();
-ok( 'a translated page goes to its own', to( 'https://kula.test/about-us', 'de' )[0], 'https://kula.test/de/ueber-uns' );
-ok( 'the home page follows the rule',    to( 'https://kula.test/', 'de' )[0], 'https://kula.test/de/' );
-ok( 'so does a category',                to( 'https://kula.test/balaclavas/', 'fr' )[0], 'https://kula.test/fr/balaclavas/' );
-
 echo "And what must never be touched\n";
-foreach ( [ 'dir', 'sub', 'param', 'domain' ] as $mode ) {
-	$GLOBALS['mode'] = $mode;
-	reset_caches();
-	ok( "a photograph on another host ($mode)",
+foreach ( [ 1 => [], 2 => [ 'de' => 'kula.de' ], 3 => [] ] as $type => $domains ) {
+	shop( $type, $domains );
+	ok( "a photograph on another host ($type)",
 		to( 'https://cdn.klaviyo.test/hero.jpg', 'de' )[0], 'https://cdn.klaviyo.test/hero.jpg' );
 }
-$GLOBALS['mode'] = 'dir';
+shop( 1 );
 ok( "Klaviyo's own variable",           to( '{{ organization.url }}', 'de' )[0], '{{ organization.url }}' );
 ok( 'the sender name, which is no URL', to( 'Kula Tactical', 'de' )[0], 'Kula Tactical' );
 ok( 'an address with no scheme',        to( '/spetsnaz-balaclava', 'de' )[0], '/spetsnaz-balaclava' );
