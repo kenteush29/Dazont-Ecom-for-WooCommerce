@@ -422,6 +422,60 @@ final class DZE_Wpml {
 	}
 
 	/**
+	 * A post's slug as the POSTS TABLE holds it.
+	 *
+	 * Read with the 'raw' context, which is the one no filter rewrites. The
+	 * shop's German products were found — their German names came out right in
+	 * the same email — and their addresses still carried the English slug,
+	 * because get_permalink() is filtered and the filters that translate an
+	 * address are front-end ones: in admin-ajax they hand back the source
+	 * slug, and a host swap on top of that is the right domain carrying the
+	 * wrong page. post_name is a fact, and a fact cannot fail to be loaded.
+	 *
+	 * @return string '' when there is no such post.
+	 */
+	public static function post_slug( int $post_id ): string {
+		if ( $post_id <= 0 || ! function_exists( 'get_post_field' ) ) {
+			return '';
+		}
+		return trim( (string) get_post_field( 'post_name', $post_id, 'raw' ) );
+	}
+
+	/**
+	 * The same address with its LAST path segment set to $slug.
+	 *
+	 * Everything else is kept exactly as WordPress built it: the scheme, the
+	 * host the language lives on, the product base, a parent page above it, a
+	 * trailing slash, a query. Only the one segment that names the page is
+	 * replaced, and only when it differs. An address that carries no segment
+	 * at all — a shop with plain permalinks, ?p=115 — has no slug to set, and
+	 * giving it one would invent a page.
+	 */
+	private static function with_slug( string $url, string $slug ): string {
+		$slug  = trim( $slug );
+		$parts = wp_parse_url( $url );
+		if ( '' === $slug || ! $parts || empty( $parts['host'] ) ) {
+			return $url;
+		}
+		$path = (string) ( $parts['path'] ?? '' );
+		$segs = array_values( array_filter( explode( '/', $path ), static fn( $one ) => '' !== $one ) );
+		if ( ! $segs || urldecode( (string) end( $segs ) ) === $slug ) {
+			return $url;
+		}
+		$segs[ count( $segs ) - 1 ] = $slug;
+		return sprintf(
+			'%s://%s%s/%s%s%s%s',
+			(string) ( $parts['scheme'] ?? 'https' ),
+			(string) $parts['host'],
+			isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '',
+			implode( '/', $segs ),
+			'/' === substr( $path, -1 ) ? '/' : '',
+			isset( $parts['query'] ) ? '?' . $parts['query'] : '',
+			isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : ''
+		);
+	}
+
+	/**
 	 * ONE post, as that language's readers reach it — asked of WPML.
 	 *
 	 * "Toujours le problème des urls fake: kula-tactical.fr/hooded-combat-shirt
@@ -480,6 +534,17 @@ final class DZE_Wpml {
 		$moved = self::in_shape( $link, $lang );
 		if ( '' !== $moved ) {
 			$link = $moved;
+		}
+		// And the last half: the page's OWN slug, taken from the posts table.
+		// The two halves used to come from the same filtered permalink, and on
+		// a request where WPML's front-end filters are not running that
+		// permalink names the ENGLISH page — which is how kula-tactical.de
+		// ended up pointing at /a-tacs-fg-military-combat-uniform on a shop
+		// that has /a-tacs-fg-gefechtsuniform. Nothing is invented: when the
+		// address already names that post, it is left untouched.
+		$slug = self::post_slug( $tid );
+		if ( '' !== $slug ) {
+			$link = self::with_slug( $link, $slug );
 		}
 		$why = 'translation';
 		return $link;

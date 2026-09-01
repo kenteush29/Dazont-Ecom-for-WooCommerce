@@ -3117,6 +3117,14 @@ final class DZE_Klaviyo {
 		$out['url']   = $url;
 		$out['name']  = trim( wp_strip_all_tags( (string) $one->get_name() ) );
 		$out['names'] = [];
+		$out['slug']  = [];
+		// The slug the ENGLISH page carries. A translated page that still
+		// carries it is the one case this plugin cannot fix from here — the
+		// address is right, the page behind it is the English one — and it is
+		// a field in WordPress, not a setting of ours. So it is named.
+		$dze_mine = method_exists( 'DZE_Wpml', 'post_slug' )
+			? DZE_Wpml::post_slug( (int) $one->get_id() )
+			: '';
 		$names        = self::name_map( [ (int) $one->get_id() ], $targets );
 		foreach ( $targets as $lang ) {
 			$why = '';
@@ -3143,6 +3151,8 @@ final class DZE_Klaviyo {
 			$out['ids'][ (string) $lang ]   = $tid;
 			$out['how'][ (string) $lang ]   = $how;
 			$out['names'][ (string) $lang ] = (string) ( $names[ $out['name'] ][ (string) $lang ] ?? '' );
+			$dze_slug = ( $tid && method_exists( 'DZE_Wpml', 'post_slug' ) ) ? DZE_Wpml::post_slug( $tid ) : '';
+			$out['slug'][ (string) $lang ] = ( '' !== $dze_slug && $dze_slug === $dze_mine ) ? $dze_slug : '';
 		}
 		return $out;
 	}
@@ -8663,6 +8673,15 @@ CSS;
 													: (string) ( $dze_route[ $dze_how ] ?? $dze_how ) );
 												echo '' !== $dze_name ? ' · ' . esc_html( $dze_name ) : '';
 												?>
+											<?php if ( '' !== (string) ( $dze_smp['slug'][ $dze_code ] ?? '' ) ) : ?>
+												<br><strong><?php
+												printf(
+													/* translators: %s: the slug both pages share */
+													esc_html__( 'Its page in WordPress still uses the English address (%s) — edit that product\'s permalink in WordPress to translate it.', 'dazont-ecom' ),
+													esc_html( (string) $dze_smp['slug'][ $dze_code ] )
+												);
+												?></strong>
+											<?php endif; ?>
 											</span>
 										<?php endif; ?>
 									</td>
