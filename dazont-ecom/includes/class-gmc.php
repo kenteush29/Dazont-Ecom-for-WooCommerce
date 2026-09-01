@@ -1592,13 +1592,27 @@ final class DZE_Gmc {
 			if ( '' !== $one['message'] ) {
 				$title = $one['message'];
 			}
-			$out .= sprintf(
-				'<span title="%s" style="color:%s;margin-right:8px;white-space:nowrap;">%s %s</span>',
-				esc_attr( $label . ' — ' . $title ),
-				esc_attr( $color ),
-				esc_html( $dot ),
-				esc_html( $label )
-			);
+			// A feed is a LANGUAGE, and a language is drawn the same way in
+			// every screen of this plugin: WPML's own flag, its code, and the
+			// state beside it. A row of letters was a vocabulary of ours.
+			$flag = ( 'default' !== $key && method_exists( 'DZE_Wpml', 'flag_html' ) )
+				? DZE_Wpml::flag_html( $key, 'synced' === $state ? 'done' : ( 'error' === $state ? '' : 'todo' ), $label . ' — ' . $title )
+				: '';
+			$out .= '' !== $flag
+				? sprintf(
+					'<span style="color:%s;margin-right:8px;white-space:nowrap;" title="%s">%s %s</span>',
+					esc_attr( $color ),
+					esc_attr( $label . ' — ' . $title ),
+					$flag, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+					esc_html( $dot )
+				)
+				: sprintf(
+					'<span title="%s" style="color:%s;margin-right:8px;white-space:nowrap;">%s %s</span>',
+					esc_attr( $label . ' — ' . $title ),
+					esc_attr( $color ),
+					esc_html( $dot ),
+					esc_html( $label )
+				);
 		}
 
 		// When it last went to Google, or that it never has. Five empty

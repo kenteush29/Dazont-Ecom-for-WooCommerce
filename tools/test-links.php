@@ -26,6 +26,9 @@ define( 'DAY_IN_SECONDS', 86400 );
 define( 'OBJECT', 'OBJECT' );
 
 function get_transient( $k ) { return false; }
+function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
+function esc_attr( $s ) { return esc_html( $s ); }
+function esc_url( $s ) { return (string) $s; }
 /**
  * WPML's own settings, which is where the shape of a language address is
  * written — and the only place that answers the same in admin-ajax as on the
@@ -81,6 +84,7 @@ function url_to_postid( $url ) { $GLOBALS['resolved'][] = $url; return 0; }
 /** WPML's filters. $GLOBALS['mode'] is how this shop writes its language URLs. */
 function apply_filters( $tag, $value = null, ...$args ) {
 	if ( 'wpml_default_language' === $tag ) { return 'en'; }
+	if ( 'wpml_active_languages' === $tag ) { return $GLOBALS['langs'] ?? []; }
 	if ( 'wpml_object_id' === $tag ) {
 		[ , $return_original, $lang ] = $args;
 		$id = (int) ( $GLOBALS['trans'][ (int) $value ][ $lang ] ?? 0 );
@@ -228,6 +232,27 @@ ok( 'an empty address',                 to( '', 'de' )[0], '' );
 
 echo "Nothing in the chain ever leans on the rewrite rules\n";
 ok( 'not once, in any of it',           $GLOBALS['resolved'] ?? [], [] );
+
+echo "A language is drawn the way WPML draws one\n";
+// The plugin printed "FR, DE, PL, ES" while the rest of this admin shows a
+// flag and a state. One drawing now, from WPML's own data, used by the email
+// rows, the Google feeds and the translation tables.
+$GLOBALS['langs'] = [
+	'en' => [ 'native_name' => 'English',  'country_flag_url' => 'https://kula.test/f/en.png' ],
+	'de' => [ 'native_name' => 'Deutsch',  'country_flag_url' => 'https://kula.test/f/de.png' ],
+	'fr' => [ 'native_name' => 'Français', 'country_flag_url' => 'https://kula.test/f/fr.png' ],
+];
+$de = DZE_Wpml::flag_html( 'de', 'done' );
+ok( "it carries WPML's own flag",       false !== strpos( $de, 'f/de.png' ), true );
+ok( 'the code, for a shop that reads codes', false !== strpos( $de, '>DE<' ), true );
+ok( 'the language name is the title',   false !== strpos( $de, 'title="Deutsch"' ), true );
+ok( 'and a tick when it is done',       false !== strpos( $de, 'is-done' ), true );
+ok( 'a hollow one when it is owed',     false !== strpos( DZE_Wpml::flag_html( 'fr', 'todo' ), 'is-todo' ), true );
+$row = DZE_Wpml::flags_html( [ 'de' ], [ 'fr' ] );
+ok( 'a row holds both',                 substr_count( $row, 'dze-lang ' ) + substr_count( $row, 'dze-lang"' ), 2 );
+ok( 'nothing at all draws nothing',     DZE_Wpml::flags_html( [], [] ), '' );
+ok( 'and a language nobody has is not invented',
+	false !== strpos( DZE_Wpml::flag_html( 'zz' ), '>ZZ<' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -75,3 +75,19 @@
 	border:1px solid currentColor;font-size:11px;font-style:italic;
 	font-weight:700;line-height:1;cursor:help;vertical-align:middle;opacity:.8;}
 .dze-why:hover,.dze-why:focus{opacity:1;outline:none;}
+
+/* ---------------------------------------------------------------------------
+ * A language, drawn the way WPML draws one.
+ *
+ * The plugin printed "FR, DE, PL, ES" while the rest of this admin — the
+ * product list, the translation screens — shows a flag and a state. Two
+ * vocabularies for one thing meant the shop had to learn ours. One class,
+ * used by the email rows, the Google feeds and the translation tables.
+ * --------------------------------------------------------------------------- */
+.dze-langs{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:6px;vertical-align:middle;}
+.dze-lang{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border:1px solid #dcdcde;
+	border-radius:3px;background:#fff;font-size:11px;line-height:1.6;color:#3c434a;}
+.dze-lang img{display:block;width:18px;height:12px;border-radius:1px;}
+.dze-lang.is-done{border-color:rgba(0,121,75,.25);background:#f2fbf5;}
+.dze-lang.is-todo{border-color:rgba(178,106,0,.25);background:#fdf8ef;}
+.dze-lang-code{font-weight:600;letter-spacing:.02em;}
