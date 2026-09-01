@@ -2918,8 +2918,17 @@ final class DZE_Klaviyo {
 				continue;
 			}
 			foreach ( $langs as $lang ) {
-				$tid  = (int) apply_filters( 'wpml_object_id', $pid, 'product', true, (string) $lang );
-				$link = ( $tid && $tid !== $pid ) ? (string) get_permalink( $tid ) : '';
+				// The translation's OWN address, asked of WPML — the slug and
+				// the place it lives, both. This used to take the translated
+				// permalink and use it as it stood, which in admin-ajax is the
+				// right slug on the DEFAULT domain; and where the translation
+				// was not found the address fell through to a host swap, which
+				// is the right domain with the ENGLISH slug —
+				// kula-tactical.fr/hooded-combat-shirt. Two halves, one
+				// function, no half invented here.
+				$link = method_exists( 'DZE_Wpml', 'post_url_in_language' )
+					? DZE_Wpml::post_url_in_language( $pid, 'product', (string) $lang )
+					: '';
 				if ( '' !== $link && $link !== $here ) {
 					$out[ $here ][ (string) $lang ] = $link;
 					continue;

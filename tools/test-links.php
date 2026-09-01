@@ -69,11 +69,16 @@ $GLOBALS['perma'] = [
 ];
 $GLOBALS['types'] = [ 11 => 'product', 12 => 'product', 20 => 'page', 30 => 'post' ];
 
+// WordPress's own: one type, or a LIST of them.
 function get_page_by_path( $path, $output = OBJECT, $type = 'page' ) {
 	$GLOBALS['asked_path'][] = [ $path, $type ];
-	$id = (int) ( $GLOBALS['slugs'][ (string) $type ][ (string) $path ] ?? 0 );
-	return $id ? (object) [ 'ID' => $id ] : null;
+	foreach ( (array) $type as $one ) {
+		$id = (int) ( $GLOBALS['slugs'][ (string) $one ][ (string) $path ] ?? 0 );
+		if ( $id ) { return (object) [ 'ID' => $id ]; }
+	}
+	return null;
 }
+function get_post_types( $args = [], $out = 'names' ) { return $GLOBALS['ptypes'] ?? [ 'post', 'page', 'product' ]; }
 function get_post_type( $id ) { return $GLOBALS['types'][ (int) $id ] ?? ''; }
 function get_permalink( $id ) { return $GLOBALS['perma'][ (int) $id ] ?? ''; }
 
@@ -155,6 +160,14 @@ ok( 'a page is found by its whole path', DZE_Wpml::post_of( 'https://kula.test/a
 ok( 'a post too',                        DZE_Wpml::post_of( 'https://kula.test/hello' ), 30 );
 ok( 'a trailing slash changes nothing',  DZE_Wpml::post_of( 'https://kula.test/spetsnaz-balaclava/' ), 11 );
 ok( 'and a query string does not either',DZE_Wpml::post_of( 'https://kula.test/spetsnaz-balaclava?utm=x' ), 11 );
+// A type this lookup does not name is still a page of the shop. It used to
+// fall through as "not one of ours", and a page nobody recognises gets the
+// language's URL RULE — the right domain carrying the English slug, which is
+// the fake address the shop kept finding in its emails.
+$GLOBALS['ptypes'] = [ 'post', 'page', 'product', 'dze_guide' ];
+$GLOBALS['slugs']['dze_guide'] = [ 'how-to-fold-a-shemagh' => 44 ];
+ok( 'a page of any public type is found',
+	DZE_Wpml::post_of( 'https://kula.test/how-to-fold-a-shemagh' ), 44 );
 ok( 'an address of nothing is nothing',  DZE_Wpml::post_of( 'https://kula.test/no-such-thing' ), 0 );
 ok( 'the home page is not a post',       DZE_Wpml::post_of( 'https://kula.test/' ), 0 );
 ok( 'url_to_postid() was never called',  $GLOBALS['resolved'] ?? [], [] );
@@ -253,6 +266,32 @@ ok( 'a row holds both',                 substr_count( $row, 'dze-lang ' ) + subs
 ok( 'nothing at all draws nothing',     DZE_Wpml::flags_html( [], [] ), '' );
 ok( 'and a language nobody has is not invented',
 	false !== strpos( DZE_Wpml::flag_html( 'zz' ), '>ZZ<' ), true );
+// THE BUG, in his own words: "kula-tactical.fr/hooded-combat-shirt devrait
+// être kula-tactical.fr/chemise-tactique-a-capuche-yz". The right domain with
+// the ENGLISH slug is what a host swap gives when the translation is not
+// found; the right slug on the ENGLISH domain is what a permalink gives on a
+// request that is not a front-end one. One function answers both halves now,
+// and neither is built here.
+shop( 2, [ 'de' => 'kula.de', 'fr' => 'kula.fr' ] );
+$why = '';
+$de  = DZE_Wpml::post_url_in_language( 11, 'product', 'de', $why );
+ok( 'the post itself answers, slug and all', $de, 'https://kula.de/de/sturmhaube-spetsnaz' );
+ok( 'and it says it is a translation',   $why, 'translation' );
+ok( 'never the English slug on the German domain',
+	false !== strpos( $de, 'spetsnaz-balaclava' ), false );
+// Converted twice is how kula.de/de/de/ happened: an address that already
+// carries the language is not handed to the converter again.
+ok( 'the language is written once',      substr_count( $de, '/de/' ), 1 );
+// A product nobody has translated answers with NOTHING, which is a real
+// answer: the caller then leaves the original page alone rather than
+// inventing an address in a language it was never written in.
+$why = '';
+ok( 'an untranslated product answers nothing',
+	DZE_Wpml::post_url_in_language( 30, 'product', 'de', $why ), '' );
+ok( 'and says so',                       $why, 'not-translated' );
+ok( 'the shop language is not a translation',
+	DZE_Wpml::post_url_in_language( 11, 'product', 'en' ), '' );
+
 ok( 'a refused one carries its own mark',
 	false !== strpos( DZE_Wpml::flag_html( 'fr', 'ko' ), 'is-ko' ), true );
 

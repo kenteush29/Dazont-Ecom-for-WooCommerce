@@ -322,6 +322,101 @@ final class DZE_Wpml {
 		return '';
 	}
 
+	/**
+	 * Does this address already CARRY that language, in any of WPML's ways?
+	 *
+	 * Its own domain, its own directory, its own parameter — whichever this
+	 * shop uses, and whichever the permalink happens to have been built with.
+	 * Asked before WPML's converter is called on a URL, because a converter
+	 * called on an address that already says "de" is how a link became
+	 * kula.de/de/de/sturmhaube.
+	 */
+	public static function has_marker( string $url, string $lang ): bool {
+		$lang  = strtolower( trim( $lang ) );
+		$parts = wp_parse_url( $url );
+		if ( ! $parts || '' === $lang ) {
+			return false;
+		}
+		$host = strtolower( (string) ( $parts['host'] ?? '' ) );
+		$want = strtolower( (string) ( self::url_shape()['domains'][ $lang ] ?? '' ) );
+		if ( '' !== $want && $host === $want ) {
+			return true;
+		}
+		if ( 0 === strpos( $host, $lang . '.' ) ) {
+			return true; // a subdomain per language.
+		}
+		$path = ltrim( (string) ( $parts['path'] ?? '/' ), '/' );
+		if ( 0 === strpos( $path . '/', $lang . '/' ) ) {
+			return true;
+		}
+		parse_str( (string) ( $parts['query'] ?? '' ), $q );
+		return isset( $q['lang'] ) && strtolower( (string) $q['lang'] ) === $lang;
+	}
+
+	/**
+	 * ONE post, as that language's readers reach it — asked of WPML.
+	 *
+	 * "Toujours le problème des urls fake: kula-tactical.fr/hooded-combat-shirt
+	 * devrait être kula-tactical.fr/chemise-tactique-a-capuche-yz. Devrait
+	 * utiliser l\'url réel de wpml."
+	 *
+	 * Two halves, and the plugin used to get one of them from WPML and build
+	 * the other itself, which is why the answer moved about: the translation's
+	 * own SLUG comes from its permalink, and WHERE that language lives — a
+	 * domain, a directory, a parameter, and the translated product base with
+	 * it — is WPML's answer through its own filter. get_permalink() alone
+	 * gives the right slug on whatever host the current request is on, and in
+	 * admin-ajax that is the default one; a host swap of ours gives the right
+	 * host with the ENGLISH slug when the lookup that finds the translation
+	 * fails. Neither half is invented here any more.
+	 *
+	 * @return string '' when that post is not translated into that language —
+	 *                which is a real answer, not a failure: the caller then
+	 *                leaves the original address alone.
+	 */
+	public static function post_url_in_language( int $post_id, string $type, string $lang, ?string &$why = null ): string {
+		$why  = 'not-translated';
+		$lang = strtolower( trim( $lang ) );
+		if ( $post_id <= 0 || '' === $lang || ! self::is_active() ) {
+			$why = 'no-wpml';
+			return '';
+		}
+		if ( $lang === strtolower( self::default_language() ) ) {
+			$why = 'no-language';
+			return '';
+		}
+		// No fallback: asked with one, WPML hands back the post it was given
+		// and an untranslated product reads as a translated one.
+		$tid = (int) apply_filters( 'wpml_object_id', $post_id, ( '' !== $type ? $type : 'post' ), false, $lang );
+		if ( ! $tid || $tid === $post_id ) {
+			return '';
+		}
+		$link = (string) get_permalink( $tid );
+		if ( '' === $link ) {
+			$why = 'no-page';
+			return '';
+		}
+		// WPML'S OWN answer for "this address, in that language" — asked only
+		// when the permalink does not already carry the language. On many
+		// shops WPML has already filtered get_permalink() by the time we see
+		// it, and converting a converted address doubles the language.
+		if ( ! self::has_marker( $link, $lang ) ) {
+			$abs = apply_filters( 'wpml_permalink', $link, $lang, true );
+			if ( is_string( $abs ) && '' !== $abs ) {
+				$link = $abs;
+			}
+		}
+		// And the half WPML's filter cannot answer for on a request that is
+		// not a front-end one: the HOST this shop keeps that language on.
+		// in_shape() leaves an address that is already right exactly as it is.
+		$moved = self::in_shape( $link, $lang );
+		if ( '' !== $moved ) {
+			$link = $moved;
+		}
+		$why = 'translation';
+		return $link;
+	}
+
 	public static function url_in_language( string $url, string $lang, ?string &$why = null ): string {
 		$why  = 'unchanged';
 		$url  = trim( $url );
@@ -354,19 +449,9 @@ final class DZE_Wpml {
 			//    another post: asked with the original as fallback, WPML hands
 			//    back the post it was given when nothing is translated.
 			$type = (string) ( get_post_type( $id ) ?: 'post' );
-			$tid  = (int) apply_filters( 'wpml_object_id', $id, $type, true, $lang );
-			if ( $tid && $tid !== $id ) {
-				$link = (string) get_permalink( $tid );
-				if ( '' !== $link ) {
-					// The permalink gives the translation's own SLUG. Its host
-					// is whatever the current context happens to produce — in
-					// admin-ajax that is the default one, so the German page
-					// came out on the English domain. The shop's own settings
-					// say where that language lives; the address is put there.
-					$moved = self::in_shape( $link, $lang );
-					$why   = 'translation';
-					return '' !== $moved ? $moved : $link;
-				}
+			$link = self::post_url_in_language( $id, $type, $lang, $why );
+			if ( '' !== $link ) {
+				return $link;
 			}
 			// A product nobody has translated: the page that EXISTS. Inventing
 			// an address in a language it was never written in is a 404, and
@@ -426,7 +511,21 @@ final class DZE_Wpml {
 		}
 		$parts = explode( '/', $path );
 		$slug  = urldecode( (string) end( $parts ) );
-		foreach ( [ [ $slug, 'product' ], [ $path, 'page' ], [ $slug, 'post' ] ] as [ $what, $type ] ) {
+		// Products first, then a page by its whole path (pages nest), then a
+		// post — and finally EVERY public type the shop has, by that same
+		// slug. The last one is what keeps a link out of the invention branch
+		// below: a page this lookup does not recognise is treated as a listing
+		// and gets the language's URL rule, which is how the right domain
+		// ended up carrying the English slug. One extra query, asked once per
+		// address and remembered.
+		$tries = [ [ $slug, 'product' ], [ $path, 'page' ], [ $slug, 'post' ] ];
+		if ( function_exists( 'get_post_types' ) ) {
+			$all = array_values( (array) get_post_types( [ 'public' => true ], 'names' ) );
+			if ( $all ) {
+				$tries[] = [ $slug, $all ];
+			}
+		}
+		foreach ( $tries as [ $what, $type ] ) {
 			if ( '' === $what ) {
 				continue;
 			}
