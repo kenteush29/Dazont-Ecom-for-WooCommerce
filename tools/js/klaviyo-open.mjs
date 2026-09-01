@@ -37,6 +37,7 @@ const jqs  = process.argv[2]
 	? [ [ 'given', process.argv[2] ] ]
 	: [ [ '3.7.1', join( npm, 'jquery-3/dist/jquery.min.js' ) ], [ '4.0.0', join( npm, 'jquery/dist/jquery.min.js' ) ] ];
 
+const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
 let fails = 0, ran = 0;
 function ok( what, got, want ) {
 	ran++;
@@ -82,6 +83,8 @@ const page_html = `
     </div>
   </div>
   <button type="button" id="dze-mail-new">+ Add an email</button>
+  <label><input type="checkbox" id="dze-mail-shots" /> with their pictures</label>
+  <button type="button" class="button button-primary" id="dze-mail-all">Generate them all</button>
   <button type="button" id="dze-mail-draftall">Put them all in Klaviyo</button>
   <span id="dze-mail-plan-msg"></span>
   <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span><span class="dze-mail-clash"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-want" value="0" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
@@ -116,13 +119,17 @@ const cfg = {
 	        noWritten: 'Nothing written yet.', drafting1: 'Putting %1$d of %2$d in Klaviyo…',
 	        draftAll: 'All in Klaviyo.', draftSome: '%1$d in Klaviyo, %2$d failed.', open: 'Open draft ↗',
 	        notBefore: 'The earliest an email can go out is tomorrow — moved.',
+	        // What the batch says while it works, and what it makes.
+	        writing1: 'Writing %1$d of %2$d…', allDone: 'All written.', nothing: 'Nothing to write.',
+	        rowShot: 'Making its picture…', rowShotOk: 'Written, with its picture ✓',
+	        shooting: 'Making the picture…', shot: 'Picture made.',
+	        clashSame: 'Same day as %1$s (%2$s).', clashOne: '1 day from %1$s (%2$s).',
+	        clashNear: '%1$d days from %2$s (%3$s).', clashWant: 'Leave %d days between two emails.',
+	        moveTo: 'Move it to %s',
 	        schedule: 'Schedule it', unschedule: 'Unschedule' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
 	i18nDone: 'Translated — %d texts in %s', i18nAgain: 'Translate again',
 	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.',
-	clashSame: 'Same day as %1$s (%2$s).', clashOne: '1 day from %1$s (%2$s).',
-	clashNear: '%1$d days from %2$s (%3$s).', clashWant: 'Leave %d days between two emails.',
-	moveTo: 'Move it to %s',
 	dateFmt: 'd/m/Y',
 	months: Array.from( { length: 12 }, ( _, i ) => ( { F: 'M' + ( i + 1 ), M: 'm' + ( i + 1 ) } ) )
 };
@@ -143,6 +150,20 @@ await page.route( 'http://dze.test/ajax*', route => {
 	// What Klaviyo really holds, asked for the moment the screen has drawn.
 	// Answered as the server answers it: the rows whose cell CHANGED, and one
 	// line saying what moved.
+	// What each endpoint answers, as the server answers it: the writing hands
+	// back the email AND whether it left a place for a picture.
+	if ( 'dze_klav_write' === asked ) {
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
+			success: true, data: { subject: 'Written subject', preview: 'Written preview',
+				body: '<h1>Sale</h1><img src="picture" />', picture: 1 } } ) } );
+	}
+	if ( 'dze_klav_image' === asked ) {
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
+			// A picture the page can really show without leaving the machine:
+			// a URL it would try to fetch raises a console error, and half
+			// this file asserts that nothing was raised.
+			success: true, data: { url: PIXEL, full: PIXEL } } ) } );
+	}
 	const body = 'dze_klav_state' === asked
 		? { success: true, data: { asked: true, message: 'Klaviyo had moved: Launch now points at the campaign that is really there.',
 			// The WHOLE cell, as the server draws it — badge and buttons
@@ -278,6 +299,40 @@ await page.waitForTimeout( 200 );
 			+ when.slice( 8, 10 ) + '/' + when.slice( 5, 7 ) + '/' + when.slice( 0, 4 ) + ').' );
 	ok( 'and says the day once', said.split( when.slice( 8, 10 ) + '/' ).length - 1, 1 );
 }
+
+// "Comment générer les images directement en cliquant sur Generate them all ?"
+// It wrote the emails and stopped: the picture waited for somebody to open
+// each one. The tick box beside the button sets the SAME per-email permission
+// the editor's own box sets, on every row at once, and the batch then makes
+// each picture straight after the email it belongs to.
+ok( 'no row asks for a picture to begin with',
+	await page.inputValue( '.dze-mail[data-id="mail1"] .dze-f-want' ), '0' );
+await page.check( '#dze-mail-shots' );
+await page.waitForTimeout( 100 );
+ok( 'ticking it asks on every row',
+	await page.inputValue( '.dze-mail[data-id="mail1"] .dze-f-want' ), '1' );
+ok( "and the open email's own box agrees",
+	await page.isChecked( '#dze-klav-e-want' ), true );
+posted.length = 0;
+await page.click( '#dze-mail-all' );
+for ( let i = 0; i < 100 && ! posted.includes( 'dze_klav_image' ); i++ ) { await page.waitForTimeout( 100 ); }
+await page.waitForTimeout( 200 );
+ok( 'Generate them all writes the email',   posted.filter( a => 'dze_klav_write' === a ).length, 1 );
+ok( 'and makes its picture in the same run', posted.filter( a => 'dze_klav_image' === a ).length, 1 );
+ok( 'the picture is made AFTER the email',
+	posted.indexOf( 'dze_klav_write' ) < posted.indexOf( 'dze_klav_image' ), true );
+ok( 'and the row says what it got',
+	/with its picture/.test( await page.textContent( '.dze-mail[data-id="mail1"] .dze-mail-note' ) ), true );
+
+// Unticked, it writes and nothing else: a picture costs money and a minute,
+// and a batch that spends both without being asked is a bill.
+await page.uncheck( '#dze-mail-shots' );
+posted.length = 0;
+await page.click( '#dze-mail-all' );
+for ( let i = 0; i < 100 && ! posted.includes( 'dze_klav_write' ); i++ ) { await page.waitForTimeout( 100 ); }
+await page.waitForTimeout( 400 );
+ok( 'unticked, it writes',                  posted.filter( a => 'dze_klav_write' === a ).length, 1 );
+ok( 'and makes no picture at all',          posted.filter( a => 'dze_klav_image' === a ).length, 0 );
 
 // A day that clashes with nothing says nothing: a warning that is always
 // there is a warning nobody reads.
