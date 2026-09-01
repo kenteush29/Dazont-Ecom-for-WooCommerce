@@ -1756,6 +1756,7 @@ final class DZE_Diagnostic {
 				switch ( $by ) {
 					case 'sales':  $c = ( (int) ( $x['sales'] ?? 0 ) ) <=> ( (int) ( $y['sales'] ?? 0 ) ); break;
 					case 'price':  $c = ( (float) ( $x['price'] ?? 0 ) ) <=> ( (float) ( $y['price'] ?? 0 ) ); break;
+					case 'rev':    $c = ( (float) ( $x['rev'] ?? 0 ) ) <=> ( (float) ( $y['rev'] ?? 0 ) ); break;
 					case 'edited': $c = strcmp( (string) ( $x['edited'] ?? '' ), (string) ( $y['edited'] ?? '' ) ); break;
 					default:       $c = strcasecmp( (string) ( $x['title'] ?? '' ), (string) ( $y['title'] ?? '' ) ); break;
 				}
@@ -1813,10 +1814,13 @@ final class DZE_Diagnostic {
 		if ( $goods ) {
 			echo '<th style="width:110px;text-align:right;">' . $head( 'price', __( 'Price', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 			echo '<th style="width:90px;text-align:right;">' . $head( 'sales', __( 'Sold', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+			echo '<th style="width:120px;text-align:right;">' . $head( 'rev', __( 'Revenue', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 			echo '<th style="width:140px;">' . $head( 'edited', __( 'Last edited', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
+		$gap = (array) ( $facts['_missing'] ?? [] );
+		unset( $facts['_missing'] );
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
@@ -1840,6 +1844,10 @@ final class DZE_Diagnostic {
 				// The figure the shop actually decides on: an hour spent on a
 				// product nobody buys is an hour spent for nobody.
 				echo '<td style="text-align:right;">' . esc_html( number_format_i18n( (int) ( $one['sales'] ?? 0 ) ) ) . '</td>';
+				// In the shop's own currency, whatever the buyer paid in.
+				echo '<td style="text-align:right;">' . wp_kses_post(
+					class_exists( 'DZE_Money' ) ? DZE_Money::say( (float) ( $one['rev'] ?? 0 ) ) : esc_html( (string) ( $one['rev'] ?? 0 ) )
+				) . '</td>';
 				echo '<td>' . ( $when
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
@@ -1847,6 +1855,19 @@ final class DZE_Diagnostic {
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
+		if ( $gap ) {
+			// A total that is short must SAY it is short. Counting an
+			// unconvertible order at one to one would be a figure the shop
+			// sorts by and believes.
+			printf(
+				'<p class="description" style="color:#b26a00;max-width:1100px;">%s</p>',
+				esc_html( sprintf(
+					/* translators: %s: currency codes, e.g. "PLN, SEK" */
+					__( 'Orders paid in %s are left out of Revenue: this shop gives no exchange rate for them. Set one in your multi-currency plugin and the figure completes itself.', 'dazont-ecom' ),
+					implode( ', ', $gap )
+				) )
+			);
+		}
 
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
 		if ( $pages > 1 ) {
@@ -1900,8 +1921,19 @@ final class DZE_Diagnostic {
 				'edited' => (string) $row->post_modified,
 				'sales'  => (int) $row->sales,
 				'price'  => (string) $row->price,
+				'rev'    => 0.0,
 			];
 		}
+		// What each one BROUGHT IN, in the shop's own currency — orders paid
+		// in euros and z\u0142oty are converted, never added as they stand.
+		// One more query for the whole list, beside the one above.
+		$money = class_exists( 'DZE_Sales' ) ? DZE_Sales::revenue( $ids ) : [ 'rev' => [], 'missing' => [] ];
+		foreach ( (array) ( $money['rev'] ?? [] ) as $pid => $amount ) {
+			if ( isset( $out[ (int) $pid ] ) ) {
+				$out[ (int) $pid ]['rev'] = (float) $amount;
+			}
+		}
+		$out['_missing'] = (array) ( $money['missing'] ?? [] );
 		return $out;
 	}
 
@@ -1910,6 +1942,7 @@ final class DZE_Diagnostic {
 		return [
 			'found'  => __( 'As found', 'dazont-ecom' ),
 			'sales'  => __( 'Sales', 'dazont-ecom' ),
+			'rev'    => __( 'Revenue', 'dazont-ecom' ),
 			'price'  => __( 'Price', 'dazont-ecom' ),
 			'edited' => __( 'Last edited', 'dazont-ecom' ),
 			'name'   => __( 'Name', 'dazont-ecom' ),

@@ -249,6 +249,15 @@ owner communicates in French.
   pass. A provider's own answers cannot be run from here, so the Klaviyo one
   stubs the transport and reads the REQUEST — its method, its URL, its headers,
   its body. "No valid revisions found for method" was one header on six calls.
+- **`php tools/test-money.php dazont-ecom` must pass.** Every figure in MONEY
+  is brought back to the shop's own currency before it is shown, summed or
+  sorted by: the order lines are kept in the currency they were paid in and
+  carry no currency of their own, so they are read grouped by the order's
+  currency and converted at the SHOP's rates (`DZE_Money`, reading WooCommerce
+  Multilingual / WOOCS / Aelia, plus a `dze_currency_rate` filter). A currency
+  the shop gives no rate for is LEFT OUT and named on the screen — never
+  counted at one to one. Quantities never go through a rate. The sourcing
+  report added euros to dollars for months and called the answer money.
 - **`php tools/test-prompt-block.php dazont-ecom` must pass**, and the Klaviyo
   suite RENDERS the whole email settings tab (`render_settings()` into a
   buffer) rather than only calling its pieces. The "What this prompt is sent
