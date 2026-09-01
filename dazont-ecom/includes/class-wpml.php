@@ -53,6 +53,62 @@ final class DZE_Wpml {
 		return $result;
 	}
 
+	/**
+	 * A language as WPML itself draws it: its flag, and its name.
+	 *
+	 * The plugin printed "FR, DE, PL, ES" in a dozen places while the rest of
+	 * this admin — the product list, the translation screens — shows a flag
+	 * per language and a tick under it. Two vocabularies for one thing, and
+	 * the shop has to learn ours. This is WPML's own flag, from WPML's own
+	 * data, so a language reads the same wherever it appears.
+	 *
+	 * $state: 'done' draws a tick, 'todo' a hollow circle, '' nothing.
+	 */
+	public static function flag_html( string $code, string $state = '', string $title = '' ): string {
+		$code = strtolower( trim( $code ) );
+		if ( '' === $code ) {
+			return '';
+		}
+		static $all = null;
+		if ( null === $all ) {
+			$all = [];
+			foreach ( self::get_active_languages() as $one ) {
+				$all[ strtolower( (string) $one['code'] ) ] = $one;
+			}
+		}
+		$one  = $all[ $code ] ?? [];
+		$name = (string) ( $one['native_name'] ?? strtoupper( $code ) );
+		$flag = (string) ( $one['flag'] ?? '' );
+		$mark = 'done' === $state ? '&#10003;' : ( 'todo' === $state ? '&#9675;' : '' );
+		$tint = 'done' === $state ? '#00794b' : ( 'todo' === $state ? '#b26a00' : '#646970' );
+		return sprintf(
+			'<span class="dze-lang%1$s" title="%2$s">%3$s<span class="dze-lang-code">%4$s</span>%5$s</span>',
+			'' !== $state ? ' is-' . esc_attr( $state ) : '',
+			esc_attr( '' !== $title ? $title : $name ),
+			'' !== $flag ? '<img src="' . esc_url( $flag ) . '" alt="" width="18" height="12" />' : '',
+			esc_html( strtoupper( $code ) ),
+			'' !== $mark ? '<b style="color:' . esc_attr( $tint ) . ';">' . $mark . '</b>' : ''
+		);
+	}
+
+	/**
+	 * A row of languages, drawn the same way: the ones that are done with a
+	 * tick, the ones still owed hollow.
+	 *
+	 * @param string[] $done
+	 * @param string[] $todo
+	 */
+	public static function flags_html( array $done, array $todo = [] ): string {
+		$out = '';
+		foreach ( $done as $code ) {
+			$out .= self::flag_html( (string) $code, 'done' );
+		}
+		foreach ( $todo as $code ) {
+			$out .= self::flag_html( (string) $code, 'todo' );
+		}
+		return '' !== $out ? '<span class="dze-langs">' . $out . '</span>' : '';
+	}
+
 	/** Language code of a post, or '' when unknown / WPML inactive. */
 	public static function post_language( int $post_id, string $post_type ): string {
 		if ( ! self::is_active() ) {

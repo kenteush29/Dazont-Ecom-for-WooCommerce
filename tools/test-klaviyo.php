@@ -177,6 +177,20 @@ class DZE_Wpml {
 	public static function get_active_languages() {
 		return [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
 	}
+	/** A language, drawn the way WPML draws one on this admin. */
+	public static function flag_html( $code, $state = '', $title = '' ) {
+		$code = strtolower( trim( (string) $code ) );
+		if ( '' === $code ) { return ''; }
+		return '<span class="dze-lang' . ( $state ? ' is-' . $state : '' ) . '">'
+			. '<img src="https://kula.test/flags/' . $code . '.png" alt="" />'
+			. '<span class="dze-lang-code">' . strtoupper( $code ) . '</span></span>';
+	}
+	public static function flags_html( $done, $todo = [] ) {
+		$out = '';
+		foreach ( (array) $done as $c ) { $out .= self::flag_html( $c, 'done' ); }
+		foreach ( (array) $todo as $c ) { $out .= self::flag_html( $c, 'todo' ); }
+		return $out ? '<span class="dze-langs">' . $out . '</span>' : '';
+	}
 	/**
 	 * The original product behind a translation — WPML's own answer, and the
 	 * one the sales table does NOT give: it holds the product that was bought.
@@ -1507,8 +1521,12 @@ $cell = DZE_Klaviyo::state_cell( 'm9', [
 ] );
 ok( 'the draft is linked',              str_contains( $cell, 'Draft in Klaviyo' ), true );
 ok( 'it can be scheduled from the row', str_contains( $cell, 'dze-mail-sched' ), true );
-ok( 'it says what is written and what is open',
-	str_contains( $cell, 'EN written, FR, DE open' ), true );
+// The languages are drawn as WPML draws them everywhere else in this admin:
+// a flag and a code per language, ticked when written, hollow when owed.
+ok( 'it says which language it is written in',
+	str_contains( $cell, 'Written in EN' ), true );
+ok( 'and shows the others as languages, not as a list',
+	str_contains( $cell, 'dze-lang' ) && str_contains( $cell, '>FR<' ) && str_contains( $cell, '>DE<' ), true );
 ok( 'and it can be translated from the row', str_contains( $cell, 'dze-mail-i18n' ), true );
 // The two buttons sit TOGETHER at the end of the cell. They used to be one
 // above the other with sentences between them, which is the screen the shop
@@ -1528,7 +1546,8 @@ $cell = DZE_Klaviyo::state_cell( 'm9', [
 ] );
 ok( 'a scheduled email says the day',   str_contains( $cell, 'Scheduled in Klaviyo for' ), true );
 ok( 'and offers to undo it',            str_contains( $cell, 'Unschedule' ), true );
-ok( 'a translated one counts its texts', str_contains( $cell, 'Translated — 24 texts in FR, DE' ), true );
+ok( 'a translated one counts its texts', str_contains( $cell, 'Translated — 24 texts' ), true );
+ok( 'with each language ticked',        substr_count( $cell, 'dze-lang is-done' ), 2 );
 
 // An email that has never been to Klaviyo has nothing to say and says nothing.
 ok( 'an email with no campaign is a blank cell',

@@ -6760,6 +6760,14 @@ final class DZE_Klaviyo {
 				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
 				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
 				.dze-mail-links,.dze-mail-langs{white-space:normal;}
+				/* A language, drawn the way WPML draws one: flag, code, state. */
+				.dze-langs{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:6px;vertical-align:middle;}
+				.dze-lang{display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border:1px solid #dcdcde;
+					border-radius:3px;background:#fff;font-size:11px;line-height:1.6;color:#3c434a;}
+				.dze-lang img{display:block;width:18px;height:12px;border-radius:1px;}
+				.dze-lang.is-done{border-color:#00794b33;background:#f2fbf5;}
+				.dze-lang.is-todo{border-color:#b26a0033;background:#fdf8ef;}
+				.dze-lang-code{font-weight:600;letter-spacing:.02em;}
 				/* The same mark as everywhere else in the plugin. Repeated here
 				   because this screen does not load admin.css. */
 				.dze-why{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
@@ -6834,26 +6842,27 @@ CSS;
 			?>
 			<span class="dze-mail-langs" style="color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">
 				<?php
+				// The languages as WPML draws them everywhere else in this
+				// admin — a flag, its code, a tick when it is written and a
+				// hollow circle when it is owed. "FR, DE, PL, ES" was a
+				// vocabulary of ours that the shop had to learn.
+				$dze_flags = method_exists( 'DZE_Wpml', 'flags_html' )
+					? DZE_Wpml::flags_html(
+						$dze_when_i18n ? $dze_done : [],
+						$dze_when_i18n ? $dze_left : ( $dze_open ?: [] )
+					)
+					: '';
 				if ( $dze_when_i18n ) {
 					printf(
-						/* translators: 1: how many texts, 2: the languages they were written in */
-						esc_html__( 'Translated — %1$d texts in %2$s', 'dazont-ecom' ),
-						(int) ( $mail['draft']['texts'] ?? 0 ),
-						esc_html( strtoupper( implode( ', ', $dze_done ) ) )
+						/* translators: %d: how many texts were written */
+						esc_html__( 'Translated — %d texts', 'dazont-ecom' ),
+						(int) ( $mail['draft']['texts'] ?? 0 )
 					);
-					if ( $dze_left ) {
-						printf(
-							/* translators: %s: the languages still to write */
-							esc_html__( ' · %s still to write', 'dazont-ecom' ),
-							esc_html( strtoupper( implode( ', ', $dze_left ) ) )
-						);
-					}
 				} elseif ( $dze_open ) {
 					printf(
-						/* translators: 1: the language it is written in, 2: the languages Klaviyo will accept */
-						esc_html__( '%1$s written, %2$s open — not translated yet', 'dazont-ecom' ),
-						esc_html( strtoupper( $dze_src ) ),
-						esc_html( strtoupper( implode( ', ', $dze_open ) ) )
+						/* translators: %s: the language it is written in */
+						esc_html__( 'Written in %s — not translated yet', 'dazont-ecom' ),
+						esc_html( strtoupper( $dze_src ) )
 					);
 				} else {
 					printf(
@@ -6862,6 +6871,7 @@ CSS;
 						esc_html( strtoupper( $dze_src ) )
 					);
 				}
+				echo $dze_flags; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built with per-value escaping.
 				?>
 			</span>
 			<?php
@@ -7470,7 +7480,16 @@ CSS;
 								$dze_n = self::seen_for( $dze_code, $dze_vals );
 								?>
 								<tr>
-									<td><?php echo esc_html( self::language_name( $dze_code ) ); ?>
+									<td>
+										<?php
+										// The same flag-and-code the emails and the
+										// product screens use, so a language reads the
+										// same wherever the shop meets it.
+										echo method_exists( 'DZE_Wpml', 'flag_html' )
+											? DZE_Wpml::flag_html( $dze_code ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+											: esc_html( strtoupper( $dze_code ) );
+										?>
+										<?php echo esc_html( self::language_name( $dze_code ) ); ?>
 										<?php if ( 0 === $dze_i ) : ?><span class="description"><?php esc_html_e( '(written in)', 'dazont-ecom' ); ?></span><?php endif; ?>
 									</td>
 									<td><code><?php echo esc_html( $dze_code ); ?></code></td>
