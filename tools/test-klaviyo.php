@@ -988,5 +988,113 @@ ok( 'an earlier mangling is mended',      substr_count( $mended, '<!--[if mso]>'
 ok( 'and prints nowhere as text',         false === strpos( wp_strip_all_tags( $mended ), '[if mso]' ), true );
 
 
+echo "The template a campaign actually SENDS is the one rewritten\n";
+// The week-long bug, finally caught on the owner's own account: opening a
+// campaign for translation makes Klaviyo CLONE the assigned template
+// ("Clone of …") and re-point the message at the clone. The plugin kept
+// rewriting the id it remembered — a template nobody sends — while every
+// send came from the clone, frozen at the broken state of the day it was
+// cloned. The rewrite must ASK the message which template it reads.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'rw1' => [
+	'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 4 * 86400 ),
+	'subject' => 'Rewrite me', 'preview' => 'P', 'body' => '<h1>Words</h1><p>That must send.</p>',
+	'picture' => '', 'products' => [],
+	'draft' => [ 'campaign' => 'C1', 'message' => '01MSG', 'template' => 'T-OURS' ],
+] ] ] ];
+$GLOBALS['dze_opts']['dze_klaviyo'] = [ 'included' => 'SEG1', 'shell' => 'frame', 'frame_id' => 'FRAME' ];
+// The owner's frame, as Klaviyo would hand it back: one empty section in the
+// middle for the email to go into.
+$frame_def = json_encode( [ 'data' => [ 'id' => 'FRAME', 'attributes' => [
+	'editor_type' => 'SYSTEM_DRAGGABLE',
+	'definition'  => [ 'body' => [ 'properties' => [ 'id' => 'root' ], 'styles' => [ 'width' => 600 ], 'sections' => [
+		[ 'content_type' => 'section', 'type' => 'section', 'data' => [ 'properties' => [], 'display_options' => [], 'styles' => [] ],
+			'rows' => [ [ 'data' => [ 'styles' => [ 'column_layout' => '1-column-full-width' ] ],
+				'columns' => [ [ 'data' => [], 'blocks' => [] ] ] ] ] ],
+	] ], 'styles' => [] ],
+] ] ] );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => $frame_def ],                                                       // the frame, read fresh
+	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"Draft"}}}' ],           // draft_open
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-CLONE"}}' ],                    // what the message READS
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-CLONE","attributes":{"editor_type":"SYSTEM_DRAGGABLE"}}}' ], // editor_of
+	[ 'code' => 200, 'body' => '{"data":{"id":"T-CLONE"}}' ],                                      // PATCH the clone
+	[ 'code' => 200, 'body' => json_encode( [ 'data' => [ 'id' => 'C1', 'attributes' => [
+		'send_strategy' => [ 'method' => 'static', 'datetime' => gmdate( 'Y-m-d', time() + 4 * 86400 ) . 'T09:00:00+00:00' ] ] ] ] ) ], // campaign PATCH
+	[ 'code' => 200, 'body' => '{"data":{"id":"01MSG"}}' ],                                        // message PATCH
+	[ 'code' => 200, 'body' => '{"data":[]}' ],                                                    // tag lookup…
+	[ 'code' => 200, 'body' => '{"data":{"id":"tag1"}}' ],
+	[ 'code' => 200, 'body' => '{}' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"C1","attributes":{"status":"Draft"}}}' ],
+];
+try {
+	DZE_Klaviyo::draft( 'promo', 'rw1' );
+} catch ( Throwable $e ) {
+	// The tail of draft() (frame, translations…) may want more of the account
+	// than this bench stages; what matters was sent before it gave up.
+	if ( getenv( 'DZE_DEBUG' ) ) { echo 'draft threw: ', $e->getMessage(), "\n"; }
+}
+if ( getenv( 'DZE_DEBUG' ) ) { foreach ( $GLOBALS['dze_sent'] as $c ) { echo ( $c['method'] ?? 'GET' ), ' ', $c['url'], "\n"; } }
+$asked_tpl = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	false !== strpos( (string) ( $c['url'] ?? '' ), 'campaign-messages/01MSG/relationships/template' ) ) );
+ok( 'the message is asked what it reads', count( $asked_tpl ), 1 );
+$patched = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) ( $c['url'] ?? '' ), 'templates/' ) ) );
+ok( 'and THAT template is the one rewritten',
+	false !== strpos( (string) ( $patched[0]['url'] ?? '' ), 'templates/T-CLONE/' ), true );
+ok( 'never the remembered one',
+	0 === count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+		false !== strpos( (string) ( $c['url'] ?? '' ), 'templates/T-OURS' ) ) ), true );
+$GLOBALS['dze_queue'] = [];
+
+echo "Deleting the EVENT takes its campaigns out of Klaviyo\n";
+// Where the account's look-alike orphans came from: the owner deleted or
+// redid a promotion, the local rows vanished, and the drafts lived on in
+// Klaviyo for him to open by mistake ever after.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [
+	'd1' => [ 'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 86400 ), 'subject' => 'A', 'body' => '<p>a</p>',
+		'draft' => [ 'campaign' => 'CA', 'template' => 'TA' ] ],
+	'd2' => [ 'kind' => 'last', 'when' => gmdate( 'Y-m-d', time() + 6 * 86400 ), 'subject' => 'B', 'body' => '<p>b</p>',
+		'draft' => [ 'campaign' => 'CB', 'template' => 'TB' ] ],
+] ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"CA","attributes":{"status":"Draft"}}}' ],
+	[ 'code' => 204, 'body' => '' ], [ 'code' => 204, 'body' => '' ],
+	[ 'code' => 200, 'body' => '{"data":{"id":"CB","attributes":{"status":"Draft"}}}' ],
+	[ 'code' => 204, 'body' => '' ], [ 'code' => 204, 'body' => '' ],
+];
+DZE_Klaviyo::forget( 'promo' );
+$gone = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => 'DELETE' === ( $c['method'] ?? '' ) ) );
+ok( 'both campaigns are deleted over there', count( array_filter( $gone, static fn( $c ) =>
+	str_contains( (string) $c['url'], 'campaigns/CA/' ) || str_contains( (string) $c['url'], 'campaigns/CB/' ) ) ), 2 );
+ok( 'their templates too', count( array_filter( $gone, static fn( $c ) =>
+	str_contains( (string) $c['url'], 'templates/TA/' ) || str_contains( (string) $c['url'], 'templates/TB/' ) ) ), 2 );
+ok( 'and nothing is left locally', get_option( $copy )['promo'] ?? null, null );
+
+echo "A row the form dropped takes its campaign with it\n";
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [
+	'k1' => [ 'kind' => 'launch', 'when' => gmdate( 'Y-m-d', time() + 86400 ), 'subject' => 'Keep', 'body' => '<p>k</p>',
+		'draft' => [ 'campaign' => 'CK', 'template' => 'TK' ] ],
+	'k2' => [ 'kind' => 'last', 'when' => gmdate( 'Y-m-d', time() + 6 * 86400 ), 'subject' => 'Drop', 'body' => '<p>d</p>',
+		'draft' => [ 'campaign' => 'CD', 'template' => 'TD' ] ],
+] ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":{"id":"CD","attributes":{"status":"Draft"}}}' ],
+	[ 'code' => 204, 'body' => '' ], [ 'code' => 204, 'body' => '' ],
+];
+DZE_Klaviyo::save_copy( 'promo', [ 'title' => 'Summer' ], [
+	'dze_email_shown' => 1,
+	'dze_email' => [ 'k1' => [ 'exists' => 1, 'kind' => 'launch', 'subject' => 'Keep' ] ],
+] );
+ok( 'the dropped row\'s campaign is withdrawn', count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	'DELETE' === ( $c['method'] ?? '' ) && str_contains( (string) $c['url'], 'campaigns/CD/' ) ) ), 1 );
+ok( 'the kept row\'s campaign is untouched', count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	str_contains( (string) $c['url'], 'campaigns/CK' ) ) ), 0 );
+ok( 'and the kept email is still there', get_option( $copy )['promo']['emails']['k1']['subject'] ?? '', 'Keep' );
+$GLOBALS['dze_queue'] = [];
+
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
