@@ -2030,8 +2030,6 @@ final class DZE_Klaviyo {
 			$out[ (string) $id ] = [
 				'kind'    => $kind,
 				'name'    => (string) ( $email['name'] ?? '' ),
-				// Whether writing this one also makes its picture.
-				'want_picture' => ! empty( $email['want_picture'] ),
 				'angle'   => (string) ( $email['angle'] ?? '' ),
 				// Written by the autopilot and not yet read by a person.
 				'auto_made' => ! empty( $email['auto_made'] ),
@@ -2301,9 +2299,6 @@ final class DZE_Klaviyo {
 				'picture' => array_key_exists( 'picture', $posted )
 					? esc_url_raw( (string) $posted['picture'] )
 					: (string) ( $was['picture'] ?? '' ),
-				'want_picture' => array_key_exists( 'want_picture', $posted )
-					? ! empty( $posted['want_picture'] )
-					: ! empty( $was['want_picture'] ),
 				'draft'   => (array) ( $was['draft'] ?? [] ),
 			];
 		}
@@ -7660,7 +7655,6 @@ CSS;
 						<input type="hidden" class="dze-f-exists" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][exists]" value="1" />
 						<input type="hidden" class="dze-f-kind" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][kind]" value="<?php echo esc_attr( $kind ); ?>" />
 						<input type="hidden" class="dze-f-picture" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][picture]" value="<?php echo esc_attr( (string) ( $mail['picture'] ?? '' ) ); ?>" />
-						<input type="hidden" class="dze-f-want" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][want_picture]" value="<?php echo empty( $mail['want_picture'] ) ? '0' : '1'; ?>" />
 						<input type="hidden" class="dze-f-subject" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][subject]" value="<?php echo esc_attr( (string) ( $mail['subject'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-preview" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][preview]" value="<?php echo esc_attr( (string) ( $mail['preview'] ?? '' ) ); ?>" />
 						<input type="hidden" class="dze-f-when" name="dze_email[<?php echo esc_attr( $mail_id ); ?>][when]" value="<?php echo esc_attr( $when ); ?>" />
@@ -7673,21 +7667,6 @@ CSS;
 				<button type="button" class="button" id="dze-mail-new">+ <?php esc_html_e( 'Add an email', 'dazont-ecom' ); ?></button>
 				<span style="flex:1;"></span>
 				<button type="button" class="button" id="dze-mail-plan"><?php esc_html_e( 'Plan the campaign', 'dazont-ecom' ); ?></button>
-				<?php if ( self::images_on() ) : ?>
-					<?php
-					// "Generate them all" wrote the emails and stopped there:
-					// the picture waited for somebody to open each one and
-					// press its own button. This ticks the SAME per-email
-					// permission on every row at once — it is not a second
-					// setting, it is the one that already exists, set for the
-					// whole promotion — and the batch then makes each picture
-					// straight after the email it belongs to.
-					?>
-					<label style="font-size:13px;display:inline-flex;align-items:center;gap:5px;" title="<?php esc_attr_e( 'Each picture is made after its own email, from the shop\'s picture prompt. It costs a fal.ai call and about a minute per email.', 'dazont-ecom' ); ?>">
-						<input type="checkbox" id="dze-mail-shots" />
-						<?php esc_html_e( 'with their pictures', 'dazont-ecom' ); ?>
-					</label>
-				<?php endif; ?>
 				<button type="button" class="button button-primary" id="dze-mail-all"><?php esc_html_e( 'Generate them all', 'dazont-ecom' ); ?></button>
 				<?php
 				// The whole promotion, in one gesture, in date order. Klaviyo
@@ -7723,7 +7702,6 @@ CSS;
 					<input type="hidden" class="dze-f-exists" name="dze_email[__ID__][exists]" value="1" />
 					<input type="hidden" class="dze-f-kind" name="dze_email[__ID__][kind]" value="" />
 					<input type="hidden" class="dze-f-picture" name="dze_email[__ID__][picture]" value="" />
-					<input type="hidden" class="dze-f-want" name="dze_email[__ID__][want_picture]" value="0" />
 					<input type="hidden" class="dze-f-subject" name="dze_email[__ID__][subject]" value="" />
 					<input type="hidden" class="dze-f-preview" name="dze_email[__ID__][preview]" value="" />
 					<input type="hidden" class="dze-f-when" name="dze_email[__ID__][when]" value="" />
@@ -7802,10 +7780,16 @@ CSS;
 					?>
 					<div id="dze-klav-shot" style="border:1px solid #dcdcde;border-radius:5px;padding:10px 12px;margin:0 0 10px;max-width:880px;background:#fff;">
 						<p style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;">
-							<label style="display:inline-flex;align-items:center;gap:6px;">
-								<input type="checkbox" id="dze-klav-e-want" />
-								<?php esc_html_e( 'Make the picture with the email', 'dazont-ecom' ); ?>
-							</label>
+							<?php
+							// No tick box: writing an email MAKES its picture,
+							// every time, when the email leaves a place for
+							// one. "Ça devrait pas exister et être toujours
+							// inclus dans la rédaction entière de l'email."
+							// What is judged here is the PROMPT — a test
+							// picture costs a call and changes nothing — and
+							// once it is right, every email that comes out of
+							// this screen comes out finished.
+							?>
 							<button type="button" class="button" id="dze-klav-e-shot"><?php esc_html_e( 'Generate test picture', 'dazont-ecom' ); ?></button>
 							<?php
 							// The instructions that button follows, opened and

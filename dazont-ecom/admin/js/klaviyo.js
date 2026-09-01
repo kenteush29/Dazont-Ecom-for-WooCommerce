@@ -265,7 +265,6 @@
 		if (!current) { return; }
 		var $c = card(current), kind = $('#dze-klav-e-type').val() || '', name = typeName(kind);
 		$c.find('.dze-f-kind').val(kind);
-		$c.find('.dze-f-want').val($('#dze-klav-e-want').is(':checked') ? '1' : '0');
 		$c.find('.dze-f-subject').val($('#dze-klav-e-subject').val() || '');
 		$c.find('.dze-f-preview').val($('#dze-klav-e-preview').val() || '');
 		$c.find('.dze-f-when').val($('#dze-klav-e-when').val() || '');
@@ -276,10 +275,9 @@
 		$c.find('.dze-mail-when').contents().first().replaceWith(niceDay($('#dze-klav-e-when').val() || ''));
 		markDupes();
 		spacing();
-		shotsBox();
 		thumb(current);
 	}
-	$(document).on('input change', '#dze-klav-e-want, #dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
+	$(document).on('input change', '#dze-klav-e-type, #dze-klav-e-subject, #dze-klav-e-preview, #dze-klav-e-when', commit);
 
 	// Choosing the type also sets the day it falls on, from the type's own
 	// rule. A day changed afterwards stays changed — nothing here runs again
@@ -342,7 +340,6 @@
 		// The picture bench belongs to the email that is open: whether the
 		// next writing makes its picture. WHAT the picture shows is one prompt
 		// for the shop, not a sentence per email.
-		$('#dze-klav-e-want').prop('checked', '1' === ($c.find('.dze-f-want').val() || '0'));
 		$('#dze-klav-shot-out').hide();
 		$('#dze-klav-shot-msg').text('').removeClass('is-ko');
 		drawHasPic();
@@ -653,25 +650,6 @@
 		spacing();
 	});
 
-	// "with their pictures": the per-email permission, set on every row of the
-	// promotion at once. Not a second setting — the very field the editor's own
-	// tick box writes, so the two can never disagree.
-	$(document).on('change', '#dze-mail-shots', function () {
-		var on = $(this).is(':checked') ? '1' : '0';
-		$('.dze-mail').each(function () { $(this).find('.dze-f-want').val(on); });
-		$('#dze-klav-e-want').prop('checked', '1' === on);
-	});
-	function shotsBox() {
-		var $box = $('#dze-mail-shots'), rows = $('.dze-mail');
-		if (!$box.length || !rows.length) { return; }
-		// Ticked when every row already asks for one — read from the rows, so
-		// the box says what the promotion holds rather than what was last
-		// clicked.
-		$box.prop('checked', rows.filter(function () {
-			return '1' === String($(this).find('.dze-f-want').val() || '0');
-		}).length === rows.length);
-	}
-
 	$(document).on('click', '#dze-mail-new', function () {
 		var id = mintId(),
 			html = $('#dze-mail-blank').html().split('__ID__').join(id),
@@ -801,16 +779,13 @@
 					if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
 					body().val(res.data.body || '');
 					commit();
-					// The PICTURE, made here rather than left for somebody to
-					// open each email and press its own button. Two conditions,
-					// both the email's own: the row asks for one — the same
-					// per-email permission the editor's tick box sets — and the
-					// writing actually left a place for it. Made AFTER the
-					// email, so the picture prompt is given what this email
-					// turned out to be, and through the same call the single
-					// button uses.
-					var wants = '1' === String(card(ids[i]).find('.dze-f-want').val() || '0');
-					if (wants && res.data.picture) {
+					// The PICTURE is part of writing the email, not a thing to
+					// ask for: the one condition is that the writing left a
+					// place for one, which it does only when the shop allows
+					// pictures at all. Made AFTER the email, so the picture
+					// prompt is given what this email turned out to be, and
+					// through the same call the single button uses.
+					if (res.data.picture) {
 						rowNote(card(ids[i]), cfg.i18n.rowShot || 'Making its picture…', 'work');
 						makePicture($b, $m, '', function () {
 							rowNote(card(ids[i]), cfg.i18n.rowShotOk || cfg.i18n.rowWrote, 'ok');
@@ -1027,7 +1002,6 @@
 		$('.dze-mail').each(function () { thumb($(this).data('id')); });
 		markDupes();
 		spacing();
-		shotsBox();
 		var $first = $('.dze-mail').first();
 		if ($first.length) { open($first.data('id')); }
 		verify();
@@ -1297,22 +1271,17 @@
 				// illustrate. The description is kept for the button beside
 				// this one, and the screen says it is waiting.
 				if (res.data.picture) {
-					// The email left a place for a picture. What that picture
-					// shows is the shop's own picture prompt, not a sentence
-					// this writing came up with — so there is nothing to carry
-					// from here but the fact that a place exists.
-					if ($('#dze-klav-e-want').is(':checked')) {
-						// Ready: the real picture is made in the same pass,
-						// AFTER the email — so the picture prompt is given what
-						// this email turned out to be, and its subject line.
-						makePicture($('#dze-klav-e-shot'), $m, '', function () {
-							$('#dze-klav-e-shot').prop('disabled', false);
-							$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
-							view('view');
-						});
-						return;
-					}
-					$m.css('color', '#b26a00').removeClass('is-ko').text(res.data.warning || i18n.pictureReady);
+					// The email left a place for a picture, so it gets one —
+					// every time, in the same pass, AFTER the words: the
+					// picture prompt is then given what this email turned out
+					// to be, and its subject line. What that picture shows is
+					// the shop's own picture prompt, judged with the test
+					// button beside it and not email by email.
+					makePicture($('#dze-klav-e-shot'), $m, '', function () {
+						$('#dze-klav-e-shot').prop('disabled', false);
+						$m.css('color', '#0a7040').removeClass('is-ko').text(i18n.shot);
+						view('view');
+					});
 					return;
 				}
 				note();
