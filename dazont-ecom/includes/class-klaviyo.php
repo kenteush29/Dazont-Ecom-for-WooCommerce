@@ -6147,6 +6147,12 @@ final class DZE_Klaviyo {
 				// had three, all of them "Launch", all three announcing that
 				// the sale opened today.
 				'sameType' => __( 'Same type as another email — both will be written as that moment.', 'dazont-ecom' ),
+				// The note a batch writes on the row it is working on: which
+				// email is travelling, and how its trip ended.
+				'rowWriting' => __( 'Writing this email…', 'dazont-ecom' ),
+				'rowWrote'   => __( 'Written ✓', 'dazont-ecom' ),
+				'rowPutting' => __( 'Putting it in Klaviyo…', 'dazont-ecom' ),
+				'rowPut'     => __( 'In Klaviyo ✓', 'dazont-ecom' ),
 				// A day added in the browser used to land as 2026-08-29 beside
 				// a saved one reading 28/08/2026: the same screen writing the
 				// same thing two ways. The shop's own format travels, with the
@@ -6661,6 +6667,8 @@ final class DZE_Klaviyo {
 				.dze-mail-act{white-space:nowrap;}
 				.dze-mail-drop{color:#b32d2e;text-decoration:none;font-size:16px;margin-left:6px;}
 				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
+				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
+				.dze-mail.is-syncing{background:#f4f9ff;}
 				.dze-klav-switch .button{border-radius:0;margin:0;}
 				.dze-klav-switch .button:first-child{border-radius:3px 0 0 3px;}
 				.dze-klav-switch .button:last-child{border-radius:0 3px 3px 0;margin-left:-1px;}
