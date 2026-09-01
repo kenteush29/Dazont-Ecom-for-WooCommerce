@@ -203,6 +203,17 @@ class DZE_Wpml {
 	public static function canonical_id( $id, $type = 'product' ) {
 		return (int) ( $GLOBALS['dze_origin'][ (int) $id ] ?? (int) $id );
 	}
+	/**
+	 * One post, in one language — WPML's own answer, which is what the emails
+	 * ask for now: the translation's SLUG and the place that language lives,
+	 * both from WPML rather than half of each built here.
+	 */
+	public static function post_url_in_language( $post_id, $type, $lang, &$why = null ) {
+		$tid = (int) ( $GLOBALS['dze_trans'][ (int) $post_id ][ $lang ] ?? 0 );
+		if ( ! $tid || 'en' === $lang ) { $why = 'not-translated'; return ''; }
+		$why = 'translation';
+		return (string) ( $GLOBALS['dze_perma'][ $tid ] ?? '' );
+	}
 	/** A shop whose languages live in a directory, which is WPML's usual shape. */
 	public static function url_in_language( $url, $lang, &$why = null ) {
 		$url = (string) $url;
@@ -1924,6 +1935,10 @@ $GLOBALS['dze_resolved'] = [];
 $map = DZE_Klaviyo::link_map( [ 7 ], [ 'fr', 'de' ] );
 ok( 'the French page of that product',  $map['https://kula.test/p/7']['fr'] ?? '', 'https://kula.test/fr/cagoule' );
 ok( 'and the German one',               $map['https://kula.test/p/7']['de'] ?? '', 'https://kula.test/de/sturmhaube' );
+// The half that was wrong on the shop's own emails: the FR link must carry the
+// FRENCH slug, never the English one with a language bolted onto the address.
+ok( 'the English slug is not on the French link',
+	false !== strpos( (string) ( $map['https://kula.test/p/7']['fr'] ?? '' ), 'p/7' ), false );
 ok( 'no URL was resolved back into a post', $GLOBALS['dze_resolved'], [] );
 
 // And it is that map the translation write uses, not a guess.
