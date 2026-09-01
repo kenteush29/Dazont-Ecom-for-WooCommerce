@@ -1305,6 +1305,58 @@ ok( 'the row now says it is synced',
 	str_contains( (string) ( $said['state'] ?? '' ), 'Synced with Klaviyo' ), true );
 $_POST = [];
 
+echo "The campaigns as they are really named in this account\n";
+// From the shop's own screen:
+//   "Back to School Sale! -10% Off the entire shop — Launch"
+//   "Back to School Sale! -10% Off the entire shop — Last chance"
+//   "Patriot Day Sale! -15% on the entire store — Reminder"
+// The promotion is titled "Back to School Sale" here now: the title was
+// edited after the campaigns were made, so an exact-name search finds
+// nothing. The TYPE never drifts, and the titles are compared as a reader
+// compares them.
+$same = new ReflectionMethod( 'DZE_Klaviyo', 'same_title' );
+$same->setAccessible( true );
+ok( 'a title with its discount is the same promotion',
+	$same->invoke( null, 'Back to School Sale! -10% Off the entire shop', 'Back to School Sale' ), true );
+ok( 'punctuation and case do not matter',
+	$same->invoke( null, 'back to school sale', 'Back to School Sale!' ), true );
+ok( 'but another promotion never matches',
+	$same->invoke( null, 'Patriot Day Sale! -15% on the entire store', 'Back to School Sale' ), false );
+ok( 'and one word in common is not a promotion',
+	$same->invoke( null, 'Sale', 'Summer Sale' ), false );
+
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'bts' => [
+	'kind' => 'launch', 'subject' => 'Something else entirely',
+] ] ] ];
+$GLOBALS['dze_rules'] = [ 'promo' => [ 'title' => 'Back to School Sale' ] ];
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // not under the name it would have today
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // not under its subject either
+	// By its type — and the account answers with all three campaigns.
+	[ 'code' => 200, 'body' => json_encode( [
+		'data' => [
+			[ 'id' => 'C-PATRIOT', 'attributes' => [ 'name' => 'Patriot Day Sale! -15% on the entire store — Launch', 'status' => 'Draft', 'created_at' => '2026-09-01T18:08:00Z' ],
+				'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-P' ] ] ] ] ],
+			[ 'id' => 'C-BTS', 'attributes' => [ 'name' => 'Back to School Sale! -10% Off the entire shop — Launch', 'status' => 'Scheduled', 'created_at' => '2026-08-31T14:36:00Z' ],
+				'relationships' => [ 'campaign-messages' => [ 'data' => [ [ 'id' => 'M-BTS' ] ] ] ] ],
+		],
+		'included' => [ [ 'type' => 'campaign-message', 'id' => 'M-BTS' ] ],
+	] ) ],
+	[ 'code' => 200, 'body' => '{"data":{"type":"template","id":"T-BTS"}}' ],
+];
+$_POST = [ 'rule' => 'promo', 'email' => 'bts' ];
+$said  = null;
+try { DZE_Klaviyo::ajax_find(); } catch ( DZE_Json_Sent $e ) { $said = $e->payload; }
+ok( 'the Back to School one is the one found',
+	false !== strpos( (string) ( $said['url'] ?? '' ), 'C-BTS' ), true );
+ok( 'not the Patriot Day one beside it',
+	false !== strpos( (string) ( $said['url'] ?? '' ), 'C-PATRIOT' ), false );
+ok( 'and nothing was written in the account',
+	count( array_filter( $GLOBALS['dze_sent'], static fn( $c ) => in_array( ( $c['method'] ?? '' ), [ 'POST', 'PATCH', 'DELETE' ], true ) ) ), 0 );
+$_POST = [];
+$GLOBALS['dze_rules'] = null;
+
 echo "An email whose campaign the shop already has is not made twice\n";
 // "Des emails déjà syncro par le passé ne le sont plus, notamment celui de
 // lancement du back to school." The campaign is still in the account; what
@@ -1420,7 +1472,8 @@ $GLOBALS['dze_opts'][ $copy ]['promo']['emails']['ad1']['draft'] = [];
 $GLOBALS['dze_sent']  = [];
 $GLOBALS['dze_queue'] = [
 	[ 'code' => 200, 'body' => '{"data":[]}' ],   // asked by name, nothing there
-	[ 'code' => 200, 'body' => '{"data":[]}' ],   // and by its subject line either
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // by its subject line either
+	[ 'code' => 200, 'body' => '{"data":[]}' ],   // nor by its type, for a title edited since
 	[ 'code' => 200, 'body' => $frame_def ],
 	[ 'code' => 200, 'body' => '{"data":{"id":"T-NEW"}}' ],
 	[ 'code' => 200, 'body' => '{"data":{"id":"C-NEW"}}' ],

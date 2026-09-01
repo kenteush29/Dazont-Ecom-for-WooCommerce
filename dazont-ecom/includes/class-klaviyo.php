@@ -3005,6 +3005,9 @@ final class DZE_Klaviyo {
 		}
 		$got = null;
 		foreach ( $tries as $what ) {
+			if ( '' === trim( (string) $what ) ) {
+				continue;
+			}
 			$one = self::request(
 				'GET',
 				'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $what ) . '"))' )
@@ -3015,6 +3018,40 @@ final class DZE_Klaviyo {
 			if ( ! is_wp_error( $one ) && ! empty( $one['data'][0]['id'] ) ) {
 				$got = $one;
 				break;
+			}
+		}
+		// Still nothing: the account holds
+		// "Back to School Sale! -10% Off the entire shop — Launch" while this
+		// promotion is now titled "Back to School Sale". Same campaign, a
+		// title edited since. So the TYPE is asked for — the half of the name
+		// that never drifts — and the titles are compared as a reader would:
+		// case, punctuation and the discount itself set aside.
+		if ( ! is_array( $got ) || empty( $got['data'][0]['id'] ) ) {
+			$dash = strrpos( $name, ' — ' );
+			$kind = false !== $dash ? substr( $name, $dash ) : '';
+			$head = false !== $dash ? substr( $name, 0, $dash ) : $name;
+			if ( '' !== $kind ) {
+				$one = self::request(
+					'GET',
+					'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),contains(name,"' . str_replace( '"', '', $kind ) . '"))' )
+						. '&include=campaign-messages&sort=-created_at',
+					null,
+					25
+				);
+				if ( ! is_wp_error( $one ) ) {
+					foreach ( (array) ( $one['data'] ?? [] ) as $i => $row ) {
+						$there = (string) ( $row['attributes']['name'] ?? '' );
+						$mine  = trim( str_replace( $kind, '', $there ) );
+						if ( self::same_title( $mine, $head ) ) {
+							// ONLY that one. Leaving the others beside it let
+							// the newest-wins step below hand back the Patriot
+							// Day campaign for a Back to School email.
+							$one['data'] = [ $row ];
+							$got         = $one;
+							break;
+						}
+					}
+				}
 			}
 		}
 		if ( ! is_array( $got ) || empty( $got['data'][0]['id'] ) ) {
@@ -3052,6 +3089,37 @@ final class DZE_Klaviyo {
 			return null;
 		}
 		return [ 'campaign' => $camp, 'message' => $msg, 'template' => $tpl, 'status' => $status ];
+	}
+
+	/**
+	 * Two promotion titles that name the same promotion.
+	 *
+	 * "Back to School Sale" and "Back to School Sale! -10% Off the entire
+	 * shop" are one promotion whose title was edited after its campaigns were
+	 * made. Compared as a reader compares them: lowercase, no punctuation, no
+	 * percentages, and one being the opening of the other is a match — while
+	 * "Back to School" and "Patriot Day" never are.
+	 */
+	private static function same_title( string $a, string $b ): bool {
+		$tidy = static function ( string $t ): string {
+			$t = strtolower( wp_strip_all_tags( $t ) );
+			$t = (string) preg_replace( '/[0-9]+\s*%|[%!¡?¿.,;:—–\-_"\x27()\[\]]+/u', ' ', $t );
+			return trim( (string) preg_replace( '/\s+/u', ' ', $t ) );
+		};
+		$a = $tidy( $a );
+		$b = $tidy( $b );
+		if ( '' === $a || '' === $b ) {
+			return false;
+		}
+		if ( $a === $b ) {
+			return true;
+		}
+		// One is the opening of the other, and it is a real opening: three
+		// words at least, so "sale" does not marry every promotion the shop
+		// has ever run.
+		$short = strlen( $a ) < strlen( $b ) ? $a : $b;
+		$long  = strlen( $a ) < strlen( $b ) ? $b : $a;
+		return count( explode( ' ', $short ) ) >= 3 && 0 === strpos( $long, $short );
 	}
 
 	/** PHP 7 has no str_ends_with, and this plugin still runs on shops that do not. */
