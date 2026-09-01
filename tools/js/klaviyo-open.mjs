@@ -45,6 +45,13 @@ function ok( what, got, want ) {
 	console.log( `  FAIL  ${what}\n          got  ${JSON.stringify( got )}\n          want ${JSON.stringify( want )}` );
 }
 
+// The row's real stylesheet, straight out of the plugin — a layout test that
+// invents its own CSS proves nothing about the screen the shop is served.
+const css = execFileSync( 'php', [ '-r',
+	'define("ABSPATH","/");function __($s,$d=""){return $s;}'
+	+ 'require "' + join( root, 'dazont-ecom/includes/class-klaviyo.php' ) + '";'
+	+ 'echo DZE_Klaviyo::list_css();' ], { encoding: 'utf8' } );
+
 // The email screen, cut to what these handlers actually touch.
 const day = ms => new Date( Date.now() + ms ).toISOString().slice( 0, 10 );
 const page_html = `
@@ -139,7 +146,8 @@ await page.route( 'http://dze.test/ajax*', route => {
 // and every handler would look broken for a reason the shop does not have.
 await page.route( 'http://dze.test/', route => route.fulfill( {
 	status: 200, contentType: 'text/html',
-	body: `<!doctype html><html><body>${page_html.replace( '__TOMORROW__', day( 86400000 ) )}</body></html>`
+	body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head>`
+		+ `<body>${page_html.replace( '__TOMORROW__', day( 86400000 ) )}</body></html>`
 } ) );
 await page.goto( 'http://dze.test/' );
 await page.addScriptTag( { path: jq } );
@@ -341,6 +349,60 @@ ok( 'the note survives the redraw',
 ok( 'the row that failed says why, in red',
 	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail9"] .dze-mail-note' )?.textContent ) ) || '', 'Klaviyo said no.' );
 ok( 'nothing was raised by the batch', errors, [] );
+
+// The row, MEASURED. The screen the shop sent had "Written by the autopilot"
+// set one word per line and a warning running across the row under the
+// buttons: the state column was nowrap, so a long sentence pushed the title
+// column down to nothing. A grid cannot be checked by reading CSS — the boxes
+// have to be laid out and measured.
+console.log( 'The row holds its shape with a long warning in it' );
+await page.setViewportSize( { width: 1440, height: 900 } );
+await page.evaluate( () => {
+	const row = document.querySelector( '.dze-mail[data-id="mail1"]' );
+	row.querySelector( '.dze-mail-state' ).innerHTML =
+		'<a href="#">Draft in Klaviyo</a>'
+		+ '<span class="dze-mail-langs">Translated — 42 texts in FR, PL, ES · DE still to write</span>'
+		+ '<span class="dze-mail-links">Links did NOT move for FR, PL, ES — WPML gave the same address back, '
+		+ 'so those readers land on the English page. Check WPML → Languages → how URLs look, and that the '
+		+ 'products are translated.</span>'
+		+ '<div class="dze-mail-does"><button class="button button-small dze-mail-sched">Schedule it</button>'
+		+ '<button class="button button-small dze-mail-i18n">Translate again</button></div>';
+	row.querySelector( '.dze-mail-what' ).insertAdjacentHTML( 'beforeend',
+		'<span class="dze-mail-check">Written by the autopilot — read it before it goes anywhere.</span>' );
+} );
+await page.waitForTimeout( 100 );
+const box = sel => page.evaluate( s => {
+	const el = document.querySelector( `.dze-mail[data-id="mail1"] ${s}` );
+	const r = el.getBoundingClientRect();
+	return { x: Math.round( r.x ), y: Math.round( r.y ), w: Math.round( r.width ), h: Math.round( r.height ) };
+}, sel );
+
+const what = await box( '.dze-mail-what' );
+ok( 'the title column keeps a real width', what.w > 300, true );
+// One word per line is the failure that was reported. The name is short; if
+// its column were collapsed the whole cell would be taller than it is wide.
+ok( 'and is not a column of single words', what.h < what.w, true );
+
+const state = await box( '.dze-mail-state' );
+ok( 'the state column stays inside its own share', state.w <= 380, true );
+ok( 'and never overlaps the title column', state.x >= what.x + what.w - 1, true );
+
+// The two buttons are side by side, at the END of the cell.
+const sched = await box( '.dze-mail-sched' );
+const i18n  = await box( '.dze-mail-i18n' );
+ok( 'the buttons are on one line',      Math.abs( sched.y - i18n.y ) < 4, true );
+ok( 'and in that order',                sched.x < i18n.x, true );
+const links = await box( '.dze-mail-links' );
+ok( 'the warning sits above them',      links.y + links.h <= sched.y + 2, true );
+ok( 'and wraps instead of running out', links.w <= state.w + 1, true );
+
+// Nothing spills out of the list: a row wider than its box is a scrollbar
+// across the whole screen.
+ok( 'the row does not overflow the list',
+	await page.evaluate( () => {
+		const l = document.querySelector( '.dze-mail-list' );
+		return l.scrollWidth <= l.clientWidth + 1;
+	} ), true );
 
 await page.close();
 }

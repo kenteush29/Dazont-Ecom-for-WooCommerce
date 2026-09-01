@@ -249,6 +249,12 @@ owner communicates in French.
   pass. A provider's own answers cannot be run from here, so the Klaviyo one
   stubs the transport and reads the REQUEST — its method, its URL, its headers,
   its body. "No valid revisions found for method" was one header on six calls.
+- **`php tools/test-gmc-token.php dazont-ecom` must pass.** Google answers
+  `invalid_grant` / "Token has been expired or revoked" when the authorisation
+  is GONE: no retry fixes it, so it is recognised, written down once on the
+  connection, and every screen says the one thing to do. The shop read
+  Google's own words five times on one line — once per market feed — while
+  the screen that reconnects went on showing a green "Connected".
 - **`php tools/test-promo-i18n.php dazont-ecom` and
   `node tools/js/markets-button.mjs` must pass.** A promotion in five markets
   is ONE promotion: its dates and its discount go WITH the ask, and a shop
@@ -273,6 +279,11 @@ owner communicates in French.
   a grep proved it was CALLED, which is what `check-prompts.php` does, and a
   grep has never rendered anything. A settings tab that dies takes the whole
   page white, before any of our own error handling.
+- The browser gate also MEASURES the email row (`DZE_Klaviyo::list_css()` is
+  loaded into the harness): a long warning in the state column must not
+  collapse the title column to one word per line, the two buttons sit
+  together at the end of the cell, and nothing overflows the list. A CSS bug
+  is invisible to every PHP test and to `node --check` alike.
 - **`node tools/js/klaviyo-open.mjs` and `node tools/js/diagnostic-card.mjs`
   must pass.** They open the real screens in a real browser, on BOTH the
   jQuery WordPress ships today and the jQuery 4 it will ship, click the

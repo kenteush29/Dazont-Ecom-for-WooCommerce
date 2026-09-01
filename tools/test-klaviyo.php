@@ -1293,6 +1293,15 @@ ok( 'it can be scheduled from the row', str_contains( $cell, 'dze-mail-sched' ),
 ok( 'it says what is written and what is open',
 	str_contains( $cell, 'EN written, FR, DE open' ), true );
 ok( 'and it can be translated from the row', str_contains( $cell, 'dze-mail-i18n' ), true );
+// The two buttons sit TOGETHER at the end of the cell. They used to be one
+// above the other with sentences between them, which is the screen the shop
+// called disordered: "les boutons sont désordonnés, le style cassé".
+$does = strpos( $cell, 'dze-mail-does' );
+ok( 'the buttons are in one row of their own', false !== $does, true );
+ok( 'and both are inside it',
+	$does < strpos( $cell, 'dze-mail-sched' ) && $does < strpos( $cell, 'dze-mail-i18n' ), true );
+ok( 'the sentences come before them',
+	strpos( $cell, 'dze-mail-langs' ) < $does, true );
 
 // Already scheduled and already translated: the same cell, other words.
 $cell = DZE_Klaviyo::state_cell( 'm9', [
