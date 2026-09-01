@@ -3597,6 +3597,11 @@ final class DZE_Klaviyo {
 				// what to press.
 				'i18n_fail'  => array_values( array_filter( array_map( 'strval', $failed ) ) ),
 				'i18n_why'   => trim( $why ),
+				// WHICH BUILD wrote this. Two evenings were spent reading an
+				// email back out of Klaviyo and arguing about whether the fix
+				// was in it: the values were written at 20:41 by a plugin that
+				// had been replaced at 20:37, and nothing anywhere said so.
+				'by'         => defined( 'DZE_VERSION' ) ? DZE_VERSION : '',
 			] ),
 		] );
 		return [
@@ -7761,6 +7766,14 @@ CSS;
 			}
 			if ( '' !== $dze_links ) {
 				$dze_told[] = $dze_links;
+			}
+			$dze_by = trim( (string) ( $mail['draft']['by'] ?? '' ) );
+			if ( '' !== $dze_by ) {
+				$dze_told[] = sprintf(
+					/* translators: %s: the plugin version that wrote the translations */
+					__( 'Written by version %s', 'dazont-ecom' ),
+					$dze_by
+				);
 			}
 			?>
 			<span class="dze-mail-langs" style="color:<?php echo $dze_when_i18n ? '#00794b' : '#996800'; ?>;">

@@ -510,6 +510,11 @@ DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' );
 $got = DZE_Klaviyo::save_translations( 'promo', 'mail1', [ 'de' ], 'Writing DE did not finish (504)' );
 $mail = ( get_option( $copy )['promo']['emails']['mail1'] ?? [] );
 ok( 'what did not come back is filed',  $mail['draft']['i18n_fail'] ?? [], [ 'de' ] );
+// WHICH BUILD wrote it. Two evenings were spent reading an email back out of
+// Klaviyo and arguing about whether the fix was in it.
+ok( 'and the version that wrote it',    $mail['draft']['by'] ?? '', DZE_VERSION );
+ok( 'the row says it behind the mark',
+	false !== strpos( DZE_Klaviyo::state_cell( 'mail1', $mail ), 'Written by version ' . DZE_VERSION ), true );
 ok( 'with the reason it gave',          $mail['draft']['i18n_why'] ?? '', 'Writing DE did not finish (504)' );
 ok( 'the answer carries the whole row',
 	str_contains( (string) ( $got['state'] ?? '' ), 'dze-mail-langs' ), true );
