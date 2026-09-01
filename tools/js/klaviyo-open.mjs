@@ -75,6 +75,8 @@ const page_html = `
     </div>
   </div>
   <button type="button" id="dze-mail-new">+ Add an email</button>
+  <button type="button" id="dze-mail-draftall">Put them all in Klaviyo</button>
+  <span id="dze-mail-plan-msg"></span>
   <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-want" value="0" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
   <div id="dze-mail-edit" style="display:none;">
     <select id="dze-klav-e-type"><option value="warm">Warm-up</option><option value="launch">Launch</option><option value="reminder">Reminder</option><option value="last">Last chance</option></select>
@@ -102,6 +104,10 @@ const cfg = {
 	i18n: { loading: 'l', error: 'e', working: 'w', thenSave: 's', unsub: 'u', asSent: 'a',
 	        creating: 'c', made: 'm', pickedFrom: 'p', unnamed: 'Untitled email',
 	        sameType: 'Same type as another email — both will be written as that moment.',
+	        rowWriting: 'Writing this email…', rowWrote: 'Written ✓',
+	        rowPutting: 'Putting it in Klaviyo…', rowPut: 'In Klaviyo ✓',
+	        noWritten: 'Nothing written yet.', drafting1: 'Putting %1$d of %2$d in Klaviyo…',
+	        draftAll: 'All in Klaviyo.', draftSome: '%1$d in Klaviyo, %2$d failed.', open: 'Open draft ↗',
 	        notBefore: 'The earliest an email can go out is tomorrow — moved.',
 	        schedule: 'Schedule it', unschedule: 'Unschedule' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
@@ -279,6 +285,40 @@ ok( 'and the bench stops showing it twice', await page.isVisible( '#dze-klav-sho
 ok( 'the email carries that picture',
 	await page.evaluate( () => document.querySelector( '.dze-mail.is-on .dze-f-picture' ).value ), 'https://cdn.test/shot.jpg' );
 ok( 'nothing was raised on the bench', errors, [] );
+
+// The batch says, ON THE ROW, what it is doing to that email — the counter at
+// the bottom never said WHICH email was travelling nor which one failed.
+// One email succeeds, the row it belongs to ends on its note and its link.
+await page.unroute( 'http://dze.test/ajax*' );
+await page.route( 'http://dze.test/ajax*', route => {
+	const body = new URLSearchParams( route.request().postData() || '' );
+	if ( 'dze_klav_draft' === body.get( 'action' ) ) {
+		route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify(
+			'mail1' === body.get( 'email' )
+				? { success: true, data: { url: 'https://klaviyo.test/campaign/C1' } }
+				: { success: false, data: { message: 'Klaviyo said no.' } }
+		) } );
+		return;
+	}
+	route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
+} );
+// A second written email that will FAIL, so both endings are read.
+await page.evaluate( () => {
+	const row = document.querySelector( '.dze-mail' ).cloneNode( true );
+	row.setAttribute( 'data-id', 'mail9' );
+	row.querySelector( '.dze-f-when' ).value = '2026-09-09';
+	document.querySelector( '.dze-mail-list' ).appendChild( row );
+} );
+await page.click( '#dze-mail-draftall' );
+await page.waitForFunction( () => /In Klaviyo|failed/.test( document.querySelector( '#dze-mail-plan-msg' ).textContent + document.body.textContent ), null, { timeout: 5000 } );
+await page.waitForTimeout( 300 );
+ok( 'the row that made it says so',
+	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-note' )?.textContent ) ) || '', 'In Klaviyo ✓' );
+ok( 'and carries its fresh draft link',
+	await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-mail-state a' )?.getAttribute( 'href' ) ), 'https://klaviyo.test/campaign/C1' );
+ok( 'the row that failed says why, in red',
+	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail9"] .dze-mail-note' )?.textContent ) ) || '', 'Klaviyo said no.' );
+ok( 'nothing was raised by the batch', errors, [] );
 
 await page.close();
 }

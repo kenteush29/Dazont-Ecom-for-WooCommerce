@@ -602,6 +602,24 @@
 	// Writing every email, one request each, in order. The same endpoint one
 	// button uses for one email: there is no second way to write one, so a
 	// batch cannot drift from what a single click does.
+	// What is happening TO THIS EMAIL, said on its own row. The batch loops
+	// used to count progress in one line at the bottom of the screen —
+	// "Putting 1 of 3 in Klaviyo…" — while every row sat unchanged, so the
+	// owner could not tell WHICH email was travelling or which one failed.
+	// One note per row, one helper for every loop, so the two batches cannot
+	// drift apart in wording or placement.
+	function rowNote($c, text, tone) {
+		var $n = $c.find('.dze-mail-note');
+		if (!text) { $n.remove(); $c.removeClass('is-syncing'); return; }
+		if (!$n.length) { $n = $('<span class="dze-mail-note"></span>').prependTo($c.find('.dze-mail-state')); }
+		$n.css('color', 'ok' === tone ? '#00794b' : ('ko' === tone ? '#b32d2e' : '#646970'))
+			.text(text);
+		$c.toggleClass('is-syncing', 'work' === tone);
+		if ('ok' === tone) {
+			window.setTimeout(function () { $n.fadeOut(400, function () { $n.remove(); }); }, 4000);
+		}
+	}
+
 	$(document).on('click', '#dze-mail-all', function () {
 		var $b = $(this), $m = $('#dze-mail-plan-msg'),
 			ids = $('.dze-mail').map(function () { return $(this).data('id'); }).get();
@@ -615,8 +633,10 @@
 			}
 			$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.writing1.replace('%1$d', i + 1).replace('%2$d', ids.length));
 			open(ids[i]);
+			rowNote(card(ids[i]), cfg.i18n.rowWriting, 'work');
 			$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: ids[i] })
 				.done(function (res) {
+					rowNote(card(ids[i]), (res && res.success) ? cfg.i18n.rowWrote : ((res && res.data && res.data.message) || i18n.error), (res && res.success) ? 'ok' : 'ko');
 					if (res && res.success) {
 						$('#dze-klav-e-subject').val(res.data.subject || '');
 						if (res.data.preview) { $('#dze-klav-e-preview').val(res.data.preview); }
@@ -628,7 +648,7 @@
 					// try again on its own.
 					next(i + 1);
 				})
-				.fail(function () { next(i + 1); });
+				.fail(function () { rowNote(card(ids[i]), i18n.error, 'ko'); next(i + 1); });
 		}(0));
 	});
 
@@ -672,6 +692,7 @@
 			}
 			$m.css('color', '#646970').removeClass('is-ko')
 				.text(cfg.i18n.drafting1.replace('%1$d', i + 1).replace('%2$d', jobs.length));
+			rowNote(card(jobs[i].id), cfg.i18n.rowPutting, 'work');
 			$.post(cfg.ajaxUrl, {
 				action: 'dze_klav_draft',
 				nonce: cfg.nonce,
@@ -685,12 +706,14 @@
 						card(jobs[i].id).find('.dze-mail-state').empty()
 							.append($('<a target="_blank" rel="noopener noreferrer"/>')
 								.attr('href', res.data.url).text(i18n.open));
+						rowNote(card(jobs[i].id), cfg.i18n.rowPut, 'ok');
 					} else {
 						failed += 1;
+						rowNote(card(jobs[i].id), (res && res.data && res.data.message) || i18n.error, 'ko');
 					}
 					next(i + 1);
 				})
-				.fail(function () { failed += 1; next(i + 1); });
+				.fail(function () { failed += 1; rowNote(card(jobs[i].id), i18n.error, 'ko'); next(i + 1); });
 		}(0));
 	});
 
