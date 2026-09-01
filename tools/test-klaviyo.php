@@ -88,6 +88,7 @@ function apply_filters( $t, $v = null, ...$r ) {
 	return $v;
 }
 function get_permalink( $id ) { return $GLOBALS['dze_perma'][ (int) $id ] ?? ''; }
+function get_the_title( $id = 0 ) { return $GLOBALS['dze_titles'][ (int) $id ] ?? ( 'Product ' . (int) $id ); }
 // The shop's product URLs do not resolve back into a post — which is exactly
 // the state this shop is in, and why nothing may depend on it.
 function url_to_postid( $url ) { $GLOBALS['dze_resolved'][] = $url; return 0; }
@@ -208,6 +209,12 @@ class DZE_Wpml {
 	 * ask for now: the translation's SLUG and the place that language lives,
 	 * both from WPML rather than half of each built here.
 	 */
+	/** WPML's answer for "which post is this one in that language". */
+	public static function translated_id( $post_id, $type, $lang, &$how = null ) {
+		$id  = (int) ( $GLOBALS['dze_trans'][ (int) $post_id ][ $lang ] ?? 0 );
+		$how = $id ? 'filter' : 'none';
+		return $id;
+	}
 	public static function post_url_in_language( $post_id, $type, $lang, &$why = null ) {
 		$tid = (int) ( $GLOBALS['dze_trans'][ (int) $post_id ][ $lang ] ?? 0 );
 		if ( ! $tid || 'en' === $lang ) { $why = 'not-translated'; return ''; }
@@ -279,7 +286,7 @@ class WC_Product {
 	public $id;
 	public function __construct( $id ) { $this->id = (int) $id; }
 	public function get_id() { return $this->id; }
-	public function get_name() { return 'Product ' . $this->id; }
+	public function get_name() { return $GLOBALS['dze_titles'][ $this->id ] ?? ( 'Product ' . $this->id ); }
 	public function get_permalink() { return 'https://kula.test/p/' . $this->id; }
 	public function get_image_id() { return 900 + $this->id; }
 	public function get_regular_price() { return 20 + $this->id; }
@@ -1945,6 +1952,23 @@ ok( 'the English slug is not on the French link',
 	false !== strpos( (string) ( $map['https://kula.test/p/7']['fr'] ?? '' ), 'p/7' ), false );
 ok( 'no URL was resolved back into a post', $GLOBALS['dze_resolved'], [] );
 
+// The product's NAME, in the language it is read in. "A-Tacs FG Military
+// Combat Uniform qui devrait être A-Tacs FG Gefechtsuniform": the German page
+// exists and carries a German title, and the card showed the English one —
+// because a product name is the one thing the translator is told never to
+// touch. It is filled from the shop's own German product instead.
+$GLOBALS['dze_titles'] = [ 7 => 'A-Tacs FG Military Combat Uniform', 77 => 'Uniforme de combat A-Tacs FG', 78 => 'A-Tacs FG Gefechtsuniform' ];
+$names = DZE_Klaviyo::name_map( [ 7 ], [ 'fr', 'de' ] );
+ok( 'the German name of that product',
+	$names['A-Tacs FG Military Combat Uniform']['de'] ?? '', 'A-Tacs FG Gefechtsuniform' );
+ok( 'and the French one',
+	$names['A-Tacs FG Military Combat Uniform']['fr'] ?? '', 'Uniforme de combat A-Tacs FG' );
+// A product with no German page has no German name to give: the shop's own is
+// kept rather than a name invented for it.
+$GLOBALS['dze_trans'] = [];
+ok( 'no translation, no invented name',  DZE_Klaviyo::name_map( [ 7 ], [ 'de' ] ), [] );
+$GLOBALS['dze_trans'] = [ 7 => [ 'fr' => 77, 'de' => 78 ] ];
+
 // A product NOBODY has translated keeps the page that exists. It used to get
 // the language's URL rule — the right domain with the English slug — and that
 // is a 404 dressed up as a translation: the shop found eight of them in one
@@ -1986,6 +2010,10 @@ $GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'mail1' => [
 $vals2 = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
 	[ 'id' => 'x::subject', 'source_value' => 'Summer sale' ],
 	[ 'id' => 'b::data.attributes.href', 'source_value' => 'https://kula.test/p/7' ],
+	// The product's NAME, as the card carries it — a piece of writing the
+	// translator is told never to touch.
+	[ 'id' => 'n::data.content', 'source_value' => 'A-Tacs FG Military Combat Uniform' ],
+	[ 'id' => 'a::data.attributes.alt_text', 'source_value' => 'A-Tacs FG Military Combat Uniform' ],
 ] ] ] ] );
 $GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $vals2 ];
 DZE_Klaviyo::translate_language( 'promo', 'mail1', 'fr' );
@@ -1998,6 +2026,13 @@ foreach ( (array) ( json_decode( (string) ( $patch[0]['body'] ?? '' ), true )['d
 }
 ok( 'the email really carries the French page',
 	$sent2['b::data.attributes.href']['fr'] ?? '', 'https://kula.test/fr/cagoule' );
+// And the card says the product's own French name, over whatever the model
+// echoed back: it was told to leave product names as they are, so nothing
+// else could fill this.
+ok( 'and the product\'s own French name',
+	$sent2['n::data.content']['fr'] ?? '', 'Uniforme de combat A-Tacs FG' );
+ok( "the photograph's alt text too",
+	$sent2['a::data.attributes.alt_text']['fr'] ?? '', 'Uniforme de combat A-Tacs FG' );
 $GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $values ];
 
 echo "The shop can see what a link becomes, before any email exists\n";
@@ -2007,6 +2042,15 @@ echo "The shop can see what a link becomes, before any email exists\n";
 $GLOBALS['dze_products'] = [ 7 ];
 $smp = DZE_Klaviyo::link_sample();
 ok( 'a real product is used',           $smp['url'] ?? '', 'https://kula.test/p/7' );
+// The one question nobody could see the answer to: is this product translated
+// at all, which post is it, and HOW was that found. A filter that is not
+// loaded on the request says "not translated" as loudly as a product that
+// never was, and the two need opposite fixes.
+ok( 'the screen names the translated product',
+	$smp['ids']['de'] ?? 0, 78 );
+ok( 'and how it was found',             in_array( $smp['how']['de'] ?? '', [ 'filter', 'table' ], true ), true );
+ok( 'with the name that language reads',
+	$smp['names']['de'] ?? '', 'A-Tacs FG Gefechtsuniform' );
 ok( 'and every language is answered',   array_keys( $smp['rows'] ?? [] ), [ 'fr', 'de' ] );
 // The product's OWN German page, with its own slug — the address the product
 // edit screen shows and the language switcher uses, not a rule applied to a
