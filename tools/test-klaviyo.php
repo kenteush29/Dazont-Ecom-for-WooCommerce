@@ -2007,6 +2007,48 @@ ok( 'and the prices untouched',         false !== strpos( $kept, '$148.90' ), tr
 $GLOBALS['dze_answers'] = [];
 $GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $values ];
 
+// AN EMAIL THE PLAN NEVER DEALT TO. Everything mechanical — the links per
+// language, the names per language — leaned on the ids the plan writes down,
+// and an email added by hand carries none: the model then translated the
+// product names itself ("Modularer Chest Rig für Special Forces") and the
+// links fell through to a rule. The shortlist the WRITING was handed answers
+// instead, which is the same list the email really shows.
+$GLOBALS['dze_products'] = [ 7 ];
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'hand' => [
+	'kind' => 'launch', 'subject' => 'By hand',
+	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'de' ] ],
+] ] ] ];
+// The shortlist the writing is handed — whatever the shop's own best-sellers
+// are — rather than nothing at all.
+ok( 'an email with no list of its own still has products',
+	in_array( 7, DZE_Klaviyo::goods_of( 'promo', [ 'title' => 'Summer' ], 'hand' ), true ), true );
+ok( 'and it is not empty',
+	count( DZE_Klaviyo::goods_of( 'promo', [ 'title' => 'Summer' ], 'hand' ) ) > 0, true );
+$hand = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
+	[ 'id' => 'h::data.content',
+		'source_value' => '<div>A-Tacs FG Military Combat Uniform</div><div>$148.90</div>' ],
+	[ 'id' => 'h::data.attributes.href', 'source_value' => 'https://kula.test/p/7' ],
+] ] ] ] );
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $hand ];
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ '{"1":"<div>[[NAME1]]</div><div>$148.90</div>"}' ];
+DZE_Klaviyo::translate_language( 'promo', 'hand', 'de' );
+ok( 'and the model still never sees the name',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), 'A-Tacs FG Military Combat Uniform' ), false );
+$GLOBALS['dze_sent'] = [];
+DZE_Klaviyo::save_translations( 'promo', 'hand' );
+$patch3 = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) );
+$sent3  = [];
+foreach ( (array) ( json_decode( (string) ( $patch3[0]['body'] ?? '' ), true )['data']['attributes']['values'] ?? [] ) as $v ) {
+	$sent3[ $v['id'] ] = $v['translations'];
+}
+ok( 'the card carries the German name',
+	false !== strpos( (string) ( $sent3['h::data.content']['de'] ?? '' ), 'A-Tacs FG Gefechtsuniform' ), true );
+ok( 'and the link is the German page',
+	$sent3['h::data.attributes.href']['de'] ?? '', 'https://kula.test/de/sturmhaube' );
+$GLOBALS['dze_answers'] = [];
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $values ];
+
 // A product NOBODY has translated keeps the page that exists. It used to get
 // the language's URL rule — the right domain with the English slug — and that
 // is a 404 dressed up as a translation: the shop found eight of them in one
