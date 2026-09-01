@@ -2194,6 +2194,17 @@ final class DZE_Klaviyo {
 				'draft'   => (array) ( $was['draft'] ?? [] ),
 			];
 		}
+		// A row the form no longer carries was deleted on screen, and its
+		// campaign follows it out of Klaviyo — the same withdrawal the ×
+		// button makes, for the rare path where a row disappears without one.
+		foreach ( $live as $email_id => $was_mail ) {
+			if ( ! isset( $out[ (string) $email_id ] ) ) {
+				self::withdraw_campaign(
+					(string) ( $was_mail['draft']['campaign'] ?? '' ),
+					(string) ( $was_mail['draft']['template'] ?? '' )
+				);
+			}
+		}
 		$all = get_option( self::OPT_COPY, [] );
 		$all = is_array( $all ) ? $all : [];
 		// MERGED, never substituted: what a promotion holds beside its emails
@@ -3646,6 +3657,20 @@ final class DZE_Klaviyo {
 			//    campaign keeps its id, so a link the owner has open still works.
 			//    An email filed by an older version is HTML and cannot become
 			//    blocks, so a new template is made and the message re-pointed.
+			//
+			//    "Reads from" is ASKED, never remembered. Opening a campaign
+			//    for translation makes Klaviyo CLONE the assigned template
+			//    ("Clone of …") and quietly re-point the message at the clone.
+			//    From then on, rewriting the id we filed polishes a template
+			//    nobody sends, while the clone goes out frozen at whatever the
+			//    email was on the day it was cloned. The shop lived exactly
+			//    that for three days: every fix landed in its template, every
+			//    send came from the clone. The message's own answer outranks
+			//    our memory; when Klaviyo cannot be asked, the memory stands.
+			$reads = self::request( 'GET', 'campaign-messages/' . rawurlencode( $msg_id ) . '/relationships/template/', null, 20 );
+			if ( ! is_wp_error( $reads ) && '' !== (string) ( $reads['data']['id'] ?? '' ) ) {
+				$tpl_id = (string) $reads['data']['id'];
+			}
 			$was    = $tpl_id;
 			$tpl_id = self::put_template( $name, $blocks, $tpl_id );
 			if ( $tpl_id !== $was ) {
@@ -3942,6 +3967,18 @@ final class DZE_Klaviyo {
 
 	/** Drops what was written for an event that is gone. */
 	public static function forget( string $rule_id ): void {
+		// The campaigns go with the event. Deleting a promotion here and
+		// leaving its drafts in Klaviyo is how the account filled with
+		// look-alike campaigns nobody could tell from the live ones — the
+		// owner kept opening a dead "Launch" and reading last week's bug in
+		// it. Same rules as deleting one email: a draft is deleted, a
+		// scheduled one is unscheduled first, a sent one stays as history.
+		foreach ( self::emails_for( $rule_id ) as $mail ) {
+			self::withdraw_campaign(
+				(string) ( $mail['draft']['campaign'] ?? '' ),
+				(string) ( $mail['draft']['template'] ?? '' )
+			);
+		}
 		foreach ( [ self::OPT_COPY, self::OPT_MAP ] as $option ) {
 			$all = get_option( $option, [] );
 			if ( is_array( $all ) && isset( $all[ $rule_id ] ) ) {
