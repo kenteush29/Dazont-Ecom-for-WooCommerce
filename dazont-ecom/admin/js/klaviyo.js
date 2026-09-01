@@ -655,7 +655,14 @@
 			$m.css('color', '#646970').removeClass('is-ko').text(cfg.i18n.writing1.replace('%1$d', i + 1).replace('%2$d', ids.length));
 			open(ids[i]);
 			rowNote(card(ids[i]), cfg.i18n.rowWriting, 'work');
-			$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: ids[i] })
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: ids[i],
+				// The type and day AS THEY ARE ON THE ROW: a row added just now
+				// is not in the database yet, and writing from what is stored
+				// gave a launch email to somebody who asked for a last chance.
+				kind: card(ids[i]).find('.dze-f-kind').val() || '',
+				when: card(ids[i]).find('.dze-f-when').val() || ''
+			})
 				.done(function (res) {
 					rowNote(card(ids[i]), (res && res.success) ? cfg.i18n.rowWrote : ((res && res.data && res.data.message) || i18n.error), (res && res.success) ? 'ok' : 'ko');
 					if (res && res.success) {
@@ -1057,7 +1064,11 @@
 	function writeEmail($b, $m) {
 		$b.prop('disabled', true);
 		$m.css('color', '#646970').removeClass('is-ko').text(i18n.writing);
-		$.post(cfg.ajaxUrl, { action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: current })
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_klav_write', nonce: cfg.nonce, rule: ruleId(), email: current,
+			kind: card(current).find('.dze-f-kind').val() || '',
+			when: card(current).find('.dze-f-when').val() || ''
+		})
 			.done(function (res) {
 				$b.prop('disabled', false);
 				if (!res || !res.success) {

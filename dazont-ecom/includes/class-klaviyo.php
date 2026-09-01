@@ -2977,10 +2977,15 @@ final class DZE_Klaviyo {
 	 *
 	 * Klaviyo can be asked for campaigns by name, and a name here is the
 	 * promotion plus which of its emails this is — precise enough that a
-	 * match is the same email and not a coincidence. Only a draft is ever
-	 * adopted: what is scheduled or sent belongs to the shop.
+	 * match is the same email and not a coincidence.
 	 *
-	 * @return array{campaign:string,message:string,template:string}|null
+	 * Every status, not only drafts: the email this shop lost was SCHEDULED,
+	 * which is exactly the one that must not be lost — a second campaign
+	 * beside a scheduled one is a promotion sent twice. What comes back says
+	 * which status it is in, and the caller decides: a draft is rewritten, a
+	 * scheduled or sent campaign is claimed back and left untouched.
+	 *
+	 * @return array{campaign:string,message:string,template:string,status:string}|null
 	 */
 	private static function draft_named( string $name ): ?array {
 		$name = trim( $name );
@@ -2989,7 +2994,7 @@ final class DZE_Klaviyo {
 		}
 		$got = self::request(
 			'GET',
-			'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $name ) . '"),equals(status,"Draft"))' )
+			'campaigns/?filter=' . rawurlencode( 'and(equals(messages.channel,"email"),equals(name,"' . str_replace( '"', '', $name ) . '"))' )
 				. '&include=campaign-messages',
 			null,
 			25
@@ -2997,7 +3002,16 @@ final class DZE_Klaviyo {
 		if ( is_wp_error( $got ) || empty( $got['data'][0]['id'] ) ) {
 			return null;
 		}
-		$camp = (string) $got['data'][0]['id'];
+		// The newest of them, when a shop has been round this more than once.
+		$pick = (array) $got['data'][0];
+		foreach ( (array) $got['data'] as $one ) {
+			if ( strtotime( (string) ( $one['attributes']['created_at'] ?? '' ) ) > strtotime( (string) ( $pick['attributes']['created_at'] ?? '' ) ) ) {
+				$pick = (array) $one;
+			}
+		}
+		$got['data'][0] = $pick;
+		$camp   = (string) $pick['id'];
+		$status = (string) ( $pick['attributes']['status'] ?? '' );
 		$msg  = '';
 		foreach ( (array) ( $got['included'] ?? [] ) as $one ) {
 			if ( 'campaign-message' === (string) ( $one['type'] ?? '' ) ) {
@@ -3019,7 +3033,7 @@ final class DZE_Klaviyo {
 		if ( '' === $tpl ) {
 			return null;
 		}
-		return [ 'campaign' => $camp, 'message' => $msg, 'template' => $tpl ];
+		return [ 'campaign' => $camp, 'message' => $msg, 'template' => $tpl, 'status' => $status ];
 	}
 
 	/** PHP 7 has no str_ends_with, and this plugin still runs on shops that do not. */
@@ -3993,6 +4007,38 @@ final class DZE_Klaviyo {
 				$camp_id = (string) $found['campaign'];
 				$msg_id  = (string) $found['message'];
 				$tpl_id  = (string) $found['template'];
+				$live    = ! in_array( strtolower( (string) $found['status'] ), [ '', 'draft' ], true );
+				if ( $live ) {
+					// SCHEDULED, or already gone out. The link is claimed back —
+					// that is what was lost, and what makes the row say "in
+					// Klaviyo" again — and not one word of it is rewritten: a
+					// campaign with a send time is the shop's, and a second one
+					// beside it is a promotion sent twice.
+					self::put_email( $rule_id, $email_id, [
+						'draft' => array_merge( (array) ( $copy['draft'] ?? [] ), [
+							'campaign'  => $camp_id,
+							'message'   => $msg_id,
+							'template'  => $tpl_id,
+							'name'      => $name,
+							'at'        => time(),
+							'scheduled' => 'draft' === strtolower( (string) $found['status'] ) ? 0 : time(),
+						] ),
+					] );
+					return [
+						'campaign' => $camp_id,
+						'message'  => $msg_id,
+						'template' => $tpl_id,
+						'url'      => self::campaign_url( $camp_id ),
+						'skipped'  => true,
+						'sent'     => false,
+						'warning'  => sprintf(
+							/* translators: %s: the campaign's status in Klaviyo, e.g. "Scheduled" */
+							__( 'This email is already in Klaviyo and is %s there, so it was reconnected and left exactly as it is. Unschedule it in Klaviyo to change it.', 'dazont-ecom' ),
+							strtolower( (string) $found['status'] )
+						),
+						'state'    => self::state_cell( $email_id, self::email_for( $rule_id, $email_id, $rule ) ),
+					];
+				}
 				$again   = true;
 				$warning = trim( $warning . ' ' . __( 'This email was already in Klaviyo under the same name, so that draft was updated instead of a second one being made.', 'dazont-ecom' ) );
 			}
@@ -5721,6 +5767,30 @@ final class DZE_Klaviyo {
 	public static function ajax_write(): void {
 		self::guard();
 		[ $rule_id, $rule, $email_id ] = self::target();
+		// WHICH email this is, taken from the row before a word is written.
+		// A row added on the screen and given its type — "last chance" — is
+		// not in the database until the event is saved, so the writing read
+		// the stored email, found nothing, and fell back to the first type in
+		// the list: the shop asked for a last-chance email and was handed a
+		// launch. The screen is the truth here, and it says so before asking.
+		// phpcs:disable WordPress.Security.NonceVerification.Missing -- guard() checked it.
+		$row = [];
+		if ( isset( $_POST['kind'] ) ) {
+			$kind = sanitize_key( wp_unslash( $_POST['kind'] ) );
+			if ( '' !== $kind && isset( self::kinds()[ $kind ] ) ) {
+				$row['kind'] = $kind;
+			}
+		}
+		if ( isset( $_POST['when'] ) ) {
+			$when = sanitize_text_field( wp_unslash( $_POST['when'] ) );
+			if ( '' !== $when ) {
+				$row['when'] = $when;
+			}
+		}
+		// phpcs:enable
+		if ( $row ) {
+			self::put_email( $rule_id, $email_id, $row );
+		}
 		try {
 			$made = self::write_for( $rule_id, $rule, $email_id );
 		} catch ( \Throwable $e ) {
@@ -6690,6 +6760,12 @@ final class DZE_Klaviyo {
 				.dze-mail-dupe{display:block;font-size:12px;color:#b26a00;}
 				.dze-mail-note{display:block;font-size:12px;font-weight:600;}
 				.dze-mail-links,.dze-mail-langs{white-space:normal;}
+				/* The same mark as everywhere else in the plugin. Repeated here
+				   because this screen does not load admin.css. */
+				.dze-why{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
+					margin-left:6px;border-radius:50%;border:1px solid currentColor;font-size:11px;
+					font-style:italic;font-weight:700;line-height:1;cursor:help;vertical-align:middle;opacity:.8;}
+				.dze-why:hover,.dze-why:focus{opacity:1;outline:none;}
 				.dze-mail-check{display:block;margin-top:3px;font-size:12px;color:#996800;}
 				.dze-mail.is-syncing{background:#f4f9ff;}
 				.dze-klav-switch .button{border-radius:0;margin:0;}
@@ -6798,7 +6874,16 @@ CSS;
 				$dze_ko = false !== strpos( $dze_links, 'did NOT move' );
 				?>
 				<span class="dze-mail-links" style="color:<?php echo $dze_ko ? '#b26a00' : '#00794b'; ?>;">
-					<?php echo esc_html( $dze_links ); ?>
+					<?php
+					// The short of it on the row, the whole of it behind the
+					// mark: a paragraph in a narrow column is a paragraph
+					// nobody reads and something else nobody can see past.
+					$dze_short = $dze_ko
+						? __( 'Links did not move — see why', 'dazont-ecom' )
+						: __( 'Links point at each language', 'dazont-ecom' );
+					echo esc_html( $dze_short );
+					?>
+					<span class="dze-why" tabindex="0" role="button" title="<?php echo esc_attr( $dze_links ); ?>" aria-label="<?php echo esc_attr( $dze_links ); ?>">i</span>
 				</span>
 			<?php endif; ?>
 			<?php
