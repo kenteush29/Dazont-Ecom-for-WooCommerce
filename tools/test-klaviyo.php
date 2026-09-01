@@ -716,6 +716,34 @@ ok( 'asking to revert, never to cancel',
 	json_decode( (string) ( $rev['body'] ?? '' ), true )['data']['attributes']['action'] ?? '', 'revert' );
 $GLOBALS['dze_queue'] = [];
 
+echo "Unscheduling gives the row back, in the same breath\n";
+// "Non mis a jour apres unschedule. Ce qui devrait debloquer les boutons de
+// translate again." A scheduled campaign is locked, so the cell drops Update
+// and Translate again; putting it back to a draft unlocks it in Klaviyo and
+// the row went on saying "scheduled" with both buttons gone until somebody
+// reloaded the page. The answer carries the cell the server draws — the same
+// one a reload gives — so there is no second version of that row anywhere.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'sc1' => [
+	'exists' => 1, 'kind' => 'launch', 'when' => '2026-09-20', 'subject' => 'Live',
+	'draft'  => [ 'campaign' => 'C7', 'scheduled' => time(), 'goes' => '2026-09-20' ],
+] ] ] ];
+$dze_locked = DZE_Klaviyo::state_cell( 'sc1', DZE_Klaviyo::email_for( 'promo', 'sc1' ) );
+ok( 'scheduled, the row offers no rewrite',
+	str_contains( $dze_locked, 'dze-mail-i18n' ) || str_contains( $dze_locked, 'dze-mail-write' ), false );
+$_POST = [ 'rule' => 'promo', 'email' => 'sc1', 'undo' => 1 ];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C7"}}' ] ];
+$dze_back = [];
+try { DZE_Klaviyo::ajax_schedule(); } catch ( DZE_Json_Sent $e ) { $dze_back = (array) $e->payload; }
+ok( 'it says it is a draft again',      (int) ( $dze_back['scheduled'] ?? 1 ), 0 );
+ok( 'and hands the row back with it',   isset( $dze_back['state'] ), true );
+$dze_cell = (string) ( $dze_back['state'] ?? '' );
+ok( 'the row no longer says it is locked',
+	str_contains( $dze_cell, 'unschedule it to change anything' ), false );
+ok( 'Translate again is offered again', str_contains( $dze_cell, 'dze-mail-i18n' ), true );
+ok( 'and so is Schedule it',            str_contains( $dze_cell, 'Schedule it' ), true );
+$GLOBALS['dze_queue'] = [];
+$_POST = [];
+
 echo "The products ONE email of a promotion may show\n";
 // The bug the shop reported, in figures. A promotion of three emails: the
 // first two showed nine products between them, and the third was handed a

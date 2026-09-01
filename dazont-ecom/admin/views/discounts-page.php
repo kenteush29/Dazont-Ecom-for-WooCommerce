@@ -176,16 +176,29 @@ $klav_on    = null !== $klav;
 				<td>
 					<?php if ( ( $r['type'] ?? '' ) === 'sale' ) : ?>
 						<?php echo wp_kses_post( $start_txt ); ?> → <?php echo wp_kses_post( $end_txt ); ?>
-						<?php if ( ! empty( $r['banner_timer'] ) ) : ?>
-							<?php // The few events that count down say so here. ?>
-							<span title="<?php esc_attr_e( 'The banner counts down to the end of this event', 'dazont-ecom' ); ?>" style="margin-left:6px;color:#b26a00;">&#9201;</span>
-						<?php endif; ?>
+						<?php // The countdown used to be a small clock here. It is said in
+						// words under the status now, beside the banner it belongs to. ?>
 					<?php else : ?>
 						<span style="color:#999;">—</span>
 					<?php endif; ?>
 				</td>
 				<?php endif; ?>
-				<td><span style="color:<?php echo esc_attr( $st[0] ); ?>;font-weight:600;"><?php echo esc_html( $st[1] ); ?></span></td>
+				<td>
+					<span style="color:<?php echo esc_attr( $st[0] ); ?>;font-weight:600;"><?php echo esc_html( $st[1] ); ?></span>
+					<?php if ( ( $r['type'] ?? '' ) === 'sale' ) : ?>
+						<?php
+						// What the customer actually sees of it. "Running" said
+						// when the discount applies; it never said whether the
+						// shop was showing anything about it, so a promotion
+						// with no banner and one counting down to its last hour
+						// read the same on this list.
+						$dze_shows = DZE_Discounts::shows( $r );
+						?>
+						<span class="description" style="display:block;color:<?php echo $dze_shows['banner'] ? '#646970' : '#a7aaad'; ?>;">
+							<?php echo esc_html( DZE_Discounts::shows_html( $r ) ); ?>
+						</span>
+					<?php endif; ?>
+				</td>
 				<?php if ( $gmc_on ) : ?>
 				<td>
 					<?php if ( ( $r['type'] ?? '' ) === 'sale' ) : ?>

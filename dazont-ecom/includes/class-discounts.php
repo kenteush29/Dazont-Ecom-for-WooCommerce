@@ -200,6 +200,47 @@ final class DZE_Discounts {
 	}
 
 	/**
+	 * What a customer would actually SEE of this promotion.
+	 *
+	 * Read from what the shop would draw, never from the tick boxes on their
+	 * own. A banner needs to be switched on AND to have something written in
+	 * it — the front falls back to the promotion's title, so that counts. A
+	 * countdown is drawn INSIDE the banner and counts to the end date: ticked
+	 * on a promotion with no banner, or with no end, it shows nothing, and a
+	 * screen claiming a countdown there would be describing an intention
+	 * rather than a shop.
+	 *
+	 * @return array{banner:bool,countdown:bool}
+	 */
+	public static function shows( array $rule ): array {
+		$banner = ! empty( $rule['banner_enabled'] )
+			&& '' !== trim( (string) ( $rule['banner_text'] ?? '' ) . trim( (string) ( $rule['title'] ?? '' ) ) );
+		return [
+			'banner'    => $banner,
+			'countdown' => $banner
+				&& ! empty( $rule['banner_timer'] )
+				&& '' !== trim( (string) ( $rule['end'] ?? '' ) ),
+		];
+	}
+
+	/**
+	 * The same answer in words, for a list column.
+	 *
+	 * Words and not glyphs: a small clock in a date column is a state nobody
+	 * reads, and "is the countdown on?" was a question the screen could not
+	 * answer without opening the promotion.
+	 */
+	public static function shows_html( array $rule ): string {
+		$got = self::shows( $rule );
+		if ( ! $got['banner'] ) {
+			return __( 'No banner', 'dazont-ecom' );
+		}
+		return $got['countdown']
+			? __( 'Banner', 'dazont-ecom' ) . ' · ' . __( 'Countdown', 'dazont-ecom' )
+			: __( 'Banner', 'dazont-ecom' );
+	}
+
+	/**
 	 * The languages this promotion still has nothing to say in.
 	 *
 	 * @return array<string,string> code => native name

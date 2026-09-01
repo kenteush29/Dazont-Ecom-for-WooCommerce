@@ -3950,7 +3950,17 @@ final class DZE_Klaviyo {
 			self::put_email( $rule, $email, [
 				'draft' => array_merge( (array) ( $mail['draft'] ?? [] ), [ 'scheduled' => 0, 'goes' => '' ] ),
 			] );
-			wp_send_json_success( [ 'scheduled' => 0, 'message' => __( 'Back to a draft in Klaviyo. Nothing will go out.', 'dazont-ecom' ) ] );
+			// The row as the server draws it, in the same answer. A scheduled
+			// campaign is locked, so its cell offers neither Update nor
+			// Translate again; putting it back to a draft unlocks it in
+			// Klaviyo, and the row went on saying "scheduled" with both
+			// buttons gone until somebody reloaded the page. One cell, drawn
+			// in one place, and no second version of it in the browser.
+			wp_send_json_success( [
+				'scheduled' => 0,
+				'state'     => self::state_cell( $email, self::email_for( $rule, $email ) ),
+				'message'   => __( 'Back to a draft in Klaviyo. Nothing will go out.', 'dazont-ecom' ),
+			] );
 		}
 		[ $day, $said ] = self::schedule( $camp );
 		if ( '' !== $said ) {
@@ -3965,6 +3975,7 @@ final class DZE_Klaviyo {
 		wp_send_json_success( [
 			'scheduled' => 1,
 			'day'       => $day,
+			'state'     => self::state_cell( $email, self::email_for( $rule, $email ) ),
 			'message'   => sprintf(
 				/* translators: %s: the day it goes out */
 				__( 'Scheduled in Klaviyo for %s. Nothing else to do.', 'dazont-ecom' ),

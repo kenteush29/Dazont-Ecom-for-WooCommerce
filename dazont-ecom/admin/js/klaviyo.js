@@ -380,9 +380,21 @@
 				return;
 			}
 			var on = !!(r.data && r.data.scheduled);
-			$b.data('undo', on ? '1' : '0')
-				.text(on ? (cfg.i18n.unschedule || 'Unschedule') : (cfg.i18n.schedule || 'Schedule it'));
-			$msg.css('color', on ? '#00794b' : '#646970').text((r.data && r.data.message) || '');
+			// The row as the SERVER draws it. A scheduled campaign is locked
+			// in Klaviyo, so its cell offers neither Update nor Translate
+			// again; unscheduling unlocks it, and the row went on saying
+			// "scheduled" with both buttons gone until somebody reloaded the
+			// page. Redrawing the cell replaces this very button, so the
+			// message is written into the row that came back, not the one
+			// that has just been thrown away.
+			if (r.data && r.data.state) {
+				drawState($row, r.data);
+			} else {
+				$b.data('undo', on ? '1' : '0')
+					.text(on ? (cfg.i18n.unschedule || 'Unschedule') : (cfg.i18n.schedule || 'Schedule it'));
+			}
+			$row.find('.dze-mail-sched-msg')
+				.css('color', on ? '#00794b' : '#646970').text((r.data && r.data.message) || '');
 		}).fail(function (xhr) {
 			$b.prop('disabled', false).text(was);
 			$msg.css('color', '#b32d2e').text((cfg.i18n.error || 'Something went wrong.') + why(xhr));
