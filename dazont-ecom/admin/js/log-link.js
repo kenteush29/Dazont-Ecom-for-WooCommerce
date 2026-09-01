@@ -26,6 +26,10 @@
 		if (!el || 1 !== el.nodeType) { return; }
 		var $el = $(el);
 		if (!$el.hasClass('is-ko')) { return; }
+		// A message, never a BADGE: the mark that hides a long explanation is
+		// sixteen pixels across, and a link appended inside it ran across the
+		// sentence beside it.
+		if ($el.hasClass('dze-why') || $el.closest('.dze-why').length) { return; }
 		if ($el.find('.dze-logl').length) { return; }
 		// No message yet: an empty red box has nothing to explain.
 		if (!String( $el.text() ).trim()) { return; }

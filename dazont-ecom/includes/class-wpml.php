@@ -354,6 +354,69 @@ final class DZE_Wpml {
 	}
 
 	/**
+	 * The id of a post's translation, from WPML'S OWN TABLE when its filter
+	 * will not answer.
+	 *
+	 * The filter is the polite way to ask, and on this shop it answered
+	 * nothing: every product link in every language came out as the English
+	 * slug with the domain swapped, for eight products and four languages at
+	 * once — which is not eight untranslated products, it is a question that
+	 * was never really asked. wpml_object_id is a FILTER: where WPML's own
+	 * hooks are not loaded on the request — and admin-ajax, cron and a REST
+	 * call are all such requests, depending on how the site is set up — it
+	 * returns the value it was handed and the caller reads that as "not
+	 * translated".
+	 *
+	 * icl_translations answers the same question with no hooks at all: every
+	 * translation of one thing shares a trid, and the row for a language holds
+	 * the id. It is the table this class already reads to tell a translation
+	 * from an original, so it is not a new dependency — and when WPML is not
+	 * installed there is no table and the answer is 0.
+	 *
+	 * @param string $type A post type: 'product', 'page', 'post'.
+	 * @return int 0 when there is no translation in that language.
+	 */
+	public static function translated_id( int $post_id, string $type, string $lang ): int {
+		$lang = strtolower( trim( $lang ) );
+		if ( $post_id <= 0 || '' === $lang || ! self::is_active() ) {
+			return 0;
+		}
+		$type = '' !== $type ? $type : 'post';
+		$got  = (int) apply_filters( 'wpml_object_id', $post_id, $type, false, $lang );
+		if ( $got && $got !== $post_id ) {
+			return $got;
+		}
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return 0;
+		}
+		$table = $wpdb->prefix . 'icl_translations';
+		if ( ! self::has_table( $table ) ) {
+			return 0;
+		}
+		static $seen = [];
+		$key = $post_id . '|' . $type . '|' . $lang;
+		if ( array_key_exists( $key, $seen ) ) {
+			return $seen[ $key ];
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table; no API answers this without its hooks.
+		$id = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT t2.element_id FROM {$table} t1
+				 INNER JOIN {$table} t2 ON t2.trid = t1.trid AND t2.language_code = %s
+				 WHERE t1.element_type = %s AND t1.element_id = %d
+				 LIMIT 1",
+				$lang,
+				'post_' . $type,
+				$post_id
+			)
+		);
+		// phpcs:enable
+		$seen[ $key ] = ( $id && $id !== $post_id ) ? $id : 0;
+		return $seen[ $key ];
+	}
+
+	/**
 	 * ONE post, as that language's readers reach it — asked of WPML.
 	 *
 	 * "Toujours le problème des urls fake: kula-tactical.fr/hooded-combat-shirt
@@ -385,10 +448,10 @@ final class DZE_Wpml {
 			$why = 'no-language';
 			return '';
 		}
-		// No fallback: asked with one, WPML hands back the post it was given
-		// and an untranslated product reads as a translated one.
-		$tid = (int) apply_filters( 'wpml_object_id', $post_id, ( '' !== $type ? $type : 'post' ), false, $lang );
-		if ( ! $tid || $tid === $post_id ) {
+		// The filter first, WPML's own table when the filter says nothing —
+		// which is what happened on this shop, for every product at once.
+		$tid = self::translated_id( $post_id, $type, $lang );
+		if ( ! $tid ) {
 			return '';
 		}
 		$link = (string) get_permalink( $tid );

@@ -75,6 +75,10 @@
 	border:1px solid currentColor;font-size:11px;font-style:italic;
 	font-weight:700;line-height:1;cursor:help;vertical-align:middle;opacity:.8;}
 .dze-why:hover,.dze-why:focus{opacity:1;outline:none;}
+/* Red, when what is behind the mark is a failure. NOT is-ko: that class marks
+   a MESSAGE, and the plugin appends "see the log ↗" to every one of them —
+   inside a sixteen-pixel badge it overlapped the sentence beside it. */
+.dze-why.is-bad{color:#b32d2e;}
 
 /* ---------------------------------------------------------------------------
  * A language, drawn the way WPML draws one.

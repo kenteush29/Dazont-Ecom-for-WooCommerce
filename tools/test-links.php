@@ -91,6 +91,13 @@ function apply_filters( $tag, $value = null, ...$args ) {
 	if ( 'wpml_default_language' === $tag ) { return 'en'; }
 	if ( 'wpml_active_languages' === $tag ) { return $GLOBALS['langs'] ?? []; }
 	if ( 'wpml_object_id' === $tag ) {
+		// A FILTER, and a filter only answers where WPML's hooks are loaded.
+		// On this shop they are not, in the request where the emails are
+		// written: every product came back untranslated, which is what sent
+		// every link through a host swap.
+		if ( ! empty( $GLOBALS['no_filter'] ) ) {
+			return $value;
+		}
 		[ , $return_original, $lang ] = $args;
 		$id = (int) ( $GLOBALS['trans'][ (int) $value ][ $lang ] ?? 0 );
 		return $id ?: ( $return_original ? (int) $value : null );
@@ -116,6 +123,28 @@ function dze_convert( string $url, string $lang ): string {
 		default:      return str_replace( 'https://kula.test/', 'https://kula.test/' . $lang . '/', $url );
 	}
 }
+
+// WPML's own table, which answers with no hooks at all: every translation of
+// one thing shares a trid.
+$GLOBALS['icl_table'] = true;
+$GLOBALS['icl_rows']  = [];
+class DZE_Links_Wpdb {
+	public $prefix = 'wp_';
+	public function prepare( $q, ...$a ) { return [ $q, $a ]; }
+	public function get_var( $q ) {
+		[ $sql, $args ] = is_array( $q ) ? $q : [ (string) $q, [] ];
+		if ( false !== strpos( $sql, 'SHOW TABLES LIKE' ) ) {
+			return ! empty( $GLOBALS['icl_table'] ) ? 'wp_icl_translations' : '';
+		}
+		if ( false !== strpos( $sql, 'icl_translations' ) ) {
+			[ $lang, $type, $id ] = $args;
+			return (int) ( $GLOBALS['icl_rows'][ (string) $type ][ (int) $id ][ (string) $lang ] ?? 0 );
+		}
+		return '';
+	}
+	public function get_col( $q ) { return []; }
+}
+$GLOBALS['wpdb'] = new DZE_Links_Wpdb();
 
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
 
@@ -291,6 +320,30 @@ ok( 'an untranslated product answers nothing',
 ok( 'and says so',                       $why, 'not-translated' );
 ok( 'the shop language is not a translation',
 	DZE_Wpml::post_url_in_language( 11, 'product', 'en' ), '' );
+
+echo "When WPML's filter is not loaded, its own table answers\n";
+// The shop's real state, read out of its own Klaviyo account: every product
+// link in every language came back as the ENGLISH slug with the domain
+// swapped — eight products, four languages, all at once. That is not eight
+// untranslated products; it is a question that was never really asked.
+// wpml_object_id is a filter, and where WPML's hooks are not loaded on the
+// request it hands back the id it was given.
+$GLOBALS['no_filter'] = true;
+$GLOBALS['icl_rows']  = [ 'post_product' => [ 11 => [ 'de' => 111, 'fr' => 112 ] ] ];
+shop( 2, [ 'de' => 'kula.de', 'fr' => 'kula.fr' ] );
+ok( 'the translation is found in the table', DZE_Wpml::translated_id( 11, 'product', 'de' ), 111 );
+ok( 'and the address is the German page',
+	DZE_Wpml::post_url_in_language( 11, 'product', 'de' ), 'https://kula.de/de/sturmhaube-spetsnaz' );
+ok( 'a product with no row is not translated',
+	DZE_Wpml::translated_id( 12, 'product', 'de' ), 0 );
+ok( 'and it invents no address for it',
+	DZE_Wpml::post_url_in_language( 12, 'product', 'de' ), '' );
+// No WPML table at all — a shop without WPML — answers nothing rather than
+// dying on a query.
+$GLOBALS['icl_table'] = false;
+ok( 'no table, no answer',              DZE_Wpml::translated_id( 20, 'page', 'de' ), 0 );
+$GLOBALS['icl_table'] = true;
+$GLOBALS['no_filter'] = false;
 
 ok( 'a refused one carries its own mark',
 	false !== strpos( DZE_Wpml::flag_html( 'fr', 'ko' ), 'is-ko' ), true );

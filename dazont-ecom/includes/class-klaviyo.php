@@ -41,6 +41,15 @@ final class DZE_Klaviyo {
 	/** The fewest days between two emails, shipped. The shop may say otherwise. */
 	public const GAP = 3;
 
+	/**
+	 * How long one language may take before the answer is worth nothing.
+	 *
+	 * Under every ordinary gateway limit — nginx hangs up at sixty seconds by
+	 * default — because a request the server kills comes back as a 504 with no
+	 * message in it, and the shop cannot act on that.
+	 */
+	private const I18N_WAIT = 45;
+
 	private const API   = 'https://a.klaviyo.com/api/';
 	// The API revision Klaviyo answers under. It is a DATE, and Klaviyo retires
 	// old ones: pinned at 2025-07-15 this plugin started getting "revision date
@@ -2864,6 +2873,38 @@ final class DZE_Klaviyo {
 	 * @param string[] $targets The languages wanted.
 	 * @return array<string,array<string,string>> value id => lang => value
 	 */
+	/**
+	 * Does this address look like ONE page of the shop rather than a listing?
+	 *
+	 * A listing — the home page, a category, a shop page — is the same address
+	 * in every language and the language's URL rule answers for it. A single
+	 * page is not: its address carries a slug that only exists in the language
+	 * it was written in, and moving the domain under it produces a 404 that
+	 * reads like a translation. When the plugin cannot say which page it is,
+	 * the honest answer is to leave the address alone.
+	 */
+	private static function looks_like_page( string $url ): bool {
+		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		if ( '' === $path ) {
+			return false; // the home page.
+		}
+		$parts = array_values( array_filter( explode( '/', $path ) ) );
+		$last  = strtolower( (string) end( $parts ) );
+		// The shop's own listings, by the words WooCommerce and WordPress use
+		// for them. Anything else with a slug is a page.
+		$lists = [ 'shop', 'boutique', 'tienda', 'sklep', 'product-category', 'categorie-produit',
+			'produkt-kategorie', 'categoria-producto', 'kategoria-produktu', 'cart', 'checkout', 'my-account' ];
+		if ( in_array( $last, $lists, true ) ) {
+			return false;
+		}
+		foreach ( $parts as $one ) {
+			if ( in_array( strtolower( $one ), $lists, true ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	private static function mechanical( array $values, array $targets, array $map = [] ): array {
 		$words = self::translatable( $values );
 		$out   = [];
@@ -2882,9 +2923,22 @@ final class DZE_Klaviyo {
 					$out[ $id ][ $lang ] = (string) $map[ $said ][ $lang ];
 					continue;
 				}
-				$out[ $id ][ $lang ] = method_exists( 'DZE_Wpml', 'url_in_language' )
-					? DZE_Wpml::url_in_language( $said, (string) $lang )
+				// Not a product of this email: the shop's home page, a
+				// category, a Klaviyo variable, a photograph. The language's
+				// URL rule answers for those — they exist in every language —
+				// and leaves what is not ours alone.
+				$why   = '';
+				$moved = method_exists( 'DZE_Wpml', 'url_in_language' )
+					? DZE_Wpml::url_in_language( $said, (string) $lang, $why )
 					: $said;
+				// One exception, and it is the bug the shop kept finding: a
+				// PAGE that the rule moved without anybody knowing it was
+				// translated. Moving the domain of a page address without its
+				// slug is inventing an address; the original is left instead.
+				if ( 'url-rule' === (string) $why && self::looks_like_page( $said ) ) {
+					$moved = $said;
+				}
+				$out[ $id ][ $lang ] = $moved;
 			}
 		}
 		return $out;
@@ -2933,16 +2987,15 @@ final class DZE_Klaviyo {
 					$out[ $here ][ (string) $lang ] = $link;
 					continue;
 				}
-				// No translation of its own: the language's URL rule still puts
-				// the reader on his side of the shop. Same chain as any other
-				// address of this shop, so there is one way of answering this
-				// question and not two that drift.
-				if ( method_exists( 'DZE_Wpml', 'url_in_language' ) ) {
-					$link = DZE_Wpml::url_in_language( $here, (string) $lang );
-					if ( '' !== $link ) {
-						$out[ $here ][ (string) $lang ] = $link;
-					}
-				}
+				// No translation of its own: the page that EXISTS, exactly as
+				// it stands. NOT the language's URL rule — that rule is for
+				// addresses every language shares (the home page, a listing),
+				// and used on a product it invents one:
+				// kula-tactical.fr/hooded-combat-shirt is a 404 dressed up as
+				// a translation, and the shop found eight of them in one
+				// email. A missing translation falls back to the original
+				// page, which is what the owner asked for and what works.
+				$out[ $here ][ (string) $lang ] = $here;
 			}
 		}
 		return $out;
@@ -3482,16 +3535,18 @@ final class DZE_Klaviyo {
 		// minutes a language and the shop watched a button; run on the fast
 		// one it is seconds, and what comes back is verified against what was
 		// sent either way.
-		// Asked twice at most. One language of five coming back empty — "Nothing
-		// came back for DE" on an email whose four other languages were
-		// written — is a model that hiccuped, not a shop that is misconfigured,
-		// and making a person notice it and press the button again is making
-		// him do the retry by hand.
-		$json = null;
-		for ( $try = 0; $try < 2 && ! is_array( $json ); $try++ ) {
-			$said = DZE_Marketing_Ai::complete( $system, $user, self::I18N_MODEL, 8000, 120 );
-			$json = json_decode( self::json_of( $said ), true );
-		}
+		// ONE call, and a short one. It used to be asked twice at up to two
+		// minutes each, inside a single admin-ajax request — four minutes on
+		// one language — and a server does not wait that long: the shop got
+		// "The translation did not finish. (504)" on German, which is its own
+		// gateway hanging up, not the model refusing. A refusal we can read
+		// and say is worth more than an answer nobody waits for.
+		//
+		// The retry did not go: it MOVED, to the browser, which asks again in
+		// a request of its own. Two short requests where there was one long
+		// one, and the same second chance.
+		$said = DZE_Marketing_Ai::complete( $system, $user, self::I18N_MODEL, 8000, self::I18N_WAIT );
+		$json = json_decode( self::json_of( $said ), true );
 		if ( ! is_array( $json ) ) {
 			return [];
 		}
@@ -7448,6 +7503,12 @@ final class DZE_Klaviyo {
 					margin-left:6px;border-radius:50%;border:1px solid currentColor;font-size:11px;
 					font-style:italic;font-weight:700;line-height:1;cursor:help;vertical-align:middle;opacity:.8;}
 				.dze-why:hover,.dze-why:focus{opacity:1;outline:none;}
+				/* The mark is a BADGE, sixteen pixels across: it is not a
+				   message, and the "see the log" link the plugin adds to every
+				   failure on screen was landing INSIDE it and running across
+				   the sentence beside it. is-bad colours it; is-ko is what
+				   marks a message. */
+				.dze-why.is-bad{color:#b32d2e;}
 				.dze-mail-check{display:block;margin-top:3px;font-size:12px;color:#996800;}
 				.dze-mail.is-syncing{background:#f4f9ff;}
 				.dze-klav-switch .button{border-radius:0;margin:0;}
@@ -7586,7 +7647,7 @@ CSS;
 				if ( $dze_told ) :
 					$dze_note = implode( ' · ', $dze_told );
 					?>
-					<span class="dze-why<?php echo $dze_ko ? ' is-ko' : ''; ?>" tabindex="0" role="button" title="<?php echo esc_attr( $dze_note ); ?>" aria-label="<?php echo esc_attr( $dze_note ); ?>">i</span>
+					<span class="dze-why<?php echo $dze_ko ? ' is-bad' : ''; ?>" tabindex="0" role="button" title="<?php echo esc_attr( $dze_note ); ?>" aria-label="<?php echo esc_attr( $dze_note ); ?>">i</span>
 				<?php endif; ?>
 			</span>
 			<?php
@@ -7607,7 +7668,7 @@ CSS;
 					$dze_lost_why = trim( (string) ( $mail['draft']['i18n_why'] ?? '' ) );
 					if ( '' !== $dze_lost_why ) :
 						?>
-						<span class="dze-why is-ko" tabindex="0" role="button" title="<?php echo esc_attr( $dze_lost_why ); ?>" aria-label="<?php echo esc_attr( $dze_lost_why ); ?>">i</span>
+						<span class="dze-why is-bad" tabindex="0" role="button" title="<?php echo esc_attr( $dze_lost_why ); ?>" aria-label="<?php echo esc_attr( $dze_lost_why ); ?>">i</span>
 					<?php endif; ?>
 				</span>
 			<?php endif; ?>
@@ -7619,7 +7680,7 @@ CSS;
 				?>
 				<span class="dze-mail-links" style="color:#b26a00;">
 					<?php esc_html_e( 'Links did not move — see why', 'dazont-ecom' ); ?>
-					<span class="dze-why is-ko" tabindex="0" role="button" title="<?php echo esc_attr( $dze_links ); ?>" aria-label="<?php echo esc_attr( $dze_links ); ?>">i</span>
+					<span class="dze-why is-bad" tabindex="0" role="button" title="<?php echo esc_attr( $dze_links ); ?>" aria-label="<?php echo esc_attr( $dze_links ); ?>">i</span>
 				</span>
 			<?php endif; ?>
 			<?php

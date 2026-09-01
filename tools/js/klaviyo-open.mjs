@@ -243,6 +243,8 @@ await page.waitForTimeout( 200 );
 ok( 'Translate asks for the languages', posted[0], 'dze_klav_langs' );
 ok( 'writes each one',
 	posted.filter( a => 'dze_klav_i18n' === a ).length, 2 );
+ok( 'and asks no language twice when it answers',
+	posted.filter( a => 'dze_klav_i18n' === a ).length, 2 );
 ok( 'and files them in a single call',
 	posted.filter( a => 'dze_klav_i18nsave' === a ).length, 1 );
 // The end state is the SERVER'S cell, never a sentence the browser wrote:
@@ -462,6 +464,56 @@ ok( 'the email carries that picture',
 	await page.evaluate( () => document.querySelector( '.dze-mail.is-on .dze-f-picture' ).value ), 'https://cdn.test/shot.jpg' );
 ok( 'nothing was raised on the bench', errors, [] );
 
+// A language whose request never comes back is asked ONE more time, in a
+// request of its own. It used to be retried inside the same request — two
+// model calls of up to two minutes behind one HTTP call — and the shop's own
+// server hung up on it: "The translation did not finish. (504)", which is a
+// gateway, not a model, and carries nothing to read.
+await page.unroute( 'http://dze.test/ajax*' );
+{
+	let deTries = 0;
+	await page.route( 'http://dze.test/ajax*', route => {
+		const body = new URLSearchParams( route.request().postData() || '' );
+		const asked = body.get( 'action' );
+		posted.push( asked );
+		if ( 'dze_klav_langs' === asked ) {
+			return route.fulfill( { status: 200, contentType: 'application/json',
+				body: JSON.stringify( { success: true, data: { langs: [ 'fr', 'de' ] } } ) } );
+		}
+		if ( 'dze_klav_i18n' === asked && 'de' === body.get( 'lang' ) ) {
+			deTries += 1;
+			// The gateway, exactly as the shop met it: no JSON, no message.
+			if ( 1 === deTries ) {
+				return route.fulfill( { status: 504, contentType: 'text/html', body: '<html>Gateway Time-out</html>' } );
+			}
+		}
+		if ( 'dze_klav_i18nsave' === asked ) {
+			return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( {
+				success: true, data: { done: 40, langs: [ 'fr', 'de' ],
+					state: '<span class="dze-mail-langs"><span class="dze-langs">'
+						+ '<span class="dze-lang is-done"><span class="dze-lang-code">FR</span></span>'
+						+ '<span class="dze-lang is-done"><span class="dze-lang-code">DE</span></span>'
+						+ '</span></span>'
+						+ '<button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>' } } ) } );
+		}
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
+	} );
+	posted.length = 0;
+	await page.click( '.dze-mail-i18n' );
+	for ( let i = 0; i < 100 && ! posted.includes( 'dze_klav_i18nsave' ); i++ ) { await page.waitForTimeout( 100 ); }
+	await page.waitForTimeout( 200 );
+	ok( 'the language that failed is asked again', deTries, 2 );
+	ok( 'and only once more',
+		posted.filter( a => 'dze_klav_i18n' === a ).length, 3 );
+	ok( 'the run still files what it has',
+		posted.filter( a => 'dze_klav_i18nsave' === a ).length, 1 );
+	ok( 'and the row is drawn by the server',
+		await page.evaluate( () => document.querySelectorAll( '.dze-mail[data-id="mail1"] .dze-lang.is-done' ).length ), 2 );
+}
+// The 504 above is this test's own: it must not be read as a screen that
+// raised something.
+errors.length = 0;
+
 // The batch says, ON THE ROW, what it is doing to that email — the counter at
 // the bottom never said WHICH email was travelling nor which one failed.
 // One email succeeds, the row it belongs to ends on its note and its link.
@@ -605,6 +657,26 @@ ok( 'the row does not overflow the list',
 		const l = document.querySelector( '.dze-mail-list' );
 		return l.scrollWidth <= l.clientWidth + 1;
 	} ), true );
+
+// "see the log ↗" goes on MESSAGES. The plugin appends it to everything
+// carrying is-ko, and the mark that hides a long explanation is a badge
+// sixteen pixels across: the link landed inside it and ran across the
+// sentence beside it, which is the overlap the shop photographed.
+await page.evaluate( () => {
+	window.dzeLogLink = { url: 'https://shop.test/wp-admin/admin.php?page=dze-health', label: 'see the log ↗', title: 'The log' };
+	const row = document.querySelector( '.dze-mail-state' );
+	row.insertAdjacentHTML( 'beforeend',
+		'<span class="dze-mail-lost">Not written in DE <span class="dze-why is-bad" title="504">i</span></span>'
+		+ '<span class="dze-mail-note is-ko">Klaviyo said no.</span>' );
+} );
+await page.addScriptTag( { path: join( root, 'dazont-ecom/admin/js/log-link.js' ) } );
+await page.waitForTimeout( 250 );
+ok( 'the badge is left alone',
+	await page.evaluate( () => document.querySelectorAll( '.dze-why .dze-logl' ).length ), 0 );
+ok( 'and the message still carries the link',
+	await page.evaluate( () => document.querySelectorAll( '.dze-mail-note.is-ko .dze-logl' ).length ), 1 );
+ok( 'the warning reads as one sentence',
+	( await page.textContent( '.dze-mail-lost' ) ).trim(), 'Not written in DE i' );
 
 await page.close();
 }
