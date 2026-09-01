@@ -2981,6 +2981,26 @@ final class DZE_Klaviyo {
 	 * @param string[] $langs
 	 * @return array<string,array<string,string>> the English name => lang => name
 	 */
+	/**
+	 * The names of these products as the shop itself writes them.
+	 *
+	 * @param int[] $ids
+	 * @return string[] longest first, so a name that contains another is
+	 *                  replaced before the shorter one eats half of it.
+	 */
+	public static function product_names( array $ids ): array {
+		$out = [];
+		foreach ( $ids as $pid ) {
+			$name = trim( wp_strip_all_tags( (string) get_the_title( (int) $pid ) ) );
+			if ( '' !== $name ) {
+				$out[] = $name;
+			}
+		}
+		$out = array_values( array_unique( $out ) );
+		usort( $out, static fn( $a, $b ) => strlen( $b ) <=> strlen( $a ) );
+		return $out;
+	}
+
 	public static function name_map( array $ids, array $langs ): array {
 		$out = [];
 		if ( ! $ids || ! $langs || ! method_exists( 'DZE_Wpml', 'translated_id' ) ) {
@@ -3438,7 +3458,21 @@ final class DZE_Klaviyo {
 		$lang = (string) reset( $targets );
 		$mail = self::emails_for( $rule_id )[ $email_id ] ?? [];
 		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
-		$said  = self::ask_translation( $texts, $source, $lang, (array) ( $rules[ $rule_id ] ?? [] ), $mail );
+		// The product names, taken OUT of what the model sees. A name is a
+		// fact, like a price or a link: the rule "never translate a product
+		// name" was in the prompt, and the shop got "A-Tacs FG Military Combat
+		// Uniform" on the German card beside two names the model had
+		// translated anyway. What a model must not decide, it is not shown.
+		$goods = (array) ( $mail['products'] ?? [] );
+		$said  = self::ask_translation(
+			$texts,
+			$source,
+			$lang,
+			(array) ( $rules[ $rule_id ] ?? [] ),
+			$mail,
+			self::product_names( $goods ),
+			self::name_map( $goods, [ $lang ] )
+		);
 		$keep  = [];
 		foreach ( $said as $vid => $text ) {
 			// Only what was asked about, and only where something came back.
@@ -3593,17 +3627,28 @@ final class DZE_Klaviyo {
 	 * @param array<string,string> $texts
 	 * @return array<string,string>
 	 */
-	private static function ask_translation( array $texts, string $source, string $lang, array $rule, array $mail ): array {
+	private static function ask_translation( array $texts, string $source, string $lang, array $rule, array $mail, array $names = [], array $known = [] ): array {
 		$keys = array_keys( $texts );
+		// Every product name replaced by a marker before the text is shown to
+		// the model, and put back in the reader's own language afterwards. It
+		// is the same gesture the email body already uses for the products
+		// themselves: what the shop knows is never asked of a model.
+		$mark = [];
+		foreach ( $names as $i => $name ) {
+			$mark[ '[[NAME' . ( $i + 1 ) . ']]' ] = (string) $name;
+		}
 		$rows = [];
 		foreach ( array_values( $texts ) as $i => $one ) {
+			foreach ( $mark as $tag => $name ) {
+				$one = str_replace( $name, $tag, (string) $one );
+			}
 			$rows[] = '### ' . ( $i + 1 ) . "\n" . $one;
 		}
 		$system = "You translate a marketing email for an online shop, from " . $source . " into " . $lang . ".\n"
 			. "\n"
 			. "RULES, all of them absolute:\n"
 			. "- Translate the WORDS ONLY. Every HTML tag, attribute and style stays exactly as it is, in the same order.\n"
-			. "- Never translate or alter a URL, an email address, a price, a currency symbol, a figure, a product name, or anything between {{ }} or {% %}.\n"
+			. "- Never translate or alter a URL, an email address, a price, a currency symbol, a figure, a product name, or anything between {{ }}, {% %} or [[ ]].\n"
 			. "- Keep the length close to the original: this text sits in a fixed layout, and a heading twice as long breaks the email.\n"
 			. "- Write the way a shop writes to its customers in " . $lang . " — not the way a machine renders " . $source . " word by word.\n"
 			. "- Answer with JSON and nothing else: an object whose keys are the numbers you were given and whose values are the translations. No commentary, no code fence.";
@@ -3639,9 +3684,18 @@ final class DZE_Klaviyo {
 		$out = [];
 		foreach ( $json as $n => $text ) {
 			$i = (int) $n - 1;
-			if ( isset( $keys[ $i ] ) && is_string( $text ) ) {
-				$out[ $keys[ $i ] ] = $text;
+			if ( ! isset( $keys[ $i ] ) || ! is_string( $text ) ) {
+				continue;
 			}
+			// The names put back, in the reader's own language when the shop
+			// has that product in it, and as the shop writes them when it does
+			// not. A marker the model dropped or mangled leaves the text
+			// without a name rather than with a made-up one — so what is left
+			// of one is cleaned out.
+			foreach ( $mark as $tag => $name ) {
+				$text = str_replace( $tag, (string) ( $known[ $name ][ $lang ] ?? $name ), $text );
+			}
+			$out[ $keys[ $i ] ] = $text;
 		}
 		return $out;
 	}
