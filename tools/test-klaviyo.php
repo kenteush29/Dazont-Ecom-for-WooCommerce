@@ -89,6 +89,8 @@ function apply_filters( $t, $v = null, ...$r ) {
 }
 function get_permalink( $id ) { return $GLOBALS['dze_perma'][ (int) $id ] ?? ''; }
 function get_the_title( $id = 0 ) { return $GLOBALS['dze_titles'][ (int) $id ] ?? ( 'Product ' . (int) $id ); }
+function get_post_type( $id = 0 ) { return $GLOBALS['dze_types'][ (int) $id ] ?? 'product'; }
+function html_entity_decode_all( $s ) { return $s; }
 // The shop's product URLs do not resolve back into a post — which is exactly
 // the state this shop is in, and why nothing may depend on it.
 function url_to_postid( $url ) { $GLOBALS['dze_resolved'][] = $url; return 0; }
@@ -209,6 +211,12 @@ class DZE_Wpml {
 	 * ask for now: the translation's SLUG and the place that language lives,
 	 * both from WPML rather than half of each built here.
 	 */
+	/** The post one of the shop's addresses points at, by SLUG. */
+	public static function post_of( $url ) {
+		$path = trim( (string) parse_url( (string) $url, PHP_URL_PATH ), '/' );
+		$bits = explode( '/', $path );
+		return (int) ( $GLOBALS['dze_slugs'][ (string) end( $bits ) ] ?? 0 );
+	}
 	/** WPML's answer for "which post is this one in that language". */
 	public static function translated_id( $post_id, $type, $lang, &$how = null ) {
 		$id  = (int) ( $GLOBALS['dze_trans'][ (int) $post_id ][ $lang ] ?? 0 );
@@ -287,7 +295,7 @@ class WC_Product {
 	public function __construct( $id ) { $this->id = (int) $id; }
 	public function get_id() { return $this->id; }
 	public function get_name() { return $GLOBALS['dze_titles'][ $this->id ] ?? ( 'Product ' . $this->id ); }
-	public function get_permalink() { return 'https://kula.test/p/' . $this->id; }
+	public function get_permalink() { return $GLOBALS['dze_perma'][ $this->id ] ?? ( 'https://kula.test/p/' . $this->id ); }
 	public function get_image_id() { return 900 + $this->id; }
 	public function get_regular_price() { return 20 + $this->id; }
 	public function get_price_html() { return '$' . ( 20 + $this->id ); }
@@ -1239,6 +1247,14 @@ $GLOBALS['dze_answers'] = [ json_encode( [
 	'body'    => '<table role="presentation"><tr><td><h1>The words</h1><p>Must arrive.</p>[[PRODUCT 1]][[PRODUCT 2]]<p>Every one of them.</p></td></tr></table>',
 ] ) ];
 $made  = DZE_Klaviyo::write_for( 'promo', $promo2, $ids2[1] );
+// WHICH products went in, recorded as they were put in. Everything mechanical
+// — the links per language, the names per language — needs to know exactly
+// what this email shows, and this is the only moment anything does: the
+// writing chose the markers and the shop filled them.
+ok( 'the writing records what it put in',
+	count( (array) ( $made['shown'] ?? [] ) ), 2 );
+ok( 'and they are the products it was dealt',
+	array_values( (array) ( $made['shown'] ?? [] ) ), array_slice( array_values( (array) DZE_Klaviyo::material_for( 'promo', $promo2, $ids2[1] )['ids'] ), 0, 2 ) );
 $rows9 = DZE_Klaviyo_Blocks::rows( (string) $made['body'], [ 'head' => 'A', 'body' => 'B', 'ink' => '#111', 'link' => '#0a0', 'size' => 16, 'btn_bg' => '#0a0', 'btn_ink' => '#fff', 'card' => '#fff', 'border' => '#eee', 'radius' => 4, 'sale' => '#900', 'strike' => '#999' ] );
 $flat9 = wp_strip_all_tags( (string) json_encode( $rows9 ) );
 ok( 'the heading reaches the blocks',     false !== strpos( $flat9, 'The words' ), true );
@@ -2114,6 +2130,88 @@ ok( 'and the product\'s own French name',
 ok( "the photograph's alt text too",
 	$sent2['a::data.attributes.alt_text']['fr'] ?? '', 'Uniforme de combat A-Tacs FG' );
 $GLOBALS['dze_reply'] = [ 'code' => 200, 'body' => $values ];
+
+echo "The shop's own email, end to end — its real values, its real German page\n";
+// Not an illustration: these are the values read back out of the account for
+// "Patriot Day Sale is live: 15% off everything", with the card as Klaviyo
+// stores it — the product name INSIDE the text block, the prices beside it —
+// and the German product as WordPress holds it.
+$GLOBALS['dze_titles'] = [
+	31 => 'Modular chest rig for special forces "Y-Keda"',
+	32 => 'Modulares Brusttragesystem für Spezialeinheiten „Y-Keda“',
+];
+$GLOBALS['dze_trans']  = [ 31 => [ 'de' => 32 ] ];
+$GLOBALS['dze_perma']  = [
+	31 => 'https://kula-tactical.com/modular-chest-rig-for-special-forces-y-keda',
+	32 => 'https://kula-tactical.de/modulares-brusttragesystem-y-keda',
+];
+$GLOBALS['dze_slugs']  = [ 'modular-chest-rig-for-special-forces-y-keda' => 31 ];
+$GLOBALS['dze_types']  = [ 31 => 'product', 32 => 'product' ];
+// The email as the shop holds it: written before anything recorded its
+// products, so it carries no list at all — which is the state his own email
+// was in, and the reason nothing was ever filled.
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'live' => [
+	'kind' => 'launch', 'subject' => 'Patriot Day Sale is live: 15% off everything',
+	'body' => '<p>Shop the sale</p><a href="https://kula-tactical.com/modular-chest-rig-for-special-forces-y-keda">'
+		. 'Modular chest rig for special forces "Y-Keda"</a>',
+	'draft' => [ 'campaign' => 'C1', 'message' => '01ABC', 'langs' => [ 'de' ] ],
+] ] ] ];
+ok( 'the email says which products it shows',
+	DZE_Klaviyo::goods_of( 'promo', [ 'title' => 'Patriot Day Sale' ], 'live' ), [ 31 ] );
+
+// The values, exactly as Klaviyo returns them for this email.
+$live = json_encode( [ 'data' => [ 'attributes' => [ 'values' => [
+	[ 'id' => 'BlockType.Text::275e::data.content',
+		'source_value' => '<div style="text-align:center;">Modular chest rig for special forces "Y-Keda"</div>'
+			. '<div style="text-align:center;"><span style="color:#888;"><s>$187.90</s></span> <span>$158.90</span></div>' ],
+	[ 'id' => 'BlockType.Image::3531::data.attributes.alt_text',
+		'source_value' => 'Modular chest rig for special forces "Y-Keda"' ],
+	[ 'id' => 'BlockType.Image::3531::data.attributes.href',
+		'source_value' => 'https://kula-tactical.com/modular-chest-rig-for-special-forces-y-keda' ],
+	[ 'id' => 'BlockType.Button::d94e::data.attributes.href',
+		'source_value' => 'https://kula-tactical.com/modular-chest-rig-for-special-forces-y-keda' ],
+] ] ] ] );
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $live ];
+$GLOBALS['dze_asked']   = [];
+// A model that behaves exactly as his did: it translates every word it is
+// shown, product names included, and keeps a marker it does not understand.
+$GLOBALS['dze_answers'] = [ json_encode( [
+	'1' => '<div style="text-align:center;">[[NAME1]]</div><div style="text-align:center;"><span style="color:#888;"><s>$187.90</s></span> <span>$158.90</span></div>',
+	'2' => '[[NAME1]]',
+] ) ];
+DZE_Klaviyo::translate_language( 'promo', 'live', 'de' );
+$asked_txt = (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' );
+ok( 'the model is never shown the product name',
+	false !== strpos( $asked_txt, 'Modular chest rig for special forces' ), false );
+$GLOBALS['dze_sent'] = [];
+DZE_Klaviyo::save_translations( 'promo', 'live' );
+$patch4 = array_values( array_filter( $GLOBALS['dze_sent'], fn( $c ) => 'PATCH' === ( $c['method'] ?? '' ) ) );
+$sent4  = [];
+foreach ( (array) ( json_decode( (string) ( $patch4[0]['body'] ?? '' ), true )['data']['attributes']['values'] ?? [] ) as $v ) {
+	$sent4[ $v['id'] ] = $v['translations'];
+}
+ok( 'the card carries the shop\'s own German name',
+	false !== strpos( (string) ( $sent4['BlockType.Text::275e::data.content']['de'] ?? '' ), 'Modulares Brusttragesystem für Spezialeinheiten „Y-Keda“' ), true );
+ok( 'and never the model\'s version of it',
+	false !== strpos( (string) ( $sent4['BlockType.Text::275e::data.content']['de'] ?? '' ), 'Modularer Chest Rig' ), false );
+ok( 'the prices are untouched',
+	false !== strpos( (string) ( $sent4['BlockType.Text::275e::data.content']['de'] ?? '' ), '$158.90' ), true );
+ok( 'the alt text too',
+	$sent4['BlockType.Image::3531::data.attributes.alt_text']['de'] ?? '', 'Modulares Brusttragesystem für Spezialeinheiten „Y-Keda“' );
+ok( 'the photograph links to the German page',
+	$sent4['BlockType.Image::3531::data.attributes.href']['de'] ?? '', 'https://kula-tactical.de/modulares-brusttragesystem-y-keda' );
+ok( 'and so does the button',
+	$sent4['BlockType.Button::d94e::data.attributes.href']['de'] ?? '', 'https://kula-tactical.de/modulares-brusttragesystem-y-keda' );
+ok( 'no English slug is left on the German domain',
+	false !== strpos( (string) ( $sent4['BlockType.Button::d94e::data.attributes.href']['de'] ?? '' ), 'modular-chest-rig' ), false );
+$GLOBALS['dze_answers'] = [];
+$GLOBALS['dze_reply']   = [ 'code' => 200, 'body' => $values ];
+// The shop as the rest of this file knows it.
+$GLOBALS['dze_trans']  = [ 7 => [ 'fr' => 77, 'de' => 78 ] ];
+$GLOBALS['dze_titles'] = [ 7 => 'A-Tacs FG Military Combat Uniform', 77 => 'Uniforme de combat A-Tacs FG', 78 => 'A-Tacs FG Gefechtsuniform' ];
+$GLOBALS['dze_perma']  = [ 77 => 'https://kula.test/fr/cagoule', 78 => 'https://kula.test/de/sturmhaube' ];
+$GLOBALS['dze_slugs']  = [];
+$GLOBALS['dze_types']  = [];
 
 echo "The shop can see what a link becomes, before any email exists\n";
 // The mapping depends on how WPML was set up on THIS shop, and no test here
