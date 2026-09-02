@@ -39,7 +39,8 @@ function wp_parse_url( $u, $c = -1 ) { return parse_url( (string) $u, $c ); }
 function add_action() {} function add_filter() {} function do_action() {} function apply_filters( $t, $v = null, ...$r ) { return $v; }
 function is_admin() { return false; } // the constructor's admin hooks are not the subject
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
-function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
+$GLOBALS['home'] = 'https://kula.test';
+function home_url( $p = '/' ) { return $GLOBALS['home'] . $p; }
 function wp_nonce_url( $u, $a = '' ) { return $u; }
 function wp_create_nonce( $a = '' ) { return 'n'; }
 function human_time_diff( $from, $to = 0 ) { return max( 1, (int) round( ( ( $to ?: time() ) - $from ) / 60 ) ) . ' mins'; }
@@ -75,6 +76,7 @@ class DZE_Discounts { const MENU_SLUG_EVENTS = 'dazont-ecom-events'; public stat
 class DZE_Health { public static function log( ...$a ) {} }
 class DZE_Modules { public static function enabled( $id ) { return true; } }
 
+require __DIR__ . '/../' . $dir . '/includes/class-site.php';
 require __DIR__ . '/../' . $dir . '/includes/class-gmc.php';
 
 $fails = 0;
@@ -179,6 +181,37 @@ $GLOBALS['reply'] = [ 'response' => [ 'code' => 403 ], 'body' => json_encode( [ 
 $ads = DZE_Gmc::instance()->ads_links_state( '711906774' );
 ok( 'a live connection is not blamed',  ! empty( $ads['gone'] ), false );
 ok( "and Google's own words are kept",  false !== strpos( (string) $ads['error'], 'Merchant API' ), true );
+
+echo "A copy of the shop never pushes to the real Merchant Center\n";
+// The same danger as Klaviyo, and worse for being invisible: a staging site
+// carries the service account, and a feed pushed from it lands on the shop's
+// own Google account. Refused where every call passes.
+$GLOBALS['opts'][ DZE_Site::OPT_HOME ] = 'kula.test';
+$GLOBALS['home'] = 'https://test.kula.test';
+$GLOBALS['asked'] = [];
+$GLOBALS['reply'] = [ 'body' => json_encode( [ 'name' => 'ok' ] ) ];
+$dze_call = new ReflectionMethod( 'DZE_Gmc', 'request' );
+$dze_call->setAccessible( true );
+$dze_said = '';
+try {
+	$dze_call->invoke( DZE_Gmc::instance(), 'POST', 'https://merchantapi.googleapis.com/x', 'tok', [ 'a' => 1 ] );
+} catch ( Throwable $e ) {
+	$dze_said = $e->getMessage();
+}
+ok( 'the push is refused',              '' !== $dze_said, true );
+ok( 'and nothing left the site',        $GLOBALS['asked'], [] );
+ok( 'the refusal names Google',         false !== strpos( $dze_said, 'Google' ), true );
+ok( 'and the site it is running on',    false !== strpos( $dze_said, 'test.kula.test' ), true );
+// Reading is what keeps the screens useful on a test site.
+$GLOBALS['asked'] = [];
+$dze_call->invoke( DZE_Gmc::instance(), 'GET', 'https://merchantapi.googleapis.com/x', 'tok' );
+ok( 'reading still goes through',       count( $GLOBALS['asked'] ), 1 );
+// The shop itself is untouched by any of it.
+$GLOBALS['home'] = 'https://kula.test';
+$GLOBALS['asked'] = [];
+$dze_call->invoke( DZE_Gmc::instance(), 'POST', 'https://merchantapi.googleapis.com/x', 'tok', [ 'a' => 1 ] );
+ok( 'the shop itself pushes as before', count( $GLOBALS['asked'] ), 1 );
+unset( $GLOBALS['opts'][ DZE_Site::OPT_HOME ] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

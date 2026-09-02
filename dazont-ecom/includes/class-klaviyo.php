@@ -1050,6 +1050,13 @@ final class DZE_Klaviyo {
 		if ( '' === $key ) {
 			return new WP_Error( 'dze_klav_key', __( 'No Klaviyo private API key is saved yet.', 'dazont-ecom' ) );
 		}
+		// A staging site is a COPY of the shop, this key included. Reading is
+		// left open — most of what a test site is for is looking at what the
+		// real account holds — and every write is refused HERE, in the one
+		// place they all pass through, rather than in the twenty callers.
+		if ( class_exists( 'DZE_Site' ) && DZE_Site::blocks( $method ) ) {
+			return new WP_Error( 'dze_site_copy', DZE_Site::why( 'Klaviyo' ) );
+		}
 		$args = [
 			'method'      => $method,
 			'timeout'     => $timeout,

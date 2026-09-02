@@ -318,6 +318,12 @@ final class DZE_Automation {
 		if ( ! $conf['on'] && ! $forced ) {
 			return 'off';
 		}
+		// A copy of the shop does not work on its own. Pressed by hand it
+		// does: a test site exists to be tried, and everything these tasks
+		// write stays on the site — what leaves it is refused elsewhere.
+		if ( class_exists( 'DZE_Site' ) && ! DZE_Site::autopilot_ok( $forced ) ) {
+			return 'copy';
+		}
 		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
 			return 'budget';
 		}
@@ -1083,6 +1089,8 @@ final class DZE_Automation {
 				return __( 'That category is already waiting in the queue.', 'dazont-ecom' );
 			case 'off':
 				return __( 'This task is switched off.', 'dazont-ecom' );
+			case 'copy':
+				return __( 'This site is a copy of the shop, so nothing runs on its own here — press Run now to try a task.', 'dazont-ecom' );
 			case 'early':
 				return __( 'Too soon after the last one — it is spread on purpose.', 'dazont-ecom' );
 			case 'failed':

@@ -3,7 +3,7 @@
  * Plugin Name:       Dazont Ecom
  * Plugin URI:        https://github.com/kenteush29/Dazont-Ecom-for-WooCommerce
  * Description:       Dazont Ecom toolkit for WooCommerce. Modules (each switchable under Settings → Modules): Restock, Trending Products, Discounts & Marketing events, Google Merchant Center promotions, Marketing Assistant, Sourcing Assistant, Product Content, POD image, Variation Split, Dashboard.
- * Version:           4.279.0
+ * Version:           4.280.0
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            Dazont
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'DZE_VERSION', '4.279.0' );
+define( 'DZE_VERSION', '4.280.0' );
 define( 'DZE_FILE',    __FILE__ );
 define( 'DZE_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'DZE_URL',     plugin_dir_url( __FILE__ ) );
@@ -66,6 +66,10 @@ final class DZE_Plugin {
 		DZE_Modules::instance();
 		DZE_Modules::boot();
 		DZE_Api_Keys::init();
+		// Always on, and never a module: a staging copy of the shop must not
+		// be able to write into the real Klaviyo account or the real Merchant
+		// Center, and a protection somebody can switch off is not one.
+		DZE_Site::init();
 		DZE_Price::init(); // charm rounding, shared by Discounts and Product Content.
 		if ( is_admin() ) {
 			DZE_Prompts::init();    // "see the prompt" buttons; admin-only by nature.

@@ -256,6 +256,16 @@ owner communicates in French.
   what is handed over (and that the front-end shortcode and a disabled module
   get none of it), and the browser gate opens the plugin's own rendering and
   reads the chips back, on the right days, linking to their promotion.
+- **`php tools/test-copy.php dazont-ecom` must pass.** A staging site is a COPY
+  of the shop — same Klaviyo key, same Google service account, same scheduled
+  hooks — and nothing in the plugin used to tell the two apart: one cron tick
+  on the copy wrote campaigns into the real account. `DZE_Site` records the
+  address the shop was set up on; on a copy every outward WRITE is refused at
+  the one place each service passes through (`DZE_Klaviyo::request()`,
+  `DZE_Gmc::request()`), reading stays open, and nothing scheduled runs — a
+  pass pressed by hand does. It has to be right in BOTH directions: a shop
+  wrongly called a copy is a shop that has quietly stopped sending, so a shop
+  updating to this version adopts itself silently and nothing changes for it.
 - **`php tools/test-gmc-token.php dazont-ecom` must pass.** Google answers
   `invalid_grant` / "Token has been expired or revoked" when the authorisation
   is GONE: no retry fixes it, so it is recognised, written down once on the
