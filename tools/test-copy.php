@@ -22,7 +22,34 @@ $GLOBALS['opts'] = [];
 function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ) ? $GLOBALS['opts'][ $k ] : $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['auto'][ $k ] = $a; $GLOBALS['opts'][ $k ] = $v; return true; }
 
+function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
+function esc_attr( $s ) { return esc_html( $s ); }
+function esc_url( $s ) { return (string) $s; }
+function esc_html__( $s, $d = '' ) { return $s; }
+function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
+function esc_attr__( $s, $d = '' ) { return $s; }
+function current_user_can( $c ) { return true; }
+function add_action( ...$a ) {}
+function admin_url( $p = '' ) { return 'http://s/wp-admin/' . $p; }
+function add_query_arg( $args, $url = '' ) { return $url . '?' . http_build_query( $args ); }
+function wp_nonce_url( $u, $a = '' ) { return $u . '&_wpnonce=n'; }
+
 require __DIR__ . '/../' . $dir . '/includes/class-site.php';
+
+/** The line as the Health tab prints it. */
+function line(): string {
+	ob_start();
+	DZE_Site::render_line();
+	return trim( preg_replace( '/\s+/', ' ', wp_strip_tags( (string) ob_get_clean() ) ) );
+}
+function wp_strip_tags( $s ) { return html_entity_decode( strip_tags( (string) $s ), ENT_QUOTES ); }
+
+/** The banner, as every admin screen of a copy prints it. */
+function banner(): string {
+	ob_start();
+	DZE_Site::notice();
+	return trim( preg_replace( '/\s+/', ' ', wp_strip_tags( (string) ob_get_clean() ) ) );
+}
 
 $fails = 0;
 $ran   = 0;
@@ -105,6 +132,51 @@ ok( 'a scheduled run does not happen',  DZE_Site::autopilot_ok( false ), false )
 ok( 'one he presses himself does',      DZE_Site::autopilot_ok( true ), true );
 $GLOBALS['home'] = 'https://kula-tactical.com';
 ok( 'and the shop itself runs on its own', DZE_Site::autopilot_ok( false ), true );
+
+echo "The line says the STATE, and an address only when it is the reason\n";
+// "Ca semble un peu bugé non ? En tout cas c'est tres mal fait." It printed
+// "a copy of the shop (set up on test.kula-tactical.com, running on
+// test.kula-tactical.com)" — the same address twice, offered as the evidence
+// for a conclusion it does not support. It was a copy because he had SAID so,
+// and the line showed the plugin's reckoning instead of that.
+$GLOBALS['opts'] = [];
+$GLOBALS['home'] = 'https://kula-tactical.com';
+DZE_Site::learn();
+ok( 'the shop knows why it is not a copy', DZE_Site::reason(), '' );
+$said = line();
+ok( 'it says what it is',               false !== strpos( $said, 'the shop itself' ), true );
+ok( 'and shows no address at all',      false !== strpos( $said, 'kula-tactical.com' ), false );
+ok( 'offering the one thing to press',  false !== strpos( $said, 'This site is a copy' ), true );
+
+DZE_Site::declare_copy();
+ok( 'a declared copy says so',          DZE_Site::reason(), 'declared' );
+$said = line();
+ok( 'it names the reason',              false !== strpos( $said, 'because you said so' ), true );
+// The bug, in one check: the same address printed twice as an explanation.
+ok( 'and shows no address',             false !== strpos( $said, 'kula-tactical.com' ), false );
+ok( 'the consequence is beside it',     false !== strpos( $said, 'Nothing is sent' ), true );
+ok( 'and the way back',                 false !== strpos( $said, 'This is now the shop' ), true );
+
+DZE_Site::adopt();
+$GLOBALS['home'] = 'https://test.kula-tactical.com';
+ok( 'a moved address is a copy too',    DZE_Site::reason(), 'address' );
+$said = line();
+// HERE the two addresses are the reason, so here they are shown — and they
+// differ, which is the whole point.
+ok( 'it names the shop it belongs to',  false !== strpos( $said, 'kula-tactical.com' ), true );
+ok( 'and the site it is running on',    false !== strpos( $said, 'test.kula-tactical.com' ), true );
+ok( 'the consequence is beside it too', false !== strpos( $said, 'Nothing is sent' ), true );
+
+// The banner and the line are two places, and they must not become two
+// stories: both say the state in the same words, written once.
+ok( 'the banner says the same state',   false !== strpos( banner(), DZE_Site::says() ), true );
+ok( 'and the line does too',            false !== strpos( line(), DZE_Site::says() ), true );
+// It shows on EVERY screen of a staging site: one sentence, not a paragraph.
+ok( 'the banner is one short sentence', strlen( banner() ) < 220, true );
+$GLOBALS['opts'] = [];
+$GLOBALS['home'] = 'https://kula-tactical.com';
+DZE_Site::learn();
+ok( 'and the shop carries no banner',   banner(), '' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

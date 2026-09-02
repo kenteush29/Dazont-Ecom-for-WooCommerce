@@ -46,20 +46,47 @@ final class DZE_Site {
 		add_action( 'admin_post_dze_site_state', [ __CLASS__, 'handle' ] );
 	}
 
+	/**
+	 * What this install IS, in one sentence — the only one there is.
+	 *
+	 * The banner and the Health line both say it, so they cannot come to say
+	 * two different things about the same state.
+	 */
+	public static function says(): string {
+		$why = self::reason();
+		if ( '' === $why ) {
+			return __( 'the shop itself', 'dazont-ecom' );
+		}
+		if ( 'declared' === $why ) {
+			return __( 'a copy of the shop, because you said so', 'dazont-ecom' );
+		}
+		return sprintf(
+			/* translators: 1: the address the shop was set up on, 2: this address */
+			__( 'a copy of %1$s, running on %2$s', 'dazont-ecom' ),
+			self::known(),
+			self::host()
+		);
+	}
+
+	/** What a copy cannot do, said once. */
+	public static function costs(): string {
+		return __( 'Nothing is sent to Klaviyo or Google from here, and nothing runs on its own.', 'dazont-ecom' );
+	}
+
 	/** The banner a copy carries, on every screen, until it is dealt with. */
 	public static function notice(): void {
 		if ( ! self::is_copy() || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		echo '<div class="notice notice-error"><p><strong>';
-		echo esc_html__( 'This site is a copy of the shop.', 'dazont-ecom' );
-		echo '</strong> ';
+		// One sentence. This shows on every screen of a staging site, and a
+		// paragraph nobody can dismiss stops being read on the second day.
+		echo '<div class="notice notice-warning"><p><strong>';
 		printf(
-			/* translators: 1: the address it was set up on, 2: this address */
-			esc_html__( 'Dazont Ecom was set up on %1$s and this is %2$s. Nothing is sent to Klaviyo or Google from here, and no task runs on its own — a copy shares the shop\'s keys, so a write from here would land on the real account. Everything else works: you can write, generate and review as usual.', 'dazont-ecom' ),
-			'<strong>' . esc_html( self::known() ?: __( 'another address', 'dazont-ecom' ) ) . '</strong>',
-			'<strong>' . esc_html( self::host() ) . '</strong>'
+			/* translators: %s: what this install is */
+			esc_html__( 'This install is %s.', 'dazont-ecom' ),
+			esc_html( self::says() )
 		);
+		echo '</strong> ' . esc_html( self::costs() );
 		echo ' <a class="button button-small" href="' . esc_url( self::action_url( 'adopt' ) ) . '">'
 			. esc_html__( 'This is now the shop', 'dazont-ecom' ) . '</a>';
 		echo '</p></div>';
@@ -79,21 +106,14 @@ final class DZE_Site {
 		}
 		$copy = self::is_copy();
 		echo '<p style="margin:14px 0 0;"><strong>' . esc_html__( 'This install', 'dazont-ecom' ) . '</strong> — ';
-		echo '<span style="color:' . ( $copy ? '#b32d2e' : '#0a7040' ) . ';">'
-			. esc_html( $copy ? __( 'a copy of the shop', 'dazont-ecom' ) : __( 'the shop itself', 'dazont-ecom' ) )
-			. '</span> ';
-		printf(
-			/* translators: 1: the address it was set up on, 2: this address */
-			esc_html__( '(set up on %1$s, running on %2$s).', 'dazont-ecom' ),
-			'<code>' . esc_html( self::known() ?: '—' ) . '</code>',
-			'<code>' . esc_html( self::host() ) . '</code>'
-		);
-		echo ' <a class="button button-small" href="' . esc_url( self::action_url( $copy ? 'adopt' : 'copy' ) ) . '">'
+		echo '<span style="color:' . ( $copy ? '#b32d2e' : '#0a7040' ) . ';">' . esc_html( self::says() ) . '</span>. ';
+		// The consequence beside the control that causes it, and nothing else:
+		// what a staging site IS does not need explaining to the person who
+		// made one.
+		echo $copy ? esc_html( self::costs() ) . ' ' : '';
+		echo '<a class="button button-small" href="' . esc_url( self::action_url( $copy ? 'adopt' : 'copy' ) ) . '">'
 			. esc_html( $copy ? __( 'This is now the shop', 'dazont-ecom' ) : __( 'This site is a copy', 'dazont-ecom' ) )
 			. '</a></p>';
-		echo '<p class="description" style="max-width:880px;">'
-			. esc_html__( 'A staging site is copied from the shop, keys and scheduled tasks included, so a write from it lands on the real Klaviyo account and the real Merchant Center. On a copy, reading stays open, writing outward is refused and nothing runs on its own.', 'dazont-ecom' )
-			. '</p>';
 	}
 
 	private static function action_url( string $what ): string {
@@ -156,12 +176,25 @@ final class DZE_Site {
 		return (bool) get_option( self::OPT_COPY, 0 );
 	}
 
-	public static function is_copy(): bool {
+	/**
+	 * WHY this is a copy — '' when it is not one.
+	 *
+	 * The screen needs the reason, not the reckoning: a copy declared by hand
+	 * has nothing to do with its address, and printing the address twice as
+	 * though it were the evidence is how that line came to read like a bug.
+	 *
+	 * @return string 'declared', 'address', or '' for the shop itself.
+	 */
+	public static function reason(): string {
 		if ( self::declared() ) {
-			return true;
+			return 'declared';
 		}
 		$known = self::known();
-		return '' !== $known && $known !== self::host();
+		return ( '' !== $known && $known !== self::host() ) ? 'address' : '';
+	}
+
+	public static function is_copy(): bool {
+		return '' !== self::reason();
 	}
 
 	/** "This is now the shop": the address is adopted and the flag cleared. */
