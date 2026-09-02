@@ -1221,6 +1221,13 @@ final class DZE_Gmc {
 	}
 
 	private function request( string $method, string $url, string $token, ?array $body = null ): array {
+		// A staging site carries the shop's own service account: a feed pushed
+		// from a copy lands on the real Merchant Center, with nobody having
+		// pressed anything. Reading is left open so the screens still say what
+		// Google holds; every write is refused here, where they all pass.
+		if ( class_exists( 'DZE_Site' ) && DZE_Site::blocks( $method ) ) {
+			throw new RuntimeException( DZE_Site::why( 'Google Merchant Center' ) );
+		}
 		$response = wp_remote_request( $url, [
 			'method'  => $method,
 			'timeout' => 25,

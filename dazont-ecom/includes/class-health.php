@@ -494,6 +494,13 @@ final class DZE_Health {
 		$dots   = [ 'ok' => '●', 'warn' => '▲', 'down' => '✕', 'off' => '○' ];
 		$next   = wp_next_scheduled( self::CRON );
 		?>
+		<?php
+		// Which install this IS, before anything about what it can reach: a
+		// copy of the shop reaches the same services with the same keys.
+		if ( class_exists( 'DZE_Site' ) ) {
+			DZE_Site::render_line();
+		}
+		?>
 		<p class="description" style="max-width:880px;">
 			<?php esc_html_e( 'Everything this plugin does that can fail happens against somebody else\'s service. Once a week each one is asked a cheap question, and every failed call in between is written down. What breaks is named here as the service itself put it — nothing is changed automatically, because no plugin can rewrite itself to match a provider\'s new API.', 'dazont-ecom' ); ?>
 		</p>

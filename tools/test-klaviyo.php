@@ -152,7 +152,7 @@ class DZE_Marketing_Ai {
 }
 class DZE_Discounts {
 	const MENU_SLUG_EVENTS = 'dazont-ecom-marketing-events';
-	public static function get_rules() { return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; }
+	public static function get_rules() { $GLOBALS['dze_read'] = (int) ($GLOBALS['dze_read'] ?? 0) + 1; return $GLOBALS['dze_rules'] ?? [ 'promo' => [ 'title' => 'Summer' ] ]; }
 }
 class DZE_Modules { public static function enabled( $id ) { return true; } }
 class DZE_Content {
@@ -247,7 +247,8 @@ class DZE_Wpml {
 // ---------------------------------------------------------------------------
 function current_time( $t = 'timestamp', $gmt = 0 ) { return 'timestamp' === $t ? time() : gmdate( 'Y-m-d H:i:s' ); }
 function wp_date( $f, $ts = null, $tz = null ) { return gmdate( $f, $ts ?? time() ); }
-function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
+$GLOBALS['dze_home'] = 'https://kula.test';
+function home_url( $p = '/' ) { return $GLOBALS['dze_home'] . $p; }
 function get_bloginfo( $k = '' ) { return 'Kula'; }
 function wc_price( $n ) { return '$' . number_format( (float) $n, 2 ); }
 function wc_placeholder_img_src( $s = '' ) { return 'https://kula.test/placeholder.jpg'; }
@@ -313,6 +314,7 @@ class DZE_Test_Wpdb {
 }
 $GLOBALS['wpdb'] = new DZE_Test_Wpdb();
 
+require __DIR__ . '/../' . $dir . '/includes/class-site.php';
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo.php';
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-auto.php';
 require __DIR__ . '/../' . $dir . '/includes/class-klaviyo-blocks.php';
@@ -2516,6 +2518,57 @@ $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] = 0;
 ok( 'in both directions',
 	(int) ( DZE_Klaviyo::instance()->sanitize( [ 'img_prompt' => 'x' ] )['i18n'] ?? 1 ), 0 );
 unset( $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['i18n'] );
+
+echo "A copy of the shop never writes into the real Klaviyo account\n";
+// "C'est un module à risque qui pourrait abimer ce que l'on a actuellement."
+// The risk is not the module: a staging site is a COPY of the shop, carrying
+// the same Klaviyo key and the same scheduled hooks. One cron tick there
+// writes campaigns into the real account. Reading stays open — that is most of
+// what a test site is for — and every write is refused in one place, saying
+// why rather than failing like a bug.
+$GLOBALS['dze_opts'][ DZE_Site::OPT_HOME ] = 'kula-tactical.com';
+$GLOBALS['dze_home'] = 'https://test.kula-tactical.com';
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C1"}}' ] ];
+$dze_no = DZE_Klaviyo::request( 'POST', 'campaigns/' );
+ok( 'a write is refused',               is_wp_error( $dze_no ), true );
+ok( 'and nothing left the site',        $GLOBALS['dze_sent'], [] );
+ok( 'the refusal names Klaviyo',
+	false !== strpos( is_wp_error( $dze_no ) ? $dze_no->get_error_message() : '', 'Klaviyo' ), true );
+ok( 'and both addresses',
+	false !== strpos( is_wp_error( $dze_no ) ? $dze_no->get_error_message() : '', 'test.kula-tactical.com' ), true );
+// Deleting a campaign is a write too — it was the one that used to slip
+// through, because it carries no body.
+$GLOBALS['dze_sent'] = [];
+DZE_Klaviyo::request( 'DELETE', 'campaigns/C1/' );
+ok( 'a delete is refused as well',      $GLOBALS['dze_sent'], [] );
+// Reading is what keeps the test site useful.
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":[]}' ] ];
+DZE_Klaviyo::request( 'GET', 'campaigns/' );
+ok( 'reading still goes through',       count( $GLOBALS['dze_sent'] ), 1 );
+// And the real shop is untouched by any of this.
+$GLOBALS['dze_home'] = 'https://kula-tactical.com';
+$GLOBALS['dze_sent'] = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C1"}}' ] ];
+DZE_Klaviyo::request( 'POST', 'campaigns/' );
+ok( 'the shop itself writes as before', count( $GLOBALS['dze_sent'] ), 1 );
+unset( $GLOBALS['dze_opts'][ DZE_Site::OPT_HOME ] );
+$GLOBALS['dze_queue'] = [];
+
+echo "The Klaviyo autopilot does not sweep on a copy\n";
+// Its hourly sweep is the unattended case: on a test site it would walk every
+// promotion and try to file drafts, an hour at a time, on the real account.
+// The writes are refused one layer down, but a pass that churns and logs a
+// failure every hour is not a guard, it is a nuisance with a red light on it.
+$GLOBALS['dze_opts'][ DZE_Site::OPT_HOME ] = 'kula-tactical.com';
+$GLOBALS['dze_home'] = 'https://test.kula-tactical.com';
+$GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['auto'] = 'prepare';
+$GLOBALS['dze_read'] = 0;
+DZE_Klaviyo_Auto::sweep();
+ok( 'the sweep does nothing on a copy',  $GLOBALS['dze_read'], 0 );
+$GLOBALS['dze_home'] = 'https://kula-tactical.com';
+unset( $GLOBALS['dze_opts'][ DZE_Site::OPT_HOME ], $GLOBALS['dze_opts'][ DZE_Klaviyo::OPT ]['auto'] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

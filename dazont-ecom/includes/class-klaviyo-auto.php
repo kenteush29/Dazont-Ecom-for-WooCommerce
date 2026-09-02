@@ -128,6 +128,14 @@ final class DZE_Klaviyo_Auto {
 	 * every promotion costs nothing until one actually needs a step.
 	 */
 	public static function sweep(): void {
+		// The hourly, unattended pass. On a copy of the shop it would walk
+		// every promotion and try to file drafts into the REAL Klaviyo
+		// account: the writes are refused a layer down, but a pass that churns
+		// and logs a failure every hour is a nuisance with a red light on it,
+		// not a guard. Nothing scheduled runs on a copy.
+		if ( class_exists( 'DZE_Site' ) && ! DZE_Site::autopilot_ok() ) {
+			return;
+		}
 		if ( '' === self::mode() || ! class_exists( 'DZE_Discounts' ) ) {
 			return;
 		}
@@ -284,6 +292,9 @@ final class DZE_Klaviyo_Auto {
 
 	/** The cron target: one step, then the next pass is armed if more remains. */
 	public static function step_event( $rule_id ): void {
+		if ( class_exists( 'DZE_Site' ) && ! DZE_Site::autopilot_ok() ) {
+			return; // scheduled, and this is a copy of the shop.
+		}
 		$rule_id = sanitize_key( (string) $rule_id );
 		if ( '' === $rule_id ) {
 			return;
