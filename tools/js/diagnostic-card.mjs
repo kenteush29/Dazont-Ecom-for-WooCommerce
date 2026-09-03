@@ -157,6 +157,17 @@ for ( const [ label, jq ] of jqs ) {
 		await page.evaluate( () => document.querySelector(
 			'[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield option[value="product.price"]'
 		).disabled ), false );
+	// And it is what a fresh condition OPENS on. Left to the first field in
+	// the list it opened on "main photograph", which places nothing — the
+	// menu looked, to a reader, like the thing being counted.
+	ok( 'a fresh condition opens on the price',
+		await page.inputValue( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield` ), 'product.price' );
+	// Two fields in one sentence, and both named: the menu is what is TESTED,
+	// the figure at the end is what is COUNTED.
+	ok( 'the row reads as a sentence',
+		( await page.textContent( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto)` ) ).includes( 'is between' ), true );
+	ok( 'and says what it counts',
+		( await page.textContent( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandunit` ) ).trim(), 'photographs' );
 
 	ok( 'twice adds a second',              await rows(), 2 );
 	// Two conditions posting under one key are one condition.
@@ -185,11 +196,22 @@ for ( const [ label, jq ] of jqs ) {
 		await page.evaluate( () => Array.from(
 			document.querySelectorAll( '[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) [name*="[want]"]' )
 		).map( el => ( el.name.match( /\[bands\]\[(\d+)\]/ ) || [] )[1] ) ), [ '0' ] );
-	// A criterion measured in words has no ranges to offer: the block is only
-	// shown where a figure is actually being compared.
+	// STANDARDISED, on every criterion that holds a figure. A description
+	// judged on its length is the same question as a gallery judged on its
+	// count, and tying this to the FIELD's type gave it to one and denied it
+	// to the other.
 	await page.selectOption( `${$new} .dze-diag-field`, 'product.description' );
 	await page.waitForTimeout( 150 );
-	ok( 'a text offers none',               await page.isVisible( `${$new} .dze-diag-cond` ), false );
+	ok( 'a word count offers them too',     await page.isVisible( `${$new} .dze-diag-cond` ), true );
+	ok( 'counting what the rule counts',
+		( await page.textContent( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandunit` ) ).trim(), 'words' );
+	// A rule with no figure at all has nothing to put in tiers.
+	await page.selectOption( `${$new} .dze-diag-test`, 'empty' );
+	await page.waitForTimeout( 150 );
+	ok( 'a rule with no figure offers none', await page.isVisible( `${$new} .dze-diag-cond` ), false );
+	await page.selectOption( `${$new} .dze-diag-test`, 'lt' );
+	await page.waitForTimeout( 150 );
+	ok( 'and they come back with one',      await page.isVisible( `${$new} .dze-diag-cond` ), true );
 	ok( 'nothing was raised on the way', errors, [] );
 
 	await page.close();

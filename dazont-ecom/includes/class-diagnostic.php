@@ -559,7 +559,12 @@ final class DZE_Diagnostic {
 		// appeared for a criterion already saved on a count and NEVER for one
 		// switched to a count in the browser — a control the shop only
 		// discovers after saving and reloading is a control it does not have.
-		$counts = 'number' === (string) ( self::fields()[ $field ]['kind'] ?? '' );
+		// Wherever the rule holds a FIGURE. It used to be "wherever the field
+		// is a number", which gave conditions to the gallery and denied them
+		// to "description is less than 120 words" — the same kind of question,
+		// on a criterion that needs them just as much. A rule with no figure
+		// ("is empty", "contains") has nothing to put in tiers.
+		$counts = 'number' === (string) ( self::operators()[ self::op_now( (string) ( $row['test'] ?? '' ) ) ]['takes'] ?? '' );
 		$bands  = (array) ( $row['bands'] ?? [] );
 		$on     = ! empty( $row['cond'] );
 
@@ -593,6 +598,18 @@ final class DZE_Diagnostic {
 	}
 
 	/**
+	 * What a condition's figure COUNTS, named as the shop names it.
+	 *
+	 * The unit — "photographs", "words", "px" — because that is what the rule
+	 * above already says and the two must never disagree. The field's own name
+	 * was tried and reads badly on half of them: "at least 200 description".
+	 */
+	private static function band_counts( string $field ): string {
+		$unit = self::unit_of( $field );
+		return '' !== $unit ? $unit : (string) ( self::fields()[ $field ]['label'] ?? '' );
+	}
+
+	/**
 	 * One condition, as a sentence: price between 0 and 40 : at least 3.
 	 *
 	 * "and above" is an empty upper box rather than a second control, because
@@ -607,6 +624,11 @@ final class DZE_Diagnostic {
 
 		$out  = '<div class="dze-diag-bandrow' . ( $proto ? ' dze-diag-bandproto' : '' ) . '"'
 			. ' style="display:' . ( $proto ? 'none' : 'flex' ) . ';align-items:center;gap:6px;margin:0 0 4px;flex-wrap:wrap;">';
+		// "If … → at least …". Without the two words the row read as though the
+		// menu named the thing being counted: on a gallery criterion it showed
+		// "main photograph between 0 and 0 : at least 0 photographs", and the
+		// only sensible reading of that is the wrong one.
+		$out .= '<span>' . esc_html__( 'If', 'dazont-ecom' ) . '</span>';
 		$out .= '<select' . $off . ' class="dze-diag-bandfield" name="' . $name( 'field' ) . '" style="max-width:220px;">';
 		foreach ( self::fields() as $fid => $meta ) {
 			if ( 'number' !== (string) $meta['kind'] ) {
@@ -618,7 +640,7 @@ final class DZE_Diagnostic {
 				. selected( $fid, $on, false ) . '>' . esc_html( (string) $meta['label'] ) . '</option>';
 		}
 		$out .= '</select>';
-		$out .= '<span>' . esc_html__( 'between', 'dazont-ecom' ) . '</span>';
+		$out .= '<span>' . esc_html__( 'is between', 'dazont-ecom' ) . '</span>';
 		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:80px;" name="' . $name( 'from' ) . '"'
 			. ' value="' . esc_attr( (string) (int) ( $band['from'] ?? 0 ) ) . '" />';
 		$out .= '<span>' . esc_html__( 'and', 'dazont-ecom' ) . '</span>';
@@ -628,10 +650,13 @@ final class DZE_Diagnostic {
 			. ' value="' . esc_attr( (int) ( $band['to'] ?? 0 ) > 0 ? (string) (int) $band['to'] : '' ) . '"'
 			. ' title="' . esc_attr__( 'Leave empty for "and above"', 'dazont-ecom' ) . '"'
 			. ' placeholder="&infin;" />';
-		$out .= '<span>' . esc_html__( ': at least', 'dazont-ecom' ) . '</span>';
+		$out .= '<span>&rarr; ' . esc_html__( 'at least', 'dazont-ecom' ) . '</span>';
 		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:80px;" name="' . $name( 'want' ) . '"'
 			. ' value="' . esc_attr( (string) (int) ( $band['want'] ?? 0 ) ) . '" />';
-		$out .= '<span class="dze-diag-bandunit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
+		// The field being COUNTED, named — "at least 3 gallery photographs".
+		// The unit alone ("photographs") left the sentence with two fields in
+		// it and only one of them named.
+		$out .= '<span class="dze-diag-bandunit description">' . esc_html( self::band_counts( $field ) ) . '</span>';
 		$out .= '<button type="button" class="button-link dze-diag-banddel" style="color:#b32d2e;">'
 			. esc_html__( 'Remove', 'dazont-ecom' ) . '</button>';
 		$out .= '</div>';
@@ -2977,8 +3002,11 @@ final class DZE_Diagnostic {
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
 				// Tiers only make sense for a figure, and only on a field the
 				// object being judged can actually answer.
-				// The whole conditional part only makes sense for a figure.
-				$card.find( '.dze-diag-cond' ).toggle( 'number' === meta.kind );
+				// Wherever the RULE holds a figure — a word count as much as a
+				// number of photographs. Tied to the field's type instead, it
+				// gave conditions to the gallery and denied them to "less than
+				// 120 words", which is the same question.
+				$card.find( '.dze-diag-cond' ).toggle( 'number' === takes );
 				fitBands( $card, f );
 				// The head IS the rule, written out — so it follows every menu
 				// and every figure as they move, and there is never a title on
@@ -2988,6 +3016,13 @@ final class DZE_Diagnostic {
 				$card.find( '.dze-diag-said' ).text( $card.find( '.dze-diag-note' ).val() || '' );
 			}
 
+			// The same rule the server writes, so the row never disagrees with
+			// itself between a page load and a menu change.
+			function bandCounts( id ) {
+				var m = fields[ id ] || {};
+				return m.unit || m.label || '';
+			}
+
 			// Each condition names the field it is measured on. Only the
 			// numbers of THIS post type, and never the criterion's own field —
 			// a gallery placed by the size of the gallery says nothing.
@@ -2995,18 +3030,22 @@ final class DZE_Diagnostic {
 				var scope = $card.find( '.dze-diag-scope' ).val(),
 					fam = ( scopes[ scope ] || {} ).family || scope;
 				$card.find( '.dze-diag-bandfield' ).each( function () {
-					var $sel = jQuery( this ), keep = $sel.val(), first = '';
+					var $sel = jQuery( this ), keep = $sel.val(), first = '', prefer = '';
 					$sel.find( 'option' ).each( function () {
 						var $o = jQuery( this ), id = $o.attr( 'value' ),
 							ok = id && id !== self && $o.attr( 'data-scope' ) === fam;
 						$o.prop( 'disabled', ! ok ).toggle( !! ok );
 						if ( ok && ! first ) { first = id; }
+						// What a shop actually bands on. Left to the first
+						// field in the list, a fresh condition opened on
+						// "main photograph", which places nothing.
+						if ( ok && ! prefer && /\.price$/.test( id ) ) { prefer = id; }
 					} );
 					// A condition left pointing at a field this post type
 					// cannot answer would never fire and never say why.
-					if ( ! keep || $sel.find( 'option:selected' ).prop( 'disabled' ) ) { $sel.val( first ); }
+					if ( ! keep || $sel.find( 'option:selected' ).prop( 'disabled' ) ) { $sel.val( prefer || first ); }
 				} );
-				$card.find( '.dze-diag-bandunit' ).text( ( fields[ self ] || {} ).unit || '' );
+				$card.find( '.dze-diag-bandunit' ).text( bandCounts( self ) );
 			}
 
 			// Where a card belongs: under its own post type's heading when the
@@ -3114,6 +3153,9 @@ final class DZE_Diagnostic {
 				if ( ! $one.length ) { return; }
 				$one.removeClass( 'dze-diag-bandproto' ).css( 'display', 'flex' )
 					.find( '[disabled]' ).prop( 'disabled', false );
+				// Nothing chosen yet, so the recut below picks the field a shop
+				// actually bands on rather than whatever sits first in the list.
+				$one.find( '.dze-diag-bandfield' ).val( '' );
 				$rows.find( '.dze-diag-bandproto' ).before( $one );
 				renumberBands( $rows );
 				// The copy carries the menu the PROTOTYPE was drawn with, which
