@@ -795,8 +795,21 @@ final class DZE_Diagnostic {
 			'category.description' => 'cat_desc',
 			'category.links'       => 'cat_links',
 			'post.links'           => 'post_links',
+			// A gallery short of photographs is mended by making them, with
+			// the shop's OWN image prompts — the ones already aimed at the
+			// gallery, in the order the shop wrote them. No routine to fill in
+			// on the criterion: a count there beside the rule's own is two
+			// answers to one question, which is why the last one was removed.
+			'product.gallery'      => 'product_shot',
+			'product.main_image'   => 'product_shot',
 		];
 		$kind = (string) ( $jobs[ $field ] ?? '' );
+		// A photograph job needs a prompt aimed at the right place. A shop
+		// with none gets no button rather than a press that fails in the
+		// background with nobody watching.
+		if ( 'product_shot' === $kind && ! self::shot_prompts( $field ) ) {
+			return '';
+		}
 		if ( '' === $kind || ! class_exists( 'DZE_Queue' ) || ! isset( DZE_Queue::kinds()[ $kind ] ) ) {
 			return '';
 		}
@@ -849,6 +862,57 @@ final class DZE_Diagnostic {
 	}
 
 	/**
+	 * The shop's own image prompts aimed at what this criterion is short of.
+	 *
+	 * Read from the prompt library and nowhere else: a prompt named in this
+	 * file is a prompt the shop has to be told to create, which is exactly
+	 * what 4.285 did.
+	 *
+	 * @return int[] the PLACE of each prompt on the shop's list, which is what
+	 *               shoot() takes.
+	 */
+	private static function shot_prompts( string $field ): array {
+		if ( ! class_exists( 'DZE_Content' ) ) {
+			return [];
+		}
+		$want = 'product.main_image' === $field ? 'main' : 'gallery';
+		$out  = [];
+		foreach ( (array) DZE_Content::image_templates() as $i => $tpl ) {
+			if ( $want === (string) ( $tpl['target'] ?? 'gallery' ) ) {
+				$out[] = (int) $i;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * How many photographs THIS object is short of.
+	 *
+	 * Read from the same rule the diagnostic judged it by — the figure its own
+	 * condition gives it, less what it actually has. A criterion that is not a
+	 * shortfall at all has nothing to count, and one is what it gets.
+	 */
+	private static function short_by( array $row, string $scope, int $oid ): int {
+		$op = self::op_now( (string) ( $row['test'] ?? '' ) );
+		if ( ! in_array( $op, [ 'lt', 'lte' ], true ) ) {
+			return 1;
+		}
+		$object = self::object_for( $scope, $oid );
+		if ( ! $object ) {
+			return 1;
+		}
+		$want = self::want_for( $row, $scope, $object );
+		if ( null === $want ) {
+			return 1; // no condition covers it: nothing was asked of it.
+		}
+		$have = self::measure( (string) ( $row['field'] ?? '' ), $scope, $object, (string) ( $row['key'] ?? '' ) );
+		$have = is_numeric( $have ) ? (float) $have : 0.0;
+		// "at most 3" means 3 is already too few, so the target is one above.
+		$need = 'lte' === $op ? $want + 1 : $want;
+		return (int) max( 1, min( 10, ceil( $need - $have ) ) );
+	}
+
+	/**
 	 * One press on one line: that object's shortfall goes to the review list.
 	 *
 	 * Nothing is written on the shop. The job runs in the background and the
@@ -876,12 +940,35 @@ final class DZE_Diagnostic {
 		}
 		// auto_apply stays FALSE, always: nothing reaches a page before
 		// somebody has looked at it.
-		if ( ! DZE_Queue::add( $kind, [ $one ], false ) ) {
+		$row   = (array) ( $check['row'] ?? [] );
+		$scope = (string) ( $check['scope'] ?? 'product' );
+		$added = 0;
+		if ( 'product_shot' === $kind ) {
+			// ONE JOB PER PHOTOGRAPH, so three on one product are three rows
+			// to look at and two can be thrown away without losing the third.
+			// How many is what the product is SHORT OF, read from the same
+			// rule the list judged it by; which prompt is the shop's own, in
+			// the order it wrote them, one after another.
+			$prompts = self::shot_prompts( (string) ( $row['field'] ?? '' ) );
+			$need    = self::short_by( $row, $scope, $one );
+			for ( $i = 0; $i < $need; $i++ ) {
+				$added += DZE_Queue::add( $kind, [ $one ], false, [
+					'template' => (int) $prompts[ $i % count( $prompts ) ],
+					// A second photograph from the same prompt is asked for a
+					// different framing, the way the product screen's own
+					// "another one" button asks.
+					'attempt'  => intdiv( $i, count( $prompts ) ),
+				] );
+			}
+		} else {
+			$added = DZE_Queue::add( $kind, [ $one ], false );
+		}
+		if ( ! $added ) {
 			wp_send_json_error( [ 'message' => __( 'It is already in the review list.', 'dazont-ecom' ) ] );
 		}
 		wp_send_json_success( [
 			'url'     => DZE_Queue::url(),
-			'message' => __( 'Sent — it waits for you to accept it.', 'dazont-ecom' ),
+			'message' => _n( 'Sent — it waits for you to accept it.', 'Sent — they wait for you to accept them.', $added, 'dazont-ecom' ),
 		] );
 	}
 

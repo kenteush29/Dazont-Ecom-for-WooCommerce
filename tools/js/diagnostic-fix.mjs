@@ -72,6 +72,10 @@ for ( const [ label, jq ] of jqs ) {
 	console.log( `A line of the problem list, in a browser — jQuery ${label}` );
 	ok( 'the screen runs without an error', errors, [] );
 	ok( 'every row carries its button',     await page.locator( '.dze-diag-fix' ).count(), 2 );
+	// The button NAMES the pass it runs. "Fix" said nothing about what was
+	// about to happen, and this is the list the owner asked for first.
+	ok( 'and it says what it will run',
+		( await page.textContent( '.dze-diag-fix[data-id="901"]' ) ).trim(), 'Make a photograph' );
 
 	// A CONTROL ON A ROW ACTS ON THAT ROW. Every link this screen has carried
 	// to "the tool" went to a Dazont settings tab instead, twice.
@@ -79,22 +83,22 @@ for ( const [ label, jq ] of jqs ) {
 		await page.evaluate( () => Array.from( document.querySelectorAll( 'tbody a[href]' ) )
 			.some( a => /page=dazont-ecom-ai|tab=(categories|automation|lab)/.test( a.href ) ) ), false );
 
-	await page.click( '.dze-diag-fix[data-id="801"]' );
+	await page.click( '.dze-diag-fix[data-id="901"]' );
 	await page.waitForTimeout( 250 );
 	ok( 'pressing it makes a request at all', posts.length, 1 );
 	ok( 'to the mending endpoint',          posts[0].action, 'dze_diag_fix' );
-	ok( 'carrying the criterion',           posts[0].check, 'thin_links' );
+	ok( 'carrying the criterion',           posts[0].check, 'prod_gallery' );
 	// The id of the row it sits on. Left out once already, so "Fix" on one
 	// product quietly sent twenty.
-	ok( 'and the id of its own row',        posts[0].id, '801' );
+	ok( 'and the id of its own row',        posts[0].id, '901' );
 	ok( 'with a nonce',                     ( posts[0].nonce || '' ).length > 0, true );
 	// The answer LANDS. A request made whose answer goes nowhere is the same
 	// broken button from the shop's chair.
 	ok( 'the row now says it is waiting',
 		await page.locator( 'a', { hasText: 'Waiting for you' } ).count() > 0, true );
-	ok( 'and the button is gone with it',   await page.locator( '.dze-diag-fix[data-id="801"]' ).count(), 0 );
+	ok( 'and the button is gone with it',   await page.locator( '.dze-diag-fix[data-id="901"]' ).count(), 0 );
 	// The other row is untouched: one press, one object.
-	ok( 'the other row still offers its own', await page.locator( '.dze-diag-fix[data-id="802"]' ).count(), 1 );
+	ok( 'the other row still offers its own', await page.locator( '.dze-diag-fix[data-id="902"]' ).count(), 1 );
 	ok( 'nothing was raised on the way',    errors, [] );
 
 	await page.close();
