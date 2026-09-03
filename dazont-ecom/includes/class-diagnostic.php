@@ -400,10 +400,68 @@ final class DZE_Diagnostic {
 				'find'  => mb_substr( sanitize_text_field( (string) ( $row['find'] ?? '' ) ), 0, 120 ),
 				'key'   => ! empty( $fields[ $field ]['key'] ) ? sanitize_text_field( (string) ( $row['key'] ?? '' ) ) : '',
 				'goals' => self::goals_for( $row, $id ),
+				// The shop's own routine for this shortfall: which of its
+				// image prompts, and how many of each. Written once here and
+				// used on nine hundred products.
+				'shots' => self::shots_for( $row, $field ),
 				'on'    => empty( $row['on'] ) ? 0 : 1,
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * The photographs this criterion asks for, prompt by prompt.
+	 *
+	 * "Typiquement ce que je fais sur un produit qui manque de photos : seance
+	 * photo details produit + 1 a 2 photos type ugc. On arrive a 3-5 photos
+	 * supplementaires." That is a routine, not a prompt, and it belongs to the
+	 * shop: the criterion carries which of the shop's OWN image prompts it
+	 * runs and how many of each. A prompt named in this file would be a prompt
+	 * the shop has to be told to create — which is exactly what 4.285 did.
+	 *
+	 * Keyed by the prompt's id and not its place on the list, because a place
+	 * moves the day a prompt is added above it.
+	 *
+	 * @return array<string,int> prompt id => how many, 1..5, zeroes dropped.
+	 */
+	private static function shots_for( array $row, string $field ): array {
+		if ( ! self::takes_shots( $field ) ) {
+			return [];
+		}
+		if ( ! array_key_exists( 'shots', $row ) ) {
+			// Absent from the form is not "none". The card always posts this
+			// section — with every number at zero it still posts the marker —
+			// so a row arriving without it was saved by some other screen, and
+			// the shop's routine is not that screen's to erase. Read back from
+			// what is stored, by the criterion's own id.
+			// Read from the STORED option and not through rows(): rows() runs
+			// clean_rows(), which is where this stands, and asking it here is
+			// a loop with no way out.
+			$id  = sanitize_key( (string) ( $row['id'] ?? '' ) );
+			$was = [];
+			foreach ( (array) ( self::settings()['rows'] ?? [] ) as $one ) {
+				if ( is_array( $one ) && sanitize_key( (string) ( $one['id'] ?? '' ) ) === $id ) {
+					$was = (array) ( $one['shots'] ?? [] );
+					break;
+				}
+			}
+			return $was;
+		}
+		$out = [];
+		foreach ( (array) $row['shots'] as $rid => $n ) {
+			$rid = sanitize_key( (string) $rid );
+			$n   = max( 0, min( 5, (int) $n ) );
+			if ( '' !== $rid && '__none__' !== $rid && $n > 0 ) {
+				$out[ $rid ] = $n;
+			}
+		}
+		return $out;
+	}
+
+	/** Is this a shortfall photographs can mend at all? */
+	public static function takes_shots( string $field ): bool {
+		return in_array( $field, [ 'product.gallery', 'product.main_image' ], true );
 	}
 
 	/**
@@ -503,52 +561,71 @@ final class DZE_Diagnostic {
 	 * @return array{kind:string,label:string,recipe:string} empty when nothing
 	 *               here can mend it.
 	 */
-	private static function fix_for( string $field ): array {
-		// A gallery short of photographs: another angle of the SAME product,
-		// made from its own photograph. The recipe is named rather than left
-		// to whichever one happens to be first, because that recipe is the one
-		// that forbids inventing a detail the source does not show — and an
-		// invented photograph is a returned parcel, not a conversion.
-		if ( 'product.gallery' === $field ) {
-			// The shop's OWN gallery prompt, whichever it has. 4.285 named one
-			// — "Another angle of the same product" — which is a prompt this
-			// shop never chose, so the button answered with an error message
-			// about a name nobody recognised. A repair uses what is on the
-			// shop's list, and the button says which.
-			//
-			// No label of its own. Every criterion's repair is called the same
-			// thing on every screen — Fix — because a shop working through a
-			// list of problems needs one word in one place, not a different
-			// sentence per problem.
-			// The descriptor exists even when the shop has no gallery prompt:
-			// -1 then, so the screen can hide the button AND the press can say
-			// the one useful thing instead of "nothing mends that".
-			return [ 'kind' => 'product_shot', 'recipe' => self::gallery_recipe() ];
+	private static function fix_for( array $row ): array {
+		$field = (string) ( $row['field'] ?? '' );
+		if ( ! self::takes_shots( $field ) ) {
+			return [];
 		}
-		return [];
+		// The shop's own routine, as it wrote it on the criterion. Nothing is
+		// assumed for a criterion nobody has answered for: no photographs
+		// asked for means no button, and the card is where that is said.
+		$shots = [];
+		foreach ( (array) ( $row['shots'] ?? [] ) as $rid => $n ) {
+			$idx = self::recipe_index( (string) $rid );
+			if ( $idx >= 0 && (int) $n > 0 ) {
+				$shots[ $idx ] = min( 5, (int) $n );
+			}
+		}
+		// No label of its own. Every criterion's repair is called the same
+		// thing on every screen — Fix — because a shop working through a list
+		// of problems needs one word in one place, not a different sentence
+		// per problem.
+		return [ 'kind' => 'product_shot', 'shots' => $shots ];
 	}
 
 	/**
-	 * The shop's first image prompt that writes into the gallery.
+	 * Where one of the shop's image prompts sits on its own list.
 	 *
-	 * Deliberately the shop's own list and not a name written here: a prompt
-	 * named in this file is a prompt the shop has to be told to create.
+	 * By ID, which is minted once and never moves; the index is what shoot()
+	 * takes and it changes the day a prompt is added above.
 	 *
-	 * @return int -1 when the shop has no gallery prompt at all.
+	 * @return int -1 when this shop no longer has that prompt.
 	 */
-	public static function gallery_recipe(): int {
-		if ( ! class_exists( 'DZE_Content' ) ) {
+	public static function recipe_index( string $rid ): int {
+		if ( '' === $rid || ! class_exists( 'DZE_Content' ) ) {
 			return -1;
 		}
 		foreach ( (array) DZE_Content::image_templates() as $i => $tpl ) {
-			if ( 'main' !== (string) ( $tpl['target'] ?? 'gallery' ) ) {
+			if ( (string) ( $tpl['id'] ?? '' ) === $rid ) {
 				return (int) $i;
 			}
 		}
 		return -1;
 	}
 
-	/** What that prompt is called, for a button that says what it will run. */
+	/**
+	 * The routine in words, for a button that says what it is about to run.
+	 *
+	 * "Detail shots x3 + Scene (in use) x2" — the shop's own prompt names and
+	 * its own numbers, so what a press will do is readable before the press.
+	 */
+	public static function shots_said( array $shots ): string {
+		$bits = [];
+		foreach ( $shots as $idx => $n ) {
+			$name = self::recipe_name( (int) $idx );
+			if ( '' !== $name ) {
+				$bits[] = $n > 1 ? sprintf( '%1$s ×%2$d', $name, (int) $n ) : $name;
+			}
+		}
+		return implode( ' + ', $bits );
+	}
+
+	/** How many photographs one product gets from this routine. */
+	public static function shots_each( array $shots ): int {
+		return array_sum( array_map( 'intval', $shots ) );
+	}
+
+	/** What one of the shop's image prompts is called. */
 	public static function recipe_name( int $idx ): string {
 		if ( $idx < 0 || ! class_exists( 'DZE_Content' ) ) {
 			return '';
@@ -611,7 +688,7 @@ final class DZE_Diagnostic {
 	 */
 	public static function fix_targets( string $id, int $limit = self::FIX_BATCH ): array {
 		$check = self::checks()[ $id ] ?? [];
-		if ( ! $check || ! self::fix_for( (string) ( $check['row']['field'] ?? '' ) ) ) {
+		if ( ! $check || ! self::fix_for( (array) ( $check['row'] ?? [] ) ) ) {
 			return [];
 		}
 		$ids  = array_values( array_filter( array_map( 'absint', (array) ( self::lists()[ $id ] ?? [] ) ) ) );
@@ -627,16 +704,16 @@ final class DZE_Diagnostic {
 		}
 		$id    = isset( $_POST['check'] ) ? sanitize_key( wp_unslash( $_POST['check'] ) ) : '';
 		$check = self::checks()[ $id ] ?? [];
-		$fix   = $check ? self::fix_for( (string) ( $check['row']['field'] ?? '' ) ) : [];
+		$fix   = $check ? self::fix_for( (array) ( $check['row'] ?? [] ) ) : [];
 		if ( ! $fix ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing here mends that on its own.', 'dazont-ecom' ) ] );
 		}
 		if ( ! class_exists( 'DZE_Queue' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) ) {
 			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off — switch it on under Settings → Modules.', 'dazont-ecom' ) ] );
 		}
-		$idx = (int) $fix['recipe'];
-		if ( $idx < 0 || '' === self::recipe_name( $idx ) ) {
-			wp_send_json_error( [ 'message' => __( 'This shop has no image prompt that writes into the gallery. Add one under Settings → Product content.', 'dazont-ecom' ) ] );
+		$shots = (array) ( $fix['shots'] ?? [] );
+		if ( ! $shots ) {
+			wp_send_json_error( [ 'message' => __( 'This criterion has no photographs asked for yet. Open it under Settings → Diagnostic and say which of your image prompts mend it, and how many of each.', 'dazont-ecom' ) ] );
 		}
 		$all = self::fix_targets( $id, 0 );
 		// One product, pressed on its own row. Checked against the list this
@@ -655,12 +732,25 @@ final class DZE_Diagnostic {
 		if ( ! $some ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing is short of this one.', 'dazont-ecom' ) ] );
 		}
-		// auto_apply stays FALSE, always: a photograph reaches a product when
-		// somebody has looked at it and not before.
-		$added = DZE_Queue::add( (string) $fix['kind'], $some, false, [ 'template' => $idx ] );
+		// One job per photograph, so five pictures on one product are five
+		// rows to look at and four of them can be thrown away without losing
+		// the fifth. auto_apply stays FALSE, always: a photograph reaches a
+		// product when somebody has looked at it and not before.
+		$added = 0;
+		foreach ( $shots as $idx => $times ) {
+			for ( $i = 0; $i < (int) $times; $i++ ) {
+				$added += DZE_Queue::add( (string) $fix['kind'], $some, false, [
+					'template' => (int) $idx,
+					// A second shot from the same prompt is asked for a
+					// different framing; shoot() reads this the way the
+					// product screen's own "another one" button does.
+					'attempt'  => $i,
+				] );
+			}
+		}
 		wp_send_json_success( [
 			'added' => $added,
-			'left'  => max( 0, count( $all ) - $added ),
+			'left'  => max( 0, count( $all ) - count( $some ) ),
 			'url'   => DZE_Queue::url(),
 			/* translators: 1: how many were sent, 2: how many are still short */
 			'message' => sprintf(
@@ -691,7 +781,7 @@ final class DZE_Diagnostic {
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $fields[ $row['field'] ] ),
 				'tool'  => self::tool_for( (string) $row['field'], (string) $row['scope'] ),
-				'fix'   => self::fix_for( (string) $row['field'] ),
+				'fix'   => self::fix_for( $row ),
 				'goals' => self::goals_of( $row ),
 				'note'  => (string) ( $row['note'] ?? '' ),
 				'row'   => $row,
@@ -1890,7 +1980,7 @@ final class DZE_Diagnostic {
 				// button BEFORE it is pressed: what a click is about to spend
 				// is not something to discover afterwards.
 				$fix = (array) ( $check['fix'] ?? [] );
-				if ( $fix && (int) ( $fix['recipe'] ?? -1 ) >= 0 && class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+				if ( ! empty( $fix['shots'] ) && class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
 					$next = count( self::fix_targets( $id ) );
 					if ( $next ) {
 						printf(
@@ -1898,9 +1988,10 @@ final class DZE_Diagnostic {
 							esc_attr( $id ),
 							esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) ),
 							esc_attr( sprintf(
-								/* translators: %s: the name of one of the shop's image prompts */
-								__( 'Runs your image prompt "%s" on each of them', 'dazont-ecom' ),
-								self::recipe_name( (int) $fix['recipe'] )
+								/* translators: 1: how many photographs each product gets, 2: the prompts and their counts */
+								__( '%1$d photographs each: %2$s', 'dazont-ecom' ),
+								self::shots_each( (array) $fix['shots'] ),
+								self::shots_said( (array) $fix['shots'] )
 							) )
 						);
 					}
@@ -2103,7 +2194,7 @@ final class DZE_Diagnostic {
 		// on the summary and not here, which is the screen somebody is on when
 		// they have decided to do the work.
 		$fix     = (array) ( $check['fix'] ?? [] );
-		$mending = $fix && (int) ( $fix['recipe'] ?? -1 ) >= 0 && class_exists( 'DZE_Queue' )
+		$mending = ! empty( $fix['shots'] ) && class_exists( 'DZE_Queue' )
 			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
 		$waiting = $mending ? DZE_Queue::pending_map( 'product_' ) : [];
 		if ( $mending && 'todo' === $show ) {
@@ -2115,15 +2206,22 @@ final class DZE_Diagnostic {
 					esc_attr( $id ),
 					esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) ),
 					esc_attr( sprintf(
-						/* translators: %s: the name of one of the shop's image prompts */
-						__( 'Runs your image prompt "%s" on each of them', 'dazont-ecom' ),
-						self::recipe_name( (int) $fix['recipe'] )
+						/* translators: 1: how many photographs each product gets, 2: the prompts and their counts */
+						__( '%1$d photographs each: %2$s', 'dazont-ecom' ),
+						self::shots_each( (array) $fix['shots'] ),
+						self::shots_said( (array) $fix['shots'] )
 					) )
 				);
 			}
-			echo '<span class="description">'
-				. esc_html__( 'Made from the product\'s own photograph, and held for you to look at — nothing reaches a product until you accept it.', 'dazont-ecom' )
-				. '</span></p>';
+			printf(
+				'<span class="description">%s</span></p>',
+				esc_html( sprintf(
+					/* translators: 1: how many photographs each product gets, 2: the prompts and their counts */
+					__( '%1$d photographs per product — %2$s. Made from the product\'s own photograph, and held for you to look at: nothing reaches a product until you accept it.', 'dazont-ecom' ),
+					self::shots_each( (array) $fix['shots'] ),
+					self::shots_said( (array) $fix['shots'] )
+				) )
+			);
 		}
 		if ( $split['live'] ) {
 			// WordPress's own tabs, because that is what every other screen of
@@ -2751,6 +2849,43 @@ final class DZE_Diagnostic {
 			. '<input type="text" class="dze-diag-note" style="width:100%;max-width:640px;" name="' . $name( 'note' ) . '"'
 			. ' value="' . esc_attr( (string) ( $row['note'] ?? '' ) ) . '"'
 			. ' placeholder="' . esc_attr__( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ) . '" /></label></p>';
+		// What FIXES it, in the shop's own words: which of its image prompts,
+		// and how many of each. "Detail shots ×3 + Scene (in use) ×2" is a
+		// routine, and a routine belongs to the shop — a prompt named in this
+		// file is a prompt the shop has to be told to create.
+		if ( self::takes_shots( $field ) ) {
+			$tpls = class_exists( 'DZE_Content' ) ? (array) DZE_Content::image_templates() : [];
+			$mine = (array) ( $row['shots'] ?? [] );
+			$out .= '<p class="dze-prb-line" style="flex-direction:column;align-items:flex-start;">';
+			$out .= '<span style="margin-bottom:4px;">' . esc_html__( 'Fix it with', 'dazont-ecom' ) . '</span>';
+			if ( ! $tpls ) {
+				$out .= '<span class="description">'
+					. esc_html__( 'This shop has no image prompts yet — write one under Settings → Product content and it will be offered here.', 'dazont-ecom' )
+					. '</span>';
+			} else {
+				// The hidden field goes first so the key always arrives: with
+				// every number cleared, the row must post "none" rather than
+				// nothing at all, which is how a setting gets quietly given
+				// back a value nobody chose.
+				$out .= '<input type="hidden" name="' . esc_attr( $opt . '[rows][' . $index . '][shots][__none__]' ) . '" value="0" />';
+				foreach ( $tpls as $tpl ) {
+					$rid = (string) ( $tpl['id'] ?? '' );
+					if ( '' === $rid ) {
+						continue;
+					}
+					$out .= '<label style="display:inline-flex;align-items:center;gap:6px;margin:0 16px 4px 0;">'
+						. '<input type="number" min="0" max="5" step="1" style="width:58px;"'
+						. ' name="' . esc_attr( $opt . '[rows][' . $index . '][shots][' . $rid . ']' ) . '"'
+						. ' value="' . esc_attr( (string) (int) ( $mine[ $rid ] ?? 0 ) ) . '" /> '
+						. esc_html( (string) ( $tpl['name'] ?? $rid ) )
+						. '</label>';
+				}
+				$out .= '<span class="description" style="flex:1 1 100%;margin-top:4px;">'
+					. esc_html__( 'How many photographs each product gets from each of your prompts. Zero everywhere means this criterion is listed but not mended. Nothing reaches a product until you accept it.', 'dazont-ecom' )
+					. '</span>';
+			}
+			$out .= '</p>';
+		}
 		$out .= '</div></div>';
 		return $out;
 	}
