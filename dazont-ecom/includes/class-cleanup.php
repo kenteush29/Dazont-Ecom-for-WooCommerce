@@ -27,7 +27,9 @@ final class DZE_Cleanup {
 	/**
 	 * Footprint per module id (ids come from DZE_Modules::catalog()).
 	 *
-	 * options    — whole option rows.
+	 * options    — whole option rows: exact names, or prefixes ending in '_'
+	 *              (the same convention as transients, so there is one rule to
+	 *              remember rather than two).
 	 * post_meta  — meta keys on products/orders.
 	 * term_meta  — meta keys on categories.
 	 * user_meta  — meta keys on users (dismissed notices and the like).
@@ -90,7 +92,9 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_cc_pages', 'dze_cc_cats', 'dze_cc_pcount_', 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock' ],
 			],
 			'diagnostic' => [
-				'options'    => [ 'dze_diagnostic', 'dze_diagnostic_census', 'dze_diagnostic_lists' ],
+				// One option per criterion for the objects it found, plus the single
+				// one that held them all before the split.
+				'options'    => [ 'dze_diagnostic', 'dze_diagnostic_census', 'dze_diagnostic_lists', 'dze_diagnostic_lists_' ],
 				'transients' => [ 'dze_diag_lock', 'dze_diag_split_' ],
 				// How each person last looked at each list: their own, and
 				// theirs to lose when the module is erased.
@@ -206,7 +210,12 @@ final class DZE_Cleanup {
 		}
 
 		foreach ( (array) ( $map['options'] ?? [] ) as $o ) {
-			$res = $wpdb->get_row( $wpdb->prepare(
+			$res = '_' === substr( $o, -1 )
+				? $wpdb->get_row( $wpdb->prepare(
+					"SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(option_value)),0) AS b FROM {$wpdb->options} WHERE option_name LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table from $wpdb.
+					$wpdb->esc_like( $o ) . '%'
+				), ARRAY_A )
+				: $wpdb->get_row( $wpdb->prepare(
 				"SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(option_value)),0) AS b FROM {$wpdb->options} WHERE option_name = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table from $wpdb.
 				$o
 			), ARRAY_A );
@@ -289,6 +298,15 @@ final class DZE_Cleanup {
 			$done += (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->usermeta} WHERE meta_key = %s", $k ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table from $wpdb.
 		}
 		foreach ( (array) ( $map['options'] ?? [] ) as $o ) {
+			if ( '_' === substr( $o, -1 ) ) {
+				$names = (array) $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( $o ) . '%' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table from $wpdb.
+				foreach ( $names as $name ) {
+					if ( delete_option( $name ) ) {
+						$done++;
+					}
+				}
+				continue;
+			}
 			if ( delete_option( $o ) ) {
 				$done++;
 			}

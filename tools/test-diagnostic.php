@@ -1016,5 +1016,75 @@ ok( 'a gallery row offers none',         false !== strpos( $show( [ 'by' => 'fou
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
 
+echo "The pagination is WordPress's own, in WordPress's own wrapper\n";
+// "La pagination des listes diagnostique est horrible. Inutilisable." The
+// links WERE WordPress's — printed bare in a paragraph, where the admin
+// stylesheet does not reach them: outside .tablenav-pages they come out as a
+// run of naked numbers.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_posts'] = [];
+$dze_ids = [];
+for ( $i = 601; $i <= 720; $i++ ) {
+	$post = new WP_Post();
+	$post->ID = $i;
+	$post->post_title = 'Product ' . $i;
+	$GLOBALS['dze_posts'][ $i ] = $post;
+	$GLOBALS['dze_meta'][ $i ]['_product_image_gallery'] = '1';
+	$dze_ids[] = $i;
+}
+$dze_rows3 = DZE_Diagnostic::rows();
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows3 ] );
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), $dze_ids, false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => count( $dze_ids ) ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$dze_paged = $show( [ 'by' => 'found' ] );
+ok( 'the pager is in the admin wrapper',
+	false !== strpos( $dze_paged, 'class="tablenav-pages"' ), true );
+ok( 'and says how many there are',      false !== strpos( $dze_paged, '120 items' ), true );
+ok( 'with the links inside it',         false !== strpos( $dze_paged, 'pagination-links' ), true );
+// One page of fifty, and no pager at all when everything fits.
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), array_slice( $dze_ids, 0, 10 ), false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 10 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+ok( 'nothing to page through, no pager',
+	false !== strpos( $show( [ 'by' => 'found' ] ), 'tablenav-pages' ), false );
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_meta'] = [];
+$GLOBALS['dze_posts'] = [];
+
+echo "Each criterion's list is its own row, and big enough to hold the answer\n";
+// "Si 2106 produits sont problematiques alors pourquoi seulement 1000 dans la
+// liste ?" Because every criterion's list sat in ONE option, read in full to
+// draw fifty rows of one of them, so the cap had to be small. One option per
+// criterion, read when that list is opened, and the cap is what a shop needs.
+$GLOBALS['dze_opts'] = [];
+$dze_many = range( 1, 3000 );
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), $dze_many, false );
+ok( 'a list of three thousand is kept whole',
+	count( DZE_Diagnostic::list_of( 'prod_gallery' ) ), 3000 );
+ok( 'and it is its own option',
+	DZE_Diagnostic::list_option( 'prod_gallery' ), 'dze_diagnostic_lists_prod_gallery' );
+ok( 'one criterion cannot read another\'s',
+	DZE_Diagnostic::list_of( 'prod_desc' ), [] );
+// A shop whose last reading predates the split still has its lists in the old
+// option: the screen must not go empty because the storage moved.
+$GLOBALS['dze_opts'] = [];
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 7, 8, 9 ] ] );
+ok( 'the old single option is still read',
+	DZE_Diagnostic::list_of( 'prod_gallery' ), [ 7, 8, 9 ] );
+// And the new one wins the moment it exists.
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 11 ], false );
+ok( 'and the new row wins once written',
+	DZE_Diagnostic::list_of( 'prod_gallery' ), [ 11 ] );
+// Declared, or it cannot be erased. A module missing from that map is flagged
+// as undeclared in Settings -> Modules.
+require_once __DIR__ . '/../' . $dir . '/includes/class-cleanup.php';
+$dze_map = (array) ( DZE_Cleanup::map()['diagnostic']['options'] ?? [] );
+ok( 'the option prefix is declared',    in_array( 'dze_diagnostic_lists_', $dze_map, true ), true );
+// And the single option that held them all before the split, so a shop
+// updating from an older version is erased whole.
+ok( 'and the old single option too',    in_array( 'dze_diagnostic_lists', $dze_map, true ), true );
+$GLOBALS['dze_opts'] = [];
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
