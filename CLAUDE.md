@@ -222,6 +222,14 @@ owner communicates in French.
 
 ## Release pipeline
 
+- **Each criterion's object list is its OWN option, never autoloaded.** They
+  all lived in one row, read whole to draw fifty lines of one of them, so the
+  cap had to be small: a shop with 2,106 products short of one thing was shown
+  a thousand and told the count was exact anyway, which is true and no help.
+  One row per criterion, read on demand, and a shop whose last reading predates
+  the split still reads the old row until the next scan. The prefix is declared
+  in `DZE_Cleanup::map()` — an option name ending in `_` is a PREFIX there, the
+  same convention transients already use.
 - **`php tools/check-lint.php dazont-ecom` must pass, and it must be run AFTER
   the last edit.** It lints every shipped file, which is not the same thing as
   linting the files that were touched. 4.296.0 went to both channels with a

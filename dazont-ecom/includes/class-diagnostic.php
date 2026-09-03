@@ -42,8 +42,18 @@ final class DZE_Diagnostic {
 	private const CRON      = 'dze_diagnostic_scan';
 	private const LOCK      = 'dze_diag_lock';
 
-	/** Objects listed per criterion. The COUNT is always exact; the list is what a screen can show. */
-	private const KEEP_IDS = 1000;
+	/**
+	 * Objects listed per criterion. The COUNT is always exact.
+	 *
+	 * It was a thousand, and a shop with 2,106 products short of one thing hit
+	 * it and was told the list "can show" less than the count — true, and no
+	 * help at all. The cap exists because these ids are stored, and the reason
+	 * it was low is that every criterion's list sat in ONE option: twelve of
+	 * them at five thousand ids would be read together, on every load of this
+	 * screen, to show fifty rows. Each list is now its own option, read only
+	 * when that list is opened, so the cap can be what a shop actually needs.
+	 */
+	private const KEEP_IDS = 20000;
 
 	/** Rows on one page of a list. */
 	private const PER_PAGE = 50;
@@ -965,6 +975,32 @@ final class DZE_Diagnostic {
 		return is_array( $l ) ? $l : [];
 	}
 
+	/** Where one criterion's list of objects is kept. */
+	public static function list_option( string $id ): string {
+		return self::OPT_LISTS . '_' . sanitize_key( $id );
+	}
+
+	/**
+	 * The objects one criterion found, and only that criterion's.
+	 *
+	 * Its own option, never autoloaded, read when its list is opened. The
+	 * single option that held every list together was read in full to draw
+	 * fifty rows of one of them.
+	 *
+	 * @return int[]
+	 */
+	public static function list_of( string $id ): array {
+		$own = get_option( self::list_option( $id ), null );
+		if ( is_array( $own ) ) {
+			return array_values( array_filter( array_map( 'absint', $own ) ) );
+		}
+		// A shop whose last reading predates the split still has its lists in
+		// the old option. Read from there until the next scan writes them out
+		// properly — a screen must not go empty because the storage moved.
+		$was = (array) ( self::lists()[ $id ] ?? [] );
+		return array_values( array_filter( array_map( 'absint', $was ) ) );
+	}
+
 	/**
 	 * Reads the whole shop once.
 	 *
@@ -1064,6 +1100,10 @@ final class DZE_Diagnostic {
 			$ids                  = array_values( array_unique( (array) ( $hits[ $id ] ?? [] ) ) );
 			$out['checks'][ $id ] = count( $ids );
 			$lists[ $id ]         = array_slice( $ids, 0, self::KEEP_IDS );
+			// Its own row, and never autoloaded: a list of twenty thousand ids
+			// read on every request of the whole site is how a plugin makes a
+			// shop slow without doing anything.
+			update_option( self::list_option( $id ), $lists[ $id ], false );
 			$scope = (string) $meta['scope'];
 			foreach ( $ids as $one ) {
 				$short[ $scope ][ (int) $one ] = true;
@@ -2203,8 +2243,9 @@ final class DZE_Diagnostic {
 			return;
 		}
 		$census = self::census();
-		$lists  = self::lists();
-		$all    = (array) ( $lists[ $id ] ?? [] );
+		// THIS criterion's list, and no other. All of them were read together
+		// to draw fifty rows of one.
+		$all    = self::list_of( $id );
 		$n      = (int) ( $census['checks'][ $id ] ?? 0 );
 		$page   = isset( $_GET['paged'] ) ? max( 1, absint( $_GET['paged'] ) ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 
@@ -2456,16 +2497,35 @@ final class DZE_Diagnostic {
 			);
 		}
 
+		// WordPress's OWN pagination, in WordPress's own wrapper. The links
+		// were printed bare in a paragraph: paginate_links() returns anchors
+		// that the admin stylesheet only dresses inside .tablenav-pages, so
+		// outside it they came out as a run of naked numbers.
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
 		if ( $pages > 1 ) {
-			echo '<p style="margin-top:12px;">' . wp_kses_post( paginate_links( [
+			$links = paginate_links( [
 				'base'      => add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $by, 'dir' => $dir, 'paged' => '%#%' ], admin_url( 'admin.php' ) ),
 				'format'    => '',
 				'current'   => $page,
 				'total'     => $pages,
-				'prev_text' => '‹',
-				'next_text' => '›',
-			] ) ) . '</p>';
+				'type'      => 'plain',
+				'end_size'  => 1,
+				'mid_size'  => 2,
+				'prev_text' => '&lsaquo;',
+				'next_text' => '&rsaquo;',
+			] );
+			printf(
+				'<div class="tablenav bottom"><div class="tablenav-pages">'
+				. '<span class="displaying-num">%1$s</span>'
+				. '<span class="pagination-links">%2$s</span>'
+				. '</div><br class="clear" /></div>',
+				esc_html( sprintf(
+					/* translators: %s: how many objects are on this list */
+					_n( '%s item', '%s items', count( $ids ), 'dazont-ecom' ),
+					number_format_i18n( count( $ids ) )
+				) ),
+				wp_kses_post( (string) $links )
+			);
 		}
 	}
 
