@@ -281,8 +281,10 @@ EOT;
 
 	/**
 	 * Nested product-category tree with image, recursive product count and
-	 * recursive sales (units + revenue) so the rail can be re-ordered by what
-	 * actually sells.
+	 * recursive UNITS SOLD, so the rail can be re-ordered by what actually
+	 * sells. Units, never money: an order line is stored in the currency it
+	 * was paid in, and this shop's table carries enough wreckage from old
+	 * imports that no total read off it could be trusted.
 	 */
 	private function category_tree(): array {
 		$terms = get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false ] );
@@ -337,9 +339,7 @@ EOT;
 					'count'             => $rec_count( $cid ),
 					'count_direct'      => (int) ( $t->count ?? 0 ),
 					'sales_qty'         => (float) ( $sales[ $cid ]['qty'] ?? 0 ),
-					'sales_rev'         => (float) ( $sales[ $cid ]['rev'] ?? 0 ),
 					'sales_qty_direct'  => (float) ( $sales[ $cid ]['qty_direct'] ?? 0 ),
-					'sales_rev_direct'  => (float) ( $sales[ $cid ]['rev_direct'] ?? 0 ),
 					'researched'        => (int) get_term_meta( $cid, self::META_RESEARCHED, true ),
 					'kw'                => $rec_kw( $cid )['kw'],
 					'gaps'              => $rec_kw( $cid )['gaps'],
@@ -456,7 +456,7 @@ EOT;
 	}
 
 	private function category_sales( array $parent ): array {
-		$cached = get_transient( 'dze_x_cat_sales_v2' );
+		$cached = get_transient( 'dze_x_cat_sales_v3' );
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
@@ -467,21 +467,23 @@ EOT;
 			return [];
 		}
 
-		// Per-product totals (product_id is the parent product; variations roll
-		// up). The revenue column holds each line in the currency it was PAID
-		// in and the table has no currency of its own, so summing it as it
-		// stands added euros to dollars and called the answer money. One
-		// reader converts, for this report and for the diagnostic both.
-		$money = DZE_Sales::all();
-		$prod  = [];
-		foreach ( (array) ( $money['qty'] ?? [] ) as $pid => $qty ) {
-			$prod[ (int) $pid ] = [
-				'qty' => (float) $qty,
-				'rev' => (float) ( $money['rev'][ (int) $pid ] ?? 0 ),
-			];
+		// Per-product UNITS (product_id is the parent product; variations roll
+		// up). Quantities only: four sold is four sold whatever the buyer paid
+		// in, whereas the revenue column beside it holds each line in its own
+		// currency with no currency of its own to say which — and this table
+		// carries rows from old imports whose order no longer exists at all.
+		// Nothing here needs money, so nothing here reads it.
+		$since = gmdate( 'Y-m-d H:i:s', time() - 24 * 30 * DAY_IN_SECONDS );
+		$sold  = $wpdb->get_results(
+			$wpdb->prepare( "SELECT product_id, SUM(product_qty) AS qty FROM {$table} WHERE date_created >= %s GROUP BY product_id", $since ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, date is a parameter.
+			ARRAY_A
+		);
+		$prod = [];
+		foreach ( (array) $sold as $r ) {
+			$prod[ (int) $r['product_id'] ] = [ 'qty' => (float) $r['qty'] ];
 		}
 		if ( ! $prod ) {
-			set_transient( 'dze_x_cat_sales_v2', [], 3 * HOUR_IN_SECONDS );
+			set_transient( 'dze_x_cat_sales_v3', [], 3 * HOUR_IN_SECONDS );
 			return [];
 		}
 
@@ -517,14 +519,12 @@ EOT;
 		$out = [];
 		$bump = static function ( array &$out, int $tid, array $s, bool $direct ): void {
 			if ( ! isset( $out[ $tid ] ) ) {
-				$out[ $tid ] = [ 'qty' => 0.0, 'rev' => 0.0, 'qty_direct' => 0.0, 'rev_direct' => 0.0 ];
+				$out[ $tid ] = [ 'qty' => 0.0, 'qty_direct' => 0.0 ];
 			}
 			if ( $direct ) {
 				$out[ $tid ]['qty_direct'] += $s['qty'];
-				$out[ $tid ]['rev_direct'] += $s['rev'];
 			} else {
 				$out[ $tid ]['qty'] += $s['qty'];
-				$out[ $tid ]['rev'] += $s['rev'];
 			}
 		};
 		foreach ( $prod as $pid => $s ) {
@@ -545,7 +545,7 @@ EOT;
 				$bump( $out, (int) $tid, $s, false );
 			}
 		}
-		set_transient( 'dze_x_cat_sales_v2', $out, 3 * HOUR_IN_SECONDS );
+		set_transient( 'dze_x_cat_sales_v3', $out, 3 * HOUR_IN_SECONDS );
 		return $out;
 	}
 

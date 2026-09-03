@@ -106,27 +106,6 @@ class WP_Post { public $ID = 0; public $post_title = ''; public $post_content = 
 	public $post_modified_gmt = '2026-01-01 00:00:00'; public $post_date_gmt = '2026-01-01 00:00:00'; public $comment_count = 0; }
 class WP_Error {}
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
-/** What each product brought in, already in the shop's own currency. */
-class DZE_Sales {
-	const MONTHS = 24;
-	public static function revenue( $ids = [] ) {
-		$rev = [];
-		foreach ( (array) ( $GLOBALS['dze_rev'] ?? [] ) as $pid => $amount ) {
-			if ( ! $ids || in_array( (int) $pid, array_map( 'intval', $ids ), true ) ) { $rev[ (int) $pid ] = (float) $amount; }
-		}
-		return [
-			'rev'     => $rev,
-			'qty'     => [],
-			'missing' => (array) ( $GLOBALS['dze_missing'] ?? [] ),
-			'by'      => (array) ( $GLOBALS['dze_by'] ?? [] ),
-			'orphans' => (array) ( $GLOBALS['dze_orphans'] ?? [ 'lines' => 0, 'raw' => 0.0 ] ),
-		];
-	}
-}
-class DZE_Money {
-	public static function base() { return 'USD'; }
-	public static function say( $n ) { return '$' . number_format( (float) $n, 2 ); }
-}
 
 class DZE_Diag_Test_Wpdb {
 	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
@@ -207,9 +186,6 @@ $GLOBALS['dze_icl']     = [];
 $GLOBALS['dze_variations'] = [];
 $GLOBALS['dze_sql']        = [];
 $GLOBALS['dze_facts']      = [];
-$GLOBALS['dze_rev']        = [];
-$GLOBALS['dze_missing']    = [];
-$GLOBALS['dze_orphans']    = [ 'lines' => 0, 'raw' => 0.0 ];
 $GLOBALS['dze_facts_sql']  = [];
 $GLOBALS['dze_posts']   = [];
 
@@ -640,14 +616,14 @@ ok( 'and by name',                      $order( $show( [ 'by' => 'name', 'dir' =
 // column that can be sorted, solid on the one that is.
 $GLOBALS['umeta'] = [];
 $hdr = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-// One mark per column, always: four pale pairs on the ones that can be sorted
-// and one solid arrow on the one in use. A screen sorted by nothing in
-// particular used to carry no mark at all.
+// One mark per column, always: Product, Price, Sold, Last edited — three pale
+// pairs on the ones not in use and one solid arrow on the one that is. A
+// screen sorted by nothing in particular used to carry no mark at all.
 ok( 'every column carries a mark',
-	substr_count( $hdr, 'Sort by this column' ), 5 );
+	substr_count( $hdr, 'Sort by this column' ), 4 );
 ok( 'the one in use points down',       substr_count( $hdr, '&#9660;' ), 1 );
 ok( 'and is the only one in bold',      substr_count( $hdr, 'font-weight:700;' ), 1 );
-ok( 'the others say they can be sorted', substr_count( $hdr, '&#8645;' ), 4 );
+ok( 'the others say they can be sorted', substr_count( $hdr, '&#8645;' ), 3 );
 // Clicking the sorted column turns it round rather than sorting it again the
 // same way.
 ok( 'the sorted one offers the other direction',
@@ -659,37 +635,23 @@ ok( 'and as he left it, coming back',   $order( $show( [] ) ), [ 'Zulu pouch', '
 ok( 'the memory is his own',            DZE_Diagnostic::kept_view( 'prod_gallery' )['by'] ?? '', 'price' );
 $GLOBALS['umeta'] = [];
 
-// What each one BROUGHT IN, in the shop's own currency — the column the shop
-// actually decides on: a product sold 250 times at 9.90 is not the product
-// that brought the most in.
-$GLOBALS['dze_rev'] = [ 101 => 99.50, 102 => 2475.00, 103 => 3960.00 ];
-ok( 'sorted by what they brought in',   $order( $show( [ 'by' => 'rev', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Ancient cap', 'Balaclava' ] );
-$html = $show( [ 'by' => 'rev', 'dir' => 'desc' ] );
-ok( 'and the amount is on the row',     false !== strpos( $html, '3,960.00' ), true );
-ok( 'in the shop\'s own currency',      false !== strpos( $html, '$3,960.00' ), true );
-// A currency with no rate is LEFT OUT and said so: a short total that looks
-// whole is a figure the shop sorts by and believes.
-$GLOBALS['dze_missing'] = [ 'PLN', 'SEK' ];
-$html = $show( [ 'by' => 'rev', 'dir' => 'desc' ] );
-ok( 'what could not be converted is said', false !== strpos( $html, 'Orders paid in PLN, SEK are left out' ), true );
-$GLOBALS['dze_missing'] = [];
-ok( 'and nothing is said when all is known',
-	false !== strpos( $show( [ 'by' => 'rev' ] ), 'are left out' ), false );
-
-// Rows in WooCommerce's own sales table whose order no longer exists. This
-// shop had 751 of them; the 67 inside the window carried 84% of everything
-// Revenue reported. They are not counted and not hidden — the screen names
-// them, the same treatment a currency with no rate already gets.
-$GLOBALS['dze_orphans'] = [ 'lines' => 67, 'raw' => 1487416.92 ];
-$html = $show( [ 'by' => 'rev', 'dir' => 'desc' ] );
-ok( 'order lines with no order are named',
-	false !== strpos( $html, '67 order lines are left out of Revenue' ), true );
-ok( 'with the amount they carry',       false !== strpos( $html, '1,487,416.92' ), true );
-ok( 'and they go with the figures too',
-	false !== strpos( DZE_Diagnostic::figures_text( [], 'x', $GLOBALS['dze_orphans'] ), 'No order behind them — 67 lines' ), true );
-$GLOBALS['dze_orphans'] = [ 'lines' => 0, 'raw' => 0.0 ];
-ok( 'a clean shop is told nothing',
-	false !== strpos( $show( [ 'by' => 'rev' ] ), 'no order behind' ), false );
+// MONEY IS GONE FROM THIS SCREEN, and must stay gone. It was read from
+// wc_order_product_lookup, converted correctly through the shop's own rates,
+// and still answered $6,792,487 against 23 units at $76.90 — because that
+// table holds hundreds of rows whose order does not exist. Three releases
+// went on defending a column nobody could believe. Units are what the shop
+// decides on, and units are all this screen shows.
+$html = $show( [] );
+ok( 'no money column',                  false !== strpos( $html, 'Revenue' ), false );
+ok( 'no currency conversion left',      class_exists( 'DZE_Money' ), false );
+ok( 'and nothing reads the sales table for money', class_exists( 'DZE_Sales' ), false );
+ok( 'units sold are still there',       false !== strpos( $html, 'Sold' ), true );
+// Asking for the order that is gone must not leave the list in a random one:
+// the saved view falls back to the order the scan found.
+ok( 'a saved sort by revenue falls back',
+	$order( $show( [ 'by' => 'rev', 'dir' => 'desc' ] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
+ok( 'and it is not offered any more',   DZE_Diagnostic::kept_view( 'prod_gallery' )['by'] ?? '', 'found' );
+$GLOBALS['umeta'] = [];
 
 // The work to do and the work DONE, on two tabs. "Pour mieux organiser le
 // travail, il est préférable de créer 2 onglets : un qui reprend les posts à
@@ -862,15 +824,15 @@ $GLOBALS['module_off'] = [];
 
 echo "The last view of a list is the one it opens on\n";
 // "La methode de tri n'est pas bonne il faudrait que ca reste sauvegarde, la
-// derniere vue." Nine hundred products sorted by revenue, left, and come back
+// derniere vue." Nine hundred products sorted by what sells, left, and come back
 // to: it opened again on the order nobody chose, so the work was re-sorted by
 // hand every time.
 $GLOBALS['umeta'] = [];
 ok( 'a list nobody has sorted has no memory', DZE_Diagnostic::kept_view( 'thin' ), [] );
-DZE_Diagnostic::keep_view( 'thin', [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+DZE_Diagnostic::keep_view( 'thin', [ 'by' => 'sales', 'dir' => 'asc', 'show' => 'fixed' ] );
 ok( 'what was chosen is remembered',
-	DZE_Diagnostic::kept_view( 'thin' ), [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
-// Per criterion: the galleries are worked through by revenue and the thin
+	DZE_Diagnostic::kept_view( 'thin' ), [ 'by' => 'sales', 'dir' => 'asc', 'show' => 'fixed' ] );
+// Per criterion: the galleries are worked through by units sold and the thin
 // descriptions alphabetically, and one is not the other.
 ok( 'and another list keeps its own',   DZE_Diagnostic::kept_view( 'other' ), [] );
 // On the PERSON: two people working through the same shop do not sort it the
@@ -878,12 +840,12 @@ ok( 'and another list keeps its own',   DZE_Diagnostic::kept_view( 'other' ), []
 $GLOBALS['uid'] = 2;
 ok( 'somebody else starts clean',       DZE_Diagnostic::kept_view( 'thin' ), [] );
 $GLOBALS['uid'] = 1;
-ok( 'and the first one still has his',  DZE_Diagnostic::kept_view( 'thin' )['by'] ?? '', 'rev' );
+ok( 'and the first one still has his',  DZE_Diagnostic::kept_view( 'thin' )['by'] ?? '', 'sales' );
 // A write on every page load is a write for nothing.
 $GLOBALS['umeta_writes'] = 0;
-DZE_Diagnostic::keep_view( 'thin', [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+DZE_Diagnostic::keep_view( 'thin', [ 'by' => 'sales', 'dir' => 'asc', 'show' => 'fixed' ] );
 ok( 'an unchanged view writes nothing',
-	DZE_Diagnostic::kept_view( 'thin' ), [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+	DZE_Diagnostic::kept_view( 'thin' ), [ 'by' => 'sales', 'dir' => 'asc', 'show' => 'fixed' ] );
 
 echo "The list of problems mends them, from the list itself\n";
 // "Sur l'ecran des problemes en particulier j'aimerais la possibilite de le
@@ -943,39 +905,6 @@ $page = $show( [] );
 ok( 'the handler is on this screen',    false !== strpos( $page, "'dze_diag_fix'" ), true );
 ok( 'and it is bound to the buttons',   false !== strpos( $page, ".dze-diag-fix'" ), true );
 ok( 'with a nonce to send',             false !== strpos( $page, 'nonce:' ), true );
-
-echo "The Revenue column can be taken apart\n";
-// "Toujours des montants irreels." Until the shop can see WHAT was read and at
-// WHAT rate, every conversation about this column is guesswork on both sides.
-$GLOBALS['umeta'] = [];
-$GLOBALS['dze_by'] = [
-	'USD' => [ 'lines' => 12, 'raw' => 900.0, 'rate' => 1.0, 'base' => 900.0 ],
-	'PLN' => [ 'lines' => 3,  'raw' => 400.0, 'rate' => 0.25, 'base' => 100.0 ],
-];
-$page = $show( [] );
-ok( 'the workings are on the screen',   false !== strpos( $page, 'How Revenue was worked out' ), true );
-ok( 'naming the currency read',         false !== strpos( $page, '<code>USD</code>' ), true );
-ok( 'and where a wrong rate is corrected',
-	false !== strpos( $page, 'corrected in your multi-currency plugin' ), true );
-// The figure that makes a wrong total obvious: a catalogue selling at $15 to
-// $77 cannot average $1,625 an order line, and no rate explains that.
-ok( 'the average per order line is shown',
-	false !== strpos( $page, 'Per line' ), true );
-ok( 'and it is the read total over the lines',
-	false !== strpos( $page, '133,33 PLN' ) || false !== strpos( $page, '133.33 PLN' ), true );
-// One click, and the figures are text that can be handed over. Nobody can read
-// this database from outside the shop.
-ok( 'the figures can be copied',        false !== strpos( $page, 'Copy these figures' ), true );
-ok( 'and they carry the per-line figure',
-	false !== strpos( DZE_Diagnostic::figures_text( $GLOBALS['dze_by'], 'x' ), 'per line 133.33' ), true );
-ok( 'with the shop\'s own currency named',
-	false !== strpos( DZE_Diagnostic::figures_text( $GLOBALS['dze_by'], 'x' ), 'Shop currency: USD' ), true );
-// The rate is printed as the shop's plugin publishes it, not rounded into
-// something else: 0.25 is 0.25, and the shop's own currency has no rate.
-ok( 'the rate used is printed',         false !== strpos( $page, '>0.25<' ), true );
-ok( 'and the shop\'s own has none',      false !== strpos( $page, '>&mdash;<' ) || false !== strpos( $page, '>—<' ), true );
-ok( 'each currency says how much was read',
-	false !== strpos( $page, '400,00 PLN' ) || false !== strpos( $page, '400.00 PLN' ), true );
 
 echo "The routine is written on the criterion, and survives being saved\n";
 // "Typiquement ce que je fais sur un produit qui manque de photos : seance

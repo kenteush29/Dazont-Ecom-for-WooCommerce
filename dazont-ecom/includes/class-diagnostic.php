@@ -673,37 +673,6 @@ final class DZE_Diagnostic {
 		update_user_meta( $user, self::VIEW_META, $all );
 	}
 
-	/**
-	 * The workings as plain text, for a shop that needs to hand them over.
-	 *
-	 * Nobody can read this plugin's database from outside the shop, so every
-	 * question about a figure has been answered by guesswork at both ends. One
-	 * button, one paste, and the guessing stops.
-	 */
-	public static function figures_text( array $sums, string $label, array $lost = [] ): string {
-		$out = [ $label, sprintf( 'Shop currency: %s', class_exists( 'DZE_Money' ) ? DZE_Money::base() : '?' ) ];
-		foreach ( $sums as $cur => $one ) {
-			$n = max( 1, (int) ( $one['lines'] ?? 0 ) );
-			$out[] = sprintf(
-				'%1$s — %2$d lines, read %3$s, per line %4$s, rate %5$s, counted %6$s',
-				(string) $cur,
-				(int) ( $one['lines'] ?? 0 ),
-				number_format( (float) ( $one['raw'] ?? 0 ), 2, '.', '' ),
-				number_format( (float) ( $one['raw'] ?? 0 ) / $n, 2, '.', '' ),
-				rtrim( rtrim( number_format( (float) ( $one['rate'] ?? 0 ), 6, '.', '' ), '0' ), '.' ),
-				number_format( (float) ( $one['base'] ?? 0 ), 2, '.', '' )
-			);
-		}
-		if ( (int) ( $lost['lines'] ?? 0 ) > 0 ) {
-			$out[] = sprintf(
-				'No order behind them — %1$d lines, carrying %2$s, left out',
-				(int) $lost['lines'],
-				number_format( (float) ( $lost['raw'] ?? 0 ), 2, '.', '' )
-			);
-		}
-		return implode( "\n", $out );
-	}
-
 	/** How many products one press sends off. */
 	public const FIX_BATCH = 20;
 
@@ -2219,7 +2188,6 @@ final class DZE_Diagnostic {
 				switch ( $by ) {
 					case 'sales':  $c = ( (int) ( $x['sales'] ?? 0 ) ) <=> ( (int) ( $y['sales'] ?? 0 ) ); break;
 					case 'price':  $c = ( (float) ( $x['price'] ?? 0 ) ) <=> ( (float) ( $y['price'] ?? 0 ) ); break;
-					case 'rev':    $c = ( (float) ( $x['rev'] ?? 0 ) ) <=> ( (float) ( $y['rev'] ?? 0 ) ); break;
 					case 'edited': $c = strcmp( (string) ( $x['edited'] ?? '' ), (string) ( $y['edited'] ?? '' ) ); break;
 					default:       $c = strcasecmp( (string) ( $x['title'] ?? '' ), (string) ( $y['title'] ?? '' ) ); break;
 				}
@@ -2379,17 +2347,6 @@ final class DZE_Diagnostic {
 		if ( $goods ) {
 			echo $head( 'price', __( 'Price', 'dazont-ecom' ), 'width:110px;text-align:right;' );
 			echo $head( 'sales', __( 'Sold', 'dazont-ecom' ), 'width:90px;text-align:right;' );
-			// The window is IN the heading: a figure whose period is written
-			// somewhere else is a figure read as "since the shop opened".
-			echo $head(
-				'rev',
-				sprintf(
-					/* translators: %d: how many months revenue looks back */
-					__( 'Revenue (%d mo)', 'dazont-ecom' ),
-					class_exists( 'DZE_Sales' ) ? DZE_Sales::MONTHS : 24
-				),
-				'width:130px;text-align:right;'
-			);
 			echo $head( 'edited', __( 'Last edited', 'dazont-ecom' ), 'width:140px;' );
 		}
 		// phpcs:enable
@@ -2398,10 +2355,6 @@ final class DZE_Diagnostic {
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
-		$gap  = (array) ( $facts['_missing'] ?? [] );
-		$sums = (array) ( $facts['_by'] ?? [] );
-		$lost = (array) ( $facts['_orphans'] ?? [] );
-		unset( $facts['_missing'], $facts['_by'], $facts['_orphans'] );
 
 		// The rows of this page. Which list they belong to was settled once,
 		// above, for the whole list: judging them again here would be a second
@@ -2432,10 +2385,6 @@ final class DZE_Diagnostic {
 				// The figure the shop actually decides on: an hour spent on a
 				// product nobody buys is an hour spent for nobody.
 				echo '<td style="text-align:right;">' . esc_html( number_format_i18n( (int) ( $one['sales'] ?? 0 ) ) ) . '</td>';
-				// In the shop's own currency, whatever the buyer paid in.
-				echo '<td style="text-align:right;">' . wp_kses_post(
-					class_exists( 'DZE_Money' ) ? DZE_Money::say( (float) ( $one['rev'] ?? 0 ) ) : esc_html( (string) ( $one['rev'] ?? 0 ) )
-				) . '</td>';
 				echo '<td>' . ( $when
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
@@ -2480,82 +2429,6 @@ final class DZE_Diagnostic {
 				esc_html( 'fixed' === $show
 					? __( 'Nothing has been mended since the last reading.', 'dazont-ecom' )
 					: __( 'Nothing falls short of this any more.', 'dazont-ecom' ) )
-			);
-		}
-		if ( $gap ) {
-			// A total that is short must SAY it is short. Counting an
-			// unconvertible order at one to one would be a figure the shop
-			// sorts by and believes.
-			printf(
-				'<p class="description" style="color:#b26a00;max-width:1100px;">%s</p>',
-				esc_html( sprintf(
-					/* translators: %s: currency codes, e.g. "PLN, SEK" */
-					__( 'Orders paid in %s are left out of Revenue: this shop gives no exchange rate for them. Set one in your multi-currency plugin and the figure completes itself.', 'dazont-ecom' ),
-					implode( ', ', $gap )
-				) )
-			);
-		}
-		if ( $goods && (int) ( $lost['lines'] ?? 0 ) > 0 ) {
-			// Rows in WooCommerce's sales table whose order no longer exists —
-			// the wreckage an import leaves behind. They are not counted, and
-			// they are not hidden either: this shop had 67 of them carrying 84%
-			// of everything Revenue reported, and nothing anywhere said so.
-			printf(
-				'<p class="description" style="color:#b26a00;max-width:1100px;">%s</p>',
-				esc_html( sprintf(
-					/* translators: 1: number of order lines, 2: the amount they carry */
-					__( '%1$s order lines are left out of Revenue: WooCommerce\'s sales table holds them, but the orders behind them no longer exist. They carry %2$s between them, which is why the figures once read far above what this shop sells for.', 'dazont-ecom' ),
-					number_format_i18n( (int) $lost['lines'] ),
-					number_format_i18n( (float) ( $lost['raw'] ?? 0 ), 2 )
-				) )
-			);
-		}
-
-		// HOW the Revenue column was arrived at, in one collapsed line. A
-		// figure nobody can take apart is a figure that gets argued about, and
-		// three evenings have gone on this one. Currency by currency: what was
-		// read, at what rate, and what it came to.
-		if ( $goods && $sums ) {
-			echo '<details style="margin-top:10px;max-width:1100px;"><summary style="cursor:pointer;color:#2271b1;">'
-				. esc_html__( 'How Revenue was worked out', 'dazont-ecom' ) . '</summary>';
-			echo '<table class="widefat striped" style="max-width:760px;margin:8px 0;"><thead><tr>'
-				. '<th>' . esc_html__( 'Paid in', 'dazont-ecom' ) . '</th>'
-				. '<th style="text-align:right;">' . esc_html__( 'Order lines', 'dazont-ecom' ) . '</th>'
-				. '<th style="text-align:right;">' . esc_html__( 'Read', 'dazont-ecom' ) . '</th>'
-				// The figure that makes a wrong total obvious at a glance. A
-				// catalogue selling at $15 to $77 cannot average $1,625 an
-				// order line, and no exchange rate explains that — it is what
-				// is STORED on the order lines that is wrong, which is a very
-				// different conversation from the one about rates.
-				. '<th style="text-align:right;">' . esc_html__( 'Per line', 'dazont-ecom' ) . '</th>'
-				. '<th style="text-align:right;">' . esc_html__( 'Rate used', 'dazont-ecom' ) . '</th>'
-				. '<th style="text-align:right;">' . esc_html__( 'Counted as', 'dazont-ecom' ) . '</th>'
-				. '</tr></thead><tbody>';
-			foreach ( $sums as $cur => $one ) {
-				$dze_n = max( 1, (int) ( $one['lines'] ?? 0 ) );
-				printf(
-					'<tr><td><code>%1$s</code></td><td style="text-align:right;">%2$s</td>'
-					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">%6$s</td>'
-					. '<td style="text-align:right;">%4$s</td>'
-					. '<td style="text-align:right;">%5$s</td></tr>',
-					esc_html( (string) $cur ),
-					esc_html( number_format_i18n( (int) ( $one['lines'] ?? 0 ) ) ),
-					esc_html( number_format_i18n( (float) ( $one['raw'] ?? 0 ), 2 ) . ' ' . (string) $cur ),
-					esc_html( (string) ( 1.0 === (float) ( $one['rate'] ?? 0 ) ? '—' : rtrim( rtrim( number_format( (float) ( $one['rate'] ?? 0 ), 6, '.', '' ), '0' ), '.' ) ) ),
-					wp_kses_post( class_exists( 'DZE_Money' ) ? DZE_Money::say( (float) ( $one['base'] ?? 0 ) ) : esc_html( (string) ( $one['base'] ?? 0 ) ) ),
-					esc_html( number_format_i18n( (float) ( $one['raw'] ?? 0 ) / $dze_n, 2 ) . ' ' . (string) $cur )
-				);
-			}
-			echo '</tbody></table><p class="description" style="max-width:760px;">'
-				. esc_html__( 'Read from your order lines over the window in the column heading, grouped by the currency each order was paid in, and converted at the rate your multi-currency plugin publishes today. Compare "Per line" with what you actually sell for: a rate that looks wrong is corrected in your multi-currency plugin, but a per-line figure far from your prices means the amounts stored on those orders are not in the currency they are being read as — orders taken before the shop changed currency, most often.', 'dazont-ecom' )
-				. '</p>';
-			// One click, and the figures are text I can be sent. Every one of
-			// these evenings has gone on me changing arithmetic I cannot see
-			// the inputs of; this is how that stops.
-			printf(
-				'<p><button type="button" class="button button-small" id="dze-diag-copy" data-figures="%s">%s</button> <span id="dze-diag-copied" class="description"></span></p></details>',
-				esc_attr( self::figures_text( $sums, (string) $check['label'], $lost ) ),
-				esc_html__( 'Copy these figures', 'dazont-ecom' )
 			);
 		}
 
@@ -2611,21 +2484,8 @@ final class DZE_Diagnostic {
 				'edited' => (string) $row->post_modified,
 				'sales'  => (int) $row->sales,
 				'price'  => (string) $row->price,
-				'rev'    => 0.0,
 			];
 		}
-		// What each one BROUGHT IN, in the shop's own currency — orders paid
-		// in euros and z\u0142oty are converted, never added as they stand.
-		// One more query for the whole list, beside the one above.
-		$money = class_exists( 'DZE_Sales' ) ? DZE_Sales::revenue( $ids ) : [ 'rev' => [], 'missing' => [] ];
-		foreach ( (array) ( $money['rev'] ?? [] ) as $pid => $amount ) {
-			if ( isset( $out[ (int) $pid ] ) ) {
-				$out[ (int) $pid ]['rev'] = (float) $amount;
-			}
-		}
-		$out['_missing'] = (array) ( $money['missing'] ?? [] );
-		$out['_by']      = (array) ( $money['by'] ?? [] );
-		$out['_orphans'] = (array) ( $money['orphans'] ?? [] );
 		return $out;
 	}
 
@@ -2643,7 +2503,6 @@ final class DZE_Diagnostic {
 		return [
 			'found'  => __( 'As found', 'dazont-ecom' ),
 			'sales'  => __( 'Sales', 'dazont-ecom' ),
-			'rev'    => __( 'Revenue', 'dazont-ecom' ),
 			'price'  => __( 'Price', 'dazont-ecom' ),
 			'edited' => __( 'Last edited', 'dazont-ecom' ),
 			'name'   => __( 'Name', 'dazont-ecom' ),
@@ -2693,26 +2552,6 @@ final class DZE_Diagnostic {
 					});
 			});
 
-			// The figures, as text, in one click. It uses the browser's own
-			// clipboard where there is one and falls back to selecting the
-			// text where there is not — a button that silently does nothing on
-			// an older browser is the failure this screen keeps producing.
-			$(document).on('click', '#dze-diag-copy', function () {
-				var txt = String($(this).data('figures') || ''), $m = $('#dze-diag-copied');
-				function done() { $m.css('color', '#00794b').text(<?php echo wp_json_encode( __( 'Copied — paste it wherever you need it.', 'dazont-ecom' ) ); ?>); }
-				if (window.navigator && navigator.clipboard && navigator.clipboard.writeText) {
-					navigator.clipboard.writeText(txt).then(done, fallback);
-					return;
-				}
-				fallback();
-				function fallback() {
-					var $t = $('<textarea>').css({ position: 'fixed', left: '-9999px' }).val(txt).appendTo('body');
-					$t[0].select();
-					try { document.execCommand('copy'); done(); }
-					catch (e) { $m.css('color', '#b26a00').text(<?php echo wp_json_encode( __( 'Select the table above and copy it by hand.', 'dazont-ecom' ) ); ?>); }
-					$t.remove();
-				}
-			});
 
 			$('#dze-diag-scan').on('click', function () {
 				var $b = $(this), $m = $('#dze-diag-msg');

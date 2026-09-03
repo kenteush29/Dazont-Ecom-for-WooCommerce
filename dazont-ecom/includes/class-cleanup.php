@@ -81,7 +81,7 @@ final class DZE_Cleanup {
 				'options'    => [ 'dze_kw_schema', 'dze_kw_job' ],
 				'term_meta'  => [ '_dze_insights' ],
 				'post_meta'  => [ '_dze_researched' ],
-				'transients' => [ 'dze_kw_up_', 'dze_x_cat_sales_v2', 'dze_sales_rev_' ],
+				'transients' => [ 'dze_kw_up_', 'dze_x_cat_sales_v3' ],
 			],
 			'category_content' => [
 				'options'    => [ 'dze_catcontent_settings' ],
