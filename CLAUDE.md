@@ -222,6 +222,14 @@ owner communicates in French.
 
 ## Release pipeline
 
+- **`php tools/check-lint.php dazont-ecom` must pass, and it must be run AFTER
+  the last edit.** It lints every shipped file, which is not the same thing as
+  linting the files that were touched. 4.296.0 went to both channels with a
+  parse error in `class-modules.php` — an unescaped quote inside a
+  single-quoted string — because the gates had been run before that last
+  change. **A gate run before the last edit is not a gate.** Re-run the suite
+  after every edit, including a one-line comment, and especially after an edit
+  made while writing the release note.
 - **`php tools/check-methods.php dazont-ecom` must pass before every release.**
   `php -l` proves a file PARSES, not that it runs: a call to a method nobody
   wrote parses perfectly and dies the moment the line executes.
