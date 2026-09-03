@@ -330,7 +330,11 @@ owner communicates in French.
   surface was removed from this screen rather than patched again — it comes
   back built from the reading, not from a figure typed twice. Do not
   reintroduce a per-criterion count of anything the rule already counts.
-  Four things are gated because all four were got wrong while writing this: an
+  It is on EVERY criterion that holds a figure — a word count as much as a
+  number of photographs — and the gate is the RULE's comparison, never the
+  field's type. Tied to the type it gave conditions to the gallery and denied
+  them to "description is less than 120 words", which is the same question.
+  Five things are gated because all five were got wrong while writing this: an
   object with NOTHING to place it by (no price set) measures 0 and would land
   in the first range starting at 0 — the easiest standard given to the most
   broken products — so it falls through to the plain figure instead; the
@@ -341,7 +345,11 @@ owner communicates in French.
   landed on, or it keeps the blank prototype's menu and offers the very field
   being judged. `tools/js/diagnostic-card.mjs` clicks all of it in both jQuery
   builds — a disabled prototype row is what a press copies, so the markup
-  lives in ONE place, and the rows are renumbered on every add and remove.
+  lives in ONE place, and the rows are renumbered on every add and remove. A
+  fresh condition opens on the PRICE and the row reads "If price is between 0
+  and 40 → at least 3 photographs": opened on the first field in the list it
+  said "main photograph", and without the two words the menu read as the thing
+  being counted rather than the thing being tested.
   `checked()` and `selected()` in the harness return what WordPress returns:
   stubbed to `''` they hid every question they exist to answer.
 - **`php tools/test-prompt-block.php dazont-ecom` must pass**, and the Klaviyo

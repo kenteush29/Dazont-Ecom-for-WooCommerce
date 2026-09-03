@@ -271,8 +271,13 @@ function judge( array $row, int $product_id ): bool {
 		$m = new ReflectionMethod( 'DZE_Diagnostic', 'fails' );
 		$m->setAccessible( true );
 	}
-	$p = new WP_Post();
-	$p->ID = $product_id;
+	// The real post when the fixture made one — a criterion on a TEXT is
+	// judged on what that text says, and a bare object says nothing.
+	$p = $GLOBALS['dze_posts'][ $product_id ] ?? null;
+	if ( ! $p ) {
+		$p = new WP_Post();
+		$p->ID = $product_id;
+	}
 	return (bool) $m->invoke( null, $row, 'product', $p );
 }
 function rule( string $key, string $test, $value = 0, string $find = '' ): array {
@@ -834,6 +839,34 @@ ok( 'a text and another type are dropped', count( DZE_Diagnostic::clean_rows( [ 
 // than thrown away, because losing the line would hide the mistake.
 $dze_bad['bands'] = [ [ 'field' => 'product.price', 'from' => 80, 'to' => 40, 'want' => 6 ] ];
 ok( 'a backwards range becomes open-ended', DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['bands'][0]['to'], 0 );
+// STANDARDISED: wherever the rule holds a figure, not wherever the field is a
+// number. "Description is less than 120 words" is the same question as
+// "gallery is less than 3 photographs", and the first version gave conditions
+// to one and denied them to the other.
+$dze_words = [
+	'id' => 'thin_desc', 'label' => 'x', 'scope' => 'product', 'field' => 'product.description',
+	'test' => 'lt', 'value' => 120, 'key' => '', 'find' => '', 'on' => 1, 'cond' => 1,
+	'bands' => [ [ 'field' => 'product.price', 'from' => 80, 'to' => 0, 'want' => 300 ] ],
+];
+$GLOBALS['dze_posts'][310] = new WP_Post();
+$GLOBALS['dze_posts'][310]->ID = 310;
+$GLOBALS['dze_posts'][310]->post_content = str_repeat( 'word ', 200 );
+$GLOBALS['dze_meta'][310]['_price'] = '90.00';
+ok( 'a word count takes conditions too', judge( $dze_words, 310 ), true );
+$GLOBALS['dze_meta'][310]['_price'] = '20.00';
+ok( 'and a cheap product keeps the plain figure', judge( $dze_words, 310 ), false );
+$dze_c = new ReflectionMethod( 'DZE_Diagnostic', 'card' );
+$dze_c->setAccessible( true );
+// SHOWN, not merely present: the block is always in the markup and hidden by
+// style, so a check for the class alone passes on the very bug it is about.
+ok( 'and the card offers them',
+	false !== strpos( (string) $dze_c->invoke( null, $dze_words, '0' ), 'dze-diag-cond" style="margin:6px 0 0;">' ), true );
+// A rule with NO figure has nothing to put in tiers.
+$dze_empty = $dze_words;
+$dze_empty['test'] = 'empty';
+ok( 'a rule with no figure is shut',
+	false !== strpos( (string) $dze_c->invoke( null, $dze_empty, '0' ), 'dze-diag-cond" style="margin:6px 0 0;display:none;' ), true );
+
 // The switch is stored, and survives a form that did not carry it.
 ok( 'the switch is kept',               $dze_saved['cond'], 1 );
 $dze_card = new ReflectionMethod( 'DZE_Diagnostic', 'card' );
