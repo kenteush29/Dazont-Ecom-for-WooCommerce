@@ -64,8 +64,11 @@ function wp_enqueue_script( ...$a ) {}
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d ); }
 function wp_date( $f, $t = null ) { return date( 'Y-m-d H:i', (int) $t ); }
 function human_time_diff( $a, $b = 0 ) { return '1 hour'; }
-function checked( $a, $b, $e = true ) { return ''; }
-function selected( $a, $b, $e = true ) { return ''; }
+// WordPress's own behaviour, not a blank. Stubbed to '' these two hid every
+// question they exist to answer: a box that never comes back ticked and a
+// menu that never reopens on the choice that was made both look perfect.
+function checked( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " checked='checked'" : ''; if ( $e ) { echo $r; } return $r; }
+function selected( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " selected='selected'" : ''; if ( $e ) { echo $r; } return $r; }
 function submit_button( $t = null ) {}
 function settings_fields( $g ) {}
 function get_admin_page_title() { return 'Diagnostic'; }
@@ -748,9 +751,11 @@ ok( 'and carries no wording of its own', array_key_exists( 'label', $got ), fals
 // Kept by the prompt's PLACE for shoot(), resolved from its id, because a
 // place moves the day a prompt is added above it.
 ok( 'each prompt with its own number',  $got['shots'] ?? [], [ 1 => 2, 2 => 3 ] );
+// NAMES, and no count. How many photographs a product gets is what it is
+// short of, worked out from the rule — a figure on the criterion beside the
+// rule's own is two answers that drift apart the first time one is edited.
 ok( 'and it says so in the shop\'s words',
-	DZE_Diagnostic::shots_said( $got['shots'] ), 'Scene (in use) ×2 + Another angle ×3' );
-ok( 'five photographs a product',       DZE_Diagnostic::shots_each( $got['shots'] ), 5 );
+	DZE_Diagnostic::shots_said( $got['shots'] ), 'Scene (in use) · Another angle' );
 // A prompt the shop has since deleted is dropped rather than silently
 // becoming whichever prompt now sits in its place.
 ok( 'a prompt that is gone is dropped',
@@ -784,25 +789,35 @@ $GLOBALS['tpls'] = [
 	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
 	[ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ],
 ];
-// The shop's routine, on the criterion: two of one prompt and one of another,
-// which is what "detail shots plus a UGC one" looks like once written down.
+// WHICH prompts, not how many: the number is what each product is short of.
 $GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
 	[ 'id' => 'thin', 'on' => 1, 'label' => 'Gallery under three', 'scope' => 'product',
 	  'field' => 'product.gallery', 'test' => 'lt', 'value' => 3,
-	  'shots' => [ 'angle1' => 2 ] ],
+	  'shots' => [ 'angle1' => 1 ] ],
 ] ];
 $GLOBALS['dze_opts']['dze_diagnostic_lists'] = [ 'thin' => [ 101, 102, 103 ] ];
+// 101 has one gallery photograph, 102 has none, 103 has two: short of two, of
+// three and of one against a figure of three.
+$GLOBALS['dze_meta'][101]['_product_image_gallery'] = '9';
+$GLOBALS['dze_meta'][102]['_product_image_gallery'] = '';
+$GLOBALS['dze_meta'][103]['_product_image_gallery'] = '9,8';
+$GLOBALS['queued'] = [];
 [ $said, $ok ] = $press( 'thin' );
 ok( 'it goes off',                       $ok, true );
 $job = $GLOBALS['queued'][0] ?? [];
 ok( 'as a photograph job',               $job['kind'] ?? '', 'product_shot' );
-ok( 'for the products that are short',   $job['ids'] ?? [], [ 101, 102, 103 ] );
+// One product per job now, because two products are rarely short of the same
+// number: 101 gets two passes, 102 three, 103 one.
+ok( 'for the product that is short',     $job['ids'] ?? [], [ 101 ] );
 // The line the whole design rests on. It must never be true.
 ok( 'and NEVER applied on its own',      $job['auto'] ?? true, false );
 ok( 'with the shop\'s own prompt',        $job['payload']['template'] ?? -1, 1 );
-// One job per photograph, so five on one product are five rows to look at and
-// four can be thrown away without losing the fifth.
-ok( 'one pass per photograph asked for', count( $GLOBALS['queued'] ), 2 );
+// One job per photograph, so three on one product are three rows to look at
+// and two can be thrown away without losing the third.
+ok( 'one pass per photograph MISSING',   count( $GLOBALS['queued'] ), 6 );
+$dze_per = [];
+foreach ( $GLOBALS['queued'] as $j ) { $dze_per[ (int) $j['ids'][0] ] = ( $dze_per[ (int) $j['ids'][0] ] ?? 0 ) + 1; }
+ok( 'each product gets what IT lacks',   $dze_per, [ 101 => 2, 102 => 3, 103 => 1 ] );
 ok( 'and the second asks for another framing',
 	$GLOBALS['queued'][1]['payload']['attempt'] ?? -1, 1 );
 ok( 'the answer says how many went',     $said['added'] ?? 0, 6 );
@@ -968,8 +983,11 @@ $html = (string) $card->invoke( null, [
 ], '0' );
 ok( 'the card asks what fixes it',      false !== strpos( $html, 'Fix it with' ), true );
 ok( 'offering every image prompt',      substr_count( $html, '[shots][' ), 4 );
-ok( 'each with a number',               substr_count( $html, 'type="number" min="0" max="5"' ), 3 );
-ok( 'and the shop\'s own answer in it',  false !== strpos( $html, '[shots][angle1]" value="2"' ), true );
+// A TICK, not a number. The count lives on the rule — "at least 3
+// photographs" — and a second figure here is a second answer to one question.
+ok( 'each one a tick, not a figure',    substr_count( $html, 'type="checkbox" value="1"' ), 3 );
+ok( 'no count is asked for here',       false !== strpos( $html, 'max="5"' ), false );
+ok( 'and the shop\'s own answer in it',  false !== strpos( $html, '[shots][angle1]" checked' ), true );
 ok( 'the prompts are named',            false !== strpos( $html, 'Scene (in use)' ), true );
 ok( 'and zero everywhere is a real answer',
 	false !== strpos( $html, '[shots][__none__]' ), true );
@@ -1008,25 +1026,24 @@ ok( 'a criterion that is set up presses', false !== strpos( $page, '>Fix (3)<' )
 ok( 'and is not asked to be set up again', false !== strpos( $page, 'Set up Fix' ), false );
 
 echo "A complete product is not the same product at every price\n";
-// "Grace a plusieurs filtres je peux faire 3 paliers : produits de 0 a 40$,
-// produits de 40 a 80$, et produits de 80+$. Pour 1, 3 images ok, pour 2, 4
-// images ok, pour 3, 6 images ok." Holding a $16.90 cap and a $90 plate
-// carrier to the same "3" is what made the count on this screen a figure
-// nobody believed.
+// "Product price between x to y : at least x gallery images. Et ajouter
+// d'autres conditions." Each line is a whole sentence: a range, a figure. The
+// chained tiers this replaced could not be read a line at a time, and holding
+// a $16.90 cap and a $90 plate carrier to the same "3" is what made the count
+// on this screen a figure nobody believed.
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
 $dze_gal = static function ( int $pid, int $photos, string $price = '' ): void {
-	$GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = implode( ',', range( 1, max( 1, $photos ) ) );
-	if ( ! $photos ) { $GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = ''; }
+	$GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = $photos ? implode( ',', range( 1, $photos ) ) : '';
 	if ( '' !== $price ) { $GLOBALS['dze_meta'][ $pid ]['_price'] = $price; }
 };
-// Two bands and the criterion's own figure make the three tiers: under 40 → 3,
-// under 80 → 4, otherwise → 6.
 $dze_band = [
 	'id' => 'prod_gallery', 'label' => 'x', 'scope' => 'product', 'field' => 'product.gallery',
 	'test' => 'lt', 'value' => 6, 'key' => '', 'find' => '', 'on' => 1,
-	'band_field' => 'product.price',
-	'bands' => [ [ 'op' => 'lt', 'value' => 40, 'want' => 3 ], [ 'op' => 'lt', 'value' => 80, 'want' => 4 ] ],
+	'bands' => [
+		[ 'field' => 'product.price', 'from' => 0,  'to' => 40, 'want' => 3 ],
+		[ 'field' => 'product.price', 'from' => 40, 'to' => 80, 'want' => 4 ],
+	],
 ];
 $dze_gal( 301, 3, '16.90' );
 $dze_gal( 302, 3, '55.00' );
@@ -1038,48 +1055,65 @@ ok( 'but not at 55.00',                      judge( $dze_band, 302 ), true );
 ok( 'and nowhere near enough at 90.00',      judge( $dze_band, 303 ), true );
 ok( 'six is enough at 90.00',                judge( $dze_band, 304 ), false );
 ok( 'and four is enough at 55.00',           judge( $dze_band, 305 ), false );
-// Read IN ORDER, first match wins: 39.99 matches "under 40" and must never
-// fall through to "under 80".
-$dze_gal( 306, 3, '39.99' );
-ok( 'the first band that fits wins',         judge( $dze_band, 306 ), false );
-// A product with no price cannot be placed. It falls to the criterion's own
-// figure — never to the cheapest band, which would quietly excuse it.
-$dze_gal( 307, 3 );
-ok( 'no price takes the plain figure',       judge( $dze_band, 307 ), true );
-// And a criterion with NO bands behaves exactly as it always did.
+// Half open, always. 40 belongs to "40 and 80" and to nothing else — two
+// ranges meeting at a number is the one place a reader would have to guess.
+$dze_gal( 306, 3, '40.00' );
+ok( 'a price on the boundary goes up',       judge( $dze_band, 306 ), true );
+$dze_gal( 307, 3, '39.99' );
+ok( 'and just under it stays down',          judge( $dze_band, 307 ), false );
+// A product with no price is placed by nothing. It falls to the figure above —
+// the strictest — never into the first range, which starts at 0 and would
+// quietly excuse the products most likely to be broken.
+$dze_gal( 308, 3 );
+ok( 'no price takes the plain figure',       judge( $dze_band, 308 ), true );
+// Conditions can be written on different fields in the same list.
+$dze_mixed = $dze_band;
+$dze_mixed['bands'] = [
+	[ 'field' => 'product.stock', 'from' => 100, 'to' => 0, 'want' => 1 ],
+	[ 'field' => 'product.price', 'from' => 0,   'to' => 40, 'want' => 3 ],
+];
+$GLOBALS['dze_meta'][309]['_product_image_gallery'] = '1,2';
+$GLOBALS['dze_meta'][309]['_price'] = '16.90';
+$GLOBALS['dze_meta'][309]['_stock'] = '500';
+ok( 'the first condition that fits wins, whatever it measures',
+	judge( $dze_mixed, 309 ), false );
+// And a criterion with NO conditions behaves exactly as it always did.
 $dze_flat = $dze_band;
 $dze_flat['bands'] = [];
 $dze_flat['value'] = 3;
-ok( 'no bands, no change',                   judge( $dze_flat, 303 ), false );
+ok( 'no conditions, no change',              judge( $dze_flat, 303 ), false );
 
-echo "The bands survive being saved, and refuse what they cannot judge\n";
+echo "The conditions survive being saved, and refuse what they cannot judge\n";
 $dze_saved = DZE_Diagnostic::clean_rows( [ $dze_band ] )[0];
-ok( 'the band field is kept',           $dze_saved['band_field'], 'product.price' );
-ok( 'and both bands with it',           count( $dze_saved['bands'] ), 2 );
-ok( 'in the order they were written',   $dze_saved['bands'][0]['value'], 40 );
-// A band on a TEXT is not a threshold: a description answers words, not tiers.
+ok( 'both conditions are kept',         count( $dze_saved['bands'] ), 2 );
+ok( 'each with the field it names',     $dze_saved['bands'][1]['field'], 'product.price' );
+ok( 'and its own range',                [ $dze_saved['bands'][1]['from'], $dze_saved['bands'][1]['to'] ], [ 40, 80 ] );
+// A range is measured on a NUMBER. A description answers words, not "between
+// 40 and 80", and a field of another post type cannot be asked of a product.
 $dze_bad = $dze_band;
-$dze_bad['band_field'] = 'product.description';
-ok( 'a band on a text is refused',      DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['band_field'], '' );
-// Nor on another post type's field: a product cannot be placed by how many
-// products a category holds.
-$dze_bad['band_field'] = 'category.products';
-ok( 'nor on another type\'s field',     DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['band_field'], '' );
-// "is empty" is not a threshold either.
-$dze_bad = $dze_band;
-$dze_bad['bands'] = [ [ 'op' => 'empty', 'value' => 0, 'want' => 3 ], [ 'op' => 'lt', 'value' => 80, 'want' => 4 ] ];
-ok( 'a band with no number is dropped', count( DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['bands'] ), 1 );
+$dze_bad['bands'] = [
+	[ 'field' => 'product.description', 'from' => 0, 'to' => 40, 'want' => 3 ],
+	[ 'field' => 'category.products',   'from' => 0, 'to' => 40, 'want' => 3 ],
+	[ 'field' => 'product.price',       'from' => 0, 'to' => 40, 'want' => 3 ],
+];
+ok( 'a text and another type are dropped', count( DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['bands'] ), 1 );
+// A range typed the wrong way round is a slip. Kept as "and above" rather
+// than thrown away, because losing the line would hide the mistake.
+$dze_bad['bands'] = [ [ 'field' => 'product.price', 'from' => 80, 'to' => 40, 'want' => 6 ] ];
+ok( 'a backwards range becomes open-ended', DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['bands'][0]['to'], 0 );
 // The trap this plugin has been bitten by twice: a form that never carried the
-// bands must not erase them.
+// conditions must not erase them.
 update_option( DZE_Diagnostic::OPT, [ 'rows' => [ $dze_saved ] ] );
 $dze_other = $dze_band;
-unset( $dze_other['bands'], $dze_other['band_field'] );
-$dze_kept = DZE_Diagnostic::clean_rows( [ $dze_other ] )[0];
-ok( 'a form without them changes nothing', count( $dze_kept['bands'] ), 2 );
-// A criterion held to tiers must not go on calling itself by ONE of them:
-// "is less than 6 photographs" is a heading that stopped being true the
-// moment a $16.90 cap started being judged on 3.
-ok( 'the name carries every tier',      $dze_saved['label'], 'Gallery photographs is less than 3/4/6 photographs' );
+unset( $dze_other['bands'] );
+ok( 'a form without them changes nothing', count( DZE_Diagnostic::clean_rows( [ $dze_other ] )[0]['bands'] ), 2 );
+// A criterion held to conditions must not go on calling itself by ONE figure:
+// "is less than 6 photographs" stopped being true the moment a $16.90 cap
+// started being judged on 3.
+ok( 'the name carries every figure',    $dze_saved['label'], 'Gallery photographs is less than 3/4/6 photographs' );
+ok( 'and one figure stays one figure',
+	DZE_Diagnostic::clean_rows( [ $dze_flat ] )[0]['label'], 'Gallery photographs is less than 3 photographs' );
+
 // One name, everywhere it is shown. "Diagnostic" beside Restock reads as the
 // shop's health — servers, keys, cron — and what this reads is the CONTENT.
 $GLOBALS['dze_submenus'] = [];
@@ -1087,9 +1121,6 @@ DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
 ok( 'the left menu says what it looks at', (string) ( $dze_menu['title'] ?? '' ), 'Content diagnostic' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
-ok( 'and one figure stays one figure',
-	DZE_Diagnostic::clean_rows( [ $dze_flat ] )[0]['label'], 'Gallery photographs is less than 3 photographs' );
-ok( 'and keeps what they are measured on', $dze_kept['band_field'], 'product.price' );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
 
