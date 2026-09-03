@@ -304,25 +304,39 @@ owner communicates in French.
   safe — four sold is four sold in any currency — and quantities are what the
   shop actually decides on. If money is ever genuinely needed, it comes from
   WooCommerce's own reports, which own the data and repair it.
-- **A criterion can be held to TIERS, and the gates hold that in place.** One
+- **A criterion can carry CONDITIONS, and only ONE place holds a count.** One
   figure for a whole catalogue is what made "Issues (981)" a number nobody
   believed: a $16.90 cap and a $90 plate carrier were both judged on "3
-  photographs". A criterion carries an optional list of tiers — a field to
-  measure, a threshold, and the figure that applies under it — read top to
-  bottom, first fit wins, with the criterion's own figure as the last tier so
-  nothing is ever left unjudged. Empty on a fresh install. Three things are
-  gated because all three were got wrong once: an object measuring ZERO on the
-  tier field (no price set) takes the plain figure and not the cheapest tier,
-  or the most broken products are the ones quietly excused; the criterion's
-  NAME carries every tier ("less than 3/4/6 photographs"), because a heading
-  that stopped being true is worse than none; and the tier block is drawn
-  ALWAYS and shown by JavaScript, because rendered only for a field already
-  saved as a count it never appeared for one switched in the browser — a
-  control you can only find by saving and reloading is a control you do not
-  have. `tools/js/diagnostic-card.mjs` clicks it in both jQuery builds: a
-  disabled prototype row is what a press copies, so a tier's markup lives in
-  ONE place, and the rows are renumbered on every add and remove — two tiers
-  posting under one key are one tier.
+  photographs". A criterion carries an optional list of conditions, each a
+  whole sentence that means the same thing alone as in the list — "price
+  between 40 and 80 : at least 4 photographs" — read top to bottom, first fit
+  wins, with the criterion's own figure for anything none of them place. Every
+  line names the field it measures, so a price range and a stock range sit in
+  the same list. Chained thresholds ("under 40", then "under 80") were tried
+  first and rejected by the owner: a line you cannot read without reading the
+  one above it is a line nobody reads. Ranges are HALF OPEN — 40 belongs to
+  "40 and 80" and to nothing else — because two ranges meeting at a number is
+  the one place a reader would have to guess.
+  **The count lives on the rule and nowhere else.** "Fix it with" names WHICH
+  prompts mend a shortfall and never how many: how many is what the product is
+  short of, `short_by()`, read from the same rule the diagnostic judged it by.
+  A figure on the criterion beside the rule's own is two answers that drift
+  apart the first time one of them is edited — and it shipped that way for one
+  version.
+  Four things are gated because all four were got wrong while writing this: an
+  object with NOTHING to place it by (no price set) measures 0 and would land
+  in the first range starting at 0 — the easiest standard given to the most
+  broken products — so it falls through to the plain figure instead; the
+  criterion's NAME carries every figure ("less than 3/4/6 photographs"); the
+  condition block is drawn ALWAYS and shown by JavaScript, because rendered
+  only for a field already saved as a count it never appeared for one switched
+  in the browser; and a condition added by a press is RE-CUT to the card it
+  landed on, or it keeps the blank prototype's menu and offers the very field
+  being judged. `tools/js/diagnostic-card.mjs` clicks all of it in both jQuery
+  builds — a disabled prototype row is what a press copies, so the markup
+  lives in ONE place, and the rows are renumbered on every add and remove.
+  `checked()` and `selected()` in the harness return what WordPress returns:
+  stubbed to `''` they hid every question they exist to answer.
 - **`php tools/test-prompt-block.php dazont-ecom` must pass**, and the Klaviyo
   suite RENDERS the whole email settings tab (`render_settings()` into a
   buffer) rather than only calling its pieces. The "What this prompt is sent

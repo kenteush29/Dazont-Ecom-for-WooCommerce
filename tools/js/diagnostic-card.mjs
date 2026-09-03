@@ -98,12 +98,10 @@ for ( const [ label, jq ] of jqs ) {
 				? ( list.previousElementSibling || {} ).textContent
 				: list.getAttribute( 'data-scope' );
 		} ), 'Pages' );
-	// ---- tiers: one figure is not enough for a whole catalogue ----------
-	// "Produits de 0 a 40$, de 40 a 80$, et de 80+$." A criterion that ships
-	// with none must still be able to gain one, and the button that adds it
-	// was the exact shape of thing that has shipped dead here before.
-	// The card was moved to Pages just above; tiers are being tried on a
-	// product criterion, so it comes back first.
+	// ---- conditions: one figure is not enough for a whole catalogue -----
+	// "Product price between x to y : at least x gallery images." A criterion
+	// that ships with none must still be able to gain one, and the button that
+	// adds it is the exact shape of thing that has shipped dead here before.
 	await page.selectOption( `${$new} .dze-diag-scope`, 'product' );
 	await page.waitForTimeout( 120 );
 	await page.selectOption( `${$new} .dze-diag-field`, 'product.gallery' );
@@ -112,62 +110,73 @@ for ( const [ label, jq ] of jqs ) {
 	// The block follows the FIELD as it is chosen, not as it was saved. Drawn
 	// only server-side it never appeared for a criterion switched to a count
 	// in the browser — a control you only discover by saving and reloading.
-	ok( 'a count offers tiers',             await page.isVisible( `${$new} .dze-diag-bands` ), true );
-	// The tier is measured on another number of the same post type — never on
-	// the criterion's own field, which would say nothing.
-	ok( 'and not on the field being judged',
-		await page.evaluate( () => document.querySelector( '[data-under-test] .dze-diag-bandfield option[value="product.gallery"]' ).disabled ), true );
-	ok( 'nor on another post type\'s field',
-		await page.evaluate( () => document.querySelector( '[data-under-test] .dze-diag-bandfield option[value="category.products"]' ).disabled ), true );
-	ok( 'the price is offered',
-		await page.evaluate( () => document.querySelector( '[data-under-test] .dze-diag-bandfield option[value="product.price"]' ).disabled ), false );
-	ok( 'a fresh criterion has no tier',    await rows(), 0 );
-	// The prototype is there but must never post a tier of its own.
+	ok( 'a count offers conditions',        await page.isVisible( `${$new} .dze-diag-bands` ), true );
+	ok( 'a fresh criterion has none',       await rows(), 0 );
+	// The prototype is there but must never post a condition of its own.
 	ok( 'and its blank one is not submitted',
 		await page.evaluate( () => Array.from(
 			document.querySelectorAll( '[data-under-test] .dze-diag-bandproto [name]' )
 		).every( el => el.disabled ) ), true );
 
 	await page.click( `${$new} .dze-diag-bandadd` );
-	await page.waitForTimeout( 120 );
-	ok( 'Add a tier adds one',              await rows(), 1 );
+	await page.waitForTimeout( 150 );
+	ok( 'Add a condition adds one',         await rows(), 1 );
 	ok( 'and it can actually be submitted',
 		await page.evaluate( () => Array.from(
 			document.querySelectorAll( '[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) [name]' )
 		).every( el => ! el.disabled ) ), true );
+	// Its own field menu, cut to this post type — and never the criterion's own
+	// field, which would place a gallery by the size of the gallery.
+	ok( 'the field it measures is its own',
+		await page.evaluate( () => document.querySelector(
+			'[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield'
+		).value !== 'product.gallery' ), true );
+	ok( 'the criterion\'s own field is not offered',
+		await page.evaluate( () => document.querySelector(
+			'[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield option[value="product.gallery"]'
+		).disabled ), true );
+	ok( 'nor another post type\'s field',
+		await page.evaluate( () => document.querySelector(
+			'[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield option[value="category.products"]'
+		).disabled ), true );
+	ok( 'and the price is',
+		await page.evaluate( () => document.querySelector(
+			'[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield option[value="product.price"]'
+		).disabled ), false );
+
 	await page.click( `${$new} .dze-diag-bandadd` );
-	await page.waitForTimeout( 120 );
+	await page.waitForTimeout( 150 );
 	ok( 'twice adds a second',              await rows(), 2 );
-	// Two tiers posting under one key are one tier. The numbering is what
-	// stops the second quietly overwriting the first.
-	ok( 'each tier posts under its own key',
+	// Two conditions posting under one key are one condition.
+	ok( 'each posts under its own key',
 		await page.evaluate( () => Array.from(
 			document.querySelectorAll( '[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) [name*="[want]"]' )
 		).map( el => ( el.name.match( /\[bands\]\[(\d+)\]/ ) || [] )[1] ) ), [ '0', '1' ] );
-	// The head IS the rule, so it must carry the tiers as they are typed —
-	// not "less than 6" while a cheap product is being judged on 3.
-	await page.selectOption( `${$new} .dze-diag-bandfield`, 'product.price' );
+
+	// The head IS the rule, so it carries every figure as it is typed — not
+	// "less than 6" while a cheap product is being judged on 3.
 	await page.fill( `${$new} .dze-diag-value`, '6' );
 	const wants = page.locator( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto) [name*="[want]"]` );
 	await wants.nth( 0 ).fill( '3' );
 	await wants.nth( 1 ).fill( '4' );
 	await page.waitForTimeout( 150 );
-	ok( 'the head names every tier',
+	ok( 'the head names every figure',
 		( await page.textContent( `${$new} .dze-diag-name` ) ).trim(),
 		'Gallery photographs is less than 3/4/6 photographs' );
+
 	// Removing the first must renumber what is left, or the survivor posts as
-	// tier 1 with no tier 0 and the list arrives with a hole in it.
+	// condition 1 with no condition 0 and the list arrives with a hole in it.
 	await page.click( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-banddel` );
-	await page.waitForTimeout( 120 );
+	await page.waitForTimeout( 150 );
 	ok( 'removing one leaves the other',    await rows(), 1 );
 	ok( 'renumbered from the top',
 		await page.evaluate( () => Array.from(
 			document.querySelectorAll( '[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) [name*="[want]"]' )
 		).map( el => ( el.name.match( /\[bands\]\[(\d+)\]/ ) || [] )[1] ) ), [ '0' ] );
-	// A criterion measured in words has no tiers to offer: the block is only
+	// A criterion measured in words has no ranges to offer: the block is only
 	// shown where a figure is actually being compared.
 	await page.selectOption( `${$new} .dze-diag-field`, 'product.description' );
-	await page.waitForTimeout( 120 );
+	await page.waitForTimeout( 150 );
 	ok( 'a text offers none',               await page.isVisible( `${$new} .dze-diag-bands` ), false );
 	ok( 'nothing was raised on the way', errors, [] );
 
