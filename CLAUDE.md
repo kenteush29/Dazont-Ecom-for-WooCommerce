@@ -230,6 +230,14 @@ owner communicates in French.
   the split still reads the old row until the next scan. The prefix is declared
   in `DZE_Cleanup::map()` — an option name ending in `_` is a PREFIX there, the
   same convention transients already use.
+- **A control NAMES what it is about to do, and a job in progress SAYS it is
+  in progress.** "Fix" told the shop nothing about which pass would run, so
+  every queue job carries a verb (`does`) beside the noun the job list uses,
+  and the button on a row wears it. And a row that has just arrived in the
+  writing queue shows a spinner and "Waiting its turn" rather than a bare
+  cross: it read as an empty, dead line, and the owner could not tell whether
+  anything had happened at all. Status words live in PHP, never in the
+  JavaScript — hard-coded there they were English on every shop.
 - **A CONTROL IS TESTED ON WHAT IT DOES, NEVER ON THE FACT THAT IT EXISTS.**
   This is the rule broken most expensively here, three times in one week, and
   always the same way: a test asserted the button was ON THE PAGE and nothing

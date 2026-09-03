@@ -30,16 +30,22 @@ final class DZE_Queue {
 	/** Job kinds: what each one writes, and who knows how to write it. */
 	public static function kinds(): array {
 		return [
+			// Two names each: what the job IS, for a list of jobs, and what it
+			// DOES, for a button. "Fix" told the shop nothing about what was
+			// about to run.
 			'cat_desc'  => [
 				'label'  => __( 'Category description', 'dazont-ecom' ),
+				'does'   => __( 'Write the description', 'dazont-ecom' ),
 				'module' => 'category_content',
 			],
 			'cat_links' => [
 				'label'  => __( 'Category internal links', 'dazont-ecom' ),
+				'does'   => __( 'Add internal links', 'dazont-ecom' ),
 				'module' => 'category_content',
 			],
 			'post_links' => [
 				'label'  => __( 'Article internal links', 'dazont-ecom' ),
+				'does'   => __( 'Add internal links', 'dazont-ecom' ),
 				'module' => 'automation',
 			],
 			// A photograph is not text, so its review is not a diff: the row
@@ -47,6 +53,7 @@ final class DZE_Queue {
 			// Nothing about the product changes before that click.
 			'product_shot' => [
 				'label'  => __( 'Product photograph', 'dazont-ecom' ),
+				'does'   => __( 'Make a photograph', 'dazont-ecom' ),
 				'module' => 'content',
 				'image'  => true,
 			],
@@ -594,7 +601,10 @@ final class DZE_Queue {
 		// The count rides on the menu label: what is waiting for a decision
 		// should be visible without opening the screen it waits on.
 		$waiting = self::review_count();
-		$label   = __( 'Categories AI bulk', 'dazont-ecom' );
+		// It carries product photographs as well as category texts, and has
+		// since 4.288: a menu named after one of the things on it is a menu
+		// the other things are hidden behind.
+		$label   = __( 'Writing queue', 'dazont-ecom' );
 		$menu    = $waiting
 			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
 				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
@@ -653,6 +663,15 @@ final class DZE_Queue {
 				'review'   => __( 'Review', 'dazont-ecom' ),
 				'retry'    => __( 'Retry', 'dazont-ecom' ),
 				'remove'   => __( 'Remove', 'dazont-ecom' ),
+				// The states in words, and translatable: they were written
+				// into the JavaScript, so no shop could read them in its own
+				// language and a row arriving looked like an empty line.
+				'sQueued'  => __( 'Waiting its turn', 'dazont-ecom' ),
+				'sRunning' => __( 'Being written…', 'dazont-ecom' ),
+				'sReview'  => __( 'To review', 'dazont-ecom' ),
+				'sApplied' => __( 'Saved', 'dazont-ecom' ),
+				'sFailed'  => __( 'Failed', 'dazont-ecom' ),
+				'sSkipped' => __( 'Discarded', 'dazont-ecom' ),
 				'empty'    => __( 'Nothing in the queue.', 'dazont-ecom' ),
 				'idle'     => __( 'Nothing waiting.', 'dazont-ecom' ),
 				'pause'    => __( 'Pause', 'dazont-ecom' ),
@@ -684,6 +703,8 @@ final class DZE_Queue {
 				'words'    => __( '%s words', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
 				'wordsTo'  => __( '%1$s words → %2$s words', 'dazont-ecom' ),
+				/* translators: 1: links before, 2: links after */
+				'linksTo'  => __( '%1$s links → %2$s links', 'dazont-ecom' ),
 				// A photograph's own three answers, said as answers and not as
 				// database words: keep it, make another, throw it away.
 				'alreadyHas'  => __( 'What this product already shows', 'dazont-ecom' ),
@@ -703,7 +724,7 @@ final class DZE_Queue {
 		] );
 		?>
 		<div class="wrap dze-admin">
-			<h1><?php esc_html_e( 'Categories AI bulk', 'dazont-ecom' ); ?></h1>
+			<h1><?php esc_html_e( 'Writing queue', 'dazont-ecom' ); ?></h1>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'Texts are written one at a time, and this page keeps the queue moving while it is open — leave it open and watch, or come back later and pick up what is waiting. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>
 			</p>
@@ -823,6 +844,11 @@ final class DZE_Queue {
 		wp_send_json_success( self::counts() );
 	}
 
+	/** How many links a text carries, counted the way the linking pass does. */
+	private static function links_in( string $html ): int {
+		return (int) preg_match_all( '/<a\s[^>]*href=/i', $html );
+	}
+
 	public function ajax_review(): void {
 		$this->guard();
 		global $wpdb;
@@ -868,6 +894,11 @@ final class DZE_Queue {
 			'html'    => (string) $job['result'],
 			'current' => $old,
 			'words'   => [ str_word_count( wp_strip_all_tags( $old ) ), str_word_count( wp_strip_all_tags( (string) $job['result'] ) ) ],
+			// AND THE LINKS. On a linking pass the word count is identical by
+			// design — "1094 words → 1094 words" is the whole of what the
+			// screen said about a job whose entire purpose is the other
+			// figure. Counted the same way the linking pass counts them.
+			'links'   => [ self::links_in( $old ), self::links_in( (string) $job['result'] ) ],
 		] );
 	}
 

@@ -161,5 +161,36 @@ ok( 'read in one query',                count( $GLOBALS['wpdb']->sent ), 1 );
 ok( 'and only for applied rows',        false !== strpos( $GLOBALS['wpdb']->sent[0], "status = 'applied'" ), true );
 ok( 'asking about nothing asks nothing', DZE_Queue::done_map( [] ), [] );
 
+echo "Every job says what it IS and what it DOES\n";
+// "Ce bouton lance une action obscure." A button named "Fix" tells the shop
+// nothing about what is about to run; a job carries a verb for that, beside
+// the noun the job list uses.
+foreach ( DZE_Queue::kinds() as $dze_k => $dze_meta ) {
+	ok( sprintf( '"%s" says what it does', (string) $dze_meta['label'] ),
+		'' !== trim( (string) ( $dze_meta['does'] ?? '' ) ), true );
+}
+ok( 'and the linking pass says it plainly',
+	(string) ( DZE_Queue::kinds()['cat_links']['does'] ?? '' ), 'Add internal links' );
+
+echo "A linking pass is judged on its LINKS, not on its words\n";
+// "Il est affiche la difference de mots avant/apres mais il manque la
+// difference de quantite de liens." On a linking pass the word count is
+// IDENTICAL by design — "1094 words → 1094 words" was the whole of what the
+// screen said about a job whose entire purpose is the other figure.
+$dze_links = new ReflectionMethod( 'DZE_Queue', 'links_in' );
+$dze_links->setAccessible( true );
+$dze_before = '<p>Some text with <a href="/a">one</a> and <a href=\'/b\'>two</a>.</p>';
+$dze_after  = $dze_before . '<p>More with <a class="x" href="/c">three</a>.</p>';
+ok( 'links are counted as the pass counts them', $dze_links->invoke( null, $dze_before ), 2 );
+ok( 'and the new ones with them',       $dze_links->invoke( null, $dze_after ), 3 );
+ok( 'a text with none has none',        $dze_links->invoke( null, '<p>Nothing here.</p>' ), 0 );
+// An anchor that is not a link is not counted: <a name="…"> carries no href.
+ok( 'an anchor with no href is not a link',
+	$dze_links->invoke( null, '<p><a name="top"></a>Text</p>' ), 0 );
+// The word count on a linking pass does not move, which is exactly why the
+// other figure has to be there.
+ok( 'the words do not move on a linking pass',
+	str_word_count( strip_tags( $dze_before ) ) === str_word_count( strip_tags( $dze_after ) ), false );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

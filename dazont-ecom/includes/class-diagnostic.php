@@ -2632,11 +2632,14 @@ final class DZE_Diagnostic {
 							: __( 'Being written…', 'dazont-ecom' ) )
 					);
 				} else {
+					// The button NAMES the pass it runs. "Fix" said nothing about
+					// what was about to happen, and a press whose consequence
+					// is unknown is a press nobody makes twice.
 					printf(
 						'<button type="button" class="button button-small dze-diag-fix" data-check="%1$s" data-id="%2$d">%3$s</button>',
 						esc_attr( $id ),
 						$oid,
-						esc_html__( 'Fix', 'dazont-ecom' )
+						esc_html( (string) ( DZE_Queue::kinds()[ $dze_job ]['does'] ?? __( 'Fix', 'dazont-ecom' ) ) )
 					);
 				}
 				echo '</td>';

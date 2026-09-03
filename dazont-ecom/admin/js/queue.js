@@ -15,9 +15,11 @@
 		return String(str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
 	}
 
+	// From PHP, so a shop reads them in its own language and there is ONE
+	// place they are written. Hard-coded here they were English on every shop.
 	var LABELS = {
-		queued: 'waiting', running: 'writing…', review: 'to review',
-		applied: 'saved', failed: 'failed', skipped: 'discarded'
+		queued: i18n.sQueued, running: i18n.sRunning, review: i18n.sReview,
+		applied: i18n.sApplied, failed: i18n.sFailed, skipped: i18n.sSkipped
 	};
 	var COLORS = {
 		queued: '#646970', running: '#2271b1', review: '#8a6d00',
@@ -47,8 +49,13 @@
 			// Every row can be acted on: a run that went wrong is retried or
 			// dropped from here, never left with a spinner and no way out.
 			var act = [];
-			if (r.status === 'running') {
+			// A row that has just arrived must SAY it has arrived. Queued, it
+			// showed a bare cross and nothing else — the owner read it as an
+			// empty, dead line and could not tell whether anything had
+			// happened at all.
+			if (r.status === 'running' || r.status === 'queued') {
 				act.push('<span class="dze-cx-spin"></span>');
+				act.push('<span class="description">' + esc(LABELS[r.status]) + '</span>');
 			}
 			if (r.status === 'review') {
 				act.push('<button type="button" class="button button-small dze-q-open" data-id="' + r.id + '">' + esc(i18n.review) + '</button>');
@@ -238,6 +245,11 @@
 				$('#dze-q-body').html(
 					'<p class="dze-q-meta">' +
 						'<span class="description">' + esc(sprintf(i18n.wordsTo, d.words[0], d.words[1])) + '</span> ' +
+						// AND THE LINKS. On a linking pass the words do not
+						// move at all, so the one figure on screen said
+						// nothing about the only thing that changed.
+						(d.links ? '<span class="description" style="margin-left:10px;">'
+							+ esc(sprintf(i18n.linksTo, d.links[0], d.links[1])) + '</span> ' : '') +
 						(d.current ? '<button type="button" class="button button-small" id="dze-q-nowbtn">' + esc(i18n.compare) + '</button>' : '') +
 					'</p>' + current +
 					'<textarea id="' + EDITOR + '"></textarea>' +

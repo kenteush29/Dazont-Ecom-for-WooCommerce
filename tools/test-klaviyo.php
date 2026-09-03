@@ -930,6 +930,60 @@ ok( 'the model was told which days are taken',
 	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), $d( 7 ) ), true );
 $GLOBALS['dze_rules'] = null;
 
+echo "A short promotion keeps its LAUNCH\n";
+// Columbus Day, four days, 10 to 13 October. The plan came back with two
+// warm-ups and a last chance, and no email on the day the sale opened. The
+// cause was not the model: a day already taken was moved by trying EARLIER
+// first, and the type follows the date — so a launch pushed one day back
+// stopped being a launch and became a second warm-up.
+$GLOBALS['dze_opts'][ $copy ] = [];
+$promo5 = [ 'title' => 'Columbus Day', 'percent' => 15, 'start' => $d( 10 ), 'end' => $d( 16 ) ];
+$GLOBALS['dze_rules'] = [ 'promo' => $promo5 ];
+$GLOBALS['dze_asked']   = [];
+// The model asks for a warm-up and a launch on the opening day; the day
+// before the launch is already taken, so the launch has to move.
+// Two days already carry an email: the day before it opens, and one in the
+// middle. The opening day is blocked, an EARLIER day is free before any later
+// one is — which is exactly the trap: taking it turns the launch into a
+// second warm-up, and the type is read from the date.
+$GLOBALS['dze_opts'][ $copy ] = [ 'other' => [ 'emails' => [
+	'x' => [ 'kind' => 'warm', 'when' => $d( 9 ),  'subject' => 'Something else' ],
+	'y' => [ 'kind' => 'warm', 'when' => $d( 13 ), 'subject' => 'And another' ],
+] ] ];
+$GLOBALS['dze_rules'] = [ 'promo' => $promo5, 'other' => [ 'title' => 'Another promotion' ] ];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
+	[ 'date' => $d( 10 ), 'angle' => 'Launch', 'products' => [ 1 ] ],
+] ] ) ];
+$notes5   = [];
+$planned5 = DZE_Klaviyo::plan_for( 'promo', $promo5, $notes5 );
+$days5    = array_values( array_map( static fn( $m ) => (string) $m['when'], $planned5 ) );
+// It may be moved LATER, into the promotion. It may never be moved before
+// the day the promotion opens.
+ok( 'the launch is never moved before the opening',
+	( $days5[0] ?? '' ) >= $d( 10 ), true );
+ok( 'and it stays inside the promotion',        ( $days5[0] ?? '' ) <= $d( 16 ), true );
+// And the model is told how many emails there is actually room for, rather
+// than asking for three and having one dropped in silence.
+ok( 'the model is told the room',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), 'room for AT MOST' ), true );
+ok( 'and that two emails are a warm-up and a launch',
+	false !== strpos( (string) ( $GLOBALS['dze_asked'][0]['user'] ?? '' ), 'never two warm-ups' ), true );
+// A warm-up dated BEFORE the opening keeps its lead: only an email dated on
+// or after the opening is held to it.
+$GLOBALS['dze_opts'][ $copy ] = [ 'other' => [ 'emails' => [
+	'x' => [ 'kind' => 'warm', 'when' => $d( 8 ), 'subject' => 'Something else' ],
+] ] ];
+$GLOBALS['dze_asked']   = [];
+$GLOBALS['dze_answers'] = [ json_encode( [ 'emails' => [
+	[ 'date' => $d( 8 ), 'angle' => 'Tease', 'products' => [ 1 ] ],
+] ] ) ];
+$notes6   = [];
+$planned6 = DZE_Klaviyo::plan_for( 'promo', $promo5, $notes6 );
+$days6    = array_values( array_map( static fn( $m ) => (string) $m['when'], $planned6 ) );
+ok( 'a warm-up may still be moved before the opening',
+	( $days6[0] ?? '' ) < $d( 10 ), true );
+$GLOBALS['dze_rules'] = null;
+
 echo "What the autopilot does when nobody chose\n";
 // The default is the safe one: a shop that never touched the setting gets
 // its campaigns PREPARED — written, drafted, translated — and nothing is
