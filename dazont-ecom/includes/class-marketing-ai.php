@@ -676,7 +676,7 @@ final class DZE_Marketing_Ai {
 			$tabs['email'] = __( 'Email campaigns', 'dazont-ecom' );
 		}
 		if ( $mod_on( 'diagnostic' ) ) {
-			$tabs['diagnostic'] = __( 'Diagnostic', 'dazont-ecom' );
+			$tabs['diagnostic'] = __( 'Content diagnostic', 'dazont-ecom' );
 		}
 		if ( $mod_on( 'automation' ) ) {
 			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );

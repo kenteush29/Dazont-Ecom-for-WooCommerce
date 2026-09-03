@@ -304,6 +304,25 @@ owner communicates in French.
   safe — four sold is four sold in any currency — and quantities are what the
   shop actually decides on. If money is ever genuinely needed, it comes from
   WooCommerce's own reports, which own the data and repair it.
+- **A criterion can be held to TIERS, and the gates hold that in place.** One
+  figure for a whole catalogue is what made "Issues (981)" a number nobody
+  believed: a $16.90 cap and a $90 plate carrier were both judged on "3
+  photographs". A criterion carries an optional list of tiers — a field to
+  measure, a threshold, and the figure that applies under it — read top to
+  bottom, first fit wins, with the criterion's own figure as the last tier so
+  nothing is ever left unjudged. Empty on a fresh install. Three things are
+  gated because all three were got wrong once: an object measuring ZERO on the
+  tier field (no price set) takes the plain figure and not the cheapest tier,
+  or the most broken products are the ones quietly excused; the criterion's
+  NAME carries every tier ("less than 3/4/6 photographs"), because a heading
+  that stopped being true is worse than none; and the tier block is drawn
+  ALWAYS and shown by JavaScript, because rendered only for a field already
+  saved as a count it never appeared for one switched in the browser — a
+  control you can only find by saving and reloading is a control you do not
+  have. `tools/js/diagnostic-card.mjs` clicks it in both jQuery builds: a
+  disabled prototype row is what a press copies, so a tier's markup lives in
+  ONE place, and the rows are renumbered on every add and remove — two tiers
+  posting under one key are one tier.
 - **`php tools/test-prompt-block.php dazont-ecom` must pass**, and the Klaviyo
   suite RENDERS the whole email settings tab (`render_settings()` into a
   buffer) rather than only calling its pieces. The "What this prompt is sent

@@ -371,12 +371,18 @@ final class DZE_Diagnostic {
 			// too short" still says 50 to nobody — and it says nothing the rule
 			// does not already say. What the shop writes instead is a
 			// DESCRIPTION: what to do about it, which the rule cannot know.
+			// The tiers are settled BEFORE the name, because the name has to
+			// carry them: a criterion judged on 3, 4 or 6 by price cannot go
+			// on calling itself "less than 6".
+			$band_field = self::band_field_for( $row, $scope );
+			$bands      = '' === $band_field ? [] : self::bands_for( $row, $scope );
 			$label = self::rule_named( [
 				'field' => $field,
 				'test'  => $op,
 				'value' => (int) ( $row['value'] ?? 0 ),
 				'find'  => (string) ( $row['find'] ?? '' ),
 				'key'   => (string) ( $row['key'] ?? '' ),
+				'bands' => $bands,
 			], $fields[ $field ] );
 			// The id is minted once and never again: the name follows the rule
 			// and changes with it, and a reading filed under the old name must
@@ -404,9 +410,226 @@ final class DZE_Diagnostic {
 				// image prompts, and how many of each. Written once here and
 				// used on nine hundred products.
 				'shots' => self::shots_for( $row, $field ),
+				// What a COMPLETE one looks like is not one number for the
+				// whole catalogue. A cap at $16.90 and a plate carrier at $90
+				// do not deserve the same gallery, and holding both to "3"
+				// makes the count on the screen a figure nobody believes.
+				'band_field' => $band_field,
+				'bands'      => $bands,
 				'on'    => empty( $row['on'] ) ? 0 : 1,
 			];
 		}
+		return $out;
+	}
+
+	/**
+	 * What the bands are measured ON — one field for the whole criterion.
+	 *
+	 * The same vocabulary the criteria themselves are written in, so there is
+	 * nothing new to learn and a band works on anything the shop can read: a
+	 * price, units sold, a category's product count, an article's length. It
+	 * must belong to the criterion's own scope, or it would be asked of an
+	 * object that cannot answer it.
+	 */
+	private static function band_field_for( array $row, string $scope ): string {
+		if ( ! array_key_exists( 'band_field', $row ) ) {
+			// Absent from the form is not "none": the card always posts this.
+			// A row arriving without it was saved by another screen, and the
+			// shop's standard is not that screen's to erase.
+			return (string) ( self::stored_row( (string) ( $row['id'] ?? '' ) )['band_field'] ?? '' );
+		}
+		$field = sanitize_text_field( (string) $row['band_field'] );
+		$known = self::fields()[ $field ] ?? null;
+		if ( ! $known || 'number' !== (string) ( $known['kind'] ?? '' ) ) {
+			// A band is a threshold. A text answers "contains", not "under 40",
+			// and a custom field can hold anything at all — neither can decide
+			// which standard a product is held to.
+			return '';
+		}
+		return self::family( $scope ) === (string) ( $known['scope'] ?? '' ) ? $field : '';
+	}
+
+	/**
+	 * The bands, in the order they are asked — first match wins.
+	 *
+	 * Two bands and the criterion's own figure make three tiers, which is what
+	 * a shop actually asks for: "under 40 → 3, under 80 → 4, otherwise → 6".
+	 * The last tier is deliberately NOT a band: there is always an answer, and
+	 * a list of bands that matches nothing must never leave an object unjudged.
+	 *
+	 * Empty by default. A shop that sets none is held to one figure, exactly
+	 * as it was before bands existed.
+	 *
+	 * @return array<int,array{op:string,value:int,want:int}>
+	 */
+	private static function bands_for( array $row, string $scope ): array {
+		if ( ! array_key_exists( 'bands', $row ) ) {
+			return (array) ( self::stored_row( (string) ( $row['id'] ?? '' ) )['bands'] ?? [] );
+		}
+		$ops = self::operators();
+		$out = [];
+		foreach ( (array) $row['bands'] as $band ) {
+			if ( ! is_array( $band ) ) {
+				continue;
+			}
+			$op = self::op_now( (string) ( $band['op'] ?? '' ) );
+			// Only the comparisons a number can answer, and never "empty":
+			// a band is a threshold, not a test for absence.
+			if ( ! isset( $ops[ $op ] ) || 'number' !== (string) $ops[ $op ]['takes'] ) {
+				continue; // a threshold needs a number to compare against.
+			}
+			$out[] = [
+				'op'    => $op,
+				'value' => max( 0, min( 100000, (int) ( $band['value'] ?? 0 ) ) ),
+				'want'  => max( 0, min( 100000, (int) ( $band['want'] ?? 0 ) ) ),
+			];
+			if ( count( $out ) >= 6 ) {
+				break; // a standard nobody can read at a glance is not one.
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * One criterion as the shop HOLDS it, by id.
+	 *
+	 * Read from the stored option and never through rows(), which runs
+	 * clean_rows() — asking it from inside clean_rows() is a loop with no way
+	 * out. shots_for() learned that the hard way.
+	 */
+	private static function stored_row( string $id ): array {
+		$id = sanitize_key( $id );
+		if ( '' === $id ) {
+			return [];
+		}
+		foreach ( (array) ( self::settings()['rows'] ?? [] ) as $one ) {
+			if ( is_array( $one ) && sanitize_key( (string) ( $one['id'] ?? '' ) ) === $id ) {
+				return $one;
+			}
+		}
+		return [];
+	}
+
+	/**
+	 * The figure THIS object is held to.
+	 *
+	 * The criterion's own number, unless a band claims the object first. This
+	 * is the whole of what makes the count on the diagnostic honest, and it
+	 * costs nothing: the band is read from a column the scan already loads.
+	 *
+	 * @param mixed $object The product, category or post being judged.
+	 */
+	private static function want_for( array $row, string $scope, $object ): float {
+		$flat  = (float) ( $row['value'] ?? 0 );
+		$bands = (array) ( $row['bands'] ?? [] );
+		$on    = (string) ( $row['band_field'] ?? '' );
+		if ( ! $bands || '' === $on ) {
+			return $flat;
+		}
+		$m = self::measure( $on, $scope, $object, '' );
+		// ZERO IS NOT A TIER. A product with no price, a category with no
+		// products, an article of no length: nothing places them, and they all
+		// measure 0 — which "under 40" happily matches. Placed by the cheapest
+		// band they would be held to the easiest standard and quietly pass,
+		// while being exactly the objects most likely to be broken. They take
+		// the criterion's own figure instead, which is the strictest tier, so
+		// they show up on the list rather than disappearing from it.
+		if ( ! is_numeric( $m ) || (float) $m <= 0 ) {
+			return $flat;
+		}
+		foreach ( $bands as $band ) {
+			if ( self::compare( (string) $band['op'], (float) $m, (float) $band['value'] ) ) {
+				return (float) $band['want'];
+			}
+		}
+		return $flat;
+	}
+
+	/**
+	 * The figure, when one figure is not enough.
+	 *
+	 * "Produits de 0 a 40$, produits de 40 a 80$, et produits de 80+$. Pour 1,
+	 * 3 images ok, pour 2, 4 images ok, pour 3, 6 images ok." Two lines and
+	 * the figure above make those three tiers, and the tier with no line is
+	 * the figure itself — there is always an answer, so nothing is left
+	 * unjudged by a list that matches nothing.
+	 *
+	 * Empty on a fresh install. A shop that never opens this is held to one
+	 * figure exactly as before.
+	 */
+	private static function bands_block( array $row, string $opt, string $index, string $field, string $scope ): string {
+		// Always drawn, shown only where it applies. Rendered conditionally it
+		// appeared for a criterion already saved on a count and NEVER for one
+		// switched to a count in the browser — a control the shop only
+		// discovers after saving and reloading is a control it does not have.
+		$hide = 'number' !== (string) ( self::fields()[ $field ]['kind'] ?? '' );
+		$name  = static fn( string $k ): string => esc_attr( $opt . '[rows][' . $index . '][' . $k . ']' );
+		$on    = (string) ( $row['band_field'] ?? '' );
+		$bands = (array) ( $row['bands'] ?? [] );
+		$fam   = self::family( $scope );
+
+		$out = '<p class="dze-prb-line dze-diag-bands" style="align-items:center;flex-wrap:wrap;'
+			. ( $hide ? 'display:none;' : '' ) . '">';
+		// The marker. Without it a card saved with its last band removed posts
+		// no bands key at all, and "none" would be read as "another screen
+		// saved this" — which is how a setting gets quietly given back.
+		$out .= '<input type="hidden" name="' . $name( 'band_field' ) . '" value="" class="dze-diag-bandfield-none" />';
+		$out .= '<span style="margin-right:2px;">' . esc_html__( 'Unless', 'dazont-ecom' ) . '</span>';
+		$out .= '<select class="dze-diag-bandfield" name="' . $name( 'band_field' ) . '">';
+		$out .= '<option value="">' . esc_html__( '— the same for every one —', 'dazont-ecom' ) . '</option>';
+		foreach ( self::fields() as $fid => $meta ) {
+			if ( 'number' !== (string) $meta['kind'] ) {
+				continue;
+			}
+			$out .= '<option value="' . esc_attr( $fid ) . '" data-scope="' . esc_attr( (string) $meta['scope'] ) . '"'
+				. ( ( $fid === $field || $fam !== (string) $meta['scope'] ) ? ' class="dze-diag-bandhide"' : '' )
+				. selected( $fid, $on, false ) . '>' . esc_html( (string) $meta['label'] ) . '</option>';
+		}
+		$out .= '</select>';
+		$out .= '<span class="description" style="flex:1 1 100%;margin:4px 0 0;">'
+			. esc_html__( 'Tiers are read top to bottom and the first one that fits wins. Anything the tiers do not place — including an object with nothing there to place it by — is held to the figure above.', 'dazont-ecom' )
+			. '</span>';
+		$out .= '<span class="dze-diag-bandrows" style="flex:1 1 100%;">';
+		foreach ( array_values( $bands ) as $i => $band ) {
+			$out .= self::band_row( $opt, $index, (string) $i, (array) $band );
+		}
+		// The one a press copies, always present and always disabled — a
+		// disabled field is not submitted, so it adds no tier of its own. It
+		// is here rather than in the JavaScript because a tier's markup must
+		// live in ONE place: a control added above and forgotten below is a
+		// tier that silently loses a value.
+		$out .= self::band_row( $opt, $index, '__B__', [ 'op' => 'lt' ], true );
+		$out .= '</span>';
+		$out .= '<button type="button" class="button button-small dze-diag-bandadd" style="margin-top:6px;">'
+			. esc_html__( 'Add a tier', 'dazont-ecom' ) . '</button>';
+		$out .= '</p>';
+		return $out;
+	}
+
+	/** One tier: a threshold, and the figure that applies under it. */
+	private static function band_row( string $opt, string $index, string $i, array $band, bool $proto = false ): string {
+		$name = static fn( string $k ): string => esc_attr( $opt . '[rows][' . $index . '][bands][' . $i . '][' . $k . ']' );
+		$op   = self::op_now( (string) ( $band['op'] ?? 'lt' ) );
+		$off  = $proto ? ' disabled="disabled"' : '';
+		$out  = '<span class="dze-diag-bandrow' . ( $proto ? ' dze-diag-bandproto' : '' ) . '"'
+			. ' style="display:' . ( $proto ? 'none' : 'flex' ) . ';align-items:center;gap:6px;margin:4px 0;">';
+		$out .= '<select' . $off . ' name="' . $name( 'op' ) . '" style="width:150px;">';
+		foreach ( self::operators() as $oid => $meta ) {
+			if ( 'number' !== (string) $meta['takes'] ) {
+				continue;
+			}
+			$out .= '<option value="' . esc_attr( $oid ) . '"' . selected( $oid, $op, false ) . '>'
+				. esc_html( self::op_label( $oid ) ) . '</option>';
+		}
+		$out .= '</select>';
+		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:100px;" name="' . $name( 'value' ) . '"'
+			. ' value="' . esc_attr( (string) (int) ( $band['value'] ?? 0 ) ) . '" />';
+		$out .= '<span>&rarr;</span>';
+		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:90px;" name="' . $name( 'want' ) . '"'
+			. ' value="' . esc_attr( (string) (int) ( $band['want'] ?? 0 ) ) . '" />';
+		$out .= '<button type="button" class="button-link dze-diag-banddel" style="color:#b32d2e;">'
+			. esc_html__( 'Remove', 'dazont-ecom' ) . '</button>';
+		$out .= '</span>';
 		return $out;
 	}
 
@@ -840,7 +1063,19 @@ final class DZE_Diagnostic {
 			// The unit is the field's own and can be blank (a price, a weight),
 			// so the clause is assembled rather than templated: "is less than
 			// 800 px" and "is more than 50" both have to come out clean.
-			return trim( self::op_label( $op, $words ) . ' ' . (int) ( $row['value'] ?? 0 ) . ' ' . self::unit_of( (string) ( $row['field'] ?? '' ) ) );
+			$figures = [];
+			foreach ( (array) ( $row['bands'] ?? [] ) as $band ) {
+				$figures[] = (int) ( $band['want'] ?? 0 );
+			}
+			$figures[] = (int) ( $row['value'] ?? 0 );
+			// A criterion held to tiers must not go on calling itself by one
+			// of them. "is less than 6 photographs" on a screen where a $16.90
+			// cap is judged on 3 is a heading that stopped being true, and a
+			// heading nobody can trust is worse than none.
+			$said = count( $figures ) > 1
+				? implode( '/', array_map( 'strval', $figures ) )
+				: (string) $figures[0];
+			return trim( self::op_label( $op, $words ) . ' ' . $said . ' ' . self::unit_of( (string) ( $row['field'] ?? '' ) ) );
 		}
 		return self::op_label( $op, $words );
 	}
@@ -1374,7 +1609,7 @@ final class DZE_Diagnostic {
 	private static function fails( array $row, string $scope, $object ): bool {
 		$field = (string) ( $row['field'] ?? '' );
 		$op    = self::op_now( (string) ( $row['test'] ?? 'empty' ) );
-		$want  = (float) ( $row['value'] ?? 0 );
+		$want  = self::want_for( $row, $scope, $object );
 		$m     = self::measure( $field, $scope, $object, (string) ( $row['key'] ?? '' ) );
 
 		if ( 'meta' === self::kind_of( $field ) ) {
@@ -1581,7 +1816,10 @@ final class DZE_Diagnostic {
 
 	public function register_menu(): void {
 		$waiting = self::waiting();
-		$label   = __( 'Diagnostic', 'dazont-ecom' );
+		// "Content diagnostic" and not "Diagnostic": beside Restock and the
+		// rest of this menu, a bare "Diagnostic" reads as the shop's health —
+		// servers, keys, cron. What it reads is the CONTENT of the pages.
+		$label   = __( 'Content diagnostic', 'dazont-ecom' );
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			$label,
@@ -1703,7 +1941,7 @@ final class DZE_Diagnostic {
 		$at     = (int) ( $census['at'] ?? 0 );
 		$where  = self::scopes();
 
-		echo '<h1>' . esc_html__( 'Diagnostic', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html__( 'Content diagnostic', 'dazont-ecom' ) . '</h1>';
 		echo '<p class="description" style="max-width:760px;">'
 			. esc_html__( 'What the shop is short of, read against your own standards. Nothing here writes anything or spends anything: each line points at the screen that fixes that one thing.', 'dazont-ecom' )
 			. '</p>';
@@ -2773,6 +3011,7 @@ final class DZE_Diagnostic {
 			. ' placeholder="' . esc_attr__( 'text to look for', 'dazont-ecom' ) . '" />';
 		$out .= '<span class="dze-diag-unit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
 		$out .= '</p>';
+		$out .= self::bands_block( $row, $opt, $index, $field, (string) ( $row['scope'] ?? 'product' ) );
 		// What this criterion is FOR. The hidden field goes first so the key
 		// always arrives: without it, a criterion with both boxes cleared
 		// would post nothing at all, and "neither" would be indistinguishable
@@ -2965,6 +3204,9 @@ final class DZE_Diagnostic {
 		foreach ( self::scopes() as $sid => $label ) {
 			$by_scope[ $sid ] = [
 				'label'  => $label,
+				// Every custom post type is a "post" as far as the fields go:
+				// the tier menu is cut by that family, not by the type's name.
+				'family' => self::family( $sid ),
 				'fields' => array_keys( self::fields_for( $sid ) ),
 			];
 		}
@@ -3000,13 +3242,28 @@ final class DZE_Diagnostic {
 			// The comparison half of a criterion. One source for it: the shut
 			// card reads it with whatever this shop writes comparisons in, the
 			// name box offers the same rule in words.
-			function clause( f, op, takes, v, find, meta, words ) {
+			function clause( f, op, takes, v, find, meta, words, tiers ) {
 				if ( 'post.links' === f && 'lt' === op && 0 === v ) { return target; }
 				if ( 'text' === takes ) { return opLabel( op, words ) + ' "' + find + '"'; }
 				if ( 'number' === takes ) {
-					return ( opLabel( op, words ) + ' ' + v + ' ' + meta.unit ).replace( /\s+$/, '' );
+					// Every tier, in the order they are read, then the figure
+					// itself — the same sentence the server writes. A head
+					// saying "less than 6" while a $16.90 cap is judged on 3
+					// is a head that stopped being true.
+					var said = ( tiers || [] ).concat( [ v ] ).join( '/' );
+					return ( opLabel( op, words ) + ' ' + said + ' ' + meta.unit ).replace( /\s+$/, '' );
 				}
 				return opLabel( op, words );
+			}
+			// The tiers as the card holds them right now, in order.
+			function tiersOf( $card ) {
+				if ( ! $card.find( '.dze-diag-bands' ).is( ':visible' )
+					|| ! $card.find( '.dze-diag-bandfield' ).val() ) { return []; }
+				var out = [];
+				$card.find( '.dze-diag-bandrow' ).not( '.dze-diag-bandproto' ).each( function () {
+					out.push( parseInt( jQuery( this ).find( '[name*="[want]"]' ).val(), 10 ) || 0 );
+				} );
+				return out;
 			}
 
 			// The card's own number. New cards are given one past every card on
@@ -3092,12 +3349,32 @@ final class DZE_Diagnostic {
 				$card.find( '.dze-diag-value' ).toggle( 'number' === takes );
 				$card.find( '.dze-diag-find' ).toggle( 'text' === takes );
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
+				// Tiers only make sense for a figure, and only on a field the
+				// object being judged can actually answer.
+				$card.find( '.dze-diag-bands' ).toggle( 'number' === meta.kind );
+				fitBands( $card, f );
 				// The head IS the rule, written out — so it follows every menu
 				// and every figure as they move, and there is never a title on
 				// screen that stopped being true two edits ago.
-				var auto = ( named + ' ' + clause( f, op, takes, v, find, meta, true ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
+				var auto = ( named + ' ' + clause( f, op, takes, v, find, meta, true, tiersOf( $card ) ) ).replace( /\s+/g, ' ' ).replace( /^ | $/g, '' );
 				$card.find( '.dze-diag-name' ).text( auto ? auto.charAt( 0 ).toUpperCase() + auto.slice( 1 ) : name0 );
 				$card.find( '.dze-diag-said' ).text( $card.find( '.dze-diag-note' ).val() || '' );
+			}
+
+			// The menu a tier is measured on: the number fields of THIS post
+			// type, never the criterion's own field — a gallery placed in
+			// tiers by the size of the gallery says nothing.
+			function fitBands( $card, self ) {
+				var scope = $card.find( '.dze-diag-scope' ).val(),
+					fam = ( scopes[ scope ] || {} ).family || scope,
+					$sel = $card.find( '.dze-diag-bandfield' );
+				$sel.find( 'option[value]' ).each( function () {
+					var $o = jQuery( this ), id = $o.attr( 'value' );
+					if ( ! id ) { return; }
+					$o.prop( 'disabled', id === self || $o.attr( 'data-scope' ) !== fam )
+						.toggle( id !== self && $o.attr( 'data-scope' ) === fam );
+				} );
+				if ( $sel.find( 'option:selected' ).prop( 'disabled' ) ) { $sel.val( '' ); }
 			}
 
 			// Where a card belongs: under its own post type's heading when the
@@ -3174,9 +3451,38 @@ final class DZE_Diagnostic {
 			$( document ).on( 'change', '.dze-diag-scope', function () {
 				home( $( this ).closest( '.dze-diag-card' ) );
 			} );
-			$( document ).on( 'change keyup', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key, .dze-diag-note', function () {
+			$( document ).on( 'change keyup input', '.dze-diag-bands select, .dze-diag-bands input', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );
 			} );
+			$( document ).on( 'change keyup input', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key, .dze-diag-note', function () {
+				retell( $( this ).closest( '.dze-diag-card' ) );
+			} );
+			// A tier is added by copying the one above it, so the markup lives
+			// in ONE place — card() — and a field added there is never
+			// forgotten here. The index is renumbered afterwards, because two
+			// tiers posting under the same key are one tier.
+			$( document ).on( 'click', '.dze-diag-bandadd', function () {
+				var $rows = $( this ).closest( '.dze-diag-bands' ).find( '.dze-diag-bandrows' ),
+					$one  = $rows.find( '.dze-diag-bandproto' ).clone();
+				if ( ! $one.length ) { return; }
+				$one.removeClass( 'dze-diag-bandproto' ).css( 'display', 'flex' )
+					.find( '[disabled]' ).prop( 'disabled', false );
+				$rows.find( '.dze-diag-bandproto' ).before( $one );
+				renumberBands( $rows );
+			} );
+			$( document ).on( 'click', '.dze-diag-banddel', function () {
+				var $rows = $( this ).closest( '.dze-diag-bandrows' );
+				$( this ).closest( '.dze-diag-bandrow' ).remove();
+				renumberBands( $rows );
+			} );
+			function renumberBands( $rows ) {
+				$rows.find( '.dze-diag-bandrow' ).not( '.dze-diag-bandproto' ).each( function ( i ) {
+					$( this ).find( '[name]' ).each( function () {
+						this.name = this.name.replace( /\[bands\]\[[^\]]*\]/, '[bands][' + i + ']' );
+					} );
+				} );
+			}
+
 			$( document ).on( 'click', '.dze-diag-drop', function () {
 				$( this ).closest( '.dze-diag-card' ).remove();
 			} );

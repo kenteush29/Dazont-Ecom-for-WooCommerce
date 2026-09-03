@@ -225,6 +225,12 @@ class DZE_Json_Sent extends Exception {
 function wp_send_json_success( $d = null ) { throw new DZE_Json_Sent( $d, true ); }
 function wp_send_json_error( $d = null, $c = 0 ) { throw new DZE_Json_Sent( $d, false ); }
 class DZE_Modules { public static function enabled( $id ) { return empty( $GLOBALS['module_off'][ $id ] ); } }
+class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
+$GLOBALS['dze_submenus'] = [];
+function add_submenu_page( $parent, $title, $menu, $cap, $slug, $cb = null, $pos = null ) {
+	$GLOBALS['dze_submenus'][] = [ 'title' => $title, 'menu' => $menu, 'slug' => $slug ];
+	return $slug;
+}
 class DZE_Content {
 	const BULK_SLUG = 'dazont-content-bulk';
 	public static function image_templates() { return $GLOBALS['tpls'] ?? []; }
@@ -1000,6 +1006,92 @@ update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
 $page = $show( [] );
 ok( 'a criterion that is set up presses', false !== strpos( $page, '>Fix (3)<' ), true );
 ok( 'and is not asked to be set up again', false !== strpos( $page, 'Set up Fix' ), false );
+
+echo "A complete product is not the same product at every price\n";
+// "Grace a plusieurs filtres je peux faire 3 paliers : produits de 0 a 40$,
+// produits de 40 a 80$, et produits de 80+$. Pour 1, 3 images ok, pour 2, 4
+// images ok, pour 3, 6 images ok." Holding a $16.90 cap and a $90 plate
+// carrier to the same "3" is what made the count on this screen a figure
+// nobody believed.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_meta'] = [];
+$dze_gal = static function ( int $pid, int $photos, string $price = '' ): void {
+	$GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = implode( ',', range( 1, max( 1, $photos ) ) );
+	if ( ! $photos ) { $GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = ''; }
+	if ( '' !== $price ) { $GLOBALS['dze_meta'][ $pid ]['_price'] = $price; }
+};
+// Two bands and the criterion's own figure make the three tiers: under 40 → 3,
+// under 80 → 4, otherwise → 6.
+$dze_band = [
+	'id' => 'prod_gallery', 'label' => 'x', 'scope' => 'product', 'field' => 'product.gallery',
+	'test' => 'lt', 'value' => 6, 'key' => '', 'find' => '', 'on' => 1,
+	'band_field' => 'product.price',
+	'bands' => [ [ 'op' => 'lt', 'value' => 40, 'want' => 3 ], [ 'op' => 'lt', 'value' => 80, 'want' => 4 ] ],
+];
+$dze_gal( 301, 3, '16.90' );
+$dze_gal( 302, 3, '55.00' );
+$dze_gal( 303, 3, '90.00' );
+$dze_gal( 304, 6, '90.00' );
+$dze_gal( 305, 4, '55.00' );
+ok( 'three photographs is enough at 16.90',  judge( $dze_band, 301 ), false );
+ok( 'but not at 55.00',                      judge( $dze_band, 302 ), true );
+ok( 'and nowhere near enough at 90.00',      judge( $dze_band, 303 ), true );
+ok( 'six is enough at 90.00',                judge( $dze_band, 304 ), false );
+ok( 'and four is enough at 55.00',           judge( $dze_band, 305 ), false );
+// Read IN ORDER, first match wins: 39.99 matches "under 40" and must never
+// fall through to "under 80".
+$dze_gal( 306, 3, '39.99' );
+ok( 'the first band that fits wins',         judge( $dze_band, 306 ), false );
+// A product with no price cannot be placed. It falls to the criterion's own
+// figure — never to the cheapest band, which would quietly excuse it.
+$dze_gal( 307, 3 );
+ok( 'no price takes the plain figure',       judge( $dze_band, 307 ), true );
+// And a criterion with NO bands behaves exactly as it always did.
+$dze_flat = $dze_band;
+$dze_flat['bands'] = [];
+$dze_flat['value'] = 3;
+ok( 'no bands, no change',                   judge( $dze_flat, 303 ), false );
+
+echo "The bands survive being saved, and refuse what they cannot judge\n";
+$dze_saved = DZE_Diagnostic::clean_rows( [ $dze_band ] )[0];
+ok( 'the band field is kept',           $dze_saved['band_field'], 'product.price' );
+ok( 'and both bands with it',           count( $dze_saved['bands'] ), 2 );
+ok( 'in the order they were written',   $dze_saved['bands'][0]['value'], 40 );
+// A band on a TEXT is not a threshold: a description answers words, not tiers.
+$dze_bad = $dze_band;
+$dze_bad['band_field'] = 'product.description';
+ok( 'a band on a text is refused',      DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['band_field'], '' );
+// Nor on another post type's field: a product cannot be placed by how many
+// products a category holds.
+$dze_bad['band_field'] = 'category.products';
+ok( 'nor on another type\'s field',     DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['band_field'], '' );
+// "is empty" is not a threshold either.
+$dze_bad = $dze_band;
+$dze_bad['bands'] = [ [ 'op' => 'empty', 'value' => 0, 'want' => 3 ], [ 'op' => 'lt', 'value' => 80, 'want' => 4 ] ];
+ok( 'a band with no number is dropped', count( DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['bands'] ), 1 );
+// The trap this plugin has been bitten by twice: a form that never carried the
+// bands must not erase them.
+update_option( DZE_Diagnostic::OPT, [ 'rows' => [ $dze_saved ] ] );
+$dze_other = $dze_band;
+unset( $dze_other['bands'], $dze_other['band_field'] );
+$dze_kept = DZE_Diagnostic::clean_rows( [ $dze_other ] )[0];
+ok( 'a form without them changes nothing', count( $dze_kept['bands'] ), 2 );
+// A criterion held to tiers must not go on calling itself by ONE of them:
+// "is less than 6 photographs" is a heading that stopped being true the
+// moment a $16.90 cap started being judged on 3.
+ok( 'the name carries every tier',      $dze_saved['label'], 'Gallery photographs is less than 3/4/6 photographs' );
+// One name, everywhere it is shown. "Diagnostic" beside Restock reads as the
+// shop's health — servers, keys, cron — and what this reads is the CONTENT.
+$GLOBALS['dze_submenus'] = [];
+DZE_Diagnostic::instance()->register_menu();
+$dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
+ok( 'the left menu says what it looks at', (string) ( $dze_menu['title'] ?? '' ), 'Content diagnostic' );
+ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
+ok( 'and one figure stays one figure',
+	DZE_Diagnostic::clean_rows( [ $dze_flat ] )[0]['label'], 'Gallery photographs is less than 3 photographs' );
+ok( 'and keeps what they are measured on', $dze_kept['band_field'], 'product.price' );
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_meta'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
