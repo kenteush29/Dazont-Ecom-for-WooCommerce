@@ -985,27 +985,41 @@ foreach ( $dze_rows as $i => $r ) {
 	}
 }
 update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
-update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 401, 405, 402, 403, 404 ] ] );
+// Stored in the WRONG order on purpose: sorted "as found" this list already
+// came out by condition, so the sort was proving nothing.
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 403, 402, 405, 404, 401 ], false );
 update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 5 ], 'read' => time() ] );
 $GLOBALS['umeta'] = [];
 $dze_page = $show( [ 'by' => 'found' ] );
-ok( 'the cheapest band heads its own section',
-	false !== strpos( $dze_page, 'price 0 to 40 — at least 3' ), true );
-ok( 'and the middle one its own',       false !== strpos( $dze_page, 'price 40 to 80 — at least 4' ), true );
-ok( 'and the open-ended one says so',   false !== strpos( $dze_page, 'price 80 and above — at least 6' ), true );
+// A COLUMN, sortable, not banners cut into the table: banners cannot be
+// sorted, they break the striping, and a list of nine hundred reads as a
+// stack of little tables.
+ok( 'there is a column for it',         false !== strpos( $dze_page, '>Condition' ), true );
+ok( 'and it can be sorted by',          false !== strpos( $dze_page, 'by=band' ), true );
+ok( 'the cheapest condition is named on its row',
+	false !== strpos( $dze_page, 'price 0 to 40 → at least 3' ), true );
+ok( 'and the middle one on its own',    false !== strpos( $dze_page, 'price 40 to 80 → at least 4' ), true );
+ok( 'and the open-ended one says so',   false !== strpos( $dze_page, 'price 80 and above → at least 6' ), true );
 // A product no condition covers is not judged, so it is not on the list at all.
 ok( 'nothing uncovered is listed',      false !== strpos( $dze_page, 'No price' ), false );
-// One heading per condition, not one per product.
-ok( 'a heading is printed once per band', substr_count( $dze_page, 'price 0 to 40' ), 1 );
-ok( 'and both products are under it',   substr_count( $dze_page, 'cap</strong>' ), 2 );
+// One cell per product, so two products in one band say it twice.
+ok( 'each product carries its own',     substr_count( $dze_page, 'price 0 to 40' ), 2 );
+ok( 'and both are listed',              substr_count( $dze_page, 'cap</strong>' ), 2 );
+// Sorting by it puts them in the order the conditions are written.
+$GLOBALS['umeta'] = [];
+ok( 'sorted by condition, cheapest first',
+	$order( $show( [ 'by' => 'band', 'dir' => 'asc' ] ) ),
+	// Within one condition the found order is kept: sorting by condition is
+	// not sorting by anything else.
+	[ 'Other cap', 'Cheap cap', 'Mid rig', 'Plate carrier' ] );
 // And a criterion with no conditions has no sections at all.
 foreach ( $dze_rows as $i => $r ) {
 	if ( 'prod_gallery' === ( $r['id'] ?? '' ) ) { $dze_rows[ $i ]['cond'] = 0; }
 }
 update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
 $GLOBALS['umeta'] = [];
-ok( 'a plain criterion has no sections',
-	false !== strpos( $show( [ 'by' => 'found' ] ), 'at least 3' ), false );
+ok( 'a plain criterion has no such column',
+	false !== strpos( $show( [ 'by' => 'found' ] ), '>Condition' ), false );
 
 // THE TOOL, ON THE LINE THAT NEEDS IT. Not a repair — a link to the screen
 // that does this kind of work, so the walk back through three menus goes.
@@ -1031,6 +1045,44 @@ $GLOBALS['umeta'] = [];
 ok( 'a gallery row offers none',         false !== strpos( $show( [ 'by' => 'found' ] ), '>Open</a>' ), false );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
+
+echo "A count is an answer to the rule AS IT WAS READ\n";
+// "Variations without an image is not empty > 2100+ produits. Is empty >
+// donne toujours tous ces produits. Je ne comprends pas." Both, because the
+// COUNT came from the reading — taken when the rule said something else —
+// while the rows below were re-judged live against the rule as it stands.
+// Two answers to two different questions on one screen, and nothing said so.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_posts'] = [];
+$dze_asked = [ 'id' => 'v', 'scope' => 'product', 'field' => 'product.variation_images',
+	'test' => 'empty', 'value' => 0, 'find' => '', 'key' => '', 'on' => 1, 'cond' => 0, 'bands' => [] ];
+update_option( DZE_Diagnostic::OPT_CENSUS, [
+	'checks' => [ 'v' => 2106 ],
+	'rules'  => [ 'v' => DZE_Diagnostic::rule_stamp( $dze_asked ) ],
+	'read'   => time(),
+] );
+ok( 'the rule that was read is not stale', DZE_Diagnostic::rule_moved( 'v', $dze_asked ), false );
+// Flip the comparison and the stored count is about the other question.
+$dze_flipped = $dze_asked;
+$dze_flipped['test'] = 'filled';
+ok( 'flipping it makes the count stale',   DZE_Diagnostic::rule_moved( 'v', $dze_flipped ), true );
+// So does a figure, a key, or a condition.
+$dze_other = $dze_asked; $dze_other['value'] = 3;
+ok( 'so does a different figure',          DZE_Diagnostic::rule_moved( 'v', $dze_other ), true );
+$dze_other = $dze_asked; $dze_other['key'] = 'attribute_pa_couleur';
+ok( 'and a different field key',           DZE_Diagnostic::rule_moved( 'v', $dze_other ), true );
+$dze_other = $dze_asked; $dze_other['cond'] = 1;
+$dze_other['bands'] = [ [ 'field' => 'product.price', 'from' => 0, 'to' => 40, 'want' => 2 ] ];
+ok( 'and switching the conditions on',     DZE_Diagnostic::rule_moved( 'v', $dze_other ), true );
+// But NOT renaming it or changing what it says to do about it: those decide
+// nothing, and crying stale over them would train the shop to ignore it.
+$dze_other = $dze_asked; $dze_other['note'] = 'Do this instead'; $dze_other['goals'] = [ 'seo' ];
+ok( 'a note is not a question',            DZE_Diagnostic::rule_moved( 'v', $dze_other ), false );
+// A reading taken before criteria carried a fingerprint says nothing rather
+// than crying stale on every line the first time a shop updates.
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'v' => 2106 ], 'read' => time() ] );
+ok( 'an older reading is silent',          DZE_Diagnostic::rule_moved( 'v', $dze_flipped ), false );
+$GLOBALS['dze_opts'] = [];
 
 echo "A mended product says WHAT was done to it\n";
 // "Apres un fix, le produit disparait des diagnostics." It should — it is not
