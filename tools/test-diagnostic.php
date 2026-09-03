@@ -1118,8 +1118,77 @@ $GLOBALS['queued'] = [];
 [ $dze_said, $dze_ok ] = $dze_press( 'thin_links', 999 );
 ok( 'an id off the list is refused',    $dze_ok, false );
 ok( 'and nothing was queued for it',    $GLOBALS['queued'], [] );
+echo "A thin gallery is mended by making the photographs it lacks\n";
+// "Toujours aucun bouton sur la page liste diagnostic Gallery photographs is
+// less than 2/3/5 photographs. C'est ma priorite numero un."
+$GLOBALS['tpls'] = [
+	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
+	[ 'id' => 'detail', 'name' => 'Detail shot',   'target' => 'gallery' ],
+	[ 'id' => 'scene',  'name' => 'Scene, in use', 'target' => 'gallery' ],
+];
+ok( 'a gallery is mended by a photograph', $tool->invoke( null, 'product.gallery' ), 'product_shot' );
+ok( 'so is a missing main image',       $tool->invoke( null, 'product.main_image' ), 'product_shot' );
+// A shop with no prompt aimed at the gallery gets NO button, rather than a
+// press that fails in the background with nobody watching.
+$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image', 'target' => 'main' ] ];
+ok( 'no gallery prompt, no button',     $tool->invoke( null, 'product.gallery' ), '' );
+ok( 'but the main one still has its own', $tool->invoke( null, 'product.main_image' ), 'product_shot' );
+$GLOBALS['tpls'] = [
+	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
+	[ 'id' => 'detail', 'name' => 'Detail shot',   'target' => 'gallery' ],
+	[ 'id' => 'scene',  'name' => 'Scene, in use', 'target' => 'gallery' ],
+];
+
+// The rows carry it, and the button names the pass.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_posts'] = [];
+$GLOBALS['pending']   = [];
+foreach ( [ [ 901, 0 ], [ 902, 2 ] ] as $dze_p ) {
+	[ $pid, $photos ] = $dze_p;
+	$post = new WP_Post();
+	$post->ID = $pid;
+	$post->post_title = 'Product ' . $pid;
+	$GLOBALS['dze_posts'][ $pid ] = $post;
+	$GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = $photos ? implode( ',', range( 1, $photos ) ) : '';
+}
+$dze_gal_row = [ [ 'id' => 'prod_gallery', 'on' => 1, 'scope' => 'product', 'field' => 'product.gallery',
+	'test' => 'lt', 'value' => 3, 'find' => '', 'key' => '', 'note' => '' ] ];
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_gal_row ] );
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 901, 902 ], false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 2 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+$dze_gal_html = (string) ob_get_clean();
+ok( 'every thin gallery has a button',
+	substr_count( $dze_gal_html, 'class="button button-small dze-diag-fix"' ), 2 );
+ok( 'and it names the pass',            false !== strpos( $dze_gal_html, '>Make a photograph</button>' ), true );
+
+// ONE JOB PER PHOTOGRAPH MISSING. 901 has none against a figure of three, so
+// three; 902 has two, so one.
+$GLOBALS['queued'] = [];
+[ $dze_said, $dze_ok ] = $dze_press( 'prod_gallery', 901 );
+ok( 'it goes off',                      $dze_ok, true );
+ok( 'one job per photograph missing',   count( $GLOBALS['queued'] ), 3 );
+ok( 'each for that product alone',      $GLOBALS['queued'][0]['ids'] ?? [], [ 901 ] );
+ok( 'and never applied on its own',     $GLOBALS['queued'][0]['auto'] ?? true, false );
+// The shop's OWN gallery prompts, in the order it wrote them, one after
+// another — the main-image prompt is not among them.
+$dze_used = array_map( static fn( $j ) => (int) ( $j['payload']['template'] ?? -1 ), $GLOBALS['queued'] );
+ok( 'taken from the gallery prompts in turn', $dze_used, [ 1, 2, 1 ] );
+// A second photograph from the same prompt asks for another framing.
+ok( 'and the third asks for another framing',
+	(int) ( $GLOBALS['queued'][2]['payload']['attempt'] ?? -1 ), 1 );
+// A product short of ONE gets one.
+$GLOBALS['queued'] = [];
+$dze_press( 'prod_gallery', 902 );
+ok( 'a product short of one gets one',  count( $GLOBALS['queued'] ), 1 );
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_posts'] = [];
+
 // A criterion with no job cannot be pressed at all.
-[ $dze_said, $dze_ok ] = $dze_press( 'prod_gallery', 401 );
+[ $dze_said, $dze_ok ] = $dze_press( 'prod_price', 401 );
 ok( 'a criterion with no job says so',  $dze_ok, false );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
@@ -1308,10 +1377,31 @@ ok( 'no row sends the shop to a settings page',
 // shop, two consumers: a second harness would be a second answer to "what
 // does this page look like", and the two would drift.
 if ( in_array( '--dump-list', (array) $argv, true ) ) {
+	// The GALLERY list, which is the one the owner asked for first. Two thin
+	// products, each carrying the button that makes what it lacks.
+	$GLOBALS['dze_opts']  = [];
+	$GLOBALS['pending']   = [];
+	$GLOBALS['dze_posts'] = [];
+	$GLOBALS['tpls'] = [
+		[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
+		[ 'id' => 'detail', 'name' => 'Detail shot',   'target' => 'gallery' ],
+		[ 'id' => 'scene',  'name' => 'Scene, in use', 'target' => 'gallery' ],
+	];
+	foreach ( [ [ 901, 0 ], [ 902, 2 ] ] as $dze_p ) {
+		[ $pid, $photos ] = $dze_p;
+		$post = new WP_Post();
+		$post->ID = $pid;
+		$post->post_title = 'Product ' . $pid;
+		$GLOBALS['dze_posts'][ $pid ] = $post;
+		$GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = $photos ? implode( ',', range( 1, $photos ) ) : '';
+	}
+	update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_gal_row ] );
+	update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 901, 902 ], false );
+	update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 2 ], 'read' => time() ] );
 	$GLOBALS['umeta'] = [];
 	$_GET = [];
 	ob_start();
-	$dze_render->invoke( DZE_Diagnostic::instance(), 'thin_links' );
+	$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
 	echo (string) ob_get_clean();
 	exit( 0 );
 }
