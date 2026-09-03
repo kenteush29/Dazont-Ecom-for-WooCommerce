@@ -750,31 +750,33 @@ $GLOBALS['tpls'] = [
 ];
 $fix = new ReflectionMethod( 'DZE_Diagnostic', 'fix_for' );
 $fix->setAccessible( true );
-ok( 'a thin gallery is mended by a photograph',
-	$fix->invoke( null, 'product.gallery' )['kind'] ?? '', 'product_shot' );
+/** A criterion as the shop wrote it: the field, and its own routine. */
+$rule = static fn( string $field, array $shots = [] ): array => [ 'field' => $field, 'shots' => $shots ];
+// The shop's OWN prompts, by their ids, and its own numbers. 4.285 named a
+// prompt in this file and the button answered with an error about a name
+// nobody recognised; nothing here names a prompt.
+$got = $fix->invoke( null, $rule( 'product.gallery', [ 'sc' => 2, 'angle1' => 3 ] ) );
+ok( 'a thin gallery is mended by photographs', $got['kind'] ?? '', 'product_shot' );
 // No label of its own: every repair is called Fix, on every screen. A
 // different sentence per problem is a screen to be read rather than used.
-ok( 'and carries no wording of its own',
-	array_key_exists( 'label', $fix->invoke( null, 'product.gallery' ) ), false );
-// The recipe is named, not left to whichever one happens to be first: an
-// invented photograph is a returned parcel.
-// The shop's OWN gallery prompt, by its place on the shop's own list — not a
-// name written into this file. 4.285 named one, and the button answered with
-// an error about a prompt this shop had never chosen.
-ok( 'with the shop\'s own gallery prompt',
-	$fix->invoke( null, 'product.gallery' )['recipe'] ?? -1, 1 );
-ok( 'and it can say what that is called',
-	DZE_Diagnostic::recipe_name( 1 ), 'Scene (in use)' );
-// A shop with only a main-image prompt has nothing to fix a gallery with, and
-// offers no button rather than one that fails.
-$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image', 'target' => 'main' ] ];
-ok( 'no gallery prompt, nothing to run with',
-	$fix->invoke( null, 'product.gallery' )['recipe'] ?? 0, -1 );
+ok( 'and carries no wording of its own', array_key_exists( 'label', $got ), false );
+// Kept by the prompt's PLACE for shoot(), resolved from its id, because a
+// place moves the day a prompt is added above it.
+ok( 'each prompt with its own number',  $got['shots'] ?? [], [ 1 => 2, 2 => 3 ] );
+ok( 'and it says so in the shop\'s words',
+	DZE_Diagnostic::shots_said( $got['shots'] ), 'Scene (in use) ×2 + Another angle ×3' );
+ok( 'five photographs a product',       DZE_Diagnostic::shots_each( $got['shots'] ), 5 );
+// A prompt the shop has since deleted is dropped rather than silently
+// becoming whichever prompt now sits in its place.
+ok( 'a prompt that is gone is dropped',
+	$fix->invoke( null, $rule( 'product.gallery', [ 'sc' => 2, 'deleted' => 3 ] ) )['shots'], [ 1 => 2 ] );
+// A criterion nobody has answered for asks for nothing, and gets no button.
+ok( 'nothing asked for is nothing run',  $fix->invoke( null, $rule( 'product.gallery' ) )['shots'], [] );
 // Everything the plugin cannot mend by itself offers nothing rather than a
 // button that would do the wrong thing.
-ok( 'a price is not mended by a model',  $fix->invoke( null, 'product.price' ), [] );
-ok( 'nor is a stock level',              $fix->invoke( null, 'product.stock' ), [] );
-ok( 'nor the number of reviews',         $fix->invoke( null, 'product.reviews' ), [] );
+ok( 'a price is not mended by a model',  $fix->invoke( null, $rule( 'product.price', [ 'sc' => 2 ] ) ), [] );
+ok( 'nor is a stock level',              $fix->invoke( null, $rule( 'product.stock' ) ), [] );
+ok( 'nor the number of reviews',         $fix->invoke( null, $rule( 'product.reviews' ) ), [] );
 
 echo "One press sends the shortfall off, and commits the shop to nothing\n";
 $GLOBALS['tpls'] = [
@@ -797,9 +799,12 @@ $GLOBALS['tpls'] = [
 	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
 	[ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ],
 ];
+// The shop's routine, on the criterion: two of one prompt and one of another,
+// which is what "detail shots plus a UGC one" looks like once written down.
 $GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
 	[ 'id' => 'thin', 'on' => 1, 'label' => 'Gallery under three', 'scope' => 'product',
-	  'field' => 'product.gallery', 'test' => 'lt', 'value' => 3 ],
+	  'field' => 'product.gallery', 'test' => 'lt', 'value' => 3,
+	  'shots' => [ 'angle1' => 2 ] ],
 ] ];
 $GLOBALS['dze_opts']['dze_diagnostic_lists'] = [ 'thin' => [ 101, 102, 103 ] ];
 [ $said, $ok ] = $press( 'thin' );
@@ -809,23 +814,28 @@ ok( 'as a photograph job',               $job['kind'] ?? '', 'product_shot' );
 ok( 'for the products that are short',   $job['ids'] ?? [], [ 101, 102, 103 ] );
 // The line the whole design rests on. It must never be true.
 ok( 'and NEVER applied on its own',      $job['auto'] ?? true, false );
-ok( 'with the shop\'s own gallery prompt', $job['payload']['template'] ?? -1, 1 );
-ok( 'the answer says how many went',     $said['added'] ?? 0, 3 );
+ok( 'with the shop\'s own prompt',        $job['payload']['template'] ?? -1, 1 );
+// One job per photograph, so five on one product are five rows to look at and
+// four can be thrown away without losing the fifth.
+ok( 'one pass per photograph asked for', count( $GLOBALS['queued'] ), 2 );
+ok( 'and the second asks for another framing',
+	$GLOBALS['queued'][1]['payload']['attempt'] ?? -1, 1 );
+ok( 'the answer says how many went',     $said['added'] ?? 0, 6 );
 ok( 'and says nothing reaches a product until you accept',
 	false !== strpos( (string) ( $said['message'] ?? '' ), 'until you accept' ), true );
 ok( 'and links to where they wait',      $said['url'] ?? '', 'http://shop.test/wp-admin/queue' );
 
-// A shop with no gallery prompt at all cannot be sent off, and is told what to
-// add rather than left with a button that fails.
-$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image', 'target' => 'main' ] ];
+// A criterion nobody has written a routine for cannot be sent off, and is told
+// where to write one rather than left with a button that fails.
+$GLOBALS['dze_opts']['dze_diagnostic']['rows'][0]['shots'] = [];
 [ $said, $ok ] = $press( 'thin' );
-ok( 'no gallery prompt stops it',        $ok, false );
-ok( 'and says what to add',
-	false !== strpos( (string) ( $said['message'] ?? '' ), 'gallery' ), true );
+ok( 'no photographs asked for stops it', $ok, false );
+ok( 'and says where to ask for them',
+	false !== strpos( (string) ( $said['message'] ?? '' ), 'Settings → Diagnostic' ), true );
 ok( 'having queued nothing',             $GLOBALS['queued'], [] );
 
 // The queue switched off is not a silent failure either.
-$GLOBALS['tpls'] = [ [ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ] ];
+$GLOBALS['dze_opts']['dze_diagnostic']['rows'][0]['shots'] = [ 'angle1' => 2 ];
 $GLOBALS['module_off']['queue'] = 1;
 [ $said, $ok ] = $press( 'thin' );
 ok( 'no queue, no pass',                 $ok, false );
@@ -865,7 +875,13 @@ echo "The list of problems mends them, from the list itself\n";
 $GLOBALS['umeta']   = [];
 $GLOBALS['pending'] = [];
 $GLOBALS['tpls']    = [ [ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ] ];
-update_option( DZE_Diagnostic::OPT, [] ); // the shipped criteria, so the list is a real one
+// The shipped criteria, with a routine written on the one under test.
+update_option( DZE_Diagnostic::OPT, [] );
+$dze_rows = DZE_Diagnostic::rows();
+foreach ( $dze_rows as $i => $r ) {
+	if ( 'prod_gallery' === ( $r['id'] ?? '' ) ) { $dze_rows[ $i ]['shots'] = [ 'angle1' => 2 ]; }
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
 update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
 $page = $show( [] );
@@ -930,6 +946,71 @@ ok( 'the rate used is printed',         false !== strpos( $page, '>0.25<' ), tru
 ok( 'and the shop\'s own has none',      false !== strpos( $page, '>&mdash;<' ) || false !== strpos( $page, '>—<' ), true );
 ok( 'each currency says how much was read',
 	false !== strpos( $page, '400,00 PLN' ) || false !== strpos( $page, '400.00 PLN' ), true );
+
+echo "The routine is written on the criterion, and survives being saved\n";
+// "Typiquement ce que je fais sur un produit qui manque de photos : seance
+// photo details produit + 1 a 2 photos type ugc." That is the shop's routine,
+// and a routine belongs to the shop — so it is a field on the criterion, kept
+// through a save like every other field.
+$kept = DZE_Diagnostic::clean_rows( [ [
+	'id' => 'thin', 'on' => 1, 'scope' => 'product', 'field' => 'product.gallery',
+	'test' => 'lt', 'value' => 3, 'shots' => [ 'angle1' => '3', 'sc' => '2' ],
+] ] );
+ok( 'the routine is saved',             $kept[0]['shots'] ?? [], [ 'angle1' => 3, 'sc' => 2 ] );
+// A number nobody would mean: five is the most, and a zero is not a prompt.
+$kept = DZE_Diagnostic::clean_rows( [ [
+	'id' => 'thin', 'scope' => 'product', 'field' => 'product.gallery', 'test' => 'lt', 'value' => 3,
+	'shots' => [ 'angle1' => '99', 'sc' => '0', 'x' => '-4', '__none__' => '3' ],
+] ] );
+ok( 'five photographs is the most',     $kept[0]['shots'] ?? [], [ 'angle1' => 5 ] );
+// The rule this plugin has paid for twice: a key the form did not carry is a
+// key the shop KEEPS. The card always posts this section, so a row arriving
+// without it was saved by another screen — and the shop's routine is not that
+// screen's to erase.
+$GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [ [
+	'id' => 'thin', 'on' => 1, 'scope' => 'product', 'field' => 'product.gallery',
+	'test' => 'lt', 'value' => 3, 'shots' => [ 'angle1' => 4 ],
+] ] ];
+$kept = DZE_Diagnostic::clean_rows( [ [
+	'id' => 'thin', 'scope' => 'product', 'field' => 'product.gallery', 'test' => 'lt', 'value' => 3,
+] ] );
+ok( 'a form without it keeps the routine', $kept[0]['shots'] ?? [], [ 'angle1' => 4 ] );
+// And the card's own form, with every number cleared, really does mean none.
+$kept = DZE_Diagnostic::clean_rows( [ [
+	'id' => 'thin', 'scope' => 'product', 'field' => 'product.gallery', 'test' => 'lt', 'value' => 3,
+	'shots' => [ '__none__' => '0', 'angle1' => '0' ],
+] ] );
+ok( 'and clearing them all means none',  $kept[0]['shots'] ?? [ 'x' ], [] );
+// A criterion photographs cannot mend carries none, whatever is posted at it.
+$kept = DZE_Diagnostic::clean_rows( [ [
+	'id' => 'p', 'scope' => 'product', 'field' => 'product.price', 'test' => 'empty',
+	'shots' => [ 'angle1' => 3 ],
+] ] );
+ok( 'a price criterion takes no photographs', $kept[0]['shots'] ?? [ 'x' ], [] );
+
+// And the card offers the shop's own prompts, with a number each — so the
+// routine is written where the criterion is, not guessed at in code.
+$GLOBALS['tpls'] = [
+	[ 'id' => 'main1',  'name' => 'Main image',     'target' => 'main' ],
+	[ 'id' => 'sc',     'name' => 'Scene (in use)', 'target' => 'gallery' ],
+	[ 'id' => 'angle1', 'name' => 'Another angle',  'target' => 'gallery' ],
+];
+$card = new ReflectionMethod( 'DZE_Diagnostic', 'card' );
+$card->setAccessible( true );
+$html = (string) $card->invoke( null, [
+	'id' => 'thin', 'scope' => 'product', 'field' => 'product.gallery', 'test' => 'lt',
+	'value' => 3, 'shots' => [ 'angle1' => 2 ],
+], '0' );
+ok( 'the card asks what fixes it',      false !== strpos( $html, 'Fix it with' ), true );
+ok( 'offering every image prompt',      substr_count( $html, '[shots][' ), 4 );
+ok( 'each with a number',               substr_count( $html, 'type="number" min="0" max="5"' ), 3 );
+ok( 'and the shop\'s own answer in it',  false !== strpos( $html, '[shots][angle1]" value="2"' ), true );
+ok( 'the prompts are named',            false !== strpos( $html, 'Scene (in use)' ), true );
+ok( 'and zero everywhere is a real answer',
+	false !== strpos( $html, '[shots][__none__]' ), true );
+// A criterion photographs cannot mend does not ask.
+ok( 'a price criterion asks nothing',
+	false !== strpos( (string) $card->invoke( null, [ 'id' => 'p', 'scope' => 'product', 'field' => 'product.price', 'test' => 'empty' ], '0' ), 'Fix it with' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
