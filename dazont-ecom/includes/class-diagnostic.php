@@ -510,9 +510,12 @@ final class DZE_Diagnostic {
 		// that forbids inventing a detail the source does not show — and an
 		// invented photograph is a returned parcel, not a conversion.
 		if ( 'product.gallery' === $field ) {
+			// No label of its own. Every criterion's repair is called the same
+			// thing on every screen — Fix — because a shop working through a
+			// list of problems needs one word in one place, not a different
+			// sentence per problem.
 			return [
 				'kind'   => 'product_shot',
-				'label'  => __( 'Make the missing photographs', 'dazont-ecom' ),
 				'recipe' => 'Another angle of the same product',
 			];
 		}
@@ -1884,7 +1887,7 @@ final class DZE_Diagnostic {
 						printf(
 							' <button type="button" class="button button-small button-primary dze-diag-fix" data-check="%1$s">%2$s</button>',
 							esc_attr( $id ),
-							esc_html( sprintf( '%s (%d)', (string) $fix['label'], $next ) )
+							esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) )
 						);
 					}
 				}
@@ -2096,7 +2099,7 @@ final class DZE_Diagnostic {
 				printf(
 					'<button type="button" class="button button-primary dze-diag-fix" data-check="%1$s">%2$s</button> ',
 					esc_attr( $id ),
-					esc_html( sprintf( '%s (%d)', (string) $fix['label'], $next ) )
+					esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) )
 				);
 			}
 			echo '<span class="description">'
@@ -2110,7 +2113,7 @@ final class DZE_Diagnostic {
 			foreach ( [
 				'todo'  => sprintf(
 					/* translators: %d: how many still fall short */
-					__( 'To work on (%d)', 'dazont-ecom' ),
+					__( 'Issues (%d)', 'dazont-ecom' ),
 					count( $split['todo'] )
 				),
 				'fixed' => sprintf(
@@ -2171,19 +2174,29 @@ final class DZE_Diagnostic {
 		// blue link and an arrow on the sorted column only, so a screen sorted
 		// by nothing in particular showed no arrow anywhere and nothing said
 		// the titles were clickable at all.
+		// The arrow is DRAWN HERE, not borrowed. WordPress's own indicator is
+		// styled under .wp-list-table and this table is not one, so the native
+		// classes put a mark on the page that nothing painted: the screen
+		// still said nothing about being sortable, and nothing about what it
+		// was sorted by. One character, in the title, on every column: a pale
+		// pair on the ones that can be sorted, a solid one on the one in use.
 		$head = static function ( string $key, string $label, string $style = '' ) use ( $id, $by, $dir, $show ): string {
 			$on   = $by === $key;
 			$next = ( $on && 'desc' === $dir ) ? 'asc' : 'desc';
+			$mark = $on
+				? '<span style="color:#1d2327;">' . ( 'desc' === $dir ? '&#9660;' : '&#9650;' ) . '</span>'
+				: '<span style="color:#a7aaad;">&#8645;</span>';
 			return sprintf(
-				'<th scope="col" class="manage-column %1$s %2$s"%3$s><a href="%4$s"><span>%5$s</span><span class="sorting-indicator"></span></a></th>',
-				$on ? 'sorted' : 'sortable',
-				esc_attr( $on ? $dir : $next ),
+				'<th scope="col"%1$s><a href="%2$s" style="text-decoration:none;color:inherit;%3$s" title="%4$s">%5$s <span style="font-size:10px;">%6$s</span></a></th>',
 				'' !== $style ? ' style="' . esc_attr( $style ) . '"' : '',
 				esc_url( add_query_arg(
 					[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $key, 'dir' => $next ],
 					admin_url( 'admin.php' )
 				) ),
-				esc_html( $label )
+				$on ? 'font-weight:700;' : '',
+				esc_attr__( 'Sort by this column', 'dazont-ecom' ),
+				esc_html( $label ),
+				$mark // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- one entity, written here.
 			);
 		};
 
@@ -2273,7 +2286,7 @@ final class DZE_Diagnostic {
 						'<button type="button" class="button button-small dze-diag-fix" data-check="%1$s" data-id="%2$d">%3$s</button>',
 						esc_attr( $id ),
 						$oid,
-						esc_html__( 'Mend this one', 'dazont-ecom' )
+						esc_html__( 'Fix', 'dazont-ecom' )
 					);
 				} else {
 					echo '<span class="description">&mdash;</span>';
@@ -2283,6 +2296,10 @@ final class DZE_Diagnostic {
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
+		// The handlers. They were printed on the summary only, so every button
+		// added to THIS screen did nothing at all — no error, no message, no
+		// request: the one failure that looks exactly like a broken plugin.
+		$this->print_script();
 		if ( ! $ids ) {
 			printf(
 				'<p style="max-width:1100px;color:%s;font-weight:600;">%s</p>',
