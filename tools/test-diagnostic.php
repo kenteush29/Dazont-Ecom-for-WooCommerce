@@ -247,10 +247,10 @@ class DZE_Queue {
 	/** The jobs this queue can actually run — the real list, kept in step. */
 	public static function kinds() {
 		return [
-			'cat_desc'     => [ 'label' => 'Category description',    'module' => 'category_content' ],
-			'cat_links'    => [ 'label' => 'Category internal links', 'module' => 'category_content' ],
-			'post_links'   => [ 'label' => 'Article internal links',  'module' => 'automation' ],
-			'product_shot' => [ 'label' => 'Product photograph',      'module' => 'content', 'image' => true ],
+			'cat_desc'     => [ 'label' => 'Category description',    'does' => 'Write the description', 'module' => 'category_content' ],
+			'cat_links'    => [ 'label' => 'Category internal links', 'does' => 'Add internal links',    'module' => 'category_content' ],
+			'post_links'   => [ 'label' => 'Article internal links',  'does' => 'Add internal links',    'module' => 'automation' ],
+			'product_shot' => [ 'label' => 'Product photograph',      'does' => 'Make a photograph',     'module' => 'content', 'image' => true ],
 		];
 	}
 	public static function pending_map( $family = 'cat_' ) { return $GLOBALS['pending'] ?? []; }
@@ -1084,6 +1084,9 @@ $dze_links = (string) ob_get_clean();
 ok( 'an article short of links has a button',
 	substr_count( $dze_links, 'class="button button-small dze-diag-fix"' ), 2 );
 ok( 'each carrying its own id',         false !== strpos( $dze_links, 'data-id="801"' ), true );
+// The button NAMES the pass it runs. "Fix" said nothing about what was about
+// to happen, and a press whose consequence is unknown is a press nobody makes.
+ok( 'and saying what it will run',      false !== strpos( $dze_links, '>Add internal links</button>' ), true );
 // One already in the review list says so instead of offering to send it twice.
 $GLOBALS['pending'] = [ 801 => [ 'status' => 'review', 'id' => 5, 'kind' => 'post_links' ] ];
 $GLOBALS['umeta'] = [];

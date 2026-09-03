@@ -5554,7 +5554,16 @@ final class DZE_Klaviyo {
 		if ( $gap < 1 || '' === $when ) {
 			return $when;
 		}
-		$min = max( self::earliest_day(), gmdate( 'Y-m-d', $s_ts - 14 * DAY_IN_SECONDS ) );
+		$opens = gmdate( 'Y-m-d', $s_ts );
+		// AN EMAIL NEVER CROSSES THE OPENING DAY BACKWARDS. The type follows
+		// the date, so a launch moved one day earlier stops being a launch and
+		// becomes a second warm-up: a four-day promotion came back with two
+		// warm-ups and a last call, and no email on the day the sale opened.
+		// One dated before the opening keeps its lead window; one dated on or
+		// after it can only move later.
+		$min = $when >= $opens
+			? $opens
+			: max( self::earliest_day(), gmdate( 'Y-m-d', $s_ts - 14 * DAY_IN_SECONDS ) );
 		$max = gmdate( 'Y-m-d', max( $e_ts, $s_ts ) );
 		$taken = array_map( [ __CLASS__, 'day_num' ], array_keys( $seen ) );
 		$clear = static function ( string $day ) use ( $taken, $gap ): bool {
@@ -5570,8 +5579,15 @@ final class DZE_Klaviyo {
 			return $when;
 		}
 		$from = self::day_num( $when );
+		// AWAY FROM THE OPENING, in the direction the email already sits. Its
+		// TYPE follows its date, so an email pushed across the opening day
+		// stops being what it was: a launch moved one day back became a second
+		// warm-up, and a warm-up moved forward would become a launch. One
+		// before the opening looks earlier first; one on or after it looks
+		// later first.
+		$sides = $when < $opens ? [ -1, 1 ] : [ 1, -1 ];
 		for ( $step = 1; $step <= 60; $step++ ) {
-			foreach ( [ -1, 1 ] as $side ) {
+			foreach ( $sides as $side ) {
 				$day = gmdate( 'Y-m-d', ( $from + $side * $step ) * DAY_IN_SECONDS );
 				if ( $day < $min || $day > $max ) {
 					continue;
@@ -5637,8 +5653,17 @@ final class DZE_Klaviyo {
 		}
 		ksort( $busy );
 		if ( $gap > 0 ) {
+			// HOW MANY FIT, worked out rather than hoped for. A four-day
+			// promotion with three days between emails holds two, and asking
+			// for three means one is moved on top of another or dropped in
+			// silence. The window is the promotion plus the lead a warm-up
+			// can use.
+			$room = max( 1, (int) floor( ( $days - 1 + $gap ) / $gap ) );
 			$user .= "\n--- THE SHOP'S RULE ---\n"
 				. 'Leave at least ' . $gap . " days between two emails, and never two on one day.\n"
+				. 'This promotion is ' . $days . ' days long, so there is room for AT MOST ' . $room
+				. " email(s), counting a warm-up before it opens. Do not ask for more: one that does not fit is dropped.\n"
+				. "The opening day is the LAUNCH. If you plan only two emails, they are a warm-up and the launch — never two warm-ups.\n"
 				. ( $busy
 					? 'These days already carry an email of this shop, promotions included: '
 						. implode( ', ', array_keys( $busy ) ) . ". Stay clear of them by the same number of days.\n"
