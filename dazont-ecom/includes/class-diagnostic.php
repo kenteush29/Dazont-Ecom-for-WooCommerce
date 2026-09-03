@@ -506,13 +506,20 @@ final class DZE_Diagnostic {
 	/**
 	 * The figure THIS object is held to.
 	 *
-	 * The first condition whose range contains the object wins; with none, the
-	 * criterion's own figure. It costs nothing — every field a condition can
-	 * be written on is one the scan already loads.
+	 * With Conditional off, the criterion's own figure and nothing else. With
+	 * it on, THE CONDITIONS ARE THE RULE: the first whose range contains the
+	 * object wins, and an object none of them covers is not judged at all —
+	 * null, and it never falls short. A figure sitting beside the conditions
+	 * was a second rule nobody had written, and the screen could not say which
+	 * of the two a product had been held to.
+	 *
+	 * It costs nothing: every field a condition can be written on is one the
+	 * scan already loads.
 	 *
 	 * @param mixed $object The product, category or post being judged.
+	 * @return float|null null when no condition covers it.
 	 */
-	private static function want_for( array $row, string $scope, $object ): float {
+	private static function want_for( array $row, string $scope, $object ): ?float {
 		$flat = (float) ( $row['value'] ?? 0 );
 		if ( empty( $row['cond'] ) ) {
 			return $flat;
@@ -534,14 +541,13 @@ final class DZE_Diagnostic {
 			// NOTHING TO PLACE IT BY. A product with no price, a category with
 			// no products: they all measure 0 and would land in the first range
 			// that starts at 0 — the easiest standard, given to the objects
-			// most likely to be broken. They fall through to the figure above,
-			// which is the strictest, so they show on the list.
+			// most likely to be broken.
 			if ( $m <= 0 ) {
 				continue;
 			}
 			return (float) ( $band['want'] ?? 0 );
 		}
-		return $flat;
+		return null;
 	}
 
 	/**
@@ -592,7 +598,9 @@ final class DZE_Diagnostic {
 		$out .= '</div>';
 		$out .= '<button type="button" class="button button-small dze-diag-bandadd">'
 			. esc_html__( 'Add a condition', 'dazont-ecom' ) . '</button>';
-		$out .= ' <span class="description">' . esc_html__( 'First one that fits wins.', 'dazont-ecom' ) . '</span>';
+		$out .= ' <span class="description">'
+			. esc_html__( 'First one that fits wins. Anything no condition covers is not counted.', 'dazont-ecom' )
+			. '</span>';
 		$out .= '</div></div>';
 		return $out;
 	}
@@ -630,7 +638,9 @@ final class DZE_Diagnostic {
 		// only sensible reading of that is the wrong one.
 		$out .= '<span>' . esc_html__( 'If', 'dazont-ecom' ) . '</span>';
 		$out .= '<select' . $off . ' class="dze-diag-bandfield" name="' . $name( 'field' ) . '" style="max-width:220px;">';
-		foreach ( self::fields() as $fid => $meta ) {
+		$dze_all = self::fields();
+		uasort( $dze_all, static fn( array $a, array $b ): int => strcasecmp( (string) ( $a['label'] ?? '' ), (string) ( $b['label'] ?? '' ) ) );
+		foreach ( $dze_all as $fid => $meta ) {
 			if ( 'number' !== (string) $meta['kind'] ) {
 				continue;
 			}
@@ -875,7 +885,12 @@ final class DZE_Diagnostic {
 					}
 				}
 			}
-			$figures[] = (int) ( $row['value'] ?? 0 );
+			// The plain figure only when it is the rule. With Conditional on it
+			// is not one — it is not even on the screen — and a name carrying
+			// it would be naming something nothing is judged by.
+			if ( ! $figures ) {
+				$figures[] = (int) ( $row['value'] ?? 0 );
+			}
 			// A criterion held to tiers must not go on calling itself by one
 			// of them. "is less than 6 photographs" on a screen where a $16.90
 			// cap is judged on 3 is a heading that stopped being true, and a
@@ -1418,6 +1433,9 @@ final class DZE_Diagnostic {
 		$field = (string) ( $row['field'] ?? '' );
 		$op    = self::op_now( (string) ( $row['test'] ?? 'empty' ) );
 		$want  = self::want_for( $row, $scope, $object );
+		if ( null === $want ) {
+			return false; // no condition covers it, so nothing was asked of it.
+		}
 		$m     = self::measure( $field, $scope, $object, (string) ( $row['key'] ?? '' ) );
 
 		if ( 'meta' === self::kind_of( $field ) ) {
@@ -2562,6 +2580,11 @@ final class DZE_Diagnostic {
 				$out[ $id ] = $meta;
 			}
 		}
+		// BY NAME. Thirty fields in the order they happened to be written is a
+		// menu you read from the top every time; in alphabetical order it is a
+		// menu you aim at. Sorted here, where the menus are built, and not in
+		// fields() itself — that order is what a fresh criterion opens on.
+		uasort( $out, static fn( array $a, array $b ): int => strcasecmp( (string) ( $a['label'] ?? '' ), (string) ( $b['label'] ?? '' ) ) );
 		return $out;
 	}
 
@@ -2690,12 +2713,18 @@ final class DZE_Diagnostic {
 				. selected( $oid, $op, false ) . '>' . esc_html( self::op_label( $oid ) ) . '</option>';
 		}
 		$out .= '</select></label>';
-		$out .= '<input type="number" class="dze-diag-value" min="0" step="1" style="width:100px;' . ( 'number' === $takes ? '' : 'display:none;' ) . '"'
+		// Hidden — not removed — while Conditional is on: the conditions are
+		// the rule then, and a figure sitting beside them was a second rule
+		// nobody had written. It is kept in the form so unticking the box
+		// gives the criterion back exactly the figure it had.
+		$dze_flat = 'number' === $takes && empty( $row['cond'] );
+		$out .= '<input type="number" class="dze-diag-value" min="0" step="1" style="width:100px;' . ( $dze_flat ? '' : 'display:none;' ) . '"'
 			. ' name="' . $name( 'value' ) . '" value="' . esc_attr( (string) (int) ( $row['value'] ?? 0 ) ) . '" />';
 		$out .= '<input type="text" class="dze-diag-find" style="width:200px;' . ( 'text' === $takes ? '' : 'display:none;' ) . '"'
 			. ' name="' . $name( 'find' ) . '" value="' . esc_attr( (string) ( $row['find'] ?? '' ) ) . '"'
 			. ' placeholder="' . esc_attr__( 'text to look for', 'dazont-ecom' ) . '" />';
-		$out .= '<span class="dze-diag-unit description">' . esc_html( self::unit_of( $field ) ) . '</span>';
+		$out .= '<span class="dze-diag-unit description"' . ( $dze_flat ? '' : ' style="display:none;"' ) . '>'
+			. esc_html( self::unit_of( $field ) ) . '</span>';
 		$out .= '</p>';
 		$out .= self::bands_block( $row, $opt, $index, $field, (string) ( $row['scope'] ?? 'product' ) );
 		// What this criterion is FOR. The hidden field goes first so the key
@@ -2899,7 +2928,9 @@ final class DZE_Diagnostic {
 					// itself — the same sentence the server writes. A head
 					// saying "less than 6" while a $16.90 cap is judged on 3
 					// is a head that stopped being true.
-					var said = ( tiers || [] ).concat( [ v ] ).join( '/' );
+					// The conditions when there are any; the plain figure only
+					// when it is what the criterion is actually judged by.
+					var said = ( tiers && tiers.length ) ? tiers.join( '/' ) : String( v );
 					return ( opLabel( op, words ) + ' ' + said + ' ' + meta.unit ).replace( /\s+$/, '' );
 				}
 				return opLabel( op, words );
@@ -2997,9 +3028,11 @@ final class DZE_Diagnostic {
 					find = $card.find( '.dze-diag-find' ).val() || '';
 				$card.find( '.dze-diag-key' ).toggle( !! meta.key )
 					.attr( 'placeholder', meta.keyhint || '' );
-				$card.find( '.dze-diag-value' ).toggle( 'number' === takes );
+				// The figure is the rule only while Conditional is off.
+				var flat = 'number' === takes && ! $card.find( '.dze-diag-condon' ).is( ':checked' );
+				$card.find( '.dze-diag-value' ).toggle( flat );
 				$card.find( '.dze-diag-find' ).toggle( 'text' === takes );
-				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
+				$card.find( '.dze-diag-unit' ).text( flat ? meta.unit : '' ).toggle( flat );
 				// Tiers only make sense for a figure, and only on a field the
 				// object being judged can actually answer.
 				// Wherever the RULE holds a figure — a word count as much as a
