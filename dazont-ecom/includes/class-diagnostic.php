@@ -504,6 +504,51 @@ final class DZE_Diagnostic {
 	}
 
 	/**
+	 * WHICH condition placed this object, and what it asked of it.
+	 *
+	 * The grouping on the problem list is read from this and from nothing
+	 * else, so a section heading can never disagree with the figure the
+	 * product was actually judged by.
+	 *
+	 * @param mixed $object
+	 * @return array{i:int,want:int,said:string} i is -1 for the plain rule and
+	 *         -2 for an object no condition covers.
+	 */
+	public static function band_hit( array $row, string $scope, $object ): array {
+		if ( empty( $row['cond'] ) ) {
+			return [ 'i' => -1, 'want' => (int) ( $row['value'] ?? 0 ), 'said' => '' ];
+		}
+		foreach ( array_values( (array) ( $row['bands'] ?? [] ) ) as $i => $band ) {
+			$m = self::measure( (string) ( $band['field'] ?? '' ), $scope, $object, '' );
+			if ( ! is_numeric( $m ) ) {
+				continue;
+			}
+			$m    = (float) $m;
+			$from = (float) ( $band['from'] ?? 0 );
+			$to   = (float) ( $band['to'] ?? 0 );
+			// Half open, and zero places nothing: a product with no price is
+			// not the cheapest product in the shop.
+			if ( $m < $from || ( $to > 0 && $m >= $to ) || $m <= 0 ) {
+				continue;
+			}
+			return [ 'i' => $i, 'want' => (int) ( $band['want'] ?? 0 ), 'said' => self::band_said( (array) $band ) ];
+		}
+		return [ 'i' => -2, 'want' => 0, 'said' => (string) __( 'No condition covers these', 'dazont-ecom' ) ];
+	}
+
+	/** One condition as a heading: "price 40 to 80". */
+	public static function band_said( array $band ): string {
+		$name = (string) ( self::fields()[ (string) ( $band['field'] ?? '' ) ]['label'] ?? '' );
+		$from = (int) ( $band['from'] ?? 0 );
+		$to   = (int) ( $band['to'] ?? 0 );
+		return $to > 0
+			/* translators: 1: field name, 2: lower bound, 3: upper bound */
+			? sprintf( __( '%1$s %2$d to %3$d', 'dazont-ecom' ), $name, $from, $to )
+			/* translators: 1: field name, 2: lower bound */
+			: sprintf( __( '%1$s %2$d and above', 'dazont-ecom' ), $name, $from );
+	}
+
+	/**
 	 * The figure THIS object is held to.
 	 *
 	 * With Conditional off, the criterion's own figure and nothing else. With
@@ -520,34 +565,8 @@ final class DZE_Diagnostic {
 	 * @return float|null null when no condition covers it.
 	 */
 	private static function want_for( array $row, string $scope, $object ): ?float {
-		$flat = (float) ( $row['value'] ?? 0 );
-		if ( empty( $row['cond'] ) ) {
-			return $flat;
-		}
-		foreach ( (array) ( $row['bands'] ?? [] ) as $band ) {
-			$m = self::measure( (string) ( $band['field'] ?? '' ), $scope, $object, '' );
-			if ( ! is_numeric( $m ) ) {
-				continue;
-			}
-			$m    = (float) $m;
-			$from = (float) ( $band['from'] ?? 0 );
-			$to   = (float) ( $band['to'] ?? 0 );
-			// Half open, always: 40 belongs to "40 to 80" and never to both
-			// that and "0 to 40". Two ranges meeting at a number is the one
-			// place a reader would have to guess, so there is nothing to guess.
-			if ( $m < $from || ( $to > 0 && $m >= $to ) ) {
-				continue;
-			}
-			// NOTHING TO PLACE IT BY. A product with no price, a category with
-			// no products: they all measure 0 and would land in the first range
-			// that starts at 0 — the easiest standard, given to the objects
-			// most likely to be broken.
-			if ( $m <= 0 ) {
-				continue;
-			}
-			return (float) ( $band['want'] ?? 0 );
-		}
-		return null;
+		$hit = self::band_hit( $row, $scope, $object );
+		return -2 === $hit['i'] ? null : (float) $hit['want'];
 	}
 
 	/**
@@ -740,11 +759,14 @@ final class DZE_Diagnostic {
 				? [ 'label' => __( 'Automation', 'dazont-ecom' ), 'url' => $tab( 'automation' ) ]
 				: [ 'label' => __( 'Articles', 'dazont-ecom' ), 'url' => admin_url( 'edit.php' ) ];
 		}
-		// A photograph is never fixed by writing, and a paragraph is never
-		// fixed in the image lab: the two halves of a product go to two
-		// different screens.
+		// PHOTOGRAPHS HAVE NO SCREEN OF THEIR OWN HERE. The image lab is an
+		// experiment against fal.ai, finished and standing on its own; wiring
+		// other functions into it would make a bench into a dependency. A
+		// product's photographs are worked on where that product is opened, so
+		// the row's own link is the whole of the answer and there is no second
+		// button pointing at the same place.
 		if ( false !== strpos( $field, 'image' ) || 'product.gallery' === $field ) {
-			return [ 'label' => __( 'Image lab', 'dazont-ecom' ), 'url' => $tab( 'lab' ) ];
+			return [];
 		}
 		if ( in_array( $field, [ 'product.price', 'product.sale_price' ], true ) ) {
 			return [ 'label' => __( 'Discounts', 'dazont-ecom' ), 'url' => $tab( 'discounts' ) ];
@@ -2345,20 +2367,43 @@ final class DZE_Diagnostic {
 			echo $head( 'edited', __( 'Last edited', 'dazont-ecom' ), 'width:140px;' );
 		}
 		// phpcs:enable
+		$dze_tool = (array) ( $check['tool'] ?? [] );
+		if ( $dze_tool ) {
+			echo '<th style="width:110px;"></th>';
+		}
+		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped
+		// phpcs:enable
 		if ( $mending ) {
 			echo '<th style="width:150px;"></th>';
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
 
-		// The rows of this page. Which list they belong to was settled once,
-		// above, for the whole list: judging them again here would be a second
-		// answer to the same question.
+		// The rows of this page, in sections when the criterion is conditional:
+		// a product is on this list because ONE condition placed it, and a
+		// list that does not say which is a list you have to work out.
+		$dze_row  = (array) ( $check['row'] ?? [] );
+		$dze_cols = ( $goods ? 4 : 1 ) + ( $dze_tool ? 1 : 0 );
+		$dze_seen = null;
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
 			if ( '' === $name ) {
 				continue;
+			}
+			if ( ! empty( $dze_row['cond'] ) ) {
+				$hit = self::band_hit( $dze_row, (string) $check['scope'], self::object_for( (string) $check['scope'], $oid ) );
+				if ( $dze_seen !== $hit['i'] ) {
+					$dze_seen = $hit['i'];
+					printf(
+						'<tr><td colspan="%1$d" style="background:#f6f7f7;font-weight:600;">%2$s</td></tr>',
+						(int) $dze_cols,
+						esc_html( $hit['want'] > 0
+							/* translators: 1: the condition, 2: what it asks for */
+							? sprintf( __( '%1$s — at least %2$d', 'dazont-ecom' ), $hit['said'], (int) $hit['want'] )
+							: $hit['said'] )
+					);
+				}
 			}
 			echo '<tr><td>';
 			// A title with markup in it — "<span> Military Patch </span> Russian
@@ -2383,6 +2428,16 @@ final class DZE_Diagnostic {
 				echo '<td>' . ( $when
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
+			}
+			if ( $dze_tool ) {
+				// The screen that does this kind of work, opened from the line
+				// that needs it. It generates nothing and decides nothing — it
+				// saves the walk back through three menus.
+				printf(
+					'<td style="text-align:right;"><a class="button button-small" href="%1$s">%2$s</a></td>',
+					esc_url( (string) $dze_tool['url'] ),
+					esc_html__( 'Open', 'dazont-ecom' )
+				);
 			}
 			echo '</tr>';
 		}
@@ -2479,6 +2534,22 @@ final class DZE_Diagnostic {
 	}
 
 	/** What one object is called and where it is edited. @return array{0:string,1:string} */
+	/**
+	 * The thing itself, for a screen that has to ask it a question.
+	 *
+	 * The same object the scan judged — a post, or a term — so a section
+	 * heading is read from exactly what the reading was read from.
+	 *
+	 * @return mixed|null
+	 */
+	private static function object_for( string $scope, int $id ) {
+		if ( 'category' === $scope ) {
+			$term = get_term( $id, 'product_cat' );
+			return ( $term && ! is_wp_error( $term ) ) ? $term : null;
+		}
+		return get_post( $id );
+	}
+
 	private static function object_link( string $scope, int $id ): array {
 		if ( 'category' === $scope ) {
 			$term = get_term( $id, 'product_cat' );

@@ -332,6 +332,13 @@ owner communicates in French.
   could say which of the two a product had been held to. The criterion's name
   follows: the conditions' figures when there are any, the plain one only when
   it is what the criterion is actually judged by.
+  **The problem list is GROUPED by the condition that placed each object**, and
+  the heading is read from `band_hit()` — the same answer `want_for()` uses —
+  so a section can never disagree with the figure a product was judged by.
+  **The image lab is never a destination.** It is an experiment against fal.ai,
+  finished and standing on its own; `tool_for()` returns nothing for a
+  photograph criterion, and the per-row Open button is absent there because
+  the row's own link already goes where that work is done.
   **The field menus are in alphabetical order**, sorted where a menu is built
   and never in `fields()` itself — that order is what a fresh criterion opens
   on.

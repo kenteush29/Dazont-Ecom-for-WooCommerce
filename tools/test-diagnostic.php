@@ -556,8 +556,18 @@ ok( 'the field keeps its name, with the key',
 	$named[0]['label'] ?? '', 'Variations with no photograph of their own (attribute_pa_couleur) is more than 0' );
 $tool = new ReflectionMethod( 'DZE_Diagnostic', 'tool_for' );
 $tool->setAccessible( true );
-ok( 'and it is sent to the image lab',
-	$tool->invoke( null, 'product.variation_images', 'product' )['label'] ?? '', 'Image lab' );
+// PHOTOGRAPHS HAVE NO SCREEN OF THEIR OWN HERE. The image lab is an
+// experiment against fal.ai, finished and standing on its own; pointing other
+// functions at it would make a bench into a dependency. A product's
+// photographs are worked on where that product is opened, and the row already
+// links there.
+ok( 'a photograph criterion names no tool',
+	$tool->invoke( null, 'product.variation_images', 'product' ), [] );
+ok( 'nor does the gallery',             $tool->invoke( null, 'product.gallery', 'product' ), [] );
+ok( 'but a description still does',
+	$tool->invoke( null, 'product.description', 'product' )['label'] ?? '', 'Bulk writing' );
+ok( 'and a category description too',
+	$tool->invoke( null, 'category.description', 'category' )['label'] ?? '', 'Categories' );
 ok( 'a custom field is still named by its key alone',
 	DZE_Diagnostic::clean_rows( [ [ 'id' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_bloc_1', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ] ] )[0]['label'] ?? '',
 	'_bloc_1 is empty' );
@@ -926,6 +936,83 @@ DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
 ok( 'the left menu says what it looks at', (string) ( $dze_menu['title'] ?? '' ), 'Content diagnostic' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_meta'] = [];
+
+echo "The problem list says WHICH condition put each product there\n";
+// A product is on this list because ONE condition placed it. A list that does
+// not say which is a list you have to work out, and the figure it was judged
+// by is invisible.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_meta'] = [];
+$GLOBALS['dze_posts'] = [];
+// Two in the cheapest band on purpose: with one product per band a heading
+// printed on EVERY row still reads as one heading per band.
+foreach ( [ [ 401, 'Cheap cap', '16.90', 1 ], [ 405, 'Other cap', '19.90', 1 ], [ 402, 'Mid rig', '55.00', 1 ], [ 403, 'Plate carrier', '90.00', 1 ], [ 404, 'No price', '', 1 ] ] as $dze_p ) {
+	[ $pid, $title, $price, $photos ] = $dze_p;
+	$post = new WP_Post();
+	$post->ID = $pid;
+	$post->post_title = $title;
+	$GLOBALS['dze_posts'][ $pid ] = $post;
+	$GLOBALS['dze_meta'][ $pid ]['_product_image_gallery'] = implode( ',', range( 1, $photos ) );
+	if ( '' !== $price ) { $GLOBALS['dze_meta'][ $pid ]['_price'] = $price; }
+}
+$dze_rows = DZE_Diagnostic::rows();
+foreach ( $dze_rows as $i => $r ) {
+	if ( 'prod_gallery' === ( $r['id'] ?? '' ) ) {
+		$dze_rows[ $i ]['cond']  = 1;
+		$dze_rows[ $i ]['bands'] = [
+			[ 'field' => 'product.price', 'from' => 0,  'to' => 40, 'want' => 3 ],
+			[ 'field' => 'product.price', 'from' => 40, 'to' => 80, 'want' => 4 ],
+			[ 'field' => 'product.price', 'from' => 80, 'to' => 0,  'want' => 6 ],
+		];
+	}
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 401, 405, 402, 403, 404 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 5 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$dze_page = $show( [ 'by' => 'found' ] );
+ok( 'the cheapest band heads its own section',
+	false !== strpos( $dze_page, 'price 0 to 40 — at least 3' ), true );
+ok( 'and the middle one its own',       false !== strpos( $dze_page, 'price 40 to 80 — at least 4' ), true );
+ok( 'and the open-ended one says so',   false !== strpos( $dze_page, 'price 80 and above — at least 6' ), true );
+// A product no condition covers is not judged, so it is not on the list at all.
+ok( 'nothing uncovered is listed',      false !== strpos( $dze_page, 'No price' ), false );
+// One heading per condition, not one per product.
+ok( 'a heading is printed once per band', substr_count( $dze_page, 'price 0 to 40' ), 1 );
+ok( 'and both products are under it',   substr_count( $dze_page, 'cap</strong>' ), 2 );
+// And a criterion with no conditions has no sections at all.
+foreach ( $dze_rows as $i => $r ) {
+	if ( 'prod_gallery' === ( $r['id'] ?? '' ) ) { $dze_rows[ $i ]['cond'] = 0; }
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
+$GLOBALS['umeta'] = [];
+ok( 'a plain criterion has no sections',
+	false !== strpos( $show( [ 'by' => 'found' ] ), 'at least 3' ), false );
+
+// THE TOOL, ON THE LINE THAT NEEDS IT. Not a repair — a link to the screen
+// that does this kind of work, so the walk back through three menus goes.
+$dze_rows2 = DZE_Diagnostic::rows();
+foreach ( $dze_rows2 as $i => $r ) {
+	if ( 'prod_desc' === ( $r['id'] ?? '' ) ) { $dze_rows2[ $i ]['on'] = 1; }
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows2 ] );
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_desc' => [ 401 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_desc' => 1 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$dze_render = new ReflectionMethod( 'DZE_Diagnostic', 'render_list' );
+$dze_render->setAccessible( true );
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_desc' );
+$dze_desc = (string) ob_get_clean();
+ok( 'a description row opens its tool',  substr_count( $dze_desc, '>Open</a>' ), 1 );
+ok( 'pointing at bulk writing',          false !== strpos( $dze_desc, 'dazont-content-bulk' ), true );
+// A photograph criterion has no screen of its own, so it offers no button —
+// the product's own link is already the whole of the answer.
+$GLOBALS['umeta'] = [];
+ok( 'a gallery row offers none',         false !== strpos( $show( [ 'by' => 'found' ] ), '>Open</a>' ), false );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
 
