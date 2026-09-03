@@ -132,6 +132,19 @@
 			$(this).text(paused ? i18n.resume : i18n.pause);
 			if (!paused) { refresh(); }
 		});
+		// "Make another": the same job, run again. It is the retry the list
+		// already has, pressed from the picture rather than from the row — one
+		// action, not a second way of asking for the same thing.
+		$(document).on('click', '.dze-q-again', function () {
+			var $b = $(this).prop('disabled', true);
+			paused = false;
+			$.post(cfg.ajaxUrl, { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'retry' })
+				.always(function () {
+					$b.prop('disabled', false);
+					$('#dze-q-modal').removeClass('is-open');
+					refresh();
+				});
+		});
 		$(document).on('click', '.dze-q-retry', function () {
 			var $b = $(this).prop('disabled', true);
 			paused = false;
@@ -183,6 +196,34 @@
 				if (!res || !res.success) { $('#dze-q-body').text(i18n.error); return; }
 				var d = res.data;
 				$('#dze-q-title').text(d.title);
+				// A photograph is looked at, not read. Its own review: the new
+				// one big enough to judge, the ones the product already has
+				// beside it, and the two answers. Nothing else — a text editor
+				// under an image is a screen that has stopped meaning anything.
+				if (d.image) {
+					$('#dze-q-prompt').hide();
+					$('#dze-q-body').html(
+						'<div class="dze-q-shot">' +
+							'<img src="' + esc(d.shot) + '" alt="" class="dze-hzoom" data-full="' + esc(d.shot) + '" ' +
+								'style="display:block;max-width:100%;height:auto;border:1px solid #dcdcde;" />' +
+						'</div>' +
+						((d.has && d.has.length)
+							? '<p class="description" style="margin:10px 0 4px;">' + esc(i18n.alreadyHas) + '</p>' +
+								'<div class="dze-zoomgroup" style="display:flex;gap:6px;flex-wrap:wrap;">' +
+								d.has.map(function (u) {
+									return '<span><img src="' + esc(u) + '" alt="" class="dze-hzoom" data-full="' + esc(u) +
+										'" style="width:64px;height:64px;object-fit:cover;border:1px solid #dcdcde;" /></span>';
+								}).join('') + '</div>'
+							: '') +
+						'<p style="margin-top:12px;">' +
+						'<button type="button" class="button button-primary dze-q-accept" data-id="' + d.id + '">' + esc(i18n.keepShot) + '</button> ' +
+						'<button type="button" class="button dze-q-again" data-id="' + d.id + '">' + esc(i18n.againShot) + '</button> ' +
+						'<button type="button" class="button dze-q-discard" data-id="' + d.id + '">' + esc(i18n.dropShot) + '</button> ' +
+						(d.edit ? '<a class="button-link" style="margin-left:8px;" href="' + esc(d.edit) + '" target="_blank" rel="noopener noreferrer">' + esc(i18n.openProduct) + '</a> ' : '') +
+						'<span class="dze-q-status description"></span></p>'
+					);
+					return;
+				}
 				// The prompt behind this job, next to its name.
 				$('#dze-q-prompt').attr('data-prompt', d.prompt || '').toggle(!!d.prompt);
 				// What the category holds today, one click away above the new

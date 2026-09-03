@@ -231,6 +231,26 @@ class WP_Query {
 	}
 }
 
+function check_ajax_referer( $a, $b = false, $die = true ) { return true; }
+class DZE_Json_Sent extends Exception {
+	public $payload; public $ok;
+	public function __construct( $payload, $ok ) { parent::__construct( $ok ? 'success' : 'error' ); $this->payload = $payload; $this->ok = $ok; }
+}
+function wp_send_json_success( $d = null ) { throw new DZE_Json_Sent( $d, true ); }
+function wp_send_json_error( $d = null, $c = 0 ) { throw new DZE_Json_Sent( $d, false ); }
+class DZE_Modules { public static function enabled( $id ) { return empty( $GLOBALS['module_off'][ $id ] ); } }
+class DZE_Content {
+	const BULK_SLUG = 'dazont-content-bulk';
+	public static function image_templates() { return $GLOBALS['tpls'] ?? []; }
+}
+class DZE_Queue {
+	public static function add( $kind, $ids, $auto = false, $payload = [] ) {
+		$GLOBALS['queued'][] = [ 'kind' => $kind, 'ids' => $ids, 'auto' => $auto, 'payload' => $payload ];
+		return count( (array) $ids );
+	}
+	public static function url( $a = [] ) { return 'http://shop.test/wp-admin/queue'; }
+}
+
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
 require __DIR__ . '/../' . $dir . '/includes/class-diagnostic.php';
 
@@ -677,6 +697,92 @@ ok( 'read in ONE query for the list',   count( $GLOBALS['dze_facts_sql'] ), 1 );
 // than ordering by nothing at all.
 ok( 'an order nobody offers is ignored', $order( $show( [ 'by' => 'whatever' ] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
 $_GET = [];
+
+echo "A criterion that can be MENDED says so, and by which pass\n";
+// "Besoin d'etre en capacite d'utiliser les fonctionnalites dazont ecom a
+// partir de la." A to-do list that only lists is a list read twice. A
+// criterion now names the pass that repairs it — read from the FIELD, like
+// its tool link, so a criterion the shop invents tomorrow arrives with its
+// repair already attached and nothing is hard-wired to a criterion id.
+$fix = new ReflectionMethod( 'DZE_Diagnostic', 'fix_for' );
+$fix->setAccessible( true );
+ok( 'a thin gallery is mended by a photograph',
+	$fix->invoke( null, 'product.gallery' )['kind'] ?? '', 'product_shot' );
+ok( 'and it says so in words',
+	'' !== ( $fix->invoke( null, 'product.gallery' )['label'] ?? '' ), true );
+// The recipe is named, not left to whichever one happens to be first: an
+// invented photograph is a returned parcel.
+ok( 'with the recipe that copies no invention',
+	$fix->invoke( null, 'product.gallery' )['recipe'] ?? '', 'Another angle of the same product' );
+// Everything the plugin cannot mend by itself offers nothing rather than a
+// button that would do the wrong thing.
+ok( 'a price is not mended by a model',  $fix->invoke( null, 'product.price' ), [] );
+ok( 'nor is a stock level',              $fix->invoke( null, 'product.stock' ), [] );
+ok( 'nor the number of reviews',         $fix->invoke( null, 'product.reviews' ), [] );
+
+echo "One press sends the shortfall off, and commits the shop to nothing\n";
+$GLOBALS['tpls'] = [
+	[ 'id' => 'main1',  'name' => 'Main image' ],
+	[ 'id' => 'sc',     'name' => 'Scene (in use)' ],
+	[ 'id' => 'angle1', 'name' => 'Another angle of the same product' ],
+];
+// The recipe is found by NAME: an index moves the moment a recipe is added
+// above it, and a pass quietly using the wrong prompt is how a catalogue fills
+// with pictures nobody ordered.
+ok( 'the recipe is found by its name',  DZE_Diagnostic::recipe_index( 'Another angle of the same product' ), 2 );
+ok( 'whatever the case',                DZE_Diagnostic::recipe_index( 'another ANGLE of the same product' ), 2 );
+ok( 'and a shop without it says so',    DZE_Diagnostic::recipe_index( 'No such prompt' ), -1 );
+
+/** The press, and what it answered. */
+$press = static function ( string $id ): array {
+	$_POST = [ 'check' => $id, 'nonce' => 'n' ];
+	$GLOBALS['queued'] = [];
+	try { DZE_Diagnostic::ajax_fix(); } catch ( DZE_Json_Sent $e ) { return [ (array) $e->payload, $e->ok ]; }
+	return [ [], false ];
+};
+[ $said, $ok ] = $press( 'nope' );
+ok( 'an unknown criterion mends nothing', $ok, false );
+
+// A real press, on a real shortfall.
+$GLOBALS['tpls'] = [
+	[ 'id' => 'main1',  'name' => 'Main image' ],
+	[ 'id' => 'angle1', 'name' => 'Another angle of the same product' ],
+];
+$GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
+	[ 'id' => 'thin', 'on' => 1, 'label' => 'Gallery under three', 'scope' => 'product',
+	  'field' => 'product.gallery', 'test' => 'lt', 'value' => 3 ],
+] ];
+$GLOBALS['dze_opts']['dze_diagnostic_lists'] = [ 'thin' => [ 101, 102, 103 ] ];
+[ $said, $ok ] = $press( 'thin' );
+ok( 'it goes off',                       $ok, true );
+$job = $GLOBALS['queued'][0] ?? [];
+ok( 'as a photograph job',               $job['kind'] ?? '', 'product_shot' );
+ok( 'for the products that are short',   $job['ids'] ?? [], [ 101, 102, 103 ] );
+// The line the whole design rests on. It must never be true.
+ok( 'and NEVER applied on its own',      $job['auto'] ?? true, false );
+ok( 'with the recipe that was named',    $job['payload']['template'] ?? -1, 1 );
+ok( 'the answer says how many went',     $said['added'] ?? 0, 3 );
+ok( 'and says nothing reaches a product until you accept',
+	false !== strpos( (string) ( $said['message'] ?? '' ), 'until you accept' ), true );
+ok( 'and links to where they wait',      $said['url'] ?? '', 'http://shop.test/wp-admin/queue' );
+
+// A shop whose image prompts no longer carry that name is TOLD, where it would
+// have pressed — not left with a pass that silently used another prompt.
+$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image' ] ];
+[ $said, $ok ] = $press( 'thin' );
+ok( 'a missing image prompt stops it',   $ok, false );
+ok( 'and names the prompt to add',
+	false !== strpos( (string) ( $said['message'] ?? '' ), 'Another angle of the same product' ), true );
+ok( 'having queued nothing',             $GLOBALS['queued'], [] );
+
+// The queue switched off is not a silent failure either.
+$GLOBALS['tpls'] = [ [ 'id' => 'angle1', 'name' => 'Another angle of the same product' ] ];
+$GLOBALS['module_off']['queue'] = 1;
+[ $said, $ok ] = $press( 'thin' );
+ok( 'no queue, no pass',                 $ok, false );
+ok( 'and it says where to switch it on',
+	false !== strpos( (string) ( $said['message'] ?? '' ), 'Modules' ), true );
+$GLOBALS['module_off'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

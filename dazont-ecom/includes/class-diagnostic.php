@@ -69,6 +69,7 @@ final class DZE_Diagnostic {
 		add_action( 'admin_init', [ __CLASS__, 'schedule' ] );
 		add_action( 'wp_ajax_dze_diag_scan', [ __CLASS__, 'ajax_scan' ] );
 		add_action( 'wp_ajax_dze_diag_keys', [ __CLASS__, 'ajax_keys' ] );
+		add_action( 'wp_ajax_dze_diag_fix',  [ __CLASS__, 'ajax_fix' ] );
 	}
 
 	/** Once a day, and never twice. */
@@ -487,6 +488,126 @@ final class DZE_Diagnostic {
 		return [ 'label' => __( 'Bulk writing', 'dazont-ecom' ), 'url' => $bulk ];
 	}
 
+	/**
+	 * The pass that MENDS one kind of shortfall, run from the list itself.
+	 *
+	 * Beside tool_for(), and read from the same thing — the FIELD — so a
+	 * criterion the shop invents tomorrow arrives with its repair attached and
+	 * nothing is wired to a criterion id. A field with no honest repair
+	 * returns nothing: a button that would do the wrong thing is worse than no
+	 * button, and no model mends a price or a stock level.
+	 *
+	 * The result never reaches the product. It goes to the writing queue and
+	 * waits there to be accepted, like every other job.
+	 *
+	 * @return array{kind:string,label:string,recipe:string} empty when nothing
+	 *               here can mend it.
+	 */
+	private static function fix_for( string $field ): array {
+		// A gallery short of photographs: another angle of the SAME product,
+		// made from its own photograph. The recipe is named rather than left
+		// to whichever one happens to be first, because that recipe is the one
+		// that forbids inventing a detail the source does not show — and an
+		// invented photograph is a returned parcel, not a conversion.
+		if ( 'product.gallery' === $field ) {
+			return [
+				'kind'   => 'product_shot',
+				'label'  => __( 'Make the missing photographs', 'dazont-ecom' ),
+				'recipe' => 'Another angle of the same product',
+			];
+		}
+		return [];
+	}
+
+	/** How many products one press sends off. */
+	public const FIX_BATCH = 20;
+
+	/**
+	 * The products this criterion would mend next, in order.
+	 *
+	 * The ones still short of it — never the ones already put right — and
+	 * capped, because one press must not commit the shop to two hundred paid
+	 * pictures. What is left over is said on the screen rather than queued
+	 * quietly.
+	 *
+	 * @return int[]
+	 */
+	public static function fix_targets( string $id, int $limit = self::FIX_BATCH ): array {
+		$check = self::checks()[ $id ] ?? [];
+		if ( ! $check || ! self::fix_for( (string) ( $check['row']['field'] ?? '' ) ) ) {
+			return [];
+		}
+		$ids  = array_values( array_filter( array_map( 'absint', (array) ( self::lists()[ $id ] ?? [] ) ) ) );
+		$todo = (array) ( self::split( $id, $check, $ids )['todo'] ?? [] );
+		return $limit > 0 ? array_slice( $todo, 0, $limit ) : $todo;
+	}
+
+	/**
+	 * Which of the shop's image recipes a repair names.
+	 *
+	 * By NAME, because an index moves the moment a recipe is added above it.
+	 * A shop that has renamed or removed the recipe is told so where it would
+	 * have pressed the button, not left with a pass that quietly used another
+	 * one.
+	 *
+	 * @return int -1 when this shop has no such recipe.
+	 */
+	public static function recipe_index( string $name ): int {
+		if ( '' === $name || ! class_exists( 'DZE_Content' ) ) {
+			return -1;
+		}
+		foreach ( (array) DZE_Content::image_templates() as $i => $tpl ) {
+			if ( strtolower( trim( (string) ( $tpl['name'] ?? '' ) ) ) === strtolower( trim( $name ) ) ) {
+				return (int) $i;
+			}
+		}
+		return -1;
+	}
+
+	/** One press: the shortfall goes to the queue, and nothing else happens. */
+	public static function ajax_fix(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$id    = isset( $_POST['check'] ) ? sanitize_key( wp_unslash( $_POST['check'] ) ) : '';
+		$check = self::checks()[ $id ] ?? [];
+		$fix   = $check ? self::fix_for( (string) ( $check['row']['field'] ?? '' ) ) : [];
+		if ( ! $fix ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing here mends that on its own.', 'dazont-ecom' ) ] );
+		}
+		if ( ! class_exists( 'DZE_Queue' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) ) {
+			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off — switch it on under Settings → Modules.', 'dazont-ecom' ) ] );
+		}
+		$idx = self::recipe_index( (string) $fix['recipe'] );
+		if ( $idx < 0 ) {
+			wp_send_json_error( [ 'message' => sprintf(
+				/* translators: %s: the name of an image prompt */
+				__( 'This pass uses the image prompt named "%s", and this shop has no prompt by that name. Add it, or rename one, under Settings → Product content.', 'dazont-ecom' ),
+				(string) $fix['recipe']
+			) ] );
+		}
+		$all  = self::fix_targets( $id, 0 );
+		$some = array_slice( $all, 0, self::FIX_BATCH );
+		if ( ! $some ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing is short of this one.', 'dazont-ecom' ) ] );
+		}
+		// auto_apply stays FALSE, always: a photograph reaches a product when
+		// somebody has looked at it and not before.
+		$added = DZE_Queue::add( (string) $fix['kind'], $some, false, [ 'template' => $idx ] );
+		wp_send_json_success( [
+			'added' => $added,
+			'left'  => max( 0, count( $all ) - $added ),
+			'url'   => DZE_Queue::url(),
+			/* translators: 1: how many were sent, 2: how many are still short */
+			'message' => sprintf(
+				_n( '%1$d sent to the queue. Nothing reaches a product until you accept it.', '%1$d sent to the queue — %2$d still waiting their turn. Nothing reaches a product until you accept it.', max( 1, count( $all ) - $added ) === 1 && count( $all ) === $added ? 1 : 2, 'dazont-ecom' ),
+				$added,
+				max( 0, count( $all ) - $added )
+			),
+		] );
+	}
+
 	/** Where the criteria themselves are edited. */
 	public static function settings_url(): string {
 		return add_query_arg(
@@ -507,6 +628,7 @@ final class DZE_Diagnostic {
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $fields[ $row['field'] ] ),
 				'tool'  => self::tool_for( (string) $row['field'], (string) $row['scope'] ),
+				'fix'   => self::fix_for( (string) $row['field'] ),
 				'goals' => self::goals_of( $row ),
 				'note'  => (string) ( $row['note'] ?? '' ),
 				'row'   => $row,
@@ -1696,10 +1818,24 @@ final class DZE_Diagnostic {
 				);
 				if ( ! empty( $tool['url'] ) ) {
 					printf(
-						' <a class="button button-small button-primary" href="%s">%s &rarr;</a>',
+						' <a class="button button-small" href="%s">%s &rarr;</a>',
 						esc_url( (string) $tool['url'] ),
 						esc_html( (string) $tool['label'] )
 					);
+				}
+				// And the one that does the work from here. The count is on the
+				// button BEFORE it is pressed: what a click is about to spend
+				// is not something to discover afterwards.
+				$fix = (array) ( $check['fix'] ?? [] );
+				if ( $fix && class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+					$next = count( self::fix_targets( $id ) );
+					if ( $next ) {
+						printf(
+							' <button type="button" class="button button-small button-primary dze-diag-fix" data-check="%1$s">%2$s</button>',
+							esc_attr( $id ),
+							esc_html( sprintf( '%s (%d)', (string) $fix['label'], $next ) )
+						);
+					}
 				}
 				echo '</td></tr>';
 			}
@@ -2138,6 +2274,32 @@ final class DZE_Diagnostic {
 		?>
 		<script>
 		jQuery(function ($) {
+			// One press on a line: its shortfall goes to the queue. The button
+			// says what happened, on itself, and links to where the pictures
+			// wait — a click that leaves the shop wondering whether it worked
+			// is a broken function however correct the code underneath.
+			$(document).on('click', '.dze-diag-fix', function () {
+				var $b = $(this), was = $b.text();
+				$b.prop('disabled', true).text(<?php echo wp_json_encode( __( 'Sending…', 'dazont-ecom' ) ); ?>);
+				$.post(ajaxurl, { action: 'dze_diag_fix', nonce: '<?php echo esc_js( $nonce ); ?>', check: $b.data('check') })
+					.done(function (r) {
+						if (!r || !r.success) {
+							$b.prop('disabled', false).text(was);
+							window.alert((r && r.data && r.data.message) || <?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
+							return;
+						}
+						$b.text(r.data.message);
+						if (r.data.url) {
+							$b.after(' <a class="button button-small" href="' + r.data.url + '">'
+								+ <?php echo wp_json_encode( __( 'See them waiting', 'dazont-ecom' ) ); ?> + '</a>');
+						}
+					})
+					.fail(function () {
+						$b.prop('disabled', false).text(was);
+						window.alert(<?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
+					});
+			});
+
 			$('#dze-diag-scan').on('click', function () {
 				var $b = $(this), $m = $('#dze-diag-msg');
 				$b.prop('disabled', true);

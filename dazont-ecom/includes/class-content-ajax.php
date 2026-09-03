@@ -1270,7 +1270,15 @@ trait DZE_Content_Ajax {
 						'recipe' => (string) ( $tpl['id'] ?? '' ),
 					] );
 				}
-				return [ 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ];
+				// The recipe travels with it: whoever files this picture later
+				// names it and writes its alt text from the recipe that made
+				// it, and working that out a second time is a second answer.
+				return [
+					'url'    => $image_url,
+					'target' => $target,
+					'recipe' => (string) ( $tpl['id'] ?? '' ),
+					'spend'  => self::product_spend( $pid ),
+				];
 			}
 			if ( ! $validated ) {
 				return [ 'preview' => true, 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ];
