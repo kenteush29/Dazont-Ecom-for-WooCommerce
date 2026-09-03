@@ -90,8 +90,11 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_cc_pages', 'dze_cc_cats', 'dze_cc_pcount_', 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock' ],
 			],
 			'diagnostic' => [
-				'options'    => [ 'dze_diagnostic', 'dze_diagnostic_census' ],
+				'options'    => [ 'dze_diagnostic', 'dze_diagnostic_census', 'dze_diagnostic_lists' ],
 				'transients' => [ 'dze_diag_lock', 'dze_diag_split_' ],
+				// How each person last looked at each list: their own, and
+				// theirs to lose when the module is erased.
+				'user_meta'  => [ '_dze_diag_view' ],
 			],
 			'automation' => [
 				'options'    => [ 'dze_auto_settings', 'dze_auto_state' ],

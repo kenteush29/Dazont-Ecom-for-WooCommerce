@@ -519,6 +519,45 @@ final class DZE_Diagnostic {
 		return [];
 	}
 
+	/** Where each person's last view of each list is kept. */
+	private const VIEW_META = '_dze_diag_view';
+
+	/**
+	 * How this person last looked at this list.
+	 *
+	 * On the USER and not in an option: two people working through the same
+	 * shop do not sort it the same way, and one of them re-sorting it is not a
+	 * change to the shop.
+	 *
+	 * @return array{by?:string,dir?:string,show?:string}
+	 */
+	public static function kept_view( string $id ): array {
+		$all = get_user_meta( get_current_user_id(), self::VIEW_META, true );
+		$all = is_array( $all ) ? $all : [];
+		$one = $all[ $id ] ?? [];
+		return is_array( $one ) ? $one : [];
+	}
+
+	/** Remembers it, and only when it has actually changed. */
+	public static function keep_view( string $id, array $view ): void {
+		$user = get_current_user_id();
+		if ( ! $user || '' === $id ) {
+			return;
+		}
+		$all = get_user_meta( $user, self::VIEW_META, true );
+		$all = is_array( $all ) ? $all : [];
+		$now = [
+			'by'   => (string) ( $view['by'] ?? 'found' ),
+			'dir'  => (string) ( $view['dir'] ?? 'desc' ),
+			'show' => (string) ( $view['show'] ?? 'todo' ),
+		];
+		if ( ( $all[ $id ] ?? [] ) === $now ) {
+			return; // a write on every page load is a write for nothing.
+		}
+		$all[ $id ] = $now;
+		update_user_meta( $user, self::VIEW_META, $all );
+	}
+
 	/** How many products one press sends off. */
 	public const FIX_BATCH = 20;
 
@@ -587,8 +626,20 @@ final class DZE_Diagnostic {
 				(string) $fix['recipe']
 			) ] );
 		}
-		$all  = self::fix_targets( $id, 0 );
-		$some = array_slice( $all, 0, self::FIX_BATCH );
+		$all = self::fix_targets( $id, 0 );
+		// One product, pressed on its own row. Checked against the list this
+		// criterion is short of rather than trusted: an id arriving in a
+		// request is a number somebody typed until it has been found there.
+		$one = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		if ( $one ) {
+			if ( ! in_array( $one, $all, true ) ) {
+				wp_send_json_error( [ 'message' => __( 'That one is not short of this any more.', 'dazont-ecom' ) ] );
+			}
+			$all  = [ $one ];
+			$some = [ $one ];
+		} else {
+			$some = array_slice( $all, 0, self::FIX_BATCH );
+		}
 		if ( ! $some ) {
 			wp_send_json_error( [ 'message' => __( 'Nothing is short of this one.', 'dazont-ecom' ) ] );
 		}
@@ -1960,7 +2011,20 @@ final class DZE_Diagnostic {
 	}
 
 	private function render_list( string $id ): void {
-		$check  = self::checks()[ $id ];
+		$check = self::checks()[ $id ] ?? [];
+		if ( ! $check ) {
+			// A criterion switched off or deleted while its list was open. It
+			// used to be a white page — a fatal before any of our own error
+			// handling, carrying no message at all.
+			printf(
+				'<h1>%s</h1><p>%s <a href="%s">%s</a></p>',
+				esc_html__( 'That criterion is gone', 'dazont-ecom' ),
+				esc_html__( 'It has been switched off or removed since this list was opened.', 'dazont-ecom' ),
+				esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
+				esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
+			);
+			return;
+		}
 		$census = self::census();
 		$lists  = self::lists();
 		$all    = (array) ( $lists[ $id ] ?? [] );
@@ -1970,17 +2034,27 @@ final class DZE_Diagnostic {
 		// The work to do, and the work done. Two lists, never mixed: what is
 		// mended has nothing left to say to somebody working through the
 		// other one.
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- choosing a tab is navigation.
-		$show   = ( isset( $_GET['show'] ) && 'fixed' === $_GET['show'] ) ? 'fixed' : 'todo';
+		// How this list was last looked at, by THIS person and for THIS
+		// criterion. A list of nine hundred products sorted by revenue, left
+		// and come back to, used to open again on the order nobody chose —
+		// so the work was re-sorted by hand every single time.
+		$kept = self::kept_view( $id );
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- choosing a tab and ordering a list are navigation.
+		$show = isset( $_GET['show'] )
+			? ( 'fixed' === $_GET['show'] ? 'fixed' : 'todo' )
+			: (string) ( $kept['show'] ?? 'todo' );
 		$split  = self::split( $id, $check, $all );
 		$show   = $split['live'] ? $show : 'todo';
 		$ids    = 'fixed' === $show ? $split['done'] : $split['todo'];
 
-		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- ordering a list is navigation.
-		$by   = isset( $_GET['by'] ) ? sanitize_key( wp_unslash( $_GET['by'] ) ) : 'found';
-		$dir  = ( isset( $_GET['dir'] ) && 'asc' === $_GET['dir'] ) ? 'asc' : 'desc';
+		$by  = isset( $_GET['by'] ) ? sanitize_key( wp_unslash( $_GET['by'] ) ) : (string) ( $kept['by'] ?? 'found' );
+		$dir = isset( $_GET['dir'] )
+			? ( 'asc' === $_GET['dir'] ? 'asc' : 'desc' )
+			: ( 'asc' === (string) ( $kept['dir'] ?? 'desc' ) ? 'asc' : 'desc' );
 		// phpcs:enable
 		$by    = isset( self::orders()[ $by ] ) ? $by : 'found';
+		self::keep_view( $id, [ 'by' => $by, 'dir' => $dir, 'show' => $show ] );
 		$goods = 'product' === (string) $check['scope'];
 		// Read once for the WHOLE list: what is sorted is the list, not the
 		// page — a shop looking for its best-sellers is not looking for the
@@ -2008,6 +2082,27 @@ final class DZE_Diagnostic {
 			esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
 			esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
 		);
+		// The whole point of a list of problems: mending them from it. It was
+		// on the summary and not here, which is the screen somebody is on when
+		// they have decided to do the work.
+		$fix     = (array) ( $check['fix'] ?? [] );
+		$mending = $fix && class_exists( 'DZE_Queue' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
+		$waiting = $mending ? DZE_Queue::pending_map( 'product_' ) : [];
+		if ( $mending && 'todo' === $show ) {
+			$next = count( self::fix_targets( $id ) );
+			echo '<p style="margin:12px 0 0;">';
+			if ( $next ) {
+				printf(
+					'<button type="button" class="button button-primary dze-diag-fix" data-check="%1$s">%2$s</button> ',
+					esc_attr( $id ),
+					esc_html( sprintf( '%s (%d)', (string) $fix['label'], $next ) )
+				);
+			}
+			echo '<span class="description">'
+				. esc_html__( 'Made from the product\'s own photograph, and held for you to look at — nothing reaches a product until you accept it.', 'dazont-ecom' )
+				. '</span></p>';
+		}
 		if ( $split['live'] ) {
 			// WordPress's own tabs, because that is what every other screen of
 			// this admin uses to say "the same list, seen two ways".
@@ -2069,36 +2164,53 @@ final class DZE_Diagnostic {
 			}
 		}
 
-		// A sortable header, or nothing at all where there is nothing to sort:
-		// a category has no price and no sales.
-		$head = static function ( string $key, string $label ) use ( $id, $by, $dir, $show ): string {
-			$next = ( $by === $key && 'desc' === $dir ) ? 'asc' : 'desc';
-			$mark = $by === $key ? ( 'desc' === $dir ? ' ↓' : ' ↑' ) : '';
+		// A sortable header, drawn the way WordPress draws every sortable
+		// header in this admin: the whole <th>, with its own classes, so core
+		// puts the arrow there — faint on hover for a column that CAN be
+		// sorted, solid on the one that is. The version before this printed a
+		// blue link and an arrow on the sorted column only, so a screen sorted
+		// by nothing in particular showed no arrow anywhere and nothing said
+		// the titles were clickable at all.
+		$head = static function ( string $key, string $label, string $style = '' ) use ( $id, $by, $dir, $show ): string {
+			$on   = $by === $key;
+			$next = ( $on && 'desc' === $dir ) ? 'asc' : 'desc';
 			return sprintf(
-				'<a href="%s" style="text-decoration:none;">%s%s</a>',
+				'<th scope="col" class="manage-column %1$s %2$s"%3$s><a href="%4$s"><span>%5$s</span><span class="sorting-indicator"></span></a></th>',
+				$on ? 'sorted' : 'sortable',
+				esc_attr( $on ? $dir : $next ),
+				'' !== $style ? ' style="' . esc_attr( $style ) . '"' : '',
 				esc_url( add_query_arg(
 					[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $key, 'dir' => $next ],
 					admin_url( 'admin.php' )
 				) ),
-				esc_html( $label ),
-				esc_html( $mark )
+				esc_html( $label )
 			);
 		};
 
 		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>';
-		echo '<th>' . ( $goods ? $head( 'name', __( 'Product', 'dazont-ecom' ) ) : esc_html__( 'Name', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- every cell is built escaped above.
+		echo $goods
+			? $head( 'name', __( 'Product', 'dazont-ecom' ) )
+			: '<th>' . esc_html__( 'Name', 'dazont-ecom' ) . '</th>';
 		if ( $goods ) {
-			echo '<th style="width:110px;text-align:right;">' . $head( 'price', __( 'Price', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
-			echo '<th style="width:90px;text-align:right;">' . $head( 'sales', __( 'Sold', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+			echo $head( 'price', __( 'Price', 'dazont-ecom' ), 'width:110px;text-align:right;' );
+			echo $head( 'sales', __( 'Sold', 'dazont-ecom' ), 'width:90px;text-align:right;' );
 			// The window is IN the heading: a figure whose period is written
 			// somewhere else is a figure read as "since the shop opened".
-			echo '<th style="width:130px;text-align:right;" title="' . esc_attr__( 'Converted into the shop\'s own currency, whatever the buyer paid in.', 'dazont-ecom' ) . '">'
-				. $head( 'rev', sprintf(
+			echo $head(
+				'rev',
+				sprintf(
 					/* translators: %d: how many months revenue looks back */
 					__( 'Revenue (%d mo)', 'dazont-ecom' ),
 					class_exists( 'DZE_Sales' ) ? DZE_Sales::MONTHS : 24
-				) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
-			echo '<th style="width:140px;">' . $head( 'edited', __( 'Last edited', 'dazont-ecom' ) ) . '</th>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
+				),
+				'width:130px;text-align:right;'
+			);
+			echo $head( 'edited', __( 'Last edited', 'dazont-ecom' ), 'width:140px;' );
+		}
+		// phpcs:enable
+		if ( $mending ) {
+			echo '<th style="width:150px;"></th>';
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
@@ -2141,6 +2253,32 @@ final class DZE_Diagnostic {
 				echo '<td>' . ( $when
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
+			}
+			if ( $mending ) {
+				// One product, mended from its own line. A row already waiting
+				// says so instead of offering to send it a second time — the
+				// map is read once for the page, so this stays O(1) a row.
+				$job = (array) ( $waiting[ $oid ] ?? [] );
+				echo '<td style="text-align:right;white-space:nowrap;">';
+				if ( $job ) {
+					printf(
+						'<a href="%1$s">%2$s</a>',
+						esc_url( DZE_Queue::url() ),
+						esc_html( 'review' === ( $job['status'] ?? '' )
+							? __( 'Waiting for you', 'dazont-ecom' )
+							: __( 'Being made…', 'dazont-ecom' ) )
+					);
+				} elseif ( 'todo' === $show ) {
+					printf(
+						'<button type="button" class="button button-small dze-diag-fix" data-check="%1$s" data-id="%2$d">%3$s</button>',
+						esc_attr( $id ),
+						$oid,
+						esc_html__( 'Mend this one', 'dazont-ecom' )
+					);
+				} else {
+					echo '<span class="description">&mdash;</span>';
+				}
+				echo '</td>';
 			}
 			echo '</tr>';
 		}
