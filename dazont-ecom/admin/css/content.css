@@ -1323,3 +1323,15 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	padding: 10px 14px; max-width: 900px; white-space: pre-wrap;
 	font-size: 13px; margin: 8px 0;
 }
+
+/* Why the toolbox opened the way it did — said by whatever opened it (a
+   diagnostic line: "gallery photographs is less than 3 — 2 photographs
+   short"). Hidden on the product screen, whose own button opens it for no
+   reason but the owner's. */
+.dze-cx-why {
+	margin: 0 0 10px;
+	padding: 8px 10px;
+	border-left: 4px solid #2271b1;
+	background: #f0f6fc;
+	font-weight: 600;
+}

@@ -348,6 +348,11 @@
 				'<span id="dze-cx-who" class="dze-cx-who">' + esc(cfg.product.title || '') + '</span>' +
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button></div>' +
 			'<div class="dze-cx-body">' +
+				// Why this popup opened the way it did, when something opened
+				// it FOR a reason — a diagnostic line saying this product is
+				// two photographs short. Empty and hidden otherwise: the
+				// product screen's own button has nothing to explain.
+				'<p class="dze-cx-why" id="dze-cx-why" style="display:none;"></p>' +
 				blockers +
 				// Grouped by KIND, one shut section each: text with text, images
 				// with images, price on its own. Everything open at once is how
@@ -461,12 +466,44 @@
 		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target', remember);
 	}
 
-	function open(pid) {
+	/**
+	 * Arms the popup for the block somebody came to mend.
+	 *
+	 * Nothing is run and nothing is remembered: the popup opens on the section
+	 * that matters, with the work already laid out, and the person looks at it
+	 * and changes it before pressing anything. A press that starts work the
+	 * moment it is clicked is a press nobody can steer — which is exactly what
+	 * the diagnostic's own button used to be.
+	 *
+	 * @param {Object} want {section, field, shots:[{tpl,n,target}], why}
+	 */
+	function arm(want) {
+		if (!want || !want.section) { $('#dze-cx-why').hide().empty(); return; }
+		$('#dze-cx-modal .dze-sec').each(function () {
+			toggleSec($(this), $(this).data('sec') === want.section);
+		});
+		if (want.field) {
+			$('.dze-cx-f').prop('checked', false);
+			$('.dze-cx-f[value="' + want.field + '"]').prop('checked', true);
+		}
+		if (want.shots && want.shots.length && $('#dze-cx-tplrows').length) {
+			$('#dze-cx-doimg').prop('checked', true);
+			$('#dze-cx-tplrows').empty();
+			want.shots.forEach(function (row) {
+				$('#dze-cx-tplrows').append(tplRow(row.tpl, defaultScene(), row.n || 1, row.target));
+			});
+			syncTplRows();
+		}
+		if (want.why) { $('#dze-cx-why').text(want.why).show(); } else { $('#dze-cx-why').hide().empty(); }
+	}
+
+	function open(pid, want) {
 		build();
 		var target = parseInt(pid, 10) || cfg.postId || 0;
 		var switching = target !== PID;
 		PID = target;
 		$('#dze-cx-modal').addClass('is-open');
+		arm(want);
 		// The box that takes photographs from outside is part of the popup: it
 		// is mounted with it, and emptied when the popup changes product.
 		cxPasteBox();
@@ -512,8 +549,14 @@
 		});
 	}
 	$(document).on('click', '#dze-cx-open-auto', function () { open(cfg.postId); });
-	// From the products list: one chip per row, same popup.
-	$(document).on('click', '.dze-content-open', function () { open($(this).data('id')); });
+	// From the products list: one chip per row, same popup. And from the
+	// content diagnostic, where the row knows WHICH block falls short and how
+	// far, so the popup opens on it with the work already laid out.
+	$(document).on('click', '.dze-content-open', function () {
+		var $b = $(this), want = $b.data('want');
+		if (typeof want === 'string') { try { want = JSON.parse(want); } catch (e) { want = null; } }
+		open($b.data('id'), want);
+	});
 	$(document).on('click', '.dze-cx-close', function () { $('#dze-cx-modal').removeClass('is-open'); });
 	$(document).on('click', '#dze-cx-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
 	// Leaving a popup that wrote something this page cannot show: the reload is
