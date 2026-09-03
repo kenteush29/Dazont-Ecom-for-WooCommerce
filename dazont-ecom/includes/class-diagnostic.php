@@ -673,6 +673,30 @@ final class DZE_Diagnostic {
 		update_user_meta( $user, self::VIEW_META, $all );
 	}
 
+	/**
+	 * The workings as plain text, for a shop that needs to hand them over.
+	 *
+	 * Nobody can read this plugin's database from outside the shop, so every
+	 * question about a figure has been answered by guesswork at both ends. One
+	 * button, one paste, and the guessing stops.
+	 */
+	public static function figures_text( array $sums, string $label ): string {
+		$out = [ $label, sprintf( 'Shop currency: %s', class_exists( 'DZE_Money' ) ? DZE_Money::base() : '?' ) ];
+		foreach ( $sums as $cur => $one ) {
+			$n = max( 1, (int) ( $one['lines'] ?? 0 ) );
+			$out[] = sprintf(
+				'%1$s — %2$d lines, read %3$s, per line %4$s, rate %5$s, counted %6$s',
+				(string) $cur,
+				(int) ( $one['lines'] ?? 0 ),
+				number_format( (float) ( $one['raw'] ?? 0 ), 2, '.', '' ),
+				number_format( (float) ( $one['raw'] ?? 0 ) / $n, 2, '.', '' ),
+				rtrim( rtrim( number_format( (float) ( $one['rate'] ?? 0 ), 6, '.', '' ), '0' ), '.' ),
+				number_format( (float) ( $one['base'] ?? 0 ), 2, '.', '' )
+			);
+		}
+		return implode( "\n", $out );
+	}
+
 	/** How many products one press sends off. */
 	public const FIX_BATCH = 20;
 
@@ -1979,8 +2003,21 @@ final class DZE_Diagnostic {
 				// And the one that does the work from here. The count is on the
 				// button BEFORE it is pressed: what a click is about to spend
 				// is not something to discover afterwards.
-				$fix = (array) ( $check['fix'] ?? [] );
-				if ( ! empty( $fix['shots'] ) && class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+				$fix   = (array) ( $check['fix'] ?? [] );
+				$ready = class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
+				// A criterion this plugin CAN mend, that nobody has told how,
+				// used to show nothing at all — so a screen that had a Fix
+				// button yesterday simply lost it, with no word anywhere about
+				// a field that had appeared somewhere else. Say it, and link
+				// to the one place it is answered.
+				if ( $fix && empty( $fix['shots'] ) && $ready ) {
+					printf(
+						' <a class="button button-small" href="%1$s">%2$s</a>',
+						esc_url( self::settings_url() . '#dze-diag-' . rawurlencode( $id ) ),
+						esc_html__( 'Set up Fix', 'dazont-ecom' )
+					);
+				}
+				if ( ! empty( $fix['shots'] ) && $ready ) {
 					$next = count( self::fix_targets( $id ) );
 					if ( $next ) {
 						printf(
@@ -2194,9 +2231,19 @@ final class DZE_Diagnostic {
 		// on the summary and not here, which is the screen somebody is on when
 		// they have decided to do the work.
 		$fix     = (array) ( $check['fix'] ?? [] );
-		$mending = ! empty( $fix['shots'] ) && class_exists( 'DZE_Queue' )
-			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
+		$ready   = class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
+		$mending = ! empty( $fix['shots'] ) && $ready;
 		$waiting = $mending ? DZE_Queue::pending_map( 'product_' ) : [];
+		// The same thing here: a list this plugin can mend, that nobody has
+		// told how, says so where the button would be.
+		if ( $fix && ! $mending && $ready ) {
+			printf(
+				'<p style="margin:12px 0 0;"><a class="button" href="%1$s">%2$s</a> <span class="description">%3$s</span></p>',
+				esc_url( self::settings_url() . '#dze-diag-' . rawurlencode( $id ) ),
+				esc_html__( 'Set up Fix', 'dazont-ecom' ),
+				esc_html__( 'Say which of your image prompts mend this, and how many of each. Until then this criterion is listed but not mended.', 'dazont-ecom' )
+			);
+		}
 		if ( $mending && 'todo' === $show ) {
 			$next = count( self::fix_targets( $id ) );
 			echo '<p style="margin:12px 0 0;">';
@@ -2452,24 +2499,41 @@ final class DZE_Diagnostic {
 				. '<th>' . esc_html__( 'Paid in', 'dazont-ecom' ) . '</th>'
 				. '<th style="text-align:right;">' . esc_html__( 'Order lines', 'dazont-ecom' ) . '</th>'
 				. '<th style="text-align:right;">' . esc_html__( 'Read', 'dazont-ecom' ) . '</th>'
+				// The figure that makes a wrong total obvious at a glance. A
+				// catalogue selling at $15 to $77 cannot average $1,625 an
+				// order line, and no exchange rate explains that — it is what
+				// is STORED on the order lines that is wrong, which is a very
+				// different conversation from the one about rates.
+				. '<th style="text-align:right;">' . esc_html__( 'Per line', 'dazont-ecom' ) . '</th>'
 				. '<th style="text-align:right;">' . esc_html__( 'Rate used', 'dazont-ecom' ) . '</th>'
 				. '<th style="text-align:right;">' . esc_html__( 'Counted as', 'dazont-ecom' ) . '</th>'
 				. '</tr></thead><tbody>';
 			foreach ( $sums as $cur => $one ) {
+				$dze_n = max( 1, (int) ( $one['lines'] ?? 0 ) );
 				printf(
 					'<tr><td><code>%1$s</code></td><td style="text-align:right;">%2$s</td>'
-					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">%4$s</td>'
+					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">%6$s</td>'
+					. '<td style="text-align:right;">%4$s</td>'
 					. '<td style="text-align:right;">%5$s</td></tr>',
 					esc_html( (string) $cur ),
 					esc_html( number_format_i18n( (int) ( $one['lines'] ?? 0 ) ) ),
 					esc_html( number_format_i18n( (float) ( $one['raw'] ?? 0 ), 2 ) . ' ' . (string) $cur ),
 					esc_html( (string) ( 1.0 === (float) ( $one['rate'] ?? 0 ) ? '—' : rtrim( rtrim( number_format( (float) ( $one['rate'] ?? 0 ), 6, '.', '' ), '0' ), '.' ) ) ),
-					wp_kses_post( class_exists( 'DZE_Money' ) ? DZE_Money::say( (float) ( $one['base'] ?? 0 ) ) : esc_html( (string) ( $one['base'] ?? 0 ) ) )
+					wp_kses_post( class_exists( 'DZE_Money' ) ? DZE_Money::say( (float) ( $one['base'] ?? 0 ) ) : esc_html( (string) ( $one['base'] ?? 0 ) ) ),
+					esc_html( number_format_i18n( (float) ( $one['raw'] ?? 0 ) / $dze_n, 2 ) . ' ' . (string) $cur )
 				);
 			}
 			echo '</tbody></table><p class="description" style="max-width:760px;">'
-				. esc_html__( 'Read from your order lines over the window in the column heading, grouped by the currency each order was paid in, and converted at the rate your multi-currency plugin publishes today. A rate that looks wrong here is the rate to correct there.', 'dazont-ecom' )
-				. '</p></details>';
+				. esc_html__( 'Read from your order lines over the window in the column heading, grouped by the currency each order was paid in, and converted at the rate your multi-currency plugin publishes today. Compare "Per line" with what you actually sell for: a rate that looks wrong is corrected in your multi-currency plugin, but a per-line figure far from your prices means the amounts stored on those orders are not in the currency they are being read as — orders taken before the shop changed currency, most often.', 'dazont-ecom' )
+				. '</p>';
+			// One click, and the figures are text I can be sent. Every one of
+			// these evenings has gone on me changing arithmetic I cannot see
+			// the inputs of; this is how that stops.
+			printf(
+				'<p><button type="button" class="button button-small" id="dze-diag-copy" data-figures="%s">%s</button> <span id="dze-diag-copied" class="description"></span></p></details>',
+				esc_attr( self::figures_text( $sums, (string) $check['label'] ) ),
+				esc_html__( 'Copy these figures', 'dazont-ecom' )
+			);
 		}
 
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
@@ -2603,6 +2667,27 @@ final class DZE_Diagnostic {
 						$b.prop('disabled', false).text(was);
 						window.alert(<?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
 					});
+			});
+
+			// The figures, as text, in one click. It uses the browser's own
+			// clipboard where there is one and falls back to selecting the
+			// text where there is not — a button that silently does nothing on
+			// an older browser is the failure this screen keeps producing.
+			$(document).on('click', '#dze-diag-copy', function () {
+				var txt = String($(this).data('figures') || ''), $m = $('#dze-diag-copied');
+				function done() { $m.css('color', '#00794b').text(<?php echo wp_json_encode( __( 'Copied — paste it wherever you need it.', 'dazont-ecom' ) ); ?>); }
+				if (window.navigator && navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(txt).then(done, fallback);
+					return;
+				}
+				fallback();
+				function fallback() {
+					var $t = $('<textarea>').css({ position: 'fixed', left: '-9999px' }).val(txt).appendTo('body');
+					$t[0].select();
+					try { document.execCommand('copy'); done(); }
+					catch (e) { $m.css('color', '#b26a00').text(<?php echo wp_json_encode( __( 'Select the table above and copy it by hand.', 'dazont-ecom' ) ); ?>); }
+					$t.remove();
+				}
 			});
 
 			$('#dze-diag-scan').on('click', function () {

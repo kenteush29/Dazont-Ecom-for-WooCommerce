@@ -939,7 +939,20 @@ $page = $show( [] );
 ok( 'the workings are on the screen',   false !== strpos( $page, 'How Revenue was worked out' ), true );
 ok( 'naming the currency read',         false !== strpos( $page, '<code>USD</code>' ), true );
 ok( 'and where a wrong rate is corrected',
-	false !== strpos( $page, 'is the rate to correct there' ), true );
+	false !== strpos( $page, 'corrected in your multi-currency plugin' ), true );
+// The figure that makes a wrong total obvious: a catalogue selling at $15 to
+// $77 cannot average $1,625 an order line, and no rate explains that.
+ok( 'the average per order line is shown',
+	false !== strpos( $page, 'Per line' ), true );
+ok( 'and it is the read total over the lines',
+	false !== strpos( $page, '133,33 PLN' ) || false !== strpos( $page, '133.33 PLN' ), true );
+// One click, and the figures are text that can be handed over. Nobody can read
+// this database from outside the shop.
+ok( 'the figures can be copied',        false !== strpos( $page, 'Copy these figures' ), true );
+ok( 'and they carry the per-line figure',
+	false !== strpos( DZE_Diagnostic::figures_text( $GLOBALS['dze_by'], 'x' ), 'per line 133.33' ), true );
+ok( 'with the shop\'s own currency named',
+	false !== strpos( DZE_Diagnostic::figures_text( $GLOBALS['dze_by'], 'x' ), 'Shop currency: USD' ), true );
 // The rate is printed as the shop's plugin publishes it, not rounded into
 // something else: 0.25 is 0.25, and the shop's own currency has no rate.
 ok( 'the rate used is printed',         false !== strpos( $page, '>0.25<' ), true );
@@ -1011,6 +1024,36 @@ ok( 'and zero everywhere is a real answer',
 // A criterion photographs cannot mend does not ask.
 ok( 'a price criterion asks nothing',
 	false !== strpos( (string) $card->invoke( null, [ 'id' => 'p', 'scope' => 'product', 'field' => 'product.price', 'test' => 'empty' ], '0' ), 'Fix it with' ), false );
+
+echo "A criterion this plugin can mend, that nobody has told how, SAYS so\n";
+// "Je ne comprends pas il n'y a plus aucun bouton pour regler le probleme."
+// 4.287 made the routine the shop's to write, and every criterion started
+// empty — so a screen that had a Fix button the day before simply lost it,
+// with nothing anywhere about a field that had appeared somewhere else. A
+// screen that goes quiet is worse than one that never offered anything.
+$GLOBALS['umeta'] = [];
+$GLOBALS['pending'] = [];
+$GLOBALS['module_off'] = [];
+update_option( DZE_Diagnostic::OPT, [] ); // back to the shipped criteria
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
+$dze_rows = DZE_Diagnostic::rows();
+foreach ( $dze_rows as $i => $r ) {
+	if ( 'prod_gallery' === ( $r['id'] ?? '' ) ) { $dze_rows[ $i ]['shots'] = []; }
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
+$page = $show( [] );
+ok( 'it offers to be set up',           false !== strpos( $page, 'Set up Fix' ), true );
+ok( 'saying what that means',           false !== strpos( $page, 'listed but not mended' ), true );
+ok( 'and offers no Fix it cannot do',   false !== strpos( $page, '>Fix (' ), false );
+// With a routine on it, the Fix button is back and the invitation is gone.
+foreach ( $dze_rows as $i => $r ) {
+	if ( 'prod_gallery' === ( $r['id'] ?? '' ) ) { $dze_rows[ $i ]['shots'] = [ 'angle1' => 2 ]; }
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows ] );
+$page = $show( [] );
+ok( 'a criterion that is set up presses', false !== strpos( $page, '>Fix (3)<' ), true );
+ok( 'and is not asked to be set up again', false !== strpos( $page, 'Set up Fix' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
