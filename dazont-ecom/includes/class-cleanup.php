@@ -101,7 +101,9 @@ final class DZE_Cleanup {
 				'user_meta'  => [ '_dze_diag_view' ],
 			],
 			'automation' => [
-				'options'    => [ 'dze_auto_settings', 'dze_auto_state' ],
+				// The one-time flag that turned the link passes back to review, so it
+				// is not left behind when this module is erased.
+				'options'    => [ 'dze_auto_settings', 'dze_auto_state', 'dze_auto_review_default' ],
 				'term_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
 				'post_meta'  => [ '_dze_auto_seen', '_dze_auto_prev' ],
 				'transients' => [ 'dze_auto_survey', 'dze_pl_census' ],

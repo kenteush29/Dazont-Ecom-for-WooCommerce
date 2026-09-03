@@ -81,7 +81,7 @@ for ( const [ label, jq ] of jqs ) {
 		await page.getAttribute( `${$new} .dze-diag-key`, 'placeholder' ), 'which ones — attribute_pa_couleur' );
 	ok( 'and the card names itself from the rule',
 		( await page.textContent( `${$new} .dze-diag-name` ) ).trim(),
-		'Variations with no photograph of their own is more than 0' );
+		'Variations without an image is more than 0' );
 	ok( 'the card says Products',
 		await page.inputValue( `${$new} .dze-diag-scope` ), 'product' );
 	ok( 'and it lives under Products',

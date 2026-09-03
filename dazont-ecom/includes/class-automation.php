@@ -97,6 +97,7 @@ final class DZE_Automation {
 	 * rather than sitting there undeclared.
 	 */
 	public static function migrate(): void {
+		self::hold_for_review();
 		$old = get_option( 'dze_mesh_settings', null );
 		if ( null === $old ) {
 			return;
@@ -107,7 +108,7 @@ final class DZE_Automation {
 			$new['tasks']['cat_links'] = [
 				'on'      => empty( $old['on'] ) ? 0 : 1,
 				'per_day' => max( 1, min( 20, (int) ( $old['per_day'] ?? 3 ) ) ),
-				'apply'   => 1,
+				'apply'   => 0,
 			];
 			update_option( self::OPT, $new, false );
 		}
@@ -117,6 +118,33 @@ final class DZE_Automation {
 		wp_clear_scheduled_hook( 'dze_mesh_tick' );
 		foreach ( [ '_dze_mesh_at', '_dze_mesh_out', '_dze_mesh_prev' ] as $key ) {
 			delete_metadata( 'term', 0, $key, '', true );
+		}
+	}
+
+	/**
+	 * Once: the link passes stop saving straight to the shop.
+	 *
+	 * Three tasks shipped with "save without review" ticked, which is a
+	 * function delegated whole — and no function here is. A shop that had them
+	 * ticked never chose it: it was the default. Turned back to review ONCE,
+	 * recorded so it never overrides the shop again, and the box is still
+	 * there to tick when the shop trusts the pass.
+	 */
+	private static function hold_for_review(): void {
+		if ( '1' === (string) get_option( 'dze_auto_review_default', '' ) ) {
+			return;
+		}
+		update_option( 'dze_auto_review_default', '1', false );
+		$s = self::settings();
+		$touched = false;
+		foreach ( [ 'cat_links', 'post_links' ] as $id ) {
+			if ( isset( $s['tasks'][ $id ] ) && ! empty( $s['tasks'][ $id ]['apply'] ) ) {
+				$s['tasks'][ $id ]['apply'] = 0;
+				$touched = true;
+			}
+		}
+		if ( $touched ) {
+			update_option( self::OPT, $s, false );
 		}
 	}
 
@@ -142,7 +170,10 @@ final class DZE_Automation {
 				'scope'   => 'category',
 				'kind'    => 'cat_links',
 				'per_day' => 3,
-				'apply'   => 1,
+				// Held for review, like everything else. It used to save
+				// straight to the shop, which is a function delegated whole —
+				// and nothing here is, until the shop says so on this screen.
+				'apply'   => 0,
 			],
 			'post_links' => [
 				'label'   => __( 'Internal links in articles and pages', 'dazont-ecom' ),
@@ -151,7 +182,7 @@ final class DZE_Automation {
 				'scope'   => 'post',
 				'kind'    => 'post_links',
 				'per_day' => 2,
-				'apply'   => 1,
+				'apply'   => 0,
 			],
 			'cat_desc'  => [
 				'label'   => __( 'Category descriptions', 'dazont-ecom' ),

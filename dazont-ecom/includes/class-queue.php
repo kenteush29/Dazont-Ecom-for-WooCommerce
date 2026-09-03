@@ -470,6 +470,45 @@ final class DZE_Queue {
 	 *
 	 * @return array<int,array{status:string,id:int,kind:string}>
 	 */
+	/**
+	 * What was ACCEPTED on each of these objects, most recent first.
+	 *
+	 * The record of what this plugin actually did: one query for a whole page,
+	 * because a lookup per row is fifty queries to draw a list.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,array{kind:string,when:string,id:int}>
+	 */
+	public static function done_map( array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( 'absint', $ids ) ) );
+		if ( ! $ids ) {
+			return [];
+		}
+		$in   = implode( ',', array_map( 'intval', $ids ) );
+		$rows = (array) $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, ids cast to int above.
+			"SELECT id, kind, object_id, updated FROM " . self::table() . "
+			 WHERE status = 'applied' AND object_id IN ( {$in} ) ORDER BY id DESC",
+			ARRAY_A
+		);
+		$out = [];
+		foreach ( $rows as $r ) {
+			$oid = (int) $r['object_id'];
+			// The most recent only: the row is one line, and "what was done to
+			// this product" is the last thing that was done to it.
+			if ( isset( $out[ $oid ] ) ) {
+				continue;
+			}
+			$out[ $oid ] = [
+				'kind' => (string) $r['kind'],
+				'when' => (string) $r['updated'],
+				'id'   => (int) $r['id'],
+			];
+		}
+		return $out;
+	}
+
 	public static function pending_map( string $family = 'cat_' ): array {
 		global $wpdb;
 		static $cache = [];
@@ -629,7 +668,7 @@ final class DZE_Queue {
 				/* translators: %s: number of jobs */
 				'cFailed'  => __( '%s failed', 'dazont-ecom' ),
 				/* translators: %s: number of finished rows */
-				'clearN'   => __( 'clear %s finished rows', 'dazont-ecom' ),
+				'clearN'   => __( 'clear %s failed rows', 'dazont-ecom' ),
 				/* translators: %s: number of rows ticked */
 				'selected' => __( '%s selected:', 'dazont-ecom' ),
 				'nowText'  => __( 'On the category today', 'dazont-ecom' ),
@@ -656,7 +695,7 @@ final class DZE_Queue {
 				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
 				/* translators: %s: number of jobs */
 				'confirmDrop'   => __( 'Drop %s jobs? What they wrote is lost.', 'dazont-ecom' ),
-				'confirm'  => __( 'Remove every finished and failed job from this list?', 'dazont-ecom' ),
+				'confirm'  => __( 'Remove every failed and skipped job from this list? What was accepted is kept, so there is always a record of what was done.', 'dazont-ecom' ),
 				'applying' => __( 'Saving…', 'dazont-ecom' ),
 				'applied'  => __( 'Saved ✓', 'dazont-ecom' ),
 				'discarded' => __( 'Discarded', 'dazont-ecom' ),
@@ -1026,7 +1065,12 @@ final class DZE_Queue {
 		self::forget_count();
 		$this->guard();
 		global $wpdb;
-		$n = (int) $wpdb->query( "DELETE FROM " . self::table() . " WHERE status IN ('applied','failed','skipped')" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		// NEVER 'applied'. What was accepted is the record of what this plugin
+		// did to the shop — the only place that says a product was worked on,
+		// when, by which job, and that somebody said yes to it. Wiping it left
+		// no way to check anything after the fact, which is the whole reason
+		// nothing here could be trusted without reopening the product.
+		$n = (int) $wpdb->query( "DELETE FROM " . self::table() . " WHERE status IN ('failed','skipped')" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		wp_send_json_success( [ 'removed' => $n ] );
 	}
 }
