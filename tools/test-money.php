@@ -102,29 +102,22 @@ ok( 'unknown until the shop says',      DZE_Money::rate( 'JPY' ), null );
 
 echo "The rates come from the shop, never from us\n";
 $GLOBALS['opts']['_wcml_settings'] = [ 'currency_options' => [
-	// WooCommerce Multilingual, which this shop runs. Its rates are written
-	// the way its own screen writes them: "1 USD = 0.92 EUR", "1 USD = 4.00
-	// PLN" — from the shop's currency TO the other one. Read the other way
-	// round, a 400 PLN order came out as $1,600 instead of $100, and a 100 EUR
-	// order as $92 instead of $108.70. Mixed together, that is a revenue
-	// column nobody can act on.
-	'EUR' => [ 'rate' => 0.92 ],
-	'PLN' => [ 'rate' => 4.00 ],
+	// What is STORED is what one unit of that currency is worth in the shop's
+	// own — 1 EUR = 1.10 USD, 1 PLN = 0.25 USD. 4.285 read it the other way
+	// round, on the strength of what these plugins' own screens say, and the
+	// shop's revenue column answered within the hour: $289,470 on a product
+	// sold twice. This fixture is the direction the shop actually has.
+	'EUR' => [ 'rate' => 1.1 ],
+	'PLN' => [ 'rate' => 0.25 ],
 ] ];
-// rate() answers the question it documents — how many DOLLARS one euro is
-// worth — whichever way the plugin that published it wrote it down.
-ok( 'WooCommerce Multilingual is read', round( (float) DZE_Money::rate( 'EUR' ), 4 ), round( 1 / 0.92, 4 ) );
-ok( 'and a rate above one is not read upside down',
-	round( (float) DZE_Money::rate( 'PLN' ), 4 ), 0.25 );
+ok( 'WooCommerce Multilingual is read', DZE_Money::rate( 'EUR' ), 1.1 );
+ok( 'and it is taken as it stands',     DZE_Money::rate( 'PLN' ), 0.25 );
 $GLOBALS['opts']['woocs_currency_data'] = [ 'GBP' => 1.3 ];
-// WOOCS and Aelia write theirs the same way round — "1 USD = 1.3 GBP" — so a
-// plain map is turned round too, and nothing depends on which plugin answered.
-ok( 'so is a plain map',                round( (float) DZE_Money::rate( 'GBP' ), 4 ), round( 1 / 1.3, 4 ) );
+ok( 'so is a plain map',                DZE_Money::rate( 'GBP' ), 1.3 );
 $GLOBALS['filtered']['SEK'] = 0.09;
 ok( 'and a shop can answer by filter',  DZE_Money::rate( 'SEK' ), 0.09 );
-ok( 'converting a euro amount goes UP',  round( (float) DZE_Money::to_base( 200.0, 'EUR' ), 2 ), 217.39 );
-// The one that was four times too big on his screen.
-ok( 'and a zloty amount goes down',      round( (float) DZE_Money::to_base( 400.0, 'PLN' ), 2 ), 100.00 );
+ok( 'converting is that rate',          round( (float) DZE_Money::to_base( 200.0, 'EUR' ), 2 ), 220.00 );
+ok( 'and a zloty amount is smaller',    round( (float) DZE_Money::to_base( 400.0, 'PLN' ), 2 ), 100.00 );
 ok( 'and unknown stays unknown',        DZE_Money::to_base( 200.0, 'CHF' ), null );
 
 echo "What a product brought in, across currencies\n";
@@ -137,10 +130,8 @@ $GLOBALS['lines'] = [
 	[ 'pid' => 8, 'cur' => '',    'qty' => 3, 'rev' => 50 ],
 ];
 $got = DZE_Sales::revenue();
-// 100 USD + 100 EUR + 100 PLN, each at the rate this shop publishes:
-// 100 + 108.70 + 25 = 233.70. Never 300, and never the 592 the multiplication
-// used to produce.
-ok( 'each currency at its own rate',    round( (float) $got['rev'][7], 2 ), 233.70 );
+// 100 USD + 100 EUR + 100 PLN = 100 + 110 + 25 = 235. Never 300.
+ok( 'each currency at its own rate',    round( (float) $got['rev'][7], 2 ), 235.00 );
 ok( 'the quantity is never converted',  $got['qty'][7] ?? 0, 4 );
 ok( 'no currency on the order = ours',  round( (float) $got['rev'][8], 2 ), 50.00 );
 ok( 'and nothing was left out',         $got['missing'], [] );
@@ -148,7 +139,7 @@ ok( 'and nothing was left out',         $got['missing'], [] );
 echo "A currency the shop cannot price\n";
 $GLOBALS['lines'][] = [ 'pid' => 7, 'cur' => 'CHF', 'qty' => 5, 'rev' => 900 ];
 $got = DZE_Sales::revenue();
-ok( 'it is LEFT OUT, not counted as one', round( (float) $got['rev'][7], 2 ), 233.70 );
+ok( 'it is LEFT OUT, not counted as one', round( (float) $got['rev'][7], 2 ), 235.00 );
 ok( 'the sale itself is still counted',   $got['qty'][7] ?? 0, 9 );
 ok( 'and the screen is told which',       $got['missing'], [ 'CHF' ] );
 
@@ -184,8 +175,26 @@ ok( 'and it still narrows to the product',
 
 echo "And when there is nothing to read\n";
 $GLOBALS['lookup'] = false;
-ok( 'no lookup table is no figures',    DZE_Sales::revenue(), [ 'rev' => [], 'qty' => [], 'missing' => [] ] );
+ok( 'no lookup table is no figures',    DZE_Sales::revenue(), [ 'rev' => [], 'qty' => [], 'missing' => [], 'by' => [] ] );
 $GLOBALS['lookup'] = true;
+
+echo "The sum shows its workings\n";
+// "Toujours des montants irreels." A revenue column that cannot be taken apart
+// is a revenue column that gets argued about, and this shop has now spent
+// three evenings on figures nobody could check. What was read in each
+// currency, at what rate, and what it became, kept as the sum is made.
+$GLOBALS['lines'] = [
+	[ 'pid' => 7, 'cur' => 'USD', 'qty' => 1, 'rev' => 100 ],
+	[ 'pid' => 7, 'cur' => 'EUR', 'qty' => 1, 'rev' => 100 ],
+	[ 'pid' => 8, 'cur' => 'EUR', 'qty' => 1, 'rev' => 50 ],
+];
+$by = DZE_Sales::revenue()['by'] ?? [];
+ok( 'every currency is named',          array_keys( $by ), [ 'USD', 'EUR' ] );
+ok( 'with what was read in it',         $by['EUR']['raw'] ?? 0, 150.0 );
+ok( 'the rate it was read at',          $by['EUR']['rate'] ?? 0, 1.1 );
+ok( 'and what that came to',            round( (float) ( $by['EUR']['base'] ?? 0 ), 2 ), 165.00 );
+ok( 'the shop\'s own is not converted',  $by['USD']['base'] ?? 0, 100.0 );
+ok( 'and the lines are counted',        $by['EUR']['lines'] ?? 0, 2 );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
