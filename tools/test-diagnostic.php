@@ -633,12 +633,14 @@ ok( 'and by name',                      $order( $show( [ 'by' => 'name', 'dir' =
 // column that can be sorted, solid on the one that is.
 $GLOBALS['umeta'] = [];
 $hdr = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-ok( 'every column says it can be sorted',
-	substr_count( $hdr, 'sorting-indicator' ), 5 );
-ok( 'the one in use is marked as sorted',
-	false !== strpos( $hdr, 'manage-column sorted desc' ), true );
-ok( 'and the others as sortable',
-	substr_count( $hdr, 'manage-column sortable' ), 4 );
+// One mark per column, always: four pale pairs on the ones that can be sorted
+// and one solid arrow on the one in use. A screen sorted by nothing in
+// particular used to carry no mark at all.
+ok( 'every column carries a mark',
+	substr_count( $hdr, 'Sort by this column' ), 5 );
+ok( 'the one in use points down',       substr_count( $hdr, '&#9660;' ), 1 );
+ok( 'and is the only one in bold',      substr_count( $hdr, 'font-weight:700;' ), 1 );
+ok( 'the others say they can be sorted', substr_count( $hdr, '&#8645;' ), 4 );
 // Clicking the sorted column turns it round rather than sorting it again the
 // same way.
 ok( 'the sorted one offers the other direction',
@@ -677,7 +679,7 @@ $GLOBALS['dze_transients'] = [];
 $GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-01 12:00:00'; // as a save moves it
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-ok( 'the tab says how much work is left',  false !== strpos( $html, 'To work on (2)' ), true );
+ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues (2)' ), true );
 ok( 'and how much is done',                false !== strpos( $html, 'Fixed (1)' ), true );
 ok( 'the mended one is off the work list',
 	in_array( 'Ancient cap', $order( $html ), true ), false );
@@ -700,14 +702,14 @@ unset( $GLOBALS['dze_meta'][102]['_product_image_gallery'] );
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-02 08:00:00';
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 ok( 'an edit makes it read again',      count( $GLOBALS['dze_read_calls'] ) > 0, true );
-ok( 'and the row comes back to the work list', false !== strpos( $html, 'To work on (3)' ), true );
+ok( 'and the row comes back to the work list', false !== strpos( $html, 'Issues (3)' ), true );
 ok( 'with nothing left on the other tab',      false !== strpos( $html, 'Fixed (0)' ), true );
 
 // A product deleted since the reading is nobody's work: it is on neither tab.
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103, 999 ] ] );
 $GLOBALS['dze_transients'] = [];
 $html = $show( [] );
-ok( 'a deleted row is not work to do',  false !== strpos( $html, 'To work on (3)' ), true );
+ok( 'a deleted row is not work to do',  false !== strpos( $html, 'Issues (3)' ), true );
 ok( 'and it is not "fixed" either',     false !== strpos( $html, 'Fixed (0)' ), true );
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
 $GLOBALS['dze_transients'] = [];
@@ -740,8 +742,10 @@ $fix = new ReflectionMethod( 'DZE_Diagnostic', 'fix_for' );
 $fix->setAccessible( true );
 ok( 'a thin gallery is mended by a photograph',
 	$fix->invoke( null, 'product.gallery' )['kind'] ?? '', 'product_shot' );
-ok( 'and it says so in words',
-	'' !== ( $fix->invoke( null, 'product.gallery' )['label'] ?? '' ), true );
+// No label of its own: every repair is called Fix, on every screen. A
+// different sentence per problem is a screen to be read rather than used.
+ok( 'and carries no wording of its own',
+	array_key_exists( 'label', $fix->invoke( null, 'product.gallery' ) ), false );
 // The recipe is named, not left to whichever one happens to be first: an
 // invented photograph is a returned parcel.
 ok( 'with the recipe that copies no invention',
@@ -852,8 +856,8 @@ update_option( DZE_Diagnostic::OPT, [] ); // the shipped criteria, so the list i
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
 update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
 $page = $show( [] );
-ok( 'the whole list can be sent off',   false !== strpos( $page, 'dze-diag-fix' ), true );
-ok( 'and each product on its own row',  substr_count( $page, 'Mend this one' ), 3 );
+ok( 'the whole list can be sent off',   false !== strpos( $page, 'data-check="prod_gallery">Fix (3)' ), true );
+ok( 'and each product on its own row',  substr_count( $page, 'data-check="prod_gallery" data-id=' ), 3 );
 ok( 'each one carrying its own id',     false !== strpos( $page, 'data-id="101"' ), true );
 ok( 'and it says nothing reaches a product first',
 	false !== strpos( $page, 'until you accept it' ), true );
@@ -862,14 +866,14 @@ ok( 'and it says nothing reaches a product first',
 $GLOBALS['pending'] = [ 101 => [ 'status' => 'review', 'id' => 9, 'kind' => 'product_shot' ] ];
 $page = $show( [] );
 ok( 'one already waiting says so',      false !== strpos( $page, 'Waiting for you' ), true );
-ok( 'and is not offered again',         substr_count( $page, 'Mend this one' ), 2 );
+ok( 'and is not offered again',         substr_count( $page, 'data-check="prod_gallery" data-id=' ), 2 );
 $GLOBALS['pending'] = [ 102 => [ 'status' => 'queued', 'id' => 9, 'kind' => 'product_shot' ] ];
 ok( 'one still being made says that instead',
 	false !== strpos( $show( [] ), 'Being made' ), true );
 // The queue switched off leaves the screen exactly as it was.
 $GLOBALS['pending'] = [];
 $GLOBALS['module_off']['queue'] = 1;
-ok( 'no queue, no buttons',             false !== strpos( $show( [] ), 'Mend this one' ), false );
+ok( 'no queue, no buttons',             false !== strpos( $show( [] ), 'data-check="prod_gallery"' ), false );
 $GLOBALS['module_off'] = [];
 
 // A criterion deleted while its list is open used to be a WHITE page: a fatal
@@ -880,6 +884,19 @@ $render->invoke( DZE_Diagnostic::instance(), 'no_such_criterion' );
 $gone = (string) ob_get_clean();
 ok( 'a criterion that is gone says so', false !== strpos( $gone, 'That criterion is gone' ), true );
 ok( 'and offers the way back',          false !== strpos( $gone, 'Back to the diagnostic' ), true );
+
+echo "The buttons on the list have something behind them\n";
+// "Mend this one > clique, 0 reaction." "Make the missing photographs (20) >
+// idem, 0 reaction." The handlers were printed on the SUMMARY only, so every
+// button on this screen made no request at all: no error, no message, nothing
+// — the one failure that looks exactly like a broken plugin.
+$GLOBALS['umeta']   = [];
+$GLOBALS['pending'] = [];
+$GLOBALS['module_off'] = [];
+$page = $show( [] );
+ok( 'the handler is on this screen',    false !== strpos( $page, "'dze_diag_fix'" ), true );
+ok( 'and it is bound to the buttons',   false !== strpos( $page, ".dze-diag-fix'" ), true );
+ok( 'with a nonce to send',             false !== strpos( $page, 'nonce:' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

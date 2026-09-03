@@ -60,7 +60,16 @@ final class DZE_Money {
 				$one = $one['rate'] ?? ( $one[1] ?? null );
 			}
 			if ( is_numeric( $one ) && (float) $one > 0 ) {
-				$known[ $code ] = (float) $one;
+				// TURNED ROUND, and this is the whole of it. Every one of these
+				// plugins writes the rate the way its own screen writes it —
+				// "1 USD = 0.92 EUR", "1 USD = 4.00 PLN" — from the shop's
+				// currency TO the other one. This function answers the other
+				// question, the one it is named for: how many dollars one euro
+				// is worth. Read straight through, a 400 zloty order came out
+				// as $1,600 instead of $100 and a 100 euro one as $92 instead
+				// of $108.70, so a revenue column mixed currencies that were
+				// each wrong in a different direction.
+				$known[ $code ] = 1 / (float) $one;
 				return $known[ $code ];
 			}
 		}
