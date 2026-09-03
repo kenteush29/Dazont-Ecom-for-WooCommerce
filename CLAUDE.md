@@ -291,15 +291,19 @@ owner communicates in French.
   a different holiday in a different month. And "Write it for my other
   markets" REWRITES every language each time it is pressed; only the
   automatic pass at save time leaves a hand-typed line alone.
-- **`php tools/test-money.php dazont-ecom` must pass.** Every figure in MONEY
-  is brought back to the shop's own currency before it is shown, summed or
-  sorted by: the order lines are kept in the currency they were paid in and
-  carry no currency of their own, so they are read grouped by the order's
-  currency and converted at the SHOP's rates (`DZE_Money`, reading WooCommerce
-  Multilingual / WOOCS / Aelia, plus a `dze_currency_rate` filter). A currency
-  the shop gives no rate for is LEFT OUT and named on the screen — never
-  counted at one to one. Quantities never go through a rate. The sourcing
-  report added euros to dollars for months and called the answer money.
+- **The plugin shows UNITS SOLD, never money.** It tried: order lines are kept
+  in the currency they were paid in and carry no currency of their own, so a
+  reader grouped them by the order's currency and converted at the shop's
+  rates. It was right and it still produced $6,792,487 against 23 units at
+  $76.90 — because `wc_order_product_lookup` on this shop holds hundreds of
+  rows whose order does not exist, left behind by old imports, and no amount
+  of correct arithmetic survives an input like that. Three releases went on
+  defending a column nobody could believe. So the column is gone, and with it
+  `DZE_Money`, `DZE_Sales` and `test-money.php`.
+  **Do not reintroduce a money figure read from that table.** Quantities are
+  safe — four sold is four sold in any currency — and quantities are what the
+  shop actually decides on. If money is ever genuinely needed, it comes from
+  WooCommerce's own reports, which own the data and repair it.
 - **`php tools/test-prompt-block.php dazont-ecom` must pass**, and the Klaviyo
   suite RENDERS the whole email settings tab (`render_settings()` into a
   buffer) rather than only calling its pieces. The "What this prompt is sent
