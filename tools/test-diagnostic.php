@@ -114,7 +114,12 @@ class DZE_Sales {
 		foreach ( (array) ( $GLOBALS['dze_rev'] ?? [] ) as $pid => $amount ) {
 			if ( ! $ids || in_array( (int) $pid, array_map( 'intval', $ids ), true ) ) { $rev[ (int) $pid ] = (float) $amount; }
 		}
-		return [ 'rev' => $rev, 'qty' => [], 'missing' => (array) ( $GLOBALS['dze_missing'] ?? [] ) ];
+		return [
+			'rev'     => $rev,
+			'qty'     => [],
+			'missing' => (array) ( $GLOBALS['dze_missing'] ?? [] ),
+			'by'      => (array) ( $GLOBALS['dze_by'] ?? [] ),
+		];
 	}
 }
 class DZE_Money {
@@ -738,6 +743,11 @@ echo "A criterion that can be MENDED says so, and by which pass\n";
 // criterion now names the pass that repairs it — read from the FIELD, like
 // its tool link, so a criterion the shop invents tomorrow arrives with its
 // repair already attached and nothing is hard-wired to a criterion id.
+$GLOBALS['tpls'] = [
+	[ 'id' => 'main1',  'name' => 'Main image',     'target' => 'main' ],
+	[ 'id' => 'sc',     'name' => 'Scene (in use)', 'target' => 'gallery' ],
+	[ 'id' => 'angle1', 'name' => 'Another angle',  'target' => 'gallery' ],
+];
 $fix = new ReflectionMethod( 'DZE_Diagnostic', 'fix_for' );
 $fix->setAccessible( true );
 ok( 'a thin gallery is mended by a photograph',
@@ -748,8 +758,18 @@ ok( 'and carries no wording of its own',
 	array_key_exists( 'label', $fix->invoke( null, 'product.gallery' ) ), false );
 // The recipe is named, not left to whichever one happens to be first: an
 // invented photograph is a returned parcel.
-ok( 'with the recipe that copies no invention',
-	$fix->invoke( null, 'product.gallery' )['recipe'] ?? '', 'Another angle of the same product' );
+// The shop's OWN gallery prompt, by its place on the shop's own list — not a
+// name written into this file. 4.285 named one, and the button answered with
+// an error about a prompt this shop had never chosen.
+ok( 'with the shop\'s own gallery prompt',
+	$fix->invoke( null, 'product.gallery' )['recipe'] ?? -1, 1 );
+ok( 'and it can say what that is called',
+	DZE_Diagnostic::recipe_name( 1 ), 'Scene (in use)' );
+// A shop with only a main-image prompt has nothing to fix a gallery with, and
+// offers no button rather than one that fails.
+$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image', 'target' => 'main' ] ];
+ok( 'no gallery prompt, nothing to run with',
+	$fix->invoke( null, 'product.gallery' )['recipe'] ?? 0, -1 );
 // Everything the plugin cannot mend by itself offers nothing rather than a
 // button that would do the wrong thing.
 ok( 'a price is not mended by a model',  $fix->invoke( null, 'product.price' ), [] );
@@ -758,17 +778,10 @@ ok( 'nor the number of reviews',         $fix->invoke( null, 'product.reviews' )
 
 echo "One press sends the shortfall off, and commits the shop to nothing\n";
 $GLOBALS['tpls'] = [
-	[ 'id' => 'main1',  'name' => 'Main image' ],
-	[ 'id' => 'sc',     'name' => 'Scene (in use)' ],
-	[ 'id' => 'angle1', 'name' => 'Another angle of the same product' ],
+	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
+	[ 'id' => 'sc',     'name' => 'Scene (in use)', 'target' => 'gallery' ],
+	[ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ],
 ];
-// The recipe is found by NAME: an index moves the moment a recipe is added
-// above it, and a pass quietly using the wrong prompt is how a catalogue fills
-// with pictures nobody ordered.
-ok( 'the recipe is found by its name',  DZE_Diagnostic::recipe_index( 'Another angle of the same product' ), 2 );
-ok( 'whatever the case',                DZE_Diagnostic::recipe_index( 'another ANGLE of the same product' ), 2 );
-ok( 'and a shop without it says so',    DZE_Diagnostic::recipe_index( 'No such prompt' ), -1 );
-
 /** The press, and what it answered. */
 $press = static function ( string $id ): array {
 	$_POST = [ 'check' => $id, 'nonce' => 'n' ];
@@ -781,8 +794,8 @@ ok( 'an unknown criterion mends nothing', $ok, false );
 
 // A real press, on a real shortfall.
 $GLOBALS['tpls'] = [
-	[ 'id' => 'main1',  'name' => 'Main image' ],
-	[ 'id' => 'angle1', 'name' => 'Another angle of the same product' ],
+	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
+	[ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ],
 ];
 $GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
 	[ 'id' => 'thin', 'on' => 1, 'label' => 'Gallery under three', 'scope' => 'product',
@@ -796,23 +809,23 @@ ok( 'as a photograph job',               $job['kind'] ?? '', 'product_shot' );
 ok( 'for the products that are short',   $job['ids'] ?? [], [ 101, 102, 103 ] );
 // The line the whole design rests on. It must never be true.
 ok( 'and NEVER applied on its own',      $job['auto'] ?? true, false );
-ok( 'with the recipe that was named',    $job['payload']['template'] ?? -1, 1 );
+ok( 'with the shop\'s own gallery prompt', $job['payload']['template'] ?? -1, 1 );
 ok( 'the answer says how many went',     $said['added'] ?? 0, 3 );
 ok( 'and says nothing reaches a product until you accept',
 	false !== strpos( (string) ( $said['message'] ?? '' ), 'until you accept' ), true );
 ok( 'and links to where they wait',      $said['url'] ?? '', 'http://shop.test/wp-admin/queue' );
 
-// A shop whose image prompts no longer carry that name is TOLD, where it would
-// have pressed — not left with a pass that silently used another prompt.
-$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image' ] ];
+// A shop with no gallery prompt at all cannot be sent off, and is told what to
+// add rather than left with a button that fails.
+$GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image', 'target' => 'main' ] ];
 [ $said, $ok ] = $press( 'thin' );
-ok( 'a missing image prompt stops it',   $ok, false );
-ok( 'and names the prompt to add',
-	false !== strpos( (string) ( $said['message'] ?? '' ), 'Another angle of the same product' ), true );
+ok( 'no gallery prompt stops it',        $ok, false );
+ok( 'and says what to add',
+	false !== strpos( (string) ( $said['message'] ?? '' ), 'gallery' ), true );
 ok( 'having queued nothing',             $GLOBALS['queued'], [] );
 
 // The queue switched off is not a silent failure either.
-$GLOBALS['tpls'] = [ [ 'id' => 'angle1', 'name' => 'Another angle of the same product' ] ];
+$GLOBALS['tpls'] = [ [ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ] ];
 $GLOBALS['module_off']['queue'] = 1;
 [ $said, $ok ] = $press( 'thin' );
 ok( 'no queue, no pass',                 $ok, false );
@@ -851,12 +864,12 @@ echo "The list of problems mends them, from the list itself\n";
 // was on the summary — the screen you leave once you have decided to work.
 $GLOBALS['umeta']   = [];
 $GLOBALS['pending'] = [];
-$GLOBALS['tpls']    = [ [ 'id' => 'angle1', 'name' => 'Another angle of the same product' ] ];
+$GLOBALS['tpls']    = [ [ 'id' => 'angle1', 'name' => 'Another angle', 'target' => 'gallery' ] ];
 update_option( DZE_Diagnostic::OPT, [] ); // the shipped criteria, so the list is a real one
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
 update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
 $page = $show( [] );
-ok( 'the whole list can be sent off',   false !== strpos( $page, 'data-check="prod_gallery">Fix (3)' ), true );
+ok( 'the whole list can be sent off',   false !== strpos( $page, '>Fix (3)<' ), true );
 ok( 'and each product on its own row',  substr_count( $page, 'data-check="prod_gallery" data-id=' ), 3 );
 ok( 'each one carrying its own id',     false !== strpos( $page, 'data-id="101"' ), true );
 ok( 'and it says nothing reaches a product first',
@@ -897,6 +910,26 @@ $page = $show( [] );
 ok( 'the handler is on this screen',    false !== strpos( $page, "'dze_diag_fix'" ), true );
 ok( 'and it is bound to the buttons',   false !== strpos( $page, ".dze-diag-fix'" ), true );
 ok( 'with a nonce to send',             false !== strpos( $page, 'nonce:' ), true );
+
+echo "The Revenue column can be taken apart\n";
+// "Toujours des montants irreels." Until the shop can see WHAT was read and at
+// WHAT rate, every conversation about this column is guesswork on both sides.
+$GLOBALS['umeta'] = [];
+$GLOBALS['dze_by'] = [
+	'USD' => [ 'lines' => 12, 'raw' => 900.0, 'rate' => 1.0, 'base' => 900.0 ],
+	'PLN' => [ 'lines' => 3,  'raw' => 400.0, 'rate' => 0.25, 'base' => 100.0 ],
+];
+$page = $show( [] );
+ok( 'the workings are on the screen',   false !== strpos( $page, 'How Revenue was worked out' ), true );
+ok( 'naming the currency read',         false !== strpos( $page, '<code>USD</code>' ), true );
+ok( 'and where a wrong rate is corrected',
+	false !== strpos( $page, 'is the rate to correct there' ), true );
+// The rate is printed as the shop's plugin publishes it, not rounded into
+// something else: 0.25 is 0.25, and the shop's own currency has no rate.
+ok( 'the rate used is printed',         false !== strpos( $page, '>0.25<' ), true );
+ok( 'and the shop\'s own has none',      false !== strpos( $page, '>&mdash;<' ) || false !== strpos( $page, '>—<' ), true );
+ok( 'each currency says how much was read',
+	false !== strpos( $page, '400,00 PLN' ) || false !== strpos( $page, '400.00 PLN' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -37,7 +37,7 @@ final class DZE_Sales {
 	 */
 	public static function revenue( array $ids = [] ): array {
 		global $wpdb;
-		$out = [ 'rev' => [], 'qty' => [], 'missing' => [] ];
+		$out = [ 'rev' => [], 'qty' => [], 'missing' => [], 'by' => [] ];
 		if ( ! $wpdb ) {
 			return $out;
 		}
@@ -109,6 +109,18 @@ final class DZE_Sales {
 				continue;
 			}
 			$out['rev'][ $pid ] = ( $out['rev'][ $pid ] ?? 0.0 ) + $here;
+
+			// The WORKINGS, kept as the sum is made: what was read in each
+			// currency, at what rate, and what it became. A revenue column
+			// that cannot be checked is a revenue column that gets argued
+			// about — this shop has now spent three evenings on figures
+			// nobody could take apart.
+			if ( ! isset( $out['by'][ $cur ] ) ) {
+				$out['by'][ $cur ] = [ 'lines' => 0, 'raw' => 0.0, 'rate' => (float) DZE_Money::rate( $cur ), 'base' => 0.0 ];
+			}
+			$out['by'][ $cur ]['lines']++;
+			$out['by'][ $cur ]['raw']  += (float) ( $row['rev'] ?? 0 );
+			$out['by'][ $cur ]['base'] += $here;
 		}
 		$out['missing'] = array_keys( $missing );
 		return $out;

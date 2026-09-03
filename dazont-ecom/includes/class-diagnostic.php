@@ -510,16 +510,51 @@ final class DZE_Diagnostic {
 		// that forbids inventing a detail the source does not show — and an
 		// invented photograph is a returned parcel, not a conversion.
 		if ( 'product.gallery' === $field ) {
+			// The shop's OWN gallery prompt, whichever it has. 4.285 named one
+			// — "Another angle of the same product" — which is a prompt this
+			// shop never chose, so the button answered with an error message
+			// about a name nobody recognised. A repair uses what is on the
+			// shop's list, and the button says which.
+			//
 			// No label of its own. Every criterion's repair is called the same
 			// thing on every screen — Fix — because a shop working through a
 			// list of problems needs one word in one place, not a different
 			// sentence per problem.
-			return [
-				'kind'   => 'product_shot',
-				'recipe' => 'Another angle of the same product',
-			];
+			// The descriptor exists even when the shop has no gallery prompt:
+			// -1 then, so the screen can hide the button AND the press can say
+			// the one useful thing instead of "nothing mends that".
+			return [ 'kind' => 'product_shot', 'recipe' => self::gallery_recipe() ];
 		}
 		return [];
+	}
+
+	/**
+	 * The shop's first image prompt that writes into the gallery.
+	 *
+	 * Deliberately the shop's own list and not a name written here: a prompt
+	 * named in this file is a prompt the shop has to be told to create.
+	 *
+	 * @return int -1 when the shop has no gallery prompt at all.
+	 */
+	public static function gallery_recipe(): int {
+		if ( ! class_exists( 'DZE_Content' ) ) {
+			return -1;
+		}
+		foreach ( (array) DZE_Content::image_templates() as $i => $tpl ) {
+			if ( 'main' !== (string) ( $tpl['target'] ?? 'gallery' ) ) {
+				return (int) $i;
+			}
+		}
+		return -1;
+	}
+
+	/** What that prompt is called, for a button that says what it will run. */
+	public static function recipe_name( int $idx ): string {
+		if ( $idx < 0 || ! class_exists( 'DZE_Content' ) ) {
+			return '';
+		}
+		$all = (array) DZE_Content::image_templates();
+		return (string) ( $all[ $idx ]['name'] ?? '' );
 	}
 
 	/** Where each person's last view of each list is kept. */
@@ -584,28 +619,6 @@ final class DZE_Diagnostic {
 		return $limit > 0 ? array_slice( $todo, 0, $limit ) : $todo;
 	}
 
-	/**
-	 * Which of the shop's image recipes a repair names.
-	 *
-	 * By NAME, because an index moves the moment a recipe is added above it.
-	 * A shop that has renamed or removed the recipe is told so where it would
-	 * have pressed the button, not left with a pass that quietly used another
-	 * one.
-	 *
-	 * @return int -1 when this shop has no such recipe.
-	 */
-	public static function recipe_index( string $name ): int {
-		if ( '' === $name || ! class_exists( 'DZE_Content' ) ) {
-			return -1;
-		}
-		foreach ( (array) DZE_Content::image_templates() as $i => $tpl ) {
-			if ( strtolower( trim( (string) ( $tpl['name'] ?? '' ) ) ) === strtolower( trim( $name ) ) ) {
-				return (int) $i;
-			}
-		}
-		return -1;
-	}
-
 	/** One press: the shortfall goes to the queue, and nothing else happens. */
 	public static function ajax_fix(): void {
 		check_ajax_referer( self::NONCE, 'nonce' );
@@ -621,13 +634,9 @@ final class DZE_Diagnostic {
 		if ( ! class_exists( 'DZE_Queue' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) ) {
 			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off — switch it on under Settings → Modules.', 'dazont-ecom' ) ] );
 		}
-		$idx = self::recipe_index( (string) $fix['recipe'] );
-		if ( $idx < 0 ) {
-			wp_send_json_error( [ 'message' => sprintf(
-				/* translators: %s: the name of an image prompt */
-				__( 'This pass uses the image prompt named "%s", and this shop has no prompt by that name. Add it, or rename one, under Settings → Product content.', 'dazont-ecom' ),
-				(string) $fix['recipe']
-			) ] );
+		$idx = (int) $fix['recipe'];
+		if ( $idx < 0 || '' === self::recipe_name( $idx ) ) {
+			wp_send_json_error( [ 'message' => __( 'This shop has no image prompt that writes into the gallery. Add one under Settings → Product content.', 'dazont-ecom' ) ] );
 		}
 		$all = self::fix_targets( $id, 0 );
 		// One product, pressed on its own row. Checked against the list this
@@ -1881,13 +1890,18 @@ final class DZE_Diagnostic {
 				// button BEFORE it is pressed: what a click is about to spend
 				// is not something to discover afterwards.
 				$fix = (array) ( $check['fix'] ?? [] );
-				if ( $fix && class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+				if ( $fix && (int) ( $fix['recipe'] ?? -1 ) >= 0 && class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
 					$next = count( self::fix_targets( $id ) );
 					if ( $next ) {
 						printf(
-							' <button type="button" class="button button-small button-primary dze-diag-fix" data-check="%1$s">%2$s</button>',
+							' <button type="button" class="button button-small button-primary dze-diag-fix" data-check="%1$s" title="%3$s">%2$s</button>',
 							esc_attr( $id ),
-							esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) )
+							esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) ),
+							esc_attr( sprintf(
+								/* translators: %s: the name of one of the shop's image prompts */
+								__( 'Runs your image prompt "%s" on each of them', 'dazont-ecom' ),
+								self::recipe_name( (int) $fix['recipe'] )
+							) )
 						);
 					}
 				}
@@ -2089,7 +2103,7 @@ final class DZE_Diagnostic {
 		// on the summary and not here, which is the screen somebody is on when
 		// they have decided to do the work.
 		$fix     = (array) ( $check['fix'] ?? [] );
-		$mending = $fix && class_exists( 'DZE_Queue' )
+		$mending = $fix && (int) ( $fix['recipe'] ?? -1 ) >= 0 && class_exists( 'DZE_Queue' )
 			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
 		$waiting = $mending ? DZE_Queue::pending_map( 'product_' ) : [];
 		if ( $mending && 'todo' === $show ) {
@@ -2097,9 +2111,14 @@ final class DZE_Diagnostic {
 			echo '<p style="margin:12px 0 0;">';
 			if ( $next ) {
 				printf(
-					'<button type="button" class="button button-primary dze-diag-fix" data-check="%1$s">%2$s</button> ',
+					'<button type="button" class="button button-primary dze-diag-fix" data-check="%1$s" title="%3$s">%2$s</button> ',
 					esc_attr( $id ),
-					esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) )
+					esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) ),
+					esc_attr( sprintf(
+						/* translators: %s: the name of one of the shop's image prompts */
+						__( 'Runs your image prompt "%s" on each of them', 'dazont-ecom' ),
+						self::recipe_name( (int) $fix['recipe'] )
+					) )
 				);
 			}
 			echo '<span class="description">'
@@ -2227,8 +2246,9 @@ final class DZE_Diagnostic {
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
-		$gap = (array) ( $facts['_missing'] ?? [] );
-		unset( $facts['_missing'] );
+		$gap  = (array) ( $facts['_missing'] ?? [] );
+		$sums = (array) ( $facts['_by'] ?? [] );
+		unset( $facts['_missing'], $facts['_by'] );
 
 		// The rows of this page. Which list they belong to was settled once,
 		// above, for the whole list: judging them again here would be a second
@@ -2323,6 +2343,37 @@ final class DZE_Diagnostic {
 			);
 		}
 
+		// HOW the Revenue column was arrived at, in one collapsed line. A
+		// figure nobody can take apart is a figure that gets argued about, and
+		// three evenings have gone on this one. Currency by currency: what was
+		// read, at what rate, and what it came to.
+		if ( $goods && $sums ) {
+			echo '<details style="margin-top:10px;max-width:1100px;"><summary style="cursor:pointer;color:#2271b1;">'
+				. esc_html__( 'How Revenue was worked out', 'dazont-ecom' ) . '</summary>';
+			echo '<table class="widefat striped" style="max-width:760px;margin:8px 0;"><thead><tr>'
+				. '<th>' . esc_html__( 'Paid in', 'dazont-ecom' ) . '</th>'
+				. '<th style="text-align:right;">' . esc_html__( 'Order lines', 'dazont-ecom' ) . '</th>'
+				. '<th style="text-align:right;">' . esc_html__( 'Read', 'dazont-ecom' ) . '</th>'
+				. '<th style="text-align:right;">' . esc_html__( 'Rate used', 'dazont-ecom' ) . '</th>'
+				. '<th style="text-align:right;">' . esc_html__( 'Counted as', 'dazont-ecom' ) . '</th>'
+				. '</tr></thead><tbody>';
+			foreach ( $sums as $cur => $one ) {
+				printf(
+					'<tr><td><code>%1$s</code></td><td style="text-align:right;">%2$s</td>'
+					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">%4$s</td>'
+					. '<td style="text-align:right;">%5$s</td></tr>',
+					esc_html( (string) $cur ),
+					esc_html( number_format_i18n( (int) ( $one['lines'] ?? 0 ) ) ),
+					esc_html( number_format_i18n( (float) ( $one['raw'] ?? 0 ), 2 ) . ' ' . (string) $cur ),
+					esc_html( (string) ( 1.0 === (float) ( $one['rate'] ?? 0 ) ? '—' : rtrim( rtrim( number_format( (float) ( $one['rate'] ?? 0 ), 6, '.', '' ), '0' ), '.' ) ) ),
+					wp_kses_post( class_exists( 'DZE_Money' ) ? DZE_Money::say( (float) ( $one['base'] ?? 0 ) ) : esc_html( (string) ( $one['base'] ?? 0 ) ) )
+				);
+			}
+			echo '</tbody></table><p class="description" style="max-width:760px;">'
+				. esc_html__( 'Read from your order lines over the window in the column heading, grouped by the currency each order was paid in, and converted at the rate your multi-currency plugin publishes today. A rate that looks wrong here is the rate to correct there.', 'dazont-ecom' )
+				. '</p></details>';
+		}
+
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
 		if ( $pages > 1 ) {
 			echo '<p style="margin-top:12px;">' . wp_kses_post( paginate_links( [
@@ -2388,6 +2439,7 @@ final class DZE_Diagnostic {
 			}
 		}
 		$out['_missing'] = (array) ( $money['missing'] ?? [] );
+		$out['_by']      = (array) ( $money['by'] ?? [] );
 		return $out;
 	}
 
