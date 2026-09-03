@@ -322,7 +322,12 @@ await page.waitForTimeout( 200 );
 	ok( 'two days apart names the other email',
 		said, '2 days from Patriot Day Sale — Warm-up ('
 			+ when.slice( 8, 10 ) + '/' + when.slice( 5, 7 ) + '/' + when.slice( 0, 4 ) + ').' );
-	ok( 'and says the day once', said.split( when.slice( 8, 10 ) + '/' ).length - 1, 1 );
+	// The WHOLE date, not its first two digits: on the ninth of September
+	// "09/" appears twice in 09/09/2026 and this said the sentence was broken
+	// when it was perfectly right. A check that fails on a calendar is a check
+	// that will be ignored on the day it is telling the truth.
+	const dmy = when.slice( 8, 10 ) + '/' + when.slice( 5, 7 ) + '/' + when.slice( 0, 4 );
+	ok( 'and says the day once', said.split( dmy ).length - 1, 1 );
 }
 
 // "Comment générer les images directement en cliquant sur Generate them all ?"

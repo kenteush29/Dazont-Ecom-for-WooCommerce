@@ -256,6 +256,17 @@ owner communicates in French.
   what is handed over (and that the front-end shortcode and a disabled module
   get none of it), and the browser gate opens the plugin's own rendering and
   reads the chips back, on the right days, linking to their promotion.
+- **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
+  photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
+  handler is a thin wrapper over it — it used to BE the handler, three hundred
+  lines reading `$_POST` and ending in `wp_send_json_*`, so nothing could call
+  it and any automatic pass had to copy the whole prompt assembly (sources,
+  "not like this" references, scene, notes, ratio) or do without it. The gate
+  runs the real function against a fake shop and reads WHAT IS SENT — the
+  prompt, the sources, the ratio, where the result is filed — and holds two
+  structural lines: `shoot()` never ends the request and never asks for a
+  nonce, because a JSON exit or a `guard()` put back inside it makes every
+  automatic pass impossible again, silently.
 - **`php tools/test-copy.php dazont-ecom` must pass.** A staging site is a COPY
   of the shop — same Klaviyo key, same Google service account, same scheduled
   hooks — and nothing in the plugin used to tell the two apart: one cron tick
