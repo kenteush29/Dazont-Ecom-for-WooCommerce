@@ -52,6 +52,9 @@ function set_transient( $k, $v, $t = 0 ) { $GLOBALS['dze_transients'][ $k ] = $v
 function delete_transient( $k ) { unset( $GLOBALS['dze_transients'][ $k ] ); return true; }
 function add_action() {} function add_filter() {} function register_setting() {}
 function current_user_can( $c ) { return true; }
+function get_current_user_id() { return (int) ( $GLOBALS['uid'] ?? 1 ); }
+function get_user_meta( $u, $k, $single = false ) { return $GLOBALS['umeta'][ (int) $u ][ $k ] ?? ( $single ? '' : [] ); }
+function update_user_meta( $u, $k, $v ) { $GLOBALS['umeta'][ (int) $u ][ $k ] = $v; return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
 function is_admin() { return true; }
 function wp_unslash( $v ) { return $v; }
@@ -249,6 +252,8 @@ class DZE_Queue {
 		return count( (array) $ids );
 	}
 	public static function url( $a = [] ) { return 'http://shop.test/wp-admin/queue'; }
+	public static function pending_map( $family = 'cat_' ) { return $GLOBALS['pending'] ?? []; }
+	public static function pending_for( $oid, $family = 'cat_' ) { return ( $GLOBALS['pending'] ?? [] )[ (int) $oid ] ?? []; }
 }
 
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
@@ -599,6 +604,7 @@ $render = new ReflectionMethod( 'DZE_Diagnostic', 'render_list' );
 $render->setAccessible( true );
 $show = static function ( array $args ) use ( $render ): string {
 	$_GET = $args;
+	if ( $args ) { $GLOBALS['umeta'] = []; } // an explicit ask is not a memory
 	$GLOBALS['dze_facts_sql'] = [];
 	ob_start();
 	$render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
@@ -616,7 +622,33 @@ ok( 'and the other way round',          $order( $show( [ 'by' => 'sales', 'dir' 
 ok( 'by price',                         $order( $show( [ 'by' => 'price', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Balaclava', 'Ancient cap' ] );
 ok( 'by when they were last edited',    $order( $show( [ 'by' => 'edited', 'dir' => 'desc' ] ) ), [ 'Zulu pouch', 'Balaclava', 'Ancient cap' ] );
 ok( 'and by name',                      $order( $show( [ 'by' => 'name', 'dir' => 'asc' ] ) ), [ 'Ancient cap', 'Balaclava', 'Zulu pouch' ] );
-ok( 'as found, when nothing is asked',  $order( $show( [] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
+// A person who has never sorted this list gets it as found. One who HAS gets
+// it back the way he left it — the check that used to say "nothing asked means
+// found order" was written before the screen had a memory, and a screen with a
+// memory is the whole of what was asked for.
+// "Aucune indication a l'ecran sur le fait qu'on peut trier, meme pas avec des
+// petites fleches." There was one arrow, on the sorted column only — so a list
+// nobody had sorted showed none at all and nothing said the titles were
+// clickable. WordPress's own sortable header draws it: faint on hover for a
+// column that can be sorted, solid on the one that is.
+$GLOBALS['umeta'] = [];
+$hdr = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
+ok( 'every column says it can be sorted',
+	substr_count( $hdr, 'sorting-indicator' ), 5 );
+ok( 'the one in use is marked as sorted',
+	false !== strpos( $hdr, 'manage-column sorted desc' ), true );
+ok( 'and the others as sortable',
+	substr_count( $hdr, 'manage-column sortable' ), 4 );
+// Clicking the sorted column turns it round rather than sorting it again the
+// same way.
+ok( 'the sorted one offers the other direction',
+	false !== strpos( $hdr, 'by=sales&#038;dir=asc' ) || false !== strpos( $hdr, 'by=sales&dir=asc' ), true );
+$GLOBALS['umeta'] = [];
+ok( 'as found, for somebody who never sorted it', $order( $show( [] ) ), [ 'Balaclava', 'Ancient cap', 'Zulu pouch' ] );
+$show( [ 'by' => 'price', 'dir' => 'desc' ] );
+ok( 'and as he left it, coming back',   $order( $show( [] ) ), [ 'Zulu pouch', 'Balaclava', 'Ancient cap' ] );
+ok( 'the memory is his own',            DZE_Diagnostic::kept_view( 'prod_gallery' )['by'] ?? '', 'price' );
+$GLOBALS['umeta'] = [];
 
 // What each one BROUGHT IN, in the shop's own currency — the column the shop
 // actually decides on: a product sold 250 times at 9.90 is not the product
@@ -783,6 +815,71 @@ ok( 'no queue, no pass',                 $ok, false );
 ok( 'and it says where to switch it on',
 	false !== strpos( (string) ( $said['message'] ?? '' ), 'Modules' ), true );
 $GLOBALS['module_off'] = [];
+
+echo "The last view of a list is the one it opens on\n";
+// "La methode de tri n'est pas bonne il faudrait que ca reste sauvegarde, la
+// derniere vue." Nine hundred products sorted by revenue, left, and come back
+// to: it opened again on the order nobody chose, so the work was re-sorted by
+// hand every time.
+$GLOBALS['umeta'] = [];
+ok( 'a list nobody has sorted has no memory', DZE_Diagnostic::kept_view( 'thin' ), [] );
+DZE_Diagnostic::keep_view( 'thin', [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+ok( 'what was chosen is remembered',
+	DZE_Diagnostic::kept_view( 'thin' ), [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+// Per criterion: the galleries are worked through by revenue and the thin
+// descriptions alphabetically, and one is not the other.
+ok( 'and another list keeps its own',   DZE_Diagnostic::kept_view( 'other' ), [] );
+// On the PERSON: two people working through the same shop do not sort it the
+// same way, and one of them re-sorting is not a change to the shop.
+$GLOBALS['uid'] = 2;
+ok( 'somebody else starts clean',       DZE_Diagnostic::kept_view( 'thin' ), [] );
+$GLOBALS['uid'] = 1;
+ok( 'and the first one still has his',  DZE_Diagnostic::kept_view( 'thin' )['by'] ?? '', 'rev' );
+// A write on every page load is a write for nothing.
+$GLOBALS['umeta_writes'] = 0;
+DZE_Diagnostic::keep_view( 'thin', [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+ok( 'an unchanged view writes nothing',
+	DZE_Diagnostic::kept_view( 'thin' ), [ 'by' => 'rev', 'dir' => 'asc', 'show' => 'fixed' ] );
+
+echo "The list of problems mends them, from the list itself\n";
+// "Sur l'ecran des problemes en particulier j'aimerais la possibilite de le
+// regler directement. Ici y'a rien, juste une liste de produits." The button
+// was on the summary — the screen you leave once you have decided to work.
+$GLOBALS['umeta']   = [];
+$GLOBALS['pending'] = [];
+$GLOBALS['tpls']    = [ [ 'id' => 'angle1', 'name' => 'Another angle of the same product' ] ];
+update_option( DZE_Diagnostic::OPT, [] ); // the shipped criteria, so the list is a real one
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
+$page = $show( [] );
+ok( 'the whole list can be sent off',   false !== strpos( $page, 'dze-diag-fix' ), true );
+ok( 'and each product on its own row',  substr_count( $page, 'Mend this one' ), 3 );
+ok( 'each one carrying its own id',     false !== strpos( $page, 'data-id="101"' ), true );
+ok( 'and it says nothing reaches a product first',
+	false !== strpos( $page, 'until you accept it' ), true );
+// A product already in the queue does not offer to be sent a second time: it
+// says where it is.
+$GLOBALS['pending'] = [ 101 => [ 'status' => 'review', 'id' => 9, 'kind' => 'product_shot' ] ];
+$page = $show( [] );
+ok( 'one already waiting says so',      false !== strpos( $page, 'Waiting for you' ), true );
+ok( 'and is not offered again',         substr_count( $page, 'Mend this one' ), 2 );
+$GLOBALS['pending'] = [ 102 => [ 'status' => 'queued', 'id' => 9, 'kind' => 'product_shot' ] ];
+ok( 'one still being made says that instead',
+	false !== strpos( $show( [] ), 'Being made' ), true );
+// The queue switched off leaves the screen exactly as it was.
+$GLOBALS['pending'] = [];
+$GLOBALS['module_off']['queue'] = 1;
+ok( 'no queue, no buttons',             false !== strpos( $show( [] ), 'Mend this one' ), false );
+$GLOBALS['module_off'] = [];
+
+// A criterion deleted while its list is open used to be a WHITE page: a fatal
+// before any of our own error handling, carrying no message at all.
+$_GET = [];
+ob_start();
+$render->invoke( DZE_Diagnostic::instance(), 'no_such_criterion' );
+$gone = (string) ob_get_clean();
+ok( 'a criterion that is gone says so', false !== strpos( $gone, 'That criterion is gone' ), true );
+ok( 'and offers the way back',          false !== strpos( $gone, 'Back to the diagnostic' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
