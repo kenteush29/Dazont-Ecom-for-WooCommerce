@@ -111,6 +111,11 @@ for ( const [ label, jq ] of jqs ) {
 	// switch follows the field as it is chosen, not as it was saved: drawn
 	// only server-side it never appeared for a criterion switched to a count
 	// in the browser — a control you only discover by saving and reloading.
+	ok( 'the field menu is in order',
+		await page.evaluate( () => {
+			const t = Array.from( document.querySelectorAll( '[data-under-test] .dze-diag-field option' ) ).map( o => o.textContent );
+			return JSON.stringify( t ) === JSON.stringify( t.slice().sort( ( a, b ) => a.localeCompare( b ) ) );
+		} ), true );
 	ok( 'a count offers the switch',        await page.isVisible( `${$new} .dze-diag-cond` ), true );
 	ok( 'and it is off',                    await page.isChecked( `${$new} .dze-diag-condon` ), false );
 	ok( 'so the screen shows nothing else', await page.isVisible( `${$new} .dze-diag-bands` ), false );
@@ -120,9 +125,14 @@ for ( const [ label, jq ] of jqs ) {
 	await page.waitForTimeout( 200 );
 	ok( 'ticking it opens the conditions',  await page.isVisible( `${$new} .dze-diag-bands` ), true );
 	ok( 'with a first one already there',   await rows(), 1 );
+	// THE CONDITIONS ARE THE RULE. A figure sitting beside them is a second
+	// rule nobody wrote, and the screen cannot say which of the two a product
+	// was held to.
+	ok( 'and the plain figure goes',        await page.isVisible( `${$new} .dze-diag-value` ), false );
 	await page.uncheck( `${$new} .dze-diag-condon` );
 	await page.waitForTimeout( 150 );
 	ok( 'unticking shuts them again',       await page.isVisible( `${$new} .dze-diag-bands` ), false );
+	ok( 'and gives the figure back',        await page.isVisible( `${$new} .dze-diag-value` ), true );
 	ok( 'without throwing the work away',   await rows(), 1 );
 	await page.check( `${$new} .dze-diag-condon` );
 	await page.waitForTimeout( 150 );
@@ -178,14 +188,15 @@ for ( const [ label, jq ] of jqs ) {
 
 	// The head IS the rule, so it carries every figure as it is typed — not
 	// "less than 6" while a cheap product is being judged on 3.
-	await page.fill( `${$new} .dze-diag-value`, '6' );
 	const wants = page.locator( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto) [name*="[want]"]` );
 	await wants.nth( 0 ).fill( '3' );
 	await wants.nth( 1 ).fill( '4' );
 	await page.waitForTimeout( 150 );
-	ok( 'the head names every figure',
+	// The head names what the criterion is JUDGED by, which with Conditional
+	// on is the conditions and nothing else.
+	ok( 'the head names the conditions',
 		( await page.textContent( `${$new} .dze-diag-name` ) ).trim(),
-		'Gallery photographs is less than 3/4/6 photographs' );
+		'Gallery photographs is less than 3/4 photographs' );
 
 	// Removing the first must renumber what is left, or the survivor posts as
 	// condition 1 with no condition 0 and the list arrives with a hole in it.

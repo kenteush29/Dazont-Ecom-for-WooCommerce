@@ -324,6 +324,17 @@ owner communicates in French.
   one above it is a line nobody reads. Ranges are HALF OPEN — 40 belongs to
   "40 and 80" and to nothing else — because two ranges meeting at a number is
   the one place a reader would have to guess.
+  **With Conditional ON, the conditions ARE the rule.** The plain figure comes
+  off the card entirely — kept in the form so unticking gives it straight back,
+  but neither shown nor applied — and an object no condition covers is NOT
+  JUDGED: nothing was asked of it, so it cannot fall short. A figure sitting
+  beside the conditions was a second rule nobody had written, and no screen
+  could say which of the two a product had been held to. The criterion's name
+  follows: the conditions' figures when there are any, the plain one only when
+  it is what the criterion is actually judged by.
+  **The field menus are in alphabetical order**, sorted where a menu is built
+  and never in `fields()` itself — that order is what a fresh criterion opens
+  on.
   **The count lives on the rule and nowhere else, and "Fix it with" is gone.**
   The criterion said "at least 3 photographs" and the routine beside it said
   "2 of this prompt, 1 of that": two answers to one question. The whole repair

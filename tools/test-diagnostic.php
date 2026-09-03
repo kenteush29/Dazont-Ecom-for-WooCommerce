@@ -773,6 +773,7 @@ $dze_band = [
 	'bands' => [
 		[ 'field' => 'product.price', 'from' => 0,  'to' => 40, 'want' => 3 ],
 		[ 'field' => 'product.price', 'from' => 40, 'to' => 80, 'want' => 4 ],
+		[ 'field' => 'product.price', 'from' => 80, 'to' => 0,  'want' => 6 ],
 	],
 ];
 $dze_gal( 301, 3, '16.90' );
@@ -791,11 +792,13 @@ $dze_gal( 306, 3, '40.00' );
 ok( 'a price on the boundary goes up',       judge( $dze_band, 306 ), true );
 $dze_gal( 307, 3, '39.99' );
 ok( 'and just under it stays down',          judge( $dze_band, 307 ), false );
-// A product with no price is placed by nothing. It falls to the figure above —
-// the strictest — never into the first range, which starts at 0 and would
-// quietly excuse the products most likely to be broken.
+// THE CONDITIONS ARE THE RULE. A product no condition covers is not judged at
+// all — nothing was asked of it, so it cannot fall short. A product with no
+// price is placed by nothing, and it is never dropped into the first range,
+// which starts at 0 and would quietly excuse the products most likely to be
+// broken.
 $dze_gal( 308, 3 );
-ok( 'no price takes the plain figure',       judge( $dze_band, 308 ), true );
+ok( 'no price, no condition, not judged',    judge( $dze_band, 308 ), false );
 // Conditions can be written on different fields in the same list.
 $dze_mixed = $dze_band;
 $dze_mixed['bands'] = [
@@ -823,7 +826,7 @@ ok( 'and every product takes the one figure', judge( $dze_off, 304 ), false );
 
 echo "The conditions survive being saved, and refuse what they cannot judge\n";
 $dze_saved = DZE_Diagnostic::clean_rows( [ $dze_band ] )[0];
-ok( 'both conditions are kept',         count( $dze_saved['bands'] ), 2 );
+ok( 'every condition is kept',          count( $dze_saved['bands'] ), 3 );
 ok( 'each with the field it names',     $dze_saved['bands'][1]['field'], 'product.price' );
 ok( 'and its own range',                [ $dze_saved['bands'][1]['from'], $dze_saved['bands'][1]['to'] ], [ 40, 80 ] );
 // A range is measured on a NUMBER. A description answers words, not "between
@@ -834,6 +837,7 @@ $dze_bad['bands'] = [
 	[ 'field' => 'category.products',   'from' => 0, 'to' => 40, 'want' => 3 ],
 	[ 'field' => 'product.price',       'from' => 0, 'to' => 40, 'want' => 3 ],
 ];
+$dze_bad['cond'] = 1;
 ok( 'a text and another type are dropped', count( DZE_Diagnostic::clean_rows( [ $dze_bad ] )[0]['bands'] ), 1 );
 // A range typed the wrong way round is a slip. Kept as "and above" rather
 // than thrown away, because losing the line would hide the mistake.
@@ -888,7 +892,7 @@ update_option( DZE_Diagnostic::OPT, [ 'rows' => [ $dze_saved ] ] );
 $dze_other = $dze_band;
 unset( $dze_other['bands'], $dze_other['cond'] );
 $dze_kept = DZE_Diagnostic::clean_rows( [ $dze_other ] )[0];
-ok( 'a form without them changes nothing', count( $dze_kept['bands'] ), 2 );
+ok( 'a form without them changes nothing', count( $dze_kept['bands'] ), 3 );
 ok( 'nor does it switch them off',      $dze_kept['cond'], 1 );
 // A criterion held to conditions must not go on calling itself by ONE figure:
 // "is less than 6 photographs" stopped being true the moment a $16.90 cap
@@ -904,6 +908,12 @@ ok( 'a half-typed one is not a figure',
 // And an unticked switch names none of them, however many are stored.
 $dze_half = $dze_band;
 $dze_half['cond'] = 0;
+// With Conditional on there is no plain figure on the screen at all, so the
+// name must not carry one: it would be naming something nothing is judged by.
+ok( 'and the plain figure is off the card',
+	false !== strpos( (string) $dze_c->invoke( null, $dze_band, '0' ), 'dze-diag-value" min="0" step="1" style="width:100px;display:none;' ), true );
+ok( 'while a plain criterion still shows it',
+	false !== strpos( (string) $dze_c->invoke( null, $dze_flat, '0' ), 'dze-diag-value" min="0" step="1" style="width:100px;"' ), true );
 ok( 'unticked, the name is the one figure',
 	DZE_Diagnostic::clean_rows( [ $dze_half ] )[0]['label'], 'Gallery photographs is less than 6 photographs' );
 ok( 'and one figure stays one figure',
