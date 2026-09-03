@@ -904,72 +904,107 @@ trait DZE_Content_Ajax {
 
 	public function ajax_image(): void {
 		$this->guard();
-		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$idx    = isset( $_POST['template'] ) ? absint( $_POST['template'] ) : 0;
-		$mode   = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : '';
-		$custom = isset( $_POST['custom_prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['custom_prompt'] ) ) : '';
-		$src    = isset( $_POST['src_url'] ) ? esc_url_raw( wp_unslash( $_POST['src_url'] ) ) : '';
+		try {
+			$made = $this->shoot( (array) $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput -- guard() checks the nonce; every field is sanitised where it is read, inside shoot().
+		} catch ( \Throwable $e ) {
+			wp_send_json_error( [ 'message' => $e->getMessage() ] );
+		}
+		wp_send_json_success( $made );
+	}
+
+	/**
+	 * ONE product image, made — the function behind the button.
+	 *
+	 * It used to be the AJAX handler itself: three hundred lines reading
+	 * $_POST and ending in wp_send_json_*, which meant nothing could call it.
+	 * An automatic pass therefore had a choice between a second copy of this
+	 * — the sources, the "not like this" references, the scene, the variation
+	 * instructions, the shop's notes, the ratio — and doing without them. Two
+	 * copies of a prompt this careful drift apart, and the day they do it is
+	 * the catalogue that pays.
+	 *
+	 * So: one function. The click passes $_POST, a queued job passes the same
+	 * names, and both get the same picture from the same words.
+	 *
+	 * The inputs arrive exactly as the screen posts them — slashed — because
+	 * every wp_unslash() inside is left where it stands. A caller with plain
+	 * values loses nothing: unslashing a product id is a no-op.
+	 *
+	 * @param array $in The run's inputs, named as the screen names them.
+	 * @return array What the screen is sent: a finished attachment, or a
+	 *               preview to accept, or a stashed shot.
+	 * @throws RuntimeException with the sentence the screen must show.
+	 */
+	public function shoot( array $in ): array {
+		// No guard here: a nonce and a capability belong to a CLICK, and this
+		// is also called from a background job that has neither. ajax_image()
+		// checks them before it gets this far.
+		$pid    = isset( $in['post'] ) ? absint( $in['post'] ) : 0;
+		$idx    = isset( $in['template'] ) ? absint( $in['template'] ) : 0;
+		$mode   = isset( $in['mode'] ) ? sanitize_key( wp_unslash( $in['mode'] ) ) : '';
+		$custom = isset( $in['custom_prompt'] ) ? sanitize_textarea_field( wp_unslash( $in['custom_prompt'] ) ) : '';
+		$src    = isset( $in['src_url'] ) ? esc_url_raw( wp_unslash( $in['src_url'] ) ) : '';
 		// A photograph that is not on the product yet — a supplier shot pasted
 		// from a browser tab, its watermark and its play button included. It
 		// travels as bytes inside the request and is never stored: it is the
 		// subject of the generation, not a file the shop keeps.
-		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
+		$paste  = isset( $in['paste'] ) ? (string) wp_unslash( $in['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
 		// Several photographs from outside the shop, the first one the subject.
-		$pastes = isset( $_POST['pastes'] ) ? (array) wp_unslash( $_POST['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
+		$pastes = isset( $in['pastes'] ) ? (array) wp_unslash( $in['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
 		if ( ! $pastes && '' !== $paste ) {
 			$pastes = [ $paste ];
 		}
 		$paste = $pastes ? (string) $pastes[0] : '';
 		if ( ! $pid ) {
-			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+			throw new RuntimeException( __( 'Save the product first.', 'dazont-ecom' ) );
 		}
 		if ( '' === self::fal_key() ) {
-			wp_send_json_error( [ 'message' => __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) ] );
+			throw new RuntimeException( __( 'Add your fal.ai key under Settings → General first.', 'dazont-ecom' ) );
 		}
 		if ( class_exists( 'DZE_Ai_Usage' ) && DZE_Ai_Usage::over_budget() ) {
-			wp_send_json_error( [ 'message' => DZE_Ai_Usage::budget_message() ] );
+			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
 		}
 		$templates = self::image_templates();
 		$tpl       = $templates[ $idx ] ?? $templates[0] ?? null;
 		if ( ! $tpl && '' === $custom ) {
-			wp_send_json_error( [ 'message' => __( 'No image template configured.', 'dazont-ecom' ) ] );
+			throw new RuntimeException( __( 'No image template configured.', 'dazont-ecom' ) );
 		}
 		// Where this image is meant to land. The prompt says it, and the screen
 		// that ordered the run may have said otherwise — a decision taken once
 		// before the run rather than corrected on thirty images afterwards.
 		$target = (string) ( $tpl['target'] ?? 'gallery' );
-		if ( isset( $_POST['target'] ) ) {
-			$target = self::attach_target( (string) wp_unslash( $_POST['target'] ) );
+		if ( isset( $in['target'] ) ) {
+			$target = self::attach_target( (string) wp_unslash( $in['target'] ) );
 		}
 		// One group of variations — "the olive ones" — asked for by key. It
 		// decides the destination on its own: an image made for a colour goes
 		// to that colour's variations and nowhere else.
-		$variation = isset( $_POST['variation'] ) ? (string) wp_unslash( $_POST['variation'] ) : '';
+		$variation = isset( $in['variation'] ) ? (string) wp_unslash( $in['variation'] ) : '';
 		$v_attr    = '';
 		$v_value   = '';
 		if ( '' !== $variation ) {
 			$target = self::attach_target( 'variation:' . $variation );
 			if ( 0 !== strpos( $target, 'variation:' ) ) {
-				wp_send_json_error( [ 'message' => __( 'Unknown variation group.', 'dazont-ecom' ) ] );
+				throw new RuntimeException( __( 'Unknown variation group.', 'dazont-ecom' ) );
 			}
 			[ $v_attr, $v_value ] = array_pad( explode( '::', substr( $target, 10 ), 2 ), 2, '' );
 		}
 
 		// Source image: an earlier AI result (live edit) or the featured image.
 		if ( '' !== $src && ! self::is_fal_url( $src ) ) {
-			wp_send_json_error( [ 'message' => __( 'Invalid source image.', 'dazont-ecom' ) ] );
+			throw new RuntimeException( __( 'Invalid source image.', 'dazont-ecom' ) );
 		}
 		// The scene: the fixed support or background this shop always shoots on.
 		// A one-off edit of an image that already exists ("make the strap red")
 		// keeps that image's own setting, so the scene only comes back if it was
 		// explicitly asked for.
 		$scenes = self::scenes();
-		$sidx   = isset( $_POST['scene'] ) ? (int) $_POST['scene'] : ( '' !== $src ? -1 : self::default_scene() );
+		$sidx   = isset( $in['scene'] ) ? (int) $in['scene'] : ( '' !== $src ? -1 : self::default_scene() );
 		$scene  = ( $sidx >= 0 && isset( $scenes[ $sidx ] ) ) ? $scenes[ $sidx ] : null;
 		if ( $scene && ! wp_attachment_is_image( (int) $scene['image'] ) ) {
 			// Deleted from the media library: say so instead of failing on the
 			// product image, which is what the generic reader error would blame.
-			wp_send_json_error( [ 'message' => __( 'The scene image is missing from the media library — pick it again under Settings → Product content.', 'dazont-ecom' ) ] );
+			throw new RuntimeException( __( 'The scene image is missing from the media library — pick it again under Settings → Product content.', 'dazont-ecom' ) );
 		}
 		// The product's photographs, as many as the shop asks for. Not all of
 		// them: an edit model handed six angles of one bag reconciles them into
@@ -994,7 +1029,7 @@ trait DZE_Content_Ajax {
 			}
 		}
 		if ( '' === $src && '' === $paste && ! $product_ids ) {
-			wp_send_json_error( [ 'message' => __( 'Set a featured image on this product first.', 'dazont-ecom' ) ] );
+			throw new RuntimeException( __( 'Set a featured image on this product first.', 'dazont-ecom' ) );
 		}
 
 		// On a variation run every product line is read for THAT variation:
@@ -1035,7 +1070,7 @@ trait DZE_Content_Ajax {
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its own.
 				$sources[] = $src;
-			} elseif ( $pastes && ! empty( $_POST['base_main'] ) ) {
+			} elseif ( $pastes && ! empty( $in['base_main'] ) ) {
 				// The product stays the subject and the pasted photographs are
 				// references for the setting. Pasting used to mean "this is now
 				// the thing to photograph", so there was no way to say "keep
@@ -1217,7 +1252,7 @@ trait DZE_Content_Ajax {
 				$pid,
 				(string) ( $tpl['id'] ?? '' ),
 				'' !== $v_value ? 'main' : $target,
-				isset( $_POST['attempt'] ) ? absint( $_POST['attempt'] ) : 0
+				isset( $in['attempt'] ) ? absint( $in['attempt'] ) : 0
 			);
 			DZE_Ai_Usage::unit( 'product_img' );
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto' );
@@ -1228,17 +1263,17 @@ trait DZE_Content_Ajax {
 			if ( 'defer' === $mode ) {
 				// Toolbox flow: never auto-attach — the result joins the session
 				// gallery; a human selects what gets pushed to the product.
-				if ( ! empty( $_POST['stash'] ) ) {
+				if ( ! empty( $in['stash'] ) ) {
 					self::stash( $pid, [
 						'shot'   => $image_url,
 						'target' => $target,
 						'recipe' => (string) ( $tpl['id'] ?? '' ),
 					] );
 				}
-				wp_send_json_success( [ 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ] );
+				return [ 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ];
 			}
 			if ( ! $validated ) {
-				wp_send_json_success( [ 'preview' => true, 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ] );
+				return [ 'preview' => true, 'url' => $image_url, 'target' => $target, 'spend' => self::product_spend( $pid ) ];
 			}
 			$att_id = $this->sideload_seo( $image_url, $pid, $target, (string) ( $tpl['id'] ?? '' ) );
 		} catch ( \Throwable $e ) {
@@ -1254,14 +1289,14 @@ trait DZE_Content_Ajax {
 			if ( class_exists( 'DZE_Health' ) ) {
 				DZE_Health::log( 'content', 'image generation (product ' . $pid . ')', $why );
 			}
-			wp_send_json_error( [ 'message' => $why ] );
+			throw new RuntimeException( $why );
 		}
-		wp_send_json_success( [
+		return [
 			'attachment' => (int) $att_id,
 			'target'     => $target,
 			'url'        => wp_get_attachment_image_url( (int) $att_id, 'medium' ),
 			'spend'      => self::product_spend( $pid ),
-		] );
+		];
 	}
 
 	/**
