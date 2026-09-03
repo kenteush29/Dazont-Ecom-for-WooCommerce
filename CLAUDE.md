@@ -230,6 +230,18 @@ owner communicates in French.
   the split still reads the old row until the next scan. The prefix is declared
   in `DZE_Cleanup::map()` — an option name ending in `_` is a PREFIX there, the
   same convention transients already use.
+- **`php tools/test-review.php dazont-ecom` must pass.** Two halves of one
+  promise, both broken once. NOTHING writes to the shop without being looked
+  at: three automation tasks SHIPPED with "save without review" ticked, so a
+  shop switching a task on got text written straight onto its categories
+  having chosen nothing. They ship held for review, the box is still there to
+  tick, and a shop that had it ticked by default is put back ONCE and the pass
+  written down — overriding the shop's own answer on every admin load would be
+  a setting nobody can keep. And WHAT WAS WRITTEN IS REMEMBERED: the queue's
+  Clear must never delete an `applied` row. That row is the only record that a
+  product was worked on, when, and that somebody said yes — wiping it is why
+  nothing here could be checked after the fact. `done_map()` reads the most
+  recent one per object, in ONE query for a whole page.
 - **`php tools/check-lint.php dazont-ecom` must pass, and it must be run AFTER
   the last edit.** It lints every shipped file, which is not the same thing as
   linting the files that were touched. 4.296.0 went to both channels with a

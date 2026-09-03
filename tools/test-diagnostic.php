@@ -245,6 +245,15 @@ class DZE_Queue {
 	}
 	public static function url( $a = [] ) { return 'http://shop.test/wp-admin/queue'; }
 	public static function pending_map( $family = 'cat_' ) { return $GLOBALS['pending'] ?? []; }
+	/** What was ACCEPTED on these objects — the record of what was done. */
+	public static function done_map( $ids ) {
+		$out = [];
+		foreach ( (array) $ids as $id ) {
+			if ( isset( $GLOBALS['done'][ (int) $id ] ) ) { $out[ (int) $id ] = $GLOBALS['done'][ (int) $id ]; }
+		}
+		return $out;
+	}
+	public static function label_for( $kind, $oid ) { return 'Product photograph'; }
 	public static function pending_for( $oid, $family = 'cat_' ) { return ( $GLOBALS['pending'] ?? [] )[ (int) $oid ] ?? []; }
 }
 
@@ -553,7 +562,14 @@ $named = DZE_Diagnostic::clean_rows( [
 	[ 'id' => '', 'scope' => 'product', 'field' => 'product.variation_images', 'key' => 'attribute_pa_couleur', 'test' => 'gt', 'value' => 0, 'find' => '', 'on' => 1 ],
 ] );
 ok( 'the field keeps its name, with the key',
-	$named[0]['label'] ?? '', 'Variations with no photograph of their own (attribute_pa_couleur) is more than 0' );
+	$named[0]['label'] ?? '', 'Variations without an image (attribute_pa_couleur) is more than 0' );
+// It COUNTS what is missing, so the name has to say "without": called
+// "variation images" it would read as a count of the images that exist, and
+// "variation images is empty" would look like the problem when it is the
+// opposite. Both comparisons have to read true.
+ok( 'and "is empty" reads as none missing',
+	DZE_Diagnostic::clean_rows( [ [ 'id' => '', 'scope' => 'product', 'field' => 'product.variation_images', 'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ] ] )[0]['label'] ?? '',
+	'Variations without an image is empty' );
 $tool = new ReflectionMethod( 'DZE_Diagnostic', 'tool_for' );
 $tool->setAccessible( true );
 // PHOTOGRAPHS HAVE NO SCREEN OF THEIR OWN HERE. The image lab is an
@@ -1015,6 +1031,47 @@ $GLOBALS['umeta'] = [];
 ok( 'a gallery row offers none',         false !== strpos( $show( [ 'by' => 'found' ] ), '>Open</a>' ), false );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
+
+echo "A mended product says WHAT was done to it\n";
+// "Apres un fix, le produit disparait des diagnostics." It should — it is not
+// a problem any more. What must not disappear is the RECORD: what was
+// accepted onto it, when, and a way back to it. Read from the queue, which is
+// the only place that knows, never from a second store that could disagree.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_posts'] = [];
+$GLOBALS['dze_meta'] = [];
+foreach ( [ 501, 502 ] as $dze_i ) {
+	$post = new WP_Post();
+	$post->ID = $dze_i;
+	$post->post_title = 'Mended ' . $dze_i;
+	$GLOBALS['dze_posts'][ $dze_i ] = $post;
+	// Four photographs: they are no longer short of three.
+	$GLOBALS['dze_meta'][ $dze_i ]['_product_image_gallery'] = '1,2,3,4';
+}
+$GLOBALS['done'] = [ 501 => [ 'kind' => 'product_shot', 'when' => '2026-09-03 10:00:00', 'id' => 77 ] ];
+$dze_rows4 = DZE_Diagnostic::rows();
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_rows4 ] );
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 501, 502 ], false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 2 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$dze_fixed = $show( [ 'show' => 'fixed' ] );
+ok( 'the Fixed tab has a column for it',
+	false !== strpos( $dze_fixed, 'What was done' ), true );
+ok( 'and names the job that did it',    false !== strpos( $dze_fixed, 'Product photograph' ), true );
+ok( 'with a way back to it',            false !== strpos( $dze_fixed, '>Review</a>' ), true );
+// A product mended BY HAND has no row, and says so rather than claiming
+// something was run on it.
+ok( 'a hand edit says it was a hand edit',
+	false !== strpos( $dze_fixed, 'Edited by hand' ), true );
+// And the column belongs to that tab only: on the problem list the last
+// column is the tool to open, not a history.
+$GLOBALS['umeta'] = [];
+ok( 'the problem list has no such column',
+	false !== strpos( $show( [ 'show' => 'todo' ] ), 'What was done' ), false );
+$GLOBALS['done'] = [];
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['dze_meta'] = [];
+$GLOBALS['dze_posts'] = [];
 
 echo "The pagination is WordPress's own, in WordPress's own wrapper\n";
 // "La pagination des listes diagnostique est horrible. Inutilisable." The

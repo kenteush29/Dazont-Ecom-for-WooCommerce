@@ -157,7 +157,7 @@ final class DZE_Diagnostic {
 			// is a criterion. A shop selling the same jacket in six colours
 			// shows the same photograph six times until somebody notices, and
 			// nobody notices from the product list.
-			'product.variation_images'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'variations with no photograph of their own', 'dazont-ecom' ), 'key' => true, 'keyhint' => 'which ones — attribute_pa_couleur', 'rule' => [ 'gt', 0 ] ],
+			'product.variation_images'  => [ 'scope' => 'product',  'kind' => 'number', 'unit' => '',           'label' => __( 'variations without an image', 'dazont-ecom' ), 'key' => true, 'keyhint' => 'which ones — attribute_pa_couleur', 'rule' => [ 'gt', 0 ] ],
 			'product.reviews'           => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'reviews',    'label' => __( 'reviews', 'dazont-ecom' ) ],
 			'product.rating'            => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'stars',      'label' => __( 'average rating', 'dazont-ecom' ) , 'rule' => [ 'lt', 4 ] ],
 			'product.age'               => [ 'scope' => 'product',  'kind' => 'number', 'unit' => 'days',       'label' => __( 'days since published', 'dazont-ecom' ) ],
@@ -2409,7 +2409,15 @@ final class DZE_Diagnostic {
 		}
 		// phpcs:enable
 		$dze_tool = (array) ( $check['tool'] ?? [] );
-		if ( $dze_tool ) {
+		// On the FIXED tab the last column says what was DONE, not what to
+		// open next: a product that has left the problem list is a product
+		// nobody can check any more without reopening it.
+		$dze_done = ( 'fixed' === $show && class_exists( 'DZE_Queue' ) )
+			? DZE_Queue::done_map( $slice )
+			: [];
+		if ( 'fixed' === $show ) {
+			echo '<th style="width:210px;">' . esc_html__( 'What was done', 'dazont-ecom' ) . '</th>';
+		} elseif ( $dze_tool ) {
 			echo '<th style="width:110px;"></th>';
 		}
 		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -2424,7 +2432,7 @@ final class DZE_Diagnostic {
 		// a product is on this list because ONE condition placed it, and a
 		// list that does not say which is a list you have to work out.
 		$dze_row  = (array) ( $check['row'] ?? [] );
-		$dze_cols = ( $goods ? 4 : 1 ) + ( $dze_tool ? 1 : 0 );
+		$dze_cols = ( $goods ? 4 : 1 ) + ( ( 'fixed' === $show || $dze_tool ) ? 1 : 0 );
 		$dze_seen = null;
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
@@ -2470,7 +2478,27 @@ final class DZE_Diagnostic {
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
 			}
-			if ( $dze_tool ) {
+			if ( 'fixed' === $show ) {
+				// READ FROM THE QUEUE, never from a second record: what was
+				// accepted onto this object, when, and a way back to it. A
+				// product mended by hand has no row and says so rather than
+				// claiming something was run.
+				$dze_was = (array) ( $dze_done[ $oid ] ?? [] );
+				echo '<td>';
+				if ( $dze_was ) {
+					$dze_when = strtotime( (string) $dze_was['when'] ) ?: 0;
+					printf(
+						'%1$s<br /><a href="%2$s">%3$s</a> <span class="description">%4$s</span>',
+						esc_html( DZE_Queue::label_for( (string) $dze_was['kind'], $oid ) ),
+						esc_url( DZE_Queue::url() ),
+						esc_html__( 'Review', 'dazont-ecom' ),
+						esc_html( $dze_when ? wp_date( $fmt, $dze_when ) : '' )
+					);
+				} else {
+					echo '<span class="description">' . esc_html__( 'Edited by hand', 'dazont-ecom' ) . '</span>';
+				}
+				echo '</td>';
+			} elseif ( $dze_tool ) {
 				// The screen that does this kind of work, opened from the line
 				// that needs it. It generates nothing and decides nothing — it
 				// saves the walk back through three menus.
