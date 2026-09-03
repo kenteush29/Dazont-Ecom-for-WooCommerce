@@ -30,6 +30,20 @@ function wp_get_attachment_image_url( $id, $size = '' ) { return 'https://kula.t
 function get_post_thumbnail_id( $pid ) { return (int) ( $GLOBALS['thumb'][ (int) $pid ] ?? 0 ); }
 function wc_attribute_label( $a ) { return ucfirst( (string) $a ); }
 function is_int_stub( $v ) { return is_int( $v ); }
+function get_the_title( $id ) { return (string) ( $GLOBALS['titles'][ (int) $id ] ?? '' ); }
+function html_entity_decode_stub( $s ) { return $s; }
+function current_time( $t = 'mysql' ) { return gmdate( 'Y-m-d H:i:s' ); }
+function get_term( ...$a ) { return null; }
+function is_wp_error( $t ) { return false; }
+function add_action( ...$a ) {}
+function wp_kses_post( $s ) { return (string) $s; }
+function get_option( $k, $d = false ) { return $d; }
+function update_option( $k, $v, $a = null ) { return true; }
+function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
+function esc_html__( $s, $d = '' ) { return $s; }
+function admin_url( $p = '' ) { return '/wp-admin/' . $p; }
+function add_query_arg( $a, $u = '' ) { return $u; }
+function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 
 class DZE_Ai_Usage {
 	public static function over_budget() { return ! empty( $GLOBALS['over_budget'] ); }
@@ -38,7 +52,6 @@ class DZE_Ai_Usage {
 	public static function finished( $k = '' ) {}
 }
 class DZE_Health { public static function log( ...$a ) { $GLOBALS['logged'][] = $a; } }
-class DZE_Content { public static function clean_ratio( $r ) { return (string) $r; } }
 
 require __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php';
 
@@ -205,6 +218,58 @@ $sh = substr( $src, strpos( $src, 'public function shoot( array $in ): array {' 
 $sh = substr( $sh, 0, strpos( $sh, "\n\t}\n\n\t/**" ) );
 ok( 'shoot() never ends the request',   false !== strpos( $sh, 'wp_send_json' ), false );
 ok( 'and never asks for a nonce',       false !== strpos( $sh, 'guard()' ), false );
+
+echo "The queue makes the same picture, and files NOTHING until it is accepted\n";
+// The whole promise of this pass, in three checks: the queued job calls the
+// same function with the same names, the product is untouched while the
+// picture waits, and accepting it is what puts it on the product.
+class DZE_Content {
+	public static function clean_ratio( $r ) { return (string) $r; }
+	public static function instance() { return new DZE_Shoot_Host(); }
+}
+class DZE_Modules { public static function enabled( $id ) { return true; } }
+class DZE_Post_Links { public static function add_links( $id ) { return ''; } }
+class DZE_Category_Content { public static function generate( ...$a ) { return ''; } }
+require __DIR__ . '/../' . $dir . '/includes/class-queue.php';
+
+shop();
+$job = [ 'template' => 1 ];
+$make = new ReflectionMethod( 'DZE_Queue', 'produce' );
+$make->setAccessible( true );
+$GLOBALS['filed'] = [];
+$url = $make->invokeArgs( null, [ 'product_shot', 7, &$job ] );
+ok( 'the queue gets a picture back',    $url, 'https://fal.media/files/new-shot.jpg' );
+ok( 'made from the recipe it asked for',
+	false !== strpos( $GLOBALS['sent']['prompt'], 'ANGLE PROMPT' ), true );
+// Nothing on the product. This is the line the shop is trusting.
+ok( 'and NOTHING was put on the product', $GLOBALS['filed'], [] );
+// Where it belongs is decided once, by the recipe, and travels with the job.
+ok( 'the job remembers where it goes',  $job['target'] ?? '', 'gallery' );
+ok( 'and which recipe made it',         $job['recipe'] ?? '', 'angle1' );
+
+// Accepting is the only thing that touches the product.
+ok( 'accepting files it',               DZE_Queue::apply( 'product_shot', 7, $url, $job ), true );
+ok( 'on the product that asked',        $GLOBALS['filed']['pid'] ?? 0, 7 );
+ok( 'at the place the recipe named',    $GLOBALS['filed']['target'] ?? '', 'gallery' );
+ok( 'named after that recipe',          $GLOBALS['filed']['recipe'] ?? '', 'angle1' );
+ok( 'and the address fal gave',         $GLOBALS['filed']['url'] ?? '', $url );
+// Refusing files nothing at all.
+$GLOBALS['filed'] = [];
+ok( 'an empty result files nothing',    DZE_Queue::apply( 'product_shot', 7, '', $job ), false );
+ok( 'and touches nothing',              $GLOBALS['filed'], [] );
+// The row on the review screen says WHICH product, by its name.
+$GLOBALS['titles'][7] = 'A-Tacs FG Combat Uniform';
+ok( 'the waiting row names the product',
+	DZE_Queue::label_for( 'product_shot', 7 ), 'A-Tacs FG Combat Uniform' );
+
+echo "A photograph is reviewed as a photograph\n";
+// The queue's review screen was written for text — two word counts and a diff.
+// An image job says so, and the screen shows the picture instead. The kind is
+// what carries that, so a future image job arrives already reviewable.
+ok( 'the job says it is a picture',
+	! empty( DZE_Queue::kinds()['product_shot']['image'] ), true );
+ok( 'and the text jobs do not',
+	empty( DZE_Queue::kinds()['cat_desc']['image'] ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

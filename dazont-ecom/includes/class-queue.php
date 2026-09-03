@@ -42,6 +42,14 @@ final class DZE_Queue {
 				'label'  => __( 'Article internal links', 'dazont-ecom' ),
 				'module' => 'automation',
 			],
+			// A photograph is not text, so its review is not a diff: the row
+			// shows the picture, and accepting it files it on the product.
+			// Nothing about the product changes before that click.
+			'product_shot' => [
+				'label'  => __( 'Product photograph', 'dazont-ecom' ),
+				'module' => 'content',
+				'image'  => true,
+			],
 		];
 	}
 
@@ -262,7 +270,7 @@ final class DZE_Queue {
 			if ( class_exists( 'DZE_Ai_Usage' ) ) {
 				DZE_Ai_Usage::finished( (string) $job['kind'] );
 			}
-			$applied = ! empty( $job['auto_apply'] ) && self::apply( (string) $job['kind'], (int) $job['object_id'], $result );
+			$applied = ! empty( $job['auto_apply'] ) && self::apply( (string) $job['kind'], (int) $job['object_id'], $result, $payload );
 			$wpdb->update( $table, [
 				'status'  => ! empty( $job['auto_apply'] ) ? ( $applied ? 'applied' : 'failed' ) : 'review',
 				'result'  => $result,
@@ -327,7 +335,14 @@ final class DZE_Queue {
 	}
 
 	/** Writes one job's content. Throws with a readable reason on failure. */
-	private static function produce( string $kind, int $object_id, array $payload ): string {
+	/**
+	 * @param array $payload By reference: a job may learn something while it
+	 *                       runs that its acceptance needs later — where a
+	 *                       photograph is meant to land, and which recipe made
+	 *                       it. Recomputing that at acceptance time would be a
+	 *                       second answer to one question.
+	 */
+	private static function produce( string $kind, int $object_id, array &$payload ): string {
 		if ( ! class_exists( 'DZE_Category_Content' ) ) {
 			throw new RuntimeException( __( 'The Category descriptions module is switched off.', 'dazont-ecom' ) );
 		}
@@ -348,13 +363,54 @@ final class DZE_Queue {
 			}
 			return DZE_Post_Links::add_links( $object_id );
 		}
+		if ( 'product_shot' === $kind ) {
+			if ( ! class_exists( 'DZE_Content' ) ) {
+				throw new RuntimeException( __( 'The Product content module is switched off.', 'dazont-ecom' ) );
+			}
+			// The SAME function the button on the product page calls, with the
+			// same names — never a second assembly of the same prompt. "defer"
+			// is its own word for "make it, file nothing": the picture waits
+			// on the review screen like every other job here.
+			$in = [
+				'post'     => $object_id,
+				'template' => (int) ( $payload['template'] ?? 0 ),
+				'mode'     => 'defer',
+			];
+			if ( ! empty( $payload['target'] ) ) {
+				$in['target'] = (string) $payload['target'];
+			}
+			$made = DZE_Content::instance()->shoot( $in );
+			$url  = (string) ( $made['url'] ?? '' );
+			if ( '' === $url ) {
+				throw new RuntimeException( __( 'The picture service returned nothing.', 'dazont-ecom' ) );
+			}
+			// Where it goes, decided ONCE — here, by the recipe that made it.
+			$payload['target'] = (string) ( $made['target'] ?? 'gallery' );
+			$payload['recipe'] = (string) ( $made['recipe'] ?? '' );
+			return $url;
+		}
 		throw new RuntimeException( __( 'Unknown job type.', 'dazont-ecom' ) );
 	}
 
 	/** Saves an accepted result onto the shop. */
-	public static function apply( string $kind, int $object_id, string $html ): bool {
+	public static function apply( string $kind, int $object_id, string $html, array $payload = [] ): bool {
 		if ( '' === trim( $html ) ) {
 			return false;
+		}
+		if ( 'product_shot' === $kind ) {
+			if ( ! class_exists( 'DZE_Content' ) ) {
+				return false;
+			}
+			// Added to the product, never over anything: a photograph the shop
+			// already has is not this pass's to replace.
+			$att = DZE_Content::instance()->sideload_seo(
+				$html,
+				$object_id,
+				(string) ( $payload['target'] ?? 'gallery' ),
+				(string) ( $payload['recipe'] ?? '' ),
+				true
+			);
+			return $att > 0;
 		}
 		if ( 'post_links' === $kind ) {
 			// Only the links changed: the title, the status, the dates and
@@ -472,7 +528,7 @@ final class DZE_Queue {
 			// backpacks" comes out as "Bags &amp;amp; backpacks".
 			return ( $t && ! is_wp_error( $t ) ) ? html_entity_decode( $t->name, ENT_QUOTES, 'UTF-8' ) : sprintf( '#%d', $object_id );
 		}
-		if ( 0 === strpos( $kind, 'post_' ) ) {
+		if ( 0 === strpos( $kind, 'product_' ) || 0 === strpos( $kind, 'post_' ) ) {
 			$title = get_the_title( $object_id );
 			return '' !== $title ? html_entity_decode( $title, ENT_QUOTES, 'UTF-8' ) : sprintf( '#%d', $object_id );
 		}
@@ -589,6 +645,13 @@ final class DZE_Queue {
 				'words'    => __( '%s words', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
 				'wordsTo'  => __( '%1$s words → %2$s words', 'dazont-ecom' ),
+				// A photograph's own three answers, said as answers and not as
+				// database words: keep it, make another, throw it away.
+				'alreadyHas'  => __( 'What this product already shows', 'dazont-ecom' ),
+				'keepShot'    => __( 'Keep it', 'dazont-ecom' ),
+				'againShot'   => __( 'Make another', 'dazont-ecom' ),
+				'dropShot'    => __( 'Throw it away', 'dazont-ecom' ),
+				'openProduct' => __( 'Open the product', 'dazont-ecom' ),
 				/* translators: %s: number of texts */
 				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
 				/* translators: %s: number of jobs */
@@ -729,6 +792,32 @@ final class DZE_Queue {
 		if ( ! $job ) {
 			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
 		}
+		// A photograph is not a text, and its review is not a diff: the new
+		// picture, the ones the product already has beside it, and two
+		// answers. Nothing about the product has changed at this point.
+		if ( ! empty( self::kinds()[ $job['kind'] ]['image'] ) ) {
+			$pid  = (int) $job['object_id'];
+			$has  = [];
+			if ( function_exists( 'wc_get_product' ) ) {
+				$one = wc_get_product( $pid );
+				if ( $one && is_object( $one ) ) {
+					foreach ( array_merge( [ (int) $one->get_image_id() ], (array) $one->get_gallery_image_ids() ) as $att ) {
+						$url = $att ? (string) wp_get_attachment_image_url( (int) $att, 'medium' ) : '';
+						if ( '' !== $url ) {
+							$has[] = $url;
+						}
+					}
+				}
+			}
+			wp_send_json_success( [
+				'id'    => $id,
+				'title' => self::label_for( (string) $job['kind'], $pid ),
+				'image' => true,
+				'shot'  => (string) $job['result'],
+				'has'   => $has,
+				'edit'  => (string) get_edit_post_link( $pid, '' ),
+			] );
+		}
 		$term = get_term( (int) $job['object_id'], 'product_cat' );
 		$old  = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
 		wp_send_json_success( [
@@ -760,7 +849,12 @@ final class DZE_Queue {
 			wp_send_json_success( [ 'status' => 'skipped' ] );
 		}
 		$html = '' !== trim( $html ) ? $html : (string) $job['result'];
-		$ok   = self::apply( (string) $job['kind'], (int) $job['object_id'], $html );
+		$ok   = self::apply(
+			(string) $job['kind'],
+			(int) $job['object_id'],
+			$html,
+			$job['payload'] ? (array) json_decode( (string) $job['payload'], true ) : []
+		);
 		$wpdb->update( self::table(), [
 			'status'  => $ok ? 'applied' : 'failed',
 			'result'  => $html,
