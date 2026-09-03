@@ -107,11 +107,25 @@ for ( const [ label, jq ] of jqs ) {
 	await page.selectOption( `${$new} .dze-diag-field`, 'product.gallery' );
 	await page.waitForTimeout( 120 );
 	const rows = () => page.locator( `${$new} .dze-diag-bandrow:not(.dze-diag-bandproto)` ).count();
-	// The block follows the FIELD as it is chosen, not as it was saved. Drawn
+	// A criterion is ONE rule and ONE figure until somebody asks for more. The
+	// switch follows the field as it is chosen, not as it was saved: drawn
 	// only server-side it never appeared for a criterion switched to a count
 	// in the browser — a control you only discover by saving and reloading.
-	ok( 'a count offers conditions',        await page.isVisible( `${$new} .dze-diag-bands` ), true );
-	ok( 'a fresh criterion has none',       await rows(), 0 );
+	ok( 'a count offers the switch',        await page.isVisible( `${$new} .dze-diag-cond` ), true );
+	ok( 'and it is off',                    await page.isChecked( `${$new} .dze-diag-condon` ), false );
+	ok( 'so the screen shows nothing else', await page.isVisible( `${$new} .dze-diag-bands` ), false );
+	// Ticking it must answer with something. An empty list under a box just
+	// ticked is a press that did nothing.
+	await page.check( `${$new} .dze-diag-condon` );
+	await page.waitForTimeout( 200 );
+	ok( 'ticking it opens the conditions',  await page.isVisible( `${$new} .dze-diag-bands` ), true );
+	ok( 'with a first one already there',   await rows(), 1 );
+	await page.uncheck( `${$new} .dze-diag-condon` );
+	await page.waitForTimeout( 150 );
+	ok( 'unticking shuts them again',       await page.isVisible( `${$new} .dze-diag-bands` ), false );
+	ok( 'without throwing the work away',   await rows(), 1 );
+	await page.check( `${$new} .dze-diag-condon` );
+	await page.waitForTimeout( 150 );
 	// The prototype is there but must never post a condition of its own.
 	ok( 'and its blank one is not submitted',
 		await page.evaluate( () => Array.from(
@@ -120,7 +134,7 @@ for ( const [ label, jq ] of jqs ) {
 
 	await page.click( `${$new} .dze-diag-bandadd` );
 	await page.waitForTimeout( 150 );
-	ok( 'Add a condition adds one',         await rows(), 1 );
+	ok( 'Add a condition adds one',         await rows(), 2 );
 	ok( 'and it can actually be submitted',
 		await page.evaluate( () => Array.from(
 			document.querySelectorAll( '[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) [name]' )
@@ -144,8 +158,6 @@ for ( const [ label, jq ] of jqs ) {
 			'[data-under-test] .dze-diag-bandrow:not(.dze-diag-bandproto) .dze-diag-bandfield option[value="product.price"]'
 		).disabled ), false );
 
-	await page.click( `${$new} .dze-diag-bandadd` );
-	await page.waitForTimeout( 150 );
 	ok( 'twice adds a second',              await rows(), 2 );
 	// Two conditions posting under one key are one condition.
 	ok( 'each posts under its own key',
@@ -177,7 +189,7 @@ for ( const [ label, jq ] of jqs ) {
 	// shown where a figure is actually being compared.
 	await page.selectOption( `${$new} .dze-diag-field`, 'product.description' );
 	await page.waitForTimeout( 150 );
-	ok( 'a text offers none',               await page.isVisible( `${$new} .dze-diag-bands` ), false );
+	ok( 'a text offers none',               await page.isVisible( `${$new} .dze-diag-cond` ), false );
 	ok( 'nothing was raised on the way', errors, [] );
 
 	await page.close();

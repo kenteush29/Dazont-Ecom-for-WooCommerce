@@ -69,7 +69,6 @@ final class DZE_Diagnostic {
 		add_action( 'admin_init', [ __CLASS__, 'schedule' ] );
 		add_action( 'wp_ajax_dze_diag_scan', [ __CLASS__, 'ajax_scan' ] );
 		add_action( 'wp_ajax_dze_diag_keys', [ __CLASS__, 'ajax_keys' ] );
-		add_action( 'wp_ajax_dze_diag_fix',  [ __CLASS__, 'ajax_fix' ] );
 	}
 
 	/** Once a day, and never twice. */
@@ -374,6 +373,9 @@ final class DZE_Diagnostic {
 			// The tiers are settled BEFORE the name, because the name has to
 			// carry them: a criterion judged on 3, 4 or 6 by price cannot go
 			// on calling itself "less than 6".
+			$cond  = array_key_exists( 'cond', $row )
+				? ( empty( $row['cond'] ) ? 0 : 1 )
+				: (int) ! empty( self::stored_row( (string) ( $row['id'] ?? '' ) )['cond'] );
 			$bands = self::bands_for( $row, $scope );
 			$label = self::rule_named( [
 				'field' => $field,
@@ -381,6 +383,7 @@ final class DZE_Diagnostic {
 				'value' => (int) ( $row['value'] ?? 0 ),
 				'find'  => (string) ( $row['find'] ?? '' ),
 				'key'   => (string) ( $row['key'] ?? '' ),
+				'cond'  => $cond,
 				'bands' => $bands,
 			], $fields[ $field ] );
 			// The id is minted once and never again: the name follows the rule
@@ -408,11 +411,11 @@ final class DZE_Diagnostic {
 				// The shop's own routine for this shortfall: which of its
 				// image prompts, and how many of each. Written once here and
 				// used on nine hundred products.
-				'shots' => self::shots_for( $row, $field ),
 				// What a COMPLETE one looks like is not one number for the
 				// whole catalogue. A cap at $16.90 and a plate carrier at $90
 				// do not deserve the same gallery, and holding both to "3"
 				// makes the count on the screen a figure nobody believes.
+				'cond'  => $cond,
 				'bands' => $bands,
 				'on'    => empty( $row['on'] ) ? 0 : 1,
 			];
@@ -511,6 +514,9 @@ final class DZE_Diagnostic {
 	 */
 	private static function want_for( array $row, string $scope, $object ): float {
 		$flat = (float) ( $row['value'] ?? 0 );
+		if ( empty( $row['cond'] ) ) {
+			return $flat;
+		}
 		foreach ( (array) ( $row['bands'] ?? [] ) as $band ) {
 			$m = self::measure( (string) ( $band['field'] ?? '' ), $scope, $object, '' );
 			if ( ! is_numeric( $m ) ) {
@@ -539,25 +545,34 @@ final class DZE_Diagnostic {
 	}
 
 	/**
-	 * The figure, when one figure is not enough for a whole catalogue.
+	 * A SECOND, conditional reading — off unless the shop asks for it.
 	 *
-	 * "Product price between x to y : at least x gallery images." One line,
-	 * one whole sentence, readable without reading the line above it. Empty on
-	 * a fresh install, and a criterion with none behaves exactly as before.
+	 * By default a criterion is one rule and one figure, and that is the whole
+	 * of the screen. A shop that needs more ticks one box and gets a list of
+	 * conditions, each a whole sentence: "price between 0 and 40 : at least 3
+	 * photographs". Unticked, the box hides them and the criterion is judged
+	 * on its plain figure — the conditions are kept, not thrown away, so
+	 * turning it back on does not mean typing them again.
 	 */
 	private static function bands_block( array $row, string $opt, string $index, string $field, string $scope ): string {
 		// Always drawn, shown only where it applies. Rendered conditionally it
 		// appeared for a criterion already saved on a count and NEVER for one
 		// switched to a count in the browser — a control the shop only
 		// discovers after saving and reloading is a control it does not have.
-		$hide  = 'number' !== (string) ( self::fields()[ $field ]['kind'] ?? '' );
-		$bands = (array) ( $row['bands'] ?? [] );
+		$counts = 'number' === (string) ( self::fields()[ $field ]['kind'] ?? '' );
+		$bands  = (array) ( $row['bands'] ?? [] );
+		$on     = ! empty( $row['cond'] );
 
-		$out  = '<div class="dze-diag-bands" style="margin:6px 0 0;' . ( $hide ? 'display:none;' : '' ) . '">';
-		$out .= '<p style="margin:0 0 2px;font-weight:600;">' . esc_html__( 'Unless', 'dazont-ecom' ) . '</p>';
-		// The marker. Without it a card saved with its last condition removed
-		// posts no bands key at all, and "none" would be read as "another
-		// screen saved this" — which is how a setting gets quietly given back.
+		$out  = '<div class="dze-diag-cond" style="margin:6px 0 0;' . ( $counts ? '' : 'display:none;' ) . '">';
+		// The marker goes first so the key always arrives: unticked, a checkbox
+		// posts nothing at all, and "nothing" would be read as "another screen
+		// saved this" — which is how a setting gets quietly given back.
+		$out .= '<input type="hidden" name="' . esc_attr( $opt . '[rows][' . $index . '][cond]' ) . '" value="0" />';
+		$out .= '<label style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">'
+			. '<input type="checkbox" class="dze-diag-condon" value="1"'
+			. ' name="' . esc_attr( $opt . '[rows][' . $index . '][cond]' ) . '"' . checked( $on, true, false ) . '> '
+			. esc_html__( 'Conditional', 'dazont-ecom' ) . '</label>';
+		$out .= '<div class="dze-diag-bands" style="margin:6px 0 0;' . ( $on ? '' : 'display:none;' ) . '">';
 		$out .= '<input type="hidden" name="' . esc_attr( $opt . '[rows][' . $index . '][bands][__none__][field]' ) . '" value="" />';
 		$out .= '<div class="dze-diag-bandrows">';
 		foreach ( array_values( $bands ) as $i => $band ) {
@@ -570,12 +585,10 @@ final class DZE_Diagnostic {
 		// a condition that silently loses a value.
 		$out .= self::band_row( $opt, $index, '__B__', [], $field, $scope, true );
 		$out .= '</div>';
-		$out .= '<button type="button" class="button button-small dze-diag-bandadd" style="margin-top:4px;">'
+		$out .= '<button type="button" class="button button-small dze-diag-bandadd">'
 			. esc_html__( 'Add a condition', 'dazont-ecom' ) . '</button>';
-		$out .= ' <span class="description">'
-			. esc_html__( 'Read top to bottom, the first one that fits wins. A product no condition fits — including one with no price set — is held to the figure above.', 'dazont-ecom' )
-			. '</span>';
-		$out .= '</div>';
+		$out .= ' <span class="description">' . esc_html__( 'First one that fits wins.', 'dazont-ecom' ) . '</span>';
+		$out .= '</div></div>';
 		return $out;
 	}
 
@@ -609,9 +622,12 @@ final class DZE_Diagnostic {
 		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:80px;" name="' . $name( 'from' ) . '"'
 			. ' value="' . esc_attr( (string) (int) ( $band['from'] ?? 0 ) ) . '" />';
 		$out .= '<span>' . esc_html__( 'and', 'dazont-ecom' ) . '</span>';
+		// Blank means there is no upper end. The word for that does not fit in
+		// a number box, so the box stays a box and the hint sits on it.
 		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:80px;" name="' . $name( 'to' ) . '"'
 			. ' value="' . esc_attr( (int) ( $band['to'] ?? 0 ) > 0 ? (string) (int) $band['to'] : '' ) . '"'
-			. ' placeholder="' . esc_attr__( 'and above', 'dazont-ecom' ) . '" />';
+			. ' title="' . esc_attr__( 'Leave empty for "and above"', 'dazont-ecom' ) . '"'
+			. ' placeholder="&infin;" />';
 		$out .= '<span>' . esc_html__( ': at least', 'dazont-ecom' ) . '</span>';
 		$out .= '<input type="number"' . $off . ' min="0" step="1" style="width:80px;" name="' . $name( 'want' ) . '"'
 			. ' value="' . esc_attr( (string) (int) ( $band['want'] ?? 0 ) ) . '" />';
@@ -620,60 +636,6 @@ final class DZE_Diagnostic {
 			. esc_html__( 'Remove', 'dazont-ecom' ) . '</button>';
 		$out .= '</div>';
 		return $out;
-	}
-
-	/**
-	 * The photographs this criterion asks for, prompt by prompt.
-	 *
-	 * "Typiquement ce que je fais sur un produit qui manque de photos : seance
-	 * photo details produit + 1 a 2 photos type ugc. On arrive a 3-5 photos
-	 * supplementaires." That is a routine, not a prompt, and it belongs to the
-	 * shop: the criterion carries which of the shop's OWN image prompts it
-	 * runs and how many of each. A prompt named in this file would be a prompt
-	 * the shop has to be told to create — which is exactly what 4.285 did.
-	 *
-	 * Keyed by the prompt's id and not its place on the list, because a place
-	 * moves the day a prompt is added above it.
-	 *
-	 * @return array<string,int> prompt id => how many, 1..5, zeroes dropped.
-	 */
-	private static function shots_for( array $row, string $field ): array {
-		if ( ! self::takes_shots( $field ) ) {
-			return [];
-		}
-		if ( ! array_key_exists( 'shots', $row ) ) {
-			// Absent from the form is not "none". The card always posts this
-			// section — with every number at zero it still posts the marker —
-			// so a row arriving without it was saved by some other screen, and
-			// the shop's routine is not that screen's to erase. Read back from
-			// what is stored, by the criterion's own id.
-			// Read from the STORED option and not through rows(): rows() runs
-			// clean_rows(), which is where this stands, and asking it here is
-			// a loop with no way out.
-			$id  = sanitize_key( (string) ( $row['id'] ?? '' ) );
-			$was = [];
-			foreach ( (array) ( self::settings()['rows'] ?? [] ) as $one ) {
-				if ( is_array( $one ) && sanitize_key( (string) ( $one['id'] ?? '' ) ) === $id ) {
-					$was = (array) ( $one['shots'] ?? [] );
-					break;
-				}
-			}
-			return $was;
-		}
-		$out = [];
-		foreach ( (array) $row['shots'] as $rid => $n ) {
-			$rid = sanitize_key( (string) $rid );
-			$n   = max( 0, min( 5, (int) $n ) );
-			if ( '' !== $rid && '__none__' !== $rid && $n > 0 ) {
-				$out[ $rid ] = $n;
-			}
-		}
-		return $out;
-	}
-
-	/** Is this a shortfall photographs can mend at all? */
-	public static function takes_shots( string $field ): bool {
-		return in_array( $field, [ 'product.gallery', 'product.main_image' ], true );
 	}
 
 	/**
@@ -758,117 +720,6 @@ final class DZE_Diagnostic {
 		return [ 'label' => __( 'Bulk writing', 'dazont-ecom' ), 'url' => $bulk ];
 	}
 
-	/**
-	 * The pass that MENDS one kind of shortfall, run from the list itself.
-	 *
-	 * Beside tool_for(), and read from the same thing — the FIELD — so a
-	 * criterion the shop invents tomorrow arrives with its repair attached and
-	 * nothing is wired to a criterion id. A field with no honest repair
-	 * returns nothing: a button that would do the wrong thing is worse than no
-	 * button, and no model mends a price or a stock level.
-	 *
-	 * The result never reaches the product. It goes to the writing queue and
-	 * waits there to be accepted, like every other job.
-	 *
-	 * @return array{kind:string,label:string,recipe:string} empty when nothing
-	 *               here can mend it.
-	 */
-	private static function fix_for( array $row ): array {
-		$field = (string) ( $row['field'] ?? '' );
-		if ( ! self::takes_shots( $field ) ) {
-			return [];
-		}
-		// The shop's own routine, as it wrote it on the criterion. Nothing is
-		// assumed for a criterion nobody has answered for: no photographs
-		// asked for means no button, and the card is where that is said.
-		$shots = [];
-		foreach ( (array) ( $row['shots'] ?? [] ) as $rid => $n ) {
-			$idx = self::recipe_index( (string) $rid );
-			if ( $idx >= 0 && (int) $n > 0 ) {
-				$shots[ $idx ] = min( 5, (int) $n );
-			}
-		}
-		// No label of its own. Every criterion's repair is called the same
-		// thing on every screen — Fix — because a shop working through a list
-		// of problems needs one word in one place, not a different sentence
-		// per problem.
-		return [ 'kind' => 'product_shot', 'shots' => $shots ];
-	}
-
-	/**
-	 * Where one of the shop's image prompts sits on its own list.
-	 *
-	 * By ID, which is minted once and never moves; the index is what shoot()
-	 * takes and it changes the day a prompt is added above.
-	 *
-	 * @return int -1 when this shop no longer has that prompt.
-	 */
-	public static function recipe_index( string $rid ): int {
-		if ( '' === $rid || ! class_exists( 'DZE_Content' ) ) {
-			return -1;
-		}
-		foreach ( (array) DZE_Content::image_templates() as $i => $tpl ) {
-			if ( (string) ( $tpl['id'] ?? '' ) === $rid ) {
-				return (int) $i;
-			}
-		}
-		return -1;
-	}
-
-	/**
-	 * The prompts in words, for a button that says what it is about to run.
-	 *
-	 * Names only. How MANY photographs a product gets is not written here and
-	 * is not written on the criterion either: it is what that product is SHORT
-	 * of, worked out from the rule. Two places holding a count is two answers
-	 * that drift apart the first time one of them is edited.
-	 */
-	public static function shots_said( array $shots ): string {
-		$bits = [];
-		foreach ( array_keys( $shots ) as $idx ) {
-			$name = self::recipe_name( (int) $idx );
-			if ( '' !== $name ) {
-				$bits[] = $name;
-			}
-		}
-		return implode( ' · ', $bits );
-	}
-
-	/**
-	 * How many photographs THIS object is short of.
-	 *
-	 * Read from the same rule the diagnostic judged it by — the figure its own
-	 * condition gives it, less what it actually has. A criterion that is not a
-	 * shortfall at all (a photograph that is too small, a field that is empty)
-	 * has nothing to count, and one is what it gets.
-	 */
-	public static function short_by( array $row, int $oid ): int {
-		$scope = (string) ( $row['scope'] ?? 'product' );
-		$op    = self::op_now( (string) ( $row['test'] ?? '' ) );
-		if ( ! in_array( $op, [ 'lt', 'lte' ], true ) ) {
-			return 1;
-		}
-		$object = get_post( $oid );
-		if ( ! $object ) {
-			return 1;
-		}
-		$want = self::want_for( $row, $scope, $object );
-		$have = self::measure( (string) ( $row['field'] ?? '' ), $scope, $object, (string) ( $row['key'] ?? '' ) );
-		$have = is_numeric( $have ) ? (float) $have : 0.0;
-		// "at most 3" means 3 is already too few, so the target is one above.
-		$need = 'lte' === $op ? $want + 1 : $want;
-		return (int) max( 1, min( 20, ceil( $need - $have ) ) );
-	}
-
-	/** What one of the shop's image prompts is called. */
-	public static function recipe_name( int $idx ): string {
-		if ( $idx < 0 || ! class_exists( 'DZE_Content' ) ) {
-			return '';
-		}
-		$all = (array) DZE_Content::image_templates();
-		return (string) ( $all[ $idx ]['name'] ?? '' );
-	}
-
 	/** Where each person's last view of each list is kept. */
 	private const VIEW_META = '_dze_diag_view';
 
@@ -908,106 +759,6 @@ final class DZE_Diagnostic {
 		update_user_meta( $user, self::VIEW_META, $all );
 	}
 
-	/** How many products one press sends off. */
-	public const FIX_BATCH = 20;
-
-	/**
-	 * The products this criterion would mend next, in order.
-	 *
-	 * The ones still short of it — never the ones already put right — and
-	 * capped, because one press must not commit the shop to two hundred paid
-	 * pictures. What is left over is said on the screen rather than queued
-	 * quietly.
-	 *
-	 * @return int[]
-	 */
-	public static function fix_targets( string $id, int $limit = self::FIX_BATCH ): array {
-		$check = self::checks()[ $id ] ?? [];
-		if ( ! $check || ! self::fix_for( (array) ( $check['row'] ?? [] ) ) ) {
-			return [];
-		}
-		$ids  = array_values( array_filter( array_map( 'absint', (array) ( self::lists()[ $id ] ?? [] ) ) ) );
-		$todo = (array) ( self::split( $id, $check, $ids )['todo'] ?? [] );
-		return $limit > 0 ? array_slice( $todo, 0, $limit ) : $todo;
-	}
-
-	/** One press: the shortfall goes to the queue, and nothing else happens. */
-	public static function ajax_fix(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
-		}
-		$id    = isset( $_POST['check'] ) ? sanitize_key( wp_unslash( $_POST['check'] ) ) : '';
-		$check = self::checks()[ $id ] ?? [];
-		$fix   = $check ? self::fix_for( (array) ( $check['row'] ?? [] ) ) : [];
-		if ( ! $fix ) {
-			wp_send_json_error( [ 'message' => __( 'Nothing here mends that on its own.', 'dazont-ecom' ) ] );
-		}
-		if ( ! class_exists( 'DZE_Queue' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) ) {
-			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off — switch it on under Settings → Modules.', 'dazont-ecom' ) ] );
-		}
-		$shots = (array) ( $fix['shots'] ?? [] );
-		if ( ! $shots ) {
-			wp_send_json_error( [ 'message' => __( 'This criterion has no photographs asked for yet. Open it under Settings → Diagnostic and say which of your image prompts mend it, and how many of each.', 'dazont-ecom' ) ] );
-		}
-		$all = self::fix_targets( $id, 0 );
-		// One product, pressed on its own row. Checked against the list this
-		// criterion is short of rather than trusted: an id arriving in a
-		// request is a number somebody typed until it has been found there.
-		$one = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
-		if ( $one ) {
-			if ( ! in_array( $one, $all, true ) ) {
-				wp_send_json_error( [ 'message' => __( 'That one is not short of this any more.', 'dazont-ecom' ) ] );
-			}
-			$all  = [ $one ];
-			$some = [ $one ];
-		} else {
-			$some = array_slice( $all, 0, self::FIX_BATCH );
-		}
-		if ( ! $some ) {
-			wp_send_json_error( [ 'message' => __( 'Nothing is short of this one.', 'dazont-ecom' ) ] );
-		}
-		// HOW MANY is what each product is short of — read from the same rule
-		// the diagnostic judged it by, so a $16.90 cap short of one photograph
-		// gets one and a $90 carrier short of four gets four. It used to be a
-		// figure typed on the criterion beside the rule's own, and two places
-		// holding a count is two answers that drift apart.
-		//
-		// One job per photograph, so four pictures on one product are four
-		// rows to look at and three of them can be thrown away without losing
-		// the fourth. auto_apply stays FALSE, always: a photograph reaches a
-		// product when somebody has looked at it and not before.
-		$row   = (array) ( $check['row'] ?? [] );
-		$order = array_keys( $shots );
-		$added = 0;
-		foreach ( $some as $pid ) {
-			$need = self::short_by( $row, (int) $pid );
-			for ( $i = 0; $i < $need; $i++ ) {
-				// Taken from the chosen prompts in turn, so a product short of
-				// three gets one of each rather than three of the first.
-				$idx = (int) $order[ $i % count( $order ) ];
-				$added += DZE_Queue::add( (string) $fix['kind'], [ (int) $pid ], false, [
-					'template' => $idx,
-					// A second shot from the same prompt is asked for a
-					// different framing; shoot() reads this the way the
-					// product screen's own "another one" button does.
-					'attempt'  => intdiv( $i, count( $order ) ),
-				] );
-			}
-		}
-		wp_send_json_success( [
-			'added' => $added,
-			'left'  => max( 0, count( $all ) - count( $some ) ),
-			'url'   => DZE_Queue::url(),
-			/* translators: 1: how many were sent, 2: how many are still short */
-			'message' => sprintf(
-				_n( '%1$d sent to the queue. Nothing reaches a product until you accept it.', '%1$d sent to the queue — %2$d still waiting their turn. Nothing reaches a product until you accept it.', max( 1, count( $all ) - $added ) === 1 && count( $all ) === $added ? 1 : 2, 'dazont-ecom' ),
-				$added,
-				max( 0, count( $all ) - $added )
-			),
-		] );
-	}
-
 	/** Where the criteria themselves are edited. */
 	public static function settings_url(): string {
 		return add_query_arg(
@@ -1028,7 +779,6 @@ final class DZE_Diagnostic {
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $fields[ $row['field'] ] ),
 				'tool'  => self::tool_for( (string) $row['field'], (string) $row['scope'] ),
-				'fix'   => self::fix_for( $row ),
 				'goals' => self::goals_of( $row ),
 				'note'  => (string) ( $row['note'] ?? '' ),
 				'row'   => $row,
@@ -1087,9 +837,18 @@ final class DZE_Diagnostic {
 			// The unit is the field's own and can be blank (a price, a weight),
 			// so the clause is assembled rather than templated: "is less than
 			// 800 px" and "is more than 50" both have to come out clean.
+			// Only the conditions actually in force, and only the ones with a
+			// figure on them: a half-typed condition put "0/3" in the heading
+			// the moment it was added, which reads as a criterion asking for
+			// nothing.
 			$figures = [];
-			foreach ( (array) ( $row['bands'] ?? [] ) as $band ) {
-				$figures[] = (int) ( $band['want'] ?? 0 );
+			if ( ! empty( $row['cond'] ) ) {
+				foreach ( (array) ( $row['bands'] ?? [] ) as $band ) {
+					$n = (int) ( $band['want'] ?? 0 );
+					if ( $n > 0 ) {
+						$figures[] = $n;
+					}
+				}
 			}
 			$figures[] = (int) ( $row['value'] ?? 0 );
 			// A criterion held to tiers must not go on calling itself by one
@@ -2241,35 +2000,6 @@ final class DZE_Diagnostic {
 				// And the one that does the work from here. The count is on the
 				// button BEFORE it is pressed: what a click is about to spend
 				// is not something to discover afterwards.
-				$fix   = (array) ( $check['fix'] ?? [] );
-				$ready = class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
-				// A criterion this plugin CAN mend, that nobody has told how,
-				// used to show nothing at all — so a screen that had a Fix
-				// button yesterday simply lost it, with no word anywhere about
-				// a field that had appeared somewhere else. Say it, and link
-				// to the one place it is answered.
-				if ( $fix && empty( $fix['shots'] ) && $ready ) {
-					printf(
-						' <a class="button button-small" href="%1$s">%2$s</a>',
-						esc_url( self::settings_url() . '#dze-diag-' . rawurlencode( $id ) ),
-						esc_html__( 'Set up Fix', 'dazont-ecom' )
-					);
-				}
-				if ( ! empty( $fix['shots'] ) && $ready ) {
-					$next = count( self::fix_targets( $id ) );
-					if ( $next ) {
-						printf(
-							' <button type="button" class="button button-small button-primary dze-diag-fix" data-check="%1$s" title="%3$s">%2$s</button>',
-							esc_attr( $id ),
-							esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) ),
-							esc_attr( sprintf(
-								/* translators: %s: the prompts this criterion is mended with */
-								__( 'As many photographs as each product is short of, made with: %s', 'dazont-ecom' ),
-								self::shots_said( (array) $fix['shots'] )
-							) )
-						);
-					}
-				}
 				echo '</td></tr>';
 			}
 			echo '</tbody></table>';
@@ -2463,47 +2193,10 @@ final class DZE_Diagnostic {
 			esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
 			esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
 		);
-		// The whole point of a list of problems: mending them from it. It was
-		// on the summary and not here, which is the screen somebody is on when
-		// they have decided to do the work.
-		$fix     = (array) ( $check['fix'] ?? [] );
-		$ready   = class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) );
-		$mending = ! empty( $fix['shots'] ) && $ready;
-		$waiting = $mending ? DZE_Queue::pending_map( 'product_' ) : [];
-		// The same thing here: a list this plugin can mend, that nobody has
-		// told how, says so where the button would be.
-		if ( $fix && ! $mending && $ready ) {
-			printf(
-				'<p style="margin:12px 0 0;"><a class="button" href="%1$s">%2$s</a> <span class="description">%3$s</span></p>',
-				esc_url( self::settings_url() . '#dze-diag-' . rawurlencode( $id ) ),
-				esc_html__( 'Set up Fix', 'dazont-ecom' ),
-				esc_html__( 'Say which of your image prompts mend this, and how many of each. Until then this criterion is listed but not mended.', 'dazont-ecom' )
-			);
-		}
-		if ( $mending && 'todo' === $show ) {
-			$next = count( self::fix_targets( $id ) );
-			echo '<p style="margin:12px 0 0;">';
-			if ( $next ) {
-				printf(
-					'<button type="button" class="button button-primary dze-diag-fix" data-check="%1$s" title="%3$s">%2$s</button> ',
-					esc_attr( $id ),
-					esc_html( sprintf( '%s (%d)', __( 'Fix', 'dazont-ecom' ), $next ) ),
-					esc_attr( sprintf(
-						/* translators: %s: the prompts this criterion is mended with */
-						__( 'As many photographs as each product is short of, made with: %s', 'dazont-ecom' ),
-						self::shots_said( (array) $fix['shots'] )
-					) )
-				);
-			}
-			printf(
-				'<span class="description">%s</span></p>',
-				esc_html( sprintf(
-					/* translators: %s: the prompts this criterion is mended with */
-					__( 'Each product gets as many photographs as it is short of its own figure, made with %s from the product\'s own photograph. Nothing reaches a product until you accept it.', 'dazont-ecom' ),
-					self::shots_said( (array) $fix['shots'] )
-				) )
-			);
-		}
+		// Mending from this screen went with the routine it depended on.
+		$waiting = [];
+		$mending = false;
+
 		if ( $split['live'] ) {
 			// WordPress's own tabs, because that is what every other screen of
 			// this admin uses to say "the same list, seen two ways".
@@ -2648,32 +2341,6 @@ final class DZE_Diagnostic {
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
 			}
-			if ( $mending ) {
-				// One product, mended from its own line. A row already waiting
-				// says so instead of offering to send it a second time — the
-				// map is read once for the page, so this stays O(1) a row.
-				$job = (array) ( $waiting[ $oid ] ?? [] );
-				echo '<td style="text-align:right;white-space:nowrap;">';
-				if ( $job ) {
-					printf(
-						'<a href="%1$s">%2$s</a>',
-						esc_url( DZE_Queue::url() ),
-						esc_html( 'review' === ( $job['status'] ?? '' )
-							? __( 'Waiting for you', 'dazont-ecom' )
-							: __( 'Being made…', 'dazont-ecom' ) )
-					);
-				} elseif ( 'todo' === $show ) {
-					printf(
-						'<button type="button" class="button button-small dze-diag-fix" data-check="%1$s" data-id="%2$d">%3$s</button>',
-						esc_attr( $id ),
-						$oid,
-						esc_html__( 'Fix', 'dazont-ecom' )
-					);
-				} else {
-					echo '<span class="description">&mdash;</span>';
-				}
-				echo '</td>';
-			}
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
@@ -2785,33 +2452,6 @@ final class DZE_Diagnostic {
 		?>
 		<script>
 		jQuery(function ($) {
-			// One press on a line: its shortfall goes to the queue. The button
-			// says what happened, on itself, and links to where the pictures
-			// wait — a click that leaves the shop wondering whether it worked
-			// is a broken function however correct the code underneath.
-			$(document).on('click', '.dze-diag-fix', function () {
-				var $b = $(this), was = $b.text();
-				$b.prop('disabled', true).text(<?php echo wp_json_encode( __( 'Sending…', 'dazont-ecom' ) ); ?>);
-				$.post(ajaxurl, { action: 'dze_diag_fix', nonce: '<?php echo esc_js( $nonce ); ?>', check: $b.data('check') })
-					.done(function (r) {
-						if (!r || !r.success) {
-							$b.prop('disabled', false).text(was);
-							window.alert((r && r.data && r.data.message) || <?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
-							return;
-						}
-						$b.text(r.data.message);
-						if (r.data.url) {
-							$b.after(' <a class="button button-small" href="' + r.data.url + '">'
-								+ <?php echo wp_json_encode( __( 'See them waiting', 'dazont-ecom' ) ); ?> + '</a>');
-						}
-					})
-					.fail(function () {
-						$b.prop('disabled', false).text(was);
-						window.alert(<?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
-					});
-			});
-
-
 			$('#dze-diag-scan').on('click', function () {
 				var $b = $(this), $m = $('#dze-diag-msg');
 				$b.prop('disabled', true);
@@ -3057,51 +2697,6 @@ final class DZE_Diagnostic {
 			. '<input type="text" class="dze-diag-note" style="width:100%;max-width:640px;" name="' . $name( 'note' ) . '"'
 			. ' value="' . esc_attr( (string) ( $row['note'] ?? '' ) ) . '"'
 			. ' placeholder="' . esc_attr__( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ) . '" /></label></p>';
-		// What FIXES it, in the shop's own words: which of its image prompts,
-		// and how many of each. "Detail shots ×3 + Scene (in use) ×2" is a
-		// routine, and a routine belongs to the shop — a prompt named in this
-		// file is a prompt the shop has to be told to create.
-		if ( self::takes_shots( $field ) ) {
-			$tpls = class_exists( 'DZE_Content' ) ? (array) DZE_Content::image_templates() : [];
-			$mine = (array) ( $row['shots'] ?? [] );
-			$out .= '<p class="dze-prb-line" style="flex-direction:column;align-items:flex-start;">';
-			$out .= '<span style="margin-bottom:4px;">' . esc_html__( 'Fix it with', 'dazont-ecom' ) . '</span>';
-			if ( ! $tpls ) {
-				$out .= '<span class="description">'
-					. esc_html__( 'This shop has no image prompts yet — write one under Settings → Product content and it will be offered here.', 'dazont-ecom' )
-					. '</span>';
-			} else {
-				// The hidden field goes first so the key always arrives: with
-				// every number cleared, the row must post "none" rather than
-				// nothing at all, which is how a setting gets quietly given
-				// back a value nobody chose.
-				// The marker goes first so the key always arrives: with every
-				// box unticked the row must post "none" rather than nothing at
-				// all, which is how a setting gets quietly given back a value
-				// nobody chose.
-				$out .= '<input type="hidden" name="' . esc_attr( $opt . '[rows][' . $index . '][shots][__none__]' ) . '" value="0" />';
-				foreach ( $tpls as $tpl ) {
-					$rid = (string) ( $tpl['id'] ?? '' );
-					if ( '' === $rid ) {
-						continue;
-					}
-					// WHICH prompts, not how many. The number comes from the
-					// rule above — "at least 3 photographs" — and having it in
-					// two places is having two answers that drift apart the
-					// first time one of them is edited.
-					$out .= '<label style="display:inline-flex;align-items:center;gap:6px;margin:0 16px 4px 0;">'
-						. '<input type="checkbox" value="1"'
-						. ' name="' . esc_attr( $opt . '[rows][' . $index . '][shots][' . $rid . ']' ) . '"'
-						. checked( ! empty( $mine[ $rid ] ), true, false ) . '> '
-						. esc_html( (string) ( $tpl['name'] ?? $rid ) )
-						. '</label>';
-				}
-				$out .= '<span class="description" style="flex:1 1 100%;margin-top:4px;">'
-					. esc_html__( 'Which of your prompts make the missing photographs. How MANY comes from the rule above — a product two short of its figure gets two, taken from these in turn. Tick none and this criterion is listed but not mended. Nothing reaches a product until you accept it.', 'dazont-ecom' )
-					. '</span>';
-			}
-			$out .= '</p>';
-		}
 		$out .= '</div></div>';
 		return $out;
 	}
@@ -3286,10 +2881,13 @@ final class DZE_Diagnostic {
 			}
 			// The tiers as the card holds them right now, in order.
 			function tiersOf( $card ) {
-				if ( ! $card.find( '.dze-diag-bands' ).is( ':visible' ) ) { return []; }
+				if ( ! $card.find( '.dze-diag-condon' ).is( ':checked' ) ) { return []; }
 				var out = [];
 				$card.find( '.dze-diag-bandrow' ).not( '.dze-diag-bandproto' ).each( function () {
-					out.push( parseInt( jQuery( this ).find( '[name*="[want]"]' ).val(), 10 ) || 0 );
+					// A condition with no figure yet is not a figure: it put
+					// "0/3" in the heading the moment it was added.
+					var n = parseInt( jQuery( this ).find( '[name*="[want]"]' ).val(), 10 ) || 0;
+					if ( n > 0 ) { out.push( n ); }
 				} );
 				return out;
 			}
@@ -3379,7 +2977,8 @@ final class DZE_Diagnostic {
 				$card.find( '.dze-diag-unit' ).text( 'number' === takes ? meta.unit : '' );
 				// Tiers only make sense for a figure, and only on a field the
 				// object being judged can actually answer.
-				$card.find( '.dze-diag-bands' ).toggle( 'number' === meta.kind );
+				// The whole conditional part only makes sense for a figure.
+				$card.find( '.dze-diag-cond' ).toggle( 'number' === meta.kind );
 				fitBands( $card, f );
 				// The head IS the rule, written out — so it follows every menu
 				// and every figure as they move, and there is never a title on
@@ -3484,16 +3083,31 @@ final class DZE_Diagnostic {
 			$( document ).on( 'change', '.dze-diag-scope', function () {
 				home( $( this ).closest( '.dze-diag-card' ) );
 			} );
-			$( document ).on( 'change keyup input', '.dze-diag-bands select, .dze-diag-bands input', function () {
+			$( document ).on( 'change keyup input', '.dze-diag-bands select, .dze-diag-bands input:not(.dze-diag-condon)', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );
 			} );
 			$( document ).on( 'change keyup input', '.dze-diag-scope, .dze-diag-field, .dze-diag-test, .dze-diag-value, .dze-diag-find, .dze-diag-key, .dze-diag-note', function () {
 				retell( $( this ).closest( '.dze-diag-card' ) );
 			} );
-			// A tier is added by copying the one above it, so the markup lives
-			// in ONE place — card() — and a field added there is never
+			// THE SWITCH. A criterion is one rule and one figure until somebody
+			// asks for more; ticking this opens the conditions with a first one
+			// already there, because an empty list under a box just ticked is a
+			// press that answered with nothing. Unticking hides them and stops
+			// them counting — it never throws them away.
+			$( document ).on( 'change', '.dze-diag-condon', function () {
+				var $card = $( this ).closest( '.dze-diag-card' ),
+					on = $( this ).is( ':checked' );
+				$card.find( '.dze-diag-bands' ).toggle( on );
+				if ( on && ! $card.find( '.dze-diag-bandrow' ).not( '.dze-diag-bandproto' ).length ) {
+					$card.find( '.dze-diag-bandadd' ).trigger( 'click' );
+				}
+				retell( $card );
+			} );
+
+			// A condition is added by copying the one above it, so the markup
+			// lives in ONE place — card() — and a field added there is never
 			// forgotten here. The index is renumbered afterwards, because two
-			// tiers posting under the same key are one tier.
+			// conditions posting under the same key are one condition.
 			$( document ).on( 'click', '.dze-diag-bandadd', function () {
 				var $rows = $( this ).closest( '.dze-diag-bands' ).find( '.dze-diag-bandrows' ),
 					$one  = $rows.find( '.dze-diag-bandproto' ).clone();

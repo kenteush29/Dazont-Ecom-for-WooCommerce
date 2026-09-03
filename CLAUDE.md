@@ -304,6 +304,13 @@ owner communicates in French.
   safe — four sold is four sold in any currency — and quantities are what the
   shop actually decides on. If money is ever genuinely needed, it comes from
   WooCommerce's own reports, which own the data and repair it.
+- **A criterion is ONE rule and ONE figure, until somebody asks for more.**
+  Everything else on that card is behind a box marked Conditional, unticked on
+  a fresh install and unticked for every criterion until it is ticked. Ticking
+  it opens the conditions WITH A FIRST ONE ALREADY THERE — an empty list under
+  a box just ticked is a press that answered with nothing — and unticking hides
+  them and stops them counting without throwing them away. The default screen
+  is the simple one; the complex one is a choice.
 - **A criterion can carry CONDITIONS, and only ONE place holds a count.** One
   figure for a whole catalogue is what made "Issues (981)" a number nobody
   believed: a $16.90 cap and a $90 plate carrier were both judged on "3
@@ -317,12 +324,12 @@ owner communicates in French.
   one above it is a line nobody reads. Ranges are HALF OPEN — 40 belongs to
   "40 and 80" and to nothing else — because two ranges meeting at a number is
   the one place a reader would have to guess.
-  **The count lives on the rule and nowhere else.** "Fix it with" names WHICH
-  prompts mend a shortfall and never how many: how many is what the product is
-  short of, `short_by()`, read from the same rule the diagnostic judged it by.
-  A figure on the criterion beside the rule's own is two answers that drift
-  apart the first time one of them is edited — and it shipped that way for one
-  version.
+  **The count lives on the rule and nowhere else, and "Fix it with" is gone.**
+  The criterion said "at least 3 photographs" and the routine beside it said
+  "2 of this prompt, 1 of that": two answers to one question. The whole repair
+  surface was removed from this screen rather than patched again — it comes
+  back built from the reading, not from a figure typed twice. Do not
+  reintroduce a per-criterion count of anything the rule already counts.
   Four things are gated because all four were got wrong while writing this: an
   object with NOTHING to place it by (no price set) measures 0 and would land
   in the first range starting at 0 — the easiest standard given to the most
