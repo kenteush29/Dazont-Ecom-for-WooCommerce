@@ -119,6 +119,7 @@ class DZE_Sales {
 			'qty'     => [],
 			'missing' => (array) ( $GLOBALS['dze_missing'] ?? [] ),
 			'by'      => (array) ( $GLOBALS['dze_by'] ?? [] ),
+			'orphans' => (array) ( $GLOBALS['dze_orphans'] ?? [ 'lines' => 0, 'raw' => 0.0 ] ),
 		];
 	}
 }
@@ -208,6 +209,7 @@ $GLOBALS['dze_sql']        = [];
 $GLOBALS['dze_facts']      = [];
 $GLOBALS['dze_rev']        = [];
 $GLOBALS['dze_missing']    = [];
+$GLOBALS['dze_orphans']    = [ 'lines' => 0, 'raw' => 0.0 ];
 $GLOBALS['dze_facts_sql']  = [];
 $GLOBALS['dze_posts']   = [];
 
@@ -673,6 +675,21 @@ ok( 'what could not be converted is said', false !== strpos( $html, 'Orders paid
 $GLOBALS['dze_missing'] = [];
 ok( 'and nothing is said when all is known',
 	false !== strpos( $show( [ 'by' => 'rev' ] ), 'are left out' ), false );
+
+// Rows in WooCommerce's own sales table whose order no longer exists. This
+// shop had 751 of them; the 67 inside the window carried 84% of everything
+// Revenue reported. They are not counted and not hidden — the screen names
+// them, the same treatment a currency with no rate already gets.
+$GLOBALS['dze_orphans'] = [ 'lines' => 67, 'raw' => 1487416.92 ];
+$html = $show( [ 'by' => 'rev', 'dir' => 'desc' ] );
+ok( 'order lines with no order are named',
+	false !== strpos( $html, '67 order lines are left out of Revenue' ), true );
+ok( 'with the amount they carry',       false !== strpos( $html, '1,487,416.92' ), true );
+ok( 'and they go with the figures too',
+	false !== strpos( DZE_Diagnostic::figures_text( [], 'x', $GLOBALS['dze_orphans'] ), 'No order behind them — 67 lines' ), true );
+$GLOBALS['dze_orphans'] = [ 'lines' => 0, 'raw' => 0.0 ];
+ok( 'a clean shop is told nothing',
+	false !== strpos( $show( [ 'by' => 'rev' ] ), 'no order behind' ), false );
 
 // The work to do and the work DONE, on two tabs. "Pour mieux organiser le
 // travail, il est préférable de créer 2 onglets : un qui reprend les posts à

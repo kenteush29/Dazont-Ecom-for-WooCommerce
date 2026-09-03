@@ -680,7 +680,7 @@ final class DZE_Diagnostic {
 	 * question about a figure has been answered by guesswork at both ends. One
 	 * button, one paste, and the guessing stops.
 	 */
-	public static function figures_text( array $sums, string $label ): string {
+	public static function figures_text( array $sums, string $label, array $lost = [] ): string {
 		$out = [ $label, sprintf( 'Shop currency: %s', class_exists( 'DZE_Money' ) ? DZE_Money::base() : '?' ) ];
 		foreach ( $sums as $cur => $one ) {
 			$n = max( 1, (int) ( $one['lines'] ?? 0 ) );
@@ -692,6 +692,13 @@ final class DZE_Diagnostic {
 				number_format( (float) ( $one['raw'] ?? 0 ) / $n, 2, '.', '' ),
 				rtrim( rtrim( number_format( (float) ( $one['rate'] ?? 0 ), 6, '.', '' ), '0' ), '.' ),
 				number_format( (float) ( $one['base'] ?? 0 ), 2, '.', '' )
+			);
+		}
+		if ( (int) ( $lost['lines'] ?? 0 ) > 0 ) {
+			$out[] = sprintf(
+				'No order behind them — %1$d lines, carrying %2$s, left out',
+				(int) $lost['lines'],
+				number_format( (float) ( $lost['raw'] ?? 0 ), 2, '.', '' )
 			);
 		}
 		return implode( "\n", $out );
@@ -2393,7 +2400,8 @@ final class DZE_Diagnostic {
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
 		$gap  = (array) ( $facts['_missing'] ?? [] );
 		$sums = (array) ( $facts['_by'] ?? [] );
-		unset( $facts['_missing'], $facts['_by'] );
+		$lost = (array) ( $facts['_orphans'] ?? [] );
+		unset( $facts['_missing'], $facts['_by'], $facts['_orphans'] );
 
 		// The rows of this page. Which list they belong to was settled once,
 		// above, for the whole list: judging them again here would be a second
@@ -2487,6 +2495,21 @@ final class DZE_Diagnostic {
 				) )
 			);
 		}
+		if ( $goods && (int) ( $lost['lines'] ?? 0 ) > 0 ) {
+			// Rows in WooCommerce's sales table whose order no longer exists —
+			// the wreckage an import leaves behind. They are not counted, and
+			// they are not hidden either: this shop had 67 of them carrying 84%
+			// of everything Revenue reported, and nothing anywhere said so.
+			printf(
+				'<p class="description" style="color:#b26a00;max-width:1100px;">%s</p>',
+				esc_html( sprintf(
+					/* translators: 1: number of order lines, 2: the amount they carry */
+					__( '%1$s order lines are left out of Revenue: WooCommerce\'s sales table holds them, but the orders behind them no longer exist. They carry %2$s between them, which is why the figures once read far above what this shop sells for.', 'dazont-ecom' ),
+					number_format_i18n( (int) $lost['lines'] ),
+					number_format_i18n( (float) ( $lost['raw'] ?? 0 ), 2 )
+				) )
+			);
+		}
 
 		// HOW the Revenue column was arrived at, in one collapsed line. A
 		// figure nobody can take apart is a figure that gets argued about, and
@@ -2531,7 +2554,7 @@ final class DZE_Diagnostic {
 			// the inputs of; this is how that stops.
 			printf(
 				'<p><button type="button" class="button button-small" id="dze-diag-copy" data-figures="%s">%s</button> <span id="dze-diag-copied" class="description"></span></p></details>',
-				esc_attr( self::figures_text( $sums, (string) $check['label'] ) ),
+				esc_attr( self::figures_text( $sums, (string) $check['label'], $lost ) ),
 				esc_html__( 'Copy these figures', 'dazont-ecom' )
 			);
 		}
@@ -2602,6 +2625,7 @@ final class DZE_Diagnostic {
 		}
 		$out['_missing'] = (array) ( $money['missing'] ?? [] );
 		$out['_by']      = (array) ( $money['by'] ?? [] );
+		$out['_orphans'] = (array) ( $money['orphans'] ?? [] );
 		return $out;
 	}
 
