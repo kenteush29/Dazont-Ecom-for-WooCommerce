@@ -41,6 +41,7 @@ function set_transient( $k, $v, $t = 0 ) { $GLOBALS['trans'][ $k ] = $v; return 
  */
 class DZE_Money_Test_Wpdb {
 	public $prefix = 'wp_';
+	public $posts = 'wp_posts';
 	public $postmeta = 'wp_postmeta';
 	public $queries = [];
 	public function prepare( $q, ...$a ) { return [ $q, $a ]; }
@@ -53,9 +54,44 @@ class DZE_Money_Test_Wpdb {
 	public function get_results( $q, $mode = null ) {
 		$sql = is_array( $q ) ? (string) $q[0] : (string) $q;
 		$this->queries[] = $sql;
-		$rows = [];
+		$mine = [];
 		foreach ( $GLOBALS['lines'] as $one ) {
 			if ( false !== strpos( $sql, 'l.product_id IN' ) && false === strpos( $sql, (string) $one['pid'] ) ) { continue; }
+			$mine[] = $one;
+		}
+		// The reading grouped BY CURRENCY, which is what the screen shows: a
+		// true count of order LINES, and the orphans in their own bucket.
+		if ( false !== strpos( $sql, 'GROUP BY orphan' ) ) {
+			$rows = [];
+			foreach ( $mine as $one ) {
+				$cur = strtoupper( (string) $one['cur'] );
+				$rows[ $cur ] = [
+					'cur'    => $cur,
+					'orphan' => 0,
+					'n'      => ( $rows[ $cur ]['n'] ?? 0 ) + 1,
+					'qty'    => ( $rows[ $cur ]['qty'] ?? 0 ) + $one['qty'],
+					'rev'    => ( $rows[ $cur ]['rev'] ?? 0 ) + $one['rev'],
+				];
+			}
+			// Rows in the lookup table whose order does not exist at all. They
+			// never reach the currency buckets — the LEFT JOIN finds nothing,
+			// so they arrive tagged, and are reported rather than summed.
+			$orphans = (array) ( $GLOBALS['orphan_lines'] ?? [] );
+			if ( $orphans ) {
+				$rows['@orphan'] = [ 'cur' => '', 'orphan' => 1, 'n' => 0, 'qty' => 0, 'rev' => 0 ];
+				foreach ( $orphans as $one ) {
+					$rows['@orphan']['n']++;
+					$rows['@orphan']['qty'] += (int) ( $one['qty'] ?? 0 );
+					$rows['@orphan']['rev'] += (float) ( $one['rev'] ?? 0 );
+				}
+			}
+			return array_values( $rows );
+		}
+		// The reading grouped by PRODUCT, which is what each product earned.
+		// An orphan has no product revenue: the join drops it outright, so it
+		// is not in this answer at all.
+		$rows = [];
+		foreach ( $mine as $one ) {
 			$key = $one['pid'] . '|' . $one['cur'];
 			$rows[ $key ] = [
 				'pid' => $one['pid'],
@@ -69,6 +105,7 @@ class DZE_Money_Test_Wpdb {
 }
 $GLOBALS['wpdb']   = new DZE_Money_Test_Wpdb();
 $GLOBALS['hpos']   = true;
+$GLOBALS['orphan_lines'] = [];
 $GLOBALS['lookup'] = true;
 $GLOBALS['base']   = 'USD';
 $GLOBALS['lines']  = [];
@@ -144,12 +181,24 @@ ok( 'the sale itself is still counted',   $got['qty'][7] ?? 0, 9 );
 ok( 'and the screen is told which',       $got['missing'], [ 'CHF' ] );
 
 echo "Both shapes of the orders table\n";
-$got = DZE_Sales::revenue( [ 7 ] );
-ok( 'HPOS reads the currency column',   false !== strpos( end( $GLOBALS['wpdb']->queries ), 'o.currency' ), true );
-ok( 'and asks only for what was asked', false !== strpos( end( $GLOBALS['wpdb']->queries ), 'l.product_id IN ( 7 )' ), true );
+/** Every query the last reading sent, as one string. */
+function sent(): string { return implode( "\n", $GLOBALS['wpdb']->queries ); }
+$GLOBALS['wpdb']->queries = [];
+DZE_Sales::revenue( [ 7 ] );
+ok( 'HPOS reads the currency column',   false !== strpos( sent(), 'o.currency' ), true );
+ok( 'and asks only for what was asked', false !== strpos( sent(), 'l.product_id IN ( 7 )' ), true );
+// The money query REFUSES a line with no order; the tally alongside it has to
+// still see that line, or nothing could ever report it.
+ok( 'the money is joined on real orders',
+	false !== strpos( sent(), 'INNER JOIN wp_wc_orders o ON o.id = l.order_id' ), true );
+ok( 'and the tally still sees the rest',
+	false !== strpos( sent(), 'LEFT JOIN wp_wc_orders o ON o.id = l.order_id' ), true );
 $GLOBALS['hpos'] = false;
+$GLOBALS['wpdb']->queries = [];
 DZE_Sales::revenue();
-ok( 'an older shop reads the meta row',  false !== strpos( end( $GLOBALS['wpdb']->queries ), '_order_currency' ), true );
+ok( 'an older shop reads the meta row',  false !== strpos( sent(), '_order_currency' ), true );
+ok( 'and joins on a real shop_order',
+	false !== strpos( sent(), "INNER JOIN wp_posts p ON p.ID = l.order_id AND p.post_type = 'shop_order'" ), true );
 $GLOBALS['hpos'] = true;
 
 echo "Money earned in another era is not this year's money\n";
@@ -175,7 +224,8 @@ ok( 'and it still narrows to the product',
 
 echo "And when there is nothing to read\n";
 $GLOBALS['lookup'] = false;
-ok( 'no lookup table is no figures',    DZE_Sales::revenue(), [ 'rev' => [], 'qty' => [], 'missing' => [], 'by' => [] ] );
+ok( 'no lookup table is no figures',    DZE_Sales::revenue(),
+	[ 'rev' => [], 'qty' => [], 'missing' => [], 'by' => [], 'orphans' => [ 'lines' => 0, 'raw' => 0.0 ] ] );
 $GLOBALS['lookup'] = true;
 
 echo "The sum shows its workings\n";
@@ -195,6 +245,62 @@ ok( 'the rate it was read at',          $by['EUR']['rate'] ?? 0, 1.1 );
 ok( 'and what that came to',            round( (float) ( $by['EUR']['base'] ?? 0 ), 2 ), 165.00 );
 ok( 'the shop\'s own is not converted',  $by['USD']['base'] ?? 0, 100.0 );
 ok( 'and the lines are counted',        $by['EUR']['lines'] ?? 0, 2 );
+
+echo "Rows in the lookup table with no order behind them\n";
+// Read from the shop itself, 2026-09-03: wc_order_product_lookup holds 751
+// rows whose order_id resolves to nothing — no post, no wc_orders row, not
+// one line of postmeta. Sixty-seven of them fall inside the 24-month window
+// and carry 1,487,416.92 between them, which is 84% of everything the screen
+// was reporting. They are not orders in a currency we cannot read. They are
+// NOT ORDERS, and summing them as dollars is what put four figures on the
+// average order line of a shop that sells at $15 to $77.
+// EUR is already 1.1 from the section above — the rate cache is static and
+// cannot be reset, so the same currency keeps the same rate through this file.
+$GLOBALS['lines'] = [
+	[ 'pid' => 7, 'cur' => 'USD', 'qty' => 2, 'rev' => 31.80 ],
+	[ 'pid' => 8, 'cur' => 'USD', 'qty' => 1, 'rev' => 24.90 ],
+	[ 'pid' => 8, 'cur' => 'EUR', 'qty' => 1, 'rev' => 20.00 ],
+];
+$GLOBALS['orphan_lines'] = [
+	[ 'qty' => 1, 'rev' => 673590.00 ],
+	[ 'qty' => 1, 'rev' => 96490.00 ],
+	[ 'qty' => 1, 'rev' => 61590.00 ],
+];
+$got = DZE_Sales::revenue();
+// The money each product earned: the orphans are not in it, at all.
+ok( 'a product keeps only its real revenue', round( (float) $got['rev'][7], 2 ), 31.80 );
+ok( 'and so does its neighbour',
+	round( (float) $got['rev'][8], 2 ), round( 24.90 + 20.00 * 1.1, 2 ) );
+ok( 'nothing invented a product for them', array_keys( $got['rev'] ), [ 7, 8 ] );
+// They are COUNTED and named, never dropped in silence: a shop told nothing
+// would go looking for a rate that is perfectly correct.
+ok( 'the orphans are counted',          (int) ( $got['orphans']['lines'] ?? 0 ), 3 );
+ok( 'and what they would have added',
+	round( (float) ( $got['orphans']['raw'] ?? 0 ), 2 ), 831670.00 );
+ok( 'while a clean shop reports none',  ( $got['orphans']['lines'] ?? 0 ) > 0, true );
+$GLOBALS['orphan_lines'] = [];
+$clean = DZE_Sales::revenue();
+ok( 'nothing to report when there is nothing',
+	(int) ( $clean['orphans']['lines'] ?? 0 ), 0 );
+
+echo "The workings count ORDER LINES, not products\n";
+// The per-currency table on the diagnostic screen said "Lines". It was
+// counting the rows the grouped query returned — one per product per currency
+// — so a currency carrying five order lines across two products read as "2",
+// and "per line" came out two and a half times too big. The figure that was
+// added to make a wrong total obvious was itself wrong.
+$GLOBALS['lines'] = [
+	[ 'pid' => 7, 'cur' => 'USD', 'qty' => 1, 'rev' => 10.00 ],
+	[ 'pid' => 7, 'cur' => 'USD', 'qty' => 1, 'rev' => 10.00 ],
+	[ 'pid' => 7, 'cur' => 'USD', 'qty' => 1, 'rev' => 10.00 ],
+	[ 'pid' => 8, 'cur' => 'USD', 'qty' => 1, 'rev' => 10.00 ],
+	[ 'pid' => 8, 'cur' => 'USD', 'qty' => 1, 'rev' => 10.00 ],
+];
+$got = DZE_Sales::revenue();
+ok( 'five order lines are five, not two',
+	(int) ( $got['by']['USD']['lines'] ?? 0 ), 5 );
+ok( 'and the total is still the total',
+	round( (float) ( $got['by']['USD']['raw'] ?? 0 ), 2 ), 50.00 );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

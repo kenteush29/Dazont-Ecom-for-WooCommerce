@@ -2,32 +2,53 @@
 
 Two Claude sessions work on this plugin and cannot message each other: one
 codes (GitHub, no server), one has real server access (no `git push`). This
-file is the bridge between them — read it, do what it asks, report back to
-the owner in chat. **Always overwritten, never appended to** — if a request
-below is done, it is gone from here, not crossed out.
+file is one half of the bridge — read it, do what it asks, write the answer
+where the other half is. **Always overwritten, never appended to**: a request
+that is done is gone from here, not crossed out.
+
+## The two directions
+
+- **Coding session → server session**: this file, on `Plugin-development`.
+- **Server session → coding session**: one Artifact, at a fixed address,
+  **rewritten in place** at every report (never a new one — a new URL is a
+  report the other side will not find):
+
+  https://claude.ai/code/artifact/a8cedd81-d8e6-49d4-8b61-b31452079a77
+
+Each side writes where it is allowed to write. Neither has to be online at the
+same time as the other.
+
+## What the server session should include in every report
+
+1. **What was run**, verbatim, and from where.
+2. **Raw output**, not a summary of it — a figure retyped is a figure that can
+   be retyped wrong.
+3. **What the shop actually is**: WordPress, WooCommerce and plugin versions,
+   HPOS on or off (WooCommerce's own answer — `OrderUtil::custom_orders_
+   table_usage_is_enabled()`, never the existence of `wc_orders`), and whether
+   this was the live shop or the copy.
+4. **Anything that disagrees with what the code assumes.** The last report
+   found 751 rows in `wc_order_product_lookup` with no order behind them —
+   84% of the revenue the screen was reporting. Nothing in the plugin had ever
+   suspected it. That is the kind of finding this bridge exists for.
 
 ## Open request
 
-Run this on the real shop (either `kula-tactical.com` or its copy) and paste
-the **whole** output back to the owner:
+Nothing is pending right now.
+
+The last one is done and shipped: `wc_order_product_lookup` rows whose order
+does not exist are no longer summed as revenue, and the diagnostic screen
+names them ("N order lines are left out of Revenue…") instead of burying them.
+`DZE_Sales::hpos()` now asks WooCommerce rather than looking for the table.
+
+When there is something to run, it goes here — and the read-only script beside
+it is kept current for it:
 
 ```
 wp eval-file tools/on-site/read-shop.php
 ```
 
 No WP-CLI? From the WordPress root: `php tools/on-site/read-shop.php` — it
-finds `wp-load.php` on its own from wherever it is run. It is read-only: it
-runs no write of any kind, safe on the live shop.
-
-This answers an open question about `dazont-ecom/includes/class-money.php`
-and `class-sales.php`: the shop's Revenue figures read $1,625 per average
-order line on a catalogue that sells at $15–$77, in a single currency with no
-mix — so it is not a rate. The script's second section prints the 20 biggest
-order lines with their date and their currency FIELD exactly as stored
-(including blank, which WooCommerce treats as the shop's own currency with no
-conversion). That is what settles it.
-
-## Nothing else is pending right now
-
-If this file says only that when you read it, there is no outstanding
-request — check back after the next commit that touches money or currency.
+finds `wp-load.php` on its own. It writes nothing, ever: safe on the live shop.
+It now also reports the orphan order lines permanently, so a fresh import that
+brings them back is visible on the next run.

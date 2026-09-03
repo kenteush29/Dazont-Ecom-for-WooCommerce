@@ -54,6 +54,41 @@ if ( ! function_exists( 'get_option' ) ) {
 
 global $wpdb;
 
+/**
+ * Whether this shop keeps its orders in the HPOS table.
+ *
+ * WooCommerce's own answer, never the table's. A shop that tried HPOS and
+ * turned it off keeps an EMPTY wp_wc_orders behind it, and reading that table
+ * finds no order for any line: every currency blank, every sale an orphan —
+ * exactly the false signal this script exists to rule out. That is what the
+ * first run of it printed.
+ */
+function hpos(): bool {
+	$util = '\\Automattic\\WooCommerce\\Utilities\\OrderUtil';
+	if ( class_exists( $util ) && method_exists( $util, 'custom_orders_table_usage_is_enabled' ) ) {
+		return (bool) $util::custom_orders_table_usage_is_enabled();
+	}
+	return 'yes' === get_option( 'woocommerce_custom_orders_table_enabled', 'no' );
+}
+
+/**
+ * A SELECT, or the reason there is nothing.
+ *
+ * $wpdb->get_results() returns [] on a SQL ERROR just as it does on a table
+ * with nothing in it, and throws neither way — so a section can print an empty
+ * heading and look like an answer. `COUNT(*) AS lines` did exactly that:
+ * LINES is a reserved word in MariaDB.
+ */
+function rows( string $sql ): array {
+	global $wpdb;
+	$got = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore -- read-only diagnostic.
+	if ( ! $got && $wpdb->last_error ) {
+		echo "(the query failed: {$wpdb->last_error})\n";
+		return [];
+	}
+	return (array) $got;
+}
+
 function section( string $title ): void {
 	echo "\n== {$title} ==\n";
 }
@@ -76,8 +111,7 @@ safely( 'Where this ran', function () {
 	echo 'WooCommerce: ' . ( defined( 'WC_VERSION' ) ? WC_VERSION : '?' ) . "\n";
 	echo 'Dazont Ecom: ' . ( defined( 'DZE_VERSION' ) ? DZE_VERSION : 'not active' ) . "\n";
 	global $wpdb;
-	$hpos = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . 'wc_orders' ) ) === $wpdb->prefix . 'wc_orders';
-	echo 'Order storage: ' . ( $hpos ? 'HPOS (wc_orders)' : 'posts table' ) . "\n";
+	echo 'Order storage: ' . ( hpos() ? 'HPOS (wc_orders)' : 'posts table' ) . "\n";
 } );
 
 safely( 'Currency — what is actually stored', function () {
@@ -104,24 +138,52 @@ safely( 'Revenue exactly as the plugin reads it today (24-month window, grouped 
 		return;
 	}
 	$orders = $wpdb->prefix . 'wc_orders';
-	$hpos   = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $orders ) ) === $orders;
+	$hpos   = hpos();
 	$since  = gmdate( 'Y-m-d H:i:s', time() - 24 * 30 * DAY_IN_SECONDS );
 	$sql    = $hpos
-		? "SELECT UPPER( COALESCE( o.currency, '' ) ) AS cur, COUNT(*) AS lines,
+		? "SELECT UPPER( COALESCE( o.currency, '' ) ) AS cur, COUNT(*) AS nb,
 				SUM( l.product_qty ) AS qty, SUM( l.product_net_revenue ) AS raw_total
 			FROM {$table} l LEFT JOIN {$orders} o ON o.id = l.order_id
 			WHERE l.date_created >= %s GROUP BY cur ORDER BY raw_total DESC"
-		: "SELECT UPPER( COALESCE( m.meta_value, '' ) ) AS cur, COUNT(*) AS lines,
+		: "SELECT UPPER( COALESCE( m.meta_value, '' ) ) AS cur, COUNT(*) AS nb,
 				SUM( l.product_qty ) AS qty, SUM( l.product_net_revenue ) AS raw_total
 			FROM {$table} l LEFT JOIN {$wpdb->postmeta} m ON m.post_id = l.order_id AND m.meta_key = '_order_currency'
 			WHERE l.date_created >= %s GROUP BY cur ORDER BY raw_total DESC";
-	$rows = $wpdb->get_results( $wpdb->prepare( $sql, $since ), ARRAY_A ); // phpcs:ignore -- fixed SQL, only the date is a parameter.
+	$rows = rows( $wpdb->prepare( $sql, $since ) );
 	printf( "%-10s %8s %10s %18s %14s\n", 'Currency', 'Lines', 'Qty', 'Raw total', 'Per line' );
 	foreach ( (array) $rows as $r ) {
 		$cur = '' !== $r['cur'] ? $r['cur'] : '[empty]';
-		$n   = max( 1, (int) $r['lines'] );
-		printf( "%-10s %8d %10d %18.2f %14.2f\n", $cur, (int) $r['lines'], (int) $r['qty'], (float) $r['raw_total'], (float) $r['raw_total'] / $n );
+		$n   = max( 1, (int) $r['nb'] );
+		printf( "%-10s %8d %10d %18.2f %14.2f\n", $cur, (int) $r['nb'], (int) $r['qty'], (float) $r['raw_total'], (float) $r['raw_total'] / $n );
 	}
+} );
+
+safely( 'Order lines with no order behind them', function () {
+	// The finding that settled it the first time, kept as a permanent reading:
+	// rows in WooCommerce's sales table whose order_id resolves to nothing.
+	// They are not sales — 67 of them carried 84% of this shop's reported
+	// revenue — and the plugin now leaves them out and names them on screen.
+	// If this section grows, an import has run again.
+	global $wpdb;
+	$table = $wpdb->prefix . 'wc_order_product_lookup';
+	if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		echo "(no {$table})\n";
+		return;
+	}
+	$join = hpos()
+		? "LEFT JOIN {$wpdb->prefix}wc_orders o ON o.id = l.order_id"
+		: "LEFT JOIN {$wpdb->posts} p ON p.ID = l.order_id AND p.post_type = 'shop_order'";
+	$key   = hpos() ? 'o.id' : 'p.ID';
+	$since = gmdate( 'Y-m-d H:i:s', time() - 24 * 30 * DAY_IN_SECONDS );
+	$sql   = "SELECT COUNT(*) AS nb, SUM( l.product_net_revenue ) AS raw_total,
+				SUM( CASE WHEN l.date_created >= %s THEN 1 ELSE 0 END ) AS nb_window,
+				SUM( CASE WHEN l.date_created >= %s THEN l.product_net_revenue ELSE 0 END ) AS raw_window
+			FROM {$table} l {$join} WHERE {$key} IS NULL";
+	$got = rows( $wpdb->prepare( $sql, $since, $since ) );
+	$r   = (array) ( $got[0] ?? [] );
+	printf( "Orphan lines, all time: %d, carrying %.2f\n", (int) ( $r['nb'] ?? 0 ), (float) ( $r['raw_total'] ?? 0 ) );
+	printf( "Inside the 24-month window: %d, carrying %.2f\n", (int) ( $r['nb_window'] ?? 0 ), (float) ( $r['raw_window'] ?? 0 ) );
+	echo "(the plugin leaves these out of Revenue and says so on the diagnostic screen)\n";
 } );
 
 safely( 'The 20 biggest order lines ever recorded — no date limit, no grouping', function () {
@@ -136,7 +198,7 @@ safely( 'The 20 biggest order lines ever recorded — no date limit, no grouping
 		return;
 	}
 	$orders = $wpdb->prefix . 'wc_orders';
-	$hpos   = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $orders ) ) === $orders;
+	$hpos   = hpos();
 	$sql    = $hpos
 		? "SELECT l.order_id, l.product_id, l.product_qty AS qty, l.product_net_revenue AS rev,
 				l.date_created, UPPER( COALESCE( o.currency, '' ) ) AS cur
@@ -146,7 +208,7 @@ safely( 'The 20 biggest order lines ever recorded — no date limit, no grouping
 				l.date_created, UPPER( COALESCE( m.meta_value, '' ) ) AS cur
 			FROM {$table} l LEFT JOIN {$wpdb->postmeta} m ON m.post_id = l.order_id AND m.meta_key = '_order_currency'
 			ORDER BY l.product_net_revenue DESC LIMIT 20";
-	$rows = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore -- fixed SQL, no input.
+	$rows = rows( $sql );
 	printf( "%-10s %-10s %6s %12s %-12s %-8s  %s\n", 'Order', 'Product', 'Qty', 'Revenue', 'Date', 'Currency', 'Product name' );
 	foreach ( (array) $rows as $r ) {
 		$name = function_exists( 'get_the_title' ) ? wp_strip_all_tags( (string) get_the_title( (int) $r['product_id'] ) ) : '';
