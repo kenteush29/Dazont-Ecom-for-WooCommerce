@@ -230,6 +230,33 @@ owner communicates in French.
   the split still reads the old row until the next scan. The prefix is declared
   in `DZE_Cleanup::map()` — an option name ending in `_` is a PREFIX there, the
   same convention transients already use.
+- **A CONTROL IS TESTED ON WHAT IT DOES, NEVER ON THE FACT THAT IT EXISTS.**
+  This is the rule broken most expensively here, three times in one week, and
+  always the same way: a test asserted the button was ON THE PAGE and nothing
+  ever asked where it went. A link to "the tool" shipped twice pointing at a
+  Dazont SETTINGS TAB — "Categories →" from a category criterion, the
+  Automation tab from an article criterion — both reading as the thing the
+  line is about and both being a preferences page that mends nothing. A "Fix"
+  button shipped never sending the id of its own row. A button shipped with no
+  handler bound at all.
+  So, for every control that is added or changed:
+  - **A link is tested on its DESTINATION.** A control on a row of objects
+    opens or acts on THAT object. A settings page is never the destination of
+    a row — `test-diagnostic.php` fails if any admin settings URL appears
+    inside the problem list, and that check exists because grepping for the
+    button passed while the button was wrong.
+  - **A button is tested by BEING PRESSED, in a browser, on both jQuery
+    builds** — `tools/js/diagnostic-fix.mjs` — reading back the request it
+    made (its action, its nonce, the id of its own row) and then reading the
+    page again to prove the answer LANDED. A request whose answer goes nowhere
+    is the same broken button from the shop's chair.
+  - **A table is tested on the ORDER of its columns, not only their presence.**
+    The header is declared in one place and the cells in another; they were
+    out of step by one, so every row printed the condition under "Price" and
+    the screen looked broken. Assert a heading AND the cell that belongs to
+    it.
+  - **Nothing ships from a green suite that was run before the last edit.**
+    See `check-lint.php` below.
 - **A COUNT IS AN ANSWER TO A QUESTION, and the question is written down.**
   The census stores a fingerprint of each criterion's rule beside its count
   (`rule_stamp()`, and only the parts that decide an answer — a rename or a

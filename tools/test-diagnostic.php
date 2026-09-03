@@ -244,6 +244,15 @@ class DZE_Queue {
 		return count( (array) $ids );
 	}
 	public static function url( $a = [] ) { return 'http://shop.test/wp-admin/queue'; }
+	/** The jobs this queue can actually run — the real list, kept in step. */
+	public static function kinds() {
+		return [
+			'cat_desc'     => [ 'label' => 'Category description',    'module' => 'category_content' ],
+			'cat_links'    => [ 'label' => 'Category internal links', 'module' => 'category_content' ],
+			'post_links'   => [ 'label' => 'Article internal links',  'module' => 'automation' ],
+			'product_shot' => [ 'label' => 'Product photograph',      'module' => 'content', 'image' => true ],
+		];
+	}
 	public static function pending_map( $family = 'cat_' ) { return $GLOBALS['pending'] ?? []; }
 	/** What was ACCEPTED on these objects — the record of what was done. */
 	public static function done_map( $ids ) {
@@ -570,20 +579,27 @@ ok( 'the field keeps its name, with the key',
 ok( 'and "is empty" reads as none missing',
 	DZE_Diagnostic::clean_rows( [ [ 'id' => '', 'scope' => 'product', 'field' => 'product.variation_images', 'key' => '', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ] ] )[0]['label'] ?? '',
 	'Variations without an image is empty' );
-$tool = new ReflectionMethod( 'DZE_Diagnostic', 'tool_for' );
+$tool = new ReflectionMethod( 'DZE_Diagnostic', 'job_for' );
 $tool->setAccessible( true );
-// PHOTOGRAPHS HAVE NO SCREEN OF THEIR OWN HERE. The image lab is an
-// experiment against fal.ai, finished and standing on its own; pointing other
-// functions at it would make a bench into a dependency. A product's
-// photographs are worked on where that product is opened, and the row already
-// links there.
-ok( 'a photograph criterion names no tool',
-	$tool->invoke( null, 'product.variation_images', 'product' ), [] );
-ok( 'nor does the gallery',             $tool->invoke( null, 'product.gallery', 'product' ), [] );
-ok( 'but a description still does',
-	$tool->invoke( null, 'product.description', 'product' )['label'] ?? '', 'Bulk writing' );
-ok( 'and a category description too',
-	$tool->invoke( null, 'category.description', 'category' )['label'] ?? '', 'Categories' );
+// A criterion is mended by a JOB, run on one object and held for review —
+// never by a link to a screen. Every "go to the tool" link this replaced
+// pointed at a Dazont SETTINGS TAB: "Categories" from a category criterion
+// led to a settings page, which is not the shop's categories and mends
+// nothing. A button that does not do the thing it names is worse than none.
+ok( 'a category description is mended by a job',
+	$tool->invoke( null, 'category.description' ), 'cat_desc' );
+ok( 'so are its internal links',        $tool->invoke( null, 'category.links' ), 'cat_links' );
+ok( 'and an article\'s links',          $tool->invoke( null, 'post.links' ), 'post_links' );
+// Everything the plugin cannot mend by itself offers nothing rather than a
+// button that would go somewhere useless.
+ok( 'a photograph has no job yet',      $tool->invoke( null, 'product.gallery' ), '' );
+ok( 'nor does a price',                 $tool->invoke( null, 'product.price' ), '' );
+ok( 'nor a product description',        $tool->invoke( null, 'product.description' ), '' );
+// And a job whose module is switched off is not offered: it would be queued
+// and fail in the background with nobody watching.
+$GLOBALS['module_off'] = [ 'category_content' => 1 ];
+ok( 'a switched-off module offers none', $tool->invoke( null, 'category.description' ), '' );
+$GLOBALS['module_off'] = [];
 ok( 'a custom field is still named by its key alone',
 	DZE_Diagnostic::clean_rows( [ [ 'id' => '', 'scope' => 'product', 'field' => 'product.meta', 'key' => '_bloc_1', 'test' => 'empty', 'value' => 0, 'find' => '', 'on' => 1 ] ] )[0]['label'] ?? '',
 	'_bloc_1 is empty' );
@@ -1037,12 +1053,71 @@ $_GET = [];
 ob_start();
 $dze_render->invoke( DZE_Diagnostic::instance(), 'prod_desc' );
 $dze_desc = (string) ob_get_clean();
-ok( 'a description row opens its tool',  substr_count( $dze_desc, '>Open</a>' ), 1 );
-ok( 'pointing at bulk writing',          false !== strpos( $dze_desc, 'dazont-content-bulk' ), true );
-// A photograph criterion has no screen of its own, so it offers no button —
-// the product's own link is already the whole of the answer.
+// A product description has no job in the queue yet, so its rows offer
+// nothing — a button that goes nowhere is worse than none.
+ok( 'a product description offers no button',
+	substr_count( $dze_desc, 'class="button button-small dze-diag-fix"' ), 0 );
 $GLOBALS['umeta'] = [];
-ok( 'a gallery row offers none',         false !== strpos( $show( [ 'by' => 'found' ] ), '>Open</a>' ), false );
+ok( 'and a gallery row offers none',
+	false !== strpos( $show( [ 'by' => 'found' ] ), 'class="button button-small dze-diag-fix"' ), false );
+
+// AN ARTICLE SHORT OF LINKS HAS ONE, because the plugin has a job that mends
+// exactly that. It runs on one article and waits in the review list.
+$GLOBALS['dze_posts'] = [];
+foreach ( [ 801, 802 ] as $dze_a ) {
+	$post = new WP_Post();
+	$post->ID = $dze_a;
+	$post->post_title = 'Article ' . $dze_a;
+	$post->post_content = str_repeat( 'word ', 900 );
+	$GLOBALS['dze_posts'][ $dze_a ] = $post;
+}
+$dze_link_rows = [ [ 'id' => 'thin_links', 'on' => 1, 'scope' => 'post', 'field' => 'post.links',
+	'test' => 'lt', 'value' => 4, 'find' => '', 'key' => '', 'note' => '' ] ];
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_link_rows ] );
+update_option( DZE_Diagnostic::list_option( 'thin_links' ), [ 801, 802 ], false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'thin_links' => 2 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'thin_links' );
+$dze_links = (string) ob_get_clean();
+ok( 'an article short of links has a button',
+	substr_count( $dze_links, 'class="button button-small dze-diag-fix"' ), 2 );
+ok( 'each carrying its own id',         false !== strpos( $dze_links, 'data-id="801"' ), true );
+// One already in the review list says so instead of offering to send it twice.
+$GLOBALS['pending'] = [ 801 => [ 'status' => 'review', 'id' => 5, 'kind' => 'post_links' ] ];
+$GLOBALS['umeta'] = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'thin_links' );
+$dze_links = (string) ob_get_clean();
+ok( 'one already waiting says so',      false !== strpos( $dze_links, 'Waiting for you' ), true );
+ok( 'and is not offered again',
+	substr_count( $dze_links, 'class="button button-small dze-diag-fix"' ), 1 );
+$GLOBALS['pending'] = [];
+
+echo "The Fix button sends ONE object, and writes nothing\n";
+$dze_press = static function ( string $id, int $oid ): array {
+	$_POST = [ 'check' => $id, 'id' => $oid, 'nonce' => 'x' ];
+	try { DZE_Diagnostic::ajax_fix(); } catch ( DZE_Json_Sent $e ) { return [ (array) $e->payload, $e->ok ]; }
+	return [ [], false ];
+};
+$GLOBALS['queued'] = [];
+[ $dze_said, $dze_ok ] = $dze_press( 'thin_links', 801 );
+ok( 'it goes off',                      $dze_ok, true );
+ok( 'as the job that mends links',      $GLOBALS['queued'][0]['kind'] ?? '', 'post_links' );
+ok( 'for that one article only',        $GLOBALS['queued'][0]['ids'] ?? [], [ 801 ] );
+// The line the whole design rests on. It must never be true.
+ok( 'and NEVER applied on its own',     $GLOBALS['queued'][0]['auto'] ?? true, false );
+ok( 'the answer says it is waiting',
+	false !== strpos( (string) ( $dze_said['message'] ?? '' ), 'accept it' ), true );
+// An id that is not on this criterion's list is a number somebody typed.
+$GLOBALS['queued'] = [];
+[ $dze_said, $dze_ok ] = $dze_press( 'thin_links', 999 );
+ok( 'an id off the list is refused',    $dze_ok, false );
+ok( 'and nothing was queued for it',    $GLOBALS['queued'], [] );
+// A criterion with no job cannot be pressed at all.
+[ $dze_said, $dze_ok ] = $dze_press( 'prod_gallery', 401 );
+ok( 'a criterion with no job says so',  $dze_ok, false );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
 
@@ -1194,6 +1269,49 @@ ok( 'the option prefix is declared',    in_array( 'dze_diagnostic_lists_', $dze_
 // updating from an older version is erased whole.
 ok( 'and the old single option too',    in_array( 'dze_diagnostic_lists', $dze_map, true ), true );
 $GLOBALS['dze_opts'] = [];
+
+// A CONTROL ON A ROW ACTS ON THAT ROW. Every "go to the tool" link this
+// screen ever carried pointed at a Dazont SETTINGS TAB — "Categories →" from
+// a category criterion, the Automation tab from an article criterion — and
+// both read as "the thing this is about" while being a preferences page that
+// mends nothing. Asserting the button EXISTS is what let it ship twice.
+// Later sections overwrote the criteria, so the article list is put back —
+// the fake shop is shared, and a screen rendered against somebody else's
+// fixtures is a screen nobody asked about.
+$GLOBALS['dze_opts'] = [];
+$GLOBALS['pending']  = [];
+$GLOBALS['dze_posts'] = [];
+foreach ( [ 801, 802 ] as $dze_a ) {
+	$post = new WP_Post();
+	$post->ID = $dze_a;
+	$post->post_title = 'Article ' . $dze_a;
+	$post->post_content = str_repeat( 'word ', 900 );
+	$GLOBALS['dze_posts'][ $dze_a ] = $post;
+}
+update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_link_rows ] );
+update_option( DZE_Diagnostic::list_option( 'thin_links' ), [ 801, 802 ], false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'thin_links' => 2 ], 'read' => time() ] );
+$GLOBALS['umeta'] = [];
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'thin_links' );
+$dze_row_html = (string) ob_get_clean();
+ok( 'the article rows carry their button',
+	substr_count( $dze_row_html, 'class="button button-small dze-diag-fix"' ), 2 );
+ok( 'no row sends the shop to a settings page',
+	(bool) preg_match( '#page=dazont-ecom-ai|page=dazont-ecom-settings|tab=(categories|automation|lab|discounts)#', $dze_row_html ), false );
+
+// The screen handed to the browser gate rather than described to it. One fake
+// shop, two consumers: a second harness would be a second answer to "what
+// does this page look like", and the two would drift.
+if ( in_array( '--dump-list', (array) $argv, true ) ) {
+	$GLOBALS['umeta'] = [];
+	$_GET = [];
+	ob_start();
+	$dze_render->invoke( DZE_Diagnostic::instance(), 'thin_links' );
+	echo (string) ob_get_clean();
+	exit( 0 );
+}
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

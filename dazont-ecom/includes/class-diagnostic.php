@@ -79,6 +79,7 @@ final class DZE_Diagnostic {
 		add_action( 'admin_init', [ __CLASS__, 'schedule' ] );
 		add_action( 'wp_ajax_dze_diag_scan', [ __CLASS__, 'ajax_scan' ] );
 		add_action( 'wp_ajax_dze_diag_keys', [ __CLASS__, 'ajax_keys' ] );
+		add_action( 'wp_ajax_dze_diag_fix',  [ __CLASS__, 'ajax_fix' ] );
 	}
 
 	/** Once a day, and never twice. */
@@ -776,51 +777,36 @@ final class DZE_Diagnostic {
 	}
 
 	/**
-	 * The screen that FIXES one kind of shortfall.
+	 * The JOB that mends this kind of shortfall, if the plugin has one.
 	 *
-	 * A to-do list that says what is wrong and not where to go is a list you
-	 * read twice. Every line names its tool and links straight at it — and
-	 * there is one map, read from the FIELD, so a criterion the shop invents
-	 * tomorrow arrives with its tool already attached.
+	 * A queue kind, run on ONE object and held for review — not a screen to
+	 * navigate to. Every "go to the tool" link this replaced pointed at a
+	 * Dazont settings tab: "Categories →" from a category criterion led to a
+	 * settings page about categories, which is not the shop's categories and
+	 * mends nothing. A button that does not do the thing it names is worse
+	 * than no button.
 	 *
-	 * @return array{label:string,url:string}
+	 * Read from the FIELD, so a criterion the shop invents tomorrow arrives
+	 * with its repair attached and nothing is wired to a criterion id. A field
+	 * with no honest job returns '' and gets no button.
 	 */
-	private static function tool_for( string $field ): array {
-		$tab = static fn( string $t ): string => add_query_arg(
-			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => $t ],
-			admin_url( 'admin.php' )
-		);
-		$bulk = add_query_arg(
-			[ 'post_type' => 'product', 'page' => class_exists( 'DZE_Content' ) ? DZE_Content::BULK_SLUG : 'dazont-content-bulk' ],
-			admin_url( 'edit.php' )
-		);
-		$scope = (string) ( self::fields()[ $field ]['scope'] ?? 'product' );
-		if ( 'category' === $scope ) {
-			return [ 'label' => __( 'Categories', 'dazont-ecom' ), 'url' => $tab( 'categories' ) ];
+	private static function job_for( string $field ): string {
+		$jobs = [
+			'category.description' => 'cat_desc',
+			'category.links'       => 'cat_links',
+			'post.links'           => 'post_links',
+		];
+		$kind = (string) ( $jobs[ $field ] ?? '' );
+		if ( '' === $kind || ! class_exists( 'DZE_Queue' ) || ! isset( DZE_Queue::kinds()[ $kind ] ) ) {
+			return '';
 		}
-		if ( 'post' === $scope ) {
-			// Only the links have a tool of their own; the rest of an article
-			// is written where articles are written.
-			return 'post.links' === $field
-				? [ 'label' => __( 'Automation', 'dazont-ecom' ), 'url' => $tab( 'automation' ) ]
-				: [ 'label' => __( 'Articles', 'dazont-ecom' ), 'url' => admin_url( 'edit.php' ) ];
+		// The module that does the work has to be switched on, or the job
+		// would be queued and fail in the background with nobody watching.
+		$module = (string) ( DZE_Queue::kinds()[ $kind ]['module'] ?? '' );
+		if ( '' !== $module && class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( $module ) ) {
+			return '';
 		}
-		// PHOTOGRAPHS HAVE NO SCREEN OF THEIR OWN HERE. The image lab is an
-		// experiment against fal.ai, finished and standing on its own; wiring
-		// other functions into it would make a bench into a dependency. A
-		// product's photographs are worked on where that product is opened, so
-		// the row's own link is the whole of the answer and there is no second
-		// button pointing at the same place.
-		if ( false !== strpos( $field, 'image' ) || 'product.gallery' === $field ) {
-			return [];
-		}
-		if ( in_array( $field, [ 'product.price', 'product.sale_price' ], true ) ) {
-			return [ 'label' => __( 'Discounts', 'dazont-ecom' ), 'url' => $tab( 'discounts' ) ];
-		}
-		if ( in_array( $field, [ 'product.stock', 'product.sku', 'product.weight', 'product.categories', 'product.tags', 'product.attributes', 'product.variations', 'product.reviews', 'product.rating', 'product.age' ], true ) ) {
-			return [ 'label' => __( 'Products', 'dazont-ecom' ), 'url' => admin_url( 'edit.php?post_type=product' ) ];
-		}
-		return [ 'label' => __( 'Bulk writing', 'dazont-ecom' ), 'url' => $bulk ];
+		return $kind;
 	}
 
 	/** Where each person's last view of each list is kept. */
@@ -862,6 +848,43 @@ final class DZE_Diagnostic {
 		update_user_meta( $user, self::VIEW_META, $all );
 	}
 
+	/**
+	 * One press on one line: that object's shortfall goes to the review list.
+	 *
+	 * Nothing is written on the shop. The job runs in the background and the
+	 * result waits to be accepted, exactly like every other job in the queue.
+	 */
+	public static function ajax_fix(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$id    = isset( $_POST['check'] ) ? sanitize_key( wp_unslash( $_POST['check'] ) ) : '';
+		$check = self::checks()[ $id ] ?? [];
+		$kind  = (string) ( $check['job'] ?? '' );
+		if ( '' === $kind ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing here mends that on its own.', 'dazont-ecom' ) ] );
+		}
+		if ( ! class_exists( 'DZE_Queue' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) ) {
+			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off — switch it on under Settings → Modules.', 'dazont-ecom' ) ] );
+		}
+		// An id arriving in a request is a number somebody typed until it has
+		// been found on this criterion's own list.
+		$one = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		if ( ! $one || ! in_array( $one, self::list_of( $id ), true ) ) {
+			wp_send_json_error( [ 'message' => __( 'That one is not on this list.', 'dazont-ecom' ) ] );
+		}
+		// auto_apply stays FALSE, always: nothing reaches a page before
+		// somebody has looked at it.
+		if ( ! DZE_Queue::add( $kind, [ $one ], false ) ) {
+			wp_send_json_error( [ 'message' => __( 'It is already in the review list.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [
+			'url'     => DZE_Queue::url(),
+			'message' => __( 'Sent — it waits for you to accept it.', 'dazont-ecom' ),
+		] );
+	}
+
 	/** Where the criteria themselves are edited. */
 	public static function settings_url(): string {
 		return add_query_arg(
@@ -881,7 +904,7 @@ final class DZE_Diagnostic {
 				'scope' => (string) $row['scope'],
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $fields[ $row['field'] ] ),
-				'tool'  => self::tool_for( (string) $row['field'], (string) $row['scope'] ),
+				'job'   => self::job_for( (string) $row['field'] ),
 				'goals' => self::goals_of( $row ),
 				'note'  => (string) ( $row['note'] ?? '' ),
 				'row'   => $row,
@@ -2100,7 +2123,6 @@ final class DZE_Diagnostic {
 				$n     = (int) $found[ $id ];
 				$total = (int) ( $seen[ $scope ] ?? 0 );
 				$pc    = $total > 0 ? (int) round( $n / $total * 100 ) : 0;
-				$tool = (array) ( $check['tool'] ?? [] );
 				echo '<tr>';
 				echo '<td><strong>' . esc_html( $check['label'] ) . '</strong>';
 				// A line always says which goal it belongs to, so the number
@@ -2370,9 +2392,13 @@ final class DZE_Diagnostic {
 			esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
 			esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
 		);
-		// Mending from this screen went with the routine it depended on.
-		$waiting = [];
-		$mending = false;
+		// What is ALREADY in the review list for these objects, read once for
+		// the page: a lookup per row is fifty queries to draw a list. A row
+		// already waiting says so instead of offering to send it again.
+		$dze_job = (string) ( $check['job'] ?? '' );
+		$waiting = ( '' !== $dze_job && class_exists( 'DZE_Queue' ) )
+			? DZE_Queue::pending_map( $dze_job )
+			: [];
 
 		// THE COUNT IS AN ANSWER TO A QUESTION. Change the rule after the
 		// reading and it goes on answering the old one: "variations without an
@@ -2503,25 +2529,24 @@ final class DZE_Diagnostic {
 		$dze_row  = (array) ( $check['row'] ?? [] );
 		$dze_band = (array) ( $split['band'] ?? [] );
 		$dze_cond = ! empty( $dze_row['cond'] ) && $dze_band;
-		if ( $dze_cond ) {
-			echo $head( 'band', __( 'Condition', 'dazont-ecom' ), 'width:210px;' );
-		}
-		$dze_tool = (array) ( $check['tool'] ?? [] );
+		$dze_job  = (string) ( $check['job'] ?? '' );
 		// On the FIXED tab the last column says what was DONE, not what to
 		// open next: a product that has left the problem list is a product
 		// nobody can check any more without reopening it.
 		$dze_done = ( 'fixed' === $show && class_exists( 'DZE_Queue' ) )
 			? DZE_Queue::done_map( $slice )
 			: [];
+		// The columns are declared in the order the cells are written, and the
+		// cells are written in the order the columns are declared. They were
+		// not: the condition was announced last and printed second, so every
+		// row read one cell out of step and the table looked broken.
+		if ( $dze_cond ) {
+			echo $head( 'band', __( 'Condition', 'dazont-ecom' ), 'width:200px;' );
+		}
 		if ( 'fixed' === $show ) {
 			echo '<th style="width:210px;">' . esc_html__( 'What was done', 'dazont-ecom' ) . '</th>';
-		} elseif ( $dze_tool ) {
-			echo '<th style="width:110px;"></th>';
-		}
-		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped
-		// phpcs:enable
-		if ( $mending ) {
-			echo '<th style="width:150px;"></th>';
+		} elseif ( '' !== $dze_job ) {
+			echo '<th style="width:120px;"></th>';
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
@@ -2548,16 +2573,6 @@ final class DZE_Diagnostic {
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
 			}
 			echo '</td>';
-			if ( $dze_cond ) {
-				$hit = (array) ( $dze_band[ $oid ] ?? [] );
-				printf(
-					'<td>%1$s</td>',
-					esc_html( (int) ( $hit['want'] ?? 0 ) > 0
-						/* translators: 1: the condition, 2: what it asks for */
-						? sprintf( __( '%1$s → at least %2$d', 'dazont-ecom' ), (string) ( $hit['said'] ?? '' ), (int) $hit['want'] )
-						: (string) ( $hit['said'] ?? '' ) )
-				);
-			}
 			if ( $goods ) {
 				$one   = $facts[ $oid ] ?? [];
 				$price = (string) ( $one['price'] ?? '' );
@@ -2571,6 +2586,16 @@ final class DZE_Diagnostic {
 				echo '<td>' . ( $when
 					? esc_html( wp_date( $fmt, $when ) )
 					: '<span class="description">&mdash;</span>' ) . '</td>';
+			}
+			if ( $dze_cond ) {
+				$hit = (array) ( $dze_band[ $oid ] ?? [] );
+				printf(
+					'<td>%1$s</td>',
+					esc_html( (int) ( $hit['want'] ?? 0 ) > 0
+						/* translators: 1: the condition, 2: what it asks for */
+						? sprintf( __( '%1$s → at least %2$d', 'dazont-ecom' ), (string) ( $hit['said'] ?? '' ), (int) $hit['want'] )
+						: (string) ( $hit['said'] ?? '' ) )
+				);
 			}
 			if ( 'fixed' === $show ) {
 				// READ FROM THE QUEUE, never from a second record: what was
@@ -2592,15 +2617,29 @@ final class DZE_Diagnostic {
 					echo '<span class="description">' . esc_html__( 'Edited by hand', 'dazont-ecom' ) . '</span>';
 				}
 				echo '</td>';
-			} elseif ( $dze_tool ) {
-				// The screen that does this kind of work, opened from the line
-				// that needs it. It generates nothing and decides nothing — it
-				// saves the walk back through three menus.
-				printf(
-					'<td style="text-align:right;"><a class="button button-small" href="%1$s">%2$s</a></td>',
-					esc_url( (string) $dze_tool['url'] ),
-					esc_html__( 'Open', 'dazont-ecom' )
-				);
+			} elseif ( '' !== $dze_job ) {
+				// The Dazont function that mends THIS one, run from the line
+				// that needs it. It writes nothing on the shop: the result
+				// waits in the review list, like everything else.
+				$job = (array) ( $waiting[ $oid ] ?? [] );
+				echo '<td style="text-align:right;white-space:nowrap;">';
+				if ( $job ) {
+					printf(
+						'<a href="%1$s">%2$s</a>',
+						esc_url( DZE_Queue::url() ),
+						esc_html( 'review' === ( $job['status'] ?? '' )
+							? __( 'Waiting for you', 'dazont-ecom' )
+							: __( 'Being written…', 'dazont-ecom' ) )
+					);
+				} else {
+					printf(
+						'<button type="button" class="button button-small dze-diag-fix" data-check="%1$s" data-id="%2$d">%3$s</button>',
+						esc_attr( $id ),
+						$oid,
+						esc_html__( 'Fix', 'dazont-ecom' )
+					);
+				}
+				echo '</td>';
 			}
 			echo '</tr>';
 		}
@@ -2749,6 +2788,33 @@ final class DZE_Diagnostic {
 		?>
 		<script>
 		jQuery(function ($) {
+			// One press on a line: that object goes to the review list. The
+			// button says what happened, on itself, and links to where the
+			// work waits — a click that leaves the shop wondering whether it
+			// worked is a broken function however correct the code underneath.
+			$(document).on('click', '.dze-diag-fix', function () {
+				var $b = $(this), was = $b.text();
+				$b.prop('disabled', true).text(<?php echo wp_json_encode( __( 'Sending…', 'dazont-ecom' ) ); ?>);
+				$.post(ajaxurl, {
+					action: 'dze_diag_fix',
+					nonce: '<?php echo esc_js( $nonce ); ?>',
+					check: $b.data('check'),
+					id: parseInt($b.data('id'), 10) || 0
+				})
+					.done(function (r) {
+						if (!r || !r.success) {
+							$b.prop('disabled', false).text(was);
+							window.alert((r && r.data && r.data.message) || <?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
+							return;
+						}
+						$b.replaceWith($('<a>').attr('href', r.data.url).text(<?php echo wp_json_encode( __( 'Waiting for you', 'dazont-ecom' ) ); ?>));
+					})
+					.fail(function () {
+						$b.prop('disabled', false).text(was);
+						window.alert(<?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
+					});
+			});
+
 			$('#dze-diag-scan').on('click', function () {
 				var $b = $(this), $m = $('#dze-diag-msg');
 				$b.prop('disabled', true);
