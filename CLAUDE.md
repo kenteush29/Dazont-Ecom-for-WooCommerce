@@ -265,6 +265,40 @@ owner communicates in French.
     it.
   - **Nothing ships from a green suite that was run before the last edit.**
     See `check-lint.php` below.
+- **A BUTTON ON ONE OBJECT OPENS THE FUNCTION THE OWNER WOULD HAVE OPENED
+  HIMSELF — it does not run one.** "Make a photograph" on a diagnostic row
+  fired the moment it was pressed, showed nothing, chose nothing, and replaced
+  the row with a link to a bulk list nobody had asked to go to: "rien de
+  contrôlable visible à l'appui sur le bouton", "j'aurais choisi 2 images photo
+  shoot + 1 ugc si j'avais le choix". So, for a control that acts on a single
+  object:
+  - It opens **the popup that already exists for that object** — the product's
+    own toolbox, opened from the product screen and from the products list, and
+    now from the diagnostic. Never a second surface, never a redirect away from
+    the list, never a second place a generated photograph waits for a decision.
+  - It opens it **armed and explaining itself**: the section the criterion is
+    about, the prompt rows the shortfall calls for (one per missing
+    photograph, from the shop's own prompts in the order it wrote them), and
+    one sentence saying why it opened that way. Everything is a suggestion to
+    be edited; nothing is spent until the person presses Generate.
+  - **What a product page can generate is a CATALOGUE, in one place**
+    (`DZE_Content::blocks()`), keyed by what each block WRITES —
+    `post_content`, `image.gallery`, `price` — never by a prompt's name, which
+    the shop renames. `DZE_Diagnostic::block_for()` is one line per field
+    against that catalogue: a criterion invented tomorrow arrives with its
+    repair attached, and a shop with no prompt aimed at a slot gets no button
+    rather than one opening on an empty section.
+  - **A list hands a SELECTION to the bulk screen that already exists.** Tick
+    boxes, one button, `DZE_Content::set_bulk_list()` and the same URL the
+    products list redirects to. Never a second bulk engine.
+  - The decision is split from the request: `bulk_pick()` returns where to go
+    and `post_bulk()` does the redirect, because a handler that ends the
+    request cannot be tested — the same rule `shoot()` is held to.
+  `tools/js/diagnostic-fix.mjs` presses it in a real browser on both jQuery
+  builds and proves the opposite of what it used to prove: that the press
+  generates NOTHING, that the page does not move, and that the popup came up
+  armed.
+
 - **A COUNT IS AN ANSWER TO A QUESTION, and the question is written down.**
   The census stores a fingerprint of each criterion's rule beside its count
   (`rule_stamp()`, and only the parts that decide an answer — a rename or a

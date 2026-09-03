@@ -80,6 +80,52 @@ final class DZE_Diagnostic {
 		add_action( 'wp_ajax_dze_diag_scan', [ __CLASS__, 'ajax_scan' ] );
 		add_action( 'wp_ajax_dze_diag_keys', [ __CLASS__, 'ajax_keys' ] );
 		add_action( 'wp_ajax_dze_diag_fix',  [ __CLASS__, 'ajax_fix' ] );
+		// A page of ticked rows handed to the bulk screen — WordPress's own
+		// form post, the same journey the products list makes.
+		add_action( 'admin_post_dze_diag_bulk', [ __CLASS__, 'post_bulk' ] );
+	}
+
+	/**
+	 * The rows that were ticked, sent to the bulk screen as a selection.
+	 *
+	 * Nothing is generated and nothing is written: this hands the products to
+	 * the screen that already does bulk work on products, exactly as the
+	 * products list hands them over. What to run, with which prompts, and how
+	 * many images is chosen THERE, in front of the person choosing.
+	 */
+	public static function post_bulk(): void {
+		check_admin_referer( 'dze_diag_bulk' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
+		}
+		$id  = isset( $_POST['check'] ) ? sanitize_key( wp_unslash( $_POST['check'] ) ) : '';
+		$ids = array_map( 'absint', (array) ( $_POST['ids'] ?? [] ) );
+		wp_safe_redirect( self::bulk_pick( $id, $ids ) );
+		exit;
+	}
+
+	/**
+	 * The selection handed over, and where the person goes next.
+	 *
+	 * Separate from the request that calls it, and it never ends one: a JSON
+	 * exit or a redirect buried inside is what made shoot() impossible to run
+	 * from anywhere but a browser, and this has to be exercisable with real
+	 * ids and a real answer.
+	 *
+	 * @param int[] $ids The rows that were ticked, as they arrived.
+	 * @return string Where to go: the bulk screen, or back to the list when
+	 *                nothing usable was ticked.
+	 */
+	public static function bulk_pick( string $id, array $ids ): string {
+		$back = add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id ], admin_url( 'admin.php' ) );
+		// Ids arriving in a request are numbers somebody typed until they have
+		// been found on this criterion's own list.
+		$ids  = array_values( array_intersect( array_map( 'absint', $ids ), self::list_of( $id ) ) );
+		if ( ! $ids || ! class_exists( 'DZE_Content' ) ) {
+			return $back;
+		}
+		DZE_Content::set_bulk_list( $ids );
+		return DZE_Content::bulk_url();
 	}
 
 	/** Once a day, and never twice. */
@@ -791,25 +837,18 @@ final class DZE_Diagnostic {
 	 * with no honest job returns '' and gets no button.
 	 */
 	private static function job_for( string $field ): string {
+		// PRODUCTS ARE NOT HERE, and that is deliberate. A product's blocks
+		// are mended in the product's OWN popup — the one the product screen
+		// and the products list both open — where the work is laid out before
+		// a single call is made and the result comes back in front of you. A
+		// queued photograph fired on the press, showed nothing, and landed on
+		// a list nobody had asked to go to. See block_for().
 		$jobs = [
 			'category.description' => 'cat_desc',
 			'category.links'       => 'cat_links',
 			'post.links'           => 'post_links',
-			// A gallery short of photographs is mended by making them, with
-			// the shop's OWN image prompts — the ones already aimed at the
-			// gallery, in the order the shop wrote them. No routine to fill in
-			// on the criterion: a count there beside the rule's own is two
-			// answers to one question, which is why the last one was removed.
-			'product.gallery'      => 'product_shot',
-			'product.main_image'   => 'product_shot',
 		];
 		$kind = (string) ( $jobs[ $field ] ?? '' );
-		// A photograph job needs a prompt aimed at the right place. A shop
-		// with none gets no button rather than a press that fails in the
-		// background with nobody watching.
-		if ( 'product_shot' === $kind && ! self::shot_prompts( $field ) ) {
-			return '';
-		}
 		if ( '' === $kind || ! class_exists( 'DZE_Queue' ) || ! isset( DZE_Queue::kinds()[ $kind ] ) ) {
 			return '';
 		}
@@ -820,6 +859,133 @@ final class DZE_Diagnostic {
 			return '';
 		}
 		return $kind;
+	}
+
+	/**
+	 * The block of the PRODUCT PAGE that mends this criterion's field.
+	 *
+	 * One line per field, pointing at what the block WRITES — not at a prompt,
+	 * which the shop renames, and not at a screen, which mends nothing. The
+	 * answer is checked against the catalogue the product screen itself draws
+	 * (DZE_Content::blocks()), so a shop with no gallery prompt gets no
+	 * gallery button rather than one that opens on an empty section.
+	 *
+	 * A field with no honest block returns '' and the row keeps only its own
+	 * link to the product.
+	 */
+	public static function block_for( string $field ): string {
+		$map = [
+			'product.title'             => 'post_title',
+			'product.description'       => 'post_content',
+			'product.short_description' => 'post_excerpt',
+			'product.attributes'        => 'attributes',
+			'product.seo_title'         => 'seo_title',
+			'product.seo_desc'          => 'seo_desc',
+			// Every reading of the main photograph — there is one, it is too
+			// small, its shortest side is too short — is mended by making
+			// another one for that slot.
+			'product.main_image'        => 'image.main',
+			'product.main_image_width'  => 'image.main',
+			'product.main_image_height' => 'image.main',
+			'product.main_image_side'   => 'image.main',
+			'product.gallery'           => 'image.gallery',
+			'product.variation_images'  => 'image.variation',
+			'product.price'             => 'price',
+			'product.sale_price'        => 'price',
+		];
+		$id = (string) ( $map[ $field ] ?? '' );
+		if ( '' === $id || ! class_exists( 'DZE_Content' ) ) {
+			return '';
+		}
+		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'content' ) ) {
+			return '';
+		}
+		return isset( DZE_Content::blocks()[ $id ] ) ? $id : '';
+	}
+
+	/**
+	 * What the product's own popup is opened WITH, for one line of one list.
+	 *
+	 * The section to open, the prompt to tick, and — for a photograph — the
+	 * rows already laid out: one per shipped prompt aimed at that slot, as
+	 * many as the product is SHORT OF, so a product two photographs short
+	 * opens on two rows and not on a number nobody chose. Nothing is run:
+	 * everything here is a suggestion the person edits before pressing.
+	 *
+	 * @return array{section:string,field:string,shots:array,why:string}
+	 */
+	public static function open_with( array $row, string $scope, int $oid ): array {
+		$field = (string) ( $row['field'] ?? '' );
+		$block = self::block_for( $field );
+		if ( '' === $block ) {
+			return [];
+		}
+		$meta = (array) ( DZE_Content::blocks()[ $block ] ?? [] );
+		$out  = [
+			'section' => (string) ( $meta['section'] ?? 'text' ),
+			'field'   => (string) ( $meta['field'] ?? '' ),
+			'shots'   => [],
+			'why'     => '',
+		];
+		$target = (string) ( $meta['target'] ?? '' );
+		if ( in_array( $target, [ 'main', 'gallery' ], true ) ) {
+			$prompts = self::shot_prompts( $field );
+			$need    = self::short_by( $row, $scope, $oid );
+			for ( $i = 0; $prompts && $i < $need; $i++ ) {
+				$out['shots'][] = [
+					'tpl'    => (int) $prompts[ $i % count( $prompts ) ],
+					'n'      => 1,
+					'target' => $target,
+				];
+			}
+			if ( $out['shots'] ) {
+				$out['why'] = sprintf(
+					/* translators: 1: how many photographs are missing, 2: the criterion in words */
+					_n(
+						'%2$s — one photograph short. One prompt is laid out below; change it, add another, then generate.',
+						'%2$s — %1$d photographs short. That many prompts are laid out below; change them, add another, then generate.',
+						count( $out['shots'] ),
+						'dazont-ecom'
+					),
+					count( $out['shots'] ),
+					self::rule_said( $row, self::fields()[ $field ] ?? [] )
+				);
+			}
+		}
+		if ( '' === $out['why'] ) {
+			$out['why'] = self::rule_said( $row, self::fields()[ $field ] ?? [] );
+		}
+		return $out;
+	}
+
+	/**
+	 * What the button on a row SAYS it will do.
+	 *
+	 * The block's own name says what it is; a button has to say what happens
+	 * when it is pressed. The ellipsis is WordPress's own convention and it is
+	 * the whole point here: this button opens the product's popup with the
+	 * work laid out, it does not start it. The one before it said "Make a
+	 * photograph" and made one on the press, with nothing to choose.
+	 */
+	public static function block_verb( string $block ): string {
+		$said = [
+			'post_title'      => __( 'Write the product name…', 'dazont-ecom' ),
+			'post_content'    => __( 'Write the description…', 'dazont-ecom' ),
+			'post_excerpt'    => __( 'Write the short description…', 'dazont-ecom' ),
+			'attributes'      => __( 'Write the attributes…', 'dazont-ecom' ),
+			'seo_title'       => __( 'Write the SEO title…', 'dazont-ecom' ),
+			'seo_desc'        => __( 'Write the SEO description…', 'dazont-ecom' ),
+			'image.main'      => __( 'Make the main image…', 'dazont-ecom' ),
+			'image.gallery'   => __( 'Make photographs…', 'dazont-ecom' ),
+			'image.variation' => __( 'Variation images…', 'dazont-ecom' ),
+			'price'           => __( 'Recalculate the price…', 'dazont-ecom' ),
+		];
+		if ( isset( $said[ $block ] ) ) {
+			return (string) $said[ $block ];
+		}
+		$label = (string) ( DZE_Content::blocks()[ $block ]['label'] ?? '' );
+		/* translators: %s: the block of the product page, e.g. "Description" */
+		return '' !== $label ? sprintf( __( 'Open %s…', 'dazont-ecom' ), $label ) : __( 'Open the toolbox…', 'dazont-ecom' );
 	}
 
 	/** Where each person's last view of each list is kept. */
@@ -938,31 +1104,10 @@ final class DZE_Diagnostic {
 		if ( ! $one || ! in_array( $one, self::list_of( $id ), true ) ) {
 			wp_send_json_error( [ 'message' => __( 'That one is not on this list.', 'dazont-ecom' ) ] );
 		}
-		// auto_apply stays FALSE, always: nothing reaches a page before
-		// somebody has looked at it.
-		$row   = (array) ( $check['row'] ?? [] );
-		$scope = (string) ( $check['scope'] ?? 'product' );
-		$added = 0;
-		if ( 'product_shot' === $kind ) {
-			// ONE JOB PER PHOTOGRAPH, so three on one product are three rows
-			// to look at and two can be thrown away without losing the third.
-			// How many is what the product is SHORT OF, read from the same
-			// rule the list judged it by; which prompt is the shop's own, in
-			// the order it wrote them, one after another.
-			$prompts = self::shot_prompts( (string) ( $row['field'] ?? '' ) );
-			$need    = self::short_by( $row, $scope, $one );
-			for ( $i = 0; $i < $need; $i++ ) {
-				$added += DZE_Queue::add( $kind, [ $one ], false, [
-					'template' => (int) $prompts[ $i % count( $prompts ) ],
-					// A second photograph from the same prompt is asked for a
-					// different framing, the way the product screen's own
-					// "another one" button asks.
-					'attempt'  => intdiv( $i, count( $prompts ) ),
-				] );
-			}
-		} else {
-			$added = DZE_Queue::add( $kind, [ $one ], false );
-		}
+		// auto_apply stays FALSE, always. A photograph is not queued from here
+		// at all: it is made in the product's own popup, where it can be
+		// looked at — see block_for().
+		$added = DZE_Queue::add( $kind, [ $one ], false );
 		if ( ! $added ) {
 			wp_send_json_error( [ 'message' => __( 'It is already in the review list.', 'dazont-ecom' ) ] );
 		}
@@ -992,6 +1137,9 @@ final class DZE_Diagnostic {
 				'label' => (string) $row['label'],
 				'why'   => self::rule_said( $row, $fields[ $row['field'] ] ),
 				'job'   => self::job_for( (string) $row['field'] ),
+				// The product-page block that mends it, for the button on a
+				// product row: one popup, the one the product screen opens.
+				'block' => self::block_for( (string) $row['field'] ),
 				'goals' => self::goals_of( $row ),
 				'note'  => (string) ( $row['note'] ?? '' ),
 				'row'   => $row,
@@ -2599,8 +2747,28 @@ final class DZE_Diagnostic {
 			);
 		};
 
+		// The BLOCK of the product page this criterion is about. It is what
+		// puts a button on the row — the product's own popup, opened on that
+		// block — and what lets a page of rows be sent to the bulk screen in
+		// one gesture, which is the screen this shop already generates from.
+		$dze_block = $goods ? (string) ( $check['block'] ?? '' ) : '';
+		// The variation images are made one product at a time, in their own
+		// popup: there is no bulk pass behind them, so there is no tick box
+		// offering one.
+		$dze_pick  = ( '' !== $dze_block && 'image.variation' !== $dze_block && 'fixed' !== $show && $slice );
+		if ( $dze_pick ) {
+			printf(
+				'<form method="post" action="%s" id="dze-diag-bulk">',
+				esc_url( admin_url( 'admin-post.php' ) )
+			);
+			wp_nonce_field( 'dze_diag_bulk' );
+			printf( '<input type="hidden" name="action" value="dze_diag_bulk" /><input type="hidden" name="check" value="%s" />', esc_attr( $id ) );
+		}
 		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>';
 		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- every cell is built escaped above.
+		if ( $dze_pick ) {
+			echo '<td class="manage-column column-cb check-column"><input type="checkbox" id="dze-diag-all" /></td>';
+		}
 		echo $goods
 			? $head( 'name', __( 'Product', 'dazont-ecom' ) )
 			: '<th>' . esc_html__( 'Name', 'dazont-ecom' ) . '</th>';
@@ -2632,8 +2800,8 @@ final class DZE_Diagnostic {
 		}
 		if ( 'fixed' === $show ) {
 			echo '<th style="width:210px;">' . esc_html__( 'What was done', 'dazont-ecom' ) . '</th>';
-		} elseif ( '' !== $dze_job ) {
-			echo '<th style="width:120px;"></th>';
+		} elseif ( '' !== $dze_job || '' !== $dze_block ) {
+			echo '<th style="width:180px;"></th>';
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';
@@ -2650,7 +2818,14 @@ final class DZE_Diagnostic {
 				continue;
 			}
 
-			echo '<tr><td>';
+			echo '<tr>';
+			if ( $dze_pick ) {
+				printf(
+					'<th scope="row" class="check-column"><input type="checkbox" class="dze-diag-one" name="ids[]" value="%1$d" /></th>',
+					$oid
+				);
+			}
+			echo '<td>';
 			// A title with markup in it — "<span> Military Patch </span> Russian
 			// Z" — is a title with markup in it: the tags are the shop's, not
 			// something to print at it.
@@ -2704,6 +2879,23 @@ final class DZE_Diagnostic {
 					echo '<span class="description">' . esc_html__( 'Edited by hand', 'dazont-ecom' ) . '</span>';
 				}
 				echo '</td>';
+			} elseif ( '' !== $dze_block ) {
+				// THE PRODUCT'S OWN POPUP, opened on the block this criterion
+				// is about. The same one the product screen and the products
+				// list open — one popup for a product, everywhere — armed with
+				// what this line found: the section, the prompt, and for a
+				// photograph one row per shot the product is short of. Nothing
+				// runs on the press: the work is laid out to be looked at,
+				// changed, and only then generated.
+				$dze_want = self::open_with( $dze_row, (string) $check['scope'], $oid );
+				printf(
+					'<td style="text-align:right;white-space:nowrap;">'
+						. '<button type="button" class="button button-small dze-content-open" data-id="%1$d" data-want="%2$s" title="%3$s">%4$s</button></td>',
+					$oid,
+					esc_attr( (string) wp_json_encode( $dze_want ) ),
+					esc_attr( (string) ( $dze_want['why'] ?? '' ) ),
+					esc_html( self::block_verb( $dze_block ) )
+				);
 			} elseif ( '' !== $dze_job ) {
 				// The Dazont function that mends THIS one, run from the line
 				// that needs it. It writes nothing on the shop: the result
@@ -2734,6 +2926,19 @@ final class DZE_Diagnostic {
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
+		if ( $dze_pick ) {
+			// The SAME bulk screen this shop already generates from, handed the
+			// products that were ticked. Nothing new is invented here: the
+			// selection travels exactly as it does from the products list.
+			printf(
+				'<p class="dze-diag-bulkbar" style="max-width:1100px;margin:10px 0 0;">'
+					. '<button type="submit" class="button button-primary">%1$s</button> '
+					. '<span class="description">%2$s</span></p>',
+				esc_html__( 'Generate for the selected products', 'dazont-ecom' ),
+				esc_html__( 'Opens the bulk screen with those products in it, where the prompts and the number of images are chosen before anything is generated.', 'dazont-ecom' )
+			);
+			echo '</form>';
+		}
 		// The handlers. They were printed on the summary only, so every button
 		// added to THIS screen did nothing at all — no error, no message, no
 		// request: the one failure that looks exactly like a broken plugin.
@@ -2903,6 +3108,18 @@ final class DZE_Diagnostic {
 						$b.prop('disabled', false).text(was);
 						window.alert(<?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
 					});
+			});
+
+			// The header tick box, WordPress's own gesture on its own list.
+			$(document).on('change', '#dze-diag-all', function () {
+				$('.dze-diag-one').prop('checked', $(this).is(':checked'));
+			});
+			// A selection bar that submits nothing is a press that answers
+			// nothing: the bar says so rather than reloading the same page.
+			$('#dze-diag-bulk').on('submit', function () {
+				if ($('.dze-diag-one:checked').length) { return true; }
+				window.alert(<?php echo wp_json_encode( __( 'Tick the products to work on first.', 'dazont-ecom' ) ); ?>);
+				return false;
 			});
 
 			$('#dze-diag-scan').on('click', function () {

@@ -1118,6 +1118,80 @@ EOT;
 		return $out;
 	}
 
+	/**
+	 * EVERY block a product page can generate, named once, in one place.
+	 *
+	 * The toolbox on a product already offers one section per kind of work —
+	 * the texts, the photographs, the variation images, the price. What did
+	 * not exist was a NAME for each of those blocks that something outside the
+	 * product screen could point at. So the content diagnostic grew a repair
+	 * of its own: a button that queued a photograph the moment it was pressed,
+	 * nothing to choose, nothing to look at, and a redirect to a list nobody
+	 * asked for. This catalogue is what replaces it — the diagnostic names the
+	 * block, and the product's own popup opens on it.
+	 *
+	 * Keyed by WHAT THE BLOCK WRITES, never by the prompt's name: a shop that
+	 * renames "Description longue" keeps every repair pointed at it.
+	 *
+	 * @return array<string,array{label:string,section:string,field:string,target:string}>
+	 */
+	public static function blocks(): array {
+		$out = [];
+		// The texts, as the toolbox lists them: one entry per destination, and
+		// the first enabled prompt that writes there is the one a repair ticks.
+		foreach ( self::enabled_fields() as $fid => $f ) {
+			$dest = (string) ( $f['dest'] ?? '' );
+			if ( '' === $dest || 'meta' === $dest || isset( $out[ $dest ] ) ) {
+				continue;
+			}
+			$out[ $dest ] = [
+				'label'   => (string) ( $f['label'] ?? $fid ),
+				'section' => 'text',
+				'field'   => (string) $fid,
+				'target'  => '',
+			];
+		}
+		// The photographs, one entry per place a shipped prompt actually aims
+		// at. A shop with no gallery prompt has no gallery block, and a
+		// diagnostic about its gallery gets no button rather than one that
+		// opens on an empty section.
+		$targets = [];
+		foreach ( self::image_templates() as $tpl ) {
+			$targets[ (string) ( $tpl['target'] ?? 'gallery' ) ] = true;
+		}
+		$named = [
+			'main'      => [ __( 'Main image', 'dazont-ecom' ), 'img' ],
+			'gallery'   => [ __( 'Product gallery', 'dazont-ecom' ), 'img' ],
+			'variation' => [ __( 'Variation images', 'dazont-ecom' ), 'var' ],
+		];
+		foreach ( $named as $target => $said ) {
+			if ( isset( $targets[ $target ] ) ) {
+				$out[ 'image.' . $target ] = [
+					'label'   => $said[0],
+					'section' => $said[1],
+					'field'   => '',
+					'target'  => $target,
+				];
+			}
+		}
+		// One image per colour is worked on in its own popup, which the
+		// toolbox opens: the block exists on every variable product, prompt or
+		// no prompt, because it is also filled by hand from there.
+		$out['image.variation'] = [
+			'label'   => __( 'Variation images', 'dazont-ecom' ),
+			'section' => 'var',
+			'field'   => '',
+			'target'  => 'variation',
+		];
+		$out['price'] = [
+			'label'   => __( 'Price', 'dazont-ecom' ),
+			'section' => 'price',
+			'field'   => '',
+			'target'  => '',
+		];
+		return $out;
+	}
+
 	/** Per image-template validation (index into image_templates()). */
 	public static function template_validated( int $idx ): bool {
 		$tpls = self::image_templates();
@@ -2939,12 +3013,24 @@ Answer with STRICT JSON and nothing else: "
 		delete_transient( 'dze_content_bulk_' . $uid );
 	}
 
+	/**
+	 * The bulk screen's own address, written once.
+	 *
+	 * It was built by hand in three places and is now sent to from a fourth —
+	 * the content diagnostic, which hands it a page of ticked products. Four
+	 * copies of one URL is three chances for it to be wrong the day the slug
+	 * moves.
+	 */
+	public static function bulk_url(): string {
+		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
+	}
+
 	public function handle_bulk_action( string $redirect, string $action, array $ids ): string {
 		if ( self::BULK_ACTION !== $action || empty( $ids ) ) {
 			return $redirect;
 		}
 		self::set_bulk_list( $ids );
-		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
+		return self::bulk_url();
 	}
 
 	/**
@@ -3244,7 +3330,7 @@ Answer with STRICT JSON and nothing else: "
 
 			<?php
 			$dze_mode = $this->bulk_mode();
-			$dze_base = add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
+			$dze_base = self::bulk_url();
 			// Products are added to the list, worked on, decided on — and then
 			// they are done with. Two tabs is the whole story.
 			$dze_counts = self::screen_counts();
@@ -3567,7 +3653,15 @@ Answer with STRICT JSON and nothing else: "
 		$on_list     = 'edit.php' === $hook && $screen && 'product' === $screen->post_type;
 		$on_bulk     = ( 'product_page_' . self::BULK_SLUG ) === $hook;
 		$on_settings = false !== strpos( (string) $hook, 'dazont' );
-		if ( ! $on_product && ! $on_list && ! $on_bulk && ! $on_settings ) {
+		// THE CONTENT DIAGNOSTIC'S PROBLEM LIST, which puts the product's own
+		// popup on every row. Only the list of one criterion — the summary has
+		// no row to open, and the editor is not loaded for a screen that will
+		// never open it. phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only screen check.
+		$on_diag = class_exists( 'DZE_Diagnostic' )
+			&& isset( $_GET['page'], $_GET['check'] )
+			&& DZE_Diagnostic::MENU_SLUG === sanitize_key( wp_unslash( $_GET['page'] ) )
+			&& 'product' === (string) ( DZE_Diagnostic::checks()[ sanitize_key( wp_unslash( $_GET['check'] ) ) ]['scope'] ?? '' );
+		if ( ! $on_product && ! $on_list && ! $on_bulk && ! $on_settings && ! $on_diag ) {
 			return;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
@@ -3658,7 +3752,7 @@ Answer with STRICT JSON and nothing else: "
 				'validated' => true, // gating is per-field via disabled checkboxes.
 				// Where the screen goes back to after a paste: the selection, not
 				// whatever filtered view it was opened on.
-				'listUrl'   => add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) ),
+				'listUrl'   => self::bulk_url(),
 				// Which list is on screen: the selection, or the products
 				// holding content waiting for a decision. Taking a row out
 				// means a different thing in each, and used to rewrite the
@@ -3783,12 +3877,14 @@ Answer with STRICT JSON and nothing else: "
 			] );
 			return;
 		}
-		if ( ! $on_product && ! $on_list ) {
+		if ( ! $on_product && ! $on_list && ! $on_diag ) {
 			return;
 		}
 		// The list opens the same popup for any row, so it loads the same script
 		// and the same editor; the product it works on is chosen at click time.
-		$pid = $on_list ? 0 : (int) get_the_ID();
+		// The diagnostic's problem list is the same case: a page of products,
+		// one popup, the product chosen by the row that was pressed.
+		$pid = $on_product ? (int) get_the_ID() : 0;
 		wp_enqueue_editor();
 		self::enqueue_paste_box();
 		wp_enqueue_script( 'dze-content', DZE_URL . 'admin/js/content.js', [ 'jquery', 'dze-photos', 'dze-paste-box' ], DZE_VERSION, true );

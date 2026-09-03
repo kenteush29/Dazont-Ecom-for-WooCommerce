@@ -56,6 +56,10 @@ function get_current_user_id() { return (int) ( $GLOBALS['uid'] ?? 1 ); }
 function get_user_meta( $u, $k, $single = false ) { return $GLOBALS['umeta'][ (int) $u ][ $k ] ?? ( $single ? '' : [] ); }
 function update_user_meta( $u, $k, $v ) { $GLOBALS['umeta'][ (int) $u ][ $k ] = $v; return true; }
 function admin_url( $p = '' ) { return 'http://example.test/wp-admin/' . $p; }
+function wp_nonce_field( $a = '', $n = '_wpnonce', $r = true, $e = true ) { $h = '<input type="hidden" name="' . $n . '" value="n" />'; if ( $e ) { echo $h; } return $h; }
+function check_admin_referer( $a = '', $n = '_wpnonce' ) { return 1; }
+function wp_safe_redirect( $to, $status = 302 ) { $GLOBALS['went'] = (string) $to; return true; }
+function wp_die( $m = '' ) { throw new RuntimeException( (string) $m ); }
 function is_admin() { return true; }
 function wp_unslash( $v ) { return $v; }
 function wp_style_is( $h, $l = 'enqueued' ) { return true; }
@@ -237,6 +241,29 @@ function add_submenu_page( $parent, $title, $menu, $cap, $slug, $cb = null, $pos
 class DZE_Content {
 	const BULK_SLUG = 'dazont-content-bulk';
 	public static function image_templates() { return $GLOBALS['tpls'] ?? []; }
+	public static function bulk_url() { return 'http://example.test/wp-admin/edit.php?post_type=product&page=dazont-content-bulk'; }
+	public static function set_bulk_list( $ids ) { $GLOBALS['bulked'] = array_values( array_map( 'intval', $ids ) ); }
+	/**
+	 * The blocks a product page can generate — the same contract as the real
+	 * one: a text block per destination the shop has a prompt for, an image
+	 * block per slot a prompt actually aims at, the variations, the price.
+	 */
+	public static function blocks() {
+		$out = [];
+		foreach ( (array) ( $GLOBALS['cfields'] ?? [ 'post_content' => 'Description', 'seo_title' => 'SEO title' ] ) as $dest => $label ) {
+			$out[ $dest ] = [ 'label' => $label, 'section' => 'text', 'field' => 'f_' . $dest, 'target' => '' ];
+		}
+		foreach ( (array) ( $GLOBALS['tpls'] ?? [] ) as $tpl ) {
+			$target = (string) ( $tpl['target'] ?? 'gallery' );
+			$named  = [ 'main' => [ 'Main image', 'img' ], 'gallery' => [ 'Product gallery', 'img' ], 'variation' => [ 'Variation images', 'var' ] ];
+			if ( isset( $named[ $target ] ) ) {
+				$out[ 'image.' . $target ] = [ 'label' => $named[ $target ][0], 'section' => $named[ $target ][1], 'field' => '', 'target' => $target ];
+			}
+		}
+		$out['image.variation'] = [ 'label' => 'Variation images', 'section' => 'var', 'field' => '', 'target' => 'variation' ];
+		$out['price'] = [ 'label' => 'Price', 'section' => 'price', 'field' => '', 'target' => '' ];
+		return $out;
+	}
 }
 class DZE_Queue {
 	public static function add( $kind, $ids, $auto = false, $payload = [] ) {
@@ -1126,13 +1153,34 @@ $GLOBALS['tpls'] = [
 	[ 'id' => 'detail', 'name' => 'Detail shot',   'target' => 'gallery' ],
 	[ 'id' => 'scene',  'name' => 'Scene, in use', 'target' => 'gallery' ],
 ];
-ok( 'a gallery is mended by a photograph', $tool->invoke( null, 'product.gallery' ), 'product_shot' );
-ok( 'so is a missing main image',       $tool->invoke( null, 'product.main_image' ), 'product_shot' );
-// A shop with no prompt aimed at the gallery gets NO button, rather than a
-// press that fails in the background with nobody watching.
+// A PRODUCT IS NEVER MENDED BY A QUEUED JOB. "Je clique sur Make a
+// photograph, quelque chose a de suite ete envoye... rien de controlable
+// visible a l'appui sur le bouton et putain pourquoi me rediriger vers la
+// liste bulk alors que j'ai appuye sur un bouton individuel ?" So the queue
+// path is gone for products: the row opens the product's own popup.
+ok( 'a gallery is not a queued job',    $tool->invoke( null, 'product.gallery' ), '' );
+ok( 'nor is a missing main image',      $tool->invoke( null, 'product.main_image' ), '' );
+// It is mended by the BLOCK of the product page that writes it.
+ok( 'a gallery names the gallery block', DZE_Diagnostic::block_for( 'product.gallery' ), 'image.gallery' );
+ok( 'a main image names the main block', DZE_Diagnostic::block_for( 'product.main_image' ), 'image.main' );
+// Every reading of the main photograph lands on the same block: too small is
+// mended by making another one, exactly as having none is.
+ok( 'so does one that is too narrow',   DZE_Diagnostic::block_for( 'product.main_image_width' ), 'image.main' );
+ok( 'and one whose short side is short', DZE_Diagnostic::block_for( 'product.main_image_side' ), 'image.main' );
+ok( 'a description names its own block', DZE_Diagnostic::block_for( 'product.description' ), 'post_content' );
+// A field nothing on a product page writes gets NO button rather than one
+// that opens on a section which cannot mend it.
+ok( 'stock has no block',               DZE_Diagnostic::block_for( 'product.stock' ), '' );
+ok( 'nor does a review count',          DZE_Diagnostic::block_for( 'product.reviews' ), '' );
+// And the button SAYS what pressing it does, ellipsis included: it opens the
+// popup with the work laid out, it does not start it.
+ok( 'the button names the block',       DZE_Diagnostic::block_verb( 'image.gallery' ), 'Make photographs…' );
+ok( 'and says it will ask first',       mb_substr( DZE_Diagnostic::block_verb( 'post_content' ), -1 ), '…' );
+// A shop with no prompt aimed at the gallery gets NO button, rather than one
+// that opens on a section with nothing in it.
 $GLOBALS['tpls'] = [ [ 'id' => 'main1', 'name' => 'Main image', 'target' => 'main' ] ];
-ok( 'no gallery prompt, no button',     $tool->invoke( null, 'product.gallery' ), '' );
-ok( 'but the main one still has its own', $tool->invoke( null, 'product.main_image' ), 'product_shot' );
+ok( 'no gallery prompt, no button',     DZE_Diagnostic::block_for( 'product.gallery' ), '' );
+ok( 'but the main one still has its own', DZE_Diagnostic::block_for( 'product.main_image' ), 'image.main' );
 $GLOBALS['tpls'] = [
 	[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
 	[ 'id' => 'detail', 'name' => 'Detail shot',   'target' => 'gallery' ],
@@ -1162,28 +1210,66 @@ ob_start();
 $dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
 $dze_gal_html = (string) ob_get_clean();
 ok( 'every thin gallery has a button',
-	substr_count( $dze_gal_html, 'class="button button-small dze-diag-fix"' ), 2 );
-ok( 'and it names the pass',            false !== strpos( $dze_gal_html, '>Make a photograph</button>' ), true );
+	substr_count( $dze_gal_html, 'class="button button-small dze-content-open"' ), 2 );
+ok( 'and it names what pressing it does', false !== strpos( $dze_gal_html, '>Make photographs…</button>' ), true );
+// THE BUTTON IS TESTED ON WHAT IT DOES. It carries the product it is on and
+// what the popup is to open WITH — not a queue action fired on the press.
+ok( 'it never queues anything',         false !== strpos( $dze_gal_html, 'class="button button-small dze-diag-fix"' ), false );
+ok( 'and never links to the bulk list', false !== strpos( $dze_gal_html, 'dazont-content-bulk"' ), false );
+ok( 'the row carries its own product',  false !== strpos( $dze_gal_html, 'data-id="901"' ), true );
 
-// ONE JOB PER PHOTOGRAPH MISSING. 901 has none against a figure of three, so
-// three; 902 has two, so one.
-$GLOBALS['queued'] = [];
-[ $dze_said, $dze_ok ] = $dze_press( 'prod_gallery', 901 );
-ok( 'it goes off',                      $dze_ok, true );
-ok( 'one job per photograph missing',   count( $GLOBALS['queued'] ), 3 );
-ok( 'each for that product alone',      $GLOBALS['queued'][0]['ids'] ?? [], [ 901 ] );
-ok( 'and never applied on its own',     $GLOBALS['queued'][0]['auto'] ?? true, false );
+// WHAT THE POPUP IS OPENED WITH, read back off the row that prints it.
+$dze_want = static function ( string $html, int $pid ): array {
+	if ( ! preg_match( '/data-id="' . $pid . '" data-want="([^"]*)"/', $html, $m ) ) {
+		return [];
+	}
+	return (array) json_decode( html_entity_decode( $m[1], ENT_QUOTES ), true );
+};
+$dze_w901 = $dze_want( $dze_gal_html, 901 );
+$dze_w902 = $dze_want( $dze_gal_html, 902 );
+ok( 'it opens on the images section',   $dze_w901['section'] ?? '', 'img' );
+// ONE ROW PER PHOTOGRAPH MISSING, laid out to be looked at and changed before
+// anything is generated. 901 has none against a figure of three, so three;
+// 902 has two, so one.
+ok( 'one prompt row per missing photograph', count( (array) ( $dze_w901['shots'] ?? [] ) ), 3 );
+ok( 'a product short of one gets one',  count( (array) ( $dze_w902['shots'] ?? [] ) ), 1 );
 // The shop's OWN gallery prompts, in the order it wrote them, one after
 // another — the main-image prompt is not among them.
-$dze_used = array_map( static fn( $j ) => (int) ( $j['payload']['template'] ?? -1 ), $GLOBALS['queued'] );
+$dze_used = array_map( static fn( $r ) => (int) ( $r['tpl'] ?? -1 ), (array) $dze_w901['shots'] );
 ok( 'taken from the gallery prompts in turn', $dze_used, [ 1, 2, 1 ] );
-// A second photograph from the same prompt asks for another framing.
-ok( 'and the third asks for another framing',
-	(int) ( $GLOBALS['queued'][2]['payload']['attempt'] ?? -1 ), 1 );
-// A product short of ONE gets one.
+ok( 'and every row aimed at the gallery',
+	array_values( array_unique( array_map( static fn( $r ) => (string) ( $r['target'] ?? '' ), (array) $dze_w901['shots'] ) ) ),
+	[ 'gallery' ] );
+// And it SAYS why it opened that way, in the popup, in words.
+ok( 'the popup says how short it is',   false !== strpos( (string) ( $dze_w901['why'] ?? '' ), '3 photographs short' ), true );
+ok( 'in the singular when it is one',   false !== strpos( (string) ( $dze_w902['why'] ?? '' ), 'one photograph short' ), true );
+
+// A PAGE OF ROWS, handed to the bulk screen the shop already generates from.
+ok( 'the list can be ticked',           substr_count( $dze_gal_html, 'class="dze-diag-one"' ), 2 );
+ok( 'with a tick-all on the header',    false !== strpos( $dze_gal_html, 'id="dze-diag-all"' ), true );
+ok( 'and one button to send them',      false !== strpos( $dze_gal_html, '>Generate for the selected products</button>' ), true );
+$GLOBALS['bulked'] = [];
+ok( 'ticking two sends them to bulk',
+	DZE_Diagnostic::bulk_pick( 'prod_gallery', [ 901, 902 ] ),
+	DZE_Content::bulk_url() );
+ok( 'exactly those two products',       $GLOBALS['bulked'], [ 901, 902 ] );
+// An id that is not on this criterion's list is a number somebody typed.
+$GLOBALS['bulked'] = [];
+ok( 'an id off the list is dropped',
+	DZE_Diagnostic::bulk_pick( 'prod_gallery', [ 901, 4242 ] ) === DZE_Content::bulk_url(), true );
+ok( 'and only the real one travels',    $GLOBALS['bulked'], [ 901 ] );
+// Nothing ticked goes nowhere but back — never to the bulk screen with an
+// empty list, which reads as a screen that lost the selection.
+$GLOBALS['bulked'] = [];
+ok( 'nothing ticked stays on the list',
+	false !== strpos( DZE_Diagnostic::bulk_pick( 'prod_gallery', [] ), 'check=prod_gallery' ), true );
+ok( 'and hands the bulk screen nothing', $GLOBALS['bulked'], [] );
+
+// The queue is not offered for a product at all any more.
 $GLOBALS['queued'] = [];
-$dze_press( 'prod_gallery', 902 );
-ok( 'a product short of one gets one',  count( $GLOBALS['queued'] ), 1 );
+[ $dze_said, $dze_ok ] = $dze_press( 'prod_gallery', 901 );
+ok( 'a gallery cannot be queued',       $dze_ok, false );
+ok( 'and nothing was queued for it',    $GLOBALS['queued'], [] );
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_posts'] = [];
 
