@@ -321,6 +321,42 @@ final class DZE_Diagnostic {
 		];
 	}
 
+	/**
+	 * A fingerprint of what a criterion ASKS — not of what it is called.
+	 *
+	 * The count on the screen and the list behind it are written by the scan.
+	 * Change the rule afterwards and both go on answering the OLD question:
+	 * "variations without an image is empty" matched 2,106 products, the rule
+	 * was flipped to "is not empty", and the header still said 2,106 because
+	 * that number was about the question before. The list itself is re-judged
+	 * live, which made it worse — the count and the rows disagreed and nothing
+	 * said why.
+	 *
+	 * Only the parts that decide an answer: renaming a criterion or changing
+	 * its note must not make a reading look stale.
+	 */
+	public static function rule_stamp( array $row ): string {
+		$bands = [];
+		foreach ( (array) ( $row['bands'] ?? [] ) as $band ) {
+			$bands[] = [
+				(string) ( $band['field'] ?? '' ),
+				(int) ( $band['from'] ?? 0 ),
+				(int) ( $band['to'] ?? 0 ),
+				(int) ( $band['want'] ?? 0 ),
+			];
+		}
+		return md5( (string) wp_json_encode( [
+			(string) ( $row['scope'] ?? '' ),
+			(string) ( $row['field'] ?? '' ),
+			(string) ( $row['test'] ?? '' ),
+			(int) ( $row['value'] ?? 0 ),
+			(string) ( $row['find'] ?? '' ),
+			(string) ( $row['key'] ?? '' ),
+			empty( $row['cond'] ) ? 0 : 1,
+			$bands,
+		] ) );
+	}
+
 	/** The criteria in force: the shop's own, or the shipped ones. */
 	public static function rows(): array {
 		$saved = self::settings()['rows'] ?? null;
@@ -964,6 +1000,18 @@ final class DZE_Diagnostic {
 	 * number — the lists live in an option of their own, read only by the
 	 * screen that shows them.
 	 */
+	/**
+	 * Has this criterion been changed since the reading that counted it?
+	 *
+	 * A reading taken before criteria carried a fingerprint answers "no": it
+	 * is silent rather than crying stale on every criterion the first time a
+	 * shop updates.
+	 */
+	public static function rule_moved( string $id, array $row ): bool {
+		$was = (string) ( self::census()['rules'][ $id ] ?? '' );
+		return '' !== $was && $was !== self::rule_stamp( $row );
+	}
+
 	public static function census(): array {
 		$c = get_option( self::OPT_CENSUS, [] );
 		return is_array( $c ) && isset( $c['checks'] ) ? $c : [ 'at' => 0, 'seen' => [], 'checks' => [] ];
@@ -1099,6 +1147,9 @@ final class DZE_Diagnostic {
 		foreach ( $checks as $id => $meta ) {
 			$ids                  = array_values( array_unique( (array) ( $hits[ $id ] ?? [] ) ) );
 			$out['checks'][ $id ] = count( $ids );
+			// What this count is an answer TO. Without it a rule edited after
+			// the reading goes on showing a number about the question before.
+			$out['rules'][ $id ]  = self::rule_stamp( (array) ( $meta['row'] ?? [] ) );
 			$lists[ $id ]         = array_slice( $ids, 0, self::KEEP_IDS );
 			// Its own row, and never autoloaded: a list of twenty thousand ids
 			// read on every request of the whole site is how a plugin makes a
@@ -2085,26 +2136,27 @@ final class DZE_Diagnostic {
 						$total
 					) )
 				);
+				// The count answers the rule AS IT WAS READ. Changed since,
+				// it is a number about another question — said here, beside
+				// the number, and not somewhere else on the page.
+				if ( self::rule_moved( $id, (array) ( $check['row'] ?? [] ) ) ) {
+					echo '<span class="description" style="display:block;margin-top:4px;color:#b26a00;">'
+						. esc_html__( 'Changed since this reading — read the shop again.', 'dazont-ecom' )
+						. '</span>';
+				}
 				echo '</td>';
-				// The two things a line is for: seeing WHICH ones, and going to
-				// the screen that mends them. Named rather than numbered — the
-				// owner knows "Image lab", he does not know "check 4".
-				echo '<td style="width:230px;text-align:right;white-space:nowrap;">';
+				// ONE thing a line is for: seeing which ones. A second button
+				// named after a Dazont settings tab — "Categories →" — reads
+				// as the shop's own categories and goes somewhere else
+				// entirely, so it is gone; the screen that does the work is
+				// offered on the rows themselves, where a specific page is in
+				// hand.
+				echo '<td style="width:150px;text-align:right;white-space:nowrap;">';
 				printf(
 					'<a class="button button-small" href="%s">%s</a>',
 					esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id ], admin_url( 'admin.php' ) ) ),
-					esc_html__( 'The list', 'dazont-ecom' )
+					esc_html__( 'Post list', 'dazont-ecom' )
 				);
-				if ( ! empty( $tool['url'] ) ) {
-					printf(
-						' <a class="button button-small" href="%s">%s &rarr;</a>',
-						esc_url( (string) $tool['url'] ),
-						esc_html( (string) $tool['label'] )
-					);
-				}
-				// And the one that does the work from here. The count is on the
-				// button BEFORE it is pressed: what a click is about to spend
-				// is not something to discover afterwards.
 				echo '</td></tr>';
 			}
 			echo '</tbody></table>';
@@ -2162,14 +2214,20 @@ final class DZE_Diagnostic {
 		$rule  = (array) ( self::rows_by_id()[ $id ] ?? [] );
 		$ids   = array_values( array_filter( array_map( 'absint', $ids ) ) );
 		if ( ! $rule || ! $ids || 'category' === $scope ) {
-			return [ 'todo' => $ids, 'done' => [], 'live' => false ];
+			return [ 'todo' => $ids, 'done' => [], 'live' => false, 'band' => [] ];
 		}
 		$slot = 'dze_diag_split_' . md5( $id . '|' . (string) wp_json_encode( $rule ) . '|' . implode( ',', $ids ) . '|' . self::touched( $ids ) );
 		$got  = get_transient( $slot );
-		if ( is_array( $got ) && isset( $got['todo'], $got['done'] ) ) {
+		if ( is_array( $got ) && isset( $got['todo'], $got['done'], $got['band'] ) ) {
 			return $got;
 		}
 		$verdict = [];
+		// WHICH condition placed each one, taken here because this is the one
+		// place that already holds every object and the rule together. Asked
+		// again when the table is drawn it would be a second reading of the
+		// same question, and a page of it rather than the whole list — which
+		// cannot be sorted.
+		$band = [];
 		foreach ( array_chunk( $ids, 200 ) as $some ) {
 			$posts = get_posts( [
 				'post__in'               => $some,
@@ -2189,6 +2247,9 @@ final class DZE_Diagnostic {
 			self::prime_thumbs( $posts );
 			foreach ( $posts as $post ) {
 				$verdict[ (int) $post->ID ] = (bool) self::fails( $rule, $scope, $post );
+				if ( ! empty( $rule['cond'] ) ) {
+					$band[ (int) $post->ID ] = self::band_hit( $rule, $scope, $post );
+				}
 			}
 		}
 		$todo = [];
@@ -2203,7 +2264,7 @@ final class DZE_Diagnostic {
 				$done[] = $one;
 			}
 		}
-		$out = [ 'todo' => $todo, 'done' => $done, 'live' => true ];
+		$out = [ 'todo' => $todo, 'done' => $done, 'live' => true, 'band' => $band ];
 		set_transient( $slot, $out, 5 * MINUTE_IN_SECONDS );
 		return $out;
 	}
@@ -2278,14 +2339,24 @@ final class DZE_Diagnostic {
 		// page — a shop looking for its best-sellers is not looking for the
 		// best-sellers of page three.
 		$facts = $goods ? self::facts( $ids ) : [];
-		if ( 'found' !== $by && $facts ) {
-			usort( $ids, static function ( $a, $b ) use ( $facts, $by, $dir ) {
+		// The whole list, never the page: a shop looking for its cheapest
+		// products is not looking for the cheapest of page three.
+		$dze_hits = (array) ( $split['band'] ?? [] );
+		if ( 'found' !== $by && ( $facts || 'band' === $by ) ) {
+			usort( $ids, static function ( $a, $b ) use ( $facts, $dze_hits, $by, $dir ) {
 				$x = $facts[ (int) $a ] ?? [];
 				$y = $facts[ (int) $b ] ?? [];
 				switch ( $by ) {
 					case 'sales':  $c = ( (int) ( $x['sales'] ?? 0 ) ) <=> ( (int) ( $y['sales'] ?? 0 ) ); break;
 					case 'price':  $c = ( (float) ( $x['price'] ?? 0 ) ) <=> ( (float) ( $y['price'] ?? 0 ) ); break;
 					case 'edited': $c = strcmp( (string) ( $x['edited'] ?? '' ), (string) ( $y['edited'] ?? '' ) ); break;
+					// By the condition that placed it, in the order the
+					// conditions are written — which is the order they are
+					// read in, so the list comes out in the same sequence as
+					// the rule itself.
+					case 'band':
+						$c = ( (int) ( $dze_hits[ (int) $a ]['i'] ?? -1 ) ) <=> ( (int) ( $dze_hits[ (int) $b ]['i'] ?? -1 ) );
+						break;
 					default:       $c = strcasecmp( (string) ( $x['title'] ?? '' ), (string) ( $y['title'] ?? '' ) ); break;
 				}
 				return 'asc' === $dir ? $c : -$c;
@@ -2302,6 +2373,20 @@ final class DZE_Diagnostic {
 		// Mending from this screen went with the routine it depended on.
 		$waiting = [];
 		$mending = false;
+
+		// THE COUNT IS AN ANSWER TO A QUESTION. Change the rule after the
+		// reading and it goes on answering the old one: "variations without an
+		// image is empty" counted 2,106 products, the rule was flipped to "is
+		// not empty", and the header still said 2,106 while the rows below it
+		// — re-judged live — said something else entirely.
+		if ( self::rule_moved( $id, (array) ( $check['row'] ?? [] ) ) ) {
+			printf(
+				'<div class="notice notice-warning inline" style="margin:12px 0;max-width:1100px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+				esc_html__( 'This criterion has changed since the last reading. The rows below are judged by the rule as it stands now, but the count is from the reading — read the shop again for both to agree.', 'dazont-ecom' ),
+				esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
+				esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
+			);
+		}
 
 		if ( $split['live'] ) {
 			// WordPress's own tabs, because that is what every other screen of
@@ -2354,11 +2439,15 @@ final class DZE_Diagnostic {
 
 		// What ELSE each one is short of: read from the same reading, so a
 		// product that needs four things is opened once and not four times.
+		// Each list is its own option now, so only the criteria about the SAME
+		// kind of thing are read — a product page has nothing to learn from a
+		// category's list.
 		$also = [];
-		foreach ( $lists as $other => $other_ids ) {
-			if ( $other === $id ) {
+		foreach ( array_keys( self::checks() ) as $other ) {
+			if ( $other === $id || ( self::checks()[ $other ]['scope'] ?? '' ) !== ( $check['scope'] ?? '' ) ) {
 				continue;
 			}
+			$other_ids = self::list_of( (string) $other );
 			foreach ( array_intersect( (array) $other_ids, $slice ) as $oid ) {
 				$also[ (int) $oid ][] = (string) ( self::checks()[ $other ]['label'] ?? $other );
 			}
@@ -2408,6 +2497,15 @@ final class DZE_Diagnostic {
 			echo $head( 'edited', __( 'Last edited', 'dazont-ecom' ), 'width:140px;' );
 		}
 		// phpcs:enable
+		// A COLUMN, sortable, rather than banners cut into the table. The
+		// banners could not be sorted, they broke the striping, and a list of
+		// nine hundred read as a stack of little tables.
+		$dze_row  = (array) ( $check['row'] ?? [] );
+		$dze_band = (array) ( $split['band'] ?? [] );
+		$dze_cond = ! empty( $dze_row['cond'] ) && $dze_band;
+		if ( $dze_cond ) {
+			echo $head( 'band', __( 'Condition', 'dazont-ecom' ), 'width:210px;' );
+		}
 		$dze_tool = (array) ( $check['tool'] ?? [] );
 		// On the FIXED tab the last column says what was DONE, not what to
 		// open next: a product that has left the problem list is a product
@@ -2432,28 +2530,14 @@ final class DZE_Diagnostic {
 		// a product is on this list because ONE condition placed it, and a
 		// list that does not say which is a list you have to work out.
 		$dze_row  = (array) ( $check['row'] ?? [] );
-		$dze_cols = ( $goods ? 4 : 1 ) + ( ( 'fixed' === $show || $dze_tool ) ? 1 : 0 );
-		$dze_seen = null;
+
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
 			if ( '' === $name ) {
 				continue;
 			}
-			if ( ! empty( $dze_row['cond'] ) ) {
-				$hit = self::band_hit( $dze_row, (string) $check['scope'], self::object_for( (string) $check['scope'], $oid ) );
-				if ( $dze_seen !== $hit['i'] ) {
-					$dze_seen = $hit['i'];
-					printf(
-						'<tr><td colspan="%1$d" style="background:#f6f7f7;font-weight:600;">%2$s</td></tr>',
-						(int) $dze_cols,
-						esc_html( $hit['want'] > 0
-							/* translators: 1: the condition, 2: what it asks for */
-							? sprintf( __( '%1$s — at least %2$d', 'dazont-ecom' ), $hit['said'], (int) $hit['want'] )
-							: $hit['said'] )
-					);
-				}
-			}
+
 			echo '<tr><td>';
 			// A title with markup in it — "<span> Military Patch </span> Russian
 			// Z" — is a title with markup in it: the tags are the shop's, not
@@ -2464,6 +2548,16 @@ final class DZE_Diagnostic {
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
 			}
 			echo '</td>';
+			if ( $dze_cond ) {
+				$hit = (array) ( $dze_band[ $oid ] ?? [] );
+				printf(
+					'<td>%1$s</td>',
+					esc_html( (int) ( $hit['want'] ?? 0 ) > 0
+						/* translators: 1: the condition, 2: what it asks for */
+						? sprintf( __( '%1$s → at least %2$d', 'dazont-ecom' ), (string) ( $hit['said'] ?? '' ), (int) $hit['want'] )
+						: (string) ( $hit['said'] ?? '' ) )
+				);
+			}
 			if ( $goods ) {
 				$one   = $facts[ $oid ] ?? [];
 				$price = (string) ( $one['price'] ?? '' );
@@ -2617,6 +2711,7 @@ final class DZE_Diagnostic {
 			'sales'  => __( 'Sales', 'dazont-ecom' ),
 			'price'  => __( 'Price', 'dazont-ecom' ),
 			'edited' => __( 'Last edited', 'dazont-ecom' ),
+			'band'   => __( 'Condition', 'dazont-ecom' ),
 			'name'   => __( 'Name', 'dazont-ecom' ),
 		];
 	}

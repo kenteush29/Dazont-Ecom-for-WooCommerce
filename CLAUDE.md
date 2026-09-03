@@ -230,6 +230,16 @@ owner communicates in French.
   the split still reads the old row until the next scan. The prefix is declared
   in `DZE_Cleanup::map()` — an option name ending in `_` is a PREFIX there, the
   same convention transients already use.
+- **A COUNT IS AN ANSWER TO A QUESTION, and the question is written down.**
+  The census stores a fingerprint of each criterion's rule beside its count
+  (`rule_stamp()`, and only the parts that decide an answer — a rename or a
+  changed note is not a new question). Edit a rule after the reading and the
+  screen says so: the rows are re-judged live by `split()`, the count is not,
+  and the two disagreeing in silence is what made "is empty" and "is not
+  empty" both look like they returned 2,106 products.
+- **The plugin speaks WordPress and WooCommerce**, not its own words: "Post
+  list", not "The list". Where core or WooCommerce already has a name for a
+  thing, that is the name.
 - **`php tools/test-review.php dazont-ecom` must pass.** Two halves of one
   promise, both broken once. NOTHING writes to the shop without being looked
   at: three automation tasks SHIPPED with "save without review" ticked, so a
