@@ -83,6 +83,78 @@ final class DZE_Diagnostic {
 		// A page of ticked rows handed to the bulk screen — WordPress's own
 		// form post, the same journey the products list makes.
 		add_action( 'admin_post_dze_diag_bulk', [ __CLASS__, 'post_bulk' ] );
+		// The QUALITY CONTROL, on one object: after work has been applied to
+		// it, is it still short of this criterion?
+		add_action( 'wp_ajax_dze_diag_judge', [ __CLASS__, 'ajax_judge' ] );
+	}
+
+	/**
+	 * One object, judged again against one criterion, right now.
+	 *
+	 * "J'ai cliqué sur Make photographs… > généré images + appliqué. La page
+	 * s'est rechargée. Ça ne doit pas arriver." A page reload is the crudest
+	 * possible answer to "did that work?" — it throws away everything on
+	 * screen to ask a question about ONE row. This answers that question about
+	 * that row: whether it still falls short, what it measures now, and — if
+	 * it does — what the popup should open with next time.
+	 *
+	 * Nothing is written. It reads the shop as it stands, with the same
+	 * functions the list itself used, so the row and the reading can never
+	 * disagree.
+	 */
+	public static function ajax_judge(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$id    = isset( $_POST['check'] ) ? sanitize_key( wp_unslash( $_POST['check'] ) ) : '';
+		$check = self::checks()[ $id ] ?? [];
+		if ( ! $check ) {
+			wp_send_json_error( [ 'message' => __( 'That criterion no longer exists.', 'dazont-ecom' ) ] );
+		}
+		$one = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		if ( ! $one || ! in_array( $one, self::list_of( $id ), true ) ) {
+			wp_send_json_error( [ 'message' => __( 'That one is not on this list.', 'dazont-ecom' ) ] );
+		}
+		$row    = (array) ( $check['row'] ?? [] );
+		$scope  = (string) ( $check['scope'] ?? 'product' );
+		$object = self::object_for( $scope, $one );
+		if ( ! $object ) {
+			// Deleted since the reading: it is not a problem any more.
+			wp_send_json_success( [ 'fixed' => true, 'said' => '', 'want' => [] ] );
+		}
+		$short = self::fails( $row, $scope, $object );
+		wp_send_json_success( [
+			'fixed' => ! $short,
+			// What it measures NOW, in the same words the list uses.
+			'said'  => $short ? self::short_said( $row, $scope, $one, $object ) : '',
+			// And the popup re-armed for what is still missing, so a product
+			// mended by half opens on the half that is left.
+			'want'  => $short ? self::open_with( $row, $scope, $one ) : [],
+		] );
+	}
+
+	/**
+	 * How far one object still is from one rule, in words.
+	 *
+	 * The figure it holds against the figure it is held to — read from the
+	 * same two functions the list read, so the sentence cannot drift from the
+	 * judgement that produced it.
+	 */
+	private static function short_said( array $row, string $scope, int $oid, $object ): string {
+		$have = self::measure( (string) ( $row['field'] ?? '' ), $scope, $object, (string) ( $row['key'] ?? '' ) );
+		$want = self::want_for( $row, $scope, $object );
+		if ( ! is_numeric( $have ) || null === $want ) {
+			return '';
+		}
+		$unit = self::unit_of( (string) ( $row['field'] ?? '' ) );
+		return trim( sprintf(
+			/* translators: 1: what it has now, 2: what the rule asks for, 3: the unit, e.g. "photographs" */
+			__( '%1$s of %2$s %3$s', 'dazont-ecom' ),
+			number_format_i18n( (float) $have ),
+			number_format_i18n( (float) $want ),
+			$unit
+		) );
 	}
 
 	/**
@@ -2654,25 +2726,22 @@ final class DZE_Diagnostic {
 			// this admin uses to say "the same list, seen two ways".
 			echo '<h2 class="nav-tab-wrapper" style="margin:14px 0 0;">';
 			foreach ( [
-				'todo'  => sprintf(
-					/* translators: %d: how many still fall short */
-					__( 'Issues (%d)', 'dazont-ecom' ),
-					count( $split['todo'] )
-				),
-				'fixed' => sprintf(
-					/* translators: %d: how many have been mended since the reading */
-					__( 'Fixed (%d)', 'dazont-ecom' ),
-					count( $split['done'] )
-				),
+				'todo'  => [ __( 'Issues', 'dazont-ecom' ), count( $split['todo'] ) ],
+				'fixed' => [ __( 'Fixed', 'dazont-ecom' ), count( $split['done'] ) ],
 			] as $dze_tab => $dze_label ) {
+				// The COUNT is its own element. A product mended in the popup
+				// leaves this list on the spot, and both figures follow it —
+				// without reloading the page to ask a question about one row.
 				printf(
-					'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
+					'<a class="nav-tab%1$s dze-diag-tab" data-tab="%2$s" href="%3$s">%4$s (<span class="dze-diag-n">%5$s</span>)</a>',
 					$show === $dze_tab ? ' nav-tab-active' : '',
+					esc_attr( $dze_tab ),
 					esc_url( add_query_arg(
 						[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $dze_tab, 'by' => $by, 'dir' => $dir ],
 						admin_url( 'admin.php' )
 					) ),
-					esc_html( $dze_label )
+					esc_html( $dze_label[0] ),
+					esc_html( number_format_i18n( $dze_label[1] ) )
 				);
 			}
 			echo '</h2>';
@@ -2818,7 +2887,7 @@ final class DZE_Diagnostic {
 				continue;
 			}
 
-			echo '<tr>';
+			printf( '<tr data-id="%d">', $oid );
 			if ( $dze_pick ) {
 				printf(
 					'<th scope="row" class="check-column"><input type="checkbox" class="dze-diag-one" name="ids[]" value="%1$d" /></th>',
@@ -2942,7 +3011,7 @@ final class DZE_Diagnostic {
 		// The handlers. They were printed on the summary only, so every button
 		// added to THIS screen did nothing at all — no error, no message, no
 		// request: the one failure that looks exactly like a broken plugin.
-		$this->print_script();
+		$this->print_script( $id );
 		if ( ! $ids ) {
 			printf(
 				'<p style="max-width:1100px;color:%s;font-weight:600;">%s</p>',
@@ -3078,7 +3147,12 @@ final class DZE_Diagnostic {
 		return $post ? [ (string) $post->post_title, (string) get_edit_post_link( $id, 'raw' ) ] : [ '', '' ];
 	}
 
-	private function print_script(): void {
+	/**
+	 * @param string $check The criterion this screen is showing, when it is
+	 *                      showing one: the row handlers act on it by name,
+	 *                      and a handler that has to guess acts on nothing.
+	 */
+	private function print_script( string $check = '' ): void {
 		$nonce = wp_create_nonce( self::NONCE );
 		?>
 		<script>
@@ -3107,6 +3181,58 @@ final class DZE_Diagnostic {
 					.fail(function () {
 						$b.prop('disabled', false).text(was);
 						window.alert(<?php echo wp_json_encode( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>);
+					});
+			});
+
+			// THE ROW ANSWERS FOR ITSELF ONCE THE WORK IS APPLIED.
+			//
+			// "J'ai cliqué sur Make photographs… > généré images + appliqué.
+			// La page s'est rechargée. Ça ne doit pas arriver. Une fois qu'on
+			// clique appliquer, il faudrait dynamiquement fermer le popup
+			// après application, et passer le post problématique dans la liste
+			// fixed."
+			//
+			// So: the popup closes itself, the product is JUDGED AGAIN against
+			// this very criterion — by the same functions that drew the list,
+			// so the two can never disagree — and the row either leaves for
+			// the Fixed tab, taking both counts with it, or stays and says
+			// what it is still short of.
+			$(document).on('dze:applied', function (e, done) {
+				var id = parseInt(done && done.id, 10) || 0;
+				var $row = $('#dze-diag-bulk tbody tr[data-id="' + id + '"], .dze-diag-list tbody tr[data-id="' + id + '"]');
+				if (!id) { return; }
+				$.post(ajaxurl, {
+					action: 'dze_diag_judge',
+					nonce: <?php echo wp_json_encode( $nonce ); ?>,
+					check: <?php echo wp_json_encode( $check ); ?>,
+					id: id
+				})
+					.done(function (r) {
+						if (!r || !r.success || !r.data) { return; }
+						if (!r.data.fixed) {
+							// Mended by half: the row stays, says where it now
+							// stands, and its button is re-armed for what is
+							// still missing.
+							$row.find('.dze-diag-short').remove();
+							if (r.data.said) {
+								$row.find('td').first().append(
+									$('<span class="description dze-diag-short"></span>')
+										.text(' — ' + r.data.said)
+								);
+							}
+							if (r.data.want) {
+								$row.find('.dze-content-open')
+									.attr('data-want', JSON.stringify(r.data.want))
+									.removeData('want');
+							}
+							return;
+						}
+						// FIXED. Out of this list, and both figures follow it.
+						var $todo = $('.dze-diag-tab[data-tab="todo"] .dze-diag-n');
+						var $done = $('.dze-diag-tab[data-tab="fixed"] .dze-diag-n');
+						$todo.text(Math.max(0, (parseInt($todo.text(), 10) || 0) - 1));
+						$done.text((parseInt($done.text(), 10) || 0) + 1);
+						$row.css('background', '#edfaef').fadeOut(400, function () { $(this).remove(); });
 					});
 			});
 

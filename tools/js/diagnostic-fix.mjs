@@ -51,6 +51,7 @@ function ok( what, got, want ) {
 
 // The screen as the plugin draws it, from the gate that already owns the fake
 // shop. Never a copy of the markup written into this file.
+const css = readFileSync( join( root, 'dazont-ecom', 'admin', 'css', 'content.css' ), 'utf8' );
 const html = execFileSync( 'php',
 	[ join( here, '..', 'test-diagnostic.php' ), 'dazont-ecom', '--dump-list' ],
 	{ encoding: 'utf8', cwd: root } );
@@ -103,6 +104,11 @@ for ( const [ label, jq ] of jqs ) {
 		if ( url.endsWith( '/' ) ) {
 			return route.fulfill( { status: 200, contentType: 'text/html',
 				body: `<!doctype html><html><head><meta charset="utf-8">`
+					// THE PLUGIN'S OWN STYLESHEET. A CSS bug is invisible to
+					// every PHP test and to `node --check` alike: the prompt
+					// button reads "✎ prompt" and sat in a 30px column, so the
+					// word ran underneath the menu beside it.
+					+ `<style>${css}</style>`
 					+ `<script src="/jquery.js"></script>`
 					+ `<script>window.ajaxurl='http://dze.test/ajax';window.dzeContent=${JSON.stringify( cfg )};`
 					+ `window.dzePhotosCfg={ajaxUrl:'http://dze.test/ajax',nonce:'n',ratios:[],i18n:{}};</script>`
@@ -121,13 +127,29 @@ for ( const [ label, jq ] of jqs ) {
 		}
 		const sent = Object.fromEntries( new URLSearchParams( route.request().postData() || '' ) );
 		posts.push( sent );
+		const json = d => route.fulfill( { status: 200, contentType: 'application/json',
+			body: JSON.stringify( { success: true, data: d } ) } );
+		// One photograph made, so the Apply button has something to apply.
+		if ( 'dze_content_image' === sent.action ) {
+			// A data: URI, so the browser never goes to the network for it —
+			// a picture fetched over the wire is a test that fails on a bad day.
+			return json( { url: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+				target: 'gallery', spend: {} } );
+		}
+		// The row, judged again after the work landed on the product. Two
+		// answers, one per product: 901 is mended, 902 is mended by half.
+		if ( 'dze_diag_judge' === sent.action ) {
+			return json( '901' === String( sent.id )
+				? { fixed: true, said: '', want: {} }
+				: { fixed: false, said: '2 of 3 photographs',
+					want: { section: 'img', field: '', shots: [ { tpl: 1, n: 1, target: 'gallery' } ], why: 'one photograph short' } } );
+		}
 		// What the popup asks for when it opens on a product: what that
 		// product already carries. It writes nothing and costs nothing.
-		return route.fulfill( { status: 200, contentType: 'application/json',
-			body: JSON.stringify( { success: true, data: {
-				title: 'Product 901', cost: '', spend: {}, note: '',
-				images: [], texts: {}, pending: { texts: {}, shots: [] }
-			} } ) } );
+		return json( {
+			title: 'Product 901', cost: '', spend: {}, note: '',
+			images: [], texts: {}, pending: { texts: {}, shots: [] }
+		} );
 	} );
 	await page.goto( 'http://dze.test/' );
 
@@ -172,6 +194,19 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'each aimed at the gallery',
 		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-cx-tplrows .dze-tpl-target' ) ).map( s => s.value ) ),
 		[ 'gallery', 'gallery', 'gallery' ] );
+	// 5b. AND EVERY COLUMN OF THAT ROW STAYS IN ITS COLUMN. "✎ Prompt >
+	//     Problème d'affichage, texte mal placé": the button carries a word,
+	//     the column was sized for a lone pencil, and the word ran under the
+	//     menu beside it. Measured, because nothing else can see it.
+	const boxes = await page.evaluate( () => {
+		const row = document.querySelector( '#dze-cx-tplrows .dze-tplrow' );
+		const at = sel => { const el = row.querySelector( sel ); const r = el.getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width }; };
+		return { peek: at( '.dze-prompt-peek' ), next: at( '.dze-tpl-n' ), tpl: at( '.dze-cx-tpl' ) };
+	} );
+	ok( 'the prompt button fits its own word',   boxes.peek.w >= 40, true );
+	ok( 'and never runs under its neighbour',    boxes.peek.r <= boxes.next.l + 1, true );
+	ok( 'nor back over the prompt menu',         boxes.peek.l >= boxes.tpl.r - 1, true );
+
 	// 6. And the popup SAYS why it opened like that.
 	ok( 'and it says how short the product is',
 		/3 photographs short/.test( await page.textContent( '#dze-cx-why' ) ), true );
@@ -186,9 +221,76 @@ for ( const [ label, jq ] of jqs ) {
 		/one photograph short/.test( await page.textContent( '#dze-cx-why' ) ), true );
 	await page.click( '.dze-cx-close' );
 
+	// ---- THE WORK GOES THROUGH, AND THE LIST ANSWERS FOR ITSELF ----
+	//
+	// "J'ai cliqué sur Make photographs… > généré images + appliqué. La page
+	// s'est rechargée. Ça ne doit pas arriver. Une fois qu'on clique
+	// appliquer, il faudrait dynamiquement fermer le popup après application,
+	// et passer le post problématique dans la liste fixed."
+	//
+	// The whole gesture, in the browser, on the real path: open, generate,
+	// apply — then the page must NOT reload, the popup must close itself, and
+	// the row must leave the list with both counts following it.
+	const before = { todo: await page.textContent( '.dze-diag-tab[data-tab="todo"] .dze-diag-n' ),
+		fixed: await page.textContent( '.dze-diag-tab[data-tab="fixed"] .dze-diag-n' ) };
+	ok( 'the list says what is left to do',  before.todo, '2' );
+	let reloaded = false;
+	page.on( 'framenavigated', f => { if ( f === page.mainFrame() ) { reloaded = true; } } );
+
+	await page.click( '.dze-content-open[data-id="901"]' );
+	await page.waitForTimeout( 200 );
+	await page.click( '#dze-cx-run' );
+	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
+	ok( 'the photographs come back to be looked at',
+		await page.locator( '#dze-cx-shots .dze-cb-shot' ).count() > 0, true );
+	await page.click( '.dze-cx-applyone' );
+	await page.waitForFunction( () => ! document.querySelector( '#dze-cx-modal.is-open' ), null, { timeout: 5000 } );
+
+	ok( 'the page is NEVER reloaded',        reloaded, false );
+	ok( 'and the popup shuts itself',        await page.locator( '#dze-cx-modal.is-open' ).count(), 0 );
+	// THE ROW IS JUDGED AGAIN — by the criterion it was listed under, not by
+	// hope. The request carries the criterion and the row's own id.
+	const judged = posts.filter( p => 'dze_diag_judge' === p.action );
+	ok( 'the row is judged again',           judged.length, 1 );
+	ok( 'against its own criterion',         judged[0].check, 'prod_gallery' );
+	ok( 'and its own id',                    judged[0].id, '901' );
+	ok( 'with a nonce',                      ( judged[0].nonce || '' ).length > 0, true );
+	// MENDED: it leaves the list, and both figures follow it.
+	await page.waitForFunction( () => ! document.querySelector( 'tr[data-id="901"]' ), null, { timeout: 3000 } );
+	ok( 'the mended row leaves the list',    await page.locator( 'tr[data-id="901"]' ).count(), 0 );
+	ok( 'the work left goes down',           await page.textContent( '.dze-diag-tab[data-tab="todo"] .dze-diag-n' ), '1' );
+	ok( 'and what is done goes up',
+		await page.textContent( '.dze-diag-tab[data-tab="fixed"] .dze-diag-n' ),
+		String( ( parseInt( before.fixed, 10 ) || 0 ) + 1 ) );
+	ok( 'the row next door is left alone',   await page.locator( 'tr[data-id="902"]' ).count(), 1 );
+
+	// MENDED BY HALF is not mended: the row stays, says where it now stands,
+	// and its button is re-armed for what is still missing. A row that
+	// vanished on any apply would be a list that lies.
+	await page.click( '.dze-content-open[data-id="902"]' );
+	await page.waitForTimeout( 200 );
+	await page.click( '#dze-cx-run' );
+	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
+	await page.click( '.dze-cx-applyone' );
+	await page.waitForFunction( () => ! document.querySelector( '#dze-cx-modal.is-open' ), null, { timeout: 5000 } );
+	await page.waitForFunction( () => !! document.querySelector( 'tr[data-id="902"] .dze-diag-short' ), null, { timeout: 3000 } );
+	ok( 'a half-mended row stays',           await page.locator( 'tr[data-id="902"]' ).count(), 1 );
+	ok( 'and says where it now stands',
+		( await page.textContent( 'tr[data-id="902"] .dze-diag-short' ) ).includes( '2 of 3 photographs' ), true );
+	ok( 'the count did not move for it',     await page.textContent( '.dze-diag-tab[data-tab="todo"] .dze-diag-n' ), '1' );
+	// And the button opens on what is LEFT, not on what it was short of before.
+	ok( 'its button is re-armed',
+		await page.evaluate( () => JSON.parse( document.querySelector( 'tr[data-id="902"] .dze-content-open' ).getAttribute( 'data-want' ) ).shots.length ), 1 );
+	ok( 'still nothing was raised',          errors, [] );
+
 	// A PAGE OF ROWS, handed to the bulk screen the shop already generates
 	// from — the mechanism the owner asked for by name.
-	ok( 'the list can be ticked',           await page.locator( '.dze-diag-one' ).count(), 2 );
+	// One row left the list when it was mended, so the selection is what is
+	// still on screen — a list that offers to work on a row it has removed is
+	// a list that lies.
+	ok( 'the list can be ticked',
+		await page.locator( '.dze-diag-one' ).count(),
+		await page.locator( '#dze-diag-bulk tbody tr' ).count() );
 	await page.click( '#dze-diag-all' );
 	ok( 'the header tick takes them all',
 		await page.evaluate( () => Array.from( document.querySelectorAll( '.dze-diag-one' ) ).every( c => c.checked ) ), true );

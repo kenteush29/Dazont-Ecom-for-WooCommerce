@@ -851,15 +851,28 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    each row to its own content — a row whose scene reads "No scene" put its
    buttons 30px left of the row above, and the headings landed over the wrong
    column. */
+/* The prompt column is 76px and not 30px: the button on it reads "✎ prompt",
+   the same word as every other prompt in the plugin — a lone pencil is a
+   symbol you have to learn — and 30px was a column sized for the pencil
+   alone. The word had nowhere to go and ran UNDER the scene menu beside it:
+   "✎ Prompt > Problème d'affichage, texte mal placé." */
 .dze-tplgrid .dze-tplhead,
 .dze-tplgrid .dze-tplrow {
 	display: grid;
-	grid-template-columns: minmax(180px, 280px) 30px 190px 84px 108px 66px;
+	grid-template-columns: minmax(180px, 280px) 76px 190px 84px 108px 66px;
 	gap: 4px 8px; align-items: center;
 }
 .dze-tplgrid.has-noscene .dze-tplhead,
 .dze-tplgrid.has-noscene .dze-tplrow {
-	grid-template-columns: minmax(180px, 280px) 30px 84px 108px 66px;
+	grid-template-columns: minmax(180px, 280px) 76px 84px 108px 66px;
+}
+/* And nothing on a row may spill out of its column again, whatever it holds:
+   a grid item's default min-width is its content, which is exactly how one
+   overflowed on top of its neighbour. */
+.dze-tplgrid .dze-tplhead > *,
+.dze-tplgrid .dze-tplrow > * { min-width: 0; }
+.dze-tplgrid .dze-prompt-peek {
+	overflow: hidden; text-overflow: ellipsis; text-align: left; padding: 0;
 }
 .dze-tplgrid .dze-tplrows { display: flex; flex-direction: column; gap: 4px; }
 .dze-tplgrid .dze-tplhead > span {
