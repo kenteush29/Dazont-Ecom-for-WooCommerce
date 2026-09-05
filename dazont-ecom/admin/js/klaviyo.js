@@ -723,6 +723,30 @@
 	}
 	$(document).on('dze:steps', steps);
 	function stepsSoon() { window.setTimeout(steps, 0); }
+	// AND IT IS NOT LEFT TO ANYBODY TO REMEMBER. Hooking the refresh into the
+	// two or three functions that seemed to be "the places a row changes" is
+	// how "Generate them all > fait, ils sont tous là. Mais Put them in
+	// klaviyo n'est pas disponible" happened: the writing puts the words on
+	// the row through a function neither of those two passes through, so the
+	// bar sat at the state it was in before the run.
+	//
+	// So the list itself is watched. Anything that adds a row, removes one,
+	// redraws a state cell or changes a button's state says so by doing it,
+	// and a function written next year needs to know nothing about this.
+	// A textarea's value is a PROPERTY and not an attribute, so it raises no
+	// mutation — that one case is called out where the words are put on the
+	// row (rowPut), and nowhere else.
+	(function watchList() {
+		if (! window.MutationObserver) { return; }
+		var el = document.querySelector('.dze-mail-list');
+		if (!el) { return; }
+		var pending = false;
+		new MutationObserver(function () {
+			if (pending) { return; }
+			pending = true;
+			window.setTimeout(function () { pending = false; steps(); }, 0);
+		}).observe(el, { childList: true, subtree: true, attributes: true });
+	}());
 
 	function spacing() {
 		// Every gesture that can move the campaign on already ends here, so
@@ -1502,6 +1526,9 @@
 			$c.find('.dze-mail-preview').text(data.preview);
 		}
 		if (undefined !== data.body) { $c.find('.dze-f-body').val(data.body || ''); }
+		// A textarea's value raises no mutation, so the one place the words
+		// are put on a row is the one place that has to say so.
+		stepsSoon();
 		thumb(id);
 		markDupes();
 		if (id === current) { fill(id); }
