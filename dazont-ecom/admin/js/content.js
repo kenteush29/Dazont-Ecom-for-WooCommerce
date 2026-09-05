@@ -477,7 +477,13 @@
 	 *
 	 * @param {Object} want {section, field, shots:[{tpl,n,target}], why}
 	 */
+	// WHO OPENED THIS POPUP, and what for. A screen that opened it for a reason
+	// is a screen that wants to know how it went — and wants to be left alone
+	// rather than reloaded from under its owner. Kept outside `res`, which
+	// reset() empties on every product change.
+	var OPENED_FOR = null;
 	function arm(want) {
+		OPENED_FOR = ( want && want.section ) ? want : null;
 		if (!want || !want.section) { $('#dze-cx-why').hide().empty(); return; }
 		$('#dze-cx-modal .dze-sec').each(function () {
 			toggleSec($(this), $(this).data('sec') === want.section);
@@ -2571,6 +2577,20 @@
 			'<strong class="dze-cx-ok">' + esc(sprintf(i18n.written, n)) + '</strong>'
 		);
 		refreshBoxes();
+		// OPENED FOR A REASON, so the reason answers for the page. "La page
+		// s'est rechargée. Ça ne doit pas arriver." A reload is the crudest
+		// possible answer to "did that work?" — it throws away a list of nine
+		// hundred rows, the sort, the page and the scroll, to ask a question
+		// about ONE of them. The popup closes itself and the screen that
+		// opened it is told; what it does with its own row is its business.
+		if (OPENED_FOR) {
+			var pid = PID, why = OPENED_FOR;
+			window.setTimeout(function () {
+				$('#dze-cx-modal').removeClass('is-open');
+				$(document).trigger('dze:applied', [ { id: pid, n: n, want: why } ]);
+			}, 600);
+			return;
+		}
 		if (false !== pageWasClean) {
 			$('#dze-cx-runstate').append(' <span class="description">' + esc(i18n.reloading) + '</span>');
 			window.setTimeout(function () { window.location.reload(); }, 1400);
@@ -2593,6 +2613,8 @@
 	// from under its owner.
 	function reloadIfIdle() {
 		if (!res.needsReload) { return; }
+		// A screen that opened this popup keeps its own page: see pageWritten().
+		if (OPENED_FOR) { return; }
 		// The only edits since we started are ours, and they are already in the
 		// database: re-asking postChanged() here reads OUR own writes as unsaved
 		// work and never reloads, which is how the page kept showing the old

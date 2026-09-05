@@ -338,6 +338,29 @@ owner communicates in French.
   dropped it. A key that only one half of the plugin knows about is a key that
   is not there.
 
+- **A PAGE RELOAD IS NEVER THE ANSWER TO "DID THAT WORK?"** Applying from the
+  toolbox reloaded the whole screen — throwing away a list of nine hundred
+  rows, its sort, its page and its scroll, to answer a question about ONE of
+  them: "La page s'est rechargée. Ça ne doit pas arriver." So a popup opened
+  by another screen (`arm()` remembers it, in `OPENED_FOR`, outside `res`,
+  which `reset()` empties) neither reloads nor lets closing reload: it shuts
+  itself and fires `dze:applied`, and the screen that opened it answers for
+  its own row. That row is then **judged again** — `ajax_judge()`, one object
+  against its own criterion, with the same `fails()`/`measure()` the list used,
+  so the row and the reading can never disagree. Fixed, it leaves the list and
+  both tab counts follow it (each count is its own element for exactly that
+  reason). Mended by HALF, it stays, says where it now stands, and its button
+  is re-armed for what is left — a row that vanished on any apply would be a
+  list that lies. `tools/js/diagnostic-fix.mjs` presses the whole gesture and
+  asserts the page never navigated.
+- **A CONTROL'S COLUMN IS MEASURED, not assumed.** The prompt button reads
+  "✎ prompt" — the same word as every prompt in the plugin, because a lone
+  pencil is a symbol you have to learn — and its grid column was 30px, sized
+  for the pencil alone, so the word ran under the menu beside it. Grid items
+  default to a content-sized minimum, so give them `min-width: 0` and measure
+  the boxes in the browser gate: no PHP test and no `node --check` can see a
+  column overlap.
+
 - **A COUNT IS AN ANSWER TO A QUESTION, and the question is written down.**
   The census stores a fingerprint of each criterion's rule beside its count
   (`rule_stamp()`, and only the parts that decide an answer — a rename or a

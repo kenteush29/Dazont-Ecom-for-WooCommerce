@@ -746,8 +746,19 @@ $GLOBALS['dze_transients'] = [];
 $GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-01 12:00:00'; // as a save moves it
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
-ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues (2)' ), true );
-ok( 'and how much is done',                false !== strpos( $html, 'Fixed (1)' ), true );
+ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
+ok( 'and how much is done',                false !== strpos( $html, 'Fixed (<span class="dze-diag-n">1</span>)' ), true );
+// The figure is its OWN element, so a row mended in the popup can leave the
+// list and take both counts with it — without reloading the page to ask a
+// question about one row.
+ok( 'and each figure can be changed on its own',
+	substr_count( $html, 'class="dze-diag-n"' ), 2 );
+/** What one tab says it holds, read off the page the way a reader reads it. */
+$dze_tab_n = static function ( string $html, string $tab ): string {
+	return preg_match( '/data-tab="' . $tab . '"[^>]*>[^(]*\(<span class="dze-diag-n">([^<]*)<\/span>\)/', $html, $m )
+		? (string) $m[1]
+		: 'missing';
+};
 ok( 'the mended one is off the work list',
 	in_array( 'Ancient cap', $order( $html ), true ), false );
 ok( 'and it is on the other tab',
@@ -769,15 +780,15 @@ unset( $GLOBALS['dze_meta'][102]['_product_image_gallery'] );
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-02 08:00:00';
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 ok( 'an edit makes it read again',      count( $GLOBALS['dze_read_calls'] ) > 0, true );
-ok( 'and the row comes back to the work list', false !== strpos( $html, 'Issues (3)' ), true );
-ok( 'with nothing left on the other tab',      false !== strpos( $html, 'Fixed (0)' ), true );
+ok( 'and the row comes back to the work list', $dze_tab_n( $html, 'todo' ), '3' );
+ok( 'with nothing left on the other tab', $dze_tab_n( $html, 'fixed' ), '0' );
 
 // A product deleted since the reading is nobody's work: it is on neither tab.
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103, 999 ] ] );
 $GLOBALS['dze_transients'] = [];
 $html = $show( [] );
-ok( 'a deleted row is not work to do',  false !== strpos( $html, 'Issues (3)' ), true );
-ok( 'and it is not "fixed" either',     false !== strpos( $html, 'Fixed (0)' ), true );
+ok( 'a deleted row is not work to do', $dze_tab_n( $html, 'todo' ), '3' );
+ok( 'and it is not "fixed" either', $dze_tab_n( $html, 'fixed' ), '0' );
 update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
 $GLOBALS['dze_transients'] = [];
 
@@ -1264,6 +1275,50 @@ $GLOBALS['bulked'] = [];
 ok( 'nothing ticked stays on the list',
 	false !== strpos( DZE_Diagnostic::bulk_pick( 'prod_gallery', [] ), 'check=prod_gallery' ), true );
 ok( 'and hands the bulk screen nothing', $GLOBALS['bulked'], [] );
+
+// THE QUALITY CONTROL. After the work has been applied, the row is judged
+// again — by the criterion it was listed under, with the same functions that
+// drew the list — instead of the page being reloaded to ask about one row.
+$GLOBALS['dze_meta'][901]['_product_image_gallery'] = '1,2,3';
+$_POST = [ 'check' => 'prod_gallery', 'id' => 901 ];
+[ $dze_said, $dze_ok ] = ( static function () {
+	try {
+		DZE_Diagnostic::ajax_judge();
+	} catch ( DZE_Json_Sent $e ) {
+		return [ (array) $e->payload, (bool) $e->ok ];
+	}
+	return [ [], false ];
+} )();
+ok( 'a mended product is judged mended',  $dze_said['fixed'] ?? null, true );
+ok( 'and has nothing left to say',        $dze_said['said'] ?? 'x', '' );
+ok( 'nor anything left to open on',       $dze_said['want'] ?? null, [] );
+// Mended by HALF is not mended: it stays, and says where it now stands.
+$GLOBALS['dze_meta'][901]['_product_image_gallery'] = '1,2';
+[ $dze_said, $dze_ok ] = ( static function () {
+	try {
+		DZE_Diagnostic::ajax_judge();
+	} catch ( DZE_Json_Sent $e ) {
+		return [ (array) $e->payload, (bool) $e->ok ];
+	}
+	return [ [], false ];
+} )();
+ok( 'two of three is still short',        $dze_said['fixed'] ?? null, false );
+ok( 'and it says where it stands',        $dze_said['said'] ?? '', '2 of 3 photographs' );
+ok( 'with the popup re-armed for the rest',
+	count( (array) ( $dze_said['want']['shots'] ?? [] ) ), 1 );
+// An id that is not on this criterion's list is a number somebody typed.
+$_POST = [ 'check' => 'prod_gallery', 'id' => 4242 ];
+[ $dze_said, $dze_ok ] = ( static function () {
+	try {
+		DZE_Diagnostic::ajax_judge();
+	} catch ( DZE_Json_Sent $e ) {
+		return [ (array) $e->payload, (bool) $e->ok ];
+	}
+	return [ [], false ];
+} )();
+ok( 'an id off the list is refused',      $dze_ok, false );
+$_POST = [];
+$GLOBALS['dze_meta'][901]['_product_image_gallery'] = '';
 
 // The queue is not offered for a product at all any more.
 $GLOBALS['queued'] = [];
