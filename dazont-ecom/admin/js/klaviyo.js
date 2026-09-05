@@ -676,7 +676,58 @@
 		}
 		return '';
 	}
+	// ---------------------------------------------------------------------
+	// THE FOUR STEPS OF A CAMPAIGN
+	//
+	// "La disponibilité des boutons doit être gérée en fonction de l'avancée :
+	// sans campagne pas d'autres boutons, sans emails générés pas de put them
+	// all, etc. Une fois qu'une action est déjà faite, modifier le bouton
+	// concerné en préfixe Re-."
+	//
+	// Plan → write → put in Klaviyo → translate. Each step reads the STATE OF
+	// THE SCREEN — the rows are drawn by the server and already say what they
+	// are — rather than keeping a second account of what has happened, which
+	// would be a second account to keep in step.
+	// ---------------------------------------------------------------------
+	function step($b, can, done, labels, why) {
+		if (!$b.length) { return; }
+		$b.prop('disabled', !can)
+			.text(done ? labels[1] : labels[0])
+			.attr('title', can ? '' : (why || ''))
+			.css('opacity', can ? '' : '.55');
+	}
+	function steps() {
+		var $rows = $('.dze-mail'), t = cfg.i18n || {};
+		var n = $rows.length;
+		var written = $rows.filter(function () {
+			return String($(this).find('.dze-f-body').val() || '').trim().length > 0;
+		}).length;
+		// A row already in Klaviyo says so itself, in the cell the server drew.
+		var live = $rows.filter(function () { return $(this).find('.dze-mail-synced').length > 0; }).length;
+		// And a row that CAN be translated is one the server gave the button to.
+		var canI18n = $rows.filter(function () { return $(this).find('.dze-mail-i18n').length > 0; }).length;
+		var i18nDone = $rows.filter(function () { return $(this).find('.dze-lang.is-done').length > 0; }).length;
+
+		step($('#dze-mail-plan'), true, n > 0, [ t.stepPlan, t.stepReplan ], '');
+		step($('#dze-mail-all'), n > 0, n > 0 && written >= n, [ t.stepWrite, t.stepRewrite ], t.needPlan);
+		step($('#dze-mail-draftall'), written > 0, written > 0 && live >= written, [ t.stepPut, t.stepReput ], t.needWrite);
+		step($('#dze-mail-i18nall'), canI18n > 0, canI18n > 0 && i18nDone >= canI18n, [ t.stepI18n, t.stepRei18n ], t.needPut);
+		// Scheduling: a row offers the button only when it is in Klaviyo with
+		// a day, and it reads "Unschedule" once it is scheduled. Everything
+		// scheduled means the useful gesture is the opposite one.
+		var $sched = $('.dze-mail .dze-mail-sched');
+		var canSched = $sched.length;
+		var onSched = $sched.filter(function () { return '1' === String($(this).data('undo')); }).length;
+		step($('#dze-mail-schedall'), canSched > 0, canSched > 0 && onSched >= canSched,
+			[ t.stepSched, t.stepUnsched ], t.needSched);
+	}
+	$(document).on('dze:steps', steps);
+	function stepsSoon() { window.setTimeout(steps, 0); }
+
 	function spacing() {
+		// Every gesture that can move the campaign on already ends here, so
+		// the steps are read again from one place rather than from twenty.
+		stepsSoon();
 		$('.dze-mail').each(function () {
 			var $c = $(this), day = String($c.find('.dze-f-when').val() || '').slice(0, 10),
 				hit = tooClose(day, $c.data('id'));
@@ -778,6 +829,10 @@
 	// second version of that cell to keep in step.
 	function drawState($c, data) {
 		var $state = $c.find('.dze-mail-state');
+		// A row that has just moved on moves the buttons with it: this is the
+		// one place a row's state is redrawn, so it is the one place that has
+		// to say so.
+		stepsSoon();
 		if (data && data.state) { $state.html(data.state); return; }
 		$state.empty().append($('<a target="_blank" rel="noopener noreferrer"/>')
 			.attr('href', (data && data.url) || '#').text(i18n.open));
@@ -953,6 +1008,104 @@
 					next(i + 1);
 				})
 				.fail(function () { failed += 1; rowNote(card(jobs[i].id), i18n.error, 'ko'); next(i + 1); });
+		}(0));
+	});
+
+	// THE WHOLE PROMOTION TRANSLATED, one row at a time, oldest first.
+	//
+	// "Le bouton translate all pourrait être pratique." It is the same
+	// function the single Translate button calls, on each row that offers
+	// one — never a second way of translating an email, and never two at once
+	// against the account.
+	$(document).on('click', '#dze-mail-i18nall', function () {
+		var $b = $(this), $m = $('#dze-mail-plan-msg');
+		commit();
+		// Only the rows that CAN be translated: an email not in Klaviyo has
+		// nothing there to translate, and one that is scheduled or sent is
+		// locked. The row itself already knows — it draws the button or it
+		// does not — so this reads the screen rather than deciding again.
+		var rows = $('.dze-mail').filter(function () { return $(this).find('.dze-mail-i18n').length > 0; }).get();
+		if (!rows.length) {
+			$m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.i18nNone);
+			return;
+		}
+		$b.prop('disabled', true);
+		var done = 0, failed = 0;
+		(function next(i) {
+			if (i >= rows.length) {
+				$b.prop('disabled', false);
+				$m.css('color', failed ? '#b26a00' : '#0a7040').removeClass('is-ko')
+					.text(failed
+						? cfg.i18n.i18nSome.replace('%1$d', done).replace('%2$d', failed)
+						: cfg.i18n.i18nAll);
+				return;
+			}
+			var $c = $(rows[i]);
+			$m.css('color', '#646970').removeClass('is-ko')
+				.text(cfg.i18n.i18n1.replace('%1$d', i + 1).replace('%2$d', rows.length));
+			rowNote($c, cfg.i18nBusy || 'Translating…', 'work');
+			translateRow($c.find('.dze-mail-i18n'), $c, function (ok) {
+				if (ok) { done += 1; } else { failed += 1; }
+				next(i + 1);
+			});
+		}(0));
+	});
+
+	// THE WHOLE PROMOTION SCHEDULED — or unscheduled, which is the same
+	// button, as it is on every row.
+	//
+	// "Schedule them all serait aussi le bienvenu. Pour avoir chaque fonction
+	// en individuel (sauf plan the campaign) et en groupe." It PRESSES each
+	// row's own Schedule button, one at a time, so there is not a second way
+	// to schedule an email and nothing to keep in step with the first.
+	$(document).on('click', '#dze-mail-schedall', function () {
+		var $b = $(this), $m = $('#dze-mail-plan-msg');
+		var rows = $('.dze-mail').filter(function () { return $(this).find('.dze-mail-sched').length > 0; }).get();
+		if (!rows.length) {
+			$m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.needSched);
+			return;
+		}
+		// One direction for the whole run, decided before it starts: rows are
+		// redrawn as it goes, and reading each button as it comes would turn
+		// a row it has just scheduled into one to unschedule again.
+		var undo = rows.every(function (r) { return '1' === String($(r).find('.dze-mail-sched').data('undo')); });
+		$b.prop('disabled', true);
+		var done = 0, failed = 0;
+		(function next(i) {
+			if (i >= rows.length) {
+				$b.prop('disabled', false);
+				stepsSoon();
+				$m.css('color', failed ? '#b26a00' : '#0a7040').removeClass('is-ko')
+					.text(failed
+						? cfg.i18n.schedSome.replace('%1$d', done).replace('%2$d', failed)
+						: (undo ? cfg.i18n.unschedDone : cfg.i18n.schedDone));
+				return;
+			}
+			var $c = $(rows[i]);
+			$m.css('color', '#646970').removeClass('is-ko')
+				.text(cfg.i18n.sched1.replace('%1$d', i + 1).replace('%2$d', rows.length));
+			$.post(cfg.ajaxUrl, {
+				action: 'dze_klav_schedule', nonce: cfg.nonce,
+				rule: ruleId(), email: $c.data('id'), undo: undo ? 1 : 0
+			})
+				.done(function (r) {
+					if (r && r.success) {
+						done += 1;
+						if (r.data && r.data.state) { drawState($c, r.data); }
+						$c.find('.dze-mail-sched-msg')
+							.css('color', '#00794b').text((r.data && r.data.message) || '');
+					} else {
+						failed += 1;
+						$c.find('.dze-mail-sched-msg')
+							.css('color', '#b32d2e')
+							.text((r && r.data && r.data.message) || cfg.i18n.error || 'Something went wrong.');
+					}
+				})
+				.fail(function () {
+					failed += 1;
+					$c.find('.dze-mail-sched-msg').css('color', '#b32d2e').text(cfg.i18n.error || 'Something went wrong.');
+				})
+				.always(function () { next(i + 1); });
 		}(0));
 	});
 
@@ -1568,5 +1721,8 @@
 			});
 	});
 
+	// The screen as it stands when it opens: a promotion with no emails offers
+	// nothing but the plan, and one already translated says "Re-translate".
+	steps();
 
 }(jQuery));

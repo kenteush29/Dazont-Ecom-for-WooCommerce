@@ -81,9 +81,12 @@ const page_html = `
       <textarea class="dze-f-body" style="display:none;">&lt;h1&gt;Sale&lt;/h1&gt;</textarea>
     </div>
   </div>
+  <button type="button" id="dze-mail-plan">Plan the campaign</button>
   <button type="button" id="dze-mail-new">+ Add an email</button>
   <button type="button" class="button button-primary" id="dze-mail-all">Generate them all</button>
   <button type="button" id="dze-mail-draftall">Put them all in Klaviyo</button>
+  <button type="button" id="dze-mail-i18nall">Translate them all</button>
+  <button type="button" id="dze-mail-schedall">Schedule them all</button>
   <span id="dze-mail-plan-msg"></span>
   <script type="text/template" id="dze-mail-blank"><div class="dze-mail" data-id="__ID__"><div class="dze-mail-thumb"><iframe title=""></iframe></div><div class="dze-mail-what"><strong class="dze-mail-name"></strong><span class="dze-mail-when"><span class="dze-smart">Smart</span></span><span class="dze-mail-subject"></span><span class="dze-mail-clash"></span></div><div class="dze-mail-state"></div><div class="dze-mail-act"><button class="dze-mail-open">Edit</button><button class="button-link dze-mail-drop">&times;</button></div><input type="hidden" class="dze-f-exists" value="1" /><input type="hidden" class="dze-f-kind" value="" /><input type="hidden" class="dze-f-picture" value="" /><input type="hidden" class="dze-f-subject" value="" /><input type="hidden" class="dze-f-preview" value="" /><input type="hidden" class="dze-f-when" value="" /><textarea class="dze-f-body" style="display:none;"></textarea></div></script>
   <div id="dze-mail-edit" style="display:none;">
@@ -124,7 +127,20 @@ const cfg = {
 	        clashSame: 'Same day as %1$s (%2$s).', clashOne: '1 day from %1$s (%2$s).',
 	        clashNear: '%1$d days from %2$s (%3$s).', clashWant: 'Leave %d days between two emails.',
 	        moveTo: 'Move it to %s',
-	        schedule: 'Schedule it', unschedule: 'Unschedule' },
+	        schedule: 'Schedule it', unschedule: 'Unschedule',
+	        i18n1: 'Translating %1$d of %2$d…',
+	        i18nAll: 'All of them are translated.',
+	        i18nSome: '%1$d translated, %2$d did not finish.',
+	        i18nNone: 'Nothing here is in Klaviyo yet.',
+	        stepPlan: 'Plan the campaign', stepReplan: 'Re-plan the campaign',
+	        stepWrite: 'Generate them all', stepRewrite: 'Re-generate them all',
+	        stepPut: 'Put them all in Klaviyo', stepReput: 'Update them all in Klaviyo',
+	        stepI18n: 'Translate them all', stepRei18n: 'Re-translate them all',
+	        stepSched: 'Schedule them all', stepUnsched: 'Unschedule them all',
+	        needPlan: 'Plan the campaign first.', needWrite: 'Write at least one email first.',
+	        needPut: 'Put an email in Klaviyo first.', needSched: 'Nothing can be scheduled yet.',
+	        sched1: 'Scheduling %1$d of %2$d…', schedDone: 'All of them are scheduled.',
+	        schedSome: '%1$d scheduled, %2$d refused.', unschedDone: 'All of them are back to drafts.' },
 	i18nBusy: 'Translating…', i18nDoing: 'Writing %s… (%i of %n)', i18nSaving: 'Filing…',
 	i18nDone: 'Translated — %d texts in %s', i18nAgain: 'Translate again',
 	i18nNone: 'No languages.', i18nKept: 'were written.', i18nFail: 'The translation did not finish.',
@@ -704,6 +720,204 @@ ok( 'the note survives the redraw',
 ok( 'the row that failed says why, in red',
 	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail9"] .dze-mail-note' )?.textContent ) ) || '', 'Klaviyo said no.' );
 ok( 'nothing was raised by the batch', errors, [] );
+
+// ---- THE FOUR (FIVE) STEPS, GATED AND NAMED ----
+//
+// "La disponibilité des boutons doit être gérée en fonction de l'avancée :
+// sans campagne pas d'autres boutons, sans emails générés pas de put them
+// all. Une fois qu'une action est déjà faite, préfixe Re-."
+//
+// Read off the real screen, at the state it is actually in.
+const dze_bar = async () => page.evaluate( () => {
+	const out = {};
+	for ( const id of [ 'dze-mail-plan', 'dze-mail-all', 'dze-mail-draftall', 'dze-mail-i18nall', 'dze-mail-schedall' ] ) {
+		const b = document.getElementById( id );
+		out[ id ] = b ? { text: b.textContent.trim(), off: !! b.disabled, why: b.getAttribute( 'title' ) || '' } : null;
+	}
+	return out;
+} );
+let bar = await dze_bar();
+// This promotion has emails, all written, all in Klaviyo, one translated.
+ok( 'planning already done says Re-',       bar['dze-mail-plan'].text, 'Re-plan the campaign' );
+ok( 'and planning is never shut',           bar['dze-mail-plan'].off, false );
+ok( 'writing done says Re- as well',        bar['dze-mail-all'].text, 'Re-generate them all' );
+// ONE of the two emails reached Klaviyo (the other was refused above), so
+// the work is NOT done and the button must not say it is.
+ok( 'half filed is not filed',              bar['dze-mail-draftall'].text, 'Put them all in Klaviyo' );
+ok( 'and it is still offered',              bar['dze-mail-draftall'].off, false );
+// With every written email there, it says the word the ROWS of this screen
+// use for a campaign that exists and is being rewritten.
+await page.evaluate( () => {
+	document.querySelectorAll( '.dze-mail' ).forEach( r => {
+		if ( ! r.querySelector( '.dze-mail-synced' ) ) {
+			r.querySelector( '.dze-mail-state' ).innerHTML = '<span class="dze-mail-synced">✓ Synced with Klaviyo · draft</span>';
+		}
+	} );
+	jQuery( document ).trigger( 'dze:steps' );
+} );
+ok( 'all filed says Update',
+	( await dze_bar() )['dze-mail-draftall'].text, 'Update them all in Klaviyo' );
+bar = await dze_bar();
+ok( 'what is translated says Re-',          bar['dze-mail-i18nall'].text, 'Re-translate them all' );
+
+// A PROMOTION AT THE START: nothing but the plan. Every row taken away, so
+// the screen is what a shop sees the first time it opens one.
+const dze_rows = await page.evaluate( () => {
+	const html = document.querySelector( '.dze-mail-list' ).innerHTML;
+	document.querySelector( '.dze-mail-list' ).innerHTML = '';
+	return html;
+} );
+await page.evaluate( () => jQuery( document ).trigger( 'dze:steps' ) );
+bar = await dze_bar();
+ok( 'with no emails, only the plan',        bar['dze-mail-plan'].off, false );
+ok( 'and it does not say Re- any more',     bar['dze-mail-plan'].text, 'Plan the campaign' );
+ok( 'generating is shut',                   bar['dze-mail-all'].off, true );
+ok( 'putting them in Klaviyo is shut',      bar['dze-mail-draftall'].off, true );
+ok( 'translating is shut',                  bar['dze-mail-i18nall'].off, true );
+ok( 'and scheduling is shut',               bar['dze-mail-schedall'].off, true );
+// A SHUT BUTTON SAYS WHY. One that simply does not respond is a screen the
+// owner decides is broken.
+ok( 'and each one says what is missing',    bar['dze-mail-all'].why, 'Plan the campaign first.' );
+ok( 'in its own words',                     bar['dze-mail-draftall'].why, 'Write at least one email first.' );
+
+// A PROMOTION PLANNED BUT NOT WRITTEN: it may be written, nothing else.
+await page.evaluate( html => {
+	document.querySelector( '.dze-mail-list' ).innerHTML = html;
+	document.querySelectorAll( '.dze-f-body' ).forEach( t => { t.value = ''; } );
+	document.querySelectorAll( '.dze-mail-state' ).forEach( s => { s.innerHTML = ''; } );
+	jQuery( document ).trigger( 'dze:steps' );
+}, dze_rows );
+bar = await dze_bar();
+ok( 'planned, it may be written',           bar['dze-mail-all'].off, false );
+ok( 'and says it has not been',             bar['dze-mail-all'].text, 'Generate them all' );
+ok( 'but nothing may go to Klaviyo yet',    bar['dze-mail-draftall'].off, true );
+// Written, not yet filed: Klaviyo opens, and says it has not been done.
+await page.evaluate( () => {
+	document.querySelectorAll( '.dze-f-body' ).forEach( t => { t.value = '<p>Written.</p>'; } );
+	jQuery( document ).trigger( 'dze:steps' );
+} );
+bar = await dze_bar();
+ok( 'written, it may be filed',             bar['dze-mail-draftall'].off, false );
+ok( 'and says it has not been filed',       bar['dze-mail-draftall'].text, 'Put them all in Klaviyo' );
+ok( 'while translating still waits',        bar['dze-mail-i18nall'].off, true );
+
+// Put the screen back as it was, for what follows.
+await page.evaluate( html => {
+	document.querySelector( '.dze-mail-list' ).innerHTML = html;
+	jQuery( document ).trigger( 'dze:steps' );
+}, dze_rows );
+errors.length = 0;
+
+// TRANSLATE THEM ALL. "Le bouton translate all pourrait être pratique."
+// It walks the rows that OFFER the single button — an email not in Klaviyo
+// has nothing there to translate, and one that is scheduled is locked — one
+// at a time, through the very function that button calls.
+posted.length = 0;
+await page.evaluate( () => {
+	// A second row that is NOT in Klaviyo: it must be left alone, and the
+	// count must be about the rows that could actually go.
+	const row = document.querySelector( '.dze-mail[data-id="mail9"]' );
+	if ( row ) { row.querySelector( '.dze-mail-state' ).innerHTML = '<span class="description">Not in Klaviyo yet</span>'; }
+} );
+const dze_can = await page.locator( '.dze-mail .dze-mail-i18n' ).count();
+ok( 'only the rows that can be translated', dze_can, 1 );
+await page.click( '#dze-mail-i18nall' );
+for ( let i = 0; i < 100 && posted.filter( a => 'dze_klav_i18nsave' === a ).length < 1; i++ ) { await page.waitForTimeout( 100 ); }
+await page.waitForTimeout( 300 );
+ok( 'it translates through the same function',
+	posted.filter( a => 'dze_klav_i18nsave' === a ).length, dze_can );
+ok( 'and never touches the row that cannot',
+	await page.evaluate( () => ( document.querySelector( '.dze-mail[data-id="mail9"] .dze-mail-note' ) || {} ).textContent || '' ), '' );
+ok( 'the bar says it is done',
+	( await page.textContent( '#dze-mail-plan-msg' ) ).includes( 'translated' ), true );
+ok( 'and the button is usable again',
+	await page.evaluate( () => document.querySelector( '#dze-mail-i18nall' ).disabled ), false );
+// A promotion with nothing in Klaviyo says so instead of pretending to work.
+await page.evaluate( () => {
+	document.querySelectorAll( '.dze-mail-i18n' ).forEach( b => b.remove() );
+	document.querySelector( '#dze-mail-plan-msg' ).textContent = '';
+} );
+posted.length = 0;
+await page.click( '#dze-mail-i18nall' );
+await page.waitForTimeout( 200 );
+ok( 'nothing to translate asks for nothing', posted.length, 0 );
+ok( 'and says why',
+	( await page.textContent( '#dze-mail-plan-msg' ) ).includes( 'Nothing here is in Klaviyo yet' ), true );
+errors.length = 0;
+
+// ---- SCHEDULE THEM ALL, and the same button back the other way ----
+// "Pour avoir chaque fonction en individuel (sauf plan the campaign) et en
+// groupe." It presses each row's own Schedule button: no second way to
+// schedule an email, nothing to keep in step with the first.
+await page.evaluate( () => {
+	document.querySelectorAll( '.dze-mail' ).forEach( r => {
+		if ( ! r.querySelector( '.dze-mail-sched' ) ) {
+			const d = document.createElement( 'div' );
+			d.className = 'dze-mail-does';
+			d.innerHTML = '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
+				+ '<span class="dze-mail-sched-msg"></span>';
+			r.querySelector( '.dze-mail-state' ).appendChild( d );
+		}
+	} );
+	jQuery( document ).trigger( 'dze:steps' );
+} );
+bar = await dze_bar();
+ok( 'scheduling is offered once they are there', bar['dze-mail-schedall'].off, false );
+ok( 'and says it has not been done',        bar['dze-mail-schedall'].text, 'Schedule them all' );
+const dze_sched = [];
+await page.unroute( 'http://dze.test/ajax*' );
+await page.route( 'http://dze.test/ajax*', route => {
+	const body = new URLSearchParams( route.request().postData() || '' );
+	if ( 'dze_klav_schedule' === body.get( 'action' ) ) {
+		dze_sched.push( { email: body.get( 'email' ), undo: body.get( 'undo' ) } );
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+			scheduled: '1' !== body.get( 'undo' ), message: 'Scheduled.',
+			// The cell as PHP draws it, the push button included: a row that
+			// loses a control it should still have is a row nobody can act on.
+			state: '<span class="dze-mail-synced">✓ Synced with Klaviyo · scheduled</span>'
+				+ '<div class="dze-mail-does">'
+				+ '<button type="button" class="button button-small dze-mail-push" data-email="' + body.get( 'email' ) + '">Update in Klaviyo</button>'
+				+ '<button type="button" class="button button-small dze-mail-sched" data-undo="'
+				+ ( '1' === body.get( 'undo' ) ? '0' : '1' ) + '">'
+				+ ( '1' === body.get( 'undo' ) ? 'Schedule it' : 'Unschedule' )
+				+ '</button><span class="dze-mail-sched-msg"></span></div>'
+		} } ) } );
+	}
+	// The draft endpoint keeps answering the way it did: what follows this
+	// block reads the whole request back off it.
+	if ( 'dze_klav_draft' === body.get( 'action' ) ) {
+		drafts.push( Object.fromEntries( body ) );
+		return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+			url: 'https://klaviyo.test/campaign/C1',
+			state: '<span class="dze-mail-synced">✓ Synced with Klaviyo · draft</span>'
+				+ '<div class="dze-mail-does">'
+				+ '<button type="button" class="button button-small dze-mail-push" data-email="' + body.get( 'email' ) + '">Update in Klaviyo</button>'
+				+ '</div>'
+		} } ) } );
+	}
+	return route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
+} );
+const dze_n = await page.locator( '.dze-mail .dze-mail-sched' ).count();
+await page.click( '#dze-mail-schedall' );
+for ( let i = 0; i < 100 && dze_sched.length < dze_n; i++ ) { await page.waitForTimeout( 60 ); }
+await page.waitForTimeout( 300 );
+ok( 'every row that could go, went',        dze_sched.length, dze_n );
+ok( 'each one asked to be scheduled',       dze_sched.every( s => '0' === s.undo ), true );
+ok( 'each for its own email',               new Set( dze_sched.map( s => s.email ) ).size, dze_n );
+ok( 'and the bar says it is done',
+	( await page.textContent( '#dze-mail-plan-msg' ) ).includes( 'scheduled' ), true );
+// EVERYTHING SCHEDULED: the useful gesture is now the opposite one, and it is
+// the same button — exactly as it is on a row.
+bar = await dze_bar();
+ok( 'the button turns round',               bar['dze-mail-schedall'].text, 'Unschedule them all' );
+dze_sched.length = 0;
+await page.click( '#dze-mail-schedall' );
+for ( let i = 0; i < 100 && dze_sched.length < dze_n; i++ ) { await page.waitForTimeout( 60 ); }
+await page.waitForTimeout( 300 );
+ok( 'and takes them all back',              dze_sched.every( s => '1' === s.undo ), true );
+ok( 'saying so',
+	( await page.textContent( '#dze-mail-plan-msg' ) ).includes( 'back to drafts' ), true );
+errors.length = 0;
 
 // WHAT IS ON SCREEN IS WHAT TRAVELS. "Write the email first: a campaign with
 // no subject is not one > Alors que l'email est clean, tout est là." The body

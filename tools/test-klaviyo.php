@@ -308,8 +308,28 @@ function wc_get_product( $id ) { return (int) $id > 0 ? new WC_Product( (int) $i
 
 class DZE_Test_Wpdb {
 	public $prefix = 'wp_';
-	public function prepare( $sql, ...$a ) { return $sql; }
-	public function get_var( $sql ) { return 'wp_wc_order_product_lookup'; }
+	/** Every named lock taken and released, so the copy's writes can be read. */
+	public $locks = [];
+	public function prepare( $sql, ...$a ) { return $sql . ' ' . implode( ' ', array_map( 'strval', $a ) ); }
+	public function get_var( $sql ) {
+		if ( false !== strpos( (string) $sql, 'GET_LOCK' ) ) {
+			$this->locks[] = 'get';
+			// A CONCURRENT REQUEST, finishing while this one waits: it wrote
+			// the whole option, so anything this one read BEFORE the lock is
+			// now out of date. This is the race, made to happen on purpose.
+			if ( is_callable( $GLOBALS['meanwhile'] ?? null ) ) {
+				$fn = $GLOBALS['meanwhile'];
+				$GLOBALS['meanwhile'] = null;
+				$fn();
+			}
+			return '1';
+		}
+		return 'wp_wc_order_product_lookup';
+	}
+	public function query( $sql ) {
+		if ( false !== strpos( (string) $sql, 'RELEASE_LOCK' ) ) { $this->locks[] = 'release'; }
+		return 1;
+	}
 	public function get_col( $sql ) { return range( 1, 20 ); }
 }
 $GLOBALS['wpdb'] = new DZE_Test_Wpdb();
@@ -839,6 +859,65 @@ ok( 'a hand-written email answers by its links', in_array( 7, $dze_seen, true ),
 $GLOBALS['dze_rules'] = $dze_was_rules;
 $GLOBALS['dze_opts'][ $copy ] = $dze_was_copy;
 $GLOBALS['dze_slugs'] = $dze_was_slugs;
+
+echo "Two things at once on one shop: neither write is lost\n";
+// "Si j'envoie un email 'put in klaviyo' et je traduis un autre, c'est ok ?"
+// On Klaviyo's side, yes. On OURS it was not: every email of every promotion
+// lives in ONE option, and six places read it, changed a corner and wrote the
+// whole thing back. Two of those overlapping — a push and a translation —
+// both read the same "before", and the second write silently discarded the
+// first: the email that had just reached Klaviyo said it never had.
+$dze_was_copy = $GLOBALS['dze_opts'][ $copy ] ?? null;
+$GLOBALS['wpdb']->locks = [];
+$GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [
+	'one' => [ 'kind' => 'launch', 'when' => gmdate( 'Y-m-d' ), 'subject' => 'A' ],
+	'two' => [ 'kind' => 'launch', 'when' => gmdate( 'Y-m-d' ), 'subject' => 'B' ],
+] ] ];
+// While THIS write waits for the lock, another request finishes and files the
+// other email's campaign. The write below must keep it.
+$GLOBALS['meanwhile'] = static function () use ( $copy ) {
+	$all = $GLOBALS['dze_opts'][ $copy ];
+	$all['promo']['emails']['two']['draft'] = [ 'campaign' => 'C-OTHER' ];
+	$GLOBALS['dze_opts'][ $copy ] = $all;
+};
+DZE_Klaviyo::put_email( 'promo', 'one', [ 'draft' => [ 'campaign' => 'C-MINE' ] ] );
+$dze_after = get_option( $copy )['promo']['emails'];
+ok( 'the write it was asked for lands',
+	$dze_after['one']['draft']['campaign'] ?? '', 'C-MINE' );
+ok( 'and the other request is not lost',
+	$dze_after['two']['draft']['campaign'] ?? '', 'C-OTHER' );
+// The lock is HELD across the read and the write, and given back.
+ok( 'a lock is taken for the write',    in_array( 'get', $GLOBALS['wpdb']->locks, true ), true );
+ok( 'and released after it',            in_array( 'release', $GLOBALS['wpdb']->locks, true ), true );
+ok( 'exactly once each',                $GLOBALS['wpdb']->locks, [ 'get', 'release' ] );
+// A DATABASE THAT WILL NOT GIVE ONE is not a reason to refuse the work: the
+// write goes ahead as it always did.
+$GLOBALS['meanwhile'] = null;
+$dze_nolock = new class extends DZE_Test_Wpdb {
+	public function get_var( $sql ) { return false !== strpos( (string) $sql, 'GET_LOCK' ) ? '0' : 'x'; }
+};
+$dze_real = $GLOBALS['wpdb'];
+$GLOBALS['wpdb'] = $dze_nolock;
+DZE_Klaviyo::put_email( 'promo', 'one', [ 'subject' => 'Written anyway' ] );
+ok( 'no lock available still writes',
+	get_option( $copy )['promo']['emails']['one']['subject'] ?? '', 'Written anyway' );
+$GLOBALS['wpdb'] = $dze_real;
+// And the INCREMENT, which is where a stale read costs money twice.
+$GLOBALS['wpdb']->locks = [];
+$GLOBALS['dze_opts'][ $copy ]['promo']['spend'] = 1.20;
+$GLOBALS['dze_opts'][ $copy ]['promo']['shots'] = 3;
+$GLOBALS['meanwhile'] = static function () use ( $copy ) {
+	$all = $GLOBALS['dze_opts'][ $copy ];
+	$all['promo']['spend'] = 1.24;
+	$all['promo']['shots'] = 4;
+	$GLOBALS['dze_opts'][ $copy ] = $all;
+};
+DZE_Klaviyo::charge_promo( 'promo', 0.04 );
+ok( 'a picture is never charged over another',
+	round( (float) ( get_option( $copy )['promo']['spend'] ?? 0 ), 2 ), 1.28 );
+ok( 'and both are counted',             (int) ( get_option( $copy )['promo']['shots'] ?? 0 ), 5 );
+$GLOBALS['meanwhile'] = null;
+$GLOBALS['dze_opts'][ $copy ] = $dze_was_copy;
 
 echo "The photographs the opening picture is built from\n";
 $pics = new ReflectionMethod( 'DZE_Klaviyo', 'picture_products' );
