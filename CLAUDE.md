@@ -361,6 +361,33 @@ owner communicates in French.
   the boxes in the browser gate: no PHP test and no `node --check` can see a
   column overlap.
 
+- **ONE OPTION, MANY WRITERS: the read happens INSIDE the lock.** Every email
+  of every promotion lives in one row, and six places read it, changed a
+  corner and wrote the whole thing back. Two of those overlapping — putting
+  one email in Klaviyo while another is translated, which is an ordinary thing
+  to do — both read the same "before" and the second write silently discards
+  the first. `edit_copy()` is now the ONLY way it changes: `GET_LOCK` (never
+  `add_option()` as a mutex — it checks then inserts, and two callers can both
+  pass that), the object cache dropped, the option re-read under the lock, the
+  change applied, the lock released. A database that will not give a lock is
+  not a reason to refuse the work. The gate makes the race happen on purpose:
+  the fake `$wpdb` rewrites the option at the moment the lock is taken, and
+  both changes must survive.
+- **EVERY FUNCTION OF A SCREEN EXISTS ON ONE ROW AND ON THE WHOLE LIST**, and
+  the bulk one PRESSES the row's own path — never a second engine. Write, put
+  in Klaviyo, translate, schedule: five controls in the bar, four of them the
+  group form of a row button (planning has no row).
+- **A BAR OF CONTROLS SHOWS THE STATE OF THE WORK.** "La disponibilité des
+  boutons doit être gérée en fonction de l'avancée." A step that is not yet
+  possible is disabled AND says what is missing in its tooltip; a step already
+  done renames itself with a `Re-` prefix (`Re-plan the campaign`,
+  `Re-generate them all`, `Re-translate them all`) so nothing looks like work
+  still to do. Two exceptions, both because the plugin already has a better
+  word on the rows of that same screen: `Update them all in Klaviyo` and
+  `Unschedule them all`. `steps()` reads the STATE OF THE SCREEN — the rows
+  are drawn by the server and already say what they are — never a second
+  account of what has happened, and every word of it lives in PHP.
+
 - **A COUNT IS AN ANSWER TO A QUESTION, and the question is written down.**
   The census stores a fingerprint of each criterion's rule beside its count
   (`rule_stamp()`, and only the parts that decide an answer — a rename or a

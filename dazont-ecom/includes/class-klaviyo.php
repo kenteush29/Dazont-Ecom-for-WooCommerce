@@ -2253,19 +2253,84 @@ final class DZE_Klaviyo {
 		return (array) ( self::emails_for( $rule_id, $rule )[ $email_id ] ?? [] );
 	}
 
+	/**
+	 * The promotions' copy, changed under a lock and written back.
+	 *
+	 * EVERY email of EVERY promotion lives in one option, and six different
+	 * places used to read it, change one corner of it and write the whole
+	 * thing back. Two of those running at once — putting one email in Klaviyo
+	 * while another is being translated, which is an ordinary thing to do —
+	 * both read the same "before", and the second write silently discards the
+	 * first: the email that had just reached Klaviyo says it never did, or the
+	 * translation flags vanish. Nothing anywhere would say why.
+	 *
+	 * So there is ONE way to change it: this. The read happens INSIDE the
+	 * lock, because a value read before it is a value somebody may have
+	 * replaced since.
+	 *
+	 * @param callable $change array $all => array the copy to write.
+	 */
+	private static function edit_copy( callable $change ): void {
+		$free = self::hold_copy();
+		// The object cache may be holding what was read before the lock.
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( self::OPT_COPY, 'options' );
+		}
+		$all = get_option( self::OPT_COPY, [] );
+		$out = $change( is_array( $all ) ? $all : [] );
+		if ( is_array( $out ) ) {
+			update_option( self::OPT_COPY, $out, false );
+		}
+		$free();
+	}
+
+	/**
+	 * A lock held across one read-and-write of the copy.
+	 *
+	 * MySQL's own named lock, not an option: `add_option()` checks whether the
+	 * row exists and then inserts, which two requests can both pass, and a
+	 * lock two callers can hold is not one. GET_LOCK is atomic and belongs to
+	 * the CONNECTION, so a request killed mid-write releases it rather than
+	 * stopping the shop for ever.
+	 *
+	 * A database that will not give it — an old server, a permission — is not
+	 * a reason to refuse the work: the write goes ahead as it always did, and
+	 * the narrow race goes with it.
+	 *
+	 * @return callable Releases it. Always callable, lock or no lock.
+	 */
+	private static function hold_copy(): callable {
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return static function () {};
+		}
+		// Named per SITE, so two shops on one database server do not wait for
+		// each other, and inside 64 characters, which is MySQL's limit.
+		$name = substr( 'dze_klav_copy_' . md5( (string) ( $wpdb->prefix ?? '' ) . self::OPT_COPY ), 0, 64 );
+		// Five seconds: longer than any of these writes, shorter than a person
+		// waiting for a button.
+		$got = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 5 ) );
+		if ( '1' !== (string) $got ) {
+			return static function () {};
+		}
+		return static function () use ( $wpdb, $name ) {
+			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+		};
+	}
+
 	/** Writes one email back, keeping everything it did not carry. */
 	public static function put_email( string $rule_id, string $email_id, array $fields ): void {
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
-		$one = (array) ( $all[ $rule_id ] ?? [] );
-		// The migration has to be materialised before a single email is
-		// touched, or writing to "launch" would create a second one beside the
-		// legacy copy and the screen would show the same email twice.
-		$one['emails'] = self::emails_for( $rule_id );
-		unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
-		$one['emails'][ $email_id ] = array_merge( (array) ( $one['emails'][ $email_id ] ?? [] ), $fields );
-		$all[ $rule_id ]            = $one;
-		update_option( self::OPT_COPY, $all, false );
+		self::edit_copy( static function ( array $all ) use ( $rule_id, $email_id, $fields ): array {
+			$one = (array) ( $all[ $rule_id ] ?? [] );
+			// The migration has to be materialised before a single email is
+			// touched, or writing to "launch" would create a second one beside
+			// the legacy copy and the screen would show the same email twice.
+			$one['emails'] = self::emails_for( $rule_id );
+			unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
+			$one['emails'][ $email_id ] = array_merge( (array) ( $one['emails'][ $email_id ] ?? [] ), $fields );
+			$all[ $rule_id ]            = $one;
+			return $all;
+		} );
 	}
 
 	/**
@@ -2353,13 +2418,13 @@ final class DZE_Klaviyo {
 				);
 			}
 		}
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
-		// MERGED, never substituted: what a promotion holds beside its emails
-		// — what its pictures have cost so far — is not on this form, and a
-		// save of the emails must not throw it away.
-		$all[ $rule_id ] = array_merge( (array) ( $all[ $rule_id ] ?? [] ), [ 'emails' => $out ] );
-		update_option( self::OPT_COPY, $all, false );
+		self::edit_copy( static function ( array $all ) use ( $rule_id, $out ): array {
+			// MERGED, never substituted: what a promotion holds beside its
+			// emails — what its pictures have cost so far — is not on this
+			// form, and a save of the emails must not throw it away.
+			$all[ $rule_id ] = array_merge( (array) ( $all[ $rule_id ] ?? [] ), [ 'emails' => $out ] );
+			return $all;
+		} );
 	}
 
 	/**
@@ -2373,18 +2438,19 @@ final class DZE_Klaviyo {
 	 * removed, both without waiting for anything.
 	 */
 	public static function forget_email( string $rule_id, string $email_id ): string {
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
-		$one = (array) ( $all[ $rule_id ] ?? [] );
-		// Materialised first, exactly as put_email() does it, or a promotion
-		// still carrying the legacy single copy would rebuild the email this
-		// call is meant to take away.
-		$one['emails'] = self::emails_for( $rule_id );
-		unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
-		$gone = (array) ( $one['emails'][ $email_id ] ?? [] );
-		unset( $one['emails'][ $email_id ] );
-		$all[ $rule_id ] = $one;
-		update_option( self::OPT_COPY, $all, false );
+		$gone = [];
+		self::edit_copy( static function ( array $all ) use ( $rule_id, $email_id, &$gone ): array {
+			$one = (array) ( $all[ $rule_id ] ?? [] );
+			// Materialised first, exactly as put_email() does it, or a
+			// promotion still carrying the legacy single copy would rebuild
+			// the email this call is meant to take away.
+			$one['emails'] = self::emails_for( $rule_id );
+			unset( $one['subject'], $one['preview'], $one['body'], $one['picture'] );
+			$gone = (array) ( $one['emails'][ $email_id ] ?? [] );
+			unset( $one['emails'][ $email_id ] );
+			$all[ $rule_id ] = $one;
+			return $all;
+		} );
 		// And its campaign goes with it. An email deleted here that kept a
 		// draft over there was two versions of one decision — worse when the
 		// draft was SCHEDULED, because the row disappeared from the screen
@@ -2541,10 +2607,12 @@ final class DZE_Klaviyo {
 			$id = is_wp_error( $made ) ? '' : (string) ( $made['data']['id'] ?? '' );
 		}
 		if ( '' !== $id ) {
-			$one          = (array) ( $all[ $rule_id ] ?? [] );
-			$one['tag']   = $id;
-			$all[ $rule_id ] = $one;
-			update_option( self::OPT_COPY, $all, false );
+			self::edit_copy( static function ( array $all ) use ( $rule_id, $id ): array {
+				$one             = (array) ( $all[ $rule_id ] ?? [] );
+				$one['tag']      = $id;
+				$all[ $rule_id ] = $one;
+				return $all;
+			} );
 		}
 		return $id;
 	}
@@ -2559,14 +2627,17 @@ final class DZE_Klaviyo {
 	 * @return array{shots:int,spend:float,label:string}
 	 */
 	public static function charge_promo( string $rule_id, float $cost ): array {
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
-		$one = (array) ( $all[ $rule_id ] ?? [] );
 		if ( $cost > 0 ) {
-			$one['spend'] = round( (float) ( $one['spend'] ?? 0 ) + $cost, 4 );
-			$one['shots'] = 1 + (int) ( $one['shots'] ?? 0 );
-			$all[ $rule_id ] = $one;
-			update_option( self::OPT_COPY, $all, false );
+			// An INCREMENT, which is where a stale read costs money twice: two
+			// pictures made at once both read "spend: 1.20" and both wrote
+			// 1.24, so one of them was free as far as this screen knew.
+			self::edit_copy( static function ( array $all ) use ( $rule_id, $cost ): array {
+				$one             = (array) ( $all[ $rule_id ] ?? [] );
+				$one['spend']    = round( (float) ( $one['spend'] ?? 0 ) + $cost, 4 );
+				$one['shots']    = 1 + (int) ( $one['shots'] ?? 0 );
+				$all[ $rule_id ] = $one;
+				return $all;
+			} );
 		}
 		return self::promo_spend( $rule_id );
 	}
@@ -5976,10 +6047,10 @@ final class DZE_Klaviyo {
 		}
 		uasort( $emails, static fn( array $a, array $b ): int => strcmp( (string) $a['when'], (string) $b['when'] ) );
 
-		$all = get_option( self::OPT_COPY, [] );
-		$all = is_array( $all ) ? $all : [];
-		$all[ $rule_id ] = [ 'emails' => $emails ];
-		update_option( self::OPT_COPY, $all, false );
+		self::edit_copy( static function ( array $all ) use ( $rule_id, $emails ): array {
+			$all[ $rule_id ] = [ 'emails' => $emails ];
+			return $all;
+		} );
 
 		DZE_Ai_Usage::finished( 'promo_plan' );
 		// What had to be done to the plan to keep the shop's rhythm. Handed
@@ -7757,6 +7828,43 @@ final class DZE_Klaviyo {
 				'drafting1' => __( 'Putting %1$d of %2$d in Klaviyo…', 'dazont-ecom' ),
 				'draftAll'  => __( 'All of them are in Klaviyo now, one campaign each, in date order, tagged with the promotion. Nothing was sent.', 'dazont-ecom' ),
 				'draftSome' => __( '%1$d in Klaviyo, %2$d refused — put those back one by one to read what Klaviyo said.', 'dazont-ecom' ),
+				'i18n1'     => __( 'Translating %1$d of %2$d…', 'dazont-ecom' ),
+				'i18nAll'   => __( 'All of them are translated. Each row says which languages it went out in.', 'dazont-ecom' ),
+				'i18nSome'  => __( '%1$d translated, %2$d did not finish — each row says which language and why.', 'dazont-ecom' ),
+				'i18nNone'  => __( 'Nothing here is in Klaviyo yet: put the emails there first, then translate them.', 'dazont-ecom' ),
+				// THE FOUR STEPS OF A CAMPAIGN, and what each button says at
+				// each of them. A control that is not yet possible is not
+				// offered, and one whose work is already done says so by its
+				// own name rather than looking like work still to do. Every
+				// word lives here and none in the JavaScript: hard-coded there
+				// they would be English on every shop.
+				'stepPlan'   => __( 'Plan the campaign', 'dazont-ecom' ),
+				'stepReplan' => __( 'Re-plan the campaign', 'dazont-ecom' ),
+				'stepWrite'  => __( 'Generate them all', 'dazont-ecom' ),
+				'stepRewrite'=> __( 'Re-generate them all', 'dazont-ecom' ),
+				'stepPut'    => __( 'Put them all in Klaviyo', 'dazont-ecom' ),
+				// The word the ROWS of this same screen already use for a
+				// campaign that is there and is being rewritten. "Re-put" is
+				// the standard applied literally and reads as nothing anybody
+				// says; this is the standard applied to the shop's own words.
+				'stepReput'  => __( 'Update them all in Klaviyo', 'dazont-ecom' ),
+				'stepI18n'   => __( 'Translate them all', 'dazont-ecom' ),
+				'stepRei18n' => __( 'Re-translate them all', 'dazont-ecom' ),
+				// A DISABLED BUTTON SAYS WHY. One that simply does not respond
+				// is a screen the owner decides is broken.
+				'needPlan'   => __( 'Plan the campaign first — there are no emails to work on yet.', 'dazont-ecom' ),
+				'needWrite'  => __( 'Write at least one email first: an empty email is not a campaign.', 'dazont-ecom' ),
+				'needPut'    => __( 'Put an email in Klaviyo first — a translation is written into the campaign there.', 'dazont-ecom' ),
+				'stepSched'  => __( 'Schedule them all', 'dazont-ecom' ),
+				// The word the rows use. Everything is scheduled, so the thing
+				// left to do about it is the opposite one — and it is the same
+				// button, as it is on every row.
+				'stepUnsched' => __( 'Unschedule them all', 'dazont-ecom' ),
+				'needSched'  => __( 'Nothing can be scheduled yet: an email needs to be in Klaviyo, with a day.', 'dazont-ecom' ),
+				'schedDone'  => __( 'All of them are scheduled. Each row says its day.', 'dazont-ecom' ),
+				'schedSome'  => __( '%1$d scheduled, %2$d refused — each row says what Klaviyo answered.', 'dazont-ecom' ),
+				'sched1'     => __( 'Scheduling %1$d of %2$d…', 'dazont-ecom' ),
+				'unschedDone' => __( 'All of them are back to drafts.', 'dazont-ecom' ),
 				'noWritten' => __( 'Write the emails first — an empty one has nothing to put in Klaviyo.', 'dazont-ecom' ),
 				'sendSure'  => __( 'Send this email now? It goes to the whole audience of the campaign within minutes, and it cannot be taken back.', 'dazont-ecom' ),
 				'sentOk'    => __( 'Handed to Klaviyo\'s senders — it is on its way.', 'dazont-ecom' ),
@@ -8271,6 +8379,29 @@ CSS;
 				// them read as one thing in the account.
 				?>
 				<button type="button" class="button" id="dze-mail-draftall"><?php esc_html_e( 'Put them all in Klaviyo', 'dazont-ecom' ); ?></button>
+				<?php
+				// AND THE WHOLE PROMOTION TRANSLATED, in one gesture. Putting
+				// them all in Klaviyo translates each as it goes; an email
+				// corrected afterwards has to be translated again, and doing
+				// that one row at a time on a promotion of four markets is
+				// four trips for one decision. It walks the rows that HAVE the
+				// button, one at a time, through the very function that button
+				// uses — never a second way of translating an email.
+				//
+				// Drawn only where there is something to translate INTO: a
+				// button that can only answer "there is nothing to do" is a
+				// button that should not be there.
+				?>
+				<?php if ( self::translating() ) : ?>
+					<button type="button" class="button" id="dze-mail-i18nall"><?php esc_html_e( 'Translate them all', 'dazont-ecom' ); ?></button>
+				<?php endif; ?>
+				<?php
+				// The last step, in one gesture like the four before it: every
+				// function of this screen exists on one row AND on the whole
+				// promotion. It presses each row's own Schedule button, so
+				// there is no second way to schedule an email.
+				?>
+				<button type="button" class="button" id="dze-mail-schedall"><?php esc_html_e( 'Schedule them all', 'dazont-ecom' ); ?></button>
 				<span id="dze-mail-plan-msg" style="font-size:13px;"></span>
 			</p>
 
