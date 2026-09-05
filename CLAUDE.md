@@ -377,6 +377,20 @@ owner communicates in French.
   the bulk one PRESSES the row's own path — never a second engine. Write, put
   in Klaviyo, translate, schedule: five controls in the bar, four of them the
   group form of a row button (planning has no row).
+- **A SCREEN THAT REACTS TO ITS OWN WORK IS WATCHED, NOT WIRED.** The step bar
+  was refreshed from the two functions that looked like "the places a row
+  changes" — and the writing puts its words on the row through a third:
+  "Generate them all > fait, ils sont tous là. Mais Put them in klaviyo n'est
+  pas disponible." Hooking each writer is a list somebody has to keep, and the
+  one forgotten is the bug. A `MutationObserver` on the list is the signal
+  instead: anything that adds a row, removes one, redraws a state cell or
+  flips a button says so BY DOING IT, and a function written next year needs
+  to know nothing. The one exception is called out where it happens: a
+  textarea's value is a property, not an attribute, and raises no mutation.
+  **And the gate presses the real sequence.** The test that missed this one
+  set the DOM up by hand and fired the refresh itself, which proves the
+  refresh works and nothing about whether anything calls it. Press the button
+  that does the work, then read the OTHER control.
 - **A BAR OF CONTROLS SHOWS THE STATE OF THE WORK.** "La disponibilité des
   boutons doit être gérée en fonction de l'avancée." A step that is not yet
   possible is disabled AND says what is missing in its tooltip; a step already

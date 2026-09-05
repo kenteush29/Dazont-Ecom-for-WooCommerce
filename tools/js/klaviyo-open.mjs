@@ -415,6 +415,17 @@ await page.evaluate( () => {
 	document.getElementById( 'dze-mail-edit' ).style.display = 'none';
 	document.querySelectorAll( '.dze-mail' ).forEach( c => c.classList.remove( 'is-on' ) );
 } );
+// THE BAR BEFORE THE RUN. Three of the four rows are empty, so "Put them all
+// in Klaviyo" is only partly possible — and after the run every one of them
+// is written, so it must be fully possible without touching anything else.
+// This is the bug the shop hit: "Generate them all > fait, ils sont tous là.
+// Mais Put them in klaviyo n'est pas disponible."
+await page.evaluate( () => {
+	document.querySelectorAll( '.dze-f-body' ).forEach( t => { t.value = ''; } );
+	jQuery( document ).trigger( 'dze:steps' );
+} );
+ok( 'nothing written, nothing to file',
+	await page.evaluate( () => document.getElementById( 'dze-mail-draftall' ).disabled ), true );
 let live = 0, peak = 0, wrote = 0;
 await page.unroute( 'http://dze.test/ajax*' );
 await page.route( 'http://dze.test/ajax*', async route => {
@@ -454,6 +465,13 @@ ok( 'no email was opened',
 	await page.evaluate( () => document.querySelectorAll( '.dze-mail.is-on' ).length ), 0 );
 ok( 'and the editor stayed shut',
 	await page.isVisible( '#dze-mail-edit' ), false );
+// AND THE BAR FOLLOWED THE WORK, with nothing else pressed. A screen that
+// has to be reloaded to notice what it has just done is a screen that lies.
+ok( 'the run opens the next step',
+	await page.evaluate( () => document.getElementById( 'dze-mail-draftall' ).disabled ), false );
+ok( 'and the written step says it is done',
+	await page.evaluate( () => document.getElementById( 'dze-mail-all' ).textContent.trim() ),
+	'Re-generate them all' );
 ok( 'nothing was raised writing them all', errors, [] );
 // The screen put back the way the checks after this one expect it.
 await page.evaluate( () => {
@@ -832,17 +850,21 @@ ok( 'the bar says it is done',
 	( await page.textContent( '#dze-mail-plan-msg' ) ).includes( 'translated' ), true );
 ok( 'and the button is usable again',
 	await page.evaluate( () => document.querySelector( '#dze-mail-i18nall' ).disabled ), false );
-// A promotion with nothing in Klaviyo says so instead of pretending to work.
+// A promotion with nothing to translate does not offer to. Taking the rows'
+// own buttons away is the state "nothing is in Klaviyo yet", and the bar has
+// to notice by itself — nothing else is pressed here.
+posted.length = 0;
 await page.evaluate( () => {
 	document.querySelectorAll( '.dze-mail-i18n' ).forEach( b => b.remove() );
 	document.querySelector( '#dze-mail-plan-msg' ).textContent = '';
 } );
-posted.length = 0;
-await page.click( '#dze-mail-i18nall' );
-await page.waitForTimeout( 200 );
-ok( 'nothing to translate asks for nothing', posted.length, 0 );
-ok( 'and says why',
-	( await page.textContent( '#dze-mail-plan-msg' ) ).includes( 'Nothing here is in Klaviyo yet' ), true );
+await page.waitForFunction( () => document.getElementById( 'dze-mail-i18nall' ).disabled, null, { timeout: 3000 } );
+ok( 'nothing to translate, nothing offered',
+	await page.evaluate( () => document.getElementById( 'dze-mail-i18nall' ).disabled ), true );
+ok( 'and it says why',
+	await page.evaluate( () => document.getElementById( 'dze-mail-i18nall' ).getAttribute( 'title' ) ),
+	'Put an email in Klaviyo first.' );
+ok( 'and asked for nothing',                 posted.length, 0 );
 errors.length = 0;
 
 // ---- SCHEDULE THEM ALL, and the same button back the other way ----
