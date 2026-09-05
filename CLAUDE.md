@@ -299,6 +299,45 @@ owner communicates in French.
   generates NOTHING, that the page does not move, and that the popup came up
   armed.
 
+- **WHAT IS ON SCREEN IS WHAT TRAVELS, and what was sent is what the shop
+  then holds.** The email editor posted its BODY with every push and read the
+  subject out of the database, so an email that was "clean, tout est là" came
+  back as "a campaign with no subject is not one", and a subject edited since
+  the last save went to Klaviyo under the old line with nothing saying so.
+  Three fields of one thing must not travel by two routes. Present-and-empty
+  is a real answer (refuse); ABSENT means "as it stands" and never writes.
+  After a successful push the shop stores what it sent — a database left on
+  the previous version makes the row, the next translation and the next push
+  all describe an email that is not the one in the account. And never let a
+  request payload shadow the variable holding the content (`$body` was both).
+- **EVERY LIST OF THINGS WAITING FOR A DECISION IS ONE LIST.** Two menus for
+  "what is waiting for me?" is two places to remember and two counts that
+  disagree; the screen is **Content to review** and its menu badge counts
+  every store, the product bulk screen included. The stores stay separate —
+  each decision is taken where its own work is drawn — but the second screen
+  takes its own entry out of the menu (`remove_submenu_page`, never a `null`
+  parent, which is deprecated and prints a notice before our output) while
+  the module that owns the question is on, and keeps it the moment that
+  module is off: switching a module off must never hide a function that has
+  nothing to do with it. `DZE_Queue::owns_review()` is that one decision, in
+  one place, so it can be exercised.
+- **A READER IS THE SAME PERSON FROM ONE PROMOTION TO THE NEXT.** Inside a
+  promotion an email steps around what its neighbours showed; between
+  promotions nothing did, and the shortlist is the same best-sellers every
+  time — so the same products opened three campaigns running. `shown_recently()`
+  reads the OTHER promotions' own emails (what the writing recorded, else what
+  the body links to) inside a window, and both the plan pool and the material
+  put those behind the fresh ones and MARK them — never remove them, or a shop
+  of forty products has nothing left to sell. The nearest repetition is the
+  worst one: this promotion's own outranks a past one's. The constraint is
+  appended as a shop rule, never written into the owner's prompt.
+- **A FIELD WRITTEN BY ONE PATH MUST BE READ BACK BY THE OTHER.** `shown` —
+  which products an email actually put in — was stored by the writing and
+  never returned by `emails_for()`, so `goods_of()` silently fell through to
+  re-reading the body on every email, and an ordinary Save of the event
+  dropped it. A key that only one half of the plugin knows about is a key that
+  is not there.
+
 - **A COUNT IS AN ANSWER TO A QUESTION, and the question is written down.**
   The census stores a fingerprint of each criterion's rule beside its count
   (`rule_stamp()`, and only the parts that decide an answer — a rename or a

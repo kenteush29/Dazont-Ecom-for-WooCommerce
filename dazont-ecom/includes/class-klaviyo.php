@@ -2068,6 +2068,12 @@ final class DZE_Klaviyo {
 				// in the order to show them. Empty means no plan chose any,
 				// and the material falls back to the shared shortlist.
 				'products' => array_values( array_filter( array_map( 'absint', (array) ( $email['products'] ?? [] ) ) ) ),
+				// And which of them the writing ACTUALLY put in. Recorded by
+				// ajax_write() since 4.2 and never read back out of here, so
+				// goods_of() — the one function that answers "what does this
+				// email show" for the links and the names in every language —
+				// fell through to re-reading the body on every single email.
+				'shown'   => array_values( array_filter( array_map( 'absint', (array) ( $email['shown'] ?? [] ) ) ) ),
 				'when'    => '' !== $when ? $when : self::default_when( $kind, $rule ),
 				'subject' => (string) ( $email['subject'] ?? '' ),
 				'preview' => (string) ( $email['preview'] ?? '' ),
@@ -2316,6 +2322,9 @@ final class DZE_Klaviyo {
 				// save of the email they belong to.
 				'angle'    => (string) ( $was['angle'] ?? '' ),
 				'products' => array_values( array_map( 'absint', (array) ( $was['products'] ?? [] ) ) ),
+				// What the writing put in, which the screen never posts either:
+				// an ordinary Save of the event used to drop it silently.
+				'shown'    => array_values( array_map( 'absint', (array) ( $was['shown'] ?? [] ) ) ),
 				// Whether the autopilot's writing has been read by a person:
 				// cleared by its own button, never by a form save.
 				'auto_made' => ! empty( $was['auto_made'] ),
@@ -3061,8 +3070,14 @@ final class DZE_Klaviyo {
 		return $out;
 	}
 
-	public static function link_map( array $ids, array $langs ): array {
+	public static function link_map( array $ids, array $langs, ?array &$why = null ): array {
 		$out = [];
+		// WHY a link did not move, counted per language. WPML already answers
+		// it — post_url_in_language() has said so all along and this threw the
+		// answer away, so the row could only say "links did NOT move" and
+		// point at a settings page. A product with no German page and a shop
+		// with WPML switched off are not the same problem.
+		$why = [];
 		if ( ! $ids || ! $langs || ! function_exists( 'wc_get_product' ) ) {
 			return $out;
 		}
@@ -3082,13 +3097,16 @@ final class DZE_Klaviyo {
 				// is the right domain with the ENGLISH slug —
 				// kula-tactical.fr/hooded-combat-shirt. Two halves, one
 				// function, no half invented here.
+				$said = 'no-wpml';
 				$link = method_exists( 'DZE_Wpml', 'post_url_in_language' )
-					? DZE_Wpml::post_url_in_language( $pid, 'product', (string) $lang )
+					? DZE_Wpml::post_url_in_language( $pid, 'product', (string) $lang, $said )
 					: '';
 				if ( '' !== $link && $link !== $here ) {
 					$out[ $here ][ (string) $lang ] = $link;
 					continue;
 				}
+				$key = strtoupper( (string) $lang );
+				$why[ $key ][ (string) $said ] = ( $why[ $key ][ (string) $said ] ?? 0 ) + 1;
 				// No translation of its own: the page that EXISTS, exactly as
 				// it stands. NOT the language's URL rule — that rule is for
 				// addresses every language shares (the home page, a listing),
@@ -3115,7 +3133,7 @@ final class DZE_Klaviyo {
 	 * @param array $values What Klaviyo answered for the collection.
 	 * @param array $mech   value id => lang => what was written.
 	 */
-	private static function link_note( array $values, array $mech ): string {
+	private static function link_note( array $values, array $mech, array $why = [] ): string {
 		$src = [];
 		foreach ( $values as $row ) {
 			$src[ (string) ( $row['id'] ?? '' ) ] = (string) ( $row['source_value'] ?? '' );
@@ -3151,13 +3169,50 @@ final class DZE_Klaviyo {
 				implode( ', ', array_keys( $moved ) )
 			);
 		}
-		// The failure is the message. Said with what to look at, because
-		// "links unchanged" without a next step is a shrug.
+		// HOW MANY, AND WHY. "Links did NOT move for DE" read as all of them
+		// and named no cause, so the one thing to do about it — translate
+		// those products — was the one thing it did not say. A language whose
+		// links are partly right says so.
+		$said = [];
+		foreach ( $stuck as $lang => $n ) {
+			$all  = $n + (int) ( $moved[ $lang ] ?? 0 );
+			$said[] = sprintf(
+				/* translators: 1: how many links stayed put, 2: how many links there are, 3: a language code, 4: the reason */
+				__( '%1$d of %2$d in %3$s (%4$s)', 'dazont-ecom' ),
+				$n,
+				$all,
+				$lang,
+				self::link_why( (array) ( $why[ $lang ] ?? [] ) )
+			);
+		}
 		return sprintf(
-			/* translators: %s: the languages whose links did not move */
-			__( 'Links did NOT move for %s — WPML gave the same address back, so those readers land on the English page. Check WPML → Languages → how URLs look, and that the products are translated.', 'dazont-ecom' ),
-			implode( ', ', array_keys( $stuck ) )
+			/* translators: %s: the count per language, e.g. "3 of 8 in DE (those products have no German page)" */
+			__( 'Some links stay on the English page: %s. Those readers land on the English product.', 'dazont-ecom' ),
+			implode( ' · ', $said )
 		);
+	}
+
+	/**
+	 * Why a language's links stayed put, in words, from WPML's own answer.
+	 *
+	 * The commonest reason wins when there are several: one sentence naming
+	 * the thing to fix beats a list naming none.
+	 *
+	 * @param array<string,int> $reasons reason => how many links.
+	 */
+	private static function link_why( array $reasons ): string {
+		if ( ! $reasons ) {
+			return __( 'reason unknown', 'dazont-ecom' );
+		}
+		arsort( $reasons );
+		$said = [
+			'not-translated' => __( 'those products are not translated', 'dazont-ecom' ),
+			'no-page'        => __( 'the translations have no page', 'dazont-ecom' ),
+			'no-wpml'        => __( 'WPML is not active here', 'dazont-ecom' ),
+			'no-language'    => __( 'that is the shop\'s own language', 'dazont-ecom' ),
+		];
+		$top = (string) array_key_first( $reasons );
+		return (string) ( $said[ $top ] ?? __( 'WPML gave the same address back', 'dazont-ecom' ) );
 	}
 
 	/**
@@ -3494,7 +3549,8 @@ final class DZE_Klaviyo {
 		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
 		$goods = self::goods_of( $rule_id, (array) ( $rules[ $rule_id ] ?? [] ), $email_id );
 		$names = self::name_map( $goods, $langs );
-		$mech  = self::mechanical( $values, $langs, self::link_map( $goods, $langs ), $names );
+		$dze_why = [];
+		$mech    = self::mechanical( $values, $langs, self::link_map( $goods, $langs, $dze_why ), $names );
 		foreach ( $mech as $vid => $per_lang ) {
 			foreach ( $per_lang as $lang => $value ) {
 				$done[ (string) $vid ][ (string) $lang ] = (string) $value;
@@ -3526,7 +3582,7 @@ final class DZE_Klaviyo {
 				}
 			}
 		}
-		$link_note = self::link_note( $values, $mech );
+		$link_note = self::link_note( $values, $mech, $dze_why );
 		$write = [];
 		foreach ( $done as $vid => $per_lang ) {
 			$write[] = [ 'id' => $vid, 'translations' => $per_lang ];
@@ -4326,11 +4382,19 @@ final class DZE_Klaviyo {
 		if ( ! $copy ) {
 			throw new RuntimeException( __( 'That email no longer exists.', 'dazont-ecom' ) );
 		}
-		$subject = trim( (string) ( $copy['subject'] ?? '' ) );
+		// WHAT IS ON SCREEN WINS OVER WHAT WAS LAST SAVED — for the subject and
+		// the preheader exactly as it already did for the body. Three lines of
+		// one email travelling by two different routes is how an email that
+		// was "clean, tout est là" came back as a campaign with no subject.
+		$subject = trim( array_key_exists( 'subject', $in ) && null !== $in['subject']
+			? (string) $in['subject']
+			: (string) ( $copy['subject'] ?? '' ) );
 		if ( '' === $subject ) {
 			throw new RuntimeException( __( 'Write the email first: a campaign with no subject is not one.', 'dazont-ecom' ) );
 		}
-		$preview = (string) ( $copy['preview'] ?? '' );
+		$preview = array_key_exists( 'preview', $in ) && null !== $in['preview']
+			? (string) $in['preview']
+			: (string) ( $copy['preview'] ?? '' );
 		$kinds   = self::kinds();
 		$kind    = (string) ( $copy['kind'] ?? self::first_kind() );
 		// The campaign carries the promotion's name AND which of its emails
@@ -4363,8 +4427,8 @@ final class DZE_Klaviyo {
 		// wanted. An email whose words, picture and day are exactly what was
 		// filed last time is left alone.
 		$stamp = md5( wp_json_encode( [
-			(string) ( $copy['subject'] ?? '' ),
-			(string) ( $copy['preview'] ?? '' ),
+			$subject,
+			$preview,
 			(string) ( $copy['picture'] ?? '' ),
 			(string) ( $in['datetime'] ?? '' ),
 			$body,
@@ -4548,7 +4612,11 @@ final class DZE_Klaviyo {
 
 			// 2. The campaign — the audience answered once, in the settings.
 			$exc  = (string) self::conf( 'excluded' );
-			$body = [
+			// $make, not $body: this is the CAMPAIGN's payload, and it used to
+			// be called $body — the same name as the email's own HTML, which
+			// it overwrote. Nothing read the email after this point until the
+			// record of what was filed started to, and then it filed an array.
+			$make = [
 				'data' => [
 					'type'       => 'campaign',
 					'attributes' => [
@@ -4583,8 +4651,8 @@ final class DZE_Klaviyo {
 					],
 				],
 			];
-			$camp = self::request( 'POST', 'campaigns/', $body, 30 );
-			if ( is_wp_error( $camp ) && 'smart_send_time' === ( $body['data']['attributes']['send_strategy']['method'] ?? '' ) ) {
+			$camp = self::request( 'POST', 'campaigns/', $make, 30 );
+			if ( is_wp_error( $camp ) && 'smart_send_time' === ( $make['data']['attributes']['send_strategy']['method'] ?? '' ) ) {
 				// Smart Send Time needs history Klaviyo may decide this account does
 				// not have yet. A draft that does not exist is a worse answer than a
 				// draft carrying a plain hour, so it is made the other way and the
@@ -4592,12 +4660,12 @@ final class DZE_Klaviyo {
 				$warning = trim( $warning . ' ' . $camp->get_error_message() );
 				// Nine in the morning, in each reader's own time zone: the plain
 				// answer for an account Klaviyo will not work the hour out for yet.
-				$body['data']['attributes']['send_strategy'] = [
+				$make['data']['attributes']['send_strategy'] = [
 					'method'   => 'static',
 					'datetime' => self::strategy( $in, $rule )['date'] . 'T09:00:00',
 					'options'  => [ 'is_local' => true, 'send_past_recipients_immediately' => true ],
 				];
-				$camp = self::request( 'POST', 'campaigns/', $body, 30 );
+				$camp = self::request( 'POST', 'campaigns/', $make, 30 );
 			}
 			if ( is_wp_error( $camp ) ) {
 				throw new RuntimeException( $camp->get_error_message() );
@@ -4681,7 +4749,22 @@ final class DZE_Klaviyo {
 			}
 		}
 
-		self::put_email( $rule_id, $email_id, [
+		// WHAT WAS FILED IS WHAT THE SHOP NOW HOLDS. The words that went to
+		// Klaviyo came off the screen; leaving the database on the previous
+		// version means the row, the next translation and the next push all
+		// describe an email that is not the one in the account. Only the
+		// pieces this request actually carried are written.
+		$kept = [];
+		if ( array_key_exists( 'subject', $in ) && null !== $in['subject'] ) {
+			$kept['subject'] = $subject;
+		}
+		if ( array_key_exists( 'preview', $in ) && null !== $in['preview'] ) {
+			$kept['preview'] = $preview;
+		}
+		if ( null !== ( $in['body'] ?? null ) && '' !== trim( (string) $in['body'] ) ) {
+			$kept['body'] = $body;
+		}
+		self::put_email( $rule_id, $email_id, $kept + [
 			'draft' => [
 				'campaign' => $camp_id,
 				'message'  => $msg_id,
@@ -5184,7 +5267,61 @@ final class DZE_Klaviyo {
 	 * @param string[] $shown Links already used by the promotion's other emails.
 	 * @return array{lines:string,images:string[],prices:string[]}
 	 */
-	public static function material( array $rule, int $limit = 9, array $shown = [], array $only = [] ): array {
+	/**
+	 * The products the shop's OTHER promotions have put in front of this
+	 * reader lately.
+	 *
+	 * "Lacunes avec les produits qui semblent être trop souvent les mêmes
+	 * d'une campagne à une autre." Inside one promotion an email steps around
+	 * what its neighbours showed; between promotions nothing did, and the
+	 * shortlist is the same best-sellers every time — so the same four packs
+	 * opened the Back to School sale, the Columbus Day sale and the one after.
+	 *
+	 * Read from the emails THEMSELVES, the way everything else here is: an
+	 * email that was rewritten or edited by hand is answered for by what it
+	 * actually says today, and no second catalogue has to be kept in step.
+	 * Only promotions whose emails are dated inside the window count — a sale
+	 * from last spring is not a reason to hide a product now.
+	 *
+	 * @return int[] product ids.
+	 */
+	public static function shown_recently( string $rule_id, int $days = 120 ): array {
+		$rules = class_exists( 'DZE_Discounts' ) ? DZE_Discounts::get_rules() : [];
+		if ( ! $rules ) {
+			return [];
+		}
+		$floor = gmdate( 'Y-m-d', time() - max( 1, $days ) * DAY_IN_SECONDS );
+		$out   = [];
+		foreach ( $rules as $other_id => $other ) {
+			if ( (string) $other_id === $rule_id ) {
+				continue; // this promotion answers for itself, email by email.
+			}
+			foreach ( self::emails_for( (string) $other_id, (array) $other ) as $mail ) {
+				$day = self::just_day( (string) ( $mail['when'] ?? '' ) );
+				if ( '' === $day || $day < $floor ) {
+					continue;
+				}
+				// What the writing recorded it put in, then what the body
+				// actually links to — the same two answers, in the same order,
+				// that goods_of() reads for one email.
+				$mine = array_values( array_filter( array_map( 'absint', (array) ( $mail['shown'] ?? [] ) ) ) );
+				if ( ! $mine ) {
+					$mine = self::goods_in_body( (string) ( $mail['body'] ?? '' ) );
+				}
+				foreach ( $mine as $pid ) {
+					$out[ (int) $pid ] = true;
+				}
+			}
+		}
+		return array_keys( $out );
+	}
+
+	/**
+	 * @param int[] $lately Products a RECENT promotion already showed: moved
+	 *                      behind the fresh ones and marked, never removed —
+	 *                      a shop with forty products would be left with none.
+	 */
+	public static function material( array $rule, int $limit = 9, array $shown = [], array $only = [], array $lately = [] ): array {
 		$out = [ 'lines' => '', 'cards' => [], 'links' => [], 'images' => [], 'prices' => [], 'ids' => [] ];
 		$t   = self::theme_style();
 		if ( $only ) {
@@ -5200,7 +5337,8 @@ final class DZE_Klaviyo {
 			// Wider when there is something to step around, so demoting the
 			// used ones leaves real products behind them rather than a shorter
 			// list — and wider BY HOW MUCH WAS USED, not by a fixed six.
-			$want = $shown ? min( 40, $limit + count( $shown ) + 6 ) : $limit;
+			$aside = count( $shown ) + count( $lately );
+			$want  = $aside ? min( 40, $limit + $aside + 6 ) : $limit;
 			$ids  = self::best_sellers( self::window_days(), $want, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
 		}
 		if ( ! $ids || ! function_exists( 'wc_get_product' ) ) {
@@ -5208,6 +5346,8 @@ final class DZE_Klaviyo {
 		}
 		$fresh = [];
 		$again = [];
+		$older = [];
+		$lately = array_flip( array_map( 'absint', $lately ) );
 		foreach ( $ids as $id ) {
 			$product = wc_get_product( $id );
 			if ( ! $product instanceof WC_Product ) {
@@ -5243,17 +5383,23 @@ final class DZE_Klaviyo {
 			];
 			if ( $link && in_array( $link, $shown, true ) ) {
 				$again[] = $row;
+			} elseif ( isset( $lately[ (int) $id ] ) ) {
+				$older[] = $row;
 			} else {
 				$fresh[] = $row;
 			}
 		}
-		// Fresh first, already-seen behind them, and never more than asked for.
-		$rows = array_slice( array_merge( $fresh, $again ), 0, $limit );
+		// Fresh first, then what a recent promotion showed, then what THIS
+		// promotion has already used — the nearest repetition is the worst
+		// one. Never more than asked for.
+		$rows = array_slice( array_merge( $fresh, $older, $again ), 0, $limit );
 		$n    = 0;
 		foreach ( $rows as $row ) {
 			$n++;
 			$out['lines'] .= $n . '. ' . $row['name']
-				. ( in_array( $row['link'], $shown, true ) ? '   [ALREADY SHOWN by another email of this promotion — use only if you must]' : '' ) . "\n"
+				. ( in_array( $row['link'], $shown, true )
+					? '   [ALREADY SHOWN by another email of this promotion — use only if you must]'
+					: ( isset( $lately[ (int) $row['id'] ] ) ? '   [SHOWN IN A RECENT PROMOTION — prefer something else]' : '' ) ) . "\n"
 				. '   link: ' . $row['link'] . "\n"
 				. '   image: ' . $row['image'] . "\n"
 				. ( '' !== $row['was'] ? '   was: ' . $row['was'] . '   now: ' . $row['now'] . "\n" : '   price: ' . $row['now'] . "\n" )
@@ -5401,7 +5547,13 @@ final class DZE_Klaviyo {
 		if ( $mine ) {
 			return self::material( $rule, 9, [], $mine );
 		}
-		return self::material( $rule, 9, self::shown_links( $rule_id, $rule, $email_id ) );
+		return self::material(
+			$rule,
+			9,
+			self::shown_links( $rule_id, $rule, $email_id ),
+			[],
+			self::shown_recently( $rule_id )
+		);
 	}
 
 	/** The price this promotion makes, the way the shop itself computes it. */
@@ -5501,22 +5653,49 @@ final class DZE_Klaviyo {
 	 * @return array{lines:string,ids:array<int,int>} the printed list, and
 	 *         number → product id.
 	 */
-	public static function plan_pool( array $rule ): array {
-		$out = [ 'lines' => '', 'ids' => [] ];
-		$ids = self::best_sellers( self::window_days(), 24, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
-		$n   = 0;
+	public static function plan_pool( array $rule, string $rule_id = '' ): array {
+		$out = [ 'lines' => '', 'ids' => [], 'lately' => 0 ];
+		// WIDER WHEN THERE IS SOMETHING TO STEP AROUND. The plan deals from
+		// this list, so a list of twenty-four whose first eight went out last
+		// month leaves the plan choosing between repeating them and running
+		// short — which is how the same products came back campaign after
+		// campaign.
+		$lately = $rule_id ? self::shown_recently( $rule_id ) : [];
+		$want   = $lately ? min( 48, 24 + count( $lately ) ) : 24;
+		$ids    = self::best_sellers( self::window_days(), $want, array_map( 'absint', (array) ( $rule['category_ids'] ?? [] ) ), $rule );
+		$seen   = array_flip( array_map( 'absint', $lately ) );
+		$fresh  = [];
+		$older  = [];
 		foreach ( $ids as $id ) {
 			$product = function_exists( 'wc_get_product' ) ? wc_get_product( $id ) : null;
 			if ( ! $product instanceof WC_Product ) {
 				continue;
 			}
-			$n++;
-			$out['ids'][ $n ] = (int) $id;
 			$terms = get_the_terms( $id, 'product_cat' );
 			$cat   = ( is_array( $terms ) && isset( $terms[0] ) ) ? $terms[0]->name : '';
-			$out['lines'] .= $n . '. ' . $product->get_name()
-				. ( '' !== $cat ? ' — ' . $cat : '' )
-				. ' — ' . wp_strip_all_tags( (string) $product->get_price_html() ) . "\n";
+			$row   = [
+				'id'   => (int) $id,
+				'said' => $product->get_name()
+					. ( '' !== $cat ? ' — ' . $cat : '' )
+					. ' — ' . wp_strip_all_tags( (string) $product->get_price_html() ),
+				'old'  => isset( $seen[ (int) $id ] ),
+			];
+			if ( $row['old'] ) {
+				$older[] = $row;
+			} else {
+				$fresh[] = $row;
+			}
+		}
+		// What a recent promotion already showed goes BEHIND what it did not,
+		// and says so on its own line — never removed, because a shop of forty
+		// products would be left with nothing to sell.
+		$n = 0;
+		foreach ( array_slice( array_merge( $fresh, $older ), 0, 24 ) as $row ) {
+			$n++;
+			$out['ids'][ $n ] = $row['id'];
+			$out['lines']    .= $n . '. ' . $row['said']
+				. ( $row['old'] ? '   [SHOWN IN A RECENT PROMOTION]' : '' ) . "\n";
+			$out['lately']   += $row['old'] ? 1 : 0;
 		}
 		return $out;
 	}
@@ -5630,10 +5809,19 @@ final class DZE_Klaviyo {
 		// writing time by each email stepping around what its neighbours
 		// already used, which is how three emails ended up drawing on one
 		// nine-product list and the third had nothing fresh left to show.
-		$pool = self::plan_pool( $rule );
+		$pool = self::plan_pool( $rule, $rule_id );
 		if ( $pool['lines'] ) {
 			$user .= "\n--- THE PRODUCTS TO DEAL OUT ---\n"
-				. "What the shop actually sold over the right window, best first. Deal them between the emails: each email gets the products IT shows, by their numbers. A product goes to ONE email — the whole point of several emails is that the reader is not shown the same goods twice. Lead products first. How many an email gets follows from its moment: a warm-up teases with two or three, a launch shows a real spread, a last call needs only a handful.\n\n"
+				. "What the shop actually sold over the right window, best first. Deal them between the emails: each email gets the products IT shows, by their numbers. A product goes to ONE email — the whole point of several emails is that the reader is not shown the same goods twice. Lead products first. How many an email gets follows from its moment: a warm-up teases with two or three, a launch shows a real spread, a last call needs only a handful.\n"
+				// The reader is the SAME PERSON from one promotion to the
+				// next, and nothing used to say so: the shortlist is the same
+				// best-sellers every time, so the same products opened three
+				// campaigns running. Said as a shop rule, appended — never by
+				// rewriting the owner's own prompt.
+				. ( $pool['lately']
+					? "A line marked [SHOWN IN A RECENT PROMOTION] went out to this same reader in the last few months. Prefer the ones that did not. Use a marked product only when the promotion is actually about it, and never as the lead of an email.\n"
+					: '' )
+				. "\n"
 				. $pool['lines'];
 		}
 		// The shop's own rhythm, appended to the owner's prompt rather than
@@ -6756,6 +6944,18 @@ final class DZE_Klaviyo {
 		try {
 			$made = self::draft( $rule_id, $email_id, [
 				'body' => isset( $_POST['body'] ) ? self::clean_html( (string) wp_unslash( $_POST['body'] ) ) : null,
+				// The subject line AS IT IS ON SCREEN. It used to be read from
+				// the database alone, so a subject typed and not yet saved was
+				// refused as "a campaign with no subject" while the screen was
+				// showing one, and a subject EDITED since the last save went
+				// to Klaviyo under the old line with nothing saying so. Sent
+				// only when the form carried it: absent means "as it stands".
+				'subject' => isset( $_POST['subject'] )
+					? mb_substr( sanitize_text_field( (string) wp_unslash( $_POST['subject'] ) ), 0, 150 )
+					: null,
+				'preview' => isset( $_POST['preview'] )
+					? mb_substr( sanitize_text_field( (string) wp_unslash( $_POST['preview'] ) ), 0, 150 )
+					: null,
 				'send' => $send,
 				// One email, asked for by name: it goes, changed or not.
 				'force' => ! empty( $_POST['force'] ),
@@ -7945,6 +8145,17 @@ CSS;
 			?>
 			<span class="description"><?php esc_html_e( 'Not in Klaviyo yet', 'dazont-ecom' ); ?></span>
 			<div class="dze-mail-does">
+				<?php
+				// THIS ONE EMAIL, PUT THERE. The row that is not in Klaviyo yet
+				// is exactly the row somebody wants to send, and it was the one
+				// row with no way to: the only button here was "Find it", so a
+				// single email could only reach the account through "Put them
+				// all in Klaviyo", which walks the whole promotion. Same class,
+				// same handler, same endpoint as the row that is already there.
+				?>
+				<button type="button" class="button button-small dze-mail-push" data-email="<?php echo esc_attr( $mail_id ); ?>">
+					<?php esc_html_e( 'Put it in Klaviyo', 'dazont-ecom' ); ?>
+				</button>
 				<button type="button" class="button button-small dze-mail-find" data-email="<?php echo esc_attr( $mail_id ); ?>">
 					<?php esc_html_e( 'Find it in Klaviyo', 'dazont-ecom' ); ?>
 				</button>

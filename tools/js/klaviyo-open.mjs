@@ -612,10 +612,14 @@ errors.length = 0;
 // One email succeeds, the row it belongs to ends on its note and its link.
 await page.unroute( 'http://dze.test/ajax*' );
 posted.length = 0;
+// The WHOLE form of every draft request, so what travels can be read back —
+// not only that a request was made.
+const drafts = [];
 await page.route( 'http://dze.test/ajax*', route => {
 	const body = new URLSearchParams( route.request().postData() || '' );
 	posted.push( body.get( 'action' ) );
 	if ( 'dze_klav_draft' === body.get( 'action' ) ) {
+		drafts.push( Object.fromEntries( body ) );
 		route.fulfill( { status: 200, contentType: 'application/json', body: JSON.stringify(
 			'mail1' === body.get( 'email' )
 				? { success: true, data: {
@@ -651,6 +655,10 @@ await page.route( 'http://dze.test/ajax*', route => {
 					+ '<span class="dze-lang is-done"><span class="dze-lang-code">DE</span></span>'
 					+ '</span></span>'
 					+ '<div class="dze-mail-does">'
+					// The same three controls PHP draws on a row that has
+					// reached Klaviyo — the push among them, so a row can be
+					// sent again on its own without walking the promotion.
+					+ '<button type="button" class="button button-small dze-mail-push" data-email="mail1">Update in Klaviyo</button>'
 					+ '<button type="button" class="button button-small dze-mail-sched" data-undo="0">Schedule it</button>'
 					+ '<button type="button" class="button button-small dze-mail-i18n" data-email="mail1">Translate again</button>'
 					+ '<span class="dze-mail-sched-msg description"></span></div>' } } ) } );
@@ -696,6 +704,31 @@ ok( 'the note survives the redraw',
 ok( 'the row that failed says why, in red',
 	( await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail9"] .dze-mail-note' )?.textContent ) ) || '', 'Klaviyo said no.' );
 ok( 'nothing was raised by the batch', errors, [] );
+
+// WHAT IS ON SCREEN IS WHAT TRAVELS. "Write the email first: a campaign with
+// no subject is not one > Alors que l'email est clean, tout est là." The body
+// went with the request and the subject did not, so the server read the
+// subject out of the database — and an email whose subject had been typed or
+// edited and not yet saved was refused, or filed under the old line.
+const dze_one = drafts.find( d => 'mail1' === d.email ) || {};
+ok( 'the push carries the subject on screen',
+	dze_one.subject,
+	await page.evaluate( () => document.querySelector( '.dze-mail[data-id="mail1"] .dze-f-subject' ).value ) );
+ok( 'and the preheader with it',
+	typeof dze_one.preview, 'string' );
+ok( 'and still the body it always carried',
+	( dze_one.body || '' ).length > 0, true );
+// A subject EDITED on screen and not saved travels as edited: this is the
+// same bug seen from the other side.
+await page.evaluate( () => {
+	document.querySelector( '.dze-mail[data-id="mail1"] .dze-f-subject' ).value = 'Edited, never saved';
+} );
+drafts.length = 0;
+await page.click( '.dze-mail[data-id="mail1"] .dze-mail-push' );
+await page.waitForTimeout( 300 );
+ok( 'the single button carries it too',  ( drafts[0] || {} ).subject, 'Edited, never saved' );
+ok( 'asked for by name, it always goes',  ( drafts[0] || {} ).force, '1' );
+ok( 'for that row and no other',          ( drafts[0] || {} ).email, 'mail1' );
 
 // The row, MEASURED. The screen the shop sent had "Written by the autopilot"
 // set one word per line and a warning running across the row under the

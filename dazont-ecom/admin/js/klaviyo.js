@@ -841,6 +841,21 @@
 		}
 	});
 
+	// WHAT A ROW IS HOLDING RIGHT NOW — the words on screen, not the words in
+	// the database. The body already travelled this way; the subject did not,
+	// so an email whose subject had been typed and not yet saved was refused
+	// as "a campaign with no subject" while the screen showed one, and one
+	// whose subject had been EDITED went to Klaviyo under the old line. One
+	// reader, used by the single button and by the whole promotion alike.
+	function holds(id) {
+		var $c = card(id);
+		return {
+			subject: String( $c.find('.dze-f-subject').val() || '' ).trim(),
+			preview: String( $c.find('.dze-f-preview').val() || '' ),
+			body: String( $c.find('.dze-f-body').val() || '' ).trim()
+		};
+	}
+
 	// The whole promotion handed over at once, oldest first.
 	//
 	// Klaviyo has no campaign that goes out four times on four days: a campaign
@@ -856,11 +871,13 @@
 		var $b = $(this), $m = $('#dze-mail-plan-msg');
 		commit();
 		var jobs = $('.dze-mail').map(function () {
-			var $c = $(this);
+			var $c = $(this), has = holds($c.data('id'));
 			return {
 				id: $c.data('id'),
 				when: String( $c.find('.dze-f-when').val() || '' ).trim(),
-				body: String( $c.find('.dze-f-body').val() || '' ).trim()
+				subject: has.subject,
+				preview: has.preview,
+				body: has.body
 			};
 		}).get().filter(function (j) { return j.body; });
 		if (!jobs.length) { $m.css('color', '#b26a00').removeClass('is-ko').text(cfg.i18n.noWritten); return; }
@@ -892,6 +909,8 @@
 				nonce: cfg.nonce,
 				rule: ruleId(),
 				email: jobs[i].id,
+				subject: jobs[i].subject,
+				preview: jobs[i].preview,
 				body: jobs[i].body
 			})
 				.done(function (res) {
@@ -942,13 +961,13 @@
 	$(document).on('click', '.dze-mail-push', function () {
 		var $b = $(this), id = $(this).closest('.dze-mail').data('id');
 		commit();
-		var text = String( card(id).find('.dze-f-body').val() || '' ).trim();
-		if (!text) { rowNote(card(id), cfg.i18n.noWritten, 'ko'); return; }
+		var has = holds(id);
+		if (!has.body) { rowNote(card(id), cfg.i18n.noWritten, 'ko'); return; }
 		$b.prop('disabled', true);
 		rowNote(card(id), cfg.i18n.rowPutting, 'work');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_klav_draft', nonce: cfg.nonce, rule: ruleId(),
-			email: id, body: text, force: 1
+			email: id, subject: has.subject, preview: has.preview, body: has.body, force: 1
 		})
 			.done(function (res) {
 				$b.prop('disabled', false);

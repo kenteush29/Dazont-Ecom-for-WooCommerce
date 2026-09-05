@@ -1,6 +1,6 @@
 /* global dzeQueue, jQuery */
 /**
- * Writing queue screen: watch the items go by, review what came back, accept
+ * Content to review screen: watch the items go by, review what came back, accept
  * or discard. The work itself happens in the background — this page only asks
  * the server where it is up to.
  */

@@ -3079,23 +3079,31 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	public function register_bulk_page(): void {
-		// The count rides on the menu label, the way WordPress shows comments
-		// awaiting moderation: you should not have to open a screen to learn
-		// that something is waiting on it.
-		$waiting = self::pending_count();
-		$label   = __( 'Products AI bulk', 'dazont-ecom' );
-		$menu    = $waiting
-			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
-				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
-			: $label;
+		$label = __( 'Products AI bulk', 'dazont-ecom' );
 		add_submenu_page(
 			'edit.php?post_type=product',
 			$label,
-			$menu,
+			$label,
 			'edit_products',
 			self::BULK_SLUG,
 			[ $this, 'render_bulk_page' ]
 		);
+		// AND TAKEN STRAIGHT BACK OUT OF THE MENU. "Writing queue » / bulk
+		// produit > Pourquoi pas dans un onglet réuni (catégorie + produits +
+		// blog) sous le nom Content to review ?" — two menus for one question
+		// ("what is waiting for me?") is two places to remember and two counts
+		// that disagree. Content to review names everything waiting, this
+		// included, and links here; the products list sends here on a bulk
+		// action; every link ever printed at this screen still lands on it.
+		// The page stays registered, so nothing is unreachable — it simply
+		// stops being a second entry in the menu.
+		//
+		// remove_submenu_page() and not a null parent: passing null to
+		// add_submenu_page() is deprecated, and a deprecation notice printed
+		// before our own output is a white admin page.
+		if ( class_exists( 'DZE_Queue' ) && DZE_Queue::owns_review() ) {
+			remove_submenu_page( 'edit.php?post_type=product', self::BULK_SLUG );
+		}
 	}
 
 	/** Products queued for the bulk screen (from the last bulk action). */
@@ -3326,7 +3334,20 @@ Answer with STRICT JSON and nothing else: "
 		}
 		?>
 		<div class="wrap dze-wrap dze-admin">
-			<h1><?php esc_html_e( 'Products AI bulk', 'dazont-ecom' ); ?></h1>
+			<h1>
+				<?php esc_html_e( 'Products AI bulk', 'dazont-ecom' ); ?>
+				<?php
+				// WHERE THIS SCREEN LIVES. It is no longer a menu of its own:
+				// everything waiting for a decision is named on Content to
+				// review, and this is where the product half of it is decided.
+				// A screen with no way back is a screen you reach once.
+				if ( class_exists( 'DZE_Queue' ) && DZE_Queue::owns_review() ) :
+					?>
+					<a class="page-title-action" href="<?php echo esc_url( DZE_Queue::url() ); ?>">
+						<?php esc_html_e( 'Content to review', 'dazont-ecom' ); ?>
+					</a>
+				<?php endif; ?>
+			</h1>
 
 			<?php
 			$dze_mode = $this->bulk_mode();

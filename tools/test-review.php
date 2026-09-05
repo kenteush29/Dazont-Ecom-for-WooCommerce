@@ -28,6 +28,8 @@ define( 'HOUR_IN_SECONDS', 3600 );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'MINUTE_IN_SECONDS', 60 );
 define( 'ARRAY_A', 'ARRAY_A' );
+define( 'DZE_URL', 'http://shop.test/wp-content/plugins/dazont-ecom/' );
+define( 'DZE_VERSION', 'test' );
 
 function __( $s, $d = '' ) { return $s; }
 function _n( $a, $b, $n, $d = '' ) { return $n > 1 ? $b : $a; }
@@ -36,6 +38,7 @@ function esc_attr( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_html__( $s, $d = '' ) { return esc_html( $s ); }
 function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
 function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
+function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
 function esc_url( $s ) { return (string) $s; }
 function esc_js( $s ) { return addslashes( (string) $s ); }
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
@@ -70,7 +73,23 @@ function get_transient( $k ) { return false; }
 function set_transient( $k, $v, $t = 0 ) { return true; }
 function delete_transient( $k ) { return true; }
 
-class DZE_Modules { public static function enabled( $id ) { return true; } }
+class DZE_Modules { public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); } }
+/** The product half of "what is waiting for me", which lives in its own store. */
+class DZE_Content {
+	const BULK_SLUG = 'dazont-content-bulk';
+	public static function pending_count() { return (int) ( $GLOBALS['bulk_pending'] ?? 0 ); }
+	public static function bulk_url() { return 'http://shop.test/wp-admin/edit.php?post_type=product&page=dazont-content-bulk'; }
+}
+$GLOBALS['menu_added'] = [];
+$GLOBALS['menu_gone']  = [];
+function add_submenu_page( $parent, $title, $menu, $cap, $slug, $fn = null ) {
+	$GLOBALS['menu_added'][ (string) $slug ] = [ 'parent' => $parent, 'title' => $title, 'menu' => $menu ];
+	return 'hook_' . $slug;
+}
+function remove_submenu_page( $parent, $slug ) { $GLOBALS['menu_gone'][] = (string) $slug; return true; }
+function wp_enqueue_style( ...$a ) {} function wp_enqueue_script( ...$a ) {}
+function wp_localize_script( ...$a ) {} function wp_create_nonce( $a = '' ) { return 'n'; }
+function wp_enqueue_editor() {}
 
 /** Every statement the queue sends, kept so it can be read back. */
 class DZE_Review_Wpdb {
@@ -191,6 +210,58 @@ ok( 'an anchor with no href is not a link',
 // other figure has to be there.
 ok( 'the words do not move on a linking pass',
 	str_word_count( strip_tags( $dze_before ) ) === str_word_count( strip_tags( $dze_after ) ), false );
+
+echo "ONE screen answers 'what is waiting for me'\n";
+// "Writing queue » / bulk produit > Pourquoi pas dans un onglet reuni
+// (categorie + produits + blog) sous le nom Content to review ?" Two menus
+// for one question is two places to remember and two counts that disagree.
+$GLOBALS['menu_added'] = [];
+$GLOBALS['bulk_pending'] = 0;
+DZE_Queue::instance()->menu();
+$dze_menu = $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ?? [];
+ok( 'the screen is named for what it holds', (string) ( $dze_menu['title'] ?? '' ), 'Content to review' );
+ok( 'and it hangs off the products menu',    (string) ( $dze_menu['parent'] ?? '' ), 'edit.php?post_type=product' );
+// THE COUNT ON THE MENU COUNTS BOTH STORES. A menu saying one while the
+// screen says four is the disagreement this merge exists to end.
+$GLOBALS['menu_added'] = [];
+$GLOBALS['bulk_pending'] = 3;
+DZE_Queue::instance()->menu();
+ok( 'products waiting are counted on the menu',
+	false !== strpos( (string) ( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ]['menu'] ?? '' ), '>3<' ), true );
+ok( 'and read from the store that owns them', DZE_Queue::bulk_waiting(), 3 );
+$GLOBALS['bulk_pending'] = 0;
+ok( 'nothing waiting there counts nothing',   DZE_Queue::bulk_waiting(), 0 );
+
+// The screen SAYS SO and goes there. A count with no way to act on it is a
+// number, not a screen.
+$GLOBALS['bulk_pending'] = 2;
+ob_start();
+DZE_Queue::instance()->render();
+$dze_page = (string) ob_get_clean();
+ok( 'the page is named for what it holds',
+	false !== strpos( $dze_page, '<h1>Content to review</h1>' ), true );
+ok( 'and names the products waiting elsewhere',
+	false !== strpos( $dze_page, '2 products are holding content nobody has decided on' ), true );
+// A CONTROL IS TESTED ON ITS DESTINATION. It goes to the screen that owns
+// that decision — never to a settings page, and never nowhere.
+ok( 'with a way straight to them',
+	false !== strpos( $dze_page, DZE_Content::bulk_url() ), true );
+$GLOBALS['bulk_pending'] = 0;
+ob_start();
+DZE_Queue::instance()->render();
+$dze_quiet = (string) ob_get_clean();
+ok( 'and says nothing when nothing waits',
+	false !== strpos( $dze_quiet, 'holding content nobody has decided on' ), false );
+
+// AND ONE MENU. The product bulk screen takes its own entry out while this
+// screen is the one that lists what is waiting — but keeps it the moment the
+// module is off, because switching a module off must never hide a function
+// that has nothing to do with it.
+$GLOBALS['off'] = [];
+ok( 'this screen owns the question',    DZE_Queue::owns_review(), true );
+$GLOBALS['off'] = [ 'queue' ];
+ok( 'switched off, it owns nothing',    DZE_Queue::owns_review(), false );
+$GLOBALS['off'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
