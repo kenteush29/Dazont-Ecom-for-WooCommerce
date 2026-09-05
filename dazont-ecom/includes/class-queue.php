@@ -2,7 +2,7 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Writing queue — send a batch off to be written, review it, apply it.
+ * Content to review — send a batch off to be written, review it, apply it.
  *
  * Why it exists: a description of two thousand words takes the model a minute
  * or more, and a browser request that waits that long is cut off by the host
@@ -600,11 +600,14 @@ final class DZE_Queue {
 		$parent  = 'edit.php?post_type=product';
 		// The count rides on the menu label: what is waiting for a decision
 		// should be visible without opening the screen it waits on.
-		$waiting = self::review_count();
-		// It carries product photographs as well as category texts, and has
-		// since 4.288: a menu named after one of the things on it is a menu
-		// the other things are hidden behind.
-		$label   = __( 'Writing queue', 'dazont-ecom' );
+		$waiting = self::review_count() + self::bulk_waiting();
+		// ONE NAME FOR THE ONE SCREEN. "Writing queue » / bulk produit >
+		// Pourquoi pas dans un onglet réuni (catégorie + produits + blog) sous
+		// le nom Content to review ?" — so this is that screen: categories,
+		// products and articles, everything the shop has generated and not yet
+		// decided on, in one place. A menu named after one of the things on it
+		// is a menu the other things are hidden behind.
+		$label   = __( 'Content to review', 'dazont-ecom' );
 		$menu    = $waiting
 			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
 				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
@@ -617,6 +620,35 @@ final class DZE_Queue {
 			self::MENU_SLUG,
 			[ $this, 'render' ]
 		);
+	}
+
+	/**
+	 * Is THIS the one screen that lists what is waiting for a decision?
+	 *
+	 * True while the module is on, and then the product bulk screen takes its
+	 * own entry out of the menu — one question, one place, one count. False
+	 * when the module is switched off, and the bulk screen keeps its menu
+	 * because otherwise switching a module off would hide a function that has
+	 * nothing to do with it.
+	 */
+	public static function owns_review(): bool {
+		return ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' );
+	}
+
+	/**
+	 * How many PRODUCTS are holding a generated result nobody has decided on.
+	 *
+	 * The product bulk screen keeps its work on the products themselves, not
+	 * in this queue's table, and the two lived under two menus — so "what is
+	 * waiting for me" had two answers and neither said so. They are two
+	 * stores and stay two stores; what changes is that ONE screen names
+	 * everything waiting, and each row goes to the place its own decision is
+	 * taken.
+	 */
+	public static function bulk_waiting(): int {
+		return ( class_exists( 'DZE_Content' ) && method_exists( 'DZE_Content', 'pending_count' ) )
+			? (int) DZE_Content::pending_count()
+			: 0;
 	}
 
 	/**
@@ -724,7 +756,7 @@ final class DZE_Queue {
 		] );
 		?>
 		<div class="wrap dze-admin">
-			<h1><?php esc_html_e( 'Writing queue', 'dazont-ecom' ); ?></h1>
+			<h1><?php esc_html_e( 'Content to review', 'dazont-ecom' ); ?></h1>
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'Texts are written one at a time, and this page keeps the queue moving while it is open — leave it open and watch, or come back later and pick up what is waiting. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>
 			</p>
@@ -746,6 +778,29 @@ final class DZE_Queue {
 				<button type="button" class="button-link dze-q-bulk" data-do="remove" style="color:#b32d2e;"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 				<span id="dze-q-bulkstatus" class="description"></span>
 			</p>
+			<?php
+			// THE OTHER HALF OF "WHAT IS WAITING FOR ME". Products carrying a
+			// generated text or photograph nobody has said yes or no to yet.
+			// They are decided on the bulk screen, which owns that work and
+			// draws it; this names them, so no screen has to be remembered.
+			$dze_bulk = self::bulk_waiting();
+			if ( $dze_bulk ) :
+				?>
+				<p style="background:#f0f6fc;border-left:4px solid #2271b1;padding:10px 12px;max-width:900px;">
+					<strong>
+						<?php
+						printf(
+							/* translators: %d: how many products are waiting */
+							esc_html( _n( '%d product is holding content nobody has decided on.', '%d products are holding content nobody has decided on.', $dze_bulk, 'dazont-ecom' ) ),
+							(int) $dze_bulk
+						);
+						?>
+					</strong>
+					<a class="button button-small" style="margin-left:8px;" href="<?php echo esc_url( DZE_Content::bulk_url() ); ?>">
+						<?php esc_html_e( 'Review them', 'dazont-ecom' ); ?>
+					</a>
+				</p>
+			<?php endif; ?>
 			<table class="wp-list-table widefat fixed striped" id="dze-q-table">
 				<thead><tr>
 					<td class="check-column" style="width:2.2em;padding:8px 0 8px 3px;"><input type="checkbox" id="dze-q-all" /></td>

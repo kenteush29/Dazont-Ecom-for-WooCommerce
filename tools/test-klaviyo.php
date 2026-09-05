@@ -487,8 +487,22 @@ $stuck->setAccessible( true );
 $note = $stuck->invoke( null, [
 	[ 'id' => 'z::data.attributes.href', 'source_value' => 'https://kula.test/shop' ],
 ], [ 'z::data.attributes.href' => [ 'fr' => 'https://kula.test/shop', 'de' => 'https://kula.test/de/shop' ] ] );
-ok( 'a link that did not move is SAID',  false !== strpos( $note, 'did NOT move for FR' ), true );
-ok( 'with what to go and look at',       false !== strpos( $note, 'WPML' ), true );
+// HOW MANY, AND WHY. "Links did NOT move for FR" read as all of them and
+// named no cause: the one thing to do about it — translate those products —
+// was the one thing it did not say. One link of one is stuck here, and FR is
+// the only language that has one.
+ok( 'a link that did not move is SAID',  false !== strpos( $note, 'stay on the English page' ), true );
+ok( 'saying how many of how many',       false !== strpos( $note, '1 of 1 in FR' ), true );
+ok( 'and never accusing the one that moved', false !== strpos( $note, 'DE' ), false );
+// The reason comes from WPML's OWN answer, carried through link_map().
+$why_note = $stuck->invoke( null, [
+	[ 'id' => 'z::data.attributes.href', 'source_value' => 'https://kula.test/shop' ],
+], [ 'z::data.attributes.href' => [ 'fr' => 'https://kula.test/shop' ] ], [ 'FR' => [ 'not-translated' => 1 ] ] );
+ok( 'with the reason WPML gave',         false !== strpos( $why_note, 'those products are not translated' ), true );
+$why_off = $stuck->invoke( null, [
+	[ 'id' => 'z::data.attributes.href', 'source_value' => 'https://kula.test/shop' ],
+], [ 'z::data.attributes.href' => [ 'fr' => 'https://kula.test/shop' ] ], [ 'FR' => [ 'no-wpml' => 2 ] ] );
+ok( 'and a different reason when it is one', false !== strpos( $why_off, 'WPML is not active here' ), true );
 // And an address that was never ours is not counted either way.
 ok( 'a foreign address is nobody\'s failure',
 	$stuck->invoke( null, [ [ 'id' => 'i::data.attributes.href', 'source_value' => 'https://cdn.klaviyo.test/x.jpg' ] ],
@@ -773,6 +787,58 @@ $more  = array_merge( $shown, array_keys( $third['ids'] ) );
 $last  = DZE_Klaviyo::material( $promo, 9, $more );
 ok( 'a third helping is found',          count( $last['cards'] ), 9 );
 ok( 'fresh ones come first',             substr_count( substr( $last['lines'], 0, strpos( $last['lines'], "2." ) ), 'ALREADY SHOWN' ), 0 );
+
+echo "And the reader is the SAME PERSON from one promotion to the next\n";
+// "Lacunes avec les produits qui semblent etre trop souvent les memes d'une
+// campagne a une autre." Inside one promotion an email stepped around its
+// neighbours; between promotions nothing did, so the same best-sellers opened
+// campaign after campaign.
+$dze_old = array_slice( array_values( $first['ids'] ), 0, 4 );
+$dze_mat = DZE_Klaviyo::material( $promo, 9, [], [], $dze_old );
+ok( 'a recent promotion is stepped around too',
+	array_intersect( array_values( $dze_mat['ids'] ), $dze_old ), [] );
+ok( 'and it still gets a full email',    count( $dze_mat['cards'] ), 9 );
+ok( 'with nothing second-hand on it',    false !== strpos( $dze_mat['lines'], 'SHOWN IN A RECENT PROMOTION' ), false );
+// NEVER REMOVED, only moved and marked. A shop with nothing else to sell
+// still gets a full email — the alternative is an empty campaign, which is
+// worse than a product somebody has seen before.
+$dze_all = DZE_Klaviyo::material( $promo, 9, [], [], range( 1, 20 ) );
+ok( 'a shop with nothing fresh still gets nine', count( $dze_all['cards'] ), 9 );
+ok( 'and every line owns up to it',      substr_count( $dze_all['lines'], 'SHOWN IN A RECENT PROMOTION' ), 9 );
+// The nearest repetition is the worst one: what THIS promotion already used
+// sits behind what a past one did.
+$dze_both = DZE_Klaviyo::material( $promo, 20, array_slice( array_keys( $first['ids'] ), 0, 2 ), [], range( 1, 20 ) );
+ok( 'this promotion outranks the last one',
+	strpos( $dze_both['lines'], 'ALREADY SHOWN by another email' ) > strpos( $dze_both['lines'], 'SHOWN IN A RECENT PROMOTION' ), true );
+
+// WHERE THAT MEMORY COMES FROM: the other promotions' own emails, read the
+// way everything else here is read — from what they actually say today.
+$dze_was_rules = $GLOBALS['dze_rules'] ?? null;
+$dze_was_copy  = $GLOBALS['dze_opts'][ $copy ] ?? null;
+$GLOBALS['dze_rules'] = [ 'now' => [ 'title' => 'This one' ], 'past' => [ 'title' => 'Last month' ], 'ancient' => [ 'title' => 'Last year' ] ];
+$dze_was_slugs = $GLOBALS['dze_slugs'] ?? [];
+$GLOBALS['dze_slugs'] = [ 'sturmhaube' => 7 ];
+$GLOBALS['dze_opts'][ $copy ] = [
+	'now'  => [ 'emails' => [ 'a' => [ 'when' => gmdate( 'Y-m-d' ), 'shown' => [ 11, 12 ] ] ] ],
+	'past' => [ 'emails' => [
+		'b' => [ 'when' => gmdate( 'Y-m-d', time() - 20 * 86400 ), 'shown' => [ 3, 4 ] ],
+		'c' => [ 'when' => gmdate( 'Y-m-d', time() - 40 * 86400 ), 'body' => '<a href="https://kula.test/sturmhaube">A-Tacs</a>' ],
+	] ],
+	'ancient' => [ 'emails' => [ 'd' => [ 'when' => gmdate( 'Y-m-d', time() - 400 * 86400 ), 'shown' => [ 9 ] ] ] ],
+];
+$dze_seen = DZE_Klaviyo::shown_recently( 'now' );
+sort( $dze_seen );
+ok( 'what a recent promotion showed is remembered', $dze_seen, [ 3, 4, 7 ] );
+ok( 'the promotion being planned answers for itself',
+	array_intersect( $dze_seen, [ 11, 12 ] ), [] );
+ok( 'and a sale from last year is not a reason',
+	in_array( 9, $dze_seen, true ), false );
+// An email that was rewritten by hand carries no list of its own, and its
+// BODY is the answer — the same reader goods_of() uses for one email.
+ok( 'a hand-written email answers by its links', in_array( 7, $dze_seen, true ), true );
+$GLOBALS['dze_rules'] = $dze_was_rules;
+$GLOBALS['dze_opts'][ $copy ] = $dze_was_copy;
+$GLOBALS['dze_slugs'] = $dze_was_slugs;
 
 echo "The photographs the opening picture is built from\n";
 $pics = new ReflectionMethod( 'DZE_Klaviyo', 'picture_products' );
@@ -1497,6 +1563,59 @@ ok( 'a changed email goes on its own',
 		'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'templates/T9' ) ) ), 1 );
 $GLOBALS['dze_queue'] = [];
 
+echo "What is ON SCREEN is what reaches Klaviyo — the subject too\n";
+// "Write the email first: a campaign with no subject is not one. > Alors que
+// l'email est clean, tout est la." The body already travelled from the
+// screen; the subject was read from the database alone. So a subject typed
+// and not yet saved was refused, and a subject EDITED since the last save
+// went to Klaviyo under the old line with nothing saying so.
+$GLOBALS['dze_opts'][ $copy ]['promo']['emails']['sk1']['subject'] = '';
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+$dze_no = '';
+try {
+	DZE_Klaviyo::draft( 'promo', 'sk1', [ 'force' => true ] );
+} catch ( Throwable $e ) { $dze_no = $e->getMessage(); }
+ok( 'an email with no subject anywhere is refused',
+	false !== strpos( $dze_no, 'a campaign with no subject' ), true );
+// The same email, with the subject the SCREEN is holding: it goes.
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+$dze_no = '';
+try {
+	DZE_Klaviyo::draft( 'promo', 'sk1', [ 'force' => true, 'subject' => 'Typed but not saved yet' ] );
+} catch ( Throwable $e ) { $dze_no = $e->getMessage(); }
+ok( 'the subject on screen is enough',  $dze_no, '' );
+$dze_msg = array_values( array_filter( $GLOBALS['dze_sent'], static fn( $c ) =>
+	'PATCH' === ( $c['method'] ?? '' ) && false !== strpos( (string) $c['url'], 'campaign-messages/' ) ) );
+$dze_put = json_decode( (string) ( $dze_msg[0]['body'] ?? '' ), true );
+ok( 'and it is the line Klaviyo is given',
+	$dze_put['data']['attributes']['definition']['content']['subject'] ?? '',
+	'Typed but not saved yet' );
+// AND THE SHOP NOW HOLDS WHAT WAS FILED. Leaving the database on the previous
+// version means the row, the next translation and the next push all describe
+// an email that is not the one in the account.
+ok( 'the shop keeps what it sent',
+	get_option( $copy )['promo']['emails']['sk1']['subject'] ?? '', 'Typed but not saved yet' );
+// A request that did NOT carry a subject leaves the saved one exactly as it
+// is: absent means "as it stands", never an empty write.
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+try { DZE_Klaviyo::draft( 'promo', 'sk1', [ 'force' => true ] ); } catch ( Throwable $e ) { $dze_no = $e->getMessage(); }
+ok( 'a form that carried none changes none',
+	get_option( $copy )['promo']['emails']['sk1']['subject'] ?? '', 'Typed but not saved yet' );
+// The fingerprint is of WHAT IS BEING FILED, so an edited subject is a change
+// and the next press does not answer "nothing to do".
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = [ [ 'code' => 200, 'body' => '{"data":{"id":"C9","attributes":{"status":"Draft"}}}' ] ];
+$dze_same = DZE_Klaviyo::draft( 'promo', 'sk1', [ 'subject' => 'Typed but not saved yet' ] );
+ok( 'an unchanged subject files nothing', ! empty( $dze_same['skipped'] ), true );
+$GLOBALS['dze_sent']  = [];
+$GLOBALS['dze_queue'] = $press();
+$dze_diff = DZE_Klaviyo::draft( 'promo', 'sk1', [ 'subject' => 'A different line entirely' ] );
+ok( 'a changed subject is a change',      empty( $dze_diff['skipped'] ), true );
+$GLOBALS['dze_queue'] = [];
+
 echo "The row says whether it is in Klaviyo, whatever state it is in\n";
 // "J'aimerai en plus dans l'UI une mention Synced with klaviyo peu importe le
 // status de l'email, draft ou pas." It said "Draft in Klaviyo" and nothing
@@ -1512,6 +1631,17 @@ ok( 'and one that has gone out',        str_contains( $cell, 'Synced with Klaviy
 $cell = DZE_Klaviyo::state_cell( 's1', [ 'kind' => 'launch' ] );
 ok( 'an unsynced row says that plainly', str_contains( $cell, 'Not in Klaviyo yet' ), true );
 ok( 'and offers to find it',             str_contains( $cell, 'dze-mail-find' ), true );
+// AND OFFERS TO PUT IT THERE. "Ca manque du bouton individuel Sync with
+// Klaviyo": the row that is not in Klaviyo yet is exactly the row somebody
+// wants to send, and it was the one row with no way to — the only route was
+// "Put them all in Klaviyo", which walks the whole promotion and is why
+// "Putting it in Klaviyo…" sat there on emails that were already clean.
+ok( 'and to put it there on its own',    str_contains( $cell, 'dze-mail-push' ), true );
+ok( 'saying so in words',                str_contains( $cell, 'Put it in Klaviyo' ), true );
+// Same class as the row already in Klaviyo: ONE handler, one endpoint, never
+// a second way for an email to reach the account.
+ok( 'by the same control as a synced row',
+	str_contains( DZE_Klaviyo::state_cell( 's1', [ 'kind' => 'launch', 'draft' => [ 'campaign' => 'C1' ] ] ), 'dze-mail-push' ), true );
 
 echo "An email already in Klaviyo, linked back without writing a word\n";
 $GLOBALS['dze_opts'][ $copy ] = [ 'promo' => [ 'emails' => [ 'f1' => [
@@ -2160,6 +2290,21 @@ ok( 'an untranslated product keeps its own page',
 ok( 'in every language',                $none['https://kula.test/p/7']['de'] ?? '', 'https://kula.test/p/7' );
 ok( 'and no address is invented for it',
 	false !== strpos( (string) ( $none['https://kula.test/p/7']['fr'] ?? '' ), '/fr/' ), false );
+// AND WPML'S OWN REASON IS CARRIED OUT, per language. It was answered and
+// thrown away, so the row could only say "links did NOT move" and send the
+// shop to a settings page — while WPML had already said which products were
+// the problem.
+$dze_why = [];
+DZE_Klaviyo::link_map( [ 7 ], [ 'fr', 'de' ], $dze_why );
+ok( 'why a link stayed put is carried out', $dze_why['FR'] ?? [], [ 'not-translated' => 1 ] );
+ok( 'in every language it happened in',     $dze_why['DE'] ?? [], [ 'not-translated' => 1 ] );
+// A product that DID move leaves no reason behind: a note is about failures.
+$GLOBALS['dze_trans'] = [ 7 => [ 'fr' => 71 ] ];
+$GLOBALS['dze_perma'][71] = 'https://kula.test/fr/p-7';
+$dze_why = [];
+DZE_Klaviyo::link_map( [ 7 ], [ 'fr' ], $dze_why );
+ok( 'a link that moved says nothing',       $dze_why, [] );
+$GLOBALS['dze_trans'] = [];
 
 // The same rule inside the write: a PAGE address the map does not cover is
 // left alone, while the addresses every language really does share — the home

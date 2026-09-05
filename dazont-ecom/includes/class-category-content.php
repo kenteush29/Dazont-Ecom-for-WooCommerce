@@ -1627,7 +1627,7 @@ PROMPT;
 			?>
 			<?php if ( ! $q_on ) : ?>
 				<div class="dze-cc-warn">
-					<p><strong><?php esc_html_e( 'The Writing queue module is switched off.', 'dazont-ecom' ); ?></strong></p>
+					<p><strong><?php esc_html_e( 'The Content to review module is switched off.', 'dazont-ecom' ); ?></strong></p>
 					<p><?php esc_html_e( 'Writing runs through it — in the background, so a long description cannot be cut off by the server. Switch it back on under Settings → Modules to generate anything here.', 'dazont-ecom' ); ?></p>
 				</div>
 			<?php endif; ?>

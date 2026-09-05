@@ -906,7 +906,7 @@ final class DZE_Automation {
 							</p>
 							<?php if ( ! $ready ) : ?>
 								<p class="description" style="color:#b32d2e;">
-									<?php esc_html_e( 'Needs its own module and the Writing queue: the work is theirs, this only decides which page gets it, and when.', 'dazont-ecom' ); ?>
+									<?php esc_html_e( 'Needs its own module and Content to review: the work is theirs, this only decides which page gets it, and when.', 'dazont-ecom' ); ?>
 								</p>
 							<?php endif; ?>
 						</td>
