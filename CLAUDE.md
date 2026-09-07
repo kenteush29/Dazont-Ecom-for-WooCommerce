@@ -310,10 +310,21 @@ owner communicates in French.
   the previous version makes the row, the next translation and the next push
   all describe an email that is not the one in the account. And never let a
   request payload shadow the variable holding the content (`$body` was both).
+- **A DECISION IS SIGNED.** Nothing recorded WHO accepted or refused, so a
+  shop with more than one pair of hands could see that a page had been dealt
+  with and never by whom — the first thing anybody asks once the work is
+  handed to somebody else. The queue carries `decided_by` (schema 2), written
+  at all four places a decision is taken (accept, refuse, and both in bulk),
+  and the products log carries `by`. It is a NAME on screen, never an id; an
+  account deleted since keeps its decision and says so; and 0 means an
+  automatic pass, which has nobody to name and must not be given one.
 - **EVERY LIST OF THINGS WAITING FOR A DECISION IS ONE LIST.** Two menus for
   "what is waiting for me?" is two places to remember and two counts that
-  disagree; the screen is **Content to review** and its menu badge counts
-  every store, the product bulk screen included. The stores stay separate —
+  disagree; the screen is **Content to review**, it lives under **Dazont Ecom** and not
+  under Products (it holds categories, products and articles; a list of
+  everything the plugin has written does not belong inside one of the things
+  it writes, and its old address redirects so a bookmark still lands), and its
+  menu badge counts every store, the product bulk screen included. The stores stay separate —
   each decision is taken where its own work is drawn — but the second screen
   takes its own entry out of the menu (`remove_submenu_page`, never a `null`
   parent, which is deprecated and prints a notice before our output) while

@@ -75,6 +75,11 @@
 			var state = esc(LABELS[r.status] || r.status);
 			if (r.status === 'running' && r.progress) { state += ' <span class="description">' + esc(r.progress) + '</span>'; }
 			if (r.status === 'failed' && r.error) { state += '<br /><span class="description">' + esc(r.error) + '</span>'; }
+			// WHO SAID YES OR NO. Written by the server, in the shop's own
+			// language, and only where there is somebody to name: a row still
+			// waiting has nobody, and a pass that saved without review has
+			// nobody either.
+			if (r.who) { state += '<br /><span class="description dze-q-who">' + esc(r.who) + '</span>'; }
 			$b.append(
 				'<tr><th scope="row" class="check-column"><input type="checkbox" class="dze-q-pick" value="' + r.id +
 					'" data-status="' + esc(r.status) + '"' + (sel[r.id] ? ' checked' : '') + ' /></th>' +

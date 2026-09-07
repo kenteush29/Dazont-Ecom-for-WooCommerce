@@ -2969,6 +2969,12 @@ Answer with STRICT JSON and nothing else: "
 			'time'   => time(),
 			'texts'  => $texts,
 			'images' => $images,
+			// WHO TOOK THE DECISION. Nothing recorded it, so a shop with more
+			// than one pair of hands could see that a product had been dealt
+			// with and never by whom — the first thing anybody asks once the
+			// work is handed to somebody else. 0 is an automatic pass, which
+			// has nobody to name.
+			'by'     => function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0,
 			// Accepted or refused, the product is done with: what Done records
 			// is that the decision was taken, and which one.
 			'status' => 'dropped' === $status ? 'dropped' : 'applied',
@@ -3162,6 +3168,7 @@ Answer with STRICT JSON and nothing else: "
 				<th style="width:70px;"></th>
 				<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
 				<th style="width:220px;"><?php esc_html_e( 'Written', 'dazont-ecom' ); ?></th>
+				<th style="width:150px;"><?php esc_html_e( 'Decided by', 'dazont-ecom' ); ?></th>
 				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
 			</tr>
 			<?php foreach ( $log as $dze_e ) :
@@ -3197,6 +3204,18 @@ Answer with STRICT JSON and nothing else: "
 							<span class="description"><?php esc_html_e( 'nothing written', 'dazont-ecom' ); ?></span>
 						<?php endif; ?>
 					</td>
+					<td class="description"><?php
+						// THE NAME, not the id: "12" on a row is a number
+						// somebody has to go and look up. A pass that ran on
+						// its own has nobody, and says so rather than
+						// inventing one.
+						$dze_by = class_exists( 'DZE_Queue' )
+							? DZE_Queue::decided_by( (int) ( $dze_e['by'] ?? 0 ) )
+							: '';
+						echo '' !== $dze_by
+							? esc_html( $dze_by )
+							: esc_html__( 'automatic pass', 'dazont-ecom' );
+					?></td>
 					<td class="description"><?php echo esc_html( wp_date( 'j M Y · H:i', (int) ( $dze_e['time'] ?? 0 ) ) ); ?></td>
 				</tr>
 			<?php endforeach; ?>

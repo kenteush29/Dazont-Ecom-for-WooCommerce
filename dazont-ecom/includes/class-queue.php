@@ -23,7 +23,7 @@ final class DZE_Queue {
 	public const MENU_SLUG  = 'dazont-ecom-queue';
 	public const HOOK       = 'dze_queue_work';
 	private const SCHEMA_OPT     = 'dze_queue_schema';
-	private const SCHEMA_VERSION = 1;
+	private const SCHEMA_VERSION = 2;
 	private const LOCK      = 'dze_queue_lock';
 	private const COUNT_KEY = 'dze_queue_review_count';
 
@@ -76,6 +76,7 @@ final class DZE_Queue {
 		}
 		add_action( 'admin_init', [ $this, 'maybe_install' ] );
 		add_action( 'admin_menu', [ $this, 'menu' ], 21 ); // right after Products AI bulk.
+		add_action( 'admin_init', [ $this, 'moved' ] );
 		add_action( 'wp_ajax_dze_q_status', [ $this, 'ajax_status' ] );
 		add_action( 'wp_ajax_dze_q_run', [ $this, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_q_review', [ $this, 'ajax_review' ] );
@@ -111,6 +112,12 @@ final class DZE_Queue {
 			error TEXT NULL,
 			created DATETIME NOT NULL,
 			updated DATETIME NOT NULL,
+			-- WHO SAID YES OR NO. Nothing recorded it, so a shop with more
+			-- than one pair of hands could see that a page had been dealt
+			-- with and never by whom — which is the first thing anybody asks
+			-- once the work is handed to somebody else. 0 means the plugin
+			-- itself: a task that saves without review has nobody to name.
+			decided_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
 			KEY status (status),
 			KEY object (kind,object_id)
@@ -461,7 +468,7 @@ final class DZE_Queue {
 		$table = self::table();
 		return (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT id, kind, object_id, status, error, payload, updated FROM {$table}
+			"SELECT id, kind, object_id, status, error, payload, updated, decided_by FROM {$table}
 			 ORDER BY FIELD(status,'running','queued','review','failed','applied','skipped'), id ASC LIMIT %d",
 			$limit
 		), ARRAY_A );
@@ -495,7 +502,7 @@ final class DZE_Queue {
 		$in   = implode( ',', array_map( 'intval', $ids ) );
 		$rows = (array) $wpdb->get_results(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, ids cast to int above.
-			"SELECT id, kind, object_id, updated FROM " . self::table() . "
+			"SELECT id, kind, object_id, updated, decided_by FROM " . self::table() . "
 			 WHERE status = 'applied' AND object_id IN ( {$in} ) ORDER BY id DESC",
 			ARRAY_A
 		);
@@ -511,6 +518,9 @@ final class DZE_Queue {
 				'kind' => (string) $r['kind'],
 				'when' => (string) $r['updated'],
 				'id'   => (int) $r['id'],
+				// AND WHO SAID YES. A page that was worked on, when, and by
+				// nobody in particular is three quarters of an answer.
+				'who'  => self::decided_by( (int) ( $r['decided_by'] ?? 0 ) ),
 			];
 		}
 		return $out;
@@ -588,16 +598,52 @@ final class DZE_Queue {
 	/** The screen's address, in one place: the menu it hangs from can move. */
 	public static function url( array $args = [] ): string {
 		return add_query_arg(
+			array_merge( [ 'page' => self::MENU_SLUG ], $args ),
+			admin_url( 'admin.php' )
+		);
+	}
+
+	/** Where it USED to live, so a bookmark or an old link still lands. */
+	public static function old_url( array $args = [] ): string {
+		return add_query_arg(
 			array_merge( [ 'post_type' => 'product', 'page' => self::MENU_SLUG ], $args ),
 			admin_url( 'edit.php' )
 		);
 	}
 
+	/**
+	 * An old address, sent to the new one.
+	 *
+	 * The screen moved out of Products and into Dazont Ecom — "ça porte à
+	 * confusion, ça devrait plutôt se trouver dans l'onglet de dazont ecom" —
+	 * and a page that is no longer registered under Products does not answer
+	 * "not found": WordPress answers "you are not allowed to access this
+	 * page", which reads as a permission the shop has lost. Every link this
+	 * plugin has ever printed still lands.
+	 */
+	public function moved(): void {
+		global $pagenow;
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- reading which screen was asked for.
+		if ( 'edit.php' !== $pagenow || ! isset( $_GET['page'] ) ) {
+			return;
+		}
+		if ( self::MENU_SLUG !== sanitize_key( wp_unslash( $_GET['page'] ) ) ) {
+			return;
+		}
+		$args = array_diff_key( $_GET, array_flip( [ 'page', 'post_type' ] ) );
+		// phpcs:enable
+		wp_safe_redirect( self::url( array_map( 'sanitize_text_field', array_map( 'strval', $args ) ) ) );
+		exit;
+	}
+
 	public function menu(): void {
-		// Next to the products bulk screen, under Products: every job this queue
-		// carries writes a product CATEGORY, and that is where categories are
-		// worked on. The slug is unchanged, so old links still land here.
-		$parent  = 'edit.php?post_type=product';
+		// UNDER DAZONT ECOM, not under Products. It holds categories, products
+		// AND articles — "ça porte à confusion, ça devrait plutôt se trouver
+		// dans l'onglet de dazont ecom" — and a screen about everything the
+		// plugin has written does not belong inside one of the things it
+		// writes. The slug is unchanged and the old address redirects, so
+		// every link ever printed at it still lands.
+		$parent  = class_exists( 'DZE_Restock' ) ? DZE_Restock::MENU_SLUG : 'dazont-ecom';
 		// The count rides on the menu label: what is waiting for a decision
 		// should be visible without opening the screen it waits on.
 		$waiting = self::review_count() + self::bulk_waiting();
@@ -853,6 +899,11 @@ final class DZE_Queue {
 					number_format_i18n( max( 0, min( $total, $step + 1 ) ) ),
 					number_format_i18n( $total )
 				) : '',
+				// WHO DECIDED IT, said on the row it belongs to. A shop that
+				// hands this work to somebody else needs to see that a page
+				// was dealt with AND by whom; the sentence is built here, in
+				// PHP, so it is not English on every shop.
+				'who'      => self::said_by( (string) $r['status'], (int) ( $r['decided_by'] ?? 0 ) ),
 			];
 		}
 		wp_send_json_success( [ 'rows' => $rows, 'counts' => self::counts() ] );
@@ -970,7 +1021,11 @@ final class DZE_Queue {
 			wp_send_json_error( [ 'message' => __( 'Job not found.', 'dazont-ecom' ) ] );
 		}
 		if ( ! $accept ) {
-			$wpdb->update( self::table(), [ 'status' => 'skipped', 'updated' => current_time( 'mysql' ) ], [ 'id' => $id ] );
+			$wpdb->update( self::table(), [
+				'status'     => 'skipped',
+				'decided_by' => self::decider(),
+				'updated'    => current_time( 'mysql' ),
+			], [ 'id' => $id ] );
 			wp_send_json_success( [ 'status' => 'skipped' ] );
 		}
 		$html = '' !== trim( $html ) ? $html : (string) $job['result'];
@@ -981,12 +1036,64 @@ final class DZE_Queue {
 			$job['payload'] ? (array) json_decode( (string) $job['payload'], true ) : []
 		);
 		$wpdb->update( self::table(), [
-			'status'  => $ok ? 'applied' : 'failed',
-			'result'  => $html,
-			'error'   => $ok ? null : __( 'Saving failed.', 'dazont-ecom' ),
-			'updated' => current_time( 'mysql' ),
+			'status'     => $ok ? 'applied' : 'failed',
+			'result'     => $html,
+			'error'      => $ok ? null : __( 'Saving failed.', 'dazont-ecom' ),
+			'decided_by' => self::decider(),
+			'updated'    => current_time( 'mysql' ),
 		], [ 'id' => $id ] );
 		wp_send_json_success( [ 'status' => $ok ? 'applied' : 'failed' ] );
+	}
+
+	/**
+	 * WHO IS DECIDING, right now.
+	 *
+	 * 0 when nobody is: a scheduled pass that saves without review has no
+	 * person behind it, and naming one would be a lie on the row.
+	 */
+	private static function decider(): int {
+		return function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+	}
+
+	/**
+	 * The person behind a decision, as a name to print.
+	 *
+	 * The display name the shop already knows, never an id: "12" on a row is
+	 * a number somebody has to go and look up. An account deleted since keeps
+	 * its decision — the work was still done — and says so.
+	 */
+	public static function decided_by( int $user_id ): string {
+		if ( $user_id <= 0 ) {
+			return '';
+		}
+		$who = function_exists( 'get_userdata' ) ? get_userdata( $user_id ) : null;
+		return ( $who && ! empty( $who->display_name ) )
+			? (string) $who->display_name
+			/* translators: %d: a WordPress user id */
+			: sprintf( __( 'a deleted account (%d)', 'dazont-ecom' ), $user_id );
+	}
+
+	/**
+	 * "Accepted by Marie", in one sentence, or nothing at all.
+	 *
+	 * Only for a job that has actually been decided: a row still waiting has
+	 * nobody to name, and a scheduled pass that saved without review has
+	 * nobody either — saying "by the shop" there would be inventing a person.
+	 */
+	public static function said_by( string $status, int $user_id ): string {
+		$who = self::decided_by( $user_id );
+		if ( '' === $who ) {
+			return '';
+		}
+		if ( 'applied' === $status ) {
+			/* translators: %s: the person who accepted it */
+			return sprintf( __( 'Accepted by %s', 'dazont-ecom' ), $who );
+		}
+		if ( 'skipped' === $status ) {
+			/* translators: %s: the person who threw it away */
+			return sprintf( __( 'Discarded by %s', 'dazont-ecom' ), $who );
+		}
+		return '';
 	}
 
 	/** Queue one item from wherever it is being looked at. */
@@ -1020,7 +1127,7 @@ final class DZE_Queue {
 		wp_send_json_success( [
 			'added' => $n,
 			'job'   => $job,
-			'url'   => add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ),
+			'url'   => self::url(),
 		] );
 	}
 
@@ -1101,15 +1208,20 @@ final class DZE_Queue {
 					}
 					$saved = self::apply( (string) $job['kind'], (int) $job['object_id'], (string) $job['result'] );
 					$wpdb->update( $table, [
-						'status'  => $saved ? 'applied' : 'failed',
-						'error'   => $saved ? null : __( 'Saving failed.', 'dazont-ecom' ),
-						'updated' => $now,
+						'status'     => $saved ? 'applied' : 'failed',
+						'error'      => $saved ? null : __( 'Saving failed.', 'dazont-ecom' ),
+						'decided_by' => self::decider(),
+						'updated'    => $now,
 					], [ 'id' => $id ] );
 					$saved ? $ok++ : $fail++;
 					break;
 
 				case 'discard':
-					$wpdb->update( $table, [ 'status' => 'skipped', 'updated' => $now ], [ 'id' => $id ] );
+					$wpdb->update( $table, [
+						'status'     => 'skipped',
+						'decided_by' => self::decider(),
+						'updated'    => $now,
+					], [ 'id' => $id ] );
 					$ok++;
 					break;
 
