@@ -1220,6 +1220,16 @@ $_GET = [];
 ob_start();
 $dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
 $dze_gal_html = (string) ob_get_clean();
+// WHAT EACH ONE IS SHORT OF, on the line itself. "Il faudrait afficher de
+// cette façon très instinctive le diagnostic sur toutes les lignes. Parce que
+// sur les autres produits il n'y a rien d'affiché clairement." A list that
+// only names the products leaves the reader to open each one to learn how far
+// off it is — and how far off it is decides which to do first.
+ok( 'every row says how short it is',
+	substr_count( $dze_gal_html, 'class="description dze-diag-short">&mdash;' ), 2 );
+ok( 'the empty one says none of three',  false !== strpos( $dze_gal_html, '0 of 3 photographs' ), true );
+ok( 'and the thin one says two of three', false !== strpos( $dze_gal_html, '2 of 3 photographs' ), true );
+
 ok( 'every thin gallery has a button',
 	substr_count( $dze_gal_html, 'class="button button-small dze-content-open"' ), 2 );
 ok( 'and it names what pressing it does', false !== strpos( $dze_gal_html, '>Make photographs…</button>' ), true );
@@ -1275,6 +1285,26 @@ $GLOBALS['bulked'] = [];
 ok( 'nothing ticked stays on the list',
 	false !== strpos( DZE_Diagnostic::bulk_pick( 'prod_gallery', [] ), 'check=prod_gallery' ), true );
 ok( 'and hands the bulk screen nothing', $GLOBALS['bulked'], [] );
+
+// THE SENTENCE ITSELF, in both directions. "At most 3" is a shortfall AT 3,
+// so what it needs is 4; "more than 60" is too many at 61, so what it may
+// have is 60. And a rule with no figure — "is empty" — says nothing at all,
+// because "0 of 0 photographs" is worse than silence.
+$dze_says = static function ( array $rule ) : string {
+	return DZE_Diagnostic::short_said(
+		[ 'field' => 'product.gallery', 'scope' => 'product', 'key' => '' ] + $rule,
+		'product',
+		901
+	);
+};
+$GLOBALS['dze_meta'][901]['_product_image_gallery'] = '1,2';
+ok( 'less than three needs three',      $dze_says( [ 'test' => 'lt', 'value' => 3 ] ), '2 of 3 photographs' );
+ok( 'at most three needs four',         $dze_says( [ 'test' => 'lte', 'value' => 3 ] ), '2 of 4 photographs' );
+ok( 'more than one allows one',         $dze_says( [ 'test' => 'gt', 'value' => 1 ] ), '2 photographs, 1 at most' );
+ok( 'at least two allows one',          $dze_says( [ 'test' => 'gte', 'value' => 2 ] ), '2 photographs, 1 at most' );
+ok( 'a rule with no figure says nothing', $dze_says( [ 'test' => 'empty', 'value' => 0 ] ), '' );
+ok( 'and neither does "contains"',      $dze_says( [ 'test' => 'contains', 'value' => 0, 'find' => 'x' ] ), '' );
+$GLOBALS['dze_meta'][901]['_product_image_gallery'] = '';
 
 // THE QUALITY CONTROL. After the work has been applied, the row is judged
 // again — by the criterion it was listed under, with the same functions that

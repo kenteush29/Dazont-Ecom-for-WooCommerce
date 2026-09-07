@@ -4096,6 +4096,11 @@ Answer with STRICT JSON and nothing else: "
 				'image'      => __( 'Image', 'dazont-ecom' ),
 				'price'      => __( 'Price', 'dazont-ecom' ),
 				'close'      => __( 'Close', 'dazont-ecom' ),
+				// Opened from the products list or from a diagnostic line, the
+				// product itself is nowhere on the screen — and some of the
+				// work belongs there: a photograph brought in from outside,
+				// what the page actually says.
+				'openProduct' => __( 'Open the product', 'dazont-ecom' ),
 				'generating' => __( 'Generating…', 'dazont-ecom' ),
 				'genAll'     => __( 'Generate all', 'dazont-ecom' ),
 				'generate'   => __( 'Generate', 'dazont-ecom' ),

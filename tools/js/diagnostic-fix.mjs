@@ -160,7 +160,10 @@ for ( const [ label, jq ] of jqs ) {
 		// What the popup asks for when it opens on a product: what that
 		// product already carries. It writes nothing and costs nothing.
 		return json( {
-			title: 'Product 901', cost: '', spend: {}, note: '',
+			title: 'Product ' + ( sent.post || '?' ),
+			// The way to the product itself, which the head links to.
+			edit: 'http://dze.test/wp-admin/post.php?post=' + ( sent.post || '0' ) + '&action=edit',
+			cost: '', spend: {}, note: '',
 			images: [], texts: {}, pending: { texts: {}, shots: [] }
 		} );
 	} );
@@ -180,6 +183,16 @@ for ( const [ label, jq ] of jqs ) {
 		await page.evaluate( () => Array.from( document.querySelectorAll( 'tbody a[href]' ) )
 			.some( a => /page=dazont-ecom-ai|tab=(categories|automation|lab)/.test( a.href ) ) ), false );
 
+	// WHAT EACH ROW IS SHORT OF, said on the row itself. A list that only
+	// names the products leaves the reader to open each one to learn how far
+	// off it is — and how far off it is decides which to do first.
+	ok( 'every row says how short it is',
+		await page.locator( 'tbody .dze-diag-short' ).count(), 2 );
+	ok( 'and says it in figures',
+		( await page.textContent( 'tr[data-id="901"] .dze-diag-short' ) ).includes( '0 of 3 photographs' ), true );
+	ok( 'each one its own',
+		( await page.textContent( 'tr[data-id="902"] .dze-diag-short' ) ).includes( '2 of 3 photographs' ), true );
+
 	await page.click( '.dze-content-open[data-id="901"]' );
 	await page.waitForTimeout( 250 );
 
@@ -193,6 +206,15 @@ for ( const [ label, jq ] of jqs ) {
 	// 3. The popup is open — the same one the product screen opens.
 	ok( 'the product popup is open',        await page.locator( '#dze-cx-modal.is-open' ).count(), 1 );
 	ok( 'on that product',                  await page.textContent( '#dze-cx-who' ), 'Product 901' );
+	// AND A WAY TO THE PRODUCT ITSELF. Opened from a diagnostic line the
+	// product is nowhere on screen, and some of the work belongs there:
+	// "j'aimerais ajouter des images externes pour améliorer le contexte."
+	ok( 'the head offers the product',      await page.isVisible( '#dze-cx-edit' ), true );
+	ok( 'pointing at that very product',
+		await page.getAttribute( '#dze-cx-edit', 'href' ),
+		'http://dze.test/wp-admin/post.php?post=901&action=edit' );
+	ok( 'in a new tab, so nothing here is lost',
+		await page.getAttribute( '#dze-cx-edit', 'target' ), '_blank' );
 	// 4. On the section the criterion is about, and only that one.
 	ok( 'opened on the photographs',
 		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-cx-modal .dze-sec' ) )

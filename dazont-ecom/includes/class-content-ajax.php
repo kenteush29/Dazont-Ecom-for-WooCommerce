@@ -1450,6 +1450,13 @@ trait DZE_Content_Ajax {
 			// Everything the popup needs to work on a product it was not opened
 			// from: its name, its cost, and whatever is already waiting on it.
 			'title'   => $product->get_name(),
+			// AND THE WAY TO IT. The toolbox is opened from three screens now,
+			// and from two of them the product itself is nowhere: "j'ai ouvert
+			// la toolbox, et j'aimerais ajouter des images externes pour
+			// améliorer le contexte" — which is done on the product, in the
+			// media library, not here.
+			'edit'    => (string) ( get_edit_post_link( $pid, 'raw' ) ?: '' ),
+			'view'    => (string) ( $product->get_permalink() ?: '' ),
 			'cost'    => self::product_cost( $product ),
 			'pending' => self::pending( $pid ),
 			// What this product has already cost in images.
