@@ -2944,6 +2944,17 @@ final class DZE_Diagnostic {
 						esc_html__( 'Review', 'dazont-ecom' ),
 						esc_html( $dze_when ? wp_date( $fmt, $dze_when ) : '' )
 					);
+					// AND BY WHOM. Once the work is handed to somebody else,
+					// "this was done" without "by whom" is the answer nobody
+					// can act on.
+					$dze_who = (string) ( $dze_was['who'] ?? '' );
+					if ( '' !== $dze_who ) {
+						printf(
+							'<br /><span class="description">%s</span>',
+							/* translators: %s: the person who accepted it */
+							esc_html( sprintf( __( 'Accepted by %s', 'dazont-ecom' ), $dze_who ) )
+						);
+					}
 				} else {
 					echo '<span class="description">' . esc_html__( 'Edited by hand', 'dazont-ecom' ) . '</span>';
 				}

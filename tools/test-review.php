@@ -23,7 +23,22 @@
  */
 $dir = $argv[1] ?? 'dazont-ecom';
 
-define( 'ABSPATH', '/wp/' );
+// A WordPress root with just enough in it for the installer to be RUN rather
+// than read: maybe_install() requires upgrade.php and calls dbDelta, and a
+// schema nobody runs is a column nobody has.
+$dze_root = sys_get_temp_dir() . '/dze-review-' . getmypid() . '/';
+@mkdir( $dze_root . 'wp-admin/includes', 0777, true );
+file_put_contents(
+	$dze_root . 'wp-admin/includes/upgrade.php',
+	'<?php function dbDelta( $sql ) { $GLOBALS["queue_schema"] = (string) $sql; return []; }'
+);
+register_shutdown_function( static function () use ( $dze_root ) {
+	@unlink( $dze_root . 'wp-admin/includes/upgrade.php' );
+	@rmdir( $dze_root . 'wp-admin/includes' );
+	@rmdir( $dze_root . 'wp-admin' );
+	@rmdir( $dze_root );
+} );
+define( 'ABSPATH', $dze_root );
 define( 'HOUR_IN_SECONDS', 3600 );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'MINUTE_IN_SECONDS', 60 );
@@ -58,6 +73,12 @@ function delete_metadata( ...$a ) { return true; }
 function get_term( $id, $tax = '' ) { return null; }
 function get_post( $id = 0 ) { return null; }
 function wp_kses_post( $s ) { return (string) $s; }
+// Accepting a category description WRITES it: the harness records the write
+// rather than pretending it did not happen.
+function wp_update_term( $id, $tax, $args = [] ) { $GLOBALS['wrote'][] = [ (int) $id, $args ]; return [ 'term_id' => (int) $id ]; }
+function wp_update_post( $args = [], $err = false ) { $GLOBALS['wrote'][] = $args; return (int) ( $args['ID'] ?? 0 ); }
+function is_wp_error( $x ) { return $x instanceof WP_Error; }
+class WP_Error { public function get_error_message() { return 'error'; } }
 function current_user_can( $c ) { return true; }
 function check_ajax_referer( $a, $b = '', $die = true ) { return true; }
 class DZE_Json_Sent extends Exception { public $payload; public $ok;
@@ -74,6 +95,14 @@ function set_transient( $k, $v, $t = 0 ) { return true; }
 function delete_transient( $k ) { return true; }
 
 class DZE_Modules { public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); } }
+class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
+function get_current_user_id() { return (int) ( $GLOBALS['uid'] ?? 0 ); }
+function get_userdata( $id ) {
+	$who = $GLOBALS['users'][ (int) $id ] ?? '';
+	return $who ? (object) [ 'display_name' => $who ] : false;
+}
+function wp_safe_redirect( $to, $status = 302 ) { $GLOBALS['went'] = (string) $to; throw new DZE_Went( 'went' ); }
+class DZE_Went extends Exception {}
 /** The product half of "what is waiting for me", which lives in its own store. */
 class DZE_Content {
 	const BULK_SLUG = 'dazont-content-bulk';
@@ -100,8 +129,13 @@ class DZE_Review_Wpdb {
 	public function get_var( $q ) { $this->sent[] = (string) $q; return 0; }
 	public function get_results( $q, $m = null ) { $this->sent[] = (string) $q; return $GLOBALS['rows'] ?? []; }
 	public function get_col( $q ) { $this->sent[] = (string) $q; return []; }
-	public function get_row( $q, $m = null ) { $this->sent[] = (string) $q; return []; }
-	public function update( ...$a ) { return 1; }
+	public function get_row( $q, $m = null ) { $this->sent[] = (string) $q; return $GLOBALS['rows'][0] ?? []; }
+	public function get_charset_collate() { return 'DEFAULT CHARACTER SET utf8mb4'; }
+	public $updates = [];
+	public function update( $table, $data, $where, ...$rest ) {
+		$this->updates[] = [ 'data' => (array) $data, 'where' => (array) $where ];
+		return 1;
+	}
 	public function insert( ...$a ) { return 1; }
 }
 $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
@@ -220,7 +254,30 @@ $GLOBALS['bulk_pending'] = 0;
 DZE_Queue::instance()->menu();
 $dze_menu = $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ?? [];
 ok( 'the screen is named for what it holds', (string) ( $dze_menu['title'] ?? '' ), 'Content to review' );
-ok( 'and it hangs off the products menu',    (string) ( $dze_menu['parent'] ?? '' ), 'edit.php?post_type=product' );
+// UNDER DAZONT ECOM, not under Products. "Ça porte à confusion, ça devrait
+// plutôt se trouver dans l'onglet de dazont ecom": it holds categories,
+// products AND articles, and a screen about everything the plugin has written
+// does not belong inside one of the things it writes.
+ok( 'and it hangs off Dazont Ecom',          (string) ( $dze_menu['parent'] ?? '' ), 'dazont-ecom' );
+ok( 'and never under Products any more',
+	false !== strpos( (string) ( $dze_menu['parent'] ?? '' ), 'post_type=product' ), false );
+// EVERY LINK EVER PRINTED AT IT STILL LANDS. A page no longer registered
+// under Products does not answer "not found" — WordPress answers "you are not
+// allowed to access this page", which reads as a permission the shop lost.
+ok( 'the address it moved to',
+	DZE_Queue::url(), 'http://shop.test/queue' );
+$GLOBALS['pagenow'] = 'edit.php';
+$_GET = [ 'post_type' => 'product', 'page' => DZE_Queue::MENU_SLUG, 'paged' => '3' ];
+$GLOBALS['went'] = '';
+try { DZE_Queue::instance()->moved(); } catch ( DZE_Went $e ) { /* it redirected, which is the point */ }
+ok( 'an old bookmark is sent to the new one', '' !== $GLOBALS['went'], true );
+// And nothing else is touched: another Products screen is not hijacked.
+$_GET = [ 'post_type' => 'product', 'page' => 'dazont-content-bulk' ];
+$GLOBALS['went'] = '';
+DZE_Queue::instance()->moved();
+ok( 'and another screen is left alone',      $GLOBALS['went'], '' );
+$GLOBALS['pagenow'] = '';
+$_GET = [];
 // THE COUNT ON THE MENU COUNTS BOTH STORES. A menu saying one while the
 // screen says four is the disagreement this merge exists to end.
 $GLOBALS['menu_added'] = [];
@@ -262,6 +319,60 @@ ok( 'this screen owns the question',    DZE_Queue::owns_review(), true );
 $GLOBALS['off'] = [ 'queue' ];
 ok( 'switched off, it owns nothing',    DZE_Queue::owns_review(), false );
 $GLOBALS['off'] = [];
+
+echo "And WHO said yes or no is written down\n";
+// The installer, RUN — not read. A column declared in a string nobody
+// executes is a column the shop does not have.
+delete_option( 'dze_queue_schema' );
+DZE_Queue::instance()->maybe_install();
+// "Rien n'enregistre QUI. Excellente suggestion." Once the work is handed to
+// somebody else, "this page was dealt with" without "by whom" is the answer
+// nobody can act on. The column is new, so the schema had to move with it.
+ok( 'the table carries the decider',
+	false !== strpos( $GLOBALS['queue_schema'] ?? '', 'decided_by' ), true );
+ok( 'and the schema was bumped for it',
+	(int) get_option( 'dze_queue_schema', 0 ) >= 2, true );
+
+$GLOBALS['users'] = [ 7 => 'Marie', 9 => 'Paul' ];
+// A NAME, never an id: "12" on a row is a number somebody has to look up.
+ok( 'a decision names the person',      DZE_Queue::decided_by( 7 ), 'Marie' );
+// An account deleted since keeps its decision — the work was still done.
+ok( 'a deleted account still answers',
+	false !== strpos( DZE_Queue::decided_by( 4242 ), '4242' ), true );
+// Nobody is NOBODY: a scheduled pass that saved without review has no person
+// behind it, and naming one would be a lie on the row.
+ok( 'an automatic pass names nobody',   DZE_Queue::decided_by( 0 ), '' );
+
+// The sentence the row prints, built in PHP so it is not English on every shop.
+ok( 'an accepted job says who accepted it', DZE_Queue::said_by( 'applied', 7 ), 'Accepted by Marie' );
+ok( 'a refused one says who refused it',    DZE_Queue::said_by( 'skipped', 9 ), 'Discarded by Paul' );
+// A row still WAITING has nobody to name, whatever is in the column.
+ok( 'a job still waiting names nobody',     DZE_Queue::said_by( 'review', 7 ), '' );
+ok( 'and neither does an automatic one',    DZE_Queue::said_by( 'applied', 0 ), '' );
+
+// IT IS WRITTEN ON EVERY DECISION, not only on one path. Accepting one job,
+// refusing one, and the same two in bulk: four places, one column.
+$GLOBALS['uid'] = 7;
+$GLOBALS['wpdb']->sent = [];
+$GLOBALS['wpdb']->updates = [];
+$GLOBALS['rows'] = [ [ 'id' => 5, 'kind' => 'cat_desc', 'object_id' => 3, 'status' => 'review', 'result' => '<p>x</p>', 'payload' => '' ] ];
+$_POST = [ 'id' => 5, 'accept' => 0 ];
+try { DZE_Queue::instance()->ajax_decide(); } catch ( DZE_Json_Sent $e ) { /* it answers by exiting */ }
+ok( 'refusing writes who refused',      (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+$GLOBALS['wpdb']->updates = [];
+$_POST = [ 'id' => 5, 'accept' => 1 ];
+try { DZE_Queue::instance()->ajax_decide(); } catch ( DZE_Json_Sent $e ) { /* the same */ }
+ok( 'accepting writes who accepted',    (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+$GLOBALS['wpdb']->updates = [];
+$_POST = [ 'do' => 'discard', 'ids' => [ 5 ] ];
+try { DZE_Queue::instance()->ajax_bulk(); } catch ( DZE_Json_Sent $e ) { /* the same */ }
+ok( 'and so does a bulk refusal',       (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+$GLOBALS['wpdb']->updates = [];
+$_POST = [ 'do' => 'accept', 'ids' => [ 5 ] ];
+try { DZE_Queue::instance()->ajax_bulk(); } catch ( DZE_Json_Sent $e ) { /* the same */ }
+ok( 'and a bulk acceptance',            (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
+$_POST = [];
+$GLOBALS['uid'] = 0;
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
