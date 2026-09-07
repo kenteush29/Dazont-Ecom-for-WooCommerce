@@ -364,6 +364,23 @@ owner communicates in French.
   is re-armed for what is left — a row that vanished on any apply would be a
   list that lies. `tools/js/diagnostic-fix.mjs` presses the whole gesture and
   asserts the page never navigated.
+- **A LIST OF PROBLEMS SAYS HOW FAR OFF EACH ONE IS.** Naming the products
+  and nothing else makes the reader open every one to learn what it needs —
+  and how far off it is decides which to do first: "il faudrait afficher de
+  cette façon très instinctive le diagnostic sur toutes les lignes". Every row
+  carries `short_said()` — "4 of 5 photographs" — printed by the server, and
+  the repair REWRITES THAT SAME ELEMENT rather than adding one beside it, or a
+  row mended by half says two things at once. Only a rule with a figure gets a
+  sentence: "is empty" has nothing to count towards, and "0 of 0 photographs"
+  is worse than silence. Both directions are said as the rule means them — "at
+  most 3" is a shortfall AT 3, so it needs 4; "more than 60" is too many at
+  61, so it may have 60.
+- **A POPUP OPENED ON AN OBJECT OFFERS THE WAY TO THAT OBJECT.** The toolbox
+  opens from three screens now, and from two of them the product is nowhere on
+  the page — while part of the work belongs there: "j'ai ouvert la toolbox, et
+  j'aimerais ajouter des images externes pour améliorer le contexte." A link
+  in the head, in a new tab so nothing open here is lost, hidden when the
+  server gave no address rather than pointing at "#".
 - **A POPUP OPENED FOR A REASON IS ARMED FOR THAT REASON, AND NOTHING ELSE.**
   It remembers the ticks of the last run on the product screen, so "Make
   photographs…" from a diagnostic line opened with every text prompt ticked

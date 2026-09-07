@@ -1348,3 +1348,9 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	background: #f0f6fc;
 	font-weight: 600;
 }
+
+/* The way to the product, in the toolbox head: beside the title it names,
+   never competing with Close. */
+#dze-cx-edit { margin-left: 8px; white-space: nowrap; }
+.dze-cx-head #dze-cx-edit + .dze-cx-close,
+.dze-cx-head #dze-cx-edit ~ .button { margin-left: 8px; }

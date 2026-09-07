@@ -353,6 +353,13 @@
 		'<div class="dze-cx-modal" id="dze-cx-modal"><div class="dze-cx-dialog">' +
 			'<div class="dze-cx-head"><h2>' + esc(i18n.toolbox) + '</h2>' +
 				'<span id="dze-cx-who" class="dze-cx-who">' + esc(cfg.product.title || '') + '</span>' +
+				// THE WAY TO THE PRODUCT ITSELF. Opened from the products list
+				// or from a diagnostic line, the product is nowhere on the
+				// screen — and some of the work belongs there: adding a
+				// photograph from outside, checking what the page really says.
+				// A new tab, so nothing here is lost by going to look.
+				'<a id="dze-cx-edit" class="button" href="#" target="_blank" rel="noopener" style="display:none;">' +
+					esc(i18n.openProduct || 'Open the product') + ' \u2197</a>' +
 				'<button type="button" class="button dze-cx-close">' + esc(i18n.close) + '</button></div>' +
 			'<div class="dze-cx-body">' +
 				// Why this popup opened the way it did, when something opened
@@ -518,6 +525,13 @@
 		if (want.why) { $('#dze-cx-why').text(want.why).show(); } else { $('#dze-cx-why').hide().empty(); }
 	}
 
+	// The link in the head, pointed at the product the popup is on. Hidden
+	// when the server did not give one — a link to "#" is a broken promise.
+	function productLink(cur) {
+		var url = (cur && cur.edit) || '';
+		$('#dze-cx-edit').attr('href', url || '#').toggle(!!url);
+	}
+
 	function open(pid, want) {
 		build();
 		var target = parseInt(pid, 10) || cfg.postId || 0;
@@ -537,6 +551,7 @@
 			loadCurrent().then(function (cur) {
 				$('#dze-cx-runstate').empty();
 				$('#dze-cx-who').text(cur.title || '');
+				productLink(cur);
 				// The note belongs to the product the popup is on, not to the
 				// page it was loaded with — from the products list, that is a
 				// different product on every row.
@@ -558,6 +573,7 @@
 		// generated two minutes ago, which is how one vanished on closing.
 		res.current = null;
 		loadCurrent().then(function (cur) {
+			productLink(cur);
 			drawCurrentImages();
 			markWritten(cur.texts);
 			cfg.note = cur.note || '';

@@ -141,18 +141,44 @@ final class DZE_Diagnostic {
 	 * same two functions the list read, so the sentence cannot drift from the
 	 * judgement that produced it.
 	 */
-	private static function short_said( array $row, string $scope, int $oid, $object ): string {
+	public static function short_said( array $row, string $scope, int $oid, $object = null ): string {
+		$object = $object ?: self::object_for( $scope, $oid );
+		if ( ! $object ) {
+			return '';
+		}
+		$op = self::op_now( (string) ( $row['test'] ?? '' ) );
+		// ONLY A RULE WITH A FIGURE. "Is empty" has nothing to count towards,
+		// and "0 of 0 photographs" is worse than saying nothing — the
+		// criterion's own name already says what is wrong there.
+		if ( ! in_array( $op, [ 'lt', 'lte', 'gt', 'gte' ], true ) ) {
+			return '';
+		}
 		$have = self::measure( (string) ( $row['field'] ?? '' ), $scope, $object, (string) ( $row['key'] ?? '' ) );
 		$want = self::want_for( $row, $scope, $object );
 		if ( ! is_numeric( $have ) || null === $want ) {
-			return '';
+			return ''; // no condition covers it: nothing was asked of it.
 		}
 		$unit = self::unit_of( (string) ( $row['field'] ?? '' ) );
+		$have = number_format_i18n( (float) $have );
+		// The figure it is held to, said as the rule means it. "at most 3" is
+		// a shortfall at 3, so what it needs is 4; "more than 60" is too many
+		// at 61, so what it may have is 60.
+		if ( 'lt' === $op || 'lte' === $op ) {
+			$need = 'lte' === $op ? (float) $want + 1 : (float) $want;
+			return trim( sprintf(
+				/* translators: 1: what it has now, 2: what it needs, 3: the unit, e.g. "photographs" */
+				__( '%1$s of %2$s %3$s', 'dazont-ecom' ),
+				$have,
+				number_format_i18n( $need ),
+				$unit
+			) );
+		}
+		$cap = 'gte' === $op ? (float) $want - 1 : (float) $want;
 		return trim( sprintf(
-			/* translators: 1: what it has now, 2: what the rule asks for, 3: the unit, e.g. "photographs" */
-			__( '%1$s of %2$s %3$s', 'dazont-ecom' ),
-			number_format_i18n( (float) $have ),
-			number_format_i18n( (float) $want ),
+			/* translators: 1: what it has now, 2: the most it may have, 3: the unit, e.g. "characters" */
+			__( '%1$s %3$s, %2$s at most', 'dazont-ecom' ),
+			$have,
+			number_format_i18n( $cap ),
 			$unit
 		) );
 	}
@@ -2899,6 +2925,21 @@ final class DZE_Diagnostic {
 			// Z" — is a title with markup in it: the tags are the shop's, not
 			// something to print at it.
 			printf( '<a href="%s"><strong>%s</strong></a>', esc_url( $link ), esc_html( wp_strip_all_tags( $name ) ) );
+			// WHAT THIS ONE IS SHORT OF, on the line itself. "Russian Helmet
+			// Replica 6B47 Ratnik — 4 of 5 photographs : encore une lacune. Il
+			// faudrait afficher de cette façon très instinctive le diagnostic
+			// sur toutes les lignes." A list that only names the products
+			// leaves the reader to open each one to find out how far off it
+			// is — and how far off it is decides which to do first.
+			//
+			// The SAME element the repair updates afterwards, so the sentence
+			// on the row and the sentence after a fix cannot read differently.
+			if ( 'fixed' !== $show ) {
+				$dze_short = self::short_said( $dze_row, (string) $check['scope'], $oid, self::object_for( (string) $check['scope'], $oid ) );
+				if ( '' !== $dze_short ) {
+					printf( ' <span class="description dze-diag-short">&mdash; %s</span>', esc_html( $dze_short ) );
+				}
+			}
 			if ( ! empty( $also[ $oid ] ) ) {
 				echo '<br /><span class="description">' . esc_html__( 'also:', 'dazont-ecom' ) . ' '
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
@@ -3224,13 +3265,16 @@ final class DZE_Diagnostic {
 							// Mended by half: the row stays, says where it now
 							// stands, and its button is re-armed for what is
 							// still missing.
-							$row.find('.dze-diag-short').remove();
-							if (r.data.said) {
-								$row.find('td').first().append(
-									$('<span class="description dze-diag-short"></span>')
-										.text(' — ' + r.data.said)
-								);
+							// The SAME element the server printed, rewritten —
+							// never a second one beside it, or a row mended by
+							// half would say two different things at once.
+							var $said = $row.find('.dze-diag-short');
+							if (!$said.length && r.data.said) {
+								$said = $('<span class="description dze-diag-short"></span>')
+									.appendTo($row.find('td').first());
 							}
+							if (r.data.said) { $said.text(' — ' + r.data.said); }
+							else { $said.remove(); }
 							if (r.data.want) {
 								$row.find('.dze-content-open')
 									.attr('data-want', JSON.stringify(r.data.want))
