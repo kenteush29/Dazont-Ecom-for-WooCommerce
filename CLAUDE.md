@@ -364,6 +364,25 @@ owner communicates in French.
   is re-armed for what is left — a row that vanished on any apply would be a
   list that lies. `tools/js/diagnostic-fix.mjs` presses the whole gesture and
   asserts the page never navigated.
+- **A POPUP OPENED FOR A REASON IS ARMED FOR THAT REASON, AND NOTHING ELSE.**
+  It remembers the ticks of the last run on the product screen, so "Make
+  photographs…" from a diagnostic line opened with every text prompt ticked
+  too — "très inconfortable", and one press away from rewriting a description
+  nobody asked to touch. `arm()` clears every box first and ticks only what
+  the criterion asks for. Two more rules from the same screen: a progress line
+  ("Step 2 of 2 · 1s") belongs to the run that wrote it and is cleared when
+  the popup changes product, or it describes work done to another product;
+  and a section's count is what the run WILL DO — a checkbox that only changes
+  HOW something runs carries `.dze-sec-opt` and is never counted, because
+  "Keep the product's own photograph as the subject" made one photograph read
+  "1 / 2".
+- **A BUTTON DRAWN IN JAVASCRIPT NEEDS ITS POPUP PRINTED ON THAT SCREEN.**
+  The toolbox draws "✎ prompt" wherever it opens, and `DZE_Prompts::
+  print_assets()` was called for the product screen, the products list and the
+  bulk screen — not for the diagnostic, where the toolbox now opens too. The
+  button was there and the popup was not on the page at all: pressing it did
+  nothing and said nothing. Any screen that loads the toolbox loads what the
+  toolbox opens.
 - **A CONTROL'S COLUMN IS MEASURED, not assumed.** The prompt button reads
   "✎ prompt" — the same word as every prompt in the plugin, because a lone
   pencil is a symbol you have to learn — and its grid column was 30px, sized
