@@ -62,6 +62,13 @@
 		$('#dze-cx-nowshots').empty();
 		$('#dze-cx-result').hide();
 		$('#dze-cx-runstate').empty();
+		// AND WHAT THE LAST RUN WAS DOING. "Step 2 of 2 · 1s — quand je clique
+		// sur un autre produit après avoir déjà édité un autre, ce texte reste
+		// là." A progress line belongs to the run that wrote it; left on the
+		// screen it describes work done to a different product.
+		$('#dze-cx-prog').hide();
+		$('#dze-cx-prog .dze-cb-fill').css('width', '0%');
+		$('#dze-cx-progcount, #dze-cx-progstep, #dze-cx-progtime').empty();
 	}
 
 	// =====================================================================
@@ -386,7 +393,7 @@
 								'<details class="dze-cx-acc dze-cx-else">' +
 									'<summary>' + esc(i18n.stepElse) + '</summary>' +
 									'<div id="dze-cx-else"></div>' +
-									'<label class="dze-basemain" title="' + esc(i18n.baseMainTip) + '">' +
+									'<label class="dze-basemain dze-sec-opt" title="' + esc(i18n.baseMainTip) + '">' +
 										'<input type="checkbox" id="dze-cx-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
 								'</details>' +
 								// What no photograph of this product shows. It
@@ -488,12 +495,20 @@
 		$('#dze-cx-modal .dze-sec').each(function () {
 			toggleSec($(this), $(this).data('sec') === want.section);
 		});
+		// EXACTLY WHAT WAS ASKED FOR, and nothing else. The remembered ticks
+		// are the ones from the last run on the product screen, so pressing
+		// "Make photographs…" on a diagnostic line opened a popup with every
+		// text prompt ticked as well — "très inconfortable", and a press away
+		// from rewriting a description nobody asked to touch.
+		$('.dze-cx-f').prop('checked', false);
+		$('#dze-cx-doimg, #dze-cx-doprice').prop('checked', false);
 		if (want.field) {
-			$('.dze-cx-f').prop('checked', false);
 			$('.dze-cx-f[value="' + want.field + '"]').prop('checked', true);
 		}
+		if ('price' === want.section) { $('#dze-cx-doprice').prop('checked', true); }
 		if (want.shots && want.shots.length && $('#dze-cx-tplrows').length) {
 			$('#dze-cx-doimg').prop('checked', true);
+			$('#dze-cx-basemain').prop('checked', false);
 			$('#dze-cx-tplrows').empty();
 			want.shots.forEach(function (row) {
 				$('#dze-cx-tplrows').append(tplRow(row.tpl, defaultScene(), row.n || 1, row.target));
@@ -1515,7 +1530,7 @@
 					// on its own — what you added became the thing to
 					// photograph — so there was no way to say "keep this
 					// product, exactly this one, and put it in that scene".
-					'<label class="dze-basemain" title="' + esc(i18n.baseMainTip) + '">' +
+					'<label class="dze-basemain dze-sec-opt" title="' + esc(i18n.baseMainTip) + '">' +
 						'<input type="checkbox" id="dze-one-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
 				'</div>' +
 			'</div>' +

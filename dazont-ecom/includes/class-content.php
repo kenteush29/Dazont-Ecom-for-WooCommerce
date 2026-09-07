@@ -3771,10 +3771,14 @@ Answer with STRICT JSON and nothing else: "
 		] );
 		// The toolbox and the bulk list draw their "see the prompt" buttons in
 		// JavaScript, so the modal has to be on the page before they exist.
-		if ( class_exists( 'DZE_Prompts' ) && ( $on_product || $on_bulk || $on_list ) ) {
+		// The toolbox draws its "✎ prompt" buttons in JavaScript wherever it
+		// opens — the diagnostic's problem list included, where the button was
+		// on the screen and the popup it opens was not on the page at all, so
+		// pressing it did nothing and said nothing.
+		if ( class_exists( 'DZE_Prompts' ) && ( $on_product || $on_bulk || $on_list || $on_diag ) ) {
 			DZE_Prompts::print_assets();
 		}
-		if ( $on_settings || $on_product || $on_list || $on_bulk ) {
+		if ( $on_settings || $on_product || $on_list || $on_bulk || $on_diag ) {
 			// Backgrounds, POD designs and mockups are all picked in the native
 			// media modal, wherever the picker is offered.
 			wp_enqueue_media();

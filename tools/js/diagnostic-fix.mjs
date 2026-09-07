@@ -52,6 +52,11 @@ function ok( what, got, want ) {
 // The screen as the plugin draws it, from the gate that already owns the fake
 // shop. Never a copy of the markup written into this file.
 const css = readFileSync( join( root, 'dazont-ecom', 'admin', 'css', 'content.css' ), 'utf8' );
+// A stand-in for what DZE_Prompts::render_modal() puts in the footer. What is
+// under test here is that the screen ASKS for it and that the button reaches
+// it — the modal's own contents are the Klaviyo gate's business.
+const promptModal = '<div class="dze-cx-modal" id="dze-prompt-modal"><div class="dze-cx-dialog">'
+	+ '<button type="button" class="button dze-hub-close">Close</button></div></div>';
 const html = execFileSync( 'php',
 	[ join( here, '..', 'test-diagnostic.php' ), 'dazont-ecom', '--dump-list' ],
 	{ encoding: 'utf8', cwd: root } );
@@ -114,6 +119,14 @@ for ( const [ label, jq ] of jqs ) {
 					+ `window.dzePhotosCfg={ajaxUrl:'http://dze.test/ajax',nonce:'n',ratios:[],i18n:{}};</script>`
 					+ `<script src="/paste-box.js"></script><script src="/photos.js"></script>`
 					+ `<script src="/content.js"></script>`
+					// The prompt popup, as PHP prints it into the footer of any
+					// screen the toolbox opens on. It was NOT printed on the
+					// diagnostic, so "✎ prompt" was a button with nothing
+					// behind it.
+					+ `<script>window.dzePromptModal = ${JSON.stringify( promptModal )};`
+					+ `jQuery(function($){ $('body').append(window.dzePromptModal);`
+					+ `$(document).on('click','.dze-prompt-peek',function(){ $('#dze-prompt-modal').addClass('is-open'); });`
+					+ `$(document).on('click','.dze-hub-close',function(){ $(this).closest('.dze-cx-modal').removeClass('is-open'); }); });</script>`
 					+ `</head><body>${html}</body></html>` } );
 		}
 		if ( url.endsWith( '/jquery.js' ) ) {
@@ -207,6 +220,38 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and never runs under its neighbour',    boxes.peek.r <= boxes.next.l + 1, true );
 	ok( 'nor back over the prompt menu',         boxes.peek.l >= boxes.tpl.r - 1, true );
 
+	// 5c. EXACTLY WHAT WAS ASKED FOR, AND NOTHING ELSE. The ticks the popup
+	//     remembers are the ones from the last run on the product screen, so
+	//     "Make photographs…" opened with every text prompt ticked too —
+	//     "très inconfortable", and one press away from rewriting a
+	//     description nobody asked to touch.
+	ok( 'no text prompt is ticked behind it',
+		await page.locator( '.dze-cx-f:checked' ).count(), 0 );
+	ok( 'nor the price',                     await page.isChecked( '#dze-cx-doprice' ), false );
+	ok( 'and not the subject option either', await page.isChecked( '#dze-cx-basemain' ), false );
+	// 5d. THE COUNT ON A SECTION IS WHAT THE RUN WILL DO. "Keep the product's
+	//     own photograph as the subject" is an OPTION of the run, not one of
+	//     the things it runs, and it made the images section read 1 / 2.
+	ok( 'the section counts one thing to do',
+		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '1 / 1' );
+	// It lives inside "Photographs from elsewhere", which is shut: open it
+	// the way somebody would before ticking the box.
+	await page.evaluate( () => { document.querySelector( '#dze-cx-modal .dze-cx-else' ).open = true; } );
+	await page.check( '#dze-cx-basemain' );
+	await page.waitForTimeout( 150 );
+	ok( 'and an option does not add to it',
+		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '1 / 1' );
+	await page.uncheck( '#dze-cx-basemain' );
+	// 5e. THE PROMPT BUTTON OPENS THE PROMPT. It was drawn on this screen and
+	//     the popup it opens was not on the page at all, so pressing it did
+	//     nothing and said nothing.
+	ok( 'each prompt row offers its prompt',
+		await page.locator( '#dze-cx-tplrows .dze-prompt-peek' ).count(), 3 );
+	await page.click( '#dze-cx-tplrows .dze-prompt-peek' );
+	await page.waitForTimeout( 150 );
+	ok( 'and pressing it opens one',         await page.locator( '#dze-prompt-modal.is-open' ).count(), 1 );
+	await page.click( '#dze-prompt-modal .dze-hub-close' );
+
 	// 6. And the popup SAYS why it opened like that.
 	ok( 'and it says how short the product is',
 		/3 photographs short/.test( await page.textContent( '#dze-cx-why' ) ), true );
@@ -217,6 +262,7 @@ for ( const [ label, jq ] of jqs ) {
 	await page.click( '.dze-content-open[data-id="902"]' );
 	await page.waitForTimeout( 250 );
 	ok( 'the next row lays out its own',    await page.locator( '#dze-cx-tplrows .dze-tplrow' ).count(), 1 );
+
 	ok( 'and says one photograph short',
 		/one photograph short/.test( await page.textContent( '#dze-cx-why' ) ), true );
 	await page.click( '.dze-cx-close' );
@@ -246,6 +292,10 @@ for ( const [ label, jq ] of jqs ) {
 	await page.click( '.dze-cx-applyone' );
 	await page.waitForFunction( () => ! document.querySelector( '#dze-cx-modal.is-open' ), null, { timeout: 5000 } );
 
+	// The run wrote a progress line — there has to be something to clear, or
+	// the check below would pass on an empty screen and prove nothing.
+	ok( 'the run said where it had got to',
+		( await page.evaluate( () => ( document.getElementById( 'dze-cx-progcount' ).textContent || '' ).trim() ) ).length > 0, true );
 	ok( 'the page is NEVER reloaded',        reloaded, false );
 	ok( 'and the popup shuts itself',        await page.locator( '#dze-cx-modal.is-open' ).count(), 0 );
 	// THE ROW IS JUDGED AGAIN — by the criterion it was listed under, not by
@@ -282,6 +332,36 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'its button is re-armed',
 		await page.evaluate( () => JSON.parse( document.querySelector( 'tr[data-id="902"] .dze-content-open' ).getAttribute( 'data-want' ) ).shots.length ), 1 );
 	ok( 'still nothing was raised',          errors, [] );
+
+	// ---- THE LAST PRODUCT'S RUN IS NOT THIS ONE'S ----
+	// "Step 2 of 2 · 1s — quand je clique sur un autre produit après avoir
+	// déjà édité un autre, ce texte reste là." His sequence exactly: run on
+	// one product, close WITHOUT applying, open another. A progress line
+	// belongs to the run that wrote it; left on the screen it describes work
+	// done to a different product.
+	await page.click( '.dze-content-open[data-id="902"]' );
+	await page.waitForTimeout( 200 );
+	await page.click( '#dze-cx-run' );
+	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
+	const ran902 = await page.evaluate( () => ( document.getElementById( 'dze-cx-progcount' ).textContent || '' ).trim() );
+	ok( 'a run says where it got to',        ran902.length > 0, true );
+	await page.click( '.dze-cx-close' );
+	// Another product, opened from its own row — nothing applied, nothing
+	// reloaded.
+	await page.evaluate( () => {
+		const row = document.querySelector( 'tr[data-id="902"]' ).cloneNode( true );
+		row.setAttribute( 'data-id', '903' );
+		row.querySelector( '.dze-content-open' ).setAttribute( 'data-id', '903' );
+		document.querySelector( '#dze-diag-bulk tbody' ).appendChild( row );
+	} );
+	await page.click( '.dze-content-open[data-id="903"]' );
+	await page.waitForTimeout( 300 );
+	ok( 'the last run leaves nothing behind',
+		await page.evaluate( () => [ 'dze-cx-progcount', 'dze-cx-progstep', 'dze-cx-progtime' ]
+			.map( id => ( document.getElementById( id ).textContent || '' ).trim() ).join( '' ) ), '' );
+	ok( 'and its bar is out of sight',       await page.isVisible( '#dze-cx-prog' ), false );
+	await page.click( '.dze-cx-close' );
+	await page.evaluate( () => document.querySelector( 'tr[data-id="903"]' ).remove() );
 
 	// A PAGE OF ROWS, handed to the bulk screen the shop already generates
 	// from — the mechanism the owner asked for by name.

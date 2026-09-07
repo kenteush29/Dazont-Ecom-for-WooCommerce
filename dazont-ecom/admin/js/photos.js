@@ -250,7 +250,12 @@
 	// all of them to find out what the button was about to do.
 	function countSec($sec) {
 		var $boxes = $sec.find('> .dze-sec-body input[type=checkbox]').filter(function () {
-			return !$(this).closest('.dze-rf-tools, .dze-rf-out').length;
+			// A count of what the run will DO. An OPTION of a function is not
+			// one of the things it does: "Keep the product's own photograph as
+			// the subject" made the images section read 1 / 2 when there was
+			// one photograph to make. A checkbox that only changes HOW
+			// something runs carries .dze-sec-opt and is not counted.
+			return !$(this).closest('.dze-rf-tools, .dze-rf-out, .dze-sec-opt').length;
 		});
 		var total = $boxes.length;
 		var on = $boxes.filter(':checked').length;
