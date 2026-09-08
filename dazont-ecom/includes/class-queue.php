@@ -355,8 +355,14 @@ final class DZE_Queue {
 	 *                       photograph is meant to land, and which recipe made
 	 *                       it. Recomputing that at acceptance time would be a
 	 *                       second answer to one question.
+	 *
+	 * Public, and for the same reason `shoot()` is a function rather than a
+	 * handler: what a job SENDS is the half that goes wrong silently, and a
+	 * step nobody can call is a step nobody can exercise. The chosen link
+	 * targets travelled with the job for a whole release without ever being
+	 * passed on, and every screen said the work was done.
 	 */
-	private static function produce( string $kind, int $object_id, array &$payload ): string {
+	public static function produce( string $kind, int $object_id, array &$payload ): string {
 		if ( ! class_exists( 'DZE_Category_Content' ) ) {
 			throw new RuntimeException( __( 'The Category descriptions module is switched off.', 'dazont-ecom' ) );
 		}
@@ -375,7 +381,10 @@ final class DZE_Queue {
 			if ( ! class_exists( 'DZE_Post_Links' ) ) {
 				throw new RuntimeException( __( 'The article linking pass is unavailable.', 'dazont-ecom' ) );
 			}
-			return DZE_Post_Links::add_links( $object_id );
+			// The chosen targets travel with the job: a link asked for on the
+			// Linking screen is that link, not whatever the article would have
+			// picked on its own.
+			return DZE_Post_Links::add_links( $object_id, (array) ( $payload['urls'] ?? [] ) );
 		}
 		if ( 'product_shot' === $kind ) {
 			if ( ! class_exists( 'DZE_Content' ) ) {
@@ -876,28 +885,12 @@ final class DZE_Queue {
 				<span id="dze-q-bulkstatus" class="description"></span>
 			</p>
 			<?php
-			// THE OTHER HALF OF "WHAT IS WAITING FOR ME". Products carrying a
-			// generated text or photograph nobody has said yes or no to yet.
-			// They are decided on the bulk screen, which owns that work and
-			// draws it; this names them, so no screen has to be remembered.
-			$dze_bulk = self::bulk_waiting();
-			if ( $dze_bulk ) :
-				?>
-				<p style="background:#f0f6fc;border-left:4px solid #2271b1;padding:10px 12px;max-width:900px;">
-					<strong>
-						<?php
-						printf(
-							/* translators: %d: how many products are waiting */
-							esc_html( _n( '%d product is holding content nobody has decided on.', '%d products are holding content nobody has decided on.', $dze_bulk, 'dazont-ecom' ) ),
-							(int) $dze_bulk
-						);
-						?>
-					</strong>
-					<a class="button button-small" style="margin-left:8px;" href="<?php echo esc_url( DZE_Content::bulk_url() ); ?>">
-						<?php esc_html_e( 'Review them', 'dazont-ecom' ); ?>
-					</a>
-				</p>
-			<?php endif; ?>
+			// The product half of "what is waiting for me" is a TAB of the
+			// Content diagnostic, beside this one, with its own count. It was
+			// a notice inside this screen offering to take you to the screen
+			// you were already looking for, which is a screen describing
+			// itself rather than showing the work.
+			?>
 			<table class="wp-list-table widefat fixed striped" id="dze-q-table">
 				<thead><tr>
 					<td class="check-column" style="width:2.2em;padding:8px 0 8px 3px;"><input type="checkbox" id="dze-q-all" /></td>

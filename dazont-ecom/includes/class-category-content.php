@@ -28,6 +28,15 @@ final class DZE_Category_Content {
 	/** Cached verdict of the question sifting pass, per category. */
 	private const Q_META   = '_dze_cc_questions';
 
+	/**
+	 * How many link targets travel to the model at most.
+	 *
+	 * The pass places a handful of links; the list is there so it can pick the
+	 * ones the text actually talks about, not so it can read three hundred
+	 * addresses. Closest first, so what is cut is what nobody would have used.
+	 */
+	private const POOL_MAX = 30;
+
 	private static ?self $instance = null;
 
 	public static function instance(): self {
@@ -579,7 +588,7 @@ PROMPT;
 	}
 
 	/** Cheap model for the sifting pass; the matcher's model when set. */
-	private static function sift_model(): string {
+	public static function sift_model(): string {
 		$m = class_exists( 'DZE_Marketing_Ai' ) ? trim( (string) ( DZE_Marketing_Ai::get_settings()['match_model'] ?? '' ) ) : '';
 		return '' !== $m ? $m : 'claude-haiku-4-5-20251001';
 	}
@@ -823,8 +832,15 @@ PROMPT;
 			// everything else, closeness is measured: two words in common with
 			// the category and its queries. "Tactical backpack" earns it,
 			// "motorcycle boots" does not, however tactical it is.
+			// TWO SHARED WORDS WAS A WALL, not a threshold. A category is
+			// called "Tactical bags" and its neighbour "Tactical backpacks":
+			// one word in common is all two-word names can ever have, so
+			// everything but the branch was thrown away and the pass offered
+			// two links on a shop with hundreds of pages. One shared word is
+			// enough to be a candidate; which of them is worth the link is
+			// decided by the ranking below and by the pass that places them.
 			$hits  = count( array_intersect( $needle, self::stems( $label ) ) );
-			$close = in_array( $kind, [ 'sub-category', 'parent category' ], true ) || $hits >= 2;
+			$close = in_array( $kind, [ 'sub-category', 'parent category' ], true ) || $hits >= 1;
 			$pool[ $key ] = [
 				'label'    => $label,
 				'url'      => $url,
@@ -917,16 +933,37 @@ PROMPT;
 			$weighed++;
 		}
 
+		// WHICH SHARED WORD, not how many. A tactical shop calls half its
+		// pages "tactical", so counting shared words flat ranked the whole
+		// catalogue equal and left the product count to decide — the biggest
+		// aisles, every time, whatever the page was about. The words are
+		// weighed against the candidates themselves: one carried by a quarter
+		// of them says nothing, one carried by two says a great deal.
+		$vocab = DZE_Mesh::vocab( array_map(
+			static fn( array $p ): array => [ 'title' => (string) $p['label'] ],
+			$pool
+		) );
+		foreach ( $pool as $i => $row ) {
+			$pool[ $i ]['score'] = DZE_Mesh::weigh(
+				self::stems( (string) $row['label'] ),
+				$needle,
+				$vocab
+			);
+		}
+
 		// Closest first, and among equals the one with the most products.
 		// Belonging to the same branch counts as one shared word — a parent is
 		// close by construction — but it does not outrank a page that is
 		// genuinely closer in wording. Semantic closeness decides; the branch
 		// only breaks a tie it would otherwise lose.
 		usort( $pool, static function ( $a, $b ) {
-			$near = static fn( $x ) => (int) $x['score'] + ( in_array( $x['kind'], [ 'sub-category', 'parent category' ], true ) ? 1 : 0 );
+			$near = static fn( $x ) => (float) $x['score'] + ( in_array( $x['kind'], [ 'sub-category', 'parent category' ], true ) ? 1 : 0 );
 			return [ $near( $b ), $b['products'] ] <=> [ $near( $a ), $a['products'] ];
 		} );
-		return $pool;
+		// A ceiling on what travels to the model: the pass places a handful of
+		// links, and a list of three hundred addresses is noise it has to read
+		// past. Closest first means the ones cut are the ones nobody wanted.
+		return array_slice( $pool, 0, self::POOL_MAX );
 	}
 
 	/** The site's main language (WPML default), '' when not multilingual. */
@@ -1242,6 +1279,7 @@ PROMPT;
 			$keys[ untrailingslashit( esc_url_raw( (string) $u ) ) ] = true;
 		}
 		$links = [];
+		$found = [];
 		foreach ( self::link_pool( $term_id ) as $l ) {
 			if ( in_array( $l['url'], $done, true ) ) {
 				continue;
@@ -1249,7 +1287,30 @@ PROMPT;
 			if ( $keys && ! isset( $keys[ untrailingslashit( $l['url'] ) ] ) ) {
 				continue;
 			}
+			$found[ untrailingslashit( $l['url'] ) ] = true;
 			$links[] = $l;
+		}
+		// A TARGET PICKED BY HAND IS A TARGET. The pool answers "what would
+		// this page link to on its own"; a page chosen on the Linking screen
+		// was chosen because the mesh is short of that link, and dropping it
+		// for not being in the pool is how a press answers with nothing.
+		foreach ( $keys as $url => $ignore ) {
+			if ( isset( $found[ $url ] ) || in_array( $url, array_map( 'untrailingslashit', $done ), true ) ) {
+				continue;
+			}
+			$page = class_exists( 'DZE_Mesh' ) ? DZE_Mesh::page_by_url( (string) $url ) : [];
+			if ( ! $page || '' === (string) ( $page['url'] ?? '' ) ) {
+				continue;
+			}
+			$links[] = [
+				'label'    => (string) $page['title'],
+				'url'      => (string) $page['url'],
+				'kind'     => DZE_Mesh::kind_word( (string) $page['kind'] ),
+				'score'    => 0,
+				'close'    => true,
+				'term'     => 'product_cat' === $page['kind'] ? (int) $page['id'] : 0,
+				'products' => 0,
+			];
 		}
 		if ( ! $links ) {
 			// Nothing left to add — but if a self-link was just taken out, that

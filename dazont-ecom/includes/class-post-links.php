@@ -93,7 +93,7 @@ final class DZE_Post_Links {
 	}
 
 	/** WPML's language for one post, '' when WPML is not active. */
-	private static function lang_of( int $post_id, string $type ): string {
+	public static function lang_of( int $post_id, string $type ): string {
 		$details = apply_filters( 'wpml_element_language_details', null, [
 			'element_id'   => $post_id,
 			'element_type' => 'post_' . $type,
@@ -226,7 +226,7 @@ final class DZE_Post_Links {
 	 *
 	 * @return string
 	 */
-	public static function add_links( int $post_id ): string {
+	public static function add_links( int $post_id, array $only = [] ): string {
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			throw new RuntimeException( __( 'Article not found.', 'dazont-ecom' ) );
@@ -247,15 +247,47 @@ final class DZE_Post_Links {
 		foreach ( $done as $u ) {
 			$known[ untrailingslashit( $u ) ] = true;
 		}
+		// $only: the pages ticked on the Linking screen. Without it the whole
+		// pool is offered and the length of the text decides how many land.
+		$keys = [];
+		foreach ( $only as $u ) {
+			$keys[ untrailingslashit( esc_url_raw( (string) $u ) ) ] = true;
+		}
 		$links = [];
+		$found = [];
 		foreach ( self::pool( $post_id ) as $l ) {
-			if ( ! isset( $known[ untrailingslashit( $l['url'] ) ] ) ) {
-				$links[] = $l;
+			$url = untrailingslashit( $l['url'] );
+			if ( isset( $known[ $url ] ) || ( $keys && ! isset( $keys[ $url ] ) ) ) {
+				continue;
 			}
+			$found[ $url ] = true;
+			$links[]       = $l;
+		}
+		// A target picked by hand is a target: the pool answers what this
+		// article would link to on its own, and the Linking screen asks for
+		// the link the MESH is short of, which is not the same question.
+		foreach ( array_keys( $keys ) as $url ) {
+			if ( isset( $found[ $url ] ) || isset( $known[ $url ] ) ) {
+				continue;
+			}
+			$page = class_exists( 'DZE_Mesh' ) ? DZE_Mesh::page_by_url( (string) $url ) : [];
+			if ( ! $page || '' === (string) ( $page['url'] ?? '' ) ) {
+				continue;
+			}
+			$links[] = [
+				'label'    => (string) $page['title'],
+				'url'      => (string) $page['url'],
+				'kind'     => DZE_Mesh::kind_word( (string) $page['kind'] ),
+				'score'    => 0,
+				'products' => 0,
+			];
 		}
 		// Two limits, the smaller one wins: what the text can carry (one link
-		// per fifty words) and how many close pages there are to point at.
-		$room = min( self::target_links( $words ) - count( $done ), count( $links ) );
+		// per fifty words) and how many close pages there are to point at. An
+		// explicit choice is a choice: place them all if there is a spot.
+		$room = $keys
+			? count( $links )
+			: min( self::target_links( $words ) - count( $done ), count( $links ) );
 		if ( $room < 1 || ! $links ) {
 			// Nothing to add — but a self-link just taken out IS a result, and
 			// it is worth saving.
@@ -270,7 +302,11 @@ final class DZE_Post_Links {
 			DZE_Category_Content::lang_name( self::lang_of( $post_id, (string) $post->post_type ) ),
 			$links,
 			$room,
-			[ 'label' => 'post' === $post->post_type ? 'ARTICLE' : 'PAGE', 'self' => $self ]
+			[
+				'label'    => 'post' === $post->post_type ? 'ARTICLE' : 'PAGE',
+				'self'     => $self,
+				'explicit' => (bool) $keys,
+			]
 		);
 		return (string) $res['html'];
 	}

@@ -1023,7 +1023,14 @@ $GLOBALS['bulk_n']   = 1;
 $dze_tabs = DZE_Diagnostic::tabs();
 ok( 'the reading is a view',            isset( $dze_tabs['diagnostic'] ), true );
 ok( 'and what waits for a person is another', isset( $dze_tabs['review'] ), true );
-ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 5 );
+ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 4 );
+// A COUNT BELONGS TO ONE VIEW. Products waiting for a decision used to be
+// added into the review tab's figure AND announced by a notice inside it —
+// two accounts of the same thing on one screen, neither of them the screen
+// where that decision is taken.
+ok( 'products are a view of their own',  isset( $dze_tabs['products'] ), true );
+ok( 'carrying their own figure',         (int) $dze_tabs['products']['n'], 1 );
+ok( 'and going where that is decided',   (string) $dze_tabs['products']['url'], DZE_Content::bulk_url() );
 // A TAB EXISTS ONLY WHILE ITS MODULE DOES. Switching a module off must take
 // its view with it — and leave the others exactly where they were.
 $GLOBALS['module_off'] = [ 'queue' => 1 ];
@@ -1038,8 +1045,19 @@ $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG ];
 ob_start();
 DZE_Diagnostic::instance()->render_page();
 $dze_page = (string) ob_get_clean();
-ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Content</h1>' ), true );
+ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Content diagnostic</h1>' ), true );
 ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
+// A TAB THAT LEAVES THE PAGE IS NOT A VIEW OF IT. Products are decided on
+// their own screen — a photograph has to be looked at — and it is reached the
+// way every other view here is, from the tab strip. Asked for by name it must
+// NOT draw the reading under a heading that says Products.
+$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ];
+ob_start();
+DZE_Diagnostic::instance()->render_page();
+$dze_out = (string) ob_get_clean();
+ok( 'a tab with an address of its own is not a view',
+	false !== strpos( $dze_out, 'nav-tab nav-tab-active' ) && false === strpos( $dze_out, 'products" class="nav-tab nav-tab-active' ), true );
+$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG ];
 ok( 'the reading is the one you land on', false !== strpos( $dze_page, 'nav-tab nav-tab-active' ), true );
 ok( 'and it is the reading that is printed',
 	false !== strpos( $dze_page, 'What the shop is short of' ), true );
@@ -1062,7 +1080,7 @@ $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Content' );
+ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Content diagnostic' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
 // THE BADGE IS WHAT WAITS FOR A PERSON. It used to carry the shortfall —
 // "1,205" in red, for ever, on a menu you look at forty times a day, which is

@@ -220,6 +220,55 @@ owner communicates in French.
     sent, what is stored, what the screen says — and say plainly, in the
     release note, which single step was not run.
 
+- **A COUNTER IS NOT A GRAPH.** Three places counted links — a category's own
+  description, an article's own content, `<a href` occurrences on a diagnostic
+  row — and not one of them could say who pointed at whom, so a page could be
+  written, translated and forgotten while being reachable from a menu and from
+  nowhere else. `DZE_Mesh` reads the site once and writes the EDGES down, one
+  row per internal link, and every figure on that screen is a question asked of
+  that table. Four rules learned building it:
+  - **A page built by a page builder keeps its text in post meta.** Read from
+    `post_content` alone it points at nothing, tops the orphan list for ever
+    and is offered as a place to write a link that would be stored and never
+    appear. Its links are read from the builder's data too (`body_of()`), it
+    counts as a TARGET, it is never a dead end and never a source.
+  - **A threshold that no real pair can reach is a WALL.** "Two shared words"
+    let the branch through and nothing else: a two-word category name can
+    never share two with its neighbour, which is why "Add internal links only"
+    offered two links on a shop with hundreds of pages. One shared word is a
+    candidate; which of them is worth the link is a RANKING, and the pass that
+    places them decides.
+  - **WHICH shared word, not how many.** A tactical shop calls half its pages
+    "tactical", so counting flat ranked the whole catalogue equal and left the
+    product count to decide. `DZE_Mesh::vocab()`/`weigh()` weigh a word against
+    the candidates themselves: one carried by a quarter of them weighs nothing,
+    one carried by two weighs double.
+  - **A TARGET PICKED BY HAND IS A TARGET.** The pool answers "what would this
+    page link to on its own"; the Linking screen asks for the link the MESH is
+    short of, and those are not the same question. A picked page the pool never
+    offered is added from `DZE_Mesh::page_by_url()`, or the press answers with
+    nothing. `DZE_Queue::produce()` is public for the same reason `shoot()` is
+    a function: what a job SENDS is the half that goes wrong in silence.
+- **A SCREEN NEVER SENDS YOU LOOKING FOR THE SCREEN YOU ARE ON.** "Content to
+  review" carried a blue box saying three products were waiting somewhere else
+  and offering to go there — read from the chair of somebody who came asking
+  "what is waiting for me?", that is the screen describing itself instead of
+  showing the work. Products are a TAB of the Content diagnostic, beside the
+  others, with their own count; a tab carrying a `url` is a way out of the page
+  and `tab_now()` refuses to treat it as a view. And a count belongs to ONE
+  view: adding the product figure into the review tab's number while also
+  announcing it in a notice was two accounts of one thing on one screen.
+- **A TAB'S FIGURE AND THE LIST UNDER IT ANSWER THE SAME QUESTION.** The census
+  keeps `short` (pages under the rule) beside `orphans` (pages nobody points
+  at), because a badge counting one while the list shows the other is a screen
+  that disagrees with itself every day.
+- **A BROWSER GATE MUST BE ABLE TO SEE A RELOAD.** A page put there with
+  `setContent` has no address, so `window.location.reload()` does nothing and a
+  screen that reloads walks straight past the test. Serve the markup from a
+  routed URL and `goto` it. And do not wait for a line to merely CHANGE — the
+  busy text is already in it: wait for the answer, with a timeout, and report
+  the timeout as "the screen answered where it stood" rather than dying.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
@@ -533,6 +582,11 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
+- **`php tools/test-mesh.php dazont-ecom` and `node tools/js/mesh-linking.mjs`
+  must pass.** The link graph against a fake shop — a builder page among them —
+  and the Linking tab's buttons pressed in a real browser on both jQuery
+  builds, proving the press OPENS a choice, that the ticks decide what
+  travels, and that the page never moves.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo
