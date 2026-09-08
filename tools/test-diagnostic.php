@@ -1371,6 +1371,49 @@ ok( 'and never the rule about everything',
 // already in front of you, on a line meant to be read at a glance.
 ok( 'and nothing is explained twice',   false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'laid out below' ), false );
 
+echo "\nA product mended by hand leaves the list, without a new reading\n";
+// "J'ai mis à jour le contenu d'un produit mais il est toujours dans la liste
+// Issues (252)." The stored list is what the last reading found; the rows are
+// judged AGAIN as the page is drawn, so a product mended since — by the
+// toolbox, by WooCommerce's own editor, by anything — must move to the other
+// tab on the next load, and the tab's own figure with it.
+$GLOBALS['dze_meta'][902]['_product_image_gallery'] = '1,2,3,4,5';
+$GLOBALS['dze_posts'][902]->post_modified_gmt = gmdate( 'Y-m-d H:i:s', time() + 60 );
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+$dze_after = (string) ob_get_clean();
+ok( 'the mended one is off the list',   false !== strpos( $dze_after, 'data-id="902"' ), false );
+ok( 'the one still short is not',       false !== strpos( $dze_after, 'data-id="901"' ), true );
+ok( 'and the tab counts what is left',  false !== strpos( $dze_after, 'Issues (<span class="dze-diag-n">1</span>)' ), true );
+// It is not lost: it is on the other tab, which is a DIFF and says so.
+ok( 'it is named as fixed since the reading',
+	false !== strpos( $dze_after, 'Fixed since the reading' ), true );
+$GLOBALS['dze_meta'][902]['_product_image_gallery'] = '1,2';
+
+// AND WHEN NOTHING BUT META CHANGED. Half of what these criteria read is post
+// meta — a gallery, a theme's block field, a custom key — and
+// `update_post_meta()` does not move `post_modified`. The kept reading was
+// keyed on the post alone, so mending a product's PHOTOGRAPHS handed the same
+// verdict back for the whole life of that cache: the product sat in the list
+// with nothing wrong with it. WordPress says when a meta key changed; the key
+// carries that too now.
+$GLOBALS['dze_transients'] = [];
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+ob_get_clean(); // the reading is KEPT from here on — the cache is warm.
+ok( 'the reading was kept', count( $GLOBALS['dze_transients'] ) > 0, true );
+$GLOBALS['dze_meta'][902]['_product_image_gallery'] = '1,2,3,4,5';
+DZE_Diagnostic::touch(); // what WordPress's own meta hooks call.
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+$dze_meta_after = (string) ob_get_clean();
+ok( 'a product mended in meta alone leaves too',
+	false !== strpos( $dze_meta_after, 'data-id="902"' ), false );
+$GLOBALS['dze_meta'][902]['_product_image_gallery'] = '1,2';
+
 echo "\nThe product's own to-do list, wherever the popup was opened from\n";
 // "Les recommandations qui viennent du diagnostic ne sont pas présentes quand
 // on y accède à partir de la page produit elle même." The reading belongs to

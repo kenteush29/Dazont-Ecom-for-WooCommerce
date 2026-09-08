@@ -37,14 +37,7 @@ final class DZE_Category_Content {
 	 */
 	private const POOL_MAX = 30;
 
-	/**
-	 * How many candidates arrive already ticked.
-	 *
-	 * Everything above this is listed and unticked: a screen that opens with
-	 * thirty ticked boxes is a screen where nobody reads the boxes, and the
-	 * links placed are the ones nobody chose.
-	 */
-	private const TICK_MAX = 12;
+
 
 	private static ?self $instance = null;
 
@@ -979,13 +972,17 @@ PROMPT;
 		// now: the branch, which belongs by construction, and the pages whose
 		// shared wording actually says something — weighed against the
 		// candidates themselves, so a word half of them carry weighs nothing.
+		// And the ceiling is THE PAGE'S OWN, the one already written at the top
+		// of this panel: one link per fifty words, "up to 14 links" on a
+		// seven-hundred-word category. The panel said it and the list under it
+		// ignored it, ticking thirty. A figure a screen states and then does
+		// not keep is worse than no figure.
+		$room   = max( 0, (int) ( self::size_for( $term_id )['links'] ?? 0 ) );
 		$ticked = 0;
 		foreach ( $pool as $i => $row ) {
 			$branch = in_array( $row['kind'], [ 'sub-category', 'parent category' ], true );
 			$worth  = $branch || (float) $row['score'] > 0;
-			// And a ceiling, because a branch of forty is still forty links
-			// nobody chose. The rest stays listed, one tick away.
-			$pool[ $i ]['close'] = $worth && $ticked < self::TICK_MAX;
+			$pool[ $i ]['close'] = $worth && $ticked < $room;
 			if ( $pool[ $i ]['close'] ) {
 				$ticked++;
 			}

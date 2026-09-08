@@ -673,6 +673,15 @@ final class DZE_Mesh {
 			if ( self::same_branch( $p, $to ) ) {
 				$score += 2.0; // a parent and its child are related whatever they are called.
 			}
+			// IT ALREADY POINTS THERE. Not a rule — a link is not owed back —
+			// but two pages one of which already sends its readers to the
+			// other have been judged close once already, by whoever wrote that
+			// link: "c'est logique de lier les mêmes pages entre elles
+			// puisqu'elles sont censées avoir un fort cocon sémantique." So it
+			// is offered first, and still only offered.
+			if ( isset( $edges[ $to_key . '|' . $key ] ) ) {
+				$score += 3.0;
+			}
 			if ( $score <= 0 ) {
 				continue;
 			}

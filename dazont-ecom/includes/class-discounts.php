@@ -2081,7 +2081,15 @@ final class DZE_Discounts {
 		if ( ! empty( $rule['banner_timer'] ) && ! empty( $rule['end'] ) ) {
 			[ , $end_ts ] = $this->window_ts( $rule );
 			if ( $end_ts > time() ) {
-				$timer = ' <span class="dze-timer" data-end="' . esc_attr( (string) $end_ts ) . '"></span>';
+				// THE COUNT IS NOT PART OF THE SENTENCE. Glued on with a single
+				// space it read as one run-on line — "Patriot Day Sale! -15%
+				// on the entire store 3d 21h 11m 40s" — so it is set apart by
+				// a separator and given room. Tabular figures, or the seconds
+				// shift the whole banner sideways once a second; nowrap, or
+				// "3d 21h" and "11m 40s" end up on two lines on a phone.
+				$timer = '<span class="dze-timer-sep" aria-hidden="true" style="opacity:.55;padding:0 .6em;">&middot;</span>'
+					. '<span class="dze-timer" data-end="' . esc_attr( (string) $end_ts ) . '"'
+					. ' style="font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.9;"></span>';
 				$this->print_timer_script();
 			}
 		}

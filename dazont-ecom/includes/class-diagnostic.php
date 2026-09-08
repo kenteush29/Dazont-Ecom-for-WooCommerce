@@ -38,6 +38,8 @@ final class DZE_Diagnostic {
 	public const OPT        = 'dze_diagnostic';
 	public const OPT_CENSUS = 'dze_diagnostic_census';
 	public const OPT_LISTS  = 'dze_diagnostic_lists';
+	/** When the shop last changed, so a kept reading knows to die. */
+	public const OPT_STAMP  = 'dze_diagnostic_touched';
 	public const NONCE      = 'dze_diag';
 	private const CRON      = 'dze_diagnostic_scan';
 	private const LOCK      = 'dze_diag_lock';
@@ -86,6 +88,11 @@ final class DZE_Diagnostic {
 		// The QUALITY CONTROL, on one object: after work has been applied to
 		// it, is it still short of this criterion?
 		add_action( 'wp_ajax_dze_diag_judge', [ __CLASS__, 'ajax_judge' ] );
+		// What the shop last changed, whoever changed it. Admin-side only:
+		// the reading this feeds is never drawn for a customer.
+		foreach ( [ 'save_post', 'deleted_post', 'added_post_meta', 'updated_post_meta', 'deleted_post_meta' ] as $dze_when ) {
+			add_action( $dze_when, [ __CLASS__, 'touch' ] );
+		}
 		add_action( 'wp_ajax_dze_diag_todo', [ __CLASS__, 'ajax_todo' ] );
 	}
 
@@ -2842,7 +2849,39 @@ final class DZE_Diagnostic {
 		}
 		$in = implode( ',', array_map( 'intval', $ids ) );
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids cast to int on the line above.
-		return (string) $wpdb->get_var( "SELECT MAX( post_modified_gmt ) FROM {$wpdb->posts} WHERE ID IN ( {$in} )" );
+		$last = (string) $wpdb->get_var( "SELECT MAX( post_modified_gmt ) FROM {$wpdb->posts} WHERE ID IN ( {$in} )" );
+		// AND WHAT THE POST DOES NOT SAY. Half of what these criteria read is
+		// post meta — the gallery, a theme's own block field, a custom key —
+		// and `update_post_meta()` does not move `post_modified`. So mending a
+		// product's photographs left this reading's key untouched: the same
+		// verdict was handed back for five minutes, and the product sat in the
+		// list with nothing wrong with it. "Il est toujours dans la liste
+		// Issues (252) et quand j'ouvre sa popup je vois le nouveau contenu."
+		return $last . '|' . self::stamp();
+	}
+
+	/**
+	 * When anything on this shop last changed — post or meta, whoever wrote it.
+	 *
+	 * WordPress already tells us: a post saved, a meta key added, changed or
+	 * removed. Listening to those four is one hook set, not a list of writers
+	 * somebody has to keep in step; the one forgotten is the bug, and this
+	 * plugin has been caught by exactly that before.
+	 *
+	 * A second's worth of resolution is enough for a screen a person reads, so
+	 * an import writing sixty thousand meta rows costs at most one option
+	 * write per second rather than sixty thousand.
+	 */
+	public static function stamp(): string {
+		return (string) get_option( self::OPT_STAMP, '' );
+	}
+
+	public static function touch(): void {
+		$now = (string) time();
+		if ( self::stamp() === $now ) {
+			return; // already said, this second.
+		}
+		update_option( self::OPT_STAMP, $now, false );
 	}
 
 	private function render_list( string $id ): void {
