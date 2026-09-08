@@ -76,6 +76,13 @@ function get_term( $id, $tax = '' ) {
 		: null;
 }
 function update_term_meta( ...$a ) { return true; }
+function get_terms( $args = [] ) { return array_values( $GLOBALS['terms_all'] ?? [] ); }
+function get_term_link( $t ) {
+	$slug = strtolower( str_replace( ' ', '-', is_object( $t ) ? $t->name : (string) $t ) );
+	return 'http://shop.test/category/' . $slug . '/';
+}
+function untrailingslashit( $s ) { return rtrim( (string) $s, '/' ); }
+function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
 function get_post( $id = 0 ) { return null; }
 function wp_kses_post( $s ) { return (string) $s; }
 // Accepting a category description WRITES it: the harness records the write
@@ -122,9 +129,18 @@ class DZE_Post_Links {
 		return '<p>linked</p>';
 	}
 }
+/** The link graph, when the shop has read itself. */
+class DZE_Mesh {
+	public static function census(): array { return $GLOBALS['mesh_census'] ?? []; }
+}
 class DZE_Category_Content {
 	public const GEN_META = '_dze_desc_generated';
 	public static array $asked = [];
+	public static function default_lang(): string { return ''; }
+	public static function linked_urls( string $html ): array {
+		preg_match_all( '/<a\s[^>]*href="([^"]+)"/i', $html, $m );
+		return $m[1];
+	}
 	public static function add_links( int $term_id, string $html, array $only = [] ): array {
 		self::$asked[] = [ 'id' => $term_id, 'only' => $only ];
 		return [ 'html' => '<p>linked</p>' ];
@@ -436,6 +452,38 @@ $dze_none = [];
 DZE_Queue::produce( 'post_links', 78, $dze_none );
 ok( 'a job that picked nothing says nothing',
 	DZE_Post_Links::$asked[1]['only'], [] );
+
+echo "The pass that mends orphans reads the WHOLE site, not half of it\n";
+// A category's inbound links were counted from other CATEGORY DESCRIPTIONS
+// and nothing else, so an article sending its readers to an aisle counted for
+// zero — and the automatic pass, which works on the least pointed-at category
+// first, worked from a reading that could not see half the mesh.
+$GLOBALS['terms_all'] = [
+	31 => (object) [ 'term_id' => 31, 'name' => 'Tactical bags', 'description' => '<p>' . str_repeat( 'word ', 200 ) . '</p>' ],
+	32 => (object) [ 'term_id' => 32, 'name' => 'Boonie hats', 'description' => '<p>' . str_repeat( 'word ', 200 ) . '<a href="http://shop.test/category/tactical-bags/">Tactical bags</a></p>' ],
+];
+$GLOBALS['mesh_census'] = [];
+delete_transient( 'dze_auto_survey' );
+$dze_rows = DZE_Automation::survey( true )['rows'];
+ok( 'without the graph, only categories count',
+	(int) ( $dze_rows[31]['in'] ?? -1 ), 1 );
+ok( 'and an aisle nobody links reads as nought',
+	(int) ( $dze_rows[32]['in'] ?? -1 ), 0 );
+// With the graph, the articles count too — and the ranking changes with it.
+$GLOBALS['mesh_census'] = [ 'per' => [
+	'product_cat:31' => [ 'in' => 1, 'out' => 0 ],
+	'product_cat:32' => [ 'in' => 6, 'out' => 1 ],
+] ];
+delete_transient( 'dze_auto_survey' );
+$dze_rows = DZE_Automation::survey( true )['rows'];
+ok( 'the graph answers for the whole site',  (int) ( $dze_rows[32]['in'] ?? -1 ), 6 );
+ok( 'and the other keeps its own figure',    (int) ( $dze_rows[31]['in'] ?? -1 ), 1 );
+// A GRAPH THAT HAS NOT BEEN READ IS NOT A GRAPH OF ZEROES. Answering "nobody
+// points at anything" would send the pass at the wrong page every day.
+$GLOBALS['mesh_census'] = [];
+delete_transient( 'dze_auto_survey' );
+ok( 'no reading yet, and the old count stands',
+	(int) ( DZE_Automation::survey( true )['rows'][31]['in'] ?? -1 ), 1 );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

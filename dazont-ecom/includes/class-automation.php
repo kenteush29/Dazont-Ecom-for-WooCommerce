@@ -418,7 +418,18 @@ final class DZE_Automation {
 					'desc'  => (string) $t->description,
 				];
 			}
+			// WHO POINTS AT A CATEGORY IS A QUESTION THE WHOLE SITE ANSWERS.
+			// Counted here, it was other CATEGORY DESCRIPTIONS and nothing
+			// else: an article sending its readers to an aisle counted for
+			// zero, so the pass that mends orphans worked from a reading that
+			// could not see half the mesh. The graph knows; ask it, and fall
+			// back to the old count only where it is switched off.
+			$graph = self::inbound_from_mesh( array_keys( $rows ) );
 			foreach ( $rows as $tid => $row ) {
+				if ( null !== $graph ) {
+					$rows[ $tid ]['in'] = (int) ( $graph[ (int) $tid ] ?? 0 );
+					continue;
+				}
 				foreach ( DZE_Category_Content::linked_urls( $row['desc'] ) as $u ) {
 					$target = $byurl[ untrailingslashit( $u ) ] ?? 0;
 					if ( $target && $target !== $tid && isset( $rows[ $target ] ) ) {
@@ -432,6 +443,28 @@ final class DZE_Automation {
 		}
 		$out = [ 'time' => time(), 'rows' => $rows ];
 		set_transient( 'dze_auto_survey', $out, 6 * HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/**
+	 * How many pages of the WHOLE site point at each of these categories.
+	 *
+	 * @return array<int,int>|null null when the link graph is not there to be
+	 *                            asked — never an array of zeroes, which would
+	 *                            read as "nobody points at anything".
+	 */
+	private static function inbound_from_mesh( array $tids ): ?array {
+		if ( ! class_exists( 'DZE_Mesh' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'mesh' ) ) ) {
+			return null;
+		}
+		$per = (array) ( DZE_Mesh::census()['per'] ?? [] );
+		if ( ! $per ) {
+			return null; // the site has not been read yet.
+		}
+		$out = [];
+		foreach ( $tids as $tid ) {
+			$out[ (int) $tid ] = (int) ( $per[ 'product_cat:' . (int) $tid ]['in'] ?? 0 );
+		}
 		return $out;
 	}
 

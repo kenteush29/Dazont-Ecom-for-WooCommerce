@@ -115,10 +115,15 @@ function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
 // Four categories on two branches, two articles, one page laid out with a
 // page builder. The builder page is the one everything used to get wrong.
 $GLOBALS['terms'] = [
-	10 => [ 'name' => 'Tactical bags',      'slug' => 'tactical-bags',      'parent' => 0, 'description' => '<p>Bags for the field.</p>' ],
+	// Long enough to carry a sentence: a page with nowhere to put a link that
+	// reads is never offered as a place to write one.
+	10 => [ 'name' => 'Tactical bags',      'slug' => 'tactical-bags',      'parent' => 0, 'description' => '<p>Bags for the field. ' . str_repeat( 'a word about bags ', 40 ) . '</p>' ],
 	11 => [ 'name' => 'Tactical backpacks', 'slug' => 'tactical-backpacks', 'parent' => 10, 'description' => '<p>Backpacks, one hundred words about them, and <a href="https://kula.test/category/tactical-bags/">Tactical bags</a> above.</p>' ],
 	12 => [ 'name' => 'Boonie hats',        'slug' => 'boonie-hats',        'parent' => 0, 'description' => '<p>Hats for the sun.</p>' ],
-	13 => [ 'name' => 'Tactical gloves',    'slug' => 'tactical-gloves',    'parent' => 0, 'description' => '' ],
+	// Long enough to be a source, and it points at an article — a pair that
+	// shares no word and no branch, which is the only way to see reciprocity
+	// on its own.
+	13 => [ 'name' => 'Tactical gloves',    'slug' => 'tactical-gloves',    'parent' => 0, 'description' => '<p>' . str_repeat( 'a word about gloves ', 40 ) . '<a href="https://kula.test/blog/21/">Boonie hat sizing</a></p>' ],
 ];
 $GLOBALS['posts'] = [
 	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
@@ -161,6 +166,13 @@ function get_term( $id, $tax = '' ) {
 function get_term_link( $t ) {
 	$id = is_object( $t ) ? (int) $t->term_id : (int) $t;
 	return 'https://kula.test/category/' . ( $GLOBALS['terms'][ $id ]['slug'] ?? '' ) . '/';
+}
+function get_term_children( $id, $tax = '' ) {
+	$out = [];
+	foreach ( $GLOBALS['terms'] as $tid => $t ) {
+		if ( (int) $t['parent'] === (int) $id ) { $out[] = $tid; }
+	}
+	return $out;
 }
 function get_term_meta( ...$a ) { return ''; }
 function update_term_meta( ...$a ) { return true; }
@@ -299,7 +311,7 @@ ok( 'nor is an address to write to',    DZE_Mesh::resolve( 'mailto:a@b.c', $byur
 echo "\nThe shop, read once\n";
 $counts = DZE_Mesh::scan();
 ok( 'every page of the mesh is in it',  $counts['pages'], 8 );
-ok( 'and every internal link',          $counts['links'], 3 );
+ok( 'and every internal link',          $counts['links'], 4 );
 $per = DZE_Mesh::census()['per'];
 ok( 'a category knows who points at it', $per['product_cat:11']['in'], 1 );
 ok( 'and what it points at',            $per['product_cat:11']['out'], 1 );
@@ -352,6 +364,14 @@ ok( 'and neither is the page itself',   in_array( 'product_cat:12', $short, true
 // A CATEGORY WITH NO DESCRIPTION HAS NOWHERE TO PUT A SENTENCE. It is a
 // perfectly good target and never a source.
 ok( 'an empty page is not offered as a source', in_array( 'product_cat:13', $short, true ), false );
+
+// A LINK ALREADY GOING ONE WAY IS THE FIRST OFFERED TO COME BACK. Not a rule
+// — a link is not owed back — but two pages, one of which already sends its
+// readers to the other, were judged close once already by whoever wrote that
+// link. Tactical backpacks points at Tactical bags; asked who should point at
+// Tactical backpacks, the answer starts there.
+$back = wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:13' ), 'key' );
+ok( 'the page it already points at comes first', $back[0] ?? '', 'post:21' );
 
 echo "\nWithout a key, the wording stands on its own and says so\n";
 $GLOBALS['key'] = '';
@@ -445,7 +465,29 @@ ok( 'and so does a page sharing a word that says something',
 ok( 'a page sharing only the shop\'s own word is listed',
 	in_array( 'Tactical helmets', $names, true ), true );
 ok( 'and it is NOT ticked',             in_array( 'Tactical helmets', $names_t, true ), false );
-ok( 'nothing is ticked beyond the ceiling', count( $ticked ) <= 12, true );
+// AND THE CEILING IS THE PAGE'S OWN. The panel writes it at the top —
+// "Target for this category: 700 words, and up to 14 links (one per 50
+// words)" — and the list under it ticked thirty. A figure a screen states and
+// then does not keep is worse than no figure at all. Asked on a category with
+// more candidates than it may carry, which is the shape the shop has.
+for ( $i = 0; $i < 8; $i++ ) {
+	$GLOBALS['terms'][ 40 + $i ] = [
+		'name'        => 'Boonie hats ' . ( $i + 1 ),
+		'slug'        => 'boonie-hats-' . ( $i + 1 ),
+		'parent'      => 12,
+		'description' => '',
+	];
+	$GLOBALS['tr'][ 'dze_cc_pcount_' . ( 40 + $i ) ] = 5;
+}
+$GLOBALS['opts']['dze_catcontent_settings'] = [ 'links' => 3 ];
+$room = (int) DZE_Category_Content::size_for( 12 )['links'];
+$deep = DZE_Category_Content::link_pool( 12 );
+ok( 'the panel has a figure to keep',   $room, 3 );
+ok( 'and more to choose from than it may carry', count( $deep ) > $room, true );
+ok( 'yet nothing is ticked beyond it',
+	count( array_filter( $deep, static fn( array $p ): bool => ! empty( $p['close'] ) ) ), $room );
+$GLOBALS['opts']['dze_catcontent_settings'] = [];
+for ( $i = 0; $i < 8; $i++ ) { unset( $GLOBALS['terms'][ 40 + $i ] ); }
 
 // A CHOSEN TARGET IS A TARGET. The pool would never have offered Boonie hats
 // here — no shared word — and the whole Linking screen rests on being able to

@@ -359,6 +359,45 @@ owner communicates in French.
   windows and tickets — and the gate asserts that on the real text with the
   keys set.
 
+- **A KEPT READING MUST DIE WHEN META CHANGES, NOT ONLY WHEN THE POST DOES.**
+  The problem list re-judges its rows as the page is drawn and keeps that
+  verdict for five minutes, keyed on `MAX(post_modified_gmt)`. Half of what
+  these criteria read is post META — a gallery, a theme's block field, a
+  custom key — and `update_post_meta()` does not move `post_modified`. So
+  mending a product's photographs left the key untouched and the same verdict
+  came back: "j'ai mis à jour le contenu d'un produit mais il est toujours
+  dans la liste Issues (252) et quand j'ouvre sa popup je vois le nouveau
+  contenu." WordPress already says when a meta key was added, changed or
+  removed; `DZE_Diagnostic::touch()` listens to those four hooks and to
+  `save_post`, capped to one option write per second, and the key carries that
+  stamp. Four hooks, not a list of writers somebody has to keep in step — the
+  one forgotten is always the bug.
+- **A FIGURE A SCREEN STATES AND THEN DOES NOT KEEP IS WORSE THAN NO FIGURE.**
+  The category panel writes its own ceiling at the top — "Target for this
+  category: 700 words, and up to 14 links (one per 50 words)" — and the link
+  list under it arrived with thirty ticked. The pre-tick ceiling IS that
+  figure, `size_for()['links']`, never a constant invented beside it. One link
+  per fifty words is the shop's rule and it is kept where it is written.
+- **A LINK ALREADY GOING ONE WAY IS THE FIRST OFFERED TO COME BACK.** Not a
+  rule — nothing is owed a link back — but two pages, one of which already
+  sends its readers to the other, were judged close once already by whoever
+  wrote that link: "c'est logique de lier les mêmes pages entre elles
+  puisqu'elles sont censées avoir un fort cocon sémantique". `shortlist()`
+  ranks such a candidate up and still only offers it.
+- **ONE GRAPH, ONE RANKING.** `DZE_Automation::survey()` counted a category's
+  inbound links from other CATEGORY DESCRIPTIONS and nothing else, so an
+  article sending its readers to an aisle counted for zero — and the automatic
+  pass, which works on the least pointed-at category first, worked from a
+  reading that could not see half the mesh. It reads `DZE_Mesh`'s census when
+  there is one. A graph that has not been read yet answers NULL, never an
+  array of zeroes: "nobody points at anything" would send the pass at the
+  wrong page every day.
+- **A COUNTDOWN IS NOT PART OF THE SENTENCE.** Glued on with a single space it
+  read as one run-on line — "Patriot Day Sale! -15% on the entire store 3d 21h
+  11m 40s". A separator and room; tabular figures, or the seconds shift the
+  whole banner sideways once a second; nowrap, or the count breaks over two
+  lines on a phone.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
