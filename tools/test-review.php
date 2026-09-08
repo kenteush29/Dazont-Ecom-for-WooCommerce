@@ -96,6 +96,8 @@ function delete_transient( $k ) { return true; }
 
 class DZE_Modules { public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); } }
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
+/** The module that hosts the Content tabs — present unless a test says not. */
+class DZE_Diagnostic { const MENU_SLUG = 'dazont-ecom-diagnostic'; }
 function get_current_user_id() { return (int) ( $GLOBALS['uid'] ?? 0 ); }
 function get_userdata( $id ) {
 	$who = $GLOBALS['users'][ (int) $id ] ?? '';
@@ -249,18 +251,28 @@ echo "ONE screen answers 'what is waiting for me'\n";
 // "Writing queue » / bulk produit > Pourquoi pas dans un onglet reuni
 // (categorie + produits + blog) sous le nom Content to review ?" Two menus
 // for one question is two places to remember and two counts that disagree.
+// ONE ENTRY FOR ONE SUBJECT: reading what is wrong, doing something about it
+// and deciding on what comes back is one piece of work, so this screen is a
+// TAB of Content and registers no entry of its own.
+$GLOBALS['off'] = [];
 $GLOBALS['menu_added'] = [];
 $GLOBALS['bulk_pending'] = 0;
 DZE_Queue::instance()->menu();
+ok( 'hosted, it takes no menu of its own',
+	isset( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ), false );
+ok( 'and it knows that it is',               DZE_Queue::hosted(), true );
+// BUT SWITCHING THE HOST OFF MUST NOT TAKE THIS FUNCTION WITH IT. It goes
+// back to a page of its own, under Dazont Ecom — never under Products, where
+// a screen about everything the plugin writes does not belong.
+$GLOBALS['off'] = [ 'diagnostic' ];
+$GLOBALS['menu_added'] = [];
+DZE_Queue::instance()->menu();
 $dze_menu = $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ] ?? [];
-ok( 'the screen is named for what it holds', (string) ( $dze_menu['title'] ?? '' ), 'Content to review' );
-// UNDER DAZONT ECOM, not under Products. "Ça porte à confusion, ça devrait
-// plutôt se trouver dans l'onglet de dazont ecom": it holds categories,
-// products AND articles, and a screen about everything the plugin has written
-// does not belong inside one of the things it writes.
+ok( 'with no host it keeps its own page',    (string) ( $dze_menu['title'] ?? '' ), 'Content to review' );
 ok( 'and it hangs off Dazont Ecom',          (string) ( $dze_menu['parent'] ?? '' ), 'dazont-ecom' );
 ok( 'and never under Products any more',
 	false !== strpos( (string) ( $dze_menu['parent'] ?? '' ), 'post_type=product' ), false );
+$GLOBALS['off'] = [];
 // EVERY LINK EVER PRINTED AT IT STILL LANDS. A page no longer registered
 // under Products does not answer "not found" — WordPress answers "you are not
 // allowed to access this page", which reads as a permission the shop lost.
@@ -278,13 +290,16 @@ DZE_Queue::instance()->moved();
 ok( 'and another screen is left alone',      $GLOBALS['went'], '' );
 $GLOBALS['pagenow'] = '';
 $_GET = [];
-// THE COUNT ON THE MENU COUNTS BOTH STORES. A menu saying one while the
-// screen says four is the disagreement this merge exists to end.
+// THE COUNT COUNTS BOTH STORES. A menu saying one while the screen says four
+// is the disagreement this merge exists to end — on its own page, and on the
+// Content entry that hosts it alike, since both read this figure.
+$GLOBALS['off'] = [ 'diagnostic' ];
 $GLOBALS['menu_added'] = [];
 $GLOBALS['bulk_pending'] = 3;
 DZE_Queue::instance()->menu();
 ok( 'products waiting are counted on the menu',
 	false !== strpos( (string) ( $GLOBALS['menu_added'][ DZE_Queue::MENU_SLUG ]['menu'] ?? '' ), '>3<' ), true );
+$GLOBALS['off'] = [];
 ok( 'and read from the store that owns them', DZE_Queue::bulk_waiting(), 3 );
 $GLOBALS['bulk_pending'] = 0;
 ok( 'nothing waiting there counts nothing',   DZE_Queue::bulk_waiting(), 0 );

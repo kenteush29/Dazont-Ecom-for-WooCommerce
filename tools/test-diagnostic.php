@@ -34,6 +34,7 @@ function _n( $a, $b, $n, $d = '' ) { return $n > 1 ? $b : $a; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_html__( $s, $d = '' ) { return esc_html( $s ); }
+function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
 function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
 function esc_url( $s ) { return (string) $s; }
 function esc_js( $s ) { return addslashes( (string) $s ); }
@@ -290,6 +291,11 @@ class DZE_Queue {
 		return $out;
 	}
 	public static function label_for( $kind, $oid ) { return 'Product photograph'; }
+	/** What waits for a PERSON: the badge and the "To review" tab read this. */
+	public static function review_count() { return (int) ( $GLOBALS['review_n'] ?? 0 ); }
+	public static function bulk_waiting() { return (int) ( $GLOBALS['bulk_n'] ?? 0 ); }
+	public static function instance() { return new self(); }
+	public function body() { echo '<div id="dze-q-table-stub">the review body</div>'; }
 	public static function pending_for( $oid, $family = 'cat_' ) { return ( $GLOBALS['pending'] ?? [] )[ (int) $oid ] ?? []; }
 }
 
@@ -747,7 +753,11 @@ $GLOBALS['dze_meta'][102]['_product_image_gallery'] = '11,12,13';
 $GLOBALS['dze_posts'][102]->post_modified_gmt = '2026-09-01 12:00:00'; // as a save moves it
 $html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
 ok( 'the tab says how much work is left',  false !== strpos( $html, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
-ok( 'and how much is done',                false !== strpos( $html, 'Fixed (<span class="dze-diag-n">1</span>)' ), true );
+// A DIFF, NOT A STORE: it holds what the last reading listed and that no
+// longer falls short, so the next reading empties it. The name says so —
+// "le compte Fixed revient constamment à 0" was it doing exactly what it is.
+ok( 'and how much is done since the reading',
+	false !== strpos( $html, 'Fixed since the reading (<span class="dze-diag-n">1</span>)' ), true );
 // The figure is its OWN element, so a row mended in the popup can leave the
 // list and take both counts with it — without reloading the page to ask a
 // question about one row.
@@ -999,13 +1009,75 @@ ok( 'unticked, the name is the one figure',
 ok( 'and one figure stays one figure',
 	DZE_Diagnostic::clean_rows( [ $dze_flat ] )[0]['label'], 'Gallery photographs is less than 3 photographs' );
 
-// One name, everywhere it is shown. "Diagnostic" beside Restock reads as the
-// shop's health — servers, keys, cron — and what this reads is the CONTENT.
+// ONE ENTRY FOR ONE SUBJECT. Reading what is wrong, doing something about it
+// and saying yes or no to what comes back is one piece of work; it lived on
+// three menu entries, one of them reachable only through a redirect from a
+// notice. The entry is named after the subject, and the views are tabs.
 $GLOBALS['dze_submenus'] = [];
+$GLOBALS['review_n'] = 0;
+$GLOBALS['bulk_n']   = 0;
+
+echo "One subject, several views: the tabs of Content\n";
+$GLOBALS['review_n'] = 4;
+$GLOBALS['bulk_n']   = 1;
+$dze_tabs = DZE_Diagnostic::tabs();
+ok( 'the reading is a view',            isset( $dze_tabs['diagnostic'] ), true );
+ok( 'and what waits for a person is another', isset( $dze_tabs['review'] ), true );
+ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 5 );
+// A TAB EXISTS ONLY WHILE ITS MODULE DOES. Switching a module off must take
+// its view with it — and leave the others exactly where they were.
+$GLOBALS['module_off'] = [ 'queue' => 1 ];
+$dze_tabs = DZE_Diagnostic::tabs();
+ok( 'a module switched off has no tab',  isset( $dze_tabs['review'] ), false );
+ok( 'and the reading is still there',    isset( $dze_tabs['diagnostic'] ), true );
+$GLOBALS['module_off'] = [];
+
+// THE PAGE ITSELF: the tabs are drawn, and the view asked for is the one
+// printed — never a tab that looks chosen while another body is under it.
+$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG ];
+ob_start();
+DZE_Diagnostic::instance()->render_page();
+$dze_page = (string) ob_get_clean();
+ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Content</h1>' ), true );
+ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
+ok( 'the reading is the one you land on', false !== strpos( $dze_page, 'nav-tab nav-tab-active' ), true );
+ok( 'and it is the reading that is printed',
+	false !== strpos( $dze_page, 'What the shop is short of' ), true );
+ok( 'not the other view',                false !== strpos( $dze_page, 'the review body' ), false );
+$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'review' ];
+ob_start();
+DZE_Diagnostic::instance()->render_page();
+$dze_page = (string) ob_get_clean();
+ok( 'asking for the other view prints it', false !== strpos( $dze_page, 'the review body' ), true );
+ok( 'and not the reading',               false !== strpos( $dze_page, 'What the shop is short of' ), false );
+// A view that does not exist is not an error: it lands on the first one.
+$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'nonsense' ];
+ob_start();
+DZE_Diagnostic::instance()->render_page();
+$dze_page = (string) ob_get_clean();
+ok( 'a view that does not exist lands home',
+	false !== strpos( $dze_page, 'What the shop is short of' ), true );
+$_GET = [];
+$GLOBALS['review_n'] = 0;
+$GLOBALS['bulk_n']   = 0;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'the left menu says what it looks at', (string) ( $dze_menu['title'] ?? '' ), 'Content diagnostic' );
+ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Content' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
+// THE BADGE IS WHAT WAITS FOR A PERSON. It used to carry the shortfall —
+// "1,205" in red, for ever, on a menu you look at forty times a day, which is
+// a bubble you learn not to see.
+ok( 'nothing waiting, no bubble',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), 'update-plugins' ), false );
+$GLOBALS['dze_submenus'] = [];
+$GLOBALS['review_n'] = 2;
+$GLOBALS['bulk_n']   = 3;
+DZE_Diagnostic::instance()->register_menu();
+$dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
+ok( 'what waits for a person is on the menu',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>5<' ), true );
+$GLOBALS['review_n'] = 0;
+$GLOBALS['bulk_n']   = 0;
 $GLOBALS['dze_opts'] = [];
 $GLOBALS['dze_meta'] = [];
 

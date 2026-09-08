@@ -2139,11 +2139,19 @@ final class DZE_Diagnostic {
 	}
 
 	public function register_menu(): void {
-		$waiting = self::waiting();
-		// "Content diagnostic" and not "Diagnostic": beside Restock and the
-		// rest of this menu, a bare "Diagnostic" reads as the shop's health —
-		// servers, keys, cron. What it reads is the CONTENT of the pages.
-		$label   = __( 'Content diagnostic', 'dazont-ecom' );
+		// THE BADGE IS WHAT WAITS FOR A PERSON, and nothing else. It used to
+		// carry the shortfall — "1,205" in red, for ever, on a menu you look
+		// at forty times a day, which is a bubble you learn not to see. What
+		// actually needs somebody is what has come back and wants a yes or a
+		// no; the shortfall is a figure on the tab that is about it.
+		$waiting = 0;
+		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+			$waiting = DZE_Queue::review_count() + DZE_Queue::bulk_waiting();
+		}
+		// "Content" and not "Content diagnostic": the screen holds the reading,
+		// the work and the decisions now, and a menu named after one of the
+		// three is a menu the other two are hidden behind.
+		$label   = __( 'Content', 'dazont-ecom' );
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			$label,
@@ -2234,13 +2242,73 @@ final class DZE_Diagnostic {
 		] );
 	}
 
+	/**
+	 * ONE SUBJECT, SEVERAL VIEWS — the content of the shop.
+	 *
+	 * Reading what is wrong, doing something about it and saying yes or no to
+	 * what comes back is ONE piece of work, and it lived on three menu entries
+	 * the owner had to connect himself — one of them reachable only through a
+	 * redirect from a notice. So it is one entry with WordPress's own tabs,
+	 * which is what core does for a subject seen several ways.
+	 *
+	 * The tabs are declared here and the BODIES belong to the modules that own
+	 * them: a tab appears only while its module is on, and a module switched
+	 * off keeps its own page rather than taking its function down with it.
+	 *
+	 * @return array<string,array{label:string,n:int}>
+	 */
+	public static function tabs(): array {
+		$out = [
+			'diagnostic' => [
+				'label' => __( 'Diagnostic', 'dazont-ecom' ),
+				'n'     => self::waiting(),
+			],
+		];
+		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+			$out['review'] = [
+				'label' => __( 'To review', 'dazont-ecom' ),
+				'n'     => DZE_Queue::review_count() + DZE_Queue::bulk_waiting(),
+			];
+		}
+		return $out;
+	}
+
+	/** Which view is being asked for, checked against the ones that exist. */
+	private static function tab_now(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+		$tabs = self::tabs();
+		return isset( $tabs[ $want ] ) ? $want : 'diagnostic';
+	}
+
 	public function render_page(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
 		$check = isset( $_GET['check'] ) ? sanitize_key( wp_unslash( $_GET['check'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$tab   = self::tab_now();
+		$tabs  = self::tabs();
 		echo '<div class="wrap dze-wrap">';
-		if ( '' !== $check && isset( self::checks()[ $check ] ) ) {
+		echo '<h1>' . esc_html__( 'Content', 'dazont-ecom' ) . '</h1>';
+		if ( count( $tabs ) > 1 ) {
+			echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
+			foreach ( $tabs as $id => $one ) {
+				printf(
+					'<a class="nav-tab%1$s" href="%2$s">%3$s <span class="dze-tab-n">%4$s</span></a>',
+					$tab === $id ? ' nav-tab-active' : '',
+					esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ),
+					esc_html( $one['label'] ),
+					esc_html( number_format_i18n( (int) $one['n'] ) )
+				);
+			}
+			echo '</h2>';
+		}
+		if ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
+			// The body belongs to the module that owns that work: one body,
+			// printed here and on its own page alike, never two screens that
+			// have to be kept in step.
+			DZE_Queue::instance()->body();
+		} elseif ( '' !== $check && isset( self::checks()[ $check ] ) ) {
 			$this->render_list( $check );
 		} else {
 			$this->render_overview();
@@ -2265,7 +2333,8 @@ final class DZE_Diagnostic {
 		$at     = (int) ( $census['at'] ?? 0 );
 		$where  = self::scopes();
 
-		echo '<h1>' . esc_html__( 'Content diagnostic', 'dazont-ecom' ) . '</h1>';
+		// The page carries the title; this says which view you are in.
+		echo '<h2 style="margin:18px 0 6px;">' . esc_html__( 'What the shop is short of', 'dazont-ecom' ) . '</h2>';
 		echo '<p class="description" style="max-width:760px;">'
 			. esc_html__( 'What the shop is short of, read against your own standards. Nothing here writes anything or spends anything: each line points at the screen that fixes that one thing.', 'dazont-ecom' )
 			. '</p>';
@@ -2748,8 +2817,9 @@ final class DZE_Diagnostic {
 		}
 		$slice  = array_slice( $ids, ( $page - 1 ) * self::PER_PAGE, self::PER_PAGE );
 
+		// The page carries the h1; this is the criterion being looked at.
 		printf(
-			'<h1>%s <a class="page-title-action" href="%s">%s</a></h1>',
+			'<h2 style="margin:18px 0 6px;">%s <a class="page-title-action" href="%s">%s</a></h2>',
 			esc_html( $check['label'] ),
 			esc_url( add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ),
 			esc_html__( 'Back to the diagnostic', 'dazont-ecom' )
@@ -2782,7 +2852,12 @@ final class DZE_Diagnostic {
 			echo '<h2 class="nav-tab-wrapper" style="margin:14px 0 0;">';
 			foreach ( [
 				'todo'  => [ __( 'Issues', 'dazont-ecom' ), count( $split['todo'] ) ],
-				'fixed' => [ __( 'Fixed', 'dazont-ecom' ), count( $split['done'] ) ],
+				// A DIFF, NOT A STORE. It holds what was on the last reading's
+				// list and no longer falls short — so the next reading, which
+				// rebuilds that list from the shop, empties it. "Le compte
+				// Fixed revient constamment à 0": it is doing what it is, and
+				// the name never said so.
+				'fixed' => [ __( 'Fixed since the reading', 'dazont-ecom' ), count( $split['done'] ) ],
 			] as $dze_tab => $dze_label ) {
 				// The COUNT is its own element. A product mended in the popup
 				// leaves this list on the spot, and both figures follow it —
@@ -3098,7 +3173,7 @@ final class DZE_Diagnostic {
 				'<p style="max-width:1100px;color:%s;font-weight:600;">%s</p>',
 				'fixed' === $show ? '#50575e' : '#00794b',
 				esc_html( 'fixed' === $show
-					? __( 'Nothing has been mended since the last reading.', 'dazont-ecom' )
+					? __( 'Nothing has been mended since the last reading. Reading the shop again empties this list — what was written, and who accepted it, is kept under To review.', 'dazont-ecom' )
 					: __( 'Nothing falls short of this any more.', 'dazont-ecom' ) )
 			);
 		}

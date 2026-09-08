@@ -595,8 +595,28 @@ final class DZE_Queue {
 	// Screen
 	// =========================================================================
 
+	/**
+	 * Is this screen a TAB of Dazont Ecom → Content rather than a page?
+	 *
+	 * It is, whenever the module that hosts the tabs is on. One entry in the
+	 * menu for one subject — diagnose, do, review — instead of three the owner
+	 * has to remember and connect himself. When that module is off it goes
+	 * back to being its own page: a module switched off must never take a
+	 * function with it that has nothing to do with it.
+	 */
+	public static function hosted(): bool {
+		return class_exists( 'DZE_Diagnostic' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) );
+	}
+
 	/** The screen's address, in one place: the menu it hangs from can move. */
 	public static function url( array $args = [] ): string {
+		if ( self::hosted() ) {
+			return add_query_arg(
+				array_merge( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'review' ], $args ),
+				admin_url( 'admin.php' )
+			);
+		}
 		return add_query_arg(
 			array_merge( [ 'page' => self::MENU_SLUG ], $args ),
 			admin_url( 'admin.php' )
@@ -624,10 +644,13 @@ final class DZE_Queue {
 	public function moved(): void {
 		global $pagenow;
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- reading which screen was asked for.
-		if ( 'edit.php' !== $pagenow || ! isset( $_GET['page'] ) ) {
+		if ( ! isset( $_GET['page'] ) || self::MENU_SLUG !== sanitize_key( wp_unslash( $_GET['page'] ) ) ) {
 			return;
 		}
-		if ( self::MENU_SLUG !== sanitize_key( wp_unslash( $_GET['page'] ) ) ) {
+		// Under Products, where it used to live; or on its own page, now that
+		// it is a tab. Both are addresses this plugin has printed, and both
+		// have to land.
+		if ( 'edit.php' !== $pagenow && ! ( 'admin.php' === $pagenow && self::hosted() ) ) {
 			return;
 		}
 		$args = array_diff_key( $_GET, array_flip( [ 'page', 'post_type' ] ) );
@@ -637,6 +660,10 @@ final class DZE_Queue {
 	}
 
 	public function menu(): void {
+		// A tab of Content, normally: no second entry in the menu for it.
+		if ( self::hosted() ) {
+			return;
+		}
 		// UNDER DAZONT ECOM, not under Products. It holds categories, products
 		// AND articles — "ça porte à confusion, ça devrait plutôt se trouver
 		// dans l'onglet de dazont ecom" — and a screen about everything the
@@ -723,7 +750,32 @@ final class DZE_Queue {
 		delete_transient( self::COUNT_KEY );
 	}
 
+	/**
+	 * The screen on its own, when it has one.
+	 *
+	 * It normally lives as a TAB of Dazont Ecom → Content, beside the
+	 * diagnostic that finds the work — one subject, several views, which is
+	 * WordPress's own idiom and the owner's own way of thinking about it. It
+	 * keeps a page of its own only for the case where the module that hosts
+	 * the tabs is switched off, because switching a module off must never
+	 * hide a function that has nothing to do with it.
+	 */
 	public function render(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		echo '<div class="wrap dze-admin"><h1>' . esc_html__( 'Content to review', 'dazont-ecom' ) . '</h1>';
+		$this->body();
+		echo '</div>';
+	}
+
+	/**
+	 * Everything the screen holds, without a page around it.
+	 *
+	 * Printed by render() on its own page and by the Content tabs alike: one
+	 * body, so the two can never drift into two different screens.
+	 */
+	public function body(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
@@ -801,8 +853,7 @@ final class DZE_Queue {
 			],
 		] );
 		?>
-		<div class="wrap dze-admin">
-			<h1><?php esc_html_e( 'Content to review', 'dazont-ecom' ); ?></h1>
+		<div class="dze-admin">
 			<p class="description" style="max-width:900px;">
 				<?php esc_html_e( 'Texts are written one at a time, and this page keeps the queue moving while it is open — leave it open and watch, or come back later and pick up what is waiting. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>
 			</p>

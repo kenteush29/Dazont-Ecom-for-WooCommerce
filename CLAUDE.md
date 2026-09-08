@@ -318,6 +318,29 @@ owner communicates in French.
   and the products log carries `by`. It is a NAME on screen, never an id; an
   account deleted since keeps its decision and says so; and 0 means an
   automatic pass, which has nobody to name and must not be given one.
+- **ONE SUBJECT, ONE MENU ENTRY, WORDPRESS'S OWN TABS.** Reading what the shop
+  is short of, doing something about it and saying yes or no to what comes
+  back is ONE piece of work; it lived on three entries the owner had to
+  connect himself, one of them reachable only through a redirect from a
+  notice. It is **Dazont Ecom → Content**, with `nav-tab-wrapper` — core's
+  idiom for a subject seen several ways, and already the plugin's own on other
+  screens. The tabs are declared in one place (`DZE_Diagnostic::tabs()`) and
+  each BODY belongs to the module that owns that work: `DZE_Queue::body()` is
+  printed by the tab and by its own page alike, so the two can never drift.
+  A tab appears only while its module is on, and a module whose host is off
+  keeps a page of its own (`DZE_Queue::hosted()`), because switching one
+  module off must never take another's function with it.
+- **A MENU BADGE MEANS "ACT ON ME", NEVER "HERE IS A NUMBER".** The diagnostic
+  put its shortfall there — a red "1,205" for ever, on a menu looked at forty
+  times a day, which is a bubble you learn not to see. The badge counts what
+  waits for a PERSON: what has come back and wants a yes or a no, every store
+  included. A figure that is merely large belongs on the tab it is about.
+- **A TAB THAT IS A DIFF SAYS SO.** "Fixed" holds what the last reading listed
+  and that no longer falls short, so the next reading empties it — "le compte
+  Fixed revient constamment à 0" was it doing exactly what it is. It reads
+  **Fixed since the reading**, and its empty state points at where the durable
+  record lives. A name that implies a store, over a thing that is a diff, is a
+  screen that lies once a day.
 - **EVERY LIST OF THINGS WAITING FOR A DECISION IS ONE LIST.** Two menus for
   "what is waiting for me?" is two places to remember and two counts that
   disagree; the screen is **Content to review**, it lives under **Dazont Ecom** and not
