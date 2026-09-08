@@ -1261,9 +1261,21 @@ ok( 'taken from the gallery prompts in turn', $dze_used, [ 1, 2, 1 ] );
 ok( 'and every row aimed at the gallery',
 	array_values( array_unique( array_map( static fn( $r ) => (string) ( $r['target'] ?? '' ), (array) $dze_w901['shots'] ) ) ),
 	[ 'gallery' ] );
-// And it SAYS why it opened that way, in the popup, in words.
-ok( 'the popup says how short it is',   false !== strpos( (string) ( $dze_w901['why'] ?? '' ), '3 photographs short' ), true );
-ok( 'in the singular when it is one',   false !== strpos( (string) ( $dze_w902['why'] ?? '' ), 'one photograph short' ), true );
+// And it SAYS where THIS product stands — in the same words its own row
+// uses. "Il faut afficher le diagnostic exact dans le même format que la
+// liste produit": the popup used to open on the CRITERION's name, which says
+// what the shop asks of everything and not what this one is holding.
+ok( 'the popup says where the product stands',
+	false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'Gallery photographs — 0 of 3 photographs.' ), true );
+ok( 'in the same words as its row',
+	false !== strpos( (string) ( $dze_w902['why'] ?? '' ), 'Gallery photographs — 2 of 3 photographs.' ), true );
+// Never the criterion's own name, which is about the whole shop and not
+// about this product.
+ok( 'and never the rule about everything',
+	false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'is less than' ), false );
+// Then what was laid out, so the popup explains itself.
+ok( 'then what it laid out',            false !== strpos( (string) ( $dze_w901['why'] ?? '' ), '3 prompts are laid out below' ), true );
+ok( 'in the singular when it is one',   false !== strpos( (string) ( $dze_w902['why'] ?? '' ), 'One prompt is laid out below' ), true );
 
 // A PAGE OF ROWS, handed to the bulk screen the shop already generates from.
 ok( 'the list can be ticked',           substr_count( $dze_gal_html, 'class="dze-diag-one"' ), 2 );

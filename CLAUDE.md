@@ -374,7 +374,11 @@ owner communicates in French.
   sentence: "is empty" has nothing to count towards, and "0 of 0 photographs"
   is worse than silence. Both directions are said as the rule means them — "at
   most 3" is a shortfall AT 3, so it needs 4; "more than 60" is too many at
-  61, so it may have 60.
+  61, so it may have 60. **And the popup opened from that row says the SAME
+  sentence**, from the same function: it used to lead with the criterion's own
+  name — "Products · gallery photographs is less than 2/3/5 photographs" —
+  which is what the shop asks of everything, not what this one product is
+  holding.
 - **A POPUP OPENED ON AN OBJECT OFFERS THE WAY TO THAT OBJECT.** The toolbox
   opens from three screens now, and from two of them the product is nowhere on
   the page — while part of the work belongs there: "j'ai ouvert la toolbox, et

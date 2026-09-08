@@ -1037,23 +1037,52 @@ final class DZE_Diagnostic {
 				];
 			}
 			if ( $out['shots'] ) {
-				$out['why'] = sprintf(
-					/* translators: 1: how many photographs are missing, 2: the criterion in words */
-					_n(
-						'%2$s — one photograph short. One prompt is laid out below; change it, add another, then generate.',
-						'%2$s — %1$d photographs short. That many prompts are laid out below; change them, add another, then generate.',
-						count( $out['shots'] ),
-						'dazont-ecom'
-					),
-					count( $out['shots'] ),
-					self::rule_said( $row, self::fields()[ $field ] ?? [] )
+				$out['why'] = trim(
+					self::stands( $row, $scope, $oid ) . ' ' . sprintf(
+						/* translators: %d: how many prompt rows were laid out */
+						_n(
+							'One prompt is laid out below; change it, add another, then generate.',
+							'%d prompts are laid out below; change them, add another, then generate.',
+							count( $out['shots'] ),
+							'dazont-ecom'
+						),
+						count( $out['shots'] )
+					)
 				);
 			}
 		}
 		if ( '' === $out['why'] ) {
-			$out['why'] = self::rule_said( $row, self::fields()[ $field ] ?? [] );
+			$out['why'] = self::stands( $row, $scope, $oid );
 		}
 		return $out;
+	}
+
+	/**
+	 * Where THIS object stands, in the words its own row uses.
+	 *
+	 * "Ici sur la boîte du produit il faut afficher le diagnostic exact dans
+	 * le même format que la liste produit." The popup used to open on the
+	 * CRITERION's name — "Products · gallery photographs is less than 2/3/5
+	 * photographs" — which says what the shop asks of everything and not what
+	 * this one product is holding. The list already says that instinctively,
+	 * so the popup says the same thing, from the same function: the field, and
+	 * how far off it is.
+	 */
+	private static function stands( array $row, string $scope, int $oid ): string {
+		$field = (string) ( $row['field'] ?? '' );
+		$named = ucfirst( trim( (string) ( self::fields()[ $field ]['label'] ?? '' ) ) );
+		$said  = self::short_said( $row, $scope, $oid );
+		if ( '' === $said ) {
+			// A rule with no figure — "is empty" — has nothing to count
+			// towards, and its own name is the whole of what can be said.
+			return self::rule_said( $row, self::fields()[ $field ] ?? [] );
+		}
+		return trim( sprintf(
+			/* translators: 1: the field, e.g. "Gallery photographs", 2: how far off it is, e.g. "0 of 5 photographs" */
+			__( '%1$s — %2$s.', 'dazont-ecom' ),
+			'' !== $named ? $named : self::rule_said( $row, self::fields()[ $field ] ?? [] ),
+			$said
+		) );
 	}
 
 	/**
