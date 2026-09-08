@@ -310,6 +310,55 @@ owner communicates in French.
   sent with it (0)", printed straight underneath. Name the thing you are
   about to rewrite.
 
+- **A SCREEN SERVED BY AJAX PRINTS NOTHING IN `admin_footer`.** The category
+  panel is an AJAX answer, and `DZE_Prompts::button()` asks for its popup by
+  hooking `admin_footer` — which never fires there. So "✎ questions" and "✎
+  linking" arrived on a page holding neither the popup nor the handler that
+  opens it: pressing them did nothing and said nothing, for months, while a
+  grep found the buttons and `php -l` found no error. Any screen a panel can
+  open on calls `DZE_Prompts::print_assets()` at page load. And this is the
+  screen that had NO browser gate at all, which is why it lasted:
+  `tools/js/category-panel.mjs` now presses every button on it, on both jQuery
+  builds, and reads back the request AND the answer landing. In that harness
+  jQuery must be served BEFORE the popup's own inline script, or the whole
+  handler dies on "jQuery is not defined" and the gate proves nothing.
+- **FOUR CONTROLS, ONE VISUAL LANGUAGE.** That row read "✎ ⓘ ✎ questions ✎
+  linking" — a lone pencil, a lone ⓘ and two worded buttons, three ways of
+  saying "look at something", and the pencil opened an INLINE editor while the
+  words opened a popup. A lone icon is a symbol you have to learn. Every one
+  of them carries a word now, and the inline prompt editor is gone: reading a
+  prompt, changing it, saving it and putting the default back is what the
+  prompt popup does everywhere else, and two surfaces for one job drift apart
+  — that one also sent whatever it happened to be showing as a one-off
+  override, so the same button ran two different instructions depending on a
+  panel's state.
+- **LISTED IS NOT TICKED.** Relaxing the pool's gate to one shared word fixed
+  "two links only" and broke the other end: "Add internal links only" opened
+  with THIRTY pages ticked, Tactical Sunglasses and Tactical Balaclavas among
+  them, because every page of a tactical shop carries the word "tactical".
+  Membership and pre-selection are two questions: one shared word makes a page
+  a candidate worth SHOWING; what is TICKED is the branch plus the pages whose
+  shared wording actually says something (`DZE_Mesh::weigh`, so a word a
+  quarter of the candidates carry weighs nothing), capped, with everything
+  else listed one tick away. A screen that opens with thirty ticked boxes is a
+  screen where nobody reads the boxes.
+- **A SHOP'S OWN WRITING TRAVELS, AND NO KEY TRAVELS WITH IT.** Prompts and
+  diagnostic criteria are what the owner spent months on and they were trapped
+  on the site they were typed into. `DZE_Transfer` carries them: Settings →
+  Transfer, copy one side, paste the other. Four rules, each of them a way it
+  goes wrong: a bundle is READ before a single write and refused by name when
+  it is not one (the read is not a step somebody does first — it is the first
+  thing the write does); what it holds is said in the words each group is
+  named by, before anything is replaced; a group not ticked is not touched; and
+  every write goes through the module that OWNS that data
+  (`DZE_Content::write_setting`, `DZE_Diagnostic::write_rows`,
+  `DZE_Prompts::save_text`), filter removed and read back — never
+  `update_option()` on a registered option. A product prompt is carried ONCE,
+  as a registry row: its text alone would land on a shop that sends it
+  nothing. **API keys are never in the bundle** — it is pasted into chat
+  windows and tickets — and the gate asserts that on the real text with the
+  keys set.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
@@ -623,6 +672,11 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
+- **`php tools/test-category.php dazont-ecom`,
+  `node tools/js/category-panel.mjs` and `php tools/test-transfer.php
+  dazont-ecom` must pass.** The category panel rendered for real and its
+  button row pressed in a browser; and a settings bundle read, refused and
+  written, with no key in it.
 - **`php tools/test-mesh.php dazont-ecom` and `node tools/js/mesh-linking.mjs`
   must pass.** The link graph against a fake shop — a builder page among them —
   and the Linking tab's buttons pressed in a real browser on both jQuery

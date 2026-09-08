@@ -111,6 +111,29 @@ final class DZE_Prompts {
 		return $out;
 	}
 
+	/**
+	 * One prompt, written to whichever module owns it.
+	 *
+	 * The one way a prompt's text is saved: the popup's own Save presses it,
+	 * and so does a settings bundle taken from another shop. A second writer
+	 * beside it would be a second answer to "where does this prompt live",
+	 * kept in step by hand.
+	 *
+	 * @return bool false when no module claims that id.
+	 * @throws RuntimeException with the module's own reason for refusing.
+	 */
+	public static function save_text( string $id, string $text ): bool {
+		$w = self::writer( $id );
+		if ( ! $w ) {
+			return false;
+		}
+		$why = (string) call_user_func( $w['save'], $text );
+		if ( '' !== $why ) {
+			throw new RuntimeException( $why );
+		}
+		return true;
+	}
+
 	private static function writer( string $id ): ?array {
 		// A product field or an image template: one registry row.
 		if ( 0 === strpos( $id, 'content_' ) && class_exists( 'DZE_Content' ) ) {
@@ -249,17 +272,12 @@ final class DZE_Prompts {
 		if ( '' === trim( $text ) ) {
 			wp_send_json_error( [ 'message' => __( 'An empty prompt would generate nothing.', 'dazont-ecom' ) ] );
 		}
-		$w = self::writer( $id );
-		if ( ! $w ) {
-			wp_send_json_error( [ 'message' => __( 'This prompt cannot be saved from here.', 'dazont-ecom' ) ] );
-		}
 		try {
-			$why = (string) call_user_func( $w['save'], $text );
+			if ( ! self::save_text( $id, $text ) ) {
+				wp_send_json_error( [ 'message' => __( 'This prompt cannot be saved from here.', 'dazont-ecom' ) ] );
+			}
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		if ( '' !== $why ) {
-			wp_send_json_error( [ 'message' => $why ] );
 		}
 		wp_send_json_success( [ 'saved' => true ] );
 	}

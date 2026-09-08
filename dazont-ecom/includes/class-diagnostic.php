@@ -595,6 +595,35 @@ final class DZE_Diagnostic {
 		return $rows ?: self::clean_rows( self::default_rows() );
 	}
 
+	/**
+	 * Criteria written straight in, from somewhere other than the form.
+	 *
+	 * `update_option()` on a registered option re-runs the sanitize callback,
+	 * which is shaped for FORM input and would read a plain array of rows as a
+	 * page that carried nothing. The rows still go through `clean_rows()` —
+	 * they arrive from another shop and are not to be trusted — and the write
+	 * is read back, because a save that did not happen must not report
+	 * success.
+	 *
+	 * @return int how many criteria the shop now holds.
+	 */
+	public static function write_rows( array $rows ): int {
+		$clean = self::clean_rows( $rows );
+		if ( ! $clean ) {
+			throw new RuntimeException( __( 'None of those criteria could be read.', 'dazont-ecom' ) );
+		}
+		$all         = self::settings();
+		$all['rows'] = $clean;
+		$tag         = 'sanitize_option_' . self::OPT;
+		remove_filter( $tag, [ __CLASS__, 'sanitize' ] );
+		update_option( self::OPT, $all, false );
+		add_filter( $tag, [ __CLASS__, 'sanitize' ] );
+		if ( count( self::rows() ) !== count( $clean ) ) {
+			throw new RuntimeException( __( 'The criteria could not be saved.', 'dazont-ecom' ) );
+		}
+		return count( $clean );
+	}
+
 	/** Rows as a form posted them, made safe and complete. */
 	public static function clean_rows( array $in ): array {
 		$fields = self::fields();

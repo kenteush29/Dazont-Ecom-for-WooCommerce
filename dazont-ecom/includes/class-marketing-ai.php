@@ -684,6 +684,10 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'health' ) ) {
 			$tabs['health'] = __( 'Health', 'dazont-ecom' );
 		}
+		// One shop's writing, carried to another. Not gated on a module: it is
+		// the plugin's own, like Modules beside it, and the day a shop needs it
+		// is the day it is standing on a site with nothing set up.
+		$tabs['transfer'] = __( 'Transfer', 'dazont-ecom' );
 		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		if ( ! isset( $tabs[ $tab ] ) ) {
@@ -841,7 +845,9 @@ final class DZE_Marketing_Ai {
 	 * @param callable $mod_on Tells whether a module is enabled.
 	 */
 	private function render_tab_body( string $tab, callable $mod_on ): void {
-		if ( 'general' === $tab ) {
+		if ( 'transfer' === $tab ) {
+			DZE_Transfer::render_tab();
+		} elseif ( 'general' === $tab ) {
 			echo '<h2>' . esc_html__( 'About this shop', 'dazont-ecom' ) . '</h2>';
 			$this->render_shop_profile();
 			echo '<hr style="margin:28px 0;" />';
