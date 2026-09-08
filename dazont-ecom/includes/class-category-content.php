@@ -973,9 +973,23 @@ PROMPT;
 
 	/** WPML language code of a category, else the site's default. */
 	public static function lang_code( int $term_id ): string {
-		$details = apply_filters( 'wpml_element_language_details', null, [ 'element_id' => $term_id, 'element_type' => 'product_cat' ] );
-		$code    = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
+		// 'tax_product_cat', NEVER 'product_cat'. WPML names a taxonomy term
+		// with a tax_ prefix in its own table, and asked by the wrong name it
+		// answers NOTHING — which fell through to "the default language", so
+		// every category in every language passed for an English one. The
+		// shop's link graph counted 830 pages where it holds a fifth of that.
+		// And a TERM TAXONOMY id, not a term id: that is WPML's schema, and
+		// the two are equal on most terms and not on all of them.
+		$term = get_term( $term_id, 'product_cat' );
+		$ttid = ( $term && ! is_wp_error( $term ) ) ? (int) $term->term_taxonomy_id : $term_id;
+		$details = apply_filters( 'wpml_element_language_details', null, [
+			'element_id'   => $ttid,
+			'element_type' => 'tax_product_cat',
+		] );
+		$code = is_array( $details ) ? (string) ( $details['language_code'] ?? '' ) : '';
 		if ( '' === $code ) {
+			// No row of its own: a shop with one language, where every term is
+			// in it.
 			$code = (string) apply_filters( 'wpml_default_language', '' );
 		}
 		return $code;

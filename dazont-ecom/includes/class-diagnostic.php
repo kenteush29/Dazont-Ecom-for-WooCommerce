@@ -38,7 +38,7 @@ final class DZE_Diagnostic {
 	public const OPT        = 'dze_diagnostic';
 	public const OPT_CENSUS = 'dze_diagnostic_census';
 	public const OPT_LISTS  = 'dze_diagnostic_lists';
-	private const NONCE     = 'dze_diag';
+	public const NONCE      = 'dze_diag';
 	private const CRON      = 'dze_diagnostic_scan';
 	private const LOCK      = 'dze_diag_lock';
 
@@ -86,6 +86,7 @@ final class DZE_Diagnostic {
 		// The QUALITY CONTROL, on one object: after work has been applied to
 		// it, is it still short of this criterion?
 		add_action( 'wp_ajax_dze_diag_judge', [ __CLASS__, 'ajax_judge' ] );
+		add_action( 'wp_ajax_dze_diag_todo', [ __CLASS__, 'ajax_todo' ] );
 	}
 
 	/**
@@ -132,6 +133,85 @@ final class DZE_Diagnostic {
 			// mended by half opens on the half that is left.
 			'want'  => $short ? self::open_with( $row, $scope, $one ) : [],
 		] );
+	}
+
+	/**
+	 * EVERY criterion this one product falls short of, as a to-do list.
+	 *
+	 * The toolbox used to be told what was wrong only when a diagnostic line
+	 * had opened it: the same product, opened from its own page or from the
+	 * products list, showed nothing at all — "les recommandations qui viennent
+	 * du diagnostic ne sont pas présentes quand on y accède à partir de la
+	 * page produit elle même". The reading belongs to the PRODUCT, not to the
+	 * screen that happened to open the popup, so it is read here, once, and
+	 * every screen that opens the toolbox gets the same answer.
+	 *
+	 * A LINE, not a paragraph. "Gallery photographs — 3 of 5 photographs. 2
+	 * prompts are laid out below; change them, add another, then generate."
+	 * was three sentences to say one thing; what is needed is what is short
+	 * and by how much, and the way to lay it out beside it.
+	 *
+	 * @return array<int,array{check:string,said:string,want:array}>
+	 */
+	public static function todo( int $post_id ): array {
+		$object = self::object_for( 'product', $post_id );
+		if ( ! $object ) {
+			return [];
+		}
+		$out = [];
+		foreach ( self::checks() as $id => $check ) {
+			if ( 'product' !== (string) ( $check['scope'] ?? '' ) ) {
+				continue;
+			}
+			$row = (array) ( $check['row'] ?? [] );
+			if ( ! self::fails( $row, 'product', $object ) ) {
+				continue;
+			}
+			$out[] = [
+				'check' => (string) $id,
+				'said'  => self::todo_said( $row, 'product', $post_id, $object ),
+				// The same arming the diagnostic row hands over, so a line
+				// pressed here and a line pressed there open identically.
+				'want'  => self::open_with( $row, 'product', $post_id ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * One shortfall as one line: what it is, and how far off.
+	 *
+	 * The unit is dropped when the field's own name already carries it —
+	 * "Gallery photographs — 3 of 5 photographs" says photographs twice, and a
+	 * to-do list is read at a glance or not at all.
+	 */
+	public static function todo_said( array $row, string $scope, int $oid, $object = null ): string {
+		$field = (string) ( $row['field'] ?? '' );
+		$named = ucfirst( trim( (string) ( self::fields()[ $field ]['label'] ?? '' ) ) );
+		$said  = self::short_said( $row, $scope, $oid, $object );
+		if ( '' === $said ) {
+			// A rule with no figure — "is empty" — has nothing to count
+			// towards, and its own name is the whole of what can be said.
+			return self::rule_said( $row, self::fields()[ $field ] ?? [] );
+		}
+		$unit = trim( self::unit_of( $field ) );
+		if ( '' !== $unit && '' !== $named && false !== stripos( $named, $unit ) ) {
+			$said = trim( str_ireplace( $unit, '', $said ) );
+		}
+		return '' !== $named ? $named . ' — ' . $said : $said;
+	}
+
+	/** The product's own shortfalls, for the popup that opens on it. */
+	public static function ajax_todo(): void {
+		check_ajax_referer( self::NONCE, 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'No product.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'rows' => self::todo( $pid ) ] );
 	}
 
 	/**
@@ -1036,54 +1116,17 @@ final class DZE_Diagnostic {
 					'target' => $target,
 				];
 			}
-			if ( $out['shots'] ) {
-				$out['why'] = trim(
-					self::stands( $row, $scope, $oid ) . ' ' . sprintf(
-						/* translators: %d: how many prompt rows were laid out */
-						_n(
-							'One prompt is laid out below; change it, add another, then generate.',
-							'%d prompts are laid out below; change them, add another, then generate.',
-							count( $out['shots'] ),
-							'dazont-ecom'
-						),
-						count( $out['shots'] )
-					)
-				);
-			}
 		}
-		if ( '' === $out['why'] ) {
-			$out['why'] = self::stands( $row, $scope, $oid );
-		}
+		// ONE LINE, THE SAME ONE THE LIST SHOWS. It used to read "Gallery
+		// photographs — 3 of 5 photographs. 2 prompts are laid out below;
+		// change them, add another, then generate." — three sentences
+		// explaining a screen you are already looking at. The rows laid out
+		// below say by themselves that they are laid out below.
+		$out['why']  = self::todo_said( $row, $scope, $oid );
+		$out['check'] = (string) ( $row['id'] ?? '' );
 		return $out;
 	}
 
-	/**
-	 * Where THIS object stands, in the words its own row uses.
-	 *
-	 * "Ici sur la boîte du produit il faut afficher le diagnostic exact dans
-	 * le même format que la liste produit." The popup used to open on the
-	 * CRITERION's name — "Products · gallery photographs is less than 2/3/5
-	 * photographs" — which says what the shop asks of everything and not what
-	 * this one product is holding. The list already says that instinctively,
-	 * so the popup says the same thing, from the same function: the field, and
-	 * how far off it is.
-	 */
-	private static function stands( array $row, string $scope, int $oid ): string {
-		$field = (string) ( $row['field'] ?? '' );
-		$named = ucfirst( trim( (string) ( self::fields()[ $field ]['label'] ?? '' ) ) );
-		$said  = self::short_said( $row, $scope, $oid );
-		if ( '' === $said ) {
-			// A rule with no figure — "is empty" — has nothing to count
-			// towards, and its own name is the whole of what can be said.
-			return self::rule_said( $row, self::fields()[ $field ] ?? [] );
-		}
-		return trim( sprintf(
-			/* translators: 1: the field, e.g. "Gallery photographs", 2: how far off it is, e.g. "0 of 5 photographs" */
-			__( '%1$s — %2$s.', 'dazont-ecom' ),
-			'' !== $named ? $named : self::rule_said( $row, self::fields()[ $field ] ?? [] ),
-			$said
-		) );
-	}
 
 	/**
 	 * What the button on a row SAYS it will do.

@@ -269,6 +269,47 @@ owner communicates in French.
   busy text is already in it: wait for the answer, with a timeout, and report
   the timeout as "the screen answered where it stood" rather than dying.
 
+- **WPML NAMES A TAXONOMY TERM `tax_product_cat`, AND INDEXES IT BY ITS TERM
+  TAXONOMY ID.** `DZE_Category_Content::lang_code()` asked
+  `wpml_element_language_details` for `product_cat` with a term id, got NOTHING
+  back, and read nothing as "the shop's own language" — so every category in
+  every language passed for an English one and the link graph reported 830
+  pages on a site holding a fifth of that. The failure has no symptom until
+  somebody counts: it never errors, it never shows a German word, it just
+  quietly stops filtering. `DZE_Diagnostic::element_type()` had the right name
+  all along, which is the point — one wrong string in one helper is enough.
+  Any reader that walks the posts table with its own SQL (WPML cannot narrow
+  that) has the language check as the ONLY thing between it and a count
+  multiplied by the number of languages, so that check is exercised with a
+  multilingual fake shop, both ways: translations dropped, and a
+  single-language shop keeping everything.
+- **THE READING BELONGS TO THE OBJECT, NOT TO THE SCREEN THAT OPENED THE
+  POPUP.** The toolbox knew what a product was short of only when a diagnostic
+  row had opened it — from the product's own page or from the products list it
+  showed nothing. `DZE_Diagnostic::todo()` answers for the product, and the
+  popup reads it wherever it was opened from. What it prints is a TO-DO LIST:
+  one line per shortfall, the field and the figures and nothing else. It used
+  to read "Gallery photographs — 3 of 5 photographs. 2 prompts are laid out
+  below; change them, add another, then generate." — two sentences explaining
+  a screen already in front of you, and the unit said twice. The unit is
+  dropped when the field's own name carries it, the line the popup opened FOR
+  is marked, and pressing any other line lays THAT one out — the same arming
+  the diagnostic row hands over, generating nothing.
+- **ONE TICK PER BLOCK, AND IT LIVES IN THE BLOCK'S OWN TITLE.** Images and
+  price each carried a checkbox inside the body saying exactly what the
+  section it sat in already said — "sur le bloc image et prix, ça n'a pas de
+  sens d'avoir un double bouton". The switch is in the heading; on the text
+  block the same tick means "all of them", going in-between when only some
+  are on. A tick in a heading must not fold the section under the hand that
+  pressed it. And a block whose work is ROWS is not counted in checkboxes:
+  counting them counted the switch and read "1 / 1" whatever was laid out.
+- **A CLASS THAT MEANS "PANEL" IS NOT A CLASS THAT MEANS "THIS PANEL".**
+  `.dze-pr-inputs` is the wrapper every fold-away panel on a prompt card
+  wears, and the counter that renames "Product data sent with it (2)" ran over
+  all of them — so the panel beside it came back as a second "Product data
+  sent with it (0)", printed straight underneath. Name the thing you are
+  about to rewrite.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They

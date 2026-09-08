@@ -56,7 +56,29 @@ function number_format_i18n( $n ) { return (string) $n; }
 function add_action( ...$a ) {}
 function add_filter( ...$a ) {}
 function do_action( ...$a ) {}
-function apply_filters( $tag, $value = null, ...$a ) { return 'wpml_default_language' === $tag ? '' : $value; }
+/**
+ * WPML, answering the way WPML answers.
+ *
+ * `wpml_element_language_details` is asked with WPML'S OWN name for the kind
+ * and WPML's own id: 'post_page' with a post id, 'tax_product_cat' with a
+ * TERM TAXONOMY id. Asked by any other name it answers NOTHING — which is
+ * exactly what happened, and "nothing" fell through to "the default
+ * language", so every category in every language passed for an English one.
+ */
+function apply_filters( $tag, $value = null, ...$a ) {
+	if ( 'wpml_default_language' === $tag ) {
+		return $GLOBALS['deflang'] ?? '';
+	}
+	if ( 'wpml_element_language_details' === $tag ) {
+		$ask  = (array) ( $a[0] ?? [] );
+		$type = (string) ( $ask['element_type'] ?? '' );
+		$id   = (int) ( $ask['element_id'] ?? 0 );
+		$GLOBALS['asked_wpml'][] = $type . ':' . $id;
+		$lang = $GLOBALS['langof'][ $type ][ $id ] ?? '';
+		return '' !== $lang ? [ 'language_code' => $lang ] : null;
+	}
+	return $value;
+}
 function wp_next_scheduled( $h ) { return false; }
 function wp_schedule_event( ...$a ) {}
 function wp_unschedule_event( ...$a ) {}
@@ -127,7 +149,14 @@ function get_terms( $args = [] ) {
 }
 function get_term( $id, $tax = '' ) {
 	$t = $GLOBALS['terms'][ (int) $id ] ?? null;
-	return $t ? (object) array_merge( $t, [ 'term_id' => (int) $id, 'taxonomy' => 'product_cat', 'count' => 5 ] ) : null;
+	// A term taxonomy id that is NOT the term id, because on a real shop they
+	// part company and WPML indexes by the second one.
+	return $t ? (object) array_merge( $t, [
+		'term_id'          => (int) $id,
+		'term_taxonomy_id' => (int) $id + 500,
+		'taxonomy'         => 'product_cat',
+		'count'            => 5,
+	] ) : null;
 }
 function get_term_link( $t ) {
 	$id = is_object( $t ) ? (int) $t->term_id : (int) $t;
@@ -432,6 +461,47 @@ ok( 'named, so the anchor can be its title',
 	false !== strpos( $asked, 'Boonie hats' ), true );
 ok( 'and nothing else is offered beside it',
 	false !== strpos( $asked, 'Tactical bags' ), false );
+
+echo "\nA shop in five languages is still ONE shop\n";
+// THE FAULT THE SHOP FOUND: "Read 2 seconds ago — 830 pages, 571 internal
+// links" on a site holding a fifth of that. The mesh reads the posts table
+// with its own SQL, which WPML cannot narrow, so every page of every language
+// comes back and the language check is the ONLY thing standing between the
+// reading and a count five times too big. That check asked WPML for a
+// category by the wrong name — 'product_cat' where WPML holds
+// 'tax_product_cat' — got nothing, and read "nothing" as "the shop's own
+// language".
+$GLOBALS['deflang'] = 'en';
+$GLOBALS['terms'][14] = [ 'name' => 'Taktische Taschen', 'slug' => 'taktische-taschen', 'parent' => 0, 'description' => '' ];
+$GLOBALS['posts'][24] = [ 'type' => 'post', 'title' => 'Wie wählt man einen Rucksack', 'content' => '<p>' . str_repeat( 'ein wort ', 90 ) . '</p>' ];
+$GLOBALS['langof'] = [
+	// Every English page, named the way WPML names it: a term by its TERM
+	// TAXONOMY id under tax_product_cat, a post by its post id under post_*.
+	'tax_product_cat' => [ 510 => 'en', 511 => 'en', 512 => 'en', 513 => 'en', 514 => 'de' ],
+	'post_post'       => [ 20 => 'en', 21 => 'en', 24 => 'de' ],
+	'post_page'       => [ 22 => 'en', 23 => 'en' ],
+];
+$GLOBALS['asked_wpml'] = [];
+$titles = wp_list_pluck( DZE_Mesh::pages( true ), 'title' );
+ok( 'the shop keeps its own pages',     in_array( 'Tactical bags', $titles, true ), true );
+ok( 'a translated category is not a second page',
+	in_array( 'Taktische Taschen', $titles, true ), false );
+ok( 'nor is a translated article',      in_array( 'Wie wählt man einen Rucksack', $titles, true ), false );
+ok( 'so the count is the shop, once',   count( $titles ), 8 );
+// AND IT ASKED BY THE RIGHT NAME. Asked as 'product_cat' the answer is empty
+// for every category alike, which reads on screen as a shop with no
+// translations at all — the failure that has no symptom until somebody counts.
+ok( 'a category is asked for as WPML holds it',
+	in_array( 'tax_product_cat:514', $GLOBALS['asked_wpml'], true ), true );
+ok( 'never by the taxonomy name alone',
+	(bool) preg_grep( '/^product_cat:/', $GLOBALS['asked_wpml'] ), false );
+// A shop with ONE language has no rows at all, and every page is its own.
+$GLOBALS['langof'] = [];
+ok( 'one language, and nothing is filtered out',
+	count( DZE_Mesh::pages( true ) ), 10 );
+$GLOBALS['deflang'] = '';
+unset( $GLOBALS['terms'][14], $GLOBALS['posts'][24] );
+DZE_Mesh::pages( true );
 
 echo "\nThe tab itself, rendered\n";
 // A SETTINGS TAB THAT DIES TAKES THE WHOLE PAGE WHITE, before any of our own
