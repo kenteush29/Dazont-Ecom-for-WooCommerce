@@ -1354,3 +1354,11 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 #dze-cx-edit { margin-left: 8px; white-space: nowrap; }
 .dze-cx-head #dze-cx-edit + .dze-cx-close,
 .dze-cx-head #dze-cx-edit ~ .button { margin-left: 8px; }
+
+/* The figure on a tab of Content: present, and not shouting. */
+.dze-tab-n {
+	display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px;
+	border-radius: 9px; background: #dcdcde; color: #2c3338;
+	font-size: 11px; line-height: 18px; text-align: center; font-weight: 600;
+}
+.nav-tab-active .dze-tab-n { background: #2271b1; color: #fff; }
