@@ -155,7 +155,8 @@ for ( const [ label, jq ] of jqs ) {
 			return json( '901' === String( sent.id )
 				? { fixed: true, said: '', want: {} }
 				: { fixed: false, said: '2 of 3 photographs',
-					want: { section: 'img', field: '', shots: [ { tpl: 1, n: 1, target: 'gallery' } ], why: 'one photograph short' } } );
+					want: { section: 'img', field: '', shots: [ { tpl: 1, n: 1, target: 'gallery' } ],
+						why: 'Gallery photographs — 2 of 3 photographs. One prompt is laid out below; change it, add another, then generate.' } } );
 		}
 		// What the popup asks for when it opens on a product: what that
 		// product already carries. It writes nothing and costs nothing.
@@ -274,9 +275,17 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and pressing it opens one',         await page.locator( '#dze-prompt-modal.is-open' ).count(), 1 );
 	await page.click( '#dze-prompt-modal .dze-hub-close' );
 
-	// 6. And the popup SAYS why it opened like that.
-	ok( 'and it says how short the product is',
-		/3 photographs short/.test( await page.textContent( '#dze-cx-why' ) ), true );
+	// 6. And the popup SAYS WHERE THIS PRODUCT STANDS, in the same words its
+	//    own row uses — never the criterion's name, which is about the whole
+	//    shop: "il faut afficher le diagnostic exact dans le même format que
+	//    la liste produit."
+	ok( 'the popup says where the product stands',
+		( await page.textContent( '#dze-cx-why' ) ).includes( 'Gallery photographs — 0 of 3 photographs.' ), true );
+	ok( 'in the same words as its own row',
+		( await page.textContent( '#dze-cx-why' ) ).includes(
+			( await page.textContent( 'tr[data-id="901"] .dze-diag-short' ) ).replace( '—', '' ).trim() ), true );
+	ok( 'and then what it laid out',
+		( await page.textContent( '#dze-cx-why' ) ).includes( '3 prompts are laid out below' ), true );
 
 	// The row next door is a different product with a different shortfall, and
 	// the popup is re-armed for it rather than keeping the last one's rows.
@@ -285,8 +294,8 @@ for ( const [ label, jq ] of jqs ) {
 	await page.waitForTimeout( 250 );
 	ok( 'the next row lays out its own',    await page.locator( '#dze-cx-tplrows .dze-tplrow' ).count(), 1 );
 
-	ok( 'and says one photograph short',
-		/one photograph short/.test( await page.textContent( '#dze-cx-why' ) ), true );
+	ok( 'and says where that one stands',
+		( await page.textContent( '#dze-cx-why' ) ).includes( 'Gallery photographs — 2 of 3 photographs.' ), true );
 	await page.click( '.dze-cx-close' );
 
 	// ---- THE WORK GOES THROUGH, AND THE LIST ANSWERS FOR ITSELF ----
