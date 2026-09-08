@@ -2601,7 +2601,7 @@ Answer with STRICT JSON and nothing else: "
 								<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'content_' . (string) $r['id'], '.dze-pr-prompt' ); } ?>
 							</p>
 							<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'content_' . (string) $r['id'] ); } ?>
-							<details class="dze-pr-inputs">
+							<details class="dze-pr-inputs dze-pr-datain">
 								<summary><?php printf( /* translators: %d: count */ esc_html__( 'Product data sent with it (%d)', 'dazont-ecom' ), count( $sel_in ) ); ?></summary>
 								<?php foreach ( $dze_inputs as $ik => $il ) : ?>
 									<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][<?php echo (int) $dze_ri; ?>][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, $sel_in, true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
@@ -2705,7 +2705,7 @@ Answer with STRICT JSON and nothing else: "
 							</label>
 						</p>
 						<textarea name="<?php echo esc_attr( $opt ); ?>[pr_prompt][__I__]" rows="8" class="large-text code dze-pr-prompt"></textarea>
-						<details class="dze-pr-inputs">
+						<details class="dze-pr-inputs dze-pr-datain">
 							<summary><?php esc_html_e( 'Product data sent with it', 'dazont-ecom' ); ?></summary>
 							<?php foreach ( $dze_inputs as $ik => $il ) : ?>
 								<label><input type="checkbox" name="<?php echo esc_attr( $opt ); ?>[pr_inputs][__I__][]" value="<?php echo esc_attr( $ik ); ?>" <?php checked( in_array( $ik, [ 'title', 'description' ], true ) ); ?> /> <?php echo esc_html( $il ); ?></label>
@@ -2715,7 +2715,12 @@ Answer with STRICT JSON and nothing else: "
 								<select class="dze-pr-metapick"><option value=""><?php esc_html_e( '— browse meta keys —', 'dazont-ecom' ); ?></option><?php foreach ( $dze_metakeys as $mk ) : ?><option value="<?php echo esc_attr( $mk ); ?>"><?php echo esc_html( $mk ); ?></option><?php endforeach; ?></select>
 								<button type="button" class="button button-small dze-pr-metaadd">&#43;</button>
 							</span>
-								<details class="dze-pr-inputs">
+						</details>
+						<!-- A SIBLING, not a child. This panel was opened inside
+						     the one above it and never closed it, so a prompt row
+						     added by "+ Add a prompt" carried the pairing fields
+						     folded inside "Product data sent with it". -->
+						<details class="dze-pr-inputs dze-pr-pair">
 							<summary><?php esc_html_e( 'Pair this text with one of the product photographs', 'dazont-ecom' ); ?></summary>
 							<input type="text" name="<?php echo esc_attr( $opt ); ?>[pr_imgmeta][__I__]" value="" placeholder="<?php esc_attr_e( 'e.g. _dze_bloc1_image', 'dazont-ecom' ); ?>" list="dze-metakeys" class="dze-pr-imgmeta" />
 							<textarea name="<?php echo esc_attr( $opt ); ?>[pr_imgrules][__I__]" rows="3" class="large-text code dze-pr-imgrules" placeholder="<?php echo esc_attr( self::default_feature_prompt() ); ?>"></textarea>
@@ -2754,15 +2759,21 @@ Answer with STRICT JSON and nothing else: "
 				// touched again: ticking a box changed nothing until the page
 				// had been saved AND reloaded, so the screen said five while
 				// the boxes under it said three.
+				// AND IT RENAMES ONLY THE PANEL IT IS ABOUT. `.dze-pr-inputs`
+				// is the wrapper every fold-away panel on a prompt card wears,
+				// so this wrote its own title over the one beside it too:
+				// "Illustrate this block with one of the product photographs"
+				// came back as a second "Product data sent with it (0)",
+				// printed straight under the real one.
 				var inputsLabel = <?php echo wp_json_encode( __( 'Product data sent with it (%d)', 'dazont-ecom' ) ); ?>;
 				function inputsCount( $d ) {
 					$d.children( 'summary' ).text(
 						inputsLabel.replace( '%d', $d.find( 'input[type=checkbox]:checked' ).length )
 					);
 				}
-				$( '.dze-pr-inputs' ).each( function () { inputsCount( $( this ) ); } );
-				$( document ).on( 'change', '.dze-pr-inputs input[type=checkbox]', function () {
-					inputsCount( $( this ).closest( '.dze-pr-inputs' ) );
+				$( '.dze-pr-datain' ).each( function () { inputsCount( $( this ) ); } );
+				$( document ).on( 'change', '.dze-pr-datain input[type=checkbox]', function () {
+					inputsCount( $( this ).closest( '.dze-pr-datain' ) );
 				} );
 				$( document ).on( 'click', '.dze-prb-toggle', function () {
 					var $b = $( this ).closest( '.dze-prb' );
@@ -4057,6 +4068,11 @@ Answer with STRICT JSON and nothing else: "
 			'note'       => $pid ? self::variation_note( $pid, self::NOTE_PRODUCT ) : '',
 			// Said before the click, not after a failed generation.
 			'blockers'   => self::image_blockers(),
+			// The product's own shortfalls, read by the popup wherever it was
+			// opened from. Gated on the module that owns the reading: switched
+			// off, the popup simply has no list, and asks for none.
+			'diagTodo'   => (int) ( class_exists( 'DZE_Diagnostic' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) ) ),
+			'diagNonce'  => class_exists( 'DZE_Diagnostic' ) ? wp_create_nonce( DZE_Diagnostic::NONCE ) : '',
 			// A rich editor for what is really HTML; a plain box for a title or
 			// a meta description, which TinyMCE would wrap in a <p>.
 			'rich'       => array_map(
@@ -4099,6 +4115,15 @@ Answer with STRICT JSON and nothing else: "
 				'image'      => __( 'Image', 'dazont-ecom' ),
 				'price'      => __( 'Price', 'dazont-ecom' ),
 				'close'      => __( 'Close', 'dazont-ecom' ),
+				'allTip'     => __( 'Tick every prompt in this block', 'dazont-ecom' ),
+				// The product's own shortfalls, printed at the top of the
+				// popup wherever it was opened from. The list used to arrive
+				// only with a press from the diagnostic, so the same product,
+				// opened from its own page, showed nothing at all.
+				'todoTitle'  => __( 'To do on this product', 'dazont-ecom' ),
+				'todoNone'   => __( 'Nothing is missing on this product.', 'dazont-ecom' ),
+				'todoArmed'  => __( 'ready below', 'dazont-ecom' ),
+				'todoOpen'   => __( 'Lay this one out', 'dazont-ecom' ),
 				// Opened from the products list or from a diagnostic line, the
 				// product itself is nowhere on the screen — and some of the
 				// work belongs there: a photograph brought in from outside,

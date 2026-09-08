@@ -85,7 +85,12 @@ const cfg = {
 		{ id: 'detail', name: 'Detail shot',   target: 'gallery', valid: 1 },
 		{ id: 'scene',  name: 'Scene, in use', target: 'gallery', valid: 1 }
 	],
+	diagTodo: 1,
+	diagNonce: 'n0nce',
 	i18n: { toolbox: 'Dazont Ecom', close: 'Close', text: 'Text', image: 'Photographs',
+		allTip: 'Tick every prompt in this block',
+		todoTitle: 'To do on this product', todoNone: 'Nothing is missing on this product.',
+		todoOpen: 'Lay this one out',
 		price: 'Price', launch: 'Generate', discard: 'Discard', applyOne: 'Apply',
 		genImgOpt: 'Make photographs', template: 'Prompt', scene: 'Scene', attempts: 'How many',
 		putIt: 'Put it', addPrompt: 'Add', delPrompt: 'Remove', notValid: 'not validated',
@@ -149,6 +154,23 @@ for ( const [ label, jq ] of jqs ) {
 			return json( { url: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
 				target: 'gallery', spend: {} } );
 		}
+		// WHAT THIS PRODUCT IS SHORT OF, asked by the popup wherever it was
+		// opened from. It used to arrive only with the press from a diagnostic
+		// line, so the same product opened from its own page showed nothing.
+		if ( 'dze_diag_todo' === sent.action ) {
+			return json( { rows: '901' === String( sent.post ) ? [
+				{ check: 'prod_gallery', said: 'Gallery photographs — 0 of 3',
+					want: { section: 'img', field: '', check: 'prod_gallery',
+						shots: [ { tpl: 1, n: 1, target: 'gallery' }, { tpl: 2, n: 1, target: 'gallery' }, { tpl: 1, n: 1, target: 'gallery' } ],
+						why: 'Gallery photographs — 0 of 3' } },
+				{ check: 'prod_desc', said: 'Description — 84 of 120 words',
+					want: { section: 'text', field: 'f_post_content', check: 'prod_desc', shots: [], why: 'Description — 84 of 120 words' } }
+			] : [
+				{ check: 'prod_gallery', said: 'Gallery photographs — 2 of 3',
+					want: { section: 'img', field: '', check: 'prod_gallery',
+						shots: [ { tpl: 1, n: 1, target: 'gallery' } ], why: 'Gallery photographs — 2 of 3' } }
+			] } );
+		}
 		// The row, judged again after the work landed on the product. Two
 		// answers, one per product: 901 is mended, 902 is mended by half.
 		if ( 'dze_diag_judge' === sent.action ) {
@@ -199,8 +221,10 @@ for ( const [ label, jq ] of jqs ) {
 
 	// 1. NOTHING WAS GENERATED. The press opens a popup; it does not spend a
 	//    penny, and it does not queue anything anywhere.
+	// Two reads are not a generation: who the product is, and what it is short
+	// of. Anything else on this press would be work nobody asked for.
 	ok( 'the press generates nothing',
-		posts.map( p => p.action ).filter( a => 'dze_content_current' !== a ), [] );
+		posts.map( p => p.action ).filter( a => 'dze_content_current' !== a && 'dze_diag_todo' !== a ), [] );
 	// 2. AND NOTHING NAVIGATED. The old button answered by replacing the row
 	//    with a link to a bulk list nobody had asked to go to.
 	ok( 'and the shop stays on its list',   page.url(), 'http://dze.test/' );
@@ -255,15 +279,18 @@ for ( const [ label, jq ] of jqs ) {
 	// 5d. THE COUNT ON A SECTION IS WHAT THE RUN WILL DO. "Keep the product's
 	//     own photograph as the subject" is an OPTION of the run, not one of
 	//     the things it runs, and it made the images section read 1 / 2.
-	ok( 'the section counts one thing to do',
-		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '1 / 1' );
+	// WHAT THE BLOCK WILL DO, in its own heading: three photographs, because
+	// three rows are laid out. It used to count the checkboxes in the body and
+	// say "1 / 1" however many were laid out under it.
+	ok( 'the section counts the photographs it will make',
+		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '3 / 3' );
 	// It lives inside "Photographs from elsewhere", which is shut: open it
 	// the way somebody would before ticking the box.
 	await page.evaluate( () => { document.querySelector( '#dze-cx-modal .dze-cx-else' ).open = true; } );
 	await page.check( '#dze-cx-basemain' );
 	await page.waitForTimeout( 150 );
 	ok( 'and an option does not add to it',
-		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '1 / 1' );
+		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '3 / 3' );
 	await page.uncheck( '#dze-cx-basemain' );
 	// 5e. THE PROMPT BUTTON OPENS THE PROMPT. It was drawn on this screen and
 	//     the popup it opens was not on the page at all, so pressing it did
@@ -275,17 +302,84 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and pressing it opens one',         await page.locator( '#dze-prompt-modal.is-open' ).count(), 1 );
 	await page.click( '#dze-prompt-modal .dze-hub-close' );
 
-	// 6. And the popup SAYS WHERE THIS PRODUCT STANDS, in the same words its
-	//    own row uses — never the criterion's name, which is about the whole
-	//    shop: "il faut afficher le diagnostic exact dans le même format que
-	//    la liste produit."
-	ok( 'the popup says where the product stands',
-		( await page.textContent( '#dze-cx-why' ) ).includes( 'Gallery photographs — 0 of 3 photographs.' ), true );
-	ok( 'in the same words as its own row',
-		( await page.textContent( '#dze-cx-why' ) ).includes(
-			( await page.textContent( 'tr[data-id="901"] .dze-diag-short' ) ).replace( '—', '' ).trim() ), true );
-	ok( 'and then what it laid out',
-		( await page.textContent( '#dze-cx-why' ) ).includes( '3 prompts are laid out below' ), true );
+	// 6. AND THE POPUP CARRIES THE PRODUCT'S WHOLE TO-DO LIST, not only the
+	//    line that opened it: the reading belongs to the product, and this
+	//    popup opens from three screens.
+	// A list that never arrives is a popup that says nothing, so the wait is
+	// bounded and reported rather than left to kill the run with a timeout.
+	ok( 'the popup asks what this product is short of',
+		await page.waitForSelector( '#dze-cx-todo .dze-cx-todoline', { timeout: 4000 } ).then( () => true ).catch( () => false ), true );
+	ok( 'every shortfall of the product is named',
+		await page.locator( '#dze-cx-todo .dze-cx-todoline' ).count(), 2 );
+	ok( 'each in one line, with the figures',
+		( await page.textContent( '#dze-cx-todo' ) ).includes( 'Gallery photographs — 0 of 3' ), true );
+	ok( 'and the unit is not said twice',
+		( await page.textContent( '#dze-cx-todo' ) ).includes( '0 of 3 photographs' ), false );
+	// A PARAGRAPH IS NOT A TO-DO LIST. It read "Gallery photographs — 3 of 5
+	// photographs. 2 prompts are laid out below; change them, add another,
+	// then generate." — two sentences explaining the screen in front of you.
+	ok( 'nothing explains the screen to itself',
+		( await page.textContent( '#dze-cx-todo' ) ).includes( 'laid out below' ), false );
+	// The line the popup opened FOR is marked, so an armed popup says which
+	// of the shortfalls it came up for.
+	ok( 'the line it opened on is marked',
+		await page.locator( '#dze-cx-todo .dze-cx-todoline.is-armed' ).count(), 1 );
+	ok( 'and it is the right one',
+		await page.getAttribute( '#dze-cx-todo .is-armed', 'data-check' ), 'prod_gallery' );
+
+	// 6b. A LINE LAYS ITSELF OUT, AND RUNS NOTHING. Pressing the other line
+	//     re-arms the popup for that one — the same gesture as the diagnostic
+	//     row's own button, with the same arming behind it.
+	const sentBefore = posts.length;
+	await page.click( '#dze-cx-todo .dze-cx-todoline[data-check="prod_desc"] .dze-cx-todogo' );
+	await page.waitForTimeout( 150 );
+	ok( 'pressing a line generates nothing', posts.length, sentBefore );
+	ok( 'it opens the block that line is about',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-cx-modal .dze-sec' ) )
+			.filter( s => s.classList.contains( 'is-open' ) ).map( s => s.getAttribute( 'data-sec' ) ) ), [ 'text' ] );
+	ok( 'and ticks its prompt, and only its prompt',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '.dze-cx-f:checked' ) ).map( c => c.value ) ),
+		[ 'f_post_content' ] );
+	ok( 'the photographs are let go of',     await page.isChecked( '#dze-cx-doimg' ), false );
+	ok( 'and the marked line moves with it',
+		await page.getAttribute( '#dze-cx-todo .is-armed', 'data-check' ), 'prod_desc' );
+
+	// 6c. ONE TICK PER BLOCK, IN THE BLOCK'S OWN TITLE. Images and price each
+	//     carried a second checkbox inside the body saying what the block it
+	//     sat in already said.
+	ok( 'the photographs block has one switch, in its heading',
+		await page.locator( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-head #dze-cx-doimg' ).count(), 1 );
+	ok( 'and none inside it',
+		await page.locator( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-body #dze-cx-doimg' ).count(), 0 );
+	ok( 'the price block the same',
+		await page.locator( '#dze-cx-modal .dze-sec[data-sec="price"] .dze-sec-head #dze-cx-doprice' ).count(), 1 );
+	ok( 'and none inside that either',
+		await page.locator( '#dze-cx-modal .dze-sec[data-sec="price"] .dze-sec-body #dze-cx-doprice' ).count(), 0 );
+	// THE TICK IS A SWITCH, NOT A WAY OF OPENING THE BLOCK. Pressing it must
+	// not fold the section shut under the hand that pressed it.
+	const priceOpen = await page.evaluate( () => document.querySelector( '#dze-cx-modal .dze-sec[data-sec="price"]' ).classList.contains( 'is-open' ) );
+	await page.check( '#dze-cx-doprice' );
+	ok( 'ticking a block does not fold it',
+		await page.evaluate( () => document.querySelector( '#dze-cx-modal .dze-sec[data-sec="price"]' ).classList.contains( 'is-open' ) ), priceOpen );
+	ok( 'and the block is on',               await page.isChecked( '#dze-cx-doprice' ), true );
+	await page.uncheck( '#dze-cx-doprice' );
+
+	// 6d. AND THE TEXT BLOCK'S TICK MEANS "ALL OF THEM" — a list of prompts
+	//     needs one gesture to take the lot.
+	await page.check( '#dze-cx-modal .dze-sec[data-sec="text"] .dze-sec-all' );
+	await page.waitForTimeout( 100 );
+	ok( 'ticking the block ticks every prompt in it',
+		await page.locator( '.dze-cx-f:checked' ).count(),
+		await page.locator( '.dze-cx-f' ).count() );
+	await page.uncheck( '#dze-cx-modal .dze-sec[data-sec="text"] .dze-sec-all' );
+	await page.waitForTimeout( 100 );
+	ok( 'and unticking it lets them all go', await page.locator( '.dze-cx-f:checked' ).count(), 0 );
+	// A BLOCK HALF TICKED SAYS SO rather than showing a bare tick that is not
+	// true of what is under it.
+	await page.check( '.dze-cx-f[value="f_post_content"]' );
+	await page.waitForTimeout( 100 );
+	ok( 'a block half ticked is neither on nor off',
+		await page.evaluate( () => document.querySelector( '#dze-cx-modal .dze-sec[data-sec="text"] .dze-sec-all' ).indeterminate ), true );
 
 	// The row next door is a different product with a different shortfall, and
 	// the popup is re-armed for it rather than keeping the last one's rows.
@@ -295,7 +389,11 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the next row lays out its own',    await page.locator( '#dze-cx-tplrows .dze-tplrow' ).count(), 1 );
 
 	ok( 'and says where that one stands',
-		( await page.textContent( '#dze-cx-why' ) ).includes( 'Gallery photographs — 2 of 3 photographs.' ), true );
+		( await page.textContent( '#dze-cx-todo' ) ).includes( 'Gallery photographs — 2 of 3' ), true );
+	// THE LIST BELONGS TO THE PRODUCT IN FRONT OF YOU. It is read again on
+	// every product the popup lands on, or it describes the last one.
+	ok( 'and only that product\'s shortfalls',
+		await page.locator( '#dze-cx-todo .dze-cx-todoline' ).count(), 1 );
 	await page.click( '.dze-cx-close' );
 
 	// ---- THE WORK GOES THROUGH, AND THE LIST ANSWERS FOR ITSELF ----

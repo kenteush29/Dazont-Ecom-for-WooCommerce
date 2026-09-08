@@ -1355,17 +1355,47 @@ ok( 'and every row aimed at the gallery',
 // uses. "Il faut afficher le diagnostic exact dans le même format que la
 // liste produit": the popup used to open on the CRITERION's name, which says
 // what the shop asks of everything and not what this one is holding.
+// AND THE UNIT IS SAID ONCE. "Gallery photographs — 0 of 3 photographs" says
+// photographs twice, and a to-do list is read at a glance or not at all.
 ok( 'the popup says where the product stands',
-	false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'Gallery photographs — 0 of 3 photographs.' ), true );
+	(string) ( $dze_w901['why'] ?? '' ), 'Gallery photographs — 0 of 3' );
 ok( 'in the same words as its row',
-	false !== strpos( (string) ( $dze_w902['why'] ?? '' ), 'Gallery photographs — 2 of 3 photographs.' ), true );
+	(string) ( $dze_w902['why'] ?? '' ), 'Gallery photographs — 2 of 3' );
+ok( 'and it names the criterion it opened on', (string) ( $dze_w901['check'] ?? '' ), 'prod_gallery' );
 // Never the criterion's own name, which is about the whole shop and not
 // about this product.
 ok( 'and never the rule about everything',
 	false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'is less than' ), false );
-// Then what was laid out, so the popup explains itself.
-ok( 'then what it laid out',            false !== strpos( (string) ( $dze_w901['why'] ?? '' ), '3 prompts are laid out below' ), true );
-ok( 'in the singular when it is one',   false !== strpos( (string) ( $dze_w902['why'] ?? '' ), 'One prompt is laid out below' ), true );
+// AND NOTHING ELSE. It used to add "3 prompts are laid out below; change
+// them, add another, then generate." — two more sentences explaining a screen
+// already in front of you, on a line meant to be read at a glance.
+ok( 'and nothing is explained twice',   false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'laid out below' ), false );
+
+echo "\nThe product's own to-do list, wherever the popup was opened from\n";
+// "Les recommandations qui viennent du diagnostic ne sont pas présentes quand
+// on y accède à partir de la page produit elle même." The reading belongs to
+// the PRODUCT, not to the screen that happened to open the popup: the same
+// answer whether the press came from a diagnostic row, the products list or
+// the product's own page.
+$dze_todo = DZE_Diagnostic::todo( 901 );
+ok( 'a product short of something has a line', count( $dze_todo ), 1 );
+ok( 'and the line says what and by how much',
+	(string) ( $dze_todo[0]['said'] ?? '' ), 'Gallery photographs — 0 of 3' );
+ok( 'carrying the criterion it came from', (string) ( $dze_todo[0]['check'] ?? '' ), 'prod_gallery' );
+// EACH LINE CAN LAY ITSELF OUT — the same arming the diagnostic row hands
+// over, so a line pressed here and a line pressed there open identically.
+ok( 'and the way to lay it out',        (string) ( $dze_todo[0]['want']['section'] ?? '' ), 'img' );
+ok( 'with a row per missing photograph', count( (array) ( $dze_todo[0]['want']['shots'] ?? [] ) ), 3 );
+$dze_todo2 = DZE_Diagnostic::todo( 902 );
+ok( 'a product short by less says so',  (string) ( $dze_todo2[0]['said'] ?? '' ), 'Gallery photographs — 2 of 3' );
+// A PRODUCT THAT FALLS SHORT OF NOTHING SAYS NOTHING. An empty list is a real
+// answer and the popup prints its own sentence for it.
+$GLOBALS['dze_posts'][903] = clone $GLOBALS['dze_posts'][901];
+$GLOBALS['dze_posts'][903]->ID = 903;
+$GLOBALS['dze_meta'][903]['_product_image_gallery'] = '1,2,3,4,5';
+ok( 'a product with its share has no line', DZE_Diagnostic::todo( 903 ), [] );
+// AND A PRODUCT THAT IS GONE IS NOT A PROBLEM.
+ok( 'a product that no longer exists has none', DZE_Diagnostic::todo( 99999 ), [] );
 
 // A PAGE OF ROWS, handed to the bulk screen the shop already generates from.
 ok( 'the list can be ticked',           substr_count( $dze_gal_html, 'class="dze-diag-one"' ), 2 );

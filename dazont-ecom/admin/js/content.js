@@ -260,12 +260,23 @@
 
 	// One shut section per kind of work: a title you click, a caret, a body.
 	// Which ones you left open is remembered, because a habit is a habit.
-	function sec(id, title, openByDefault, body) {
+	// ONE TICK PER BLOCK, AND IT LIVES IN THE BLOCK'S OWN TITLE. Images and
+	// price each carried a second checkbox inside the body saying the same
+	// thing as the section it was in — "sur le bloc image et prix, ça n'a pas
+	// de sens d'avoir un double bouton". So the switch moved up into the
+	// heading, where it is the block's one control; on the text block the same
+	// tick means "all of them", which is what a list of nine prompts needs.
+	function sec(id, title, openByDefault, body, tick) {
 		var m = mem();
 		var open = (m.sec && m.sec[id] !== undefined) ? !!m.sec[id] : !!openByDefault;
+		var box = tick
+			? '<label class="dze-sec-tick" title="' + esc(tick.tip || '') + '">' +
+				'<input type="checkbox"' + (tick.id ? ' id="' + tick.id + '"' : '') +
+				(tick.all ? ' class="dze-sec-all"' : '') + (tick.on ? ' checked' : '') + ' /></label>'
+			: '';
 		return '<section class="dze-sec' + (open ? ' is-open' : '') + '" data-sec="' + id + '">' +
 			'<h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-				'<span class="dze-sec-caret">' + (open ? '▾' : '▸') + '</span>' + esc(title) +
+				'<span class="dze-sec-caret">' + (open ? '▾' : '▸') + '</span>' + box + esc(title) +
 				'<span class="dze-sec-count"></span>' +
 			'</h3>' +
 			'<div class="dze-sec-body"' + (open ? '' : ' style="display:none;"') + '>' + body + '</div>' +
@@ -366,7 +377,12 @@
 				// it FOR a reason — a diagnostic line saying this product is
 				// two photographs short. Empty and hidden otherwise: the
 				// product screen's own button has nothing to explain.
-				'<p class="dze-cx-why" id="dze-cx-why" style="display:none;"></p>' +
+				// WHAT THIS PRODUCT IS SHORT OF, wherever the popup was opened
+				// from. It used to arrive only with a press from a diagnostic
+				// line, so the same product opened from its own page showed
+				// nothing at all. One line per shortfall, and pressing a line
+				// lays that one out below.
+				'<div class="dze-cx-todo" id="dze-cx-todo" style="display:none;"></div>' +
 				blockers +
 				// Grouped by KIND, one shut section each: text with text, images
 				// with images, price on its own. Everything open at once is how
@@ -375,7 +391,8 @@
 
 					// ---- TEXT ----
 					sec('text', i18n.text, true,
-						'<div class="dze-cb-checks is-col">' + checks + '</div>'
+						'<div class="dze-cb-checks is-col">' + checks + '</div>',
+						{ all: true, tip: i18n.allTip }
 					) +
 
 					// ---- IMAGES ---- the main image lane and the extra shots
@@ -387,8 +404,6 @@
 						'<div class="dze-cb-nowshots" id="dze-cx-nowshots"></div>' +
 						(cfg.templates.length ?
 						'<div class="dze-cb-sub">' +
-							'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doimg"' + (au.img ? ' checked' : '') + ' />' +
-							'<span>' + esc(i18n.genImgOpt) + '</span></label>' +
 							'<div class="dze-cb-opts">' +
 								'<div class="dze-tplgrid' + ((cfg.scenes || []).length ? '' : ' has-noscene') + '">' + tplHead() +
 									'<span class="dze-tplrows" id="dze-cx-tplrows"></span>' +
@@ -415,7 +430,8 @@
 									'<span class="dze-one-notestate"></span>' +
 								'</details>' +
 							'</div>' +
-						'</div>' : '')
+						'</div>' : ''),
+						cfg.templates.length ? { id: 'dze-cx-doimg', on: !!au.img, tip: i18n.genImgOpt } : null
 					) +
 
 					// ---- VARIATIONS ---- one image per colour, written to every
@@ -432,8 +448,6 @@
 					// it does it: the table it reads, and every variation it
 					// would rewrite, with the figures.
 					sec('price', i18n.price, false,
-						'<label class="dze-cb-check"><input type="checkbox" id="dze-cx-doprice"' + (au.price ? ' checked' : '') + ' />' +
-						'<span>' + esc(i18n.priceOpt) + '</span></label>' +
 						'<div class="dze-cb-opts"><label><span>' + esc(i18n.costLabel) + '</span>' +
 						'<input type="number" step="0.01" id="dze-cx-cost" value="' + esc(cfg.product.price) + '" /></label>' +
 						'<button type="button" class="button button-small" id="dze-cx-pricepv">' + esc(i18n.pricePreview) + '</button>' +
@@ -441,7 +455,8 @@
 						// used — not hunted for in a settings tab.
 						(cfg.priceUrl ? '<a class="dze-cx-priceedit" href="' + esc(cfg.priceUrl) + '" target="_blank" rel="noopener">' + esc(i18n.pvEdit) + ' →</a>' : '') +
 						'</div>' +
-						'<div class="dze-cx-pricebox" id="dze-cx-pricebox" style="display:none;"></div>'
+						'<div class="dze-cx-pricebox" id="dze-cx-pricebox" style="display:none;"></div>',
+						{ id: 'dze-cx-doprice', on: !!au.price, tip: i18n.priceOpt }
 					) +
 
 					'<p class="dze-cb-actions">' +
@@ -498,7 +513,7 @@
 	var OPENED_FOR = null;
 	function arm(want) {
 		OPENED_FOR = ( want && want.section ) ? want : null;
-		if (!want || !want.section) { $('#dze-cx-why').hide().empty(); return; }
+		if (!want || !want.section) { markTodo(''); return; }
 		$('#dze-cx-modal .dze-sec').each(function () {
 			toggleSec($(this), $(this).data('sec') === want.section);
 		});
@@ -522,8 +537,53 @@
 			});
 			syncTplRows();
 		}
-		if (want.why) { $('#dze-cx-why').text(want.why).show(); } else { $('#dze-cx-why').hide().empty(); }
+		// The line this popup opened on is marked in the list, so a popup that
+		// came up armed says WHICH of the product's shortfalls it came up for.
+		markTodo(want.check || '');
 	}
+
+	// ---- The product's own to-do list -------------------------------------
+	// Read from the server for the product the popup is on, whoever opened it.
+	// Every line says what is short and by how much — the sentence the problem
+	// list prints on its own rows — and carries the arming that lays it out.
+	var TODO = [];
+	function markTodo(check) {
+		$('#dze-cx-todo .dze-cx-todoline').each(function () {
+			$(this).toggleClass('is-armed', !!check && $(this).data('check') === check);
+		});
+	}
+	function drawTodo(rows) {
+		TODO = rows || [];
+		var $box = $('#dze-cx-todo');
+		if (!$box.length) { return; }
+		if (!TODO.length) {
+			$box.html('<p class="dze-cx-todonone">' + esc(i18n.todoNone) + '</p>').show();
+			return;
+		}
+		$box.html(
+			'<p class="dze-cx-todohead">' + esc(i18n.todoTitle) + '</p>' +
+			'<ul class="dze-cx-todolist">' + TODO.map(function (one, i) {
+				var can = one.want && one.want.section;
+				return '<li class="dze-cx-todoline" data-check="' + esc(one.check) + '" data-i="' + i + '">' +
+					'<span class="dze-cx-todosaid">' + esc(one.said) + '</span>' +
+					(can ? '<button type="button" class="button-link dze-cx-todogo">' + esc(i18n.todoOpen) + '</button>' : '') +
+				'</li>';
+			}).join('') + '</ul>'
+		).show();
+		markTodo(OPENED_FOR ? (OPENED_FOR.check || '') : '');
+	}
+	function loadTodo() {
+		if (!PID || !cfg.diagTodo) { return; }
+		$.post(cfg.ajaxUrl, { action: 'dze_diag_todo', nonce: cfg.diagNonce, post: PID })
+			.done(function (r) { if (r && r.success) { drawTodo(r.data.rows); } })
+			.fail(function () { $('#dze-cx-todo').hide().empty(); });
+	}
+	// A LINE LAYS ITSELF OUT; IT RUNS NOTHING. Same gesture as the diagnostic's
+	// own button, and the same arming behind it.
+	$(document).on('click', '.dze-cx-todogo', function () {
+		var one = TODO[parseInt($(this).closest('.dze-cx-todoline').data('i'), 10)];
+		if (one && one.want) { arm(one.want); }
+	});
 
 	// The link in the head, pointed at the product the popup is on. Hidden
 	// when the server did not give one — a link to "#" is a broken promise.
@@ -562,6 +622,7 @@
 				if (cur.cost) { $('#dze-cx-cost').val(cur.cost); }
 				drawCurrentImages();
 				markWritten(cur.texts);
+				loadTodo();
 				if (cur.pending && (Object.keys(cur.pending.texts || {}).length || (cur.pending.shots || []).length)) {
 					hydrate(cur.pending);
 				}
@@ -576,6 +637,7 @@
 			productLink(cur);
 			drawCurrentImages();
 			markWritten(cur.texts);
+			loadTodo();
 			cfg.note = cur.note || '';
 			$('#dze-one-note, #dze-cx-note').val(cfg.note);
 			$('#dze-cx-notewrap').prop('open', !!cfg.note.trim());

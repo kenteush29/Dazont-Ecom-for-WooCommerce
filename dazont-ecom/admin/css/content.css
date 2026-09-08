@@ -551,6 +551,11 @@
 .dze-sec-head:hover { background: #f6f7f7; border-radius: 6px; }
 .dze-sec-head:focus-visible { outline: 2px solid #2271b1; outline-offset: -2px; }
 .dze-sec-caret { color: #a7aaad; font-size: 11px; width: 10px; }
+/* The block's own switch, in its heading. It has to be big enough to press
+   without hitting the heading behind it, and its own cursor says it is a
+   control rather than part of the title. */
+.dze-sec-tick { display: inline-flex; align-items: center; margin: 0; padding: 2px; cursor: default; }
+.dze-sec-tick input { margin: 0; }
 .dze-sec-body { padding: 4px 14px 14px; }
 /* One line per field, ticks aligned: a wrapped grid of checkboxes reads as a
    wall, and you cannot scan what is on and what is off. */
@@ -1341,13 +1346,26 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    diagnostic line: "gallery photographs is less than 3 — 2 photographs
    short"). Hidden on the product screen, whose own button opens it for no
    reason but the owner's. */
-.dze-cx-why {
-	margin: 0 0 10px;
+/* What the product is short of, at the top of the popup, wherever it was
+   opened from. A to-do list: one line per shortfall, the figure on the left,
+   the way to lay it out on the right. The paragraph it replaced explained the
+   screen you are already looking at. */
+.dze-cx-todo {
+	margin: 0 0 12px;
 	padding: 8px 10px;
 	border-left: 4px solid #2271b1;
 	background: #f0f6fc;
-	font-weight: 600;
 }
+.dze-cx-todohead { margin: 0 0 4px; font-weight: 600; }
+.dze-cx-todonone { margin: 0; color: #50575e; }
+.dze-cx-todolist { margin: 0; list-style: none; }
+.dze-cx-todoline {
+	display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 2px 0;
+}
+.dze-cx-todosaid { flex: 1 1 auto; min-width: 0; }
+.dze-cx-todoline.is-armed .dze-cx-todosaid { font-weight: 600; }
+.dze-cx-todoline.is-armed .dze-cx-todogo { display: none; }
+.dze-cx-todogo { flex: 0 0 auto; }
 
 /* The way to the product, in the toolbox head: beside the title it names,
    never competing with Close. */
