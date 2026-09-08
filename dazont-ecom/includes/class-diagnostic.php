@@ -2151,7 +2151,10 @@ final class DZE_Diagnostic {
 		// "Content" and not "Content diagnostic": the screen holds the reading,
 		// the work and the decisions now, and a menu named after one of the
 		// three is a menu the other two are hidden behind.
-		$label   = __( 'Content', 'dazont-ecom' );
+		// "Content" alone said nothing about what the screen is for: this page
+		// READS the shop against the standards the shop set, and the reading is
+		// what everything on it hangs off. Its own name is what belongs here.
+		$label   = __( 'Content diagnostic', 'dazont-ecom' );
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			$label,
@@ -2264,10 +2267,32 @@ final class DZE_Diagnostic {
 				'n'     => self::waiting(),
 			],
 		];
+		if ( class_exists( 'DZE_Mesh' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'mesh' ) ) ) {
+			$census = DZE_Mesh::census();
+			$out['linking'] = [
+				'label' => __( 'Linking', 'dazont-ecom' ),
+				'n'     => (int) ( $census['counts']['short'] ?? 0 ),
+			];
+		}
 		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
 			$out['review'] = [
 				'label' => __( 'To review', 'dazont-ecom' ),
-				'n'     => DZE_Queue::review_count() + DZE_Queue::bulk_waiting(),
+				'n'     => DZE_Queue::review_count(),
+			];
+		}
+		// THE PRODUCT HALF IS A TAB, NOT A NOTICE. It was a blue box INSIDE
+		// the review screen saying three products were waiting somewhere else
+		// and offering to go there — read from the chair of somebody already
+		// standing on "what is waiting for me?", that is the screen telling
+		// you to go and find the screen you are on. Products are decided where
+		// a photograph can be looked at, which is their own screen; it is
+		// reached the way every other view here is reached, from the tab
+		// strip, with its own count beside it.
+		if ( class_exists( 'DZE_Content' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'content' ) ) ) {
+			$out['products'] = [
+				'label' => __( 'Products', 'dazont-ecom' ),
+				'n'     => class_exists( 'DZE_Queue' ) ? DZE_Queue::bulk_waiting() : 0,
+				'url'   => DZE_Content::bulk_url(),
 			];
 		}
 		return $out;
@@ -2278,7 +2303,10 @@ final class DZE_Diagnostic {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$want = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 		$tabs = self::tabs();
-		return isset( $tabs[ $want ] ) ? $want : 'diagnostic';
+		// A tab that carries an address of its own is a way OUT of this page,
+		// never a view of it: landing on it would draw the reading under a
+		// heading that says Products.
+		return ( isset( $tabs[ $want ] ) && empty( $tabs[ $want ]['url'] ) ) ? $want : 'diagnostic';
 	}
 
 	public function render_page(): void {
@@ -2289,21 +2317,25 @@ final class DZE_Diagnostic {
 		$tab   = self::tab_now();
 		$tabs  = self::tabs();
 		echo '<div class="wrap dze-wrap">';
-		echo '<h1>' . esc_html__( 'Content', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html__( 'Content diagnostic', 'dazont-ecom' ) . '</h1>';
 		if ( count( $tabs ) > 1 ) {
 			echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
 			foreach ( $tabs as $id => $one ) {
 				printf(
 					'<a class="nav-tab%1$s" href="%2$s">%3$s <span class="dze-tab-n">%4$s</span></a>',
 					$tab === $id ? ' nav-tab-active' : '',
-					esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ),
+					esc_url( (string) ( $one['url'] ?? add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ) ),
 					esc_html( $one['label'] ),
 					esc_html( number_format_i18n( (int) $one['n'] ) )
 				);
 			}
 			echo '</h2>';
 		}
-		if ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
+		if ( 'linking' === $tab && class_exists( 'DZE_Mesh' ) ) {
+			// The body belongs to the module that owns that work, like every
+			// other tab here: one function, printed by whoever shows it.
+			DZE_Mesh::instance()->render_tab();
+		} elseif ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
 			// The body belongs to the module that owns that work: one body,
 			// printed here and on its own page alike, never two screens that
 			// have to be kept in step.

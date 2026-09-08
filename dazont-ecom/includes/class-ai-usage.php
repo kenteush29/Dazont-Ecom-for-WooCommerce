@@ -202,6 +202,7 @@ final class DZE_Ai_Usage {
 		return [
 			'cat_desc'    => __( 'Category description', 'dazont-ecom' ),
 			'cat_links'   => __( 'Internal linking pass', 'dazont-ecom' ),
+			'mesh_pick'   => __( 'Internal linking: which pages belong together', 'dazont-ecom' ),
 			'cat_sift'    => __( 'Buyer-question sifting', 'dazont-ecom' ),
 			'product_text'=> __( 'Product texts (one run)', 'dazont-ecom' ),
 			'product_img' => __( 'Product image', 'dazont-ecom' ),

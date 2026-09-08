@@ -70,7 +70,12 @@ function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d
 function wp_next_scheduled( $h ) { return 0; }
 function wp_schedule_event() {} function wp_clear_scheduled_hook( $h ) {}
 function delete_metadata( ...$a ) { return true; }
-function get_term( $id, $tax = '' ) { return null; }
+function get_term( $id, $tax = '' ) {
+	return isset( $GLOBALS['terms'][ (int) $id ] )
+		? (object) [ 'term_id' => (int) $id, 'description' => (string) $GLOBALS['terms'][ (int) $id ] ]
+		: null;
+}
+function update_term_meta( ...$a ) { return true; }
 function get_post( $id = 0 ) { return null; }
 function wp_kses_post( $s ) { return (string) $s; }
 // Accepting a category description WRITES it: the harness records the write
@@ -105,6 +110,26 @@ function get_userdata( $id ) {
 }
 function wp_safe_redirect( $to, $status = 302 ) { $GLOBALS['went'] = (string) $to; throw new DZE_Went( 'went' ); }
 class DZE_Went extends Exception {}
+/**
+ * The two linking passes, standing in for the writing. What is asked of them
+ * is the whole point: a job carries the pages that were PICKED, and a pass
+ * that is not handed them writes whatever it would have written anyway.
+ */
+class DZE_Post_Links {
+	public static array $asked = [];
+	public static function add_links( int $post_id, array $only = [] ): string {
+		self::$asked[] = [ 'id' => $post_id, 'only' => $only ];
+		return '<p>linked</p>';
+	}
+}
+class DZE_Category_Content {
+	public const GEN_META = '_dze_desc_generated';
+	public static array $asked = [];
+	public static function add_links( int $term_id, string $html, array $only = [] ): array {
+		self::$asked[] = [ 'id' => $term_id, 'only' => $only ];
+		return [ 'html' => '<p>linked</p>' ];
+	}
+}
 /** The product half of "what is waiting for me", which lives in its own store. */
 class DZE_Content {
 	const BULK_SLUG = 'dazont-content-bulk';
@@ -312,12 +337,14 @@ DZE_Queue::instance()->render();
 $dze_page = (string) ob_get_clean();
 ok( 'the page is named for what it holds',
 	false !== strpos( $dze_page, '<h1>Content to review</h1>' ), true );
-ok( 'and names the products waiting elsewhere',
-	false !== strpos( $dze_page, '2 products are holding content nobody has decided on' ), true );
-// A CONTROL IS TESTED ON ITS DESTINATION. It goes to the screen that owns
-// that decision — never to a settings page, and never nowhere.
-ok( 'with a way straight to them',
-	false !== strpos( $dze_page, DZE_Content::bulk_url() ), true );
+// AND IT DOES NOT SEND YOU LOOKING FOR THE SCREEN YOU ARE ON. A blue box
+// inside this screen announced that products were waiting somewhere else and
+// offered to take you there — read from the chair of somebody who came here
+// asking "what is waiting for me?", that is the screen describing itself
+// instead of showing the work. Products are a TAB of the Content diagnostic,
+// beside this one, with their own count.
+ok( 'nothing here points at another waiting list',
+	false !== strpos( $dze_page, 'holding content nobody has decided on' ), false );
 $GLOBALS['bulk_pending'] = 0;
 ob_start();
 DZE_Queue::instance()->render();
@@ -388,6 +415,27 @@ try { DZE_Queue::instance()->ajax_bulk(); } catch ( DZE_Json_Sent $e ) { /* the 
 ok( 'and a bulk acceptance',            (int) ( ( $GLOBALS['wpdb']->updates[0]['data']['decided_by'] ?? -1 ) ), 7 );
 $_POST = [];
 $GLOBALS['uid'] = 0;
+
+echo "A job carries the pages that were picked, and hands them on\n";
+// THE SEAM THAT WAS BLIND. The Linking screen asks for the ONE link the mesh
+// is short of; the job carried it and the pass was called without it, so the
+// article was linked to whatever it would have chosen on its own and every
+// screen said the work was done.
+$dze_pay = [ 'urls' => [ 'https://shop.test/category/boonie-hats/' ] ];
+DZE_Queue::produce( 'post_links', 77, $dze_pay );
+ok( 'the article pass is given the picked page',
+	DZE_Post_Links::$asked[0]['only'], [ 'https://shop.test/category/boonie-hats/' ] );
+$dze_pay2 = [ 'urls' => [ 'https://shop.test/blog/12/' ] ];
+$GLOBALS['terms'][88] = '<p>A description.</p>';
+DZE_Queue::produce( 'cat_links', 88, $dze_pay2 );
+ok( 'and so is the category pass',
+	DZE_Category_Content::$asked[0]['only'], [ 'https://shop.test/blog/12/' ] );
+// A job with nothing picked is the ordinary pass, not a pass with an empty
+// list: those are different answers and only one of them writes anything.
+$dze_none = [];
+DZE_Queue::produce( 'post_links', 78, $dze_none );
+ok( 'a job that picked nothing says nothing',
+	DZE_Post_Links::$asked[1]['only'], [] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
