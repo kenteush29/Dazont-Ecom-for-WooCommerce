@@ -400,6 +400,23 @@ owner communicates in French.
   button was there and the popup was not on the page at all: pressing it did
   nothing and said nothing. Any screen that loads the toolbox loads what the
   toolbox opens.
+- **ONE IMAGE VIEWER, AND IT NEVER SHOWS THE WRONG PICTURE.** Thirteen screens
+  open `admin/js/hzoom.js` — the product photographs, the review popup, the
+  bulk screen, the paste box, the image lab, the explorer, the email pictures,
+  the GMC panel, the restock list — so one fault in it is a fault on all of
+  them. It set `src` on the visible `<img>` and moved the counter in the same
+  breath: a browser keeps painting the OLD photograph until the new one has
+  decoded, so the screen said "2 / 5" over picture 1 with nothing saying
+  anything was happening — "l'image précédente reste à l'écran". The rules:
+  the picture is loaded on a detached `Image()` FIRST and the visible one and
+  the counter change together; a click that overtakes another wins by sequence
+  number, never by answering last; a picture that cannot load says so instead
+  of leaving the previous one up; neighbours are fetched once the current one
+  is there, so walking back is instant. And Restock's own lightbox is gone:
+  two viewers is two things to fix, and that one never got the fixes.
+  `tools/js/zoom-gallery.mjs` serves the images SLOWLY on purpose — the fault
+  only exists while one is in flight, which is why no PHP test and no
+  `node --check` could ever see it.
 - **A CONTROL'S COLUMN IS MEASURED, not assumed.** The prompt button reads
   "✎ prompt" — the same word as every prompt in the plugin, because a lone
   pencil is a symbol you have to learn — and its grid column was 30px, sized
@@ -639,6 +656,9 @@ owner communicates in French.
   collapse the title column to one word per line, the two buttons sit
   together at the end of the cell, and nothing overflows the list. A CSS bug
   is invisible to every PHP test and to `node --check` alike.
+- **`node tools/js/zoom-gallery.mjs` must pass.** It walks the one image
+  viewer in a real browser with the pictures served slowly, which is the only
+  condition under which its faults exist.
 - **`node tools/js/klaviyo-open.mjs` and `node tools/js/diagnostic-card.mjs`
   must pass.** They open the real screens in a real browser, on BOTH the
   jQuery WordPress ships today and the jQuery 4 it will ship, click the

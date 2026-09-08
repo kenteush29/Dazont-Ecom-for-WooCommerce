@@ -84,17 +84,25 @@
 		});
 	});
 
-	// ---- Thumbnail lightbox (full image loaded only on click) ----
+	// ---- Thumbnails open in THE plugin's viewer, not a second one ----
+	//
+	// This screen had a lightbox of its own: one image, no arrows, no counter,
+	// and a blank box while the full photograph downloaded. Every other screen
+	// uses admin/js/hzoom.js, which says it is working, says when a picture
+	// cannot be loaded, and walks the row. Two viewers is two things to fix
+	// every time one of them is wrong — and this one never got the fixes.
 	$(document).on('click', '.dze-thumb, .dze-thumb-zoom', function () {
-		var full = $(this).closest('.dze-thumb-wrap').find('.dze-thumb').data('full');
-		if (!full) { return; }
-		$('body').append(
-			'<div class="dze-lightbox"><img src="' + full + '" alt="" /></div>'
-		);
-	});
-	$(document).on('click', '.dze-lightbox', function () { $(this).remove(); });
-	$(document).on('keydown', function (e) {
-		if (e.key === 'Escape') { $('.dze-lightbox').remove(); }
+		var $row = $(this).closest('tr');
+		var urls = [], me = String($(this).closest('.dze-thumb-wrap').find('.dze-thumb').data('full') || '');
+		if (!me) { return; }
+		// The whole ROW walks: a product and its variations are photographs of
+		// one thing, and looking at one means comparing it with its neighbours.
+		$row.find('.dze-thumb[data-full]').each(function () {
+			var u = String($(this).data('full') || '');
+			if (u && urls.indexOf(u) < 0) { urls.push(u); }
+		});
+		if (!window.dzeZoom) { return; }
+		window.dzeZoom.open(urls.length ? urls : [ me ], Math.max(0, urls.indexOf(me)));
 	});
 
 	// ---- Main-list select-all sync (WP renders #cb-select-all-1 / -2) ----

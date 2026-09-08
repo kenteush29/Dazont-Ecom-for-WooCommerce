@@ -27,23 +27,86 @@
 
 	var i18n = (window.dzeZoomI18n || {});
 	var list = [], at = 0, $box = null;
+	// Which picture the viewer is CURRENTLY fetching. A full-size photograph
+	// takes a moment to arrive, and clicking ‹ › faster than they load means
+	// several are in flight at once: without this, whichever answered last won
+	// — so a quick walk through six images could settle on the wrong one.
+	var wanted = 0;
+	// What has already arrived, so walking back and forth is instant and the
+	// spinner does not flash on a picture the browser already holds.
+	var ready = {};
 
 	function urlOf(img) { return $(img).data('full') || img.src || ''; }
 
+	/**
+	 * Shows the image at `at`, and NOTHING before it is actually there.
+	 *
+	 * It used to set src on the visible <img> and move the counter in the same
+	 * breath. The browser keeps painting the OLD photograph until the new one
+	 * has downloaded and decoded — a second or more on a 3 MB product shot —
+	 * so the screen said "2 / 5" over picture 1, with nothing to say anything
+	 * was happening. From the shop's chair that is a viewer that ignored the
+	 * click, or worse, a gallery holding the same picture twice.
+	 *
+	 * So: the picture is loaded on a detached image first, and the visible one
+	 * and the counter change TOGETHER, when it is there. Until then the viewer
+	 * says it is working; if it never arrives, it says that instead of leaving
+	 * the previous photograph up as though nothing were wrong.
+	 */
 	function draw() {
 		if (!$box) { return; }
-		$box.find('.dze-zoom-img').attr('src', list[at] || '');
-		$box.find('.dze-zoom-count').text((at + 1) + ' / ' + list.length);
+		var url = list[at] || '';
+		var mine = ++wanted;
 		$box.find('.dze-zoom-prev, .dze-zoom-next').toggle(list.length > 1);
+		$box.find('.dze-zoom-count').text(list.length ? (at + 1) + ' / ' + list.length : '');
+		if (!url) {
+			show('', false);
+			return;
+		}
+		// Already in hand: no spinner, no flicker, straight to the picture.
+		if (ready[url]) { show(url, false); return; }
+		// The counter has moved, so the OLD picture must not stay under it.
+		$box.addClass('is-loading').removeClass('is-broken');
+		$box.find('.dze-zoom-img').attr('src', '');
+		var img = new window.Image();
+		img.onload = function () {
+			ready[url] = 1;
+			if (mine !== wanted) { return; } // a later click won: this one is stale.
+			show(url, false);
+			ahead();
+		};
+		img.onerror = function () {
+			if (mine !== wanted) { return; }
+			show('', true);
+		};
+		img.src = url;
+	}
+	function show(url, broken) {
+		$box.removeClass('is-loading').toggleClass('is-broken', !!broken);
+		$box.find('.dze-zoom-img').attr('src', url || '');
+		$box.find('.dze-zoom-fail').text(broken ? (i18n.failed || 'This image could not be loaded.') : '');
+	}
+	/** The neighbours, fetched quietly once the current one is up. */
+	function ahead() {
+		if (list.length < 2) { return; }
+		[ (at + 1) % list.length, (at - 1 + list.length) % list.length ].forEach(function (i) {
+			var u = list[i];
+			if (!u || ready[u]) { return; }
+			var pre = new window.Image();
+			pre.onload = function () { ready[u] = 1; };
+			pre.src = u;
+		});
 	}
 	function open(urls, index) {
-		list = urls;
-		at   = Math.max(0, Math.min(index, urls.length - 1));
+		list = urls || [];
+		at   = Math.max(0, Math.min(index, list.length - 1));
 		if (!$box) {
 			$box = $('<div class="dze-zoom-back">' +
 				'<button type="button" class="dze-zoom-close" aria-label="' + (i18n.close || 'Close') + '">&times;</button>' +
 				'<button type="button" class="dze-zoom-prev" aria-label="' + (i18n.prev || 'Previous') + '">&#8249;</button>' +
 				'<img class="dze-zoom-img" alt="" />' +
+				'<span class="dze-zoom-spin" aria-hidden="true"></span>' +
+				'<span class="dze-zoom-fail"></span>' +
 				'<button type="button" class="dze-zoom-next" aria-label="' + (i18n.next || 'Next') + '">&#8250;</button>' +
 				'<span class="dze-zoom-count"></span>' +
 			'</div>').appendTo('body');
@@ -60,7 +123,14 @@
 		at = (at + d + list.length) % list.length;
 		draw();
 	}
-	function close() { if ($box) { $box.removeClass('is-open'); } }
+	function close() {
+		if (!$box) { return; }
+		// A picture still on its way must not appear over a shut viewer, nor
+		// under the next gallery opened.
+		wanted++;
+		$box.removeClass('is-open is-loading is-broken');
+		$box.find('.dze-zoom-img').attr('src', '');
+	}
 
 	$(document).on('keydown', function (e) {
 		if (!$box || !$box.hasClass('is-open')) { return; }

@@ -7723,6 +7723,7 @@ final class DZE_Klaviyo {
 			'close' => __( 'Close', 'dazont-ecom' ),
 			'prev'  => __( 'Previous image', 'dazont-ecom' ),
 			'next'  => __( 'Next image', 'dazont-ecom' ),
+			'failed' => __( 'This image could not be loaded.', 'dazont-ecom' ),
 		] );
 		wp_enqueue_script( 'dze-klaviyo', DZE_URL . 'admin/js/klaviyo.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-klaviyo', 'dzeKlav', [

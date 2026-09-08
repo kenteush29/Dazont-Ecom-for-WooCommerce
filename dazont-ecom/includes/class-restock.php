@@ -86,7 +86,19 @@ final class DZE_Restock {
 			return;
 		}
 		wp_enqueue_style( 'dze-admin', DZE_URL . 'admin/css/admin.css', [], DZE_VERSION );
-		wp_enqueue_script( 'dze-admin', DZE_URL . 'admin/js/restock.js', [ 'jquery' ], DZE_VERSION, true );
+		// ONE image viewer for the whole plugin. This screen used to carry a
+		// lightbox of its own — no arrows, no counter, and a blank box while
+		// the photograph downloaded.
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
+			'zoom'   => __( 'See this image full size', 'dazont-ecom' ),
+			'close'  => __( 'Close', 'dazont-ecom' ),
+			'prev'   => __( 'Previous image', 'dazont-ecom' ),
+			'next'   => __( 'Next image', 'dazont-ecom' ),
+			'failed' => __( 'This image could not be loaded.', 'dazont-ecom' ),
+		] );
+		wp_enqueue_script( 'dze-admin', DZE_URL . 'admin/js/restock.js', [ 'jquery', 'dze-hzoom' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-admin', 'dzeRestock', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),

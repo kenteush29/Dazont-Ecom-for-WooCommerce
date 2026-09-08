@@ -144,6 +144,7 @@ EOT;
 			'close' => __( 'Close', 'dazont-ecom' ),
 			'prev'  => __( 'Previous image', 'dazont-ecom' ),
 			'next'  => __( 'Next image', 'dazont-ecom' ),
+			'failed' => __( 'This image could not be loaded.', 'dazont-ecom' ),
 		] );
 		wp_enqueue_script( 'dze-explorer', DZE_URL . 'admin/js/explorer.js', [ 'jquery', 'dze-hzoom' ], DZE_VERSION, true );
 		wp_enqueue_script( 'dze-keywords', DZE_URL . 'admin/js/keywords.js', [ 'jquery', 'dze-explorer' ], DZE_VERSION, true );
