@@ -177,22 +177,11 @@
 	$(document).on('click', '.dze-hub-close', function () { $(this).closest('.dze-cx-modal').removeClass('is-open'); });
 	$(document).on('click', '#dze-cc-modal', function (e) { if (e.target === this) { $(this).removeClass('is-open'); } });
 
-	// Data / prompt / HTML panels stay collapsed until asked for.
+	// What this category is written FROM stays collapsed until asked for. The
+	// prompt itself is not here any more: reading it, changing it, saving it
+	// and putting the default back is what the prompt popup does everywhere
+	// else in this plugin, and two surfaces for one job drift apart.
 	$(document).on('click', '.dze-cc-dtoggle', function () { $(this).closest('.dze-cc-box').find('.dze-cc-data').toggle(); });
-	$(document).on('click', '.dze-cc-ptoggle', function () { $(this).closest('.dze-cc-box').find('.dze-cc-pwrap').toggle(); });
-	$(document).on('click', '.dze-cc-prestore', function () {
-		$(this).closest('.dze-cc-box').find('.dze-cc-ptext').val(i18n.defaultPrompt);
-	});
-	$(document).on('click', '.dze-cc-psave', function () {
-		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_cc_save_prompt', nonce: $box.data('nonce'), prompt: $box.find('.dze-cc-ptext').val() })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (res && res.success) { $btn.text(i18n.savedPrompt); setTimeout(function () { $btn.text('💾 ' + i18n.savePrompt); }, 1800); }
-				else { window.alert((res && res.data && res.data.message) || i18n.error); }
-			})
-			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
-	});
 
 	// ---- SEMrush import, straight from this panel ----
 	// Reuses the Sourcing Assistant endpoints: upload → column mapping → import.
@@ -342,8 +331,9 @@
 	// Nothing is written to the category before Save.
 	$(document).on('click', '.dze-cc-gen', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var $p = $box.find('.dze-cc-pwrap');
-		var prompt = $p.is(':visible') ? ($box.find('.dze-cc-ptext').val() || '') : '';
+		// The shop's own prompt, as it stands. It used to send whatever was in
+		// the inline editor if that editor happened to be open, so the same
+		// button ran two different instructions depending on a panel's state.
 		runJob($box, 'cat_desc', [], i18n.working, function (ok, html) {
 			$btn.prop('disabled', false);
 			if (!ok) { return; }
@@ -351,7 +341,7 @@
 			refreshLinks($box);
 			showDiff($box);
 			$box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko').text(i18n.review);
-		}, prompt);
+		});
 	});
 
 	// ---- Choosing the links before they are placed ----

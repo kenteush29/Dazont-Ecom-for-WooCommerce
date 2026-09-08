@@ -37,6 +37,15 @@ final class DZE_Category_Content {
 	 */
 	private const POOL_MAX = 30;
 
+	/**
+	 * How many candidates arrive already ticked.
+	 *
+	 * Everything above this is listed and unticked: a screen that opens with
+	 * thirty ticked boxes is a screen where nobody reads the boxes, and the
+	 * links placed are the ones nobody chose.
+	 */
+	private const TICK_MAX = 12;
+
 	private static ?self $instance = null;
 
 	public static function instance(): self {
@@ -68,7 +77,7 @@ final class DZE_Category_Content {
 		add_action( 'wp_ajax_dze_cc_links', [ $this, 'ajax_links' ] );
 		add_action( 'wp_ajax_dze_cc_diff', [ $this, 'ajax_diff' ] );
 		add_action( 'wp_ajax_dze_cc_apply', [ $this, 'ajax_apply' ] );
-		add_action( 'wp_ajax_dze_cc_save_prompt', [ $this, 'ajax_save_prompt' ] );
+
 	}
 
 	// =========================================================================
@@ -912,9 +921,10 @@ PROMPT;
 			do_action( 'wpml_switch_language', null );
 		}
 
-		// Only what is genuinely close is kept. A link is worth having when the
-		// reader would have looked for that page anyway; the rest is noise that
-		// costs the page some of its own weight.
+		// LISTED IS NOT TICKED. One word in common makes a page a candidate
+		// worth showing; it does not make it a link this category should
+		// carry. The pool keeps every candidate, and which of them are ticked
+		// is decided below, once the words have been weighed.
 		$pool = array_values( array_filter( $pool, static fn( array $p ): bool => ! empty( $p['close'] ) ) );
 
 		// How big a catalogue sits behind each category, so the ones that sell
@@ -960,6 +970,26 @@ PROMPT;
 			$near = static fn( $x ) => (float) $x['score'] + ( in_array( $x['kind'], [ 'sub-category', 'parent category' ], true ) ? 1 : 0 );
 			return [ $near( $b ), $b['products'] ] <=> [ $near( $a ), $a['products'] ];
 		} );
+
+		// WHAT IS TICKED, and it is not "everything listed". A press on "Add
+		// internal links only" from Large tactical backpacks arrived with
+		// thirty pages ticked, Tactical Sunglasses and Tactical Balaclavas
+		// among them — every page of a tactical shop shares the word
+		// "tactical", and one shared word was enough to tick a box. Ticked
+		// now: the branch, which belongs by construction, and the pages whose
+		// shared wording actually says something — weighed against the
+		// candidates themselves, so a word half of them carry weighs nothing.
+		$ticked = 0;
+		foreach ( $pool as $i => $row ) {
+			$branch = in_array( $row['kind'], [ 'sub-category', 'parent category' ], true );
+			$worth  = $branch || (float) $row['score'] > 0;
+			// And a ceiling, because a branch of forty is still forty links
+			// nobody chose. The rest stays listed, one tick away.
+			$pool[ $i ]['close'] = $worth && $ticked < self::TICK_MAX;
+			if ( $pool[ $i ]['close'] ) {
+				$ticked++;
+			}
+		}
 		// A ceiling on what travels to the model: the pass places a handful of
 		// links, and a list of three hundred addresses is noise it has to read
 		// past. Closest first means the ones cut are the ones nobody wanted.
@@ -1716,16 +1746,20 @@ PROMPT;
 						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
 					</button>
 				<?php endif; ?>
-				<button type="button" class="dze-cx-icon dze-cc-ptoggle" title="<?php esc_attr_e( 'Edit the prompt', 'dazont-ecom' ); ?>">&#9998;</button>
-				<button type="button" class="dze-cx-icon dze-cc-dtoggle" title="<?php esc_attr_e( 'See the queries and links used', 'dazont-ecom' ); ?>">&#9432;</button>
 				<?php
-				// Writing runs three passes; the first one is edited right here, the
-				// other two are only visible if we say so.
+				// FOUR CONTROLS, ONE VISUAL LANGUAGE. This row read as a lone
+				// pencil, a lone ⓘ, and two worded buttons — three ways of
+				// saying "look at something", and the pencil opened an inline
+				// editor while the words opened a popup. Writing a category
+				// runs three passes; each has its prompt, and every prompt in
+				// this plugin is read and edited in one place.
 				if ( class_exists( 'DZE_Prompts' ) ) {
+					DZE_Prompts::the_button( 'cat_desc', __( '✎ prompt', 'dazont-ecom' ) );
 					DZE_Prompts::the_button( 'cat_sift', __( '✎ questions', 'dazont-ecom' ) );
 					DZE_Prompts::the_button( 'cat_links', __( '✎ linking', 'dazont-ecom' ) );
 				}
 				?>
+				<button type="button" class="dze-prompt-peek dze-cc-dtoggle" title="<?php esc_attr_e( 'The queries and the pages this category is written from', 'dazont-ecom' ); ?>">&#9432; <?php esc_html_e( 'what it uses', 'dazont-ecom' ); ?></button>
 				<?php if ( $imp ) : ?>
 					<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
 				<?php endif; ?>
@@ -1835,14 +1869,12 @@ PROMPT;
 				</div>
 			</div>
 
-			<div class="dze-cc-pwrap" style="display:none;">
-				<textarea rows="10" class="large-text code dze-cc-ptext"><?php echo esc_textarea( self::prompt() ); ?></textarea>
-				<p class="description" style="margin:2px 0 10px;">
-					<?php esc_html_e( 'Used for the next run. Save to keep it.', 'dazont-ecom' ); ?>
-					<button type="button" class="button-link dze-cc-psave">&#128190; <?php esc_html_e( 'Save prompt', 'dazont-ecom' ); ?></button>
-					<button type="button" class="button-link dze-cc-prestore">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
-				</p>
-			</div>
+			<?php
+			// The inline prompt editor that used to live here is gone: reading
+			// a prompt, changing it, saving it and putting the default back is
+			// what the prompt popup does on every other screen of this plugin,
+			// and two surfaces for one job drift apart.
+			?>
 
 			<?php if ( $own ) : ?>
 				<?php // The WordPress editor holds the description: existing text now, generated text after a run. ?>
@@ -1935,6 +1967,15 @@ PROMPT;
 		}
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		wp_enqueue_editor(); // the panel edits the description in the WP editor.
+		// THE PANEL IS SERVED BY AJAX, AND `admin_footer` NEVER FIRES THERE.
+		// DZE_Prompts::button() asks for the popup by hooking admin_footer, so
+		// the buttons this panel draws — "✎ questions", "✎ linking" — arrived
+		// on a page holding neither the popup nor the handler that opens it:
+		// pressing them did nothing and said nothing, for months. Any screen
+		// the panel can open on prints what its buttons open, at page load.
+		if ( class_exists( 'DZE_Prompts' ) ) {
+			DZE_Prompts::print_assets();
+		}
 		wp_enqueue_script( 'dze-catcontent', DZE_URL . 'admin/js/category-content.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-catcontent', 'dzeCatContent', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
@@ -1989,9 +2030,6 @@ PROMPT;
 				'tooLong'     => __( 'Given up after five minutes without an answer. The run may still have finished on the server: reopen this panel to see. If it keeps happening, lower the Target length in Settings → Categories.', 'dazont-ecom' ),
 				'applied'     => __( 'Saved ✓', 'dazont-ecom' ),
 				'review'      => __( 'Draft ready — edit it if needed, then save.', 'dazont-ecom' ),
-				'savedPrompt' => __( 'Prompt saved ✓', 'dazont-ecom' ),
-				'savePrompt'  => __( 'Save prompt', 'dazont-ecom' ),
-				'defaultPrompt' => self::default_prompt(),
 			],
 		] );
 	}
@@ -2116,23 +2154,6 @@ PROMPT;
 		] );
 	}
 
-	public function ajax_save_prompt(): void {
-		check_ajax_referer( self::NONCE, 'nonce' );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
-		}
-		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
-		if ( '' === trim( $prompt ) ) {
-			wp_send_json_error( [ 'message' => __( 'Empty prompt.', 'dazont-ecom' ) ] );
-		}
-		$s           = self::get_settings();
-		$s['prompt'] = $prompt;
-		update_option( self::OPT, $s, false );
-		if ( self::prompt() !== $prompt ) {
-			wp_send_json_error( [ 'message' => __( 'The prompt was not persisted — use the Settings page instead.', 'dazont-ecom' ) ] );
-		}
-		wp_send_json_success( [ 'saved' => true ] );
-	}
 
 	// =========================================================================
 	// Settings tab

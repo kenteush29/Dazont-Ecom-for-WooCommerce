@@ -433,6 +433,20 @@ ok( 'and the pool is more than the two the branch gives', count( $pool ) > 2, tr
 // which on this shop says nothing; the one sharing "bag" is what the category
 // is actually about, and it comes first.
 ok( 'the rare shared word wins',        $names[0], 'Bag rain covers' );
+// LISTED IS NOT TICKED. A press on "Add internal links only" arrived with
+// thirty pages ticked — "Tactical Sunglasses", "Tactical Balaclavas" and
+// every other page of a tactical shop, because they all carry the word
+// "tactical" and one shared word was enough to tick a box.
+$ticked = array_values( array_filter( $pool, static fn( array $p ): bool => ! empty( $p['close'] ) ) );
+$names_t = wp_list_pluck( $ticked, 'label' );
+ok( 'the branch arrives ticked',        in_array( 'Tactical backpacks', $names_t, true ), true );
+ok( 'and so does a page sharing a word that says something',
+	in_array( 'Bag rain covers', $names_t, true ), true );
+ok( 'a page sharing only the shop\'s own word is listed',
+	in_array( 'Tactical helmets', $names, true ), true );
+ok( 'and it is NOT ticked',             in_array( 'Tactical helmets', $names_t, true ), false );
+ok( 'nothing is ticked beyond the ceiling', count( $ticked ) <= 12, true );
+
 // A CHOSEN TARGET IS A TARGET. The pool would never have offered Boonie hats
 // here — no shared word — and the whole Linking screen rests on being able to
 // ask for exactly the link the mesh is short of.
