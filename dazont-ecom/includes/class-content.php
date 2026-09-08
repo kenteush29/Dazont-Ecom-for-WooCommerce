@@ -3768,6 +3768,9 @@ Answer with STRICT JSON and nothing else: "
 			'close' => __( 'Close', 'dazont-ecom' ),
 			'prev'  => __( 'Previous image', 'dazont-ecom' ),
 			'next'  => __( 'Next image', 'dazont-ecom' ),
+			// Said when a photograph never arrives, so the viewer does not
+			// leave the previous one up as though nothing were wrong.
+			'failed' => __( 'This image could not be loaded.', 'dazont-ecom' ),
 		] );
 		// The toolbox and the bulk list draw their "see the prompt" buttons in
 		// JavaScript, so the modal has to be on the page before they exist.

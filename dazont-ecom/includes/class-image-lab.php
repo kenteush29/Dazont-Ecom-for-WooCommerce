@@ -66,6 +66,7 @@ final class DZE_Image_Lab {
 			'close' => __( 'Close', 'dazont-ecom' ),
 			'prev'  => __( 'Previous image', 'dazont-ecom' ),
 			'next'  => __( 'Next image', 'dazont-ecom' ),
+			'failed' => __( 'This image could not be loaded.', 'dazont-ecom' ),
 		] );
 		wp_enqueue_script( 'dze-image-lab', DZE_URL . 'admin/js/image-lab.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-image-lab', 'dzeLab', [

@@ -45,3 +45,20 @@
 .dze-zoom-prev { left: 18px; }
 .dze-zoom-next { right: 18px; }
 .dze-zoom-count { position: absolute; bottom: 18px; color: #fff; font-size: 13px; opacity: .8; }
+
+/* WHILE THE PICTURE IS ON ITS WAY. The viewer used to keep painting the
+   previous photograph until the new one had downloaded — the counter said
+   "2 / 5" over picture 1 and nothing said anything was happening. The image
+   is now emptied the moment the counter moves, and this is what stands in
+   its place. */
+.dze-zoom-spin { display: none; width: 42px; height: 42px; border-radius: 50%;
+	border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
+	animation: dze-zoom-turn .8s linear infinite; }
+.dze-zoom-back.is-loading .dze-zoom-spin { display: block; }
+.dze-zoom-back.is-loading .dze-zoom-img { display: none; }
+@keyframes dze-zoom-turn { to { transform: rotate(360deg); } }
+/* And when it never arrives: a sentence, not the previous photograph left up
+   as though nothing were wrong. */
+.dze-zoom-fail { display: none; color: #fff; font-size: 14px; max-width: 60vw; text-align: center; }
+.dze-zoom-back.is-broken .dze-zoom-fail { display: block; }
+.dze-zoom-back.is-broken .dze-zoom-img { display: none; }
