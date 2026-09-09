@@ -3469,7 +3469,24 @@ Answer with STRICT JSON and nothing else: "
 	 * `.dze-sec-all` is the same class the toolbox uses, so the same handler in
 	 * photos.js drives both — never a second one to keep in step.
 	 */
-	private static function sec_open( string $id, string $title, bool $open = true, bool $all = false ): void {
+	private static function sec_open( string $id, string $title, bool $open = true, array $tick = [] ): void {
+		// THE SAME MARKUP THE PRODUCT TOOLBOX BUILDS, field for field — a
+		// label wearing `.dze-sec-tick` around the block's own checkbox. The
+		// switch used to sit INSIDE the body here, so `countSec()` in
+		// photos.js — which reads the head tick to decide how many of a
+		// block's rows will run — found nothing and drew "0 / 2" over an
+		// Images block that was switched on with two prompts laid out.
+		$box = '';
+		if ( $tick ) {
+			$box = sprintf(
+				'<label class="dze-sec-tick" title="%1$s"><input type="checkbox"%2$s%3$s%4$s%5$s /></label>',
+				esc_attr( (string) ( $tick['tip'] ?? '' ) ),
+				isset( $tick['id'] ) ? ' id="' . esc_attr( (string) $tick['id'] ) . '"' : '',
+				! empty( $tick['all'] ) ? ' class="dze-sec-all"' : '',
+				! empty( $tick['on'] ) ? ' checked' : '',
+				! empty( $tick['disabled'] ) ? ' disabled' : ''
+			);
+		}
 		printf(
 			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%7$s%5$s<span class="dze-sec-count"></span></h3><div class="dze-sec-body"%6$s>',
 			$open ? ' is-open' : '',
@@ -3478,9 +3495,7 @@ Answer with STRICT JSON and nothing else: "
 			$open ? '▾' : '▸',
 			esc_html( $title ),
 			$open ? '' : ' style="display:none;"',
-			$all
-				? '<label class="dze-sec-tick" title="' . esc_attr__( 'Take or drop every one of them', 'dazont-ecom' ) . '"><input type="checkbox" class="dze-sec-all" /></label>'
-				: ''
+			$box // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
 		);
 	}
 	private static function sec_close(): void {
@@ -3743,7 +3758,7 @@ Answer with STRICT JSON and nothing else: "
 				<!-- Three blocks, one per kind of work, each with its own options
 				     next to it: the flat list of checkboxes and floating selects
 				     made it impossible to tell what belonged to what. -->
-				<?php self::sec_open( 'text', __( 'Texts', 'dazont-ecom' ), true, true ); ?>
+				<?php self::sec_open( 'text', __( 'Texts', 'dazont-ecom' ), true, [ 'all' => true, 'tip' => __( 'Tick every prompt in this block', 'dazont-ecom' ) ] ); ?>
 					<div class="dze-cb-checks is-col">
 						<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
 							<span class="dze-cb-checkline">
@@ -3758,11 +3773,7 @@ Answer with STRICT JSON and nothing else: "
 				<?php self::sec_close(); ?>
 
 				<?php if ( class_exists( 'DZE_Reviews' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'reviews' ) ) ) : ?>
-					<?php self::sec_open( 'reviews', __( 'Reviews', 'dazont-ecom' ), false ); ?>
-						<label class="dze-cb-check">
-							<input type="checkbox" id="dze-cb-reviews" />
-							<span><?php esc_html_e( 'Write customer reviews', 'dazont-ecom' ); ?></span>
-						</label>
+					<?php self::sec_open( 'reviews', __( 'Reviews', 'dazont-ecom' ), false, [ 'id' => 'dze-cb-reviews', 'tip' => __( 'Write customer reviews', 'dazont-ecom' ) ] ); ?>
 						<div class="dze-cb-opts">
 							<label title="<?php esc_attr_e( 'Leave on "random" to vary the number per product, which is what a real catalogue looks like.', 'dazont-ecom' ); ?>">
 								<span><?php esc_html_e( 'How many', 'dazont-ecom' ); ?></span>
@@ -3788,11 +3799,7 @@ Answer with STRICT JSON and nothing else: "
 				// bill nobody can predict and a review nobody can follow. It
 				// lives on the product screen, in its own popup, and only there.
 				?>
-				<?php self::sec_open( 'price', __( 'Price', 'dazont-ecom' ), false ); ?>
-					<label class="dze-cb-check">
-						<input type="checkbox" id="dze-cb-price" checked />
-						<span><?php esc_html_e( 'Recalculate from the cost', 'dazont-ecom' ); ?></span>
-					</label>
+				<?php self::sec_open( 'price', __( 'Price', 'dazont-ecom' ), false, [ 'id' => 'dze-cb-price', 'on' => true, 'tip' => __( 'Recalculate from the cost', 'dazont-ecom' ) ] ); ?>
 					<?php
 					// The product screen shows what the recalculation would do,
 					// with the figures, and a link to the table it reads. A bulk
@@ -3826,12 +3833,15 @@ Answer with STRICT JSON and nothing else: "
 					</div>
 				<?php self::sec_close(); ?>
 
-				<?php self::sec_open( 'img', __( 'Images', 'dazont-ecom' ), false ); ?>
+				<?php
+				self::sec_open( 'img', __( 'Images', 'dazont-ecom' ), false, $valid_tpls ? [
+					'id'       => 'dze-cb-image',
+					'disabled' => (bool) $dze_blockers,
+					// A step that is not yet possible says what is missing.
+					'tip'      => $dze_blockers ? (string) $dze_blockers[0]['text'] : __( 'Generate images', 'dazont-ecom' ),
+				] : [] );
+				?>
 					<?php if ( $valid_tpls ) : ?>
-						<label class="dze-cb-check<?php echo $dze_blockers ? ' is-locked' : ''; ?>" title="<?php echo $dze_blockers ? esc_attr( $dze_blockers[0]['text'] ) : ''; ?>">
-							<input type="checkbox" id="dze-cb-image" <?php disabled( ! empty( $dze_blockers ) ); ?> />
-							<span><?php esc_html_e( 'Generate images', 'dazont-ecom' ); ?><?php echo $dze_blockers ? ' 🔒' : ''; ?></span>
-						</label>
 						<?php $dze_bscenes = self::scenes(); $dze_bdef = self::default_scene(); ?>
 						<div class="dze-cb-opts">
 							<!-- One prompt per row, plus a + to add a second when a

@@ -53,6 +53,9 @@ for ( const [ label, jq ] of jqs ) {
 	const page = await browser.newPage();
 	const errors = [];
 	const sent = [];
+	// What the writing queue hands back. A second press can be answered with
+	// nothing, which is how an EMPTY after is reached on a real path.
+	let jobHtml = '<p>Bags for the field, and <a href="https://kula.test/category/boonie-hats/">Boonie hats</a>.</p>';
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 
@@ -68,7 +71,7 @@ for ( const [ label, jq ] of jqs ) {
 		// The writing queue: a job is added, then followed until it answers.
 		if ( 'dze_q_add' === q.get( 'action' ) ) { return json( { added: 1, job: 5, url: '' } ); }
 		if ( 'dze_q_job' === q.get( 'action' ) ) {
-			return json( { status: 'review', html: '<p>Bags for the field, and <a href="https://kula.test/category/boonie-hats/">Boonie hats</a>.</p>' } );
+			return json( { status: 'review', html: jobHtml } );
 		}
 		// What the category holds TODAY, against what is in the editor now.
 		if ( 'dze_cc_diff' === q.get( 'action' ) ) {
@@ -109,7 +112,7 @@ for ( const [ label, jq ] of jqs ) {
 			// page itself and comes back as HTML — which is a screen where
 			// nothing happens and nothing is said.
 			+ `window.dzeCatContent={ajaxUrl:'http://dze.test/ajax',nonce:'n0nce',kwNonce:'k',home:'http://dze.test/',`
-			+ `i18n:{picked:'%s selected',before:'Before',after:'After',nothingYet:'Nothing written yet',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
+			+ `i18n:{picked:'%s selected',before:'Before',after:'After',nothingYet:'Nothing written yet',waitingYet:'A text is waiting — press "Load it here" above',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
 			+ `wasEmpty:'This category had no description.',queuedShort:'Queued',linking:'Linking',working:'Writing',`
 			+ `review:'Look it over',error:'error',alreadyLinked:'already linked',showLinks:'%s links',external:'external'}};</script>`
 			+ `<script>${readFileSync( join( js, 'category-content.js' ), 'utf8' )}</script></head>`
@@ -254,6 +257,7 @@ for ( const [ label, jq ] of jqs ) {
 		document.querySelectorAll( '#panel .dze-cc-diff .dze-cb-nowlabel' ) ).map( e => e.textContent.trim() ) );
 	ok( 'the first is what the category holds',  labels[0].startsWith( 'Before —' ), true );
 	ok( 'the second is what was written',        labels[1].startsWith( 'After —' ), true );
+
 	ok( 'each carrying its own figures',
 		labels[0] !== labels[1] && /\d+ words/.test( labels[1] ), true );
 	ok( 'and the after really holds the new text',
@@ -273,6 +277,28 @@ for ( const [ label, jq ] of jqs ) {
 	// the refusal itself: what was generated is gone.
 	ok( 'and pressing it drops what was written',
 		( await page.inputValue( '#dze-cc-editor' ) ).includes( '<a href' ), false );
+
+	// AN EMPTY AFTER SAYS WHICH EMPTY IT IS. When a finished text is sitting
+	// in the queue the panel says so in a notice, and "Nothing written yet"
+	// underneath was the screen disagreeing with itself on one page.
+	await page.evaluate( () => {
+		// jQuery caches data(), so the panel is told the way the server tells
+		// it — the attribute — and the cache is dropped with it.
+		const box = document.querySelector( '#panel .dze-cc-box' );
+		box.setAttribute( 'data-waiting', '1' );
+		window.jQuery( box ).removeData( 'waiting' );
+	} );
+	// A real press again, answered with nothing: the after is empty and the
+	// block is redrawn by the same path the screen uses.
+	jobHtml = '';
+	await page.click( '#panel .dze-cc-links' );
+	await page.waitForFunction(
+		() => /waiting/i.test( document.querySelector( '#panel .dze-cc-diffwords' ).textContent || '' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'an empty after points at the text that is waiting',
+		( await page.textContent( '#panel .dze-cc-diffwords' ) ).includes( 'A text is waiting' ), true );
+	ok( 'and says it where the after would be',
+		( await page.textContent( '#panel .dze-cc-diff' ) ).includes( 'Load it here' ), true );
 	// AND NOTHING WAS RAISED ON THE WAY. This is the check that would have
 	// caught it on the day: one TypeError on the first link killed every line
 	// after it in that handler, and the screen simply stopped moving.

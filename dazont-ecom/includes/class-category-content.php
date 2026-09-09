@@ -1764,7 +1764,15 @@ PROMPT;
 			$names[ untrailingslashit( $l['url'] ) ] = $l['label'];
 		}
 		?>
-		<div class="dze-cc-box" data-self="<?php echo esc_attr( untrailingslashit( (string) get_term_link( $term_id, 'product_cat' ) ) ); ?>" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-qnonce="<?php echo esc_attr( class_exists( 'DZE_Queue' ) ? wp_create_nonce( DZE_Queue::NONCE ) : '' ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
+		<?php
+		// Is a finished text sitting in the queue for this category? The panel
+		// says so in a notice, and the before/after used to say "Nothing
+		// written yet" underneath it — two statements about the same thing,
+		// contradicting each other on one screen.
+		$dze_waits = class_exists( 'DZE_Queue' ) ? (array) DZE_Queue::pending_for( $term_id ) : [];
+		$dze_waits = ( 'review' === (string) ( $dze_waits['status'] ?? '' ) );
+		?>
+		<div class="dze-cc-box"<?php echo $dze_waits ? ' data-waiting="1"' : ''; ?> data-self="<?php echo esc_attr( untrailingslashit( (string) get_term_link( $term_id, 'product_cat' ) ) ); ?>" data-term="<?php echo (int) $term_id; ?>" data-nonce="<?php echo esc_attr( wp_create_nonce( self::NONCE ) ); ?>" data-pool="<?php echo esc_attr( (string) wp_json_encode( $names ) ); ?>" data-qnonce="<?php echo esc_attr( class_exists( 'DZE_Queue' ) ? wp_create_nonce( DZE_Queue::NONCE ) : '' ); ?>"<?php echo $own ? '' : ' data-editor="' . esc_attr( $editor ) . '"'; ?>>
 			<p class="description" style="margin-top:0;">
 				<?php if ( $has ) : ?>
 					<?php
@@ -2159,6 +2167,10 @@ PROMPT;
 				'wl'          => __( '%1$s words · %2$s links', 'dazont-ecom' ),
 				'wasEmpty'    => __( 'This category had no description.', 'dazont-ecom' ),
 				'nothingYet'  => __( 'Nothing written yet', 'dazont-ecom' ),
+				// The same screen already says a text is waiting: the empty
+				// after points at the button that brings it here rather than
+				// contradicting the notice above it.
+				'waitingYet'  => __( 'A text is waiting — press "Load it here" above', 'dazont-ecom' ),
 				'show'        => __( 'show', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
 				'diffWords'   => __( '%1$s words → %2$s words', 'dazont-ecom' ),

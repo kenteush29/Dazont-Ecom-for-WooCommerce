@@ -434,14 +434,18 @@
 					'</div>';
 				};
 				var made = d.words[1] || d.links[1] || (d.after || '').replace(/<[^>]*>/g, '').trim();
+				// NOTHING WRITTEN, OR NOTHING LOADED YET? The panel says in a
+				// notice that a text is waiting; saying "Nothing written yet"
+				// underneath is the screen disagreeing with itself.
+				var none = $box.data('waiting') ? i18n.waitingYet : i18n.nothingYet;
 				$out.html(
 					doc(i18n.before, sprintf(i18n.wl, d.words[0], d.links[0]), d.before, i18n.wasEmpty) +
-					doc(i18n.after, made ? sprintf(i18n.wl, d.words[1], d.links[1]) : i18n.nothingYet, d.after, i18n.nothingYet)
+					doc(i18n.after, made ? sprintf(i18n.wl, d.words[1], d.links[1]) : none, d.after, none)
 				);
 				// The heading carries the state of what you would SAVE, and
 				// says it in words when there is nothing: a bare "0 words · 0
 				// links" over a written page reads as a broken screen.
-				$box.find('.dze-cc-diffwords').text(made ? sprintf(i18n.wl, d.words[1], d.links[1]) : i18n.nothingYet);
+				$box.find('.dze-cc-diffwords').text(made ? sprintf(i18n.wl, d.words[1], d.links[1]) : none);
 			})
 			.fail(function () { $wrap.hide(); });
 	}
