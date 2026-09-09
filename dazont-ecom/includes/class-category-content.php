@@ -27,6 +27,8 @@ final class DZE_Category_Content {
 	public const GEN_META  = '_dze_desc_generated';
 	/** Cached verdict of the question sifting pass, per category. */
 	private const Q_META   = '_dze_cc_questions';
+	/** Cached verdict of the link picking pass, per category. */
+	private const L_META   = '_dze_cc_picked';
 
 	/**
 	 * How many link targets travel to the model at most.
@@ -148,6 +150,10 @@ final class DZE_Category_Content {
 		if ( isset( $in['sift_prompt'] ) ) {
 			$p = trim( sanitize_textarea_field( (string) $in['sift_prompt'] ) );
 			$out['sift_prompt'] = ( $p === trim( self::default_sift_prompt() ) ) ? '' : $p;
+		}
+		if ( isset( $in['pick_prompt'] ) ) {
+			$p = trim( sanitize_textarea_field( (string) $in['pick_prompt'] ) );
+			$out['pick_prompt'] = ( $p === trim( self::default_pick_prompt() ) ) ? '' : $p;
 		}
 		return $out;
 	}
@@ -323,6 +329,14 @@ PROMPT;
 				__( 'The answer format — which questions to keep, nothing else.', 'dazont-ecom' ),
 			];
 		}
+		if ( 'cat_pick' === $id ) {
+			return [
+				__( 'The category: its name, and the queries it targets.', 'dazont-ecom' ),
+				__( 'The pages the wording shortlisted, numbered, each with what it is — a sub-category, a neighbour, an article.', 'dazont-ecom' ),
+				__( 'How many links this page can carry, worked out from its own length.', 'dazont-ecom' ),
+				__( 'The answer format — which of them to keep, and one short reason each.', 'dazont-ecom' ),
+			];
+		}
 		if ( 'cat_links' === $id ) {
 			return [
 				__( 'The text to link, as it stands.', 'dazont-ecom' ),
@@ -384,6 +398,31 @@ PROMPT;
 	public static function sift_prompt(): string {
 		$p = trim( (string) ( self::get_settings()['sift_prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_sift_prompt();
+	}
+
+	/**
+	 * WHICH of the shortlisted pages belong beside this category.
+	 *
+	 * Word overlap picks the candidates and cannot judge them: on a shop whose
+	 * every page is a jute rug, "jute" and "rug" are carried by all of them, so
+	 * the weighing threw both away and scored the whole branch at nought —
+	 * "Black jute rugs — not obviously related", under Jute and cotton rugs.
+	 * The same arithmetic is right on a shop where "tactical" is everywhere and
+	 * says nothing. Counting words cannot tell those two cases apart; reading
+	 * them can.
+	 */
+	public static function default_pick_prompt(): string {
+		$shipped = "Keep the pages a reader of this category would genuinely want next: the same subject seen more precisely, the level above it, a neighbour a buyer would compare it with, and an article that answers a question this category raises.\n"
+			. "Drop a page that only shares vocabulary with it: another material, another room, another trade, a page about the shop itself.\n"
+			. 'Order what you keep by how much a reader of this page would want it. Say in a few words what each page is to this one.';
+		return class_exists( 'DZE_Prompt_Defaults' )
+			? DZE_Prompt_Defaults::pick( 'cat_pick', $shipped )
+			: $shipped;
+	}
+
+	public static function pick_prompt(): string {
+		$p = trim( (string) ( self::get_settings()['pick_prompt'] ?? '' ) );
+		return '' !== $p ? $p : self::default_pick_prompt();
 	}
 
 	// =========================================================================
@@ -587,6 +626,120 @@ PROMPT;
 		}
 		update_term_meta( $term_id, self::Q_META, [ 'hash' => $hash, 'keep' => $keep ] );
 		return $keep;
+	}
+
+	/**
+	 * WHICH shortlisted pages belong beside this category, and WHY — read.
+	 *
+	 * The wording picks the candidates; it cannot judge them. `weigh()` throws
+	 * away any word carried by more than a quarter of the candidates, which is
+	 * right on a shop where "tactical" is on every page and says nothing, and
+	 * catastrophic on a shop whose every page is a jute rug: "jute" and "rug"
+	 * were both discounted, every candidate scored nought, and the screen said
+	 * "Black jute rugs — not obviously related" under Jute and cotton rugs.
+	 * Counting words cannot tell those two shops apart. So the shortlist is
+	 * read once, by the same cheap model the questions are sifted with, and
+	 * the verdict is kept on the category until the candidates or the prompt
+	 * change.
+	 *
+	 * NOTHING IS LOST TO A FAILURE. No key, a refusal, a broken answer: the
+	 * pool goes through exactly as the wording ordered it, and every row says
+	 * which of the two chose it — a screen that quietly falls back to the
+	 * arithmetic while claiming to have read the pages is the fault this
+	 * function exists to end.
+	 *
+	 * @param array<int,array<string,mixed>> $pool The shortlist, best first.
+	 * @param int                            $room How many links the page can carry.
+	 * @return array<int,array<string,mixed>> The same rows, with 'close' and 'why'.
+	 */
+	public static function judge_links( int $term_id, string $name, array $pool, int $room ): array {
+		if ( ! $pool ) {
+			return $pool;
+		}
+		$labels = [];
+		foreach ( $pool as $row ) {
+			$labels[] = (string) $row['label'] . ' [' . (string) $row['kind'] . ']';
+		}
+		$prompt = self::pick_prompt();
+		// The prompt is part of the question: edit it and the shop is asked
+		// again rather than shown the answer to the old one.
+		$hash   = md5( $name . '|' . $room . '|' . implode( '|', $labels ) . '|' . $prompt );
+		$cached = get_term_meta( $term_id, self::L_META, true );
+		$said   = ( is_array( $cached ) && ( $cached['hash'] ?? '' ) === $hash )
+			? (array) ( $cached['said'] ?? [] )
+			: null;
+
+		if ( null === $said && class_exists( 'DZE_Marketing_Ai' ) ) {
+			$list = '';
+			foreach ( $labels as $i => $one ) {
+				$list .= $i . '. ' . $one . "\n";
+			}
+			$user = "SHOP CATEGORY: {$name}\n\n"
+				. "PAGES SHORTLISTED FOR IT:\n" . $list . "\n"
+				. $prompt . "\n\n"
+				. sprintf(
+					/* translators: %d: how many links the page can carry */
+					'This page can carry at most %d links, so keep at most that many.',
+					max( 1, $room )
+				)
+				. "\nOUTPUT: a JSON array, nothing else, one entry per page you keep:"
+				. ' [{"i":3,"why":"the level above this one"},{"i":7,"why":"the same rug in one colour"}].'
+				. ' Each "why" is at most six words, and says what that page is TO THIS ONE.';
+			try {
+				DZE_Ai_Usage::unit( 'cat_pick' );
+				$raw = DZE_Marketing_Ai::complete(
+					'You choose which pages of a shop belong next to one another. You are strict: a page that shares words with the category but is about another subject is dropped.',
+					$user,
+					self::sift_model(),
+					700,
+					30
+				);
+				DZE_Ai_Usage::unit();
+				if ( preg_match( '/\[.*\]/s', $raw, $m ) ) {
+					$rows = json_decode( $m[0], true );
+					if ( is_array( $rows ) && $rows ) {
+						$said = [];
+						foreach ( $rows as $one ) {
+							if ( ! is_array( $one ) || ! isset( $one['i'] ) || ! isset( $pool[ (int) $one['i'] ] ) ) {
+								continue;
+							}
+							$said[ (int) $one['i'] ] = trim( wp_strip_all_tags( (string) ( $one['why'] ?? '' ) ) );
+						}
+						// A model answering "none of them" is more likely wrong
+						// than a shortlist the wording already agreed on.
+						if ( $said ) {
+							update_term_meta( $term_id, self::L_META, [ 'hash' => $hash, 'said' => $said ] );
+						} else {
+							$said = null;
+						}
+					}
+				}
+			} catch ( \Throwable $e ) {
+				DZE_Ai_Usage::unit();
+				$said = null;
+			}
+		}
+
+		$ticked = 0;
+		foreach ( $pool as $i => $row ) {
+			$branch = in_array( $row['kind'], [ 'sub-category', 'parent category' ], true );
+			if ( null === $said ) {
+				// Read by nobody: the wording decides, and the row says so
+				// rather than wearing a verdict that was never given.
+				$worth        = $branch || (float) $row['score'] > 0;
+				$pool[ $i ]['why'] = $worth ? __( 'chosen on wording', 'dazont-ecom' ) : '';
+			} else {
+				$worth        = isset( $said[ $i ] );
+				$pool[ $i ]['why'] = $worth
+					? ( '' !== $said[ $i ] ? $said[ $i ] : __( 'kept', 'dazont-ecom' ) )
+					: __( 'not kept for this page', 'dazont-ecom' );
+			}
+			$pool[ $i ]['close'] = $worth && $ticked < $room;
+			if ( $pool[ $i ]['close'] ) {
+				$ticked++;
+			}
+		}
+		return $pool;
 	}
 
 	/** Cheap model for the sifting pass; the matcher's model when set. */
@@ -977,20 +1130,18 @@ PROMPT;
 		// seven-hundred-word category. The panel said it and the list under it
 		// ignored it, ticking thirty. A figure a screen states and then does
 		// not keep is worse than no figure.
-		$room   = max( 0, (int) ( self::size_for( $term_id )['links'] ?? 0 ) );
-		$ticked = 0;
-		foreach ( $pool as $i => $row ) {
-			$branch = in_array( $row['kind'], [ 'sub-category', 'parent category' ], true );
-			$worth  = $branch || (float) $row['score'] > 0;
-			$pool[ $i ]['close'] = $worth && $ticked < $room;
-			if ( $pool[ $i ]['close'] ) {
-				$ticked++;
-			}
-		}
-		// A ceiling on what travels to the model: the pass places a handful of
-		// links, and a list of three hundred addresses is noise it has to read
-		// past. Closest first means the ones cut are the ones nobody wanted.
-		return array_slice( $pool, 0, self::POOL_MAX );
+		$room = max( 0, (int) ( self::size_for( $term_id )['links'] ?? 0 ) );
+		// A ceiling on what travels: the pass places a handful of links, and a
+		// list of three hundred addresses is noise — for the model that reads
+		// them as much as for the person looking at the list. Closest first
+		// means the ones cut are the ones nobody wanted.
+		$pool = array_slice( $pool, 0, self::POOL_MAX );
+		// AND THEN THEY ARE READ. The wording says who is a candidate; which
+		// of them a reader of this page would actually want is a judgement,
+		// and one the arithmetic above cannot make on a shop where every page
+		// shares the same two words. Cached on the category; the wording's own
+		// answer stands whenever the reading cannot be had.
+		return self::judge_links( $term_id, (string) $term->name, $pool, $room );
 	}
 
 	/** The site's main language (WPML default), '' when not multilingual. */
@@ -1771,7 +1922,7 @@ PROMPT;
 			?>
 			<div class="dze-cc-picker" style="display:none;">
 				<p class="description" style="margin:0 0 6px;">
-					<?php esc_html_e( 'Ticked: the sub-categories, plus every page, category or article that actually talks about this one. The rest is listed but left unticked — tick it if you want it anyway. Nothing is written until you save.', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Shortlisted by wording, then read: each line says what that page is to this one. Tick anything else you want — nothing is written until you save.', 'dazont-ecom' ); ?>
 				</p>
 				<ul class="dze-cc-picklist">
 					<?php foreach ( $links as $l ) :
@@ -1782,14 +1933,22 @@ PROMPT;
 						// that shares its wording. The rest stays listed but
 						// unticked — available, not assumed.
 						$tick = ! $got && ! empty( $l['close'] );
+						// EVERY LINE SAYS WHY. It used to say "not obviously
+						// related" on an unticked row — which is not a reading
+						// of anything, only "this scored nought", and it was
+						// printed under Jute and cotton rugs beside Black jute
+						// rugs. The reason is the one that actually decided:
+						// the model's own words, or "chosen on wording" when
+						// there was no reading to be had.
+						$why = trim( (string) ( $l['why'] ?? '' ) );
 						?>
 						<li>
 							<label>
 								<input type="checkbox" class="dze-cc-pick" value="<?php echo esc_url( $l['url'] ); ?>"<?php checked( $got || $tick ); disabled( $got ); ?> />
 								<span class="dze-cc-pick-name"><?php echo esc_html( $l['label'] ); ?></span>
 								<span class="dze-cc-pick-kind"><?php echo esc_html( $l['kind'] ); ?></span>
-								<?php if ( ! $got && empty( $l['close'] ) ) : ?>
-									<span class="dze-cc-pick-loose"><?php esc_html_e( 'not obviously related', 'dazont-ecom' ); ?></span>
+								<?php if ( ! $got && '' !== $why ) : ?>
+									<span class="dze-cc-pick-why"><?php echo esc_html( $why ); ?></span>
 								<?php endif; ?>
 								<?php if ( $got ) : ?>
 									<span class="dze-cc-pick-done"><?php esc_html_e( 'already linked', 'dazont-ecom' ); ?></span>
@@ -2242,6 +2401,19 @@ PROMPT;
 			<?php
 			if ( $dze_card ) {
 				DZE_Prompts::card_close();
+				DZE_Prompts::card_open( 'dze-cc-pick-card', __( 'Which pages belong beside a category', 'dazont-ecom' ), __( 'What is ticked on the linking list, and why', 'dazont-ecom' ) );
+			}
+			?>
+				<textarea id="dze-cc-pick-prompt" name="<?php echo esc_attr( self::OPT ); ?>[pick_prompt]" rows="8" class="large-text code"><?php echo esc_textarea( self::pick_prompt() ); ?></textarea>
+				<p class="description">
+					<?php esc_html_e( 'The wording shortlists thirty pages; this reads them and says which of them a reader of that category would actually want, and what each one is to it. Every line of the linking list carries that answer. Empty = shipped default.', 'dazont-ecom' ); ?>
+					<button type="button" class="button-link dze-cc-clear" data-target="dze-cc-pick-prompt">&#8634; <?php esc_html_e( 'Restore default', 'dazont-ecom' ); ?></button>
+					<?php if ( class_exists( 'DZE_Prompt_Defaults' ) ) { DZE_Prompt_Defaults::control( 'cat_pick', '#dze-cc-pick-prompt' ); } ?>
+				</p>
+				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_data( 'cat_pick' ); } ?>
+			<?php
+			if ( $dze_card ) {
+				DZE_Prompts::card_close();
 				DZE_Prompts::card_open( 'dze-cc-links-card', __( 'Internal linking pass', 'dazont-ecom' ), __( 'How links are woven into a description once written', 'dazont-ecom' ) );
 			}
 			?>
@@ -2272,9 +2444,14 @@ PROMPT;
 			// itself is read at click time, never cached at page load.
 			var dzeCcShipped = {
 				'dze-cc-sift-prompt': <?php echo wp_json_encode( self::default_sift_prompt() ); ?>,
+				'dze-cc-pick-prompt': <?php echo wp_json_encode( self::default_pick_prompt() ); ?>,
 				'dze-cc-links-prompt': <?php echo wp_json_encode( self::default_links_prompt() ); ?>
 			};
-			var dzeCcId = { 'dze-cc-sift-prompt': 'cat_sift', 'dze-cc-links-prompt': 'cat_links' };
+			var dzeCcId = {
+				'dze-cc-sift-prompt': 'cat_sift',
+				'dze-cc-pick-prompt': 'cat_pick',
+				'dze-cc-links-prompt': 'cat_links'
+			};
 			$( '.dze-cc-clear' ).on( 'click', function () {
 				var t = $( this ).data( 'target' );
 				$( '#' + t ).val( dzeDef( dzeCcId[ t ], dzeCcShipped[ t ] || '' ) );

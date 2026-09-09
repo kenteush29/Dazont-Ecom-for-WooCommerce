@@ -157,8 +157,11 @@ function get_term_link( $t ) {
 	$id = is_object( $t ) ? (int) $t->term_id : (int) $t;
 	return 'https://kula.test/category/' . ( $GLOBALS['terms'][ $id ]['slug'] ?? '' ) . '/';
 }
-function get_term_meta( ...$a ) { return ''; }
-function update_term_meta( ...$a ) { return true; }
+// A real store, so a verdict KEPT on a category can be exercised: both model
+// passes cache their answer there, and a cache that is never read in a test is
+// a cache nobody has checked.
+function get_term_meta( $id, $key = '', $single = false ) { return $GLOBALS['tmeta'][ (int) $id ][ (string) $key ] ?? ''; }
+function update_term_meta( $id, $key, $val ) { $GLOBALS['tmeta'][ (int) $id ][ (string) $key ] = $val; return true; }
 function get_post( $id ) {
 	$p = $GLOBALS['posts'][ (int) $id ] ?? null;
 	return $p ? (object) [ 'ID' => (int) $id, 'post_title' => $p['title'], 'post_content' => $p['content'], 'post_type' => $p['type'] ] : null;
@@ -248,8 +251,11 @@ class DZE_Marketing_Ai {
 	public static array $sent = [];
 	public static function api_key(): string { return $GLOBALS['key'] ?? ''; }
 	public static function get_settings(): array { return []; }
+	/** A stub that READS the request, so a call sending the wrong thing cannot pass. */
+	public static $decide = null;
 	public static function complete( string $system, string $user, string $model = '', int $max = 0, int $t = 0 ): string {
 		self::$sent[] = [ 'system' => $system, 'user' => $user, 'model' => $model ];
+		if ( is_callable( self::$decide ) ) { return (string) call_user_func( self::$decide, $user ); }
 		if ( '' === self::$answer ) { throw new RuntimeException( 'no answer' ); }
 		return self::$answer;
 	}
@@ -378,6 +384,132 @@ if ( in_array( '--dump-panel', $argv, true ) ) {
 	echo $panel . "\n<!--MODAL-->\n" . $modal;
 	exit( $fails ? 1 : 0 );
 }
+
+
+echo "\nA SHOP WHERE EVERY PAGE SHARES THE SAME TWO WORDS\n";
+// "Pour Jute and cotton rugs > Beige jute rugs — not obviously related,
+// Diamond jute rugs — not obviously related, Black jute rugs — not obviously
+// related..." Twenty candidates, every one of them plainly the same subject,
+// every one of them scored at nought.
+//
+// weigh() throws away any word carried by more than a quarter of the
+// candidates. That is right on a shop where "tactical" is on every page and
+// distinguishes nothing; on a shop whose every page is a jute rug it throws
+// away "jute" and "rug" — which is to say, the whole of what they have in
+// common. Counting words cannot tell those two shops apart.
+$GLOBALS['terms'][29] = [ 'name' => 'Jute rugs',            'slug' => 'jute-rugs',      'parent' => 0,  'description' => '' ];
+$GLOBALS['terms'][30] = [ 'name' => 'Jute and cotton rugs', 'slug' => 'jute-cotton',    'parent' => 29, 'description' => '' ];
+foreach ( [ 31 => 'Beige jute rugs', 32 => 'Black jute rugs', 33 => 'Diamond jute rugs', 34 => 'Hemp and jute rugs', 35 => 'Red jute rugs', 36 => 'Cream jute rugs' ] as $dze_id => $dze_name ) {
+	$GLOBALS['terms'][ $dze_id ] = [ 'name' => $dze_name, 'slug' => strtolower( str_replace( ' ', '-', $dze_name ) ), 'parent' => 29, 'description' => '' ];
+}
+$GLOBALS['tr']['dze_cc_cats'] = [];
+foreach ( $GLOBALS['terms'] as $dze_id => $dze_t ) {
+	$GLOBALS['tr']['dze_cc_cats'][] = [ 'id' => $dze_id, 'name' => $dze_t['name'], 'slug' => $dze_t['slug'], 'url' => get_term_link( $dze_id ) ];
+	$GLOBALS['tr'][ 'dze_cc_pcount_' . $dze_id ] = 5;
+}
+/** The pool as the screen gets it, keyed by name. */
+$dze_pool = static function ( int $tid ): array {
+	$out = [];
+	foreach ( DZE_Category_Content::link_pool( $tid ) as $row ) {
+		$out[ (string) $row['label'] ] = $row;
+	}
+	return $out;
+};
+
+// 1. WITH NOBODY TO READ THEM, the wording decides — and the row says so.
+$GLOBALS['tmeta'] = [];
+DZE_Marketing_Ai::$decide = null;
+DZE_Marketing_Ai::$answer = '';
+$dze_by_word = $dze_pool( 30 );
+ok( 'the branch is still ticked',        $dze_by_word['Jute rugs']['close'] ?? null, true );
+// This is the bug, stated as arithmetic: "jute" and "rug" are carried by
+// every candidate, so nothing is left to weigh and every sibling scores 0.
+ok( 'and a sibling scores nothing at all', (float) ( $dze_by_word['Black jute rugs']['score'] ?? -1 ), 0.0 );
+// It says WHICH of the two chose it, and never a verdict nobody gave. The
+// screen used to print "not obviously related", which is a judgement about
+// the subject that no part of this code ever made.
+ok( 'a row chosen by the wording says so',
+	(string) ( $dze_by_word['Jute rugs']['why'] ?? '' ), 'chosen on wording' );
+ok( 'and an unticked one claims no reading',
+	(string) ( $dze_by_word['Black jute rugs']['why'] ?? 'x' ), '' );
+
+// 2. READ, the same list comes back judged — and the reasons are the reader's.
+$GLOBALS['tmeta'] = [];
+DZE_Marketing_Ai::$sent = [];
+// The stub answers from the REQUEST: it reads the numbered list that was
+// actually sent. A call that sends no list, or an unnumbered one, cannot pass
+// this — which is the point of answering from the request rather than from a
+// fixture written beside it.
+DZE_Marketing_Ai::$decide = static function ( string $user ): string {
+	preg_match_all( '/^(\d+)\. (.+)$/m', $user, $m, PREG_SET_ORDER );
+	$keep = [];
+	foreach ( $m as $one ) {
+		if ( false !== stripos( $one[2], 'jute' ) ) {
+			$keep[] = [ 'i' => (int) $one[1], 'why' => 'a jute rug like this one' ];
+		}
+	}
+	return wp_json_encode( $keep );
+};
+$dze_read = $dze_pool( 30 );
+ok( 'the reader was asked once',         count( DZE_Marketing_Ai::$sent ), 1 );
+ok( 'a sibling the wording scored at nought is kept',
+	$dze_read['Black jute rugs']['close'] ?? null, true );
+ok( 'and so is the one beside it',       $dze_read['Diamond jute rugs']['close'] ?? null, true );
+ok( 'each carrying what it is to this page',
+	(string) ( $dze_read['Black jute rugs']['why'] ?? '' ), 'a jute rug like this one' );
+// WHAT WAS SENT. The category, the numbered shortlist, the owner's own prompt
+// and the ceiling this page can carry — asserted on the request itself.
+$dze_ask = DZE_Marketing_Ai::$sent[0]['user'] ?? '';
+ok( 'the ask names the category',        false !== strpos( $dze_ask, 'Jute and cotton rugs' ), true );
+ok( 'and numbers the pages it offers',   false !== strpos( $dze_ask, '. Black jute rugs [related category]' ), true );
+ok( "and carries the shop's own prompt",
+	false !== strpos( $dze_ask, DZE_Category_Content::pick_prompt() ), true );
+ok( 'and says how many links fit',       (bool) preg_match( '/at most \d+ links/', $dze_ask ), true );
+ok( 'and it is billed as its own work',  in_array( 'cat_pick', DZE_Ai_Usage::$units, true ), true );
+
+// 3. ASKED ONCE. The verdict is kept on the category until the candidates or
+// the prompt change: a panel opened twice must not be paid for twice.
+DZE_Marketing_Ai::$sent = [];
+$dze_pool( 30 );
+ok( 'a second look asks nobody',         count( DZE_Marketing_Ai::$sent ), 0 );
+// AND AN EDITED PROMPT IS A NEW QUESTION. Showing yesterday's answer to a
+// prompt changed since is the screen lying about what it did.
+update_option( 'dze_catcontent_settings', array_merge(
+	(array) get_option( 'dze_catcontent_settings', [] ),
+	[ 'pick_prompt' => 'Keep only what a buyer would click.' ]
+) );
+$dze_pool( 30 );
+ok( 'a changed prompt asks again',       count( DZE_Marketing_Ai::$sent ), 1 );
+ok( 'with the new words in it',
+	false !== strpos( DZE_Marketing_Ai::$sent[0]['user'] ?? '', 'Keep only what a buyer would click.' ), true );
+
+// 4. THE CEILING IS THE PAGE'S OWN. The model is told it and the shop keeps
+// it whatever comes back — a figure the screen states and then does not keep
+// is worse than no figure.
+$dze_room = (int) ( DZE_Category_Content::size_for( 30 )['links'] ?? 0 );
+$dze_lots = 0;
+foreach ( $dze_pool( 30 ) as $dze_row ) {
+	if ( ! empty( $dze_row['close'] ) ) { $dze_lots++; }
+}
+ok( 'never more links than the page can carry', $dze_lots <= $dze_room, true );
+
+// 5. A READER ANSWERING "NONE OF THEM" is more likely wrong than a shortlist
+// the wording already agreed on: the pool goes through, and says who chose it.
+$GLOBALS['tmeta'] = [];
+DZE_Marketing_Ai::$decide = static fn( string $user ): string => '[]';
+$dze_none = $dze_pool( 30 );
+ok( 'an empty verdict does not empty the list',
+	$dze_none['Jute rugs']['close'] ?? null, true );
+ok( 'and the row says the wording chose it',
+	(string) ( $dze_none['Jute rugs']['why'] ?? '' ), 'chosen on wording' );
+// A refusal, a missing key, a broken answer: the same.
+$GLOBALS['tmeta'] = [];
+DZE_Marketing_Ai::$decide = static function ( string $user ): string { throw new RuntimeException( 'no key' ); };
+$dze_dead = $dze_pool( 30 );
+ok( 'a refusal loses no candidate',      $dze_dead['Jute rugs']['close'] ?? null, true );
+ok( 'and claims no reading either',
+	(string) ( $dze_dead['Jute rugs']['why'] ?? '' ), 'chosen on wording' );
+DZE_Marketing_Ai::$decide = null;
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
