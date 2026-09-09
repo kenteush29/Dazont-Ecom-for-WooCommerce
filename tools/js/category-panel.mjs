@@ -79,7 +79,12 @@ for ( const [ label, jq ] of jqs ) {
 		await route.fulfill( { contentType: 'text/html', body:
 			`<!doctype html><html><head><meta charset="utf-8"><style>${css}</style>`
 			+ `<script>${readFileSync( jq, 'utf8' )}</script>`
-			+ `<script>window.ajaxurl='http://dze.test/ajax';</script></head>`
+			+ `<script>window.ajaxurl='http://dze.test/ajax';`
+			// The panel's own script, and the config it reads at load. Without
+			// it the picker's checkboxes are markup and nothing else: the
+			// handlers that count them and take a range are in this file.
+			+ `window.dzeCatContent={ajax:'http://dze.test/ajax',nonce:'n0nce',i18n:{picked:'%s selected'}};</script>`
+			+ `<script>${readFileSync( join( js, 'category-content.js' ), 'utf8' )}</script></head>`
 			+ `<body><div class="wrap"><div id="panel"></div></div>${modal}</body></html>` } );
 	} );
 	await page.goto( 'http://dze.test/screen', { waitUntil: 'domcontentloaded' } );
@@ -125,6 +130,49 @@ for ( const [ label, jq ] of jqs ) {
 	} );
 	ok( 'four controls, each carrying a word', words.length, 4 );
 	ok( 'and none of them a bare symbol',   words.filter( w => ! /\s/.test( w ) ), [] );
+
+	// ---- SHIFT TAKES A RANGE ----
+	//
+	// "Sur la sélection des links je ne peux pas utiliser MAJ pour en
+	// sélectionner plusieurs d'un coup." Thirty pages are offered here and
+	// they were ticked one at a time. A modifier key exists only under a real
+	// mouse press: no PHP test and no `node --check` can see this.
+	await page.evaluate( () => { document.querySelector( '#panel .dze-cc-picker' ).style.display = 'block'; } );
+	const boxes = page.locator( '#panel .dze-cc-pick:not([disabled])' );
+	const many  = await boxes.count();
+	ok( 'the picker offers a list to tick',  many >= 3, true );
+	// Start from nothing, so what the range does is the only thing on screen.
+	await page.click( '#panel .dze-cc-picknone' );
+	ok( 'and Clear empties it',              await page.locator( '#panel .dze-cc-pick:checked' ).count(), 0 );
+	await boxes.nth( 0 ).click();
+	await boxes.nth( many - 1 ).click( { modifiers: [ 'Shift' ] } );
+	ok( 'shift takes everything between',
+		await page.locator( '#panel .dze-cc-pick:checked:not([disabled])' ).count(), many );
+	// AND THE COUNT FOLLOWS IT. A range that ticks a run while the line
+	// underneath still says "1 selected" is a screen disagreeing with itself.
+	ok( 'and the count says so',
+		( await page.textContent( '#panel .dze-cc-pickcount' ) ).trim(), many + ' selected' );
+	// IT UNTICKS A RUN TOO: the state of the box just pressed is the state the
+	// whole range takes.
+	await boxes.nth( 0 ).click();
+	await boxes.nth( many - 1 ).click( { modifiers: [ 'Shift' ] } );
+	ok( 'shift lets a run go as well',
+		await page.locator( '#panel .dze-cc-pick:checked:not([disabled])' ).count(), 0 );
+	// A ROW ALREADY LINKED IS NOT A ROW TO TICK: it is disabled, and a range
+	// running over it must leave it exactly as it was — ticked, and never
+	// counted among what the press will send.
+	const locked = await page.locator( '#panel .dze-cc-pick[disabled]' ).count();
+	await boxes.nth( 0 ).click();
+	await boxes.nth( many - 1 ).click( { modifiers: [ 'Shift' ] } );
+	ok( 'a row already linked keeps its own state',
+		await page.locator( '#panel .dze-cc-pick[disabled]:checked' ).count(), locked );
+	ok( 'and is never counted in what will be sent',
+		( await page.textContent( '#panel .dze-cc-pickcount' ) ).trim(), many + ' selected' );
+	// AND THE GESTURE IS ON THE SCREEN. One nobody is told about is one
+	// nobody has.
+	ok( 'the row says the gesture exists',
+		( await page.textContent( '#panel .dze-cc-pickhint' ) ).trim(), 'Shift-click takes a range.' );
+	ok( 'and nothing was raised doing it',   errors, [] );
 
 	// "ⓘ what it uses" is a panel of this screen, not a popup: it shows what
 	// the category is written from, in place.

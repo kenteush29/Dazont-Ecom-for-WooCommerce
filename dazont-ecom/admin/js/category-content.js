@@ -356,6 +356,31 @@
 		pickCount($box);
 	});
 	$(document).on('change', '.dze-cc-pick', function () { pickCount($(this).closest('.dze-cc-box')); });
+	// SHIFT TAKES A RANGE, the way every list in WordPress does. Thirty pages
+	// are offered here and they were ticked one at a time: "sur la sélection
+	// des links je ne peux pas utiliser MAJ pour en sélectionner plusieurs d'un
+	// coup." The anchor is the last box pressed in THIS list — a list redrawn
+	// by an answer, or another category's, starts its own range rather than
+	// reaching back to a row that is no longer on the page.
+	var pickFrom = null;
+	$(document).on('click', '.dze-cc-pick', function (e) {
+		var $list = $(this).closest('.dze-cc-picklist');
+		var all   = $list.find('.dze-cc-pick').get();
+		var here  = all.indexOf(this);
+		if (e.shiftKey && pickFrom && -1 !== all.indexOf(pickFrom)) {
+			var from = all.indexOf(pickFrom);
+			var a = Math.min(from, here);
+			var b = Math.max(from, here);
+			// The state of the box just pressed is the state the whole range
+			// takes, so shift also UNTICKS a run. An "already linked" row is
+			// disabled and stays exactly as it is.
+			for (var i = a; i <= b; i++) {
+				if (!all[i].disabled) { all[i].checked = this.checked; }
+			}
+		}
+		pickFrom = this;
+		pickCount($(this).closest('.dze-cc-box'));
+	});
 	$(document).on('click', '.dze-cc-pickall', function () {
 		var $box = $(this).closest('.dze-cc-box');
 		$box.find('.dze-cc-pick:not(:disabled)').prop('checked', true);
