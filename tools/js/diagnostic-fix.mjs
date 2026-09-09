@@ -183,11 +183,18 @@ for ( const [ label, jq ] of jqs ) {
 		// What the popup asks for when it opens on a product: what that
 		// product already carries. It writes nothing and costs nothing.
 		return json( {
+			// The product's own photographs, which are what the subject picker
+			// offers: a main one and two more.
+			images: [
+				{ id: 71, main: true,  thumb: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', w: 1000, h: 1000 },
+				{ id: 72, main: false, thumb: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', w: 1000, h: 1000 },
+				{ id: 73, main: false, thumb: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', w: 1000, h: 1000 }
+			],
 			title: 'Product ' + ( sent.post || '?' ),
 			// The way to the product itself, which the head links to.
 			edit: 'http://dze.test/wp-admin/post.php?post=' + ( sent.post || '0' ) + '&action=edit',
 			cost: '', spend: {}, note: '',
-			images: [], texts: {}, pending: { texts: {}, shots: [] }
+			texts: {}, pending: { texts: {}, shots: [] }
 		} );
 	} );
 	await page.goto( 'http://dze.test/' );
@@ -275,23 +282,27 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'no text prompt is ticked behind it',
 		await page.locator( '.dze-cx-f:checked' ).count(), 0 );
 	ok( 'nor the price',                     await page.isChecked( '#dze-cx-doprice' ), false );
-	ok( 'and not the subject option either', await page.isChecked( '#dze-cx-basemain' ), false );
-	// 5d. THE COUNT ON A SECTION IS WHAT THE RUN WILL DO. "Keep the product's
-	//     own photograph as the subject" is an OPTION of the run, not one of
-	//     the things it runs, and it made the images section read 1 / 2.
-	// WHAT THE BLOCK WILL DO, in its own heading: three photographs, because
-	// three rows are laid out. It used to count the checkboxes in the body and
-	// say "1 / 1" however many were laid out under it.
+	// AND THE SUBJECT IS THE PRODUCT'S OWN MAIN PHOTOGRAPH. A popup armed for
+	// a criterion carries no choice made in an earlier run on another product.
+	ok( 'and the subject is back to the main photograph',
+		await page.inputValue( '#dze-cx-subject' ), '0' );
+	// WHICH PHOTOGRAPH, NOT WHETHER. The checkbox that stood here — "keep the
+	// product's own photograph as the subject" — answered a question nobody
+	// had asked and left the real one with no answer at all.
+	ok( 'there is no checkbox answering it instead',
+		await page.locator( '#dze-cx-basemain' ).count(), 0 );
+	// 5d. WHAT THE BLOCK WILL DO, in its own heading: three photographs,
+	//     because three rows are laid out. It used to count the checkboxes in
+	//     the body and say "1 / 1" however many were laid out under it.
 	ok( 'the section counts the photographs it will make',
 		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '3 / 3' );
-	// It lives inside "Photographs from elsewhere", which is shut: open it
-	// the way somebody would before ticking the box.
-	await page.evaluate( () => { document.querySelector( '#dze-cx-modal .dze-cx-else' ).open = true; } );
-	await page.check( '#dze-cx-basemain' );
+	// And choosing a subject is an OPTION of the run, never one of the things
+	// the run does: it made the images section read "1 / 2" when there was one
+	// photograph to make.
+	await page.selectOption( '#dze-cx-subject', { index: 0 } );
 	await page.waitForTimeout( 150 );
 	ok( 'and an option does not add to it',
 		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '3 / 3' );
-	await page.uncheck( '#dze-cx-basemain' );
 	// 5e. THE PROMPT BUTTON OPENS THE PROMPT. It was drawn on this screen and
 	//     the popup it opens was not on the page at all, so pressing it did
 	//     nothing and said nothing.
@@ -414,8 +425,19 @@ for ( const [ label, jq ] of jqs ) {
 
 	await page.click( '.dze-content-open[data-id="901"]' );
 	await page.waitForTimeout( 200 );
+	// WHICH PHOTOGRAPH THE RUN WORKS FROM. The picker offers the product's
+	// own, main first, and what it is set to has to reach the wire — a control
+	// whose value never leaves the page is a control that does nothing.
+	ok( 'the picker offers every photograph of the product',
+		await page.locator( '#dze-cx-subject option' ).count(), 3 );
+	await page.selectOption( '#dze-cx-subject', '73' );
+	const madeBefore = posts.filter( p => 'dze_content_image' === p.action ).length;
 	await page.click( '#dze-cx-run' );
 	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
+	const made = posts.filter( p => 'dze_content_image' === p.action ).slice( madeBefore );
+	ok( 'the run went out',                  made.length > 0, true );
+	ok( 'and every photograph is made from the one that was picked',
+		Array.from( new Set( made.map( p => p.src_id ) ) ), [ '73' ] );
 	ok( 'the photographs come back to be looked at',
 		await page.locator( '#dze-cx-shots .dze-cb-shot' ).count() > 0, true );
 	await page.click( '.dze-cx-applyone' );

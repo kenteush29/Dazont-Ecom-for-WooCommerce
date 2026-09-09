@@ -415,9 +415,20 @@
 								'<details class="dze-cx-acc dze-cx-else">' +
 									'<summary>' + esc(i18n.stepElse) + '</summary>' +
 									'<div id="dze-cx-else"></div>' +
-									'<label class="dze-basemain dze-sec-opt" title="' + esc(i18n.baseMainTip) + '">' +
-										'<input type="checkbox" id="dze-cx-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
 								'</details>' +
+								// WHICH PHOTOGRAPH IS THE SUBJECT. It used to be
+								// a checkbox saying "keep the product's own
+								// photograph as the subject", which answered a
+								// question nobody had asked and left the real one
+								// — WHICH of its photographs — with no answer at
+								// all. Picking one here says both: this is image
+								// 1, and anything pasted is the setting.
+								// .dze-sec-opt: it changes HOW the run works, it
+								// is not one of the things the run does.
+								'<label class="dze-cx-subjline dze-sec-opt">' +
+									'<span>' + esc(i18n.subjLabel) + '</span>' +
+									'<select id="dze-cx-subject"><option value="0">' + esc(i18n.subjMain) + '</option></select>' +
+								'</label>' +
 								// What no photograph of this product shows. It
 								// travels with every image made here, and it
 								// was only editable in the one-function popup —
@@ -530,7 +541,7 @@
 		if ('price' === want.section) { $('#dze-cx-doprice').prop('checked', true); }
 		if (want.shots && want.shots.length && $('#dze-cx-tplrows').length) {
 			$('#dze-cx-doimg').prop('checked', true);
-			$('#dze-cx-basemain').prop('checked', false);
+			$('#dze-cx-subject').val('0');
 			$('#dze-cx-tplrows').empty();
 			want.shots.forEach(function (row) {
 				$('#dze-cx-tplrows').append(tplRow(row.tpl, defaultScene(), row.n || 1, row.target));
@@ -804,9 +815,32 @@
 				return { texts: {}, images: [], failed: (r && r.data && r.data.message) || i18n.error };
 			}, function (x) { return { texts: {}, images: [], failed: reason(x) }; });
 	}
+	// The product's own photographs, offered as the subject of what is made.
+	// Kept in step with the strip above it: a photograph deleted while the
+	// popup is open must not stay on this list as a thing to work from.
+	function drawSubjects() {
+		var $s = $('#dze-cx-subject');
+		if (!$s.length) { return; }
+		var was = String($s.val() || '0');
+		var imgs = (res.current && res.current.images) || [];
+		$s.empty().append($('<option value="0"></option>').text(i18n.subjMainOpt));
+		var n = 0;
+		imgs.forEach(function (im) {
+			if (im.main) { return; }
+			n++;
+			$s.append($('<option></option>').val(im.id).text(
+				im.variation ? String(im.variation) : (i18n.subjOne || 'Photograph') + ' ' + n
+			));
+		});
+		// A choice that no longer exists falls back to the main photograph
+		// rather than sending an id nothing answers for.
+		$s.val($s.find('option[value="' + was + '"]').length ? was : '0');
+	}
+
 	function drawCurrentImages() {
 		// One renderer for both screens: admin/js/photos.js. The product screen
 		// adds the AI button, because it has a popup to open.
+		drawSubjects();
 		if (!window.dzePhotos) { return; }
 		window.dzePhotos.render($('#dze-cx-nowshots'), (res.current && res.current.images) || [], {
 			post: PID,
@@ -1026,10 +1060,12 @@
 		// Whatever was handed to this run from outside the shop travels with
 		// every image it makes.
 		var outside = cxPaste ? cxPaste.list() : [];
-		if (outside.length) {
-			data.pastes = outside;
-			if ($('#dze-cx-basemain').is(':checked')) { data.base_main = 1; }
-		}
+		if (outside.length) { data.pastes = outside; }
+		// The photograph picked as the subject. The server reads a picked one
+		// as "this is image 1" — so what was pasted becomes the setting, which
+		// is what the checkbox used to have to say in words.
+		var subj = parseInt($('#dze-cx-subject').val(), 10) || 0;
+		if (subj) { data.src_id = subj; }
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
@@ -1608,8 +1644,7 @@
 					// on its own — what you added became the thing to
 					// photograph — so there was no way to say "keep this
 					// product, exactly this one, and put it in that scene".
-					'<label class="dze-basemain dze-sec-opt" title="' + esc(i18n.baseMainTip) + '">' +
-						'<input type="checkbox" id="dze-one-basemain" /><span>' + esc(i18n.baseMain) + '</span></label>' +
+
 				'</div>' +
 			'</div>' +
 
@@ -1860,12 +1895,16 @@
 		var $l = $('#dze-one-subject');
 		if (!$l.length) { return; }
 		var pasted = onePastes().length;
-		if (pasted && $('#dze-one-basemain').is(':checked')) { $l.text(i18n.subjKeep || ''); return; }
-		if (pasted) { $l.text(i18n.subjPaste || ''); return; }
+		// WHICH TILE IS PICKED SAYS IT. A photograph of the product picked
+		// here is the subject and anything pasted is the setting; the "from
+		// elsewhere" tile picked instead says the pasted one leads. The
+		// checkbox that used to say the same thing beside them was a second
+		// way of answering one question.
 		if (one.srcId) { $l.text(i18n.subjPicked || ''); return; }
+		if (pasted) { $l.text(i18n.subjPaste || ''); return; }
 		$l.text(i18n.subjMain || '');
 	}
-	$(document).on('change', '#dze-one-basemain, #dze-one-withprod', oneSubject);
+	$(document).on('change', '#dze-one-withprod', oneSubject);
 	function oneShowPasted(dataUri) {
 		var box = onePasteBox();
 		if (!box) { return; }
@@ -1926,7 +1965,7 @@
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 			pastes: onePastes(),
 			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
-			base_main: $('#dze-one-basemain').is(':checked') ? 1 : 0,
+
 			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
 			bg: $('#dze-one-bg').val() || 0,
 			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt

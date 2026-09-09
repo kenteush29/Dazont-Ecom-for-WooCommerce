@@ -16,6 +16,9 @@ final class DZE_Updater {
 	private const CACHE_KEY = 'dze_gh_latest_release';
 	private const CACHE_TTL = 6 * HOUR_IN_SECONDS; // short, so new releases surface the same day.
 
+	/** What is remembered when GitHub could not be reached: not a version. */
+	private const FAILED = 'dze-no-answer';
+
 	private string $basename; // dazont-ecom/dazont-ecom.php
 	private string $slug;     // dazont-ecom
 	private string $version;
@@ -42,6 +45,13 @@ final class DZE_Updater {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_check_script' ] );
 		add_action( 'wp_ajax_dze_check_updates', [ $this, 'ajax_check' ] );
 		add_action( 'wp_ajax_dze_dev_channel',  [ $this, 'ajax_dev_channel' ] );
+	}
+
+	/** Which releases this site follows, in the words the toggle uses. */
+	private function channel_name(): string {
+		return $this->dev_channel()
+			? __( 'development', 'dazont-ecom' )
+			: __( 'stable', 'dazont-ecom' );
 	}
 
 	/** True when the channel is forced by the constant (UI toggle then disabled). */
@@ -169,8 +179,17 @@ final class DZE_Updater {
 			/* translators: %s: new version number */
 			$html = '⬆ ' . sprintf( esc_html__( 'Version %s available.', 'dazont-ecom' ), esc_html( $release['version'] ) ) . $link;
 		} else {
-			/* translators: %s: current version number */
-			$html = '✓ ' . sprintf( esc_html__( 'Up to date (%s).', 'dazont-ecom' ), esc_html( $this->version ) );
+			// AND IT NAMES THE CHANNEL IT LOOKED AT. "Up to date (4.314.0)" is
+			// true of the stable channel and says nothing about the three
+			// development builds sitting beside it — which is exactly the
+			// question somebody asks when a version they were sent does not
+			// arrive.
+			$html = '✓ ' . sprintf(
+				/* translators: 1: current version number, 2: the channel this site follows */
+				esc_html__( 'Up to date (%1$s) on the %2$s channel.', 'dazont-ecom' ),
+				esc_html( $this->version ),
+				esc_html( $this->channel_name() )
+			);
 		}
 		wp_send_json_success( [ 'update' => $update, 'version' => $release['version'], 'html' => $html ] );
 	}
@@ -252,6 +271,9 @@ final class DZE_Updater {
 	private function get_latest_release(): ?array {
 		$cache_key = $this->cache_key();
 		$cached    = get_site_transient( $cache_key );
+		if ( self::FAILED === $cached ) {
+			return null; // asked recently, could not be reached: still no answer.
+		}
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
@@ -266,7 +288,15 @@ final class DZE_Updater {
 		] );
 
 		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
-			set_site_transient( $cache_key, [ 'version' => $this->version, 'zip_url' => '', 'html_url' => '', 'published_at' => '', 'body' => '' ], 30 * MINUTE_IN_SECONDS );
+			// A FAILED LOOKUP IS NOT AN ANSWER. It used to cache a release
+			// carrying the SHOP'S OWN version — so the next half hour of
+			// checks read that back and said "Up to date (4.314.0)" with
+			// total confidence, on a shop that had never reached GitHub at
+			// all. Not being able to look and being current are two different
+			// things and must never wear the same words. The failure is
+			// remembered so GitHub is not hammered, and it is remembered AS a
+			// failure.
+			set_site_transient( $cache_key, self::FAILED, 30 * MINUTE_IN_SECONDS );
 			return null;
 		}
 

@@ -1121,16 +1121,20 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    purpose — the option rows around it turn every label into a column and
    every label's span into small capitals, and this is a sentence, not a field
    caption. */
-.dze-basemain,
-.dze-cb-opts .dze-basemain {
-	display: flex; flex-direction: row; align-items: flex-start; gap: 6px;
+/* Which photograph the run works from: a line, not a field caption — the
+   option rows around it turn every label into a column and every span into
+   small capitals, so it is named twice to say it is neither. */
+.dze-cx-subjline,
+.dze-cb-opts .dze-cx-subjline {
+	display: flex; flex-direction: row; align-items: center; gap: 8px;
 	margin: 8px 0 0; font-size: 12px; color: #50575e; line-height: 1.5;
 }
-.dze-basemain > span,
-.dze-cb-opts .dze-basemain > span {
+.dze-cx-subjline > span,
+.dze-cb-opts .dze-cx-subjline > span {
 	font-size: 12px; color: #50575e; text-transform: none; letter-spacing: 0;
+	flex: 0 0 auto;
 }
-.dze-basemain input { margin: 2px 0 0; flex: 0 0 auto; }
+.dze-cx-subjline select { max-width: 260px; min-width: 0; }
 
 /* ---- The product's photographs: what they are, and what shape they are ---- */
 /* A catalogue is square or it is not, and a photograph's dimensions decide

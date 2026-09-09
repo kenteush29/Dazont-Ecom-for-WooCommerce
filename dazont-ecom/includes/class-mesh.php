@@ -873,6 +873,72 @@ final class DZE_Mesh {
 		return $added ? '' : __( 'That page is already waiting in the queue.', 'dazont-ecom' );
 	}
 
+	/**
+	 * The next few pages that should have a link written into them.
+	 *
+	 * The mesh's judgment, in the shape the automatic pass needs: not "which
+	 * page is short" — that is a TARGET, and nothing is written into a target
+	 * — but "which page should carry a new link, and to what". One row per
+	 * SOURCE, because one pass writes one page and can place several links in
+	 * it while it is there.
+	 *
+	 * Worst first: the pages nobody points at are answered before the pages
+	 * one page points at. A source already carrying the work of an earlier row
+	 * gathers the later ones rather than being queued twice.
+	 *
+	 * @return array<int,array{key:string,kind:string,id:int,name:string,urls:string[],why:string}>
+	 */
+	public static function plan( int $limit = 5 ): array {
+		$pages = self::pages();
+		$by    = [];
+		$order = [];
+		foreach ( self::needs( max( 1, $limit ) * 4 ) as $row ) {
+			$to_key = $row['kind'] . ':' . $row['id'];
+			$url    = (string) ( $pages[ $to_key ]['url'] ?? '' );
+			if ( '' === $url ) {
+				continue;
+			}
+			// Only what it is SHORT of: a page pointed at twice needs one more
+			// link, not another three.
+			$want = max( 1, self::WANT_IN - (int) $row['in'] );
+			foreach ( array_slice( self::pairs_for( $to_key, $want )['rows'], 0, $want ) as $from ) {
+				$key = (string) $from['key'];
+				if ( ! isset( $by[ $key ] ) ) {
+					$page = $pages[ $key ] ?? [];
+					if ( ! $page || ! empty( $page['built'] ) ) {
+						continue; // a page nothing can be written into is not work.
+					}
+					$by[ $key ] = [
+						'key'  => $key,
+						'kind' => (string) $page['kind'],
+						'id'   => (int) $page['id'],
+						'name' => (string) $page['title'],
+						'urls' => [],
+						'why'  => '',
+					];
+					$order[] = $key;
+				}
+				if ( ! in_array( $url, $by[ $key ]['urls'], true ) ) {
+					$by[ $key ]['urls'][] = $url;
+				}
+			}
+			if ( count( $order ) >= $limit ) {
+				break;
+			}
+		}
+		$out = [];
+		foreach ( array_slice( $order, 0, max( 1, $limit ) ) as $key ) {
+			$row = $by[ $key ];
+			$row['why'] = sprintf(
+				/* translators: %d: how many links this page would gain */
+				_n( 'one page short of links points here', '%d pages short of links point here', count( $row['urls'] ), 'dazont-ecom' ),
+				count( $row['urls'] )
+			);
+			$out[] = $row;
+		}
+		return $out;
+	}
+
 	/** One page of the mesh, found by its address. */
 	public static function page_by_url( string $url ): array {
 		$key = untrailingslashit( strtok( trim( $url ), '#?' ) );

@@ -4310,6 +4310,12 @@ Answer with STRICT JSON and nothing else: "
 				'subjKeep'   => __( 'Image 1, the subject: the product\'s own photograph. What you added is read for the place, the light and the styling only.', 'dazont-ecom' ),
 				'subjPicked' => __( 'Image 1, the subject: the photograph selected above.', 'dazont-ecom' ),
 				'subjMain'   => __( 'Image 1, the subject: the product\'s main image.', 'dazont-ecom' ),
+				// The picker in the toolbox: which of the product's own
+				// photographs the run works from. Short, because it is an
+				// option on a line, not a sentence.
+				'subjLabel'   => __( 'Subject', 'dazont-ecom' ),
+				'subjMainOpt' => __( 'Main photograph', 'dazont-ecom' ),
+				'subjOne'     => __( 'Photograph', 'dazont-ecom' ),
 				'imgRecipe'  => __( 'Prompt', 'dazont-ecom' ),
 				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
 				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),
@@ -4395,8 +4401,6 @@ Answer with STRICT JSON and nothing else: "
 				'relaunch'   => __( 'Regenerate', 'dazont-ecom' ),
 				// Which of the two is the subject when a photograph is handed
 				// in from outside.
-				'baseMain'   => __( 'Keep the product\'s own photograph as the subject', 'dazont-ecom' ),
-				'baseMainTip'=> __( 'What you add is then read for the place, the light and the styling only — never for the product\'s colours, its pattern or its shape.', 'dazont-ecom' ),
 				'written'    => __( '· written', 'dazont-ecom' ),
 				'writtenTip' => __( 'This product already has one. Running it again writes a different text, not the same one back.', 'dazont-ecom' ),
 				'whatToGen'  => __( 'What to generate', 'dazont-ecom' ),
