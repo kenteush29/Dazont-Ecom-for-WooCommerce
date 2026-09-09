@@ -10,9 +10,14 @@
 	var cfg = dzeCatContent, i18n = cfg.i18n;
 
 	function esc(s) { return $('<div>').text(s == null ? '' : s).html(); }
+	// A MISSING WORD IS NOT WORTH KILLING A HANDLER FOR. Called with a string
+	// the shop has not registered, this threw on `undefined.replace` — and one
+	// TypeError here stops every line after it in whatever handler it was
+	// called from, silently, which is how this screen has stopped moving
+	// before. It answers with nothing instead.
 	function sprintf(str) {
 		var args = Array.prototype.slice.call(arguments, 1), i = 0;
-		return str.replace(/%\d\$s|%s/g, function () { return args[i++]; });
+		return String(str == null ? '' : str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
 	}
 
 	// Two hosts for the same panel: the popup on the categories list, which
@@ -270,6 +275,33 @@
 	function runJob($box, kind, urls, label, done, prompt) {
 		var $st = $box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko');
 		var t0 = Date.now(), poll = null;
+		// THE SAME PROGRESS BAR AS THE PRODUCT POPUP, driven by the step and
+		// the total the queue has been sending on every poll all along. A line
+		// counting seconds says nothing about the work: "pourquoi ne pas faire
+		// comme sur les pages produit avec Step 1 of 2, une barre de
+		// progression et un compteur de temps ?"
+		var $prog = $box.find('.dze-cc-prog');
+		function bar(r) {
+			var total = parseInt((r && r.total) || 0, 10);
+			var step  = parseInt((r && r.step) || 0, 10);
+			var sec   = Math.round((Date.now() - t0) / 1000);
+			$prog.show();
+			$prog.find('.dze-cb-fill').css('width', (total ? Math.round(100 * Math.min(step, total) / total) : 0) + '%');
+			$prog.find('.dze-cc-progcount').text(total ? sprintf(i18n.stepN, Math.min(step, total), total) : '');
+			// WHAT IT IS DOING, or — when it is doing nothing yet — WHAT IT IS
+			// WAITING FOR. A screen saying "waiting" for half a minute with no
+			// reason reads as a broken button.
+			var n = parseInt((r && r.ahead) || 0, 10);
+			$prog.find('.dze-cc-progstep').text(
+				total ? (r.progress || '')
+					: (n > 1 ? sprintf(i18n.ahead, n) : (1 === n ? i18n.ahead1 : i18n.planning))
+			);
+			$prog.find('.dze-cc-progtime').text(sprintf(i18n.elapsed, sec));
+		}
+		function hideBar() {
+			$prog.hide().find('.dze-cb-fill').css('width', '0%');
+			$prog.find('.dze-cc-progcount, .dze-cc-progstep, .dze-cc-progtime').empty();
+		}
 		function tick(state) {
 			var sec = Math.round((Date.now() - t0) / 1000);
 			$st.html('<span class="dze-cx-spin"></span> ' + esc(state) + ' ' + sec + 's');
@@ -299,9 +331,10 @@
 					$.post(cfg.ajaxUrl, { action: 'dze_q_job', nonce: $box.data('qnonce'), id: job })
 						.done(function (r) {
 							if (!r || !r.success) { return; }
-							if (r.data.status === 'queued') { tick(i18n.queuedShort); return; }
-							if (r.data.status === 'running') { tick(label + ' — ' + (r.data.progress || '')); return; }
+							if (r.data.status === 'queued') { tick(i18n.queuedShort); bar(r.data); return; }
+							if (r.data.status === 'running') { tick(label); bar(r.data); return; }
 							stopPoll();
+							hideBar();
 							if (r.data.status === 'failed') {
 								$st.css('color', '#b32d2e').addClass('is-ko').text(r.data.error || i18n.error);
 								done(false);
@@ -312,12 +345,14 @@
 						})
 						.fail(function (xhr, status) {
 							stopPoll();
+							hideBar();
 							$st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status));
 							done(false);
 						});
 				}, 1500);
 			})
 			.fail(function (xhr, status) {
+				hideBar();
 				$st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status));
 				done(false);
 			});

@@ -207,7 +207,7 @@ final class DZE_Queue {
 	 * Every step here finishes in seconds, saves what it produced, and asks for
 	 * the next one. Nothing is ever lost to a timeout.
 	 */
-	public static function work(): void {
+	public static function work( int $only = 0 ): void {
 		global $wpdb;
 		$table = self::table();
 		self::recover();
@@ -216,7 +216,16 @@ final class DZE_Queue {
 		}
 		set_transient( self::LOCK, 1, 5 * MINUTE_IN_SECONDS );
 
-		$job = $wpdb->get_row( "SELECT * FROM {$table} WHERE status IN ('queued','running') ORDER BY FIELD(status,'running','queued'), id ASC LIMIT 1", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		// THE JOB SOMEBODY IS WATCHING IS THE JOB THAT MOVES. A screen polling
+		// its own run called work(), which took the OLDEST job in the whole
+		// queue — so a run somebody was standing in front of could sit at
+		// "waiting for the writer… 33s" while every one of its polls stepped
+		// something else entirely: "et puis c'est bugé, il ne se passe encore
+		// absolument rien." Asked for one job, it takes that one; asked for
+		// nothing — cron, the kick — it takes the queue in order, as before.
+		$job = $only
+			? $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d AND status IN ('queued','running')", $only ), ARRAY_A ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			: $wpdb->get_row( "SELECT * FROM {$table} WHERE status IN ('queued','running') ORDER BY FIELD(status,'running','queued'), id ASC LIMIT 1", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		if ( ! $job ) {
 			delete_transient( self::LOCK );
 			return;
@@ -1223,7 +1232,7 @@ final class DZE_Queue {
 		// Nothing else has taken it? Take it here, one step.
 		$idle = strtotime( (string) $job['updated'] ) < ( current_time( 'timestamp' ) - 20 ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- compared with a site-time column.
 		if ( 'queued' === $job['status'] || ( 'running' === $job['status'] && $idle ) ) {
-			self::work();
+			self::work( $id );
 			$job = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $id ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		}
 		$p     = $job['payload'] ? (array) json_decode( (string) $job['payload'], true ) : [];
@@ -1235,6 +1244,13 @@ final class DZE_Queue {
 			'error'    => (string) ( $job['error'] ?? '' ),
 			'step'     => max( 0, $step + 1 ),
 			'total'    => $total,
+			// HOW MANY RUNS ARE IN FRONT OF THIS ONE. A screen that has been
+			// saying "waiting" for half a minute has to be able to say what it
+			// is waiting for, or it reads as a broken button.
+			'ahead'    => (int) $wpdb->get_var( $wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . self::table() . " WHERE status IN ('queued','running') AND id < %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+				$id
+			) ),
 			'progress' => $total ? sprintf(
 				/* translators: 1: section written, 2: sections in total */
 				__( 'section %1$s of %2$s', 'dazont-ecom' ),

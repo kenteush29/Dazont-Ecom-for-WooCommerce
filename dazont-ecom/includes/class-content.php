@@ -4392,9 +4392,9 @@ Answer with STRICT JSON and nothing else: "
 			// stated on screen, because "which image did it actually use?" is
 			// the first question when a result comes back wrong.
 			'sourceN'    => $pid ? count( self::product_image_ids( $pid ) ) : 0,
-			// The note this product carries: sent with every image made for it,
-			// written once, here.
-			'note'       => $pid ? self::variation_note( $pid, self::NOTE_PRODUCT ) : '',
+			// THE BOX OPENS EMPTY: a note is for the run in front of you, and
+			// one read back from the product would be sent again for ever.
+			'note'       => '',
 			// Said before the click, not after a failed generation.
 			'blockers'   => self::image_blockers(),
 			// The product's own shortfalls, read by the popup wherever it was
@@ -4579,9 +4579,8 @@ Answer with STRICT JSON and nothing else: "
 				'varSaveAll' => __( 'Save selected', 'dazont-ecom' ),
 				'varNote'    => __( 'Notes', 'dazont-ecom' ),
 				'noteTitle'  => __( 'Notes about this product', 'dazont-ecom' ),
-				'noteHelp'   => __( 'Sent with every image made for this product — the real fabric, the finish, what no photograph shows. Saved as you leave the box.', 'dazont-ecom' ),
+				'noteHelp'   => __( 'Sent with the images this run makes, and with nothing after it. What the photographs cannot show, or what came back wrong last time. It is not saved.', 'dazont-ecom' ),
 				'notePh'     => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),
-				'noteSaved'  => __( 'Saved ✓', 'dazont-ecom' ),
 				'varNoteLabel' => __( 'What to know about this variation', 'dazont-ecom' ),
 				'varNoteHelp'=> __( 'Kept with the product and sent with every image made for this variation.', 'dazont-ecom' ),
 				'varNotePh'  => __( 'e.g. fabric: black, multicam tropic ripstop camo', 'dazont-ecom' ),
@@ -5629,11 +5628,20 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	/** The product-wide note, plus the group's own when there is one. */
-	public static function note_lines( int $pid, string $group = '' ): string {
+	/**
+	 * @param string $note A note typed for THIS run, sent and never stored.
+	 */
+	public static function note_lines( int $pid, string $group = '', string $note = '' ): string {
 		$out = '';
-		$all = self::variation_note( $pid, self::NOTE_PRODUCT );
-		if ( '' !== trim( $all ) ) {
-			$out .= "\nAbout this product: " . trim( $all );
+		// A NOTE IS FOR THE RUN IN FRONT OF YOU, NOT FOR EVER. This box saved
+		// what was typed in it on the product and sent it with every image
+		// made for that product from then on — so "ne mets pas de ruban sur le
+		// tshirt !" went out on every shot of that shirt for the rest of its
+		// life, invisibly: "la note est ponctuelle et n'a pas à être
+		// enregistrée pour plus tard." It travels with the request now, and
+		// what was stored before is no longer read.
+		if ( '' !== trim( $note ) ) {
+			$out .= "\nAbout this product: " . trim( $note );
 		}
 		if ( '' !== $group ) {
 			$one = self::variation_note( $pid, $group );

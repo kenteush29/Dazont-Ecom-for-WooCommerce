@@ -890,7 +890,7 @@ trait DZE_Content_Ajax {
 				. $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
 				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ( ! empty( $pastes ) && ! $base_main ) ), $ref_n )
-				. self::note_lines( $pid );
+				. self::note_lines( $pid, '', isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '' );
 
 			DZE_Ai_Usage::unit( 'product_img' );
 			// The shape is asked of the PROVIDER, which is the only place it
@@ -974,6 +974,10 @@ trait DZE_Content_Ajax {
 		// read it — so the picker was a control that did nothing here, and its
 		// default, which reads "Main photograph", answered nothing either.
 		$src_id = isset( $in['src_id'] ) ? absint( $in['src_id'] ) : 0;
+		// WHAT THE PERSON TYPED FOR THIS RUN. It used to be saved on the
+		// product and sent with every image made for it afterwards, which is a
+		// hidden instruction by any other name.
+		$note   = isset( $in['note'] ) ? sanitize_textarea_field( (string) wp_unslash( $in['note'] ) ) : '';
 		// A photograph that is not on the product yet — a supplier shot pasted
 		// from a browser tab, its watermark and its play button included. It
 		// travels as bytes inside the request and is never stored: it is the
@@ -1295,7 +1299,7 @@ trait DZE_Content_Ajax {
 			}
 			// What the owner knows and no photograph shows — about the product,
 			// and about this variation when there is one.
-			$prompt .= self::note_lines( $pid, '' !== $v_value ? $v_attr . '::' . $v_value : '' );
+			$prompt .= self::note_lines( $pid, '' !== $v_value ? $v_attr . '::' . $v_value : '', $note );
 			// A second shot from the same prompt is asked for a different
 			// framing, otherwise it comes back as the first one again.
 			$prompt   .= self::variation_line(
@@ -1520,10 +1524,10 @@ trait DZE_Content_Ajax {
 			'pending' => self::pending( $pid ),
 			// What this product has already cost in images.
 			'spend'   => self::product_spend( $pid ),
-			// The note travels with every image made for this product, so a
-			// popup opened on another product than the page it sits on must
-			// read THAT product's note rather than the one it was loaded with.
-			'note'    => self::variation_note( $pid, self::NOTE_PRODUCT ),
+			// THE BOX OPENS EMPTY. A note is for the run in front of you: read
+			// back from the product it would be sent again, for ever, which is
+			// the very thing that was wrong with it.
+			'note'    => '',
 		] );
 	}
 
@@ -1606,13 +1610,14 @@ trait DZE_Content_Ajax {
 		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
 		$group = isset( $_POST['group'] ) ? (string) wp_unslash( $_POST['group'] ) : '';
 		$note  = isset( $_POST['note'] ) ? sanitize_textarea_field( (string) wp_unslash( $_POST['note'] ) ) : '';
-		// '*' is the product itself: a note every image of it is given.
+		// '*' USED TO BE THE PRODUCT ITSELF — a note every image of it was
+		// given, for ever, typed into a box that said so in small print and
+		// was read by nobody: "la note est ponctuelle et n'a pas à être
+		// enregistrée pour plus tard." It travels with the run now, so there
+		// is nothing here to save. Anything already stored under it is no
+		// longer sent; the key is declared in DZE_Cleanup and can be wiped.
 		if ( self::NOTE_PRODUCT === $group ) {
-			if ( ! $pid ) {
-				wp_send_json_error( [ 'message' => __( 'Product not found.', 'dazont-ecom' ) ] );
-			}
-			self::set_variation_note( $pid, self::NOTE_PRODUCT, $note );
-			wp_send_json_success( [ 'saved' => true ] );
+			wp_send_json_success( [ 'saved' => false ] );
 		}
 		$target = self::attach_target( 'variation:' . $group );
 		if ( ! $pid || 0 !== strpos( $target, 'variation:' ) ) {
