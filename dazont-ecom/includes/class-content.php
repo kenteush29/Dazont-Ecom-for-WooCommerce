@@ -73,6 +73,10 @@ final class DZE_Content {
 		add_action( 'admin_init',     [ $this, 'register_settings' ] );
 		add_action( 'admin_init',     [ $this, 'migrate_quick_recipe' ] );
 		add_action( 'admin_menu',     [ $this, 'register_bulk_page' ], 20 );
+		// A bookmark on the old page still lands: it goes to the tab that
+		// shows it now. On admin_init, which is before a byte of the page is
+		// sent — a redirect after output is a white screen with a warning.
+		add_action( 'admin_init',     [ $this, 'maybe_send_to_tab' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 
 		// Bulk action on the products list → bulk screen.
@@ -3080,7 +3084,49 @@ Answer with STRICT JSON and nothing else: "
 	 * moves.
 	 */
 	public static function bulk_url(): string {
+		// WHERE THE PRODUCT WORK IS DONE, which is a tab of Content diagnostic
+		// whenever that screen is there to hold it. Every link in the plugin
+		// goes through here, so there is one address to be right.
+		return self::bulk_hosted()
+			? add_query_arg(
+				[ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ],
+				admin_url( 'admin.php' )
+			)
+			: self::bulk_page_url();
+	}
+
+	/** The screen's own address, whether or not anything hosts it. */
+	public static function bulk_page_url(): string {
 		return add_query_arg( [ 'post_type' => 'product', 'page' => self::BULK_SLUG ], admin_url( 'edit.php' ) );
+	}
+
+	/**
+	 * Is the product bulk screen a TAB of Content diagnostic?
+	 *
+	 * One decision, in one place, so it can be exercised — the same shape as
+	 * `DZE_Queue::owns_review()`. It decides three things at once and they
+	 * must never disagree: whether the tab is a view or a way out, where every
+	 * link to this work points, and whether the screen keeps a menu entry of
+	 * its own. "Products AI bulk > toujours caché, introuvable dans aucun
+	 * menu. Products, dans Content diagnostic, redirige vers Products AI
+	 * bulk": the entry was taken out of the menu for a host that never held
+	 * it, so the screen had no home at all.
+	 */
+	public static function bulk_hosted(): bool {
+		return class_exists( 'DZE_Diagnostic' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) );
+	}
+
+	/**
+	 * Where a request for the old page should go, or '' to stay.
+	 *
+	 * The decision is split from the request because a handler that ends the
+	 * request cannot be tested — the same rule `shoot()` and `bulk_pick()` are
+	 * held to.
+	 */
+	public static function bulk_redirect( array $get ): string {
+		$page = isset( $get['page'] ) ? (string) $get['page'] : '';
+		return ( self::BULK_SLUG === $page && self::bulk_hosted() ) ? self::bulk_url() : '';
 	}
 
 	public function handle_bulk_action( string $redirect, string $action, array $ids ): string {
@@ -3136,6 +3182,16 @@ Answer with STRICT JSON and nothing else: "
 		);
 	}
 
+	/** The request half of `bulk_redirect()`: it does nothing else. */
+	public function maybe_send_to_tab(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which page was asked for.
+		$to = self::bulk_redirect( wp_unslash( $_GET ) );
+		if ( '' !== $to ) {
+			wp_safe_redirect( $to );
+			exit;
+		}
+	}
+
 	public function register_bulk_page(): void {
 		$label = __( 'Products AI bulk', 'dazont-ecom' );
 		add_submenu_page(
@@ -3159,7 +3215,11 @@ Answer with STRICT JSON and nothing else: "
 		// remove_submenu_page() and not a null parent: passing null to
 		// add_submenu_page() is deprecated, and a deprecation notice printed
 		// before our own output is a white admin page.
-		if ( class_exists( 'DZE_Queue' ) && DZE_Queue::owns_review() ) {
+		// Taken out of the menu ONLY where Content diagnostic shows it as a
+		// tab. It used to be removed whenever the review queue owned its own
+		// screen — a host that never drew this one — so the shop was left with
+		// a function it could not find from any menu at all.
+		if ( self::bulk_hosted() ) {
 			remove_submenu_page( 'edit.php?post_type=product', self::BULK_SLUG );
 		}
 	}
@@ -3390,10 +3450,36 @@ Answer with STRICT JSON and nothing else: "
 		echo '</div></section>';
 	}
 
+	/**
+	 * The screen on its own page — where nothing else is showing it.
+	 *
+	 * ONE BODY, printed by this page and by the Content diagnostic tab alike,
+	 * so the two can never drift: the same rule `DZE_Queue::body()` is held
+	 * to. What lives here and not in the body is what belongs to a PAGE — the
+	 * wrap and the heading.
+	 */
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
+		echo '<div class="wrap dze-wrap dze-admin">';
+		echo '<h1>' . esc_html__( 'Products AI bulk', 'dazont-ecom' ) . '</h1>';
+		$this->bulk_body( self::bulk_page_url() );
+		echo '</div>';
+	}
+
+	/**
+	 * The screen itself, wherever it is drawn.
+	 *
+	 * @param string $base The address of the screen showing it — its own two
+	 *                     tabs are built from it, so they stay where they are
+	 *                     pressed instead of jumping to another page.
+	 */
+	public function bulk_body( string $base = '' ): void {
+		if ( ! current_user_can( 'edit_products' ) ) {
+			return;
+		}
+		$base      = '' !== $base ? $base : self::bulk_url();
 		$products  = $this->bulk_products();
 		[ $ok_n, $tot_n ] = self::validated_counts();
 		$templates  = self::image_templates();
@@ -3404,25 +3490,9 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 		?>
-		<div class="wrap dze-wrap dze-admin">
-			<h1>
-				<?php esc_html_e( 'Products AI bulk', 'dazont-ecom' ); ?>
-				<?php
-				// WHERE THIS SCREEN LIVES. It is no longer a menu of its own:
-				// everything waiting for a decision is named on Content to
-				// review, and this is where the product half of it is decided.
-				// A screen with no way back is a screen you reach once.
-				if ( class_exists( 'DZE_Queue' ) && DZE_Queue::owns_review() ) :
-					?>
-					<a class="page-title-action" href="<?php echo esc_url( DZE_Queue::url() ); ?>">
-						<?php esc_html_e( 'Content to review', 'dazont-ecom' ); ?>
-					</a>
-				<?php endif; ?>
-			</h1>
-
 			<?php
 			$dze_mode = $this->bulk_mode();
-			$dze_base = self::bulk_url();
+			$dze_base = $base;
 			// Products are added to the list, worked on, decided on — and then
 			// they are done with. Two tabs is the whole story.
 			$dze_counts = self::screen_counts();
@@ -3441,10 +3511,12 @@ Answer with STRICT JSON and nothing else: "
 					</a>
 				<?php endforeach; ?>
 			</h2>
-			<?php if ( 'log' === $dze_mode ) : $this->render_bulk_log(); ?>
-				</div>
-				<?php return; ?>
-			<?php endif; ?>
+			<?php
+			if ( 'log' === $dze_mode ) {
+				$this->render_bulk_log();
+				return;
+			}
+			?>
 
 
 			<?php $dze_blockers = self::image_blockers(); ?>
@@ -3731,7 +3803,6 @@ Answer with STRICT JSON and nothing else: "
 					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
 				<?php endforeach; ?>
 			</table>
-		</div>
 		<?php
 	}
 

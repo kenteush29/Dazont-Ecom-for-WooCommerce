@@ -44,6 +44,16 @@ function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; retur
 function get_transient( $k ) { return false; }
 function set_transient( ...$a ) { return true; }
 function is_admin() { return true; }
+function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
+function add_query_arg( $args, $url = '' ) { return $url . ( false === strpos( (string) $url, '?' ) ? '?' : '&' ) . http_build_query( (array) $args ); }
+$GLOBALS['dze_diag_class'] = true;
+/** The screen that may host the product bulk work — switched on, or off. */
+class DZE_Diagnostic { const MENU_SLUG = 'dazont-ecom-diagnostic'; }
+class DZE_Modules {
+	public static function enabled( $id ) {
+		return 'diagnostic' === $id ? ! empty( $GLOBALS['dze_diag_class'] ) : true;
+	}
+}
 // Enough of WordPress for the prompt registry to answer, so the note the
 // SCREEN shows is read from the registry the shop actually holds.
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
@@ -144,6 +154,37 @@ ok( 'and a text prompt is appended none of it',
 	DZE_Content::prompt_note( 'content_title' ), '' );
 ok( 'nor is a prompt this module does not own',
 	DZE_Content::prompt_note( 'cat_desc' ), '' );
+
+echo "\nWHERE THE PRODUCT BULK SCREEN LIVES\n";
+// "Products AI bulk > toujours caché, introuvable dans aucun menu. L'onglet
+// Done ici est pourtant extrêmement utile. Products, dans Content diagnostic,
+// redirige vers Products AI bulk. Démèles ce bordel."
+//
+// One decision answers three questions at once — is the tab a view or a door,
+// where does every link to this work point, and does the screen keep a menu
+// entry of its own — and they must never disagree.
+$GLOBALS['dze_diag_class'] = true;
+ok( 'hosted where the diagnostic is there', DZE_Content::bulk_hosted(), true );
+ok( 'and every link goes to that tab',
+	false !== strpos( DZE_Content::bulk_url(), 'page=dazont-ecom-diagnostic&tab=products' ), true );
+// A BOOKMARK STILL LANDS. The decision is split from the request, because a
+// handler that ends the request cannot be tested.
+ok( 'the old address is sent to the tab',
+	DZE_Content::bulk_redirect( [ 'page' => DZE_Content::BULK_SLUG ] ), DZE_Content::bulk_url() );
+ok( 'and every other page is left alone',
+	DZE_Content::bulk_redirect( [ 'page' => 'edit.php' ] ), '' );
+// WITH NOTHING TO HOST IT, the screen is its own page again — and keeps its
+// menu entry, or the shop has a function it cannot reach from anywhere. That
+// is the state it shipped in.
+$GLOBALS['dze_diag_class'] = false;
+ok( 'nothing hosting it, it stands alone', DZE_Content::bulk_hosted(), false );
+ok( 'and links point at its own page',
+	DZE_Content::bulk_url(), DZE_Content::bulk_page_url() );
+ok( 'which is where it has always been',
+	false !== strpos( DZE_Content::bulk_page_url(), 'page=dazont-content-bulk' ), true );
+ok( 'and nothing is redirected away from it',
+	DZE_Content::bulk_redirect( [ 'page' => DZE_Content::BULK_SLUG ] ), '' );
+$GLOBALS['dze_diag_class'] = true;
 
 echo "\nHow many photographs of the product go with a request\n";
 // A close-up of the fastenings, asked of a five-photograph product with two

@@ -2368,10 +2368,17 @@ final class DZE_Diagnostic {
 		// reached the way every other view here is reached, from the tab
 		// strip, with its own count beside it.
 		if ( class_exists( 'DZE_Content' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'content' ) ) ) {
+			// A VIEW, not a way out. It carried a `url` and sent the shop to a
+			// screen with no menu entry of its own — "Products, dans Content
+			// diagnostic, redirige vers Products AI bulk... toujours caché,
+			// introuvable dans aucun menu". The body belongs to the module
+			// that owns that work and is printed here, like every other tab.
 			$out['products'] = [
 				'label' => __( 'Products', 'dazont-ecom' ),
-				'n'     => class_exists( 'DZE_Queue' ) ? DZE_Queue::bulk_waiting() : 0,
-				'url'   => DZE_Content::bulk_url(),
+				// The figure the tab OPENS on: the products in the list. What
+				// waits for a decision is the menu badge's question, and it is
+				// answered there.
+				'n'     => (int) ( DZE_Content::screen_counts()['all'] ?? 0 ),
 			];
 		}
 		return $out;
@@ -2419,6 +2426,11 @@ final class DZE_Diagnostic {
 			// printed here and on its own page alike, never two screens that
 			// have to be kept in step.
 			DZE_Queue::instance()->body();
+		} elseif ( 'products' === $tab && class_exists( 'DZE_Content' ) ) {
+			// The same rule again: one body, and it is handed the address of
+			// the screen showing it so its own two tabs — Selected products,
+			// Done — stay where they were pressed.
+			DZE_Content::instance()->bulk_body( DZE_Content::bulk_url() );
 		} elseif ( '' !== $check && isset( self::checks()[ $check ] ) ) {
 			$this->render_list( $check );
 		} else {
