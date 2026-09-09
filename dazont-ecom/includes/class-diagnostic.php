@@ -131,6 +131,11 @@ final class DZE_Diagnostic {
 			// Deleted since the reading: it is not a problem any more.
 			wp_send_json_success( [ 'fixed' => true, 'said' => '', 'want' => [] ] );
 		}
+		// Hidden from the catalogue since the reading: the shop has answered
+		// for it, and the row leaves the list the same way a mended one does.
+		if ( 'product' === $scope && self::skipped( $one ) ) {
+			wp_send_json_success( [ 'fixed' => true, 'said' => '', 'want' => [] ] );
+		}
 		$short = self::fails( $row, $scope, $object );
 		wp_send_json_success( [
 			'fixed' => ! $short,
@@ -161,6 +166,9 @@ final class DZE_Diagnostic {
 	 * @return array<int,array{check:string,said:string,want:array}>
 	 */
 	public static function todo( int $post_id ): array {
+		if ( self::skipped( $post_id ) ) {
+			return [];
+		}
 		$object = self::object_for( 'product', $post_id );
 		if ( ! $object ) {
 			return [];
@@ -184,6 +192,61 @@ final class DZE_Diagnostic {
 		}
 		return $out;
 	}
+
+	/**
+	 * Products the shop has decided not to show, and so not to work on.
+	 *
+	 * "Certains produits définitivement ne méritent pas qu'on s'y attarde. Ce
+	 * produit est Catalog visibility Hidden. Ce sera notre filtre." It is
+	 * WooCommerce's own answer, set on WooCommerce's own screen, so nothing
+	 * custom has to be invented, remembered or kept in step: a product taken
+	 * out of the catalogue is a product no criterion has anything to ask of.
+	 *
+	 * HIDDEN IS BOTH TERMS, never either of them. WooCommerce writes
+	 * `exclude-from-catalog` alone for "Search results only" and
+	 * `exclude-from-search` alone for "Shop only" — both of those are still on
+	 * the shop and are still judged. Only a product carrying the two is
+	 * hidden, which is what `get_catalog_visibility()` answers 'hidden' for.
+	 *
+	 * One query for the whole shop, kept for the request: a lookup per product
+	 * would be a query per line drawn, and the scan walks thousands.
+	 *
+	 * @return array<int,true> Keyed by product id.
+	 */
+	public static function hidden_products(): array {
+		if ( null !== self::$hidden_cache ) {
+			return self::$hidden_cache;
+		}
+		global $wpdb;
+		self::$hidden_cache = [];
+		if ( ! $wpdb || ! taxonomy_exists( 'product_visibility' ) ) {
+			return self::$hidden_cache;
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- no core API answers "carries both of these terms" in one query.
+		$rows = $wpdb->get_col(
+			"SELECT tr.object_id
+			 FROM {$wpdb->term_relationships} tr
+			 INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			 INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+			 WHERE tt.taxonomy = 'product_visibility'
+			   AND t.slug IN ( 'exclude-from-catalog', 'exclude-from-search' )
+			 GROUP BY tr.object_id
+			 HAVING COUNT( DISTINCT t.slug ) = 2"
+		);
+		// phpcs:enable
+		foreach ( (array) $rows as $one ) {
+			self::$hidden_cache[ (int) $one ] = true;
+		}
+		return self::$hidden_cache;
+	}
+
+	/** Is this product one the shop has taken out of the catalogue? */
+	public static function skipped( int $post_id ): bool {
+		return isset( self::hidden_products()[ $post_id ] );
+	}
+
+	/** @var array<int,true>|null */
+	private static $hidden_cache = null;
 
 	/**
 	 * One shortfall as one line: what it is, and how far off.
@@ -1666,6 +1729,9 @@ final class DZE_Diagnostic {
 			|| isset( $fields['product.main_image_height'] )
 			|| isset( $fields['product.main_image_side'] );
 
+		// Read once for the whole scan, not once a page.
+		$dze_hidden = self::hidden_products();
+
 		$page = 1;
 		do {
 			$q = new WP_Query( [
@@ -1693,6 +1759,13 @@ final class DZE_Diagnostic {
 				// nine thousand products and every figure on the screen is
 				// out by the number of languages it sells in.
 				if ( null !== $mine && ! isset( $mine[ (int) $post->ID ] ) ) {
+					continue;
+				}
+				// A product the shop has hidden from its own catalogue is not
+				// a product waiting to be written. Skipped before it is
+				// counted, like a translation: judged and then dropped would
+				// leave it in the census figure and out of the list.
+				if ( isset( $dze_hidden[ (int) $post->ID ] ) ) {
 					continue;
 				}
 				$seen[ $scope ]++;
@@ -2460,6 +2533,10 @@ final class DZE_Diagnostic {
 		echo '<h2 style="margin:18px 0 6px;">' . esc_html__( 'What the shop is short of', 'dazont-ecom' ) . '</h2>';
 		echo '<p class="description" style="max-width:760px;">'
 			. esc_html__( 'What the shop is short of, read against your own standards. Nothing here writes anything or spends anything: each line points at the screen that fixes that one thing.', 'dazont-ecom' )
+			// A RULE NOBODY IS TOLD ABOUT IS A COUNT NOBODY CAN CHECK. The
+			// figures on this page leave out the products the shop has taken
+			// out of its own catalogue, and it says so where the figures are.
+			. ' ' . esc_html__( 'Products whose catalog visibility is Hidden are left out — that is how a product is taken off this list for good.', 'dazont-ecom' )
 			. '</p>';
 
 		echo '<p style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';

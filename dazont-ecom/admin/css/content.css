@@ -729,8 +729,12 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cc-import p { margin: 6px 0; }
 .dze-cc-import select { max-width: 150px; }
 .dze-cc-imstatus { font-size: 12px; margin-left: 8px; }
-.dze-cc-data { background: #f6f7f7; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; }
-.dze-cc-data p { margin: 6px 0; }
+/* AN ADVISORY IS A LINE THAT OPENS, not a placard. Two full boxes stood at
+   the top of the category panel saying the text could still be written. */
+.dze-cc-note { border: 1px solid #dcdcde; border-left: 3px solid #dba617; border-radius: 4px; background: #fff; margin: 0 0 10px; max-width: 880px; }
+.dze-cc-note > summary { cursor: pointer; padding: 7px 12px; font-size: 13px; color: #646970; }
+.dze-cc-note > :not(summary) { margin: 0 12px 10px; }
+.dze-cc-queries { border-left-color: #dcdcde; }
 .dze-cc-box .wp-editor-wrap { margin-top: 4px; }
 .dze-cc-box .wp-editor-area { font-size: 13px; }
 .dze-cc-ptext { font-size: 12px !important; }
@@ -888,6 +892,20 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em;
 }
 .dze-tplgrid .dze-tplrow select { min-width: 0; width: 100%; }
+/* THE SAME ROW, ON A SCREEN WITH ONE PROMPT PER BLOCK. The category panel has
+   no scene, no attempts and no destination to choose — a menu of one is a
+   control that says nothing — so the row is a label, the prompt's name, and
+   the one button every prompt in this plugin is read from, reading the same
+   way as the product screens' first two columns. It deliberately does not
+   wear .dze-tplrow: that class tells hub.js a block is counted by its rows. */
+.dze-cc-promptrow {
+	display: flex; align-items: center; gap: 8px;
+	margin: 0 0 6px; max-width: 880px;
+}
+.dze-cc-promptlabel {
+	font-size: 11px; color: #646970; text-transform: uppercase; letter-spacing: .04em;
+}
+.dze-cc-promptname { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dze-tplbtns { display: flex; gap: 4px; }
 /* How fast the run goes, next to the button that starts it. */
 .dze-cb-par { display: flex; align-items: center; gap: 6px; margin-left: auto; }

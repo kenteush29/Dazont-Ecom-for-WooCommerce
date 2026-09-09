@@ -582,12 +582,20 @@ final class DZE_Queue {
 	 * The owner saved this category by hand: whatever was waiting for review on
 	 * it is settled, and must not keep asking.
 	 */
-	public static function settle( int $object_id ): void {
+	public static function settle( int $object_id, bool $accept = true ): void {
 		self::forget_count();
 		global $wpdb;
 		$wpdb->query( $wpdb->prepare(
+			// A DECISION IS SIGNED, and a REFUSAL IS A DECISION. This wrote
+			// 'applied' with nobody's name on it, and had no counterpart at
+			// all for a refusal — so "Put back what was there" left the row
+			// waiting for ever and the panel announced the same text again
+			// every time it opened: "le bouton reste ensuite bloqué sur ce
+			// texte." One function, both answers.
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"UPDATE " . self::table() . " SET status = 'applied', updated = %s WHERE object_id = %d AND status = 'review' AND kind LIKE 'cat_%%'",
+			"UPDATE " . self::table() . " SET status = %s, decided_by = %d, updated = %s WHERE object_id = %d AND status = 'review' AND kind LIKE 'cat_%%'",
+			$accept ? 'applied' : 'skipped',
+			self::decider(),
 			current_time( 'mysql' ),
 			$object_id
 		) );

@@ -81,6 +81,7 @@ function add_query_arg( ...$a ) { return is_array( $a[0] ?? null ) ? ( ( $a[1] ?
 function wp_parse_args( $a, $d = [] ) { return array_merge( (array) $d, (array) $a ); }
 function wp_create_nonce( $a = '' ) { return 'nonce'; }
 function post_type_exists( $t ) { return true; }
+function taxonomy_exists( $t ) { return true; }
 function get_post_types( $args = [], $out = 'names' ) {
 	$mk = static function ( $name, $label ) {
 		$o = new stdClass(); $o->name = $name; $o->labels = new stdClass(); $o->labels->name = $label; return $o;
@@ -139,6 +140,33 @@ class DZE_Diag_Test_Wpdb {
 		return $GLOBALS['dze_has_icl'] ? ( is_array( $q ) ? (string) ( $q[1][0] ?? '' ) : '' ) : '';
 	}
 	public function get_col( $q ) {
+		$sql = is_array( $q ) ? (string) $q[0] : (string) $q;
+		// PRODUCTS THE SHOP HAS TAKEN OUT OF ITS OWN CATALOGUE. Hidden is BOTH
+		// visibility terms; the query says so with HAVING COUNT(DISTINCT) = 2,
+		// and this fake shop answers the same question of its own data.
+		if ( false !== strpos( $sql, 'product_visibility' ) ) {
+			// THE RULE IS READ OFF THE QUERY, not reimplemented here. Written
+			// out again in PHP, this answered "both terms" whatever the SQL
+			// said — so relaxing the real rule to "either term", which would
+			// drop every "Search results only" product the shop still sells,
+			// left the gate green. A fake that knows the answer proves nothing.
+			preg_match( '/HAVING COUNT\( DISTINCT t\.slug \)\s*(=|>=|>)\s*(\d+)/', $sql, $m );
+			$op   = (string) ( $m[1] ?? '=' );
+			$want = (int) ( $m[2] ?? 2 );
+			// And WHICH slugs it is counting, also read from the query.
+			preg_match( "/t\.slug IN \(([^)]*)\)/", $sql, $sm );
+			preg_match_all( "/'([^']+)'/", (string) ( $sm[1] ?? '' ), $slugs );
+			$looked = (array) ( $slugs[1] ?? [] );
+			$out = [];
+			foreach ( (array) ( $GLOBALS['dze_visibility'] ?? [] ) as $pid => $terms ) {
+				$n = count( array_unique( array_intersect( (array) $terms, $looked ) ) );
+				$hit = ( '=' === $op ) ? ( $n === $want ) : ( '>=' === $op ? $n >= $want : $n > $want );
+				if ( $hit ) {
+					$out[] = (int) $pid;
+				}
+			}
+			return $out;
+		}
 		if ( ! is_array( $q ) || false === strpos( (string) $q[0], 'icl_translations' ) ) { return []; }
 		[ $type, $lang ] = $q[1];
 		return $GLOBALS['dze_icl'][ $type ][ $lang ] ?? [];
@@ -460,6 +488,58 @@ foreach ( DZE_Diagnostic::operators() as $id => $meta ) {
 }
 ok( 'every comparison, not two of them', count( $asked ), count( DZE_Diagnostic::operators() ) );
 ok( 'one custom field per post type',    isset( DZE_Diagnostic::fields()['product.meta'] ) && ! isset( DZE_Diagnostic::fields()['product.meta_number'] ), true );
+
+echo "A PRODUCT THE SHOP HAS HIDDEN IS NOT A PRODUCT WAITING TO BE WRITTEN\n";
+// "Ensuite tu verras comment je pourrais faire ignorer certains produits ? Une
+// méthode simple, universelle, standardisée. On évite le custom. Ok j'ai
+// trouvé, ce produit est Catalog visibility Hidden. Ce sera notre filtre."
+//
+// WooCommerce's own answer, set on WooCommerce's own screen. HIDDEN IS BOTH
+// TERMS: "Search results only" and "Shop only" each carry one of them and are
+// still on the shop, so reading either one alone would quietly drop products
+// the shop is still selling.
+$GLOBALS['dze_posts']['product'] = [];
+foreach ( [ 301, 302, 303, 304 ] as $one ) {
+	$p = new WP_Post();
+	$p->ID = $one;
+	$p->post_content = 'A short line.';
+	$GLOBALS['dze_posts']['product'][] = $p;
+	// todo() reads the product itself, so it has to be findable by id too —
+	// three screens print that answer and all three ask by id.
+	$GLOBALS['dze_posts'][ $one ] = $p;
+}
+$GLOBALS['dze_icl'] = [];
+$GLOBALS['dze_visibility'] = [
+	302 => [ 'exclude-from-catalog', 'exclude-from-search' ], // Hidden.
+	303 => [ 'exclude-from-catalog' ],                        // Search results only.
+	304 => [ 'exclude-from-search' ],                         // Shop only.
+];
+$GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
+	[ 'id' => 'thin', 'label' => 'Description too short', 'scope' => 'product',
+	  'field' => 'product.description', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'on' => 1 ],
+] ];
+$GLOBALS['dze_transients'] = [];
+( new ReflectionProperty( 'DZE_Diagnostic', 'hidden_cache' ) )->setValue( null, null );
+$census = DZE_Diagnostic::scan();
+ok( 'a hidden product is not read at all',  $census['seen']['product'] ?? 0, 3 );
+ok( 'and it is not counted as short',       $census['checks']['thin'] ?? -1, 3 );
+ok( 'nor is it on the list',                in_array( 302, DZE_Diagnostic::list_of( 'thin' ), true ), false );
+// THE OTHER TWO VISIBILITIES ARE NOT HIDDEN. Reading one term alone would have
+// dropped both of them, and the shop still sells them.
+ok( '"Search results only" is still judged', in_array( 303, DZE_Diagnostic::list_of( 'thin' ), true ), true );
+ok( 'and so is "Shop only"',                 in_array( 304, DZE_Diagnostic::list_of( 'thin' ), true ), true );
+// AND THE READING BELONGS TO THE PRODUCT: the toolbox, the problem list and
+// the bulk row all print todo(), so a hidden product must answer the same
+// thing wherever it is asked.
+ok( 'a hidden product is short of nothing',  DZE_Diagnostic::todo( 302 ), [] );
+ok( 'and its neighbour still is not',        count( DZE_Diagnostic::todo( 303 ) ) > 0, true );
+// A SHOP THAT HIDES NOTHING LOSES NOTHING.
+$GLOBALS['dze_visibility'] = [];
+( new ReflectionProperty( 'DZE_Diagnostic', 'hidden_cache' ) )->setValue( null, null );
+$GLOBALS['dze_transients'] = [];
+$census = DZE_Diagnostic::scan();
+ok( 'nothing hidden, nothing dropped',      $census['seen']['product'] ?? 0, 4 );
+$GLOBALS['dze_visibility'] = [];
 
 echo "Reading a shop that sells in more than one language\n";
 // Six products in the database: three written in English, three of them
