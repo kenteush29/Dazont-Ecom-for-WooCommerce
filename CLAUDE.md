@@ -427,6 +427,20 @@ owner communicates in French.
   the place, the light and the styling. The server reads a picked photograph
   as the subject (`$base_main || $src_id`), so the checkbox that used to say
   that in words is gone from both screens.
+- **A DEFAULT THAT SENDS NOTHING IS NOT AN ANSWER, AND THE PICKER MUST OFFER
+  EVERY ANSWER.** That picker opened on "Main photograph" and sent nothing on
+  it — and a request carrying pasted photographs and no answer is read by the
+  server as "the pasted one leads". So a supplier shot added for context
+  became image 1 and the product came back in ITS colour: "il me donne du
+  kryptek noir plutot que du desert. Avant ça fonctionnait." Two rules, one
+  fault: the default POSTS what it says, and what was added from outside is an
+  OPTION on the same picker — the answer the screen cannot give is the answer
+  nobody can give. And the value a control posts is read off the page when the
+  request is built: only a browser can see it, so it is asserted on the wire
+  (`tools/js/diagnostic-fix.mjs`) and the reading of it asserted on the server
+  (`tools/test-shoot.php`). `shoot()` had never read `src_id` at all — the
+  toolbox posted it and only the main-image lane looked — so the picker was a
+  control that did nothing on the lane it lives on.
 
 - **THE PHOTOGRAPHS WIN OVER THE WORDS, AND THAT IS SAID ON EVERY RUN.**
   "Trop de AI slop sur les images... des attaches imaginaires rajoutées devant,

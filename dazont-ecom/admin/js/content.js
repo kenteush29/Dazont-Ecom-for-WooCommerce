@@ -427,7 +427,7 @@
 								// is not one of the things the run does.
 								'<label class="dze-cx-subjline dze-sec-opt">' +
 									'<span>' + esc(i18n.subjLabel) + '</span>' +
-									'<select id="dze-cx-subject"><option value="0">' + esc(i18n.subjMain) + '</option></select>' +
+									'<select id="dze-cx-subject"><option value="0">' + esc(i18n.subjMainOpt) + '</option></select>' +
 								'</label>' +
 								// What no photograph of this product shows. It
 								// travels with every image made here, and it
@@ -832,6 +832,17 @@
 				im.variation ? String(im.variation) : (i18n.subjOne || 'Photograph') + ' ' + n
 			));
 		});
+		// WHAT WAS ADDED FROM OUTSIDE IS AN ANSWER TOO — and it was missing
+		// from this list, so the picker read "Main photograph" while the run
+		// made the pasted photograph the subject. A supplier shot added for
+		// context came back as the product itself, colours included:
+		// "il me donne du kryptek noir plutot que du desert."
+		var pasted = cxPaste ? cxPaste.list().length : 0;
+		if (pasted) {
+			$s.append($('<option value="paste"></option>').text(
+				1 === pasted ? (i18n.subjPasteOpt || '') : (i18n.subjPasteOptN || i18n.subjPasteOpt || '')
+			));
+		}
 		// A choice that no longer exists falls back to the main photograph
 		// rather than sending an id nothing answers for.
 		$s.val($s.find('option[value="' + was + '"]').length ? was : '0');
@@ -1050,7 +1061,13 @@
 		var $slot = $('#dze-cx-else');
 		if (!$slot.length) { cxPaste = null; return null; }
 		if (!cxPaste || !$.contains(document.body, cxPaste.el[0])) {
-			cxPaste = window.dzePasteBox.mount($slot, { max: maxPasted(), maxBody: maxBody() });
+			cxPaste = window.dzePasteBox.mount($slot, {
+				max: maxPasted(), maxBody: maxBody(),
+				// The picker offers what the box holds: a photograph added
+				// after it was drawn has to appear in it, or the only way to
+				// say "this one is the subject" is not on the screen.
+				onChange: drawSubjects
+			});
 		}
 		return cxPaste;
 	}
@@ -1061,11 +1078,19 @@
 		// every image it makes.
 		var outside = cxPaste ? cxPaste.list() : [];
 		if (outside.length) { data.pastes = outside; }
-		// The photograph picked as the subject. The server reads a picked one
-		// as "this is image 1" — so what was pasted becomes the setting, which
-		// is what the checkbox used to have to say in words.
-		var subj = parseInt($('#dze-cx-subject').val(), 10) || 0;
-		if (subj) { data.src_id = subj; }
+		// WHICH PHOTOGRAPH IS THE SUBJECT, and the picker always answers.
+		// On its default it sent nothing at all, and a request carrying
+		// pasted photographs and nothing else is read by the server as "the
+		// pasted one leads" — so the screen said the product's main image and
+		// the run used the supplier's shot. "Main photograph" and a chosen one
+		// both mean the product is image 1; what was added from outside is
+		// then read for the place, the light and the styling.
+		var pick = String($('#dze-cx-subject').val() || '0');
+		if ('paste' !== pick) {
+			data.base_main = 1;
+			var subj = parseInt(pick, 10) || 0;
+			if (subj) { data.src_id = subj; }
+		}
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
