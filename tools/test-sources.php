@@ -334,12 +334,12 @@ echo "\nONE TICK PER BLOCK, IN THE BLOCK'S OWN TITLE\n";
 // pourtant dit de le faire." Seven text prompts and no way to take the lot.
 $dze_sec = new ReflectionMethod( 'DZE_Content', 'sec_open' );
 $dze_sec->setAccessible( true );
-$dze_draw_sec = static function ( bool $all ) use ( $dze_sec ): string {
+$dze_draw_sec = static function ( array $tick ) use ( $dze_sec ): string {
 	ob_start();
-	$dze_sec->invoke( null, 'text', 'Texts', true, $all );
+	$dze_sec->invoke( null, 'text', 'Texts', true, $tick );
 	return (string) ob_get_clean();
 };
-$dze_with = $dze_draw_sec( true );
+$dze_with = $dze_draw_sec( [ 'all' => true, 'tip' => 'Tick every prompt in this block' ] );
 ok( 'the switch is in the heading',
 	(bool) preg_match( '#<h3 class="dze-sec-head".*?dze-sec-all.*?</h3>#s', $dze_with ), true );
 // The SAME class the product toolbox uses, so the one handler in photos.js
@@ -352,9 +352,42 @@ ok( 'inside a label the head click knows to ignore',
 // control saying what the first already says — which is exactly what was
 // taken off the images and price blocks of the toolbox.
 ok( 'a block with nothing to take all of has none',
-	false !== strpos( $dze_draw_sec( false ), 'dze-sec-all' ), false );
+	false !== strpos( $dze_draw_sec( [] ), 'dze-sec-all' ), false );
 ok( 'and it is still an ordinary section',
-	false !== strpos( $dze_draw_sec( false ), 'class="dze-sec-head"' ), true );
+	false !== strpos( $dze_draw_sec( [] ), 'class="dze-sec-head"' ), true );
+// A BLOCK'S OWN SWITCH LIVES THERE TOO — the shape the product toolbox uses
+// for its images and price blocks. Inside the body instead, `countSec()` finds
+// no head tick and draws "0 / 2" over a block that is switched on with two
+// prompts laid out under it.
+$dze_own = $dze_draw_sec( [ 'id' => 'dze-cb-image', 'on' => true, 'tip' => 'Generate images' ] );
+ok( "a block's own switch is in the heading too",
+	(bool) preg_match( '#<h3 class="dze-sec-head".*?id="dze-cb-image".*?</h3>#s', $dze_own ), true );
+ok( 'keeping the id the screen already speaks',
+	false !== strpos( $dze_own, 'id="dze-cb-image"' ), true );
+ok( 'and its state',                    false !== strpos( $dze_own, ' checked' ), true );
+ok( 'and it is not the take-all one',   false !== strpos( $dze_own, 'dze-sec-all' ), false );
+// A STEP THAT IS NOT POSSIBLE IS DISABLED AND SAYS WHAT IS MISSING.
+$dze_lock = $dze_draw_sec( [ 'id' => 'dze-cb-image', 'disabled' => true, 'tip' => 'No fal.ai key is saved' ] );
+ok( 'a switch that cannot be used is disabled',
+	false !== strpos( $dze_lock, ' disabled' ), true );
+ok( 'and says what is missing',         false !== strpos( $dze_lock, 'No fal.ai key is saved' ), true );
+
+// AND ON THE SCREEN ITSELF. This fake shop has no validated image prompt and
+// no reviews module, so those two blocks are not drawn at all here — what is
+// asserted on the real screen is the one block this fixture produces, and the
+// three shapes above are the contract all of them are built on.
+ok( 'the screen puts the price switch in its heading',
+	(bool) preg_match( '#<h3 class="dze-sec-head".*?id="dze-cb-price".*?</h3>#s', $dze_screen ), true );
+ok( 'and never twice',                  substr_count( $dze_screen, 'id="dze-cb-price"' ), 1 );
+// The body must not keep a second copy of a switch that moved to the heading:
+// the price block is cut at its own body, and each half asked separately.
+$dze_price = substr( $dze_screen, (int) strpos( $dze_screen, 'data-sec="price"' ) );
+$dze_price = substr( $dze_price, 0, (int) strpos( $dze_price, '</section>' ) );
+[ $dze_head, $dze_bodyhalf ] = array_pad( explode( '<div class="dze-sec-body"', $dze_price, 2 ), 2, '' );
+ok( 'the switch is in that block\'s heading',
+	false !== strpos( $dze_head, 'id="dze-cb-price"' ), true );
+ok( 'and nowhere in its body',
+	false !== strpos( $dze_bodyhalf, 'id="dze-cb-price"' ), false );
 
 echo "\nHow many photographs of the product go with a request\n";
 // A close-up of the fastenings, asked of a five-photograph product with two

@@ -722,6 +722,20 @@ owner communicates in French.
   blank row reads as a reading that never happened, so it says "Nothing
   missing"); and the whole surface is gated on the MODULE, asked once for the
   page rather than once a row, because a class file always exists.
+- **A BLOCK'S SWITCH LIVES IN ITS HEADING, OR THE COUNT BESIDE IT LIES.**
+  `countSec()` in photos.js reads `> .dze-sec-head .dze-sec-tick input` to
+  decide how many of a block's ROWS will run. On the bulk screen the switch sat
+  inside the body, so it found nothing and drew "0 / 2" over an Images block
+  that was switched on with two prompts laid out under it. `sec_open()` takes
+  the same tick descriptor the toolbox's `sec()` does — `all` for a take-all,
+  or `id`/`on`/`disabled`/`tip` for a block's own switch — and the ids the
+  screen already speaks (`dze-cb-image`, `dze-cb-price`, `dze-cb-reviews`) move
+  with it, so the JavaScript that reads them needs to know nothing. One shape,
+  two screens, one handler.
+- **AN EMPTY ANSWER SAYS WHICH EMPTY IT IS.** The category panel says in a
+  notice that a finished text is waiting in the queue, and printed "Nothing
+  written yet" underneath it — the screen contradicting itself on one page.
+  The empty after points at the button that brings the text here instead.
 - **ONE TICK PER BLOCK — ON EVERY SCREEN THAT HAS BLOCKS.** The rule was kept
   on the product toolbox and never carried to the bulk screen beside it: seven
   text prompts, no way to take or drop the lot. "Pas de coche pour
