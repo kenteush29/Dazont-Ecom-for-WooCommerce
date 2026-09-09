@@ -144,11 +144,19 @@ final class DZE_Mesh {
 			do_action( 'wpml_switch_language', $lang );
 		}
 		$out = [];
+		// WPML indexes a taxonomy term by its TERM TAXONOMY id, not its term
+		// id: that is its schema, and asking with the wrong one answers
+		// nothing at all — which reads as "keep everything".
+		$mine_cat = self::mine( 'tax_product_cat', $lang );
 		foreach ( (array) get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false ] ) as $t ) {
 			if ( is_wp_error( $t ) || 'uncategorized' === $t->slug ) {
 				continue;
 			}
-			if ( '' !== $lang && class_exists( 'DZE_Category_Content' )
+			if ( null !== $mine_cat ) {
+				if ( ! isset( $mine_cat[ (int) $t->term_taxonomy_id ] ) ) {
+					continue;
+				}
+			} elseif ( '' !== $lang && class_exists( 'DZE_Category_Content' )
 				&& DZE_Category_Content::lang_code( (int) $t->term_id ) !== $lang ) {
 				continue;
 			}
@@ -181,12 +189,21 @@ final class DZE_Mesh {
 			 ORDER BY ID DESC LIMIT " . (int) self::SCAN,
 			ARRAY_A
 		);
+		$mine_post = [
+			'post' => self::mine( 'post_post', $lang ),
+			'page' => self::mine( 'post_page', $lang ),
+		];
 		foreach ( $rows as $r ) {
 			$id = (int) $r['ID'];
 			if ( in_array( $id, $skip, true ) || '' === trim( (string) $r['post_title'] ) ) {
 				continue;
 			}
-			if ( '' !== $lang && class_exists( 'DZE_Post_Links' )
+			$mine = $mine_post[ (string) $r['post_type'] ] ?? null;
+			if ( null !== $mine ) {
+				if ( ! isset( $mine[ $id ] ) ) {
+					continue;
+				}
+			} elseif ( '' !== $lang && class_exists( 'DZE_Post_Links' )
 				&& DZE_Post_Links::lang_of( $id, (string) $r['post_type'] ) !== $lang ) {
 				continue;
 			}
@@ -205,6 +222,29 @@ final class DZE_Mesh {
 		}
 		set_transient( 'dze_mesh_pages', $out, 6 * HOUR_IN_SECONDS );
 		return $out;
+	}
+
+	/**
+	 * The ids WPML holds in one language, read from its OWN TABLE.
+	 *
+	 * `wpml_element_language_details` is a FILTER, and a filter only answers
+	 * where WPML's hooks are loaded on the request. This reading runs in an
+	 * AJAX action and in cron, where they are not — so every page of every
+	 * language came back as "the shop's own language" and the mesh counted
+	 * 780 pages on a site holding a fifth of that. WPML's table answers
+	 * everywhere, which is the whole reason `DZE_Wpml::ids_in_language()`
+	 * exists.
+	 *
+	 * NULL means "do not narrow", never "narrow to nothing": a shop with one
+	 * language, or a shop whose table cannot be read, keeps every page it has.
+	 *
+	 * @return array<int,true>|null
+	 */
+	private static function mine( string $element_type, string $lang ): ?array {
+		if ( '' === $lang || ! class_exists( 'DZE_Wpml' ) ) {
+			return null;
+		}
+		return DZE_Wpml::ids_in_language( $element_type, $lang );
 	}
 
 	/**

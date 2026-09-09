@@ -268,6 +268,19 @@ class DZE_Marketing_Ai {
 	}
 }
 class DZE_Ai_Usage { public static array $units = []; public static function unit( string $u = '' ): void { self::$units[] = $u; } }
+/**
+ * WPML's own table. `wpml_element_language_details` is a FILTER and only
+ * answers where WPML's hooks are loaded; this reading runs in an AJAX action
+ * and in cron, where they are not. The table answers everywhere.
+ */
+class DZE_Wpml {
+	public static array $asked = [];
+	public static function ids_in_language( string $element_type, string $language ): ?array {
+		self::$asked[] = $element_type . ':' . $language;
+		$rows = $GLOBALS['icl'][ $element_type ][ $language ] ?? null;
+		return null === $rows ? null : array_fill_keys( array_map( 'intval', (array) $rows ), true );
+	}
+}
 class DZE_Keywords_Absent {}
 
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
@@ -555,7 +568,36 @@ ok( 'never by the taxonomy name alone',
 $GLOBALS['langof'] = [];
 ok( 'one language, and nothing is filtered out',
 	count( DZE_Mesh::pages( true ) ), 10 );
+
+// AND WHERE WPML'S FILTERS ANSWER NOTHING AT ALL. This is the request the
+// reading actually runs in — an AJAX action, a cron tick — and it is where
+// the shop counted 780 pages on a site holding a fifth of that: every filter
+// came back empty, empty fell through to "the shop's own language", and every
+// translation passed for an English page.
+$GLOBALS['langof'] = [];          // the filters know nothing here.
+$GLOBALS['icl'] = [
+	// A term is indexed by its TERM TAXONOMY id, a post by its post id.
+	'tax_product_cat' => [ 'en' => [ 510, 511, 512, 513 ] ],
+	'post_post'       => [ 'en' => [ 20, 21 ] ],
+	'post_page'       => [ 'en' => [ 22, 23 ] ],
+];
+DZE_Wpml::$asked = [];
+$titles = wp_list_pluck( DZE_Mesh::pages( true ), 'title' );
+ok( 'the table answers where the filters do not', count( $titles ), 8 );
+ok( 'the German category is left out',  in_array( 'Taktische Taschen', $titles, true ), false );
+ok( 'and the German article too',       in_array( 'Wie wählt man einen Rucksack', $titles, true ), false );
+ok( 'a category is asked for by WPML\'s own name',
+	in_array( 'tax_product_cat:en', DZE_Wpml::$asked, true ), true );
+ok( 'and posts and pages each by theirs',
+	[ in_array( 'post_post:en', DZE_Wpml::$asked, true ), in_array( 'post_page:en', DZE_Wpml::$asked, true ) ],
+	[ true, true ] );
+// A TABLE THAT CANNOT BE ASKED NARROWS NOTHING. Null means "do not narrow",
+// never "narrow to nothing": a shop with one language keeps every page it has.
+$GLOBALS['icl'] = [];
+ok( 'no table, and nothing is thrown away', count( DZE_Mesh::pages( true ) ), 10 );
+
 $GLOBALS['deflang'] = '';
+$GLOBALS['icl'] = [];
 unset( $GLOBALS['terms'][14], $GLOBALS['posts'][24] );
 DZE_Mesh::pages( true );
 
