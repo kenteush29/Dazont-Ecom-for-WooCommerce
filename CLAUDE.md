@@ -710,6 +710,18 @@ owner communicates in French.
   of this check called `bulk_assets()` itself, which proves the assets enqueue
   and nothing about whether the screen ever asks for them — it stayed green on
   the broken code, which is the exact fault it was written for.
+- **THE READING IS ON THE ROW YOU ARE ABOUT TO TICK.** "Sur l'écran bulk tu
+  vas ajouter le diagnostic qui le concerne, pour qu'on sache facilement quoi
+  générer." The bulk screen listed products and said nothing about what any of
+  them needed, so choosing what to generate meant reading one screen and
+  ticking on another. Every row prints `DZE_Diagnostic::todo()` — the SAME
+  answer the toolbox and the problem list print, so three screens can never say
+  three different things about one product. Two rules it is gated on: the key
+  is ABSENT when there is no reading to be had and an empty ARRAY when the
+  product is short of nothing (one line of markup cannot carry both, and a
+  blank row reads as a reading that never happened, so it says "Nothing
+  missing"); and the whole surface is gated on the MODULE, asked once for the
+  page rather than once a row, because a class file always exists.
 - **ONE TICK PER BLOCK — ON EVERY SCREEN THAT HAS BLOCKS.** The rule was kept
   on the product toolbox and never carried to the bulk screen beside it: seven
   text prompts, no way to take or drop the lot. "Pas de coche pour

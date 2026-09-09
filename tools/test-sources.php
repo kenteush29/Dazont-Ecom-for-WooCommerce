@@ -59,6 +59,7 @@ function wp_create_nonce( $a = '' ) { return 'n'; }
 function plugins_url( $p = '', $f = '' ) { return 'http://shop.test/' . $p; }
 function wp_script_is( ...$a ) { return false; }
 function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
+function esc_html__( $s, $d = '' ) { return esc_html( $s ); }
 // Enough of a screen for the BODY to be run, not only the method under it: a
 // gate that calls the assets itself proves they enqueue, and nothing about
 // whether the screen ever asks for them. That is how this shipped broken.
@@ -75,7 +76,19 @@ function _prime_post_caches( ...$a ) {}
 function get_post_status( ...$a ) { return 'publish'; }
 function get_edit_post_link( $id ) { return 'http://shop.test/edit/' . (int) $id; }
 function get_permalink( $id ) { return 'http://shop.test/p/' . (int) $id; }
-function wc_get_product( $id ) { return null; }
+/** Enough of a product for the bulk screen to draw a row of it. */
+class WC_Product {
+	private $id;
+	public function __construct( $id ) { $this->id = (int) $id; }
+	public function get_id() { return $this->id; }
+	public function get_name() { return 'Product ' . $this->id; }
+	public function is_type( $t ) { return false; }
+	public function get_children() { return []; }
+	public function get_regular_price() { return '10'; }
+}
+function wc_get_product( $id ) { return new WC_Product( $id ); }
+function wc_placeholder_img_src() { return 'http://shop.test/ph.png'; }
+function get_post_meta( $id, $key = '', $single = false ) { return $single ? '' : []; }
 class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return []; } public static function api_key() { return 'k'; } }
 function get_current_user_id() { return 1; }
 function get_user_meta( ...$a ) { return $GLOBALS['dze_list'] ?? []; }
@@ -95,9 +108,24 @@ $GLOBALS['wpdb'] = new class {
 class DZE_Prompts {
 	public static $printed = 0;
 	public static function print_assets() { self::$printed++; }
+	public static function the_button( $id, $label = '' ) { printf( '<button class="dze-prompt-peek" data-prompt="%s">%s</button>', $id, $label ?: 'Prompt' ); }
+	public static function the_data( $id ) {}
+	public static function card_open( ...$a ) {}
+	public static function card_close( ...$a ) {}
 }
-/** The screen that may host the product bulk work — switched on, or off. */
-class DZE_Diagnostic { const MENU_SLUG = 'dazont-ecom-diagnostic'; }
+/**
+ * The screen that may host the product bulk work — switched on, or off — and
+ * the reading that belongs to a product, which three screens now print.
+ */
+class DZE_Diagnostic {
+	const MENU_SLUG = 'dazont-ecom-diagnostic';
+	public static function todo( $pid ) {
+		return array_map(
+			static fn( $said ) => [ 'check' => 'c', 'said' => $said, 'want' => [] ],
+			(array) ( $GLOBALS['dze_todo'][ (int) $pid ] ?? [] )
+		);
+	}
+}
 class DZE_Modules {
 	public static function enabled( $id ) {
 		return 'diagnostic' === $id ? ! empty( $GLOBALS['dze_diag_class'] ) : true;
@@ -246,6 +274,12 @@ echo "\nA BODY THAT MOVES TAKES ITS ASSETS WITH IT\n";
 // unticked. The screen arrived as dead markup and said nothing.
 // THE SCREEN IS DRAWN, not its helper called: what is asserted is that the
 // BODY asks for what it needs, wherever it is drawn.
+// Two products on the list, one short of two things and one short of nothing.
+$GLOBALS['dze_list'] = [ 7, 8 ];
+$GLOBALS['dze_todo'] = [
+	7 => [ 'Gallery photographs — 0 of 3', 'Description — 84 of 120 words' ],
+	8 => [],
+];
 ob_start();
 DZE_Content::instance()->bulk_body( 'http://shop.test/screen' );
 $dze_screen = (string) ob_get_clean();
@@ -265,6 +299,35 @@ ok( 'the box photographs are pasted into',         isset( $dze_asked['dze-paste-
 ok( 'and the media modal the pickers open',        isset( $dze_asked['media'] ), true );
 // A BUTTON DRAWN IN JAVASCRIPT NEEDS ITS POPUP PRINTED ON THAT SCREEN.
 ok( 'and the popup behind every "Prompt" button',  DZE_Prompts::$printed > 0, true );
+
+echo "\nWHAT EACH PRODUCT IS SHORT OF, ON ITS OWN ROW\n";
+// "Sur l'écran bulk, tu vas ajouter le diagnostic qui le concerne. Pour qu'on
+// sache facilement quoi générer." The reading belongs to the PRODUCT, so it is
+// the same answer the toolbox and the problem list print — three screens can
+// never say three different things about one product.
+ok( 'a row says what that product needs',
+	false !== strpos( $dze_screen, 'Gallery photographs — 0 of 3' ), true );
+ok( 'all of it, not the first line',
+	false !== strpos( $dze_screen, 'Description — 84 of 120 words' ), true );
+ok( 'read from the product itself',
+	substr_count( $dze_screen, 'class="dze-cb-short' ), 2 );
+// A ROW WITH NOTHING MISSING SAYS SO. Left blank it reads as a reading that
+// did not happen, which is the one thing it must not look like.
+ok( 'and a product short of nothing says so',
+	false !== strpos( $dze_screen, 'Nothing missing' ), true );
+
+// A CROSS-MODULE SURFACE IS GATED ON THE MODULE, never on the class: a class
+// file always exists. With the diagnostic off the line is not there at all.
+$GLOBALS['dze_diag_class'] = false;
+( new ReflectionProperty( 'DZE_Content', 'bulk_products_cache' ) )->setValue( DZE_Content::instance(), null );
+ob_start();
+DZE_Content::instance()->bulk_body( 'http://shop.test/screen' );
+$dze_off = (string) ob_get_clean();
+ok( 'the reading goes with its module',
+	false !== strpos( $dze_off, 'class="dze-cb-short' ), false );
+ok( 'and the rows are still drawn',
+	false !== strpos( $dze_off, 'Product 7' ), true );
+$GLOBALS['dze_diag_class'] = true;
 
 echo "\nONE TICK PER BLOCK, IN THE BLOCK'S OWN TITLE\n";
 // "Pas de coche pour activer/désactiver tout en même temps. Je t'avais
