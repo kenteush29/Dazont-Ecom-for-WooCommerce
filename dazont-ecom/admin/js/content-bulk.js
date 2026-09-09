@@ -422,10 +422,13 @@
 		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
 		var $r = $row(id);
 		$r.find('.dze-cb-badges').empty();
-		$r.find('.dze-cb-toggle, .dze-cb-apply-one').hide();
+		// The Look button stays: what the product HOLDS is still worth
+		// opening, and it is the only way to reach its photographs from here.
+		$r.find('.dze-cb-apply-one').hide();
 		$r.find('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
 		delete results[id];
 		delete state[id];
+		toggleWord(id, false);
 		paint(id, 'wait');
 	}
 
@@ -439,11 +442,22 @@
 	// Review and Apply appear on a line the moment it holds something to look
 	// at. Delete is on every line, always: taking a product out of the list is
 	// not a decision about content.
+	// THE ROW'S ONE BUTTON SAYS WHICH OF THE TWO THINGS IT OPENS: the product
+	// as it stands, or the work waiting for a decision on it. It used to
+	// appear only once something had been generated, so there was no way to
+	// see what a product held before choosing what to write for it.
+	function toggleWord(id, reviewing) {
+		$row(id).find('.dze-cb-toggle')
+			.attr('title', reviewing ? i18n.reviewTip : i18n.lookTip)
+			.find('.dze-cb-toggleword').text(reviewing ? i18n.reviewWord : i18n.look);
+	}
 	function offerReview(id) {
-		$row(id).find('.dze-cb-toggle, .dze-cb-apply-one').show();
+		$row(id).find('.dze-cb-apply-one').show();
+		toggleWord(id, true);
 	}
 	function hideRowActions(id) {
-		$row(id).find('.dze-cb-toggle, .dze-cb-apply-one').hide();
+		$row(id).find('.dze-cb-apply-one').hide();
+		toggleWord(id, false);
 	}
 	// Apply, from the line. It writes to the shop, so it asks first.
 	$(document).on('click', '.dze-cb-apply-one', function () {
@@ -709,8 +723,14 @@
 				(Object.keys(b.texts).length
 					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
 				oneMoreButtons() +
-				'<button type="button" class="button button-small button-primary dze-cb-applyone">' + esc(i18n.applyOne) + '</button> ' +
-				'<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>' +
+				// ACCEPT AND REFUSE, only where there is something to accept or
+				// refuse. On a product opened just to be looked at they are two
+				// buttons that can do nothing, and a control that cannot act is
+				// a control nobody trusts.
+				(holding(id)
+					? '<button type="button" class="button button-small button-primary dze-cb-applyone">' + esc(i18n.applyOne) + '</button> ' +
+					  '<button type="button" class="button-link dze-cb-drop">' + esc(i18n.discard) + '</button>'
+					: '') +
 				'<span class="dze-cb-panelstate"></span>' +
 				// What this product has cost in images. Beside the buttons that
 				// spend the next one, because that is where a product that
@@ -719,7 +739,14 @@
 					(b.spend && b.spend.label ? ' style="display:inline-block;"' : '') + '>' +
 					esc((b.spend && b.spend.label) || '') + '</span>' +
 			'</p>';
-		html = '<div class="dze-cb-nowshots"></div>' + html;
+		// WHAT THE PRODUCT HOLDS TODAY, above what was written for it — the
+		// order the product popup reads in, because it IS the same panel.
+		// "Ici sur cette page je manque d'une option pour visualiser en un
+		// clic le contenu actuel des produits. Dans l'immédiat je veux voir
+		// leurs images... mais visualiser aussi leur contenu textuel serait
+		// bien." All of it was already built; it was simply unreachable until
+		// something had been generated.
+		html = '<div class="dze-cb-nowshots"></div>' + '<div class="dze-cb-today"></div>' + html;
 		$cell.html('<div class="dze-cx-result">' + html + '</div>');
 		// One box per product, kept on that product's bucket: the panel can be
 		// closed and reopened, and what was handed to it stays with it.
@@ -730,11 +757,66 @@
 			});
 		}
 		b.built = true;
+		b.builtHolding = holding(id);
 		renderShots(id);
 		panelApplyLabel(id);
 		// The gallery as it stands today, right under the new images: the only
 		// way to judge whether a generated shot ADDS something.
-		loadCurrent(id).then(function () { renderCurrentImages(id); });
+		loadCurrent(id).then(function () { renderCurrentImages(id); renderToday(id); });
+	}
+
+	// Does this product hold anything waiting for a decision?
+	function holding(id) {
+		var b = results[id];
+		if (!b) { return false; }
+		return Object.keys(b.texts || {}).length > 0 || (b.shots || []).length > 0;
+	}
+
+	// THE TEXT THE PRODUCT HOLDS TODAY, one folded line per field — the same
+	// shell as the generated blocks beside it, so one stylesheet and one
+	// gesture drive both. Read from `dze_content_current`, which is the same
+	// answer the "Current" button on a generated block already prints: two
+	// readers of one thing drift apart.
+	function renderToday(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-today');
+		if (!$slot.length || !b.current) { return; }
+		var texts = b.current.texts || {};
+		var fids = Object.keys(cfg.fields || {}).filter(function (fid) {
+			return typeof texts[fid] !== 'undefined';
+		});
+		if (!fids.length) { $slot.empty(); return; }
+		var html = '<p class="dze-cb-nowlabel">' + esc(i18n.todayText) + '</p><div class="dze-cb-prev">';
+		fids.forEach(function (fid) {
+			html += '<div class="dze-cb-fblock is-today" data-field="' + esc(fid) + '">' +
+				'<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="false">' +
+					'<span class="dze-cb-fcaret">▸</span>' +
+					'<span class="dze-cb-fname">' + esc(cfg.fields[fid] || fid) + '</span>' +
+					'<span class="dze-cb-fpeek">' + esc(peek(texts[fid])) + '</span>' +
+				'</div>' +
+				'<div class="dze-cb-fbody" style="display:none;"></div>' +
+			'</div>';
+		});
+		$slot.html(html + '</div>');
+	}
+	// Opening one shows what is stored, read-only: this block is the product
+	// as it stands, not a draft to edit. Editing happens where the shop's own
+	// Update is, on the product itself.
+	function openToday(id, $block, open) {
+		var b = bucket(id), fid = $block.data('field');
+		var val = ((b.current || {}).texts || {})[fid] || '';
+		$block.toggleClass('is-open', open);
+		$block.find('.dze-cb-fhead').attr('aria-expanded', open ? 'true' : 'false');
+		$block.find('.dze-cb-fcaret').text(open ? '▾' : '▸');
+		var $body = $block.find('.dze-cb-fbody');
+		if (!open) { $body.hide(); return; }
+		if (!$body.data('filled')) {
+			$body.data('filled', 1).html('<div class="dze-cb-nowbody"></div>');
+			// An empty field says so: a blank panel reads as a screen that
+			// did not answer.
+			if (val) { $body.find('.dze-cb-nowbody').html($('<div>').html(val).html()); }
+			else { $body.find('.dze-cb-nowbody').text(i18n.todayNone); }
+		}
+		$body.show();
 	}
 
 	function openField(id, fid, open) {
@@ -1026,6 +1108,12 @@
 		var $btn = $(this), id = $btn.closest('.dze-cb-row').data('id');
 		var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
 		var open = $prev.is(':visible');
+		// A panel built to LOOK at holds no decision bar and no generated
+		// blocks. Once a run has put something on the product, the panel it
+		// opens on is a different panel: it is drawn again rather than left
+		// saying the product holds nothing.
+		var b = results[id];
+		if (b && b.built && b.builtHolding !== holding(id)) { b.built = false; }
 		if (!open) { buildPanel(id); }
 		$prev.toggle(!open);
 		$btn.attr('aria-expanded', open ? 'false' : 'true').find('.dze-cb-caret').text(open ? '▾' : '▴');
@@ -1063,7 +1151,9 @@
 	$(document).on('click', '.dze-cb-fhead', function (e) {
 		if ($(e.target).closest('.dze-cb-redo, .dze-cb-now, .dze-cb-fkeep, .dze-prompt-peek').length) { return; }
 		var $h = $(this), id = $h.closest('.dze-cb-preview').data('id');
-		openField(id, $h.closest('.dze-cb-fblock').data('field'), !$h.closest('.dze-cb-fblock').hasClass('is-open'));
+		var $block = $h.closest('.dze-cb-fblock');
+		if ($block.hasClass('is-today')) { openToday(id, $block, !$block.hasClass('is-open')); return; }
+		openField(id, $block.data('field'), !$block.hasClass('is-open'));
 	});
 	$(document).on('keydown', '.dze-cb-fhead', function (e) {
 		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }

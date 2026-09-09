@@ -1080,14 +1080,31 @@ whose screen has not been thought through yet.
   other decision. The reset is ONE function (`resetRow`), the same one a new
   run uses on the lines it is about to redo, and the decision is split from the
   request (`DZE_Content::discard_products()`) so it can be exercised.
+- **A SCREEN THAT LISTS OBJECTS OFFERS TO OPEN ONE.** The bulk screen's panel
+  already held everything worth seeing — the product's photographs through the
+  one viewer, the box for photographs pasted from outside, the reading of what
+  it holds — and none of it was reachable: the button that opens the panel
+  appeared only once something had been GENERATED. So choosing what to write
+  for forty products meant opening forty products in other tabs: "ici sur cette
+  page je manque d'une option pour visualiser en un clic le contenu actuel des
+  produits." The button is on every row and wears the two words of what it
+  opens on — **Look** for the product as it stands, **Review** once there is
+  work waiting for a decision — and the panel adds the TEXT the product holds
+  today, one folded line per field, in the same block shell as the generated
+  ones so a single gesture opens both. Two rules with it: a panel holding
+  nothing offers neither Accept nor Refuse (a control that cannot act is a
+  control nobody trusts), and a panel built to look at is DRAWN AGAIN once a
+  run has put something on the product, or it goes on saying the product holds
+  nothing.
 - **`node tools/js/content-bulk.mjs` must pass.** The product bulk screen had
   no browser gate at all, which is why both of the faults above lived there:
   each of them is an answer a control gives when it is PRESSED. It loads the
   screen as the plugin prints it (`tools/test-sources.php --dump-bulk`, markup
   AND the real `wp_localize_script` config), changes the prompt on a row and
-  reads the destination and the scene back, and presses Discard for real —
-  asserting what goes on the wire, that the product is STILL on the list, and
-  that its row is back to waiting.
+  reads the destination and the scene back, presses Look on a product nothing
+  has been generated for — reading back its photographs, its paste box and its
+  text — and presses Discard for real, asserting what goes on the wire, that
+  the product is STILL on the list, and that its row is back to waiting.
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
   handler is a thin wrapper over it — it used to BE the handler, three hundred

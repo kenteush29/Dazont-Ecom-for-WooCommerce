@@ -74,6 +74,15 @@ for ( const [ label, jq ] of jqs ) {
 		if ( 'dze_content_bulk_list' === q.get( 'action' ) ) {
 			return json( { left: [ 7, 8 ], counts: { all: 2, log: 1 } } );
 		}
+		// WHAT THE PRODUCT HOLDS TODAY: the same answer the "Current" button on
+		// a generated block already reads, so the panel can show it before
+		// anything has been generated at all.
+		if ( 'dze_content_current' === q.get( 'action' ) ) {
+			return json( {
+				texts: { desc: '<p>The description this product has today.</p>', short: '' },
+				images: [ { id: 5, thumb: 'http://img.test/5.jpg', full: 'http://img.test/5.jpg', main: true, w: 900, h: 900 } ]
+			} );
+		}
 		return json( {} );
 	} );
 	// The fake shop's thumbnails point at an address that does not exist. They
@@ -150,6 +159,62 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the main-image question goes away with it',
 		await page.locator( '#dze-cb-oldwrap' ).isVisible(), false );
 
+	// ---- ONE CLICK TO SEE WHAT A PRODUCT HOLDS TODAY ----
+	//
+	// "Ici sur cette page je manque d'une option pour visualiser en un clic le
+	// contenu actuel des produits. Dans l'immédiat je veux voir leurs images.
+	// Et j'aimerais la possibilité de leur coller des images externes sur
+	// cette page... mais visualiser aussi leur contenu textuel serait bien."
+	// All of it was already built — the photographs, the paste box, the "on
+	// the product today" reading — and none of it was reachable: the button
+	// that opens the panel only appeared once something had been GENERATED.
+	// Reported, not fatal: a gate that dies on the button it is about says
+	// nothing about the twelve checks after it.
+	const canLook = await page.locator( '.dze-cb-row[data-id="8"] .dze-cb-toggle' ).isVisible();
+	ok( 'every row offers to be looked at',  canLook, true );
+	if ( canLook ) {
+		ok( 'and says what it opens on',
+			( await page.textContent( '.dze-cb-row[data-id="8"] .dze-cb-toggleword' ) ).trim(), 'Look' );
+		await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
+	}
+	ok( 'it opens without anything being generated',
+		await page.locator( '.dze-cb-preview[data-id="8"]' ).isVisible(), true );
+	const gotPhotos = await page.waitForSelector( '.dze-cb-preview[data-id="8"] .dze-cb-nowshots img', { timeout: 6000 } )
+		.then( () => true ).catch( () => false );
+	ok( 'the photographs it holds are there',   gotPhotos, true );
+	ok( 'the box for photographs from outside too',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-elsebox' ).count(), 1 );
+	// AND ITS TEXT, one folded line per field, in the same shell as the
+	// generated blocks so one gesture opens both.
+	ok( 'and its text, folded',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today' ).count() > 0, true );
+	ok( 'shut until it is asked for',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today .dze-cb-fbody:visible' ).count(), 0 );
+	const todayRows = await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today' ).count();
+	if ( ! todayRows ) {
+		ok( 'and pressing it shows what the product says', 'no today block to press', 'a today block' );
+		ok( 'an empty field says it is empty',             'no today block to press', 'a today block' );
+	} else {
+	await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today[data-field="desc"] .dze-cb-fhead' );
+	ok( 'and pressing it shows what the product says',
+		( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today[data-field="desc"] .dze-cb-fbody' ) )
+			.includes( 'The description this product has today' ), true );
+	// AN EMPTY FIELD SAYS SO. A blank panel reads as a screen that did not
+	// answer, which is the one thing it must not look like.
+	await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today[data-field="short"] .dze-cb-fhead' );
+	ok( 'an empty field says it is empty',
+		( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-fblock.is-today[data-field="short"] .dze-cb-fbody' ) )
+			.includes( 'empty' ), true );
+	}
+	// AND NOTHING IS OFFERED THAT CANNOT ACT. There is no decision to take on
+	// a product opened only to be looked at.
+	ok( 'no accept on a panel holding nothing',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-applyone' ).count(), 0 );
+	ok( 'and no refusal either',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-drop' ).count(), 0 );
+	if ( canLook ) { await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' ); }
+	ok( 'nothing was raised looking at it',  errors, [] );
+
 	// ---- REFUSING IS NOT REMOVING ----
 	//
 	// The real path: tick a product, generate a text, then press Discard on
@@ -186,8 +251,15 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-badge' ).count(), 0 );
 	ok( 'its state says waiting again',
 		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-state.is-wait' ).count(), 1 );
-	ok( 'nothing is offered for review on it',
-		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-toggle' ).isVisible(), false );
+	// THE LOOK BUTTON STAYS — what the product HOLDS is still worth opening,
+	// and it is the only way to reach its photographs from this screen. What
+	// goes is the offer to REVIEW something that no longer exists.
+	ok( 'it can still be looked at',
+		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-toggle' ).isVisible(), true );
+	ok( 'and the button says so again',
+		( await page.textContent( '.dze-cb-row[data-id="7"] .dze-cb-toggleword' ) ).trim(), 'Look' );
+	ok( 'nothing is offered to be applied',
+		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-apply-one' ).isVisible(), false );
 	ok( 'and its panel is shut and empty',
 		( await page.locator( '.dze-cb-preview[data-id="7"] td' ).innerHTML() ).trim(), '' );
 	ok( 'nothing was raised anywhere in the gesture', errors, [] );
