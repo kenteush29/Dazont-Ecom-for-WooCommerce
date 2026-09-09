@@ -428,6 +428,37 @@ owner communicates in French.
   as the subject (`$base_main || $src_id`), so the checkbox that used to say
   that in words is gone from both screens.
 
+- **THE PHOTOGRAPHS WIN OVER THE WORDS, AND THAT IS SAID ON EVERY RUN.**
+  "Trop de AI slop sur les images... des attaches imaginaires rajoutées devant,
+  une sangle imaginaire rajoutée derrière." The shop's own trace showed why, in
+  its own words: every image request carries the product's data, and that
+  description read `Adjustable chest tension strap`, `Three back buckles for
+  optional cape attachment`, `Extensive outside strapping`. The model drew
+  exactly what the text told it the product has, on an angle where none of it
+  is visible. The sentence handing the argument to the photographs was sent
+  ONLY when a photograph had been pasted or picked — which is the one case
+  where the text was least likely to be believed anyway. It goes on every run
+  now. **When a text and a picture can disagree, something must say which one
+  is the product.**
+- **TWO SOURCES WAS THE WRONG TRADE.** `source_cap()` sent 2 photographs of a
+  five-photograph product. The fear was an edit model reconciling six angles
+  into a seventh; the cost was worse — asked for a close-up of fastenings it
+  has never been shown, a model paints plausible ones, and on tactical gear
+  that is immediately, obviously wrong. Ten now, with the weight guard
+  deciding the rest: a part it has seen is a part it does not have to invent.
+- **FOUR WAYS OF SAYING ONE RULE IS NOT FOUR TIMES THE RULE.** The sources
+  instruction had grown to say "read them together", "never invent",
+  "reproduce every fitting" and "leave out what is not readable" — four
+  sentences competing with the shop's own prompt for the model's attention.
+  One rule, said once, arbiter included. Every sentence added to a prompt is
+  taken from the one beside it.
+- **A SCREEN SAYS WHICH WORK EATS THE BUDGET, not only what one unit costs.**
+  The usage table gave "$12.40" per kind of work, which is an amount and not
+  an answer: "quels travaux bouffent quel budget" is a question about SHARE.
+  A share column, a row for what no pass claimed, and a total — and a cost
+  that is real but under half a point reads "<1%", never "0%", which is a
+  figure saying the opposite of what it means.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
@@ -741,6 +772,9 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
+- **`php tools/test-sources.php dazont-ecom` must pass.** What is said ABOUT
+  the photographs sent with an image request — the one place a description
+  full of straps and buckles is stopped from being drawn.
 - **`php tools/test-updater.php dazont-ecom` must pass.** What the update
   check is allowed to say, and above all what it may not: "Up to date" is
   never the answer to a lookup that failed.

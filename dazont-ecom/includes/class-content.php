@@ -1331,34 +1331,35 @@ EOT;
 	 */
 	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0 ): string {
 		$out = "\n\n";
+		// SHORT, OR IT IS NOT READ. Every sentence here competes with the
+		// shop's own prompt for the model's attention, and this block had
+		// grown to say the same thing four ways: read them together, never
+		// invent, reproduce every fitting, leave out what is not readable.
+		// Four ways of saying one rule is not four times the rule.
 		if ( $count > 1 && $subject_first ) {
-			// A run with a SUBJECT — a photograph pasted in, a photograph
-			// picked to work on, the shot a colour already has — is not the
-			// same brief as "here is the product from six angles". The others
-			// are there for the shape and the construction and for nothing
-			// else: told to read them all together for the real colours and
-			// the real pattern, the model blended a pasted camo hat with the
-			// camo of the main image and handed back the main image's pattern.
-			$out .= 'IMAGE 1 IS THE PRODUCT TO WORK ON. Its colours, its pattern, its material, its stitching and its markings are the ones to keep — reproduce them exactly as they are in image 1.';
 			$out .= sprintf(
-				' IMAGES 2 TO %d show the same model in another version: read them ONLY for the shape, the cut, the proportions and the construction. Never take a colour, a pattern, a print or a texture from them, and never blend them into image 1.',
+				'IMAGE 1 IS THE PRODUCT TO WORK ON: its colours, its pattern, its material and its markings are the ones to keep. IMAGES 2 TO %d show the same model in another version — read them for the shape and the construction only, never for a colour, a pattern or a texture.',
 				$count
 			);
-			$out .= ' NEVER invent, complete, extend or redraw any part of the product. If a part of it is not visible in image 1, keep it out of the frame rather than making it up.';
-			// The written data describes the product in general — often the
-			// version the main image shows. Against a pasted photograph of
-			// another one, it has to lose, or the text talks the model back
-			// into the pattern it can read about.
-			$out .= ' Where the product data written above disagrees with image 1 — a colour, a pattern, a material named in words — IMAGE 1 WINS.';
 		} elseif ( $count > 1 ) {
 			$out .= sprintf(
-				'IMAGES 1 TO %1$d ARE ALL PHOTOGRAPHS OF ONE SINGLE PRODUCT, taken from different angles and distances — overall views, details, close-ups of the material. Read them together to know exactly what the product looks like: its complete shape, its complete pattern, its real colours and its real texture. Image 1 is the reference for the overall look; the others fill in what image 1 does not show.',
+				'IMAGES 1 TO %d ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not.',
 				$count
 			);
-			$out .= ' NEVER invent, complete, extend or redraw any part of the product. If a part of it is not visible in any of the photographs, keep it out of the frame rather than making it up.';
 		} else {
-			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is — same shape, same pattern, same colours, same materials, same proportions, no redesign, nothing invented.';
+			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is.';
 		}
+		// THE PHOTOGRAPHS WIN OVER THE WORDS, ON EVERY RUN. Every image request
+		// carries the product's own data — its title, its description, its
+		// attributes — and a description describes the product IN GENERAL:
+		// the family, the version with the straps, the options. Sent with no
+		// arbiter beside it, the model reads "sangles réglables, attaches
+		// rapides" and draws exactly that, on a variant that has neither:
+		// "des attaches imaginaires rajoutées devant, une sangle imaginaire
+		// rajoutée derrière". This sentence used to be sent ONLY when a
+		// photograph had been pasted or picked — which is the one case where
+		// the text was least likely to be believed anyway.
+		$out .= ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show. Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN: that text describes the product in general, these photographs are the one being made. A part left out of frame is a photograph; an invented one is a fake.';
 		// The other colours of the same product. They say what the shape, the
 		// cut and the details are — and nothing at all about the colour of the
 		// one being made, which is the whole reason they have to be named
@@ -1370,9 +1371,9 @@ EOT;
 					? sprintf( 'IMAGE %d IS THE SAME PRODUCT IN ANOTHER COLOUR', $first )
 					: sprintf( 'IMAGES %1$d TO %2$d ARE THE SAME PRODUCT IN OTHER COLOURS', $first, $first + $variants - 1 )
 			);
-			$out .= ' — same shape, same cut, same details, a different colourway. Read '
+			$out .= ' — same shape, same details, another colourway. Read '
 				. ( 1 === $variants ? 'it' : 'them' )
-				. ' for the construction and the details only. The colours, the pattern and the material of the product you are making come from the photographs above and from them alone.';
+				. ' for the construction only: the colours, the pattern and the material come from the photographs above and from them alone.';
 		}
 		// The model has no memory of what it handed back a minute ago, so
 		// asking a second time for "a photograph of the product in use" simply
@@ -1385,11 +1386,11 @@ EOT;
 					? sprintf( 'IMAGE %d IS A PHOTOGRAPH ALREADY MADE', $count + $variants + 1 )
 					: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS ALREADY MADE', $count + $variants + 1, $count + $variants + $avoid )
 			);
-			$out .= ' for this product with these very instructions. They are here for one reason: the photograph you are making now must be clearly different from '
+			$out .= ' for this product with these very instructions. What you make now must be clearly different from '
 				. ( 1 === $avoid ? 'it' : 'each of them' )
-				. ' — another angle, another distance, another part of the product, another arrangement. Never hand back one of them again, and never read '
+				. ' — another angle, another distance, another part. Never hand one back, and never read '
 				. ( 1 === $avoid ? 'it' : 'them' )
-				. ' as the reference for what the product looks like: that is what the product photographs above are for.';
+				. ' as the reference for the product: the photographs above are.';
 		}
 		// Photographs handed in from outside while the PRODUCT stays image 1 —
 		// a scene to copy, a styling to follow, a mood. They are named for what
@@ -1402,18 +1403,16 @@ EOT;
 					? sprintf( 'IMAGE %d IS A REFERENCE YOU WERE HANDED', $first )
 					: sprintf( 'IMAGES %1$d TO %2$d ARE REFERENCES YOU WERE HANDED', $first, $first + $refs - 1 )
 			);
-			$out .= ' for the SETTING: the place, the light, the framing, the styling and the mood. The product is image 1 and nothing else. Never take a colour, a pattern, a material, a shape or a marking from '
+			$out .= ' for the SETTING only — the place, the light, the framing, the mood. The product is image 1 and nothing else: take no colour, pattern, material, shape or object from '
 				. ( 1 === $refs ? 'it' : 'them' )
-				. ', and never put an object from '
-				. ( 1 === $refs ? 'it' : 'them' )
-				. ' into the picture unless the instructions above ask for it.';
+				. ' unless the instructions above ask for it.';
 		}
 		// Technical goods are lost in the details: a buckle, a webbing pitch, a
 		// label, a seam. The model reads a soft photograph, cannot make the
 		// detail out, and paints something plausible instead — which on a
 		// tactical product is immediately, obviously wrong. Said explicitly,
 		// and said as a preference for LESS rather than for invention.
-		$out .= ' Reproduce every fitting the photographs show — buckles, zips, sliders, webbing, straps, labels, seams and printed markings — exactly as they are, in the same places. Where a detail is not readable in the photographs, leave that part out of frame or out of focus rather than approximating it: a missing detail is a photograph, an invented one is a fake.';
+
 		if ( $scene ) {
 			// Deliberately says WHAT it is and not what it may not be: a shelf
 			// image can be a blank product to print on, and a sentence
@@ -5679,18 +5678,21 @@ Answer with STRICT JSON and nothing else: "
 	/**
 	 * How many of a product's photographs go with an image request.
 	 *
-	 * Not a detail. An edit model handed six angles of one bag reads them as
-	 * six things to reconcile and hands back a seventh: the mesh panel of the
-	 * back view on the front, a buckle from the detail shot where no buckle
-	 * is, straps redrawn. Handed one clean photograph it keeps that
-	 * photograph. Two is the balance — the shot itself, and one more angle so
-	 * a shape the first hides is not invented — and it is the shop's to move,
-	 * because a flat-lay product and a garment on a model do not need the
-	 * same number.
+	 * TWO WAS THE WRONG TRADE. The fear was that an edit model handed six
+	 * angles reads them as six things to reconcile and hands back a seventh.
+	 * The opposite turned out to cost more: asked for a close-up of the
+	 * fastenings with two photographs of a five-photograph product, the model
+	 * has not been shown the fastenings at all, and it paints something
+	 * plausible — which on a tactical product is immediately, obviously wrong.
+	 * A part it has seen is a part it does not have to invent.
+	 *
+	 * Ten, then, and the weight decides the rest: every source is added only
+	 * if the request still fits, so sharper simply means fewer and nothing
+	 * has to be guessed at here. It stays the shop's to move.
 	 */
 	public static function source_cap(): int {
 		$n = (int) ( self::get_settings()['img_sources'] ?? 0 );
-		return $n > 0 ? max( 1, min( self::MAX_SOURCES, $n ) ) : 2;
+		return $n > 0 ? max( 1, min( self::MAX_SOURCES, $n ) ) : 10;
 	}
 
 	public static function product_source_ids( int $pid ): array {

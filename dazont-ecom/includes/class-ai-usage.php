@@ -308,6 +308,21 @@ final class DZE_Ai_Usage {
 		return $out;
 	}
 
+	/**
+	 * What share of the month one figure is, in words.
+	 *
+	 * Rounded to whole points, because a tenth of a percent is not a decision.
+	 * Anything real but under half a point reads "<1%" rather than "0%": a
+	 * cost that exists must not be printed as nothing.
+	 */
+	public static function share_said( float $cost, float $all ): string {
+		if ( $all <= 0 || $cost <= 0 ) {
+			return '—';
+		}
+		$pct = ( $cost / $all ) * 100;
+		return $pct < 0.5 ? '<1%' : number_format_i18n( round( $pct ) ) . '%';
+	}
+
 	/** Estimated spend (USD) recorded for the current month, all providers. */
 	public static function month_cost(): float {
 		$data = get_option( self::OPT, [] );
@@ -411,30 +426,66 @@ final class DZE_Ai_Usage {
 	 * rewrite two hundred categories".
 	 */
 	public static function render_units( string $month = '' ): void {
-		$rows = self::unit_report( $month );
+		$rows  = self::unit_report( $month );
+		$month = $month ?: gmdate( 'Y-m' );
+		$all   = self::month_total( $month );
+		echo '<h3 style="margin:22px 0 6px;">' . esc_html__( 'What each kind of work costs', 'dazont-ecom' ) . '</h3>';
 		if ( ! $rows ) {
+			// A table that is not there says nothing; a sentence says which of
+			// the two it is — nothing spent yet, or spending nobody tagged.
+			echo '<p class="description" style="max-width:760px;">'
+				. esc_html__( 'Nothing has been produced this month yet. As soon as something is, this says what it cost and what share of the month it took.', 'dazont-ecom' )
+				. '</p>';
 			return;
 		}
-		echo '<h3 style="margin:22px 0 6px;">' . esc_html__( 'What one costs', 'dazont-ecom' ) . '</h3>';
 		echo '<table class="widefat striped" style="max-width:760px;"><thead><tr>'
 			. '<th>' . esc_html__( 'Unit of work', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Each', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Done', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Total', 'dazont-ecom' ) . '</th>'
+			// THE QUESTION IS WHICH WORK EATS THE BUDGET. "$12.40" says an
+			// amount; a share says whether that is the thing to look at. It is
+			// the only column that answers "quels travaux bouffent quel
+			// budget" without arithmetic done by the reader.
+			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Share', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
 			. '</tr></thead><tbody>';
+		$named = 0.0;
 		foreach ( $rows as $r ) {
+			$named += (float) $r['cost'];
 			printf(
 				'<tr><td>%1$s</td><td style="text-align:right;"><strong>$%2$s</strong></td>'
 					. '<td style="text-align:right;">%3$s</td><td style="text-align:right;">$%4$s</td>'
-					. '<td style="text-align:right;color:#646970;">%5$s</td></tr>',
+					. '<td style="text-align:right;">%5$s</td>'
+					. '<td style="text-align:right;color:#646970;">%6$s</td></tr>',
 				esc_html( $r['label'] ),
 				esc_html( number_format( $r['each'], $r['each'] < 0.01 ? 4 : 3 ) ),
 				esc_html( number_format_i18n( $r['runs'] ) ),
 				esc_html( number_format( $r['cost'], 2 ) ),
+				esc_html( self::share_said( (float) $r['cost'], $all ) ),
 				esc_html( number_format_i18n( $r['calls'] ) )
 			);
 		}
+		// WHAT NOBODY CLAIMED. The shares add up to the month or they do not,
+		// and a reader who cannot see the difference is a reader working out
+		// which figure to believe. A call made by a pass that never named its
+		// unit lands here rather than nowhere.
+		$rest = round( $all - $named, 4 );
+		if ( $rest > 0.005 ) {
+			printf(
+				'<tr><td><em>%1$s</em></td><td></td><td></td><td style="text-align:right;">$%2$s</td>'
+					. '<td style="text-align:right;">%3$s</td><td></td></tr>',
+				esc_html__( 'Not attributed to a kind of work', 'dazont-ecom' ),
+				esc_html( number_format( $rest, 2 ) ),
+				esc_html( self::share_said( $rest, $all ) )
+			);
+		}
+		printf(
+			'<tr><td><strong>%1$s</strong></td><td></td><td></td>'
+				. '<td style="text-align:right;"><strong>$%2$s</strong></td><td style="text-align:right;">100%%</td><td></td></tr>',
+			esc_html__( 'The month', 'dazont-ecom' ),
+			esc_html( number_format( $all, 2 ) )
+		);
 		echo '</tbody></table>';
 		echo '<p class="description" style="max-width:760px;">'
 			. esc_html__( 'Average over what was actually produced this month, at published token prices. A category description is one unit however many calls it takes; an image is one unit. "Calls" is there to show where a unit is expensive because it is long, rather than because it is frequent.', 'dazont-ecom' )
