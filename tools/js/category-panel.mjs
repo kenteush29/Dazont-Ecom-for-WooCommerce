@@ -65,7 +65,7 @@ for ( const [ label, jq ] of jqs ) {
 			action: q.get( 'action' ), nonce: q.get( 'nonce' ), id: q.get( 'id' ),
 			// The whole of the linking loop is in these three: what text the
 			// press was made on, which pages were ticked, and which category.
-			html: q.get( 'html' ), term: q.get( 'term' ), urls: q.getAll( 'urls[]' )
+			html: q.get( 'html' ), term: q.get( 'term' ), urls: q.getAll( 'urls[]' ), kind: q.get( 'kind' )
 		} );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		// The writing queue: a job is added, then followed until it answers.
@@ -115,6 +115,9 @@ for ( const [ label, jq ] of jqs ) {
 			+ `i18n:{picked:'%s selected',before:'Before',after:'After',nothingYet:'Nothing written yet',waitingYet:'A text is waiting — press "Load it here" above',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
 			+ `wasEmpty:'This category had no description.',queuedShort:'Queued',linking:'Linking',working:'Writing',`
 			+ `review:'Look it over',error:'error',alreadyLinked:'already linked',showLinks:'%s links',external:'external'}};</script>`
+			// The shell first — the blocks and the before/after are one module
+			// now, and the panel's script is built on it.
+			+ `<script>${readFileSync( join( js, 'hub.js' ), 'utf8' )}</script>`
 			+ `<script>${readFileSync( join( js, 'category-content.js' ), 'utf8' )}</script></head>`
 			+ `<body><div class="wrap"><div id="panel"></div></div>${modal}</body></html>` } );
 	} );
@@ -127,6 +130,20 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the popup is on the page before the panel is',
 		await page.locator( '#dze-prompt-modal' ).count(), 1 );
 	ok( 'and it is shut',                   await page.locator( '#dze-prompt-modal.is-open' ).count(), 0 );
+
+	// ONE SHAPE FOR THE WHOLE SHOP: the panel is blocks now, like the product
+	// screens. Everything a person can press lives inside one, so the blocks
+	// are opened the way a person opens them — by pressing their heading.
+	ok( 'the panel is built of blocks',
+		await page.locator( '#panel .dze-sec' ).count() >= 2, true );
+	for ( const id of [ 'cc-desc', 'cc-links' ] ) {
+		const head = `#panel .dze-sec[data-sec="${id}"] .dze-sec-head`;
+		if ( ! await page.locator( `#panel .dze-sec[data-sec="${id}"].is-open` ).count() ) {
+			await page.click( head );
+		}
+		ok( `the ${id} block opens`,
+			await page.locator( `#panel .dze-sec[data-sec="${id}"].is-open` ).count(), 1 );
+	}
 
 	// A CONTROL IS TESTED ON WHAT IT DOES. Every one of these was on the page
 	// and did nothing.
@@ -151,16 +168,19 @@ for ( const [ label, jq ] of jqs ) {
 		ok( 'and it shuts again',           await page.locator( '#dze-prompt-modal.is-open' ).count(), 0 );
 	}
 
-	// EVERY BUTTON IN THE ROW READS THE SAME WAY. It was a lone pencil, a lone
-	// ⓘ and two worded buttons — three ways of saying "look at something".
-	// The button ROW, which is what the eye reads as one row — not the picker
-	// panel below it, which prints its own.
-	const words = await page.evaluate( () => {
-		const row = document.querySelector( '#panel .dze-cc-box > p' );
-		return Array.from( row.parentNode.querySelectorAll( ':scope > p .dze-prompt-peek' ) ).map( b => b.textContent.trim() );
-	} );
+	// EVERY CONTROL READS THE SAME WAY. It was a lone pencil, a lone ⓘ and two
+	// worded buttons — three ways of saying "look at something". They live in
+	// the block each of them is about now, and every one still carries a word.
+	const words = await page.evaluate( () => Array.from(
+		document.querySelectorAll( '#panel .dze-cc-tools .dze-prompt-peek' ) ).map( b => b.textContent.trim() ) );
 	ok( 'four controls, each carrying a word', words.length, 4 );
 	ok( 'and none of them a bare symbol',   words.filter( w => ! /\s/.test( w ) ), [] );
+	// AND EACH IN THE BLOCK IT IS ABOUT: the linking prompt belongs to the
+	// links block, not to a row of buttons at the top of the screen.
+	ok( 'the linking prompt is in the links block',
+		await page.locator( '#panel .dze-sec[data-sec="cc-links"] .dze-prompt-peek[data-prompt="cat_links"]' ).count(), 1 );
+	ok( 'and the writing prompt in the description block',
+		await page.locator( '#panel .dze-sec[data-sec="cc-desc"] .dze-prompt-peek[data-prompt="cat_desc"]' ).count(), 1 );
 
 	// ---- SHIFT TAKES A RANGE ----
 	//
@@ -168,7 +188,6 @@ for ( const [ label, jq ] of jqs ) {
 	// sélectionner plusieurs d'un coup." Thirty pages are offered here and
 	// they were ticked one at a time. A modifier key exists only under a real
 	// mouse press: no PHP test and no `node --check` can see this.
-	await page.evaluate( () => { document.querySelector( '#panel .dze-cc-picker' ).style.display = 'block'; } );
 	const boxes = page.locator( '#panel .dze-cc-pick:not([disabled])' );
 	const many  = await boxes.count();
 	ok( 'the picker offers a list to tick',  many >= 3, true );
@@ -179,10 +198,12 @@ for ( const [ label, jq ] of jqs ) {
 	await boxes.nth( many - 1 ).click( { modifiers: [ 'Shift' ] } );
 	ok( 'shift takes everything between',
 		await page.locator( '#panel .dze-cc-pick:checked:not([disabled])' ).count(), many );
-	// AND THE COUNT FOLLOWS IT. A range that ticks a run while the line
-	// underneath still says "1 selected" is a screen disagreeing with itself.
-	ok( 'and the count says so',
-		( await page.textContent( '#panel .dze-cc-pickcount' ) ).trim(), many + ' selected' );
+	// AND THE COUNT FOLLOWS IT, in the BLOCK'S OWN HEADING — where every block
+	// of this plugin carries what it will do. A second figure beside the ticks
+	// would be two accounts of one thing on one screen.
+	ok( 'and the block says how many it will place',
+		( await page.textContent( '#panel .dze-sec[data-sec="cc-links"] .dze-sec-count' ) ).trim(),
+		many + ' / ' + many );
 	// IT UNTICKS A RUN TOO: the state of the box just pressed is the state the
 	// whole range takes.
 	await boxes.nth( 0 ).click();
@@ -198,7 +219,8 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'a row already linked keeps its own state',
 		await page.locator( '#panel .dze-cc-pick[disabled]:checked' ).count(), locked );
 	ok( 'and is never counted in what will be sent',
-		( await page.textContent( '#panel .dze-cc-pickcount' ) ).trim(), many + ' selected' );
+		( await page.textContent( '#panel .dze-sec[data-sec="cc-links"] .dze-sec-count' ) ).trim(),
+		many + ' / ' + many );
 	// AND THE GESTURE IS ON THE SCREEN. One nobody is told about is one
 	// nobody has.
 	ok( 'the row says the gesture exists',
@@ -219,8 +241,12 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the panel opens on what the category holds',
 		heldNow.includes( 'Bags for the field' ), true );
 	await page.check( '#panel .dze-cc-pick:not([disabled])' );
+	// ONE BUTTON, RUNNING WHAT IS TICKED. Only the links block here, so the
+	// job that goes out must be the linking pass and nothing else.
+	await page.uncheck( '#dze-cc-do-desc' );
+	await page.check( '#dze-cc-do-links' );
 	const beforePress = sent.length;
-	await page.click( '#panel .dze-cc-links' );
+	await page.click( '#panel .dze-cc-run' );
 	// The queue is followed on a timer, so the answer is waited FOR — with a
 	// bound, and reported rather than left to kill the run.
 	const answered = await page.waitForFunction(
@@ -228,7 +254,8 @@ for ( const [ label, jq ] of jqs ) {
 		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
 	ok( 'the press comes back with the linked text', answered, true );
 	const asked = sent.slice( beforePress ).find( r => 'dze_q_add' === r.action ) || {};
-	ok( 'the job is the linking pass on this category', asked.id, '10' );
+	ok( 'the job is on this category',       asked.id, '10' );
+	ok( 'and it is the linking pass',        asked.kind, 'cat_links' );
 	// THE HALF THAT WAS MISSING.
 	ok( 'and it carries the text on the screen',
 		( asked.html || '' ).includes( 'Bags for the field' ), true );
@@ -291,7 +318,7 @@ for ( const [ label, jq ] of jqs ) {
 	// A real press again, answered with nothing: the after is empty and the
 	// block is redrawn by the same path the screen uses.
 	jobHtml = '';
-	await page.click( '#panel .dze-cc-links' );
+	await page.click( '#panel .dze-cc-run' );
 	await page.waitForFunction(
 		() => /waiting/i.test( document.querySelector( '#panel .dze-cc-diffwords' ).textContent || '' ),
 		null, { timeout: 8000 } ).then( () => true ).catch( () => false );

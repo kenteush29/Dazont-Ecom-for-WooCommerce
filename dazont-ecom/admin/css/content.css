@@ -1393,3 +1393,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    sentences the diagnostic prints, so the two screens never disagree. */
 .dze-cb-short { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: #b32d2e; }
 .dze-cb-short.is-ok { color: #646970; }
+
+/* The panel's "What to generate" — the same shape as the product screens. */
+.dze-cc-whattitle { font-size: 14px; margin: 14px 0 6px; }
+.dze-cc-tools { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dze-cc-run-row { margin: 12px 0 0; display: flex; gap: 10px; align-items: center; }

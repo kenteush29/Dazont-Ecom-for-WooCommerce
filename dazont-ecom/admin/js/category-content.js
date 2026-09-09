@@ -344,34 +344,56 @@
 			.fail(function (xhr, status) { $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status)); });
 	});
 
-	// Nothing is written to the category before Save.
-	$(document).on('click', '.dze-cc-gen', function () {
+	// ONE BUTTON, RUNNING WHAT IS TICKED — the shape every screen of this
+	// plugin has. It used to be two buttons doing two unrelated gestures, and
+	// on this screen alone.
+	//
+	// IN THE ORDER THE WORK IS DONE: the text first, then the links INTO that
+	// very text. Running them apart meant writing, saving, and coming back —
+	// the linking pass now carries the text the run just produced.
+	$(document).on('click', '.dze-cc-run', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		// The shop's own prompt, as it stands. It used to send whatever was in
-		// the inline editor if that editor happened to be open, so the same
-		// button ran two different instructions depending on a panel's state.
-		runJob($box, 'cat_desc', [], i18n.working, function (ok, html) {
+		var $st = $box.find('.dze-cc-status');
+		var doDesc = $box.find('#dze-cc-do-desc').is(':checked');
+		var doLinks = $box.find('#dze-cc-do-links').is(':checked');
+		if (!doDesc && !doLinks) {
 			$btn.prop('disabled', false);
-			if (!ok) { return; }
+			$st.css('color', '#b32d2e').addClass('is-ko').text(i18n.pickSomething);
+			return;
+		}
+		var done = function () {
+			$btn.prop('disabled', false);
+			$st.css('color', '#646970').removeClass('is-ko').text(i18n.review);
+		};
+		var links = function () {
+			if (!doLinks) { done(); return; }
+			var urls = $box.find('.dze-cc-pick:checked:not(:disabled)').map(function () { return this.value; }).get();
+			runJob($box, 'cat_links', urls, i18n.linking, function (ok, html) {
+				if (!ok) { $btn.prop('disabled', false); return; }
+				editorSet(edId($box), html);
+				refreshLinks($box);
+				markPlaced($box);
+				showDiff($box);
+				done();
+			});
+		};
+		if (!doDesc) { links(); return; }
+		runJob($box, 'cat_desc', [], i18n.working, function (ok, html) {
+			if (!ok) { $btn.prop('disabled', false); return; }
 			editorSet(edId($box), html);
 			refreshLinks($box);
 			showDiff($box);
-			$box.find('.dze-cc-status').css('color', '#646970').removeClass('is-ko').text(i18n.review);
+			links();
 		});
 	});
 
-	// ---- Choosing the links before they are placed ----
-	function pickCount($box) {
-		var n = $box.find('.dze-cc-pick:checked:not(:disabled)').length;
-		$box.find('.dze-cc-pickcount').text(sprintf(i18n.picked, n));
-		$box.find('.dze-cc-links').prop('disabled', n < 1);
+	// ---- Choosing the links, inside the block that places them ----
+	// HOW MANY ARE TICKED IS IN THE BLOCK'S OWN HEADING, like every other
+	// block of the plugin: the hub counts what a block will do. A second
+	// figure beside it would be two accounts of one thing on one screen.
+	function pickCount() {
+		if (window.dzeHub) { window.dzeHub.count(); }
 	}
-	$(document).on('click', '.dze-cc-ltoggle-pick', function () {
-		var $box = $(this).closest('.dze-cc-box');
-		$box.find('.dze-cc-picker').toggle();
-		pickCount($box);
-	});
-	$(document).on('change', '.dze-cc-pick', function () { pickCount($(this).closest('.dze-cc-box')); });
 	// SHIFT TAKES A RANGE, the way every list in WordPress does. Thirty pages
 	// are offered here and they were ticked one at a time: "sur la sélection
 	// des links je ne peux pas utiliser MAJ pour en sélectionner plusieurs d'un
@@ -395,17 +417,17 @@
 			}
 		}
 		pickFrom = this;
-		pickCount($(this).closest('.dze-cc-box'));
+		// Setting .checked raises no change event, so the block's figure is
+		// asked for by hand — the one exception, called out where it happens.
+		pickCount();
 	});
 	$(document).on('click', '.dze-cc-pickall', function () {
-		var $box = $(this).closest('.dze-cc-box');
-		$box.find('.dze-cc-pick:not(:disabled)').prop('checked', true);
-		pickCount($box);
+		$(this).closest('.dze-cc-box').find('.dze-cc-pick:not(:disabled)').prop('checked', true);
+		pickCount();
 	});
 	$(document).on('click', '.dze-cc-picknone', function () {
-		var $box = $(this).closest('.dze-cc-box');
-		$box.find('.dze-cc-pick:not(:disabled)').prop('checked', false);
-		pickCount($box);
+		$(this).closest('.dze-cc-box').find('.dze-cc-pick:not(:disabled)').prop('checked', false);
+		pickCount();
 	});
 
 	// What the category holds TODAY, shown above the new text rather than beside
@@ -422,30 +444,19 @@
 			.done(function (res) {
 				if (!res || !res.success) { $wrap.hide(); return; }
 				var d = res.data;
-				// BEFORE **AND** AFTER. The block was called "Before / after"
-				// and printed ONE document: the new text was somewhere else
-				// entirely — in the Description field above, on the category
-				// screen — and the header's "0 words · 0 links" was the only
-				// trace of it. "Aucun avant/après juste un avant."
-				var doc = function (label, count, html, empty) {
-					return '<div class="dze-cb-nowtext">' +
-						'<span class="dze-cb-nowlabel">' + esc(label) + ' — ' + esc(count) + '</span>' +
-						'<div class="dze-cb-nowbody">' + (html || '<p>' + esc(empty) + '</p>') + '</div>' +
-					'</div>';
-				};
-				var made = d.words[1] || d.links[1] || (d.after || '').replace(/<[^>]*>/g, '').trim();
-				// NOTHING WRITTEN, OR NOTHING LOADED YET? The panel says in a
-				// notice that a text is waiting; saying "Nothing written yet"
-				// underneath is the screen disagreeing with itself.
-				var none = $box.data('waiting') ? i18n.waitingYet : i18n.nothingYet;
-				$out.html(
-					doc(i18n.before, sprintf(i18n.wl, d.words[0], d.links[0]), d.before, i18n.wasEmpty) +
-					doc(i18n.after, made ? sprintf(i18n.wl, d.words[1], d.links[1]) : none, d.after, none)
-				);
-				// The heading carries the state of what you would SAVE, and
-				// says it in words when there is nothing: a bare "0 words · 0
-				// links" over a written page reads as a broken screen.
-				$box.find('.dze-cc-diffwords').text(made ? sprintf(i18n.wl, d.words[1], d.links[1]) : none);
+				// ONE RENDERER, in hub.js: the product toolbox and this panel
+				// print the same before/after, so neither can print half of it
+				// again. What is empty says WHICH empty it is — a text waiting
+				// in the queue is not the same as nothing written.
+				var out = window.dzeHub.diff(d, {
+					before: i18n.before,
+					after: i18n.after,
+					wl: i18n.wl,
+					wasEmpty: i18n.wasEmpty,
+					none: $box.data('waiting') ? i18n.waitingYet : i18n.nothingYet
+				});
+				$out.html(out.html);
+				$box.find('.dze-cc-diffwords').text(out.said);
 			})
 			.fail(function () { $wrap.hide(); });
 	}
@@ -468,22 +479,8 @@
 					.append(' <span class="dze-cc-pick-done">' + esc(i18n.alreadyLinked) + '</span>');
 			}
 		});
-		pickCount($box);
+		pickCount();
 	}
-
-	// Linking-only pass: the text stays, links come in. Still nothing saved.
-	$(document).on('click', '.dze-cc-links', function () {
-		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);
-		var urls = $box.find('.dze-cc-pick:checked:not(:disabled)').map(function () { return this.value; }).get();
-		runJob($box, 'cat_links', urls, i18n.linking, function (ok, html) {
-			$btn.prop('disabled', false);
-			if (!ok) { return; }
-			editorSet(edId($box), html);
-			refreshLinks($box);
-			markPlaced($box);
-			showDiff($box);
-		});
-	});
 
 	$(document).on('click', '.dze-cc-apply', function () {
 		var $box = $(this).closest('.dze-cc-box'), $btn = $(this).prop('disabled', true);

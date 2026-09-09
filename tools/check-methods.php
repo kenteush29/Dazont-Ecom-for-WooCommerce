@@ -138,5 +138,20 @@ foreach ($js as $f) {
 	}
 }
 
+// ONE SHAPE FOR A BLOCK, BUILT IN ONE PLACE. `admin/js/hub.js` and
+// `DZE_Hub::sec_open()` are the two builders — one for the screens that draw
+// themselves in the browser, one for the screens the server prints — and a
+// third copy written anywhere else is how two screens start behaving
+// differently while looking the same. This is a shape, so it is looked for by
+// its shape.
+foreach (array_merge(glob("$dir/admin/js/*.js"), glob("$dir/includes/*.php")) as $f) {
+	$name = basename($f);
+	if ('hub.js' === $name || 'class-hub.php' === $name) { continue; }
+	$src = file_get_contents($f);
+	if (false === strpos($src, '<section class="dze-sec')) { continue; }
+	printf("MISSING  a second block builder in %s — the shape lives in hub.js / DZE_Hub\n", $name);
+	$bad++;
+}
+
 echo $bad ? "\n$bad undefined method call(s)\n" : "\nno undefined method calls\n";
 exit($bad ? 1 : 0);
