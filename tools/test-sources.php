@@ -52,7 +52,11 @@ $GLOBALS['dze_diag_class'] = true;
 $GLOBALS['enq'] = [];
 function wp_enqueue_script( $h, $src = '', $deps = [], $v = '', $f = false ) { $GLOBALS['enq'][] = [ $h, (array) $deps ]; }
 function wp_enqueue_style( ...$a ) {}
-function wp_localize_script( ...$a ) {}
+// THE HARNESS CONFIG IS THE PLUGIN'S OWN, key by key. Retyped into the browser
+// gate, one wrong name — `ajax` for `ajaxUrl` — sends every request to the page
+// itself, every answer comes back as HTML, and the gate proves nothing while
+// looking green.
+function wp_localize_script( $handle, $name, $data ) { $GLOBALS['loc'][ (string) $name ] = $data; }
 function wp_enqueue_editor() { $GLOBALS['enq'][] = [ 'editor', [] ]; }
 function wp_enqueue_media() { $GLOBALS['enq'][] = [ 'media', [] ]; }
 function wp_create_nonce( $a = '' ) { return 'n'; }
@@ -92,6 +96,17 @@ function get_post_meta( $id, $key = '', $single = false ) { return $single ? '' 
 class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return []; } public static function api_key() { return 'k'; } }
 function get_current_user_id() { return 1; }
 function get_user_meta( ...$a ) { return $GLOBALS['dze_list'] ?? []; }
+// The fake shop can really shorten its list, so a Discard that removes a
+// product comes back as a legible FAIL rather than killing the run: a gate
+// that dies on the fault it is about reports nothing at all.
+function update_user_meta( $u, $k, $v ) { $GLOBALS['dze_list'] = (array) $v; return true; }
+function delete_user_meta( $u, $k ) { $GLOBALS['dze_list'] = []; return true; }
+// Refusing throws away what was waiting on a product, and nothing else: the
+// line stays where it is. What the gate reads back is WHICH products were let
+// go of.
+function delete_post_meta( $id, $key = '', $v = '' ) { $GLOBALS['dze_dropped'][] = (int) $id; return true; }
+function delete_transient( $k ) { return true; }
+function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 function get_posts( ...$a ) { return []; }
 function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
 function get_the_title( $id ) { return 'P' . (int) $id; }
@@ -157,6 +172,32 @@ function ok( string $what, $got, $want ) {
 /** Does this instruction hand the argument to the photographs? */
 function arbitrated( string $said ): bool {
 	return false !== strpos( $said, 'THE PHOTOGRAPHS WIN' );
+}
+
+// The product bulk screen as the plugin prints it, for the browser gate that
+// presses its buttons (tools/js/content-bulk.mjs). Never a copy of the markup
+// written into the test: what is pressed there is what ships.
+if ( in_array( '--dump-bulk', (array) $argv, true ) ) {
+	$GLOBALS['opts']['dze_content_settings'] = [
+		'scenes'   => [
+			[ 'name' => 'Studio backdrop', 'image' => 90, 'prompt' => '', 'default' => true ],
+			[ 'name' => 'Slate', 'image' => 91, 'prompt' => '', 'default' => false ],
+		],
+		'registry' => [
+			[ 'id' => 'main1', 'name' => 'Pack shot', 'type' => 'image', 'output' => 'main', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => 'Studio backdrop' ],
+			[ 'id' => 'ugc', 'name' => 'Customer photo', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => '' ],
+			[ 'id' => 'slate', 'name' => 'On slate', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => 'Slate' ],
+			[ 'id' => 'desc', 'name' => 'Description', 'type' => 'text', 'output' => 'post_content', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1 ],
+		],
+	];
+	$GLOBALS['dze_list'] = [ 7, 8 ];
+	$GLOBALS['dze_todo'] = [ 7 => [ 'Gallery photographs — 0 of 3' ], 8 => [] ];
+	$GLOBALS['loc'] = [];
+	ob_start();
+	DZE_Content::instance()->bulk_body( 'http://dze.test/screen' );
+	$dze_html = (string) ob_get_clean();
+	echo wp_json_encode( [ 'html' => $dze_html, 'cfg' => $GLOBALS['loc']['dzeContentBulk'] ?? [] ] );
+	exit( 0 );
 }
 
 echo "\nThe photographs win over the words — on EVERY run\n";
@@ -389,6 +430,83 @@ ok( 'the switch is in that block\'s heading',
 	false !== strpos( $dze_head, 'id="dze-cb-price"' ), true );
 ok( 'and nowhere in its body',
 	false !== strpos( $dze_bodyhalf, 'id="dze-cb-price"' ), false );
+
+echo "\nREFUSING IS NOT REMOVING\n";
+// "Le bouton discard sur l'écran bulk devrait refuser les changements et reset
+// le status des produits comme si rien n'avait été généré. Actuellement ils
+// sont supprimés de la page bulk." Discard called the REMOVE path: saying "not
+// this photograph" took the product off the very screen it was being worked
+// on, and getting it back meant hunting it down and adding it again.
+$GLOBALS['dze_list']  = [ 7, 8, 9 ];
+$GLOBALS['dze_dropped'] = [];
+ok( 'the products stay on the list',    DZE_Content::discard_products( [ 8 ] ), [ 7, 8, 9 ] );
+ok( 'and what was waiting on them is thrown away',
+	$GLOBALS['dze_dropped'], [ 8 ] );
+DZE_Content::discard_products( [ 7, 9 ] );
+ok( 'refusing several at once refuses each',
+	$GLOBALS['dze_dropped'], [ 8, 7, 9 ] );
+// The decision is split from the request, or it cannot be exercised at all.
+$dze_h = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_d = substr( $dze_h, (int) strpos( $dze_h, 'function discard_products' ) );
+$dze_d = substr( $dze_d, 0, (int) strpos( $dze_d, "\n\t}" ) );
+ok( 'and it never ends the request',    false !== strpos( $dze_d, 'wp_send_json' ), false );
+
+echo "\nTHE BACKGROUND IS A PROPERTY OF THE PROMPT\n";
+// "Image ugc generee dans l'outil bulk. Invraisemblable. C'est a cause de tes
+// reglages caches ?!" It was: the scene was ONE answer for the whole shop,
+// chosen on no screen that runs a prompt and attached to every one of them.
+// The sources block then declares that image to be the surface, the background
+// and the light of the photograph — so a prompt asking for a customer's own
+// snapshot came back a white pack shot.
+$GLOBALS['opts'] = [];
+$GLOBALS['opts']['dze_content_settings'] = [
+	'scenes'   => [
+		[ 'name' => 'Studio backdrop', 'image' => 90, 'prompt' => '', 'default' => true ],
+		[ 'name' => 'Slate', 'image' => 91, 'prompt' => '', 'default' => false ],
+	],
+	'registry' => [
+		// Written before the field existed: it keeps what it has been running
+		// on all along, or a shop updating would silently lose its backdrops.
+		[ 'id' => 'old', 'name' => 'Pack shot', 'type' => 'image', 'output' => 'main', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1 ],
+		// Answered: no scene. An EMPTY key is an answer and is not overruled.
+		[ 'id' => 'ugc', 'name' => 'Customer photo', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => '' ],
+		// Answered: that one, by name — reordering the list must not move a
+		// prompt onto a different background in silence.
+		[ 'id' => 'slate', 'name' => 'On slate', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => 'Slate' ],
+		// A scene deleted since: read as none, never as "the first one".
+		[ 'id' => 'gone', 'name' => 'On something gone', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => 'Sand' ],
+	],
+];
+( new ReflectionProperty( 'DZE_Content', 'registry_cache' ) )->setValue( null, null );
+$dze_t = [];
+foreach ( DZE_Content::image_templates() as $dze_one ) { $dze_t[ $dze_one['id'] ] = $dze_one; }
+ok( 'a prompt written before the field keeps the shop default',
+	$dze_t['old']['scene_i'] ?? 'missing', 0 );
+ok( 'and it is named, not numbered',    $dze_t['old']['scene'] ?? '', 'Studio backdrop' );
+ok( '"no scene" is an answer, and it is kept',
+	$dze_t['ugc']['scene_i'] ?? 'missing', -1 );
+ok( 'a named scene answers with its place',
+	$dze_t['slate']['scene_i'] ?? 'missing', 1 );
+ok( 'a scene deleted since is no scene',
+	$dze_t['gone']['scene_i'] ?? 'missing', -1 );
+ok( 'and the name is not thrown away with it',
+	$dze_t['gone']['scene'] ?? '', 'Sand' );
+// THE SCREEN CARRIES IT TO THE ROW. Each prompt option says which background
+// it is shot on, and the menu beside it opens on nothing of its own — it used
+// to open pre-selected on the shop's default, whatever prompt the row held.
+$GLOBALS['dze_list'] = [ 7 ];
+( new ReflectionProperty( 'DZE_Content', 'bulk_products_cache' ) )->setValue( DZE_Content::instance(), null );
+ob_start();
+DZE_Content::instance()->bulk_body( 'http://shop.test/screen' );
+$dze_bulk = (string) ob_get_clean();
+ok( 'the row is told which scene a prompt wants',
+	false !== strpos( $dze_bulk, 'data-scene="1"' ), true );
+ok( 'and which wants none',              false !== strpos( $dze_bulk, 'data-scene="-1"' ), true );
+ok( 'the scene menu picks nothing on its own',
+	false !== strpos( $dze_bulk, "<option value=\"-1\" selected" ), false );
+ok( 'and it is on the prompt card that it is set',
+	substr_count( $dze_bulk, 'dze-tpl-scene' ) > 0, true );
+$GLOBALS['opts'] = [];
 
 echo "\nHow many photographs of the product go with a request\n";
 // A close-up of the fastenings, asked of a five-photograph product with two

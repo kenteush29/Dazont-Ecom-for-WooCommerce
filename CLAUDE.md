@@ -1042,6 +1042,52 @@ whose screen has not been thought through yet.
   what is handed over (and that the front-end shortcode and a disabled module
   get none of it), and the browser gate opens the plugin's own rendering and
   reads the chips back, on the right days, linking to their promotion.
+- **THE BACKGROUND IS A PROPERTY OF THE PROMPT, and every prompt says which
+  one it is shot on.** The scene was ONE answer for the whole shop —
+  `default_scene()`, plus a "last scene used" remembered in the browser and
+  shared between screens — attached to every prompt whatever it asked for. And
+  the appended sources block tells the model, in capitals, that the scene image
+  IS the surface, the background and the light of the final photograph. So a
+  prompt asking for a customer's own snapshot was handed a studio backdrop and
+  came back a white pack shot with the product floating in it: "Image ugc
+  générée dans l'outil bulk. Invraisemblable. C'est à cause de tes réglages
+  cachés ?!" It was. The scene is a field on the registry row now, beside
+  "Writes to" and "Shape", stored by NAME (`DZE_Content::prompt_scene()` /
+  `scene_index()`) — an index would move every prompt onto a different
+  background the day the list is reordered, which is the silent failure. Three
+  rules: a prompt written before the field existed carries no key and keeps the
+  shop's default, so nothing changes for the pack shots already set up; an
+  EMPTY key is an answer ("no scene") and is never overruled; and a name that
+  no longer answers reads as no scene while the card says the scene is missing,
+  rather than falling through to the first one. `shoot()` falls back to the
+  PROMPT's scene, never to the shop's, and the menu on a row is a one-off for
+  the run about to be launched.
+- **WHAT IS REMEMBERED IS THE ORDER, NOT WHAT THE SCREEN FILLED IN AROUND IT.**
+  The bulk row stored its destination and its scene in the browser exactly as
+  they stood — including the ones the screen had derived from the prompt itself
+  — and restored them marked as chosen by hand. So a destination nobody ever
+  picked came back weeks later as a decision: "j'ai choisi un prompt pour bulk
+  sur tous les produits et je me suis retrouvé sur le 2e produit avec une image
+  principale refaite… et ça me demandait sur chaque produit que faire avec
+  l'image principale." A value a screen derives is derived again every time it
+  is drawn; only what somebody typed or ticked is worth remembering.
+- **REFUSING IS NOT REMOVING.** Discard on the bulk screen called the REMOVE
+  path: saying "not this photograph" took the product off the very screen it
+  was being worked on. "Le bouton discard devrait refuser les changements et
+  reset le status des produits comme si rien n'avait été généré." It throws
+  away what was generated, files the refusal under Done, and leaves the product
+  ON the list at "nothing generated yet" — Delete, one button along, is the
+  other decision. The reset is ONE function (`resetRow`), the same one a new
+  run uses on the lines it is about to redo, and the decision is split from the
+  request (`DZE_Content::discard_products()`) so it can be exercised.
+- **`node tools/js/content-bulk.mjs` must pass.** The product bulk screen had
+  no browser gate at all, which is why both of the faults above lived there:
+  each of them is an answer a control gives when it is PRESSED. It loads the
+  screen as the plugin prints it (`tools/test-sources.php --dump-bulk`, markup
+  AND the real `wp_localize_script` config), changes the prompt on a row and
+  reads the destination and the scene back, and presses Discard for real —
+  asserting what goes on the wire, that the product is STILL on the list, and
+  that its row is back to waiting.
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
   handler is a thin wrapper over it — it used to BE the handler, three hundred

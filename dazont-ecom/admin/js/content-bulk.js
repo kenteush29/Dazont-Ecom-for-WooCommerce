@@ -39,12 +39,16 @@
 		}
 		if (typeof m.bulkPrice !== 'undefined') { $('#dze-cb-price').prop('checked', !!m.bulkPrice); }
 		if (typeof m.bulkImage !== 'undefined') { $('#dze-cb-image').prop('checked', !!m.bulkImage); }
-		// The scene and the count are remembered per row now; a memory written
-		// by an older version carries them for the run, and is read as the
-		// settings of every row it holds.
+		// WHAT IS REMEMBERED IS THE ORDER, NOT ITS BACKGROUND. The scene and
+		// the destination are the prompt's own, read from it every time a row
+		// is drawn. Remembering the ones a row happened to carry is what put a
+		// customer-snapshot prompt on the main image of every product: the
+		// destination had been filled in by the screen itself for another
+		// prompt, was stored as though somebody had chosen it, and never
+		// followed a prompt again.
 		var saved = (Array.isArray(m.tpls) && m.tpls.length ? m.tpls : [ '' ]).map(function (v) {
-			if (v && typeof v === 'object') { return v; }
-			return { tpl: v, scene: m.scene, n: m.imgn };
+			if (v && typeof v === 'object') { return { tpl: v.tpl, n: v.n }; }
+			return { tpl: v, n: m.imgn };
 		});
 		buildTplRows(saved);
 		if (typeof m.keepOld !== 'undefined') { $('#dze-cb-oldmain').val(m.keepOld ? '1' : '0'); }
@@ -55,11 +59,7 @@
 		m.bulkFields = $('.dze-cb-field:checked:not(:disabled)').map(function () { return $(this).val(); }).get();
 		m.bulkPrice = $('#dze-cb-price').is(':checked');
 		m.bulkImage = $('#dze-cb-image').is(':checked');
-		m.tpls = tplJobs();
-		// The scene of the first row is what the other screens open on: one
-		// store, so a support chosen anywhere is the one shot on everywhere.
-		var first = tplJobs()[0];
-		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
+		m.tpls = tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n }; });
 		saveMem(m);
 	}
 	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
@@ -100,10 +100,12 @@
 		}
 		if (row.n) { $r.find('.dze-tpl-n').val(String(row.n)); }
 		syncPeek($r);
-		// The destination starts on the prompt's own — "Remake main" writes the
-		// main image — and stays wherever it was last put by hand.
-		if (row.target) { $r.find('.dze-tpl-target').val(String(row.target)).data('touched', 1); }
-		else { syncTarget($r); }
+		// The destination and the background are the prompt's own — "Remake
+		// main" writes the main image, a studio prompt is shot on its backdrop
+		// — and the menus beside them change that for the run about to be
+		// launched, not for ever.
+		syncTarget($r);
+		syncScene($r);
 		return $r;
 	}
 	// The peek button of a row always points at the prompt that row will run.
@@ -111,17 +113,26 @@
 		var $s = $row.find('.dze-cb-tpl');
 		$row.find('.dze-prompt-peek').attr('data-prompt', $s.find('option:selected').data('prompt') || '');
 	}
-	// The destination a prompt declares for itself, unless this row was told
-	// otherwise.
+	// The destination a prompt declares for itself.
 	function syncTarget($row) {
 		var $t = $row.find('.dze-tpl-target');
-		if (!$t.length || $t.data('touched')) { return; }
+		if (!$t.length) { return; }
 		$t.val($row.find('.dze-cb-tpl option:selected').data('target') || 'gallery');
 	}
-	$(document).on('change', '#dze-cb-tplrows .dze-tpl-target', function () {
-		$(this).data('touched', 1);
-		syncOldMainRow();
-	});
+	// The background a prompt is shot on. A prompt asking for a customer's own
+	// snapshot must arrive with none: the sources block tells the model that
+	// the scene image IS the surface, the background and the light of the
+	// photograph, so a studio backdrop attached to it comes back as a white
+	// pack shot with the product floating in it.
+	function syncScene($row) {
+		var $s = $row.find('.dze-tpl-scene');
+		if (!$s.length) { return; }
+		var i = $row.find('.dze-cb-tpl option:selected').data('scene');
+		if (i === undefined || i === null) { i = -1; }
+		$s.val(String(i));
+		if (null === $s.val()) { $s.val('-1'); }
+	}
+	$(document).on('change', '#dze-cb-tplrows .dze-tpl-target', syncOldMainRow);
 	function buildTplRows(values) {
 		var $wrap = $('#dze-cb-tplrows').empty();
 		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
@@ -168,7 +179,7 @@
 			else if (used[v]) { $(this).val(firstFreeTpl()); }
 			used[$(this).val()] = 1;
 		});
-		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); });
+		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); syncScene($(this)); });
 		syncOldMainRow();
 	});
 	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
@@ -282,6 +293,12 @@
 			.fail(function (x) { window.alert(reason(x)); })
 			.always(function () { if ($b) { $b.prop('disabled', false); } });
 	}
+	$('#dze-cb-discard').on('click', function () {
+		var ids = picked().filter(function (id) { return results[id]; });
+		if (!ids.length) { window.alert(i18n.tickFirst); return; }
+		if (!window.confirm(sprintf(i18n.confirmDiscard, ids.length))) { return; }
+		discardProducts(ids, $(this));
+	});
 	$('#dze-cb-delete').on('click', function () {
 		var ids = picked();
 		if (!ids.length) { window.alert(i18n.tickFirst); return; }
@@ -395,6 +412,21 @@
 		var running = kind === 'run';
 		$c.find('.dze-cb-rowbar').toggle(running).find('i').css('width', pct + '%');
 		$c.find('.dze-cb-rowpct').toggle(running).text(pct + '%');
+	}
+
+	// A product put back exactly as the list first drew it: nothing generated,
+	// nothing waiting, no decision left to take. ONE function, because a run
+	// does this to the lines it is about to redo and Discard does it to the
+	// line it refuses — two copies of it would drift apart on the next change.
+	function resetRow(id) {
+		$('.dze-cb-preview[data-id="' + id + '"]').hide().find('td').empty();
+		var $r = $row(id);
+		$r.find('.dze-cb-badges').empty();
+		$r.find('.dze-cb-toggle, .dze-cb-apply-one').hide();
+		$r.find('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
+		delete results[id];
+		delete state[id];
+		paint(id, 'wait');
 	}
 
 	// One badge per piece of content actually produced, on the product line.
@@ -961,13 +993,33 @@
 		return b.open[fid] ? editorGet(editorId(id, fid)) : (b.texts[fid] || '');
 	}
 
-	// Refusing what was generated is a decision like accepting it: the content
-	// is thrown away, the product leaves the list, and Done records that it was
-	// dealt with. It used to stay on the list with its badges wiped, which is
-	// how the same products were still there the next morning.
+	// REFUSING IS NOT REMOVING. What was generated is thrown away and Done
+	// records the refusal — and the product goes back to the top of the line,
+	// on the list, at "nothing generated yet", which is where somebody who has
+	// just said "not this one" wants it: ready to be run again with another
+	// prompt. It used to take the product off the screen altogether, which is
+	// what Delete is for, one button along.
+	function discardProducts(ids, $b) {
+		if (!ids.length) { return; }
+		if ($b) { $b.prop('disabled', true); }
+		$.post(cfg.ajaxUrl, {
+			action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'discard', ids: ids
+		})
+			.done(function (res) {
+				if (res && res.success) {
+					setTabs(res);
+					ids.forEach(function (id) { resetRow(id); });
+					refreshApplyBar();
+				} else {
+					window.alert((res && res.data && res.data.message) || i18n.error);
+				}
+			})
+			.fail(function (x) { window.alert(reason(x)); })
+			.always(function () { if ($b) { $b.prop('disabled', false); } });
+	}
 	$(document).on('click', '.dze-cb-drop', function () {
 		if (!window.confirm(i18n.confirmDrop)) { return; }
-		removeProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
+		discardProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
@@ -1146,6 +1198,12 @@
 			.prop('disabled', 0 === sel)
 			.attr('title', 0 === sel ? (holding > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
 			.text(sprintf(i18n.applySelN, sel));
+		// Refusing counts the same products as accepting them: a line holding
+		// nothing has nothing to refuse.
+		$('#dze-cb-discard')
+			.prop('disabled', 0 === sel)
+			.attr('title', 0 === sel ? (holding > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
+			.text(sprintf(i18n.discardN, sel));
 	}
 
 	// Applying, product by product.
@@ -1454,12 +1512,7 @@
 		$rows.each(function () {
 			var rid = String($(this).data('id'));
 			if (keep.indexOf(rid) >= 0) { return; }
-			$('.dze-cb-preview[data-id="' + rid + '"]').hide().find('td').empty();
-			$(this).find('.dze-cb-badges').empty();
-			$(this).find('.dze-cb-toggle, .dze-cb-apply-one').hide();
-			$(this).find('.dze-cb-toggle').attr('aria-expanded', 'false').find('.dze-cb-caret').text('▾');
-			delete results[rid];
-			delete state[rid];
+			resetRow(rid);
 		});
 		refreshApplyBar();
 

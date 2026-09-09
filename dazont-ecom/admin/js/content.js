@@ -132,19 +132,30 @@
 	function jobFor(tpl) {
 		var found = null;
 		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
-		return found || { tpl: String(tpl), scene: defaultScene(), n: 1, target: 'gallery' };
+		return found || { tpl: String(tpl), scene: sceneOf(tpl), n: 1, target: targetOf(tpl) };
 	}
-	function defaultScene() {
-		var m = mem();
+	// THE SCENE BELONGS TO THE PROMPT, like the destination beside it. It used
+	// to be one answer for the whole shop, remembered from whatever was picked
+	// last on any screen — so a prompt asking for a customer's own snapshot
+	// arrived with a studio backdrop attached, and the appended sources block
+	// then declares that image to be the background of the photograph. The
+	// answer came back a white pack shot and nothing said why. The menu below
+	// is a one-off for the run about to be launched; it is not remembered.
+	function sceneOf(sel) {
+		var t = cfg.templates[parseInt(sel, 10)] || {};
 		var scenes = cfg.scenes || [];
-		var cur = (m.scene !== undefined && m.scene !== null) ? parseInt(m.scene, 10) : (cfg.sceneDef === undefined ? -1 : cfg.sceneDef);
-		if (cur >= scenes.length) { cur = scenes.length ? 0 : -1; }
-		return cur;
+		var i = (t.scene === undefined || t.scene === null) ? -1 : parseInt(t.scene, 10);
+		if (isNaN(i) || i < 0 || i >= scenes.length) { return -1; }
+		return i;
+	}
+	function targetOf(sel) {
+		var t = cfg.templates[parseInt(sel, 10)] || {};
+		return t.target || 'gallery';
 	}
 	function sceneSelect(cur) {
 		var scenes = cfg.scenes || [];
 		if (!scenes.length) { return ''; }
-		if (cur === undefined || cur === null || isNaN(cur)) { cur = defaultScene(); }
+		if (cur === undefined || cur === null || isNaN(cur)) { cur = -1; }
 		return '<select class="dze-tpl-scene" title="' + esc(i18n.sceneHelp) + '">' +
 			'<option value="-1"' + (cur < 0 ? ' selected' : '') + '>' + esc(i18n.noScene) + '</option>' +
 			scenes.map(function (s, i) {
@@ -166,6 +177,7 @@
 			}).join('') + '</select>';
 	}
 	function tplRow(sel, scene, n, target) {
+		if (scene === undefined || scene === null || isNaN(parseInt(scene, 10))) { scene = sceneOf(sel); }
 		var opts = cfg.templates.map(function (t, i) {
 			return '<option value="' + i + '"' + (String(sel) === String(i) ? ' selected' : '') + '>' +
 				esc(t.name) + (t.valid ? '' : ' — ' + esc(i18n.notValid)) + '</option>';
@@ -173,7 +185,7 @@
 		var cur = cfg.templates[parseInt(sel, 10)] || cfg.templates[0] || {};
 		return '<span class="dze-tplrow"><select class="dze-cx-tpl">' + opts + '</select>' +
 			promptBtn(cur.id) +
-			sceneSelect(scene) + nSelect(n) + targetSelect(target || cur.target || 'gallery') +
+			sceneSelect(scene) + nSelect(n) + targetSelect(target || targetOf(sel)) +
 			'<span class="dze-tplbtns">' +
 			'<button type="button" class="button button-small dze-cx-tpladd" title="' + esc(i18n.addPrompt) + '">+</button>' +
 			'<button type="button" class="button button-small dze-cx-tpldel" title="' + esc(i18n.delPrompt) + '">−</button></span></span>';
@@ -202,9 +214,8 @@
 		}
 		return 0;
 	}
-	$(document).on('change', '#dze-cx-tplrows .dze-tpl-target', function () { $(this).data('touched', 1); });
 	$(document).on('click', '.dze-cx-tpladd', function () {
-		$('#dze-cx-tplrows').append(tplRow(firstFreeTpl(), defaultScene(), 1));
+		$('#dze-cx-tplrows').append(tplRow(firstFreeTpl(), undefined, 1));
 		syncTplRows();
 		remember();
 	});
@@ -227,13 +238,15 @@
 			used[$(this).val()] = 1;
 		});
 		if (dupe) { $me.val(String(firstFreeTpl())); }
-		// The peek button follows the prompt the row now points at, and so does
-		// the destination unless this row was told otherwise by hand.
+		// The peek button follows the prompt the row now points at, and so do
+		// the destination and the scene: a row pointed at another prompt is
+		// another order, and both of those are the prompt's own answers.
 		$('#dze-cx-tplrows .dze-tplrow').each(function () {
-			var t = cfg.templates[parseInt($(this).find('.dze-cx-tpl').val(), 10)] || {};
-			$(this).find('.dze-prompt-peek').attr('data-prompt', 'content_' + (t.id || ''));
-			var $tg = $(this).find('.dze-tpl-target');
-			if (!$tg.data('touched')) { $tg.val(t.target || 'gallery'); }
+			var $r = $(this), sel = $r.find('.dze-cx-tpl').val();
+			var t = cfg.templates[parseInt(sel, 10)] || {};
+			$r.find('.dze-prompt-peek').attr('data-prompt', 'content_' + (t.id || ''));
+			$r.find('.dze-tpl-target').val(targetOf(sel));
+			$r.find('.dze-tpl-scene').val(String(sceneOf(sel)));
 		});
 		remember();
 	});
@@ -244,13 +257,14 @@
 			fields: $('.dze-cx-f:checked').map(function () { return $(this).val(); }).get(),
 			price: $('#dze-cx-doprice').is(':checked') ? 1 : 0,
 			img: $('#dze-cx-doimg').is(':checked') ? 1 : 0,
-			tpls: tplJobs()
+			// WHAT IS REMEMBERED IS THE ORDER, NOT ITS BACKGROUND. The scene
+			// and the destination are the prompt's own and are read from it
+			// every time the row is drawn; remembering the ones a row happened
+			// to carry is how a destination the screen had filled in by itself
+			// came back months later as a decision, sending a customer-snapshot
+			// prompt onto the main image.
+			tpls: tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n }; })
 		};
-		// The scene of the first row is the one every screen starts from: pick
-		// a support once and the toolbox, the bulk screen and the next popup
-		// all open on it.
-		var first = tplJobs()[0];
-		if (first && !isNaN(first.scene)) { m.scene = first.scene; }
 		saveMem(m);
 	}
 
@@ -490,8 +504,8 @@
 		// as a row with the run's old settings, so nothing is lost on the way.
 		var saved = Array.isArray(au.tpls) && au.tpls.length ? au.tpls : [ 0 ];
 		saved.forEach(function (v) {
-			var row = (v && typeof v === 'object') ? v : { tpl: v, scene: defaultScene(), n: au.imgn || 1 };
-			$('#dze-cx-tplrows').append(tplRow(row.tpl, row.scene, row.n, row.target));
+			var row = (v && typeof v === 'object') ? v : { tpl: v, n: au.imgn || 1 };
+			$('#dze-cx-tplrows').append(tplRow(row.tpl, undefined, row.n));
 		});
 		syncTplRows();
 		$(document).on('change', '.dze-cx-f, #dze-cx-doprice, #dze-cx-doimg, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target', remember);
@@ -535,7 +549,7 @@
 			$('#dze-cx-subject').val('0');
 			$('#dze-cx-tplrows').empty();
 			want.shots.forEach(function (row) {
-				$('#dze-cx-tplrows').append(tplRow(row.tpl, defaultScene(), row.n || 1, row.target));
+				$('#dze-cx-tplrows').append(tplRow(row.tpl, undefined, row.n || 1, row.target));
 			});
 			syncTplRows();
 		}
@@ -2100,7 +2114,7 @@
 						'<span id="dze-var-peek">' + promptBtn((tpls[0].t || {}).id) + '</span>' +
 						((cfg.scenes || []).length
 							? '<label class="dze-qm-bglabel"><span>' + esc(i18n.scene) + '</span>' +
-								sceneSelect(defaultScene()).replace('dze-tpl-scene', 'dze-var-scene') + '</label>'
+								sceneSelect(sceneOf(tpls[0].i)).replace('dze-tpl-scene', 'dze-var-scene') + '</label>'
 							: '') +
 						'<button type="button" class="button button-primary" id="dze-var-run">' + esc(i18n.generate) + '</button>' +
 						'<button type="button" class="button button-primary" id="dze-var-saveall" style="display:none;"></button>' +
@@ -2244,6 +2258,9 @@
 	$(document).on('change', '#dze-var-tpl', function () {
 		var t = cfg.templates[parseInt($(this).val(), 10)] || {};
 		$('#dze-var-peek').html(promptBtn(t.id));
+		// The background follows the prompt here too, or this bar is the one
+		// screen left applying somebody else's scene.
+		$('.dze-var-scene').val(String(sceneOf($(this).val())));
 	});
 	$(document).on('click', '#dze-var-missing', function () {
 		var empty = {};

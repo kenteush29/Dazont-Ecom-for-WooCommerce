@@ -464,6 +464,19 @@ EOT;
 		return array_key_exists( $r, self::output_ratios() ) ? $r : '';
 	}
 
+	/**
+	 * A scene name as a prompt stores it.
+	 *
+	 * Deliberately NOT checked against the scene list: a save that happens to
+	 * rewrite the scenes in the same request would then blank every prompt
+	 * pointing at one. An unknown name answers -1 through scene_index(), which
+	 * is "no scene", and the prompt card says the name is missing rather than
+	 * losing it.
+	 */
+	public static function clean_scene( string $name ): string {
+		return sanitize_text_field( trim( $name ) );
+	}
+
 	/** Inputs that are images rather than lines of text. */
 	public static function is_image_input( string $key ): bool {
 		return in_array( $key, [ 'photos', 'variation_photos' ], true );
@@ -1532,6 +1545,44 @@ EOT;
 		}
 	}
 
+	/**
+	 * The scene a registry row is shot on, by name.
+	 *
+	 * The key is absent on every prompt written before the scene belonged to
+	 * the prompt: those keep the shop's default, which is what they have been
+	 * running on all along. Present and empty means the owner answered "No
+	 * scene", and that answer is his.
+	 */
+	public static function prompt_scene( array $row ): string {
+		if ( array_key_exists( 'scene', $row ) ) {
+			return (string) $row['scene'];
+		}
+		$scenes = self::scenes();
+		$def    = self::default_scene();
+		return isset( $scenes[ $def ] ) ? (string) $scenes[ $def ]['name'] : '';
+	}
+
+	/**
+	 * Where a scene NAME sits in the list, or -1 for "no scene".
+	 *
+	 * A prompt stores the name and not the index: reordering the scenes would
+	 * otherwise move every prompt onto a different background in silence,
+	 * which is the worst of the two failures. A name that no longer answers is
+	 * read as no scene, and the prompt card says so where it is set.
+	 */
+	public static function scene_index( string $name ): int {
+		$name = trim( $name );
+		if ( '' === $name ) {
+			return -1;
+		}
+		foreach ( self::scenes() as $i => $sc ) {
+			if ( (string) $sc['name'] === $name ) {
+				return $i;
+			}
+		}
+		return -1;
+	}
+
 	/** The scene to use when none was picked: the one marked as default. */
 	public static function default_scene(): int {
 		foreach ( self::scenes() as $i => $sc ) {
@@ -1558,6 +1609,21 @@ EOT;
 				'valid'       => (int) ! empty( $r['valid'] ),
 				'inputs'      => (array) ( $r['inputs'] ?? [ 'title', 'description' ] ),
 				'inputs_meta' => (string) ( $r['inputs_meta'] ?? '' ),
+				// THE SCENE IS THE PROMPT'S OWN. It used to be one answer for
+				// the whole shop — default_scene() — applied to every prompt
+				// whatever it asked for, and the sources block tells the model
+				// in capitals that the scene IS the background of the final
+				// photograph. So a prompt asking for a customer's own snapshot
+				// came back as a white pack shot, with nothing on any screen
+				// saying why.
+				//
+				// A prompt written before this field existed carries no key at
+				// all: it keeps the shop's default, so nothing changes for the
+				// pack shots already set up, and the first save of the Product
+				// content tab pins each prompt to its own answer. An EMPTY key
+				// is an answer — "no scene" — and is left alone.
+				'scene'       => self::prompt_scene( $r ),
+				'scene_i'     => self::scene_index( self::prompt_scene( $r ) ),
 			];
 		}
 		return $out;
@@ -2172,8 +2238,10 @@ Answer with STRICT JSON and nothing else: "
 			$seen = [];
 			// What the shop holds right now, to tell "left alone" from "changed".
 			$stored = [];
+			$held   = [];
 			foreach ( self::registry() as $r ) {
 				$stored[ (string) ( $r['id'] ?? '' ) ] = (string) ( $r['prompt'] ?? '' );
+				$held[ (string) ( $r['id'] ?? '' ) ]   = $r;
 			}
 			foreach ( $in['pr_name'] as $i => $name ) {
 				$name   = sanitize_text_field( (string) $name );
@@ -2235,6 +2303,12 @@ Answer with STRICT JSON and nothing else: "
 					// instructions changed nothing and the image came back in
 					// the shape of the photograph it was built from.
 					'ratio'       => self::clean_ratio( (string) ( $in['pr_ratio'][ $i ] ?? '' ) ),
+					// The background this prompt is shot on, by NAME. A shop
+					// with no scene at all draws no menu, so the key does not
+					// come back: absent means "as it stands", never "none".
+					'scene'       => array_key_exists( 'pr_scene', $in )
+						? self::clean_scene( (string) ( $in['pr_scene'][ $i ] ?? '' ) )
+						: ( isset( $held[ $rid ] ) ? self::prompt_scene( (array) $held[ $rid ] ) : '' ),
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
 				];
 			}
@@ -2286,6 +2360,16 @@ Answer with STRICT JSON and nothing else: "
 					'meta_key'    => sanitize_key( (string) ( $r['meta_key'] ?? '' ) ) ?: '_dze_' . $id,
 					'enabled'     => ! empty( $r['enabled'] ) ? 1 : 0,
 					'valid'       => ! empty( $r['valid'] ) ? 1 : 0,
+					// Everything an image prompt carries beside its text. This
+					// branch used to list none of it, so a canonical save —
+					// switching a prompt on from the toolbox — silently threw
+					// away the shape, the file name and the scene.
+					'img_meta'    => sanitize_key( (string) ( $r['img_meta'] ?? '' ) ),
+					'img_rules'   => sanitize_textarea_field( (string) ( $r['img_rules'] ?? '' ) ),
+					'file_name'   => sanitize_text_field( (string) ( $r['file_name'] ?? '' ) ),
+					'img_title'   => sanitize_text_field( (string) ( $r['img_title'] ?? '' ) ),
+					'ratio'       => self::clean_ratio( (string) ( $r['ratio'] ?? '' ) ),
+					'scene'       => self::clean_scene( (string) ( $r['scene'] ?? '' ) ),
 					'tokens'      => max( 50, (int) ( $r['tokens'] ?? 400 ) ),
 				];
 			}
@@ -2627,6 +2711,32 @@ Answer with STRICT JSON and nothing else: "
 										<?php endforeach; ?>
 									</select>
 								</label>
+								<?php
+								// THE BACKGROUND THIS PROMPT IS SHOT ON, said where
+								// the prompt is written. It used to be one answer for
+								// the whole shop, chosen nowhere and applied to
+								// everything: a prompt asking for a customer's own
+								// snapshot was handed a studio backdrop and told, in
+								// the appended sources block, that this image IS the
+								// background of the final photograph. It came back a
+								// white pack shot and no screen said why.
+								$dze_prsc = self::scenes();
+								$dze_prcur = self::prompt_scene( $r );
+								$dze_prknown = '' === $dze_prcur || self::scene_index( $dze_prcur ) >= 0;
+								?>
+								<?php if ( $dze_prsc ) : ?>
+									<label class="dze-prb-tk dze-pr-imgonly" style="<?php echo ( 'image' === ( $r['type'] ?? 'text' ) ) ? '' : 'display:none;'; ?>"><span><?php esc_html_e( 'Scene', 'dazont-ecom' ); ?></span>
+										<select name="<?php echo esc_attr( $opt ); ?>[pr_scene][<?php echo (int) $dze_ri; ?>]" class="dze-pr-scene" title="<?php esc_attr_e( 'The background sent as the last image with this prompt. It becomes the surface, the background and the light of the photograph — leave it on "No scene" for anything shot in a real place.', 'dazont-ecom' ); ?>">
+											<option value="" <?php selected( '', $dze_prcur ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
+											<?php foreach ( $dze_prsc as $dze_scr ) : ?>
+												<option value="<?php echo esc_attr( (string) $dze_scr['name'] ); ?>" <?php selected( (string) $dze_scr['name'], $dze_prcur ); ?>><?php echo esc_html( (string) $dze_scr['name'] ); ?></option>
+											<?php endforeach; ?>
+											<?php if ( ! $dze_prknown ) : ?>
+												<option value="<?php echo esc_attr( $dze_prcur ); ?>" selected><?php printf( /* translators: %s: scene name */ esc_html__( '%s — this scene no longer exists', 'dazont-ecom' ), esc_html( $dze_prcur ) ); ?></option>
+											<?php endif; ?>
+										</select>
+									</label>
+								<?php endif; ?>
 								<label class="dze-prb-tk"><span><?php esc_html_e( 'Max length', 'dazont-ecom' ); ?></span>
 									<input type="number" name="<?php echo esc_attr( $opt ); ?>[pr_tokens][<?php echo (int) $dze_ri; ?>]" value="<?php echo esc_attr( (int) ( $r['tokens'] ?: 400 ) ); ?>" min="50" class="dze-pr-tokens" />
 								</label>
@@ -3056,6 +3166,28 @@ Answer with STRICT JSON and nothing else: "
 		delete_post_meta( $pid, self::META_PENDING );
 		delete_transient( 'dze_pending_count' );
 		self::log_add( $pid, 0, 0, 'dropped' );
+	}
+
+	/**
+	 * Refusing what was generated for a set of products.
+	 *
+	 * REFUSING IS NOT REMOVING. What was generated is thrown away and the
+	 * refusal is filed under Done — and the products STAY on the list, back at
+	 * "nothing generated yet", ready to be run again with another prompt.
+	 * Discard used to call the remove path, so saying "not this photograph"
+	 * took the product off the very screen it was being worked on.
+	 *
+	 * The decision is split from the request, like every other one here: a
+	 * handler that ends the request cannot be exercised.
+	 *
+	 * @param int[] $ids Products to refuse.
+	 * @return int[] The bulk list as it stands afterwards — unchanged.
+	 */
+	public static function discard_products( array $ids ): array {
+		foreach ( $ids as $one ) {
+			self::drop_product( (int) $one );
+		}
+		return self::bulk_list();
 	}
 
 	/** @return array<int,array<string,mixed>> newest first. */
@@ -3597,6 +3729,9 @@ Answer with STRICT JSON and nothing else: "
 					'applySelN' => __( 'Apply (%s)', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'deleteN'  => __( 'Delete (%s)', 'dazont-ecom' ),
+					'discardN' => __( 'Discard (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of products */
+					'confirmDiscard' => __( 'Throw away what was generated for %s products? It cannot be recovered. They stay on the list, back at nothing generated, and the refusals are filed under Done.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
 					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
@@ -3619,7 +3754,7 @@ Answer with STRICT JSON and nothing else: "
 					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
-					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered. The product leaves the list and is filed under Done.', 'dazont-ecom' ),
+					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered. The product stays on the list, back at nothing generated, and the refusal is filed under Done.', 'dazont-ecom' ),
 					// A block that could not be read says so, and offers to try
 					// again — an empty space reads as a broken screen.
 					'nowFailed'   => __( 'The photographs of this product could not be read.', 'dazont-ecom' ),
@@ -3817,7 +3952,7 @@ Answer with STRICT JSON and nothing else: "
 				] : [] );
 				?>
 					<?php if ( $valid_tpls ) : ?>
-						<?php $dze_bscenes = self::scenes(); $dze_bdef = self::default_scene(); ?>
+						<?php $dze_bscenes = self::scenes(); ?>
 						<div class="dze-cb-opts">
 							<!-- One prompt per row, plus a + to add a second when a
 							     product needs two kinds of shot — and each row is a
@@ -3841,15 +3976,20 @@ Answer with STRICT JSON and nothing else: "
 								<span class="dze-tplrow">
 									<select class="dze-cb-tpl">
 										<?php foreach ( $valid_tpls as $i => $t ) : ?>
-											<option value="<?php echo (int) $i; ?>" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $t['id'] ?? '' ) ); ?>" data-target="<?php echo esc_attr( (string) ( $t['target'] ?? 'gallery' ) ); ?>"><?php echo esc_html( $t['name'] ); ?></option>
+											<option value="<?php echo (int) $i; ?>" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $t['id'] ?? '' ) ); ?>" data-target="<?php echo esc_attr( (string) ( $t['target'] ?? 'gallery' ) ); ?>" data-scene="<?php echo (int) ( $t['scene_i'] ?? -1 ); ?>"><?php echo esc_html( $t['name'] ); ?></option>
 										<?php endforeach; ?>
 									</select>
 									<button type="button" class="dze-prompt-peek" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $valid_tpls[0]['id'] ?? '' ) ); ?>" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998;</button>
 									<?php if ( $dze_bscenes ) : ?>
-										<select class="dze-tpl-scene" title="<?php esc_attr_e( 'The fixed support or background sent as a second image, so this prompt always comes back in the same setting.', 'dazont-ecom' ); ?>">
-											<option value="-1" <?php selected( -1, $dze_bdef ); ?>><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
+										<!-- Opens on the PROMPT's own scene, like the
+										     destination beside it. It used to open on
+										     one answer for the whole shop, so a prompt
+										     asking for a customer's snapshot arrived
+										     with a studio backdrop attached. -->
+										<select class="dze-tpl-scene" title="<?php esc_attr_e( 'The background sent with this prompt: it becomes the surface, the background and the light of the photograph. Set on the prompt itself, under Settings → Product content.', 'dazont-ecom' ); ?>">
+											<option value="-1"><?php esc_html_e( 'No scene', 'dazont-ecom' ); ?></option>
 											<?php foreach ( $dze_bscenes as $dze_si => $dze_sc ) : ?>
-												<option value="<?php echo (int) $dze_si; ?>" <?php selected( $dze_si, $dze_bdef ); ?>><?php echo esc_html( $dze_sc['name'] ); ?></option>
+												<option value="<?php echo (int) $dze_si; ?>"><?php echo esc_html( $dze_sc['name'] ); ?></option>
 											<?php endforeach; ?>
 										</select>
 									<?php endif; ?>
@@ -3924,6 +4064,9 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button button-small" id="dze-cb-selnone"><?php esc_html_e( 'Unselect all', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
 				<button type="button" class="button button-primary" id="dze-cb-applysel" title="<?php esc_attr_e( 'Write the generated content of the ticked products to the shop', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
+				<!-- The refusal beside the acceptance, and the group form of the
+				     button on every panel: what a line can do, the list can do. -->
+				<button type="button" class="button" id="dze-cb-discard" title="<?php esc_attr_e( 'Throw away what was generated for the ticked products. They stay on the list, back at nothing generated.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-cb-delete" title="<?php esc_attr_e( 'Take the ticked products out of this list and throw away what is waiting on them. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
 				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Delete all', 'dazont-ecom' ); ?></button>
@@ -4168,7 +4311,7 @@ Answer with STRICT JSON and nothing else: "
 			'postId'     => $pid,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
-			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
+			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'scene' => (int) ( $t['scene_i'] ?? -1 ), 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
 			// The fixed supports/backgrounds, so the whole catalogue can be shot
 			// in the same setting from one screen.
 			'scenes'     => array_map(
@@ -4178,7 +4321,6 @@ Answer with STRICT JSON and nothing else: "
 				],
 				self::scenes()
 			),
-			'sceneDef'   => self::default_scene(),
 			// The native WordPress block each prompt writes into: the button to
 			// write just that block is placed there, next to the field itself,
 			// rather than only inside the big popup.
