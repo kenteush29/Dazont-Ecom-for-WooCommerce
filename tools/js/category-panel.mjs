@@ -55,7 +55,12 @@ for ( const [ label, jq ] of jqs ) {
 	const sent = [];
 	// What the writing queue hands back. A second press can be answered with
 	// nothing, which is how an EMPTY after is reached on a real path.
-	let jobHtml = '<p>Bags for the field, and <a href="https://kula.test/category/boonie-hats/">Boonie hats</a>.</p>';
+	// It links a page the picker actually OFFERS, which is what a real pass
+	// does: the pass places what was ticked. A link to a page outside the pool
+	// left every row untouched, so nothing on this screen could be seen to
+	// lock — or to come back.
+	let jobHtml = '<p>Bags for the field, and <a href="https://kula.test/category/boonie-hats/">Boonie hats</a>,'
+		+ ' and <a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a>.</p>';
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 
@@ -147,7 +152,12 @@ for ( const [ label, jq ] of jqs ) {
 
 	// A CONTROL IS TESTED ON WHAT IT DOES. Every one of these was on the page
 	// and did nothing.
-	for ( const [ name, id ] of [ [ '✎ prompt', 'cat_desc' ], [ '✎ questions', 'cat_sift' ], [ '✎ linking', 'cat_links' ] ] ) {
+	// ONE PROMPT PER BLOCK, and both read the same way. "✎ questions" is gone
+	// with cat_sift — that prompt is not a way of writing this page, it is the
+	// filter deciding WHICH imported questions reach the writer, and it is
+	// edited in Settings → Categories: "je ne comprends pas ce que fait ce
+	// prompt ici."
+	for ( const [ name, id ] of [ [ '✎ prompt (description)', 'cat_desc' ], [ '✎ prompt (linking)', 'cat_links' ] ] ) {
 		const before = sent.length;
 		await page.click( `#panel .dze-prompt-peek[data-prompt="${id}"]` );
 		ok( `"${name}" opens the popup`,
@@ -172,8 +182,13 @@ for ( const [ label, jq ] of jqs ) {
 	// worded buttons — three ways of saying "look at something". They live in
 	// the block each of them is about now, and every one still carries a word.
 	const words = await page.evaluate( () => Array.from(
-		document.querySelectorAll( '#panel .dze-cc-tools .dze-prompt-peek' ) ).map( b => b.textContent.trim() ) );
-	ok( 'four controls, each carrying a word', words.length, 4 );
+		document.querySelectorAll( '#panel .dze-prompt-peek' ) ).map( b => b.textContent.trim() ) );
+	ok( 'one prompt control per block',      words.length, 2 );
+	// AND NONE OF THEM IS A PROMPT BUTTON WITH NO PROMPT BEHIND IT. "ⓘ what
+	// it uses" wore this very class with no id, so the popup's own handler
+	// picked it up and answered "This prompt could not be read".
+	ok( 'and every one names a prompt',
+		await page.locator( '#panel .dze-prompt-peek:not([data-prompt])' ).count(), 0 );
 	ok( 'and none of them a bare symbol',   words.filter( w => ! /\s/.test( w ) ), [] );
 	// AND EACH IN THE BLOCK IT IS ABOUT: the linking prompt belongs to the
 	// links block, not to a row of buttons at the top of the screen.
@@ -181,6 +196,17 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( '#panel .dze-sec[data-sec="cc-links"] .dze-prompt-peek[data-prompt="cat_links"]' ).count(), 1 );
 	ok( 'and the writing prompt in the description block',
 		await page.locator( '#panel .dze-sec[data-sec="cc-desc"] .dze-prompt-peek[data-prompt="cat_desc"]' ).count(), 1 );
+	// AND EACH SITS IN THE ROW THE PRODUCT SCREENS USE, not on a line of four
+	// controls of four different kinds: "je veux un écran similaire à celui
+	// utilisé pour les produits."
+	ok( 'both sit on a prompt row of their own block',
+		await page.locator( '#panel .dze-cc-promptrow' ).count(), 2 );
+	// AND THAT ROW DOES NOT PRETEND TO BE AN ORDER OF WORK. .dze-tplrow tells
+	// hub.js to count a block by its rows instead of its ticks, and this
+	// block's work is the pages ticked under it: borrowing the class made the
+	// heading read "0 / 1" over three ticked pages.
+	ok( 'and it is not counted as one',
+		await page.locator( '#panel .dze-cc-promptrow.dze-tplrow, #panel .dze-cc-promptrow .dze-tplrow' ).count(), 0 );
 
 	// ---- SHIFT TAKES A RANGE ----
 	//
@@ -295,15 +321,41 @@ for ( const [ label, jq ] of jqs ) {
 	// nothing about the checks after it.
 	const canRefuse = await page.locator( '#panel .dze-cc-revert' ).count();
 	ok( 'the panel offers to put it back',       canRefuse, 1 );
+	// A LINKING PASS LOCKS THE ROWS IT JUST WROTE: markPlaced() ticks them and
+	// disables them as "already linked". That is right while the text stands.
+	const lockedAfter = await page.locator( '#panel .dze-cc-pick[disabled]' ).count();
+	ok( 'the pages it linked are marked as linked', lockedAfter > locked, true );
+	const beforeRefuse = sent.length;
 	if ( canRefuse ) {
 		await page.click( '#panel .dze-cc-revert' );
-		await page.waitForTimeout( 150 );
+		await page.waitForTimeout( 250 );
 	}
 	// It puts back what the panel was opened on — captured when the popup
 	// opens, which this harness does not replay, so what is asserted here is
 	// the refusal itself: what was generated is gone.
 	ok( 'and pressing it drops what was written',
 		( await page.inputValue( '#dze-cc-editor' ) ).includes( '<a href' ), false );
+	// A REFUSAL PUTS THE WHOLE SCREEN BACK, not the half of it that is text.
+	//
+	// "Il semble avoir fermé les aperçus des textes. Mais c'est tout. Et le
+	// bouton reste ensuite bloqué sur ce texte. Je voulais recommencer
+	// l'opération de maillage interne pour tester avec mon prompt
+	// personnellement optimisé, mais je ne comprends pas comment faire." He
+	// could not: every row the pass had just written stayed disabled, so the
+	// pages could never be chosen again.
+	ok( 'the rows it locked are choosable again',
+		await page.locator( '#panel .dze-cc-pick[disabled]' ).count(), locked );
+	ok( 'and the run can really be laid out again',
+		await page.evaluate( () => {
+			const b = document.querySelector( '#panel .dze-cc-pick:not([disabled])' );
+			if ( ! b ) { return false; }
+			b.checked = true;
+			return ! b.disabled && b.checked;
+		} ), true );
+	// AND THE REFUSAL REACHES THE STORE, or the panel announces the same
+	// waiting text on every open with no way to be rid of it.
+	ok( 'and the queue is told it was refused',
+		sent.slice( beforeRefuse ).map( r => r.action ), [ 'dze_cc_refuse' ] );
 
 	// AN EMPTY AFTER SAYS WHICH EMPTY IT IS. When a finished text is sitting
 	// in the queue the panel says so in a notice, and "Nothing written yet"
@@ -331,10 +383,16 @@ for ( const [ label, jq ] of jqs ) {
 	// after it in that handler, and the screen simply stopped moving.
 	ok( 'nothing was raised anywhere in the loop', errors, [] );
 
-	// "ⓘ what it uses" is a panel of this screen, not a popup: it shows what
-	// the category is written from, in place.
-	ok( 'what it is written from is folded away',
-		await page.locator( '#panel .dze-cc-data:visible' ).count(), 0 );
+	// AND THE SECOND SURFACE FOR WHAT THE PROMPT POPUP ALREADY SAYS IS GONE.
+	ok( '"what it uses" is not on the screen at all',
+		await page.locator( '#panel .dze-cc-data' ).count(), 0 );
+	// AND AN ADVISORY IS A LINE THAT OPENS. Two full boxes stood at the top of
+	// this panel saying the text could still be written; what folds here is
+	// whichever of them this shop is in.
+	ok( 'the advisory folds rather than shouting',
+		await page.locator( '#panel details.dze-cc-note' ).count() >= 1, true );
+	ok( 'and it is shut when the panel opens',
+		await page.locator( '#panel details.dze-cc-note[open]' ).count(), 0 );
 
 	await page.close();
 }

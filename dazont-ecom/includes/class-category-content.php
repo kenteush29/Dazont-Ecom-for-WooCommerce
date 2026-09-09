@@ -72,6 +72,7 @@ final class DZE_Category_Content {
 		add_action( 'wp_ajax_dze_cc_links', [ $this, 'ajax_links' ] );
 		add_action( 'wp_ajax_dze_cc_diff', [ $this, 'ajax_diff' ] );
 		add_action( 'wp_ajax_dze_cc_apply', [ $this, 'ajax_apply' ] );
+		add_action( 'wp_ajax_dze_cc_refuse', [ $this, 'ajax_refuse' ] );
 
 	}
 
@@ -1839,33 +1840,46 @@ PROMPT;
 				</div>
 			<?php endif; ?>
 
-			<?php if ( ! $kw['total'] ) : ?>
-				<div class="dze-cc-warn">
-					<p><strong><?php esc_html_e( 'No SEMrush file imported for this category.', 'dazont-ecom' ); ?></strong></p>
-					<p><?php esc_html_e( 'The text can still be written, but its headings will come from the category name alone — no secondary query, no real buyer question. Import the export for this category to write on measured demand instead.', 'dazont-ecom' ); ?></p>
+			<?php
+			// AN ADVISORY IS NOT A STOP. Two full boxes stood here saying the
+			// text could still be written — which is a line, not a placard:
+			// "je pense que cette alerte devrait être plus discrète, avec
+			// possibilité de l'ouverture de l'alerte pour voir la description
+			// et ajouter avec le bouton un fichier semrush." What genuinely
+			// stops the work — a translation, the queue switched off — keeps
+			// its box below; this folds.
+			if ( ! $kw['total'] ) :
+				?>
+				<details class="dze-cc-note">
+					<summary><?php esc_html_e( 'Written from the category name alone — no SEMrush file imported.', 'dazont-ecom' ); ?></summary>
+					<p><?php esc_html_e( 'The headings will come from the category name: no secondary query, no real buyer question. Import the export for this category to write on measured demand instead.', 'dazont-ecom' ); ?></p>
 					<?php if ( $imp ) : ?>
 						<p><button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import the SEMrush file', 'dazont-ecom' ); ?></button></p>
 					<?php else : ?>
 						<p class="description"><?php esc_html_e( 'Enable the Sourcing Assistant module to import keyword files.', 'dazont-ecom' ); ?></p>
 					<?php endif; ?>
-				</div>
+				</details>
 			<?php elseif ( ! $kw['questions'] ) : ?>
-				<div class="dze-cc-warn">
+				<details class="dze-cc-note">
+					<summary><?php esc_html_e( 'No buyer question in this keyword set — the description will have no question heading.', 'dazont-ecom' ); ?></summary>
 					<p><?php
 					printf(
 						/* translators: %s: number of keywords in the set */
-						esc_html__( '%s keywords in this set, but none of them reads as a question about this category — the description will have no buyer-question heading. Questions belonging to another subject are left out on purpose; a broad-match export usually carries some.', 'dazont-ecom' ),
+						esc_html__( '%s keywords are imported for this category, and none of them reads as a question about it. Questions belonging to another subject are left out on purpose; a broad-match export usually carries some.', 'dazont-ecom' ),
 						'<strong>' . (int) $kw['total'] . '</strong>'
 					);
 					?></p>
-				</div>
+					<?php if ( $imp ) : ?>
+						<p><button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import another SEMrush file', 'dazont-ecom' ); ?></button></p>
+					<?php endif; ?>
+				</details>
 			<?php endif; ?>
 
 			<?php
 			$pending = class_exists( 'DZE_Queue' ) ? DZE_Queue::pending_for( $term_id ) : [];
 			if ( $pending && 'review' === $pending['status'] ) :
 				?>
-				<div class="dze-cc-warn" style="background:#eef6fc;border-left-color:#2271b1;">
+				<div class="dze-cc-warn dze-cc-waiting" style="background:#eef6fc;border-left-color:#2271b1;">
 					<p><strong><?php esc_html_e( 'A text is waiting for you on this category.', 'dazont-ecom' ); ?></strong>
 					<?php echo esc_html( 'cat_links' === $pending['kind'] ? __( 'It is a linking pass.', 'dazont-ecom' ) : __( 'It is a description.', 'dazont-ecom' ) ); ?></p>
 					<p>
@@ -1876,7 +1890,7 @@ PROMPT;
 					</p>
 				</div>
 			<?php elseif ( $pending ) : ?>
-				<div class="dze-cc-warn" style="background:#eef6fc;border-left-color:#2271b1;">
+				<div class="dze-cc-warn dze-cc-waiting" style="background:#eef6fc;border-left-color:#2271b1;">
 					<p><?php esc_html_e( 'A run is under way on this category — it will appear here when it is done.', 'dazont-ecom' ); ?></p>
 				</div>
 			<?php endif; ?>
@@ -1910,23 +1924,68 @@ PROMPT;
 				'tip'      => __( 'Write the description from scratch', 'dazont-ecom' ),
 			] );
 			?>
-				<p class="description" style="margin-top:0;">
-					<?php esc_html_e( 'Written from the queries this category targets and the plan of the page. It replaces the whole description.', 'dazont-ecom' ); ?>
+				<?php
+				// THE PROMPT ROW, in the shape the product screens use: the
+				// prompt this block runs, named, with the one button every
+				// prompt in the plugin is read and edited from.
+				//
+				// It does NOT wear .dze-tplrow. That class means "one order of
+				// work" to hub.js, which then counts a block by its rows
+				// instead of its ticks — and this block's work is the pages
+				// ticked under it, so borrowing the class made the heading
+				// read "0 / 1" over three ticked pages. A class that means
+				// PROMPT ROW is not a class that means THIS row.
+				//
+				// Four controls
+				// of four different kinds stood here — two prompt buttons, an
+				// ⓘ and an Import — and one of them, "ⓘ what it uses", wore
+				// the prompt-popup class with no prompt behind it, so pressing
+				// it answered "This prompt could not be read".
+				//
+				// It is gone rather than mended: what it showed is what the
+				// prompt popup's own "What this prompt is sent with" shows on
+				// every other screen, and two surfaces for one job drift
+				// apart. So did "✎ questions" — cat_sift is not a second way
+				// of writing this page, it is the filter that decides WHICH
+				// imported questions reach the writer, and it is edited where
+				// it belongs, in Settings → Categories.
+				?>
+				<p class="dze-cc-promptrow">
+					<span class="dze-cc-promptlabel"><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+					<span class="dze-cc-promptname"><?php esc_html_e( 'Category description', 'dazont-ecom' ); ?></span>
+					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_desc', __( '✎ prompt', 'dazont-ecom' ) ); } ?>
 				</p>
-				<p class="dze-cc-tools">
+				<p class="description" style="margin:6px 0 0;">
 					<?php
-					// Each pass has its prompt, and every prompt in this plugin
-					// is read and edited in one place.
-					if ( class_exists( 'DZE_Prompts' ) ) {
-						DZE_Prompts::the_button( 'cat_desc', __( '✎ prompt', 'dazont-ecom' ) );
-						DZE_Prompts::the_button( 'cat_sift', __( '✎ questions', 'dazont-ecom' ) );
-					}
+					// WHAT THIS BLOCK IS WRITTEN FROM, on the block itself —
+					// it used to be behind the ⓘ, together with the link pool,
+					// which belongs to the OTHER block.
+					printf(
+						/* translators: 1: secondary queries, 2: buyer questions */
+						esc_html__( 'Replaces the whole description. Written from %1$s secondary queries and %2$s buyer questions imported for this category.', 'dazont-ecom' ),
+						'<strong>' . count( $kw['titles'] ) . '</strong>',
+						'<strong>' . count( $kw['questions'] ) . '</strong>'
+					);
 					?>
-					<button type="button" class="dze-prompt-peek dze-cc-dtoggle" title="<?php esc_attr_e( 'The queries and the pages this category is written from', 'dazont-ecom' ); ?>">&#9432; <?php esc_html_e( 'what it uses', 'dazont-ecom' ); ?></button>
-					<?php if ( $imp ) : ?>
-						<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
-					<?php endif; ?>
 				</p>
+				<?php if ( $kw['titles'] || $kw['questions'] ) : ?>
+					<details class="dze-cc-note dze-cc-queries">
+						<summary><?php esc_html_e( 'The queries this description is written on', 'dazont-ecom' ); ?></summary>
+						<?php if ( $kw['titles'] ) : ?>
+							<p><strong><?php esc_html_e( 'Secondary queries', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['titles'], 0, 12 ) ) ); ?></span></p>
+						<?php endif; ?>
+						<?php if ( $kw['questions'] ) : ?>
+							<p>
+								<strong><?php esc_html_e( 'Buyer questions', 'dazont-ecom' ); ?></strong>
+								<span class="description"><?php esc_html_e( '— read from the whole keyword set, then sifted so only what a buyer would ask this shop is kept (Settings → Categories)', 'dazont-ecom' ); ?></span>
+								<br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['questions'], 0, 10 ) ) ); ?></span>
+							</p>
+						<?php endif; ?>
+						<?php if ( $imp ) : ?>
+							<p><button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button></p>
+						<?php endif; ?>
+					</details>
+				<?php endif; ?>
 			<?php DZE_Hub::sec_close(); ?>
 
 			<?php
@@ -1950,6 +2009,44 @@ PROMPT;
 			}
 			?>
 			<div class="dze-cc-picker"<?php echo ( $has && $size['links'] > 0 ) ? '' : ' style="display:none;"'; ?>>
+				<?php
+				// THE SAME ROW as the block above and as the product screens:
+				// the prompt this block runs, and the one way of reading it.
+				// It used to sit at the BOTTOM of the picker, under thirty
+				// checkboxes, beside "Select all" and "Clear" — three
+				// different kinds of control on one line.
+				?>
+				<p class="dze-cc-promptrow">
+					<span class="dze-cc-promptlabel"><?php esc_html_e( 'Prompt', 'dazont-ecom' ); ?></span>
+					<span class="dze-cc-promptname"><?php esc_html_e( 'Internal linking pass', 'dazont-ecom' ); ?></span>
+					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_links', __( '✎ prompt', 'dazont-ecom' ) ); } ?>
+				</p>
+				<p class="description" style="margin:6px 0 6px;">
+					<?php
+					// WHAT THIS BLOCK WORKS FROM, on the block itself. The pool
+					// breakdown used to be behind the ⓘ of the block above,
+					// which is not the block it is about.
+					$dze_names = [
+						'parent category'  => __( 'parent', 'dazont-ecom' ),
+						'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
+						'related category' => __( 'sibling categories', 'dazont-ecom' ),
+						'main category'    => __( 'main categories', 'dazont-ecom' ),
+						'blog post'        => __( 'blog posts', 'dazont-ecom' ),
+						'page'             => __( 'site pages', 'dazont-ecom' ),
+					];
+					$dze_parts = [];
+					foreach ( $break as $dze_kind => $dze_n ) {
+						$dze_parts[] = (int) $dze_n . ' ' . ( $dze_names[ $dze_kind ] ?? $dze_kind );
+					}
+					printf(
+						/* translators: 1: pages close enough to link to, 2: the breakdown, 3: the ceiling */
+						esc_html__( 'Keeps the text as it is and only adds links. %1$s pages are close enough to link to (%2$s); at most %3$s go in — one per 50 words, and only pages that genuinely fit.', 'dazont-ecom' ),
+						'<strong>' . count( $links ) . '</strong>',
+						esc_html( implode( ', ', $dze_parts ) ),
+						'<strong>' . (int) min( (int) $size['links'], count( $links ) ) . '</strong>'
+					);
+					?>
+				</p>
 				<p class="description" style="margin:0 0 6px;">
 					<?php esc_html_e( 'Shortlisted by wording, then read: each line says what that page is to this one. Tick anything else you want — nothing is written until you save.', 'dazont-ecom' ); ?>
 				</p>
@@ -1987,7 +2084,6 @@ PROMPT;
 					<?php endforeach; ?>
 				</ul>
 				<p class="dze-cc-tools">
-					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_links', __( '✎ linking', 'dazont-ecom' ) ); } ?>
 					<button type="button" class="button-link dze-cc-pickall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button-link dze-cc-picknone"><?php esc_html_e( 'Clear', 'dazont-ecom' ); ?></button>
 					<?php // A gesture nobody is told about is a gesture nobody has: thirty rows were ticked one at a time. Said where the ticking happens, in four words. ?>
@@ -2009,49 +2105,13 @@ PROMPT;
 				<span class="dze-cc-status"></span>
 			</p>
 
-			<div class="dze-cc-data" style="display:none;">
-				<p style="margin:0 0 4px;"><strong><?php esc_html_e( 'What this description will be built from', 'dazont-ecom' ); ?></strong></p>
-				<p class="description" style="margin-top:0;">
-					<?php
-					printf(
-						/* translators: 1: secondary queries, 2: questions */
-						esc_html__( '%1$s secondary queries · %2$s buyer questions imported for this category.', 'dazont-ecom' ),
-						'<strong>' . count( $kw['titles'] ) . '</strong>',
-						'<strong>' . count( $kw['questions'] ) . '</strong>'
-					);
-					$parts = [];
-					$names = [
-						'parent category'  => __( 'parent', 'dazont-ecom' ),
-						'sub-category'     => __( 'sub-categories', 'dazont-ecom' ),
-						'related category' => __( 'sibling categories', 'dazont-ecom' ),
-							'main category'    => __( 'main categories', 'dazont-ecom' ),
-						'blog post'        => __( 'blog posts', 'dazont-ecom' ),
-						'page'             => __( 'site pages', 'dazont-ecom' ),
-					];
-					foreach ( $break as $kind => $n ) {
-						$parts[] = (int) $n . ' ' . ( $names[ $kind ] ?? $kind );
-					}
-					echo '<br />';
-					printf(
-						/* translators: 1: number of pages it can link to, 2: breakdown, 3: max inserted */
-						esc_html__( 'Link suggestions: %1$s pages close enough to link to (%2$s); at most %3$s are inserted — one link per 50 words, and only pages that genuinely fit. The writer may only use URLs from that list.', 'dazont-ecom' ),
-						'<strong>' . count( $links ) . '</strong>',
-						esc_html( implode( ', ', $parts ) ),
-						'<strong>' . (int) min( (int) $size['links'], count( $links ) ) . '</strong>'
-					);
-					?>
-				</p>
-				<?php if ( $kw['titles'] ) : ?>
-					<p><strong><?php esc_html_e( 'Secondary queries', 'dazont-ecom' ); ?></strong><br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['titles'], 0, 12 ) ) ); ?></span></p>
-				<?php endif; ?>
-				<?php if ( $kw['questions'] ) : ?>
-					<p>
-						<strong><?php esc_html_e( 'Buyer questions', 'dazont-ecom' ); ?></strong>
-						<span class="description"><?php esc_html_e( '— read from the whole keyword set, then sifted so only what a buyer would ask this shop is kept', 'dazont-ecom' ); ?></span>
-						<br /><span class="description"><?php echo esc_html( implode( ' · ', array_slice( $kw['questions'], 0, 10 ) ) ); ?></span>
-					</p>
-				<?php endif; ?>
-			</div>
+			<?php
+			// The "ⓘ what it uses" panel that stood here is gone. Its figures
+			// are on the two blocks they belong to, and its lists are folded
+			// into the block that is written from them. What it said about the
+			// PROMPT is what "What this prompt is sent with" says inside the
+			// prompt popup, on every screen of this plugin.
+			?>
 
 			<div class="dze-cc-import" style="display:none;">
 				<p class="description" style="margin:0 0 6px;">
@@ -2366,6 +2426,35 @@ PROMPT;
 		wp_send_json_success( [
 			'words' => ( $term && ! is_wp_error( $term ) ) ? str_word_count( wp_strip_all_tags( (string) $term->description ) ) : 0,
 			'links' => self::links_in_description( $tid ),
+		] );
+	}
+
+
+	/**
+	 * Refusing what was written for this category.
+	 *
+	 * ACCEPT AND REFUSE, SIDE BY SIDE — and both of them reach the store.
+	 * Saving already told the queue the text had been dealt with; refusing
+	 * told it nothing, so the row stayed in review and the panel announced the
+	 * same waiting text every time it opened, with no way to be rid of it:
+	 * "le bouton reste ensuite bloqué sur ce texte."
+	 *
+	 * It answers with the description AS THE SHOP HOLDS IT, so the editor is
+	 * put back from the source of truth rather than from whatever the browser
+	 * happened to remember.
+	 */
+	public function ajax_refuse(): void {
+		$this->guard();
+		$tid = isset( $_POST['term'] ) ? absint( $_POST['term'] ) : 0;
+		if ( ! $tid ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown category.', 'dazont-ecom' ) ] );
+		}
+		if ( class_exists( 'DZE_Queue' ) ) {
+			DZE_Queue::settle( $tid, false );
+		}
+		$term = get_term( $tid, 'product_cat' );
+		wp_send_json_success( [
+			'html' => ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '',
 		] );
 	}
 

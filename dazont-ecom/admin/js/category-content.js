@@ -189,7 +189,6 @@
 	// prompt itself is not here any more: reading it, changing it, saving it
 	// and putting the default back is what the prompt popup does everywhere
 	// else in this plugin, and two surfaces for one job drift apart.
-	$(document).on('click', '.dze-cc-dtoggle', function () { $(this).closest('.dze-cc-box').find('.dze-cc-data').toggle(); });
 
 	// ---- SEMrush import, straight from this panel ----
 	// Reuses the Sourcing Assistant endpoints: upload → column mapping → import.
@@ -474,6 +473,12 @@
 		linkList($box).forEach(function (r) { done[r.href.replace(/\/+$/, '')] = true; });
 		$box.find('.dze-cc-pick').each(function () {
 			if (done[this.value.replace(/\/+$/, '')]) {
+				// What this row was before the pass touched it, so refusing
+				// can put it back. Recorded once: a second pass must not
+				// overwrite it with the state the first one left.
+				if (undefined === $(this).data('was')) {
+					$(this).data('was', { checked: this.checked, disabled: this.disabled });
+				}
 				$(this).prop({ checked: true, disabled: true })
 					.closest('label').find('.dze-cc-pick-done').remove().end()
 					.append(' <span class="dze-cc-pick-done">' + esc(i18n.alreadyLinked) + '</span>');
@@ -501,12 +506,59 @@
 			.fail(function (xhr, status) { stop(); $btn.prop('disabled', false); $st.css('color', '#b32d2e').addClass('is-ko').text(why(xhr, status)); });
 	});
 
+	// A REFUSAL PUTS THE WHOLE SCREEN BACK, not the half of it that is text.
+	//
+	// "Il semble avoir fermé les aperçus des textes. Mais c'est tout. Et le
+	// bouton reste ensuite bloqué sur ce texte. Je voulais recommencer
+	// l'opération de maillage interne d'une page catégorie pour tester avec
+	// mon prompt personnellement optimisé, mais je ne comprends pas comment
+	// faire." He could not: a linking pass calls markPlaced(), which ticks the
+	// rows it just wrote and DISABLES them as "already linked". Putting the
+	// text back left every one of those boxes disabled, so the pages he had
+	// just linked could never be chosen again — the screen refused the work
+	// while claiming to have undone it.
+	//
+	// WHOEVER CHANGES A ROW RECORDS WHAT IT WAS. Snapshotting the whole list
+	// on page load instead needs a load hook the panel might never run — it
+	// arrives by AJAX on one host and is printed on the other — and it would
+	// also undo the ticks the PERSON made. Only what the run touched comes
+	// back.
+	function restorePicks($box) {
+		$box.find('.dze-cc-pick').each(function () {
+			var was = $(this).data('was');
+			if (!was) { return; }
+			$(this).prop({ checked: was.checked, disabled: was.disabled }).removeData('was');
+			var $l = $(this).closest('label');
+			// The "already linked" mark belongs to the rows that carried it
+			// before the pass ran, and to no others.
+			if (!was.disabled) { $l.find('.dze-cc-pick-done').remove(); }
+		});
+		pickCount();
+	}
 	$(document).on('click', '.dze-cc-revert', function () {
-		var $b = $(this).closest('.dze-cc-box'), id = edId($b);
-		editorSet(id, original[id] || '');
-		refreshLinks($b);
-		$b.find('.dze-cc-diffwrap').hide();
-		$(this).closest('.dze-cc-box').find('.dze-cc-status').text('');
+		var $b = $(this).closest('.dze-cc-box'), id = edId($b), $btn = $(this).prop('disabled', true);
+		var $st = $b.find('.dze-cc-status').removeClass('is-ko').css('color', '#646970');
+		var back = function (html) {
+			editorSet(id, html);
+			original[id] = html;
+			refreshLinks($b);
+			restorePicks($b);
+			$b.find('.dze-cc-diffwrap').hide();
+			// The notice that announced a waiting text goes with the decision
+			// that answered it, or the screen contradicts itself on one page.
+			$b.removeAttr('data-waiting').removeData('waiting').find('.dze-cc-waiting').remove();
+			$st.text('');
+			$btn.prop('disabled', false);
+		};
+		// AND THE REFUSAL REACHES THE STORE. Saving already settled the queue
+		// row; refusing settled nothing, so the same text was announced again
+		// on every open. The description comes back from the shop rather than
+		// from what this browser remembered.
+		$.post(cfg.ajaxUrl, { action: 'dze_cc_refuse', nonce: $b.data('nonce'), term: $b.data('term') })
+			.done(function (res) {
+				back((res && res.success && typeof res.data.html === 'string') ? res.data.html : (original[id] || ''));
+			})
+			.fail(function () { back(original[id] || ''); });
 	});
 
 }(jQuery));

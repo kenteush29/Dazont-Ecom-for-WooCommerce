@@ -356,13 +356,12 @@ ok( 'nor to place the links',           false !== strpos( $panel, 'dze-cc-links"
 ok( 'nor a panel hidden behind a button of its own',
 	false !== strpos( $panel, 'dze-cc-ltoggle-pick' ), false );
 
-echo "\nFour controls, one visual language\n";
-// "✎ ⓘ ✎ questions ✎ linking" — a lone pencil, a lone ⓘ, and two worded
-// buttons: three ways of saying "look at something" on one row, and the
-// pencil opened an inline editor while the words opened a popup.
-// The BUTTON ROW, which is the thing the eye reads as one row. What the
-// picker prints further down is its own panel.
-// Every prompt control of the panel, wherever its block puts it.
+echo "\nONE PROMPT PER BLOCK, AND NOTHING ELSE ON THE ROW\n";
+// "Write with AI / Add internal links only / ✎ prompt / ✎ questions / ✎ linking
+// / ⓘ what it uses / Import SEMrush file" — seven controls of four different
+// kinds, and three of them answering questions nobody had asked on this
+// screen. It is the product screens' shape now: one prompt per block, named,
+// with the one button every prompt in this plugin is read from.
 $row = $panel;
 preg_match_all( '/<button[^>]*class="([^"]*)"[^>]*>(.*?)<\/button>/s', $row, $btns, PREG_SET_ORDER );
 $peeks = [];
@@ -371,22 +370,59 @@ foreach ( $btns as $b ) {
 		$peeks[] = trim( html_entity_decode( wp_strip_all_tags( $b[2] ), ENT_QUOTES | ENT_HTML5 ) );
 	}
 }
-ok( 'every one of them is the same kind of button', count( $peeks ), 4 );
-ok( 'and every one carries a word',
-	array_values( array_filter( $peeks, static fn( string $w ): bool => false === strpos( $w, ' ' ) ) ), [] );
-ok( 'the description prompt is one of them', in_array( '✎ prompt', $peeks, true ), true );
-ok( 'the questions prompt too',         in_array( '✎ questions', $peeks, true ), true );
-ok( 'and the linking prompt',           in_array( '✎ linking', $peeks, true ), true );
-ok( 'what it is written from says so',  in_array( 'ⓘ what it uses', $peeks, true ), true );
-// A LONE ICON IS A SYMBOL YOU HAVE TO LEARN. The two that carried none are
-// gone, and with them the second surface for reading a prompt.
+ok( 'one prompt control per block',      count( $peeks ), 2 );
+ok( 'and both read the same way',        array_values( array_unique( $peeks ) ), [ '✎ prompt' ] );
+// A CONTROL WEARING THE PROMPT-POPUP CLASS WITH NO PROMPT BEHIND IT ANSWERS
+// "This prompt could not be read." That is what "ⓘ what it uses" was: the
+// popup's handler picked it up, found no id, and said so. It is gone rather
+// than mended — what it showed is what the prompt popup already shows.
+$dze_bad = 0;
+foreach ( $btns as $b ) {
+	if ( false !== strpos( $b[1], 'dze-prompt-peek' ) && false === strpos( $b[0], 'data-prompt="' ) ) {
+		$dze_bad++;
+	}
+}
+ok( 'no prompt button without a prompt',  $dze_bad, 0 );
+// A LONE ICON IS A SYMBOL YOU HAVE TO LEARN.
 ok( 'no lone icon is left',             false !== strpos( $panel, 'dze-cx-icon' ), false );
 ok( 'and no second prompt editor',      false !== strpos( $panel, 'dze-cc-ptext' ), false );
+// AND NO SECOND SURFACE FOR WHAT THE PROMPT POPUP ALREADY SAYS.
+ok( '"what it uses" is gone with it',    false !== strpos( $panel, 'dze-cc-data' ), false );
 
 echo "\nEach button names the prompt it opens\n";
 preg_match_all( '/data-prompt="([^"]+)"/', $row, $ids );
 sort( $ids[1] );
-ok( 'the three passes, each with its own', $ids[1], [ 'cat_desc', 'cat_links', 'cat_sift' ] );
+// cat_sift is NOT one of them: it is not a way of writing this page, it is the
+// filter deciding WHICH imported questions reach the writer, and it is edited
+// in Settings → Categories. "Je ne comprends pas ce que fait ce prompt ici."
+ok( 'the two passes, each with its own', $ids[1], [ 'cat_desc', 'cat_links' ] );
+ok( 'and the question filter is not one', in_array( 'cat_sift', $ids[1], true ), false );
+// EACH IN THE BLOCK IT IS ABOUT.
+$dze_d = substr( $panel, (int) strpos( $panel, 'data-sec="cc-desc"' ) );
+$dze_d = substr( $dze_d, 0, (int) strpos( $dze_d, 'data-sec="cc-links"' ) );
+ok( 'the writing prompt is in the description block',
+	false !== strpos( $dze_d, 'data-prompt="cat_desc"' ), true );
+ok( 'and the linking prompt is not',    false !== strpos( $dze_d, 'data-prompt="cat_links"' ), false );
+
+echo "\nAN ADVISORY IS A LINE THAT OPENS, NOT A PLACARD\n";
+// "Je pense que cette alerte devrait être plus discrète. Avec possibilité de
+// l'ouverture de l'alerte pour voir la description et ajouter avec le bouton
+// un fichier semrush."
+ok( 'the SEMrush advisory folds',
+	false !== strpos( $panel, '<details class="dze-cc-note">' ), true );
+// AND IT CARRIES THE WAY OUT. Where the Sourcing Assistant answers that is
+// the import button; where it is switched off the advisory says so rather
+// than offering a control that cannot work. One of the two, never neither.
+$dze_note = substr( $panel, (int) strpos( $panel, '<details class="dze-cc-note">' ) );
+$dze_note = substr( $dze_note, 0, (int) strpos( $dze_note, '</details>' ) );
+ok( 'and it carries the way out inside it',
+	false !== strpos( $dze_note, 'dze-cc-imtoggle' )
+		|| false !== strpos( $dze_note, 'Sourcing Assistant' ), true );
+// AND IT IS NO LONGER A PLACARD. The advisory used to be a .dze-cc-warn box
+// like the ones that mean "you cannot work here", which is what made a note
+// about headings read as a wall.
+ok( 'the advisory is not a warning box',
+	false !== strpos( $dze_note, 'dze-cc-warn' ), false );
 
 echo "\nWhat arrives ticked in the link picker\n";
 // "Ils étaient tous présélectionnés" — thirty pages, Tactical Sunglasses and
