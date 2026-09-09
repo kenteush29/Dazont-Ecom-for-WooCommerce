@@ -65,6 +65,7 @@ final class DZE_Shoot_Host {
 	use DZE_Content_Ajax;
 
 	const MAX_PAYLOAD = 20000000;
+	const MAX_PASTED  = 12;
 
 	public static function fal_key() { return 'fal-key'; }
 	public static function image_templates() { return $GLOBALS['tpls']; }
@@ -174,6 +175,52 @@ echo "The recipe chosen is the recipe used\n";
 ok( 'the first one, when asked for',    false !== strpos( $GLOBALS['sent']['prompt'], 'MAIN PROMPT' ), true );
 ok( 'and it lands on the main image',   $GLOBALS['filed']['target'] ?? '', 'main' );
 ok( 'with its own ratio',               $GLOBALS['sent']['ratio'], '1:1' );
+
+echo "WHICH photograph is the subject when one was added from outside\n";
+// The regression this block exists for, in the owner's words: "images generees
+// dans une autre couleur que le produit principal. Il me donne du kryptek noir
+// plutot que du desert. Avant ca fonctionnait. J'ai ajoute des images externes
+// en copier coller en kryptek noir pour un meilleur contexte."
+//
+// The picker that replaced the old checkbox reads "Main photograph" on its
+// default and sent NOTHING on it, and a request carrying pasted photographs
+// and no answer is read here as "the pasted one leads". So the supplier's
+// black shot became image 1 and the product came back in its colour, with the
+// screen still saying the product's own main image was the subject.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'base_main' => 1 ] );
+ok( 'the product leads when the screen says so',
+	$GLOBALS['sent']['sources'], [
+		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large', 'data:pasted' ] );
+// The instruction that goes with them says the same thing: the pasted one is
+// a reference, not a second product.
+ok( 'and what was added is a reference',   $GLOBALS['told'][5] ?? -1, 1 );
+ok( 'the product is not "a subject" of its own', $GLOBALS['told'][4] ?? null, false );
+
+// A PICKED PHOTOGRAPH IS AN ANSWER TOO, and it never reached this function:
+// the toolbox posted src_id and only the main-image lane ever read it, so
+// picking one here changed nothing at all.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'src_id' => 12 ] );
+ok( 'a picked photograph leads them',
+	$GLOBALS['sent']['sources'], [
+		'data:image/jpeg;base64,IMG12/full', 'data:image/jpeg;base64,IMG11/large', 'data:pasted' ] );
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_id' => 12 ] );
+ok( 'and leads them with nothing pasted at all',
+	$GLOBALS['sent']['sources'], [
+		'data:image/jpeg;base64,IMG12/full', 'data:image/jpeg;base64,IMG11/large' ] );
+// An id that answers for no image is dropped rather than sent: the product's
+// own order stands.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'src_id' => 999 ] );
+ok( 'an id that answers for nothing is dropped',
+	$GLOBALS['sent']['sources'], [
+		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
+// AND THE OTHER ANSWER STILL WORKS. "The photograph you added" is a choice on
+// that same picker, and it means what pasting used to mean on its own: the
+// pasted set is the subject and the product's own follow as context.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ] ] );
+ok( 'the pasted one leads when it is chosen',
+	$GLOBALS['sent']['sources'], [
+		'data:pasted', 'data:image/jpeg;base64,IMG11/large', 'data:image/jpeg;base64,IMG12/large' ] );
+ok( 'and it is said to be the subject',  $GLOBALS['told'][4] ?? null, true );
 
 echo "A destination named by the caller outranks the recipe's\n";
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0, 'target' => 'gallery' ] );

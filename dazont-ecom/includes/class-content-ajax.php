@@ -967,6 +967,13 @@ trait DZE_Content_Ajax {
 		$mode   = isset( $in['mode'] ) ? sanitize_key( wp_unslash( $in['mode'] ) ) : '';
 		$custom = isset( $in['custom_prompt'] ) ? sanitize_textarea_field( wp_unslash( $in['custom_prompt'] ) ) : '';
 		$src    = isset( $in['src_url'] ) ? esc_url_raw( wp_unslash( $in['src_url'] ) ) : '';
+		// ONE PHOTOGRAPH OF THE PRODUCT, PICKED ON THE SCREEN. It says two
+		// things at once, which is why it replaced a checkbox: this one is
+		// image 1, and the product is the subject. It never reached this
+		// function at all — the toolbox posted it and only the main-image lane
+		// read it — so the picker was a control that did nothing here, and its
+		// default, which reads "Main photograph", answered nothing either.
+		$src_id = isset( $in['src_id'] ) ? absint( $in['src_id'] ) : 0;
 		// A photograph that is not on the product yet — a supplier shot pasted
 		// from a browser tab, its watermark and its play button included. It
 		// travels as bytes inside the request and is never stored: it is the
@@ -1034,6 +1041,20 @@ trait DZE_Content_Ajax {
 		// a seventh bag. Not one either — a single cropped shot is what makes
 		// it invent the rest. The number is a setting, beside the fal.ai key.
 		$product_ids = self::product_source_ids( $pid );
+		// The one that was picked leads them: it is what the model works from,
+		// and the others are the angles it does not show. An id that answers
+		// for nothing is dropped rather than sent.
+		if ( $src_id && wp_attachment_is_image( $src_id ) ) {
+			$product_ids = array_values( array_unique( array_merge( [ $src_id ], array_diff( $product_ids, [ $src_id ] ) ) ) );
+		} else {
+			$src_id = 0;
+		}
+		// IS THE PRODUCT THE SUBJECT? Picking one of its photographs says so
+		// on its own; the screen says so too when it is left on "Main
+		// photograph", and it has to say it, because the other answer —
+		// nothing at all — used to make a pasted supplier shot the subject
+		// while the screen still read "Main photograph".
+		$base_main = ! empty( $in['base_main'] ) || $src_id > 0;
 		// Working on one colour: the photograph that colour already has is the
 		// subject, and it goes first. When it has none — the case this whole
 		// function exists for — the product's own photographs are what the
@@ -1093,7 +1114,7 @@ trait DZE_Content_Ajax {
 			if ( '' !== $src ) {
 				// Editing one precise image: that image is the subject, on its own.
 				$sources[] = $src;
-			} elseif ( $pastes && ! empty( $in['base_main'] ) ) {
+			} elseif ( $pastes && $base_main ) {
 				// The product stays the subject and the pasted photographs are
 				// references for the setting. Pasting used to mean "this is now
 				// the thing to photograph", so there was no way to say "keep

@@ -4315,6 +4315,11 @@ Answer with STRICT JSON and nothing else: "
 				'subjLabel'   => __( 'Subject', 'dazont-ecom' ),
 				'subjMainOpt' => __( 'Main photograph', 'dazont-ecom' ),
 				'subjOne'     => __( 'Photograph', 'dazont-ecom' ),
+				// The other answer the picker has to offer once something has
+				// been added from outside: that photograph is the subject, and
+				// the product's own are sent after it as context.
+				'subjPasteOpt'  => __( 'The photograph you added', 'dazont-ecom' ),
+				'subjPasteOptN' => __( 'The photographs you added', 'dazont-ecom' ),
 				'imgRecipe'  => __( 'Prompt', 'dazont-ecom' ),
 				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
 				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),

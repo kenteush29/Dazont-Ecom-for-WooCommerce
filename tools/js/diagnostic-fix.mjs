@@ -95,6 +95,8 @@ const cfg = {
 		genImgOpt: 'Make photographs', template: 'Prompt', scene: 'Scene', attempts: 'How many',
 		putIt: 'Put it', addPrompt: 'Add', delPrompt: 'Remove', notValid: 'not validated',
 		stepElse: 'Other photographs', noteTitle: 'Note', noteHelp: '', notePh: '',
+		subjLabel: 'Subject', subjMainOpt: 'Main photograph', subjOne: 'Photograph',
+		subjPasteOpt: 'The photograph you added', subjPasteOptN: 'The photographs you added',
 		baseMain: 'Use the main image', baseMainTip: '', varTitle: 'Variations',
 		varIntro: '', varOpen: 'Open', priceOpt: 'Recalculate', costLabel: 'Cost',
 		pricePreview: 'Preview', pvEdit: 'Edit', blocked: 'Blocked', error: 'error' }
@@ -513,6 +515,67 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and its bar is out of sight',       await page.isVisible( '#dze-cx-prog' ), false );
 	await page.click( '.dze-cx-close' );
 	await page.evaluate( () => document.querySelector( 'tr[data-id="903"]' ).remove() );
+
+	// ---- WHAT WAS ADDED FROM OUTSIDE IS NOT SILENTLY THE SUBJECT ----
+	//
+	// "Images generees dans une autre couleur que le produit principal. Il me
+	// donne du kryptek noir plutot que du desert. Avant ca fonctionnait. J'ai
+	// ajoute des images externes en copier coller en kryptek noir pour un
+	// meilleur contexte."
+	//
+	// The picker reads "Main photograph" on its default and used to send
+	// NOTHING on it — and a request carrying pasted photographs and no answer
+	// is read by the server as "the pasted one leads". The screen said the
+	// product and the run used the supplier's shot, colours included. Nothing
+	// but a browser can see this: the value is read off the page at the moment
+	// the request is built.
+	await page.click( '.dze-content-open[data-id="902"]' );
+	await page.waitForTimeout( 200 );
+	await page.setInputFiles( '#dze-cx-else input.dze-pb-file', {
+		name: 'supplier.png', mimeType: 'image/png',
+		buffer: Buffer.from( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNiAAAABgADNjd8qAAAAABJRU5ErkJggg==', 'base64' )
+	} );
+	// THE PICKER OFFERS IT. Until it did, the only way to say "that one is the
+	// subject" was not on the screen at all.
+	// Waited for with a bound and REPORTED: a gate that dies on the bug it is
+	// about says nothing about the checks after it.
+	const offered = await page.waitForSelector( '#dze-cx-subject option[value="paste"]',
+		{ state: 'attached', timeout: 3000 } ).then( () => true ).catch( () => false );
+	ok( 'a photograph added from outside joins the picker', offered, true );
+	ok( 'and it says what it is',
+		offered ? ( await page.textContent( '#dze-cx-subject option[value="paste"]' ) ).trim() : '',
+		'The photograph you added' );
+	// AND THE DEFAULT STILL SAYS THE PRODUCT.
+	ok( 'the picker is left on the main photograph',
+		await page.inputValue( '#dze-cx-subject' ), '0' );
+	ok( 'which says so in words',
+		( await page.textContent( '#dze-cx-subject option[value="0"]' ) ).trim(), 'Main photograph' );
+	let seen = posts.filter( p => 'dze_content_image' === p.action ).length;
+	await page.click( '#dze-cx-run' );
+	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
+	let asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
+	ok( 'the run went out',                  asked.length, 1 );
+	ok( 'carrying the photograph that was added',
+		( asked[0].pastes || asked[0]['pastes[]'] || '' ).slice( 0, 10 ), 'data:image' );
+	// The whole of the fix, on the wire: the screen said the product, so the
+	// request says the product.
+	ok( 'and saying the PRODUCT is the subject', asked[0].base_main, '1' );
+	ok( 'with no photograph of its own picked',  asked[0].src_id, undefined );
+
+	// THE OTHER ANSWER IS ON THE SAME PICKER, and it means what pasting used
+	// to mean on its own.
+	if ( offered ) {
+		await page.selectOption( '#dze-cx-subject', 'paste' );
+		seen = posts.filter( p => 'dze_content_image' === p.action ).length;
+		await page.click( '#dze-cx-run' );
+		await page.waitForTimeout( 600 );
+		asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
+	} else {
+		asked = [];
+	}
+	ok( 'choosing what was added sends it as the subject', asked.length, 1 );
+	ok( 'and the product stops being it',    asked.length ? asked[0].base_main : 'never asked', undefined );
+	await page.click( '.dze-cx-close' );
 
 	// A PAGE OF ROWS, handed to the bulk screen the shop already generates
 	// from — the mechanism the owner asked for by name.
