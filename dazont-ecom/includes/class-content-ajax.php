@@ -871,7 +871,23 @@ trait DZE_Content_Ajax {
 					}
 				}
 			}
-			$prompt = $base
+			// THE SAME BRIEF WHICHEVER BUTTON WAS PRESSED. shoot() — the toolbox,
+			// the bulk screen, every automatic pass — puts the product's own
+			// data at the head of the prompt; this path, the Main image
+			// button, sent none of it. One job answered two ways is two
+			// results nobody can compare, and the prompts are written for the
+			// one that has the context.
+			$dze_ctx = trim( self::store_context() . ' ' . mb_substr(
+				trim( (string) preg_replace( '/\s+/', ' ', self::payload_lines(
+					$pid,
+					(array) ( $recipe_row['inputs'] ?? [ 'title', 'description' ] ),
+					(string) ( $recipe_row['inputs_meta'] ?? '' )
+				) ) ),
+				0,
+				800
+			) );
+			$prompt = ( '' !== $dze_ctx ? "Product context: {$dze_ctx}\n\n" : '' )
+				. $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
 				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ( ! empty( $pastes ) && ! $base_main ) ), $ref_n )
 				. self::note_lines( $pid );
