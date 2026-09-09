@@ -301,6 +301,7 @@ class DZE_Prompt_Defaults {
 }
 class DZE_Modules { public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); } }
 
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
@@ -330,8 +331,30 @@ echo "\nThe panel, rendered\n";
 ob_start();
 DZE_Category_Content::instance()->render_panel( 10 );
 $panel = (string) ob_get_clean();
-ok( 'the writing button is there',      false !== strpos( $panel, 'dze-cc-gen' ), true );
-ok( 'and the linking one',              false !== strpos( $panel, 'dze-cc-ltoggle-pick' ), true );
+// ONE SHAPE FOR THE WHOLE SHOP. "Tu pourrais simplement utiliser le même
+// style de popup que sur un produit. Avec le bloc What to generate. Je veux
+// que cette méthode soit la seule méthode standardisée sur tout le shop."
+// A block per kind of work, its switch in its own title, and ONE button that
+// runs what is ticked — the shape the product screens already have, built by
+// the same DZE_Hub.
+ok( 'the panel says what it will generate',
+	false !== strpos( $panel, 'What to generate' ), true );
+ok( 'the description is a block',
+	(bool) preg_match( '#<section class="dze-sec[^"]*" data-sec="cc-desc"#', $panel ), true );
+ok( 'with its switch in its own title',
+	(bool) preg_match( '#data-sec="cc-desc".*?<h3 class="dze-sec-head".*?id="dze-cc-do-desc".*?</h3>#s', $panel ), true );
+ok( 'the links are a block too',
+	(bool) preg_match( '#<section class="dze-sec[^"]*" data-sec="cc-links"#', $panel ), true );
+ok( 'with its own switch',
+	(bool) preg_match( '#data-sec="cc-links".*?<h3 class="dze-sec-head".*?id="dze-cc-do-links".*?</h3>#s', $panel ), true );
+ok( 'and one button runs what is ticked',
+	substr_count( $panel, 'dze-cc-run"' ), 1 );
+// AND THE TWO GESTURES IT REPLACES ARE GONE: two ways of running one thing is
+// two things to keep in step.
+ok( 'no second way to write it',        false !== strpos( $panel, 'dze-cc-gen' ), false );
+ok( 'nor to place the links',           false !== strpos( $panel, 'dze-cc-links"' ), false );
+ok( 'nor a panel hidden behind a button of its own',
+	false !== strpos( $panel, 'dze-cc-ltoggle-pick' ), false );
 
 echo "\nFour controls, one visual language\n";
 // "✎ ⓘ ✎ questions ✎ linking" — a lone pencil, a lone ⓘ, and two worded
@@ -339,7 +362,8 @@ echo "\nFour controls, one visual language\n";
 // pencil opened an inline editor while the words opened a popup.
 // The BUTTON ROW, which is the thing the eye reads as one row. What the
 // picker prints further down is its own panel.
-$row = substr( $panel, 0, (int) strpos( $panel, 'class="dze-cc-picker"' ) );
+// Every prompt control of the panel, wherever its block puts it.
+$row = $panel;
 preg_match_all( '/<button[^>]*class="([^"]*)"[^>]*>(.*?)<\/button>/s', $row, $btns, PREG_SET_ORDER );
 $peeks = [];
 foreach ( $btns as $b ) {

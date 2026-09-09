@@ -141,6 +141,7 @@ $GLOBALS['opts'] = [];
 // The class is split across a trait; both halves are the shipped files, never
 // a copy of the function under test written into this one.
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-ai-usage.php';
 require __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php';
 require __DIR__ . '/../' . $dir . '/includes/class-content.php';

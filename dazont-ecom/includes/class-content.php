@@ -3469,37 +3469,12 @@ Answer with STRICT JSON and nothing else: "
 	 * `.dze-sec-all` is the same class the toolbox uses, so the same handler in
 	 * photos.js drives both — never a second one to keep in step.
 	 */
+	/** One shape, built in one place: DZE_Hub. */
 	private static function sec_open( string $id, string $title, bool $open = true, array $tick = [] ): void {
-		// THE SAME MARKUP THE PRODUCT TOOLBOX BUILDS, field for field — a
-		// label wearing `.dze-sec-tick` around the block's own checkbox. The
-		// switch used to sit INSIDE the body here, so `countSec()` in
-		// photos.js — which reads the head tick to decide how many of a
-		// block's rows will run — found nothing and drew "0 / 2" over an
-		// Images block that was switched on with two prompts laid out.
-		$box = '';
-		if ( $tick ) {
-			$box = sprintf(
-				'<label class="dze-sec-tick" title="%1$s"><input type="checkbox"%2$s%3$s%4$s%5$s /></label>',
-				esc_attr( (string) ( $tick['tip'] ?? '' ) ),
-				isset( $tick['id'] ) ? ' id="' . esc_attr( (string) $tick['id'] ) . '"' : '',
-				! empty( $tick['all'] ) ? ' class="dze-sec-all"' : '',
-				! empty( $tick['on'] ) ? ' checked' : '',
-				! empty( $tick['disabled'] ) ? ' disabled' : ''
-			);
-		}
-		printf(
-			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%7$s%5$s<span class="dze-sec-count"></span></h3><div class="dze-sec-body"%6$s>',
-			$open ? ' is-open' : '',
-			esc_attr( $id ),
-			$open ? 'true' : 'false',
-			$open ? '▾' : '▸',
-			esc_html( $title ),
-			$open ? '' : ' style="display:none;"',
-			$box // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped above.
-		);
+		DZE_Hub::sec_open( $id, $title, $open, $tick );
 	}
 	private static function sec_close(): void {
-		echo '</div></section>';
+		DZE_Hub::sec_close();
 	}
 
 	/**
@@ -4053,7 +4028,12 @@ Answer with STRICT JSON and nothing else: "
 			// that draw the block: dze-content and dze-content-bulk depend on
 			// it, and a dependency that was never enqueued silently drops the
 			// script that needs it.
-			wp_enqueue_script( 'dze-photos', DZE_URL . 'admin/js/photos.js', [ 'jquery' ], DZE_VERSION, true );
+			// THE SHELL FIRST. The blocks — their switch, their count, the
+			// before/after — are one module every screen is built from, and a
+			// dependency that was never enqueued silently drops the script
+			// that needs it.
+			self::enqueue_hub();
+			wp_enqueue_script( 'dze-photos', DZE_URL . 'admin/js/photos.js', [ 'jquery', 'dze-hub' ], DZE_VERSION, true );
 			wp_localize_script( 'dze-photos', 'dzePhotosCfg', [
 				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 				'nonce'   => wp_create_nonce( self::NONCE ),
@@ -5524,6 +5504,16 @@ Answer with STRICT JSON and nothing else: "
 	 * that ships its behaviour and its wording together cannot be half-fixed
 	 * on one screen and left as it was on the other two.
 	 */
+	/**
+	 * The shell every screen is built from: one module, one behaviour.
+	 *
+	 * Called by whoever draws blocks, so a screen that starts drawing them
+	 * next year has nothing to remember.
+	 */
+	public static function enqueue_hub(): void {
+		DZE_Hub::assets();
+	}
+
 	private static function enqueue_paste_box(): void {
 		// The tiles are photographs, so they carry the plugin's zoom button like
 		// every other photograph it shows. The box brings the viewer with it

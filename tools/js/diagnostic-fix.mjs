@@ -124,6 +124,7 @@ for ( const [ label, jq ] of jqs ) {
 					+ `<script src="/jquery.js"></script>`
 					+ `<script>window.ajaxurl='http://dze.test/ajax';window.dzeContent=${JSON.stringify( cfg )};`
 					+ `window.dzePhotosCfg={ajaxUrl:'http://dze.test/ajax',nonce:'n',ratios:[],i18n:{}};</script>`
+					+ `<script src="/hub.js"></script>`
 					+ `<script src="/paste-box.js"></script><script src="/photos.js"></script>`
 					+ `<script src="/content.js"></script>`
 					// The prompt popup, as PHP prints it into the footer of any
@@ -139,7 +140,7 @@ for ( const [ label, jq ] of jqs ) {
 		if ( url.endsWith( '/jquery.js' ) ) {
 			return route.fulfill( { status: 200, contentType: 'text/javascript', body: readFileSync( jq, 'utf8' ) } );
 		}
-		for ( const one of [ 'paste-box.js', 'photos.js', 'content.js' ] ) {
+		for ( const one of [ 'hub.js', 'paste-box.js', 'photos.js', 'content.js' ] ) {
 			if ( url.endsWith( '/' + one ) ) {
 				return route.fulfill( { status: 200, contentType: 'text/javascript',
 					body: readFileSync( join( js, one ), 'utf8' ) } );

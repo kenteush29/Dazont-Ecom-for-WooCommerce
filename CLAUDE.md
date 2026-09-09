@@ -179,6 +179,43 @@ owner communicates in French.
   and removing what the addition makes redundant. A function that works but
   leaves the screen more confusing than it found it is not finished.
 
+## The Dazont Ecom line — one shape for the whole shop
+
+"Je veux que cette méthode soit la seule méthode standardisée sur tout le shop :
+une façon de faire, avec différentes fonctions en fonction du type de post.
+C'est simple, intuitif, efficace, et facile à maintenir : la mise à jour doit
+être popularisée aussi sur les autres types de post."
+
+Every screen where the plugin offers to produce something is built from the
+same parts, and the parts live in ONE place: `admin/js/hub.js` for the screens
+that draw themselves in the browser, `DZE_Hub` for the screens the server
+prints. They produce the same markup — same classes, same order — so the one
+machinery in hub.js drives all of them. `check-methods.php` fails on a second
+block builder written anywhere else, because two builders is how two screens
+start behaving differently while looking the same.
+
+The shape, in the order it is read:
+
+1. **What the thing holds today**, in one line, with the figures.
+2. **"What to generate"** — one BLOCK per kind of work, each with its switch in
+   its own title and its count beside it. A block's own controls live inside it
+   (its prompt, its options, its choices), never in a row at the top: the
+   linking prompt belongs to the linking block. What varies between post types
+   is WHICH blocks there are — a product has photographs, a price and
+   variations; a category has a description and its internal links — never the
+   shape around them.
+3. **ONE button that runs what is ticked**, in the order the work is done, and
+   it says nothing is ticked rather than doing nothing.
+4. **Before and after**, both printed, each with its own figures, and an empty
+   after saying WHICH empty it is.
+5. **Accept and refuse**, side by side. Accept is the shop's own Save where the
+   screen owns its editor, and WordPress's own Update where WordPress owns it —
+   never a second save path beside core's, which is how text gets lost.
+
+A function added to one of these screens is added to the shape, so it arrives
+on the others. A function that cannot be expressed in the shape is a function
+whose screen has not been thought through yet.
+
 ## Traps learned the hard way
 
 - Settings pages are saved by ONE mechanism: WordPress's own Save Changes,

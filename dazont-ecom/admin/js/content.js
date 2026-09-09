@@ -266,23 +266,14 @@
 	// de sens d'avoir un double bouton". So the switch moved up into the
 	// heading, where it is the block's one control; on the text block the same
 	// tick means "all of them", which is what a list of nine prompts needs.
+	// ONE BUILDER FOR A BLOCK, in hub.js — the shell every screen is made of.
+	// What this popup remembers is which of ITS blocks were left open.
 	function sec(id, title, openByDefault, body, tick) {
 		var m = mem();
 		var open = (m.sec && m.sec[id] !== undefined) ? !!m.sec[id] : !!openByDefault;
-		var box = tick
-			? '<label class="dze-sec-tick" title="' + esc(tick.tip || '') + '">' +
-				'<input type="checkbox"' + (tick.id ? ' id="' + tick.id + '"' : '') +
-				(tick.all ? ' class="dze-sec-all"' : '') + (tick.on ? ' checked' : '') + ' /></label>'
-			: '';
-		return '<section class="dze-sec' + (open ? ' is-open' : '') + '" data-sec="' + id + '">' +
-			'<h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-				'<span class="dze-sec-caret">' + (open ? '▾' : '▸') + '</span>' + box + esc(title) +
-				'<span class="dze-sec-count"></span>' +
-			'</h3>' +
-			'<div class="dze-sec-body"' + (open ? '' : ' style="display:none;"') + '>' + body + '</div>' +
-		'</section>';
+		return window.dzeHub.sec(id, title, open, body, tick);
 	}
-	// Opening and closing a section is handled once, in photos.js, for every
+	// Opening and closing a section is handled once, in hub.js, for every
 	// screen that prints one. Here we only remember which ones were left open.
 	$(document).on('dze:sec', function (e, id, on) {
 		if (!id) { return; }

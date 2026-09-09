@@ -1893,34 +1893,41 @@ PROMPT;
 				</div>
 			<?php endif; ?>
 
-			<p>
-				<button type="button" class="button button-primary dze-cc-gen"<?php disabled( ! $q_on ); ?>>
-					<?php esc_html_e( 'Write with AI', 'dazont-ecom' ); ?>
-				</button>
-				<?php if ( $has && $size['links'] > 0 ) : ?>
-					<button type="button" class="button dze-cc-ltoggle-pick"<?php disabled( ! $q_on ); ?> title="<?php esc_attr_e( 'Keeps the text as it is and only adds internal links. Wording is touched only around an anchor, so it matches the page it points to.', 'dazont-ecom' ); ?>">
-						<?php esc_html_e( 'Add internal links only', 'dazont-ecom' ); ?>
-					</button>
-				<?php endif; ?>
-				<?php
-				// FOUR CONTROLS, ONE VISUAL LANGUAGE. This row read as a lone
-				// pencil, a lone ⓘ, and two worded buttons — three ways of
-				// saying "look at something", and the pencil opened an inline
-				// editor while the words opened a popup. Writing a category
-				// runs three passes; each has its prompt, and every prompt in
-				// this plugin is read and edited in one place.
-				if ( class_exists( 'DZE_Prompts' ) ) {
-					DZE_Prompts::the_button( 'cat_desc', __( '✎ prompt', 'dazont-ecom' ) );
-					DZE_Prompts::the_button( 'cat_sift', __( '✎ questions', 'dazont-ecom' ) );
-					DZE_Prompts::the_button( 'cat_links', __( '✎ linking', 'dazont-ecom' ) );
-				}
-				?>
-				<button type="button" class="dze-prompt-peek dze-cc-dtoggle" title="<?php esc_attr_e( 'The queries and the pages this category is written from', 'dazont-ecom' ); ?>">&#9432; <?php esc_html_e( 'what it uses', 'dazont-ecom' ); ?></button>
-				<?php if ( $imp ) : ?>
-					<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
-				<?php endif; ?>
-				<span class="dze-cc-status"></span>
-			</p>
+			<?php
+			// WHAT TO GENERATE — the same shape as the product screens, built
+			// by the same DZE_Hub: a block per kind of work, its switch in its
+			// own title, and ONE button that runs what is ticked. "Je veux que
+			// cette méthode soit la seule méthode standardisée sur tout le
+			// shop : une façon de faire, avec différentes fonctions en
+			// fonction du type de post."
+			?>
+			<h2 class="dze-cc-whattitle"><?php esc_html_e( 'What to generate', 'dazont-ecom' ); ?></h2>
+			<?php
+			DZE_Hub::sec_open( 'cc-desc', __( 'Description', 'dazont-ecom' ), true, [
+				'id'       => 'dze-cc-do-desc',
+				'on'       => true,
+				'disabled' => ! $q_on,
+				'tip'      => __( 'Write the description from scratch', 'dazont-ecom' ),
+			] );
+			?>
+				<p class="description" style="margin-top:0;">
+					<?php esc_html_e( 'Written from the queries this category targets and the plan of the page. It replaces the whole description.', 'dazont-ecom' ); ?>
+				</p>
+				<p class="dze-cc-tools">
+					<?php
+					// Each pass has its prompt, and every prompt in this plugin
+					// is read and edited in one place.
+					if ( class_exists( 'DZE_Prompts' ) ) {
+						DZE_Prompts::the_button( 'cat_desc', __( '✎ prompt', 'dazont-ecom' ) );
+						DZE_Prompts::the_button( 'cat_sift', __( '✎ questions', 'dazont-ecom' ) );
+					}
+					?>
+					<button type="button" class="dze-prompt-peek dze-cc-dtoggle" title="<?php esc_attr_e( 'The queries and the pages this category is written from', 'dazont-ecom' ); ?>">&#9432; <?php esc_html_e( 'what it uses', 'dazont-ecom' ); ?></button>
+					<?php if ( $imp ) : ?>
+						<button type="button" class="button button-small dze-cc-imtoggle"><?php esc_html_e( 'Import SEMrush file', 'dazont-ecom' ); ?></button>
+					<?php endif; ?>
+				</p>
+			<?php DZE_Hub::sec_close(); ?>
 
 			<?php
 			// Which links to place, decided before anything is written. Already
@@ -1928,7 +1935,21 @@ PROMPT;
 			// down to the figure this category is worth.
 			$linked = array_flip( array_map( 'untrailingslashit', self::linked_urls( $desc ) ) );
 			?>
-			<div class="dze-cc-picker" style="display:none;">
+			<?php
+			// THE SECOND BLOCK. It used to be a panel hidden behind a button of
+			// its own, so the two ways of writing a category were two gestures
+			// with nothing in common. It is a block like any other now: a
+			// switch in its title, the choice under it, and the one Generate
+			// below runs it.
+			if ( $has && $size['links'] > 0 ) {
+				DZE_Hub::sec_open( 'cc-links', __( 'Internal links', 'dazont-ecom' ), false, [
+					'id'       => 'dze-cc-do-links',
+					'disabled' => ! $q_on,
+					'tip'      => __( 'Keeps the text as it is and only adds internal links', 'dazont-ecom' ),
+				] );
+			}
+			?>
+			<div class="dze-cc-picker"<?php echo ( $has && $size['links'] > 0 ) ? '' : ' style="display:none;"'; ?>>
 				<p class="description" style="margin:0 0 6px;">
 					<?php esc_html_e( 'Shortlisted by wording, then read: each line says what that page is to this one. Tick anything else you want — nothing is written until you save.', 'dazont-ecom' ); ?>
 				</p>
@@ -1965,16 +1986,28 @@ PROMPT;
 						</li>
 					<?php endforeach; ?>
 				</ul>
-				<p>
-					<button type="button" class="button button-primary dze-cc-links"><?php esc_html_e( 'Place the selected links', 'dazont-ecom' ); ?></button>
-					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_links' ); } ?>
+				<p class="dze-cc-tools">
+					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_links', __( '✎ linking', 'dazont-ecom' ) ); } ?>
 					<button type="button" class="button-link dze-cc-pickall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button-link dze-cc-picknone"><?php esc_html_e( 'Clear', 'dazont-ecom' ); ?></button>
 					<?php // A gesture nobody is told about is a gesture nobody has: thirty rows were ticked one at a time. Said where the ticking happens, in four words. ?>
 					<span class="dze-cc-pickhint description"><?php esc_html_e( 'Shift-click takes a range.', 'dazont-ecom' ); ?></span>
-					<span class="dze-cc-pickcount description"></span>
+					<?php // How many are ticked is in the block's own heading, like every other block: a second figure beside it would be two accounts of one thing. ?>
 				</p>
 			</div>
+			<?php
+			if ( $has && $size['links'] > 0 ) {
+				DZE_Hub::sec_close();
+			}
+			?>
+
+			<?php // ONE BUTTON, running what is ticked — in the order the work is done: the text first, then the links into that very text. ?>
+			<p class="dze-cc-run-row">
+				<button type="button" class="button button-primary dze-cc-run"<?php disabled( ! $q_on ); ?>>
+					<?php esc_html_e( 'Generate', 'dazont-ecom' ); ?>
+				</button>
+				<span class="dze-cc-status"></span>
+			</p>
 
 			<div class="dze-cc-data" style="display:none;">
 				<p style="margin:0 0 4px;"><strong><?php esc_html_e( 'What this description will be built from', 'dazont-ecom' ); ?></strong></p>
@@ -2145,7 +2178,13 @@ PROMPT;
 		if ( class_exists( 'DZE_Prompts' ) ) {
 			DZE_Prompts::print_assets();
 		}
-		wp_enqueue_script( 'dze-catcontent', DZE_URL . 'admin/js/category-content.js', [ 'jquery' ], DZE_VERSION, true );
+		// THE SAME SHELL AS THE PRODUCT SCREENS: the blocks and the
+		// before/after are one module, so this panel and the product toolbox
+		// cannot drift into two ways of doing the same thing.
+		if ( class_exists( 'DZE_Content' ) ) {
+			DZE_Content::enqueue_hub();
+		}
+		wp_enqueue_script( 'dze-catcontent', DZE_URL . 'admin/js/category-content.js', [ 'jquery', 'dze-hub' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-catcontent', 'dzeCatContent', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
@@ -2159,6 +2198,8 @@ PROMPT;
 				'selfLink'    => __( 'This link points at the very page it sits on — remove it.', 'dazont-ecom' ),
 				/* translators: %s: number of pages ticked */
 				'picked'      => __( '%s selected', 'dazont-ecom' ),
+				// One button runs what is ticked, so it says when nothing is.
+				'pickSomething' => __( 'Tick at least one block to generate.', 'dazont-ecom' ),
 				'alreadyLinked' => __( 'already linked', 'dazont-ecom' ),
 				'hide'        => __( 'hide', 'dazont-ecom' ),
 				'before'      => __( 'Before', 'dazont-ecom' ),
