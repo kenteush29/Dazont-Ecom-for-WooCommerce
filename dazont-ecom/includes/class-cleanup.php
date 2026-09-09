@@ -93,7 +93,7 @@ final class DZE_Cleanup {
 				// since the day it was written.
 				'term_meta'  => [ '_dze_desc_generated', '_dze_cc_questions', '_dze_cc_picked' ],
 				'user_meta'  => [ 'dze_cc_sitemap_notice_off' ],
-				'transients' => [ 'dze_cc_pages', 'dze_cc_cats', 'dze_cc_pcount_', 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock' ],
+				'transients' => [ 'dze_cc_pages_', 'dze_cc_cats_', 'dze_cc_pcount_', 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock' ],
 			],
 			'diagnostic' => [
 				// One option per criterion for the objects it found, plus the single

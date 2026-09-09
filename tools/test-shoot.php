@@ -88,7 +88,9 @@ final class DZE_Shoot_Host {
 	public static function variation_instruction( ...$a ) { return "\nVARIATION LINE."; }
 	public static function variation_line( ...$a ) { return ''; }
 	public static function avoid_sources( ...$a ) { return $GLOBALS['avoid'] ?? []; }
-	public static function note_lines( ...$a ) { return "\nNOTE LINE."; }
+	// The real signature: the product, the variation group, and the note typed
+	// for THIS RUN. The gate reads back what was handed to it.
+	public static function note_lines( ...$a ) { $GLOBALS['noted'] = $a; return "\nNOTE LINE." . ( '' !== (string) ( $a[2] ?? '' ) ? ' ' . $a[2] : '' ); }
 	public static function payload_lines( ...$a ) { return 'A-Tacs FG Combat Uniform. Ripstop.'; }
 	public static function store_context() { return 'Kula Tactical, tactical gear.'; }
 	public static function sources_instruction( ...$a ) { $GLOBALS['told'] = $a; return "\nSOURCES LINE."; }
@@ -175,6 +177,25 @@ echo "The recipe chosen is the recipe used\n";
 ok( 'the first one, when asked for',    false !== strpos( $GLOBALS['sent']['prompt'], 'MAIN PROMPT' ), true );
 ok( 'and it lands on the main image',   $GLOBALS['filed']['target'] ?? '', 'main' );
 ok( 'with its own ratio',               $GLOBALS['sent']['ratio'], '1:1' );
+
+echo "A NOTE IS FOR THE RUN IN FRONT OF YOU, NOT FOR EVER\n";
+// "Ne mets pas de ruban sur le tshirt ! répètes le meme design, c'est tout !"
+// — typed into a box that saved it on the product and sent it with every image
+// made for that shirt from then on, invisibly: "la note est ponctuelle et n'a
+// pas à être enregistrée pour plus tard."
+shop();
+$GLOBALS['noted'] = [];
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'note' => 'No ribbon on the shirt.' ] );
+ok( "the run's own note reaches the prompt",
+	(string) ( $GLOBALS['noted'][2] ?? '' ), 'No ribbon on the shirt.' );
+ok( 'and it is in what goes out',
+	false !== strpos( $GLOBALS['sent']['prompt'], 'No ribbon on the shirt.' ), true );
+// AND NOTHING IS STORED. shoot() has no writer for it: the only place that
+// note can come from is the request that carried it.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
+ok( 'the next run carries none of it',  (string) ( $GLOBALS['noted'][2] ?? '' ), '' );
+ok( 'and the words are gone from the prompt',
+	false !== strpos( $GLOBALS['sent']['prompt'], 'No ribbon on the shirt.' ), false );
 
 echo "THE BACKGROUND IS THE PROMPT'S OWN, never one answer for the whole shop\n";
 // "Image ugc generee dans l'outil bulk. Invraisemblable." A prompt asking for

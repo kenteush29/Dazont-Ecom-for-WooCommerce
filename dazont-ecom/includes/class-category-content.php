@@ -815,7 +815,8 @@ PROMPT;
 	 * @return array<int,array{id:int,title:string,slug:string,url:string,kind:string}>
 	 */
 	public static function page_index( bool $force = false ): array {
-		$cached = $force ? false : get_transient( 'dze_cc_pages' );
+		$key    = 'dze_cc_pages_' . ( self::default_lang() ?: 'x' );
+		$cached = $force ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
@@ -829,8 +830,23 @@ PROMPT;
 			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'myaccount' ) : 0,
 			function_exists( 'wc_get_page_id' ) ? (int) wc_get_page_id( 'terms' ) : 0,
 		] );
-		// The main language only: translations belong to WPML.
+		// THE MAIN LANGUAGE ONLY — asked of WPML'S OWN TABLE, never of a filter.
+		//
+		// "Post allemand vu dans les recommandations de lien. Bizarre." It is
+		// the trap this plugin has already been bitten by twice: this panel is
+		// served by an AJAX action, and `wpml_element_language_details` is a
+		// filter WPML's hooks are not loaded for there. It answered nothing,
+		// nothing fell through to "the shop's own language", and every
+		// translation passed for an English page — then the whole pool was
+		// cached for six hours, so one unnarrowed read poisoned every category
+		// on the shop. A table answers in every request.
 		$lang = self::default_lang();
+		$only = class_exists( 'DZE_Wpml' )
+			? [
+				'post' => DZE_Wpml::ids_in_language( 'post_post', $lang ),
+				'page' => DZE_Wpml::ids_in_language( 'post_page', $lang ),
+			]
+			: [ 'post' => null, 'page' => null ];
 		if ( '' !== $lang ) {
 			do_action( 'wpml_switch_language', $lang );
 		}
@@ -847,7 +863,10 @@ PROMPT;
 			if ( in_array( $id, $skip, true ) || '' === trim( (string) $r['post_title'] ) ) {
 				continue;
 			}
-			if ( '' !== $lang && self::post_lang( $id, (string) $r['post_type'] ) !== $lang ) {
+			// NULL means "do not narrow" — a shop with one language keeps every
+			// page it has — and never "narrow to nothing".
+			$known = $only[ (string) $r['post_type'] ] ?? null;
+			if ( is_array( $known ) && ! isset( $known[ $id ] ) ) {
 				continue;
 			}
 			$out[] = [
@@ -861,7 +880,7 @@ PROMPT;
 		if ( '' !== $lang ) {
 			do_action( 'wpml_switch_language', null );
 		}
-		set_transient( 'dze_cc_pages', $out, 6 * HOUR_IN_SECONDS );
+		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -885,11 +904,15 @@ PROMPT;
 	 * @return array<int,array{id:int,name:string,url:string}>
 	 */
 	public static function category_index( bool $force = false ): array {
-		$cached = $force ? false : get_transient( 'dze_cc_cats' );
+		$key    = 'dze_cc_cats_' . ( self::default_lang() ?: 'x' );
+		$cached = $force ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
 			return $cached;
 		}
 		$lang  = self::default_lang();
+		// The same reading as the pages above, from the same table — and
+		// indexed by TERM TAXONOMY id, which is WPML's schema for a term.
+		$only  = class_exists( 'DZE_Wpml' ) ? DZE_Wpml::ids_in_language( 'tax_product_cat', $lang ) : null;
 		$terms = get_terms( [
 			'taxonomy'   => 'product_cat',
 			'hide_empty' => true,
@@ -898,7 +921,7 @@ PROMPT;
 		$out = [];
 		if ( ! is_wp_error( $terms ) ) {
 			foreach ( $terms as $t ) {
-				if ( '' !== $lang && self::lang_code( (int) $t->term_id ) !== $lang ) {
+				if ( is_array( $only ) && ! isset( $only[ (int) $t->term_taxonomy_id ] ) ) {
 					continue;
 				}
 				$url = get_term_link( $t );
@@ -907,7 +930,7 @@ PROMPT;
 				}
 			}
 		}
-		set_transient( 'dze_cc_cats', $out, 6 * HOUR_IN_SECONDS );
+		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
 		return $out;
 	}
 
@@ -2097,13 +2120,31 @@ PROMPT;
 			}
 			?>
 
-			<?php // ONE BUTTON, running what is ticked — in the order the work is done: the text first, then the links into that very text. ?>
+			<?php
+			// ONE BUTTON, running what is ticked — in the order the work is
+			// done: the text first, then the links into that very text.
+			//
+			// AND IT SAYS WHERE IT IS. "Pourquoi ne pas faire comme sur les
+			// pages produit avec Step 1 of 2, une barre de progression et un
+			// compteur de temps ? On avait dit qu'on standardise." The queue
+			// has been sending `step` and `total` on every poll all along and
+			// this screen printed neither: a line reading "waiting for the
+			// writer… 33s" says a number of seconds and nothing about the work.
+			// Same markup as the product popup, so the one stylesheet dresses
+			// both.
+			?>
 			<p class="dze-cc-run-row">
 				<button type="button" class="button button-primary dze-cc-run"<?php disabled( ! $q_on ); ?>>
 					<?php esc_html_e( 'Generate', 'dazont-ecom' ); ?>
 				</button>
 				<span class="dze-cc-status"></span>
 			</p>
+			<div class="dze-cx-prog dze-cc-prog" style="display:none;">
+				<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>
+				<p><strong class="dze-cc-progcount"></strong>
+					<span class="dze-cc-progstep"></span>
+					<span class="dze-cc-progtime description"></span></p>
+			</div>
 
 			<?php
 			// The "ⓘ what it uses" panel that stood here is gone. Its figures
@@ -2139,16 +2180,21 @@ PROMPT;
 				<?php // The WordPress editor holds the description: existing text now, generated text after a run. ?>
 				<textarea id="dze-cc-editor" class="dze-cc-editor"><?php echo esc_textarea( $desc ); ?></textarea>
 
-				<p style="margin-top:10px;">
-					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Save the description', 'dazont-ecom' ); ?></button>
-					<?php // A WAY TO REFUSE. The handler for this has existed for months and the button was never printed on either screen: "rien pour accepter les modifs, modifier les modifs, ou les refuser". ?>
-					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Put back what was there', 'dazont-ecom' ); ?></button>
-					<span class="description"><?php esc_html_e( 'Nothing is written to the category until you save. Close the window to leave it as it is.', 'dazont-ecom' ); ?></span>
+				<p class="dze-cc-decide" style="margin-top:10px;">
+					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
+					<?php // A WAY TO REFUSE, beside the way to accept — the same pair, in the same order, as every other screen of this plugin. ?>
+					<button type="button" class="button-link dze-cc-revert"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+					<span class="description"><?php esc_html_e( 'Nothing is written to the category until you press Apply.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php else : ?>
-				<p style="margin-top:10px;">
-					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Put back what was there', 'dazont-ecom' ); ?></button>
-					<span class="description"><?php esc_html_e( 'The result lands in the Description field above. Read it there, edit it if you want it changed, and press Update to keep it — or put back what was there.', 'dazont-ecom' ); ?></span>
+				<?php
+				// WordPress owns the editor on this host, so WordPress's own
+				// Update is the acceptance — never a second save path beside
+				// core's. The refusal is the plugin's, and it is beside it.
+				?>
+				<p class="dze-cc-decide" style="margin-top:10px;">
+					<button type="button" class="button-link dze-cc-revert"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+					<span class="description"><?php esc_html_e( 'The result is in the Description field above — press Update to keep it.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php endif; ?>
 		</div>
@@ -2299,12 +2345,19 @@ PROMPT;
 				'serverError' => __( 'The server answered with an error (HTTP %s). Look at your host\'s PHP error log for the reason.', 'dazont-ecom' ),
 				'expired'     => __( 'This page has been open too long and the security token expired — reload it.', 'dazont-ecom' ),
 				'queuedShort' => __( 'waiting for the writer…', 'dazont-ecom' ),
+				// The same words as the product popup: one shape, one wording.
+				'stepN'       => __( 'Step %1$s of %2$s', 'dazont-ecom' ),
+				'elapsed'     => __( '· %ss', 'dazont-ecom' ),
+				'planning'    => __( 'planning the page…', 'dazont-ecom' ),
+				/* translators: %s: number of runs in front of this one */
+				'ahead'       => __( 'waiting behind %s other runs', 'dazont-ecom' ),
+				'ahead1'      => __( 'waiting behind one other run', 'dazont-ecom' ),
 				'queued'      => __( 'Queued — it is being written in the background. %s', 'dazont-ecom' ),
 				'queueLink'   => __( 'Follow it in the writing queue', 'dazont-ecom' ),
 				'queueDup'    => __( 'This category is already waiting in the queue.', 'dazont-ecom' ),
 				'tooLong'     => __( 'Given up after five minutes without an answer. The run may still have finished on the server: reopen this panel to see. If it keeps happening, lower the Target length in Settings → Categories.', 'dazont-ecom' ),
 				'applied'     => __( 'Saved ✓', 'dazont-ecom' ),
-				'review'      => __( 'Draft ready — edit it if needed, then save.', 'dazont-ecom' ),
+				'review'      => __( 'Draft ready — edit it if needed, then Apply.', 'dazont-ecom' ),
 			],
 		] );
 	}

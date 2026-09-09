@@ -443,7 +443,6 @@
 									'<summary>' + esc(i18n.noteTitle) + '</summary>' +
 									'<p class="description">' + esc(i18n.noteHelp) + '</p>' +
 									'<textarea id="dze-cx-note" rows="2" class="large-text" placeholder="' + esc(i18n.notePh) + '"></textarea>' +
-									'<span class="dze-one-notestate"></span>' +
 								'</details>' +
 							'</div>' +
 						'</div>' : ''),
@@ -1101,6 +1100,11 @@
 		// Where it goes travels with the order, so the strip knows without
 		// being told again and the choice survives a closed tab.
 		data.target = target || job.target;
+		// WHAT WAS TYPED FOR THIS RUN, read off the box when the request is
+		// built. It is sent and never stored, so nothing steers the next run
+		// but what somebody types into it then.
+		var note = runNote();
+		if (note) { data.note = note; }
 		return data;
 	}
 	function genImage(tpl, scene) {
@@ -1685,7 +1689,6 @@
 				'<summary>' + esc(i18n.noteTitle) + '</summary>' +
 				'<p class="description">' + esc(i18n.noteHelp) + '</p>' +
 				'<textarea id="dze-one-note" rows="2" class="large-text" placeholder="' + esc(i18n.notePh) + '"></textarea>' +
-				'<span class="dze-one-notestate"></span>' +
 			'</details>' +
 
 			'<div class="dze-step" id="dze-one-bgstep">' +
@@ -2630,22 +2633,25 @@
 			n ? (n > 1 ? i18n.oneApplyN : i18n.oneApply) : i18n.oneDropAll
 		);
 	}
-	// Saved when you leave it: one line typed once, kept with the product.
-	$(document).on('change blur', '#dze-one-note, #dze-cx-note', function () {
+	// A NOTE IS FOR THE RUN IN FRONT OF YOU. It used to be saved on the product
+	// the moment you left the box and sent with every image made for it
+	// afterwards — so a correction typed once ("ne mets pas de ruban sur le
+	// tshirt !") went out for ever, invisibly. It travels with the request
+	// now; nothing is stored. The two boxes are still one line about one
+	// product, so what is typed in either shows in both.
+	$(document).on('change blur keyup', '#dze-one-note, #dze-cx-note', function () {
 		var note = $(this).val() || '';
 		if (note === (cfg.note || '')) { return; }
 		cfg.note = note;
-		// The other copy of the same note, on whichever screen is behind this
-		// one: one line about one product, not one per popup.
 		$('#dze-one-note, #dze-cx-note').not(this).val(note);
-		var $st = $(this).closest('details').find('.dze-one-notestate').text('…');
-		$.post(cfg.ajaxUrl, {
-			action: 'dze_content_variation_note', nonce: cfg.nonce,
-			post: PID, group: '*', note: note
-		})
-			.done(function (r) { $st.text((r && r.success) ? i18n.noteSaved : ((r && r.data && r.data.message) || i18n.error)); })
-			.fail(function () { $st.text(i18n.error); });
 	});
+	// What the box holds when the request is built, read off the page rather
+	// than from anything remembered.
+	function runNote() {
+		var $b = $('#dze-cx-note');
+		if (!$b.length) { $b = $('#dze-one-note'); }
+		return ($b.val() || '').toString();
+	}
 	$(document).on('change', '#dze-one-target', function () {
 		$('#dze-one-oldwrap').toggle('main' === $(this).val());
 	});

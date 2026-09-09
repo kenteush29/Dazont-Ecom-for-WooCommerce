@@ -434,12 +434,17 @@ echo "\nThe pool the linking pass is given\n";
 // TWO SHARED WORDS WAS A WALL. "Tactical bags" and "Tactical backpacks" can
 // never share two words, so everything but the branch was thrown away and the
 // pass offered two targets on a shop with hundreds of pages.
-$GLOBALS['tr']['dze_cc_cats'] = [];
+// The two indexes are cached PER LANGUAGE now: one language's pool handed to
+// another is exactly the fault this release is about, so the key carries the
+// language it was read in. The harness seeds the key the code will ask for.
+$dze_ck = 'dze_cc_cats_' . ( DZE_Category_Content::default_lang() ?: 'x' );
+$dze_pk = 'dze_cc_pages_' . ( DZE_Category_Content::default_lang() ?: 'x' );
+$GLOBALS['tr'][ $dze_ck ] = [];
 foreach ( $GLOBALS['terms'] as $id => $t ) {
-	$GLOBALS['tr']['dze_cc_cats'][] = [ 'id' => $id, 'name' => $t['name'], 'slug' => $t['slug'], 'url' => get_term_link( $id ) ];
+	$GLOBALS['tr'][ $dze_ck ][] = [ 'id' => $id, 'name' => $t['name'], 'slug' => $t['slug'], 'url' => get_term_link( $id ) ];
 	$GLOBALS['tr'][ 'dze_cc_pcount_' . $id ] = 5;
 }
-$GLOBALS['tr']['dze_cc_pages'] = [
+$GLOBALS['tr'][ $dze_pk ] = [
 	[ 'id' => 20, 'title' => 'How to choose a tactical backpack', 'slug' => 'choose-backpack', 'url' => get_permalink( 20 ), 'kind' => 'blog post' ],
 	[ 'id' => 21, 'title' => 'Boonie hat sizing', 'slug' => 'boonie-sizing', 'url' => get_permalink( 21 ), 'kind' => 'blog post' ],
 ];
@@ -447,7 +452,7 @@ $GLOBALS['tr']['dze_cc_pages'] = [
 // from: half of it is called "tactical", and one of them shares the word that
 // says something.
 foreach ( [ 'Tactical boots', 'Tactical helmets', 'Tactical vests', 'Bag rain covers' ] as $i => $name ) {
-	$GLOBALS['tr']['dze_cc_cats'][] = [
+	$GLOBALS['tr'][ $dze_ck ][] = [
 		'id'   => 30 + $i,
 		'name' => $name,
 		'slug' => sanitize_key( str_replace( ' ', '-', $name ) ),
@@ -591,6 +596,32 @@ ok( 'a category is asked for by WPML\'s own name',
 ok( 'and posts and pages each by theirs',
 	[ in_array( 'post_post:en', DZE_Wpml::$asked, true ), in_array( 'post_page:en', DZE_Wpml::$asked, true ) ],
 	[ true, true ] );
+// AND THE LINK POOL ASKS THE SAME TABLE. "Post allemand vu dans les
+// recommandations de lien. Bizarre." The pool is built by page_index() and
+// category_index(), and both of them narrowed by
+// `wpml_element_language_details` — a FILTER, in a panel served by an AJAX
+// action, where WPML's hooks are not loaded. It answered nothing, nothing fell
+// through to "the shop's own language", and every translation was offered as a
+// page to link to. Worse, the whole pool was then cached for six hours.
+DZE_Wpml::$asked = [];
+$GLOBALS['tr'] = array_diff_key( $GLOBALS['tr'], array_flip( array_filter(
+	array_keys( $GLOBALS['tr'] ),
+	static fn( $k ) => 0 === strpos( (string) $k, 'dze_cc_pages_' ) || 0 === strpos( (string) $k, 'dze_cc_cats_' )
+) ) );
+$dze_pages = wp_list_pluck( DZE_Category_Content::page_index( true ), 'title' );
+ok( 'the pool asks the table for posts and pages',
+	[ in_array( 'post_post:en', DZE_Wpml::$asked, true ), in_array( 'post_page:en', DZE_Wpml::$asked, true ) ],
+	[ true, true ] );
+ok( 'and no German article is offered as a target',
+	in_array( 'Wie wählt man einen Rucksack', $dze_pages, true ), false );
+ok( 'while the English ones still are',
+	in_array( 'How to choose a tactical backpack', $dze_pages, true ), true );
+$dze_cats = wp_list_pluck( DZE_Category_Content::category_index( true ), 'name' );
+ok( 'the categories are asked for the same way',
+	in_array( 'tax_product_cat:en', DZE_Wpml::$asked, true ), true );
+ok( 'and no German category is offered either',
+	in_array( 'Taktische Taschen', $dze_cats, true ), false );
+
 // A TABLE THAT CANNOT BE ASKED NARROWS NOTHING. Null means "do not narrow",
 // never "narrow to nothing": a shop with one language keeps every page it has.
 $GLOBALS['icl'] = [];

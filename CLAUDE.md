@@ -1096,6 +1096,57 @@ whose screen has not been thought through yet.
   control nobody trusts), and a panel built to look at is DRAWN AGAIN once a
   run has put something on the product, or it goes on saying the product holds
   nothing.
+- **A NOTE IS FOR THE RUN IN FRONT OF YOU, NOT FOR EVER.** "Notes about this
+  product" saved what was typed in it the moment you left the box and sent it
+  with every image made for that product from then on. So "ne mets pas de ruban
+  sur le tshirt ! répètes le même design !" went out on every shot of that shirt
+  for the rest of its life, invisible on every screen but the one it was typed
+  on — a hidden standing instruction by any other name, which is the one thing
+  this plugin may not have. It travels with the request now (`shoot()` reads
+  `note`, `note_lines()` takes it), the box opens empty, and nothing is stored;
+  notes saved by earlier versions are no longer read and the key stays declared
+  in `DZE_Cleanup` so it can be wiped. The per-VARIATION notes are untouched:
+  "the olive one has a black zip" is a lasting fact about a colour, set on its
+  own screen, and it was never what went wrong.
+- **THE ANSWER TO SLOP IS NEVER ANOTHER APPENDED SENTENCE.** When a shot comes
+  back with something invented on it, the fix is that the person's own words
+  reach the model for THAT run — not a new line added to what the plugin
+  appends. Every sentence added there is taken from the one beside it.
+- **THE JOB SOMEBODY IS WATCHING IS THE JOB THAT MOVES.** A screen polling its
+  own run called `DZE_Queue::work()`, which took the OLDEST job in the whole
+  queue — so a run somebody was standing in front of could sit at "waiting for
+  the writer… 33s" while every one of its polls stepped something else: "et
+  puis c'est bugé, il ne se passe encore absolument rien." `work( int $only )`
+  takes the job it is asked for; cron and the kick still take the queue in
+  order. And `ajax_job()` answers `ahead` — how many runs are in front of this
+  one — because a screen that has been saying "waiting" for half a minute must
+  be able to say what it is waiting for.
+- **A RUN SAYS WHERE IT IS, ON EVERY SCREEN.** The queue had been sending
+  `step`, `total` and `progress` on every poll and the category panel printed
+  none of them: it counted seconds. "Pourquoi ne pas faire comme sur les pages
+  produit avec Step 1 of 2, une barre de progression et un compteur de temps ?
+  On avait dit qu'on standardise." Same markup as the product popup
+  (`.dze-cx-prog` + `.dze-cb-bar`), same words from PHP, and the pair under it
+  is **Apply / Discard** on both hosts — WordPress's own Update is the
+  acceptance where WordPress owns the editor.
+- **A MISSING WORD IS NOT WORTH KILLING A HANDLER FOR.** `sprintf()` in
+  `category-content.js` called `.replace` straight on its argument, so a string
+  the shop had not registered threw a TypeError and stopped every line after it
+  — the same silent stop as `markPlaced()` reading `r.href`. It coerces now.
+  And a browser harness copies the localized words KEY BY KEY: the one missing
+  from it is the one that proves nothing.
+- **THE LINK POOL ASKS WPML'S TABLE, LIKE EVERY OTHER READER.** "Post allemand
+  vu dans les recommandations de lien. Bizarre." `page_index()` and
+  `category_index()` narrowed by `wpml_element_language_details` — a FILTER, in
+  a panel served by an AJAX action, where WPML's hooks are not loaded. It
+  answered nothing, nothing fell through to "the shop's own language", and
+  every translation was offered as a page to link to; then the whole pool was
+  cached for six hours, so one unnarrowed read poisoned every category on the
+  shop. Both read `DZE_Wpml::ids_in_language()` now — posts by `post_post`,
+  pages by `post_page`, terms by `tax_product_cat` and their TERM TAXONOMY id —
+  and each index is cached under a key carrying the language it was read in.
+  This is the third time this trap has been paid for. **Any reading that must
+  be right outside a page load asks the table.**
 - **`node tools/js/content-bulk.mjs` must pass.** The product bulk screen had
   no browser gate at all, which is why both of the faults above lived there:
   each of them is an answer a control gives when it is PRESSED. It loads the

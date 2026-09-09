@@ -59,6 +59,7 @@ for ( const [ label, jq ] of jqs ) {
 	// does: the pass places what was ticked. A link to a page outside the pool
 	// left every row untouched, so nothing on this screen could be seen to
 	// lock — or to come back.
+	let polled = 0;
 	let jobHtml = '<p>Bags for the field, and <a href="https://kula.test/category/boonie-hats/">Boonie hats</a>,'
 		+ ' and <a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a>.</p>';
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
@@ -76,6 +77,11 @@ for ( const [ label, jq ] of jqs ) {
 		// The writing queue: a job is added, then followed until it answers.
 		if ( 'dze_q_add' === q.get( 'action' ) ) { return json( { added: 1, job: 5, url: '' } ); }
 		if ( 'dze_q_job' === q.get( 'action' ) ) {
+			// The queue answers step/total/ahead on every poll — the figures
+			// this screen printed none of. The first poll is still working.
+			if ( ! polled++ ) {
+				return json( { status: 'running', step: 1, total: 4, ahead: 0, progress: 'section 1 of 4' } );
+			}
 			return json( { status: 'review', html: jobHtml } );
 		}
 		// What the category holds TODAY, against what is in the editor now.
@@ -119,7 +125,12 @@ for ( const [ label, jq ] of jqs ) {
 			+ `window.dzeCatContent={ajaxUrl:'http://dze.test/ajax',nonce:'n0nce',kwNonce:'k',home:'http://dze.test/',`
 			+ `i18n:{picked:'%s selected',before:'Before',after:'After',nothingYet:'Nothing written yet',waitingYet:'A text is waiting — press "Load it here" above',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
 			+ `wasEmpty:'This category had no description.',queuedShort:'Queued',linking:'Linking',working:'Writing',`
-			+ `review:'Look it over',error:'error',alreadyLinked:'already linked',showLinks:'%s links',external:'external'}};</script>`
+			+ `review:'Look it over',error:'error',alreadyLinked:'already linked',showLinks:'%s links',external:'external',`
+			// The progress words, KEY BY KEY as the plugin localizes them: a
+			// missing one used to throw on undefined.replace and take every
+			// line after it in that handler with it.
+			+ `stepN:'Step %1$s of %2$s',elapsed:'· %ss',planning:'planning the page…',`
+			+ `ahead:'waiting behind %s other runs',ahead1:'waiting behind one other run'}};</script>`
 			// The shell first — the blocks and the before/after are one module
 			// now, and the panel's script is built on it.
 			+ `<script>${readFileSync( join( js, 'hub.js' ), 'utf8' )}</script>`
@@ -272,13 +283,29 @@ for ( const [ label, jq ] of jqs ) {
 	await page.uncheck( '#dze-cc-do-desc' );
 	await page.check( '#dze-cc-do-links' );
 	const beforePress = sent.length;
+	polled = 0;
 	await page.click( '#panel .dze-cc-run' );
+	// THE SAME PROGRESS BAR AS THE PRODUCT POPUP. "Pourquoi ne pas faire comme
+	// sur les pages produit avec Step 1 of 2, une barre de progression et un
+	// compteur de temps ? On avait dit qu'on standardise." The queue had been
+	// sending step and total on every poll all along and this screen printed
+	// neither: a line counting seconds says nothing about the work.
+	const sawBar = await page.waitForFunction(
+		() => {
+			const el = document.querySelector( '#panel .dze-cc-progcount' );
+			return !! el && /Step \d+ of \d+/.test( el.textContent || '' );
+		}, null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'the run says which step it is on', sawBar, true );
 	// The queue is followed on a timer, so the answer is waited FOR — with a
 	// bound, and reported rather than left to kill the run.
 	const answered = await page.waitForFunction(
 		() => ( document.querySelector( '#dze-cc-editor' ) || {} ).value?.includes( '<a href' ),
 		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
 	ok( 'the press comes back with the linked text', answered, true );
+	// AND THE BAR GOES WHEN THE WORK DOES: a progress bar left standing over a
+	// finished run is a screen still saying it is busy.
+	ok( 'and the bar is put away when it is done',
+		await page.locator( '#panel .dze-cc-prog:visible' ).count(), 0 );
 	const asked = sent.slice( beforePress ).find( r => 'dze_q_add' === r.action ) || {};
 	ok( 'the job is on this category',       asked.id, '10' );
 	ok( 'and it is the linking pass',        asked.kind, 'cat_links' );
