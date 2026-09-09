@@ -1028,8 +1028,14 @@ trait DZE_Content_Ajax {
 		// A one-off edit of an image that already exists ("make the strap red")
 		// keeps that image's own setting, so the scene only comes back if it was
 		// explicitly asked for.
+		// Nothing asked for: the PROMPT's own scene, never one answer for the
+		// whole shop. default_scene() sat here and gave a studio backdrop to a
+		// prompt asking for a customer's snapshot, which the sources block then
+		// declares to be the background of the final photograph.
 		$scenes = self::scenes();
-		$sidx   = isset( $in['scene'] ) ? (int) $in['scene'] : ( '' !== $src ? -1 : self::default_scene() );
+		$sidx   = isset( $in['scene'] )
+			? (int) $in['scene']
+			: ( '' !== $src ? -1 : (int) ( $tpl['scene_i'] ?? -1 ) );
 		$scene  = ( $sidx >= 0 && isset( $scenes[ $sidx ] ) ) ? $scenes[ $sidx ] : null;
 		if ( $scene && ! wp_attachment_is_image( (int) $scene['image'] ) ) {
 			// Deleted from the media library: say so instead of failing on the
@@ -1398,6 +1404,15 @@ trait DZE_Content_Ajax {
 			// The list as it now stands, read back: the screen shows what the
 			// server holds, not what it hoped the server would hold.
 			wp_send_json_success( [ 'left' => self::bulk_list(), 'counts' => self::screen_counts() ] );
+		}
+		// Refusing is not removing. Discard throws away what was generated and
+		// files the refusal under Done — and leaves the product ON the list,
+		// back where it started, because "I do not want this text" and "I am
+		// done with this product" are two decisions and each has its own
+		// button. It used to do both at once, so refusing one bad photograph
+		// took the product off the screen it was being worked on.
+		if ( 'discard' === $do && $ids ) {
+			wp_send_json_success( [ 'left' => self::discard_products( $ids ), 'counts' => self::screen_counts() ] );
 		}
 		if ( 'add' === $do ) {
 			$this->bulk_add_ids( $ids, ! empty( $_POST['replace'] ) );
@@ -2099,9 +2114,12 @@ trait DZE_Content_Ajax {
 				$names[] = sprintf( '%d. %s', $i + 1, get_the_title( $aid ) ?: ( '#' . $aid ) );
 			}
 			$parts[] = __( 'Photographs sent', 'dazont-ecom' ) . ":\n" . ( $names ? implode( "\n", $names ) : __( '(none — this product has no photograph)', 'dazont-ecom' ) );
-			$sc = self::scenes();
-			$def = self::default_scene();
-			$parts[] = __( 'Background sent', 'dazont-ecom' ) . ': ' . ( isset( $sc[ $def ] ) ? $sc[ $def ]['name'] : __( '(none)', 'dazont-ecom' ) );
+			// The background THIS prompt sends — read from the prompt, the way
+			// the request reads it. The shop-wide default used to be printed
+			// here whatever the prompt was set to.
+			$dze_scn = self::prompt_scene( $r );
+			$parts[] = __( 'Background sent', 'dazont-ecom' ) . ': '
+				. ( self::scene_index( $dze_scn ) >= 0 ? $dze_scn : __( '(none)', 'dazont-ecom' ) );
 		}
 		// A text prompt that asked to SEE the product: the panel says which
 		// photographs go with it, the way the image prompts already do — an

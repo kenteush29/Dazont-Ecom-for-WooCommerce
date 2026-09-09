@@ -176,6 +176,39 @@ ok( 'the first one, when asked for',    false !== strpos( $GLOBALS['sent']['prom
 ok( 'and it lands on the main image',   $GLOBALS['filed']['target'] ?? '', 'main' );
 ok( 'with its own ratio',               $GLOBALS['sent']['ratio'], '1:1' );
 
+echo "THE BACKGROUND IS THE PROMPT'S OWN, never one answer for the whole shop\n";
+// "Image ugc generee dans l'outil bulk. Invraisemblable." A prompt asking for
+// a customer's own snapshot came back a white pack shot with the product
+// floating in it, because the scene was ONE setting for the whole shop —
+// default_scene() — attached to every prompt whatever it asked for. The
+// appended sources block then tells the model, in capitals, that this image
+// IS the surface, the background and the light of the photograph, so the
+// studio backdrop won against the prompt every time.
+shop();
+$GLOBALS['scene_idx'] = 0;                 // the shop has a default backdrop…
+$GLOBALS['tpls'][1]['scene_i'] = -1;       // …and this prompt asks for none.
+$GLOBALS['tpls'][0]['scene_i'] = 0;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
+ok( 'a prompt that wants no scene gets none',
+	in_array( 'data:image/jpeg;base64,IMG90/full', $GLOBALS['sent']['sources'], true ), false );
+ok( 'and nothing is said about a scene',
+	null === ( $GLOBALS['told'][1] ?? null ), true );
+// The prompt that DOES want one still gets it, on the same shop.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0 ] );
+ok( 'a prompt that wants one gets it',
+	in_array( 'data:image/jpeg;base64,IMG90/full', $GLOBALS['sent']['sources'], true ), true );
+ok( 'and it is named as the scene',
+	(string) ( $GLOBALS['told'][1]['name'] ?? '' ), 'Slate' );
+// A screen that says otherwise still wins: the menu on the row is a one-off
+// for the run about to be launched.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'scene' => 0 ] );
+ok( 'a scene asked for by the screen travels',
+	in_array( 'data:image/jpeg;base64,IMG90/full', $GLOBALS['sent']['sources'], true ), true );
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0, 'scene' => -1 ] );
+ok( 'and "no scene" asked for by the screen is obeyed',
+	in_array( 'data:image/jpeg;base64,IMG90/full', $GLOBALS['sent']['sources'], true ), false );
+shop();
+
 echo "WHICH photograph is the subject when one was added from outside\n";
 // The regression this block exists for, in the owner's words: "images generees
 // dans une autre couleur que le produit principal. Il me donne du kryptek noir
