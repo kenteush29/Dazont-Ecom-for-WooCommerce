@@ -469,6 +469,23 @@ final class DZE_Prompts {
 	 * The written list stays where a module offers one, under the raw text: it
 	 * says what travels with the prompt even before it has ever run.
 	 */
+	/**
+	 * The text a module appends to this prompt, word for word, or ''.
+	 *
+	 * `data_for()` says in a sentence what travels with a prompt; this says
+	 * the EXACT words that are added to it. An image request carries several
+	 * photographs and something has to name them — that is legitimate. Doing
+	 * it out of sight was not.
+	 */
+	public static function note_for( string $id ): string {
+		$row   = self::catalog()[ $id ] ?? null;
+		$owner = (string) ( $row['owner'] ?? '' );
+		if ( '' === $owner || ! is_callable( [ $owner, 'prompt_note' ] ) ) {
+			return '';
+		}
+		return trim( (string) call_user_func( [ $owner, 'prompt_note' ], $id ) );
+	}
+
 	public static function the_data( string $id ): void {
 		// method_exists, not class_exists: this block is drawn on every prompt
 		// of every settings screen now, so anything it calls that might not be
@@ -476,6 +493,7 @@ final class DZE_Prompts {
 		// the method is the question.
 		$last  = method_exists( 'DZE_Ai_Usage', 'last_for' ) ? DZE_Ai_Usage::last_for( $id ) : [];
 		$rows  = self::data_for( $id );
+		$note  = self::note_for( $id );
 		$when  = (int) ( $last['t'] ?? 0 );
 		?>
 		<details class="dze-prompt-sent" style="max-width:880px;margin:0 0 10px;border:1px solid #dcdcde;border-radius:4px;background:#fff;">
@@ -518,6 +536,16 @@ final class DZE_Prompts {
 							<li><?php echo esc_html( $one ); ?></li>
 						<?php endforeach; ?>
 					</ul>
+				<?php endif; ?>
+				<?php if ( '' !== $note ) : ?>
+					<?php // WORD FOR WORD. A list saying "the product photographs, as real images" is a summary; this is the text. ?>
+					<p style="margin:12px 0 4px;font-weight:600;font-size:12px;">
+						<?php esc_html_e( 'Appended after your instructions, word for word', 'dazont-ecom' ); ?>
+					</p>
+					<pre style="max-height:260px;overflow:auto;white-space:pre-wrap;background:#f6f7f7;border:1px solid #dcdcde;padding:10px;font-size:12px;line-height:1.5;margin:0;"><?php echo esc_html( $note ); ?></pre>
+					<p class="description" style="margin:6px 0 0;">
+						<?php esc_html_e( 'It names the photographs sent with the request, which your instructions cannot: they do not know how many the run attaches or in what order. A run that also carries a scene, a photograph you pasted or one this prompt already made adds one line naming that image, in the same place.', 'dazont-ecom' ); ?>
+					</p>
 				<?php endif; ?>
 				<?php if ( class_exists( 'DZE_Marketing_Ai' ) ) : ?>
 					<p style="margin:10px 0 0;font-size:13px;">

@@ -442,6 +442,24 @@ owner communicates in French.
   toolbox posted it and only the main-image lane looked — so the picker was a
   control that did nothing on the lane it lives on.
 
+- **NOTHING APPENDED MAY OVERRULE THE PROMPT, AND NOTHING APPENDED IS HIDDEN.**
+  "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça t'est
+  interdit. Le prompt est le gagnant. Il est bien rédigé, et aucune autre
+  instruction cachée ne devrait exister." Two things were wrong at once. With a
+  scene chosen, the appended text told the model to "ignore any background
+  described in words above" — the plugin disregarding the instructions it is
+  appended to; that is never allowed, whatever the reason. And the whole note
+  was INVISIBLE: the prompt card listed three vague bullets ("the product
+  photographs, as real images") while several hundred characters went out under
+  them, and he found them in a trace. What legitimately goes there is a LEGEND —
+  which image is the product, which is the scene, which was pasted — because
+  the prompt cannot know how many photographs the run attaches or in what
+  order. Everything else is an opinion competing with his own text. So:
+  `prompt_note()` returns the note and the card prints it WORD FOR WORD, read
+  from the same function that sends it (`test-sources.php` asserts the two are
+  the same string, or the screen and the request drift apart on the next edit).
+  Adding a sentence to that note is a decision the shop takes, not one taken
+  for it.
 - **THE PHOTOGRAPHS WIN OVER THE WORDS, AND THAT IS SAID ON EVERY RUN.**
   "Trop de AI slop sur les images... des attaches imaginaires rajoutées devant,
   une sangle imaginaire rajoutée derrière." The shop's own trace showed why, in
