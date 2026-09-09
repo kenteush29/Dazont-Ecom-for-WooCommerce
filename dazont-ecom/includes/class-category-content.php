@@ -2040,11 +2040,14 @@ PROMPT;
 
 				<p style="margin-top:10px;">
 					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Save the description', 'dazont-ecom' ); ?></button>
+					<?php // A WAY TO REFUSE. The handler for this has existed for months and the button was never printed on either screen: "rien pour accepter les modifs, modifier les modifs, ou les refuser". ?>
+					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Put back what was there', 'dazont-ecom' ); ?></button>
 					<span class="description"><?php esc_html_e( 'Nothing is written to the category until you save. Close the window to leave it as it is.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php else : ?>
 				<p style="margin-top:10px;">
-					<span class="description"><?php esc_html_e( 'The result lands in the Description field above. Nothing is saved until you press Update.', 'dazont-ecom' ); ?></span>
+					<button type="button" class="button dze-cc-revert"><?php esc_html_e( 'Put back what was there', 'dazont-ecom' ); ?></button>
+					<span class="description"><?php esc_html_e( 'The result lands in the Description field above. Read it there, edit it if you want it changed, and press Update to keep it — or put back what was there.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php endif; ?>
 		</div>
@@ -2155,6 +2158,7 @@ PROMPT;
 				/* translators: 1: word count, 2: link count */
 				'wl'          => __( '%1$s words · %2$s links', 'dazont-ecom' ),
 				'wasEmpty'    => __( 'This category had no description.', 'dazont-ecom' ),
+				'nothingYet'  => __( 'Nothing written yet', 'dazont-ecom' ),
 				'show'        => __( 'show', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
 				'diffWords'   => __( '%1$s words → %2$s words', 'dazont-ecom' ),
