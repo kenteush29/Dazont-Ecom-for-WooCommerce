@@ -58,7 +58,28 @@ for ( const [ label, jq ] of jqs ) {
 
 	await page.route( 'http://dze.test/ajax', async route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
-		sent.push( { action: q.get( 'action' ), nonce: q.get( 'nonce' ), id: q.get( 'id' ) } );
+		sent.push( {
+			action: q.get( 'action' ), nonce: q.get( 'nonce' ), id: q.get( 'id' ),
+			// The whole of the linking loop is in these three: what text the
+			// press was made on, which pages were ticked, and which category.
+			html: q.get( 'html' ), term: q.get( 'term' ), urls: q.getAll( 'urls[]' )
+		} );
+		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
+		// The writing queue: a job is added, then followed until it answers.
+		if ( 'dze_q_add' === q.get( 'action' ) ) { return json( { added: 1, job: 5, url: '' } ); }
+		if ( 'dze_q_job' === q.get( 'action' ) ) {
+			return json( { status: 'review', html: '<p>Bags for the field, and <a href="https://kula.test/category/boonie-hats/">Boonie hats</a>.</p>' } );
+		}
+		// What the category holds TODAY, against what is in the editor now.
+		if ( 'dze_cc_diff' === q.get( 'action' ) ) {
+			const now = q.get( 'html' ) || '';
+			return json( {
+				before: '<p>Bags for the field.</p>',
+				after: now,
+				words: [ 4, now.split( /\s+/ ).filter( Boolean ).length ],
+				links: [ 0, ( now.match( /<a\s/g ) || [] ).length ]
+			} );
+		}
 		await route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
 			label: 'Prompt: ' + q.get( 'id' ),
 			text: 'The instructions for ' + q.get( 'id' ) + '.',
@@ -83,7 +104,14 @@ for ( const [ label, jq ] of jqs ) {
 			// The panel's own script, and the config it reads at load. Without
 			// it the picker's checkboxes are markup and nothing else: the
 			// handlers that count them and take a range are in this file.
-			+ `window.dzeCatContent={ajax:'http://dze.test/ajax',nonce:'n0nce',i18n:{picked:'%s selected'}};</script>`
+			// The config KEY BY KEY as the plugin localizes it: ajaxUrl, not
+			// ajax. Named wrong, every request this panel makes goes to the
+			// page itself and comes back as HTML — which is a screen where
+			// nothing happens and nothing is said.
+			+ `window.dzeCatContent={ajaxUrl:'http://dze.test/ajax',nonce:'n0nce',kwNonce:'k',home:'http://dze.test/',`
+			+ `i18n:{picked:'%s selected',before:'Before',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
+			+ `wasEmpty:'This category had no description.',queuedShort:'Queued',linking:'Linking',working:'Writing',`
+			+ `review:'Look it over',error:'error',alreadyLinked:'already linked',showLinks:'%s links',external:'external'}};</script>`
 			+ `<script>${readFileSync( join( js, 'category-content.js' ), 'utf8' )}</script></head>`
 			+ `<body><div class="wrap"><div id="panel"></div></div>${modal}</body></html>` } );
 	} );
@@ -173,6 +201,53 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the row says the gesture exists',
 		( await page.textContent( '#panel .dze-cc-pickhint' ) ).trim(), 'Shift-click takes a range.' );
 	ok( 'and nothing was raised doing it',   errors, [] );
+
+	// ---- THE WHOLE LINKING LOOP, PRESSED ----
+	//
+	// "Before / after — hide — 0 words · 0 links. Pour le netlinking je ne
+	// comprends pas, je ne vois pas le texte actuel. Repasse toute la boucle
+	// en revue, revois tout, du début à la fin."
+	//
+	// The job carried the term id and NOTHING ELSE, so the linking pass read
+	// the description out of the database — never the text in this editor,
+	// which is not saved until Update is pressed. Nothing but a browser can
+	// see what a press actually puts on the wire.
+	const heldNow = await page.inputValue( '#dze-cc-editor' );
+	ok( 'the panel opens on what the category holds',
+		heldNow.includes( 'Bags for the field' ), true );
+	await page.check( '#panel .dze-cc-pick:not([disabled])' );
+	const beforePress = sent.length;
+	await page.click( '#panel .dze-cc-links' );
+	// The queue is followed on a timer, so the answer is waited FOR — with a
+	// bound, and reported rather than left to kill the run.
+	const answered = await page.waitForFunction(
+		() => ( document.querySelector( '#dze-cc-editor' ) || {} ).value?.includes( '<a href' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'the press comes back with the linked text', answered, true );
+	const asked = sent.slice( beforePress ).find( r => 'dze_q_add' === r.action ) || {};
+	ok( 'the job is the linking pass on this category', asked.id, '10' );
+	// THE HALF THAT WAS MISSING.
+	ok( 'and it carries the text on the screen',
+		( asked.html || '' ).includes( 'Bags for the field' ), true );
+	ok( 'with the page that was ticked',     asked.urls.length > 0, true );
+	// AND THE SCREEN SHOWS WHAT THE CATEGORY HELD, visibly — the block was
+	// there, opened, and empty.
+	const shown = await page.waitForSelector( '#panel .dze-cc-diff .dze-cb-nowbody', { timeout: 4000 } )
+		.then( () => true ).catch( () => false );
+	ok( 'the before/after block shows the current text', shown, true );
+	ok( 'and it is really on the screen',
+		await page.evaluate( () => {
+			const el = document.querySelector( '#panel .dze-cc-diff .dze-cb-nowbody' );
+			return !! el && el.offsetHeight > 0 && ( el.textContent || '' ).trim().length > 0;
+		} ), true );
+	// A count that reads 0 · 0 over a text that is plainly there is the screen
+	// disagreeing with itself.
+	ok( 'and the count is not nought over a written page',
+		( await page.textContent( '#panel .dze-cc-diffwords' ) ).trim().startsWith( '0 words' ), false );
+	// AND NOTHING WAS RAISED ON THE WAY. This is the check that would have
+	// caught it on the day: one TypeError on the first link killed every line
+	// after it in that handler, and the screen simply stopped moving.
+	ok( 'nothing was raised anywhere in the loop', errors, [] );
 
 	// "ⓘ what it uses" is a panel of this screen, not a popup: it shows what
 	// the category is written from, in place.

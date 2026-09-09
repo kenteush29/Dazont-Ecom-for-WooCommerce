@@ -108,6 +108,14 @@
 			rows.push({
 				anchor: anchor,
 				name: name,
+				// THE ADDRESS ITSELF. `path` is what the row PRINTS — the host
+				// stripped off — and markPlaced() read `r.href`, which no row
+				// ever carried: it threw on the first link every time, so the
+				// "already linked" marks were never put on, and the
+				// before/after under it was never redrawn. The text arrived in
+				// the editor and everything after that line died in silence:
+				// "je ne vois pas le texte actuel".
+				href: href,
 				path: href.replace(/^https?:\/\/[^/]+/i, '') || href,
 				external: cfg.home ? (href.indexOf(cfg.home) !== 0 && /^https?:/i.test(href)) : false,
 				// The anchor has to name the target — not necessarily word for
@@ -269,9 +277,17 @@
 		}
 		function stopPoll() { window.clearInterval(poll); poll = null; }
 		tick(i18n.queuedShort);
+		// WHAT IS ON SCREEN IS WHAT TRAVELS. The job used to carry the term id
+		// and nothing else, so the linking pass read the description OUT OF
+		// THE DATABASE — never the text in this editor, which is not saved
+		// until Update is pressed. On a category written here and not yet
+		// saved it linked an empty string and came back "0 words · 0 links":
+		// "pour le netlinking je ne comprends pas, je ne vois pas le texte
+		// actuel." An empty editor sends nothing, which means "as it stands".
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_q_add', nonce: $box.data('qnonce'),
-			kind: kind, id: $box.data('term'), urls: urls || [], prompt: prompt || ''
+			kind: kind, id: $box.data('term'), urls: urls || [], prompt: prompt || '',
+			html: editorGet(edId($box))
 		})
 			.done(function (res) {
 				if (!res || !res.success || !res.data.job) {

@@ -150,7 +150,10 @@ class DZE_Category_Content {
 		return $m[1];
 	}
 	public static function add_links( int $term_id, string $html, array $only = [] ): array {
-		self::$asked[] = [ 'id' => $term_id, 'only' => $only ];
+		// WHAT IT WAS ASKED TO LINK is half the question, and it was the half
+		// nobody read back: the pass was handed the STORED description while
+		// the person was looking at an editor holding something else.
+		self::$asked[] = [ 'id' => $term_id, 'html' => $html, 'only' => $only ];
 		return [ 'html' => '<p>linked</p>' ];
 	}
 }
@@ -470,6 +473,26 @@ $GLOBALS['terms'][88] = '<p>A description.</p>';
 DZE_Queue::produce( 'cat_links', 88, $dze_pay2 );
 ok( 'and so is the category pass',
 	DZE_Category_Content::$asked[0]['only'], [ 'https://shop.test/blog/12/' ] );
+// WHAT IS ON SCREEN IS WHAT TRAVELS. The panel writes into an editor and
+// saves nothing until Update is pressed, so a pass reading the STORED
+// description works on a text nobody is looking at — and on a category never
+// saved, on nothing at all: "pour le netlinking je ne comprends pas, je ne
+// vois pas le texte actuel", with the before/after reading 0 words · 0 links.
+ok( 'the pass is given the stored text when the job carries none',
+	DZE_Category_Content::$asked[0]['html'], '<p>A description.</p>' );
+DZE_Category_Content::$asked = [];
+$dze_pay3 = [ 'urls' => [ 'https://shop.test/blog/12/' ], 'html' => '<p>What the editor holds.</p>' ];
+DZE_Queue::produce( 'cat_links', 88, $dze_pay3 );
+ok( 'and the text the press was made on when it does',
+	DZE_Category_Content::$asked[0]['html'], '<p>What the editor holds.</p>' );
+// ABSENT means "as it stands"; an empty editor is not an instruction to link
+// an empty string.
+DZE_Category_Content::$asked = [];
+$dze_pay4 = [ 'html' => '   ' ];
+DZE_Queue::produce( 'cat_links', 88, $dze_pay4 );
+ok( 'and an empty one falls back to what is stored',
+	DZE_Category_Content::$asked[0]['html'], '<p>A description.</p>' );
+
 // A job with nothing picked is the ordinary pass, not a pass with an empty
 // list: those are different answers and only one of them writes anything.
 $dze_none = [];
