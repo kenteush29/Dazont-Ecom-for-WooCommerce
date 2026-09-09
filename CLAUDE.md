@@ -682,6 +682,31 @@ owner communicates in French.
   is a filter nobody trusts. It is a plain GET form, the way WordPress narrows
   every list it has: no JavaScript to go missing, and a category that answers
   for nothing on this list gives the whole list back rather than an empty page.
+- **A BODY THAT MOVES TAKES ITS ASSETS WITH IT.** The product bulk screen's
+  script, editor and paste box were enqueued behind ONE page hook —
+  `product_page_…`, the standalone page and nothing else. Drawn as a tab of
+  Content diagnostic the hook is that page's, so `content-bulk.js` was never
+  loaded: it is what builds the prompt rows and ticks the boxes, so the Images
+  block came up with its column headings and no rows and Texts read 0/7 —
+  "bugé, aucun prompt à choisir". `DZE_Queue::body()` already had the answer,
+  and it is the rule: a body enqueues what it needs FROM INSIDE ITSELF
+  (`bulk_assets()`), so no hook has to be kept in step and a screen that draws
+  it next year needs to know nothing. That includes what a button drawn in
+  JavaScript opens — `DZE_Prompts::print_assets()` — and the media modal.
+  **And the gate must DRAW THE SCREEN, not call the helper**: the first version
+  of this check called `bulk_assets()` itself, which proves the assets enqueue
+  and nothing about whether the screen ever asks for them — it stayed green on
+  the broken code, which is the exact fault it was written for.
+- **ONE TICK PER BLOCK — ON EVERY SCREEN THAT HAS BLOCKS.** The rule was kept
+  on the product toolbox and never carried to the bulk screen beside it: seven
+  text prompts, no way to take or drop the lot. "Pas de coche pour
+  activer/désactiver tout en même temps. Je t'avais pourtant dit de le faire.
+  Vérifie partout, ça doit être fait selon le même standard." `sec_open()`
+  takes it now, and it wears `.dze-sec-all` — the SAME class, so the one
+  handler in photos.js drives both screens and there is never a second one to
+  keep in step. Only where there is something to take ALL of: over a block
+  holding one checkbox it is a second control saying what the first already
+  says, which is what was removed from the images and price blocks.
 - **A SCREEN TAKEN OUT OF THE MENU MUST BE SHOWN BY WHATEVER TOOK IT OUT.**
   The product bulk screen's entry was removed whenever `DZE_Queue::owns_review()`
   — a host that never drew it — and the Content diagnostic's Products tab
