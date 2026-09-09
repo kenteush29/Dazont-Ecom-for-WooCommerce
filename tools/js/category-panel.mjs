@@ -109,7 +109,7 @@ for ( const [ label, jq ] of jqs ) {
 			// page itself and comes back as HTML — which is a screen where
 			// nothing happens and nothing is said.
 			+ `window.dzeCatContent={ajaxUrl:'http://dze.test/ajax',nonce:'n0nce',kwNonce:'k',home:'http://dze.test/',`
-			+ `i18n:{picked:'%s selected',before:'Before',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
+			+ `i18n:{picked:'%s selected',before:'Before',after:'After',nothingYet:'Nothing written yet',wl:'%1$s words · %2$s links',hide:'hide',show:'show',`
 			+ `wasEmpty:'This category had no description.',queuedShort:'Queued',linking:'Linking',working:'Writing',`
 			+ `review:'Look it over',error:'error',alreadyLinked:'already linked',showLinks:'%s links',external:'external'}};</script>`
 			+ `<script>${readFileSync( join( js, 'category-content.js' ), 'utf8' )}</script></head>`
@@ -244,6 +244,35 @@ for ( const [ label, jq ] of jqs ) {
 	// disagreeing with itself.
 	ok( 'and the count is not nought over a written page',
 		( await page.textContent( '#panel .dze-cc-diffwords' ) ).trim().startsWith( '0 words' ), false );
+	// BEFORE **AND** AFTER. The block was called "Before / after" and printed
+	// one document: "aucun avant/après juste un avant". On the category screen
+	// the new text lands in the Description field above, so the panel showed
+	// the old one and a "0 words · 0 links" that read as a broken screen.
+	ok( 'the block shows two documents',
+		await page.locator( '#panel .dze-cc-diff .dze-cb-nowbody' ).count(), 2 );
+	const labels = await page.evaluate( () => Array.from(
+		document.querySelectorAll( '#panel .dze-cc-diff .dze-cb-nowlabel' ) ).map( e => e.textContent.trim() ) );
+	ok( 'the first is what the category holds',  labels[0].startsWith( 'Before —' ), true );
+	ok( 'the second is what was written',        labels[1].startsWith( 'After —' ), true );
+	ok( 'each carrying its own figures',
+		labels[0] !== labels[1] && /\d+ words/.test( labels[1] ), true );
+	ok( 'and the after really holds the new text',
+		( await page.textContent( '#panel .dze-cc-diff .dze-cb-nowtext:nth-of-type(2) .dze-cb-nowbody' ) ).includes( 'Boonie hats' ), true );
+	// A WAY TO REFUSE. The handler has existed for months and the button was
+	// printed on neither screen.
+	// Reported, not fatal: a gate that dies on the button it is about says
+	// nothing about the checks after it.
+	const canRefuse = await page.locator( '#panel .dze-cc-revert' ).count();
+	ok( 'the panel offers to put it back',       canRefuse, 1 );
+	if ( canRefuse ) {
+		await page.click( '#panel .dze-cc-revert' );
+		await page.waitForTimeout( 150 );
+	}
+	// It puts back what the panel was opened on — captured when the popup
+	// opens, which this harness does not replay, so what is asserted here is
+	// the refusal itself: what was generated is gone.
+	ok( 'and pressing it drops what was written',
+		( await page.inputValue( '#dze-cc-editor' ) ).includes( '<a href' ), false );
 	// AND NOTHING WAS RAISED ON THE WAY. This is the check that would have
 	// caught it on the day: one TypeError on the first link killed every line
 	// after it in that handler, and the screen simply stopped moving.

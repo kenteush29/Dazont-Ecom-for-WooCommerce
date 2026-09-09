@@ -422,16 +422,26 @@
 			.done(function (res) {
 				if (!res || !res.success) { $wrap.hide(); return; }
 				var d = res.data;
+				// BEFORE **AND** AFTER. The block was called "Before / after"
+				// and printed ONE document: the new text was somewhere else
+				// entirely — in the Description field above, on the category
+				// screen — and the header's "0 words · 0 links" was the only
+				// trace of it. "Aucun avant/après juste un avant."
+				var doc = function (label, count, html, empty) {
+					return '<div class="dze-cb-nowtext">' +
+						'<span class="dze-cb-nowlabel">' + esc(label) + ' — ' + esc(count) + '</span>' +
+						'<div class="dze-cb-nowbody">' + (html || '<p>' + esc(empty) + '</p>') + '</div>' +
+					'</div>';
+				};
+				var made = d.words[1] || d.links[1] || (d.after || '').replace(/<[^>]*>/g, '').trim();
 				$out.html(
-					'<div class="dze-cb-nowtext">' +
-						'<span class="dze-cb-nowlabel">' + esc(i18n.before) + ' — ' +
-							esc(sprintf(i18n.wl, d.words[0], d.links[0])) + '</span>' +
-						'<div class="dze-cb-nowbody">' +
-							(d.before || '<p>' + esc(i18n.wasEmpty) + '</p>') +
-						'</div>' +
-					'</div>'
+					doc(i18n.before, sprintf(i18n.wl, d.words[0], d.links[0]), d.before, i18n.wasEmpty) +
+					doc(i18n.after, made ? sprintf(i18n.wl, d.words[1], d.links[1]) : i18n.nothingYet, d.after, i18n.nothingYet)
 				);
-				$box.find('.dze-cc-diffwords').text(sprintf(i18n.wl, d.words[1], d.links[1]));
+				// The heading carries the state of what you would SAVE, and
+				// says it in words when there is nothing: a bare "0 words · 0
+				// links" over a written page reads as a broken screen.
+				$box.find('.dze-cc-diffwords').text(made ? sprintf(i18n.wl, d.words[1], d.links[1]) : i18n.nothingYet);
 			})
 			.fail(function () { $wrap.hide(); });
 	}

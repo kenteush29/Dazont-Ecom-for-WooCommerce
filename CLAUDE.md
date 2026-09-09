@@ -310,6 +310,19 @@ owner communicates in French.
   sent with it (0)", printed straight underneath. Name the thing you are
   about to rewrite.
 
+- **A BLOCK CALLED "BEFORE / AFTER" PRINTS BOTH.** It printed one document —
+  the before — and put the after's figures in its heading, so on the category
+  edit screen, where the new text lands in WordPress's own Description field
+  further up, the panel showed the OLD text and "0 words · 0 links": "aucun
+  avant/après juste un avant". `ajax_diff()` had been returning `after` all
+  along and `i18n.after` was registered and never used. Both documents are
+  printed now, each labelled with its own figures, and an empty after says
+  "Nothing written yet" rather than a nought that reads as a broken screen.
+  **And a screen that offers a decision offers the way to take it**: the
+  `.dze-cc-revert` handler had existed for months with the button printed on
+  neither host — "rien pour accepter les modifs, modifier les modifs, ou les
+  refuser". Accept is the shop's own Save (the popup) or WooCommerce's Update
+  (the edit screen), and the refusal is beside it on both.
 - **A HANDLER THAT THROWS HALFWAY STOPS THE SCREEN, AND SAYS NOTHING.**
   "Before / after — hide — 0 words · 0 links. Pour le netlinking je ne
   comprends pas, je ne vois pas le texte actuel." The linked text arrived in
