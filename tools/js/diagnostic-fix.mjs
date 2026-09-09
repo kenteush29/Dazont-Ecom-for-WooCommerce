@@ -215,6 +215,27 @@ for ( const [ label, jq ] of jqs ) {
 		await page.evaluate( () => Array.from( document.querySelectorAll( 'tbody a[href]' ) )
 			.some( a => /page=dazont-ecom-ai|tab=(categories|automation|lab)/.test( a.href ) ) ), false );
 
+	// THE FILTER, on the page a browser actually builds. Two things only a
+	// browser can answer: that the menu is really there with its figures, and
+	// that its form has not SWALLOWED the bulk form printed after it — nested
+	// forms are dropped by the parser, and the bulk selection would post
+	// nothing while every PHP string check went on passing.
+	ok( 'the list can be filtered by category',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-diag-cat option' ) ).map( o => o.textContent.trim() ) ),
+		[ 'All categories (2)', 'Backpacks (1)', 'Tactical gear (2)' ] );
+	ok( 'and the bulk form is still its own',
+		await page.evaluate( () => {
+			const f = document.querySelector( 'form.dze-diag-filter' );
+			const b = document.querySelector( '#dze-diag-bulk' );
+			return !! f && !! b && ! f.contains( b );
+		} ), true );
+	// A GET FORM IS TESTED ON WHERE IT GOES. Pressing Filter must come back to
+	// this same criterion and this same tab, never to another list.
+	ok( 'filtering comes back to this criterion',
+		await page.evaluate( () => Object.fromEntries(
+			Array.from( document.querySelectorAll( 'form.dze-diag-filter input[type="hidden"]' ) ).map( i => [ i.name, i.value ] ) ) ),
+		{ page: 'dazont-ecom-diagnostic', check: 'prod_gallery', show: 'todo', by: 'found', dir: 'desc' } );
+
 	// WHAT EACH ROW IS SHORT OF, said on the row itself. A list that only
 	// names the products leaves the reader to open each one to learn how far
 	// off it is — and how far off it is decides which to do first.

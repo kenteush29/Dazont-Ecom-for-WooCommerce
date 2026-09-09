@@ -1281,7 +1281,7 @@ trait DZE_Content_Ajax {
 			// the shot this colour already has: then image 1 is the product and
 			// the rest is context, which is a different sentence entirely.
 			$subject_first = ( '' !== $src ) || ( ! empty( $pastes ) && ! $ref_n ) || ( '' !== $v_value && $v_own );
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first, $ref_n );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first, $ref_n, '' !== $src );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
