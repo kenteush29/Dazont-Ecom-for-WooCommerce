@@ -3352,6 +3352,10 @@ Answer with STRICT JSON and nothing else: "
 		if ( $ids ) {
 			_prime_post_caches( $ids, false, true );
 		}
+		// A CROSS-MODULE SURFACE IS GATED ON THE MODULE, never on the class: a
+		// class file always exists. Asked once for the page, not once a row.
+		$dze_reads = class_exists( 'DZE_Diagnostic' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) );
 		// Same again for the photographs, before any image URL is asked for.
 		$thumbs = [];
 		foreach ( $ids as $pid ) {
@@ -3378,6 +3382,22 @@ Answer with STRICT JSON and nothing else: "
 				'full'  => $thumb_id ? (string) wp_get_attachment_image_url( $thumb_id, 'full' ) : '',
 				'cost'  => self::product_cost( $product ),
 			];
+			// WHAT THIS PRODUCT IS SHORT OF, on its own row. "Sur l'écran bulk
+			// tu vas ajouter le diagnostic qui le concerne, pour qu'on sache
+			// facilement quoi générer." The reading belongs to the PRODUCT —
+			// `DZE_Diagnostic::todo()` is the same answer the toolbox and the
+			// problem list print, so three screens can never say three
+			// different things about one product.
+			//
+			// The key is ABSENT when there is no reading to be had, and an
+			// empty ARRAY when the product is short of nothing: those are two
+			// different answers, and one line of markup cannot carry both.
+			if ( $dze_reads ) {
+				$out[ array_key_last( $out ) ]['short'] = array_map(
+					static fn( array $one ): string => (string) $one['said'],
+					(array) DZE_Diagnostic::todo( $pid )
+				);
+			}
 		}
 		$this->bulk_products_cache = $out;
 		return $out;
@@ -3954,6 +3974,16 @@ Answer with STRICT JSON and nothing else: "
 						</td>
 						<td>
 							<a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a>
+							<?php // The same sentences the diagnostic prints, on the row you are about to tick — so what to generate is read here rather than looked up on another screen. ?>
+							<?php if ( isset( $p['short'] ) ) : ?>
+								<div class="dze-cb-short<?php echo $p['short'] ? '' : ' is-ok'; ?>">
+									<?php
+									echo $p['short']
+										? esc_html( implode( ' · ', (array) $p['short'] ) )
+										: esc_html__( 'Nothing missing', 'dazont-ecom' );
+									?>
+								</div>
+							<?php endif; ?>
 							<div class="dze-cb-badges"></div>
 						</td>
 						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>

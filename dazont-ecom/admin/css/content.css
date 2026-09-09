@@ -1388,3 +1388,8 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 	font-size: 11px; line-height: 18px; text-align: center; font-weight: 600;
 }
 .nav-tab-active .dze-tab-n { background: #2271b1; color: #fff; }
+
+/* WHAT A PRODUCT IS SHORT OF, on its own row of the bulk screen — the same
+   sentences the diagnostic prints, so the two screens never disagree. */
+.dze-cb-short { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: #b32d2e; }
+.dze-cb-short.is-ok { color: #646970; }
