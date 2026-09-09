@@ -770,11 +770,14 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cc-picker { background: #f6f7f7; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
 .dze-cc-picklist { margin: 0 0 8px; max-height: 230px; overflow-y: auto; }
 .dze-cc-picklist li { margin: 0; padding: 2px 0; font-size: 13px; }
-.dze-cc-picklist label { display: block; }
+/* Shift-click takes a range, and a range drag must not paint the labels blue
+   on the way: the gesture is a selection of ROWS, not of text. */
+.dze-cc-picklist label { display: block; -webkit-user-select: none; user-select: none; }
 .dze-cc-pick-kind { color: #646970; font-size: 11px; margin-left: 6px; }
 .dze-cc-pick-done { color: #0a7040; font-size: 11px; margin-left: 6px; }
 .dze-cc-pick-loose { color: #a7aaad; font-size: 11px; margin-left: 6px; font-style: italic; }
 .dze-cc-pickcount { margin-left: 8px; }
+.dze-cc-pickhint { margin-left: 10px; }
 /* Missing-data alert: visible without being a wall of red. */
 .dze-cc-warn {
 	background: #fcf3cd; border-left: 4px solid #dba617; border-radius: 2px;

@@ -1803,6 +1803,8 @@ PROMPT;
 					<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_links' ); } ?>
 					<button type="button" class="button-link dze-cc-pickall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
 					<button type="button" class="button-link dze-cc-picknone"><?php esc_html_e( 'Clear', 'dazont-ecom' ); ?></button>
+					<?php // A gesture nobody is told about is a gesture nobody has: thirty rows were ticked one at a time. Said where the ticking happens, in four words. ?>
+					<span class="dze-cc-pickhint description"><?php esc_html_e( 'Shift-click takes a range.', 'dazont-ecom' ); ?></span>
 					<span class="dze-cc-pickcount description"></span>
 				</p>
 			</div>
