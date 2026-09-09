@@ -1046,6 +1046,13 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* The current content is shown AS CONTENT: the admin stylesheet strips list
    markers and heading sizes, so a description pasted in raw came out as a
    grey run-on paragraph with its bullets missing. */
+/* WHAT THE PRODUCT HOLDS TODAY, above what was written for it. It wears the
+   same block shell as the generated fields so one gesture opens both, and it
+   is quieter than they are: this half is what IS, not what is proposed. */
+.dze-cb-today { margin: 0 0 10px; }
+.dze-cb-fblock.is-today { background: #fbfbfc; }
+.dze-cb-fblock.is-today .dze-cb-fname { font-weight: 500; color: #50575e; }
+.dze-cb-fblock.is-today .dze-cb-fbody { padding: 6px 10px 10px 26px; }
 .dze-cb-nowbody { font-size: 12px; line-height: 1.6; color: #50575e; }
 .dze-cb-nowbody p { margin: 0 0 .6em; }
 .dze-cb-nowbody ul, .dze-cb-nowbody ol { margin: 0 0 .6em 1.6em; padding: 0; }

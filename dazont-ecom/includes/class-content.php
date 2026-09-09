@@ -3753,6 +3753,16 @@ Answer with STRICT JSON and nothing else: "
 					/* translators: %s: number of IDs */
 					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
+					// The two words the row's one button wears, and the two
+					// headings of the panel it opens. In PHP, like every other
+					// status word: hard-coded in the JavaScript they were
+					// English on every shop.
+					'look'     => __( 'Look', 'dazont-ecom' ),
+					'reviewWord' => __( 'Review', 'dazont-ecom' ),
+					'lookTip'  => __( 'The photographs and the text this product holds today — and the box for photographs pasted from outside the shop.', 'dazont-ecom' ),
+					'reviewTip' => __( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ),
+					'todayText' => __( 'Text on the product today', 'dazont-ecom' ),
+					'todayNone' => __( 'This field is empty on the product.', 'dazont-ecom' ),
 					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
 					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered. The product stays on the list, back at nothing generated, and the refusal is filed under Done.', 'dazont-ecom' ),
 					// A block that could not be read says so, and offers to try
@@ -4121,8 +4131,17 @@ Answer with STRICT JSON and nothing else: "
 							<span class="dze-cb-state is-wait" title="<?php esc_attr_e( 'Waiting', 'dazont-ecom' ); ?>">○</span>
 							<span class="dze-cb-rowbar"><i></i></span>
 							<span class="dze-cb-rowpct"></span>
-							<button type="button" class="button button-small dze-cb-toggle" style="display:none;" aria-expanded="false" title="<?php esc_attr_e( 'Open the generated content in the WordPress editor, and choose which images to keep.', 'dazont-ecom' ); ?>">
-								<?php esc_html_e( 'Review', 'dazont-ecom' ); ?> <span class="dze-cb-caret">▾</span>
+							<!-- ONE CLICK TO SEE WHAT THE PRODUCT HOLDS TODAY. This
+							     button only appeared once something had been
+							     generated, so choosing what to generate meant
+							     opening each product in another tab: "ici sur cette
+							     page je manque d'une option pour visualiser en un
+							     clic le contenu actuel des produits." It is on every
+							     row now, and says which of the two things it opens
+							     on — the product as it stands, or the work waiting
+							     for a decision. -->
+							<button type="button" class="button button-small dze-cb-toggle" aria-expanded="false" title="<?php esc_attr_e( 'The photographs and the text this product holds today — and the box for photographs pasted from outside the shop.', 'dazont-ecom' ); ?>">
+								<span class="dze-cb-toggleword"><?php esc_html_e( 'Look', 'dazont-ecom' ); ?></span> <span class="dze-cb-caret">▾</span>
 							</button>
 							<!-- The same two words as the bar above, on the line they act
 							     on. A tick, a cross and a bin in a row said three things

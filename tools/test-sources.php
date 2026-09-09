@@ -188,6 +188,9 @@ if ( in_array( '--dump-bulk', (array) $argv, true ) ) {
 			[ 'id' => 'ugc', 'name' => 'Customer photo', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => '' ],
 			[ 'id' => 'slate', 'name' => 'On slate', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => 'Slate' ],
 			[ 'id' => 'desc', 'name' => 'Description', 'type' => 'text', 'output' => 'post_content', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1 ],
+			// A second text field, so the browser gate can open one the product
+			// holds and one it does not: an empty field must SAY it is empty.
+			[ 'id' => 'short', 'name' => 'Short description', 'type' => 'text', 'output' => 'post_excerpt', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1 ],
 		],
 	];
 	$GLOBALS['dze_list'] = [ 7, 8 ];
