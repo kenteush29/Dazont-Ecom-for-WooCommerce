@@ -1046,7 +1046,16 @@ final class DZE_Mesh {
 			'read'     => __( 'Read the site again', 'dazont-ecom' ),
 			'looking'  => __( 'Looking for the pages that belong next to it…', 'dazont-ecom' ),
 			'sending'  => __( 'Sending…', 'dazont-ecom' ),
-			'sent'     => __( 'Sent to the writing queue — it comes back on the To review tab.', 'dazont-ecom' ),
+			// WHAT PRESSING IT ACTUALLY DOES, said in full. "Que se passe-t-il
+			// quand je clique sur Place the selected links ? J'aimerais voir le
+			// résultat avant qu'il soit appliqué, de telle façon que je puisse
+			// régler le prompt au mieux." Nothing is written on the site by
+			// this press — and the screen has to say so, and offer the way to
+			// the text when it is ready, rather than naming a tab to go and
+			// find.
+			'sent'     => __( 'Sent to the writing queue. Nothing is on the site yet: the text is written there, then waits for your yes or no.', 'dazont-ecom' ),
+			'reviewGo' => __( 'Content to review ↗', 'dazont-ecom' ),
+			'reviewUrl' => class_exists( 'DZE_Queue' ) ? DZE_Queue::url() : '',
 			'nopick'   => __( 'Tick at least one page.', 'dazont-ecom' ),
 			'none'     => __( 'No page on this site is close enough to link to it. It needs a page written about its subject.', 'dazont-ecom' ),
 			'words'    => __( 'Chosen on wording alone — the writing key is not set, so nothing read these pages.', 'dazont-ecom' ),

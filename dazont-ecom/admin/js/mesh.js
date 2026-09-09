@@ -96,7 +96,7 @@
 			post( 'dze_mesh_queue', { to: $panel.prev( 'tr' ).data( 'key' ), from: from } )
 				.done( function ( res ) {
 					if ( res && res.success ) {
-						$said.text( L.sent );
+						$said.empty().append( sentSaid() );
 						$panel.find( '.dze-mesh-list' ).remove();
 						$b.remove();
 					} else {
@@ -110,6 +110,19 @@
 				} );
 		} );
 
+	// WHAT THE PRESS DID, and the way to what it produced. The sentence named
+	// a tab and left the shop to go and find it; the text it is about is one
+	// click away and takes nothing open here with it.
+	function sentSaid() {
+		var $s = $( '<span class="description"></span>' ).text( L.sent );
+		if ( L.reviewUrl ) {
+			$s.append( ' ' ).append(
+				$( '<a></a>' ).attr( { href: L.reviewUrl, target: '_blank', rel: 'noopener' } ).text( L.reviewGo )
+			);
+		}
+		return $s;
+	}
+
 		$( '#dze-mesh-ends' ).on( 'click', '.dze-mesh-out', function () {
 			var $b = $( this );
 			var $row = $b.closest( 'tr' );
@@ -117,9 +130,9 @@
 			post( 'dze_mesh_out', { key: $row.data( 'key' ) } )
 				.done( function ( res ) {
 					$b.replaceWith(
-						$( '<span class="description"></span>' ).text(
-							res && res.success ? L.sent : ( ( res && res.data && res.data.message ) || L.failed )
-						)
+						res && res.success
+							? sentSaid()
+							: $( '<span class="description"></span>' ).text( ( res && res.data && res.data.message ) || L.failed )
 					);
 				} )
 				.fail( function () {

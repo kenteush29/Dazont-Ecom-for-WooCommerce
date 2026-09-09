@@ -44,6 +44,26 @@ function update_option( $k, $v, $a = null ) { $GLOBALS['dze_opts'][ $k ] = $v; r
 /** Enough of the settings page for the block's link to have somewhere to go. */
 class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; }
 
+/**
+ * A module that owns a prompt, and appends words to it.
+ *
+ * "Aucune autre instruction cachée ne devrait exister." An image request
+ * carries several photographs and something has to name them, which the
+ * prompt cannot do — it does not know how many the run attaches. That note is
+ * legitimate; it being invisible was not. So whatever a module appends, this
+ * block prints it word for word.
+ */
+class DZE_Category_Content {
+	public static function prompt_data( string $id ): array {
+		return [ 'The category and what it holds.' ];
+	}
+	public static function prompt_note( string $id ): string {
+		return "IMAGES 1 TO 3 ARE ONE SINGLE PRODUCT.\n<b>not markup</b>";
+	}
+	public static function prompt(): string { return ''; }
+	public static function default_prompt(): string { return ''; }
+}
+
 require __DIR__ . '/../' . $dir . '/includes/class-ai-usage.php';
 require __DIR__ . '/../' . $dir . '/includes/class-prompts.php';
 
@@ -68,7 +88,11 @@ ok( 'the block is drawn all the same',  false !== strpos( $html, 'What this prom
 ok( 'and says so plainly',              false !== strpos( $html, 'never run yet' ), true );
 ok( 'with what to do about it',         false !== strpos( $html, 'Run this prompt once' ), true );
 ok( 'shut until it is opened',          false !== strpos( $html, '<details' ), true );
-ok( 'and no empty Sent block',          false !== strpos( $html, '<pre' ), false );
+// No empty Sent/Answer boxes — asked of those two boxes by name, because the
+// panel now also prints what the plugin APPENDS to this prompt, which is
+// worth reading before it has ever run and is not a call that never happened.
+ok( 'and no empty Sent block',          false !== strpos( $html, '>Sent<' ), false );
+ok( 'nor an empty Answer',              false !== strpos( $html, '>Answer<' ), false );
 
 echo "A prompt that has run\n";
 // Filed the way the trace files it: under the prompt found in what was sent.
@@ -85,6 +109,28 @@ ok( 'with how long ago and how long it took',
 	false !== strpos( $html, '10 mins ago' ) && false !== strpos( $html, '4.2s' ), true );
 ok( 'what went out is shown whole',     false !== strpos( $html, 'The category: Balaclavas.' ), true );
 ok( 'and what came back',               false !== strpos( $html, 'Ein Text' ), true );
+
+echo "What the plugin appends is on the screen, word for word\n";
+// A summary is not the text. This panel used to list "the product
+// photographs, as real images" while several hundred characters of note went
+// out under it, and the owner found them in a trace: "tu as encore ajouté des
+// instructions custom par dessus le prompt ?"
+$html = block( 'cat_desc' );
+ok( 'what travels with it is still said in a sentence',
+	false !== strpos( $html, 'The category and what it holds.' ), true );
+ok( 'and what is appended is shown as it is sent',
+	false !== strpos( $html, 'IMAGES 1 TO 3 ARE ONE SINGLE PRODUCT.' ), true );
+ok( 'named for what it is',
+	false !== strpos( $html, 'Appended after your instructions, word for word' ), true );
+ok( 'and it says why the prompt cannot do it itself',
+	false !== strpos( $html, 'do not know how many the run attaches' ), true );
+// It is TEXT on that page, like everything else read back into it.
+ok( 'the note reaches the page as text',  false !== strpos( $html, '&lt;b&gt;not markup&lt;/b&gt;' ), true );
+ok( 'never as markup',                    false !== strpos( $html, '<b>not markup</b>' ), false );
+// A prompt nothing is appended to prints no such block, rather than an empty
+// heading over nothing.
+ok( 'a prompt with no note has no block',
+	false !== strpos( block( 'translate' ), 'Appended after your instructions' ), false );
 
 echo "What a stored answer must never do to the page\n";
 // The answer is a model's text and the prompt is the shop's: both reach this

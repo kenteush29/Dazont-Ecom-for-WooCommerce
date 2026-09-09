@@ -1242,6 +1242,44 @@ EOT;
 		];
 	}
 
+	/**
+	 * THE NOTE THIS PROMPT IS APPENDED, WORD FOR WORD.
+	 *
+	 * "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça
+	 * t'est interdit. Le prompt est le gagnant. Il est bien rédigé, et aucune
+	 * autre instruction cachée ne devrait exister."
+	 *
+	 * He was right, and the answer is not a promise: an image request carries
+	 * several photographs, and something has to say what each of them IS — the
+	 * prompt cannot, because it does not know how many the run will attach or
+	 * in what order. That note is legitimate. It being INVISIBLE was not: the
+	 * screen listed three vague bullets ("the product photographs, as real
+	 * images") while several hundred characters went out under them.
+	 *
+	 * So it is printed, verbatim, on the prompt it is appended to. Whatever is
+	 * added here is read by the person whose instructions it is added to, and
+	 * anything he does not want can be pointed at.
+	 *
+	 * @param string $id The prompt id, as the catalog names it.
+	 * @return string The note, or '' for a prompt that is sent none.
+	 */
+	public static function prompt_note( string $id = '' ): string {
+		$row = 0 === strpos( $id, 'content_' ) ? substr( $id, strlen( 'content_' ) ) : '';
+		if ( '' === $row ) {
+			return '';
+		}
+		foreach ( self::registry() as $one ) {
+			if ( (string) ( $one['id'] ?? '' ) !== $row || ( $one['type'] ?? 'text' ) !== 'image' ) {
+				continue;
+			}
+			// The ordinary run: the product's own photographs, nothing pasted,
+			// no scene. What a scene, a pasted photograph or an earlier shot
+			// adds is one line naming that image, said beneath.
+			return trim( self::sources_instruction( self::source_cap(), null, 0, 0, false, 0 ) );
+		}
+		return '';
+	}
+
 	public static function prompt_for( string $field ): string {
 		$r = self::registry_row( $field );
 		return $r ? (string) ( $r['prompt'] ?? '' ) : '';
@@ -1329,7 +1367,7 @@ EOT;
 	 * @param int        $variants Photographs of OTHER COLOURS of the same
 	 *                          product, sent right after the product's own.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0, bool $editing = false ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0 ): string {
 		$out = "\n\n";
 		// SHORT, OR IT IS NOT READ. Every sentence here competes with the
 		// shop's own prompt for the model's attention, and this block had
@@ -1346,13 +1384,8 @@ EOT;
 				'IMAGES 1 TO %d ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not.',
 				$count
 			);
-		} elseif ( $editing ) {
-			// Editing one photograph that was handed in: giving it back
-			// changed IS the job, so this is the one run that may look like
-			// its source.
-			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is.';
 		} else {
-			$out .= 'IMAGE 1 IS THE PRODUCT: its colours, its pattern, its material and its markings are the ones to keep.';
+			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is.';
 		}
 		// THE PHOTOGRAPHS WIN OVER THE WORDS, ON EVERY RUN. Every image request
 		// carries the product's own data — its title, its description, its
@@ -1365,17 +1398,6 @@ EOT;
 		// photograph had been pasted or picked — which is the one case where
 		// the text was least likely to be believed anyway.
 		$out .= ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show. Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN: that text describes the product in general, these photographs are the one being made. A part left out of frame is a photograph; an invented one is a fake.';
-		// IDENTITY IS NOT THE PHOTOGRAPH, and until now only identity was ever
-		// asked for. Four sentences above say "keep it exactly", "reproduce it
-		// exactly", "the photographs win" — and not one said what the run is
-		// FOR. So the cheapest way to obey all of them is to hand image 1
-		// back: "maintenant des doublons exactement comme l'image principale."
-		// The sentence that says a new photograph is being made is the missing
-		// half of the rule, not a fifth way of saying the same one — and it is
-		// never sent on an edit, where returning that image changed is the job.
-		if ( ! $editing ) {
-			$out .= ' Make a NEW photograph of it: never hand one of the photographs above back, and never a near-copy of one.';
-		}
 		// The other colours of the same product. They say what the shape, the
 		// cut and the details are — and nothing at all about the colour of the
 		// one being made, which is the whole reason they have to be named
@@ -1442,7 +1464,11 @@ EOT;
 			// paints its own over it — and, asked for "contact shadows" on a
 			// product that touches nothing, drops a large dark smear behind it.
 			$out .= "\nThe result must look like ONE photograph: the same perspective and the same light in the product as in the scene.";
-			$out .= "\nThe background is the scene image and only it: its colour, its gradient and its own shadow are kept as they are. Do not paint another background over it, do not darken it, do not add a vignette, and ignore any background described in words above.";
+			// "Ignore any background described in words above" used to end this
+			// line: the plugin telling the model to disregard the shop's own
+			// prompt. Whatever else is appended here, nothing may overrule the
+			// instructions it is appended to.
+			$out .= "\nThe background is the scene image and only it: its colour, its gradient and its own shadow are kept as they are. Do not paint another background over it, do not darken it, do not add a vignette.";
 			$out .= "\nSHADOW: if the scene already shows a shadow on its surface, use that one and add no other. Otherwise, one soft ellipse directly under the product, no wider than the product, gone within a short distance. Never a large diffuse dark area behind, beside or around the product, and never two shadows.";
 		}
 		return $out;

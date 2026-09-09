@@ -44,6 +44,11 @@ function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; retur
 function get_transient( $k ) { return false; }
 function set_transient( ...$a ) { return true; }
 function is_admin() { return true; }
+// Enough of WordPress for the prompt registry to answer, so the note the
+// SCREEN shows is read from the registry the shop actually holds.
+function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
+function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
+function wp_parse_args( $a, $d = [] ) { return array_merge( (array) $d, (array) $a ); }
 $GLOBALS['opts'] = [];
 
 // The class is split across a trait; both halves are the shipped files, never
@@ -104,27 +109,41 @@ $refs = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1 );
 ok( 'a reference is named as the setting',
 	false !== strpos( $refs, 'IS A REFERENCE YOU WERE HANDED' ), true );
 
-echo "\nA new photograph is being made, and that is said too\n";
-// "Maintenant des doublons exactement comme l'image principale." Everything in
-// this block asked for IDENTITY — keep it exactly, reproduce it exactly, the
-// photographs win — and nothing ever said what the run was FOR. The cheapest
-// way to obey all of it at once is to hand image 1 straight back.
-ok( 'an ordinary run asks for a new photograph',
-	false !== strpos( $plain, 'Make a NEW photograph of it' ), true );
-ok( 'and forbids handing a source back',
-	false !== strpos( $plain, 'never hand one of the photographs above back' ), true );
-ok( 'a single-photograph product too',
-	false !== strpos( DZE_Content::sources_instruction( 1, null, 0, 0, false, 0 ), 'Make a NEW photograph' ), true );
-ok( 'and it is not told to keep that one as it is',
-	false !== strpos( DZE_Content::sources_instruction( 1, null, 0, 0, false, 0 ), 'keep it exactly as it is' ), false );
-// THE ONE RUN THAT MAY LOOK LIKE ITS SOURCE: editing a photograph handed in.
-// Giving it back changed is the job there, and asking for something clearly
-// different would break the only lane that is supposed to copy.
-$edit = DZE_Content::sources_instruction( 1, null, 0, 0, false, 0, true );
-ok( 'an edit of one photograph keeps it as it is',
-	false !== strpos( $edit, 'keep it exactly as it is' ), true );
-ok( 'and is never asked for a new one',
-	false !== strpos( $edit, 'Make a NEW photograph' ), false );
+echo "\nNOTHING APPENDED MAY OVERRULE THE PROMPT\n";
+// "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça
+// t'est interdit. Le prompt est le gagnant. Il est bien rédigé, et aucune
+// autre instruction cachée ne devrait exister."
+//
+// Two sentences were doing exactly that, and one of them was worse than the
+// other: with a scene chosen, the plugin told the model to "ignore any
+// background described in words above" — the appended text disregarding the
+// instructions it is appended to.
+$scened = DZE_Content::sources_instruction( 3, [ 'image' => 9, 'prompt' => 'Slate surface' ], 0, 0, false, 0 );
+ok( 'nothing tells the model to ignore the prompt',
+	false !== strpos( $scened, 'ignore any background described in words above' ), false );
+ok( 'and nothing else says "ignore"',   substr_count( $scened, 'ignore' ), 0 );
+// The scene still does its own mechanical work: it IS the background, and the
+// shop's own words for that scene travel with it.
+ok( 'the scene is still named',         false !== strpos( $scened, 'IS THE SCENE' ), true );
+ok( "and the shop's own scene text travels", false !== strpos( $scened, 'Slate surface' ), true );
+// And the sentence added on top of the prompt in 4.322 is gone: an ordinary
+// run is told what the photographs ARE, not what to make of them.
+ok( 'no instruction of ours about what to make',
+	false !== strpos( $plain, 'Make a NEW photograph' ), false );
+
+echo "\nAnd what IS appended is on the screen, from the same function\n";
+// The panel used to say "the product photographs, as real images" — a summary
+// — while several hundred characters went out under it. It prints the note
+// itself now, and it must be READ from the sender, never written beside it,
+// or the screen and the request drift apart on the next edit.
+$shown = DZE_Content::prompt_note( 'content_img_main_image' );
+ok( 'an image prompt says what is appended to it', '' !== $shown, true );
+ok( 'word for word, from the one function that sends it',
+	$shown, trim( DZE_Content::sources_instruction( DZE_Content::source_cap(), null, 0, 0, false, 0 ) ) );
+ok( 'and a text prompt is appended none of it',
+	DZE_Content::prompt_note( 'content_title' ), '' );
+ok( 'nor is a prompt this module does not own',
+	DZE_Content::prompt_note( 'cat_desc' ), '' );
 
 echo "\nHow many photographs of the product go with a request\n";
 // A close-up of the fastenings, asked of a five-photograph product with two

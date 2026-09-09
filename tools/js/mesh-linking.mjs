@@ -55,7 +55,9 @@ const i18n = {
 	read: 'Read the site again',
 	looking: 'Looking for the pages that belong next to it…',
 	sending: 'Sending…',
-	sent: 'Sent to the writing queue — it comes back on the To review tab.',
+	sent: 'Sent to the writing queue. Nothing is on the site yet: the text is written there, then waits for your yes or no.',
+	reviewGo: 'Content to review ↗',
+	reviewUrl: 'http://dze.test/wp-admin/admin.php?page=dazont-ecom-diagnostic&tab=review',
 	nopick: 'Tick at least one page.',
 	none: 'No page on this site is close enough to link to it.',
 	words: 'Chosen on wording alone — the writing key is not set, so nothing read these pages.',
@@ -146,7 +148,22 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the press sends once', queued.length, 1 );
 	ok( 'naming the page that is short', queued[0].to, key );
 	ok( 'and only the pages still ticked', queued[0].from, [ 'product_cat:12' ] );
-	ok( 'the row says what happened', await page.locator( '.dze-mesh-said' ).innerText(), i18n.sent );
+	// WHAT THE PRESS DID, IN FULL. "Que se passe-t-il quand je clique sur Place
+	// the selected links ? J'aimerais voir le résultat avant qu'il soit
+	// appliqué." Nothing is written on the site by this press — the row has to
+	// say that, and offer the way to the text rather than naming a tab to go
+	// and find.
+	ok( 'the row says what happened',
+		( await page.locator( '.dze-mesh-said' ).innerText() ).includes( i18n.sent ), true );
+	ok( 'and that nothing is on the site yet',
+		( await page.locator( '.dze-mesh-said' ).innerText() ).includes( 'Nothing is on the site yet' ), true );
+	// A LINK IS TESTED ON ITS DESTINATION — and asked for with a bound, so a
+	// row that offers none is REPORTED rather than killing the run on a
+	// thirty-second wait for something that is not coming.
+	const said = page.locator( '.dze-mesh-said a' );
+	const at = async attr => said.getAttribute( attr, { timeout: 3000 } ).catch( () => 'the row offered no link' );
+	ok( 'it offers the way to what was produced', await at( 'href' ), i18n.reviewUrl );
+	ok( 'in a new tab, so this reading is not lost', await at( 'target' ), '_blank' );
 	ok( 'the choice is gone once it is sent', await page.locator( '.dze-mesh-send' ).count(), 0 );
 	ok( 'and the page still did not move', [ navigated, await still() ], [ stood, 'here' ] );
 
