@@ -459,6 +459,20 @@ owner communicates in French.
   that is real but under half a point reads "<1%", never "0%", which is a
   figure saying the opposite of what it means.
 
+- **A FILTER ONLY ANSWERS WHERE ITS PLUGIN'S HOOKS ARE LOADED; A TABLE ANSWERS
+  EVERYWHERE.** Naming WPML's taxonomy correctly (`tax_product_cat` + the term
+  taxonomy id) fixed the categories and left the count at 780: posts and pages
+  were narrowed by `wpml_element_language_details` too, and the mesh reading
+  runs in an AJAX action and in cron, where WPML's hooks are NOT loaded. Every
+  filter came back empty, empty fell through to "the shop's own language", and
+  every translation passed for an English page. `DZE_Wpml::ids_in_language()`
+  reads WPML's own table — one query per element type instead of a filter call
+  per object, and it answers in every request. NULL from it means "do not
+  narrow", never "narrow to nothing": a shop with one language keeps every
+  page it has. This is the same trap the Klaviyo links hit with
+  `wpml_object_id`; when a reading must be right outside a page load, ask the
+  table.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
