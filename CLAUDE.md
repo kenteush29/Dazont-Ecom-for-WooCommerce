@@ -398,6 +398,36 @@ owner communicates in French.
   whole banner sideways once a second; nowrap, or the count breaks over two
   lines on a phone.
 
+- **A FAILED LOOKUP IS NOT AN ANSWER.** The update checker cached a release
+  carrying the SHOP'S OWN version whenever GitHub could not be reached — so
+  for the next half hour every check read that back and said "Up to date" with
+  total confidence, having never spoken to anybody. Not being able to look and
+  being current must never wear the same words. The failure is remembered (so
+  GitHub is not hammered) AS a failure, and the answer names the CHANNEL it
+  looked at: "up to date" is true of the stable channel and says nothing about
+  the development builds beside it. **And the release pipeline has two
+  dispatches, not one**: three versions in a row went out as development
+  pre-releases only, because `release-dazont.yml` on `Live-plugin` was never
+  dispatched. Pushing the branch is not releasing it — check
+  `list_releases` and see the stable tag before saying a version shipped.
+- **ONE TASK FOR ONE PIECE OF WORK.** Internal linking was two automation
+  tasks — one for categories, one for articles — each mending half a mesh from
+  its own half-blind reading, and the shop had to switch on both and know why.
+  It is `mesh_links` now: the link GRAPH says which page is short and who
+  should point at it, whatever kind of page either of them is, and the row
+  carries the addresses it chose so the pass writes THOSE links rather than
+  whatever the page would have picked on its own. The job it queues is still
+  `cat_links`/`post_links` — the pass that already writes that kind of page.
+  There is no third linking engine and there must never be one.
+- **WHICH PHOTOGRAPH, NOT WHETHER.** "Keep the product's own photograph as the
+  subject" was a checkbox answering a question nobody had asked, while the
+  real one — WHICH of its photographs — had no answer at all. It is a picker
+  now, on the images block and on the one-function popup's own tiles, and
+  picking one says both things: it is image 1, and anything pasted is read for
+  the place, the light and the styling. The server reads a picked photograph
+  as the subject (`$base_main || $src_id`), so the checkbox that used to say
+  that in words is gone from both screens.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
@@ -711,6 +741,9 @@ owner communicates in French.
   settings tab and nowhere else — that tab was a white page for six versions
   while every other screen worked. A fatal there happens before any of our own
   error handling, and a white page carries no message.
+- **`php tools/test-updater.php dazont-ecom` must pass.** What the update
+  check is allowed to say, and above all what it may not: "Up to date" is
+  never the answer to a lookup that failed.
 - **`php tools/test-category.php dazont-ecom`,
   `node tools/js/category-panel.mjs` and `php tools/test-transfer.php
   dazont-ecom` must pass.** The category panel rendered for real and its

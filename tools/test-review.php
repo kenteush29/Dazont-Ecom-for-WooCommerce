@@ -76,6 +76,11 @@ function get_term( $id, $tax = '' ) {
 		: null;
 }
 function update_term_meta( ...$a ) { return true; }
+function get_term_meta( $id, $k = '', $single = false ) { return $GLOBALS['tmeta'][ (int) $id ][ $k ] ?? ''; }
+function get_post_meta( $id, $k = '', $single = false ) { return $GLOBALS['pmeta'][ (int) $id ][ $k ] ?? ''; }
+function update_post_meta( ...$a ) { return true; }
+function wp_schedule_single_event( ...$a ) { return true; }
+function wp_remote_post( ...$a ) { $GLOBALS['kicked'][] = 1; return []; }
 function get_terms( $args = [] ) { return array_values( $GLOBALS['terms_all'] ?? [] ); }
 function get_term_link( $t ) {
 	$slug = strtolower( str_replace( ' ', '-', is_object( $t ) ? $t->name : (string) $t ) );
@@ -83,7 +88,7 @@ function get_term_link( $t ) {
 }
 function untrailingslashit( $s ) { return rtrim( (string) $s, '/' ); }
 function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
-function get_post( $id = 0 ) { return null; }
+function get_post( $id = 0 ) { return $GLOBALS['posts_all'][ (int) $id ] ?? null; }
 function wp_kses_post( $s ) { return (string) $s; }
 // Accepting a category description WRITES it: the harness records the write
 // rather than pretending it did not happen.
@@ -132,6 +137,9 @@ class DZE_Post_Links {
 /** The link graph, when the shop has read itself. */
 class DZE_Mesh {
 	public static function census(): array { return $GLOBALS['mesh_census'] ?? []; }
+	public static function plan( int $limit = 5 ): array {
+		return array_slice( $GLOBALS['mesh_plan'] ?? [], 0, $limit );
+	}
 }
 class DZE_Category_Content {
 	public const GEN_META = '_dze_desc_generated';
@@ -179,7 +187,15 @@ class DZE_Review_Wpdb {
 		$this->updates[] = [ 'data' => (array) $data, 'where' => (array) $where ];
 		return 1;
 	}
-	public function insert( ...$a ) { return 1; }
+	/** What the queue was actually asked to do. */
+	public function insert( $table, $row ) {
+		$GLOBALS['queued'][] = [
+			'kind'    => (string) ( $row['kind'] ?? '' ),
+			'id'      => (int) ( $row['object_id'] ?? 0 ),
+			'payload' => json_decode( (string) ( $row['payload'] ?? '' ), true ) ?: [],
+		];
+		return 1;
+	}
 }
 $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
 $GLOBALS['rows'] = [];
@@ -199,7 +215,15 @@ function ok( string $what, $got, $want ) {
 
 echo "No task writes to the shop without being looked at\n";
 $tasks = DZE_Automation::tasks();
-foreach ( [ 'cat_links', 'post_links', 'cat_desc', 'events' ] as $id ) {
+// ONE TASK FOR ONE PIECE OF WORK. Internal linking was two — one for
+// categories, one for articles — each mending half a mesh from its own
+// half-blind reading, and the shop had to switch on both and know why.
+ok( 'internal linking is one task',      isset( $tasks['mesh_links'] ), true );
+ok( 'not one per kind of page',
+	isset( $tasks['cat_links'] ) || isset( $tasks['post_links'] ), false );
+ok( 'and it belongs to the graph that ranks it',
+	(string) ( $tasks['mesh_links']['module'] ?? '' ), 'mesh' );
+foreach ( [ 'mesh_links', 'cat_desc', 'events' ] as $id ) {
 	ok( sprintf( '"%s" is held for review', (string) ( $tasks[ $id ]['label'] ?? $id ) ),
 		(int) ( $tasks[ $id ]['apply'] ?? 1 ), 0 );
 }
@@ -484,6 +508,56 @@ $GLOBALS['mesh_census'] = [];
 delete_transient( 'dze_auto_survey' );
 ok( 'no reading yet, and the old count stands',
 	(int) ( DZE_Automation::survey( true )['rows'][31]['in'] ?? -1 ), 1 );
+
+echo "The linking task writes the links the GRAPH chose\n";
+// A task that re-derives its own targets at run time is a task doing
+// something other than what the screen showed. The row travels with the id.
+$GLOBALS['mesh_plan'] = [
+	[ 'key' => 'product_cat:31', 'kind' => 'product_cat', 'id' => 31, 'name' => 'Tactical bags',
+		'urls' => [ 'http://shop.test/blog/12/', 'http://shop.test/category/boonie-hats/' ],
+		'why'  => '2 pages short of links point here' ],
+	[ 'key' => 'post:12', 'kind' => 'post', 'id' => 12, 'name' => 'How to choose a backpack',
+		'urls' => [ 'http://shop.test/category/tactical-bags/' ], 'why' => 'one page short of links points here' ],
+];
+$GLOBALS['terms'][31] = '<p>' . str_repeat( 'word ', 200 ) . '</p>';
+$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ] ] ];
+$GLOBALS['queued'] = [];
+$dze_pick = DZE_Automation::shortlist( 'mesh_links', 2 );
+ok( 'the task takes its work from the graph', count( $dze_pick ), 2 );
+ok( 'and each row says what it would gain',
+	(string) ( $dze_pick[0]['why'] ?? '' ), '2 pages short of links point here' );
+$dze_res = DZE_Automation::run( 'mesh_links', 31, $dze_pick[0] );
+ok( 'a category goes to the category pass',  (string) ( $GLOBALS['queued'][0]['kind'] ?? '' ), 'cat_links' );
+ok( 'on that category',                      (int) ( $GLOBALS['queued'][0]['id'] ?? 0 ), 31 );
+ok( 'carrying the addresses the graph chose',
+	(array) ( $GLOBALS['queued'][0]['payload']['urls'] ?? [] ),
+	[ 'http://shop.test/blog/12/', 'http://shop.test/category/boonie-hats/' ] );
+ok( 'and it says it queued something',       (int) $dze_res['queued'], 1 );
+// AND THE REAL SEQUENCE, not the two halves called by hand: a tick picks the
+// row and runs it, and what lands in the queue is what the graph chose. The
+// test that only calls run() proves run() works and nothing about whether the
+// decision survives the trip.
+$GLOBALS['queued'] = [];
+$GLOBALS['tmeta']  = [];
+$GLOBALS['pmeta']  = [];
+DZE_Automation::tick( 'mesh_links', true );
+ok( 'a tick queues one page',                count( $GLOBALS['queued'] ), 1 );
+ok( 'and the addresses survived the trip',
+	(array) ( $GLOBALS['queued'][0]['payload']['urls'] ?? [] ),
+	[ 'http://shop.test/blog/12/', 'http://shop.test/category/boonie-hats/' ] );
+
+// The SAME task, on an article, goes to the article pass — one task, both
+// kinds of page, no second engine.
+$GLOBALS['queued'] = [];
+$GLOBALS['posts_all'][12] = (object) [ 'ID' => 12, 'post_title' => 'How to choose a backpack', 'post_content' => '<p>' . str_repeat( 'word ', 200 ) . '</p>' ];
+DZE_Automation::run( 'mesh_links', 12, $dze_pick[1] );
+ok( 'an article goes to the article pass',   (string) ( $GLOBALS['queued'][0]['kind'] ?? '' ), 'post_links' );
+// A ROW WITH NOTHING TO ADD QUEUES NOTHING, rather than falling through to
+// "whatever this page would have linked to on its own".
+$GLOBALS['queued'] = [];
+$dze_none = DZE_Automation::run( 'mesh_links', 999, [ 'kind' => 'post', 'urls' => [] ] );
+ok( 'nothing chosen, nothing queued',        $GLOBALS['queued'], [] );
+ok( 'and it says why',                       (string) $dze_none['reason'], 'none' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

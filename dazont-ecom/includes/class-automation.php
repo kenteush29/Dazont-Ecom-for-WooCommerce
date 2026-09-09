@@ -104,8 +104,8 @@ final class DZE_Automation {
 		}
 		$old = is_array( $old ) ? $old : [];
 		$new = self::settings();
-		if ( empty( $new['tasks']['cat_links'] ) ) {
-			$new['tasks']['cat_links'] = [
+		if ( empty( $new['tasks']['mesh_links'] ) ) {
+			$new['tasks']['mesh_links'] = [
 				'on'      => empty( $old['on'] ) ? 0 : 1,
 				'per_day' => max( 1, min( 20, (int) ( $old['per_day'] ?? 3 ) ) ),
 				'apply'   => 0,
@@ -137,7 +137,7 @@ final class DZE_Automation {
 		update_option( 'dze_auto_review_default', '1', false );
 		$s = self::settings();
 		$touched = false;
-		foreach ( [ 'cat_links', 'post_links' ] as $id ) {
+		foreach ( [ 'mesh_links', 'cat_links', 'post_links' ] as $id ) {
 			if ( isset( $s['tasks'][ $id ] ) && ! empty( $s['tasks'][ $id ]['apply'] ) ) {
 				$s['tasks'][ $id ]['apply'] = 0;
 				$touched = true;
@@ -163,25 +163,19 @@ final class DZE_Automation {
 	 */
 	public static function tasks(): array {
 		return [
-			'cat_links' => [
-				'label'   => __( 'Internal links on categories', 'dazont-ecom' ),
-				'what'    => __( 'Runs the "Add internal links only" pass on the category the rest of the shop points at least, among those under their link target. The text is left exactly as it is — only links are added.', 'dazont-ecom' ),
-				'module'  => 'category_content',
-				'scope'   => 'category',
-				'kind'    => 'cat_links',
+			// ONE TASK FOR ONE PIECE OF WORK. Internal linking was two tasks —
+			// one for categories, one for articles — each mending half a mesh
+			// from its own half-blind reading, and the shop had to switch on
+			// both and know why. It is the link GRAPH that says which page is
+			// short and who should point at it, whatever kind of page either
+			// of them is: "une tâche automatisable qui va maintenir le site à
+			// jour. On l'active et il fait le travail."
+			'mesh_links' => [
+				'label'   => __( 'Internal linking', 'dazont-ecom' ),
+				'what'    => __( 'Keeps the site woven together. Each pass takes the pages the link graph says nobody points at, works out which pages should point at them, and writes those links into the pages that should carry them — a category description, an article, a page. It never writes into a page laid out by a page builder, whose text is not in the post, and it never invents a link on a page that has nothing to say about the subject. Switch it on and it works through the site a few pages a day, then keeps up with whatever is published next.', 'dazont-ecom' ),
+				'module'  => 'mesh',
+				'scope'   => 'mesh',
 				'per_day' => 3,
-				// Held for review, like everything else. It used to save
-				// straight to the shop, which is a function delegated whole —
-				// and nothing here is, until the shop says so on this screen.
-				'apply'   => 0,
-			],
-			'post_links' => [
-				'label'   => __( 'Internal links in articles and pages', 'dazont-ecom' ),
-				'what'    => __( 'The same pass, the other way round: an article that points at nothing is half a mesh. Candidates are the published articles and pages carrying fewer links than their length calls for, and the targets are the product categories their subject actually touches, then the neighbouring articles. It uses the internal-linking prompt from the Categories tab.', 'dazont-ecom' ),
-				'module'  => 'category_content',
-				'scope'   => 'post',
-				'kind'    => 'post_links',
-				'per_day' => 2,
 				'apply'   => 0,
 			],
 			'cat_desc'  => [
@@ -488,7 +482,44 @@ final class DZE_Automation {
 		if ( 'shop' === $scope ) {
 			return self::shop_shortlist( $id );
 		}
+		if ( 'mesh' === $scope ) {
+			return self::mesh_shortlist( $id, $n );
+		}
 		return 'post' === $scope ? self::post_shortlist( $id, $n ) : self::cat_shortlist( $id, $n );
+	}
+
+	/**
+	 * The pages the link graph says should carry a new link, and to what.
+	 *
+	 * The row keeps what the mesh decided — which targets, by their address —
+	 * so the pass writes THOSE links and not whatever the page would have
+	 * chosen on its own, which is a different question with a different
+	 * answer. The plan is asked once here and carried, never rebuilt from an
+	 * integer halfway through.
+	 */
+	private static function mesh_shortlist( string $id, int $n ): array {
+		if ( ! class_exists( 'DZE_Mesh' ) ) {
+			return [];
+		}
+		$cool = time() - self::COOLDOWN * DAY_IN_SECONDS;
+		$out  = [];
+		foreach ( DZE_Mesh::plan( max( 1, $n ) * 3 ) as $row ) {
+			$type = 'product_cat' === $row['kind'] ? 'term' : 'post';
+			if ( self::cooling( (int) $row['id'], $id, $type, 0, 0, $cool ) ) {
+				continue;
+			}
+			$out[] = [
+				'tid'  => (int) $row['id'],
+				'name' => (string) $row['name'],
+				'why'  => (string) $row['why'],
+				'kind' => (string) $row['kind'],
+				'urls' => (array) $row['urls'],
+			];
+			if ( count( $out ) >= $n ) {
+				break;
+			}
+		}
+		return $out;
 	}
 
 	/** The one thing a shop-wide task can be short of. */
@@ -556,23 +587,16 @@ final class DZE_Automation {
 		$cool = time() - self::COOLDOWN * DAY_IN_SECONDS;
 		$pool = [];
 		foreach ( $rows as $tid => $row ) {
-			if ( 'cat_links' === $id && $row['words'] < 120 ) {
-				// Nothing to weave a link into: an empty category is the
-				// writer's job, not the linker's.
-				continue;
-			}
 			if ( self::cooling( (int) $tid, $id, 'term', (int) $row['words'], (int) $row['out'], $cool ) ) {
 				continue;
 			}
 			$pool[] = [ 'tid' => (int) $tid, 'name' => (string) $row['name'], 'in' => (int) $row['in'], 'out' => (int) $row['out'], 'words' => (int) $row['words'] ];
 		}
-		if ( 'cat_links' === $id ) {
-			// Least pointed at, then least pointing out: the orphans first.
-			usort( $pool, static fn( $a, $b ) => [ $a['in'], $a['out'] ] <=> [ $b['in'], $b['out'] ] );
-		} else {
-			// Emptiest first: no description at all, then the thinnest.
-			usort( $pool, static fn( $a, $b ) => $a['words'] <=> $b['words'] );
-		}
+		// Emptiest first: no description at all, then the thinnest. Ranking
+		// pages by how little the rest of the site points at them is not done
+		// here any more — the link graph does it, for every kind of page at
+		// once, and this list is the writing task's alone.
+		usort( $pool, static fn( $a, $b ) => $a['words'] <=> $b['words'] );
 		$conf = self::conf( $id );
 		$out  = [];
 		foreach ( array_slice( $pool, 0, self::LOOK ) as $row ) {
@@ -617,17 +641,6 @@ final class DZE_Automation {
 		}
 		$conf = $conf ?? self::conf( $id );
 		$st   = DZE_Category_Content::state( $tid );
-		if ( 'cat_links' === $id ) {
-			if ( ! $st['has_desc'] || $st['links_target'] < 1 || $st['links'] >= $st['links_target'] ) {
-				return '';
-			}
-			return sprintf(
-				/* translators: 1: links in the description, 2: link target */
-				__( '%1$d of %2$d links', 'dazont-ecom' ),
-				(int) $st['links'],
-				(int) $st['links_target']
-			);
-		}
 		if ( 'cat_desc' === $id ) {
 			if ( ! empty( $conf['kw_only'] ) && $st['keywords'] < 1 ) {
 				return ''; // no SEMrush file: headings would come from the name alone.
@@ -733,7 +746,12 @@ final class DZE_Automation {
 				$reason = 'none';
 				continue;
 			}
-			$res = self::run( $id, (int) $pick[0]['tid'] );
+			// The row travels with the id, carrying the addresses the graph
+			// chose, so the run does not build the plan a second time. Pressed
+			// by hand there is no row, and the run asks the SAME plan rather
+			// than falling back on what the page would have linked to on its
+			// own — which is a different question with a different answer.
+			$res = self::run( $id, (int) $pick[0]['tid'], (array) $pick[0] );
 			if ( $res['queued'] ) {
 				return $res;
 			}
@@ -743,12 +761,19 @@ final class DZE_Automation {
 	}
 
 	/** Sets one piece of work going, whatever kind of work it is. */
-	public static function run( string $id, int $oid ): array {
+	public static function run( string $id, int $oid, array $row = [] ): array {
 		$task = self::task( $id );
 		$conf = self::conf( $id );
 		$no   = static fn( string $why ): array => [ 'queued' => 0, 'task' => $id, 'reason' => $why ];
 		if ( ! $task ) {
 			return $no( 'gone' );
+		}
+
+		// The linking pass works on a page of either kind and carries the
+		// addresses the graph chose. Pressed by hand with no row, it asks the
+		// graph for that page's own work rather than guessing at it.
+		if ( 'mesh' === $conf['scope'] ) {
+			return self::run_mesh( $id, $oid, $row, $conf );
 		}
 
 		// A shop-wide task has no object and no queue job: it is one call, made
@@ -791,6 +816,54 @@ final class DZE_Automation {
 		}
 		self::note( $id, $oid, (string) $sub['name'], $sub['type'], $words, $links, (bool) $conf['apply'] );
 		delete_transient( 'dze_auto_survey' ); // the shop is about to change.
+		delete_transient( 'dze_pl_census' );
+		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
+	}
+
+	/**
+	 * One page of the mesh, sent off with the links the graph chose for it.
+	 *
+	 * @param array $row The shortlist row when there is one: it holds the
+	 *                   addresses. Without it the plan is asked again for this
+	 *                   page — never guessed at, and never the whole pool.
+	 */
+	private static function run_mesh( string $id, int $oid, array $row, array $conf ): array {
+		$no = static fn( string $why ): array => [ 'queued' => 0, 'task' => $id, 'reason' => $why ];
+		if ( ! class_exists( 'DZE_Mesh' ) || ! class_exists( 'DZE_Queue' ) ) {
+			return $no( 'gone' );
+		}
+		$kind = (string) ( $row['kind'] ?? '' );
+		$urls = array_values( array_filter( (array) ( $row['urls'] ?? [] ) ) );
+		if ( ! $urls ) {
+			foreach ( DZE_Mesh::plan( 20 ) as $one ) {
+				if ( (int) $one['id'] === $oid ) {
+					$kind = (string) $one['kind'];
+					$urls = (array) $one['urls'];
+					break;
+				}
+			}
+		}
+		if ( ! $urls ) {
+			return $no( 'none' );
+		}
+		$sub = self::subject( 'product_cat' === $kind ? 'category' : 'post', $oid );
+		if ( ! $sub ) {
+			return $no( 'gone' );
+		}
+		$words = str_word_count( wp_strip_all_tags( $sub['html'] ) );
+		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $sub['html'] );
+		if ( $conf['apply'] ) {
+			self::keep_copy( $oid, $sub['type'], $sub['html'] );
+		}
+		self::mark( $oid, $id, $sub['type'], $words, $links );
+		// The job is the pass that already writes this kind of page. There is
+		// no third linking engine, and there must never be one.
+		$job = 'product_cat' === $kind ? 'cat_links' : 'post_links';
+		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], [ 'urls' => $urls ] ) ) {
+			return $no( 'busy' );
+		}
+		self::note( $id, $oid, (string) $sub['name'], $sub['type'], $words, $links, (bool) $conf['apply'] );
+		delete_transient( 'dze_auto_survey' );
 		delete_transient( 'dze_pl_census' );
 		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
 	}
@@ -1111,7 +1184,7 @@ final class DZE_Automation {
 		}
 		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $now['html'] );
 		$words = str_word_count( wp_strip_all_tags( $now['html'] ) );
-		if ( in_array( $id, [ 'cat_links', 'post_links' ], true ) && $links > (int) ( $row['links'] ?? 0 ) ) {
+		if ( in_array( $id, [ 'mesh_links', 'cat_links', 'post_links' ], true ) && $links > (int) ( $row['links'] ?? 0 ) ) {
 			/* translators: 1: links before, 2: links now */
 			return sprintf( __( '%1$d → %2$d links', 'dazont-ecom' ), (int) $row['links'], $links );
 		}

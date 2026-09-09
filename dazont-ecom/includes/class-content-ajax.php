@@ -728,8 +728,15 @@ trait DZE_Content_Ajax {
 			// pasting anything made that thing the subject — so there was no
 			// way to say "keep this product, exactly this one, and put it in
 			// that scene", which is the whole point of pasting an inspiration.
-			$refs      = [];
-			$base_main = ! empty( $_POST['base_main'] );
+			$refs = [];
+			// A PICKED PHOTOGRAPH IS THE SUBJECT. It used to take a checkbox
+			// beside the picker to say so — "keep the product's own photograph
+			// as the subject" — which answered a question nobody had asked and
+			// left the real one, WHICH photograph, with no answer at all.
+			// Picking one says both: it is image 1, and anything pasted is
+			// read for the place, the light and the styling.
+			$base_main = ! empty( $_POST['base_main'] )
+				|| ( $src_id > 0 && wp_attachment_is_image( $src_id ) );
 			if ( $base_main && $pastes ) {
 				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
 				if ( ! $outside ) {
