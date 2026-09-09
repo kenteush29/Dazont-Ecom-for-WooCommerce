@@ -332,6 +332,25 @@ owner communicates in French.
   — that one also sent whatever it happened to be showing as a one-off
   override, so the same button ran two different instructions depending on a
   panel's state.
+- **AN IDF THRESHOLD IS RIGHT ON A BROAD SHOP AND CATASTROPHIC ON A NARROW
+  ONE.** `weigh()` discards any word carried by more than a quarter of the
+  candidates — which is why "tactical" stopped ranking a tactical shop's whole
+  catalogue equal. On a shop whose every page is a jute rug it discards "jute"
+  and "rug", so every candidate scores nought and the screen reads "Black jute
+  rugs — not obviously related" under *Jute and cotton rugs*: "ce n'est pas bon
+  du tout". Counting words cannot tell those two shops apart, and no threshold
+  will. So the wording SHORTLISTS and a reading JUDGES:
+  `DZE_Category_Content::judge_links()` sends the numbered shortlist, the
+  owner's own `cat_pick` prompt and the page's ceiling to the cheap model, and
+  keeps the verdict on the category until the candidates or the prompt change.
+  Three rules, each of them a way it goes wrong: a verdict that cannot be had —
+  no key, a refusal, a broken answer, "none of them" — leaves the wording's own
+  answer standing rather than emptying the list; every row says WHICH of the
+  two chose it, in the reader's own words or "chosen on wording", and never a
+  judgement nobody made (that is what "not obviously related" was); and the
+  ceiling is the page's own, kept whatever comes back. The gate's fake model
+  answers from the REQUEST — it reads the numbered list that was actually
+  sent — so a call that sends the wrong thing cannot pass it.
 - **LISTED IS NOT TICKED.** Relaxing the pool's gate to one shared word fixed
   "two links only" and broke the other end: "Add internal links only" opened
   with THIRTY pages ticked, Tactical Sunglasses and Tactical Balaclavas among

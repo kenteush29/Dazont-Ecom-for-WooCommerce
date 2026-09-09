@@ -204,6 +204,7 @@ final class DZE_Ai_Usage {
 			'cat_links'   => __( 'Internal linking pass', 'dazont-ecom' ),
 			'mesh_pick'   => __( 'Internal linking: which pages belong together', 'dazont-ecom' ),
 			'cat_sift'    => __( 'Buyer-question sifting', 'dazont-ecom' ),
+			'cat_pick'    => __( 'Choosing which pages belong together', 'dazont-ecom' ),
 			'product_text'=> __( 'Product texts (one run)', 'dazont-ecom' ),
 			'product_img' => __( 'Product image', 'dazont-ecom' ),
 			'feature_pick'=> __( 'Choosing the photograph of a block', 'dazont-ecom' ),

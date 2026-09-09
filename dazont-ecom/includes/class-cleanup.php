@@ -87,7 +87,11 @@ final class DZE_Cleanup {
 			],
 			'category_content' => [
 				'options'    => [ 'dze_catcontent_settings' ],
-				'term_meta'  => [ '_dze_desc_generated' ],
+				// The two model verdicts kept on a category: which buyer
+				// questions were kept, and which pages belong beside it.
+				// `_dze_cc_questions` was never declared here — undeclared
+				// since the day it was written.
+				'term_meta'  => [ '_dze_desc_generated', '_dze_cc_questions', '_dze_cc_picked' ],
 				'user_meta'  => [ 'dze_cc_sitemap_notice_off' ],
 				'transients' => [ 'dze_cc_pages', 'dze_cc_cats', 'dze_cc_pcount_', 'dze_cc_sitemap_v8', 'dze_cc_sitemap_lock' ],
 			],

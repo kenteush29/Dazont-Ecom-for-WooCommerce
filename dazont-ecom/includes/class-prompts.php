@@ -149,6 +149,7 @@ final class DZE_Prompts {
 			'cat_desc'   => [ 'DZE_Category_Content', 'prompt', 'default_prompt' ],
 			'cat_links'  => [ 'DZE_Category_Content', 'links_prompt', 'default_links_prompt' ],
 			'cat_sift'   => [ 'DZE_Category_Content', 'sift_prompt', 'default_sift_prompt' ],
+			'cat_pick'   => [ 'DZE_Category_Content', 'pick_prompt', 'default_pick_prompt' ],
 			'reviews'    => [ 'DZE_Reviews', 'prompt', 'default_prompt' ],
 			'translate'  => [ 'DZE_Translate', 'prompt', 'default_prompt' ],
 			'events'     => [ 'DZE_Marketing_Ai', 'events_prompt', 'default_events_prompt' ],
@@ -172,6 +173,7 @@ final class DZE_Prompts {
 			'cat_desc'     => [ 'DZE_Category_Content', 'prompt' ],
 			'cat_links'    => [ 'DZE_Category_Content', 'links_prompt' ],
 			'cat_sift'     => [ 'DZE_Category_Content', 'sift_prompt' ],
+			'cat_pick'     => [ 'DZE_Category_Content', 'pick_prompt' ],
 			'reviews'      => [ 'DZE_Reviews', 'prompt' ],
 			'translate'    => [ 'DZE_Translate', 'prompt' ],
 			'events'       => [ 'DZE_Marketing_Ai', 'events_prompt' ],
@@ -396,6 +398,13 @@ final class DZE_Prompts {
 				'text'  => [ 'DZE_Category_Content', 'sift_prompt' ],
 				'tab'   => 'categories',
 				'frag'  => 'dze-cc-sift-prompt',
+			];
+			$out['cat_pick'] = [
+				'label' => __( 'Which pages belong beside a category', 'dazont-ecom' ),
+				'owner' => 'DZE_Category_Content',
+				'text'  => [ 'DZE_Category_Content', 'pick_prompt' ],
+				'tab'   => 'categories',
+				'frag'  => 'dze-cc-pick-prompt',
 			];
 		}
 		if ( class_exists( 'DZE_Content' ) && self::module_on( 'content' ) ) {
