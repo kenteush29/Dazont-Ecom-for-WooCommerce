@@ -104,6 +104,28 @@ $refs = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1 );
 ok( 'a reference is named as the setting',
 	false !== strpos( $refs, 'IS A REFERENCE YOU WERE HANDED' ), true );
 
+echo "\nA new photograph is being made, and that is said too\n";
+// "Maintenant des doublons exactement comme l'image principale." Everything in
+// this block asked for IDENTITY — keep it exactly, reproduce it exactly, the
+// photographs win — and nothing ever said what the run was FOR. The cheapest
+// way to obey all of it at once is to hand image 1 straight back.
+ok( 'an ordinary run asks for a new photograph',
+	false !== strpos( $plain, 'Make a NEW photograph of it' ), true );
+ok( 'and forbids handing a source back',
+	false !== strpos( $plain, 'never hand one of the photographs above back' ), true );
+ok( 'a single-photograph product too',
+	false !== strpos( DZE_Content::sources_instruction( 1, null, 0, 0, false, 0 ), 'Make a NEW photograph' ), true );
+ok( 'and it is not told to keep that one as it is',
+	false !== strpos( DZE_Content::sources_instruction( 1, null, 0, 0, false, 0 ), 'keep it exactly as it is' ), false );
+// THE ONE RUN THAT MAY LOOK LIKE ITS SOURCE: editing a photograph handed in.
+// Giving it back changed is the job there, and asking for something clearly
+// different would break the only lane that is supposed to copy.
+$edit = DZE_Content::sources_instruction( 1, null, 0, 0, false, 0, true );
+ok( 'an edit of one photograph keeps it as it is',
+	false !== strpos( $edit, 'keep it exactly as it is' ), true );
+ok( 'and is never asked for a new one',
+	false !== strpos( $edit, 'Make a NEW photograph' ), false );
+
 echo "\nHow many photographs of the product go with a request\n";
 // A close-up of the fastenings, asked of a five-photograph product with two
 // photographs sent, is a close-up of something the model has never seen.

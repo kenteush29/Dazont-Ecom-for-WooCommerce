@@ -2931,6 +2931,37 @@ final class DZE_Diagnostic {
 		$by    = isset( self::orders()[ $by ] ) ? $by : 'found';
 		self::keep_view( $id, [ 'by' => $by, 'dir' => $dir, 'show' => $show ] );
 		$goods = 'product' === (string) $check['scope'];
+		// FILTERED BY CATEGORY, and the narrowing happens HERE — before the
+		// sort, before the paging, before either tab is counted — so every
+		// figure on the screen answers the same question as the rows under it.
+		// The menu is read from BOTH lists at once: switching to "Fixed" with
+		// a category chosen must not land on a tab that cannot offer it.
+		$cats = $goods ? self::cat_index( array_merge( $split['todo'], $split['done'] ) ) : [];
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- narrowing a list is navigation.
+		$cat  = isset( $_GET['cat'] ) ? absint( $_GET['cat'] ) : 0;
+		// A category that holds nothing on this list is not an answer: the
+		// filter falls back to the whole list rather than showing an empty
+		// screen for a term nobody could have chosen from this menu.
+		if ( ! isset( $cats[ $cat ] ) ) {
+			$cat = 0;
+		}
+		$in_all = count( $ids );
+		if ( $cat ) {
+			$keep = array_flip( $cats[ $cat ]['ids'] );
+			foreach ( [ 'todo', 'done' ] as $dze_half ) {
+				$split[ $dze_half ] = array_values( array_filter(
+					(array) $split[ $dze_half ],
+					static function ( $pid ) use ( $keep ) {
+						return isset( $keep[ (int) $pid ] );
+					}
+				) );
+			}
+			$ids = 'fixed' === $show ? $split['done'] : $split['todo'];
+		}
+		// Carried by every link that leaves this page for itself — a sort, a
+		// tab, a page of results. A filter thrown away by pressing a column
+		// heading is a filter nobody trusts.
+		$catarg = $cat ? [ 'cat' => $cat ] : [];
 		// Read once for the WHOLE list: what is sorted is the list, not the
 		// page — a shop looking for its best-sellers is not looking for the
 		// best-sellers of page three.
@@ -3010,7 +3041,7 @@ final class DZE_Diagnostic {
 					$show === $dze_tab ? ' nav-tab-active' : '',
 					esc_attr( $dze_tab ),
 					esc_url( add_query_arg(
-						[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $dze_tab, 'by' => $by, 'dir' => $dir ],
+						array_merge( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $dze_tab, 'by' => $by, 'dir' => $dir ], $catarg ),
 						admin_url( 'admin.php' )
 					) ),
 					esc_html( $dze_label[0] ),
@@ -3032,13 +3063,67 @@ final class DZE_Diagnostic {
 					),
 					count( $ids )
 				)
-				: sprintf(
-					/* translators: 1: how many fall short, 2: how many are listed */
-					__( '%1$d fall short. %2$d listed here — the count is exact whatever the list can show.', 'dazont-ecom' ),
-					$n,
-					count( $ids )
-				) )
+				: ( $cat
+					? sprintf(
+						/* translators: 1: how many fall short in all, 2: how many are in this category, 3: the category */
+						__( '%1$d fall short in all. %2$d of them are in %3$s.', 'dazont-ecom' ),
+						$n,
+						count( $ids ),
+						'“' . $cats[ $cat ]['name'] . '”'
+					)
+					: sprintf(
+						/* translators: 1: how many fall short, 2: how many are listed */
+						__( '%1$d fall short. %2$d listed here — the count is exact whatever the list can show.', 'dazont-ecom' ),
+						$n,
+						count( $ids )
+					) ) )
 		);
+
+		// THE FILTER, read from the list it filters. Every option is a
+		// category that actually holds something here, and carries how many —
+		// so choosing one is a decision taken before the press, not after it.
+		// A plain GET form, which is how WordPress narrows every list it has:
+		// no JavaScript to go missing, and the address bar keeps the view.
+		if ( $goods && $cats ) {
+			printf(
+				'<form method="get" action="%1$s" class="dze-diag-filter" style="margin:10px 0 0;">'
+					. '<input type="hidden" name="page" value="%2$s" />'
+					. '<input type="hidden" name="check" value="%3$s" />'
+					. '<input type="hidden" name="show" value="%4$s" />'
+					. '<input type="hidden" name="by" value="%5$s" />'
+					. '<input type="hidden" name="dir" value="%6$s" />'
+					. '<label for="dze-diag-cat" style="margin-right:6px;">%7$s</label>'
+					. '<select name="cat" id="dze-diag-cat">',
+				esc_url( admin_url( 'admin.php' ) ),
+				esc_attr( self::MENU_SLUG ),
+				esc_attr( $id ),
+				esc_attr( $show ),
+				esc_attr( $by ),
+				esc_attr( $dir ),
+				esc_html__( 'Category', 'dazont-ecom' )
+			);
+			printf(
+				'<option value="0"%1$s>%2$s</option>',
+				selected( $cat, 0, false ),
+				esc_html( sprintf(
+					/* translators: %s: how many objects the whole list holds */
+					__( 'All categories (%s)', 'dazont-ecom' ),
+					number_format_i18n( $in_all )
+				) )
+			);
+			foreach ( $cats as $dze_tid => $dze_cat ) {
+				printf(
+					'<option value="%1$d"%2$s>%3$s</option>',
+					(int) $dze_tid,
+					selected( $cat, (int) $dze_tid, false ),
+					esc_html( $dze_cat['name'] . ' (' . number_format_i18n( count( $dze_cat['ids'] ) ) . ')' )
+				);
+			}
+			printf(
+				'</select> <button type="submit" class="button">%s</button></form>',
+				esc_html__( 'Filter', 'dazont-ecom' )
+			);
+		}
 
 		// What ELSE each one is short of: read from the same reading, so a
 		// product that needs four things is opened once and not four times.
@@ -3069,7 +3154,7 @@ final class DZE_Diagnostic {
 		// still said nothing about being sortable, and nothing about what it
 		// was sorted by. One character, in the title, on every column: a pale
 		// pair on the ones that can be sorted, a solid one on the one in use.
-		$head = static function ( string $key, string $label, string $style = '' ) use ( $id, $by, $dir, $show ): string {
+		$head = static function ( string $key, string $label, string $style = '' ) use ( $id, $by, $dir, $show, $catarg ): string {
 			$on   = $by === $key;
 			$next = ( $on && 'desc' === $dir ) ? 'asc' : 'desc';
 			$mark = $on
@@ -3079,7 +3164,7 @@ final class DZE_Diagnostic {
 				'<th scope="col"%1$s><a href="%2$s" style="text-decoration:none;color:inherit;%3$s" title="%4$s">%5$s <span style="font-size:10px;">%6$s</span></a></th>',
 				'' !== $style ? ' style="' . esc_attr( $style ) . '"' : '',
 				esc_url( add_query_arg(
-					[ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $key, 'dir' => $next ],
+					array_merge( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $key, 'dir' => $next ], $catarg ),
 					admin_url( 'admin.php' )
 				) ),
 				$on ? 'font-weight:700;' : '',
@@ -3328,7 +3413,7 @@ final class DZE_Diagnostic {
 		$pages = (int) ceil( count( $ids ) / self::PER_PAGE );
 		if ( $pages > 1 ) {
 			$links = paginate_links( [
-				'base'      => add_query_arg( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $by, 'dir' => $dir, 'paged' => '%#%' ], admin_url( 'admin.php' ) ),
+				'base'      => add_query_arg( array_merge( [ 'page' => self::MENU_SLUG, 'check' => $id, 'show' => $show, 'by' => $by, 'dir' => $dir, 'paged' => '%#%' ], $catarg ), admin_url( 'admin.php' ) ),
 				'format'    => '',
 				'current'   => $page,
 				'total'     => $pages,
@@ -3394,6 +3479,56 @@ final class DZE_Diagnostic {
 				'price'  => (string) $row->price,
 			];
 		}
+		return $out;
+	}
+
+	/**
+	 * WHICH CATEGORIES THIS LIST ACTUALLY HOLDS, and how many of each.
+	 *
+	 * "Je veux un outil de filtre ici... j'aurais bien filtré par catégories.
+	 * Les catégories dispo pour filtration doivent contenir des produits dans
+	 * la diagnostic avec mention (x) de la quantité de produits dispo."
+	 *
+	 * So the menu is built FROM the list, never from the shop's category tree:
+	 * a category with nothing short of anything is not an option, and every
+	 * option carries the number it will show. One query for the whole list,
+	 * like `facts()` beside it — a lookup per row is a query per line drawn.
+	 *
+	 * @param int[] $ids The objects on this criterion's list.
+	 * @return array<int,array{name:string,ids:int[]}> Keyed by term id, by name.
+	 */
+	private static function cat_index( array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
+		if ( ! $ids || ! $wpdb ) {
+			return [];
+		}
+		$in = implode( ',', array_map( 'intval', $ids ) );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids are cast to int above; no core API answers this for a whole list in one query.
+		$rows = $wpdb->get_results(
+			"SELECT tr.object_id, t.term_id, t.name
+			FROM {$wpdb->term_relationships} tr
+			INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+			WHERE tt.taxonomy = 'product_cat' AND tr.object_id IN ( {$in} )"
+		);
+		// phpcs:enable
+		$out = [];
+		foreach ( (array) $rows as $row ) {
+			$tid = (int) $row->term_id;
+			if ( ! isset( $out[ $tid ] ) ) {
+				$out[ $tid ] = [ 'name' => (string) $row->name, 'ids' => [] ];
+			}
+			$out[ $tid ]['ids'][ (int) $row->object_id ] = true;
+		}
+		foreach ( $out as $tid => $one ) {
+			$out[ $tid ]['ids'] = array_map( 'intval', array_keys( $one['ids'] ) );
+		}
+		// In the order a reader looks for a name in, which is the order the
+		// field menus of this same screen are already in.
+		uasort( $out, static function ( array $a, array $b ): int {
+			return strcasecmp( (string) $a['name'], (string) $b['name'] );
+		} );
 		return $out;
 	}
 

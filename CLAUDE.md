@@ -454,6 +454,18 @@ owner communicates in French.
   where the text was least likely to be believed anyway. It goes on every run
   now. **When a text and a picture can disagree, something must say which one
   is the product.**
+- **IDENTITY IS NOT THE PHOTOGRAPH.** Every sentence of the sources block
+  asked for the same half of the job — "keep it exactly as it is", "reproduce
+  it exactly", "THE PHOTOGRAPHS WIN", "nothing they do not show" — and not one
+  of them ever said that a NEW photograph was being made. The cheapest way to
+  obey all of it at once is to hand image 1 straight back: "maintenant des
+  doublons exactement comme l'image principale". One sentence says the missing
+  half, and it is NOT a fifth way of saying the first: identity is what the
+  product is, the photograph is what is being made of it. It is never sent on
+  an edit of one image handed in (`'' !== $src`), where giving that image back
+  changed IS the job — which is the only lane allowed to look like its source,
+  and the only reason `sources_instruction()` needed to be told which lane it
+  is on.
 - **TWO SOURCES WAS THE WRONG TRADE.** `source_cap()` sent 2 photographs of a
   five-photograph product. The fear was an edit model reconciling six angles
   into a seventh; the cost was worse — asked for a close-up of fastenings it
@@ -597,6 +609,19 @@ owner communicates in French.
   A tab appears only while its module is on, and a module whose host is off
   keeps a page of its own (`DZE_Queue::hosted()`), because switching one
   module off must never take another's function with it.
+- **A FILTER IS BUILT FROM THE LIST, NEVER FROM THE SHOP.** "Je veux un outil
+  de filtre ici... les catégories dispo pour filtration doivent contenir des
+  produits dans la diagnostic avec mention (x) de la quantité." A menu offering
+  every category the shop has is a menu where most choices answer with an empty
+  screen. `cat_index()` reads the criterion's own list — one query for the whole
+  of it, like `facts()` beside it — so an option exists only where it holds
+  something and carries how many. The narrowing happens BEFORE the sort, the
+  paging and either tab's count, or the figures and the rows disagree; and the
+  choice is carried by every link that leaves the page for itself — a column
+  heading, a tab, a page of results — because a filter thrown away by sorting
+  is a filter nobody trusts. It is a plain GET form, the way WordPress narrows
+  every list it has: no JavaScript to go missing, and a category that answers
+  for nothing on this list gives the whole list back rather than an empty page.
 - **A MENU BADGE MEANS "ACT ON ME", NEVER "HERE IS A NUMBER".** The diagnostic
   put its shortfall there — a red "1,205" for ever, on a menu looked at forty
   times a day, which is a bubble you learn not to see. The badge counts what

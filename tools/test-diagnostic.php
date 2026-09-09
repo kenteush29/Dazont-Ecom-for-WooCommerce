@@ -117,6 +117,7 @@ function is_wp_error( $t ) { return $t instanceof WP_Error; }
 
 class DZE_Diag_Test_Wpdb {
 	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
+	public $term_relationships = 'wp_term_relationships'; public $term_taxonomy = 'wp_term_taxonomy'; public $terms = 'wp_terms';
 	public function prepare( $q, ...$a ) { return [ $q, $a ]; }
 	public function esc_like( $t ) { return $t; }
 	public function get_var( $q ) {
@@ -158,6 +159,24 @@ class DZE_Diag_Test_Wpdb {
 					'sales'         => (string) ( $one['sales'] ?? '' ),
 					'price'         => (string) ( $one['price'] ?? '' ),
 				];
+			}
+			return $rows;
+		}
+		// WHICH CATEGORIES THE LIST HOLDS: one query for the whole list, so a
+		// filter menu costs the same on three products and on three thousand.
+		// The stub answers what the SQL ASKS — the ids in its own IN() clause
+		// — never its own idea of which products were meant, or it would pass
+		// on a reader that had stopped narrowing.
+		if ( false !== strpos( $sql, 'term_relationships' ) ) {
+			$GLOBALS['dze_cat_sql'][] = $sql;
+			preg_match( '/IN \( ([0-9,]+) \)/', $sql, $m );
+			$asked = array_map( 'intval', array_filter( explode( ',', (string) ( $m[1] ?? '' ) ) ) );
+			$rows  = [];
+			foreach ( (array) ( $GLOBALS['dze_cats'] ?? [] ) as $pid => $terms ) {
+				if ( ! in_array( (int) $pid, $asked, true ) ) { continue; }
+				foreach ( (array) $terms as $tid => $name ) {
+					$rows[] = (object) [ 'object_id' => (int) $pid, 'term_id' => (int) $tid, 'name' => (string) $name ];
+				}
 			}
 			return $rows;
 		}
@@ -1371,6 +1390,100 @@ ok( 'and never the rule about everything',
 // already in front of you, on a line meant to be read at a glance.
 ok( 'and nothing is explained twice',   false !== strpos( (string) ( $dze_w901['why'] ?? '' ), 'laid out below' ), false );
 
+echo "\nFiltering a list of products by category\n";
+// "Je veux un outil de filtre ici. Pour filtrer les posts selon les critères
+// choisis. J'aurais bien filtré par catégories en fait. Les catégories dispo
+// pour filtration doivent contenir des produits dans la diagnostic avec
+// mention (x) de la quantité de produits dispo."
+$GLOBALS['dze_cats'] = [
+	901 => [ 31 => 'Backpacks', 44 => 'Tactical gear' ],
+	902 => [ 44 => 'Tactical gear' ],
+	903 => [ 12 => 'Airsoft' ],
+	// A category of the shop that holds nothing on THIS list. It must not be
+	// an option: a filter offering a choice that answers with an empty screen
+	// is a filter nobody presses twice.
+	999 => [ 77 => 'Helmets' ],
+];
+$dze_p903 = new WP_Post();
+$dze_p903->ID = 903;
+$dze_p903->post_title = 'Product 903';
+$GLOBALS['dze_posts'][903] = $dze_p903;
+$GLOBALS['dze_meta'][903]['_product_image_gallery'] = '';
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 901, 902, 903 ], false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
+/** The list drawn with whatever is in $_GET. */
+$dze_draw = static function ( array $get ) use ( $dze_render ): string {
+	$GLOBALS['dze_transients'] = [];
+	$GLOBALS['dze_cat_sql']   = [];
+	$_GET = $get;
+	ob_start();
+	$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+	return (string) ob_get_clean();
+};
+/** The filter menu as the screen actually prints it. */
+$dze_catmenu = static function ( string $html ): array {
+	if ( ! preg_match( '#<select name="cat"[^>]*>(.*?)</select>#s', $html, $m ) ) { return []; }
+	preg_match_all( '#<option value="([0-9]+)"[^>]*>([^<]*)</option>#', $m[1], $o, PREG_SET_ORDER );
+	return array_map( static fn( $one ) => $one[1] . ':' . html_entity_decode( $one[2], ENT_QUOTES ), $o );
+};
+$dze_all = $dze_draw( [] );
+// THE MENU IS READ FROM THE LIST, and every option carries its own figure —
+// in the order a reader looks a name up in.
+ok( 'the filter offers what the list holds',
+	$dze_catmenu( $dze_all ),
+	[ '0:All categories (3)', '12:Airsoft (1)', '31:Backpacks (1)', '44:Tactical gear (2)' ] );
+ok( 'a category holding nothing here is not offered',
+	false !== strpos( $dze_all, 'Helmets' ), false );
+// ONE QUERY FOR THE WHOLE LIST. A lookup per row is a query per line drawn.
+ok( 'and it was read in one query',     count( (array) ( $GLOBALS['dze_cat_sql'] ?? [] ) ), 1 );
+
+// CHOOSING ONE NARROWS THE ROWS — which is the whole of what the control does.
+$dze_one = $dze_draw( [ 'cat' => '44' ] );
+ok( 'the chosen category keeps its own', false !== strpos( $dze_one, 'data-id="901"' ), true );
+ok( 'and its neighbour',                 false !== strpos( $dze_one, 'data-id="902"' ), true );
+ok( 'and drops everything else',         false !== strpos( $dze_one, 'data-id="903"' ), false );
+// THE TAB'S FIGURE AND THE LIST UNDER IT ANSWER THE SAME QUESTION.
+ok( 'the tab counts what is shown',
+	false !== strpos( $dze_one, 'Issues (<span class="dze-diag-n">2</span>)' ), true );
+// AND THE SENTENCE SAYS THE WHOLE TRUTH: how many fall short in all, and how
+// many of them are in the category being looked at.
+ok( 'the line says how many in all',     false !== strpos( $dze_one, '3 fall short in all.' ), true );
+ok( 'and how many are in that category', false !== strpos( $dze_one, '2 of them are in' ), true );
+ok( 'naming it',                         false !== strpos( $dze_one, 'Tactical gear' ), true );
+// A FILTER THROWN AWAY BY A COLUMN HEADING IS A FILTER NOBODY TRUSTS.
+ok( 'sorting keeps the filter',          false !== strpos( $dze_one, 'by=price&dir=desc&cat=44' ), true );
+ok( 'and so does the other tab',         false !== strpos( $dze_one, 'show=fixed&by=found&dir=desc&cat=44' ), true );
+// The chosen one is the one the menu comes back on, or the screen forgets
+// what it is showing the moment it is drawn.
+ok( 'and the menu says what is chosen',
+	false !== strpos( $dze_one, "value=\"44\" selected='selected'" ), true );
+// A CATEGORY THAT ANSWERS FOR NOTHING IS NOT AN ANSWER. A stale bookmark, a
+// term deleted since: the list comes back whole rather than empty.
+$dze_gone = $dze_draw( [ 'cat' => '4242' ] );
+ok( 'an unknown category shows the list whole',
+	substr_count( $dze_gone, 'class="button button-small dze-content-open"' ), 3 );
+ok( 'and says nothing about a category',  false !== strpos( $dze_gone, 'of them are in' ), false );
+// The filter form is a plain GET back to this same screen, carrying the
+// criterion and the view: pressing Filter must not land on another list.
+ok( 'the form keeps the criterion',
+	false !== strpos( $dze_all, '<input type="hidden" name="check" value="prod_gallery" />' ), true );
+ok( 'and the tab it was pressed on',
+	false !== strpos( $dze_all, '<input type="hidden" name="show" value="todo" />' ), true );
+
+// A criterion about anything but products has no product category to filter
+// by, and must not print an empty menu.
+$GLOBALS['dze_transients'] = [];
+$_GET = [];
+ob_start();
+$dze_render->invoke( DZE_Diagnostic::instance(), 'thin_links' );
+ok( 'a list that is not products has no filter',
+	false !== strpos( (string) ob_get_clean(), 'name="cat"' ), false );
+
+unset( $GLOBALS['dze_posts'][903], $GLOBALS['dze_meta'][903], $GLOBALS['dze_cats'] );
+update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 901, 902 ], false );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 2 ], 'read' => time() ] );
+$GLOBALS['dze_transients'] = [];
+
 echo "\nA product mended by hand leaves the list, without a new reading\n";
 // "J'ai mis à jour le contenu d'un produit mais il est toujours dans la liste
 // Issues (252)." The stored list is what the last reading found; the rows are
@@ -1744,6 +1857,12 @@ if ( in_array( '--dump-list', (array) $argv, true ) ) {
 	update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_gal_row ] );
 	update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), [ 901, 902 ], false );
 	update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 2 ], 'read' => time() ] );
+	// The categories these two products are in, so the page handed to the
+	// browser carries the filter as a real screen does.
+	$GLOBALS['dze_cats'] = [
+		901 => [ 31 => 'Backpacks', 44 => 'Tactical gear' ],
+		902 => [ 44 => 'Tactical gear' ],
+	];
 	$GLOBALS['umeta'] = [];
 	$_GET = [];
 	ob_start();

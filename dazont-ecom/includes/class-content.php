@@ -1329,7 +1329,7 @@ EOT;
 	 * @param int        $variants Photographs of OTHER COLOURS of the same
 	 *                          product, sent right after the product's own.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0 ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0, bool $editing = false ): string {
 		$out = "\n\n";
 		// SHORT, OR IT IS NOT READ. Every sentence here competes with the
 		// shop's own prompt for the model's attention, and this block had
@@ -1346,8 +1346,13 @@ EOT;
 				'IMAGES 1 TO %d ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not.',
 				$count
 			);
-		} else {
+		} elseif ( $editing ) {
+			// Editing one photograph that was handed in: giving it back
+			// changed IS the job, so this is the one run that may look like
+			// its source.
 			$out .= 'IMAGE 1 IS THE PRODUCT: keep it exactly as it is.';
+		} else {
+			$out .= 'IMAGE 1 IS THE PRODUCT: its colours, its pattern, its material and its markings are the ones to keep.';
 		}
 		// THE PHOTOGRAPHS WIN OVER THE WORDS, ON EVERY RUN. Every image request
 		// carries the product's own data — its title, its description, its
@@ -1360,6 +1365,17 @@ EOT;
 		// photograph had been pasted or picked — which is the one case where
 		// the text was least likely to be believed anyway.
 		$out .= ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show. Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN: that text describes the product in general, these photographs are the one being made. A part left out of frame is a photograph; an invented one is a fake.';
+		// IDENTITY IS NOT THE PHOTOGRAPH, and until now only identity was ever
+		// asked for. Four sentences above say "keep it exactly", "reproduce it
+		// exactly", "the photographs win" — and not one said what the run is
+		// FOR. So the cheapest way to obey all of them is to hand image 1
+		// back: "maintenant des doublons exactement comme l'image principale."
+		// The sentence that says a new photograph is being made is the missing
+		// half of the rule, not a fifth way of saying the same one — and it is
+		// never sent on an edit, where returning that image changed is the job.
+		if ( ! $editing ) {
+			$out .= ' Make a NEW photograph of it: never hand one of the photographs above back, and never a near-copy of one.';
+		}
 		// The other colours of the same product. They say what the shape, the
 		// cut and the details are — and nothing at all about the colour of the
 		// one being made, which is the whole reason they have to be named
