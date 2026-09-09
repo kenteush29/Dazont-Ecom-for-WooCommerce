@@ -261,7 +261,27 @@ function add_submenu_page( $parent, $title, $menu, $cap, $slug, $cb = null, $pos
 class DZE_Content {
 	const BULK_SLUG = 'dazont-content-bulk';
 	public static function image_templates() { return $GLOBALS['tpls'] ?? []; }
-	public static function bulk_url() { return 'http://example.test/wp-admin/edit.php?post_type=product&page=dazont-content-bulk'; }
+	/** Where the product work is done: a tab of this very screen, or its own page. */
+	public static function bulk_url() {
+		return self::bulk_hosted()
+			? 'http://example.test/wp-admin/admin.php?page=' . DZE_Diagnostic::MENU_SLUG . '&tab=products'
+			: self::bulk_page_url();
+	}
+	public static function bulk_page_url() { return 'http://example.test/wp-admin/edit.php?post_type=product&page=dazont-content-bulk'; }
+	public static function bulk_hosted() { return ! empty( $GLOBALS['dze_diag_on'] ); }
+	public static function screen_counts() { return $GLOBALS['dze_screen_counts'] ?? [ 'all' => 2, 'log' => 82 ]; }
+	public static function instance() { return new self(); }
+	/** The one body, printed by its own page and by the tab alike. */
+	public function bulk_body( $base = '' ) {
+		printf(
+			'<h2 class="nav-tab-wrapper dze-cb-tabs"><a href="%1$s">Selected products <span class="dze-cb-count">%2$d</span></a>'
+			. '<a href="%3$s">Done <span class="dze-cb-count">%4$d</span></a></h2>',
+			$base,
+			self::screen_counts()['all'],
+			$base . '&dze_log=1',
+			self::screen_counts()['log']
+		);
+	}
 	public static function set_bulk_list( $ids ) { $GLOBALS['bulked'] = array_values( array_map( 'intval', $ids ) ); }
 	/**
 	 * The blocks a product page can generate — the same contract as the real
@@ -1047,9 +1067,15 @@ ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 4 );
 // added into the review tab's figure AND announced by a notice inside it —
 // two accounts of the same thing on one screen, neither of them the screen
 // where that decision is taken.
+// AND PRODUCTS ARE A VIEW, NOT A DOOR. The tab carried an address of its own
+// and sent the shop to a screen that had been taken out of every menu:
+// "Products AI bulk > toujours caché, introuvable dans aucun menu. Products,
+// dans Content diagnostic, redirige vers Products AI bulk. Démèles ce
+// bordel." One screen, reached the way the others are.
 ok( 'products are a view of their own',  isset( $dze_tabs['products'] ), true );
-ok( 'carrying their own figure',         (int) $dze_tabs['products']['n'], 1 );
-ok( 'and going where that is decided',   (string) $dze_tabs['products']['url'], DZE_Content::bulk_url() );
+ok( 'and never a way out of the page',   isset( $dze_tabs['products']['url'] ), false );
+// The figure the tab OPENS on, which is the list it shows.
+ok( 'carrying the figure it opens on',   (int) $dze_tabs['products']['n'], 2 );
 // A TAB EXISTS ONLY WHILE ITS MODULE DOES. Switching a module off must take
 // its view with it — and leave the others exactly where they were.
 $GLOBALS['module_off'] = [ 'queue' => 1 ];
@@ -1066,16 +1092,27 @@ DZE_Diagnostic::instance()->render_page();
 $dze_page = (string) ob_get_clean();
 ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Content diagnostic</h1>' ), true );
 ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
-// A TAB THAT LEAVES THE PAGE IS NOT A VIEW OF IT. Products are decided on
-// their own screen — a photograph has to be looked at — and it is reached the
-// way every other view here is, from the tab strip. Asked for by name it must
-// NOT draw the reading under a heading that says Products.
+// THE PRODUCTS TAB IS DRAWN HERE, with its own two tabs inside it — "tu peux
+// rendre l'onglet Products fonctionnel et y faire dedans 2 onglets, Selected
+// products 2 / Done 82". The body belongs to the module that owns that work
+// and is printed by this tab and by its own page alike.
+$GLOBALS['dze_diag_on'] = 1;
 $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ];
 ob_start();
 DZE_Diagnostic::instance()->render_page();
 $dze_out = (string) ob_get_clean();
-ok( 'a tab with an address of its own is not a view',
-	false !== strpos( $dze_out, 'nav-tab nav-tab-active' ) && false === strpos( $dze_out, 'products" class="nav-tab nav-tab-active' ), true );
+ok( 'the products tab is the one shown',
+	(bool) preg_match( '/class="nav-tab nav-tab-active" href="[^"]*tab=products"/', $dze_out ), true );
+ok( 'and the reading is not drawn under it',
+	false !== strpos( $dze_out, 'What the shop is short of' ), false );
+ok( 'the screen brings its own two tabs',
+	substr_count( $dze_out, 'dze-cb-tabs' ), 1 );
+ok( 'naming what is selected',           false !== strpos( $dze_out, 'Selected products' ), true );
+ok( 'and what is done with',             false !== strpos( $dze_out, 'Done' ), true );
+// THEY STAY WHERE THEY WERE PRESSED. Built from the bulk page's own address
+// they would jump off this screen the moment one of them was clicked.
+ok( 'and both of them stay on this screen',
+	substr_count( $dze_out, 'page=' . DZE_Diagnostic::MENU_SLUG . '&tab=products' ) >= 2, true );
 $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG ];
 ok( 'the reading is the one you land on', false !== strpos( $dze_page, 'nav-tab nav-tab-active' ), true );
 ok( 'and it is the reading that is printed',

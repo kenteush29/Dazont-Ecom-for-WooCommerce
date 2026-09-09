@@ -659,6 +659,22 @@ owner communicates in French.
   is a filter nobody trusts. It is a plain GET form, the way WordPress narrows
   every list it has: no JavaScript to go missing, and a category that answers
   for nothing on this list gives the whole list back rather than an empty page.
+- **A SCREEN TAKEN OUT OF THE MENU MUST BE SHOWN BY WHATEVER TOOK IT OUT.**
+  The product bulk screen's entry was removed whenever `DZE_Queue::owns_review()`
+  — a host that never drew it — and the Content diagnostic's Products tab
+  carried a `url`, so it was a DOOR out of the page to a screen with no home:
+  "Products AI bulk > toujours caché, introuvable dans aucun menu. Products,
+  dans Content diagnostic, redirige vers Products AI bulk. Démèles ce bordel."
+  `DZE_Content::bulk_hosted()` is that one decision, in one place, and it
+  answers three questions at once which must never disagree: the tab is a VIEW
+  (no `url`, `render_page()` prints `bulk_body()`), every link goes to that tab
+  (`bulk_url()`), and the menu entry is removed ONLY then — with nothing
+  hosting it, the screen keeps its own entry rather than becoming unreachable.
+  The body is ONE function printed by the tab and by its own page alike, handed
+  the address of whoever is showing it so its own two tabs — Selected products,
+  Done — stay where they were pressed. The old address still lands:
+  `bulk_redirect()` decides and `maybe_send_to_tab()` does it on `admin_init`,
+  split so the decision can be exercised.
 - **A MENU BADGE MEANS "ACT ON ME", NEVER "HERE IS A NUMBER".** The diagnostic
   put its shortfall there — a red "1,205" for ever, on a menu looked at forty
   times a day, which is a bubble you learn not to see. The badge counts what
