@@ -3435,15 +3435,32 @@ Answer with STRICT JSON and nothing else: "
 	 * caret on the other. Same markup now, so they read the same and any change
 	 * to one reaches the other.
 	 */
-	private static function sec_open( string $id, string $title, bool $open = true ): void {
+	/**
+	 * A section, with its switch in its own title where there is one.
+	 *
+	 * ONE TICK PER BLOCK, AND IT LIVES IN THE BLOCK'S OWN TITLE — the rule the
+	 * product toolbox already keeps. This screen had none: seven text prompts
+	 * and no way to take or drop the lot. "Pas de coche pour activer/désactiver
+	 * tout en même temps. Je t'avais pourtant dit de le faire."
+	 *
+	 * Only where there is something to take ALL of: over a block holding one
+	 * checkbox it would be a second control saying what the first already says,
+	 * which is exactly what was removed from the images and price blocks.
+	 * `.dze-sec-all` is the same class the toolbox uses, so the same handler in
+	 * photos.js drives both — never a second one to keep in step.
+	 */
+	private static function sec_open( string $id, string $title, bool $open = true, bool $all = false ): void {
 		printf(
-			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%5$s<span class="dze-sec-count"></span></h3><div class="dze-sec-body"%6$s>',
+			'<section class="dze-sec%1$s" data-sec="%2$s"><h3 class="dze-sec-head" role="button" tabindex="0" aria-expanded="%3$s"><span class="dze-sec-caret">%4$s</span>%7$s%5$s<span class="dze-sec-count"></span></h3><div class="dze-sec-body"%6$s>',
 			$open ? ' is-open' : '',
 			esc_attr( $id ),
 			$open ? 'true' : 'false',
 			$open ? '▾' : '▸',
 			esc_html( $title ),
-			$open ? '' : ' style="display:none;"'
+			$open ? '' : ' style="display:none;"',
+			$all
+				? '<label class="dze-sec-tick" title="' . esc_attr__( 'Take or drop every one of them', 'dazont-ecom' ) . '"><input type="checkbox" class="dze-sec-all" /></label>'
+				: ''
 		);
 	}
 	private static function sec_close(): void {
@@ -3458,6 +3475,160 @@ Answer with STRICT JSON and nothing else: "
 	 * to. What lives here and not in the body is what belongs to a PAGE — the
 	 * wrap and the heading.
 	 */
+	/**
+	 * What this screen needs, wherever it is drawn.
+	 *
+	 * These were gated on ONE page hook — `product_page_…`, the standalone
+	 * page and nothing else. Drawn as a tab of Content diagnostic the hook is
+	 * that page's, so content-bulk.js, the editor and the paste box were never
+	 * enqueued: the prompt rows were never built, the checkboxes never ticked,
+	 * and the screen arrived as dead markup — "bugé, aucun prompt à choisir".
+	 *
+	 * A BODY THAT MOVES TAKES ITS ASSETS WITH IT, which is what
+	 * `DZE_Queue::body()` beside it already does. No hook to keep in step, and
+	 * a screen that shows this body next year needs to know nothing.
+	 */
+	public function bulk_assets(): void {
+		// The popup behind "✎ Prompt" on every row: drawn in JavaScript, so the
+		// screen it is drawn on has to carry it.
+		if ( class_exists( 'DZE_Prompts' ) ) {
+			DZE_Prompts::print_assets();
+		}
+		wp_enqueue_media();
+			wp_enqueue_editor();
+			self::enqueue_paste_box();
+			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery', 'dze-photos', 'dze-paste-box' ], DZE_VERSION, true );
+			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
+				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
+				'nonce'     => wp_create_nonce( self::NONCE ),
+				'validated' => true, // gating is per-field via disabled checkboxes.
+				// Where the screen goes back to after a paste: the selection, not
+				// whatever filtered view it was opened on.
+				'listUrl'   => self::bulk_url(),
+				// Which list is on screen: the selection, or the products
+				// holding content waiting for a decision. Taking a row out
+				// means a different thing in each, and used to rewrite the
+				// selection in both — which did nothing at all on the waiting
+				// view, since the products there were never in it.
+				'mode'      => $this->bulk_mode(),
+				// The box that takes photographs from outside the shop, on the
+				// panel of the product they belong to.
+				'maxPasted' => self::MAX_PASTED,
+				'maxBody'   => self::MAX_BODY,
+				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
+			// The image recipes, so a button can say WHICH style it makes
+			// instead of "one more image".
+			'templates' => array_map(
+				static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'] ],
+				self::image_templates()
+			),
+				// What was generated last time and never decided on, so the
+				// screen finds it again after a reload.
+				'pending'   => self::pending_payload(),
+				// A rich editor for what is really HTML; a plain box for a title
+				// or a meta description, which TinyMCE would wrap in a <p>.
+				'rich'      => array_map(
+					static fn( $f ) => in_array( (string) ( $f['dest'] ?? '' ), [ 'post_content', 'post_excerpt', 'meta' ], true ),
+					self::enabled_fields()
+				),
+				'i18n'      => [
+					'working'  => __( 'Working…', 'dazont-ecom' ),
+					'done'     => __( 'Done', 'dazont-ecom' ),
+					'stopped'  => __( 'Stopped.', 'dazont-ecom' ),
+					'error'    => __( 'error', 'dazont-ecom' ),
+					'progress' => __( '%1$s / %2$s tasks — %3$s', 'dazont-ecom' ),
+					'finished' => __( 'Finished: %1$s ok, %2$s errors.', 'dazont-ecom' ),
+					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
+					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
+					'toReview' => __( 'to review', 'dazont-ecom' ),
+					'tText'    => __( 'Texts', 'dazont-ecom' ),
+					'tPrice'   => __( 'Price', 'dazont-ecom' ),
+					'tImage'   => __( 'Image', 'dazont-ecom' ),
+					/* translators: %s: the variation's name, e.g. a colour */
+					'toVariation' => __( 'Variation: %s', 'dazont-ecom' ),
+					'imgBadge' => __( 'Images', 'dazont-ecom' ),
+					'revBadge' => __( 'Reviews', 'dazont-ecom' ),
+					'revNonce' => wp_create_nonce( 'dze_reviews' ),
+					'running'  => __( 'in progress', 'dazont-ecom' ),
+					'partial'  => __( '%1$s of %2$s written', 'dazont-ecom' ),
+					'redoOne'  => __( 'Generate this text again', 'dazont-ecom' ),
+					'redoAll'  => __( 'Generate all', 'dazont-ecom' ),
+					'oneMore'  => __( 'One more image', 'dazont-ecom' ),
+					'shotPos'  => __( 'Click to change where this image goes', 'dazont-ecom' ),
+					'shotRedo' => __( 'Make this image again', 'dazont-ecom' ),
+					'shotRedoOne' => __( 'Make this image again with %s', 'dazont-ecom' ),
+					'confirmRedo' => __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
+					'sWait'    => __( 'Waiting', 'dazont-ecom' ),
+					'sRun'     => __( 'Writing…', 'dazont-ecom' ),
+					'sReady'   => __( 'Ready to review', 'dazont-ecom' ),
+					'sDone'    => __( 'Written to the product', 'dazont-ecom' ),
+					'sFail'    => __( 'Something failed', 'dazont-ecom' ),
+					'gProgress'=> __( '%1$s of %2$s products', 'dazont-ecom' ),
+					'empty'    => __( '(empty)', 'dazont-ecom' ),
+					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
+					'discard'  => __( 'Discard', 'dazont-ecom' ),
+					'stepElse' => __( 'Photographs from elsewhere', 'dazont-ecom' ),
+					'selected' => __( '%s selected', 'dazont-ecom' ),
+					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'confirmDelete' => __( 'Take %s products out of the list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'confirmSel' => __( 'Write the generated content to the %s ticked products? This modifies the shop.', 'dazont-ecom' ),
+					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
+					/* translators: %s: number of texts and images about to be written */
+					'applyOne' => __( 'Apply (%s)', 'dazont-ecom' ),
+					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
+					'sSkipped' => __( 'Left alone — already written and waiting for a decision', 'dazont-ecom' ),
+					/* translators: %s: number of products */
+					'skippedN' => __( '%s left alone (already written)', 'dazont-ecom' ),
+					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Accept it or discard it, then run again.', 'dazont-ecom' ),
+					'applying' => __( 'Applying…', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'applySelN' => __( 'Apply (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'deleteN'  => __( 'Delete (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products */
+					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
+					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
+					'tickNoContent' => __( 'None of the ticked products is holding content to write. Generate first, or tick a product that shows a Review button.', 'dazont-ecom' ),
+					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
+					'compare'  => __( 'Current', 'dazont-ecom' ),
+					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
+					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
+					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
+					'promptWord'=> __( 'Prompt', 'dazont-ecom' ),
+					'spendTip'  => sprintf(
+						/* translators: %s: the price per image the shop set */
+						__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
+						'$' . number_format_i18n( self::fal_image_cost(), 3 )
+					),
+					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
+					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
+					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
+					/* translators: %s: number of IDs */
+					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
+					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
+					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
+					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered. The product leaves the list and is filed under Done.', 'dazont-ecom' ),
+					// A block that could not be read says so, and offers to try
+					// again — an empty space reads as a broken screen.
+					'nowFailed'   => __( 'The photographs of this product could not be read.', 'dazont-ecom' ),
+					'confirmClearLog' => __( 'Empty the log of what was written? The products keep everything they received; only this list is erased.', 'dazont-ecom' ),
+					'retry'       => __( 'Try again', 'dazont-ecom' ),
+					// What becomes of the image holding the main slot, asked on
+					// the strip that is about to replace it.
+					'oldMain'     => __( 'Today\'s main image', 'dazont-ecom' ),
+					'oldKeep'     => __( 'goes to the gallery', 'dazont-ecom' ),
+					'oldDrop'     => __( 'is removed and deleted from the site', 'dazont-ecom' ),
+					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
+					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
+					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
+					'applied'  => __( 'applied', 'dazont-ecom' ),
+					'locked'   => __( 'not validated — skipped', 'dazont-ecom' ),
+				],
+			] );
+	}
+
 	public function render_bulk_page(): void {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
@@ -3480,6 +3651,8 @@ Answer with STRICT JSON and nothing else: "
 			return;
 		}
 		$base      = '' !== $base ? $base : self::bulk_url();
+		// Whatever screen is showing this body, it gets what the body needs.
+		$this->bulk_assets();
 		$products  = $this->bulk_products();
 		[ $ok_n, $tot_n ] = self::validated_counts();
 		$templates  = self::image_templates();
@@ -3550,7 +3723,7 @@ Answer with STRICT JSON and nothing else: "
 				<!-- Three blocks, one per kind of work, each with its own options
 				     next to it: the flat list of checkboxes and floating selects
 				     made it impossible to tell what belonged to what. -->
-				<?php self::sec_open( 'text', __( 'Texts', 'dazont-ecom' ) ); ?>
+				<?php self::sec_open( 'text', __( 'Texts', 'dazont-ecom' ), true, true ); ?>
 					<div class="dze-cb-checks is-col">
 						<?php foreach ( self::enabled_fields() as $fid => $f ) : $fok = self::field_validated( $fid ); ?>
 							<span class="dze-cb-checkline">
@@ -3910,143 +4083,6 @@ Answer with STRICT JSON and nothing else: "
 			wp_enqueue_media();
 		}
 
-		if ( $on_bulk ) {
-			// Reviewed texts are edited in the real WordPress editor, not in a
-			// bare textarea full of raw HTML.
-			wp_enqueue_editor();
-			self::enqueue_paste_box();
-			wp_enqueue_script( 'dze-content-bulk', DZE_URL . 'admin/js/content-bulk.js', [ 'jquery', 'dze-photos', 'dze-paste-box' ], DZE_VERSION, true );
-			wp_localize_script( 'dze-content-bulk', 'dzeContentBulk', [
-				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
-				'nonce'     => wp_create_nonce( self::NONCE ),
-				'validated' => true, // gating is per-field via disabled checkboxes.
-				// Where the screen goes back to after a paste: the selection, not
-				// whatever filtered view it was opened on.
-				'listUrl'   => self::bulk_url(),
-				// Which list is on screen: the selection, or the products
-				// holding content waiting for a decision. Taking a row out
-				// means a different thing in each, and used to rewrite the
-				// selection in both — which did nothing at all on the waiting
-				// view, since the products there were never in it.
-				'mode'      => $this->bulk_mode(),
-				// The box that takes photographs from outside the shop, on the
-				// panel of the product they belong to.
-				'maxPasted' => self::MAX_PASTED,
-				'maxBody'   => self::MAX_BODY,
-				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
-			// The image recipes, so a button can say WHICH style it makes
-			// instead of "one more image".
-			'templates' => array_map(
-				static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'] ],
-				self::image_templates()
-			),
-				// What was generated last time and never decided on, so the
-				// screen finds it again after a reload.
-				'pending'   => self::pending_payload(),
-				// A rich editor for what is really HTML; a plain box for a title
-				// or a meta description, which TinyMCE would wrap in a <p>.
-				'rich'      => array_map(
-					static fn( $f ) => in_array( (string) ( $f['dest'] ?? '' ), [ 'post_content', 'post_excerpt', 'meta' ], true ),
-					self::enabled_fields()
-				),
-				'i18n'      => [
-					'working'  => __( 'Working…', 'dazont-ecom' ),
-					'done'     => __( 'Done', 'dazont-ecom' ),
-					'stopped'  => __( 'Stopped.', 'dazont-ecom' ),
-					'error'    => __( 'error', 'dazont-ecom' ),
-					'progress' => __( '%1$s / %2$s tasks — %3$s', 'dazont-ecom' ),
-					'finished' => __( 'Finished: %1$s ok, %2$s errors.', 'dazont-ecom' ),
-					'noFields' => __( 'Select at least one thing to generate.', 'dazont-ecom' ),
-					'review'   => __( 'Generated — review below, then "Apply what I kept".', 'dazont-ecom' ),
-					'toReview' => __( 'to review', 'dazont-ecom' ),
-					'tText'    => __( 'Texts', 'dazont-ecom' ),
-					'tPrice'   => __( 'Price', 'dazont-ecom' ),
-					'tImage'   => __( 'Image', 'dazont-ecom' ),
-					/* translators: %s: the variation's name, e.g. a colour */
-					'toVariation' => __( 'Variation: %s', 'dazont-ecom' ),
-					'imgBadge' => __( 'Images', 'dazont-ecom' ),
-					'revBadge' => __( 'Reviews', 'dazont-ecom' ),
-					'revNonce' => wp_create_nonce( 'dze_reviews' ),
-					'running'  => __( 'in progress', 'dazont-ecom' ),
-					'partial'  => __( '%1$s of %2$s written', 'dazont-ecom' ),
-					'redoOne'  => __( 'Generate this text again', 'dazont-ecom' ),
-					'redoAll'  => __( 'Generate all', 'dazont-ecom' ),
-					'oneMore'  => __( 'One more image', 'dazont-ecom' ),
-					'shotPos'  => __( 'Click to change where this image goes', 'dazont-ecom' ),
-					'shotRedo' => __( 'Make this image again', 'dazont-ecom' ),
-					'shotRedoOne' => __( 'Make this image again with %s', 'dazont-ecom' ),
-					'confirmRedo' => __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
-					'sWait'    => __( 'Waiting', 'dazont-ecom' ),
-					'sRun'     => __( 'Writing…', 'dazont-ecom' ),
-					'sReady'   => __( 'Ready to review', 'dazont-ecom' ),
-					'sDone'    => __( 'Written to the product', 'dazont-ecom' ),
-					'sFail'    => __( 'Something failed', 'dazont-ecom' ),
-					'gProgress'=> __( '%1$s of %2$s products', 'dazont-ecom' ),
-					'empty'    => __( '(empty)', 'dazont-ecom' ),
-					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
-					'discard'  => __( 'Discard', 'dazont-ecom' ),
-					'stepElse' => __( 'Photographs from elsewhere', 'dazont-ecom' ),
-					'selected' => __( '%s selected', 'dazont-ecom' ),
-					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
-					/* translators: %s: number of ticked products */
-					'confirmDelete' => __( 'Take %s products out of the list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
-					/* translators: %s: number of ticked products */
-					'confirmSel' => __( 'Write the generated content to the %s ticked products? This modifies the shop.', 'dazont-ecom' ),
-					'confirmOne' => __( 'Write this content to the product? It replaces what is there now.', 'dazont-ecom' ),
-					/* translators: %s: number of texts and images about to be written */
-					'applyOne' => __( 'Apply (%s)', 'dazont-ecom' ),
-					'nothingKept' => __( 'Nothing is waiting to be applied.', 'dazont-ecom' ),
-					'sSkipped' => __( 'Left alone — already written and waiting for a decision', 'dazont-ecom' ),
-					/* translators: %s: number of products */
-					'skippedN' => __( '%s left alone (already written)', 'dazont-ecom' ),
-					'allSkipped' => __( 'Every product on screen is already holding content waiting for a decision. Accept it or discard it, then run again.', 'dazont-ecom' ),
-					'applying' => __( 'Applying…', 'dazont-ecom' ),
-					/* translators: %s: number of ticked products */
-					'applySelN' => __( 'Apply (%s)', 'dazont-ecom' ),
-					/* translators: %s: number of ticked products */
-					'deleteN'  => __( 'Delete (%s)', 'dazont-ecom' ),
-					/* translators: %s: number of ticked products */
-					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
-					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
-					'tickNoContent' => __( 'None of the ticked products is holding content to write. Generate first, or tick a product that shows a Review button.', 'dazont-ecom' ),
-					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
-					'compare'  => __( 'Current', 'dazont-ecom' ),
-					'compareHelp' => __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
-					'redoShort'=> __( 'Generate', 'dazont-ecom' ),
-					'promptTip'=> __( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ),
-					'promptWord'=> __( 'Prompt', 'dazont-ecom' ),
-					'spendTip'  => sprintf(
-						/* translators: %s: the price per image the shop set */
-						__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
-						'$' . number_format_i18n( self::fal_image_cost(), 3 )
-					),
-					'keepHelp' => __( 'Untick to leave this block out — the rest is still written', 'dazont-ecom' ),
-					'pasteNone'    => __( 'No ID found in what you pasted.', 'dazont-ecom' ),
-					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
-					/* translators: %s: number of IDs */
-					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
-					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
-					'nowImages'=> __( 'Photographs already on the product', 'dazont-ecom' ),
-					'confirmDrop' => __( 'Throw away the content generated for this product? It cannot be recovered. The product leaves the list and is filed under Done.', 'dazont-ecom' ),
-					// A block that could not be read says so, and offers to try
-					// again — an empty space reads as a broken screen.
-					'nowFailed'   => __( 'The photographs of this product could not be read.', 'dazont-ecom' ),
-					'confirmClearLog' => __( 'Empty the log of what was written? The products keep everything they received; only this list is erased.', 'dazont-ecom' ),
-					'retry'       => __( 'Try again', 'dazont-ecom' ),
-					// What becomes of the image holding the main slot, asked on
-					// the strip that is about to replace it.
-					'oldMain'     => __( 'Today\'s main image', 'dazont-ecom' ),
-					'oldKeep'     => __( 'goes to the gallery', 'dazont-ecom' ),
-					'oldDrop'     => __( 'is removed and deleted from the site', 'dazont-ecom' ),
-					'toGallery'=> __( 'Product gallery', 'dazont-ecom' ),
-					'toMain'   => __( 'Main image (first kept)', 'dazont-ecom' ),
-					'attached' => __( '%s image(s) added to the product.', 'dazont-ecom' ),
-					'applied'  => __( 'applied', 'dazont-ecom' ),
-					'locked'   => __( 'not validated — skipped', 'dazont-ecom' ),
-				],
-			] );
-			return;
-		}
 		if ( ! $on_product && ! $on_list && ! $on_diag ) {
 			return;
 		}

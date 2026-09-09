@@ -47,6 +47,55 @@ function is_admin() { return true; }
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
 function add_query_arg( $args, $url = '' ) { return $url . ( false === strpos( (string) $url, '?' ) ? '?' : '&' ) . http_build_query( (array) $args ); }
 $GLOBALS['dze_diag_class'] = true;
+// What a screen ASKS FOR, recorded: a body drawn somewhere new must take
+// everything it needs with it, and the only way to know is to run it.
+$GLOBALS['enq'] = [];
+function wp_enqueue_script( $h, $src = '', $deps = [], $v = '', $f = false ) { $GLOBALS['enq'][] = [ $h, (array) $deps ]; }
+function wp_enqueue_style( ...$a ) {}
+function wp_localize_script( ...$a ) {}
+function wp_enqueue_editor() { $GLOBALS['enq'][] = [ 'editor', [] ]; }
+function wp_enqueue_media() { $GLOBALS['enq'][] = [ 'media', [] ]; }
+function wp_create_nonce( $a = '' ) { return 'n'; }
+function plugins_url( $p = '', $f = '' ) { return 'http://shop.test/' . $p; }
+function wp_script_is( ...$a ) { return false; }
+function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
+// Enough of a screen for the BODY to be run, not only the method under it: a
+// gate that calls the assets itself proves they enqueue, and nothing about
+// whether the screen ever asks for them. That is how this shipped broken.
+function current_user_can( ...$a ) { return true; }
+function esc_textarea( $s ) { return esc_html( $s ); }
+function checked( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " checked='checked'" : ''; if ( $e ) { echo $r; } return $r; }
+function disabled( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " disabled='disabled'" : ''; if ( $e ) { echo $r; } return $r; }
+function selected( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " selected='selected'" : ''; if ( $e ) { echo $r; } return $r; }
+function submit_button( ...$a ) {}
+function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
+function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
+function wp_nonce_field( ...$a ) {}
+function _prime_post_caches( ...$a ) {}
+function get_post_status( ...$a ) { return 'publish'; }
+function get_edit_post_link( $id ) { return 'http://shop.test/edit/' . (int) $id; }
+function get_permalink( $id ) { return 'http://shop.test/p/' . (int) $id; }
+function wc_get_product( $id ) { return null; }
+class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return []; } public static function api_key() { return 'k'; } }
+function get_current_user_id() { return 1; }
+function get_user_meta( ...$a ) { return $GLOBALS['dze_list'] ?? []; }
+function get_posts( ...$a ) { return []; }
+function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
+function get_the_title( $id ) { return 'P' . (int) $id; }
+function wp_get_attachment_image_url( ...$a ) { return ''; }
+function get_post_thumbnail_id( ...$a ) { return 0; }
+$GLOBALS['wpdb'] = new class {
+	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
+	public function prepare( $q, ...$a ) { return $q; }
+	public function get_var( $q ) { return 0; }
+	public function get_results( $q, $m = null ) { return []; }
+	public function get_col( $q ) { return []; }
+};
+/** The popup behind every "✎ Prompt" drawn in JavaScript on that screen. */
+class DZE_Prompts {
+	public static $printed = 0;
+	public static function print_assets() { self::$printed++; }
+}
 /** The screen that may host the product bulk work — switched on, or off. */
 class DZE_Diagnostic { const MENU_SLUG = 'dazont-ecom-diagnostic'; }
 class DZE_Modules {
@@ -185,6 +234,64 @@ ok( 'which is where it has always been',
 ok( 'and nothing is redirected away from it',
 	DZE_Content::bulk_redirect( [ 'page' => DZE_Content::BULK_SLUG ] ), '' );
 $GLOBALS['dze_diag_class'] = true;
+
+echo "\nA BODY THAT MOVES TAKES ITS ASSETS WITH IT\n";
+// "Bugé, aucun prompt à choisir. 2 produits dans la liste. C'est pourtant
+// presque le même écran que sur les produits, individuellement."
+//
+// The bulk screen's assets were gated on ONE page hook — the standalone page
+// and nothing else. Drawn as a tab of Content diagnostic the hook is that
+// page's, so content-bulk.js was never enqueued: the prompt rows are built by
+// that script, so the block came up empty, and the checkboxes it ticks came up
+// unticked. The screen arrived as dead markup and said nothing.
+// THE SCREEN IS DRAWN, not its helper called: what is asserted is that the
+// BODY asks for what it needs, wherever it is drawn.
+ob_start();
+DZE_Content::instance()->bulk_body( 'http://shop.test/screen' );
+$dze_screen = (string) ob_get_clean();
+ok( 'the screen draws',                 strlen( $dze_screen ) > 200, true );
+$dze_asked = [];
+foreach ( (array) $GLOBALS['enq'] as $dze_one ) {
+	$dze_asked[ (string) $dze_one[0] ] = (array) $dze_one[1];
+}
+ok( 'the screen asks for the script that builds it',
+	isset( $dze_asked['dze-content-bulk'] ), true );
+// A DEPENDENCY THAT WAS NEVER ENQUEUED SILENTLY DROPS THE SCRIPT THAT NEEDS
+// IT: WordPress prints nothing and says nothing.
+ok( 'naming what it is built on',
+	$dze_asked['dze-content-bulk'] ?? [], [ 'jquery', 'dze-photos', 'dze-paste-box' ] );
+ok( 'the editor the reviewed texts are edited in', isset( $dze_asked['editor'] ), true );
+ok( 'the box photographs are pasted into',         isset( $dze_asked['dze-paste-box'] ), true );
+ok( 'and the media modal the pickers open',        isset( $dze_asked['media'] ), true );
+// A BUTTON DRAWN IN JAVASCRIPT NEEDS ITS POPUP PRINTED ON THAT SCREEN.
+ok( 'and the popup behind every "Prompt" button',  DZE_Prompts::$printed > 0, true );
+
+echo "\nONE TICK PER BLOCK, IN THE BLOCK'S OWN TITLE\n";
+// "Pas de coche pour activer/désactiver tout en même temps. Je t'avais
+// pourtant dit de le faire." Seven text prompts and no way to take the lot.
+$dze_sec = new ReflectionMethod( 'DZE_Content', 'sec_open' );
+$dze_sec->setAccessible( true );
+$dze_draw_sec = static function ( bool $all ) use ( $dze_sec ): string {
+	ob_start();
+	$dze_sec->invoke( null, 'text', 'Texts', true, $all );
+	return (string) ob_get_clean();
+};
+$dze_with = $dze_draw_sec( true );
+ok( 'the switch is in the heading',
+	(bool) preg_match( '#<h3 class="dze-sec-head".*?dze-sec-all.*?</h3>#s', $dze_with ), true );
+// The SAME class the product toolbox uses, so the one handler in photos.js
+// drives both — never a second one to keep in step.
+ok( 'wearing the class the one handler listens for',
+	false !== strpos( $dze_with, 'class="dze-sec-all"' ), true );
+ok( 'inside a label the head click knows to ignore',
+	false !== strpos( $dze_with, 'class="dze-sec-tick"' ), true );
+// AND NOWHERE ELSE. Over a block holding one checkbox it would be a second
+// control saying what the first already says — which is exactly what was
+// taken off the images and price blocks of the toolbox.
+ok( 'a block with nothing to take all of has none',
+	false !== strpos( $dze_draw_sec( false ), 'dze-sec-all' ), false );
+ok( 'and it is still an ordinary section',
+	false !== strpos( $dze_draw_sec( false ), 'class="dze-sec-head"' ), true );
 
 echo "\nHow many photographs of the product go with a request\n";
 // A close-up of the fastenings, asked of a five-photograph product with two
