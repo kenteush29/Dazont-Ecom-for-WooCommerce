@@ -374,7 +374,14 @@ final class DZE_Queue {
 			if ( ! $term || is_wp_error( $term ) ) {
 				throw new RuntimeException( __( 'Category not found.', 'dazont-ecom' ) );
 			}
-			$res = DZE_Category_Content::add_links( $object_id, (string) $term->description, (array) ( $payload['urls'] ?? [] ) );
+			// The text the press was made on, when the screen sent one; the
+			// stored description otherwise, which is what an automatic pass
+			// and a queued row from the Linking screen mean.
+			$body = trim( (string) ( $payload['html'] ?? '' ) );
+			if ( '' === $body ) {
+				$body = (string) $term->description;
+			}
+			$res = DZE_Category_Content::add_links( $object_id, $body, (array) ( $payload['urls'] ?? [] ) );
 			return (string) $res['html'];
 		}
 		if ( 'post_links' === $kind ) {
@@ -1159,6 +1166,16 @@ final class DZE_Queue {
 		$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 		if ( '' !== trim( $prompt ) ) {
 			$payload['prompt'] = $prompt;
+		}
+		// WHAT IS ON SCREEN IS WHAT TRAVELS. A panel writes into an editor and
+		// saves nothing until Update is pressed, so a pass that works on the
+		// STORED text works on something the person is not looking at — and on
+		// a category whose description has never been saved, on nothing at
+		// all. ABSENT means "as it stands", which is what an automatic pass
+		// sends; present means "this exact text".
+		$html = isset( $_POST['html'] ) ? wp_kses_post( wp_unslash( $_POST['html'] ) ) : '';
+		if ( '' !== trim( $html ) ) {
+			$payload['html'] = $html;
 		}
 		$n = self::add( $kind, [ $id ], false, $payload );
 		// Follow this exact job, whether it was just added or already waiting.

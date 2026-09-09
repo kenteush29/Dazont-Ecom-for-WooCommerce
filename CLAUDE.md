@@ -310,6 +310,29 @@ owner communicates in French.
   sent with it (0)", printed straight underneath. Name the thing you are
   about to rewrite.
 
+- **A HANDLER THAT THROWS HALFWAY STOPS THE SCREEN, AND SAYS NOTHING.**
+  "Before / after — hide — 0 words · 0 links. Pour le netlinking je ne
+  comprends pas, je ne vois pas le texte actuel." The linked text arrived in
+  the editor and every line after it in that handler died: `markPlaced()` read
+  `r.href` and `linkList()` had never carried one — it builds `path`, which is
+  what a row PRINTS, host stripped off. One TypeError on the first link, so the
+  "already linked" marks were never put on and `showDiff()` was never reached,
+  leaving the before/after block on whatever it last held. Nothing in PHP and
+  nothing in `node --check` can see it; the gate that can is a browser walking
+  the WHOLE loop and asserting `errors` is empty at the end of it, not only at
+  the start. And the harness config is copied KEY BY KEY from
+  `wp_localize_script` — named `ajax` instead of `ajaxUrl` it posts to the page
+  itself, every answer comes back as HTML, and the gate proves nothing while
+  looking green.
+- **WHAT IS ON SCREEN IS WHAT TRAVELS — the linking job carried no text at
+  all.** `runJob()` sent the term id and the picked urls, and `produce(
+  'cat_links' )` read the description OUT OF THE DATABASE — never the editor,
+  which saves nothing until Update is pressed. On a category written in the
+  panel and not yet saved it linked an empty string and came back "0 words · 0
+  links". The job carries `html` now: ABSENT means "as it stands", which is
+  what an automatic pass and a row queued from the Linking screen mean; present
+  means that exact text. What a press puts on the wire is only visible in a
+  browser, so it is asserted there.
 - **A SCREEN SERVED BY AJAX PRINTS NOTHING IN `admin_footer`.** The category
   panel is an AJAX answer, and `DZE_Prompts::button()` asks for its popup by
   hooking `admin_footer` — which never fires there. So "✎ questions" and "✎
