@@ -120,7 +120,7 @@ final class DZE_Cleanup {
 			],
 			'translate' => [
 				'options'   => [ 'dze_translate_settings' ],
-				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by' ],
+				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by', '_dze_tr_src' ],
 			],
 			// A module that no longer ships. Its descriptors stay so an install
 			// that once used it can still be erased of what it left behind.

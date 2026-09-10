@@ -13,6 +13,13 @@
 	var i18n = cfg.i18n || {};
 	var res = { texts: {}, source: {}, current: {}, labels: {}, open: {}, lang: '' };
 
+	// A MISSING WORD IS NOT WORTH KILLING A HANDLER FOR: coerced, like the one
+	// in category-content.js, because a string the shop has not registered
+	// would otherwise throw and stop every line after it.
+	function sprintf(str) {
+		var args = Array.prototype.slice.call(arguments, 1), i = 0;
+		return String(str == null ? '' : str).replace(/%\d\$s|%s/g, function () { return args[i++]; });
+	}
 	function esc(s) { return $('<div>').text(s == null ? '' : s).html(); }
 	function peek(html) {
 		var t = $('<div>').html(html || '').text().replace(/\s+/g, ' ').trim();
@@ -117,6 +124,16 @@
 			.done(function (r) {
 				$b.prop('disabled', false);
 				if (!r || !r.success) { $st.addClass('is-ko').text((r && r.data && r.data.message) || i18n.error); return; }
+				// NOTHING MOVED, SO NOTHING WAS PAID FOR — and the mark WPML
+				// put back is closed on the spot. A run that answers with an
+				// empty screen reads as a broken button; this one says what it
+				// found and what it did about it.
+				if (r.data.unchanged) {
+					$st.text(i18n.unchanged);
+					$('#dze-tr-warn').html('');
+					if (r.data.edit) { $('#dze-tr-open').attr('href', r.data.edit).show(); }
+					return;
+				}
 				$st.text('');
 				res.texts = r.data.texts || {};
 				res.source = r.data.source || {};
@@ -126,6 +143,12 @@
 				var warn = '';
 				if (!r.data.exists) { warn = i18n.willCreate; }
 				else if (!r.data.mine) { warn = i18n.notMine; }
+				// AND WHY THE OTHER FIELDS ARE NOT ON THE SCREEN. Two fields
+				// out of five with no explanation reads as a run that half
+				// worked; it is the register doing its job.
+				if (r.data.kept) {
+					warn = (warn ? warn + ' ' : '') + sprintf(i18n.onlyChanged, r.data.kept);
+				}
 				$('#dze-tr-warn').html(warn ? '<div class="notice notice-warning inline" style="margin:0 0 10px;"><p>' + esc(warn) + '</p></div>' : '');
 				if (r.data.edit) { $('#dze-tr-open').attr('href', r.data.edit).show(); }
 				draw();
