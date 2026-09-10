@@ -468,39 +468,86 @@
 	// it. Two descriptions side by side in a popup are two narrow columns of
 	// soup; the products screen settled this — one is being written, the other
 	// is a reference you open when you need it.
+	// WHAT THE RUN PRODUCED, on the row that holds it — the product screens'
+	// shape. A "Before / after" block used to sit at the TOP of this panel,
+	// above the thing that produces it, and its after never filled: "pourquoi
+	// ne pas mettre le résultat de la génération en dessous ? Comme sur les
+	// générations sur page produit. Et ça ne fonctionne toujours pas l'avant
+	// après." The new text is in the editor, its first words are on the row,
+	// and what the category held before is one press away — the same Current
+	// button as every other generated field in this plugin.
 	function showDiff($box) {
-		var $wrap = $box.find('.dze-cc-diffwrap').show();
-		var $out = $box.find('.dze-cc-diff').html('<p><span class="dze-cx-spin"></span></p>').show();
-		$box.find('.dze-cc-difftoggle').text(i18n.hide);
+		var $row = $box.find('.dze-cc-result .dze-cb-fblock');
+		var now  = editorGet(edId($box));
+		// AN EMPTY ANSWER SAYS WHICH EMPTY IT IS. A run that came back with
+		// nothing while a finished text sits in the queue is not the same as a
+		// category nobody has written yet, and the row points at the button
+		// that brings that text here.
+		$row.find('.dze-cb-fpeek').text(
+			String(now).replace(/<[^>]*>/g, '').trim()
+				? peek(now)
+				: ($box.data('waiting') ? i18n.waitingYet : i18n.nothingYet)
+		);
+		$row.find('.dze-cb-fstate').text(sprintf(i18n.wl,
+			String(now).replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length,
+			(String(now).match(/<a\s/g) || []).length));
+		// The comparison is redrawn from the text on screen, so a Current left
+		// open does not go on showing a reading of the run before it.
+		if ( $row.find('.dze-cc-nowtext').length ) { showNow($box); }
+	}
+	/** A few words of a text, for the row's own line. */
+	function peek(html) {
+		var t = $('<div>').html(html || '').text().replace(/\s+/g, ' ').trim();
+		return t ? (t.length > 110 ? t.slice(0, 110) + '…' : t) : i18n.nothingYet;
+	}
+	// WHAT THE CATEGORY HOLDS TODAY, above the new text — read from the server,
+	// which is the only thing that knows it once the editor has been written
+	// into.
+	function showNow($box) {
+		var $body = $box.find('.dze-cc-result .dze-cb-fbody');
+		$body.find('.dze-cc-nowtext').remove();
+		var $now = $('<div class="dze-cc-nowtext"><span class="dze-cb-nowlabel"></span><div class="dze-cb-nowbody">…</div></div>');
+		$now.find('.dze-cb-nowlabel').text(i18n.before);
+		$body.prepend($now);
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_cc_diff', nonce: $box.data('nonce'), term: $box.data('term'), html: editorGet(edId($box))
 		})
 			.done(function (res) {
-				if (!res || !res.success) { $wrap.hide(); return; }
-				var d = res.data;
-				// ONE RENDERER, in hub.js: the product toolbox and this panel
-				// print the same before/after, so neither can print half of it
-				// again. What is empty says WHICH empty it is — a text waiting
-				// in the queue is not the same as nothing written.
-				var out = window.dzeHub.diff(d, {
-					before: i18n.before,
-					after: i18n.after,
-					wl: i18n.wl,
-					wasEmpty: i18n.wasEmpty,
-					none: $box.data('waiting') ? i18n.waitingYet : i18n.nothingYet
-				});
-				$out.html(out.html);
-				$box.find('.dze-cc-diffwords').text(out.said);
+				if (!res || !res.success) { $now.find('.dze-cb-nowbody').text(i18n.error); return; }
+				var d = res.data, w = (d.words || [])[0] || 0, l = (d.links || [])[0] || 0;
+				$now.find('.dze-cb-nowlabel').text(i18n.before + ' — ' + sprintf(i18n.wl, w, l));
+				// An empty before says WHICH empty it is rather than showing a
+				// blank box that reads as a screen that did not answer.
+				$now.find('.dze-cb-nowbody').html(
+					String(d.before || '').trim() ? $('<div>').html(d.before).html() : esc(i18n.wasEmpty)
+				);
 			})
-			.fail(function () { $wrap.hide(); });
+			.fail(function () { $now.find('.dze-cb-nowbody').text(i18n.error); });
 	}
-
-	$(document).on('click', '.dze-cc-difftoggle', function () {
-		var $w = $(this).closest('.dze-cc-diffwrap');
-		var $d = $w.find('.dze-cc-diff');
-		if ($d.is(':visible')) { $d.hide(); $(this).text(i18n.show); return; }
-		showDiff($w.closest('.dze-cc-box'));
+	// The row folds like every other generated field: its head is the control.
+	$(document).on('click', '.dze-cc-result .dze-cb-fhead', function (e) {
+		if ($(e.target).closest('.dze-cc-now, .dze-prompt-peek').length) { return; }
+		var $b = $(this).closest('.dze-cb-fblock'), open = !$b.hasClass('is-open');
+		$b.toggleClass('is-open', open);
+		$b.find('.dze-cb-fcaret').text(open ? '▾' : '▸');
+		$(this).attr('aria-expanded', open ? 'true' : 'false');
+		$b.find('.dze-cb-fbody').toggle(open);
 	});
+	$(document).on('keydown', '.dze-cc-result .dze-cb-fhead', function (e) {
+		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+	});
+	$(document).on('click', '.dze-cc-now', function (e) {
+		e.stopPropagation();
+		var $box = $(this).closest('.dze-cc-box');
+		var $btn = $(this).toggleClass('button-primary');
+		if (!$btn.hasClass('button-primary')) {
+			$box.find('.dze-cc-nowtext').remove();
+			return;
+		}
+		showNow($box);
+	});
+
+
 
 	// After a run, whatever is now in the text is shown as already linked.
 	function markPlaced($box) {
@@ -578,7 +625,9 @@
 			original[id] = html;
 			refreshLinks($b);
 			restorePicks($b);
-			$b.find('.dze-cc-diffwrap').hide();
+			$b.find('.dze-cc-nowtext').remove();
+			$b.find('.dze-cc-now').removeClass('button-primary');
+			showDiff($b);
 			// The notice that announced a waiting text goes with the decision
 			// that answered it, or the screen contradicts itself on one page.
 			$b.removeAttr('data-waiting').removeData('waiting').find('.dze-cc-waiting').remove();

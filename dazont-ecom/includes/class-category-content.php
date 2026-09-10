@@ -1830,15 +1830,17 @@ PROMPT;
 			<?php // Filled from the editor content, so it always matches what is on screen. ?>
 			<ul class="dze-cc-linklist" style="display:none;"></ul>
 
-			<?php // Before / after, opened on its own once something has been generated. ?>
-			<div class="dze-cc-diffwrap" style="display:none;">
-				<p style="margin:0 0 6px;">
-					<strong><?php esc_html_e( 'Before / after', 'dazont-ecom' ); ?></strong>
-					<button type="button" class="button-link dze-cc-difftoggle"><?php esc_html_e( 'hide', 'dazont-ecom' ); ?></button>
-					<span class="dze-cc-diffwords description"></span>
-				</p>
-				<div class="dze-cc-diff"></div>
-			</div>
+			<?php
+			// THE RESULT GOES UNDER THE WORK THAT MADE IT, in the product
+			// screens' own shape — it used to be a "Before / after" block at
+			// the TOP of the panel, above the thing that produces it, and its
+			// after never filled: "pourquoi ne pas mettre le résultat de la
+			// génération en dessous ? Comme sur les générations sur page
+			// produit. Et ça ne fonctionne toujours pas l'avant après."
+			// It is a field row now, like every other generated field in this
+			// plugin: the name, what it says, a Current button to read what
+			// the category holds today, and the editor with the new text.
+			?>
 
 			<?php
 			// A translation is not where a description is written: the original
@@ -2176,10 +2178,38 @@ PROMPT;
 			// and two surfaces for one job drift apart.
 			?>
 
+			<?php
+			// THE RESULT, in the shape the product toolbox uses: one field
+			// block, its head carrying what every generated field's head
+			// carries — Current, Generate again, and the prompt behind it —
+			// and the editor inside it.
+			?>
+			<div class="dze-cc-result dze-cb-prev">
+				<div class="dze-cb-fblock is-open" data-field="description">
+					<div class="dze-cb-fhead" role="button" tabindex="0" aria-expanded="true">
+						<span class="dze-cb-fcaret">&#9662;</span>
+						<span class="dze-cb-fname"><?php esc_html_e( 'Description', 'dazont-ecom' ); ?></span>
+						<span class="dze-cb-fpeek"></span>
+						<span class="dze-cb-fstate"></span>
+						<button type="button" class="button button-small dze-cc-now" title="<?php esc_attr_e( 'Show what this category holds today, above the new text.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Current', 'dazont-ecom' ); ?></button>
+						<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'cat_desc', __( '✎ prompt', 'dazont-ecom' ) ); } ?>
+					</div>
+					<div class="dze-cb-fbody">
 			<?php if ( $own ) : ?>
 				<?php // The WordPress editor holds the description: existing text now, generated text after a run. ?>
 				<textarea id="dze-cc-editor" class="dze-cc-editor"><?php echo esc_textarea( $desc ); ?></textarea>
-
+			<?php else : ?>
+				<?php
+				// WordPress owns the editor on this host: the new text lands in
+				// the Description field above and is edited there. This body is
+				// where Current prints what the category held before it.
+				?>
+				<p class="description dze-cc-inplace" style="margin:0;"><?php esc_html_e( 'The new text is in the Description field above — read it and edit it there.', 'dazont-ecom' ); ?></p>
+			<?php endif; ?>
+					</div>
+				</div>
+			</div>
+			<?php if ( $own ) : ?>
 				<p class="dze-cc-decide" style="margin-top:10px;">
 					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
 					<?php // A WAY TO REFUSE, beside the way to accept — the same pair, in the same order, as every other screen of this plugin. ?>
