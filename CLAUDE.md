@@ -1174,6 +1174,38 @@ whose screen has not been thought through yet.
   has been generated for — reading back its photographs, its paste box and its
   text — and presses Discard for real, asserting what goes on the wire, that
   the product is STILL on the list, and that its row is back to waiting.
+- **A MARK IS NOT A CHANGE — the translation module keeps its own register.**
+  "Il suffit qu'une simple modification soit faite sur le produit ou sur la
+  catégorie du produit, et le produit est de nouveau marqué Update French
+  translation." WPML hashes the whole post into one signature — title, content,
+  excerpt, tags, CATEGORIES, custom fields, the list of variation ids — and
+  compares it on every save, so renaming a category flags every product in it.
+  That is WPML working as designed and **nothing here may change how it works**:
+  no filter on its signature, no touching WooCommerce Multilingual's triggers.
+  Three catalogues retranslated end to end cost about forty-four dollars, so a
+  wrong mark is worth a few cents and a patched WPML is worth a broken shop on
+  the next update.
+  What the module does instead is keep ITS OWN register — `_dze_tr_src` on the
+  translation, one md5 of the source text per FIELD — and pay only for words
+  that really moved. Nothing changed sends nothing and closes the mark; one
+  field changed sends that field alone. Four rules it is gated on
+  (`tools/test-translate.php`): the comparison is field by field, never one
+  fingerprint for the whole set, or a changed title re-pays for fifteen hundred
+  characters of description; the register claims only the fields a run actually
+  wrote; the signature written back is **WPML's own**
+  (`apply_filters( 'wpml_tm_element_md5', … )` on the ORIGINAL), because one of
+  ours would drift from theirs on the next WPML release and the translation
+  would never be flagged again; and a signature WPML cannot give — its
+  translation-management hooks are not loaded in every request — writes
+  NOTHING, since a mark left standing is a nuisance and a wrong signature is a
+  translation nobody will ever be told about again.
+  **A translation made elsewhere can be ADOPTED rather than paid for**: the
+  source is recorded as it stands and the mark closed. That is a bet, and it is
+  stated where it is offered — if the source really did move, that field stays
+  stale until somebody edits the source again, and THAT time the register sees
+  it. Ten thousand marks made through a spreadsheet in 2025 are cleared that
+  way, for nothing.
+- **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
   handler is a thin wrapper over it — it used to BE the handler, three hundred

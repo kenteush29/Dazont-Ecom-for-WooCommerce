@@ -169,6 +169,82 @@ final class DZE_Wpml {
 	 *                             shop reported as empty is worse than a shop
 	 *                             reported twice.
 	 */
+	/**
+	 * WPML's own row for one translation, so its mark can be closed.
+	 *
+	 * "Il suffit qu'une simple modification soit faite sur le produit ou sur la
+	 * catégorie du produit, et le produit est de nouveau marqué Update French
+	 * translation." WPML hashes the whole post — title, content, excerpt, tags,
+	 * CATEGORIES, custom fields, the list of variation ids — into one signature
+	 * and compares it on every save, so a changed category or a new variation
+	 * re-marks a translation whose words nobody touched. That is WPML working
+	 * as designed; nothing here changes how it works. What the shop needs is to
+	 * be able to say "this one is dealt with" afterwards, which is this row.
+	 *
+	 * @return int The translation_id, or 0 when WPML cannot answer.
+	 */
+	public static function translation_row( int $element_id, string $element_type ): int {
+		global $wpdb;
+		if ( ! self::is_active() || ! $wpdb || ! $element_id ) {
+			return 0;
+		}
+		$table = $wpdb->prefix . 'icl_translations';
+		if ( ! self::has_table( $table ) ) {
+			return 0;
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table; no API answers this.
+		return (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT translation_id FROM {$table} WHERE element_id = %d AND element_type = %s LIMIT 1",
+			$element_id,
+			$element_type
+		) );
+		// phpcs:enable
+	}
+
+	/**
+	 * Tells WPML a translation is dealt with, without touching how WPML works.
+	 *
+	 * This is the line that lets the shop forget translations exist: the mark
+	 * is cleared and the signature WPML will compare against next time is the
+	 * ORIGINAL AS IT STANDS NOW, so the next mark means the source really
+	 * moved. It is WPML's own filter that computes it — never a signature of
+	 * our own, which would drift from theirs on the next WPML release.
+	 *
+	 * @param int    $original_id   The post the translation was made from.
+	 * @param int    $translation_id WPML's row id for the translation.
+	 * @return bool Whether the row was written.
+	 */
+	public static function mark_done( int $original_id, int $translation_id ): bool {
+		global $wpdb;
+		if ( ! self::is_active() || ! $wpdb || ! $original_id || ! $translation_id ) {
+			return false;
+		}
+		$table = $wpdb->prefix . 'icl_translation_status';
+		if ( ! self::has_table( $table ) ) {
+			return false;
+		}
+		$post = get_post( $original_id );
+		if ( ! $post ) {
+			return false;
+		}
+		$md5 = (string) apply_filters( 'wpml_tm_element_md5', $post );
+		if ( '' === $md5 ) {
+			// WPML could not sign it — in an AJAX action its translation
+			// management hooks may not be loaded. A mark left standing is a
+			// nuisance; a WRONG signature written in its place is a
+			// translation that never gets flagged again.
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WPML's own table.
+		return false !== $wpdb->update(
+			$table,
+			[ 'status' => 10, 'needs_update' => 0, 'md5' => $md5 ],
+			[ 'translation_id' => $translation_id ],
+			[ '%d', '%d', '%s' ],
+			[ '%d' ]
+		);
+	}
+
 	public static function ids_in_language( string $element_type, string $language ): ?array {
 		global $wpdb;
 		if ( ! self::is_active() || '' === $language || ! $wpdb ) {

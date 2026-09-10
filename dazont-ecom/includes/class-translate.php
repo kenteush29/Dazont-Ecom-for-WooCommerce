@@ -28,6 +28,24 @@ final class DZE_Translate {
 	/** Marks a translation as ours, with the source fingerprint it came from. */
 	private const META_HASH = '_dze_tr_hash';
 	private const META_MINE = '_dze_tr_by';
+	/**
+	 * WHAT WAS TRANSLATED, FIELD BY FIELD — the register that decides whether
+	 * anything is paid for at all.
+	 *
+	 * One md5 of the SOURCE text per field, kept on the translation. When a
+	 * product comes back round, the module compares field by field and sends
+	 * only what actually moved: a changed title does not re-pay for fifteen
+	 * hundred characters of description, and a product WPML re-marked because
+	 * its category was renamed sends nothing at all.
+	 *
+	 * It lives on the translation rather than in a table of its own: there is
+	 * nothing to create or migrate, WordPress throws it away with the
+	 * translation, and the same key answers for a product, an article, a page
+	 * and a term. Nothing ever asks it a question across the catalogue — the
+	 * queue asks WPML which rows are marked, and this is consulted one object
+	 * at a time.
+	 */
+	private const META_SRC  = '_dze_tr_src';
 
 	private static ?self $instance = null;
 
@@ -360,6 +378,120 @@ final class DZE_Translate {
 		return md5( (string) wp_json_encode( $texts ) );
 	}
 
+	/**
+	 * The register as this translation holds it: field id => md5 of the source.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function src_map( int $target_id ): array {
+		$raw = $target_id ? get_post_meta( $target_id, self::META_SRC, true ) : '';
+		$map = is_string( $raw ) && '' !== $raw ? json_decode( $raw, true ) : $raw;
+		if ( ! is_array( $map ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $map as $fid => $sum ) {
+			$out[ (string) $fid ] = (string) $sum;
+		}
+		return $out;
+	}
+
+	/**
+	 * Writes the register for the fields that were just translated.
+	 *
+	 * Only the fields it was handed: a run that sent the title alone must not
+	 * claim the description was checked too.
+	 *
+	 * @param array<string,string> $source The SOURCE texts those fields came from.
+	 */
+	public static function remember( int $target_id, array $source ): void {
+		if ( ! $target_id ) {
+			return;
+		}
+		$map = self::src_map( $target_id );
+		foreach ( $source as $fid => $text ) {
+			$map[ (string) $fid ] = md5( (string) $text );
+		}
+		update_post_meta( $target_id, self::META_SRC, (string) wp_json_encode( $map ) );
+	}
+
+	/**
+	 * WHICH FIELDS ACTUALLY CHANGED since this translation was made.
+	 *
+	 * The whole point of the module: WPML re-marks a translation when a
+	 * category is renamed, when a variation is added, when a shipping rule
+	 * moves. None of that is text. This answers the only question worth paying
+	 * for — which words are new — and an empty answer means the mark was noise
+	 * and the translation can simply be closed again.
+	 *
+	 * A field with no entry in the register is stale: either it was never
+	 * translated, or it was translated by something that is not this module.
+	 *
+	 * @return array<string,string> field id => the SOURCE text to send.
+	 */
+	public static function stale( int $pid, string $lang ): array {
+		$texts  = self::read( $pid );
+		$target = self::translation_of( $pid, $lang );
+		if ( ! $target || $target === $pid ) {
+			return $texts; // nothing translated yet: all of it is new.
+		}
+		$map = self::src_map( $target );
+		$out = [];
+		foreach ( $texts as $fid => $text ) {
+			if ( ( $map[ $fid ] ?? '' ) !== md5( (string) $text ) ) {
+				$out[ $fid ] = $text;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Says "this one is dealt with" to WPML, for one language.
+	 *
+	 * Called after a translation is written AND after finding that nothing had
+	 * changed — those are the same answer as far as the shop is concerned, and
+	 * without this second case the mark comes back for ever and the promise of
+	 * forgetting translations exist is not kept.
+	 */
+	public static function settle( int $pid, string $lang ): bool {
+		if ( ! class_exists( 'DZE_Wpml' ) ) {
+			return false;
+		}
+		$target = self::translation_of( $pid, $lang );
+		if ( ! $target || $target === $pid ) {
+			return false;
+		}
+		$row = DZE_Wpml::translation_row( $target, 'post_' . (string) get_post_type( $target ) );
+		return $row ? DZE_Wpml::mark_done( $pid, $row ) : false;
+	}
+
+	/**
+	 * Takes over a translation this module did not write, without paying.
+	 *
+	 * Three catalogues carry ten thousand marked translations, all of them made
+	 * by hand through a spreadsheet in 2025. There is no way to know from here
+	 * whether the words in them are current — the register that would say so is
+	 * exactly what did not exist. So the shop is offered the only two honest
+	 * answers, and this is the cheap one: record the source AS IT STANDS as
+	 * what that translation was made from, and close the mark.
+	 *
+	 * The bet it makes is stated where it is offered: if the source really did
+	 * move since, that field stays stale until somebody edits the source again
+	 * — and THAT time the register sees it and it is retranslated. The other
+	 * answer is to translate it, which costs money and is always available.
+	 *
+	 * @return bool Whether anything was adopted.
+	 */
+	public static function adopt( int $pid, string $lang ): bool {
+		$target = self::translation_of( $pid, $lang );
+		if ( ! $target || $target === $pid ) {
+			return false;
+		}
+		self::remember( $target, self::read( $pid ) );
+		self::settle( $pid, $lang );
+		return true;
+	}
+
 	// =========================================================================
 	// The call
 	// =========================================================================
@@ -564,9 +696,23 @@ final class DZE_Translate {
 		if ( ! $pid || '' === $lang || ! isset( self::targets( $pid )[ $lang ] ) ) {
 			wp_send_json_error( [ 'message' => __( 'Unknown product or language.', 'dazont-ecom' ) ] );
 		}
-		$texts = self::read( $pid );
-		if ( ! $texts ) {
+		$all = self::read( $pid );
+		if ( ! $all ) {
 			wp_send_json_error( [ 'message' => __( 'This product has no text to translate.', 'dazont-ecom' ) ] );
+		}
+		// ONLY WHAT ACTUALLY CHANGED IS PAID FOR. A product WPML re-marked
+		// because its category was renamed sends nothing at all — and the mark
+		// is closed on the spot, which is the whole promise of the module.
+		$texts = self::stale( $pid, $lang );
+		if ( ! $texts ) {
+			self::settle( $pid, $lang );
+			wp_send_json_success( [
+				'lang'     => $lang,
+				'unchanged'=> true,
+				'exists'   => true,
+				'labels'   => array_map( static fn( $f ) => $f['label'], self::fields() ),
+				'edit'     => (string) get_edit_post_link( self::translation_of( $pid, $lang ), '' ),
+			] );
 		}
 		try {
 			$new = self::translate( $texts, $lang );
@@ -588,6 +734,11 @@ final class DZE_Translate {
 			'source'  => $texts,
 			'texts'   => $new,
 			'current' => $current,
+			// WHICH FIELDS THIS RUN IS ABOUT, and how many were left alone.
+			// A screen that shows two fields out of five without saying why
+			// reads as a run that half worked.
+			'only'    => array_keys( $texts ),
+			'kept'    => max( 0, count( $all ) - count( $texts ) ),
 			'labels'  => array_map( static fn( $f ) => $f['label'], self::fields() ),
 			'edit'    => $target ? (string) get_edit_post_link( $target, '' ) : '',
 		] );
@@ -620,11 +771,18 @@ final class DZE_Translate {
 		}
 		$this->write( $target, array_map( 'strval', $texts ) );
 		update_post_meta( $target, self::META_MINE, '1' );
-		update_post_meta( $target, self::META_HASH, self::hash( self::read( $pid ) ) );
+		$source = self::read( $pid );
+		update_post_meta( $target, self::META_HASH, self::hash( $source ) );
+		// THE REGISTER, for the fields that were actually written — a field
+		// left out of this apply is not claimed as translated.
+		self::remember( $target, array_intersect_key( $source, $texts ) );
+		// And WPML is told the translation is dealt with, so the mark goes.
+		$settled = self::settle( $pid, $lang );
 
 		wp_send_json_success( [
-			'target' => $target,
-			'edit'   => (string) get_edit_post_link( $target, '' ),
+			'target'  => $target,
+			'settled' => $settled,
+			'edit'    => (string) get_edit_post_link( $target, '' ),
 		] );
 	}
 
@@ -670,6 +828,11 @@ final class DZE_Translate {
 				'error'     => __( 'Something went wrong.', 'dazont-ecom' ),
 				'applying'  => __( 'Saving…', 'dazont-ecom' ),
 				'applied'   => __( 'Saved ✓', 'dazont-ecom' ),
+				// WHAT THE REGISTER FOUND, in words. A run that spends nothing
+				// has to say so, or it reads as a button that did nothing.
+				'unchanged' => __( 'Not one word has changed since this translation was made — nothing was sent, nothing was spent, and WPML has been told it is up to date.', 'dazont-ecom' ),
+				/* translators: %s: number of fields left alone */
+				'onlyChanged' => __( 'Only what changed is below: %s other fields have not moved since the last translation and were left alone.', 'dazont-ecom' ),
 				'source'    => __( 'Original', 'dazont-ecom' ),
 				'current'   => __( 'The translation today', 'dazont-ecom' ),
 				'empty'     => __( '(empty)', 'dazont-ecom' ),
