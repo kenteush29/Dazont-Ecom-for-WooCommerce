@@ -223,8 +223,13 @@ for ( const [ label, jq ] of jqs ) {
 	await page.uncheck( '#dze-cb-image' ).catch( () => {} );
 	await page.check( '.dze-cb-field[value="desc"]' );
 	await page.click( '#dze-cb-start' );
-	const ready = await page.waitForSelector( '.dze-cb-row[data-id="7"] .dze-cb-toggle:visible', { timeout: 8000 } )
-		.then( () => true ).catch( () => false );
+	// WAIT FOR THE ANSWER, NOT FOR SOMETHING ALREADY THERE. This waited for the
+	// Look button to appear — and that button is on every row from the start
+	// now, so the wait returned at once and the checks after it read a screen
+	// still working. What a finished run changes is the WORD on it.
+	const ready = await page.waitForFunction(
+		() => /Review/.test( ( document.querySelector( '.dze-cb-row[data-id="7"] .dze-cb-toggleword' ) || {} ).textContent || '' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
 	ok( 'a run leaves the line offering a review', ready, true );
 	ok( 'and a badge saying what was produced',
 		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-badge' ).count() > 0, true );

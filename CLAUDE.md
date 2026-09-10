@@ -1129,6 +1129,24 @@ whose screen has not been thought through yet.
   (`.dze-cx-prog` + `.dze-cb-bar`), same words from PHP, and the pair under it
   is **Apply / Discard** on both hosts — WordPress's own Update is the
   acceptance where WordPress owns the editor.
+- **THE RESULT GOES UNDER THE WORK THAT MADE IT.** The category panel put a
+  "Before / after" block at the TOP of the screen — above the thing that
+  produces it — and its after never filled: "pourquoi ne pas mettre le résultat
+  de la génération en dessous ? Comme sur les générations sur page produit. Et
+  ça ne fonctionne toujours pas l'avant après, je ne vois pas l'après ça ne
+  charge pas." It is a FIELD ROW now, the same one every generated field in
+  this plugin wears: the name, the first words of what came back, its figures,
+  a **Current** button that brings back what the object holds today, the prompt
+  behind it, and the editor with the new text inside. Two prompt buttons on one
+  screen is right and is the product screen's own shape — the prompt you choose
+  the work with, and the prompt behind the text that came back. And the row
+  says WHICH empty it is when a run answers with nothing.
+- **A GATE MUST WAIT FOR THE ANSWER, NOT FOR SOMETHING ALREADY THERE.** The
+  bulk gate waited for the Look button to appear before reading the run's
+  result — and that button is on every row from the start since the release
+  before, so the wait returned instantly and every check after it read a screen
+  still working. It went green on one jQuery build and red on the other, which
+  is what a vacuous wait looks like. Wait for what the work CHANGES.
 - **A MISSING WORD IS NOT WORTH KILLING A HANDLER FOR.** `sprintf()` in
   `category-content.js` called `.replace` straight on its argument, so a string
   the shop had not registered threw a TypeError and stopped every line after it

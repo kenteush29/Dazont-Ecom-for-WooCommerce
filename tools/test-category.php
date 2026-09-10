@@ -199,7 +199,16 @@ class DZE_Mesh_Wpdb {
 		if ( false !== stripos( $sql, 'FROM wp_posts' ) ) {
 			$rows = [];
 			foreach ( $GLOBALS['posts'] as $id => $p ) {
-				$rows[] = [ 'ID' => $id, 'post_title' => $p['title'], 'post_type' => $p['type'], 'post_content' => $p['content'] ];
+				// Every column the query names: page_index() reads post_name
+				// too, and a fake shop that answers half a SELECT makes the
+				// code look wrong when it is the harness that is short.
+				$rows[] = [
+					'ID'           => $id,
+					'post_title'   => $p['title'],
+					'post_name'    => (string) ( $p['slug'] ?? sanitize_key( str_replace( ' ', '-', (string) $p['title'] ) ) ),
+					'post_type'    => $p['type'],
+					'post_content' => $p['content'],
+				];
 			}
 			return $rows;
 		}
@@ -370,8 +379,16 @@ foreach ( $btns as $b ) {
 		$peeks[] = trim( html_entity_decode( wp_strip_all_tags( $b[2] ), ENT_QUOTES | ENT_HTML5 ) );
 	}
 }
-ok( 'one prompt control per block',      count( $peeks ), 2 );
-ok( 'and both read the same way',        array_values( array_unique( $peeks ) ), [ '✎ prompt' ] );
+// TWO IN "WHAT TO GENERATE" — one per block — and one on the RESULT row, which
+// is the product screens' own shape: the prompt you choose the work with, and
+// the prompt behind the text that came back.
+$dze_gen = substr( $panel, (int) strpos( $panel, 'What to generate' ) );
+$dze_gen = substr( $dze_gen, 0, (int) strpos( $dze_gen, 'dze-cc-run-row' ) );
+ok( 'one prompt control per block',
+	substr_count( $dze_gen, 'dze-prompt-peek' ), 2 );
+ok( 'and one on the result row',
+	substr_count( substr( $panel, (int) strpos( $panel, 'dze-cc-result' ) ), 'dze-prompt-peek' ), 1 );
+ok( 'and every one reads the same way',  array_values( array_unique( $peeks ) ), [ '✎ prompt' ] );
 // A CONTROL WEARING THE PROMPT-POPUP CLASS WITH NO PROMPT BEHIND IT ANSWERS
 // "This prompt could not be read." That is what "ⓘ what it uses" was: the
 // popup's handler picked it up, found no id, and said so. It is gone rather
@@ -395,7 +412,7 @@ sort( $ids[1] );
 // cat_sift is NOT one of them: it is not a way of writing this page, it is the
 // filter deciding WHICH imported questions reach the writer, and it is edited
 // in Settings → Categories. "Je ne comprends pas ce que fait ce prompt ici."
-ok( 'the two passes, each with its own', $ids[1], [ 'cat_desc', 'cat_links' ] );
+ok( 'the two passes, each with its own', array_values( array_unique( $ids[1] ) ), [ 'cat_desc', 'cat_links' ] );
 ok( 'and the question filter is not one', in_array( 'cat_sift', $ids[1], true ), false );
 // EACH IN THE BLOCK IT IS ABOUT.
 $dze_d = substr( $panel, (int) strpos( $panel, 'data-sec="cc-desc"' ) );
@@ -403,6 +420,23 @@ $dze_d = substr( $dze_d, 0, (int) strpos( $dze_d, 'data-sec="cc-links"' ) );
 ok( 'the writing prompt is in the description block',
 	false !== strpos( $dze_d, 'data-prompt="cat_desc"' ), true );
 ok( 'and the linking prompt is not',    false !== strpos( $dze_d, 'data-prompt="cat_links"' ), false );
+
+echo "\nTHE RESULT GOES UNDER THE WORK THAT MADE IT\n";
+// "Pourquoi ne pas mettre le résultat de la génération en dessous ? Comme sur
+// les générations sur page produit." A "Before / after" block used to sit at
+// the TOP of this panel, above the thing that produces it, and its after never
+// filled: "je ne vois pas l'après, ça ne charge pas."
+ok( 'the old before/after block is gone',
+	false !== strpos( $panel, 'dze-cc-diffwrap' ), false );
+ok( 'the result is a field row',
+	false !== strpos( $panel, 'dze-cc-result' ), true );
+ok( 'and it holds the editor',
+	strpos( $panel, 'dze-cc-result' ) < strpos( $panel, 'dze-cc-editor' ), true );
+ok( 'below the button that makes it',
+	strpos( $panel, 'dze-cc-run-row' ) < strpos( $panel, 'dze-cc-result' ), true );
+// AND THE WAY TO READ WHAT THE CATEGORY HOLDS TODAY, on the row itself — the
+// same Current button as every other generated field in this plugin.
+ok( 'the row offers Current',           false !== strpos( $panel, 'dze-cc-now' ), true );
 
 echo "\nAN ADVISORY IS A LINE THAT OPENS, NOT A PLACARD\n";
 // "Je pense que cette alerte devrait être plus discrète. Avec possibilité de

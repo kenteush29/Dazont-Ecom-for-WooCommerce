@@ -194,7 +194,13 @@ for ( const [ label, jq ] of jqs ) {
 	// the block each of them is about now, and every one still carries a word.
 	const words = await page.evaluate( () => Array.from(
 		document.querySelectorAll( '#panel .dze-prompt-peek' ) ).map( b => b.textContent.trim() ) );
-	ok( 'one prompt control per block',      words.length, 2 );
+	// Two in "What to generate" — one per block — and one on the RESULT row,
+	// which is the product screens' own shape: the prompt you choose the work
+	// with, and the prompt behind the text that came back.
+	ok( 'one prompt control per block',
+		await page.locator( '#panel .dze-sec .dze-prompt-peek' ).count(), 2 );
+	ok( 'and one on the result row',
+		await page.locator( '#panel .dze-cc-result .dze-prompt-peek' ).count(), 1 );
 	// AND NONE OF THEM IS A PROMPT BUTTON WITH NO PROMPT BEHIND IT. "ⓘ what
 	// it uses" wore this very class with no id, so the popup's own handler
 	// picked it up and answered "This prompt could not be read".
@@ -313,35 +319,57 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and it carries the text on the screen',
 		( asked.html || '' ).includes( 'Bags for the field' ), true );
 	ok( 'with the page that was ticked',     asked.urls.length > 0, true );
-	// AND THE SCREEN SHOWS WHAT THE CATEGORY HELD, visibly — the block was
-	// there, opened, and empty.
-	const shown = await page.waitForSelector( '#panel .dze-cc-diff .dze-cb-nowbody', { timeout: 4000 } )
-		.then( () => true ).catch( () => false );
-	ok( 'the before/after block shows the current text', shown, true );
+	// THE RESULT IS UNDER THE WORK THAT MADE IT, in the product screens' shape.
+	// "Pourquoi ne pas mettre le résultat de la génération en dessous ? Comme
+	// sur les générations sur page produit. Et ça ne fonctionne toujours pas
+	// l'avant après, je ne vois pas l'après ça ne charge pas." A "Before /
+	// after" block used to sit at the TOP of this panel, above the thing that
+	// produces it, and its after never filled.
+	ok( 'the result is a field row, like a product field',
+		await page.locator( '#panel .dze-cc-result .dze-cb-fblock' ).count(), 1 );
+	ok( 'it is below the button that made it',
+		await page.evaluate( () => {
+			const run = document.querySelector( '#panel .dze-cc-run' );
+			const res = document.querySelector( '#panel .dze-cc-result' );
+			return !! run && !! res
+				&& ( run.compareDocumentPosition( res ) & Node.DOCUMENT_POSITION_FOLLOWING ) > 0;
+		} ), true );
+	// THE NEW TEXT IS IN THE EDITOR, and the row says what it holds.
+	ok( 'the editor holds what the run wrote',
+		( await page.inputValue( '#dze-cc-editor' ) ).includes( 'Boonie hats' ), true );
+	ok( 'and the row says so in a few words',
+		( await page.textContent( '#panel .dze-cc-result .dze-cb-fpeek' ) ).includes( 'Boonie hats' ), true );
+	// A COUNT THAT READS 0 · 0 OVER A TEXT THAT IS PLAINLY THERE is the screen
+	// disagreeing with itself.
+	ok( 'with figures that are not nought',
+		( await page.textContent( '#panel .dze-cc-result .dze-cb-fstate' ) ).trim().startsWith( '0 words' ), false );
+	// AND WHAT THE CATEGORY HOLDS TODAY IS ONE PRESS AWAY — the same Current
+	// button as every other generated field in this plugin.
+	ok( 'the row offers Current',           await page.locator( '#panel .dze-cc-now' ).count(), 1 );
+	ok( 'and nothing is shown before it is pressed',
+		await page.locator( '#panel .dze-cc-nowtext' ).count(), 0 );
+	await page.click( '#panel .dze-cc-now' );
+	const cameBack = await page.waitForFunction(
+		() => {
+			const el = document.querySelector( '#panel .dze-cc-nowtext .dze-cb-nowbody' );
+			return !! el && ! /^…$/.test( ( el.textContent || '' ).trim() ) && ( el.textContent || '' ).trim().length > 0;
+		}, null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'pressing it brings back what the category holds', cameBack, true );
 	ok( 'and it is really on the screen',
 		await page.evaluate( () => {
-			const el = document.querySelector( '#panel .dze-cc-diff .dze-cb-nowbody' );
-			return !! el && el.offsetHeight > 0 && ( el.textContent || '' ).trim().length > 0;
+			const el = document.querySelector( '#panel .dze-cc-nowtext .dze-cb-nowbody' );
+			return !! el && el.offsetHeight > 0;
 		} ), true );
-	// A count that reads 0 · 0 over a text that is plainly there is the screen
-	// disagreeing with itself.
-	ok( 'and the count is not nought over a written page',
-		( await page.textContent( '#panel .dze-cc-diffwords' ) ).trim().startsWith( '0 words' ), false );
-	// BEFORE **AND** AFTER. The block was called "Before / after" and printed
-	// one document: "aucun avant/après juste un avant". On the category screen
-	// the new text lands in the Description field above, so the panel showed
-	// the old one and a "0 words · 0 links" that read as a broken screen.
-	ok( 'the block shows two documents',
-		await page.locator( '#panel .dze-cc-diff .dze-cb-nowbody' ).count(), 2 );
-	const labels = await page.evaluate( () => Array.from(
-		document.querySelectorAll( '#panel .dze-cc-diff .dze-cb-nowlabel' ) ).map( e => e.textContent.trim() ) );
-	ok( 'the first is what the category holds',  labels[0].startsWith( 'Before —' ), true );
-	ok( 'the second is what was written',        labels[1].startsWith( 'After —' ), true );
+	ok( 'it is the OLD text, not the new one',
+		( await page.textContent( '#panel .dze-cc-nowtext .dze-cb-nowbody' ) ).includes( 'Bags for the field' ), true );
+	ok( 'labelled with its own figures',
+		/Before — \d+ words/.test( await page.textContent( '#panel .dze-cc-nowtext .dze-cb-nowlabel' ) ), true );
+	// AND PRESSING IT AGAIN PUTS IT AWAY: a control that only opens is half a
+	// control.
+	await page.click( '#panel .dze-cc-now' );
+	ok( 'and pressing it again puts it away',
+		await page.locator( '#panel .dze-cc-nowtext' ).count(), 0 );
 
-	ok( 'each carrying its own figures',
-		labels[0] !== labels[1] && /\d+ words/.test( labels[1] ), true );
-	ok( 'and the after really holds the new text',
-		( await page.textContent( '#panel .dze-cc-diff .dze-cb-nowtext:nth-of-type(2) .dze-cb-nowbody' ) ).includes( 'Boonie hats' ), true );
 	// A WAY TO REFUSE. The handler has existed for months and the button was
 	// printed on neither screen.
 	// Reported, not fatal: a gate that dies on the button it is about says
@@ -394,17 +422,17 @@ for ( const [ label, jq ] of jqs ) {
 		box.setAttribute( 'data-waiting', '1' );
 		window.jQuery( box ).removeData( 'waiting' );
 	} );
-	// A real press again, answered with nothing: the after is empty and the
-	// block is redrawn by the same path the screen uses.
+	// A real press again, answered with nothing: the row says WHICH empty it
+	// is, by the same path the screen uses.
 	jobHtml = '';
+	polled = 0;
 	await page.click( '#panel .dze-cc-run' );
-	await page.waitForFunction(
-		() => /waiting/i.test( document.querySelector( '#panel .dze-cc-diffwords' ).textContent || '' ),
+	const saidEmpty = await page.waitForFunction(
+		() => /waiting/i.test( document.querySelector( '#panel .dze-cc-result .dze-cb-fpeek' ).textContent || '' ),
 		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
-	ok( 'an empty after points at the text that is waiting',
-		( await page.textContent( '#panel .dze-cc-diffwords' ) ).includes( 'A text is waiting' ), true );
-	ok( 'and says it where the after would be',
-		( await page.textContent( '#panel .dze-cc-diff' ) ).includes( 'Load it here' ), true );
+	ok( 'an empty answer says which empty it is', saidEmpty, true );
+	ok( 'and points at the text that is waiting',
+		( await page.textContent( '#panel .dze-cc-result .dze-cb-fpeek' ) ).includes( 'Load it here' ), true );
 	// AND NOTHING WAS RAISED ON THE WAY. This is the check that would have
 	// caught it on the day: one TypeError on the first link killed every line
 	// after it in that handler, and the screen simply stopped moving.
