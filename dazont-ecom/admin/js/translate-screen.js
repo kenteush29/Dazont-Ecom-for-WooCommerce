@@ -42,6 +42,34 @@
 		$('.dze-tr-pickone').prop('checked', this.checked);
 	});
 
+	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME: the plus makes the missing
+	// translation, the arrows bring an out-of-date one back. It runs the SAME
+	// job the batch button runs — one object, one language — because a second
+	// engine beside it is how two screens start disagreeing.
+	$(document).on('click', '.dze-tr-one', function () {
+		var $b = $(this).prop('disabled', true);
+		var $row = $b.closest('.dze-tr-row');
+		var ref = $row.data('ref'), lang = String($b.data('lang') || '');
+		if (!ref || !lang) { $b.prop('disabled', false); return; }
+		var was = $b.html();
+		$b.html(esc(i18n.sending));
+		post('dze_tr_batch', { ref: ref, langs: [lang] }).done(function (r) {
+			if (r && r.success) {
+				var n = (r.data.done || []).length;
+				$b.replaceWith('<span class="dze-tr-chip is-' + (n ? 'held' : 'done') + '">' +
+					esc(n ? i18n.rowHeld : i18n.rowNothing) + '</span>');
+				if (n) { $('#dze-tr-sendstate').html(esc(sprintf(i18n.sent, 1)) +
+					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '')); }
+				return;
+			}
+			$b.prop('disabled', false).html(was);
+			$('#dze-tr-sendstate').text(said(r));
+		}).fail(function () {
+			$b.prop('disabled', false).html(was);
+			$('#dze-tr-sendstate').text(i18n.error);
+		});
+	});
+
 	$(document).on('click', '#dze-tr-send', function () {
 		var $btn = $(this);
 		var langs = $('.dze-tr-lang:checked').map(function () { return $(this).val(); }).get();

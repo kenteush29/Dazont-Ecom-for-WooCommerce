@@ -334,10 +334,24 @@ trait DZE_Translate_Screen {
 		// THE NARROWING HAPPENS IN THE QUERY THAT PAGES. Filtered after the
 		// paging, the pager counted the whole catalogue and the page showed
 		// two rows.
-		$page    = self::todo_page( $scope, $src, array_keys( $langs ), $paged, $per, ! $all );
-		$exact   = null !== $page;
-		[ $objects, $found ] = $exact ? $page : self::page_of( $scope, $src, $paged, $per );
-		$pages   = (int) ceil( $found / $per );
+		// ARMED ON ONE OBJECT. "Translate with Dazont Ecom" in WPML's own
+		// Language box opens this screen rather than running anything, so the
+		// screen has to show THAT object — ticked, with nothing else in the
+		// way. A button whose destination is a list of nine hundred rows is a
+		// button that sent you looking.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$only    = isset( $_GET['only'] ) ? self::from_ref( sanitize_text_field( wp_unslash( $_GET['only'] ) ) ) : [];
+		if ( $only ) {
+			$objects = [ $only ];
+			$found   = 1;
+			$exact   = true;
+			$pages   = 1;
+		} else {
+			$page    = self::todo_page( $scope, $src, array_keys( $langs ), $paged, $per, ! $all );
+			$exact   = null !== $page;
+			[ $objects, $found ] = $exact ? $page : self::page_of( $scope, $src, $paged, $per );
+			$pages   = (int) ceil( $found / $per );
+		}
 		// WPML'S ANSWER FOR THE WHOLE PAGE, in one query rather than one a row.
 		$marks   = self::page_marks( $objects );
 		?>
@@ -378,24 +392,56 @@ trait DZE_Translate_Screen {
 				<?php foreach ( $objects as $o ) : ?>
 					<?php $state = self::state_of( $o, array_keys( $langs ), $marks ); ?>
 					<tr class="dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>">
-						<td class="check-column"><input type="checkbox" class="dze-tr-pickone" /></td>
+						<td class="check-column"><input type="checkbox" class="dze-tr-pickone" <?php checked( (bool) $only ); ?> /></td>
 						<td>
 							<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( self::obj_label( $o ) ); ?></a>
 						</td>
 						<td class="dze-tr-state">
 							<?php foreach ( $state as $code => $said ) : ?>
-								<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
-									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
-									<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
-									<?php echo esc_html( self::state_said( $said ) ); ?>
-								</span>
+								<?php
+								// WPML'S OWN GESTURE: the plus makes the missing
+								// translation, the arrows bring an out-of-date one
+								// back. "Avec le bouton + pour créer une traduction
+								// d'une langue précise. Le bouton actualiser pour
+								// actualiser une traduction qui n'est plus à jour."
+								// A chip WPML is satisfied with is not a button:
+								// there is nothing to press it for.
+								$dze_act = in_array( $said, [ 'missing', 'stale', 'noise' ], true );
+								?>
+								<?php if ( $dze_act ) : ?>
+									<button type="button" class="dze-tr-chip is-<?php echo esc_attr( $said ); ?> dze-tr-one"
+										data-lang="<?php echo esc_attr( (string) $code ); ?>"
+										title="<?php echo esc_attr( sprintf(
+											/* translators: 1: what the language needs, 2: the language */
+											'missing' === $said
+												? __( 'Translate this one into %2$s — it lands in "To review", nothing is written yet', 'dazont-ecom' )
+												: __( 'Bring the %2$s translation up to date — it lands in "To review", nothing is written yet', 'dazont-ecom' ),
+											self::state_said( $said ),
+											strtoupper( (string) $code )
+										) ); ?>">
+										<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
+										<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
+										<?php echo esc_html( self::state_said( $said ) ); ?>
+									</button>
+								<?php else : ?>
+									<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
+										<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
+										<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
+										<?php echo esc_html( self::state_said( $said ) ); ?>
+									</span>
+								<?php endif; ?>
 							<?php endforeach; ?>
 						</td>
 					</tr>
 				<?php endforeach; ?>
 				</tbody>
 			</table>
-			<?php if ( $exact && $objects ) : ?>
+			<?php if ( $only ) : ?>
+				<p class="description">
+					<?php esc_html_e( 'One object, opened from its own edit screen and already ticked. Nothing is sent until you press the button below.', 'dazont-ecom' ); ?>
+					<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Show everything that needs work', 'dazont-ecom' ); ?></a>
+				</p>
+			<?php elseif ( $exact && $objects ) : ?>
 				<!-- WHAT THE LIST IS, said once, with the other reading one
 				     press away. The count in the pager and the rows under it
 				     answer this same sentence. -->
