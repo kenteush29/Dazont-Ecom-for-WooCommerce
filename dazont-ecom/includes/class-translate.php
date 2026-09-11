@@ -125,6 +125,16 @@ final class DZE_Translate {
 		if ( isset( $in['create'] ) ) {
 			$out['create'] = ! empty( $in['create'] ) ? 1 : 0;
 		}
+		// The extra things this shop translates. The section that owns this
+		// list posts `scope_sent` whether or not a single box is ticked —
+		// without it, unticking the last one would leave the old list standing
+		// for ever, which is a control that cannot be undone.
+		if ( ! empty( $in['scope_sent'] ) ) {
+			$out['scope'] = array_values( array_intersect(
+				array_map( 'sanitize_text_field', (array) ( $in['scope'] ?? [] ) ),
+				array_keys( self::scope() )
+			) );
+		}
 		return $out;
 	}
 
@@ -191,6 +201,20 @@ final class DZE_Translate {
 			'excerpt'  => [ 'label' => __( 'Short description', 'dazont-ecom' ),        'type' => 'post', 'key' => 'post_excerpt', 'html' => true ],
 			'seo_title'=> [ 'label' => __( 'SEO title', 'dazont-ecom' ),                'type' => 'meta', 'key' => '',             'html' => false ],
 			'seo_desc' => [ 'label' => __( 'SEO description', 'dazont-ecom' ),          'type' => 'meta', 'key' => '',             'html' => false ],
+			// A THIRD OF THE SHOP'S PRODUCT TEXT LIVED OUTSIDE THESE FIVE
+			// FIELDS. The theme keeps two written blocks in custom fields —
+			// 614,295 characters across 1,525 and 566 products on this
+			// catalogue, against 1,849,581 in post_content — and the module
+			// translated none of it, so a French product page came out a third
+			// in English with nothing anywhere saying why. It is customer copy,
+			// not plumbing.
+			//
+			// `_purchase_note` and `_button_text` were considered and left out
+			// on purpose: they are empty on all 2,105 English products here,
+			// and a dead field on a screen is a field somebody has to decide
+			// about every time.
+			'block_text_1' => [ 'label' => __( 'Content block 1', 'dazont-ecom' ), 'type' => 'meta', 'key' => 'block_text_1', 'html' => true ],
+			'block_text_2' => [ 'label' => __( 'Content block 2', 'dazont-ecom' ), 'type' => 'meta', 'key' => 'block_text_2', 'html' => true ],
 		];
 	}
 
@@ -276,12 +300,55 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * THE SIX THIS SHOP ALWAYS TRANSLATES, and everything else is a choice.
+	 *
+	 * "Je ne vais pas tout traduire. Donc dès le début, une liste créable
+	 * manuellement des posts qu'on veut traduire automatiquement. Il va falloir
+	 * inclure de facto les pages, posts, product category, products, product
+	 * tags, et les attributs produits. Le reste c'est en option."
+	 *
+	 * Attributes are not named one by one — a shop adds one next month and it
+	 * would be missing from a list written today — so every `pa_*` taxonomy is
+	 * in by the same rule.
+	 */
+	public static function always(): array {
+		return [ 'post:page', 'post:post', 'post:product', 'term:product_cat', 'term:product_tag' ];
+	}
+
+	/** Is this one of the things the shop never has to choose? */
+	public static function is_always( string $key ): bool {
+		return in_array( $key, self::always(), true ) || 0 === strpos( $key, 'term:pa_' );
+	}
+
+	/**
+	 * WHAT THE SHOP HAS CHOSEN TO TRANSLATE — the six, plus whatever was
+	 * ticked in Settings → Translation.
+	 *
+	 * An absent setting is not an empty choice: a shop updating to this
+	 * version keeps translating what it always did, and the extras start
+	 * unticked.
+	 */
+	public static function picked_scope(): array {
+		$all    = self::scope();
+		$picked = self::get_settings()['scope'] ?? null;
+		$extra  = is_array( $picked ) ? array_map( 'strval', $picked ) : [];
+		$out    = [];
+		foreach ( $all as $key => $one ) {
+			if ( self::is_always( $key ) || in_array( $key, $extra, true ) ) {
+				$out[ $key ] = $one;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * EVERYTHING THIS SHOP MAY TRANSLATE, as WPML has been set up — never a
 	 * list of our own.
 	 *
 	 * A type or a taxonomy WPML does not translate is not offered: writing a
 	 * translation WPML will not link leaves an orphan post in another language
-	 * and nothing anywhere saying why.
+	 * and nothing anywhere saying why. This is the MENU of what could be
+	 * chosen; `picked_scope()` is what the shop actually works on.
 	 *
 	 * @return array<string,array{kind:string,type:string,label:string}>
 	 */
@@ -461,7 +528,15 @@ final class DZE_Translate {
 				if ( 1 === DZE_Wpml::custom_field_mode( $key ) || 3 === DZE_Wpml::custom_field_mode( $key ) ) {
 					continue;
 				}
-				update_post_meta( $target_id, $key, sanitize_text_field( (string) $texts[ $fid ] ) );
+				// A CUSTOM FIELD IS NOT ALWAYS A LINE OF TEXT. The SEO pair is,
+				// and the theme's content blocks are paragraphs — several
+				// hundred thousand characters of them. Flattened through
+				// sanitize_text_field() the translation would arrive with its
+				// markup stripped, which is not a translation of what was read.
+				// The field says which it is, exactly like a post field.
+				update_post_meta( $target_id, $key, $f['html']
+					? wp_kses_post( (string) $texts[ $fid ] )
+					: sanitize_text_field( (string) $texts[ $fid ] ) );
 			}
 		}
 		if ( $post ) {
@@ -539,7 +614,10 @@ final class DZE_Translate {
 		if ( 'seo_desc' === $fid ) {
 			return (string) $seo['desc'];
 		}
-		return '';
+		// A field that names its own key answers with it. The SEO pair is the
+		// exception because its key depends on which SEO plugin is installed.
+		$f = self::fields( 'post' )[ $fid ] ?? [];
+		return ( 'meta' === ( $f['type'] ?? '' ) ) ? (string) ( $f['key'] ?? '' ) : '';
 	}
 
 	// =========================================================================
@@ -567,15 +645,70 @@ final class DZE_Translate {
 			<?php settings_fields( 'dze_translate_options' ); ?>
 			<table class="form-table" role="presentation">
 				<tr>
-					<th scope="row"><?php esc_html_e( 'What gets translated', 'dazont-ecom' ); ?></th>
+					<th scope="row"><?php esc_html_e( 'What this shop translates', 'dazont-ecom' ); ?></th>
+					<td>
+						<?php
+						// A LIST THE SHOP MAKES, not everything WPML allows.
+						// "Je ne vais pas tout traduire... une liste créable
+						// manuellement des posts qu'on veut traduire." Six
+						// things are in whatever happens — pages, articles,
+						// products, categories, tags and every product
+						// attribute — and the rest is a tick.
+						$dze_all    = self::scope();
+						$dze_picked = array_keys( self::picked_scope() );
+						?>
+						<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[scope_sent]" value="1" />
+						<?php if ( ! $dze_all ) : ?>
+							<p class="description"><?php esc_html_e( 'WPML is not set to translate any post type or taxonomy on this site. Open WPML → Settings and say what should be translated; this list follows that answer and never overrides it.', 'dazont-ecom' ); ?></p>
+						<?php endif; ?>
+						<?php foreach ( $dze_all as $dze_key => $dze_one ) : ?>
+							<?php $dze_fixed = self::is_always( $dze_key ); ?>
+							<label style="display:block;margin-bottom:3px;">
+								<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[scope][]" value="<?php echo esc_attr( $dze_key ); ?>"
+									<?php checked( $dze_fixed || in_array( $dze_key, $dze_picked, true ) ); ?>
+									<?php disabled( $dze_fixed ); ?> />
+								<?php echo esc_html( $dze_one['label'] ); ?>
+								<?php if ( ! empty( $dze_one['attr'] ) ) : ?>
+									<span class="description"><?php esc_html_e( '· product attribute', 'dazont-ecom' ); ?></span>
+								<?php endif; ?>
+								<?php if ( $dze_fixed ) : ?>
+									<span class="description"><?php esc_html_e( '· always translated', 'dazont-ecom' ); ?></span>
+									<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[scope][]" value="<?php echo esc_attr( $dze_key ); ?>" />
+								<?php endif; ?>
+							</label>
+						<?php endforeach; ?>
+						<p class="description"><?php esc_html_e( 'Only what WPML is set to translate can appear here. Media never can, whatever WPML says: a translated media is a duplicate file in the library, and a catalogue run would make thousands of them.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Which fields', 'dazont-ecom' ); ?></th>
 					<td>
 						<?php foreach ( self::fields() as $fid => $f ) : ?>
+							<?php
+							// A FIELD WPML COPIES CANNOT BE TRANSLATED HERE,
+							// and the place to say so is beside the tick: the
+							// next custom-field sync puts the original's value
+							// straight back over the words, and no screen would
+							// ever say why they vanished.
+							$dze_key  = 'meta' === ( $f['type'] ?? '' ) ? self::meta_key_for( $fid ) : '';
+							$dze_mode = ( '' !== $dze_key && class_exists( 'DZE_Wpml' ) ) ? DZE_Wpml::custom_field_mode( $dze_key ) : -1;
+							$dze_copy = in_array( $dze_mode, [ 1, 3 ], true );
+							?>
 							<label style="display:block;margin-bottom:3px;">
 								<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[fields][]" value="<?php echo esc_attr( $fid ); ?>" <?php checked( in_array( $fid, $active, true ) ); ?> />
 								<?php echo esc_html( $f['label'] ); ?>
+								<?php if ( $dze_copy ) : ?>
+									<span style="color:#b32d2e;"><?php
+										printf(
+											/* translators: %s: the custom field key */
+											esc_html__( '· WPML is set to COPY %s from the original, so a translation written here is overwritten on the next sync. Set it to "Translate" in WPML → Settings → Custom Fields Translation.', 'dazont-ecom' ),
+											esc_html( $dze_key )
+										);
+									?></span>
+								<?php endif; ?>
 							</label>
 						<?php endforeach; ?>
-						<p class="description"><?php esc_html_e( 'Written content only. Anything not listed here is WooCommerce Multilingual\'s business.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Written content only. Anything not listed here is WooCommerce Multilingual\'s business. A category or a tag has a name and a description, and those are always sent.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>

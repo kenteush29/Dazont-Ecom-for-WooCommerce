@@ -1296,6 +1296,59 @@ whose screen has not been thought through yet.
   controls in a real browser on both jQuery builds and reads back what went on
   the wire — the object the request is about, the languages that were ticked
   and no others, the field that was ticked and not the one that was not.
+- **WPML SAYS "TRANSLATABLE" ABOUT THINGS THIS MODULE MUST NEVER TOUCH.**
+  `attachment` is declared translatable (mode 1) and means something quite
+  different there: translating a media here is `wp_insert_post()` with the
+  source type — a DUPLICATE attachment row per language. Three of this owner's
+  sites had just been cleared of **24,531 such duplicates, 1.1 GB**, and one
+  campaign over "Media" would have put every one of them back.
+  `DZE_Wpml::NEVER_TYPES` / `NEVER_TAXONOMIES` is a hard list with the reason
+  written beside it, and `translation_priority` — WPML's own urgency taxonomy —
+  is on it. **Never a setting**: this is not a preference, and a shop that
+  ticked it once would pay for the mistake in gigabytes. The single-object
+  check and the list obey the same constant, or the screen refuses to show what
+  it would happily translate.
+- **WPML'S MARK IS THE QUESTION; OUR REGISTER IS THE REFINEMENT.** Every row
+  read "words have moved" — because the register lives on the translation and
+  ten thousand translations made through a spreadsheet in 2025 have none, so
+  every field of every one of them looked new. A true sentence about our
+  register and a useless one about the shop. `icl_translation_status.needs_update`
+  is read first, one query for a whole page (`translation_marks()`): no row for
+  a language = not translated; a row WPML is satisfied with = **nothing for
+  this module to say**, and the object is not shown at all — "un post qui n'est
+  pas marqué comme ayant besoin d'une mise à jour de trad n'a aucune raison
+  d'être affiché chez nous". Only then does the register speak, and it is the
+  module's whole value: marked with words that really moved is WORK, marked
+  with nothing moved is **free to close**, and the screen says which. WPML
+  unreachable answers with the one thing still knowable — is there a
+  translation — never "everything has moved". A list that hides rows says how
+  many and offers to show them.
+- **A THIRD OF THE PRODUCT TEXT LIVED OUTSIDE THE FIVE FIELDS.** The theme
+  keeps two written blocks in custom fields — 614,295 characters across 1,525
+  and 566 products, against 1,849,581 in `post_content` — so a French product
+  page came out a third in English with nothing saying why. `block_text_1` and
+  `block_text_2` are translated fields now, and they carry **HTML**: a custom
+  field is not always a line of text, and `sanitize_text_field()` over a
+  paragraph is not a translation of what was read. `_purchase_note` and
+  `_button_text` were in the original specification and are deliberately NOT
+  added: empty on all 2,105 English products, and a dead field on a screen is a
+  decision somebody takes every time they read it.
+- **THE LIST OF WHAT IS TRANSLATED IS THE SHOP'S OWN.** "Je ne vais pas tout
+  traduire." Pages, articles, products, product categories, product tags and
+  **every** `pa_*` attribute are in whatever happens — attributes by the RULE
+  and never by name, since a shop adds one next month — and everything else
+  WPML allows is a tick in Settings → Translation. The section posts
+  `scope_sent` so that unticking the last one is storable, and an absent
+  setting keeps the six rather than meaning "nothing".
+- **A STATIC CACHE OF AN OPTION ANSWERS THE FIRST QUESTION OF THE REQUEST FOR
+  EVER.** `DZE_Wpml::settings()` held WPML's row as it stood at the first call;
+  a shop changing what WPML translates kept the old answer until the next page
+  load, and a gate that sets its fake shop up in stages read its own first
+  arrangement — checks passing on code they never ran. `get_option()` is
+  already served from WordPress's object cache; re-reading costs nothing.
+- **A LANGUAGE IS A FLAG, SAID ONCE.** `flag_html()` already carries the code
+  inside the badge, and the screen printed the code again beside it and the
+  native name after that: one language said three times on one line.
 - **A FIGURE ON A BUTTON AND THE ROWS UNDER IT ANSWER THE SAME QUESTION.**
   "Ici Discard affiche (1) et Apply (1) seulement je ne vois rien sur ces
   produits à accepter ou refuser." The bar counted every ticked product that

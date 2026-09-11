@@ -775,15 +775,42 @@ final class DZE_Wpml {
 	// The filter is the fallback, never the source.
 	// =========================================================================
 
-	/** WPML's settings row, read once per request. */
+	/**
+	 * WPML's settings row.
+	 *
+	 * NOT cached in a static. `get_option()` is already served from
+	 * WordPress's object cache, so re-reading costs nothing — while a static
+	 * held the row as it stood at the FIRST question of the request and
+	 * answered every later one from it. A shop that changes what WPML
+	 * translates then keeps the old answer until the next page load, and a
+	 * test that sets it up in stages reads its own first arrangement for ever
+	 * — which is a check passing on code it never ran.
+	 */
 	public static function settings(): array {
-		static $cache = null;
-		if ( null === $cache ) {
-			$s     = get_option( 'icl_sitepress_settings', [] );
-			$cache = is_array( $s ) ? $s : [];
-		}
-		return $cache;
+		$s = get_option( 'icl_sitepress_settings', [] );
+		return is_array( $s ) ? $s : [];
 	}
+
+	/**
+	 * THINGS NOTHING MAY EVER OFFER TO TRANSLATE, whatever WPML says.
+	 *
+	 * WPML declares `attachment` translatable (mode 1) and it means something
+	 * quite different there than it does here: translating a media, for this
+	 * module, is `wp_insert_post()` with the source type — a DUPLICATE
+	 * attachment row per language. Three of this owner's sites had just been
+	 * cleared of 24,531 such duplicates, 1.1 GB of database, and one campaign
+	 * over "Media" would have put every one of them back.
+	 *
+	 * `translation_priority` is WPML's own internal taxonomy: it says how
+	 * urgent a translation is, and translating the word "urgent" into French
+	 * helps nobody.
+	 *
+	 * A hard list, with the reason written beside it — never a setting: this
+	 * is not a preference, and a shop that ticked it once would be paying for
+	 * the mistake in gigabytes.
+	 */
+	public const NEVER_TYPES = [ 'attachment' ];
+	public const NEVER_TAXONOMIES = [ 'translation_priority' ];
 
 	/**
 	 * Post types WPML is set to translate.
@@ -797,7 +824,7 @@ final class DZE_Wpml {
 	public static function translatable_types(): array {
 		$out = [];
 		foreach ( (array) ( self::settings()['custom_posts_sync_option'] ?? [] ) as $type => $mode ) {
-			if ( (int) $mode >= 1 ) {
+			if ( (int) $mode >= 1 && ! in_array( (string) $type, self::NEVER_TYPES, true ) ) {
 				$out[ (string) $type ] = true;
 			}
 		}
@@ -813,7 +840,7 @@ final class DZE_Wpml {
 	public static function translatable_taxonomies(): array {
 		$out = [];
 		foreach ( (array) ( self::settings()['taxonomies_sync_option'] ?? [] ) as $tax => $mode ) {
-			if ( (int) $mode >= 1 ) {
+			if ( (int) $mode >= 1 && ! in_array( (string) $tax, self::NEVER_TAXONOMIES, true ) ) {
 				$out[ (string) $tax ] = true;
 			}
 		}
@@ -832,6 +859,9 @@ final class DZE_Wpml {
 		if ( ! self::is_active() || '' === $type ) {
 			return false;
 		}
+		if ( in_array( $type, self::NEVER_TYPES, true ) ) {
+			return false;
+		}
 		$map = (array) ( self::settings()['custom_posts_sync_option'] ?? [] );
 		if ( array_key_exists( $type, $map ) ) {
 			return (int) $map[ $type ] >= 1;
@@ -843,6 +873,9 @@ final class DZE_Wpml {
 	/** Is this taxonomy translatable? Attributes answer here like any other. */
 	public static function is_translated_taxonomy( string $tax ): bool {
 		if ( ! self::is_active() || '' === $tax ) {
+			return false;
+		}
+		if ( in_array( $tax, self::NEVER_TAXONOMIES, true ) ) {
 			return false;
 		}
 		$map = (array) ( self::settings()['taxonomies_sync_option'] ?? [] );
@@ -894,6 +927,64 @@ final class DZE_Wpml {
 	public static function term_element_id( int $term_id, string $taxonomy ): int {
 		$term = get_term( $term_id, $taxonomy );
 		return ( $term && ! is_wp_error( $term ) ) ? (int) $term->term_taxonomy_id : 0;
+	}
+
+	/**
+	 * WHAT WPML ITSELF SAYS ABOUT A PAGE OF OBJECTS, in ONE query.
+	 *
+	 * "Je te propose d'utiliser les indicateurs WPML pour savoir si notre
+	 * module peut être utilisé ou non. Un post qui n'est pas marqué comme
+	 * ayant besoin d'une mise à jour de trad n'a aucune raison d'être affiché
+	 * chez nous." He is right, and the screen was reading only OUR register —
+	 * which ten thousand translations made through a spreadsheet in 2025 do
+	 * not have, so every single one of them read "words have moved". A true
+	 * sentence about our register and a useless one about the shop.
+	 *
+	 * WPML holds the answer in `icl_translation_status.needs_update`, beside
+	 * the translation it belongs to. Our register is the REFINEMENT on top:
+	 * of the ones WPML marked, which ones have words that actually moved, and
+	 * which were marked because a category was renamed.
+	 *
+	 * One query for a whole page — a mark asked per row is how a list of two
+	 * thousand stops loading.
+	 *
+	 * @param int[]  $source_ids   Element ids of the ORIGINALS (post ids, or
+	 *                             term taxonomy ids for a taxonomy).
+	 * @param string $element_type `post_product`, `tax_product_cat`, …
+	 * @return array<int,array<string,string>> source id => language => 'marked'|'done'
+	 *         A language absent from a source's row has NO translation at all.
+	 */
+	public static function translation_marks( array $source_ids, string $element_type ): array {
+		global $wpdb;
+		$ids = array_values( array_filter( array_map( 'absint', $source_ids ) ) );
+		if ( ! self::is_active() || ! $wpdb || ! $ids || '' === $element_type ) {
+			return [];
+		}
+		$tr = $wpdb->prefix . 'icl_translations';
+		$st = $wpdb->prefix . 'icl_translation_status';
+		if ( ! self::has_table( $tr ) ) {
+			return [];
+		}
+		$in   = implode( ',', array_map( 'intval', $ids ) );
+		$has  = self::has_table( $st );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own tables; ids cast to int above.
+		$sql  = $has
+			? "SELECT src.element_id AS src, t.language_code AS lang, COALESCE( s.needs_update, 0 ) AS needs
+			     FROM {$tr} src
+			     INNER JOIN {$tr} t ON t.trid = src.trid AND t.element_id <> src.element_id
+			     LEFT JOIN {$st} s ON s.translation_id = t.translation_id
+			    WHERE src.element_type = %s AND src.element_id IN ( {$in} )"
+			: "SELECT src.element_id AS src, t.language_code AS lang, 0 AS needs
+			     FROM {$tr} src
+			     INNER JOIN {$tr} t ON t.trid = src.trid AND t.element_id <> src.element_id
+			    WHERE src.element_type = %s AND src.element_id IN ( {$in} )";
+		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $element_type ), ARRAY_A );
+		// phpcs:enable
+		$out = [];
+		foreach ( $rows as $r ) {
+			$out[ (int) $r['src'] ][ (string) $r['lang'] ] = ( (int) $r['needs'] > 0 ) ? 'marked' : 'done';
+		}
+		return $out;
 	}
 
 	/**
