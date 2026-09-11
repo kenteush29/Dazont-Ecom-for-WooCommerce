@@ -3414,12 +3414,17 @@ Answer with STRICT JSON and nothing else: "
 				<th style="width:220px;"><?php esc_html_e( 'Written', 'dazont-ecom' ); ?></th>
 				<th style="width:150px;"><?php esc_html_e( 'Decided by', 'dazont-ecom' ); ?></th>
 				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
+				<th style="width:110px;"></th>
 			</tr>
 			<?php foreach ( $log as $dze_e ) :
 				$dze_id  = (int) ( $dze_e['id'] ?? 0 );
 				$dze_thu = $dze_id ? (string) get_the_post_thumbnail_url( $dze_id, 'thumbnail' ) : '';
+				// A product deleted since keeps its line — that line is the only
+				// record the work was done — but there is nothing left to look
+				// at, and a button that opens on nothing is a broken button.
+				$dze_live = $dze_id && get_post_status( $dze_id );
 				?>
-				<tr>
+				<tr data-id="<?php echo (int) $dze_id; ?>">
 					<td class="dze-cb-thumb"><?php if ( $dze_thu ) : ?><img src="<?php echo esc_url( $dze_thu ); ?>" alt="" /><?php endif; ?></td>
 					<td><a href="<?php echo esc_url( get_edit_post_link( $dze_id ) ?: '#' ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( (string) ( $dze_e['title'] ?? '' ) ); ?></strong></a></td>
 					<td>
@@ -3461,7 +3466,28 @@ Answer with STRICT JSON and nothing else: "
 							: esc_html__( 'automatic pass', 'dazont-ecom' );
 					?></td>
 					<td class="description"><?php echo esc_html( wp_date( 'j M Y · H:i', (int) ( $dze_e['time'] ?? 0 ) ) ); ?></td>
+					<td>
+						<?php if ( $dze_live ) : ?>
+							<!-- THE SAME BUTTON AS THE SELECTION LIST, and the same
+							     panel behind it: "Products > Done — j'aimerai la
+							     fonction Look comme sur la page Selected products.
+							     Pour voir le résultat actuel sans recharger
+							     différentes pages." What was written is only worth
+							     a line here if it can be LOOKED at, and opening
+							     each product in another tab to check a description
+							     is the reloading he is asking to be rid of. It
+							     wears the same class, so the one handler in
+							     content-bulk.js drives both lists and there is
+							     never a second one to keep in step. -->
+							<button type="button" class="button button-small dze-cb-toggle" aria-expanded="false" title="<?php esc_attr_e( 'The photographs and the text this product holds today — what was written to it.', 'dazont-ecom' ); ?>">
+								<span class="dze-cb-toggleword"><?php esc_html_e( 'Look', 'dazont-ecom' ); ?></span> <span class="dze-cb-caret">▾</span>
+							</button>
+						<?php endif; ?>
+					</td>
 				</tr>
+				<?php if ( $dze_live ) : ?>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $dze_id; ?>" style="display:none;"><td colspan="6"></td></tr>
+				<?php endif; ?>
 			<?php endforeach; ?>
 		</table>
 		<?php
@@ -3713,7 +3739,7 @@ Answer with STRICT JSON and nothing else: "
 					'gProgress'=> __( '%1$s of %2$s products', 'dazont-ecom' ),
 					'empty'    => __( '(empty)', 'dazont-ecom' ),
 					'fromEarlier' => __( 'Waiting since an earlier run', 'dazont-ecom' ),
-					'discard'  => __( 'Discard', 'dazont-ecom' ),
+					'discard'  => __( 'Cancel', 'dazont-ecom' ),
 					'stepElse' => __( 'Photographs from elsewhere', 'dazont-ecom' ),
 					'selected' => __( '%s selected', 'dazont-ecom' ),
 					'confirmClear' => __( 'Take every product out of this list? What is waiting on them is thrown away and they are filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
@@ -3732,9 +3758,13 @@ Answer with STRICT JSON and nothing else: "
 					'applying' => __( 'Applying…', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'applySelN' => __( 'Apply (%s)', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products holding content */
+					'applyTip'  => __( 'Write what was generated for these %s products onto them. Only the blocks left ticked are written.', 'dazont-ecom' ),
+					/* translators: %s: number of ticked products holding content */
+					'cancelTip' => __( 'Say no to what was generated for these %s products. It is thrown away, they stay on the list at nothing generated, and the refusal is filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'deleteN'  => __( 'Delete (%s)', 'dazont-ecom' ),
-					'discardN' => __( 'Discard (%s)', 'dazont-ecom' ),
+					'discardN' => __( 'Cancel (%s)', 'dazont-ecom' ),
 					/* translators: %s: number of products */
 					'confirmDiscard' => __( 'Throw away what was generated for %s products? It cannot be recovered. They stay on the list, back at nothing generated, and the refusals are filed under Done.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
@@ -4094,7 +4124,7 @@ Answer with STRICT JSON and nothing else: "
 				<button type="button" class="button button-primary" id="dze-cb-applysel" title="<?php esc_attr_e( 'Write the generated content of the ticked products to the shop', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
 				<!-- The refusal beside the acceptance, and the group form of the
 				     button on every panel: what a line can do, the list can do. -->
-				<button type="button" class="button" id="dze-cb-discard" title="<?php esc_attr_e( 'Throw away what was generated for the ticked products. They stay on the list, back at nothing generated.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-cb-discard" title="<?php esc_attr_e( 'Say no to what was generated for the ticked products. It is thrown away, they stay on the list at nothing generated, and the refusal is filed under Done. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-cb-delete" title="<?php esc_attr_e( 'Take the ticked products out of this list and throw away what is waiting on them. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
 				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Delete all', 'dazont-ecom' ); ?></button>
@@ -4241,7 +4271,7 @@ Answer with STRICT JSON and nothing else: "
 					'rfApply'   => __( 'Save selected', 'dazont-ecom' ),
 					'rfDropOld' => __( 'and delete the originals', 'dazont-ecom' ),
 					'cancel'    => __( 'Cancel', 'dazont-ecom' ),
-					'discard'   => __( 'Discard', 'dazont-ecom' ),
+					'discard'   => __( 'Cancel', 'dazont-ecom' ),
 					'qmNow'     => __( 'Before', 'dazont-ecom' ),
 					'qmNew'     => __( 'After', 'dazont-ecom' ),
 					'working'   => __( 'Working…', 'dazont-ecom' ),
@@ -4579,7 +4609,7 @@ Answer with STRICT JSON and nothing else: "
 				'reloadNow'  => __( 'Reload the page', 'dazont-ecom' ),
 				/* translators: %s: number of images kept */
 				'oneApplyN'  => __( 'Save selected', 'dazont-ecom' ),
-				'oneDropAll' => __( 'Discard', 'dazont-ecom' ),
+				'oneDropAll' => __( 'Cancel', 'dazont-ecom' ),
 				'dropped'    => __( 'Thrown away ✓', 'dazont-ecom' ),
 				// Several images in one go, and what becomes of the image the
 				// new main one replaces.
@@ -4689,7 +4719,7 @@ Answer with STRICT JSON and nothing else: "
 				'shotPos'    => __( 'Click to change where this image goes', 'dazont-ecom' ),
 				'shotRedo'   => __( 'Make this image again', 'dazont-ecom' ),
 				'shotRedoOne'=> __( 'Make this image again with %s', 'dazont-ecom' ),
-				'discard'    => __( 'Discard', 'dazont-ecom' ),
+				'discard'    => __( 'Cancel', 'dazont-ecom' ),
 				'compare'    => __( 'Current', 'dazont-ecom' ),
 				'compareHelp'=> __( 'Show what this field holds on the product today, above the new text.', 'dazont-ecom' ),
 				'nowText'    => __( 'On the product today', 'dazont-ecom' ),

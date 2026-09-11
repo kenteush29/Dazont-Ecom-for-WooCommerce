@@ -285,6 +285,44 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'a run leaves the line offering a review', ready, true );
 	ok( 'and a badge saying what was produced',
 		await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-badge' ).count() > 0, true );
+	// ---- THE BAR SAYS WHAT IS REALLY THERE TO DECIDE ON ----
+	//
+	// "Ici Discard affiche (1) et Apply (1) seulement je ne vois rien sur ces
+	// produits à accepter ou refuser." The count read every TICKED product that
+	// had a BUCKET — and a bucket is made the moment anything touches a line,
+	// opening Look among them — so products holding nothing announced work to
+	// decide on, with not one Review button on the screen. A figure on a button
+	// and the rows under it must answer the same question.
+	//
+	// Product 7 has just been generated for; product 8 has not been touched by
+	// the run at all. That is his screen exactly.
+	ok( 'the product that really holds something is counted',
+		( await page.textContent( '#dze-cb-applysel' ) || '' ).trim(), 'Apply (1)' );
+	// AND THE TOOLTIP IS THERE IN THAT STATE. It was emptied the instant the
+	// button became usable, which is exactly when somebody hovers it: "quand
+	// j'y laisse la souris, aucun texte ne s'affiche alors que delete lui c'est
+	// très clair."
+	ok( 'and says what it will do, on hover',
+		( ( await page.getAttribute( '#dze-cb-applysel', 'title' ) ) || '' ).length > 20, true );
+	ok( 'the refusal beside it wears one word',
+		( await page.textContent( '#dze-cb-discard' ) || '' ).trim(), 'Cancel (1)' );
+	ok( 'and says what IT will do',
+		( ( await page.getAttribute( '#dze-cb-discard', 'title' ) ) || '' ).length > 20, true );
+
+	// Now tick the product the run never touched, and LOOK at it — the gesture
+	// that makes an empty bucket. The figure must not move.
+	await page.check( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
+	await page.waitForTimeout( 300 );
+	// Something has to redraw the bar for the question to be asked at all: a
+	// tick is what the shop presses next, so that is what the gate presses.
+	await page.uncheck( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+	await page.check( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+	ok( 'looking at a product does not make it look decidable',
+		( await page.textContent( '#dze-cb-applysel' ) || '' ).trim(), 'Apply (1)' );
+	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
+	await page.uncheck( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+
 	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
 	ok( 'the panel opens on the product',
 		await page.locator( '.dze-cb-preview[data-id="7"]' ).isVisible(), true );

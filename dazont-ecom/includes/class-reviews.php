@@ -556,7 +556,7 @@ PROMPT;
 			<div class="dze-rev-drafts"></div>
 			<p class="dze-rev-actions" style="display:none;">
 				<button type="button" class="button button-primary dze-rev-push"></button>
-				<button type="button" class="button dze-rev-discard"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button dze-rev-discard" title="<?php esc_attr_e( 'Say no to what was generated: it is thrown away and nothing is published.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 			</p>
 			<p class="description">
 				<?php

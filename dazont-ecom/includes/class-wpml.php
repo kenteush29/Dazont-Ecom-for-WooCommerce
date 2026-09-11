@@ -759,4 +759,169 @@ final class DZE_Wpml {
 		$id = apply_filters( 'wpml_object_id', $post_id, $post_type, true, $default );
 		return (int) ( $id ?: $post_id );
 	}
+
+	// =========================================================================
+	// WHAT WPML SAYS MAY BE TRANSLATED AT ALL
+	//
+	// A module that supplements WPML must never offer to translate something
+	// WPML will refuse to link: the translation is written, the group is not
+	// made, and the shop is left with an orphan post in another language.
+	//
+	// The answer lives in WPML's own settings row, and it is read THERE rather
+	// than through `wpml_is_translated_post_type` / `wpml_is_translated_taxonomy`
+	// — a filter only answers where its plugin's hooks are loaded, and this
+	// module reads in AJAX and in cron, which is the trap already paid for
+	// three times here (the category language, the mesh census, the link pool).
+	// The filter is the fallback, never the source.
+	// =========================================================================
+
+	/** WPML's settings row, read once per request. */
+	public static function settings(): array {
+		static $cache = null;
+		if ( null === $cache ) {
+			$s     = get_option( 'icl_sitepress_settings', [] );
+			$cache = is_array( $s ) ? $s : [];
+		}
+		return $cache;
+	}
+
+	/**
+	 * Post types WPML is set to translate.
+	 *
+	 * WPML stores 0 = not translatable, 1 and 2 = translatable (the two differ
+	 * only in what the front shows for a missing translation, which is not our
+	 * question).
+	 *
+	 * @return array<string,bool> post type => true
+	 */
+	public static function translatable_types(): array {
+		$out = [];
+		foreach ( (array) ( self::settings()['custom_posts_sync_option'] ?? [] ) as $type => $mode ) {
+			if ( (int) $mode >= 1 ) {
+				$out[ (string) $type ] = true;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Taxonomies WPML is set to translate — product attributes included, since
+	 * each one is a taxonomy of its own (`pa_colour`, `pa_material`).
+	 *
+	 * @return array<string,bool> taxonomy => true
+	 */
+	public static function translatable_taxonomies(): array {
+		$out = [];
+		foreach ( (array) ( self::settings()['taxonomies_sync_option'] ?? [] ) as $tax => $mode ) {
+			if ( (int) $mode >= 1 ) {
+				$out[ (string) $tax ] = true;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Is this post type translatable?
+	 *
+	 * The settings row is the answer wherever it has one. A type WPML has
+	 * never been asked about is not in that row at all, and THEN the filter is
+	 * worth asking — on an admin screen it answers, and a `null` back from it
+	 * (no WPML hooks loaded) is not read as "no".
+	 */
+	public static function is_translated_type( string $type ): bool {
+		if ( ! self::is_active() || '' === $type ) {
+			return false;
+		}
+		$map = (array) ( self::settings()['custom_posts_sync_option'] ?? [] );
+		if ( array_key_exists( $type, $map ) ) {
+			return (int) $map[ $type ] >= 1;
+		}
+		$said = apply_filters( 'wpml_is_translated_post_type', null, $type );
+		return null === $said ? false : (bool) $said;
+	}
+
+	/** Is this taxonomy translatable? Attributes answer here like any other. */
+	public static function is_translated_taxonomy( string $tax ): bool {
+		if ( ! self::is_active() || '' === $tax ) {
+			return false;
+		}
+		$map = (array) ( self::settings()['taxonomies_sync_option'] ?? [] );
+		if ( array_key_exists( $tax, $map ) ) {
+			return (int) $map[ $tax ] >= 1;
+		}
+		$said = apply_filters( 'wpml_is_translated_taxonomy', null, $tax );
+		return null === $said ? false : (bool) $said;
+	}
+
+	/**
+	 * WHAT WPML DOES WITH A CUSTOM FIELD, in its own numbers.
+	 *
+	 * 0 = ignore, 1 = copy from the original, 2 = translate, 3 = copy once.
+	 * A field WPML COPIES must never be written by us: the next sync puts the
+	 * original's value straight back over the translation and the words are
+	 * lost with nothing saying so.
+	 *
+	 * @return int WPML's mode, or -1 when it has no opinion on that key.
+	 */
+	public static function custom_field_mode( string $key ): int {
+		$map = (array) ( self::settings()['translation-management']['custom_fields_translation'] ?? [] );
+		return array_key_exists( $key, $map ) ? (int) $map[ $key ] : -1;
+	}
+
+	/**
+	 * WPML's name for a thing: `post_product`, `post_page`, `tax_product_cat`.
+	 *
+	 * One helper, because the wrong string here has no symptom — it simply
+	 * answers nothing and every reading falls through to "the shop's own
+	 * language". That is the fault that once reported 830 pages on a site
+	 * holding a fifth of that.
+	 */
+	public static function element_name( string $kind, string $type ): string {
+		$type = trim( $type );
+		if ( '' === $type ) {
+			return '';
+		}
+		return ( 'term' === $kind ? 'tax_' : 'post_' ) . $type;
+	}
+
+	/**
+	 * The id WPML indexes a term by: its TERM TAXONOMY id, never its term id.
+	 *
+	 * The two are equal on most installs and differ on any site where a term
+	 * lives in more than one taxonomy — and a reading that is right by
+	 * accident is a reading that breaks on somebody else's shop.
+	 */
+	public static function term_element_id( int $term_id, string $taxonomy ): int {
+		$term = get_term( $term_id, $taxonomy );
+		return ( $term && ! is_wp_error( $term ) ) ? (int) $term->term_taxonomy_id : 0;
+	}
+
+	/**
+	 * Says "this term is dealt with" — without inventing a signature.
+	 *
+	 * `wpml_tm_element_md5` signs a POST. WPML computes a term's signature its
+	 * own way, and writing a made-up one here is the failure the post version
+	 * refuses by name: a translation nobody is ever told about again. So the
+	 * mark is cleared and the md5 is left exactly as WPML wrote it. If WPML
+	 * raises the mark again, the register answers "not one word has moved" and
+	 * closes it for nothing, which is the whole point of the register.
+	 */
+	public static function mark_term_done( int $translation_id ): bool {
+		global $wpdb;
+		if ( ! self::is_active() || ! $wpdb || ! $translation_id ) {
+			return false;
+		}
+		$table = $wpdb->prefix . 'icl_translation_status';
+		if ( ! self::has_table( $table ) ) {
+			return false;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- WPML's own table.
+		return false !== $wpdb->update(
+			$table,
+			[ 'status' => 10, 'needs_update' => 0 ],
+			[ 'translation_id' => $translation_id ],
+			[ '%d', '%d' ],
+			[ '%d' ]
+		);
+	}
 }

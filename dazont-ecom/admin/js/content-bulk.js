@@ -1141,7 +1141,13 @@
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {
-		var $btn = $(this), id = $btn.closest('.dze-cb-row').data('id');
+		// THE ROW IT SITS ON, whichever list that is. Read from `.dze-cb-row`
+		// it only ever answered on Selected products, so the same button on a
+		// Done line came back undefined and opened nothing. The Done rows are
+		// deliberately NOT given that class — it is what marks a product as
+		// selectable, and a log line is not something to generate on.
+		var $btn = $(this), id = $btn.closest('[data-id]').data('id');
+		if (!id) { return; }
 		var $prev = $('.dze-cb-preview[data-id="' + id + '"]');
 		var open = $prev.is(':visible');
 		// A panel built to LOOK at holds no decision bar and no generated
@@ -1315,20 +1321,32 @@
 		});
 	}
 	function refreshApplyBar() {
-		var holding = pendingIds().length;
-		var sel = picked().filter(function (id) { return results[id]; }).length;
-		// Shown as soon as something is waiting, so the way to write it to the
-		// shop is never hidden — and inert until products are ticked, so the
-		// way is always "these ones".
+		var waiting = pendingIds().length;
+		// THE FIGURE ON THE BUTTON AND THE ROWS UNDER IT ANSWER THE SAME
+		// QUESTION. This counted every ticked product that had a BUCKET —
+		// and a bucket is made the moment anything touches a line: opening
+		// Look, a run that was reset, a panel drawn. So three products holding
+		// nothing read "Apply (1) · Discard (1)" with not one Review button on
+		// the screen: "seulement je ne vois rien sur ces produits à accepter ou
+		// refuser". What can be applied is what is HOLDING something, which is
+		// the same test `pendingIds()` and the row's own button already use.
+		var sel = picked().filter(holding).length;
 		$('#dze-cb-applysel')
 			.prop('disabled', 0 === sel)
-			.attr('title', 0 === sel ? (holding > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
+			// A TOOLTIP IN EVERY STATE. It was emptied the moment the button
+			// became usable — which is exactly when somebody hovers it —
+			// so Delete explained itself and these two said nothing at all.
+			.attr('title', 0 === sel
+				? (waiting > 0 ? i18n.tickNoContent : i18n.tickFirst)
+				: sprintf(i18n.applyTip, sel))
 			.text(sprintf(i18n.applySelN, sel));
-		// Refusing counts the same products as accepting them: a line holding
-		// nothing has nothing to refuse.
+		// Cancelling counts the same products as accepting them: a line holding
+		// nothing has nothing to say no to either.
 		$('#dze-cb-discard')
 			.prop('disabled', 0 === sel)
-			.attr('title', 0 === sel ? (holding > 0 ? i18n.tickNoContent : i18n.tickFirst) : '')
+			.attr('title', 0 === sel
+				? (waiting > 0 ? i18n.tickNoContent : i18n.tickFirst)
+				: sprintf(i18n.cancelTip, sel))
 			.text(sprintf(i18n.discardN, sel));
 	}
 

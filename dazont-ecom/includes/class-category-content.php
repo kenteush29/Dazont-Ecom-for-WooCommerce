@@ -2213,7 +2213,7 @@ PROMPT;
 				<p class="dze-cc-decide" style="margin-top:10px;">
 					<button type="button" class="button button-primary dze-cc-apply"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
 					<?php // A WAY TO REFUSE, beside the way to accept — the same pair, in the same order, as every other screen of this plugin. ?>
-					<button type="button" class="button-link dze-cc-revert"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button-link dze-cc-revert" title="<?php esc_attr_e( 'Say no to what was generated: the editor goes back to what this page held before the run, and nothing is written.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 					<span class="description"><?php esc_html_e( 'Nothing is written to the category until you press Apply.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php else : ?>
@@ -2223,7 +2223,7 @@ PROMPT;
 				// core's. The refusal is the plugin's, and it is beside it.
 				?>
 				<p class="dze-cc-decide" style="margin-top:10px;">
-					<button type="button" class="button-link dze-cc-revert"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+					<button type="button" class="button-link dze-cc-revert" title="<?php esc_attr_e( 'Say no to what was generated: the editor goes back to what this page held before the run, and nothing is written.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 					<span class="description"><?php esc_html_e( 'The result is in the Description field above — press Update to keep it.', 'dazont-ecom' ); ?></span>
 				</p>
 			<?php endif; ?>

@@ -93,6 +93,13 @@ $GLOBALS['wpml_md5']   = 'WPML-SIGNATURE';
 $GLOBALS['translated'] = [];   // [ pid ][ lang ] => target id
 function apply_filters( $tag, $value = null, ...$a ) {
 	if ( 'wpml_default_language' === $tag ) { return 'en'; }
+	if ( 'wpml_active_languages' === $tag ) {
+		return [
+			'en' => [ 'native_name' => 'English', 'english_name' => 'English' ],
+			'fr' => [ 'native_name' => 'Français', 'english_name' => 'French' ],
+			'de' => [ 'native_name' => 'Deutsch', 'english_name' => 'German' ],
+		];
+	}
 	if ( 'wpml_object_id' === $tag ) {
 		$lang = (string) ( $a[2] ?? '' );
 		return (int) ( $GLOBALS['translated'][ (int) $value ][ $lang ] ?? 0 );
@@ -109,6 +116,11 @@ function do_action( ...$a ) {}
 /** WPML's two tables, and what was written to them. */
 class DZE_Tr_Test_Wpdb {
 	public $prefix = 'wp_';
+	public $postmeta = 'wp_postmeta';
+	public $termmeta = 'wp_termmeta';
+	/** What the waiting-list queries answer, set by the checks that need them. */
+	public array $waiting_posts = [];
+	public array $waiting_terms = [];
 	public array $rows = [];        // translation_id => element_id
 	public array $written = [];     // every update() to icl_translation_status
 	public function prepare( $q, ...$a ) {
@@ -127,6 +139,13 @@ class DZE_Tr_Test_Wpdb {
 			preg_match( "/LIKE '([^']+)'/", $sql, $m );
 			return $GLOBALS['has_icl'] ? (string) ( $m[1] ?? '' ) : '';
 		}
+		// The badge: how many objects hold a translation nobody has decided on.
+		if ( false !== stripos( $sql, 'COUNT(*)' ) && false !== stripos( $sql, 'wp_postmeta' ) ) {
+			return (string) count( $this->waiting_posts );
+		}
+		if ( false !== stripos( $sql, 'COUNT(*)' ) && false !== stripos( $sql, 'wp_termmeta' ) ) {
+			return (string) count( $this->waiting_terms );
+		}
 		if ( false !== stripos( $sql, 'FROM wp_icl_translations' ) ) {
 			preg_match( '/element_id = (\d+)/', $sql, $m );
 			$want = (int) ( $m[1] ?? 0 );
@@ -136,7 +155,12 @@ class DZE_Tr_Test_Wpdb {
 		return '';
 	}
 	public function get_col( $q ) { return []; }
-	public function get_results( $q, $o = null ) { return []; }
+	public function get_results( $q, $o = null ) {
+		$sql = (string) $q;
+		if ( false !== stripos( $sql, 'wp_postmeta' ) ) { return $this->waiting_posts; }
+		if ( false !== stripos( $sql, 'wp_termmeta' ) ) { return $this->waiting_terms; }
+		return [];
+	}
 	public function update( $table, $data, $where, $f = null, $wf = null ) {
 		$this->written[] = [ 'table' => $table, 'data' => $data, 'where' => $where ];
 		return 1;
@@ -147,24 +171,174 @@ $GLOBALS['wpdb']    = new DZE_Tr_Test_Wpdb();
 
 class DZE_Marketing_Ai {
 	public static function api_key() { return 'k'; }
+	const MENU_SLUG = 'dazont-ecom-ai';
 	public static function complete( $sys, $user, $model = '', $max = 0, $t = 0 ) {
 		$GLOBALS['calls'][] = $user;
-		throw new RuntimeException( 'The gate never pays a provider.' );
+		// By default nothing is ever paid for: a check that expects silence
+		// must FAIL loudly if a call is made. The batch checks below set an
+		// answer on purpose, and read back what was actually sent.
+		if ( ! isset( $GLOBALS['model_answer'] ) ) {
+			throw new RuntimeException( 'The gate never pays a provider.' );
+		}
+		return (string) $GLOBALS['model_answer'];
 	}
 }
 class DZE_Ai_Usage {
 	public static function over_budget() { return false; }
 	public static function budget_message() { return 'spent'; }
 	public static function unit( $k = '' ) {}
+	// A METHOD MISSING FROM THE HARNESS IS NOT A MODULE THAT REFUSED TO WORK.
+	// Without this one, `finished()` threw an Error, `produce()` caught it as
+	// a Throwable like any provider failure, and the gate read "the batch came
+	// back with nothing" — which is a true sentence about a fault that only
+	// ever existed in this file.
+	public static function finished( $unit, $n = 1 ) {}
 }
 class DZE_Content {
 	public static function seo_keys() { return [ 'title' => 'rank_math_title', 'desc' => 'rank_math_description' ]; }
 }
 class DZE_Prompts { public static function the_data( $id ) {} public static function the_button( ...$a ) {} }
+
+// --- TERMS. The module translates every taxonomy WPML translates, attributes
+// --- included, so the fake shop has to hold terms as well as posts.
+$GLOBALS['terms']     = [];   // term_id => [ name, description, taxonomy, parent, term_taxonomy_id ]
+$GLOBALS['termmeta']  = [];
+function get_term( $id, $tax = '' ) {
+	$t = $GLOBALS['terms'][ (int) $id ] ?? null;
+	if ( ! $t ) { return null; }
+	if ( '' !== $tax && (string) $t['taxonomy'] !== (string) $tax ) { return null; }
+	return (object) array_merge( [ 'term_id' => (int) $id ], $t );
+}
+function get_terms( $args = [] ) {
+	$out = [];
+	foreach ( $GLOBALS['terms'] as $id => $t ) {
+		if ( ! empty( $args['taxonomy'] ) && $t['taxonomy'] !== $args['taxonomy'] ) { continue; }
+		$out[] = get_term( $id );
+	}
+	return $out;
+}
+function wp_count_terms( $args = [] ) { return count( get_terms( $args ) ); }
+function get_term_meta( $id, $key = '', $single = false ) {
+	$v = $GLOBALS['termmeta'][ (int) $id ][ $key ] ?? '';
+	return $single ? $v : ( '' === $v ? [] : [ $v ] );
+}
+function update_term_meta( $id, $key, $value ) { $GLOBALS['termmeta'][ (int) $id ][ $key ] = $value; return true; }
+function delete_term_meta( $id, $key ) { unset( $GLOBALS['termmeta'][ (int) $id ][ $key ] ); return true; }
+function delete_post_meta( $id, $key, $v = '' ) { unset( $GLOBALS['meta'][ (int) $id ][ $key ] ); return true; }
+function wp_insert_term( $name, $tax, $args = [] ) {
+	$id = max( array_keys( $GLOBALS['terms'] ) ) + 1;
+	$GLOBALS['terms'][ $id ] = [
+		'name'             => (string) $name,
+		'description'      => (string) ( $args['description'] ?? '' ),
+		'taxonomy'         => (string) $tax,
+		'parent'           => (int) ( $args['parent'] ?? 0 ),
+		'term_taxonomy_id' => $id + 1000,
+	];
+	return [ 'term_id' => $id, 'term_taxonomy_id' => $id + 1000 ];
+}
+function wp_update_term( $id, $tax, $args = [] ) {
+	foreach ( $args as $k => $v ) { $GLOBALS['terms'][ (int) $id ][ $k ] = $v; }
+	return [ 'term_id' => (int) $id ];
+}
+function wp_update_post( $post ) { 
+	$id = (int) ( $post['ID'] ?? 0 );
+	foreach ( $post as $k => $v ) { if ( 'ID' !== $k ) { $GLOBALS['posts'][ $id ][ $k ] = $v; } }
+	return $id;
+}
+function get_taxonomy( $tax ) {
+	$known = [
+		'product_cat' => 'Categories', 'product_tag' => 'Tags',
+		'pa_colour'   => 'Colour',     'post_tag'    => 'Post tags',
+	];
+	return isset( $known[ $tax ] ) ? (object) [ 'labels' => (object) [ 'name' => $known[ $tax ] ] ] : null;
+}
+function get_post_type_object( $type ) {
+	$known = [ 'product' => 'Products', 'post' => 'Posts', 'page' => 'Pages' ];
+	return isset( $known[ $type ] ) ? (object) [ 'public' => true, 'labels' => (object) [ 'name' => $known[ $type ] ] ] : null;
+}
+function get_object_taxonomies( $type ) { return 'product' === $type ? [ 'product_cat', 'product_type' ] : [ 'post_tag' ]; }
+function get_edit_term_link( $id, $tax ) { return '/wp-admin/term.php?taxonomy=' . $tax . '&tag_ID=' . (int) $id; }
+function get_the_title( $id ) { return (string) ( $GLOBALS['posts'][ (int) $id ]['post_title'] ?? '' ); }
+function wp_get_object_terms( ...$a ) { return []; }
+function wp_set_object_terms( ...$a ) { return true; }
+function admin_url( $p = '' ) { return 'https://kula.test/wp-admin/' . $p; }
+function add_query_arg( $args, $url = '' ) { return $url . '?' . http_build_query( (array) $args ); }
+function add_submenu_page( ...$a ) { $GLOBALS['menu'][] = $a; return 'x'; }
+$GLOBALS['enq'] = [];
+$GLOBALS['loc'] = [];
+function wp_enqueue_script( $h, ...$a ) { $GLOBALS['enq'][] = $h; }
+function wp_enqueue_style( $h, ...$a ) { $GLOBALS['enq'][] = $h; }
+function wp_enqueue_editor() { $GLOBALS['enq'][] = 'editor'; }
+function wp_localize_script( $handle, $name, $data ) { $GLOBALS['loc'][ (string) $name ] = $data; }
+function get_current_screen() { return (object) [ 'id' => 'toplevel_page_' . DZE_Translate::MENU_SLUG, 'post_type' => '', 'base' => '' ]; }
+function paginate_links( $args = [] ) { return ''; }
+function wp_kses_post_x( $s ) { return $s; }
+class WP_Query {
+	public array $posts = [];
+	public int $found_posts = 0;
+	public function __construct( $args = [] ) {
+		foreach ( $GLOBALS['posts'] as $id => $p ) {
+			if ( ( $p['type'] ?? 'product' ) === ( $args['post_type'] ?? '' ) ) {
+				$this->posts[] = (object) [ 'ID' => (int) $id ];
+			}
+		}
+		$this->found_posts = count( $this->posts );
+	}
+}
+function _n( $o, $m, $n, $d = '' ) { return 1 === (int) $n ? $o : $m; }
+class DZE_Modules { public static function enabled( $id ) { return true; } }
+class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
 class DZE_Prompt_Defaults { public static function pick( $id, $d ) { return $d; } public static function control( ...$a ) {} }
 
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
+// The screen half is a trait of the same class — loaded by the autoloader on a
+// real site, required by name here, like every other file this gate runs.
+require __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php';
 require __DIR__ . '/../' . $dir . '/includes/class-translate.php';
+
+// =============================================================================
+// THE SCREEN AS THE PLUGIN PRINTS IT, for the browser gate that presses it.
+//
+// Never a copy of the markup written into the test: what is pressed there has
+// to be what ships, and the config it reads is `wp_localize_script`'s own, key
+// by key — named `ajax` instead of `ajaxUrl` it would post to the page itself
+// and the gate would prove nothing while looking green.
+// =============================================================================
+$dze_dump = '';
+foreach ( (array) $argv as $one ) {
+	if ( 0 === strpos( (string) $one, '--dump-screen' ) ) {
+		$bits     = explode( '=', (string) $one, 2 );
+		$dze_dump = $bits[1] ?? 'dashboard';
+	}
+}
+if ( '' !== $dze_dump ) {
+	$GLOBALS['opts']['icl_sitepress_settings'] = [
+		'custom_posts_sync_option' => [ 'product' => 2, 'post' => 1, 'page' => 1, 'shop_order' => 0 ],
+		'taxonomies_sync_option'   => [ 'product_cat' => 1, 'pa_colour' => 1, 'product_type' => 0 ],
+	];
+	$GLOBALS['terms'] = [
+		7 => [ 'name' => 'Balaclavas', 'description' => 'Warm ones.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
+		8 => [ 'name' => 'Plate carriers', 'description' => 'Heavy.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
+	];
+	$_GET['tab'] = 'review' === $dze_dump ? 'review' : 'dashboard';
+	if ( 'review' === $dze_dump ) {
+		$held = wp_json_encode( [
+			'at'    => time(),
+			'langs' => [ 'fr' => [ 'name' => 'Cagoules', 'description' => 'Des chaudes.' ] ],
+			'src'   => [ 'name' => 'Balaclavas', 'description' => 'Warm ones.' ],
+		] );
+		$GLOBALS['termmeta'][7]['_dze_tr_wait'] = $held;
+		$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $held ] ];
+	} else {
+		$_GET['scope'] = 'term:product_cat';
+	}
+	$GLOBALS['loc'] = [];
+	DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
+	ob_start();
+	DZE_Translate::instance()->render_page();
+	echo wp_json_encode( [ 'html' => (string) ob_get_clean(), 'cfg' => $GLOBALS['loc']['dzeTrScreen'] ?? [] ] );
+	exit( 0 );
+}
 
 $ran = 0; $fails = 0;
 function ok( string $what, $got, $want ) {
@@ -268,6 +442,189 @@ ok( 'and not one word was sent anywhere', $GLOBALS['calls'] ?? [], [] );
 shop();
 $GLOBALS['translated'] = [];
 ok( 'nothing to adopt is not adopted',   DZE_Translate::adopt( 7, 'fr' ), false );
+
+// =============================================================================
+// WHAT MAY BE TRANSLATED IS WPML'S ANSWER, NEVER OURS
+//
+// A module that supplements WPML must not offer to translate something WPML
+// will refuse to link: the words are written, the translation group is never
+// made, and the shop is left with an orphan in another language and nothing
+// anywhere saying why. The answer is read from WPML's own settings ROW rather
+// than through `wpml_is_translated_post_type` — a filter only answers where
+// its plugin's hooks are loaded, and this module reads in AJAX and in cron.
+// That is the trap already paid for three times in this plugin.
+// =============================================================================
+echo "\nWhat WPML says may be translated\n";
+$GLOBALS['opts']['icl_sitepress_settings'] = [
+	'custom_posts_sync_option' => [
+		'product'    => 2,
+		'post'       => 1,
+		'page'       => 1,
+		// Switched OFF in WPML. Offering it would be an orphan page.
+		'shop_order' => 0,
+	],
+	'taxonomies_sync_option' => [
+		'product_cat'  => 1,
+		'product_tag'  => 1,
+		// A PRODUCT ATTRIBUTE IS A TAXONOMY LIKE ANY OTHER, and a shop selling
+		// by colour in five markets needs its colours translated.
+		'pa_colour'    => 1,
+		'product_type' => 0,
+	],
+	'translation-management' => [
+		'custom_fields_translation' => [
+			// WPML COPIES this one from the original on every sync. Writing a
+			// translation into it is words thrown away at the next save, with
+			// nothing saying so.
+			'rank_math_description' => 1,
+			'rank_math_title'       => 2,
+		],
+	],
+];
+ok( 'a type WPML translates is translatable',   DZE_Wpml::is_translated_type( 'product' ), true );
+ok( 'and one it does not is not',               DZE_Wpml::is_translated_type( 'shop_order' ), false );
+ok( 'a type WPML has never been asked about is not assumed',
+	DZE_Wpml::is_translated_type( 'acme_thing' ), false );
+ok( 'a taxonomy WPML translates is translatable', DZE_Wpml::is_translated_taxonomy( 'product_cat' ), true );
+ok( 'a product attribute is one of them',       DZE_Wpml::is_translated_taxonomy( 'pa_colour' ), true );
+ok( 'and product_type is not',                  DZE_Wpml::is_translated_taxonomy( 'product_type' ), false );
+ok( 'a field WPML copies is named as copied',   DZE_Wpml::custom_field_mode( 'rank_math_description' ), 1 );
+ok( 'one it translates is named as translated', DZE_Wpml::custom_field_mode( 'rank_math_title' ), 2 );
+ok( 'and one it has no opinion on says so',     DZE_Wpml::custom_field_mode( '_price' ), -1 );
+// WPML'S OWN NAME FOR A THING. One wrong string here has no symptom: it simply
+// answers nothing and every reading falls through to "the shop's own language",
+// which is what once reported 830 pages on a site holding a fifth of that.
+ok( 'a post is named post_<type>',              DZE_Wpml::element_name( 'post', 'product' ), 'post_product' );
+ok( 'a term is named tax_<taxonomy>',           DZE_Wpml::element_name( 'term', 'product_cat' ), 'tax_product_cat' );
+
+echo "\nAnd the screen offers exactly that, and nothing else\n";
+$scope = DZE_Translate::scope();
+ok( 'products are offered',                     isset( $scope['post:product'] ), true );
+ok( 'articles are offered',                     isset( $scope['post:post'] ), true );
+ok( 'pages are offered',                        isset( $scope['post:page'] ), true );
+ok( 'product categories are offered',           isset( $scope['term:product_cat'] ), true );
+ok( 'the colour attribute is offered',          isset( $scope['term:pa_colour'] ), true );
+ok( 'and marked as an attribute',               ! empty( $scope['term:pa_colour']['attr'] ), true );
+ok( 'a type WPML will not link is NOT offered', isset( $scope['post:shop_order'] ), false );
+ok( 'and neither is product_type',              isset( $scope['term:product_type'] ), false );
+
+// =============================================================================
+// A TERM IS AN OBJECT, with its own register in term meta
+// =============================================================================
+echo "\nA category is translated like anything else\n";
+$GLOBALS['terms'] = [
+	7 => [ 'name' => 'Balaclavas', 'description' => 'Warm ones.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
+	8 => [ 'name' => 'Cagoules',   'description' => 'Chaudes.',   'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
+	9 => [ 'name' => 'Hidden',     'description' => '',           'taxonomy' => 'product_type', 'parent' => 0, 'term_taxonomy_id' => 1009 ],
+];
+$cat = DZE_Translate::obj( 'term', 7 );
+ok( 'a category of a translated taxonomy is an object', $cat['type'] ?? '', 'product_cat' );
+ok( 'a term of an untranslated one is not',     DZE_Translate::obj( 'term', 9 ), [] );
+ok( 'its two fields are read',                  DZE_Translate::obj_read( $cat ), [ 'name' => 'Balaclavas', 'description' => 'Warm ones.' ] );
+// The setting that narrows which fields are sent names POST fields — it was
+// written when the module only knew about products. Read as though it spoke
+// for terms too, it would silently stop translating them altogether.
+$GLOBALS['opts']['dze_translate_settings'] = [ 'fields' => [ 'title' ] ];
+ok( 'the post field setting does not narrow a term',
+	array_keys( DZE_Translate::fields( 'term' ) ), array_keys( DZE_Translate::active_fields( 'term' ) ) );
+ok( 'while it still narrows a post',            array_keys( DZE_Translate::active_fields( 'post' ) ), [ 'title' ] );
+unset( $GLOBALS['opts']['dze_translate_settings'] );
+
+// Everything is new when nothing is translated yet.
+ok( 'an untranslated category is all stale',    array_keys( DZE_Translate::obj_stale( $cat, 'fr' ) ), [ 'name', 'description' ] );
+// Once the register says the source is what it is, nothing is owed.
+$GLOBALS['translated'][7]['fr'] = 8;
+DZE_Translate::remember( 8, DZE_Translate::obj_read( $cat ), $cat );
+ok( 'the register lives in TERM meta',          isset( $GLOBALS['termmeta'][8]['_dze_tr_src'] ), true );
+ok( 'and then nothing about it is stale',       DZE_Translate::obj_stale( $cat, 'fr' ), [] );
+$GLOBALS['terms'][7]['name'] = 'Balaclavas and hoods';
+ok( 'a changed name is the only thing stale',   array_keys( DZE_Translate::obj_stale( $cat, 'fr' ) ), [ 'name' ] );
+
+// A TERM IS NOT SIGNED WITH A SIGNATURE NOBODY COMPUTED. WPML signs a term its
+// own way; inventing one is a translation nobody is ever told about again.
+$GLOBALS['wpdb']->rows = [ 55 => 1008 ];
+$GLOBALS['wpdb']->written = [];
+$GLOBALS['asked_md5'] = [];
+ok( 'settling a term clears its mark',          DZE_Translate::obj_settle( $cat, 'fr' ), true );
+$last = end( $GLOBALS['wpdb']->written );
+ok( 'status 10, needs_update 0',                [ $last['data']['status'], $last['data']['needs_update'] ], [ 10, 0 ] );
+ok( 'and NO signature is invented for it',      array_key_exists( 'md5', $last['data'] ), false );
+
+// =============================================================================
+// THE WAITING LIST — a batch is read before it lands
+// =============================================================================
+echo "\nA batch waits to be read\n";
+$GLOBALS['model_answer'] = wp_json_encode( [ 'name' => 'Cagoules et capuches', 'description' => 'Des chaudes.' ] );
+$GLOBALS['calls'] = [];
+$made = DZE_Translate::produce( $cat, [ 'fr' ] );
+ok( 'only the field that moved was sent',       count( $GLOBALS['calls'] ), 1 );
+ok( 'and it is the one that moved',             false !== strpos( $GLOBALS['calls'][0], 'Balaclavas and hoods' ), true );
+ok( 'nothing failed on the way',                $made['errors'], [] );
+ok( 'the answer is held, not written',          array_keys( $made['langs'] ), [ 'fr' ] );
+ok( 'the category itself has not moved',        $GLOBALS['terms'][8]['name'], 'Cagoules' );
+ok( 'and the wait is stored on the SOURCE',     isset( $GLOBALS['termmeta'][7]['_dze_tr_wait'] ), true );
+
+$held = DZE_Translate::waiting( $cat );
+ok( 'what waits can be read back',              array_keys( (array) $held['langs'] ), [ 'fr' ] );
+// WHAT IT WAS TRANSLATED FROM, kept beside it: accepting a week later must
+// write the register against the words that were SENT, not against a source
+// somebody has edited since.
+ok( 'and the source it came from with it',      ( $held['src']['name'] ?? '' ), 'Balaclavas and hoods' );
+
+echo "\nAnd it is on the list, whichever kind of thing it is\n";
+$GLOBALS['wpdb']->waiting_posts = [];
+$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $GLOBALS['termmeta'][7]['_dze_tr_wait'] ] ];
+$list = DZE_Translate::review_list();
+ok( 'the category is on the review list',       count( $list ), 1 );
+ok( 'named for what it is',                     $list[0]['label'] ?? '', 'Balaclavas and hoods' );
+ok( 'with the language waiting on it',          $list[0]['langs'] ?? [], [ 'fr' ] );
+ok( 'and the count answers the same',           DZE_Translate::review_count(), 1 );
+
+echo "\nAccepting writes it, and the register claims only what was written\n";
+$GLOBALS['wpdb']->written = [];
+// A BATCH IS ACCEPTED LATER, and the source can have moved in between — which
+// is the whole reason the words that were SENT are kept beside the answer.
+// Read from the source as it stands at the moment of accepting, the register
+// would claim a field is current when nobody has translated the new words, and
+// that field never gets retranslated again.
+$GLOBALS['terms'][7]['name'] = 'Balaclavas, hoods and caps';
+$done = DZE_Translate::accept( $cat, [ 'fr' => [ 'name' => 'Cagoules et capuches' ] ] );
+ok( 'the translation was written',              $done['written']['fr'] ?? 0, 8 );
+ok( 'the name landed on the translation',       $GLOBALS['terms'][8]['name'], 'Cagoules et capuches' );
+// A FIELD LEFT OUT IS NOT CLAIMED. The description was not ticked, so the
+// register must not say it was checked — or it never gets translated again.
+$reg = json_decode( (string) $GLOBALS['termmeta'][8]['_dze_tr_src'], true );
+ok( 'the name is claimed against what was sent', $reg['name'] ?? '', md5( 'Balaclavas and hoods' ) );
+// And so the words typed since are seen as new, rather than swallowed.
+ok( 'so the words typed since are still owed',  array_keys( DZE_Translate::obj_stale( $cat, 'fr' ) ), [ 'name' ] );
+ok( 'and the untouched description still is not stale-free by accident',
+	( $reg['description'] ?? '' ) === md5( 'Warm ones.' ), true );
+ok( 'nothing is left waiting on it',            DZE_Translate::waiting( $cat ), [] );
+
+echo "\nA language left undecided keeps the object on the list\n";
+$GLOBALS['model_answer'] = wp_json_encode( [ 'name' => 'X' ] );
+DZE_Translate::produce( $cat, [ 'fr', 'de' ] );
+$held = DZE_Translate::waiting( $cat );
+ok( 'two languages came back',                  count( (array) $held['langs'] ), 2 );
+DZE_Translate::accept( $cat, [ 'fr' => [ 'name' => 'Cagoules, capuches et masques' ] ] );
+$left = DZE_Translate::waiting( $cat );
+ok( 'the one decided is gone',                  isset( $left['langs']['fr'] ), false );
+ok( 'and the one nobody read is still there',   isset( $left['langs']['de'] ), true );
+
+echo "\nRefusing throws it away and touches nothing\n";
+$before = $GLOBALS['terms'][8]['name'];
+DZE_Translate::drop_wait( $cat );
+ok( 'nothing is waiting any more',              DZE_Translate::waiting( $cat ), [] );
+ok( 'and the translation was left exactly as it was', $GLOBALS['terms'][8]['name'], $before );
+
+echo "\nA field WPML COPIES is never written here\n";
+// The next custom-field sync puts the original's value straight back over it,
+// so the words are lost and nothing on any screen says so.
+$GLOBALS['posts'][40] = [ 'post_title' => 'Cap', 'post_content' => '', 'post_excerpt' => '', 'type' => 'product' ];
+$prod = [ 'kind' => 'post', 'id' => 40, 'type' => 'product' ];
+DZE_Translate::obj_write( $prod, 40, [ 'seo_title' => 'Titre', 'seo_desc' => 'Description' ] );
+ok( 'the field WPML translates is written',     get_post_meta( 40, 'rank_math_title', true ), 'Titre' );
+ok( 'the field WPML copies is left alone',      get_post_meta( 40, 'rank_math_description', true ), '' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
