@@ -519,26 +519,25 @@ if ( '' !== $dze_dump ) {
 		7 => [ 'name' => 'Balaclavas', 'description' => 'Warm ones.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
 		8 => [ 'name' => 'Plate carriers', 'description' => 'Heavy.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
 	];
-	// THE PRODUCT POPUP, which had no browser gate at all — which is exactly
-	// the screen where a button shipped with an empty fourth argument and
-	// nobody could tell: "les attributs produits et les variations ne sont
-	// toujours pas là sur le produit traduit."
-	if ( 'popup' === $dze_dump ) {
-		$GLOBALS['posts'][700] = [ 'type' => 'product', 'post_title' => 'Field shirt', 'post_content' => '<p>A shirt.</p>', 'post_excerpt' => '' ];
+	// THE ONE TRANSLATION SCREEN, per object. It replaced a popup of ours on
+	// the product page — a second per-object surface that narrated its own
+	// plumbing: "cet écran c'est encore du custom. Je veux un seul écran pour
+	// chaque type de post. Comme le fait wpml !"
+	if ( 'editor' === $dze_dump ) {
+		$GLOBALS['posts'][700] = [ 'type' => 'product', 'post_title' => 'Field shirt', 'post_content' => '<p>A shirt for the field.</p>', 'post_excerpt' => '' ];
 		$GLOBALS['posts'][800] = [ 'type' => 'product', 'post_title' => 'Chemise', 'post_content' => '', 'post_excerpt' => '' ];
-		$GLOBALS['posts'][701] = [ 'type' => 'product_variation', 'post_parent' => 700, 'post_title' => '', 'post_content' => '', 'post_excerpt' => 'Olive.' ];
+		$GLOBALS['posts'][701] = [ 'type' => 'product_variation', 'post_parent' => 700, 'post_title' => '', 'post_content' => '', 'post_excerpt' => 'Olive, black zip.' ];
+		$GLOBALS['postmeta'][701]['attribute_pa_colour'] = 'olive-drab';
+		$GLOBALS['terms'][50] = [ 'name' => 'Olive Drab', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1050 ];
 		$GLOBALS['product_type'][700] = 'variable';
 		$GLOBALS['translated'][700]['fr'] = 800;
-		$GLOBALS['terms'][50] = [ 'name' => 'Olive Drab', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1050 ];
-		$GLOBALS['object_terms'][700] = [ 50 ];
-		$GLOBALS['editing_id'] = 700;
-		$GLOBALS['post'] = get_post( 700 );
-		$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
+		$GLOBALS['post_lang'][800] = 'fr';
+		$_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product', 'lang' => 'fr' ];
 		$GLOBALS['loc'] = [];
-		DZE_Translate::instance()->assets( 'post.php' );
+		DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
 		ob_start();
-		DZE_Translate::instance()->popup();
-		echo wp_json_encode( [ 'html' => (string) ob_get_clean(), 'cfg' => $GLOBALS['loc']['dzeTranslate'] ?? [] ] );
+		DZE_Translate::instance()->render_page();
+		echo wp_json_encode( [ 'html' => (string) ob_get_clean(), 'cfg' => $GLOBALS['loc']['dzeTrScreen'] ?? [] ] );
 		exit( 0 );
 	}
 	$_GET['tab'] = 'review' === $dze_dump ? 'review' : ( 'dashboard' === $dze_dump ? 'dashboard' : 'batch' );
@@ -1241,45 +1240,22 @@ $dze_was = count( $GLOBALS['posts'] );
 DZE_Translate::obj_write( $dze_shirt, 800, [ 'var:702' => 'Rien' ] );
 ok( 'a variation WCML has not made is not invented here', count( $GLOBALS['posts'] ), $dze_was );
 
-echo "\nAND THE TERMS IT IS SOLD BY ARE OBJECTS, SAID SO ON THE PRODUCT\n";
-// One "Olive Drab" serves two hundred products: translated inside each
-// product's job it would be paid for two hundred times. What was missing is
-// that nothing said so, and there was no way to act on them from here.
-$GLOBALS['object_terms'][700] = [ 50 ];
-$dze_at = DZE_Translate::attribute_terms( 700 );
-ok( 'the terms this product is sold by are listed', count( $dze_at ), 1 );
-ok( 'each one named and addressed as an object',
-	[ $dze_at[0]['label'] ?? '', $dze_at[0]['ref'] ?? '' ], [ 'Olive Drab', 'term:50:pa_colour' ] );
-ok( 'with the languages it is still missing', $dze_at[0]['todo'] ?? [], [ 'fr', 'de' ] );
-$GLOBALS['translated'][50]['fr'] = 51;
-$GLOBALS['terms'][51] = [ 'name' => 'Vert olive', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1051 ];
-ok( 'and a language it already has drops off the list',
-	DZE_Translate::attribute_terms( 700 )[0]['todo'] ?? [], [ 'de' ] );
-// THE PRODUCT'S OWN POPUP SAYS IT. Calling the helper proves the reading and
-// nothing about whether the screen asks for it.
-$GLOBALS['editing_id'] = 700;
-$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
-$GLOBALS['post'] = get_post( 700 );
-ob_start(); DZE_Translate::instance()->popup(); $dze_pop = (string) ob_get_clean();
-$GLOBALS['post'] = null;
-ok( 'the popup lists the term still missing a language',
-	false !== strpos( $dze_pop, 'Olive Drab' ), true );
-ok( 'and offers to send it as an object', false !== strpos( $dze_pop, 'term:50:pa_colour' ), true );
-ok( 'and no longer claims attributes are somebody else\'s business',
-	false !== strpos( $dze_pop, 'stock, attributes and images' ), false );
-
 echo "\nTRANSLATE WITH DAZONT ECOM, INSIDE WPML'S OWN LANGUAGE BOX\n";
 // "Peut être ajouter directement une option par dessus wpml sur les blocs wpml
 // de traduction... 'Translate with Dazont Ecom'. Ce serait notre marque de
 // fabrique."
+$GLOBALS['editing_id'] = 700;
+$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
 ok( 'the screen knows which object it is standing on',
 	DZE_Translate::editing_object(), [ 'kind' => 'post', 'id' => 700, 'type' => 'product' ] );
 $GLOBALS['loc'] = [];
 DZE_Translate::instance()->box_assets( 'post.php' );
 ok( 'the button is asked for on a product', isset( $GLOBALS['loc']['dzeTrBox'] ), true );
-// ON A PRODUCT IT OPENS THE POPUP THAT IS ALREADY THERE — never a second one.
-ok( 'and on a product it opens the popup already on the page',
-	(bool) ( $GLOBALS['loc']['dzeTrBox']['popup'] ?? false ), true );
+// ONE SCREEN FOR EVERY KIND OF OBJECT. A product used to get a popup of its own
+// here — a second per-object surface beside the module's own screen: "cet écran
+// c'est encore du custom. Je veux un seul écran pour chaque type de post."
+ok( 'and a product is sent to that same one screen, like everything else',
+	false !== strpos( (string) ( $GLOBALS['loc']['dzeTrBox']['url'] ?? '' ), 'ref=post%3A700%3Aproduct' ), true );
 // A BUTTON ON ONE OBJECT OPENS THE FUNCTION, IT DOES NOT RUN ONE.
 $GLOBALS['screen'] = (object) [ 'id' => 'term', 'post_type' => '', 'base' => 'term', 'taxonomy' => 'product_cat' ];
 $_GET['tag_ID'] = 7;
@@ -1289,8 +1265,8 @@ $dze_box = (array) ( $GLOBALS['loc']['dzeTrBox'] ?? [] );
 ok( 'on a category it points at the screen that does this work',
 	false !== strpos( (string) ( $dze_box['url'] ?? '' ), DZE_Translate::MENU_SLUG ), true );
 // ARMED ON THAT OBJECT, or the destination is a list of nine hundred rows.
-ok( 'armed on that one object',
-	false !== strpos( (string) ( $dze_box['url'] ?? '' ), 'only=term%3A7%3Aproduct_cat' ), true );
+ok( 'opened on that one object',
+	false !== strpos( (string) ( $dze_box['url'] ?? '' ), 'ref=term%3A7%3Aproduct_cat' ), true );
 // A TYPE THE SHOP DOES NOT TRANSLATE GETS NO BUTTON: its destination would be
 // a screen that does not list it.
 $GLOBALS['screen'] = (object) [ 'id' => 'term', 'post_type' => '', 'base' => 'term', 'taxonomy' => 'product_type' ];
@@ -1344,12 +1320,15 @@ ok( 'and it says what it is about to do', false !== strpos( $dze_b, 'id="dze-tr-
 ok( 'a long run can be stopped',        false !== strpos( $dze_b, 'id="dze-tr-stop"' ), true );
 // 4. THE LIST, with the bar the bulk screen wears and Look on every row.
 ok( 'the bar is the bulk screen\'s own', false !== strpos( $dze_b, 'dze-cb-listbar' ), true );
-ok( 'every row offers to be looked at', substr_count( $dze_b, 'dze-tr-openword' ), 2 );
-ok( 'and says Look when nothing waits on it',
-	false !== strpos( $dze_b, '>Look<' ), true );
-// 5. AND THE PANEL IS THE SAME ONE, so one handler drives both lists.
-ok( 'the panel row is the review list\'s own markup',
-	substr_count( $dze_b, 'class="dze-tr-panel"' ), 2 );
+ok( 'every row offers to be opened', substr_count( $dze_b, 'dze-tr-openword' ), 2 );
+ok( 'and says Open when nothing waits on it',
+	false !== strpos( $dze_b, '>Open<' ), true );
+// 5. AND IT IS A WAY TO THE ONE SCREEN, never a panel of its own: two
+// per-object surfaces is how two screens start disagreeing about one object.
+ok( 'the row is a way to the one translation screen',
+	substr_count( $dze_b, 'tab=batch&ref=term%3A7%3Aproduct_cat' ), 1 );
+ok( 'and no panel unfolds inside the list any more',
+	false !== strpos( $dze_b, 'class="dze-tr-panel"' ), false );
 // THE DASHBOARD NO LONGER UNFOLDS THE LIST UNDER ITSELF.
 $_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_d = (string) ob_get_clean();
@@ -1364,7 +1343,7 @@ $GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $GLOBALS['termmeta'][7]
 $_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_b2 = (string) ob_get_clean();
 ok( 'a row holding something says Review', false !== strpos( $dze_b2, '>Review<' ), true );
-ok( 'and the one beside it still says Look', false !== strpos( $dze_b2, '>Look<' ), true );
+ok( 'and the one beside it still says Open', false !== strpos( $dze_b2, '>Open<' ), true );
 unset( $GLOBALS['termmeta'][7]['_dze_tr_wait'] );
 $GLOBALS['wpdb']->waiting_terms = [];
 $_GET = [];
@@ -1465,34 +1444,60 @@ ok( 'with WooCommerce Multilingual gone, it says it could not ask',
 	DZE_Translate::sync_product( 700, 800, 'fr' ), '' );
 $GLOBALS['no_wcml'] = false;
 
-echo "\nAND A TRANSLATION ALREADY BROKEN IS MENDED WITHOUT PAYING FOR A WORD\n";
-// "Je ne peux pas modifier les attributs sur un produit traduit ni les
-// variations. C'est normalement copié du produit original." WCML keeps them
-// read-only on a translation, so the shop cannot mend one by hand — and
-// re-translating would pay for words nobody changed.
+
+echo "\nONE SCREEN PER OBJECT, AND IT IS WPML'S FOUR STEPS\n";
+// "wpml c'est 1/ post non traduit ou traduction pas à jour 2/ envoi en trad
+// 3/ trad automatique ou sur écran de trad spécial individuel de tous les
+// champs 4/ publication." That is the shape, and this is the third screen.
+$GLOBALS['posts'][700] = [ 'type' => 'product', 'post_title' => 'Field shirt', 'post_content' => '<p>A shirt.</p>', 'post_excerpt' => '' ];
+$GLOBALS['posts'][800] = [ 'type' => 'product', 'post_title' => 'Chemise', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['posts'][701] = [ 'type' => 'product_variation', 'post_parent' => 700, 'post_title' => '', 'post_content' => '', 'post_excerpt' => 'Olive, black zip.' ];
+$GLOBALS['postmeta'][701]['attribute_pa_colour'] = 'olive-drab';
+$GLOBALS['terms'][50] = [ 'name' => 'Olive Drab', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1050 ];
+$GLOBALS['product_type'][700] = 'variable';
 $GLOBALS['translated'][700]['fr'] = 800;
-$GLOBALS['wcml_asked'] = [];
-$dze_fix = DZE_Translate::rebuild_product( 700 );
-ok( 'the repair runs for every language that has a translation',
-	array_keys( $dze_fix ), [ 'fr' ] );
-ok( 'and it asked WCML rather than writing anything itself',
-	array_column( $GLOBALS['wcml_asked'], 0 ), [ 'sync_product_attr', 'sync_product_variations' ] );
-ok( 'it says what the translation held before',   $dze_fix['fr']['before'] ?? -1, 1 );
-// THE ANSWER IS READ OFF THE SHOP, never off what the call returned.
-ok( 'and reads back what it holds now',           $dze_fix['fr']['after'] ?? -1, 1 );
-// A SIMPLE PRODUCT HAS NOTHING TO REBUILD, and that is not a failure.
-ok( 'a product with no variations is not touched', DZE_Translate::rebuild_product( 910 ), [] );
-// THE POPUP SAYS THE STATE AND OFFERS THE ONE REPAIR.
-$GLOBALS['editing_id'] = 700;
-$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
-$GLOBALS['post'] = get_post( 700 );
-ob_start(); DZE_Translate::instance()->popup(); $dze_vp = (string) ob_get_clean();
-$GLOBALS['post'] = null;
-ok( 'the popup says where each language stands',
-	false !== strpos( $dze_vp, 'Attributes and variations' ), true );
-ok( 'and offers the repair that costs nothing',
-	false !== strpos( $dze_vp, 'id="dze-tr-rebuild"' ), true );
-$GLOBALS['product_type'] = [];
+$GLOBALS['post_lang'][800] = 'fr';
+$_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product', 'lang' => 'fr' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_ed = (string) ob_get_clean();
+// 1. WHERE THIS ONE STANDS, in the same four words the lists use.
+ok( 'it says where this one stands',   false !== strpos( $dze_ed, 'dze-tr-editstate' ), true );
+// 3. TRANSLATE IT, or write it by hand — one button.
+ok( 'it offers to translate it',       substr_count( $dze_ed, 'id="dze-tr-auto"' ), 1 );
+// EVERY FIELD, SIDE BY SIDE, variations included and named for what they are.
+ok( 'every field of the object is a row',
+	substr_count( $dze_ed, 'class="dze-tr-field"' ), 3 );
+ok( 'a variation\'s own words are a field like any other',
+	false !== strpos( $dze_ed, 'data-field="var:701"' ), true );
+ok( 'and it is named by what it is, not by an id',
+	false !== strpos( $dze_ed, 'Variation — Olive Drab' ), true );
+ok( 'the original is printed beside it',
+	false !== strpos( $dze_ed, 'Olive, black zip.' ), true );
+// A FIELD THE ORIGINAL DOES NOT HOLD IS NOT A DECISION.
+ok( 'an empty field of the original is not a row',
+	false !== strpos( $dze_ed, 'data-field="excerpt"' ), false );
+// 4. PUBLISH IT, or throw it away — side by side.
+ok( 'it ends with save and cancel, side by side',
+	[ substr_count( $dze_ed, 'id="dze-tr-publish"' ), substr_count( $dze_ed, 'id="dze-tr-drop"' ) ], [ 1, 1 ] );
+// AND NOT ONE WORD OF PLUMBING. "Il ne nous dit pas qu'il copie les variations
+// ou je ne sais quoi." No sync reported, no WCML named, no repair button.
+foreach ( [ 'WooCommerce Multilingual', 'Rebuild', 'variations —', 'Attribute terms' ] as $dze_leak ) {
+	ok( 'it never narrates its own plumbing: ' . $dze_leak,
+		false !== strpos( $dze_ed, $dze_leak ), false );
+}
+// AND THE WAY BACK, because a screen you can only leave by the browser button
+// is a screen that traps you.
+ok( 'there is a way back to the list', false !== strpos( $dze_ed, 'Back to the list' ), true );
+// OPENED WITHOUT A LANGUAGE, IT OPENS ON THE ONE THAT NEEDS WORK.
+$GLOBALS['wpdb']->marks = [];
+$_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_ed2 = (string) ob_get_clean();
+ok( 'opened with no language it picks one that needs work',
+	false !== strpos( $dze_ed2, 'dze-tr-editstate' ), true );
+// THE PRODUCT POPUP IS GONE, and so is everything it carried.
+ok( 'the popup no longer exists at all', method_exists( 'DZE_Translate', 'popup' ), false );
+ok( 'nor its two handlers', method_exists( 'DZE_Translate', 'ajax_preview' ), false );
+ok( 'nor the panel the lists used to unfold', method_exists( 'DZE_Translate', 'ajax_panel' ), false );
+$_GET = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

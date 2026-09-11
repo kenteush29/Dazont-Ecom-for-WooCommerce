@@ -48,7 +48,7 @@ function dump( which ) {
 }
 const dash   = dump( 'batch' );
 const review = dump( 'review' );
-const popup  = dump( 'popup' );
+const editor = dump( 'editor' );
 // The plugin's own config, with only the address the harness has to answer on
 // replaced. Retyping the rest is how a gate goes green while proving nothing.
 const cfg = Object.assign( {}, dash.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
@@ -70,13 +70,16 @@ for ( const [ label, jq ] of jqs ) {
 		sent.push( {
 			action: q.get( 'action' ), nonce: q.get( 'nonce' ), ref: q.get( 'ref' ),
 			post: q.get( 'post' ),
+			// What a save actually puts on the wire, field by field.
+			keepTitle: q.get( 'keep[fr][title]' ), keepVar: q.get( 'keep[fr][var:701]' ),
 			how: q.get( 'how' ), langs: q.getAll( 'langs[]' ),
 			// What a decision actually puts on the wire, field by field.
 			keepFr: q.get( 'keep[fr][name]' ), keepFrDesc: q.get( 'keep[fr][description]' )
 		} );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		if ( 'dze_tr_batch' === q.get( 'action' ) ) {
-			return json( { label: 'Balaclavas', done: [ 'fr' ], skipped: [], errors: {} } );
+			return json( { label: 'Balaclavas', done: [ 'fr' ], skipped: [], errors: {},
+				texts: { fr: { title: 'Chemise de terrain', content: '<p>Une chemise.</p>', 'var:701': 'Olive, fermeture noire.' } } } );
 		}
 		if ( 'dze_tr_panel' === q.get( 'action' ) && 'term:7:product_cat' === q.get( 'ref' ) && !holding ) {
 			// NOTHING WAITING ON IT: the server answers with what the object
@@ -104,11 +107,9 @@ for ( const [ label, jq ] of jqs ) {
 				} }
 			} );
 		}
-		if ( 'dze_tr_rebuild' === q.get( 'action' ) ) {
-			return json( { rows: { fr: { lang: 'Français', before: 0, after: 3, how: 'attributes+variations' } } } );
-		}
 		if ( 'dze_tr_decide' === q.get( 'action' ) ) {
-			return json( { written: { fr: 8 }, errors: {}, left: 0, refused: 'refuse' === q.get( 'how' ) } );
+			return json( { written: { fr: 8 }, errors: {}, left: 0, refused: 'refuse' === q.get( 'how' ),
+				warnings: { fr: 'This product\'s variations are still missing on the translation.' } } );
 		}
 		return json( {} );
 	} );
@@ -126,8 +127,8 @@ for ( const [ label, jq ] of jqs ) {
 
 	// WHAT WPML SAYS IS TRANSLATABLE IS WHAT IS ON THE SCREEN, and nothing
 	// else: a type WPML would refuse to link must never be offered.
-	const rowNames = await page.locator( '.dze-tr-row a' ).allTextContents();
-	ok( 'the categories of the shop are listed', rowNames.length, 2 );
+	ok( 'the categories of the shop are listed',
+		await page.locator( '.dze-tr-row' ).count(), 2 );
 	ok( 'each says where it stands in each language',
 		await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-chip' ).count(), 2 );
 	ok( 'and "not translated" is not dressed as "up to date"',
@@ -160,24 +161,17 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the languages block has a take-all in its heading',
 		await page.locator( '[data-sec="langs"] .dze-sec-head .dze-sec-all' ).count(), 1 );
 
-	// LOOK: what the object holds today, and a panel holding nothing offers
-	// neither Accept nor Refuse.
+	// ONE SCREEN PER OBJECT, and the row is the way to it — never a panel
+	// unfolding inside the list beside a popup on the product page.
 	let before = sent.length;
-	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-open' ).click();
-	const looked = await page.waitForSelector( '.dze-tr-panel .dze-tr-panelbox', { timeout: 6000 } )
-		.then( () => true ).catch( () => false );
-	ok( 'pressing Look opens the object', looked, true );
-	const askedLook = sent.slice( before ).filter( s => 'dze_tr_panel' === s.action );
-	ok( 'it asked for that object and nothing else', ( askedLook[0] || {} ).ref, 'term:7:product_cat' );
-	ok( 'it prints what the object holds today',
-		( await page.textContent( '.dze-tr-panel' ) || '' ).includes( 'Balaclavas' ), true );
-	ok( 'and a panel holding nothing offers no Accept',
-		await page.locator( '.dze-tr-panel .dze-tr-accept' ).count(), 0 );
-	ok( 'nor a refusal', await page.locator( '.dze-tr-panel .dze-tr-refuse' ).count(), 0 );
-	ok( 'and the page never moved to show it', new URL( page.url() ).pathname, '/dash' );
-	ok( 'nothing was raised looking', errors, [] );
-	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-open' ).click();
-	await page.check( '.dze-tr-lang[value="de"]' );
+	ok( 'the row is a link, not a panel that unfolds',
+		await page.locator( '.dze-tr-row' ).nth( 0 ).locator( 'a.dze-tr-open' ).count(), 1 );
+	ok( 'and it points at the one translation screen',
+		( await page.locator( '.dze-tr-row' ).nth( 0 ).locator( 'a.dze-tr-open' ).getAttribute( 'href' ) || '' )
+			.includes( 'ref=term%3A7%3Aproduct_cat' ), true );
+	ok( 'no panel row is left in the list at all',
+		await page.locator( '.dze-tr-panel' ).count(), 0 );
+	ok( 'and nothing was asked of the server to say so', sent.length, before );
 
 	// A press with nothing ticked says so rather than doing nothing.
 	before = sent.length;
@@ -248,52 +242,69 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the heading tick takes every row',
 		await page.locator( '.dze-tr-pickone:checked' ).count(), 2 );
 
-	// ---- THE PRODUCT POPUP: ATTRIBUTES AND VARIATIONS ----
-	// This screen had NO browser gate at all, which is why a bridge to
-	// WooCommerce Multilingual could ship calling sync_product_variations()
-	// with an empty fourth argument — the axes — and nobody could tell: "les
-	// attributs produits et les variations ne sont toujours pas là sur le
-	// produit traduit." A button is tested by BEING PRESSED.
-	const popCfg = Object.assign( {}, popup.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
-	await page.route( 'http://dze.test/popup', r => r.fulfill( { contentType: 'text/html',
-		body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style>`
-			+ `<script>${readFileSync( jq, 'utf8' )}</script>`
-			+ `<script>window.dzeTranslate=${JSON.stringify( popCfg )};</script>`
-			+ `<script>${readFileSync( join( js, 'translate.js' ), 'utf8' )}</script></head>`
-			+ `<body>${popup.html}</body></html>` } ) );
-	await page.goto( 'http://dze.test/popup', { waitUntil: 'domcontentloaded' } );
-	ok( 'the product popup runs without an error', errors, [] );
-	// The popup is shut until something opens it — the hub's own delegated
-	// opener, which is pressed for real further down. Here we are testing what
-	// is INSIDE it, so it is put on screen the way that opener puts it there.
-	await page.locator( '#dze-tr-modal' ).evaluate( el => el.classList.add( 'is-open' ) );
+	// ---- THE ONE TRANSLATION SCREEN, PER OBJECT ----
+	// "Cet écran c'est encore du custom. Je veux un seul écran pour chaque type
+	// de post. Comme le fait wpml !" WPML's four steps, and this is the third:
+	// translate it, read every field beside its original, save it. The popup
+	// that stood here had no browser gate at all, which is exactly why it could
+	// carry a block reporting its own plumbing for three releases.
+	await page.route( 'http://dze.test/editor', r => r.fulfill( { contentType: 'text/html',
+		body: serve( editor.html ) } ) );
+	await page.goto( 'http://dze.test/editor', { waitUntil: 'domcontentloaded' } );
+	ok( 'the translation screen runs without an error', errors, [] );
+	ok( 'every field of the object is a row',
+		await page.locator( '.dze-tr-field' ).count(), 3 );
+	ok( 'and the variation is one of them',
+		await page.locator( '.dze-tr-field[data-field="var:701"]' ).count(), 1 );
 
-	// IT SAYS WHERE THE TRANSLATION STANDS before offering anything.
-	ok( 'it says where each language stands on the variations',
-		( await page.textContent( '.dze-tr-attrs' ) || '' ).includes( 'variations' ), true );
-	ok( 'and offers the one repair there is',
-		await page.locator( '#dze-tr-rebuild' ).count(), 1 );
-	ok( 'which says under the hand that it spends nothing',
-		( await page.getAttribute( '#dze-tr-rebuild', 'title' ) || '' ).includes( 'nothing is spent' ), true );
-
+	// TRANSLATE IT: one press, and what comes back lands IN THE FIELDS.
 	before = sent.length;
-	await page.click( '#dze-tr-rebuild' );
-	await page.waitForFunction(
-		() => !/…$/.test( ( document.querySelector( '#dze-tr-rebuildstate' ) || {} ).textContent || '…' ),
-		null, { timeout: 6000 } ).catch( () => {} );
-	const fix = sent.slice( before );
-	ok( 'pressing it asks the server to rebuild', ( fix[0] || {} ).action, 'dze_tr_rebuild' );
-	ok( 'for this product', ( fix[0] || {} ).post, String( popCfg.postId ) );
-	ok( 'with its nonce', ( fix[0] || {} ).nonce, popCfg.nonce );
-	// AND NOT ONE WORD WAS SENT TO A MODEL: the repair is free, and a press
-	// that quietly spent money would be the fault this plugin has paid for.
-	ok( 'and nothing was translated on the way',
-		fix.filter( x => 'dze_tr_preview' === x.action || 'dze_tr_batch' === x.action ).length, 0 );
-	ok( 'the row is rewritten with what it now holds',
-		( await page.textContent( '.dze-tr-attrs tr[data-lang="fr"] .dze-tr-varcell' ) || '' ).includes( '3' ), true );
-	ok( 'and the screen says it worked',
-		( await page.textContent( '#dze-tr-rebuildstate' ) || '' ).length > 0, true );
-	ok( 'nothing was raised rebuilding', errors, [] );
+	await page.click( '#dze-tr-auto' );
+	// WAIT FOR THE ANSWER, NEVER FOR THE LINE TO MERELY FILL: the busy text is
+	// already in it, so "not empty" returns at once and every check after it
+	// reads a screen still working — green or red by accident of timing.
+	const autoDone = await page.waitForFunction(
+		busy => {
+			const t = ( ( document.querySelector( '#dze-tr-autostate' ) || {} ).textContent || '' ).trim();
+			return t.length > 0 && t !== busy;
+		},
+		cfg.i18n.sending, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'the automatic pass answered', autoDone, true );
+	const made = sent.slice( before ).filter( x => 'dze_tr_batch' === x.action );
+	ok( 'pressing Translate sends one job', made.length, 1 );
+	ok( 'for this object', ( made[0] || {} ).ref, 'post:700:product' );
+	ok( 'and only the language this screen is about', ( made[0] || {} ).langs, [ 'fr' ] );
+	ok( 'what came back is IN the fields, not in a panel beside them',
+		await page.inputValue( '.dze-tr-field[data-field="title"] .dze-tr-new' ), 'Chemise de terrain' );
+	ok( 'the variation is filled in too',
+		await page.inputValue( '.dze-tr-field[data-field="var:701"] .dze-tr-new' ), 'Olive, fermeture noire.' );
+	ok( 'nothing was raised translating', errors, [] );
+
+	// SAVE IT: what is ON SCREEN is what travels — including a word edited by
+	// hand after the automatic pass, which is the whole point of the screen.
+	await page.fill( '.dze-tr-field[data-field="title"] .dze-tr-new', 'Chemise de combat' );
+	before = sent.length;
+	await page.click( '#dze-tr-publish' );
+	const saveDone = await page.waitForFunction(
+		busy => {
+			const t = ( ( document.querySelector( '#dze-tr-publishstate' ) || {} ).textContent || '' ).trim();
+			return t.length > 0 && t !== busy;
+		},
+		cfg.i18n.saving, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'the save answered', saveDone, true );
+	const saved = sent.slice( before ).filter( x => 'dze_tr_decide' === x.action );
+	ok( 'saving posts one decision', saved.length, 1 );
+	ok( 'it is an acceptance', ( saved[0] || {} ).how, 'accept' );
+	ok( 'and it carries the hand-edited word, not the machine\'s',
+		( saved[0] || {} ).keepTitle, 'Chemise de combat' );
+	ok( 'the variation travels with it',
+		( saved[0] || {} ).keepVar, 'Olive, fermeture noire.' );
+	// AND WHAT IS STILL WRONG WITH IT IS SAID — once, as the result of this
+	// press, never as a permanent panel explaining our plumbing.
+	ok( 'a translation left unbuyable says so after the save',
+		await page.locator( '.dze-tr-warn' ).count(), 1 );
+	ok( 'nothing was raised saving', errors, [] );
+	ok( 'and the page never moved', new URL( page.url() ).pathname, '/editor' );
 
 	// ---- "TRANSLATE WITH DAZONT ECOM", INSIDE WPML'S OWN LANGUAGE BOX ----
 	// "Peut être ajouter directement une option par dessus wpml sur les blocs
@@ -362,44 +373,20 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the review list runs without an error', errors, [] );
 	ok( 'what is waiting is listed', await page.locator( '.dze-tr-wrow' ).count(), 1 );
 
-	// Review OPENS the object — it does not decide anything.
+	// REVIEW OPENS THE OBJECT — on the one screen, and it decides nothing on
+	// the way. It used to unfold a panel inside the row, which was a second
+	// per-object surface beside the popup the product page carried.
 	before = sent.length;
-	await page.click( '.dze-tr-wrow .dze-tr-open' );
-	const opened = await page.waitForSelector( '.dze-tr-panel .dze-cb-fblock', { timeout: 6000 } )
-		.then( () => true ).catch( () => false );
-	ok( 'pressing Review opens the object', opened, true );
-	ok( 'and it decided nothing on the way',
-		sent.slice( before ).filter( s => 'dze_tr_decide' === s.action ).length, 0 );
-	if ( opened ) {
-		// BEFORE AND AFTER, BOTH PRINTED: the original, what the translation
-		// holds today, and the new text in an editor — a block that prints one
-		// of the three is a screen nobody can decide on.
-		ok( 'the original is printed',
-			( await page.textContent( '.dze-tr-panel .dze-tr-was' ) || '' ).includes( 'Balaclavas' ), true );
-		ok( 'what the translation holds today is printed',
-			( await page.textContent( '.dze-tr-panel .dze-tr-now' ) || '' ).includes( 'Cagoule' ), true );
-		ok( 'and the new text is in an editor',
-			await page.locator( '.dze-tr-panel .dze-tr-new' ).first().inputValue(), 'Cagoules' );
-		ok( 'one field per thing translated',
-			await page.locator( '.dze-tr-panel .dze-cb-fblock' ).count(), 2 );
-
-		// ACCEPTING IS FIELD BY FIELD. Untick one and it must not travel.
-		await page.uncheck( '.dze-tr-panel .dze-cb-fblock[data-field="description"] .dze-tr-keep' );
-		before = sent.length;
-		await page.click( '.dze-tr-panel .dze-tr-accept' );
-		const decided = await page.waitForFunction(
-			() => ( document.querySelectorAll( '.dze-tr-wrow' ).length === 0 ),
-			null, { timeout: 6000 } ).then( () => true ).catch( () => false );
-		const dec = sent.slice( before ).filter( s => 'dze_tr_decide' === s.action );
-		ok( 'accepting posts a decision', dec.length, 1 );
-		ok( 'on the object it is about', ( dec[0] || {} ).ref, 'term:7:product_cat' );
-		ok( 'the ticked field travels', ( dec[0] || {} ).keepFr, 'Cagoules' );
-		// A FIELD UNTICKED IS LEFT OUT — the rest is still written.
-		ok( 'and the unticked one does not', ( dec[0] || {} ).keepFrDesc, null );
-		// The answer LANDED: a request whose answer goes nowhere is the same
-		// broken button from the shop's chair.
-		ok( 'and the row leaves the list once nothing is left', decided, true );
-	}
+	ok( 'Review is a link to the one translation screen',
+		( await page.locator( '.dze-tr-wrow a.dze-tr-open' ).getAttribute( 'href' ) || '' )
+			.includes( 'ref=term%3A7%3Aproduct_cat' ), true );
+	// EACH LANGUAGE IS ITS OWN WAY IN, because the screen reads one at a time.
+	ok( 'and each waiting language is its own way in',
+		( await page.locator( '.dze-tr-wrow a.dze-tr-chip' ).first().getAttribute( 'href' ) || '' )
+			.includes( 'lang=fr' ), true );
+	ok( 'no panel unfolds in the waiting list either',
+		await page.locator( '.dze-tr-panel' ).count(), 0 );
+	ok( 'and nothing was decided by looking', sent.length, before );
 	ok( 'nothing was raised anywhere in the gesture', errors, [] );
 
 	// REFUSING IS ITS OWN DECISION, from the row, and it asks first.

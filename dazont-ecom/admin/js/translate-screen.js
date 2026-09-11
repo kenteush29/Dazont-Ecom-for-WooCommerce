@@ -158,8 +158,7 @@
 					// waiting for a decision. A screen that reacts to its own
 					// work is the rule, not a nicety.
 					if (n) {
-						$('tr[data-ref="' + ref + '"]').not('.dze-tr-panel')
-							.find('.dze-tr-openword').text(i18n.review);
+						$('tr[data-ref="' + ref + '"]').find('.dze-tr-openword').text(i18n.review);
 					}
 					$('#dze-tr-progstep').text(r.data.label || '');
 				} else {
@@ -181,185 +180,99 @@
 	});
 
 	// =====================================================================
-	// The reading
+	// THE TRANSLATION EDITOR — one screen per object, three presses
+	//
+	// "Je veux un seul écran pour chaque type de post. Comme le fait wpml !"
+	// Translate it, read it field by field, save it. What stood here before was
+	// a panel that unfolded inside a row AND a popup of ours on the product
+	// page: two per-object surfaces for one job, which is how two screens start
+	// disagreeing about one object and one of them loses text.
 	// =====================================================================
 
-	function fieldBlock(lang, fid, label, source, made, current) {
-		var id = 'dze-tr-f-' + lang + '-' + fid;
-		return '<div class="dze-cb-fblock" data-lang="' + esc(lang) + '" data-field="' + esc(fid) + '">' +
-			'<div class="dze-cb-fhead">' +
-				'<label class="dze-cb-check" title="' + esc(i18n.keepHelp) + '">' +
-					'<input type="checkbox" class="dze-tr-keep" checked /> <span>' + esc(label) + '</span>' +
-				'</label>' +
-			'</div>' +
-			'<div class="dze-cb-fbody">' +
-				'<p class="description">' + esc(i18n.source) + '</p>' +
-				'<pre class="dze-tr-was">' + esc(source || i18n.empty) + '</pre>' +
-				'<p class="description">' + esc(i18n.current) + '</p>' +
-				'<pre class="dze-tr-now">' + esc(current || i18n.empty) + '</pre>' +
-				'<textarea id="' + esc(id) + '" class="dze-tr-new" rows="6">' + esc(made) + '</textarea>' +
-			'</div>' +
-		'</div>';
-	}
+	function editor() { return $('.dze-tr-editor'); }
 
-	// WHAT THE OBJECT HOLDS TODAY, when nothing is waiting on it. A PANEL
-	// HOLDING NOTHING OFFERS NEITHER ACCEPT NOR REFUSE: a control that cannot
-	// act is a control nobody trusts.
-	function lookPanel($cell, d) {
-		var html = '<div class="dze-tr-panelbox">';
-		html += '<p><strong>' + esc(d.label) + '</strong> ';
-		if (d.edit) {
-			html += '<a href="' + esc(d.edit) + '" target="_blank" rel="noopener">' + esc(i18n.open) + ' &rarr;</a>';
-		}
-		html += '</p>';
-		html += '<div class="dze-tr-lblock"><h3>' + esc(i18n.source) + '</h3>';
-		var got = false;
-		$.each(d.source || {}, function (fid, text) {
-			got = true;
-			html += '<p class="dze-cb-nowlabel">' + esc((d.labels || {})[fid] || fid) + '</p>' +
-				'<pre class="dze-tr-was">' + esc(text) + '</pre>';
-		});
-		if (!got) { html += '<p class="description">' + esc(i18n.empty) + '</p>'; }
-		html += '</div>';
-		$.each(d.langs, function (code, one) {
-			html += '<div class="dze-tr-lblock" data-lang="' + esc(code) + '">';
-			html += '<h3>' + esc(one.name) + ' (' + esc(String(code).toUpperCase()) + ')</h3>';
-			if (!one.exists) {
-				html += '<p class="description">' + esc(i18n.holdsNone) + '</p>';
-			} else {
-				if (one.edit) {
-					html += '<p><a href="' + esc(one.edit) + '" target="_blank" rel="noopener">' + esc(i18n.open) + ' &rarr;</a></p>';
-				}
-				$.each(one.current || {}, function (fid, text) {
-					html += '<p class="dze-cb-nowlabel">' + esc((d.labels || {})[fid] || fid) + '</p>' +
-						'<pre class="dze-tr-now">' + esc(text) + '</pre>';
+	// 1. TRANSLATE IT. Only what has moved is sent — the module's whole value —
+	// so a run that pays for nothing says so instead of looking broken.
+	$(document).on('click', '#dze-tr-auto', function () {
+		var $e = editor();
+		if (!$e.length) { return; }
+		var $b = $(this).prop('disabled', true);
+		var $st = $('#dze-tr-autostate').removeClass('is-ko').text(i18n.sending);
+		post('dze_tr_batch', { ref: $e.data('ref'), langs: [String($e.data('lang'))] })
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); return; }
+				var texts = (r.data.texts || {})[String($e.data('lang'))] || {};
+				var n = 0;
+				$.each(texts, function (fid, text) {
+					var $row = $e.find('.dze-tr-field[data-field="' + fid + '"]');
+					if (!$row.length) { return; }
+					$row.find('.dze-tr-new').val(text);
+					n++;
 				});
-			}
-			html += '</div>';
-		});
-		$cell.html(html + '</div>');
-	}
-
-	function draw($cell, ref, d) {
-		if (d.look) { lookPanel($cell, d); return; }
-		var html = '<div class="dze-tr-panelbox">';
-		html += '<p><strong>' + esc(d.label) + '</strong> ';
-		if (d.edit) {
-			html += '<a href="' + esc(d.edit) + '" target="_blank" rel="noopener">' + esc(i18n.open) + ' &rarr;</a>';
-		}
-		html += '</p>';
-		$.each(d.langs, function (code, one) {
-			html += '<div class="dze-tr-lblock" data-lang="' + esc(code) + '">';
-			html += '<h3>' + esc(one.name) + ' (' + esc(String(code).toUpperCase()) + ')</h3>';
-			if (!one.exists) {
-				html += '<p class="description">' + esc(i18n.willCreate) + '</p>';
-			} else if (!one.mine) {
-				html += '<div class="notice notice-warning inline"><p>' + esc(i18n.notMine) + '</p></div>';
-			}
-			$.each(one.texts, function (fid, made) {
-				html += fieldBlock(code, fid, (d.labels || {})[fid] || fid,
-					(d.source || {})[fid], made, (one.current || {})[fid]);
-			});
-			html += '</div>';
-		});
-		html += '<p class="dze-cb-panelbar">' +
-			'<button type="button" class="button button-primary dze-tr-accept">' + esc(i18n.accept) + '</button> ' +
-			'<button type="button" class="button dze-tr-refuse">' + esc(i18n.refuse) + '</button>' +
-			'<span class="dze-cb-panelstate"></span>' +
-		'</p></div>';
-		$cell.html(html);
-	}
-
-	// ONE HANDLER FOR BOTH LISTS. The batch screen opens the same panel on the
-	// same markup — "Look" for the object as it stands, "Review" once something
-	// waits — so the row is found by what it CARRIES (a ref) rather than by
-	// which of the two screens it happens to be on.
-	$(document).on('click', '.dze-tr-open', function () {
-		var $row = $(this).closest('tr[data-ref]');
-		var ref = $row.data('ref');
-		var $panel = $('.dze-tr-panel[data-ref="' + ref + '"]');
-		if ($panel.is(':visible')) { $panel.hide(); return; }
-		var $cell = $panel.find('td').first();
-		$cell.html('<p class="description">' + esc(i18n.loading) + '</p>');
-		$panel.show();
-		post('dze_tr_panel', { ref: ref }).done(function (r) {
-			if (!r || !r.success) { $cell.html('<p class="notice notice-error">' + esc(said(r)) + '</p>'); return; }
-			draw($cell, ref, r.data);
-		}).fail(function () {
-			$cell.html('<p class="notice notice-error">' + esc(i18n.error) + '</p>');
-		});
+				// NOTHING MOVED IS AN ANSWER, and it is not a failure: WPML asks
+				// again whenever a category is renamed, and this is the module
+				// saying it cost nothing.
+				$st.text(n ? sprintf(i18n.filled, n) : i18n.nothingNew);
+			})
+			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
 	});
 
-	// Refuse, from the row and from inside the panel alike: the group form of
-	// a row button, never a second path.
-	$(document).on('click', '.dze-tr-refuse', function () {
-		var $row = $(this).closest('tr[data-ref]').not('.dze-tr-panel');
-		if (!$row.length) {
-			$row = $('tr[data-ref="' + $(this).closest('.dze-tr-panel').data('ref') + '"]').not('.dze-tr-panel');
-		}
-		var ref = $row.data('ref');
-		if (!window.confirm(i18n.confirmNo)) { return; }
-		post('dze_tr_decide', { ref: ref, how: 'refuse' }).done(function (r) {
-			if (!r || !r.success) { window.alert(said(r)); return; }
-			// ON THE REVIEW LIST the row IS the waiting work, so it goes. On
-			// the batch list the object is still there and still translatable:
-			// the panel closes and the row goes back to "Look".
-			$('.dze-tr-panel[data-ref="' + ref + '"]').hide().find('td').first().empty();
-			if ($row.hasClass('dze-tr-wrow')) { $row.remove(); return; }
-			$row.find('.dze-tr-openword').text(i18n.look);
-		});
-	});
-
-	$(document).on('click', '.dze-tr-accept', function () {
-		var $btn = $(this);
-		var $panel = $btn.closest('.dze-tr-panel');
-		var ref = $panel.data('ref');
+	// 2. SAVE IT. What is on screen is what travels — never what the database
+	// held when the page was opened.
+	$(document).on('click', '#dze-tr-publish', function () {
+		var $e = editor();
+		if (!$e.length) { return; }
+		var lang = String($e.data('lang'));
 		var keep = {};
+		keep[lang] = {};
 		var any = false;
-		$panel.find('.dze-cb-fblock').each(function () {
-			var $b = $(this);
-			if (!$b.find('.dze-tr-keep').is(':checked')) { return; }
-			var lang = String($b.data('lang'));
-			var fid = String($b.data('field'));
-			keep[lang] = keep[lang] || {};
-			keep[lang][fid] = $b.find('.dze-tr-new').val();
+		$e.find('.dze-tr-field').each(function () {
+			var $r = $(this);
+			var v = String($r.find('.dze-tr-new').val() || '');
+			if (!v.length) { return; }
+			keep[lang][String($r.data('field'))] = v;
 			any = true;
 		});
-		if (!any) { window.alert(i18n.tickFirst); return; }
-		var $state = $panel.find('.dze-cb-panelstate');
-		$btn.prop('disabled', true);
-		$state.text(i18n.saving);
-		post('dze_tr_decide', { ref: ref, how: 'accept', keep: keep }).done(function (r) {
-			$btn.prop('disabled', false);
-			if (!r || !r.success) { $state.text(said(r)); return; }
-			// WHAT WAS WRITTEN, AND WHAT IS STILL WRONG WITH IT. "Written ✓"
-			// over a variable product WooCommerce Multilingual has not built
-			// the variations for is a page that renders as unavailable, with
-			// the screen saying nothing about it.
-			var warn = [];
-			$.each(r.data.warnings || {}, function (lang, text) {
-				warn.push(String(lang).toUpperCase() + ' — ' + text);
+		var $st = $('#dze-tr-publishstate').removeClass('is-ko');
+		if (!any) { $st.addClass('is-ko').text(i18n.nothingToSave); return; }
+		var $b = $(this).prop('disabled', true);
+		$st.text(i18n.saving);
+		post('dze_tr_decide', { ref: $e.data('ref'), how: 'accept', keep: keep })
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text(said(r)); return; }
+				// WHAT WAS WRITTEN, AND WHAT IS STILL WRONG WITH IT. A variable
+				// product whose variations WooCommerce Multilingual has not
+				// built renders as unavailable, and the screen that just said
+				// "Saved" must say that too.
+				var warn = [];
+				$.each(r.data.warnings || {}, function (code, text) { warn.push(text); });
+				$e.find('.dze-tr-warn').remove();
+				if (warn.length) {
+					$e.find('.dze-cb-panelbar').before(
+						'<div class="notice notice-warning inline dze-tr-warn"><p>' + esc(warn.join(' ')) + '</p></div>');
+				}
+				// THE STATE LINE IS THE LAST THING TO CHANGE, so it is a
+				// truthful signal that the press is finished: set first, a gate
+				// waiting on it reads a screen still working — and passes by
+				// accident of timing, which is what a vacuous wait looks like.
+				$st.text(i18n.saved);
+			})
+			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
+	});
+
+	// 3. OR THROW IT AWAY. The translation is left exactly as it is.
+	$(document).on('click', '#dze-tr-drop, .dze-tr-refuse', function () {
+		var $e = editor();
+		var ref = $e.length ? $e.data('ref') : $(this).closest('tr[data-ref]').data('ref');
+		if (!ref || !window.confirm(i18n.confirmNo)) { return; }
+		var $st = $('#dze-tr-publishstate');
+		post('dze_tr_decide', { ref: ref, how: 'refuse' })
+			.done(function (r) {
+				if (!r || !r.success) { window.alert(said(r)); return; }
+				if ($e.length) { $st.text(i18n.dropped); return; }
+				$('tr[data-ref="' + ref + '"]').remove();
 			});
-			if (warn.length) {
-				$panel.find('.dze-cb-panelbar').before(
-					'<div class="notice notice-warning inline"><p>' + esc(warn.join(' ')) + '</p></div>');
-			}
-			// A ROW MENDED BY HALF STAYS, and says where it now stands: a row
-			// that vanished on any decision would be a list that lies.
-			if (r.data.left > 0) {
-				$state.text(sprintf(i18n.someLeft, r.data.left));
-				return;
-			}
-			$state.text(i18n.saved);
-			var $r = $('tr[data-ref="' + ref + '"]').not('.dze-tr-panel');
-			if ($r.hasClass('dze-tr-wrow')) { $r.remove(); $panel.remove(); return; }
-			// The batch list keeps its row: the object is still there, it is
-			// simply no longer holding anything to decide.
-			$r.find('.dze-tr-openword').text(i18n.look);
-			$panel.hide().find('td').first().empty();
-		}).fail(function () {
-			$btn.prop('disabled', false);
-			$state.text(i18n.error);
-		});
 	});
 }(jQuery));
