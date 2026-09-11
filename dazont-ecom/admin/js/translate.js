@@ -113,6 +113,40 @@
 		$(this).closest('.dze-cb-fblock').toggleClass('is-dropped', !$(this).is(':checked'));
 	});
 
+	// THE ATTRIBUTE TERMS, one job each, through the very engine the batch
+	// screen uses: one object, one job, one waiting list. Nothing here writes
+	// to the shop — what comes back waits to be read like everything else.
+	$(document).on('click', '#dze-tr-attrsend', function () {
+		var $b = $(this);
+		var rows = $('.dze-tr-attr:checked').map(function () {
+			return { ref: $(this).val(), langs: String($(this).data('langs') || '').split(',').filter(Boolean) };
+		}).get();
+		var $st = $('#dze-tr-attrstate').removeClass('is-ko');
+		if (!rows.length) { $st.addClass('is-ko').text(i18n.attrNone); return; }
+		$b.prop('disabled', true);
+		$st.text(i18n.attrGo);
+		var held = 0, left = rows.length;
+		function next() {
+			if (!rows.length) {
+				$b.prop('disabled', false);
+				if (!held) { $st.text(i18n.attrNothing); return; }
+				$st.html(esc(sprintf(i18n.attrDone, held)) +
+					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.attrRead) + ' &rarr;</a>' : ''));
+				return;
+			}
+			var one = rows.shift();
+			$.post(cfg.ajaxUrl, { action: 'dze_tr_batch', nonce: cfg.nonce, ref: one.ref, langs: one.langs })
+				.done(function (r) {
+					if (r && r.success && (r.data.done || []).length) { held++; }
+				})
+				.always(function () {
+					$st.text(sprintf(i18n.attrGo) + ' ' + (left - rows.length) + '/' + left);
+					next();
+				});
+		}
+		next();
+	});
+
 	$(document).on('click', '#dze-tr-run', function () {
 		var $b = $(this).prop('disabled', true);
 		var $st = $('#dze-tr-state').removeClass('is-ko').text(i18n.working);

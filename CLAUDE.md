@@ -1456,6 +1456,42 @@ whose screen has not been thought through yet.
   arrows — drawn from Dashicons, which WordPress ships everywhere: WPML's icon
   font is loaded only where WPML enqueues it, and a blank square is worse than
   no symbol. The WORD stays beside the mark.
+- **A PRODUCT IS MORE THAN ITS OWN FIVE FIELDS.** "Produits : grosse lacune,
+  les attributs ne sont pas gérés, les variations non plus." Two different
+  things, and they are not solved the same way:
+  - A **variation** carries words of its own — "the olive one has a black zip",
+    in the variation post's excerpt — and it belongs to ONE product. So it is a
+    FIELD of that product, `var:<id>`, and everything downstream (what is
+    stale, what is sent, what waits, what the register claims) works unchanged
+    because there is still only one object. It is written onto the variation
+    WooCommerce Multilingual made and **never onto one invented here**: linking
+    a variation is WCML's job, and a second way of doing it is two plugins
+    fighting over one row. A variation WCML has not made yet stays owed.
+  - An **attribute term** is shared: one "Olive Drab" serves two hundred
+    products, so translating it inside each product's job would pay for it two
+    hundred times. It stays an object of its own — what was missing is that
+    nothing ever SAID so and there was no way to act on one from the product in
+    front of you. The product's panel lists the terms still missing a language
+    and sends them through the same `produce()` the batch screen uses.
+- **"TRANSLATE WITH DAZONT ECOM" LIVES IN WPML'S OWN LANGUAGE BOX.** "Peut être
+  ajouter directement une option par dessus wpml sur les blocs wpml de
+  traduction… Ce serait notre marque de fabrique." The box WPML already prints
+  is where somebody goes to think about languages, so that is where the button
+  belongs — never a meta box of our own beside it. Three rules: it OPENS the
+  work and never runs it (the panel on a product, the Translations screen with
+  that one object already ticked everywhere else, `?only=<ref>`); WPML's markup
+  is WPML's, so the script asks for the containers it is known by and falls
+  back to WordPress's own Publish box rather than vanishing; and the opener for
+  these popups is DELEGATED in one place (`class-modules.php`), because a
+  button added by a later script is not bound by a direct `.on()`. All of it is
+  pressed in a browser — the placement, the press, and that the page never
+  moves.
+- **WPML'S OWN GESTURE ON THE ROW: the plus and the arrows.** "Avec le bouton +
+  pour créer une traduction d'une langue précise. Le bouton actualiser pour
+  actualiser une traduction qui n'est plus à jour." A language chip that is
+  owed IS the button, and pressing it runs the SAME job the batch button runs
+  for that one language — never a second engine. A chip WPML is satisfied with
+  is not a button, and must not look like one.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

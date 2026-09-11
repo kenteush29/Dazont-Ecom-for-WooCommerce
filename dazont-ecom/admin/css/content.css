@@ -1457,6 +1457,16 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tr-chip.is-stale   { border-color: #f0d48a; background: #fdf6e3; color: #8a6d00; }
 .dze-tr-chip.is-missing { border-color: #f0b1b1; background: #fdeaea; color: #b32d2e; }
 .dze-tr-chip.is-held    { border-color: #a7c7e7; background: #eef5fc; color: #135e96; }
+/* A chip that is a BUTTON says so under the hand: a press makes the missing
+   translation or brings a stale one back. One WPML is satisfied with is not a
+   button, and must not look like one. */
+button.dze-tr-chip { cursor: pointer; font-family: inherit; }
+button.dze-tr-chip:hover:not(:disabled) { filter: brightness(.96); box-shadow: 0 0 0 1px currentColor inset; }
+button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
+.dze-tr-box { margin: 10px 0 4px; }
+.dze-tr-attrs { border-top: 1px solid #e2e4e7; margin-top: 10px; padding-top: 6px; }
+.dze-tr-attrlist { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0; }
+.dze-tr-attrlist em { font-style: normal; margin: 0 4px; }
 /* WPML's own three marks — plus, pencil, two arrows — at the size of the word
    they sit beside, never bigger than it. */
 .dze-tr-chip .dashicons {

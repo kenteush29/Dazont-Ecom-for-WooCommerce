@@ -154,10 +154,93 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( `#dze-tr-sendstate a[href="${cfg.reviewUrl}"]` ).count(), 1 );
 	ok( 'nothing was raised sending a batch', errors, [] );
 
+	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME. The plus makes the missing
+	// translation, the arrows bring an out-of-date one back — and it runs the
+	// SAME job the batch button runs, never a second engine.
+	ok( 'a language that is owed is a button',
+		await page.locator( '.dze-tr-row:nth-child(2) button.dze-tr-one' ).count() > 0, true );
+	before = sent.length;
+	await page.click( '.dze-tr-row:nth-child(2) button.dze-tr-one[data-lang="fr"]' );
+	await page.waitForFunction(
+		() => !document.querySelector( '.dze-tr-row:nth-child(2) button.dze-tr-one[data-lang="fr"]' ),
+		null, { timeout: 6000 } ).catch( () => {} );
+	const one = sent.slice( before ).filter( s => 'dze_tr_batch' === s.action );
+	ok( 'pressing it sends exactly one job', one.length, 1 );
+	ok( 'for the object of its own row', ( one[0] || {} ).ref, 'term:8:product_cat' );
+	// AND ONLY THAT LANGUAGE. The other flag on the same row was not pressed
+	// and must not be paid for.
+	ok( 'and only the language pressed', ( one[0] || {} ).langs, [ 'fr' ] );
+	ok( 'the chip says what came back',
+		( await page.textContent( '.dze-tr-row:nth-child(2) .dze-tr-state' ) || '' ).includes( cfg.i18n.rowHeld ), true );
+	ok( 'the other language of that row is still offered',
+		await page.locator( '.dze-tr-row:nth-child(2) button.dze-tr-one[data-lang="de"]' ).count(), 1 );
+	ok( 'nothing was raised pressing a flag', errors, [] );
+
+
 	// THE TICK AT THE TOP TAKES THE LOT — on this screen like every other.
 	await page.check( '#dze-tr-all' );
 	ok( 'the heading tick takes every row',
 		await page.locator( '.dze-tr-pickone:checked' ).count(), 2 );
+
+	// ---- "TRANSLATE WITH DAZONT ECOM", INSIDE WPML'S OWN LANGUAGE BOX ----
+	// "Peut être ajouter directement une option par dessus wpml sur les blocs
+	// wpml de traduction… Ce serait notre marque de fabrique." WPML's markup is
+	// WPML's, so the only way to know the button lands in the right place — and
+	// that pressing it opens anything — is to put a language box on a page and
+	// press it.
+	//
+	// The opener is read out of class-modules.php rather than retyped: bound
+	// directly instead of delegated it opens nothing, and a gate carrying its
+	// own copy would never notice.
+	const hubOpener = ( readFileSync( join( root, 'dazont-ecom', 'includes', 'class-modules.php' ), 'utf8' )
+		.match( /jQuery\( function \( \$ \) \{[\s\S]*?\n\t\t\} \);/ ) || [ '' ] )[0];
+	ok( 'the hub opener was found to test against', hubOpener.length > 0, true );
+
+	const editScreen = ( box ) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style>`
+		+ `<script>${readFileSync( jq, 'utf8' )}</script>`
+		+ `<script>window.dzeTrBox=${JSON.stringify( box )};</script></head>`
+		+ `<body><div id="post-body"><div id="icl_div"><div class="inside">`
+		+ `<p>Language of this post</p></div></div></div>`
+		+ `<div id="submitdiv"><div class="inside"><button>Update</button></div></div>`
+		+ `<div class="dze-cx-modal" id="dze-tr-modal"><div class="dze-cx-dialog">`
+		+ `<button type="button" class="button dze-hub-close">Close</button></div></div>`
+		+ `<script>${hubOpener}</script>`
+		+ `<script>${readFileSync( join( js, 'translate-box.js' ), 'utf8' )}</script>`
+		+ `</body></html>`;
+
+	// ON A PRODUCT: it opens the popup that is already on the page. Never a
+	// second popup, and never a page it has to travel to.
+	await page.route( 'http://dze.test/edit-product', r => r.fulfill( { contentType: 'text/html',
+		body: editScreen( { popup: true, url: '', label: 'Translate with Dazont Ecom', tip: 'Opens the panel' } ) } ) );
+	await page.goto( 'http://dze.test/edit-product', { waitUntil: 'domcontentloaded' } );
+	ok( 'the edit screen runs without an error', errors, [] );
+	ok( 'the button lands INSIDE WPML\'s own language box',
+		await page.locator( '#icl_div .inside #dze-tr-box a, #icl_div .inside #dze-tr-box button' ).count(), 1 );
+	ok( 'and not in the Publish box beside it',
+		await page.locator( '#submitdiv #dze-tr-box' ).count(), 0 );
+	ok( 'it says what it is', await page.textContent( '#dze-tr-box' ), 'Translate with Dazont Ecom' );
+	ok( 'and what it will do, under the hand',
+		await page.getAttribute( '#dze-tr-box .button', 'title' ), 'Opens the panel' );
+	ok( 'the popup is shut until it is pressed',
+		await page.locator( '#dze-tr-modal.is-open' ).count(), 0 );
+	await page.click( '#dze-tr-box .button' );
+	ok( 'pressing it opens the popup already on the page',
+		await page.locator( '#dze-tr-modal.is-open' ).count(), 1 );
+	ok( 'and the page never moved', new URL( page.url() ).pathname, '/edit-product' );
+	ok( 'nothing was raised opening it', errors, [] );
+
+	// ON EVERYTHING ELSE: a link to the screen that does this work, armed on
+	// this one object. A BUTTON ON ONE OBJECT OPENS THE FUNCTION — it does not
+	// run one, and it does not spend anything.
+	const armed = 'https://kula.test/wp-admin/admin.php?page=dazont-ecom-translations&tab=dashboard&scope=term%3Aproduct_cat&only=term%3A7%3Aproduct_cat';
+	await page.route( 'http://dze.test/edit-term', r => r.fulfill( { contentType: 'text/html',
+		body: editScreen( { popup: false, url: armed, label: 'Translate with Dazont Ecom', tip: 'Opens the screen' } ) } ) );
+	await page.goto( 'http://dze.test/edit-term', { waitUntil: 'domcontentloaded' } );
+	before = sent.length;
+	ok( 'on a category it is a link to the armed screen',
+		await page.getAttribute( '#icl_div #dze-tr-box a', 'href' ), armed );
+	ok( 'and it sent nothing on the way', sent.length, before );
+	ok( 'nothing was raised on a term screen', errors, [] );
 
 	// ---- THE WAITING LIST, AND THE DECISION ON IT ----
 	await page.route( 'http://dze.test/review', r => r.fulfill( { contentType: 'text/html', body: serve( review.html ) } ) );

@@ -81,7 +81,16 @@ function get_post( $id = 0 ) {
 	return $p ? (object) array_merge( [ 'ID' => (int) $id ], $p ) : null;
 }
 function get_post_meta( $id, $key = '', $single = false ) {
-	$v = $GLOBALS['meta'][ (int) $id ][ $key ] ?? '';
+	// WITH NO KEY, WORDPRESS HANDS BACK EVERY KEY, each value in an array.
+	// That is how a variation's `attribute_*` combination is read, and a
+	// harness that answers '' for it hides the whole question.
+	if ( '' === (string) $key ) {
+		$out = [];
+		foreach ( (array) ( $GLOBALS['meta'][ (int) $id ] ?? [] ) as $k => $v ) { $out[ $k ] = [ $v ]; }
+		foreach ( (array) ( $GLOBALS['postmeta'][ (int) $id ] ?? [] ) as $k => $v ) { $out[ $k ] = [ $v ]; }
+		return $out;
+	}
+	$v = $GLOBALS['meta'][ (int) $id ][ $key ] ?? ( $GLOBALS['postmeta'][ (int) $id ][ $key ] ?? '' );
 	return $single ? $v : ( '' === $v ? [] : [ $v ] );
 }
 function update_post_meta( $id, $key, $value ) { $GLOBALS['meta'][ (int) $id ][ $key ] = $value; return true; }
@@ -113,7 +122,17 @@ function apply_filters( $tag, $value = null, ...$a ) {
 		$lang = (string) ( $a[2] ?? '' );
 		return (int) ( $GLOBALS['translated'][ (int) $value ][ $lang ] ?? 0 );
 	}
-	if ( 'wpml_element_language_details' === $tag ) { return [ 'language_code' => 'en' ]; }
+	if ( 'wpml_element_language_code' === $tag ) {
+		$id = (int) ( $a[0]['element_id'] ?? 0 );
+		return (string) ( $GLOBALS['post_lang'][ $id ] ?? 'en' );
+	}
+	if ( 'wpml_element_language_details' === $tag ) {
+		// A TRANSLATION IS NOT IN THE SOURCE LANGUAGE. Answering 'en' for
+		// everything made every object look like an original, and the
+		// variations of a French product could never be found.
+		$id = (int) ( $a[0]['element_id'] ?? 0 );
+		return [ 'language_code' => (string) ( $GLOBALS['post_lang'][ $id ] ?? 'en' ) ];
+	}
 	if ( 'wpml_tm_element_md5' === $tag ) {
 		$GLOBALS['asked_md5'][] = is_object( $value ) ? (int) $value->ID : 0;
 		return (string) $GLOBALS['wpml_md5'];
@@ -309,10 +328,39 @@ function get_post_type_object( $type ) {
 	$known = [ 'product' => 'Products', 'post' => 'Posts', 'page' => 'Pages', 'acme_doc' => 'Documents' ];
 	return isset( $known[ $type ] ) ? (object) [ 'public' => true, 'labels' => (object) [ 'name' => $known[ $type ] ] ] : null;
 }
-function get_object_taxonomies( $type ) { return 'product' === $type ? [ 'product_cat', 'product_type' ] : [ 'post_tag' ]; }
+function get_object_taxonomies( $type ) { return 'product' === $type ? [ 'product_cat', 'product_type', 'pa_colour' ] : [ 'post_tag' ]; }
+// A VARIABLE PRODUCT'S CHILDREN. The variations carry words of their own, in
+// their excerpt, and none of it was ever sent.
+function get_children( $args = [] ) {
+	$out = [];
+	foreach ( (array) $GLOBALS['posts'] as $id => $p ) {
+		if ( (int) ( $p['post_parent'] ?? 0 ) !== (int) ( $args['post_parent'] ?? 0 ) ) { continue; }
+		if ( ( $p['type'] ?? '' ) !== ( $args['post_type'] ?? '' ) ) { continue; }
+		$out[ $id ] = get_post( $id );
+	}
+	return $out;
+}
+function get_post_field( $field, $id, $ctx = 'display' ) {
+	return (string) ( $GLOBALS['posts'][ (int) $id ][ (string) $field ] ?? '' );
+}
+function taxonomy_exists( $tax ) { return null !== get_taxonomy( $tax ); }
+function get_term_by( $by, $value, $tax = '' ) {
+	foreach ( (array) $GLOBALS['terms'] as $id => $t ) {
+		if ( ( $t['taxonomy'] ?? '' ) !== $tax ) { continue; }
+		if ( 'slug' === $by && sanitize_title( (string) $t['name'] ) === (string) $value ) { return get_term( $id ); }
+	}
+	return null;
+}
 function get_edit_term_link( $id, $tax ) { return '/wp-admin/term.php?taxonomy=' . $tax . '&tag_ID=' . (int) $id; }
 function get_the_title( $id ) { return (string) ( $GLOBALS['posts'][ (int) $id ]['post_title'] ?? '' ); }
-function wp_get_object_terms( ...$a ) { return []; }
+function wp_get_object_terms( $ids, $tax, $args = [] ) {
+	$out = [];
+	foreach ( (array) ( $GLOBALS['object_terms'][ (int) ( is_array( $ids ) ? reset( $ids ) : $ids ) ] ?? [] ) as $tid ) {
+		$t = get_term( (int) $tid );
+		if ( $t && ( $t->taxonomy ?? '' ) === $tax ) { $out[] = $t; }
+	}
+	return $out;
+}
 function wp_set_object_terms( ...$a ) { return true; }
 function admin_url( $p = '' ) { return 'https://kula.test/wp-admin/' . $p; }
 function add_query_arg( $args, $url = '' ) { return $url . '?' . http_build_query( (array) $args ); }
@@ -330,7 +378,15 @@ function wp_enqueue_script( $h, ...$a ) { $GLOBALS['enq'][] = $h; }
 function wp_enqueue_style( $h, ...$a ) { $GLOBALS['enq'][] = $h; }
 function wp_enqueue_editor() { $GLOBALS['enq'][] = 'editor'; }
 function wp_localize_script( $handle, $name, $data ) { $GLOBALS['loc'][ (string) $name ] = $data; }
-function get_current_screen() { return (object) [ 'id' => 'toplevel_page_' . DZE_Translate::MENU_SLUG, 'post_type' => '', 'base' => '' ]; }
+// WHICH SCREEN WE ARE ON. The button planted in WPML's Language box only
+// exists on an edit screen of something WPML will link, so the harness has to
+// be able to stand on one.
+$GLOBALS['screen'] = null;
+function get_current_screen() {
+	return $GLOBALS['screen'] ?: (object) [ 'id' => 'toplevel_page_' . DZE_Translate::MENU_SLUG, 'post_type' => '', 'base' => '', 'taxonomy' => '' ];
+}
+function get_the_ID() { return (int) ( $GLOBALS['editing_id'] ?? 0 ); }
+function sanitize_title( $s ) { return strtolower( preg_replace( '/[^a-z0-9]+/i', '-', (string) $s ) ); }
 function paginate_links( $args = [] ) {
 	// THE PAGER IS THE FIGURE THE SCREEN PROMISES. Returning '' hid the very
 	// disagreement these checks exist for: "1 2 3 Next" over two rows.
@@ -1040,6 +1096,126 @@ ok( 'the dashboard prints the reading',
 ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean();
 ok( 'and the settings page no longer asks the shop to choose',
 	false !== strpos( $dze_set, 'Which fields' ), false );
+$_GET = [];
+
+
+echo "\nA PRODUCT IS MORE THAN ITS OWN FIVE FIELDS\n";
+// "Produits : grosse lacune, les attributs ne sont pas gérés, les variations
+// non plus. Testé sur produit avec trad en français."
+$GLOBALS['posts'][ 700 ] = [ 'type' => 'product', 'post_title' => 'Field shirt', 'post_content' => '<p>A shirt.</p>', 'post_excerpt' => '' ];
+$GLOBALS['posts'][ 701 ] = [ 'type' => 'product_variation', 'post_parent' => 700, 'post_title' => '', 'post_content' => '', 'post_excerpt' => '<p>The olive one has a black zip.</p>' ];
+$GLOBALS['posts'][ 702 ] = [ 'type' => 'product_variation', 'post_parent' => 700, 'post_title' => '', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['postmeta'][ 701 ]['attribute_pa_colour'] = 'olive-drab';
+$GLOBALS['terms'][ 50 ] = [ 'name' => 'Olive Drab', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1050 ];
+$dze_shirt = DZE_Translate::obj( 'post', 700, 'product' );
+
+$dze_vf = DZE_Translate::variation_fields( $dze_shirt );
+ok( 'a variation that holds words is a field of its product', array_keys( $dze_vf ), [ 'var:701' ] );
+ok( 'an empty one is not a line somebody has to decide about',
+	isset( $dze_vf['var:702'] ), false );
+// A VARIATION IS NAMED BY WHAT IT IS, never by its id: "#4182" is not a colour.
+ok( 'and it is named by its attributes', DZE_Translate::variation_label( 701 ), 'Variation — Olive Drab' );
+// IT TRAVELS WITH THE PRODUCT, through the reading every path already uses.
+$dze_read = DZE_Translate::obj_read( $dze_shirt );
+ok( 'the words it carries are read with the product',
+	$dze_read['var:701'] ?? '', '<p>The olive one has a black zip.</p>' );
+ok( 'so the whole of it is owed when nothing is translated',
+	in_array( 'var:701', array_keys( DZE_Translate::obj_stale( $dze_shirt, 'fr' ) ), true ), true );
+// AND THE SCREEN CAN NAME IT. A field the screen cannot name prints `var:701`.
+ok( 'and the screens can name it', DZE_Translate::labels_for( $dze_shirt )['var:701'] ?? '', 'Variation — Olive Drab' );
+
+// WRITING: onto the variation WooCommerce Multilingual made, never one of ours.
+$GLOBALS['posts'][ 800 ] = [ 'type' => 'product', 'post_title' => 'Chemise', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['posts'][ 801 ] = [ 'type' => 'product_variation', 'post_parent' => 800, 'post_title' => '', 'post_content' => '', 'post_excerpt' => '' ];
+$GLOBALS['translated'][700]['fr'] = 800;
+$GLOBALS['translated'][701]['fr'] = 801;
+$GLOBALS['post_lang'][800] = 'fr';
+DZE_Translate::obj_write( $dze_shirt, 800, [ 'title' => 'Chemise de terrain', 'var:701' => '<p>Le kaki a une fermeture noire.</p>' ] );
+ok( 'the translated variation gets its own words',
+	$GLOBALS['posts'][801]['post_excerpt'] ?? '', '<p>Le kaki a une fermeture noire.</p>' );
+ok( 'and the product keeps its own',
+	$GLOBALS['posts'][800]['post_title'] ?? '', 'Chemise de terrain' );
+// A VARIATION WCML HAS NOT MADE IS LEFT, never invented here: linking one is
+// WCML's job and doing it a second way is two plugins on one row.
+$dze_was = count( $GLOBALS['posts'] );
+DZE_Translate::obj_write( $dze_shirt, 800, [ 'var:702' => 'Rien' ] );
+ok( 'a variation WCML has not made is not invented here', count( $GLOBALS['posts'] ), $dze_was );
+
+echo "\nAND THE TERMS IT IS SOLD BY ARE OBJECTS, SAID SO ON THE PRODUCT\n";
+// One "Olive Drab" serves two hundred products: translated inside each
+// product's job it would be paid for two hundred times. What was missing is
+// that nothing said so, and there was no way to act on them from here.
+$GLOBALS['object_terms'][700] = [ 50 ];
+$dze_at = DZE_Translate::attribute_terms( 700 );
+ok( 'the terms this product is sold by are listed', count( $dze_at ), 1 );
+ok( 'each one named and addressed as an object',
+	[ $dze_at[0]['label'] ?? '', $dze_at[0]['ref'] ?? '' ], [ 'Olive Drab', 'term:50:pa_colour' ] );
+ok( 'with the languages it is still missing', $dze_at[0]['todo'] ?? [], [ 'fr', 'de' ] );
+$GLOBALS['translated'][50]['fr'] = 51;
+$GLOBALS['terms'][51] = [ 'name' => 'Vert olive', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1051 ];
+ok( 'and a language it already has drops off the list',
+	DZE_Translate::attribute_terms( 700 )[0]['todo'] ?? [], [ 'de' ] );
+// THE PRODUCT'S OWN POPUP SAYS IT. Calling the helper proves the reading and
+// nothing about whether the screen asks for it.
+$GLOBALS['editing_id'] = 700;
+$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
+$GLOBALS['post'] = get_post( 700 );
+ob_start(); DZE_Translate::instance()->popup(); $dze_pop = (string) ob_get_clean();
+$GLOBALS['post'] = null;
+ok( 'the popup lists the term still missing a language',
+	false !== strpos( $dze_pop, 'Olive Drab' ), true );
+ok( 'and offers to send it as an object', false !== strpos( $dze_pop, 'term:50:pa_colour' ), true );
+ok( 'and no longer claims attributes are somebody else\'s business',
+	false !== strpos( $dze_pop, 'stock, attributes and images' ), false );
+
+echo "\nTRANSLATE WITH DAZONT ECOM, INSIDE WPML'S OWN LANGUAGE BOX\n";
+// "Peut être ajouter directement une option par dessus wpml sur les blocs wpml
+// de traduction... 'Translate with Dazont Ecom'. Ce serait notre marque de
+// fabrique."
+ok( 'the screen knows which object it is standing on',
+	DZE_Translate::editing_object(), [ 'kind' => 'post', 'id' => 700, 'type' => 'product' ] );
+$GLOBALS['loc'] = [];
+DZE_Translate::instance()->box_assets( 'post.php' );
+ok( 'the button is asked for on a product', isset( $GLOBALS['loc']['dzeTrBox'] ), true );
+// ON A PRODUCT IT OPENS THE POPUP THAT IS ALREADY THERE — never a second one.
+ok( 'and on a product it opens the popup already on the page',
+	(bool) ( $GLOBALS['loc']['dzeTrBox']['popup'] ?? false ), true );
+// A BUTTON ON ONE OBJECT OPENS THE FUNCTION, IT DOES NOT RUN ONE.
+$GLOBALS['screen'] = (object) [ 'id' => 'term', 'post_type' => '', 'base' => 'term', 'taxonomy' => 'product_cat' ];
+$_GET['tag_ID'] = 7;
+$GLOBALS['loc'] = [];
+DZE_Translate::instance()->box_assets( 'term.php' );
+$dze_box = (array) ( $GLOBALS['loc']['dzeTrBox'] ?? [] );
+ok( 'on a category it points at the screen that does this work',
+	false !== strpos( (string) ( $dze_box['url'] ?? '' ), DZE_Translate::MENU_SLUG ), true );
+// ARMED ON THAT OBJECT, or the destination is a list of nine hundred rows.
+ok( 'armed on that one object',
+	false !== strpos( (string) ( $dze_box['url'] ?? '' ), 'only=term%3A7%3Aproduct_cat' ), true );
+// A TYPE THE SHOP DOES NOT TRANSLATE GETS NO BUTTON: its destination would be
+// a screen that does not list it.
+$GLOBALS['screen'] = (object) [ 'id' => 'term', 'post_type' => '', 'base' => 'term', 'taxonomy' => 'product_type' ];
+$GLOBALS['loc'] = [];
+DZE_Translate::instance()->box_assets( 'term.php' );
+ok( 'and a taxonomy WPML does not translate gets none',
+	isset( $GLOBALS['loc']['dzeTrBox'] ), false );
+unset( $_GET['tag_ID'] );
+$GLOBALS['screen'] = null;
+
+echo "\nAND THE SCREEN IT OPENS SHOWS THAT ONE OBJECT, TICKED\n";
+$GLOBALS['wpdb']->marks = [ [ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ] ];
+$_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat', 'only' => 'term:7:product_cat' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_one = (string) ob_get_clean();
+ok( 'the object it was opened for is on the screen',
+	false !== strpos( $dze_one, 'data-ref="term:7:product_cat"' ), true );
+ok( 'and it is already ticked',
+	(bool) preg_match( '/dze-tr-pickone[^>]*checked/', $dze_one ), true );
+ok( 'with nothing else in the way',
+	substr_count( $dze_one, 'class="dze-tr-row"' ), 1 );
+ok( 'and the way back to the whole list',
+	false !== strpos( $dze_one, 'Show everything that needs work' ), true );
+// WPML'S OWN GESTURE, one language at a time.
+ok( 'a language that is owed is a button, not a label',
+	(bool) preg_match( '/<button[^>]*dze-tr-one[^>]*data-lang="fr"/', $dze_one ), true );
 $_GET = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
