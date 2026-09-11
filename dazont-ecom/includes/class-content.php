@@ -3218,18 +3218,20 @@ Answer with STRICT JSON and nothing else: "
 	 * register is a question, and a question about a function the shop does not
 	 * have has no answer.
 	 *
-	 * @return array<int,array{what:string,pid:int,title:string,url:string,said:string,by:int,time:int}>
+	 * @return array<int,array{what:string,wrote:bool,pid:int,title:string,url:string,said:string,by:int,time:int}>
 	 */
-	public static function register( int $limit = 200 ): array {
+	public static function register( int $limit = 200, bool $all = false ): array {
 		$rows = [];
 
 		// 1. Products — written from the bulk screen, from the toolbox, from
 		//    the one-function popups, from the reframe bench. Each write files
 		//    itself now, so this is the whole of it.
 		foreach ( self::log_entries() as $e ) {
-			$pid = (int) ( $e['id'] ?? 0 );
+			$pid   = (int) ( $e['id'] ?? 0 );
+			$wrote = (int) ( $e['texts'] ?? 0 ) > 0 || (int) ( $e['images'] ?? 0 ) > 0;
 			$rows[] = [
 				'what'  => __( 'Product', 'dazont-ecom' ),
+				'wrote' => $wrote,
 				'pid'   => $pid,
 				'title' => (string) ( $e['title'] ?? '' ),
 				'url'   => $pid ? (string) ( get_edit_post_link( $pid, '' ) ?: '' ) : '',
@@ -3247,6 +3249,8 @@ Answer with STRICT JSON and nothing else: "
 				$kind = (string) $r['kind'];
 				$rows[] = [
 					'what'  => (string) ( $kinds[ $kind ]['label'] ?? $kind ),
+					// An applied queue row IS a page that was written.
+					'wrote' => true,
 					// A photograph job is about a PRODUCT, so its line opens on
 					// the same panel a product's does; a category has its own
 					// page and no panel here.
@@ -3267,6 +3271,7 @@ Answer with STRICT JSON and nothing else: "
 				$langs = array_map( 'strtoupper', (array) ( $e['langs'] ?? [] ) );
 				$rows[] = [
 					'what'  => __( 'Translation', 'dazont-ecom' ),
+					'wrote' => (bool) $langs,
 					'pid'   => 'post' === (string) ( $e['kind'] ?? '' ) ? (int) ( $e['id'] ?? 0 ) : 0,
 					'title' => (string) ( $e['title'] ?? '' ),
 					'url'   => (string) DZE_Translate::obj_edit_url( [
@@ -3281,8 +3286,26 @@ Answer with STRICT JSON and nothing else: "
 			}
 		}
 
+		// A LIST OF WHAT WAS WRITTEN HOLDS WHAT WAS WRITTEN. "Nothing written
+		// sur les produits avec le module, c'est une raison pour ne pas
+		// afficher le produit dans la liste historique." A refusal, or a
+		// product taken off the list before anything was made, wrote not one
+		// word — and a register of the shop's work made mostly of those is a
+		// register nobody reads to the end.
+		//
+		// The ROW is kept: a decision is signed, and the refusal is still the
+		// record that somebody looked and said no. It is simply not what this
+		// list is about, so it is behind one link rather than in the way.
+		if ( ! $all ) {
+			$rows = array_values( array_filter( $rows, static fn( $r ) => ! empty( $r['wrote'] ) ) );
+		}
 		usort( $rows, static fn( $a, $b ) => $b['time'] <=> $a['time'] );
 		return array_slice( $rows, 0, max( 1, $limit ) );
+	}
+
+	/** How many decisions wrote nothing, and are therefore not in the list. */
+	public static function register_quiet( int $limit = 200 ): int {
+		return count( self::register( $limit, true ) ) - count( self::register( $limit ) );
 	}
 
 	/** What was written to a product, in words. */
@@ -3518,9 +3541,24 @@ Answer with STRICT JSON and nothing else: "
 	 * and nothing else, and it costs one option read.
 	 */
 	private function render_bulk_log(): void {
-		$log = self::register();
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$all   = ! empty( $_GET['dze_all'] );
+		$log   = self::register( 200, $all );
+		$quiet = self::register_quiet();
 		if ( ! $log ) {
 			echo '<p>' . esc_html__( 'Nothing has been written yet. Everything this plugin writes — a product, a category, an article, a translation — is listed here with what it received, when, and who said yes.', 'dazont-ecom' ) . '</p>';
+			if ( $quiet ) {
+				printf(
+					'<p class="description">%1$s <a href="%2$s">%3$s</a></p>',
+					esc_html( sprintf(
+						/* translators: %s: number of decisions */
+						_n( '%s decision wrote nothing — a refusal, or a product taken off the list.', '%s decisions wrote nothing — refusals, or products taken off the list.', $quiet, 'dazont-ecom' ),
+						number_format_i18n( $quiet )
+					) ),
+					esc_url( add_query_arg( 'dze_all', 1 ) ),
+					esc_html__( 'Show them too', 'dazont-ecom' )
+				);
+			}
 			return;
 		}
 		?>
@@ -3600,6 +3638,27 @@ Answer with STRICT JSON and nothing else: "
 			<?php endforeach; ?>
 		</table>
 		<?php
+		// WHAT WAS LEFT OUT, and the way to see it anyway: a list that silently
+		// drops rows is a list nobody trusts.
+		if ( $quiet && ! $all ) {
+			printf(
+				'<p class="description">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: number of decisions */
+					_n( '%s decision wrote nothing and is not listed — a refusal, or a product taken off the list.', '%s decisions wrote nothing and are not listed — refusals, or products taken off the list.', $quiet, 'dazont-ecom' ),
+					number_format_i18n( $quiet )
+				) ),
+				esc_url( add_query_arg( 'dze_all', 1 ) ),
+				esc_html__( 'Show them too', 'dazont-ecom' )
+			);
+		} elseif ( $all ) {
+			printf(
+				'<p class="description">%1$s <a href="%2$s">%3$s</a></p>',
+				esc_html__( 'Every decision is shown, including the ones that wrote nothing.', 'dazont-ecom' ),
+				esc_url( remove_query_arg( 'dze_all' ) ),
+				esc_html__( 'Only what was written', 'dazont-ecom' )
+			);
+		}
 	}
 
 	private function bulk_products(): array {
