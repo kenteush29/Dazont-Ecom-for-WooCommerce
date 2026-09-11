@@ -274,7 +274,7 @@ final class DZE_Wpml {
 	}
 
 	/** Whether a table is really there. Asked once a day, not once a query. */
-	private static function has_table( string $table ): bool {
+	public static function has_table( string $table ): bool {
 		global $wpdb;
 		$slot = 'dze_wpml_tbl_' . md5( $table );
 		$has  = get_transient( $slot );
@@ -958,6 +958,53 @@ final class DZE_Wpml {
 	public static function term_element_id( int $term_id, string $taxonomy ): int {
 		$term = get_term( $term_id, $taxonomy );
 		return ( $term && ! is_wp_error( $term ) ) ? (int) $term->term_taxonomy_id : 0;
+	}
+
+	/**
+	 * A TERM'S TRANSLATION, asked of the table when the filter says nothing.
+	 *
+	 * Same trap as everywhere else in this plugin, and it has now been paid
+	 * for five times: `wpml_object_id` is a FILTER, and a filter only answers
+	 * where its plugin's hooks are loaded. This module reads in admin-ajax and
+	 * in cron. Worse, an unregistered filter hands back the id it was GIVEN —
+	 * so "no translation" and "the object itself" come out as the same answer,
+	 * and a screen then shows the ENGLISH text under "the translation today".
+	 *
+	 * WPML indexes a term by its TERM TAXONOMY id and names it `tax_<taxonomy>`.
+	 *
+	 * @return int The translated TERM id, or 0 when there is none.
+	 */
+	public static function translated_term( int $term_id, string $taxonomy, string $lang ): int {
+		$lang = strtolower( trim( $lang ) );
+		if ( $term_id <= 0 || '' === $taxonomy || '' === $lang || ! self::is_active() ) {
+			return 0;
+		}
+		$got = (int) apply_filters( 'wpml_object_id', $term_id, $taxonomy, false, $lang );
+		if ( $got && $got !== $term_id ) {
+			return $got;
+		}
+		global $wpdb;
+		$table = $wpdb ? $wpdb->prefix . 'icl_translations' : '';
+		if ( ! $wpdb || '' === $table || ! self::has_table( $table ) ) {
+			return 0;
+		}
+		$ttid = self::term_element_id( $term_id, $taxonomy );
+		if ( ! $ttid ) {
+			return 0;
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own table; no API answers this without its hooks.
+		$id = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT tt.term_id FROM {$table} t1
+			   INNER JOIN {$table} t2 ON t2.trid = t1.trid AND t2.language_code = %s
+			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = t2.element_id
+			  WHERE t1.element_type = %s AND t1.element_id = %d
+			  LIMIT 1",
+			$lang,
+			'tax_' . $taxonomy,
+			$ttid
+		) );
+		// phpcs:enable
+		return ( $id && $id !== $term_id ) ? $id : 0;
 	}
 
 	/**

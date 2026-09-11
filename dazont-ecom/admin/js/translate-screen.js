@@ -56,13 +56,32 @@
 		$('#dze-tr-prog').show();
 		$('#dze-tr-sendstate').text(i18n.sending);
 
+		// WHAT HAPPENED TO **THIS** ROW, on the row itself. A batch that
+		// finished and left every line exactly as it was is a press nobody can
+		// tell worked: "Rien à jour sur la page. La je ne comprends pas quoi
+		// faire en fait."
+		function mark(ref, state, said) {
+			$('.dze-tr-row').filter(function () { return String($(this).data('ref')) === String(ref); })
+				.find('.dze-tr-state')
+				.html('<span class="dze-tr-chip is-' + esc(state) + '">' + esc(said) + '</span>');
+		}
+
 		function step() {
 			if (!refs.length) {
 				$btn.prop('disabled', false);
 				$('#dze-tr-progstep').text('');
 				// A RUN THAT SPENT NOTHING SAYS SO. "Nothing had moved" and
-				// "it failed" must never read the same.
-				$('#dze-tr-sendstate').text(spent ? sprintf(i18n.sent, waiting) : i18n.nothingNew);
+				// "it failed" must never read the same — and a run that DID
+				// produce something offers the way to it rather than naming a
+				// tab and leaving the reader to find it.
+				if (spent) {
+					$('#dze-tr-sendstate').html(
+						esc(sprintf(i18n.sent, waiting)) +
+						(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '')
+					);
+				} else {
+					$('#dze-tr-sendstate').text(i18n.nothingNew);
+				}
 				return;
 			}
 			var ref = refs.shift();
@@ -71,12 +90,15 @@
 				if (r && r.success) {
 					var n = (r.data.done || []).length;
 					if (n) { spent++; waiting++; }
+					mark(ref, n ? 'held' : 'done', n ? i18n.rowHeld : i18n.rowNothing);
 					$('#dze-tr-progstep').text(r.data.label || '');
 				} else {
+					mark(ref, 'missing', said(r));
 					$('#dze-tr-progstep').text(said(r));
 				}
 			}).fail(function () {
 				done++;
+				mark(ref, 'missing', i18n.error);
 				$('#dze-tr-progstep').text(i18n.error);
 			}).always(function () {
 				var pct = Math.round((done / total) * 100);

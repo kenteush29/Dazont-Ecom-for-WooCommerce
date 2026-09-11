@@ -35,6 +35,8 @@ define( 'ICL_SITEPRESS_VERSION', '4.6.0' );
 function __( $s, $d = '' ) { return $s; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return esc_html( $s ); }
+function esc_url_raw( $s ) { return (string) $s; }
+function esc_sql( $s ) { return is_array( $s ) ? array_map( 'esc_sql', $s ) : addslashes( (string) $s ); }
 function esc_html__( $s, $d = '' ) { return $s; }
 function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
 function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
@@ -101,6 +103,13 @@ function apply_filters( $tag, $value = null, ...$a ) {
 		];
 	}
 	if ( 'wpml_object_id' === $tag ) {
+		// A FILTER NOBODY REGISTERED HANDS BACK WHAT IT WAS GIVEN. That is the
+		// state of WPML's hooks in admin-ajax and in cron, and it is what made
+		// "there is no translation" and "here is the translation" the same
+		// number — so the switch is here, and the reading has to survive it.
+		if ( ! empty( $GLOBALS['wpml_filter_off'] ) ) {
+			return $value;
+		}
 		$lang = (string) ( $a[2] ?? '' );
 		return (int) ( $GLOBALS['translated'][ (int) $value ][ $lang ] ?? 0 );
 	}
@@ -119,6 +128,14 @@ class DZE_Tr_Test_Wpdb {
 	public $posts    = 'wp_posts';
 	public $postmeta = 'wp_postmeta';
 	public $termmeta = 'wp_termmeta';
+	public $terms         = 'wp_terms';
+	public $term_taxonomy = 'wp_term_taxonomy';
+	/** The page of work the screen asks WPML's tables for. */
+	public array $todo_ids = [];
+	public array $todo_sql = [];
+	/** What review_counts() answers, per kind. */
+	public array $review_posts = [];
+	public array $review_terms = [];
 	/** What the waiting-list queries answer, set by the checks that need them. */
 	public array $waiting_posts = [];
 	public array $waiting_terms = [];
@@ -140,6 +157,12 @@ class DZE_Tr_Test_Wpdb {
 			preg_match( "/LIKE '([^']+)'/", $sql, $m );
 			return $GLOBALS['has_icl'] ? (string) ( $m[1] ?? '' ) : '';
 		}
+		// ONE PAGE OF WORK: the count and the rows come out of the same query,
+		// which is the whole point of the fix they exercise.
+		if ( false !== stripos( $sql, 'dze_todo' ) ) {
+			$this->todo_sql[] = $sql;
+			return (string) count( $this->todo_ids );
+		}
 		// The badge: how many objects hold a translation nobody has decided on.
 		if ( false !== stripos( $sql, 'COUNT(*)' ) && false !== stripos( $sql, 'wp_postmeta' ) ) {
 			return (string) count( $this->waiting_posts );
@@ -155,13 +178,24 @@ class DZE_Tr_Test_Wpdb {
 		}
 		return '';
 	}
-	public function get_col( $q ) { return []; }
+	public function get_col( $q ) {
+		$sql = (string) $q;
+		if ( false !== stripos( $sql, 'AS dze_id' ) ) {
+			$this->todo_sql[] = $sql;
+			return $this->todo_ids;
+		}
+		return [];
+	}
 	/** WPML's own marks, as the screen asks for them. */
 	public array $marks = [];   // rows of [ src, lang, needs ]
 	public array $counts = [];  // rows of [ lang, n ]
 	public array $due = [];     // rows of [ lang, n ] for needs_update = 1
 	public function get_results( $q, $o = null ) {
 		$sql = (string) $q;
+		// WHAT IS WAITING, PER KIND — told apart from the waiting LIST by what
+		// it groups on, because both read the same two meta tables.
+		if ( false !== stripos( $sql, 'GROUP BY p.post_type' ) ) { return $this->review_posts; }
+		if ( false !== stripos( $sql, 'GROUP BY tt.taxonomy' ) ) { return $this->review_terms; }
 		if ( false !== stripos( $sql, 'wp_postmeta' ) ) { return $this->waiting_posts; }
 		if ( false !== stripos( $sql, 'wp_termmeta' ) ) { return $this->waiting_terms; }
 		// The three readings of WPML's tables, told apart by what they select.
@@ -205,7 +239,14 @@ class DZE_Ai_Usage {
 	public static function finished( $unit, $n = 1 ) {}
 }
 class DZE_Content {
-	public static function seo_keys() { return [ 'title' => 'rank_math_title', 'desc' => 'rank_math_description' ]; }
+	public static function seo_keys() {
+		// A SHOP WITH NO SEO PLUGIN falls back to keys of the plugin's own that
+		// nothing on the site reads — the case the report has to name rather
+		// than call "translated".
+		return empty( $GLOBALS['no_seo'] )
+			? [ 'title' => 'rank_math_title', 'desc' => 'rank_math_description' ]
+			: [ 'title' => '_dze_seo_title',  'desc' => '_dze_seo_desc' ];
+	}
 }
 class DZE_Prompts { public static function the_data( $id ) {} public static function the_button( ...$a ) {} }
 
@@ -290,7 +331,12 @@ function wp_enqueue_style( $h, ...$a ) { $GLOBALS['enq'][] = $h; }
 function wp_enqueue_editor() { $GLOBALS['enq'][] = 'editor'; }
 function wp_localize_script( $handle, $name, $data ) { $GLOBALS['loc'][ (string) $name ] = $data; }
 function get_current_screen() { return (object) [ 'id' => 'toplevel_page_' . DZE_Translate::MENU_SLUG, 'post_type' => '', 'base' => '' ]; }
-function paginate_links( $args = [] ) { return ''; }
+function paginate_links( $args = [] ) {
+	// THE PAGER IS THE FIGURE THE SCREEN PROMISES. Returning '' hid the very
+	// disagreement these checks exist for: "1 2 3 Next" over two rows.
+	$GLOBALS['paginate'] = $args;
+	return '<span class="dze-pager" data-total="' . (int) ( $args['total'] ?? 0 ) . '"></span>';
+}
 function wp_kses_post_x( $s ) { return $s; }
 class WP_Query {
 	public array $posts = [];
@@ -350,6 +396,12 @@ if ( '' !== $dze_dump ) {
 		$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $held ] ];
 	} else {
 		$_GET['scope'] = 'term:product_cat';
+		// THE LIST IS WHAT WPML'S TABLES ANSWER. The screen the browser gate
+		// presses has to be the screen the shop gets, rows included.
+		$GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
+		$GLOBALS['wpdb']->marks    = [
+			[ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ],
+		];
 	}
 	$GLOBALS['loc'] = [];
 	DZE_Translate::instance()->screen_assets( 'toplevel_page_' . DZE_Translate::MENU_SLUG );
@@ -540,13 +592,18 @@ $cat = DZE_Translate::obj( 'term', 7 );
 ok( 'a category of a translated taxonomy is an object', $cat['type'] ?? '', 'product_cat' );
 ok( 'a term of an untranslated one is not',     DZE_Translate::obj( 'term', 9 ), [] );
 ok( 'its two fields are read',                  DZE_Translate::obj_read( $cat ), [ 'name' => 'Balaclavas', 'description' => 'Warm ones.' ] );
-// The setting that narrows which fields are sent names POST fields — it was
-// written when the module only knew about products. Read as though it spoke
-// for terms too, it would silently stop translating them altogether.
+// WHICH FIELDS ARE SENT IS NOT A SETTING. It was a row of tick boxes, and a
+// shop that had ticked two of them was quietly shipping half-translated pages:
+// "le plugin doit traduire tout ce que wpml exige de traduire pour avoir une
+// traduction complète du post." An old saved list is no longer read, and the
+// sanitizer no longer writes one.
 $GLOBALS['opts']['dze_translate_settings'] = [ 'fields' => [ 'title' ] ];
-ok( 'the post field setting does not narrow a term',
+ok( 'a term is never narrowed by it',
 	array_keys( DZE_Translate::fields( 'term' ) ), array_keys( DZE_Translate::active_fields( 'term' ) ) );
-ok( 'while it still narrows a post',            array_keys( DZE_Translate::active_fields( 'post' ) ), [ 'title' ] );
+ok( 'and neither is a post any more',
+	array_keys( DZE_Translate::active_fields( 'post' ) ), array_keys( DZE_Translate::fields( 'post' ) ) );
+ok( 'and a form that posts one is not obeyed',
+	(array) ( DZE_Translate::instance()->sanitize( [ 'fields' => [ 'content' ] ] )['fields'] ?? [] ), [ 'title' ] );
 unset( $GLOBALS['opts']['dze_translate_settings'] );
 
 // Everything is new when nothing is translated yet.
@@ -784,14 +841,39 @@ $GLOBALS['wpdb']->marks  = [
 ];
 $GLOBALS['wpdb']->counts = [ [ 'lang' => 'en', 'n' => 2 ], [ 'lang' => 'fr', 'n' => 2 ] ];
 $GLOBALS['wpdb']->due    = [ [ 'lang' => 'fr', 'n' => 14 ] ];
+// SIXTY MORE THE SHOP HOLDS AND THIS SCREEN HAS NOTHING TO SAY ABOUT. They are
+// what the pager used to count: the list paged EVERY object of the kind and
+// then dropped, row by row, the ones WPML is satisfied with — "1 2 3 Next »
+// page 1 à 3 mais seulement 2 lignes sont visibles. C'est bugé ?"
+for ( $i = 100; $i < 160; $i++ ) {
+	$GLOBALS['terms'][ $i ] = [ 'name' => 'Filler ' . $i, 'description' => '', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 2000 + $i ];
+}
+// Only Balaclavas needs work, and WPML's tables are the ones that say so.
+$GLOBALS['wpdb']->todo_ids = [ 7 ];
+$GLOBALS['wpdb']->todo_sql = [];
+$GLOBALS['paginate']       = [];
 $_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_page = (string) ob_get_clean();
 
 // A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS SCREEN.
 ok( 'the marked category is listed',      false !== strpos( $dze_page, 'Balaclavas' ), true );
 ok( 'and the satisfied one is not',       false !== strpos( $dze_page, 'Plate carriers' ), false );
-ok( 'the screen says what it left out',   false !== strpos( $dze_page, 'not shown' ), true );
-ok( 'and offers to show it anyway',       false !== strpos( $dze_page, 'Show them too' ), true );
+// A FIGURE AND THE ROWS UNDER IT ANSWER THE SAME QUESTION. One row of work in
+// a taxonomy of sixty-two means one page, not three.
+ok( 'the narrowing happens in the query that pages',
+	false !== strpos( $dze_page, '1 needs work' ), true );
+ok( 'and no pager is drawn over a single row',
+	false !== strpos( $dze_page, 'dze-pager' ), false );
+ok( 'the sixty the screen has nothing to say about are not counted',
+	(int) ( $GLOBALS['paginate']['total'] ?? 0 ), 0 );
+// AND THE QUESTION IT ASKED: the source language, the target languages, and
+// the narrowing itself. A call that asks the wrong thing cannot pass this.
+$dze_ask = implode( ' ', $GLOBALS['wpdb']->todo_sql );
+ok( 'it asked WPML for the source language',  false !== strpos( $dze_ask, "language_code = 'en'" ), true );
+ok( 'named the taxonomy the way WPML does',   false !== strpos( $dze_ask, "'tax_product_cat'" ), true );
+ok( 'and narrowed to what is missing or marked',
+	false !== strpos( $dze_ask, 'HAVING' ), true );
+ok( 'the way to everything is offered',   false !== strpos( $dze_page, 'Show them all' ), true );
 // WPML'S OWN COUNT, beside the missing one: two different piles of work.
 ok( "WPML's count of what is owed is on the dashboard",
 	false !== strpos( $dze_page, '14 to update' ), true );
@@ -802,14 +884,23 @@ ok( 'and its native name is not repeated beside it',
 // AND MEDIA IS NOWHERE ON IT.
 ok( 'media is not on the screen',         false !== stripos( $dze_page, 'attachment' ), false );
 
-// Everything, when it is asked for.
+// Everything, when it is asked for — the SAME query without the narrowing,
+// never a second reading: two readings of one list is how a count and the rows
+// under it start disagreeing.
 $_GET['all'] = 1;
+$GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
+$GLOBALS['wpdb']->todo_sql = [];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_all = (string) ob_get_clean();
 ok( 'asked for everything, the satisfied one is back',
 	false !== strpos( $dze_all, 'Plate carriers' ), true );
 ok( 'and the way back to the work is offered',
 	false !== strpos( $dze_all, 'Only what needs work' ), true );
+$dze_ask_all = implode( ' ', $GLOBALS['wpdb']->todo_sql );
+ok( 'it is the same query with the narrowing dropped',
+	[ false !== strpos( $dze_ask_all, 'tax_product_cat' ), false !== strpos( $dze_ask_all, 'HAVING' ) ],
+	[ true, false ] );
 $_GET = [];
+foreach ( range( 100, 159 ) as $dze_i ) { unset( $GLOBALS['terms'][ $dze_i ] ); }
 
 echo "\nWhat this site does about media is READ from WPML, never decided here\n";
 // "Tu ne devrais rien faire toi-même mais utiliser les réglages natifs WPML.
@@ -856,6 +947,100 @@ ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean()
 ok( 'absent, it says the add-on is not installed',
 	false !== strpos( $dze_set, 'not installed on this site' ), true );
 unset( $GLOBALS['opts']['icl_sitepress_settings']['custom_posts_sync_option']['attachment'] );
+
+
+echo "\nA FILTER THAT IS NOT LOADED IS NOT AN ANSWER\n";
+// "Sur page produit : The translation today > Pas affiché, bugé."
+// `wpml_object_id` is a filter, and where WPML's hooks are not loaded —
+// admin-ajax, cron — apply_filters hands back the id it was GIVEN. Read
+// straight, the module then believed the object was its own translation: it
+// reported the translation as existing and printed the ENGLISH text under
+// "The translation today".
+$GLOBALS['posts'][ 900 ] = [ 'type' => 'product', 'post_title' => 'Chest rig', 'post_content' => '<p>English.</p>', 'post_excerpt' => '' ];
+$dze_rig = DZE_Translate::obj( 'post', 900, 'product' );
+$GLOBALS['wpdb']->rows   = [];
+$GLOBALS['wpml_filter_off'] = true;
+ok( 'the object is never its own translation',
+	DZE_Translate::obj_translation( $dze_rig, 'fr' ), 0 );
+ok( 'so every field of it is owed',
+	array_keys( DZE_Translate::obj_stale( $dze_rig, 'fr' ) ), [ 'title', 'content' ] );
+$GLOBALS['wpml_filter_off'] = false;
+// And with WPML answering, the translation is found as before.
+$GLOBALS['posts'][ 901 ] = [ 'type' => 'product', 'post_title' => 'Gilet', 'post_content' => '<p>Français.</p>', 'post_excerpt' => '' ];
+$GLOBALS['translated'][900]['fr'] = 901;
+ok( 'and with WPML answering, it is found',
+	DZE_Translate::obj_translation( $dze_rig, 'fr' ), 901 );
+
+echo "\nWPML'S OWN THREE MARKS\n";
+// "Utiliser les symboles wpml servant déjà à ilustrer ces status." A plus for
+// what does not exist, a pencil for what WPML is happy with, two arrows for
+// what it wants again — the marks anybody who has used WPML already reads.
+ok( 'not translated is a plus',      DZE_Translate::state_icon( 'missing' ), 'dashicons-plus-alt2' );
+ok( 'up to date is a pencil',        DZE_Translate::state_icon( 'done' ),    'dashicons-edit' );
+ok( 'asking for an update is arrows',DZE_Translate::state_icon( 'stale' ),   'dashicons-update' );
+// A LONE ICON IS A SYMBOL YOU HAVE TO LEARN: the word stays beside it.
+ok( 'and the word is still printed beside it',
+	false !== strpos( $dze_page, 'dashicons-plus-alt2' ) && false !== strpos( $dze_page, 'not translated' ), true );
+
+echo "\nWHAT CAME BACK, ON THE ROW IT WAS SENT FROM\n";
+// "Le post n'est pas passé automatiquement dans 'to review'. Sur la ligne des
+// posts, aucune mention 'x to review'."
+$GLOBALS['wpdb']->review_posts = [ [ 't' => 'product', 'n' => 3 ] ];
+$GLOBALS['wpdb']->review_terms = [ [ 't' => 'product_cat', 'n' => 2 ] ];
+ok( 'what waits is counted per kind, in WPML\'s naming',
+	DZE_Translate::review_counts(), [ 'post_product' => 3, 'tax_product_cat' => 2 ] );
+$_GET = [ 'tab' => 'dashboard' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_dash = (string) ob_get_clean();
+// The figure AND the way to it, in the same element: "tab=review" alone is on
+// the page whatever happens — it is the tab bar — and a check that passes on
+// broken code is worse than none.
+ok( 'and the dashboard row says so, with the way to read it',
+	(bool) preg_match( '/tab=review[^>]*>\s*2 to review/', $dze_dash ), true );
+$GLOBALS['wpdb']->review_posts = [];
+$GLOBALS['wpdb']->review_terms = [];
+
+echo "\nWHAT GETS TRANSLATED, PER KIND — WPML'S RULES, NOT A TICK BOX\n";
+// "Which fields > Incohérence, je ne sais pas ce que ça fait là... Je propose
+// un bloc qui puisse résumer quels champs sont traductibles, et lesquels ne le
+// sont pas, en fonction du type de post."
+$GLOBALS['opts']['icl_sitepress_settings']['translation-management'] = [
+	'custom_fields_translation' => [
+		'block_text_1'     => 1,   // WPML COPIES it: writing it would be undone.
+		'block_text_2'     => 2,
+		'_theme_subtitle'  => 2,   // WPML translates it and this module does not send it.
+		'_price'           => 0,
+	],
+];
+$dze_rep  = DZE_Translate::field_report( 'post', 'product' );
+$dze_said = [];
+foreach ( $dze_rep as $dze_r ) { $dze_said[ $dze_r['label'] ] = $dze_r['tone']; }
+ok( 'a field WPML copies is reported as left alone', $dze_said['Content block 1'] ?? '', 'warn' );
+ok( 'a field WPML translates is reported as sent',   $dze_said['Content block 2'] ?? '', 'ok' );
+ok( 'and a field WPML wants that we do not send is the gap worth having',
+	$dze_said['_theme_subtitle'] ?? '', 'gap' );
+ok( 'a field WPML ignores is not on the list',       isset( $dze_said['_price'] ), false );
+// THE SEO PAIR IS THE ONE FIELD WHOSE KEY DEPENDS ON A PLUGIN BEING THERE.
+// "Translated" printed over a key that does not exist is a screen promising
+// work nobody does.
+ok( 'with an SEO plugin, the SEO pair is sent', $dze_said['SEO title'] ?? '', 'ok' );
+$GLOBALS['no_seo'] = true;
+$dze_noseo = [];
+foreach ( DZE_Translate::field_report( 'post', 'product' ) as $dze_r ) { $dze_noseo[ $dze_r['label'] ] = $dze_r['tone']; }
+ok( 'and with none, it says so rather than claiming the work',
+	$dze_noseo['SEO title'] ?? '', 'off' );
+$GLOBALS['no_seo'] = false;
+// A TERM IS ITS NAME AND ITS DESCRIPTION, and the product's fields are not
+// listed over it — which is the incoherence that got the old block thrown out.
+$dze_term_rep = array_column( DZE_Translate::field_report( 'term', 'product_cat' ), 'label' );
+ok( 'a taxonomy is reported on its own two fields', $dze_term_rep, [ 'Name', 'Description' ] );
+// AND THE SCREEN DRAWS IT — calling the helper proves the reading and nothing
+// about whether the screen asks for it.
+ok( 'the dashboard prints the reading',
+	false !== strpos( $dze_dash, 'What gets translated' ), true );
+ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean();
+ok( 'and the settings page no longer asks the shop to choose',
+	false !== strpos( $dze_set, 'Which fields' ), false );
+$_GET = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

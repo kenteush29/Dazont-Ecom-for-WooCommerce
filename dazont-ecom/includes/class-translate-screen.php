@@ -216,11 +216,13 @@ trait DZE_Translate_Screen {
 				<th style="width:120px;"></th>
 			</tr></thead>
 			<tbody>
+			<?php $waiting = self::review_counts(); ?>
 			<?php foreach ( $scope as $key => $one ) : ?>
 				<?php
 				$counts = self::counts_for( $one );
 				$marked = self::marked_for( $one );
 				$total  = (int) ( $counts[ $src ] ?? 0 );
+				$held   = (int) ( $waiting[ DZE_Wpml::element_name( (string) $one['kind'], (string) $one['type'] ) ] ?? 0 );
 				?>
 				<tr>
 					<td>
@@ -256,11 +258,50 @@ trait DZE_Translate_Screen {
 					<?php endforeach; ?>
 					<td>
 						<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Choose a batch', 'dazont-ecom' ); ?></a>
+						<?php if ( $held ) : ?>
+							<!-- WHAT CAME BACK, ON THE ROW IT WAS SENT FROM. A
+							     batch that finishes and leaves the screen as it
+							     was is a press nobody can tell worked. -->
+							<br /><a href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" style="display:inline-block;margin-top:6px;">
+								<?php echo esc_html( sprintf( /* translators: %s: number waiting */ _n( '%s to review', '%s to review', $held, 'dazont-ecom' ), number_format_i18n( $held ) ) ); ?>
+							</a>
+						<?php endif; ?>
 					</td>
 				</tr>
 			<?php endforeach; ?>
 			</tbody>
 		</table>
+		<!-- WHAT IS ACTUALLY TRANSLATED, PER KIND OF CONTENT — and what is
+		     not. This was a row of tick boxes on the settings page: a decision
+		     nobody should have to take, listing a product's fields whatever
+		     was being looked at. It is a reading now, and WPML's rules are
+		     what it reads. -->
+		<h2 style="margin-top:26px;"><?php esc_html_e( 'What gets translated', 'dazont-ecom' ); ?></h2>
+		<p class="description" style="max-width:900px;">
+			<?php esc_html_e( 'Per kind of content, field by field, read from WPML\'s own rules. A field WPML is set to copy from the original is left alone here — writing it would only be overwritten on the next sync.', 'dazont-ecom' ); ?>
+		</p>
+		<?php foreach ( $scope as $one ) : ?>
+			<?php $rows = DZE_Translate::field_report( (string) $one['kind'], (string) $one['type'] ); ?>
+			<details style="max-width:980px;margin-bottom:6px;border:1px solid #dcdcde;background:#fff;border-radius:3px;">
+				<summary style="padding:8px 12px;cursor:pointer;font-weight:600;"><?php echo esc_html( $one['label'] ); ?></summary>
+				<table class="widefat" style="border:0;border-top:1px solid #dcdcde;">
+					<tbody>
+					<?php foreach ( $rows as $r ) : ?>
+						<tr>
+							<td style="width:220px;"><strong><?php echo esc_html( $r['label'] ); ?></strong>
+								<?php if ( '' !== $r['key'] && $r['label'] !== $r['key'] ) : ?>
+									<br /><code style="font-size:11px;"><?php echo esc_html( $r['key'] ); ?></code>
+								<?php endif; ?>
+							</td>
+							<td style="color:<?php echo esc_attr( 'ok' === $r['tone'] ? '#0a7040' : ( 'warn' === $r['tone'] ? '#b32d2e' : ( 'gap' === $r['tone'] ? '#8a6d00' : '#646970' ) ) ); ?>;">
+								<?php echo esc_html( $r['said'] ); ?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+					</tbody>
+				</table>
+			</details>
+		<?php endforeach; ?>
 		<?php
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$want = isset( $_GET['scope'] ) ? sanitize_text_field( wp_unslash( $_GET['scope'] ) ) : '';
@@ -290,7 +331,12 @@ trait DZE_Translate_Screen {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$all     = ! empty( $_GET['all'] );
 		$per     = 25;
-		[ $objects, $found ] = self::page_of( $scope, $src, $paged, $per );
+		// THE NARROWING HAPPENS IN THE QUERY THAT PAGES. Filtered after the
+		// paging, the pager counted the whole catalogue and the page showed
+		// two rows.
+		$page    = self::todo_page( $scope, $src, array_keys( $langs ), $paged, $per, ! $all );
+		$exact   = null !== $page;
+		[ $objects, $found ] = $exact ? $page : self::page_of( $scope, $src, $paged, $per );
 		$pages   = (int) ceil( $found / $per );
 		// WPML'S ANSWER FOR THE WHOLE PAGE, in one query rather than one a row.
 		$marks   = self::page_marks( $objects );
@@ -316,23 +362,21 @@ trait DZE_Translate_Screen {
 				</tr></thead>
 				<tbody>
 				<?php if ( ! $objects ) : ?>
-					<tr><td colspan="3"><?php esc_html_e( 'Nothing of this kind in the main language yet.', 'dazont-ecom' ); ?></td></tr>
+					<!-- AN EMPTY ANSWER SAYS WHICH EMPTY IT IS. "Nothing here"
+					     over a catalogue of two thousand reads as a broken
+					     screen; nothing to do and nothing at all are two
+					     different answers and the way out of each differs. -->
+					<tr><td colspan="3">
+						<?php if ( $exact && ! $all ) : ?>
+							<?php esc_html_e( 'Nothing needs work here: every one of these is translated and WPML is satisfied with it.', 'dazont-ecom' ); ?>
+							<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all anyway', 'dazont-ecom' ); ?></a>
+						<?php else : ?>
+							<?php esc_html_e( 'Nothing of this kind in the main language yet.', 'dazont-ecom' ); ?>
+						<?php endif; ?>
+					</td></tr>
 				<?php endif; ?>
-				<?php $dze_hidden = 0; ?>
 				<?php foreach ( $objects as $o ) : ?>
 					<?php $state = self::state_of( $o, array_keys( $langs ), $marks ); ?>
-					<?php
-					// A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS
-					// SCREEN. "Un post qui n'est pas marqué comme ayant besoin
-					// d'une mise à jour de trad n'a aucune raison d'être
-					// affiché chez nous." Shown anyway, the list was every
-					// object the shop has and the work was invisible in it.
-					$dze_todo = array_filter( $state, static fn( $one ) => 'done' !== $one );
-					if ( ! $dze_todo && ! $all ) {
-						$dze_hidden++;
-						continue;
-					}
-					?>
 					<tr class="dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>">
 						<td class="check-column"><input type="checkbox" class="dze-tr-pickone" /></td>
 						<td>
@@ -341,7 +385,9 @@ trait DZE_Translate_Screen {
 						<td class="dze-tr-state">
 							<?php foreach ( $state as $code => $said ) : ?>
 								<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
-									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?> <?php echo esc_html( self::state_said( $said ) ); ?>
+									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
+									<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
+									<?php echo esc_html( self::state_said( $said ) ); ?>
 								</span>
 							<?php endforeach; ?>
 						</td>
@@ -349,17 +395,18 @@ trait DZE_Translate_Screen {
 				<?php endforeach; ?>
 				</tbody>
 			</table>
-			<?php if ( $dze_hidden ) : ?>
-				<!-- WHAT WAS LEFT OUT, and the way to see it anyway: a list
-				     that silently drops rows is a list nobody trusts. -->
+			<?php if ( $exact && $objects ) : ?>
+				<!-- WHAT THE LIST IS, said once, with the other reading one
+				     press away. The count in the pager and the rows under it
+				     answer this same sentence. -->
 				<p class="description">
-					<?php echo esc_html( sprintf( /* translators: %s: number of rows */ _n( '%s on this page is up to date and not shown.', '%s on this page are up to date and not shown.', $dze_hidden, 'dazont-ecom' ), number_format_i18n( $dze_hidden ) ) ); ?>
-					<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'paged' => $paged, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them too', 'dazont-ecom' ); ?></a>
-				</p>
-			<?php elseif ( $all ) : ?>
-				<p class="description">
-					<?php esc_html_e( 'Everything is shown, including what WPML is satisfied with.', 'dazont-ecom' ); ?>
-					<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'paged' => $paged ] ) ); ?>"><?php esc_html_e( 'Only what needs work', 'dazont-ecom' ); ?></a>
+					<?php if ( $all ) : ?>
+						<?php echo esc_html( sprintf( /* translators: %s: number of objects */ _n( '%s in the main language — everything, including what WPML is satisfied with.', '%s in the main language — everything, including what WPML is satisfied with.', $found, 'dazont-ecom' ), number_format_i18n( $found ) ) ); ?>
+						<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Only what needs work', 'dazont-ecom' ); ?></a>
+					<?php else : ?>
+						<?php echo esc_html( sprintf( /* translators: %s: number of objects */ _n( '%s needs work: a language missing, or WPML asking for it again.', '%s need work: a language missing, or WPML asking for it again.', $found, 'dazont-ecom' ), number_format_i18n( $found ) ) ); ?>
+						<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all', 'dazont-ecom' ); ?></a>
+					<?php endif; ?>
 				</p>
 			<?php endif; ?>
 			<?php if ( $pages > 1 ) : ?>
@@ -387,6 +434,97 @@ trait DZE_Translate_Screen {
 			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * ONE PAGE OF WHAT NEEDS WORK, asked of WPML's own tables.
+	 *
+	 * The list used to page EVERY object of the kind and then drop, row by
+	 * row, the ones WPML is satisfied with — so the pager counted the whole
+	 * catalogue while the page showed two lines: "page 1 à 3 mais seulement 2
+	 * lignes sont visibles. C'est bugé ?" It was. A figure and the rows under
+	 * it answer the same question, so the narrowing happens IN the query that
+	 * pages, never after it.
+	 *
+	 * Needs work = a target language with no row at all, or a row WPML has
+	 * marked `needs_update`. Anything else is WPML being satisfied, and this
+	 * module has nothing to say over it.
+	 *
+	 * @param string[] $targets The languages this screen is about to write.
+	 * @return array{0:array<int,array>,1:int}|null NULL when WPML's tables
+	 *         cannot be read — the caller then pages everything instead,
+	 *         which is wrong about the count and right about the rows.
+	 */
+	private static function todo_page( array $scope, string $src, array $targets, int $paged, int $per, bool $todo_only = true ): ?array {
+		global $wpdb;
+		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! $targets ) {
+			return null;
+		}
+		$tr = $wpdb->prefix . 'icl_translations';
+		$st = $wpdb->prefix . 'icl_translation_status';
+		if ( ! DZE_Wpml::has_table( $tr ) ) {
+			return null;
+		}
+		$name = DZE_Wpml::element_name( (string) $scope['kind'], (string) $scope['type'] );
+		if ( '' === $name || '' === $src ) {
+			return null;
+		}
+		$codes = [];
+		foreach ( $targets as $code ) {
+			$code = strtolower( trim( (string) $code ) );
+			if ( '' !== $code ) {
+				$codes[ $code ] = true;
+			}
+		}
+		$codes = array_keys( $codes );
+		$in    = "'" . implode( "','", array_map( static fn( $c ) => esc_sql( $c ), $codes ) ) . "'";
+		$want  = count( $codes );
+		$has_s = DZE_Wpml::has_table( $st );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own tables; language codes escaped above, everything else prepared.
+		$term  = ( 'term' === $scope['kind'] );
+		$join  = $term
+			? "INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = src.element_id
+			   INNER JOIN {$wpdb->terms} tm ON tm.term_id = tt.term_id"
+			// A draft in the bin is not a page of this shop, and a trashed one
+			// offered as work to do is work nobody wants.
+			: "INNER JOIN {$wpdb->posts} p ON p.ID = src.element_id
+			      AND p.post_status IN ('publish','draft','pending','private')";
+		$pick  = $term ? 'tt.term_id' : 'src.element_id';
+		$order = $term ? 'tm.name' : 'p.post_title';
+		$marks = $has_s ? "LEFT JOIN {$st} s ON s.translation_id = t.translation_id" : '';
+		$need  = $has_s ? "MAX( COALESCE( s.needs_update, 0 ) ) = 1" : '0 = 1';
+		$body  = "FROM {$tr} src
+			{$join}
+			LEFT JOIN {$tr} t ON t.trid = src.trid AND t.element_id <> src.element_id
+			      AND t.element_type = src.element_type AND t.language_code IN ( {$in} )
+			{$marks}
+			WHERE src.element_type = %s AND src.language_code = %s
+			GROUP BY src.element_id, {$pick}, {$order}"
+			// "SHOW THEM TOO" IS THE SAME QUERY WITHOUT THE NARROWING, never a
+			// second reading: two readings of one list is how a count and the
+			// rows under it start disagreeing.
+			. ( $todo_only ? " HAVING COUNT( DISTINCT t.language_code ) < {$want} OR {$need}" : '' );
+		$found = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM ( SELECT src.element_id {$body} ) dze_todo",
+			$name,
+			$src
+		) );
+		$ids = (array) $wpdb->get_col( $wpdb->prepare(
+			"SELECT {$pick} AS dze_id {$body} ORDER BY {$order} ASC LIMIT %d OFFSET %d",
+			$name,
+			$src,
+			$per,
+			max( 0, ( $paged - 1 ) * $per )
+		) );
+		// phpcs:enable
+		$out = [];
+		foreach ( $ids as $id ) {
+			$o = self::obj( $term ? 'term' : 'post', (int) $id, (string) $scope['type'] );
+			if ( $o ) {
+				$out[] = $o;
+			}
+		}
+		return [ $out, $found ];
 	}
 
 	/** One page of objects of a kind, in the source language. */
@@ -507,6 +645,33 @@ trait DZE_Translate_Screen {
 	 * Those four answers in words. In PHP: hard-coded in the JavaScript they
 	 * were English on every shop.
 	 */
+	/**
+	 * THE SAME THREE SYMBOLS WPML PUTS IN ITS OWN LANGUAGE COLUMNS.
+	 *
+	 * "Utiliser les symboles wpml servant déjà à ilustrer ces status." A plus
+	 * for a translation that does not exist, a pencil for one WPML is happy
+	 * with, two arrows for one it wants done again — the three marks anybody
+	 * who has used WPML for a week already reads without thinking. They are
+	 * drawn from Dashicons, which WordPress ships on every admin screen:
+	 * WPML's own icon font is loaded only where WPML enqueues it, and a symbol
+	 * that renders as a blank square on half the screens is worse than no
+	 * symbol at all.
+	 *
+	 * The word stays beside it. A lone icon is a symbol you have to learn, and
+	 * the fourth state is one WPML has no mark for: it asks for the update,
+	 * and this module is the only thing on the site that can say not one word
+	 * has moved.
+	 */
+	public static function state_icon( string $state ): string {
+		$icons = [
+			'missing' => 'dashicons-plus-alt2',
+			'stale'   => 'dashicons-update',
+			'noise'   => 'dashicons-update',
+			'done'    => 'dashicons-edit',
+		];
+		return (string) ( $icons[ $state ] ?? 'dashicons-minus' );
+	}
+
 	public static function state_said( string $state ): string {
 		$words = [
 			'missing' => __( 'not translated', 'dazont-ecom' ),

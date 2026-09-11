@@ -1419,6 +1419,43 @@ whose screen has not been thought through yet.
   the id from the row it sits on (`closest('[data-id]')`) rather than from
   `.dze-cb-row`, which is what marks a product as selectable and is deliberately
   not on a log line.
+- **A LIST NARROWS IN THE QUERY THAT PAGES IT, NEVER AFTER.** The batch list
+  paged EVERY object of a kind and then dropped, row by row, the ones WPML is
+  satisfied with — so the pager counted the catalogue while the page showed two
+  lines: "1 2 3 Next » page 1 à 3 mais seulement 2 lignes sont visibles. C'est
+  bugé ?" `todo_page()` asks WPML's own tables for the objects that are short a
+  language or carry a `needs_update`, and pages THAT. Three rules with it:
+  "Show them all" is the SAME query with the HAVING dropped, never a second
+  reading; the sentence over the list states the figure the pager uses; and an
+  empty answer says WHICH empty it is — nothing to do and nothing at all have
+  different ways out.
+- **A FILTER THAT IS NOT LOADED HANDS BACK WHAT IT WAS GIVEN.** This is the
+  same trap as `ids_in_language`, paid for a fifth time and worse than the
+  others: `apply_filters( 'wpml_object_id', $id, … )` with no WPML hooks
+  answers `$id`, so "there is no translation" and "here is the translation"
+  came out as ONE number. The module then reported the translation as existing
+  and printed the ENGLISH text under "The translation today" — "Sur page
+  produit : The translation today > Pas affiché, bugé." `obj_translation()`
+  asks the table when the filter says nothing (`DZE_Wpml::translated_id` /
+  `translated_term`) and answers 0 when the answer is the object itself.
+- **WHICH FIELDS ARE TRANSLATED IS NOT A SETTING — IT IS A READING.** "Which
+  fields > Incohérence… ce bloc n'a pas sa place ici. Le plugin doit traduire
+  tout ce que wpml exige de traduire pour avoir une traduction complète du
+  post." A tick box that produces a half-translated page is a trap, and it
+  listed a PRODUCT's fields whatever kind of content was being looked at.
+  `DZE_Translate::field_report()` states it per kind instead, from WPML's own
+  `custom_fields_translation`: what is sent, what WPML COPIES (left alone —
+  writing it is undone by the next sync), what WPML wants translated that this
+  module does not send, and the SEO pair when no SEO plugin is installed. The
+  saved `fields` key is no longer read and no longer written.
+- **A BATCH SAYS WHAT CAME BACK, ON THE ROW IT WAS SENT FROM.** "Rien à jour
+  sur la page. La je ne comprends pas quoi faire en fait." Each row is marked
+  as its answer lands, the sentence at the bottom carries a LINK to what is
+  waiting rather than naming a tab, and the dashboard row shows "%s to review".
+  And the state chips wear WPML's own three marks — a plus, a pencil, two
+  arrows — drawn from Dashicons, which WordPress ships everywhere: WPML's icon
+  font is loaded only where WPML enqueues it, and a blank square is worse than
+  no symbol. The WORD stays beside the mark.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
