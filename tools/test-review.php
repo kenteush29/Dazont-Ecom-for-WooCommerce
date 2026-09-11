@@ -437,6 +437,15 @@ ok( 'and neither does an automatic one',    DZE_Queue::said_by( 'applied', 0 ), 
 
 // IT IS WRITTEN ON EVERY DECISION, not only on one path. Accepting one job,
 // refusing one, and the same two in bulk: four places, one column.
+// THE OBJECT'S ID TRAVELS TO THE LIST. "Il manque l'ID produit sur ces pages !
+// Très important." This list is drawn in the browser, so a figure the server
+// never sends is a figure no screen can print, whatever the JavaScript says.
+$GLOBALS['rows'] = [ [ 'id' => 5, 'kind' => 'cat_desc', 'object_id' => 3, 'status' => 'review', 'result' => '', 'payload' => '' ] ];
+$dze_sent = [];
+try { DZE_Queue::instance()->ajax_status(); } catch ( DZE_Json_Sent $e ) { $dze_sent = (array) $e->payload; }
+ok( 'the review list carries each row\'s object id',
+	(int) ( $dze_sent['rows'][0]['oid'] ?? -1 ), 3 );
+
 $GLOBALS['uid'] = 7;
 $GLOBALS['wpdb']->sent = [];
 $GLOBALS['wpdb']->updates = [];

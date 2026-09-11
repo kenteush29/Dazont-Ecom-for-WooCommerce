@@ -3346,6 +3346,9 @@ final class DZE_Diagnostic {
 			// Z" — is a title with markup in it: the tags are the shop's, not
 			// something to print at it.
 			printf( '<a href="%s"><strong>%s</strong></a>', esc_url( $link ), esc_html( wp_strip_all_tags( $name ) ) );
+			// ITS ID, on every list that names objects — the same badge, from
+			// the same place, as the bulk screens and the translation lists.
+			echo wp_kses_post( DZE_Hub::obj_id( $oid ) );
 			// WHAT THIS ONE IS SHORT OF, on the line itself. "Russian Helmet
 			// Replica 6B47 Ratnik — 4 of 5 photographs : encore une lacune. Il
 			// faudrait afficher de cette façon très instinctive le diagnostic

@@ -35,6 +35,7 @@ function __( $s, $d = '' ) { return $s; }
 function _n( $o, $m, $n, $d = '' ) { return 1 === (int) $n ? $o : $m; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return esc_html( $s ); }
+function wp_kses_post( $s ) { return (string) $s; }
 function esc_url( $s ) { return (string) $s; }
 function add_action( ...$a ) {}
 function add_filter( ...$a ) {}
@@ -361,6 +362,18 @@ ob_start();
 DZE_Content::instance()->bulk_body( 'http://shop.test/screen' );
 $dze_screen = (string) ob_get_clean();
 ok( 'the screen draws',                 strlen( $dze_screen ) > 200, true );
+// THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS. "Il manque l'ID produit
+// sur ces pages ! Très important." Two products called "Tactical Backpack 45L"
+// are told apart by nothing else, and every other tool the shop uses to talk
+// about a product speaks in ids.
+ok( 'every row carries its product id',
+	substr_count( $dze_screen, 'class="dze-objid"' ), 2 );
+ok( 'and it is the row\'s own id, not a number beside it',
+	(bool) preg_match( '/data-id="7".*?dze-objid[^>]*>#7</s', $dze_screen ), true );
+// IT IS NOT A LINK: the name beside it is already the way in, and a second
+// link to the same place is a second thing to aim at.
+ok( 'the badge is not a second link to the same place',
+	(bool) preg_match( '/<a[^>]*>\s*<code class="dze-objid"/', $dze_screen ), false );
 $dze_asked = [];
 foreach ( (array) $GLOBALS['enq'] as $dze_one ) {
 	$dze_asked[ (string) $dze_one[0] ] = (array) $dze_one[1];
@@ -675,6 +688,13 @@ $GLOBALS['dze_off'] = [];
 // badge would disagree with its own screen every day.
 ok( 'the Done tab counts the whole register',
 	(int) DZE_Content::screen_counts()['log'], count( DZE_Content::register() ) );
+// AND THE DONE TAB CARRIES IT TOO — drawn, never only counted: a figure on a
+// tab proves nothing about the rows under it.
+$_GET['dze_log'] = 1;
+ob_start(); DZE_Content::instance()->bulk_body( 'http://shop.test/screen' ); $dze_log = (string) ob_get_clean();
+unset( $_GET['dze_log'] );
+ok( 'the Done tab names each object by its id too',
+	substr_count( $dze_log, 'class="dze-objid"' ) > 0, true );
 
 echo "\nA LIST OF WHAT WAS WRITTEN HOLDS WHAT WAS WRITTEN\n";
 // "Nothing written sur les produits avec le module, c'est une raison pour ne

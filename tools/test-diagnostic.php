@@ -367,6 +367,10 @@ class DZE_Queue {
 }
 
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
+// THE SHAPE IS BUILT IN ONE PLACE, and the id badge every list wears is part of
+// it. A stub here would prove the screen calls something and nothing about what
+// it draws.
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-diagnostic.php';
 
 // --- the harness ------------------------------------------------------------
@@ -1321,6 +1325,14 @@ $dze_desc = (string) ob_get_clean();
 // nothing — a button that goes nowhere is worse than none.
 ok( 'a product description offers no button',
 	substr_count( $dze_desc, 'class="button button-small dze-diag-fix"' ), 0 );
+// THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS — the same badge, from the
+// same place, as the bulk screens and the translation lists. A list of nine
+// hundred products with two sharing a name is a list where the id is the only
+// thing telling them apart.
+ok( 'every row names the product by its id',
+	substr_count( $dze_desc, 'class="dze-objid"' ) > 0, true );
+ok( 'and it is the row\'s own id',
+	(bool) preg_match( '/<tr data-id="(\d+)">.*?dze-objid[^>]*>#\1</s', $dze_desc ), true );
 $GLOBALS['umeta'] = [];
 ok( 'and a gallery row offers none',
 	false !== strpos( $show( [ 'by' => 'found' ] ), 'class="button button-small dze-diag-fix"' ), false );

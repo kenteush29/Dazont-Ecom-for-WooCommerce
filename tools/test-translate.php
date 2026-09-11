@@ -35,6 +35,7 @@ define( 'ICL_SITEPRESS_VERSION', '4.6.0' );
 function __( $s, $d = '' ) { return $s; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return esc_html( $s ); }
+function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
 function esc_url_raw( $s ) { return (string) $s; }
 function esc_sql( $s ) { return is_array( $s ) ? array_map( 'esc_sql', $s ) : addslashes( (string) $s ); }
 function esc_html__( $s, $d = '' ) { return $s; }
@@ -1321,6 +1322,10 @@ ok( 'a long run can be stopped',        false !== strpos( $dze_b, 'id="dze-tr-st
 // 4. THE LIST, with the bar the bulk screen wears and Look on every row.
 ok( 'the bar is the bulk screen\'s own', false !== strpos( $dze_b, 'dze-cb-listbar' ), true );
 ok( 'every row offers to be opened', substr_count( $dze_b, 'dze-tr-openword' ), 2 );
+// THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS — the same badge, from the
+// same place, as the product bulk screens and the diagnostic.
+ok( 'every row carries its own id',   substr_count( $dze_b, 'class="dze-objid"' ), 2 );
+ok( 'and it is the row\'s own',       false !== strpos( $dze_b, '>#7<' ), true );
 ok( 'and says Open when nothing waits on it',
 	false !== strpos( $dze_b, '>Open<' ), true );
 // 5. AND IT IS A WAY TO THE ONE SCREEN, never a panel of its own: two
@@ -1461,6 +1466,7 @@ $_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product', 'lang' => 'fr' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_ed = (string) ob_get_clean();
 // 1. WHERE THIS ONE STANDS, in the same four words the lists use.
 ok( 'it says where this one stands',   false !== strpos( $dze_ed, 'dze-tr-editstate' ), true );
+ok( 'and names the object by its id', false !== strpos( $dze_ed, '>#700<' ), true );
 // 3. TRANSLATE IT, or write it by hand — one button.
 ok( 'it offers to translate it',       substr_count( $dze_ed, 'id="dze-tr-auto"' ), 1 );
 // EVERY FIELD, SIDE BY SIDE, variations included and named for what they are.
