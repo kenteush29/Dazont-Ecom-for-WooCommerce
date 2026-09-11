@@ -121,7 +121,7 @@ final class DZE_Cleanup {
 				'transients' => [ 'dze_content_bulk_', 'dze_product_meta_keys', 'dze_pending_count', 'dze_rfr_' ],
 			],
 			'translate' => [
-				'options'   => [ 'dze_translate_settings' ],
+				'options'   => [ 'dze_translate_settings', 'dze_translate_log' ],
 				// _dze_tr_wait is what a batch produced and nobody has decided
 				// on yet; the register and the ownership mark sit beside it.
 				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait' ],

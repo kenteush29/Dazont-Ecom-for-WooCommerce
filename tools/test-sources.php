@@ -143,8 +143,36 @@ class DZE_Diagnostic {
 }
 class DZE_Modules {
 	public static function enabled( $id ) {
+		if ( in_array( $id, (array) ( $GLOBALS['dze_off'] ?? [] ), true ) ) { return false; }
 		return 'diagnostic' === $id ? ! empty( $GLOBALS['dze_diag_class'] ) : true;
 	}
+}
+function get_edit_term_link( $id, $tax = '' ) { return 'http://shop.test/term/' . (int) $id; }
+function wp_date( $f, $ts = null ) { return gmdate( $f, $ts ?? time() ); }
+/**
+ * The two OTHER halves of the common register, answering as they really do.
+ *
+ * The register is a READER over stores each module owns. Stubbed away, it
+ * would be tested against nothing but its own first third — which is exactly
+ * the state the screen was in when the shop said "je ne vois que les produits
+ * modifiés par l'écran bulk".
+ */
+class DZE_Queue {
+	public static array $rows = [];
+	public static function kinds() {
+		return [
+			'cat_desc'     => [ 'label' => 'Category description' ],
+			'product_shot' => [ 'label' => 'Product photograph' ],
+		];
+	}
+	public static function applied_rows( $limit = 200 ) { return self::$rows; }
+	public static function label_for( $kind, $id ) { return ( 0 === strpos( $kind, 'cat_' ) ? 'Category ' : 'Product ' ) . (int) $id; }
+	public static function decided_by( $uid ) { return $uid ? 'Marie' : ''; }
+}
+class DZE_Translate {
+	public static array $rows = [];
+	public static function log_entries() { return self::$rows; }
+	public static function obj_edit_url( $o ) { return 'http://shop.test/tr/' . (int) ( $o['id'] ?? 0 ); }
 }
 // Enough of WordPress for the prompt registry to answer, so the note the
 // SCREEN shows is read from the registry the shop actually holds.
@@ -542,6 +570,111 @@ ok( 'and all of it as all of it',            DZE_Ai_Usage::share_said( 30.0, 30.
 ok( 'a small real cost is not nought',       DZE_Ai_Usage::share_said( 0.001, 30.0 ), '<1%' );
 ok( 'a month with nothing in it has no share', DZE_Ai_Usage::share_said( 0.0, 0.0 ), '—' );
 ok( 'and neither has a unit that cost nothing', DZE_Ai_Usage::share_said( 0.0, 30.0 ), '—' );
+
+// =============================================================================
+// THE COMMON REGISTER
+//
+// "Products > Done > ici je ne vois que les produits modifiés par l'écran bulk.
+// Qu'en est-il des produits modifiés individuellement ? Ce serait bien d'avoir
+// un registre commun."
+//
+// Two faults in one report. The register was written by the JAVASCRIPT of four
+// screens, so everything written anywhere else — the fast main-image lane, the
+// reframe bench, the variation images — happened and left no trace at all. And
+// what it held was products and nothing else, while the plugin also writes
+// categories, articles and translations.
+// =============================================================================
+echo "\nEvery write records itself, and the counts only grow\n";
+$GLOBALS['opts'][ DZE_Content::OPT_LOG ] = [];
+DZE_Content::log_add( 42, 1, 0 );
+DZE_Content::log_add( 42, 0, 1 );
+DZE_Content::log_add( 42, 0, 1 );
+$log = DZE_Content::log_entries();
+ok( 'a product written to three times is one line', count( $log ), 1 );
+// THEY USED TO BE REPLACED by whatever the last call claimed — right while one
+// screen counted a whole run, and wrong the moment each write counts itself.
+ok( 'and the line holds everything written to it',
+	[ (int) $log[0]['texts'], (int) $log[0]['images'] ], [ 1, 2 ] );
+// A decision taken afterwards stamps the row without inventing figures.
+DZE_Content::log_add( 42, 0, 0, 'applied' );
+$log = DZE_Content::log_entries();
+ok( 'a decision does not add figures of its own',
+	[ (int) $log[0]['texts'], (int) $log[0]['images'] ], [ 1, 2 ] );
+ok( 'and it is still one line',          count( $log ), 1 );
+// A refusal is a decision like any other and keeps what was written: both
+// facts are true, and hiding either is half an answer.
+DZE_Content::log_add( 42, 0, 0, 'dropped' );
+$log = DZE_Content::log_entries();
+ok( 'a refusal is recorded as the last decision', (string) $log[0]['status'], 'dropped' );
+ok( 'and what had been written is not forgotten',
+	false !== strpos( DZE_Content::wrote_said( 1, 2, 'dropped' ), 'refused' ), true );
+ok( 'a product nothing was written to says so',
+	DZE_Content::wrote_said( 0, 0 ), 'nothing written' );
+
+echo "\nAnd the two funnels every write passes through record it\n";
+// A text lands on a product in apply_value() and nowhere else; a photograph is
+// placed in attach_file() and nowhere else. Hooking each SCREEN is a list
+// somebody has to keep, and the one forgotten is always the bug.
+$dze_src  = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' );
+$dze_text = strstr( $dze_src, 'private function apply_value(' );
+$dze_text = false === $dze_text ? '' : substr( $dze_text, 0, 1200 );
+ok( 'a text written records itself',      false !== strpos( $dze_text, 'log_add' ), true );
+$dze_img  = strstr( $dze_src, 'public function attach_file(' );
+$dze_img  = false === $dze_img ? '' : substr( $dze_img, 0, 4000 );
+ok( 'a photograph placed records itself', false !== strpos( $dze_img, 'log_add' ), true );
+// AND THE SCREENS NO LONGER COUNT IT TOO. Left in both places, every run would
+// be counted twice — once as it was written, once as the screen claimed it.
+foreach ( [ 'content.js', 'content-bulk.js' ] as $dze_f ) {
+	$dze_js = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/' . $dze_f );
+	preg_match_all( '/dze_content_logged[^}]*\}/', $dze_js, $dze_m );
+	$dze_claims = 0;
+	foreach ( (array) ( $dze_m[0] ?? [] ) as $dze_one ) {
+		if ( preg_match( '/\btexts\s*:/', $dze_one ) || preg_match( '/\bimages\s*:/', $dze_one ) ) { $dze_claims++; }
+	}
+	ok( $dze_f . ' claims no counts of its own', $dze_claims, 0 );
+}
+
+echo "\nThe register holds everything the plugin writes, not only products\n";
+$GLOBALS['opts'][ DZE_Content::OPT_LOG ] = [];
+DZE_Content::log_add( 42, 2, 1 );
+DZE_Queue::$rows = [
+	[ 'kind' => 'cat_desc', 'object_id' => 7, 'when' => time() - 60, 'by' => 3 ],
+];
+DZE_Translate::$rows = [
+	[ 'ref' => 'term:9:product_cat', 'kind' => 'term', 'type' => 'product_cat', 'id' => 9,
+	  'langs' => [ 'fr', 'de' ], 'time' => time() - 30, 'by' => 0, 'title' => 'Balaclavas' ],
+];
+$reg = DZE_Content::register();
+ok( 'a product is in it',      1, count( array_filter( $reg, static fn( $r ) => 'Product' === $r['what'] ) ) );
+ok( 'a category is in it',     1, count( array_filter( $reg, static fn( $r ) => 'Category description' === $r['what'] ) ) );
+ok( 'a translation is in it',  1, count( array_filter( $reg, static fn( $r ) => 'Translation' === $r['what'] ) ) );
+// NEWEST FIRST, across all three: a register sorted per store is three lists
+// printed one after another, which is what it was.
+ok( 'and the newest is first', $reg[0]['what'], 'Product' );
+ok( 'each says what was written',
+	[ $reg[0]['said'], $reg[1]['said'], $reg[2]['said'] ],
+	[ '2 texts · 1 image', 'FR · DE', 'Written to the page' ] );
+// A LINE OPENS ON ITS OWN OBJECT — never on a settings page, never on nothing.
+ok( 'the category line goes to the category', $reg[2]['url'], 'http://shop.test/term/7' );
+ok( 'and only a product carries a panel',
+	[ $reg[0]['pid'], $reg[1]['pid'], $reg[2]['pid'] ], [ 42, 0, 0 ] );
+// WHO SAID YES, and an automatic pass has nobody to name.
+ok( 'a decision carries its person', (int) $reg[2]['by'], 3 );
+ok( 'and an automatic one carries nought', (int) $reg[1]['by'], 0 );
+
+// A MODULE SWITCHED OFF CONTRIBUTES NOTHING, rather than erroring: the
+// register is a question, and a question about a function the shop has not got
+// has no answer.
+$GLOBALS['dze_off'] = [ 'queue', 'translate' ];
+$reg = DZE_Content::register();
+ok( 'with those modules off, only products are left', count( $reg ), 1 );
+ok( 'and nothing was raised asking',  $reg[0]['what'], 'Product' );
+$GLOBALS['dze_off'] = [];
+
+// AND THE TAB'S FIGURE IS THE LIST UNDER IT. Counting only the products, the
+// badge would disagree with its own screen every day.
+ok( 'the Done tab counts the whole register',
+	(int) DZE_Content::screen_counts()['log'], count( DZE_Content::register() ) );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

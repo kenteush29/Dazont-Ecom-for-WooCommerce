@@ -610,6 +610,51 @@ final class DZE_Queue {
 		) );
 	}
 
+	/**
+	 * EVERY PAGE THIS QUEUE HAS WRITTEN, newest first.
+	 *
+	 * The applied rows are the durable record that a page was worked on, when,
+	 * and that somebody said yes — which is why Clear must never delete one.
+	 * Nothing read them across the whole table until the shop asked for one
+	 * register: "ce serait bien d'avoir un registre commun."
+	 *
+	 * This is a READ and nothing else. The queue goes on owning its own rows;
+	 * a second store copying them is two accounts of one thing that drift.
+	 *
+	 * @return array<int,array{kind:string,object_id:int,when:int,by:int}>
+	 */
+	public static function applied_rows( int $limit = 200 ): array {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return [];
+		}
+		$limit = max( 1, min( 500, $limit ) );
+		$rows  = (array) $wpdb->get_results( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			"SELECT kind, object_id, updated, decided_by FROM " . self::table() . "
+			  WHERE status = 'applied' ORDER BY id DESC LIMIT %d",
+			$limit
+		), ARRAY_A );
+		$out  = [];
+		$seen = [];
+		foreach ( $rows as $r ) {
+			// One line per thing written: a page written twice is the same
+			// page, at the date of the last time.
+			$key = (string) $r['kind'] . ':' . (int) $r['object_id'];
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
+			}
+			$seen[ $key ] = true;
+			$out[] = [
+				'kind'      => (string) $r['kind'],
+				'object_id' => (int) $r['object_id'],
+				'when'      => (int) strtotime( (string) $r['updated'] . ' UTC' ),
+				'by'        => (int) ( $r['decided_by'] ?? 0 ),
+			];
+		}
+		return $out;
+	}
+
 	public static function label_for( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
 			$t = get_term( $object_id, 'product_cat' );

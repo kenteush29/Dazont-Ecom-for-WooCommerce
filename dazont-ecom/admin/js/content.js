@@ -1384,8 +1384,10 @@
 				// sitting in that list looking exactly like a product nobody
 				// has touched.
 				$.post(cfg.ajaxUrl, {
-					action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
-					texts: fids.length, images: items.length, unqueue: 1
+					// The COUNTS are not sent: each text and each photograph
+					// wrote itself down as it landed. Claiming them again here
+					// would count every run twice.
+					action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1
 				}).always(function () {
 					// Only now: what the page does next can be a reload, and a
 					// reload cancels whatever has not gone out yet.
@@ -2881,8 +2883,7 @@
 				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID })
 					.always(function () {
 						$.post(cfg.ajaxUrl, {
-							action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
-							texts: 0, images: kept.length, unqueue: 1
+							action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1
 						});
 						one.tries = [];
 						one.keep = {};
@@ -2937,8 +2938,7 @@
 				$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID })
 					.always(function () {
 						$.post(cfg.ajaxUrl, {
-							action: 'dze_content_logged', nonce: cfg.nonce, post: PID,
-							texts: 1, images: 0, unqueue: 1
+							action: 'dze_content_logged', nonce: cfg.nonce, post: PID, unqueue: 1
 						});
 						res.shots = [];
 						res.texts = {};

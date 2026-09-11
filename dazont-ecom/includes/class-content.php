@@ -1755,7 +1755,9 @@ EOT;
 	public static function screen_counts(): array {
 		return [
 			'all' => count( array_unique( array_merge( self::bulk_list(), self::pending_ids() ) ) ),
-			'log' => count( self::log_entries() ),
+			// The register holds four kinds of thing now, and a tab counting
+			// only the products would disagree with its own list every day.
+			'log' => count( self::register() ),
 		];
 	}
 
@@ -3116,7 +3118,7 @@ Answer with STRICT JSON and nothing else: "
 	public const OPT_LOG = 'dze_content_log';
 	private const LOG_MAX = 120;
 
-	public static function log_add( int $pid, int $texts, int $images, string $status = 'applied' ): void {
+	public static function log_add( int $pid, int $texts = 0, int $images = 0, string $status = 'applied' ): void {
 		if ( ! $pid ) {
 			return;
 		}
@@ -3124,8 +3126,17 @@ Answer with STRICT JSON and nothing else: "
 		$log = is_array( $log ) ? $log : [];
 		// One product appears once: a product decided on twice is the same
 		// product, at the date of the last decision.
+		//
+		// AND THE COUNTS ONLY EVER GROW. They used to be REPLACED by whatever
+		// the last call claimed, which was right while ONE screen did the
+		// counting for a whole run — and wrong the moment each write began
+		// recording itself. The row says what this plugin has written to this
+		// product, and when it last did.
+		$was = [ 'texts' => 0, 'images' => 0 ];
 		foreach ( $log as $i => $row ) {
 			if ( (int) ( $row['id'] ?? 0 ) === $pid ) {
+				$was['texts']  = (int) ( $row['texts'] ?? 0 );
+				$was['images'] = (int) ( $row['images'] ?? 0 );
 				unset( $log[ $i ] );
 			}
 		}
@@ -3133,8 +3144,8 @@ Answer with STRICT JSON and nothing else: "
 		array_unshift( $log, [
 			'id'     => $pid,
 			'time'   => time(),
-			'texts'  => $texts,
-			'images' => $images,
+			'texts'  => $was['texts'] + max( 0, $texts ),
+			'images' => $was['images'] + max( 0, $images ),
 			// WHO TOOK THE DECISION. Nothing recorded it, so a shop with more
 			// than one pair of hands could see that a product had been dealt
 			// with and never by whom — the first thing anybody asks once the
@@ -3188,6 +3199,122 @@ Answer with STRICT JSON and nothing else: "
 			self::drop_product( (int) $one );
 		}
 		return self::bulk_list();
+	}
+
+	/**
+	 * THE COMMON REGISTER: everything this plugin has written, in one list.
+	 *
+	 * "Ici je ne vois que les produits modifiés par l'écran bulk. Qu'en est-il
+	 * des produits modifiés individuellement ? Ce serait bien d'avoir un
+	 * registre commun."
+	 *
+	 * It is a READER and nothing else. Each module goes on owning its own
+	 * record — the products log here, the applied rows in DZE_Queue, the
+	 * translation log in DZE_Translate — because a second store copying them is
+	 * two accounts of one thing, and two accounts of one thing disagree. What
+	 * was missing was never a place to put it; it was one place to ASK.
+	 *
+	 * A module switched off contributes nothing rather than erroring: the
+	 * register is a question, and a question about a function the shop does not
+	 * have has no answer.
+	 *
+	 * @return array<int,array{what:string,pid:int,title:string,url:string,said:string,by:int,time:int}>
+	 */
+	public static function register( int $limit = 200 ): array {
+		$rows = [];
+
+		// 1. Products — written from the bulk screen, from the toolbox, from
+		//    the one-function popups, from the reframe bench. Each write files
+		//    itself now, so this is the whole of it.
+		foreach ( self::log_entries() as $e ) {
+			$pid = (int) ( $e['id'] ?? 0 );
+			$rows[] = [
+				'what'  => __( 'Product', 'dazont-ecom' ),
+				'pid'   => $pid,
+				'title' => (string) ( $e['title'] ?? '' ),
+				'url'   => $pid ? (string) ( get_edit_post_link( $pid, '' ) ?: '' ) : '',
+				'said'  => self::wrote_said( (int) ( $e['texts'] ?? 0 ), (int) ( $e['images'] ?? 0 ), (string) ( $e['status'] ?? 'applied' ) ),
+				'by'    => (int) ( $e['by'] ?? 0 ),
+				'time'  => (int) ( $e['time'] ?? 0 ),
+			];
+		}
+
+		// 2. Categories and articles — the queue's applied rows, which are the
+		//    durable record that a page was worked on and somebody said yes.
+		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+			$kinds = DZE_Queue::kinds();
+			foreach ( DZE_Queue::applied_rows( $limit ) as $r ) {
+				$kind = (string) $r['kind'];
+				$rows[] = [
+					'what'  => (string) ( $kinds[ $kind ]['label'] ?? $kind ),
+					// A photograph job is about a PRODUCT, so its line opens on
+					// the same panel a product's does; a category has its own
+					// page and no panel here.
+					'pid'   => 0 === strpos( $kind, 'product_' ) ? (int) $r['object_id'] : 0,
+					'title' => DZE_Queue::label_for( $kind, (int) $r['object_id'] ),
+					'url'   => self::object_url( $kind, (int) $r['object_id'] ),
+					'said'  => __( 'Written to the page', 'dazont-ecom' ),
+					'by'    => (int) $r['by'],
+					'time'  => (int) $r['when'],
+				];
+			}
+		}
+
+		// 3. Translations — which languages an object was translated into, and
+		//    when. Nothing else knows a month later that it was done here.
+		if ( class_exists( 'DZE_Translate' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'translate' ) ) ) {
+			foreach ( DZE_Translate::log_entries() as $e ) {
+				$langs = array_map( 'strtoupper', (array) ( $e['langs'] ?? [] ) );
+				$rows[] = [
+					'what'  => __( 'Translation', 'dazont-ecom' ),
+					'pid'   => 'post' === (string) ( $e['kind'] ?? '' ) ? (int) ( $e['id'] ?? 0 ) : 0,
+					'title' => (string) ( $e['title'] ?? '' ),
+					'url'   => (string) DZE_Translate::obj_edit_url( [
+						'kind' => (string) ( $e['kind'] ?? 'post' ),
+						'id'   => (int) ( $e['id'] ?? 0 ),
+						'type' => (string) ( $e['type'] ?? '' ),
+					] ),
+					'said'  => $langs ? implode( ' · ', $langs ) : __( 'nothing written', 'dazont-ecom' ),
+					'by'    => (int) ( $e['by'] ?? 0 ),
+					'time'  => (int) ( $e['time'] ?? 0 ),
+				];
+			}
+		}
+
+		usort( $rows, static fn( $a, $b ) => $b['time'] <=> $a['time'] );
+		return array_slice( $rows, 0, max( 1, $limit ) );
+	}
+
+	/** What was written to a product, in words. */
+	public static function wrote_said( int $texts, int $images, string $status = 'applied' ): string {
+		$bits = [];
+		if ( $texts > 0 ) {
+			/* translators: %s: number of texts */
+			$bits[] = sprintf( _n( '%s text', '%s texts', $texts, 'dazont-ecom' ), number_format_i18n( $texts ) );
+		}
+		if ( $images > 0 ) {
+			/* translators: %s: number of images */
+			$bits[] = sprintf( _n( '%s image', '%s images', $images, 'dazont-ecom' ), number_format_i18n( $images ) );
+		}
+		if ( ! $bits ) {
+			// Refused, or taken out of the list before anything was written:
+			// the decision was taken, and that is what the register records.
+			return __( 'nothing written', 'dazont-ecom' );
+		}
+		$said = implode( ' · ', $bits );
+		// A product written to and LATER refused has both facts, and hiding
+		// either of them is the register answering half a question.
+		return 'dropped' === $status
+			? $said . ' · ' . __( 'last decision: refused', 'dazont-ecom' )
+			: $said;
+	}
+
+	/** Where an object of the queue is edited. A row opens on its own object. */
+	private static function object_url( string $kind, int $object_id ): string {
+		if ( 0 === strpos( $kind, 'cat_' ) ) {
+			return (string) get_edit_term_link( $object_id, 'product_cat' );
+		}
+		return (string) ( get_edit_post_link( $object_id, '' ) ?: '' );
 	}
 
 	/** @return array<int,array<string,mixed>> newest first. */
@@ -3391,9 +3518,9 @@ Answer with STRICT JSON and nothing else: "
 	 * and nothing else, and it costs one option read.
 	 */
 	private function render_bulk_log(): void {
-		$log = self::log_entries();
+		$log = self::register();
 		if ( ! $log ) {
-			echo '<p>' . esc_html__( 'Nothing has been written from this screen yet. Accepted products are listed here with what they received.', 'dazont-ecom' ) . '</p>';
+			echo '<p>' . esc_html__( 'Nothing has been written yet. Everything this plugin writes — a product, a category, an article, a translation — is listed here with what it received, when, and who said yes.', 'dazont-ecom' ) . '</p>';
 			return;
 		}
 		?>
@@ -3401,92 +3528,74 @@ Answer with STRICT JSON and nothing else: "
 			<span class="description"><?php
 				printf(
 					/* translators: %s: number of entries */
-					esc_html( _n( '%s product written to the shop', '%s products written to the shop', count( $log ), 'dazont-ecom' ) ),
+					esc_html( _n( '%s thing written to the shop', '%s things written to the shop', count( $log ), 'dazont-ecom' ) ),
 					esc_html( number_format_i18n( count( $log ) ) )
 				);
 			?></span>
-			<button type="button" class="button-link" id="dze-cb-clearlog" style="color:#b32d2e;margin-left:auto;"><?php esc_html_e( 'Empty this log', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button-link" id="dze-cb-clearlog" style="color:#b32d2e;margin-left:auto;" title="<?php esc_attr_e( 'Empty the products half of this register. What was written stays on the products; only the list is erased. Categories, articles and translations keep their own record.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Empty this log', 'dazont-ecom' ); ?></button>
 		</p>
 		<table class="dze-cb-table">
 			<tr>
 				<th style="width:70px;"></th>
-				<th><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
-				<th style="width:220px;"><?php esc_html_e( 'Written', 'dazont-ecom' ); ?></th>
+				<th><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
+				<th style="width:150px;"><?php esc_html_e( 'Kind', 'dazont-ecom' ); ?></th>
+				<th style="width:230px;"><?php esc_html_e( 'Written', 'dazont-ecom' ); ?></th>
 				<th style="width:150px;"><?php esc_html_e( 'Decided by', 'dazont-ecom' ); ?></th>
 				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
 				<th style="width:110px;"></th>
 			</tr>
 			<?php foreach ( $log as $dze_e ) :
-				$dze_id  = (int) ( $dze_e['id'] ?? 0 );
+				$dze_id  = (int) ( $dze_e['pid'] ?? 0 );
 				$dze_thu = $dze_id ? (string) get_the_post_thumbnail_url( $dze_id, 'thumbnail' ) : '';
 				// A product deleted since keeps its line — that line is the only
 				// record the work was done — but there is nothing left to look
 				// at, and a button that opens on nothing is a broken button.
 				$dze_live = $dze_id && get_post_status( $dze_id );
 				?>
-				<tr data-id="<?php echo (int) $dze_id; ?>">
+				<tr<?php echo $dze_id ? ' data-id="' . (int) $dze_id . '"' : ''; ?>>
 					<td class="dze-cb-thumb"><?php if ( $dze_thu ) : ?><img src="<?php echo esc_url( $dze_thu ); ?>" alt="" /><?php endif; ?></td>
-					<td><a href="<?php echo esc_url( get_edit_post_link( $dze_id ) ?: '#' ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( (string) ( $dze_e['title'] ?? '' ) ); ?></strong></a></td>
 					<td>
-						<?php if ( ! empty( $dze_e['texts'] ) ) : ?>
-							<span class="dze-cb-badge"><?php
-								printf(
-									/* translators: %s: number of texts */
-									esc_html( _n( '%s text', '%s texts', (int) $dze_e['texts'], 'dazont-ecom' ) ),
-									esc_html( number_format_i18n( (int) $dze_e['texts'] ) )
-								);
-							?></span>
-						<?php endif; ?>
-						<?php if ( ! empty( $dze_e['images'] ) ) : ?>
-							<span class="dze-cb-badge"><?php
-								printf(
-									/* translators: %s: number of images */
-									esc_html( _n( '%s image', '%s images', (int) $dze_e['images'], 'dazont-ecom' ) ),
-									esc_html( number_format_i18n( (int) $dze_e['images'] ) )
-								);
-							?></span>
-						<?php endif; ?>
-						<?php if ( empty( $dze_e['texts'] ) && empty( $dze_e['images'] ) ) : ?>
-							<!-- Refused, or taken out of the list before anything was
-							     written: the decision was taken, and that is what Done
-							     records. -->
-							<span class="description"><?php esc_html_e( 'nothing written', 'dazont-ecom' ); ?></span>
+						<?php if ( '' !== (string) $dze_e['url'] ) : ?>
+							<a href="<?php echo esc_url( (string) $dze_e['url'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( (string) $dze_e['title'] ); ?></strong></a>
+						<?php else : ?>
+							<strong><?php echo esc_html( (string) $dze_e['title'] ); ?></strong>
 						<?php endif; ?>
 					</td>
+					<!-- WHICH KIND OF THING, because this register holds four of
+					     them now and a list where a category and a product read
+					     the same is a list you have to open to understand. -->
+					<td class="description"><?php echo esc_html( (string) $dze_e['what'] ); ?></td>
+					<td><span class="dze-cb-badge"><?php echo esc_html( (string) $dze_e['said'] ); ?></span></td>
 					<td class="description"><?php
 						// THE NAME, not the id: "12" on a row is a number
 						// somebody has to go and look up. A pass that ran on
 						// its own has nobody, and says so rather than
 						// inventing one.
 						$dze_by = class_exists( 'DZE_Queue' )
-							? DZE_Queue::decided_by( (int) ( $dze_e['by'] ?? 0 ) )
+							? DZE_Queue::decided_by( (int) $dze_e['by'] )
 							: '';
 						echo '' !== $dze_by
 							? esc_html( $dze_by )
 							: esc_html__( 'automatic pass', 'dazont-ecom' );
 					?></td>
-					<td class="description"><?php echo esc_html( wp_date( 'j M Y · H:i', (int) ( $dze_e['time'] ?? 0 ) ) ); ?></td>
+					<td class="description"><?php echo esc_html( wp_date( 'j M Y · H:i', (int) $dze_e['time'] ) ); ?></td>
 					<td>
 						<?php if ( $dze_live ) : ?>
 							<!-- THE SAME BUTTON AS THE SELECTION LIST, and the same
-							     panel behind it: "Products > Done — j'aimerai la
-							     fonction Look comme sur la page Selected products.
-							     Pour voir le résultat actuel sans recharger
-							     différentes pages." What was written is only worth
-							     a line here if it can be LOOKED at, and opening
-							     each product in another tab to check a description
-							     is the reloading he is asking to be rid of. It
-							     wears the same class, so the one handler in
-							     content-bulk.js drives both lists and there is
-							     never a second one to keep in step. -->
+							     panel behind it: "j'aimerai la fonction Look comme
+							     sur la page Selected products. Pour voir le résultat
+							     actuel sans recharger différentes pages." It wears
+							     the same class, so the one handler in
+							     content-bulk.js drives both lists. Only a product
+							     has that panel; a category opens on its own page. -->
 							<button type="button" class="button button-small dze-cb-toggle" aria-expanded="false" title="<?php esc_attr_e( 'The photographs and the text this product holds today — what was written to it.', 'dazont-ecom' ); ?>">
-								<span class="dze-cb-toggleword"><?php esc_html_e( 'Look', 'dazont-ecom' ); ?></span> <span class="dze-cb-caret">▾</span>
+								<span class="dze-cb-toggleword"><?php esc_html_e( 'Look', 'dazont-ecom' ); ?></span> <span class="dze-cb-caret">&#9662;</span>
 							</button>
 						<?php endif; ?>
 					</td>
 				</tr>
 				<?php if ( $dze_live ) : ?>
-					<tr class="dze-cb-preview" data-id="<?php echo (int) $dze_id; ?>" style="display:none;"><td colspan="6"></td></tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $dze_id; ?>" style="display:none;"><td colspan="7"></td></tr>
 				<?php endif; ?>
 			<?php endforeach; ?>
 		</table>
@@ -4862,10 +4971,23 @@ Answer with STRICT JSON and nothing else: "
 
 
 
-	/** Writes a generated value to its mapped destination. Returns an optional note. */
+	/**
+	 * Writes a generated value to its mapped destination. Returns an optional note.
+	 *
+	 * THE WRITE RECORDS ITSELF. "Products > Done > ici je ne vois que les
+	 * produits modifiés par l'écran bulk. Qu'en est-il des produits modifiés
+	 * individuellement ?" The register was written by the JavaScript of four
+	 * screens, so everything written anywhere else — the fast main-image lane,
+	 * the reframe bench, the variation images — happened and left no trace at
+	 * all. Hooking each writer is a list somebody has to keep, and the one
+	 * forgotten is always the bug: a text lands on a product HERE and nowhere
+	 * else, so here is where it is written down, and a path built next year
+	 * needs to know nothing.
+	 */
 	private function apply_value( int $pid, string $field, string $value ): string {
 		$dest = self::dest_for( $field );
 		$seo  = self::seo_keys();
+		self::log_add( $pid, 1, 0 );
 		switch ( $dest['type'] ) {
 			case 'post_title':
 				wp_update_post( [ 'ID' => $pid, 'post_title' => wp_strip_all_tags( $value ) ] );
@@ -5547,6 +5669,11 @@ Answer with STRICT JSON and nothing else: "
 		}
 
 		$att_id = $this->file_to_library( $tmp, $ext, $slug, $title, $pid );
+		// AND THE SAME FOR A PHOTOGRAPH. Every image the plugin puts on a
+		// product — a gallery shot, a main image, a variation's own, whichever
+		// screen asked for it — is placed from this function. One line here
+		// covers the lot, including the lanes that recorded nothing.
+		self::log_add( $pid, 0, 1 );
 		// Which prompt this photograph came out of, kept on the photograph
 		// itself: it is the only thing that still knows, once the image has
 		// left the waiting list, that this prompt has already been served here
