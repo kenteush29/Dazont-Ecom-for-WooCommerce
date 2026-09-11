@@ -110,7 +110,15 @@ trait DZE_Translate_Screen {
 		if ( 'review' === $tab ) {
 			self::review_body();
 		} elseif ( 'batch' === $tab ) {
-			self::batch_body();
+			// A REF IS AN OBJECT, AND AN OBJECT HAS ONE SCREEN. The list and
+			// the editor are the same tab because they are the same subject:
+			// what to translate, and translating it.
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+			if ( ! empty( $_GET['ref'] ) ) {
+				self::editor_body();
+			} else {
+				self::batch_body();
+			}
 		} else {
 			self::dash_body();
 		}
@@ -317,6 +325,162 @@ trait DZE_Translate_Screen {
 				</table>
 			</details>
 		<?php endforeach; ?>
+		<?php
+	}
+
+	// =========================================================================
+	// THE TRANSLATION EDITOR — one screen per object, and it is WPML's own
+	//
+	// "Je veux un seul écran pour chaque type de post. Comme le fait wpml ! Il
+	// ne nous dit pas qu'il copie les variations ou je ne sais quoi. wpml c'est
+	// 1/ post non traduit ou traduction pas à jour 2/ envoi en trad 3/ trad
+	// automatique ou sur écran de trad spécial individuel de tous les champs
+	// 4/ publication."
+	//
+	// That is four steps and THREE screens, and this is the third. What stood
+	// here before was a popup of ours on the product page, with a block
+	// reporting whether WooCommerce Multilingual had copied the variations and
+	// a button to make it try again: the plugin narrating its own plumbing on
+	// the owner's screen. WPML never does that, and neither does this now — the
+	// sync is a consequence of saving, said only when it fails.
+	//
+	// Reached from every one of the three lists and from WPML's own Language
+	// box, and there is no second per-object surface anywhere: two surfaces for
+	// one job drift apart, and one of them silently loses text.
+	// =========================================================================
+
+	/** The object this screen is about, and the language it is being read in. */
+	private static function editor_args(): array {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$o = self::from_ref( isset( $_GET['ref'] ) ? sanitize_text_field( wp_unslash( $_GET['ref'] ) ) : '' );
+		if ( ! $o ) {
+			return [ [], '' ];
+		}
+		$targets = self::obj_targets( $o );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['lang'] ) ? sanitize_key( wp_unslash( $_GET['lang'] ) ) : '';
+		if ( isset( $targets[ $want ] ) ) {
+			return [ $o, $want ];
+		}
+		// OPENED WITHOUT A LANGUAGE, IT OPENS ON THE ONE THAT NEEDS WORK. A
+		// screen that opens on a language already finished is a screen that
+		// asks a question nobody came with.
+		$marks = self::page_marks( [ $o ] );
+		$state = self::state_of( $o, array_keys( $targets ), $marks );
+		foreach ( $state as $code => $said ) {
+			if ( 'done' !== $said ) {
+				return [ $o, (string) $code ];
+			}
+		}
+		return [ $o, (string) ( array_key_first( $targets ) ?? '' ) ];
+	}
+
+	/** Where this screen lives, for one object in one language. */
+	public static function editor_url( array $o, string $lang = '' ): string {
+		$args = [ 'tab' => 'batch', 'ref' => self::ref( $o ) ];
+		if ( '' !== $lang ) {
+			$args['lang'] = $lang;
+		}
+		return self::url( $args );
+	}
+
+	public static function editor_body(): void {
+		[ $o, $lang ] = self::editor_args();
+		if ( ! $o || '' === $lang ) {
+			echo '<div class="notice notice-warning inline" style="margin:16px 0;"><p>'
+				. esc_html__( 'That is not something WPML translates on this site, or it has no other language to be translated into.', 'dazont-ecom' )
+				. '</p></div>';
+			return;
+		}
+		$targets = self::obj_targets( $o );
+		$state   = self::state_of( $o, [ $lang ], self::page_marks( [ $o ] ) )[ $lang ] ?? 'missing';
+		$source  = self::obj_read( $o );
+		$target  = self::obj_translation( $o, $lang );
+		$current = $target ? self::obj_read( array_merge( $o, [ 'id' => $target ] ) ) : [];
+		$made    = (array) ( self::waiting( $o )['langs'][ $lang ] ?? [] );
+		$labels  = self::labels_for( $o );
+		?>
+		<p style="margin:14px 0 6px;">
+			<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch' ] ) ); ?>">&larr; <?php esc_html_e( 'Back to the list', 'dazont-ecom' ); ?></a>
+		</p>
+		<h2 style="margin:0 0 4px;">
+			<?php echo esc_html( self::obj_label( $o ) ); ?>
+			<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener" style="font-size:13px;font-weight:400;"><?php esc_html_e( 'open it', 'dazont-ecom' ); ?> &rarr;</a>
+		</h2>
+		<!-- 1. WHERE THIS ONE STANDS, in one line: not translated, out of date,
+		     or up to date. The same four words the lists use, from the same
+		     function, so two screens can never disagree about one object. -->
+		<p class="dze-tr-editstate">
+			<span class="dze-tr-chip is-<?php echo esc_attr( $state ); ?>">
+				<?php echo wp_kses_post( DZE_Wpml::flag_html( $lang ) ); ?>
+				<span class="dashicons <?php echo esc_attr( self::state_icon( $state ) ); ?>" aria-hidden="true"></span>
+				<?php echo esc_html( self::state_said( $state ) ); ?>
+			</span>
+			<?php if ( count( $targets ) > 1 ) : ?>
+				<span class="dze-tr-langjump">
+					<?php foreach ( $targets as $dze_code => $dze_name ) : ?>
+						<?php if ( (string) $dze_code === $lang ) { continue; } ?>
+						<a href="<?php echo esc_url( self::editor_url( $o, (string) $dze_code ) ); ?>" title="<?php echo esc_attr( $dze_name ); ?>"><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?></a>
+					<?php endforeach; ?>
+				</span>
+			<?php endif; ?>
+		</p>
+
+		<div class="dze-tr-editor" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>" data-lang="<?php echo esc_attr( $lang ); ?>">
+			<!-- 2. TRANSLATE IT, or write it by hand. One button, and it says
+			     what it will do rather than what it costs us to do it. -->
+			<p class="dze-cb-actions">
+				<button type="button" class="button button-primary" id="dze-tr-auto"
+					title="<?php esc_attr_e( 'Translates the fields whose words have changed since the last time, and fills them in below. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate automatically', 'dazont-ecom' ); ?></button>
+				<span id="dze-tr-autostate" class="description"></span>
+			</p>
+
+			<!-- 3. EVERY FIELD, side by side. A variation's own words are a
+			     field like any other; nothing on this screen says where they
+			     are kept or who copies them. -->
+			<table class="widefat striped dze-tr-fields">
+				<thead><tr>
+					<th style="width:180px;"><?php esc_html_e( 'Field', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'Original', 'dazont-ecom' ); ?></th>
+					<th><?php echo esc_html( sprintf( /* translators: %s: the language */ __( 'In %s', 'dazont-ecom' ), (string) ( $targets[ $lang ] ?? strtoupper( $lang ) ) ) ); ?></th>
+				</tr></thead>
+				<tbody>
+				<?php $dze_any = false; ?>
+				<?php foreach ( $labels as $dze_fid => $dze_label ) : ?>
+					<?php
+					$dze_src = (string) ( $source[ $dze_fid ] ?? '' );
+					if ( '' === trim( $dze_src ) ) {
+						continue; // a field the original does not hold is not a decision.
+					}
+					$dze_any = true;
+					$dze_val = (string) ( $made[ $dze_fid ] ?? ( $current[ $dze_fid ] ?? '' ) );
+					?>
+					<tr class="dze-tr-field" data-field="<?php echo esc_attr( $dze_fid ); ?>">
+						<td><strong><?php echo esc_html( $dze_label ); ?></strong>
+							<?php if ( isset( $made[ $dze_fid ] ) ) : ?>
+								<br /><span class="description" style="color:#135e96;"><?php esc_html_e( 'just translated', 'dazont-ecom' ); ?></span>
+							<?php endif; ?>
+						</td>
+						<td><div class="dze-cb-nowbody"><?php echo wp_kses_post( $dze_src ); ?></div></td>
+						<td><textarea class="dze-tr-new" rows="<?php echo esc_attr( strlen( $dze_src ) > 200 ? '8' : '3' ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea></td>
+					</tr>
+				<?php endforeach; ?>
+				<?php if ( ! $dze_any ) : ?>
+					<tr><td colspan="3"><?php esc_html_e( 'This one holds no text to translate.', 'dazont-ecom' ); ?></td></tr>
+				<?php endif; ?>
+				</tbody>
+			</table>
+
+			<!-- 4. PUBLISH IT, or leave it alone. Accept and refuse side by
+			     side, which is what every screen in this plugin ends with. -->
+			<p class="dze-cb-panelbar">
+				<button type="button" class="button button-primary button-hero" id="dze-tr-publish"
+					title="<?php esc_attr_e( 'Writes what is on the right onto the translation, and tells WPML it is up to date', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Save the translation', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-tr-drop"
+					title="<?php esc_attr_e( 'Throws away what was translated and leaves the translation exactly as it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
+				<span class="dze-cb-panelstate" id="dze-tr-publishstate"></span>
+			</p>
+		</div>
 		<?php
 	}
 
@@ -604,23 +768,19 @@ trait DZE_Translate_Screen {
 						<?php endforeach; ?>
 					</td>
 					<td>
-						<!-- ONE CLICK TO SEE WHAT IT HOLDS TODAY, and the two
-						     words say which of the two things it opens on — the
-						     object as it stands, or the work waiting for a
-						     decision. The same button, the same panel and the
-						     same two words as the product bulk screen. -->
-						<button type="button" class="button button-small dze-tr-open" aria-expanded="false"
+						<!-- ONE SCREEN PER OBJECT, and this is the way to it.
+						     It used to open a panel inside the row, and the
+						     product page had a popup of its own beside it —
+						     two surfaces for one job, which is how two screens
+						     start disagreeing about one object. -->
+						<a class="button button-small dze-tr-open" href="<?php echo esc_url( self::editor_url( $o ) ); ?>"
 							title="<?php echo esc_attr( $dze_has
-								? __( 'Read what came back beside the original and beside what the translation holds today, then accept or refuse it field by field', 'dazont-ecom' )
-								: __( 'The text this one holds today, and what each translation holds today', 'dazont-ecom' ) ); ?>">
-							<span class="dze-tr-openword"><?php echo esc_html( $dze_has ? __( 'Review', 'dazont-ecom' ) : __( 'Look', 'dazont-ecom' ) ); ?></span>
-						</button>
+								? __( 'Read what came back beside the original, field by field, and save it or throw it away', 'dazont-ecom' )
+								: __( 'Open this one: the original, what each translation holds today, and one button to translate it', 'dazont-ecom' ) ); ?>">
+							<span class="dze-tr-openword"><?php echo esc_html( $dze_has ? __( 'Review', 'dazont-ecom' ) : __( 'Open', 'dazont-ecom' ) ); ?></span>
+						</a>
 					</td>
 				</tr>
-				<!-- THE SAME PANEL MARKUP AS THE REVIEW LIST, so the one handler
-				     in translate-screen.js drives both and there is never a
-				     second one to keep in step. -->
-				<tr class="dze-tr-panel" data-ref="<?php echo esc_attr( $dze_ref ); ?>" style="display:none;"><td colspan="4"></td></tr>
 			<?php endforeach; ?>
 			</tbody>
 		</table>
@@ -992,15 +1152,17 @@ trait DZE_Translate_Screen {
 					<td><span class="description"><?php echo esc_html( self::type_label( $r ) ); ?></span></td>
 					<td>
 						<?php foreach ( $r['langs'] as $code ) : ?>
-							<span class="dze-tr-chip is-stale"><?php echo esc_html( strtoupper( (string) $code ) ); ?></span>
+							<!-- EACH LANGUAGE IS THE WAY INTO IT, because the
+							     screen that reads a translation reads ONE
+							     language at a time. -->
+							<a class="dze-tr-chip is-stale" href="<?php echo esc_url( self::editor_url( $r, (string) $code ) ); ?>"><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?></a>
 						<?php endforeach; ?>
 					</td>
 					<td>
-						<button type="button" class="button button-primary dze-tr-open"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></button>
-						<button type="button" class="button dze-tr-refuse"><?php esc_html_e( 'Refuse', 'dazont-ecom' ); ?></button>
+						<a class="button button-primary dze-tr-open" href="<?php echo esc_url( self::editor_url( $r ) ); ?>"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></a>
+						<button type="button" class="button dze-tr-refuse" title="<?php esc_attr_e( 'Throws away what was translated. The object and its translations are not touched.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 					</td>
 				</tr>
-				<tr class="dze-tr-panel" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>" style="display:none;"><td colspan="4"></td></tr>
 			<?php endforeach; ?>
 			</tbody>
 		</table>

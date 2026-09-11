@@ -1551,6 +1551,33 @@ whose screen has not been thought through yet.
   empty fourth argument could ship: `tools/js/translate-screen.mjs` opens it
   now (`--dump-screen=popup`), presses Rebuild, reads back the request, and
   asserts that not one translation call went out with it.
+- **ONE TRANSLATION SCREEN PER OBJECT, AND IT IS WPML'S OWN FOUR STEPS.**
+  "Cet écran c'est encore du custom. Je veux un seul écran pour chaque type de
+  post. Comme le fait wpml ! Il ne nous dit pas qu'il copie les variations ou
+  je ne sais quoi. wpml c'est 1/ post non traduit ou traduction pas à jour
+  2/ envoi en trad 3/ trad automatique ou sur écran de trad spécial individuel
+  de tous les champs 4/ publication." There were THREE per-object surfaces: a
+  popup of ours on the product page, a panel unfolding inside the batch list,
+  and another inside the waiting list — and the popup had grown a block
+  reporting whether WooCommerce Multilingual had copied the variations, with a
+  button to make it try again. That is the plugin narrating its own plumbing on
+  the owner's screen, which WPML never does.
+  It is ONE screen now (`editor_body()`), reached from the batch list, the
+  waiting list and WPML's own Language box alike: where this one stands, one
+  button to translate it, every field beside its original — a variation's words
+  are a field like any other — and Save beside Cancel. The popup, both panels
+  and `translate.js` are gone; a field the original does not hold is not a row,
+  because it is not a decision.
+  **The plumbing is a consequence of saving, never a panel.** Every write asks
+  WCML to sync a variable product's attributes and variations; it is said only
+  when it FAILS, once, as the result of that press. No sync is reported, no
+  provider is named, no repair button exists.
+- **A GATE THAT WAITS FOR A LINE TO FILL WAITS FOR NOTHING — again.** The
+  editor's checks passed or failed by accident of timing: they waited for the
+  state line to be non-empty, and the BUSY text is already in it. Wait for the
+  answer — the line's text differing from the busy word — and make the screen
+  cooperate: the state line is set LAST, after everything else the press
+  changes, so it is a truthful signal that the work is finished.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

@@ -67,22 +67,15 @@ final class DZE_Translate {
 			return;
 		}
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
-		add_action( 'admin_enqueue_scripts', [ $this, 'assets' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'screen_assets' ] );
 		// The button inside WPML's own Language box, on every edit screen of a
-		// thing WPML will link.
+		// thing WPML will link. It is the ONLY thing this module puts on a post
+		// screen: there is one translation screen per object and it lives under
+		// Dazont Ecom → WPML Translations, exactly where WPML keeps its own.
 		add_action( 'admin_enqueue_scripts', [ $this, 'box_assets' ] );
-		add_action( 'add_meta_boxes', [ $this, 'popup_hook' ] );
-		add_action( 'wp_ajax_dze_tr_preview', [ $this, 'ajax_preview' ] );
-		add_action( 'wp_ajax_dze_tr_apply', [ $this, 'ajax_apply' ] );
-		// The attributes and the variations of a translation cannot be edited by
-		// hand — WooCommerce Multilingual keeps them read-only and syncs them
-		// from the original — so the only way to mend one is to ask for the sync.
-		add_action( 'wp_ajax_dze_tr_rebuild', [ $this, 'ajax_rebuild' ] );
 		// The module's own screen, and the three presses on it.
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
-		add_action( 'wp_ajax_dze_tr_panel', [ $this, 'ajax_panel' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
 	}
 
@@ -154,7 +147,7 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * What the plugin sends WITH this prompt, listed for the popup that shows
+	 * What the plugin sends WITH this prompt, listed for the card that shows
 	 * it. Written beside the code that builds the call, so the list and the
 	 * call are read and changed together.
 	 *
@@ -860,7 +853,7 @@ final class DZE_Translate {
 				'label' => __( 'Attribute terms', 'dazont-ecom' ),
 				'key'   => '',
 				'tone'  => 'ok',
-				'said'  => __( 'translated as objects of their own — one term serves every product that carries it, so it is paid for once. They have their own rows on this screen, and the product\'s own popup lists the ones still missing a language.', 'dazont-ecom' ),
+				'said'  => __( 'translated as objects of their own — one term serves every product that carries it, so it is paid for once. They have their own rows on this screen.', 'dazont-ecom' ),
 			];
 		}
 		return $out;
@@ -1011,7 +1004,7 @@ final class DZE_Translate {
 	 * The languages a product can be translated INTO, source language aside.
 	 *
 	 * The product screen's own way in. It is the general answer with a product
-	 * in it — never a second reading beside `obj_targets()`, or the popup and
+	 * in it — never a second reading beside `obj_targets()`, or the screen and
 	 * the batch screen start disagreeing about which languages exist.
 	 */
 	public static function targets( int $pid ): array {
@@ -1343,7 +1336,11 @@ final class DZE_Translate {
 		$held    = self::waiting( $o );
 		$source  = (array) ( $held['src'] ?? [] );
 		$targets = self::obj_targets( $o );
-		$allowed = self::fields( (string) $o['kind'] );
+		// EVERY FIELD OF THIS OBJECT, variations included. Narrowed to
+		// `fields()` the `var:` rows were silently dropped on accept, so the
+		// words each variation carries were read, paid for, shown on screen —
+		// and never written.
+		$allowed = self::labels_for( $o );
 		foreach ( $keep as $lang => $texts ) {
 			$lang  = sanitize_key( (string) $lang );
 			$texts = array_intersect_key( (array) $texts, $allowed );
@@ -1371,8 +1368,18 @@ final class DZE_Translate {
 				// worth keeping — so this is a warning and not an error — but a
 				// screen that says nothing about it is a screen that ships a
 				// hundred and sixty unbuyable pages without a word.
-				if ( self::needs_variations( $o ) && ! self::synced_variations( $o, $target ) ) {
-					$out['warnings'][ $lang ] = __( 'The text was written, but WooCommerce Multilingual did not build this translation\'s variations: until it does, the page shows as unavailable. Open it in WooCommerce Multilingual → Products.', 'dazont-ecom' );
+			}
+			// THE PLUMBING IS NOT NARRATED, IT IS DONE. A translated variable
+			// product whose axes and variations WooCommerce Multilingual has not
+			// built renders as unavailable — and on a translation those fields
+			// are read-only, so nobody can mend one by hand. So every write asks
+			// WCML for that sync, whether the translation was just created or has
+			// been there for a year. It is a consequence of saving, never a
+			// button somebody has to find, and never a panel explaining itself.
+			if ( self::needs_variations( $o ) && ! self::synced_variations( $o, $target ) ) {
+				self::sync_product( (int) $o['id'], $target, $lang );
+				if ( ! self::synced_variations( $o, $target ) ) {
+					$out['warnings'][ $lang ] = __( 'The text was written, but this product\'s variations are still missing on the translation, so its page shows as unavailable.', 'dazont-ecom' );
 				}
 			}
 			self::obj_write( $o, $target, array_map( 'strval', $texts ) );
@@ -1901,39 +1908,6 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * REBUILD A TRANSLATION'S PRODUCT DATA, without translating a word.
-	 *
-	 * The 163 variable products this module translated before the bridge was
-	 * right are sitting there with no axes and no variations, showing as
-	 * unavailable. Re-translating them would pay for words that have not moved;
-	 * this asks WCML for the part that is missing and nothing else.
-	 *
-	 * @return array<string,array{lang:string,before:int,after:int,how:string}>
-	 */
-	public static function rebuild_product( int $pid ): array {
-		$out = [];
-		$o   = self::obj( 'post', $pid, 'product' );
-		if ( ! $o || ! self::needs_variations( $o ) ) {
-			return $out;
-		}
-		foreach ( self::obj_targets( $o ) as $code => $name ) {
-			$target = self::obj_translation( $o, (string) $code );
-			if ( ! $target ) {
-				continue;
-			}
-			$before = self::variation_count( $target );
-			$how    = self::sync_product( $pid, $target, (string) $code );
-			$out[ (string) $code ] = [
-				'lang'   => (string) $name,
-				'before' => $before,
-				'after'  => self::variation_count( $target ),
-				'how'    => $how,
-			];
-		}
-		return $out;
-	}
-
-	/**
 	 * Writes translated text onto a translation.
 	 *
 	 * @param array<string,string> $texts
@@ -1951,125 +1925,6 @@ final class DZE_Translate {
 		if ( ! current_user_can( 'edit_products' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
-	}
-
-	/** Translate and show, next to what the translation holds today. */
-	public function ajax_preview(): void {
-		$this->guard();
-		$pid  = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$lang = isset( $_POST['lang'] ) ? sanitize_key( wp_unslash( $_POST['lang'] ) ) : '';
-		if ( ! $pid || '' === $lang || ! isset( self::targets( $pid )[ $lang ] ) ) {
-			wp_send_json_error( [ 'message' => __( 'Unknown product or language.', 'dazont-ecom' ) ] );
-		}
-		$all = self::read( $pid );
-		if ( ! $all ) {
-			wp_send_json_error( [ 'message' => __( 'This product has no text to translate.', 'dazont-ecom' ) ] );
-		}
-		// ONLY WHAT ACTUALLY CHANGED IS PAID FOR. A product WPML re-marked
-		// because its category was renamed sends nothing at all — and the mark
-		// is closed on the spot, which is the whole promise of the module.
-		$texts = self::stale( $pid, $lang );
-		if ( ! $texts ) {
-			self::settle( $pid, $lang );
-			wp_send_json_success( [
-				'lang'     => $lang,
-				'unchanged'=> true,
-				'exists'   => true,
-				'labels'   => self::labels_for( self::obj( 'post', $pid, (string) get_post_type( $pid ) ) ?: [ 'kind' => 'post', 'id' => $pid, 'type' => 'product' ] ),
-				'edit'     => (string) get_edit_post_link( self::translation_of( $pid, $lang ), '' ),
-			] );
-		}
-		try {
-			$new = self::translate( $texts, $lang );
-		} catch ( \Throwable $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ] );
-		}
-		if ( ! $new ) {
-			wp_send_json_error( [ 'message' => __( 'Nothing came back.', 'dazont-ecom' ) ] );
-		}
-
-		$target  = self::translation_of( $pid, $lang );
-		$current = $target ? self::read( $target ) : [];
-		wp_send_json_success( [
-			'lang'    => $lang,
-			'exists'  => (bool) $target,
-			// A translation somebody else wrote is worked on differently: it is
-			// shown, never replaced without being asked twice.
-			'mine'    => $target ? ( '1' === (string) get_post_meta( $target, self::META_MINE, true ) ) : true,
-			'source'  => $texts,
-			'texts'   => $new,
-			'current' => $current,
-			// WHICH FIELDS THIS RUN IS ABOUT, and how many were left alone.
-			// A screen that shows two fields out of five without saying why
-			// reads as a run that half worked.
-			'only'    => array_keys( $texts ),
-			'kept'    => max( 0, count( $all ) - count( $texts ) ),
-			'labels'  => self::labels_for( self::obj( 'post', $pid, (string) get_post_type( $pid ) ) ?: [ 'kind' => 'post', 'id' => $pid, 'type' => 'product' ] ),
-			'edit'    => $target ? (string) get_edit_post_link( $target, '' ) : '',
-		] );
-	}
-
-	/**
-	 * REBUILD A TRANSLATION'S ATTRIBUTES AND VARIATIONS — no words, no cost.
-	 *
-	 * The products this module translated before the bridge to WooCommerce
-	 * Multilingual was right are sitting there with no axes and no variations,
-	 * rendering as unavailable. Re-translating them would pay for words nobody
-	 * changed; this asks WCML for the part that is missing and nothing else.
-	 */
-	public function ajax_rebuild(): void {
-		$this->guard();
-		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		if ( ! $pid ) {
-			wp_send_json_error( [ 'message' => __( 'Unknown product.', 'dazont-ecom' ) ] );
-		}
-		$rows = self::rebuild_product( $pid );
-		if ( ! $rows ) {
-			wp_send_json_error( [ 'message' => __( 'This product is not variable, or it has no translation to rebuild yet.', 'dazont-ecom' ) ] );
-		}
-		wp_send_json_success( [ 'rows' => $rows ] );
-	}
-
-	/** Apply what was read and kept. */
-	public function ajax_apply(): void {
-		$this->guard();
-		$pid   = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
-		$lang  = isset( $_POST['lang'] ) ? sanitize_key( wp_unslash( $_POST['lang'] ) ) : '';
-		$texts = isset( $_POST['texts'] ) ? (array) wp_unslash( $_POST['texts'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each field is sanitized in write() by its own kind.
-		if ( ! $pid || '' === $lang || ! $texts || ! isset( self::targets( $pid )[ $lang ] ) ) {
-			wp_send_json_error( [ 'message' => __( 'Unknown product or language.', 'dazont-ecom' ) ] );
-		}
-		$texts = array_intersect_key( $texts, self::fields() );
-
-		$target = self::translation_of( $pid, $lang );
-		if ( ! $target ) {
-			// Absent setting means "yes": a first install translates without
-			// having to find a checkbox first.
-			$set = self::get_settings();
-			if ( isset( $set['create'] ) && empty( $set['create'] ) ) {
-				wp_send_json_error( [ 'message' => __( 'There is no translation to write into, and creating one is switched off in the settings.', 'dazont-ecom' ) ] );
-			}
-			try {
-				$target = $this->create_translation( $pid, $lang );
-			} catch ( \Throwable $e ) {
-				wp_send_json_error( [ 'message' => $e->getMessage() ] );
-			}
-		}
-		$this->write( $target, array_map( 'strval', $texts ) );
-		update_post_meta( $target, self::META_MINE, '1' );
-		$source = self::read( $pid );
-		update_post_meta( $target, self::META_HASH, self::hash( $source ) );
-		// THE REGISTER, for the fields that were actually written — a field
-		// left out of this apply is not claimed as translated.
-		self::remember( $target, array_intersect_key( $source, $texts ) );
-		// And WPML is told the translation is dealt with, so the mark goes.
-		$settled = self::settle( $pid, $lang );
-
-		wp_send_json_success( [
-			'target'  => $target,
-			'settled' => $settled,
-			'edit'    => (string) get_edit_post_link( $target, '' ),
-		] );
 	}
 
 	// =========================================================================
@@ -2103,75 +1958,13 @@ final class DZE_Translate {
 		wp_send_json_success( [
 			'label'   => self::obj_label( $o ),
 			'done'    => array_keys( $made['langs'] ),
+			// WHAT IT ACTUALLY WROTE, so the screen that asked can show it
+			// without a second round trip.
+			'texts'   => $made['langs'],
 			// A LANGUAGE THAT COST NOTHING SAYS SO. "Nothing was sent" and
 			// "something went wrong" must never wear the same words.
 			'skipped' => $made['skipped'],
 			'errors'  => $made['errors'],
-		] );
-	}
-
-	/**
-	 * The whole of one waiting object: the original, what came back, and what
-	 * the translation holds today — per language, per field.
-	 */
-	public function ajax_panel(): void {
-		$this->screen_guard();
-		$o = self::from_ref( isset( $_POST['ref'] ) ? sanitize_text_field( wp_unslash( $_POST['ref'] ) ) : '' );
-		if ( ! $o ) {
-			wp_send_json_error( [ 'message' => __( 'Unknown object.', 'dazont-ecom' ) ] );
-		}
-		$held = self::waiting( $o );
-		if ( ! $held ) {
-			// A SCREEN THAT LISTS OBJECTS OFFERS TO OPEN ONE. The batch list
-			// needs to show what a thing HOLDS before anybody decides to spend
-			// money translating it — the same "Look" the product bulk screen
-			// has, and the same panel: "ici sur cette page je manque d'une
-			// option pour visualiser en un clic le contenu actuel."
-			//
-			// A panel holding nothing offers neither Accept nor Refuse: a
-			// control that cannot act is a control nobody trusts.
-			$look = [];
-			foreach ( self::obj_targets( $o ) as $code => $name ) {
-				$target = self::obj_translation( $o, (string) $code );
-				$look[ (string) $code ] = [
-					'name'    => (string) $name,
-					'texts'   => [],
-					'current' => $target ? self::obj_read( array_merge( $o, [ 'id' => $target ] ) ) : [],
-					'exists'  => (bool) $target,
-					'mine'    => $target ? ( '1' === self::meta_read( $o, $target, self::META_MINE ) ) : true,
-					'edit'    => $target ? self::obj_edit_url( array_merge( $o, [ 'id' => $target ] ) ) : '',
-				];
-			}
-			wp_send_json_success( [
-				'look'   => true,
-				'label'  => self::obj_label( $o ),
-				'edit'   => self::obj_edit_url( $o ),
-				'source' => self::obj_read( $o ),
-				'labels' => self::labels_for( $o ),
-				'langs'  => $look,
-			] );
-		}
-		$langs = [];
-		foreach ( (array) $held['langs'] as $code => $texts ) {
-			$target = self::obj_translation( $o, (string) $code );
-			$langs[ (string) $code ] = [
-				'name'    => (string) ( self::obj_targets( $o )[ $code ] ?? strtoupper( (string) $code ) ),
-				'texts'   => (array) $texts,
-				// WHAT THE TRANSLATION HOLDS TODAY, so a reader can see what
-				// is about to be replaced rather than trusting a button.
-				'current' => $target ? self::obj_read( array_merge( $o, [ 'id' => $target ] ) ) : [],
-				'exists'  => (bool) $target,
-				'mine'    => $target ? ( '1' === self::meta_read( $o, $target, self::META_MINE ) ) : true,
-				'edit'    => $target ? self::obj_edit_url( array_merge( $o, [ 'id' => $target ] ) ) : '',
-			];
-		}
-		wp_send_json_success( [
-			'look'   => false,
-			'label'  => self::obj_label( $o ),
-			'edit'   => self::obj_edit_url( $o ),
-			'source' => (array) ( $held['src'] ?? [] ),
-			'labels' => self::labels_for( $o ),
-			'langs'  => $langs,
 		] );
 	}
 
@@ -2210,55 +2003,6 @@ final class DZE_Translate {
 		] );
 	}
 
-	/**
-	 * THE ATTRIBUTE TERMS THIS PRODUCT IS SOLD BY, and where each one stands.
-	 *
-	 * "Les attributs ne sont pas gérés." They are objects of their own — one
-	 * "Olive Drab" serves two hundred products, and translating it inside each
-	 * product's job would pay for it two hundred times — so they are not fields
-	 * of the product. What was missing is that nothing ever SAID so, and there
-	 * was no way to act on them from the product you are looking at.
-	 *
-	 * They travel through the same `produce()` the batch screen uses: one
-	 * object, one job, one waiting list. There is no second engine.
-	 *
-	 * @return array<int,array{ref:string,label:string,tax:string,todo:string[]}>
-	 */
-	public static function attribute_terms( int $pid ): array {
-		$out = [];
-		if ( ! $pid || ! function_exists( 'get_object_taxonomies' ) ) {
-			return $out;
-		}
-		$langs = array_keys( self::obj_targets( [ 'kind' => 'post', 'id' => $pid, 'type' => 'product' ] ) );
-		foreach ( (array) get_object_taxonomies( 'product' ) as $tax ) {
-			$tax = (string) $tax;
-			if ( 0 !== strpos( $tax, 'pa_' ) || ! DZE_Wpml::is_translated_taxonomy( $tax ) ) {
-				continue;
-			}
-			$terms = wp_get_object_terms( $pid, $tax, [ 'fields' => 'all' ] );
-			foreach ( ( is_wp_error( $terms ) ? [] : (array) $terms ) as $term ) {
-				$o = self::obj( 'term', (int) $term->term_id, $tax );
-				if ( ! $o ) {
-					continue;
-				}
-				$todo = [];
-				foreach ( $langs as $code ) {
-					if ( ! self::obj_translation( $o, (string) $code ) ) {
-						$todo[] = (string) $code;
-					}
-				}
-				$taxo  = get_taxonomy( $tax );
-				$out[] = [
-					'ref'   => self::ref( $o ),
-					'label' => (string) $term->name,
-					'tax'   => (string) ( $taxo->labels->singular_name ?? $tax ),
-					'todo'  => $todo,
-				];
-			}
-		}
-		return $out;
-	}
-
 	/** The screen's own assets, asked for from inside the body that needs them. */
 	public function screen_assets( string $hook = '' ): void {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
@@ -2295,20 +2039,20 @@ final class DZE_Translate {
 				'keepHelp'   => __( 'Untick to leave this field out — the rest is still written', 'dazont-ecom' ),
 				'willCreate' => __( 'This language has no translation of this one yet: accepting creates it and links it to the original.', 'dazont-ecom' ),
 				'notMine'    => __( 'This translation was not written here. Accepting replaces its text — read the "translation today" column first.', 'dazont-ecom' ),
-				'accept'     => __( 'Accept what is ticked', 'dazont-ecom' ),
-				'refuse'     => __( 'Refuse', 'dazont-ecom' ),
 				'open'       => __( 'Open the translation', 'dazont-ecom' ),
 				'confirmNo'  => __( 'Throw this translation away? It cannot be recovered; the object stays exactly as it is.', 'dazont-ecom' ),
 				'saved'      => __( 'Written ✓', 'dazont-ecom' ),
 				'saving'     => __( 'Writing…', 'dazont-ecom' ),
 				/* translators: %s: number of languages still waiting */
 				'someLeft'   => __( 'Written. %s language(s) on this one are still waiting.', 'dazont-ecom' ),
-				// THE TWO WORDS ON THE ROW, and which of the two things the
-				// panel opened on — the same pair the product bulk screen uses.
-				'look'       => __( 'Look', 'dazont-ecom' ),
+				// THE TWO WORDS ON THE ROW: what the one screen will open on.
+				'look'       => __( 'Open', 'dazont-ecom' ),
 				'review'     => __( 'Review', 'dazont-ecom' ),
-				'holdsNow'   => __( 'What it holds today', 'dazont-ecom' ),
-				'holdsNone'  => __( 'Nothing translated in this language yet.', 'dazont-ecom' ),
+				// THE EDITOR'S OWN THREE PRESSES.
+				/* translators: %s: number of fields filled in */
+				'filled'     => __( '%s field(s) filled in below — nothing is written until you save.', 'dazont-ecom' ),
+				'nothingToSave' => __( 'Every field is empty. There is nothing to write.', 'dazont-ecom' ),
+				'dropped'    => __( 'Thrown away. The translation is exactly as it was.', 'dazont-ecom' ),
 				/* translators: %s: number of rows ticked */
 				'nSelected'  => __( '%s selected', 'dazont-ecom' ),
 				// WHAT THE PRESS IS ABOUT TO DO, beside the press: rows times
@@ -2332,8 +2076,8 @@ final class DZE_Translate {
 	// The box WPML already prints on an edit screen is where somebody goes to
 	// think about languages, so that is where the button belongs — never a
 	// meta box of our own beside it. And it OPENS the work rather than running
-	// it: on a product the popup that is already there, on everything else the
-	// Translations screen armed on this one object, ticked and ready to send.
+	// it: the Translations screen, opened on this one object in the language
+	// that needs work.
 	// A control that spends money the moment it is pressed is the fault this
 	// plugin has paid for twice.
 	// =========================================================================
@@ -2361,15 +2105,6 @@ final class DZE_Translate {
 		return $pid ? self::obj( 'post', $pid, (string) $screen->post_type ) : [];
 	}
 
-	/** Where the button goes: the popup on a product, this one object otherwise. */
-	public static function box_target( array $o ): string {
-		return self::url( [
-			'tab'   => 'dashboard',
-			'scope' => ( $o['kind'] ?? 'post' ) . ':' . ( $o['type'] ?? '' ),
-			'only'  => self::ref( $o ),
-		] );
-	}
-
 	/**
 	 * The button, planted in WPML's box by a script of eleven lines.
 	 *
@@ -2390,209 +2125,15 @@ final class DZE_Translate {
 		if ( ! isset( self::picked_scope()[ ( $o['kind'] ?? 'post' ) . ':' . ( $o['type'] ?? '' ) ] ) ) {
 			return;
 		}
-		$product = 'post' === $o['kind'] && 'product' === $o['type'];
 		wp_enqueue_script( 'dze-translate-box', DZE_URL . 'admin/js/translate-box.js', [ 'jquery' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-translate-box', 'dzeTrBox', [
-			// A product has the popup on the page already; everything else is
-			// sent to the screen that does this work, armed on this object.
-			'popup' => $product,
-			'url'   => $product ? '' : self::box_target( $o ),
+			// ONE SCREEN FOR EVERY KIND OF OBJECT, and this is the way to it.
+			// A product used to get a popup of its own here instead — a second
+			// per-object surface, which is how two screens start disagreeing
+			// about one object and one of them loses text.
+			'url'   => self::editor_url( $o ),
 			'label' => __( 'Translate with Dazont Ecom', 'dazont-ecom' ),
-			'tip'   => $product
-				? __( 'Opens the Dazont Ecom translation panel for this product — nothing is sent until you press Translate', 'dazont-ecom' )
-				: __( 'Opens Dazont Ecom → Translations with this one already ticked — nothing is sent until you press Translate there', 'dazont-ecom' ),
+			'tip'   => __( 'Opens this one on the Dazont Ecom translation screen — nothing is sent until you press Translate there', 'dazont-ecom' ),
 		] );
-	}
-
-	// =========================================================================
-	// The popup, printed from the product screen only
-	// =========================================================================
-
-	public function popup_hook(): void {
-		if ( ! self::on_product_screen() ) {
-			return;
-		}
-		add_action( 'admin_footer', [ $this, 'popup' ] );
-	}
-
-	private static function on_product_screen(): bool {
-		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		return $screen && 'product' === $screen->post_type && 'post' === $screen->base;
-	}
-
-	/**
-	 * Assets, at the hour WordPress expects them.
-	 *
-	 * The editor in particular has to be asked for before the footer is being
-	 * printed, so this hangs off admin_enqueue_scripts and not off the popup.
-	 */
-	public function assets( string $hook = '' ): void {
-		if ( ! in_array( $hook, [ 'post.php', 'post-new.php' ], true ) || ! self::on_product_screen() ) {
-			return;
-		}
-		$pid = (int) get_the_ID();
-		if ( ! $pid || ! self::targets( $pid ) ) {
-			return; // a single-language site pays nothing for this module.
-		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
-		wp_enqueue_editor();
-		wp_enqueue_script( 'dze-translate', DZE_URL . 'admin/js/translate.js', [ 'jquery' ], DZE_VERSION, true );
-		wp_localize_script( 'dze-translate', 'dzeTranslate', [
-			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-			'nonce'   => wp_create_nonce( self::NONCE ),
-			'postId'  => $pid,
-			'reviewUrl' => self::url( [ 'tab' => 'review' ] ),
-			'i18n'    => [
-				'working'   => __( 'Translating…', 'dazont-ecom' ),
-				'error'     => __( 'Something went wrong.', 'dazont-ecom' ),
-				'applying'  => __( 'Saving…', 'dazont-ecom' ),
-				'applied'   => __( 'Saved ✓', 'dazont-ecom' ),
-				// WHAT THE REGISTER FOUND, in words. A run that spends nothing
-				// has to say so, or it reads as a button that did nothing.
-				'unchanged' => __( 'Not one word has changed since this translation was made — nothing was sent, nothing was spent, and WPML has been told it is up to date.', 'dazont-ecom' ),
-				/* translators: %s: number of fields left alone */
-				'onlyChanged' => __( 'Only what changed is below: %s other fields have not moved since the last translation and were left alone.', 'dazont-ecom' ),
-				'source'    => __( 'Original', 'dazont-ecom' ),
-				'current'   => __( 'The translation today', 'dazont-ecom' ),
-				'empty'     => __( '(empty)', 'dazont-ecom' ),
-				'keepHelp'  => __( 'Untick to leave this field out — the rest is still written', 'dazont-ecom' ),
-				'willCreate'=> __( 'This language has no translation of this product yet: applying creates it, links it to this one, and lets WooCommerce Multilingual bring the price and the stock over.', 'dazont-ecom' ),
-				'notMine'   => __( 'This translation was not written here. Applying replaces its text — check the "translation today" column before you do.', 'dazont-ecom' ),
-				'confirm'   => __( 'Write this text on the translation?', 'dazont-ecom' ),
-				// THE TERMS, which are objects and go to the waiting list like
-				// anything else — never written straight onto the shop.
-				'attrNone'  => __( 'Tick at least one term.', 'dazont-ecom' ),
-				'attrGo'    => __( 'Translating the terms…', 'dazont-ecom' ),
-				/* translators: %s: number of terms now waiting to be read */
-				'attrDone'  => __( '%s waiting in Translations → To review.', 'dazont-ecom' ),
-				'attrNothing' => __( 'Nothing had moved on them: nothing was sent and nothing was spent.', 'dazont-ecom' ),
-				'attrRead'  => __( 'Read what came back', 'dazont-ecom' ),
-				// THE REPAIR THAT COSTS NOTHING. A translation's attributes and
-				// variations are WCML's to write, never ours and never the
-				// shop's by hand.
-				'rebuilding'=> __( 'Asking WooCommerce Multilingual…', 'dazont-ecom' ),
-				/* translators: 1: variations before, 2: variations after */
-				'rebuilt'   => __( '%1$s → %2$s variations', 'dazont-ecom' ),
-				'rebuiltNo' => __( 'WooCommerce Multilingual built nothing. Check that it is active and that this product has its attributes set as "Used for variations".', 'dazont-ecom' ),
-				'rebuiltOk' => __( 'Done — reload the translated product to see them.', 'dazont-ecom' ),
-			],
-		] );
-	}
-
-	public function popup(): void {
-		global $post;
-		$pid = $post ? (int) $post->ID : 0;
-		if ( ! $pid ) {
-			return;
-		}
-		$targets = self::targets( $pid );
-		?>
-		<div class="dze-cx-modal" id="dze-tr-modal"><div class="dze-cx-dialog" style="width:min(1100px,96vw);">
-			<div class="dze-cx-head">
-				<h2><?php esc_html_e( 'Translate this product', 'dazont-ecom' ); ?></h2>
-				<?php if ( class_exists( 'DZE_Prompts' ) ) { DZE_Prompts::the_button( 'translate' ); } ?>
-				<button type="button" class="button dze-hub-close" style="margin-left:auto;"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button>
-			</div>
-			<div class="dze-cx-body">
-				<?php if ( ! $targets ) : ?>
-					<p><?php esc_html_e( 'No other language is active on this site, or WPML is not running. Nothing to translate into.', 'dazont-ecom' ); ?></p>
-				<?php else : ?>
-					<p class="description" style="max-width:900px;">
-						<?php esc_html_e( 'The written content of this product: its name, its descriptions, its SEO fields and the words each variation carries. Price, stock and images stay with WooCommerce Multilingual, which syncs them from this product. Nothing is saved until you apply.', 'dazont-ecom' ); ?>
-					</p>
-					<p class="dze-tr-bar">
-						<label><span><?php esc_html_e( 'Language', 'dazont-ecom' ); ?></span>
-							<select id="dze-tr-lang">
-								<?php foreach ( $targets as $code => $name ) : ?>
-									<option value="<?php echo esc_attr( $code ); ?>"><?php echo esc_html( $name . ' (' . strtoupper( $code ) . ')' ); ?></option>
-								<?php endforeach; ?>
-							</select>
-						</label>
-						<button type="button" class="button button-primary" id="dze-tr-run"><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></button>
-						<span class="dze-cx-state" id="dze-tr-state"></span>
-					</p>
-					<?php $dze_o = self::obj( 'post', $pid, 'product' ); ?>
-					<?php if ( $dze_o && self::needs_variations( $dze_o ) ) : ?>
-						<!-- A VARIABLE PRODUCT'S TRANSLATION CANNOT BE MENDED BY
-						     HAND. WooCommerce Multilingual keeps a translation's
-						     attributes and variations read-only and syncs them
-						     from the original — "je ne peux pas modifier les
-						     attributs sur un produit traduit ni les variations" —
-						     so the state is shown here and the only repair is to
-						     ask WCML for that sync. It costs nothing and sends
-						     not one word to any model. -->
-						<div class="dze-tr-attrs">
-							<h3 style="margin:16px 0 6px;font-size:13px;"><?php esc_html_e( 'Attributes and variations', 'dazont-ecom' ); ?></h3>
-							<?php $dze_mine = self::variation_count( $pid ); ?>
-							<table class="widefat striped" style="max-width:640px;margin-bottom:8px;">
-								<tbody>
-								<?php foreach ( $targets as $dze_code => $dze_name ) : ?>
-									<?php
-									$dze_tr  = self::obj_translation( $dze_o, (string) $dze_code );
-									$dze_cnt = $dze_tr ? self::variation_count( $dze_tr ) : 0;
-									?>
-									<tr data-lang="<?php echo esc_attr( (string) $dze_code ); ?>">
-										<td style="width:120px;"><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?></td>
-										<td class="dze-tr-varcell">
-											<?php if ( ! $dze_tr ) : ?>
-												<span class="description"><?php esc_html_e( 'no translation yet', 'dazont-ecom' ); ?></span>
-											<?php elseif ( $dze_cnt >= $dze_mine && $dze_mine ) : ?>
-												<span style="color:#0a7040;"><?php echo esc_html( sprintf( /* translators: 1: variations on the translation, 2: variations on the original */ __( '%1$s of %2$s variations', 'dazont-ecom' ), number_format_i18n( $dze_cnt ), number_format_i18n( $dze_mine ) ) ); ?></span>
-											<?php else : ?>
-												<span style="color:#b32d2e;"><?php echo esc_html( sprintf( /* translators: 1: variations on the translation, 2: variations on the original */ __( '%1$s of %2$s variations — the page shows as unavailable', 'dazont-ecom' ), number_format_i18n( $dze_cnt ), number_format_i18n( $dze_mine ) ) ); ?></span>
-											<?php endif; ?>
-										</td>
-									</tr>
-								<?php endforeach; ?>
-								</tbody>
-							</table>
-							<p>
-								<button type="button" class="button" id="dze-tr-rebuild" title="<?php esc_attr_e( 'Asks WooCommerce Multilingual to copy this product\'s attributes and rebuild its translations\' variations. Nothing is sent to any model and nothing is spent.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Rebuild from the original', 'dazont-ecom' ); ?></button>
-								<span class="dze-cx-state" id="dze-tr-rebuildstate"></span>
-							</p>
-						</div>
-					<?php endif; ?>
-					<?php $dze_attrs = self::attribute_terms( $pid ); ?>
-					<?php if ( $dze_attrs ) : ?>
-						<?php $dze_short = array_values( array_filter( $dze_attrs, static fn( $a ) => ! empty( $a['todo'] ) ) ); ?>
-						<!-- THE ATTRIBUTE TERMS THIS PRODUCT IS SOLD BY. They are
-						     objects of their own — one "Olive Drab" serves two
-						     hundred products — so they are not fields of this
-						     product; what was missing is that nothing ever said
-						     so, and there was no way to act on them from here.
-						     They go through the same job as everything else. -->
-						<div class="dze-tr-attrs">
-							<h3 style="margin:16px 0 6px;font-size:13px;"><?php esc_html_e( 'Attribute terms this product is sold by', 'dazont-ecom' ); ?></h3>
-							<?php if ( ! $dze_short ) : ?>
-								<p class="description"><?php echo esc_html( sprintf( /* translators: %s: number of terms */ _n( '%s term, translated in every language.', '%s terms, all translated in every language.', count( $dze_attrs ), 'dazont-ecom' ), number_format_i18n( count( $dze_attrs ) ) ) ); ?></p>
-							<?php else : ?>
-								<p class="description"><?php esc_html_e( 'A term is one object shared by every product that carries it, so it is translated once and not with this product. These are the ones still missing a language:', 'dazont-ecom' ); ?></p>
-								<p class="dze-tr-attrlist">
-									<?php foreach ( $dze_short as $dze_a ) : ?>
-										<label class="dze-cb-check"><input type="checkbox" class="dze-tr-attr" value="<?php echo esc_attr( $dze_a['ref'] ); ?>" data-langs="<?php echo esc_attr( implode( ',', $dze_a['todo'] ) ); ?>" checked />
-											<span><?php echo esc_html( $dze_a['label'] ); ?> <em class="description"><?php echo esc_html( $dze_a['tax'] ); ?></em>
-											<?php foreach ( $dze_a['todo'] as $dze_c ) { echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_c ) ); } ?></span></label>
-									<?php endforeach; ?>
-								</p>
-								<p>
-									<button type="button" class="button" id="dze-tr-attrsend" title="<?php esc_attr_e( 'Translates the ticked terms and puts them in Dazont Ecom → Translations → To review, where you accept or refuse them', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate the ticked terms', 'dazont-ecom' ); ?></button>
-									<span class="dze-cx-state" id="dze-tr-attrstate"></span>
-								</p>
-							<?php endif; ?>
-						</div>
-					<?php endif; ?>
-					<div id="dze-tr-result" class="dze-cx-result" style="display:none;">
-						<div id="dze-tr-warn"></div>
-						<div class="dze-cb-prev" id="dze-tr-drawers"></div>
-						<p class="dze-cb-panelbar">
-							<button type="button" class="button button-primary" id="dze-tr-apply"><?php esc_html_e( 'Apply to the translation', 'dazont-ecom' ); ?></button>
-							<a href="#" class="button" id="dze-tr-open" target="_blank" rel="noopener" style="display:none;"><?php esc_html_e( 'Open the translation', 'dazont-ecom' ); ?></a>
-							<span class="dze-cb-panelstate" id="dze-tr-applystate"></span>
-						</p>
-					</div>
-				<?php endif; ?>
-			</div>
-		</div></div>
-		<?php
 	}
 }
