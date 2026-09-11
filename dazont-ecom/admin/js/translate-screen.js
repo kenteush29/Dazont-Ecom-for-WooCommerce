@@ -40,7 +40,31 @@
 
 	$(document).on('change', '#dze-tr-all', function () {
 		$('.dze-tr-pickone').prop('checked', this.checked);
+		bill();
 	});
+	$(document).on('click', '#dze-tr-selall', function () {
+		$('.dze-tr-pickone, #dze-tr-all').prop('checked', true);
+		bill();
+	});
+	$(document).on('click', '#dze-tr-selnone', function () {
+		$('.dze-tr-pickone, #dze-tr-all').prop('checked', false);
+		bill();
+	});
+	$(document).on('change', '.dze-tr-pickone, .dze-tr-lang', bill);
+
+	// WHAT THE PRESS IS ABOUT TO DO, BESIDE THE PRESS. Every figure was already
+	// on the screen — the ticked rows, the ticked languages — and they had
+	// never been multiplied: a button reading "Translate" over forty rows and
+	// five languages is two hundred calls nobody counted.
+	function bill() {
+		var rows = $('.dze-tr-pickone:checked').length;
+		var langs = $('.dze-tr-lang:checked').length;
+		var $b = $('#dze-tr-bill');
+		if (!$b.length) { return; }
+		$('#dze-tr-selcount').text(sprintf(i18n.nSelected, rows));
+		$b.text(rows && langs ? sprintf(i18n.bill, rows, langs, rows * langs) : i18n.billNone);
+	}
+	$(bill);
 
 	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME: the plus makes the missing
 	// translation, the arrows bring an out-of-date one back. It runs the SAME
@@ -58,6 +82,7 @@
 				var n = (r.data.done || []).length;
 				$b.replaceWith('<span class="dze-tr-chip is-' + (n ? 'held' : 'done') + '">' +
 					esc(n ? i18n.rowHeld : i18n.rowNothing) + '</span>');
+				if (n) { $row.find('.dze-tr-openword').text(i18n.review); }
 				if (n) { $('#dze-tr-sendstate').html(esc(sprintf(i18n.sent, 1)) +
 					(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '')); }
 				return;
@@ -79,8 +104,15 @@
 		if (!langs.length) { window.alert(i18n.langFirst); return; }
 		if (!refs.length) { window.alert(i18n.tickFirst); return; }
 
-		var total = refs.length, done = 0, waiting = 0, spent = 0;
+		var total = refs.length, done = 0, waiting = 0, spent = 0, stop = false;
 		$btn.prop('disabled', true);
+		// A RUN ON FORTY ROWS MUST BE STOPPABLE, like every other long press in
+		// this plugin: it walks one object at a time, so stopping costs nothing
+		// and leaves what has already come back exactly where it is.
+		$('#dze-tr-stop').show().prop('disabled', false).off('click.dzetr').on('click.dzetr', function () {
+			stop = true;
+			$(this).prop('disabled', true);
+		});
 		$('#dze-tr-prog').show();
 		$('#dze-tr-sendstate').text(i18n.sending);
 
@@ -95,9 +127,11 @@
 		}
 
 		function step() {
+			if (stop && refs.length) { refs.length = 0; }
 			if (!refs.length) {
 				$btn.prop('disabled', false);
-				$('#dze-tr-progstep').text('');
+				$('#dze-tr-stop').hide();
+				$('#dze-tr-progstep').text(stop ? i18n.stopped : '');
 				// A RUN THAT SPENT NOTHING SAYS SO. "Nothing had moved" and
 				// "it failed" must never read the same — and a run that DID
 				// produce something offers the way to it rather than naming a
@@ -119,6 +153,14 @@
 					var n = (r.data.done || []).length;
 					if (n) { spent++; waiting++; }
 					mark(ref, n ? 'held' : 'done', n ? i18n.rowHeld : i18n.rowNothing);
+					// AND THE ROW'S OWN BUTTON SAYS WHAT IT NOW OPENS ON: Look
+					// for the object as it stands, Review once there is work
+					// waiting for a decision. A screen that reacts to its own
+					// work is the rule, not a nicety.
+					if (n) {
+						$('tr[data-ref="' + ref + '"]').not('.dze-tr-panel')
+							.find('.dze-tr-openword').text(i18n.review);
+					}
 					$('#dze-tr-progstep').text(r.data.label || '');
 				} else {
 					mark(ref, 'missing', said(r));
@@ -160,7 +202,46 @@
 		'</div>';
 	}
 
+	// WHAT THE OBJECT HOLDS TODAY, when nothing is waiting on it. A PANEL
+	// HOLDING NOTHING OFFERS NEITHER ACCEPT NOR REFUSE: a control that cannot
+	// act is a control nobody trusts.
+	function lookPanel($cell, d) {
+		var html = '<div class="dze-tr-panelbox">';
+		html += '<p><strong>' + esc(d.label) + '</strong> ';
+		if (d.edit) {
+			html += '<a href="' + esc(d.edit) + '" target="_blank" rel="noopener">' + esc(i18n.open) + ' &rarr;</a>';
+		}
+		html += '</p>';
+		html += '<div class="dze-tr-lblock"><h3>' + esc(i18n.source) + '</h3>';
+		var got = false;
+		$.each(d.source || {}, function (fid, text) {
+			got = true;
+			html += '<p class="dze-cb-nowlabel">' + esc((d.labels || {})[fid] || fid) + '</p>' +
+				'<pre class="dze-tr-was">' + esc(text) + '</pre>';
+		});
+		if (!got) { html += '<p class="description">' + esc(i18n.empty) + '</p>'; }
+		html += '</div>';
+		$.each(d.langs, function (code, one) {
+			html += '<div class="dze-tr-lblock" data-lang="' + esc(code) + '">';
+			html += '<h3>' + esc(one.name) + ' (' + esc(String(code).toUpperCase()) + ')</h3>';
+			if (!one.exists) {
+				html += '<p class="description">' + esc(i18n.holdsNone) + '</p>';
+			} else {
+				if (one.edit) {
+					html += '<p><a href="' + esc(one.edit) + '" target="_blank" rel="noopener">' + esc(i18n.open) + ' &rarr;</a></p>';
+				}
+				$.each(one.current || {}, function (fid, text) {
+					html += '<p class="dze-cb-nowlabel">' + esc((d.labels || {})[fid] || fid) + '</p>' +
+						'<pre class="dze-tr-now">' + esc(text) + '</pre>';
+				});
+			}
+			html += '</div>';
+		});
+		$cell.html(html + '</div>');
+	}
+
 	function draw($cell, ref, d) {
+		if (d.look) { lookPanel($cell, d); return; }
 		var html = '<div class="dze-tr-panelbox">';
 		html += '<p><strong>' + esc(d.label) + '</strong> ';
 		if (d.edit) {
@@ -189,8 +270,12 @@
 		$cell.html(html);
 	}
 
+	// ONE HANDLER FOR BOTH LISTS. The batch screen opens the same panel on the
+	// same markup — "Look" for the object as it stands, "Review" once something
+	// waits — so the row is found by what it CARRIES (a ref) rather than by
+	// which of the two screens it happens to be on.
 	$(document).on('click', '.dze-tr-open', function () {
-		var $row = $(this).closest('.dze-tr-wrow');
+		var $row = $(this).closest('tr[data-ref]');
 		var ref = $row.data('ref');
 		var $panel = $('.dze-tr-panel[data-ref="' + ref + '"]');
 		if ($panel.is(':visible')) { $panel.hide(); return; }
@@ -208,16 +293,20 @@
 	// Refuse, from the row and from inside the panel alike: the group form of
 	// a row button, never a second path.
 	$(document).on('click', '.dze-tr-refuse', function () {
-		var $row = $(this).closest('.dze-tr-wrow');
+		var $row = $(this).closest('tr[data-ref]').not('.dze-tr-panel');
 		if (!$row.length) {
-			$row = $('.dze-tr-wrow[data-ref="' + $(this).closest('.dze-tr-panel').data('ref') + '"]');
+			$row = $('tr[data-ref="' + $(this).closest('.dze-tr-panel').data('ref') + '"]').not('.dze-tr-panel');
 		}
 		var ref = $row.data('ref');
 		if (!window.confirm(i18n.confirmNo)) { return; }
 		post('dze_tr_decide', { ref: ref, how: 'refuse' }).done(function (r) {
 			if (!r || !r.success) { window.alert(said(r)); return; }
-			$('.dze-tr-panel[data-ref="' + ref + '"]').remove();
-			$row.remove();
+			// ON THE REVIEW LIST the row IS the waiting work, so it goes. On
+			// the batch list the object is still there and still translatable:
+			// the panel closes and the row goes back to "Look".
+			$('.dze-tr-panel[data-ref="' + ref + '"]').hide().find('td').first().empty();
+			if ($row.hasClass('dze-tr-wrow')) { $row.remove(); return; }
+			$row.find('.dze-tr-openword').text(i18n.look);
 		});
 	});
 
@@ -243,6 +332,18 @@
 		post('dze_tr_decide', { ref: ref, how: 'accept', keep: keep }).done(function (r) {
 			$btn.prop('disabled', false);
 			if (!r || !r.success) { $state.text(said(r)); return; }
+			// WHAT WAS WRITTEN, AND WHAT IS STILL WRONG WITH IT. "Written ✓"
+			// over a variable product WooCommerce Multilingual has not built
+			// the variations for is a page that renders as unavailable, with
+			// the screen saying nothing about it.
+			var warn = [];
+			$.each(r.data.warnings || {}, function (lang, text) {
+				warn.push(String(lang).toUpperCase() + ' — ' + text);
+			});
+			if (warn.length) {
+				$panel.find('.dze-cb-panelbar').before(
+					'<div class="notice notice-warning inline"><p>' + esc(warn.join(' ')) + '</p></div>');
+			}
 			// A ROW MENDED BY HALF STAYS, and says where it now stands: a row
 			// that vanished on any decision would be a list that lies.
 			if (r.data.left > 0) {
@@ -250,8 +351,12 @@
 				return;
 			}
 			$state.text(i18n.saved);
-			$('.dze-tr-wrow[data-ref="' + ref + '"]').remove();
-			$panel.remove();
+			var $r = $('tr[data-ref="' + ref + '"]').not('.dze-tr-panel');
+			if ($r.hasClass('dze-tr-wrow')) { $r.remove(); $panel.remove(); return; }
+			// The batch list keeps its row: the object is still there, it is
+			// simply no longer holding anything to decide.
+			$r.find('.dze-tr-openword').text(i18n.look);
+			$panel.hide().find('td').first().empty();
 		}).fail(function () {
 			$btn.prop('disabled', false);
 			$state.text(i18n.error);

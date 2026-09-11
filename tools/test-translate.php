@@ -104,6 +104,12 @@ $GLOBALS['wpml_md5']   = 'WPML-SIGNATURE';
 $GLOBALS['translated'] = [];   // [ pid ][ lang ] => target id
 function apply_filters( $tag, $value = null, ...$a ) {
 	if ( 'wpml_default_language' === $tag ) { return 'en'; }
+	if ( 'wpml_active_languages' === $tag && ! empty( $GLOBALS['langs_off'] ) ) {
+		// A FILTER ONLY ANSWERS WHERE ITS PLUGIN'S HOOKS ARE LOADED. In
+		// admin-ajax this one answered nothing, and a whole batch reported
+		// "nothing had moved" on a shop that had translated nothing at all.
+		return null;
+	}
 	if ( 'wpml_active_languages' === $tag ) {
 		return [
 			'en' => [ 'native_name' => 'English', 'english_name' => 'English' ],
@@ -155,6 +161,8 @@ class DZE_Tr_Test_Wpdb {
 	/** What review_counts() answers, per kind. */
 	public array $review_posts = [];
 	public array $review_terms = [];
+	/** WPML's own languages table, for the request where its filters are silent. */
+	public array $langs = [];
 	/** What the waiting-list queries answer, set by the checks that need them. */
 	public array $waiting_posts = [];
 	public array $waiting_terms = [];
@@ -199,6 +207,14 @@ class DZE_Tr_Test_Wpdb {
 	}
 	public function get_col( $q ) {
 		$sql = (string) $q;
+		// WHICH ROWS ALREADY HOLD SOMETHING WAITING — asked once for the page,
+		// which is what makes a row say Review rather than Look.
+		if ( false !== stripos( $sql, '_dze_tr_wait' ) ) {
+			$ids = [];
+			foreach ( $this->waiting_posts as $r ) { $ids[] = (int) $r['oid']; }
+			foreach ( $this->waiting_terms as $r ) { $ids[] = (int) $r['oid']; }
+			return $ids;
+		}
 		if ( false !== stripos( $sql, 'AS dze_id' ) ) {
 			$this->todo_sql[] = $sql;
 			return $this->todo_ids;
@@ -211,6 +227,14 @@ class DZE_Tr_Test_Wpdb {
 	public array $due = [];     // rows of [ lang, n ] for needs_update = 1
 	public function get_results( $q, $o = null ) {
 		$sql = (string) $q;
+		if ( false !== stripos( $sql, 'icl_languages_translations' ) ) {
+			$out = [];
+			foreach ( $this->langs as $l ) {
+				$out[] = [ 'language_code' => $l['code'], 'name' => 'fr' === $l['code'] ? 'Français' : $l['english_name'] ];
+			}
+			return $out;
+		}
+		if ( false !== stripos( $sql, 'FROM wp_icl_languages' ) ) { return $this->langs; }
 		// WHAT IS WAITING, PER KIND — told apart from the waiting LIST by what
 		// it groups on, because both read the same two meta tables.
 		if ( false !== stripos( $sql, 'GROUP BY p.post_type' ) ) { return $this->review_posts; }
@@ -315,6 +339,31 @@ function wp_update_post( $post ) {
 	foreach ( $post as $k => $v ) { if ( 'ID' !== $k ) { $GLOBALS['posts'][ $id ][ $k ] = $v; } }
 	return $id;
 }
+$GLOBALS['product_type'] = [];
+$GLOBALS['wcml_asked']   = [];
+function wc_get_product( $id ) {
+	$type = (string) ( $GLOBALS['product_type'][ (int) $id ] ?? 'simple' );
+	return new class( $type ) {
+		private string $t;
+		public function __construct( string $t ) { $this->t = $t; }
+		public function is_type( $want ) { return $this->t === $want; }
+	};
+}
+// WooCommerce Multilingual, reached the way WCML publishes it. The module ASKS
+// it to build the variations — it never builds one itself.
+function wcml_get_woocommerce_wpml() {
+	if ( ! empty( $GLOBALS['no_wcml'] ) ) { return null; }
+	return new class {
+		public $sync_variations_data;
+		public function __construct() {
+			$this->sync_variations_data = new class {
+				public function sync_product_variations( $pid, $tr, $lang, $args = [] ) {
+					$GLOBALS['wcml_asked'][] = [ (int) $pid, (int) $tr, (string) $lang ];
+				}
+			};
+		}
+	};
+}
 function get_taxonomy( $tax ) {
 	$known = [
 		'product_cat' => 'Categories', 'product_tag' => 'Tags',
@@ -412,6 +461,11 @@ class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
 class DZE_Prompt_Defaults { public static function pick( $id, $d ) { return $d; } public static function control( ...$a ) {} }
 
 require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
+// THE SHAPE IS BUILT IN ONE PLACE. The batch screen draws its blocks with
+// DZE_Hub, exactly as the product bulk screen does, so the gate has to load the
+// real one — a stub here would prove the screen calls something, and nothing
+// about what it draws.
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 // The screen half is a trait of the same class — loaded by the autoloader on a
 // real site, required by name here, like every other file this gate runs.
 require __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php';
@@ -441,7 +495,7 @@ if ( '' !== $dze_dump ) {
 		7 => [ 'name' => 'Balaclavas', 'description' => 'Warm ones.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
 		8 => [ 'name' => 'Plate carriers', 'description' => 'Heavy.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
 	];
-	$_GET['tab'] = 'review' === $dze_dump ? 'review' : 'dashboard';
+	$_GET['tab'] = 'review' === $dze_dump ? 'review' : ( 'dashboard' === $dze_dump ? 'dashboard' : 'batch' );
 	if ( 'review' === $dze_dump ) {
 		$held = wp_json_encode( [
 			'at'    => time(),
@@ -908,7 +962,7 @@ for ( $i = 100; $i < 160; $i++ ) {
 $GLOBALS['wpdb']->todo_ids = [ 7 ];
 $GLOBALS['wpdb']->todo_sql = [];
 $GLOBALS['paginate']       = [];
-$_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat' ];
+$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_page = (string) ob_get_clean();
 
 // A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS SCREEN.
@@ -1203,7 +1257,7 @@ $GLOBALS['screen'] = null;
 
 echo "\nAND THE SCREEN IT OPENS SHOWS THAT ONE OBJECT, TICKED\n";
 $GLOBALS['wpdb']->marks = [ [ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ] ];
-$_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat', 'only' => 'term:7:product_cat' ];
+$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat', 'only' => 'term:7:product_cat' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_one = (string) ob_get_clean();
 ok( 'the object it was opened for is on the screen',
 	false !== strpos( $dze_one, 'data-ref="term:7:product_cat"' ), true );
@@ -1217,6 +1271,125 @@ ok( 'and the way back to the whole list',
 ok( 'a language that is owed is a button, not a label',
 	(bool) preg_match( '/<button[^>]*dze-tr-one[^>]*data-lang="fr"/', $dze_one ), true );
 $_GET = [];
+
+
+echo "\nTHE BATCH IS A SCREEN OF ITS OWN, IN THE SHAPE EVERY OTHER ONE WEARS\n";
+// "Send a batch — incomplet et pas bon pour l'UI. Ici je verrais plutôt une
+// liste séparée comme avec les produits… Utiliser le même type de dashboard que
+// pour les bulk content generation."
+$GLOBALS['wpdb']->todo_ids = [ 7, 8 ];
+$GLOBALS['wpdb']->marks    = [ [ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ] ];
+$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_b = (string) ob_get_clean();
+// 1. WHAT IT HOLDS TODAY, in one line, with the figures.
+ok( 'it opens with what this kind holds today',
+	false !== strpos( $dze_b, 'dze-tr-holds' ), true );
+// 2. ONE BLOCK PER KIND OF WORK, its switch in its own title — the SAME
+// machinery as the product screen, which is why DZE_Hub draws it.
+ok( 'the languages are a block with a take-all in its own heading',
+	(bool) preg_match( '/data-sec="langs".*?dze-sec-tick.*?dze-sec-all/s', $dze_b ), true );
+ok( 'and what is sent with each one is a block of its own',
+	false !== strpos( $dze_b, 'data-sec="fields"' ), true );
+ok( 'each language says how many are short of it',
+	(bool) preg_match( '/dze-tr-lang[^>]*value="fr"/', $dze_b ), true );
+// 3. ONE BUTTON THAT RUNS WHAT IS TICKED, with the bill beside it.
+ok( 'one button runs what is ticked',   substr_count( $dze_b, 'id="dze-tr-send"' ), 1 );
+ok( 'and it says what it is about to do', false !== strpos( $dze_b, 'id="dze-tr-bill"' ), true );
+ok( 'a long run can be stopped',        false !== strpos( $dze_b, 'id="dze-tr-stop"' ), true );
+// 4. THE LIST, with the bar the bulk screen wears and Look on every row.
+ok( 'the bar is the bulk screen\'s own', false !== strpos( $dze_b, 'dze-cb-listbar' ), true );
+ok( 'every row offers to be looked at', substr_count( $dze_b, 'dze-tr-openword' ), 2 );
+ok( 'and says Look when nothing waits on it',
+	false !== strpos( $dze_b, '>Look<' ), true );
+// 5. AND THE PANEL IS THE SAME ONE, so one handler drives both lists.
+ok( 'the panel row is the review list\'s own markup',
+	substr_count( $dze_b, 'class="dze-tr-panel"' ), 2 );
+// THE DASHBOARD NO LONGER UNFOLDS THE LIST UNDER ITSELF.
+$_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_d = (string) ob_get_clean();
+ok( 'the dashboard no longer unfolds the batch under itself',
+	false !== strpos( $dze_d, 'id="dze-tr-send"' ), false );
+ok( 'it sends you to the batch screen instead',
+	false !== strpos( $dze_d, 'tab=batch' ), true );
+// A ROW THAT HOLDS SOMETHING SAYS **REVIEW**, never Look — the same two words
+// the product bulk screen uses, read from what is actually stored.
+$GLOBALS['termmeta'][7]['_dze_tr_wait'] = wp_json_encode( [ 'at' => time(), 'langs' => [ 'fr' => [ 'name' => 'Cagoules' ] ], 'src' => [ 'name' => 'Balaclavas' ] ] );
+$GLOBALS['wpdb']->waiting_terms = [ [ 'oid' => 7, 'v' => $GLOBALS['termmeta'][7]['_dze_tr_wait'] ] ];
+$_GET = [ 'tab' => 'batch', 'scope' => 'term:product_cat' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_b2 = (string) ob_get_clean();
+ok( 'a row holding something says Review', false !== strpos( $dze_b2, '>Review<' ), true );
+ok( 'and the one beside it still says Look', false !== strpos( $dze_b2, '>Look<' ), true );
+unset( $GLOBALS['termmeta'][7]['_dze_tr_wait'] );
+$GLOBALS['wpdb']->waiting_terms = [];
+$_GET = [];
+
+echo "\nA FILTER THAT ANSWERS NOTHING IS NOT AN ANSWER — sixth time\n";
+// The site's own reading: "_dze_tr_wait : 0 ligne… Aucun article n'a de
+// registre, donc obj_stale() doit renvoyer TOUS les champs comme périmés. Le
+// module n'avait aucune raison de répondre nothing had moved."
+// It had one: `wpml_active_languages` answers NOTHING in admin-ajax, so there
+// were no targets at all and produce() skipped every language in silence.
+$GLOBALS['langs_off'] = true;
+$GLOBALS['wpdb']->langs = [
+	[ 'code' => 'en', 'english_name' => 'English', 'default_locale' => 'en_US', 'tag' => 'en' ],
+	[ 'code' => 'fr', 'english_name' => 'French',  'default_locale' => 'fr_FR', 'tag' => 'fr' ],
+];
+$dze_from_table = DZE_Wpml::get_active_languages();
+ok( 'with the filter silent, the languages come from WPML\'s table',
+	array_column( $dze_from_table, 'code' ), [ 'en', 'fr' ] );
+ok( 'and they are named', $dze_from_table[1]['native_name'] ?? '', 'Français' );
+// AND THE JOB THEN RUNS. This is the whole bug: an article with no register at
+// all came back "nothing had moved".
+$GLOBALS['posts'][ 910 ] = [ 'type' => 'post', 'post_title' => 'MOLLE pouches', 'post_content' => '<p>How to set one up.</p>', 'post_excerpt' => '' ];
+$dze_art = DZE_Translate::obj( 'post', 910, 'post' );
+ok( 'an article with no register is entirely owed',
+	array_keys( DZE_Translate::obj_stale( $dze_art, 'fr' ) ), [ 'title', 'content' ] );
+// The answer the model gives for THIS object, keyed by the fields that were
+// actually sent — a fake that answers a fixed shape proves nothing about what
+// travelled.
+$GLOBALS['model_answer'] = wp_json_encode( [ 'title' => 'Poches MOLLE', 'content' => '<p>Comment en installer une.</p>' ] );
+$dze_job = DZE_Translate::produce( $dze_art, [ 'fr' ] );
+ok( 'and the job actually sends it', array_keys( (array) $dze_job['langs'] ), [ 'fr' ] );
+
+// IT FAILS LOUDLY RATHER THAN QUIETLY: a language nobody can resolve is an
+// error on screen, never a silent skip that reads as "nothing had moved".
+$dze_bad = DZE_Translate::produce( $dze_art, [ 'zz' ] );
+ok( 'a language WPML does not offer is an error, not a silence',
+	array_keys( (array) $dze_bad['errors'] ), [ 'zz' ] );
+ok( 'and nothing was sent for it', $dze_bad['langs'], [] );
+unset( $GLOBALS['model_answer'] );
+$GLOBALS['langs_off'] = false;
+$GLOBALS['wpdb']->langs = [];
+
+echo "\nA VARIABLE PRODUCT WITHOUT ITS VARIATIONS IS NOT A PRODUCT\n";
+// The site's own reading: "Résultat d'une traduction faite par le module sur un
+// produit variable : product_type = variable, aucun axe déclaré, zéro
+// variation. En front : This product is currently out of stock and
+// unavailable… 163 des 277 produits non traduits de la boutique sont
+// variables."
+$GLOBALS['product_type'][700] = 'variable';
+ok( 'a variable product is known to need them',
+	DZE_Translate::needs_variations( $dze_shirt ), true );
+ok( 'and a simple one is not', DZE_Translate::needs_variations( $dze_art ), false );
+// WCML OWNS THAT JOB and is ASKED for it — never a second implementation here.
+$GLOBALS['wcml_asked'] = [];
+ok( 'WooCommerce Multilingual is the one asked to build them',
+	DZE_Translate::sync_variations( 700, 800, 'fr' ), true );
+ok( 'with the original, the translation and the language',
+	$GLOBALS['wcml_asked'], [ [ 700, 800, 'fr' ] ] );
+// AND THE ANSWER IS READ OFF THE SHOP, never off what the call returned: WCML
+// can be asked and still build nothing.
+ok( 'the translation is then known to hold variations',
+	DZE_Translate::synced_variations( $dze_shirt, 800 ), true );
+$GLOBALS['posts'][ 900 ] = [ 'type' => 'product', 'post_title' => 'Vide', 'post_content' => '', 'post_excerpt' => '' ];
+ok( 'and one that holds none says so',
+	DZE_Translate::synced_variations( $dze_shirt, 900 ), false );
+// WCML ABSENT ANSWERS FALSE rather than leaving a half-built product behind.
+$GLOBALS['no_wcml'] = true;
+ok( 'with WooCommerce Multilingual gone, it says it could not ask',
+	DZE_Translate::sync_variations( 700, 800, 'fr' ), false );
+$GLOBALS['no_wcml'] = false;
+$GLOBALS['product_type'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

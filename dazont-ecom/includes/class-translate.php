@@ -1277,6 +1277,19 @@ final class DZE_Translate {
 		foreach ( $langs as $lang ) {
 			$lang = sanitize_key( (string) $lang );
 			if ( '' === $lang || ! isset( $targets[ $lang ] ) ) {
+				// IT FAILS LOUDLY RATHER THAN QUIETLY. A language asked for and
+				// not recognised used to be skipped in silence — so when
+				// `wpml_active_languages` answered nothing in admin-ajax, every
+				// language fell through here, the job came back with no langs,
+				// no skipped and no errors, and the screen concluded "nothing
+				// had moved on any of them" on a shop that had translated
+				// nothing at all. An answer nobody asked for is worse than an
+				// error nobody wanted.
+				$out['errors'][ $lang ?: '?' ] = sprintf(
+					/* translators: %s: the language code that was asked for */
+					__( 'WPML does not offer %s as a translation of this one. Check that the language is active in WPML.', 'dazont-ecom' ),
+					strtoupper( (string) $lang )
+				);
 				continue;
 			}
 			// ONLY WHAT ACTUALLY MOVED IS PAID FOR — the whole reason this
@@ -1319,7 +1332,7 @@ final class DZE_Translate {
 	 * @return array{written:array<string,int>,errors:array<string,string>}
 	 */
 	public static function accept( array $o, array $keep ): array {
-		$out = [ 'written' => [], 'errors' => [] ];
+		$out = [ 'written' => [], 'errors' => [], 'warnings' => [] ];
 		if ( ! $o || ! $keep ) {
 			return $out;
 		}
@@ -1347,6 +1360,15 @@ final class DZE_Translate {
 				} catch ( \Throwable $e ) {
 					$out['errors'][ $lang ] = $e->getMessage();
 					continue;
+				}
+				// A VARIABLE PRODUCT WHOSE VARIATIONS COULD NOT BE BUILT is a
+				// page WooCommerce renders as "out of stock and unavailable",
+				// with no price and no buy button. The text was written and is
+				// worth keeping — so this is a warning and not an error — but a
+				// screen that says nothing about it is a screen that ships a
+				// hundred and sixty unbuyable pages without a word.
+				if ( self::needs_variations( $o ) && ! self::synced_variations( $o, $target ) ) {
+					$out['warnings'][ $lang ] = __( 'The text was written, but WooCommerce Multilingual did not build this translation\'s variations: until it does, the page shows as unavailable. Open it in WooCommerce Multilingual → Products.', 'dazont-ecom' );
 				}
 			}
 			self::obj_write( $o, $target, array_map( 'strval', $texts ) );
@@ -1735,7 +1757,88 @@ final class DZE_Translate {
 		// configured to copy, from the original. We never compute them.
 		do_action( 'wpml_sync_all_custom_fields', $pid );
 
+		// A VARIABLE PRODUCT WITHOUT ITS VARIATIONS IS NOT A PRODUCT.
+		// `wp_insert_post()` + the taxonomies gives a post of type `product`
+		// carrying the term `variable` and NOTHING under it — no axes, no
+		// variations, no price — and WooCommerce renders that as "currently out
+		// of stock and unavailable", with no price and no buy button. On this
+		// catalogue 163 of the 277 untranslated products are variable, so the
+		// module was one press away from publishing a hundred and sixty
+		// unbuyable pages in every language.
+		//
+		// Creating variations ourselves is exactly the second code path this
+		// plugin may not have: WooCommerce Multilingual owns that job and does
+		// it properly — the attribute slugs, the SKUs, the images, the sync
+		// hash. So we ASK IT, and when it is not there we say so rather than
+		// leaving a broken product behind.
+		self::sync_variations( $pid, $new_id, $lang );
+
 		return $new_id;
+	}
+
+	/** Is this object a variable product, i.e. one that has variations at all? */
+	public static function needs_variations( array $o ): bool {
+		if ( 'post' !== ( $o['kind'] ?? '' ) || 'product' !== ( $o['type'] ?? '' ) || ! function_exists( 'wc_get_product' ) ) {
+			return false;
+		}
+		$p = wc_get_product( (int) $o['id'] );
+		return $p && is_callable( [ $p, 'is_type' ] ) && $p->is_type( 'variable' );
+	}
+
+	/**
+	 * Did the translation actually END UP with variations?
+	 *
+	 * Read from the translation itself rather than from what `sync_variations()`
+	 * returned: WCML can be asked and still build nothing, and the only answer
+	 * worth putting on a screen is the state the shop is in.
+	 */
+	public static function synced_variations( array $o, int $target ): bool {
+		if ( ! $target || ! function_exists( 'get_children' ) ) {
+			return false;
+		}
+		return (bool) get_children( [
+			'post_parent' => $target,
+			'post_type'   => 'product_variation',
+			'post_status' => [ 'publish', 'private' ],
+			'numberposts' => 1,
+		] );
+	}
+
+	/**
+	 * ASK WOOCOMMERCE MULTILINGUAL TO BUILD THE TRANSLATION'S VARIATIONS.
+	 *
+	 * WCML already does this properly — `sync_product_variations()` is what its
+	 * own translation editor calls — so this is a bridge and not a second
+	 * implementation. Three rules:
+	 *
+	 *  - only a VARIABLE product has variations to build, and asking for a
+	 *    simple one would be work nobody needs;
+	 *  - WCML absent, or its method renamed in a future release, answers FALSE
+	 *    and the caller says so on screen — never a silent half-built product;
+	 *  - it is called AFTER the custom fields are synced, because the axes it
+	 *    reads (`_product_attributes`) arrive with that sync.
+	 *
+	 * @return bool Whether WCML was actually asked.
+	 */
+	public static function sync_variations( int $pid, int $new_id, string $lang ): bool {
+		if ( ! $pid || ! $new_id || '' === $lang ) {
+			return false;
+		}
+		if ( ! function_exists( 'wc_get_product' ) ) {
+			return false;
+		}
+		$product = wc_get_product( $pid );
+		if ( ! $product || ! is_callable( [ $product, 'is_type' ] ) || ! $product->is_type( 'variable' ) ) {
+			return false; // nothing to build, and that is not a failure.
+		}
+		// WCML's own object, reached the way WCML publishes it.
+		$wcml = function_exists( 'wcml_get_woocommerce_wpml' ) ? wcml_get_woocommerce_wpml() : null;
+		$sync = ( is_object( $wcml ) && isset( $wcml->sync_variations_data ) ) ? $wcml->sync_variations_data : null;
+		if ( ! is_object( $sync ) || ! is_callable( [ $sync, 'sync_product_variations' ] ) ) {
+			return false;
+		}
+		$sync->sync_product_variations( $pid, $new_id, $lang, [] );
+		return true;
 	}
 
 	/**
@@ -1906,7 +2009,34 @@ final class DZE_Translate {
 		}
 		$held = self::waiting( $o );
 		if ( ! $held ) {
-			wp_send_json_error( [ 'message' => __( 'Nothing is waiting on this one any more — it may have been decided in another tab.', 'dazont-ecom' ) ] );
+			// A SCREEN THAT LISTS OBJECTS OFFERS TO OPEN ONE. The batch list
+			// needs to show what a thing HOLDS before anybody decides to spend
+			// money translating it — the same "Look" the product bulk screen
+			// has, and the same panel: "ici sur cette page je manque d'une
+			// option pour visualiser en un clic le contenu actuel."
+			//
+			// A panel holding nothing offers neither Accept nor Refuse: a
+			// control that cannot act is a control nobody trusts.
+			$look = [];
+			foreach ( self::obj_targets( $o ) as $code => $name ) {
+				$target = self::obj_translation( $o, (string) $code );
+				$look[ (string) $code ] = [
+					'name'    => (string) $name,
+					'texts'   => [],
+					'current' => $target ? self::obj_read( array_merge( $o, [ 'id' => $target ] ) ) : [],
+					'exists'  => (bool) $target,
+					'mine'    => $target ? ( '1' === self::meta_read( $o, $target, self::META_MINE ) ) : true,
+					'edit'    => $target ? self::obj_edit_url( array_merge( $o, [ 'id' => $target ] ) ) : '',
+				];
+			}
+			wp_send_json_success( [
+				'look'   => true,
+				'label'  => self::obj_label( $o ),
+				'edit'   => self::obj_edit_url( $o ),
+				'source' => self::obj_read( $o ),
+				'labels' => self::labels_for( $o ),
+				'langs'  => $look,
+			] );
 		}
 		$langs = [];
 		foreach ( (array) $held['langs'] as $code => $texts ) {
@@ -1923,6 +2053,7 @@ final class DZE_Translate {
 			];
 		}
 		wp_send_json_success( [
+			'look'   => false,
 			'label'  => self::obj_label( $o ),
 			'edit'   => self::obj_edit_url( $o ),
 			'source' => (array) ( $held['src'] ?? [] ),
@@ -1955,6 +2086,10 @@ final class DZE_Translate {
 		wp_send_json_success( [
 			'written' => $done['written'],
 			'errors'  => $done['errors'],
+			// WHAT WAS WRITTEN, AND WHAT IS STILL WRONG WITH IT. A variable
+			// product whose variations WCML has not built shows as unavailable,
+			// and the screen that just said "Written ✓" must say so too.
+			'warnings'=> (array) ( $done['warnings'] ?? [] ),
 			// Whether this object is off the list, or still holds a language
 			// nobody decided on. A row that vanished on a half decision would
 			// be a list that lies.
@@ -2055,6 +2190,20 @@ final class DZE_Translate {
 				'saving'     => __( 'Writing…', 'dazont-ecom' ),
 				/* translators: %s: number of languages still waiting */
 				'someLeft'   => __( 'Written. %s language(s) on this one are still waiting.', 'dazont-ecom' ),
+				// THE TWO WORDS ON THE ROW, and which of the two things the
+				// panel opened on — the same pair the product bulk screen uses.
+				'look'       => __( 'Look', 'dazont-ecom' ),
+				'review'     => __( 'Review', 'dazont-ecom' ),
+				'holdsNow'   => __( 'What it holds today', 'dazont-ecom' ),
+				'holdsNone'  => __( 'Nothing translated in this language yet.', 'dazont-ecom' ),
+				/* translators: %s: number of rows ticked */
+				'nSelected'  => __( '%s selected', 'dazont-ecom' ),
+				// WHAT THE PRESS IS ABOUT TO DO, beside the press: rows times
+				// languages, which is the figure nobody had ever multiplied.
+				/* translators: 1: rows, 2: languages, 3: jobs */
+				'bill'       => __( '%1$s ticked × %2$s language(s) = %3$s translations to make', 'dazont-ecom' ),
+				'billNone'   => __( 'Nothing ticked.', 'dazont-ecom' ),
+				'stopped'    => __( 'Stopped.', 'dazont-ecom' ),
 			],
 		] );
 	}

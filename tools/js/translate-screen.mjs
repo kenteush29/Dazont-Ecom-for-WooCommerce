@@ -46,7 +46,7 @@ function dump( which ) {
 		[ join( here, '..', 'test-translate.php' ), 'dazont-ecom', '--dump-screen=' + which ],
 		{ encoding: 'utf8', cwd: root, stdio: [ 'ignore', 'pipe', 'ignore' ] } ) );
 }
-const dash   = dump( 'dashboard' );
+const dash   = dump( 'batch' );
 const review = dump( 'review' );
 // The plugin's own config, with only the address the harness has to answer on
 // replaced. Retyping the rest is how a gate goes green while proving nothing.
@@ -57,6 +57,9 @@ for ( const [ label, jq ] of jqs ) {
 	console.log( `\njQuery ${label}` );
 	const page = await browser.newPage();
 	const errors = [], sent = [];
+	// The review list's object IS holding something; the batch list's first row
+	// is not, which is what makes one say Review and the other Look.
+	let holding = false;
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 	page.on( 'dialog', d => d.accept() );
@@ -72,6 +75,18 @@ for ( const [ label, jq ] of jqs ) {
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		if ( 'dze_tr_batch' === q.get( 'action' ) ) {
 			return json( { label: 'Balaclavas', done: [ 'fr' ], skipped: [], errors: {} } );
+		}
+		if ( 'dze_tr_panel' === q.get( 'action' ) && 'term:7:product_cat' === q.get( 'ref' ) && !holding ) {
+			// NOTHING WAITING ON IT: the server answers with what the object
+			// holds today, and the panel offers nothing to press.
+			return json( {
+				look: true,
+				label: 'Balaclavas',
+				edit: 'https://kula.test/wp-admin/term.php?tag_ID=7',
+				source: { name: 'Balaclavas', description: 'Warm ones.' },
+				labels: { name: 'Name', description: 'Description' },
+				langs: { fr: { name: 'Français', texts: {}, current: { name: 'Cagoules' }, exists: true, mine: true, edit: '' } }
+			} );
 		}
 		if ( 'dze_tr_panel' === q.get( 'action' ) ) {
 			return json( {
@@ -109,18 +124,64 @@ for ( const [ label, jq ] of jqs ) {
 	const rowNames = await page.locator( '.dze-tr-row a' ).allTextContents();
 	ok( 'the categories of the shop are listed', rowNames.length, 2 );
 	ok( 'each says where it stands in each language',
-		await page.locator( '.dze-tr-row:first-child .dze-tr-chip' ).count(), 2 );
+		await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-chip' ).count(), 2 );
 	ok( 'and "not translated" is not dressed as "up to date"',
 		await page.locator( '.dze-tr-chip.is-missing' ).count() > 0, true );
 
-	// A press with nothing ticked says so rather than doing nothing.
+	// ---- THE BAR, THE BILL AND "LOOK" — the shape the bulk screen wears ----
+	// "Utiliser le même type de dashboard que pour les bulk content
+	// generation." Same bar, same words, same order, and the same two-word
+	// button on every row. Only a browser can multiply what is on the page.
+	await page.click( '#dze-tr-selall' );
+	ok( 'Select all takes every row',
+		await page.locator( '.dze-tr-pickone:checked' ).count(), 2 );
+	ok( 'and the bar says how many are ticked',
+		( await page.textContent( '#dze-tr-selcount' ) || '' ).includes( '2' ), true );
+	// WHAT THE PRESS IS ABOUT TO DO: rows times languages. Every figure was
+	// already on the screen and none had ever been multiplied.
+	ok( 'the bill multiplies the rows by the languages',
+		( await page.textContent( '#dze-tr-bill' ) || '' ).includes( '4' ), true );
+	await page.uncheck( '.dze-tr-lang[value="de"]' );
+	ok( 'and follows a language being dropped',
+		( await page.textContent( '#dze-tr-bill' ) || '' ).includes( '2' ), true );
+	await page.click( '#dze-tr-selnone' );
+	ok( 'Unselect all drops the lot',
+		await page.locator( '.dze-tr-pickone:checked' ).count(), 0 );
+	ok( 'and the bill says nothing is ticked',
+		await page.textContent( '#dze-tr-bill' ), cfg.i18n.billNone );
+
+	// ONE TICK PER BLOCK, IN ITS OWN HEADING — the same class and the same
+	// handler as every other screen with blocks.
+	ok( 'the languages block has a take-all in its heading',
+		await page.locator( '[data-sec="langs"] .dze-sec-head .dze-sec-all' ).count(), 1 );
+
+	// LOOK: what the object holds today, and a panel holding nothing offers
+	// neither Accept nor Refuse.
 	let before = sent.length;
+	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-open' ).click();
+	const looked = await page.waitForSelector( '.dze-tr-panel .dze-tr-panelbox', { timeout: 6000 } )
+		.then( () => true ).catch( () => false );
+	ok( 'pressing Look opens the object', looked, true );
+	const askedLook = sent.slice( before ).filter( s => 'dze_tr_panel' === s.action );
+	ok( 'it asked for that object and nothing else', ( askedLook[0] || {} ).ref, 'term:7:product_cat' );
+	ok( 'it prints what the object holds today',
+		( await page.textContent( '.dze-tr-panel' ) || '' ).includes( 'Balaclavas' ), true );
+	ok( 'and a panel holding nothing offers no Accept',
+		await page.locator( '.dze-tr-panel .dze-tr-accept' ).count(), 0 );
+	ok( 'nor a refusal', await page.locator( '.dze-tr-panel .dze-tr-refuse' ).count(), 0 );
+	ok( 'and the page never moved to show it', new URL( page.url() ).pathname, '/dash' );
+	ok( 'nothing was raised looking', errors, [] );
+	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-open' ).click();
+	await page.check( '.dze-tr-lang[value="de"]' );
+
+	// A press with nothing ticked says so rather than doing nothing.
+	before = sent.length;
 	await page.click( '#dze-tr-send' );
 	ok( 'a press with nothing ticked sends nothing', sent.length, before );
 
 	// The real gesture: tick a row, tick the languages that are already on,
 	// press, and read back WHAT WENT ON THE WIRE.
-	await page.check( '.dze-tr-row:first-child .dze-tr-pickone' );
+	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-pickone' ).check();
 	await page.uncheck( '.dze-tr-lang[value="de"]' ).catch( () => {} );
 	await page.click( '#dze-tr-send' );
 	const ranBatch = await page.waitForFunction(
@@ -143,13 +204,13 @@ for ( const [ label, jq ] of jqs ) {
 	// faire en fait. Comment je vérifies le contenu ?" The row that was sent
 	// says what came back ON ITSELF, and the sentence at the bottom carries a
 	// way to it rather than naming a tab.
-	const rowSaid = await page.textContent( '.dze-tr-row:first-child .dze-tr-state' );
+	const rowSaid = await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-state' ).textContent();
 	ok( 'the row that was sent says what came back',
 		( rowSaid || '' ).includes( cfg.i18n.rowHeld ), true );
 	ok( 'and no longer says it is not translated',
 		( rowSaid || '' ).includes( 'not translated' ), false );
 	ok( 'the row left alone is untouched',
-		( await page.textContent( '.dze-tr-row:nth-child(2) .dze-tr-state' ) || '' ).includes( cfg.i18n.rowHeld ), false );
+		( await page.locator( '.dze-tr-row' ).nth( 1 ).locator( '.dze-tr-state' ).textContent() || '' ).includes( cfg.i18n.rowHeld ), false );
 	ok( 'and the way to read what came back is offered',
 		await page.locator( `#dze-tr-sendstate a[href="${cfg.reviewUrl}"]` ).count(), 1 );
 	ok( 'nothing was raised sending a batch', errors, [] );
@@ -158,11 +219,11 @@ for ( const [ label, jq ] of jqs ) {
 	// translation, the arrows bring an out-of-date one back — and it runs the
 	// SAME job the batch button runs, never a second engine.
 	ok( 'a language that is owed is a button',
-		await page.locator( '.dze-tr-row:nth-child(2) button.dze-tr-one' ).count() > 0, true );
+		await page.locator( '.dze-tr-row' ).nth( 1 ).locator( 'button.dze-tr-one' ).count() > 0, true );
 	before = sent.length;
-	await page.click( '.dze-tr-row:nth-child(2) button.dze-tr-one[data-lang="fr"]' );
+	await page.locator( '.dze-tr-row' ).nth( 1 ).locator( 'button.dze-tr-one[data-lang="fr"]' ).click();
 	await page.waitForFunction(
-		() => !document.querySelector( '.dze-tr-row:nth-child(2) button.dze-tr-one[data-lang="fr"]' ),
+		() => !document.querySelectorAll( '.dze-tr-row' )[1].querySelector( 'button.dze-tr-one[data-lang="fr"]' ),
 		null, { timeout: 6000 } ).catch( () => {} );
 	const one = sent.slice( before ).filter( s => 'dze_tr_batch' === s.action );
 	ok( 'pressing it sends exactly one job', one.length, 1 );
@@ -171,9 +232,9 @@ for ( const [ label, jq ] of jqs ) {
 	// and must not be paid for.
 	ok( 'and only the language pressed', ( one[0] || {} ).langs, [ 'fr' ] );
 	ok( 'the chip says what came back',
-		( await page.textContent( '.dze-tr-row:nth-child(2) .dze-tr-state' ) || '' ).includes( cfg.i18n.rowHeld ), true );
+		( await page.locator( '.dze-tr-row' ).nth( 1 ).locator( '.dze-tr-state' ).textContent() || '' ).includes( cfg.i18n.rowHeld ), true );
 	ok( 'the other language of that row is still offered',
-		await page.locator( '.dze-tr-row:nth-child(2) button.dze-tr-one[data-lang="de"]' ).count(), 1 );
+		await page.locator( '.dze-tr-row' ).nth( 1 ).locator( 'button.dze-tr-one[data-lang="de"]' ).count(), 1 );
 	ok( 'nothing was raised pressing a flag', errors, [] );
 
 
@@ -243,6 +304,7 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'nothing was raised on a term screen', errors, [] );
 
 	// ---- THE WAITING LIST, AND THE DECISION ON IT ----
+	holding = true;
 	await page.route( 'http://dze.test/review', r => r.fulfill( { contentType: 'text/html', body: serve( review.html ) } ) );
 	await page.goto( 'http://dze.test/review', { waitUntil: 'domcontentloaded' } );
 	ok( 'the review list runs without an error', errors, [] );
