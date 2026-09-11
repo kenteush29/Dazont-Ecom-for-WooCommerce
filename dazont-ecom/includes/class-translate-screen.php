@@ -148,8 +148,43 @@ trait DZE_Translate_Screen {
 		return $out;
 	}
 
+	/**
+	 * HOW MANY WPML WANTS DONE AGAIN, per language, in one query.
+	 *
+	 * "Il faut aussi un compte des produits qui ont besoin d'une mise à jour
+	 * des trads. Voir la data WPML pour ça." Missing and out-of-date are two
+	 * different piles of work, and a screen showing only the first says the
+	 * catalogue is finished when it is not.
+	 *
+	 * @return array<string,int> language code => count
+	 */
+	public static function marked_for( array $scope ): array {
+		global $wpdb;
+		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) ) {
+			return [];
+		}
+		$name = DZE_Wpml::element_name( (string) $scope['kind'], (string) $scope['type'] );
+		$tr   = $wpdb->prefix . 'icl_translations';
+		$st   = $wpdb->prefix . 'icl_translation_status';
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own tables.
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT t.language_code AS lang, COUNT(*) AS n
+			   FROM {$tr} t
+			   INNER JOIN {$st} s ON s.translation_id = t.translation_id
+			  WHERE t.element_type = %s AND s.needs_update = 1
+		   GROUP BY t.language_code",
+			$name
+		), ARRAY_A );
+		// phpcs:enable
+		$out = [];
+		foreach ( $rows as $r ) {
+			$out[ (string) $r['lang'] ] = (int) $r['n'];
+		}
+		return $out;
+	}
+
 	public static function dash_body(): void {
-		$scope = self::scope();
+		$scope = self::picked_scope();
 		$langs = DZE_Wpml::get_active_languages();
 		$src   = DZE_Wpml::default_language();
 		?>
@@ -169,9 +204,13 @@ trait DZE_Translate_Screen {
 			<thead><tr>
 				<th><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
 				<?php foreach ( $langs as $l ) : ?>
-					<th style="width:110px;text-align:right;">
+					<!-- THE FLAG SAYS THE LANGUAGE, and it already carries the
+					     code inside it. Printed with the code again beside it
+					     and the native name after that, one language was said
+					     three times on one line: "n'afficher que le drapeau +
+					     code sans code écrit en dur. Partout." -->
+					<th style="width:120px;text-align:right;">
 						<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $l['code'] ) ); ?>
-						<?php echo esc_html( strtoupper( (string) $l['code'] ) ); ?>
 					</th>
 				<?php endforeach; ?>
 				<th style="width:120px;"></th>
@@ -180,6 +219,7 @@ trait DZE_Translate_Screen {
 			<?php foreach ( $scope as $key => $one ) : ?>
 				<?php
 				$counts = self::counts_for( $one );
+				$marked = self::marked_for( $one );
 				$total  = (int) ( $counts[ $src ] ?? 0 );
 				?>
 				<tr>
@@ -203,6 +243,13 @@ trait DZE_Translate_Screen {
 								<strong><?php echo esc_html( number_format_i18n( $have ) ); ?></strong>
 								<?php if ( $miss ) : ?>
 									<br /><span style="color:#b32d2e;"><?php echo esc_html( sprintf( /* translators: %s: number missing */ __( '%s missing', 'dazont-ecom' ), number_format_i18n( $miss ) ) ); ?></span>
+								<?php endif; ?>
+								<?php $due = (int) ( $marked[ $code ] ?? 0 ); ?>
+								<?php if ( $due ) : ?>
+									<!-- WPML'S OWN COUNT, and it is a different pile
+									     from the missing one: these exist and WPML
+									     wants them done again. -->
+									<br /><span style="color:#8a6d00;"><?php echo esc_html( sprintf( /* translators: %s: number WPML marked */ __( '%s to update', 'dazont-ecom' ), number_format_i18n( $due ) ) ); ?></span>
 								<?php endif; ?>
 							<?php endif; ?>
 						</td>
@@ -240,9 +287,13 @@ trait DZE_Translate_Screen {
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$paged   = max( 1, isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1 );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$all     = ! empty( $_GET['all'] );
 		$per     = 25;
 		[ $objects, $found ] = self::page_of( $scope, $src, $paged, $per );
 		$pages   = (int) ceil( $found / $per );
+		// WPML'S ANSWER FOR THE WHOLE PAGE, in one query rather than one a row.
+		$marks   = self::page_marks( $objects );
 		?>
 		<h2 style="margin-top:28px;"><?php echo esc_html( sprintf( /* translators: %s: what is being translated */ __( 'Send a batch — %s', 'dazont-ecom' ), $scope['label'] ) ); ?></h2>
 		<?php if ( ! $langs ) : ?>
@@ -253,8 +304,8 @@ trait DZE_Translate_Screen {
 			<p class="dze-tr-langs">
 				<strong><?php esc_html_e( 'Into', 'dazont-ecom' ); ?></strong>
 				<?php foreach ( $langs as $code => $name ) : ?>
-					<label class="dze-cb-check"><input type="checkbox" class="dze-tr-lang" value="<?php echo esc_attr( $code ); ?>" checked />
-						<span><?php echo wp_kses_post( DZE_Wpml::flag_html( $code ) ); ?> <?php echo esc_html( $name ); ?></span></label>
+					<label class="dze-cb-check" title="<?php echo esc_attr( $name ); ?>"><input type="checkbox" class="dze-tr-lang" value="<?php echo esc_attr( $code ); ?>" checked />
+						<span><?php echo wp_kses_post( DZE_Wpml::flag_html( $code ) ); ?></span></label>
 				<?php endforeach; ?>
 			</p>
 			<table class="widefat striped" style="max-width:980px;">
@@ -267,8 +318,21 @@ trait DZE_Translate_Screen {
 				<?php if ( ! $objects ) : ?>
 					<tr><td colspan="3"><?php esc_html_e( 'Nothing of this kind in the main language yet.', 'dazont-ecom' ); ?></td></tr>
 				<?php endif; ?>
+				<?php $dze_hidden = 0; ?>
 				<?php foreach ( $objects as $o ) : ?>
-					<?php $state = self::state_of( $o, array_keys( $langs ) ); ?>
+					<?php $state = self::state_of( $o, array_keys( $langs ), $marks ); ?>
+					<?php
+					// A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS
+					// SCREEN. "Un post qui n'est pas marqué comme ayant besoin
+					// d'une mise à jour de trad n'a aucune raison d'être
+					// affiché chez nous." Shown anyway, the list was every
+					// object the shop has and the work was invisible in it.
+					$dze_todo = array_filter( $state, static fn( $one ) => 'done' !== $one );
+					if ( ! $dze_todo && ! $all ) {
+						$dze_hidden++;
+						continue;
+					}
+					?>
 					<tr class="dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>">
 						<td class="check-column"><input type="checkbox" class="dze-tr-pickone" /></td>
 						<td>
@@ -277,7 +341,7 @@ trait DZE_Translate_Screen {
 						<td class="dze-tr-state">
 							<?php foreach ( $state as $code => $said ) : ?>
 								<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
-									<?php echo esc_html( strtoupper( $code ) ); ?> · <?php echo esc_html( self::state_said( $said ) ); ?>
+									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?> <?php echo esc_html( self::state_said( $said ) ); ?>
 								</span>
 							<?php endforeach; ?>
 						</td>
@@ -285,11 +349,27 @@ trait DZE_Translate_Screen {
 				<?php endforeach; ?>
 				</tbody>
 			</table>
+			<?php if ( $dze_hidden ) : ?>
+				<!-- WHAT WAS LEFT OUT, and the way to see it anyway: a list
+				     that silently drops rows is a list nobody trusts. -->
+				<p class="description">
+					<?php echo esc_html( sprintf( /* translators: %s: number of rows */ _n( '%s on this page is up to date and not shown.', '%s on this page are up to date and not shown.', $dze_hidden, 'dazont-ecom' ), number_format_i18n( $dze_hidden ) ) ); ?>
+					<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'paged' => $paged, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them too', 'dazont-ecom' ); ?></a>
+				</p>
+			<?php elseif ( $all ) : ?>
+				<p class="description">
+					<?php esc_html_e( 'Everything is shown, including what WPML is satisfied with.', 'dazont-ecom' ); ?>
+					<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'paged' => $paged ] ) ); ?>"><?php esc_html_e( 'Only what needs work', 'dazont-ecom' ); ?></a>
+				</p>
+			<?php endif; ?>
 			<?php if ( $pages > 1 ) : ?>
 				<p class="tablenav-pages" style="margin:10px 0;">
 					<?php
 					echo wp_kses_post( paginate_links( [
-						'base'    => esc_url_raw( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'paged' => '%#%' ] ) ),
+						'base'    => esc_url_raw( self::url( array_merge(
+							[ 'tab' => 'dashboard', 'scope' => $key, 'paged' => '%#%' ],
+							$all ? [ 'all' => 1 ] : []
+						) ) ),
 						'format'  => '',
 						'current' => $paged,
 						'total'   => $pages,
@@ -355,33 +435,87 @@ trait DZE_Translate_Screen {
 	}
 
 	/**
-	 * WHERE ONE OBJECT STANDS IN EACH LANGUAGE.
+	 * WHERE ONE OBJECT STANDS IN EACH LANGUAGE — WPML FIRST.
 	 *
-	 * Three answers and they are not the same question: nothing there at all,
-	 * there but made from words that have moved since, or there and current.
-	 * WPML's own mark cannot tell the last two apart — it is raised by a
-	 * renamed category — which is the whole reason the register exists.
+	 * "Tout est marqué 'words have moved'." It was, and the reading was ours
+	 * alone: the register lives on the translation, and ten thousand
+	 * translations made through a spreadsheet in 2025 have none, so every
+	 * field of every one of them looked new. True about our register, useless
+	 * about the shop.
 	 *
-	 * @return array<string,string> language => 'missing'|'stale'|'done'
+	 * WPML is the one that knows whether a translation is owed. Our register
+	 * answers the SECOND question, and it is the whole value of this module:
+	 * of the ones WPML marked, which have words that really moved, and which
+	 * were marked because somebody renamed a category — those cost nothing and
+	 * can be closed on the spot.
+	 *
+	 * @param array<int,array<string,string>> $marks WPML's answer for this page,
+	 *        read once in `page_marks()`; [] means "ask nothing, assume nothing".
+	 * @return array<string,string> language => 'missing'|'stale'|'noise'|'done'
 	 */
-	public static function state_of( array $o, array $langs ): array {
-		$out = [];
+	public static function state_of( array $o, array $langs, array $marks = [] ): array {
+		$out  = [];
+		$mine = $marks[ self::element_id_of( $o ) ] ?? null;
 		foreach ( $langs as $code ) {
 			$code = (string) $code;
-			if ( ! self::obj_translation( $o, $code ) ) {
-				$out[ $code ] = 'missing';
+			if ( null !== $mine ) {
+				// WPML has been asked. No row for that language means no
+				// translation at all; a row that is not marked means WPML is
+				// satisfied, and this module has nothing to say over it.
+				if ( ! isset( $mine[ $code ] ) ) {
+					$out[ $code ] = 'missing';
+					continue;
+				}
+				if ( 'done' === $mine[ $code ] ) {
+					$out[ $code ] = 'done';
+					continue;
+				}
+				// Marked. Now the register: what actually moved.
+				$out[ $code ] = self::obj_stale( $o, $code ) ? 'stale' : 'noise';
 				continue;
 			}
-			$out[ $code ] = self::obj_stale( $o, $code ) ? 'stale' : 'done';
+			// WPML could not be asked — no tables, or a shop without them.
+			// Falling through to "everything is stale" is what made the screen
+			// unreadable, so the honest answer is the one thing still knowable:
+			// is there a translation at all.
+			$out[ $code ] = self::obj_translation( $o, $code ) ? 'done' : 'missing';
 		}
 		return $out;
 	}
 
-	/** Those three answers in words. In PHP: hard-coded in the JavaScript they were English on every shop. */
+	/** WPML indexes a post by its id and a term by its TERM TAXONOMY id. */
+	public static function element_id_of( array $o ): int {
+		return 'term' === ( $o['kind'] ?? 'post' )
+			? DZE_Wpml::term_element_id( (int) $o['id'], (string) $o['type'] )
+			: (int) $o['id'];
+	}
+
+	/** WPML's answer for a whole page of objects, in one query. */
+	public static function page_marks( array $objects ): array {
+		if ( ! $objects ) {
+			return [];
+		}
+		$first = $objects[0];
+		$ids   = array_map( [ __CLASS__, 'element_id_of' ], $objects );
+		return DZE_Wpml::translation_marks(
+			$ids,
+			DZE_Wpml::element_name( (string) $first['kind'], (string) $first['type'] )
+		);
+	}
+
+	/**
+	 * Those four answers in words. In PHP: hard-coded in the JavaScript they
+	 * were English on every shop.
+	 */
 	public static function state_said( string $state ): string {
 		$words = [
 			'missing' => __( 'not translated', 'dazont-ecom' ),
 			'stale'   => __( 'words have moved', 'dazont-ecom' ),
+			// THE MODULE'S WHOLE POINT, said in three words: WPML wants this
+			// one done again and not one word of it has changed. It costs
+			// nothing to close, and the screen should say so rather than
+			// charging for it.
+			'noise'   => __( 'marked, nothing moved', 'dazont-ecom' ),
 			'done'    => __( 'up to date', 'dazont-ecom' ),
 		];
 		return (string) ( $words[ $state ] ?? $state );

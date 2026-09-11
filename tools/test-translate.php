@@ -155,10 +155,18 @@ class DZE_Tr_Test_Wpdb {
 		return '';
 	}
 	public function get_col( $q ) { return []; }
+	/** WPML's own marks, as the screen asks for them. */
+	public array $marks = [];   // rows of [ src, lang, needs ]
+	public array $counts = [];  // rows of [ lang, n ]
+	public array $due = [];     // rows of [ lang, n ] for needs_update = 1
 	public function get_results( $q, $o = null ) {
 		$sql = (string) $q;
 		if ( false !== stripos( $sql, 'wp_postmeta' ) ) { return $this->waiting_posts; }
 		if ( false !== stripos( $sql, 'wp_termmeta' ) ) { return $this->waiting_terms; }
+		// The three readings of WPML's tables, told apart by what they select.
+		if ( false !== stripos( $sql, 'needs_update = 1' ) ) { return $this->due; }
+		if ( false !== stripos( $sql, 'AS src' ) ) { return $this->marks; }
+		if ( false !== stripos( $sql, 'icl_translations' ) ) { return $this->counts; }
 		return [];
 	}
 	public function update( $table, $data, $where, $f = null, $wf = null ) {
@@ -253,7 +261,9 @@ function get_taxonomy( $tax ) {
 	return isset( $known[ $tax ] ) ? (object) [ 'labels' => (object) [ 'name' => $known[ $tax ] ] ] : null;
 }
 function get_post_type_object( $type ) {
-	$known = [ 'product' => 'Products', 'post' => 'Posts', 'page' => 'Pages' ];
+	// A type the shop could choose but is not one of the six: the fake shop
+	// has to hold one, or "optional" cannot be exercised at all.
+	$known = [ 'product' => 'Products', 'post' => 'Posts', 'page' => 'Pages', 'acme_doc' => 'Documents' ];
 	return isset( $known[ $type ] ) ? (object) [ 'public' => true, 'labels' => (object) [ 'name' => $known[ $type ] ] ] : null;
 }
 function get_object_taxonomies( $type ) { return 'product' === $type ? [ 'product_cat', 'product_type' ] : [ 'post_tag' ]; }
@@ -625,6 +635,172 @@ $prod = [ 'kind' => 'post', 'id' => 40, 'type' => 'product' ];
 DZE_Translate::obj_write( $prod, 40, [ 'seo_title' => 'Titre', 'seo_desc' => 'Description' ] );
 ok( 'the field WPML translates is written',     get_post_meta( 40, 'rank_math_title', true ), 'Titre' );
 ok( 'the field WPML copies is left alone',      get_post_meta( 40, 'rank_math_description', true ), '' );
+
+// =============================================================================
+// THE THINGS NOTHING MAY EVER OFFER TO TRANSLATE
+//
+// WPML declares `attachment` translatable, and it means something quite
+// different there than it does here: translating a media, for this module, is
+// wp_insert_post() with the source type — a DUPLICATE attachment row per
+// language. Three of this shop's sites had just been cleared of 24,531 such
+// duplicates and 1.1 GB of database; one campaign over "Media" would have put
+// every one of them back.
+// =============================================================================
+echo "\nMedia is never translated, whatever WPML says\n";
+$GLOBALS['opts']['icl_sitepress_settings'] = [
+	'custom_posts_sync_option' => [ 'product' => 2, 'post' => 1, 'page' => 1, 'attachment' => 1 ],
+	'taxonomies_sync_option'   => [ 'product_cat' => 1, 'product_tag' => 1, 'pa_colour' => 1, 'translation_priority' => 1 ],
+];
+ok( 'WPML says media is translatable',
+	(int) ( $GLOBALS['opts']['icl_sitepress_settings']['custom_posts_sync_option']['attachment'] ), 1 );
+ok( 'and this module refuses anyway',     DZE_Wpml::is_translated_type( 'attachment' ), false );
+ok( 'it is not in the list of types',     isset( DZE_Wpml::translatable_types()['attachment'] ), false );
+ok( 'and never reaches the screen',       isset( DZE_Translate::scope()['post:attachment'] ), false );
+// WPML's own internal taxonomy: translating the word "urgent" helps nobody.
+ok( 'WPML priority is refused too',       DZE_Wpml::is_translated_taxonomy( 'translation_priority' ), false );
+ok( 'and is off the screen',              isset( DZE_Translate::scope()['term:translation_priority'] ), false );
+// The real ones are still there — a guard that took everything with it would
+// be worse than the fault.
+ok( 'products are still translated',      DZE_Wpml::is_translated_type( 'product' ), true );
+ok( 'and the colour attribute too',       DZE_Wpml::is_translated_taxonomy( 'pa_colour' ), true );
+
+echo "\nA third of the product text was never sent\n";
+// The theme keeps two written blocks in custom fields — 614,295 characters on
+// this catalogue against 1,849,581 in post_content — and none of it travelled,
+// so a French product page came out a third in English.
+$dze_fields = DZE_Translate::fields( 'post' );
+ok( 'the first content block is a field',  isset( $dze_fields['block_text_1'] ), true );
+ok( 'and the second',                      isset( $dze_fields['block_text_2'] ), true );
+ok( 'each one names its own custom field', [ $dze_fields['block_text_1']['key'], $dze_fields['block_text_2']['key'] ], [ 'block_text_1', 'block_text_2' ] );
+ok( 'and they carry HTML, like a description', $dze_fields['block_text_1']['html'], true );
+// DEAD FIELDS ARE NOT ADDED. `_purchase_note` and `_button_text` were in the
+// original specification and are empty on all 2,105 English products here: a
+// field on a screen is a decision somebody takes every time they read it.
+ok( 'the purchase note is not offered',    isset( $dze_fields['_purchase_note'] ), false );
+ok( 'nor the button text',                 isset( $dze_fields['_button_text'] ), false );
+// And they are really READ off the product, not merely listed.
+$GLOBALS['posts'][60] = [ 'post_title' => 'Cap', 'post_content' => 'Body.', 'post_excerpt' => '', 'type' => 'product' ];
+$GLOBALS['meta'][60]['block_text_1'] = '<p>Made in Europe.</p>';
+$dze_prod = [ 'kind' => 'post', 'id' => 60, 'type' => 'product' ];
+ok( 'a block the product holds is read',
+	( DZE_Translate::obj_read( $dze_prod )['block_text_1'] ?? '' ), '<p>Made in Europe.</p>' );
+DZE_Translate::obj_write( $dze_prod, 60, [ 'block_text_1' => '<p>Fabriqué en Europe.</p>' ] );
+ok( 'and written back onto the translation',
+	get_post_meta( 60, 'block_text_1', true ), '<p>Fabriqué en Europe.</p>' );
+
+echo "\nThe list is the shop's own, and six things are always in it\n";
+$GLOBALS['opts']['dze_translate_settings'] = [];
+$dze_pick = DZE_Translate::picked_scope();
+foreach ( [ 'post:page', 'post:post', 'post:product', 'term:product_cat', 'term:product_tag' ] as $dze_k ) {
+	ok( $dze_k . ' is always translated',   isset( $dze_pick[ $dze_k ] ), true );
+}
+// An attribute is in by the RULE, never by name: a shop adds one next month
+// and a list written today would not have it.
+ok( 'and every product attribute with them', isset( $dze_pick['term:pa_colour'] ), true );
+ok( 'a new attribute is in by the rule too', DZE_Translate::is_always( 'term:pa_material' ), true );
+// Everything else starts OUT and is a tick.
+$GLOBALS['opts']['icl_sitepress_settings']['custom_posts_sync_option']['acme_doc'] = 1;
+ok( 'an optional type is offered',        isset( DZE_Translate::scope()['post:acme_doc'] ), true );
+ok( 'and is not translated until ticked', isset( DZE_Translate::picked_scope()['post:acme_doc'] ), false );
+$GLOBALS['opts']['dze_translate_settings'] = [ 'scope' => [ 'post:acme_doc' ] ];
+ok( 'ticked, it joins the list',          isset( DZE_Translate::picked_scope()['post:acme_doc'] ), true );
+ok( 'and the six are still there',        isset( DZE_Translate::picked_scope()['post:product'] ), true );
+// THE SETTING IS WRITTEN ONLY WHEN THE FORM CARRIED IT, or another tab's save
+// empties the shop's list without anybody touching it.
+$dze_tr = DZE_Translate::instance();
+$dze_tr->sanitize( [ 'glossary' => 'MOLLE' ] );
+ok( 'another form saving does not empty the list',
+	DZE_Translate::get_settings()['scope'] ?? null, [ 'post:acme_doc' ] );
+ok( 'and a sanitizer called with null keeps everything',
+	( $dze_tr->sanitize( null )['scope'] ?? null ), [ 'post:acme_doc' ] );
+// Unticking the last one IS an answer, and must be storable.
+$dze_out = $dze_tr->sanitize( [ 'scope_sent' => 1 ] );
+ok( 'unticking everything is kept',       $dze_out['scope'], [] );
+$GLOBALS['opts']['dze_translate_settings'] = [];
+
+echo "\nWhere an object stands is WPML's answer first\n";
+// "Tout est marqué words have moved." It was: the register lives on the
+// translation, and ten thousand translations made through a spreadsheet have
+// none, so every field of every one of them looked new. True about our
+// register, useless about the shop.
+$GLOBALS['terms'] = [
+	7 => [ 'name' => 'Balaclavas', 'description' => 'Warm.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
+	8 => [ 'name' => 'Cagoules',   'description' => 'Chaud.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
+];
+$cat2 = DZE_Translate::obj( 'term', 7 );
+$GLOBALS['translated'][7]['fr'] = 8;
+// WPML is satisfied: nothing for this module to say, whatever our register holds.
+$marks = [ 1007 => [ 'fr' => 'done' ] ];
+ok( 'a translation WPML is happy with is up to date',
+	DZE_Translate::state_of( $cat2, [ 'fr' ], $marks ), [ 'fr' => 'done' ] );
+// A language WPML has no row for has no translation at all.
+ok( 'a language with no row is missing',
+	DZE_Translate::state_of( $cat2, [ 'de' ], $marks ), [ 'de' => 'missing' ] );
+// WPML marked it AND the words really moved: this is work.
+$marks = [ 1007 => [ 'fr' => 'marked' ] ];
+ok( 'marked with words that moved is work',
+	DZE_Translate::state_of( $cat2, [ 'fr' ], $marks ), [ 'fr' => 'stale' ] );
+// WPML marked it and NOT ONE WORD changed — the module's whole point, and it
+// costs nothing to close.
+DZE_Translate::remember( 8, DZE_Translate::obj_read( $cat2 ), $cat2 );
+ok( 'marked with nothing moved is named as such',
+	DZE_Translate::state_of( $cat2, [ 'fr' ], $marks ), [ 'fr' => 'noise' ] );
+ok( 'and it says so in words',            DZE_Translate::state_said( 'noise' ), 'marked, nothing moved' );
+// WPML could not be asked at all: the honest answer is the one thing still
+// knowable, never "everything has moved".
+ok( 'with no answer from WPML, only existence is claimed',
+	DZE_Translate::state_of( $cat2, [ 'fr', 'de' ] ), [ 'fr' => 'done', 'de' => 'missing' ] );
+// WPML indexes a term by its TERM TAXONOMY id, never its term id: one wrong
+// number here and every mark silently belongs to another object.
+ok( 'a term is looked up by its term taxonomy id', DZE_Translate::element_id_of( $cat2 ), 1007 );
+ok( 'and a post by its own id', DZE_Translate::element_id_of( $dze_prod ), 60 );
+
+echo "\nAnd the screen draws exactly that\n";
+// DRAW THE SCREEN, never call the helper: calling state_of() proves the
+// reading and nothing about whether the screen asks for it — which is how a
+// block added to a screen can ship never executed.
+$GLOBALS['opts']['icl_sitepress_settings'] = [
+	'custom_posts_sync_option' => [ 'product' => 2, 'post' => 1, 'page' => 1, 'attachment' => 1 ],
+	'taxonomies_sync_option'   => [ 'product_cat' => 1, 'pa_colour' => 1, 'translation_priority' => 1 ],
+];
+$GLOBALS['terms'] = [
+	7 => [ 'name' => 'Balaclavas',     'description' => 'Warm.',  'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
+	8 => [ 'name' => 'Plate carriers', 'description' => 'Heavy.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
+];
+// 7 is marked by WPML; 8 is one WPML is satisfied with.
+$GLOBALS['wpdb']->marks  = [
+	[ 'src' => 1007, 'lang' => 'fr', 'needs' => 1 ],
+	[ 'src' => 1008, 'lang' => 'fr', 'needs' => 0 ],
+	[ 'src' => 1008, 'lang' => 'de', 'needs' => 0 ],
+];
+$GLOBALS['wpdb']->counts = [ [ 'lang' => 'en', 'n' => 2 ], [ 'lang' => 'fr', 'n' => 2 ] ];
+$GLOBALS['wpdb']->due    = [ [ 'lang' => 'fr', 'n' => 14 ] ];
+$_GET = [ 'tab' => 'dashboard', 'scope' => 'term:product_cat' ];
+ob_start(); DZE_Translate::instance()->render_page(); $dze_page = (string) ob_get_clean();
+
+// A PAGE WPML IS SATISFIED WITH HAS NOTHING TO DO ON THIS SCREEN.
+ok( 'the marked category is listed',      false !== strpos( $dze_page, 'Balaclavas' ), true );
+ok( 'and the satisfied one is not',       false !== strpos( $dze_page, 'Plate carriers' ), false );
+ok( 'the screen says what it left out',   false !== strpos( $dze_page, 'not shown' ), true );
+ok( 'and offers to show it anyway',       false !== strpos( $dze_page, 'Show them too' ), true );
+// WPML'S OWN COUNT, beside the missing one: two different piles of work.
+ok( "WPML's count of what is owed is on the dashboard",
+	false !== strpos( $dze_page, '14 to update' ), true );
+// THE FLAG SAYS THE LANGUAGE, ONCE. It carries the code inside it already.
+ok( 'the language is drawn as a flag',    false !== strpos( $dze_page, 'dze-lang-code' ), true );
+ok( 'and its native name is not repeated beside it',
+	false !== strpos( $dze_page, '</span> Français' ), false );
+// AND MEDIA IS NOWHERE ON IT.
+ok( 'media is not on the screen',         false !== stripos( $dze_page, 'attachment' ), false );
+
+// Everything, when it is asked for.
+$_GET['all'] = 1;
+ob_start(); DZE_Translate::instance()->render_page(); $dze_all = (string) ob_get_clean();
+ok( 'asked for everything, the satisfied one is back',
+	false !== strpos( $dze_all, 'Plate carriers' ), true );
+ok( 'and the way back to the work is offered',
+	false !== strpos( $dze_all, 'Only what needs work' ), true );
+$_GET = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
