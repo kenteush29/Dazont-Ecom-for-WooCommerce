@@ -355,10 +355,34 @@ function wcml_get_woocommerce_wpml() {
 	if ( ! empty( $GLOBALS['no_wcml'] ) ) { return null; }
 	return new class {
 		public $sync_variations_data;
+		public $attributes;
+		public $sync_product_data;
 		public function __construct() {
+			// THE WHOLE JOB IN ONE CALL, on the WCML builds that have it.
+			if ( ! empty( $GLOBALS['wcml_whole'] ) ) {
+				$this->sync_product_data = new class {
+					public function sync_product_data( $pid, $tr, $lang ) {
+						$GLOBALS['wcml_asked'][] = [ 'sync_product_data', (int) $pid, (int) $tr, (string) $lang ];
+					}
+				};
+			}
+			// THE AXES. Their absence is what the fallback has to survive.
+			if ( empty( $GLOBALS['no_wcml_attrs'] ) ) {
+				$this->attributes = new class {
+					public function sync_product_attr( $pid, $tr, $lang ) {
+						$GLOBALS['wcml_asked'][] = [ 'sync_product_attr', (int) $pid, (int) $tr, (string) $lang ];
+						// WCML hands the ORIGINAL's attributes back, which is
+						// what the variation step is then built along.
+						return (array) ( $GLOBALS['meta'][ (int) $pid ]['_product_attributes'] ?? [] );
+					}
+				};
+			}
 			$this->sync_variations_data = new class {
 				public function sync_product_variations( $pid, $tr, $lang, $args = [] ) {
-					$GLOBALS['wcml_asked'][] = [ (int) $pid, (int) $tr, (string) $lang ];
+					$GLOBALS['wcml_asked'][] = [ 'sync_product_variations', (int) $pid, (int) $tr, (string) $lang, $args ];
+					// A build that happened puts a variation under the
+					// translation, which is what the screen reads back.
+					$GLOBALS['posts'][ 801 ] = $GLOBALS['posts'][ 801 ] ?? [ 'type' => 'product_variation', 'post_parent' => (int) $tr, 'post_title' => '', 'post_content' => '', 'post_excerpt' => '' ];
 				}
 			};
 		}
@@ -495,6 +519,28 @@ if ( '' !== $dze_dump ) {
 		7 => [ 'name' => 'Balaclavas', 'description' => 'Warm ones.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1007 ],
 		8 => [ 'name' => 'Plate carriers', 'description' => 'Heavy.', 'taxonomy' => 'product_cat', 'parent' => 0, 'term_taxonomy_id' => 1008 ],
 	];
+	// THE PRODUCT POPUP, which had no browser gate at all — which is exactly
+	// the screen where a button shipped with an empty fourth argument and
+	// nobody could tell: "les attributs produits et les variations ne sont
+	// toujours pas là sur le produit traduit."
+	if ( 'popup' === $dze_dump ) {
+		$GLOBALS['posts'][700] = [ 'type' => 'product', 'post_title' => 'Field shirt', 'post_content' => '<p>A shirt.</p>', 'post_excerpt' => '' ];
+		$GLOBALS['posts'][800] = [ 'type' => 'product', 'post_title' => 'Chemise', 'post_content' => '', 'post_excerpt' => '' ];
+		$GLOBALS['posts'][701] = [ 'type' => 'product_variation', 'post_parent' => 700, 'post_title' => '', 'post_content' => '', 'post_excerpt' => 'Olive.' ];
+		$GLOBALS['product_type'][700] = 'variable';
+		$GLOBALS['translated'][700]['fr'] = 800;
+		$GLOBALS['terms'][50] = [ 'name' => 'Olive Drab', 'description' => '', 'taxonomy' => 'pa_colour', 'parent' => 0, 'term_taxonomy_id' => 1050 ];
+		$GLOBALS['object_terms'][700] = [ 50 ];
+		$GLOBALS['editing_id'] = 700;
+		$GLOBALS['post'] = get_post( 700 );
+		$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
+		$GLOBALS['loc'] = [];
+		DZE_Translate::instance()->assets( 'post.php' );
+		ob_start();
+		DZE_Translate::instance()->popup();
+		echo wp_json_encode( [ 'html' => (string) ob_get_clean(), 'cfg' => $GLOBALS['loc']['dzeTranslate'] ?? [] ] );
+		exit( 0 );
+	}
 	$_GET['tab'] = 'review' === $dze_dump ? 'review' : ( 'dashboard' === $dze_dump ? 'dashboard' : 'batch' );
 	if ( 'review' === $dze_dump ) {
 		$held = wp_json_encode( [
@@ -1372,11 +1418,40 @@ ok( 'a variable product is known to need them',
 	DZE_Translate::needs_variations( $dze_shirt ), true );
 ok( 'and a simple one is not', DZE_Translate::needs_variations( $dze_art ), false );
 // WCML OWNS THAT JOB and is ASKED for it — never a second implementation here.
+// THE AXES FIRST, AND THEY ARE WHAT THE VARIATIONS ARE BUILT ALONG. The first
+// version of this bridge called sync_product_variations() with an EMPTY fourth
+// argument — and that argument IS the axes, so WCML built nothing and the
+// product stayed unavailable: "les attributs produits et les variations ne sont
+// toujours pas là sur le produit traduit."
+$GLOBALS['meta'][700]['_product_attributes'] = [ 'pa_colour' => [ 'name' => 'pa_colour', 'is_variation' => 1 ] ];
 $GLOBALS['wcml_asked'] = [];
 ok( 'WooCommerce Multilingual is the one asked to build them',
-	DZE_Translate::sync_variations( 700, 800, 'fr' ), true );
-ok( 'with the original, the translation and the language',
-	$GLOBALS['wcml_asked'], [ [ 700, 800, 'fr' ] ] );
+	DZE_Translate::sync_product( 700, 800, 'fr' ), 'attributes+variations' );
+ok( 'the attributes are copied before the variations are built',
+	array_column( $GLOBALS['wcml_asked'], 0 ), [ 'sync_product_attr', 'sync_product_variations' ] );
+ok( 'each with the original, the translation and the language',
+	[ $GLOBALS['wcml_asked'][1][1], $GLOBALS['wcml_asked'][1][2], $GLOBALS['wcml_asked'][1][3] ],
+	[ 700, 800, 'fr' ] );
+// THE FOURTH ARGUMENT IS THE AXES, AND IT IS NEVER EMPTY.
+ok( 'and the variations are built along the axes, never against nothing',
+	array_keys( (array) $GLOBALS['wcml_asked'][1][4] ), [ 'pa_colour' ] );
+// WITH WCML'S ATTRIBUTE STEP MISSING, the axes are read straight off the
+// original rather than handing WCML an empty array.
+$GLOBALS['no_wcml_attrs'] = true;
+$GLOBALS['wcml_asked']    = [];
+ok( 'without WCML\'s attribute step the axes come off the original',
+	array_keys( (array) ( $GLOBALS['wcml_asked'][0][4] ?? ( DZE_Translate::sync_product( 700, 800, 'fr' ) ? $GLOBALS['wcml_asked'][0][4] : [] ) ) ),
+	[ 'pa_colour' ] );
+$GLOBALS['no_wcml_attrs'] = false;
+// THE WHOLE JOB IN ONE CALL where this WCML has it: one call WCML maintains is
+// worth more than two we have to keep in step with it.
+$GLOBALS['wcml_whole'] = true;
+$GLOBALS['wcml_asked'] = [];
+ok( 'a WCML that does the whole job is asked once',
+	DZE_Translate::sync_product( 700, 800, 'fr' ), 'sync_product_data' );
+ok( 'and the pieces are not asked for twice',
+	array_column( $GLOBALS['wcml_asked'], 0 ), [ 'sync_product_data' ] );
+$GLOBALS['wcml_whole'] = false;
 // AND THE ANSWER IS READ OFF THE SHOP, never off what the call returned: WCML
 // can be asked and still build nothing.
 ok( 'the translation is then known to hold variations',
@@ -1387,8 +1462,36 @@ ok( 'and one that holds none says so',
 // WCML ABSENT ANSWERS FALSE rather than leaving a half-built product behind.
 $GLOBALS['no_wcml'] = true;
 ok( 'with WooCommerce Multilingual gone, it says it could not ask',
-	DZE_Translate::sync_variations( 700, 800, 'fr' ), false );
+	DZE_Translate::sync_product( 700, 800, 'fr' ), '' );
 $GLOBALS['no_wcml'] = false;
+
+echo "\nAND A TRANSLATION ALREADY BROKEN IS MENDED WITHOUT PAYING FOR A WORD\n";
+// "Je ne peux pas modifier les attributs sur un produit traduit ni les
+// variations. C'est normalement copié du produit original." WCML keeps them
+// read-only on a translation, so the shop cannot mend one by hand — and
+// re-translating would pay for words nobody changed.
+$GLOBALS['translated'][700]['fr'] = 800;
+$GLOBALS['wcml_asked'] = [];
+$dze_fix = DZE_Translate::rebuild_product( 700 );
+ok( 'the repair runs for every language that has a translation',
+	array_keys( $dze_fix ), [ 'fr' ] );
+ok( 'and it asked WCML rather than writing anything itself',
+	array_column( $GLOBALS['wcml_asked'], 0 ), [ 'sync_product_attr', 'sync_product_variations' ] );
+ok( 'it says what the translation held before',   $dze_fix['fr']['before'] ?? -1, 1 );
+// THE ANSWER IS READ OFF THE SHOP, never off what the call returned.
+ok( 'and reads back what it holds now',           $dze_fix['fr']['after'] ?? -1, 1 );
+// A SIMPLE PRODUCT HAS NOTHING TO REBUILD, and that is not a failure.
+ok( 'a product with no variations is not touched', DZE_Translate::rebuild_product( 910 ), [] );
+// THE POPUP SAYS THE STATE AND OFFERS THE ONE REPAIR.
+$GLOBALS['editing_id'] = 700;
+$GLOBALS['screen'] = (object) [ 'id' => 'product', 'post_type' => 'product', 'base' => 'post', 'taxonomy' => '' ];
+$GLOBALS['post'] = get_post( 700 );
+ob_start(); DZE_Translate::instance()->popup(); $dze_vp = (string) ob_get_clean();
+$GLOBALS['post'] = null;
+ok( 'the popup says where each language stands',
+	false !== strpos( $dze_vp, 'Attributes and variations' ), true );
+ok( 'and offers the repair that costs nothing',
+	false !== strpos( $dze_vp, 'id="dze-tr-rebuild"' ), true );
 $GLOBALS['product_type'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

@@ -75,6 +75,10 @@ final class DZE_Translate {
 		add_action( 'add_meta_boxes', [ $this, 'popup_hook' ] );
 		add_action( 'wp_ajax_dze_tr_preview', [ $this, 'ajax_preview' ] );
 		add_action( 'wp_ajax_dze_tr_apply', [ $this, 'ajax_apply' ] );
+		// The attributes and the variations of a translation cannot be edited by
+		// hand — WooCommerce Multilingual keeps them read-only and syncs them
+		// from the original — so the only way to mend one is to ask for the sync.
+		add_action( 'wp_ajax_dze_tr_rebuild', [ $this, 'ajax_rebuild' ] );
 		// The module's own screen, and the three presses on it.
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
@@ -1771,7 +1775,7 @@ final class DZE_Translate {
 		// it properly — the attribute slugs, the SKUs, the images, the sync
 		// hash. So we ASK IT, and when it is not there we say so rather than
 		// leaving a broken product behind.
-		self::sync_variations( $pid, $new_id, $lang );
+		self::sync_product( $pid, $new_id, $lang );
 
 		return $new_id;
 	}
@@ -1788,7 +1792,7 @@ final class DZE_Translate {
 	/**
 	 * Did the translation actually END UP with variations?
 	 *
-	 * Read from the translation itself rather than from what `sync_variations()`
+	 * Read from the translation itself rather than from what `sync_product()`
 	 * returned: WCML can be asked and still build nothing, and the only answer
 	 * worth putting on a screen is the state the shop is in.
 	 */
@@ -1805,40 +1809,128 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * ASK WOOCOMMERCE MULTILINGUAL TO BUILD THE TRANSLATION'S VARIATIONS.
+	 * ASK WOOCOMMERCE MULTILINGUAL TO MAKE THE TRANSLATION A REAL PRODUCT.
 	 *
-	 * WCML already does this properly — `sync_product_variations()` is what its
-	 * own translation editor calls — so this is a bridge and not a second
-	 * implementation. Three rules:
+	 * "Les attributs produits et les variations ne sont toujours pas là sur le
+	 * produit traduit." They were not, and the first attempt at this bridge is
+	 * why: it called `sync_product_variations()` with an EMPTY fourth argument.
+	 * That argument is the ORIGINAL PRODUCT'S ATTRIBUTES — the axes the
+	 * variations are built along — so with `[]` there was nothing to build
+	 * against and WCML did exactly what it was asked: nothing.
 	 *
-	 *  - only a VARIABLE product has variations to build, and asking for a
-	 *    simple one would be work nobody needs;
-	 *  - WCML absent, or its method renamed in a future release, answers FALSE
-	 *    and the caller says so on screen — never a silent half-built product;
-	 *  - it is called AFTER the custom fields are synced, because the axes it
-	 *    reads (`_product_attributes`) arrive with that sync.
+	 * The order below is WCML's own translation editor's, and it has to be kept:
 	 *
-	 * @return bool Whether WCML was actually asked.
+	 *   1. `attributes->sync_product_attr()` writes `_product_attributes` onto
+	 *      the translation with the terms translated, and RETURNS the original's
+	 *      attributes. Nothing else writes that key — WPML holds it on "Don't
+	 *      translate" on this shop, so `wpml_sync_all_custom_fields` skips it and
+	 *      the translation has no axes at all;
+	 *   2. `sync_variations_data->sync_product_variations()` builds the
+	 *      variations along THOSE axes.
+	 *
+	 * `sync_product_data->sync_product_data()` is the whole job in one call and
+	 * is used when this WCML exposes it, because one call that WCML maintains is
+	 * worth more than two we have to keep in step with it.
+	 *
+	 * Building any of this ourselves is the second code path this plugin may not
+	 * have: WCML owns the attribute slugs, the SKUs, the images and its own sync
+	 * hash, and two plugins writing one row is how a catalogue breaks quietly.
+	 *
+	 * @return string What was actually done: '' when WCML could not be asked.
 	 */
-	public static function sync_variations( int $pid, int $new_id, string $lang ): bool {
-		if ( ! $pid || ! $new_id || '' === $lang ) {
-			return false;
+	public static function sync_product( int $pid, int $new_id, string $lang ): string {
+		if ( ! $pid || ! $new_id || '' === $lang || ! function_exists( 'wcml_get_woocommerce_wpml' ) ) {
+			return '';
 		}
-		if ( ! function_exists( 'wc_get_product' ) ) {
-			return false;
+		$wcml = wcml_get_woocommerce_wpml();
+		if ( ! is_object( $wcml ) ) {
+			return '';
 		}
-		$product = wc_get_product( $pid );
-		if ( ! $product || ! is_callable( [ $product, 'is_type' ] ) || ! $product->is_type( 'variable' ) ) {
-			return false; // nothing to build, and that is not a failure.
+		// THE WHOLE JOB IN ONE CALL, where this WCML has it.
+		$whole = $wcml->sync_product_data ?? null;
+		if ( is_object( $whole ) && is_callable( [ $whole, 'sync_product_data' ] ) ) {
+			$whole->sync_product_data( $pid, $new_id, $lang );
+			return 'sync_product_data';
 		}
-		// WCML's own object, reached the way WCML publishes it.
-		$wcml = function_exists( 'wcml_get_woocommerce_wpml' ) ? wcml_get_woocommerce_wpml() : null;
-		$sync = ( is_object( $wcml ) && isset( $wcml->sync_variations_data ) ) ? $wcml->sync_variations_data : null;
-		if ( ! is_object( $sync ) || ! is_callable( [ $sync, 'sync_product_variations' ] ) ) {
-			return false;
+		$did = [];
+		// THE AXES FIRST, AND THEY ARE WHAT THE VARIATIONS ARE BUILT ALONG.
+		$attrs = [];
+		$ab    = $wcml->attributes ?? null;
+		if ( is_object( $ab ) && is_callable( [ $ab, 'sync_product_attr' ] ) ) {
+			$attrs = (array) $ab->sync_product_attr( $pid, $new_id, $lang );
+			$did[] = 'attributes';
 		}
-		$sync->sync_product_variations( $pid, $new_id, $lang, [] );
-		return true;
+		$vb = $wcml->sync_variations_data ?? null;
+		if ( is_object( $vb ) && is_callable( [ $vb, 'sync_product_variations' ] ) ) {
+			// The original's attributes, NEVER an empty array: that fourth
+			// argument is the axes, and without them WCML builds nothing.
+			$vb->sync_product_variations( $pid, $new_id, $lang, $attrs ?: self::product_attributes( $pid ) );
+			$did[] = 'variations';
+		}
+		return implode( '+', $did );
+	}
+
+	/**
+	 * The axes a product is sold along, as WooCommerce stores them.
+	 *
+	 * Read straight off the original when WCML's own attribute step is not
+	 * there to hand them over — the fourth argument of
+	 * `sync_product_variations()` must never be empty.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function product_attributes( int $pid ): array {
+		$raw = $pid ? get_post_meta( $pid, '_product_attributes', true ) : '';
+		return is_array( $raw ) ? $raw : [];
+	}
+
+	/**
+	 * How many variations a product actually holds. The only answer worth
+	 * putting on a screen: WCML can be asked and still build nothing.
+	 */
+	public static function variation_count( int $pid ): int {
+		if ( ! $pid || ! function_exists( 'get_children' ) ) {
+			return 0;
+		}
+		return count( (array) get_children( [
+			'post_parent' => $pid,
+			'post_type'   => 'product_variation',
+			'post_status' => [ 'publish', 'private' ],
+			'numberposts' => 200,
+		] ) );
+	}
+
+	/**
+	 * REBUILD A TRANSLATION'S PRODUCT DATA, without translating a word.
+	 *
+	 * The 163 variable products this module translated before the bridge was
+	 * right are sitting there with no axes and no variations, showing as
+	 * unavailable. Re-translating them would pay for words that have not moved;
+	 * this asks WCML for the part that is missing and nothing else.
+	 *
+	 * @return array<string,array{lang:string,before:int,after:int,how:string}>
+	 */
+	public static function rebuild_product( int $pid ): array {
+		$out = [];
+		$o   = self::obj( 'post', $pid, 'product' );
+		if ( ! $o || ! self::needs_variations( $o ) ) {
+			return $out;
+		}
+		foreach ( self::obj_targets( $o ) as $code => $name ) {
+			$target = self::obj_translation( $o, (string) $code );
+			if ( ! $target ) {
+				continue;
+			}
+			$before = self::variation_count( $target );
+			$how    = self::sync_product( $pid, $target, (string) $code );
+			$out[ (string) $code ] = [
+				'lang'   => (string) $name,
+				'before' => $before,
+				'after'  => self::variation_count( $target ),
+				'how'    => $how,
+			];
+		}
+		return $out;
 	}
 
 	/**
@@ -1915,6 +2007,27 @@ final class DZE_Translate {
 			'labels'  => self::labels_for( self::obj( 'post', $pid, (string) get_post_type( $pid ) ) ?: [ 'kind' => 'post', 'id' => $pid, 'type' => 'product' ] ),
 			'edit'    => $target ? (string) get_edit_post_link( $target, '' ) : '',
 		] );
+	}
+
+	/**
+	 * REBUILD A TRANSLATION'S ATTRIBUTES AND VARIATIONS — no words, no cost.
+	 *
+	 * The products this module translated before the bridge to WooCommerce
+	 * Multilingual was right are sitting there with no axes and no variations,
+	 * rendering as unavailable. Re-translating them would pay for words nobody
+	 * changed; this asks WCML for the part that is missing and nothing else.
+	 */
+	public function ajax_rebuild(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
+		if ( ! $pid ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown product.', 'dazont-ecom' ) ] );
+		}
+		$rows = self::rebuild_product( $pid );
+		if ( ! $rows ) {
+			wp_send_json_error( [ 'message' => __( 'This product is not variable, or it has no translation to rebuild yet.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'rows' => $rows ] );
 	}
 
 	/** Apply what was read and kept. */
@@ -2354,6 +2467,14 @@ final class DZE_Translate {
 				'attrDone'  => __( '%s waiting in Translations → To review.', 'dazont-ecom' ),
 				'attrNothing' => __( 'Nothing had moved on them: nothing was sent and nothing was spent.', 'dazont-ecom' ),
 				'attrRead'  => __( 'Read what came back', 'dazont-ecom' ),
+				// THE REPAIR THAT COSTS NOTHING. A translation's attributes and
+				// variations are WCML's to write, never ours and never the
+				// shop's by hand.
+				'rebuilding'=> __( 'Asking WooCommerce Multilingual…', 'dazont-ecom' ),
+				/* translators: 1: variations before, 2: variations after */
+				'rebuilt'   => __( '%1$s → %2$s variations', 'dazont-ecom' ),
+				'rebuiltNo' => __( 'WooCommerce Multilingual built nothing. Check that it is active and that this product has its attributes set as "Used for variations".', 'dazont-ecom' ),
+				'rebuiltOk' => __( 'Done — reload the translated product to see them.', 'dazont-ecom' ),
 			],
 		] );
 	}
@@ -2390,6 +2511,47 @@ final class DZE_Translate {
 						<button type="button" class="button button-primary" id="dze-tr-run"><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></button>
 						<span class="dze-cx-state" id="dze-tr-state"></span>
 					</p>
+					<?php $dze_o = self::obj( 'post', $pid, 'product' ); ?>
+					<?php if ( $dze_o && self::needs_variations( $dze_o ) ) : ?>
+						<!-- A VARIABLE PRODUCT'S TRANSLATION CANNOT BE MENDED BY
+						     HAND. WooCommerce Multilingual keeps a translation's
+						     attributes and variations read-only and syncs them
+						     from the original — "je ne peux pas modifier les
+						     attributs sur un produit traduit ni les variations" —
+						     so the state is shown here and the only repair is to
+						     ask WCML for that sync. It costs nothing and sends
+						     not one word to any model. -->
+						<div class="dze-tr-attrs">
+							<h3 style="margin:16px 0 6px;font-size:13px;"><?php esc_html_e( 'Attributes and variations', 'dazont-ecom' ); ?></h3>
+							<?php $dze_mine = self::variation_count( $pid ); ?>
+							<table class="widefat striped" style="max-width:640px;margin-bottom:8px;">
+								<tbody>
+								<?php foreach ( $targets as $dze_code => $dze_name ) : ?>
+									<?php
+									$dze_tr  = self::obj_translation( $dze_o, (string) $dze_code );
+									$dze_cnt = $dze_tr ? self::variation_count( $dze_tr ) : 0;
+									?>
+									<tr data-lang="<?php echo esc_attr( (string) $dze_code ); ?>">
+										<td style="width:120px;"><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?></td>
+										<td class="dze-tr-varcell">
+											<?php if ( ! $dze_tr ) : ?>
+												<span class="description"><?php esc_html_e( 'no translation yet', 'dazont-ecom' ); ?></span>
+											<?php elseif ( $dze_cnt >= $dze_mine && $dze_mine ) : ?>
+												<span style="color:#0a7040;"><?php echo esc_html( sprintf( /* translators: 1: variations on the translation, 2: variations on the original */ __( '%1$s of %2$s variations', 'dazont-ecom' ), number_format_i18n( $dze_cnt ), number_format_i18n( $dze_mine ) ) ); ?></span>
+											<?php else : ?>
+												<span style="color:#b32d2e;"><?php echo esc_html( sprintf( /* translators: 1: variations on the translation, 2: variations on the original */ __( '%1$s of %2$s variations — the page shows as unavailable', 'dazont-ecom' ), number_format_i18n( $dze_cnt ), number_format_i18n( $dze_mine ) ) ); ?></span>
+											<?php endif; ?>
+										</td>
+									</tr>
+								<?php endforeach; ?>
+								</tbody>
+							</table>
+							<p>
+								<button type="button" class="button" id="dze-tr-rebuild" title="<?php esc_attr_e( 'Asks WooCommerce Multilingual to copy this product\'s attributes and rebuild its translations\' variations. Nothing is sent to any model and nothing is spent.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Rebuild from the original', 'dazont-ecom' ); ?></button>
+								<span class="dze-cx-state" id="dze-tr-rebuildstate"></span>
+							</p>
+						</div>
+					<?php endif; ?>
 					<?php $dze_attrs = self::attribute_terms( $pid ); ?>
 					<?php if ( $dze_attrs ) : ?>
 						<?php $dze_short = array_values( array_filter( $dze_attrs, static fn( $a ) => ! empty( $a['todo'] ) ) ); ?>

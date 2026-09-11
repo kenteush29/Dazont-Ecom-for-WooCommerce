@@ -113,6 +113,30 @@
 		$(this).closest('.dze-cb-fblock').toggleClass('is-dropped', !$(this).is(':checked'));
 	});
 
+	// THE ONE REPAIR FOR A TRANSLATED VARIABLE PRODUCT. Its attributes and its
+	// variations are read-only on the translation — WooCommerce Multilingual
+	// syncs them from the original and the shop cannot touch them by hand — so
+	// the only mend is to ask WCML for that sync. It sends no words and spends
+	// nothing, and the row says what it actually changed.
+	$(document).on('click', '#dze-tr-rebuild', function () {
+		var $b = $(this).prop('disabled', true);
+		var $st = $('#dze-tr-rebuildstate').removeClass('is-ko').text(i18n.rebuilding);
+		$.post(cfg.ajaxUrl, { action: 'dze_tr_rebuild', nonce: cfg.nonce, post: cfg.postId })
+			.done(function (r) {
+				$b.prop('disabled', false);
+				if (!r || !r.success) { $st.addClass('is-ko').text(reason(r)); return; }
+				var built = 0;
+				$.each(r.data.rows || {}, function (lang, one) {
+					if (one.after > one.before) { built++; }
+					$('.dze-tr-attrs tr[data-lang="' + lang + '"] .dze-tr-varcell')
+						.text(sprintf(i18n.rebuilt, one.before, one.after));
+				});
+				$st.text(built ? i18n.rebuiltOk : i18n.rebuiltNo);
+				if (!built) { $st.addClass('is-ko'); }
+			})
+			.fail(function (x) { $b.prop('disabled', false); $st.addClass('is-ko').text(reason(x)); });
+	});
+
 	// THE ATTRIBUTE TERMS, one job each, through the very engine the batch
 	// screen uses: one object, one job, one waiting list. Nothing here writes
 	// to the shop — what comes back waits to be read like everything else.
