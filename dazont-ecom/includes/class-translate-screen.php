@@ -405,6 +405,7 @@ trait DZE_Translate_Screen {
 		</p>
 		<h2 style="margin:0 0 4px;">
 			<?php echo esc_html( self::obj_label( $o ) ); ?>
+			<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $o['id'] ) ); ?>
 			<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener" style="font-size:13px;font-weight:400;"><?php esc_html_e( 'open it', 'dazont-ecom' ); ?> &rarr;</a>
 		</h2>
 		<!-- 1. WHERE THIS ONE STANDS, in one line: not translated, out of date,
@@ -731,6 +732,7 @@ trait DZE_Translate_Screen {
 					<td class="check-column"><input type="checkbox" class="dze-tr-pickone" <?php checked( (bool) $only ); ?> /></td>
 					<td>
 						<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( self::obj_label( $o ) ); ?></strong></a>
+						<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $o['id'] ) ); ?>
 					</td>
 					<td class="dze-tr-state">
 						<?php foreach ( $state as $code => $said ) : ?>
@@ -1148,7 +1150,7 @@ trait DZE_Translate_Screen {
 			<tbody>
 			<?php foreach ( $rows as $r ) : ?>
 				<tr class="dze-tr-wrow dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>">
-					<td><strong><?php echo esc_html( $r['label'] ); ?></strong></td>
+					<td><strong><?php echo esc_html( $r['label'] ); ?></strong><?php echo wp_kses_post( DZE_Hub::obj_id( (int) $r['id'] ) ); ?></td>
 					<td><span class="description"><?php echo esc_html( self::type_label( $r ) ); ?></span></td>
 					<td>
 						<?php foreach ( $r['langs'] as $code ) : ?>

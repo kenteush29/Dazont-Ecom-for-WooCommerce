@@ -64,6 +64,30 @@ final class DZE_Hub {
 	}
 
 	/**
+	 * THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS.
+	 *
+	 * "Il manque l'ID produit sur ces pages ! Très important. Directive à
+	 * suivre partout là où il y a ce genre d'écran bulk." A list of forty
+	 * products with two called "Tactical Backpack 45L" is a list where the only
+	 * way to tell them apart is to open both — and every other tool the shop
+	 * uses to talk about a product (a URL, a SQL query, a supplier file, a
+	 * message to somebody else) speaks in ids.
+	 *
+	 * It lives HERE, with the rest of the shape, because it goes on six screens
+	 * and a badge written six times is six badges that drift. It is selectable
+	 * text, never a link: the name beside it is already the way in, and a
+	 * second link to the same place is a second thing to aim at.
+	 *
+	 * @param int $id 0 prints nothing — a row with no object behind it must not
+	 *                claim "#0", which reads as an id somebody could look up.
+	 */
+	public static function obj_id( int $id ): string {
+		return $id > 0
+			? '<code class="dze-objid" title="' . esc_attr__( 'Its id — select it to copy', 'dazont-ecom' ) . '">#' . (int) $id . '</code>'
+			: '';
+	}
+
+	/**
 	 * The one script every screen with blocks is built on.
 	 *
 	 * Called by whoever draws them, so a screen that starts drawing blocks

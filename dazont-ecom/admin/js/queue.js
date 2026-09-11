@@ -83,7 +83,11 @@
 			$b.append(
 				'<tr><th scope="row" class="check-column"><input type="checkbox" class="dze-q-pick" value="' + r.id +
 					'" data-status="' + esc(r.status) + '"' + (sel[r.id] ? ' checked' : '') + ' /></th>' +
-				'<td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.kind) + '</td>' +
+				// ITS ID, the same badge as every other list in the plugin —
+				// two products with one name are told apart by nothing else.
+				'<td><strong>' + esc(r.label) + '</strong>' +
+					(r.oid ? ' <code class="dze-objid">#' + esc(r.oid) + '</code>' : '') +
+				'</td><td>' + esc(r.kind) + '</td>' +
 				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + state + '</td>' +
 				'<td>' + act.join(' ') + '</td></tr>'
 			);

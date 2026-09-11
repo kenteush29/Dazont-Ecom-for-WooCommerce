@@ -1003,6 +1003,10 @@ final class DZE_Queue {
 			$rows[] = [
 				'id'       => (int) $r['id'],
 				'label'    => self::label_for( (string) $r['kind'], (int) $r['object_id'] ),
+				// ITS ID, on every list that names objects. The row is drawn in
+				// the browser, so the figure has to travel — a screen cannot
+				// print what it was never sent.
+				'oid'      => (int) $r['object_id'],
 				'kind'     => (string) ( self::kinds()[ $r['kind'] ]['label'] ?? $r['kind'] ),
 				'status'   => (string) $r['status'],
 				'error'    => (string) ( $r['error'] ?? '' ),

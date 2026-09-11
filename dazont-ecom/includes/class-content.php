@@ -3595,8 +3595,10 @@ Answer with STRICT JSON and nothing else: "
 					<td>
 						<?php if ( '' !== (string) $dze_e['url'] ) : ?>
 							<a href="<?php echo esc_url( (string) $dze_e['url'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( (string) $dze_e['title'] ); ?></strong></a>
+							<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $dze_id ) ); ?>
 						<?php else : ?>
 							<strong><?php echo esc_html( (string) $dze_e['title'] ); ?></strong>
+							<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $dze_id ) ); ?>
 						<?php endif; ?>
 					</td>
 					<!-- WHICH KIND OF THING, because this register holds four of
@@ -4328,6 +4330,7 @@ Answer with STRICT JSON and nothing else: "
 						</td>
 						<td>
 							<a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a>
+							<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $p['id'] ) ); ?>
 							<?php // The same sentences the diagnostic prints, on the row you are about to tick — so what to generate is read here rather than looked up on another screen. ?>
 							<?php if ( isset( $p['short'] ) ) : ?>
 								<div class="dze-cb-short<?php echo $p['short'] ? '' : ' is-ok'; ?>">

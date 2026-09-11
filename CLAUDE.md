@@ -1578,6 +1578,22 @@ whose screen has not been thought through yet.
   answer — the line's text differing from the busy word — and make the screen
   cooperate: the state line is set LAST, after everything else the press
   changes, so it is a truthful signal that the work is finished.
+- **EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID.** "Il manque l'ID produit
+  sur ces pages ! Très important. Directive à suivre partout là où il y a ce
+  genre d'écran bulk." Two products called "Tactical Backpack 45L" are told
+  apart by nothing else, and every other tool the shop uses to talk about one —
+  a URL, a SQL query, a supplier file, a message to somebody else — speaks in
+  ids. It is `DZE_Hub::obj_id()`, with the rest of the shape, because it goes
+  on seven screens and a badge written seven times is seven badges that drift:
+  the product bulk screen's two tabs, the Content diagnostic's problem list,
+  the translation batch and waiting lists, the translation screen's own head,
+  Content to review (the row is drawn in the browser, so the server SENDS
+  `oid` — a figure never sent is a figure no screen can print) and the restock
+  list, where it is the VARIATION's id, the one nothing else on the shop shows.
+  Three rules: 0 prints NOTHING rather than "#0", which reads as an id somebody
+  could look up; it is selectable text and never a link, since the name beside
+  it is already the way in; and any list added later gets it from the same
+  function, never a second one.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

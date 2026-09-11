@@ -1496,3 +1496,20 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	line-height: 1.5;
 }
 .dze-tr-new { width: 100%; font-family: inherit; font-size: 13px; }
+
+/* ---- The object's id, on every list that names objects ----
+   Quiet enough not to compete with the name, selectable so it can be copied,
+   and never a link: the name beside it is already the way in. */
+.dze-objid {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 0 4px;
+	font-size: 11px;
+	line-height: 17px;
+	color: #646970;
+	background: #f0f0f1;
+	border-radius: 3px;
+	user-select: all;
+	white-space: nowrap;
+	vertical-align: 1px;
+}
