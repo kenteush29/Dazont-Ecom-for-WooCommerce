@@ -1310,6 +1310,32 @@ whose screen has not been thought through yet.
   control that acts.
   **The refusal of generated content wears ONE word across the plugin**, and it
   is **Cancel**: "Discard (1)" beside "Delete (3)" read as two deletions.
+- **THE WRITE RECORDS ITSELF, AND THERE IS ONE REGISTER.** "Ici je ne vois que
+  les produits modifiés par l'écran bulk. Qu'en est-il des produits modifiés
+  individuellement ? Ce serait bien d'avoir un registre commun." Two faults in
+  one report.
+  - The register was written by the **JavaScript of four screens**, so
+    everything written anywhere else — the fast main-image lane, the reframe
+    bench, the variation images — happened and left no trace at all. Hooking
+    each writer is a list somebody has to keep and the one forgotten is always
+    the bug: a text lands on a product in `apply_value()` and nowhere else, a
+    photograph is placed in `attach_file()` and nowhere else, so THOSE are
+    where it is written down. A path built next year needs to know nothing.
+    The screens stopped claiming counts at the same time — left in both places,
+    every run is counted twice.
+  - Because each write now counts itself, the row's figures **accumulate**
+    instead of being replaced by whatever the last call claimed. The row says
+    what this plugin has written to that product and when it last did; a
+    decision (accept, refuse) stamps it without inventing figures of its own,
+    and a refusal keeps what was written beside it — both facts are true.
+  - **One register, and it is a READER.** Products live in the content log,
+    categories and articles in DZE_Queue's applied rows, translations in the
+    translation log; `DZE_Content::register()` merges them newest first and
+    each module goes on owning its own record. A second store copying them
+    would be two accounts of one thing, and two accounts of one thing disagree.
+    A module switched off contributes nothing rather than erroring, and the
+    tab's figure counts the whole register — counting only the products, the
+    badge would disagree with its own screen every day.
 - **A LIST OF WHAT WAS DONE IS A LIST YOU CAN LOOK AT.** The Done tab named
   products and offered no way to see them — "j'aimerai la fonction Look comme
   sur la page Selected products, pour voir le résultat actuel sans recharger

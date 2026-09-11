@@ -1521,8 +1521,10 @@
 			$('.dze-cb-preview[data-id="' + id + '"]').hide();
 			hideRowActions(id);
 			applyPost({
-				action: 'dze_content_logged', nonce: cfg.nonce, post: id,
-				texts: w.texts.length, images: w.items.length, clear: 1, unqueue: 1
+				// No counts: every text and every photograph wrote itself down
+				// as it landed on the product. This call says the DECISION was
+				// taken — the product stops waiting and leaves the list.
+				action: 'dze_content_logged', nonce: cfg.nonce, post: id, clear: 1, unqueue: 1
 			}).always(function (res) {
 				try {
 					setTabs(res);

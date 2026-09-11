@@ -995,6 +995,12 @@ final class DZE_Translate {
 			self::obj_settle( $o, $lang );
 			$out['written'][ $lang ] = $target;
 		}
+		// WRITTEN IS RECORDED. Without this the shop could see a translation
+		// on a page and have no way of knowing it came from here, when, or
+		// who said yes to it.
+		if ( $out['written'] ) {
+			self::log_add( $o, array_keys( $out['written'] ) );
+		}
 		// A language left out of the decision is still waiting; only a clean
 		// sweep clears the object off the list.
 		$left = array_diff_key( (array) ( $held['langs'] ?? [] ), $out['written'] );
@@ -1004,6 +1010,56 @@ final class DZE_Translate {
 			self::drop_wait( $o );
 		}
 		return $out;
+	}
+
+	/**
+	 * WHAT WAS TRANSLATED, AND WHEN — the module's own line in the register.
+	 *
+	 * A capped option, never autoloaded, read by one screen. It records the
+	 * DECISION: this object, into these languages, on this day, by this person.
+	 * The translation itself is on the object; this is the only thing that
+	 * still knows a month later that it was done here rather than by hand.
+	 */
+	public const OPT_LOG = 'dze_translate_log';
+	private const LOG_MAX = 120;
+
+	public static function log_add( array $o, array $langs ): void {
+		if ( ! $o || ! $langs ) {
+			return;
+		}
+		$log = get_option( self::OPT_LOG, [] );
+		$log = is_array( $log ) ? $log : [];
+		$ref = self::ref( $o );
+		$was = [];
+		foreach ( $log as $i => $row ) {
+			if ( (string) ( $row['ref'] ?? '' ) === $ref ) {
+				// One object appears once, and the languages ACCUMULATE: a
+				// category translated into French in March and German in June
+				// has been translated into both, and a row that forgot the
+				// first is a register that shrinks as it is used.
+				$was = (array) ( $row['langs'] ?? [] );
+				unset( $log[ $i ] );
+			}
+		}
+		$log = array_values( $log );
+		array_unshift( $log, [
+			'ref'   => $ref,
+			'kind'  => (string) $o['kind'],
+			'type'  => (string) $o['type'],
+			'id'    => (int) $o['id'],
+			'langs' => array_values( array_unique( array_merge( $was, array_map( 'strval', $langs ) ) ) ),
+			'time'  => time(),
+			// WHO SAID YES. 0 is an automatic pass, which has nobody to name.
+			'by'    => function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0,
+			'title' => self::obj_label( $o ),
+		] );
+		update_option( self::OPT_LOG, array_slice( $log, 0, self::LOG_MAX ), false );
+	}
+
+	/** @return array<int,array<string,mixed>> newest first. */
+	public static function log_entries(): array {
+		$log = get_option( self::OPT_LOG, [] );
+		return is_array( $log ) ? $log : [];
 	}
 
 	/**
