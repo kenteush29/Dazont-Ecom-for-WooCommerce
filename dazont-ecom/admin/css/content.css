@@ -1433,3 +1433,49 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-cc-whattitle { font-size: 14px; margin: 14px 0 6px; }
 .dze-cc-tools { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .dze-cc-run-row { margin: 12px 0 0; display: flex; gap: 10px; align-items: center; }
+
+/* ---------------------------------------------------------------------------
+   WPML Translations: where one object stands, in one glance.
+
+   Three answers and they must not look alike — "not translated", "the words
+   have moved since" and "up to date" are three different decisions, and a row
+   of identical grey chips is a row nobody reads.
+   --------------------------------------------------------------------------- */
+.dze-tr-chip {
+	display: inline-block;
+	margin: 0 4px 4px 0;
+	padding: 1px 7px;
+	border-radius: 10px;
+	font-size: 11px;
+	line-height: 18px;
+	white-space: nowrap;
+	border: 1px solid #dcdcde;
+	background: #f6f7f7;
+	color: #50575e;
+}
+.dze-tr-chip.is-done    { border-color: #a7d7b5; background: #edfaef; color: #0a7040; }
+.dze-tr-chip.is-stale   { border-color: #f0d48a; background: #fdf6e3; color: #8a6d00; }
+.dze-tr-chip.is-missing { border-color: #f0b1b1; background: #fdeaea; color: #b32d2e; }
+
+.dze-tr-langs { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin: 12px 0; }
+.dze-tr-langs .dze-cb-check { margin: 0; }
+
+.dze-tr-panelbox { padding: 8px 0 4px; }
+.dze-tr-lblock { border-top: 1px solid #e2e4e7; margin-top: 14px; padding-top: 10px; }
+.dze-tr-lblock h3 { margin: 0 0 8px; font-size: 14px; }
+/* The original and what the translation holds today are there to be READ
+   against each other, so they are quiet and they wrap — never a scrollbar per
+   field, which is a comparison nobody makes. */
+.dze-tr-was,
+.dze-tr-now {
+	margin: 0 0 8px;
+	padding: 8px 10px;
+	max-height: 160px;
+	overflow: auto;
+	white-space: pre-wrap;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	font-size: 12px;
+	line-height: 1.5;
+}
+.dze-tr-new { width: 100%; font-family: inherit; font-size: 13px; }

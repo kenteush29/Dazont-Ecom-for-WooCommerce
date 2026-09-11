@@ -122,7 +122,15 @@ final class DZE_Cleanup {
 			],
 			'translate' => [
 				'options'   => [ 'dze_translate_settings' ],
-				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by', '_dze_tr_src' ],
+				// _dze_tr_wait is what a batch produced and nobody has decided
+				// on yet; the register and the ownership mark sit beside it.
+				'post_meta' => [ '_dze_tr_hash', '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait' ],
+				// A TERM CARRIES THE SAME KEYS. The module translates every
+				// taxonomy WPML translates — product categories, tags and each
+				// attribute — so its footprint is in term meta as well, and a
+				// module that could not be wiped of half its own data would be
+				// a module missing from this map in all but name.
+				'term_meta' => [ '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait' ],
 			],
 			// A module that no longer ships. Its descriptors stay so an install
 			// that once used it can still be erased of what it left behind.

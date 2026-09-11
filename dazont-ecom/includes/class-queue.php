@@ -861,7 +861,7 @@ final class DZE_Queue {
 				'confirmRefuse' => __( 'Throw this text away? It cannot be recovered.', 'dazont-ecom' ),
 				'compare'  => __( 'Current', 'dazont-ecom' ),
 				'accept'   => __( 'Accept and save', 'dazont-ecom' ),
-				'discardBtn' => __( 'Discard', 'dazont-ecom' ),
+				'discardBtn' => __( 'Cancel', 'dazont-ecom' ),
 				/* translators: %s: number of words */
 				'words'    => __( '%s words', 'dazont-ecom' ),
 				/* translators: 1: words before, 2: words after */
@@ -903,7 +903,7 @@ final class DZE_Queue {
 			<p id="dze-q-bulkbar" style="display:none;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:8px 12px;">
 				<strong id="dze-q-selcount"></strong>
 				<button type="button" class="button button-primary dze-q-bulk" data-do="accept"><?php esc_html_e( 'Accept and save', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button dze-q-bulk" data-do="discard"><?php esc_html_e( 'Discard', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button dze-q-bulk" data-do="discard" title="<?php esc_attr_e( 'Say no to what was written for the ticked rows. It is thrown away and the pages are left exactly as they are.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button dze-q-bulk" data-do="retry"><?php esc_html_e( 'Retry', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button-link dze-q-bulk" data-do="remove" style="color:#b32d2e;"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 				<span id="dze-q-bulkstatus" class="description"></span>

@@ -1249,6 +1249,75 @@ whose screen has not been thought through yet.
   for it. The trace stays twelve rows and unfiltered: filtering twelve lines
   answers nothing, and keeping more of them is weight in the database for a
   question the per-model table already answers.
+- **WHAT MAY BE TRANSLATED IS WPML'S ANSWER, NEVER OURS — and the module has a
+  desk of its own.** "Module Product translation est mauvais. Ca devrait être
+  WPML Translation Module. Et il devra être affiché dans le menu du plugin...
+  une liste d'attente un peu comme wpml pour relecture du contenu traduit,
+  avant automatisation... Idem pour les articles de blog, pages, catégories et
+  toutes les taxonomies attributs compris."
+  - **The scope is read from WPML's own settings row**, not from a list of
+    ours and not through `wpml_is_translated_post_type` — a filter only answers
+    where its plugin's hooks are loaded, and this module reads in AJAX and in
+    cron. That trap has now been paid for four times. `custom_posts_sync_option`
+    and `taxonomies_sync_option` say it in every request; the filter is the
+    fallback for a type WPML has never been asked about, and a `null` from it
+    is never read as "no". Offering a type WPML will not link writes an orphan
+    in another language with nothing anywhere saying why.
+  - **There is ONE thing here: an object.** A post of a translatable type or a
+    term of a translatable taxonomy — a product attribute is a taxonomy like
+    any other. Every function takes one, and the product path is that same path
+    with `post`/`product` in it: `targets()`, `read()`, `stale()`, `settle()`
+    and `adopt()` are wrappers over the object versions, never a second reading
+    beside them.
+  - **A TERM IS NOT SIGNED WITH A SIGNATURE NOBODY COMPUTED.**
+    `wpml_tm_element_md5` signs a POST; WPML computes a term's its own way.
+    `mark_term_done()` clears status and needs_update and leaves the md5 exactly
+    as WPML wrote it — a made-up one is a translation nobody is ever told about
+    again, which is the failure the post version already refuses by name.
+  - **A FIELD WPML COPIES IS NEVER WRITTEN HERE.** Mode 1 and 3 mean the next
+    custom-field sync puts the original's value straight back over it: the words
+    are lost and no screen says so.
+  - **What waits lives ON THE SOURCE OBJECT**, one meta key, exactly as the
+    product bulk screen keeps what it generated on the product. Not in
+    `DZE_Queue`: that store is one document per row with one accept, and a
+    translation is an object times N languages times M fields each with its own
+    yes or no. Bending a table that works to carry a different question is how
+    two screens start disagreeing.
+  - **THE REGISTER IS WRITTEN AGAINST WHAT WAS SENT**, never against the source
+    as it stands when somebody gets round to accepting: a batch read a week
+    later would otherwise claim a field is current when the words have moved
+    since, and that field never gets translated again. The words that were sent
+    are kept beside the answer for exactly that.
+  - **A language left undecided keeps the object on the list.** Only a clean
+    sweep clears it — a row that vanished on a half decision would be a list
+    that lies.
+  `php tools/test-translate.php dazont-ecom` and
+  `node tools/js/translate-screen.mjs` must pass: the second presses the three
+  controls in a real browser on both jQuery builds and reads back what went on
+  the wire — the object the request is about, the languages that were ticked
+  and no others, the field that was ticked and not the one that was not.
+- **A FIGURE ON A BUTTON AND THE ROWS UNDER IT ANSWER THE SAME QUESTION.**
+  "Ici Discard affiche (1) et Apply (1) seulement je ne vois rien sur ces
+  produits à accepter ou refuser." The bar counted every ticked product that
+  had a BUCKET — and a bucket is made the moment anything touches a line,
+  opening Look among them — while the row's own button required real content.
+  So three products holding nothing announced work to decide on, with not one
+  Review button on the screen. One test, `holding()`, answers for both.
+  **And a tooltip belongs in EVERY state**: this one was emptied the instant
+  the button became usable, which is exactly when somebody hovers it — "quand
+  j'y laisse la souris, aucun texte ne s'affiche alors que delete lui c'est
+  très clair". A count, a word and a hover that says what will happen, on every
+  control that acts.
+  **The refusal of generated content wears ONE word across the plugin**, and it
+  is **Cancel**: "Discard (1)" beside "Delete (3)" read as two deletions.
+- **A LIST OF WHAT WAS DONE IS A LIST YOU CAN LOOK AT.** The Done tab named
+  products and offered no way to see them — "j'aimerai la fonction Look comme
+  sur la page Selected products, pour voir le résultat actuel sans recharger
+  différentes pages" — so checking a description meant opening each product in
+  another tab. It is the SAME button and the same panel, and the handler reads
+  the id from the row it sits on (`closest('[data-id]')`) rather than from
+  `.dze-cb-row`, which is what marks a product as selectable and is deliberately
+  not on a log line.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
