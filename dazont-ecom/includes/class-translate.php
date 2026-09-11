@@ -677,7 +677,27 @@ final class DZE_Translate {
 								<?php endif; ?>
 							</label>
 						<?php endforeach; ?>
-						<p class="description"><?php esc_html_e( 'Only what WPML is set to translate can appear here. Media never can, whatever WPML says: a translated media is a duplicate file in the library, and a catalogue run would make thousands of them.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Only what WPML is set to translate can appear here — this list follows WPML and never overrides it.', 'dazont-ecom' ); ?></p>
+						<?php
+						// WHERE THE BRIDGE ENDS, said once, with WPML's own
+						// answer rather than ours. Media is not a document with
+						// words in it: translating one here would make a
+						// library entry with no file behind it, one per
+						// language. WPML Media Translation does it properly and
+						// is the only thing that should.
+						$dze_media = class_exists( 'DZE_Wpml' ) ? DZE_Wpml::media_translation() : [ 'known' => false ];
+						?>
+						<p class="description">
+							<strong><?php esc_html_e( 'Media is WPML\'s own.', 'dazont-ecom' ); ?></strong>
+							<?php esc_html_e( 'An image has no text for a translator to work on beyond its title and its alt text, and those belong to WPML Media Translation, which keeps one file and translates around it. This module would make a library entry with no file behind it, so it never offers media.', 'dazont-ecom' ); ?>
+							<?php if ( ! $dze_media['known'] ) : ?>
+								<?php esc_html_e( 'WPML Media Translation is not installed on this site, so nothing duplicates your images.', 'dazont-ecom' ); ?>
+							<?php elseif ( ! empty( $dze_media['duplicate'] ) ) : ?>
+								<span style="color:#8a6d00;"><?php esc_html_e( 'On this site WPML IS set to duplicate media for translated content — that is WPML\'s setting, under WPML → Settings → Media Translation.', 'dazont-ecom' ); ?></span>
+							<?php else : ?>
+								<?php esc_html_e( 'On this site WPML is not set to duplicate media, so your images stay single and shared between languages.', 'dazont-ecom' ); ?>
+							<?php endif; ?>
+						</p>
 					</td>
 				</tr>
 				<tr>

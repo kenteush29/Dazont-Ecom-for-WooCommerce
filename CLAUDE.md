@@ -1296,16 +1296,27 @@ whose screen has not been thought through yet.
   controls in a real browser on both jQuery builds and reads back what went on
   the wire — the object the request is about, the languages that were ticked
   and no others, the field that was ticked and not the one that was not.
-- **WPML SAYS "TRANSLATABLE" ABOUT THINGS THIS MODULE MUST NEVER TOUCH.**
-  `attachment` is declared translatable (mode 1) and means something quite
-  different there: translating a media here is `wp_insert_post()` with the
-  source type — a DUPLICATE attachment row per language. Three of this owner's
-  sites had just been cleared of **24,531 such duplicates, 1.1 GB**, and one
-  campaign over "Media" would have put every one of them back.
-  `DZE_Wpml::NEVER_TYPES` / `NEVER_TAXONOMIES` is a hard list with the reason
-  written beside it, and `translation_priority` — WPML's own urgency taxonomy —
-  is on it. **Never a setting**: this is not a preference, and a shop that
-  ticked it once would pay for the mistake in gigabytes. The single-object
+- **THE MODULE IS A BRIDGE BETWEEN WPML AND THE MODEL — it decides nothing of
+  its own.** "Tu ne devrais rien faire toi-même mais utiliser les réglages
+  natifs WPML. Toi tu fais juste le pont." So what a site translates, what is
+  owed and what is up to date are all WPML's answers, read from WPML's own
+  rows. `DZE_Wpml::NEVER_TYPES` / `NEVER_TAXONOMIES` is not an exception to
+  that: it is the line where the bridge ENDS, and the reason is technical, not
+  a preference.
+  **A MEDIA IS NOT A DOCUMENT WITH WORDS IN IT.** This module translates by
+  `wp_insert_post()` with the source type and then writes text onto the result
+  — right for a product, an article, a page. Run over an attachment it makes a
+  library entry with NO FILE BEHIND IT, one per language. WPML Media
+  Translation is a separate plugin that does this properly, keeping one
+  physical file and translating the title and alt text around it, and doing it
+  a second way here is the one thing this plugin may not do.
+  What the SITE is set to do about media is read (`media_translation()`, from
+  WPML's own `_wpml_media` row) and SAID on the settings screen — installed and
+  duplicating, installed and not, or not installed at all. Three different
+  answers, and an option shape WPML renames tomorrow leaves it saying "I cannot
+  tell" rather than inventing a "no" the shop would act on.
+  `translation_priority` — WPML's own urgency taxonomy — is on the same list:
+  translating the word "urgent" into French helps nobody. The single-object
   check and the list obey the same constant, or the screen refuses to show what
   it would happily translate.
 - **WPML'S MARK IS THE QUESTION; OUR REGISTER IS THE REFINEMENT.** Every row
