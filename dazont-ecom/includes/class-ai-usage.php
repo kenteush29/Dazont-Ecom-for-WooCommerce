@@ -351,6 +351,98 @@ final class DZE_Ai_Usage {
 		return $cap > 0 && self::month_cost() >= $cap;
 	}
 
+	// =========================================================================
+	// The guardrails on IMAGES
+	//
+	// "J'ai dépensé hier 40$ en génération d'images. Ce n'est pas normal que
+	// autant ait été dépensé." Forty dollars is about five hundred pictures in
+	// a day. The only guard that existed was the monthly budget, and it is
+	// `$cap > 0` — unset, it stops nothing at all, so a run that went round in
+	// circles had nothing in its way.
+	//
+	// These two are CEILINGS, not budgets: they do not decide what the shop may
+	// spend, they stop a run that has plainly gone wrong. Both are counted per
+	// CLOCK HOUR, which is the only window that can be said in one sentence —
+	// "at most ten images of one product an hour" — and the only one that needs
+	// no list kept anywhere. A person redoing a product an hour later is not
+	// blocked; a loop is stopped inside the hour.
+	// =========================================================================
+
+	/** At most this many fal images for ONE product, per clock hour. */
+	public static function fal_post_cap(): int {
+		$n = class_exists( 'DZE_Marketing_Ai' )
+			? (int) ( DZE_Marketing_Ai::get_settings()['fal_cap_post'] ?? 10 )
+			: 10;
+		return max( 0, $n );
+	}
+
+	/** At most this many fal images for the WHOLE shop, per clock hour. */
+	public static function fal_hour_cap(): int {
+		$n = class_exists( 'DZE_Marketing_Ai' )
+			? (int) ( DZE_Marketing_Ai::get_settings()['fal_cap_hour'] ?? 60 )
+			: 60;
+		return max( 0, $n );
+	}
+
+	/** The window both counters live in: the clock hour, in UTC. */
+	private static function fal_slot(): string {
+		return gmdate( 'YmdH' );
+	}
+
+	/** How many images this hour — for one product, and for the whole shop. */
+	public static function fal_used( int $pid = 0 ): array {
+		$slot = self::fal_slot();
+		return [
+			'hour' => (int) get_transient( 'dze_fal_h_' . $slot ),
+			'post' => $pid > 0 ? (int) get_transient( 'dze_fal_p_' . $pid . '_' . $slot ) : 0,
+		];
+	}
+
+	/**
+	 * May another image be made right now?
+	 *
+	 * @return string '' to go ahead, or the sentence saying which ceiling
+	 *                stopped it and where to change it.
+	 */
+	public static function fal_blocked( int $pid = 0 ): string {
+		$used = self::fal_used( $pid );
+		$post = self::fal_post_cap();
+		if ( $pid > 0 && $post > 0 && $used['post'] >= $post ) {
+			return sprintf(
+				/* translators: %s: the per-product ceiling */
+				__( 'This product has already had %s images made for it in the past hour. That ceiling is there to stop a run going round in circles — wait for the hour to turn, or raise it under Settings → General.', 'dazont-ecom' ),
+				number_format_i18n( $post )
+			);
+		}
+		$hour = self::fal_hour_cap();
+		if ( $hour > 0 && $used['hour'] >= $hour ) {
+			return sprintf(
+				/* translators: %s: the shop-wide hourly ceiling */
+				__( 'The shop has made %s images in the past hour, which is the ceiling. Wait for the hour to turn, or raise it under Settings → General.', 'dazont-ecom' ),
+				number_format_i18n( $hour )
+			);
+		}
+		return '';
+	}
+
+	/**
+	 * One image is about to be asked for: counted BEFORE it is sent.
+	 *
+	 * The attempt is what the ceiling is about, not the success. A run failing
+	 * in a loop reaches fal just as often as one succeeding, and counting only
+	 * what came back would let it hammer the provider for ever.
+	 */
+	public static function fal_attempt( int $pid = 0 ): void {
+		$slot = self::fal_slot();
+		$used = self::fal_used( $pid );
+		// Two hours of life: the window is one, and the extra hour costs
+		// nothing and covers a clock that turns mid-request.
+		set_transient( 'dze_fal_h_' . $slot, $used['hour'] + 1, 2 * HOUR_IN_SECONDS );
+		if ( $pid > 0 ) {
+			set_transient( 'dze_fal_p_' . $pid . '_' . $slot, $used['post'] + 1, 2 * HOUR_IN_SECONDS );
+		}
+	}
+
 	/** Standard error message for a blocked call. */
 	public static function budget_message(): string {
 		return sprintf(

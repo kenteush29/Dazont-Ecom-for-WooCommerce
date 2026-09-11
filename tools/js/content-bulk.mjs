@@ -159,6 +159,58 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the main-image question goes away with it',
 		await page.locator( '#dze-cb-oldwrap' ).isVisible(), false );
 
+	// ---- WHAT THE PRESS IS ABOUT TO SPEND, BEFORE IT IS PRESSED ----
+	//
+	// "J'ai dépensé hier 40$ en génération d'images... sur fal j'ai vu 24
+	// images générées pour le même produit le fsb patch." Twenty-four is what
+	// this screen asks for on its own — three prompt rows at four attempts
+	// each, on a run of two products — and every figure needed to say so was
+	// already on the page. The button read "Generate (2)", a count of
+	// products, which reads like a count of the work.
+	//
+	// Only a browser can multiply what is ON the page, so this is asserted
+	// here and nowhere else.
+	await page.setChecked( '#dze-cb-image', true );
+	await page.check( '.dze-cb-row[data-id="7"] .dze-cb-pick' );
+	await page.check( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+	const spend = async () => ( await page.textContent( '#dze-cb-spend' ) || '' ).trim();
+	ok( 'the press says how many photographs and what they cost',
+		await spend(), '2 photographs · about $0.16' );
+	await page.selectOption( `${row( 1 )} .dze-tpl-n`, '4' );
+	ok( 'four attempts on two products is eight',
+		await spend(), '8 photographs · about $0.64' );
+
+	// His own run, rebuilt: three prompts at four attempts each.
+	await page.click( `${row( 1 )} .dze-tpl-add` );
+	await page.click( `${row( 2 )} .dze-tpl-add` );
+	await page.selectOption( `${row( 2 )} .dze-tpl-n`, '4' );
+	await page.selectOption( `${row( 3 )} .dze-tpl-n`, '4' );
+	const said = await spend();
+	ok( 'three prompts at four attempts is twenty-four', said.startsWith( '24 photographs · about $1.92' ), true );
+	// AND THE CEILING IS NAMED WHERE IT WOULD BE HIT. Twelve photographs of one
+	// product against a ceiling of ten is a run that stops two short on every
+	// line — said before the press, not as a refusal halfway through.
+	ok( 'and it names the ceiling it would run into',
+		said.includes( 'over the ceiling of 10 per product and hour — 2 of each will be refused' ), true );
+
+	// A block switched off spends nothing, and the line goes rather than
+	// standing there saying a figure that is no longer true.
+	await page.setChecked( '#dze-cb-image', false );
+	ok( 'photographs switched off, nothing to spend',  await spend(), '' );
+	ok( 'and the line is not left standing',
+		await page.locator( '#dze-cb-spend' ).isVisible(), false );
+	await page.setChecked( '#dze-cb-image', true );
+	// Untick the second product and the bill halves: it is the SELECTION that
+	// is multiplied, the same one the button counts.
+	await page.uncheck( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+	ok( 'one product instead of two, half the bill',
+		( await spend() ).startsWith( '12 photographs · about $0.96' ), true );
+	// Back to one prompt row, so the checks below run the screen they expect.
+	await page.click( `${row( 3 )} .dze-tpl-del` );
+	await page.click( `${row( 2 )} .dze-tpl-del` );
+	await page.selectOption( `${row( 1 )} .dze-tpl-n`, '1' );
+	ok( 'nothing was raised counting the bill',  errors, [] );
+
 	// ---- ONE CLICK TO SEE WHAT A PRODUCT HOLDS TODAY ----
 	//
 	// "Ici sur cette page je manque d'une option pour visualiser en un clic le

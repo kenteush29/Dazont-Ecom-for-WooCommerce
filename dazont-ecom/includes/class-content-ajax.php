@@ -897,7 +897,7 @@ trait DZE_Content_Ajax {
 			// means anything: written in the instructions it was a wish, and
 			// the image came back in the shape of the photograph it was built
 			// from. Left on "same shape as the photograph", nothing changes.
-			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto' );
+			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto', $pid );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
 			// Charged to the product it was made for: what a product has cost
@@ -1309,7 +1309,7 @@ trait DZE_Content_Ajax {
 				isset( $in['attempt'] ) ? absint( $in['attempt'] ) : 0
 			);
 			DZE_Ai_Usage::unit( 'product_img' );
-			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto' );
+			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
 			self::charge_product( $pid, self::last_image_cost() );

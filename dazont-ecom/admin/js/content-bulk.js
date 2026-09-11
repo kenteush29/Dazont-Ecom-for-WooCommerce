@@ -240,8 +240,44 @@
 		// while that number is zero.
 		$('#dze-cb-delete').prop('disabled', 0 === n).text(sprintf(i18n.deleteN, n));
 		$('#dze-cb-start').prop('disabled', startOff || 0 === n).text(sprintf(i18n.generateN, n));
+		drawSpend(n);
 		refreshApplyBar();
 	}
+	// WHAT THIS PRESS IS ABOUT TO SPEND, before it is pressed.
+	//
+	// "J'ai dépensé hier 40$ en génération d'images... sur fal j'ai vu 24
+	// images générées pour le même produit." Twenty-four is what this screen
+	// asks for on its own: three prompt rows at ×4 attempts is twelve images
+	// per product, and nothing anywhere said so. The figures were all here —
+	// the rows, the attempts, the ticked products, the price per image — and
+	// the button said "Generate (30)", which is a count of products and reads
+	// like a count of the work.
+	function drawSpend(n) {
+		var $out = $('#dze-cb-spend');
+		if (!$out.length) { return; }
+		// The same three conditions the press itself reads, so the figure and
+		// the run can never disagree.
+		var per = 0;
+		if ($('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled')) {
+			tplJobs().forEach(function (j) { per += Math.max(1, parseInt(j.n, 10) || 1); });
+		}
+		var total = n * per;
+		if (!total) { $out.text('').hide(); return; }
+		var price = parseFloat(cfg.imageCost || 0) || 0;
+		var said = price
+			? sprintf(i18n.willCost, total, '$' + (total * price).toFixed(2))
+			: sprintf(i18n.willMake, total);
+		// THE CEILING IS PART OF THE SENTENCE. Asking for twelve photographs of
+		// a product whose hourly ceiling is ten is a run that stops two short on
+		// every line — said here, before the press, rather than as a refusal
+		// halfway through.
+		var cap = parseInt(cfg.falPostCap, 10) || 0;
+		if (cap > 0 && per > cap) {
+			said += ' · ' + sprintf(i18n.overCap, cap, per - cap);
+		}
+		$out.show().text(said);
+	}
+	$(document).on('change', '#dze-cb-image, .dze-cb-tpl, .dze-tpl-n', function () { drawPicked(); });
 	$(document).on('change', '.dze-cb-pick', drawPicked);
 	// Shift+click ticks everything between the last box you touched and this
 	// one, the way every list in WordPress behaves. Picking twelve products out

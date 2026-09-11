@@ -206,6 +206,9 @@
 			$(this).find('.dze-cx-tpladd').toggle(room && i === $rows.length - 1);
 			$(this).find('.dze-cx-tpldel').toggle($rows.length > 1);
 		});
+		// A row added or taken away changes the bill. Both presses come through
+		// here, so neither of them has to remember to say so.
+		drawWillSpend();
 	}
 	function firstFreeTpl() {
 		var used = tplUsed();
@@ -478,6 +481,10 @@
 						'<button type="button" class="button button-primary button-hero" id="dze-cx-run">' + esc(i18n.launch) + '</button>' +
 						'<span class="dze-cx-state" id="dze-cx-runstate"></span>' +
 						'<span class="dze-spend" title="' + esc(i18n.spendTip) + '"></span>' +
+						// What THIS press is about to spend, beside what the
+						// product has already cost. The two answer different
+						// questions and the second one was never asked.
+						'<span class="description" id="dze-cx-willspend" style="display:none;"></span>' +
 					'</p>' +
 					'<div class="dze-cx-prog" id="dze-cx-prog" style="display:none;">' +
 						'<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>' +
@@ -802,8 +809,32 @@
 		$ticked.each(function () { if ('1' !== $(this).attr('data-written')) { all = false; } });
 		if ($('#dze-cx-doimg').is(':checked') || $('#dze-cx-doprice').is(':checked')) { all = false; }
 		$('#dze-cx-run').text(all ? i18n.relaunch : i18n.launch);
+		drawWillSpend();
+	}
+	// WHAT THIS PRESS IS ABOUT TO SPEND, before it is pressed. The photographs
+	// block is rows, not ticks: three rows at four attempts is twelve calls to
+	// fal for this one product, and the button said "Generate".
+	function drawWillSpend() {
+		var $out = $('#dze-cx-willspend');
+		if (!$out.length) { return; }
+		var n = 0;
+		// The same two conditions the press itself reads, and the same rows.
+		if ($('#dze-cx-doimg').is(':checked') && cfg.templates.length) {
+			tplJobs().forEach(function (job) { n += Math.max(1, job.n); });
+		}
+		if (!n) { $out.text('').hide(); return; }
+		var price = parseFloat(cfg.imageCost || 0) || 0;
+		var said = price
+			? sprintf(i18n.willCost, n, '$' + (n * price).toFixed(2))
+			: sprintf(i18n.willMake, n);
+		var cap = parseInt(cfg.falPostCap, 10) || 0;
+		if (cap > 0 && n > cap) { said += ' \u00b7 ' + sprintf(i18n.overCap, cap, n - cap); }
+		$out.show().text(said);
 	}
 	$(document).on('change', '.dze-cx-f, #dze-cx-doimg, #dze-cx-doprice', runLabel);
+	// A row added, removed or set to a different number of attempts changes the
+	// bill, and those rows are drawn after the bar.
+	$(document).on('change', '.dze-tpl-n, .dze-cx-tpl', drawWillSpend);
 
 	function loadCurrent() {
 		if (res.current) { return $.Deferred().resolve(res.current); }

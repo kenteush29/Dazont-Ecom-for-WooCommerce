@@ -3655,6 +3655,11 @@ Answer with STRICT JSON and nothing else: "
 				'mode'      => $this->bulk_mode(),
 				// The box that takes photographs from outside the shop, on the
 				// panel of the product they belong to.
+				// What an image costs and how many one product may have in an
+				// hour: the screen states the bill before the press, and names
+				// the ceiling the run would hit.
+				'imageCost' => self::fal_image_cost(),
+				'falPostCap'=> class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 				'maxPasted' => self::MAX_PASTED,
 				'maxBody'   => self::MAX_BODY,
 				'fields'    => array_map( static fn( $f ) => $f['label'], self::enabled_fields() ),
@@ -3734,6 +3739,12 @@ Answer with STRICT JSON and nothing else: "
 					'confirmDiscard' => __( 'Throw away what was generated for %s products? It cannot be recovered. They stay on the list, back at nothing generated, and the refusals are filed under Done.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
 					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
+					/* translators: 1: number of photographs, 2: amount in dollars */
+					'willCost'  => __( '%1$s photographs · about %2$s', 'dazont-ecom' ),
+					/* translators: %s: number of photographs */
+					'willMake'  => __( '%s photographs', 'dazont-ecom' ),
+					/* translators: 1: the ceiling per product, 2: how many are over it */
+					'overCap'   => __( 'over the ceiling of %1$s per product and hour — %2$s of each will be refused', 'dazont-ecom' ),
 					'tickFirst' => __( 'Tick the products you want to work on first.', 'dazont-ecom' ),
 					'tickNoContent' => __( 'None of the ticked products is holding content to write. Generate first, or tick a product that shows a Review button.', 'dazont-ecom' ),
 					'toGalleryFirst' => __( 'Gallery, first', 'dazont-ecom' ),
@@ -4058,6 +4069,13 @@ Answer with STRICT JSON and nothing else: "
 					<button type="button" class="button button-primary button-hero" id="dze-cb-start" title="<?php esc_attr_e( 'Generate the ticked content for the ticked products', 'dazont-ecom' ); ?>" <?php disabled( 0 === $ok_n && empty( $valid_tpls ) ); ?>><?php esc_html_e( 'Generate', 'dazont-ecom' ); ?></button>
 
 					<button type="button" class="button" id="dze-cb-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
+					<!-- WHAT THE PRESS IS ABOUT TO SPEND, beside the press. The
+					     button said "Generate (30)" — a count of products, read
+					     as a count of the work — while three prompt rows at
+					     four attempts each made it three hundred and sixty
+					     photographs. Every figure was already on this screen;
+					     none of them had ever been multiplied together. -->
+					<span id="dze-cb-spend" class="description" style="display:none;"></span>
 				</p>
 				<p id="dze-cb-progress" class="description"></p>
 			</div>
@@ -4328,6 +4346,10 @@ Answer with STRICT JSON and nothing else: "
 			'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
 			'nonce'      => wp_create_nonce( self::NONCE ),
 			'postId'     => $pid,
+			// What an image costs and how many one product may have in an hour,
+			// so the button can state the bill before it is pressed.
+			'imageCost'  => self::fal_image_cost(),
+			'falPostCap' => class_exists( 'DZE_Ai_Usage' ) ? DZE_Ai_Usage::fal_post_cap() : 0,
 			'validated'  => $fv, // per-field map.
 			'fields'     => $labels,
 			'templates'  => array_map( static fn( $t ) => [ 'id' => (string) ( $t['id'] ?? '' ), 'name' => $t['name'], 'target' => $t['target'] ?? 'gallery', 'scene' => (int) ( $t['scene_i'] ?? -1 ), 'valid' => ! empty( $t['valid'] ), 'prompt' => (string) $t['prompt'] ], self::image_templates() ),
@@ -4496,6 +4518,14 @@ Answer with STRICT JSON and nothing else: "
 					__( 'What this product has cost in images so far: every generation is counted, including the ones you threw away, at %s per image. That price is YOURS to set — Settings → Product content, next to the fal.ai key — and it is the one figure the provider never sends back, so an amount that does not match your invoice is that field to correct.', 'dazont-ecom' ),
 					'$' . number_format_i18n( self::fal_image_cost(), 3 )
 				),
+				// What the press about to be made will cost, beside what the
+				// product has already cost: two different questions.
+				/* translators: 1: number of photographs, 2: amount in dollars */
+				'willCost'   => __( '%1$s photographs · about %2$s', 'dazont-ecom' ),
+				/* translators: %s: number of photographs */
+				'willMake'   => __( '%s photographs', 'dazont-ecom' ),
+				/* translators: 1: the ceiling per product, 2: how many are over it */
+				'overCap'    => __( 'over the ceiling of %1$s per product and hour — %2$s of each will be refused', 'dazont-ecom' ),
 				// The fast lane.
 				'qmTitle'    => __( 'Main image', 'dazont-ecom' ),
 				'qmNow'      => __( 'Main image today', 'dazont-ecom' ),
@@ -6095,7 +6125,19 @@ Answer with STRICT JSON and nothing else: "
 	 *                      which is right for a product image replacing another
 	 *                      and wrong for a banner that has to be wide.
 	 */
-	public function fal_generate( string $prompt, array $image_urls, string $ratio = 'auto' ): string {
+	public function fal_generate( string $prompt, array $image_urls, string $ratio = 'auto', int $pid = 0 ): string {
+		// THE ONE PLACE EVERY IMAGE PASSES THROUGH, so the ceilings are asked
+		// here and nowhere else — six screens call this, and a guard copied
+		// into six places is five places to forget it.
+		if ( class_exists( 'DZE_Ai_Usage' ) ) {
+			$stop = DZE_Ai_Usage::fal_blocked( $pid );
+			if ( '' !== $stop ) {
+				throw new RuntimeException( $stop );
+			}
+			// Counted on the ATTEMPT: a run failing in a loop reaches fal just
+			// as often as one succeeding.
+			DZE_Ai_Usage::fal_attempt( $pid );
+		}
 		// The trace: the prompt whole, the reference photographs counted — as
 		// base64 they would be megabytes of noise beside the words that
 		// actually decide the picture. This is where an invented detail is

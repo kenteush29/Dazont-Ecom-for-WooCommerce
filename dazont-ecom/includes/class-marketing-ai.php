@@ -159,6 +159,11 @@ final class DZE_Marketing_Ai {
 			'hero_prompt'       => '',
 			'country_pools' => [], // lang_code => [ ISO-3166 alpha-2, ... ]
 			'budget_month'  => 0,  // USD cap for ALL AI calls per month; 0 = no cap.
+			// CEILINGS ON IMAGES, per clock hour. Not a budget — a stop for a
+			// run that has gone round in circles. "J'ai dépensé hier 40$ en
+			// génération d'images", which is about five hundred pictures.
+			'fal_cap_post'  => 10, // images of ONE product per hour; 0 = no cap.
+			'fal_cap_hour'  => 60, // images for the whole shop per hour; 0 = no cap.
 			'match_model'   => '', // keyword-matching model; empty = Haiku default.
 			'insights_model'=> '', // Sourcing report model; empty = main model.
 			'sourcing_minvol' => 10, // default "analyse vol ≥" threshold in the Sourcing Assistant.
@@ -316,6 +321,12 @@ final class DZE_Marketing_Ai {
 			$write = [ 'api_key' => sanitize_text_field( $key ) ];
 			if ( $has( 'model' ) ) {
 				$write['model'] = $model;
+			}
+			if ( $has( 'fal_cap_post' ) ) {
+				$write['fal_cap_post'] = max( 0, (int) $in['fal_cap_post'] );
+			}
+			if ( $has( 'fal_cap_hour' ) ) {
+				$write['fal_cap_hour'] = max( 0, (int) $in['fal_cap_hour'] );
 			}
 			if ( $has( 'budget_month' ) ) {
 				$write['budget_month'] = max( 0, (float) str_replace( ',', '.', (string) $in['budget_month'] ) );
