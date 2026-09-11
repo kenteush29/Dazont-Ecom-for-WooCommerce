@@ -676,5 +676,34 @@ $GLOBALS['dze_off'] = [];
 ok( 'the Done tab counts the whole register',
 	(int) DZE_Content::screen_counts()['log'], count( DZE_Content::register() ) );
 
+echo "\nA LIST OF WHAT WAS WRITTEN HOLDS WHAT WAS WRITTEN\n";
+// "Nothing written sur les produits avec le module, c'est une raison pour ne
+// pas afficher le produit dans la liste historique." A refusal, or a product
+// taken off the list before anything was made, wrote not one word — and a
+// register made mostly of those is one nobody reads to the end.
+$GLOBALS['opts'][ DZE_Content::OPT_LOG ] = [];
+DZE_Content::log_add( 42, 2, 1 );              // really written to
+DZE_Content::log_add( 43, 0, 0, 'dropped' );   // refused: nothing written
+DZE_Content::log_add( 44, 0, 0, 'applied' );   // decided, nothing written
+DZE_Queue::$rows = [];
+DZE_Translate::$rows = [
+	[ 'ref' => 'term:9:product_cat', 'kind' => 'term', 'type' => 'product_cat', 'id' => 9,
+	  'langs' => [], 'time' => time(), 'by' => 0, 'title' => 'Nothing translated' ],
+];
+$reg = DZE_Content::register();
+ok( 'only what was written is listed',  count( $reg ), 1 );
+ok( 'and it is the one that was',       (int) $reg[0]['pid'], 42 );
+// THE ROW IS KEPT, never deleted: a decision is signed, and a refusal is still
+// the record that somebody looked and said no.
+ok( 'the quiet ones are counted, not thrown away', DZE_Content::register_quiet(), 3 );
+ok( 'and asked for, they are all there',           count( DZE_Content::register( 200, true ) ), 4 );
+// A row says whether it wrote by a FLAG, never by matching a sentence — that
+// sentence is translated on half the shops that will read this screen.
+ok( 'each row carries the answer as a flag',
+	[ $reg[0]['wrote'], DZE_Content::register( 200, true )[1]['wrote'] ], [ true, false ] );
+// And the tab still counts what is under it.
+ok( 'the tab counts the shown list, not the hidden one',
+	(int) DZE_Content::screen_counts()['log'], 1 );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

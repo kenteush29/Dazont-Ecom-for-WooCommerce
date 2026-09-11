@@ -1400,6 +1400,17 @@ whose screen has not been thought through yet.
     A module switched off contributes nothing rather than erroring, and the
     tab's figure counts the whole register — counting only the products, the
     badge would disagree with its own screen every day.
+- **A LIST OF WHAT WAS WRITTEN HOLDS WHAT WAS WRITTEN.** "Nothing written sur
+  les produits avec le module, c'est une raison pour ne pas afficher le produit
+  dans la liste historique." A refusal, or a product taken off the list before
+  anything was made, wrote not one word — and a register of the shop's work
+  made mostly of those is a register nobody reads to the end. The ROW is kept,
+  because a decision is signed and a refusal is still the record that somebody
+  looked and said no; it is simply not what that list is about, so it sits
+  behind one link, counted, rather than in the way. Each row carries the answer
+  as a **flag**, never as a match on its own sentence — that sentence is
+  translated on half the shops that will read the screen. And the tab's figure
+  counts the list as shown, or the two disagree the moment a refusal is filed.
 - **A LIST OF WHAT WAS DONE IS A LIST YOU CAN LOOK AT.** The Done tab named
   products and offered no way to see them — "j'aimerai la fonction Look comme
   sur la page Selected products, pour voir le résultat actuel sans recharger
