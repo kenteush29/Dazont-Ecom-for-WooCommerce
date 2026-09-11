@@ -37,6 +37,19 @@ final class DZE_Wpml {
 			return [];
 		}
 		$languages = apply_filters( 'wpml_active_languages', null, [ 'skip_missing' => 0 ] );
+		if ( ! is_array( $languages ) || ! $languages ) {
+			// A FILTER ONLY ANSWERS WHERE ITS PLUGIN'S HOOKS ARE LOADED — and
+			// this one answering NOTHING in admin-ajax is what made a whole
+			// batch say "nothing had moved": `produce()` walks the languages it
+			// was asked for and skips any that is not a target, so with no
+			// languages at all it did nothing, silently, and the screen
+			// concluded the site was up to date.
+			//
+			// WPML keeps its active languages in a table of its own. Sixth time
+			// this trap is paid for: ANY READING THAT MUST BE RIGHT OUTSIDE A
+			// PAGE LOAD ASKS THE TABLE.
+			$languages = self::languages_from_table();
+		}
 		if ( ! is_array( $languages ) ) {
 			return [];
 		}
@@ -51,6 +64,60 @@ final class DZE_Wpml {
 			];
 		}
 		return $result;
+	}
+
+	/**
+	 * WPML's active languages, read from WPML's own tables.
+	 *
+	 * The shape is the one `wpml_active_languages` returns, so the caller
+	 * cannot tell the two apart — one code path, never two that must be kept
+	 * in step. The names come from WPML's own translations table where it has
+	 * them; a language it cannot name keeps its code, which is a poor label and
+	 * a true one.
+	 *
+	 * @return array<string,array<string,string>> code => [ native_name, … ]
+	 */
+	public static function languages_from_table(): array {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return [];
+		}
+		$langs = $wpdb->prefix . 'icl_languages';
+		$names = $wpdb->prefix . 'icl_languages_translations';
+		if ( ! self::has_table( $langs ) ) {
+			return [];
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- WPML's own tables; no API answers this without its hooks.
+		$rows = (array) $wpdb->get_results(
+			"SELECT code, english_name, default_locale, tag FROM {$langs} WHERE active = 1 ORDER BY major DESC, english_name ASC",
+			ARRAY_A
+		);
+		$native = [];
+		if ( self::has_table( $names ) ) {
+			foreach ( (array) $wpdb->get_results(
+				"SELECT language_code, name FROM {$names} WHERE language_code = display_language_code",
+				ARRAY_A
+			) as $r ) {
+				$native[ (string) $r['language_code'] ] = (string) $r['name'];
+			}
+		}
+		// phpcs:enable
+		$out = [];
+		foreach ( $rows as $r ) {
+			$code = (string) ( $r['code'] ?? '' );
+			if ( '' === $code ) {
+				continue;
+			}
+			$out[ $code ] = [
+				'native_name'  => (string) ( $native[ $code ] ?? ( $r['english_name'] ?? $code ) ),
+				'english_name' => (string) ( $r['english_name'] ?? '' ),
+				// The flag is drawn by WPML's own asset folder; without its
+				// hooks there is no URL to give, and a broken image is worse
+				// than none — flag_html() already draws the code alone.
+				'country_flag_url' => '',
+			];
+		}
+		return $out;
 	}
 
 	/**

@@ -1492,6 +1492,44 @@ whose screen has not been thought through yet.
   owed IS the button, and pressing it runs the SAME job the batch button runs
   for that one language — never a second engine. A chip WPML is satisfied with
   is not a button, and must not look like one.
+- **THE BATCH IS A SCREEN OF ITS OWN, IN THE SHAPE EVERY OTHER ONE WEARS.**
+  "Send a batch — incomplet et pas bon pour l'UI. Ici je verrais plutôt une
+  liste séparée comme avec les produits… Utiliser le même type de dashboard que
+  pour les bulk content generation." It unfolded UNDER the dashboard table, so
+  choosing what to send meant reading the figures again every time. It is a
+  tab — Dashboard · Batch · To review — built from the same five parts as the
+  product bulk screen and from the same `DZE_Hub`: what this kind holds today
+  in one line with the figures; one BLOCK per kind of work with its switch in
+  its own heading (the languages, with a take-all, and what is sent with each
+  one); ONE button that runs what is ticked, with the BILL beside it — rows ×
+  languages, the figure nobody had ever multiplied — and a Stop; the list with
+  the bulk screen's own bar; and **Look** on every row, **Review** once
+  something waits, opening the SAME panel, with Accept and Cancel where there
+  is something to decide and neither where there is not. The batch tab carries
+  no figure: a number there would have to answer "for which kind?", which the
+  tab bar cannot ask.
+- **A FILTER THAT ANSWERS NOTHING IS NOT AN ANSWER — sixth time.**
+  `wpml_active_languages` is a filter, and in admin-ajax it answered NOTHING —
+  so `obj_targets()` was empty, `produce()` skipped every language in silence,
+  and the screen reported "Nothing had moved on any of them" on a shop whose
+  articles had no register at all and were entirely owed. Two fixes, and both
+  were needed: `get_active_languages()` falls back to `icl_languages` +
+  `icl_languages_translations` (the shape is the filter's own, so no caller can
+  tell them apart), and **`produce()` fails loudly** — a language it cannot
+  resolve is an error on the screen, never a silent skip. An answer nobody
+  asked for is worse than an error nobody wanted.
+- **A VARIABLE PRODUCT WITHOUT ITS VARIATIONS IS NOT A PRODUCT.**
+  `create_translation()` made a post of type `product` carrying the term
+  `variable` and nothing under it — no axes, no variations, no price — which
+  WooCommerce renders as "currently out of stock and unavailable", with no buy
+  button. On this catalogue 163 of the 277 untranslated products are variable.
+  Building variations here is the second code path this plugin may not have:
+  WooCommerce Multilingual owns that job and does it properly, so it is ASKED
+  (`wcml_get_woocommerce_wpml()->sync_variations_data->sync_product_variations`)
+  after the custom-field sync, and the answer is read back OFF THE SHOP —
+  WCML can be asked and still build nothing. A translation that ends up with no
+  variations is a WARNING on the screen that just said "Written ✓", never a
+  silence: the text is worth keeping, the unbuyable page is worth saying.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

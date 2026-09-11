@@ -53,10 +53,23 @@ trait DZE_Translate_Screen {
 		return add_query_arg( array_merge( [ 'page' => self::MENU_SLUG ], $args ), admin_url( 'admin.php' ) );
 	}
 
-	/** The two views, each with the figure it is about. */
+	/**
+	 * THREE VIEWS, and each one is a different question.
+	 *
+	 * Where the site stands · the batch you are choosing · what came back and
+	 * wants a yes or a no. The batch used to unfold UNDER the dashboard table,
+	 * so choosing what to send meant reading the figures again every time:
+	 * "Send a batch — incomplet et pas bon pour l'UI. Ici je verrais plutôt une
+	 * liste séparée comme avec les produits."
+	 *
+	 * The batch tab carries no figure: it is a workbench, not a store, and a
+	 * number there would have to answer "for which kind?" — a question the tab
+	 * bar cannot ask.
+	 */
 	public static function tabs(): array {
 		return [
 			'dashboard' => [ 'label' => __( 'Dashboard', 'dazont-ecom' ), 'n' => count( self::scope() ) ],
+			'batch'     => [ 'label' => __( 'Batch', 'dazont-ecom' ), 'n' => null ],
 			'review'    => [ 'label' => __( 'To review', 'dazont-ecom' ), 'n' => self::review_count() ],
 		];
 	}
@@ -82,7 +95,7 @@ trait DZE_Translate_Screen {
 				$tab === $id ? ' nav-tab-active' : '',
 				esc_url( self::url( [ 'tab' => $id ] ) ),
 				esc_html( $one['label'] ),
-				esc_html( number_format_i18n( (int) $one['n'] ) )
+				null === $one['n'] ? '' : esc_html( number_format_i18n( (int) $one['n'] ) )
 			);
 		}
 		echo '</h2>';
@@ -96,6 +109,8 @@ trait DZE_Translate_Screen {
 		}
 		if ( 'review' === $tab ) {
 			self::review_body();
+		} elseif ( 'batch' === $tab ) {
+			self::batch_body();
 		} else {
 			self::dash_body();
 		}
@@ -257,7 +272,7 @@ trait DZE_Translate_Screen {
 						</td>
 					<?php endforeach; ?>
 					<td>
-						<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Choose a batch', 'dazont-ecom' ); ?></a>
+						<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'batch', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Choose a batch', 'dazont-ecom' ); ?></a>
 						<?php if ( $held ) : ?>
 							<!-- WHAT CAME BACK, ON THE ROW IT WAS SENT FROM. A
 							     batch that finishes and leaves the screen as it
@@ -303,22 +318,51 @@ trait DZE_Translate_Screen {
 			</details>
 		<?php endforeach; ?>
 		<?php
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$want = isset( $_GET['scope'] ) ? sanitize_text_field( wp_unslash( $_GET['scope'] ) ) : '';
-		if ( isset( $scope[ $want ] ) ) {
-			self::pick_body( $want, $scope[ $want ] );
-		}
 	}
 
-	/**
-	 * THE BATCH: what is short, ticked, and sent.
-	 *
-	 * A page at a time, with the state of each object in each language read
-	 * from the register — which is the only thing that can tell "translated and
-	 * current" from "translated and the words have moved since". WPML's own
-	 * mark cannot: it is raised by a renamed category.
-	 */
-	public static function pick_body( string $key, array $scope ): void {
+	// =========================================================================
+	// The BATCH — the Dazont Ecom shape, the one the bulk screen already wears
+	//
+	// "Send a batch — incomplet et pas bon pour l'UI. Ici je verrais plutôt une
+	// liste séparée comme avec les produits… Utiliser le même type de dashboard
+	// que pour les bulk content generation. Ce serait parfait, on y retrouverait
+	// encore une forte cohérence générale dans le plugin."
+	//
+	// Read top to bottom, it is the same five parts as every other screen that
+	// produces something:
+	//   1. what this kind of content holds today, in one line, with the figures;
+	//   2. "What to translate" — one BLOCK per kind of work, its switch in its
+	//      own heading and its count beside it;
+	//   3. ONE button that runs what is ticked, saying nothing is ticked rather
+	//      than doing nothing;
+	//   4. the list, each row saying where it stands and offering to be looked
+	//      at — Look for the object as it is, Review once something waits;
+	//   5. accept and refuse, side by side, on the panel the row opens.
+	//
+	// The parts come from `DZE_Hub`, so a change to the shape reaches this
+	// screen and the product one together, and there is never a second builder.
+	// =========================================================================
+
+	/** Which kind of thing this batch is about, and the menu of the others. */
+	private static function batch_scope(): array {
+		$all = self::picked_scope();
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['scope'] ) ? sanitize_text_field( wp_unslash( $_GET['scope'] ) ) : '';
+		if ( isset( $all[ $want ] ) ) {
+			return [ $want, $all[ $want ], $all ];
+		}
+		$first = (string) ( array_key_first( $all ) ?? '' );
+		return [ $first, $all[ $first ] ?? [], $all ];
+	}
+
+	public static function batch_body(): void {
+		[ $key, $scope, $all ] = self::batch_scope();
+		if ( ! $scope ) {
+			echo '<div class="notice notice-warning inline" style="margin:16px 0;"><p>'
+				. esc_html__( 'WPML is not set to translate any post type or taxonomy on this site. Open WPML → Settings and say what should be translated; this screen follows that answer and never overrides it.', 'dazont-ecom' )
+				. '</p></div>';
+			return;
+		}
 		$src   = DZE_Wpml::default_language();
 		$langs = [];
 		foreach ( DZE_Wpml::get_active_languages() as $l ) {
@@ -326,22 +370,147 @@ trait DZE_Translate_Screen {
 				$langs[ (string) $l['code'] ] = (string) $l['native_name'];
 			}
 		}
+		if ( ! $langs ) {
+			echo '<p>' . esc_html__( 'This site has one language. There is nothing to translate into.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$paged   = max( 1, isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1 );
+		$paged = max( 1, isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1 );
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$all     = ! empty( $_GET['all'] );
-		$per     = 25;
+		$all_rows = ! empty( $_GET['all'] );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$only  = isset( $_GET['only'] ) ? self::from_ref( sanitize_text_field( wp_unslash( $_GET['only'] ) ) ) : [];
+		$per   = 25;
+
+		// ---- 1. WHAT THIS KIND HOLDS TODAY, in one line, with the figures ----
+		$counts  = self::counts_for( $scope );
+		$marked  = self::marked_for( $scope );
+		$waiting = (int) ( self::review_counts()[ DZE_Wpml::element_name( (string) $scope['kind'], (string) $scope['type'] ) ] ?? 0 );
+		$total   = (int) ( $counts[ $src ] ?? 0 );
+		?>
+		<form method="get" class="dze-tr-head">
+			<input type="hidden" name="page" value="<?php echo esc_attr( self::MENU_SLUG ); ?>" />
+			<input type="hidden" name="tab" value="batch" />
+			<label><strong><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></strong>
+				<select name="scope" onchange="this.form.submit();">
+					<?php foreach ( $all as $k => $one ) : ?>
+						<option value="<?php echo esc_attr( $k ); ?>" <?php selected( $k, $key ); ?>><?php echo esc_html( $one['label'] ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<noscript><button type="submit" class="button"><?php esc_html_e( 'Go', 'dazont-ecom' ); ?></button></noscript>
+		</form>
+		<p class="description dze-tr-holds">
+			<?php
+			$dze_bits = [ sprintf( /* translators: 1: number, 2: language code */ __( '%1$s in %2$s', 'dazont-ecom' ), number_format_i18n( $total ), strtoupper( $src ) ) ];
+			foreach ( $langs as $dze_c => $dze_n ) {
+				$dze_have = (int) ( $counts[ $dze_c ] ?? 0 );
+				$dze_due  = (int) ( $marked[ $dze_c ] ?? 0 );
+				$dze_bits[] = sprintf(
+					/* translators: 1: language code, 2: how many exist, 3: how many are missing, 4: how many WPML wants again */
+					__( '%1$s: %2$s translated, %3$s missing, %4$s to update', 'dazont-ecom' ),
+					strtoupper( (string) $dze_c ),
+					number_format_i18n( $dze_have ),
+					number_format_i18n( max( 0, $total - $dze_have ) ),
+					number_format_i18n( $dze_due )
+				);
+			}
+			echo esc_html( implode( ' · ', $dze_bits ) );
+			?>
+			<?php if ( $waiting ) : ?>
+				&nbsp;<a href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>"><?php echo esc_html( sprintf( /* translators: %s: number waiting */ _n( '%s waiting to be read', '%s waiting to be read', $waiting, 'dazont-ecom' ), number_format_i18n( $waiting ) ) ); ?></a>
+			<?php endif; ?>
+		</p>
+
+		<div class="dze-tr-pick dze-cb-controls" data-scope="<?php echo esc_attr( $key ); ?>">
+			<h2><?php esc_html_e( 'What to translate', 'dazont-ecom' ); ?></h2>
+
+			<?php
+			// ---- 2. ONE BLOCK PER KIND OF WORK, its switch in its own title ----
+			DZE_Hub::sec_open( 'langs', __( 'Languages', 'dazont-ecom' ), true, [
+				'all' => true,
+				'tip' => __( 'Tick every language', 'dazont-ecom' ),
+			] );
+			?>
+				<div class="dze-cb-checks">
+					<?php foreach ( $langs as $dze_code => $dze_name ) : ?>
+						<label class="dze-cb-check dze-tr-langbox" title="<?php echo esc_attr( $dze_name ); ?>">
+							<input type="checkbox" class="dze-tr-lang" value="<?php echo esc_attr( $dze_code ); ?>" checked />
+							<span><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?>
+								<em class="description"><?php echo esc_html( sprintf(
+									/* translators: %s: how many of this kind are missing that language */
+									__( '%s short', 'dazont-ecom' ),
+									number_format_i18n( max( 0, $total - (int) ( $counts[ $dze_code ] ?? 0 ) ) + (int) ( $marked[ $dze_code ] ?? 0 ) )
+								) ); ?></em>
+							</span>
+						</label>
+					<?php endforeach; ?>
+				</div>
+			<?php DZE_Hub::sec_close(); ?>
+
+			<?php
+			// A BLOCK'S OWN CONTROLS LIVE INSIDE IT. What is actually sent for
+			// this kind of content is read from WPML's rules, and it belongs
+			// here rather than on a settings page: it is the thing you check
+			// before pressing, not a preference.
+			DZE_Hub::sec_open( 'fields', __( 'What is sent with each one', 'dazont-ecom' ), false );
+			?>
+				<table class="widefat" style="border:0;">
+					<tbody>
+					<?php foreach ( DZE_Translate::field_report( (string) $scope['kind'], (string) $scope['type'] ) as $dze_r ) : ?>
+						<tr>
+							<td style="width:220px;"><strong><?php echo esc_html( $dze_r['label'] ); ?></strong></td>
+							<td style="color:<?php echo esc_attr( 'ok' === $dze_r['tone'] ? '#0a7040' : ( 'warn' === $dze_r['tone'] ? '#b32d2e' : ( 'gap' === $dze_r['tone'] ? '#8a6d00' : '#646970' ) ) ); ?>;"><?php echo esc_html( $dze_r['said'] ); ?></td>
+						</tr>
+					<?php endforeach; ?>
+					</tbody>
+				</table>
+				<p class="description"><?php esc_html_e( 'Read from WPML\'s own rules. The prompt and the glossary are under Settings → Translation.', 'dazont-ecom' ); ?></p>
+			<?php DZE_Hub::sec_close(); ?>
+
+			<!-- ---- 3. ONE BUTTON THAT RUNS WHAT IS TICKED ---- -->
+			<p class="dze-cb-actions">
+				<button type="button" class="button button-primary button-hero" id="dze-tr-send"
+					title="<?php esc_attr_e( 'Translates the ticked rows into the ticked languages. What comes back waits under "To review" — nothing is written to the site yet.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button" id="dze-tr-stop" style="display:none;"><?php esc_html_e( 'Stop', 'dazont-ecom' ); ?></button>
+				<!-- WHAT THE PRESS IS ABOUT TO DO, beside the press: rows times
+				     languages, which is the figure nobody had ever multiplied. -->
+				<span id="dze-tr-bill" class="description"></span>
+			</p>
+			<span id="dze-tr-sendstate" class="description"></span>
+			<div class="dze-cx-prog" id="dze-tr-prog" style="display:none;">
+				<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>
+				<p><strong id="dze-tr-progcount"></strong> <span id="dze-tr-progstep" class="description"></span></p>
+			</div>
+		</div>
+		<?php
+		// ---- 4. THE LIST ----
+		self::pick_body( $key, $scope, $langs, $src, $paged, $per, $all_rows, $only );
+	}
+
+	/**
+	 * THE LIST: what is short, ticked, looked at, and sent.
+	 *
+	 * A page at a time, with the state of each object in each language read
+	 * from WPML's mark first and from our register second — which is the only
+	 * thing that can tell "translated and current" from "translated and the
+	 * words have moved since". WPML's own mark cannot: it is raised by a
+	 * renamed category.
+	 *
+	 * Every part of it is the one the product bulk screen already wears: the
+	 * same bar, the same two words on the row (Look for the object as it
+	 * stands, Review once something waits), the same panel, the same Apply and
+	 * Cancel. What varies between the two screens is WHAT the blocks are, never
+	 * the shape around them.
+	 */
+	public static function pick_body( string $key, array $scope, array $langs, string $src, int $paged = 1, int $per = 25, bool $all = false, array $only = [] ): void {
 		// THE NARROWING HAPPENS IN THE QUERY THAT PAGES. Filtered after the
 		// paging, the pager counted the whole catalogue and the page showed
 		// two rows.
-		// ARMED ON ONE OBJECT. "Translate with Dazont Ecom" in WPML's own
-		// Language box opens this screen rather than running anything, so the
-		// screen has to show THAT object — ticked, with nothing else in the
-		// way. A button whose destination is a list of nine hundred rows is a
-		// button that sent you looking.
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$only    = isset( $_GET['only'] ) ? self::from_ref( sanitize_text_field( wp_unslash( $_GET['only'] ) ) ) : [];
 		if ( $only ) {
+			// ARMED ON ONE OBJECT: "Translate with Dazont Ecom" in WPML's own
+			// Language box opens this screen rather than running anything, so
+			// the screen shows THAT object, ticked, with nothing in the way.
 			$objects = [ $only ];
 			$found   = 1;
 			$exact   = true;
@@ -354,132 +523,195 @@ trait DZE_Translate_Screen {
 		}
 		// WPML'S ANSWER FOR THE WHOLE PAGE, in one query rather than one a row.
 		$marks   = self::page_marks( $objects );
+		// AND WHAT IS ALREADY WAITING ON THESE ONES, so a row says Review
+		// rather than Look. One query for the page, like everything else here.
+		$held    = self::page_waiting( $objects );
 		?>
-		<h2 style="margin-top:28px;"><?php echo esc_html( sprintf( /* translators: %s: what is being translated */ __( 'Send a batch — %s', 'dazont-ecom' ), $scope['label'] ) ); ?></h2>
-		<?php if ( ! $langs ) : ?>
-			<p><?php esc_html_e( 'This site has one language. There is nothing to translate into.', 'dazont-ecom' ); ?></p>
-			<?php return; ?>
-		<?php endif; ?>
-		<div class="dze-tr-pick" data-scope="<?php echo esc_attr( $key ); ?>">
-			<p class="dze-tr-langs">
-				<strong><?php esc_html_e( 'Into', 'dazont-ecom' ); ?></strong>
-				<?php foreach ( $langs as $code => $name ) : ?>
-					<label class="dze-cb-check" title="<?php echo esc_attr( $name ); ?>"><input type="checkbox" class="dze-tr-lang" value="<?php echo esc_attr( $code ); ?>" checked />
-						<span><?php echo wp_kses_post( DZE_Wpml::flag_html( $code ) ); ?></span></label>
-				<?php endforeach; ?>
-			</p>
-			<table class="widefat striped" style="max-width:980px;">
-				<thead><tr>
-					<td class="check-column"><input type="checkbox" id="dze-tr-all" /></td>
-					<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
-					<th style="width:340px;"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
-				</tr></thead>
-				<tbody>
-				<?php if ( ! $objects ) : ?>
-					<!-- AN EMPTY ANSWER SAYS WHICH EMPTY IT IS. "Nothing here"
-					     over a catalogue of two thousand reads as a broken
-					     screen; nothing to do and nothing at all are two
-					     different answers and the way out of each differs. -->
-					<tr><td colspan="3">
-						<?php if ( $exact && ! $all ) : ?>
-							<?php esc_html_e( 'Nothing needs work here: every one of these is translated and WPML is satisfied with it.', 'dazont-ecom' ); ?>
-							<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all anyway', 'dazont-ecom' ); ?></a>
-						<?php else : ?>
-							<?php esc_html_e( 'Nothing of this kind in the main language yet.', 'dazont-ecom' ); ?>
-						<?php endif; ?>
-					</td></tr>
-				<?php endif; ?>
-				<?php foreach ( $objects as $o ) : ?>
-					<?php $state = self::state_of( $o, array_keys( $langs ), $marks ); ?>
-					<tr class="dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>">
-						<td class="check-column"><input type="checkbox" class="dze-tr-pickone" <?php checked( (bool) $only ); ?> /></td>
-						<td>
-							<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( self::obj_label( $o ) ); ?></a>
-						</td>
-						<td class="dze-tr-state">
-							<?php foreach ( $state as $code => $said ) : ?>
-								<?php
-								// WPML'S OWN GESTURE: the plus makes the missing
-								// translation, the arrows bring an out-of-date one
-								// back. "Avec le bouton + pour créer une traduction
-								// d'une langue précise. Le bouton actualiser pour
-								// actualiser une traduction qui n'est plus à jour."
-								// A chip WPML is satisfied with is not a button:
-								// there is nothing to press it for.
-								$dze_act = in_array( $said, [ 'missing', 'stale', 'noise' ], true );
-								?>
-								<?php if ( $dze_act ) : ?>
-									<button type="button" class="dze-tr-chip is-<?php echo esc_attr( $said ); ?> dze-tr-one"
-										data-lang="<?php echo esc_attr( (string) $code ); ?>"
-										title="<?php echo esc_attr( sprintf(
-											/* translators: 1: what the language needs, 2: the language */
-											'missing' === $said
-												? __( 'Translate this one into %2$s — it lands in "To review", nothing is written yet', 'dazont-ecom' )
-												: __( 'Bring the %2$s translation up to date — it lands in "To review", nothing is written yet', 'dazont-ecom' ),
-											self::state_said( $said ),
-											strtoupper( (string) $code )
-										) ); ?>">
-										<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
-										<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
-										<?php echo esc_html( self::state_said( $said ) ); ?>
-									</button>
-								<?php else : ?>
-									<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
-										<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
-										<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
-										<?php echo esc_html( self::state_said( $said ) ); ?>
-									</span>
-								<?php endif; ?>
-							<?php endforeach; ?>
-						</td>
-					</tr>
-				<?php endforeach; ?>
-				</tbody>
-			</table>
-			<?php if ( $only ) : ?>
-				<p class="description">
-					<?php esc_html_e( 'One object, opened from its own edit screen and already ticked. Nothing is sent until you press the button below.', 'dazont-ecom' ); ?>
-					<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Show everything that needs work', 'dazont-ecom' ); ?></a>
-				</p>
-			<?php elseif ( $exact && $objects ) : ?>
-				<!-- WHAT THE LIST IS, said once, with the other reading one
-				     press away. The count in the pager and the rows under it
-				     answer this same sentence. -->
-				<p class="description">
-					<?php if ( $all ) : ?>
-						<?php echo esc_html( sprintf( /* translators: %s: number of objects */ _n( '%s in the main language — everything, including what WPML is satisfied with.', '%s in the main language — everything, including what WPML is satisfied with.', $found, 'dazont-ecom' ), number_format_i18n( $found ) ) ); ?>
-						<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Only what needs work', 'dazont-ecom' ); ?></a>
+		<!-- Tick rows, then act on them: the same bar, the same words and the
+		     same order as the product bulk screen, because it is the same
+		     gesture. -->
+		<p class="dze-cb-listbar">
+			<span id="dze-tr-selcount" class="description"></span>
+			<button type="button" class="button button-small" id="dze-tr-selall"><?php esc_html_e( 'Select all', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button button-small" id="dze-tr-selnone"><?php esc_html_e( 'Unselect all', 'dazont-ecom' ); ?></button>
+			<span class="dze-cb-barsep"></span>
+			<a class="button" href="<?php echo esc_url( self::url( [ 'tab' => 'review' ] ) ); ?>" title="<?php esc_attr_e( 'Everything that has come back and is waiting for a yes or a no, whatever kind of thing it is', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Read what came back', 'dazont-ecom' ); ?></a>
+		</p>
+		<table class="widefat striped dze-tr-table">
+			<thead><tr>
+				<td class="check-column"><input type="checkbox" id="dze-tr-all" title="<?php esc_attr_e( 'Select every row on this page', 'dazont-ecom' ); ?>" /></td>
+				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+				<th style="width:340px;" title="<?php esc_attr_e( 'A flag that is owed is a button: the plus makes the missing translation, the arrows bring an out-of-date one back.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
+				<th style="width:120px;"></th>
+			</tr></thead>
+			<tbody>
+			<?php if ( ! $objects ) : ?>
+				<!-- AN EMPTY ANSWER SAYS WHICH EMPTY IT IS. "Nothing here" over
+				     a catalogue of two thousand reads as a broken screen. -->
+				<tr><td colspan="4">
+					<?php if ( $exact && ! $all ) : ?>
+						<?php esc_html_e( 'Nothing needs work here: every one of these is translated and WPML is satisfied with it.', 'dazont-ecom' ); ?>
+						<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all anyway', 'dazont-ecom' ); ?></a>
 					<?php else : ?>
-						<?php echo esc_html( sprintf( /* translators: %s: number of objects */ _n( '%s needs work: a language missing, or WPML asking for it again.', '%s need work: a language missing, or WPML asking for it again.', $found, 'dazont-ecom' ), number_format_i18n( $found ) ) ); ?>
-						<a href="<?php echo esc_url( self::url( [ 'tab' => 'dashboard', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all', 'dazont-ecom' ); ?></a>
+						<?php esc_html_e( 'Nothing of this kind in the main language yet.', 'dazont-ecom' ); ?>
 					<?php endif; ?>
-				</p>
+				</td></tr>
 			<?php endif; ?>
-			<?php if ( $pages > 1 ) : ?>
-				<p class="tablenav-pages" style="margin:10px 0;">
-					<?php
-					echo wp_kses_post( paginate_links( [
-						'base'    => esc_url_raw( self::url( array_merge(
-							[ 'tab' => 'dashboard', 'scope' => $key, 'paged' => '%#%' ],
-							$all ? [ 'all' => 1 ] : []
-						) ) ),
-						'format'  => '',
-						'current' => $paged,
-						'total'   => $pages,
-					] ) ?: '' );
-					?>
-				</p>
-			<?php endif; ?>
-			<p class="dze-cb-actions">
-				<button type="button" class="button button-primary button-hero" id="dze-tr-send"><?php esc_html_e( 'Translate the ticked', 'dazont-ecom' ); ?></button>
-				<span id="dze-tr-sendstate" class="description"></span>
+			<?php foreach ( $objects as $o ) : ?>
+				<?php
+				$state   = self::state_of( $o, array_keys( $langs ), $marks );
+				$dze_ref = self::ref( $o );
+				$dze_has = ! empty( $held[ $dze_ref ] );
+				?>
+				<tr class="dze-tr-row" data-ref="<?php echo esc_attr( $dze_ref ); ?>">
+					<td class="check-column"><input type="checkbox" class="dze-tr-pickone" <?php checked( (bool) $only ); ?> /></td>
+					<td>
+						<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( self::obj_label( $o ) ); ?></strong></a>
+					</td>
+					<td class="dze-tr-state">
+						<?php foreach ( $state as $code => $said ) : ?>
+							<?php
+							// WPML'S OWN GESTURE: the plus makes the missing
+							// translation, the arrows bring an out-of-date one
+							// back. "Avec le bouton + pour créer une traduction
+							// d'une langue précise. Le bouton actualiser pour
+							// actualiser une traduction qui n'est plus à jour."
+							// A chip WPML is satisfied with is not a button:
+							// there is nothing to press it for.
+							$dze_act = in_array( $said, [ 'missing', 'stale', 'noise' ], true );
+							?>
+							<?php if ( $dze_act ) : ?>
+								<button type="button" class="dze-tr-chip is-<?php echo esc_attr( $said ); ?> dze-tr-one"
+									data-lang="<?php echo esc_attr( (string) $code ); ?>"
+									title="<?php echo esc_attr( sprintf(
+										/* translators: %s: the language */
+										'missing' === $said
+											? __( 'Translate this one into %s — it lands in "To review", nothing is written yet', 'dazont-ecom' )
+											: __( 'Bring the %s translation up to date — it lands in "To review", nothing is written yet', 'dazont-ecom' ),
+										strtoupper( (string) $code )
+									) ); ?>">
+									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
+									<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
+									<?php echo esc_html( self::state_said( $said ) ); ?>
+								</button>
+							<?php else : ?>
+								<span class="dze-tr-chip is-<?php echo esc_attr( $said ); ?>" title="<?php echo esc_attr( self::state_said( $said ) ); ?>">
+									<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?>
+									<span class="dashicons <?php echo esc_attr( self::state_icon( $said ) ); ?>" aria-hidden="true"></span>
+									<?php echo esc_html( self::state_said( $said ) ); ?>
+								</span>
+							<?php endif; ?>
+						<?php endforeach; ?>
+					</td>
+					<td>
+						<!-- ONE CLICK TO SEE WHAT IT HOLDS TODAY, and the two
+						     words say which of the two things it opens on — the
+						     object as it stands, or the work waiting for a
+						     decision. The same button, the same panel and the
+						     same two words as the product bulk screen. -->
+						<button type="button" class="button button-small dze-tr-open" aria-expanded="false"
+							title="<?php echo esc_attr( $dze_has
+								? __( 'Read what came back beside the original and beside what the translation holds today, then accept or refuse it field by field', 'dazont-ecom' )
+								: __( 'The text this one holds today, and what each translation holds today', 'dazont-ecom' ) ); ?>">
+							<span class="dze-tr-openword"><?php echo esc_html( $dze_has ? __( 'Review', 'dazont-ecom' ) : __( 'Look', 'dazont-ecom' ) ); ?></span>
+						</button>
+					</td>
+				</tr>
+				<!-- THE SAME PANEL MARKUP AS THE REVIEW LIST, so the one handler
+				     in translate-screen.js drives both and there is never a
+				     second one to keep in step. -->
+				<tr class="dze-tr-panel" data-ref="<?php echo esc_attr( $dze_ref ); ?>" style="display:none;"><td colspan="4"></td></tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php if ( $only ) : ?>
+			<p class="description">
+				<?php esc_html_e( 'One object, opened from its own edit screen and already ticked. Nothing is sent until you press Translate.', 'dazont-ecom' ); ?>
+				<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Show everything that needs work', 'dazont-ecom' ); ?></a>
 			</p>
-			<div class="dze-cx-prog" id="dze-tr-prog" style="display:none;">
-				<div class="dze-cb-bar"><div class="dze-cb-fill"></div></div>
-				<p><strong id="dze-tr-progcount"></strong> <span id="dze-tr-progstep" class="description"></span></p>
-			</div>
-		</div>
+		<?php elseif ( $exact && $objects ) : ?>
+			<!-- WHAT THE LIST IS, said once, with the other reading one press
+			     away. The count in the pager and the rows under it answer this
+			     same sentence. -->
+			<p class="description">
+				<?php if ( $all ) : ?>
+					<?php echo esc_html( sprintf( /* translators: %s: number of objects */ _n( '%s in the main language — everything, including what WPML is satisfied with.', '%s in the main language — everything, including what WPML is satisfied with.', $found, 'dazont-ecom' ), number_format_i18n( $found ) ) ); ?>
+					<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch', 'scope' => $key ] ) ); ?>"><?php esc_html_e( 'Only what needs work', 'dazont-ecom' ); ?></a>
+				<?php else : ?>
+					<?php echo esc_html( sprintf( /* translators: %s: number of objects */ _n( '%s needs work: a language missing, or WPML asking for it again.', '%s need work: a language missing, or WPML asking for it again.', $found, 'dazont-ecom' ), number_format_i18n( $found ) ) ); ?>
+					<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all', 'dazont-ecom' ); ?></a>
+				<?php endif; ?>
+			</p>
+		<?php endif; ?>
+		<?php if ( $pages > 1 ) : ?>
+			<p class="tablenav-pages" style="margin:10px 0;">
+				<?php
+				echo wp_kses_post( paginate_links( [
+					'base'    => esc_url_raw( self::url( array_merge(
+						[ 'tab' => 'batch', 'scope' => $key, 'paged' => '%#%' ],
+						$all ? [ 'all' => 1 ] : []
+					) ) ),
+					'format'  => '',
+					'current' => $paged,
+					'total'   => $pages,
+				] ) ?: '' );
+				?>
+			</p>
+		<?php endif; ?>
 		<?php
+	}
+
+	/**
+	 * WHICH OF THESE ROWS ALREADY HOLD SOMETHING WAITING, in one query.
+	 *
+	 * A row that has work waiting says **Review**; one that has not says
+	 * **Look**. Asked per row it would be a query per row, which is the rule
+	 * this plugin breaks least often and pays for most.
+	 *
+	 * @return array<string,true> ref => true
+	 */
+	public static function page_waiting( array $objects ): array {
+		global $wpdb;
+		$out = [];
+		if ( ! $objects || ! $wpdb ) {
+			return $out;
+		}
+		$posts = [];
+		$terms = [];
+		foreach ( $objects as $o ) {
+			if ( 'term' === ( $o['kind'] ?? 'post' ) ) {
+				$terms[ (int) $o['id'] ] = self::ref( $o );
+			} else {
+				$posts[ (int) $o['id'] ] = self::ref( $o );
+			}
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- our own meta key; ids cast to int.
+		if ( $posts ) {
+			$in   = implode( ',', array_map( 'intval', array_keys( $posts ) ) );
+			$rows = (array) $wpdb->get_col( $wpdb->prepare(
+				"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND post_id IN ( {$in} )",
+				DZE_Translate::META_WAIT
+			) );
+			foreach ( $rows as $id ) {
+				if ( isset( $posts[ (int) $id ] ) ) {
+					$out[ $posts[ (int) $id ] ] = true;
+				}
+			}
+		}
+		if ( $terms ) {
+			$in   = implode( ',', array_map( 'intval', array_keys( $terms ) ) );
+			$rows = (array) $wpdb->get_col( $wpdb->prepare(
+				"SELECT term_id FROM {$wpdb->termmeta} WHERE meta_key = %s AND term_id IN ( {$in} )",
+				DZE_Translate::META_WAIT
+			) );
+			foreach ( $rows as $id ) {
+				if ( isset( $terms[ (int) $id ] ) ) {
+					$out[ $terms[ (int) $id ] ] = true;
+				}
+			}
+		}
+		// phpcs:enable
+		return $out;
 	}
 
 	/**
@@ -755,7 +987,7 @@ trait DZE_Translate_Screen {
 			</tr></thead>
 			<tbody>
 			<?php foreach ( $rows as $r ) : ?>
-				<tr class="dze-tr-wrow" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>">
+				<tr class="dze-tr-wrow dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>">
 					<td><strong><?php echo esc_html( $r['label'] ); ?></strong></td>
 					<td><span class="description"><?php echo esc_html( self::type_label( $r ) ); ?></span></td>
 					<td>
