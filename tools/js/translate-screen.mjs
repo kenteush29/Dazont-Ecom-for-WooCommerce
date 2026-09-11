@@ -48,6 +48,7 @@ function dump( which ) {
 }
 const dash   = dump( 'batch' );
 const review = dump( 'review' );
+const popup  = dump( 'popup' );
 // The plugin's own config, with only the address the harness has to answer on
 // replaced. Retyping the rest is how a gate goes green while proving nothing.
 const cfg = Object.assign( {}, dash.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
@@ -68,6 +69,7 @@ for ( const [ label, jq ] of jqs ) {
 		const q = new URLSearchParams( route.request().postData() || '' );
 		sent.push( {
 			action: q.get( 'action' ), nonce: q.get( 'nonce' ), ref: q.get( 'ref' ),
+			post: q.get( 'post' ),
 			how: q.get( 'how' ), langs: q.getAll( 'langs[]' ),
 			// What a decision actually puts on the wire, field by field.
 			keepFr: q.get( 'keep[fr][name]' ), keepFrDesc: q.get( 'keep[fr][description]' )
@@ -101,6 +103,9 @@ for ( const [ label, jq ] of jqs ) {
 					exists: true, mine: true, edit: 'https://kula.test/x'
 				} }
 			} );
+		}
+		if ( 'dze_tr_rebuild' === q.get( 'action' ) ) {
+			return json( { rows: { fr: { lang: 'Français', before: 0, after: 3, how: 'attributes+variations' } } } );
 		}
 		if ( 'dze_tr_decide' === q.get( 'action' ) ) {
 			return json( { written: { fr: 8 }, errors: {}, left: 0, refused: 'refuse' === q.get( 'how' ) } );
@@ -242,6 +247,53 @@ for ( const [ label, jq ] of jqs ) {
 	await page.check( '#dze-tr-all' );
 	ok( 'the heading tick takes every row',
 		await page.locator( '.dze-tr-pickone:checked' ).count(), 2 );
+
+	// ---- THE PRODUCT POPUP: ATTRIBUTES AND VARIATIONS ----
+	// This screen had NO browser gate at all, which is why a bridge to
+	// WooCommerce Multilingual could ship calling sync_product_variations()
+	// with an empty fourth argument — the axes — and nobody could tell: "les
+	// attributs produits et les variations ne sont toujours pas là sur le
+	// produit traduit." A button is tested by BEING PRESSED.
+	const popCfg = Object.assign( {}, popup.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
+	await page.route( 'http://dze.test/popup', r => r.fulfill( { contentType: 'text/html',
+		body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style>`
+			+ `<script>${readFileSync( jq, 'utf8' )}</script>`
+			+ `<script>window.dzeTranslate=${JSON.stringify( popCfg )};</script>`
+			+ `<script>${readFileSync( join( js, 'translate.js' ), 'utf8' )}</script></head>`
+			+ `<body>${popup.html}</body></html>` } ) );
+	await page.goto( 'http://dze.test/popup', { waitUntil: 'domcontentloaded' } );
+	ok( 'the product popup runs without an error', errors, [] );
+	// The popup is shut until something opens it — the hub's own delegated
+	// opener, which is pressed for real further down. Here we are testing what
+	// is INSIDE it, so it is put on screen the way that opener puts it there.
+	await page.locator( '#dze-tr-modal' ).evaluate( el => el.classList.add( 'is-open' ) );
+
+	// IT SAYS WHERE THE TRANSLATION STANDS before offering anything.
+	ok( 'it says where each language stands on the variations',
+		( await page.textContent( '.dze-tr-attrs' ) || '' ).includes( 'variations' ), true );
+	ok( 'and offers the one repair there is',
+		await page.locator( '#dze-tr-rebuild' ).count(), 1 );
+	ok( 'which says under the hand that it spends nothing',
+		( await page.getAttribute( '#dze-tr-rebuild', 'title' ) || '' ).includes( 'nothing is spent' ), true );
+
+	before = sent.length;
+	await page.click( '#dze-tr-rebuild' );
+	await page.waitForFunction(
+		() => !/…$/.test( ( document.querySelector( '#dze-tr-rebuildstate' ) || {} ).textContent || '…' ),
+		null, { timeout: 6000 } ).catch( () => {} );
+	const fix = sent.slice( before );
+	ok( 'pressing it asks the server to rebuild', ( fix[0] || {} ).action, 'dze_tr_rebuild' );
+	ok( 'for this product', ( fix[0] || {} ).post, String( popCfg.postId ) );
+	ok( 'with its nonce', ( fix[0] || {} ).nonce, popCfg.nonce );
+	// AND NOT ONE WORD WAS SENT TO A MODEL: the repair is free, and a press
+	// that quietly spent money would be the fault this plugin has paid for.
+	ok( 'and nothing was translated on the way',
+		fix.filter( x => 'dze_tr_preview' === x.action || 'dze_tr_batch' === x.action ).length, 0 );
+	ok( 'the row is rewritten with what it now holds',
+		( await page.textContent( '.dze-tr-attrs tr[data-lang="fr"] .dze-tr-varcell' ) || '' ).includes( '3' ), true );
+	ok( 'and the screen says it worked',
+		( await page.textContent( '#dze-tr-rebuildstate' ) || '' ).length > 0, true );
+	ok( 'nothing was raised rebuilding', errors, [] );
 
 	// ---- "TRANSLATE WITH DAZONT ECOM", INSIDE WPML'S OWN LANGUAGE BOX ----
 	// "Peut être ajouter directement une option par dessus wpml sur les blocs

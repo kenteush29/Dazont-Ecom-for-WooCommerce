@@ -1524,12 +1524,33 @@ whose screen has not been thought through yet.
   WooCommerce renders as "currently out of stock and unavailable", with no buy
   button. On this catalogue 163 of the 277 untranslated products are variable.
   Building variations here is the second code path this plugin may not have:
-  WooCommerce Multilingual owns that job and does it properly, so it is ASKED
-  (`wcml_get_woocommerce_wpml()->sync_variations_data->sync_product_variations`)
-  after the custom-field sync, and the answer is read back OFF THE SHOP —
-  WCML can be asked and still build nothing. A translation that ends up with no
-  variations is a WARNING on the screen that just said "Written ✓", never a
-  silence: the text is worth keeping, the unbuyable page is worth saying.
+  WooCommerce Multilingual owns that job and does it properly, so it is ASKED —
+  and **the first attempt at that bridge asked for nothing**. It called
+  `sync_product_variations( $pid, $new, $lang, [] )`, and that fourth argument
+  is THE AXES the variations are built along. With `[]` WCML did exactly what
+  it was told: nothing. "Les attributs produits et les variations ne sont
+  toujours pas là sur le produit traduit. C'est ridicule !" The order is WCML's
+  own translation editor's and it has to be kept:
+  `attributes->sync_product_attr()` FIRST — it is the only thing that writes
+  `_product_attributes` onto the translation (WPML holds that key on "Don't
+  translate" here, so the custom-field sync skips it and the translation has no
+  axes at all) and it RETURNS the original's attributes — then
+  `sync_variations_data->sync_product_variations()` with THOSE. A WCML that
+  exposes `sync_product_data->sync_product_data()` does the whole job in one
+  call and is used instead: one call WCML maintains beats two we keep in step.
+  The answer is read back OFF THE SHOP (`variation_count()`), because WCML can
+  be asked and still build nothing, and a translation that ends up with none is
+  a WARNING on the screen that just said "Written ✓".
+  **And a translation already broken cannot be mended by hand**: "je ne peux
+  pas modifier les attributs sur un produit traduit ni les variations. C'est
+  normalement copié du produit original." WCML keeps them read-only. So the
+  product's own popup states where each language stands and offers
+  `rebuild_product()` — the same bridge, no words sent, nothing spent — and the
+  row is rewritten with what the translation now holds.
+  **The product popup had NO browser gate at all**, which is precisely why an
+  empty fourth argument could ship: `tools/js/translate-screen.mjs` opens it
+  now (`--dump-screen=popup`), presses Rebuild, reads back the request, and
+  asserts that not one translation call went out with it.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
