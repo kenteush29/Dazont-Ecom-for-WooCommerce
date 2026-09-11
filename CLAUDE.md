@@ -1205,6 +1205,29 @@ whose screen has not been thought through yet.
   stale until somebody edits the source again, and THAT time the register sees
   it. Ten thousand marks made through a spreadsheet in 2025 are cleared that
   way, for nothing.
+- **A BUDGET THAT IS OFF IS NOT A GUARD, AND A PRESS THAT SPENDS SAYS WHAT IT
+  WILL SPEND.** "J'ai dépensé hier 40$ en génération d'images... sur fal j'ai vu
+  24 images générées pour le même produit le fsb patch." Nothing intervened
+  because the only guard was the monthly budget and `over_budget()` is
+  `$cap > 0` — unset, it stops nothing at all. And twenty-four is what the bulk
+  screen asks for on its own: three prompt rows at ×4 attempts is twelve images
+  per product, run twice. Two halves, and both are needed:
+  - **CEILINGS**, not budgets: at most ten images of ONE product and sixty for
+    the whole shop, per CLOCK HOUR — the only window that can be said in one
+    sentence and needs no list kept anywhere. They are counted on the ATTEMPT,
+    never on what came back (a run failing in a loop reaches the provider just
+    as often as one succeeding), and asked at the ONE funnel every image passes
+    through, `fal_generate()`, which is why it is told WHICH product it is for.
+    Nought means no ceiling, never a ceiling of nought.
+  - **EVERY FIGURE WAS ALREADY ON THE SCREEN** — the rows, the attempts, the
+    ticked products, the price per image — and none of them had ever been
+    multiplied together: the button read "Generate (30)", a count of products
+    that reads like a count of the work. Both screens that spend say it before
+    the press, and NAME the ceiling when the order is over it, rather than
+    refusing halfway through.
+  `php tools/test-spend.php dazont-ecom` must pass, and the bill is asserted in
+  a browser (`node tools/js/content-bulk.mjs`) because only a browser can
+  multiply what is on the page.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

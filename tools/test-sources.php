@@ -179,6 +179,10 @@ function arbitrated( string $said ): bool {
 // written into the test: what is pressed there is what ships.
 if ( in_array( '--dump-bulk', (array) $argv, true ) ) {
 	$GLOBALS['opts']['dze_content_settings'] = [
+		// A fake shop that can really make images: without a key the Images
+		// block is drawn DISABLED, and a gate pressing a switched-off block
+		// proves nothing about the screen the shop actually uses.
+		'fal_key'  => 'fake-fal-key',
 		'scenes'   => [
 			[ 'name' => 'Studio backdrop', 'image' => 90, 'prompt' => '', 'default' => true ],
 			[ 'name' => 'Slate', 'image' => 91, 'prompt' => '', 'default' => false ],

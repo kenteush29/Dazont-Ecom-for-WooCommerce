@@ -65,7 +65,9 @@ final class DZE_Cleanup {
 			],
 			'marketing_ai' => [
 				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage', 'dze_ai_trace', 'dze_ai_last' ],
-				'transients' => [ 'dze_mai_shop_context', 'dze_mai_models' ],
+				// The image ceilings count per clock hour, one row for the shop
+				// and one per product. A name ending in _ is a PREFIX here.
+				'transients' => [ 'dze_mai_shop_context', 'dze_mai_models', 'dze_fal_h_', 'dze_fal_p_' ],
 			],
 			// The drafts themselves live in Klaviyo, which is not our database
 			// to erase: what we hold is the key, the choices and the links.

@@ -73,8 +73,59 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 			<td>
 				<input type="number" id="dze-mai-budget" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[budget_month]' ); ?>" value="<?php echo esc_attr( (float) ( $settings['budget_month'] ?? 0 ) ?: '' ); ?>" min="0" step="0.5" style="width:100px;" placeholder="0" />
 				<p class="description"><?php esc_html_e( 'Hard cap for ALL AI features combined (calendar, category insights, keyword matching, product images). When the estimated month spend reaches it, every AI call is blocked until next month. 0 or empty = no cap. Current month spend shows in the usage graph below.', 'dazont-ecom' ); ?></p>
+				<?php
+				// A GUARD THAT IS OFF SAYS SO. This is the one that would have
+				// stopped forty dollars of images in a day, and left empty it
+				// stops nothing at all — while the field beside it looks set up
+				// like every other. Said here, where it is changed.
+				if ( (float) ( $settings['budget_month'] ?? 0 ) <= 0 ) :
+					?>
+					<p class="description" style="color:#b32d2e;">
+						<strong><?php esc_html_e( 'No monthly cap is set, so nothing stops the total.', 'dazont-ecom' ); ?></strong>
+						<?php esc_html_e( 'The two ceilings below stop a run that goes round in circles; only this figure stops a month adding up.', 'dazont-ecom' ); ?>
+					</p>
+				<?php endif; ?>
 			</td>
 		</tr>
+		<?php
+		// A CEILING ON A FUNCTION THE SHOP HAS NOT GOT IS NOT A SETTING. These
+		// two count images, and images are the Product Content module's work.
+		if ( class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'content' ) ) :
+			$dze_img_price = $dze_img_price;
+			?>
+		<tr>
+			<th scope="row"><label for="dze-mai-cappost"><?php esc_html_e( 'Images per product, per hour', 'dazont-ecom' ); ?></label></th>
+			<td>
+				<input type="number" id="dze-mai-cappost" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[fal_cap_post]' ); ?>" value="<?php echo esc_attr( (string) DZE_Ai_Usage::fal_post_cap() ); ?>" min="0" step="1" style="width:100px;" />
+				<p class="description">
+					<?php
+					printf(
+						/* translators: 1: the ceiling, 2: what that many images cost */
+						esc_html__( 'A ceiling, not a budget: it stops one product having images made for it over and over. At %1$s images an hour that product can cost at most %2$s in that hour. It does not block you an hour later. 0 = no ceiling.', 'dazont-ecom' ),
+						'<strong>' . esc_html( number_format_i18n( DZE_Ai_Usage::fal_post_cap() ) ) . '</strong>',
+						'<strong>$' . esc_html( number_format_i18n( DZE_Ai_Usage::fal_post_cap() * $dze_img_price, 2 ) ) . '</strong>'
+					);
+					?>
+				</p>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row"><label for="dze-mai-caphour"><?php esc_html_e( 'Images for the whole shop, per hour', 'dazont-ecom' ); ?></label></th>
+			<td>
+				<input type="number" id="dze-mai-caphour" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[fal_cap_hour]' ); ?>" value="<?php echo esc_attr( (string) DZE_Ai_Usage::fal_hour_cap() ); ?>" min="0" step="1" style="width:100px;" />
+				<p class="description">
+					<?php
+					printf(
+						/* translators: 1: the ceiling, 2: what that many images cost */
+						esc_html__( 'The same ceiling across every screen at once: %1$s images an hour for the whole shop, which is at most %2$s in that hour whatever a run was asked for. Raise it for a big catalogue pass, then put it back. 0 = no ceiling.', 'dazont-ecom' ),
+						'<strong>' . esc_html( number_format_i18n( DZE_Ai_Usage::fal_hour_cap() ) ) . '</strong>',
+						'<strong>$' . esc_html( number_format_i18n( DZE_Ai_Usage::fal_hour_cap() * $dze_img_price, 2 ) ) . '</strong>'
+					);
+					?>
+				</p>
+			</td>
+		</tr>
+		<?php endif; ?>
 	</table>
 	<?php endif; // $show_general ?>
 
