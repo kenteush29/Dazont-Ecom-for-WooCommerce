@@ -1456,6 +1456,13 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tr-chip.is-done    { border-color: #a7d7b5; background: #edfaef; color: #0a7040; }
 .dze-tr-chip.is-stale   { border-color: #f0d48a; background: #fdf6e3; color: #8a6d00; }
 .dze-tr-chip.is-missing { border-color: #f0b1b1; background: #fdeaea; color: #b32d2e; }
+.dze-tr-chip.is-held    { border-color: #a7c7e7; background: #eef5fc; color: #135e96; }
+/* WPML's own three marks — plus, pencil, two arrows — at the size of the word
+   they sit beside, never bigger than it. */
+.dze-tr-chip .dashicons {
+	font-size: 13px; width: 13px; height: 13px; line-height: 18px;
+	vertical-align: -2px; margin: 0 1px;
+}
 
 .dze-tr-langs { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin: 12px 0; }
 .dze-tr-langs .dze-cb-check { margin: 0; }

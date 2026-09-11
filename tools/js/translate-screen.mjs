@@ -138,6 +138,20 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and only the languages ticked', ( batch[0] || {} ).langs, [ 'fr' ] );
 	ok( 'the run says what it finished with',
 		( await page.textContent( '#dze-tr-sendstate' ) || '' ).length > 0, true );
+	// A BATCH THAT FINISHES AND LEAVES EVERY LINE AS IT WAS is a press nobody
+	// can tell worked: "Rien à jour sur la page. La je ne comprends pas quoi
+	// faire en fait. Comment je vérifies le contenu ?" The row that was sent
+	// says what came back ON ITSELF, and the sentence at the bottom carries a
+	// way to it rather than naming a tab.
+	const rowSaid = await page.textContent( '.dze-tr-row:first-child .dze-tr-state' );
+	ok( 'the row that was sent says what came back',
+		( rowSaid || '' ).includes( cfg.i18n.rowHeld ), true );
+	ok( 'and no longer says it is not translated',
+		( rowSaid || '' ).includes( 'not translated' ), false );
+	ok( 'the row left alone is untouched',
+		( await page.textContent( '.dze-tr-row:nth-child(2) .dze-tr-state' ) || '' ).includes( cfg.i18n.rowHeld ), false );
+	ok( 'and the way to read what came back is offered',
+		await page.locator( `#dze-tr-sendstate a[href="${cfg.reviewUrl}"]` ).count(), 1 );
 	ok( 'nothing was raised sending a batch', errors, [] );
 
 	// THE TICK AT THE TOP TAKES THE LOT — on this screen like every other.

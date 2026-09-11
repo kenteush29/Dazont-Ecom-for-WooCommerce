@@ -116,12 +116,6 @@ final class DZE_Translate {
 		if ( isset( $in['model'] ) ) {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
 		}
-		if ( isset( $in['fields'] ) ) {
-			$out['fields'] = array_values( array_intersect(
-				array_map( 'sanitize_key', (array) $in['fields'] ),
-				array_keys( self::fields() )
-			) );
-		}
 		if ( isset( $in['create'] ) ) {
 			$out['create'] = ! empty( $in['create'] ) ? 1 : 0;
 		}
@@ -219,24 +213,22 @@ final class DZE_Translate {
 	}
 
 	/**
-	 * Which fields are actually sent. Absent setting = all of them.
+	 * WHICH FIELDS ARE SENT: all of them, and it is not a setting.
 	 *
-	 * The setting names POST fields — it was written when this module only
-	 * knew about products — so a term's two fields are never narrowed by it:
-	 * a shop that ticked "title and description" for its products has not said
-	 * anything about its categories, and reading it as though it had would
-	 * silently stop translating them.
+	 * It was a row of tick boxes on the settings page, and the owner threw it
+	 * out in one sentence: "le plugin doit traduire tout ce que wpml exige de
+	 * traduire pour avoir une traduction complète du post." A half-translated
+	 * page is not a choice anybody makes on purpose, and a box that produces
+	 * one is a trap. What a field is FOR is still read — `obj_write()` leaves
+	 * alone anything WPML is set to copy — and what that comes to, per kind of
+	 * content, is stated on the Translations dashboard (`field_report()`).
+	 *
+	 * The old `fields` key is no longer read and no longer written. It stays
+	 * declared in DZE_Cleanup with the rest of this option so a shop that has
+	 * one can wipe it.
 	 */
 	public static function active_fields( string $kind = 'post' ): array {
-		$all = self::fields( $kind );
-		if ( 'post' !== $kind ) {
-			return $all;
-		}
-		$saved = (array) ( self::get_settings()['fields'] ?? [] );
-		if ( ! $saved ) {
-			return $all;
-		}
-		return array_intersect_key( $all, array_flip( $saved ) );
+		return self::fields( $kind );
 	}
 
 	// =========================================================================
@@ -460,14 +452,25 @@ final class DZE_Translate {
 		return $out;
 	}
 
-	/** The existing translation of an object in one language, or 0. */
+	/**
+	 * The existing translation of an object in one language, or 0.
+	 *
+	 * ASKED OF THE TABLE WHEN THE FILTER SAYS NOTHING, and 0 when the answer
+	 * is the object itself. `wpml_object_id` is a filter: where WPML's hooks
+	 * are not loaded — admin-ajax, cron — `apply_filters` hands back the id it
+	 * was GIVEN, so "there is no translation" and "here is the translation"
+	 * came out as the same number. Every screen then showed the ENGLISH text
+	 * under "The translation today" and reported the translation as existing.
+	 */
 	public static function obj_translation( array $o, string $lang ): int {
 		if ( ! $o || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			return 0;
 		}
-		// $return_original = false answers 0 rather than the original when the
-		// translation does not exist — which is the question being asked.
-		return (int) apply_filters( 'wpml_object_id', (int) $o['id'], (string) $o['type'], false, $lang );
+		$id  = (int) $o['id'];
+		$got = 'term' === ( $o['kind'] ?? 'post' )
+			? DZE_Wpml::translated_term( $id, (string) $o['type'], $lang )
+			: DZE_Wpml::translated_id( $id, (string) $o['type'], $lang );
+		return ( $got && $got !== $id ) ? $got : 0;
 	}
 
 	/** The register lives on the translation: post meta, or term meta. */
@@ -620,6 +623,86 @@ final class DZE_Translate {
 		return ( 'meta' === ( $f['type'] ?? '' ) ) ? (string) ( $f['key'] ?? '' ) : '';
 	}
 
+	/**
+	 * WHAT IS TRANSLATED ON ONE KIND OF CONTENT, AND WHAT IS NOT — WPML's
+	 * answer, never ours.
+	 *
+	 * The settings page used to carry a row of TICK BOXES headed "Which
+	 * fields", and it was wrong twice: it was a decision the shop should not
+	 * have to take — "le plugin doit traduire tout ce que wpml exige de
+	 * traduire pour avoir une traduction complète du post" — and it listed a
+	 * product's fields whatever kind of content was being looked at, so an
+	 * article appeared to have a short description and no SEO title.
+	 *
+	 * This is a READING instead, per kind, and it says both halves: the fields
+	 * this module sends, and the fields WPML is set to translate that it does
+	 * NOT send. The second half is the one worth having — a custom field WPML
+	 * wants translated and nobody translates is a page that comes out half in
+	 * English with nothing anywhere saying why.
+	 *
+	 * @return array<int,array{label:string,key:string,said:string,tone:string}>
+	 */
+	public static function field_report( string $kind, string $type ): array {
+		$out  = [];
+		$wpml = class_exists( 'DZE_Wpml' );
+		foreach ( self::fields( $kind ) as $fid => $f ) {
+			$key  = ( 'meta' === ( $f['type'] ?? '' ) ) ? self::meta_key_for( $fid ) : (string) ( $f['key'] ?? '' );
+			$mode = ( 'meta' === ( $f['type'] ?? '' ) && '' !== $key && $wpml ) ? DZE_Wpml::custom_field_mode( $key ) : -1;
+			// THE SEO PAIR IS THE ONE FIELD WHOSE KEY DEPENDS ON A PLUGIN
+			// BEING THERE. With no SEO plugin installed the key falls back to
+			// one of our own that nothing on the site reads, and "translated"
+			// printed over it is a screen promising work nobody will ever see.
+			if ( '' === $key || 0 === strpos( $key, '_dze_seo' ) ) {
+				$out[] = [
+					'label' => $f['label'],
+					'key'   => $key,
+					'tone'  => 'off',
+					'said'  => __( 'no SEO plugin was found on this site, so nothing reads this field and it is not sent.', 'dazont-ecom' ),
+				];
+				continue;
+			}
+			if ( in_array( $mode, [ 1, 3 ], true ) ) {
+				// A FIELD WPML COPIES IS NEVER WRITTEN HERE: the next sync puts
+				// the original's value straight back and the words are lost
+				// with nothing saying so.
+				$out[] = [
+					'label' => $f['label'],
+					'key'   => $key,
+					'tone'  => 'warn',
+					'said'  => __( 'WPML is set to COPY this field from the original, so it is left alone. Set it to "Translate" in WPML → Settings → Custom Fields Translation.', 'dazont-ecom' ),
+				];
+				continue;
+			}
+			$out[] = [ 'label' => $f['label'], 'key' => $key, 'tone' => 'ok', 'said' => __( 'translated', 'dazont-ecom' ) ];
+		}
+		// AND WHAT WPML WANTS TRANSLATED THAT THIS MODULE DOES NOT SEND.
+		if ( 'post' === $kind && $wpml ) {
+			$mine = [];
+			foreach ( self::fields( 'post' ) as $fid => $f ) {
+				if ( 'meta' === ( $f['type'] ?? '' ) ) {
+					$k = self::meta_key_for( $fid );
+					if ( '' !== $k ) {
+						$mine[ $k ] = true;
+					}
+				}
+			}
+			$map = (array) ( DZE_Wpml::settings()['translation-management']['custom_fields_translation'] ?? [] );
+			foreach ( $map as $key => $mode ) {
+				$key = (string) $key;
+				if ( 2 !== (int) $mode || isset( $mine[ $key ] ) ) {
+					continue;
+				}
+				$out[] = [
+					'label' => $key,
+					'key'   => $key,
+					'tone'  => 'gap',
+					'said'  => __( 'WPML is set to translate this custom field and this module does not send it. Its English text stays on the translation.', 'dazont-ecom' ),
+				];
+			}
+		}
+		return $out;
+	}
+
 	// =========================================================================
 	// Settings screen (a tab of the shared Settings page, never its own menu)
 	// =========================================================================
@@ -628,9 +711,8 @@ final class DZE_Translate {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
-		$s      = self::get_settings();
-		$active = array_keys( self::active_fields() );
-		$wpml   = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active();
+		$s    = self::get_settings();
+		$wpml = class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active();
 		?>
 		<div class="dze-admin">
 		<?php if ( ! $wpml ) : ?>
@@ -698,37 +780,6 @@ final class DZE_Translate {
 								<?php esc_html_e( 'On this site WPML is not set to duplicate media, so your images stay single and shared between languages.', 'dazont-ecom' ); ?>
 							<?php endif; ?>
 						</p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'Which fields', 'dazont-ecom' ); ?></th>
-					<td>
-						<?php foreach ( self::fields() as $fid => $f ) : ?>
-							<?php
-							// A FIELD WPML COPIES CANNOT BE TRANSLATED HERE,
-							// and the place to say so is beside the tick: the
-							// next custom-field sync puts the original's value
-							// straight back over the words, and no screen would
-							// ever say why they vanished.
-							$dze_key  = 'meta' === ( $f['type'] ?? '' ) ? self::meta_key_for( $fid ) : '';
-							$dze_mode = ( '' !== $dze_key && class_exists( 'DZE_Wpml' ) ) ? DZE_Wpml::custom_field_mode( $dze_key ) : -1;
-							$dze_copy = in_array( $dze_mode, [ 1, 3 ], true );
-							?>
-							<label style="display:block;margin-bottom:3px;">
-								<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[fields][]" value="<?php echo esc_attr( $fid ); ?>" <?php checked( in_array( $fid, $active, true ) ); ?> />
-								<?php echo esc_html( $f['label'] ); ?>
-								<?php if ( $dze_copy ) : ?>
-									<span style="color:#b32d2e;"><?php
-										printf(
-											/* translators: %s: the custom field key */
-											esc_html__( '· WPML is set to COPY %s from the original, so a translation written here is overwritten on the next sync. Set it to "Translate" in WPML → Settings → Custom Fields Translation.', 'dazont-ecom' ),
-											esc_html( $dze_key )
-										);
-									?></span>
-								<?php endif; ?>
-							</label>
-						<?php endforeach; ?>
-						<p class="description"><?php esc_html_e( 'Written content only. Anything not listed here is WooCommerce Multilingual\'s business. A category or a tag has a name and a description, and those are always sent.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
@@ -1292,6 +1343,50 @@ final class DZE_Translate {
 		return $n;
 	}
 
+	/**
+	 * WHAT IS WAITING, PER KIND, in two queries.
+	 *
+	 * "Le post n'est pas passé automatiquement dans 'to review'. Sur la ligne
+	 * des posts, aucune mention 'x to review'." A batch that finishes and
+	 * leaves the screen exactly as it was is a button nobody can tell worked.
+	 * The dashboard row the batch was sent from says what came back on it, in
+	 * WPML's own naming so the row and the count cannot drift.
+	 *
+	 * @return array<string,int> 'post_product' / 'tax_product_cat' => how many
+	 */
+	public static function review_counts(): array {
+		global $wpdb;
+		$out = [];
+		if ( ! $wpdb ) {
+			return $out;
+		}
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- our own meta key, one query per kind.
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.post_type AS t, COUNT(*) AS n
+			   FROM {$wpdb->postmeta} m
+			   INNER JOIN {$wpdb->posts} p ON p.ID = m.post_id
+			  WHERE m.meta_key = %s
+			  GROUP BY p.post_type",
+			self::META_WAIT
+		), ARRAY_A );
+		foreach ( $rows as $r ) {
+			$out[ 'post_' . (string) $r['t'] ] = (int) $r['n'];
+		}
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT tt.taxonomy AS t, COUNT(*) AS n
+			   FROM {$wpdb->termmeta} m
+			   INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = m.term_id
+			  WHERE m.meta_key = %s
+			  GROUP BY tt.taxonomy",
+			self::META_WAIT
+		), ARRAY_A );
+		// phpcs:enable
+		foreach ( $rows as $r ) {
+			$out[ 'tax_' . (string) $r['t'] ] = (int) $r['n'];
+		}
+		return $out;
+	}
+
 	/** What to call an object on screen. */
 	public static function obj_label( array $o ): string {
 		if ( ! $o ) {
@@ -1720,6 +1815,8 @@ final class DZE_Translate {
 		wp_localize_script( 'dze-translate-screen', 'dzeTrScreen', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
+			// THE WAY TO WHAT CAME BACK, not the name of the tab it is on.
+			'reviewUrl' => self::url( [ 'tab' => 'review' ] ),
 			'i18n'    => [
 				'tickFirst'  => __( 'Tick what you want translated first.', 'dazont-ecom' ),
 				'langFirst'  => __( 'Tick at least one language.', 'dazont-ecom' ),
@@ -1729,6 +1826,11 @@ final class DZE_Translate {
 				/* translators: %s: number of objects now waiting to be read */
 				'sent'       => __( 'Done — %s waiting to be read. Open the "To review" tab.', 'dazont-ecom' ),
 				'nothingNew' => __( 'Nothing had moved on any of them: not one word was sent, nothing was spent, and WPML has been told they are up to date.', 'dazont-ecom' ),
+				'goReview'   => __( 'Read what came back', 'dazont-ecom' ),
+				// ON THE ROW ITSELF, so a finished batch is visible line by
+				// line rather than in one sentence at the bottom.
+				'rowHeld'    => __( 'waiting to be read', 'dazont-ecom' ),
+				'rowNothing' => __( 'nothing moved — closed with WPML', 'dazont-ecom' ),
 				'error'      => __( 'Something went wrong.', 'dazont-ecom' ),
 				'loading'    => __( 'Reading…', 'dazont-ecom' ),
 				'source'     => __( 'Original', 'dazont-ecom' ),
