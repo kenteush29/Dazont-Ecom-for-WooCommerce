@@ -55,8 +55,8 @@ function current_user_can( $c ) { return true; }
 function wp_create_nonce( $a = '' ) { return 'nonce'; }
 function get_edit_post_link( $id, $x = '' ) { return '/wp-admin/post.php?post=' . (int) $id; }
 function register_setting( ...$a ) {}
-function checked( $a, $b = true, $e = true ) { return $a == $b ? " checked='checked'" : ''; }
-function selected( $a, $b = true, $e = true ) { return $a == $b ? " selected='selected'" : ''; }
+function checked( $a, $b = true, $e = true ) { $r = $a == $b ? " checked='checked'" : ''; if ( $e ) { echo $r; } return $r; }
+function selected( $a, $b = true, $e = true ) { $r = $a == $b ? " selected='selected'" : ''; if ( $e ) { echo $r; } return $r; }
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
 function human_time_diff( $a, $b = 0 ) { return '2 hours'; }
 function get_post_type( $id ) { return (string) ( $GLOBALS['posts'][ (int) $id ]['type'] ?? 'product' ); }
@@ -116,6 +116,7 @@ function do_action( ...$a ) {}
 /** WPML's two tables, and what was written to them. */
 class DZE_Tr_Test_Wpdb {
 	public $prefix = 'wp_';
+	public $posts    = 'wp_posts';
 	public $postmeta = 'wp_postmeta';
 	public $termmeta = 'wp_termmeta';
 	/** What the waiting-list queries answer, set by the checks that need them. */
@@ -180,6 +181,7 @@ $GLOBALS['wpdb']    = new DZE_Tr_Test_Wpdb();
 class DZE_Marketing_Ai {
 	public static function api_key() { return 'k'; }
 	const MENU_SLUG = 'dazont-ecom-ai';
+	const MODELS = [ 'claude-haiku-4-5-20251001' => 'Haiku 4.5', 'claude-opus-5' => 'Opus 5' ];
 	public static function complete( $sys, $user, $model = '', $max = 0, $t = 0 ) {
 		$GLOBALS['calls'][] = $user;
 		// By default nothing is ever paid for: a check that expects silence
@@ -274,6 +276,13 @@ function wp_set_object_terms( ...$a ) { return true; }
 function admin_url( $p = '' ) { return 'https://kula.test/wp-admin/' . $p; }
 function add_query_arg( $args, $url = '' ) { return $url . '?' . http_build_query( (array) $args ); }
 function add_submenu_page( ...$a ) { $GLOBALS['menu'][] = $a; return 'x'; }
+// Enough of a settings page for the tab to be RENDERED, not only called: a
+// settings tab that dies takes the whole page white, before any of our own
+// error handling, and that has happened here for six versions running.
+function settings_fields( $g ) {}
+function submit_button( ...$a ) {}
+function wp_die( $m = '' ) { throw new RuntimeException( (string) $m ); }
+function disabled( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " disabled='disabled'" : ''; if ( $e ) { echo $r; } return $r; }
 $GLOBALS['enq'] = [];
 $GLOBALS['loc'] = [];
 function wp_enqueue_script( $h, ...$a ) { $GLOBALS['enq'][] = $h; }
@@ -801,6 +810,52 @@ ok( 'asked for everything, the satisfied one is back',
 ok( 'and the way back to the work is offered',
 	false !== strpos( $dze_all, 'Only what needs work' ), true );
 $_GET = [];
+
+echo "\nWhat this site does about media is READ from WPML, never decided here\n";
+// "Tu ne devrais rien faire toi-même mais utiliser les réglages natifs WPML.
+// Toi tu fais juste le pont." The exclusion stays — this module has no code
+// that can translate a media correctly — but what the SITE is set to do is
+// WPML's answer and the screen reports it rather than asserting one.
+unset( $GLOBALS['opts']['_wpml_media'] );
+ok( 'with the add-on absent, the shop is told so',
+	DZE_Wpml::media_translation(), [ 'known' => false, 'duplicate' => false, 'translate' => false ] );
+$GLOBALS['opts']['_wpml_media'] = [ 'new_content_settings' => [ 'duplicate_media' => 0, 'duplicate_featured' => 0 ] ];
+ok( 'installed and switched off reads as off',
+	DZE_Wpml::media_translation()['duplicate'], false );
+ok( 'and is KNOWN, which is a different answer from absent',
+	DZE_Wpml::media_translation()['known'], true );
+$GLOBALS['opts']['_wpml_media'] = [ 'new_content_settings' => [ 'duplicate_media' => 1 ] ];
+ok( 'duplication switched on reads as on',
+	DZE_Wpml::media_translation()['duplicate'], true );
+// A setting WPML renames in a future version must leave this saying nothing,
+// never inventing a "no" the shop would act on.
+$GLOBALS['opts']['_wpml_media'] = [ 'something_wpml_renamed' => [ 'x' => 1 ] ];
+ok( 'an unknown shape is read as known but claims nothing',
+	[ DZE_Wpml::media_translation()['known'], DZE_Wpml::media_translation()['duplicate'] ], [ true, false ] );
+
+// AND WHATEVER IT SAYS, MEDIA IS STILL NOT SOMETHING THIS MODULE WRITES. The
+// reason is not a policy: `obj_create()` is wp_insert_post() plus text, which
+// over an attachment makes a library entry with no file behind it.
+$GLOBALS['opts']['_wpml_media'] = [ 'new_content_settings' => [ 'duplicate_media' => 1 ] ];
+$GLOBALS['opts']['icl_sitepress_settings']['custom_posts_sync_option']['attachment'] = 1;
+ok( 'media is still never offered',       isset( DZE_Translate::scope()['post:attachment'] ), false );
+ok( 'nor accepted as an object',          DZE_Wpml::is_translated_type( 'attachment' ), false );
+
+echo "\nAnd the settings screen says which of the three it is\n";
+ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean();
+ok( 'the screen names where media is handled',
+	false !== strpos( $dze_set, 'Media is WPML' ), true );
+ok( 'and reports WPML is set to duplicate',
+	false !== strpos( $dze_set, 'IS set to duplicate media' ), true );
+$GLOBALS['opts']['_wpml_media'] = [ 'new_content_settings' => [ 'duplicate_media' => 0 ] ];
+ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean();
+ok( 'switched off, it says images stay single',
+	false !== strpos( $dze_set, 'stay single and shared' ), true );
+unset( $GLOBALS['opts']['_wpml_media'] );
+ob_start(); DZE_Translate::render_settings(); $dze_set = (string) ob_get_clean();
+ok( 'absent, it says the add-on is not installed',
+	false !== strpos( $dze_set, 'not installed on this site' ), true );
+unset( $GLOBALS['opts']['icl_sitepress_settings']['custom_posts_sync_option']['attachment'] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

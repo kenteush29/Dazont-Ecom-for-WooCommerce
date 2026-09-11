@@ -792,25 +792,56 @@ final class DZE_Wpml {
 	}
 
 	/**
-	 * THINGS NOTHING MAY EVER OFFER TO TRANSLATE, whatever WPML says.
+	 * WHAT THIS MODULE HAS NO CODE TO TRANSLATE — and says so rather than
+	 * pretending it is a policy.
 	 *
-	 * WPML declares `attachment` translatable (mode 1) and it means something
-	 * quite different there than it does here: translating a media, for this
-	 * module, is `wp_insert_post()` with the source type — a DUPLICATE
-	 * attachment row per language. Three of this owner's sites had just been
-	 * cleared of 24,531 such duplicates, 1.1 GB of database, and one campaign
-	 * over "Media" would have put every one of them back.
+	 * "Tu ne devrais rien faire toi-même mais utiliser les réglages natifs
+	 * WPML. Toi tu fais juste le pont entre WPML et notre traducteur IA." He
+	 * is right, and this list is not an exception to it: it is the line where
+	 * the bridge ends.
+	 *
+	 * A MEDIA IS NOT A DOCUMENT WITH WORDS IN IT. This module translates by
+	 * `wp_insert_post()` with the source type and then writing text onto the
+	 * result — which is exactly right for a product, an article or a page. Run
+	 * over an attachment it makes a media entry with NO FILE BEHIND IT: the
+	 * library grows by one row per language and not one of them shows a
+	 * picture. WPML Media Translation is a separate plugin that does this
+	 * properly — it keeps one physical file and translates the title, the alt
+	 * text and the caption around it — and doing it a second way here is the
+	 * one thing this plugin may not do. So media is WPML's, whole; what this
+	 * site is set to do about it is READ and shown, never decided here.
 	 *
 	 * `translation_priority` is WPML's own internal taxonomy: it says how
 	 * urgent a translation is, and translating the word "urgent" into French
 	 * helps nobody.
-	 *
-	 * A hard list, with the reason written beside it — never a setting: this
-	 * is not a preference, and a shop that ticked it once would be paying for
-	 * the mistake in gigabytes.
 	 */
 	public const NEVER_TYPES = [ 'attachment' ];
 	public const NEVER_TAXONOMIES = [ 'translation_priority' ];
+
+	/**
+	 * WHAT WPML IS SET TO DO ABOUT MEDIA ON THIS SITE.
+	 *
+	 * Read from WPML Media Translation's own row, never guessed: the shop asks
+	 * "are my images duplicated per language?" and the honest answer is
+	 * whatever WPML has been told, including "that add-on is not installed".
+	 *
+	 * Its keys are read defensively — a setting WPML renames in a future
+	 * version must leave this saying "I cannot tell", never "no".
+	 *
+	 * @return array{known:bool,duplicate:bool,translate:bool}
+	 */
+	public static function media_translation(): array {
+		$raw = get_option( '_wpml_media', [] );
+		if ( ! is_array( $raw ) || ! $raw ) {
+			return [ 'known' => false, 'duplicate' => false, 'translate' => false ];
+		}
+		$new = (array) ( $raw['new_content_settings'] ?? [] );
+		return [
+			'known'     => true,
+			'duplicate' => ! empty( $new['duplicate_media'] ) || ! empty( $new['duplicate_featured'] ),
+			'translate' => ! empty( $new['translate_media_library_texts'] ) || ! empty( $new['always_translate_media'] ),
+		];
+	}
 
 	/**
 	 * Post types WPML is set to translate.
