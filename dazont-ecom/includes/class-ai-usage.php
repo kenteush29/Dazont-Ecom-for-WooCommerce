@@ -507,6 +507,7 @@ final class DZE_Ai_Usage {
 		}
 		self::render_summary();
 		self::render_units( $month );
+		self::render_models( $month );
 		self::render_days( $month );
 		self::render_months( $limit );
 	}
@@ -582,6 +583,125 @@ final class DZE_Ai_Usage {
 		echo '</tbody></table>';
 		echo '<p class="description" style="max-width:760px;">'
 			. esc_html__( 'Average over what was actually produced this month, at published token prices. A category description is one unit however many calls it takes; an image is one unit. "Calls" is there to show where a unit is expensive because it is long, rather than because it is frequent.', 'dazont-ecom' )
+			. '</p>';
+	}
+
+	/**
+	 * What each MODEL cost this month.
+	 *
+	 * "On a un registre des appels IA filtrable par modèle ?" There was one and
+	 * there was not: every call has been written down with its model since the
+	 * day the daily split was added, and the figures sat in `_days` where the
+	 * only way to read them was to hover thirty bars one at a time and add up.
+	 * The trace beside it shows the model of the last twelve calls, which is a
+	 * debugging tool and not an account of a month.
+	 *
+	 * Nothing new is recorded for this: it is a READING of what is already
+	 * stored, so it answers for every month the shop still holds.
+	 *
+	 * @return array<int,array{model:string,calls:int,in:int,out:int,cost:float}>
+	 */
+	public static function model_report( string $month = '' ): array {
+		$data  = get_option( self::OPT, [] );
+		$month = '' !== $month ? $month : gmdate( 'Y-m' );
+		$days  = is_array( $data ) ? (array) ( $data[ $month ]['_days'] ?? [] ) : [];
+		$out   = [];
+		foreach ( $days as $per_model ) {
+			foreach ( (array) $per_model as $name => $r ) {
+				$name = (string) $name;
+				if ( '' === $name ) {
+					continue;
+				}
+				$row = $out[ $name ] ?? [ 'model' => $name, 'calls' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0 ];
+				$row['calls'] += (int) ( $r['calls'] ?? 0 );
+				$row['in']    += (int) ( $r['in'] ?? 0 );
+				$row['out']   += (int) ( $r['out'] ?? 0 );
+				$row['cost']  += (float) ( $r['cost'] ?? 0 );
+				$out[ $name ]  = $row;
+			}
+		}
+		foreach ( $out as $name => $row ) {
+			$out[ $name ]['cost'] = round( (float) $row['cost'], 4 );
+		}
+		$out = array_values( $out );
+		usort( $out, static fn( $a, $b ) => $b['cost'] <=> $a['cost'] );
+		return $out;
+	}
+
+	/**
+	 * The same table on screen, beside "what each kind of work costs": one
+	 * question is what the shop MADE, the other is what it made it WITH.
+	 */
+	public static function render_models( string $month = '' ): void {
+		$month = $month ?: gmdate( 'Y-m' );
+		$rows  = self::model_report( $month );
+		$all   = self::month_total( $month );
+		echo '<h3 style="margin:22px 0 6px;">' . esc_html__( 'What each model costs', 'dazont-ecom' ) . '</h3>';
+		if ( ! $rows ) {
+			// WHICH EMPTY IT IS. A month that really cost money and a month
+			// recorded before the plugin kept a per-model split are two
+			// different answers, and a blank table says neither.
+			echo '<p class="description" style="max-width:760px;">' . (
+				$all > 0
+					? sprintf(
+						/* translators: %s: month total */
+						esc_html__( 'This month cost %s, but it was recorded before the per-model breakdown existed, so there is nothing to split. New calls appear here from now on.', 'dazont-ecom' ),
+						'<strong>$' . esc_html( number_format_i18n( $all, 2 ) ) . '</strong>'
+					)
+					: esc_html__( 'Nothing spent in this month.', 'dazont-ecom' )
+			) . '</p>';
+			return;
+		}
+		echo '<table class="widefat striped" style="max-width:760px;"><thead><tr>'
+			. '<th>' . esc_html__( 'Model', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Total', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Share', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:170px;text-align:right;">' . esc_html__( 'Tokens in / out', 'dazont-ecom' ) . '</th>'
+			. '</tr></thead><tbody>';
+		$named = 0.0;
+		foreach ( $rows as $r ) {
+			$named += (float) $r['cost'];
+			// A MODEL BILLED FLAT HAS NO TOKENS, and a nought there reads as a
+			// model that answered nothing. fal charges per image.
+			$tokens = ( $r['in'] || $r['out'] )
+				? number_format_i18n( $r['in'] ) . ' / ' . number_format_i18n( $r['out'] )
+				: '—';
+			printf(
+				'<tr><td><code style="font-size:12px;">%1$s</code></td>'
+					. '<td style="text-align:right;"><strong>$%2$s</strong></td>'
+					. '<td style="text-align:right;">%3$s</td>'
+					. '<td style="text-align:right;color:#646970;">%4$s</td>'
+					. '<td style="text-align:right;color:#646970;">%5$s</td></tr>',
+				esc_html( $r['model'] ),
+				esc_html( number_format( (float) $r['cost'], 2 ) ),
+				esc_html( self::share_said( (float) $r['cost'], $all ) ),
+				esc_html( number_format_i18n( $r['calls'] ) ),
+				esc_html( $tokens )
+			);
+		}
+		// What the per-model split does not account for — a few days of the
+		// month recorded before it existed. The shares add up to the month or
+		// the reader is left working out which figure to believe.
+		$rest = round( $all - $named, 4 );
+		if ( $rest > 0.005 ) {
+			printf(
+				'<tr><td><em>%1$s</em></td><td style="text-align:right;">$%2$s</td>'
+					. '<td style="text-align:right;">%3$s</td><td></td><td></td></tr>',
+				esc_html__( 'Recorded before this breakdown existed', 'dazont-ecom' ),
+				esc_html( number_format( $rest, 2 ) ),
+				esc_html( self::share_said( $rest, $all ) )
+			);
+		}
+		printf(
+			'<tr><td><strong>%1$s</strong></td><td style="text-align:right;"><strong>$%2$s</strong></td>'
+				. '<td style="text-align:right;">100%%</td><td></td><td></td></tr>',
+			esc_html__( 'The month', 'dazont-ecom' ),
+			esc_html( number_format( $all, 2 ) )
+		);
+		echo '</tbody></table>';
+		echo '<p class="description" style="max-width:760px;">'
+			. esc_html__( 'The name is the one the provider bills under, so a line here can be matched against an invoice. An image model is charged per picture and carries no tokens. Which model a feature uses is set above, beside its key.', 'dazont-ecom' )
 			. '</p>';
 	}
 

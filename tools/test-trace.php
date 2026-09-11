@@ -42,6 +42,8 @@ function wp_date( $f, $ts = null ) { return gmdate( $f, $ts ?? time() ); }
 function get_transient( $k ) { return false; }
 function set_transient( $k, $v, $t = 0 ) { return true; }
 function wp_next_scheduled( $h ) { return 0; }
+function add_query_arg( $k, $v = null, $u = '' ) { return 'http://shop.test/usage?' . ( is_array( $k ) ? http_build_query( $k ) : $k . '=' . rawurlencode( (string) $v ) ); }
+function remove_query_arg( $k, $u = '' ) { return 'http://shop.test/usage'; }
 function wp_schedule_event() {}
 
 $GLOBALS['dze_opts'] = [];
@@ -158,6 +160,86 @@ DZE_Marketing_Ai::complete( 'S', DZE_Prompts::$texts['cat_desc'] . "\nThe catego
 ok( 'the newest replaces the older',
 	false !== strpos( (string) ( DZE_Ai_Usage::last_for( 'cat_desc' )['sent'] ?? '' ), 'The category: Pouches.' ), true );
 
+
+// =============================================================================
+// WHAT EACH MODEL COST — a reading of what is already stored
+//
+// "On a un registre des appels IA filtrable par modèle ?" There was one and
+// there was not: every call has carried its model since the daily split was
+// added, and the only way to read the figures was to hover thirty bars one at
+// a time and add up. The trace above shows the model of the last twelve calls,
+// which is a debugging tool and not an account of a month.
+//
+// So nothing new is recorded for this, and that is the thing to hold: the
+// report is a READING. It is exercised through real complete() calls with only
+// the transport stubbed, exactly like the trace beside it.
+// =============================================================================
+echo "\nWhat each model cost\n";
+$GLOBALS['dze_opts']['dze_ai_usage'] = [];
+$GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [
+	'content' => [ [ 'type' => 'text', 'text' => 'ok' ] ],
+	'usage'   => [ 'input_tokens' => 1000, 'output_tokens' => 500 ],
+] ) ];
+DZE_Marketing_Ai::complete( 'S', 'one',   'claude-opus-5' );
+DZE_Marketing_Ai::complete( 'S', 'two',   'claude-opus-5' );
+DZE_Marketing_Ai::complete( 'S', 'three', 'claude-haiku-4-5-20251001' );
+// An image is billed per picture: a real row with no tokens at all.
+DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.08 );
+
+$rep = DZE_Ai_Usage::model_report();
+$by  = [];
+foreach ( $rep as $r ) { $by[ $r['model'] ] = $r; }
+ok( 'every model used is a line of its own', count( $rep ), 3 );
+ok( 'and the expensive one is first',        $rep[0]['model'] ?? '', 'claude-opus-5' );
+ok( 'two calls on it are counted as two',    $by['claude-opus-5']['calls'] ?? 0, 2 );
+ok( 'with the tokens of both',               [ $by['claude-opus-5']['in'] ?? 0, $by['claude-opus-5']['out'] ?? 0 ], [ 2000, 1000 ] );
+ok( 'at that model own price',               round( (float) ( $by['claude-opus-5']['cost'] ?? 0 ), 4 ), 0.105 );
+// The cheap model is NOT folded into the expensive one: same provider, same
+// month, two prices — which is the whole question being asked.
+ok( 'the cheap model is its own line',       round( (float) ( $by['claude-haiku-4-5-20251001']['cost'] ?? 0 ), 4 ), 0.0035 );
+ok( 'an image model is there too',           round( (float) ( $by['nano-banana-2']['cost'] ?? 0 ), 4 ), 0.08 );
+ok( 'billed flat, it carries no tokens',     [ $by['nano-banana-2']['in'] ?? -1, $by['nano-banana-2']['out'] ?? -1 ], [ 0, 0 ] );
+// THE SHARES MUST ADD UP TO THE MONTH, or the reader is left working out which
+// figure to believe.
+$sum = 0.0;
+foreach ( $rep as $r ) { $sum += (float) $r['cost']; }
+ok( 'the models account for the whole month', round( $sum, 4 ), round( DZE_Ai_Usage::month_total(), 4 ) );
+// A cost that is real but tiny reads "<1%", never "0%": a figure saying the
+// opposite of what it means.
+ok( 'a real but tiny share is not nought',   DZE_Ai_Usage::share_said( 0.0004, 1.0 ), '<1%' );
+
+echo "\nAnd it is on the screen, drawn by the screen\n";
+ob_start(); DZE_Ai_Usage::render_models(); $dze_html = (string) ob_get_clean();
+ok( 'the table names the model',             false !== strpos( $dze_html, 'claude-opus-5' ), true );
+ok( 'and the cheap one beside it',           false !== strpos( $dze_html, 'claude-haiku-4-5-20251001' ), true );
+ok( 'and what it cost',                      false !== strpos( $dze_html, '$0.11' ), true );
+ok( 'an image model shows a dash, not a nought',
+	false !== strpos( $dze_html, '—' ), true );
+ok( 'and the month closes the table',        false !== strpos( $dze_html, '100%' ), true );
+
+// AND THE SCREEN ASKS FOR IT. Calling render_models() proves the table works
+// and nothing at all about whether the usage screen shows it — which is how a
+// block added to a screen can ship never executed. So the whole screen is
+// drawn, and the heading looked for in what it printed.
+ob_start(); DZE_Ai_Usage::render_graph(); $dze_screen = (string) ob_get_clean();
+ok( 'the usage screen draws the model table',
+	false !== strpos( $dze_screen, 'What each model costs' ), true );
+ok( 'with the models in it',                 false !== strpos( $dze_screen, 'nano-banana-2' ), true );
+ok( 'beside what each kind of work costs',
+	false !== strpos( $dze_screen, 'What each kind of work costs' ), true );
+
+// WHICH EMPTY IT IS. A month that really cost money and a month recorded before
+// the split existed are two different answers; a blank table says neither.
+$GLOBALS['dze_opts']['dze_ai_usage'] = [
+	'2025-01' => [ 'anthropic' => [ 'calls' => 3, 'in' => 0, 'out' => 0, 'cost' => 4.2 ] ],
+];
+ob_start(); DZE_Ai_Usage::render_models( '2025-01' ); $dze_old = (string) ob_get_clean();
+ok( 'a month older than the breakdown says so',
+	false !== strpos( $dze_old, 'before the per-model breakdown existed' ), true );
+ok( 'and still states what it cost',         false !== strpos( $dze_old, '4.20' ), true );
+ob_start(); DZE_Ai_Usage::render_models( '2024-06' ); $dze_none = (string) ob_get_clean();
+ok( 'and a month that spent nothing says that instead',
+	false !== strpos( $dze_none, 'Nothing spent in this month' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

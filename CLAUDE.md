@@ -1228,6 +1228,27 @@ whose screen has not been thought through yet.
   `php tools/test-spend.php dazont-ecom` must pass, and the bill is asserted in
   a browser (`node tools/js/content-bulk.mjs`) because only a browser can
   multiply what is on the page.
+- **A FIGURE THAT IS STORED IS NOT A FIGURE THAT IS ANSWERED.** "On a un
+  registre des appels IA filtrable par modèle ?" Every call had carried its
+  model for months — `_days` holds calls, tokens and cost per model, kept
+  eighteen months — and the only way to read it was to HOVER thirty day-bars
+  one at a time and add up. The trace beside it shows the model of the last
+  twelve calls, which is a debugging tool and not an account of a month, and
+  the month totals were per PROVIDER, so a cheap model and an expensive one on
+  the same key were one line. `model_report()`/`render_models()` ask the
+  question instead: one line per model, cost, share, calls, tokens — a READING
+  of what was already stored, so it answers for every month the shop still
+  holds and nothing had to be recorded first. Three rules it is gated on: a
+  model billed per picture shows a dash and never a nought in the token column
+  (a nought reads as a model that answered nothing); the per-model lines must
+  add up to the month, with a named row for what predates the split; and an
+  empty table says WHICH empty it is — "recorded before this breakdown existed",
+  with the amount, or "nothing spent". The gate DRAWS THE WHOLE SCREEN
+  (`render_graph()` into a buffer) rather than calling the table, because
+  calling it proves the table works and nothing about whether the screen asks
+  for it. The trace stays twelve rows and unfiltered: filtering twelve lines
+  answers nothing, and keeping more of them is weight in the database for a
+  question the per-model table already answers.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
