@@ -40,11 +40,68 @@
 		if ($el.find('.dze-logl').length) { return; }
 		// No message yet: an empty red box has nothing to explain.
 		if (!String( $el.text() ).trim()) { return; }
+		linkTabs(el);
 		$el.append(
 			$('<a class="dze-logl"></a>')
 				.attr({ href: cfg.url, target: '_blank', rel: 'noopener noreferrer', title: cfg.title || '' })
 				.text(cfg.label || 'log ↗')
 		);
+	}
+
+	// ---- A SCREEN NAMED IN A MESSAGE IS A WAY TO THAT SCREEN ----
+	//
+	// "Ici tu vas aussi ajouter directement le lien vers settings." Nine
+	// messages in this plugin end in "raise it under Settings → General", and
+	// every one of them left the reader to go and find that page. The link is
+	// put on THE WORDS THAT NAME IT — never a "click here" added at the end —
+	// and it is done here, once, by reading the tabs the server hands over,
+	// rather than in the ninety places that write such a sentence.
+	//
+	// Only OUR tabs are matched, so "Klaviyo → Settings → API keys" and
+	// "WPML → Settings → Custom Fields Translation" stay plain text: they name
+	// another product's screen, which this plugin cannot open. The arrow in
+	// front is the test for that.
+	var TABS = (function () {
+		var map = cfg.settings || {}, out = [];
+		for (var name in map) {
+			if (Object.prototype.hasOwnProperty.call(map, name) && name && map[name]) {
+				out.push({ name: String(name), url: String(map[name]) });
+			}
+		}
+		// Longest first: "General" must not win inside a longer tab name.
+		return out.sort(function (a, b) { return b.name.length - a.name.length; });
+	}());
+
+	function linkTabs(el) {
+		if (!TABS.length || !el) { return; }
+		var pre = String(cfg.prefix || 'Settings') + ' \u2192 ';
+		var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+		var nodes = [], n;
+		while ((n = walker.nextNode())) {
+			// A stretch already linked is left alone — by us or by anybody.
+			if (!$(n.parentNode).closest('a').length) { nodes.push(n); }
+		}
+		for (var i = 0; i < nodes.length; i++) {
+			var node = nodes[i], text = node.nodeValue || '';
+			for (var t = 0; t < TABS.length; t++) {
+				var phrase = pre + TABS[t].name;
+				var at = text.indexOf(phrase);
+				if (at < 0) { continue; }
+				// "Klaviyo → Settings → …" is another product's page.
+				if (at >= 2 && '\u2192 ' === text.slice(at - 2, at)) { continue; }
+				var a = document.createElement('a');
+				a.className = 'dze-setl';
+				a.href = TABS[t].url;
+				a.target = '_blank';
+				a.rel = 'noopener noreferrer';
+				a.title = cfg.setTitle || '';
+				a.textContent = phrase;
+				var tail = node.splitText(at);
+				tail.nodeValue = tail.nodeValue.slice(phrase.length);
+				tail.parentNode.insertBefore(a, tail);
+				break; // one node, one link: the sentence says it once.
+			}
+		}
 	}
 
 	function sweep(root) {

@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
  * real scheduled event in the Marketing Events module), edited, or refused.
  * A front-end shortcode renders the resulting calendar for the home page.
  *
- * Configuration (API key, country pools) lives under Settings → AI Marketing
+ * Configuration (API key, country pools) lives under Settings → General
  * Assistant. The generate/review workflow lives on the Marketing Events page
  * — this class only supplies the two render_*() methods those pages embed.
  *
@@ -322,12 +322,6 @@ final class DZE_Marketing_Ai {
 			if ( $has( 'model' ) ) {
 				$write['model'] = $model;
 			}
-			if ( $has( 'fal_cap_post' ) ) {
-				$write['fal_cap_post'] = max( 0, (int) $in['fal_cap_post'] );
-			}
-			if ( $has( 'fal_cap_hour' ) ) {
-				$write['fal_cap_hour'] = max( 0, (int) $in['fal_cap_hour'] );
-			}
 			if ( $has( 'budget_month' ) ) {
 				$write['budget_month'] = max( 0, (float) str_replace( ',', '.', (string) $in['budget_month'] ) );
 			}
@@ -336,6 +330,20 @@ final class DZE_Marketing_Ai {
 			// module of the plugin reads.
 			if ( $has( 'shop_profile' ) ) {
 				$write['shop_profile'] = trim( sanitize_textarea_field( (string) $in['shop_profile'] ) );
+			}
+			return array_merge( $existing, $write );
+		}
+		if ( 'fal' === $section ) {
+			// The two ceilings on IMAGES, which are fal.ai's work and not
+			// Claude's: their own section, their own form, and the only place
+			// these two keys are written. They used to be posted by the
+			// Anthropic form, under the model and the monthly budget.
+			$write = [];
+			if ( $has( 'fal_cap_post' ) ) {
+				$write['fal_cap_post'] = max( 0, (int) $in['fal_cap_post'] );
+			}
+			if ( $has( 'fal_cap_hour' ) ) {
+				$write['fal_cap_hour'] = max( 0, (int) $in['fal_cap_hour'] );
 			}
 			return array_merge( $existing, $write );
 		}
@@ -654,6 +662,26 @@ final class DZE_Marketing_Ai {
 	 *   Marketing events — calendar languages, countries, context and prompt.
 	 */
 	public function render_settings_page(): void {
+		$tabs = self::tabs();
+		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
+		if ( ! isset( $tabs[ $tab ] ) ) {
+			$tab = 'general';
+		}
+		$this->render_settings_tabs( $tabs, $tab );
+	}
+
+	/**
+	 * Every tab of the Settings page, in the order they are read.
+	 *
+	 * Declared ONCE. It used to be built inside the render, so the only way to
+	 * know what a tab is called — or whether it is there at all — was to draw
+	 * the page. Messages all over the plugin say "raise it under Settings →
+	 * General", and those words and this list have to be the same thing or a
+	 * sentence sends the shop to a tab that was renamed a year ago.
+	 *
+	 * @return array<string,string> tab key => its name.
+	 */
+	public static function tabs(): array {
 		// A disabled module leaves NO trace: its settings tab disappears with it.
 		$mod_on = static fn( string $id ): bool => ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
 		$tabs   = [ 'general' => __( 'General', 'dazont-ecom' ) ];
@@ -700,11 +728,33 @@ final class DZE_Marketing_Ai {
 		// is the day it is standing on a site with nothing set up.
 		$tabs['transfer'] = __( 'Transfer', 'dazont-ecom' );
 		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
-		$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'general'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
-		if ( ! isset( $tabs[ $tab ] ) ) {
-			$tab = 'general';
-		}
+		return $tabs;
+	}
 
+	/**
+	 * Where each tab is, by the NAME the plugin calls it in its own sentences.
+	 *
+	 * "Ici tu vas aussi ajouter directement le lien vers settings." A message
+	 * that names a screen and leaves you to find it is half an answer. The
+	 * words and the address come from the same list, so a renamed tab moves
+	 * both at once, and a tab whose module is switched off is not offered —
+	 * a link to a page that is not there is worse than no link.
+	 *
+	 * @return array<string,string> tab name => its address.
+	 */
+	public static function tab_links(): array {
+		$out = [];
+		foreach ( self::tabs() as $key => $label ) {
+			$out[ (string) $label ] = add_query_arg(
+				[ 'page' => self::MENU_SLUG, 'tab' => (string) $key ],
+				admin_url( 'admin.php' )
+			);
+		}
+		return $out;
+	}
+
+	/** @param array<string,string> $tabs */
+	private function render_settings_tabs( array $tabs, string $tab ): void {
 		// Tabs that belong together stand together. Sixteen tabs in one row
 		// is a row nobody reads: what a shop actually looks for is "the
 		// content of my shop" or "my promotions", and the exact screen is
@@ -870,6 +920,9 @@ final class DZE_Marketing_Ai {
 				echo '<hr style="margin:28px 0;" />';
 				echo '<h2>' . esc_html__( 'fal.ai (image generation)', 'dazont-ecom' ) . '</h2>';
 				DZE_Content::instance()->render_key_field();
+				// The ceilings on how many images may be made count fal's
+				// pictures, so they belong here and not under the Claude model.
+				$this->render_settings_section( 'fal' );
 			}
 			// Price endings used to sit here for want of anywhere better. They
 			// belong with the rest of what decides a price, under
@@ -1115,7 +1168,10 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		$key_locked = defined( 'DZE_ANTHROPIC_API_KEY' );
 		$has_key    = $this->api_key() !== '';
 		$languages  = self::active_languages();
-		$context    = 'general' === $dze_section ? '' : $this->shop_context_text();
+		// The shop's description is read for the events section alone. Asking
+		// for it to draw two number fields would put a catalogue read on every
+		// load of the General tab.
+		$context    = in_array( $dze_section, [ 'general', 'fal' ], true ) ? '' : $this->shop_context_text();
 		require DZE_DIR . 'admin/views/marketing-ai-settings.php';
 	}
 
@@ -1452,7 +1508,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
 		if ( $this->api_key() === '' ) {
-			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key first, under Settings → AI Marketing Assistant.', 'dazont-ecom' ) ] );
+			wp_send_json_error( [ 'message' => __( 'Add your Anthropic API key first, under Settings → General.', 'dazont-ecom' ) ] );
 		}
 
 		$start = $this->clean_date( wp_unslash( $_POST['start_date'] ?? '' ) );

@@ -1631,6 +1631,37 @@ whose screen has not been thought through yet.
   the figure in the address and say it on arrival. The room left is stated
   BEFORE the paste, in the box where products are added, and a full list says
   which state it is in rather than leaving a disabled button to be puzzled over.
+- **A MESSAGE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN.** "Ici tu vas aussi
+  ajouter directement le lien vers settings. J'ai atteint la limite, mais c'est
+  normal." The ceiling message was right, said exactly what had happened, named
+  the page that raises it — and left the reader to go and find it. Ninety
+  sentences in this plugin end in "under Settings → X", and linking them one by
+  one is the mistake `log-link.js` already refuses to make: a hundred call
+  sites is a hundred chances to forget. So the same machinery does it —
+  `DZE_Marketing_Ai::tab_links()` hands over every tab BY THE NAME THE MESSAGES
+  USE, and the words are turned into the link wherever a failure is printed.
+  Four rules: the anchor is the tab's own name inside the sentence, never a
+  "click here" bolted on the end; only OUR tabs are linked, so "Klaviyo →
+  Settings → API keys" and "WPML → Settings → Custom Fields Translation" stay
+  plain text (the arrow in front is the test, and "→" is THREE BYTES, so a
+  look-behind counted in bytes reads the middle of it and matches nothing); a
+  tab whose module is switched off is not offered, because a link to a page
+  that is not there is worse than no link; and the words and the address come
+  from ONE list, so a renamed tab moves both. `test-trace.php` tokenises every
+  shipped file and fails on any sentence naming a tab that does not exist —
+  comments are not sentences, which is why it reads tokens and not lines.
+- **A SETTING SITS WITH THE THING IT GOVERNS.** "Images per product, per hour /
+  Images for the whole shop, per hour — sont dans la mauvaise section, Claude.
+  Ça concerne pourtant FAL.AI." Both ceilings count fal.ai pictures and both
+  sat in the Anthropic table, under the Claude model and the monthly budget.
+  They have their own section now, printed under the fal.ai heading, with its
+  own form and its own branch in the sanitizer — the keys a form carries are
+  the keys its own branch writes, and no other branch may write them. The move
+  uncovered the second half: `$dze_img_price = $dze_img_price;`, a variable
+  assigned from itself and defined nowhere, so both sentences told the shop a
+  full hour at the ceiling could cost at most **$0.00** — the figure that is
+  the whole argument for the ceiling. A gate DRAWS the section rather than
+  calling its helper, because only drawing says which section a field lands in.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
