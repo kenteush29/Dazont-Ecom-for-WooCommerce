@@ -46,7 +46,16 @@ function get_transient( $k ) { return false; }
 function set_transient( ...$a ) { return true; }
 function is_admin() { return true; }
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
-function add_query_arg( $args, $url = '' ) { return $url . ( false === strpos( (string) $url, '?' ) ? '?' : '&' ) . http_build_query( (array) $args ); }
+// WordPress takes this BOTH ways — an array of pairs, or one key and its
+// value — and the plugin uses both. A fake that knows only the first turns a
+// real call into nonsense and the check reads as a bug in the code.
+function add_query_arg( $args, $url = '', $third = null ) {
+	if ( ! is_array( $args ) ) {
+		$args = [ (string) $args => $url ];
+		$url  = (string) $third;
+	}
+	return $url . ( false === strpos( (string) $url, '?' ) ? '?' : '&' ) . http_build_query( (array) $args );
+}
 $GLOBALS['dze_diag_class'] = true;
 // What a screen ASKS FOR, recorded: a body drawn somewhere new must take
 // everything it needs with it, and the only way to know is to run it.
@@ -116,11 +125,27 @@ function get_post_thumbnail_id( ...$a ) { return 0; }
 function get_the_post_thumbnail_url( ...$a ) { return ''; }
 $GLOBALS['wpdb'] = new class {
 	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
-	public function prepare( $q, ...$a ) { return $q; }
+	public function prepare( $q, ...$a ) { $GLOBALS['sql_args'] = $a; return $q; }
 	public function get_var( $q ) { return 0; }
 	public function get_results( $q, $m = null ) { return []; }
-	public function get_col( $q ) { return []; }
+	// The one query the paste box makes: which of these ids are products.
+	// It answers from what the fake shop HOLDS, so a paste that never reached
+	// the query cannot pass by accident.
+	public function get_col( $q ) {
+		$shop = (array) ( $GLOBALS['dze_products'] ?? [] );
+		return $shop ? array_values( array_intersect( (array) ( $GLOBALS['sql_args'] ?? [] ), $shop ) ) : [];
+	}
 };
+// The AJAX answer is an exit: caught, so the handler can be run for real and
+// its answer read — a control is tested on what it DOES.
+class DZE_Json_Sent extends Exception {
+	public function __construct( public $payload = null, public bool $ok = true ) { parent::__construct( 'json' ); }
+}
+function wp_send_json_success( $d = null ) { throw new DZE_Json_Sent( $d, true ); }
+function wp_send_json_error( $d = null, $c = 0 ) { throw new DZE_Json_Sent( $d, false ); }
+function check_ajax_referer( ...$a ) { return true; }
+function wp_unslash( $v ) { return $v; }
+function absint( $v ) { return abs( (int) $v ); }
 /** The popup behind every "✎ Prompt" drawn in JavaScript on that screen. */
 class DZE_Prompts {
 	public static $printed = 0;
@@ -725,6 +750,91 @@ ok( 'right after what it names',
 	(bool) preg_match( '/What<\/th>\s*<th class="dze-objid-th">ID</s', $dze_log ), true );
 ok( 'with a cell under it carrying the row\'s own id',
 	(bool) preg_match( '/<tr data-id="(\d+)">[\s\S]*?<\/td>\s*<td class="dze-objid-td"><code[^>]*>\1</', $dze_log ), true );
+
+echo "\nTHE LIST HAS A CEILING, AND THE SCREEN SAYS SO\n";
+// "Ici il faut limiter à x produits. Calcules toi même la capacité limite. Il
+// faudra afficher ça quelque part." The figure is computed and written down on
+// the constant itself; what is gated here is that it BINDS — on every way in,
+// in one place — and that nothing is ever swallowed to keep it.
+$dze_cap = DZE_Content::list_max();
+ok( 'the list has a stated ceiling',    $dze_cap > 0, true );
+
+// 1. THE WRITER KEEPS IT, because three ways in would otherwise be three
+//    ceilings to keep in step.
+$GLOBALS['dze_list'] = [];
+$dze_many = range( 1000, 1000 + $dze_cap + 49 );   // fifty too many
+$dze_over = DZE_Content::set_bulk_list( $dze_many );
+ok( 'a list over the ceiling is cut to it',
+	count( DZE_Content::bulk_list() ), $dze_cap );
+ok( 'and it says how many it refused',  $dze_over, 50 );
+ok( 'what was already there is what stays',
+	DZE_Content::bulk_list()[0], 1000 );
+ok( 'and the overflow is what went',
+	in_array( 1000 + $dze_cap + 49, DZE_Content::bulk_list(), true ), false );
+// A list inside the ceiling is untouched and refuses nothing: a writer that
+// reported a refusal on an ordinary save would put a warning on every screen.
+$GLOBALS['dze_list'] = [];
+ok( 'an ordinary list refuses nothing',  DZE_Content::set_bulk_list( [ 7, 8, 9 ] ), 0 );
+
+// 2. A PASTED COLUMN IS ONE STRING. Sent as one form field per id it was cut
+//    off at PHP's max_input_vars — a thousand, silently — which is the
+//    swallowing this box promises never to do.
+$dze_col = DZE_Content::paste_ids( "1024\n1025\r\n#1031, 1042\t1055\n\n1025" );
+ok( 'a pasted column is read as ids',    $dze_col, [ 1024, 1025, 1031, 1042, 1055 ] );
+ok( 'and a column of two thousand keeps every one of them',
+	count( DZE_Content::paste_ids( implode( "\n", range( 5000, 6999 ) ) ) ), 2000 );
+
+// 3. THE PASTE BOX, RUN FOR REAL: the handler, the query, the answer. A column
+//    longer than the list adds what fits and NAMES what it could not take.
+$GLOBALS['dze_list']     = [];
+$GLOBALS['dze_products'] = range( 2000, 2000 + $dze_cap + 9 ); // ten too many
+$_POST = [
+	'do'      => 'add',
+	'paste'   => implode( ' ', array_merge( range( 2000, 2000 + $dze_cap + 9 ), [ 4242 ] ) ),
+	'replace' => 1,
+];
+$dze_ans = [];
+try { DZE_Content::instance()->ajax_bulk_list(); } catch ( DZE_Json_Sent $e ) { $dze_ans = (array) $e->payload; }
+ok( 'the paste fills the list to the ceiling',
+	count( DZE_Content::bulk_list() ), $dze_cap );
+ok( 'and says how many it could not take', (int) ( $dze_ans['over'] ?? -1 ), 10 );
+ok( 'naming the ceiling itself',           (int) ( $dze_ans['overMax'] ?? 0 ), $dze_cap );
+ok( 'what it added is what really landed', (int) ( $dze_ans['added'] ?? -1 ), $dze_cap );
+ok( 'and an id that is not a product is still reported',
+	(int) ( $dze_ans['unknownN'] ?? 0 ), 1 );
+$_POST = [];
+$GLOBALS['dze_products'] = [];
+
+// 4. A SELECTION HANDED OVER REDIRECTS, so the figure travels in the address
+//    and the screen it lands on reads it.
+$GLOBALS['dze_list'] = [];
+$dze_to = DZE_Content::instance()->handle_bulk_action( 'back', 'dze_ai_content', range( 3000, 3000 + $dze_cap + 4 ) );
+ok( 'a bulk action over the ceiling says so in its address',
+	(bool) preg_match( '/dze_over=5(?:&|$)/', $dze_to ), true );
+ok( 'and one within it says nothing',
+	false !== strpos( DZE_Content::bulk_url( 0 ), 'dze_over' ), false );
+
+// 5. AND THE SCREEN SAYS IT WHERE PRODUCTS ARE ADDED — before the paste, not
+//    after it. A ceiling nobody is told about is a screen that refuses work
+//    for reasons of its own.
+$GLOBALS['dze_list'] = [ 7, 8 ];
+$GLOBALS['dze_todo'] = [];
+ok( 'the room left is the ceiling less the list',
+	DZE_Content::list_room(), $dze_cap - 2 );
+ob_start(); DZE_Content::instance()->bulk_body( 'http://dze.test/screen' ); $dze_cap_html = (string) ob_get_clean();
+ok( 'the paste box states the room and the ceiling',
+	false !== strpos( $dze_cap_html, 'Room for ' . number_format_i18n( $dze_cap - 2 ) . ' more products' ), true );
+ok( 'and names the ceiling in the same line',
+	(bool) preg_match( '/Room for [\d,]+ more products — this list holds ' . number_format_i18n( $dze_cap ) . ' at a time/', $dze_cap_html ), true );
+// A full list says WHICH state it is in, and the button that cannot act is
+// not left looking as though it could.
+$GLOBALS['dze_list'] = range( 9000, 8999 + $dze_cap );
+ob_start(); DZE_Content::instance()->bulk_body( 'http://dze.test/screen' ); $dze_full_html = (string) ob_get_clean();
+ok( 'a full list says it is full',
+	false !== strpos( $dze_full_html, 'The list is full at ' . number_format_i18n( $dze_cap ) . ' products' ), true );
+ok( 'and the button that cannot act is disabled',
+	(bool) preg_match( '/id="dze-cb-pasteadd"\s*disabled/', $dze_full_html ), true );
+$GLOBALS['dze_list'] = [ 7, 8 ];
 
 echo "\nA LIST OF WHAT WAS WRITTEN HOLDS WHAT WAS WRITTEN\n";
 // "Nothing written sur les produits avec le module, c'est une raison pour ne

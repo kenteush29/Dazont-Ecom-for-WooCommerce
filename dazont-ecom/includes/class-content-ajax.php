@@ -1419,7 +1419,10 @@ trait DZE_Content_Ajax {
 			wp_send_json_success( [ 'left' => self::discard_products( $ids ), 'counts' => self::screen_counts() ] );
 		}
 		if ( 'add' === $do ) {
-			$this->bulk_add_ids( $ids, ! empty( $_POST['replace'] ) );
+			// A pasted column travels as ONE field, never as one field per id:
+			// PHP stops reading at `max_input_vars` and says nothing.
+			$raw = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- read as digits only.
+			$this->bulk_add_ids( self::paste_ids( $raw ), ! empty( $_POST['replace'] ) );
 		}
 		wp_send_json_error( [ 'message' => __( 'Invalid request.', 'dazont-ecom' ) ] );
 	}

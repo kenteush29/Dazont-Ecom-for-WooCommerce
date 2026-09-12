@@ -66,7 +66,8 @@ for ( const [ label, jq ] of jqs ) {
 
 	await page.route( 'http://dze.test/ajax', async route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
-		sent.push( { action: q.get( 'action' ), do: q.get( 'do' ), ids: q.getAll( 'ids[]' ) } );
+		sent.push( { action: q.get( 'action' ), do: q.get( 'do' ), ids: q.getAll( 'ids[]' ),
+			paste: q.get( 'paste' ) } );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		if ( 'dze_content_text_all' === q.get( 'action' ) ) {
 			return json( { results: { desc: 'applied' }, texts: { desc: '<p>Written.</p>' }, companions: {} } );
@@ -335,7 +336,8 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the press is answered',            answered, true );
 	// WHAT WENT ON THE WIRE: a refusal, on that product, and not a removal.
 	ok( 'and it asks the server to refuse, by id',
-		sent.slice( before ), [ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ] } ] );
+		sent.slice( before ),
+		[ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ], paste: null } ] );
 	// THE PRODUCT STAYS. This is the whole of it: it used to leave the screen.
 	ok( 'the product is still on the list',
 		await page.locator( '.dze-cb-row[data-id="7"]' ).count(), 1 );
@@ -358,6 +360,30 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and its panel is shut and empty',
 		( await page.locator( '.dze-cb-preview[data-id="7"] td' ).innerHTML() ).trim(), '' );
 	ok( 'nothing was raised anywhere in the gesture', errors, [] );
+
+	// ---- THE CEILING, SAID ON THE SCREEN — AND THE COLUMN THAT TRAVELS ----
+	//
+	// "Ici il faut limiter à x produits… Il faudra afficher ça quelque part."
+	// The figure is stated where products are added, and only a browser can
+	// read what a press puts on the wire: the ids used to travel as one form
+	// field EACH, and PHP stops reading a request at max_input_vars — a
+	// thousand, silently — so a long column was cut off with nothing said.
+	// The box is folded away once the list holds something, so it is opened
+	// the way somebody opens it.
+	await page.click( '#dze-cb-paste > summary' );
+	const room = ( await page.textContent( '#dze-cb-room' ) || '' ).trim();
+	ok( 'the screen says how much room is left',
+		/Room for [\d,]+ more products — this list holds [\d,]+ at a time/.test( room ), true );
+	const column = Array.from( { length: 1400 }, ( _, i ) => 5000 + i ).join( '\n' );
+	await page.fill( '#dze-cb-pasteids', column );
+	const was = sent.length;
+	await page.click( '#dze-cb-pasteadd' );
+	await page.waitForTimeout( 600 );
+	const add = sent.slice( was ).filter( r => 'add' === r.do )[ 0 ] || {};
+	ok( 'pressing Add asks the server to add',   add.action, 'dze_content_bulk_list' );
+	ok( 'the column travels as ONE field',       ( add.ids || [] ).length, 0 );
+	ok( 'and not one of the 1,400 ids is lost',
+		( String( add.paste || '' ).match( /\d+/g ) || [] ).length, 1400 );
 
 	await page.close();
 }
