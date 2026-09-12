@@ -81,7 +81,11 @@ for ( const [ label, jq ] of jqs ) {
 		if ( 'dze_content_current' === q.get( 'action' ) ) {
 			return json( {
 				texts: { desc: '<p>The description this product has today.</p>', short: '' },
-				images: [ { id: 5, thumb: 'http://img.test/5.jpg', full: 'http://img.test/5.jpg', main: true, w: 900, h: 900 } ]
+				images: [ { id: 5, thumb: 'http://img.test/5.jpg', full: 'http://img.test/5.jpg', main: true, w: 900, h: 900 } ],
+				// THIS PRODUCT'S OWN CALLS, rendered by the server — the Logs
+				// page's own renderer, so one row cannot read two ways.
+				log: '<details class="dze-tracerow"><summary>2 mins ago · Product image</summary>'
+					+ '<pre>THE PROMPT THAT MADE THAT PICTURE</pre></details>'
 			} );
 		}
 		return json( {} );
@@ -360,6 +364,29 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and its panel is shut and empty',
 		( await page.locator( '.dze-cb-preview[data-id="7"] td' ).innerHTML() ).trim(), '' );
 	ok( 'nothing was raised anywhere in the gesture', errors, [] );
+
+	// ---- A MINI LOG, ON THE PRODUCT YOU ARE LOOKING AT ----
+	//
+	// "Peut être possible d'avoir un mini log par module ? Ici par exemple
+	// j'aimerai débuger ce produit les images sont bizarre." The panel is
+	// already open on product 7 from the gesture above.
+	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
+	await page.waitForSelector( '.dze-cb-preview[data-id="8"] .dze-cb-logbox', { timeout: 5000 } )
+		.catch( () => {} );
+	ok( 'the panel carries the product\'s own log',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-logbox' ).count(), 1 );
+	ok( 'and it says what it is',
+		( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-logbox summary' ) ).trim(),
+		'What was asked for this product' );
+	// FOLDED AWAY: it is there when something is wrong, and out of the way the
+	// rest of the time.
+	ok( 'folded away until it is wanted',
+		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-logbox pre' ).isVisible(), false );
+	await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-logbox summary' );
+	ok( 'and it opens on what was actually asked',
+		( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-logbox pre' ) ).trim(),
+		'THE PROMPT THAT MADE THAT PICTURE' );
+	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
 
 	// ---- THE CEILING, SAID ON THE SCREEN — AND THE COLUMN THAT TRAVELS ----
 	//

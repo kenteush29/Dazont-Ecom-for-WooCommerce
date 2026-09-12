@@ -4062,6 +4062,10 @@ Answer with STRICT JSON and nothing else: "
 					/* translators: 1: how many were left out, 2: the ceiling */
 					'pasteOver'    => __( '%1$s were left out: this list holds %2$s products at a time.', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
+					// The product's own calls, folded away at the foot of the
+					// panel: the whole shop's trace holds a dozen and by the
+					// time one product looks wrong, its own have rolled off.
+					'askedFor' => __( 'What was asked for this product', 'dazont-ecom' ),
 					// The two words the row's one button wears, and the two
 					// headings of the panel it opens. In PHP, like every other
 					// status word: hard-coded in the JavaScript they were

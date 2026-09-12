@@ -86,6 +86,10 @@ class DZE_Content {
 
 $GLOBALS['dze_opts'] = [];
 function get_option( $k, $d = false ) { return $GLOBALS['dze_opts'][ $k ] ?? $d; }
+// An object's own calls live on its own meta, so they go when it goes.
+$GLOBALS['pmeta'] = [];
+function get_post_meta( $id, $key = '', $single = false ) { return $GLOBALS['pmeta'][ (int) $id ][ $key ] ?? ''; }
+function update_post_meta( $id, $key, $val ) { $GLOBALS['pmeta'][ (int) $id ][ $key ] = $val; return true; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['dze_opts'][ $k ] = $v; $GLOBALS['dze_autoload'][ $k ] = $a; return true; }
 
 $GLOBALS['dze_http'] = [ 'code' => 200, 'body' => '' ];
@@ -396,6 +400,51 @@ ok( 'and leaves the budget where it was', (float) $dze_saved['budget_month'], 25
 $dze_other = $dze_mai->sanitize_settings( [ 'section' => 'general', 'model' => 'claude-x', 'budget_month' => 30 ] );
 ok( 'and another form leaves them alone',
 	[ (int) $dze_other['fal_cap_post'], (int) $dze_other['fal_cap_hour'] ], [ 10, 60 ] );
+
+
+echo "\nEVERY CALL IS FILED ON THE OBJECT IT WAS MADE FOR\n";
+// "Peut être possible d'avoir un mini log par module ? Ici par exemple
+// j'aimerai débuger ce produit les images sont bizarre." Twelve calls for the
+// whole shop means the ones that made THIS product are gone by the time it
+// looks wrong. The run declares its object like it declares its unit, and
+// every call inside is filed on that object's own record.
+$GLOBALS['pmeta'] = [];
+DZE_Ai_Usage::unit( 'product_img' );
+DZE_Ai_Usage::about( 4242 );
+DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', 'ASKED ONE', 'https://fal.media/one.jpg', 1.0 );
+DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', 'ASKED TWO', 'https://fal.media/two.jpg', 1.0 );
+$dze_log = DZE_Ai_Usage::object_log( 4242 );
+ok( 'the calls are on the product',     count( $dze_log ), 2 );
+ok( 'newest first, like every other log',
+	(string) ( $dze_log[0]['sent'] ?? '' ), 'ASKED TWO' );
+ok( 'and they carry what came back',
+	false !== strpos( (string) ( $dze_log[0]['got'] ?? '' ), 'two.jpg' ), true );
+// A PRODUCT NOBODY WORKED ON HAS NO LOG, and says so rather than erroring.
+ok( 'a product nothing was asked for has none', DZE_Ai_Usage::object_log( 77 ), [] );
+// BOUNDED: an attempt set, and no more. Four hundred products each keeping
+// every call they ever made is a database nobody asked for.
+for ( $dze_i = 0; $dze_i < 8; $dze_i++ ) {
+	DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', 'ASK ' . $dze_i, 'ok', 0.5 );
+}
+ok( 'one object keeps a bounded number',  count( DZE_Ai_Usage::object_log( 4242 ) ), 4 );
+ok( 'and it keeps the LAST ones',         (string) ( DZE_Ai_Usage::object_log( 4242 )[0]['sent'] ?? '' ), 'ASK 7' );
+// OUTSIDE A SCOPE, NOTHING IS FILED: a call that belongs to no object must not
+// land on whichever one was last worked on.
+DZE_Ai_Usage::about();
+DZE_Ai_Usage::trace( 'anthropic', 'claude', 'A CALENDAR', 'ok', 0.5 );
+ok( 'a call about no object files nowhere',
+	count( DZE_Ai_Usage::object_log( 4242 ) ), 4 );
+// And the shop's own trace still holds everything, as it did.
+ok( 'the whole-shop trace holds them all', count( DZE_Ai_Usage::trace_rows() ) >= 11, true );
+// ONE RENDERER for both screens: the row a product shows and the row the Logs
+// page shows are the same markup, or they read two ways.
+ob_start(); DZE_Ai_Usage::render_rows( DZE_Ai_Usage::object_log( 4242 ) ); $dze_one = (string) ob_get_clean();
+ok( 'an object log is drawn like the trace',
+	false !== strpos( $dze_one, '<details' ) && false !== strpos( $dze_one, 'ASK 7' ), true );
+// An empty one says WHICH empty it is when it is given the words, and nothing
+// at all when it is not: a blank box reads as a screen that did not answer.
+ob_start(); DZE_Ai_Usage::render_rows( [], 'Nothing yet.' ); $dze_none = (string) ob_get_clean();
+ok( 'and an empty one says so',         false !== strpos( $dze_none, 'Nothing yet.' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

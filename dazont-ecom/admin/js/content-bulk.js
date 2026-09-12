@@ -789,7 +789,7 @@
 		// leurs images... mais visualiser aussi leur contenu textuel serait
 		// bien." All of it was already built; it was simply unreachable until
 		// something had been generated.
-		html = '<div class="dze-cb-nowshots"></div>' + '<div class="dze-cb-today"></div>' + html;
+		html = '<div class="dze-cb-nowshots"></div>' + '<div class="dze-cb-today"></div>' + html + '<div class="dze-cb-log"></div>';
 		$cell.html('<div class="dze-cx-result">' + html + '</div>');
 		// One box per product, kept on that product's bucket: the panel can be
 		// closed and reopened, and what was handed to it stays with it.
@@ -805,7 +805,7 @@
 		panelApplyLabel(id);
 		// The gallery as it stands today, right under the new images: the only
 		// way to judge whether a generated shot ADDS something.
-		loadCurrent(id).then(function () { renderCurrentImages(id); renderToday(id); });
+		loadCurrent(id).then(function () { renderCurrentImages(id); renderToday(id); renderLog(id); });
 	}
 
 	// Does this product hold anything waiting for a decision?
@@ -840,6 +840,21 @@
 			'</div>';
 		});
 		$slot.html(html + '</div>');
+	}
+	// WHAT WAS ASKED FOR THIS PRODUCT, folded away under the panel. "Peut être
+	// possible d'avoir un mini log par module ? Ici par exemple j'aimerai
+	// débuger ce produit les images sont bizarre." The shop's whole trace is a
+	// dozen calls and holds the wrong ones by the time a product looks wrong.
+	// The markup comes from the server — it is the Logs page's own renderer —
+	// so a row can never read two ways on two screens.
+	function renderLog(id) {
+		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-log');
+		if (!$slot.length || !b.current) { return; }
+		var body = String(b.current.log || '');
+		if (!body) { $slot.empty(); return; }
+		$slot.html('<details class="dze-cx-acc dze-cb-logbox"><summary>' +
+			esc(i18n.askedFor) + '</summary><div class="dze-cb-logbody"></div></details>');
+		$slot.find('.dze-cb-logbody').html(body);
 	}
 	// Opening one shows what is stored, read-only: this block is the product
 	// as it stands, not a draft to edit. Editing happens where the shop's own

@@ -50,6 +50,10 @@ class DZE_Ai_Usage {
 	public static function budget_message() { return 'The monthly AI budget is spent.'; }
 	public static function unit( $k = '' ) {}
 	public static function finished( $k = '' ) {}
+	// WHICH PRODUCT the run is about, recorded like the unit beside it: every
+	// call made inside the scope is filed on that product's own record.
+	public static function about( $oid = 0 ) { $GLOBALS['about'][] = (int) $oid; }
+	public static function about_now() { return (int) end( $GLOBALS['about'] ); }
 }
 class DZE_Health { public static function log( ...$a ) { $GLOBALS['logged'][] = $a; } }
 
@@ -412,6 +416,28 @@ ok( 'and is not counted as the product\'s own',
 // printed as "0 of something", which reads as a lane that failed.
 ok( 'a lane that sent nothing is not printed',
 	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), '0 ' ), false );
+
+
+echo "\nA RUN SAYS WHICH PRODUCT IT IS ABOUT\n";
+// "Peut être possible d'avoir un mini log par module ? Ici par exemple
+// j'aimerai débuger ce produit les images sont bizarre." The shop's trace
+// holds a dozen calls for everything, so the ones that made this product have
+// rolled off by the time it looks wrong. The run declares its object the way
+// it already declares its unit, and every call inside is filed on it — no call
+// site has to be told, and none can forget.
+shop();
+$GLOBALS['about'] = [];
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
+ok( 'the run went through',             $err, '' );
+ok( 'it names the product it is about', in_array( 7, (array) $GLOBALS['about'], true ), true );
+// AND IT LETS GO. A scope left open files the NEXT run of the same request on
+// the wrong product, which is worse than no log at all.
+ok( 'and lets go of it when it is done', (int) end( $GLOBALS['about'] ), 0 );
+// A run that THREW must let go too, or one failure poisons everything after.
+$GLOBALS['about'] = [];
+$GLOBALS['images'] = [];
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1 ] );
+ok( 'a run that failed still let go',   (int) end( $GLOBALS['about'] ), 0 );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

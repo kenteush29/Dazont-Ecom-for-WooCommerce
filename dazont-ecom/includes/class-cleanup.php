@@ -65,6 +65,9 @@ final class DZE_Cleanup {
 			],
 			'marketing_ai' => [
 				'options'    => [ 'dze_mai_settings', 'dze_mai_suggestions', 'dze_ai_usage', 'dze_ai_trace', 'dze_ai_last' ],
+				// The calls made FOR one object, kept on that object: four at
+				// most, and only on the ones something was asked for.
+				'post_meta'  => [ '_dze_ai_log' ],
 				// The image ceilings count per clock hour, one row for the shop
 				// and one per product. A name ending in _ is a PREFIX here.
 				'transients' => [ 'dze_mai_shop_context', 'dze_mai_models', 'dze_fal_h_', 'dze_fal_p_' ],
