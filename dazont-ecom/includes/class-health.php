@@ -475,8 +475,31 @@ final class DZE_Health {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
+		$dze_was = self::stamp( self::state() );
 		self::run();
-		wp_send_json_success( [ 'reload' => true ] );
+		// A reading that came back the same is not worth throwing the screen
+		// away for: the page reloads only when something actually moved, so an
+		// automatic refresh on arrival is invisible when all is well.
+		wp_send_json_success( [
+			'reload' => self::stamp( self::state() ) !== $dze_was,
+			'at'     => (int) ( self::state()['at'] ?? 0 ),
+		] );
+	}
+
+	/**
+	 * What the screen is showing, in one string.
+	 *
+	 * Only the parts a reader would SEE change: a new timestamp on an
+	 * otherwise identical reading is not news, and reloading for it is the
+	 * screen jumping for nothing.
+	 */
+	public static function stamp( array $state ): string {
+		$out = [];
+		foreach ( (array) ( $state['checks'] ?? [] ) as $id => $one ) {
+			$out[] = $id . ':' . (string) ( $one['state'] ?? '' ) . ':' . (string) ( $one['said'] ?? '' );
+		}
+		sort( $out );
+		return md5( implode( '|', $out ) );
 	}
 
 	public static function ajax_clear(): void {
@@ -498,11 +521,41 @@ final class DZE_Health {
 		wp_send_json_success( [ 'on' => self::auto_update_on() ] );
 	}
 
+	/**
+	 * How old a reading may be before opening this screen refreshes it.
+	 *
+	 * "Cet onglet n'était pas à jour seulement après que j'appuye sur Check
+	 * now. Ça devrait être automatique." The background look is WEEKLY, so the
+	 * tab greeted the shop with a week-old answer and waited to be told to ask
+	 * again. Opening the page is the question, so opening it is what asks.
+	 *
+	 * An hour: coming back to the tab twice in a morning does not re-ask every
+	 * provider, and a reading from last Tuesday never stands there as current.
+	 */
+	public const FRESH = HOUR_IN_SECONDS;
+
+	/**
+	 * Should opening the screen ask again?
+	 *
+	 * Split from the render because a decision buried inside markup cannot be
+	 * exercised — the same rule `shoot()` and `bulk_pick()` are held to. Never
+	 * checked during the page's own request: several providers over HTTP while
+	 * somebody waits for an admin page is how a shop starts timing out. The
+	 * browser asks, and says it is asking.
+	 */
+	public static function stale( array $state = null, int $now = 0 ): bool {
+		$state = null === $state ? self::state() : $state;
+		$now   = $now ?: time();
+		$at    = (int) ( $state['at'] ?? 0 );
+		return $at <= 0 || ( $now - $at ) > self::FRESH;
+	}
+
 	public static function render(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
 		$state  = self::state();
+		$dze_stale = self::stale( $state );
 		$labels = self::labels();
 		$colors = [ 'ok' => '#0a7040', 'warn' => '#b26a00', 'down' => '#b32d2e', 'off' => '#787c82' ];
 		$dots   = [ 'ok' => '●', 'warn' => '▲', 'down' => '✕', 'off' => '○' ];
@@ -520,7 +573,7 @@ final class DZE_Health {
 		</p>
 		<p>
 			<button type="button" class="button button-primary" id="dze-health-run"><?php esc_html_e( 'Check now', 'dazont-ecom' ); ?></button>
-			<span style="margin-left:10px;color:#646970;font-size:13px;">
+			<span style="margin-left:10px;color:#646970;font-size:13px;" id="dze-health-when" data-stale="<?php echo $dze_stale ? '1' : '0'; ?>">
 				<?php
 				if ( ! empty( $state['at'] ) ) {
 					printf(
@@ -610,17 +663,34 @@ final class DZE_Health {
 
 		<script>
 		jQuery(function ($) {
-			function call(action, $b) {
+			function call(action, $b, quiet) {
 				$b.prop('disabled', true);
-				$('#dze-health-msg').css('color', '#646970').text('…');
+				if (!quiet) { $('#dze-health-msg').css('color', '#646970').text('…'); }
 				$.post(ajaxurl, { action: action, nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' })
-					.done(function () { window.location.reload(); })
+					.done(function (r) {
+						// The screen is redrawn by the server — there is one
+						// renderer — but only when the answer actually moved.
+						if (!r || !r.data || false !== r.data.reload) { window.location.reload(); return; }
+						$b.prop('disabled', false);
+						$('#dze-health-msg').css('color', '#0a7040')
+							.text('<?php echo esc_js( __( 'Checked just now — nothing changed.', 'dazont-ecom' ) ); ?>');
+					})
 					.fail(function () {
 						$b.prop('disabled', false);
 						$('#dze-health-msg').css('color', '#b32d2e').text('<?php echo esc_js( __( 'Could not run it.', 'dazont-ecom' ) ); ?>');
 					});
 			}
 			$('#dze-health-run').on('click', function () { call('dze_health_run', $(this)); });
+			// OPENING THE SCREEN IS THE QUESTION. A reading older than an hour
+			// is asked again the moment the tab is opened — from the browser,
+			// never during the page's own request, because this asks several
+			// providers over HTTP and nobody may wait for a page while it does.
+			// It is the SAME action the button runs: a second path would drift.
+			if ('1' === $('#dze-health-when').attr('data-stale')) {
+				$('#dze-health-msg').css('color', '#646970')
+					.text('<?php echo esc_js( __( 'Asking each service…', 'dazont-ecom' ) ); ?>');
+				call('dze_health_run', $('#dze-health-run'), true);
+			}
 			$('#dze-health-clear').on('click', function () { call('dze_health_clear', $(this)); });
 			$('#dze-health-auto').on('change', function () {
 				var $c = $(this), on = $c.is(':checked');

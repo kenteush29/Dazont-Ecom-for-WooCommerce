@@ -1662,6 +1662,38 @@ whose screen has not been thought through yet.
   full hour at the ceiling could cost at most **$0.00** — the figure that is
   the whole argument for the ceiling. A gate DRAWS the section rather than
   calling its helper, because only drawing says which section a field lands in.
+- **THE TRACE OF AN IMAGE NAMES WHAT TRAVELLED WITH IT — a counter is not a
+  graph, on this screen too.** "Ou voir le log pour la génération d'images ?
+  Toutes mes images ont le style scalloped depuis 2 minutes." The trace said
+  "6 reference photograph(s) attached · aspect ratio auto" — a figure, and the
+  only question being asked is WHICH of them did it. Every lane is already
+  counted where it is filled (the product's own, the pasted ones, the other
+  colours, the one said "not like this", the ones handed in, the scene), so
+  the same figures say what they are, and the SCENE IS NAMED — it is the one
+  that decides the surface, the background and the light, and the one a shop
+  changes without thinking about it. Three rules: the counts are read where
+  the lane is filled and never re-derived from the request afterwards (two
+  answers to one question disagree); a lane that sent nothing prints nothing,
+  never "0 of something", which reads as a lane that failed; and both lanes
+  that make a photograph say it with the same function, or two traces cannot
+  be compared. `php tools/test-shoot.php dazont-ecom` holds it.
+- **A SCREEN THAT REPORTS ON THE OUTSIDE WORLD REFRESHES ITSELF.** "Health —
+  cet onglet n'était pas à jour seulement après que j'appuye sur Check now. Ça
+  devrait être automatique." The background look is WEEKLY, so the tab greeted
+  the shop with a reading from last Tuesday and waited to be told to ask
+  again. Opening the screen IS the question, so opening it is what asks —
+  above an hour old (`DZE_Health::stale()`, split from the render so it can be
+  exercised). Two rules pull against each other and both hold: the asking
+  never happens during the page's own request — it reaches four providers over
+  HTTP, and an admin page that waits on that is a shop returning 504s, so the
+  BROWSER asks and says it is asking; and a refresh that found nothing new
+  does not throw the screen away — the reload is the server redrawing, there
+  being one renderer, but only when `stamp()` says the answer actually moved
+  (a new timestamp on an identical reading is not news). It is the SAME action
+  the button runs, never a second endpoint for "look again".
+  **`php tools/test-health.php dazont-ecom` must pass** — this screen had no
+  gate at all, which is why a week-old reading could stand there looking
+  current for months.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

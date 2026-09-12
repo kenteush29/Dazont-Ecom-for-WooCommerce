@@ -897,7 +897,20 @@ trait DZE_Content_Ajax {
 			// means anything: written in the instructions it was a wish, and
 			// the image came back in the shape of the photograph it was built
 			// from. Left on "same shape as the photograph", nothing changes.
-			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto', $pid );
+			// The same sentence on the other lane that makes a photograph: two
+			// ways of saying it is two traces nobody can compare.
+			$dze_made = self::sources_said( [
+				[ __( 'of the product', 'dazont-ecom' ), $count ],
+				[ __( 'handed in as a reference', 'dazont-ecom' ), $ref_n ],
+			] );
+			if ( $plate ) {
+				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(
+					/* translators: %s: the scene's name */
+					__( 'the scene "%s"', 'dazont-ecom' ),
+					(string) ( $plate_row['name'] ?? __( 'the shop backdrop', 'dazont-ecom' ) )
+				);
+			}
+			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
 			// Charged to the product it was made for: what a product has cost
@@ -958,6 +971,28 @@ trait DZE_Content_Ajax {
 	 *               preview to accept, or a stashed shot.
 	 * @throws RuntimeException with the sentence the screen must show.
 	 */
+	/**
+	 * What travelled with the order, said in words.
+	 *
+	 * "Ou voir le log pour la génération d'images ? Toutes mes images ont le
+	 * style scalloped depuis 2 minutes." The trace said "6 reference
+	 * photograph(s) attached" — a COUNT, which cannot answer the only question
+	 * being asked: which of them, and where did that one come from. The lanes
+	 * are already counted where they are filled, so the same figures say it.
+	 *
+	 * @param array<int,array{0:string,1:int}> $parts label => how many.
+	 */
+	private static function sources_said( array $parts ): string {
+		$out = [];
+		foreach ( $parts as $one ) {
+			$n = (int) ( $one[1] ?? 0 );
+			if ( $n > 0 ) {
+				$out[] = $n . ' ' . (string) $one[0];
+			}
+		}
+		return implode( ' · ', $out );
+	}
+
 	public function shoot( array $in ): array {
 		// No guard here: a nonce and a capability belong to a CLICK, and this
 		// is also called from a background job that has neither. ajax_image()
@@ -1163,6 +1198,10 @@ trait DZE_Content_Ajax {
 				foreach ( $outside as $uri ) {
 					$sources[] = $uri;
 				}
+				// Counted WHERE THE LANE IS FILLED: read back later from the
+				// request, it would be a second answer to one question, and the
+				// two can disagree.
+				$dze_paste_n = count( $outside );
 				// The product's own photographs come after them, as CONTEXT,
 				// and few: the pasted set is the subject, and a subject sent
 				// with six photographs of the product in another colour is a
@@ -1309,7 +1348,26 @@ trait DZE_Content_Ajax {
 				isset( $in['attempt'] ) ? absint( $in['attempt'] ) : 0
 			);
 			DZE_Ai_Usage::unit( 'product_img' );
-			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid );
+			// WHAT TRAVELLED, NAMED — read from the very counts the paragraph
+			// above was built from, so the trace and the model were told the
+			// same thing. A count alone cannot say which picture put a
+			// scalloped border on every rug of the shop.
+			$dze_paste_n = $dze_paste_n ?? 0;
+			$dze_made = self::sources_said( [
+				[ __( 'of the product', 'dazont-ecom' ), $product_count - $dze_paste_n ],
+				[ __( 'pasted in', 'dazont-ecom' ), $dze_paste_n ],
+				[ __( 'of its other colours', 'dazont-ecom' ), $variants ],
+				[ __( 'said "not like this"', 'dazont-ecom' ), $avoid ],
+				[ __( 'handed in as a reference', 'dazont-ecom' ), $ref_n ],
+			] );
+			if ( $scene ) {
+				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(
+					/* translators: %s: the scene's name */
+					__( 'the scene "%s"', 'dazont-ecom' ),
+					(string) ( $scene['name'] ?? '' )
+				);
+			}
+			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
 			DZE_Ai_Usage::unit();
 			DZE_Ai_Usage::finished( 'product_img' );
 			self::charge_product( $pid, self::last_image_cost() );
