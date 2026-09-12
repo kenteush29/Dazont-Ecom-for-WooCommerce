@@ -376,16 +376,17 @@
 	// leading #. A spreadsheet column pastes as it comes.
 	$('#dze-cb-pasteadd').on('click', function () {
 		var $b = $(this), $st = $('#dze-cb-pastestate').removeClass('is-ko');
-		var ids = ($('#dze-cb-pasteids').val() || '').split(/[^0-9]+/)
-			.filter(function (v) { return v !== ''; })
-			.map(function (v) { return parseInt(v, 10); });
-		if (!ids.length) { $st.addClass('is-ko').text(i18n.pasteNone); return; }
+		// THE COLUMN TRAVELS AS ONE FIELD. Sent as one field per id it was cut
+		// off at PHP's max_input_vars — a thousand, silently — and a box that
+		// promises to report what it cannot take must not lose ids on the way.
+		var raw = String($('#dze-cb-pasteids').val() || '');
+		if (!/\d/.test(raw)) { $st.addClass('is-ko').text(i18n.pasteNone); return; }
 		var replace = $('#dze-cb-pastereplace').is(':checked');
 		if (replace && !window.confirm(i18n.pasteReplace)) { return; }
 		$b.prop('disabled', true);
 		$st.text(i18n.working);
 		$.post(cfg.ajaxUrl, {
-			action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'add', ids: ids, replace: replace ? 1 : 0
+			action: 'dze_content_bulk_list', nonce: cfg.nonce, do: 'add', paste: raw, replace: replace ? 1 : 0
 		})
 			.done(function (res) {
 				if (!res || !res.success) {
@@ -399,6 +400,12 @@
 				if (d.unknownN) {
 					window.alert(sprintf(i18n.pasteUnknown, d.unknownN) + '\n\n' + d.unknown.join(', ') +
 						(d.unknownN > d.unknown.length ? ' …' : ''));
+				}
+				// What the list had no room for is named too: an overflow
+				// nobody is told about is the same swallowing as an unknown id
+				// nobody is told about.
+				if (d.over) {
+					window.alert(sprintf(i18n.pasteOver, d.over, d.overMax));
 				}
 				window.location.href = cfg.listUrl || window.location.href;
 			})

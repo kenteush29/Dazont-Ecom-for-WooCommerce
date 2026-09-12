@@ -3090,8 +3090,46 @@ Answer with STRICT JSON and nothing else: "
 	 */
 	private const LIST_META = '_dze_content_bulk';
 
-	/** Ceiling on one paste: past this the screen itself becomes unusable. */
-	private const PASTE_MAX = 1000;
+	/**
+	 * How many products may sit on this list at once.
+	 *
+	 * "Ici il faut limiter à x produits. Calcules toi même la capacité limite."
+	 * Four things were measured to arrive at this figure, and the smallest one
+	 * decides it:
+	 *
+	 * - **The run.** It is sequential, one product after another, and the shop
+	 *   refuses more than `DZE_Ai_Usage::fal_hour_cap()` photographs per clock
+	 *   hour — sixty as it ships. Two hundred products at ONE photograph each
+	 *   is already better than three hours of waiting; the same list at the
+	 *   three photographs an order usually asks for is a working day. A list
+	 *   nobody can reach the end of is a list that lies about being a queue.
+	 * - **The page.** Each row carries a thumbnail, its reading, its cost and
+	 *   its status: 3.1 KB of markup measured through this very renderer, so
+	 *   two hundred rows are some 700 KB of HTML and two hundred pictures the
+	 *   browser has to fetch.
+	 * - **Memory.** Every listed product has its post and its meta primed into
+	 *   one request. This catalogue keeps around sixty meta rows per product,
+	 *   which is twelve thousand rows at two hundred.
+	 * - **The wire.** Ids used to travel as one form field EACH, and PHP stops
+	 *   reading at `max_input_vars` — a thousand, by default, silently. A
+	 *   pasted column is one string now, so that ceiling cannot bite; it is
+	 *   written down because it is why the old figure was a thousand.
+	 *
+	 * It is a constant, not a setting: a number the shop cannot get wrong and
+	 * would never want different by a little. What it needs is to be SAID, and
+	 * it is said where products are added.
+	 */
+	private const LIST_MAX = 200;
+
+	/** The ceiling, for the screens and the tests that state it. */
+	public static function list_max(): int {
+		return self::LIST_MAX;
+	}
+
+	/** Room left on the list right now. */
+	public static function list_room(): int {
+		return max( 0, self::LIST_MAX - count( self::bulk_list() ) );
+	}
 
 	public static function bulk_list(): array {
 		$uid  = get_current_user_id();
@@ -3346,15 +3384,34 @@ Answer with STRICT JSON and nothing else: "
 		return is_array( $log ) ? $log : [];
 	}
 
-	public static function set_bulk_list( array $ids ): void {
-		$uid = get_current_user_id();
-		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+	/**
+	 * The ONE writer of the list, and the one place the ceiling is kept.
+	 *
+	 * Three ways in — the paste box, the Products list's bulk action and the
+	 * diagnostic's selection — and a ceiling enforced in each of them would be
+	 * three ceilings to keep in step. It is enforced here, and what it REFUSED
+	 * is handed back so every caller can say so without counting again: an
+	 * overflow nobody is told about is exactly the swallowing this screen
+	 * promises never to do.
+	 *
+	 * What is already on the list stays: the products at the top are the ones
+	 * being worked on, and an add that pushed them off would throw away work in
+	 * progress to make room for work not started.
+	 *
+	 * @return int How many were refused for want of room.
+	 */
+	public static function set_bulk_list( array $ids ): int {
+		$uid  = get_current_user_id();
+		$ids  = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		$over = max( 0, count( $ids ) - self::LIST_MAX );
+		$ids  = array_slice( $ids, 0, self::LIST_MAX );
 		if ( $ids ) {
 			update_user_meta( $uid, self::LIST_META, $ids );
 		} else {
 			delete_user_meta( $uid, self::LIST_META );
 		}
 		delete_transient( 'dze_content_bulk_' . $uid );
+		return $over;
 	}
 
 	/**
@@ -3365,16 +3422,20 @@ Answer with STRICT JSON and nothing else: "
 	 * copies of one URL is three chances for it to be wrong the day the slug
 	 * moves.
 	 */
-	public static function bulk_url(): string {
+	/**
+	 * @param int $over How many the list had no room for, said on arrival.
+	 */
+	public static function bulk_url( int $over = 0 ): string {
 		// WHERE THE PRODUCT WORK IS DONE, which is a tab of Content diagnostic
 		// whenever that screen is there to hold it. Every link in the plugin
 		// goes through here, so there is one address to be right.
-		return self::bulk_hosted()
+		$url = self::bulk_hosted()
 			? add_query_arg(
 				[ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ],
 				admin_url( 'admin.php' )
 			)
 			: self::bulk_page_url();
+		return $over > 0 ? add_query_arg( 'dze_over', (int) $over, $url ) : $url;
 	}
 
 	/** The screen's own address, whether or not anything hosts it. */
@@ -3415,8 +3476,9 @@ Answer with STRICT JSON and nothing else: "
 		if ( self::BULK_ACTION !== $action || empty( $ids ) ) {
 			return $redirect;
 		}
-		self::set_bulk_list( $ids );
-		return self::bulk_url();
+		// A handover that did not fit is SAID on the screen it lands on: this
+		// one ends in a redirect, so what was refused travels in the address.
+		return self::bulk_url( self::set_bulk_list( $ids ) );
 	}
 
 	/**
@@ -3759,15 +3821,46 @@ Answer with STRICT JSON and nothing else: "
 	 * leading # — anything that is not a digit is a separator.
 	 */
 	private function render_bulk_paste(): void {
+		$dze_room = self::list_room();
 		?>
 		<details class="dze-cb-paste" id="dze-cb-paste"<?php echo self::bulk_list() ? '' : ' open'; ?>>
 			<summary><?php esc_html_e( 'Add products by ID', 'dazont-ecom' ); ?></summary>
 			<p class="description" style="margin:6px 0;">
 				<?php esc_html_e( 'Paste a column of IDs from your spreadsheet. Separators do not matter. IDs already on the list, and anything that is not a product, are reported instead of being swallowed.', 'dazont-ecom' ); ?>
 			</p>
+			<!-- HOW MUCH ROOM THERE IS, where products are added. The ceiling is
+			     said before the paste rather than after it: a list is worked
+			     through one product at a time and the shop will not make more
+			     than sixty photographs an hour, so a queue of hundreds is a
+			     queue nobody reaches the end of. -->
+			<p class="description dze-cb-room" id="dze-cb-room" style="margin:6px 0;">
+				<?php
+				if ( 0 === $dze_room ) {
+					printf(
+						/* translators: %s: the ceiling */
+						esc_html__( 'The list is full at %s products. Work through these, or delete some, before adding more.', 'dazont-ecom' ),
+						esc_html( number_format_i18n( self::list_max() ) )
+					);
+				} else {
+					printf(
+						esc_html(
+							/* translators: 1: how many products fit, 2: the ceiling */
+							_n(
+								'Room for %1$s more product — this list holds %2$s at a time.',
+								'Room for %1$s more products — this list holds %2$s at a time.',
+								$dze_room,
+								'dazont-ecom'
+							)
+						),
+						esc_html( number_format_i18n( $dze_room ) ),
+						esc_html( number_format_i18n( self::list_max() ) )
+					);
+				}
+				?>
+			</p>
 			<textarea id="dze-cb-pasteids" rows="4" class="large-text code" placeholder="1024&#10;1025&#10;1031, 1042 1055"></textarea>
 			<p>
-				<button type="button" class="button button-primary" id="dze-cb-pasteadd"><?php esc_html_e( 'Add to the list', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button button-primary" id="dze-cb-pasteadd"<?php disabled( 0 === $dze_room ); ?>><?php esc_html_e( 'Add to the list', 'dazont-ecom' ); ?></button>
 				<label style="margin-left:12px;"><input type="checkbox" id="dze-cb-pastereplace" /> <?php esc_html_e( 'Replace the current list', 'dazont-ecom' ); ?></label>
 				<span id="dze-cb-pastestate" class="description" style="margin-left:8px;"></span>
 			</p>
@@ -3963,6 +4056,11 @@ Answer with STRICT JSON and nothing else: "
 					'pasteReplace' => __( 'Replace the whole list with these IDs?', 'dazont-ecom' ),
 					/* translators: %s: number of IDs */
 					'pasteUnknown' => __( '%s of the IDs are not products (or no longer exist) and were left out:', 'dazont-ecom' ),
+					// A LIST THAT IS FULL SAYS SO IN WORDS, not by quietly
+					// keeping the first two hundred. Both halves live in PHP,
+					// like every other status word on this screen.
+					/* translators: 1: how many were left out, 2: the ceiling */
+					'pasteOver'    => __( '%1$s were left out: this list holds %2$s products at a time.', 'dazont-ecom' ),
 					'nowText'  => __( 'On the product today', 'dazont-ecom' ),
 					// The two words the row's one button wears, and the two
 					// headings of the panel it opens. In PHP, like every other
@@ -4074,6 +4172,33 @@ Answer with STRICT JSON and nothing else: "
 				<div class="notice notice-warning"><p>
 					<?php printf( /* translators: 1: validated, 2: total */ esc_html__( '%1$d/%2$d prompts validated — bulk applies directly, so only validated fields can be selected below.', 'dazont-ecom' ), (int) $ok_n, (int) $tot_n ); ?>
 				</p></div>
+			<?php endif; ?>
+
+			<?php
+			// A SELECTION BIGGER THAN THE LIST SAYS SO, ON ARRIVAL. The
+			// Products list and the diagnostic both hand over a tick-box
+			// selection and then redirect, so the figure travels in the address
+			// and is read here — silently keeping the first two hundred would
+			// be the swallowing this screen refuses to do anywhere else.
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a figure to display, carried by our own redirect.
+			$dze_over = isset( $_GET['dze_over'] ) ? absint( $_GET['dze_over'] ) : 0;
+			if ( $dze_over > 0 ) :
+				?>
+				<div class="notice notice-warning"><p><?php
+					printf(
+						esc_html(
+							/* translators: 1: how many were left out, 2: the ceiling */
+							_n(
+								'%1$s product was left out: this list holds %2$s at a time. Work through these, then send the rest.',
+								'%1$s products were left out: this list holds %2$s at a time. Work through these, then send the rest.',
+								$dze_over,
+								'dazont-ecom'
+							)
+						),
+						esc_html( number_format_i18n( $dze_over ) ),
+						esc_html( number_format_i18n( self::list_max() ) )
+					);
+				?></p></div>
 			<?php endif; ?>
 
 			<?php $this->render_bulk_paste(); ?>
@@ -5278,20 +5403,28 @@ Answer with STRICT JSON and nothing else: "
 	 * comes back named, so a wrong column in the spreadsheet is visible instead
 	 * of being silently dropped.
 	 */
+	/**
+	 * A pasted column, read as ids.
+	 *
+	 * It arrives as ONE string, and that is the point: the ids used to travel
+	 * as a form field each, and PHP stops reading a request at
+	 * `max_input_vars` — a thousand by default, without an error and without a
+	 * word to the screen. A column longer than that was quietly cut off, which
+	 * is the one thing this box promises not to do. Anything that is not a
+	 * digit is a separator, exactly as the box says.
+	 *
+	 * @return int[]
+	 */
+	public static function paste_ids( string $raw ): array {
+		$out = array_map( 'intval', preg_split( '/\D+/', $raw, -1, PREG_SPLIT_NO_EMPTY ) ?: [] );
+		return array_values( array_unique( array_filter( $out ) ) );
+	}
+
 	private function bulk_add_ids( array $ids, bool $replace ): void {
 		global $wpdb;
 		$ids = array_values( array_unique( array_filter( $ids ) ) );
 		if ( ! $ids ) {
 			wp_send_json_error( [ 'message' => __( 'No ID found in what you pasted.', 'dazont-ecom' ) ] );
-		}
-		if ( count( $ids ) > self::PASTE_MAX ) {
-			wp_send_json_error( [
-				'message' => sprintf(
-					/* translators: %s: maximum number of products */
-					__( 'That is more than %s products at once. Split the list.', 'dazont-ecom' ),
-					number_format_i18n( self::PASTE_MAX )
-				),
-			] );
 		}
 		$holes = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $holes is a placeholder list built from the count.
@@ -5305,13 +5438,19 @@ Answer with STRICT JSON and nothing else: "
 
 		$before = $replace ? [] : self::bulk_list();
 		$dupes  = array_values( array_intersect( $found, $before ) );
-		self::set_bulk_list( array_merge( $before, $found ) );
+		// The ceiling is kept by the writer; what it refused comes back from
+		// it, and is said here in the same breath as the ids that were not
+		// products. A column of four hundred pasted onto a list that can hold
+		// two hundred adds what fits and NAMES what it could not take.
+		$over = self::set_bulk_list( array_merge( $before, $found ) );
 
 		wp_send_json_success( [
-			'added'   => count( $found ) - count( $dupes ),
+			'added'   => max( 0, count( $found ) - count( $dupes ) - $over ),
 			'already' => count( $dupes ),
 			'unknown' => array_slice( $unknown, 0, 30 ), // enough to fix the spreadsheet.
 			'unknownN'=> count( $unknown ),
+			'over'    => $over,
+			'overMax' => self::LIST_MAX,
 			'total'   => count( self::bulk_list() ),
 		] );
 	}

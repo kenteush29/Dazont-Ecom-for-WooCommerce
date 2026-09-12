@@ -290,10 +290,11 @@ class DZE_Content {
 	const BULK_SLUG = 'dazont-content-bulk';
 	public static function image_templates() { return $GLOBALS['tpls'] ?? []; }
 	/** Where the product work is done: a tab of this very screen, or its own page. */
-	public static function bulk_url() {
-		return self::bulk_hosted()
+	public static function bulk_url( $over = 0 ) {
+		$url = self::bulk_hosted()
 			? 'http://example.test/wp-admin/admin.php?page=' . DZE_Diagnostic::MENU_SLUG . '&tab=products'
 			: self::bulk_page_url();
+		return $over > 0 ? $url . '&dze_over=' . (int) $over : $url;
 	}
 	public static function bulk_page_url() { return 'http://example.test/wp-admin/edit.php?post_type=product&page=dazont-content-bulk'; }
 	public static function bulk_hosted() { return ! empty( $GLOBALS['dze_diag_on'] ); }
@@ -310,7 +311,18 @@ class DZE_Content {
 			self::screen_counts()['log']
 		);
 	}
-	public static function set_bulk_list( $ids ) { $GLOBALS['bulked'] = array_values( array_map( 'intval', $ids ) ); }
+	/**
+	 * The list has a CEILING, and the writer keeps it — the same contract the
+	 * real one is held to in test-sources.php: it trims, and it hands back how
+	 * many it refused so the caller can say so.
+	 */
+	public static function set_bulk_list( $ids ) {
+		$cap  = (int) ( $GLOBALS['dze_list_cap'] ?? 200 );
+		$ids  = array_values( array_map( 'intval', $ids ) );
+		$over = max( 0, count( $ids ) - $cap );
+		$GLOBALS['bulked'] = array_slice( $ids, 0, $cap );
+		return $over;
+	}
 	/**
 	 * The blocks a product page can generate — the same contract as the real
 	 * one: a text block per destination the shop has a prompt for, an image
@@ -1701,6 +1713,15 @@ $GLOBALS['bulked'] = [];
 ok( 'an id off the list is dropped',
 	DZE_Diagnostic::bulk_pick( 'prod_gallery', [ 901, 4242 ] ) === DZE_Content::bulk_url(), true );
 ok( 'and only the real one travels',    $GLOBALS['bulked'], [ 901 ] );
+// A SELECTION BIGGER THAN THE LIST CAN HOLD IS NOT SILENTLY CUT DOWN. This
+// press ends in a redirect, so what would not fit travels in the address and
+// the screen it lands on says it — the same promise the paste box makes.
+$GLOBALS['dze_list_cap'] = 1;
+$GLOBALS['bulked'] = [];
+ok( 'a selection over the ceiling says so in its address',
+	(bool) preg_match( '/dze_over=1(?:&|$)/', DZE_Diagnostic::bulk_pick( 'prod_gallery', [ 901, 902 ] ) ), true );
+ok( 'and only what fits was handed over', $GLOBALS['bulked'], [ 901 ] );
+$GLOBALS['dze_list_cap'] = 200;
 // Nothing ticked goes nowhere but back — never to the bulk screen with an
 // empty list, which reads as a screen that lost the selection.
 $GLOBALS['bulked'] = [];

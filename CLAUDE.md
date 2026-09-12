@@ -1605,6 +1605,32 @@ whose screen has not been thought through yet.
   and whose rows are JavaScript; the restock variations, the other way round)
   goes a column out of step without raising anything, and every row then prints
   its values under the wrong titles.
+- **A LIST HAS A CAPACITY, IT IS COMPUTED, AND IT IS SAID WHERE THINGS ARE
+  ADDED.** "Ici il faut limiter à x produits. Calcules toi même la capacité
+  limite. Il faudra afficher ça quelque part." The product bulk list took
+  whatever was pasted into it. Four things were measured and the smallest one
+  set the figure, which is written on the constant itself
+  (`DZE_Content::LIST_MAX`, 200): the RUN is sequential and the shop refuses
+  more than `fal_hour_cap()` photographs an hour, so two hundred products at
+  one photograph each is already three hours and at three each a working day;
+  the PAGE carries 3.1 KB of markup and one thumbnail per row, measured through
+  the renderer itself; MEMORY primes every listed product's meta into one
+  request, some sixty rows each on this catalogue; and the WIRE used to send
+  one form field per id, which PHP stops reading at `max_input_vars` — a
+  thousand by default, silently, which is why the old figure was a thousand and
+  why a pasted column is ONE string now. It is a constant and not a setting:
+  invariable, and nothing the shop would want different by a little.
+  Three rules, each of them a way it goes wrong: the ceiling is kept by the ONE
+  writer (`set_bulk_list()`), never by the three ways in, and it hands back what
+  it REFUSED so every caller can say so without counting again; what is already
+  on the list is what stays, because an add that pushed the top off would throw
+  away work in progress to make room for work not started; and nothing is ever
+  swallowed to keep it — the paste box names what would not fit exactly as it
+  already names an id that is not a product, and the two paths that end in a
+  redirect (the Products list's bulk action, the diagnostic's selection) carry
+  the figure in the address and say it on arrival. The room left is stated
+  BEFORE the paste, in the box where products are added, and a full list says
+  which state it is in rather than leaving a disabled button to be puzzled over.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

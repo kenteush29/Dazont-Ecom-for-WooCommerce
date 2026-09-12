@@ -372,8 +372,10 @@ final class DZE_Diagnostic {
 		if ( ! $ids || ! class_exists( 'DZE_Content' ) ) {
 			return $back;
 		}
-		DZE_Content::set_bulk_list( $ids );
-		return DZE_Content::bulk_url();
+		// The list has a ceiling, and a selection bigger than it is not
+		// silently cut down: what would not fit is named on the screen the
+		// press lands on.
+		return DZE_Content::bulk_url( DZE_Content::set_bulk_list( $ids ) );
 	}
 
 	/** Once a day, and never twice. */
