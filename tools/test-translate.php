@@ -1322,10 +1322,16 @@ ok( 'a long run can be stopped',        false !== strpos( $dze_b, 'id="dze-tr-st
 // 4. THE LIST, with the bar the bulk screen wears and Look on every row.
 ok( 'the bar is the bulk screen\'s own', false !== strpos( $dze_b, 'dze-cb-listbar' ), true );
 ok( 'every row offers to be opened', substr_count( $dze_b, 'dze-tr-openword' ), 2 );
-// THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS — the same badge, from the
-// same place, as the product bulk screens and the diagnostic.
+// THE OBJECT'S ID, IN A COLUMN OF ITS OWN, ON EVERY LIST THAT NAMES OBJECTS —
+// the same column, from the same place, as the product bulk screens and the
+// diagnostic. The heading is declared in one place and the cell in another, so
+// BOTH are read here, in the order a reader meets them: a table a column out
+// of step prints every value under the wrong title and raises nothing.
 ok( 'every row carries its own id',   substr_count( $dze_b, 'class="dze-objid"' ), 2 );
-ok( 'and it is the row\'s own',       false !== strpos( $dze_b, '>#7<' ), true );
+ok( 'the id has a heading of its own, right after the name',
+	(bool) preg_match( '#<th>Name</th>\s*<th class="dze-objid-th">ID</th>#', $dze_b ), true );
+ok( 'and the cell under it is the row\'s own',
+	(bool) preg_match( '#<tr class="dze-tr-row" data-ref="[a-z]+:(\d+):[^"]*">[\s\S]*?</td>\s*<td class="dze-objid-td"><code class="dze-objid"[^>]*>\1</code></td>#', $dze_b ), true );
 ok( 'and says Open when nothing waits on it',
 	false !== strpos( $dze_b, '>Open<' ), true );
 // 5. AND IT IS A WAY TO THE ONE SCREEN, never a panel of its own: two
@@ -1466,7 +1472,10 @@ $_GET = [ 'tab' => 'batch', 'ref' => 'post:700:product', 'lang' => 'fr' ];
 ob_start(); DZE_Translate::instance()->render_page(); $dze_ed = (string) ob_get_clean();
 // 1. WHERE THIS ONE STANDS, in the same four words the lists use.
 ok( 'it says where this one stands',   false !== strpos( $dze_ed, 'dze-tr-editstate' ), true );
-ok( 'and names the object by its id', false !== strpos( $dze_ed, '>#700<' ), true );
+// The head of a screen is a HEADING, not a table, so the id is beside the name
+// here rather than in a column — the same element, from the same function.
+ok( 'and names the object by its id',
+	(bool) preg_match( '#<code class="dze-objid"[^>]*>700</code>#', $dze_ed ), true );
 // 3. TRANSLATE IT, or write it by hand — one button.
 ok( 'it offers to translate it',       substr_count( $dze_ed, 'id="dze-tr-auto"' ), 1 );
 // EVERY FIELD, SIDE BY SIDE, variations included and named for what they are.

@@ -1325,14 +1325,19 @@ $dze_desc = (string) ob_get_clean();
 // nothing — a button that goes nowhere is worse than none.
 ok( 'a product description offers no button',
 	substr_count( $dze_desc, 'class="button button-small dze-diag-fix"' ), 0 );
-// THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS — the same badge, from the
-// same place, as the bulk screens and the translation lists. A list of nine
-// hundred products with two sharing a name is a list where the id is the only
-// thing telling them apart.
+// THE OBJECT'S ID, IN A COLUMN OF ITS OWN, ON EVERY LIST THAT NAMES OBJECTS —
+// the same column, from the same place, as the bulk screens and the
+// translation lists. A list of nine hundred products with two sharing a name
+// is a list where the id is the only thing telling them apart. The heading is
+// declared in one place and the cell in another, so BOTH are asserted, in the
+// order they are read: a table out of step by one column prints every value
+// under the wrong title and nothing errors.
 ok( 'every row names the product by its id',
 	substr_count( $dze_desc, 'class="dze-objid"' ) > 0, true );
-ok( 'and it is the row\'s own id',
-	(bool) preg_match( '/<tr data-id="(\d+)">.*?dze-objid[^>]*>#\1</s', $dze_desc ), true );
+ok( 'the id has a heading of its own, right after the name',
+	(bool) preg_match( '#>(?:Product|Name)[^<]*(?:<span[\s\S]*?</span>\s*)?(?:</a>)?</th>\s*<th class="dze-objid-th">ID</th>#', $dze_desc ), true );
+ok( 'and the cell under it is the row\'s own id',
+	(bool) preg_match( '#<tr data-id="(\d+)">[\s\S]*?</td><td class="dze-objid-td"><code class="dze-objid"[^>]*>\1</code></td>#', $dze_desc ), true );
 $GLOBALS['umeta'] = [];
 ok( 'and a gallery row offers none',
 	false !== strpos( $show( [ 'by' => 'found' ] ), 'class="button button-small dze-diag-fix"' ), false );

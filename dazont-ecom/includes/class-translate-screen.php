@@ -706,6 +706,7 @@ trait DZE_Translate_Screen {
 			<thead><tr>
 				<td class="check-column"><input type="checkbox" id="dze-tr-all" title="<?php esc_attr_e( 'Select every row on this page', 'dazont-ecom' ); ?>" /></td>
 				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 				<th style="width:340px;" title="<?php esc_attr_e( 'A flag that is owed is a button: the plus makes the missing translation, the arrows bring an out-of-date one back.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
 				<th style="width:120px;"></th>
 			</tr></thead>
@@ -713,7 +714,7 @@ trait DZE_Translate_Screen {
 			<?php if ( ! $objects ) : ?>
 				<!-- AN EMPTY ANSWER SAYS WHICH EMPTY IT IS. "Nothing here" over
 				     a catalogue of two thousand reads as a broken screen. -->
-				<tr><td colspan="4">
+				<tr><td colspan="5">
 					<?php if ( $exact && ! $all ) : ?>
 						<?php esc_html_e( 'Nothing needs work here: every one of these is translated and WPML is satisfied with it.', 'dazont-ecom' ); ?>
 						<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch', 'scope' => $key, 'all' => 1 ] ) ); ?>"><?php esc_html_e( 'Show them all anyway', 'dazont-ecom' ); ?></a>
@@ -732,8 +733,8 @@ trait DZE_Translate_Screen {
 					<td class="check-column"><input type="checkbox" class="dze-tr-pickone" <?php checked( (bool) $only ); ?> /></td>
 					<td>
 						<a href="<?php echo esc_url( self::obj_edit_url( $o ) ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( self::obj_label( $o ) ); ?></strong></a>
-						<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $o['id'] ) ); ?>
 					</td>
+					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $o['id'] ) ); ?>
 					<td class="dze-tr-state">
 						<?php foreach ( $state as $code => $said ) : ?>
 							<?php
@@ -1143,6 +1144,7 @@ trait DZE_Translate_Screen {
 		<table class="widefat striped" style="max-width:980px;">
 			<thead><tr>
 				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 				<th style="width:150px;"><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
 				<th style="width:200px;"><?php esc_html_e( 'Languages waiting', 'dazont-ecom' ); ?></th>
 				<th style="width:180px;"></th>
@@ -1150,7 +1152,8 @@ trait DZE_Translate_Screen {
 			<tbody>
 			<?php foreach ( $rows as $r ) : ?>
 				<tr class="dze-tr-wrow dze-tr-row" data-ref="<?php echo esc_attr( self::ref( $r ) ); ?>">
-					<td><strong><?php echo esc_html( $r['label'] ); ?></strong><?php echo wp_kses_post( DZE_Hub::obj_id( (int) $r['id'] ) ); ?></td>
+					<td><strong><?php echo esc_html( $r['label'] ); ?></strong></td>
+					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $r['id'] ) ); ?>
 					<td><span class="description"><?php echo esc_html( self::type_label( $r ) ); ?></span></td>
 					<td>
 						<?php foreach ( $r['langs'] as $code ) : ?>

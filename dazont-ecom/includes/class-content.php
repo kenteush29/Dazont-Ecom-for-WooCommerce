@@ -3576,6 +3576,7 @@ Answer with STRICT JSON and nothing else: "
 			<tr>
 				<th style="width:70px;"></th>
 				<th><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
+				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 				<th style="width:150px;"><?php esc_html_e( 'Kind', 'dazont-ecom' ); ?></th>
 				<th style="width:230px;"><?php esc_html_e( 'Written', 'dazont-ecom' ); ?></th>
 				<th style="width:150px;"><?php esc_html_e( 'Decided by', 'dazont-ecom' ); ?></th>
@@ -3595,12 +3596,11 @@ Answer with STRICT JSON and nothing else: "
 					<td>
 						<?php if ( '' !== (string) $dze_e['url'] ) : ?>
 							<a href="<?php echo esc_url( (string) $dze_e['url'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( (string) $dze_e['title'] ); ?></strong></a>
-							<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $dze_id ) ); ?>
 						<?php else : ?>
 							<strong><?php echo esc_html( (string) $dze_e['title'] ); ?></strong>
-							<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $dze_id ) ); ?>
 						<?php endif; ?>
 					</td>
+					<?php echo wp_kses_post( DZE_Hub::id_td( (int) $dze_id ) ); ?>
 					<!-- WHICH KIND OF THING, because this register holds four of
 					     them now and a list where a category and a product read
 					     the same is a list you have to open to understand. -->
@@ -3635,7 +3635,7 @@ Answer with STRICT JSON and nothing else: "
 					</td>
 				</tr>
 				<?php if ( $dze_live ) : ?>
-					<tr class="dze-cb-preview" data-id="<?php echo (int) $dze_id; ?>" style="display:none;"><td colspan="7"></td></tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $dze_id; ?>" style="display:none;"><td colspan="8"></td></tr>
 				<?php endif; ?>
 			<?php endforeach; ?>
 		</table>
@@ -4317,6 +4317,7 @@ Answer with STRICT JSON and nothing else: "
 					<th style="width:28px;"><input type="checkbox" id="dze-cb-all" title="<?php esc_attr_e( 'Select every product', 'dazont-ecom' ); ?>" /></th>
 					<th style="width:70px;" title="<?php esc_attr_e( 'Click a thumbnail to open the product.', 'dazont-ecom' ); ?>"></th>
 					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
+					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
 					<th style="width:260px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
@@ -4330,7 +4331,6 @@ Answer with STRICT JSON and nothing else: "
 						</td>
 						<td>
 							<a href="<?php echo esc_url( $p['edit'] ); ?>" target="_blank" rel="noopener"><strong><?php echo esc_html( $p['title'] ); ?></strong></a>
-							<?php echo wp_kses_post( DZE_Hub::obj_id( (int) $p['id'] ) ); ?>
 							<?php // The same sentences the diagnostic prints, on the row you are about to tick — so what to generate is read here rather than looked up on another screen. ?>
 							<?php if ( isset( $p['short'] ) ) : ?>
 								<div class="dze-cb-short<?php echo $p['short'] ? '' : ' is-ok'; ?>">
@@ -4343,6 +4343,7 @@ Answer with STRICT JSON and nothing else: "
 							<?php endif; ?>
 							<div class="dze-cb-badges"></div>
 						</td>
+						<?php echo wp_kses_post( DZE_Hub::id_td( (int) $p['id'] ) ); ?>
 						<td><input type="number" step="0.01" class="dze-cb-cost" value="<?php echo esc_attr( $p['cost'] ); ?>" /></td>
 						<td class="dze-cb-statuscell">
 							<!-- ONE symbol per product, not one per task: the whole
@@ -4369,7 +4370,7 @@ Answer with STRICT JSON and nothing else: "
 							<button type="button" class="button button-small dze-cb-del-one" title="<?php esc_attr_e( 'Take this product out of the list and throw away what is waiting on it. The product itself is not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
 						</td>
 					</tr>
-					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="5"></td></tr>
+					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="6"></td></tr>
 				<?php endforeach; ?>
 			</table>
 		<?php

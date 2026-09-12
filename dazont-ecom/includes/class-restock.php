@@ -290,10 +290,10 @@ final class DZE_Restock {
 			$rows_html .= '<tr>'
 				. '<td class="check-column"><input type="checkbox" class="dze-var-cb" value="' . (int) $vid . '" checked /></td>'
 				. '<td>' . self::thumb_html( $img_id ) . '</td>'
-				// ITS ID, like every other list that names objects — and here
-				// it is the VARIATION's, which is the one you cannot read off
-				// the shop any other way.
-				. '<td>' . esc_html( $name ) . DZE_Hub::obj_id( (int) $vid ) . '</td>'
+				. '<td>' . esc_html( $name ) . '</td>'
+				// ITS ID, IN A COLUMN OF ITS OWN — and here it is the
+				// VARIATION's, which is the one nothing else on the shop shows.
+				. DZE_Hub::id_td( (int) $vid )
 				. '<td>' . esc_html( $sku !== '' ? $sku : '—' ) . '</td>'
 				. '<td>' . wp_kses_post( $price !== '' ? $price : '—' ) . '</td>'
 				. '<td>' . esc_html( (string) $sales ) . '</td>'
