@@ -1603,7 +1603,7 @@ final class DZE_Gmc {
 				// to the log that used to follow it read "FR ✗ see the log ↗"
 				// beside four other languages. So the cross itself says where
 				// the answer is written down.
-				$title = __( 'Google refused this feed and returned no reason — Settings → Health has what it answered.', 'dazont-ecom' );
+				$title = __( 'Google refused this feed and returned no reason — Dazont Ecom → Logs has what it answered.', 'dazont-ecom' );
 			}
 			// A feed is a LANGUAGE, and a language is drawn the same way in
 			// every screen of this plugin: WPML's own flag, its code, and the

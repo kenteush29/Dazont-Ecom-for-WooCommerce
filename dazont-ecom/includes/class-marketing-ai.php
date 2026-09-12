@@ -720,9 +720,6 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'automation' ) ) {
 			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );
 		}
-		if ( $mod_on( 'health' ) ) {
-			$tabs['health'] = __( 'Health', 'dazont-ecom' );
-		}
 		// One shop's writing, carried to another. Not gated on a module: it is
 		// the plugin's own, like Modules beside it, and the day a shop needs it
 		// is the day it is standing on a site with nothing set up.
@@ -934,12 +931,11 @@ final class DZE_Marketing_Ai {
 				echo '<h2>' . esc_html__( 'Price endings', 'dazont-ecom' ) . '</h2>';
 				self::render_price_rounding();
 			}
-			echo '<hr style="margin:28px 0;" />';
-			echo '<h2>' . esc_html__( 'API usage and spend', 'dazont-ecom' ) . '</h2>';
-			DZE_Ai_Usage::render_graph();
-			echo '<hr style="margin:28px 0;" />';
-			echo '<h2 id="dze-ai-trace">' . esc_html__( 'Last AI calls', 'dazont-ecom' ) . '</h2>';
-			DZE_Ai_Usage::render_trace();
+			// What was spent and what was asked are READINGS, not settings, and
+			// they are on Dazont Ecom → Logs. Drawn here as well they would be
+			// two accounts of one thing, and two accounts of one thing
+			// disagree — this page keeps what it can change.
+
 		} elseif ( 'discounts' === $tab ) {
 			// Everything the Discounts module decides about the shop that is
 			// not one promotion: the badge, and the ending every computed price
@@ -991,10 +987,6 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'automation' === $tab ) {
 			if ( class_exists( 'DZE_Automation' ) && $mod_on( 'automation' ) ) {
 				DZE_Automation::render_settings();
-			}
-		} elseif ( 'health' === $tab ) {
-			if ( class_exists( 'DZE_Health' ) && $mod_on( 'health' ) ) {
-				DZE_Health::render();
 			}
 		} elseif ( 'modules' === $tab ) {
 			if ( class_exists( 'DZE_Modules' ) ) {

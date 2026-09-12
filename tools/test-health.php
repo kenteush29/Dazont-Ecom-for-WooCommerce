@@ -79,6 +79,28 @@ function set_transient( $k, $v, $t = 0 ) { $GLOBALS['trans'][ $k ] = $v; return 
 class DZE_Site {
 	public static function render_line() { echo '<p class="dze-site">This shop</p>'; }
 }
+/**
+ * The two readings the Logs page shows beside the connections. They belong to
+ * DZE_Ai_Usage and are PRINTED here, never copied: what is asserted is that
+ * the page asks for them, which is the whole point of a host.
+ */
+class DZE_Ai_Usage {
+	public static function render_graph( $limit = 12 ) { echo '<div id="dze-usage-graph">spend</div>'; }
+	public static function render_trace() { echo '<div id="dze-usage-trace">calls</div>'; }
+}
+class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
+class DZE_Marketing_Ai {
+	const MENU_SLUG = 'dazont-ecom-ai';
+	public static function tab_links() { return [ 'General' => 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=general' ]; }
+}
+class DZE_Modules {
+	public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); }
+}
+$GLOBALS['menu'] = [];
+function add_submenu_page( $parent, $t, $m, $cap, $slug, $cb = null ) {
+	$GLOBALS['menu'][] = [ 'parent' => $parent, 'title' => $m, 'slug' => $slug ];
+	return $slug;
+}
 
 require __DIR__ . '/../' . $dir . '/includes/class-health.php';
 
@@ -162,6 +184,83 @@ ok( 'and still offers to, by hand',
 // HTTP inside the render is how an admin page starts timing out.
 ok( 'drawing the screen contacts nobody',
 	empty( $GLOBALS['dze_health_ran'] ), true );
+
+
+echo "\nONE MENU ENTRY FOR THE LOGS, AND WORDPRESS'S OWN TABS\n";
+// "Je veux un menu logs directement dispo sur le menu wordpress dans le
+// plugin." Everything this plugin asked of somebody else lived on a SETTINGS
+// page — which is how an image trace went unfound while every picture came
+// back wrong.
+$GLOBALS['menu'] = [];
+DZE_Health::register_menu();
+ok( 'there is one entry',               count( $GLOBALS['menu'] ), 1 );
+ok( 'under the plugin\'s own menu',      $GLOBALS['menu'][0]['parent'], DZE_Restock::MENU_SLUG );
+ok( 'and it is called Logs',            $GLOBALS['menu'][0]['title'], 'Logs' );
+
+// THE TABS, and the one that is a module's.
+ok( 'the calls and the spend are always there',
+	array_slice( array_keys( DZE_Health::tabs() ), 0, 2 ), [ 'calls', 'spend' ] );
+ok( 'the connections are there while that module is on',
+	isset( DZE_Health::tabs()['health'] ), true );
+$GLOBALS['off'] = [ 'health' ];
+ok( 'and gone with it',                 isset( DZE_Health::tabs()['health'] ), false );
+// A MODULE SWITCHED OFF MUST NOT TAKE ANOTHER'S FUNCTION WITH IT: the calls
+// and the spend are the plugin's own accounting.
+ok( 'but the page stays',               count( DZE_Health::tabs() ) >= 2, true );
+$GLOBALS['menu'] = [];
+DZE_Health::register_menu();
+ok( 'and so does its entry',            count( $GLOBALS['menu'] ), 1 );
+$GLOBALS['off'] = [];
+
+// A TAB ASKED FOR THAT IS NOT THERE ANSWERS WITH ONE THAT IS, rather than an
+// empty screen.
+ok( 'an unknown tab falls back to the first',
+	DZE_Health::tab_now( [ 'tab' => 'nonsense' ] ), 'calls' );
+ok( 'and nothing asked for does too',   DZE_Health::tab_now( [] ), 'calls' );
+ok( 'a real one is honoured',           DZE_Health::tab_now( [ 'tab' => 'spend' ] ), 'spend' );
+
+// EACH BODY IS PRINTED BY WHOEVER OWNS THAT WORK — the page is a host, and a
+// host that copied a body would be a second one to keep in step.
+$GLOBALS['opts'][ DZE_Health::OPT_STATE ] = [ 'at' => time() - 60, 'checks' => [] ];
+$_GET = [ 'tab' => 'calls' ];
+ob_start(); DZE_Health::render_page(); $dze_calls = (string) ob_get_clean();
+ok( 'the calls tab prints the trace',   false !== strpos( $dze_calls, 'id="dze-usage-trace"' ), true );
+ok( 'and keeps the anchor old links point at',
+	false !== strpos( $dze_calls, 'id="dze-ai-trace"' ), true );
+$_GET = [ 'tab' => 'spend' ];
+ob_start(); DZE_Health::render_page(); $dze_spend = (string) ob_get_clean();
+ok( 'the spend tab prints the graph',   false !== strpos( $dze_spend, 'id="dze-usage-graph"' ), true );
+ok( 'and not the calls beside it',      false !== strpos( $dze_spend, 'id="dze-usage-trace"' ), false );
+$_GET = [ 'tab' => 'health' ];
+ob_start(); DZE_Health::render_page(); $dze_conn = (string) ob_get_clean();
+ok( 'the connections tab prints them',  false !== strpos( $dze_conn, 'id="dze-health-run"' ), true );
+ok( 'every tab is a way to the others',
+	substr_count( $dze_conn, 'page=dazont-ecom-logs&tab=' ), count( DZE_Health::tabs() ) );
+ok( 'and the one you are on says so',   substr_count( $dze_conn, 'nav-tab-active' ), 1 );
+$_GET = [];
+
+// AN ADDRESS THAT USED TO LAND STILL LANDS. A bookmark, or a link in an email
+// this plugin sent months ago, must not end on a page that no longer holds
+// what it pointed at.
+ok( 'the old settings tab goes to the new screen',
+	false !== strpos( DZE_Health::moved( [ 'page' => 'dazont-ecom-ai', 'tab' => 'health' ] ), 'page=dazont-ecom-logs' ), true );
+ok( 'and lands on the connections',
+	false !== strpos( DZE_Health::moved( [ 'page' => 'dazont-ecom-ai', 'tab' => 'health' ] ), 'tab=health' ), true );
+ok( 'another settings tab is left alone',
+	DZE_Health::moved( [ 'page' => 'dazont-ecom-ai', 'tab' => 'general' ] ), '' );
+ok( 'and so is every other page',       DZE_Health::moved( [ 'page' => 'edit.php' ] ), '' );
+
+// THE LINK EVERY FAILURE CARRIES POINTS AT THE LOG, wherever the log now is.
+ok( 'the log link goes to the Logs page',
+	false !== strpos( DZE_Health::log_url(), 'page=dazont-ecom-logs' ), true );
+// AND A MESSAGE THAT NAMES A SCREEN IS A WAY TO IT: the phrases handed to the
+// browser are the ones the sentences are written with.
+$dze_screens = DZE_Health::screen_links();
+ok( 'the settings tabs are named as the messages write them',
+	isset( $dze_screens['Settings → General'] ), true );
+ok( 'and so is the Logs page',          isset( $dze_screens['Dazont Ecom → Logs'] ), true );
+ok( 'which points at itself',
+	false !== strpos( (string) $dze_screens['Dazont Ecom → Logs'], 'page=dazont-ecom-logs' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
