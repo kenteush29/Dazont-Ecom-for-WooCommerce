@@ -1694,6 +1694,26 @@ whose screen has not been thought through yet.
   **`php tools/test-health.php dazont-ecom` must pass** — this screen had no
   gate at all, which is why a week-old reading could stand there looking
   current for months.
+- **THE LOGS ARE A MENU ENTRY, NOT A CORNER OF A SETTINGS PAGE.** "Je veux un
+  menu logs directement dispo sur le menu wordpress dans le plugin."
+  Everything this plugin ever asked of somebody else was scattered across
+  Settings: the calls to the models at the bottom of General, the spend above
+  them, the connections on a tab. Reading a log meant knowing that a SETTINGS
+  page holds one — which is how an image trace went unfound while every
+  picture came back wrong. It is **Dazont Ecom → Logs**, one subject and one
+  entry, with WordPress's own tabs: **AI calls** (what was sent, what came
+  back), **Spend**, **Connections**. Four rules: each BODY belongs to whoever
+  owns that work (`DZE_Ai_Usage::render_trace()`/`render_graph()`,
+  `DZE_Health::render()`) and the page only hosts them, so nothing is drawn in
+  two places and the Settings page gave those readings up entirely; the entry
+  is registered from `DZE_Modules`, which is always booted, because two of the
+  three tabs are the plugin's own accounting and must not vanish with the
+  Health module (only its own tab does); a tab asked for that is not there
+  answers with one that is, never an empty screen; and the old address still
+  lands (`moved()`/`maybe_redirect()`, the decision split from the redirect so
+  it can be exercised). Every sentence that named "Settings → Health" was
+  rewritten to name the new screen — and `test-trace.php` is what found them,
+  which is what that gate is for.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

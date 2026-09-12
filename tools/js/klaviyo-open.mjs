@@ -1027,11 +1027,11 @@ ok( 'the row does not overflow the list',
 await page.evaluate( () => {
 	window.dzeLogLink = {
 		url: 'https://shop.test/wp-admin/admin.php?page=dze-health', label: 'see the log ↗', title: 'The log',
-		// The tabs the server hands over, by the name the messages use.
-		prefix: 'Settings',
-		settings: {
-			'General': 'https://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=general',
-			'Health':  'https://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=health'
+		// The screens the server hands over, keyed by the PHRASE the messages
+		// are written with — the settings tabs, and the plugin's own pages.
+		screens: {
+			'Settings → General': 'https://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=general',
+			'Dazont Ecom → Logs': 'https://shop.test/wp-admin/admin.php?page=dazont-ecom-logs'
 		},
 		setTitle: 'Open this settings tab in a new tab'
 	};
@@ -1050,7 +1050,10 @@ await page.evaluate( () => {
 		+ 'which is the ceiling. Wait for the hour to turn, or raise it under Settings → General.</span>'
 		// Another product\'s screen, in our own words: this plugin cannot open
 		// it, so it stays plain text.
-		+ '<span class="dze-them-note is-ko">Klaviyo → Settings → General has the key.</span>' );
+		+ '<span class="dze-them-note is-ko">Klaviyo → Settings → General has the key.</span>'
+		// The plugin's OWN screens are named too, not only its settings tabs:
+		// a message that names where the log is must be a way to the log.
+		+ '<span class="dze-logs-note is-ko">Dazont Ecom → Logs has what it answered.</span>' );
 } );
 await page.addScriptTag( { path: join( root, 'dazont-ecom/admin/js/log-link.js' ) } );
 await page.waitForTimeout( 250 );
@@ -1086,6 +1089,14 @@ ok( 'the sentence still reads as one sentence',
 	+ 'Wait for the hour to turn, or raise it under Settings → General.see the log ↗' );
 ok( 'and the log link is still beside it',
 	await page.evaluate( () => document.querySelectorAll( '.dze-cap-note .dze-logl' ).length ), 1 );
+// AND A SCREEN OF OUR OWN, NAMED AS THE MENU NAMES IT.
+ok( 'a page of the plugin is a link too',
+	await page.evaluate( () => document.querySelectorAll( '.dze-logs-note .dze-setl' ).length ), 1 );
+ok( 'on the words that name it',
+	( await page.textContent( '.dze-logs-note .dze-setl' ) ).trim(), 'Dazont Ecom → Logs' );
+ok( 'going to that page',
+	await page.getAttribute( '.dze-logs-note .dze-setl', 'href' ),
+	'https://shop.test/wp-admin/admin.php?page=dazont-ecom-logs' );
 // ANOTHER PRODUCT'S SCREEN IS NOT OURS TO OPEN.
 ok( 'a screen belonging to another product is left alone',
 	await page.evaluate( () => document.querySelectorAll( '.dze-them-note .dze-setl' ).length ), 0 );

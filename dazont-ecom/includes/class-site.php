@@ -93,7 +93,7 @@ final class DZE_Site {
 	}
 
 	/**
-	 * The line on Settings → Health, on the shop as on a copy.
+	 * The line on Dazont Ecom → Logs, on the shop as on a copy.
 	 *
 	 * A guard nobody can see is a guard nobody trusts — and the shop needs a
 	 * way to SAY that an install is a copy when its address alone cannot tell:
@@ -242,7 +242,7 @@ final class DZE_Site {
 	public static function why( string $service ): string {
 		return sprintf(
 			/* translators: 1: the service, 2: the address it was set up on, 3: this address */
-			__( 'This site is a copy, so nothing was sent to %1$s. The shop was set up on %2$s and this is %3$s — a copy shares its keys with the real shop, and a write from here would land on the real account. Dazont Ecom → Settings → Health says how to change that.', 'dazont-ecom' ),
+			__( 'This site is a copy, so nothing was sent to %1$s. The shop was set up on %2$s and this is %3$s — a copy shares its keys with the real shop, and a write from here would land on the real account. Dazont Ecom → Logs says how to change that.', 'dazont-ecom' ),
 			$service,
 			self::known() ?: __( 'another address', 'dazont-ecom' ),
 			self::host()

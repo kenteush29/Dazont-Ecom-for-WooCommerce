@@ -4,7 +4,7 @@
  *
  * A message that says what broke is half the answer; the other half is what
  * the service actually replied, when, and how often — and that is written down
- * under Settings → Health. Asking the owner to remember that page exists, and
+ * under Dazont Ecom → Logs. Asking the owner to remember that page exists, and
  * to find it while he is in the middle of something, is asking him to give up.
  * So the link is where the failure is.
  *
@@ -62,7 +62,7 @@
 	// another product's screen, which this plugin cannot open. The arrow in
 	// front is the test for that.
 	var TABS = (function () {
-		var map = cfg.settings || {}, out = [];
+		var map = cfg.screens || {}, out = [];
 		for (var name in map) {
 			if (Object.prototype.hasOwnProperty.call(map, name) && name && map[name]) {
 				out.push({ name: String(name), url: String(map[name]) });
@@ -74,7 +74,6 @@
 
 	function linkTabs(el) {
 		if (!TABS.length || !el) { return; }
-		var pre = String(cfg.prefix || 'Settings') + ' \u2192 ';
 		var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
 		var nodes = [], n;
 		while ((n = walker.nextNode())) {
@@ -84,7 +83,7 @@
 		for (var i = 0; i < nodes.length; i++) {
 			var node = nodes[i], text = node.nodeValue || '';
 			for (var t = 0; t < TABS.length; t++) {
-				var phrase = pre + TABS[t].name;
+				var phrase = TABS[t].name;
 				var at = text.indexOf(phrase);
 				if (at < 0) { continue; }
 				// "Klaviyo → Settings → …" is another product's page.

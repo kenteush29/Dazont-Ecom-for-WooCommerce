@@ -92,9 +92,8 @@ final class DZE_Health {
 			// is half an answer. The words the messages use and the addresses
 			// they point at come from ONE list, so nothing can drift; the
 			// anchor is the tab's own name, never a "click here" bolted on.
-			'prefix'   => __( 'Settings', 'dazont-ecom' ),
-			'settings' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::tab_links() : [],
-			'setTitle' => __( 'Open this settings tab in a new tab', 'dazont-ecom' ),
+			'screens'  => self::screen_links(),
+			'setTitle' => __( 'Open this screen in a new tab', 'dazont-ecom' ),
 		] );
 		wp_add_inline_style( 'common',
 			'.dze-logl{margin-left:8px;font-size:11px;text-decoration:underline;white-space:nowrap;}'
@@ -103,12 +102,159 @@ final class DZE_Health {
 			. '.dze-setl{text-decoration:underline;white-space:nowrap;}' );
 	}
 
+	// =========================================================================
+	// The Logs page
+	//
+	// "Je veux un menu logs directement dispo sur le menu wordpress dans le
+	// plugin." Everything this plugin ever asked of somebody else, and what
+	// came back, was scattered across the Settings page: the calls to the
+	// models at the bottom of General, the spend above them, the connections
+	// on a tab of their own. Reading a log meant knowing that a SETTINGS page
+	// holds one — which is how an image trace went unfound while every picture
+	// came back wrong.
+	//
+	// It is ONE subject, so it is one menu entry with WordPress's own tabs,
+	// and each BODY belongs to whoever owns that work: the two readings of
+	// what was spent and what was asked are DZE_Ai_Usage's, the connections
+	// and the failures are this class's. Nothing is drawn in two places.
+	// =========================================================================
+
+	public const MENU_SLUG = 'dazont-ecom-logs';
+
+	/**
+	 * The tabs, declared in ONE place.
+	 *
+	 * The Health tab is the only one gated on a module — the calls and the
+	 * spend are the plugin's own accounting and have nothing to do with it.
+	 * Switching one module off must never take another's function with it.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function tabs(): array {
+		$tabs = [
+			'calls' => __( 'AI calls', 'dazont-ecom' ),
+			'spend' => __( 'Spend', 'dazont-ecom' ),
+		];
+		if ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'health' ) ) {
+			$tabs['health'] = __( 'Connections', 'dazont-ecom' );
+		}
+		return $tabs;
+	}
+
+	/** Which tab is being asked for, and one that exists whatever is asked. */
+	public static function tab_now( array $get ): string {
+		$tabs = self::tabs();
+		$tab  = isset( $get['tab'] ) ? sanitize_key( (string) $get['tab'] ) : '';
+		return isset( $tabs[ $tab ] ) ? $tab : (string) array_key_first( $tabs );
+	}
+
+	public static function page_url( string $tab = '' ): string {
+		$args = [ 'page' => self::MENU_SLUG ];
+		if ( '' !== $tab ) {
+			$args['tab'] = $tab;
+		}
+		return add_query_arg( $args, admin_url( 'admin.php' ) );
+	}
+
+	/**
+	 * One entry under Dazont Ecom, whatever module is on.
+	 *
+	 * Hooked from DZE_Modules, which is always booted — registered from this
+	 * class's own constructor, the page would disappear the day the Health
+	 * module is switched off, taking the calls and the spend with it. They are
+	 * not that module's, and a module switched off must never hide a function
+	 * that has nothing to do with it.
+	 */
+	public static function register_menu(): void {
+		add_submenu_page(
+			DZE_Restock::MENU_SLUG,
+			__( 'Logs', 'dazont-ecom' ),
+			__( 'Logs', 'dazont-ecom' ),
+			'manage_woocommerce',
+			self::MENU_SLUG,
+			[ __CLASS__, 'render_page' ]
+		);
+	}
+
+	public static function render_page(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
+		$now  = self::tab_now( (array) $_GET );
+		$tabs = self::tabs();
+		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html__( 'Logs', 'dazont-ecom' ) . '</h1>';
+		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
+		foreach ( $tabs as $key => $label ) {
+			printf(
+				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
+				$key === $now ? ' nav-tab-active' : '',
+				esc_url( self::page_url( $key ) ),
+				esc_html( $label )
+			);
+		}
+		echo '</h2>';
+		if ( 'health' === $now ) {
+			self::render();
+		} elseif ( 'spend' === $now ) {
+			DZE_Ai_Usage::render_graph();
+		} else {
+			echo '<h2 id="dze-ai-trace" style="margin-top:0;">' . esc_html__( 'The last calls to a model', 'dazont-ecom' ) . '</h2>';
+			DZE_Ai_Usage::render_trace();
+		}
+		echo '</div>';
+	}
+
+	/**
+	 * An address that used to land on the Settings page still lands.
+	 *
+	 * A bookmark, a link in an email this plugin sent months ago, a sentence
+	 * in a message: none of them may end on a page that no longer holds what
+	 * they were pointing at. The decision is split from the redirect so it can
+	 * be exercised — the same rule `bulk_redirect()` is held to.
+	 */
+	public static function moved( array $get ): string {
+		$page = isset( $get['page'] ) ? (string) $get['page'] : '';
+		$tab  = isset( $get['tab'] ) ? (string) $get['tab'] : '';
+		$ai   = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai';
+		return ( $page === $ai && 'health' === $tab ) ? self::page_url( 'health' ) : '';
+	}
+
+	public static function maybe_redirect(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$to = self::moved( (array) $_GET );
+		if ( '' !== $to ) {
+			wp_safe_redirect( $to );
+			exit;
+		}
+	}
+
+	/**
+	 * Every screen this plugin names in its own sentences, and where it is.
+	 *
+	 * The KEY is the phrase as the messages write it, so the words a reader
+	 * sees and the address behind them are one thing and cannot drift. The
+	 * settings tabs come from the settings page's own list; the plugin's own
+	 * pages are named the way the menu names them.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function screen_links(): array {
+		$out = [];
+		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
+			foreach ( DZE_Marketing_Ai::tab_links() as $label => $url ) {
+				/* translators: %s: the name of a settings tab */
+				$out[ sprintf( __( 'Settings → %s', 'dazont-ecom' ), $label ) ] = $url;
+			}
+		}
+		/* translators: %s: the name of a screen in the Dazont Ecom menu */
+		$out[ sprintf( __( 'Dazont Ecom → %s', 'dazont-ecom' ), __( 'Logs', 'dazont-ecom' ) ) ] = self::page_url();
+		return $out;
+	}
+
 	/** Where the failures are written down. */
 	public static function log_url(): string {
-		return add_query_arg(
-			[ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => 'health' ],
-			admin_url( 'admin.php' )
-		) . '#dze-health-log';
+		return self::page_url( 'health' ) . '#dze-health-log';
 	}
 
 	// =========================================================================
@@ -277,7 +423,7 @@ final class DZE_Health {
 		$body = __( 'The weekly checkup found a connection that was working and is not any more:', 'dazont-ecom' ) . "\n\n"
 			. implode( "\n", $lines ) . "\n\n"
 			. __( 'Nothing has been changed automatically. What broke is named above as the service itself put it.', 'dazont-ecom' ) . "\n"
-			. admin_url( 'admin.php?page=' . ( class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom' ) . '&tab=health' ) . "\n";
+			. self::page_url( 'health' ) . "\n";
 		wp_mail(
 			$to,
 			sprintf(

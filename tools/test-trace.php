@@ -293,8 +293,8 @@ $dze_tabs = DZE_Marketing_Ai::tab_links();
 ok( 'every tab has an address',         count( $dze_tabs ) > 5, true );
 ok( 'and it points at that tab',
 	false !== strpos( (string) ( $dze_tabs['General'] ?? '' ), 'tab=general' ), true );
-ok( 'the health tab too',
-	false !== strpos( (string) ( $dze_tabs['Health'] ?? '' ), 'tab=health' ), true );
+ok( 'and a tab whose module is on is in the list',
+	isset( $dze_tabs['Product content'] ), true );
 ok( 'and each one at the settings page',
 	count( array_filter( $dze_tabs, static fn( $u ) => false !== strpos( (string) $u, DZE_Marketing_Ai::MENU_SLUG ) ) ),
 	count( $dze_tabs ) );
@@ -333,6 +333,13 @@ foreach ( $dze_all as $dze_file ) {
 		$dze_at  = 0;
 		while ( false !== ( $dze_at = strpos( $dze_str, 'Settings → ', $dze_at ) ) ) {
 			$dze_rest = substr( $dze_str, $dze_at + strlen( 'Settings → ' ) );
+			// A TEMPLATE IS NOT A SENTENCE. "Settings → %s" is the line that
+			// BUILDS these phrases; reading it as one would have the gate fail
+			// on the very function that keeps the names right.
+			if ( 0 === strpos( $dze_rest, '%' ) ) {
+				$dze_at += 11;
+				continue;
+			}
 			// "Klaviyo → Settings → API keys" names another product's screen.
 			$dze_own  = ! ( $dze_at >= 4 && '→ ' === substr( $dze_str, $dze_at - 4, 4 ) );
 			$dze_hit  = false;
