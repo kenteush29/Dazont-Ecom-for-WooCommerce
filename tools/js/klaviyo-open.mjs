@@ -1025,7 +1025,16 @@ ok( 'the row does not overflow the list',
 // sixteen pixels across: the link landed inside it and ran across the
 // sentence beside it, which is the overlap the shop photographed.
 await page.evaluate( () => {
-	window.dzeLogLink = { url: 'https://shop.test/wp-admin/admin.php?page=dze-health', label: 'see the log ↗', title: 'The log' };
+	window.dzeLogLink = {
+		url: 'https://shop.test/wp-admin/admin.php?page=dze-health', label: 'see the log ↗', title: 'The log',
+		// The tabs the server hands over, by the name the messages use.
+		prefix: 'Settings',
+		settings: {
+			'General': 'https://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=general',
+			'Health':  'https://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=health'
+		},
+		setTitle: 'Open this settings tab in a new tab'
+	};
 	const row = document.querySelector( '.dze-mail-state' );
 	row.insertAdjacentHTML( 'beforeend',
 		'<span class="dze-mail-lost">Not written in DE <span class="dze-why is-bad" title="504">i</span></span>'
@@ -1034,7 +1043,14 @@ await page.evaluate( () => {
 		// words of ours beside two characters of state, on a row that can
 		// carry five languages.
 		+ '<span class="dze-lang is-ko" title="FR — Google refused it"><span class="dze-lang-code">FR</span><b>✗</b></span>'
-		+ '<span class="dze-mail-note is-ko">Klaviyo said no.</span>' );
+		+ '<span class="dze-mail-note is-ko">Klaviyo said no.</span>'
+		// THE CEILING MESSAGE THE SHOP ACTUALLY READ, word for word: it names
+		// the screen that raises the ceiling and used to leave you to find it.
+		+ '<span class="dze-cap-note is-ko">The shop has made 60 images in the past hour, '
+		+ 'which is the ceiling. Wait for the hour to turn, or raise it under Settings → General.</span>'
+		// Another product\'s screen, in our own words: this plugin cannot open
+		// it, so it stays plain text.
+		+ '<span class="dze-them-note is-ko">Klaviyo → Settings → General has the key.</span>' );
 } );
 await page.addScriptTag( { path: join( root, 'dazont-ecom/admin/js/log-link.js' ) } );
 await page.waitForTimeout( 250 );
@@ -1048,6 +1064,40 @@ ok( 'and the message still carries the link',
 	await page.evaluate( () => document.querySelectorAll( '.dze-mail-note.is-ko .dze-logl' ).length ), 1 );
 ok( 'the warning reads as one sentence',
 	( await page.textContent( '.dze-mail-lost' ) ).trim(), 'Not written in DE i' );
+
+// ---- THE SCREEN A MESSAGE NAMES IS A WAY TO THAT SCREEN ----
+//
+// "Ici tu vas aussi ajouter directement le lien vers settings." The words that
+// NAME the tab are the link — never a "click here" bolted on at the end — and
+// only our own tabs are linked.
+ok( 'the tab named in the message is a link',
+	await page.evaluate( () => document.querySelectorAll( '.dze-cap-note .dze-setl' ).length ), 1 );
+ok( 'and the link is the words that name it',
+	( await page.textContent( '.dze-cap-note .dze-setl' ) ).trim(), 'Settings → General' );
+ok( 'it goes to that very tab',
+	await page.getAttribute( '.dze-cap-note .dze-setl', 'href' ),
+	'https://shop.test/wp-admin/admin.php?page=dazont-ecom-ai&tab=general' );
+ok( 'in a new tab, so nothing open is lost',
+	await page.getAttribute( '.dze-cap-note .dze-setl', 'target' ), '_blank' );
+ok( 'the sentence still reads as one sentence',
+	( await page.textContent( '.dze-cap-note' ) ).replace( /\s+/g, ' ' ).trim(),
+	'The shop has made 60 images in the past hour, which is the ceiling. '
+	// The log link is set off by a margin, not by a space in the text.
+	+ 'Wait for the hour to turn, or raise it under Settings → General.see the log ↗' );
+ok( 'and the log link is still beside it',
+	await page.evaluate( () => document.querySelectorAll( '.dze-cap-note .dze-logl' ).length ), 1 );
+// ANOTHER PRODUCT'S SCREEN IS NOT OURS TO OPEN.
+ok( 'a screen belonging to another product is left alone',
+	await page.evaluate( () => document.querySelectorAll( '.dze-them-note .dze-setl' ).length ), 0 );
+// AND IT IS DONE ONCE: the observer sees our own insertion and comes round
+// again, which is how a link ends up inside a link.
+await page.evaluate( () => {
+	const n = document.querySelector( '.dze-cap-note' );
+	n.appendChild( document.createTextNode( ' ' ) );
+} );
+await page.waitForTimeout( 200 );
+ok( 'and it is not linked twice',
+	await page.evaluate( () => document.querySelectorAll( '.dze-cap-note .dze-setl' ).length ), 1 );
 
 await page.close();
 }

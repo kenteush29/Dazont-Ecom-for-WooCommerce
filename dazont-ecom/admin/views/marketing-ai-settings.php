@@ -12,6 +12,18 @@ defined( 'ABSPATH' ) || exit;
  */
 $dze_section  = isset( $dze_section ) ? $dze_section : 'all';
 $show_general = in_array( $dze_section, [ 'all', 'general' ], true );
+// THE CEILINGS ON IMAGES BELONG WITH THE PROVIDER THAT MAKES THEM. "Sont dans
+// la mauvaise section, Claude. Ça concerne pourtant FAL.AI." They sat in the
+// Anthropic table, under the Claude model and the monthly budget, counting
+// pictures Anthropic never makes. Their own section, printed under the fal.ai
+// heading — and their own form, so the keys each form carries stay the keys
+// its own sanitizer writes.
+$show_fal     = in_array( $dze_section, [ 'all', 'fal' ], true );
+// What one image costs, which is the whole point of the two sentences below.
+// This used to read `$dze_img_price = $dze_img_price;` — a variable assigned
+// from itself and defined nowhere, so both ceilings said the shop could spend
+// at most $0.00 in an hour.
+$dze_img_price = class_exists( 'DZE_Content' ) ? (float) DZE_Content::fal_image_cost() : 0.0;
 $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 ?>
 <?php if ( $show_events ) : ?>
@@ -82,17 +94,20 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 					?>
 					<p class="description" style="color:#b32d2e;">
 						<strong><?php esc_html_e( 'No monthly cap is set, so nothing stops the total.', 'dazont-ecom' ); ?></strong>
-						<?php esc_html_e( 'The two ceilings below stop a run that goes round in circles; only this figure stops a month adding up.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'The two image ceilings, under fal.ai below, stop a run that goes round in circles; only this figure stops a month adding up.', 'dazont-ecom' ); ?>
 					</p>
 				<?php endif; ?>
 			</td>
 		</tr>
-		<?php
-		// A CEILING ON A FUNCTION THE SHOP HAS NOT GOT IS NOT A SETTING. These
-		// two count images, and images are the Product Content module's work.
-		if ( class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'content' ) ) :
-			$dze_img_price = $dze_img_price;
-			?>
+	</table>
+	<?php endif; // $show_general ?>
+
+
+	<?php
+	// A CEILING ON A FUNCTION THE SHOP HAS NOT GOT IS NOT A SETTING. These two
+	// count images, and images are the Product Content module's work.
+	if ( $show_fal && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'content' ) ) : ?>
+	<table class="form-table" role="presentation">
 		<tr>
 			<th scope="row"><label for="dze-mai-cappost"><?php esc_html_e( 'Images per product, per hour', 'dazont-ecom' ); ?></label></th>
 			<td>
@@ -125,10 +140,8 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 				</p>
 			</td>
 		</tr>
-		<?php endif; ?>
 	</table>
-	<?php endif; // $show_general ?>
-
+	<?php endif; // $show_fal ?>
 	<?php if ( $show_events ) : ?>
 	<h2 class="title"><?php esc_html_e( 'Languages detected', 'dazont-ecom' ); ?></h2>
 	<p class="description" style="max-width:820px;">

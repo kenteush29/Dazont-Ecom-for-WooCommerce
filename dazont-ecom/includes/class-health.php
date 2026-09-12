@@ -85,8 +85,22 @@ final class DZE_Health {
 			'url'   => self::log_url(),
 			'label' => __( 'see the log', 'dazont-ecom' ) . ' ↗',
 			'title' => __( 'What the service actually answered, when, and how often — in a new tab', 'dazont-ecom' ),
+			// A MESSAGE THAT NAMES A SCREEN IS A WAY TO IT. "Ici tu vas aussi
+			// ajouter directement le lien vers settings. J'ai atteint la
+			// limite, mais c'est normal." The ceiling message is right, and
+			// being told where to raise it while being left to find the page
+			// is half an answer. The words the messages use and the addresses
+			// they point at come from ONE list, so nothing can drift; the
+			// anchor is the tab's own name, never a "click here" bolted on.
+			'prefix'   => __( 'Settings', 'dazont-ecom' ),
+			'settings' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::tab_links() : [],
+			'setTitle' => __( 'Open this settings tab in a new tab', 'dazont-ecom' ),
 		] );
-		wp_add_inline_style( 'common', '.dze-logl{margin-left:8px;font-size:11px;text-decoration:underline;white-space:nowrap;}' );
+		wp_add_inline_style( 'common',
+			'.dze-logl{margin-left:8px;font-size:11px;text-decoration:underline;white-space:nowrap;}'
+			// The tab's own name, inside the sentence that names it: underlined
+			// so it reads as a way out, and never broken over two lines.
+			. '.dze-setl{text-decoration:underline;white-space:nowrap;}' );
 	}
 
 	/** Where the failures are written down. */
