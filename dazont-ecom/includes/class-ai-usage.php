@@ -61,6 +61,31 @@ final class DZE_Ai_Usage {
 		self::$unit = sanitize_key( $unit );
 	}
 
+	/**
+	 * Which OBJECT the calls made from here on are about.
+	 *
+	 * "Peut-être possible d'avoir un mini log par module ? Ici par exemple
+	 * j'aimerais débuger ce produit, les images sont bizarres." The trace holds
+	 * a dozen calls for the whole shop, so by the time a product looks wrong
+	 * the calls that made it have rolled off — and the answer to "why is THIS
+	 * one strange" is not on a global screen anyway.
+	 *
+	 * It is a SCOPE, exactly like the unit beside it, and for the same reason:
+	 * set once where a run begins, every call inside it is filed against that
+	 * object, and not one call site has to be told. A list of writers somebody
+	 * has to keep in step is a list with one forgotten entry, always.
+	 */
+	public static function about( int $oid = 0 ): void {
+		self::$about = max( 0, $oid );
+	}
+
+	/** The object the current run is about, or 0. */
+	public static function about_now(): int {
+		return self::$about;
+	}
+
+	private static int $about = 0;
+
 	// =========================================================================
 	// The trace: the last AI calls, wording included
 	// =========================================================================
@@ -106,6 +131,7 @@ final class DZE_Ai_Usage {
 		];
 		update_option( self::TRACE, array_slice( $rows, -self::TRACE_KEEP ), false );
 		self::remember( end( $rows ) );
+		self::file_on_object( end( $rows ) );
 	}
 
 	/**
@@ -143,6 +169,47 @@ final class DZE_Ai_Usage {
 		update_option( self::LAST, $all, false );
 	}
 
+	/** How many calls one object keeps: an attempt set, and no more. */
+	private const OBJECT_KEEP = 4;
+
+	/** Where an object's own calls live. Post meta: never autoloaded. */
+	public const OBJECT_META = '_dze_ai_log';
+
+	/**
+	 * The same call, filed on the OBJECT it was made for.
+	 *
+	 * On the object's own meta rather than in an option: it is that object's
+	 * record, it goes when the object goes, and a shop working through four
+	 * hundred products never builds one row that grows without end.
+	 */
+	private static function file_on_object( $row ): void {
+		$oid = self::$about;
+		if ( $oid <= 0 || ! is_array( $row ) || ! function_exists( 'update_post_meta' ) ) {
+			return;
+		}
+		// Shorter than the trace's rows: four of these sit on one product, and
+		// what answers "why is this one strange" is the instructions, whole.
+		$row['sent'] = mb_substr( (string) $row['sent'], 0, 8000 );
+		$row['got']  = mb_substr( (string) $row['got'], 0, 2000 );
+		$all = get_post_meta( $oid, self::OBJECT_META, true );
+		$all = is_array( $all ) ? $all : [];
+		$all[] = $row;
+		update_post_meta( $oid, self::OBJECT_META, array_slice( $all, -self::OBJECT_KEEP ) );
+	}
+
+	/**
+	 * What was asked for one object, newest first.
+	 *
+	 * @return array[]
+	 */
+	public static function object_log( int $oid ): array {
+		if ( $oid <= 0 || ! function_exists( 'get_post_meta' ) ) {
+			return [];
+		}
+		$rows = get_post_meta( $oid, self::OBJECT_META, true );
+		return array_reverse( is_array( $rows ) ? $rows : [] );
+	}
+
 	/**
 	 * The last call one prompt made, or [] when it has not run yet.
 	 *
@@ -170,8 +237,21 @@ final class DZE_Ai_Usage {
 		echo '<p class="description" style="max-width:880px;">'
 			. esc_html__( 'The last calls this plugin made to a model — what was sent, what came back, how long it took. When a result is wrong (a preview too long, an invented detail on a picture), the cause is in here: open the call, read what was actually asked.', 'dazont-ecom' )
 			. '</p>';
+		self::render_rows( $rows, __( 'No call recorded yet — the trace fills as the tools are used.', 'dazont-ecom' ) );
+	}
+
+	/**
+	 * The rows themselves — ONE renderer, for the whole shop's trace and for
+	 * one object's own log alike. Two would drift, and the second would be the
+	 * one nobody looks at until something is wrong.
+	 *
+	 * @param array[] $rows Newest first.
+	 */
+	public static function render_rows( array $rows, string $empty = '' ): void {
 		if ( ! $rows ) {
-			echo '<p>' . esc_html__( 'No call recorded yet — the trace fills as the tools are used.', 'dazont-ecom' ) . '</p>';
+			if ( '' !== $empty ) {
+				echo '<p>' . esc_html( $empty ) . '</p>';
+			}
 			return;
 		}
 		$units = self::units();

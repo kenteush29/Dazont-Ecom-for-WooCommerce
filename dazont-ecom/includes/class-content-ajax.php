@@ -353,6 +353,9 @@ trait DZE_Content_Ajax {
 			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
 		DZE_Ai_Usage::unit( 'product_text' );
+		// WHICH PRODUCT this run is about, so its calls are on its own record:
+		// "j'aimerais débuger ce produit, les images sont bizarres."
+		DZE_Ai_Usage::about( $pid );
 		try {
 			if ( $shots || $look_n ) {
 				// The model writes about a photograph it can see, not about a
@@ -384,9 +387,11 @@ trait DZE_Content_Ajax {
 			}
 		} catch ( \Throwable $e ) {
 			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::about();
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 		DZE_Ai_Usage::unit();
+		DZE_Ai_Usage::about();
 		DZE_Ai_Usage::finished( 'product_text' );
 
 		// What each block was written against, so the screens can show it next
@@ -893,6 +898,7 @@ trait DZE_Content_Ajax {
 				. self::note_lines( $pid, '', isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '' );
 
 			DZE_Ai_Usage::unit( 'product_img' );
+			DZE_Ai_Usage::about( $pid );
 			// The shape is asked of the PROVIDER, which is the only place it
 			// means anything: written in the instructions it was a wish, and
 			// the image came back in the shape of the photograph it was built
@@ -912,12 +918,14 @@ trait DZE_Content_Ajax {
 			}
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $recipe_row['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
 			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::about();
 			DZE_Ai_Usage::finished( 'product_img' );
 			// Charged to the product it was made for: what a product has cost
 			// in images is the question being asked while looking at it.
 			self::charge_product( $pid, self::last_image_cost() );
 		} catch ( \Throwable $e ) {
 			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::about();
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
 
@@ -1348,6 +1356,7 @@ trait DZE_Content_Ajax {
 				isset( $in['attempt'] ) ? absint( $in['attempt'] ) : 0
 			);
 			DZE_Ai_Usage::unit( 'product_img' );
+			DZE_Ai_Usage::about( $pid );
 			// WHAT TRAVELLED, NAMED — read from the very counts the paragraph
 			// above was built from, so the trace and the model were told the
 			// same thing. A count alone cannot say which picture put a
@@ -1369,6 +1378,7 @@ trait DZE_Content_Ajax {
 			}
 			$image_url = $this->fal_generate( $prompt, $sources, DZE_Content::clean_ratio( (string) ( $tpl['ratio'] ?? '' ) ) ?: 'auto', $pid, $dze_made );
 			DZE_Ai_Usage::unit();
+			DZE_Ai_Usage::about();
 			DZE_Ai_Usage::finished( 'product_img' );
 			self::charge_product( $pid, self::last_image_cost() );
 
@@ -1589,7 +1599,34 @@ trait DZE_Content_Ajax {
 			// back from the product it would be sent again, for ever, which is
 			// the very thing that was wrong with it.
 			'note'    => '',
+			// WHAT WAS ASKED FOR THIS PRODUCT. "J'aimerais débuger ce produit,
+			// les images sont bizarres." The shop's whole trace is a dozen
+			// calls, so by the time a product looks wrong the ones that made it
+			// have rolled off — and it is the wrong screen for the question
+			// anyway. Rendered HERE, by the one renderer the Logs page uses, so
+			// a row can never read two ways on two screens.
+			'log'     => self::object_log_html( $pid ),
 		] );
+	}
+
+	/**
+	 * One object's own calls, drawn.
+	 *
+	 * Split from the answer so it can be exercised, and rendered on the server
+	 * because the rows are `DZE_Ai_Usage`'s markup: built again in JavaScript
+	 * they would be a second renderer, and the two drift.
+	 */
+	public static function object_log_html( int $pid ): string {
+		if ( ! class_exists( 'DZE_Ai_Usage' ) ) {
+			return '';
+		}
+		$rows = DZE_Ai_Usage::object_log( $pid );
+		ob_start();
+		DZE_Ai_Usage::render_rows(
+			$rows,
+			__( 'Nothing has been asked for this product yet.', 'dazont-ecom' )
+		);
+		return (string) ob_get_clean();
 	}
 
 	/** Accepted or discarded: either way the product stops waiting. */

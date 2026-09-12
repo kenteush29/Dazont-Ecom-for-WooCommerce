@@ -1714,6 +1714,25 @@ whose screen has not been thought through yet.
   it can be exercised). Every sentence that named "Settings → Health" was
   rewritten to name the new screen — and `test-trace.php` is what found them,
   which is what that gate is for.
+- **A LOG THE WHOLE SHOP SHARES CANNOT ANSWER A QUESTION ABOUT ONE OBJECT.**
+  "Peut-être possible d'avoir un mini log par module ? Ici par exemple
+  j'aimerais débuger ce produit, les images sont bizarres." The trace holds
+  twelve calls for everything the plugin does, so by the time a product looks
+  wrong the calls that made it have rolled off — and a global screen is the
+  wrong place for "why is THIS one strange" anyway. A run now declares WHICH
+  OBJECT it is about (`DZE_Ai_Usage::about()`), exactly as it already declares
+  its unit and for the same reason: set once where the run begins, every call
+  inside is filed on that object, and not one call site has to be told — a
+  list of writers somebody keeps in step always has one forgotten entry.
+  Four rules: the record lives on the OBJECT'S OWN META, so it goes when the
+  object goes and no row grows without end; it is bounded to an attempt set
+  (four), because four hundred products keeping every call they ever made is a
+  database nobody asked for; the scope is LET GO where the unit is, including
+  on the path that threw, or the next run in the same request is filed on the
+  wrong product; and the rows are drawn by the ONE renderer the Logs page uses
+  (`render_rows()`), because a row that reads two ways on two screens is worse
+  than no row. The panel that opens on a product carries it, folded away —
+  there when something is wrong, out of the way the rest of the time.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX
