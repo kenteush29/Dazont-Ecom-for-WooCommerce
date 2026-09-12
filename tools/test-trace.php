@@ -29,6 +29,13 @@ function esc_attr( $s ) { return esc_html( $s ); }
 function esc_html__( $s, $d = '' ) { return esc_html( $s ); }
 function esc_url( $s ) { return (string) $s; }
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
+// What the events tab reads to describe the shop. A catalogue of nothing is a
+// real shop — a fresh install — and what is under test is that the page draws.
+function get_terms( ...$a ) { return []; }
+function wc_get_products( ...$a ) { return []; }
+function get_posts( ...$a ) { return []; }
+function wp_count_posts( ...$a ) { return (object) [ 'publish' => 0 ]; }
+function get_woocommerce_currency() { return 'USD'; }
 function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 function wp_parse_args( $args, $defaults = [] ) { return array_merge( (array) $defaults, (array) $args ); }
@@ -74,6 +81,8 @@ function current_user_can( ...$a ) { return true; }
 function wp_die( $m = '' ) { throw new RuntimeException( (string) $m ); }
 class DZE_Modules {
 	public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['dze_off'] ?? [] ), true ); }
+	public static function instance() { return new self(); }
+	public function render_tab() { echo '<div id="dze-modules-tab"></div>'; }
 }
 class DZE_Api_Keys {
 	public static function status_html( $which, $key = '', $locked = false ) { return '<span class="dze-keystate">key</span>'; }
@@ -81,12 +90,51 @@ class DZE_Api_Keys {
 class DZE_Content {
 	public static function instance() { return new self(); }
 	public static function fal_image_cost() { return 0.08; }
+	public static function get_settings() { return []; }
 	public function render_key_field() { echo '<p class="dze-falkey">fal.ai key</p>'; }
+	public function render_settings_section() { echo '<div id="dze-content-settings"></div>'; }
 }
+// Enough of each tab's OWNER for the page to be drawn end to end. A tab whose
+// class the harness does not provide dies on that and not on the plugin, and a
+// gate that let those pass would be a gate that never draws five tabs.
+class DZE_Prompt_Defaults {
+	public static function control( ...$a ) {}
+	// The shipped default stands unless the shop made one of its own.
+	public static function pick( $id, $shipped ) { return (string) $shipped; }
+}
+class DZE_Transfer {
+	public static function render_tab() { echo '<div id="dze-transfer"></div>'; }
+}
+class DZE_Discounts {
+	public static function events() { return []; }
+	public static function render_general_settings() { echo '<div id="dze-discounts"></div>'; }
+	public static function promotions() { return []; }
+	// What the events view asks of it while drawing the banner's own choices,
+	// in the SHAPE the real ones answer with: a stub of the wrong type is a
+	// fault the gate then blames on the plugin.
+	public static function hero_source() { return 0; }
+	public static function banner_style() { return [ 'bg' => '#111111', 'color' => '#ffffff', 'radius' => 0 ]; }
+	public static function default_location() { return 'below_header'; }
+	public static function locations() { return [ 'below_header' => 'Below the header' ]; }
+}
+
 
 $GLOBALS['dze_opts'] = [];
 function get_option( $k, $d = false ) { return $GLOBALS['dze_opts'][ $k ] ?? $d; }
 // An object's own calls live on its own meta, so they go when it goes.
+// The events tab reads the shop to describe it. One fake database, answering
+// nothing: what is under test is that the page DRAWS, not what a catalogue
+// says about itself.
+$GLOBALS['wpdb'] = new class {
+	public $posts = 'wp_posts'; public $postmeta = 'wp_postmeta'; public $terms = 'wp_terms';
+	public $term_taxonomy = 'wp_term_taxonomy'; public $term_relationships = 'wp_term_relationships';
+	public $prefix = 'wp_';
+	public function prepare( $q, ...$a ) { return $q; }
+	public function get_var( $q ) { return 0; }
+	public function get_col( $q ) { return []; }
+	public function get_results( $q, $m = null ) { return []; }
+	public function get_row( $q, $m = null ) { return null; }
+};
 $GLOBALS['pmeta'] = [];
 function get_post_meta( $id, $key = '', $single = false ) { return $GLOBALS['pmeta'][ (int) $id ][ $key ] ?? ''; }
 function update_post_meta( $id, $key, $val ) { $GLOBALS['pmeta'][ (int) $id ][ $key ] = $val; return true; }
@@ -179,6 +227,14 @@ class DZE_Prompts {
 		'cat_desc'    => 'Write the category description for this shop, in its own words and at length.',
 		'promo_email' => 'Write the email that announces this promotion — the words AND the layout.',
 	];
+	// What a settings tab asks of it while being drawn. The prompt cards are
+	// their own gate's subject (check-prompts.php); here they only have to not
+	// take the page down.
+	public static function the_data( ...$a ) {}
+	public static function the_button( ...$a ) {}
+	public static function print_assets() {}
+	public static function card_open( ...$a ) {}
+	public static function card_close( ...$a ) {}
 	public static function ids_in( $sent ) {
 		$out = [];
 		foreach ( self::$texts as $id => $text ) {
@@ -445,6 +501,55 @@ ok( 'an object log is drawn like the trace',
 // at all when it is not: a blank box reads as a screen that did not answer.
 ob_start(); DZE_Ai_Usage::render_rows( [], 'Nothing yet.' ); $dze_none = (string) ob_get_clean();
 ok( 'and an empty one says so',         false !== strpos( $dze_none, 'Nothing yet.' ), true );
+
+
+echo "\nEVERY SETTINGS TAB IS DRAWN, NOT DESCRIBED\n";
+// "The general tab could not be drawn. DZE_Marketing_Ai::render_tab_body():
+// Argument #2 ($mod_on) must be of type callable, null given."
+//
+// Pulling the tab list out of the render left the body holding a variable that
+// no longer existed, and the General tab died on every load of the settings
+// page on a live shop. Nothing here could see it: the gate beside this one
+// draws SECTIONS (`render_settings_section`), which is a different function,
+// and `check-methods.php` reads calls and not the variables passed to them.
+// So the page itself is drawn, once per tab, and a tab that throws is a
+// failure here rather than a red box on the owner's screen.
+$dze_page = DZE_Marketing_Ai::instance();
+$dze_dead = [];
+foreach ( array_keys( DZE_Marketing_Ai::tabs() ) as $dze_tab ) {
+	$_GET = [ 'tab' => $dze_tab ];
+	ob_start();
+	try {
+		$dze_page->render_settings_page();
+	} catch ( \Throwable $e ) {
+		$dze_dead[ $dze_tab ] = $e->getMessage();
+	}
+	$dze_out = (string) ob_get_clean();
+	// The screen catches a dying tab and says so in a red box — which is right,
+	// and is NOT a pass: a tab that could not be drawn is a broken screen.
+	if ( false !== strpos( $dze_out, 'could not be drawn' ) ) {
+		preg_match( '/is-ko[^>]*>.*?<\/strong>\s*(.*?)</s', $dze_out, $dze_m );
+		$dze_dead[ $dze_tab ] = substr( strip_tags( substr( $dze_out, (int) strpos( $dze_out, 'could not be drawn' ) ) ), 0, 220 );
+	}
+}
+$_GET = [];
+ok( 'no settings tab dies when it is drawn', $dze_dead, [] );
+// And the page really did draw something, or the check above passes on a
+// screen that printed nothing at all.
+$_GET = [ 'tab' => 'general' ];
+ob_start(); $dze_page->render_settings_page(); $dze_gen_page = (string) ob_get_clean();
+$_GET = [];
+ok( 'the General tab draws its own fields',
+	false !== strpos( $dze_gen_page, 'dze-mai-model' ), true );
+ok( 'and the tab bar that leads to the others',
+	substr_count( $dze_gen_page, 'nav-tab' ) > 1, true );
+// THE MODULE CHECK IS ONE ANSWER, reachable from both halves: it was a closure
+// local to the render, which is exactly how the two came apart.
+ok( 'a module the shop has is on',      DZE_Marketing_Ai::mod_on( 'content' ), true );
+$GLOBALS['dze_off'] = [ 'content' ];
+ok( 'and one switched off is off',      DZE_Marketing_Ai::mod_on( 'content' ), false );
+ok( 'so its tab is gone from the list', isset( DZE_Marketing_Ai::tabs()['content'] ), false );
+$GLOBALS['dze_off'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

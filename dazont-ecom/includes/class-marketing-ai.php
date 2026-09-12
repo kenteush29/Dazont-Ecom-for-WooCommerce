@@ -681,9 +681,22 @@ final class DZE_Marketing_Ai {
 	 *
 	 * @return array<string,string> tab key => its name.
 	 */
+	/**
+	 * Is this module on?
+	 *
+	 * A METHOD, not a closure local to one render. It was the second, and
+	 * pulling `tabs()` out of that render left the body it was passed to
+	 * holding a variable that no longer existed — "The general tab could not be
+	 * drawn. Argument #2 ($mod_on) must be of type callable, null given." A
+	 * helper two halves of one screen need is not a local.
+	 */
+	public static function mod_on( string $id ): bool {
+		return ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
+	}
+
 	public static function tabs(): array {
 		// A disabled module leaves NO trace: its settings tab disappears with it.
-		$mod_on = static fn( string $id ): bool => ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
+		$mod_on = [ __CLASS__, 'mod_on' ];
 		$tabs   = [ 'general' => __( 'General', 'dazont-ecom' ) ];
 		if ( $mod_on( 'sourcing' ) ) {
 			$tabs['sourcing'] = __( 'Sourcing Assistant', 'dazont-ecom' );
@@ -752,6 +765,7 @@ final class DZE_Marketing_Ai {
 
 	/** @param array<string,string> $tabs */
 	private function render_settings_tabs( array $tabs, string $tab ): void {
+		$mod_on = [ __CLASS__, 'mod_on' ];
 		// Tabs that belong together stand together. Sixteen tabs in one row
 		// is a row nobody reads: what a shop actually looks for is "the
 		// content of my shop" or "my promotions", and the exact screen is
