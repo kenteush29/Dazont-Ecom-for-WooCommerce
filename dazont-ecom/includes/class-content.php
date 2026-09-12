@@ -6484,7 +6484,12 @@ Answer with STRICT JSON and nothing else: "
 	 *                      which is right for a product image replacing another
 	 *                      and wrong for a banner that has to be wide.
 	 */
-	public function fal_generate( string $prompt, array $image_urls, string $ratio = 'auto', int $pid = 0 ): string {
+	/**
+	 * @param string $made_of What the photographs sent actually are, lane by
+	 *                        lane, in the order they travel. A count alone
+	 *                        cannot say which picture put a border on a rug.
+	 */
+	public function fal_generate( string $prompt, array $image_urls, string $ratio = 'auto', int $pid = 0, string $made_of = '' ): string {
 		// THE ONE PLACE EVERY IMAGE PASSES THROUGH, so the ceilings are asked
 		// here and nowhere else — six screens call this, and a guard copied
 		// into six places is five places to forget it.
@@ -6501,7 +6506,12 @@ Answer with STRICT JSON and nothing else: "
 		// base64 they would be megabytes of noise beside the words that
 		// actually decide the picture. This is where an invented detail is
 		// hunted down: read what was asked, look at what came back.
-		$dze_asked = $prompt . sprintf( "\n\n[%d reference photograph(s) attached · aspect ratio %s]", count( $image_urls ), $ratio );
+		$dze_asked = $prompt . sprintf(
+			"\n\n[%d photograph(s) sent%s · aspect ratio %s]",
+			count( $image_urls ),
+			'' !== $made_of ? ' — ' . $made_of : '',
+			$ratio
+		);
 		$dze_t0    = microtime( true );
 		$resp = wp_remote_post( self::FAL_ENDPOINT, [
 			'timeout' => 120,

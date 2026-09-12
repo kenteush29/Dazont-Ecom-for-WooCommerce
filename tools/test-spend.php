@@ -159,7 +159,11 @@ preg_match_all( '/fal_generate\((.*)\);/', $lane, $m );
 $calls = (array) ( $m[1] ?? [] );
 $blind = 0;
 foreach ( $calls as $args ) {
-	if ( ! preg_match( '/,\s*\$pid\s*$/', trim( $args ) ) ) { $blind++; }
+	// The product is NAMED in the call — wherever in the argument list it
+	// sits. Pinned to the last position, this check went red the day the
+	// trace gained what the photographs are, which is a true statement about
+	// argument order and nothing at all about the ceiling it exists for.
+	if ( ! preg_match( '/,\s*\$pid\s*(?:,|$)/', trim( $args ) ) ) { $blind++; }
 }
 ok( 'the product lane really does make images', count( $calls ) >= 2, true );
 ok( 'and every one of its calls names its product', $blind, 0 );

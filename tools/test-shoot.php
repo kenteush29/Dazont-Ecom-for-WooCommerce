@@ -109,8 +109,11 @@ final class DZE_Shoot_Host {
 		$GLOBALS['filed'] = [ 'url' => $url, 'pid' => $pid, 'target' => $target, 'recipe' => $recipe ];
 		return 4242;
 	}
-	public function fal_generate( $prompt, $sources, $ratio = 'auto' ) {
-		$GLOBALS['sent'] = [ 'prompt' => $prompt, 'sources' => $sources, 'ratio' => $ratio ];
+	public function fal_generate( $prompt, $sources, $ratio = 'auto', $pid = 0, $made_of = '' ) {
+		// WHAT THE TRACE WILL SAY travels with the call: the fifth argument is
+		// the only thing standing between "6 photographs sent" and an answer to
+		// "which of them put that border on every rug".
+		$GLOBALS['sent'] = [ 'prompt' => $prompt, 'sources' => $sources, 'ratio' => $ratio, 'made_of' => $made_of ];
 		return 'https://fal.media/files/new-shot.jpg';
 	}
 	private function guard(): void {}
@@ -371,6 +374,44 @@ ok( 'the job says it is a picture',
 	! empty( DZE_Queue::kinds()['product_shot']['image'] ), true );
 ok( 'and the text jobs do not',
 	empty( DZE_Queue::kinds()['cat_desc']['image'] ), true );
+
+
+echo "\nWHAT TRAVELLED IS NAMED, NOT COUNTED\n";
+// "Ou voir le log pour la génération d'images ? Toutes mes images ont le style
+// scalloped depuis 2 minutes." The trace said "6 reference photograph(s)
+// attached" — a figure that cannot answer which picture did it. Every lane is
+// already counted where it is filled; the same figures say what they are.
+shop();
+$GLOBALS['scene_idx'] = 0;
+$GLOBALS['tpls'][0]['scene_i'] = 0;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0 ] );
+ok( 'the run went through',             $err, '' );
+ok( 'the trace names the product photographs',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), 'of the product' ), true );
+// THE SCENE IS NAMED, which is the one that decides the background and the
+// light — and the one a shop changes without thinking about it.
+ok( 'and names the scene it was shot on',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), 'the scene "Slate"' ), true );
+// A run with no scene says nothing about one rather than naming an empty one.
+$GLOBALS['tpls'][0]['scene_i'] = -1;
+$GLOBALS['scene_idx'] = -1;
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0 ] );
+ok( 'a run on no scene says nothing about one',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), 'the scene' ), false );
+ok( 'and still says what the product sent',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), 'of the product' ), true );
+// A PASTED PHOTOGRAPH IS ITS OWN LANE. Counted in with the product's own, the
+// trace would say the product sent six pictures when four of them came from
+// somewhere else entirely — which is exactly the question being asked.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:image/jpeg;base64,PASTED' ] ] );
+ok( 'a pasted photograph is named as pasted',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), '1 pasted in' ), true );
+ok( 'and is not counted as the product\'s own',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), '5 of the product' ), false );
+// The sentence is built from a list, so a lane that sent nothing is not
+// printed as "0 of something", which reads as a lane that failed.
+ok( 'a lane that sent nothing is not printed',
+	false !== strpos( (string) ( $GLOBALS['sent']['made_of'] ?? '' ), '0 ' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
