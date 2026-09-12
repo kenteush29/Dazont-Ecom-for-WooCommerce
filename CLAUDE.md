@@ -1583,17 +1583,28 @@ whose screen has not been thought through yet.
   genre d'écran bulk." Two products called "Tactical Backpack 45L" are told
   apart by nothing else, and every other tool the shop uses to talk about one —
   a URL, a SQL query, a supplier file, a message to somebody else — speaks in
-  ids. It is `DZE_Hub::obj_id()`, with the rest of the shape, because it goes
-  on seven screens and a badge written seven times is seven badges that drift:
-  the product bulk screen's two tabs, the Content diagnostic's problem list,
-  the translation batch and waiting lists, the translation screen's own head,
-  Content to review (the row is drawn in the browser, so the server SENDS
-  `oid` — a figure never sent is a figure no screen can print) and the restock
-  list, where it is the VARIATION's id, the one nothing else on the shop shows.
-  Three rules: 0 prints NOTHING rather than "#0", which reads as an id somebody
+  ids. **AND IT IS A COLUMN OF ITS OWN** — "L'id produit doit être dans une
+  colonne dédiée !" Tucked in beside the name it sat at a different place on
+  every line, after a title of two words on one row and of nine on the next, so
+  the one thing the eye scans a list for could not be scanned. It is
+  `DZE_Hub::id_th()` and `DZE_Hub::id_td()`, with the rest of the shape, because
+  it goes on seven screens and a column written seven times is seven columns
+  that drift: the product bulk screen's two tabs, the Content diagnostic's
+  problem list, the translation batch and waiting lists, Content to review (the
+  row is drawn in the browser, so the server SENDS `oid` — a figure never sent
+  is a figure no screen can print) and the restock list, where it is the
+  VARIATION's id, the one nothing else on the shop shows. The translation
+  screen's own head is the one place it stays beside the name, because a
+  heading is not a table.
+  Four rules: 0 prints NOTHING rather than "#0", which reads as an id somebody
   could look up; it is selectable text and never a link, since the name beside
-  it is already the way in; and any list added later gets it from the same
-  function, never a second one.
+  it is already the way in; any list added later gets both halves from the same
+  two functions, never a second one; and **the heading and the cell are
+  asserted TOGETHER, in position** — a table whose head is declared in one file
+  and whose cells are built in another (Content to review, whose heading is PHP
+  and whose rows are JavaScript; the restock variations, the other way round)
+  goes a column out of step without raising anything, and every row then prints
+  its values under the wrong titles.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

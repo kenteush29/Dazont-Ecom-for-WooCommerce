@@ -64,26 +64,46 @@ final class DZE_Hub {
 	}
 
 	/**
-	 * THE OBJECT'S ID, ON EVERY LIST THAT NAMES OBJECTS.
+	 * THE OBJECT'S ID, IN A COLUMN OF ITS OWN, ON EVERY LIST THAT NAMES
+	 * OBJECTS.
 	 *
 	 * "Il manque l'ID produit sur ces pages ! Très important. Directive à
-	 * suivre partout là où il y a ce genre d'écran bulk." A list of forty
-	 * products with two called "Tactical Backpack 45L" is a list where the only
-	 * way to tell them apart is to open both — and every other tool the shop
-	 * uses to talk about a product (a URL, a SQL query, a supplier file, a
-	 * message to somebody else) speaks in ids.
+	 * suivre partout là où il y a ce genre d'écran bulk." Then: "L'id produit
+	 * doit être dans une colonne dédiée !" — and he is right. Tucked beside the
+	 * name it sits at a different place on every line, so finding one id means
+	 * reading every title; in a column of its own the eye runs straight down
+	 * it. Two products called "Tactical Backpack 45L" are told apart by nothing
+	 * else, and every other tool the shop uses to talk about one — a URL, a SQL
+	 * query, a supplier file, a message to somebody else — speaks in ids.
 	 *
-	 * It lives HERE, with the rest of the shape, because it goes on six screens
-	 * and a badge written six times is six badges that drift. It is selectable
-	 * text, never a link: the name beside it is already the way in, and a
-	 * second link to the same place is a second thing to aim at.
+	 * The HEADING and the CELL come from here together, because a header
+	 * declared in one place and cells in another is how a table ends up one
+	 * column out of step, printing every value under the wrong title.
+	 */
+	public static function id_th(): string {
+		return '<th class="dze-objid-th">' . esc_html__( 'ID', 'dazont-ecom' ) . '</th>';
+	}
+
+	/**
+	 * The cell under that heading.
 	 *
-	 * @param int $id 0 prints nothing — a row with no object behind it must not
-	 *                claim "#0", which reads as an id somebody could look up.
+	 * @param int $id 0 prints an empty cell — never "#0", which reads as an id
+	 *                somebody could look up.
+	 */
+	public static function id_td( int $id ): string {
+		return '<td class="dze-objid-td">' . self::obj_id( $id ) . '</td>';
+	}
+
+	/**
+	 * The id itself, for the one place that is not a table: the head of a
+	 * screen showing a single object.
+	 *
+	 * Selectable text, never a link — the name beside it is already the way in,
+	 * and a second link to the same place is a second thing to aim at.
 	 */
 	public static function obj_id( int $id ): string {
 		return $id > 0
-			? '<code class="dze-objid" title="' . esc_attr__( 'Its id — select it to copy', 'dazont-ecom' ) . '">#' . (int) $id . '</code>'
+			? '<code class="dze-objid" title="' . esc_attr__( 'Its id — select it to copy', 'dazont-ecom' ) . '">' . (int) $id . '</code>'
 			: '';
 	}
 

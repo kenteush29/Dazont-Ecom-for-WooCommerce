@@ -964,11 +964,12 @@ final class DZE_Queue {
 				<thead><tr>
 					<td class="check-column" style="width:2.2em;padding:8px 0 8px 3px;"><input type="checkbox" id="dze-q-all" /></td>
 					<th style="width:30%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
+					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 					<th style="width:22%;"><?php esc_html_e( 'Job', 'dazont-ecom' ); ?></th>
 					<th style="width:16%;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 					<th><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
 				</tr></thead>
-				<tbody><tr><td colspan="5"><span class="dze-cx-spin"></span></td></tr></tbody>
+				<tbody><tr><td colspan="6"><span class="dze-cx-spin"></span></td></tr></tbody>
 			</table>
 		</div>
 		<div class="dze-cx-modal" id="dze-q-modal"><div class="dze-cx-dialog" style="width:min(860px,94vw);">

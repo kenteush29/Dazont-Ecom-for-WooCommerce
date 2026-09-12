@@ -43,7 +43,7 @@
 		var rows = res.rows || [], c = res.counts || {};
 		var $b = $('#dze-q-table tbody').empty();
 		if (!rows.length) {
-			$b.append('<tr><td colspan="5">' + esc(i18n.empty) + '</td></tr>');
+			$b.append('<tr><td colspan="6">' + esc(i18n.empty) + '</td></tr>');
 		}
 		rows.forEach(function (r) {
 			// Every row can be acted on: a run that went wrong is retried or
@@ -83,10 +83,12 @@
 			$b.append(
 				'<tr><th scope="row" class="check-column"><input type="checkbox" class="dze-q-pick" value="' + r.id +
 					'" data-status="' + esc(r.status) + '"' + (sel[r.id] ? ' checked' : '') + ' /></th>' +
-				// ITS ID, the same badge as every other list in the plugin —
-				// two products with one name are told apart by nothing else.
-				'<td><strong>' + esc(r.label) + '</strong>' +
-					(r.oid ? ' <code class="dze-objid">#' + esc(r.oid) + '</code>' : '') +
+				// ITS ID, IN ITS OWN COLUMN — the same column every other list
+				// in the plugin has, under the heading the server printed. Two
+				// products with one name are told apart by nothing else.
+				'<td><strong>' + esc(r.label) + '</strong></td>' +
+				'<td class="dze-objid-td">' +
+					(r.oid ? '<code class="dze-objid">' + esc(r.oid) + '</code>' : '') +
 				'</td><td>' + esc(r.kind) + '</td>' +
 				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + state + '</td>' +
 				'<td>' + act.join(' ') + '</td></tr>'

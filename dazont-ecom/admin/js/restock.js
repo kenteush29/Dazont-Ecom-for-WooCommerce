@@ -52,7 +52,11 @@
 			'<table class="widefat striped dze-subtable">' +
 			'<thead><tr>' +
 			'<th class="check-column"><input type="checkbox" class="dze-var-all" checked /></th>' +
-			'<th>Image</th><th>Variation</th><th>SKU</th><th>Price</th><th>Sales</th>' +
+			// ITS ID, IN ITS OWN COLUMN, in the position PHP puts the cell —
+			// this table's heading is built here and its rows are built by the
+			// server, which is exactly how a table ends up a column out of
+			// step. The order is asserted on both sides.
+			'<th>Image</th><th>Variation</th><th class="dze-objid-th">ID</th><th>SKU</th><th>Price</th><th>Sales</th>' +
 			'</tr></thead>' +
 			'<tbody>' + rowsHtml + '</tbody></table>' +
 			'<p><button type="button" class="button button-primary dze-restock-vars" data-parent="' + parent + '">' +

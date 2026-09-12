@@ -204,6 +204,7 @@ $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
 $GLOBALS['rows'] = [];
 
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-queue.php';
 require_once __DIR__ . '/../' . $dir . '/includes/class-cleanup.php';
 
@@ -445,6 +446,29 @@ $dze_sent = [];
 try { DZE_Queue::instance()->ajax_status(); } catch ( DZE_Json_Sent $e ) { $dze_sent = (array) $e->payload; }
 ok( 'the review list carries each row\'s object id',
 	(int) ( $dze_sent['rows'][0]['oid'] ?? -1 ), 3 );
+// A TABLE WHOSE HEADING IS PRINTED HERE AND WHOSE CELLS ARE BUILT IN THE
+// BROWSER IS THE TABLE MOST LIKELY TO END UP A COLUMN OUT OF STEP: the two
+// halves are edited months apart and nothing errors when they disagree — every
+// row simply prints its values under the wrong titles. So both halves are read
+// here, for the two lists drawn that way, and the position is what is asserted.
+$dze_head = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-queue.php' );
+$dze_js   = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/queue.js' );
+ok( 'the review table heads the id right after the item',
+	(bool) preg_match( '/\x27Item\x27, \x27dazont-ecom\x27 \); \?><\/th>\s*<\?php echo wp_kses_post\( DZE_Hub::id_th\(\)/', $dze_head ), true );
+ok( 'and its cell sits between that name and the job',
+	(bool) preg_match( '/esc\(r\.label\)[\s\S]{0,400}?dze-objid-td[\s\S]{0,200}?esc\(r\.kind\)/', $dze_js ), true );
+// The empty line spans the whole table: one short of the columns it sits under
+// leaves a ragged row that reads as a broken screen.
+ok( 'and an empty line spans every column of it',
+	(bool) preg_match( '/colspan="6"/', $dze_head ) && (bool) preg_match( '/colspan="6"/', $dze_js ), true );
+// The restock list is the same split the other way round: WordPress prints the
+// cells and the browser builds the heading.
+$dze_rs    = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-restock.php' );
+$dze_rs_js = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/restock.js' );
+ok( 'the restock variations head the id right after the variation',
+	(bool) preg_match( '/<th>Variation<\/th><th class="dze-objid-th">ID<\/th><th>SKU<\/th>/', $dze_rs_js ), true );
+ok( 'and its cell sits in that same place',
+	(bool) preg_match( '/esc_html\( \$name \)[\s\S]{0,300}?DZE_Hub::id_td\([\s\S]{0,120}?\$sku/', $dze_rs ), true );
 
 $GLOBALS['uid'] = 7;
 $GLOBALS['wpdb']->sent = [];

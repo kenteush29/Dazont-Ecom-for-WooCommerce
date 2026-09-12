@@ -3288,6 +3288,10 @@ final class DZE_Diagnostic {
 		echo $goods
 			? $head( 'name', __( 'Product', 'dazont-ecom' ) )
 			: '<th>' . esc_html__( 'Name', 'dazont-ecom' ) . '</th>';
+		// ITS ID, IN A COLUMN OF ITS OWN — heading and cell from one place, or
+		// a table ends up a column out of step and prints every value under
+		// the wrong title.
+		echo DZE_Hub::id_th();
 		if ( $goods ) {
 			echo $head( 'price', __( 'Price', 'dazont-ecom' ), 'width:110px;text-align:right;' );
 			echo $head( 'sales', __( 'Sold', 'dazont-ecom' ), 'width:90px;text-align:right;' );
@@ -3346,9 +3350,6 @@ final class DZE_Diagnostic {
 			// Z" — is a title with markup in it: the tags are the shop's, not
 			// something to print at it.
 			printf( '<a href="%s"><strong>%s</strong></a>', esc_url( $link ), esc_html( wp_strip_all_tags( $name ) ) );
-			// ITS ID, on every list that names objects — the same badge, from
-			// the same place, as the bulk screens and the translation lists.
-			echo wp_kses_post( DZE_Hub::obj_id( $oid ) );
 			// WHAT THIS ONE IS SHORT OF, on the line itself. "Russian Helmet
 			// Replica 6B47 Ratnik — 4 of 5 photographs : encore une lacune. Il
 			// faudrait afficher de cette façon très instinctive le diagnostic
@@ -3369,6 +3370,7 @@ final class DZE_Diagnostic {
 					. esc_html( implode( ' · ', array_slice( $also[ $oid ], 0, 4 ) ) ) . '</span>';
 			}
 			echo '</td>';
+			echo DZE_Hub::id_td( $oid );
 			if ( $goods ) {
 				$one   = $facts[ $oid ] ?? [];
 				$price = (string) ( $one['price'] ?? '' );

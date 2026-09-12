@@ -113,6 +113,7 @@ function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
 function get_the_title( $id ) { return 'P' . (int) $id; }
 function wp_get_attachment_image_url( ...$a ) { return ''; }
 function get_post_thumbnail_id( ...$a ) { return 0; }
+function get_the_post_thumbnail_url( ...$a ) { return ''; }
 $GLOBALS['wpdb'] = new class {
 	public $postmeta = 'wp_postmeta'; public $posts = 'wp_posts'; public $prefix = 'wp_';
 	public function prepare( $q, ...$a ) { return $q; }
@@ -206,6 +207,22 @@ function arbitrated( string $said ): bool {
 // The product bulk screen as the plugin prints it, for the browser gate that
 // presses its buttons (tools/js/content-bulk.mjs). Never a copy of the markup
 // written into the test: what is pressed there is what ships.
+// THE DONE TAB, DRAWN IN ITS OWN PROCESS. `bulk_mode()` keeps its answer in a
+// static — one request draws one screen, which is right for the shop and means
+// a gate cannot draw both. So the second tab is asked for the way the browser
+// gates already ask for a screen: by running this file again.
+if ( in_array( '--dump-log', (array) $argv, true ) ) {
+	$_GET['dze_log'] = 1;
+	// A register with something in it: a Done tab holding nothing draws no row
+	// and would prove nothing about the column under its heading.
+	$GLOBALS['opts']['dze_content_log'] = [
+		[ 'id' => 7, 'texts' => 2, 'images' => 1, 'status' => 'applied', 'by' => 0, 'time' => time() ],
+	];
+	ob_start();
+	DZE_Content::instance()->bulk_body( 'http://dze.test/screen' );
+	echo (string) ob_get_clean();
+	exit( 0 );
+}
 if ( in_array( '--dump-bulk', (array) $argv, true ) ) {
 	$GLOBALS['opts']['dze_content_settings'] = [
 		// A fake shop that can really make images: without a key the Images
@@ -366,14 +383,25 @@ ok( 'the screen draws',                 strlen( $dze_screen ) > 200, true );
 // sur ces pages ! Très important." Two products called "Tactical Backpack 45L"
 // are told apart by nothing else, and every other tool the shop uses to talk
 // about a product speaks in ids.
-ok( 'every row carries its product id',
-	substr_count( $dze_screen, 'class="dze-objid"' ), 2 );
-ok( 'and it is the row\'s own id, not a number beside it',
-	(bool) preg_match( '/data-id="7".*?dze-objid[^>]*>#7</s', $dze_screen ), true );
+// A TABLE IS TESTED ON THE ORDER OF ITS COLUMNS, not only their presence: the
+// heading is declared in one place and the cells in another, and out of step by
+// one every row prints its value under the wrong title.
+ok( 'there is an ID column, once',
+	substr_count( $dze_screen, 'class="dze-objid-th"' ), 1 );
+ok( 'and it comes right after the product it names',
+	(bool) preg_match( '/Product<\/th>\s*<th class="dze-objid-th">ID</s', $dze_screen ), true );
+ok( 'every row has a cell under it',
+	substr_count( $dze_screen, 'class="dze-objid-td"' ), 2 );
+ok( 'holding that row\'s own id',
+	(bool) preg_match( '/data-id="7".*?dze-objid-td[^>]*><code[^>]*>7</s', $dze_screen ), true );
 // IT IS NOT A LINK: the name beside it is already the way in, and a second
 // link to the same place is a second thing to aim at.
-ok( 'the badge is not a second link to the same place',
+ok( 'the id is not a second link to the same place',
 	(bool) preg_match( '/<a[^>]*>\s*<code class="dze-objid"/', $dze_screen ), false );
+// AND THE ROW STILL SPANS THE WHOLE TABLE: a colspan left behind is a panel
+// that stops one column short and a table that looks broken.
+ok( 'the panel row spans every column',
+	false !== strpos( $dze_screen, 'colspan="6"' ), true );
 $dze_asked = [];
 foreach ( (array) $GLOBALS['enq'] as $dze_one ) {
 	$dze_asked[ (string) $dze_one[0] ] = (array) $dze_one[1];
@@ -690,11 +718,13 @@ ok( 'the Done tab counts the whole register',
 	(int) DZE_Content::screen_counts()['log'], count( DZE_Content::register() ) );
 // AND THE DONE TAB CARRIES IT TOO — drawn, never only counted: a figure on a
 // tab proves nothing about the rows under it.
-$_GET['dze_log'] = 1;
-ob_start(); DZE_Content::instance()->bulk_body( 'http://shop.test/screen' ); $dze_log = (string) ob_get_clean();
-unset( $_GET['dze_log'] );
-ok( 'the Done tab names each object by its id too',
-	substr_count( $dze_log, 'class="dze-objid"' ) > 0, true );
+$dze_log = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __FILE__ ) . ' ' . escapeshellarg( $dir ) . ' --dump-log 2>/dev/null' );
+ok( 'the Done tab has the same column',
+	substr_count( $dze_log, 'class="dze-objid-th"' ), 1 );
+ok( 'right after what it names',
+	(bool) preg_match( '/What<\/th>\s*<th class="dze-objid-th">ID</s', $dze_log ), true );
+ok( 'with a cell under it carrying the row\'s own id',
+	(bool) preg_match( '/<tr data-id="(\d+)">[\s\S]*?<\/td>\s*<td class="dze-objid-td"><code[^>]*>\1</', $dze_log ), true );
 
 echo "\nA LIST OF WHAT WAS WRITTEN HOLDS WHAT WAS WRITTEN\n";
 // "Nothing written sur les produits avec le module, c'est une raison pour ne

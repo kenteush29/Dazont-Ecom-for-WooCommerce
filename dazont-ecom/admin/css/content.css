@@ -1497,19 +1497,17 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 }
 .dze-tr-new { width: 100%; font-family: inherit; font-size: 13px; }
 
-/* ---- The object's id, on every list that names objects ----
-   Quiet enough not to compete with the name, selectable so it can be copied,
-   and never a link: the name beside it is already the way in. */
+/* ---- The object's id, in a column of its own ----
+   Narrow, aligned, and quiet enough not to compete with the name beside it.
+   Selectable in one click so it can be copied; never a link. */
+.dze-objid-th, .dze-objid-td { width: 92px; white-space: nowrap; }
 .dze-objid {
-	display: inline-block;
-	margin-left: 6px;
-	padding: 0 4px;
 	font-size: 11px;
-	line-height: 17px;
-	color: #646970;
+	line-height: 18px;
+	color: #50575e;
 	background: #f0f0f1;
 	border-radius: 3px;
+	padding: 0 5px;
 	user-select: all;
 	white-space: nowrap;
-	vertical-align: 1px;
 }
