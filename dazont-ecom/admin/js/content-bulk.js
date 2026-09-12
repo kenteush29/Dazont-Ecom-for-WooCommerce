@@ -418,6 +418,11 @@
 
 	var stopped = false, okCount = 0, koCount = 0, doneCount = 0, total = 0;
 	var state = {};   // id => { total, done, notes: [], failed: bool }
+	// id => what the owner typed about that product for the run about to
+	// happen. Its own store, because a run RESETS the row and deletes its
+	// bucket — the note would be thrown away by the very press it was written
+	// for. It is never stored on the server and dies with the page.
+	var told  = {};
 	var results = {}; // id => { texts, shots, built, open }
 
 	var SYMBOL = { wait: '○', run: '', ready: '✓', done: '✓', fail: '✗' };
@@ -586,6 +591,11 @@
 		var b = results[id];
 		var outside = (b && b.paste) ? b.paste.list() : [];
 		if (outside.length) { data.pastes = outside; }
+		// The note travels with the order. It is kept on the product's own
+		// bucket, exactly like the photographs pasted beside it — a run RESETS
+		// the panel before it builds its orders, so a note read off the DOM at
+		// that moment is a note that has just been wiped.
+		if (String(told[id] || '').trim()) { data.note = String(told[id]); }
 		// Which attempt of this prompt this is: the second one is asked for a
 		// different framing instead of coming back as the first one again.
 		if (attempt) { data.attempt = attempt; }
@@ -760,6 +770,20 @@
 			'<details class="dze-cx-acc dze-cb-else">' +
 				'<summary>' + esc(i18n.stepElse) + '</summary>' +
 				'<div class="dze-cb-elsebox"></div>' +
+			'</details>' +
+			// WHAT THE OWNER KNOWS AND NO PHOTOGRAPH SHOWS, on the product it
+			// is about. "Ma note n'est pas envoyée !!! : Ce tapis a une grosse
+			// bande blanche de chaque côté (mal visible sur les images
+			// d'origine)." The toolbox has had this box for months; this
+			// screen, where a whole catalogue is generated, had none at all —
+			// so the one thing that mends a wrong photograph could not be said
+			// here. Same shell as the box above it, and it travels with THIS
+			// product's requests and no other's.
+			'<details class="dze-cx-acc dze-cb-notewrap">' +
+				'<summary>' + esc(i18n.noteTitle) + '</summary>' +
+				'<p class="description">' + esc(i18n.noteHelp) + '</p>' +
+				'<textarea class="dze-cb-note large-text" rows="2" placeholder="' + esc(i18n.notePh) + '">' +
+					esc(told[id] || '') + '</textarea>' +
 			'</details>' +
 			'<div class="dze-cb-shots-slot"></div>' +
 			'<p class="dze-cb-panelbar">' +
@@ -1160,6 +1184,13 @@
 	$(document).on('click', '.dze-cb-drop', function () {
 		if (!window.confirm(i18n.confirmDrop)) { return; }
 		discardProducts([ $(this).closest('.dze-cb-preview').data('id') ], $(this));
+	});
+
+	// What the owner knows and no photograph shows, kept with its product.
+	$(document).on('input change', '.dze-cb-note', function () {
+		var $row = $(this).closest('.dze-cb-preview');
+		var id   = parseInt($row.data('id'), 10);
+		if (id) { told[id] = $(this).val() || ''; }
 	});
 
 	$(document).on('click', '.dze-cb-toggle', function () {

@@ -1733,6 +1733,36 @@ whose screen has not been thought through yet.
   (`render_rows()`), because a row that reads two ways on two screens is worse
   than no row. The panel that opens on a product carries it, folded away —
   there when something is wrong, out of the way the rest of the time.
+- **A HELPER TWO HALVES OF ONE SCREEN NEED IS NOT A LOCAL.** "The general tab
+  could not be drawn. `render_tab_body(): Argument #2 ($mod_on) must be of type
+  callable, null given`." Pulling `tabs()` out of the render left the body it
+  is passed to holding a variable that no longer existed — a closure declared
+  inside the function that had just been split in two. It is a METHOD now
+  (`DZE_Marketing_Ai::mod_on()`), so both halves ask the same thing and neither
+  can lose it. **And the gate that should have caught it DRAWS THE PAGE.** The
+  one beside it drew SECTIONS (`render_settings_section()`), which is a
+  different function; `check-methods.php` reads the calls and not the variables
+  passed to them; and nothing at all opened the settings page. `test-trace.php`
+  now renders `render_settings_page()` once per tab and fails when any of them
+  dies — **and a tab caught by the screen's own "could not be drawn" box is a
+  FAILURE here**, never a pass, because that box is right on the shop and wrong
+  in a gate. A stub must answer in the SHAPE the real function answers with: a
+  `banner_style()` returning a string where the view reads `['bg']` is a fault
+  the gate then blames on the plugin.
+- **THE NOTE MUST REACH THE MODEL, AND ITS STORE OUTLIVES THE RESET.** "Ma note
+  n'est pas envoyée !!! : Ce tapis a une grosse bande blanche de chaque côté
+  (mal visible sur les images d'origine)." The toolbox has had that box for
+  months; the BULK screen — where a whole catalogue is generated — had none at
+  all, so the one thing that mends a wrong photograph could not be said where
+  the work happens, and every run went out without it. The box is on the
+  product's own panel now, folded, in the same shell as the photographs pasted
+  beside it. Two rules: it is kept in **its own store**, never in the product's
+  bucket — a run calls `resetRow()`, which deletes that bucket whole, so a note
+  in it is thrown away by the very press it was written for, and one read off
+  the DOM at that moment reads a panel that has just been emptied; and it is
+  never stored on the server, because a note is for the run in front of you.
+  Only a browser can see what a press puts on the wire, so it is asserted
+  there, in both of the ways it was wrong.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

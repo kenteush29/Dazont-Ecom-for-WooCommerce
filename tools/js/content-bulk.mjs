@@ -67,8 +67,11 @@ for ( const [ label, jq ] of jqs ) {
 	await page.route( 'http://dze.test/ajax', async route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
 		sent.push( { action: q.get( 'action' ), do: q.get( 'do' ), ids: q.getAll( 'ids[]' ),
-			paste: q.get( 'paste' ) } );
+			paste: q.get( 'paste' ), post: q.get( 'post' ), note: q.get( 'note' ) } );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
+		if ( 'dze_content_image' === q.get( 'action' ) ) {
+			return json( { url: 'http://img.test/made.jpg', target: 'gallery', spend: { label: '$0.08' } } );
+		}
 		if ( 'dze_content_text_all' === q.get( 'action' ) ) {
 			return json( { results: { desc: 'applied' }, texts: { desc: '<p>Written.</p>' }, companions: {} } );
 		}
@@ -341,7 +344,8 @@ for ( const [ label, jq ] of jqs ) {
 	// WHAT WENT ON THE WIRE: a refusal, on that product, and not a removal.
 	ok( 'and it asks the server to refuse, by id',
 		sent.slice( before ),
-		[ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ], paste: null } ] );
+		[ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ],
+			paste: null, post: null, note: null } ] );
 	// THE PRODUCT STAYS. This is the whole of it: it used to leave the screen.
 	ok( 'the product is still on the list',
 		await page.locator( '.dze-cb-row[data-id="7"]' ).count(), 1 );
@@ -364,6 +368,42 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and its panel is shut and empty',
 		( await page.locator( '.dze-cb-preview[data-id="7"] td' ).innerHTML() ).trim(), '' );
 	ok( 'nothing was raised anywhere in the gesture', errors, [] );
+
+	// ---- THE NOTE IS SENT ----
+	//
+	// "Ma note n'est pas envoyée !!! : Ce tapis a une grosse bande blanche de
+	// chaque côté (mal visible sur les images d'origine)." The toolbox has had
+	// this box for months; this screen, where a whole catalogue is generated,
+	// had none at all — so the one thing that mends a wrong photograph could
+	// not be said where the work happens. Only a browser can see what a press
+	// puts on the wire.
+	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+	await page.waitForSelector( '.dze-cb-preview[data-id="7"] .dze-cb-note', { timeout: 5000 } )
+		.catch( () => {} );
+	ok( 'the panel has a box for what no photograph shows',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-note' ).count(), 1 );
+	// Folded away until it is wanted, like the box above it: opened the way
+	// somebody opens it.
+	ok( 'folded away until it is wanted',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-note' ).isVisible(), false );
+	await page.click( '.dze-cb-preview[data-id="7"] .dze-cb-notewrap summary' );
+	await page.fill( '.dze-cb-preview[data-id="7"] .dze-cb-note', 'A wide white band down each side.' );
+	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+	// Run the IMAGES on that product alone.
+	await page.uncheck( '.dze-cb-row[data-id="8"] .dze-cb-pick' ).catch( () => {} );
+	await page.check( '.dze-cb-row[data-id="7"] .dze-cb-pick' );
+	await page.uncheck( '.dze-cb-field[value="desc"]' ).catch( () => {} );
+	await page.check( '#dze-cb-image' ).catch( () => {} );
+	const wasN = sent.length;
+	await page.click( '#dze-cb-start' );
+	await page.waitForFunction(
+		n => true, null, { timeout: 1 } ).catch( () => {} );
+	await page.waitForTimeout( 1200 );
+	const shots = sent.slice( wasN ).filter( r => 'dze_content_image' === r.action );
+	ok( 'the run asked for a photograph',   shots.length > 0, true );
+	ok( 'and the note went with it',
+		( shots[ 0 ] || {} ).note, 'A wide white band down each side.' );
+	ok( 'on the product it was typed on',   ( shots[ 0 ] || {} ).post, '7' );
 
 	// ---- A MINI LOG, ON THE PRODUCT YOU ARE LOOKING AT ----
 	//

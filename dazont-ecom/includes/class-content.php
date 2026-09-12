@@ -4066,6 +4066,13 @@ Answer with STRICT JSON and nothing else: "
 					// panel: the whole shop's trace holds a dozen and by the
 					// time one product looks wrong, its own have rolled off.
 					'askedFor' => __( 'What was asked for this product', 'dazont-ecom' ),
+					// The same three words the toolbox uses, from the same
+					// place: the box that says what no photograph shows. This
+					// screen had none, so a whole catalogue could be generated
+					// with no way to say "there is a white band down each side".
+					'noteTitle' => __( 'Notes about this product', 'dazont-ecom' ),
+					'noteHelp'  => __( 'Sent with the images this run makes, and with nothing after it. What the photographs cannot show, or what came back wrong last time. It is not saved.', 'dazont-ecom' ),
+					'notePh'    => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),
 					// The two words the row's one button wears, and the two
 					// headings of the panel it opens. In PHP, like every other
 					// status word: hard-coded in the JavaScript they were
