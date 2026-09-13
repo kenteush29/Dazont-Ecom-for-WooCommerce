@@ -411,6 +411,8 @@ final class DZE_Mesh {
 		}
 		// phpcs:enable
 		delete_transient( self::LOCK );
+		// The shop has been read again: what each page is short of is read again too.
+		self::forget_thin();
 		return self::rebuild_census( $pages );
 	}
 
@@ -571,6 +573,9 @@ final class DZE_Mesh {
 	/** A text shorter than this has nowhere to put a link that reads well. */
 	private const MIN_WORDS = 120;
 
+	/** Where the reading of what every page is short of is kept. */
+	private const THIN_KEY = 'dze_mesh_thin';
+
 	/** How long a judgment is kept. A site does not change its subject. */
 	private const PICK_TTL = 30 * DAY_IN_SECONDS;
 
@@ -605,6 +610,86 @@ final class DZE_Mesh {
 			'in',
 			$limit
 		);
+	}
+
+	/**
+	 * HOW MANY LINKS THIS PAGE SHOULD CARRY, asked of whoever owns the rule.
+	 *
+	 * One link per fifty words is the shop's rule and it is written down in
+	 * two places already — `DZE_Post_Links::target_links()` for an article or
+	 * a page, `DZE_Category_Content::size_for()` for a category, which also
+	 * carries the shop's own override and its "no links" switch. A third
+	 * answer computed here would drift from both of them the day either is
+	 * edited, so this asks rather than decides, and only falls back to the
+	 * plain rule where the module that owns it is not loaded.
+	 */
+	public static function quota( array $row ): int {
+		$words = (int) ( $row['words'] ?? 0 );
+		if ( 'product_cat' === (string) ( $row['kind'] ?? '' ) ) {
+			if ( class_exists( 'DZE_Category_Content' ) ) {
+				return (int) ( DZE_Category_Content::size_for( (int) ( $row['id'] ?? 0 ) )['links'] ?? 0 );
+			}
+			return $words < self::MIN_WORDS ? 0 : max( 3, (int) floor( $words / 50 ) );
+		}
+		if ( class_exists( 'DZE_Post_Links' ) ) {
+			return (int) DZE_Post_Links::target_links( $words );
+		}
+		return $words < self::MIN_WORDS ? 0 : max( 2, (int) floor( $words / 50 ) );
+	}
+
+	/**
+	 * THE OTHER HALF OF THE WORK: pages under their own outgoing quota.
+	 *
+	 * "Puis passe au travail traditionnel que je faisais moi-même à la main ?
+	 * C-à-d de générer des liens sur les pages qui n'ont pas atteint leur
+	 * quota de liens sortants ?" It did not, and now it does — the same task,
+	 * a second phase, no third engine. Where `needs()` asks which page the
+	 * site fails to point AT, this asks which page fails to point at anything
+	 * like enough, and the page's own pool decides where those links go: on a
+	 * shop that pool ranks product categories above articles, which is the
+	 * direction that earns the money.
+	 *
+	 * Widest gap first, so the page furthest from the rule is mended first.
+	 * A page a builder owns is never a source — there is nowhere in it to put
+	 * a sentence — and neither is a text too short to carry one.
+	 *
+	 * @return array<int,array{kind:string,id:int,title:string,url:string,in:int,out:int,words:int,short:int}>
+	 */
+	public static function thin( int $limit = 200 ): array {
+		// CACHE WHAT IS EXPENSIVE. A category's quota is asked of
+		// `size_for()`, which counts the products behind it and walks its
+		// branch — three queries a category, and this list is read on every
+		// draw of the automation screen once the orphans are done. The whole
+		// reading is kept for half an hour and thrown away by a scan and by
+		// every pass that writes a link.
+		$all = get_transient( self::THIN_KEY );
+		if ( ! is_array( $all ) ) {
+			$all = self::thin_read();
+			set_transient( self::THIN_KEY, $all, 30 * MINUTE_IN_SECONDS );
+		}
+		return array_slice( $all, 0, max( 1, $limit ) );
+	}
+
+	/** What `thin()` keeps: the whole reading, worst gap first. */
+	private static function thin_read(): array {
+		$out = [];
+		foreach ( self::ranked( static fn( array $r ): bool => empty( $r['built'] ) && (int) $r['words'] >= self::MIN_WORDS, 'out', 4000 ) as $row ) {
+			$want = self::quota( $row );
+			$gap  = $want - (int) $row['out'];
+			if ( $gap < 1 ) {
+				continue;
+			}
+			$row['want']  = $want;
+			$row['short'] = $gap;
+			$out[]        = $row;
+		}
+		usort( $out, static fn( array $a, array $b ): int => [ $b['short'], $b['words'] ] <=> [ $a['short'], $a['words'] ] );
+		return $out;
+	}
+
+	/** Read again next time: a link was written, or the shop was re-read. */
+	public static function forget_thin(): void {
+		delete_transient( self::THIN_KEY );
 	}
 
 	// =========================================================================

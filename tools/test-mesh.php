@@ -132,10 +132,17 @@ $GLOBALS['posts'] = [
 	// A builder page that points at nothing: the one shape that used to sit at
 	// the top of both lists at once, unlinkable and blamed for it.
 	23 => [ 'type' => 'page', 'title' => 'Workshop history',                  'content' => '' ],
+	// A builder page that ALSO keeps a copy of its words in the post — which is
+	// what half the themes that use a builder do. It is long enough to owe
+	// links by the shop's own rule, and writing them into post_content would
+	// put them somewhere no reader ever sees: the only thing keeping it off
+	// the list is that it is a builder page.
+	30 => [ 'type' => 'page', 'title' => 'Workshop tour', 'content' => '<p>' . str_repeat( 'a word about the workshop ', 60 ) . '</p>' ],
 ];
 $GLOBALS['meta'] = [
 	22 => [ '_elementor_data' => '[{"elType":"widget","settings":{"link":{"url":"https:\/\/kula.test\/category\/boonie-hats\/"}}}]' ],
 	23 => [ '_elementor_data' => '[{"elType":"widget","settings":{"title":"Since 1998"}}]' ],
+	30 => [ '_elementor_data' => '[{"elType":"widget","settings":{"title":"Come and see"}}]' ],
 ];
 
 function get_terms( $args = [] ) {
@@ -166,6 +173,15 @@ function get_term( $id, $tax = '' ) {
 function get_term_link( $t ) {
 	$id = is_object( $t ) ? (int) $t->term_id : (int) $t;
 	return 'https://kula.test/category/' . ( $GLOBALS['terms'][ $id ]['slug'] ?? '' ) . '/';
+}
+// How many products sit behind a category — what the shop's own rule measures a
+// category's link quota against. It answers `found_posts`, which is the shape
+// the reader reads.
+class WP_Query {
+	public int $found_posts = 0;
+	public function __construct( $args = [] ) {
+		$this->found_posts = (int) ( $GLOBALS['products_behind'] ?? 12 );
+	}
 }
 function get_term_children( $id, $tax = '' ) {
 	$out = [];
@@ -323,7 +339,7 @@ ok( 'nor is an address to write to',    DZE_Mesh::resolve( 'mailto:a@b.c', $byur
 
 echo "\nThe shop, read once\n";
 $counts = DZE_Mesh::scan();
-ok( 'every page of the mesh is in it',  $counts['pages'], 8 );
+ok( 'every page of the mesh is in it',  $counts['pages'], 9 );
 ok( 'and every internal link',          $counts['links'], 4 );
 $per = DZE_Mesh::census()['per'];
 ok( 'a category knows who points at it', $per['product_cat:11']['in'], 1 );
@@ -385,6 +401,63 @@ ok( 'an empty page is not offered as a source', in_array( 'product_cat:13', $sho
 // Tactical backpacks, the answer starts there.
 $back = wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:13' ), 'key' );
 ok( 'the page it already points at comes first', $back[0] ?? '', 'post:21' );
+
+echo "\nThe other half: pages under their own outgoing quota\n";
+//
+// "Puis passe au travail traditionnel que je faisais moi-même à la main ?
+// C-à-d de générer des liens sur les pages qui n'ont pas atteint leur quota de
+// liens sortants ?" It does now — the same task, a second phase.
+DZE_Mesh::forget_thin();
+$thin = DZE_Mesh::thin( 50 );
+$byid = [];
+foreach ( $thin as $r ) { $byid[ $r['kind'] . ':' . $r['id'] ] = $r; }
+
+// THE QUOTA IS ASKED OF WHOEVER OWNS THE RULE, never computed a second time
+// here: one link per fifty words is written down in the two modules that place
+// them, and a third answer would drift from both.
+ok( 'a category is measured by its own rule',
+	DZE_Mesh::quota( [ 'kind' => 'product_cat', 'id' => 10, 'words' => 800 ] ),
+	(int) DZE_Category_Content::size_for( 10 )['links'] );
+ok( 'and an article by its own',
+	DZE_Mesh::quota( [ 'kind' => 'post', 'id' => 20, 'words' => 500 ] ),
+	(int) DZE_Post_Links::target_links( 500 ) );
+// A TEXT TOO SHORT HAS NOWHERE TO PUT A LINK THAT READS WELL.
+ok( 'a short text is asked for nothing',
+	DZE_Mesh::quota( [ 'kind' => 'post', 'id' => 21, 'words' => 40 ] ), 0 );
+
+// THE PAGES THAT FALL SHORT ARE THE WORK, and the widest gap comes first.
+ok( 'the list is not empty',            count( $thin ) > 0, true );
+$dze_gaps = wp_list_pluck( $thin, 'short' );
+ok( 'every row is really short',        min( $dze_gaps ) >= 1, true );
+ok( 'and the widest gap is first',      $dze_gaps[0], max( $dze_gaps ) );
+ok( 'each row says how far off it is',
+	(int) $thin[0]['short'], (int) $thin[0]['want'] - (int) $thin[0]['out'] );
+
+// A PAGE A BUILDER OWNS IS NEVER A SOURCE — there is nowhere in it to put a
+// sentence — and neither is a text too short to carry one.
+ok( 'a builder page is not offered',    isset( $byid['page:23'] ), false );
+// AND NOT EVEN ONE LONG ENOUGH TO OWE LINKS: page 24 keeps its words in the
+// post as well as in the builder, so the rule says it is short — and writing
+// into post_content would put those links where no reader ever sees them.
+ok( 'nor a long one a builder owns',    isset( $byid['page:30'] ), false );
+ok( 'nor an empty one',                 isset( $byid['page:22'] ), false );
+// AND A PAGE THAT ALREADY CARRIES ITS SHARE IS NOT WORK.
+$dze_full = true;
+foreach ( DZE_Mesh::pages() as $key => $pg ) {
+	$row  = [ 'kind' => $pg['kind'], 'id' => $pg['id'], 'words' => $pg['words'] ];
+	$want = DZE_Mesh::quota( $row );
+	$out  = (int) ( DZE_Mesh::census()['per'][ $key ]['out'] ?? 0 );
+	if ( $out >= $want && isset( $byid[ $key ] ) ) { $dze_full = false; }
+}
+ok( 'a page at its quota is left alone', $dze_full, true );
+
+// THE READING IS KEPT: a category's quota counts the products behind it and
+// walks its branch, and this list is read on every draw of the screen once the
+// orphans are done.
+$GLOBALS['tr']['dze_mesh_thin'] = [ [ 'kind' => 'post', 'id' => 99, 'title' => 'kept', 'url' => '', 'in' => 0, 'out' => 0, 'words' => 300, 'want' => 6, 'short' => 6 ] ];
+ok( 'and it is read from the cache',    (string) ( DZE_Mesh::thin( 5 )[0]['title'] ?? '' ), 'kept' );
+DZE_Mesh::forget_thin();
+ok( 'until something says to read again', (string) ( DZE_Mesh::thin( 5 )[0]['title'] ?? '' ) !== 'kept', true );
 
 echo "\nThe day's work, and which way round it reads\n";
 //
@@ -595,7 +668,7 @@ $GLOBALS['langof'] = [
 	// TAXONOMY id under tax_product_cat, a post by its post id under post_*.
 	'tax_product_cat' => [ 510 => 'en', 511 => 'en', 512 => 'en', 513 => 'en', 514 => 'de' ],
 	'post_post'       => [ 20 => 'en', 21 => 'en', 24 => 'de' ],
-	'post_page'       => [ 22 => 'en', 23 => 'en' ],
+	'post_page'       => [ 22 => 'en', 23 => 'en', 30 => 'en' ],
 ];
 $GLOBALS['asked_wpml'] = [];
 $titles = wp_list_pluck( DZE_Mesh::pages( true ), 'title' );
@@ -603,7 +676,7 @@ ok( 'the shop keeps its own pages',     in_array( 'Tactical bags', $titles, true
 ok( 'a translated category is not a second page',
 	in_array( 'Taktische Taschen', $titles, true ), false );
 ok( 'nor is a translated article',      in_array( 'Wie wählt man einen Rucksack', $titles, true ), false );
-ok( 'so the count is the shop, once',   count( $titles ), 8 );
+ok( 'so the count is the shop, once',   count( $titles ), 9 );
 // AND IT ASKED BY THE RIGHT NAME. Asked as 'product_cat' the answer is empty
 // for every category alike, which reads on screen as a shop with no
 // translations at all — the failure that has no symptom until somebody counts.
@@ -614,7 +687,7 @@ ok( 'never by the taxonomy name alone',
 // A shop with ONE language has no rows at all, and every page is its own.
 $GLOBALS['langof'] = [];
 ok( 'one language, and nothing is filtered out',
-	count( DZE_Mesh::pages( true ) ), 10 );
+	count( DZE_Mesh::pages( true ) ), 11 );
 
 // AND WHERE WPML'S FILTERS ANSWER NOTHING AT ALL. This is the request the
 // reading actually runs in — an AJAX action, a cron tick — and it is where
@@ -626,11 +699,11 @@ $GLOBALS['icl'] = [
 	// A term is indexed by its TERM TAXONOMY id, a post by its post id.
 	'tax_product_cat' => [ 'en' => [ 510, 511, 512, 513 ] ],
 	'post_post'       => [ 'en' => [ 20, 21 ] ],
-	'post_page'       => [ 'en' => [ 22, 23 ] ],
+	'post_page'       => [ 'en' => [ 22, 23, 30 ] ],
 ];
 DZE_Wpml::$asked = [];
 $titles = wp_list_pluck( DZE_Mesh::pages( true ), 'title' );
-ok( 'the table answers where the filters do not', count( $titles ), 8 );
+ok( 'the table answers where the filters do not', count( $titles ), 9 );
 ok( 'the German category is left out',  in_array( 'Taktische Taschen', $titles, true ), false );
 ok( 'and the German article too',       in_array( 'Wie wählt man einen Rucksack', $titles, true ), false );
 ok( 'a category is asked for by WPML\'s own name',
@@ -667,7 +740,7 @@ ok( 'and no German category is offered either',
 // A TABLE THAT CANNOT BE ASKED NARROWS NOTHING. Null means "do not narrow",
 // never "narrow to nothing": a shop with one language keeps every page it has.
 $GLOBALS['icl'] = [];
-ok( 'no table, and nothing is thrown away', count( DZE_Mesh::pages( true ) ), 10 );
+ok( 'no table, and nothing is thrown away', count( DZE_Mesh::pages( true ) ), 11 );
 
 $GLOBALS['deflang'] = '';
 $GLOBALS['icl'] = [];
