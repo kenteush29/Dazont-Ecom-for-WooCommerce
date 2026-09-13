@@ -94,6 +94,7 @@ final class DZE_Automation {
 		add_action( 'admin_init', [ __CLASS__, 'migrate' ] );
 		add_action( 'wp_ajax_dze_auto_run', [ __CLASS__, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_auto_undo', [ __CLASS__, 'ajax_undo' ] );
+		add_action( 'wp_ajax_dze_auto_state', [ __CLASS__, 'ajax_state' ] );
 	}
 
 	public static function page_url(): string {
@@ -224,6 +225,25 @@ final class DZE_Automation {
 	 *
 	 * @return array<string,array>
 	 */
+	/**
+	 * How many waiting jobs a task shows in place before pointing at the list.
+	 *
+	 * "Ici ce serait bien de pouvoir review la task directement sans partir."
+	 * A block under a fold is a to-do list, not a list table: past a handful
+	 * it stops being readable and the full list — with its ticks, its bulk bar
+	 * and its columns — is the screen for that. So the block shows the oldest
+	 * few and says how many are left, rather than growing without end.
+	 */
+	private const TODO_MAX = 10;
+
+	/**
+	 * Did anything on this page draw the three review controls?
+	 *
+	 * The popup they open, its script and its words are printed only then: a
+	 * screen with nothing waiting has no business loading an editor.
+	 */
+	private static bool $needs_review = false;
+
 	public static function tasks(): array {
 		return [
 			// ONE TASK FOR ONE PIECE OF WORK. Internal linking was two tasks —
@@ -305,6 +325,30 @@ final class DZE_Automation {
 			'n'   => DZE_Queue::review_count_for( (array) ( $task['jobs'] ?? [] ) ),
 			'url' => DZE_Queue::url(),
 		];
+	}
+
+	/**
+	 * WHICH pieces of work this task left waiting — not how many.
+	 *
+	 * Read from the queue by the task's own job kinds, so the linking task
+	 * shows the categories AND the articles it wrote: counting one of them
+	 * counts half its own work, and showing one of them shows half of it.
+	 *
+	 * The shop-wide task answers with nothing: it writes no queue row at all,
+	 * and what it leaves is a pile of suggestions on the screen that owns
+	 * them — the link to that screen is the whole of what can be offered here.
+	 *
+	 * @return array<int,array{id:int,kind:string,oid:int,label:string,job:string,from:string,when:string}>
+	 */
+	public static function todo( string $id, int $limit = self::TODO_MAX ): array {
+		$task = self::task( $id );
+		if ( ! $task || 'shop' === (string) ( $task['scope'] ?? '' ) ) {
+			return [];
+		}
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			return [];
+		}
+		return DZE_Queue::review_rows_for( (array) ( $task['jobs'] ?? [] ), $limit );
 	}
 
 	public static function task( string $id ): array {
@@ -1157,6 +1201,12 @@ final class DZE_Automation {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		// A BODY THAT MOVES TAKES ITS ASSETS WITH IT. The chips, the folds and
+		// the to-do rows are all drawn with these styles, and nothing else on
+		// this page asks for them: enqueued from a page hook somewhere else,
+		// the one forgotten is always the screen that comes out unstyled.
+		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		self::$needs_review = false;
 		?>
 		<div class="dze-admin dze-auto">
 		<form method="post" action="options.php">
@@ -1216,6 +1266,13 @@ final class DZE_Automation {
 			<summary><?php esc_html_e( 'What it has done', 'dazont-ecom' ); ?></summary>
 			<div id="dze-auto-log"><?php self::render_log(); ?></div>
 		</details>
+		<?php
+		// The popup those three controls open, printed by the module that owns
+		// it — and only where something is actually waiting to be decided.
+		if ( self::$needs_review && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
+			DZE_Queue::review_assets();
+		}
+		?>
 		</div>
 		<script>
 		jQuery( function ( $ ) {
@@ -1244,6 +1301,21 @@ final class DZE_Automation {
 				var $b = $( this );
 				post( 'dze_auto_run', { task: $b.data( 'task' ) }, $b, $b.siblings( '.dze-auto-msg' ) );
 			} );
+			// A DECISION TAKEN ON A BORROWED ROW is announced by the queue's
+			// own script, and each block answers for itself: the figures on
+			// the line and the rows under it are one question, so they are
+			// re-read together rather than one of them guessing.
+			$( document ).on( 'dze:queue-decided', function () {
+				$.post( window.ajaxurl, { action: 'dze_auto_state', nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' } )
+					.done( function ( r ) {
+						var d = ( r && r.data ) || {};
+						$.each( d.tasks || {}, function ( id, part ) {
+							if ( part.chips ) { $( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( part.chips ); }
+							$( '.dze-auto-waitbox[data-task="' + id + '"]' ).html( part.todo || '' );
+						} );
+						if ( d.log ) { $( '#dze-auto-log' ).html( d.log ); }
+					} );
+			} );
 			$( document ).on( 'click', '.dze-auto-undo', function () {
 				var $b = $( this );
 				post( 'dze_auto_undo', { term: $b.data( 'term' ), what: $b.data( 'what' ) }, $b, $b.closest( 'li' ).find( '.dze-auto-msg' ) );
@@ -1263,21 +1335,10 @@ final class DZE_Automation {
 	public static function render_state( string $id ): void {
 		$conf = self::conf( $id );
 
-		// WHAT IT LEFT FOR YOU, with the way there. Nothing at all when
-		// nothing is waiting: a nought here is a line that says "no news"
-		// every day until nobody reads the block.
-		$left = self::waiting_for( $id );
-		if ( $left['n'] > 0 && '' !== $left['url'] ) {
-			printf(
-				'<p class="dze-auto-waiting"><a href="%1$s">%2$s</a></p>',
-				esc_url( $left['url'] ),
-				esc_html( sprintf(
-					/* translators: %s: how many finished jobs are waiting for a yes or a no */
-					_n( 'Review %s piece of work', 'Review the %s pieces of work waiting', $left['n'], 'dazont-ecom' ),
-					number_format_i18n( $left['n'] )
-				) )
-			);
-		}
+		// WHAT IT LEFT FOR YOU — the work itself, not a way to go and find it.
+		echo '<div class="dze-auto-waitbox" data-task="' . esc_attr( $id ) . '">';
+		self::render_todo( $id );
+		echo '</div>';
 
 		// The whole tool rests on this list, so it is shown, not described.
 		$next_up = self::shortlist( $id, 5 );
@@ -1294,6 +1355,75 @@ final class DZE_Automation {
 				. ' <span class="dze-auto-why">(' . esc_html( (string) $row['why'] ) . ')</span>';
 		}
 		echo wp_kses_post( implode( ' · ', $bits ) ) . '</p>';
+	}
+
+	/**
+	 * ONE LINE PER PIECE OF WORK WAITING, settled where it was started.
+	 *
+	 * "Ici ce serait bien de pouvoir review la task directement sans partir.
+	 * Sous forme de todo, comme sur le module de produits bulk, un bloc = une
+	 * tâche à résoudre."
+	 *
+	 * The three controls are the review list's OWN — the same classes, the
+	 * same popup, the same endpoints — so there is one place a decision is
+	 * taken and one place it is recorded. A second review surface beside it is
+	 * two screens that start disagreeing about what is waiting.
+	 *
+	 * Nothing at all when nothing is waiting: a line saying "no news" every
+	 * day is a line nobody reads by the end of the week.
+	 */
+	public static function render_todo( string $id ): void {
+		$left = self::waiting_for( $id );
+		if ( $left['n'] < 1 ) {
+			return;
+		}
+		$rows  = self::todo( $id );
+		$words = class_exists( 'DZE_Queue' ) ? DZE_Queue::decide_words() : [ 'accept' => '', 'refuse' => '' ];
+		if ( $rows ) {
+			self::$needs_review = true;
+			echo '<ul class="dze-auto-todo">';
+			foreach ( $rows as $row ) {
+				$jid = (int) $row['id'];
+				$url = self::edit_url( 0 === strpos( (string) $row['kind'], 'cat_' ) ? 'category' : 'post', (int) $row['oid'] );
+				$nm  = esc_html( (string) $row['label'] );
+				echo '<li class="dze-auto-job" data-id="' . esc_attr( (string) $jid ) . '">';
+				echo '<span class="dze-auto-jobname">' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $nm . '</a>' : $nm ) . '</span> ';
+				// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID.
+				echo wp_kses_post( DZE_Hub::obj_id( (int) $row['oid'] ) );
+				echo ' <span class="description">' . esc_html( (string) $row['job'] ) . ' · ' . esc_html( (string) $row['when'] ) . '</span>';
+				echo '<span class="dze-auto-jobact">';
+				echo '<button type="button" class="button button-small dze-q-open" data-id="' . esc_attr( (string) $jid ) . '">'
+					. esc_html__( 'Review', 'dazont-ecom' ) . '</button> ';
+				echo '<button type="button" class="dze-cb-yes dze-q-yes" data-id="' . esc_attr( (string) $jid ) . '" title="'
+					. esc_attr( (string) $words['accept'] ) . '">&#10003;</button> ';
+				echo '<button type="button" class="dze-cb-no dze-q-no" data-id="' . esc_attr( (string) $jid ) . '" data-status="review" title="'
+					. esc_attr( (string) $words['refuse'] ) . '">&#10007;</button>';
+				echo '</span></li>';
+			}
+			echo '</ul>';
+		}
+		// AND THE REST, where the whole list lives. Only what is NOT on this
+		// block: repeating the figure the rows already show is the same answer
+		// twice on one screen.
+		$rest = $left['n'] - count( $rows );
+		if ( $rest > 0 && '' !== $left['url'] ) {
+			printf(
+				'<p class="dze-auto-waiting"><a href="%1$s">%2$s</a></p>',
+				esc_url( $left['url'] ),
+				esc_html( $rows
+					? sprintf(
+						/* translators: %s: how many more pieces of work are waiting elsewhere */
+						_n( '%s more in Content to review', '%s more in Content to review', $rest, 'dazont-ecom' ),
+						number_format_i18n( $rest )
+					)
+					: sprintf(
+						/* translators: %s: how many finished jobs are waiting for a yes or a no */
+						_n( 'Review %s piece of work', 'Review the %s pieces of work waiting', $rest, 'dazont-ecom' ),
+						number_format_i18n( $rest )
+					)
+				)
+			);
+		}
 	}
 
 	/** Where one worked-on object is edited, whatever kind it is. */
@@ -1451,6 +1581,29 @@ final class DZE_Automation {
 			'chips'   => self::chips_html( $id ),
 			'log'     => self::log_html(),
 		] );
+	}
+
+	/**
+	 * WHAT A DECISION CHANGED, and nothing else.
+	 *
+	 * Saying yes or no to a borrowed row moves two things on this screen: the
+	 * figures on the task's own line, and the rows under it. What the pass
+	 * would take NEXT is untouched by a decision, and that reading is the
+	 * expensive half — so it is not re-done here. The register is, because a
+	 * line of it says what became of the very job just decided.
+	 */
+	public static function ajax_state(): void {
+		self::guard();
+		$out = [];
+		foreach ( array_keys( self::tasks() ) as $id ) {
+			ob_start();
+			self::render_todo( $id );
+			$out[ $id ] = [
+				'chips' => self::chips_html( $id ),
+				'todo'  => (string) ob_get_clean(),
+			];
+		}
+		wp_send_json_success( [ 'tasks' => $out, 'log' => self::log_html() ] );
 	}
 
 	public static function ajax_undo(): void {

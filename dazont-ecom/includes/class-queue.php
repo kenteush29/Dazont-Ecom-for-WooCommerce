@@ -669,6 +669,26 @@ final class DZE_Queue {
 		return $out;
 	}
 
+	/**
+	 * The two answers, in the words they wear everywhere.
+	 *
+	 * The list draws its rows in the browser and reads them from its localized
+	 * config; the Automation screen prints the same three controls from PHP.
+	 * Written out twice they drift, and the same button then says two things
+	 * on two screens.
+	 *
+	 * @return array{accept:string,refuse:string}
+	 */
+	public static function decide_words(): array {
+		return [
+			// Not "onto the category": these rows are categories AND articles,
+			// and a button that names the wrong kind of page is a button
+			// nobody presses twice.
+			'accept' => __( 'Accept: save this text onto the page it was written for', 'dazont-ecom' ),
+			'refuse' => __( 'Refuse: throw this text away', 'dazont-ecom' ),
+		];
+	}
+
 	public static function label_for( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
 			$t = get_term( $object_id, 'product_cat' );
@@ -865,6 +885,61 @@ final class DZE_Queue {
 	}
 
 	/**
+	 * WHAT IS WAITING, ROW BY ROW, for one task's own kinds of job.
+	 *
+	 * `review_count_for()` answers HOW MANY; a screen that offers to settle
+	 * them where the work was started needs WHICH. It is the same question of
+	 * the same table, so it is the same query beside it — never a reading of
+	 * its own somewhere else, which is how two screens come to disagree about
+	 * what is waiting.
+	 *
+	 * Oldest first, the order the review list itself uses: what has waited
+	 * longest is what is offered first.
+	 *
+	 * @param string[] $kinds
+	 * @return array<int,array{id:int,kind:string,oid:int,label:string,job:string,from:string,when:string}>
+	 */
+	public static function review_rows_for( array $kinds, int $limit = 10 ): array {
+		global $wpdb;
+		$kinds = array_values( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) );
+		if ( ! $kinds ) {
+			return [];
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+		$in = "'" . implode( "','", $kinds ) . "'";
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds stripped to [a-z_] above.
+			"SELECT id, kind, object_id, updated, made_by FROM {$table}
+			 WHERE status = 'review' AND kind IN ( {$in} ) ORDER BY id ASC LIMIT %d",
+			max( 1, $limit )
+		), ARRAY_A );
+		$defs = self::kinds();
+		$out  = [];
+		foreach ( $rows as $r ) {
+			$kind  = (string) $r['kind'];
+			$out[] = [
+				'id'    => (int) $r['id'],
+				'kind'  => $kind,
+				'oid'   => (int) $r['object_id'],
+				'label' => self::label_for( $kind, (int) $r['object_id'] ),
+				'job'   => (string) ( $defs[ $kind ]['label'] ?? $kind ),
+				// WHO ASKED FOR IT AND WHEN IT LAST MOVED, said by the same
+				// two functions the review list uses, so one row cannot read
+				// two ways on two screens.
+				'from'  => self::started_by( (int) ( $r['made_by'] ?? 0 ) ),
+				'when'  => self::moment( (string) $r['updated'] ),
+			];
+		}
+		return $out;
+	}
+
+	/**
 	 * How many jobs of these kinds were ACCEPTED and written.
 	 *
 	 * The other half of "what has this task done for me": one figure says what
@@ -925,79 +1000,6 @@ final class DZE_Queue {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
-		wp_enqueue_editor();
-		if ( class_exists( 'DZE_Prompts' ) ) {
-			DZE_Prompts::print_assets(); // the review popup shows the prompt behind the job.
-		}
-		wp_enqueue_script( 'dze-queue', DZE_URL . 'admin/js/queue.js', [ 'jquery' ], DZE_VERSION, true );
-		wp_localize_script( 'dze-queue', 'dzeQueue', [
-			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-			'nonce'   => wp_create_nonce( self::NONCE ),
-			'i18n'    => [
-				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
-				'review'   => __( 'Review', 'dazont-ecom' ),
-				'retry'    => __( 'Retry', 'dazont-ecom' ),
-				'remove'   => __( 'Remove', 'dazont-ecom' ),
-				// The states in words, and translatable: they were written
-				// into the JavaScript, so no shop could read them in its own
-				// language and a row arriving looked like an empty line.
-				'sQueued'  => __( 'Waiting its turn', 'dazont-ecom' ),
-				'sRunning' => __( 'Being written…', 'dazont-ecom' ),
-				'sReview'  => __( 'To review', 'dazont-ecom' ),
-				'sApplied' => __( 'Saved', 'dazont-ecom' ),
-				'sFailed'  => __( 'Failed', 'dazont-ecom' ),
-				'sSkipped' => __( 'Discarded', 'dazont-ecom' ),
-				'empty'    => __( 'Nothing in the queue.', 'dazont-ecom' ),
-				'idle'     => __( 'Nothing waiting.', 'dazont-ecom' ),
-				'pause'    => __( 'Pause', 'dazont-ecom' ),
-				'resume'   => __( 'Resume', 'dazont-ecom' ),
-				/* translators: %s: number of jobs */
-				'cWaiting' => __( '%s waiting', 'dazont-ecom' ),
-				/* translators: %s: number of jobs */
-				'cWriting' => __( '%s being written', 'dazont-ecom' ),
-				/* translators: %s: number of jobs */
-				'cReview'  => __( '%s to review', 'dazont-ecom' ),
-				/* translators: %s: number of jobs */
-				'cSaved'   => __( '%s saved', 'dazont-ecom' ),
-				/* translators: %s: number of jobs */
-				'cFailed'  => __( '%s failed', 'dazont-ecom' ),
-				/* translators: %s: number of finished rows */
-				'clearN'   => __( 'clear %s failed rows', 'dazont-ecom' ),
-				/* translators: %s: number of rows ticked */
-				'selected' => __( '%s selected:', 'dazont-ecom' ),
-				'nowText'  => __( 'On the category today', 'dazont-ecom' ),
-				'acceptOne'=> __( 'Accept: save this text onto the category', 'dazont-ecom' ),
-				'refuseOne'=> __( 'Refuse: throw this text away', 'dazont-ecom' ),
-				'dropOne'  => __( 'Drop this line from the queue', 'dazont-ecom' ),
-				'confirmOne' => __( 'Save this text onto the category, as written? It replaces the description currently there.', 'dazont-ecom' ),
-				'confirmRefuse' => __( 'Throw this text away? It cannot be recovered.', 'dazont-ecom' ),
-				'compare'  => __( 'Current', 'dazont-ecom' ),
-				'accept'   => __( 'Accept and save', 'dazont-ecom' ),
-				'discardBtn' => __( 'Cancel', 'dazont-ecom' ),
-				/* translators: %s: number of words */
-				'words'    => __( '%s words', 'dazont-ecom' ),
-				/* translators: 1: words before, 2: words after */
-				'wordsTo'  => __( '%1$s words → %2$s words', 'dazont-ecom' ),
-				/* translators: 1: links before, 2: links after */
-				'linksTo'  => __( '%1$s links → %2$s links', 'dazont-ecom' ),
-				// A photograph's own three answers, said as answers and not as
-				// database words: keep it, make another, throw it away.
-				'alreadyHas'  => __( 'What this product already shows', 'dazont-ecom' ),
-				'keepShot'    => __( 'Keep it', 'dazont-ecom' ),
-				'againShot'   => __( 'Make another', 'dazont-ecom' ),
-				'dropShot'    => __( 'Throw it away', 'dazont-ecom' ),
-				'openProduct' => __( 'Open the product', 'dazont-ecom' ),
-				/* translators: %s: number of texts */
-				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
-				/* translators: %s: number of jobs */
-				'confirmDrop'   => __( 'Drop %s jobs? What they wrote is lost.', 'dazont-ecom' ),
-				'confirm'  => __( 'Remove every failed and skipped job from this list? What was accepted is kept, so there is always a record of what was done.', 'dazont-ecom' ),
-				'applying' => __( 'Saving…', 'dazont-ecom' ),
-				'applied'  => __( 'Saved ✓', 'dazont-ecom' ),
-				'discarded' => __( 'Discarded', 'dazont-ecom' ),
-			],
-		] );
 		?>
 		<div class="dze-admin">
 			<p class="description" style="max-width:900px;">
@@ -1056,6 +1058,97 @@ final class DZE_Queue {
 				<tbody><tr><td colspan="8"><span class="dze-cx-spin"></span></td></tr></tbody>
 			</table>
 		</div>
+		<?php
+		self::review_assets();
+	}
+
+	/**
+	 * WHAT THE REVIEW POPUP NEEDS, wherever it is opened from.
+	 *
+	 * A BODY THAT MOVES TAKES ITS ASSETS WITH IT. These rows are no longer
+	 * only on Content to review: a task's own block on the Automation screen
+	 * lists what that task left waiting and settles it in place — "ici ce
+	 * serait bien de pouvoir review la task directement sans partir". A second
+	 * popup beside this one is two surfaces for one decision, which is how two
+	 * screens start disagreeing, so there is ONE: the script, its words and
+	 * its markup come from here, and a screen that borrows the rows next year
+	 * has nothing to remember.
+	 */
+	public static function review_assets(): void {
+		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		wp_enqueue_editor();
+		if ( class_exists( 'DZE_Prompts' ) ) {
+			DZE_Prompts::print_assets(); // the review popup shows the prompt behind the job.
+		}
+		wp_enqueue_script( 'dze-queue', DZE_URL . 'admin/js/queue.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-queue', 'dzeQueue', [
+			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			'nonce'   => wp_create_nonce( self::NONCE ),
+			'i18n'    => [
+				'error'    => __( 'Something went wrong.', 'dazont-ecom' ),
+				'review'   => __( 'Review', 'dazont-ecom' ),
+				'retry'    => __( 'Retry', 'dazont-ecom' ),
+				'remove'   => __( 'Remove', 'dazont-ecom' ),
+				// The states in words, and translatable: they were written
+				// into the JavaScript, so no shop could read them in its own
+				// language and a row arriving looked like an empty line.
+				'sQueued'  => __( 'Waiting its turn', 'dazont-ecom' ),
+				'sRunning' => __( 'Being written…', 'dazont-ecom' ),
+				'sReview'  => __( 'To review', 'dazont-ecom' ),
+				'sApplied' => __( 'Saved', 'dazont-ecom' ),
+				'sFailed'  => __( 'Failed', 'dazont-ecom' ),
+				'sSkipped' => __( 'Discarded', 'dazont-ecom' ),
+				'empty'    => __( 'Nothing in the queue.', 'dazont-ecom' ),
+				'idle'     => __( 'Nothing waiting.', 'dazont-ecom' ),
+				'pause'    => __( 'Pause', 'dazont-ecom' ),
+				'resume'   => __( 'Resume', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cWaiting' => __( '%s waiting', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cWriting' => __( '%s being written', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cReview'  => __( '%s to review', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cSaved'   => __( '%s saved', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'cFailed'  => __( '%s failed', 'dazont-ecom' ),
+				/* translators: %s: number of finished rows */
+				'clearN'   => __( 'clear %s failed rows', 'dazont-ecom' ),
+				/* translators: %s: number of rows ticked */
+				'selected' => __( '%s selected:', 'dazont-ecom' ),
+				'nowText'  => __( 'On the category today', 'dazont-ecom' ),
+				'acceptOne'=> self::decide_words()['accept'],
+				'refuseOne'=> self::decide_words()['refuse'],
+				'dropOne'  => __( 'Drop this line from the queue', 'dazont-ecom' ),
+				'confirmOne' => __( 'Save this text onto the page it was written for, as written? It replaces what is there now.', 'dazont-ecom' ),
+				'confirmRefuse' => __( 'Throw this text away? It cannot be recovered.', 'dazont-ecom' ),
+				'compare'  => __( 'Current', 'dazont-ecom' ),
+				'accept'   => __( 'Accept and save', 'dazont-ecom' ),
+				'discardBtn' => __( 'Cancel', 'dazont-ecom' ),
+				/* translators: %s: number of words */
+				'words'    => __( '%s words', 'dazont-ecom' ),
+				/* translators: 1: words before, 2: words after */
+				'wordsTo'  => __( '%1$s words → %2$s words', 'dazont-ecom' ),
+				/* translators: 1: links before, 2: links after */
+				'linksTo'  => __( '%1$s links → %2$s links', 'dazont-ecom' ),
+				// A photograph's own three answers, said as answers and not as
+				// database words: keep it, make another, throw it away.
+				'alreadyHas'  => __( 'What this product already shows', 'dazont-ecom' ),
+				'keepShot'    => __( 'Keep it', 'dazont-ecom' ),
+				'againShot'   => __( 'Make another', 'dazont-ecom' ),
+				'dropShot'    => __( 'Throw it away', 'dazont-ecom' ),
+				'openProduct' => __( 'Open the product', 'dazont-ecom' ),
+				/* translators: %s: number of texts */
+				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
+				/* translators: %s: number of jobs */
+				'confirmDrop'   => __( 'Drop %s jobs? What they wrote is lost.', 'dazont-ecom' ),
+				'confirm'  => __( 'Remove every failed and skipped job from this list? What was accepted is kept, so there is always a record of what was done.', 'dazont-ecom' ),
+				'applying' => __( 'Saving…', 'dazont-ecom' ),
+				'applied'  => __( 'Saved ✓', 'dazont-ecom' ),
+				'discarded' => __( 'Discarded', 'dazont-ecom' ),
+			],
+		] );
+		?>
 		<div class="dze-cx-modal" id="dze-q-modal"><div class="dze-cx-dialog" style="width:min(860px,94vw);">
 			<div class="dze-cx-head"><h2 id="dze-q-title"><?php esc_html_e( 'Review', 'dazont-ecom' ); ?></h2>
 				<button type="button" class="dze-prompt-peek" id="dze-q-prompt" data-prompt="" style="display:none;" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998; <?php esc_html_e( 'prompt', 'dazont-ecom' ); ?></button>

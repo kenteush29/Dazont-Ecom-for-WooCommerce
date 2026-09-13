@@ -16,7 +16,12 @@
  *   - the figures are readable WITHOUT opening anything, each on one line;
  *   - opening one gives the controls, and closing it takes them away again;
  *   - the button that runs it moves the line it was pressed on, so a figure
- *     never answers for the page as it was opened.
+ *     never answers for the page as it was opened;
+ *   - and what it LEFT you is settled here: "ici ce serait bien de pouvoir
+ *     review la task directement sans partir". The three controls are the
+ *     review list's own, so the gate presses the REAL popup — dumped by
+ *     test-review.php, never retyped into this harness — and proves the press
+ *     opens it, sends that row's own id, and never moves the page.
  */
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
 import { execFileSync } from 'node:child_process';
@@ -46,6 +51,14 @@ function ok( what, got, want ) {
 const dumped = JSON.parse( execFileSync( 'php',
 	[ join( here, '..', 'test-automation.php' ), 'dazont-ecom', '--dump-automation' ],
 	{ encoding: 'utf8', cwd: root, stdio: [ 'ignore', 'pipe', 'ignore' ] } ) );
+// The popup these rows open is DZE_Queue's, and so are its words: taken from
+// the function that prints them on the review screen, not typed out again
+// here, or the harness and the plugin drift apart on the next edit.
+const review = JSON.parse( execFileSync( 'php',
+	[ join( here, '..', 'test-review.php' ), 'dazont-ecom', '--dump-review' ],
+	{ encoding: 'utf8', cwd: root, stdio: [ 'ignore', 'pipe', 'ignore' ] } ) );
+const qcfg = Object.assign( {}, review.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
+const queuejs = readFileSync( join( root, 'dazont-ecom', 'admin', 'js', 'queue.js' ), 'utf8' );
 
 // WordPress's own admin, as much of it as this screen's shape depends on.
 const wpcss = `
@@ -68,7 +81,36 @@ for ( const [ label, jq ] of jqs ) {
 
 	await page.route( 'http://dze.test/ajax', route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
-		sent.push( { action: q.get( 'action' ), task: q.get( 'task' ), nonce: q.get( 'nonce' ) } );
+		const act = q.get( 'action' );
+		sent.push( { action: act, task: q.get( 'task' ), nonce: q.get( 'nonce' ),
+			id: q.get( 'id' ), accept: q.get( 'accept' ) } );
+		// The one review popup, answering as the server answers it.
+		if ( 'dze_q_review' === act ) {
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				id: Number( q.get( 'id' ) ), title: 'Tactical backpack covers', prompt: 'cat_links',
+				html: '<p>The linked text.</p>', current: '<p>The text as it stands.</p>',
+				words: [ 1094, 1094 ], links: [ 1, 5 ]
+			} } ) } );
+		}
+		if ( 'dze_q_decide' === act ) {
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
+		}
+		// A DECISION MOVES THE FIGURES AND THE ROWS TOGETHER: the block is
+		// re-read whole, so the row that was settled leaves and the chip
+		// beside it follows it.
+		if ( 'dze_auto_state' === act ) {
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				tasks: { mesh_links: {
+					chips: '<span class="dze-auto-chips" data-task="mesh_links">'
+						+ '<span class="dze-auto-chip is-on" title="Running on its own"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
+						+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1</span>'
+						+ '</span>',
+					todo: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
+						+ '<span class="dze-auto-jobname">The sniper role</span></li></ul>'
+				} },
+				log: '<ul><li>Internal linking · Tactical backpack covers</li></ul>'
+			} } ) } );
+		}
 		return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
 			queued: 1,
 			task: q.get( 'task' ),
@@ -85,8 +127,13 @@ for ( const [ label, jq ] of jqs ) {
 	await page.route( 'http://dze.test/screen', route => route.fulfill( { contentType: 'text/html', body:
 		`<!doctype html><html><head><meta charset="utf-8"><style>${wpcss}</style><style>${css}</style>`
 		+ `<script>${readFileSync( jq, 'utf8' )}</script>`
-		+ `<script>window.ajaxurl='http://dze.test/ajax';</script>`
-		+ `</head><body><div id="wpbody-content">${dumped.html}</div></body></html>` } ) );
+		+ `<script>window.ajaxurl='http://dze.test/ajax';window.dzeQueue=${JSON.stringify( qcfg )};</script>`
+		+ `</head><body><div id="wpbody-content">${dumped.html}</div>${review.modal}`
+		+ `<script>${queuejs}</script></body></html>` } ) );
+	// Accepting writes to the shop, so the screen always asks first.
+	page.on( 'dialog', d => d.accept() );
+	const moves = [];
+	page.on( 'framenavigated', f => { if ( f === page.mainFrame() ) { moves.push( f.url() ); } } );
 
 	await page.setViewportSize( { width: 1280, height: 900 } );
 	await page.goto( 'http://dze.test/screen', { waitUntil: 'domcontentloaded' } );
@@ -152,6 +199,66 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the way to what it left you too',
 		await page.locator( '.dze-auto-task:first-of-type .dze-auto-waiting a' ).isVisible(), true );
 
+	// ---- AND WHAT IT LEFT YOU IS SETTLED HERE ----
+	// "Ici ce serait bien de pouvoir review la task directement sans partir."
+	const todo = await page.evaluate( () => {
+		const rows = Array.from( document.querySelectorAll( '.dze-auto-task:first-of-type .dze-auto-job' ) );
+		return {
+			n: rows.length,
+			ids: rows.map( r => r.getAttribute( 'data-id' ) ),
+			// Three controls per row, the review list's own.
+			controls: rows[0] ? Array.from( rows[0].querySelectorAll( 'button' ) )
+				.map( b => b.className.split( ' ' ).filter( c => 0 === c.indexOf( 'dze-q-' ) )[0] ) : [],
+			// It names the object and its id, and opens it.
+			opens: rows[0] ? ( rows[0].querySelector( 'a' ) || {} ).href || '' : '',
+			objid: rows[0] ? ( ( rows[0].querySelector( '.dze-objid' ) || {} ).textContent || '' ) : '',
+			// A ROW IS ONE LINE OF WORK: the three answers sit together at the
+			// end of it, not stacked under the name.
+			oneLine: rows[0] ? ( () => {
+				const b = Array.from( rows[0].querySelectorAll( 'button' ) ).map( x => Math.round( x.getBoundingClientRect().top ) );
+				return Math.max( ...b ) - Math.min( ...b ) < 6;
+			} )() : false,
+			rest: ( document.querySelector( '.dze-auto-task:first-of-type .dze-auto-waiting a' ) || {} ).textContent || ''
+		};
+	} );
+	ok( 'the block lists what it left you', todo.n, 2 );
+	ok( 'a row per job, carrying its id',   todo.ids, [ '41', '42' ] );
+	ok( 'with the review list\'s own three', todo.controls, [ 'dze-q-open', 'dze-q-yes', 'dze-q-no' ] );
+	ok( 'side by side',                     todo.oneLine, true );
+	ok( 'the row opens its own object',     /tag_ID=6223$/.test( todo.opens ), true );
+	ok( 'and prints its id',                todo.objid, '6223' );
+	ok( 'the rest points at the whole list', todo.rest, '1 more in Content to review' );
+
+	// PRESSING REVIEW OPENS THE ONE POPUP — and sends THAT row's own id. A
+	// button tested on the fact that it exists is the mistake paid for three
+	// times in one week here.
+	const before = sent.length;
+	await page.click( '.dze-auto-task:first-of-type .dze-auto-job[data-id="41"] .dze-q-open', { timeout: 3000 } ).catch( () => {} );
+	const opened = await page.waitForFunction(
+		() => /old|stands|Accept/.test( ( document.getElementById( 'dze-q-body' ) || {} ).textContent || '' ),
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	const ask = sent.slice( before ).filter( r => 'dze_q_review' === r.action )[0] || {};
+	ok( 'the press asks for that job',      ask.action, 'dze_q_review' );
+	ok( 'naming the row it sits on',        ask.id, '41' );
+	ok( 'with the queue\'s own nonce',      ( ask.nonce || '' ).length > 0, true );
+	ok( 'and the popup comes up',           opened, true );
+	ok( 'on this screen, not another',
+		await page.locator( '#dze-q-modal.is-open' ).isVisible().catch( () => false ), true );
+	await page.click( '#dze-q-modal .dze-hub-close', { timeout: 3000 } ).catch( () => {} );
+
+	// SAYING YES ON THE LINE settles it through the same endpoint the review
+	// list uses, and the block answers for itself.
+	const was2 = sent.length;
+	await page.click( '.dze-auto-task:first-of-type .dze-auto-job[data-id="41"] .dze-q-yes', { timeout: 3000 } ).catch( () => {} );
+	const settled = await page.waitForFunction(
+		() => 1 === document.querySelectorAll( '.dze-auto-task:first-of-type .dze-auto-job' ).length,
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	const yes = sent.slice( was2 ).filter( r => 'dze_q_decide' === r.action )[0] || {};
+	ok( 'the tick decides that job',        [ yes.action, yes.id, yes.accept ], [ 'dze_q_decide', '41', '1' ] );
+	ok( 'the block re-reads itself',        settled, true );
+	ok( 'and its figures follow the rows',
+		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-chip.is-wait' ).catch( () => '' ) || '' ).trim(), '1' );
+
 	// ---- AND THE PRESS MOVES THE LINE IT WAS PRESSED ON ----
 	const was = sent.length;
 	await page.click( '.dze-auto-task:first-of-type .dze-auto-run', { timeout: 3000 } ).catch( () => {} );
@@ -164,6 +271,14 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the line says what changed',   answered, true );
 	ok( 'the answer is said in words too',
 		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-msg' ).catch( () => '' ) || '' ).includes( 'Queued' ), true );
+
+	// A PAGE RELOAD IS NEVER THE ANSWER TO "DID THAT WORK?"
+	ok( 'the page never moved',             moves.length, 1 );
+	// AND A SCREEN THAT HOLDS NO LIST OF JOBS NEVER DRIVES THE QUEUE: one PHP
+	// worker stepping the queue for a page that shows nothing running is
+	// weight nobody asked for.
+	ok( 'it never polls the queue',         sent.filter( r => 'dze_q_status' === r.action ).length, 0 );
+	ok( 'and never steps it',               sent.filter( r => 'dze_q_run' === r.action ).length, 0 );
 
 	ok( 'nothing was raised reading it',    errors, [] );
 	await page.close();
