@@ -301,6 +301,19 @@
 	border-radius: 999px; padding: 0 7px; font-size: 10px; line-height: 18px;
 }
 .dze-cb-badgecheck { color: #00794b; font-weight: 700; }
+/* A PRODUCT RUNNING ITS OWN ORDER SAYS SO ON ITS LINE. Deliberately not a
+   green badge: those name what was produced, this names what is about to be
+   asked for — and it is not remembered after a reload, so it has to be
+   readable from the list at a glance. */
+.dze-cb-ownmark {
+	display: inline-block; margin-top: 5px;
+	border: 1px solid #c5d9ed; background: #f0f6fc; color: #0a4b78;
+	border-radius: 999px; padding: 0 7px; font-size: 10px; line-height: 18px;
+}
+.dze-cb-ownstate { color: #646970; font-weight: 400; font-size: 12px; }
+.dze-cb-ownuse { display: block; margin: 0 0 2px; }
+.dze-cb-ownrows { margin-top: 8px; }
+.dze-cb-ownrows:empty { margin-top: 0; }
 
 /* ---- Global progress, pinned to the bottom of the window ---- */
 #dze-cb-sticky {

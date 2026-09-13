@@ -471,6 +471,104 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and not one of the 1,400 ids is lost',
 		( String( add.paste || '' ).match( /\d+/g ) || [] ).length, 1400 );
 
+	// ---- THE RUN'S ORDER, OR A PRODUCT'S OWN ----
+	//
+	// "Avoir une option bulk, mais aussi avoir la possibilité, si on veut, de
+	// régler par produit. Donc l'idée n'est pas de toujours utiliser le réglage
+	// individuel mais de l'avoir sous la main si besoin." Five photographs is
+	// right for a product that has none and one is enough for the one beside
+	// it, and the run had ONE answer for the whole list.
+	//
+	// A fresh screen: the reload is also the proof of the sentence the drawer
+	// prints — an order set by hand is for the run in front of you and is not
+	// remembered.
+	await page.goto( 'http://dze.test/screen', { waitUntil: 'domcontentloaded' } );
+	await page.click( '.dze-sec[data-sec="img"] .dze-sec-head' );
+	await page.waitForSelector( `${row( 1 )} .dze-cb-tpl`, { state: 'visible', timeout: 5000 } );
+	// A prompt that writes to the gallery, so the main-image question below is
+	// asked by the product's own order and by nothing else.
+	await page.selectOption( `${row( 1 )} .dze-cb-tpl`, '1' );
+	await page.selectOption( `${row( 1 )} .dze-tpl-n`, '1' );
+	for ( const f of await page.locator( '.dze-cb-field' ).all() ) { await f.uncheck().catch( () => {} ); }
+	await page.setChecked( '#dze-cb-price', false ).catch( () => {} );
+	await page.setChecked( '#dze-cb-image', true );
+	await page.check( '.dze-cb-row[data-id="7"] .dze-cb-pick' );
+	await page.check( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
+	ok( 'two products on the run\'s order is two photographs',
+		await spend(), '2 photographs · about $0.16' );
+
+	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
+	const hasOwnBox = await page.waitForSelector( '.dze-cb-preview[data-id="8"] .dze-cb-ownon',
+		{ state: 'attached', timeout: 5000 } )
+		.then( () => true ).catch( () => false );
+	ok( 'the panel offers this product an order of its own', hasOwnBox, true );
+	if ( hasOwnBox ) {
+		// THE DRAWER SAYS WHAT IT HOLDS WHILE IT IS SHUT: a panel that has to
+		// be opened to learn whether this product follows the run is a panel
+		// somebody opens on all forty of them.
+		ok( 'and says, shut, that it follows the run',
+			( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-ownstate' ) || '' ).trim(),
+			'follows the run' );
+		ok( 'with no rows of its own until one is asked for',
+			await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-ownrows .dze-tplrow' ).count(), 0 );
+		await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-ownwrap summary' );
+		await page.check( '.dze-cb-preview[data-id="8"] .dze-cb-ownon' );
+		// IT STARTS FROM THE RUN'S ORDER — the point is to change one thing
+		// about it, not to fill a form in from nothing.
+		ok( 'ticking it starts from the order the run is set to',
+			await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-ownrows .dze-tplrow' ).count(), 1 );
+		const ownRow = '.dze-cb-preview[data-id="8"] .dze-cb-ownrows .dze-tplrow:nth-child(1)';
+		ok( 'on the same prompt',
+			await page.locator( `${ownRow} .dze-cb-tpl` ).inputValue(),
+			await page.locator( `${row( 1 )} .dze-cb-tpl` ).inputValue() );
+		await page.selectOption( `${ownRow} .dze-tpl-n`, '3' );
+		ok( 'and the drawer says what it now asks for',
+			( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-ownstate' ) || '' ).trim(),
+			'3 photographs' );
+		// AND THE LINE SAYS SO. An order visible only inside a panel is an
+		// instruction nobody can see from the list it changes.
+		ok( 'the line carries the mark',
+			( await page.textContent( '.dze-cb-row[data-id="8"] .dze-cb-ownmark' ) || '' ).trim(),
+			'Its own order · 3 photographs' );
+		ok( 'and its neighbour carries none',
+			await page.locator( '.dze-cb-row[data-id="7"] .dze-cb-ownmark' ).count(), 0 );
+		// AND A DECISION AN ORDER RAISES IS RAISED WHEREVER THE ORDER LIVES.
+		// The fate of today's main image is the same question whether the run
+		// asks for one or a single product does.
+		ok( 'nothing asks about the main image yet',
+			await page.locator( '#dze-cb-oldwrap' ).isVisible(), false );
+		await page.selectOption( `${ownRow} .dze-tpl-target`, 'main' );
+		ok( 'a product\'s own order raises the main-image question',
+			await page.locator( '#dze-cb-oldwrap' ).isVisible(), true );
+		await page.selectOption( `${ownRow} .dze-tpl-target`, 'gallery' );
+		ok( 'and it goes away with it',
+			await page.locator( '#dze-cb-oldwrap' ).isVisible(), false );
+
+		// THE BILL IS A SUM, not one order times a count of products.
+		ok( 'the bill adds the two orders up',
+			await spend(), '4 photographs · about $0.32' );
+		await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
+
+		// AND THE PRESS SENDS WHAT THE SCREEN SAYS. Only a browser can see it.
+		const wasOwn = sent.length;
+		await page.click( '#dze-cb-start' );
+		await page.waitForTimeout( 2500 );
+		const madeOwn = sent.slice( wasOwn ).filter( r => 'dze_content_image' === r.action );
+		ok( 'the product with its own order runs it',
+			madeOwn.filter( r => '8' === r.post ).length, 3 );
+		ok( 'and the one without runs the run\'s',
+			madeOwn.filter( r => '7' === r.post ).length, 1 );
+		ok( 'nothing else was asked for',   madeOwn.length, 4 );
+		ok( 'nothing was raised running it', errors, [] );
+
+		// NOT REMEMBERED, and the drawer says so: an order kept after a reload
+		// and visible nowhere is a standing instruction, which this plugin
+		// does not have.
+		await page.goto( 'http://dze.test/screen', { waitUntil: 'domcontentloaded' } );
+		ok( 'and a reload puts the product back on the run\'s order',
+			await page.locator( '.dze-cb-ownmark' ).count(), 0 );
+	}
+
 	await page.close();
 }
 await browser.close();

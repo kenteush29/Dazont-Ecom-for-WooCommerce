@@ -62,7 +62,10 @@
 		m.tpls = tplJobs().map(function (j) { return { tpl: j.tpl, n: j.n }; });
 		saveMem(m);
 	}
-	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, .dze-cb-tpl, .dze-tpl-scene, .dze-tpl-n, .dze-tpl-target, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
+	// The run's own rows, and no others: the same row lives on a product's
+	// panel now, and what is typed there is that product's business — storing
+	// it as the run's would change what every other product does.
+	$(document).on('change', '.dze-cb-field, #dze-cb-price, #dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-scene, #dze-cb-tplrows .dze-tpl-n, #dze-cb-tplrows .dze-tpl-target, #dze-cb-oldmain, #dze-cb-reviews, #dze-cb-revn', persist);
 
 	// Every block says what is ticked out of what it holds: "2 / 6" answers
 	// "did I forget something?" without opening anything.
@@ -95,9 +98,6 @@
 		// the days when the scene and the count belonged to the run.
 		var row = (value && typeof value === 'object') ? value : { tpl: value };
 		if (row.tpl !== '' && row.tpl !== undefined && row.tpl !== null) { $r.find('.dze-cb-tpl').val(String(row.tpl)); }
-		if (typeof row.scene !== 'undefined' && $r.find('.dze-tpl-scene option[value="' + row.scene + '"]').length) {
-			$r.find('.dze-tpl-scene').val(String(row.scene));
-		}
 		if (row.n) { $r.find('.dze-tpl-n').val(String(row.n)); }
 		syncPeek($r);
 		// The destination and the background are the prompt's own — "Remake
@@ -106,6 +106,17 @@
 		// launched, not for ever.
 		syncTarget($r);
 		syncScene($r);
+		// A row DRAWN AGAIN from an order already made keeps what was chosen on
+		// it — a product's own order is rebuilt every time its panel is opened,
+		// and the destination it was given would go back to the prompt's on
+		// every look. A fresh row carries neither key and opens on the prompt's
+		// own, which is what the two lines above are for.
+		if (typeof row.scene !== 'undefined' && $r.find('.dze-tpl-scene option[value="' + row.scene + '"]').length) {
+			$r.find('.dze-tpl-scene').val(String(row.scene));
+		}
+		if (row.target && $r.find('.dze-tpl-target option[value="' + row.target + '"]').length) {
+			$r.find('.dze-tpl-target').val(String(row.target));
+		}
 		return $r;
 	}
 	// The peek button of a row always points at the prompt that row will run.
@@ -136,7 +147,7 @@
 	function buildTplRows(values) {
 		var $wrap = $('#dze-cb-tplrows').empty();
 		(values.length ? values : [ '' ]).forEach(function (v) { $wrap.append(tplRow(v)); });
-		syncTplRows();
+		syncRows($wrap);
 	}
 	// A + that cannot add anything is a lie: it only shows while an unused
 	// prompt is left, and − disappears when one row is left.
@@ -144,16 +155,29 @@
 	// The fate of the main image only arises when something is about to take
 	// its place: the question appears with the answer that makes it necessary.
 	function syncOldMainRow() {
+		// Any order that writes a main image raises it, the run's or a
+		// product's own: it is the same decision about the image being pushed
+		// out. A product's own is read from the ORDER and not from its panel —
+		// that panel is emptied by every run and drawn again on demand, so the
+		// question would come and go with a drawer nobody had opened.
 		var main = $('#dze-cb-tplrows .dze-tpl-target').filter(function () {
 			return 'main' === $(this).val();
 		}).length > 0;
+		var kept = own || {};
+		Object.keys(kept).forEach(function (id) {
+			(kept[id] || []).forEach(function (j) { if ('main' === j.target) { main = true; } });
+		});
 		$('#dze-cb-oldwrap').toggle(main);
 	}
 	function runKeepOld() {
 		return ($('#dze-cb-oldmain').val() === '0') ? 0 : 1;
 	}
-	function syncTplRows() {
-		var $rows = $('#dze-cb-tplrows .dze-tplrow');
+	// ONE set of rows, wherever they are drawn: the run's at the top of the
+	// page and a product's own on its panel are the same order, so they are
+	// built, counted and read by the same functions. Two builders is how two
+	// screens start behaving differently while looking the same.
+	function syncRows($wrap) {
+		var $rows = $wrap.find('.dze-tplrow');
 		var room = $rows.length < tplCount();
 		$rows.each(function (i) {
 			$(this).find('.dze-tpl-add').toggle(room && i === $rows.length - 1);
@@ -161,8 +185,8 @@
 		});
 		syncOldMainRow();
 	}
-	function firstFreeTpl() {
-		var used = $('#dze-cb-tplrows .dze-cb-tpl').map(function () { return $(this).val(); }).get();
+	function firstFreeTpl($wrap) {
+		var used = $wrap.find('.dze-cb-tpl').map(function () { return $(this).val(); }).get();
 		var free = '';
 		$($('#dze-cb-tpltpl').html()).find('option').each(function () {
 			if (free === '' && used.indexOf($(this).val()) < 0) { free = $(this).val(); }
@@ -171,39 +195,53 @@
 	}
 	// Two rows on the same prompt would generate the same thing twice without
 	// saying so: the duplicate falls back to a free one.
-	$(document).on('change', '#dze-cb-tplrows .dze-cb-tpl', function () {
+	$(document).on('change', '.dze-tplrows .dze-cb-tpl', function () {
+		var $wrap = $(this).closest('.dze-tplrows');
 		var used = {}, $me = $(this);
-		$('#dze-cb-tplrows .dze-cb-tpl').each(function () {
+		$wrap.find('.dze-cb-tpl').each(function () {
 			var v = $(this).val();
-			if (used[v] && this === $me[0]) { $me.val(firstFreeTpl()); }
-			else if (used[v]) { $(this).val(firstFreeTpl()); }
+			if (used[v] && this === $me[0]) { $me.val(firstFreeTpl($wrap)); }
+			else if (used[v]) { $(this).val(firstFreeTpl($wrap)); }
 			used[$(this).val()] = 1;
 		});
-		$('#dze-cb-tplrows .dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); syncScene($(this)); });
+		$wrap.find('.dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); syncScene($(this)); });
 		syncOldMainRow();
+		rowsChanged($wrap);
 	});
-	$(document).on('click', '#dze-cb-tplrows .dze-tpl-add', function () {
-		$('#dze-cb-tplrows').append(tplRow(firstFreeTpl()));
-		syncTplRows();
-		persist();
+	$(document).on('click', '.dze-tplrows .dze-tpl-add', function () {
+		var $wrap = $(this).closest('.dze-tplrows');
+		$wrap.append(tplRow(firstFreeTpl($wrap)));
+		syncRows($wrap);
+		rowsChanged($wrap);
 	});
-	$(document).on('click', '#dze-cb-tplrows .dze-tpl-del', function () {
+	$(document).on('click', '.dze-tplrows .dze-tpl-del', function () {
+		var $wrap = $(this).closest('.dze-tplrows');
 		$(this).closest('.dze-tplrow').remove();
-		syncTplRows();
-		persist();
+		syncRows($wrap);
+		rowsChanged($wrap);
 	});
-	function tpls() {
-		var seen = {}, out = [];
-		$('#dze-cb-tplrows .dze-cb-tpl').each(function () {
-			var v = $(this).val();
-			if (v !== null && !seen[v]) { seen[v] = 1; out.push(v); }
-		});
-		return out;
+	// A change to the rows of a product's own order changes THAT product's
+	// order and nothing else; a change to the run's is remembered as the run's.
+	$(document).on('change', '.dze-cb-ownrows .dze-cb-tpl, .dze-cb-ownrows .dze-tpl-scene, .dze-cb-ownrows .dze-tpl-n, .dze-cb-ownrows .dze-tpl-target', function () {
+		rowsChanged($(this).closest('.dze-tplrows'));
+	});
+	function rowsChanged($wrap) {
+		if ('dze-cb-tplrows' === $wrap.attr('id')) { persist(); return; }
+		var id = $wrap.closest('.dze-cb-preview').data('id');
+		if (!id) { return; }
+		own[String(id)] = jobsIn($wrap);
+		markOwn(id);
+		ownState(id);
+		// The order has just changed, and one of its rows may now be writing a
+		// main image — the question about today's belongs to the run, wherever
+		// the order that raises it lives.
+		syncOldMainRow();
+		drawPicked();
 	}
 	// The rows as orders, one entry each, duplicates dropped the same way.
-	function tplJobs() {
+	function jobsIn($wrap) {
 		var seen = {}, out = [];
-		$('#dze-cb-tplrows .dze-tplrow').each(function () {
+		$wrap.find('.dze-tplrow').each(function () {
 			var $r = $(this), v = $r.find('.dze-cb-tpl').val();
 			if (v === null || seen[v]) { return; }
 			seen[v] = 1;
@@ -216,9 +254,34 @@
 		});
 		return out;
 	}
-	function jobFor(tpl) {
+	function tplJobs() { return jobsIn($('#dze-cb-tplrows')); }
+
+	// THE RUN'S ORDER, AND A PRODUCT'S OWN.
+	//
+	// "Avoir une option bulk, mais aussi avoir la possibilité, si on veut, de
+	// régler par produit. Donc l'idée n'est pas de toujours utiliser le réglage
+	// individuel mais de l'avoir sous la main si besoin." Five photographs is
+	// the right order for a product with two, and one is enough for the one
+	// beside it — and the run had a single answer for the whole list.
+	//
+	// A product's own order lives here and nowhere else: the bucket is deleted
+	// by every run (`resetRow`), so an order kept in it would be thrown away by
+	// the very press it was set for, exactly like the note. It is not stored
+	// either — an order remembered after a reload and visible nowhere is a
+	// standing instruction, which this plugin does not have — and while it
+	// stands the product's own line says so.
+	var own = {};
+	function hasOwn(id) { return !!(own[String(id)] && own[String(id)].length); }
+	function jobsFor(id) { return hasOwn(id) ? own[String(id)] : tplJobs(); }
+	// How many photographs an order asks for on one product.
+	function imgCount(id) {
+		var n = 0;
+		jobsFor(id).forEach(function (j) { n += Math.max(1, parseInt(j.n, 10) || 1); });
+		return n;
+	}
+	function jobFor(id, tpl) {
 		var found = null;
-		tplJobs().forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
+		jobsFor(id).forEach(function (j) { if (!found && String(j.tpl) === String(tpl)) { found = j; } });
 		return found || { tpl: String(tpl), scene: -1, n: 1, target: 'gallery' };
 	}
 
@@ -233,14 +296,14 @@
 	// selection can only ever add a reason, never remove that one.
 	var startOff = $('#dze-cb-start').prop('disabled');
 	function drawPicked() {
-		var n = picked().length;
+		var ids = picked(), n = ids.length;
 		$('#dze-cb-selcount').text(n ? sprintf(i18n.selected, n) : '');
 		// The three actions read the same selection and say so on their face:
 		// how many products they are about to work on, and nothing to click
 		// while that number is zero.
 		$('#dze-cb-delete').prop('disabled', 0 === n).text(sprintf(i18n.deleteN, n));
 		$('#dze-cb-start').prop('disabled', startOff || 0 === n).text(sprintf(i18n.generateN, n));
-		drawSpend(n);
+		drawSpend(ids);
 		refreshApplyBar();
 	}
 	// WHAT THIS PRESS IS ABOUT TO SPEND, before it is pressed.
@@ -252,16 +315,20 @@
 	// the rows, the attempts, the ticked products, the price per image — and
 	// the button said "Generate (30)", which is a count of products and reads
 	// like a count of the work.
-	function drawSpend(n) {
+	function drawSpend(ids) {
 		var $out = $('#dze-cb-spend');
 		if (!$out.length) { return; }
 		// The same three conditions the press itself reads, so the figure and
-		// the run can never disagree.
-		var per = 0;
-		if ($('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled')) {
-			tplJobs().forEach(function (j) { per += Math.max(1, parseInt(j.n, 10) || 1); });
-		}
-		var total = n * per;
+		// the run can never disagree. It is a SUM over the ticked products and
+		// not one order times a count, because a product carrying its own order
+		// asks for a different number of photographs from its neighbour.
+		var on = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled');
+		var total = 0, most = 0;
+		ids.forEach(function (id) {
+			var per = on ? imgCount(id) : 0;
+			total += per;
+			if (per > most) { most = per; }
+		});
 		if (!total) { $out.text('').hide(); return; }
 		var price = parseFloat(cfg.imageCost || 0) || 0;
 		var said = price
@@ -272,12 +339,12 @@
 		// every line — said here, before the press, rather than as a refusal
 		// halfway through.
 		var cap = parseInt(cfg.falPostCap, 10) || 0;
-		if (cap > 0 && per > cap) {
-			said += ' · ' + sprintf(i18n.overCap, cap, per - cap);
+		if (cap > 0 && most > cap) {
+			said += ' · ' + sprintf(i18n.overCap, cap, most - cap);
 		}
 		$out.show().text(said);
 	}
-	$(document).on('change', '#dze-cb-image, .dze-cb-tpl, .dze-tpl-n', function () { drawPicked(); });
+	$(document).on('change', '#dze-cb-image, #dze-cb-tplrows .dze-cb-tpl, #dze-cb-tplrows .dze-tpl-n', function () { drawPicked(); });
 	$(document).on('change', '.dze-cb-pick', drawPicked);
 	// Shift+click ticks everything between the last box you touched and this
 	// one, the way every list in WordPress behaves. Picking twelve products out
@@ -584,7 +651,7 @@
 	// The prompt, its scene and its count come from the row that ordered the
 	// image: one decision per prompt, the same for every product of the list.
 	function imageRequest(id, review, tpl, scene, attempt, target) {
-		var job  = jobFor(tpl);
+		var job  = jobFor(id, tpl);
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
 		// What was handed to THIS product from outside the shop, and to no
 		// other: the box lives on its own panel.
@@ -637,13 +704,13 @@
 	}
 	// Nothing said which prompt it was: the one that writes where this image is
 	// headed, rather than whichever happens to be first.
-	function tplForTarget(target) {
+	function tplForTarget(id, target) {
 		var found = null;
-		tplJobs().forEach(function (j) {
+		jobsFor(id).forEach(function (j) {
 			if (null === found && j.target === target) { found = String(j.tpl); }
 		});
 		if (null !== found) { return found; }
-		var first = tplJobs()[0];
+		var first = jobsFor(id)[0];
 		return first ? String(first.tpl) : '0';
 	}
 	function oneImage(id, review, tpl, scene, attempt) {
@@ -804,11 +871,27 @@
 				'<textarea class="dze-cb-note large-text" rows="2" placeholder="' + esc(i18n.notePh) + '">' +
 					esc(told[id] || '') + '</textarea>' +
 			'</details>' +
+			// THE RUN'S ORDER, OR THIS PRODUCT'S OWN. Unticked, the product
+			// runs what the top of the page says, which is what a bulk screen
+			// is for; ticked, it starts from that same order and is changed
+			// here — one photograph for a product that only needs one, five
+			// for the one that has none. The rows are the run's own rows,
+			// cloned from the same template, so there is one order to learn
+			// and one builder to keep right.
+			'<details class="dze-cx-acc dze-cb-ownwrap">' +
+				'<summary>' + esc(i18n.ownTitle) + ' <span class="dze-cb-ownstate"></span></summary>' +
+				'<label class="dze-cb-ownuse">' +
+					'<input type="checkbox" class="dze-cb-ownon"' + (hasOwn(id) ? ' checked' : '') + ' /> ' +
+					esc(i18n.ownUse) +
+				'</label>' +
+				'<p class="description">' + esc(i18n.ownHelp) + '</p>' +
+				'<div class="dze-cb-ownrows"></div>' +
+			'</details>' +
 			'<div class="dze-cb-shots-slot"></div>' +
 			'<p class="dze-cb-panelbar">' +
 				(Object.keys(b.texts).length
 					? '<button type="button" class="button button-small dze-cb-redoall">↻ ' + esc(i18n.redoAll) + '</button> ' : '') +
-				oneMoreButtons() +
+				oneMoreButtons(id) +
 				// ACCEPT AND REFUSE, only where there is something to accept or
 				// refuse. On a product opened just to be looked at they are two
 				// buttons that can do nothing, and a control that cannot act is
@@ -848,6 +931,7 @@
 		}
 		b.built = true;
 		b.builtHolding = holding(id);
+		buildOwn(id);
 		renderShots(id);
 		panelApplyLabel(id);
 		// The gallery as it stands today, right under the new images: the only
@@ -856,6 +940,55 @@
 			renderCurrentImages(id); renderToday(id); renderSubjects(id); renderLog(id);
 		});
 	}
+
+	// The rows of a product's own order, drawn from the run's own grid — the
+	// headings included, so a column added to it tomorrow arrives here with no
+	// second markup to change.
+	function buildOwn(id) {
+		var $slot = previewCell(id).find('.dze-cb-ownrows');
+		if (!$slot.length) { return; }
+		$slot.empty();
+		if (hasOwn(id)) {
+			var $grid = $('#dze-cb-tplrows').closest('.dze-tplgrid').clone();
+			var $wrap = $grid.find('.dze-tplrows').removeAttr('id').empty();
+			own[String(id)].forEach(function (j) { $wrap.append(tplRow(j)); });
+			$slot.append($grid);
+			syncRows($wrap);
+		}
+		ownState(id);
+	}
+	// The drawer says what it holds while it is shut: a panel that has to be
+	// opened to learn whether this product follows the run is a panel that
+	// gets opened on all forty of them.
+	function ownState(id) {
+		previewCell(id).find('.dze-cb-ownstate')
+			.text(hasOwn(id) ? shotsSaid(imgCount(id)) : i18n.ownFollows);
+	}
+	// One photograph is not "1 photographs": both forms live in PHP, like
+	// every other word on this screen.
+	function shotsSaid(n) { return 1 === n ? i18n.ownOne : sprintf(i18n.ownN, n); }
+	// AND THE LINE SAYS SO TOO. An order set on a panel and visible only
+	// inside it is an instruction nobody can see from the list it changes —
+	// the mark is on the row, beside the name, and it survives a run because
+	// the order does.
+	function markOwn(id) {
+		var $cell = $row(id).find('.dze-cb-badges').parent();
+		var $m = $cell.find('.dze-cb-ownmark');
+		if (!hasOwn(id)) { $m.remove(); return; }
+		if (!$m.length) { $m = $('<span class="dze-cb-ownmark"></span>').appendTo($cell); }
+		$m.text(sprintf(i18n.ownMark, shotsSaid(imgCount(id))));
+	}
+	// Ticking it starts from the order the run is set to — the point is to
+	// change one thing about it, not to fill a form in from nothing.
+	$(document).on('change', '.dze-cb-ownon', function () {
+		var id = $(this).closest('.dze-cb-preview').data('id');
+		if (this.checked) { own[String(id)] = tplJobs(); }
+		else { delete own[String(id)]; }
+		buildOwn(id);
+		markOwn(id);
+		syncOldMainRow();
+		drawPicked();
+	});
 
 	// Does this product hold anything waiting for a decision?
 	function holding(id) {
@@ -1092,7 +1225,7 @@
 		// too: pressing ↻ asks for this image again, not for another one.
 		var dest = $card.find('.dze-cb-shotdest').val() || (b.shotTarget && b.shotTarget[url]) || 'gallery';
 		var tpl = tplOfShot(id, url);
-		if (null === tpl) { tpl = tplForTarget(dest); }
+		if (null === tpl) { tpl = tplForTarget(id, dest); }
 		var $st = $card.closest('.dze-cb-shots').find('.dze-cb-shotstate').removeClass('is-ko').text(i18n.working);
 		$.post(cfg.ajaxUrl, imageRequest(id, true, tpl, undefined, 0, dest))
 			.done(function (r) {
@@ -1334,8 +1467,8 @@
 	});
 	// "One more image" said nothing about WHICH image: one button per recipe in
 	// use, named after it, so the style asked for is the style on the button.
-	function oneMoreButtons() {
-		var used = tpls(), out = '';
+	function oneMoreButtons(id) {
+		var used = jobsFor(id).map(function (j) { return String(j.tpl); }), out = '';
 		if (!used.length) { used = [ '0' ]; }
 		used.forEach(function (t) {
 			var nm = (cfg.templates[parseInt(t, 10)] || {}).name || '';
@@ -1349,7 +1482,8 @@
 		var id = $btn.closest('.dze-cb-preview').data('id');
 		var $state = $btn.closest('p').find('.dze-cb-panelstate').removeClass('is-ko').text(i18n.working);
 		var tpl = $btn.data('tpl');
-		if (tpl === undefined) { tpl = tpls()[0] !== undefined ? tpls()[0] : '0'; }
+		if (tpl === undefined) { tpl = (jobsFor(id)[0] || {}).tpl; }
+		if (tpl === undefined) { tpl = '0'; }
 		tpl = String(tpl);
 		$.post(cfg.ajaxUrl, imageRequest(id, true, tpl))
 			.done(function (res) {
@@ -1721,7 +1855,6 @@
 		var doPrice = $('#dze-cb-price').is(':checked');
 		var tplList = tplJobs();
 		var doImg = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled') && tplList.length > 0;
-		var imgN = tplList.reduce(function (t, j) { return t + Math.max(1, j.n); }, 0);
 		var doRev = $('#dze-cb-reviews').is(':checked');
 		var revN = parseInt($('#dze-cb-revn').val(), 10) || 0;
 		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
@@ -1751,7 +1884,13 @@
 		});
 		refreshApplyBar();
 
-		var perProduct = (fields.length ? 1 : 0) + (doPrice ? 1 : 0) + (doImg ? imgN : 0) + (doRev ? 1 : 0);
+		// How many steps a product is worth is ITS OWN question now: one of
+		// them may be running its own order of one photograph while the next
+		// runs the run's five.
+		function stepsFor(id) {
+			return (fields.length ? 1 : 0) + (doPrice ? 1 : 0) +
+				(doImg ? imgCount(id) : 0) + (doRev ? 1 : 0);
+		}
 		// A product already holding content nobody has decided on is left alone:
 		// writing over it would charge for the same work twice and throw the
 		// first result away. Redoing one on purpose is what its ↻ is for.
@@ -1761,7 +1900,7 @@
 		// ONE job per product, its own steps in order inside it. Products are
 		// independent, the steps of a product are not: a price recalculated
 		// while its texts are still being written would be a race for nothing.
-		var jobs = [];
+		var jobs = [], steps = 0, most = 0;
 		$rows.each(function () {
 			var id = $(this).data('id');
 			if (waiting.indexOf(String(id)) >= 0) {
@@ -1772,13 +1911,16 @@
 				paint(id, 'ready');
 				return;
 			}
-			plan(id, perProduct);
+			var mine = stepsFor(id);
+			steps += mine;
+			if (mine > most) { most = mine; }
+			plan(id, mine);
 			jobs.push(function () {
 				paint(id, 'run');
 				var chain = $.Deferred().resolve().promise();
 				if (fields.length) { chain = chain.then(function () { return textAllTask(id, fields, reviewMode); }); }
 				if (doPrice) { chain = chain.then(function () { return priceTask(id); }); }
-				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, tplList); }); }
+				if (doImg) { chain = chain.then(function () { return imageTask(id, reviewMode, jobsFor(id)); }); }
 				if (doRev) { chain = chain.then(function () { return reviewsTask(id, revN); }); }
 				return chain;
 			});
@@ -1789,7 +1931,7 @@
 			return;
 		}
 		stopped = false; okCount = 0; koCount = 0; doneCount = 0;
-		total = jobs.length * perProduct;
+		total = steps;
 		$('#dze-cb-sticky').show();
 		$('.dze-cb-fill').css('width', 0);
 		$('#dze-cb-stickypct').text('0%');
@@ -1811,7 +1953,7 @@
 		// A product asking for several images is several calls of its own, so
 		// its lane is already busy: piling three of those in parallel is what
 		// times a shared server out.
-		if (perProduct >= 4) { lanes = Math.min(lanes, 2); }
+		if (most >= 4) { lanes = Math.min(lanes, 2); }
 		var cursor = 0, live = 0;
 		function finish() {
 			$('#dze-cb-start').prop('disabled', false);

@@ -4084,6 +4084,20 @@ Answer with STRICT JSON and nothing else: "
 					'noteTitle' => __( 'Notes about this product', 'dazont-ecom' ),
 					'noteHelp'  => __( 'Sent with the images this run makes, and with nothing after it. What the photographs cannot show, or what came back wrong last time. It is not saved.', 'dazont-ecom' ),
 					'notePh'    => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),
+					// THE RUN'S ORDER, OR THIS PRODUCT'S OWN. "Avoir une option
+					// bulk, mais aussi avoir la possibilité, si on veut, de
+					// régler par produit." Five photographs is right for a
+					// product with none and one is enough for the one beside
+					// it, and the run had a single answer for the whole list.
+					'ownTitle'   => __( 'Images for this product', 'dazont-ecom' ),
+					'ownFollows' => __( 'follows the run', 'dazont-ecom' ),
+					'ownUse'     => __( 'Give this product its own order', 'dazont-ecom' ),
+					'ownHelp'    => __( 'It starts from the order set at the top of the page; change it and this product alone runs it. It is not saved: a reload puts the product back on the run\'s order.', 'dazont-ecom' ),
+					'ownOne'     => __( '1 photograph', 'dazont-ecom' ),
+					/* translators: %s: how many photographs an order asks for */
+					'ownN'       => __( '%s photographs', 'dazont-ecom' ),
+					/* translators: %s: "1 photograph" or "3 photographs" */
+					'ownMark'    => __( 'Its own order · %s', 'dazont-ecom' ),
 					// The two words the row's one button wears, and the two
 					// headings of the panel it opens. In PHP, like every other
 					// status word: hard-coded in the JavaScript they were
