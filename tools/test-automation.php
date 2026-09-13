@@ -1,0 +1,490 @@
+<?php
+/**
+ * The automatic pass: what it takes, what it queues, and what stops it.
+ *
+ * Run before every release:  php tools/test-automation.php dazont-ecom
+ *
+ * This module had NO gate at all, which is remarkable for the one part of the
+ * plugin that runs with nobody watching, writes to the shop and spends money.
+ * Everything it does happens in cron: no screen shows it as it happens, no
+ * click reveals it, and a fault here is discovered weeks later by its damage.
+ *
+ * The internal linking task is the one the shop runs, and the one the others
+ * will be modelled on — "on va se baser sur son fonctionnement pour gérer le
+ * reste" — so it is held to its whole contract here, end to end:
+ *
+ *   - it takes its work from the link GRAPH and carries the addresses the
+ *     graph chose, so the pass writes THOSE links and not whatever the page
+ *     would have picked on its own;
+ *   - the job it queues is the pass that already writes that kind of page —
+ *     `cat_links` for a category, `post_links` for an article — because there
+ *     is no third linking engine and there must never be one;
+ *   - it goes slowly on purpose: one item per tick, a figure per day, and
+ *     never the same page twice within a month;
+ *   - and it stops for the things that must stop it — the module switched
+ *     off, the writing queue switched off, a copy of the shop, the monthly
+ *     budget — before it touches anything at all.
+ *
+ * Two faults it is RED on, both found by reading the pass it is written for:
+ *
+ *   - A PASS THAT WAS NEVER QUEUED MUST NOT COUNT AS A PASS. The object was
+ *     marked as worked on BEFORE the queue was asked, so a queue that refused
+ *     the job — the row already waiting, the table gone — left the page
+ *     stamped and locked out for three days having had nothing whatever done
+ *     to it. Silent, and visible only as a page that never gets its links.
+ *   - A TASK THAT HANDS ITS WORK TO THE QUEUE NEEDS THE QUEUE. `task_ready()`
+ *     asked for it only when the row NAMES its job kind, and the linking task
+ *     cannot name one — its kind depends on the page it lands on. So with the
+ *     writing queue switched off the task read as ready, the screen offered
+ *     it, and pressing Run answered "that category is already waiting in the
+ *     queue", which is a sentence about a queue that is not there.
+ */
+$dir = $argv[1] ?? 'dazont-ecom';
+
+define( 'ABSPATH', '/wp/' );
+define( 'MINUTE_IN_SECONDS', 60 );
+define( 'HOUR_IN_SECONDS', 3600 );
+define( 'DAY_IN_SECONDS', 86400 );
+define( 'ARRAY_A', 'ARRAY_A' );
+define( 'OBJECT', 'OBJECT' );
+define( 'DZE_VERSION', 'test' );
+define( 'DZE_FILE', __FILE__ );
+
+// --- WordPress, as much of it as the pass touches --------------------------
+function __( $s, $d = '' ) { return $s; }
+function _n( $one, $many, $n, $d = '' ) { return 1 === (int) $n ? $one : $many; }
+function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
+function esc_attr( $s ) { return esc_html( $s ); }
+function esc_url( $s ) { return (string) $s; }
+function esc_url_raw( $s ) { return (string) $s; }
+function esc_js( $s ) { return (string) $s; }
+function esc_html__( $s, $d = '' ) { return $s; }
+function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
+function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
+function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
+function wp_trim_words( $s, $n = 55, $more = '' ) { return implode( ' ', array_slice( preg_split( '/\s+/', (string) $s ), 0, $n ) ) . $more; }
+function wp_list_pluck( $rows, $field ) { return array_map( static fn( $r ) => $r[ $field ] ?? null, (array) $rows ); }
+function untrailingslashit( $s ) { return rtrim( (string) $s, '/\\' ); }
+function trailingslashit( $s ) { return untrailingslashit( $s ) . '/'; }
+function wp_parse_url( $url, $c = -1 ) { return parse_url( (string) $url, $c ); }
+function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
+function admin_url( $p = '' ) { return 'https://kula.test/wp-admin/' . $p; }
+function plugins_url( $p = '', $f = '' ) { return 'https://kula.test/wp-content/plugins/' . $p; }
+function current_time( $t ) { return 'Y-m-d' === $t ? gmdate( 'Y-m-d' ) : gmdate( 'Y-m-d H:i:s' ); }
+function human_time_diff( $a, $b = 0 ) { return '2 hours'; }
+function date_i18n( $f, $t = 0 ) { return gmdate( (string) $f, (int) $t ); }
+function number_format_i18n( $n ) { return (string) $n; }
+function add_action( ...$a ) {}
+function add_filter( ...$a ) {}
+function do_action( ...$a ) {}
+function apply_filters( $tag, $value = null, ...$a ) { return $value; }
+function wp_next_scheduled( $h ) { return time() + 1800; }
+function wp_schedule_event( ...$a ) {}
+function wp_clear_scheduled_hook( ...$a ) {}
+function is_admin() { return true; }
+function wp_json_encode( $v ) { return json_encode( $v ); }
+function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
+function sanitize_text_field( $s ) { return trim( (string) $s ); }
+function wp_kses_post( $s ) { return (string) $s; }
+function absint( $v ) { return abs( (int) $v ); }
+function wp_unslash( $v ) { return $v; }
+function current_user_can( $c ) { return true; }
+function wp_enqueue_script( ...$a ) {}
+function wp_localize_script( ...$a ) {}
+function wp_create_nonce( $a = '' ) { return 'nonce'; }
+function get_locale() { return 'en_US'; }
+function register_setting( ...$a ) {}
+function settings_fields( $g ) {}
+function submit_button( $t = '' ) { echo '<button>' . esc_html( $t ) . '</button>'; }
+function wc_get_page_id( $w ) { return 0; }
+// checked() and disabled() answer what WordPress answers: stubbed to '' they
+// hide the very questions the screen is drawn to answer.
+function checked( $a, $b = true, $echo = true ) { return $a == $b ? " checked='checked'" : ''; }
+function selected( $a, $b = true, $echo = true ) { return $a == $b ? " selected='selected'" : ''; }
+function disabled( $a, $b = true, $echo = true ) { return $a == $b ? " disabled='disabled'" : ''; }
+
+/**
+ * How many products sit behind a category — the figure the size of its
+ * description is judged against. It answers `found_posts`, which is the shape
+ * the reader reads: a stub answering nothing would make every category read as
+ * empty and the whole ranking meaningless.
+ */
+class WP_Query {
+	public $found_posts = 0;
+	public function __construct( $args = [] ) {
+		$term = (int) ( $args['tax_query'][0]['terms'] ?? 0 );
+		$this->found_posts = (int) ( $GLOBALS['behind'][ $term ] ?? 12 );
+	}
+}
+class WP_Error { public function __construct( ...$a ) {} }
+function is_wp_error( $t ) { return $t instanceof WP_Error; }
+
+$GLOBALS['tr']   = [];
+$GLOBALS['opts'] = [];
+function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; }
+function set_transient( $k, $v, $t = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
+function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
+function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
+function update_option( $k, $v, $auto = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
+function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
+
+// --- A shop with a mesh in it ---------------------------------------------
+// Two branches of categories and two articles, all long enough to carry a
+// sentence — plus a page laid out by a page builder, which is a TARGET and
+// never a source: its text is not in the post, so a link written into it
+// would be stored and never appear.
+$GLOBALS['terms'] = [
+	10 => [ 'name' => 'Tactical bags',      'slug' => 'tactical-bags',      'parent' => 0,  'description' => '<p>Bags for the field. ' . str_repeat( 'a word about bags ', 40 ) . '</p>' ],
+	11 => [ 'name' => 'Tactical backpacks', 'slug' => 'tactical-backpacks', 'parent' => 10, 'description' => '<p>Backpacks. ' . str_repeat( 'a word about backpacks ', 40 ) . '<a href="https://kula.test/category/tactical-bags/">Tactical bags</a></p>' ],
+	12 => [ 'name' => 'Boonie hats',        'slug' => 'boonie-hats',        'parent' => 0,  'description' => '<p>Hats for the sun. ' . str_repeat( 'a word about hats ', 40 ) . '</p>' ],
+	13 => [ 'name' => 'Tactical gloves',    'slug' => 'tactical-gloves',    'parent' => 0,  'description' => '<p>' . str_repeat( 'a word about gloves ', 40 ) . '</p>' ],
+];
+$GLOBALS['posts'] = [
+	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>' . str_repeat( 'a backpack word ', 90 ) . '</p>' ],
+	21 => [ 'type' => 'post', 'title' => 'Boonie hat sizing',                 'content' => '<p>' . str_repeat( 'a hat word ', 90 ) . '</p>' ],
+	23 => [ 'type' => 'page', 'title' => 'Workshop history',                  'content' => '' ],
+];
+$GLOBALS['pmeta'] = [ 23 => [ '_elementor_data' => '[{"elType":"widget","settings":{"title":"Since 1998"}}]' ] ];
+$GLOBALS['tmeta'] = [];
+
+function get_terms( $args = [] ) {
+	$out = [];
+	foreach ( $GLOBALS['terms'] as $id => $t ) {
+		if ( isset( $args['parent'] ) && (int) $t['parent'] !== (int) $args['parent'] ) { continue; }
+		if ( isset( $args['child_of'] ) && (int) $t['parent'] !== (int) $args['child_of'] ) { continue; }
+		if ( ! empty( $args['exclude'] ) && in_array( $id, (array) $args['exclude'], true ) ) { continue; }
+		$out[] = get_term( $id, 'product_cat' );
+	}
+	return $out;
+}
+function get_term( $id, $tax = '' ) {
+	$t = $GLOBALS['terms'][ (int) $id ] ?? null;
+	return $t ? (object) array_merge( $t, [
+		'term_id'          => (int) $id,
+		'term_taxonomy_id' => (int) $id + 500,
+		'taxonomy'         => 'product_cat',
+		'count'            => 5,
+	] ) : null;
+}
+function get_term_link( $t ) {
+	$id = is_object( $t ) ? (int) $t->term_id : (int) $t;
+	return 'https://kula.test/category/' . ( $GLOBALS['terms'][ $id ]['slug'] ?? '' ) . '/';
+}
+function get_term_children( $id, $tax = '' ) {
+	$out = [];
+	foreach ( $GLOBALS['terms'] as $tid => $t ) {
+		if ( (int) $t['parent'] === (int) $id ) { $out[] = $tid; }
+	}
+	return $out;
+}
+function get_edit_term_link( $id, $tax = '' ) { return 'https://kula.test/wp-admin/term.php?tag_ID=' . (int) $id; }
+function get_edit_post_link( $id, $ctx = '' ) { return 'https://kula.test/wp-admin/post.php?post=' . (int) $id; }
+function get_post( $id ) {
+	$p = $GLOBALS['posts'][ (int) $id ] ?? null;
+	return $p ? (object) [ 'ID' => (int) $id, 'post_title' => $p['title'], 'post_content' => $p['content'], 'post_type' => $p['type'] ] : null;
+}
+function get_post_type( $id ) { return $GLOBALS['posts'][ (int) $id ]['type'] ?? ''; }
+function get_permalink( $id ) { return 'https://kula.test/' . ( 'page' === get_post_type( $id ) ? '' : 'blog/' ) . $id . '/'; }
+
+// The two registers the pass writes on the object itself: when each task last
+// worked on it, and the text one that saves straight to the shop replaced.
+function get_post_meta( $id, $key = '', $single = false ) { return $GLOBALS['pmeta'][ (int) $id ][ $key ] ?? ''; }
+function update_post_meta( $id, $key, $v ) { $GLOBALS['pmeta'][ (int) $id ][ $key ] = $v; return true; }
+function delete_post_meta( $id, $key ) { unset( $GLOBALS['pmeta'][ (int) $id ][ $key ] ); return true; }
+function get_term_meta( $id, $key = '', $single = false ) { return $GLOBALS['tmeta'][ (int) $id ][ $key ] ?? ''; }
+function update_term_meta( $id, $key, $v ) { $GLOBALS['tmeta'][ (int) $id ][ $key ] = $v; return true; }
+function delete_term_meta( $id, $key ) { unset( $GLOBALS['tmeta'][ (int) $id ][ $key ] ); return true; }
+function delete_metadata( ...$a ) { return true; }
+function wp_update_term( $id, $tax, $args ) {
+	$GLOBALS['terms'][ (int) $id ]['description'] = (string) ( $args['description'] ?? '' );
+	return [ 'term_id' => (int) $id ];
+}
+function wp_update_post( $args, $err = false ) {
+	$GLOBALS['posts'][ (int) $args['ID'] ]['content'] = (string) ( $args['post_content'] ?? '' );
+	return (int) $args['ID'];
+}
+
+/** The posts table, and the mesh's own. */
+class DZE_Auto_Wpdb {
+	public $prefix = 'wp_';
+	public $posts  = 'wp_posts';
+	public $rows   = [];
+	public function get_charset_collate() { return ''; }
+	public function prepare( $q, ...$a ) {
+		foreach ( $a as $one ) {
+			$q = preg_replace( '/%[dsf]/', is_int( $one ) ? (string) $one : "'" . $one . "'", (string) $q, 1 );
+		}
+		return $q;
+	}
+	public function query( $sql ) {
+		if ( 0 === stripos( $sql, 'TRUNCATE' ) ) { $this->rows = []; return true; }
+		if ( preg_match( '/INSERT INTO \S+ \(from_kind,from_id,to_kind,to_id,anchor,seen\) VALUES (.*)$/is', $sql, $m ) ) {
+			preg_match_all( "/\('([^']*)',(\d+),'([^']*)',(\d+),'([^']*)','([^']*)'\)/", $m[1], $all, PREG_SET_ORDER );
+			foreach ( $all as $one ) {
+				$this->rows[] = [ 'from_kind' => $one[1], 'from_id' => (int) $one[2], 'to_kind' => $one[3], 'to_id' => (int) $one[4], 'anchor' => $one[5] ];
+			}
+		}
+		return true;
+	}
+	public function get_results( $sql, $out = ARRAY_A ) {
+		if ( false !== stripos( $sql, 'FROM wp_posts' ) ) {
+			$rows = [];
+			foreach ( $GLOBALS['posts'] as $id => $p ) {
+				$rows[] = [ 'ID' => $id, 'post_title' => $p['title'], 'post_type' => $p['type'], 'post_content' => $p['content'] ];
+			}
+			return $rows;
+		}
+		if ( false !== stripos( $sql, 'GROUP BY to_kind' ) ) {
+			$n = [];
+			foreach ( $this->rows as $r ) { $n[ $r['to_kind'] . '|' . $r['to_id'] ] = ( $n[ $r['to_kind'] . '|' . $r['to_id'] ] ?? 0 ) + 1; }
+			$out = [];
+			foreach ( $n as $k => $c ) { [ $kind, $id ] = explode( '|', $k ); $out[] = [ 'to_kind' => $kind, 'to_id' => $id, 'n' => $c ]; }
+			return $out;
+		}
+		if ( false !== stripos( $sql, 'GROUP BY from_kind' ) ) {
+			$n = [];
+			foreach ( $this->rows as $r ) { $n[ $r['from_kind'] . '|' . $r['from_id'] ] = ( $n[ $r['from_kind'] . '|' . $r['from_id'] ] ?? 0 ) + 1; }
+			$out = [];
+			foreach ( $n as $k => $c ) { [ $kind, $id ] = explode( '|', $k ); $out[] = [ 'from_kind' => $kind, 'from_id' => $id, 'n' => $c ]; }
+			return $out;
+		}
+		if ( false !== stripos( $sql, 'from_kind, from_id, to_kind, to_id FROM' ) ) { return $this->rows; }
+		if ( false !== stripos( $sql, 'WHERE to_kind' ) ) { return $this->rows; }
+		return [];
+	}
+	public function get_var( $sql ) { return false !== stripos( $sql, 'COUNT(*)' ) ? count( $this->rows ) : null; }
+	public function insert( $t, $row ) { return true; }
+}
+$GLOBALS['wpdb'] = new DZE_Auto_Wpdb();
+$wpdb            = $GLOBALS['wpdb'];
+
+/** The writing queue: what was asked of it, and nothing done. */
+class DZE_Queue {
+	public static array $added = [];
+	public static bool $refuse = false;
+	public static function add( string $kind, array $ids, bool $auto = false, array $payload = [] ): int {
+		if ( self::$refuse ) { return 0; }
+		self::$added[] = [ 'kind' => $kind, 'ids' => $ids, 'auto' => $auto, 'payload' => $payload ];
+		return count( $ids );
+	}
+	/** What is already waiting on an object, in the shape the real one answers. */
+	public static function pending_for( int $object_id, string $family = 'cat_' ): array { return []; }
+}
+/** The module switches. A class file always exists; this is the real check. */
+class DZE_Modules {
+	public static function enabled( string $id ): bool { return (bool) ( $GLOBALS['mods'][ $id ] ?? true ); }
+}
+/** A copy of the shop runs nothing on its own; a button pressed by hand does. */
+class DZE_Site {
+	public static function autopilot_ok( bool $by_hand = false ): bool { return $by_hand || empty( $GLOBALS['is_copy'] ); }
+}
+class DZE_Ai_Usage {
+	public static function unit( string $u = '' ): void {}
+	public static function about( int $id = 0 ): void {}
+	public static function over_budget(): bool { return ! empty( $GLOBALS['over_budget'] ); }
+}
+class DZE_Marketing_Ai {
+	public static array $asked = [];
+	public static function api_key(): string { return 'k'; }
+	public static function get_settings(): array { return []; }
+	public static function pending_count(): int { return (int) ( $GLOBALS['pending_events'] ?? 0 ); }
+	public static function covered_until(): int { return 0; }
+	public static function propose( string $from, string $to ): array { self::$asked[] = [ $from, $to ]; return [ 'added' => 2 ]; }
+	public static function complete( string $s, string $u, string $m = '', int $x = 0, int $t = 0 ): string { return ''; }
+}
+class DZE_Wpml {
+	public static function ids_in_language( string $type, string $lang ): ?array { return null; }
+}
+
+require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
+require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
+require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
+require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
+
+$ran   = 0;
+$fails = 0;
+function ok( string $what, $got, $want ) {
+	global $fails, $ran;
+	$ran++;
+	if ( $got === $want ) { printf( "  ok   %s\n", $what ); return; }
+	$fails++;
+	printf( "  WRONG %s\n       got  %s\n       want %s\n", $what, var_export( $got, true ), var_export( $want, true ) );
+}
+/** The shop as it stands before a case: settings, state, registers, queue. */
+function fresh( array $tasks = [] ): void {
+	$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => $tasks ];
+	unset( $GLOBALS['opts']['dze_auto_state'] );
+	$GLOBALS['tmeta'] = [];
+	$GLOBALS['pmeta'] = [ 23 => [ '_elementor_data' => '[{"elType":"widget","settings":{"title":"Since 1998"}}]' ] ];
+	$GLOBALS['mods']  = [];
+	$GLOBALS['is_copy'] = false;
+	$GLOBALS['over_budget'] = false;
+	DZE_Queue::$added  = [];
+	DZE_Queue::$refuse = false;
+	delete_transient( 'dze_auto_survey' );
+}
+$ON = [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ] ];
+
+DZE_Mesh::scan(); // the graph is read once a day by its own cron; here, once.
+
+echo "\nThe tasks it offers\n";
+$tasks = DZE_Automation::tasks();
+ok( 'three of them, and no more',      array_keys( $tasks ), [ 'mesh_links', 'cat_desc', 'events' ] );
+// ONE TASK FOR ONE PIECE OF WORK. Linking was two tasks — one for categories,
+// one for articles — each mending half a mesh from its own half-blind reading.
+ok( 'linking is one task over one graph', $tasks['mesh_links']['scope'], 'mesh' );
+ok( 'and it belongs to the mesh module',  $tasks['mesh_links']['module'], 'mesh' );
+
+echo "\nWhat stops it, before it touches anything\n";
+fresh();
+ok( 'switched off, it says so',        DZE_Automation::why_not( 'mesh_links' ), 'off' );
+fresh( $ON );
+$GLOBALS['mods'] = [ 'mesh' => 0 ];
+ok( 'its own module off, it is not ready', DZE_Automation::task_ready( 'mesh_links' ), false );
+ok( 'and the reason names the modules', DZE_Automation::why_not( 'mesh_links' ), 'modules' );
+// A TASK THAT HANDS ITS WORK TO THE QUEUE NEEDS THE QUEUE. The linking task
+// cannot name its job kind — it depends on the page — so the check that asked
+// for the queue only when a kind was named let this one through, and the
+// screen offered work that could not be done.
+fresh( $ON );
+$GLOBALS['mods'] = [ 'queue' => 0 ];
+ok( 'the writing queue off, it is not ready', DZE_Automation::task_ready( 'mesh_links' ), false );
+ok( 'and it says which switch',        DZE_Automation::why_not( 'mesh_links' ), 'modules' );
+fresh( $ON );
+$GLOBALS['is_copy'] = true;
+ok( 'a copy of the shop runs nothing', DZE_Automation::why_not( 'mesh_links' ), 'copy' );
+ok( 'but a button pressed by hand does', DZE_Automation::why_not( 'mesh_links', true ), '' );
+fresh( $ON );
+$GLOBALS['over_budget'] = true;
+ok( 'the budget spent stops it',       DZE_Automation::why_not( 'mesh_links' ), 'budget' );
+ok( 'and a press cannot spend past it', DZE_Automation::why_not( 'mesh_links', true ), 'budget' );
+fresh( $ON );
+ok( 'on, ready, nothing in the way',   DZE_Automation::why_not( 'mesh_links' ), '' );
+
+echo "\nWhat it is about to take\n";
+fresh( $ON );
+$next = DZE_Automation::shortlist( 'mesh_links', 5 );
+ok( 'the graph gives it work',         count( $next ) > 0, true );
+$first = $next[0];
+ok( 'each row names the page',         '' !== (string) $first['name'], true );
+ok( 'and says why it was chosen',      '' !== (string) $first['why'], true );
+// THE ADDRESSES THE GRAPH CHOSE TRAVEL WITH THE ROW. Rebuilt from an id
+// halfway through, the pass asks a different question — "what would this page
+// link to on its own" — and answers it with different pages.
+ok( 'and carries the addresses chosen', count( (array) $first['urls'] ) > 0, true );
+$builder = false;
+foreach ( $next as $row ) { if ( 23 === (int) $row['tid'] ) { $builder = true; } }
+ok( 'a page builder page is never a source', $builder, false );
+
+echo "\nOne tick, one job\n";
+fresh( $ON );
+$res = DZE_Automation::tick();
+ok( 'the tick queues something',       $res['queued'], 1 );
+ok( 'and says which task did it',      $res['task'], 'mesh_links' );
+ok( 'exactly one job, never two',      count( DZE_Queue::$added ), 1 );
+$job = DZE_Queue::$added[0];
+ok( 'the job is the pass that writes that kind of page',
+	in_array( $job['kind'], [ 'cat_links', 'post_links' ], true ), true );
+ok( 'on the page the graph named',     $job['ids'], [ (int) $first['tid'] ] );
+ok( 'carrying the addresses it chose', $job['payload']['urls'], (array) $first['urls'] );
+// NOTHING WRITES TO THE SHOP WITHOUT BEING LOOKED AT: three tasks once
+// shipped with "save without review" ticked, and a shop switching one on got
+// text written straight onto its categories having chosen nothing.
+ok( 'and held for review, not applied', $job['auto'], false );
+
+echo "\nIt goes slowly, on purpose\n";
+ok( 'the day is counted',              DZE_Automation::done_today( 'mesh_links' ), 1 );
+ok( 'and the next tick waits its turn', DZE_Automation::why_not( 'mesh_links' ), 'early' );
+// The same page is not offered again: it was worked on, and a month is the
+// cooldown — a site whose fifty pages all change on one afternoon does not
+// look like a site being looked after.
+$again = DZE_Automation::shortlist( 'mesh_links', 5 );
+$same  = false;
+foreach ( $again as $row ) { if ( (int) $row['tid'] === (int) $first['tid'] ) { $same = true; } }
+ok( 'the page just done is not offered again', $same, false );
+// A press by hand skips the spacing — and still takes a different page.
+$res2 = DZE_Automation::tick( 'mesh_links', true );
+ok( 'a press by hand runs anyway',     $res2['queued'], 1 );
+ok( 'on another page',                 DZE_Queue::$added[1]['ids'] !== DZE_Queue::$added[0]['ids'], true );
+// The day's figure holds for the automatic pass.
+$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 1, 'apply' => 0 ] ] ];
+ok( "today's figure used up",          DZE_Automation::why_not( 'mesh_links' ), 'cap' );
+// A DELIBERATE PRESS RUNS. The day's figure is the automatic rhythm, not a
+// refusal to answer a button — but it is counted, so the automatic pass does
+// that much less, and what protects the shop never yields to it.
+ok( 'and a press still runs',          DZE_Automation::why_not( 'mesh_links', true ), '' );
+
+echo "\nA pass that was never queued is not a pass\n";
+//
+// The object used to be stamped as worked on BEFORE the queue was asked, so a
+// queue that refused — the row already waiting, the table gone — left the page
+// marked and locked out for three days having had nothing done to it at all.
+fresh( $ON );
+DZE_Queue::$refuse = true;
+$ref = DZE_Automation::tick( 'mesh_links' );
+ok( 'a refused job is reported as refused', $ref['reason'], 'busy' );
+ok( 'and nothing was queued',          count( DZE_Queue::$added ), 0 );
+ok( 'the day is not counted for it',   DZE_Automation::done_today( 'mesh_links' ), 0 );
+DZE_Queue::$refuse = false;
+$after = DZE_Automation::shortlist( 'mesh_links', 5 );
+$back  = false;
+foreach ( $after as $row ) { if ( (int) $row['tid'] === (int) $first['tid'] ) { $back = true; } }
+ok( 'and the page is still there to be done', $back, true );
+ok( 'no register was written on it',   $GLOBALS['tmeta'], [] );
+
+echo "\nWhat it saved, and putting it back\n";
+// With "save it on the shop straight away" ticked, the text it replaced is
+// kept — and one click puts it back.
+fresh( [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 1 ] ] );
+$pick = DZE_Automation::shortlist( 'mesh_links', 1 )[0];
+$was  = 'product_cat' === $pick['kind']
+	? (string) $GLOBALS['terms'][ (int) $pick['tid'] ]['description']
+	: (string) $GLOBALS['posts'][ (int) $pick['tid'] ]['content'];
+DZE_Automation::tick();
+ok( 'it goes to the shop when that is ticked', DZE_Queue::$added[0]['auto'], true );
+$type = 'product_cat' === $pick['kind'] ? 'term' : 'post';
+$kept = 'term' === $type
+	? (string) get_term_meta( (int) $pick['tid'], '_dze_auto_prev', true )
+	: (string) get_post_meta( (int) $pick['tid'], '_dze_auto_prev', true );
+ok( 'the text it replaces is kept',    $kept, $was );
+// The pass has written something since; the undo puts back what was there.
+if ( 'term' === $type ) { $GLOBALS['terms'][ (int) $pick['tid'] ]['description'] = 'something else'; }
+else { $GLOBALS['posts'][ (int) $pick['tid'] ]['content'] = 'something else'; }
+ok( 'and one press puts it back',      DZE_Automation::undo( (int) $pick['tid'], $type ), true );
+$now = 'term' === $type
+	? (string) $GLOBALS['terms'][ (int) $pick['tid'] ]['description']
+	: (string) $GLOBALS['posts'][ (int) $pick['tid'] ]['content'];
+ok( 'the page holds what it held',     $now, $was );
+ok( 'and there is nothing left to undo twice', DZE_Automation::undo( (int) $pick['tid'], $type ), false );
+
+echo "\nThe screen it is read from\n";
+fresh( $ON );
+ob_start();
+DZE_Automation::render_settings();
+$html = (string) ob_get_clean();
+ok( 'the tab draws',                   '' !== trim( $html ), true );
+ok( 'every task is on it',             substr_count( $html, 'class="dze-auto-state"' ), 3 );
+ok( 'each one can be run by hand',     substr_count( $html, 'dze-auto-run' ) >= 3, true );
+// THE WHOLE TOOL RESTS ON THIS LIST, so it is shown and not described: the
+// pages it would take next, each with what it is short of.
+ob_start();
+DZE_Automation::render_state( 'mesh_links' );
+$state = (string) ob_get_clean();
+ok( 'the state names what it takes next', false !== strpos( $state, 'Next in line' ), true );
+ok( 'and names a page of this shop',   false !== strpos( $state, (string) $first['name'] ), true );
+ok( 'with a way to that page',         false !== strpos( $state, 'wp-admin' ), true );
+// A task that cannot run says so on its own block rather than offering work
+// that would fail.
+$GLOBALS['mods'] = [ 'mesh' => 0 ];
+ob_start();
+DZE_Automation::render_settings();
+$off = (string) ob_get_clean();
+ok( 'a task whose module is off is not offered', false !== strpos( $off, 'Needs its own module' ), true );
+
+echo "\nEvery reason it can give has words\n";
+foreach ( [ 'queued', 'cap', 'none', 'budget', 'modules', 'busy', 'off', 'copy', 'early', 'failed' ] as $why ) {
+	ok( 'the shop is told: ' . $why, '' !== DZE_Automation::reason_text( $why ), true );
+}
+
+printf( "\n%d checks, %d wrong\n", $ran, $fails );
+exit( $fails ? 1 : 0 );

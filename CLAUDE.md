@@ -1018,6 +1018,26 @@ whose screen has not been thought through yet.
   and the Linking tab's buttons pressed in a real browser on both jQuery
   builds, proving the press OPENS a choice, that the ticks decide what
   travels, and that the page never moves.
+- **`php tools/test-automation.php dazont-ecom` must pass.** The one part of
+  the plugin that runs with nobody watching, writes to the shop and spends
+  money had no gate at all: everything it does happens in cron, so a fault is
+  discovered weeks later by its damage. The internal linking task is the shape
+  the other tasks are modelled on, so it is held to its whole contract against
+  a fake shop — it takes its work from the GRAPH and carries the addresses the
+  graph chose, the job it queues is the pass that already writes that kind of
+  page, one item per tick, the day's figure, the month-long cooldown, held for
+  review unless the shop ticked otherwise, and the undo that puts back what an
+  automatic save replaced. Two rules it was RED on, both of them ways a page
+  is quietly never worked on: **a pass that was never queued is not a pass**
+  — the register used to be written BEFORE the queue was asked, so a queue
+  that refused left the page stamped and locked out for three days having had
+  nothing done to it — and **a task that hands its work to the queue needs the
+  queue**, which was asked for only when the row NAMES its job kind; the
+  linking task cannot name one, so with the writing queue switched off it read
+  as ready and answered a press with a sentence about a queue that is not
+  there. A press by hand runs past the day's figure and the spacing — a
+  deliberate act — and never past a switched-off module, a copy of the shop or
+  the monthly budget.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo
