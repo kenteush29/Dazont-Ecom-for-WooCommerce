@@ -486,10 +486,21 @@
 .dze-one-bg.is-sel { border-color: #2271b1; box-shadow: 0 0 0 2px #2271b1 inset; }
 .dze-one-bgadd { align-items: center; justify-content: center; font-size: 20px; color: #2271b1; }
 
+/* ONE COLUMN WIDTH FOR THE WHOLE SCREEN, written once.
+   "Applique la même largeur pour le bloc To review": the task blocks stopped
+   at 1100px and the list under them ran the full width of the window, so one
+   page had two left-hand edges. A figure typed into two rules is two figures
+   the day either is changed, so it is a property and both read it. */
+.dze-wrap { --dze-col: 1100px; }
+/* And the ceiling has to mean the same box on both, or a block with 18px of
+   padding comes out 12px wider than a list with 12px and the two edges still
+   do not line up — which is the fault, measured, not the rule. */
+.dze-set, .dze-auto-todo, .dze-auto-h2, .dze-auto-past, #dze-auto-waiting > p { box-sizing: border-box; }
+
 /* ---- Settings: one shut block per subject ---- */
 .dze-set {
 	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;
-	padding: 0 18px; margin: 0 0 10px; max-width: 1100px;
+	padding: 0 18px; margin: 0 0 10px; max-width: var( --dze-col, 1100px );
 }
 .dze-set > summary {
 	cursor: pointer; font-weight: 600; font-size: 13px; color: #1d2327;
@@ -551,9 +562,15 @@ button.dze-auto-chip:hover { border-color: #2271b1; color: #2271b1; }
    done to it, and the three answers at the end of the line — the same three
    the review list carries, so the gesture is the same wherever somebody meets
    these rows. */
-.dze-auto-h2 { margin: 26px 0 0; font-size: 14px; }
+.dze-auto-h2 { margin: 26px 0 0; font-size: 14px; max-width: var( --dze-col, 1100px ); }
 #dze-auto-waiting { margin-bottom: 18px; }
-.dze-auto-todo { margin: 8px 0 0; border: 1px solid #dcdcde; border-radius: 4px; background: #fff; padding: 0 12px; }
+/* The same column as the blocks above it: this list is the other half of the
+   same screen, not a table of its own. */
+.dze-auto-todo {
+	margin: 8px 0 0; border: 1px solid #dcdcde; border-radius: 4px;
+	background: #fff; padding: 0 12px; max-width: var( --dze-col, 1100px );
+}
+#dze-auto-waiting > p { max-width: var( --dze-col, 1100px ); }
 .dze-auto-job {
 	display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 	margin: 0; padding: 7px 0; border-top: 1px solid #f0f0f1;
@@ -565,7 +582,7 @@ button.dze-auto-chip:hover { border-color: #2271b1; color: #2271b1; }
 .dze-auto-next { margin: 8px 0 0; }
 .dze-auto-why { color: #a7aaad; }
 .dze-auto-blocked { color: #b32d2e; }
-.dze-auto-past { margin-top: 4px; }
+.dze-auto-past { margin-top: 4px; max-width: var( --dze-col, 1100px ); }
 .dze-auto-past .dze-auto-whenth, .dze-auto-past .dze-auto-when { width: 150px; white-space: nowrap; }
 .dze-auto-past .dze-auto-actth,  .dze-auto-past .dze-auto-act  { width: 130px; white-space: nowrap; }
 .dze-auto-past .dze-auto-msg { font-size: 12px; }

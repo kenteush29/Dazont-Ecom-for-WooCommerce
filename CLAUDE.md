@@ -1253,6 +1253,31 @@ whose screen has not been thought through yet.
     has been counted" are different answers. The browser gate asserts the chip
     against the figure the REAL census counted on the fake shop, handed over
     beside the markup — a number typed into two files is two numbers.
+  - **A SHELF WITH NOTHING ON IT IS NOWHERE TO SEND A READER.** "SMERSH VESTS
+    — c'est une catégorie sans produits. Ça doit être filtré. Peut-être des
+    catégories mortes ou pas finies, peu importe." A product category holding
+    no products is dropped from `pages()`, exactly as an empty page and a draft
+    are. **And the rule is counted DOWN THE BRANCH, never on the term's own
+    `count`**: WordPress's figure is that term alone, so on a shop whose stock
+    lives in the leaves every parent reads nought — written on `count` this
+    rule would take out the top of every branch, which is worse than the thing
+    it mends. `branch_count()` walks the map already in hand (no query), stops
+    at the first product since it is a yes-or-no question, and carries a seen
+    set because a parent loop is a broken taxonomy and not a reason to hang.
+    The gate's `get_term()` stub honours a term's own count, or nothing here
+    could be red on it.
+  - **ONE SCREEN, ONE COLUMN — and the ceiling must mean the same BOX.**
+    "Applique la même largeur pour le bloc To review." The task blocks stopped
+    at their own width and the list under them ran the full width of the
+    window, so one page had two right-hand edges. Two faults, and the second is
+    the one that would have shipped looking fixed: the figure is a property
+    (`--dze-col`) that both read, because a number typed into two rules is two
+    numbers the day either changes — and giving both the same `max-width` still
+    left them 12px apart, since a block with 18px of padding is wider than a
+    list with 12px until `box-sizing: border-box` makes the ceiling mean the
+    same box. The browser gate MEASURES both edges, and asserts the column is
+    narrower than the window — "the same width" is true of two things that both
+    simply run to the edge.
   - **AN ALLOW-LIST ON THE ONE KIND WHERE THE ANSWER IS MIXED — never a
     deny-list over everything.** The first version put every page in the mesh
     and had you exclude one at a time from a row of the orphan popup: "c'est
