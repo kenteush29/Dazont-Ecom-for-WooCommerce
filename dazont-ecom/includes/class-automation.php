@@ -775,12 +775,48 @@ final class DZE_Automation {
 			$out['reason'] = $why;
 			return $out;
 		}
-		$cap = max( 1, min( self::CATCHUP_MAX, $cap ) );
-		foreach ( self::mesh_shortlist( $id, $cap, 'out' ) as $row ) {
-			$res = self::run( $id, (int) $row['tid'], (array) $row );
-			if ( $res['queued'] ) {
-				$out['queued']++;
+		$cap  = max( 1, min( self::CATCHUP_MAX, $cap ) );
+		$conf = self::conf( $id );
+		$rows = self::mesh_shortlist( $id, $cap, 'out' );
+
+		// A BULK PRESS DOES ITS BOOKKEEPING ONCE. Looping the single-page path
+		// read and rewrote the register — the day's figure, the log, the undo
+		// copies — for EVERY page: two hundred read-modify-writes of one option
+		// inside one request, and a log holding nothing but the last twelve
+		// lines of the press that filled it. The pages are queued the way the
+		// queue takes them, in one call per kind, and the register is written
+		// once, for the press.
+		$by = [];
+		foreach ( $rows as $row ) {
+			$job = 'product_cat' === (string) $row['kind'] ? 'cat_links' : 'post_links';
+			$by[ $job ][] = (int) $row['tid'];
+		}
+		foreach ( $by as $job => $ids ) {
+			$out['queued'] += (int) DZE_Queue::add( $job, $ids, (bool) $conf['apply'], [] );
+		}
+		// Marked only once the work is really under way: a page stamped by a
+		// queue that refused is a page locked out for a month having had
+		// nothing done to it.
+		if ( $out['queued'] > 0 ) {
+			foreach ( $rows as $row ) {
+				self::mark( (int) $row['tid'], $id, 'product_cat' === (string) $row['kind'] ? 'term' : 'post', 0, 0 );
 			}
+			self::note(
+				$id,
+				0,
+				sprintf(
+					/* translators: %s: how many pages were put in the writing queue */
+					_n( 'Link the whole site — %s page', 'Link the whole site — %s pages', $out['queued'], 'dazont-ecom' ),
+					number_format_i18n( $out['queued'] )
+				),
+				'shop',
+				0,
+				$out['queued'],
+				false
+			);
+			delete_transient( 'dze_auto_survey' );
+			delete_transient( 'dze_pl_census' );
+			DZE_Mesh::forget_thin();
 		}
 		// IS THERE MORE? Asked of the same reader, which already knows what is
 		// in the queue — so the answer is "one more exists", never a second
@@ -1816,9 +1852,13 @@ final class DZE_Automation {
 		if ( $n < 1 ) {
 			return self::reason_text( (string) ( $res['reason'] ?? 'none' ) );
 		}
+		// AND WHERE THE WORK HAPPENS. The press only puts the pages in the
+		// queue; the writing is done by the queue itself, one at a time, with
+		// nobody waiting — so the one thing to say is that this page can be
+		// left now.
 		$said = sprintf(
 			/* translators: %s: how many pages were put in the writing queue */
-			_n( '%s page queued.', '%s pages queued.', $n, 'dazont-ecom' ),
+			_n( '%s page queued — written in the background, one at a time.', '%s pages queued — written in the background, one at a time.', $n, 'dazont-ecom' ),
 			number_format_i18n( $n )
 		);
 		return $said . ' ' . ( ! empty( $res['more'] )

@@ -1218,6 +1218,20 @@ whose screen has not been thought through yet.
   - **An empty list of addresses is not the same as no list.** The payload
     carries `urls` only when there are urls: absent means "pick your own",
     which is what absent means everywhere else in this plugin.
+  - **A BULK PRESS DOES ITS BOOKKEEPING ONCE.** Looping the single-page path
+    read and rewrote the register for EVERY page — the day's figure, the log,
+    the undo copies — so two hundred read-modify-writes of one option happened
+    inside one request and the log came back holding nothing but the last
+    twelve lines of the press that filled it. The pages go in the way the queue
+    takes them (one `add()` per kind, ids as an array) and the register is
+    written once, for the press. The marking still happens only where the queue
+    ACCEPTED: a page stamped by a queue that refused is a page locked out for a
+    month having had nothing done to it.
+  - **The press queues; the QUEUE writes.** `work()` does one job and re-kicks
+    itself while anything is queued, through Action Scheduler where WooCommerce
+    provides it — so a catch-up of two hundred pages is background work by
+    construction and the screen says so in words ("written in the background,
+    one at a time"), rather than leaving somebody watching a spinner.
   - **A reading this expensive is kept.** A category's quota counts the
     products behind it and walks its branch, and the list is read on every draw
     of the screen once the orphans are done — so `thin()` is cached, and thrown
