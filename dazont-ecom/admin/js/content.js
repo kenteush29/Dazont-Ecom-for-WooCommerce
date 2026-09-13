@@ -854,33 +854,15 @@
 	// Kept in step with the strip above it: a photograph deleted while the
 	// popup is open must not stay on this list as a thing to work from.
 	function drawSubjects() {
-		var $s = $('#dze-cx-subject');
-		if (!$s.length) { return; }
-		var was = String($s.val() || '0');
-		var imgs = (res.current && res.current.images) || [];
-		$s.empty().append($('<option value="0"></option>').text(i18n.subjMainOpt));
-		var n = 0;
-		imgs.forEach(function (im) {
-			if (im.main) { return; }
-			n++;
-			$s.append($('<option></option>').val(im.id).text(
-				im.variation ? String(im.variation) : (i18n.subjOne || 'Photograph') + ' ' + n
-			));
-		});
-		// WHAT WAS ADDED FROM OUTSIDE IS AN ANSWER TOO — and it was missing
-		// from this list, so the picker read "Main photograph" while the run
-		// made the pasted photograph the subject. A supplier shot added for
-		// context came back as the product itself, colours included:
-		// "il me donne du kryptek noir plutot que du desert."
-		var pasted = cxPaste ? cxPaste.list().length : 0;
-		if (pasted) {
-			$s.append($('<option value="paste"></option>').text(
-				1 === pasted ? (i18n.subjPasteOpt || '') : (i18n.subjPasteOptN || i18n.subjPasteOpt || '')
-			));
-		}
-		// A choice that no longer exists falls back to the main photograph
-		// rather than sending an id nothing answers for.
-		$s.val($s.find('option[value="' + was + '"]').length ? was : '0');
+		// Filled by photos.js, which the bulk screen's panel calls too: two
+		// copies of this list is how two screens start offering different
+		// answers to "which photograph is the product".
+		window.dzePhotos.subjects(
+			$('#dze-cx-subject'),
+			(res.current && res.current.images) || [],
+			cxPaste ? cxPaste.list().length : 0,
+			i18n
+		);
 	}
 
 	function drawCurrentImages() {
@@ -1120,12 +1102,7 @@
 		// the run used the supplier's shot. "Main photograph" and a chosen one
 		// both mean the product is image 1; what was added from outside is
 		// then read for the place, the light and the styling.
-		var pick = String($('#dze-cx-subject').val() || '0');
-		if ('paste' !== pick) {
-			data.base_main = 1;
-			var subj = parseInt(pick, 10) || 0;
-			if (subj) { data.src_id = subj; }
-		}
+		window.dzePhotos.subjectInto(data, $('#dze-cx-subject').val());
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without

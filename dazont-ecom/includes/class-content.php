@@ -4070,6 +4070,17 @@ Answer with STRICT JSON and nothing else: "
 					// place: the box that says what no photograph shows. This
 					// screen had none, so a whole catalogue could be generated
 					// with no way to say "there is a white band down each side".
+					// WHICH photograph is the product — the same four words the
+					// toolbox uses, from the same place. This screen has the
+					// same paste box and had no picker, so it answered nothing
+					// and the pasted photograph led.
+					// The SAME five words the toolbox uses: one wording for one
+					// thing, or two screens ask the same question differently.
+					'subjLabel'     => __( 'Subject', 'dazont-ecom' ),
+					'subjMainOpt'   => __( 'Main photograph', 'dazont-ecom' ),
+					'subjOne'       => __( 'Photograph', 'dazont-ecom' ),
+					'subjPasteOpt'  => __( 'The photograph you added', 'dazont-ecom' ),
+					'subjPasteOptN' => __( 'The photographs you added', 'dazont-ecom' ),
 					'noteTitle' => __( 'Notes about this product', 'dazont-ecom' ),
 					'noteHelp'  => __( 'Sent with the images this run makes, and with nothing after it. What the photographs cannot show, or what came back wrong last time. It is not saved.', 'dazont-ecom' ),
 					'notePh'    => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),

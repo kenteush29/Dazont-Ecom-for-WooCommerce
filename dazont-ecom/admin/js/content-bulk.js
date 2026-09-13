@@ -596,6 +596,14 @@
 		// the panel before it builds its orders, so a note read off the DOM at
 		// that moment is a note that has just been wiped.
 		if (String(told[id] || '').trim()) { data.note = String(told[id]); }
+		// WHICH photograph is the product, from that product's own picker. Its
+		// default POSTS what it says: "main photograph" and a chosen one both
+		// mean the product is image 1, and what was pasted is then read for the
+		// place, the light and the styling.
+		window.dzePhotos.subjectInto(
+			data,
+			previewCell(id).find('.dze-cb-subject').val()
+		);
 		// Which attempt of this prompt this is: the second one is asked for a
 		// different framing instead of coming back as the first one again.
 		if (attempt) { data.attempt = attempt; }
@@ -771,6 +779,17 @@
 				'<summary>' + esc(i18n.stepElse) + '</summary>' +
 				'<div class="dze-cb-elsebox"></div>' +
 			'</details>' +
+			// WHICH PHOTOGRAPH IS THE PRODUCT. The toolbox has asked this for
+			// months; this screen has the same paste box and had no picker at
+			// all, so it posted no answer — and a request carrying pasted
+			// photographs and nothing else is read by the server as "the pasted
+			// one leads". Paste a supplier shot for the setting and the product
+			// comes back wearing ITS colours: "je viens d'avoir une image
+			// générée en couleur secondaire du produit."
+			'<label class="dze-cx-subjline dze-cb-subjline">' +
+				'<span>' + esc(i18n.subjLabel) + '</span>' +
+				'<select class="dze-cb-subject"><option value="0">' + esc(i18n.subjMainOpt) + '</option></select>' +
+			'</label>' +
 			// WHAT THE OWNER KNOWS AND NO PHOTOGRAPH SHOWS, on the product it
 			// is about. "Ma note n'est pas envoyée !!! : Ce tapis a une grosse
 			// bande blanche de chaque côté (mal visible sur les images
@@ -820,7 +839,11 @@
 		if (window.dzePasteBox) {
 			b.paste = window.dzePasteBox.mount($cell.find('.dze-cb-elsebox'), {
 				max: parseInt(cfg.maxPasted, 10) || 12,
-				maxBody: parseInt(cfg.maxBody, 10) || 9437184
+				maxBody: parseInt(cfg.maxBody, 10) || 9437184,
+				// The picker offers what the box holds: a photograph added
+				// after the panel was drawn has to appear in it, or the only
+				// way to say "this one is the subject" is not on the screen.
+				onChange: function () { renderSubjects(id); }
 			});
 		}
 		b.built = true;
@@ -829,7 +852,9 @@
 		panelApplyLabel(id);
 		// The gallery as it stands today, right under the new images: the only
 		// way to judge whether a generated shot ADDS something.
-		loadCurrent(id).then(function () { renderCurrentImages(id); renderToday(id); renderLog(id); });
+		loadCurrent(id).then(function () {
+			renderCurrentImages(id); renderToday(id); renderSubjects(id); renderLog(id);
+		});
 	}
 
 	// Does this product hold anything waiting for a decision?
@@ -871,6 +896,17 @@
 	// dozen calls and holds the wrong ones by the time a product looks wrong.
 	// The markup comes from the server — it is the Logs page's own renderer —
 	// so a row can never read two ways on two screens.
+	// The product's own photographs, offered as the subject — filled by
+	// photos.js, the same list the toolbox offers.
+	function renderSubjects(id) {
+		var b = bucket(id);
+		window.dzePhotos.subjects(
+			previewCell(id).find('.dze-cb-subject'),
+			(b.current && b.current.images) || [],
+			(b.paste ? b.paste.list().length : 0),
+			i18n
+		);
+	}
 	function renderLog(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-log');
 		if (!$slot.length || !b.current) { return; }

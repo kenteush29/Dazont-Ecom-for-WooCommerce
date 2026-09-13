@@ -1763,6 +1763,20 @@ whose screen has not been thought through yet.
   never stored on the server, because a note is for the run in front of you.
   Only a browser can see what a press puts on the wire, so it is asserted
   there, in both of the ways it was wrong.
+- **A FIX MADE ON ONE SCREEN IS NOT A FIX.** "Je viens d'avoir une image
+  générée en couleur secondaire du produit." The picker that answers WHICH
+  photograph is the product — and the rule that its default POSTS what it says
+  — were built for the toolbox and never carried to the BULK screen, which has
+  the same paste box. So that screen posted no answer at all, and a request
+  carrying pasted photographs and nothing else is read by the server as "the
+  pasted one leads": a supplier shot added for the setting came back as the
+  product, in ITS colours. Exactly the fault the toolbox was mended for, on the
+  screen beside it, months later. Two rules: when a fault is fixed, every
+  screen that can reach it is fixed in the same pass; and the machinery moves
+  to where both can call it (`dzePhotos.subjects()` fills the list,
+  `dzePhotos.subjectInto()` says what its answer means on the wire) — the
+  toolbox's own copy was replaced by the shared one, or the two drift and only
+  one of them keeps the fix.
 - **`php tools/test-translate.php dazont-ecom` must pass.**
 - **`php tools/test-shoot.php dazont-ecom` must pass.** Making a product
   photograph is ONE function, `DZE_Content::shoot( array $in )`, and the AJAX

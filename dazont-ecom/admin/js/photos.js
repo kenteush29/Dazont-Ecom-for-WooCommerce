@@ -223,12 +223,63 @@
 	});
 
 
+	// ---- WHICH PHOTOGRAPH IS THE SUBJECT ----
+	//
+	// The product's own photographs, offered as the subject of what is made,
+	// plus what was pasted in. It lived in the toolbox alone, so the BULK
+	// screen — which has the same paste box — had no picker at all and posted
+	// no answer: a request carrying pasted photographs and nothing else is read
+	// by the server as "the pasted one leads", and a supplier shot came back as
+	// the product, colours included. Filled here, once, for both screens: two
+	// copies of this loop is how two screens start offering different answers.
+	//
+	// @param {jQuery} $s      the select to fill
+	// @param {Array}  images  what the product holds today
+	// @param {number} pasted  how many photographs were handed in
+	// @param {Object} words   subjMainOpt / subjOne / subjPasteOpt / subjPasteOptN
+	function subjects($s, images, pasted, words) {
+		if (!$s || !$s.length) { return; }
+		var was = String($s.val() || '0');
+		$s.empty().append($('<option value="0"></option>').text(words.subjMainOpt || ''));
+		var n = 0;
+		(images || []).forEach(function (im) {
+			if (im.main) { return; }
+			n++;
+			$s.append($('<option></option>').val(im.id).text(
+				im.variation ? String(im.variation) : (words.subjOne || 'Photograph') + ' ' + n
+			));
+		});
+		// WHAT WAS ADDED FROM OUTSIDE IS AN ANSWER TOO — the answer the screen
+		// cannot give is the answer nobody can give.
+		if (pasted) {
+			$s.append($('<option value="paste"></option>').text(
+				1 === pasted ? (words.subjPasteOpt || '') : (words.subjPasteOptN || words.subjPasteOpt || '')
+			));
+		}
+		// A choice that no longer exists falls back to the main photograph
+		// rather than sending an id nothing answers for.
+		$s.val($s.find('option[value="' + was + '"]').length ? was : '0');
+	}
+
+	// What a picker's answer means on the wire, in ONE place: "main photograph"
+	// and a chosen one both say the product is image 1, and only "paste" leaves
+	// the pasted set leading. A default that sends nothing is not an answer.
+	function subjectInto(data, pick) {
+		if ('paste' === String(pick || '0')) { return data; }
+		data.base_main = 1;
+		var subj = parseInt(pick, 10) || 0;
+		if (subj) { data.src_id = subj; }
+		return data;
+	}
+
 	window.dzePhotos = {
 		// The blocks live in hub.js now — one machinery for every screen. These
 		// two names stay so nothing that already calls them has to change.
 		toggleSec: function ($sec, on) { return window.dzeHub.toggleSec($sec, on); },
 		countSections: function () { return window.dzeHub.count(); },
 		render: render,
+		subjects: subjects,
+		subjectInto: subjectInto,
 		on: function (name, fn) { handlers[name] = fn; }
 	};
 }(jQuery));

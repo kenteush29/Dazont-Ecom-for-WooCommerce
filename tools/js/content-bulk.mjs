@@ -67,7 +67,9 @@ for ( const [ label, jq ] of jqs ) {
 	await page.route( 'http://dze.test/ajax', async route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
 		sent.push( { action: q.get( 'action' ), do: q.get( 'do' ), ids: q.getAll( 'ids[]' ),
-			paste: q.get( 'paste' ), post: q.get( 'post' ), note: q.get( 'note' ) } );
+			paste: q.get( 'paste' ), post: q.get( 'post' ), note: q.get( 'note' ),
+			baseMain: q.get( 'base_main' ), srcId: q.get( 'src_id' ),
+			pastes: q.getAll( 'pastes[]' ).length } );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		if ( 'dze_content_image' === q.get( 'action' ) ) {
 			return json( { url: 'http://img.test/made.jpg', target: 'gallery', spend: { label: '$0.08' } } );
@@ -345,7 +347,7 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and it asks the server to refuse, by id',
 		sent.slice( before ),
 		[ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ],
-			paste: null, post: null, note: null } ] );
+			paste: null, post: null, note: null, baseMain: null, srcId: null, pastes: 0 } ] );
 	// THE PRODUCT STAYS. This is the whole of it: it used to leave the screen.
 	ok( 'the product is still on the list',
 		await page.locator( '.dze-cb-row[data-id="7"]' ).count(), 1 );
@@ -382,6 +384,17 @@ for ( const [ label, jq ] of jqs ) {
 		.catch( () => {} );
 	ok( 'the panel has a box for what no photograph shows',
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-note' ).count(), 1 );
+	// ---- AND IT ASKS WHICH PHOTOGRAPH IS THE PRODUCT ----
+	//
+	// "Je viens d'avoir une image générée en couleur secondaire du produit."
+	// The toolbox has asked this for months; this screen has the same paste box
+	// and had NO picker, so it posted no answer — and a request carrying pasted
+	// photographs and nothing else is read by the server as "the pasted one
+	// leads". A supplier shot added for the setting came back as the product.
+	ok( 'the panel asks which photograph is the product',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ).count(), 1 );
+	ok( 'and it opens on the main photograph',
+		await page.inputValue( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ), '0' );
 	// Folded away until it is wanted, like the box above it: opened the way
 	// somebody opens it.
 	ok( 'folded away until it is wanted',
@@ -404,6 +417,12 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the note went with it',
 		( shots[ 0 ] || {} ).note, 'A wide white band down each side.' );
 	ok( 'on the product it was typed on',   ( shots[ 0 ] || {} ).post, '7' );
+	// THE DEFAULT POSTS WHAT IT SAYS. This is the whole fault: on its default
+	// the toolbox sends base_main=1 and this screen sent nothing at all, so the
+	// server read the pasted photograph as the subject.
+	ok( 'and the run says the product is the subject',
+		( shots[ 0 ] || {} ).baseMain, '1' );
+	ok( 'naming no other photograph of it', ( shots[ 0 ] || {} ).srcId, null );
 
 	// ---- A MINI LOG, ON THE PRODUCT YOU ARE LOOKING AT ----
 	//
