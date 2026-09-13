@@ -525,6 +525,16 @@
 .dze-auto-chip.is-wait    { border-color: #f0dba8; background: #fdf7e7; color: #6b5200; }
 .dze-auto-chip.is-done    { border-color: #c6e6d5; background: #f6fbf8; color: #1d4c38; }
 .dze-auto-chip.is-orphan  { border-color: #d8d2e8; background: #f7f5fc; color: #443a63; }
+/* The one chip that is a way in: a button, so pressing it never folds the
+   block it sits in, and it looks like every chip beside it. */
+button.dze-auto-chip { font: inherit; cursor: pointer; }
+button.dze-auto-chip:hover { border-color: #2271b1; color: #2271b1; }
+.dze-auto-orphlist { margin-top: 8px; }
+.dze-auto-orphlist .dze-auto-kindth, .dze-auto-orphlist .dze-auto-outth { width: 130px; }
+.dze-auto-built {
+	display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px;
+	border: 1px solid #dcdcde; background: #f6f7f7; color: #646970; font-size: 11px; font-weight: 400;
+}
 .dze-auto-chip.is-blocked { border-color: #f0c3c3; background: #fdf3f3; color: #8a2424; }
 .dze-auto-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; }
 .dze-auto-controls label { display: inline-flex; align-items: center; gap: 5px; }

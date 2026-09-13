@@ -897,8 +897,8 @@ $GLOBALS['opts']['dze_mesh_census'] = [
 $chips = DZE_Automation::chips_html( 'mesh_links' );
 ok( 'the figure is on the task that mends them',
 	1 === preg_match( '/is-orphan[^>]*>.*?41</s', $chips ), true );
-ok( 'and it says so on its own hover',
-	false !== strpos( $chips, 'the only pass that mends them' ), true );
+ok( 'and it says what it counts',
+	false !== strpos( $chips, 'menus and breadcrumbs do not count' ), true );
 // AND ON NO OTHER TASK: the writing task and the calendar do not touch the
 // graph, and a figure on a line that cannot act on it is noise.
 ok( 'never on the writing task',         false !== strpos( DZE_Automation::chips_html( 'cat_desc' ), 'is-orphan' ), false );
@@ -1001,6 +1001,87 @@ ok( 'and not the tasks beside it',       false !== strpos( $page2, 'dze-auto-tas
 // ONE SCRIPT FOR THE SCREEN: the undo lives here and the run buttons on the
 // other view, and a handler written twice is two handlers to keep in step.
 ok( 'the screen still carries its script', false !== strpos( $page2, "'.dze-auto-undo'" ), true );
+
+echo "\nThe pages behind the figure\n";
+//
+// "Il faut la possibilité de voir ces pages dans une liste." A count that
+// cannot be opened is a count somebody argues with — and it answers the other
+// half of the question at the same time: WHICH of them a page builder owns.
+fresh( $ON );
+DZE_Mesh::scan();
+$dze_want = DZE_Mesh::orphans( 200 );
+$dze_built = 0;
+foreach ( $dze_want as $r ) { if ( ! empty( $r['built'] ) ) { $dze_built++; } }
+ok( 'the fake shop has pages to show', count( $dze_want ) > 0, true );
+ok( 'a builder page among them',       $dze_built > 0, true );
+
+$chips = DZE_Automation::chips_html( 'mesh_links' );
+// THE FIGURE IS THE WAY IN, and it is a BUTTON: a chip inside a <summary>
+// that folds the block under the hand that pressed it is not a way in.
+ok( 'the figure is pressable',         false !== strpos( $chips, 'class="dze-auto-chip is-orphan dze-auto-orph"' ), true );
+ok( 'and says what pressing it does',  false !== strpos( $chips, 'Press to see them' ), true );
+
+ob_start();
+DZE_Automation::render_orphans();
+$list = (string) ob_get_clean();
+$dze_named = true;
+foreach ( $dze_want as $r ) {
+	if ( false === strpos( $list, esc_html( (string) $r['title'] ) ) ) { $dze_named = false; }
+}
+ok( 'every one of them is named',      $dze_named, true );
+// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID, heading and cell together.
+ok( 'the id has its own heading',      substr_count( $list, 'dze-objid-th' ), 1 );
+ok( 'and one cell per row',            substr_count( $list, 'dze-objid-td' ), count( $dze_want ) );
+ok( 'a category says what it is',      false !== strpos( $list, 'product category' ), true );
+// AND WHICH OF THEM A BUILDER OWNS — the answer to "les données du page
+// builder, qu'est-ce que ça vient faire là ?".
+ok( 'each builder page is marked',     substr_count( $list, 'dze-auto-built' ), $dze_built );
+ok( 'and the mark says what it means', false !== strpos( $list, 'read from the builder' ), true );
+// ONE SENTENCE SAYS WHAT THE FIGURE COUNTS: it is why a large one is not a
+// broken site.
+ok( 'the list says what a link is here',
+	false !== strpos( $list, 'A menu, a breadcrumb or a shop archive is not counted' ), true );
+// WHAT IS NOT ON THE LIST IS SAID, rather than the screen quietly showing six
+// of two hundred and thirteen.
+ok( 'nothing left over, nothing said', false !== strpos( $list, 'more, not listed here' ), false );
+$dze_census = $GLOBALS['opts']['dze_mesh_census'];
+$dze_census['counts']['orphans'] = 213;
+$GLOBALS['opts']['dze_mesh_census'] = $dze_census;
+ob_start();
+DZE_Automation::render_orphans();
+ok( 'the rest is counted',
+	false !== strpos( (string) ob_get_clean(), ( 213 - count( $dze_want ) ) . ' more, not listed here' ), true );
+
+// AN EMPTY ANSWER SAYS WHICH EMPTY IT IS, and there are two of them here.
+$GLOBALS['terms'] = [];
+$GLOBALS['posts'] = [];
+delete_transient( 'dze_mesh_pages' );
+ob_start();
+DZE_Automation::render_orphans();
+ok( 'nothing orphaned, said plainly',
+	false !== strpos( (string) ob_get_clean(), 'Every page is linked from the text of another one' ), true );
+unset( $GLOBALS['opts']['dze_mesh_census'] );
+ob_start();
+DZE_Automation::render_orphans();
+ok( 'never read, said differently',
+	false !== strpos( (string) ob_get_clean(), 'The site has not been read yet' ), true );
+// A CLASS FILE ALWAYS EXISTS: the module is the check.
+$GLOBALS['mods']['mesh'] = false;
+ob_start();
+DZE_Automation::render_orphans();
+ok( 'the graph switched off says so',
+	false !== strpos( (string) ob_get_clean(), 'The link graph is switched off' ), true );
+$GLOBALS['mods'] = [];
+
+// AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
+// on the page does nothing and says nothing.
+fresh( $ON );
+$GLOBALS['opts']['dze_mesh_census'] = [ 'per' => [], 'counts' => [ 'orphans' => 4 ], 'at' => time() ];
+ob_start();
+DZE_Automation::render_settings();
+$screen = (string) ob_get_clean();
+ok( 'the popup is printed on the screen', false !== strpos( $screen, 'id="dze-auto-orphmodal"' ), true );
+ok( 'with the body it fills',             false !== strpos( $screen, 'id="dze-auto-orphbody"' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

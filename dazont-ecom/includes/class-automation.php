@@ -96,6 +96,7 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_undo', [ __CLASS__, 'ajax_undo' ] );
 		add_action( 'wp_ajax_dze_auto_state', [ __CLASS__, 'ajax_state' ] );
 		add_action( 'wp_ajax_dze_auto_catchup', [ __CLASS__, 'ajax_catchup' ] );
+		add_action( 'wp_ajax_dze_auto_orphans', [ __CLASS__, 'ajax_orphans' ] );
 	}
 
 	public static function page_url( string $tab = '' ): string {
@@ -1379,12 +1380,13 @@ final class DZE_Automation {
 		if ( 'mesh' === (string) ( $task['scope'] ?? '' ) && class_exists( 'DZE_Mesh' ) ) {
 			$orph = DZE_Mesh::orphan_count();
 			if ( null !== $orph && $orph > 0 ) {
-				$out .= $chip(
-					'is-orphan',
-					'editor-unlink',
-					number_format_i18n( $orph ),
-					__( 'Pages no other page links to in its text — menus and breadcrumbs do not count. This is the only pass that mends them, a few a day.', 'dazont-ecom' )
-				);
+				// A FIGURE NOBODY CAN OPEN IS A FIGURE NOBODY BELIEVES — "WOW
+				// c'est énorme, littéralement impossible… il faut voir ce qui
+				// ne va pas". The chip is the way into the list it counts.
+				$out .= '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="'
+					. esc_attr__( 'Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them.', 'dazont-ecom' ) . '">'
+					. '<span class="dashicons dashicons-editor-unlink"></span>'
+					. esc_html( number_format_i18n( $orph ) ) . '</button>';
 			}
 		}
 		// WAITING FOR A PERSON — the figure this screen exists to surface.
@@ -1536,8 +1538,86 @@ final class DZE_Automation {
 		}
 		DZE_Hub::more_assets( $more );
 		?>
+		<?php // WHAT THE FIGURE COUNTS, one press away — the plugin's own popup shell. ?>
+		<div class="dze-cx-modal" id="dze-auto-orphmodal"><div class="dze-cx-dialog" style="width:min(860px,94vw);">
+			<div class="dze-cx-head"><h2><?php esc_html_e( 'Not linked from any page\'s text', 'dazont-ecom' ); ?></h2>
+				<button type="button" class="button dze-hub-close" style="margin-left:auto;"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button></div>
+			<div class="dze-cx-body" id="dze-auto-orphbody"></div>
+		</div></div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * How many of the pages no text links to one press may show.
+	 *
+	 * The popup is read, not paged: past a couple of hundred lines nobody
+	 * reads further, and the figure above it already says how many there are.
+	 */
+	private const ORPH_MAX = 200;
+
+	/**
+	 * THE PAGES BEHIND THE FIGURE, so it can be believed.
+	 *
+	 * "Il faut la possibilité de voir ces pages dans une liste." A count that
+	 * cannot be opened is a count somebody argues with; opened, it answers
+	 * every question at once — which pages, of what kind, and which of them a
+	 * page builder owns, since those are the ones whose text is read out of
+	 * the builder's own data rather than out of the post.
+	 */
+	public static function render_orphans(): void {
+		if ( ! class_exists( 'DZE_Mesh' ) || ! DZE_Modules::enabled( 'mesh' ) ) {
+			echo '<p class="description">' . esc_html__( 'The link graph is switched off.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		$all  = DZE_Mesh::orphan_count();
+		$rows = DZE_Mesh::orphans( self::ORPH_MAX );
+		if ( null === $all ) {
+			echo '<p class="description">' . esc_html__( 'The site has not been read yet.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		if ( ! $rows ) {
+			echo '<p class="description">' . esc_html__( 'Every page is linked from the text of another one.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		// ONE sentence, because this is the whole of what the figure means and
+		// it is the reason a large one is not a broken site.
+		echo '<p class="description">' . esc_html__( 'A link here is one written in a text — a description, an article, a page. A menu, a breadcrumb or a shop archive is not counted.', 'dazont-ecom' ) . '</p>';
+		echo '<table class="wp-list-table widefat fixed striped dze-auto-orphlist"><thead><tr>';
+		echo '<th>' . esc_html__( 'Page', 'dazont-ecom' ) . '</th>';
+		echo wp_kses_post( DZE_Hub::id_th() );
+		echo '<th class="dze-auto-kindth">' . esc_html__( 'Kind', 'dazont-ecom' ) . '</th>';
+		echo '<th class="dze-auto-outth">' . esc_html__( 'Links out', 'dazont-ecom' ) . '</th>';
+		echo '</tr></thead><tbody>';
+		foreach ( $rows as $row ) {
+			$name = esc_html( (string) $row['title'] );
+			$url  = (string) $row['url'];
+			echo '<tr><td><strong>' . ( '' !== $url
+				? '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener noreferrer">' . $name . '</a>'
+				: $name ) . '</strong>';
+			// A BUILDER PAGE IS READ DIFFERENTLY, and that is worth saying on
+			// the row: its text is not in the post, so its links are read from
+			// the builder's own data and nothing may be written into it.
+			if ( ! empty( $row['built'] ) ) {
+				echo ' <span class="dze-auto-built" title="'
+					. esc_attr__( 'Laid out by a page builder: its text is read from the builder\'s own data, and nothing is ever written into it.', 'dazont-ecom' )
+					. '">' . esc_html__( 'page builder', 'dazont-ecom' ) . '</span>';
+			}
+			echo '</td>';
+			echo wp_kses_post( DZE_Hub::id_td( (int) $row['id'] ) );
+			echo '<td>' . esc_html( DZE_Mesh::kind_word( (string) $row['kind'] ) ) . '</td>';
+			echo '<td>' . esc_html( number_format_i18n( (int) $row['out'] ) ) . '</td>';
+			echo '</tr>';
+		}
+		echo '</tbody></table>';
+		$rest = $all - count( $rows );
+		if ( $rest > 0 ) {
+			echo '<p class="description">' . esc_html( sprintf(
+				/* translators: %s: how many more pages are not listed */
+				_n( '%s more, not listed here.', '%s more, not listed here.', $rest, 'dazont-ecom' ),
+				number_format_i18n( $rest )
+			) ) . '</p>';
+		}
 	}
 
 	/**
@@ -1602,6 +1682,21 @@ final class DZE_Automation {
 						if ( d.past ) { $( '#dze-auto-past' ).html( d.past ); }
 					} );
 			} );
+			$( document ).on( 'click', '.dze-auto-orph', function ( e ) {
+				// A chip inside a <summary> must not fold the block under the
+				// hand that pressed it.
+				e.preventDefault();
+				e.stopPropagation();
+				$( '#dze-auto-orphbody' ).html( '<p><span class="dze-cx-spin"></span></p>' );
+				$( '#dze-auto-orphmodal' ).addClass( 'is-open' );
+				$.post( window.ajaxurl, { action: 'dze_auto_orphans', nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' } )
+					.done( function ( r ) {
+						$( '#dze-auto-orphbody' ).html( ( r && r.data && r.data.html ) || '' );
+					} )
+					.fail( function () { $( '#dze-auto-orphbody' ).text( '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' ); } );
+			} );
+			$( document ).on( 'click', '.dze-hub-close', function () { $( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' ); } );
+			$( document ).on( 'click', '#dze-auto-orphmodal', function ( e ) { if ( e.target === this ) { $( this ).removeClass( 'is-open' ); } } );
 			$( document ).on( 'click', '.dze-auto-undo', function () {
 				var $b = $( this );
 				post( 'dze_auto_undo', { term: $b.data( 'term' ), what: $b.data( 'what' ) }, $b, $b.closest( 'li' ).find( '.dze-auto-msg' ) );
@@ -1948,14 +2043,18 @@ final class DZE_Automation {
 	}
 
 	/**
-	 * WHAT A DECISION CHANGED, and nothing else.
+	 * THE LIST BEHIND THE CHIP.
 	 *
-	 * Saying yes or no to a borrowed row moves two things on this screen: the
-	 * figures on the task's own line, and the rows under it. What the pass
-	 * would take NEXT is untouched by a decision, and that reading is the
-	 * expensive half — so it is not re-done here. The register is, because a
-	 * line of it says what became of the very job just decided.
+	 * One reading, printed by the renderer the popup shows — never a second
+	 * account of the same figure.
 	 */
+	public static function ajax_orphans(): void {
+		self::guard();
+		ob_start();
+		self::render_orphans();
+		wp_send_json_success( [ 'html' => (string) ob_get_clean() ] );
+	}
+
 	public static function ajax_catchup(): void {
 		self::guard();
 		$id = isset( $_POST['task'] ) ? sanitize_key( wp_unslash( $_POST['task'] ) ) : '';
@@ -2000,6 +2099,15 @@ final class DZE_Automation {
 			: __( 'That is every page that was short of links.', 'dazont-ecom' ) );
 	}
 
+	/**
+	 * WHAT A DECISION CHANGED, and nothing else.
+	 *
+	 * Saying yes or no to a borrowed row moves two things on this screen: the
+	 * figures on the task's own line, and the rows under it. What the pass
+	 * would take NEXT is untouched by a decision, and that reading is the
+	 * expensive half — so it is not re-done here. The register is, because a
+	 * line of it says what became of the very job just decided.
+	 */
 	public static function ajax_state(): void {
 		self::guard();
 		$chips = [];

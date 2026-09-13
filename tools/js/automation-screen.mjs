@@ -103,9 +103,20 @@ for ( const [ label, jq ] of jqs ) {
 				state: '<p class="dze-auto-next">Next in line: Boonie hats</p>',
 				chips: '<span class="dze-auto-chips" data-task="' + q.get( 'task' ) + '">'
 					+ '<span class="dze-auto-chip is-on"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
+					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41</button>'
 					+ '<span class="dze-auto-chip is-wait"><span class="dashicons dashicons-visibility"></span>9</span>'
 					+ '</span>',
 				log: '<ul><li>Internal linking · Boonie hats</li></ul>'
+			} } ) } );
+		}
+		// The pages behind the figure, as the server answers them.
+		if ( 'dze_auto_orphans' === act ) {
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				html: '<p class="description">A menu, a breadcrumb or a shop archive is not counted.</p>'
+					+ '<table class="dze-auto-orphlist"><tbody>'
+					+ '<tr><td><strong>Camo patterns explained</strong> <span class="dze-auto-built">page builder</span></td>'
+					+ '<td><code class="dze-objid">41</code></td><td>page</td><td>0</td></tr>'
+					+ '</tbody></table>'
 			} } ) } );
 		}
 		if ( 'dze_q_decide' === act ) {
@@ -118,6 +129,7 @@ for ( const [ label, jq ] of jqs ) {
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
 				chips: { mesh_links: '<span class="dze-auto-chips" data-task="mesh_links">'
 					+ '<span class="dze-auto-chip is-on" title="Running on its own"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
+					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41</button>'
 					+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1</span>'
 					+ '</span>' },
 				waiting: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
@@ -201,13 +213,13 @@ for ( const [ label, jq ] of jqs ) {
 	} );
 	ok( 'the figures are there while shut', chips.visible, true );
 	ok( 'the rhythm, the orphans, the waiting, the written and the next look',
-		chips.kinds, [ 'is-on', 'is-orphan', 'is-wait', 'is-done', 'is-next' ] );
+		chips.kinds, [ 'is-on', 'is-orphan dze-auto-orph', 'is-wait', 'is-done', 'is-next' ] );
 	ok( 'with the figures on them',         chips.text.slice( 0, 4 ),
 		[ '3 a day', String( dumped.orphans ), '3', '14' ] );
 	// THE FIGURE FOR THE PAGES NOTHING POINTS AT sits on the task that is the
 	// only thing that mends them, and says so on its own hover.
 	ok( 'and the orphan figure says whose work it is',
-		( chips.titles || [] )[1] || '', 'Pages no other page links to in its text — menus and breadcrumbs do not count. This is the only pass that mends them, a few a day.' );
+		( chips.titles || [] )[1] || '', 'Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them.' );
 	ok( 'each one carrying its own word',   chips.titled, true );
 	ok( 'and all of them on one line',      chips.oneLine, true );
 	// A TASK THAT IS OFF SAYS ONLY THAT.
@@ -218,6 +230,35 @@ for ( const [ label, jq ] of jqs ) {
 			.map( c => c.className.replace( 'dze-auto-chip ', '' ) );
 	} );
 	ok( 'a task that is off says so, and nothing else', second, [ 'is-off' ] );
+
+	// ---- THE FIGURE OPENS THE LIST IT COUNTS ----
+	// "WOW c'est énorme, littéralement impossible… il faut la possibilité de
+	// voir ces pages dans une liste." A count that cannot be opened is a count
+	// somebody argues with.
+	const foldsWas = await page.evaluate( () => document.querySelectorAll( '.dze-auto-task[open]' ).length );
+	const wasO = sent.length;
+	await page.click( '.dze-auto-task:first-of-type .dze-auto-orph', { timeout: 3000 } ).catch( () => {} );
+	const landed = await page.waitForFunction(
+		() => /page builder/.test( ( document.getElementById( 'dze-auto-orphbody' ) || {} ).textContent || '' ),
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	const orph = await page.evaluate( () => ( {
+		open: !! document.querySelector( '#dze-auto-orphmodal.is-open' ),
+		folds: document.querySelectorAll( '.dze-auto-task[open]' ).length,
+		rows: document.querySelectorAll( '#dze-auto-orphbody .dze-auto-orphlist tbody tr' ).length,
+		id: ( document.querySelector( '#dze-auto-orphbody .dze-objid' ) || {} ).textContent || ''
+	} ) );
+	const askO = sent.slice( wasO ).filter( r => 'dze_auto_orphans' === r.action )[0] || {};
+	ok( 'the figure asks for its list',     askO.action, 'dze_auto_orphans' );
+	ok( 'with its nonce',                   ( askO.nonce || '' ).length > 0, true );
+	ok( 'the popup comes up',               orph.open, true );
+	ok( 'and the answer lands in it',       landed, true );
+	ok( 'a row per page, with its id',      [ orph.rows, orph.id ], [ 1, '41' ] );
+	// A CHIP IN A <summary> MUST NOT FOLD THE BLOCK under the hand that
+	// pressed it — the same rule the "?" is held to.
+	ok( 'without folding the block',        orph.folds, foldsWas );
+	await page.click( '#dze-auto-orphmodal .dze-hub-close', { timeout: 3000 } ).catch( () => {} );
+	ok( 'and it closes again',
+		await page.locator( '#dze-auto-orphmodal.is-open' ).count(), 0 );
 
 	// ---- OPENING ONE GIVES THE CONTROLS ----
 	ok( 'the controls are out of the way',

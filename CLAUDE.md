@@ -1253,6 +1253,24 @@ whose screen has not been thought through yet.
     has been counted" are different answers. The browser gate asserts the chip
     against the figure the REAL census counted on the fake shop, handed over
     beside the markup — a number typed into two files is two numbers.
+  - **A FIGURE NOBODY CAN OPEN IS A FIGURE NOBODY BELIEVES.** "Pages nothing
+    points at: 213. WOW c'est énorme. Littéralement impossible… il faut voir ce
+    qui ne va pas." The count was right; a count that cannot be opened is a
+    count somebody argues with, and nothing on the screen could answer "which
+    pages?". The chip IS the way into the list it counts — a `<button>`, not a
+    span, because it sits in a `<summary>` and must not fold the block under
+    the hand that pressed it — and it opens the plugin's own popup: one
+    sentence saying what a link means here (a link written in a text; a menu, a
+    breadcrumb or a shop archive is not one), then the page, its id, its kind
+    and how many links it sends out. Three rules: a page laid out by a page
+    BUILDER is marked as one, because its text is read from the builder's own
+    data and nothing is ever written into it — unmarked, it reads as a page the
+    plugin simply failed on; the popup is read and not paged, so it says how
+    many more there are rather than pretending to hold them all; and the list
+    is printed by ONE renderer the popup and its endpoint both call, never a
+    second account of the same figure. The browser gate presses the REAL
+    markup, BEFORE any other press replaces the chips with the harness's own
+    strings — a gate pressing a fake button proves nothing.
   And the harness must let the register be written: `update_term_meta()` and
   `update_post_meta()` stubbed to `return true` threw the write away, so the
   month-long cooldown — the thing that stops a page being worked on twice —
