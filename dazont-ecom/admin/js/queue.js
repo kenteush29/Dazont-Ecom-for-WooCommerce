@@ -97,7 +97,7 @@
 				'<td>' + esc(r.from || '') + '</td>' +
 				'<td class="dze-q-when">' + esc(r.when || '') + '</td>' +
 				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + state + '</td>' +
-				'<td>' + act.join(' ') + '</td></tr>'
+				'<td class="dze-q-act">' + act.join(' ') + '</td></tr>'
 			);
 		});
 		var parts = [];

@@ -1121,6 +1121,16 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 /* ---- Writing queue: the review modal ---- */
 .dze-q-meta { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
 #dze-q-now { margin-bottom: 12px; }
+/* Content to review: the date on one line, and the buttons of a row beside
+   each other rather than under one another. A cell squeezed to nothing is how
+   this table ran off the side of the page — the widths are set on the heading
+   above, where the last column is left room on purpose. */
+/* A column whose content has a KNOWN width is given it — a date and three
+   buttons are the same size on every row — and the three that hold WORDS share
+   what is left. Percentages spent on those three are what starved this one. */
+#dze-q-table .dze-q-whenth, #dze-q-table .dze-q-when { width: 150px; white-space: nowrap; }
+#dze-q-table .dze-q-actth, #dze-q-table .dze-q-act { width: 160px; white-space: nowrap; }
+#dze-q-table .dze-q-act .button { margin-right: 3px; }
 
 /* ---- Accept / refuse, on the line ----
    Two distinct symbols next to the state they act on, shared by the products

@@ -1004,14 +1004,27 @@ final class DZE_Queue {
 			<table class="wp-list-table widefat fixed striped" id="dze-q-table">
 				<thead><tr>
 					<td class="check-column" style="width:2.2em;padding:8px 0 8px 3px;"><input type="checkbox" id="dze-q-all" /></td>
-					<th style="width:24%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
+					<?php
+					// THE LAST COLUMN GETS WHAT IS LEFT, so what is left must be
+					// worth having. This table is laid out FIXED (WordPress's
+					// own `.fixed`), and two of its columns are a fixed number
+					// of pixels — the tick box and the id — so percentages
+					// spent on the others come out of the same width: 80% of
+					// them left Action with "the rest minus 123px", which is
+					// nearly nothing on a narrower window. Every button in it
+					// then stacked one under the other and the table ran off
+					// the side of the page. Two columns are sized here and the
+					// four after them share what remains, equally, so they
+					// narrow together instead of starving the last one.
+					?>
+					<th class="dze-q-item" style="width:24%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
 					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
-					<th style="width:14%;"><?php esc_html_e( 'Job', 'dazont-ecom' ); ?></th>
+					<th class="dze-q-job"><?php esc_html_e( 'Job', 'dazont-ecom' ); ?></th>
 					<?php // Who ordered the work, and when it last moved. ?>
-					<th style="width:12%;"><?php esc_html_e( 'Started by', 'dazont-ecom' ); ?></th>
-					<th style="width:15%;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
-					<th style="width:15%;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
-					<th><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
+					<th class="dze-q-from"><?php esc_html_e( 'Started by', 'dazont-ecom' ); ?></th>
+					<th class="dze-q-whenth"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
+					<th class="dze-q-stateth"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
+					<th class="dze-q-actth"><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
 				</tr></thead>
 				<tbody><tr><td colspan="8"><span class="dze-cx-spin"></span></td></tr></tbody>
 			</table>
