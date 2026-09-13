@@ -53,6 +53,17 @@ foreach ( $languages as $l ) {
 				);
 				?>
 			</p>
+			<?php
+			// A CAUSE THAT HAS BEEN MEASURED BEATS A GENERIC REMEDY. Reconnecting
+			// works and then breaks again in a week, which is how a shop comes to
+			// believe the plugin is unreliable — "déjà la 2e fois qu'il se
+			// déconnecte". Said only where the shop has actually seen the pattern.
+			$dze_why = DZE_Gmc::testing_pattern();
+			if ( '' !== $dze_why ) :
+				?>
+				<p class="dze-gmc-why"><strong><?php esc_html_e( 'Why it keeps happening', 'dazont-ecom' ); ?></strong><br>
+					<?php echo esc_html( $dze_why ); ?></p>
+			<?php endif; ?>
 			<?php if ( $authorize_url ) : ?>
 				<a href="<?php echo esc_url( $authorize_url ); ?>" class="button button-primary"><?php esc_html_e( 'Connect Google account again', 'dazont-ecom' ); ?></a>
 			<?php endif; ?>
@@ -63,6 +74,24 @@ foreach ( $languages as $l ) {
 				<?php if ( ! empty( $connection['email'] ) ) : ?> — <code><?php echo esc_html( $connection['email'] ); ?></code><?php endif; ?>
 			</p>
 			<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=dze_gmc_disconnect' ), 'dze_gmc_disconnect' ) ); ?>" class="button"><?php esc_html_e( 'Disconnect', 'dazont-ecom' ); ?></a>
+			<?php
+			// A SCREEN SAYS WHAT STATE A THING IS IN, not only what it can do.
+			// How long this authorisation has held is the one figure that says
+			// whether it is about to fall over again.
+			$dze_days = DZE_Gmc::life_days();
+			if ( null !== $dze_days ) :
+				?>
+				<p class="description" style="max-width:820px;">
+					<?php
+					printf(
+						/* translators: %s: how many days the connection has held */
+						esc_html( _n( 'Given %s day ago.', 'Given %s days ago.', $dze_days, 'dazont-ecom' ) ),
+						esc_html( number_format_i18n( $dze_days ) )
+					);
+					?>
+					<?php esc_html_e( 'Google expires it after seven days while your OAuth app is in "Testing": Google Cloud console → APIs & Services → OAuth consent screen → Publish app.', 'dazont-ecom' ); ?>
+				</p>
+			<?php endif; ?>
 			<p class="description" style="max-width:820px;">
 				<?php esc_html_e( 'Authorized redirect URI of this site, should you need to register it again:', 'dazont-ecom' ); ?>
 				<code><?php echo esc_html( $redirect_uri ); ?></code>
@@ -80,6 +109,12 @@ foreach ( $languages as $l ) {
 			<p class="description" style="max-width:820px;">
 				<strong><?php esc_html_e( 'Google answers “Error 400: redirect_uri_mismatch”?', 'dazont-ecom' ); ?></strong>
 				<?php esc_html_e( 'That address must be listed, character for character, under “Authorized redirect URIs” of the OAuth client you pasted below — not the JavaScript origins. Three things catch people out: a client created as “Desktop app” instead of “Web application” (it has no redirect URIs at all), an address registered for another site (a staging domain), and www / https differing from what WordPress uses. Google can take a few minutes to apply a change.', 'dazont-ecom' ); ?>
+			</p>
+			<?php // WHAT HAS TO BE TRUE OUTSIDE THE PLUGIN, said before the first
+				// disconnection rather than after the second. ?>
+			<p class="description" style="max-width:820px;">
+				<strong><?php esc_html_e( 'Publish the app, or it disconnects every week.', 'dazont-ecom' ); ?></strong>
+				<?php echo esc_html( DZE_Gmc::keeps_said() ); ?>
 			</p>
 			<?php if ( $oauth_ready ) : ?>
 				<a href="<?php echo esc_url( $authorize_url ); ?>" class="button button-primary"><?php esc_html_e( 'Connect Google account', 'dazont-ecom' ); ?></a>

@@ -453,6 +453,17 @@ final class DZE_Gmc {
 		}
 
 		$conn['refresh_token'] = $refresh;
+		// WHEN IT WAS CONNECTED, so that the shop can be told WHY it keeps
+		// coming apart. Google expires a refresh token after SEVEN DAYS while
+		// the OAuth app's publishing status is "Testing" — a setting outside
+		// this plugin, invisible from inside it, and the reason a connection
+		// that was working on Monday is gone the following Monday. The one
+		// thing that can recognise it is the gap between these two stamps, so
+		// the stamp is kept and the previous life's span is kept with it.
+		if ( ! empty( $conn['broken'] ) && ! empty( $conn['connected'] ) ) {
+			$conn['last_life'] = max( 0, (int) $conn['broken'] - (int) $conn['connected'] );
+		}
+		$conn['connected'] = time();
 		// A fresh authorisation is the cure for a revoked one: what was
 		// written down about the old connection goes with it, so the screens
 		// stop saying "reconnect" the moment it IS reconnected.
@@ -499,6 +510,69 @@ final class DZE_Gmc {
 	}
 
 	/**
+	 * HOW LONG THIS AUTHORISATION LASTED BEFORE IT WAS REVOKED — in days.
+	 *
+	 * Null when there is nothing to measure: never connected, never broken, or
+	 * connected by a version that did not write the stamp down. A guess made
+	 * from no reading is worse than no guess.
+	 */
+	public static function life_days(): ?int {
+		$c    = self::get_connection();
+		$from = (int) ( $c['connected'] ?? 0 );
+		$to   = (int) ( $c['broken'] ?? 0 );
+		if ( $from < 1 ) {
+			return null;
+		}
+		if ( $to < 1 ) {
+			// Still alive: how long it has lasted so far, which is the same
+			// question asked before the answer is in.
+			$to = time();
+		}
+		return max( 0, (int) floor( ( $to - $from ) / DAY_IN_SECONDS ) );
+	}
+
+	/**
+	 * THE SEVEN-DAY SIGNATURE, named when the shop has actually seen it.
+	 *
+	 * "J'ai l'impression que ce n'est pas très fiable, déjà la 2e fois qu'il se
+	 * déconnecte." It is not this plugin: the refresh path never throws the
+	 * token away. Google does, after seven days, while the OAuth consent screen
+	 * is External and its publishing status is "Testing".
+	 *
+	 * Said only where it has been MEASURED — a connection that died at six,
+	 * seven or eight days, twice — because a sentence printed on every failure
+	 * would be a guess pretending to be a reading, and the shop would act on
+	 * it. One life is a coincidence; a second one the same length is a pattern.
+	 */
+	public static function testing_pattern(): string {
+		$c    = self::get_connection();
+		$now  = self::life_days();
+		$last = isset( $c['last_life'] ) ? (int) floor( (int) $c['last_life'] / DAY_IN_SECONDS ) : -1;
+		$was  = static fn( int $d ): bool => $d >= 5 && $d <= 9;
+		if ( empty( $c['broken'] ) || null === $now || ! $was( $now ) || $last < 0 || ! $was( $last ) ) {
+			return '';
+		}
+		return sprintf(
+			/* translators: 1: days this authorisation lasted, 2: days the one before it lasted */
+			__( 'This authorisation lasted %1$s days, and the one before it %2$s. That is Google\'s seven-day limit, not a fault here: it expires a connection after a week while the OAuth consent screen\'s publishing status is "Testing". In the Google Cloud console, under APIs & Services → OAuth consent screen, press Publish app. Once it is in production the connection stops expiring.', 'dazont-ecom' ),
+			number_format_i18n( $now ),
+			number_format_i18n( $last )
+		);
+	}
+
+	/**
+	 * WHAT HAS TO BE TRUE OUTSIDE THIS PLUGIN for the connection to last.
+	 *
+	 * A function that needs something set up outside the plugin says so WHERE
+	 * THE SETTING IS MADE — this sits beside the Connect button, not in a
+	 * changelog and not in a chat. It is one sentence, and it is there before
+	 * the first disconnection rather than after the second.
+	 */
+	public static function keeps_said(): string {
+		return __( 'Google expires this connection after seven days while your OAuth app is in "Testing". To keep it: Google Cloud console → APIs & Services → OAuth consent screen → Publish app.', 'dazont-ecom' );
+	}
+
+	/**
 	 * The connection is gone, and this is where that is written down.
 	 *
 	 * Five feeds meant five identical Google errors on one screen, none of
@@ -537,6 +611,13 @@ final class DZE_Gmc {
 		// The path is READ from where the screen actually is, never typed: this
 		// sentence sent the shop to "Settings → Google Merchant Center", which
 		// is not a place — the screen is a tab of Marketing events.
+		$why = self::testing_pattern();
+		if ( '' !== $why ) {
+			// A CAUSE THAT HAS BEEN MEASURED BEATS A GENERIC REMEDY: reconnecting
+			// works and then breaks again in a week, which is how a shop ends up
+			// believing the plugin is unreliable.
+			return $why;
+		}
 		return __( 'Google has revoked this connection — nothing will sync until it is reconnected. Dazont Ecom → Marketing events → Google Merchant Center → Connect Google account again.', 'dazont-ecom' );
 	}
 
