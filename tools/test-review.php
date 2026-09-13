@@ -63,7 +63,9 @@ function wp_json_encode( $v ) { return json_encode( $v ); }
 function wp_unslash( $v ) { return $v; }
 function add_action() {} function add_filter() {} function register_setting() {}
 function is_admin() { return true; }
-function current_time( $t = 'mysql' ) { return '2026-09-03 12:00:00'; }
+function current_time( $t = 'mysql' ) {
+	return 'timestamp' === $t ? strtotime( '2026-09-03 12:00:00' ) : '2026-09-03 12:00:00';
+}
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
 function add_query_arg( ...$a ) { return 'http://shop.test/queue'; }
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d ); }
@@ -72,7 +74,7 @@ function wp_schedule_event() {} function wp_clear_scheduled_hook( $h ) {}
 function delete_metadata( ...$a ) { return true; }
 function get_term( $id, $tax = '' ) {
 	return isset( $GLOBALS['terms'][ (int) $id ] )
-		? (object) [ 'term_id' => (int) $id, 'description' => (string) $GLOBALS['terms'][ (int) $id ] ]
+		? (object) [ 'term_id' => (int) $id, 'name' => 'Category ' . (int) $id, 'description' => (string) $GLOBALS['terms'][ (int) $id ] ]
 		: null;
 }
 function update_term_meta( ...$a ) { return true; }
@@ -105,6 +107,10 @@ function wp_send_json_error( $d = null, $c = 0 ) { throw new DZE_Json_Sent( $d, 
 
 $GLOBALS['opts'] = [];
 function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ) ? $GLOBALS['opts'][ $k ] : $d; }
+function mysql2date( $format, $date, $translate = true ) {
+	$t = strtotime( (string) $date );
+	return false === $t ? '' : gmdate( (string) $format, $t );
+}
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
 function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
 function get_transient( $k ) { return false; }
@@ -181,7 +187,13 @@ class DZE_Review_Wpdb {
 	public function prepare( $q, ...$a ) { return vsprintf( str_replace( [ '%s', '%d' ], [ "'%s'", '%d' ], $q ), $a ); }
 	public function query( $q ) { $this->sent[] = (string) $q; return 3; }
 	public function get_var( $q ) { $this->sent[] = (string) $q; return 0; }
-	public function get_results( $q, $m = null ) { $this->sent[] = (string) $q; return $GLOBALS['rows'] ?? []; }
+	public function get_results( $q, $m = null ) {
+		$this->sent[] = (string) $q;
+		if ( false !== stripos( (string) $q, 'GROUP BY status' ) ) {
+			return $GLOBALS['status_counts'] ?? [];
+		}
+		return $GLOBALS['rows'] ?? [];
+	}
 	public function get_col( $q ) { $this->sent[] = (string) $q; return []; }
 	public function get_row( $q, $m = null ) { $this->sent[] = (string) $q; return $GLOBALS['rows'][0] ?? []; }
 	public function get_charset_collate() { return 'DEFAULT CHARACTER SET utf8mb4'; }
@@ -196,6 +208,8 @@ class DZE_Review_Wpdb {
 			'kind'    => (string) ( $row['kind'] ?? '' ),
 			'id'      => (int) ( $row['object_id'] ?? 0 ),
 			'payload' => json_decode( (string) ( $row['payload'] ?? '' ), true ) ?: [],
+			// WHO ASKED FOR THE WORK, written at the insert.
+			'made_by' => (int) ( $row['made_by'] ?? -1 ),
 		];
 		return 1;
 	}
@@ -460,7 +474,16 @@ ok( 'and its cell sits between that name and the job',
 // The empty line spans the whole table: one short of the columns it sits under
 // leaves a ragged row that reads as a broken screen.
 ok( 'and an empty line spans every column of it',
-	(bool) preg_match( '/colspan="6"/', $dze_head ) && (bool) preg_match( '/colspan="6"/', $dze_js ), true );
+	(bool) preg_match( '/colspan="8"/', $dze_head ) && (bool) preg_match( '/colspan="8"/', $dze_js ), true );
+// WHEN IT WAS DONE, AND WHO ASKED FOR IT. "Dans To review il faudra
+// impérativement une date affichée sur chaque action. Pour savoir quand ça a
+// été fait. Aussi une colonne pour savoir qui a initié la génération de ce
+// contenu." Two columns of the same table split across two files, so both
+// halves are read here and the POSITION is what is asserted.
+ok( 'the table heads who started it and when, after the job',
+	(bool) preg_match( '/\x27Job\x27, \x27dazont-ecom\x27[\s\S]{0,400}?\x27Started by\x27[\s\S]{0,300}?\x27When\x27[\s\S]{0,300}?\x27Status\x27/', $dze_head ), true );
+ok( 'and the cells sit in that same order',
+	(bool) preg_match( '/esc\(r\.kind\)[\s\S]{0,600}?esc\(r\.from[\s\S]{0,300}?esc\(r\.when[\s\S]{0,300}?COLORS\[r\.status\]/', $dze_js ), true );
 // The restock list is the same split the other way round: WordPress prints the
 // cells and the browser builds the heading.
 $dze_rs    = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-restock.php' );
@@ -469,6 +492,61 @@ ok( 'the restock variations head the id right after the variation',
 	(bool) preg_match( '/<th>Variation<\/th><th class="dze-objid-th">ID<\/th><th>SKU<\/th>/', $dze_rs_js ), true );
 ok( 'and its cell sits in that same place',
 	(bool) preg_match( '/esc_html\( \$name \)[\s\S]{0,300}?DZE_Hub::id_td\([\s\S]{0,120}?\$sku/', $dze_rs ), true );
+
+echo "When it was done, and who asked for it\n";
+//
+// "Dans To review il faudra impérativement une date affichée sur chaque
+// action. Pour savoir quand ça a été fait. Aussi une colonne pour savoir qui a
+// initié la génération de ce contenu." The decider was recorded and the person
+// who ORDERED the work was not, so a row that came back wrong could be traced
+// to whoever accepted it and never to whoever asked for it.
+delete_option( 'dze_queue_schema' );
+DZE_Queue::instance()->maybe_install();
+ok( 'the table carries who asked for it',
+	false !== strpos( $GLOBALS['queue_schema'] ?? '', 'made_by' ), true );
+ok( 'and the schema moved with the column',
+	(int) get_option( 'dze_queue_schema', 0 ) >= 3, true );
+// It is read from the current user AT THE INSERT, so every path in the plugin
+// fills it without being told — and cron, which has no user, answers 0.
+$GLOBALS['uid']    = 9;
+$GLOBALS['queued'] = [];
+DZE_Queue::add( 'cat_desc', [ 12 ] );
+ok( 'a job records who pressed it',     (int) ( $GLOBALS['queued'][0]['made_by'] ?? -1 ), 9 );
+$GLOBALS['uid']    = 0;
+$GLOBALS['queued'] = [];
+DZE_Queue::add( 'cat_desc', [ 13 ] );
+ok( 'and a scheduled pass records nobody', (int) ( $GLOBALS['queued'][0]['made_by'] ?? -1 ), 0 );
+// An ORIGIN always has an answer — unlike a decision, which has nobody when a
+// pass saved without review. Naming where a job came from is not inventing a
+// person.
+$GLOBALS['users'] = [ 7 => 'Marie', 9 => 'Paul' ];
+ok( 'the column names the person',      DZE_Queue::started_by( 7 ), 'Marie' );
+ok( 'and names the pass when there is none', DZE_Queue::started_by( 0 ), 'Automatic' );
+// THE DATE, in the shop's own format, read as local time and never shifted a
+// second time.
+$GLOBALS['opts']['date_format'] = 'j M Y';
+$GLOBALS['opts']['time_format'] = 'H:i';
+ok( 'the row says when it last moved',  DZE_Queue::moment( '2026-09-13 16:45:00' ), '13 Sep 2026 16:45' );
+ok( 'and an empty date says nothing at all', DZE_Queue::moment( '0000-00-00 00:00:00' ), '' );
+ok( 'as does a row with no date yet',   DZE_Queue::moment( '' ), '' );
+// AND BOTH TRAVEL: this list is drawn in the browser, so a figure the server
+// never sends is a column no screen can print.
+$GLOBALS['rows'] = [ [
+	'id' => 5, 'kind' => 'cat_desc', 'object_id' => 3, 'status' => 'review',
+	'result' => '', 'payload' => '', 'updated' => '2026-09-13 16:45:00',
+	'decided_by' => 0, 'made_by' => 7,
+] ];
+$dze_sent = [];
+try { DZE_Queue::instance()->ajax_status(); } catch ( DZE_Json_Sent $e ) { $dze_sent = (array) $e->payload; }
+ok( 'the list carries who started each row',
+	(string) ( $dze_sent['rows'][0]['from'] ?? '' ), 'Marie' );
+ok( 'and when it last moved',
+	(string) ( $dze_sent['rows'][0]['when'] ?? '' ), '13 Sep 2026 16:45' );
+ok( 'and the row still says who decided',
+	array_key_exists( 'who', (array) ( $dze_sent['rows'][0] ?? [] ) ), true );
+// The row is READ with both columns in it, or the two are never answered.
+ok( 'the reader asks for both columns',
+	(bool) preg_match( '/SELECT[^;]*created[^;]*made_by FROM/', implode( ' ', $GLOBALS['wpdb']->sent ) ), true );
 
 $GLOBALS['uid'] = 7;
 $GLOBALS['wpdb']->sent = [];

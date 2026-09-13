@@ -280,6 +280,13 @@ class DZE_Queue {
 	}
 	/** What is already waiting on an object, in the shape the real one answers. */
 	public static function pending_for( int $object_id, string $family = 'cat_' ): array { return []; }
+	/** How many finished jobs of these kinds are waiting for a decision. */
+	public static function review_count_for( array $kinds ): int {
+		$n = 0;
+		foreach ( $kinds as $k ) { $n += (int) ( $GLOBALS['review_by_kind'][ $k ] ?? 0 ); }
+		return $n;
+	}
+	public static function url( array $args = [] ): string { return 'https://kula.test/wp-admin/admin.php?page=dazont-ecom-diagnostic&tab=review'; }
 }
 /** The module switches. A class file always exists; this is the real check. */
 class DZE_Modules {
@@ -494,6 +501,55 @@ ob_start();
 DZE_Automation::render_settings();
 $off = (string) ob_get_clean();
 ok( 'a task whose module is off is not offered', false !== strpos( $off, 'Needs its own module' ), true );
+
+echo "\nWhat each task left for you to decide\n";
+//
+// "Peut-être afficher un msg sur chaque section automatisation qui nomme
+// combien de jobs sont en attente de review pour chacun d'eux ?" A pass that
+// runs on its own and says nothing about what it produced is a pass whose work
+// is found by accident — and the list it lands on is two clicks away under
+// another menu.
+fresh( $ON );
+$GLOBALS['review_by_kind'] = [];
+ok( 'nothing waiting, nothing claimed',  DZE_Automation::waiting_for( 'mesh_links' )['n'], 0 );
+// The linking task leaves BOTH kinds of job behind — a category pass and an
+// article pass — and the figure on its block is the two together, or it counts
+// half its own work.
+$GLOBALS['review_by_kind'] = [ 'cat_links' => 2, 'post_links' => 3, 'cat_desc' => 4 ];
+ok( 'the linking task counts both its passes', DZE_Automation::waiting_for( 'mesh_links' )['n'], 5 );
+ok( 'and the writing task counts its own',     DZE_Automation::waiting_for( 'cat_desc' )['n'], 4 );
+// A MESSAGE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN.
+ok( 'the figure is a link to the list',
+	false !== strpos( DZE_Automation::waiting_for( 'mesh_links' )['url'], 'tab=review' ), true );
+// The shop-wide task writes nothing to the queue: what it leaves is a pile of
+// suggestions on the screen that owns them.
+$GLOBALS['pending_events'] = 3;
+ok( 'the calendar task counts its suggestions', DZE_Automation::waiting_for( 'events' )['n'], 3 );
+ok( 'and points at the screen holding them',
+	false !== strpos( DZE_Automation::waiting_for( 'events' )['url'], 'tab=events' ), true );
+// The writing queue switched off answers nought rather than erroring: a class
+// file always exists, and the figure is about a table that may not.
+$GLOBALS['mods'] = [ 'queue' => 0 ];
+ok( 'the queue off, nothing is claimed',  DZE_Automation::waiting_for( 'mesh_links' )['n'], 0 );
+$GLOBALS['mods'] = [];
+// AND IT IS ON THE BLOCK, where the work was started.
+$GLOBALS['review_by_kind'] = [ 'cat_links' => 1, 'post_links' => 0 ];
+ob_start();
+DZE_Automation::render_state( 'mesh_links' );
+$said = (string) ob_get_clean();
+ok( 'the block says what is waiting',
+	false !== strpos( $said, 'waiting for your yes or no' ), true );
+ok( 'in the singular when there is one',
+	false !== strpos( $said, '1 piece of work is waiting' ), true );
+ok( 'and it is a link to the list',      false !== strpos( $said, 'tab=review' ), true );
+// A NOUGHT IS NOT NEWS: a line saying "nothing is waiting" every day is a line
+// nobody reads by the end of the week.
+$GLOBALS['review_by_kind'] = [];
+ob_start();
+DZE_Automation::render_state( 'mesh_links' );
+$quiet = (string) ob_get_clean();
+ok( 'nothing waiting, nothing said',
+	false !== strpos( $quiet, 'waiting for your yes or no' ), false );
 
 echo "\nIts own entry, in the WordPress menu\n";
 //

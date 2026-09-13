@@ -43,7 +43,7 @@
 		var rows = res.rows || [], c = res.counts || {};
 		var $b = $('#dze-q-table tbody').empty();
 		if (!rows.length) {
-			$b.append('<tr><td colspan="6">' + esc(i18n.empty) + '</td></tr>');
+			$b.append('<tr><td colspan="8">' + esc(i18n.empty) + '</td></tr>');
 		}
 		rows.forEach(function (r) {
 			// Every row can be acted on: a run that went wrong is retried or
@@ -90,6 +90,12 @@
 				'<td class="dze-objid-td">' +
 					(r.oid ? '<code class="dze-objid">' + esc(r.oid) + '</code>' : '') +
 				'</td><td>' + esc(r.kind) + '</td>' +
+				// WHO ORDERED IT AND WHEN IT LAST MOVED, both written by the
+				// server — the words and the date format are the shop's, not
+				// this file's, and the columns are in the order the heading
+				// printed them.
+				'<td>' + esc(r.from || '') + '</td>' +
+				'<td class="dze-q-when">' + esc(r.when || '') + '</td>' +
 				'<td style="color:' + (COLORS[r.status] || '#000') + ';">' + state + '</td>' +
 				'<td>' + act.join(' ') + '</td></tr>'
 			);

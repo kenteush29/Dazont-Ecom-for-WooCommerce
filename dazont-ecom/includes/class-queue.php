@@ -23,7 +23,7 @@ final class DZE_Queue {
 	public const MENU_SLUG  = 'dazont-ecom-queue';
 	public const HOOK       = 'dze_queue_work';
 	private const SCHEMA_OPT     = 'dze_queue_schema';
-	private const SCHEMA_VERSION = 2;
+	private const SCHEMA_VERSION = 3;
 	private const LOCK      = 'dze_queue_lock';
 	private const COUNT_KEY = 'dze_queue_review_count';
 
@@ -118,6 +118,15 @@ final class DZE_Queue {
 			-- once the work is handed to somebody else. 0 means the plugin
 			-- itself: a task that saves without review has nobody to name.
 			decided_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			-- AND WHO ASKED FOR IT. The decider was recorded and the
+			-- person who started the work was not, so a row that came back
+			-- wrong could be traced to whoever accepted it and never to
+			-- whoever ordered it. It is read from the current user at the
+			-- moment the job is inserted, so every path in the plugin fills
+			-- it without being told — and 0 is the scheduled pass, which is
+			-- an ORIGIN and not a person: naming it says where the job came
+			-- from, it does not invent somebody.
+			made_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
 			KEY status (status),
 			KEY object (kind,object_id)
@@ -161,6 +170,11 @@ final class DZE_Queue {
 				'object_id'  => $id,
 				'status'     => 'queued',
 				'auto_apply' => $auto_apply ? 1 : 0,
+				// Whoever pressed it, read here rather than passed in by every
+				// caller: a list of writers somebody keeps in step always has
+				// one forgotten entry, and in cron there is no user, which is
+				// exactly the answer.
+				'made_by'    => self::decider(),
 				'payload'    => $payload ? wp_json_encode( $payload ) : null,
 				'created'    => $now,
 				'updated'    => $now,
@@ -493,7 +507,7 @@ final class DZE_Queue {
 		$table = self::table();
 		return (array) $wpdb->get_results( $wpdb->prepare(
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT id, kind, object_id, status, error, payload, updated, decided_by FROM {$table}
+			"SELECT id, kind, object_id, status, error, payload, created, updated, decided_by, made_by FROM {$table}
 			 ORDER BY FIELD(status,'running','queued','review','failed','applied','skipped'), id ASC LIMIT %d",
 			$limit
 		), ARRAY_A );
@@ -823,6 +837,33 @@ final class DZE_Queue {
 		return $n;
 	}
 
+	/**
+	 * How many of ONE kind of job are waiting for a decision.
+	 *
+	 * The screen that STARTED the work is where somebody asks "and what did it
+	 * leave me?" — so the figure is answered per kind, one query, rather than
+	 * making them go and count on the list itself.
+	 *
+	 * @param string[] $kinds
+	 */
+	public static function review_count_for( array $kinds ): int {
+		global $wpdb;
+		$kinds = array_values( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) );
+		if ( ! $kinds ) {
+			return 0;
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return 0;
+		}
+		$in = "'" . implode( "','", $kinds ) . "'";
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds stripped to [a-z_] above.
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'review' AND kind IN ( {$in} )" );
+	}
+
 	/** Any change of state can change the bubble. */
 	public static function forget_count(): void {
 		delete_transient( self::COUNT_KEY );
@@ -963,13 +1004,16 @@ final class DZE_Queue {
 			<table class="wp-list-table widefat fixed striped" id="dze-q-table">
 				<thead><tr>
 					<td class="check-column" style="width:2.2em;padding:8px 0 8px 3px;"><input type="checkbox" id="dze-q-all" /></td>
-					<th style="width:30%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
+					<th style="width:24%;"><?php esc_html_e( 'Item', 'dazont-ecom' ); ?></th>
 					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
-					<th style="width:22%;"><?php esc_html_e( 'Job', 'dazont-ecom' ); ?></th>
-					<th style="width:16%;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
+					<th style="width:14%;"><?php esc_html_e( 'Job', 'dazont-ecom' ); ?></th>
+					<?php // Who ordered the work, and when it last moved. ?>
+					<th style="width:12%;"><?php esc_html_e( 'Started by', 'dazont-ecom' ); ?></th>
+					<th style="width:15%;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
+					<th style="width:15%;"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 					<th><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
 				</tr></thead>
-				<tbody><tr><td colspan="6"><span class="dze-cx-spin"></span></td></tr></tbody>
+				<tbody><tr><td colspan="8"><span class="dze-cx-spin"></span></td></tr></tbody>
 			</table>
 		</div>
 		<div class="dze-cx-modal" id="dze-q-modal"><div class="dze-cx-dialog" style="width:min(860px,94vw);">
@@ -1022,6 +1066,11 @@ final class DZE_Queue {
 				// was dealt with AND by whom; the sentence is built here, in
 				// PHP, so it is not English on every shop.
 				'who'      => self::said_by( (string) $r['status'], (int) ( $r['decided_by'] ?? 0 ) ),
+				// WHO ASKED FOR IT, and WHEN it last moved: two columns of
+				// their own, because a list of work with neither cannot answer
+				// "when was that done" or "who ordered this".
+				'from'     => self::started_by( (int) ( $r['made_by'] ?? 0 ) ),
+				'when'     => self::moment( (string) ( $r['updated'] ?? '' ) ),
 			];
 		}
 		wp_send_json_success( [ 'rows' => $rows, 'counts' => self::counts() ] );
@@ -1171,6 +1220,38 @@ final class DZE_Queue {
 	 */
 	private static function decider(): int {
 		return function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+	}
+
+	/**
+	 * WHO ASKED FOR THIS WORK — a name, or where it came from.
+	 *
+	 * Not the same question as who decided it: a decision has nobody when a
+	 * scheduled pass saved without review, and saying "by the shop" there would
+	 * invent a person. An ORIGIN always has an answer, and "Automatic" is that
+	 * answer — the row came from the pass that runs on its own.
+	 */
+	public static function started_by( int $user_id ): string {
+		$who = self::decided_by( $user_id );
+		return '' !== $who ? $who : __( 'Automatic', 'dazont-ecom' );
+	}
+
+	/**
+	 * WHEN, on the row, in the shop's own date and time format.
+	 *
+	 * "Il faudra impérativement une date affichée sur chaque action. Pour
+	 * savoir quand ça a été fait." One moment per row and no second figure
+	 * beside it: the last time this job moved, which is when it was written for
+	 * a row waiting, and when it was accepted or refused for one that is done.
+	 */
+	public static function moment( string $mysql ): string {
+		$mysql = trim( $mysql );
+		if ( '' === $mysql || '0000-00-00 00:00:00' === $mysql ) {
+			return '';
+		}
+		return (string) mysql2date(
+			get_option( 'date_format' ) . ' ' . get_option( 'time_format' ),
+			$mysql
+		);
 	}
 
 	/**

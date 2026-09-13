@@ -62,7 +62,7 @@ final class DZE_Transfer {
 	public static function groups(): array {
 		return [
 			'prompts'    => __( 'Prompts', 'dazont-ecom' ),
-			'diagnostic' => __( 'Content diagnostic criteria', 'dazont-ecom' ),
+			'diagnostic' => __( 'Content rules', 'dazont-ecom' ),
 		];
 	}
 
@@ -270,7 +270,7 @@ final class DZE_Transfer {
 	/** The criteria, replaced. */
 	private static function write_diagnostic( array $group ): string {
 		if ( ! class_exists( 'DZE_Diagnostic' ) ) {
-			throw new RuntimeException( __( 'The Content diagnostic module is switched off — switch it on to take its criteria.', 'dazont-ecom' ) );
+			throw new RuntimeException( __( 'The Content diagnostic module is switched off — switch it on to take its rules.', 'dazont-ecom' ) );
 		}
 		$n = DZE_Diagnostic::write_rows( array_values( array_filter( (array) ( $group['rows'] ?? [] ), 'is_array' ) ) );
 		return sprintf(
