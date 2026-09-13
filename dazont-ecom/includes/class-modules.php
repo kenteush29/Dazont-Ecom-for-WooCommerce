@@ -33,6 +33,12 @@ final class DZE_Modules {
 		// accounting and must not disappear with that module.
 		// Last in the menu: a log is what you go to when something is wrong,
 		// never the first thing offered above the work.
+		// SETUP: the plugin's own too, and for the same reason — it is the
+		// screen that says what is NOT configured, so it must not disappear
+		// with any of the modules it reports on. Just above the Logs: what is
+		// set up, then what went wrong.
+		add_action( 'admin_menu', [ 'DZE_Setup', 'register_menu' ], 29 );
+		add_action( 'admin_notices', [ 'DZE_Setup', 'notice' ] );
 		add_action( 'admin_menu', [ 'DZE_Health', 'register_menu' ], 30 );
 		add_action( 'admin_init', [ 'DZE_Health', 'maybe_redirect' ] );
 		add_action( 'admin_menu', [ $this, 'submenu' ], 99 );

@@ -1367,6 +1367,66 @@ whose screen has not been thought through yet.
   enqueues it, and the PHP gate DRAWS the screen and reads back what it asked
   for (`wp_enqueue_style` recorded), because calling the helper proves the
   helper works and nothing about whether the screen ever asks for it.
+- **THE SETUP SCREEN IS A READING, NOT A WIZARD — and that was the only
+  decision that mattered.** "Il va me falloir un tableau de bord de setup du
+  plugin… le 2e oui, avec message d'avertissement quand le setup n'a jamais été
+  fait." A parcours one walks through once would be ticked on a Tuesday and
+  start lying on the Wednesday: Google revokes an authorisation, a key is
+  rotated, a module is switched on months later and wants something nobody has
+  given it. So **nothing on this screen is stored**. Every line is read, as the
+  page is drawn, from whoever owns that answer — a key from the module that
+  sends it, a connection from `DZE_Health`'s LAST reading (never asked again
+  here: it reaches four providers over HTTP and an admin page waiting on that
+  is a shop returning 504s), an outside condition from the thing itself.
+  It is **Dazont Ecom → Setup**, registered from `DZE_Modules` like the Logs
+  and for the same reason: it is the screen that says what is NOT configured,
+  so it must not disappear with any of the modules it reports on.
+  Six rules, each of them a way it goes wrong:
+  - **WHAT IS REQUIRED IS WHAT AN ENABLED MODULE NEEDS.** A shop that does not
+    use Klaviyo is not a shop missing a Klaviyo key — it is a shop without
+    Klaviyo. Every step names its module, and a step whose module is off is not
+    counted, not warned about and not a shortfall. That is the only thing that
+    makes the notice honest enough to leave switched on for ever. The row still
+    SHOWS, marked "Module off" and offering the Modules list, because a shop
+    wondering where Klaviyo went needs a screen that answers.
+  - **A SUGGESTION DOES NOT WEAR THE WORD "TO DO".** Counting "leave out your
+    recent buyers" as missing is how a notice never goes away. A step that is
+    not required and not done is an `idea`, rewritten in ONE pass over the
+    list — never in each reader — so the figure at the top, the chip on the
+    block and the mark on the row can never count three different things.
+  - **THE NOTICE IS NOT A NAG AND HAS NO OFF SWITCH.** It says how many are
+    missing and names the first, it never appears on the Setup page itself (a
+    screen sending you to the screen you are on), it is never shown to somebody
+    who could not act on it, and it goes on its own the moment the last one is
+    done. There is no "do not show again", because the thing it would hide
+    would still be broken.
+  - **A LIST THAT ANOTHER MODULE OWNS IS ASKED FOR, NEVER REWRITTEN.**
+    `DZE_Klaviyo::setup_items()` had answered the email half of this question
+    for months with NOTHING drawing it: its one call site was guarded by
+    `class_exists( 'DZE_Setup' )` on a class that had been deleted, so it
+    silently did nothing — and naming the new class `DZE_Setup` would have
+    turned that silence into a fatal on the promotion screen. `class_exists()`
+    is not a check, said once more and paid for once more. The module now says
+    which of its own items are REQUIRED, because only it knows, and
+    `DZE_Setup::render()` draws that same list inline where the work happens.
+  - **NOUGHT IS NOT A CEILING.** The image ceilings ship at ten and sixty, so
+    the row is silent on every shop that has not touched them — and a shop that
+    HAS put one at nought has no guard at all, which is what a $40 night looks
+    like. Wanting no ceiling is setting a high one.
+  - **THE SCREEN IS MEASURED, NOT TRUSTED.** Its table is the exact shape that
+    broke Content to review — laid out FIXED, part pixels and part percentages,
+    so every percentage is spent out of what the pixel columns left.
+    `node tools/js/setup-screen.mjs` draws the real markup at 1040, 1280 and
+    1600 and measures it. **A button that does not wrap OVERFLOWS**: with
+    `white-space: nowrap` a starved column changes no height at all, so the
+    check that catches it is the button spilling out of its own cell — the
+    first version measured height, went green on a 46px action column, and
+    proved nothing.
+  **`php tools/test-setup.php dazont-ecom` and `node tools/js/setup-screen.mjs`
+  must pass.** The PHP gate DRAWS the page rather than calling its helpers, and
+  its harness carries a real shop — WooCommerce present, the scheduler running
+  — because a fresh install is not a broken one, and a harness without them
+  tests a broken shop while looking like a strict one.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo
