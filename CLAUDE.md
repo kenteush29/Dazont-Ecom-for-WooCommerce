@@ -2321,6 +2321,33 @@ whose screen has not been thought through yet.
   pass pressed by hand does. It has to be right in BOTH directions: a shop
   wrongly called a copy is a shop that has quietly stopped sending, so a shop
   updating to this version adopts itself silently and nothing changes for it.
+- **A CONNECTION THAT KEEPS BREAKING HAS A CAUSE, AND THE CAUSE IS
+  MEASURABLE.** "J'ai l'impression que ce n'est pas très fiable, déjà la 2e
+  fois qu'il se déconnecte." It was not this plugin — the refresh path never
+  throws the token away. Google expires a refresh token after SEVEN DAYS while
+  the OAuth consent screen's publishing status is "Testing": a setting outside
+  the plugin, invisible from inside it, and the reason a connection working on
+  Monday is gone the following Monday. Reconnecting fixes it for a week, which
+  is exactly how a shop comes to believe the plugin is unreliable.
+  The one thing that can recognise it is the GAP between two stamps, so the
+  connection records when it was given (`connected`) and how long the previous
+  one lasted (`last_life`). Four rules:
+  - **One life is a coincidence; a second the same length is a pattern.** A
+    password change revokes a connection once and does it at any age, so the
+    sentence is said only when TWO lives have both landed in the five-to-nine
+    day band. Printed on every failure it would be a guess pretending to be a
+    reading, and the shop would go and change a setting that was never the
+    problem.
+  - **A cause that has been measured beats a generic remedy.** `broken_message()`
+    names the pattern where there is one and falls back to "reconnect" where
+    there is not — never both, and never the generic one over the top of a real
+    diagnosis.
+  - **What has to be true OUTSIDE the plugin is said where the setting is
+    made**, before the first disconnection rather than after the second: beside
+    the Connect button, and beside a live connection with how long it has held.
+  - **Nothing is claimed from no reading.** Never connected, never broken, or
+    connected by a version that did not write the stamp — all answer null, and
+    the screen says nothing.
 - **`php tools/test-gmc-token.php dazont-ecom` must pass.** Google answers
   `invalid_grant` / "Token has been expired or revoked" when the authorisation
   is GONE: no retry fixes it, so it is recognised, written down once on the

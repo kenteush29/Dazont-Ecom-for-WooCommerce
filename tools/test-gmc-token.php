@@ -51,6 +51,7 @@ function wp_cache_delete( ...$a ) {}
 function current_time( $t = 'timestamp' ) { return time(); }
 function wp_date( $f, $ts = null ) { return gmdate( $f, $ts ?? time() ); }
 
+function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
 $GLOBALS['opts'] = [];
 function get_option( $k, $d = false ) { return array_key_exists( $k, $GLOBALS['opts'] ) ? $GLOBALS['opts'][ $k ] : $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
@@ -212,6 +213,92 @@ $GLOBALS['asked'] = [];
 $dze_call->invoke( DZE_Gmc::instance(), 'POST', 'https://merchantapi.googleapis.com/x', 'tok', [ 'a' => 1 ] );
 ok( 'the shop itself pushes as before', count( $GLOBALS['asked'] ), 1 );
 unset( $GLOBALS['opts'][ DZE_Site::OPT_HOME ] );
+
+echo "\nWhy the connection keeps coming apart\n";
+//
+// "J'ai l'impression que ce n'est pas très fiable, déjà la 2e fois qu'il se
+// déconnecte." It is not this plugin — the refresh path never throws the token
+// away. Google expires a refresh token after SEVEN DAYS while the OAuth
+// consent screen's publishing status is "Testing", which is a setting outside
+// the plugin and invisible from inside it. The one thing that can recognise it
+// is the gap between the two stamps.
+$dze_day = 86400;
+$dze_now = time();
+
+// NOTHING MEASURED, NOTHING SAID. A sentence printed on every failure would be
+// a guess pretending to be a reading, and the shop would act on it.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [ 'refresh_token' => 'r' ];
+ok( 'never connected, nothing measured',  DZE_Gmc::life_days(), null );
+ok( 'and no pattern claimed',             DZE_Gmc::testing_pattern(), '' );
+
+// A LIVE CONNECTION ANSWERS HOW LONG IT HAS HELD — the same question, asked
+// before the answer is in.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [ 'refresh_token' => 'r', 'connected' => $dze_now - 3 * $dze_day ];
+ok( 'a live one says how long so far',    DZE_Gmc::life_days(), 3 );
+ok( 'and still claims no pattern',        DZE_Gmc::testing_pattern(), '' );
+
+// ONE LIFE IS A COINCIDENCE. Broken at seven days with nothing before it is
+// not yet a pattern: a password change does exactly the same thing once.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [
+	'refresh_token' => 'r',
+	'connected'     => $dze_now - 7 * $dze_day,
+	'broken'        => $dze_now,
+];
+ok( 'one seven-day life is measured',     DZE_Gmc::life_days(), 7 );
+ok( 'but not yet called a pattern',       DZE_Gmc::testing_pattern(), '' );
+
+// A SECOND ONE THE SAME LENGTH IS.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [
+	'refresh_token' => 'r',
+	'connected'     => $dze_now - 7 * $dze_day,
+	'broken'        => $dze_now,
+	'last_life'     => 7 * $dze_day,
+];
+$dze_why = DZE_Gmc::testing_pattern();
+ok( 'twice the same, and it is named',    '' !== $dze_why, true );
+ok( 'it says the figure it measured',     false !== strpos( $dze_why, '7 days' ), true );
+ok( 'it names the real cause',            false !== strpos( $dze_why, 'Testing' ), true );
+// A MESSAGE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN — Google's own, which
+// this plugin cannot link to, so it names the path exactly.
+ok( 'and the one thing to press',         false !== strpos( $dze_why, 'Publish app' ), true );
+ok( 'it does not blame the plugin',       false !== strpos( $dze_why, 'not a fault here' ), true );
+
+// A CONNECTION THAT DIED IN AN HOUR IS NOT THIS. Revoked by hand, or a
+// password changed — naming the seven-day rule there would send the shop to
+// change a setting that was never the problem.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [
+	'refresh_token' => 'r',
+	'connected'     => $dze_now - 3600,
+	'broken'        => $dze_now,
+	'last_life'     => 3600,
+];
+ok( 'a short life is not the seven-day rule', DZE_Gmc::testing_pattern(), '' );
+// Nor is one that held for months.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [
+	'refresh_token' => 'r',
+	'connected'     => $dze_now - 200 * $dze_day,
+	'broken'        => $dze_now,
+	'last_life'     => 190 * $dze_day,
+];
+ok( 'nor is one that lasted months',      DZE_Gmc::testing_pattern(), '' );
+
+// AND THE FAILURE MESSAGE CARRIES THE MEASURED CAUSE rather than the generic
+// remedy, because reconnecting works and then breaks again in a week.
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [
+	'refresh_token' => 'r',
+	'connected'     => $dze_now - 7 * $dze_day,
+	'broken'        => $dze_now,
+	'last_life'     => 7 * $dze_day,
+];
+ok( 'the refusal names the pattern',      false !== strpos( DZE_Gmc::broken_message(), 'Publish app' ), true );
+$GLOBALS['opts'][ DZE_Gmc::OPT_CONNECTION ] = [ 'refresh_token' => 'r', 'broken' => $dze_now ];
+ok( 'and falls back where it cannot tell',
+	false !== strpos( DZE_Gmc::broken_message(), 'revoked this connection' ), true );
+
+// WHAT HAS TO BE TRUE OUTSIDE THE PLUGIN is said before the first
+// disconnection, not after the second.
+ok( 'the condition is stated plainly',    false !== strpos( DZE_Gmc::keeps_said(), 'Publish app' ), true );
+ok( 'with the seven days in it',          false !== strpos( DZE_Gmc::keeps_said(), 'seven days' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
