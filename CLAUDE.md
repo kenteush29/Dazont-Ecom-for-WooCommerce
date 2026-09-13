@@ -2186,6 +2186,44 @@ whose screen has not been thought through yet.
     step per tick so "the bar moves" is a check that can fail, and asserts the
     bar is in the SERVER'S OWN markup, since read off the live page it would
     pass on a bar an earlier press had put there.
+- **A SCREEN THAT SHOWS SOME OF THE QUEUE COUNTS THE SAME SOME OF IT.** The
+  Automation page printed "Done — 3 pages are written and waiting for your yes
+  or no, below" directly above a list reading "Nothing is waiting for your yes
+  or no." The bar read the WHOLE queue through `counts()`, while the list under
+  it reads only the kinds these three tasks queue — so a photograph generated
+  from the bulk screen put a figure on this page over a list that could never
+  show it. `DZE_Queue::counts_for( $kinds )` answers for one set, and the bar
+  asks for every kind its own tasks queue: the linking task queues `cat_links`
+  AND `post_links`, and asking for one of them counts half its own work.
+- **ACCEPT AND CANCEL EXIST ON ONE ROW AND ON THE WHOLE LIST.** "Comme sur la
+  page bulk product, des coches, la possibilité d'accepter ou de refuser en
+  groupe." Ten lines each needing two presses is twenty presses, and the bulk
+  screen beside this one has had ticks and a bar for months — same gesture,
+  same two words (**Accept** and **Cancel**, never "Discard" beside "Delete",
+  which reads as two deletions), same place. Four rules: the group press
+  PRESSES THE ROW'S OWN PATH, one row at a time through the same
+  `dze_q_decide` the single ✓ uses, so there is never a second engine on the
+  server signing decisions differently; it goes one at a time and the line says
+  how far it has got, because ten fired at once is ten writes racing for the
+  same rows; the bar refuses to act on nothing and carries the SAME tooltips
+  the row buttons do, from the one function that owns those words; and with
+  every row decided the bar goes with them — a control that cannot act is not
+  shown.
+- **A PRESS SAYS IT IS WORKING, AND THE SPINNER GOES WHERE EVERY PRESS ALREADY
+  PASSES.** "Il faut des roues de chargement quand on fait quelque chose sur
+  cette page." Put on each button it is a list somebody keeps in step, and the
+  one forgotten is the press that looks dead — so it lives in the single
+  `post()` helper the screen's every control goes through, and a failure puts
+  words in the same place rather than leaving the spinner turning for ever.
+- **A BROWSER HARNESS THAT ANSWERS WITH A LIST OF ITS OWN WIPES THE ONE BEING
+  TESTED.** The poll returns `waiting` on every tick, so a fake route inventing
+  a list replaced the server's ticks and bar before anything could press them —
+  and every check on them would have passed on the harness's markup. The route
+  echoes the SERVER'S OWN rendering, pulled out of the dump, and DRAINS it as
+  rows are decided, or "every row is decided" can never be true. Two fakes
+  answered with that list and both had to drain: the one that was missed put
+  the rows straight back. And a section that empties the list puts it back
+  before the next one, exactly as `fresh()` does on the PHP side.
 - **THE BEFORE OF A BEFORE / AFTER IS READ FROM THE OBJECT THE JOB IS ABOUT.**
   "Encore une anomalie : pour les articles de blog le avant/après est faux."
   `ajax_review()` read `get_term( $id, 'product_cat' )` whatever the job was,

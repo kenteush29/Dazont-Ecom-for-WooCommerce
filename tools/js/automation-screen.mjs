@@ -80,6 +80,36 @@ for ( const [ label, jq ] of jqs ) {
 	// presses. The SERVER owns this, which is the whole reason a reload picks
 	// the bar up where it was.
 	let left = 3, done = 0;
+	// The real `waiting_html()` as the server drew it, pulled out of the dump:
+	// the poll returns `waiting` on every tick, so a harness that answers with a
+	// list of its own would wipe the ticks and the bar before anything pressed
+	// them.
+	const decided = new Set();
+	// The list as the queue would answer it now: the server's own markup with
+	// the rows that have been settled taken out of it.
+	const waitingNow = () => {
+		let out = serverWaiting;
+		for ( const id of decided ) {
+			out = out.replace( new RegExp( '<li[^>]*data-id="' + id + '"[\\s\\S]*?</li>' ), '' );
+		}
+		return /<li/.test( out ) ? out : '<p class="description">Nothing is waiting for your yes or no.</p>';
+	};
+	const serverWaiting = ( () => {
+		const m = dumped.html.match( /<div id="dze-auto-waiting">([\s\S]*?)<\/div>\s*<\?php|<div id="dze-auto-waiting">([\s\S]*)$/ );
+		const el = dumped.html.indexOf( 'id="dze-auto-waiting"' );
+		if ( el < 0 ) { return ''; }
+		const from = dumped.html.indexOf( '>', el ) + 1;
+		// Balance the div rather than guessing where it ends.
+		let depth = 1, i = from;
+		while ( i < dumped.html.length && depth > 0 ) {
+			const open = dumped.html.indexOf( '<div', i );
+			const close = dumped.html.indexOf( '</div>', i );
+			if ( close < 0 ) { break; }
+			if ( open >= 0 && open < close ) { depth++; i = open + 4; continue; }
+			depth--; i = close + 6;
+		}
+		return dumped.html.slice( from, Math.max( from, i - 6 ) );
+	} )();
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 
@@ -146,12 +176,12 @@ for ( const [ label, jq ] of jqs ) {
 				: '';
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
 				left: left, done: done, pct: pct, run: bar,
-				waiting: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
-					+ '<span class="dze-auto-jobname">The sniper role</span></li></ul>',
+				waiting: waitingNow(),
 				chips: {}
 			} } ) } );
 		}
 		if ( 'dze_q_decide' === act ) {
+			decided.add( String( q.get( 'id' ) ) );
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
 		}
 		// A DECISION MOVES THE FIGURES AND THE ROWS TOGETHER: the block is
@@ -164,8 +194,7 @@ for ( const [ label, jq ] of jqs ) {
 					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41</button>'
 					+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1</span>'
 					+ '</span>' },
-				waiting: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
-					+ '<span class="dze-auto-jobname">The sniper role</span></li></ul>',
+				waiting: waitingNow(),
 				log: '<ul><li>Internal linking · Tactical backpack covers</li></ul>'
 			} } ) } );
 		}
@@ -527,6 +556,57 @@ for ( const [ label, jq ] of jqs ) {
 	await page.waitForTimeout( 2500 );
 	ok( 'and stops asking once it is idle',
 		sent.filter( r => 'dze_auto_run_state' === r.action ).length, afterEnd );
+
+	// ---- ACCEPT OR CANCEL A WHOLE SELECTION ----
+	// "Des coches, la possibilité d'accepter ou de refuser en groupe." Only a
+	// browser can see a tick wake a bar, and only a browser can see what a group
+	// press puts on the wire.
+	// A HARNESS SECTION THAT EMPTIED THE LIST PUTS IT BACK. An earlier press
+	// settled rows through the row's own ✓, so by here the fake queue holds
+	// none — and every check below would pass for the wrong reason, on an empty
+	// list. Same rule as `fresh()` on the PHP side.
+	decided.clear();
+	await page.evaluate( html => { document.getElementById( 'dze-auto-waiting' ).innerHTML = html; }, serverWaiting );
+	const bar = page.locator( '.dze-auto-bulk' );
+	ok( 'the bar is on the screen',       await bar.count(), 1 );
+	ok( 'and starts asleep',
+		await page.locator( '.dze-auto-yes' ).isDisabled(), true );
+	ok( 'saying nothing yet',
+		( await page.locator( '.dze-auto-picked' ).innerText() ).trim(), '' );
+
+	const cbs = page.locator( '.dze-auto-todo .dze-auto-cb' );
+	const jobs = await cbs.count();
+	ok( 'a tick per waiting row',         jobs > 1, true );
+	await cbs.first().check();
+	ok( 'one ticked, the bar wakes',
+		await page.locator( '.dze-auto-yes' ).isDisabled(), false );
+	ok( 'and says how many',
+		( await page.locator( '.dze-auto-picked' ).innerText() ).trim(), '1 picked' );
+
+	// THE TAKE-ALL TAKES THEM ALL.
+	await page.locator( '.dze-auto-allcb' ).check();
+	ok( 'the take-all takes the lot',
+		await page.locator( '.dze-auto-todo .dze-auto-cb:checked' ).count(), jobs );
+	ok( 'and the bar follows it',
+		( await page.locator( '.dze-auto-picked' ).innerText() ).trim(), `${jobs} picked` );
+
+	// THE PRESS. It presses the ROW'S OWN path — the same endpoint the single
+	// ✓ uses — once per row, never a second engine on the server.
+	const wasD = sent.length;
+	const ids = await page.locator( '.dze-auto-todo .dze-auto-job' ).evaluateAll( ls => ls.map( l => String( l.dataset.id ) ) );
+	await page.locator( '.dze-auto-yes' ).click();
+	const emptied = await page.waitForFunction(
+		() => 0 === document.querySelectorAll( '.dze-auto-todo .dze-auto-job' ).length,
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'every row is decided',           emptied, true );
+	const decides = sent.slice( wasD ).filter( r => 'dze_q_decide' === r.action );
+	ok( 'one press per row, on the row\'s own path', decides.length, jobs );
+	ok( 'each naming its own row',        decides.map( r => String( r.id ) ).sort(), ids.slice().sort() );
+	ok( 'and all of them accepting',      decides.every( r => '1' === r.accept ), true );
+	ok( 'and the bar goes with them',     await page.locator( '.dze-auto-bulk' ).count(), 0 );
+	ok( 'the list says which empty it is',
+		/Nothing is waiting/.test( await page.locator( '#dze-auto-waiting' ).innerText() ), true );
+	ok( 'and the page never moved',       moves.length, 1 );
 
 	ok( 'nothing was raised reading it',    errors, [] );
 	await page.close();
