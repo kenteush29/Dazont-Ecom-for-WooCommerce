@@ -217,9 +217,16 @@ final class DZE_Automation {
 		if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( (string) $t['module'] ) ) {
 			return false;
 		}
-		// A task that hands its work to the queue needs the queue; one that
-		// runs a call of its own does not.
-		if ( ! empty( $t['kind'] ) ) {
+		// A task that hands its work to the queue needs the queue; the only
+		// one that does not is the shop-wide task, which makes its own call.
+		//
+		// It used to be asked for only when the row NAMES its job kind — and
+		// the linking task cannot name one, since its kind depends on the page
+		// it lands on. So with the writing queue switched off that task read as
+		// ready, the screen offered it, and pressing Run answered "that
+		// category is already waiting in the queue": a sentence about a queue
+		// that is not there.
+		if ( 'shop' !== ( $t['scope'] ?? '' ) ) {
 			if ( ! class_exists( 'DZE_Queue' ) ) {
 				return false;
 			}
@@ -724,8 +731,12 @@ final class DZE_Automation {
 	 * One item, once an hour, task by task.
 	 *
 	 * @param string $only   Run this task alone (the button on its block).
-	 * @param bool   $forced Asked for by hand: the caps of the period still
-	 *                       hold, the spacing inside it does not.
+	 * @param bool   $forced Asked for by hand. A deliberate press runs: neither
+	 *                       the day's figure nor the spacing inside the period
+	 *                       stops it, and it is COUNTED, so the automatic pass
+	 *                       does that much less. What never yields is what
+	 *                       protects the shop — a switched-off module, a copy
+	 *                       of the shop, the monthly budget.
 	 *
 	 * @return array{queued:int,task:string,reason:string}
 	 */
@@ -805,15 +816,19 @@ final class DZE_Automation {
 		}
 		$words = str_word_count( wp_strip_all_tags( $sub['html'] ) );
 		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $sub['html'] );
+		if ( ! DZE_Queue::add( (string) $task['kind'], [ $oid ], (bool) $conf['apply'] ) ) {
+			return $no( 'busy' );
+		}
+		// A PASS THAT WAS NEVER QUEUED IS NOT A PASS. The register used to be
+		// written before the queue was asked, so a queue that refused left the
+		// page stamped as worked on and locked out for three days having had
+		// nothing done to it.
 		// What goes straight to the shop keeps the text it replaced; what waits
 		// for review is undone from the review screen, which holds both.
 		if ( $conf['apply'] ) {
 			self::keep_copy( $oid, $sub['type'], $sub['html'] );
 		}
 		self::mark( $oid, $id, $sub['type'], $words, $links );
-		if ( ! DZE_Queue::add( (string) $task['kind'], [ $oid ], (bool) $conf['apply'] ) ) {
-			return $no( 'busy' );
-		}
 		self::note( $id, $oid, (string) $sub['name'], $sub['type'], $words, $links, (bool) $conf['apply'] );
 		delete_transient( 'dze_auto_survey' ); // the shop is about to change.
 		delete_transient( 'dze_pl_census' );
@@ -852,16 +867,17 @@ final class DZE_Automation {
 		}
 		$words = str_word_count( wp_strip_all_tags( $sub['html'] ) );
 		$links = (int) preg_match_all( '/<a\s[^>]*href=/i', $sub['html'] );
-		if ( $conf['apply'] ) {
-			self::keep_copy( $oid, $sub['type'], $sub['html'] );
-		}
-		self::mark( $oid, $id, $sub['type'], $words, $links );
 		// The job is the pass that already writes this kind of page. There is
 		// no third linking engine, and there must never be one.
 		$job = 'product_cat' === $kind ? 'cat_links' : 'post_links';
 		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], [ 'urls' => $urls ] ) ) {
 			return $no( 'busy' );
 		}
+		// Marked only once the work is really under way: see run().
+		if ( $conf['apply'] ) {
+			self::keep_copy( $oid, $sub['type'], $sub['html'] );
+		}
+		self::mark( $oid, $id, $sub['type'], $words, $links );
 		self::note( $id, $oid, (string) $sub['name'], $sub['type'], $words, $links, (bool) $conf['apply'] );
 		delete_transient( 'dze_auto_survey' );
 		delete_transient( 'dze_pl_census' );
