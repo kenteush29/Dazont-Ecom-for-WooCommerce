@@ -1236,6 +1236,23 @@ whose screen has not been thought through yet.
     products behind it and walks its branch, and the list is read on every draw
     of the screen once the orphans are done — so `thin()` is cached, and thrown
     away by a scan and by every pass that writes a link.
+  - **THE HALF A PRESS DOES NOT DO IS WRITTEN DOWN.** "Il est impératif
+    d'inscrire l'info quelque part. Que pour lier les pages orphelines de liens
+    entrant, seul le module d'automatisation peut faire le travail." Mending a
+    page nothing points at needs the graph to choose which neighbour should
+    point at it — work only the daily pass does — so "Link the whole site" says
+    it on its own hover and in the account behind the "?", rather than leaving
+    somebody to press it and wonder why the orphans are still there.
+  - **A FIGURE THE DATABASE ALREADY HOLDS AND NO SCREEN ANSWERS.** The census
+    has counted `orphans` at every scan since it was written and printed it
+    nowhere: `read_said()` gave pages and links. `DZE_Mesh::orphan_count()`
+    answers it — one option read — and the figure goes on the LINE OF THE TASK
+    THAT MENDS THEM, as a chip, so the count and the thing that acts on it are
+    read in one glance, and on no other task's line. NULL means the site has not
+    been read yet and prints nothing: "nobody points at anything" and "nothing
+    has been counted" are different answers. The browser gate asserts the chip
+    against the figure the REAL census counted on the fake shop, handed over
+    beside the markup — a number typed into two files is two numbers.
   And the harness must let the register be written: `update_term_meta()` and
   `update_post_meta()` stubbed to `return true` threw the write away, so the
   month-long cooldown — the thing that stops a page being worked on twice —

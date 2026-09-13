@@ -274,7 +274,7 @@ final class DZE_Automation {
 				// déléguer à Dazont Ecom le maillage interne du site web. Avec
 				// une très courte description derrière de ce qu'il fait."
 				'what'    => __( 'Hand the site\'s internal linking to Dazont Ecom. It links the pages nothing points at, then the pages short of their own links.', 'dazont-ecom' ),
-				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it works in two phases, in this order. FIRST, the holes: it takes the pages the site points at least (fewer than three links in) and writes the link into the pages closest to them in subject, so the page being edited is chosen for being an orphan\'s best neighbour. THEN, once nothing is orphaned, the work you would have done by hand: the pages carrying fewer links than their own length calls for — one per fifty words — each filling them from its own pool of related pages, which on a shop puts the product categories first. Products are left out of all of it: a product page already says what it belongs to. A page it has worked on is left alone for a month, so what runs each day is maintenance: the pages you have just added, and nothing else. "Link the whole site" does that second phase for every page at once, a few hundred per press, when you are catching up from nothing. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
+				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it works in two phases, in this order. FIRST, the holes: it takes the pages the site points at least (fewer than three links in) and writes the link into the pages closest to them in subject, so the page being edited is chosen for being an orphan\'s best neighbour. THEN, once nothing is orphaned, the work you would have done by hand: the pages carrying fewer links than their own length calls for — one per fifty words — each filling them from its own pool of related pages, which on a shop puts the product categories first. Products are left out of all of it: a product page already says what it belongs to. A page it has worked on is left alone for a month, so what runs each day is maintenance: the pages you have just added, and nothing else. "Link the whole site" does that SECOND phase for every page at once, a few hundred per press, when you are catching up from nothing — and only that phase: mending a page nothing points at needs the graph to choose which neighbour should point at it, which is work only the daily pass does. The figure beside the task name is how many such pages the last reading found. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
 				'module'  => 'mesh',
 				'scope'   => 'mesh',
 				// The job kinds this task leaves waiting, so its own block can
@@ -1318,6 +1318,24 @@ final class DZE_Automation {
 				__( 'Running on its own, at this rhythm', 'dazont-ecom' )
 			);
 		}
+		// PAGES NOTHING POINTS AT — and only this task mends them. "Il est
+		// impératif d'inscrire l'info quelque part. Que pour lier les pages
+		// orphelines de liens entrant, seul le module d'automatisation peut
+		// faire le travail." The figure lives on the task that does that work,
+		// so the count and the thing that acts on it are read in one glance.
+		// NULL is "the site has not been read yet" and says nothing rather
+		// than printing a nought nobody counted.
+		if ( 'mesh' === (string) ( $task['scope'] ?? '' ) && class_exists( 'DZE_Mesh' ) ) {
+			$orph = DZE_Mesh::orphan_count();
+			if ( null !== $orph && $orph > 0 ) {
+				$out .= $chip(
+					'is-orphan',
+					'editor-unlink',
+					number_format_i18n( $orph ),
+					__( 'Pages nothing points at. This is the only pass that mends them, a few a day.', 'dazont-ecom' )
+				);
+			}
+		}
 		// WAITING FOR A PERSON — the figure this screen exists to surface.
 		$left = self::waiting_for( $id );
 		if ( $left['n'] > 0 ) {
@@ -1429,7 +1447,7 @@ final class DZE_Automation {
 							<?php // THE CATCH-UP, ONCE: every page that is short of its own links,
 								// so the daily pass afterwards is maintenance and not a backlog. ?>
 							<button type="button" class="button dze-auto-catchup" data-task="<?php echo esc_attr( $id ); ?>"
-								title="<?php esc_attr_e( 'Puts every page that is short of links into the writing queue, a few hundred at a time. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>"
+								title="<?php esc_attr_e( 'Fills the outgoing links of every page under its own quota, a few hundred per press. Pages nothing points at are mended by the daily pass instead. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>"
 								<?php disabled( ! $ready ); ?>><?php esc_html_e( 'Link the whole site', 'dazont-ecom' ); ?></button>
 						<?php endif; ?>
 						<span class="dze-auto-msg"></span>

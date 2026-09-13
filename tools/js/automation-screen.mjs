@@ -184,13 +184,19 @@ for ( const [ label, jq ] of jqs ) {
 			kinds: all.map( c => c.className.replace( 'dze-auto-chip ', '' ) ),
 			text: all.map( c => c.textContent.trim() ),
 			titled: all.every( c => ( c.getAttribute( 'title' ) || '' ).length > 3 ),
+			titles: all.map( c => c.getAttribute( 'title' ) || '' ),
 			oneLine: new Set( all.map( c => Math.round( c.getBoundingClientRect().top ) ) ).size === 1
 		};
 	} );
 	ok( 'the figures are there while shut', chips.visible, true );
-	ok( 'the rhythm, the waiting, the written and the next look',
-		chips.kinds, [ 'is-on', 'is-wait', 'is-done', 'is-next' ] );
-	ok( 'with the figures on them',         chips.text.slice( 0, 3 ), [ '3 a day', '3', '14' ] );
+	ok( 'the rhythm, the orphans, the waiting, the written and the next look',
+		chips.kinds, [ 'is-on', 'is-orphan', 'is-wait', 'is-done', 'is-next' ] );
+	ok( 'with the figures on them',         chips.text.slice( 0, 4 ),
+		[ '3 a day', String( dumped.orphans ), '3', '14' ] );
+	// THE FIGURE FOR THE PAGES NOTHING POINTS AT sits on the task that is the
+	// only thing that mends them, and says so on its own hover.
+	ok( 'and the orphan figure says whose work it is',
+		( chips.titles || [] )[1] || '', 'Pages nothing points at. This is the only pass that mends them, a few a day.' );
 	ok( 'each one carrying its own word',   chips.titled, true );
 	ok( 'and all of them on one line',      chips.oneLine, true );
 	// A TASK THAT IS OFF SAYS ONLY THAT.

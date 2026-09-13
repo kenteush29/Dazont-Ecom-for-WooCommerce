@@ -524,6 +524,7 @@
 .dze-auto-chip.is-on      { border-color: #c6e6d5; background: #f0faf5; color: #1d4c38; }
 .dze-auto-chip.is-wait    { border-color: #f0dba8; background: #fdf7e7; color: #6b5200; }
 .dze-auto-chip.is-done    { border-color: #c6e6d5; background: #f6fbf8; color: #1d4c38; }
+.dze-auto-chip.is-orphan  { border-color: #d8d2e8; background: #f7f5fc; color: #443a63; }
 .dze-auto-chip.is-blocked { border-color: #f0c3c3; background: #fdf3f3; color: #8a2424; }
 .dze-auto-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; }
 .dze-auto-controls label { display: inline-flex; align-items: center; gap: 5px; }
