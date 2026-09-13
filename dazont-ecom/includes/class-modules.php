@@ -31,7 +31,9 @@ final class DZE_Modules {
 		// rather than by DZE_Health, because two of its three tabs — what was
 		// asked of the models, and what it cost — are the plugin's own
 		// accounting and must not disappear with that module.
-		add_action( 'admin_menu', [ 'DZE_Health', 'register_menu' ], 12 );
+		// Last in the menu: a log is what you go to when something is wrong,
+		// never the first thing offered above the work.
+		add_action( 'admin_menu', [ 'DZE_Health', 'register_menu' ], 30 );
 		add_action( 'admin_init', [ 'DZE_Health', 'maybe_redirect' ] );
 		add_action( 'admin_menu', [ $this, 'submenu' ], 99 );
 		add_action( 'wp_ajax_dze_modules_toggle', [ $this, 'ajax_toggle' ] );

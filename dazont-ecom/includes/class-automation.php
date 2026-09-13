@@ -34,6 +34,20 @@ final class DZE_Automation {
 
 	public const HOOK = 'dze_auto_tick';
 
+	/**
+	 * ITS OWN ENTRY UNDER DAZONT ECOM — "je ne vois pas de menu automation dans
+	 * le plugin, côté gauche de wordpress. Déjà ici ça devrait être présent."
+	 *
+	 * This screen is not a settings page: it is the WORK — what the site is
+	 * short of, which pages are next in line, what was done and the undo behind
+	 * it, with a handful of switches on the side. Buried as one tab among
+	 * sixteen on Settings, the one function that runs the shop by itself was
+	 * the hardest one to find. It is registered by the module itself, so it
+	 * goes when the module is switched off: unlike the Logs, this page IS the
+	 * module.
+	 */
+	public const MENU_SLUG = 'dazont-ecom-automation';
+
 	/** Form settings, saved by the Automation tab's own Save button. */
 	private const OPT = 'dze_auto_settings';
 
@@ -73,11 +87,60 @@ final class DZE_Automation {
 		if ( ! is_admin() ) {
 			return;
 		}
+		add_action( 'admin_menu', [ __CLASS__, 'register_menu' ], 12 );
+		add_action( 'admin_init', [ __CLASS__, 'maybe_redirect' ] );
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
 		add_action( 'admin_init', [ $this, 'schedule' ] );
 		add_action( 'admin_init', [ __CLASS__, 'migrate' ] );
 		add_action( 'wp_ajax_dze_auto_run', [ __CLASS__, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_auto_undo', [ __CLASS__, 'ajax_undo' ] );
+	}
+
+	public static function page_url(): string {
+		return add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) );
+	}
+
+	public static function register_menu(): void {
+		add_submenu_page(
+			DZE_Restock::MENU_SLUG,
+			__( 'Automation', 'dazont-ecom' ),
+			__( 'Automation', 'dazont-ecom' ),
+			'manage_woocommerce',
+			self::MENU_SLUG,
+			[ __CLASS__, 'render_page' ]
+		);
+	}
+
+	public static function render_page(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		echo '<div class="wrap dze-wrap"><h1>' . esc_html__( 'Automation', 'dazont-ecom' ) . '</h1>';
+		self::render_settings();
+		echo '</div>';
+	}
+
+	/**
+	 * An address that used to land on the Settings page still lands.
+	 *
+	 * A bookmark, a link in a message: none of them may end on a tab that no
+	 * longer exists. The decision is split from the redirect so it can be
+	 * exercised — the same rule `DZE_Health::moved()` is held to.
+	 */
+	public static function moved( array $get ): string {
+		$page = isset( $get['page'] ) ? (string) $get['page'] : '';
+		$tab  = isset( $get['tab'] ) ? (string) $get['tab'] : '';
+		$ai   = class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai';
+		return ( $page === $ai && 'automation' === $tab ) ? self::page_url() : '';
+	}
+
+	public static function maybe_redirect(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$to = self::moved( (array) $_GET );
+		if ( '' !== $to ) {
+			wp_safe_redirect( $to );
+			exit;
+		}
 	}
 
 	/** Switched off in Settings → Modules: the hourly look goes with it. */

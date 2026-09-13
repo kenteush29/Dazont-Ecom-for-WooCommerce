@@ -1038,6 +1038,21 @@ whose screen has not been thought through yet.
   there. A press by hand runs past the day's figure and the spacing — a
   deliberate act — and never past a switched-off module, a copy of the shop or
   the monthly budget.
+- **THE AUTOMATION IS A MENU ENTRY, NOT A SETTINGS TAB.** "Je ne vois pas de
+  menu automation dans le plugin, côté gauche de wordpress. Déjà ici ça devrait
+  être présent." It is not a settings page: it is the WORK — what the site is
+  short of, which pages are next in line and why, what was done and the undo
+  behind it — with a handful of switches on the side. One tab among sixteen on
+  Settings is where the one function that runs the shop by itself was hardest
+  to find. It is **Dazont Ecom → Automation**, the Logs precedent exactly, with
+  three differences that are the rule: the entry is registered by the MODULE
+  itself, because this page IS that module and must go when it is switched off
+  (the Logs are the plugin's own accounting and must not); the Settings page
+  gives the tab up ENTIRELY, since two hosts for one body drift apart; and the
+  old address still lands (`moved()`/`maybe_redirect()`, the decision split from
+  the redirect so it can be exercised). The Logs moved to the bottom of the
+  menu with it: a log is what you open when something is wrong, never the first
+  thing offered above the work.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo

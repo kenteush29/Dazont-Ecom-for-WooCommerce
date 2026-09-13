@@ -730,9 +730,6 @@ final class DZE_Marketing_Ai {
 		if ( $mod_on( 'diagnostic' ) ) {
 			$tabs['diagnostic'] = __( 'Content diagnostic', 'dazont-ecom' );
 		}
-		if ( $mod_on( 'automation' ) ) {
-			$tabs['automation'] = __( 'Automation', 'dazont-ecom' );
-		}
 		// One shop's writing, carried to another. Not gated on a module: it is
 		// the plugin's own, like Modules beside it, and the day a shop needs it
 		// is the day it is standing on a site with nothing set up.
@@ -997,10 +994,6 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'diagnostic' === $tab ) {
 			if ( class_exists( 'DZE_Diagnostic' ) && $mod_on( 'diagnostic' ) ) {
 				DZE_Diagnostic::render_settings();
-			}
-		} elseif ( 'automation' === $tab ) {
-			if ( class_exists( 'DZE_Automation' ) && $mod_on( 'automation' ) ) {
-				DZE_Automation::render_settings();
 			}
 		} elseif ( 'modules' === $tab ) {
 			if ( class_exists( 'DZE_Modules' ) ) {

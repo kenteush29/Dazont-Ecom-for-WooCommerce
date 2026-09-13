@@ -249,6 +249,13 @@ final class DZE_Health {
 		}
 		/* translators: %s: the name of a screen in the Dazont Ecom menu */
 		$out[ sprintf( __( 'Dazont Ecom → %s', 'dazont-ecom' ), __( 'Logs', 'dazont-ecom' ) ) ] = self::page_url();
+		// A screen whose module is off is never offered: a link to a page that
+		// is not there is worse than no link.
+		if ( class_exists( 'DZE_Automation' )
+			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'automation' ) ) ) {
+			/* translators: %s: the name of a screen in the Dazont Ecom menu */
+			$out[ sprintf( __( 'Dazont Ecom → %s', 'dazont-ecom' ), __( 'Automation', 'dazont-ecom' ) ) ] = DZE_Automation::page_url();
+		}
 		return $out;
 	}
 

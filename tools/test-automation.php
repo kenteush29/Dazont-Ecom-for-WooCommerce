@@ -97,6 +97,17 @@ function register_setting( ...$a ) {}
 function settings_fields( $g ) {}
 function submit_button( $t = '' ) { echo '<button>' . esc_html( $t ) . '</button>'; }
 function wc_get_page_id( $w ) { return 0; }
+function add_query_arg( $args, $url = '' ) {
+	$q = [];
+	foreach ( (array) $args as $k => $v ) { $q[] = $k . '=' . rawurlencode( (string) $v ); }
+	return ( '' !== $url ? $url : 'https://kula.test/wp-admin/admin.php' ) . '?' . implode( '&', $q );
+}
+$GLOBALS['menu'] = [];
+function add_submenu_page( $parent, $title, $label, $cap, $slug, $cb = null ) {
+	$GLOBALS['menu'][] = [ 'parent' => $parent, 'label' => $label, 'slug' => $slug ];
+	return $slug;
+}
+class DZE_Restock { const MENU_SLUG = 'dazont-ecom-restock'; }
 // checked() and disabled() answer what WordPress answers: stubbed to '' they
 // hide the very questions the screen is drawn to answer.
 function checked( $a, $b = true, $echo = true ) { return $a == $b ? " checked='checked'" : ''; }
@@ -284,6 +295,9 @@ class DZE_Ai_Usage {
 	public static function over_budget(): bool { return ! empty( $GLOBALS['over_budget'] ); }
 }
 class DZE_Marketing_Ai {
+	// The settings page's own slug: the address the automation screen used to
+	// live at, and the one that must still land on it.
+	const MENU_SLUG = 'dazont-ecom-ai';
 	public static array $asked = [];
 	public static function api_key(): string { return 'k'; }
 	public static function get_settings(): array { return []; }
@@ -480,6 +494,38 @@ ob_start();
 DZE_Automation::render_settings();
 $off = (string) ob_get_clean();
 ok( 'a task whose module is off is not offered', false !== strpos( $off, 'Needs its own module' ), true );
+
+echo "\nIts own entry, in the WordPress menu\n";
+//
+// "Je ne vois pas de menu automation dans le plugin, côté gauche de wordpress.
+// Déjà ici ça devrait être présent." This screen is not a settings page — it is
+// the work: what the site is short of, what is next in line, what was done and
+// the undo behind it. One tab among sixteen on Settings is where the one
+// function that runs the shop by itself was hardest to find.
+$GLOBALS['menu'] = [];
+DZE_Automation::register_menu();
+ok( 'one entry is registered',         count( $GLOBALS['menu'] ), 1 );
+ok( 'under the Dazont Ecom menu',      $GLOBALS['menu'][0]['parent'], DZE_Restock::MENU_SLUG );
+ok( 'and it is called Automation',     $GLOBALS['menu'][0]['label'], 'Automation' );
+ok( 'on its own address',              $GLOBALS['menu'][0]['slug'], DZE_Automation::MENU_SLUG );
+// THE PAGE DRAWS, and it is the same body the settings tab used to print —
+// there is one screen, not a copy of it.
+fresh( $ON );
+ob_start();
+DZE_Automation::render_page();
+$page = (string) ob_get_clean();
+ok( 'the page draws its own heading',  false !== strpos( $page, '<h1>Automation</h1>' ), true );
+ok( 'with the tasks on it',            substr_count( $page, 'class="dze-auto-state"' ), 3 );
+ok( 'and what it has done',            false !== strpos( $page, 'What it has done' ), true );
+// AN ADDRESS THAT USED TO LAND STILL LANDS: a bookmark on the old settings tab
+// must not end on a tab that no longer exists.
+ok( 'the old settings address is sent here',
+	DZE_Automation::moved( [ 'page' => 'dazont-ecom-ai', 'tab' => 'automation' ] ),
+	DZE_Automation::page_url() );
+ok( 'another settings tab is left alone',
+	DZE_Automation::moved( [ 'page' => 'dazont-ecom-ai', 'tab' => 'general' ] ), '' );
+ok( 'and so is another page entirely',
+	DZE_Automation::moved( [ 'page' => 'dazont-ecom-diagnostic' ] ), '' );
 
 echo "\nEvery reason it can give has words\n";
 foreach ( [ 'queued', 'cap', 'none', 'budget', 'modules', 'busy', 'off', 'copy', 'early', 'failed' ] as $why ) {
