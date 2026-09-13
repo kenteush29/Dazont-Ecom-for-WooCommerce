@@ -238,6 +238,10 @@ final class DZE_Automation {
 				'what'    => __( 'Keeps the site woven together. Each pass takes the pages the link graph says nobody points at, works out which pages should point at them, and writes those links into the pages that should carry them — a category description, an article, a page. It never writes into a page laid out by a page builder, whose text is not in the post, and it never invents a link on a page that has nothing to say about the subject. Switch it on and it works through the site a few pages a day, then keeps up with whatever is published next.', 'dazont-ecom' ),
 				'module'  => 'mesh',
 				'scope'   => 'mesh',
+				// The job kinds this task leaves waiting, so its own block can
+				// say how many are there rather than sending somebody to go
+				// and count on another screen.
+				'jobs'    => [ 'cat_links', 'post_links' ],
 				'per_day' => 3,
 				'apply'   => 0,
 			],
@@ -247,6 +251,7 @@ final class DZE_Automation {
 				'module'  => 'category_content',
 				'scope'   => 'category',
 				'kind'    => 'cat_desc',
+				'jobs'    => [ 'cat_desc' ],
 				'per_day' => 1,
 				'apply'   => 0,
 				'kw'      => true, // may be restricted to categories with their SEMrush file.
@@ -259,6 +264,46 @@ final class DZE_Automation {
 				'cadence' => 'month',
 				'apply'   => 0,
 			],
+		];
+	}
+
+	/**
+	 * WHAT THIS TASK LEFT FOR YOU, and the way to it.
+	 *
+	 * "Peut-être afficher un msg sur chaque section automatisation qui nomme
+	 * combien de jobs sont en attente de review pour chacun d'eux ?" A pass
+	 * that runs on its own and says nothing about what it produced is a pass
+	 * whose work is found by accident — and the list it lands on is two clicks
+	 * away under another menu. The figure is on the block that started it, and
+	 * it is a LINK: a message that names a screen is a way to that screen.
+	 *
+	 * @return array{n:int,url:string}
+	 */
+	public static function waiting_for( string $id ): array {
+		$task = self::task( $id );
+		if ( ! $task ) {
+			return [ 'n' => 0, 'url' => '' ];
+		}
+		// The shop-wide task writes nothing to the queue: what it leaves is a
+		// pile of suggestions on the screen that owns them.
+		if ( 'shop' === (string) ( $task['scope'] ?? '' ) ) {
+			if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
+				return [ 'n' => 0, 'url' => '' ];
+			}
+			return [
+				'n'   => (int) DZE_Marketing_Ai::pending_count(),
+				'url' => add_query_arg(
+					[ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'events' ],
+					admin_url( 'admin.php' )
+				),
+			];
+		}
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			return [ 'n' => 0, 'url' => '' ];
+		}
+		return [
+			'n'   => DZE_Queue::review_count_for( (array) ( $task['jobs'] ?? [] ) ),
+			'url' => DZE_Queue::url(),
 		];
 	}
 
@@ -1171,6 +1216,22 @@ final class DZE_Automation {
 			echo ' ' . esc_html__( 'Off — nothing runs on its own.', 'dazont-ecom' );
 		}
 		echo '</p>';
+
+		// WHAT IT LEFT FOR YOU, on the block that started it, with the way
+		// there. Nothing at all when nothing is waiting: a nought here is a
+		// line that says "no news" every day until nobody reads the block.
+		$left = self::waiting_for( $id );
+		if ( $left['n'] > 0 && '' !== $left['url'] ) {
+			printf(
+				'<p style="margin:6px 0 0;"><a href="%1$s"><strong>%2$s</strong></a></p>',
+				esc_url( $left['url'] ),
+				esc_html( sprintf(
+					/* translators: %s: how many finished jobs are waiting for a yes or a no */
+					_n( '%s piece of work is waiting for your yes or no', '%s pieces of work are waiting for your yes or no', $left['n'], 'dazont-ecom' ),
+					number_format_i18n( $left['n'] )
+				) )
+			);
+		}
 
 		// The whole tool rests on this list, so it is shown, not described.
 		$next_up = self::shortlist( $id, 5 );

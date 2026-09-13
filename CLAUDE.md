@@ -1053,6 +1053,39 @@ whose screen has not been thought through yet.
   the redirect so it can be exercised). The Logs moved to the bottom of the
   menu with it: a log is what you open when something is wrong, never the first
   thing offered above the work.
+- **A LIST OF WORK SAYS WHEN, AND WHO ASKED FOR IT.** "Dans To review il
+  faudra impérativement une date affichée sur chaque action. Pour savoir quand
+  ça a été fait. Aussi une colonne pour savoir qui a initié la génération de ce
+  contenu." Who DECIDED was recorded and who ORDERED the work was not, so a row
+  that came back wrong could be traced to whoever accepted it and never to
+  whoever asked for it. `made_by` (schema 3) is read from the current user AT
+  THE INSERT, in `add()` — so every path in the plugin fills it without being
+  told, and cron, which has no user, answers 0. That 0 is an ORIGIN and not a
+  person: `started_by()` says **Automatic**, which names where the job came
+  from rather than inventing somebody, and is exactly why it is not
+  `decided_by()`, where 0 must stay silent. The date is `moment()`, one moment
+  per row — the last time the job moved — in the shop's own date and time
+  format through `mysql2date`, never a second figure beside it.
+- **ONE NAME PER SCREEN.** "Content diagnostic" was worn by two screens at
+  once — the page holding the reading, the linking, what waits and the products
+  list, and the Settings tab holding the criteria — and a name shared by two
+  things answers neither question: "la table content diagnostic pourrait se
+  renommer… ou autre chose de moins ambigu". The work is **Dazont Ecom →
+  Content**, whose tab strip says what is inside it one by one; the standards
+  it reads against are **Settings → Content rules**. The module keeps its own
+  name in the modules list, which describes an engine and not a screen.
+- **A PASS THAT RUNS ON ITS OWN SAYS WHAT IT LEFT YOU.** "C'est un peu tordu,
+  le fait d'avoir un menu automatisation et 2 clics plus loin dans le menu
+  content diagnostic, l'onglet review… peut-être afficher un msg sur chaque
+  section automatisation qui nomme combien de jobs sont en attente de review
+  pour chacun d'eux ?" Each task's own block carries the figure and the way
+  there (`DZE_Automation::waiting_for()`, `DZE_Queue::review_count_for()`).
+  Three rules: a task counts every kind of job IT leaves behind — the linking
+  task queues `cat_links` AND `post_links`, and counting one of them counts
+  half its own work; the shop-wide task has no queue row at all, so it counts
+  its unanswered suggestions and points at the screen that owns them; and
+  NOTHING is printed when nothing is waiting, because a line saying "no news"
+  every day is a line nobody reads by the end of the week.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo

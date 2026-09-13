@@ -2302,13 +2302,16 @@ final class DZE_Diagnostic {
 		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
 			$waiting = DZE_Queue::review_count() + DZE_Queue::bulk_waiting();
 		}
-		// "Content" and not "Content diagnostic": the screen holds the reading,
-		// the work and the decisions now, and a menu named after one of the
-		// three is a menu the other two are hidden behind.
-		// "Content" alone said nothing about what the screen is for: this page
-		// READS the shop against the standards the shop set, and the reading is
-		// what everything on it hangs off. Its own name is what belongs here.
-		$label   = __( 'Content diagnostic', 'dazont-ecom' );
+		// ONE NAME PER SCREEN. "Content diagnostic" was worn by TWO screens at
+		// once — this page and the settings tab holding the criteria — and a
+		// name shared by two things is a name that answers neither question:
+		// "la table content diagnostic pourrait se renommer… ou autre chose de
+		// moins ambigu". This page holds the reading, the linking, what waits
+		// for a decision and the products list: all of the content work, which
+		// is what the tab strip under the title says one by one. The standards
+		// it reads against are Settings → Content rules, and nothing else in
+		// the plugin is called either.
+		$label   = __( 'Content', 'dazont-ecom' );
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			$label,
@@ -2478,7 +2481,7 @@ final class DZE_Diagnostic {
 		$tab   = self::tab_now();
 		$tabs  = self::tabs();
 		echo '<div class="wrap dze-wrap">';
-		echo '<h1>' . esc_html__( 'Content diagnostic', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html__( 'Content', 'dazont-ecom' ) . '</h1>';
 		if ( count( $tabs ) > 1 ) {
 			echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
 			foreach ( $tabs as $id => $one ) {

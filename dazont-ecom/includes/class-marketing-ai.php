@@ -728,7 +728,10 @@ final class DZE_Marketing_Ai {
 			$tabs['email'] = __( 'Email campaigns', 'dazont-ecom' );
 		}
 		if ( $mod_on( 'diagnostic' ) ) {
-			$tabs['diagnostic'] = __( 'Content diagnostic', 'dazont-ecom' );
+			// The STANDARDS, not the reading: this tab holds the criteria the
+			// shop is judged against, and the reading itself is Dazont Ecom →
+			// Content. Both were called "Content diagnostic".
+			$tabs['diagnostic'] = __( 'Content rules', 'dazont-ecom' );
 		}
 		// One shop's writing, carried to another. Not gated on a module: it is
 		// the plugin's own, like Modules beside it, and the day a shop needs it
