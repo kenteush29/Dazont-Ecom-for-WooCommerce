@@ -125,6 +125,13 @@ $GLOBALS['terms'] = [
 	// shares no word and no branch, which is the only way to see reciprocity
 	// on its own.
 	13 => [ 'name' => 'Tactical gloves',    'slug' => 'tactical-gloves',    'parent' => 0, 'description' => '<p>' . str_repeat( 'a word about gloves ', 40 ) . '<a href="https://kula.test/blog/21/">Boonie hat sizing</a></p>' ],
+	// "SMERSH VESTS — c'est une catégorie sans produits. Ça doit être filtré."
+	// A dead shelf, and beside it the shape that a rule written on a term's
+	// OWN count would destroy: a parent holding nothing itself whose child
+	// holds the stock. Half the branches of a real shop look like that.
+	14 => [ 'name' => 'Smersh vests',       'slug' => 'smersh-vests',       'parent' => 0, 'count' => 0, 'description' => '<p>' . str_repeat( 'a vest word ', 40 ) . '</p>' ],
+	15 => [ 'name' => 'Tactical footwear',  'slug' => 'tactical-footwear',  'parent' => 0, 'count' => 0, 'description' => '<p>' . str_repeat( 'a footwear word ', 40 ) . '</p>' ],
+	16 => [ 'name' => 'Combat boots',       'slug' => 'combat-boots',       'parent' => 15, 'count' => 7, 'description' => '<p>' . str_repeat( 'a boot word ', 40 ) . '</p>' ],
 ];
 $GLOBALS['posts'] = [
 	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
@@ -172,7 +179,7 @@ function get_term( $id, $tax = '' ) {
 		'term_id'          => (int) $id,
 		'term_taxonomy_id' => (int) $id + 500,
 		'taxonomy'         => 'product_cat',
-		'count'            => 5,
+		'count'            => array_key_exists( 'count', $t ) ? (int) $t['count'] : 5,
 	] ) : null;
 }
 function get_term_link( $t ) {
@@ -357,7 +364,7 @@ ok( 'nor is an address to write to',    DZE_Mesh::resolve( 'mailto:a@b.c', $byur
 
 echo "\nThe shop, read once\n";
 $counts = DZE_Mesh::scan();
-ok( 'every page of the mesh is in it',  $counts['pages'], 9 );
+ok( 'every page of the mesh is in it',  $counts['pages'], 11 );
 ok( 'and every internal link',          $counts['links'], 4 );
 $per = DZE_Mesh::census()['per'];
 ok( 'a category knows who points at it', $per['product_cat:11']['in'], 1 );
@@ -723,7 +730,7 @@ ok( 'the shop keeps its own pages',     in_array( 'Tactical bags', $titles, true
 ok( 'a translated category is not a second page',
 	in_array( 'Taktische Taschen', $titles, true ), false );
 ok( 'nor is a translated article',      in_array( 'Wie wählt man einen Rucksack', $titles, true ), false );
-ok( 'so the count is the shop, once',   count( $titles ), 9 );
+ok( 'so the count is the shop, once',   count( $titles ), 11 );
 // AND IT ASKED BY THE RIGHT NAME. Asked as 'product_cat' the answer is empty
 // for every category alike, which reads on screen as a shop with no
 // translations at all — the failure that has no symptom until somebody counts.
@@ -734,7 +741,7 @@ ok( 'never by the taxonomy name alone',
 // A shop with ONE language has no rows at all, and every page is its own.
 $GLOBALS['langof'] = [];
 ok( 'one language, and nothing is filtered out',
-	count( DZE_Mesh::pages( true ) ), 11 );
+	count( DZE_Mesh::pages( true ) ), 13 );
 
 // AND WHERE WPML'S FILTERS ANSWER NOTHING AT ALL. This is the request the
 // reading actually runs in — an AJAX action, a cron tick — and it is where
@@ -787,12 +794,36 @@ ok( 'and no German category is offered either',
 // A TABLE THAT CANNOT BE ASKED NARROWS NOTHING. Null means "do not narrow",
 // never "narrow to nothing": a shop with one language keeps every page it has.
 $GLOBALS['icl'] = [];
-ok( 'no table, and nothing is thrown away', count( DZE_Mesh::pages( true ) ), 11 );
+ok( 'no table, and nothing is thrown away', count( DZE_Mesh::pages( true ) ), 13 );
 
 $GLOBALS['deflang'] = '';
 $GLOBALS['icl'] = [];
 unset( $GLOBALS['terms'][14], $GLOBALS['posts'][24] );
 DZE_Mesh::pages( true );
+
+echo "\nA category with nothing in it is not a page of the mesh\n";
+//
+// "SMERSH VESTS — c'est une catégorie sans produits. Ça doit être filtré. Pas
+// besoin de les linker celles-là. Peut-être des catégories mortes ou pas
+// finies, peu importe." A shelf with nothing on it is nowhere to send a
+// reader, exactly as an empty page is.
+$GLOBALS['deflang'] = '';
+$GLOBALS['icl']     = [];
+delete_transient( 'dze_mesh_pages' );
+$dze_cats = wp_list_pluck( DZE_Mesh::pages( true ), 'title' );
+ok( 'a dead shelf is not in the graph',  in_array( 'Smersh vests', $dze_cats, true ), false );
+// AND THE RULE IS COUNTED DOWN THE BRANCH, never on the term's own figure: a
+// parent whose products all live in its children carries a count of nought and
+// is a perfectly full aisle. Written on `count` alone this rule would take out
+// the top of every branch on the shop, which is worse than the thing it mends.
+ok( 'a parent whose child holds the stock stays',
+	in_array( 'Tactical footwear', $dze_cats, true ), true );
+ok( 'and the child itself of course',    in_array( 'Combat boots', $dze_cats, true ), true );
+ok( 'a stocked category is untouched',   in_array( 'Tactical backpacks', $dze_cats, true ), true );
+// IT IS NOWHERE, not merely not work: not a target the panel offers either.
+delete_transient( 'dze_cc_cats_x' );
+ok( 'the pool never offers it',
+	in_array( 'Smersh vests', wp_list_pluck( DZE_Category_Content::category_index( true ), 'name' ), true ), false );
 
 echo "\nEmpty pages and drafts are not pages of the mesh\n";
 //

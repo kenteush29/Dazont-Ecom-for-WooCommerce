@@ -170,6 +170,7 @@ final class DZE_Mesh {
 		// id: that is its schema, and asking with the wrong one answers
 		// nothing at all — which reads as "keep everything".
 		$mine_cat = self::mine( 'tax_product_cat', $lang );
+		$cats     = [];
 		foreach ( (array) get_terms( [ 'taxonomy' => 'product_cat', 'hide_empty' => false ] ) as $t ) {
 			if ( is_wp_error( $t ) || 'uncategorized' === $t->slug ) {
 				continue;
@@ -183,16 +184,41 @@ final class DZE_Mesh {
 				continue;
 			}
 			$url = get_term_link( $t );
-			$out[ 'product_cat:' . (int) $t->term_id ] = [
-				'kind'  => 'product_cat',
-				'id'    => (int) $t->term_id,
-				'title' => (string) $t->name,
-				'url'   => is_wp_error( $url ) ? '' : (string) $url,
-				'words' => str_word_count( wp_strip_all_tags( (string) $t->description ) ),
+			$cats[ (int) $t->term_id ] = [
+				'kind'   => 'product_cat',
+				'id'     => (int) $t->term_id,
+				'title'  => (string) $t->name,
+				'url'    => is_wp_error( $url ) ? '' : (string) $url,
+				'words'  => str_word_count( wp_strip_all_tags( (string) $t->description ) ),
 				// A term is never built by a page builder: its description is
 				// a field, and writing into it is safe.
-				'built' => false,
+				'built'  => false,
+				'count'  => (int) $t->count,
+				'parent' => (int) $t->parent,
 			];
+		}
+		// A CATEGORY WITH NOTHING IN IT IS NOT A PAGE OF THE MESH. "SMERSH
+		// VESTS — c'est une catégorie sans produits. Ça doit être filtré. Pas
+		// besoin de les linker celles-là. Peut-être des catégories mortes ou
+		// pas finies, peu importe." A shelf with nothing on it is nowhere to
+		// send a reader, exactly as an empty page is.
+		//
+		// It is counted DOWN THE BRANCH, never on the term's own figure: a
+		// parent whose products all live in its children carries a count of
+		// nought and is a perfectly full aisle. Dropping those would take out
+		// the top of every branch on the shop.
+		foreach ( array_keys( $cats ) as $cid ) {
+			if ( $cats[ $cid ]['count'] > 0 ) {
+				continue;
+			}
+			$cats[ $cid ]['count'] = self::branch_count( $cid, $cats );
+		}
+		foreach ( $cats as $cid => $cat ) {
+			if ( $cat['count'] < 1 ) {
+				continue;
+			}
+			unset( $cat['count'], $cat['parent'] );
+			$out[ 'product_cat:' . (int) $cid ] = $cat;
 		}
 		// The pages that exist for the checkout and not for a reader: linking
 		// to a cart is a link nobody follows and nobody should be told to add.
@@ -258,6 +284,40 @@ final class DZE_Mesh {
 		}
 		set_transient( 'dze_mesh_pages', $out, 6 * HOUR_IN_SECONDS );
 		return $out;
+	}
+
+	/**
+	 * How many products sit under a category, ITS CHILDREN INCLUDED.
+	 *
+	 * WordPress's own `count` on a term is that term alone. On a shop whose
+	 * products are all filed in the leaves, every parent reads nought — so a
+	 * rule written on `count` would throw away the top of every branch while
+	 * claiming to remove dead shelves.
+	 *
+	 * It walks the map already in hand rather than querying: this runs once
+	 * per category inside a reading that is already walking all of them.
+	 *
+	 * @param array<int,array<string,mixed>> $cats
+	 */
+	private static function branch_count( int $id, array $cats, array $seen = [] ): int {
+		// A parent loop is a broken taxonomy and not a reason to hang.
+		if ( isset( $seen[ $id ] ) ) {
+			return 0;
+		}
+		$seen[ $id ] = true;
+		$n = 0;
+		foreach ( $cats as $cid => $cat ) {
+			if ( (int) $cat['parent'] !== $id ) {
+				continue;
+			}
+			$n += (int) $cat['count'] > 0
+				? (int) $cat['count']
+				: self::branch_count( (int) $cid, $cats, $seen );
+			if ( $n > 0 ) {
+				break; // one product is enough: this is a yes-or-no question.
+			}
+		}
+		return $n;
 	}
 
 	/**

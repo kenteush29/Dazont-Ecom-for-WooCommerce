@@ -194,6 +194,33 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the work is the one showing',  strip.here.trim(), 'Tasks' );
 	ok( 'no diary folded under the work',   strip.diary, false );
 
+	// ---- ONE SCREEN, ONE COLUMN ----
+	// The task blocks stopped at their own width and the list under them ran
+	// the full width of the window, so one page had two right-hand edges:
+	// "applique la même largeur pour le bloc To review". A CSS fault, which no
+	// PHP test and no `node --check` can see — it exists only once a browser
+	// has laid the page out.
+	const edges = await page.evaluate( () => {
+		const box = el => { const r = el.getBoundingClientRect(); return [ Math.round( r.left ), Math.round( r.right ) ]; };
+		const task = document.querySelector( '.dze-auto-task' );
+		const list = document.querySelector( '.dze-auto-todo' );
+		const head = document.querySelector( '.dze-auto-h2' );
+		return {
+			task: task ? box( task ) : null,
+			list: list ? box( list ) : null,
+			head: head ? box( head ) : null,
+			// And the column is narrower than the window, or "the same width"
+			// would be true of two things that both simply run to the edge.
+			room: Math.round( document.getElementById( 'wpbody-content' ).getBoundingClientRect().width )
+		};
+	} );
+	ok( 'the waiting list is there to measure', !! edges.list, true );
+	ok( 'it starts where the blocks start',  edges.list && edges.list[0], edges.task && edges.task[0] );
+	ok( 'and ends where they end',           edges.list && edges.list[1], edges.task && edges.task[1] );
+	ok( 'its heading keeps the same column', edges.head && edges.head[1], edges.task && edges.task[1] );
+	ok( 'and the column is not just the window',
+		edges.task && ( edges.task[1] - edges.task[0] ) < edges.room, true );
+
 	ok( 'three tasks, three blocks',        shut.n, 3 );
 	ok( 'and every one of them shut',       shut.open, 0 );
 	ok( 'each reading as one line',         shut.heights.every( h => h <= 60 ), true );
