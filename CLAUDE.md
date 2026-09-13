@@ -1066,6 +1066,23 @@ whose screen has not been thought through yet.
   `decided_by()`, where 0 must stay silent. The date is `moment()`, one moment
   per row — the last time the job moved — in the shop's own date and time
   format through `mysql2date`, never a second figure beside it.
+- **THE LAST COLUMN GETS WHAT IS LEFT, SO WHAT IS LEFT MUST BE WORTH HAVING.**
+  "Écran cassé." Two columns were added to Content to review and the screen came
+  back with its headings stacked one letter per line, its rows three buttons
+  tall and the table running off the side of the page. The table is laid out
+  FIXED (WordPress's own `.fixed`) and two of its columns are a fixed number of
+  pixels — the tick box and the id — so every percentage spent on the others
+  comes out of the same width: 80% of percentages left Action with "the rest
+  minus 123px", which is nearly nothing on a narrower window. The rule that
+  holds: a column whose content has a KNOWN width is given it in pixels (a date,
+  three buttons), a column of WORDS is either one percentage or left to share
+  what remains — and percentages never add up to the whole, because the pixel
+  columns are spent out of the same hundred. **`node tools/js/review-table.mjs`
+  must pass**: it draws the real screen at 1040, 1280 and 1600 and MEASURES it —
+  the table inside its page, no sideways scroll, every heading over its own
+  cell, no column under 70px, the date fitting its column and the three buttons
+  side by side. A CSS fault is invisible to every PHP test and to `node --check`
+  alike, which is why this screen had to break before anything could say so.
 - **ONE NAME PER SCREEN.** "Content diagnostic" was worn by two screens at
   once — the page holding the reading, the linking, what waits and the products
   list, and the Settings tab holding the criteria — and a name shared by two

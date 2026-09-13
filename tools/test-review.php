@@ -177,7 +177,8 @@ function add_submenu_page( $parent, $title, $menu, $cap, $slug, $fn = null ) {
 }
 function remove_submenu_page( $parent, $slug ) { $GLOBALS['menu_gone'][] = (string) $slug; return true; }
 function wp_enqueue_style( ...$a ) {} function wp_enqueue_script( ...$a ) {}
-function wp_localize_script( ...$a ) {} function wp_create_nonce( $a = '' ) { return 'n'; }
+function wp_localize_script( $handle, $name, $data ) { $GLOBALS['loc'][ $name ] = $data; }
+function wp_create_nonce( $a = '' ) { return 'n'; }
 function wp_enqueue_editor() {}
 
 /** Every statement the queue sends, kept so it can be read back. */
@@ -221,6 +222,16 @@ require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-queue.php';
 require_once __DIR__ . '/../' . $dir . '/includes/class-cleanup.php';
+
+if ( in_array( '--dump-review', (array) $argv, true ) ) {
+	$GLOBALS['loc']  = [];
+	$GLOBALS['rows'] = [];
+	ob_start();
+	DZE_Queue::instance()->body();
+	$dze_html = (string) ob_get_clean();
+	echo wp_json_encode( [ 'html' => $dze_html, 'cfg' => $GLOBALS['loc']['dzeQueue'] ?? [] ] );
+	exit( 0 );
+}
 
 $fails = 0; $ran = 0;
 function ok( string $what, $got, $want ) {
