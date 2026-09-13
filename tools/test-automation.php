@@ -377,7 +377,13 @@ if ( in_array( '--dump-automation', (array) $argv, true ) ) {
 	DZE_Mesh::scan();
 	ob_start();
 	DZE_Automation::render_settings();
-	echo wp_json_encode( [ 'html' => (string) ob_get_clean() ] );
+	// The figure the REAL census counted on this fake shop, handed over beside
+	// the markup: the browser then asserts that what was counted is what the
+	// chip prints, rather than a number typed into two files.
+	echo wp_json_encode( [
+		'html'    => (string) ob_get_clean(),
+		'orphans' => DZE_Mesh::orphan_count(),
+	] );
 	exit( 0 );
 }
 
@@ -852,6 +858,44 @@ ok( 'the answer carries every task\'s line', array_keys( (array) ( $sent['chips'
 ok( 'each one its own',                  false !== strpos( (string) ( $sent['chips']['mesh_links'] ?? '' ), 'data-task="mesh_links"' ), true );
 ok( 'and the one list beside them',      substr_count( (string) ( $sent['waiting'] ?? '' ), 'class="dze-auto-job"' ), 3 );
 ok( 'and what became of the last pass',  array_key_exists( 'log', (array) $sent ), true );
+
+echo "\nThe pages nothing points at, beside the pass that mends them\n";
+//
+// "Il est impératif d'inscrire l'info quelque part. Que pour lier les pages
+// orphelines de liens entrant, seul le module d'automatisation peut faire le
+// travail. Ce serait bien d'avoir un système simplifié de comptage."
+fresh( $ON );
+$GLOBALS['opts']['dze_mesh_census'] = [
+	'per'    => [],
+	'counts' => [ 'pages' => 830, 'links' => 2104, 'orphans' => 41, 'short' => 96, 'ends' => 12 ],
+	'at'     => time() - 3600,
+];
+$chips = DZE_Automation::chips_html( 'mesh_links' );
+ok( 'the figure is on the task that mends them',
+	1 === preg_match( '/is-orphan[^>]*>.*?41</s', $chips ), true );
+ok( 'and it says so on its own hover',
+	false !== strpos( $chips, 'the only pass that mends them' ), true );
+// AND ON NO OTHER TASK: the writing task and the calendar do not touch the
+// graph, and a figure on a line that cannot act on it is noise.
+ok( 'never on the writing task',         false !== strpos( DZE_Automation::chips_html( 'cat_desc' ), 'is-orphan' ), false );
+ok( 'nor on the calendar',               false !== strpos( DZE_Automation::chips_html( 'events' ), 'is-orphan' ), false );
+// A CHIP IS SILENT WHEN IT HAS NOTHING TO SAY: a nought reads as a task that
+// failed, and a site never read has counted nothing at all.
+$GLOBALS['opts']['dze_mesh_census']['counts']['orphans'] = 0;
+ok( 'nothing orphaned, nothing said',    false !== strpos( DZE_Automation::chips_html( 'mesh_links' ), 'is-orphan' ), false );
+unset( $GLOBALS['opts']['dze_mesh_census'] );
+ok( 'never read, nothing said either',   false !== strpos( DZE_Automation::chips_html( 'mesh_links' ), 'is-orphan' ), false );
+
+// AND THE PRESS SAYS WHAT IT LEAVES TO THE DAILY PASS, on its own hover: it
+// fills outgoing links and mends nothing that is orphaned.
+fresh( $ON );
+ob_start();
+DZE_Automation::render_settings();
+$screen = (string) ob_get_clean();
+ok( 'the catch-up says what it fills',
+	false !== strpos( $screen, 'Fills the outgoing links of every page under its own quota' ), true );
+ok( 'and what it does not',
+	false !== strpos( $screen, 'Pages nothing points at are mended by the daily pass instead' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

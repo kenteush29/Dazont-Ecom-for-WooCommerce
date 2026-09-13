@@ -1095,6 +1095,27 @@ final class DZE_Mesh {
 	}
 
 	/** What the last reading found, in words. */
+	/**
+	 * HOW MANY PAGES NOTHING POINTS AT — the figure the census has always held
+	 * and no screen ever answered.
+	 *
+	 * "Ce serait bien d'avoir peut-être un système simplifié de comptage ne
+	 * serait-ce que pour avoir un aperçu des pages sans liens entrants." It was
+	 * counted at every scan and stored beside the others; reading it is one
+	 * option, so it costs nothing to say wherever it belongs.
+	 *
+	 * NULL means the site has not been read yet, never 0 — "nobody points at
+	 * anything" and "nothing has been counted" are different answers, and the
+	 * screens that print this one must be able to tell them apart.
+	 */
+	public static function orphan_count(): ?int {
+		$c = self::census();
+		if ( empty( $c['at'] ) ) {
+			return null;
+		}
+		return (int) ( ( (array) ( $c['counts'] ?? [] ) )['orphans'] ?? 0 );
+	}
+
 	public static function read_said(): string {
 		$c = self::census();
 		if ( empty( $c['at'] ) ) {
@@ -1102,11 +1123,12 @@ final class DZE_Mesh {
 		}
 		$n = (array) ( $c['counts'] ?? [] );
 		return sprintf(
-			/* translators: 1: how long ago, 2: pages, 3: links */
-			__( 'Read %1$s ago — %2$s pages, %3$s internal links.', 'dazont-ecom' ),
+			/* translators: 1: how long ago, 2: pages, 3: links, 4: pages nothing points at */
+			__( 'Read %1$s ago — %2$s pages, %3$s internal links, %4$s pointed at by nothing.', 'dazont-ecom' ),
 			human_time_diff( (int) $c['at'], time() ),
 			number_format_i18n( (int) ( $n['pages'] ?? 0 ) ),
-			number_format_i18n( (int) ( $n['links'] ?? 0 ) )
+			number_format_i18n( (int) ( $n['links'] ?? 0 ) ),
+			number_format_i18n( (int) ( $n['orphans'] ?? 0 ) )
 		);
 	}
 

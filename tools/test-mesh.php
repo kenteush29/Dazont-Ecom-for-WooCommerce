@@ -229,7 +229,13 @@ class DZE_Mesh_Wpdb {
 		if ( false !== stripos( $sql, 'FROM wp_posts' ) ) {
 			$rows = [];
 			foreach ( $GLOBALS['posts'] as $id => $p ) {
-				$rows[] = [ 'ID' => $id, 'post_title' => $p['title'], 'post_type' => $p['type'], 'post_content' => $p['content'] ];
+				$rows[] = [
+					'ID'           => $id,
+					'post_title'   => $p['title'],
+					'post_name'    => strtolower( preg_replace( '/[^a-z0-9]+/i', '-', (string) $p['title'] ) ),
+					'post_type'    => $p['type'],
+					'post_content' => $p['content'],
+				];
 			}
 			return $rows;
 		}
@@ -401,6 +407,31 @@ ok( 'an empty page is not offered as a source', in_array( 'product_cat:13', $sho
 // Tactical backpacks, the answer starts there.
 $back = wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:13' ), 'key' );
 ok( 'the page it already points at comes first', $back[0] ?? '', 'post:21' );
+
+echo "\nHow many pages nothing points at\n";
+//
+// "Ce serait bien d'avoir peut-être un système simplifié de comptage ne
+// serait-ce que pour avoir un aperçu des pages sans liens entrants." It was
+// counted at every scan and stored beside the others, and no screen ever
+// answered it.
+$dze_orph = DZE_Mesh::orphan_count();
+$dze_byhand = 0;
+foreach ( DZE_Mesh::pages() as $key => $pg ) {
+	if ( 0 === (int) ( DZE_Mesh::census()['per'][ $key ]['in'] ?? 0 ) ) { $dze_byhand++; }
+}
+ok( 'the figure is the census\'s own',   $dze_orph, $dze_byhand );
+ok( 'and it is the same one orphans() lists', $dze_orph, count( DZE_Mesh::orphans( 500 ) ) );
+// THE READING SAYS IT, where the reading is stated: one option read, so it
+// costs nothing to answer wherever it belongs.
+ok( 'the reading states it in words',
+	false !== strpos( DZE_Mesh::read_said(), $dze_orph . ' pointed at by nothing' ), true );
+// A SITE NOT READ YET ANSWERS NULL, NEVER 0. "Nobody points at anything" and
+// "nothing has been counted" are different answers, and a nought printed for
+// the second is a figure nobody counted.
+$GLOBALS['opts']['dze_mesh_census'] = [];
+ok( 'never read, never a nought',        DZE_Mesh::orphan_count(), null );
+ok( 'and the reading says which empty',  DZE_Mesh::read_said(), 'The site has not been read yet.' );
+DZE_Mesh::scan();
 
 echo "\nThe other half: pages under their own outgoing quota\n";
 //
