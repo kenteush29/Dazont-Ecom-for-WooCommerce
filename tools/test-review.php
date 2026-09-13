@@ -94,6 +94,13 @@ function get_term_link( $t ) {
 function untrailingslashit( $s ) { return rtrim( (string) $s, '/' ); }
 function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
 function get_post( $id = 0 ) { return $GLOBALS['posts_all'][ (int) $id ] ?? null; }
+// A ROW NAMES ITS OBJECT, and an article's name comes from the post — the
+// popup was dying here the moment it was asked about one.
+function get_the_title( $id = 0 ) {
+	$p = $GLOBALS['posts_all'][ (int) $id ] ?? null;
+	return $p ? (string) $p->post_title : '';
+}
+function html_entity_decode_stub( $s ) { return $s; }
 function wp_kses_post( $s ) { return (string) $s; }
 // Accepting a category description WRITES it: the harness records the write
 // rather than pretending it did not happen.
@@ -837,6 +844,72 @@ $dze_full = DZE_Automation::catch_up( 'mesh_links' );
 ok( 'a queue that refuses queues nothing', (int) $dze_full['queued'], 0 );
 ok( 'and nothing is stamped',              [ $GLOBALS['tmeta'], $GLOBALS['pmeta'] ], [ [], [] ] );
 $GLOBALS['queue_busy'] = false;
+
+echo "\nThe before of every before / after\n";
+//
+// "Encore une anomalie : pour les articles de blog, le avant/après est faux."
+// The popup read `get_term( $id, 'product_cat' )` whatever the job was — so on
+// an ARTICLE it fetched a term that does not exist, the before came back empty,
+// and the screen printed "0 words → 1224 words · 0 links → 4 links" over a post
+// holding twelve hundred words. Nothing errored, and the figure that was wrong
+// is the one the whole screen exists for. Nothing gated `ajax_review` at all,
+// which is why it shipped.
+$GLOBALS['terms'][21]     = '<p>' . str_repeat( 'a category word ', 60 ) . '<a href="http://shop.test/a/">one</a></p>';
+$GLOBALS['posts_all'][31] = (object) [
+	'ID'           => 31,
+	'post_title'   => 'The sniper role: why are they so feared?',
+	'post_content' => '<p>' . str_repeat( 'an article word ', 400 ) . '<a href="http://shop.test/b/">two</a></p>',
+];
+
+// A CATEGORY: read from the term, as it always was.
+ok( 'a category is read from its term',
+	str_word_count( wp_strip_all_tags( DZE_Queue::holds_now( 'cat_links', 21 ) ) ), 181 );
+// AN ARTICLE: read from the post — the half that was missing.
+ok( 'an article is read from its post',
+	str_word_count( wp_strip_all_tags( DZE_Queue::holds_now( 'post_links', 31 ) ) ), 1201 );
+ok( 'and a product too',
+	str_word_count( wp_strip_all_tags( DZE_Queue::holds_now( 'product_text', 31 ) ) ), 1201 );
+// AN OBJECT THAT IS NOT THERE IS AN EMPTY BEFORE, never a warning and never a
+// fatal: a job whose object was deleted since still opens.
+ok( 'a missing object answers empty',    DZE_Queue::holds_now( 'post_links', 999999 ), '' );
+
+// AND THE POPUP ITSELF, through the endpoint the screen actually posts to.
+$GLOBALS['rows'] = [ [
+	'id'        => 77,
+	'kind'      => 'post_links',
+	'object_id' => 31,
+	'status'    => 'review',
+	'result'    => '<p>' . str_repeat( 'an article word ', 400 )
+		. '<a href="http://shop.test/b/">two</a> <a href="http://shop.test/c/">three</a></p>',
+	'payload'   => '[]',
+] ];
+$_POST = [ 'id' => 77 ];
+$dze_pop = [];
+try { DZE_Queue::instance()->ajax_review(); } catch ( DZE_Json_Sent $e ) { $dze_pop = (array) $e->payload; }
+ok( 'the popup carries the text it holds',
+	false !== strpos( (string) ( $dze_pop['current'] ?? '' ), 'an article word' ), true );
+// THE FIGURES ARE THE WHOLE POINT OF THE BLOCK, and a nought on the left reads
+// as an article with nothing in it.
+ok( 'the words before are not nought',   (int) ( $dze_pop['words'][0] ?? 0 ), 1201 );
+ok( 'and the links before are counted',  (int) ( $dze_pop['links'][0] ?? 0 ), 1 );
+ok( 'with the after beside them',        (int) ( $dze_pop['links'][1] ?? 0 ), 2 );
+ok( 'and the article named, not a #id',
+	(string) ( $dze_pop['title'] ?? '' ), 'The sniper role: why are they so feared?' );
+$_POST = [];
+
+// EVERY KIND THAT IS A DIFF ANSWERS SOMETHING. A kind added next year and
+// forgotten here would silently print an empty before on its own screen.
+$dze_blank = [];
+foreach ( DZE_Queue::kinds() as $dze_k => $dze_meta ) {
+	if ( ! empty( $dze_meta['image'] ) ) {
+		continue; // a photograph is not a diff.
+	}
+	$dze_id = 0 === strpos( $dze_k, 'cat_' ) ? 21 : 31;
+	if ( '' === DZE_Queue::holds_now( $dze_k, $dze_id ) ) {
+		$dze_blank[] = $dze_k;
+	}
+}
+ok( 'no kind is left without a before',  $dze_blank, [] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

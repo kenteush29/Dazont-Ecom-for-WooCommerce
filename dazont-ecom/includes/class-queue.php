@@ -700,6 +700,34 @@ final class DZE_Queue {
 		];
 	}
 
+	/**
+	 * WHAT THE OBJECT HOLDS TODAY — the "before" of every before / after.
+	 *
+	 * This read `get_term( $id, 'product_cat' )` whatever the job was. On an
+	 * ARTICLE that term does not exist, so the before came back empty and the
+	 * popup said "0 words → 1224 words · 0 links → 4 links" over a post with
+	 * twelve hundred words in it: "encore une anomalie, pour les articles de
+	 * blog le avant/après est faux". Nothing errored, and the figure that was
+	 * wrong is the one the whole screen is for.
+	 *
+	 * A job's kind already says where its result is WRITTEN — that is how
+	 * `apply()` knows — so it says where the before is READ from too, and the
+	 * two are answered in one place so they cannot drift. A kind added next
+	 * year and forgotten here answers with an empty before, which is why the
+	 * gate asserts every kind that is not an image.
+	 */
+	public static function holds_now( string $kind, int $object_id ): string {
+		if ( 0 === strpos( $kind, 'cat_' ) ) {
+			$term = get_term( $object_id, 'product_cat' );
+			return ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+		}
+		if ( 0 === strpos( $kind, 'post_' ) || 0 === strpos( $kind, 'product_' ) ) {
+			$post = get_post( $object_id );
+			return $post ? (string) $post->post_content : '';
+		}
+		return '';
+	}
+
 	public static function label_for( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
 			$t = get_term( $object_id, 'product_cat' );
@@ -1300,8 +1328,7 @@ final class DZE_Queue {
 				'edit'  => (string) get_edit_post_link( $pid, '' ),
 			] );
 		}
-		$term = get_term( (int) $job['object_id'], 'product_cat' );
-		$old  = ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+		$old = self::holds_now( (string) $job['kind'], (int) $job['object_id'] );
 		wp_send_json_success( [
 			'id'      => $id,
 			'title'   => self::label_for( (string) $job['kind'], (int) $job['object_id'] ),
