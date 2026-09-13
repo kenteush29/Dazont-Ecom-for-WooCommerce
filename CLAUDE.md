@@ -2152,6 +2152,19 @@ whose screen has not been thought through yet.
   never "0 of something", which reads as a lane that failed; and both lanes
   that make a photograph say it with the same function, or two traces cannot
   be compared. `php tools/test-shoot.php dazont-ecom` holds it.
+- **THE BEFORE OF A BEFORE / AFTER IS READ FROM THE OBJECT THE JOB IS ABOUT.**
+  "Encore une anomalie : pour les articles de blog le avant/après est faux."
+  `ajax_review()` read `get_term( $id, 'product_cat' )` whatever the job was,
+  so on an ARTICLE it fetched a term that does not exist, the before came back
+  empty, and the popup printed "0 words → 1224 words · 0 links → 4 links" over
+  a post holding twelve hundred words. Nothing errored; the figure that was
+  wrong is the one the whole block exists for. A job's kind already says where
+  its result is WRITTEN — that is how `apply()` knows — so `DZE_Queue::
+  holds_now()` says where the before is READ from, in one place, and the two
+  cannot drift. **Nothing gated `ajax_review` at all**, which is why it
+  shipped: the gate now walks EVERY kind that is not an image and fails on any
+  whose before comes back empty, so a kind invented next year and forgotten
+  here cannot quietly print a nought on its own screen.
 - **A SCREEN THAT REPORTS ON THE OUTSIDE WORLD REFRESHES ITSELF.** "Health —
   cet onglet n'était pas à jour seulement après que j'appuye sur Check now. Ça
   devrait être automatique." The background look is WEEKLY, so the tab greeted
