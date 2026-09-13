@@ -530,7 +530,14 @@
 button.dze-auto-chip { font: inherit; cursor: pointer; }
 button.dze-auto-chip:hover { border-color: #2271b1; color: #2271b1; }
 .dze-auto-orphlist { margin-top: 8px; }
-.dze-auto-orphlist .dze-auto-kindth, .dze-auto-orphlist .dze-auto-outth { width: 130px; }
+.dze-auto-orphlist .dze-auto-kindth { width: 120px; }
+.dze-auto-orphlist .dze-auto-outth  { width: 80px; }
+/* THE LAST COLUMN GETS WHAT IS LEFT, so what is left must be worth having:
+   the three columns whose width is KNOWN are given it in pixels, the two of
+   words share the rest. */
+.dze-auto-orphlist .dze-auto-actth  { width: 110px; }
+.dze-auto-orphlist td               { vertical-align: middle; }
+.dze-auto-asideset                  { margin-top: 14px; }
 .dze-auto-built {
 	display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px;
 	border: 1px solid #dcdcde; background: #f6f7f7; color: #646970; font-size: 11px; font-weight: 400;

@@ -97,6 +97,7 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_state', [ __CLASS__, 'ajax_state' ] );
 		add_action( 'wp_ajax_dze_auto_catchup', [ __CLASS__, 'ajax_catchup' ] );
 		add_action( 'wp_ajax_dze_auto_orphans', [ __CLASS__, 'ajax_orphans' ] );
+		add_action( 'wp_ajax_dze_auto_aside', [ __CLASS__, 'ajax_aside' ] );
 	}
 
 	public static function page_url( string $tab = '' ): string {
@@ -326,7 +327,7 @@ final class DZE_Automation {
 				// déléguer à Dazont Ecom le maillage interne du site web. Avec
 				// une très courte description derrière de ce qu'il fait."
 				'what'    => __( 'Hand the site\'s internal linking to Dazont Ecom. It links the pages nothing points at, then the pages short of their own links.', 'dazont-ecom' ),
-				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it works in two phases, in this order. FIRST, the holes: it takes the pages the site points at least (fewer than three links in) and writes the link into the pages closest to them in subject, so the page being edited is chosen for being an orphan\'s best neighbour. THEN, once nothing is orphaned, the work you would have done by hand: the pages carrying fewer links than their own length calls for — one per fifty words — each filling them from its own pool of related pages, which on a shop puts the product categories first. Products are left out of all of it: a product page already says what it belongs to. A page it has worked on is left alone for a month, so what runs each day is maintenance: the pages you have just added, and nothing else. "Link the whole site" does that SECOND phase for every page at once, a few hundred per press, when you are catching up from nothing — and only that phase: mending a page nothing points at needs the graph to choose which neighbour should point at it, which is work only the daily pass does. The figure beside the task name is how many such pages the last reading found. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
+				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it works in two phases, in this order. FIRST, the holes: it takes the pages the site points at least (fewer than three links in) and writes the link into the pages closest to them in subject, so the page being edited is chosen for being an orphan\'s best neighbour. THEN, once nothing is orphaned, the work you would have done by hand: the pages carrying fewer links than their own length calls for — one per fifty words — each filling them from its own pool of related pages, which on a shop puts the product categories first. Products are left out of all of it: a product page already says what it belongs to. A page it has worked on is left alone for a month, so what runs each day is maintenance: the pages you have just added, and nothing else. "Link the whole site" does that SECOND phase for every page at once, a few hundred per press, when you are catching up from nothing — and only that phase: mending a page nothing points at needs the graph to choose which neighbour should point at it, which is work only the daily pass does. The figure beside the task name is how many such pages the last reading found; pressing it opens the list. What is never in that list, and never linked: a draft, a page with nothing written on it, the cart, the checkout and the account pages — and anything you mark "Do not link" on a row of that list, which is where the refund policy and the legal pages belong. Marking one means nothing is written into it and nothing is asked to point at it; the links it already carries still count for the pages they point at. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
 				'module'  => 'mesh',
 				'scope'   => 'mesh',
 				// The job kinds this task leaves waiting, so its own block can
@@ -1578,20 +1579,49 @@ final class DZE_Automation {
 		}
 		if ( ! $rows ) {
 			echo '<p class="description">' . esc_html__( 'Every page is linked from the text of another one.', 'dazont-ecom' ) . '</p>';
+			// AND THE WAY BACK IS STILL HERE. A shop that set the last of them
+			// aside would otherwise be looking at an empty popup with no screen
+			// anywhere able to undo it.
+			self::render_aside();
 			return;
 		}
 		// ONE sentence, because this is the whole of what the figure means and
 		// it is the reason a large one is not a broken site.
 		echo '<p class="description">' . esc_html__( 'A link here is one written in a text — a description, an article, a page. A menu, a breadcrumb or a shop archive is not counted.', 'dazont-ecom' ) . '</p>';
+		self::orph_table( $rows, false );
+		$rest = $all - count( $rows );
+		if ( $rest > 0 ) {
+			echo '<p class="description">' . esc_html( sprintf(
+				/* translators: %s: how many more pages are not listed */
+				_n( '%s more, not listed here.', '%s more, not listed here.', $rest, 'dazont-ecom' ),
+				number_format_i18n( $rest )
+			) ) . '</p>';
+		}
+		self::render_aside();
+	}
+
+	/**
+	 * ONE TABLE, BOTH LISTS.
+	 *
+	 * The pages nothing points at and the pages the shop has set aside are the
+	 * same rows read two ways, so they are drawn by one function with one
+	 * column order — two tables written twice go a column out of step on the
+	 * next edit, and then every row prints its values under the wrong titles.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 */
+	private static function orph_table( array $rows, bool $aside ): void {
 		echo '<table class="wp-list-table widefat fixed striped dze-auto-orphlist"><thead><tr>';
 		echo '<th>' . esc_html__( 'Page', 'dazont-ecom' ) . '</th>';
 		echo wp_kses_post( DZE_Hub::id_th() );
 		echo '<th class="dze-auto-kindth">' . esc_html__( 'Kind', 'dazont-ecom' ) . '</th>';
 		echo '<th class="dze-auto-outth">' . esc_html__( 'Links out', 'dazont-ecom' ) . '</th>';
+		echo '<th class="dze-auto-actth">' . esc_html__( 'Linking', 'dazont-ecom' ) . '</th>';
 		echo '</tr></thead><tbody>';
 		foreach ( $rows as $row ) {
 			$name = esc_html( (string) $row['title'] );
 			$url  = (string) $row['url'];
+			$key  = (string) $row['kind'] . ':' . (int) $row['id'];
 			echo '<tr><td><strong>' . ( '' !== $url
 				? '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener noreferrer">' . $name . '</a>'
 				: $name ) . '</strong>';
@@ -1607,17 +1637,59 @@ final class DZE_Automation {
 			echo wp_kses_post( DZE_Hub::id_td( (int) $row['id'] ) );
 			echo '<td>' . esc_html( DZE_Mesh::kind_word( (string) $row['kind'] ) ) . '</td>';
 			echo '<td>' . esc_html( number_format_i18n( (int) $row['out'] ) ) . '</td>';
+			// THE DECISION IS TAKEN WHERE THE PAGE IS SEEN. Reading "Refund
+			// Policy" in this list is the moment somebody knows it should
+			// never be linked to, so the answer is on that line and nowhere
+			// else — and the same button, the other way round, puts it back.
+			echo '<td><button type="button" class="button-link dze-auto-aside" data-key="' . esc_attr( $key )
+				. '" data-on="' . ( $aside ? '0' : '1' ) . '" title="'
+				. esc_attr( $aside
+					? __( 'Put this page back into the linking work.', 'dazont-ecom' )
+					: __( 'Nothing will be written into this page, and nothing will be asked to point at it. The links it already carries still count.', 'dazont-ecom' ) )
+				. '">' . esc_html( $aside ? __( 'Link it again', 'dazont-ecom' ) : __( 'Do not link', 'dazont-ecom' ) )
+				. '</button></td>';
 			echo '</tr>';
 		}
 		echo '</tbody></table>';
-		$rest = $all - count( $rows );
-		if ( $rest > 0 ) {
-			echo '<p class="description">' . esc_html( sprintf(
-				/* translators: %s: how many more pages are not listed */
-				_n( '%s more, not listed here.', '%s more, not listed here.', $rest, 'dazont-ecom' ),
-				number_format_i18n( $rest )
-			) ) . '</p>';
+	}
+
+	/**
+	 * The pages the shop has put away, and the way back.
+	 *
+	 * They are gone from every list above — that is the point of setting one
+	 * aside — so without this there would be no screen anywhere that could
+	 * undo it. Folded, because it is a decision already taken.
+	 */
+	private static function render_aside(): void {
+		$keys = DZE_Mesh::set_aside();
+		if ( ! $keys ) {
+			return;
 		}
+		$rows = [];
+		$per  = (array) ( DZE_Mesh::census()['per'] ?? [] );
+		foreach ( DZE_Mesh::pages() as $key => $p ) {
+			if ( ! isset( $keys[ $key ] ) ) {
+				continue;
+			}
+			$rows[] = [
+				'kind'  => (string) $p['kind'],
+				'id'    => (int) $p['id'],
+				'title' => (string) $p['title'],
+				'url'   => (string) $p['url'],
+				'built' => ! empty( $p['built'] ),
+				'out'   => (int) ( $per[ $key ]['out'] ?? 0 ),
+			];
+		}
+		if ( ! $rows ) {
+			return;
+		}
+		echo '<details class="dze-set dze-auto-asideset"><summary>' . esc_html( sprintf(
+			/* translators: %s: how many pages are set aside */
+			_n( 'Set aside — %s page', 'Set aside — %s pages', count( $rows ), 'dazont-ecom' ),
+			number_format_i18n( count( $rows ) )
+		) ) . '</summary>';
+		self::orph_table( $rows, true );
+		echo '</details>';
 	}
 
 	/**
@@ -1694,6 +1766,23 @@ final class DZE_Automation {
 						$( '#dze-auto-orphbody' ).html( ( r && r.data && r.data.html ) || '' );
 					} )
 					.fail( function () { $( '#dze-auto-orphbody' ).text( '<?php echo esc_js( __( 'Something went wrong.', 'dazont-ecom' ) ); ?>' ); } );
+			} );
+			$( document ).on( 'click', '.dze-auto-aside', function () {
+				var $b = $( this );
+				$b.prop( 'disabled', true );
+				$.post( window.ajaxurl, {
+					action: 'dze_auto_aside',
+					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
+					key: $b.data( 'key' ),
+					on: String( $b.data( 'on' ) )
+				} ).done( function ( r ) {
+					if ( r && r.success && r.data ) {
+						$( '#dze-auto-orphbody' ).html( r.data.html || '' );
+						if ( r.data.chips ) { $( '.dze-auto-chips[data-task="mesh_links"]' ).replaceWith( r.data.chips ); }
+					} else {
+						$b.prop( 'disabled', false );
+					}
+				} ).fail( function () { $b.prop( 'disabled', false ); } );
 			} );
 			$( document ).on( 'click', '.dze-hub-close', function () { $( this ).closest( '.dze-cx-modal' ).removeClass( 'is-open' ); } );
 			$( document ).on( 'click', '#dze-auto-orphmodal', function ( e ) { if ( e.target === this ) { $( this ).removeClass( 'is-open' ); } } );
@@ -2053,6 +2142,35 @@ final class DZE_Automation {
 		ob_start();
 		self::render_orphans();
 		wp_send_json_success( [ 'html' => (string) ob_get_clean() ] );
+	}
+
+	/**
+	 * SET ASIDE, OR PUT BACK — and the screen moves with it.
+	 *
+	 * The figure on the task's own line is the count of pages nothing points
+	 * at, and setting one aside changes it. So the answer carries the chips as
+	 * well as the list: a popup that redrew itself over a line still showing
+	 * the old number would be one screen saying two things.
+	 */
+	public static function ajax_aside(): void {
+		self::guard();
+		if ( ! class_exists( 'DZE_Mesh' ) || ! DZE_Modules::enabled( 'mesh' ) ) {
+			wp_send_json_error( [ 'message' => __( 'The link graph is switched off.', 'dazont-ecom' ) ] );
+		}
+		$key = isset( $_POST['key'] ) ? sanitize_text_field( wp_unslash( $_POST['key'] ) ) : '';
+		// A key names a page of the graph or it names nothing: it is checked
+		// against the reading rather than parsed, so a value typed into the
+		// request cannot put a row in this option that no page answers to.
+		if ( '' === $key || ! isset( DZE_Mesh::pages()[ $key ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown page.', 'dazont-ecom' ) ] );
+		}
+		DZE_Mesh::set_aside_write( $key, ! empty( $_POST['on'] ) );
+		ob_start();
+		self::render_orphans();
+		wp_send_json_success( [
+			'html'  => (string) ob_get_clean(),
+			'chips' => self::chips_html( 'mesh_links' ),
+		] );
 	}
 
 	public static function ajax_catchup(): void {
