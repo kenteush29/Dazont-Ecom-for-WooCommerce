@@ -1699,3 +1699,15 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-auto-prog.is-done .dze-auto-bar > span { background: #1d7f4c; }
 /* Tabular figures, or the percentage shifts the line sideways as it climbs. */
 .dze-auto-runfig { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* ---- What waits: ticks, and one bar for the lot ---- */
+.dze-auto-bulk {
+	display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+	margin: 8px 0 0; max-width: var( --dze-col, 1100px ); box-sizing: border-box;
+}
+.dze-auto-all { display: inline-flex; align-items: center; gap: 5px; }
+.dze-auto-decided, .dze-auto-picked { min-height: 1em; }
+.dze-auto-job .dze-auto-cb { margin: 0 2px 0 0; flex: 0 0 auto; }
+/* A PRESS SAYS IT IS WORKING, on every button of this screen. */
+.dze-auto-task .button.is-busy, .dze-auto-bulk .button.is-busy { opacity: .6; }
+.dze-auto-msg .dze-cx-spin { margin-right: 4px; }

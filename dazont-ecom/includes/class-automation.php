@@ -1700,12 +1700,24 @@ final class DZE_Automation {
 		?>
 		<script>
 		jQuery( function ( $ ) {
+			// A PRESS SAYS IT IS WORKING. "Il faut des roues de chargement quand
+			// on fait quelque chose sur cette page." Put here, in the one
+			// function every press already passes through, rather than on each
+			// button: a list somebody keeps in step always has one forgotten
+			// entry, and that one is the press that looks dead.
+			function busy( $msg, on ) {
+				if ( on ) {
+					$msg.html( '<span class="dze-cx-spin"></span> ' )
+						.append( document.createTextNode( '<?php echo esc_js( __( 'Working…', 'dazont-ecom' ) ); ?>' ) )
+						.css( 'color', '#646970' );
+				}
+			}
 			function post( action, extra, $btn, $msg ) {
 				var data = $.extend( { action: action, nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' }, extra || {} );
-				$btn.prop( 'disabled', true );
-				$msg.text( '' );
+				$btn.prop( 'disabled', true ).addClass( 'is-busy' );
+				busy( $msg, true );
 				$.post( window.ajaxurl, data ).done( function ( r ) {
-					$btn.prop( 'disabled', false );
+					$btn.prop( 'disabled', false ).removeClass( 'is-busy' );
 					var d = ( r && r.data ) || {};
 					if ( d.state && d.task ) {
 						$( '.dze-auto-state[data-task="' + d.task + '"]' ).html( d.state );
@@ -1727,7 +1739,10 @@ final class DZE_Automation {
 					// moving at once. Announced here, where every press
 					// already passes, rather than wired to each button.
 					if ( d.queued ) { $( document ).trigger( 'dze:queued' ); }
-				} ).fail( function () { $btn.prop( 'disabled', false ); } );
+				} ).fail( function () {
+					$btn.prop( 'disabled', false ).removeClass( 'is-busy' );
+					$msg.text( '<?php echo esc_js( __( 'That did not go through. Try again.', 'dazont-ecom' ) ); ?>' );
+				} );
 			}
 			$( document ).on( 'click', '.dze-auto-catchup', function () {
 				// A PRESS THAT SPENDS SAYS WHAT IT WILL DO before it does it.
@@ -1791,6 +1806,60 @@ final class DZE_Automation {
 				runWatch( $( '#dze-auto-run .is-working' ).length > 0 );
 			}
 			$( document ).on( 'dze:queued', function () { runTick( true ); } );
+
+			// ---- ACCEPT OR CANCEL A WHOLE SELECTION ----
+			// It presses the ROW'S OWN path, one row at a time, through the
+			// same endpoint the single ✓ and ✗ use — never a second engine on
+			// the server, which is how two ways of deciding start signing
+			// decisions differently.
+			function picked() { return $( '.dze-auto-todo .dze-auto-cb:checked' ).closest( '.dze-auto-job' ); }
+			function bulkBar() {
+				var n = picked().length;
+				$( '.dze-auto-yes, .dze-auto-no' ).prop( 'disabled', ! n );
+				$( '.dze-auto-picked' ).text( n
+					? '<?php echo esc_js( __( 'picked', 'dazont-ecom' ) ); ?>'.replace( /^/, n + ' ' )
+					: '' );
+			}
+			$( document ).on( 'change', '.dze-auto-cb', function () { bulkBar(); } );
+			$( document ).on( 'change', '.dze-auto-allcb', function () {
+				$( '.dze-auto-todo .dze-auto-cb' ).prop( 'checked', $( this ).prop( 'checked' ) );
+				bulkBar();
+			} );
+			$( document ).on( 'click', '.dze-auto-yes, .dze-auto-no', function () {
+				var accept = $( this ).hasClass( 'dze-auto-yes' );
+				var $rows = picked();
+				var ids = $rows.map( function () { return $( this ).data( 'id' ); } ).get();
+				if ( ! ids.length ) { return; }
+				var $msg = $( '.dze-auto-decided' );
+				$( '.dze-auto-yes, .dze-auto-no, .dze-auto-allcb' ).prop( 'disabled', true );
+				var done = 0;
+				// ONE AT A TIME, and the line says how far it has got: a
+				// selection of ten fired at once is ten writes racing for the
+				// same rows.
+				function step() {
+					if ( ! ids.length ) {
+						$msg.text( '' );
+						$( '.dze-auto-allcb' ).prop( 'disabled', false ).prop( 'checked', false );
+						$( document ).trigger( 'dze:queue-decided' );
+						runTick( false );
+						return;
+					}
+					var id = ids.shift();
+					$msg.html( '<span class="dze-cx-spin"></span> ' ).append( document.createTextNode(
+						'<?php echo esc_js( __( 'Deciding…', 'dazont-ecom' ) ); ?>' + ' ' + ( done + 1 ) + '/' + ( done + 1 + ids.length ) ) );
+					$.post( window.ajaxurl, {
+						action: 'dze_q_decide',
+						nonce: '<?php echo esc_js( wp_create_nonce( DZE_Queue::NONCE ) ); ?>',
+						id: id,
+						accept: accept ? 1 : 0
+					} ).always( function () {
+						done++;
+						$( '.dze-auto-job[data-id="' + id + '"]' ).remove();
+						step();
+					} );
+				}
+				step();
+			} );
 
 			$( document ).on( 'click', '.dze-auto-orph', function ( e ) {
 				// A chip inside a <summary> must not fold the block under the
@@ -1888,7 +1957,20 @@ final class DZE_Automation {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			return [ 'done' => 0, 'left' => 0, 'total' => 0, 'pct' => 0, 'running' => 0 ];
 		}
-		$c       = (array) DZE_Queue::counts();
+		// THE BAR AND THE LIST UNDER IT ANSWER THE SAME QUESTION. Reading the
+		// whole queue here put "3 pages are written and waiting below" over a
+		// list saying "nothing is waiting": a photograph made from the bulk
+		// screen is in the queue and is not this page's work.
+		$mine = [];
+		foreach ( self::tasks() as $task ) {
+			foreach ( (array) ( $task['jobs'] ?? [] ) as $k ) {
+				$mine[] = (string) $k;
+			}
+		}
+		if ( ! $mine ) {
+			return [ 'done' => 0, 'left' => 0, 'total' => 0, 'pct' => 0, 'running' => 0 ];
+		}
+		$c       = (array) DZE_Queue::counts_for( $mine );
 		$running = (int) ( $c['running'] ?? 0 );
 		$left    = (int) ( $c['queued'] ?? 0 ) + $running;
 		$done    = (int) ( $c['review'] ?? 0 );
@@ -1981,12 +2063,28 @@ final class DZE_Automation {
 		$words = class_exists( 'DZE_Queue' ) ? DZE_Queue::decide_words() : [ 'accept' => '', 'refuse' => '' ];
 		if ( $rows ) {
 			self::$needs_review = true;
+			// EVERY FUNCTION OF A SCREEN EXISTS ON ONE ROW AND ON THE WHOLE
+			// LIST. Ten lines each needing two presses is twenty presses, and
+			// the bulk screen beside this one has had ticks and a bar for
+			// months: same gesture, same words, same place.
+			echo '<div class="dze-auto-bulk">';
+			echo '<label class="dze-auto-all"><input type="checkbox" class="dze-auto-allcb"> '
+				. esc_html__( 'All', 'dazont-ecom' ) . '</label>';
+			echo '<button type="button" class="button button-primary dze-auto-yes" disabled title="'
+				. esc_attr( (string) $words['accept'] ) . '">' . esc_html__( 'Accept', 'dazont-ecom' ) . '</button>';
+			echo '<button type="button" class="button dze-auto-no" disabled title="'
+				. esc_attr( (string) $words['refuse'] ) . '">' . esc_html__( 'Cancel', 'dazont-ecom' ) . '</button>';
+			echo '<span class="description dze-auto-picked"></span>';
+			echo '<span class="description dze-auto-decided" role="status"></span>';
+			echo '</div>';
 			echo '<ul class="dze-auto-todo">';
 			foreach ( $rows as $row ) {
 				$jid = (int) $row['id'];
 				$url = self::edit_url( 0 === strpos( (string) $row['kind'], 'cat_' ) ? 'category' : 'post', (int) $row['oid'] );
 				$nm  = esc_html( (string) $row['label'] );
 				echo '<li class="dze-auto-job" data-id="' . esc_attr( (string) $jid ) . '">';
+				echo '<input type="checkbox" class="dze-auto-cb" title="'
+					. esc_attr__( 'Pick this one for Accept or Cancel below', 'dazont-ecom' ) . '"> ';
 				echo '<span class="dze-auto-jobname">' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $nm . '</a>' : $nm ) . '</span> ';
 				// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID.
 				echo wp_kses_post( DZE_Hub::obj_id( (int) $row['oid'] ) );

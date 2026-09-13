@@ -293,6 +293,7 @@ $wpdb            = $GLOBALS['wpdb'];
 
 /** The writing queue: what was asked of it, and nothing done. */
 class DZE_Queue {
+	public const NONCE = 'dze_queue';
 	public static array $added = [];
 	public static bool $refuse = false;
 	public static function add( string $kind, array $ids, bool $auto = false, array $payload = [] ): int {
@@ -307,6 +308,15 @@ class DZE_Queue {
 	public static array $counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
 	public static int $worked = 0;
 	public static function counts(): array { return self::$counts; }
+	// The figures for ONE set of kinds — what this screen's own tasks queue.
+	// The fake shop answers a DIFFERENT set for anything else, so a bar that
+	// reads the whole queue cannot pass.
+	public static array $counts_other = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+	public static array $asked_kinds = [];
+	public static function counts_for( array $kinds ): array {
+		self::$asked_kinds = $kinds;
+		return self::$counts;
+	}
 	public static function work( int $only = 0 ): void { self::$worked++; }
 	/** How many finished jobs of these kinds are waiting for a decision. */
 	public static function review_count_for( array $kinds ): int {
@@ -446,6 +456,8 @@ function fresh( array $tasks = [] ): void {
 	DZE_Queue::$added  = [];
 	DZE_Queue::$assets = 0;
 	DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+	DZE_Queue::$counts_other = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+	DZE_Queue::$asked_kinds = [];
 	DZE_Queue::$worked = 0;
 	$GLOBALS['review_rows'] = [];
 	$GLOBALS['applied_rows'] = [];
@@ -1114,6 +1126,78 @@ DZE_Automation::render_orphans();
 ok( 'the graph switched off says so',
 	false !== strpos( (string) ob_get_clean(), 'The link graph is switched off' ), true );
 $GLOBALS['mods'] = [];
+
+echo "\nDeciding a whole selection, not one row at a time\n";
+//
+// "Comme sur la page bulk product, des coches, la possibilité d'accepter ou de
+// refuser en groupe." Ten lines each needing two presses is twenty presses,
+// and the bulk screen beside this one has had ticks and a bar for months.
+fresh( $ON );
+$GLOBALS['review_by_kind'] = [ 'cat_links' => 2, 'post_links' => 1 ];
+$GLOBALS['review_rows'] = [
+	'cat_links'  => [
+		[ 'id' => 41, 'oid' => 6223, 'label' => 'Tactical backpack covers', 'job' => 'Category internal links', 'from' => 'Automatic', 'when' => '13/09 18:34' ],
+		[ 'id' => 43, 'oid' => 6224, 'label' => 'Tactical sling bags',      'job' => 'Category internal links', 'from' => 'Automatic', 'when' => '13/09 18:36' ],
+	],
+	'post_links' => [
+		[ 'id' => 42, 'oid' => 987632358, 'label' => 'The sniper role', 'job' => 'Article internal links', 'from' => 'Automatic', 'when' => '13/09 20:25' ],
+	],
+];
+ob_start();
+DZE_Automation::render_waiting();
+$dze_wait = (string) ob_get_clean();
+ok( 'the bar is there',                 substr_count( $dze_wait, 'class="dze-auto-bulk"' ), 1 );
+ok( 'its two readouts are their own',
+	[ substr_count( $dze_wait, 'dze-auto-picked' ), substr_count( $dze_wait, 'dze-auto-decided' ) ], [ 1, 1 ] );
+ok( 'a tick on every row',              substr_count( $dze_wait, 'dze-auto-cb"' ), 3 );
+ok( 'and a take-all above them',        substr_count( $dze_wait, 'dze-auto-allcb' ), 1 );
+// THE TWO WORDS THE PLUGIN ALREADY USES: Accept, and Cancel — never
+// "Discard" beside "Delete", which read as two deletions.
+ok( 'the bar accepts the lot',          false !== strpos( $dze_wait, 'dze-auto-yes' ), true );
+ok( 'and cancels the lot',              false !== strpos( $dze_wait, 'dze-auto-no' ), true );
+ok( 'the refusal wears the shop\'s word', false !== strpos( $dze_wait, '>Cancel<' ), true );
+// A CONTROL THAT CANNOT ACT IS A CONTROL NOBODY TRUSTS: nothing ticked, so
+// the bar starts asleep.
+ok( 'both start disabled',              substr_count( $dze_wait, 'disabled title=' ), 2 );
+// AND A TOOLTIP BELONGS IN EVERY STATE — the same words the single ✓ and ✗
+// carry, from the one function that owns them.
+$dze_words = DZE_Queue::decide_words();
+ok( 'the bar says what Accept will do',
+	false !== strpos( $dze_wait, esc_attr( (string) $dze_words['accept'] ) ), true );
+ok( 'and what Cancel will do',
+	false !== strpos( $dze_wait, esc_attr( (string) $dze_words['refuse'] ) ), true );
+// THE ROW'S OWN CONTROLS STAY: a selection is the group form of the row
+// button, never a second surface beside it.
+ok( 'every row keeps its own three',    substr_count( $dze_wait, 'dze-q-open' ), 3 );
+
+// NOTHING WAITING, NO BAR. A bar over an empty list is a control that cannot
+// act, and it would be the only thing on the screen saying work exists.
+fresh( $ON );
+$GLOBALS['review_by_kind'] = [];
+$GLOBALS['review_rows'] = [];
+ob_start();
+DZE_Automation::render_waiting();
+$dze_none = (string) ob_get_clean();
+ok( 'nothing waiting, no bar',          false !== strpos( $dze_none, 'dze-auto-bulk' ), false );
+ok( 'and it says which empty it is',    false !== strpos( $dze_none, 'Nothing is waiting' ), true );
+
+echo "\nThe bar counts what the list shows\n";
+//
+// The screen said "Done — 3 pages are written and waiting for your yes or no,
+// below" over a list saying "Nothing is waiting for your yes or no." The bar
+// read the WHOLE queue while the list under it read only the kinds these three
+// tasks queue — so a photograph made from the bulk screen put a figure on this
+// page over a list that could never show it.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 2, 'running' => 0, 'review' => 1, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+DZE_Automation::run_state();
+// IT ASKS FOR ITS OWN KINDS, and for every one of them: the linking task
+// queues cat_links AND post_links, and asking for one of them counts half its
+// own work.
+ok( 'the bar asks the queue by kind',   ! empty( DZE_Queue::$asked_kinds ), true );
+sort( DZE_Queue::$asked_kinds );
+ok( 'and for every kind these tasks queue',
+	DZE_Queue::$asked_kinds, [ 'cat_desc', 'cat_links', 'post_links' ] );
 
 echo "\nWhat the orphan list does not count\n";
 //

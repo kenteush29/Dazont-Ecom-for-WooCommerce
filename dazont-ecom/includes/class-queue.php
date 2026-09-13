@@ -445,6 +445,41 @@ final class DZE_Queue {
 		throw new RuntimeException( __( 'Unknown job type.', 'dazont-ecom' ) );
 	}
 
+	/**
+	 * THE SAME FIGURES, FOR ONE SET OF JOB KINDS.
+	 *
+	 * A screen that shows SOME of the queue must count the same some of it:
+	 * the Automation page listed what its own three tasks had left and put a
+	 * bar above it reading the WHOLE queue, so one screen said "3 pages are
+	 * waiting below" over a list saying "nothing is waiting". A photograph
+	 * generated from the bulk screen is in the queue and is not this page's
+	 * work.
+	 *
+	 * @param array<int,string> $kinds
+	 * @return array{queued:int,running:int,review:int,applied:int,failed:int,skipped:int}
+	 */
+	public static function counts_for( array $kinds ): array {
+		global $wpdb;
+		$out   = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+		$kinds = array_values( array_unique( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) ) );
+		if ( ! $kinds ) {
+			return $out;
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return $out;
+		}
+		$in = "'" . implode( "','", $kinds ) . "'";
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
+		foreach ( (array) $wpdb->get_results( "SELECT status, COUNT(*) AS n FROM {$table} WHERE kind IN ({$in}) GROUP BY status", ARRAY_A ) as $r ) {
+			$out[ (string) $r['status'] ] = (int) $r['n'];
+		}
+		return $out;
+	}
+
 	/** Saves an accepted result onto the shop. */
 	public static function apply( string $kind, int $object_id, string $html, array $payload = [] ): bool {
 		if ( '' === trim( $html ) ) {
