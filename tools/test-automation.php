@@ -302,6 +302,12 @@ class DZE_Queue {
 	}
 	/** What is already waiting on an object, in the shape the real one answers. */
 	public static function pending_for( int $object_id, string $family = 'cat_' ): array { return []; }
+	// The queue's own figures, which is all the progress bar reads: nothing is
+	// remembered in the browser, so a reload draws the same bar.
+	public static array $counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+	public static int $worked = 0;
+	public static function counts(): array { return self::$counts; }
+	public static function work( int $only = 0 ): void { self::$worked++; }
 	/** How many finished jobs of these kinds are waiting for a decision. */
 	public static function review_count_for( array $kinds ): int {
 		$n = 0;
@@ -392,6 +398,9 @@ if ( in_array( '--dump-automation', (array) $argv, true ) ) {
 		'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ],
 		'cat_desc'   => [ 'on' => 0, 'per_day' => 1, 'apply' => 0 ],
 	] ];
+	// WORK IN FLIGHT, so the screen the browser gate reads carries a bar that
+	// the SERVER drew — not one a later press put there.
+	DZE_Queue::$counts = [ 'queued' => 3, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
 	$GLOBALS['review_by_kind']  = [ 'cat_links' => 2, 'post_links' => 1 ];
 	$GLOBALS['applied_by_kind'] = [ 'cat_links' => 9, 'post_links' => 5 ];
 	// TWO of the three shown in place, so the block carries the rows AND the
@@ -436,6 +445,8 @@ function fresh( array $tasks = [] ): void {
 	$GLOBALS['over_budget'] = false;
 	DZE_Queue::$added  = [];
 	DZE_Queue::$assets = 0;
+	DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+	DZE_Queue::$worked = 0;
 	$GLOBALS['review_rows'] = [];
 	$GLOBALS['applied_rows'] = [];
 	$GLOBALS['styles']      = [];
@@ -1136,6 +1147,107 @@ DZE_Automation::render_orphans();
 ok( 'all chosen, nothing said',
 	false !== strpos( (string) ob_get_clean(), 'take no part in linking' ), false );
 DZE_Mesh::choose_pages( $dze_pageids, false );
+
+echo "\nThe work this screen started, shown and stepped\n";
+//
+// "J'ai lancé run once et je suis perdu. Je fais quoi ensuite pour contrôler
+// le travail ? Rien de nouveau n'apparaît dans To review même après
+// actualisation. J'estime que quelque chose est cassé." A press answered
+// "Queued" and the screen went silent: nothing said how many were in flight,
+// nothing moved them, and nothing said when they were done.
+fresh( $ON );
+
+// NOTHING IN FLIGHT, NOTHING PRINTED. A bar at nought over an idle shop is a
+// screen reporting a failure that never happened.
+ob_start();
+DZE_Automation::render_run();
+ok( 'an idle queue draws nothing',      (string) ob_get_clean(), '' );
+
+// TWELVE QUEUED, NONE WRITTEN: the work has started and the bar says so.
+DZE_Queue::$counts = [ 'queued' => 11, 'running' => 1, 'review' => 0, 'applied' => 40, 'failed' => 0, 'skipped' => 0 ];
+$dze_st = DZE_Automation::run_state();
+ok( 'the figures are the queue\'s own',  [ $dze_st['left'], $dze_st['done'], $dze_st['total'] ], [ 12, 0, 12 ] );
+// A JOB THAT HAS STARTED IS NOT NOUGHT PER CENT — a bar sitting flat for a
+// whole run reads as a press that did nothing.
+ok( 'and a run under way is never 0%',   $dze_st['pct'] > 0, true );
+// WHAT IS ALREADY ACCEPTED IS NOT THIS RUN. Counting the forty applied rows
+// would put the bar at 77% the moment the press landed.
+ok( 'what was accepted long ago is out', $dze_st['total'], 12 );
+ob_start();
+DZE_Automation::render_run();
+$dze_bar = (string) ob_get_clean();
+ok( 'the bar is drawn',                 false !== strpos( $dze_bar, 'dze-auto-bar' ), true );
+ok( 'and says it is still working',     false !== strpos( $dze_bar, 'is-working' ), true );
+// "JE FAIS QUOI ENSUITE ?" is the question the screen has to answer.
+ok( 'it says what to do with the page', false !== strpos( $dze_bar, 'Leave this screen open' ), true );
+ok( 'and that closing it is safe too',  false !== strpos( $dze_bar, 'carries on in the background' ), true );
+
+// HALF WAY.
+DZE_Queue::$counts = [ 'queued' => 4, 'running' => 0, 'review' => 6, 'applied' => 40, 'failed' => 0, 'skipped' => 0 ];
+$dze_st = DZE_Automation::run_state();
+ok( 'six of ten written',               [ $dze_st['done'], $dze_st['total'], $dze_st['pct'] ], [ 6, 10, 60 ] );
+ob_start();
+DZE_Automation::render_run();
+ok( 'the percentage is on the screen',  false !== strpos( (string) ob_get_clean(), '60% — 6 of 10 written' ), true );
+
+// FINISHED — and it says where the work went, which is the other half of the
+// question. The rows are on this same screen, under the bar.
+DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 10, 'applied' => 40, 'failed' => 0, 'skipped' => 0 ];
+$dze_st = DZE_Automation::run_state();
+ok( 'nothing left to write',            $dze_st['left'], 0 );
+ok( 'and the bar is full',              $dze_st['pct'], 100 );
+ob_start();
+DZE_Automation::render_run();
+$dze_done = (string) ob_get_clean();
+ok( 'it says the work is done',         false !== strpos( $dze_done, 'is-done' ), true );
+ok( 'and where it is waiting',          false !== strpos( $dze_done, 'waiting for your yes or no, below' ), true );
+
+// THE SCREEN THAT SHOWS THE WORK MOVES IT. `refresh()` in queue.js returns at
+// once where there is no job table — right when this page had no running job
+// to show, and the bug the moment it had one. A shop whose scheduler is wedged
+// pressed the button, read "Queued", and waited for something that was never
+// going to happen.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 3, 'running' => 0, 'review' => 1, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+$_POST = [ 'step' => '1' ];
+$dze_poll = sent_of( static function (): void { DZE_Automation::ajax_run_state(); } );
+ok( 'the poll answers',                 (bool) ( $dze_poll['ok'] ?? false ), true );
+ok( 'and it took a step of the queue',  DZE_Queue::$worked, 1 );
+// EVERY ANSWER CARRIES EVERY FIGURE IT CAN MOVE — the bar, the rows waiting
+// for a decision, and the chips on each task's line.
+ok( 'the answer carries the bar',       false !== strpos( (string) ( $dze_poll['data']['run'] ?? '' ), 'dze-auto-bar' ), true );
+ok( 'how much is left',                 (int) ( $dze_poll['data']['left'] ?? -1 ), 3 );
+ok( 'the rows waiting beside it',       array_key_exists( 'waiting', (array) ( $dze_poll['data'] ?? [] ) ), true );
+ok( 'and every task\'s own line',       array_keys( (array) ( $dze_poll['data']['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
+// A LOOK IS NOT A STEP. The first draw of the screen asks where things stand
+// without touching the queue, or opening the page would spend a step.
+DZE_Queue::$worked = 0;
+$_POST = [];
+$dze_look = sent_of( static function (): void { DZE_Automation::ajax_run_state(); } );
+ok( 'a look moves nothing',             DZE_Queue::$worked, 0 );
+ok( 'and still answers where it stands', (int) ( $dze_look['data']['left'] ?? -1 ), 3 );
+$_POST = [];
+
+// A CLASS FILE ALWAYS EXISTS: the module is the check.
+$GLOBALS['mods']['queue'] = false;
+ok( 'no queue, no bar',                 DZE_Automation::run_state()['total'], 0 );
+$GLOBALS['mods'] = [];
+
+// AND THE SCREEN ASKS FOR IT. Calling `render_run()` proves the renderer
+// works and nothing about whether the page ever draws it — the first version
+// of these checks stayed green with the block deleted from the screen, which
+// is the exact fault they exist for.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 2, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+ob_start();
+DZE_Automation::render_settings();
+$dze_screen = (string) ob_get_clean();
+ok( 'the screen carries the bar',       false !== strpos( $dze_screen, 'id="dze-auto-run"' ), true );
+ok( 'with the work drawn in it',        false !== strpos( $dze_screen, 'dze-auto-bar' ), true );
+// AND IT IS ABOVE THE LIST IT FILLS: the result goes under the work that made
+// it, never the other way round.
+ok( 'the bar comes before what waits',
+	strpos( $dze_screen, 'id="dze-auto-run"' ) < strpos( $dze_screen, 'id="dze-auto-waiting"' ), true );
 
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.

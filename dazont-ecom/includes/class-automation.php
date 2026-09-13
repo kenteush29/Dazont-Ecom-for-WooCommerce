@@ -97,6 +97,7 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_state', [ __CLASS__, 'ajax_state' ] );
 		add_action( 'wp_ajax_dze_auto_catchup', [ __CLASS__, 'ajax_catchup' ] );
 		add_action( 'wp_ajax_dze_auto_orphans', [ __CLASS__, 'ajax_orphans' ] );
+		add_action( 'wp_ajax_dze_auto_run_state', [ __CLASS__, 'ajax_run_state' ] );
 	}
 
 	public static function page_url( string $tab = '' ): string {
@@ -1523,6 +1524,15 @@ final class DZE_Automation {
 		// tasks had left meant opening three blocks. It is ONE list, open, on
 		// the page: every list of things waiting for a decision is one list.
 		?>
+		<?php
+		// THE SCREEN THAT STARTS THE WORK SHOWS THE WORK. "J'ai lancé run once
+		// et je suis perdu. Je fais quoi ensuite ? Rien de nouveau n'apparaît
+		// dans To review même après actualisation. J'estime que quelque chose
+		// est cassé." A press answered "Queued" and the screen went silent:
+		// nothing said how many were in flight, nothing moved them, and
+		// nothing said when they were done.
+		?>
+		<div id="dze-auto-run"><?php self::render_run(); ?></div>
 		<h2 class="dze-auto-h2"><?php esc_html_e( 'To review', 'dazont-ecom' ); ?></h2>
 		<div id="dze-auto-waiting"><?php self::render_waiting(); ?></div>
 		<?php
@@ -1713,6 +1723,10 @@ final class DZE_Automation {
 					if ( d.past ) { $( '#dze-auto-past' ).html( d.past ); }
 					// Nothing happening is an answer too, and it says which one.
 					if ( d.message ) { $msg.text( d.message ).css( 'color', d.queued ? '#0a7040' : '#646970' ); }
+					// AND IF IT PUT SOMETHING IN THE QUEUE, the bar starts
+					// moving at once. Announced here, where every press
+					// already passes, rather than wired to each button.
+					if ( d.queued ) { $( document ).trigger( 'dze:queued' ); }
 				} ).fail( function () { $btn.prop( 'disabled', false ); } );
 			}
 			$( document ).on( 'click', '.dze-auto-catchup', function () {
@@ -1740,6 +1754,44 @@ final class DZE_Automation {
 						if ( d.past ) { $( '#dze-auto-past' ).html( d.past ); }
 					} );
 			} );
+			// ---- THE WORK THIS SCREEN STARTED, WATCHED AND STEPPED ----
+			// Nothing is remembered in the browser: every tick asks the queue
+			// where it stands, so a reload picks the bar up exactly where it
+			// was. That is the whole of "si j'actualise la page, ça reste
+			// actuel avec la barre qui continue".
+			var runBusy = false;
+			var runTimer = null;
+			function runTick( step ) {
+				if ( runBusy ) { return; }
+				runBusy = true;
+				$.post( window.ajaxurl, {
+					action: 'dze_auto_run_state',
+					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
+					step: step ? 1 : 0
+				} ).done( function ( r ) {
+					if ( ! r || ! r.success || ! r.data ) { return; }
+					$( '#dze-auto-run' ).html( r.data.run || '' );
+					if ( r.data.waiting ) { $( '#dze-auto-waiting' ).html( r.data.waiting ); }
+					$.each( r.data.chips || {}, function ( id, html ) {
+						$( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( html );
+					} );
+					runWatch( r.data.left > 0 );
+				} ).always( function () { runBusy = false; } );
+			}
+			// While there is work left this page IS the engine — one step per
+			// tick, never two at once. Once it is empty the watching stops:
+			// polling an idle queue is a request a second for nothing.
+			function runWatch( working ) {
+				if ( runTimer ) { window.clearTimeout( runTimer ); runTimer = null; }
+				if ( ! working ) { return; }
+				runTimer = window.setTimeout( function () { runTick( true ); }, 1500 );
+			}
+			// On arrival, and after any press that queues something.
+			if ( $( '#dze-auto-run .dze-auto-prog' ).length ) {
+				runWatch( $( '#dze-auto-run .is-working' ).length > 0 );
+			}
+			$( document ).on( 'dze:queued', function () { runTick( true ); } );
+
 			$( document ).on( 'click', '.dze-auto-orph', function ( e ) {
 				// A chip inside a <summary> must not fold the block under the
 				// hand that pressed it.
@@ -1790,6 +1842,98 @@ final class DZE_Automation {
 				. ' <span class="dze-auto-why">(' . esc_html( (string) $row['why'] ) . ')</span>';
 		}
 		echo wp_kses_post( implode( ' · ', $bits ) ) . '</p>';
+	}
+
+	/**
+	 * WHAT IS BEING WRITTEN RIGHT NOW, and how far along it is.
+	 *
+	 * Every figure here is the queue's OWN — nothing is remembered in the
+	 * browser — so the bar is exactly where it was after a reload, which is
+	 * the whole of "si j'actualise la page, ça reste actuel". A press that
+	 * queues two hundred pages and a reload five minutes later read the same
+	 * state, because the state is the table.
+	 *
+	 * The percentage is of the work IN PLAY: what has been written and is
+	 * waiting for a yes or no, against that plus what is still to write.
+	 * Nothing in flight and nothing waiting prints nothing at all — a bar at
+	 * nought over an idle shop is a screen reporting a failure that never
+	 * happened.
+	 */
+	public static function render_run(): void {
+		$c = self::run_state();
+		if ( $c['total'] < 1 ) {
+			return;
+		}
+		$done = $c['done'];
+		$left = $c['left'];
+		echo '<div class="dze-auto-prog' . ( $left > 0 ? ' is-working' : ' is-done' ) . '">';
+		echo '<p class="dze-auto-runsaid">' . esc_html( self::run_said( $c ) ) . '</p>';
+		echo '<div class="dze-auto-bar"><span style="width:' . esc_attr( (string) $c['pct'] ) . '%"></span></div>';
+		echo '<p class="description dze-auto-runfig">' . esc_html( sprintf(
+			/* translators: 1: percentage done, 2: written, 3: in all */
+			__( '%1$s%% — %2$s of %3$s written', 'dazont-ecom' ),
+			number_format_i18n( $c['pct'] ),
+			number_format_i18n( $done ),
+			number_format_i18n( $c['total'] )
+		) ) . '</p>';
+		echo '</div>';
+	}
+
+	/**
+	 * The figures behind the bar, read from the queue and nowhere else.
+	 *
+	 * @return array{done:int,left:int,total:int,pct:int,running:int}
+	 */
+	public static function run_state(): array {
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			return [ 'done' => 0, 'left' => 0, 'total' => 0, 'pct' => 0, 'running' => 0 ];
+		}
+		$c       = (array) DZE_Queue::counts();
+		$running = (int) ( $c['running'] ?? 0 );
+		$left    = (int) ( $c['queued'] ?? 0 ) + $running;
+		$done    = (int) ( $c['review'] ?? 0 );
+		$total   = $left + $done;
+		return [
+			'done'    => $done,
+			'left'    => $left,
+			'total'   => $total,
+			// A JOB THAT HAS STARTED IS NOT NOUGHT PER CENT. With one job in
+			// the queue the bar would sit flat at 0 for the whole run, which
+			// reads as a press that did nothing.
+			'pct'     => $total > 0 ? max( $done > 0 || $running > 0 ? 3 : 0, (int) floor( $done * 100 / $total ) ) : 0,
+			'running' => $running,
+		];
+	}
+
+	/**
+	 * One line saying where the work stands — and what to do next.
+	 *
+	 * "Je fais quoi ensuite pour contrôler le travail ?" A screen that says
+	 * "Queued" and nothing else has answered half a question.
+	 */
+	public static function run_said( array $c ): string {
+		if ( $c['left'] > 0 ) {
+			return sprintf(
+				/* translators: %s: how many are still to write */
+				_n(
+					'Writing — %s page left. Leave this screen open and it keeps going; close it and the queue carries on in the background.',
+					'Writing — %s pages left. Leave this screen open and it keeps going; close it and the queue carries on in the background.',
+					$c['left'],
+					'dazont-ecom'
+				),
+				number_format_i18n( $c['left'] )
+			);
+		}
+		return sprintf(
+			/* translators: %s: how many are waiting for a decision */
+			_n(
+				'Done — %s page is written and waiting for your yes or no, below.',
+				'Done — %s pages are written and waiting for your yes or no, below.',
+				$c['done'],
+				'dazont-ecom'
+			),
+			number_format_i18n( $c['done'] )
+		);
 	}
 
 	/**
@@ -2097,6 +2241,50 @@ final class DZE_Automation {
 			'chips'   => self::chips_html( $id ),
 			'waiting' => self::waiting_html(),
 			'past'    => self::past_html(),
+		] );
+	}
+
+	/**
+	 * WHERE THE WORK STANDS, and one step of it taken.
+	 *
+	 * THE JOB SOMEBODY IS WATCHING IS THE JOB THAT MOVES. This screen starts
+	 * the work — "Run one now", "Link the whole site" — and until now it
+	 * neither showed it nor moved it: `refresh()` in queue.js returns at once
+	 * where there is no job table, which was right when this page had no
+	 * running job to show and became the bug the moment it had. A shop whose
+	 * scheduler is wedged pressed the button, read "Queued", and waited for
+	 * something that was never going to happen.
+	 *
+	 * So while this screen is open it is the engine, exactly as the review
+	 * screen is: one step per tick, never two at once. Closed, the queue's own
+	 * cron carries on — which is why the line says so in words.
+	 *
+	 * The answer carries every figure the step can move: the bar, the rows
+	 * waiting for a decision, and the chips on each task's line.
+	 */
+	public static function ajax_run_state(): void {
+		self::guard();
+		$step = ! empty( $_POST['step'] );
+		if ( $step && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
+			// One step. It never throws the screen away: a job that fails is
+			// recorded on its own row and read back by the next poll.
+			DZE_Queue::work();
+		}
+		$state = self::run_state();
+		ob_start();
+		self::render_run();
+		$html = (string) ob_get_clean();
+		$chips = [];
+		foreach ( array_keys( self::tasks() ) as $id ) {
+			$chips[ $id ] = self::chips_html( $id );
+		}
+		wp_send_json_success( [
+			'run'     => $html,
+			'left'    => (int) $state['left'],
+			'done'    => (int) $state['done'],
+			'pct'     => (int) $state['pct'],
+			'waiting' => self::waiting_html(),
+			'chips'   => $chips,
 		] );
 	}
 

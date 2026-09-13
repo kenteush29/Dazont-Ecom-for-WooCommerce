@@ -1677,3 +1677,25 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-mesh-pages td              { vertical-align: middle; }
 .dze-mesh-pages tr.is-in  .dze-mesh-in { color: #1d4c38; font-weight: 600; }
 .dze-mesh-pages tr.is-out .dze-mesh-in { color: #646970; }
+
+/* ==========================================================================
+   The work this screen started: where it stands, and how far along.
+   ========================================================================== */
+.dze-auto-prog {
+	background: #fff; border: 1px solid #dcdcde; border-left-width: 4px;
+	border-radius: 6px; padding: 12px 18px; margin: 0 0 16px;
+	max-width: var( --dze-col, 1100px ); box-sizing: border-box;
+}
+.dze-auto-prog.is-working { border-left-color: #2271b1; }
+.dze-auto-prog.is-done    { border-left-color: #1d7f4c; }
+.dze-auto-runsaid { margin: 0 0 8px; font-weight: 600; }
+.dze-auto-bar {
+	height: 10px; background: #e2e4e7; border-radius: 5px; overflow: hidden; margin: 0 0 6px;
+}
+.dze-auto-bar > span {
+	display: block; height: 100%; background: #2271b1; border-radius: 5px;
+	transition: width .4s ease;
+}
+.dze-auto-prog.is-done .dze-auto-bar > span { background: #1d7f4c; }
+/* Tabular figures, or the percentage shifts the line sideways as it climbs. */
+.dze-auto-runfig { margin: 0; font-variant-numeric: tabular-nums; }

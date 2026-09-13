@@ -2152,6 +2152,40 @@ whose screen has not been thought through yet.
   never "0 of something", which reads as a lane that failed; and both lanes
   that make a photograph say it with the same function, or two traces cannot
   be compared. `php tools/test-shoot.php dazont-ecom` holds it.
+- **THE SCREEN THAT STARTS THE WORK SHOWS THE WORK, AND MOVES IT.** "J'ai
+  lancé run once et je suis perdu. Je fais quoi ensuite pour contrôler le
+  travail ? Rien de nouveau n'apparaît dans To review même après actualisation.
+  J'estime que quelque chose est cassé." The press answered "Queued" and the
+  screen went silent. `refresh()` in queue.js returns at once where there is no
+  job table — right while the Automation screen had no running job to show, and
+  the bug the moment that screen became where the work is STARTED. A shop whose
+  scheduler is wedged pressed the button, read "Queued", and waited for
+  something that was never going to happen.
+  - **While it is open, the screen is the engine** — one step per tick, never
+    two at once, exactly as the review screen is. Closed, the queue's own cron
+    carries on, and the line SAYS both in words: a shop must not have to guess
+    whether leaving the page abandons the run.
+  - **Nothing is remembered in the browser.** Every tick asks the queue where
+    it stands, so a reload picks the bar up exactly where it was — the whole of
+    "si j'actualise la page, ça reste actuel avec la barre qui continue".
+  - **The bar measures the work IN PLAY**: written and waiting for a yes or no,
+    against that plus what is still to write. Rows accepted long ago are not in
+    it, or a press lands with the bar already at 77%. A run under way is never
+    0% — a bar sitting flat for a whole run reads as a press that did nothing —
+    and an idle queue prints NOTHING at all rather than a nought.
+  - **A LOOK IS NOT A STEP.** The first draw asks where things stand without
+    touching the queue, or merely opening the page spends one.
+  - **It stops when the work does.** Polling an idle queue is a request a
+    second for nothing.
+  - **The signal is fired where every press already passes** (`post()`'s own
+    answer, on `queued`), never wired to each button: a list somebody keeps in
+    step always has one forgotten entry.
+  - And the gate must **DRAW THE SCREEN**: the first version of these checks
+    called `render_run()` and stayed green with the block deleted from the page
+    — the exact fault they exist for. The browser gate drains a fake queue one
+    step per tick so "the bar moves" is a check that can fail, and asserts the
+    bar is in the SERVER'S OWN markup, since read off the live page it would
+    pass on a bar an earlier press had put there.
 - **THE BEFORE OF A BEFORE / AFTER IS READ FROM THE OBJECT THE JOB IS ABOUT.**
   "Encore une anomalie : pour les articles de blog le avant/après est faux."
   `ajax_review()` read `get_term( $id, 'product_cat' )` whatever the job was,
