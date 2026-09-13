@@ -108,6 +108,96 @@ final class DZE_Hub {
 	}
 
 	/**
+	 * THE "?" BESIDE A NAME, and the panel of detail behind it.
+	 *
+	 * "On pourrait d'ailleurs comme dans les autres modules utiliser un bouton
+	 * I qui charge plus d'info pour la curiosité. Ici on met plus d'info sur le
+	 * fonctionnement si besoin."
+	 *
+	 * The modules list has worn this pair for a long time: a short line that
+	 * says what a thing is for, and the full account of how it works one press
+	 * away, for whoever wants it. It is the answer to a screen that explains
+	 * itself in paragraphs — so it belongs to more than one screen, and it is
+	 * built HERE rather than copied, because two popups that look the same and
+	 * are written twice stop looking the same on the next edit.
+	 *
+	 * @param string $key Whatever the screen calls the thing: a module id, a
+	 *                    task id. The map handed to more_assets() is keyed by
+	 *                    the same word.
+	 */
+	/**
+	 * Has the popup itself been printed in this request?
+	 *
+	 * Public and named, rather than a `static` inside the function: a gate
+	 * draws several screens in one process, and state it cannot put back is
+	 * state that makes the second reading answer for the first.
+	 */
+	public static bool $more_printed = false;
+
+	public static function more_button( string $key ): string {
+		return '<button type="button" class="dze-mod-more" data-module="' . esc_attr( $key )
+			. '" title="' . esc_attr__( 'Full description', 'dazont-ecom' ) . '">?</button>';
+	}
+
+	/**
+	 * The popup those buttons open, and the words in it.
+	 *
+	 * @param array<string,array{title:string,text:string}> $texts Keyed by the
+	 *        same word `more_button()` was given.
+	 */
+	public static function more_assets( array $texts ): void {
+		if ( ! self::$more_printed ) {
+			self::$more_printed = true;
+			?>
+			<div class="dze-mod-popup" id="dze-mod-popup">
+				<div class="dze-mod-popup-box">
+					<h3 id="dze-mod-popup-title"></h3>
+					<p id="dze-mod-popup-text"></p>
+					<p style="text-align:right;margin:14px 0 0;"><button type="button" class="button" id="dze-mod-popup-close"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button></p>
+				</div>
+			</div>
+			<style>
+			.dze-mod-more {
+				display: inline-block; width: 16px; height: 16px; line-height: 14px; text-align: center; padding: 0;
+				border: 1px solid #c3c4c7; border-radius: 50%; background: #f6f7f7; color: #646970;
+				font-size: 10px; font-weight: 700; cursor: pointer; vertical-align: 1px; margin-left: 4px;
+			}
+			.dze-mod-more:hover { border-color: #2271b1; color: #2271b1; }
+			.dze-mod-popup { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100001; display: none; align-items: center; justify-content: center; }
+			.dze-mod-popup.is-open { display: flex; }
+			.dze-mod-popup-box { background: #fff; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3); max-width: 560px; width: 92vw; padding: 20px 24px; }
+			.dze-mod-popup-box h3 { margin: 0 0 10px; }
+			.dze-mod-popup-box p { margin: 0; line-height: 1.6; color: #3c434a; }
+			</style>
+			<script>
+			jQuery( function ( $ ) {
+				$( document ).on( 'click', '#dze-mod-popup-close', function () { $( '#dze-mod-popup' ).removeClass( 'is-open' ); } );
+				$( document ).on( 'click', '#dze-mod-popup', function ( e ) { if ( e.target === this ) { $( this ).removeClass( 'is-open' ); } } );
+			} );
+			</script>
+			<?php
+		}
+		?>
+		<script>
+		jQuery( function ( $ ) {
+			var dzeMore = <?php echo wp_json_encode( $texts ); ?>;
+			$( document ).on( 'click', '.dze-mod-more', function ( e ) {
+				var m = dzeMore[ $( this ).data( 'module' ) ];
+				if ( ! m ) { return; }
+				// A "?" planted inside a <summary> must not fold the block
+				// under the hand that pressed it.
+				e.preventDefault();
+				e.stopPropagation();
+				$( '#dze-mod-popup-title' ).text( m.title );
+				$( '#dze-mod-popup-text' ).text( m.text );
+				$( '#dze-mod-popup' ).addClass( 'is-open' );
+			} );
+		} );
+		</script>
+		<?php
+	}
+
+	/**
 	 * The one script every screen with blocks is built on.
 	 *
 	 * Called by whoever draws them, so a screen that starts drawing blocks

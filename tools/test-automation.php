@@ -60,6 +60,7 @@ function esc_url( $s ) { return (string) $s; }
 function esc_url_raw( $s ) { return (string) $s; }
 function esc_js( $s ) { return (string) $s; }
 function esc_html__( $s, $d = '' ) { return $s; }
+function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
 function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
 function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
 function wp_strip_all_tags( $s ) { return trim( strip_tags( (string) $s ) ); }
@@ -321,10 +322,7 @@ class DZE_Queue {
 	public static int $assets = 0;
 	public static function review_assets(): void { self::$assets++; }
 }
-/** The id column and the id itself, the one place that is not a table. */
-class DZE_Hub {
-	public static function obj_id( int $id ): string { return $id > 0 ? '<code class="dze-objid">' . (int) $id . '</code>' : ''; }
-}
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 /** The module switches. A class file always exists; this is the real check. */
 class DZE_Modules {
 	public static function enabled( string $id ): bool { return (bool) ( $GLOBALS['mods'][ $id ] ?? true ); }
@@ -400,11 +398,13 @@ function fresh( array $tasks = [] ): void {
 	$GLOBALS['pmeta'] = [ 23 => [ '_elementor_data' => '[{"elType":"widget","settings":{"title":"Since 1998"}}]' ] ];
 	$GLOBALS['mods']  = [];
 	$GLOBALS['is_copy'] = false;
+	$GLOBALS['pending_events'] = 0;
 	$GLOBALS['over_budget'] = false;
 	DZE_Queue::$added  = [];
 	DZE_Queue::$assets = 0;
 	$GLOBALS['review_rows'] = [];
 	$GLOBALS['styles']      = [];
+	DZE_Hub::$more_printed  = false;
 	DZE_Queue::$refuse = false;
 	delete_transient( 'dze_auto_survey' );
 }
@@ -604,25 +604,19 @@ ok( 'and points at the screen holding them',
 $GLOBALS['mods'] = [ 'queue' => 0 ];
 ok( 'the queue off, nothing is claimed',  DZE_Automation::waiting_for( 'mesh_links' )['n'], 0 );
 $GLOBALS['mods'] = [];
-// AND IT IS ON THE BLOCK, where the work was started.
+// WHAT IS WAITING IS NOT A SETTING. The block under the fold says what the
+// pass is about to TAKE, and nothing about what it left: that is one list, on
+// the page, where somebody looking for work to do will find it.
 $GLOBALS['review_by_kind'] = [ 'cat_links' => 1, 'post_links' => 0 ];
 ob_start();
 DZE_Automation::render_state( 'mesh_links' );
 $said = (string) ob_get_clean();
-ok( 'the block offers the review',       false !== strpos( $said, 'dze-auto-waiting' ), true );
-ok( 'naming how many',                   false !== strpos( $said, 'Review 1 piece of work' ), true );
-ok( 'and it is a link to the list',      false !== strpos( $said, 'tab=review' ), true );
-// A NOUGHT IS NOT NEWS: a line saying "nothing is waiting" every day is a line
-// nobody reads by the end of the week.
-$GLOBALS['review_by_kind'] = [];
-ob_start();
-DZE_Automation::render_state( 'mesh_links' );
-$quiet = (string) ob_get_clean();
-ok( 'nothing waiting, nothing said',     false !== strpos( $quiet, 'dze-auto-waiting' ), false );
+ok( 'the settings block holds no work list', false !== strpos( $said, 'dze-auto-job' ), false );
+ok( 'and no way out of the page either',     false !== strpos( $said, 'tab=review' ), false );
 // AND WHERE IT STANDS IS SAID ONCE, in the symbols on the line above: a
 // sentence repeating them under the fold is the same answer twice, which is
 // what made this screen unreadable.
-ok( 'the rhythm is not said twice',      false !== strpos( $quiet, 'a day' ), false );
+ok( 'the rhythm is not said twice',      false !== strpos( $said, 'a day' ), false );
 
 echo "\nThe line says it in symbols\n";
 //
@@ -697,13 +691,13 @@ foreach ( [ 'queued', 'cap', 'none', 'budget', 'modules', 'busy', 'off', 'copy',
 	ok( 'the shop is told: ' . $why, '' !== DZE_Automation::reason_text( $why ), true );
 }
 
-echo "\nReviewed where the work was started\n";
+echo "\nWhat is waiting is the work, in one list, on the page\n";
 //
-// "Ici ce serait bien de pouvoir review la task directement sans partir. Sous
-// forme de todo, comme sur le module de produits bulk, un bloc = une tâche à
-// résoudre." The block that STARTED the work is where somebody asks what came
-// of it, and sending them two clicks away under another menu to answer it is
-// the screen describing itself instead of showing the work.
+// "On devrait plutôt lister les tâches à review pour une meilleure UI, plutôt
+// que de les lister dans les paramètres de l'automatisme." It was a fold
+// inside each task's own controls, so reading what three passes had left meant
+// opening three blocks of settings. Every list of things waiting for a
+// decision is ONE list.
 $ROWS = [
 	'cat_links'  => [ [ 'id' => 41, 'oid' => 6223, 'label' => 'Tactical backpack covers',
 		'job' => 'Category internal links', 'from' => 'Automatic', 'when' => '13/09/2026 18:34' ] ],
@@ -712,73 +706,74 @@ $ROWS = [
 	'cat_desc'   => [ [ 'id' => 43, 'oid' => 77, 'label' => 'Boonie hats',
 		'job' => 'Category description', 'from' => 'Marie Dupont-Lefevre', 'when' => '13/09/2026 21:02' ] ],
 ];
-/** The block of one task, drawn the way the screen draws it. */
-function dze_block( string $id ): string {
+/** The one list, drawn the way the screen draws it. */
+function dze_waiting(): string {
 	ob_start();
-	DZE_Automation::render_todo( $id );
+	DZE_Automation::render_waiting();
 	return (string) ob_get_clean();
 }
 
 fresh( $ON );
 $GLOBALS['review_rows']    = $ROWS;
 $GLOBALS['review_by_kind'] = [ 'cat_links' => 1, 'post_links' => 1, 'cat_desc' => 1 ];
-$mesh = dze_block( 'mesh_links' );
-// A TASK COUNTS AND SHOWS EVERY KIND OF JOB IT LEAVES BEHIND. The linking task
-// queues cat_links AND post_links: showing one of them shows half its work.
-ok( 'the linking task shows both its kinds', substr_count( $mesh, 'class="dze-auto-job"' ), 2 );
-ok( 'the category it wrote',            false !== strpos( $mesh, 'Tactical backpack covers' ), true );
-ok( 'and the article beside it',        false !== strpos( $mesh, 'why are they so feared' ), true );
-// AND NOTHING THAT BELONGS TO ANOTHER TASK.
-ok( 'never another task\'s work',       false !== strpos( $mesh, 'Boonie hats' ), false );
-$desc = dze_block( 'cat_desc' );
-ok( 'the description task shows its own', substr_count( $desc, 'class="dze-auto-job"' ), 1 );
-ok( 'and only its own',                 false !== strpos( $desc, 'Tactical backpack covers' ), false );
+$list = dze_waiting();
+// EVERY TASK'S WORK, IN ONE LIST — the linking task queues cat_links AND
+// post_links, and the writing task sits in the same list beside them.
+ok( 'one list holds every task\'s work', substr_count( $list, 'class="dze-auto-job"' ), 3 );
+ok( 'the category the linking wrote',   false !== strpos( $list, 'Tactical backpack covers' ), true );
+ok( 'the article beside it',            false !== strpos( $list, 'why are they so feared' ), true );
+ok( 'and the description task too',     false !== strpos( $list, 'Boonie hats' ), true );
+// OLDEST FIRST, whichever pass wrote it: what has waited longest is offered
+// first, and the cap belongs to the LIST rather than to each task.
+ok( 'oldest first, across the tasks',
+	array_map( 'intval', array_column( array_map(
+		static fn( $m ) => [ 'id' => $m ], explode( 'data-id="', $list ) ), 'id' ) )[1] ?? 0, 41 );
 
 // EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID, and the row opens the object.
-ok( 'the row prints the object id',     false !== strpos( $mesh, '<code class="dze-objid">6223</code>' ), true );
-ok( 'and the name opens the object',    false !== strpos( $mesh, 'term.php?tag_ID=6223' ), true );
-ok( 'an article opens as a post',       false !== strpos( $mesh, 'post.php?post=987632358' ), true );
-ok( 'the row says what was done to it', false !== strpos( $mesh, 'Category internal links' ), true );
-ok( 'and when it last moved',           false !== strpos( $mesh, '13/09/2026 18:34' ), true );
+ok( 'the row prints the object id',     1 === preg_match( '/class="dze-objid"[^>]*>6223</', $list ), true );
+ok( 'and the name opens the object',    false !== strpos( $list, 'term.php?tag_ID=6223' ), true );
+ok( 'an article opens as a post',       false !== strpos( $list, 'post.php?post=987632358' ), true );
+ok( 'the row says what was done to it', false !== strpos( $list, 'Category internal links' ), true );
+ok( 'and when it last moved',           false !== strpos( $list, '13/09/2026 18:34' ), true );
 
 // THE THREE CONTROLS ARE THE REVIEW LIST'S OWN — same classes, same popup,
 // same endpoints. A second review surface beside it is two screens that start
 // disagreeing about what is waiting.
 ok( 'each row opens the one review popup',
-	false !== strpos( $mesh, 'class="button button-small dze-q-open" data-id="41"' ), true );
-ok( 'accepts on the line',              false !== strpos( $mesh, 'dze-q-yes" data-id="41"' ), true );
-ok( 'refuses on the line',              false !== strpos( $mesh, 'dze-q-no" data-id="41"' ), true );
+	false !== strpos( $list, 'class="button button-small dze-q-open" data-id="41"' ), true );
+ok( 'accepts on the line',              false !== strpos( $list, 'dze-q-yes" data-id="41"' ), true );
+ok( 'refuses on the line',              false !== strpos( $list, 'dze-q-no" data-id="41"' ), true );
 // A FINISHED TEXT IS WORTH A QUESTION: the cross must say it is a refusal, not
-// an empty line dropped from the queue.
-ok( 'and the cross knows it is a refusal',
-	false !== strpos( $mesh, 'data-status="review"' ), true );
+// an empty queued line dropped from the queue.
+ok( 'and the cross knows it is a refusal', false !== strpos( $list, 'data-status="review"' ), true );
 ok( 'in the words the list uses',
-	false !== strpos( $mesh, DZE_Queue::decide_words()['accept'] ), true );
+	false !== strpos( $list, DZE_Queue::decide_words()['accept'] ), true );
 
-// WHAT IS NOT ON THE BLOCK, and only that: repeating the figure the rows
-// already show is the same answer twice on one screen.
-ok( 'nothing left over, nothing said',  false !== strpos( $mesh, 'dze-auto-waiting' ), false );
-$GLOBALS['review_by_kind'] = [ 'cat_links' => 8, 'post_links' => 4 ];
-$more = dze_block( 'mesh_links' );
+// WHAT IS NOT ON THE LIST, and only that.
+ok( 'nothing left over, nothing said',  false !== strpos( $list, 'dze-auto-waiting' ), false );
+$GLOBALS['review_by_kind'] = [ 'cat_links' => 8, 'post_links' => 4, 'cat_desc' => 1 ];
+$more = dze_waiting();
 ok( 'the rest points at the whole list', false !== strpos( $more, '10 more in Content to review' ), true );
 ok( 'and it is a way to that screen',    false !== strpos( $more, 'tab=review' ), true );
 
-// A TASK WITH NOTHING WAITING SAYS NOTHING. A line saying "no news" every day
-// is a line nobody reads by the end of the week.
-$GLOBALS['review_rows']    = [];
-$GLOBALS['review_by_kind'] = [];
-ok( 'nothing waiting, nothing printed', trim( dze_block( 'mesh_links' ) ), '' );
-
-// THE SHOP-WIDE TASK WRITES NO QUEUE ROW AT ALL: what it leaves is a pile of
-// suggestions on the screen that owns them, and the link is the whole of what
-// can be offered here.
+// A TASK WHOSE WORK WAITS SOMEWHERE ELSE SAYS SO, AND NAMES WHERE: the
+// calendar's suggestions are not queue rows and cannot be settled here.
+fresh( $ON );
 $GLOBALS['pending_events'] = 4;
-$events = dze_block( 'events' );
-ok( 'the calendar has no rows to settle', substr_count( $events, 'class="dze-auto-job"' ), 0 );
-ok( 'but it still says what is waiting',  false !== strpos( $events, 'Review the 4 pieces of work waiting' ), true );
+$cal = dze_waiting();
+ok( 'the calendar has no rows to settle', substr_count( $cal, 'class="dze-auto-job"' ), 0 );
+ok( 'but it says what is waiting',        false !== strpos( $cal, '4 suggestions waiting · Marketing calendar' ), true );
+ok( 'and points at the screen holding them', false !== strpos( $cal, 'tab=events' ), true );
 $GLOBALS['pending_events'] = 0;
 
+// AN EMPTY LIST SAYS WHICH EMPTY IT IS. This is the page's own work area: an
+// empty space with nothing in it reads as a screen that failed to draw.
+fresh( $ON );
+ok( 'nothing waiting says so, once',
+	false !== strpos( dze_waiting(), 'Nothing is waiting for your yes or no' ), true );
+
 // A CLASS FILE ALWAYS EXISTS: the module is the check.
+fresh( $ON );
 $GLOBALS['review_rows']    = $ROWS;
 $GLOBALS['review_by_kind'] = [ 'cat_links' => 1, 'post_links' => 1 ];
 $GLOBALS['mods']['queue']  = false;
@@ -796,8 +791,9 @@ DZE_Automation::render_settings();
 $screen = (string) ob_get_clean();
 ok( 'the screen enqueues its own styles', in_array( 'dze-content', (array) $GLOBALS['styles'], true ), true );
 ok( 'and asks for the popup it opens',    DZE_Queue::$assets, 1 );
-ok( 'the rows are on the screen itself',  substr_count( $screen, 'class="dze-auto-job"' ), 2 );
-ok( 'each block owns its waiting list',   substr_count( $screen, 'class="dze-auto-waitbox"' ), 3 );
+ok( 'the work is on the page itself',     substr_count( $screen, 'class="dze-auto-job"' ), 2 );
+ok( 'under one heading, not three folds', substr_count( $screen, 'id="dze-auto-waiting"' ), 1 );
+ok( 'and it is not folded away',          false !== strpos( $screen, '<h2 class="dze-auto-h2">To review</h2>' ), true );
 // AND NOT A POPUP ON A SCREEN WITH NOTHING TO DECIDE: an editor loaded for
 // nobody is weight on every page load.
 fresh( $ON );
@@ -806,7 +802,42 @@ DZE_Automation::render_settings();
 ob_end_clean();
 ok( 'nothing waiting, no popup loaded',   DZE_Queue::$assets, 0 );
 
-// A DECISION MOVES THE FIGURES AND THE ROWS TOGETHER: they are one question,
+echo "\nA line somebody can read, and the mechanism one press away\n";
+//
+// "Ça j'ai rien compris… J'aurais plutôt écrit un texte simple et compréhensif :
+// déléguer à Dazont Ecom le maillage interne du site web. Avec une très courte
+// description derrière de ce qu'il fait. On pourrait d'ailleurs comme dans les
+// autres modules utiliser un bouton I qui charge plus d'info pour la curiosité."
+fresh( $ON );
+ob_start();
+DZE_Automation::render_settings();
+$screen = (string) ob_get_clean();
+foreach ( DZE_Automation::tasks() as $tid => $task ) {
+	// SHORT, or it is the wall of text he photographed. One sentence of what
+	// is being handed over, one of what it does.
+	ok( sprintf( '"%s" says it in a line', $task['label'] ),
+		strlen( (string) $task['what'] ) <= 130, true );
+	ok( 'and it says what is delegated',
+		false !== stripos( (string) $task['what'], 'Dazont Ecom' ), true );
+	// AND THE MECHANISM IS THERE FOR WHOEVER WANTS IT, never in the way.
+	ok( 'the detail is one press away',
+		strlen( (string) ( $task['more'] ?? '' ) ) > 200, true );
+	ok( 'and the "?" is on its line',
+		false !== strpos( $screen, 'dze-mod-more" data-module="' . $tid . '"' ), true );
+	ok( 'with the long text behind it',
+		false !== strpos( $screen, substr( wp_json_encode( (string) $task['more'] ), 1, 40 ) ), true );
+	ok( 'under the task\'s own name',
+		false !== strpos( $screen, '"' . $tid . '":{"title":"' . $task['label'] . '"' ), true );
+}
+// THE LONG TEXT IS NOT PRINTED AS PROSE — that is the whole point of the "?".
+// It travels inside the popup's own data and appears only when pressed.
+$dze_visible = strip_tags( (string) preg_replace( '#<script\b[^>]*>.*?</script>#is', '', $screen ) );
+ok( 'the mechanism is not read out on the page',
+	false !== strpos( $dze_visible, 'reads the whole site once' ), false );
+ok( 'and the popup it opens is on the page',
+	false !== strpos( $screen, 'id="dze-mod-popup"' ), true );
+
+// A DECISION MOVES THE FIGURES AND THE LIST TOGETHER: they are one question,
 // so they are re-read together rather than one of them guessing.
 fresh( $ON );
 $GLOBALS['review_rows']    = $ROWS;
@@ -817,9 +848,9 @@ try {
 } catch ( DZE_Json_Sent $e ) {
 	$sent = $e->ok ? (array) $e->payload : null;
 }
-ok( 'the answer covers every task',      array_keys( (array) ( $sent['tasks'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
-ok( 'each with its own line',            false !== strpos( (string) ( $sent['tasks']['mesh_links']['chips'] ?? '' ), 'data-task="mesh_links"' ), true );
-ok( 'and its own rows',                  substr_count( (string) ( $sent['tasks']['mesh_links']['todo'] ?? '' ), 'class="dze-auto-job"' ), 2 );
+ok( 'the answer carries every task\'s line', array_keys( (array) ( $sent['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
+ok( 'each one its own',                  false !== strpos( (string) ( $sent['chips']['mesh_links'] ?? '' ), 'data-task="mesh_links"' ), true );
+ok( 'and the one list beside them',      substr_count( (string) ( $sent['waiting'] ?? '' ), 'class="dze-auto-job"' ), 3 );
 ok( 'and what became of the last pass',  array_key_exists( 'log', (array) $sent ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

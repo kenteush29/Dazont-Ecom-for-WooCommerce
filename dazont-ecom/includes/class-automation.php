@@ -255,7 +255,12 @@ final class DZE_Automation {
 			// jour. On l'active et il fait le travail."
 			'mesh_links' => [
 				'label'   => __( 'Internal linking', 'dazont-ecom' ),
-				'what'    => __( 'Writes the links the site is short of, a few pages a day: the link graph says which page nobody points at and which pages should point at it — a category, an article or a page alike.', 'dazont-ecom' ),
+				// A LINE SOMEBODY CAN READ, and the mechanism one press away.
+				// "J'aurais plutôt écrit un texte simple et compréhensif :
+				// déléguer à Dazont Ecom le maillage interne du site web. Avec
+				// une très courte description derrière de ce qu'il fait."
+				'what'    => __( 'Hand the site\'s internal linking to Dazont Ecom. It writes a few pages a day, starting with the ones nothing points at.', 'dazont-ecom' ),
+				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it knows two things no page knows on its own: which pages nothing points at, and which pages are close enough in subject to be worth pointing at them. Each day it takes the pages the site points at least, in order, and writes those links into them — a category, an article or a page, whichever it is. A page it has worked on is left alone for a month, so nothing is rewritten twice. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
 				'module'  => 'mesh',
 				'scope'   => 'mesh',
 				// The job kinds this task leaves waiting, so its own block can
@@ -267,7 +272,8 @@ final class DZE_Automation {
 			],
 			'cat_desc'  => [
 				'label'   => __( 'Category descriptions', 'dazont-ecom' ),
-				'what'    => __( 'Writes the description of a category that has none, or one far under the length its branch deserves.', 'dazont-ecom' ),
+				'what'    => __( 'Hand category descriptions to Dazont Ecom. It writes one a day, emptiest category first.', 'dazont-ecom' ),
+				'more'    => __( 'It looks at every product category and ranks them by how little description they hold — no text at all first, then the thinnest. The length it writes to is the category\'s own: a branch carrying hundreds of products is given more words than a shelf with four, and the links inside it follow the shop\'s rule of one per fifty words. A category already in the writing queue is skipped, and one it has worked on is left alone for a month. Tick "Only with a SEMrush file" to restrict it to the categories whose keyword file you have uploaded. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
 				'module'  => 'category_content',
 				'scope'   => 'category',
 				'kind'    => 'cat_desc',
@@ -278,7 +284,8 @@ final class DZE_Automation {
 			],
 			'events'    => [
 				'label'   => __( 'Marketing calendar', 'dazont-ecom' ),
-				'what'    => __( 'Once a month, proposes the commercial moments worth a promotion in the coming quarter. Accepting one creates the event, disabled.', 'dazont-ecom' ),
+				'what'    => __( 'Hand the promotion calendar to Dazont Ecom. Once a month it proposes the moments worth a campaign.', 'dazont-ecom' ),
+				'more'    => __( 'Once a month it looks at the quarter ahead and proposes the commercial moments worth a promotion on this shop — the ones your catalogue actually sells into, not a list of public holidays. Each suggestion waits on the marketing calendar for a yes or a no, and accepting one creates the event SWITCHED OFF, so nothing ever goes live on its own: you open it, set the discount and the dates, and publish it yourself. It stops asking once eight suggestions are waiting unanswered, and it writes nothing at all to the shop.', 'dazont-ecom' ),
 				'module'  => 'marketing_ai',
 				'scope'   => 'shop',
 				'cadence' => 'month',
@@ -1220,7 +1227,11 @@ final class DZE_Automation {
 				?>
 				<details class="dze-set dze-auto-task">
 					<summary>
-						<span class="dze-auto-name"><?php echo esc_html( (string) $task['label'] ); ?></span>
+						<span class="dze-auto-name"><?php echo esc_html( (string) $task['label'] ); ?><?php
+							// HOW it works is for whoever wants it, one press
+							// away — not a paragraph everybody has to read.
+							echo wp_kses_post( DZE_Hub::more_button( $id ) );
+						?></span>
 						<?php echo wp_kses_post( self::chips_html( $id ) ); ?>
 					</summary>
 					<p class="description"><?php echo esc_html( (string) $task['what'] ); ?></p>
@@ -1262,6 +1273,16 @@ final class DZE_Automation {
 			<?php submit_button( __( 'Save', 'dazont-ecom' ) ); ?>
 		</form>
 
+		<?php
+		// WHAT IS WAITING FOR YOU IS THE WORK, not a setting. It used to be
+		// folded away inside each task's own controls — "plutôt que de les
+		// lister dans les paramètres de l'automatisme" — so seeing what three
+		// tasks had left meant opening three blocks. It is ONE list, open, on
+		// the page: every list of things waiting for a decision is one list.
+		?>
+		<h2 class="dze-auto-h2"><?php esc_html_e( 'To review', 'dazont-ecom' ); ?></h2>
+		<div id="dze-auto-waiting"><?php self::render_waiting(); ?></div>
+
 		<details class="dze-set dze-auto-log">
 			<summary><?php esc_html_e( 'What it has done', 'dazont-ecom' ); ?></summary>
 			<div id="dze-auto-log"><?php self::render_log(); ?></div>
@@ -1272,6 +1293,12 @@ final class DZE_Automation {
 		if ( self::$needs_review && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
 			DZE_Queue::review_assets();
 		}
+		// The panel of detail behind every "?" on this screen.
+		$more = [];
+		foreach ( self::tasks() as $tid => $t ) {
+			$more[ $tid ] = [ 'title' => (string) $t['label'], 'text' => (string) ( $t['more'] ?? $t['what'] ) ];
+		}
+		DZE_Hub::more_assets( $more );
 		?>
 		</div>
 		<script>
@@ -1309,10 +1336,10 @@ final class DZE_Automation {
 				$.post( window.ajaxurl, { action: 'dze_auto_state', nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>' } )
 					.done( function ( r ) {
 						var d = ( r && r.data ) || {};
-						$.each( d.tasks || {}, function ( id, part ) {
-							if ( part.chips ) { $( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( part.chips ); }
-							$( '.dze-auto-waitbox[data-task="' + id + '"]' ).html( part.todo || '' );
+						$.each( d.chips || {}, function ( id, html ) {
+							$( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( html );
 						} );
+						if ( undefined !== d.waiting ) { $( '#dze-auto-waiting' ).html( d.waiting ); }
 						if ( d.log ) { $( '#dze-auto-log' ).html( d.log ); }
 					} );
 			} );
@@ -1335,10 +1362,6 @@ final class DZE_Automation {
 	public static function render_state( string $id ): void {
 		$conf = self::conf( $id );
 
-		// WHAT IT LEFT FOR YOU — the work itself, not a way to go and find it.
-		echo '<div class="dze-auto-waitbox" data-task="' . esc_attr( $id ) . '">';
-		self::render_todo( $id );
-		echo '</div>';
 
 		// The whole tool rests on this list, so it is shown, not described.
 		$next_up = self::shortlist( $id, 5 );
@@ -1358,26 +1381,47 @@ final class DZE_Automation {
 	}
 
 	/**
-	 * ONE LINE PER PIECE OF WORK WAITING, settled where it was started.
+	 * EVERYTHING WAITING FOR A YES OR A NO, in ONE list, on the page.
 	 *
-	 * "Ici ce serait bien de pouvoir review la task directement sans partir.
-	 * Sous forme de todo, comme sur le module de produits bulk, un bloc = une
-	 * tâche à résoudre."
+	 * "On devrait plutôt lister les tâches à review pour une meilleure UI,
+	 * plutôt que de les lister dans les paramètres de l'automatisme."
 	 *
-	 * The three controls are the review list's OWN — the same classes, the
-	 * same popup, the same endpoints — so there is one place a decision is
-	 * taken and one place it is recorded. A second review surface beside it is
-	 * two screens that start disagreeing about what is waiting.
+	 * It was a fold inside each task's own controls, so reading what three
+	 * passes had left meant opening three blocks of settings — and what is
+	 * waiting for a person is not a setting. One list, open, in the order the
+	 * work arrived; the chips on the lines above still say which task left
+	 * what, because a figure belongs to the thing it is about.
 	 *
-	 * Nothing at all when nothing is waiting: a line saying "no news" every
-	 * day is a line nobody reads by the end of the week.
+	 * The three controls are the review list's OWN — the same popup, the same
+	 * endpoints, the same record — so there is one place a decision is taken.
 	 */
-	public static function render_todo( string $id ): void {
-		$left = self::waiting_for( $id );
-		if ( $left['n'] < 1 ) {
+	public static function render_waiting(): void {
+		$rows  = [];
+		$queue = 0;   // waiting in the writing queue, across every task.
+		$aside = [];  // tasks whose work waits somewhere else entirely.
+		foreach ( self::tasks() as $id => $task ) {
+			$left = self::waiting_for( $id );
+			if ( $left['n'] < 1 ) {
+				continue;
+			}
+			if ( 'shop' === (string) ( $task['scope'] ?? '' ) ) {
+				$aside[] = [ 'label' => (string) $task['label'], 'n' => (int) $left['n'], 'url' => (string) $left['url'] ];
+				continue;
+			}
+			$queue += (int) $left['n'];
+			foreach ( self::todo( $id, self::TODO_MAX ) as $row ) {
+				$rows[] = $row;
+			}
+		}
+		// Oldest first, whichever pass wrote it: what has waited longest is
+		// what is offered first, and the cap is the LIST's, not each task's.
+		usort( $rows, static fn( $a, $b ) => (int) $a['id'] <=> (int) $b['id'] );
+		$rows = array_slice( $rows, 0, self::TODO_MAX );
+
+		if ( ! $rows && ! $aside ) {
+			echo '<p class="description">' . esc_html__( 'Nothing is waiting for your yes or no.', 'dazont-ecom' ) . '</p>';
 			return;
 		}
-		$rows  = self::todo( $id );
 		$words = class_exists( 'DZE_Queue' ) ? DZE_Queue::decide_words() : [ 'accept' => '', 'refuse' => '' ];
 		if ( $rows ) {
 			self::$needs_review = true;
@@ -1402,26 +1446,35 @@ final class DZE_Automation {
 			}
 			echo '</ul>';
 		}
-		// AND THE REST, where the whole list lives. Only what is NOT on this
-		// block: repeating the figure the rows already show is the same answer
-		// twice on one screen.
-		$rest = $left['n'] - count( $rows );
-		if ( $rest > 0 && '' !== $left['url'] ) {
+		// WHAT IS NOT ON THE LIST, and only that. Repeating the figure the rows
+		// already show is the same answer twice on one screen.
+		$rest = $queue - count( $rows );
+		if ( $rest > 0 && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
 			printf(
 				'<p class="dze-auto-waiting"><a href="%1$s">%2$s</a></p>',
-				esc_url( $left['url'] ),
-				esc_html( $rows
-					? sprintf(
-						/* translators: %s: how many more pieces of work are waiting elsewhere */
-						_n( '%s more in Content to review', '%s more in Content to review', $rest, 'dazont-ecom' ),
-						number_format_i18n( $rest )
-					)
-					: sprintf(
-						/* translators: %s: how many finished jobs are waiting for a yes or a no */
-						_n( 'Review %s piece of work', 'Review the %s pieces of work waiting', $rest, 'dazont-ecom' ),
-						number_format_i18n( $rest )
-					)
-				)
+				esc_url( DZE_Queue::url() ),
+				esc_html( sprintf(
+					/* translators: %s: how many more pieces of work are waiting on the review screen */
+					_n( '%s more in Content to review', '%s more in Content to review', $rest, 'dazont-ecom' ),
+					number_format_i18n( $rest )
+				) )
+			);
+		}
+		// A task whose work waits somewhere else says so, and names where: the
+		// calendar's suggestions are not queue rows and cannot be settled here.
+		foreach ( $aside as $one ) {
+			if ( '' === $one['url'] ) {
+				continue;
+			}
+			printf(
+				'<p class="dze-auto-waiting"><a href="%1$s">%2$s</a></p>',
+				esc_url( $one['url'] ),
+				esc_html( sprintf(
+					/* translators: 1: how many suggestions, 2: the task they belong to */
+					_n( '%1$s suggestion waiting · %2$s', '%1$s suggestions waiting · %2$s', $one['n'], 'dazont-ecom' ),
+					number_format_i18n( $one['n'] ),
+					$one['label']
+				) )
 			);
 		}
 	}
@@ -1594,16 +1647,17 @@ final class DZE_Automation {
 	 */
 	public static function ajax_state(): void {
 		self::guard();
-		$out = [];
+		$chips = [];
 		foreach ( array_keys( self::tasks() ) as $id ) {
-			ob_start();
-			self::render_todo( $id );
-			$out[ $id ] = [
-				'chips' => self::chips_html( $id ),
-				'todo'  => (string) ob_get_clean(),
-			];
+			$chips[ $id ] = self::chips_html( $id );
 		}
-		wp_send_json_success( [ 'tasks' => $out, 'log' => self::log_html() ] );
+		ob_start();
+		self::render_waiting();
+		wp_send_json_success( [
+			'chips'   => $chips,
+			'waiting' => (string) ob_get_clean(),
+			'log'     => self::log_html(),
+		] );
 	}
 
 	public static function ajax_undo(): void {
