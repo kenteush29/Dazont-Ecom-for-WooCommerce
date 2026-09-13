@@ -1083,6 +1083,28 @@ whose screen has not been thought through yet.
   cell, no column under 70px, the date fitting its column and the three buttons
   side by side. A CSS fault is invisible to every PHP test and to `node --check`
   alike, which is why this screen had to break before anything could say so.
+- **A WELL-MADE SCREEN DOES NOT EXPLAIN ITSELF.** "L'écran automatisation est
+  à revoir pour une UX optimale. C'est très brutal, vulgaire, avec énormément
+  de texte de partout. Je suis perdu et désorienté quand je vois ça… Si un
+  module est bien fait, en général, il n'est pas nécessaire d'ajouter du texte
+  partout. La simple présence d'un bouton doit parler d'elle-même." Three
+  tasks were three screens of prose — an intro paragraph, a paragraph per
+  task, a form table each, a sentence under every checkbox saying what the
+  checkbox says. It is three LINES now: one shut `details.dze-set` per task,
+  the plugin's own idiom, and on each line the FIGURES as chips
+  (`chips_html()`) — is it on and at what rhythm, what waits for a yes or no,
+  what went through, when it looks again. Four rules: a chip is SILENT when it
+  has nothing to say (a nought reads as a task that failed, and a countdown on
+  a switched-off task is a promise nobody made); a consequence lives on the
+  control's own hover, never in a paragraph under it; where a task STANDS is
+  said once, in the chips, so the body under the fold only carries what it is
+  about to take and the way to what it left; and the press that runs a task
+  replaces its chips from the server's answer, or a figure answers for the
+  page as it was opened. **`node tools/js/automation-screen.mjs` must pass** —
+  it reads the screen folded and MEASURES it: three blocks, all shut, each one
+  line high, the whole screen under 400 characters of visible text, every chip
+  on one line with its own word on hover, and the press moving the line it was
+  pressed on.
 - **ONE NAME PER SCREEN.** "Content diagnostic" was worn by two screens at
   once — the page holding the reading, the linking, what waits and the products
   list, and the Settings tab holding the criteria — and a name shared by two

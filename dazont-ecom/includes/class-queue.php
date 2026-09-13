@@ -864,6 +864,33 @@ final class DZE_Queue {
 		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'review' AND kind IN ( {$in} )" );
 	}
 
+	/**
+	 * How many jobs of these kinds were ACCEPTED and written.
+	 *
+	 * The other half of "what has this task done for me": one figure says what
+	 * is waiting, this one says what came through. Both belong to the screen
+	 * that started the work.
+	 *
+	 * @param string[] $kinds
+	 */
+	public static function applied_count_for( array $kinds ): int {
+		global $wpdb;
+		$kinds = array_values( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) );
+		if ( ! $kinds ) {
+			return 0;
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return 0;
+		}
+		$in = "'" . implode( "','", $kinds ) . "'";
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds stripped to [a-z_] above.
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'applied' AND kind IN ( {$in} )" );
+	}
+
 	/** Any change of state can change the bubble. */
 	public static function forget_count(): void {
 		delete_transient( self::COUNT_KEY );

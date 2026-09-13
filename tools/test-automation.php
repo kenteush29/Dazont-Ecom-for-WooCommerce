@@ -286,6 +286,12 @@ class DZE_Queue {
 		foreach ( $kinds as $k ) { $n += (int) ( $GLOBALS['review_by_kind'][ $k ] ?? 0 ); }
 		return $n;
 	}
+	/** And how many were accepted and written. */
+	public static function applied_count_for( array $kinds ): int {
+		$n = 0;
+		foreach ( $kinds as $k ) { $n += (int) ( $GLOBALS['applied_by_kind'][ $k ] ?? 0 ); }
+		return $n;
+	}
 	public static function url( array $args = [] ): string { return 'https://kula.test/wp-admin/admin.php?page=dazont-ecom-diagnostic&tab=review'; }
 }
 /** The module switches. A class file always exists; this is the real check. */
@@ -321,6 +327,22 @@ require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
+
+if ( in_array( '--dump-automation', (array) $argv, true ) ) {
+	// The screen as the plugin prints it, for the browser gate that reads it
+	// folded: a shop with one task on, one off, work waiting and work written.
+	$GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [
+		'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ],
+		'cat_desc'   => [ 'on' => 0, 'per_day' => 1, 'apply' => 0 ],
+	] ];
+	$GLOBALS['review_by_kind']  = [ 'cat_links' => 2, 'post_links' => 1 ];
+	$GLOBALS['applied_by_kind'] = [ 'cat_links' => 9, 'post_links' => 5 ];
+	DZE_Mesh::scan();
+	ob_start();
+	DZE_Automation::render_settings();
+	echo wp_json_encode( [ 'html' => (string) ob_get_clean() ] );
+	exit( 0 );
+}
 
 $ran   = 0;
 $fails = 0;
@@ -486,6 +508,13 @@ $html = (string) ob_get_clean();
 ok( 'the tab draws',                   '' !== trim( $html ), true );
 ok( 'every task is on it',             substr_count( $html, 'class="dze-auto-state"' ), 3 );
 ok( 'each one can be run by hand',     substr_count( $html, 'dze-auto-run' ) >= 3, true );
+// ONE SHUT BLOCK PER TASK, in the shape every other screen of this plugin
+// wears — three tasks are three LINES, not three screens.
+ok( 'each task is a block of its own', substr_count( $html, '<details class="dze-set dze-auto-task">' ), 3 );
+ok( 'shut until it is opened',         false !== strpos( $html, 'dze-auto-task" open' ), false );
+ok( 'and its figures are on the line', substr_count( $html, '<span class="dze-auto-chips"' ), 3 );
+// The log is a block too, and it is shut: it is the last thing anybody opens.
+ok( 'what it has done is a block too', false !== strpos( $html, 'dze-auto-log' ), true );
 // THE WHOLE TOOL RESTS ON THIS LIST, so it is shown and not described: the
 // pages it would take next, each with what it is short of.
 ob_start();
@@ -500,7 +529,8 @@ $GLOBALS['mods'] = [ 'mesh' => 0 ];
 ob_start();
 DZE_Automation::render_settings();
 $off = (string) ob_get_clean();
-ok( 'a task whose module is off is not offered', false !== strpos( $off, 'Needs its own module' ), true );
+ok( 'a task whose module is off says so', false !== strpos( $off, 'is-blocked' ), true );
+$GLOBALS['mods'] = [];
 
 echo "\nWhat each task left for you to decide\n";
 //
@@ -537,10 +567,8 @@ $GLOBALS['review_by_kind'] = [ 'cat_links' => 1, 'post_links' => 0 ];
 ob_start();
 DZE_Automation::render_state( 'mesh_links' );
 $said = (string) ob_get_clean();
-ok( 'the block says what is waiting',
-	false !== strpos( $said, 'waiting for your yes or no' ), true );
-ok( 'in the singular when there is one',
-	false !== strpos( $said, '1 piece of work is waiting' ), true );
+ok( 'the block offers the review',       false !== strpos( $said, 'dze-auto-waiting' ), true );
+ok( 'naming how many',                   false !== strpos( $said, 'Review 1 piece of work' ), true );
 ok( 'and it is a link to the list',      false !== strpos( $said, 'tab=review' ), true );
 // A NOUGHT IS NOT NEWS: a line saying "nothing is waiting" every day is a line
 // nobody reads by the end of the week.
@@ -548,8 +576,47 @@ $GLOBALS['review_by_kind'] = [];
 ob_start();
 DZE_Automation::render_state( 'mesh_links' );
 $quiet = (string) ob_get_clean();
-ok( 'nothing waiting, nothing said',
-	false !== strpos( $quiet, 'waiting for your yes or no' ), false );
+ok( 'nothing waiting, nothing said',     false !== strpos( $quiet, 'dze-auto-waiting' ), false );
+// AND WHERE IT STANDS IS SAID ONCE, in the symbols on the line above: a
+// sentence repeating them under the fold is the same answer twice, which is
+// what made this screen unreadable.
+ok( 'the rhythm is not said twice',      false !== strpos( $quiet, 'a day' ), false );
+
+echo "\nThe line says it in symbols\n";
+//
+// "C'est très brutal, vulgaire, avec énormément de texte de partout… Si un
+// module est bien fait, il n'est pas nécessaire d'ajouter du texte partout."
+// Four figures, each one a question somebody actually asks — and each of them
+// silent when it has nothing to say.
+fresh( $ON );
+$GLOBALS['review_by_kind']  = [ 'cat_links' => 2, 'post_links' => 1 ];
+$GLOBALS['applied_by_kind'] = [ 'cat_links' => 9, 'post_links' => 5 ];
+$chips = DZE_Automation::chips_html( 'mesh_links' );
+ok( 'it says it is running',             false !== strpos( $chips, 'is-on' ), true );
+ok( 'and at what rhythm',                false !== strpos( $chips, '3 a day' ), true );
+ok( 'what waits for a person',
+	false !== strpos( $chips, 'is-wait' ) && false !== strpos( $chips, '>3<' ), true );
+ok( 'and what went through',
+	false !== strpos( $chips, 'is-done' ) && false !== strpos( $chips, '>14<' ), true );
+ok( 'with the moment it looks again',    false !== strpos( $chips, 'is-next' ), true );
+ok( 'every figure carries its own word', substr_count( $chips, 'title="' ) >= 4, true );
+// NOTHING TO SAY, NOTHING SAID: a nought on a chip reads as a task that failed.
+$GLOBALS['review_by_kind']  = [];
+$GLOBALS['applied_by_kind'] = [];
+$quietchips = DZE_Automation::chips_html( 'mesh_links' );
+ok( 'nothing waiting, no chip',          false !== strpos( $quietchips, 'is-wait' ), false );
+ok( 'nothing written, no chip',          false !== strpos( $quietchips, 'is-done' ), false );
+// SWITCHED OFF SAYS ONLY THAT: a rhythm nothing runs at is a figure about
+// nothing, and a countdown on it is a promise nobody made.
+fresh();
+$off = DZE_Automation::chips_html( 'mesh_links' );
+ok( 'switched off, it says so',          false !== strpos( $off, 'is-off' ), true );
+ok( 'and promises no next run',          false !== strpos( $off, 'is-next' ), false );
+// A TASK THAT CANNOT RUN SAYS SO ON ITS OWN LINE, rather than being read for.
+fresh( $ON );
+$GLOBALS['mods'] = [ 'mesh' => 0 ];
+ok( 'a module switched off is on the line', false !== strpos( DZE_Automation::chips_html( 'mesh_links' ), 'is-blocked' ), true );
+$GLOBALS['mods'] = [];
 
 echo "\nIts own entry, in the WordPress menu\n";
 //

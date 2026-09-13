@@ -507,6 +507,33 @@
 .dze-set > p, .dze-set .description { max-width: min(960px, 100%); }
 .dze-admin .description, .dze-wrap .description { overflow-wrap: anywhere; }
 
+/* ---- Automation: one shut block per task, its figures on its own line ----
+   "C'est très brutal, vulgaire, avec énormément de texte de partout." Four
+   figures, each a question somebody asks, each silent when it has nothing to
+   say — read folded, so three tasks are three lines. */
+.dze-auto-task > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dze-auto-name { flex: 0 0 auto; }
+.dze-auto-chips { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.dze-auto-chip {
+	display: inline-flex; align-items: center; gap: 3px;
+	border: 1px solid #dcdcde; background: #f6f7f7; color: #50575e;
+	border-radius: 999px; padding: 1px 9px 1px 6px;
+	font-size: 11px; font-weight: 400; line-height: 18px; white-space: nowrap;
+}
+.dze-auto-chip .dashicons { font-size: 14px; width: 14px; height: 14px; line-height: 14px; }
+.dze-auto-chip.is-on      { border-color: #c6e6d5; background: #f0faf5; color: #1d4c38; }
+.dze-auto-chip.is-wait    { border-color: #f0dba8; background: #fdf7e7; color: #6b5200; }
+.dze-auto-chip.is-done    { border-color: #c6e6d5; background: #f6fbf8; color: #1d4c38; }
+.dze-auto-chip.is-blocked { border-color: #f0c3c3; background: #fdf3f3; color: #8a2424; }
+.dze-auto-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; }
+.dze-auto-controls label { display: inline-flex; align-items: center; gap: 5px; }
+.dze-auto-controls .dze-auto-msg { font-size: 13px; }
+.dze-auto-waiting { margin: 12px 0 0; font-weight: 600; }
+.dze-auto-next { margin: 8px 0 0; }
+.dze-auto-why { color: #a7aaad; }
+.dze-auto-blocked { color: #b32d2e; }
+.dze-auto-log ul { margin: 0; }
+
 /* One card per prompt: shut, one line each, open the one you are working on. */
 .dze-pr-grouphead { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; margin: 16px 0 6px; }
 .dze-pr-grouphead:first-of-type { margin-top: 0; }
