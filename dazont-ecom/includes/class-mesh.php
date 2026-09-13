@@ -44,6 +44,17 @@ final class DZE_Mesh {
 	private const SCHEMA_OPT     = 'dze_mesh_schema';
 	private const SCHEMA_VERSION = 1;
 	private const CENSUS_OPT     = 'dze_mesh_census';
+	/**
+	 * THE PAGES THE SHOP HAS SET ASIDE, by "kind:id".
+	 *
+	 * "J'espère d'ailleurs que tu ne vas pas me linker des pages comme order
+	 * tracking et les pages légales ? Peut-être créer un sélecteur de pages
+	 * qui ne doivent pas être linkées." A refund policy is a page a shop
+	 * must have and nobody should be sent to from an article.
+	 *
+	 * Never autoloaded: the front never reads it.
+	 */
+	private const SKIP_OPT       = 'dze_mesh_skip';
 	private const LOCK           = 'dze_mesh_lock';
 	public const CRON            = 'dze_mesh_scan';
 
@@ -207,14 +218,28 @@ final class DZE_Mesh {
 				&& DZE_Post_Links::lang_of( $id, (string) $r['post_type'] ) !== $lang ) {
 				continue;
 			}
-			$kind = (string) $r['post_type'];
+			$kind  = (string) $r['post_type'];
+			$built = self::built_with_builder( $id );
+			$words = str_word_count( wp_strip_all_tags( (string) $r['post_content'] ) );
+			// AN EMPTY PAGE IS NOT A PAGE OF THE MESH. "Les pages vides ou les
+			// brouillons sont à exclure sans discussion." A draft never gets
+			// here — the reading asks for `publish` and nothing else — and a
+			// published page holding no text at all is neither somewhere to
+			// send a reader nor somewhere to write a sentence. It is measured
+			// on the page's REAL body: a builder keeps its words in post meta,
+			// so a page that is empty in the post can be a full page on
+			// screen, and dropping it would be the builder trap all over
+			// again.
+			if ( 0 === $words && ! $built ) {
+				continue;
+			}
 			$out[ $kind . ':' . $id ] = [
 				'kind'  => $kind,
 				'id'    => $id,
 				'title' => (string) $r['post_title'],
 				'url'   => (string) get_permalink( $id ),
-				'words' => str_word_count( wp_strip_all_tags( (string) $r['post_content'] ) ),
-				'built' => self::built_with_builder( $id ),
+				'words' => $words,
+				'built' => $built,
 			];
 		}
 		if ( '' !== $lang ) {
@@ -258,6 +283,69 @@ final class DZE_Mesh {
 	 */
 	public static function built_with_builder( int $post_id ): bool {
 		return '' !== trim( (string) get_post_meta( $post_id, '_elementor_data', true ) );
+	}
+
+	// =========================================================================
+	// Pages the shop has set aside
+	// =========================================================================
+
+	/**
+	 * WHAT "DO NOT LINK" MEANS, in one sentence.
+	 *
+	 * Nothing is written into the page, and nothing is asked to point at it.
+	 * The links it ALREADY carries still count for the pages they point at —
+	 * a link a reader can click is a link, whatever we think of the page it
+	 * sits on, and dropping those edges would turn its neighbours into
+	 * orphans they are not.
+	 *
+	 * @return array<string,true> "kind:id" => true
+	 */
+	public static function set_aside(): array {
+		$v = get_option( self::SKIP_OPT, [] );
+		return is_array( $v ) ? array_filter( array_map( 'boolval', $v ) ) : [];
+	}
+
+	/** Is this page one of them? The ONE test every reader asks. */
+	public static function is_set_aside( string $key ): bool {
+		return isset( self::set_aside()[ $key ] );
+	}
+
+	/**
+	 * Set one page aside, or put it back.
+	 *
+	 * The figures move with it — a page set aside stops being an orphan the
+	 * moment it is — so the census is re-counted here rather than left for
+	 * the next nightly reading, which would leave the screen disagreeing with
+	 * itself until tomorrow. It is re-counted from what the last reading
+	 * already stored, so nothing is queried and no link is read again.
+	 */
+	public static function set_aside_write( string $key, bool $on ): void {
+		$now = self::set_aside();
+		if ( $on ) {
+			$now[ $key ] = true;
+		} else {
+			unset( $now[ $key ] );
+		}
+		update_option( self::SKIP_OPT, $now, false );
+		self::forget_thin();
+		self::recount();
+	}
+
+	/**
+	 * The figures again, from the reading the shop already holds.
+	 *
+	 * `rebuild_census()` asks the database what points at what; this asks
+	 * nothing — it re-reads the per-page answers that reading stored. Both
+	 * end in `count_from()`, because two places deciding what counts as an
+	 * orphan is two screens that disagree.
+	 */
+	public static function recount(): void {
+		$c = self::census();
+		if ( empty( $c['at'] ) ) {
+			return;
+		}
+		$c['counts'] = self::count_from( self::pages(), (array) ( $c['per'] ?? [] ) );
+		update_option( self::CENSUS_OPT, $c, false );
 	}
 
 	/**
@@ -439,14 +527,44 @@ final class DZE_Mesh {
 		}
 		$links = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
 		// phpcs:enable
+		$per = [];
+		foreach ( $pages as $key => $p ) {
+			$per[ $key ] = [ 'in' => (int) ( $in[ $key ] ?? 0 ), 'out' => (int) ( $out[ $key ] ?? 0 ) ];
+		}
+		$counts          = self::count_from( $pages, $per );
+		$counts['links'] = $links;
+		update_option( self::CENSUS_OPT, [ 'per' => $per, 'counts' => $counts, 'at' => time() ], false );
+		return $counts;
+	}
+
+	/**
+	 * WHAT THE FIGURES COUNT — in one place, because two are two screens that
+	 * disagree.
+	 *
+	 * A page the shop has SET ASIDE is not work: it is not an orphan waiting
+	 * to be mended, it is not short of links, and it is not a dead end. It is
+	 * still a page of the site, so it is still in `pages` — and it is counted
+	 * on its own, so a screen can say how many were put away rather than
+	 * leaving a figure that quietly shrank.
+	 *
+	 * `links` is the one figure this cannot answer (it is a count of rows in
+	 * the table) and is filled in by whoever read them.
+	 *
+	 * @return array{pages:int,links:int,orphans:int,short:int,ends:int,aside:int}
+	 */
+	private static function count_from( array $pages, array $per ): array {
+		$aside   = self::set_aside();
 		$orphans = 0;
 		$short   = 0;
 		$ends    = 0;
-		$per     = [];
+		$put     = 0;
 		foreach ( $pages as $key => $p ) {
-			$i = (int) ( $in[ $key ] ?? 0 );
-			$o = (int) ( $out[ $key ] ?? 0 );
-			$per[ $key ] = [ 'in' => $i, 'out' => $o ];
+			if ( isset( $aside[ $key ] ) ) {
+				$put++;
+				continue;
+			}
+			$i = (int) ( $per[ $key ]['in'] ?? 0 );
+			$o = (int) ( $per[ $key ]['out'] ?? 0 );
 			if ( 0 === $i ) {
 				$orphans++;
 			}
@@ -462,9 +580,14 @@ final class DZE_Mesh {
 				$ends++;
 			}
 		}
-		$counts = [ 'pages' => count( $pages ), 'links' => $links, 'orphans' => $orphans, 'short' => $short, 'ends' => $ends ];
-		update_option( self::CENSUS_OPT, [ 'per' => $per, 'counts' => $counts, 'at' => time() ], false );
-		return $counts;
+		return [
+			'pages'   => count( $pages ),
+			'links'   => 0,
+			'orphans' => $orphans,
+			'short'   => $short,
+			'ends'    => $ends,
+			'aside'   => $put,
+		];
 	}
 
 	/** The last reading: what it found, and when. */
@@ -512,8 +635,17 @@ final class DZE_Mesh {
 	private static function ranked( callable $keep, string $by, int $limit ): array {
 		$census = self::census();
 		$per    = (array) ( $census['per'] ?? [] );
+		$aside  = self::set_aside();
 		$out    = [];
 		foreach ( self::pages() as $key => $p ) {
+			// SET ASIDE IS NOT WORK. Every "which page needs something done to
+			// it" question in this module comes through here — orphans, dead
+			// ends, pages short of inbound links, pages under their outgoing
+			// quota — so this one guard answers for all of them, and a
+			// question added next year cannot forget it.
+			if ( isset( $aside[ $key ] ) ) {
+				continue;
+			}
 			$row = [
 				'kind'  => (string) $p['kind'],
 				'id'    => (int) $p['id'],
@@ -774,6 +906,12 @@ final class DZE_Mesh {
 		if ( ! $to ) {
 			return [];
 		}
+		$aside = self::set_aside();
+		// NOTHING IS SENT TO A PAGE THAT WAS SET ASIDE, and nothing is written
+		// into one either — the target here, the candidates in the loop.
+		if ( isset( $aside[ $to_key ] ) ) {
+			return [];
+		}
 		$vocab = self::vocab( $pages );
 		$want  = self::stems( (string) $to['title'] );
 		$edges = self::edges();
@@ -786,6 +924,9 @@ final class DZE_Mesh {
 			// into, so it is never offered as a source. It is still a perfectly
 			// good TARGET, which is why it is only excluded here.
 			if ( ! empty( $p['built'] ) ) {
+				continue;
+			}
+			if ( isset( $aside[ $key ] ) ) {
 				continue;
 			}
 			if ( (int) $p['words'] < self::MIN_WORDS ) {

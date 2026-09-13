@@ -138,6 +138,10 @@ $GLOBALS['posts'] = [
 	// put them somewhere no reader ever sees: the only thing keeping it off
 	// the list is that it is a builder page.
 	30 => [ 'type' => 'page', 'title' => 'Workshop tour', 'content' => '<p>' . str_repeat( 'a word about the workshop ', 60 ) . '</p>' ],
+	// "Les pages vides ou les brouillons sont à exclure sans discussion."
+	// A published page holding nothing at all, and a draft holding plenty.
+	25 => [ 'type' => 'page', 'title' => 'Nothing on it yet',   'content' => '' ],
+	26 => [ 'type' => 'post', 'title' => 'A draft about hats',  'content' => '<p>' . str_repeat( 'a draft word ', 90 ) . '</p>', 'status' => 'draft' ],
 ];
 $GLOBALS['meta'] = [
 	22 => [ '_elementor_data' => '[{"elType":"widget","settings":{"link":{"url":"https:\/\/kula.test\/category\/boonie-hats\/"}}}]' ],
@@ -228,7 +232,13 @@ class DZE_Mesh_Wpdb {
 	public function get_results( $sql, $out = ARRAY_A ) {
 		if ( false !== stripos( $sql, 'FROM wp_posts' ) ) {
 			$rows = [];
+			$only = false !== stripos( $sql, "post_status = 'publish'" );
 			foreach ( $GLOBALS['posts'] as $id => $p ) {
+				// THE STUB HONOURS post_status, or "a draft is never in the
+				// graph" is a rule nothing here can be red on.
+				if ( $only && 'publish' !== ( $p['status'] ?? 'publish' ) ) {
+					continue;
+				}
 				$rows[] = [
 					'ID'           => $id,
 					'post_title'   => $p['title'],
@@ -777,6 +787,119 @@ $GLOBALS['deflang'] = '';
 $GLOBALS['icl'] = [];
 unset( $GLOBALS['terms'][14], $GLOBALS['posts'][24] );
 DZE_Mesh::pages( true );
+
+echo "\nEmpty pages and drafts are not pages of the mesh\n";
+//
+// "D'ailleurs les pages vides ou les brouillons sont à exclure sans
+// discussion. Ça doit être filtré." Neither is somewhere to send a reader, and
+// neither is somewhere to write a sentence — so they are not in the graph at
+// all, exactly as the cart and the checkout are not.
+$GLOBALS['deflang'] = '';
+$GLOBALS['icl']     = [];
+delete_transient( 'dze_mesh_pages' );
+$dze_titles = wp_list_pluck( DZE_Mesh::pages( true ), 'title' );
+ok( 'an empty page is not in the graph',
+	in_array( 'Nothing on it yet', $dze_titles, true ), false );
+ok( 'and a draft is not either',
+	in_array( 'A draft about hats', $dze_titles, true ), false );
+// A BUILDER PAGE IS EMPTY IN THE POST AND FULL ON THE SCREEN. Measured on
+// `post_content` alone it would be dropped by the very rule meant to tidy the
+// list — the builder trap, for the fourth time.
+ok( 'a builder page with no post text stays',
+	in_array( 'Workshop history', $dze_titles, true ), true );
+ok( 'and a page with words stays',
+	in_array( 'Boonie hat sizing', $dze_titles, true ), true );
+// AND THE POOL THE PANEL OFFERS APPLIES THE SAME RULE. Offering an empty page
+// as a link target is how a link gets written to a page with nothing on it.
+delete_transient( 'dze_cc_pages_x' );
+$dze_pool = wp_list_pluck( DZE_Category_Content::page_index( true ), 'title' );
+ok( 'the pool never offers the empty page',
+	in_array( 'Nothing on it yet', $dze_pool, true ), false );
+ok( 'nor the draft',
+	in_array( 'A draft about hats', $dze_pool, true ), false );
+ok( 'while the builder page is still a target',
+	in_array( 'Workshop history', $dze_pool, true ), true );
+
+echo "\nPages the shop has set aside\n";
+//
+// "J'espère d'ailleurs que tu ne vas pas me linker des pages comme order
+// tracking et les pages légales ? Peut-être créer un sélecteur de pages qui ne
+// doivent pas être linkées." A refund policy is a page a shop must have and
+// nobody should be sent to from an article — and, left in the graph, it also
+// tops the list of work the automatic pass takes on.
+$GLOBALS['deflang'] = '';
+$GLOBALS['icl']     = [];
+$GLOBALS['opts']['dze_mesh_skip'] = [];
+delete_transient( 'dze_mesh_pages' );
+DZE_Mesh::scan();
+$dze_before   = DZE_Mesh::orphan_count();
+$dze_orphans0 = wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' );
+ok( 'to begin with, nothing is set aside', DZE_Mesh::set_aside(), [] );
+ok( 'and the gloves are an orphan',        in_array( 'Tactical gloves', $dze_orphans0, true ), true );
+
+// SET ONE ASIDE. It is not a page the pass may work on, so it is not an
+// orphan waiting to be mended and it is not counted as one.
+DZE_Mesh::set_aside_write( 'product_cat:13', true );
+ok( 'the page is remembered',            DZE_Mesh::is_set_aside( 'product_cat:13' ), true );
+ok( 'and nothing else is',               DZE_Mesh::is_set_aside( 'product_cat:11' ), false );
+$dze_orphans1 = wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' );
+ok( 'it is gone from the orphan list',   in_array( 'Tactical gloves', $dze_orphans1, true ), false );
+// THE FIGURE MOVES WITH IT, AT ONCE. Left for the next nightly reading, the
+// chip on the task's own line would go on counting a page nobody will ever
+// work on until tomorrow.
+ok( 'and the figure moved by one',       DZE_Mesh::orphan_count(), $dze_before - 1 );
+ok( 'the list and the figure still agree', DZE_Mesh::orphan_count(), count( DZE_Mesh::orphans( 500 ) ) );
+ok( 'the census says how many were put away', DZE_Mesh::census()['counts']['aside'], 1 );
+
+// NOT WORK, IN EVERY LIST — one guard in ranked(), so a question added next
+// year cannot forget it.
+ok( 'not a page short of inbound links',
+	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::needs( 500 ), 'title' ), true ), false );
+DZE_Mesh::forget_thin();
+ok( 'not a page under its outgoing quota',
+	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::thin( 500 ), 'title' ), true ), false );
+ok( 'and not a dead end either',
+	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::dead_ends( 500 ), 'title' ), true ), false );
+// NOTHING IS SENT TO IT, AND NOTHING IS WRITTEN INTO IT.
+ok( 'nothing is shortlisted to point at it', DZE_Mesh::shortlist( 'product_cat:13' ), [] );
+// AND IT IS NEVER OFFERED AS A SOURCE. This has to be asserted on a page the
+// shortlist WOULD otherwise offer, or the check passes on broken code: the
+// first version of it named a page that ranks for nothing anyway, went green
+// with the guard deleted, and proved precisely nothing.
+ok( 'the article is a source to begin with',
+	in_array( 'post:21', wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:12' ), 'key' ), true ), true );
+DZE_Mesh::set_aside_write( 'post:21', true );
+ok( 'set aside, it is never offered as a source',
+	in_array( 'post:21', wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:12' ), 'key' ), true ), false );
+DZE_Mesh::set_aside_write( 'post:21', false );
+// THE LINKS IT ALREADY CARRIES STILL COUNT. Dropping its edges would turn the
+// pages it points at into orphans they are not — a figure made worse by a
+// decision that was meant to tidy the list.
+ok( "the pages it points at keep their inbound",
+	(int) ( DZE_Mesh::census()['per']['product_cat:11']['in'] ?? -1 ), (int) ( $per['product_cat:11']['in'] ?? -2 ) );
+// AND THE POOL THE CATEGORY PANEL OFFERS ASKS THE SAME LIST — never a second
+// one of its own, and never from behind a six-hour cache, or a page set aside
+// this morning goes on being offered until tonight.
+DZE_Mesh::set_aside_write( 'product_cat:13', false );
+delete_transient( 'dze_cc_pages_x' );
+$dze_pool_all = wp_list_pluck( DZE_Category_Content::page_index( true ), 'title' );
+ok( 'the pool offers the page to begin with', in_array( 'Boonie hat sizing', $dze_pool_all, true ), true );
+DZE_Mesh::set_aside_write( 'post:21', true );
+$dze_pool_now = wp_list_pluck( DZE_Category_Content::page_index(), 'title' );
+ok( 'set aside, the pool stops offering it', in_array( 'Boonie hat sizing', $dze_pool_now, true ), false );
+ok( 'without the cache having been thrown away',
+	is_array( get_transient( 'dze_cc_pages_x' ) ), true );
+// PUT BACK IS THE SAME BUTTON, THE OTHER WAY ROUND.
+DZE_Mesh::set_aside_write( 'post:21', false );
+ok( 'put back, it is offered again',
+	in_array( 'Boonie hat sizing', wp_list_pluck( DZE_Category_Content::page_index(), 'title' ), true ), true );
+DZE_Mesh::set_aside_write( 'product_cat:13', true );
+ok( 'the gloves are away again',
+	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' ), true ), false );
+DZE_Mesh::set_aside_write( 'product_cat:13', false );
+ok( 'and the orphan list has it back',
+	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' ), true ), true );
+ok( 'with the figure back where it was', DZE_Mesh::orphan_count(), $dze_before );
 
 echo "\nThe tab itself, rendered\n";
 // A SETTINGS TAB THAT DIES TAKES THE WHOLE PAGE WHITE, before any of our own

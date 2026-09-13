@@ -168,6 +168,11 @@ $GLOBALS['posts'] = [
 	21 => [ 'type' => 'post', 'title' => 'Boonie hat sizing',                 'content' => '<p>' . str_repeat( 'a hat word ', 90 ) . '</p>' ],
 	23 => [ 'type' => 'page', 'title' => 'Workshop history',                  'content' => '' ],
 ];
+
+// THE FAKE SHOP AS DECLARED. A section that empties it to test an empty
+// screen must not leave the next one asserting against nothing — that is how
+// a check passes on a list it never saw.
+$GLOBALS['shop0'] = [ 'terms' => $GLOBALS['terms'], 'posts' => $GLOBALS['posts'] ];
 $GLOBALS['pmeta'] = [ 23 => [ '_elementor_data' => '[{"elType":"widget","settings":{"title":"Since 1998"}}]' ] ];
 $GLOBALS['tmeta'] = [];
 
@@ -432,7 +437,21 @@ function fresh( array $tasks = [] ): void {
 	$GLOBALS['styles']      = [];
 	DZE_Hub::$more_printed  = false;
 	DZE_Queue::$refuse = false;
+	$GLOBALS['terms'] = $GLOBALS['shop0']['terms'];
+	$GLOBALS['posts'] = $GLOBALS['shop0']['posts'];
+	$GLOBALS['opts']['dze_mesh_skip'] = [];
+	delete_transient( 'dze_mesh_pages' );
 	delete_transient( 'dze_auto_survey' );
+}
+
+/** What a handler sent, without ending the request. */
+function sent_of( callable $fn ): array {
+	try {
+		$fn();
+	} catch ( DZE_Json_Sent $e ) {
+		return [ 'ok' => (bool) $e->ok, 'data' => (array) $e->payload ];
+	}
+	return [ 'ok' => false, 'data' => [] ];
 }
 $ON = [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ] ];
 
@@ -1072,6 +1091,76 @@ DZE_Automation::render_orphans();
 ok( 'the graph switched off says so',
 	false !== strpos( (string) ob_get_clean(), 'The link graph is switched off' ), true );
 $GLOBALS['mods'] = [];
+
+echo "\nSetting a page aside, and putting it back\n";
+//
+// "J'espère d'ailleurs que tu ne vas pas me linker des pages comme order
+// tracking et les pages légales ?" The decision is taken on the row where the
+// page is actually SEEN — reading "Refund Policy" in this list is the moment
+// somebody knows it should never be linked to.
+fresh( $ON );
+$GLOBALS['opts']['dze_mesh_skip'] = [];
+DZE_Mesh::scan();
+$dze_rows = DZE_Mesh::orphans( 200 );
+ob_start();
+DZE_Automation::render_orphans();
+$list = (string) ob_get_clean();
+ok( 'every row carries the decision',  substr_count( $list, 'dze-auto-aside' ), count( $dze_rows ) );
+ok( 'the column has its own heading',  substr_count( $list, 'dze-auto-actth' ), 1 );
+ok( 'the button says what it does',    false !== strpos( $list, 'Do not link' ), true );
+// A CONTROL SAYS WHAT WILL HAPPEN, on its own hover — never in a paragraph
+// under it, and including the half that surprises: the links it already
+// carries are not thrown away.
+ok( 'and its hover says the consequence',
+	false !== strpos( $list, 'The links it already carries still count' ), true );
+// NOTHING IS SET ASIDE YET, so there is no list of what was — a fold holding
+// nothing is a fold nobody should have to open.
+ok( 'nothing away, no second list',    false !== strpos( $list, 'dze-auto-asideset' ), false );
+
+// THE PRESS. It goes through the endpoint the screen actually posts to, and
+// the key is checked against the reading rather than parsed.
+$dze_key = $dze_rows[0]['kind'] . ':' . (int) $dze_rows[0]['id'];
+$_POST   = [ 'key' => $dze_key, 'on' => '1' ];
+$dze_ans = sent_of( static function (): void { DZE_Automation::ajax_aside(); } );
+ok( 'the press answers',               (bool) ( $dze_ans['ok'] ?? false ), true );
+ok( 'and the page is set aside',       DZE_Mesh::is_set_aside( $dze_key ), true );
+// EVERY ANSWER CARRIES EVERY FIGURE IT MOVES. Setting one aside changes the
+// count on the task's own line, and a popup redrawing itself over a line still
+// showing the old number is one screen saying two things.
+ok( 'the answer carries the list',     false !== strpos( (string) ( $dze_ans['data']['html'] ?? '' ), 'dze-auto-orphlist' ), true );
+ok( 'and the chips beside it',         false !== strpos( (string) ( $dze_ans['data']['chips'] ?? '' ), 'dze-auto-chips' ), true );
+ok( 'the figure moved with it',
+	1 === preg_match( '/is-orphan[^>]*>.*?' . ( count( $dze_rows ) - 1 ) . '</s', (string) ( $dze_ans['data']['chips'] ?? '' ) ), true );
+
+ob_start();
+DZE_Automation::render_orphans();
+$list = (string) ob_get_clean();
+ok( 'the orphan list is one shorter',  substr_count( $list, 'data-on="1"' ), count( $dze_rows ) - 1 );
+ok( 'and the row is on the other list', substr_count( $list, 'data-on="0"' ), 1 );
+// AND THE WAY BACK IS ON THE SAME SCREEN. Set aside, the page is gone from
+// every list above — so without this there is no screen anywhere able to
+// undo it.
+ok( 'what was put away is listed',     false !== strpos( $list, 'dze-auto-asideset' ), true );
+ok( 'with the way back on its row',    false !== strpos( $list, 'Link it again' ), true );
+ok( 'and the page named in it',        false !== strpos( $list, esc_html( (string) $dze_rows[0]['title'] ) ), true );
+
+// A KEY IS CHECKED AGAINST THE READING. A value typed into the request must
+// not be able to put a row in this option that no page answers to.
+$_POST   = [ 'key' => 'page:999999', 'on' => '1' ];
+$dze_bad = sent_of( static function (): void { DZE_Automation::ajax_aside(); } );
+ok( 'an unknown page is refused',      (bool) ( $dze_bad['ok'] ?? true ), false );
+ok( 'and nothing was written',         isset( DZE_Mesh::set_aside()['page:999999'] ), false );
+
+// PUT BACK IS THE SAME BUTTON, THE OTHER WAY ROUND.
+$_POST = [ 'key' => $dze_key, 'on' => '0' ];
+sent_of( static function (): void { DZE_Automation::ajax_aside(); } );
+ok( 'put back, it is no longer away',  DZE_Mesh::is_set_aside( $dze_key ), false );
+ob_start();
+DZE_Automation::render_orphans();
+$list = (string) ob_get_clean();
+ok( 'and the second list is gone',     false !== strpos( $list, 'dze-auto-asideset' ), false );
+ok( 'with every row back',             substr_count( $list, 'dze-auto-aside' ), count( $dze_rows ) );
+$_POST = [];
 
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.

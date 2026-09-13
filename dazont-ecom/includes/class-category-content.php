@@ -799,6 +799,48 @@ PROMPT;
 		return array_keys( $out );
 	}
 	/**
+	 * PAGES THE SHOP SET ASIDE ARE NEVER OFFERED AS A LINK TARGET.
+	 *
+	 * "J'espère que tu ne vas pas me linker des pages comme order tracking et
+	 * les pages légales." The list lives in `DZE_Mesh`, which owns the link
+	 * graph, and this asks it rather than keeping a second one.
+	 *
+	 * It is applied to what the index HANDS BACK and never inside it, because
+	 * both indexes are kept for six hours: filtered before the cache, a page
+	 * set aside this morning would go on being offered until tonight, and a
+	 * page put back would stay hidden just as long.
+	 *
+	 * @param array<int,array<string,mixed>> $rows
+	 */
+	private static function drop_set_aside( array $rows, string $kind ): array {
+		// NOT GATED ON THE MESH MODULE, deliberately. The list is the SHOP'S
+		// decision about its own pages, not a function of the module that
+		// happens to store it: switching the link graph off to save its
+		// nightly reading would otherwise start offering the refund policy as
+		// a link target again, with nothing anywhere saying why. A module
+		// switched off leaves no trace on a SCREEN; it does not hand back a
+		// choice the owner made.
+		if ( ! class_exists( 'DZE_Mesh' ) ) {
+			return $rows;
+		}
+		$aside = DZE_Mesh::set_aside();
+		if ( ! $aside ) {
+			return $rows;
+		}
+		$out = [];
+		foreach ( $rows as $row ) {
+			// A page row carries its own kind (post or page); a category row
+			// does not, so the caller says which it is handing over.
+			$k = 'pages' === $kind ? ( 'blog post' === (string) ( $row['kind'] ?? '' ) ? 'post' : 'page' ) : 'product_cat';
+			if ( isset( $aside[ $k . ':' . (int) ( $row['id'] ?? 0 ) ] ) ) {
+				continue;
+			}
+			$out[] = $row;
+		}
+		return $out;
+	}
+
+	/**
 	 * Every page of this site that can receive a link, with its title.
 	 *
 	 * The whole site, not a recent slice of it: the pool has to answer "which
@@ -818,7 +860,7 @@ PROMPT;
 		$key    = 'dze_cc_pages_' . ( self::default_lang() ?: 'x' );
 		$cached = $force ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
-			return $cached;
+			return self::drop_set_aside( $cached, 'pages' );
 		}
 		// Pages that exist for the checkout, not for the reader.
 		$skip = array_filter( [
@@ -852,7 +894,7 @@ PROMPT;
 		}
 		global $wpdb;
 		$rows = (array) $wpdb->get_results(
-			"SELECT ID, post_title, post_name, post_type FROM {$wpdb->posts}
+			"SELECT ID, post_title, post_name, post_type, post_content FROM {$wpdb->posts}
 			 WHERE post_status = 'publish' AND post_type IN ('post','page')
 			 ORDER BY ID DESC",
 			ARRAY_A
@@ -861,6 +903,16 @@ PROMPT;
 		foreach ( $rows as $r ) {
 			$id = (int) $r['ID'];
 			if ( in_array( $id, $skip, true ) || '' === trim( (string) $r['post_title'] ) ) {
+				continue;
+			}
+			// AN EMPTY PAGE IS NOWHERE TO SEND A READER. "Les pages vides ou
+			// les brouillons sont à exclure sans discussion." A draft is
+			// already out — the query asks for `publish` — and a page holding
+			// no text is measured on its REAL body, since a page builder keeps
+			// its words in post meta and one read from the post alone looks
+			// empty while being a full page on screen.
+			if ( 0 === str_word_count( wp_strip_all_tags( (string) $r['post_content'] ) )
+				&& ( ! class_exists( 'DZE_Mesh' ) || ! DZE_Mesh::built_with_builder( $id ) ) ) {
 				continue;
 			}
 			// NULL means "do not narrow" — a shop with one language keeps every
@@ -881,7 +933,7 @@ PROMPT;
 			do_action( 'wpml_switch_language', null );
 		}
 		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
-		return $out;
+		return self::drop_set_aside( $out, 'pages' );
 	}
 
 	/** WPML's language for one post, '' when WPML is not active. */
@@ -907,7 +959,7 @@ PROMPT;
 		$key    = 'dze_cc_cats_' . ( self::default_lang() ?: 'x' );
 		$cached = $force ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
-			return $cached;
+			return self::drop_set_aside( $cached, 'cats' );
 		}
 		$lang  = self::default_lang();
 		// The same reading as the pages above, from the same table — and
@@ -931,7 +983,7 @@ PROMPT;
 			}
 		}
 		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
-		return $out;
+		return self::drop_set_aside( $out, 'cats' );
 	}
 
 	/**

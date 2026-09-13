@@ -1271,6 +1271,56 @@ whose screen has not been thought through yet.
     second account of the same figure. The browser gate presses the REAL
     markup, BEFORE any other press replaces the chips with the harness's own
     strings — a gate pressing a fake button proves nothing.
+  - **WHAT IS NOT WORTH LINKING IS NOT A BUG IN THE COUNT — it is a decision,
+    and a rule.** Reading the 213 back, two different things were wrong with
+    it. Some pages must never be linked because the SHOP says so — "j'espère
+    que tu ne vas pas me linker des pages comme order tracking et les pages
+    légales" — and some must never be linked because nothing could: "les pages
+    vides ou les brouillons sont à exclure sans discussion".
+    - **A DRAFT AND AN EMPTY PAGE ARE NOT PAGES OF THE MESH**, the way the
+      cart and the checkout already were not: nowhere to send a reader, and
+      nowhere to write a sentence. Both are dropped in `pages()` and in
+      `DZE_Category_Content::page_index()`, which is the pool the panel
+      offers, or the graph is right and the panel goes on suggesting them.
+      Empty is measured on the page's REAL body — a builder keeps its words
+      in post meta, so a page empty in the post can be a full page on screen,
+      and measuring `post_content` alone is the builder trap for the fourth
+      time. The gate is red on both halves, and its `$wpdb` stub honours
+      `post_status`, because a harness that serves drafts as published cannot
+      be red on a draft.
+    - **"DO NOT LINK" IS THE OWNER'S, AND IT SAYS WHAT IT MEANS IN ONE
+      SENTENCE**: nothing is written into the page, and nothing is asked to
+      point at it — the links it ALREADY carries still count for the pages
+      they point at. Dropping those edges would turn its neighbours into
+      orphans they are not, which is a figure made worse by a decision meant
+      to tidy it. The decision is taken ON THE ROW, in the popup where the
+      page is actually seen, and the same button the other way round puts it
+      back — set aside, the page is gone from every list, so without that
+      there is no screen anywhere able to undo it.
+    - **ONE GUARD PER QUESTION, NOT ONE PER LIST.** Every "which page needs
+      work" question comes through `ranked()`, so that is where the test
+      lives — orphans, dead ends, pages short of inbound links, pages under
+      their outgoing quota, and whatever is added next year. `shortlist()`
+      holds the other two: never a target, never a source. And `count_from()`
+      is the ONE place that decides what the figures count, called by the
+      reading and by `recount()` alike, so setting a page aside moves the
+      chip at once instead of tomorrow.
+    - **THE LIST IS NOT GATED ON THE MODULE.** It is the shop's decision about
+      its own pages, not a function of the module that stores it: switching
+      the link graph off to save its nightly reading must not start offering
+      the refund policy as a target again with nothing saying why. A module
+      switched off leaves no trace on a SCREEN; it does not hand back a choice
+      the owner made.
+    - **A CHECK THAT PASSES ON BROKEN CODE IS WORSE THAN NONE.** "It is never
+      offered as a source" was asserted on a page the shortlist ranks for
+      nothing anyway: it went green with the guard deleted. Assert a guard on
+      an input the guard actually sees — and a browser recorder reads the
+      fields a press sends BY NAME, so a key it does not know comes back null
+      and the check fails for the harness's reasons rather than the plugin's.
+    - **A HARNESS SECTION THAT EMPTIES THE FAKE SHOP PUTS IT BACK.** The
+      section testing an empty screen left the next one asserting against
+      nothing, and "every row carries the decision" passed as 0 === 0.
+      `fresh()` restores it.
   And the harness must let the register be written: `update_term_meta()` and
   `update_post_meta()` stubbed to `return true` threw the write away, so the
   month-long cooldown — the thing that stops a page being worked on twice —
