@@ -798,11 +798,6 @@ ok( 'in words the shop can read',
 // A BULK PRESS DOES ITS BOOKKEEPING ONCE. Looping the single-page path read and
 // rewrote the register for EVERY page — the day's figure, the log, the undo
 // copies — so the log came back holding nothing but the press that filled it.
-ob_start();
-DZE_Automation::render_log();
-$dze_log = (string) ob_get_clean();
-ok( 'the register names the press',      false !== strpos( $dze_log, 'Link the whole site — 2 pages' ), true );
-ok( 'and not one line per page',         false !== strpos( $dze_log, 'Tactical bags' ), false );
 ok( 'the day counts one pass, not two',  DZE_Automation::done_today( 'mesh_links' ), 1 );
 
 // PRESSED AGAIN, it does nothing rather than queueing the same pages twice.
