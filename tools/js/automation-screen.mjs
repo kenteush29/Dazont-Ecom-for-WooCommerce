@@ -165,6 +165,17 @@ for ( const [ label, jq ] of jqs ) {
 			words: blocks.map( b => b.innerText.replace( /\s+/g, ' ' ).trim() ).join( ' ' ).length
 		};
 	} );
+	// ONE SUBJECT, TWO VIEWS, WORDPRESS'S OWN TABS — and the work is the one
+	// that opens. "Ce bloc est inutile. Sinon crée un nouvel onglet."
+	const strip = await page.evaluate( () => ( {
+		tabs: Array.from( document.querySelectorAll( '.nav-tab' ) ).map( a => a.textContent.trim() ),
+		here: ( document.querySelector( '.nav-tab-active' ) || {} ).textContent || '',
+		diary: !! document.querySelector( '.dze-auto-log' )
+	} ) );
+	ok( 'the screen has its two views',     strip.tabs, [ 'Tasks', 'Past work' ] );
+	ok( 'and the work is the one showing',  strip.here.trim(), 'Tasks' );
+	ok( 'no diary folded under the work',   strip.diary, false );
+
 	ok( 'three tasks, three blocks',        shut.n, 3 );
 	ok( 'and every one of them shut',       shut.open, 0 );
 	ok( 'each reading as one line',         shut.heights.every( h => h <= 60 ), true );
@@ -196,7 +207,7 @@ for ( const [ label, jq ] of jqs ) {
 	// THE FIGURE FOR THE PAGES NOTHING POINTS AT sits on the task that is the
 	// only thing that mends them, and says so on its own hover.
 	ok( 'and the orphan figure says whose work it is',
-		( chips.titles || [] )[1] || '', 'Pages nothing points at. This is the only pass that mends them, a few a day.' );
+		( chips.titles || [] )[1] || '', 'Pages no other page links to in its text — menus and breadcrumbs do not count. This is the only pass that mends them, a few a day.' );
 	ok( 'each one carrying its own word',   chips.titled, true );
 	ok( 'and all of them on one line',      chips.oneLine, true );
 	// A TASK THAT IS OFF SAYS ONLY THAT.

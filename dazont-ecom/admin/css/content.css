@@ -548,7 +548,10 @@
 .dze-auto-next { margin: 8px 0 0; }
 .dze-auto-why { color: #a7aaad; }
 .dze-auto-blocked { color: #b32d2e; }
-.dze-auto-log ul { margin: 0; }
+.dze-auto-past { margin-top: 4px; }
+.dze-auto-past .dze-auto-whenth, .dze-auto-past .dze-auto-when { width: 150px; white-space: nowrap; }
+.dze-auto-past .dze-auto-actth,  .dze-auto-past .dze-auto-act  { width: 130px; white-space: nowrap; }
+.dze-auto-past .dze-auto-msg { font-size: 12px; }
 
 /* One card per prompt: shut, one line each, open the one you are working on. */
 .dze-pr-grouphead { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #646970; margin: 16px 0 6px; }

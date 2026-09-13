@@ -424,7 +424,7 @@ ok( 'and it is the same one orphans() lists', $dze_orph, count( DZE_Mesh::orphan
 // THE READING SAYS IT, where the reading is stated: one option read, so it
 // costs nothing to answer wherever it belongs.
 ok( 'the reading states it in words',
-	false !== strpos( DZE_Mesh::read_said(), $dze_orph . ' pointed at by nothing' ), true );
+	false !== strpos( DZE_Mesh::read_said(), $dze_orph . " not linked from any page's text" ), true );
 // A SITE NOT READ YET ANSWERS NULL, NEVER 0. "Nobody points at anything" and
 // "nothing has been counted" are different answers, and a nought printed for
 // the second is a figure nobody counted.

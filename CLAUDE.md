@@ -1258,6 +1258,38 @@ whose screen has not been thought through yet.
   month-long cooldown — the thing that stops a page being worked on twice —
   could not be exercised at all, and a second press looked identical to the
   first.
+- **WHAT IT HAS DONE IS A RECORD, NOT A FOLD UNDER THE WORK.** "Maintenant que
+  To review est là, ce bloc est inutile. Sinon crée un nouvel onglet dans ce
+  module automation, 'past work', pour recenser tous les travaux publiés." The
+  Automation screen wears WordPress's own tabs now — **Tasks** and **Past
+  work** — declared in one place (`tabs()`), with `tab_now()` split from the
+  render so it can be exercised. Three rules: the record is the QUEUE'S applied
+  rows narrowed to the kinds these tasks queue (`applied_rows( $limit, $kinds )`
+  — one reader, never a store of our own beside it), so it holds everything
+  published rather than the last dozen; the undo is offered only on the rows
+  where the pass still holds the text it replaced, because a control that
+  cannot act is a control nobody trusts; and the screen's script is printed
+  ONCE for the page rather than under each body, since the undo lives on one
+  view and the run buttons on the other. `render_log()` went with the fold: a
+  renderer no screen calls is dead code, and two lists of the same work is what
+  he asked to be rid of.
+- **A RUN CAN MOVE WHAT IS WAITING, so the run's answer redraws it.** The
+  calendar task's suggestions are counted in the To review list, and pressing
+  "Run one now" refreshed the chip on the line and left the list beneath it a
+  page behind: "à l'écran aucune mise à jour, il faut rafraîchir la page à la
+  main". Every answer that can move a figure carries every figure it can move —
+  `chips`, `waiting`, `past` — from one `waiting_html()`, never a second
+  rendering beside it.
+- **A COUNT IS AN ANSWER TO A QUESTION, AND A LARGE FIGURE MUST SAY WHICH
+  QUESTION.** "Pages nothing points at: 213. WOW c'est énorme. Littéralement
+  impossible." It was not impossible and not WPML: this graph is made of links
+  written in a TEXT — a category's description, an article's body, a builder's
+  own data — and **a menu is not a link here**, nor a breadcrumb, nor a shop
+  archive listing its children. A page reachable from every page of the site is
+  counted the moment no text points at it, which on a shop is most categories.
+  The figure was right and the words were alarming, so the words changed: "not
+  linked from any page's text", and the chip's hover says menus and breadcrumbs
+  do not count. A figure nobody believes is a figure nobody uses.
 - **A HARNESS THAT LOADS THE STYLESHEET ITSELF CANNOT SEE A SCREEN THAT NEVER
   ASKS FOR IT.** The Automation screen shipped with chips, folds and coloured
   states and enqueued **no stylesheet at all** — nothing anywhere called for

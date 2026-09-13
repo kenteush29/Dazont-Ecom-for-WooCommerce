@@ -98,8 +98,39 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_catchup', [ __CLASS__, 'ajax_catchup' ] );
 	}
 
-	public static function page_url(): string {
-		return add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) );
+	public static function page_url( string $tab = '' ): string {
+		$args = [ 'page' => self::MENU_SLUG ];
+		if ( '' !== $tab && 'work' !== $tab ) {
+			$args['tab'] = $tab;
+		}
+		return add_query_arg( $args, admin_url( 'admin.php' ) );
+	}
+
+	/**
+	 * ONE SUBJECT, SEVERAL VIEWS, WORDPRESS'S OWN TABS.
+	 *
+	 * "Maintenant que To review est là, ce bloc est inutile. Sinon crée un
+	 * nouvel onglet dans ce module automation, 'past work' ou un truc comme
+	 * ça, pour recenser tous les travaux publiés gérés par le module."
+	 *
+	 * What runs and what it left is one view; what has actually gone onto the
+	 * shop is another, and it is a record rather than a fold at the bottom of
+	 * the work. Declared here, in one place, so the strip and the body can
+	 * never disagree about which views exist.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function tabs(): array {
+		return [
+			'work' => __( 'Tasks', 'dazont-ecom' ),
+			'past' => __( 'Past work', 'dazont-ecom' ),
+		];
+	}
+
+	/** Which view is being asked for — always one that exists. */
+	public static function tab_now( array $get ): string {
+		$want = isset( $get['tab'] ) ? sanitize_key( (string) $get['tab'] ) : '';
+		return isset( self::tabs()[ $want ] ) ? $want : 'work';
 	}
 
 	public static function register_menu(): void {
@@ -117,8 +148,28 @@ final class DZE_Automation {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
+		$now = self::tab_now( (array) $_GET );
 		echo '<div class="wrap dze-wrap"><h1>' . esc_html__( 'Automation', 'dazont-ecom' ) . '</h1>';
-		self::render_settings();
+		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
+		foreach ( self::tabs() as $key => $label ) {
+			printf(
+				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
+				$key === $now ? ' nav-tab-active' : '',
+				esc_url( self::page_url( $key ) ),
+				esc_html( $label )
+			);
+		}
+		echo '</h2>';
+		if ( 'past' === $now ) {
+			self::render_past();
+		} else {
+			self::render_settings();
+		}
+		// ONE SCRIPT FOR THE SCREEN, not one per body: the undo lives on the
+		// record and the run buttons on the tasks, and a handler written twice
+		// is two handlers to keep in step.
+		self::render_assets();
 		echo '</div>';
 	}
 
@@ -1332,7 +1383,7 @@ final class DZE_Automation {
 					'is-orphan',
 					'editor-unlink',
 					number_format_i18n( $orph ),
-					__( 'Pages nothing points at. This is the only pass that mends them, a few a day.', 'dazont-ecom' )
+					__( 'Pages no other page links to in its text — menus and breadcrumbs do not count. This is the only pass that mends them, a few a day.', 'dazont-ecom' )
 				);
 			}
 		}
@@ -1447,7 +1498,7 @@ final class DZE_Automation {
 							<?php // THE CATCH-UP, ONCE: every page that is short of its own links,
 								// so the daily pass afterwards is maintenance and not a backlog. ?>
 							<button type="button" class="button dze-auto-catchup" data-task="<?php echo esc_attr( $id ); ?>"
-								title="<?php esc_attr_e( 'Fills the outgoing links of every page under its own quota, a few hundred per press. Pages nothing points at are mended by the daily pass instead. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>"
+								title="<?php esc_attr_e( 'Fills the outgoing links of every page under its own quota, a few hundred per press. The pages no text links to are left to the daily pass. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>"
 								<?php disabled( ! $ready ); ?>><?php esc_html_e( 'Link the whole site', 'dazont-ecom' ); ?></button>
 						<?php endif; ?>
 						<span class="dze-auto-msg"></span>
@@ -1472,11 +1523,6 @@ final class DZE_Automation {
 		?>
 		<h2 class="dze-auto-h2"><?php esc_html_e( 'To review', 'dazont-ecom' ); ?></h2>
 		<div id="dze-auto-waiting"><?php self::render_waiting(); ?></div>
-
-		<details class="dze-set dze-auto-log">
-			<summary><?php esc_html_e( 'What it has done', 'dazont-ecom' ); ?></summary>
-			<div id="dze-auto-log"><?php self::render_log(); ?></div>
-		</details>
 		<?php
 		// The popup those three controls open, printed by the module that owns
 		// it — and only where something is actually waiting to be decided.
@@ -1491,6 +1537,19 @@ final class DZE_Automation {
 		DZE_Hub::more_assets( $more );
 		?>
 		</div>
+		<?php
+	}
+
+	/**
+	 * The one script this screen runs, whichever view is showing.
+	 *
+	 * Every handler is delegated, so it costs nothing on a tab where its
+	 * control is not drawn — and there is ONE `post()` rather than a copy of
+	 * it under each body, which is how two buttons that look the same start
+	 * answering differently.
+	 */
+	public static function render_assets(): void {
+		?>
 		<script>
 		jQuery( function ( $ ) {
 			function post( action, extra, $btn, $msg ) {
@@ -1509,7 +1568,11 @@ final class DZE_Automation {
 					if ( d.chips && d.task ) {
 						$( '.dze-auto-chips[data-task="' + d.task + '"]' ).replaceWith( d.chips );
 					}
-					if ( d.log ) { $( '#dze-auto-log' ).html( d.log ); }
+					// A RUN CAN MOVE WHAT IS WAITING — the calendar's own
+					// suggestions are counted there — so the list is redrawn
+					// with the line above it rather than left a page behind.
+					if ( undefined !== d.waiting ) { $( '#dze-auto-waiting' ).html( d.waiting ); }
+					if ( d.past ) { $( '#dze-auto-past' ).html( d.past ); }
 					// Nothing happening is an answer too, and it says which one.
 					if ( d.message ) { $msg.text( d.message ).css( 'color', d.queued ? '#0a7040' : '#646970' ); }
 				} ).fail( function () { $btn.prop( 'disabled', false ); } );
@@ -1536,7 +1599,7 @@ final class DZE_Automation {
 							$( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( html );
 						} );
 						if ( undefined !== d.waiting ) { $( '#dze-auto-waiting' ).html( d.waiting ); }
-						if ( d.log ) { $( '#dze-auto-log' ).html( d.log ); }
+						if ( d.past ) { $( '#dze-auto-past' ).html( d.past ); }
 					} );
 			} );
 			$( document ).on( 'click', '.dze-auto-undo', function () {
@@ -1686,41 +1749,6 @@ final class DZE_Automation {
 		return (string) get_edit_term_link( $oid, 'product_cat' );
 	}
 
-	public static function render_log(): void {
-		$log = (array) ( self::state()['log'] ?? [] );
-		if ( ! $log ) {
-			echo '<p class="description">' . esc_html__( 'Nothing has been done yet.', 'dazont-ecom' ) . '</p>';
-			return;
-		}
-		$tasks = self::tasks();
-		echo '<ul style="margin:0;">';
-		foreach ( $log as $row ) {
-			$oid  = (int) ( $row['tid'] ?? 0 );
-			$id   = (string) ( $row['task'] ?? '' );
-			$what = (string) ( $row['what'] ?? 'term' );
-			$und  = ! empty( $row['undone'] );
-			$can  = ! $und && $oid && '' !== trim( self::copy_of( $oid, $what ) );
-			$url  = self::edit_url( 'post' === $what ? 'post' : 'category', $oid );
-			$name = esc_html( (string) ( $row['name'] ?? '' ) );
-			echo '<li style="margin:0 0 5px;">';
-			echo '<strong>' . esc_html( (string) ( $tasks[ $id ]['label'] ?? $id ) ) . '</strong> · ';
-			echo '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a> ' : $name . ' ';
-			echo '<span class="description">';
-			printf(
-				/* translators: %s: how long ago */
-				esc_html__( '%s ago', 'dazont-ecom' ),
-				esc_html( human_time_diff( (int) ( $row['at'] ?? time() ), time() ) )
-			);
-			echo ' · ' . esc_html( self::outcome( $row ) );
-			echo '</span>';
-			if ( $can ) {
-				echo ' <button type="button" class="button-link dze-auto-undo" data-term="' . esc_attr( (string) $oid ) . '" data-what="' . esc_attr( $what ) . '">&#8634; ' . esc_html__( 'Undo', 'dazont-ecom' ) . '</button>';
-			}
-			echo ' <span class="dze-auto-msg" style="font-size:12px;"></span>';
-			echo '</li>';
-		}
-		echo '</ul>';
-	}
 
 	/**
 	 * What became of one pass, read from the shop as it stands now rather than
@@ -1807,10 +1835,96 @@ final class DZE_Automation {
 		return (string) ob_get_clean();
 	}
 
-	private static function log_html(): string {
+	private static function waiting_html(): string {
 		ob_start();
-		self::render_log();
+		self::render_waiting();
 		return (string) ob_get_clean();
+	}
+
+	private static function past_html(): string {
+		ob_start();
+		self::render_past();
+		return (string) ob_get_clean();
+	}
+
+	/**
+	 * How many pieces of work these passes have PUBLISHED.
+	 *
+	 * Read from the queue's applied rows — the durable record that a page was
+	 * written and somebody said yes — narrowed to the kinds these tasks queue.
+	 * Never a store of our own beside it: two accounts of one thing disagree.
+	 *
+	 * @return array<int,array{kind:string,object_id:int,when:int,by:int,from:int}>
+	 */
+	public static function past( int $limit = 200 ): array {
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			return [];
+		}
+		$kinds = [];
+		foreach ( self::tasks() as $task ) {
+			foreach ( (array) ( $task['jobs'] ?? [] ) as $k ) {
+				$kinds[ (string) $k ] = true;
+			}
+		}
+		return $kinds ? DZE_Queue::applied_rows( $limit, array_keys( $kinds ) ) : [];
+	}
+
+	/**
+	 * THE RECORD OF WHAT WENT OUT — its own view, not a fold under the work.
+	 *
+	 * "Maintenant que To review est là, ce bloc est inutile. Sinon crée un
+	 * nouvel onglet… pour recenser tous les travaux publiés gérés par le
+	 * module automation."
+	 *
+	 * One line per page written, newest first, with the date, who asked for
+	 * the work and who accepted it — and the undo where the pass still holds
+	 * the text it replaced.
+	 */
+	public static function render_past(): void {
+		$rows = self::past();
+		if ( ! $rows ) {
+			echo '<div class="dze-admin dze-auto"><p class="description">'
+				. esc_html__( 'Nothing has been written to the shop by these passes yet.', 'dazont-ecom' )
+				. '</p></div>';
+			return;
+		}
+		$kinds = class_exists( 'DZE_Queue' ) ? DZE_Queue::kinds() : [];
+		echo '<div class="dze-admin dze-auto"><table class="wp-list-table widefat fixed striped dze-auto-past">';
+		echo '<thead><tr>';
+		echo '<th>' . esc_html__( 'Page', 'dazont-ecom' ) . '</th>';
+		echo wp_kses_post( DZE_Hub::id_th() );
+		echo '<th>' . esc_html__( 'Job', 'dazont-ecom' ) . '</th>';
+		echo '<th>' . esc_html__( 'Started by', 'dazont-ecom' ) . '</th>';
+		echo '<th>' . esc_html__( 'Accepted by', 'dazont-ecom' ) . '</th>';
+		echo '<th class="dze-auto-whenth">' . esc_html__( 'When', 'dazont-ecom' ) . '</th>';
+		echo '<th class="dze-auto-actth">' . esc_html__( 'Action', 'dazont-ecom' ) . '</th>';
+		echo '</tr></thead><tbody>';
+		foreach ( $rows as $row ) {
+			$kind = (string) $row['kind'];
+			$oid  = (int) $row['object_id'];
+			$what = 0 === strpos( $kind, 'cat_' ) ? 'term' : 'post';
+			$url  = self::edit_url( 'term' === $what ? 'category' : 'post', $oid );
+			$name = esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::label_for( $kind, $oid ) : (string) $oid );
+			// THE UNDO IS OFFERED WHERE IT CAN ACT: the pass keeps the text it
+			// replaced only for what it saved without review, and only while
+			// that pass is still in its own register.
+			$can  = $oid && '' !== trim( self::copy_of( $oid, $what ) );
+			echo '<tr>';
+			echo '<td><strong>' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name ) . '</strong></td>';
+			echo wp_kses_post( DZE_Hub::id_td( $oid ) );
+			echo '<td>' . esc_html( (string) ( $kinds[ $kind ]['label'] ?? $kind ) ) . '</td>';
+			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $row['from'] ) : '' ) . '</td>';
+			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::decided_by( (int) $row['by'] ) : '' ) . '</td>';
+			echo '<td class="dze-auto-when">' . esc_html( date_i18n( (string) get_option( 'date_format' ) . ' ' . (string) get_option( 'time_format' ), (int) $row['when'] ) ) . '</td>';
+			echo '<td class="dze-auto-act">';
+			if ( $can ) {
+				echo '<button type="button" class="button button-small dze-auto-undo" data-term="' . esc_attr( (string) $oid )
+					. '" data-what="' . esc_attr( $what ) . '">&#8634; ' . esc_html__( 'Undo', 'dazont-ecom' ) . '</button> ';
+			}
+			echo '<span class="dze-auto-msg"></span>';
+			echo '</td></tr>';
+		}
+		echo '</tbody></table></div>';
 	}
 
 	public static function ajax_run(): void {
@@ -1828,7 +1942,8 @@ final class DZE_Automation {
 			'message' => self::reason_text( (string) $res['reason'] ),
 			'state'   => self::block( $id ),
 			'chips'   => self::chips_html( $id ),
-			'log'     => self::log_html(),
+			'waiting' => self::waiting_html(),
+			'past'    => self::past_html(),
 		] );
 	}
 
@@ -1854,7 +1969,8 @@ final class DZE_Automation {
 			'message' => self::catch_up_said( $res ),
 			'state'   => self::block( $id ),
 			'chips'   => self::chips_html( $id ),
-			'log'     => self::log_html(),
+			'waiting' => self::waiting_html(),
+			'past'    => self::past_html(),
 		] );
 	}
 
@@ -1890,12 +2006,10 @@ final class DZE_Automation {
 		foreach ( array_keys( self::tasks() ) as $id ) {
 			$chips[ $id ] = self::chips_html( $id );
 		}
-		ob_start();
-		self::render_waiting();
 		wp_send_json_success( [
 			'chips'   => $chips,
-			'waiting' => (string) ob_get_clean(),
-			'log'     => self::log_html(),
+			'waiting' => self::waiting_html(),
+			'past'    => self::past_html(),
 		] );
 	}
 
@@ -1906,12 +2020,12 @@ final class DZE_Automation {
 		if ( ! $tid || ! self::undo( $tid, 'post' === $what ? 'post' : 'term' ) ) {
 			wp_send_json_error( [
 				'message' => __( 'Nothing to put back on this category.', 'dazont-ecom' ),
-				'log'     => self::log_html(),
+				'past'    => self::past_html(),
 			] );
 		}
 		wp_send_json_success( [
 			'message' => __( 'Put back.', 'dazont-ecom' ),
-			'log'     => self::log_html(),
+			'past'    => self::past_html(),
 		] );
 	}
 }

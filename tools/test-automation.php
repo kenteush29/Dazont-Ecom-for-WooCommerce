@@ -306,6 +306,25 @@ class DZE_Queue {
 		return $n;
 	}
 	public static function url( array $args = [] ): string { return 'https://kula.test/wp-admin/admin.php?page=dazont-ecom-diagnostic&tab=review'; }
+	/** The durable record of what was written and accepted, per kind. */
+	public static function applied_rows( int $limit = 200, array $kinds = [] ): array {
+		$out = [];
+		foreach ( (array) ( $GLOBALS['applied_rows'] ?? [] ) as $r ) {
+			if ( $kinds && ! in_array( (string) $r['kind'], $kinds, true ) ) { continue; }
+			$out[] = $r;
+		}
+		return array_slice( $out, 0, max( 1, $limit ) );
+	}
+	public static function kinds(): array {
+		return [
+			'cat_links'  => [ 'label' => 'Category internal links' ],
+			'post_links' => [ 'label' => 'Article internal links' ],
+			'cat_desc'   => [ 'label' => 'Category description' ],
+		];
+	}
+	public static function label_for( string $kind, int $oid ): string { return (string) ( $GLOBALS['names'][ $oid ] ?? ( '#' . $oid ) ); }
+	public static function started_by( int $u ): string { return $u ? 'Marie Dupont-Lefevre' : 'Automatic'; }
+	public static function decided_by( int $u ): string { return $u ? 'Marie Dupont-Lefevre' : ''; }
 	/** WHICH jobs are waiting, in the shape the real reader answers with. */
 	public static function review_rows_for( array $kinds, int $limit = 10 ): array {
 		$out = [];
@@ -376,7 +395,7 @@ if ( in_array( '--dump-automation', (array) $argv, true ) ) {
 	];
 	DZE_Mesh::scan();
 	ob_start();
-	DZE_Automation::render_settings();
+	DZE_Automation::render_page();
 	// The figure the REAL census counted on this fake shop, handed over beside
 	// the markup: the browser then asserts that what was counted is what the
 	// chip prints, rather than a number typed into two files.
@@ -409,6 +428,7 @@ function fresh( array $tasks = [] ): void {
 	DZE_Queue::$added  = [];
 	DZE_Queue::$assets = 0;
 	$GLOBALS['review_rows'] = [];
+	$GLOBALS['applied_rows'] = [];
 	$GLOBALS['styles']      = [];
 	DZE_Hub::$more_printed  = false;
 	DZE_Queue::$refuse = false;
@@ -561,8 +581,9 @@ ok( 'each one can be run by hand',     substr_count( $html, 'dze-auto-run' ) >= 
 ok( 'each task is a block of its own', substr_count( $html, '<details class="dze-set dze-auto-task">' ), 3 );
 ok( 'shut until it is opened',         false !== strpos( $html, 'dze-auto-task" open' ), false );
 ok( 'and its figures are on the line', substr_count( $html, '<span class="dze-auto-chips"' ), 3 );
-// The log is a block too, and it is shut: it is the last thing anybody opens.
-ok( 'what it has done is a block too', false !== strpos( $html, 'dze-auto-log' ), true );
+// WHAT IT HAS DONE IS NOT A FOLD UNDER THE WORK: "maintenant que To review est
+// là, ce bloc est inutile". It is a view of its own.
+ok( 'no diary folded under the work', false !== strpos( $html, 'dze-auto-log' ), false );
 // THE WHOLE TOOL RESTS ON THIS LIST, so it is shown and not described: the
 // pages it would take next, each with what it is short of.
 ob_start();
@@ -681,7 +702,10 @@ DZE_Automation::render_page();
 $page = (string) ob_get_clean();
 ok( 'the page draws its own heading',  false !== strpos( $page, '<h1>Automation</h1>' ), true );
 ok( 'with the tasks on it',            substr_count( $page, 'class="dze-auto-state"' ), 3 );
-ok( 'and what it has done',            false !== strpos( $page, 'What it has done' ), true );
+ok( 'with the strip of views on it',   substr_count( $page, '<a class="nav-tab' ), 2 );
+ok( 'the work first, and it is the one showing',
+	1 === preg_match( '/nav-tab nav-tab-active[^>]*>Tasks</', $page ), true );
+ok( 'and the record beside it',        false !== strpos( $page, '>Past work<' ), true );
 // AN ADDRESS THAT USED TO LAND STILL LANDS: a bookmark on the old settings tab
 // must not end on a tab that no longer exists.
 ok( 'the old settings address is sent here',
@@ -857,7 +881,7 @@ try {
 ok( 'the answer carries every task\'s line', array_keys( (array) ( $sent['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
 ok( 'each one its own',                  false !== strpos( (string) ( $sent['chips']['mesh_links'] ?? '' ), 'data-task="mesh_links"' ), true );
 ok( 'and the one list beside them',      substr_count( (string) ( $sent['waiting'] ?? '' ), 'class="dze-auto-job"' ), 3 );
-ok( 'and what became of the last pass',  array_key_exists( 'log', (array) $sent ), true );
+ok( 'and what became of the last pass',  array_key_exists( 'past', (array) $sent ), true );
 
 echo "\nThe pages nothing points at, beside the pass that mends them\n";
 //
@@ -895,7 +919,88 @@ $screen = (string) ob_get_clean();
 ok( 'the catch-up says what it fills',
 	false !== strpos( $screen, 'Fills the outgoing links of every page under its own quota' ), true );
 ok( 'and what it does not',
-	false !== strpos( $screen, 'Pages nothing points at are mended by the daily pass instead' ), true );
+	false !== strpos( $screen, 'The pages no text links to are left to the daily pass' ), true );
+
+echo "\nPast work: what these passes actually published\n";
+//
+// "Maintenant que To review est là, ce bloc est inutile. Sinon crée un nouvel
+// onglet dans ce module automation, 'past work' ou un truc comme ça, pour
+// recenser tous les travaux publiés gérés par le module automation."
+fresh( $ON );
+$GLOBALS['names'] = [ 6223 => 'Tactical backpack covers', 987632358 => 'The sniper role', 77 => 'Boonie hats' ];
+$GLOBALS['applied_rows'] = [
+	[ 'kind' => 'cat_links',  'object_id' => 6223,      'when' => time() - 3600, 'by' => 0, 'from' => 0 ],
+	[ 'kind' => 'post_links', 'object_id' => 987632358, 'when' => time() - 7200, 'by' => 7, 'from' => 7 ],
+	[ 'kind' => 'cat_desc',   'object_id' => 77,        'when' => time() - 9000, 'by' => 7, 'from' => 0 ],
+	// Another pass's work entirely: a photograph is not this module's business.
+	[ 'kind' => 'product_shot', 'object_id' => 12,      'when' => time() - 100,  'by' => 7, 'from' => 7 ],
+];
+$dze_past = DZE_Automation::past();
+// IT IS THE QUEUE'S OWN RECORD, narrowed to the kinds these tasks queue —
+// never a second store beside it.
+ok( 'it holds what these passes wrote',  count( $dze_past ), 3 );
+ok( 'and nothing another pass wrote',
+	in_array( 'product_shot', array_column( $dze_past, 'kind' ), true ), false );
+
+ob_start();
+DZE_Automation::render_past();
+$past = (string) ob_get_clean();
+ok( 'every page it wrote is named',      false !== strpos( $past, 'Tactical backpack covers' ), true );
+ok( 'the article among them',            false !== strpos( $past, 'The sniper role' ), true );
+// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID, in a column of its own, and
+// the heading and the cell are asserted TOGETHER.
+ok( 'the id has its own heading',        substr_count( $past, 'dze-objid-th' ), 1 );
+ok( 'and its own cell per row',          substr_count( $past, 'dze-objid-td' ), 3 );
+ok( 'carrying the object id',            1 === preg_match( '/class="dze-objid"[^>]*>6223</', $past ), true );
+// WHO ASKED, AND WHO ACCEPTED: 0 asked for is the pass itself; 0 accepted by
+// has nobody to name and stays silent.
+ok( 'a pass names itself as the origin', false !== strpos( $past, 'Automatic' ), true );
+ok( 'and a person is named',             false !== strpos( $past, 'Marie Dupont-Lefevre' ), true );
+ok( 'the job is said in words',          false !== strpos( $past, 'Category internal links' ), true );
+
+// THE UNDO IS OFFERED WHERE IT CAN ACT, and nowhere else: the pass keeps the
+// text it replaced only for what it saved without review.
+ok( 'no copy kept, no undo offered',     false !== strpos( $past, 'dze-auto-undo' ), false );
+$GLOBALS['tmeta'][6223][ DZE_Automation::META_PREV ] = '<p>What was there before.</p>';
+ob_start();
+DZE_Automation::render_past();
+$past2 = (string) ob_get_clean();
+ok( 'a copy kept, the undo is there',    false !== strpos( $past2, 'dze-auto-undo" data-term="6223"' ), true );
+ok( 'and only on that row',              substr_count( $past2, 'dze-auto-undo' ), 1 );
+
+// AN EMPTY RECORD SAYS WHICH EMPTY IT IS.
+$GLOBALS['applied_rows'] = [];
+ob_start();
+DZE_Automation::render_past();
+ok( 'nothing published yet, said plainly',
+	false !== strpos( (string) ob_get_clean(), 'Nothing has been written to the shop by these passes yet' ), true );
+// A CLASS FILE ALWAYS EXISTS: the module is the check.
+$GLOBALS['applied_rows'] = [ [ 'kind' => 'cat_links', 'object_id' => 6223, 'when' => time(), 'by' => 0, 'from' => 0 ] ];
+$GLOBALS['mods']['queue'] = false;
+ok( 'the queue switched off holds nothing', DZE_Automation::past(), [] );
+$GLOBALS['mods'] = [];
+
+// THE VIEW IS ASKED FOR BY NAME, and a name that is not a view answers with
+// the one that is.
+ok( 'the record is a view of its own',   DZE_Automation::tab_now( [ 'tab' => 'past' ] ), 'past' );
+ok( 'nothing asked for is the work',     DZE_Automation::tab_now( [] ), 'work' );
+ok( 'and neither is a view nobody has',  DZE_Automation::tab_now( [ 'tab' => 'nonsense' ] ), 'work' );
+ok( 'each view has its own address',
+	false !== strpos( DZE_Automation::page_url( 'past' ), 'tab=past' ), true );
+ok( 'and the work keeps the plain one',  DZE_Automation::page_url( 'work' ), DZE_Automation::page_url() );
+
+// THE SCREEN DRAWS THE RECORD when that is the view asked for.
+$_GET['tab'] = 'past';
+$GLOBALS['applied_rows'] = [ [ 'kind' => 'cat_links', 'object_id' => 6223, 'when' => time(), 'by' => 0, 'from' => 0 ] ];
+ob_start();
+DZE_Automation::render_page();
+$page2 = (string) ob_get_clean();
+unset( $_GET['tab'] );
+ok( 'the record is what is drawn',       false !== strpos( $page2, 'dze-auto-past' ), true );
+ok( 'and not the tasks beside it',       false !== strpos( $page2, 'dze-auto-task' ), false );
+// ONE SCRIPT FOR THE SCREEN: the undo lives here and the run buttons on the
+// other view, and a handler written twice is two handlers to keep in step.
+ok( 'the screen still carries its script', false !== strpos( $page2, "'.dze-auto-undo'" ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

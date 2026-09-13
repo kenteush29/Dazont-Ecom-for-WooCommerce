@@ -637,16 +637,24 @@ final class DZE_Queue {
 	 *
 	 * @return array<int,array{kind:string,object_id:int,when:int,by:int}>
 	 */
-	public static function applied_rows( int $limit = 200 ): array {
+	public static function applied_rows( int $limit = 200, array $kinds = [] ): array {
 		global $wpdb;
 		if ( ! $wpdb ) {
 			return [];
 		}
 		$limit = max( 1, min( 500, $limit ) );
+		// ONE READER, narrowed where a screen is about one kind of work. The
+		// automation's own record of what it published is this same query with
+		// its own job kinds named — never a second store beside it.
+		$kinds = array_values( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) );
+		$only  = $kinds ? " AND kind IN ( '" . implode( "','", $kinds ) . "' )" : '';
 		$rows  = (array) $wpdb->get_results( $wpdb->prepare(
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			"SELECT kind, object_id, updated, decided_by FROM " . self::table() . "
-			  WHERE status = 'applied' ORDER BY id DESC LIMIT %d",
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds stripped to [a-z_] above.
+			"SELECT kind, object_id, updated, decided_by, made_by FROM " . self::table() . "
+			  WHERE status = 'applied'{$only} ORDER BY id DESC LIMIT %d",
 			$limit
 		), ARRAY_A );
 		$out  = [];
@@ -664,6 +672,9 @@ final class DZE_Queue {
 				'object_id' => (int) $r['object_id'],
 				'when'      => (int) strtotime( (string) $r['updated'] . ' UTC' ),
 				'by'        => (int) ( $r['decided_by'] ?? 0 ),
+				// WHO ASKED FOR THE WORK, beside who accepted it: on a record
+				// of what a pass published, 0 is the pass itself.
+				'from'      => (int) ( $r['made_by'] ?? 0 ),
 			];
 		}
 		return $out;
