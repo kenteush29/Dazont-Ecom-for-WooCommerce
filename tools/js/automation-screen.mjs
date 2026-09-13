@@ -100,14 +100,12 @@ for ( const [ label, jq ] of jqs ) {
 		// beside it follows it.
 		if ( 'dze_auto_state' === act ) {
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
-				tasks: { mesh_links: {
-					chips: '<span class="dze-auto-chips" data-task="mesh_links">'
-						+ '<span class="dze-auto-chip is-on" title="Running on its own"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
-						+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1</span>'
-						+ '</span>',
-					todo: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
-						+ '<span class="dze-auto-jobname">The sniper role</span></li></ul>'
-				} },
+				chips: { mesh_links: '<span class="dze-auto-chips" data-task="mesh_links">'
+					+ '<span class="dze-auto-chip is-on" title="Running on its own"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
+					+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1</span>'
+					+ '</span>' },
+				waiting: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
+					+ '<span class="dze-auto-jobname">The sniper role</span></li></ul>',
 				log: '<ul><li>Internal linking · Tactical backpack covers</li></ul>'
 			} } ) } );
 		}
@@ -145,8 +143,10 @@ for ( const [ label, jq ] of jqs ) {
 			n: blocks.length,
 			open: blocks.filter( b => b.open ).length,
 			heights: blocks.map( b => Math.round( b.getBoundingClientRect().height ) ),
-			// What the screen SAYS when it opens, with everything folded.
-			words: document.body.innerText.replace( /\s+/g, ' ' ).trim().length
+			// What the SETTINGS say when the screen opens, with everything
+			// folded. The waiting list below is the work, not prose, and is
+			// deliberately not counted here.
+			words: blocks.map( b => b.innerText.replace( /\s+/g, ' ' ).trim() ).join( ' ' ).length
 		};
 	} );
 	ok( 'three tasks, three blocks',        shut.n, 3 );
@@ -196,13 +196,34 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( '.dze-auto-task:first-of-type .dze-auto-run' ).isVisible(), true );
 	ok( 'and what it is about to take',
 		await page.locator( '.dze-auto-task:first-of-type .dze-auto-next' ).isVisible(), true );
-	ok( 'the way to what it left you too',
-		await page.locator( '.dze-auto-task:first-of-type .dze-auto-waiting a' ).isVisible(), true );
+	// WHAT IS WAITING IS NOT A SETTING: the fold holds what the pass is about
+	// to take, and nothing about what it left.
+	ok( 'and no work list inside the settings',
+		await page.locator( '.dze-auto-task:first-of-type .dze-auto-job' ).count(), 0 );
+
+	// ---- A LINE SOMEBODY CAN READ, AND THE MECHANISM ONE PRESS AWAY ----
+	// "Ça j'ai rien compris… On pourrait utiliser un bouton I qui charge plus
+	// d'info pour la curiosité." The "?" is the modules list's own, so it is
+	// pressed here exactly as it is pressed there — and a "?" planted inside a
+	// <summary> must not fold the block under the hand that pressed it.
+	const shutBefore = await page.evaluate( () => document.querySelectorAll( '.dze-auto-task[open]' ).length );
+	await page.click( '.dze-auto-task:nth-of-type(2) .dze-mod-more', { timeout: 3000 } ).catch( () => {} );
+	const info = await page.evaluate( () => ( {
+		open: !! ( document.querySelector( '#dze-mod-popup.is-open' ) ),
+		title: ( document.getElementById( 'dze-mod-popup-title' ) || {} ).textContent || '',
+		text: ( ( document.getElementById( 'dze-mod-popup-text' ) || {} ).textContent || '' ).length,
+		folds: document.querySelectorAll( '.dze-auto-task[open]' ).length
+	} ) );
+	ok( 'the "?" opens the detail',         info.open, true );
+	ok( 'under the task it belongs to',     info.title, 'Category descriptions' );
+	ok( 'and it actually holds the detail', info.text > 200, true );
+	ok( 'without folding the block open',   info.folds, shutBefore );
+	await page.click( '#dze-mod-popup-close', { timeout: 3000 } ).catch( () => {} );
 
 	// ---- AND WHAT IT LEFT YOU IS SETTLED HERE ----
 	// "Ici ce serait bien de pouvoir review la task directement sans partir."
 	const todo = await page.evaluate( () => {
-		const rows = Array.from( document.querySelectorAll( '.dze-auto-task:first-of-type .dze-auto-job' ) );
+		const rows = Array.from( document.querySelectorAll( '#dze-auto-waiting .dze-auto-job' ) );
 		return {
 			n: rows.length,
 			ids: rows.map( r => r.getAttribute( 'data-id' ) ),
@@ -218,10 +239,15 @@ for ( const [ label, jq ] of jqs ) {
 				const b = Array.from( rows[0].querySelectorAll( 'button' ) ).map( x => Math.round( x.getBoundingClientRect().top ) );
 				return Math.max( ...b ) - Math.min( ...b ) < 6;
 			} )() : false,
-			rest: ( document.querySelector( '.dze-auto-task:first-of-type .dze-auto-waiting a' ) || {} ).textContent || ''
+			rest: ( document.querySelector( '#dze-auto-waiting .dze-auto-waiting a' ) || {} ).textContent || '',
+			// AND IT IS NOT FOLDED AWAY: this is the work, open on the page.
+			open: !! ( document.querySelector( '#dze-auto-waiting' ) || {} ).offsetParent,
+			heading: ( document.querySelector( '.dze-auto-h2' ) || {} ).textContent || ''
 		};
 	} );
-	ok( 'the block lists what it left you', todo.n, 2 );
+	ok( 'one list holds what was left',     todo.n, 2 );
+	ok( 'open on the page, not folded',     todo.open, true );
+	ok( 'under its own heading',            todo.heading, 'To review' );
 	ok( 'a row per job, carrying its id',   todo.ids, [ '41', '42' ] );
 	ok( 'with the review list\'s own three', todo.controls, [ 'dze-q-open', 'dze-q-yes', 'dze-q-no' ] );
 	ok( 'side by side',                     todo.oneLine, true );
@@ -233,7 +259,7 @@ for ( const [ label, jq ] of jqs ) {
 	// button tested on the fact that it exists is the mistake paid for three
 	// times in one week here.
 	const before = sent.length;
-	await page.click( '.dze-auto-task:first-of-type .dze-auto-job[data-id="41"] .dze-q-open', { timeout: 3000 } ).catch( () => {} );
+	await page.click( '#dze-auto-waiting .dze-auto-job[data-id="41"] .dze-q-open', { timeout: 3000 } ).catch( () => {} );
 	const opened = await page.waitForFunction(
 		() => /old|stands|Accept/.test( ( document.getElementById( 'dze-q-body' ) || {} ).textContent || '' ),
 		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
@@ -249,9 +275,9 @@ for ( const [ label, jq ] of jqs ) {
 	// SAYING YES ON THE LINE settles it through the same endpoint the review
 	// list uses, and the block answers for itself.
 	const was2 = sent.length;
-	await page.click( '.dze-auto-task:first-of-type .dze-auto-job[data-id="41"] .dze-q-yes', { timeout: 3000 } ).catch( () => {} );
+	await page.click( '#dze-auto-waiting .dze-auto-job[data-id="41"] .dze-q-yes', { timeout: 3000 } ).catch( () => {} );
 	const settled = await page.waitForFunction(
-		() => 1 === document.querySelectorAll( '.dze-auto-task:first-of-type .dze-auto-job' ).length,
+		() => 1 === document.querySelectorAll( '#dze-auto-waiting .dze-auto-job' ).length,
 		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
 	const yes = sent.slice( was2 ).filter( r => 'dze_q_decide' === r.action )[0] || {};
 	ok( 'the tick decides that job',        [ yes.action, yes.id, yes.accept ], [ 'dze_q_decide', '41', '1' ] );

@@ -1155,6 +1155,34 @@ whose screen has not been thought through yet.
     as before.
   - **A LIST UNDER A FOLD IS A TO-DO, NOT A LIST TABLE.** Ten lines, then the
     screen that has the ticks, the bulk bar and the columns.
+- **WHAT IS WAITING FOR A PERSON IS NOT A SETTING.** The waiting rows were put
+  inside each task's own fold, beside its checkboxes: "on devrait plutôt lister
+  les tâches à review pour une meilleure UI, plutôt que de les lister dans les
+  paramètres de l'automatisme". Reading what three passes had left meant opening
+  three blocks of preferences. It is ONE list, OPEN, on the page under its own
+  heading — every list of things waiting for a decision is one list — while the
+  fold keeps only what the pass is about to TAKE. Two rules with it: the cap
+  belongs to the LIST and the rows are ordered oldest first whichever pass wrote
+  them, or three tasks each keep ten lines and the page is a table again; and a
+  task whose work waits somewhere else (the calendar's suggestions are not queue
+  rows) says so on its own line and NAMES where, rather than being silently
+  absent from a list that claims to hold everything.
+- **A LINE SOMEBODY CAN READ, AND THE MECHANISM ONE PRESS AWAY.** A task
+  described itself as "Writes the links the site is short of, a few pages a day:
+  the link graph says which page nobody points at and which pages should point
+  at it — a category, an article or a page alike." — "ça j'ai rien compris".
+  Every screen of this plugin has the same two jobs to do at once: say what a
+  thing is FOR in a line, and hold the full account of HOW it works for whoever
+  wants it. The answer already existed on the modules list — a short line and a
+  "?" beside the name — so it was moved to `DZE_Hub::more_button()` /
+  `more_assets()` and both screens call it: two popups that look the same and
+  are written twice stop looking the same on the next edit. Three rules: the
+  line says what is DELEGATED, in the owner's own words ("déléguer à Dazont Ecom
+  le maillage interne du site web") and not what the engine does; the long text
+  is never printed as prose, only inside the popup's data; and a "?" planted in
+  a `<summary>` must not fold the block under the hand that pressed it — a
+  `<button>` is what makes that true in Chromium, and the gate proves it by
+  turning the button into a `<span>` and watching the block open.
 - **A HARNESS THAT LOADS THE STYLESHEET ITSELF CANNOT SEE A SCREEN THAT NEVER
   ASKS FOR IT.** The Automation screen shipped with chips, folds and coloured
   states and enqueued **no stylesheet at all** — nothing anywhere called for

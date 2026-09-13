@@ -386,7 +386,7 @@ final class DZE_Modules {
 						</label>
 						<div class="dze-mod-info">
 							<strong><?php echo esc_html( $m['label'] ); ?>
-								<button type="button" class="dze-mod-more" data-module="<?php echo esc_attr( $id ); ?>" title="<?php esc_attr_e( 'Full description', 'dazont-ecom' ); ?>">?</button>
+								<?php echo wp_kses_post( DZE_Hub::more_button( $id ) ); ?>
 							</strong>
 							<span class="dze-mod-desc"><?php echo esc_html( $m['desc'] ); ?></span>
 							<span class="dze-mod-data" data-module="<?php echo esc_attr( $id ); ?>">
@@ -442,13 +442,15 @@ final class DZE_Modules {
 			<?php esc_html_e( 'Saved ✓ — the change applies on the next page load.', 'dazont-ecom' ); ?>
 			<a href="#" onclick="window.location.reload();return false;"><?php esc_html_e( 'Reload now', 'dazont-ecom' ); ?></a>
 		</p>
-		<div class="dze-mod-popup" id="dze-mod-popup">
-			<div class="dze-mod-popup-box">
-				<h3 id="dze-mod-popup-title"></h3>
-				<p id="dze-mod-popup-text"></p>
-				<p style="text-align:right;margin:14px 0 0;"><button type="button" class="button" id="dze-mod-popup-close"><?php esc_html_e( 'Close', 'dazont-ecom' ); ?></button></p>
-			</div>
-		</div>
+		<?php
+		// The "?" beside every name and the popup behind it, from the one
+		// function that owns them: the Automation screen wears the same pair.
+		$dze_more = [];
+		foreach ( self::catalog() as $mid => $mm ) {
+			$dze_more[ $mid ] = [ 'title' => $mm['label'], 'text' => $mm['more'] ];
+		}
+		DZE_Hub::more_assets( $dze_more );
+		?>
 		<style>
 		.dze-mod-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 16px; margin-top: 14px; max-width: 1400px; }
 		.dze-mod-card { background: #fff; border: 1px solid #e2e4e7; border-radius: 8px; padding: 16px 20px; }
@@ -457,12 +459,6 @@ final class DZE_Modules {
 		.dze-mod-row:first-of-type { border-top: none; }
 		.dze-mod-info strong { display: block; font-size: 13px; }
 		.dze-mod-desc { display: block; color: #646970; font-size: 12px; margin-top: 2px; }
-		.dze-mod-more {
-			display: inline-block; width: 16px; height: 16px; line-height: 14px; text-align: center; padding: 0;
-			border: 1px solid #c3c4c7; border-radius: 50%; background: #f6f7f7; color: #646970;
-			font-size: 10px; font-weight: 700; cursor: pointer; vertical-align: 1px; margin-left: 4px;
-		}
-		.dze-mod-more:hover { border-color: #2271b1; color: #2271b1; }
 		.dze-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 36px; margin-top: 2px; }
 		.dze-switch input { opacity: 0; width: 0; height: 0; }
 		.dze-switch-slider { position: absolute; inset: 0; background: #c3c4c7; border-radius: 999px; transition: background .15s; cursor: pointer; }
@@ -470,11 +466,6 @@ final class DZE_Modules {
 		.dze-switch input:checked + .dze-switch-slider { background: #00794b; }
 		.dze-switch input:checked + .dze-switch-slider::before { transform: translateX(16px); }
 		.dze-switch input:disabled + .dze-switch-slider { opacity: .5; cursor: wait; }
-		.dze-mod-popup { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100001; display: none; align-items: center; justify-content: center; }
-		.dze-mod-popup.is-open { display: flex; }
-		.dze-mod-popup-box { background: #fff; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.3); max-width: 560px; width: 92vw; padding: 20px 24px; }
-		.dze-mod-popup-box h3 { margin: 0 0 10px; }
-		.dze-mod-popup-box p { margin: 0; line-height: 1.6; color: #3c434a; }
 		.dze-mod-data { display: block; margin-top: 3px; font-size: 11px; }
 		.dze-mod-size { color: #787c82; }
 		.dze-mod-undeclared { color: #b32d2e; }
@@ -484,22 +475,6 @@ final class DZE_Modules {
 		</style>
 		<script>
 		jQuery( function ( $ ) {
-			var moreTexts = <?php
-				$pop = [];
-				foreach ( self::catalog() as $mid => $mm ) {
-					$pop[ $mid ] = [ 'title' => $mm['label'], 'text' => $mm['more'] ];
-				}
-				echo wp_json_encode( $pop );
-			?>;
-			$( document ).on( 'click', '.dze-mod-more', function () {
-				var m = moreTexts[ $( this ).data( 'module' ) ];
-				if ( ! m ) { return; }
-				$( '#dze-mod-popup-title' ).text( m.title );
-				$( '#dze-mod-popup-text' ).text( m.text );
-				$( '#dze-mod-popup' ).addClass( 'is-open' );
-			} );
-			$( document ).on( 'click', '#dze-mod-popup-close', function () { $( '#dze-mod-popup' ).removeClass( 'is-open' ); } );
-			$( document ).on( 'click', '#dze-mod-popup', function ( e ) { if ( e.target === this ) { $( this ).removeClass( 'is-open' ); } } );
 			// Erasing is destructive and one-way: the exact wording of what is
 			// about to go has to be read before it happens.
 			function purge( module, label, $where ) {
