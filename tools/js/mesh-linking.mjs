@@ -62,7 +62,12 @@ const i18n = {
 	none: 'No page on this site is close enough to link to it.',
 	words: 'Chosen on wording alone — the writing key is not set, so nothing read these pages.',
 	failed: 'That did not go through. Try again.',
-	add: 'Send them to the writing queue'
+	add: 'Send them to the writing queue',
+	takes: 'Takes part',
+	leftout: 'Left out',
+	picked: '%s ticked',
+	saving: 'Saving…',
+	pagesOf: 'Pages that take part in linking — %1$s of %2$s'
 };
 
 const browser = await chromium.launch();
@@ -78,8 +83,19 @@ for ( const [ label, jq ] of jqs ) {
 	await page.route( '**/ajax**', async route => {
 		const body = route.request().postData() || '';
 		const q = new URLSearchParams( body );
-		sent.push( { action: q.get( 'action' ), nonce: q.get( 'nonce' ), key: q.get( 'key' ), to: q.get( 'to' ), from: q.getAll( 'from[]' ) } );
+		sent.push( { action: q.get( 'action' ), nonce: q.get( 'nonce' ), key: q.get( 'key' ),
+			to: q.get( 'to' ), from: q.getAll( 'from[]' ),
+			// A FIELD THE RECORDER DOES NOT KNOW COMES BACK NULL, and the
+			// check that reads it then fails for the harness's reasons rather
+			// than the plugin's.
+			ids: q.getAll( 'ids[]' ), on: q.get( 'on' ) } );
 		let data = { sent: 1 };
+		if ( 'dze_mesh_pick' === q.get( 'action' ) ) {
+			const n = q.getAll( 'ids[]' ).length;
+			const on = '1' === q.get( 'on' );
+			data = { moved: n, on, chosen: on ? n : 0, pages: 3, orphans: 4,
+				message: on ? `${n} pages now take part.` : `${n} pages left out.` };
+		}
 		if ( 'dze_mesh_pairs' === q.get( 'action' ) ) {
 			data = { how: 'read', rows: [
 				{ key: 'post:21', title: 'Boonie hat sizing', url: 'https://kula.test/blog/21/', kind: 'post', why: 'both about boonie hats' },
@@ -192,6 +208,66 @@ for ( const [ label, jq ] of jqs ) {
 	const outs = sent.filter( s => 'dze_mesh_out' === s.action );
 	ok( 'the linking pass is asked for that page', outs.length && outs[0].key, endKey );
 	ok( 'and the row says so', await end.innerText().then( t => t.includes( i18n.sent ) ), true );
+	// ---- WHICH PAGES TAKE PART: ticks, SHIFT, one bar ----
+	// "Mais avec des coches, la possibilité d'utiliser la touche MAJ, et choix
+	// en bulk donc." Only a browser can see a shift-click, and only a browser
+	// can see what a bulk press puts on the wire.
+	const box = page.locator( '.dze-mesh-pagesbox' );
+	ok( 'the chooser is on the screen', await box.count(), 1 );
+	ok( 'and it is folded away',        await box.evaluate( d => d.open ), false );
+	await box.locator( 'summary' ).click();
+	const cbs = box.locator( 'tbody .dze-mesh-cb' );
+	const rows = await cbs.count();
+	ok( 'a tick per page',              rows >= 3, true );
+	// THE BAR REFUSES TO ACT ON NOTHING, and says nothing rather than "0".
+	ok( 'the bar starts disabled',
+		await box.locator( '.dze-mesh-pick' ).first().isDisabled(), true );
+	ok( 'and says nothing yet',
+		( await box.locator( '.dze-mesh-count' ).innerText() ).trim(), '' );
+
+	await cbs.nth( 0 ).click();
+	ok( 'one ticked, the bar wakes up',
+		await box.locator( '.dze-mesh-pick' ).first().isDisabled(), false );
+	ok( 'and says how many',
+		( await box.locator( '.dze-mesh-count' ).innerText() ).trim(), '1 ticked' );
+
+	// SHIFT TAKES THE RUN BETWEEN THE TWO — copied from the box just pressed,
+	// never toggled, or a run comes out half on and half off.
+	await cbs.nth( rows - 1 ).click( { modifiers: [ 'Shift' ] } );
+	ok( 'shift takes the whole run',
+		await box.locator( 'tbody .dze-mesh-cb:checked' ).count(), rows );
+	ok( 'and the bar follows it',
+		( await box.locator( '.dze-mesh-count' ).innerText() ).trim(), `${rows} ticked` );
+
+	// THE PRESS. What it puts on the wire is the half that goes wrong in
+	// silence.
+	const wasPick = sent.length;
+	const ids = await box.locator( 'tbody tr' ).evaluateAll( trs => trs.map( t => String( t.dataset.id ) ) );
+	await box.locator( '.dze-mesh-pick[data-on="1"]' ).click();
+	await page.waitForFunction(
+		() => /take part/.test( ( document.querySelector( '.dze-mesh-msg' ) || {} ).textContent || '' ),
+		null, { timeout: 6000 } ).catch( () => {} );
+	const pick = sent.slice( wasPick ).filter( r => 'dze_mesh_pick' === r.action )[ 0 ] || {};
+	ok( 'the press names every ticked page', pick.ids, ids );
+	ok( 'and which way round it goes',       pick.on, '1' );
+	ok( 'with its nonce',                    pick.nonce, i18n.nonce );
+	// EVERY FIGURE THE PRESS MOVED, MOVED — the rows, and the summary above
+	// them, which is where the shop reads where it stands.
+	ok( 'every row says it takes part',
+		await box.locator( 'tbody tr.is-in' ).count(), rows );
+	ok( 'and none says otherwise',
+		await box.locator( 'tbody tr.is-out' ).count(), 0 );
+	ok( 'the row says it in words',
+		( await box.locator( 'tbody .dze-mesh-in' ).first().innerText() ).trim(), i18n.takes );
+	ok( 'the summary carries the new figure',
+		( await box.locator( 'summary' ).innerText() ).trim(), `Pages that take part in linking — ${rows} of 3` );
+	// AND THE TICKS ARE CLEARED, or the next press acts on a selection nobody
+	// can see any more.
+	ok( 'the ticks are cleared',
+		await box.locator( 'tbody .dze-mesh-cb:checked' ).count(), 0 );
+	ok( 'and the bar is asleep again',
+		await box.locator( '.dze-mesh-pick' ).first().isDisabled(), true );
+
 	ok( 'the page never moved', [ navigated, await still() ], [ stood, 'here' ] );
 
 	await page.close();

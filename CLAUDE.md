@@ -1253,6 +1253,47 @@ whose screen has not been thought through yet.
     has been counted" are different answers. The browser gate asserts the chip
     against the figure the REAL census counted on the fake shop, handed over
     beside the markup — a number typed into two files is two numbers.
+  - **AN ALLOW-LIST ON THE ONE KIND WHERE THE ANSWER IS MIXED — never a
+    deny-list over everything.** The first version put every page in the mesh
+    and had you exclude one at a time from a row of the orphan popup: "c'est
+    mal foutu, très inconfortable… ou alors n'inclure que les posts et
+    catégories par défaut, et l'option des pages, sélectionner les pages qu'on
+    voudrait linker sur un tableau". Two hundred rows of work to remove eight,
+    and backwards. The shop's own figures say why: every one of its sixty
+    articles and its hundred and thirty product categories is content written
+    to be read, and the ONLY kind where the answer is mixed is the PAGE — camo
+    guides beside the refund policy, the legal mentions and the order tracking.
+    So an article and a product category always take part and have NO control
+    (a control nobody would ever use is a control to leave out), and a page
+    takes part only when it was chosen. A fresh install then links to nothing
+    legal by accident, which is the default a handed-over shop needs.
+    - **`DZE_Mesh::in_work()` is the whole rule, in one line**, and every guard
+      asks it: `ranked()` (so orphans, dead ends, pages short of links and
+      pages under quota are all answered at once), `shortlist()` twice (never a
+      target, never a source), `count_from()`, and the panel's own pool. What
+      being out MEANS is unchanged and is one sentence: nothing is written into
+      it and nothing is asked to point at it — the links it already carries
+      still count, or its neighbours become orphans they are not.
+    - **TICKS, SHIFT, ONE BAR.** "Mais avec des coches, la possibilité
+      d'utiliser la touche MAJ, et choix en bulk donc." Shift COPIES the box
+      just pressed onto the run between the two — never toggles, which leaves a
+      run half on and half off. The bar refuses to act on nothing and says how
+      many are ticked; the press is ONE write for the whole selection, answers
+      how many it actually MOVED (a row already in that state is not a change),
+      clears the ticks, and rewrites the summary above the table — a screen
+      that states a figure and then does not keep it is worse than one that
+      states none.
+    - **A NAME THAT IS A PREFIX OF ANOTHER NAME IS A BUG WAITING.** Counting
+      `dze-mesh-pick` in the markup also counted `dze-mesh-picked`, and then
+      `dze-mesh-picksaid` — twice in one hour. And `.dze-mesh-said` was already
+      the linking panel's own status line, so the chooser writing to it was one
+      class meaning two panels. They are `dze-mesh-pick`, `dze-mesh-count` and
+      `dze-mesh-msg` now, none a prefix of another, and the gate counts the
+      WHOLE class attribute rather than a substring of it.
+    - **A GATE MUST SET THE SHOP UP FOR THE QUESTION IT ASKS.** Every section
+      about what the orphan list SHOWS has to choose the pages first — under the
+      new default it would otherwise assert against a list holding no page at
+      all, and every check in it would pass for the wrong reason.
   - **A FIGURE NOBODY CAN OPEN IS A FIGURE NOBODY BELIEVES.** "Pages nothing
     points at: 213. WOW c'est énorme. Littéralement impossible… il faut voir ce
     qui ne va pas." The count was right; a count that cannot be opened is a

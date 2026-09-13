@@ -45,16 +45,26 @@ final class DZE_Mesh {
 	private const SCHEMA_VERSION = 1;
 	private const CENSUS_OPT     = 'dze_mesh_census';
 	/**
-	 * THE PAGES THE SHOP HAS SET ASIDE, by "kind:id".
+	 * THE PAGES THE SHOP HAS CHOSEN TO LINK, by post id.
 	 *
-	 * "J'espère d'ailleurs que tu ne vas pas me linker des pages comme order
-	 * tracking et les pages légales ? Peut-être créer un sélecteur de pages
-	 * qui ne doivent pas être linkées." A refund policy is a page a shop
-	 * must have and nobody should be sent to from an article.
+	 * The first version of this was a deny-list — every page in, and each one
+	 * excluded by hand from a row of the orphan popup. "C'est mal foutu, très
+	 * inconfortable… ou alors n'inclure que les posts et catégories par
+	 * défaut, et l'option des pages, sélectionner les pages qu'on voudrait
+	 * linker sur un tableau." He is right, and the reason is in the shop's own
+	 * figures: every one of its sixty articles and every one of its hundred
+	 * and thirty product categories is content somebody wrote to be read, and
+	 * the ONLY kind where the answer is mixed is the page — the camo guides
+	 * beside the refund policy, the legal mentions and the cart tracking.
+	 *
+	 * So a deny-list made you do two hundred rows of work to remove eight. An
+	 * allow-list on pages alone asks the one question that has an answer, and
+	 * a shop that has just installed the plugin can never link to its own
+	 * legal pages by accident.
 	 *
 	 * Never autoloaded: the front never reads it.
 	 */
-	private const SKIP_OPT       = 'dze_mesh_skip';
+	private const PAGES_OPT      = 'dze_mesh_pages';
 	private const LOCK           = 'dze_mesh_lock';
 	public const CRON            = 'dze_mesh_scan';
 
@@ -84,6 +94,7 @@ final class DZE_Mesh {
 		add_action( 'wp_ajax_dze_mesh_pairs', [ __CLASS__, 'ajax_pairs' ] );
 		add_action( 'wp_ajax_dze_mesh_queue', [ __CLASS__, 'ajax_queue' ] );
 		add_action( 'wp_ajax_dze_mesh_out', [ __CLASS__, 'ajax_out' ] );
+		add_action( 'wp_ajax_dze_mesh_pick', [ __CLASS__, 'ajax_pick' ] );
 	}
 
 	public static function schedule(): void {
@@ -290,45 +301,86 @@ final class DZE_Mesh {
 	// =========================================================================
 
 	/**
-	 * WHAT "DO NOT LINK" MEANS, in one sentence.
+	 * The pages the shop has chosen. Empty on a fresh install, deliberately.
 	 *
-	 * Nothing is written into the page, and nothing is asked to point at it.
-	 * The links it ALREADY carries still count for the pages they point at —
-	 * a link a reader can click is a link, whatever we think of the page it
-	 * sits on, and dropping those edges would turn its neighbours into
-	 * orphans they are not.
-	 *
-	 * @return array<string,true> "kind:id" => true
+	 * @return array<int,true> post id => true
 	 */
-	public static function set_aside(): array {
-		$v = get_option( self::SKIP_OPT, [] );
-		return is_array( $v ) ? array_filter( array_map( 'boolval', $v ) ) : [];
-	}
-
-	/** Is this page one of them? The ONE test every reader asks. */
-	public static function is_set_aside( string $key ): bool {
-		return isset( self::set_aside()[ $key ] );
+	public static function chosen_pages(): array {
+		$v = get_option( self::PAGES_OPT, [] );
+		if ( ! is_array( $v ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $v as $id ) {
+			$id = (int) $id;
+			if ( $id > 0 ) {
+				$out[ $id ] = true;
+			}
+		}
+		return $out;
 	}
 
 	/**
-	 * Set one page aside, or put it back.
+	 * DOES THIS PAGE TAKE PART IN THE LINKING WORK? The one test every reader
+	 * asks, and the only place the rule is written down.
 	 *
-	 * The figures move with it — a page set aside stops being an orphan the
-	 * moment it is — so the census is re-counted here rather than left for
-	 * the next nightly reading, which would leave the screen disagreeing with
-	 * itself until tomorrow. It is re-counted from what the last reading
-	 * already stored, so nothing is queried and no link is read again.
+	 * An article and a product category always do: they are what a shop writes
+	 * to be read. A PAGE does only when it was chosen, because a shop's pages
+	 * are half guides worth linking and half refund policies nobody should be
+	 * sent to, and no reading can tell those two apart.
+	 *
+	 * What it means to be out is unchanged and is one sentence: nothing is
+	 * written into the page, and nothing is asked to point at it — the links
+	 * it ALREADY carries still count for the pages they point at. Dropping
+	 * those edges would turn its neighbours into orphans they are not, which
+	 * is a count made worse by a decision meant to tidy it.
 	 */
-	public static function set_aside_write( string $key, bool $on ): void {
-		$now = self::set_aside();
-		if ( $on ) {
-			$now[ $key ] = true;
-		} else {
-			unset( $now[ $key ] );
+	public static function in_work( string $kind, int $id ): bool {
+		return 'page' !== $kind || isset( self::chosen_pages()[ $id ] );
+	}
+
+	/**
+	 * Choose pages, or drop them — in one write, for the whole selection.
+	 *
+	 * The figures move with it — a page chosen becomes a page the mesh is
+	 * short of the moment it is — so the census is re-counted here rather than
+	 * left for the next nightly reading, which would leave the screen
+	 * disagreeing with itself until tomorrow. It is re-counted from what the
+	 * last reading already stored, so nothing is queried and no link is read
+	 * again. And it is ONE write for a bulk press: a loop over the single-page
+	 * path would read and rewrite the same option once per row.
+	 *
+	 * @param array<int,int> $ids
+	 */
+	public static function choose_pages( array $ids, bool $on ): int {
+		$now   = self::chosen_pages();
+		$pages = self::pages();
+		$moved = 0;
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+			// A PAGE OF THE READING OR NOTHING: an id typed into a request
+			// must not be able to put a row in this option that no page
+			// answers to.
+			if ( $id < 1 || ! isset( $pages[ 'page:' . $id ] ) ) {
+				continue;
+			}
+			if ( $on === isset( $now[ $id ] ) ) {
+				continue;
+			}
+			if ( $on ) {
+				$now[ $id ] = true;
+			} else {
+				unset( $now[ $id ] );
+			}
+			$moved++;
 		}
-		update_option( self::SKIP_OPT, $now, false );
+		if ( ! $moved ) {
+			return 0;
+		}
+		update_option( self::PAGES_OPT, array_values( array_map( 'intval', array_keys( $now ) ) ), false );
 		self::forget_thin();
 		self::recount();
+		return $moved;
 	}
 
 	/**
@@ -553,13 +605,12 @@ final class DZE_Mesh {
 	 * @return array{pages:int,links:int,orphans:int,short:int,ends:int,aside:int}
 	 */
 	private static function count_from( array $pages, array $per ): array {
-		$aside   = self::set_aside();
 		$orphans = 0;
 		$short   = 0;
 		$ends    = 0;
 		$put     = 0;
 		foreach ( $pages as $key => $p ) {
-			if ( isset( $aside[ $key ] ) ) {
+			if ( ! self::in_work( (string) $p['kind'], (int) $p['id'] ) ) {
 				$put++;
 				continue;
 			}
@@ -635,15 +686,14 @@ final class DZE_Mesh {
 	private static function ranked( callable $keep, string $by, int $limit ): array {
 		$census = self::census();
 		$per    = (array) ( $census['per'] ?? [] );
-		$aside  = self::set_aside();
 		$out    = [];
 		foreach ( self::pages() as $key => $p ) {
-			// SET ASIDE IS NOT WORK. Every "which page needs something done to
-			// it" question in this module comes through here — orphans, dead
-			// ends, pages short of inbound links, pages under their outgoing
-			// quota — so this one guard answers for all of them, and a
-			// question added next year cannot forget it.
-			if ( isset( $aside[ $key ] ) ) {
+			// OUT OF THE WORK IS NOT WORK. Every "which page needs something
+			// done to it" question in this module comes through here —
+			// orphans, dead ends, pages short of inbound links, pages under
+			// their outgoing quota — so this one guard answers for all of
+			// them, and a question added next year cannot forget it.
+			if ( ! self::in_work( (string) $p['kind'], (int) $p['id'] ) ) {
 				continue;
 			}
 			$row = [
@@ -906,10 +956,10 @@ final class DZE_Mesh {
 		if ( ! $to ) {
 			return [];
 		}
-		$aside = self::set_aside();
-		// NOTHING IS SENT TO A PAGE THAT WAS SET ASIDE, and nothing is written
-		// into one either — the target here, the candidates in the loop.
-		if ( isset( $aside[ $to_key ] ) ) {
+		// NOTHING IS SENT TO A PAGE THAT IS OUT OF THE WORK, and nothing is
+		// written into one either — the target here, the candidates in the
+		// loop below.
+		if ( ! self::in_work( (string) $to['kind'], (int) $to['id'] ) ) {
 			return [];
 		}
 		$vocab = self::vocab( $pages );
@@ -926,7 +976,7 @@ final class DZE_Mesh {
 			if ( ! empty( $p['built'] ) ) {
 				continue;
 			}
-			if ( isset( $aside[ $key ] ) ) {
+			if ( ! self::in_work( (string) $p['kind'], (int) $p['id'] ) ) {
 				continue;
 			}
 			if ( (int) $p['words'] < self::MIN_WORDS ) {
@@ -1322,6 +1372,13 @@ final class DZE_Mesh {
 			'words'    => __( 'Chosen on wording alone — the writing key is not set, so nothing read these pages.', 'dazont-ecom' ),
 			'failed'   => __( 'That did not go through. Try again.', 'dazont-ecom' ),
 			'add'      => __( 'Send them to the writing queue', 'dazont-ecom' ),
+			// The page chooser. Status words live in PHP, never in the
+			// JavaScript: hard-coded there they are English on every shop.
+			'takes'    => __( 'Takes part', 'dazont-ecom' ),
+			'leftout'  => __( 'Left out', 'dazont-ecom' ),
+			'picked'   => __( '%s ticked', 'dazont-ecom' ),
+			'saving'   => __( 'Saving…', 'dazont-ecom' ),
+			'pagesOf'  => __( 'Pages that take part in linking — %1$s of %2$s', 'dazont-ecom' ),
 		] );
 	}
 
@@ -1413,6 +1470,137 @@ final class DZE_Mesh {
 			</table>
 		<?php endif; ?>
 		<?php
+		// THE SETTING SITS WITH THE THING IT GOVERNS: which pages take part is
+		// a question about this screen's own lists, so it is on this screen
+		// and not on a settings tab two menus away.
+		self::render_pages_box();
+	}
+
+	/**
+	 * WHICH PAGES TAKE PART — the one screen that answers it.
+	 *
+	 * "Sélectionner les pages qu'on voudrait linker sur un tableau du genre,
+	 * mais avec des coches, la possibilité d'utiliser la touche MAJ, et choix
+	 * en bulk donc." So: a tick per row, shift to take a run of them, one bar,
+	 * one press. Folded away, because it is a decision taken once and then
+	 * left alone — and its own summary carries the figures, so it never has to
+	 * be opened to know where it stands.
+	 *
+	 * Only PAGES are here. An article and a product category always take part
+	 * and have no control, because a control nobody would ever use is a
+	 * control to leave out.
+	 */
+	public static function render_pages_box(): void {
+		$rows = [];
+		foreach ( self::pages() as $p ) {
+			if ( 'page' !== $p['kind'] ) {
+				continue;
+			}
+			$rows[] = $p;
+		}
+		if ( ! $rows ) {
+			return;
+		}
+		usort( $rows, static fn( array $a, array $b ): int => strcasecmp( (string) $a['title'], (string) $b['title'] ) );
+		$chosen = self::chosen_pages();
+		$on     = 0;
+		foreach ( $rows as $r ) {
+			if ( isset( $chosen[ (int) $r['id'] ] ) ) {
+				$on++;
+			}
+		}
+		?>
+		<details class="dze-set dze-mesh-pagesbox">
+			<summary><?php
+				echo esc_html( sprintf(
+					/* translators: 1: pages taking part, 2: pages the site has */
+					__( 'Pages that take part in linking — %1$s of %2$s', 'dazont-ecom' ),
+					number_format_i18n( $on ),
+					number_format_i18n( count( $rows ) )
+				) );
+			?></summary>
+			<?php // ONE sentence: why this list exists and why articles are not on it. ?>
+			<p class="description"><?php esc_html_e( 'Every article and every product category takes part already. Pages are chosen, because a shop\'s pages are half guides worth linking and half refund policies nobody should be sent to. A page left out is never written into and never linked to; the links it already carries still count.', 'dazont-ecom' ); ?></p>
+			<div class="dze-mesh-bulk">
+				<button type="button" class="button dze-mesh-pick" data-on="1" disabled><?php esc_html_e( 'Take part', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button dze-mesh-pick" data-on="0" disabled><?php esc_html_e( 'Leave out', 'dazont-ecom' ); ?></button>
+				<span class="description dze-mesh-count"></span>
+				<span class="description dze-mesh-msg" role="status"></span>
+			</div>
+			<table class="wp-list-table widefat fixed striped dze-mesh-pages">
+				<thead><tr>
+					<td class="check-column"><input type="checkbox" class="dze-mesh-all" title="<?php esc_attr_e( 'Select them all', 'dazont-ecom' ); ?>"></td>
+					<th><?php esc_html_e( 'Page', 'dazont-ecom' ); ?></th>
+					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
+					<th class="dze-mesh-inth"><?php esc_html_e( 'Linking', 'dazont-ecom' ); ?></th>
+				</tr></thead>
+				<tbody>
+				<?php foreach ( $rows as $row ) :
+					$id  = (int) $row['id'];
+					$yes = isset( $chosen[ $id ] );
+					?>
+					<tr data-id="<?php echo esc_attr( (string) $id ); ?>" class="<?php echo $yes ? 'is-in' : 'is-out'; ?>">
+						<th scope="row" class="check-column"><input type="checkbox" class="dze-mesh-cb"></th>
+						<td><strong><?php
+							$name = esc_html( (string) $row['title'] );
+							echo '' !== (string) $row['url']
+								? '<a href="' . esc_url( (string) $row['url'] ) . '" target="_blank" rel="noopener noreferrer">' . $name . '</a>'
+								: $name; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
+						?></strong><?php if ( ! empty( $row['built'] ) ) : ?>
+							<span class="dze-auto-built" title="<?php esc_attr_e( 'Laid out by a page builder: its text is read from the builder\'s own data, and nothing is ever written into it.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'page builder', 'dazont-ecom' ); ?></span>
+						<?php endif; ?></td>
+						<?php echo wp_kses_post( DZE_Hub::id_td( $id ) ); ?>
+						<td class="dze-mesh-in"><?php echo esc_html( $yes
+							? __( 'Takes part', 'dazont-ecom' )
+							: __( 'Left out', 'dazont-ecom' ) ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+		</details>
+		<?php
+	}
+
+	/**
+	 * The press: a whole selection, one write.
+	 *
+	 * It answers with the figures it moved, because the summary above the
+	 * table states them and a screen that states a figure and then does not
+	 * keep it is worse than one that states none.
+	 */
+	public static function ajax_pick(): void {
+		check_ajax_referer( 'dze_mesh', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
+		}
+		$ids = isset( $_POST['ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ids'] ) ) : [];
+		if ( ! $ids ) {
+			wp_send_json_error( [ 'message' => __( 'Nothing is ticked.', 'dazont-ecom' ) ] );
+		}
+		$on    = ! empty( $_POST['on'] );
+		$moved = self::choose_pages( $ids, $on );
+		$all   = 0;
+		foreach ( self::pages() as $p ) {
+			if ( 'page' === $p['kind'] ) {
+				$all++;
+			}
+		}
+		wp_send_json_success( [
+			'moved'   => $moved,
+			'on'      => $on,
+			'chosen'  => count( self::chosen_pages() ),
+			'pages'   => $all,
+			'orphans' => (int) ( self::orphan_count() ?? 0 ),
+			'message' => $moved
+				? sprintf(
+					/* translators: %s: how many pages were moved */
+					$on
+						? _n( '%s page now takes part.', '%s pages now take part.', $moved, 'dazont-ecom' )
+						: _n( '%s page left out.', '%s pages left out.', $moved, 'dazont-ecom' ),
+					number_format_i18n( $moved )
+				)
+				: __( 'They were already like that.', 'dazont-ecom' ),
+		] );
 	}
 
 	/** The pages that should point at one page, for the row that asked. */

@@ -38,6 +38,7 @@ function __( $s, $d = '' ) { return $s; }
 function _n( $one, $many, $n, $d = '' ) { return 1 === (int) $n ? $one : $many; }
 function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return esc_html( $s ); }
+function esc_attr__( $s, $d = '' ) { return esc_attr( $s ); }
 function esc_url( $s ) { return (string) $s; }
 function esc_url_raw( $s ) { return (string) $s; }
 function esc_html__( $s, $d = '' ) { return $s; }
@@ -317,6 +318,7 @@ class DZE_Keywords_Absent {}
 
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
+require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
 
 $ran   = 0;
@@ -427,6 +429,10 @@ echo "\nHow many pages nothing points at\n";
 $dze_orph = DZE_Mesh::orphan_count();
 $dze_byhand = 0;
 foreach ( DZE_Mesh::pages() as $key => $pg ) {
+	// COUNTED THE WAY THE CENSUS COUNTS. A page that takes no part in the
+	// linking work is not an orphan waiting to be mended, so a hand count that
+	// includes one is not the same question.
+	if ( ! DZE_Mesh::in_work( (string) $pg['kind'], (int) $pg['id'] ) ) { continue; }
 	if ( 0 === (int) ( DZE_Mesh::census()['per'][ $key ]['in'] ?? 0 ) ) { $dze_byhand++; }
 }
 ok( 'the figure is the census\'s own',   $dze_orph, $dze_byhand );
@@ -817,89 +823,115 @@ ok( 'the pool never offers the empty page',
 	in_array( 'Nothing on it yet', $dze_pool, true ), false );
 ok( 'nor the draft',
 	in_array( 'A draft about hats', $dze_pool, true ), false );
-ok( 'while the builder page is still a target',
-	in_array( 'Workshop history', $dze_pool, true ), true );
+// A PAGE IS A TARGET ONCE IT IS CHOSEN — including a builder page, whose text
+// is read from the builder's own data. Measured on `post_content` alone it
+// would have been dropped as empty, which is the builder trap.
+ok( 'no page is offered until it is chosen',
+	in_array( 'Workshop history', $dze_pool, true ), false );
+DZE_Mesh::choose_pages( [ 23 ], true );
+ok( 'chosen, the builder page is a target',
+	in_array( 'Workshop history', wp_list_pluck( DZE_Category_Content::page_index(), 'title' ), true ), true );
+DZE_Mesh::choose_pages( [ 23 ], false );
 
-echo "\nPages the shop has set aside\n";
+echo "\nWhich pages take part in linking\n";
 //
-// "J'espère d'ailleurs que tu ne vas pas me linker des pages comme order
-// tracking et les pages légales ? Peut-être créer un sélecteur de pages qui ne
-// doivent pas être linkées." A refund policy is a page a shop must have and
-// nobody should be sent to from an article — and, left in the graph, it also
-// tops the list of work the automatic pass takes on.
+// "C'est mal foutu, très inconfortable… ou alors n'inclure que les posts et
+// catégories par défaut, et l'option des pages, sélectionner les pages qu'on
+// voudrait linker sur un tableau." A deny-list made you do two hundred rows of
+// work to remove eight; the only kind where the answer is mixed is the PAGE.
 $GLOBALS['deflang'] = '';
 $GLOBALS['icl']     = [];
-$GLOBALS['opts']['dze_mesh_skip'] = [];
+$GLOBALS['opts']['dze_mesh_pages'] = [];
 delete_transient( 'dze_mesh_pages' );
 DZE_Mesh::scan();
-$dze_before   = DZE_Mesh::orphan_count();
-$dze_orphans0 = wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' );
-ok( 'to begin with, nothing is set aside', DZE_Mesh::set_aside(), [] );
-ok( 'and the gloves are an orphan',        in_array( 'Tactical gloves', $dze_orphans0, true ), true );
 
-// SET ONE ASIDE. It is not a page the pass may work on, so it is not an
-// orphan waiting to be mended and it is not counted as one.
-DZE_Mesh::set_aside_write( 'product_cat:13', true );
-ok( 'the page is remembered',            DZE_Mesh::is_set_aside( 'product_cat:13' ), true );
-ok( 'and nothing else is',               DZE_Mesh::is_set_aside( 'product_cat:11' ), false );
-$dze_orphans1 = wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' );
-ok( 'it is gone from the orphan list',   in_array( 'Tactical gloves', $dze_orphans1, true ), false );
-// THE FIGURE MOVES WITH IT, AT ONCE. Left for the next nightly reading, the
-// chip on the task's own line would go on counting a page nobody will ever
-// work on until tomorrow.
-ok( 'and the figure moved by one',       DZE_Mesh::orphan_count(), $dze_before - 1 );
-ok( 'the list and the figure still agree', DZE_Mesh::orphan_count(), count( DZE_Mesh::orphans( 500 ) ) );
-ok( 'the census says how many were put away', DZE_Mesh::census()['counts']['aside'], 1 );
+// AN ARTICLE AND A CATEGORY ALWAYS TAKE PART: they are what a shop writes to
+// be read, and there is no control for them because nobody would use one.
+ok( 'an article always takes part',      DZE_Mesh::in_work( 'post', 21 ), true );
+ok( 'and a product category too',        DZE_Mesh::in_work( 'product_cat', 13 ), true );
+// A PAGE DOES NOT, until it is chosen. On a fresh install nothing links to a
+// refund policy by accident, which is the whole point of the default.
+ok( 'a page does not, to begin with',    DZE_Mesh::in_work( 'page', 22 ), false );
+ok( 'and nothing is chosen yet',         DZE_Mesh::chosen_pages(), [] );
+
+$dze_orph0 = DZE_Mesh::orphan_count();
+$dze_names = wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' );
+ok( 'no page is on the orphan list',     in_array( 'Workshop history', $dze_names, true ), false );
+ok( 'while the articles still are',      in_array( 'Tactical gloves', $dze_names, true ), true );
+ok( 'the census says how many are out',  DZE_Mesh::census()['counts']['aside'] > 0, true );
+
+// CHOOSING ONE PUTS IT BACK INTO THE WORK, and the figures move with it.
+ok( 'choosing one moves one',            DZE_Mesh::choose_pages( [ 23 ], true ), 1 );
+ok( 'it now takes part',                 DZE_Mesh::in_work( 'page', 23 ), true );
+ok( 'and the figure moved',              DZE_Mesh::orphan_count(), $dze_orph0 + 1 );
+ok( 'the list and the figure agree',     DZE_Mesh::orphan_count(), count( DZE_Mesh::orphans( 500 ) ) );
+// A BULK PRESS DOES ITS BOOKKEEPING ONCE, and says how many it actually moved
+// — a row already in that state is not a change.
+ok( 'choosing it again moves nothing',   DZE_Mesh::choose_pages( [ 23 ], true ), 0 );
+ok( 'and a whole run in one write',      DZE_Mesh::choose_pages( [ 22, 30 ], true ), 2 );
+// AN ID THAT IS NOT A PAGE OF THE READING IS NOT A PAGE. A value typed into a
+// request must not be able to put a row in this option nothing answers to.
+ok( 'an unknown id is refused',          DZE_Mesh::choose_pages( [ 999999 ], true ), 0 );
+ok( 'and an article id is not a page',   DZE_Mesh::choose_pages( [ 21 ], true ), 0 );
+ok( 'nothing of either was written',
+	[ isset( DZE_Mesh::chosen_pages()[999999] ), isset( DZE_Mesh::chosen_pages()[21] ) ], [ false, false ] );
 
 // NOT WORK, IN EVERY LIST — one guard in ranked(), so a question added next
 // year cannot forget it.
-ok( 'not a page short of inbound links',
-	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::needs( 500 ), 'title' ), true ), false );
+DZE_Mesh::choose_pages( [ 22, 23, 30 ], false );
 DZE_Mesh::forget_thin();
-ok( 'not a page under its outgoing quota',
-	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::thin( 500 ), 'title' ), true ), false );
-ok( 'and not a dead end either',
-	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::dead_ends( 500 ), 'title' ), true ), false );
+ok( 'a page left out is not short of links',
+	in_array( 'Workshop tour', wp_list_pluck( DZE_Mesh::needs( 500 ), 'title' ), true ), false );
+ok( 'nor under its outgoing quota',
+	in_array( 'Workshop tour', wp_list_pluck( DZE_Mesh::thin( 500 ), 'title' ), true ), false );
+ok( 'nor a dead end',
+	in_array( 'Workshop history', wp_list_pluck( DZE_Mesh::dead_ends( 500 ), 'title' ), true ), false );
 // NOTHING IS SENT TO IT, AND NOTHING IS WRITTEN INTO IT.
-ok( 'nothing is shortlisted to point at it', DZE_Mesh::shortlist( 'product_cat:13' ), [] );
-// AND IT IS NEVER OFFERED AS A SOURCE. This has to be asserted on a page the
-// shortlist WOULD otherwise offer, or the check passes on broken code: the
-// first version of it named a page that ranks for nothing anyway, went green
-// with the guard deleted, and proved precisely nothing.
+ok( 'nothing is shortlisted to point at it', DZE_Mesh::shortlist( 'page:30' ), [] );
 ok( 'the article is a source to begin with',
 	in_array( 'post:21', wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:12' ), 'key' ), true ), true );
-DZE_Mesh::set_aside_write( 'post:21', true );
-ok( 'set aside, it is never offered as a source',
-	in_array( 'post:21', wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:12' ), 'key' ), true ), false );
-DZE_Mesh::set_aside_write( 'post:21', false );
-// THE LINKS IT ALREADY CARRIES STILL COUNT. Dropping its edges would turn the
-// pages it points at into orphans they are not — a figure made worse by a
-// decision that was meant to tidy the list.
+// THE LINKS IT ALREADY CARRIES STILL COUNT. Page 22 points at Boonie hats
+// through its builder data; dropping that edge would turn a category into an
+// orphan it is not.
 ok( "the pages it points at keep their inbound",
-	(int) ( DZE_Mesh::census()['per']['product_cat:11']['in'] ?? -1 ), (int) ( $per['product_cat:11']['in'] ?? -2 ) );
-// AND THE POOL THE CATEGORY PANEL OFFERS ASKS THE SAME LIST — never a second
-// one of its own, and never from behind a six-hour cache, or a page set aside
-// this morning goes on being offered until tonight.
-DZE_Mesh::set_aside_write( 'product_cat:13', false );
+	(int) ( DZE_Mesh::census()['per']['product_cat:12']['in'] ?? 0 ) > 0, true );
+
+// AND THE POOL THE PANEL OFFERS ASKS THE SAME RULE — never a second one of
+// its own, and never from behind a six-hour cache.
 delete_transient( 'dze_cc_pages_x' );
-$dze_pool_all = wp_list_pluck( DZE_Category_Content::page_index( true ), 'title' );
-ok( 'the pool offers the page to begin with', in_array( 'Boonie hat sizing', $dze_pool_all, true ), true );
-DZE_Mesh::set_aside_write( 'post:21', true );
-$dze_pool_now = wp_list_pluck( DZE_Category_Content::page_index(), 'title' );
-ok( 'set aside, the pool stops offering it', in_array( 'Boonie hat sizing', $dze_pool_now, true ), false );
+$dze_pool = wp_list_pluck( DZE_Category_Content::page_index( true ), 'title' );
+ok( 'the pool offers the articles',      in_array( 'Boonie hat sizing', $dze_pool, true ), true );
+ok( 'and no page nobody chose',          in_array( 'Workshop tour', $dze_pool, true ), false );
+DZE_Mesh::choose_pages( [ 30 ], true );
+ok( 'chosen, the pool offers it',
+	in_array( 'Workshop tour', wp_list_pluck( DZE_Category_Content::page_index(), 'title' ), true ), true );
 ok( 'without the cache having been thrown away',
 	is_array( get_transient( 'dze_cc_pages_x' ) ), true );
-// PUT BACK IS THE SAME BUTTON, THE OTHER WAY ROUND.
-DZE_Mesh::set_aside_write( 'post:21', false );
-ok( 'put back, it is offered again',
-	in_array( 'Boonie hat sizing', wp_list_pluck( DZE_Category_Content::page_index(), 'title' ), true ), true );
-DZE_Mesh::set_aside_write( 'product_cat:13', true );
-ok( 'the gloves are away again',
-	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' ), true ), false );
-DZE_Mesh::set_aside_write( 'product_cat:13', false );
-ok( 'and the orphan list has it back',
-	in_array( 'Tactical gloves', wp_list_pluck( DZE_Mesh::orphans( 500 ), 'title' ), true ), true );
-ok( 'with the figure back where it was', DZE_Mesh::orphan_count(), $dze_before );
+DZE_Mesh::choose_pages( [ 30 ], false );
+
+// THE CHOOSER ITSELF, DRAWN. A screen that dies takes the page white.
+$GLOBALS['opts']['dze_mesh_pages'] = [ 23 ];
+DZE_Mesh::recount();
+ob_start();
+DZE_Mesh::render_pages_box();
+$box = (string) ob_get_clean();
+ok( 'the box says where it stands',      false !== strpos( $box, 'Pages that take part in linking — 1 of 3' ), true );
+ok( 'one tick per page',                 substr_count( $box, 'dze-mesh-cb' ), 3 );
+ok( 'and a take-all in the heading',     substr_count( $box, 'dze-mesh-all' ), 1 );
+// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID, heading and cell together.
+ok( 'the id has its own heading',        substr_count( $box, 'dze-objid-th' ), 1 );
+ok( 'and one cell per row',              substr_count( $box, 'dze-objid-td' ), 3 );
+// A ROW SAYS WHICH IT IS, in words and not only by a tick somewhere else.
+ok( 'a chosen page says so',             substr_count( $box, 'Takes part' ), 1 );
+ok( 'and the others say so too',         substr_count( $box, 'Left out' ), 2 );
+// NO ARTICLE AND NO CATEGORY IS ON IT: they have no decision to take.
+ok( 'no article on the chooser',         false !== strpos( $box, 'Boonie hat sizing' ), false );
+ok( 'nor a category',                    false !== strpos( $box, 'Tactical gloves' ), false );
+// ONE BAR, AND IT REFUSES TO ACT ON NOTHING.
+ok( 'both bulk buttons are there',       substr_count( $box, 'class="button dze-mesh-pick"' ), 2 );
+ok( 'and start out disabled',            substr_count( $box, 'dze-mesh-pick" data-on="1" disabled' ), 1 );
+ok( 'the count and the message are their own',
+	[ substr_count( $box, 'dze-mesh-count' ), substr_count( $box, 'dze-mesh-msg' ) ], [ 1, 1 ] );
 
 echo "\nThe tab itself, rendered\n";
 // A SETTINGS TAB THAT DIES TAKES THE WHOLE PAGE WHITE, before any of our own

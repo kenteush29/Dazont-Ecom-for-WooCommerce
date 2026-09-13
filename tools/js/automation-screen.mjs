@@ -120,25 +120,9 @@ for ( const [ label, jq ] of jqs ) {
 					+ '<table class="dze-auto-orphlist"><tbody>'
 					+ '<tr><td><strong>Camo patterns explained</strong> <span class="dze-auto-built">page builder</span></td>'
 					+ '<td><code class="dze-objid">41</code></td><td>page</td><td>0</td>'
-					+ '<td><button type="button" class="button-link dze-auto-aside" data-key="page:41" data-on="1" title="Nothing will be written into this page, and nothing will be asked to point at it. The links it already carries still count.">Do not link</button></td></tr>'
-					+ '</tbody></table>'
-			} } ) } );
-		}
-		// SET ASIDE — the list comes back with the row moved to the second
-		// table, and the chip beside it carries the new figure.
-		if ( 'dze_auto_aside' === act ) {
-			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
-				html: '<p class="description">A menu, a breadcrumb or a shop archive is not counted.</p>'
-					+ '<table class="dze-auto-orphlist"><tbody></tbody></table>'
-					+ '<details class="dze-set dze-auto-asideset"><summary>Set aside — 1 page</summary>'
-					+ '<table class="dze-auto-orphlist"><tbody>'
-					+ '<tr><td><strong>Camo patterns explained</strong></td><td><code class="dze-objid">41</code></td><td>page</td><td>0</td>'
-					+ '<td><button type="button" class="button-link dze-auto-aside" data-key="page:41" data-on="0">Link it again</button></td></tr>'
-					+ '</tbody></table></details>',
-				chips: '<span class="dze-auto-chips" data-task="mesh_links">'
-					+ '<span class="dze-auto-chip is-on" title="Running on its own"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
-					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>40</button>'
-					+ '</span>'
+					+ '</tr></tbody></table>'
+					+ '<p class="description dze-auto-orphnote">12 pages of this site take no part in linking, so they are not counted here.'
+					+ ' Every article and every product category does. <a href="http://dze.test/wp-admin/admin.php?page=dze-content&tab=linking">Choose them</a></p>'
 			} } ) } );
 		}
 		if ( 'dze_q_decide' === act ) {
@@ -278,40 +262,22 @@ for ( const [ label, jq ] of jqs ) {
 	// A CHIP IN A <summary> MUST NOT FOLD THE BLOCK under the hand that
 	// pressed it — the same rule the "?" is held to.
 	ok( 'without folding the block',        orph.folds, foldsWas );
-	// ---- "DO NOT LINK", PRESSED FOR REAL ----
-	// "J'espère que tu ne vas pas me linker des pages comme order tracking et
-	// les pages légales ?" Only a browser can see what a press puts on the
-	// wire, and only a browser can see the answer land on two places at once.
-	ok( 'the row carries the decision',
-		await page.locator( '#dze-auto-orphbody .dze-auto-aside' ).count(), 1 );
-	ok( 'and its hover says the consequence',
-		/already carries still count/.test(
-			await page.locator( '#dze-auto-orphbody .dze-auto-aside' ).getAttribute( 'title' ) || '' ), true );
-	const wasA = sent.length;
-	await page.click( '#dze-auto-orphbody .dze-auto-aside', { timeout: 3000 } ).catch( () => {} );
-	const aside = await page.waitForFunction(
-		() => !! document.querySelector( '#dze-auto-orphbody .dze-auto-asideset' ),
-		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
-	const askA = sent.slice( wasA ).filter( r => 'dze_auto_aside' === r.action )[0] || {};
-	ok( 'the press names the page it is on', [ askA.action, askA.key ], [ 'dze_auto_aside', 'page:41' ] );
-	ok( 'and says which way round it goes',  askA.on, '1' );
-	ok( 'with its nonce',                    ( askA.nonce || '' ).length > 0, true );
-	ok( 'the list comes back without it',    aside, true );
-	const after = await page.evaluate( () => ( {
-		orphanRows: document.querySelectorAll( '#dze-auto-orphbody > .dze-auto-orphlist tbody tr' ).length,
-		back: ( document.querySelector( '#dze-auto-orphbody .dze-auto-asideset .dze-auto-aside' ) || {} ).textContent || '',
-		chip: ( document.querySelector( '.dze-auto-chips[data-task="mesh_links"] .dze-auto-orph' ) || {} ).textContent || ''
-	} ) );
-	const movesA = moves.length;
-	ok( 'the page has left the orphan list', after.orphanRows, 0 );
-	ok( 'and the way back is on its row',    after.back.trim(), 'Link it again' );
-	// EVERY ANSWER CARRIES EVERY FIGURE IT MOVES. A popup redrawing itself
-	// over a line still showing the old number is one screen saying two things.
-	ok( 'the figure on the line moved too',  after.chip.trim(), '40' );
-	// A PAGE RELOAD IS NEVER THE ANSWER TO "DID THAT WORK?" — the popup is
-	// open, the list is long, and throwing it away to answer for one row is
-	// the fault this plugin has already paid for once.
-	ok( 'and the page never moved',          movesA, 1 );
+	// ---- WHAT THE LIST DOES NOT COUNT ----
+	// The per-row "Do not link" button is gone — "c'est mal foutu, très
+	// inconfortable". Articles and product categories always take part; a page
+	// takes part only when the shop chose it, on one table on the Linking tab.
+	// What this popup owes is a sentence and the way there.
+	const note = await page.evaluate( () => {
+		const p = document.querySelector( '#dze-auto-orphbody .dze-auto-orphnote' );
+		return { text: p ? p.textContent : '', href: p && p.querySelector( 'a' ) ? p.querySelector( 'a' ).getAttribute( 'href' ) : '' };
+	} );
+	ok( 'no decision is taken on a row',
+		await page.locator( '#dze-auto-orphbody .dze-auto-aside' ).count(), 0 );
+	ok( 'the pages left out are named',   /no part in linking/.test( note.text ), true );
+	// A SENTENCE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN, and it is tested
+	// on its DESTINATION — a control on a row of objects has shipped twice
+	// pointing at a preferences page.
+	ok( 'with the way to choose them',    /tab=linking/.test( note.href ), true );
 
 	await page.click( '#dze-auto-orphmodal .dze-hub-close', { timeout: 3000 } ).catch( () => {} );
 	ok( 'and it closes again',
