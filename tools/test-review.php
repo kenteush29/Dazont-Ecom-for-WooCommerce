@@ -671,17 +671,17 @@ echo "The linking task writes the links the GRAPH chose\n";
 $GLOBALS['mesh_plan'] = [
 	[ 'key' => 'product_cat:31', 'kind' => 'product_cat', 'id' => 31, 'name' => 'Tactical bags',
 		'urls' => [ 'http://shop.test/blog/12/', 'http://shop.test/category/boonie-hats/' ],
-		'why'  => '2 pages short of links point here' ],
+		'why'  => 'will link to 2 pages nothing points at' ],
 	[ 'key' => 'post:12', 'kind' => 'post', 'id' => 12, 'name' => 'How to choose a backpack',
-		'urls' => [ 'http://shop.test/category/tactical-bags/' ], 'why' => 'one page short of links points here' ],
+		'urls' => [ 'http://shop.test/category/tactical-bags/' ], 'why' => 'will link to one page nothing points at' ],
 ];
 $GLOBALS['terms'][31] = '<p>' . str_repeat( 'word ', 200 ) . '</p>';
 $GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ] ] ];
 $GLOBALS['queued'] = [];
 $dze_pick = DZE_Automation::shortlist( 'mesh_links', 2 );
 ok( 'the task takes its work from the graph', count( $dze_pick ), 2 );
-ok( 'and each row says what it would gain',
-	(string) ( $dze_pick[0]['why'] ?? '' ), '2 pages short of links point here' );
+ok( 'and each row says which way round it goes',
+	(string) ( $dze_pick[0]['why'] ?? '' ), 'will link to 2 pages nothing points at' );
 $dze_res = DZE_Automation::run( 'mesh_links', 31, $dze_pick[0] );
 ok( 'a category goes to the category pass',  (string) ( $GLOBALS['queued'][0]['kind'] ?? '' ), 'cat_links' );
 ok( 'on that category',                      (int) ( $GLOBALS['queued'][0]['id'] ?? 0 ), 31 );

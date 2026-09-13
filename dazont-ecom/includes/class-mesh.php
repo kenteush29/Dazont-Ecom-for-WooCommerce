@@ -969,9 +969,15 @@ final class DZE_Mesh {
 		$out = [];
 		foreach ( array_slice( $order, 0, max( 1, $limit ) ) as $key ) {
 			$row = $by[ $key ];
+			// THE ROW NAMES THE PAGE THAT WILL BE WRITTEN INTO, and the urls
+			// are what it will point AT — so the sentence beside it has to
+			// read in that direction. It used to say "2 pages short of links
+			// point here", which is the graph read backwards: nothing points
+			// at this page, this page is the neighbour that will point at the
+			// orphans. On screen it made the whole pass unreadable.
 			$row['why'] = sprintf(
-				/* translators: %d: how many links this page would gain */
-				_n( 'one page short of links points here', '%d pages short of links point here', count( $row['urls'] ), 'dazont-ecom' ),
+				/* translators: %d: how many orphaned pages this one will link to */
+				_n( 'will link to one page nothing points at', 'will link to %d pages nothing points at', count( $row['urls'] ), 'dazont-ecom' ),
 				count( $row['urls'] )
 			);
 			$out[] = $row;

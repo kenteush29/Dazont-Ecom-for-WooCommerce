@@ -386,6 +386,48 @@ ok( 'an empty page is not offered as a source', in_array( 'product_cat:13', $sho
 $back = wp_list_pluck( DZE_Mesh::shortlist( 'product_cat:13' ), 'key' );
 ok( 'the page it already points at comes first', $back[0] ?? '', 'post:21' );
 
+echo "\nThe day's work, and which way round it reads\n";
+//
+// "Donc le module commence par linker les pages qui ne sont linkées nulle part ?"
+// Yes, and ONLY that — so the row has to say so in the direction the work
+// actually goes. It named the page about to be WRITTEN INTO and then said "2
+// pages short of links point here", which is the graph read backwards: nothing
+// points at those pages, and this one is the neighbour that will point at them.
+$GLOBALS['key'] = '';
+$plan = DZE_Mesh::plan( 3 );
+ok( 'the day has work to hand out',     count( $plan ) > 0, true );
+$first = $plan[0] ?? [];
+ok( 'the row names a page to write into', '' !== (string) ( $first['name'] ?? '' ), true );
+ok( 'and carries what it will point at', count( (array) ( $first['urls'] ?? [] ) ) > 0, true );
+// THE SENTENCE READS THE WAY THE WORK GOES.
+ok( 'the row says which way round it is',
+	(string) ( $first['why'] ?? '' ),
+	1 === count( (array) $first['urls'] )
+		? 'will link to one page nothing points at'
+		: sprintf( 'will link to %d pages nothing points at', count( (array) $first['urls'] ) ) );
+// AND WHAT IT POINTS AT IS AN ORPHAN, never a page the site already covers:
+// that is the whole of what this pass does, and the only thing it does.
+$dze_in = [];
+foreach ( DZE_Mesh::needs( 500 ) as $r ) {
+	$dze_in[ untrailingslashit( (string) $r['url'] ) ] = true;
+}
+$dze_all_short = true;
+foreach ( $plan as $row ) {
+	foreach ( (array) $row['urls'] as $u ) {
+		if ( ! isset( $dze_in[ untrailingslashit( (string) $u ) ] ) ) { $dze_all_short = false; }
+	}
+}
+ok( 'every target is a page short of links', $dze_all_short, true );
+// A PAGE NEVER LINKS TO ITSELF.
+$dze_self = false;
+foreach ( $plan as $row ) {
+	$mine = untrailingslashit( (string) ( DZE_Mesh::pages()[ $row['kind'] . ':' . $row['id'] ]['url'] ?? '' ) );
+	foreach ( (array) $row['urls'] as $u ) {
+		if ( untrailingslashit( (string) $u ) === $mine ) { $dze_self = true; }
+	}
+}
+ok( 'and never at itself',              $dze_self, false );
+
 echo "\nWithout a key, the wording stands on its own and says so\n";
 $GLOBALS['key'] = '';
 $res = DZE_Mesh::pairs_for( 'product_cat:12' );

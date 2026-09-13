@@ -1183,6 +1183,18 @@ whose screen has not been thought through yet.
   a `<summary>` must not fold the block under the hand that pressed it — a
   `<button>` is what makes that true in Chromium, and the gate proves it by
   turning the button into a `<span>` and watching the block open.
+- **A SENTENCE BESIDE A ROW READS IN THE DIRECTION THE WORK GOES.** The
+  automatic linking row named the page about to be WRITTEN INTO and then said
+  "2 pages short of links point here" — the graph read backwards. Nothing points
+  at those two pages; this one is the neighbour that will point AT them. It is
+  "will link to 2 pages nothing points at" now, and `test-mesh.php` runs the
+  real `plan()` and asserts the sentence, that every target is a page the census
+  calls short, and that no page is offered itself. **And the task says what it
+  does IN ORDER, including where it stops**: this pass mends the holes in the
+  mesh and does nothing else — it never goes on to fill the outgoing quota of
+  the page it edits, and when nothing is short of incoming links it says so
+  rather than inventing work. A pass whose second half does not exist must not
+  be described in a way that implies one ("starting with…" implies a "then").
 - **A HARNESS THAT LOADS THE STYLESHEET ITSELF CANNOT SEE A SCREEN THAT NEVER
   ASKS FOR IT.** The Automation screen shipped with chips, folds and coloured
   states and enqueued **no stylesheet at all** — nothing anywhere called for
