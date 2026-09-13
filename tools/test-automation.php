@@ -120,6 +120,10 @@ function add_submenu_page( $parent, $title, $label, $cap, $slug, $cb = null ) {
 	$GLOBALS['menu'][] = [ 'parent' => $parent, 'label' => $label, 'slug' => $slug ];
 	return $slug;
 }
+// Where the Linking tab lives. Without it the sentence that names that screen
+// prints no link at all — and a message that names a screen and leaves you to
+// find it is half an answer.
+class DZE_Diagnostic { public const MENU_SLUG = 'dze-content'; }
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom-restock'; }
 // checked() and disabled() answer what WordPress answers: stubbed to '' they
 // hide the very questions the screen is drawn to answer.
@@ -1028,6 +1032,14 @@ echo "\nThe pages behind the figure\n";
 // half of the question at the same time: WHICH of them a page builder owns.
 fresh( $ON );
 DZE_Mesh::scan();
+// PAGES TAKE PART ONLY WHEN THE SHOP CHOSE THEM, so a section about what the
+// list SHOWS chooses them first — otherwise it asserts against a list holding
+// no page at all and every check in it passes for the wrong reason.
+$dze_pageids = [];
+foreach ( DZE_Mesh::pages() as $dze_p ) {
+	if ( 'page' === $dze_p['kind'] ) { $dze_pageids[] = (int) $dze_p['id']; }
+}
+DZE_Mesh::choose_pages( $dze_pageids, true );
 $dze_want = DZE_Mesh::orphans( 200 );
 $dze_built = 0;
 foreach ( $dze_want as $r ) { if ( ! empty( $r['built'] ) ) { $dze_built++; } }
@@ -1092,75 +1104,38 @@ ok( 'the graph switched off says so',
 	false !== strpos( (string) ob_get_clean(), 'The link graph is switched off' ), true );
 $GLOBALS['mods'] = [];
 
-echo "\nSetting a page aside, and putting it back\n";
+echo "\nWhat the orphan list does not count\n";
 //
-// "J'espère d'ailleurs que tu ne vas pas me linker des pages comme order
-// tracking et les pages légales ?" The decision is taken on the row where the
-// page is actually SEEN — reading "Refund Policy" in this list is the moment
-// somebody knows it should never be linked to.
+// "C'est mal foutu, très inconfortable." The per-row "Do not link" button is
+// gone: articles and product categories always take part, a PAGE takes part
+// only when the shop chose it, and that choice is made on one table on the
+// Linking tab. What this popup owes is a SENTENCE — a site with pages showing
+// none of them here reads as a reading that missed them.
 fresh( $ON );
-$GLOBALS['opts']['dze_mesh_skip'] = [];
+$GLOBALS['opts']['dze_mesh_pages'] = [];
+delete_transient( 'dze_mesh_pages' );
 DZE_Mesh::scan();
-$dze_rows = DZE_Mesh::orphans( 200 );
 ob_start();
 DZE_Automation::render_orphans();
 $list = (string) ob_get_clean();
-ok( 'every row carries the decision',  substr_count( $list, 'dze-auto-aside' ), count( $dze_rows ) );
-ok( 'the column has its own heading',  substr_count( $list, 'dze-auto-actth' ), 1 );
-ok( 'the button says what it does',    false !== strpos( $list, 'Do not link' ), true );
-// A CONTROL SAYS WHAT WILL HAPPEN, on its own hover — never in a paragraph
-// under it, and including the half that surprises: the links it already
-// carries are not thrown away.
-ok( 'and its hover says the consequence',
-	false !== strpos( $list, 'The links it already carries still count' ), true );
-// NOTHING IS SET ASIDE YET, so there is no list of what was — a fold holding
-// nothing is a fold nobody should have to open.
-ok( 'nothing away, no second list',    false !== strpos( $list, 'dze-auto-asideset' ), false );
-
-// THE PRESS. It goes through the endpoint the screen actually posts to, and
-// the key is checked against the reading rather than parsed.
-$dze_key = $dze_rows[0]['kind'] . ':' . (int) $dze_rows[0]['id'];
-$_POST   = [ 'key' => $dze_key, 'on' => '1' ];
-$dze_ans = sent_of( static function (): void { DZE_Automation::ajax_aside(); } );
-ok( 'the press answers',               (bool) ( $dze_ans['ok'] ?? false ), true );
-ok( 'and the page is set aside',       DZE_Mesh::is_set_aside( $dze_key ), true );
-// EVERY ANSWER CARRIES EVERY FIGURE IT MOVES. Setting one aside changes the
-// count on the task's own line, and a popup redrawing itself over a line still
-// showing the old number is one screen saying two things.
-ok( 'the answer carries the list',     false !== strpos( (string) ( $dze_ans['data']['html'] ?? '' ), 'dze-auto-orphlist' ), true );
-ok( 'and the chips beside it',         false !== strpos( (string) ( $dze_ans['data']['chips'] ?? '' ), 'dze-auto-chips' ), true );
-ok( 'the figure moved with it',
-	1 === preg_match( '/is-orphan[^>]*>.*?' . ( count( $dze_rows ) - 1 ) . '</s', (string) ( $dze_ans['data']['chips'] ?? '' ) ), true );
-
+ok( 'no decision is taken on a row',   false !== strpos( $list, 'dze-auto-aside' ), false );
+ok( 'the pages left out are counted',  1 === preg_match( '/\\d+ pages? of this site takes? no part in linking/', $list ), true );
+ok( 'and it says which always do',     false !== strpos( $list, 'Every article and every product category does' ), true );
+// A SENTENCE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN.
+ok( 'with the way to choose them',     false !== strpos( $list, 'tab=linking' ), true );
+ok( 'and the word for it',             false !== strpos( $list, 'Choose them' ), true );
+// NOTHING IS SAID WHEN THERE IS NOTHING TO SAY: a line reporting nought every
+// day is a line nobody reads by the end of the week.
+$dze_pageids = [];
+foreach ( DZE_Mesh::pages() as $dze_p ) {
+	if ( 'page' === $dze_p['kind'] ) { $dze_pageids[] = (int) $dze_p['id']; }
+}
+DZE_Mesh::choose_pages( $dze_pageids, true );
 ob_start();
 DZE_Automation::render_orphans();
-$list = (string) ob_get_clean();
-ok( 'the orphan list is one shorter',  substr_count( $list, 'data-on="1"' ), count( $dze_rows ) - 1 );
-ok( 'and the row is on the other list', substr_count( $list, 'data-on="0"' ), 1 );
-// AND THE WAY BACK IS ON THE SAME SCREEN. Set aside, the page is gone from
-// every list above — so without this there is no screen anywhere able to
-// undo it.
-ok( 'what was put away is listed',     false !== strpos( $list, 'dze-auto-asideset' ), true );
-ok( 'with the way back on its row',    false !== strpos( $list, 'Link it again' ), true );
-ok( 'and the page named in it',        false !== strpos( $list, esc_html( (string) $dze_rows[0]['title'] ) ), true );
-
-// A KEY IS CHECKED AGAINST THE READING. A value typed into the request must
-// not be able to put a row in this option that no page answers to.
-$_POST   = [ 'key' => 'page:999999', 'on' => '1' ];
-$dze_bad = sent_of( static function (): void { DZE_Automation::ajax_aside(); } );
-ok( 'an unknown page is refused',      (bool) ( $dze_bad['ok'] ?? true ), false );
-ok( 'and nothing was written',         isset( DZE_Mesh::set_aside()['page:999999'] ), false );
-
-// PUT BACK IS THE SAME BUTTON, THE OTHER WAY ROUND.
-$_POST = [ 'key' => $dze_key, 'on' => '0' ];
-sent_of( static function (): void { DZE_Automation::ajax_aside(); } );
-ok( 'put back, it is no longer away',  DZE_Mesh::is_set_aside( $dze_key ), false );
-ob_start();
-DZE_Automation::render_orphans();
-$list = (string) ob_get_clean();
-ok( 'and the second list is gone',     false !== strpos( $list, 'dze-auto-asideset' ), false );
-ok( 'with every row back',             substr_count( $list, 'dze-auto-aside' ), count( $dze_rows ) );
-$_POST = [];
+ok( 'all chosen, nothing said',
+	false !== strpos( (string) ob_get_clean(), 'take no part in linking' ), false );
+DZE_Mesh::choose_pages( $dze_pageids, false );
 
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.

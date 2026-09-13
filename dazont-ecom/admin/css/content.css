@@ -1642,3 +1642,21 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	.dze-setup-list .dze-setup-says,
 	.dze-setup-list .dze-setup-act { width: auto; }
 }
+
+/* ==========================================================================
+   Which pages take part in linking. Ticks, SHIFT for a run, one bar.
+   ========================================================================== */
+.dze-mesh-pagesbox { margin-top: 18px; }
+.dze-mesh-pagesbox > summary { font-weight: 600; }
+.dze-mesh-bulk {
+	display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 6px;
+}
+.dze-mesh-bulk .dze-mesh-msg { min-height: 1em; }
+/* THE LAST COLUMN GETS WHAT IS LEFT: the tick box, the id and the state are
+   a known width, so the name — the only column of words — shares the rest. */
+.dze-mesh-pages .check-column   { width: 2.6em; }
+.dze-mesh-pages .dze-mesh-inth,
+.dze-mesh-pages .dze-mesh-in    { width: 120px; }
+.dze-mesh-pages td              { vertical-align: middle; }
+.dze-mesh-pages tr.is-in  .dze-mesh-in { color: #1d4c38; font-weight: 600; }
+.dze-mesh-pages tr.is-out .dze-mesh-in { color: #646970; }

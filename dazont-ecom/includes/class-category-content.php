@@ -799,11 +799,13 @@ PROMPT;
 		return array_keys( $out );
 	}
 	/**
-	 * PAGES THE SHOP SET ASIDE ARE NEVER OFFERED AS A LINK TARGET.
+	 * A PAGE THAT DOES NOT TAKE PART IN LINKING IS NEVER OFFERED AS A TARGET.
 	 *
 	 * "J'espère que tu ne vas pas me linker des pages comme order tracking et
-	 * les pages légales." The list lives in `DZE_Mesh`, which owns the link
-	 * graph, and this asks it rather than keeping a second one.
+	 * les pages légales." Articles and product categories always take part; a
+	 * PAGE takes part only when the shop chose it. The rule lives in
+	 * `DZE_Mesh`, which owns the link graph, and this asks it rather than
+	 * keeping a second answer of its own.
 	 *
 	 * It is applied to what the index HANDS BACK and never inside it, because
 	 * both indexes are kept for six hours: filtered before the cache, a page
@@ -812,7 +814,7 @@ PROMPT;
 	 *
 	 * @param array<int,array<string,mixed>> $rows
 	 */
-	private static function drop_set_aside( array $rows, string $kind ): array {
+	private static function only_in_work( array $rows, string $kind ): array {
 		// NOT GATED ON THE MESH MODULE, deliberately. The list is the SHOP'S
 		// decision about its own pages, not a function of the module that
 		// happens to store it: switching the link graph off to save its
@@ -823,16 +825,12 @@ PROMPT;
 		if ( ! class_exists( 'DZE_Mesh' ) ) {
 			return $rows;
 		}
-		$aside = DZE_Mesh::set_aside();
-		if ( ! $aside ) {
-			return $rows;
-		}
 		$out = [];
 		foreach ( $rows as $row ) {
 			// A page row carries its own kind (post or page); a category row
 			// does not, so the caller says which it is handing over.
 			$k = 'pages' === $kind ? ( 'blog post' === (string) ( $row['kind'] ?? '' ) ? 'post' : 'page' ) : 'product_cat';
-			if ( isset( $aside[ $k . ':' . (int) ( $row['id'] ?? 0 ) ] ) ) {
+			if ( ! DZE_Mesh::in_work( $k, (int) ( $row['id'] ?? 0 ) ) ) {
 				continue;
 			}
 			$out[] = $row;
@@ -860,7 +858,7 @@ PROMPT;
 		$key    = 'dze_cc_pages_' . ( self::default_lang() ?: 'x' );
 		$cached = $force ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
-			return self::drop_set_aside( $cached, 'pages' );
+			return self::only_in_work( $cached, 'pages' );
 		}
 		// Pages that exist for the checkout, not for the reader.
 		$skip = array_filter( [
@@ -933,7 +931,7 @@ PROMPT;
 			do_action( 'wpml_switch_language', null );
 		}
 		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
-		return self::drop_set_aside( $out, 'pages' );
+		return self::only_in_work( $out, 'pages' );
 	}
 
 	/** WPML's language for one post, '' when WPML is not active. */
@@ -959,7 +957,7 @@ PROMPT;
 		$key    = 'dze_cc_cats_' . ( self::default_lang() ?: 'x' );
 		$cached = $force ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
-			return self::drop_set_aside( $cached, 'cats' );
+			return self::only_in_work( $cached, 'cats' );
 		}
 		$lang  = self::default_lang();
 		// The same reading as the pages above, from the same table — and
@@ -983,7 +981,7 @@ PROMPT;
 			}
 		}
 		set_transient( $key, $out, 6 * HOUR_IN_SECONDS );
-		return self::drop_set_aside( $out, 'cats' );
+		return self::only_in_work( $out, 'cats' );
 	}
 
 	/**
