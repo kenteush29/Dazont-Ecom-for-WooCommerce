@@ -229,7 +229,18 @@ if ( in_array( '--dump-review', (array) $argv, true ) ) {
 	ob_start();
 	DZE_Queue::instance()->body();
 	$dze_html = (string) ob_get_clean();
-	echo wp_json_encode( [ 'html' => $dze_html, 'cfg' => $GLOBALS['loc']['dzeQueue'] ?? [] ] );
+	// The review popup ON ITS OWN, from the one function that owns it: the
+	// Automation screen borrows these rows and opens this same popup, and its
+	// browser gate must press the real markup rather than a copy of it typed
+	// into a harness.
+	ob_start();
+	DZE_Queue::review_assets();
+	$dze_modal = (string) ob_get_clean();
+	echo wp_json_encode( [
+		'html'  => $dze_html,
+		'modal' => $dze_modal,
+		'cfg'   => $GLOBALS['loc']['dzeQueue'] ?? [],
+	] );
 	exit( 0 );
 }
 

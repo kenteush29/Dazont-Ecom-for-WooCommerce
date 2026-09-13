@@ -1125,6 +1125,45 @@ whose screen has not been thought through yet.
   its unanswered suggestions and points at the screen that owns them; and
   NOTHING is printed when nothing is waiting, because a line saying "no news"
   every day is a line nobody reads by the end of the week.
+- **A FIGURE IS NOT THE WORK — what a pass left you is settled where it was
+  started.** "Ici ce serait bien de pouvoir review la task directement sans
+  partir. Sous forme de todo, comme sur le module de produits bulk, un bloc =
+  une tâche à résoudre." The task's block said "Review the 3 pieces of work
+  waiting" and sent the reader two clicks away under another menu to answer a
+  question asked on the screen he was already on. Each block now lists its own
+  waiting jobs — one line per job: the object, its id, what was done to it,
+  when, and the three answers at the end of the line. Five rules, each of them
+  a way it goes wrong:
+  - **The controls are the review list's OWN** — `.dze-q-open`, `.dze-q-yes`,
+    `.dze-q-no`, the same popup, the same endpoints, the same record. A second
+    review surface beside the first is two screens that start disagreeing about
+    what is waiting, and two places a decision is signed.
+  - **The popup belongs to the module that owns it.** `DZE_Queue::
+    review_assets()` prints the script, its words and the markup, and is called
+    by `body()` and by the Automation screen alike — printed only where
+    something is actually waiting, since an editor loaded for nobody is weight
+    on every page load.
+  - **A borrowed row holds no list.** `refresh()` in `queue.js` returns at once
+    where there is no `#dze-q-table`: a page that never shows a running job has
+    no business polling the queue, still less stepping it. What it does instead
+    is ANNOUNCE — `dze:queue-decided`, fired from the four places a decision is
+    taken — and the block that lent the row re-reads its own figures and its own
+    rows together, because they are one question.
+  - **The rest, and only the rest.** The link to the whole list says how many
+    are NOT on the block; repeating the figure the rows already show is the same
+    answer twice on one screen. A task that shows nothing shows the figure whole,
+    as before.
+  - **A LIST UNDER A FOLD IS A TO-DO, NOT A LIST TABLE.** Ten lines, then the
+    screen that has the ticks, the bulk bar and the columns.
+- **A HARNESS THAT LOADS THE STYLESHEET ITSELF CANNOT SEE A SCREEN THAT NEVER
+  ASKS FOR IT.** The Automation screen shipped with chips, folds and coloured
+  states and enqueued **no stylesheet at all** — nothing anywhere called for
+  `content.css` on that page — while its browser gate put the file into the
+  harness by hand and read a perfectly styled screen. A BODY THAT MOVES TAKES
+  ITS ASSETS WITH IT applies to the CSS as much as to the script: the body
+  enqueues it, and the PHP gate DRAWS the screen and reads back what it asked
+  for (`wp_enqueue_style` recorded), because calling the helper proves the
+  helper works and nothing about whether the screen ever asks for it.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo

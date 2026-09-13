@@ -123,6 +123,13 @@
 
 	var busy = false;
 	function refresh() {
+		// THE ROWS ARE BORROWED ON SOME SCREENS. A task's own block on the
+		// Automation page lists what that task left waiting and settles it
+		// there, using this same popup and these same three controls — but it
+		// holds no list of its own to redraw, and it must not drive the queue
+		// either: a page that never shows a running job has no business
+		// stepping one.
+		if (!$('#dze-q-table').length) { return $.Deferred().resolve(); }
 		if (paused) { return $.Deferred().resolve(); }
 		return $.post(cfg.ajaxUrl, { action: 'dze_q_status', nonce: cfg.nonce })
 			.done(function (res) {
@@ -137,6 +144,16 @@
 						.always(function () { busy = false; refresh(); });
 				}
 			});
+	}
+
+	// A DECISION WAS TAKEN — the screen HOSTING these rows redraws them itself,
+	// and a screen that merely borrows them answers for its own block. Four
+	// places take a decision (accept, refuse, and both in bulk) and all four
+	// come through here, so there is one line to change rather than a list of
+	// callers somebody has to keep in step.
+	function decided() {
+		refresh();
+		$(document).trigger('dze:queue-decided');
 	}
 
 	var paused = false;
@@ -200,7 +217,7 @@
 					$('#dze-q-bulkstatus').text((res && res.data && res.data.message) || i18n.error);
 					sel = {};
 					$('#dze-q-all').prop('checked', false);
-					refresh();
+					decided();
 				})
 				.fail(function () { $b.prop('disabled', false); $('#dze-q-bulkstatus').text(i18n.error); });
 		});
@@ -293,7 +310,7 @@
 		if (!window.confirm(i18n.confirmOne)) { return; }
 		var $b = $(this).prop('disabled', true);
 		$.post(cfg.ajaxUrl, { action: 'dze_q_decide', nonce: cfg.nonce, id: $b.data('id'), accept: 1, html: '' })
-			.always(function () { $b.prop('disabled', false); refresh(); });
+			.always(function () { $b.prop('disabled', false); decided(); });
 	});
 	$(document).on('click', '.dze-q-no', function () {
 		var $b = $(this), review = $b.data('status') === 'review';
@@ -303,7 +320,7 @@
 		var data = review
 			? { action: 'dze_q_decide', nonce: cfg.nonce, id: $b.data('id'), accept: 0, html: '' }
 			: { action: 'dze_q_action', nonce: cfg.nonce, id: $b.data('id'), do: 'remove' };
-		$.post(cfg.ajaxUrl, data).always(function () { $b.prop('disabled', false); refresh(); });
+		$.post(cfg.ajaxUrl, data).always(function () { $b.prop('disabled', false); decided(); });
 	});
 
 	$(document).on('click', '#dze-q-nowbtn', function () {
@@ -326,7 +343,7 @@
 		}).done(function (res) {
 			if (!res || !res.success) { $st.text(i18n.error); return; }
 			$st.text(accept ? i18n.applied : i18n.discarded);
-			refresh();
+			decided();
 			window.setTimeout(function () { $('#dze-q-modal').removeClass('is-open'); }, 600);
 		}).fail(function () { $st.text(i18n.error); });
 	}

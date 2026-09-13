@@ -528,6 +528,18 @@
 .dze-auto-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; }
 .dze-auto-controls label { display: inline-flex; align-items: center; gap: 5px; }
 .dze-auto-controls .dze-auto-msg { font-size: 13px; }
+/* WHAT IS WAITING, SETTLED WHERE THE WORK WAS STARTED. One line per piece of
+   work: the name, its id, what was done to it, and the three answers at the
+   end of the line — the same three the review list carries, so the gesture is
+   the same wherever somebody meets these rows. */
+.dze-auto-todo { margin: 12px 0 0; }
+.dze-auto-job {
+	display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+	margin: 0; padding: 7px 0; border-top: 1px solid #f0f0f1;
+}
+.dze-auto-job:first-child { border-top: 0; }
+.dze-auto-jobname { font-weight: 600; min-width: 0; }
+.dze-auto-jobact { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; }
 .dze-auto-waiting { margin: 12px 0 0; font-weight: 600; }
 .dze-auto-next { margin: 8px 0 0; }
 .dze-auto-why { color: #a7aaad; }
