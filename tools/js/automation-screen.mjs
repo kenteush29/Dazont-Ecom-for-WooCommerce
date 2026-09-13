@@ -76,6 +76,10 @@ for ( const [ label, jq ] of jqs ) {
 	console.log( `\njQuery ${label}` );
 	const page = await browser.newPage();
 	const errors = [], sent = [];
+	// Three pages queued, none written: where the shop stands the moment it
+	// presses. The SERVER owns this, which is the whole reason a reload picks
+	// the bar up where it was.
+	let left = 3, done = 0;
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 
@@ -87,7 +91,7 @@ for ( const [ label, jq ] of jqs ) {
 		// fails for the harness's reasons rather than the plugin's.
 		sent.push( { action: act, task: q.get( 'task' ), nonce: q.get( 'nonce' ),
 			id: q.get( 'id' ), accept: q.get( 'accept' ),
-			key: q.get( 'key' ), on: q.get( 'on' ) } );
+			key: q.get( 'key' ), on: q.get( 'on' ), step: q.get( 'step' ) } );
 		// The one review popup, answering as the server answers it.
 		if ( 'dze_q_review' === act ) {
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
@@ -123,6 +127,28 @@ for ( const [ label, jq ] of jqs ) {
 					+ '</tr></tbody></table>'
 					+ '<p class="description dze-auto-orphnote">12 pages of this site take no part in linking, so they are not counted here.'
 					+ ' Every article and every product category does. <a href="http://dze.test/wp-admin/admin.php?page=dze-content&tab=linking">Choose them</a></p>'
+			} } ) } );
+		}
+		// THE WORK, DRAINING ONE STEP AT A TIME. The bar has to have somewhere
+		// real to move to, or "it moves" is a check that cannot fail.
+		if ( 'dze_auto_run_state' === act ) {
+			if ( '1' === q.get( 'step' ) && left > 0 ) { left--; done++; }
+			const total = left + done;
+			const pct = total ? Math.max( left > 0 ? 3 : 0, Math.floor( done * 100 / total ) ) : 0;
+			const said = left > 0
+				? 'Writing \u2014 ' + left + ' pages left.'
+				: 'Done \u2014 ' + done + ' pages waiting for your yes or no, below.';
+			const bar = total
+				? '<div class="dze-auto-prog ' + ( left > 0 ? 'is-working' : 'is-done' ) + '">'
+					+ '<p class="dze-auto-runsaid">' + said + '</p>'
+					+ '<div class="dze-auto-bar"><span style="width:' + pct + '%"></span></div>'
+					+ '<p class="description dze-auto-runfig">' + pct + '% \u2014 ' + done + ' of ' + total + ' written</p></div>'
+				: '';
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				left: left, done: done, pct: pct, run: bar,
+				waiting: '<ul class="dze-auto-todo"><li class="dze-auto-job" data-id="42">'
+					+ '<span class="dze-auto-jobname">The sniper role</span></li></ul>',
+				chips: {}
 			} } ) } );
 		}
 		if ( 'dze_q_decide' === act ) {
@@ -461,6 +487,46 @@ for ( const [ label, jq ] of jqs ) {
 	// weight nobody asked for.
 	ok( 'it never polls the queue',         sent.filter( r => 'dze_q_status' === r.action ).length, 0 );
 	ok( 'and never steps it',               sent.filter( r => 'dze_q_run' === r.action ).length, 0 );
+
+	// ---- THE WORK THIS SCREEN STARTED, WATCHED AND STEPPED ----
+	// "J'ai lancé run once et je suis perdu. Je fais quoi ensuite pour
+	// contrôler le travail ? Rien de nouveau n'apparaît dans To review même
+	// après actualisation." Only a browser can see a bar climb, and only a
+	// browser can see it survive a reload.
+	const barNow = () => page.evaluate( () => {
+		const b = document.querySelector( '#dze-auto-run .dze-auto-bar > span' );
+		const f = document.querySelector( '#dze-auto-run .dze-auto-runfig' );
+		return { w: b ? b.style.width : '', fig: f ? f.textContent.trim() : '', on: !! document.querySelector( '#dze-auto-run .is-working' ) };
+	} );
+	// THE SERVER DREW IT. Read off the live page at this point the check would
+	// pass on a bar an earlier press had put there, which proves nothing about
+	// what a shop sees when it opens the screen.
+	ok( 'the server draws the bar itself',   /dze-auto-bar/.test( dumped.html ), true );
+	const first = await barNow();
+	ok( 'the bar is on the screen at load',  first.w.length > 0, true );
+	ok( 'and says it is working',            first.on, true );
+
+	// IT MOVES ON ITS OWN, because the page is the engine while it is open.
+	const climbed = await page.waitForFunction( was => {
+		const f = document.querySelector( '#dze-auto-run .dze-auto-runfig' );
+		return f && f.textContent.trim() !== was;
+	}, first.fig, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'the bar moves without a press',     climbed, true );
+	const stepped = sent.filter( r => 'dze_auto_run_state' === r.action && '1' === r.step );
+	ok( 'and each tick takes one step',      stepped.length > 0, true );
+
+	// IT FINISHES, and says where the work went — "je fais quoi ensuite ?".
+	const ended = await page.waitForFunction(
+		() => !! document.querySelector( '#dze-auto-run .is-done' ),
+		null, { timeout: 15000 } ).then( () => true ).catch( () => false );
+	ok( 'it finishes',                       ended, true );
+	const endTxt = await page.evaluate( () => ( document.querySelector( '#dze-auto-run' ) || {} ).textContent || '' );
+	ok( 'and points at what is waiting',     /waiting for your yes or no, below/.test( endTxt ), true );
+	// AND IT STOPS. Polling an idle queue is a request a second for nothing.
+	const afterEnd = sent.filter( r => 'dze_auto_run_state' === r.action ).length;
+	await page.waitForTimeout( 2500 );
+	ok( 'and stops asking once it is idle',
+		sent.filter( r => 'dze_auto_run_state' === r.action ).length, afterEnd );
 
 	ok( 'nothing was raised reading it',    errors, [] );
 	await page.close();
