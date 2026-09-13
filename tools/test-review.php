@@ -100,6 +100,9 @@ function wp_kses_post( $s ) { return (string) $s; }
 function wp_update_term( $id, $tax, $args = [] ) { $GLOBALS['wrote'][] = [ (int) $id, $args ]; return [ 'term_id' => (int) $id ]; }
 function wp_update_post( $args = [], $err = false ) { $GLOBALS['wrote'][] = $args; return (int) ( $args['ID'] ?? 0 ); }
 function is_wp_error( $x ) { return $x instanceof WP_Error; }
+function human_time_diff( $a, $b = 0 ) { return '2 hours'; }
+function get_edit_term_link( $id, $tax = '' ) { return 'http://shop.test/wp-admin/term.php?tag_ID=' . (int) $id; }
+function get_edit_post_link( $id, $ctx = '' ) { return 'http://shop.test/wp-admin/post.php?post=' . (int) $id; }
 function wp_list_pluck( $rows, $field ) { return array_map( static fn( $r ) => is_array( $r ) ? ( $r[ $field ] ?? null ) : ( $r->$field ?? null ), (array) $rows ); }
 class WP_Error { public function get_error_message() { return 'error'; } }
 function current_user_can( $c ) { return true; }
@@ -203,7 +206,15 @@ class DZE_Review_Wpdb {
 	public $sent = [];
 	public function prepare( $q, ...$a ) { return vsprintf( str_replace( [ '%s', '%d' ], [ "'%s'", '%d' ], $q ), $a ); }
 	public function query( $q ) { $this->sent[] = (string) $q; return 3; }
-	public function get_var( $q ) { $this->sent[] = (string) $q; return 0; }
+	public function get_var( $q ) {
+		$this->sent[] = (string) $q;
+		// A queue that REFUSES: the row is already queued, running or waiting
+		// for a decision. "A pass that was never queued is not a pass."
+		if ( ! empty( $GLOBALS['queue_busy'] ) && false !== stripos( (string) $q, "status IN ('queued','running','review')" ) ) {
+			return 1;
+		}
+		return 0;
+	}
 	public function get_results( $q, $m = null ) {
 		$this->sent[] = (string) $q;
 		if ( false !== stripos( (string) $q, 'GROUP BY status' ) ) {
@@ -774,6 +785,9 @@ ok( 'carrying no addresses at all',
 $GLOBALS['queued'] = [];
 $GLOBALS['tmeta']  = [];
 $GLOBALS['pmeta']  = [];
+// The register as it stands before the press, so what it holds afterwards is
+// the press and nothing carried in from the checks above.
+unset( $GLOBALS['opts']['dze_auto_state'] );
 $dze_all = DZE_Automation::catch_up( 'mesh_links' );
 ok( 'the press queues every page short of links', (int) $dze_all['queued'], 2 );
 ok( 'both kinds of page among them',
@@ -781,6 +795,16 @@ ok( 'both kinds of page among them',
 ok( 'and it says there is nothing left',     (bool) $dze_all['more'], false );
 ok( 'in words the shop can read',
 	false !== strpos( DZE_Automation::catch_up_said( $dze_all ), 'every page that was short' ), true );
+// A BULK PRESS DOES ITS BOOKKEEPING ONCE. Looping the single-page path read and
+// rewrote the register for EVERY page — the day's figure, the log, the undo
+// copies — so the log came back holding nothing but the press that filled it.
+ob_start();
+DZE_Automation::render_log();
+$dze_log = (string) ob_get_clean();
+ok( 'the register names the press',      false !== strpos( $dze_log, 'Link the whole site — 2 pages' ), true );
+ok( 'and not one line per page',         false !== strpos( $dze_log, 'Tactical bags' ), false );
+ok( 'the day counts one pass, not two',  DZE_Automation::done_today( 'mesh_links' ), 1 );
+
 // PRESSED AGAIN, it does nothing rather than queueing the same pages twice.
 $GLOBALS['queued'] = [];
 $dze_again = DZE_Automation::catch_up( 'mesh_links' );
@@ -806,6 +830,18 @@ $GLOBALS['over_budget'] = true;
 $dze_broke = DZE_Automation::catch_up( 'mesh_links' );
 ok( 'over the budget it queues nothing',     [ (int) $dze_broke['queued'], (string) $dze_broke['reason'] ], [ 0, 'budget' ] );
 $GLOBALS['over_budget'] = false;
+
+// A PASS THAT WAS NEVER QUEUED IS NOT A PASS. A queue that refuses must leave
+// the pages unmarked, or they are locked out for a month having had nothing
+// done to them — the fault this task was already red on once.
+$GLOBALS['tmeta'] = [];
+$GLOBALS['pmeta'] = [];
+$GLOBALS['queued'] = [];
+$GLOBALS['queue_busy'] = true;
+$dze_full = DZE_Automation::catch_up( 'mesh_links' );
+ok( 'a queue that refuses queues nothing', (int) $dze_full['queued'], 0 );
+ok( 'and nothing is stamped',              [ $GLOBALS['tmeta'], $GLOBALS['pmeta'] ], [ [], [] ] );
+$GLOBALS['queue_busy'] = false;
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
