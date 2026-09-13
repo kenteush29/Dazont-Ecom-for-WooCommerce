@@ -77,10 +77,13 @@ function get_term( $id, $tax = '' ) {
 		? (object) [ 'term_id' => (int) $id, 'name' => 'Category ' . (int) $id, 'description' => (string) $GLOBALS['terms'][ (int) $id ] ]
 		: null;
 }
-function update_term_meta( ...$a ) { return true; }
+// A FIELD WRITTEN BY ONE PATH MUST BE READ BACK BY THE OTHER: these used to
+// throw the write away, so the register that keeps a page from being worked on
+// twice in a month could not be exercised at all.
+function update_term_meta( $id, $k, $v ) { $GLOBALS['tmeta'][ (int) $id ][ $k ] = $v; return true; }
 function get_term_meta( $id, $k = '', $single = false ) { return $GLOBALS['tmeta'][ (int) $id ][ $k ] ?? ''; }
 function get_post_meta( $id, $k = '', $single = false ) { return $GLOBALS['pmeta'][ (int) $id ][ $k ] ?? ''; }
-function update_post_meta( ...$a ) { return true; }
+function update_post_meta( $id, $k, $v ) { $GLOBALS['pmeta'][ (int) $id ][ $k ] = $v; return true; }
 function wp_schedule_single_event( ...$a ) { return true; }
 function wp_remote_post( ...$a ) { $GLOBALS['kicked'][] = 1; return []; }
 function get_terms( $args = [] ) { return array_values( $GLOBALS['terms_all'] ?? [] ); }
@@ -97,6 +100,7 @@ function wp_kses_post( $s ) { return (string) $s; }
 function wp_update_term( $id, $tax, $args = [] ) { $GLOBALS['wrote'][] = [ (int) $id, $args ]; return [ 'term_id' => (int) $id ]; }
 function wp_update_post( $args = [], $err = false ) { $GLOBALS['wrote'][] = $args; return (int) ( $args['ID'] ?? 0 ); }
 function is_wp_error( $x ) { return $x instanceof WP_Error; }
+function wp_list_pluck( $rows, $field ) { return array_map( static fn( $r ) => is_array( $r ) ? ( $r[ $field ] ?? null ) : ( $r->$field ?? null ), (array) $rows ); }
 class WP_Error { public function get_error_message() { return 'error'; } }
 function current_user_can( $c ) { return true; }
 function check_ajax_referer( $a, $b = '', $die = true ) { return true; }
@@ -141,11 +145,23 @@ class DZE_Post_Links {
 	}
 }
 /** The link graph, when the shop has read itself. */
+/** The monthly budget guard: the one thing a press by hand never runs past. */
+class DZE_Ai_Usage {
+	public static function unit( string $u = '' ): void {}
+	public static function about( int $id = 0 ): void {}
+	public static function over_budget(): bool { return ! empty( $GLOBALS['over_budget'] ); }
+}
 class DZE_Mesh {
 	public static function census(): array { return $GLOBALS['mesh_census'] ?? []; }
 	public static function plan( int $limit = 5 ): array {
 		return array_slice( $GLOBALS['mesh_plan'] ?? [], 0, $limit );
 	}
+	/** The second phase: pages under their own outgoing quota. */
+	public static function thin( int $limit = 200 ): array {
+		return array_slice( $GLOBALS['mesh_thin'] ?? [], 0, $limit );
+	}
+	/** Read again next time: a link was written, or the shop was re-read. */
+	public static function forget_thin(): void { $GLOBALS['mesh_forgot'] = true; }
 }
 class DZE_Category_Content {
 	public const GEN_META = '_dze_desc_generated';
@@ -714,6 +730,82 @@ $GLOBALS['queued'] = [];
 $dze_none = DZE_Automation::run( 'mesh_links', 999, [ 'kind' => 'post', 'urls' => [] ] );
 ok( 'nothing chosen, nothing queued',        $GLOBALS['queued'], [] );
 ok( 'and it says why',                       (string) $dze_none['reason'], 'none' );
+
+
+echo "\nThe second phase, and the whole site in one press\n";
+//
+// "Puis passe au travail traditionnel que je faisais moi-même à la main ?" and
+// "j'aurais même bien aimé pouvoir lancer le maillage interne de tout le site
+// en une fois, puis automatiser le maillage des nouvelles pages."
+$GLOBALS['mesh_plan'] = [];
+$GLOBALS['mesh_thin'] = [
+	[ 'kind' => 'product_cat', 'id' => 31, 'title' => 'Tactical bags', 'url' => 'http://shop.test/category/tactical-bags/',
+		'in' => 5, 'out' => 1, 'words' => 800, 'want' => 9, 'short' => 8 ],
+	[ 'kind' => 'post', 'id' => 12, 'title' => 'How to choose a backpack', 'url' => 'http://shop.test/blog/12/',
+		'in' => 4, 'out' => 0, 'words' => 300, 'want' => 6, 'short' => 6 ],
+];
+$GLOBALS['queued'] = [];
+$GLOBALS['tmeta']  = [];
+$GLOBALS['pmeta']  = [];
+$dze_two = DZE_Automation::shortlist( 'mesh_links', 5 );
+// THE ORPHANS ARE DONE, so the task moves to the other half rather than saying
+// there is nothing to do.
+ok( 'with no orphan left, there is still work', count( $dze_two ), 2 );
+ok( 'the widest gap comes first',            (int) ( $dze_two[0]['tid'] ?? 0 ), 31 );
+ok( 'and the row says how far off it is',
+	(string) ( $dze_two[0]['why'] ?? '' ), '8 links short of what its length calls for' );
+// NO ADDRESSES TRAVEL WITH IT — on purpose: the page's OWN pool decides, and
+// on a shop that pool ranks product categories above articles.
+ok( 'nothing is chosen for it in advance',   (array) ( $dze_two[0]['urls'] ?? [ 'x' ] ), [] );
+
+$GLOBALS['queued'] = [];
+$dze_res = DZE_Automation::run( 'mesh_links', 31, $dze_two[0] );
+ok( 'it goes to the pass that writes that page', (string) ( $GLOBALS['queued'][0]['kind'] ?? '' ), 'cat_links' );
+ok( 'and it is queued',                      (int) $dze_res['queued'], 1 );
+// A PAYLOAD WITH AN EMPTY LIST OF ADDRESSES IS NOT THE SAME AS NO LIST: the
+// pass reads `urls` and an empty one must mean "pick your own", which is what
+// absent means everywhere else in this plugin.
+ok( 'carrying no addresses at all',
+	array_key_exists( 'urls', (array) ( $GLOBALS['queued'][0]['payload'] ?? [] ) ), false );
+
+// THE WHOLE SITE IN ONE PRESS. It is the second phase over everything: the
+// arithmetic is the census's, and the model call happens inside each job, one
+// at a time, in the queue — never three hundred of them inside one press.
+$GLOBALS['queued'] = [];
+$GLOBALS['tmeta']  = [];
+$GLOBALS['pmeta']  = [];
+$dze_all = DZE_Automation::catch_up( 'mesh_links' );
+ok( 'the press queues every page short of links', (int) $dze_all['queued'], 2 );
+ok( 'both kinds of page among them',
+	array_unique( wp_list_pluck( $GLOBALS['queued'], 'kind' ) ), [ 'cat_links', 'post_links' ] );
+ok( 'and it says there is nothing left',     (bool) $dze_all['more'], false );
+ok( 'in words the shop can read',
+	false !== strpos( DZE_Automation::catch_up_said( $dze_all ), 'every page that was short' ), true );
+// PRESSED AGAIN, it does nothing rather than queueing the same pages twice.
+$GLOBALS['queued'] = [];
+$dze_again = DZE_Automation::catch_up( 'mesh_links' );
+ok( 'pressed again it adds nothing',         (int) $dze_again['queued'], 0 );
+// A CEILING, so one press is not a day of writing nobody asked for, and the
+// message says there is more rather than leaving the shop to guess.
+$GLOBALS['tmeta'] = [];
+$GLOBALS['pmeta'] = [];
+$GLOBALS['queued'] = [];
+$dze_cap = DZE_Automation::catch_up( 'mesh_links', 1 );
+ok( 'the ceiling is kept',                   (int) $dze_cap['queued'], 1 );
+ok( 'and it says there is more to do',       (bool) $dze_cap['more'], true );
+ok( 'in words the shop can read',
+	false !== strpos( DZE_Automation::catch_up_said( $dze_cap ), 'press again' ), true );
+// AND NEVER PAST THE MONTHLY BUDGET. A copy of the shop is deliberately NOT on
+// that list for this task: pressed by hand a staging site may try it, because
+// everything these passes write stays on the site — what leaves it is refused
+// where it would leave.
+$GLOBALS['tmeta'] = [];
+$GLOBALS['pmeta'] = [];
+$GLOBALS['queued'] = [];
+$GLOBALS['over_budget'] = true;
+$dze_broke = DZE_Automation::catch_up( 'mesh_links' );
+ok( 'over the budget it queues nothing',     [ (int) $dze_broke['queued'], (string) $dze_broke['reason'] ], [ 0, 'budget' ] );
+$GLOBALS['over_budget'] = false;
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

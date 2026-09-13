@@ -1190,11 +1190,43 @@ whose screen has not been thought through yet.
   "will link to 2 pages nothing points at" now, and `test-mesh.php` runs the
   real `plan()` and asserts the sentence, that every target is a page the census
   calls short, and that no page is offered itself. **And the task says what it
-  does IN ORDER, including where it stops**: this pass mends the holes in the
-  mesh and does nothing else — it never goes on to fill the outgoing quota of
-  the page it edits, and when nothing is short of incoming links it says so
-  rather than inventing work. A pass whose second half does not exist must not
-  be described in a way that implies one ("starting with…" implies a "then").
+  does IN ORDER**, which is the half that was never on the screen. A pass whose
+  second half does not exist must not be described in a way that implies one
+  ("starting with…" implies a "then") — and when that second half is what
+  somebody actually wants, the answer is to build it, not to word around it.
+- **ONE TASK, TWO PHASES, AND A CATCH-UP — never a second linking engine.**
+  The automatic pass mended the mesh's holes and nothing else, so on a shop
+  whose articles are the orphans it wrote article → article for ever and never
+  the direction that earns money. It has both halves now, in order: FIRST the
+  pages the site points at least, mended from their closest neighbours (the job
+  carries the addresses the graph chose); THEN the pages under their own
+  outgoing quota, and those carry NO addresses on purpose — the page's own pool
+  decides, and that pool ranks product categories above articles. Four rules:
+  - **The quota is asked of whoever owns the rule.** One link per fifty words is
+    written down in `DZE_Post_Links::target_links()` and
+    `DZE_Category_Content::size_for()`, which also carries the shop's override
+    and its "no links" switch. `DZE_Mesh::quota()` asks them; a third answer
+    computed beside them drifts from both the day either is edited.
+  - **"Link the whole site" is the SECOND phase over everything**, and that is
+    not a convenience: planning phase one for one orphan asks the model which
+    neighbour should point at it, so three hundred of them inside one press is
+    three hundred calls with somebody waiting. Phase two costs nothing to plan
+    — the arithmetic is the census's — and the model call happens inside each
+    job, one at a time, in the queue. The ceiling is a constant with its
+    reasoning written on it, the press says whether that was the lot or there
+    is more, and it asks before it spends.
+  - **An empty list of addresses is not the same as no list.** The payload
+    carries `urls` only when there are urls: absent means "pick your own",
+    which is what absent means everywhere else in this plugin.
+  - **A reading this expensive is kept.** A category's quota counts the
+    products behind it and walks its branch, and the list is read on every draw
+    of the screen once the orphans are done — so `thin()` is cached, and thrown
+    away by a scan and by every pass that writes a link.
+  And the harness must let the register be written: `update_term_meta()` and
+  `update_post_meta()` stubbed to `return true` threw the write away, so the
+  month-long cooldown — the thing that stops a page being worked on twice —
+  could not be exercised at all, and a second press looked identical to the
+  first.
 - **A HARNESS THAT LOADS THE STYLESHEET ITSELF CANNOT SEE A SCREEN THAT NEVER
   ASKS FOR IT.** The Automation screen shipped with chips, folds and coloured
   states and enqueued **no stylesheet at all** — nothing anywhere called for

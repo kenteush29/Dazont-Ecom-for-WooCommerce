@@ -95,6 +95,7 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_run', [ __CLASS__, 'ajax_run' ] );
 		add_action( 'wp_ajax_dze_auto_undo', [ __CLASS__, 'ajax_undo' ] );
 		add_action( 'wp_ajax_dze_auto_state', [ __CLASS__, 'ajax_state' ] );
+		add_action( 'wp_ajax_dze_auto_catchup', [ __CLASS__, 'ajax_catchup' ] );
 	}
 
 	public static function page_url(): string {
@@ -237,6 +238,19 @@ final class DZE_Automation {
 	private const TODO_MAX = 10;
 
 	/**
+	 * How many pages one press of the catch-up may put in the queue at once.
+	 *
+	 * The queue writes ONE page at a time and each one is a call to the model,
+	 * a few seconds of it — so two hundred is already the best part of an hour
+	 * of background work, and a thousand rows sitting in the queue is a table
+	 * nobody can read and a day of writing nobody asked for in one go. The
+	 * press says what is left and can be pressed again; a shop catching up
+	 * from nothing does it in a handful of presses rather than one that never
+	 * finishes.
+	 */
+	public const CATCHUP_MAX = 200;
+
+	/**
 	 * Did anything on this page draw the three review controls?
 	 *
 	 * The popup they open, its script and its words are printed only then: a
@@ -259,8 +273,8 @@ final class DZE_Automation {
 				// "J'aurais plutôt écrit un texte simple et compréhensif :
 				// déléguer à Dazont Ecom le maillage interne du site web. Avec
 				// une très courte description derrière de ce qu'il fait."
-				'what'    => __( 'Hand the site\'s internal linking to Dazont Ecom. Each day it links the pages nothing points at, from their closest neighbours.', 'dazont-ecom' ),
-				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it works in ONE direction, and it is worth knowing which: it takes the pages the site points at least (fewer than three links in), and for each one it finds the pages closest to it in subject and writes the link into THEM. So the page being edited is chosen because it is the best neighbour of an orphan, and the link it gains points at that orphan — the pass mends the holes in the site\'s mesh, it does not fill up the outgoing links of the page it writes into. Products are left out of all of it: a product page already says what it belongs to. A page it has worked on is left alone for a month. When nothing on the site is short of incoming links any more, it says so and does nothing rather than inventing work. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
+				'what'    => __( 'Hand the site\'s internal linking to Dazont Ecom. It links the pages nothing points at, then the pages short of their own links.', 'dazont-ecom' ),
+				'more'    => __( 'Dazont Ecom reads the whole site once and writes down every internal link it finds — in categories, articles and pages alike, including the text a page builder keeps in its own data rather than in the post. From that map it works in two phases, in this order. FIRST, the holes: it takes the pages the site points at least (fewer than three links in) and writes the link into the pages closest to them in subject, so the page being edited is chosen for being an orphan\'s best neighbour. THEN, once nothing is orphaned, the work you would have done by hand: the pages carrying fewer links than their own length calls for — one per fifty words — each filling them from its own pool of related pages, which on a shop puts the product categories first. Products are left out of all of it: a product page already says what it belongs to. A page it has worked on is left alone for a month, so what runs each day is maintenance: the pages you have just added, and nothing else. "Link the whole site" does that second phase for every page at once, a few hundred per press, when you are catching up from nothing. Nothing reaches the shop until you accept it, unless you tick "Save without review".', 'dazont-ecom' ),
 				'module'  => 'mesh',
 				'scope'   => 'mesh',
 				// The job kinds this task leaves waiting, so its own block can
@@ -663,29 +677,126 @@ final class DZE_Automation {
 	 * answer. The plan is asked once here and carried, never rebuilt from an
 	 * integer halfway through.
 	 */
-	private static function mesh_shortlist( string $id, int $n ): array {
+	private static function mesh_shortlist( string $id, int $n, string $only = '' ): array {
 		if ( ! class_exists( 'DZE_Mesh' ) ) {
 			return [];
 		}
 		$cool = time() - self::COOLDOWN * DAY_IN_SECONDS;
 		$out  = [];
-		foreach ( DZE_Mesh::plan( max( 1, $n ) * 3 ) as $row ) {
+		$seen = [];
+		$take = static function ( array $row ) use ( &$out, &$seen, $id, $cool ): bool {
 			$type = 'product_cat' === $row['kind'] ? 'term' : 'post';
-			if ( self::cooling( (int) $row['id'], $id, $type, 0, 0, $cool ) ) {
-				continue;
+			$key  = $row['kind'] . ':' . (int) $row['tid'];
+			if ( isset( $seen[ $key ] ) || self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) ) {
+				return false;
 			}
-			$out[] = [
-				'tid'  => (int) $row['id'],
-				'name' => (string) $row['name'],
-				'why'  => (string) $row['why'],
-				'kind' => (string) $row['kind'],
-				'urls' => (array) $row['urls'],
-			];
+			// A page already in the writing queue is not work: it would come
+			// back a second text for the same page.
+			if ( class_exists( 'DZE_Queue' ) && 'product_cat' === $row['kind'] && DZE_Queue::pending_for( (int) $row['tid'] ) ) {
+				return false;
+			}
+			if ( class_exists( 'DZE_Queue' ) && 'product_cat' !== $row['kind'] && DZE_Queue::pending_for( (int) $row['tid'], 'post_' ) ) {
+				return false;
+			}
+			$seen[ $key ] = true;
+			$out[]        = $row;
+			return true;
+		};
+
+		// PHASE ONE — the holes in the mesh: the pages the site points at
+		// least, mended from the pages closest to them. Always first: a page
+		// nobody can reach is worth more than a page that reads a little thin.
+		foreach ( 'out' === $only ? [] : DZE_Mesh::plan( max( 1, $n ) * 3 ) as $row ) {
+			$take( [
+				'tid'   => (int) $row['id'],
+				'name'  => (string) $row['name'],
+				'why'   => (string) $row['why'],
+				'kind'  => (string) $row['kind'],
+				'urls'  => (array) $row['urls'],
+				'phase' => 'in',
+			] );
+			if ( count( $out ) >= $n ) {
+				return $out;
+			}
+		}
+
+		// PHASE TWO — the work that used to be done by hand: the pages under
+		// their own outgoing quota. No addresses travel with these: the page's
+		// OWN pool decides, and on a shop that pool ranks product categories
+		// above articles, which is the direction that earns the money.
+		foreach ( 'in' === $only ? [] : DZE_Mesh::thin( max( 1, $n ) * 3 ) as $row ) {
+			$take( [
+				'tid'   => (int) $row['id'],
+				'name'  => (string) $row['title'],
+				'why'   => self::thin_said( (int) $row['short'] ),
+				'kind'  => (string) $row['kind'],
+				'urls'  => [],
+				'phase' => 'out',
+			] );
 			if ( count( $out ) >= $n ) {
 				break;
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * THE WHOLE SITE IN ONE PRESS, and then the daily pass is maintenance.
+	 *
+	 * "J'aurais même bien aimé pouvoir lancer le maillage interne de tout le
+	 * site en une fois, puis automatiser le maillage des nouvelles pages. Une
+	 * sorte de maintenance."
+	 *
+	 * It is the SECOND phase over everything: every page under its own
+	 * outgoing quota, each one filling its links from its own pool. That is
+	 * the catch-up a shop does once, and it is deliberately not the first
+	 * phase — building a plan for one orphan asks the model which of its
+	 * neighbours should point at it, and doing that for three hundred pages
+	 * inside one press is three hundred calls with somebody waiting on the
+	 * answer. Phase two costs nothing to plan: the arithmetic is the census's,
+	 * and the model call happens inside each job, one at a time, in the queue.
+	 *
+	 * Nothing is written to the shop by this: every page comes back to the
+	 * review list, unless the task's own "Save without review" is ticked.
+	 *
+	 * @return array{queued:int,more:bool,task:string,reason:string}
+	 */
+	public static function catch_up( string $id, int $cap = self::CATCHUP_MAX ): array {
+		$out = [ 'queued' => 0, 'more' => false, 'task' => $id, 'reason' => 'none' ];
+		if ( 'mesh' !== (string) ( self::conf( $id )['scope'] ?? '' ) || ! class_exists( 'DZE_Mesh' ) ) {
+			$out['reason'] = 'gone';
+			return $out;
+		}
+		// A press by hand runs past the day's figure and the spacing — that is
+		// what pressing it means — and never past a switched-off module, a
+		// copy of the shop or the monthly budget.
+		$why = self::why_not( $id, true );
+		if ( '' !== $why ) {
+			$out['reason'] = $why;
+			return $out;
+		}
+		$cap = max( 1, min( self::CATCHUP_MAX, $cap ) );
+		foreach ( self::mesh_shortlist( $id, $cap, 'out' ) as $row ) {
+			$res = self::run( $id, (int) $row['tid'], (array) $row );
+			if ( $res['queued'] ) {
+				$out['queued']++;
+			}
+		}
+		// IS THERE MORE? Asked of the same reader, which already knows what is
+		// in the queue — so the answer is "one more exists", never a second
+		// count of the whole site that would disagree with the first.
+		$out['more']   = (bool) self::mesh_shortlist( $id, 1, 'out' );
+		$out['reason'] = $out['queued'] ? 'queued' : 'none';
+		return $out;
+	}
+
+	/** What a page of the second phase is short of, in words. */
+	public static function thin_said( int $gap ): string {
+		return sprintf(
+			/* translators: %d: how many links short of its own quota the page is */
+			_n( 'one link short of what its length calls for', '%d links short of what its length calls for', max( 1, $gap ), 'dazont-ecom' ),
+			max( 1, $gap )
+		);
 	}
 
 	/** The one thing a shop-wide task can be short of. */
@@ -1006,18 +1117,35 @@ final class DZE_Automation {
 		if ( ! class_exists( 'DZE_Mesh' ) || ! class_exists( 'DZE_Queue' ) ) {
 			return $no( 'gone' );
 		}
-		$kind = (string) ( $row['kind'] ?? '' );
-		$urls = array_values( array_filter( (array) ( $row['urls'] ?? [] ) ) );
-		if ( ! $urls ) {
+		$kind  = (string) ( $row['kind'] ?? '' );
+		$urls  = array_values( array_filter( (array) ( $row['urls'] ?? [] ) ) );
+		$phase = (string) ( $row['phase'] ?? '' );
+		// Asked for a page and handed nothing about it — a press from another
+		// screen, a row rebuilt from an id — the two phases are looked at in
+		// the same order the day's work uses them.
+		if ( ! $urls && 'out' !== $phase ) {
 			foreach ( DZE_Mesh::plan( 20 ) as $one ) {
 				if ( (int) $one['id'] === $oid ) {
-					$kind = (string) $one['kind'];
-					$urls = (array) $one['urls'];
+					$kind  = (string) $one['kind'];
+					$urls  = (array) $one['urls'];
+					$phase = 'in';
 					break;
 				}
 			}
 		}
-		if ( ! $urls ) {
+		if ( ! $urls && 'out' !== $phase ) {
+			foreach ( DZE_Mesh::thin( 200 ) as $one ) {
+				if ( (int) $one['id'] === $oid ) {
+					$kind  = (string) $one['kind'];
+					$phase = 'out';
+					break;
+				}
+			}
+		}
+		// PHASE TWO CARRIES NO ADDRESSES ON PURPOSE: the page's own pool
+		// decides where its links go. An empty list is the answer, not a
+		// failure — but a phase-one row that lost its addresses IS one.
+		if ( ! $urls && 'out' !== $phase ) {
 			return $no( 'none' );
 		}
 		$sub = self::subject( 'product_cat' === $kind ? 'category' : 'post', $oid );
@@ -1029,7 +1157,7 @@ final class DZE_Automation {
 		// The job is the pass that already writes this kind of page. There is
 		// no third linking engine, and there must never be one.
 		$job = 'product_cat' === $kind ? 'cat_links' : 'post_links';
-		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], [ 'urls' => $urls ] ) ) {
+		if ( ! DZE_Queue::add( $job, [ $oid ], (bool) $conf['apply'], $urls ? [ 'urls' => $urls ] : [] ) ) {
 			return $no( 'busy' );
 		}
 		// Marked only once the work is really under way: see run().
@@ -1040,6 +1168,7 @@ final class DZE_Automation {
 		self::note( $id, $oid, (string) $sub['name'], $sub['type'], $words, $links, (bool) $conf['apply'] );
 		delete_transient( 'dze_auto_survey' );
 		delete_transient( 'dze_pl_census' );
+		DZE_Mesh::forget_thin();
 		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
 	}
 
@@ -1260,6 +1389,13 @@ final class DZE_Automation {
 							</label>
 						<?php endif; ?>
 						<button type="button" class="button dze-auto-run" data-task="<?php echo esc_attr( $id ); ?>" <?php disabled( ! $ready ); ?>><?php esc_html_e( 'Run one now', 'dazont-ecom' ); ?></button>
+						<?php if ( 'mesh' === $conf['scope'] ) : ?>
+							<?php // THE CATCH-UP, ONCE: every page that is short of its own links,
+								// so the daily pass afterwards is maintenance and not a backlog. ?>
+							<button type="button" class="button dze-auto-catchup" data-task="<?php echo esc_attr( $id ); ?>"
+								title="<?php esc_attr_e( 'Puts every page that is short of links into the writing queue, a few hundred at a time. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ); ?>"
+								<?php disabled( ! $ready ); ?>><?php esc_html_e( 'Link the whole site', 'dazont-ecom' ); ?></button>
+						<?php endif; ?>
 						<span class="dze-auto-msg"></span>
 					</p>
 					<?php if ( ! $ready ) : ?>
@@ -1324,6 +1460,12 @@ final class DZE_Automation {
 					if ( d.message ) { $msg.text( d.message ).css( 'color', d.queued ? '#0a7040' : '#646970' ); }
 				} ).fail( function () { $btn.prop( 'disabled', false ); } );
 			}
+			$( document ).on( 'click', '.dze-auto-catchup', function () {
+				// A PRESS THAT SPENDS SAYS WHAT IT WILL DO before it does it.
+				if ( ! window.confirm( '<?php echo esc_js( __( 'Put every page that is short of links into the writing queue? Each one is a pass of its own, and nothing is saved to the shop until you accept it.', 'dazont-ecom' ) ); ?>' ) ) { return; }
+				var $b = $( this );
+				post( 'dze_auto_catchup', { task: $b.data( 'task' ) }, $b, $b.siblings( '.dze-auto-msg' ) );
+			} );
 			$( document ).on( 'click', '.dze-auto-run', function () {
 				var $b = $( this );
 				post( 'dze_auto_run', { task: $b.data( 'task' ) }, $b, $b.siblings( '.dze-auto-msg' ) );
@@ -1645,6 +1787,45 @@ final class DZE_Automation {
 	 * expensive half — so it is not re-done here. The register is, because a
 	 * line of it says what became of the very job just decided.
 	 */
+	public static function ajax_catchup(): void {
+		self::guard();
+		$id = isset( $_POST['task'] ) ? sanitize_key( wp_unslash( $_POST['task'] ) ) : '';
+		if ( ! self::task( $id ) ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown task.', 'dazont-ecom' ) ] );
+		}
+		$res = self::catch_up( $id );
+		wp_send_json_success( [
+			'queued'  => (int) $res['queued'],
+			'task'    => $id,
+			'message' => self::catch_up_said( $res ),
+			'state'   => self::block( $id ),
+			'chips'   => self::chips_html( $id ),
+			'log'     => self::log_html(),
+		] );
+	}
+
+	/**
+	 * WHAT THE PRESS DID, in words, and whether there is more.
+	 *
+	 * A figure alone leaves the shop wondering whether that was the whole site
+	 * or the first slice of it — which is the one thing somebody pressing this
+	 * needs to know.
+	 */
+	public static function catch_up_said( array $res ): string {
+		$n = (int) ( $res['queued'] ?? 0 );
+		if ( $n < 1 ) {
+			return self::reason_text( (string) ( $res['reason'] ?? 'none' ) );
+		}
+		$said = sprintf(
+			/* translators: %s: how many pages were put in the writing queue */
+			_n( '%s page queued.', '%s pages queued.', $n, 'dazont-ecom' ),
+			number_format_i18n( $n )
+		);
+		return $said . ' ' . ( ! empty( $res['more'] )
+			? __( 'There is more to do — press again once these are through.', 'dazont-ecom' )
+			: __( 'That is every page that was short of links.', 'dazont-ecom' ) );
+	}
+
 	public static function ajax_state(): void {
 		self::guard();
 		$chips = [];

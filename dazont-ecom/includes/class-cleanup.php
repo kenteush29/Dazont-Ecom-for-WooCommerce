@@ -156,7 +156,7 @@ final class DZE_Cleanup {
 				// live in the shop's own texts, which are the owner's.
 				'tables'     => [ 'dze_mesh' ],
 				'options'    => [ 'dze_mesh_schema', 'dze_mesh_census' ],
-				'transients' => [ 'dze_mesh_pages', 'dze_mesh_lock', 'dze_mesh_pick_' ],
+				'transients' => [ 'dze_mesh_pages', 'dze_mesh_lock', 'dze_mesh_thin', 'dze_mesh_pick_' ],
 			],
 			// The lab keeps nothing of its own: what it produces is a media
 			// library entry, which is WordPress's data and not ours to erase.

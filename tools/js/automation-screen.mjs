@@ -92,6 +92,22 @@ for ( const [ label, jq ] of jqs ) {
 				words: [ 1094, 1094 ], links: [ 1, 5 ]
 			} } ) } );
 		}
+		// THE CATCH-UP ANSWERS WITH ITS OWN FIGURES, and they must not be the
+		// ones the next press is waited for: a gate that waits for something
+		// already on the screen waits for nothing.
+		if ( 'dze_auto_catchup' === act ) {
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				queued: 312,
+				task: q.get( 'task' ),
+				message: '312 pages queued. There is more to do — press again once these are through.',
+				state: '<p class="dze-auto-next">Next in line: Boonie hats</p>',
+				chips: '<span class="dze-auto-chips" data-task="' + q.get( 'task' ) + '">'
+					+ '<span class="dze-auto-chip is-on"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
+					+ '<span class="dze-auto-chip is-wait"><span class="dashicons dashicons-visibility"></span>9</span>'
+					+ '</span>',
+				log: '<ul><li>Internal linking · Boonie hats</li></ul>'
+			} } ) } );
+		}
 		if ( 'dze_q_decide' === act ) {
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {} } ) } );
 		}
@@ -284,6 +300,38 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the block re-reads itself',        settled, true );
 	ok( 'and its figures follow the rows',
 		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-chip.is-wait' ).catch( () => '' ) || '' ).trim(), '1' );
+
+	// ---- THE WHOLE SITE IN ONE PRESS ----
+	// "J'aurais même bien aimé pouvoir lancer le maillage interne de tout le
+	// site en une fois, puis automatiser le maillage des nouvelles pages."
+	// It belongs to the linking task and to no other, and it asks before it
+	// spends: a press that puts a few hundred passes in the queue says so.
+	const catchup = await page.evaluate( () => ( {
+		here: !! document.querySelector( '.dze-auto-task:first-of-type .dze-auto-catchup' ),
+		elsewhere: document.querySelectorAll( '.dze-auto-catchup' ).length,
+		word: ( document.querySelector( '.dze-auto-catchup' ) || {} ).textContent || '',
+		tip: ( ( document.querySelector( '.dze-auto-catchup' ) || {} ).getAttribute( 'title' ) || '' ).length
+	} ) );
+	ok( 'the linking task can catch up',    catchup.here, true );
+	ok( 'and no other task offers it',      catchup.elsewhere, 1 );
+	ok( 'it says what it does',             catchup.word.trim(), 'Link the whole site' );
+	ok( 'with the consequence on its hover', catchup.tip > 40, true );
+	let asked = '';
+	page.once( 'dialog', d => { asked = d.message(); } );
+	const wasC = sent.length;
+	await page.click( '.dze-auto-task:first-of-type .dze-auto-catchup', { timeout: 3000 } ).catch( () => {} );
+	const saidC = await page.waitForFunction(
+		() => /312 pages queued/.test( ( document.querySelector( '.dze-auto-task .dze-auto-msg' ) || {} ).textContent || '' ),
+		null, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	const askC = sent.slice( wasC ).filter( r => 'dze_auto_catchup' === r.action )[0] || {};
+	ok( 'it asks the shop first',           asked.length > 40, true );
+	ok( 'then asks the server',             askC.action, 'dze_auto_catchup' );
+	ok( 'naming the task it belongs to',    askC.task, 'mesh_links' );
+	ok( 'and says in words what happened',  saidC, true );
+	// AND IT SAYS WHETHER THAT WAS THE LOT: the one thing somebody pressing
+	// this needs to know, and a figure alone does not answer it.
+	ok( 'including whether there is more',
+		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-msg' ).catch( () => '' ) || '' ).includes( 'press again' ), true );
 
 	// ---- AND THE PRESS MOVES THE LINE IT WAS PRESSED ON ----
 	const was = sent.length;
