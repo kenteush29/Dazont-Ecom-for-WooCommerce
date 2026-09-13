@@ -113,7 +113,7 @@ class DZE_Discounts {
 	// in the SHAPE the real ones answer with: a stub of the wrong type is a
 	// fault the gate then blames on the plugin.
 	public static function hero_source() { return 0; }
-	public static function banner_style() { return [ 'bg' => '#111111', 'color' => '#ffffff', 'radius' => 0 ]; }
+	public static function banner_style() { return [ 'bg' => '#111111', 'color' => '#ffffff', 'size' => 0, 'pad' => 10 ]; }
 	public static function default_location() { return 'below_header'; }
 	public static function locations() { return [ 'below_header' => 'Below the header' ]; }
 }
