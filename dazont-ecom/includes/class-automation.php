@@ -235,7 +235,7 @@ final class DZE_Automation {
 			// jour. On l'active et il fait le travail."
 			'mesh_links' => [
 				'label'   => __( 'Internal linking', 'dazont-ecom' ),
-				'what'    => __( 'Keeps the site woven together. Each pass takes the pages the link graph says nobody points at, works out which pages should point at them, and writes those links into the pages that should carry them — a category description, an article, a page. It never writes into a page laid out by a page builder, whose text is not in the post, and it never invents a link on a page that has nothing to say about the subject. Switch it on and it works through the site a few pages a day, then keeps up with whatever is published next.', 'dazont-ecom' ),
+				'what'    => __( 'Writes the links the site is short of, a few pages a day: the link graph says which page nobody points at and which pages should point at it — a category, an article or a page alike.', 'dazont-ecom' ),
 				'module'  => 'mesh',
 				'scope'   => 'mesh',
 				// The job kinds this task leaves waiting, so its own block can
@@ -247,7 +247,7 @@ final class DZE_Automation {
 			],
 			'cat_desc'  => [
 				'label'   => __( 'Category descriptions', 'dazont-ecom' ),
-				'what'    => __( 'Writes the description of a category that has none, or one far under the length its branch deserves. A rewrite replaces the whole text, so it is held for review by default — the writing queue keeps it until you accept it.', 'dazont-ecom' ),
+				'what'    => __( 'Writes the description of a category that has none, or one far under the length its branch deserves.', 'dazont-ecom' ),
 				'module'  => 'category_content',
 				'scope'   => 'category',
 				'kind'    => 'cat_desc',
@@ -258,7 +258,7 @@ final class DZE_Automation {
 			],
 			'events'    => [
 				'label'   => __( 'Marketing calendar', 'dazont-ecom' ),
-				'what'    => __( 'Once a month, asks for the commercial moments worth a promotion in the coming quarter. Nothing reaches the shop: what comes back waits in the suggestion list on Marketing events, where accepting one creates the event — disabled, as always. Moments already on your calendar are not proposed again.', 'dazont-ecom' ),
+				'what'    => __( 'Once a month, proposes the commercial moments worth a promotion in the coming quarter. Accepting one creates the event, disabled.', 'dazont-ecom' ),
 				'module'  => 'marketing_ai',
 				'scope'   => 'shop',
 				'cadence' => 'month',
@@ -1064,15 +1064,101 @@ final class DZE_Automation {
 	// The Automation tab
 	// =========================================================================
 
+	/**
+	 * WHAT EACH TASK IS DOING, IN SYMBOLS, ON ITS OWN LINE.
+	 *
+	 * "C'est très brutal, vulgaire, avec énormément de texte de partout. Je
+	 * suis perdu et désorienté quand je vois ça… Si un module est bien fait,
+	 * en général, il n'est pas nécessaire d'ajouter du texte partout. La
+	 * simple présence d'un bouton doit parler d'elle-même."
+	 *
+	 * Four figures, each one a question somebody actually asks: is it on and
+	 * how often, what is waiting for my yes or no, what has gone through, and
+	 * when does it look again. They are read folded, so three tasks are three
+	 * lines rather than three screens — and each carries its own word on hover
+	 * rather than a paragraph underneath.
+	 */
+	public static function chips_html( string $id ): string {
+		$conf  = self::conf( $id );
+		$task  = self::task( $id );
+		$out   = '';
+		$chip  = static function ( string $class, string $icon, string $text, string $tip ): string {
+			return '<span class="dze-auto-chip ' . esc_attr( $class ) . '" title="' . esc_attr( $tip ) . '">'
+				. '<span class="dashicons dashicons-' . esc_attr( $icon ) . '"></span>'
+				. esc_html( $text ) . '</span>';
+		};
+		// ON, and at what rhythm. Off says only that, because a rhythm nothing
+		// runs at is a figure about nothing.
+		if ( ! $conf['on'] ) {
+			$out .= $chip( 'is-off', 'marker', __( 'Off', 'dazont-ecom' ), __( 'Nothing runs on its own', 'dazont-ecom' ) );
+		} else {
+			$out .= $chip(
+				'is-on',
+				'controls-play',
+				'month' === $conf['cadence']
+					? __( 'Monthly', 'dazont-ecom' )
+					/* translators: %s: how many items a day */
+					: sprintf( __( '%s a day', 'dazont-ecom' ), number_format_i18n( $conf['per_day'] ) ),
+				__( 'Running on its own, at this rhythm', 'dazont-ecom' )
+			);
+		}
+		// WAITING FOR A PERSON — the figure this screen exists to surface.
+		$left = self::waiting_for( $id );
+		if ( $left['n'] > 0 ) {
+			$out .= $chip( 'is-wait', 'visibility', number_format_i18n( $left['n'] ), __( 'Waiting for your yes or no', 'dazont-ecom' ) );
+		}
+		// AND WHAT WENT THROUGH. A task that has never written anything says
+		// nothing rather than a nought, which reads as a task that failed.
+		$done = self::done_count( $id );
+		if ( $done > 0 ) {
+			$out .= $chip( 'is-done', 'yes', number_format_i18n( $done ), __( 'Accepted and written to the shop', 'dazont-ecom' ) );
+		}
+		// WHEN IT LOOKS AGAIN, only while it is on: a countdown on a switched
+		// off task is a promise nobody made.
+		if ( $conf['on'] ) {
+			$next = self::next_said( $id );
+			if ( '' !== $next ) {
+				$out .= $chip( 'is-next', 'clock', $next, __( 'When it next looks for work', 'dazont-ecom' ) );
+			}
+		}
+		if ( ! self::task_ready( $id ) ) {
+			$out .= $chip( 'is-blocked', 'warning', __( 'Needs a module', 'dazont-ecom' ), __( 'Its own module, or the writing queue, is switched off', 'dazont-ecom' ) );
+		}
+		return '<span class="dze-auto-chips" data-task="' . esc_attr( $id ) . '">' . $out . '</span>';
+	}
+
+	/** How many of this task's jobs were accepted and written. */
+	public static function done_count( string $id ): int {
+		$task = self::task( $id );
+		if ( ! $task || 'shop' === (string) ( $task['scope'] ?? '' ) ) {
+			return 0; // the calendar writes nothing to the shop on its own.
+		}
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			return 0;
+		}
+		return DZE_Queue::applied_count_for( (array) ( $task['jobs'] ?? [] ) );
+	}
+
+	/** When it next looks, in the fewest words that answer it. */
+	public static function next_said( string $id ): string {
+		$conf = self::conf( $id );
+		if ( 'month' === $conf['cadence'] ) {
+			$last = self::last_run( $id );
+			if ( $last && $last + self::gap( $id ) > time() ) {
+				return human_time_diff( time(), $last + self::gap( $id ) );
+			}
+			return __( 'Due now', 'dazont-ecom' );
+		}
+		$next = wp_next_scheduled( self::HOOK );
+		return $next ? human_time_diff( time(), (int) $next ) : '';
+	}
+
 	public static function render_settings(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
 		?>
-		<div class="dze-admin">
-		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Runs the functions already on this site, on a schedule, a few items a day. It judges a page on the very figures its own panel shows — what it holds today against what it should hold — hands the writing to the queue, and never comes back to the same page within a month.', 'dazont-ecom' ); ?>
-		</p>
+		<div class="dze-admin dze-auto">
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_auto_options' ); ?>
 			<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[form]" value="1" />
@@ -1082,72 +1168,54 @@ final class DZE_Automation {
 				$ready = self::task_ready( $id );
 				$name  = self::OPT . '[tasks][' . $id . ']';
 				?>
-				<h2 class="title"><?php echo esc_html( (string) $task['label'] ); ?></h2>
-				<p class="description" style="max-width:880px;"><?php echo esc_html( (string) $task['what'] ); ?></p>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Run it', 'dazont-ecom' ); ?></th>
-						<td>
+				<details class="dze-set dze-auto-task">
+					<summary>
+						<span class="dze-auto-name"><?php echo esc_html( (string) $task['label'] ); ?></span>
+						<?php echo wp_kses_post( self::chips_html( $id ) ); ?>
+					</summary>
+					<p class="description"><?php echo esc_html( (string) $task['what'] ); ?></p>
+					<p class="dze-auto-controls">
+						<label>
+							<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[on]" value="1" <?php checked( $conf['on'] ); ?> <?php disabled( ! $ready ); ?> />
+							<?php esc_html_e( 'Run it', 'dazont-ecom' ); ?>
+						</label>
+						<?php if ( 'month' !== $conf['cadence'] ) : ?>
 							<label>
-								<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[on]" value="1" <?php checked( $conf['on'] ); ?> <?php disabled( ! $ready ); ?> />
-								<?php esc_html_e( 'On', 'dazont-ecom' ); ?>
+								<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
+								<?php esc_html_e( 'a day', 'dazont-ecom' ); ?>
 							</label>
-							<?php if ( 'month' === $conf['cadence'] ) : ?>
-								<span style="margin-left:18px;color:#646970;"><?php esc_html_e( 'once a month', 'dazont-ecom' ); ?></span>
-							<?php else : ?>
-								<label style="margin-left:18px;">
-									<input type="number" name="<?php echo esc_attr( $name ); ?>[per_day]" class="small-text" min="1" max="20" value="<?php echo (int) $conf['per_day']; ?>" />
-									<?php esc_html_e( 'per day', 'dazont-ecom' ); ?>
-								</label>
-							<?php endif; ?>
-							<?php if ( 'shop' !== $conf['scope'] ) : ?>
-								<label style="margin-left:18px;">
-									<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[apply]" value="1" <?php checked( $conf['apply'] ); ?> />
-									<?php esc_html_e( 'Save it on the shop straight away', 'dazont-ecom' ); ?>
-								</label>
-							<?php endif; ?>
-							<?php if ( ! empty( $task['kw'] ) ) : ?>
-								<br />
-								<label style="display:inline-block;margin-top:8px;">
-									<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[kw_only]" value="1" <?php checked( $conf['kw_only'] ); ?> />
-									<?php esc_html_e( 'Only categories that have their SEMrush file', 'dazont-ecom' ); ?>
-								</label>
-							<?php endif; ?>
-							<p class="description">
-								<?php
-								if ( 'shop' === $conf['scope'] ) {
-									esc_html_e( 'Nothing here reaches the shop on its own: what comes back waits for your yes or no.', 'dazont-ecom' );
-								} elseif ( $conf['apply'] ) {
-									esc_html_e( 'Unticked, the result waits under "to review" in the writing queue instead of going live.', 'dazont-ecom' );
-								} else {
-									esc_html_e( 'Ticked, the result goes live without being read first. Left as it is, it waits under "to review" in the writing queue.', 'dazont-ecom' );
-								}
-								?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'State', 'dazont-ecom' ); ?></th>
-						<td>
-							<div class="dze-auto-state" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_state( $id ); ?></div>
-							<p style="margin:10px 0 0;">
-								<button type="button" class="button dze-auto-run" data-task="<?php echo esc_attr( $id ); ?>" <?php disabled( ! $ready ); ?>><?php esc_html_e( 'Run one now', 'dazont-ecom' ); ?></button>
-								<span class="dze-auto-msg" style="margin-left:8px;font-size:13px;"></span>
-							</p>
-							<?php if ( ! $ready ) : ?>
-								<p class="description" style="color:#b32d2e;">
-									<?php esc_html_e( 'Needs its own module and Content to review: the work is theirs, this only decides which page gets it, and when.', 'dazont-ecom' ); ?>
-								</p>
-							<?php endif; ?>
-						</td>
-					</tr>
-				</table>
+						<?php endif; ?>
+						<?php if ( 'shop' !== $conf['scope'] ) : ?>
+							<?php // The consequence is on the hover, not in a paragraph under it. ?>
+							<label title="<?php esc_attr_e( 'Ticked, what it writes goes live without being read first. Left as it is, it waits for your yes or no.', 'dazont-ecom' ); ?>">
+								<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[apply]" value="1" <?php checked( $conf['apply'] ); ?> />
+								<?php esc_html_e( 'Save without review', 'dazont-ecom' ); ?>
+							</label>
+						<?php endif; ?>
+						<?php if ( ! empty( $task['kw'] ) ) : ?>
+							<label>
+								<input type="checkbox" name="<?php echo esc_attr( $name ); ?>[kw_only]" value="1" <?php checked( $conf['kw_only'] ); ?> />
+								<?php esc_html_e( 'Only with a SEMrush file', 'dazont-ecom' ); ?>
+							</label>
+						<?php endif; ?>
+						<button type="button" class="button dze-auto-run" data-task="<?php echo esc_attr( $id ); ?>" <?php disabled( ! $ready ); ?>><?php esc_html_e( 'Run one now', 'dazont-ecom' ); ?></button>
+						<span class="dze-auto-msg"></span>
+					</p>
+					<?php if ( ! $ready ) : ?>
+						<p class="description dze-auto-blocked">
+							<?php esc_html_e( 'Switch its module and Content to review back on: the work is theirs, this only decides which page gets it, and when.', 'dazont-ecom' ); ?>
+						</p>
+					<?php endif; ?>
+					<div class="dze-auto-state" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_state( $id ); ?></div>
+				</details>
 			<?php endforeach; ?>
-			<?php submit_button( __( 'Save automation settings', 'dazont-ecom' ) ); ?>
+			<?php submit_button( __( 'Save', 'dazont-ecom' ) ); ?>
 		</form>
 
-		<h2 class="title"><?php esc_html_e( 'What it has done', 'dazont-ecom' ); ?></h2>
-		<div id="dze-auto-log"><?php self::render_log(); ?></div>
+		<details class="dze-set dze-auto-log">
+			<summary><?php esc_html_e( 'What it has done', 'dazont-ecom' ); ?></summary>
+			<div id="dze-auto-log"><?php self::render_log(); ?></div>
+		</details>
 		</div>
 		<script>
 		jQuery( function ( $ ) {
@@ -1160,6 +1228,12 @@ final class DZE_Automation {
 					var d = ( r && r.data ) || {};
 					if ( d.state && d.task ) {
 						$( '.dze-auto-state[data-task="' + d.task + '"]' ).html( d.state );
+					}
+					// THE LINE ITSELF MOVES with what just happened: a figure
+					// on a summary that answers for the page as it was opened
+					// is a figure that lies from the first press.
+					if ( d.chips && d.task ) {
+						$( '.dze-auto-chips[data-task="' + d.task + '"]' ).replaceWith( d.chips );
 					}
 					if ( d.log ) { $( '#dze-auto-log' ).html( d.log ); }
 					// Nothing happening is an answer too, and it says which one.
@@ -1179,55 +1253,27 @@ final class DZE_Automation {
 		<?php
 	}
 
-	/** Where one task stands, and what it is about to take. */
+	/**
+	 * WHAT IT IS ABOUT TO TAKE — the list, and the way to what it left you.
+	 *
+	 * Where it STANDS is said by the chips on the line above, in symbols: a
+	 * sentence repeating them under the fold is the same answer twice, and
+	 * twice is what made this screen unreadable.
+	 */
 	public static function render_state( string $id ): void {
 		$conf = self::conf( $id );
-		$next = wp_next_scheduled( self::HOOK );
-		echo '<p style="margin:0;">';
-		if ( 'month' === $conf['cadence'] ) {
-			$last = self::last_run( $id );
-			echo esc_html( $last
-				/* translators: %s: how long ago */
-				? sprintf( __( 'Last run %s ago.', 'dazont-ecom' ), human_time_diff( $last, time() ) )
-				: __( 'Never run yet.', 'dazont-ecom' ) );
-			if ( $conf['on'] ) {
-				echo ' ' . esc_html( $last && $last + self::gap( $id ) > time()
-					/* translators: %s: how long until the next run */
-					? sprintf( __( 'Next in %s.', 'dazont-ecom' ), human_time_diff( time(), $last + self::gap( $id ) ) )
-					: __( 'Due now.', 'dazont-ecom' ) );
-			}
-		} else {
-			printf(
-				/* translators: 1: passes made today, 2: the daily figure */
-				esc_html__( 'Today: %1$s of %2$s.', 'dazont-ecom' ),
-				'<strong>' . esc_html( number_format_i18n( self::done_today( $id ) ) ) . '</strong>',
-				esc_html( number_format_i18n( $conf['per_day'] ) )
-			);
-			if ( $conf['on'] && $next ) {
-				echo ' ';
-				printf(
-					/* translators: %s: human-readable delay, e.g. "35 mins" */
-					esc_html__( 'Next look in %s.', 'dazont-ecom' ),
-					esc_html( human_time_diff( time(), (int) $next ) )
-				);
-			}
-		}
-		if ( ! $conf['on'] ) {
-			echo ' ' . esc_html__( 'Off — nothing runs on its own.', 'dazont-ecom' );
-		}
-		echo '</p>';
 
-		// WHAT IT LEFT FOR YOU, on the block that started it, with the way
-		// there. Nothing at all when nothing is waiting: a nought here is a
-		// line that says "no news" every day until nobody reads the block.
+		// WHAT IT LEFT FOR YOU, with the way there. Nothing at all when
+		// nothing is waiting: a nought here is a line that says "no news"
+		// every day until nobody reads the block.
 		$left = self::waiting_for( $id );
 		if ( $left['n'] > 0 && '' !== $left['url'] ) {
 			printf(
-				'<p style="margin:6px 0 0;"><a href="%1$s"><strong>%2$s</strong></a></p>',
+				'<p class="dze-auto-waiting"><a href="%1$s">%2$s</a></p>',
 				esc_url( $left['url'] ),
 				esc_html( sprintf(
 					/* translators: %s: how many finished jobs are waiting for a yes or a no */
-					_n( '%s piece of work is waiting for your yes or no', '%s pieces of work are waiting for your yes or no', $left['n'], 'dazont-ecom' ),
+					_n( 'Review %s piece of work', 'Review the %s pieces of work waiting', $left['n'], 'dazont-ecom' ),
 					number_format_i18n( $left['n'] )
 				) )
 			);
@@ -1236,16 +1282,16 @@ final class DZE_Automation {
 		// The whole tool rests on this list, so it is shown, not described.
 		$next_up = self::shortlist( $id, 5 );
 		if ( ! $next_up ) {
-			echo '<p class="description" style="margin:6px 0 0;">' . esc_html__( 'Nothing is short of anything right now.', 'dazont-ecom' ) . '</p>';
+			echo '<p class="description">' . esc_html__( 'Nothing is short of anything right now.', 'dazont-ecom' ) . '</p>';
 			return;
 		}
-		echo '<p class="description" style="margin:6px 0 0;">' . esc_html__( 'Next in line:', 'dazont-ecom' ) . ' ';
+		echo '<p class="description dze-auto-next">' . esc_html__( 'Next in line:', 'dazont-ecom' ) . ' ';
 		$bits = [];
 		foreach ( $next_up as $row ) {
 			$name = esc_html( (string) $row['name'] );
 			$url  = self::edit_url( $conf['scope'], (int) $row['tid'] );
 			$bits[] = ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name )
-				. ' <span style="color:#a7aaad;">(' . esc_html( (string) $row['why'] ) . ')</span>';
+				. ' <span class="dze-auto-why">(' . esc_html( (string) $row['why'] ) . ')</span>';
 		}
 		echo wp_kses_post( implode( ' · ', $bits ) ) . '</p>';
 	}
@@ -1402,6 +1448,7 @@ final class DZE_Automation {
 			'task'    => $id,
 			'message' => self::reason_text( (string) $res['reason'] ),
 			'state'   => self::block( $id ),
+			'chips'   => self::chips_html( $id ),
 			'log'     => self::log_html(),
 		] );
 	}
