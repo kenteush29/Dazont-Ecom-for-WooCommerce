@@ -1597,3 +1597,48 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	user-select: all;
 	white-space: nowrap;
 }
+
+/* ==========================================================================
+   Setup — what is configured, what is not.
+   One block per subject, shut when it has nothing left to do.
+   ========================================================================== */
+.dze-setup-said { font-size: 14px; margin: 6px 0 16px; }
+.dze-setup-block { margin-bottom: 10px; }
+.dze-setup-block > summary { font-weight: 600; }
+.dze-setup-chips { margin-left: 8px; font-weight: 400; }
+.dze-setup-chip {
+	display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px;
+	border: 1px solid #dcdcde; border-radius: 11px; font-size: 12px; white-space: nowrap;
+}
+.dze-setup-chip.is-todo { border-color: #f0dba8; background: #fdf7e7; color: #6b5200; }
+.dze-setup-chip.is-done { border-color: #c6e6d5; background: #f6fbf8; color: #1d4c38; }
+/* THE LAST COLUMN GETS WHAT IS LEFT, so the columns whose width is KNOWN —
+   the mark and the button — are given it in pixels, and the two of words
+   share the rest. */
+.dze-setup-list                    { margin-top: 8px; }
+.dze-setup-list td                 { vertical-align: top; padding: 10px; }
+.dze-setup-list .dze-setup-state   { width: 34px; text-align: center; }
+.dze-setup-list .dze-setup-says    { width: 32%; }
+.dze-setup-list .dze-setup-act     { width: 130px; text-align: right; }
+.dze-setup-row.is-todo .dze-setup-state .dashicons    { color: #b35c00; }
+.dze-setup-row.is-done .dze-setup-state .dashicons    { color: #1d7f4c; }
+.dze-setup-row.is-unknown .dze-setup-state .dashicons { color: #2271b1; }
+.dze-setup-row.is-idea .dze-setup-state .dashicons    { color: #8a6d00; }
+.dze-setup-row.is-off                                 { opacity: .62; }
+.dze-setup-row.is-off .dze-setup-state .dashicons     { color: #8c8f94; }
+/* The same checklist, inline, where somebody is trying to use the thing. */
+.dze-setup-inline {
+	margin: 0 0 18px; padding: 12px 16px; border: 1px solid #f0dba8;
+	border-left-width: 4px; background: #fdf7e7; border-radius: 3px; max-width: 880px;
+}
+.dze-setup-inline h3  { margin: 0 0 8px; }
+.dze-setup-inline ul  { margin: 0; }
+.dze-setup-inline li  { margin: 0 0 8px; }
+.dze-setup-inline li.is-done .dashicons { color: #1d7f4c; }
+.dze-setup-inline li.is-todo .dashicons { color: #b35c00; }
+.dze-setup-inline .description { margin-left: 24px; display: inline-block; }
+
+@media screen and (max-width: 782px) {
+	.dze-setup-list .dze-setup-says,
+	.dze-setup-list .dze-setup-act { width: auto; }
+}

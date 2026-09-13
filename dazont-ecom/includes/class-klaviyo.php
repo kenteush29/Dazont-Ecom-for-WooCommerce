@@ -187,24 +187,31 @@ final class DZE_Klaviyo {
 			[
 				'label' => __( 'Add your Klaviyo API key', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-key',
+				// REQUIRED IS WHAT `ready()` TESTS, said here so every screen
+				// that draws this list reads the same answer — three of these
+				// four stop the module dead, and the fourth is advice.
+				'need'  => true,
 				'done'  => '' !== self::key(),
 				'note'  => __( 'Klaviyo → Settings → API keys, with campaigns, templates and lists enabled.', 'dazont-ecom' ),
 			],
 			[
 				'label' => __( 'Choose who the emails go to', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-inc',
+				'need'  => true,
 				'done'  => '' !== (string) self::conf( 'included' ),
 				'note'  => __( 'Normally all your contacts, minus your recent buyers.', 'dazont-ecom' ),
 			],
 			[
 				'label' => __( 'Leave out your recent buyers', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-exc',
+				'need'  => false,
 				'done'  => '' !== (string) self::conf( 'excluded' ),
 				'note'  => __( 'Recommended, not required: a sale announced to somebody who paid full price three days ago earns a refund request.', 'dazont-ecom' ),
 			],
 			[
 				'label' => __( 'Take the header and footer from Klaviyo', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-th',
+				'need'  => true,
 				'done'  => '' !== trim( (string) ( self::settings()['shell'] ?? '' ) ),
 				'note'  => __( 'In Klaviyo, make one template with your header, ONE empty section, and your footer. Read it here and every promotion goes out inside it.', 'dazont-ecom' ),
 			],
