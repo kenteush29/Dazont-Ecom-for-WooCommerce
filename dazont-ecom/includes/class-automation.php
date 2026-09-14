@@ -72,6 +72,15 @@ final class DZE_Automation {
 	/** How many candidates are looked at closely before giving up on a task. */
 	private const LOOK = 25;
 
+	/**
+	 * How long nothing may move before the screen calls the run stopped.
+	 *
+	 * Longer than any single step — the screen itself takes one every second
+	 * and a half, and a model answering slowly is a minute — and short enough
+	 * that nobody sits in front of a queue that has died.
+	 */
+	private const STOPPED_AFTER = 3 * MINUTE_IN_SECONDS;
+
 	private static ?self $instance = null;
 
 	public static function instance(): self {
@@ -98,6 +107,7 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_catchup', [ __CLASS__, 'ajax_catchup' ] );
 		add_action( 'wp_ajax_dze_auto_orphans', [ __CLASS__, 'ajax_orphans' ] );
 		add_action( 'wp_ajax_dze_auto_run_state', [ __CLASS__, 'ajax_run_state' ] );
+		add_action( 'wp_ajax_dze_auto_run_again', [ __CLASS__, 'ajax_run_again' ] );
 	}
 
 	public static function page_url( string $tab = '' ): string {
@@ -1776,6 +1786,26 @@ final class DZE_Automation {
 			// actuel avec la barre qui continue".
 			var runBusy = false;
 			var runTimer = null;
+			var runFails = 0;
+			// AN ANSWER THAT NEVER CAME IS NOT A REASON TO STOP WATCHING. This
+			// function had one handler and three ways out of it — a request
+			// that failed, an answer that was not a success, an answer with no
+			// data — and every one of them left the watcher dead with the bar
+			// frozen exactly where it stood. One 502 from a slow model call,
+			// one nonce aged out overnight, and the screen read "Writing — 200
+			// pages left" for as long as anybody cared to watch it: "c'est
+			// bloqué." It keeps asking, more slowly each time, and says so.
+			function runStumble( $said ) {
+				runFails++;
+				if ( runFails < 5 ) {
+					$said.text( '<?php echo esc_js( __( 'The server did not answer. Trying again…', 'dazont-ecom' ) ); ?>' );
+					runTimer = window.setTimeout( function () { runTick( true ); }, 1500 * runFails );
+					return;
+				}
+				// NOTHING IS REMEMBERED IN THE BROWSER, so reloading really is
+				// the way back: the bar is drawn from the queue every time.
+				$said.text( '<?php echo esc_js( __( 'The server has stopped answering. Nothing is lost — reload the page to pick the run back up.', 'dazont-ecom' ) ); ?>' );
+			}
 			function runTick( step ) {
 				if ( runBusy ) { return; }
 				runBusy = true;
@@ -1784,15 +1814,43 @@ final class DZE_Automation {
 					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
 					step: step ? 1 : 0
 				} ).done( function ( r ) {
-					if ( ! r || ! r.success || ! r.data ) { return; }
+					if ( ! r || ! r.success || ! r.data ) { runStumble( $( '.dze-auto-runsaid' ) ); return; }
+					runFails = 0;
 					$( '#dze-auto-run' ).html( r.data.run || '' );
 					if ( r.data.waiting ) { $( '#dze-auto-waiting' ).html( r.data.waiting ); }
 					$.each( r.data.chips || {}, function ( id, html ) {
 						$( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( html );
 					} );
 					runWatch( r.data.left > 0 );
+				} ).fail( function () {
+					runStumble( $( '.dze-auto-runsaid' ) );
 				} ).always( function () { runBusy = false; } );
 			}
+			// STARTING A STOPPED RUN AGAIN. It is its own press rather than one
+			// of post()'s, because the answer REPLACES the block the button is
+			// drawn in — and the redrawn block is the answer: the figures move.
+			$( document ).on( 'click', '.dze-auto-again', function () {
+				var $b = $( this );
+				$b.prop( 'disabled', true );
+				busy( $b.siblings( '.dze-auto-restarted' ), true );
+				$.post( window.ajaxurl, {
+					action: 'dze_auto_run_again',
+					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>'
+				} ).done( function ( r ) {
+					var d = ( r && r.data ) || {};
+					if ( undefined !== d.run ) { $( '#dze-auto-run' ).html( d.run ); }
+					if ( undefined !== d.waiting ) { $( '#dze-auto-waiting' ).html( d.waiting ); }
+					if ( d.message ) { $( '.dze-auto-restarted' ).text( d.message ); }
+					runFails = 0;
+					// The watcher, not a step: a press whose answer is wiped
+					// off the screen a hundredth of a second later has not
+					// answered. The figures take over from the sentence.
+					runWatch( true );
+				} ).fail( function () {
+					$b.prop( 'disabled', false );
+					$( '.dze-auto-restarted' ).text( '<?php echo esc_js( __( 'That did not go through. Try again.', 'dazont-ecom' ) ); ?>' );
+				} );
+			} );
 			// While there is work left this page IS the engine — one step per
 			// tick, never two at once. Once it is empty the watching stops:
 			// polling an idle queue is a request a second for nothing.
@@ -1803,7 +1861,7 @@ final class DZE_Automation {
 			}
 			// On arrival, and after any press that queues something.
 			if ( $( '#dze-auto-run .dze-auto-prog' ).length ) {
-				runWatch( $( '#dze-auto-run .is-working' ).length > 0 );
+				runWatch( $( '#dze-auto-run .is-working, #dze-auto-run .is-stuck' ).length > 0 );
 			}
 			$( document ).on( 'dze:queued', function () { runTick( true ); } );
 
@@ -1933,9 +1991,12 @@ final class DZE_Automation {
 		if ( $c['total'] < 1 ) {
 			return;
 		}
-		$done = $c['done'];
-		$left = $c['left'];
-		echo '<div class="dze-auto-prog' . ( $left > 0 ? ' is-working' : ' is-done' ) . '">';
+		$done  = $c['done'];
+		$left  = $c['left'];
+		$stuck = $c['stuck'] > 0;
+		$bad   = $c['failed'];
+		$state = $left > 0 ? ( $stuck ? ' is-stuck' : ' is-working' ) : ( $bad > 0 ? ' is-stuck' : ' is-done' );
+		echo '<div class="dze-auto-prog' . esc_attr( $state ) . '">';
 		echo '<p class="dze-auto-runsaid">' . esc_html( self::run_said( $c ) ) . '</p>';
 		echo '<div class="dze-auto-bar"><span style="width:' . esc_attr( (string) $c['pct'] ) . '%"></span></div>';
 		echo '<p class="description dze-auto-runfig">' . esc_html( sprintf(
@@ -1945,7 +2006,42 @@ final class DZE_Automation {
 			number_format_i18n( $done ),
 			number_format_i18n( $c['total'] )
 		) ) . '</p>';
+		// WHAT COULD NOT BE WRITTEN, AND WHY. Counted nowhere before, so a run
+		// where every job failed emptied the block off the screen entirely —
+		// the strongest possible statement that nothing is wrong.
+		if ( $bad > 0 ) {
+			echo '<p class="dze-auto-runbad">' . esc_html( sprintf(
+				/* translators: %s: how many could not be written */
+				_n( '%s could not be written.', '%s could not be written.', $bad, 'dazont-ecom' ),
+				number_format_i18n( $bad )
+			) );
+			// A figure with no reason beside it is a figure nobody can act on.
+			$why = class_exists( 'DZE_Queue' ) ? (array) DZE_Queue::failures( self::my_kinds(), 1 ) : [];
+			$why = trim( (string) ( $why[0]['error'] ?? '' ) );
+			if ( '' !== $why ) {
+				echo ' <span class="description">' . esc_html( $why ) . '</span>';
+			}
+			echo '</p>';
+		}
+		// ONE CONTROL, AND IT IS SHOWN ONLY WHERE IT CAN ACT.
+		if ( $stuck || $bad > 0 ) {
+			echo '<p class="dze-auto-runact">';
+			echo '<button type="button" class="button dze-auto-again" title="' . esc_attr__( 'Lets the writer go, puts back what could not be written, and starts the queue again. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ) . '">'
+				. esc_html__( 'Start it again', 'dazont-ecom' ) . '</button>';
+			echo ' <span class="dze-auto-restarted"></span></p>';
+		}
 		echo '</div>';
+	}
+
+	/** Every job kind these tasks put in the queue, asked for as one set. */
+	public static function my_kinds(): array {
+		$mine = [];
+		foreach ( self::tasks() as $task ) {
+			foreach ( (array) ( $task['jobs'] ?? [] ) as $k ) {
+				$mine[] = (string) $k;
+			}
+		}
+		return array_values( array_unique( $mine ) );
 	}
 
 	/**
@@ -1955,36 +2051,48 @@ final class DZE_Automation {
 	 */
 	public static function run_state(): array {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
-			return [ 'done' => 0, 'left' => 0, 'total' => 0, 'pct' => 0, 'running' => 0 ];
+			return self::no_run();
 		}
 		// THE BAR AND THE LIST UNDER IT ANSWER THE SAME QUESTION. Reading the
 		// whole queue here put "3 pages are written and waiting below" over a
 		// list saying "nothing is waiting": a photograph made from the bulk
 		// screen is in the queue and is not this page's work.
-		$mine = [];
-		foreach ( self::tasks() as $task ) {
-			foreach ( (array) ( $task['jobs'] ?? [] ) as $k ) {
-				$mine[] = (string) $k;
-			}
-		}
+		$mine = self::my_kinds();
 		if ( ! $mine ) {
-			return [ 'done' => 0, 'left' => 0, 'total' => 0, 'pct' => 0, 'running' => 0 ];
+			return self::no_run();
 		}
 		$c       = (array) DZE_Queue::counts_for( $mine );
 		$running = (int) ( $c['running'] ?? 0 );
 		$left    = (int) ( $c['queued'] ?? 0 ) + $running;
 		$done    = (int) ( $c['review'] ?? 0 );
-		$total   = $left + $done;
+		// WHAT COULD NOT BE WRITTEN IS PART OF THE RUN. Left out of the total,
+		// a press whose every job failed made the whole block disappear: the
+		// screen went from "200 pages left" to nothing at all, with no figure
+		// anywhere saying the work had not happened.
+		$failed  = (int) ( $c['failed'] ?? 0 );
+		$total   = $left + $done + $failed;
+		// A QUEUE THAT HAS STOPPED MOVING reads exactly like one about to move:
+		// 200 left and nought written is also what the first second looks like.
+		// The figures cannot tell them apart and the database can — every row
+		// carries when it last moved.
+		$idle    = $left > 0 ? (int) DZE_Queue::idle_for( $mine ) : 0;
 		return [
 			'done'    => $done,
 			'left'    => $left,
+			'failed'  => $failed,
 			'total'   => $total,
 			// A JOB THAT HAS STARTED IS NOT NOUGHT PER CENT. With one job in
 			// the queue the bar would sit flat at 0 for the whole run, which
 			// reads as a press that did nothing.
 			'pct'     => $total > 0 ? max( $done > 0 || $running > 0 ? 3 : 0, (int) floor( $done * 100 / $total ) ) : 0,
 			'running' => $running,
+			'stuck'   => $idle >= self::STOPPED_AFTER ? $idle : 0,
 		];
+	}
+
+	/** No queue, no run: the same shape, so no reader has to test for it. */
+	private static function no_run(): array {
+		return [ 'done' => 0, 'left' => 0, 'failed' => 0, 'total' => 0, 'pct' => 0, 'running' => 0, 'stuck' => 0 ];
 	}
 
 	/**
@@ -1994,6 +2102,20 @@ final class DZE_Automation {
 	 * "Queued" and nothing else has answered half a question.
 	 */
 	public static function run_said( array $c ): string {
+		// NOTHING HAS MOVED. "c'est bloqué." The sentence this screen used to
+		// print in that state — "Leave this screen open and it keeps going" —
+		// is exactly what made him wait in front of a queue that was never
+		// going to write anything.
+		if ( $c['left'] > 0 && $c['stuck'] > 0 ) {
+			return sprintf(
+				/* translators: %s: how long nothing has moved, e.g. "8 minutes" */
+				__( 'Nothing has moved for %s. The writer may be held by a run the server stopped.', 'dazont-ecom' ),
+				human_time_diff( time() - (int) $c['stuck'], time() )
+			);
+		}
+		if ( $c['left'] < 1 && $c['done'] < 1 && $c['failed'] > 0 ) {
+			return __( 'This run wrote nothing.', 'dazont-ecom' );
+		}
 		if ( $c['left'] > 0 ) {
 			return sprintf(
 				/* translators: %s: how many are still to write */
@@ -2360,6 +2482,36 @@ final class DZE_Automation {
 	 * The answer carries every figure the step can move: the bar, the rows
 	 * waiting for a decision, and the chips on each task's line.
 	 */
+	/**
+	 * STARTS A STOPPED RUN AGAIN — the one control on a screen that had none.
+	 *
+	 * It does the two things that stop a queue, together, because they arrive
+	 * together: the writer's lock left behind by a run the host killed, and the
+	 * rows that were called failed while it stood. Answering "3 put back" with
+	 * the lock still standing is a press that changes nothing.
+	 */
+	public static function ajax_run_again(): void {
+		self::guard();
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off.', 'dazont-ecom' ) ] );
+		}
+		DZE_Queue::unlock();
+		$back = (int) DZE_Queue::retry_failed( self::my_kinds() );
+		ob_start();
+		self::render_run();
+		wp_send_json_success( [
+			'run'     => (string) ob_get_clean(),
+			'waiting' => self::waiting_html(),
+			'message' => $back > 0
+				? sprintf(
+					/* translators: %s: how many were put back in the queue */
+					_n( '%s put back in the queue.', '%s put back in the queue.', $back, 'dazont-ecom' ),
+					number_format_i18n( $back )
+				)
+				: __( 'The writer is free. The queue is going again.', 'dazont-ecom' ),
+		] );
+	}
+
 	public static function ajax_run_state(): void {
 		self::guard();
 		$step = ! empty( $_POST['step'] );

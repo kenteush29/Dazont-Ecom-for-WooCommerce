@@ -80,6 +80,10 @@ for ( const [ label, jq ] of jqs ) {
 	// presses. The SERVER owns this, which is the whole reason a reload picks
 	// the bar up where it was.
 	let left = 3, done = 0;
+	// THE SERVER REFUSING TO ANSWER, and a run that has stopped moving: two
+	// states the screen used to have no way of showing, and neither of them
+	// exists unless the harness can produce it.
+	let refuse = 0, stopped = false;
 	// The real `waiting_html()` as the server drew it, pulled out of the dump:
 	// the poll returns `waiting` on every tick, so a harness that answers with a
 	// list of its own would wipe the ticks and the bar before anything pressed
@@ -111,7 +115,14 @@ for ( const [ label, jq ] of jqs ) {
 		return dumped.html.slice( from, Math.max( from, i - 6 ) );
 	} )();
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
-	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
+	// A 502 THIS GATE ASKED FOR IS NOT A FAULT IT FOUND. The browser logs a
+	// refused request as a console error; the section below makes the server
+	// refuse on purpose, and a script fault still arrives through `pageerror`.
+	page.on( 'console', m => {
+		if ( 'error' !== m.type() ) { return; }
+		if ( /status of 502/.test( m.text() ) ) { return; }
+		errors.push( m.text() );
+	} );
 
 	await page.route( 'http://dze.test/ajax', route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
@@ -162,6 +173,22 @@ for ( const [ label, jq ] of jqs ) {
 		// THE WORK, DRAINING ONE STEP AT A TIME. The bar has to have somewhere
 		// real to move to, or "it moves" is a check that cannot fail.
 		if ( 'dze_auto_run_state' === act ) {
+			// A REQUEST THAT NEVER COMES BACK. One 502 from a slow model call
+			// used to kill the watcher for good.
+			if ( refuse > 0 ) { refuse--; return route.fulfill( { status: 502, contentType: 'text/html', body: 'gateway' } ); }
+			if ( stopped ) {
+				const t = left + done;
+				return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+					left: left, done: done, pct: 3,
+					run: '<div class="dze-auto-prog is-stuck">'
+						+ '<p class="dze-auto-runsaid">Nothing has moved for 8 minutes. The writer may be held by a run the server stopped.</p>'
+						+ '<div class="dze-auto-bar"><span style="width:3%"></span></div>'
+						+ '<p class="description dze-auto-runfig">3% \u2014 ' + done + ' of ' + t + ' written</p>'
+						+ '<p class="dze-auto-runact"><button type="button" class="button dze-auto-again" title="Lets the writer go, puts back what could not be written, and starts the queue again.">Start it again</button>'
+						+ ' <span class="dze-auto-restarted"></span></p></div>',
+					waiting: waitingNow(), chips: {}
+				} } ) } );
+			}
 			if ( '1' === q.get( 'step' ) && left > 0 ) { left--; done++; }
 			const total = left + done;
 			const pct = total ? Math.max( left > 0 ? 3 : 0, Math.floor( done * 100 / total ) ) : 0;
@@ -178,6 +205,21 @@ for ( const [ label, jq ] of jqs ) {
 				left: left, done: done, pct: pct, run: bar,
 				waiting: waitingNow(),
 				chips: {}
+			} } ) } );
+		}
+		// STARTING A STOPPED RUN AGAIN: the writer let go, the failed rows put
+		// back, and the block redrawn — which is the answer.
+		if ( 'dze_auto_run_again' === act ) {
+			stopped = false;
+			left = 2; done = 0;
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				run: '<div class="dze-auto-prog is-working">'
+					+ '<p class="dze-auto-runsaid">Writing \u2014 2 pages left.</p>'
+					+ '<div class="dze-auto-bar"><span style="width:3%"></span></div>'
+					+ '<p class="description dze-auto-runfig">3% \u2014 0 of 2 written</p>'
+					+ '<p class="dze-auto-runact"><span class="dze-auto-restarted"></span></p></div>',
+				waiting: waitingNow(),
+				message: '2 put back in the queue.'
 			} } ) } );
 		}
 		if ( 'dze_q_decide' === act ) {
@@ -556,6 +598,65 @@ for ( const [ label, jq ] of jqs ) {
 	await page.waitForTimeout( 2500 );
 	ok( 'and stops asking once it is idle',
 		sent.filter( r => 'dze_auto_run_state' === r.action ).length, afterEnd );
+
+	// ---- A WATCHER THAT CANNOT BE KILLED, AND A RUN THAT CAN BE RESTARTED ----
+	// "c'est bloqué." Two hundred pages queued, the bar at 0%, nothing written.
+	// `runTick` had one handler and three ways out of it — a request that
+	// failed, an answer that was not a success, an answer with no data — and
+	// every one of them left the watcher dead with the bar frozen exactly where
+	// it stood, saying "Leave this screen open and it keeps going". None of
+	// that exists until a browser makes the server refuse.
+	left = 4; done = 0; refuse = 2;
+	await page.evaluate( () => { document.dispatchEvent( new Event( 'dze:queued' ) ); } );
+	// Old jQuery does not see a native Event on document for a delegated
+	// handler bound with .on: fire it the way the plugin's own code does.
+	await page.evaluate( () => { window.jQuery( document ).trigger( 'dze:queued' ); } );
+	const stumbled = await page.waitForFunction(
+		() => /did not answer/.test( ( document.querySelector( '.dze-auto-runsaid' ) || {} ).textContent || '' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'a refused answer is said out loud', stumbled, true );
+	// AND IT KEEPS ASKING. The whole fault: it used to stop here for ever.
+	const cameBack = await page.waitForFunction(
+		() => /Writing/.test( ( document.querySelector( '.dze-auto-runsaid' ) || {} ).textContent || '' ),
+		null, { timeout: 15000 } ).then( () => true ).catch( () => false );
+	ok( 'and the watcher carries on',        cameBack, true );
+	// AND THE WORK GOES ON MOVING once the server is answering again.
+	const movedOn = await page.waitForFunction(
+		() => /[1-9]\d* of \d+ written/.test( ( document.querySelector( '.dze-auto-runfig' ) || {} ).textContent || '' ),
+		null, { timeout: 15000 } ).then( () => true ).catch( () => false );
+	ok( 'and the bar moves again',           movedOn, true );
+
+	// A RUN THAT HAS STOPPED offers the one control that can act, and pressing
+	// it is the only way to know it is wired to anything.
+	stopped = true; left = 5; done = 0;
+	await page.evaluate( () => { window.jQuery( document ).trigger( 'dze:queued' ); } );
+	const sawStuck = await page.waitForFunction(
+		() => !! document.querySelector( '#dze-auto-run .dze-auto-again' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'a stopped run says it is stopped',  sawStuck, true );
+	ok( 'and does not claim to be working',
+		/Leave this screen open/.test( await page.locator( '#dze-auto-run' ).innerText() ), false );
+	const wasAgain = sent.length;
+	await page.locator( '.dze-auto-again' ).click();
+	const restarted = await page.waitForFunction(
+		() => /put back in the queue/.test( ( document.querySelector( '.dze-auto-restarted' ) || {} ).textContent || '' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'the press says what it did',        restarted, true );
+	const again = sent.slice( wasAgain ).filter( r => 'dze_auto_run_again' === r.action );
+	ok( 'it goes out as its own request',    again.length, 1 );
+	ok( 'signed',                            !! ( again[0] || {} ).nonce, true );
+	// AND THE ANSWER LANDS: the block is redrawn, and it is going again.
+	ok( 'the block is redrawn working',
+		await page.locator( '#dze-auto-run .is-working' ).count() > 0, true );
+	// AND THE RUN PICKS UP FROM THERE rather than waiting to be pressed again.
+	const rolling = await page.waitForFunction(
+		() => /[1-9]\d* of \d+ written/.test( ( document.querySelector( '.dze-auto-runfig' ) || {} ).textContent || '' ),
+		null, { timeout: 15000 } ).then( () => true ).catch( () => false );
+	ok( 'and the work carries on',           rolling, true );
+	// Drain what is left, so the section below reads a finished queue.
+	await page.waitForFunction(
+		() => !! document.querySelector( '#dze-auto-run .is-done' ),
+		null, { timeout: 20000 } ).catch( () => {} );
 
 	// ---- ACCEPT OR CANCEL A WHOLE SELECTION ----
 	// "Des coches, la possibilité d'accepter ou de refuser en groupe." Only a

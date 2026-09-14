@@ -318,6 +318,22 @@ class DZE_Queue {
 		return self::$counts;
 	}
 	public static function work( int $only = 0 ): void { self::$worked++; }
+	// HOW LONG SINCE ANYTHING OF THESE KINDS MOVED — the one reading that tells
+	// a run in progress from a run that has stopped.
+	public static int $idle = 0;
+	public static array $idle_kinds = [];
+	public static function idle_for( array $kinds ): int { self::$idle_kinds = $kinds; return self::$idle; }
+	/** Why the last few could not be written. */
+	public static function failures( array $kinds, int $limit = 3 ): array {
+		return array_slice( (array) ( $GLOBALS['failures'] ?? [] ), 0, $limit );
+	}
+	public static int $unlocked = 0;
+	public static array $retried = [];
+	public static function unlock(): void { self::$unlocked++; }
+	public static function retry_failed( array $kinds ): int {
+		self::$retried = $kinds;
+		return (int) ( self::$counts['failed'] ?? 0 );
+	}
 	/** How many finished jobs of these kinds are waiting for a decision. */
 	public static function review_count_for( array $kinds ): int {
 		$n = 0;
@@ -469,6 +485,13 @@ function fresh( array $tasks = [] ): void {
 	$GLOBALS['opts']['dze_mesh_skip'] = [];
 	delete_transient( 'dze_mesh_pages' );
 	delete_transient( 'dze_auto_survey' );
+	DZE_Queue::$idle       = 0;
+	DZE_Queue::$idle_kinds = [];
+	DZE_Queue::$unlocked   = 0;
+	DZE_Queue::$retried    = [];
+	$GLOBALS['failures']   = [
+		[ 'kind' => 'cat_links', 'object_id' => 21, 'error' => 'The model refused: the description is empty.' ],
+	];
 }
 
 /** What a handler sent, without ending the request. */
@@ -1332,6 +1355,77 @@ ok( 'with the work drawn in it',        false !== strpos( $dze_screen, 'dze-auto
 // it, never the other way round.
 ok( 'the bar comes before what waits',
 	strpos( $dze_screen, 'id="dze-auto-run"' ) < strpos( $dze_screen, 'id="dze-auto-waiting"' ), true );
+
+echo "\nA run that has stopped says so, and can be started again\n";
+//
+// "c'est bloqué." Two hundred pages queued, the bar at 0%, nothing written,
+// and the screen saying "Writing — 200 pages left. Leave this screen open and
+// it keeps going" for as long as anybody cared to watch. Three silences in one
+// screen: a failed row was counted nowhere, a queue that had stopped moving
+// read exactly like one about to move, and there was no way to start it again.
+fresh( $ON );
+
+// A RUN NOBODY COULD WRITE. Counting review and queued alone, three hundred
+// failures made `total` nought and the whole block VANISHED — the strongest
+// possible statement that nothing is wrong.
+DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 3, 'skipped' => 0 ];
+$dze_st = DZE_Automation::run_state();
+ok( 'what could not be written counts',  $dze_st['failed'], 3 );
+ok( 'and it is part of the run',         $dze_st['total'], 3 );
+ob_start();
+DZE_Automation::render_run();
+$dze_bad = (string) ob_get_clean();
+ok( 'the block is drawn all the same',   false !== strpos( $dze_bad, 'dze-auto-bar' ), true );
+ok( 'it says how many failed',           false !== strpos( $dze_bad, '3 could not be written' ), true );
+// AND WHY. A figure with no reason beside it is a figure nobody can act on.
+ok( 'with the reason it gave',           false !== strpos( $dze_bad, 'The model refused' ), true );
+// A CONTROL THAT CAN ACT. There was none: a failed row could only be put back
+// one at a time, from another screen.
+ok( 'and one way to start it again',     substr_count( $dze_bad, 'dze-auto-again' ), 1 );
+
+// A QUEUE THAT HAS STOPPED MOVING. The figures alone cannot say it — 200 left
+// and nought written is what the first second of a run looks like too. The
+// database knows: nothing of these kinds has moved for eight minutes.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 200, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+DZE_Queue::$idle   = 8 * 60;
+$dze_st = DZE_Automation::run_state();
+ok( 'the screen can see the standstill', $dze_st['stuck'] > 0, true );
+ob_start();
+DZE_Automation::render_run();
+$dze_stuck = (string) ob_get_clean();
+ok( 'and says nothing has moved',        false !== strpos( $dze_stuck, 'Nothing has moved' ), true );
+// IT IS ASKED BY KIND, like every other figure on this screen.
+sort( DZE_Queue::$idle_kinds );
+ok( 'asked of its own kinds only',       DZE_Queue::$idle_kinds, [ 'cat_desc', 'cat_links', 'post_links' ] );
+// NEVER "leave this screen open and it keeps going" over a run that is going
+// nowhere: that sentence is the whole of what made him wait.
+ok( 'and not that it is under way',      false !== strpos( $dze_stuck, 'Leave this screen open' ), false );
+ok( 'with the way to start it again',    substr_count( $dze_stuck, 'dze-auto-again' ), 1 );
+
+// A RUN THAT IS MOVING SAYS NONE OF IT. A warning shown on an ordinary run is
+// a warning nobody reads by the end of the week.
+DZE_Queue::$idle = 4;
+ob_start();
+DZE_Automation::render_run();
+$dze_live = (string) ob_get_clean();
+ok( 'a working run is not called stuck', false !== strpos( $dze_live, 'Nothing has moved' ), false );
+ok( 'and says what it is doing',         false !== strpos( $dze_live, 'Leave this screen open' ), true );
+ok( 'with nothing to start again',       false !== strpos( $dze_live, 'dze-auto-again' ), false );
+
+// THE PRESS ITSELF: it lets the writer go, puts back what failed, and answers
+// with the screen redrawn — never a figure the page has to be reloaded to see.
+fresh( $ON );
+DZE_Queue::$counts   = [ 'queued' => 2, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 3, 'skipped' => 0 ];
+DZE_Queue::$unlocked = 0;
+DZE_Queue::$retried  = [];
+$dze_again = sent_of( static function (): void { DZE_Automation::ajax_run_again(); } );
+ok( 'the press answers',                 (bool) ( $dze_again['ok'] ?? false ), true );
+ok( 'it lets the writer go',             DZE_Queue::$unlocked, 1 );
+sort( DZE_Queue::$retried );
+ok( 'and puts back its own kinds',       DZE_Queue::$retried, [ 'cat_desc', 'cat_links', 'post_links' ] );
+ok( 'the answer carries the bar',        false !== strpos( (string) ( $dze_again['data']['run'] ?? '' ), 'dze-auto-bar' ), true );
+ok( 'and says what it did',              false !== strpos( (string) ( $dze_again['data']['message'] ?? '' ), '3' ), true );
 
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.
