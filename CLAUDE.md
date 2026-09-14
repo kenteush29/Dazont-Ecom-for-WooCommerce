@@ -1720,6 +1720,40 @@ whose screen has not been thought through yet.
   `php tools/test-spend.php dazont-ecom` must pass, and the bill is asserted in
   a browser (`node tools/js/content-bulk.mjs`) because only a browser can
   multiply what is on the page.
+- **A CALL THAT FAILED IS STILL A CALL, AND TWO FIGURES ABOUT ONE THING MUST BE
+  READABLE AGAINST EACH OTHER.** "Dans logs, je vois la quantité d'appels
+  nanobanana fal qui est à 48. Hors, le module génération d'image est bloqué
+  pour limite atteinte de 100 appels par heure. WTF" Both figures were right.
+  The hourly ceiling counts what REACHES fal — deliberately, since a run
+  failing in a loop hits the provider just as often as one succeeding — and
+  `record()` sat behind `if ( $url )`, so only the pictures that came back were
+  ever written down. Fifty-two failures were counted by the guard and by
+  nothing a person can read, and the only reading left was that the plugin is
+  broken. Four rules:
+  - **The register counts every call, with a flag beside the ones that
+    failed** — never a second store, which would be two accounts of one thing.
+    The Logs table carries a **Failed** column, a dash where a model has never
+    failed (a nought on every line of every month is a figure nobody reads by
+    the end of the week, and this is the column somebody scans when a run is
+    being refused).
+  - **AN ANSWER THE PROVIDER BILLED FOR IS IN THE SPEND, PICTURE OR NO
+    PICTURE.** fal answers 200 with its billable units and no image; that cost
+    was dropped on the floor by the same guard, so the month under-reported
+    every failed photograph while the ceiling counted them all. A request that
+    was refused (4xx) or never arrived is a call and not a cost — three paths,
+    three different answers, and the gate holds all three.
+  - **A WALL SAYS WHAT IT COUNTED, NEVER WHAT IT WISHES IT COUNTED.** "The shop
+    has made 100 images in the past hour" is a sentence the shop can check and
+    find wrong. It says requests SENT, then — only where the two differ — how
+    many came back and how many failed, and it names the screen holding the
+    reason. On a shop where nothing failed that second sentence is not printed:
+    news every hour is noise.
+  - **`fal_generate()` HAD NEVER BEEN RUN BY ANY GATE.** Its failure paths were
+    read by eye and asserted by grepping its source for the name of a function,
+    which is the check that passes while the button is wrong. `test-sources.php`
+    now drives the real function through all four outcomes with only the
+    transport stubbed, and is red on each of them — a harness whose transients
+    are stubbed to `false` could never have been.
 - **A FIGURE THAT IS STORED IS NOT A FIGURE THAT IS ANSWERED.** "On a un
   registre des appels IA filtrable par modèle ?" Every call had carried its
   model for months — `_days` holds calls, tokens and cost per model, kept

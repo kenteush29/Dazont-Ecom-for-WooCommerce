@@ -6565,6 +6565,13 @@ Answer with STRICT JSON and nothing else: "
 		] );
 		if ( is_wp_error( $resp ) ) {
 			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $resp->get_error_message() );
+			// A CALL THAT FAILED IS STILL A CALL. It was counted by the hourly
+			// ceiling — it reaches fal exactly as often as one that works — and
+			// used to be counted by nothing else, so a shop stopped at its
+			// ceiling read a register holding only the successes and could not
+			// tell a runaway loop from a broken key. Nothing was billed here:
+			// the request never arrived.
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0, true );
 			DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $resp->get_error_message(), microtime( true ) - $dze_t0 );
 			throw new RuntimeException( $resp->get_error_message() );
 		}
@@ -6588,6 +6595,9 @@ Answer with STRICT JSON and nothing else: "
 				}
 			}
 			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $msg );
+			// Refused by fal: it arrived and was not carried out, so it is a
+			// call and not a cost.
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0, true );
 			DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $msg, microtime( true ) - $dze_t0 );
 			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
@@ -6604,8 +6614,19 @@ Answer with STRICT JSON and nothing else: "
 		// for even when the answer is unusable.
 		$units = max( $units, (float) count( (array) ( $body['images'] ?? [] ) ), 1.0 );
 		self::$last_cost = round( $units * self::fal_image_cost(), 4 );
-		if ( $url && class_exists( 'DZE_Ai_Usage' ) ) {
-			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost );
+		if ( class_exists( 'DZE_Ai_Usage' ) ) {
+			// AN ANSWER THAT HELD NO PICTURE WAS STILL PAID FOR. fal answers
+			// 200 with its billable units and no image, and the cost was
+			// dropped on the floor by a guard reading `if ( $url )` — so the
+			// month under-reported every failed picture while the hourly
+			// ceiling counted them all. It is one record either way; what
+			// changes is the flag beside it.
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost, ! $url );
+			if ( $url ) {
+				// What CAME BACK, so the ceiling can say the difference between
+				// the requests it counted and the photographs the shop has.
+				DZE_Ai_Usage::fal_made( $pid );
+			}
 		}
 		DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $dze_t0 );
 		if ( ! $url ) {

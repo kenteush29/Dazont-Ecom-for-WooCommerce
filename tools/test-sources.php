@@ -42,8 +42,34 @@ function add_filter( ...$a ) {}
 function apply_filters( $t, $v = null, ...$a ) { return $v; }
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
-function get_transient( $k ) { return false; }
-function set_transient( ...$a ) { return true; }
+// REAL TRANSIENTS from here down. Stubbed to false/no-op, the hourly image
+// counters read nought for ever: every check on them would pass on a guard
+// that does nothing. The store starts empty, which is what a fresh hour is.
+$GLOBALS['tr'] = [];
+function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; }
+function set_transient( $k, $v, $ttl = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
+
+// THE PROVIDER, ANSWERING WHATEVER THIS GATE NEEDS IT TO. fal_generate() is
+// where an image request meets the outside world, and nothing had ever run it:
+// its failure paths were read by eye.
+$GLOBALS['fal_say'] = [ 'code' => 200, 'body' => '{"images":[{"url":"https://fal.media/x.jpg"}]}', 'units' => '1' ];
+$GLOBALS['fal_sent'] = [];
+function wp_remote_post( $url, $args = [] ) {
+	$GLOBALS['fal_sent'][] = [ 'url' => $url ] + $args;
+	if ( ! empty( $GLOBALS['fal_say']['wp_error'] ) ) { return new WP_Error( 'http', $GLOBALS['fal_say']['wp_error'] ); }
+	return [ 'response' => [ 'code' => $GLOBALS['fal_say']['code'] ], 'body' => $GLOBALS['fal_say']['body'] ];
+}
+function wp_remote_get( $url, $args = [] ) { return [ 'response' => [ 'code' => 200 ], 'body' => '' ]; }
+function wp_remote_retrieve_response_code( $r ) { return is_array( $r ) ? ( $r['response']['code'] ?? 0 ) : 0; }
+function wp_remote_retrieve_body( $r ) { return is_array( $r ) ? ( $r['body'] ?? '' ) : ''; }
+function wp_remote_retrieve_header( $r, $h ) { return 'x-fal-billable-units' === $h ? ( $GLOBALS['fal_say']['units'] ?? '' ) : ''; }
+function is_wp_error( $t ) { return $t instanceof WP_Error; }
+class WP_Error {
+	private $msg;
+	public function __construct( $c = '', $m = '' ) { $this->msg = (string) $m; }
+	public function get_error_message() { return $this->msg; }
+}
+class DZE_Health { public static function log( ...$a ) {} }
 function is_admin() { return true; }
 function admin_url( $p = '' ) { return 'http://shop.test/wp-admin/' . $p; }
 // WordPress takes this BOTH ways — an array of pairs, or one key and its
@@ -103,7 +129,8 @@ class WC_Product {
 function wc_get_product( $id ) { return new WC_Product( $id ); }
 function wc_placeholder_img_src() { return 'http://shop.test/ph.png'; }
 function get_post_meta( $id, $key = '', $single = false ) { return $single ? '' : []; }
-class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return []; } public static function api_key() { return 'k'; } }
+$GLOBALS['mai'] = [];
+class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return $GLOBALS['mai']; } public static function api_key() { return 'k'; } }
 function get_current_user_id() { return 1; }
 function get_user_meta( ...$a ) { return $GLOBALS['dze_list'] ?? []; }
 // The fake shop can really shorten its list, so a Discard that removes a
@@ -115,7 +142,7 @@ function delete_user_meta( $u, $k ) { $GLOBALS['dze_list'] = []; return true; }
 // line stays where it is. What the gate reads back is WHICH products were let
 // go of.
 function delete_post_meta( $id, $key = '', $v = '' ) { $GLOBALS['dze_dropped'][] = (int) $id; return true; }
-function delete_transient( $k ) { return true; }
+function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
 function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 function get_posts( ...$a ) { return []; }
 function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
@@ -154,6 +181,10 @@ class DZE_Prompts {
 	public static function the_data( $id ) {}
 	public static function card_open( ...$a ) {}
 	public static function card_close( ...$a ) {}
+	// The trace files every call under the prompts it recognises. Missing, the
+	// first real call dies inside `trace()` and the failure reads as a fault in
+	// the code under test.
+	public static function ids_in( $text ) { return []; }
 }
 /**
  * The screen that may host the product bulk work — switched on, or off — and
@@ -864,6 +895,85 @@ ok( 'each row carries the answer as a flag',
 // And the tab still counts what is under it.
 ok( 'the tab counts the shown list, not the hidden one',
 	(int) DZE_Content::screen_counts()['log'], 1 );
+
+echo "\nA CALL THAT FAILED IS STILL A CALL\n";
+// "Dans logs, je vois la quantité d'appels nanobanana fal qui est à 48. Hors,
+// le module génération d'image est bloqué pour limite atteinte de 100 appels
+// par heure. WTF"
+//
+// Both figures were right and neither could be checked against the other. The
+// ceiling counts what REACHES fal — deliberately, it is the thing that stops a
+// run going round in circles — while `record()` sat behind `if ( $url )`, so
+// the fifty-two that failed were counted by the guard and by nothing a person
+// can read. `fal_generate()` had never been RUN by any gate: its three failure
+// paths were read by eye, which is why the most expensive of them — an answer
+// fal billed for and that held no picture — dropped its cost on the floor.
+$GLOBALS['opts'] = [];
+$GLOBALS['tr']   = [];
+$dze_fal = static function ( $say ) {
+	$GLOBALS['fal_say'] = $say + [ 'code' => 200, 'body' => '', 'units' => '1' ];
+	try {
+		return (string) DZE_Content::instance()->fal_generate( 'Shoot it.', [], 'auto', 7 );
+	} catch ( Throwable $e ) {
+		return 'THREW: ' . $e->getMessage();
+	}
+};
+$dze_model = static function () {
+	foreach ( DZE_Ai_Usage::model_report() as $r ) {
+		if ( 'nano-banana-2' === $r['model'] ) { return $r; }
+	}
+	return [];
+};
+
+// 1. It worked.
+ok( 'a photograph that came back is the url',
+	$dze_fal( [ 'body' => '{"images":[{"url":"https://fal.media/ok.jpg"}]}' ] ), 'https://fal.media/ok.jpg' );
+ok( 'one call recorded',            ( $dze_model()['calls'] ?? 0 ), 1 );
+ok( 'and none of them failed',      ( $dze_model()['ko'] ?? -1 ), 0 );
+ok( 'and it is counted as come back', DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
+
+// 2. fal answered, and the answer held no picture. THIS ONE IS BILLED.
+$dze_was = (float) ( $dze_model()['cost'] ?? 0 );
+ok( 'an answer with no picture in it fails loudly',
+	$dze_fal( [ 'body' => '{"images":[]}' ] ), 'THREW: fal.ai returned no image.' );
+ok( 'it is counted as a call',   ( $dze_model()['calls'] ?? 0 ), 2 );
+ok( 'and as one that failed',    ( $dze_model()['ko'] ?? 0 ), 1 );
+// The whole of the money half: fal charged for it, so the month must hold it.
+ok( 'and what the provider billed for it is in the spend',
+	( (float) ( $dze_model()['cost'] ?? 0 ) ) > $dze_was, true );
+ok( 'it is not counted as a photograph that came back',
+	DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
+
+// 3. fal refused the request: it arrived, it was not carried out.
+$dze_was = (float) ( $dze_model()['cost'] ?? 0 );
+ok( 'a refusal is passed on in words',
+	false !== strpos( $dze_fal( [ 'code' => 422, 'body' => '{"detail":"bad prompt"}' ] ), 'bad prompt' ), true );
+ok( 'counted as a call',      ( $dze_model()['calls'] ?? 0 ), 3 );
+ok( 'and as one that failed', ( $dze_model()['ko'] ?? 0 ), 2 );
+ok( 'and nothing was billed for it',
+	round( (float) ( $dze_model()['cost'] ?? 0 ) - $dze_was, 4 ), 0.0 );
+
+// 4. It never arrived.
+$dze_was = (float) ( $dze_model()['cost'] ?? 0 );
+ok( 'a transport failure is passed on',
+	$dze_fal( [ 'wp_error' => 'Connection timed out' ] ), 'THREW: Connection timed out' );
+ok( 'counted as a call',      ( $dze_model()['calls'] ?? 0 ), 4 );
+ok( 'and as one that failed', ( $dze_model()['ko'] ?? 0 ), 3 );
+ok( 'and nothing was billed for it',
+	round( (float) ( $dze_model()['cost'] ?? 0 ) - $dze_was, 4 ), 0.0 );
+
+// AND THE CEILING COUNTED ALL FOUR. That is the whole point of it: a run that
+// fails in a loop reaches the provider exactly as often as one that works.
+ok( 'every one of the four reached the provider', count( $GLOBALS['fal_sent'] ), 4 );
+ok( 'and the ceiling counted every one',          DZE_Ai_Usage::fal_used( 7 )['hour'], 4 );
+ok( 'while one photograph came back',             DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
+// SO THE TWO FIGURES CAN BE READ AGAINST EACH OTHER, which is exactly what the
+// shop could not do.
+$GLOBALS['mai']['fal_cap_hour'] = 4;
+$dze_wall = DZE_Ai_Usage::fal_blocked( 0 );
+ok( 'the wall says what went out',   false !== strpos( $dze_wall, 'sent 4 requests' ), true );
+ok( 'and what came back',            false !== strpos( $dze_wall, 'Only 1 came back' ), true );
+ok( 'and how many failed',           false !== strpos( $dze_wall, '3 failed' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

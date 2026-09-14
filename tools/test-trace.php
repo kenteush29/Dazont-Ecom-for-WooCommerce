@@ -365,6 +365,41 @@ ok( 'an image model shows a dash, not a nought',
 	false !== strpos( $dze_html, '—' ), true );
 ok( 'and the month closes the table',        false !== strpos( $dze_html, '100%' ), true );
 
+// A CALL THAT FAILED IS STILL A CALL, and until this column existed there was
+// nowhere at all to read one: "dans logs, je vois la quantité d'appels
+// nanobanana fal qui est à 48. Hors, le module génération d'image est bloqué
+// pour limite atteinte de 100 appels par heure." The ceiling counted a hundred
+// requests, the register counted forty-eight pictures, and the fifty-two that
+// failed were in neither figure the owner could see.
+DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0, true );
+DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0, true );
+$by2 = [];
+foreach ( DZE_Ai_Usage::model_report() as $r ) { $by2[ $r['model'] ] = $r; }
+ok( 'a failed call is counted as a call',    $by2['nano-banana-2']['calls'] ?? 0, 3 );
+ok( 'and counted again as one that failed',  $by2['nano-banana-2']['ko'] ?? 0, 2 );
+ok( 'a model that never failed says so with a nought, not a wrong number',
+	$by2['claude-opus-5']['ko'] ?? -1, 0 );
+ob_start(); DZE_Ai_Usage::render_models(); $dze_ko = (string) ob_get_clean();
+ok( 'the table has a column for them',       false !== strpos( $dze_ko, '>Failed<' ), true );
+// THE HEADING AND THE CELL, ASSERTED TOGETHER AND IN POSITION. A head declared
+// in one place and cells built in another go a column out of step without
+// raising anything, and every row then prints its values under the wrong title.
+preg_match_all( '/<th[^>]*>(.*?)<\/th>/', $dze_ko, $dze_h );
+$dze_col = array_search( 'Failed', array_map( 'strip_tags', (array) $dze_h[1] ), true );
+ok( 'and it sits where a column can be found', is_int( $dze_col ), true );
+preg_match( '/<tr><td><code[^>]*>nano-banana-2<\/code><\/td>(.*?)<\/tr>/', $dze_ko, $dze_r );
+preg_match_all( '/<td[^>]*>(.*?)<\/td>/', (string) ( $dze_r[1] ?? '' ), $dze_c );
+$dze_cells = array_map( 'strip_tags', (array) $dze_c[1] );
+ok( 'and the failures are printed under it', $dze_cells[ (int) $dze_col - 1 ] ?? '', '2' );
+// A NOUGHT ON EVERY LINE OF EVERY MONTH IS A FIGURE NOBODY READS. A model that
+// has never failed shows a dash, which is what makes a figure there worth
+// looking at.
+preg_match( '/<tr><td><code[^>]*>claude-opus-5<\/code><\/td>(.*?)<\/tr>/', $dze_ko, $dze_r2 );
+preg_match_all( '/<td[^>]*>(.*?)<\/td>/', (string) ( $dze_r2[1] ?? '' ), $dze_c2 );
+$dze_ok_cells = array_map( 'strip_tags', (array) $dze_c2[1] );
+ok( 'a model that never failed shows a dash',
+	$dze_ok_cells[ (int) $dze_col - 1 ] ?? '', '—' );
+
 // AND THE SCREEN ASKS FOR IT. Calling render_models() proves the table works
 // and nothing at all about whether the usage screen shows it — which is how a
 // block added to a screen can ship never executed. So the whole screen is
