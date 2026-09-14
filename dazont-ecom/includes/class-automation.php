@@ -748,18 +748,36 @@ final class DZE_Automation {
 		$cool = time() - self::COOLDOWN * DAY_IN_SECONDS;
 		$out  = [];
 		$seen = [];
+		// WHY A CANDIDATE WAS PASSED OVER, counted as it happens. "Nothing is
+		// short of anything right now > alors que plein de pages sont encore
+		// sans liens": the answer was true of the REGISTER and false of the
+		// shop, because a page held back is not a page that has what it needs.
+		// Three states wore one word; each is counted here and named in the
+		// sentence the press comes back with.
+		self::held_reset();
 		$take = static function ( array $row ) use ( &$out, &$seen, $id, $cool ): bool {
 			$type = 'product_cat' === $row['kind'] ? 'term' : 'post';
 			$key  = $row['kind'] . ':' . (int) $row['tid'];
-			if ( isset( $seen[ $key ] ) || self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) ) {
+			if ( isset( $seen[ $key ] ) ) {
 				return false;
 			}
 			// A page already in the writing queue is not work: it would come
-			// back a second text for the same page.
-			if ( class_exists( 'DZE_Queue' ) && 'product_cat' === $row['kind'] && DZE_Queue::pending_for( (int) $row['tid'] ) ) {
+			// back a second text for the same page. Asked BEFORE the wait,
+			// because a page in the queue is where the shop should be sent to
+			// look, whatever the register says about it.
+			$busy = class_exists( 'DZE_Queue' ) && (
+				'product_cat' === $row['kind']
+					? DZE_Queue::pending_for( (int) $row['tid'] )
+					: DZE_Queue::pending_for( (int) $row['tid'], 'post_' )
+			);
+			if ( $busy ) {
+				self::$held['queued']++;
+				$seen[ $key ] = true;
 				return false;
 			}
-			if ( class_exists( 'DZE_Queue' ) && 'product_cat' !== $row['kind'] && DZE_Queue::pending_for( (int) $row['tid'], 'post_' ) ) {
+			if ( self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) ) {
+				self::$held['recent']++;
+				$seen[ $key ] = true;
 				return false;
 			}
 			$seen[ $key ] = true;
@@ -999,6 +1017,136 @@ final class DZE_Automation {
 	 * A pass that changed nothing — a failed job, or a model that found no
 	 * room — must not lock the page out for a month: it comes back in days.
 	 */
+	/**
+	 * What the last shortlist passed over, and why. Not a cache: a tally,
+	 * emptied at the top of every reading, so it always answers for the
+	 * question just asked.
+	 *
+	 * @var array{queued:int,recent:int}
+	 */
+	private static array $held = [ 'queued' => 0, 'recent' => 0 ];
+
+	public static function held_reset(): void {
+		self::$held = [ 'queued' => 0, 'recent' => 0 ];
+	}
+
+	/** @return array{queued:int,recent:int} */
+	public static function held_now(): array {
+		return self::$held;
+	}
+
+	/**
+	 * "NOTHING TO DO" IS THREE DIFFERENT ANSWERS, and only one of them means
+	 * the site is finished.
+	 *
+	 * A page already in the writing queue, and a page worked on a few days
+	 * ago, are both short of links — saying "every page has what its size
+	 * calls for" over a site full of unlinked pages is how a working screen
+	 * reads as a broken one.
+	 */
+	public static function nothing_said(): string {
+		$q = (int) self::$held['queued'];
+		$r = (int) self::$held['recent'];
+		if ( $q > 0 && $r > 0 ) {
+			return sprintf(
+				/* translators: 1: pages short of links, 2: how many are in the queue, 3: how many were worked on recently */
+				__( 'Nothing new to work on: %1$s pages are short of links — %2$s are already in the writing queue, and %3$s were worked on in the last few days.', 'dazont-ecom' ),
+				number_format_i18n( $q + $r ),
+				number_format_i18n( $q ),
+				number_format_i18n( $r )
+			);
+		}
+		if ( $q > 0 ) {
+			return sprintf(
+				/* translators: %s: how many pages are waiting in the writing queue */
+				_n(
+					'Nothing new to work on: %s page is short of links and already waiting in the writing queue.',
+					'Nothing new to work on: %s pages are short of links and already waiting in the writing queue.',
+					$q,
+					'dazont-ecom'
+				),
+				number_format_i18n( $q )
+			);
+		}
+		if ( $r > 0 ) {
+			return sprintf(
+				/* translators: %s: how many pages were worked on in the last few days */
+				_n(
+					'Nothing new to work on: %s page is short of links but was worked on in the last few days.',
+					'Nothing new to work on: %s pages are short of links but were worked on in the last few days.',
+					$r,
+					'dazont-ecom'
+				),
+				number_format_i18n( $r )
+			);
+		}
+		return __( 'Nothing is short of anything: every page has what its size calls for.', 'dazont-ecom' );
+	}
+
+	/** Does the register claim this object was worked on by this task? */
+	public static function worked_on( int $oid, string $id, string $type = 'term' ): bool {
+		return (bool) self::seen( $oid, $id, $type );
+	}
+
+	/**
+	 * LETS GO OF PAGES THAT WERE PROMISED WORK AND NEVER GOT IT.
+	 *
+	 * The catch-up stamps every page it queues so the daily pass does not do
+	 * them twice — right while the row is there, and a lie the moment the row
+	 * is dropped. Calling a run off deleted the rows and left the stamps
+	 * standing: two hundred pages marked as worked on, with nothing written to
+	 * any of them, locked out of the very pass meant to mend them. That is the
+	 * fault this plugin already refuses by name, arriving through the button
+	 * that calls a run off.
+	 *
+	 * @param array<int,array{kind:string,object_id:int}> $rows The queue's own.
+	 * @return int How many stamps were let go.
+	 */
+	public static function free_pages( array $rows ): int {
+		$n = 0;
+		foreach ( $rows as $row ) {
+			$kind = (string) ( $row['kind'] ?? '' );
+			$task = self::task_for_job( $kind );
+			if ( '' === $task ) {
+				continue; // not work any task here started.
+			}
+			$oid = (int) ( $row['object_id'] ?? 0 );
+			if ( $oid < 1 ) {
+				continue;
+			}
+			if ( self::unmark( $oid, $task, 0 === strpos( $kind, 'cat_' ) ? 'term' : 'post' ) ) {
+				$n++;
+			}
+		}
+		return $n;
+	}
+
+	/** Which task queues this kind of job — read from the tasks themselves. */
+	public static function task_for_job( string $kind ): string {
+		foreach ( self::tasks() as $id => $task ) {
+			if ( in_array( $kind, (array) ( $task['jobs'] ?? [] ), true ) ) {
+				return (string) $id;
+			}
+		}
+		return '';
+	}
+
+	/** Takes one task's stamp off one object. */
+	private static function unmark( int $oid, string $id, string $type ): bool {
+		$all = 'post' === $type ? get_post_meta( $oid, self::META_SEEN, true ) : get_term_meta( $oid, self::META_SEEN, true );
+		$all = is_array( $all ) ? $all : [];
+		if ( ! isset( $all[ $id ] ) ) {
+			return false;
+		}
+		unset( $all[ $id ] );
+		if ( 'post' === $type ) {
+			update_post_meta( $oid, self::META_SEEN, $all );
+		} else {
+			update_term_meta( $oid, self::META_SEEN, $all );
+		}
+		return true;
+	}
+
 	private static function cooling( int $oid, string $id, string $type, int $words, int $links, int $cool ): bool {
 		$seen = self::seen( $oid, $id, $type );
 		if ( ! $seen || (int) $seen['t'] <= $cool ) {
@@ -2351,7 +2499,7 @@ final class DZE_Automation {
 			case 'cap':
 				return __( 'Today\'s figure is used up.', 'dazont-ecom' );
 			case 'none':
-				return __( 'Nothing is short of anything: every page has what its size calls for, or was worked on recently.', 'dazont-ecom' );
+				return self::nothing_said();
 			case 'budget':
 				return __( 'The monthly AI budget is spent.', 'dazont-ecom' );
 			case 'modules':
@@ -2550,6 +2698,11 @@ final class DZE_Automation {
 			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off.', 'dazont-ecom' ) ] );
 		}
 		$gone = (int) DZE_Queue::drop_waiting( self::my_kinds() );
+		// AND THE REGISTER LETS THEM GO. Every page the catch-up queues is
+		// stamped as worked on so the daily pass does not do it twice; dropped,
+		// that stamp locks the page out of the very pass meant to mend it,
+		// having had nothing written to it.
+		self::free_pages( DZE_Queue::dropped_rows() );
 		ob_start();
 		self::render_run();
 		wp_send_json_success( [
