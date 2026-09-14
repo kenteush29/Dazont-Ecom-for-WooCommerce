@@ -2438,6 +2438,59 @@ whose screen has not been thought through yet.
     come back untouched now: a FACT about the job, like the language and the
     link format beside it, never an opinion competing with the owner's own
     prompt.
+- **A VISUAL EDITOR MAY NEVER TOUCH A WORDPRESS BLOCK DOCUMENT, AND A GUARD
+  THAT LIVES ONLY WHERE THE TEXT IS MADE PROTECTS THE AUTOMATIC PASS AND
+  NOTHING ELSE.** Three articles lost content on this shop in one day. Only the
+  FIRST was the model's — a truncated answer, "3 725 octets, coupure en plein
+  paragraphe" — and it is what `room_for()`, `finished()` and `only_linked()`
+  were built for. The other two were damaged hours AFTER every production guard
+  had passed them, by this plugin's own review popup: it initialises TinyMCE
+  with `wpautop: true` over whatever the job holds, and a Gutenberg article
+  handed to a visual editor comes back with a `<p>` wrapped round every
+  `<!-- wp: -->` delimiter — "234 commentaires enveloppés", and on the third
+  "142 `<p>` orphelins avant les délimiteurs et 142 `</p>` après. Blocs image
+  invalides, images absentes du corps de l'article." Four rules:
+  - **WRAPPING TAKES NOTHING AWAY, WHICH IS WHY EVERY GUARD PASSED IT.** Same
+    words, same links, same block names in the same order, same classes — and
+    MORE paragraphs than before, so even "no part of the document is lost" read
+    green. Every rule this pass had could only see markup GOING MISSING. What
+    breaks a block document is a tag put AROUND the delimiter, and that is a
+    thing to count: `DZE_Blocks::damage()` counts delimiters sitting inside a
+    paragraph and refuses a rise.
+  - **THE RULE LIVES IN A FILE OF ITS OWN, WITH NO DEPENDENCIES.** It is about
+    WordPress, not about categories or links — and every gate that exercises a
+    writer must be able to load it WHOLE rather than stub the one answer it
+    exists to test. A stub of the thing under test is a gate that proves
+    nothing.
+  - **IT IS ASKED AGAIN AT THE WRITE.** `DZE_Queue::apply()` reads what the
+    object holds today (`holds_now()`, already there) and refuses a write that
+    would break it — so the automatic pass, the review popup, the bulk accept
+    and whatever is built next year are all covered by one reading. And the row
+    says WHY: `DZE_Queue::refusal()`, because "Saving failed." is the sentence
+    that sent this shop looking in the wrong place for a day.
+  - **A DOCUMENT ALREADY DAMAGED IS NOT HELD TO A STANDARD IT DOES NOT MEET.**
+    The question is only ever whether THIS write makes it worse; a text
+    carrying no delimiters at all is not a block document and is held to none
+    of it, which is what a category description is.
+  **`node tools/js/review-editor.mjs` must pass** — the damage happens in the
+  BROWSER, between opening the popup and pressing Accept, so no PHP gate and no
+  `node --check` can see it. Its fake `wp.editor` mangles the textarea exactly
+  as TinyMCE does, so a popup that hands a block document to the rich editor
+  cannot pass by accident; it presses Accept and reads what goes on the wire.
+- **A RETIRED HOOK IS CLEARED WHERE THE PLUGIN ALWAYS BOOTS, AND IS
+  CONDITIONAL ON NOTHING.** "Un cron résiduel tournait. dze_mesh_tick, planifié
+  toutes les heures, n'existe plus dans le code courant… il avait survécu à une
+  mise à jour sans que la migration le nettoie. À vérifier : pourquoi la
+  migration ne l'a pas attrapé." Because the clear sat BELOW an early return in
+  a migration that gives up when the OPTION it is about is already gone — and a
+  scheduled event outlives an option. Three ways that line could never run: the
+  option deleted by an earlier pass, the option never present, and the module
+  switched off so nothing of its own boots at all. `DZE_Cleanup::retired_hooks()`
+  names them and `retire_hooks()` clears them from `DZE_Modules`, which is
+  always booted; it costs one read of the cron option WordPress has already
+  loaded and writes only where something is there. The gate's `wp_next_scheduled`
+  answers from a fake cron table, because a stub that always says "scheduled"
+  cannot be red on a hook that is not.
 - **A CONTROL OVER A RUN IS NOT ONE CONTROL.** "Start it again > Il faut une
   option aussi pour annuler." The block offered exactly one press and it put
   the work BACK, so two hundred pages queued by mistake — or pages the model

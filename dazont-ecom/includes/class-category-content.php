@@ -1849,6 +1849,11 @@ PROMPT;
 		//    in the editor becomes "unexpected or invalid content", with the
 		//    text and the links all present and correct.
 		foreach ( self::markup_in( $before ) as $what => $had ) {
+			// The blocks belong to `block_damage()`, which is asked again at
+			// the write: one question, one owner, or the two answers drift.
+			if ( 'blocks' === $what ) {
+				continue;
+			}
 			$now  = self::markup_in( $after )[ $what ] ?? [];
 			$lost = array_diff_assoc( $had, array_intersect_assoc( $had, $now ) );
 			// A count that FELL is a loss; one that rose is this pass adding a
@@ -1866,6 +1871,20 @@ PROMPT;
 				__( 'The text came back with its %1$s changed (%2$s went missing) — nothing was changed.', 'dazont-ecom' ),
 				$what,
 				(string) array_key_first( $lost )
+			) );
+		}
+		// 5. AND THE BLOCK DOCUMENT IS STILL A BLOCK DOCUMENT. Everything above
+		//    can only see markup GOING MISSING, and the way a WordPress article
+		//    actually broke on this shop takes nothing away: a `<p>` put AROUND
+		//    each `<!-- wp: -->` delimiter leaves every name, every word, every
+		//    link and every class exactly where they were — and more paragraphs
+		//    than before — while the editor can no longer open a single block.
+		$damage = DZE_Blocks::damage( $before, $after );
+		if ( '' !== $damage ) {
+			throw new RuntimeException( sprintf(
+				/* translators: %s: what happened to the blocks */
+				__( 'The text came back with %s — nothing was changed.', 'dazont-ecom' ),
+				$damage
 			) );
 		}
 	}

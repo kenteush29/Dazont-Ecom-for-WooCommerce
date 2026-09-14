@@ -18,6 +18,12 @@
  */
 $dir = $argv[1] ?? 'dazont-ecom';
 
+// WordPress defines these everywhere, and the queue's own constants are written
+// in them: a harness without them dies the moment that class is first touched.
+defined( 'MINUTE_IN_SECONDS' ) || define( 'MINUTE_IN_SECONDS', 60 );
+defined( 'HOUR_IN_SECONDS' ) || define( 'HOUR_IN_SECONDS', 3600 );
+defined( 'DAY_IN_SECONDS' ) || define( 'DAY_IN_SECONDS', 86400 );
+
 define( 'ABSPATH', '/wp/' );
 function __( $s, $d = '' ) { return $s; }
 function esc_url_raw( $s ) { return (string) $s; }

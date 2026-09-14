@@ -323,6 +323,7 @@ $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
 $GLOBALS['rows'] = [];
 
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
+require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-queue.php';
 require_once __DIR__ . '/../' . $dir . '/includes/class-cleanup.php';
@@ -1115,6 +1116,56 @@ ok( 'read before they are deleted',
 // AND IT IS ASKED FOR NOTHING WHEN THERE IS NOTHING TO ASK.
 ok( 'no kinds, no statement',            DZE_Queue::drop_waiting( [] ), 0 );
 ok( 'and nothing is handed back',        DZE_Queue::dropped_rows(), [] );
+
+echo "\nTHE WRITE IS THE LAST THING THAT CAN REFUSE, AND IT DOES\n";
+// Three articles lost content on this shop in one day, and the guard that
+// should have stopped two of them had already passed the text: the damage was
+// done AFTER production, on the way back from the review popup's own visual
+// editor. A guard that lives only where the text is made protects the
+// automatic pass and nothing else — so the reading is asked again here, at the
+// one place every path writes through.
+$dze_art = "<!-- wp:paragraph -->\n<p>A sniper waits.</p>\n<!-- /wp:paragraph -->\n\n"
+	. "<!-- wp:heading -->\n<h2>How good are snipers?</h2>\n<!-- /wp:heading -->\n\n"
+	. "<!-- wp:paragraph -->\n<p>Very good indeed, for a long time.</p>\n<!-- /wp:paragraph -->";
+$dze_post = new stdClass();
+$dze_post->ID           = 987632358;
+$dze_post->post_content = $dze_art;
+$GLOBALS['posts_all'][ 987632358 ] = $dze_post;
+
+// AN HONEST LINKING PASS STILL LANDS.
+$GLOBALS['wrote'] = [];
+$dze_linked = str_replace( 'A sniper waits.',
+	'A <a href="https://kula.test/how-sniper-works">sniper</a> waits.', $dze_art );
+ok( 'a linked article is written',
+	DZE_Queue::apply( 'post_links', 987632358, $dze_linked ), true );
+ok( 'and it is the linked text that lands',
+	false !== strpos( (string) ( $GLOBALS['wrote'][0]['post_content'] ?? '' ), 'how-sniper-works' ), true );
+ok( 'nothing was refused',               DZE_Queue::refusal(), '' );
+
+// THE EDITOR'S OWN DAMAGE, which is what actually reached the shop: every
+// delimiter wrapped in a paragraph. Same words, same links, more paragraphs —
+// and every block in the editor invalid.
+$GLOBALS['wrote'] = [];
+$dze_autop = preg_replace( '#(<!--\s*/?wp:[^>]*-->)#', '<p>$1</p>', $dze_linked );
+ok( 'a wrapped document is refused',
+	DZE_Queue::apply( 'post_links', 987632358, $dze_autop ), false );
+// AND NOTHING AT ALL IS WRITTEN. A refusal that has already saved is not one.
+ok( 'and not one word reaches the post',  $GLOBALS['wrote'], [] );
+// AND THE ROW SAYS WHY, in words. "Saving failed." on a row is the sentence
+// that sent this shop looking in the wrong place for a day.
+ok( 'the refusal says what it saw',
+	false !== stripos( DZE_Queue::refusal(), 'block' ), true );
+
+// THE TRUNCATION, which cost the first article its last quarter.
+$GLOBALS['wrote'] = [];
+ok( 'a document cut short is refused',
+	DZE_Queue::apply( 'post_links', 987632358, substr( $dze_linked, 0, 120 ) ), false );
+ok( 'and nothing reaches the post either', $GLOBALS['wrote'], [] );
+
+// A CATEGORY DESCRIPTION IS PLAIN HTML AND IS NOT HELD TO ANY OF IT.
+$GLOBALS['wrote'] = [];
+ok( 'a plain description still saves',
+	DZE_Queue::apply( 'cat_links', 44, '<p>Tidy <a href="https://kula.test/x">rugs</a>.</p>' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -372,6 +372,43 @@ final class DZE_Cleanup {
 	}
 
 	/** Every module id plus 'core', for the "erase everything" pass. */
+	/**
+	 * HOOKS THIS PLUGIN HAS RETIRED, and the shops still running them.
+	 *
+	 * "Un cron résiduel tournait. dze_mesh_tick, planifié toutes les heures,
+	 * n'existe plus dans le code courant… il avait survécu à une mise à jour
+	 * sans que la migration le nettoie. À vérifier : pourquoi la migration ne
+	 * l'a pas attrapé."
+	 *
+	 * Because it was clearing it inside a migration that gives up early when
+	 * the OPTION it is about is already gone — and a scheduled event outlives
+	 * an option. Three ways that line could never run: the option deleted by an
+	 * earlier pass, the option never present, or the module switched off so
+	 * nothing of its own boots at all. A retired hook is plugin housekeeping,
+	 * not a module's, so it is cleared where the plugin always boots and it is
+	 * conditional on nothing.
+	 *
+	 * @return string[] Hook names no version of this plugin listens to.
+	 */
+	public static function retired_hooks(): array {
+		return [ 'dze_mesh_tick' ];
+	}
+
+	/**
+	 * Clear them. Costs one read of the cron option — which WordPress has
+	 * already loaded — and writes only where something is actually there.
+	 */
+	public static function retire_hooks(): int {
+		$gone = 0;
+		foreach ( self::retired_hooks() as $hook ) {
+			if ( wp_next_scheduled( $hook ) ) {
+				wp_clear_scheduled_hook( $hook );
+				$gone++;
+			}
+		}
+		return $gone;
+	}
+
 	public static function all_ids(): array {
 		return array_merge( array_keys( self::map() ), [ 'core' ] );
 	}

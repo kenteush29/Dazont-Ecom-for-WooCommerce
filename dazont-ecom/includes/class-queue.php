@@ -26,6 +26,11 @@ final class DZE_Queue {
 	private const SCHEMA_VERSION = 3;
 	private const LOCK      = 'dze_queue_lock';
 	/**
+	 * Why the last write was refused. Written by every `apply()` call, so it
+	 * describes the one that has just happened and never an older one.
+	 */
+	private static $refused = '';
+	/**
 	 * How long one step is given before the run that took the writer is
 	 * presumed gone. Longer than any single step — a model answering slowly is
 	 * a minute, not four — and short enough that a shop is not barred for the
@@ -336,6 +341,9 @@ final class DZE_Queue {
 				'status'  => ! empty( $job['auto_apply'] ) ? ( $applied ? 'applied' : 'failed' ) : 'review',
 				'result'  => $result,
 				'payload' => wp_json_encode( $payload ),
+				// A pass that runs with nobody watching is the one that most
+				// needs to say why it stopped.
+				'error'   => ( ! empty( $job['auto_apply'] ) && ! $applied ) ? ( self::refusal() ?: null ) : null,
 				'updated' => current_time( 'mysql' ),
 			], [ 'id' => $id ] );
 		} else {
@@ -688,6 +696,7 @@ final class DZE_Queue {
 
 	/** Saves an accepted result onto the shop. */
 	public static function apply( string $kind, int $object_id, string $html, array $payload = [] ): bool {
+		self::$refused = '';
 		if ( '' === trim( $html ) ) {
 			return false;
 		}
@@ -707,6 +716,17 @@ final class DZE_Queue {
 			return $att > 0;
 		}
 		if ( 'post_links' === $kind ) {
+			// THE LAST THING THE WRITE DOES IS LOOK. Three articles on this
+			// shop lost content in one day and only the first was the model's
+			// doing: the other two were damaged AFTER every production guard
+			// had passed them, by the review popup's own visual editor on the
+			// way back from Accept. A guard that lives only where the text is
+			// made protects the automatic pass and nothing else, so the same
+			// reading is asked again here — the one place every path writes
+			// through, including the ones built next year.
+			if ( ! self::writable( $kind, $object_id, $html ) ) {
+				return false;
+			}
 			// Only the links changed: the title, the status, the dates and
 			// everything else about the post are none of our business.
 			$done = wp_update_post( [ 'ID' => $object_id, 'post_content' => wp_kses_post( $html ) ], true );
@@ -717,6 +737,12 @@ final class DZE_Queue {
 			return true;
 		}
 		if ( 'cat_desc' === $kind || 'cat_links' === $kind ) {
+			// The same question, asked of a description too: a plain HTML text
+			// carries no block delimiters and answers "nothing to protect",
+			// which costs one regular expression and leaves no path unasked.
+			if ( ! self::writable( $kind, $object_id, $html ) ) {
+				return false;
+			}
 			$res = wp_update_term( $object_id, 'product_cat', [ 'description' => wp_kses_post( $html ) ] );
 			if ( is_wp_error( $res ) ) {
 				return false;
@@ -726,6 +752,36 @@ final class DZE_Queue {
 			}
 			return true;
 		}
+		return false;
+	}
+
+	/**
+	 * WHY THE LAST WRITE WAS REFUSED, in words a person reads on the row.
+	 *
+	 * "Saving failed." is the sentence that sent this shop looking in the wrong
+	 * place for a day. Written by every `apply()` call, so it always describes
+	 * the one that has just happened and never an older one.
+	 */
+	public static function refusal(): string {
+		return self::$refused;
+	}
+
+	/**
+	 * May this text be written over what the object holds today?
+	 *
+	 * One question, one owner: `DZE_Blocks` holds what a WordPress article may
+	 * not come back as, and answers here and where the text is produced alike.
+	 */
+	private static function writable( string $kind, int $object_id, string $html ): bool {
+		$damage = DZE_Blocks::damage( self::holds_now( $kind, $object_id ), $html );
+		if ( '' === $damage ) {
+			return true;
+		}
+		self::$refused = sprintf(
+			/* translators: %s: what would have happened to the document */
+			__( 'Not saved: it would have come back with %s.', 'dazont-ecom' ),
+			$damage
+		);
 		return false;
 	}
 
@@ -1685,7 +1741,7 @@ final class DZE_Queue {
 		$wpdb->update( self::table(), [
 			'status'     => $ok ? 'applied' : 'failed',
 			'result'     => $html,
-			'error'      => $ok ? null : __( 'Saving failed.', 'dazont-ecom' ),
+			'error'      => $ok ? null : ( self::refusal() ?: __( 'Saving failed.', 'dazont-ecom' ) ),
 			'decided_by' => self::decider(),
 			'updated'    => current_time( 'mysql' ),
 		], [ 'id' => $id ] );
@@ -1905,7 +1961,7 @@ final class DZE_Queue {
 					$saved = self::apply( (string) $job['kind'], (int) $job['object_id'], (string) $job['result'] );
 					$wpdb->update( $table, [
 						'status'     => $saved ? 'applied' : 'failed',
-						'error'      => $saved ? null : __( 'Saving failed.', 'dazont-ecom' ),
+						'error'      => $saved ? null : ( self::refusal() ?: __( 'Saving failed.', 'dazont-ecom' ) ),
 						'decided_by' => self::decider(),
 						'updated'    => $now,
 					], [ 'id' => $id ] );

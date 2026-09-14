@@ -312,6 +312,7 @@ class DZE_Prompt_Defaults {
 }
 class DZE_Modules { public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); } }
 
+require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
@@ -797,6 +798,54 @@ try {
 } catch ( \Throwable $e ) {
 	ok( 'a plain text is not held to markup it never had', $e->getMessage(), true );
 }
+
+echo "\nA BLOCK DELIMITER WRAPPED IN A PARAGRAPH IS A BROKEN ARTICLE\n";
+// "234 commentaires <!-- wp: --> enveloppés dans des <p>…</p>" and, on the
+// third article, "142 <p> orphelins avant les délimiteurs et 142 </p> orphelins
+// après. Résultat : blocs image invalides, images absentes du corps."
+//
+// Every guard this pass had could only see markup GOING MISSING. Wrapping
+// takes nothing away: the delimiters are all there, by name and in order, the
+// words are identical, the links are identical, and there are MORE paragraphs
+// than before — so all four rules passed on a document the editor could no
+// longer open. What breaks a block document is a `<p>` around the delimiter,
+// and that is a thing to count.
+$dze_autop = preg_replace( '#(<!--\s*/?wp:[^>]*-->)#', '<p>$1</p>', $dze_gb );
+ok( 'a document with every delimiter wrapped is refused',
+	'' !== $dze_lets( $dze_autop ), true );
+ok( 'and it says the blocks are what went wrong',
+	false !== stripos( $dze_lets( $dze_autop ), 'block' ), true );
+ok( 'and nothing is written when it is',
+	false !== strpos( $dze_lets( $dze_autop ), 'nothing was changed' ), true );
+// THE OTHER HALF OF THE SAME FAULT: the wrapping dissociated, an orphan <p>
+// before each delimiter and an orphan </p> after it.
+$dze_orphan = preg_replace( '#(<!--\s*/?wp:[^>]*-->)#', '<p>$1', $dze_gb );
+ok( 'an orphan paragraph before each delimiter is refused',
+	'' !== $dze_lets( $dze_orphan ), true );
+$dze_orphan2 = preg_replace( '#(<!--\s*/?wp:[^>]*-->)#', '$1</p>', $dze_gb );
+ok( 'and an orphan one after it is refused too',
+	'' !== $dze_lets( $dze_orphan2 ), true );
+// AND THE HONEST DOCUMENT IS NOT: a paragraph block is `<!-- wp:paragraph -->`
+// followed by its own `<p>`, which is the shape every article on the shop has.
+ok( 'an honest linking pass is still untouched', $dze_lets( $dze_ok ), '' );
+
+echo "\nAND THE SAME ANSWER GUARDS THE WRITE, WHEREVER IT COMES FROM\n";
+// The production-time guard protects the automatic pass and nothing else. The
+// three articles were damaged AFTER production — by the review popup's own
+// visual editor, on the way back from Accept — so the reading has to be asked
+// again where the write happens. One answer, asked in both places.
+ok( 'a plain text is not a block document at all',
+	DZE_Blocks::damage( '<p>Rugs.</p>', '<p>Tidy rugs.</p>' ), '' );
+ok( 'an honest pass damages nothing',       DZE_Blocks::damage( $dze_gb, $dze_ok ), '' );
+ok( 'a wrapped document is damage',         '' !== DZE_Blocks::damage( $dze_gb, $dze_autop ), true );
+// THE TRUNCATION, which is what cost an article its last quarter: the tail is
+// gone, so the delimiters that were in it are gone with it.
+$dze_cut = substr( $dze_gb, 0, (int) ( strlen( $dze_gb ) * 0.6 ) );
+ok( 'a document cut short is damage',       '' !== DZE_Blocks::damage( $dze_gb, $dze_cut ), true );
+// AND A DOCUMENT ALREADY DAMAGED IS NOT HELD TO A STANDARD IT DOES NOT MEET:
+// the question is whether THIS write makes it worse.
+ok( 'an already wrapped document may still be linked',
+	DZE_Blocks::damage( $dze_autop, $dze_autop ), '' );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

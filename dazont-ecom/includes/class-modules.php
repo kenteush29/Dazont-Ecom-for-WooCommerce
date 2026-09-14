@@ -41,6 +41,10 @@ final class DZE_Modules {
 		add_action( 'admin_notices', [ 'DZE_Setup', 'notice' ] );
 		add_action( 'admin_menu', [ 'DZE_Health', 'register_menu' ], 30 );
 		add_action( 'admin_init', [ 'DZE_Health', 'maybe_redirect' ] );
+		// A hook no version of this plugin listens to any more, cleared here
+		// rather than inside the module that used to own it: that module may be
+		// switched off, and its migration gave up before reaching the line.
+		add_action( 'admin_init', [ 'DZE_Cleanup', 'retire_hooks' ] );
 		add_action( 'admin_menu', [ $this, 'submenu' ], 99 );
 		add_action( 'wp_ajax_dze_modules_toggle', [ $this, 'ajax_toggle' ] );
 		// Erasing data is never a side effect of switching a module off: it has
