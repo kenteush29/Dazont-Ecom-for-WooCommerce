@@ -1493,7 +1493,8 @@ ok( 'the poll answers',                 (bool) ( $dze_poll['ok'] ?? false ), tru
 ok( 'and it took a step of the queue',  DZE_Queue::$worked, 1 );
 // EVERY ANSWER CARRIES EVERY FIGURE IT CAN MOVE — the bar, the rows waiting
 // for a decision, and the chips on each task's line.
-ok( 'the answer carries the bar',       false !== strpos( (string) ( $dze_poll['data']['run'] ?? '' ), 'dze-auto-bar' ), true );
+ok( 'the answer carries the bar',
+	false !== strpos( (string) ( $dze_poll['data']['run']['mesh_links'] ?? '' ), 'dze-auto-bar' ), true );
 ok( 'how much is left',                 (int) ( $dze_poll['data']['left'] ?? -1 ), 3 );
 ok( 'the rows waiting beside it',       array_key_exists( 'waiting', (array) ( $dze_poll['data'] ?? [] ) ), true );
 ok( 'and every task\'s own line',       array_keys( (array) ( $dze_poll['data']['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
@@ -1520,12 +1521,12 @@ DZE_Queue::$counts = [ 'queued' => 2, 'running' => 0, 'review' => 0, 'applied' =
 ob_start();
 DZE_Automation::render_settings();
 $dze_screen = (string) ob_get_clean();
-ok( 'the screen carries the bar',       false !== strpos( $dze_screen, 'id="dze-auto-run"' ), true );
+ok( 'the screen carries the bar',       false !== strpos( $dze_screen, 'class="dze-auto-live" data-task=' ), true );
 ok( 'with the work drawn in it',        false !== strpos( $dze_screen, 'dze-auto-bar' ), true );
 // AND IT IS ABOVE THE LIST IT FILLS: the result goes under the work that made
 // it, never the other way round.
 ok( 'the bar comes before what waits',
-	strpos( $dze_screen, 'id="dze-auto-run"' ) < strpos( $dze_screen, 'id="dze-auto-waiting"' ), true );
+	strpos( $dze_screen, 'class="dze-auto-live" data-task=' ) < strpos( $dze_screen, 'id="dze-auto-waiting"' ), true );
 
 echo "\nA run that has stopped says so, and can be started again\n";
 //
@@ -1651,6 +1652,78 @@ ok( 'and says how many it called off',   false !== strpos( (string) ( $dze_stop[
 // for the page as it was opened.
 ok( 'the answer carries the bar',        array_key_exists( 'run', (array) ( $dze_stop['data'] ?? [] ) ), true );
 ok( 'and the rows still waiting',        array_key_exists( 'waiting', (array) ( $dze_stop['data'] ?? [] ) ), true );
+
+echo "\nThe progress belongs to the press that started it\n";
+//
+// "Run one now > Ca devrait afficher la progression directement ici ! pareil
+// pour les autres task quand c'est du one shot." The bar was ONE block under
+// all three tasks, so pressing a button in the first block moved a figure
+// somewhere else on the page — and a press that answers out of sight is a
+// press nobody believes.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 4, 'running' => 0, 'review' => 2, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+ob_start();
+DZE_Automation::render_settings();
+$dze_scr = (string) ob_get_clean();
+// ONE BLOCK PER TASK, each naming the task it belongs to.
+// EVERY task gets the wrapper — the poll has to have somewhere to put its
+// answer — and a task that queues nothing gets an EMPTY one rather than none.
+ok( 'every task carries its own place',
+	substr_count( $dze_scr, 'class="dze-auto-live" data-task=' ), 3 );
+ok( 'and the one that queues nothing is empty',
+	false !== strpos( $dze_scr, '<div class="dze-auto-live" data-task="events"></div>' ), true );
+ok( 'the linking task has one',
+	false !== strpos( $dze_scr, 'class="dze-auto-live" data-task="mesh_links"' ), true );
+// AND IT IS INSIDE THE BLOCK, under the button that starts the work — never
+// below every task, which is where a figure answers for somebody else's press.
+$dze_btn = strpos( $dze_scr, 'dze-auto-run" data-task="mesh_links"' );
+$dze_end = strpos( $dze_scr, '</details>' );
+ok( 'and it sits inside that task\'s own block', $dze_btn < $dze_end, true );
+// THE PAGE-LEVEL ONE IS GONE: two accounts of one thing is what makes a screen
+// disagree with itself.
+ok( 'no second bar under the lot',      false !== strpos( $dze_scr, 'id="dze-auto-run"' ), false );
+
+// A TASK'S BAR COUNTS ITS OWN KINDS AND NOBODY ELSE'S.
+fresh( $ON );
+DZE_Queue::$asked_kinds = [];
+DZE_Automation::run_state( 'cat_desc' );
+sort( DZE_Queue::$asked_kinds );
+ok( 'one task asks for its own jobs',   DZE_Queue::$asked_kinds, [ 'cat_desc' ] );
+DZE_Automation::run_state( 'mesh_links' );
+sort( DZE_Queue::$asked_kinds );
+ok( 'and the linking task for both',    DZE_Queue::$asked_kinds, [ 'cat_links', 'post_links' ] );
+
+// A TASK THAT QUEUES NOTHING HAS NO BAR: a control that cannot act is not shown.
+ob_start();
+DZE_Automation::render_run( 'events' );
+ok( 'a task with no queue rows has none', (string) ob_get_clean(), '' );
+
+// EVERY FIGURE THE POLL CAN MOVE COMES BACK KEYED BY TASK, exactly as the chips
+// already do — a single lump of markup could only be put in one place.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 3, 'running' => 0, 'review' => 1, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+$_POST = [ 'step' => '1' ];
+$dze_poll = sent_of( static function (): void { DZE_Automation::ajax_run_state(); } );
+$_POST = [];
+ok( 'the answer carries a bar per task',
+	array_keys( (array) ( $dze_poll['data']['run'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
+ok( 'and the linking one is drawn',
+	false !== strpos( (string) ( $dze_poll['data']['run']['mesh_links'] ?? '' ), 'dze-auto-bar' ), true );
+
+// AND A CONTROL ACTS ON THE BLOCK IT WAS PRESSED IN. Stop in one task's block
+// must never drop another task's queue.
+fresh( $ON );
+DZE_Queue::$counts  = [ 'queued' => 5, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+DZE_Queue::$dropped = [];
+$_POST = [ 'task' => 'cat_desc' ];
+sent_of( static function (): void { DZE_Automation::ajax_run_stop(); } );
+$_POST = [];
+ok( 'Stop drops that task\'s kinds only', DZE_Queue::$dropped, [ 'cat_desc' ] );
+DZE_Queue::$retried = [];
+$_POST = [ 'task' => 'cat_desc' ];
+sent_of( static function (): void { DZE_Automation::ajax_run_again(); } );
+$_POST = [];
+ok( 'and so does Start it again',       DZE_Queue::$retried, [ 'cat_desc' ] );
 
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.

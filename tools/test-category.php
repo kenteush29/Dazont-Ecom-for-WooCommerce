@@ -705,6 +705,14 @@ try {
 } catch ( \Throwable $e ) { /* the ceiling is what is being read, not the answer. */ }
 ok( 'a document of markup gets room too',
 	(int) ( DZE_Marketing_Ai::$sent[0]['max'] ?? 0 ) > (int) ( strlen( $dze_heavy ) / 3 ), true );
+// AND A REAL SHOP STILL RAN OUT. "The answer was cut off before it was
+// finished" came back on a live linking job WITH the ceiling in place: bytes
+// over three is a guess about how HTML tokenises, and class names, attributes
+// and punctuation tokenise far worse than prose. `max_tokens` is a ceiling and
+// not a spend, so the room is asked for at the rate that cannot be beaten —
+// one token per two bytes — and nothing is paid for what is not used.
+ok( 'and enough that markup cannot beat it',
+	(int) ( DZE_Marketing_Ai::$sent[0]['max'] ?? 0 ) >= (int) ( strlen( $dze_heavy ) / 2 ), true );
 DZE_Marketing_Ai::$decide = null;
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

@@ -64,10 +64,17 @@
 
 		// The main image apart from the gallery, on the same line: same kind of
 		// thing, different job.
-		var $wrap = $('<div class="dze-nowblock"></div>');
+		// ONE SET UNDER THE ARROWS. "Main image est séparé de galery et de
+		// variations. Il faut fermer l'écran et le réouvrir à chaque fois entre
+		// les uns et les autres." Three COLUMNS is right on the screen — they
+		// are three different jobs — but they are photographs of ONE product,
+		// so the zoom group is the block that holds all three rather than each
+		// grid: closing the viewer to reach the next photograph is the shop
+		// doing the machinery's work.
+		var $wrap = $('<div class="dze-nowblock dze-zoomgroup"></div>');
 		var $mainCol = $('<div class="dze-nowcol dze-nowcol-main"></div>')
 			.append($('<span class="dze-nowcap"></span>').text(i18n.nowMain));
-		var $g1 = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
+		var $g1 = $('<div class="dze-cb-nowgrid"></div>');
 		main.forEach(function (im) { $g1.append(tile(im)); });
 		$mainCol.append($g1);
 		$wrap.append($mainCol);
@@ -75,7 +82,7 @@
 		if (rest.length) {
 			var $restCol = $('<div class="dze-nowcol"></div>')
 				.append($('<span class="dze-nowcap"></span>').text(i18n.nowGallery));
-			var $g2 = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
+			var $g2 = $('<div class="dze-cb-nowgrid"></div>');
 			rest.forEach(function (im) { $g2.append(tile(im)); });
 			$restCol.append($g2);
 			$wrap.append($restCol);
@@ -86,7 +93,7 @@
 		if (vars.length) {
 			var $varCol = $('<div class="dze-nowcol"></div>')
 				.append($('<span class="dze-nowcap"></span>').text(i18n.nowVars || ''));
-			var $g3 = $('<div class="dze-cb-nowgrid dze-zoomgroup"></div>');
+			var $g3 = $('<div class="dze-cb-nowgrid"></div>');
 			vars.forEach(function (im) { $g3.append(tile(im)); });
 			$varCol.append($g3);
 			$wrap.append($varCol);

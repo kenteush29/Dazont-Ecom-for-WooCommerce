@@ -3482,12 +3482,18 @@ final class DZE_Diagnostic {
 			// The SAME bulk screen this shop already generates from, handed the
 			// products that were ticked. Nothing new is invented here: the
 			// selection travels exactly as it does from the products list.
+			// A CONTROL NAMES WHAT IT IS ABOUT TO DO. "Generate for the selected
+			// products > induit en erreur. Je crois en cliquant sur ça que
+			// quelque chose va se générer de suite." It generates nothing: it
+			// opens the bulk screen with those products in it. The label says
+			// that a choice comes next, the consequence lives on its own hover,
+			// and the paragraph that used to explain it is gone — a sentence
+			// under a button is usually a button with the wrong word on it.
 			printf(
 				'<p class="dze-diag-bulkbar" style="max-width:1100px;margin:10px 0 0;">'
-					. '<button type="submit" class="button button-primary">%1$s</button> '
-					. '<span class="description">%2$s</span></p>',
-				esc_html__( 'Generate for the selected products', 'dazont-ecom' ),
-				esc_html__( 'Opens the bulk screen with those products in it, where the prompts and the number of images are chosen before anything is generated.', 'dazont-ecom' )
+					. '<button type="submit" class="button button-primary" title="%2$s">%1$s</button></p>',
+				esc_html__( 'Choose what to generate…', 'dazont-ecom' ),
+				esc_attr__( 'Opens the bulk screen with these products in it. Nothing is generated until you press Generate there.', 'dazont-ecom' )
 			);
 			echo '</form>';
 		}

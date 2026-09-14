@@ -50,6 +50,10 @@ function ok( what, got, want ) {
 
 const js  = readFileSync( join( root, 'dazont-ecom', 'admin', 'js', 'hzoom.js' ), 'utf8' );
 const css = readFileSync( join( root, 'dazont-ecom', 'admin', 'css', 'zoom.css' ), 'utf8' );
+// The product's photograph strips are drawn by the plugin's own renderer, so
+// the gate serves it rather than typing out the markup it is meant to check.
+const hubjs    = readFileSync( join( root, 'dazont-ecom', 'admin', 'js', 'hub.js' ), 'utf8' );
+const photosjs = readFileSync( join( root, 'dazont-ecom', 'admin', 'js', 'photos.js' ), 'utf8' );
 
 // A one-pixel GIF, and a strip of five thumbnails pointing at five "full"
 // images the harness serves slowly.
@@ -61,6 +65,11 @@ const strip = [ 1, 2, 3, 4, 5 ].map(
 		+ `<img src="${dot}" data-full="http://dze.test/full-${n}.png" alt=""`
 		+ ` style="width:100%;height:100%;object-fit:cover;background:#ddd;" /></span>`
 ).join( '' );
+
+// ONE TILE, used by both layouts: the single strip and the product's three.
+const strip1 = n => `<span style="display:inline-block;width:90px;height:90px;margin:6px;">`
+	+ `<img src="${dot}" data-full="http://dze.test/full-${n}.png" alt=""`
+	+ ` style="width:100%;height:100%;object-fit:cover;background:#ddd;" /></span>`;
 
 const browser = await chromium.launch();
 for ( const [ label, jq ] of jqs ) {
@@ -77,6 +86,33 @@ for ( const [ label, jq ] of jqs ) {
 	);
 	await page.route( 'http://dze.test/**', async route => {
 		const url = route.request().url();
+		// THE PRODUCT'S OWN THREE STRIPS, on an address of their own — and
+		// BEFORE the branch below, which answers any path ending in a slash and
+		// would swallow this one.
+		if ( url.endsWith( '/product/' ) ) {
+			// THE PLUGIN'S OWN RENDERER draws these strips — `dzePhotos.render`,
+			// the same call the product screen makes. Hand-writing the markup
+			// here would test the markup this file typed out, which is the one
+			// thing a gate must never do.
+			const shots = [
+				{ id: 1, thumb: dot, full: 'http://dze.test/full-1.png', main: true },
+				{ id: 2, thumb: dot, full: 'http://dze.test/full-2.png' },
+				{ id: 3, thumb: dot, full: 'http://dze.test/full-3.png' },
+				{ id: 4, thumb: dot, full: 'http://dze.test/full-4.png', variation: 'Olive' }
+			];
+			return route.fulfill( { status: 200, contentType: 'text/html',
+				body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style>`
+					+ `<script src="/jquery.js"></script>`
+					+ `<script>window.dzeZoomI18n={zoom:'Zoom',close:'Close',prev:'Previous',next:'Next',`
+					+ `failed:'This image could not be loaded.'};`
+					+ `window.dzePhotosCfg={ratios:['1:1']};`
+					+ `window.dzePhotosI18n={nowMain:'Main',nowGallery:'Gallery',nowVars:'Variations'};</script>`
+					+ `<script src="/hub.js"></script><script src="/photos.js"></script>`
+					+ `<script src="/hzoom.js"></script></head>`
+					+ `<body><div id="slot"></div><script>`
+					+ `jQuery(function($){ window.dzePhotos.render($('#slot'), ${JSON.stringify( shots )}, {}); });`
+					+ `</script></body></html>` } );
+		}
 		if ( url.endsWith( '/' ) ) {
 			return route.fulfill( { status: 200, contentType: 'text/html',
 				body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style>`
@@ -88,6 +124,12 @@ for ( const [ label, jq ] of jqs ) {
 		}
 		if ( url.endsWith( '/jquery.js' ) ) {
 			return route.fulfill( { status: 200, contentType: 'text/javascript', body: readFileSync( jq, 'utf8' ) } );
+		}
+		if ( url.endsWith( '/hub.js' ) ) {
+			return route.fulfill( { status: 200, contentType: 'text/javascript', body: hubjs } );
+		}
+		if ( url.endsWith( '/photos.js' ) ) {
+			return route.fulfill( { status: 200, contentType: 'text/javascript', body: photosjs } );
 		}
 		if ( url.endsWith( '/hzoom.js' ) ) {
 			return route.fulfill( { status: 200, contentType: 'text/javascript', body: js } );
@@ -104,6 +146,7 @@ for ( const [ label, jq ] of jqs ) {
 
 	console.log( `The image viewer, walked — jQuery ${label}` );
 	ok( 'the screen runs without an error', errors, [] );
+
 	// The button belongs to the GRID, not to the markup that drew it.
 	await page.waitForFunction( () => document.querySelectorAll( '.dze-zoom-btn' ).length === 5, null, { timeout: 3000 } );
 	ok( 'every thumbnail gets its button',  await page.locator( '.dze-zoom-btn' ).count(), 5 );
@@ -196,6 +239,35 @@ for ( const [ label, jq ] of jqs ) {
 	// there is an error raised by the SCRIPT.
 	ok( 'nothing was raised on the way',
 		errors.filter( e => ! /404|Failed to load resource/.test( e ) ), [] );
+
+	// ---- THE PRODUCT'S PHOTOGRAPHS ARE ONE SET TO WALK ----
+	// "Main image est séparé de galery et de variations. Il faut fermer l'écran
+	// et le réouvrir à chaque fois entre les uns et les autres. UX très
+	// mauvaise." Three columns is right ON THE SCREEN — they are three
+	// different jobs — but under the arrows they are photographs of ONE
+	// product, and closing the viewer to reach the next is the shop doing the
+	// machinery's work.
+	await page.goto( 'http://dze.test/product/', { waitUntil: 'domcontentloaded' } );
+	await page.waitForTimeout( 200 );
+	await page.hover( '.dze-nowcol-main .dze-cb-nowshot' );
+	await page.click( '.dze-nowcol-main .dze-cb-nowshot .dze-zoom-btn', { force: true } );
+	await page.waitForTimeout( 150 );
+	ok( 'the whole product is one set',
+		( await page.textContent( '.dze-zoom-count' ).catch( () => '' ) || '' ).trim(), '1 / 4' );
+	// AND THE ARROWS CROSS FROM ONE COLUMN TO THE NEXT.
+	await page.click( '.dze-zoom-next' );
+	await page.waitForTimeout( 500 );
+	ok( 'the arrows reach the gallery',
+		( await page.textContent( '.dze-zoom-count' ).catch( () => '' ) || '' ).trim(), '2 / 4' );
+	await page.click( '.dze-zoom-next' );
+	await page.waitForTimeout( 500 );
+	await page.click( '.dze-zoom-next' );
+	await page.waitForTimeout( 500 );
+	ok( 'and the variations too',
+		( await page.textContent( '.dze-zoom-count' ).catch( () => '' ) || '' ).trim(), '4 / 4' );
+	// AND THE BUTTON IS STILL PLANTED ON EVERY TILE, in all three columns.
+	ok( 'every tile still opens it',        await page.locator( '.dze-zoom-btn' ).count(), 4 );
+	await page.keyboard.press( 'Escape' );
 
 	await page.close();
 }
