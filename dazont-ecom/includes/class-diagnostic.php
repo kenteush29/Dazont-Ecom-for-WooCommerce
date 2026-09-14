@@ -38,6 +38,17 @@ final class DZE_Diagnostic {
 	public const OPT        = 'dze_diagnostic';
 	public const OPT_CENSUS = 'dze_diagnostic_census';
 	public const OPT_LISTS  = 'dze_diagnostic_lists';
+
+	/**
+	 * How many objects the census page may re-judge before it stops.
+	 *
+	 * Re-judging is one read per object, on a page somebody is waiting for.
+	 * Six thousand covers every shortfall this shop has several times over —
+	 * its worst criterion holds about eleven hundred — while a shop with tens
+	 * of thousands is stopped before this screen becomes a job. It is a
+	 * constant and not a setting: nobody could say what to change it to.
+	 */
+	private const LIVE_BUDGET = 6000;
 	/** When the shop last changed, so a kept reading knows to die. */
 	public const OPT_STAMP  = 'dze_diagnostic_touched';
 	public const NONCE      = 'dze_diag';
@@ -2668,6 +2679,31 @@ final class DZE_Diagnostic {
 				$clean[ $id ] = $check;
 			}
 		}
+		// A FIGURE AND THE LIST UNDER IT ANSWER THE SAME QUESTION.
+		//
+		// "1146 of 2104. FAKE. Issues (1,097) — voilà le vrai nombre. Le reste
+		// c'est pour les archives de ce qui a été fait." Both numbers were
+		// honest and they were answers to different questions: this one is
+		// what the last READING counted, and the tab under it re-judges those
+		// same objects as the page is drawn, so everything mended since had
+		// already left it. Two accounts of one thing on one screen, and the
+		// one printed largest was the one nobody could act on.
+		//
+		// The row asks the criterion's own list the question the list answers,
+		// through the very same split() the tab uses — so the two can never
+		// disagree, and the answer is the one already cached for whichever of
+		// them is opened second.
+		$live = self::live_counts( $found, $checks );
+		foreach ( $live as $id => $now ) {
+			if ( 0 === $now ) {
+				// Nothing of it left: it belongs with what is already right,
+				// not at the top of a list of work.
+				$clean[ $id ] = $checks[ $id ];
+				unset( $found[ $id ] );
+				continue;
+			}
+			$found[ $id ] = $now;
+		}
 		arsort( $found );
 
 		if ( $fresh && $at ) {
@@ -2801,6 +2837,14 @@ final class DZE_Diagnostic {
 					echo '<span class="description" style="display:block;margin-top:4px;color:#b26a00;">'
 						. esc_html__( 'Changed since this reading — read the shop again.', 'dazont-ecom' )
 						. '</span>';
+				} elseif ( isset( self::$over_budget[ $id ] ) ) {
+					// Too many to judge again while somebody waits. The figure
+					// is the reading's, and saying which question it answers is
+					// the whole difference between a stale number and a wrong
+					// one.
+					echo '<span class="description" style="display:block;margin-top:4px;">'
+						. esc_html__( 'From the last reading — too many to count again here.', 'dazont-ecom' )
+						. '</span>';
 				}
 				echo '</td>';
 				// ONE thing a line is for: seeing which ones. A second button
@@ -2867,6 +2911,73 @@ final class DZE_Diagnostic {
 	 * @param int[] $ids
 	 * @return array{todo:int[],done:int[],live:bool}
 	 */
+	/**
+	 * How many of each criterion's objects STILL fall short, today.
+	 *
+	 * The census counts what the last reading found; the criterion's own tab
+	 * re-judges that list as it is drawn, so a shop that has been working
+	 * sees the two drift apart all day. This asks split() — the tab's own
+	 * reader, under the tab's own cache key — so the figure on the row and the
+	 * figure on the tab are one answer, not two.
+	 *
+	 * Three rules, each of them a way it goes wrong:
+	 *  - A criterion split() cannot judge live (a category: WordPress terms
+	 *    are not re-read here) keeps the reading's figure and is NOT reported,
+	 *    because its list is the reading's too — figure and list still agree.
+	 *  - There is a budget. Re-judging is a read per object, and a shop with
+	 *    twenty thousand shortfalls must not turn this page into a job. Past
+	 *    it the reading's figure stands and the row SAYS so, rather than
+	 *    quietly going back to being a number nobody can act on.
+	 *  - It is worked through worst-first, so the budget is spent on the
+	 *    figure somebody is actually looking at.
+	 *
+	 * @param array<string,int>   $found  criterion id => the reading's count.
+	 * @param array<string,array> $checks every criterion, by id.
+	 * @return array<string,int> criterion id => how many are still short.
+	 */
+	private static function live_counts( array $found, array $checks ): array {
+		arsort( $found );
+		$out  = [];
+		$left = self::LIVE_BUDGET;
+		foreach ( $found as $id => $was ) {
+			$check = (array) ( $checks[ $id ] ?? [] );
+			if ( ! $check ) {
+				continue;
+			}
+			$ids = self::list_of( (string) $id );
+			if ( ! $ids ) {
+				continue;
+			}
+			if ( count( $ids ) > $left ) {
+				self::$over_budget[ (string) $id ] = true;
+				continue;
+			}
+			$split = self::split( (string) $id, $check, $ids );
+			if ( empty( $split['live'] ) ) {
+				continue; // judged by the reading alone, exactly like its list.
+			}
+			// AN EMPTY READING IS NOT AN ANSWER OF ZERO. split() drops objects
+			// it could not read — deleted since, or a query that answered
+			// nothing at all — and a criterion whose whole list came back
+			// unreadable would otherwise report itself mended and leave the
+			// screen. The reading's figure stands instead.
+			if ( ! $split['todo'] && ! $split['done'] ) {
+				continue;
+			}
+			$left           -= count( $ids );
+			$out[ (string) $id ] = count( (array) $split['todo'] );
+		}
+		return $out;
+	}
+
+	/**
+	 * Criteria whose figure is the last reading's because re-judging them all
+	 * would have made a job of a page load.
+	 *
+	 * @var array<string,true>
+	 */
+	private static $over_budget = [];
+
 	private static function split( string $id, array $check, array $ids ): array {
 		$scope = (string) ( $check['scope'] ?? '' );
 		$rule  = (array) ( self::rows_by_id()[ $id ] ?? [] );

@@ -243,43 +243,42 @@ ok( 'and "no scene" asked for by the screen is obeyed',
 	in_array( 'data:image/jpeg;base64,IMG90/full', $GLOBALS['sent']['sources'], true ), false );
 shop();
 
-echo "WHICH photograph is the subject when one was added from outside\n";
-// The regression this block exists for, in the owner's words: "images generees
-// dans une autre couleur que le produit principal. Il me donne du kryptek noir
-// plutot que du desert. Avant ca fonctionnait. J'ai ajoute des images externes
-// en copier coller en kryptek noir pour un meilleur contexte."
+echo "ONE PRODUCT, AND EVERY PHOTOGRAPH IN THE REQUEST IS OF IT\n";
+// "Ces 2 fonctions n'ont rien a faire ici. Le 1, c'est evident, on travaille
+// toujours a partir de l'image principale. Le 2, c'est evident, on envoie des
+// images supplementaires qui apportent plus de detail sur le produit, et
+// jamais rien d'autre."
 //
-// The picker that replaced the old checkbox reads "Main photograph" on its
-// default and sent NOTHING on it, and a request carrying pasted photographs
-// and no answer is read here as "the pasted one leads". So the supplier's
-// black shot became image 1 and the product came back in its colour, with the
-// screen still saying the product's own main image was the subject.
-[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'base_main' => 1 ] );
-ok( 'the product leads when the screen says so',
+// Two questions were asked on three screens — is the product the subject, and
+// is what you added a setting or something to copy — and both had one answer
+// all along. There is one lane now: the product's own photographs lead, main
+// first, and whatever was handed in follows as more views of the SAME product.
+[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ] ] );
+ok( 'the product leads, always',
 	$GLOBALS['sent']['sources'], [
 		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large', 'data:pasted' ] );
-// The instruction that goes with them says the same thing: the pasted one is
-// a reference, not a second product.
-ok( 'and what was added is a reference',   $GLOBALS['told'][5] ?? -1, 1 );
-ok( 'the product is not "a subject" of its own', $GLOBALS['told'][4] ?? null, false );
-// WHAT IT IS A REFERENCE FOR is the owner's answer, and it travels. "Il faut
-// donner l'autorisation de copier les images additionnelles externes. Ce sont
-// des images souvent uniques mais qui doivent être retravaillées." The plugin
-// answered it on its own — SETTING only, take nothing from them — so a unique
-// shot handed in to be reworked was refused by an appended sentence nobody
-// could see.
-ok( 'with no answer it is a setting',      $GLOBALS['told'][6] ?? '?', 'set' );
+// Nothing in the request declares a subject: a run that photographs the
+// product afresh has none, and saying it had one is what used to let a
+// supplier's black shot become image 1 on a desert product.
+ok( 'and nothing is called a subject of its own', $GLOBALS['told'][4] ?? null, false );
+// EVERYTHING HANDED IN IS COUNTED AS THE PRODUCT. The appended paragraph is
+// built from this figure, so a pasted photograph landing outside it is a
+// photograph the brief does not know about.
+ok( 'what was handed in is part of the product', $GLOBALS['told'][0] ?? 0, 3 );
+// THE TWO ANSWERS THE SCREENS USED TO POST ARE GONE, and a request that still
+// carries them is answered exactly as one that does not: no lane of their own
+// survives anywhere for them to reach.
+$before = $GLOBALS['sent']['sources'];
+$said   = $GLOBALS['told'];
 [ $out, $err ] = shoot( [
-	'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'base_main' => 1, 'refs_use' => 'copy' ] );
-ok( 'and the copy answer reaches the brief', $GLOBALS['told'][6] ?? '?', 'copy' );
-ok( 'while the product still leads the sources',
-	$GLOBALS['sent']['sources'], [
-		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large', 'data:pasted' ] );
-// Anything else is the setting: a word we do not know must never be read as
-// permission to copy.
-[ $out, $err ] = shoot( [
-	'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'base_main' => 1, 'refs_use' => 'whatever' ] );
-ok( 'a word we do not know is the setting', $GLOBALS['told'][6] ?? '?', 'set' );
+	'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ],
+	'base_main' => 1, 'refs_use' => 'copy' ] );
+ok( 'an old subject answer changes nothing', $GLOBALS['sent']['sources'], $before );
+ok( 'and an old copy answer changes nothing', $GLOBALS['told'], $said );
+// And nothing appended can still be asking for a setting or for a copy: those
+// were sentences the plugin wrote over the owner's own prompt.
+ok( 'the brief is told the product and nothing else',
+	count( $GLOBALS['told'] ), 5 );
 
 // A PICKED PHOTOGRAPH IS AN ANSWER TOO, and it never reached this function:
 // the toolbox posted src_id and only the main-image lane ever read it, so
@@ -298,14 +297,15 @@ ok( 'and leads them with nothing pasted at all',
 ok( 'an id that answers for nothing is dropped',
 	$GLOBALS['sent']['sources'], [
 		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large' ] );
-// AND THE OTHER ANSWER STILL WORKS. "The photograph you added" is a choice on
-// that same picker, and it means what pasting used to mean on its own: the
-// pasted set is the subject and the product's own follow as context.
-[ $out, $err ] = shoot( [ 'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ] ] );
-ok( 'the pasted one leads when it is chosen',
-	$GLOBALS['sent']['sources'], [
-		'data:pasted', 'data:image/jpeg;base64,IMG11/large', 'data:image/jpeg;base64,IMG12/large' ] );
-ok( 'and it is said to be the subject',  $GLOBALS['told'][4] ?? null, true );
+
+// THE ONE LANE THAT STILL HAS A SUBJECT is the arrow on a tile: "make this one
+// again". That is the only request whose answer is allowed to look like its
+// source, and it sends that image and nothing else.
+[ $out, $err ] = shoot( [
+	'post' => 7, 'template' => 1, 'src_url' => 'https://fal.media/files/old.jpg' ] );
+ok( 'editing one image sends that image alone',
+	$GLOBALS['sent']['sources'], [ 'https://fal.media/files/old.jpg' ] );
+ok( 'and it is the subject',            $GLOBALS['told'][4] ?? null, true );
 
 echo "A destination named by the caller outranks the recipe's\n";
 [ $out, $err ] = shoot( [ 'post' => 7, 'template' => 0, 'target' => 'gallery' ] );

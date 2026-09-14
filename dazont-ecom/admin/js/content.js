@@ -424,30 +424,6 @@
 									'<summary>' + esc(i18n.stepElse) + '</summary>' +
 									'<div id="dze-cx-else"></div>' +
 								'</details>' +
-								// WHICH PHOTOGRAPH IS THE SUBJECT. It used to be
-								// a checkbox saying "keep the product's own
-								// photograph as the subject", which answered a
-								// question nobody had asked and left the real one
-								// — WHICH of its photographs — with no answer at
-								// all. Picking one here says both: this is image
-								// 1, and anything pasted is the setting.
-								// .dze-sec-opt: it changes HOW the run works, it
-								// is not one of the things the run does.
-								'<label class="dze-cx-subjline dze-sec-opt">' +
-									'<span>' + esc(i18n.subjLabel) + '</span>' +
-									'<select id="dze-cx-subject"><option value="0">' + esc(i18n.subjMainOpt) + '</option></select>' +
-								'</label>' +
-								// AND WHAT THE HANDED-IN ONES ARE FOR. The plugin
-								// answered this on its own, in capitals: a
-								// photograph handed in was the setting and
-								// taking anything from it was forbidden — so a
-								// unique shot handed in to be reworked could
-								// not be asked for. Shown only while something
-								// has been handed in and the product leads.
-								'<label class="dze-cx-subjline dze-cx-refsline dze-sec-opt" id="dze-cx-refsline" style="display:none;">' +
-									'<span>' + esc(i18n.refsLabel) + '</span>' +
-									'<select class="dze-cx-refspick"></select>' +
-								'</label>' +
 								// What no photograph of this product shows. It
 								// travels with every image made here, and it
 								// was only editable in the one-function popup —
@@ -569,8 +545,7 @@
 		if ('price' === want.section) { $('#dze-cx-doprice').prop('checked', true); }
 		if (want.shots && want.shots.length && $('#dze-cx-tplrows').length) {
 			$('#dze-cx-doimg').prop('checked', true);
-			$('#dze-cx-subject').val('0');
-			$('#dze-cx-tplrows').empty();
+				$('#dze-cx-tplrows').empty();
 			want.shots.forEach(function (row) {
 				$('#dze-cx-tplrows').append(tplRow(row.tpl, undefined, row.n || 1, row.target));
 			});
@@ -870,44 +845,34 @@
 	// The product's own photographs, offered as the subject of what is made.
 	// Kept in step with the strip above it: a photograph deleted while the
 	// popup is open must not stay on this list as a thing to work from.
-	function drawSubjects() {
-		// Filled by photos.js, which the bulk screen's panel calls too: two
-		// copies of this list is how two screens start offering different
-		// answers to "which photograph is the product".
-		window.dzePhotos.subjects(
-			$('#dze-cx-subject'),
-			(res.current && res.current.images) || [],
-			cxPaste ? cxPaste.list().length : 0,
-			i18n
-		);
-		window.dzePhotos.refsUse(
-			$('#dze-cx-refsline'),
-			cxPaste ? cxPaste.list().length : 0,
-			$('#dze-cx-subject').val(),
-			i18n
-		);
-	}
-	// The second question depends on the first: choosing the handed-in set as
-	// the subject answers it, so it goes away rather than sitting there
-	// meaning nothing.
-	$(document).on('change', '#dze-cx-subject', drawSubjects);
-
-	// The product's own trace of calls to the models, drawn from the same
-	// answer and by the same renderer the bulk panel uses.
+	// WHAT WAS ASKED FOR THIS PRODUCT. Read WHEN THE FOLD IS OPENED, never
+	// carried in the bundle that says what the product holds: that bundle is
+	// kept for as long as the panel is open — rightly, since what a product
+	// holds only changes when this screen changes it — and a log grows with
+	// every run. Taken from it, the list a run had just added to went on
+	// showing what it held before the panel was opened.
 	function drawLog() {
 		var $slot = $('#dze-cx-logwrap');
 		if (!$slot.length) { return; }
-		var body = String((res.current && res.current.log) || '');
-		if (!body) { $slot.empty(); return; }
 		$slot.html('<details class="dze-cx-acc dze-cb-logbox"><summary>' +
 			esc(i18n.askedFor) + '</summary><div class="dze-cb-logbody"></div></details>');
-		$slot.find('.dze-cb-logbody').html(body);
+		// BOUND ON THE ELEMENT, NOT DELEGATED: `toggle` on a <details> does
+		// not bubble, so a handler on the document never hears it and the
+		// fold opens on an empty box for ever.
+		$slot.find('.dze-cb-logbox').on('toggle', function () {
+			var $box = $(this), $body = $box.find('.dze-cb-logbody');
+			if (!$box.prop('open')) { return; }
+			$body.text(i18n.working || '');
+			$.post(cfg.ajaxUrl, { action: 'dze_content_log', nonce: cfg.nonce, post: PID })
+				.then(function (r) {
+					$body.html((r && r.success && r.data && r.data.log) || esc(i18n.error));
+				}, function (x) { $body.text(reason(x)); });
+		});
 	}
 
 	function drawCurrentImages() {
 		// One renderer for both screens: admin/js/photos.js. The product screen
 		// adds the AI button, because it has a popup to open.
-		drawSubjects();
 		drawLog();
 		if (!window.dzePhotos) { return; }
 		window.dzePhotos.render($('#dze-cx-nowshots'), (res.current && res.current.images) || [], {
@@ -1119,11 +1084,7 @@
 		if (!$slot.length) { cxPaste = null; return null; }
 		if (!cxPaste || !$.contains(document.body, cxPaste.el[0])) {
 			cxPaste = window.dzePasteBox.mount($slot, {
-				max: maxPasted(), maxBody: maxBody(),
-				// The picker offers what the box holds: a photograph added
-				// after it was drawn has to appear in it, or the only way to
-				// say "this one is the subject" is not on the screen.
-				onChange: drawSubjects
+				max: maxPasted(), maxBody: maxBody()
 			});
 		}
 		return cxPaste;
@@ -1142,11 +1103,7 @@
 		// the run used the supplier's shot. "Main photograph" and a chosen one
 		// both mean the product is image 1; what was added from outside is
 		// then read for the place, the light and the styling.
-		window.dzePhotos.subjectInto(
-			data,
-			$('#dze-cx-subject').val(),
-			$('#dze-cx-refsline').find('.dze-cx-refspick').val()
-		);
+
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
@@ -1723,7 +1680,6 @@
 				// strip, what is pasted, and the tick box below — and until now it
 				// took it in silence, so a run that came back looking like the main
 				// image gave no clue why. It costs money to find that out twice.
-				'<p class="dze-one-subject" id="dze-one-subject" style="margin:4px 0 0;font-size:12px;color:#646970;"></p>' +
 				'<div id="dze-one-elsewrap" style="display:none;">' +
 					// The box that takes photographs from outside the shop:
 					// admin/js/paste-box.js — the same component the toolbox
@@ -1733,16 +1689,7 @@
 					// brief: the product\'s own photographs say what its back,
 					// its lining and its material look like, and they travel
 					// with it unless you say otherwise.
-					'<label class="dze-one-withprod"><input type="checkbox" id="dze-one-withprod" checked /> ' +
-						esc(i18n.withProduct) + '</label>' +
-					// WHAT THE HANDED-IN ONES ARE FOR — the same question the
-					// toolbox and the bulk panel ask, on the third screen that
-					// can reach the same lane. A fault mended on one screen and
-					// not the others is the fault still shipped.
-					'<label class="dze-cx-subjline dze-cx-refsline" id="dze-one-refsline" style="display:none;">' +
-						'<span>' + esc(i18n.refsLabel) + '</span>' +
-						'<select class="dze-cx-refspick"></select>' +
-					'</label>' +
+
 					// Which of the two is the SUBJECT. Pasting used to decide it
 					// on its own — what you added became the thing to
 					// photograph — so there was no way to say "keep this
@@ -1925,7 +1872,6 @@
 			if (one.srcId || onePastes().length) { return; }
 			$slot.html(oneSrcStrip(cur.images || []));
 			oneSrcNote(cur);
-			oneSubject();
 		});
 	}
 	$(document).on('click', '.dze-one-tabs button', function () {
@@ -1989,7 +1935,6 @@
 		// The tile that opened this box mirrors the set it holds.
 		$('#dze-one-newthumb').attr('src', list[0] || '').toggle(list.length > 0);
 		$('.dze-one-srcnew .dze-one-newmsg').toggle(!list.length);
-		oneSubject();
 	}
 	// WHAT THIS PRESS WILL SPEND, in the same words the toolbox and the bulk
 	// screen use, from the same price. A text press spends no picture and says
@@ -2009,30 +1954,11 @@
 	}
 	$(document).on('change', '#dze-one-n', oneWillSpend);
 
-	// One line saying what image 1 will be — the same rule the server applies,
-	// written where the decision is made.
-	function oneSubject() {
-		var $l = $('#dze-one-subject');
-		if (!$l.length) { return; }
-		var pasted = onePastes().length;
-		// WHICH TILE IS PICKED SAYS IT. A photograph of the product picked
-		// here is the subject and anything pasted is the setting; the "from
-		// elsewhere" tile picked instead says the pasted one leads. The
-		// checkbox that used to say the same thing beside them was a second
-		// way of answering one question.
-		// The product leads exactly when a tile of its own is picked, and that
-		// is the one case where what was handed in has a job to be given.
-		window.dzePhotos.refsUse(
-			$('#dze-one-refsline'),
-			pasted,
-			one.srcId ? String(one.srcId) : 'paste',
-			i18n
-		);
-		if (one.srcId) { $l.text(i18n.subjPicked || ''); return; }
-		if (pasted) { $l.text(i18n.subjPaste || ''); return; }
-		$l.text(i18n.subjMain || '');
-	}
-	$(document).on('change', '#dze-one-withprod', oneSubject);
+	// THE LINE THAT EXPLAINED WHICH PHOTOGRAPH WOULD LEAD IS GONE. It said
+	// three different things depending on what had been pasted, because the
+	// server had three lanes; there is one now — every photograph in the
+	// request is this product — so there is nothing left to explain and a
+	// sentence explaining a rule that no longer exists is worse than none.
 	function oneShowPasted(dataUri) {
 		var box = onePasteBox();
 		if (!box) { return; }
@@ -2092,10 +2018,8 @@
 		return {
 			action: 'dze_content_quick_main', nonce: cfg.nonce, post: PID,
 			pastes: onePastes(),
-			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 
 			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
-			refs_use: $('#dze-one-refsline').find('.dze-cx-refspick').val() || 'set',
 			bg: $('#dze-one-bg').val() || 0,
 			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt
 		};

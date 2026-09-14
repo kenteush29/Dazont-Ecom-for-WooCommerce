@@ -326,17 +326,17 @@ echo "\nThe photographs win over the words — on EVERY run\n";
 // The ordinary run: no photograph pasted, no photograph picked, the product's
 // own images and the product's own data. This is the toolbox, the bulk
 // screen, and every automatic pass — which is to say, nearly everything.
-$plain = DZE_Content::sources_instruction( 3, null, 0, 0, false, 0 );
+$plain = DZE_Content::sources_instruction( 3, null, 0, 0, false );
 ok( 'an ordinary run is arbitrated',    arbitrated( $plain ), true );
 ok( 'and it says what not to do with a word',
 	false !== strpos( $plain, 'these photographs are the one being made' ), true );
 // The run with a subject — a photograph pasted or picked — was the ONLY one
 // that used to carry it.
-ok( 'a run with a subject still is',    arbitrated( DZE_Content::sources_instruction( 3, null, 0, 0, true, 0 ) ), true );
+ok( 'a run with a subject still is',    arbitrated( DZE_Content::sources_instruction( 3, null, 0, 0, true ) ), true );
 // And a product with ONE photograph, which is where a description has the
 // most room to talk the model into something.
 ok( 'a single photograph is arbitrated too',
-	arbitrated( DZE_Content::sources_instruction( 1, null, 0, 0, false, 0 ) ), true );
+	arbitrated( DZE_Content::sources_instruction( 1, null, 0, 0, false ) ), true );
 
 echo "\nAnd the rest of the brief is still there\n";
 ok( 'several photographs are named as one product',
@@ -350,58 +350,39 @@ ok( 'and an unreadable one is left out rather than painted',
 ok( 'the rule is not repeated four ways',
 	substr_count( $plain, 'invent' ), 1 );
 ok( 'and the whole brief stays short',  strlen( $plain ) < 700, true );
-$subj = DZE_Content::sources_instruction( 3, null, 0, 0, true, 0 );
+$subj = DZE_Content::sources_instruction( 3, null, 0, 0, true );
 ok( 'a subject run names image 1 as the product',
 	false !== strpos( $subj, 'IMAGE 1 IS THE PRODUCT TO WORK ON' ), true );
 ok( 'and the others as shape only',     false !== strpos( $subj, 'for the shape and the construction only' ), true );
-// References handed in are named for what they are, or they are read as the
-// product and come back wearing its colours.
-$refs = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1 );
-ok( 'a reference is named as the setting',
-	false !== strpos( $refs, 'IS A REFERENCE YOU WERE HANDED' ), true );
-
-echo "\nWHAT THE HANDED-IN PHOTOGRAPHS ARE FOR IS THE OWNER'S ANSWER\n";
-// "Il faut donner l'autorisation de copier les images additionnelles
-// externes. Ce sont des images souvent uniques mais qui doivent être
-// retravaillées."
+// EVERY PHOTOGRAPH IN THE REQUEST IS THE PRODUCT, so nothing appended may
+// still call one of them a reference, a setting or a thing to copy.
 //
-// The plugin answered that question on its own, in capitals, and answered it
-// one way only: a photograph handed in was a SETTING, and taking a colour, a
-// pattern or an object from it was forbidden. So the one thing a unique image
-// is handed in FOR — being reworked onto the product — was refused by an
-// appended sentence the owner could not see and had to argue with in his own
-// prompt. Two answers now, and the screen gives one of them.
-$set  = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'set' );
-$copy = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'copy' );
-ok( 'the setting answer still forbids taking from it',
-	false !== strpos( $set, 'take no colour, pattern, material, shape or object' ), true );
-ok( 'and the copy answer asks for the opposite',
-	false !== strpos( $copy, 'TO WORK FROM' ), true );
-ok( 'it says what is reproduced',
-	false !== strpos( $copy, 'reproduce what it shows on the product' ), true );
-// THE ARBITER IS STILL NAMED. A photograph handed in to work from must not
-// become the product: the shape and the construction are image 1's, or a
-// supplier shot of another model comes back as this one.
-ok( 'and the product is still image 1 for the shape',
-	false !== strpos( $copy, 'The shape and the construction stay those of image 1' ), true );
-// ONE RULE, SAID ONCE. The forbidding sentence must be GONE on that answer,
-// not left standing beside its opposite — two instructions contradicting each
-// other is worse than either of them alone.
-ok( 'the forbidding sentence is not sent as well',
-	false !== strpos( $copy, 'take no colour, pattern, material, shape or object' ), false );
-// SEVERAL of them read the same way.
-$copyn = DZE_Content::sources_instruction( 2, null, 0, 0, true, 3, 'copy' );
-ok( 'several handed in are named together',
-	false !== strpos( $copyn, 'ARE PHOTOGRAPHS YOU WERE HANDED TO WORK FROM' ), true );
-ok( 'and read in the plural',
-	false !== strpos( $copyn, 'reproduce what they show on the product' ), true );
-// An answer nobody gave, and an answer nothing was handed in on, are both the
-// setting: a default that means something else is how a supplier shot became
-// the product.
-ok( 'no answer means the setting',
-	DZE_Content::sources_instruction( 2, null, 0, 0, true, 1 ), $set );
-ok( 'and a word we do not know means the setting too',
-	DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'whatever' ), $set );
+// "Ces 2 fonctions n'ont rien a faire ici... on envoie des images
+// supplementaires qui apportent plus de detail sur le produit, et jamais rien
+// d'autre." Both questions the plugin used to ask — is the product the
+// subject, is what you added a setting or something to copy — had one answer
+// all along, and every sentence that carried them competed with the shop's own
+// prompt while nobody could see it.
+foreach ( [
+	'IS A REFERENCE YOU WERE HANDED',
+	'ARE PHOTOGRAPHS YOU WERE HANDED',
+	'TO WORK FROM',
+	'take no colour, pattern, material, shape or object',
+	'reproduce what it shows on the product',
+	'reproduce what they show on the product',
+] as $gone ) {
+	ok( 'nothing appended says "' . $gone . '"',
+		false !== strpos( $plain . $subj, $gone ), false );
+}
+// And the two answers cannot be asked for either: the parameters that carried
+// them are gone, so a caller still passing them is answered exactly as one
+// that does not.
+$refl = new ReflectionMethod( 'DZE_Content', 'sources_instruction' );
+ok( 'the brief takes no answer about what was handed in',
+	$refl->getNumberOfParameters(), 5 );
+ok( 'and an extra one changes nothing',
+	DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'copy' ),
+	DZE_Content::sources_instruction( 2, null, 0, 0, true ) );
 
 echo "\nNOTHING APPENDED MAY OVERRULE THE PROMPT\n";
 // "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça
@@ -412,7 +393,7 @@ echo "\nNOTHING APPENDED MAY OVERRULE THE PROMPT\n";
 // other: with a scene chosen, the plugin told the model to "ignore any
 // background described in words above" — the appended text disregarding the
 // instructions it is appended to.
-$scened = DZE_Content::sources_instruction( 3, [ 'image' => 9, 'prompt' => 'Slate surface' ], 0, 0, false, 0 );
+$scened = DZE_Content::sources_instruction( 3, [ 'image' => 9, 'prompt' => 'Slate surface' ], 0, 0, false );
 ok( 'nothing tells the model to ignore the prompt',
 	false !== strpos( $scened, 'ignore any background described in words above' ), false );
 ok( 'and nothing else says "ignore"',   substr_count( $scened, 'ignore' ), 0 );
@@ -433,7 +414,7 @@ echo "\nAnd what IS appended is on the screen, from the same function\n";
 $shown = DZE_Content::prompt_note( 'content_img_main_image' );
 ok( 'an image prompt says what is appended to it', '' !== $shown, true );
 ok( 'word for word, from the one function that sends it',
-	$shown, trim( DZE_Content::sources_instruction( DZE_Content::source_cap(), null, 0, 0, false, 0 ) ) );
+	$shown, trim( DZE_Content::sources_instruction( DZE_Content::source_cap(), null, 0, 0, false ) ) );
 ok( 'and a text prompt is appended none of it',
 	DZE_Content::prompt_note( 'content_title' ), '' );
 ok( 'nor is a prompt this module does not own',
@@ -1109,7 +1090,7 @@ ok( 'and it appends nothing whatever',           $dze_said, '' );
 // already made travels with the request and the legend names it: a set of
 // source images saying "make it different" beats a sentence saying so, which
 // is why this line was a second way of saying what the images already say.
-$dze_avoid = DZE_Content::sources_instruction( 2, null, 1, 0, false, 0 );
+$dze_avoid = DZE_Content::sources_instruction( 2, null, 1, 0, false );
 ok( 'the one already made is still named',
 	false !== strpos( $dze_avoid, 'IS A PHOTOGRAPH ALREADY MADE' ), true );
 ok( 'and still asked to be different',
@@ -1123,7 +1104,7 @@ ok( 'and still asked to be different',
 // somebody has to put it in the lock on purpose — "adding a sentence to that
 // note is a decision the shop takes, not one taken for it".
 ok( 'the appended text is exactly what it was',
-	md5( DZE_Content::sources_instruction( 3, null, 0, 0, false, 0 ) ),
+	md5( DZE_Content::sources_instruction( 3, null, 0, 0, false ) ),
 	md5( "\n\nIMAGES 1 TO 3 ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not."
 		. ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show.'
 		. ' Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN:'

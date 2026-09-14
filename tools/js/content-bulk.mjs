@@ -64,7 +64,7 @@ const browser = await chromium.launch();
 for ( const [ label, jq ] of jqs ) {
 	console.log( `\njQuery ${label}` );
 	const page = await browser.newPage();
-	const errors = [], sent = [];
+	const errors = [], sent = [], logAsks = [];
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 	page.on( 'dialog', d => d.accept() );
@@ -94,10 +94,20 @@ for ( const [ label, jq ] of jqs ) {
 			return json( {
 				texts: { desc: '<p>The description this product has today.</p>', short: '' },
 				images: [ { id: 5, thumb: 'http://img.test/5.jpg', full: 'http://img.test/5.jpg', main: true, w: 900, h: 900 } ],
-				// THIS PRODUCT'S OWN CALLS, rendered by the server — the Logs
-				// page's own renderer, so one row cannot read two ways.
+			} );
+		}
+		// THIS PRODUCT'S OWN CALLS, rendered by the server — the Logs page's
+		// own renderer, so one row cannot read two ways. Asked for on its own,
+		// when the fold is opened: it used to travel inside the answer above,
+		// which the screen keeps for as long as the panel is open, so a log
+		// that grows with every run went on showing what it held when the
+		// panel was first drawn. The harness counts the calls, because "it is
+		// read again" is the whole of what is being tested.
+		if ( 'dze_content_log' === q.get( 'action' ) ) {
+			logAsks.push( q.get( 'post' ) );
+			return json( {
 				log: '<details class="dze-tracerow"><summary>2 mins ago · Product image</summary>'
-					+ '<pre>THE PROMPT THAT MADE THAT PICTURE</pre></details>'
+					+ '<pre>THE PROMPT THAT MADE THAT PICTURE ' + logAsks.length + '</pre></details>'
 			} );
 		}
 		return json( {} );
@@ -392,21 +402,22 @@ for ( const [ label, jq ] of jqs ) {
 		.catch( () => {} );
 	ok( 'the panel has a box for what no photograph shows',
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-note' ).count(), 1 );
-	// ---- AND IT ASKS WHICH PHOTOGRAPH IS THE PRODUCT ----
+	// ---- AND IT ASKS NEITHER OF THE TWO QUESTIONS ANY MORE ----
 	//
-	// "Je viens d'avoir une image générée en couleur secondaire du produit."
-	// The toolbox has asked this for months; this screen has the same paste box
-	// and had NO picker, so it posted no answer — and a request carrying pasted
-	// photographs and nothing else is read by the server as "the pasted one
-	// leads". A supplier shot added for the setting came back as the product.
-	ok( 'the panel asks which photograph is the product',
-		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ).count(), 1 );
-	ok( 'and it opens on the main photograph',
-		await page.inputValue( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ), '0' );
-	// AND THE SECOND QUESTION IS NOT ASKED WHERE IT CANNOT BE ANSWERED. What
-	// the handed-in photographs are for means nothing with nothing handed in.
-	ok( 'and it does not ask what was added is for, with nothing added',
-		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).isVisible(), false );
+	// "Ces 2 fonctions n'ont rien a faire ici. Le 1, c'est evident, on
+	// travaille toujours a partir de l'image principale. Le 2, c'est evident,
+	// on envoie des images supplementaires qui apportent plus de detail sur le
+	// produit, et jamais rien d'autre."
+	//
+	// Which photograph is the product, and what the added ones are for: both
+	// had one answer all along, and each of them was a control that could be
+	// set to the wrong thing. They are gone from this screen and from the
+	// toolbox alike — a control removed on one screen and left on the other is
+	// the fault coming back through the door beside it.
+	ok( 'it no longer asks which photograph is the product',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ).count(), 0 );
+	ok( 'nor what the added photographs are for',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).count(), 0 );
 	// Folded away until it is wanted, like the box above it: opened the way
 	// somebody opens it.
 	ok( 'folded away until it is wanted',
@@ -429,17 +440,14 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the note went with it',
 		( shots[ 0 ] || {} ).note, 'A wide white band down each side.' );
 	ok( 'on the product it was typed on',   ( shots[ 0 ] || {} ).post, '7' );
-	// THE DEFAULT POSTS WHAT IT SAYS. This is the whole fault: on its default
-	// the toolbox sends base_main=1 and this screen sent nothing at all, so the
-	// server read the pasted photograph as the subject.
-	ok( 'and the run says the product is the subject',
-		( shots[ 0 ] || {} ).baseMain, '1' );
-	ok( 'naming no other photograph of it', ( shots[ 0 ] || {} ).srcId, null );
-	// A DEFAULT POSTS WHAT IT SAYS — for the second answer as much as the
-	// first. Sent as nothing, the server reads its own default, and the day
-	// that default changes the screen and the run say different things.
-	ok( 'and it says what the added photographs are for',
-		( shots[ 0 ] || {} ).refsUse, 'set' );
+	// AND NEITHER ANSWER IS ON THE WIRE. There is one lane on the server now —
+	// the product's own photographs, then whatever was handed in, all of it the
+	// same product — so a request carrying either of those two words would be
+	// a screen still asking a question nothing reads.
+	ok( 'the run names no subject',         ( shots[ 0 ] || {} ).baseMain, null );
+	ok( 'and no photograph of its own',     ( shots[ 0 ] || {} ).srcId, null );
+	ok( 'and says nothing about what was added',
+		( shots[ 0 ] || {} ).refsUse, null );
 
 	// ---- A MINI LOG, ON THE PRODUCT YOU ARE LOOKING AT ----
 	//
@@ -458,10 +466,35 @@ for ( const [ label, jq ] of jqs ) {
 	// rest of the time.
 	ok( 'folded away until it is wanted',
 		await page.locator( '.dze-cb-preview[data-id="8"] .dze-cb-logbox pre' ).isVisible(), false );
+	// AND NOTHING IS ASKED FOR UNTIL IT IS OPENED: an editor's worth of rows
+	// built for somebody who never unfolds it is weight on every panel.
+	ok( 'and nothing was asked for it yet',  logAsks.length, 0 );
 	await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-logbox summary' );
+	await page.waitForFunction(
+		() => /THE PROMPT THAT MADE THAT PICTURE/.test(
+			document.querySelector( '.dze-cb-preview[data-id="8"] .dze-cb-logbox' ).textContent ),
+		null, { timeout: 5000 } ).catch( () => {} );
 	ok( 'and it opens on what was actually asked',
 		( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-logbox pre' ) ).trim(),
-		'THE PROMPT THAT MADE THAT PICTURE' );
+		'THE PROMPT THAT MADE THAT PICTURE 1' );
+	ok( 'read off the product it is about',  logAsks[ 0 ], '8' );
+	// A LOG IS READ AGAIN EVERY TIME IT IS LOOKED AT. "What was asked for this
+	// product — ne se met pas a jour non plus." It used to travel inside the
+	// answer that says what the product HOLDS, which this screen keeps for as
+	// long as the panel is open — rightly, since what a product holds only
+	// changes when the screen changes it — while a log grows with every run.
+	// So a product generated three times over went on showing the calls it had
+	// made before the panel was first drawn.
+	await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-logbox summary' );
+	await page.click( '.dze-cb-preview[data-id="8"] .dze-cb-logbox summary' );
+	await page.waitForFunction(
+		() => /THE PROMPT THAT MADE THAT PICTURE 2/.test(
+			document.querySelector( '.dze-cb-preview[data-id="8"] .dze-cb-logbox' ).textContent ),
+		null, { timeout: 5000 } ).catch( () => {} );
+	ok( 'opened again, it is asked for again', logAsks.length, 2 );
+	ok( 'and the screen shows the newer answer',
+		( await page.textContent( '.dze-cb-preview[data-id="8"] .dze-cb-logbox pre' ) ).trim(),
+		'THE PROMPT THAT MADE THAT PICTURE 2' );
 	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
 
 	// ---- THE CEILING, SAID ON THE SCREEN — AND THE COLUMN THAT TRAVELS ----
@@ -618,29 +651,14 @@ for ( const [ label, jq ] of jqs ) {
 		{ timeout: 5000 } ).catch( () => {} );
 	ok( 'a photograph handed in from outside is in the box',
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile' ).count(), 1 );
-	// AND THE PICKER OFFERS IT. The answer the screen cannot give is the answer
-	// nobody can give: what was added from outside is an option on the same
-	// picker that says which photograph is the product.
-	ok( 'and the picker offers it as the subject',
-		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject option[value="paste"]' ).count(), 1 );
-
-	// ---- AND WHAT IT WAS HANDED IN FOR IS ASKED, NOT DECIDED FOR HIM ----
-	//
-	// "Il faut donner l'autorisation de copier les images additionnelles
-	// externes. Ce sont des images souvent uniques mais qui doivent être
-	// retravaillées." The plugin appended a sentence forbidding exactly that,
-	// in capitals, with nothing on screen saying so.
-	ok( 'the panel now asks what was added is for',
-		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).isVisible(), true );
-	ok( 'and it opens on the setting',
-		await page.inputValue( '.dze-cb-preview[data-id="7"] .dze-cb-refsline .dze-cx-refspick' ), 'set' );
-	// A QUESTION ALREADY ANSWERED IS NOT ASKED AGAIN: choosing the handed-in
-	// set as the subject says what it is for.
-	await page.selectOption( '.dze-cb-preview[data-id="7"] .dze-cb-subject', 'paste' );
-	ok( 'and it goes away when the added one IS the product',
-		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).isVisible(), false );
-	await page.selectOption( '.dze-cb-preview[data-id="7"] .dze-cb-subject', '0' );
-	await page.selectOption( '.dze-cb-preview[data-id="7"] .dze-cb-refsline .dze-cx-refspick', 'copy' );
+	// AND IT IS NOT ASKED WHAT IT IS FOR, NOR WHICH ONE IS THE PRODUCT. Both
+	// questions had one answer all along — it is a photograph of this product,
+	// sent so the model has to invent less of it — and each of them was a
+	// control that could be set to the wrong thing.
+	ok( 'nothing asks what was added is for',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).count(), 0 );
+	ok( 'nor which photograph is the product',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ).count(), 0 );
 	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
 
 	const wasPaste = sent.length;
@@ -652,13 +670,12 @@ for ( const [ label, jq ] of jqs ) {
 	// order was built, so the request carried nothing at all.
 	ok( 'and what was handed in travelled with it',
 		( withPaste[ 0 ] || {} ).pastes, 1 );
-	// AND THE ANSWER TRAVELLED WITH THEM. Only a browser can see what a press
-	// puts on the wire: the select can be right on the screen and the request
-	// carry nothing.
-	ok( 'and the permission to work from them travelled too',
-		( withPaste[ 0 ] || {} ).refsUse, 'copy' );
-	ok( 'with the product still the subject',
-		( withPaste[ 0 ] || {} ).baseMain, '1' );
+	// AND NOTHING ELSE TRAVELLED WITH THEM. One lane on the server: the
+	// product's own photographs, then whatever was handed in, all of it the
+	// same product. A request still carrying either of the two old answers
+	// would be a screen asking a question nothing reads.
+	ok( 'and no answer about what they are for', ( withPaste[ 0 ] || {} ).refsUse, null );
+	ok( 'and none about which one is the product', ( withPaste[ 0 ] || {} ).baseMain, null );
 	// AND THE HALF THAT WAS VISIBLE: the box was still on the screen afterwards.
 	if ( ! await page.locator( '.dze-cb-preview[data-id="7"]' ).isVisible() ) {
 		await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );

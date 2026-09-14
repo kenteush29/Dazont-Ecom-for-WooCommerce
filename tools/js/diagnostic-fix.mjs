@@ -309,27 +309,28 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'no text prompt is ticked behind it',
 		await page.locator( '.dze-cx-f:checked' ).count(), 0 );
 	ok( 'nor the price',                     await page.isChecked( '#dze-cx-doprice' ), false );
-	// AND THE SUBJECT IS THE PRODUCT'S OWN MAIN PHOTOGRAPH. A popup armed for
-	// a criterion carries no choice made in an earlier run on another product.
-	ok( 'and the subject is back to the main photograph',
-		await page.inputValue( '#dze-cx-subject' ), '0' );
-	// WHICH PHOTOGRAPH, NOT WHETHER. The checkbox that stood here — "keep the
-	// product's own photograph as the subject" — answered a question nobody
-	// had asked and left the real one with no answer at all.
-	ok( 'there is no checkbox answering it instead',
+	// AND NOTHING ASKS WHICH PHOTOGRAPH IS THE PRODUCT. "On travaille toujours
+	// a partir de l'image principale." First a checkbox, then a picker, and
+	// both were controls that could be set to the wrong thing on a question
+	// that had one answer all along. Neither is here, and neither is the
+	// second one beside it — what the added photographs are FOR.
+	ok( 'nothing asks which photograph is the product',
+		await page.locator( '#dze-cx-subject' ).count(), 0 );
+	ok( 'no checkbox answers it instead',
 		await page.locator( '#dze-cx-basemain' ).count(), 0 );
+	ok( 'and nothing asks what the added ones are for',
+		await page.locator( '#dze-cx-refsline' ).count(), 0 );
 	// 5d. WHAT THE BLOCK WILL DO, in its own heading: three photographs,
 	//     because three rows are laid out. It used to count the checkboxes in
 	//     the body and say "1 / 1" however many were laid out under it.
 	ok( 'the section counts the photographs it will make',
 		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '3 / 3' );
-	// And choosing a subject is an OPTION of the run, never one of the things
-	// the run does: it made the images section read "1 / 2" when there was one
-	// photograph to make.
-	await page.selectOption( '#dze-cx-subject', { index: 0 } );
-	await page.waitForTimeout( 150 );
-	ok( 'and an option does not add to it',
-		( await page.textContent( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-count' ) ).trim(), '3 / 3' );
+	// A control that only changes HOW a run goes is never counted in it: one
+	// of them made the images section read "1 / 2" with one photograph to
+	// make. Nothing of that kind is left on this block, so the count is the
+	// rows and the rows alone.
+	ok( 'and nothing but the rows is counted',
+		await page.locator( '#dze-cx-modal .dze-sec[data-sec="img"] .dze-sec-opt' ).count(), 0 );
 	// 5e. THE PROMPT BUTTON OPENS THE PROMPT. It was drawn on this screen and
 	//     the popup it opens was not on the page at all, so pressing it did
 	//     nothing and said nothing.
@@ -452,19 +453,17 @@ for ( const [ label, jq ] of jqs ) {
 
 	await page.click( '.dze-content-open[data-id="901"]' );
 	await page.waitForTimeout( 200 );
-	// WHICH PHOTOGRAPH THE RUN WORKS FROM. The picker offers the product's
-	// own, main first, and what it is set to has to reach the wire — a control
-	// whose value never leaves the page is a control that does nothing.
-	ok( 'the picker offers every photograph of the product',
-		await page.locator( '#dze-cx-subject option' ).count(), 3 );
-	await page.selectOption( '#dze-cx-subject', '73' );
+	// THE RUN WORKS FROM THE PRODUCT, and there is nothing to set. "On
+	// travaille toujours a partir de l'image principale." The picker that
+	// stood here asked a question with one answer, and a picker with a wrong
+	// answer on it is how a supplier shot became the product.
 	const madeBefore = posts.filter( p => 'dze_content_image' === p.action ).length;
 	await page.click( '#dze-cx-run' );
 	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
 	const made = posts.filter( p => 'dze_content_image' === p.action ).slice( madeBefore );
 	ok( 'the run went out',                  made.length > 0, true );
-	ok( 'and every photograph is made from the one that was picked',
-		Array.from( new Set( made.map( p => p.src_id ) ) ), [ '73' ] );
+	ok( 'and names no photograph to work from',
+		Array.from( new Set( made.map( p => p.src_id ) ) ), [ undefined ] );
 	ok( 'the photographs come back to be looked at',
 		await page.locator( '#dze-cx-shots .dze-cb-shot' ).count() > 0, true );
 	await page.click( '.dze-cx-applyone' );
@@ -541,92 +540,42 @@ for ( const [ label, jq ] of jqs ) {
 	await page.click( '.dze-cx-close' );
 	await page.evaluate( () => document.querySelector( 'tr[data-id="903"]' ).remove() );
 
-	// ---- WHAT WAS ADDED FROM OUTSIDE IS NOT SILENTLY THE SUBJECT ----
+	// ---- WHAT WAS ADDED FROM OUTSIDE IS A PHOTOGRAPH OF THIS PRODUCT ----
 	//
-	// "Images generees dans une autre couleur que le produit principal. Il me
-	// donne du kryptek noir plutot que du desert. Avant ca fonctionnait. J'ai
-	// ajoute des images externes en copier coller en kryptek noir pour un
-	// meilleur contexte."
+	// "On envoie des images supplementaires qui apportent plus de detail sur
+	// le produit, et jamais rien d'autre."
 	//
-	// The picker reads "Main photograph" on its default and used to send
-	// NOTHING on it — and a request carrying pasted photographs and no answer
-	// is read by the server as "the pasted one leads". The screen said the
-	// product and the run used the supplier's shot, colours included. Nothing
-	// but a browser can see this: the value is read off the page at the moment
-	// the request is built.
+	// There were two questions here — which photograph is the product, and
+	// what the added ones are for — and each of them was a control that could
+	// be set to the wrong thing on a question that had one answer. A supplier
+	// shot added for context came back AS the product, in its colours, because
+	// the picker's own default posted nothing. Both are gone: everything
+	// handed in travels as another view of the same product, and the request
+	// carries no answer because there is no question.
 	await page.click( '.dze-content-open[data-id="902"]' );
 	await page.waitForTimeout( 200 );
 	await page.setInputFiles( '#dze-cx-else input.dze-pb-file', {
 		name: 'supplier.png', mimeType: 'image/png',
 		buffer: Buffer.from( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNiAAAABgADNjd8qAAAAABJRU5ErkJggg==', 'base64' )
 	} );
-	// THE PICKER OFFERS IT. Until it did, the only way to say "that one is the
-	// subject" was not on the screen at all.
-	// Waited for with a bound and REPORTED: a gate that dies on the bug it is
-	// about says nothing about the checks after it.
-	const offered = await page.waitForSelector( '#dze-cx-subject option[value="paste"]',
-		{ state: 'attached', timeout: 3000 } ).then( () => true ).catch( () => false );
-	ok( 'a photograph added from outside joins the picker', offered, true );
-	ok( 'and it says what it is',
-		offered ? ( await page.textContent( '#dze-cx-subject option[value="paste"]' ) ).trim() : '',
-		'The photograph you added' );
-	// AND THE DEFAULT STILL SAYS THE PRODUCT.
-	ok( 'the picker is left on the main photograph',
-		await page.inputValue( '#dze-cx-subject' ), '0' );
-	ok( 'which says so in words',
-		( await page.textContent( '#dze-cx-subject option[value="0"]' ) ).trim(), 'Main photograph' );
+	await page.waitForSelector( '#dze-cx-else .dze-pb-tile', { timeout: 3000 } ).catch( () => {} );
+	ok( 'the photograph is in the box',
+		await page.locator( '#dze-cx-else .dze-pb-tile' ).count(), 1 );
+	ok( 'and nothing asks which one is the product',
+		await page.locator( '#dze-cx-subject' ).count(), 0 );
+	ok( 'nor what it was added for',
+		await page.locator( '#dze-cx-refsline' ).count(), 0 );
 	let seen = posts.filter( p => 'dze_content_image' === p.action ).length;
 	await page.click( '#dze-cx-run' );
 	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } );
 	let asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
 	ok( 'the run went out',                  asked.length, 1 );
+	// ONLY A BROWSER CAN SEE WHAT A PRESS PUTS ON THE WIRE.
 	ok( 'carrying the photograph that was added',
 		( asked[0].pastes || asked[0]['pastes[]'] || '' ).slice( 0, 10 ), 'data:image' );
-	// The whole of the fix, on the wire: the screen said the product, so the
-	// request says the product.
-	ok( 'and saying the PRODUCT is the subject', asked[0].base_main, '1' );
-	ok( 'with no photograph of its own picked',  asked[0].src_id, undefined );
-	// AND WHAT IT WAS HANDED IN FOR. "Il faut donner l'autorisation de copier
-	// les images additionnelles externes. Ce sont des images souvent uniques
-	// mais qui doivent être retravaillées." The plugin answered that question
-	// itself, in capitals, and answered it one way — the setting, take nothing
-	// from them — so the one thing a unique shot is handed in for could not be
-	// asked for at all.
-	ok( 'the toolbox asks what was added is for',
-		await page.isVisible( '#dze-cx-refsline' ), true );
-	ok( 'it opens on the setting',
-		await page.inputValue( '#dze-cx-refsline .dze-cx-refspick' ), 'set' );
-	// A DEFAULT POSTS WHAT IT SAYS.
-	ok( 'and the run says so', asked[0].refs_use, 'set' );
-	await page.selectOption( '#dze-cx-refsline .dze-cx-refspick', 'copy' );
-	seen = posts.filter( p => 'dze_content_image' === p.action ).length;
-	await page.click( '#dze-cx-run' );
-	await page.waitForTimeout( 600 );
-	asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
-	ok( 'the permission to work from them goes on the wire',
-		asked.length ? asked[0].refs_use : 'never asked', 'copy' );
-	ok( 'with the product still the subject',
-		asked.length ? asked[0].base_main : 'never asked', '1' );
-	// A QUESTION ALREADY ANSWERED IS NOT ASKED TWICE: the handed-in set chosen
-	// as the subject says what it is for.
-	await page.selectOption( '#dze-cx-subject', 'paste' );
-	ok( 'and the question goes when the added one IS the product',
-		await page.isVisible( '#dze-cx-refsline' ), false );
-	await page.selectOption( '#dze-cx-subject', '0' );
-
-	// THE OTHER ANSWER IS ON THE SAME PICKER, and it means what pasting used
-	// to mean on its own.
-	if ( offered ) {
-		await page.selectOption( '#dze-cx-subject', 'paste' );
-		seen = posts.filter( p => 'dze_content_image' === p.action ).length;
-		await page.click( '#dze-cx-run' );
-		await page.waitForTimeout( 600 );
-		asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
-	} else {
-		asked = [];
-	}
-	ok( 'choosing what was added sends it as the subject', asked.length, 1 );
-	ok( 'and the product stops being it',    asked.length ? asked[0].base_main : 'never asked', undefined );
+	ok( 'and no answer about a subject',     asked[0].base_main, undefined );
+	ok( 'nor about what it is for',          asked[0].refs_use, undefined );
+	ok( 'nor a photograph of its own picked', asked[0].src_id, undefined );
 	await page.click( '.dze-cx-close' );
 
 	// A PAGE OF ROWS, handed to the bulk screen the shop already generates

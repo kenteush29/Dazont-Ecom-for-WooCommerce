@@ -922,6 +922,60 @@ ok( 'and how much is done since the reading',
 // question about one row.
 ok( 'and each figure can be changed on its own',
 	substr_count( $html, 'class="dze-diag-n"' ), 2 );
+
+// AND THE CENSUS ROW ABOVE IT ANSWERS THE SAME QUESTION.
+//
+// "1146 of 2104. FAKE. Issues (1,097) — voilà le vrai nombre. Le reste c'est
+// pour les archives de ce qui a été fait." The row printed what the last
+// READING counted while the tab under it re-judges that same list as the page
+// is drawn, so everything mended since had already left the tab and not the
+// row. One shop, one question, two numbers, and the bigger one printed
+// largest.
+$dze_census_was = get_option( DZE_Diagnostic::OPT_CENSUS );
+$dze_posts_was  = $GLOBALS['dze_posts'];
+$dze_meta_was   = $GLOBALS['dze_meta'];
+update_option( DZE_Diagnostic::OPT_CENSUS, [
+	'at' => time() - 60, 'lang' => '', 'every' => [],
+	'seen' => [ 'product' => 3 ], 'short' => [ 'product' => 3 ],
+	'checks' => [ 'prod_gallery' => 3 ],
+] );
+$GLOBALS['dze_transients'] = [];
+$dze_over = drawn();
+ok( 'the census row counts what is still short',
+	false !== strpos( $dze_over, '2 of 3' ), true );
+ok( 'and never what the reading found',
+	false !== strpos( $dze_over, '3 of 3' ), false );
+// AN EMPTY READING IS NOT AN ANSWER OF ZERO. With the objects unreadable —
+// deleted since, or a query that answered nothing — every one of them would be
+// called mended and the criterion would quietly leave the screen having had
+// nothing done to it.
+$GLOBALS['dze_transients'] = [];
+$GLOBALS['dze_posts']      = [];
+$dze_over = drawn();
+ok( 'a list nothing can be read from keeps the reading\'s figure',
+	false !== strpos( $dze_over, '3 of 3' ), true );
+// A criterion with nothing left is not at the top of a list of work: it joins
+// what is already right, exactly as a reading of nought would have put it.
+$GLOBALS['dze_posts']      = $dze_posts_was;
+$GLOBALS['dze_transients'] = [];
+foreach ( [ 101, 103 ] as $dze_id ) {
+	$GLOBALS['dze_meta'][ $dze_id ]['_product_image_gallery'] = '11,12,13';
+	$GLOBALS['dze_posts'][ $dze_id ]->post_modified_gmt      = '2026-09-02 12:00:00';
+}
+$dze_over = drawn();
+ok( 'a criterion mended throughout is off the work list',
+	false !== strpos( $dze_over, ' of 3' ), false );
+// Put the shop back the way the next section expects to find it: a harness
+// section that leaves the fake shop changed makes the one after it pass or
+// fail for its own reasons.
+$GLOBALS['dze_meta'] = $dze_meta_was;
+foreach ( [ 101, 103 ] as $dze_id ) {
+	$GLOBALS['dze_posts'][ $dze_id ]->post_modified_gmt = '2026-01-01 00:00:00';
+}
+update_option( DZE_Diagnostic::OPT_CENSUS, $dze_census_was );
+$GLOBALS['dze_transients'] = [];
+$html = $show( [ 'by' => 'sales', 'dir' => 'desc' ] );
+
 /** What one tab says it holds, read off the page the way a reader reads it. */
 $dze_tab_n = static function ( string $html, string $tab ): string {
 	return preg_match( '/data-tab="' . $tab . '"[^>]*>[^(]*\(<span class="dze-diag-n">([^<]*)<\/span>\)/', $html, $m )

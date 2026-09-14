@@ -697,7 +697,7 @@ trait DZE_Content_Ajax {
 		$pastes = isset( $_POST['pastes'] ) ? (array) wp_unslash( $_POST['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
 		// The same answer, on the lane that remakes the main image: a fault
 		// mended on one screen and not the other is the fault still shipped.
-		$refs_for = ( isset( $_POST['refs_use'] ) && 'copy' === sanitize_key( wp_unslash( $_POST['refs_use'] ) ) ) ? 'copy' : 'set';
+
 		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
 		if ( ! $pastes && '' !== $paste ) {
 			$pastes = [ $paste ];
@@ -730,98 +730,53 @@ trait DZE_Content_Ajax {
 			// in what it does not show — but without them a pasted photograph
 			// was all the model ever saw of the product, and it had to guess
 			// the back, the lining, the fastenings and the material.
-			$context = [];
 			// Photographs from outside that are NOT the subject: the product
 			// stays image 1 and they are read for the setting. Without this,
 			// pasting anything made that thing the subject — so there was no
 			// way to say "keep this product, exactly this one, and put it in
 			// that scene", which is the whole point of pasting an inspiration.
-			$refs = [];
-			// A PICKED PHOTOGRAPH IS THE SUBJECT. It used to take a checkbox
-			// beside the picker to say so — "keep the product's own photograph
-			// as the subject" — which answered a question nobody had asked and
-			// left the real one, WHICH photograph, with no answer at all.
-			// Picking one says both: it is image 1, and anything pasted is
-			// read for the place, the light and the styling.
-			$base_main = ! empty( $_POST['base_main'] )
-				|| ( $src_id > 0 && wp_attachment_is_image( $src_id ) );
-			if ( $base_main && $pastes ) {
+			// ONE PRODUCT, SEVERAL PHOTOGRAPHS OF IT — and everything added
+			// from outside is another photograph of it.
+			//
+			// "Ces 2 fonctions n'ont rien à faire ici. Le 1, c'est évident, on
+			// travaille toujours à partir de l'image principale. Le 2, c'est
+			// évident, on envoie des images supplémentaires qui apportent plus
+			// de détail sur le produit, et jamais rien d'autre."
+			//
+			// Three branches and two questions lived here — is the product the
+			// subject, and is what you added a setting or something to copy —
+			// and both had one answer all along. The product's own lead, main
+			// first; what was handed in follows. Which is also the best defence
+			// against invented hardware there is: a part the model has been
+			// shown is a part it does not have to make up.
+			$refs  = [];
+			$ref_n = 0;
+			foreach ( self::product_source_ids( $pid ) as $i => $aid ) {
+				try {
+					$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
+				} catch ( \Throwable $e ) {
+					continue;
+				}
+			}
+			if ( $pastes ) {
 				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
 				if ( ! $outside ) {
 					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
 				}
 				$refs = $outside;
-				$own  = self::product_source_ids( $pid );
-				$lead = ( $src_id && wp_attachment_is_image( $src_id ) ) ? $src_id : (int) ( $own[0] ?? 0 );
-				if ( ! $lead ) {
-					throw new RuntimeException( __( 'This product has no photograph to start from: set a featured image first.', 'dazont-ecom' ) );
-				}
-				$sources[] = $this->fal_source_data_uri( $lead, 'full' );
-				$context   = array_values( array_diff( $own, [ $lead ] ) );
-			} elseif ( $pastes ) {
-				// The photographs are already in the request, straight from the
-				// clipboard or picked on the computer, and the first is THE
-				// subject: it stays image 1, the other pasted ones follow it,
-				// and the product's own photographs come after them unless the
-				// screen says to work from the pasted ones alone.
-				//
-				// This is read BEFORE the chosen photograph on purpose. A
-				// photograph picked in the strip used to win, and the pasted set
-				// was then dropped from the request without a word: the run was
-				// made from the product's own image alone and came back looking
-				// exactly like it, which is precisely what somebody who pasted a
-				// photograph is trying to change. Unticking "keep the product's
-				// own photograph as the subject" says the pasted one leads;
-				// ticking it is the other branch above. Nothing is silently
-				// thrown away in either.
-				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
-				if ( ! $outside ) {
-					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
-				}
-				foreach ( $outside as $uri ) {
-					$sources[] = $uri;
-				}
-				$own = self::product_source_ids( $pid );
-				// The photograph he picked in the strip is the one he means the
-				// model to look at first among the product's own — it leads the
-				// context instead of being lost in it.
-				if ( $src_id && wp_attachment_is_image( $src_id ) ) {
-					$own = array_values( array_unique( array_merge( [ $src_id ], array_diff( $own, [ $src_id ] ) ) ) );
-				}
-				$context = ( ! isset( $_POST['with_product'] ) || ! empty( $_POST['with_product'] ) ) ? $own : [];
-			} elseif ( $src_id && wp_attachment_is_image( $src_id ) ) {
-				$sources[] = $this->fal_source_data_uri( $src_id, 'full' );
-				$context   = array_values( array_diff( self::product_source_ids( $pid ), [ $src_id ] ) );
-			} else {
-				// The product's own photographs, main first — as many as the
-				// shop says under Settings → Product content, which is two
-				// unless it was moved: the shot itself, and one more angle so
-				// a shape the first one hides is not invented.
-				foreach ( self::product_source_ids( $pid ) as $i => $aid ) {
-					try {
-						$sources[] = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
-					} catch ( \Throwable $e ) {
-						continue;
-					}
-				}
 			}
-			// The product's other angles, as many as the body can carry: the
-			// weight is checked image by image just below, which is the only
-			// limit that means anything here.
-			foreach ( array_slice( $context, 0, self::MAX_SOURCES ) as $aid ) {
-				try {
-					// 'large', not 'medium_large': at 768 px a buckle stops
-					// being a buckle and the model paints something plausible
-					// in its place. The weight is checked image by image just
-					// below, so sharper simply means fewer.
-					$uri = $this->fal_source_data_uri( (int) $aid, 'large' );
-				} catch ( \Throwable $e ) {
-					continue;
-				}
+			if ( ! $sources && ! $refs ) {
+				throw new RuntimeException( __( 'This product has no photograph to start from: set a featured image first.', 'dazont-ecom' ) );
+			}
+			// What was handed in joins them: it is the same product seen from
+			// somewhere else, so it travels in the same lane and is counted in
+			// the same figure.
+			foreach ( $refs as $uri ) {
 				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
 					break;
 				}
 				$sources[] = $uri;
+				$ref_n++;
 			}
 			if ( ! $sources ) {
 				throw new RuntimeException( __( 'No image to work from: set a featured image, or paste the address of one.', 'dazont-ecom' ) );
@@ -844,17 +799,6 @@ trait DZE_Content_Ajax {
 					$sources[] = $uri;
 					$variants++;
 				}
-			}
-			// The references come after everything that IS the product, and
-			// before the background: the paragraph that names them counts from
-			// there.
-			$ref_n = 0;
-			foreach ( $refs as $uri ) {
-				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
-					break;
-				}
-				$sources[] = $uri;
-				$ref_n++;
 			}
 			// The background travels as the LAST image, exactly like a scene: a
 			// surface the model can see beats a colour it has to imagine, and it
@@ -897,7 +841,7 @@ trait DZE_Content_Ajax {
 			$prompt = ( '' !== $dze_ctx ? "Product context: {$dze_ctx}\n\n" : '' )
 				. $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ( ! empty( $pastes ) && ! $base_main ) ), $ref_n, $refs_for )
+				. self::sources_instruction( $count, $plate_row, 0, $variants, false )
 				. self::note_lines( $pid, '', isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '' );
 
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -910,12 +854,7 @@ trait DZE_Content_Ajax {
 			// ways of saying it is two traces nobody can compare.
 			$dze_made = self::sources_said( [
 				[ __( 'of the product', 'dazont-ecom' ), $count ],
-				[
-					'copy' === $refs_for
-						? __( 'handed in to work from', 'dazont-ecom' )
-						: __( 'handed in as a reference', 'dazont-ecom' ),
-					$ref_n,
-				],
+				[ __( 'added from elsewhere', 'dazont-ecom' ), $ref_n ],
 			] );
 			if ( $plate ) {
 				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(
@@ -1041,7 +980,7 @@ trait DZE_Content_Ajax {
 		// its own, in capitals, and answered it one way only. Anything but the
 		// owner's own word means the setting: a default that means something
 		// else is how a supplier shot became the product.
-		$refs_for = ( isset( $in['refs_use'] ) && 'copy' === (string) $in['refs_use'] ) ? 'copy' : 'set';
+
 		if ( ! $pastes && '' !== $paste ) {
 			$pastes = [ $paste ];
 		}
@@ -1116,12 +1055,7 @@ trait DZE_Content_Ajax {
 		} else {
 			$src_id = 0;
 		}
-		// IS THE PRODUCT THE SUBJECT? Picking one of its photographs says so
-		// on its own; the screen says so too when it is left on "Main
-		// photograph", and it has to say it, because the other answer —
-		// nothing at all — used to make a pasted supplier shot the subject
-		// while the screen still read "Main photograph".
-		$base_main = ! empty( $in['base_main'] ) || $src_id > 0;
+
 		// Working on one colour: the photograph that colour already has is the
 		// subject, and it goes first. When it has none — the case this whole
 		// function exists for — the product's own photographs are what the
@@ -1175,114 +1109,76 @@ trait DZE_Content_Ajax {
 		try {
 			// Sources: fal's own CDN URLs pass through; local files go as data URIs
 			// (fal cannot always fetch staging/hotlink-protected site URLs).
-			$sources  = [];
-			$weight   = 0;
-			$refs_out = [];
+			$sources     = [];
+			$weight      = 0;
+			// Counted WHERE THE LANE IS FILLED: read back from the request
+			// afterwards it would be a second answer to one question, and the
+			// two disagree.
+			$dze_paste_n = 0;
 			if ( '' !== $src ) {
-				// Editing one precise image: that image is the subject, on its own.
+				// Editing one precise image: that image is the subject, on its
+				// own. This is the ↻ on a tile — "make this one again" — and it
+				// is the only lane where the answer is allowed to look like its
+				// source, which is why it stands apart from everything below.
 				$sources[] = $src;
-			} elseif ( $pastes && $base_main ) {
-				// The product stays the subject and the pasted photographs are
-				// references for the setting. Pasting used to mean "this is now
-				// the thing to photograph", so there was no way to say "keep
-				// this product, exactly this one, and put it in that scene" —
-				// which is what an inspiration shot is for, and what keeps the
-				// colours of the real product.
-				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
-				if ( ! $outside ) {
-					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
-				}
-				$refs_out = $outside;
-				foreach ( array_slice( $product_ids, 0, 3 ) as $i => $aid ) {
+			} else {
+				// EVERYTHING THAT TRAVELS IS A PHOTOGRAPH OF THIS PRODUCT.
+				//
+				// "Ces 2 fonctions n'ont rien à faire ici. Le 1, c'est évident,
+				// on travaille toujours à partir de l'image principale. Le 2,
+				// c'est évident, on envoie des images supplémentaires qui
+				// apportent plus de détail sur le produit, et jamais rien
+				// d'autre."
+				//
+				// This was three lanes and two questions on three screens — is
+				// the product the subject, and is what you added a setting or
+				// something to copy — and both questions had one answer all
+				// along. The product's own photographs lead, main first;
+				// whatever was handed in follows as more views of the same
+				// product. That is also the best defence there is against
+				// invented hardware: a part the model has been shown is a part
+				// it does not have to make up.
+				// How many of them: the shop's own figure caps the list
+				// already (product_source_ids), and the DESTINATION narrows it
+				// further, because the two jobs are not the same. Remaking the
+				// MAIN photograph sends the featured image plus two — six angles
+				// sent for that is how a remake came back built on a gallery
+				// shot, in a setting of its own. A gallery shot takes the lot.
+				$ids_out = ( 'main' === $target || 0 === strpos( $target, 'variation:' ) )
+					? array_slice( $product_ids, 0, 3 )
+					: $product_ids;
+				foreach ( $ids_out as $i => $aid ) {
 					try {
 						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
 					} catch ( \Throwable $e ) {
 						continue;
 					}
-					if ( $i > 0 && ( $weight + strlen( $uri ) ) > self::MAX_PAYLOAD ) {
+					if ( $i > 0 && ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) ) > self::MAX_PAYLOAD ) {
 						break;
 					}
-					$weight   += strlen( $uri );
 					$sources[] = $uri;
+				}
+				if ( $pastes ) {
+					$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
+					if ( ! $outside ) {
+						throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
+					}
+					foreach ( $outside as $uri ) {
+						if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
+							break;
+						}
+						$sources[] = $uri;
+						$dze_paste_n++;
+					}
 				}
 				if ( ! $sources ) {
 					throw new RuntimeException( __( 'This product has no photograph to start from: set a featured image first.', 'dazont-ecom' ) );
 				}
-			} elseif ( $pastes ) {
-				// The pasted photographs come first — the first of them is the
-				// subject, the others say what it does not show — and the
-				// product's own photographs follow as context, so the model
-				// knows the product beyond the shots it was handed.
-				$outside = self::read_data_uris( $pastes, self::MAX_PASTED, self::MAX_PAYLOAD );
-				if ( ! $outside ) {
-					throw new RuntimeException( __( 'That is not an image.', 'dazont-ecom' ) );
-				}
-				foreach ( $outside as $uri ) {
-					$sources[] = $uri;
-				}
-				// Counted WHERE THE LANE IS FILLED: read back later from the
-				// request, it would be a second answer to one question, and the
-				// two can disagree.
-				$dze_paste_n = count( $outside );
-				// The product's own photographs come after them, as CONTEXT,
-				// and few: the pasted set is the subject, and a subject sent
-				// with six photographs of the product in another colour is a
-				// subject the model stops looking at. Two on a variation run,
-				// where the other colours are precisely what must not bleed in;
-				// four otherwise.
-				$ctx_max = '' !== $v_value ? 2 : 4;
-				foreach ( array_slice( $product_ids, 0, $ctx_max ) as $aid ) {
-					try {
-						$uri = $this->fal_source_data_uri( (int) $aid, 'large' );
-					} catch ( \Throwable $e ) {
-						continue;
-					}
-					if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
-						break;
-					}
-					$sources[] = $uri;
-				}
-			} else {
-				// Everything we have of this product. The featured image comes
-				// first and is never dropped; the rest joins while the request
-				// body stays a sane size, and a broken file is skipped instead
-				// of taking the whole generation down with it.
-				//
-				// Remaking the MAIN image is a different job: there is one
-				// subject, the photograph that holds the slot, and the others
-				// are there to say what the product looks like from behind. Six
-				// photographs sent for that is how a remake came back built on a
-				// gallery shot, in a setting of its own — so the main lane sends
-				// the featured image plus two, exactly like the toolbox that
-				// does this well.
-				// Six at most on a gallery run, not the whole album: a seventh
-				// angle of the same product adds weight and divides attention,
-				// and what suffers first is exactly what a technical product is
-				// judged on — the hardware and the markings.
-				$ids_out = ( 'main' === $target || 0 === strpos( $target, 'variation:' ) )
-					? array_slice( $product_ids, 0, 3 )
-					: array_slice( $product_ids, 0, 6 );
-				foreach ( $ids_out as $i => $aid ) {
-					try {
-						// The featured image is the one the result is built on,
-						// so it goes at full working size; the others at 'large'
-						// — 768 px was small enough that a buckle or a label
-						// stopped being readable, and an unreadable detail is
-						// one the model paints from imagination.
-						$uri = $this->fal_source_data_uri( (int) $aid, $i > 0 ? 'large' : 'full' );
-					} catch ( \Throwable $e ) {
-						continue;
-					}
-					if ( $i > 0 && ( $weight + strlen( $uri ) ) > self::MAX_PAYLOAD ) {
-						break;
-					}
-					$weight   += strlen( $uri );
-					$sources[] = $uri;
-				}
 			}
-			if ( ! $sources ) {
-				throw new RuntimeException( __( 'Could not read the product image file.', 'dazont-ecom' ) );
-			}
+			// Everything above IS the product, however it got here — its own
+			// photographs and whatever was handed in for this run. Counted
+			// once, here, because the paragraph appended below and the trace
+			// printed afterwards must be told the same thing.
 			$product_count = count( $sources );
 			// The other colours of the same product, when the prompt asked for
 			// them: never on a variation run — there, the colour being made is
@@ -1335,24 +1231,16 @@ trait DZE_Content_Ajax {
 					$avoid++;
 				}
 			}
-			// The references handed in from outside, after everything that is
-			// the product and before the scene, which is always last.
-			$ref_n = 0;
-			foreach ( $refs_out as $uri ) {
-				if ( array_sum( array_map( 'strlen', $sources ) ) + strlen( $uri ) > self::MAX_PAYLOAD ) {
-					break;
-				}
-				$sources[] = $uri;
-				$ref_n++;
-			}
+			// The scene is always last: it is the only image in the request
+			// that is not the product.
 			if ( $scene ) {
 				$sources[] = $this->fal_source_data_uri( (int) $scene['image'] );
 			}
-			// Is there a SUBJECT? A photograph being edited, a set pasted in, or
-			// the shot this colour already has: then image 1 is the product and
-			// the rest is context, which is a different sentence entirely.
-			$subject_first = ( '' !== $src ) || ( ! empty( $pastes ) && ! $ref_n ) || ( '' !== $v_value && $v_own );
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first, $ref_n, $refs_for );
+			// ONE PRODUCT, SEVERAL PHOTOGRAPHS OF IT. Editing one image handed
+			// in is the only lane with a subject of its own — there the answer
+			// is allowed to look like its source, and everywhere else it is the
+			// product that is being photographed afresh.
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, '' !== $src );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
@@ -1377,18 +1265,11 @@ trait DZE_Content_Ajax {
 			// above was built from, so the trace and the model were told the
 			// same thing. A count alone cannot say which picture put a
 			// scalloped border on every rug of the shop.
-			$dze_paste_n = $dze_paste_n ?? 0;
 			$dze_made = self::sources_said( [
 				[ __( 'of the product', 'dazont-ecom' ), $product_count - $dze_paste_n ],
 				[ __( 'pasted in', 'dazont-ecom' ), $dze_paste_n ],
 				[ __( 'of its other colours', 'dazont-ecom' ), $variants ],
 				[ __( 'said "not like this"', 'dazont-ecom' ), $avoid ],
-				[
-					'copy' === $refs_for
-						? __( 'handed in to work from', 'dazont-ecom' )
-						: __( 'handed in as a reference', 'dazont-ecom' ),
-					$ref_n,
-				],
 			] );
 			if ( $scene ) {
 				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(
@@ -1620,14 +1501,31 @@ trait DZE_Content_Ajax {
 			// back from the product it would be sent again, for ever, which is
 			// the very thing that was wrong with it.
 			'note'    => '',
-			// WHAT WAS ASKED FOR THIS PRODUCT. "J'aimerais débuger ce produit,
-			// les images sont bizarres." The shop's whole trace is a dozen
-			// calls, so by the time a product looks wrong the ones that made it
-			// have rolled off — and it is the wrong screen for the question
-			// anyway. Rendered HERE, by the one renderer the Logs page uses, so
-			// a row can never read two ways on two screens.
-			'log'     => self::object_log_html( $pid ),
 		] );
+	}
+
+	/**
+	 * WHAT WAS ASKED FOR THIS PRODUCT, read at the moment somebody looks.
+	 *
+	 * It used to travel inside the answer above — the bundle that says what the
+	 * product HOLDS — and that bundle is cached in the browser for as long as
+	 * the panel is open, because what a product holds only changes when the
+	 * screen changes it. The log is the other kind of thing entirely: every
+	 * run adds to it. So a product generated three times over went on showing
+	 * the calls it had made before the panel was opened — "ne se met pas à jour
+	 * non plus" — and nothing on the screen said the list was old.
+	 *
+	 * A reading that changes on its own is never cached beside one that does
+	 * not. This one is asked for when the fold is OPENED, which also means the
+	 * rows are not built at all for the people who never open it.
+	 */
+	public function ajax_object_log(): void {
+		$this->guard();
+		$pid = isset( $_POST['post'] ) ? absint( wp_unslash( $_POST['post'] ) ) : 0;
+		if ( ! $pid || ! current_user_can( 'edit_post', $pid ) ) {
+			wp_send_json_error( [ 'message' => __( 'Save the product first.', 'dazont-ecom' ) ] );
+		}
+		wp_send_json_success( [ 'log' => self::object_log_html( $pid ) ] );
 	}
 
 	/**
