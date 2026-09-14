@@ -293,12 +293,27 @@
 					'<span class="dze-q-status description"></span></p>'
 				);
 				$('#' + EDITOR).val(d.html);
+				// A VISUAL EDITOR MAY NEVER TOUCH A BLOCK DOCUMENT. This is
+				// what cost this shop two articles in one evening: TinyMCE is
+				// initialised with `wpautop: true`, runs it over whatever it is
+				// handed, and hands back a document with a `<p>` wrapped round
+				// every `<!-- wp: -->` delimiter — same words, same links, same
+				// blocks by name, and every block in the editor invalid. The
+				// production guards had all passed the text hours earlier; the
+				// damage was done here, on the way back from Accept.
+				//
+				// So the rich editor is offered only where the text is plain
+				// HTML — a category description, which is what it was added
+				// for. A WordPress article is read and edited as the document
+				// it is: the textarea holds it exactly as it came.
 				if (window.wp && wp.editor && wp.editor.initialize) {
 					try { wp.editor.remove(EDITOR); } catch (e) {}
-					wp.editor.initialize(EDITOR, {
-						tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo' },
-						quicktags: true, mediaButtons: false
-					});
+					if (!/<!--\s*\/?wp:/i.test(String(d.html || ''))) {
+						wp.editor.initialize(EDITOR, {
+							tinymce: { wpautop: true, toolbar1: 'formatselect,bold,italic,bullist,numlist,link,unlink,undo,redo' },
+							quicktags: true, mediaButtons: false
+						});
+					}
 				}
 			})
 			.fail(function () { $('#dze-q-body').text(i18n.error); });

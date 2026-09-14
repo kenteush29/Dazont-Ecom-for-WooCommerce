@@ -80,9 +80,22 @@ function add_action( ...$a ) {}
 function add_filter( ...$a ) {}
 function do_action( ...$a ) {}
 function apply_filters( $tag, $value = null, ...$a ) { return $value; }
-function wp_next_scheduled( $h ) { return time() + 1800; }
+// THE SHOP'S OWN CRON, or the old "everything is scheduled" answer while no
+// test has said otherwise. A stub that always answers yes cannot be red on a
+// hook that is NOT there, which is half of what retiring one is about.
+function wp_next_scheduled( $h ) {
+	if ( ! isset( $GLOBALS['dze_cron'] ) || ! is_array( $GLOBALS['dze_cron'] ) ) {
+		return time() + 1800;
+	}
+	return $GLOBALS['dze_cron'][ (string) $h ] ?? false;
+}
 function wp_schedule_event( ...$a ) {}
-function wp_clear_scheduled_hook( ...$a ) {}
+function wp_clear_scheduled_hook( ...$a ) {
+	$GLOBALS['dze_cleared'][] = (string) ( $a[0] ?? '' );
+	if ( isset( $GLOBALS['dze_cron'] ) && is_array( $GLOBALS['dze_cron'] ) ) {
+		unset( $GLOBALS['dze_cron'][ (string) ( $a[0] ?? '' ) ] );
+	}
+}
 function is_admin() { return true; }
 function wp_json_encode( $v ) { return json_encode( $v ); }
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
@@ -1897,6 +1910,32 @@ foreach ( $dze_rows as $one ) {
 ok( 'and every row offers the page itself', $dze_bad, 0 );
 ok( 'in a new tab',                    false !== strpos( $dze_nx, 'target="_blank"' ), true );
 ok( 'at the address a reader uses',    false !== strpos( $dze_nx, 'https://kula.test/blog/20/' ), true );
+
+echo "\nA RETIRED HOOK IS CLEARED WHATEVER THE SHOP LOOKS LIKE\n";
+// "Un cron résiduel tournait. dze_mesh_tick, planifié toutes les heures,
+// n'existe plus dans le code courant… il avait survécu à une mise à jour sans
+// que la migration le nettoie."
+//
+// It was cleared inside a migration that returns early when the OPTION it is
+// about is already gone — and a scheduled event outlives an option. So on every
+// shop that had migrated once, the line could never run.
+require_once __DIR__ . '/../' . $dir . '/includes/class-cleanup.php';
+ok( 'the retired hook is named',
+	in_array( 'dze_mesh_tick', DZE_Cleanup::retired_hooks(), true ), true );
+// A SHOP WHOSE OPTION IS LONG GONE — which is the one the migration gave up on.
+$GLOBALS['dze_cron'] = [ 'dze_mesh_tick' => time() + 60 ];
+delete_option( 'dze_mesh_settings' );
+ok( 'and it is cleared with no option to read', DZE_Cleanup::retire_hooks(), 1 );
+ok( 'the event is gone',                 wp_next_scheduled( 'dze_mesh_tick' ), false );
+// AND IT IS NOT A WRITE ON EVERY ADMIN LOAD: nothing scheduled, nothing done.
+$GLOBALS['dze_cleared'] = [];
+ok( 'a shop that never had it does nothing', DZE_Cleanup::retire_hooks(), 0 );
+ok( 'and clears nothing',                $GLOBALS['dze_cleared'], [] );
+// AND THE MIGRATION NO LONGER CLAIMS TO DO IT — one owner per job, or the day
+// somebody mends one of them the other goes on being wrong.
+$dze_auto_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+ok( 'the migration does not clear it any more',
+	false !== strpos( $dze_auto_src, "wp_clear_scheduled_hook( 'dze_mesh_tick' )" ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

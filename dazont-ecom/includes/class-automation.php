@@ -244,7 +244,11 @@ final class DZE_Automation {
 		delete_option( 'dze_mesh_settings' );
 		delete_option( 'dze_mesh_state' );
 		delete_transient( 'dze_mesh_survey' );
-		wp_clear_scheduled_hook( 'dze_mesh_tick' );
+		// The hourly tick this module used to run is retired in
+		// `DZE_Cleanup::retire_hooks()`, on every admin load and whatever the
+		// state of this option: it was cleared here, below an early return
+		// that fires on any shop whose option is already gone, so the event
+		// outlived the code for months.
 		foreach ( [ '_dze_mesh_at', '_dze_mesh_out', '_dze_mesh_prev' ] as $key ) {
 			delete_metadata( 'term', 0, $key, '', true );
 		}

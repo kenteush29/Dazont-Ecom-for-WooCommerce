@@ -323,6 +323,7 @@ class DZE_Wpml {
 }
 class DZE_Keywords_Absent {}
 
+require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
