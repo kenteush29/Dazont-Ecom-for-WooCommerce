@@ -3285,7 +3285,17 @@ final class DZE_Diagnostic {
 			wp_nonce_field( 'dze_diag_bulk' );
 			printf( '<input type="hidden" name="action" value="dze_diag_bulk" /><input type="hidden" name="check" value="%s" />', esc_attr( $id ) );
 		}
-		echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>';
+		// LAID OUT FIXED, AND THE NAME GETS WHAT IS LEFT. "Affichage cassé non
+		// confortable. lignes beaucoup trops grosses." Nine columns were added
+		// here one at a time, each of them right on its own, and every one of
+		// them spent out of the same 1100px ceiling: measured, the product's
+		// name — the only column carrying words worth reading — was left with
+		// 92px, so a nine-word title came back one word per line and a row was
+		// 143px tall. A column whose content has a KNOWN width is given it in
+		// pixels; a column of WORDS is left to share what remains, and what
+		// remains must be worth having, which is why the ceiling is gone: a
+		// wide window now goes to the name and to nothing else.
+		echo '<table class="widefat striped dze-diag-list"><thead><tr>';
 		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- every cell is built escaped above.
 		if ( $dze_pick ) {
 			echo '<td class="manage-column column-cb check-column"><input type="checkbox" id="dze-diag-all" /></td>';
@@ -3302,9 +3312,9 @@ final class DZE_Diagnostic {
 		// the wrong title.
 		echo DZE_Hub::id_th();
 		if ( $goods ) {
-			echo $head( 'price', __( 'Price', 'dazont-ecom' ), 'width:110px;text-align:right;' );
-			echo $head( 'sales', __( 'Sold', 'dazont-ecom' ), 'width:90px;text-align:right;' );
-			echo $head( 'edited', __( 'Last edited', 'dazont-ecom' ), 'width:140px;' );
+			echo $head( 'price', __( 'Price', 'dazont-ecom' ), 'width:96px;text-align:right;' );
+			echo $head( 'sales', __( 'Sold', 'dazont-ecom' ), 'width:72px;text-align:right;' );
+			echo $head( 'edited', __( 'Last edited', 'dazont-ecom' ), 'width:110px;' );
 		}
 		// phpcs:enable
 		// A COLUMN, sortable, rather than banners cut into the table. The
@@ -3325,12 +3335,12 @@ final class DZE_Diagnostic {
 		// not: the condition was announced last and printed second, so every
 		// row read one cell out of step and the table looked broken.
 		if ( $dze_cond ) {
-			echo $head( 'band', __( 'Condition', 'dazont-ecom' ), 'width:200px;' );
+			echo $head( 'band', __( 'Condition', 'dazont-ecom' ), 'width:160px;' );
 		}
 		if ( 'fixed' === $show ) {
-			echo '<th style="width:210px;">' . esc_html__( 'What was done', 'dazont-ecom' ) . '</th>';
+			echo '<th style="width:190px;">' . esc_html__( 'What was done', 'dazont-ecom' ) . '</th>';
 		} elseif ( '' !== $dze_job || '' !== $dze_block ) {
-			echo '<th style="width:180px;"></th>';
+			echo '<th style="width:176px;"></th>';
 		}
 		echo '</tr></thead><tbody>';
 		$fmt = get_option( 'date_format' ) ?: 'Y-m-d';

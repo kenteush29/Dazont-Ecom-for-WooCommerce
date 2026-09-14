@@ -1083,6 +1083,27 @@ whose screen has not been thought through yet.
   cell, no column under 70px, the date fitting its column and the three buttons
   side by side. A CSS fault is invisible to every PHP test and to `node --check`
   alike, which is why this screen had to break before anything could say so.
+- **A CEILING IS SPENT BY THE COLUMNS, AND THE NAME PAYS LAST.** "Affichage
+  cassé non confortable. lignes beaucoup trops grosses." The problem list grew
+  a thumbnail, an id, a price, a figure sold, a date, a condition and a button,
+  each of them right on its own — and all of them out of one `max-width:1100px`.
+  Measured at 1040, the product's NAME — the only column carrying words worth
+  reading — came out at **96px**, so a nine-word title wrapped one word per line
+  and a row stood **143px** tall. Two rules from it: a table whose columns are
+  declared is laid out **fixed**, so a declared width is the width and the one
+  column with none gets the whole remainder; and a ceiling on a table of words
+  is a ceiling on the words — it is gone, so a wide window goes to the name and
+  to nothing else. **`node tools/js/diagnostic-table.mjs` must pass**: it draws
+  the real list (`test-diagnostic.php --dump-table`, the shop's own longest
+  titles, a conditional criterion and a button) at 1040, 1280 and 1600 and
+  MEASURES it — the name is the widest column at every width and never under
+  180px, no row over 100px, the id and the button inside their own cells — and
+  it PRINTS what it measured, because a red layout check with no figures under
+  it sends somebody back to the browser to take them by hand. Two traps it was
+  written through: a harness that does not put everything on `box-sizing:
+  border-box` measures a table WordPress does not have, and a cell's HEIGHT is
+  its ROW's height — measuring that measured the row twice and could never fail
+  on the cell's own fault.
 - **A WELL-MADE SCREEN DOES NOT EXPLAIN ITSELF.** "L'écran automatisation est
   à revoir pour une UX optimale. C'est très brutal, vulgaire, avec énormément
   de texte de partout. Je suis perdu et désorienté quand je vois ça… Si un

@@ -2064,6 +2064,74 @@ if ( in_array( '--dump-list', (array) $argv, true ) ) {
 	exit( 0 );
 }
 
+// THE SAME SCREEN, SET UP FOR THE QUESTION THE LAYOUT ASKS. "Affichage cassé
+// non confortable. lignes beaucoup trop grosses." A table is only as wide as
+// its widest column lets the others be, and the shapes that starve one are
+// real ones: a product whose name runs to nine words, a conditional criterion
+// whose sentence is a column of its own, a price, a figure sold, a date and a
+// button. A gate measuring short names measures nothing.
+if ( in_array( '--dump-table', (array) $argv, true ) ) {
+	$GLOBALS['dze_opts']  = [];
+	$GLOBALS['pending']   = [];
+	$GLOBALS['dze_posts'] = [];
+	$GLOBALS['dze_meta']  = [];
+	$GLOBALS['dze_cats']  = [];
+	$GLOBALS['dze_files'] = [ 9101 => true, 9102 => true, 9103 => true ];
+	$GLOBALS['tpls'] = [
+		[ 'id' => 'main1',  'name' => 'Main image',    'target' => 'main' ],
+		[ 'id' => 'detail', 'name' => 'Detail shot',   'target' => 'gallery' ],
+	];
+	// The shop's own worst lines, word for word off the screen he sent.
+	$dze_long = [
+		987743684 => [ 'EMR Digi Flora Softshell Jacket "Veter"', '125.90', 21, '2026-08-05 09:12:00' ],
+		987764437 => [ 'Russian Gorka 4 Olive Green',             '240.90', 20, '2026-08-13 11:40:00' ],
+		987740756 => [ 'Woodland combat pants "Gen 2"',           '130.90', 16, '2026-08-05 16:02:00' ],
+	];
+	$GLOBALS['dze_facts'] = [];
+	$dze_i = 0;
+	foreach ( $dze_long as $dze_pid => $dze_one ) {
+		[ $dze_name, $dze_price, $dze_sold, $dze_when ] = $dze_one;
+		$dze_p = new WP_Post();
+		$dze_p->ID = $dze_pid;
+		$dze_p->post_title = $dze_name;
+		$GLOBALS['dze_posts'][ $dze_pid ] = $dze_p;
+		// Four of the five photographs it is asked for: the row then carries
+		// the shortfall sentence, which is half of what makes it two lines.
+		$GLOBALS['dze_meta'][ $dze_pid ]['_product_image_gallery'] = '1,2,3';
+		$GLOBALS['dze_meta'][ $dze_pid ]['_thumbnail_id'] = 9101 + $dze_i;
+		$GLOBALS['dze_meta'][ $dze_pid ]['_price'] = $dze_price;
+		$GLOBALS['dze_facts'][ $dze_pid ] = [
+			'title' => $dze_name, 'edited' => $dze_when,
+			'sales' => $dze_sold, 'price' => $dze_price,
+		];
+		$GLOBALS['dze_cats'][ $dze_pid ] = [ 44 => 'Tactical gear' ];
+		$dze_i++;
+	}
+	// A CONDITIONAL criterion, because that is the column the screen he sent
+	// carries and it is the one competing with the product's name for width.
+	$dze_tbl_row = [ [
+		'id' => 'prod_gallery', 'on' => 1, 'cond' => 1, 'scope' => 'product',
+		'label' => '', 'field' => 'product.gallery', 'test' => 'lt', 'value' => 3,
+		'find' => '', 'key' => '', 'note' => '',
+		'bands' => [
+			[ 'field' => 'product.price', 'from' => 0,  'to' => 50, 'want' => 3 ],
+			[ 'field' => 'product.price', 'from' => 50, 'to' => 0,  'want' => 5 ],
+		],
+	] ];
+	update_option( DZE_Diagnostic::OPT, [ 'rows' => $dze_tbl_row ] );
+	update_option( DZE_Diagnostic::list_option( 'prod_gallery' ), array_keys( $dze_long ), false );
+	update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
+	$GLOBALS['umeta'] = [];
+	$_GET = [];
+	ob_start();
+	$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+	// A MARKER, because the checks above this line have already printed: the
+	// gate takes what follows it and nothing else, rather than pouring a
+	// screenful of test output into the page it is about to measure.
+	echo "<!--DZE-TABLE-->" . (string) ob_get_clean();
+	exit( 0 );
+}
+
 echo "\nTHE FEATURED IMAGE, ON EVERY ROW AND WHATEVER THE POST TYPE\n";
 // "Sur la liste des diagnostics il faut l'image featured. Peu importe le type
 // de post." A list of nine hundred lines of text is a list you read one name
