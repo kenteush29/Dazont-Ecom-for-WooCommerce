@@ -2375,6 +2375,37 @@ whose screen has not been thought through yet.
     refusing this shop's work — and what the model managed to write is kept in
     the trace beside the verdict, because half an answer is what a person needs
     to see to understand what happened.
+- **EVERY GUARD ON THAT PASS WAS ABOUT WORDS, AND AN ARTICLE IS NOT ONLY
+  WORDS.** "Le code html des articles de blog est bien préservé ?" Measured
+  rather than assumed, the answer was no. `only_linked()` held the links, the
+  count of paragraphs and headings, and the length — so an answer handing the
+  SAME words back inside tidy bare HTML satisfied all three. On a WordPress
+  blog that is the whole article: strip `<!-- wp:paragraph -->` and every block
+  in the editor becomes "unexpected or invalid content", with the text and the
+  links present and correct. Five losses were probed one at a time — block
+  delimiters, an inline picture, a shortcode, classes and ids, an embed — and
+  every one of them went straight through.
+  `markup_in()` counts what is not prose and rule 4 refuses any of it coming
+  back short. Four rules hold it:
+  - **Counted, never matched whole.** The pass is ALLOWED to add an `<a>` and
+    reword around it; what it may never do is end up with FEWER of any of these
+    than it was given.
+  - **The block delimiters are compared on the block NAMES and their order,
+    not their JSON.** `wp_kses_post()` — which this pass runs the answer
+    through — keeps HTML comments but collapses runs of dashes inside them, so
+    a block carrying `{"className":"card--wide"}` comes back `card-wide`
+    through the shop's OWN sanitiser. Refusing that would be the plugin
+    refusing its own work; the names never carry a dash pair. That was settled
+    by reading WordPress's `wp_kses_split2()`, not by guessing.
+  - **A text that never had any of it is not held to it.** A category
+    description is a paragraph or two of plain HTML, and most pages on the shop
+    carry no block delimiters at all.
+  - **The prompt said the ambiguous thing.** Its last line ended "no comment
+    before or after" — beside an article whose entire structure IS HTML
+    comments, that reads as an instruction to remove them. It names what must
+    come back untouched now: a FACT about the job, like the language and the
+    link format beside it, never an opinion competing with the owner's own
+    prompt.
 - **A CONTROL OVER A RUN IS NOT ONE CONTROL.** "Start it again > Il faut une
   option aussi pour annuler." The block offered exactly one press and it put
   the work BACK, so two hundred pages queued by mistake — or pages the model
