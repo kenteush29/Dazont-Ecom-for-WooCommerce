@@ -1747,3 +1747,17 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-auto-nextlist { margin: 2px 0 8px 18px; }
 .dze-auto-nextone { margin: 0 0 2px; font-size: 13px; list-style: disc; }
 .dze-auto-nextone .dze-auto-why { color: #787c82; }
+
+/* ---- The problem list, laid out so the NAME gets the room ----
+   "Affichage cassé non confortable. lignes beaucoup trops grosses." Measured
+   at 1040px the product's name column was 92 pixels — everything the seven
+   columns beside it had not taken — so a nine-word title wrapped one word per
+   line and a row stood 143px tall. FIXED means a declared width is the width,
+   and the one column with none gets the whole remainder; the pixels are the
+   columns whose content has a known size (a price, a date, a figure, a
+   button). `node tools/js/diagnostic-table.mjs` measures it at three widths,
+   which is the only thing that can see an arithmetic fault like this one. */
+.dze-diag-list { table-layout: fixed; }
+/* A title with no space in it — an SKU, a part number — must break rather
+   than push the column out from the inside. */
+.dze-diag-list td { overflow-wrap: break-word; }
