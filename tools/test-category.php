@@ -715,5 +715,88 @@ ok( 'and enough that markup cannot beat it',
 	(int) ( DZE_Marketing_Ai::$sent[0]['max'] ?? 0 ) >= (int) ( strlen( $dze_heavy ) / 2 ), true );
 DZE_Marketing_Ai::$decide = null;
 
+echo "\nTHE MARKUP THAT IS NOT PROSE COMES BACK AS IT WENT\n";
+// "Le code html des articles de blog est bien préservé ?" Measured, the answer
+// was no. `only_linked()` held the links, the count of paragraphs and headings,
+// and the length — and a model that handed back the same words inside tidy
+// bare HTML passed every one of them. On a WordPress blog that is the whole
+// article: strip `<!-- wp:paragraph -->` and every block in the editor becomes
+// "unexpected or invalid content", with the words and the links all present and
+// correct.
+$dze_gb = '<!-- wp:paragraph --><p class="intro" id="lead">A rifle is '
+	. '<a href="https://kula.test/a">one</a> and <a href="https://kula.test/b">two</a>. '
+	. '<img src="https://kula.test/inline.jpg" alt="inline" class="wp-image-9"/> ' . str_repeat( 'word ', 40 ) . '</p><!-- /wp:paragraph -->'
+	. '<!-- wp:heading --><h2 class="has-x-color">How it works</h2><!-- /wp:heading -->'
+	. '<!-- wp:paragraph --><p>' . str_repeat( 'word ', 60 ) . ' [product_page id="42"]</p><!-- /wp:paragraph -->';
+$dze_links_in = [ 'https://kula.test/a', 'https://kula.test/b' ];
+/** Does the guard let this answer through? */
+$dze_lets = static function ( string $after ) use ( $dze_gb, $dze_links_in ): string {
+	try {
+		DZE_Category_Content::only_linked( $dze_gb, $after, $dze_links_in, 1 );
+		return '';
+	} catch ( \Throwable $e ) {
+		return $e->getMessage();
+	}
+};
+// AN HONEST PASS STILL GOES THROUGH: a link added, a phrase turned around it,
+// and every piece of markup exactly where it was.
+$dze_ok = str_replace(
+	'How it works</h2>',
+	'How it works</h2>',
+	str_replace( ' [product_page id="42"]',
+		' and see <a href="https://kula.test/ghillie">Ghillie suits</a>. [product_page id="42"]', $dze_gb )
+);
+ok( 'an honest linking pass is untouched', $dze_lets( $dze_ok ), '' );
+// AND EVERY WAY THE MARKUP CAN BE LOST IS REFUSED, one at a time.
+ok( 'block delimiters dropped is refused',
+	'' !== $dze_lets( preg_replace( '/<!-- \/?wp:[^>]*-->/', '', $dze_gb ) ), true );
+ok( 'and it says what went missing',
+	false !== strpos( $dze_lets( preg_replace( '/<!-- \/?wp:[^>]*-->/', '', $dze_gb ) ), 'block' ), true );
+ok( 'a picture dropped is refused',
+	'' !== $dze_lets( str_replace( '<img src="https://kula.test/inline.jpg" alt="inline" class="wp-image-9"/> ', '', $dze_gb ) ), true );
+// AN EMBED IS A PIECE OF THE ARTICLE TOO. A video in a post carries no words
+// and no link, so every guard here was blind to it.
+$dze_emb = str_replace( '<h2 class="has-x-color">How it works</h2>',
+	'<h2 class="has-x-color">How it works</h2><iframe src="https://www.youtube.com/embed/abc" title="v"></iframe>', $dze_gb );
+try {
+	DZE_Category_Content::only_linked( $dze_emb, str_replace( '<iframe src="https://www.youtube.com/embed/abc" title="v"></iframe>', '', $dze_emb ), $dze_links_in, 1 );
+	ok( 'an embed dropped is refused', false, true );
+} catch ( \Throwable $e ) {
+	ok( 'an embed dropped is refused', true, true );
+}
+ok( 'a shortcode dropped is refused',
+	'' !== $dze_lets( str_replace( ' [product_page id="42"]', '', $dze_gb ) ), true );
+ok( 'classes and ids dropped is refused',
+	'' !== $dze_lets( str_replace( [ ' class="intro" id="lead"', ' class="has-x-color"' ], '', $dze_gb ) ), true );
+// AND THE WHOLE LOT AT ONCE — the shape a "tidied" answer actually takes, and
+// the one that used to pass every check there was.
+$dze_tidied = '<p>A rifle is <a href="https://kula.test/a">one</a> and <a href="https://kula.test/b">two</a>. ' . str_repeat( 'word ', 40 ) . '</p>'
+	. '<h2>How it works</h2><p>' . str_repeat( 'word ', 60 ) . '</p>';
+ok( 'a tidied answer is refused',           '' !== $dze_lets( $dze_tidied ), true );
+ok( 'and nothing is written when it is',
+	false !== strpos( $dze_lets( $dze_tidied ), 'nothing was changed' ), true );
+// A BLOCK DELIMITER CARRYING A BEM CLASS IS NOT A CHANGED ONE. `wp_kses_post()`
+// collapses runs of dashes INSIDE a comment, so `{"className":"card--wide"}`
+// comes back as `card-wide` through the shop's own sanitiser: refusing that
+// would be the plugin refusing its own work. The delimiters are compared on
+// the block NAMES and their order, which never carry a dash pair.
+$dze_bem  = str_replace( '<!-- wp:heading -->', '<!-- wp:heading {"className":"card--wide"} -->', $dze_gb );
+$dze_kses = str_replace( '{"className":"card--wide"}', '{"className":"card-wide"}', $dze_bem );
+try {
+	DZE_Category_Content::only_linked( $dze_bem, $dze_kses, $dze_links_in, 1 );
+	ok( 'a dash collapsed by our own sanitiser is not a loss', true, true );
+} catch ( \Throwable $e ) {
+	ok( 'a dash collapsed by our own sanitiser is not a loss', $e->getMessage(), true );
+}
+// A TEXT THAT NEVER HAD ANY OF IT IS NOT HELD TO IT. A category description is
+// a paragraph or two of plain HTML, and most of the shop's own pages carry no
+// block delimiters at all.
+try {
+	DZE_Category_Content::only_linked( '<p>Plain words about rugs.</p>', '<p>Plain words about <a href="https://kula.test/x">rugs</a>.</p>', [], 1 );
+	ok( 'a plain text is not held to markup it never had', true, true );
+} catch ( \Throwable $e ) {
+	ok( 'a plain text is not held to markup it never had', $e->getMessage(), true );
+}
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

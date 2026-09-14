@@ -1714,7 +1714,15 @@ PROMPT;
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
 			. 'LINK FORMAT: <a href="URL">anchor</a>, using the URLs above verbatim.' . "\n"
-			. 'OUTPUT: the full HTML fragment only — no markdown, no code fence, no comment before or after.';
+			// AND THE MARKUP COMES BACK UNTOUCHED. This line used to end "no
+			// comment before or after", which beside a WordPress article is
+			// ambiguous to the point of dangerous: its whole structure is HTML
+			// comments (`<!-- wp:paragraph -->`), and an answer that tidied
+			// them away passed every guard there was while breaking every block
+			// in the editor. It is a FACT about the job, like the language and
+			// the link format beside it — not an opinion competing with the
+			// shop's own prompt.
+			. 'OUTPUT: the same HTML fragment with links added and nothing else changed. Keep every tag, attribute, class, id, image, embed, shortcode and HTML comment exactly as given — WordPress block comments included. No markdown, no code fence, nothing added before or after the fragment.';
 
 		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
@@ -1833,6 +1841,96 @@ PROMPT;
 				number_format_i18n( $wb )
 			) );
 		}
+		// 4. THE MARKUP THAT IS NOT PROSE COMES BACK AS IT WENT. The three
+		//    rules above are all about WORDS, and a model that hands the same
+		//    words back inside tidy bare HTML satisfies every one of them: same
+		//    links, same paragraphs, same length. On a WordPress blog that is
+		//    the whole article — strip `<!-- wp:paragraph -->` and every block
+		//    in the editor becomes "unexpected or invalid content", with the
+		//    text and the links all present and correct.
+		foreach ( self::markup_in( $before ) as $what => $had ) {
+			$now  = self::markup_in( $after )[ $what ] ?? [];
+			$lost = array_diff_assoc( $had, array_intersect_assoc( $had, $now ) );
+			// A count that FELL is a loss; one that rose is this pass adding a
+			// link, which is the job.
+			foreach ( $had as $one => $n ) {
+				if ( (int) ( $now[ $one ] ?? 0 ) >= (int) $n ) {
+					unset( $lost[ $one ] );
+				}
+			}
+			if ( ! $lost ) {
+				continue;
+			}
+			throw new RuntimeException( sprintf(
+				/* translators: 1: what kind of markup, 2: the first piece of it that went missing */
+				__( 'The text came back with its %1$s changed (%2$s went missing) — nothing was changed.', 'dazont-ecom' ),
+				$what,
+				(string) array_key_first( $lost )
+			) );
+		}
+	}
+
+	/**
+	 * THE MARKUP OF A DOCUMENT THAT IS NOT ITS PROSE, counted piece by piece.
+	 *
+	 * "Le code html des articles de blog est bien préservé ?" It was not: every
+	 * guard this pass had was about words, so an answer holding the same words
+	 * in tidy bare HTML went straight through.
+	 *
+	 * Four kinds, each of them something a reader loses and no word count can
+	 * see. They are counted rather than matched whole, because this pass is
+	 * ALLOWED to add an `<a>` and reword around it — what it may never do is
+	 * end up with fewer of any of these than it was given.
+	 *
+	 * The block delimiters are compared on the block NAMES and their order, not
+	 * on their JSON: `wp_kses_post()` collapses runs of dashes inside a comment,
+	 * so a block carrying `{"className":"card--wide"}` comes back as
+	 * `card-wide` through the shop's own sanitiser, and refusing that would be
+	 * the plugin refusing its own work.
+	 *
+	 * @return array<string,array<string,int>> Kind → piece → how many.
+	 */
+	private static function markup_in( string $html ): array {
+		$out = [ 'blocks' => [], 'images' => [], 'embeds' => [], 'shortcodes' => [], 'classes and ids' => [] ];
+		// WordPress block delimiters, by name and in the order they appear: the
+		// position matters, so an opener that became a closer is a change.
+		if ( preg_match_all( '/<!--\s*(\/?wp:[a-z0-9\/-]+)/i', $html, $m ) ) {
+			foreach ( (array) $m[1] as $i => $name ) {
+				$key = $i . ' ' . strtolower( (string) $name );
+				$out['blocks'][ $key ] = 1;
+			}
+		}
+		// Pictures, by the file they point at.
+		if ( preg_match_all( '/<img[^>]*\ssrc=["\']([^"\']+)["\']/i', $html, $m ) ) {
+			foreach ( (array) $m[1] as $src ) {
+				$out['images'][ $src ] = ( $out['images'][ $src ] ?? 0 ) + 1;
+			}
+		}
+		// An embedded video carries no words and no link, so every rule above
+		// is blind to one going missing.
+		if ( preg_match_all( '/<iframe[^>]*\ssrc=["\']([^"\']+)["\']/i', $html, $m ) ) {
+			foreach ( (array) $m[1] as $src ) {
+				$out['embeds'][ $src ] = ( $out['embeds'][ $src ] ?? 0 ) + 1;
+			}
+		}
+		// Shortcodes, whole, so a changed argument is a change.
+		if ( preg_match_all( '/\[([a-z][a-z0-9_-]*)(\s[^\]]*)?\]/i', $html, $m, PREG_SET_ORDER ) ) {
+			foreach ( $m as $one ) {
+				$tag = (string) $one[0];
+				$out['shortcodes'][ $tag ] = ( $out['shortcodes'][ $tag ] ?? 0 ) + 1;
+			}
+		}
+		// What the theme styles and what an anchor in the page points at.
+		if ( preg_match_all( '/\s(?:class|id)=["\']([^"\']*)["\']/i', $html, $m ) ) {
+			foreach ( (array) $m[1] as $val ) {
+				$val = trim( (string) $val );
+				if ( '' === $val ) {
+					continue;
+				}
+				$out['classes and ids'][ $val ] = ( $out['classes and ids'][ $val ] ?? 0 ) + 1;
+			}
+		}
+		return $out;
 	}
 
 	/** The language a text is written in, spelled out for a prompt. */
