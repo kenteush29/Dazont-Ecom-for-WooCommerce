@@ -180,13 +180,13 @@ for ( const [ label, jq ] of jqs ) {
 				const t = left + done;
 				return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
 					left: left, done: done, pct: 3,
-					run: '<div class="dze-auto-prog is-stuck">'
+					run: { mesh_links: '<div class="dze-auto-prog is-stuck">'
 						+ '<p class="dze-auto-runsaid">Nothing has moved for 8 minutes. The writer may be held by a run the server stopped.</p>'
 						+ '<div class="dze-auto-bar"><span style="width:3%"></span></div>'
 						+ '<p class="description dze-auto-runfig">3% \u2014 ' + done + ' of ' + t + ' written</p>'
 						+ '<p class="dze-auto-runact"><button type="button" class="button dze-auto-again" title="Lets the writer go, puts back what could not be written, and starts the queue again.">Start it again</button> '
 						+ '<button type="button" class="button dze-auto-stop" title="Drops the pages still waiting their turn and the ones that could not be written. What is already written and waiting for your yes or no is kept.">Stop</button> '
-						+ '<span class="dze-auto-restarted"></span></p></div>',
+						+ '<span class="dze-auto-restarted"></span></p></div>', cat_desc: '', events: '' },
 					waiting: waitingNow(), chips: {}
 				} } ) } );
 			}
@@ -203,7 +203,10 @@ for ( const [ label, jq ] of jqs ) {
 					+ '<p class="description dze-auto-runfig">' + pct + '% \u2014 ' + done + ' of ' + total + ' written</p></div>'
 				: '';
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
-				left: left, done: done, pct: pct, run: bar,
+				left: left, done: done, pct: pct,
+				// A BAR PER TASK, keyed like the chips beside them: the server
+				// cannot hand one lump of markup to three different places.
+				run: { mesh_links: bar, cat_desc: '', events: '' },
 				waiting: waitingNow(),
 				chips: {}
 			} } ) } );
@@ -570,6 +573,17 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the line says what changed',   answered, true );
 	ok( 'the answer is said in words too',
 		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-msg' ).catch( () => '' ) || '' ).includes( 'Queued' ), true );
+	// "CA DEVRAIT AFFICHER LA PROGRESSION DIRECTEMENT ICI." The press queues
+	// the work, so the bar it starts belongs under the button that started it —
+	// not in one block below all three tasks, where a figure answers for
+	// somebody else's press.
+	const grew = await page.waitForFunction(
+		() => !! document.querySelector( '.dze-auto-task:first-of-type .dze-auto-live .dze-auto-bar' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'the progress shows in that block', grew, true );
+	// AND IN NO OTHER: a task that queued nothing says nothing.
+	ok( 'and in no other task\'s block',
+		await page.locator( '.dze-auto-live[data-task="cat_desc"] .dze-auto-bar' ).count(), 0 );
 
 	// A PAGE RELOAD IS NEVER THE ANSWER TO "DID THAT WORK?"
 	ok( 'the page never moved',             moves.length, 1 );
@@ -585,21 +599,25 @@ for ( const [ label, jq ] of jqs ) {
 	// après actualisation." Only a browser can see a bar climb, and only a
 	// browser can see it survive a reload.
 	const barNow = () => page.evaluate( () => {
-		const b = document.querySelector( '#dze-auto-run .dze-auto-bar > span' );
-		const f = document.querySelector( '#dze-auto-run .dze-auto-runfig' );
-		return { w: b ? b.style.width : '', fig: f ? f.textContent.trim() : '', on: !! document.querySelector( '#dze-auto-run .is-working' ) };
+		const b = document.querySelector( '.dze-auto-live .dze-auto-bar > span' );
+		const f = document.querySelector( '.dze-auto-live .dze-auto-runfig' );
+		return { w: b ? b.style.width : '', fig: f ? f.textContent.trim() : '', on: !! document.querySelector( '.dze-auto-live .is-working' ) };
 	} );
 	// THE SERVER DREW IT. Read off the live page at this point the check would
 	// pass on a bar an earlier press had put there, which proves nothing about
 	// what a shop sees when it opens the screen.
 	ok( 'the server draws the bar itself',   /dze-auto-bar/.test( dumped.html ), true );
+	// AND DRAWS IT INSIDE THE TASK, not in one block under the lot.
+	ok( 'inside the block that starts it',
+		await page.locator( '.dze-auto-task:first-of-type .dze-auto-live .dze-auto-bar' ).count() > 0, true );
+	ok( 'and there is no bar under the lot', await page.locator( '#dze-auto-run' ).count(), 0 );
 	const first = await barNow();
 	ok( 'the bar is on the screen at load',  first.w.length > 0, true );
 	ok( 'and says it is working',            first.on, true );
 
 	// IT MOVES ON ITS OWN, because the page is the engine while it is open.
 	const climbed = await page.waitForFunction( was => {
-		const f = document.querySelector( '#dze-auto-run .dze-auto-runfig' );
+		const f = document.querySelector( '.dze-auto-live .dze-auto-runfig' );
 		return f && f.textContent.trim() !== was;
 	}, first.fig, { timeout: 8000 } ).then( () => true ).catch( () => false );
 	ok( 'the bar moves without a press',     climbed, true );
@@ -608,10 +626,10 @@ for ( const [ label, jq ] of jqs ) {
 
 	// IT FINISHES, and says where the work went — "je fais quoi ensuite ?".
 	const ended = await page.waitForFunction(
-		() => !! document.querySelector( '#dze-auto-run .is-done' ),
+		() => !! document.querySelector( '.dze-auto-live .is-done' ),
 		null, { timeout: 15000 } ).then( () => true ).catch( () => false );
 	ok( 'it finishes',                       ended, true );
-	const endTxt = await page.evaluate( () => ( document.querySelector( '#dze-auto-run' ) || {} ).textContent || '' );
+	const endTxt = await page.evaluate( () => ( document.querySelector( '.dze-auto-live' ) || {} ).textContent || '' );
 	ok( 'and points at what is waiting',     /waiting for your yes or no, below/.test( endTxt ), true );
 	// AND IT STOPS. Polling an idle queue is a request a second for nothing.
 	const afterEnd = sent.filter( r => 'dze_auto_run_state' === r.action ).length;
@@ -651,11 +669,11 @@ for ( const [ label, jq ] of jqs ) {
 	stopped = true; left = 5; done = 0;
 	await page.evaluate( () => { window.jQuery( document ).trigger( 'dze:queued' ); } );
 	const sawStuck = await page.waitForFunction(
-		() => !! document.querySelector( '#dze-auto-run .dze-auto-again' ),
+		() => !! document.querySelector( '.dze-auto-live .dze-auto-again' ),
 		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
 	ok( 'a stopped run says it is stopped',  sawStuck, true );
 	ok( 'and does not claim to be working',
-		/Leave this screen open/.test( await page.locator( '#dze-auto-run' ).innerText() ), false );
+		/Leave this screen open/.test( await page.locator( '.dze-auto-live[data-task="mesh_links"]' ).innerText() ), false );
 	const wasAgain = sent.length;
 	await page.locator( '.dze-auto-again' ).click();
 	const restarted = await page.waitForFunction(
@@ -667,7 +685,7 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'signed',                            !! ( again[0] || {} ).nonce, true );
 	// AND THE ANSWER LANDS: the block is redrawn, and it is going again.
 	ok( 'the block is redrawn working',
-		await page.locator( '#dze-auto-run .is-working' ).count() > 0, true );
+		await page.locator( '.dze-auto-live[data-task="mesh_links"] .is-working' ).count() > 0, true );
 	// AND THE RUN PICKS UP FROM THERE rather than waiting to be pressed again.
 	const rolling = await page.waitForFunction(
 		() => /[1-9]\d* of \d+ written/.test( ( document.querySelector( '.dze-auto-runfig' ) || {} ).textContent || '' ),
@@ -679,10 +697,10 @@ for ( const [ label, jq ] of jqs ) {
 	stopped = true; left = 40; done = 0;
 	await page.evaluate( () => { window.jQuery( document ).trigger( 'dze:queued' ); } );
 	await page.waitForFunction(
-		() => !! document.querySelector( '#dze-auto-run .dze-auto-stop' ),
+		() => !! document.querySelector( '.dze-auto-live .dze-auto-stop' ),
 		null, { timeout: 8000 } ).catch( () => {} );
 	ok( 'a run under way can be called off',
-		await page.locator( '#dze-auto-run .dze-auto-stop' ).count(), 1 );
+		await page.locator( '.dze-auto-live[data-task="mesh_links"] .dze-auto-stop' ).count(), 1 );
 	// IT ASKS BEFORE IT DROPS, and refused it drops nothing.
 	let offAsked = '';
 	page.off( 'dialog', sayYes );
@@ -716,7 +734,7 @@ for ( const [ label, jq ] of jqs ) {
 
 	// Drain what is left, so the section below reads a finished queue.
 	await page.waitForFunction(
-		() => !! document.querySelector( '#dze-auto-run .is-done' ),
+		() => !! document.querySelector( '.dze-auto-live .is-done' ),
 		null, { timeout: 20000 } ).catch( () => {} );
 
 	// ---- ACCEPT OR CANCEL A WHOLE SELECTION ----

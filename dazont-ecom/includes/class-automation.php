@@ -1701,6 +1701,8 @@ final class DZE_Automation {
 						</p>
 					<?php endif; ?>
 					<div class="dze-auto-state" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_state( $id ); ?></div>
+					<?php // THE PROGRESS BELONGS TO THE PRESS THAT STARTED IT. ?>
+					<div class="dze-auto-live" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_run( $id ); ?></div>
 				</details>
 			<?php endforeach; ?>
 			<?php submit_button( __( 'Save', 'dazont-ecom' ) ); ?>
@@ -1721,7 +1723,6 @@ final class DZE_Automation {
 		// nothing said how many were in flight, nothing moved them, and
 		// nothing said when they were done.
 		?>
-		<div id="dze-auto-run"><?php self::render_run(); ?></div>
 		<h2 class="dze-auto-h2"><?php esc_html_e( 'To review', 'dazont-ecom' ); ?></h2>
 		<div id="dze-auto-waiting"><?php self::render_waiting(); ?></div>
 		<?php
@@ -1993,16 +1994,21 @@ final class DZE_Automation {
 					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
 					step: step ? 1 : 0
 				} ).done( function ( r ) {
-					if ( ! r || ! r.success || ! r.data ) { runStumble( $( '.dze-auto-runsaid' ) ); return; }
+					if ( ! r || ! r.success || ! r.data ) { runStumble( $( '.dze-auto-live .dze-auto-runsaid' ) ); return; }
 					runFails = 0;
-					$( '#dze-auto-run' ).html( r.data.run || '' );
+					// EACH ANSWER IN THE BLOCK IT BELONGS TO: one lump of
+					// markup could only ever be put in one place, and the
+					// press that produced it happened in one of them.
+					$.each( r.data.run || {}, function ( id, html ) {
+						$( '.dze-auto-live[data-task="' + id + '"]' ).html( html || '' );
+					} );
 					if ( r.data.waiting ) { $( '#dze-auto-waiting' ).html( r.data.waiting ); }
 					$.each( r.data.chips || {}, function ( id, html ) {
 						$( '.dze-auto-chips[data-task="' + id + '"]' ).replaceWith( html );
 					} );
 					runWatch( r.data.left > 0 );
 				} ).fail( function () {
-					runStumble( $( '.dze-auto-runsaid' ) );
+					runStumble( $( '.dze-auto-live .dze-auto-runsaid' ) );
 				} ).always( function () { runBusy = false; } );
 			}
 			// CALLING A RUN OFF. It throws work away, so it asks first — and it
@@ -2012,6 +2018,11 @@ final class DZE_Automation {
 				if ( ! window.confirm( '<?php echo esc_js( __( 'Drop the pages still waiting their turn? What is already written and waiting for your yes or no is kept.', 'dazont-ecom' ) ); ?>' ) ) { return; }
 				runOn( $( this ), 'dze_auto_run_stop', false );
 			} );
+			// The block a press was made in, so its answer goes back there.
+			function runBlock( $b ) {
+				var id = $b.closest( '.dze-auto-live' ).data( 'task' );
+				return id ? $( '.dze-auto-live[data-task="' + id + '"]' ) : $( '.dze-auto-live' ).first();
+			}
 			// STARTING A STOPPED RUN AGAIN. Both presses REPLACE the block they
 			// are drawn in, which is why neither goes through post(): the
 			// redrawn block is the answer, and the figures in it move.
@@ -2019,16 +2030,18 @@ final class DZE_Automation {
 				runOn( $( this ), 'dze_auto_run_again', true );
 			} );
 			function runOn( $b, action, keepGoing ) {
+				var $block = runBlock( $b );
 				$b.prop( 'disabled', true );
-				busy( $( '.dze-auto-restarted' ), true );
+				busy( $block.find( '.dze-auto-restarted' ), true );
 				$.post( window.ajaxurl, {
 					action: action,
+					task: $b.data( 'task' ) || '',
 					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>'
 				} ).done( function ( r ) {
 					var d = ( r && r.data ) || {};
-					if ( undefined !== d.run ) { $( '#dze-auto-run' ).html( d.run ); }
+					if ( undefined !== d.run ) { $block.html( d.run ); }
 					if ( undefined !== d.waiting ) { $( '#dze-auto-waiting' ).html( d.waiting ); }
-					if ( d.message ) { $( '.dze-auto-restarted' ).text( d.message ); }
+					if ( d.message ) { $block.find( '.dze-auto-restarted' ).text( d.message ); }
 					runFails = 0;
 					// The watcher, not a step: a press whose answer is wiped
 					// off the screen a hundredth of a second later has not
@@ -2037,7 +2050,7 @@ final class DZE_Automation {
 					runWatch( keepGoing );
 				} ).fail( function () {
 					$b.prop( 'disabled', false );
-					$( '.dze-auto-restarted' ).text( '<?php echo esc_js( __( 'That did not go through. Try again.', 'dazont-ecom' ) ); ?>' );
+					$block.find( '.dze-auto-restarted' ).text( '<?php echo esc_js( __( 'That did not go through. Try again.', 'dazont-ecom' ) ); ?>' );
 				} );
 			}
 			// While there is work left this page IS the engine — one step per
@@ -2049,8 +2062,8 @@ final class DZE_Automation {
 				runTimer = window.setTimeout( function () { runTick( true ); }, 1500 );
 			}
 			// On arrival, and after any press that queues something.
-			if ( $( '#dze-auto-run .dze-auto-prog' ).length ) {
-				runWatch( $( '#dze-auto-run .is-working, #dze-auto-run .is-stuck' ).length > 0 );
+			if ( $( '.dze-auto-live .dze-auto-prog' ).length ) {
+				runWatch( $( '.dze-auto-live .is-working, .dze-auto-live .is-stuck' ).length > 0 );
 			}
 			$( document ).on( 'dze:queued', function () { runTick( true ); } );
 
@@ -2180,8 +2193,8 @@ final class DZE_Automation {
 	 * nought over an idle shop is a screen reporting a failure that never
 	 * happened.
 	 */
-	public static function render_run(): void {
-		$c = self::run_state();
+	public static function render_run( string $id = '' ): void {
+		$c = self::run_state( $id );
 		if ( $c['total'] < 1 ) {
 			return;
 		}
@@ -2210,7 +2223,7 @@ final class DZE_Automation {
 				number_format_i18n( $bad )
 			) );
 			// A figure with no reason beside it is a figure nobody can act on.
-			$why = class_exists( 'DZE_Queue' ) ? (array) DZE_Queue::failures( self::my_kinds(), 1 ) : [];
+			$why = class_exists( 'DZE_Queue' ) ? (array) DZE_Queue::failures( self::my_kinds( $id ), 1 ) : [];
 			$why = trim( (string) ( $why[0]['error'] ?? '' ) );
 			if ( '' !== $why ) {
 				echo ' <span class="description">' . esc_html( $why ) . '</span>';
@@ -2226,13 +2239,13 @@ final class DZE_Automation {
 		if ( $again || $off ) {
 			echo '<p class="dze-auto-runact">';
 			if ( $again ) {
-				echo '<button type="button" class="button dze-auto-again" title="' . esc_attr__( 'Lets the writer go, puts back what could not be written, and starts the queue again. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ) . '">'
+				echo '<button type="button" class="button dze-auto-again" data-task="' . esc_attr( $id ) . '" title="' . esc_attr__( 'Lets the writer go, puts back what could not be written, and starts the queue again. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ) . '">'
 					. esc_html__( 'Start it again', 'dazont-ecom' ) . '</button> ';
 			}
 			if ( $off ) {
 				// A PRESS THAT THROWS WORK AWAY IS NEVER A BARE WORD: its hover
 				// says what goes and, above all, what stays.
-				echo '<button type="button" class="button dze-auto-stop" title="' . esc_attr__( 'Drops the pages still waiting their turn and the ones that could not be written. What is already written and waiting for your yes or no is kept, and so is everything you have accepted.', 'dazont-ecom' ) . '">'
+				echo '<button type="button" class="button dze-auto-stop" data-task="' . esc_attr( $id ) . '" title="' . esc_attr__( 'Drops the pages still waiting their turn and the ones that could not be written. What is already written and waiting for your yes or no is kept, and so is everything you have accepted.', 'dazont-ecom' ) . '">'
 					. esc_html__( 'Stop', 'dazont-ecom' ) . '</button> ';
 			}
 			echo '<span class="dze-auto-restarted"></span></p>';
@@ -2240,10 +2253,21 @@ final class DZE_Automation {
 		echo '</div>';
 	}
 
-	/** Every job kind these tasks put in the queue, asked for as one set. */
-	public static function my_kinds(): array {
+	/**
+	 * The job kinds ONE task puts in the queue — or every task's, asked as one
+	 * set when no task is named.
+	 *
+	 * "Ca devrait afficher la progression directement ici." A bar under all
+	 * three tasks answers for whichever of them last queued something, so each
+	 * one now carries its own and must count its own work: the linking task
+	 * queues `cat_links` AND `post_links`, and asking for one counts half of it.
+	 */
+	public static function my_kinds( string $id = '' ): array {
 		$mine = [];
-		foreach ( self::tasks() as $task ) {
+		foreach ( self::tasks() as $tid => $task ) {
+			if ( '' !== $id && $tid !== $id ) {
+				continue;
+			}
 			foreach ( (array) ( $task['jobs'] ?? [] ) as $k ) {
 				$mine[] = (string) $k;
 			}
@@ -2256,7 +2280,7 @@ final class DZE_Automation {
 	 *
 	 * @return array{done:int,left:int,total:int,pct:int,running:int}
 	 */
-	public static function run_state(): array {
+	public static function run_state( string $id = '' ): array {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			return self::no_run();
 		}
@@ -2264,7 +2288,7 @@ final class DZE_Automation {
 		// whole queue here put "3 pages are written and waiting below" over a
 		// list saying "nothing is waiting": a photograph made from the bulk
 		// screen is in the queue and is not this page's work.
-		$mine = self::my_kinds();
+		$mine = self::my_kinds( $id );
 		if ( ! $mine ) {
 			return self::no_run();
 		}
@@ -2702,11 +2726,15 @@ final class DZE_Automation {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off.', 'dazont-ecom' ) ] );
 		}
+		// THE BLOCK IT WAS PRESSED IN. Acting on every task would put back work
+		// the reader never asked about, from a button in somebody else's block.
+		$task = self::asked_task();
 		DZE_Queue::unlock();
-		$back = (int) DZE_Queue::retry_failed( self::my_kinds() );
+		$back = (int) DZE_Queue::retry_failed( self::my_kinds( $task ) );
 		ob_start();
-		self::render_run();
+		self::render_run( $task );
 		wp_send_json_success( [
+			'task'    => $task,
 			'run'     => (string) ob_get_clean(),
 			'waiting' => self::waiting_html(),
 			'message' => $back > 0
@@ -2732,15 +2760,17 @@ final class DZE_Automation {
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off.', 'dazont-ecom' ) ] );
 		}
-		$gone = (int) DZE_Queue::drop_waiting( self::my_kinds() );
+		$task = self::asked_task();
+		$gone = (int) DZE_Queue::drop_waiting( self::my_kinds( $task ) );
 		// AND THE REGISTER LETS THEM GO. Every page the catch-up queues is
 		// stamped as worked on so the daily pass does not do it twice; dropped,
 		// that stamp locks the page out of the very pass meant to mend it,
 		// having had nothing written to it.
 		self::free_pages( DZE_Queue::dropped_rows() );
 		ob_start();
-		self::render_run();
+		self::render_run( $task );
 		wp_send_json_success( [
+			'task'    => $task,
 			'run'     => (string) ob_get_clean(),
 			'waiting' => self::waiting_html(),
 			'message' => $gone > 0
@@ -2753,6 +2783,12 @@ final class DZE_Automation {
 		] );
 	}
 
+	/** Which task's block a press came from — '' meaning every one of them. */
+	private static function asked_task(): string {
+		$id = isset( $_POST['task'] ) ? sanitize_key( wp_unslash( $_POST['task'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- guard() ran.
+		return isset( self::tasks()[ $id ] ) ? $id : '';
+	}
+
 	public static function ajax_run_state(): void {
 		self::guard();
 		$step = ! empty( $_POST['step'] );
@@ -2762,11 +2798,15 @@ final class DZE_Automation {
 			DZE_Queue::work();
 		}
 		$state = self::run_state();
-		ob_start();
-		self::render_run();
-		$html = (string) ob_get_clean();
+		// A BAR PER TASK, keyed like the chips beside them: one lump of markup
+		// could only ever be put in one place, and the press that produced it
+		// happened in one particular block.
+		$html  = [];
 		$chips = [];
 		foreach ( array_keys( self::tasks() ) as $id ) {
+			ob_start();
+			self::render_run( $id );
+			$html[ $id ]  = (string) ob_get_clean();
 			$chips[ $id ] = self::chips_html( $id );
 		}
 		wp_send_json_success( [

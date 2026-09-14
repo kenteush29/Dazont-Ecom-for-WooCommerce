@@ -1752,12 +1752,16 @@ PROMPT;
 	 * nothing, with no error anywhere.
 	 *
 	 * This pass returns the same document with a few anchors in it, so the
-	 * floor is the document itself. Bytes over three is a deliberately generous
-	 * reading of a token: `max_tokens` is a ceiling, not a spend, and asking
-	 * for room nobody uses costs nothing at all.
+	 * floor is the document itself. **Bytes over TWO**, which is not an
+	 * estimate but a rate markup cannot beat: bytes over three was measured
+	 * against prose, and a live linking job came back "cut off before it was
+	 * finished" with that ceiling in place — class names, attributes and
+	 * punctuation all tokenise far worse than words. `max_tokens` is a ceiling
+	 * and not a spend: room nobody uses costs nothing at all, and a document
+	 * that comes back short costs the whole run.
 	 */
 	public static function room_for( string $html, int $words ): int {
-		$need = (int) ceil( strlen( $html ) / 3 ) + 900;
+		$need = (int) ceil( strlen( $html ) / 2 ) + 1200;
 		$room = max( $words * 3 + 900, $need );
 		if ( $room > self::MAX_OUT ) {
 			// Refused BEFORE it is paid for: a text this long cannot come back

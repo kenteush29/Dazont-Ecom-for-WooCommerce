@@ -1706,7 +1706,17 @@ ok( 'a product that no longer exists has none', DZE_Diagnostic::todo( 99999 ), [
 // A PAGE OF ROWS, handed to the bulk screen the shop already generates from.
 ok( 'the list can be ticked',           substr_count( $dze_gal_html, 'class="dze-diag-one"' ), 2 );
 ok( 'with a tick-all on the header',    false !== strpos( $dze_gal_html, 'id="dze-diag-all"' ), true );
-ok( 'and one button to send them',      false !== strpos( $dze_gal_html, '>Generate for the selected products</button>' ), true );
+// A CONTROL NAMES WHAT IT IS ABOUT TO DO. "Generate for the selected products
+// > Induit en erreur. Je crois en cliquant sur ça que qq chose va se générer de
+// suite." It opens the bulk screen, where the prompts and the number of images
+// are chosen and nothing is spent until Generate is pressed there.
+ok( 'and one button to send them',      false !== strpos( $dze_gal_html, 'dze-diag-bulkbar' ), true );
+ok( 'it does not promise a generation', false !== strpos( $dze_gal_html, '>Generate for the selected products</button>' ), false );
+ok( 'it says a choice comes next',      false !== strpos( $dze_gal_html, 'Choose what to generate' ), true );
+// AND THE CONSEQUENCE LIVES ON ITS OWN HOVER, never in a paragraph under it.
+ok( 'with the consequence on the hover',
+	1 === preg_match( '/title="[^"]*[Nn]othing is generated[^"]*"/', $dze_gal_html ), true );
+ok( 'and no paragraph explaining it',   false !== strpos( $dze_gal_html, 'Opens the bulk screen with those products in it, where' ), false );
 $GLOBALS['bulked'] = [];
 ok( 'ticking two sends them to bulk',
 	DZE_Diagnostic::bulk_pick( 'prod_gallery', [ 901, 902 ] ),
