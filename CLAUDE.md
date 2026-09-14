@@ -2269,6 +2269,23 @@ whose screen has not been thought through yet.
     refusing this shop's work — and what the model managed to write is kept in
     the trace beside the verdict, because half an answer is what a person needs
     to see to understand what happened.
+- **A CONTROL OVER A RUN IS NOT ONE CONTROL.** "Start it again > Il faut une
+  option aussi pour annuler." The block offered exactly one press and it put
+  the work BACK, so two hundred pages queued by mistake — or pages the model
+  keeps coming back wrong on — could be restarted for ever and never called
+  off. **Stop** sits beside it, and four rules hold it: what it drops is
+  decided by the QUEUE, in one place (`drop_waiting()`), and it is the two
+  states that hold nothing — waiting its turn, and could not be written; a row
+  waiting for a yes or no and an applied row are NEVER touched, or the press
+  destroys the very work it was pressed to stop making; a step already in
+  flight is left to land, being one page already paid for; and because it
+  throws work away it ASKS first, with the question saying what is KEPT, which
+  is the half somebody hesitating actually needs. Each of the two is shown only
+  where it can act, so the pair is never a control that does nothing. **And a
+  browser gate that needs a question REFUSED must be able to refuse it**: a
+  persistent `page.on( 'dialog', d => d.accept() )` written as an anonymous
+  arrow cannot be taken off, so the check that proves the confirm actually
+  guards has no way to exist — name the handler.
 - **A SCREEN THAT SHOWS SOME OF THE QUEUE COUNTS THE SAME SOME OF IT.** The
   Automation page printed "Done — 3 pages are written and waiting for your yes
   or no, below" directly above a list reading "Nothing is waiting for your yes

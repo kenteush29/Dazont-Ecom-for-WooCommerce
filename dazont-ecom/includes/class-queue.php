@@ -495,6 +495,38 @@ final class DZE_Queue {
 		return $n;
 	}
 
+	/**
+	 * Calls a run off: drops what has not been written, of these kinds.
+	 *
+	 * "Start it again > Il faut une option aussi pour annuler." The block had
+	 * one control and it put the work BACK, so a run started by mistake — or
+	 * one whose pages keep coming back wrong — could be restarted for ever and
+	 * never called off.
+	 *
+	 * It takes the two states that hold nothing: WAITING ITS TURN, and COULD
+	 * NOT BE WRITTEN. A row waiting for a yes or no holds a finished text and
+	 * an applied row is the only record that the shop was worked on — dropping
+	 * either would be this press destroying the very work it was pressed to
+	 * stop making. A step already in flight is left to land: it is one page,
+	 * and it is already paid for.
+	 */
+	public static function drop_waiting( array $kinds ): int {
+		global $wpdb;
+		$kinds = self::clean_kinds( $kinds );
+		if ( ! $kinds ) {
+			return 0;
+		}
+		$table = self::table();
+		$in    = "'" . implode( "','", $kinds ) . "'";
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
+		$n = (int) $wpdb->query( "DELETE FROM {$table} WHERE status IN ('queued','failed') AND kind IN ({$in})" );
+		// The writer goes with them, or the next press is barred for the whole
+		// of the lock's own five minutes by a run that no longer exists.
+		self::unlock();
+		self::forget_count();
+		return $n;
+	}
+
 	/** Why the last few runs of these kinds could not be written. */
 	public static function failures( array $kinds, int $limit = 3 ): array {
 		global $wpdb;

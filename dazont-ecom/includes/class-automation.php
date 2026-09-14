@@ -108,6 +108,7 @@ final class DZE_Automation {
 		add_action( 'wp_ajax_dze_auto_orphans', [ __CLASS__, 'ajax_orphans' ] );
 		add_action( 'wp_ajax_dze_auto_run_state', [ __CLASS__, 'ajax_run_state' ] );
 		add_action( 'wp_ajax_dze_auto_run_again', [ __CLASS__, 'ajax_run_again' ] );
+		add_action( 'wp_ajax_dze_auto_run_stop', [ __CLASS__, 'ajax_run_stop' ] );
 	}
 
 	public static function page_url( string $tab = '' ): string {
@@ -1826,15 +1827,24 @@ final class DZE_Automation {
 					runStumble( $( '.dze-auto-runsaid' ) );
 				} ).always( function () { runBusy = false; } );
 			}
-			// STARTING A STOPPED RUN AGAIN. It is its own press rather than one
-			// of post()'s, because the answer REPLACES the block the button is
-			// drawn in — and the redrawn block is the answer: the figures move.
+			// CALLING A RUN OFF. It throws work away, so it asks first — and it
+			// says in the question what is KEPT, which is the half somebody
+			// hesitating actually needs.
+			$( document ).on( 'click', '.dze-auto-stop', function () {
+				if ( ! window.confirm( '<?php echo esc_js( __( 'Drop the pages still waiting their turn? What is already written and waiting for your yes or no is kept.', 'dazont-ecom' ) ); ?>' ) ) { return; }
+				runOn( $( this ), 'dze_auto_run_stop', false );
+			} );
+			// STARTING A STOPPED RUN AGAIN. Both presses REPLACE the block they
+			// are drawn in, which is why neither goes through post(): the
+			// redrawn block is the answer, and the figures in it move.
 			$( document ).on( 'click', '.dze-auto-again', function () {
-				var $b = $( this );
+				runOn( $( this ), 'dze_auto_run_again', true );
+			} );
+			function runOn( $b, action, keepGoing ) {
 				$b.prop( 'disabled', true );
-				busy( $b.siblings( '.dze-auto-restarted' ), true );
+				busy( $( '.dze-auto-restarted' ), true );
 				$.post( window.ajaxurl, {
-					action: 'dze_auto_run_again',
+					action: action,
 					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>'
 				} ).done( function ( r ) {
 					var d = ( r && r.data ) || {};
@@ -1844,13 +1854,14 @@ final class DZE_Automation {
 					runFails = 0;
 					// The watcher, not a step: a press whose answer is wiped
 					// off the screen a hundredth of a second later has not
-					// answered. The figures take over from the sentence.
-					runWatch( true );
+					// answered. The figures take over from the sentence. And a
+					// run that was called off has nothing left to watch.
+					runWatch( keepGoing );
 				} ).fail( function () {
 					$b.prop( 'disabled', false );
 					$( '.dze-auto-restarted' ).text( '<?php echo esc_js( __( 'That did not go through. Try again.', 'dazont-ecom' ) ); ?>' );
 				} );
-			} );
+			}
 			// While there is work left this page IS the engine — one step per
 			// tick, never two at once. Once it is empty the watching stops:
 			// polling an idle queue is a request a second for nothing.
@@ -2023,12 +2034,25 @@ final class DZE_Automation {
 			}
 			echo '</p>';
 		}
-		// ONE CONTROL, AND IT IS SHOWN ONLY WHERE IT CAN ACT.
-		if ( $stuck || $bad > 0 ) {
+		// TWO CONTROLS, EACH SHOWN ONLY WHERE IT CAN ACT. "Start it again > Il
+		// faut une option aussi pour annuler": the block had one, and it put
+		// the work BACK — a run started by mistake could be restarted for ever
+		// and never called off.
+		$again = $stuck || $bad > 0;
+		$off   = $left > 0 || $bad > 0;
+		if ( $again || $off ) {
 			echo '<p class="dze-auto-runact">';
-			echo '<button type="button" class="button dze-auto-again" title="' . esc_attr__( 'Lets the writer go, puts back what could not be written, and starts the queue again. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ) . '">'
-				. esc_html__( 'Start it again', 'dazont-ecom' ) . '</button>';
-			echo ' <span class="dze-auto-restarted"></span></p>';
+			if ( $again ) {
+				echo '<button type="button" class="button dze-auto-again" title="' . esc_attr__( 'Lets the writer go, puts back what could not be written, and starts the queue again. Nothing is saved to the shop until you accept it.', 'dazont-ecom' ) . '">'
+					. esc_html__( 'Start it again', 'dazont-ecom' ) . '</button> ';
+			}
+			if ( $off ) {
+				// A PRESS THAT THROWS WORK AWAY IS NEVER A BARE WORD: its hover
+				// says what goes and, above all, what stays.
+				echo '<button type="button" class="button dze-auto-stop" title="' . esc_attr__( 'Drops the pages still waiting their turn and the ones that could not be written. What is already written and waiting for your yes or no is kept, and so is everything you have accepted.', 'dazont-ecom' ) . '">'
+					. esc_html__( 'Stop', 'dazont-ecom' ) . '</button> ';
+			}
+			echo '<span class="dze-auto-restarted"></span></p>';
 		}
 		echo '</div>';
 	}
@@ -2509,6 +2533,35 @@ final class DZE_Automation {
 					number_format_i18n( $back )
 				)
 				: __( 'The writer is free. The queue is going again.', 'dazont-ecom' ),
+		] );
+	}
+
+	/**
+	 * CALLS A RUN OFF. The other half of "start it again", and the half that
+	 * was missing: a press that only ever puts work back is not a control over
+	 * the work.
+	 *
+	 * What it drops is decided by the queue, in one place — what waits its turn
+	 * and what could not be written. Nothing written is ever thrown away here.
+	 */
+	public static function ajax_run_stop(): void {
+		self::guard();
+		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
+			wp_send_json_error( [ 'message' => __( 'The writing queue is switched off.', 'dazont-ecom' ) ] );
+		}
+		$gone = (int) DZE_Queue::drop_waiting( self::my_kinds() );
+		ob_start();
+		self::render_run();
+		wp_send_json_success( [
+			'run'     => (string) ob_get_clean(),
+			'waiting' => self::waiting_html(),
+			'message' => $gone > 0
+				? sprintf(
+					/* translators: %s: how many pages were dropped from the queue */
+					_n( '%s called off. Nothing written was thrown away.', '%s called off. Nothing written was thrown away.', $gone, 'dazont-ecom' ),
+					number_format_i18n( $gone )
+				)
+				: __( 'There was nothing left to call off.', 'dazont-ecom' ),
 		] );
 	}
 

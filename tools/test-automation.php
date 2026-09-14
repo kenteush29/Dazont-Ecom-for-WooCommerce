@@ -334,6 +334,12 @@ class DZE_Queue {
 		self::$retried = $kinds;
 		return (int) ( self::$counts['failed'] ?? 0 );
 	}
+	/** What a run called off drops: what waits its turn and what failed. */
+	public static array $dropped = [];
+	public static function drop_waiting( array $kinds ): int {
+		self::$dropped = $kinds;
+		return (int) ( self::$counts['queued'] ?? 0 ) + (int) ( self::$counts['failed'] ?? 0 );
+	}
 	/** How many finished jobs of these kinds are waiting for a decision. */
 	public static function review_count_for( array $kinds ): int {
 		$n = 0;
@@ -489,6 +495,7 @@ function fresh( array $tasks = [] ): void {
 	DZE_Queue::$idle_kinds = [];
 	DZE_Queue::$unlocked   = 0;
 	DZE_Queue::$retried    = [];
+	DZE_Queue::$dropped    = [];
 	$GLOBALS['failures']   = [
 		[ 'kind' => 'cat_links', 'object_id' => 21, 'error' => 'The model refused: the description is empty.' ],
 	];
@@ -1426,6 +1433,52 @@ sort( DZE_Queue::$retried );
 ok( 'and puts back its own kinds',       DZE_Queue::$retried, [ 'cat_desc', 'cat_links', 'post_links' ] );
 ok( 'the answer carries the bar',        false !== strpos( (string) ( $dze_again['data']['run'] ?? '' ), 'dze-auto-bar' ), true );
 ok( 'and says what it did',              false !== strpos( (string) ( $dze_again['data']['message'] ?? '' ), '3' ), true );
+
+echo "\nCalling a run off\n";
+//
+// "Start it again > Il faut une option aussi pour annuler." The block had ONE
+// control and it put the work back: two hundred pages queued by mistake could
+// be restarted for ever and never stopped.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 194, 'running' => 0, 'review' => 3, 'applied' => 0, 'failed' => 3, 'skipped' => 0 ];
+DZE_Queue::$idle   = 4;
+ob_start();
+DZE_Automation::render_run();
+$dze_run = (string) ob_get_clean();
+ok( 'a run under way can be stopped',    substr_count( $dze_run, 'dze-auto-stop' ), 1 );
+// IT SAYS WHAT IT WILL DROP AND WHAT IT KEEPS, on its own hover — a press that
+// throws work away must never be a bare word.
+ok( 'and its hover says what it keeps',
+	false !== stripos( $dze_run, 'waiting for your yes or no' ), true );
+
+// A CONTROL THAT CANNOT ACT IS NOT SHOWN. With nothing queued and nothing
+// failed there is no run to call off.
+DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 5, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+ob_start();
+DZE_Automation::render_run();
+ok( 'nothing to stop, no button',        false !== strpos( (string) ob_get_clean(), 'dze-auto-stop' ), false );
+// AND WORK THAT ONLY FAILED IS STILL WORK TO CALL OFF: the failure line and
+// the way to be rid of it belong together.
+DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 3, 'skipped' => 0 ];
+ob_start();
+DZE_Automation::render_run();
+$dze_bad = (string) ob_get_clean();
+ok( 'failures alone can be cleared',     substr_count( $dze_bad, 'dze-auto-stop' ), 1 );
+ok( 'beside the way to try them again',  substr_count( $dze_bad, 'dze-auto-again' ), 1 );
+
+// THE PRESS ITSELF.
+fresh( $ON );
+DZE_Queue::$counts  = [ 'queued' => 194, 'running' => 0, 'review' => 3, 'applied' => 0, 'failed' => 3, 'skipped' => 0 ];
+DZE_Queue::$dropped = [];
+$dze_stop = sent_of( static function (): void { DZE_Automation::ajax_run_stop(); } );
+ok( 'the press answers',                 (bool) ( $dze_stop['ok'] ?? false ), true );
+sort( DZE_Queue::$dropped );
+ok( 'it drops its own kinds',            DZE_Queue::$dropped, [ 'cat_desc', 'cat_links', 'post_links' ] );
+ok( 'and says how many it called off',   false !== strpos( (string) ( $dze_stop['data']['message'] ?? '' ), '197' ), true );
+// EVERY FIGURE THE PRESS CAN MOVE COMES BACK WITH IT, or the screen answers
+// for the page as it was opened.
+ok( 'the answer carries the bar',        array_key_exists( 'run', (array) ( $dze_stop['data'] ?? [] ) ), true );
+ok( 'and the rows still waiting',        array_key_exists( 'waiting', (array) ( $dze_stop['data'] ?? [] ) ), true );
 
 // AND THE SCREEN CARRIES THE POPUP THE CHIP OPENS: a button whose popup is not
 // on the page does nothing and says nothing.
