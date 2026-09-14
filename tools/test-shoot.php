@@ -256,6 +256,24 @@ ok( 'the product leads when the screen says so',
 // a reference, not a second product.
 ok( 'and what was added is a reference',   $GLOBALS['told'][5] ?? -1, 1 );
 ok( 'the product is not "a subject" of its own', $GLOBALS['told'][4] ?? null, false );
+// WHAT IT IS A REFERENCE FOR is the owner's answer, and it travels. "Il faut
+// donner l'autorisation de copier les images additionnelles externes. Ce sont
+// des images souvent uniques mais qui doivent être retravaillées." The plugin
+// answered it on its own — SETTING only, take nothing from them — so a unique
+// shot handed in to be reworked was refused by an appended sentence nobody
+// could see.
+ok( 'with no answer it is a setting',      $GLOBALS['told'][6] ?? '?', 'set' );
+[ $out, $err ] = shoot( [
+	'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'base_main' => 1, 'refs_use' => 'copy' ] );
+ok( 'and the copy answer reaches the brief', $GLOBALS['told'][6] ?? '?', 'copy' );
+ok( 'while the product still leads the sources',
+	$GLOBALS['sent']['sources'], [
+		'data:image/jpeg;base64,IMG11/full', 'data:image/jpeg;base64,IMG12/large', 'data:pasted' ] );
+// Anything else is the setting: a word we do not know must never be read as
+// permission to copy.
+[ $out, $err ] = shoot( [
+	'post' => 7, 'template' => 1, 'pastes' => [ 'data:one' ], 'base_main' => 1, 'refs_use' => 'whatever' ] );
+ok( 'a word we do not know is the setting', $GLOBALS['told'][6] ?? '?', 'set' );
 
 // A PICKED PHOTOGRAPH IS AN ANSWER TOO, and it never reached this function:
 // the toolbox posted src_id and only the main-image lane ever read it, so

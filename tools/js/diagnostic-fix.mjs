@@ -97,6 +97,9 @@ const cfg = {
 		stepElse: 'Other photographs', noteTitle: 'Note', noteHelp: '', notePh: '',
 		subjLabel: 'Subject', subjMainOpt: 'Main photograph', subjOne: 'Photograph',
 		subjPasteOpt: 'The photograph you added', subjPasteOptN: 'The photographs you added',
+		refsLabel: 'What you added is for',
+		refsSet: 'The setting — the place, the light, the mood',
+		refsCopy: 'Working from — its design goes on the product',
 		baseMain: 'Use the main image', baseMainTip: '', varTitle: 'Variations',
 		varIntro: '', varOpen: 'Open', priceOpt: 'Recalculate', costLabel: 'Cost',
 		pricePreview: 'Preview', pvEdit: 'Edit', blocked: 'Blocked', error: 'error' }
@@ -583,6 +586,33 @@ for ( const [ label, jq ] of jqs ) {
 	// request says the product.
 	ok( 'and saying the PRODUCT is the subject', asked[0].base_main, '1' );
 	ok( 'with no photograph of its own picked',  asked[0].src_id, undefined );
+	// AND WHAT IT WAS HANDED IN FOR. "Il faut donner l'autorisation de copier
+	// les images additionnelles externes. Ce sont des images souvent uniques
+	// mais qui doivent être retravaillées." The plugin answered that question
+	// itself, in capitals, and answered it one way — the setting, take nothing
+	// from them — so the one thing a unique shot is handed in for could not be
+	// asked for at all.
+	ok( 'the toolbox asks what was added is for',
+		await page.isVisible( '#dze-cx-refsline' ), true );
+	ok( 'it opens on the setting',
+		await page.inputValue( '#dze-cx-refsline .dze-cx-refspick' ), 'set' );
+	// A DEFAULT POSTS WHAT IT SAYS.
+	ok( 'and the run says so', asked[0].refs_use, 'set' );
+	await page.selectOption( '#dze-cx-refsline .dze-cx-refspick', 'copy' );
+	seen = posts.filter( p => 'dze_content_image' === p.action ).length;
+	await page.click( '#dze-cx-run' );
+	await page.waitForTimeout( 600 );
+	asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
+	ok( 'the permission to work from them goes on the wire',
+		asked.length ? asked[0].refs_use : 'never asked', 'copy' );
+	ok( 'with the product still the subject',
+		asked.length ? asked[0].base_main : 'never asked', '1' );
+	// A QUESTION ALREADY ANSWERED IS NOT ASKED TWICE: the handed-in set chosen
+	// as the subject says what it is for.
+	await page.selectOption( '#dze-cx-subject', 'paste' );
+	ok( 'and the question goes when the added one IS the product',
+		await page.isVisible( '#dze-cx-refsline' ), false );
+	await page.selectOption( '#dze-cx-subject', '0' );
 
 	// THE OTHER ANSWER IS ON THE SAME PICKER, and it means what pasting used
 	// to mean on its own.

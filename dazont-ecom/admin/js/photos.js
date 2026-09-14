@@ -268,14 +268,42 @@
 		$s.val($s.find('option[value="' + was + '"]').length ? was : '0');
 	}
 
+	// WHAT THE PHOTOGRAPHS HANDED IN ARE FOR. "Il faut donner l'autorisation de
+	// copier les images additionnelles externes. Ce sont des images souvent
+	// uniques mais qui doivent être retravaillées." The plugin answered that
+	// on its own, invisibly and in capitals — a handed-in photograph was a
+	// SETTING and taking a colour, a pattern or an object from it was
+	// forbidden — so the one thing a unique shot is handed in for could not be
+	// asked for at all. It is a question, and it is the owner's.
+	//
+	// Shown only where it can act: nothing handed in, or the handed-in set IS
+	// the subject, and there is nothing to answer.
+	//
+	// @param {jQuery} $line  the label wrapping the select
+	// @param {number} pasted how many photographs were handed in
+	// @param {string} pick   the subject picker's own answer
+	// @param {Object} words  refsSet / refsCopy
+	function refsUse($line, pasted, pick, words) {
+		if (!$line || !$line.length) { return; }
+		var $s = $line.find('.dze-cx-refspick');
+		if (!$s.find('option').length) {
+			$s.append($('<option value="set"></option>').text(words.refsSet || ''))
+				.append($('<option value="copy"></option>').text(words.refsCopy || ''));
+		}
+		$line.toggle(!!pasted && 'paste' !== String(pick || '0'));
+	}
+
 	// What a picker's answer means on the wire, in ONE place: "main photograph"
 	// and a chosen one both say the product is image 1, and only "paste" leaves
 	// the pasted set leading. A default that sends nothing is not an answer.
-	function subjectInto(data, pick) {
+	function subjectInto(data, pick, use) {
 		if ('paste' === String(pick || '0')) { return data; }
 		data.base_main = 1;
 		var subj = parseInt(pick, 10) || 0;
 		if (subj) { data.src_id = subj; }
+		// The same rule for the second answer: it POSTS what it says, on its
+		// default as much as on the other one.
+		data.refs_use = 'copy' === String(use || '') ? 'copy' : 'set';
 		return data;
 	}
 
@@ -286,6 +314,7 @@
 		countSections: function () { return window.dzeHub.count(); },
 		render: render,
 		subjects: subjects,
+		refsUse: refsUse,
 		subjectInto: subjectInto,
 		on: function (name, fn) { handlers[name] = fn; }
 	};

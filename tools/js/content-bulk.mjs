@@ -74,6 +74,7 @@ for ( const [ label, jq ] of jqs ) {
 		sent.push( { action: q.get( 'action' ), do: q.get( 'do' ), ids: q.getAll( 'ids[]' ),
 			paste: q.get( 'paste' ), post: q.get( 'post' ), note: q.get( 'note' ),
 			baseMain: q.get( 'base_main' ), srcId: q.get( 'src_id' ),
+			refsUse: q.get( 'refs_use' ),
 			pastes: q.getAll( 'pastes[]' ).length } );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		if ( 'dze_content_image' === q.get( 'action' ) ) {
@@ -352,7 +353,8 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and it asks the server to refuse, by id',
 		sent.slice( before ),
 		[ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ],
-			paste: null, post: null, note: null, baseMain: null, srcId: null, pastes: 0 } ] );
+			paste: null, post: null, note: null, baseMain: null, srcId: null,
+			refsUse: null, pastes: 0 } ] );
 	// THE PRODUCT STAYS. This is the whole of it: it used to leave the screen.
 	ok( 'the product is still on the list',
 		await page.locator( '.dze-cb-row[data-id="7"]' ).count(), 1 );
@@ -400,6 +402,10 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ).count(), 1 );
 	ok( 'and it opens on the main photograph',
 		await page.inputValue( '.dze-cb-preview[data-id="7"] .dze-cb-subject' ), '0' );
+	// AND THE SECOND QUESTION IS NOT ASKED WHERE IT CANNOT BE ANSWERED. What
+	// the handed-in photographs are for means nothing with nothing handed in.
+	ok( 'and it does not ask what was added is for, with nothing added',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).isVisible(), false );
 	// Folded away until it is wanted, like the box above it: opened the way
 	// somebody opens it.
 	ok( 'folded away until it is wanted',
@@ -428,6 +434,11 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the run says the product is the subject',
 		( shots[ 0 ] || {} ).baseMain, '1' );
 	ok( 'naming no other photograph of it', ( shots[ 0 ] || {} ).srcId, null );
+	// A DEFAULT POSTS WHAT IT SAYS — for the second answer as much as the
+	// first. Sent as nothing, the server reads its own default, and the day
+	// that default changes the screen and the run say different things.
+	ok( 'and it says what the added photographs are for',
+		( shots[ 0 ] || {} ).refsUse, 'set' );
 
 	// ---- A MINI LOG, ON THE PRODUCT YOU ARE LOOKING AT ----
 	//
@@ -611,6 +622,24 @@ for ( const [ label, jq ] of jqs ) {
 	// picker that says which photograph is the product.
 	ok( 'and the picker offers it as the subject',
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject option[value="paste"]' ).count(), 1 );
+
+	// ---- AND WHAT IT WAS HANDED IN FOR IS ASKED, NOT DECIDED FOR HIM ----
+	//
+	// "Il faut donner l'autorisation de copier les images additionnelles
+	// externes. Ce sont des images souvent uniques mais qui doivent être
+	// retravaillées." The plugin appended a sentence forbidding exactly that,
+	// in capitals, with nothing on screen saying so.
+	ok( 'the panel now asks what was added is for',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).isVisible(), true );
+	ok( 'and it opens on the setting',
+		await page.inputValue( '.dze-cb-preview[data-id="7"] .dze-cb-refsline .dze-cx-refspick' ), 'set' );
+	// A QUESTION ALREADY ANSWERED IS NOT ASKED AGAIN: choosing the handed-in
+	// set as the subject says what it is for.
+	await page.selectOption( '.dze-cb-preview[data-id="7"] .dze-cb-subject', 'paste' );
+	ok( 'and it goes away when the added one IS the product',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-refsline' ).isVisible(), false );
+	await page.selectOption( '.dze-cb-preview[data-id="7"] .dze-cb-subject', '0' );
+	await page.selectOption( '.dze-cb-preview[data-id="7"] .dze-cb-refsline .dze-cx-refspick', 'copy' );
 	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
 
 	const wasPaste = sent.length;
@@ -622,6 +651,13 @@ for ( const [ label, jq ] of jqs ) {
 	// order was built, so the request carried nothing at all.
 	ok( 'and what was handed in travelled with it',
 		( withPaste[ 0 ] || {} ).pastes, 1 );
+	// AND THE ANSWER TRAVELLED WITH THEM. Only a browser can see what a press
+	// puts on the wire: the select can be right on the screen and the request
+	// carry nothing.
+	ok( 'and the permission to work from them travelled too',
+		( withPaste[ 0 ] || {} ).refsUse, 'copy' );
+	ok( 'with the product still the subject',
+		( withPaste[ 0 ] || {} ).baseMain, '1' );
 	// AND THE HALF THAT WAS VISIBLE: the box was still on the screen afterwards.
 	if ( ! await page.locator( '.dze-cb-preview[data-id="7"]' ).isVisible() ) {
 		await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
