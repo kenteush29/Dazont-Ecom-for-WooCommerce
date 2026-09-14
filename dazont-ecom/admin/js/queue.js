@@ -86,7 +86,9 @@
 				// ITS ID, IN ITS OWN COLUMN — the same column every other list
 				// in the plugin has, under the heading the server printed. Two
 				// products with one name are told apart by nothing else.
-				'<td><strong>' + esc(r.label) + '</strong></td>' +
+				// The name and the two ways to it, from the one function that
+				// prints an object's name in the browser.
+				'<td><strong>' + window.dzeHub.named(r.label, r.edit, r.view, i18n.visitTip) + '</strong></td>' +
 				'<td class="dze-objid-td">' +
 					(r.oid ? '<code class="dze-objid">' + esc(r.oid) + '</code>' : '') +
 				'</td><td>' + esc(r.kind) + '</td>' +

@@ -120,6 +120,10 @@ for ( const [ label, jq ] of jqs ) {
 		+ `}}};</script>`
 		+ `</head><body><div id="wpbody-content">${dumped.html}`
 		+ `<div id="dze-q-modal"><h2 id="dze-q-title"></h2><div id="dze-q-body"></div></div></div>`
+		// The rows are drawn with the shared machinery, so it has to be on the
+		// page: without hub.js the first row dies on `window.dzeHub` and there
+		// is nothing left to press.
+		+ `<script>${readFileSync( join( js, 'hub.js' ), 'utf8' )}</script>`
 		+ `<script>${readFileSync( join( js, 'queue.js' ), 'utf8' )}</script></body></html>` } ) );
 
 	// ---- A WORDPRESS ARTICLE ----

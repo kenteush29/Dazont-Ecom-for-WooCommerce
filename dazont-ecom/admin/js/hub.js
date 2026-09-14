@@ -32,6 +32,28 @@
 	 * the same markup in DZE_Content::sec_open() — same classes, same order —
 	 * so this machinery drives both.
 	 */
+	/**
+	 * AN OBJECT'S NAME ON A ROW — and the two ways to it, never separated.
+	 *
+	 * The mirror of DZE_Hub::named() for the lists this machinery draws. The
+	 * Content to review list printed its label as plain text: it named a
+	 * category, a product or an article and offered no way to any of them, not
+	 * even the editor. "Ça devrait être automatique de ta part toujours."
+	 *
+	 * An address that was not sent prints nothing rather than a link to "#" —
+	 * a control that cannot act is a control nobody trusts.
+	 */
+	Hub.named = function (name, edit, view, tip) {
+		var said = esc(name);
+		if (edit) { said = '<a href="' + esc(edit) + '">' + said + '</a>'; }
+		if (view) {
+			said += ' <a class="dze-hub-visit" href="' + esc(view) + '" target="_blank" rel="noopener"' +
+				' title="' + esc(tip || '') + '">' +
+				'<span class="dashicons dashicons-external"></span></a>';
+		}
+		return said;
+	};
+
 	Hub.sec = function (id, title, open, body, tick) {
 		var box = tick
 			? '<label class="dze-sec-tick" title="' + esc(tick.tip || '') + '">' +

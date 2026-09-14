@@ -686,14 +686,25 @@ for ( const [ label, jq ] of jqs ) {
 		{ state: 'visible', timeout: 6000 } ).then( () => true ).catch( () => false );
 	ok( 'the run left a photograph on the row', hasShot, true );
 	if ( hasShot ) {
-		// IT IS THERE WITHOUT THE MOUSE. Shown only on hover it is a control
-		// used once and never found again.
+		// IT IS THERE, AND IT COMES UP ON HOVER LIKE THE ZOOM BESIDE IT — the
+		// same gesture, the same corner, the same rule. What was wrong was
+		// never the hover: this cross existed on the toolbox and on neither of
+		// the two screens beside it.
+		const $cross = page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).first();
 		ok( 'and it carries a cross',
 			await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).count() >= 1, true );
-		ok( 'visible without hovering anything',
-			await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).first().isVisible(), true );
+		ok( 'out of the way until the mouse is on the image',
+			await $cross.evaluate( el => getComputedStyle( el ).opacity ), '0' );
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shot' ).first().hover();
+		// The rule fades it in, so the reading has to be taken after the fade
+		// rather than in the middle of it.
+		const up = await page.waitForFunction( () => {
+			const el = document.querySelector( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' );
+			return el && '1' === getComputedStyle( el ).opacity;
+		}, null, { timeout: 2000 } ).then( () => true ).catch( () => false );
+		ok( 'and up under it', up, true );
 		const wasDrop = sent.length;
-		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).first().click();
+		await $cross.click();
 		await page.waitForTimeout( 500 );
 		const dropped = sent.slice( wasDrop ).filter( r => 'dze_content_pending_clear' === r.action );
 		// AND IT TELLS THE SERVER. Off the screen only, the image stays in the

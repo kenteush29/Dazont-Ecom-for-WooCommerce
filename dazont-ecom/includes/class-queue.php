@@ -1079,6 +1079,34 @@ final class DZE_Queue {
 		return '';
 	}
 
+	/**
+	 * Where this object is CHANGED, and where a reader SEES it.
+	 *
+	 * A job's kind already says what it is about — that is how `holds_now()`
+	 * and `apply()` know — so it says where the object lives too, in one place
+	 * rather than in each list that draws a row.
+	 */
+	public static function edit_link( string $kind, int $object_id ): string {
+		if ( ! $object_id ) {
+			return '';
+		}
+		if ( 0 === strpos( $kind, 'cat_' ) ) {
+			$url = get_edit_term_link( $object_id, 'product_cat' );
+			return is_string( $url ) ? $url : '';
+		}
+		return (string) get_edit_post_link( $object_id, '' );
+	}
+
+	public static function view_link( string $kind, int $object_id ): string {
+		if ( ! $object_id ) {
+			return '';
+		}
+		$url = 0 === strpos( $kind, 'cat_' )
+			? get_term_link( $object_id, 'product_cat' )
+			: get_permalink( $object_id );
+		return ( is_string( $url ) && '' !== $url ) ? $url : '';
+	}
+
 	public static function label_for( string $kind, int $object_id ): string {
 		if ( 0 === strpos( $kind, 'cat_' ) ) {
 			$t = get_term( $object_id, 'product_cat' );
@@ -1539,7 +1567,11 @@ final class DZE_Queue {
 		if ( class_exists( 'DZE_Prompts' ) ) {
 			DZE_Prompts::print_assets(); // the review popup shows the prompt behind the job.
 		}
-		wp_enqueue_script( 'dze-queue', DZE_URL . 'admin/js/queue.js', [ 'jquery' ], DZE_VERSION, true );
+		// A BODY TAKES ITS ASSETS WITH IT, and the rows here are drawn by the
+		// shared machinery now: without hub.js on the page, the first row would
+		// die on `window.dzeHub` being undefined and the whole list with it.
+		DZE_Hub::assets();
+		wp_enqueue_script( 'dze-queue', DZE_URL . 'admin/js/queue.js', [ 'jquery', 'dze-hub' ], DZE_VERSION, true );
 		wp_localize_script( 'dze-queue', 'dzeQueue', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
@@ -1596,6 +1628,8 @@ final class DZE_Queue {
 				'keepShot'    => __( 'Keep it', 'dazont-ecom' ),
 				'againShot'   => __( 'Make another', 'dazont-ecom' ),
 				'dropShot'    => __( 'Throw it away', 'dazont-ecom' ),
+				// The same word the server-printed lists put on that symbol.
+				'visitTip'    => DZE_Hub::visit_word(),
 				'openProduct' => __( 'Open the product', 'dazont-ecom' ),
 				/* translators: %s: number of texts */
 				'confirmAccept' => __( 'Save %s texts onto their categories, as written? Anything you wanted to edit should be opened one by one instead.', 'dazont-ecom' ),
@@ -1644,6 +1678,13 @@ final class DZE_Queue {
 				// the browser, so the figure has to travel — a screen cannot
 				// print what it was never sent.
 				'oid'      => (int) $r['object_id'],
+				// AND THE TWO WAYS TO IT. This list named an object and offered
+				// no way to it at all — not even its editor: the label was
+				// plain text. "Tu as oublié le bouton lien pour aller voir la
+				// page on site. Ça devrait être automatique." A row drawn in
+				// the browser can only print what it was sent.
+				'edit'     => self::edit_link( (string) $r['kind'], (int) $r['object_id'] ),
+				'view'     => self::view_link( (string) $r['kind'], (int) $r['object_id'] ),
 				'kind'     => (string) ( self::kinds()[ $r['kind'] ]['label'] ?? $r['kind'] ),
 				'status'   => (string) $r['status'],
 				'error'    => (string) ( $r['error'] ?? '' ),

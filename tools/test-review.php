@@ -608,7 +608,11 @@ $dze_js   = (string) file_get_contents( __DIR__ . '/../' . $dir . '/admin/js/que
 ok( 'the review table heads the id right after the item',
 	(bool) preg_match( '/\x27Item\x27, \x27dazont-ecom\x27 \); \?><\/th>\s*<\?php echo wp_kses_post\( DZE_Hub::id_th\(\)/', $dze_head ), true );
 ok( 'and its cell sits between that name and the job',
-	(bool) preg_match( '/esc\(r\.label\)[\s\S]{0,400}?dze-objid-td[\s\S]{0,200}?esc\(r\.kind\)/', $dze_js ), true );
+	// The name is printed by the one function that prints an object's name in
+	// the browser, so this reads THAT rather than a raw `esc(r.label)` — the
+	// pair it builds (the editor and the page a reader sees) is exactly what
+	// must not be separated from the name again.
+	(bool) preg_match( '/dzeHub\.named\( *r\.label[\s\S]{0,400}?dze-objid-td[\s\S]{0,200}?esc\(r\.kind\)/', $dze_js ), true );
 // The empty line spans the whole table: one short of the columns it sits under
 // leaves a ragged row that reads as a broken screen.
 ok( 'and an empty line spans every column of it',

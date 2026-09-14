@@ -108,6 +108,39 @@ final class DZE_Hub {
 	 * because a row already carries a name and a second worded link beside it
 	 * is two things to aim at.
 	 */
+	/**
+	 * AN OBJECT'S NAME ON A ROW — and the two ways to it, which are never
+	 * separated again.
+	 *
+	 * "To review, tu as oublié le bouton lien pour aller voir la page on site.
+	 * Ça devrait être automatique de ta part toujours pour l'UX ou l'UI."
+	 *
+	 * It was: the symbol went onto Past work, then onto Next in line, and was
+	 * forgotten on the one list where somebody is actually deciding — because
+	 * each of those three built the same markup by hand. A rule that has to be
+	 * remembered on every new list is a rule that will be missed on one of
+	 * them. This is the only way a name is printed now, so the way to the page
+	 * arrives with it and a list written next year needs to know nothing.
+	 *
+	 * @param string $name The object's own name, unescaped.
+	 * @param string $edit Where it is CHANGED — empty prints plain text rather
+	 *                     than a link to nowhere.
+	 * @param string $view Where a READER sees it — empty prints no symbol,
+	 *                     never one pointing at "#".
+	 */
+	public static function named( string $name, string $edit, string $view = '' ): string {
+		$said = esc_html( $name );
+		if ( '' !== trim( $edit ) ) {
+			$said = '<a href="' . esc_url( $edit ) . '">' . $said . '</a>';
+		}
+		return $said . self::visit_link( $view );
+	}
+
+	/** The word on that symbol, in one place: the browser lists print it too. */
+	public static function visit_word(): string {
+		return __( 'See it on the site', 'dazont-ecom' );
+	}
+
 	public static function visit_link( string $url ): string {
 		if ( '' === trim( $url ) ) {
 			return '';

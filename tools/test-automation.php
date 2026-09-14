@@ -1911,6 +1911,65 @@ ok( 'and every row offers the page itself', $dze_bad, 0 );
 ok( 'in a new tab',                    false !== strpos( $dze_nx, 'target="_blank"' ), true );
 ok( 'at the address a reader uses',    false !== strpos( $dze_nx, 'https://kula.test/blog/20/' ), true );
 
+echo "\nEVERY ROW THAT NAMES A PAGE OFFERS THE WAY TO SEE IT\n";
+// "To review, tu as oublié le bouton lien pour aller voir la page on site. Ça
+// devrait être automatique de ta part toujours pour l'UX ou l'UI."
+//
+// It was forgotten because the three lists that name an object each built the
+// same markup by hand: the symbol went onto Past work, then onto Next in line,
+// and never onto the one list where somebody is actually deciding. So the
+// screen is DRAWN and every one of them is read back — a rule that has to be
+// remembered on each new list is a rule that will be missed on one of them.
+$GLOBALS['permalinks'] = [
+	6223        => 'https://kula.test/tactical-backpack-covers',
+	987632358   => 'https://kula.test/the-sniper-role',
+];
+$GLOBALS['review_rows'] = [
+	'post_links' => [ [ 'id' => 42, 'oid' => 987632358, 'label' => 'The sniper role',
+		'job' => 'Article internal links', 'from' => 'Automatic', 'when' => '15/09/2026 01:17' ] ],
+];
+$GLOBALS['applied_rows'] = [
+	[ 'id' => 51, 'kind' => 'cat_links', 'object_id' => 6223, 'from' => 0,
+		'when' => '14/09/2026 10:00', 'result' => '<p>x</p>' ],
+];
+// The list only draws where something is actually waiting, so the fake queue
+// has to say so — a screen asserted on an empty list asserts nothing.
+$GLOBALS['counts_for']    = [ 'review' => 1, 'queued' => 0, 'running' => 0, 'failed' => 0, 'applied' => 0 ];
+$GLOBALS['review_by_kind'] = [ 'post_links' => 1 ];
+ob_start();
+DZE_Automation::render_page();
+$dze_screen = (string) ob_get_clean();
+ok( 'the waiting row is on the screen',
+	false !== strpos( $dze_screen, 'The sniper role' ), true );
+ok( 'and it carries the way to see the page',
+	false !== strpos( $dze_screen, 'kula.test/the-sniper-role' ), true );
+ok( 'as the plugin\'s own symbol',
+	false !== strpos( $dze_screen, 'dze-hub-visit' ), true );
+// AND IT IS THE ONE FUNCTION THAT PRINTS A NAME, so a list written next year
+// gets the link without knowing anything: no renderer builds that anchor by
+// hand any more.
+$dze_auto_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
+ok( 'no list builds the name by hand',
+	substr_count( $dze_auto_src, "'\">' . \$name . '</a>'" ), 0 );
+// AND THE KIND IS ASKED OF THE ONE FUNCTION THAT KNOWS IT. Three copies of
+// "cat_ means a category" sat beside what_is(), which is how Next in line once
+// handed four rows in five an address for a term that does not exist.
+// ONCE, and inside the function that owns the question. Three copies of it
+// sat beside what_is(), which is how Next in line once handed four rows in
+// five an address for a term that does not exist — and merging them onto a
+// what_is() that understood only the task's vocabulary turned every category
+// JOB into a post, so a page dropped from a run stopped being let go.
+ok( 'the kind is answered in exactly one place',
+	substr_count( $dze_auto_src, "strpos( \$kind, 'cat_' )" )
+		+ substr_count( $dze_auto_src, "strpos( (string) \$row['kind'], 'cat_' )" ), 1 );
+// AND IT ANSWERS FOR BOTH VOCABULARIES: a task names its scope, a queue row
+// names its job kind, and both are asking the same thing.
+$dze_what = new ReflectionMethod( 'DZE_Automation', 'what_is' );
+$dze_what->setAccessible( true );
+ok( 'a category job is a term',   $dze_what->invoke( null, 'cat_links' ), 'term' );
+ok( 'an article job is a post',   $dze_what->invoke( null, 'post_links' ), 'post' );
+ok( "a task's own scope still answers", $dze_what->invoke( null, 'product_cat' ), 'term' );
+
 echo "\nA RETIRED HOOK IS CLEARED WHATEVER THE SHOP LOOKS LIKE\n";
 // "Un cron résiduel tournait. dze_mesh_tick, planifié toutes les heures,
 // n'existe plus dans le code courant… il avait survécu à une mise à jour sans
