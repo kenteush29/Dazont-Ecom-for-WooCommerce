@@ -1718,3 +1718,32 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 /* A PRESS SAYS IT IS WORKING, on every button of this screen. */
 .dze-auto-task .button.is-busy, .dze-auto-bulk .button.is-busy { opacity: .6; }
 .dze-auto-msg .dze-cx-spin { margin-right: 4px; }
+
+/* THE FEATURED IMAGE ON A LIST — the eye recognises a product by its picture
+   long before it reads a title. A fixed box, so a tall photograph and a wide
+   one leave the rows the same height. */
+.dze-thumb-th { width: 52px; }
+.dze-thumb-td { width: 52px; padding-right: 0 !important; }
+.dze-thumb-td img { display: block; width: 40px; height: 40px; object-fit: cover;
+	border: 1px solid #dcdcde; border-radius: 3px; background: #f6f7f7; cursor: zoom-in; }
+/* WHICH EMPTY IT IS: a blank cell reads as a reading that never happened, and
+   on a list of shortfalls having no featured image IS the shortfall. */
+.dze-thumb-none { display: flex; align-items: center; justify-content: center;
+	width: 40px; height: 40px; border: 1px dashed #c3c4c7; border-radius: 3px;
+	color: #a7aaad; background: #fbfbfc; font-size: 13px; }
+
+/* The page as a visitor sees it, beside the name that opens the editor. */
+.dze-hub-visit { text-decoration: none; color: #787c82; vertical-align: text-bottom; }
+.dze-hub-visit:hover { color: #2271b1; }
+.dze-hub-visit .dashicons { font-size: 15px; width: 15px; height: 15px; line-height: 15px; }
+
+/* WHAT IS BEING WRITTEN RIGHT NOW, under the bar that says how much is left. */
+.dze-auto-now { margin: 2px 0 0; }
+.dze-auto-nowjob { color: #787c82; }
+
+/* NEXT IN LINE IS A LIST, NOT A PARAGRAPH — shut by default, one page a line. */
+.dze-auto-nextwrap > summary { cursor: pointer; color: #50575e; font-size: 13px;
+	display: inline-block; margin: 4px 0; }
+.dze-auto-nextlist { margin: 2px 0 8px 18px; }
+.dze-auto-nextone { margin: 0 0 2px; font-size: 13px; list-style: disc; }
+.dze-auto-nextone .dze-auto-why { color: #787c82; }

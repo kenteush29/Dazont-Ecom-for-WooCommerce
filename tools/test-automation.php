@@ -217,7 +217,12 @@ function get_post( $id ) {
 	return $p ? (object) [ 'ID' => (int) $id, 'post_title' => $p['title'], 'post_content' => $p['content'], 'post_type' => $p['type'] ] : null;
 }
 function get_post_type( $id ) { return $GLOBALS['posts'][ (int) $id ]['type'] ?? ''; }
-function get_permalink( $id ) { return 'https://kula.test/' . ( 'page' === get_post_type( $id ) ? '' : 'blog/' ) . $id . '/'; }
+// A page that has no address is a real answer, not a missing stub: a control
+// that cannot act must not be drawn.
+function get_permalink( $id ) {
+	if ( isset( $GLOBALS['permalinks'][ (int) $id ] ) ) { return (string) $GLOBALS['permalinks'][ (int) $id ]; }
+	return 'https://kula.test/' . ( 'page' === get_post_type( $id ) ? '' : 'blog/' ) . $id . '/';
+}
 
 // The two registers the pass writes on the object itself: when each task last
 // worked on it, and the text one that saves straight to the shop replaced.
@@ -400,6 +405,15 @@ class DZE_Queue {
 			foreach ( (array) ( $GLOBALS['review_rows'][ $k ] ?? [] ) as $r ) { $out[] = $r + [ 'kind' => $k ]; }
 		}
 		return array_slice( $out, 0, max( 1, $limit ) );
+	}
+	/** THE ROW BEING WRITTEN RIGHT NOW, in the shape the real reader answers with. */
+	public static function in_flight( array $kinds ): array {
+		foreach ( $kinds as $k ) {
+			if ( ! empty( $GLOBALS['in_flight'][ $k ] ) ) {
+				return (array) $GLOBALS['in_flight'][ $k ] + [ 'kind' => $k ];
+			}
+		}
+		return [];
 	}
 	public static function decide_words(): array {
 		return [ 'accept' => 'Accept: save this text onto the page it was written for', 'refuse' => 'Refuse: throw this text away' ];
@@ -1064,13 +1078,17 @@ ok( 'and asks for the popup it opens',    DZE_Queue::$assets, 1 );
 ok( 'the work is on the page itself',     substr_count( $screen, 'class="dze-auto-job"' ), 2 );
 ok( 'under one heading, not three folds', substr_count( $screen, 'id="dze-auto-waiting"' ), 1 );
 ok( 'and it is not folded away',          false !== strpos( $screen, '<h2 class="dze-auto-h2">To review</h2>' ), true );
-// AND NOT A POPUP ON A SCREEN WITH NOTHING TO DECIDE: an editor loaded for
-// nobody is weight on every page load.
+// AND ON A SCREEN WITH NOTHING WAITING, IT IS STILL THERE. This check used to
+// assert the opposite — no popup where there is nothing to decide, to save the
+// weight of an editor loaded for nobody — and that saving is what broke the
+// button: "le bouton review ne fonctionne pas… seulement après
+// rafraîchissement". An empty list is the state a run STARTS from, and the run
+// is started on this very page.
 fresh( $ON );
 ob_start();
 DZE_Automation::render_settings();
 ob_end_clean();
-ok( 'nothing waiting, no popup loaded',   DZE_Queue::$assets, 0 );
+ok( 'an empty list still carries what its rows will open', DZE_Queue::$assets, 1 );
 
 echo "\nA line somebody can read, and the mechanism one press away\n";
 //
@@ -1734,6 +1752,108 @@ DZE_Automation::render_settings();
 $screen = (string) ob_get_clean();
 ok( 'the popup is printed on the screen', false !== strpos( $screen, 'id="dze-auto-orphmodal"' ), true );
 ok( 'with the body it fills',             false !== strpos( $screen, 'id="dze-auto-orphbody"' ), true );
+
+echo "\nTHE SCREEN THAT MAKES THE ROWS CARRIES WHAT THEY OPEN\n";
+// "Ici c'est cassé le bouton review ne fonctionne pas… seulement après
+// rafraîchissement."
+//
+// The popup those rows open was printed only where something was ALREADY
+// waiting when the page was drawn. But this screen is where the work is
+// STARTED: press Run one now on an empty list and a minute later the block
+// draws rows with a Review button, on a page that holds neither the popup nor
+// the handler that opens it. Refresh and it works — which is exactly the shape
+// of a button bound to markup that arrived after the script decided there was
+// nothing to bind.
+$GLOBALS['q_review'] = [];          // nothing waiting: the state a run starts from
+DZE_Queue::$assets   = 0;
+ob_start();
+DZE_Automation::render_settings();
+$dze_empty_screen = (string) ob_get_clean();
+ok( 'nothing is waiting yet, so the block shows none',
+	false !== strpos( $dze_empty_screen, 'dze-q-open' ), false );
+ok( 'and the screen still carries what a row will open', DZE_Queue::$assets > 0, true );
+// It is still the QUEUE'S own popup — never a second surface printed here,
+// which is two places a decision is signed.
+ok( 'from the module that owns that decision', DZE_Queue::$assets, 1 );
+// AND WITH SOMETHING WAITING IT IS PRINTED ONCE, not twice.
+$GLOBALS['q_review'] = [ [ 'id' => 7, 'kind' => 'post_links', 'object_id' => 501, 'status' => 'review' ] ];
+DZE_Queue::$assets   = 0;
+ob_start(); DZE_Automation::render_settings(); ob_end_clean();
+ok( 'and exactly once when a row is there', DZE_Queue::$assets, 1 );
+// THE MODULE IS STILL THE GATE. Switching the writing queue off must leave no
+// trace of it on this screen — a class file always exists.
+$GLOBALS['mods']['queue'] = false;
+DZE_Queue::$assets = 0;
+ob_start(); DZE_Automation::render_settings(); ob_end_clean();
+ok( 'a switched-off queue prints none of it', DZE_Queue::$assets, 0 );
+$GLOBALS['mods']['queue'] = true;
+
+echo "\nWHILE IT IS WRITING, IT SAYS WHAT IT IS WRITING\n";
+// "Ici je veux plus d'info sur le post qui est en cours de travail. Pendant que
+// ça charge je veux savoir ce que ça charge." The bar said 3% and "1 of 200
+// written" — a figure, and not one word about which of the two hundred pages
+// was being worked on at that moment. The queue has always known.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 4, 'running' => 1, 'review' => 1, 'failed' => 0 ];
+$GLOBALS['in_flight']   = [ 'post_links' => [ 'oid' => 501, 'label' => 'How snipers work', 'job' => 'Article internal links', 'running' => true ] ];
+$dze_st = DZE_Automation::run_state( 'mesh_links' );
+ok( 'the run names the page in flight', (string) ( $dze_st['now']['label'] ?? '' ), 'How snipers work' );
+ok( 'and what is being done to it',     (string) ( $dze_st['now']['job'] ?? '' ), 'Article internal links' );
+ob_start(); DZE_Automation::render_run( 'mesh_links' ); $dze_bar = (string) ob_get_clean();
+ok( 'and the bar prints it',            false !== strpos( $dze_bar, 'How snipers work' ), true );
+ok( 'saying it is being written now',   false !== strpos( $dze_bar, 'Writing' ), true );
+// A ROW ONLY WAITING ITS TURN IS NOT BEING WRITTEN. Saying "writing X" over a
+// queue whose writer is idle is a screen describing work nobody is doing.
+$GLOBALS['in_flight'] = [ 'post_links' => [ 'oid' => 502, 'label' => 'Military pants', 'job' => 'Article internal links', 'running' => false ] ];
+ob_start(); DZE_Automation::render_run( 'mesh_links' ); $dze_bar2 = (string) ob_get_clean();
+ok( 'a page waiting its turn says it is next', false !== strpos( $dze_bar2, 'Next' ), true );
+ok( 'and names it',                            false !== strpos( $dze_bar2, 'Military pants' ), true );
+// NOTHING IN FLIGHT, NOTHING SAID: a line about a page that is not being
+// written is worse than no line.
+$GLOBALS['in_flight'] = [];
+ob_start(); DZE_Automation::render_run( 'mesh_links' ); $dze_bar3 = (string) ob_get_clean();
+ok( 'and an empty queue names nothing', false !== strpos( $dze_bar3, 'dze-auto-now' ), false );
+
+echo "\nNEXT IN LINE IS A LIST, NOT A PARAGRAPH\n";
+// "Affichage maladroit, mauvais pour UI. Peut-être plutôt revenir à la ligne
+// sur chaque post. Ou un bouton d'infos qui montre les posts à venir (les
+// cacher par défaut ?)" Five titles with five parenthetical explanations run
+// together with middle dots wrapped over four lines of unreadable prose.
+fresh( $ON );
+DZE_Queue::$counts = [];
+$GLOBALS['in_flight']  = [];
+ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_next = (string) ob_get_clean();
+ok( 'it is a fold, shut',            false !== strpos( $dze_next, '<details class="dze-auto-nextwrap"' ), true );
+ok( 'and it is not open',            false !== strpos( $dze_next, '<details class="dze-auto-nextwrap" open' ), false );
+preg_match( '/Next in line \((\d+)\)/', $dze_next, $dze_n );
+$dze_lines = substr_count( $dze_next, '<li class="dze-auto-nextone">' );
+ok( 'the summary says how many', (int) ( $dze_n[1] ?? 0 ) > 0, true );
+// AND THE FIGURE IS THE LIST UNDER IT. A summary counting one thing over a
+// list showing another is a screen that disagrees with itself.
+ok( 'and it is the number of lines under it', (int) ( $dze_n[1] ?? 0 ), $dze_lines );
+ok( 'one line per page, not a run-on sentence', $dze_lines > 1, true );
+ok( 'and no middle dots gluing them together', false !== strpos( $dze_next, ' · ' ), false );
+
+echo "\nA ROW NAMING A PAGE OFFERS THE WAY TO SEE IT\n";
+// "Past work — aucun bouton pour voir la page côté utilisateur, il manque le
+// petit symbole qui devrait rediriger on site." The name linked to the EDIT
+// screen and nothing anywhere opened the page as a visitor sees it — which is
+// the one thing you want after accepting a text written onto it.
+$GLOBALS['applied_rows'] = [
+	[ 'kind' => 'post_links', 'object_id' => 501, 'from' => 0, 'by' => 3, 'when' => time() ],
+];
+$GLOBALS['names'][501] = 'How snipers work';
+ob_start(); DZE_Automation::render_past(); $dze_past = (string) ob_get_clean();
+ok( 'the row offers the page on the site', false !== strpos( $dze_past, 'dze-hub-visit' ), true );
+ok( 'at the address a visitor uses',       false !== strpos( $dze_past, 'https://kula.test/blog/501/' ), true );
+ok( 'in a new tab, so nothing open here is lost',
+	false !== strpos( $dze_past, 'target="_blank"' ), true );
+ok( 'and the name still opens the editor', false !== strpos( $dze_past, 'post=501' ), true );
+// A PAGE WITH NO ADDRESS OFFERS NOTHING rather than a link to "#".
+$GLOBALS['permalinks'] = [ 501 => '' ];
+ob_start(); DZE_Automation::render_past(); $dze_past2 = (string) ob_get_clean();
+ok( 'no address, no symbol', false !== strpos( $dze_past2, 'dze-hub-visit' ), false );
+$GLOBALS['permalinks'] = [];
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

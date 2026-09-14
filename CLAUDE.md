@@ -1754,6 +1754,61 @@ whose screen has not been thought through yet.
     now drives the real function through all four outcomes with only the
     transport stubbed, and is red on each of them — a harness whose transients
     are stubbed to `false` could never have been.
+- **A SCREEN THAT MAKES THE ROWS CARRIES WHAT THEY OPEN — an empty list is not
+  a screen with nothing to decide, it is the state a run STARTS from.** "Ici
+  c'est cassé, le bouton review ne fonctionne pas… seulement après
+  rafraîchissement." `review_assets()` was printed on the Automation screen
+  only where something was ALREADY waiting when the page was drawn, to save the
+  weight of an editor loaded for nobody. That saving is what broke it: press
+  Run one now on an empty list and a minute later the block redraws itself with
+  rows carrying a Review button, on a page holding neither the popup nor the
+  handler that opens it — and a refresh mends it, which is the signature of
+  markup that arrived after the script decided there was nothing to bind. The
+  gate that should have caught it asserted the OPPOSITE, in as many words, so
+  the fix had to correct the check and write the reason on it.
+- **A RUN SAYS WHAT IT IS WORKING ON, NOT ONLY HOW MUCH IS LEFT.** "Pendant que
+  ça charge je veux savoir ce que ça charge." The bar gave a percentage and a
+  count over two hundred pages and never named one of them, while the queue
+  table has known all along. `DZE_Queue::in_flight()` answers the row being
+  written — or, failing that, the one next up — and the two are different
+  sentences: "Writing: X" over a queue whose writer is idle is a screen
+  describing work nobody is doing, so a row merely waiting says "Next: X", and
+  nothing in flight prints nothing at all.
+- **A LIST IS A LIST, NOT A PARAGRAPH.** "Next in line: A (will link to 2 pages
+  nothing points at) · B (will link to one page…) · C…" — five titles and five
+  parenthetical explanations glued together with middle dots and wrapped over
+  four lines: "affichage maladroit, mauvais pour UI. Peut-être plutôt revenir à
+  la ligne sur chaque post. Ou un bouton d'infos qui montre les posts à venir
+  (les cacher par défaut ?)" It is both halves of that: a shut `details` — the
+  plugin's own idiom, the one every task block already wears — with one page
+  per line inside. Two rules: the summary's figure is the number of lines under
+  it, or a screen disagrees with itself; and a fold inside a fold must not shut
+  the one it sits in.
+- **A ROW THAT NAMES A PAGE OFFERS THE WAY TO SEE IT.** "Past work — aucun
+  bouton pour voir la page côté utilisateur, il manque le petit symbole qui
+  devrait rediriger on site." Every list here links a name to its EDITOR, which
+  is right — and after accepting a text written onto a page, the thing you
+  actually want is to look at the page. `DZE_Hub::visit_link()` is that symbol,
+  in ONE place like `id_td()` beside it, and three rules hold it: a new tab, so
+  nothing open here is lost; an object with no address gets NOTHING rather than
+  a link to "#", which is a control that cannot act; and it is a symbol with a
+  word on hover, because the row already carries a name and a second worded
+  link beside it is two things to aim at.
+- **THE FEATURED IMAGE IS ON EVERY ROW, WHATEVER THE POST TYPE.** "Sur la liste
+  des diagnostics il faut l'image featured. Peu importe le type de post." Nine
+  hundred lines of text is a list read one name at a time, and half of what
+  these criteria are about is pictures. `DZE_Hub::thumb_th()`/`thumb_td()`, in
+  the same one place the id column lives, and four rules: the two stores are
+  NOT the same — a post of any type answers through `_thumbnail_id`, a TERM
+  through WooCommerce's own `thumbnail_id` term meta, and asked as a post it
+  answers 0 and every category row prints an empty box; a list-table column
+  stays O(1) per row, so the page's meta AND the attachments it names are
+  primed in one pass each; an object with none says WHICH empty it is, because
+  on a list of shortfalls having no featured image is itself the shortfall; and
+  an attachment id pointing at nothing prints nothing rather than a broken
+  picture. **And the body takes the viewer with it** — the toolbox brings
+  `hzoom.js` on a PRODUCT criterion and on no other, so a list of articles or
+  of categories had thumbnails and nothing to open them with.
 - **A FIGURE THAT IS STORED IS NOT A FIGURE THAT IS ANSWERED.** "On a un
   registre des appels IA filtrable par modèle ?" Every call had carried its
   model for months — `_days` holds calls, tokens and cost per model, kept

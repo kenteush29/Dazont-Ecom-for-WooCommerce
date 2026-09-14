@@ -1727,8 +1727,19 @@ final class DZE_Automation {
 		<div id="dze-auto-waiting"><?php self::render_waiting(); ?></div>
 		<?php
 		// The popup those three controls open, printed by the module that owns
-		// it — and only where something is actually waiting to be decided.
-		if ( self::$needs_review && class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
+		// it — ALWAYS, on this screen.
+		//
+		// "Ici c'est cassé, le bouton review ne fonctionne pas… seulement après
+		// rafraîchissement." It used to be printed only where something was
+		// already waiting when the page was drawn, to save the weight of an
+		// editor loaded for nobody. But this is the screen where the work is
+		// STARTED: an empty list is exactly the state a run begins from, and a
+		// minute later the block redraws itself with rows carrying a Review
+		// button, on a page holding neither the popup nor the handler that
+		// opens it. A screen that can COME to hold something waiting carries
+		// what that thing opens — the saving was real and it was paid for by
+		// the one press that needed it.
+		if ( class_exists( 'DZE_Queue' ) && DZE_Modules::enabled( 'queue' ) ) {
 			DZE_Queue::review_assets();
 		}
 		// The panel of detail behind every "?" on this screen.
@@ -2167,15 +2178,32 @@ final class DZE_Automation {
 			echo '<p class="description">' . esc_html( self::nothing_said() ) . '</p>';
 			return;
 		}
-		echo '<p class="description dze-auto-next">' . esc_html__( 'Next in line:', 'dazont-ecom' ) . ' ';
-		$bits = [];
+		// A LIST, NOT A PARAGRAPH — and shut. "Affichage maladroit, mauvais
+		// pour UI. Peut-être plutôt revenir à la ligne sur chaque post. Ou un
+		// bouton d'infos qui montre les posts à venir (les cacher par défaut)."
+		// Five titles, each with a parenthetical explanation, glued together
+		// with middle dots wrapped over four lines of prose nobody reads. It is
+		// both halves of what he asked for: folded away by default, and one
+		// page per line inside — the plugin's own `details` idiom, the same one
+		// every task block wears.
+		printf(
+			'<details class="dze-auto-nextwrap"><summary>%s</summary><ul class="dze-auto-nextlist">',
+			esc_html( sprintf(
+				/* translators: %s: how many pages are next in line */
+				__( 'Next in line (%s)', 'dazont-ecom' ),
+				number_format_i18n( count( $next_up ) )
+			) )
+		);
 		foreach ( $next_up as $row ) {
 			$name = esc_html( (string) $row['name'] );
 			$url  = self::edit_url( $conf['scope'], (int) $row['tid'] );
-			$bits[] = ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name )
-				. ' <span class="dze-auto-why">(' . esc_html( (string) $row['why'] ) . ')</span>';
+			printf(
+				'<li class="dze-auto-nextone">%1$s <span class="dze-auto-why">%2$s</span></li>',
+				'' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name,
+				esc_html( (string) $row['why'] )
+			);
 		}
-		echo wp_kses_post( implode( ' · ', $bits ) ) . '</p>';
+		echo '</ul></details>';
 	}
 
 	/**
@@ -2213,6 +2241,22 @@ final class DZE_Automation {
 			number_format_i18n( $done ),
 			number_format_i18n( $c['total'] )
 		) ) . '</p>';
+		// THE PAGE IT IS ON, BY NAME. A figure and a percentage say how much is
+		// left and nothing at all about what is happening; a run somebody is
+		// standing in front of should be able to answer "what is it doing?".
+		// Nothing in flight prints nothing: a line naming a page that is not
+		// being worked on is worse than no line.
+		$now = (array) ( $c['now'] ?? [] );
+		if ( '' !== (string) ( $now['label'] ?? '' ) ) {
+			printf(
+				'<p class="description dze-auto-now">%1$s <strong>%2$s</strong> <span class="dze-auto-nowjob">%3$s</span></p>',
+				esc_html( ! empty( $now['running'] )
+					? __( 'Writing:', 'dazont-ecom' )
+					: __( 'Next:', 'dazont-ecom' ) ),
+				esc_html( (string) $now['label'] ),
+				esc_html( (string) ( $now['job'] ?? '' ) )
+			);
+		}
 		// WHAT COULD NOT BE WRITTEN, AND WHY. Counted nowhere before, so a run
 		// where every job failed emptied the block off the screen entirely —
 		// the strongest possible statement that nothing is wrong.
@@ -2318,12 +2362,17 @@ final class DZE_Automation {
 			'pct'     => $total > 0 ? max( $done > 0 || $running > 0 ? 3 : 0, (int) floor( $done * 100 / $total ) ) : 0,
 			'running' => $running,
 			'stuck'   => $idle >= self::STOPPED_AFTER ? $idle : 0,
+			// WHAT IS BEING WRITTEN, by name. "Pendant que ça charge je veux
+			// savoir ce que ça charge" — the bar gave a percentage and never
+			// once said which of the two hundred pages it was on, while the
+			// queue has known all along.
+			'now'     => $left > 0 ? (array) DZE_Queue::in_flight( $mine ) : [],
 		];
 	}
 
 	/** No queue, no run: the same shape, so no reader has to test for it. */
 	private static function no_run(): array {
-		return [ 'done' => 0, 'left' => 0, 'failed' => 0, 'total' => 0, 'pct' => 0, 'running' => 0, 'stuck' => 0 ];
+		return [ 'done' => 0, 'left' => 0, 'failed' => 0, 'total' => 0, 'pct' => 0, 'running' => 0, 'stuck' => 0, 'now' => [] ];
 	}
 
 	/**
@@ -2628,6 +2677,24 @@ final class DZE_Automation {
 	 * the work and who accepted it — and the undo where the pass still holds
 	 * the text it replaced.
 	 */
+	/**
+	 * Where a visitor reads this object — never the editor, which is what the
+	 * name beside it already opens.
+	 *
+	 * An object with no address answers '' and the symbol is simply not shown:
+	 * a link to "#" is a control that cannot act.
+	 */
+	private static function view_url( string $what, int $oid ): string {
+		if ( $oid < 1 ) {
+			return '';
+		}
+		if ( 'term' === $what ) {
+			$link = get_term_link( $oid, 'product_cat' );
+			return ( $link && ! is_wp_error( $link ) ) ? (string) $link : '';
+		}
+		return (string) get_permalink( $oid );
+	}
+
 	public static function render_past(): void {
 		$rows = self::past();
 		if ( ! $rows ) {
@@ -2658,7 +2725,13 @@ final class DZE_Automation {
 			// that pass is still in its own register.
 			$can  = $oid && '' !== trim( self::copy_of( $oid, $what ) );
 			echo '<tr>';
-			echo '<td><strong>' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name ) . '</strong></td>';
+			// THE PAGE AS A VISITOR SEES IT. "Aucun bouton pour voir la page
+			// côté utilisateur, il manque le petit symbole qui devrait
+			// rediriger on site." The name opens the editor, which is where
+			// you go to change it — and after accepting a text written onto a
+			// page, the thing you actually want is to look at it.
+			echo '<td><strong>' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name ) . '</strong>'
+				. wp_kses_post( DZE_Hub::visit_link( self::view_url( $what, $oid ) ) ) . '</td>';
 			echo wp_kses_post( DZE_Hub::id_td( $oid ) );
 			echo '<td>' . esc_html( (string) ( $kinds[ $kind ]['label'] ?? $kind ) ) . '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $row['from'] ) : '' ) . '</td>';

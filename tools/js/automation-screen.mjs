@@ -438,8 +438,25 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( '.dze-auto-task:first-of-type .dze-auto-controls' ).isVisible(), true );
 	ok( 'with the button that runs it',
 		await page.locator( '.dze-auto-task:first-of-type .dze-auto-run' ).isVisible(), true );
-	ok( 'and what it is about to take',
-		await page.locator( '.dze-auto-task:first-of-type .dze-auto-next' ).isVisible(), true );
+	// WHAT IT IS ABOUT TO TAKE — folded, and one page a line inside.
+	// "Affichage maladroit, mauvais pour UI. Peut-être plutôt revenir à la
+	// ligne sur chaque post. Ou un bouton d'infos qui montre les posts à venir
+	// (les cacher par défaut ?)" It used to be five titles and five
+	// parenthetical explanations glued together with middle dots, wrapped over
+	// four lines of prose. This check asserted that paragraph was VISIBLE,
+	// which is why it went red on the mend.
+	const dzeNext = '.dze-auto-task:first-of-type .dze-auto-nextwrap';
+	ok( 'and what it is about to take, behind a fold',
+		await page.locator( dzeNext ).isVisible(), true );
+	ok( 'shut, so the block stays one line of reading',
+		await page.locator( `${dzeNext} .dze-auto-nextlist` ).isVisible(), false );
+	await page.click( `${dzeNext} > summary`, { timeout: 3000 } ).catch( () => {} );
+	ok( 'and opening it lists them one per line',
+		await page.locator( `${dzeNext} .dze-auto-nextone` ).count() > 1, true );
+	// A FOLD INSIDE A FOLD MUST NOT SHUT THE ONE IT SITS IN.
+	ok( 'without folding the task it sits in',
+		await page.locator( '.dze-auto-task:first-of-type .dze-auto-controls' ).isVisible(), true );
+	await page.click( `${dzeNext} > summary`, { timeout: 3000 } ).catch( () => {} );
 	// WHAT IS WAITING IS NOT A SETTING: the fold holds what the pass is about
 	// to take, and nothing about what it left.
 	ok( 'and no work list inside the settings',

@@ -80,6 +80,77 @@ final class DZE_Hub {
 	 * declared in one place and cells in another is how a table ends up one
 	 * column out of step, printing every value under the wrong title.
 	 */
+	/**
+	 * THE FEATURED IMAGE, as a column of a list.
+	 *
+	 * "Sur la liste des diagnostics il faut l'image featured. Peu importe le
+	 * type de post." Nine hundred lines of text is a list read one name at a
+	 * time, and half of what these screens are about is pictures.
+	 *
+	 * No word over it: a column of photographs needs no heading, and "Image"
+	 * above a thumbnail is a label saying what is already visible. It keeps a
+	 * class so the heading and the cell can be asserted together, in position —
+	 * a head declared in one file and cells built in another go a column out of
+	 * step without raising anything.
+	 */
+	/**
+	 * THE WAY TO THE PAGE AS A VISITOR SEES IT.
+	 *
+	 * "Aucun bouton pour voir la page côté utilisateur, il manque le petit
+	 * symbole qui devrait rediriger on site." Every list in this plugin names
+	 * an object and links it to its EDITOR, which is right — and after
+	 * accepting a text written onto a page, the thing you actually want is to
+	 * look at the page.
+	 *
+	 * Three rules: it opens in a NEW TAB, so nothing open here is lost; an
+	 * object with no address gets nothing rather than a link to "#", which is
+	 * a control that cannot act; and it is a symbol with a word on hover,
+	 * because a row already carries a name and a second worded link beside it
+	 * is two things to aim at.
+	 */
+	public static function visit_link( string $url ): string {
+		if ( '' === trim( $url ) ) {
+			return '';
+		}
+		return sprintf(
+			' <a class="dze-hub-visit" href="%1$s" target="_blank" rel="noopener" title="%2$s"'
+				. ' aria-label="%2$s"><span class="dashicons dashicons-external"></span></a>',
+			esc_url( $url ),
+			esc_attr__( 'See it on the site', 'dazont-ecom' )
+		);
+	}
+
+	public static function thumb_th(): string {
+		return '<th class="dze-thumb-th"></th>';
+	}
+
+	/**
+	 * The cell under it.
+	 *
+	 * @param string $thumb The small one, '' where the object has none.
+	 * @param string $full  The one the viewer opens; falls back to the thumb.
+	 * @param string $alt   The object's own name, for a reader who cannot see
+	 *                      the picture.
+	 */
+	public static function thumb_td( string $thumb, string $full = '', string $alt = '' ): string {
+		if ( '' === $thumb ) {
+			// WHICH EMPTY IT IS. A blank cell reads as a reading that never
+			// happened — and on a list of what the shop is short of, having no
+			// featured image is itself the thing worth seeing.
+			return '<td class="dze-thumb-td"><span class="dze-thumb-none" title="'
+				. esc_attr__( 'No featured image', 'dazont-ecom' ) . '">&mdash;</span></td>';
+		}
+		// The ONE image viewer, the same `img.dze-hzoom` + `data-full` thirteen
+		// screens already open. A second one is a second thing to fix, and the
+		// second one never gets the fixes.
+		return sprintf(
+			'<td class="dze-thumb-td"><img class="dze-hzoom" src="%1$s" data-full="%2$s" alt="%3$s" /></td>',
+			esc_url( $thumb ),
+			esc_url( '' !== $full ? $full : $thumb ),
+			esc_attr( $alt )
+		);
+	}
+
 	public static function id_th(): string {
 		return '<th class="dze-objid-th">' . esc_html__( 'ID', 'dazont-ecom' ) . '</th>';
 	}
