@@ -25,6 +25,13 @@ final class DZE_Queue {
 	private const SCHEMA_OPT     = 'dze_queue_schema';
 	private const SCHEMA_VERSION = 3;
 	private const LOCK      = 'dze_queue_lock';
+	/**
+	 * How long one step is given before the run that took the writer is
+	 * presumed gone. Longer than any single step — a model answering slowly is
+	 * a minute, not four — and short enough that a shop is not barred for the
+	 * whole of the lock's own five minutes by a worker the host killed.
+	 */
+	private const STEP_BUDGET = 4 * MINUTE_IN_SECONDS;
 	private const COUNT_KEY = 'dze_queue_review_count';
 
 	/** Job kinds: what each one writes, and who knows how to write it. */
@@ -189,11 +196,25 @@ final class DZE_Queue {
 
 	/** Asks for the worker to run, without anybody waiting for it. */
 	public static function kick(): void {
+		// A PASS ALREADY WAITING ITS TURN NEEDS NOTHING ADDED; a pass Action
+		// Scheduler believes is RUNNING may be a worker the host killed, and
+		// `as_has_scheduled_action()` cannot tell those two apart — it answers
+		// true for both. Returning on it made every later kick a no-op, with
+		// the loopback below skipped too, so a wedged scheduler stopped the
+		// queue for good. `as_next_scheduled_action()` does tell them apart: a
+		// timestamp is one waiting, true is one in progress.
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
-			if ( ! function_exists( 'as_has_scheduled_action' ) || ! as_has_scheduled_action( self::HOOK ) ) {
+			$next = function_exists( 'as_next_scheduled_action' ) ? as_next_scheduled_action( self::HOOK ) : false;
+			if ( false === $next ) {
 				as_enqueue_async_action( self::HOOK, [], 'dazont-ecom' );
+				return;
 			}
-			return;
+			if ( true !== $next ) {
+				return; // one is waiting its turn.
+			}
+			// One is in progress, or was. The loopback below costs a
+			// non-blocking request and the writer's own lock makes it harmless:
+			// a step that is genuinely running answers it in microseconds.
 		}
 		if ( ! wp_next_scheduled( self::HOOK ) ) {
 			wp_schedule_single_event( time() + 5, self::HOOK );
@@ -228,7 +249,7 @@ final class DZE_Queue {
 		if ( get_transient( self::LOCK ) ) {
 			return;
 		}
-		set_transient( self::LOCK, 1, 5 * MINUTE_IN_SECONDS );
+		set_transient( self::LOCK, time(), 5 * MINUTE_IN_SECONDS );
 
 		// THE JOB SOMEBODY IS WATCHING IS THE JOB THAT MOVES. A screen polling
 		// its own run called work(), which took the OLDEST job in the whole
@@ -369,6 +390,136 @@ final class DZE_Queue {
 		if ( $stale ) {
 			delete_transient( self::LOCK );
 		}
+		// AND A LOCK LEFT BEHIND BY A RUN THAT LEFT NO ROW BEHIND. "c'est
+		// bloqué." Two hundred pages queued, the bar at 0%, nothing written and
+		// nothing said. The writer is barred while this lock stands, and it is
+		// let go at the end of a step — which a run the host kills mid-call
+		// never reaches. Above, the lock went only where a stale `running` row
+		// had been found, and the kinds that screen queues never pass through
+		// `running`: a linking pass is written in ONE step, queued → review. So
+		// the lock stood, every step returned at once having done nothing, and
+		// the one function able to clear it could not see it.
+		// It is timed, not guessed: longer than the step budget means the run
+		// that took it is gone, and a step in its fourth second is a step.
+		$held = self::held_for();
+		if ( $held > self::STEP_BUDGET ) {
+			delete_transient( self::LOCK );
+		}
+	}
+
+	/**
+	 * How long the writer has been held, in seconds — 0 when it is free.
+	 *
+	 * A screen cannot tell a writer busy for two seconds from one abandoned ten
+	 * minutes ago, and the difference is the whole of "c'est bloqué".
+	 */
+	public static function held_for(): int {
+		$at = get_transient( self::LOCK );
+		if ( ! $at ) {
+			return 0;
+		}
+		$at = (int) $at;
+		// A lock written by an earlier version holds the figure 1, which reads
+		// as 1970 and would make every writer look abandoned the moment this
+		// version lands. Unknown age is read as "just taken": it expires on its
+		// own within the five minutes it was set for.
+		if ( $at < 1000000000 ) {
+			return 1;
+		}
+		return max( 1, time() - $at );
+	}
+
+	/** Lets the writer go. Nothing is in flight that this could interrupt. */
+	public static function unlock(): void {
+		delete_transient( self::LOCK );
+	}
+
+	/**
+	 * How long since anything of these kinds moved, in seconds.
+	 *
+	 * The one reading that tells a run in progress from a run that has stopped:
+	 * a figure that is not changing is the same markup as a figure that is
+	 * about to. Every row carries when it last moved, so the database answers
+	 * it rather than the browser guessing from two polls that looked alike.
+	 * Nothing of those kinds at all answers 0 — an empty queue is not a silence,
+	 * and read the other way it would put a stuck warning on every shop that
+	 * has finished its work.
+	 */
+	public static function idle_for( array $kinds ): int {
+		global $wpdb;
+		$kinds = self::clean_kinds( $kinds );
+		if ( ! $kinds ) {
+			return 0;
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return 0;
+		}
+		$in   = "'" . implode( "','", $kinds ) . "'";
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
+		$last = (string) $wpdb->get_var( "SELECT MAX(updated) FROM {$table} WHERE kind IN ({$in})" );
+		if ( '' === $last ) {
+			return 0;
+		}
+		// Same clock as the column: it is written with current_time().
+		return max( 0, (int) current_time( 'timestamp' ) - (int) strtotime( $last ) ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- matches the stored site time.
+	}
+
+	/**
+	 * Puts every failed row of these kinds back in the queue. Returns how many.
+	 *
+	 * ONE WRITE FOR THE WHOLE PRESS, never a read-modify-write per row — two
+	 * hundred of those inside one request is how a log comes back holding only
+	 * the last twelve lines of the press that filled it. And the writer is
+	 * freed by the same press: putting the rows back while the lock still
+	 * stands is a press that answers "3 put back" and changes nothing.
+	 */
+	public static function retry_failed( array $kinds ): int {
+		global $wpdb;
+		$kinds = self::clean_kinds( $kinds );
+		if ( ! $kinds ) {
+			return 0;
+		}
+		$table = self::table();
+		$in    = "'" . implode( "','", $kinds ) . "'";
+		$n     = (int) $wpdb->query( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
+			"UPDATE {$table} SET status = 'queued', error = NULL, updated = %s WHERE status = 'failed' AND kind IN ({$in})",
+			current_time( 'mysql' )
+		) );
+		self::unlock();
+		self::forget_count();
+		if ( $n > 0 ) {
+			self::kick();
+		}
+		return $n;
+	}
+
+	/** Why the last few runs of these kinds could not be written. */
+	public static function failures( array $kinds, int $limit = 3 ): array {
+		global $wpdb;
+		$kinds = self::clean_kinds( $kinds );
+		if ( ! $kinds ) {
+			return [];
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+		$in = "'" . implode( "','", $kinds ) . "'";
+		return (array) $wpdb->get_results( $wpdb->prepare(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
+			"SELECT kind, object_id, error FROM {$table} WHERE status = 'failed' AND kind IN ({$in}) ORDER BY updated DESC LIMIT %d",
+			max( 1, $limit )
+		), ARRAY_A );
+	}
+
+	/** The kinds a caller asked about, kept to what a kind can be spelled as. */
+	private static function clean_kinds( array $kinds ): array {
+		return array_values( array_unique( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) ) );
 	}
 
 	/** Writes one job's content. Throws with a readable reason on failure. */
@@ -461,10 +612,7 @@ final class DZE_Queue {
 	public static function counts_for( array $kinds ): array {
 		global $wpdb;
 		$out   = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
-		$kinds = array_values( array_unique( array_filter( array_map(
-			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
-			$kinds
-		) ) ) );
+		$kinds = self::clean_kinds( $kinds );
 		if ( ! $kinds ) {
 			return $out;
 		}

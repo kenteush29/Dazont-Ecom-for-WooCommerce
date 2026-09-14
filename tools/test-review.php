@@ -127,9 +127,17 @@ function mysql2date( $format, $date, $translate = true ) {
 }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
 function delete_option( $k ) { unset( $GLOBALS['opts'][ $k ] ); return true; }
-function get_transient( $k ) { return false; }
-function set_transient( $k, $v, $t = 0 ) { return true; }
-function delete_transient( $k ) { return true; }
+// A REAL TRANSIENT STORE, because the writer's lock is a transient and a
+// harness answering `false` to every read cannot be red on a lock that is
+// never let go.
+function get_transient( $k ) {
+	$r = $GLOBALS['tr'][ $k ] ?? null;
+	if ( null === $r ) { return false; }
+	if ( $r['until'] && $r['until'] < time() ) { unset( $GLOBALS['tr'][ $k ] ); return false; }
+	return $r['v'];
+}
+function set_transient( $k, $v, $t = 0 ) { $GLOBALS['tr'][ $k ] = [ 'v' => $v, 'until' => $t ? time() + (int) $t : 0 ]; return true; }
+function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
 
 class DZE_Modules { public static function enabled( $id ) { return ! in_array( $id, (array) ( $GLOBALS['off'] ?? [] ), true ); } }
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
@@ -215,6 +223,17 @@ class DZE_Review_Wpdb {
 	public function query( $q ) { $this->sent[] = (string) $q; return 3; }
 	public function get_var( $q ) {
 		$this->sent[] = (string) $q;
+		// THE TABLE IS THERE. Answered `0`, every reading that checks for its
+		// own table first bailed out before asking anything, and a check on
+		// what it answers passes for the harness's reasons.
+		if ( 0 === stripos( trim( (string) $q ), 'SHOW TABLES LIKE' ) ) {
+			return 'wp_dze_queue';
+		}
+		// When the queue last moved, which is the only thing that can tell a
+		// run in progress from a run that has stopped.
+		if ( false !== stripos( (string) $q, 'MAX(updated)' ) ) {
+			return $GLOBALS['q_last_moved'] ?? null;
+		}
 		// A queue that REFUSES: the row is already queued, running or waiting
 		// for a decision. "A pass that was never queued is not a pass."
 		if ( ! empty( $GLOBALS['queue_busy'] ) && false !== stripos( (string) $q, "status IN ('queued','running','review')" ) ) {
@@ -227,11 +246,19 @@ class DZE_Review_Wpdb {
 		if ( false !== stripos( (string) $q, 'GROUP BY status' ) ) {
 			return $GLOBALS['status_counts'] ?? [];
 		}
+		// The runs the host killed mid-way, asked for by recover() alone. Kept
+		// apart from the rows every other check reads, or a harness that hands
+		// its whole fake queue back as "stale" clears the lock for the wrong
+		// reason and the check goes green on broken code.
+		if ( false !== stripos( (string) $q, "status = 'running' AND updated <" ) ) {
+			return $GLOBALS['stale_rows'] ?? [];
+		}
 		return $GLOBALS['rows'] ?? [];
 	}
 	public function get_col( $q ) { $this->sent[] = (string) $q; return []; }
 	public function get_row( $q, $m = null ) { $this->sent[] = (string) $q; return $GLOBALS['rows'][0] ?? []; }
 	public function get_charset_collate() { return 'DEFAULT CHARACTER SET utf8mb4'; }
+	public function esc_like( $t ) { return addcslashes( (string) $t, '_%\\' ); }
 	public $updates = [];
 	public function update( $table, $data, $where, ...$rest ) {
 		$this->updates[] = [ 'data' => (array) $data, 'where' => (array) $where ];
@@ -910,6 +937,89 @@ foreach ( DZE_Queue::kinds() as $dze_k => $dze_meta ) {
 	}
 }
 ok( 'no kind is left without a before',  $dze_blank, [] );
+
+echo "\nThe writer's lock, and the run nobody can restart\n";
+//
+// "c'est bloqué." Two hundred pages queued, the bar at 0%, nothing written and
+// nothing said. work() takes a five-minute lock before it picks a job and lets
+// it go at the end — but a run the host kills mid-call (a model answering
+// slowly, a worker out of memory) never reaches the end, and recover() let the
+// lock go ONLY where it had found a stale `running` row. The kinds this screen
+// queues never pass through `running`: cat_links and post_links are written in
+// one step, queued → review. So an abandoned lock barred every step of every
+// job, and the one function able to clear it could not see it.
+$GLOBALS['tr']         = [];
+$GLOBALS['rows']       = [];
+$GLOBALS['stale_rows'] = [];
+
+// FREE, AND IT SAYS SO IN SECONDS RATHER THAN IN YES-OR-NO: a screen cannot
+// tell a writer busy for two seconds from one abandoned ten minutes ago.
+ok( 'an idle writer is held by nobody',  DZE_Queue::held_for(), 0 );
+
+// A LOCK LEFT BEHIND BY A RUN THAT DIED, with not one row in `running`.
+set_transient( 'dze_queue_lock', time() - 9 * 60, 0 );
+ok( 'a lock that is standing is timed',  DZE_Queue::held_for() >= 9 * 60, true );
+DZE_Queue::recover();
+ok( 'and recover lets an old one go',    DZE_Queue::held_for(), 0 );
+
+// AND IT DOES NOT LET GO OF ONE THAT IS WORKING. A step that has been running
+// for four seconds is a step, and pulling its lock is two workers writing the
+// same page.
+set_transient( 'dze_queue_lock', time() - 4, 0 );
+DZE_Queue::recover();
+ok( 'a live lock is left alone',         DZE_Queue::held_for() > 0, true );
+DZE_Queue::unlock();
+ok( 'and it can be let go by hand',      DZE_Queue::held_for(), 0 );
+
+// A LOCK WRITTEN BY AN EARLIER VERSION held the figure 1, which read as 1970
+// and would make every writer look abandoned the moment this version landed.
+set_transient( 'dze_queue_lock', 1, 0 );
+ok( 'an old-shaped lock is not ancient', DZE_Queue::held_for() < 60, true );
+DZE_Queue::unlock();
+
+echo "\nA queue that is not moving can be asked how long for\n";
+//
+// The screen could not say "nothing has moved": it read queued, running and
+// review, and a figure that does not change is the same markup as a figure
+// that is about to. The database already knows — every row carries when it
+// last moved.
+$GLOBALS['tr'] = [];
+// The shop's own clock, which is what the column is written with — read from
+// the wall clock the reading would come out negative and every silence would
+// look like none.
+$GLOBALS['q_last_moved'] = gmdate( 'Y-m-d H:i:s', (int) current_time( 'timestamp' ) - 8 * 60 );
+ok( 'the queue times its own silence',   DZE_Queue::idle_for( [ 'cat_links', 'post_links' ] ) >= 7 * 60, true );
+// IT IS ASKED BY KIND, like every other figure on that screen: a photograph
+// made from the bulk screen is in the queue and is not this page's work.
+ok( 'and only about the kinds asked for',
+	false !== strpos( (string) end( $GLOBALS['wpdb']->sent ), "'cat_links','post_links'" ), true );
+$GLOBALS['q_last_moved'] = gmdate( 'Y-m-d H:i:s', (int) current_time( 'timestamp' ) - 3 );
+ok( 'a queue that just moved is not idle', DZE_Queue::idle_for( [ 'cat_links' ] ) < 60, true );
+// NOTHING THERE IS NOT A SILENCE. An empty queue answering "idle for ever"
+// would put a stuck warning on every shop that has finished its work.
+$GLOBALS['q_last_moved'] = null;
+ok( 'an empty queue is not stuck',       DZE_Queue::idle_for( [ 'cat_links' ] ), 0 );
+
+echo "\nStarting a stopped run again\n";
+//
+// A control that cannot act is a control nobody trusts, and the shop had none:
+// a failed row could only be put back one at a time from another screen.
+$GLOBALS['tr'] = [];
+set_transient( 'dze_queue_lock', time() - 9 * 60, 0 );
+$GLOBALS['wpdb']->updates = [];
+$GLOBALS['wpdb']->sent    = [];
+$dze_back = DZE_Queue::retry_failed( [ 'cat_links', 'post_links' ] );
+ok( 'the failed rows are put back',      $dze_back, 3 );
+// ONE WRITE FOR THE WHOLE PRESS, never a read-modify-write per row: two
+// hundred of those inside one request is how a log comes back holding the last
+// twelve lines of the press that filled it.
+$dze_sql = implode( ' | ', $GLOBALS['wpdb']->sent );
+ok( 'in one statement',                  substr_count( $dze_sql, "SET status = 'queued'" ), 1 );
+ok( 'only the failed ones',              false !== strpos( $dze_sql, "status = 'failed'" ), true );
+ok( 'and only the kinds asked for',      false !== strpos( $dze_sql, "'cat_links','post_links'" ), true );
+// AND THE WRITER IS FREED BY THE SAME PRESS. Putting the rows back while the
+// lock still stands is a press that answers "3 put back" and changes nothing.
+ok( 'the writer is let go with them',    DZE_Queue::held_for(), 0 );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

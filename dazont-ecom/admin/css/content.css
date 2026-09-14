@@ -1699,6 +1699,13 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-auto-prog.is-done .dze-auto-bar > span { background: #1d7f4c; }
 /* Tabular figures, or the percentage shifts the line sideways as it climbs. */
 .dze-auto-runfig { margin: 0; font-variant-numeric: tabular-nums; }
+/* A RUN THAT HAS STOPPED does not wear the colour of one that is going. */
+.dze-auto-prog.is-stuck { border-left-color: #b32d2e; }
+.dze-auto-prog.is-stuck .dze-auto-bar > span { background: #b32d2e; }
+.dze-auto-runbad { margin: 8px 0 0; color: #b32d2e; }
+.dze-auto-runbad .description { color: #646970; }
+.dze-auto-runact { margin: 8px 0 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dze-auto-restarted { color: #646970; }
 
 /* ---- What waits: ticks, and one bar for the lot ---- */
 .dze-auto-bulk {

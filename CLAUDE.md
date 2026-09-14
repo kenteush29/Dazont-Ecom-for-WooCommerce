@@ -2186,6 +2186,51 @@ whose screen has not been thought through yet.
     step per tick so "the bar moves" is a check that can fail, and asserts the
     bar is in the SERVER'S OWN markup, since read off the live page it would
     pass on a bar an earlier press had put there.
+- **A WATCHER WITH ONE HANDLER HAS THREE WAYS OF DYING IN SILENCE.** "c'est
+  bloqué." Two hundred pages queued, the bar at 0%, "0 of 200 written", and the
+  screen saying *Leave this screen open and it keeps going* for as long as
+  anybody cared to watch. `runTick()` had a `.done()` and nothing else: a
+  request that failed, an answer that was not a success, and an answer with no
+  data all left the loop dead with the bar frozen exactly where it stood. One
+  502 from a slow model call is enough. A poll re-arms itself on EVERY outcome
+  or it is not a poll — it says the server did not answer, it keeps asking more
+  slowly, and when it gives up it names the way back (a reload, since nothing
+  is remembered in the browser and the bar is drawn from the queue every time).
+  Three more rules came out of the same screen, each of them a way a queue
+  stops with nothing saying so:
+  - **A LOCK IS CLEARED BY ITS AGE, NOT BY A ROW.** `work()` takes a
+    five-minute lock before it picks a job and lets it go at the end — which a
+    run the host kills mid-call never reaches — and `recover()` let it go ONLY
+    where it had found a stale `running` row. The kinds this screen queues
+    never pass through `running`: a linking pass is written in ONE step,
+    queued → review. So an abandoned lock barred every step of every job and
+    the one function able to clear it could not see it. `held_for()` answers in
+    SECONDS, not yes-or-no, because a screen cannot tell a writer busy for two
+    seconds from one abandoned ten minutes ago; a lock older than the step
+    budget is let go whatever the rows say; and an old-shaped lock (the figure
+    1, which reads as 1970) is read as just taken rather than as ancient.
+  - **A FIGURE THAT IS NOT CHANGING IS THE SAME MARKUP AS ONE ABOUT TO.** 200
+    left and nought written is also what the first second of a run looks like,
+    so no arithmetic on the counts can tell a standstill from a start. The
+    database knows: every row carries when it last moved, and
+    `DZE_Queue::idle_for()` asks it — by KIND, like every other figure on that
+    screen. Nothing of those kinds at all answers 0, never "idle for ever",
+    or every shop that has finished its work wears a stuck warning.
+  - **WHAT COULD NOT BE WRITTEN IS PART OF THE RUN.** `failed` was counted
+    nowhere, so a press whose every job failed made `total` nought and the
+    whole block DISAPPEAR — the strongest possible statement that nothing is
+    wrong. It is counted, said with the reason the queue recorded, and there is
+    ONE control beside it — *Start it again* — which does the two things that
+    arrive together: lets the writer go and puts the failed rows back. Putting
+    the rows back while the lock still stands is a press that answers "3 put
+    back" and changes nothing.
+  - **`as_has_scheduled_action()` CANNOT TELL WAITING FROM RUNNING.** It
+    answers true for both, and `kick()` returned on it — with the loopback
+    below skipped too — so an Action Scheduler action the host killed made
+    every later kick a no-op and the queue stopped for good with the screen
+    closed. `as_next_scheduled_action()` does tell them apart: a timestamp is
+    one waiting its turn, `true` is one in progress, and the loopback is sent
+    in that second case since the writer's own lock makes it harmless.
 - **A SCREEN THAT SHOWS SOME OF THE QUEUE COUNTS THE SAME SOME OF IT.** The
   Automation page printed "Done — 3 pages are written and waiting for your yes
   or no, below" directly above a list reading "Nothing is waiting for your yes
