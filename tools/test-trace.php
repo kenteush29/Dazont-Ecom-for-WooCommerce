@@ -195,6 +195,52 @@ $row = rows()[0] ?? [];
 ok( 'and the trace names it',           0 === strpos( (string) ( $row['got'] ?? '' ), 'ERROR' ), true );
 ok( 'with the provider\'s own words',   false !== strpos( (string) $row['got'], 'Rate limited' ), true );
 
+echo "An answer the model never finished is not an answer\n";
+//
+// "How snipers work : 3298 words → 3038 words. Il a raccourci l'article, il a
+// enlevé toute une partie à la fin." Anthropic says so itself — `stop_reason`
+// comes back as `max_tokens` when the answer ran out of room — and this
+// function threw that away and handed the half-written text back as a finished
+// one. Every generator in the plugin is downstream of it: a description, a
+// translated field, an email, a linked article, all cut off in silence.
+$GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [
+	'content'     => [ [ 'type' => 'text', 'text' => 'The first half of a long art' ] ],
+	'stop_reason' => 'max_tokens',
+	'usage'       => [ 'input_tokens' => 100, 'output_tokens' => 4000 ],
+] ) ];
+$dze_cut = '';
+try { DZE_Marketing_Ai::complete( 'S', 'U' ); } catch ( Throwable $e ) { $dze_cut = $e->getMessage(); }
+ok( 'a cut-off answer is refused',      '' !== $dze_cut, true );
+// AND IT SAYS WHICH FAILURE IT IS. "The model returned nothing usable" over a
+// text that is simply too long sends the shop looking in the wrong place.
+ok( 'and says the answer was cut off',  false !== stripos( $dze_cut, 'too long' ), true );
+// THE TRACE HOLDS IT, or the one screen able to explain a truncated article
+// shows a perfectly ordinary row.
+$row = rows()[0] ?? [];
+ok( 'the trace records the cut',        false !== stripos( (string) ( $row['got'] ?? '' ), 'cut off' ), true );
+// AND WHAT CAME BACK IS KEPT BESIDE IT: half an answer is what a person needs
+// to see to understand what happened.
+ok( 'with what it managed to write',
+	false !== strpos( (string) $row['got'], 'The first half of a long art' ), true );
+// WHAT IT WAS PAID FOR IS STILL RECORDED. A refused answer is a spent one.
+ok( 'and the tokens are still counted', DZE_Ai_Usage::month_total() > 0, true );
+
+// AN ORDINARY STOP IS ORDINARY. `end_turn` is the model finishing its sentence,
+// and a guard that refused every answer would be worse than the bug.
+$GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [
+	'content'     => [ [ 'type' => 'text', 'text' => 'A finished answer.' ] ],
+	'stop_reason' => 'end_turn',
+	'usage'       => [ 'input_tokens' => 10, 'output_tokens' => 5 ],
+] ) ];
+ok( 'a finished answer goes through',   DZE_Marketing_Ai::complete( 'S', 'U' ), 'A finished answer.' );
+// AND A PROVIDER THAT SAYS NOTHING AT ALL is not a provider that cut the
+// answer: a reason we cannot read is never read as a failure.
+$GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [
+	'content' => [ [ 'type' => 'text', 'text' => 'No reason given.' ] ],
+	'usage'   => [ 'input_tokens' => 10, 'output_tokens' => 5 ],
+] ) ];
+ok( 'no reason is not a bad reason',    DZE_Marketing_Ai::complete( 'S', 'U' ), 'No reason given.' );
+
 echo "The trace stays small\n";
 $GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [ 'content' => [ [ 'type' => 'text', 'text' => 'ok' ] ], 'usage' => [] ] ) ];
 for ( $i = 0; $i < 20; $i++ ) {

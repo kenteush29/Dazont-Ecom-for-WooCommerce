@@ -1759,6 +1759,42 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * Reusable text completion for other modules (content generation, …). Shares
 	 * the API key, budget guard, model list and usage tracking. Throws on error.
 	 */
+
+	/**
+	 * AN ANSWER THE MODEL NEVER FINISHED IS NOT AN ANSWER.
+	 *
+	 * Anthropic says so itself: `stop_reason` comes back as `max_tokens` when
+	 * the answer ran out of room. Both completion paths threw it away and
+	 * handed a half-written text back as a finished one — and every generator
+	 * in this plugin is downstream of them, so a category description, a
+	 * translated field, an email and a linked article were all cut off in
+	 * exactly the same silence: "il a raccourci l'article de blog, il a enlevé
+	 * toute une partie à la fin."
+	 *
+	 * Two rules. A reason we cannot read is NEVER read as a failure — a
+	 * provider that sends no `stop_reason`, or one Anthropic adds next year,
+	 * must not start refusing this shop's work; only that one word is. And
+	 * what the model managed to write is kept in the trace beside the verdict,
+	 * because half an answer is what a person needs to see to understand what
+	 * happened.
+	 *
+	 * @param array $data The decoded answer.
+	 * @throws RuntimeException When the answer was cut off at the ceiling.
+	 */
+	private static function finished( array $data, string $model, string $asked, string $text, float $t0 ): void {
+		if ( 'max_tokens' !== (string) ( $data['stop_reason'] ?? '' ) ) {
+			return;
+		}
+		DZE_Ai_Usage::trace(
+			'anthropic',
+			$model,
+			$asked,
+			"CUT OFF — the answer reached its ceiling\n\n" . trim( $text ),
+			microtime( true ) - $t0
+		);
+		throw new RuntimeException( __( 'The answer was cut off before it was finished — what was asked for is too long. Nothing was changed.', 'dazont-ecom' ) );
+	}
+
 	public static function complete( string $system, string $user, string $model = '', int $max_tokens = 2000, int $timeout = 90 ): string {
 		if ( DZE_Ai_Usage::over_budget() ) {
 			throw new RuntimeException( DZE_Ai_Usage::budget_message() );
@@ -1806,6 +1842,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				$text .= (string) ( $block['text'] ?? '' );
 			}
 		}
+		self::finished( $data, $model, $asked, $text, $t0 );
 		DZE_Ai_Usage::trace( 'anthropic', $model, $asked, trim( $text ), microtime( true ) - $t0 );
 		return trim( $text );
 	}
@@ -1882,6 +1919,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				$text .= (string) ( $block['text'] ?? '' );
 			}
 		}
+		self::finished( $data, $model, $asked, $text, $t0 );
 		DZE_Ai_Usage::trace( 'anthropic', $model, $asked, trim( $text ), microtime( true ) - $t0 );
 		return trim( $text );
 	}
