@@ -1021,5 +1021,33 @@ ok( 'and only the kinds asked for',      false !== strpos( $dze_sql, "'cat_links
 // lock still stands is a press that answers "3 put back" and changes nothing.
 ok( 'the writer is let go with them',    DZE_Queue::held_for(), 0 );
 
+echo "\nStopping a run that is under way\n";
+//
+// "Start it again > Il faut une option aussi pour annuler." Two hundred pages
+// queued and the only control on the block put them BACK: a run started by
+// mistake, or one whose pages keep coming back wrong, could be restarted for
+// ever and never called off.
+$GLOBALS['tr'] = [];
+$GLOBALS['wpdb']->sent = [];
+$dze_gone = DZE_Queue::drop_waiting( [ 'cat_links', 'post_links' ] );
+ok( 'what has not been written is dropped', $dze_gone, 3 );
+$dze_sql = implode( ' | ', $GLOBALS['wpdb']->sent );
+// ONE STATEMENT FOR THE WHOLE PRESS, like every other bulk write here.
+ok( 'in one statement',                  substr_count( $dze_sql, 'DELETE FROM' ), 1 );
+ok( 'and only the kinds asked for',      false !== strpos( $dze_sql, "'cat_links','post_links'" ), true );
+// NOTHING WRITTEN IS EVER THROWN AWAY. A row waiting for a yes or no holds a
+// finished text, and a row already accepted is the only record that the shop
+// was worked on: dropping either would be this press destroying the work it
+// was pressed to stop making.
+ok( 'what is waiting for a decision stays',
+	false === strpos( $dze_sql, 'review' ) || false !== strpos( $dze_sql, "IN ('queued','failed')" ), true );
+ok( 'and it names the two it takes',     false !== strpos( $dze_sql, "IN ('queued','failed')" ), true );
+ok( 'applied rows are never named',      false !== strpos( $dze_sql, 'applied' ), false );
+// A PRESS THAT STOPS A RUN LETS THE WRITER GO TOO: a lock left standing would
+// bar the next press for the whole of its own five minutes.
+ok( 'the writer is let go with them',    DZE_Queue::held_for(), 0 );
+// AND IT IS ASKED FOR NOTHING WHEN THERE IS NOTHING TO ASK.
+ok( 'no kinds, no statement',            DZE_Queue::drop_waiting( [] ), 0 );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

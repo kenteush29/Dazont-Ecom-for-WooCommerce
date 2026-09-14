@@ -184,8 +184,9 @@ for ( const [ label, jq ] of jqs ) {
 						+ '<p class="dze-auto-runsaid">Nothing has moved for 8 minutes. The writer may be held by a run the server stopped.</p>'
 						+ '<div class="dze-auto-bar"><span style="width:3%"></span></div>'
 						+ '<p class="description dze-auto-runfig">3% \u2014 ' + done + ' of ' + t + ' written</p>'
-						+ '<p class="dze-auto-runact"><button type="button" class="button dze-auto-again" title="Lets the writer go, puts back what could not be written, and starts the queue again.">Start it again</button>'
-						+ ' <span class="dze-auto-restarted"></span></p></div>',
+						+ '<p class="dze-auto-runact"><button type="button" class="button dze-auto-again" title="Lets the writer go, puts back what could not be written, and starts the queue again.">Start it again</button> '
+						+ '<button type="button" class="button dze-auto-stop" title="Drops the pages still waiting their turn and the ones that could not be written. What is already written and waiting for your yes or no is kept.">Stop</button> '
+						+ '<span class="dze-auto-restarted"></span></p></div>',
 					waiting: waitingNow(), chips: {}
 				} } ) } );
 			}
@@ -205,6 +206,21 @@ for ( const [ label, jq ] of jqs ) {
 				left: left, done: done, pct: pct, run: bar,
 				waiting: waitingNow(),
 				chips: {}
+			} } ) } );
+		}
+		// CALLING A RUN OFF: what waits its turn is dropped, what is written
+		// and waiting for a decision is kept, and the block is redrawn.
+		if ( 'dze_auto_run_stop' === act ) {
+			stopped = false;
+			left = 0; done = 2;
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
+				run: '<div class="dze-auto-prog is-done">'
+					+ '<p class="dze-auto-runsaid">Done \u2014 2 pages are written and waiting for your yes or no, below.</p>'
+					+ '<div class="dze-auto-bar"><span style="width:100%"></span></div>'
+					+ '<p class="description dze-auto-runfig">100% \u2014 2 of 2 written</p>'
+					+ '<p class="dze-auto-runact"><span class="dze-auto-restarted"></span></p></div>',
+				waiting: waitingNow(),
+				message: '5 called off. Nothing written was thrown away.'
 			} } ) } );
 		}
 		// STARTING A STOPPED RUN AGAIN: the writer let go, the failed rows put
@@ -259,8 +275,12 @@ for ( const [ label, jq ] of jqs ) {
 		+ `<script>window.ajaxurl='http://dze.test/ajax';window.dzeQueue=${JSON.stringify( qcfg )};</script>`
 		+ `</head><body><div id="wpbody-content">${dumped.html}</div>${review.modal}`
 		+ `<script>${queuejs}</script></body></html>` } ) );
-	// Accepting writes to the shop, so the screen always asks first.
-	page.on( 'dialog', d => d.accept() );
+	// Accepting writes to the shop, so the screen always asks first. NAMED, so
+	// a check that needs the question REFUSED can take it off for one press —
+	// an anonymous handler cannot be removed, and a press that must be refused
+	// then has no way to be.
+	const sayYes = d => d.accept();
+	page.on( 'dialog', sayYes );
 	const moves = [];
 	page.on( 'framenavigated', f => { if ( f === page.mainFrame() ) { moves.push( f.url() ); } } );
 
@@ -653,6 +673,47 @@ for ( const [ label, jq ] of jqs ) {
 		() => /[1-9]\d* of \d+ written/.test( ( document.querySelector( '.dze-auto-runfig' ) || {} ).textContent || '' ),
 		null, { timeout: 15000 } ).then( () => true ).catch( () => false );
 	ok( 'and the work carries on',           rolling, true );
+	// AND IT CAN BE CALLED OFF. "Start it again > Il faut une option aussi pour
+	// annuler." A press that throws work away asks first, and only a browser
+	// can see whether the question is put at all.
+	stopped = true; left = 40; done = 0;
+	await page.evaluate( () => { window.jQuery( document ).trigger( 'dze:queued' ); } );
+	await page.waitForFunction(
+		() => !! document.querySelector( '#dze-auto-run .dze-auto-stop' ),
+		null, { timeout: 8000 } ).catch( () => {} );
+	ok( 'a run under way can be called off',
+		await page.locator( '#dze-auto-run .dze-auto-stop' ).count(), 1 );
+	// IT ASKS BEFORE IT DROPS, and refused it drops nothing.
+	let offAsked = '';
+	page.off( 'dialog', sayYes );
+	const saysNo = d => { offAsked = d.message(); d.dismiss(); };
+	page.on( 'dialog', saysNo );
+	const wasStop = sent.length;
+	await page.locator( '.dze-auto-stop' ).click();
+	await page.waitForTimeout( 400 );
+	ok( 'it asks before throwing work away', offAsked.length > 0, true );
+	// AND THE QUESTION SAYS WHAT IS KEPT — the half somebody hesitating needs.
+	ok( 'and the question says what stays',  /waiting for your yes or no is kept/.test( offAsked ), true );
+	ok( 'refused, nothing goes on the wire',
+		sent.slice( wasStop ).filter( r => 'dze_auto_run_stop' === r.action ).length, 0 );
+	// ACCEPTED, IT GOES — and the answer lands.
+	page.off( 'dialog', saysNo );
+	page.on( 'dialog', sayYes );
+	await page.locator( '.dze-auto-stop' ).click();
+	const calledOff = await page.waitForFunction(
+		() => /called off/.test( ( document.querySelector( '.dze-auto-restarted' ) || {} ).textContent || '' ),
+		null, { timeout: 8000 } ).then( () => true ).catch( () => false );
+	ok( 'accepted, it says what it did',     calledOff, true );
+	const offs = sent.filter( r => 'dze_auto_run_stop' === r.action );
+	ok( 'one request, signed',               offs.length > 0 && !! offs[0].nonce, true );
+	// AND THE RUN STOPS BEING WATCHED: polling a queue that was called off is a
+	// request a second for nothing.
+	const afterOff = sent.filter( r => 'dze_auto_run_state' === r.action ).length;
+	await page.waitForTimeout( 2500 );
+	ok( 'and it stops asking',
+		sent.filter( r => 'dze_auto_run_state' === r.action ).length, afterOff );
+	ok( 'the page never moved',              moves.length, 1 );
+
 	// Drain what is left, so the section below reads a finished queue.
 	await page.waitForFunction(
 		() => !! document.querySelector( '#dze-auto-run .is-done' ),
