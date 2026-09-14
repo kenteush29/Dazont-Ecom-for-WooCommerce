@@ -1583,6 +1583,23 @@ whose screen has not been thought through yet.
   in `DZE_Cleanup` so it can be wiped. The per-VARIATION notes are untouched:
   "the olive one has a black zip" is a lasting fact about a colour, set on its
   own screen, and it was never what went wrong.
+- **THE BUCKET IS DELETED BY EVERY RUN, SO NOTHING THE OWNER TYPED OR HANDED
+  IN MAY LIVE IN IT.** "Photographs from elsewhere > Se fait dégager
+  automatiquement sur l'écran bulk. Il me semble au moment de la génération
+  image. Terriblement mal fait." The note was moved into a store of its own
+  for exactly this, and the paste box sitting beside it — mounted ON
+  `results[id]` — was left where it was: `resetRow()` deletes that bucket
+  whole, so a run threw the supplier shots off the screen AND built its orders
+  without them, which is the half that goes wrong in silence. What is handed in
+  lives in `pasted`, the note's neighbour, and the box is MOUNTED BACK on it
+  (`dzePasteBox.mount(..., { start })`) every time the panel is drawn again.
+  Three rules with it: a store of this kind is never written to the server — a
+  photograph handed in for the run in front of you is not a standing
+  instruction, and a reload is where that is proved; a product that LEAVES the
+  list takes both stores with it, since neither means anything without it; and
+  the fault is asserted in a browser in BOTH of its halves — what the press put
+  on the wire, and what was still on the screen after it — because neither is
+  visible to `node --check` or to any PHP gate.
 - **THE ANSWER TO SLOP IS NEVER ANOTHER APPENDED SENTENCE.** When a shot comes
   back with something invented on it, the fix is that the person's own words
   reach the model for THAT run — not a new line added to what the plugin

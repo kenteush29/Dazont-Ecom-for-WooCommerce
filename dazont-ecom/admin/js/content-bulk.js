@@ -371,6 +371,10 @@
 			$('.dze-cb-row[data-id="' + id + '"], .dze-cb-preview[data-id="' + id + '"]').remove();
 			delete results[id];
 			delete state[id];
+			// A product off the list takes with it what was handed to it and
+			// what was said about it: neither means anything without it.
+			delete pasted[String(id)];
+			delete told[id];
 		});
 		drawPicked();
 		if (!$('.dze-cb-row').length) { window.location.reload(); }
@@ -490,6 +494,17 @@
 	// bucket — the note would be thrown away by the very press it was written
 	// for. It is never stored on the server and dies with the page.
 	var told  = {};
+	// id => the photographs handed in from outside for that product, as data
+	// URIs. ITS OWN STORE, for the same reason and after the same report:
+	// "Photographs from elsewhere > Se fait dégager automatiquement sur l'écran
+	// bulk. Il me semble au moment de la génération image." The box used to be
+	// mounted on the product's bucket, and a run RESETS the row and deletes
+	// that bucket — so the photographs left the screen at the very press they
+	// were added for, and the order was built without them. Nothing here is
+	// stored on the server: a photograph handed in for the run in front of you
+	// dies with the page, exactly like the note.
+	var pasted = {};
+	function pastedOf(id) { return pasted[String(id)] || []; }
 	var results = {}; // id => { texts, shots, built, open }
 
 	var SYMBOL = { wait: '○', run: '', ready: '✓', done: '✓', fail: '✗' };
@@ -655,8 +670,7 @@
 		var data = { action: 'dze_content_image', nonce: cfg.nonce, post: id, template: tpl };
 		// What was handed to THIS product from outside the shop, and to no
 		// other: the box lives on its own panel.
-		var b = results[id];
-		var outside = (b && b.paste) ? b.paste.list() : [];
+		var outside = pastedOf(id);
 		if (outside.length) { data.pastes = outside; }
 		// The note travels with the order. It is kept on the product's own
 		// bucket, exactly like the photographs pasted beside it — a run RESETS
@@ -917,16 +931,22 @@
 		// something had been generated.
 		html = '<div class="dze-cb-nowshots"></div>' + '<div class="dze-cb-today"></div>' + html + '<div class="dze-cb-log"></div>';
 		$cell.html('<div class="dze-cx-result">' + html + '</div>');
-		// One box per product, kept on that product's bucket: the panel can be
-		// closed and reopened, and what was handed to it stays with it.
+		// One box per product, opened on what that product was handed. The
+		// panel is drawn again by a run, by a refusal and by every open and
+		// close, so what is in the box is kept OUTSIDE it — in `pasted`, the
+		// note's neighbour — and the box is mounted back on that.
 		if (window.dzePasteBox) {
-			b.paste = window.dzePasteBox.mount($cell.find('.dze-cb-elsebox'), {
+			window.dzePasteBox.mount($cell.find('.dze-cb-elsebox'), {
 				max: parseInt(cfg.maxPasted, 10) || 12,
 				maxBody: parseInt(cfg.maxBody, 10) || 9437184,
+				start: pastedOf(id),
 				// The picker offers what the box holds: a photograph added
 				// after the panel was drawn has to appear in it, or the only
 				// way to say "this one is the subject" is not on the screen.
-				onChange: function () { renderSubjects(id); }
+				onChange: function (l) {
+					pasted[String(id)] = (l || []).slice();
+					renderSubjects(id);
+				}
 			});
 		}
 		b.built = true;
@@ -1036,7 +1056,7 @@
 		window.dzePhotos.subjects(
 			previewCell(id).find('.dze-cb-subject'),
 			(b.current && b.current.images) || [],
-			(b.paste ? b.paste.list().length : 0),
+			pastedOf(id).length,
 			i18n
 		);
 	}

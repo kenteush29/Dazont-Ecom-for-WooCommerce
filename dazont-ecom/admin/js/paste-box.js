@@ -29,7 +29,11 @@
 		var i18n = $.extend({}, window.dzePasteI18n || {}, opts.i18n || {});
 		var max = parseInt(opts.max, 10) || 12;
 		var maxBody = parseInt(opts.maxBody, 10) || 9437184;
-		var list = [];
+		// WHAT IT OPENS ON. The host screen keeps what was handed in, in a
+		// store of its own, because the panel this box lives in is thrown away
+		// and drawn again — by a run, by a refusal, by closing and reopening it.
+		// The box is then mounted back on what that store holds.
+		var list = ( opts.start || [] ).map( String ).slice( 0, max );
 
 		$slot.html(
 			'<div class="dze-qm-drop dze-pb" tabindex="0">' +

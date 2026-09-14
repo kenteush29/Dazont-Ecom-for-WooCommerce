@@ -55,6 +55,11 @@ const dumped = JSON.parse( execFileSync( 'php',
 // replaced. Retyping the rest is how a gate goes green while proving nothing.
 const cfg = Object.assign( {}, dumped.cfg, { ajaxUrl: 'http://dze.test/ajax' } );
 
+// A real image file, small enough to travel: what somebody adds to the box.
+const SHOT = Buffer.from(
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+	'base64' );
+
 const browser = await chromium.launch();
 for ( const [ label, jq ] of jqs ) {
 	console.log( `\njQuery ${label}` );
@@ -568,6 +573,72 @@ for ( const [ label, jq ] of jqs ) {
 		ok( 'and a reload puts the product back on the run\'s order',
 			await page.locator( '.dze-cb-ownmark' ).count(), 0 );
 	}
+
+	// ---- WHAT WAS HANDED IN FROM OUTSIDE SURVIVES THE RUN IT WAS ADDED FOR ----
+	//
+	// "Photographs from elsewhere > Se fait dégager automatiquement sur l'écran
+	// bulk. Il me semble au moment de la génération image. Terriblement mal
+	// fait." Exactly the fault the NOTE was mended for, on the box beside it: a
+	// run calls `resetRow()`, which deletes the product's bucket whole, and the
+	// paste box was mounted ON that bucket. So the photographs left the screen
+	// at the very press they were added for — and, worse in silence, the
+	// request went out carrying none of them.
+	await page.goto( 'http://dze.test/screen', { waitUntil: 'domcontentloaded' } );
+	await page.click( '.dze-sec[data-sec="img"] .dze-sec-head' );
+	await page.waitForSelector( `${row( 1 )} .dze-cb-tpl`, { state: 'visible', timeout: 5000 } );
+	await page.selectOption( `${row( 1 )} .dze-cb-tpl`, '1' );
+	await page.selectOption( `${row( 1 )} .dze-tpl-n`, '1' );
+	for ( const f of await page.locator( '.dze-cb-field' ).all() ) { await f.uncheck().catch( () => {} ); }
+	await page.setChecked( '#dze-cb-price', false ).catch( () => {} );
+	await page.setChecked( '#dze-cb-image', true );
+	await page.uncheck( '.dze-cb-row[data-id="8"] .dze-cb-pick' ).catch( () => {} );
+	await page.check( '.dze-cb-row[data-id="7"] .dze-cb-pick' );
+
+	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+	await page.waitForSelector( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb',
+		{ timeout: 5000 } ).catch( () => {} );
+	await page.click( '.dze-cb-preview[data-id="7"] .dze-cb-else summary' );
+	// A supplier shot, added the way somebody adds one.
+	await page.setInputFiles( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-file', {
+		name: 'supplier.png', mimeType: 'image/png', buffer: SHOT
+	} );
+	await page.waitForSelector( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile',
+		{ timeout: 5000 } ).catch( () => {} );
+	ok( 'a photograph handed in from outside is in the box',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile' ).count(), 1 );
+	// AND THE PICKER OFFERS IT. The answer the screen cannot give is the answer
+	// nobody can give: what was added from outside is an option on the same
+	// picker that says which photograph is the product.
+	ok( 'and the picker offers it as the subject',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-subject option[value="paste"]' ).count(), 1 );
+	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+
+	const wasPaste = sent.length;
+	await page.click( '#dze-cb-start' );
+	await page.waitForTimeout( 2000 );
+	const withPaste = sent.slice( wasPaste ).filter( r => 'dze_content_image' === r.action );
+	ok( 'the run asked for a photograph', withPaste.length, 1 );
+	// THE HALF THAT WENT WRONG IN SILENCE: the bucket was gone by the time the
+	// order was built, so the request carried nothing at all.
+	ok( 'and what was handed in travelled with it',
+		( withPaste[ 0 ] || {} ).pastes, 1 );
+	// AND THE HALF THAT WAS VISIBLE: the box was still on the screen afterwards.
+	if ( ! await page.locator( '.dze-cb-preview[data-id="7"]' ).isVisible() ) {
+		await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+	}
+	await page.waitForSelector( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb',
+		{ timeout: 5000 } ).catch( () => {} );
+	ok( 'and it is still in the box the run was pressed from',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile' ).count(), 1 );
+	ok( 'nothing was raised doing it', errors, [] );
+	// NOT STORED, like the note: a photograph handed in for the run in front of
+	// you is not a standing instruction, and a reload is where that is proved.
+	await page.goto( 'http://dze.test/screen', { waitUntil: 'domcontentloaded' } );
+	await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+	await page.waitForSelector( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb',
+		{ timeout: 5000 } ).catch( () => {} );
+	ok( 'and a reload leaves the box empty',
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile' ).count(), 0 );
 
 	await page.close();
 }
