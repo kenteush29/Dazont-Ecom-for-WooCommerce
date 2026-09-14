@@ -23,6 +23,14 @@ defined( 'ABSPATH' ) || exit;
 final class DZE_Category_Content {
 
 	private const OPT   = 'dze_catcontent_settings';
+	/**
+	 * The most a single answer may be asked to hold.
+	 *
+	 * A linking pass hands a whole document back, so the ceiling has to cover
+	 * it — and past this point no ceiling would, which is the one case where
+	 * the honest answer is to refuse rather than to spend and come back short.
+	 */
+	private const MAX_OUT = 32000;
 	private const NONCE = 'dze_catcontent';
 	public const GEN_META  = '_dze_desc_generated';
 	/** Cached verdict of the question sifting pass, per category. */
@@ -1711,7 +1719,7 @@ PROMPT;
 		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
 		DZE_Ai_Usage::unit( 'cat_links' );
-		$out    = DZE_Marketing_Ai::complete( $system, $user, '', min( 16000, $words * 3 + 900 ), 240 );
+		$out    = DZE_Marketing_Ai::complete( $system, $user, '', self::room_for( $html, $words ), 240 );
 		DZE_Ai_Usage::unit();
 		$out    = trim( preg_replace( '/^```(?:html)?|```$/m', '', $out ) );
 		if ( '' === $out ) {
@@ -1719,11 +1727,8 @@ PROMPT;
 		}
 		$out = wp_kses_post( $out );
 
-		// Safety net: a linking pass that lost a fifth of the text rewrote it.
-		$kept = str_word_count( wp_strip_all_tags( $out ) );
-		if ( $kept < $words * 0.8 ) {
-			throw new RuntimeException( __( 'The text came back shortened instead of just linked — nothing was changed. Try again.', 'dazont-ecom' ) );
-		}
+		// A LINKING PASS ADDS LINKS AND CHANGES NOTHING ELSE.
+		self::only_linked( $html, $out, $done, $room );
 		$before = count( $done );
 		$after  = count( self::linked_urls( $out ) );
 		return [
@@ -1732,6 +1737,98 @@ PROMPT;
 			'before' => $before,
 			'after'  => $after,
 		];
+	}
+
+
+	/**
+	 * How much room the answer needs — measured on what must COME BACK.
+	 *
+	 * "How snipers work : 3298 words → 3038 words. Il a raccourci l'article, il
+	 * a enlevé toute une partie à la fin." The ceiling was `$words * 3 + 900`,
+	 * which measures the PROSE of a document that travels as HTML. A page
+	 * builder's markup outweighs its words several times over, so the model was
+	 * asked to hand a body back in a fraction of the room the body is made of,
+	 * and an answer that runs out of room stops — at the end, in the middle of
+	 * nothing, with no error anywhere.
+	 *
+	 * This pass returns the same document with a few anchors in it, so the
+	 * floor is the document itself. Bytes over three is a deliberately generous
+	 * reading of a token: `max_tokens` is a ceiling, not a spend, and asking
+	 * for room nobody uses costs nothing at all.
+	 */
+	public static function room_for( string $html, int $words ): int {
+		$need = (int) ceil( strlen( $html ) / 3 ) + 900;
+		$room = max( $words * 3 + 900, $need );
+		if ( $room > self::MAX_OUT ) {
+			// Refused BEFORE it is paid for: a text this long cannot come back
+			// whole in one answer, and a truncated one is what we are here to
+			// stop. Saying so is the honest end of this pass.
+			throw new RuntimeException( __( 'This text is too long to be linked in one pass without part of it being cut off.', 'dazont-ecom' ) );
+		}
+		return $room;
+	}
+
+	/** Block-level parts of a document — what a truncation takes away. */
+	public static function parts_in( string $html ): int {
+		return (int) preg_match_all( '#<(?:p|h[1-6]|li|blockquote|pre|table|figure|dd|dt)\b#i', $html );
+	}
+
+	/**
+	 * A LINKING PASS ADDS LINKS AND CHANGES NOTHING ELSE — and this is the one
+	 * place that holds it to that.
+	 *
+	 * The guard it replaces refused an answer under 80% of the text's words,
+	 * which on a 3,298-word article is a tolerance of six hundred and sixty
+	 * words: the two hundred and sixty this shop lost went straight through,
+	 * and so did one of the four links the article already carried, which
+	 * nothing looked at at all. A percentage cannot express the rule. What the
+	 * pass may change CAN be: the prompt lets it turn a phrasing around an
+	 * anchor and nothing else, so every other thing about the document has to
+	 * come back as it went.
+	 */
+	public static function only_linked( string $before, string $after, array $done, int $room ): void {
+		// 1. EVERY LINK ALREADY THERE IS STILL THERE. No tolerance: a link the
+		//    shop wrote is not this pass's to drop, and 4 → 3 is how it showed.
+		$now = [];
+		foreach ( self::linked_urls( $after ) as $u ) {
+			$now[ untrailingslashit( $u ) ] = true;
+		}
+		foreach ( $done as $u ) {
+			if ( isset( $now[ untrailingslashit( $u ) ] ) ) {
+				continue;
+			}
+			throw new RuntimeException( sprintf(
+				/* translators: %s: the address of the link that disappeared */
+				__( 'A link the text already carried came back missing (%s) — nothing was changed.', 'dazont-ecom' ),
+				$u
+			) );
+		}
+		// 2. NO PART OF THE DOCUMENT IS LOST. A tail cut off always takes
+		//    paragraphs and headings with it, whatever the word count says.
+		$was = self::parts_in( $before );
+		$is  = self::parts_in( $after );
+		if ( $is < $was ) {
+			throw new RuntimeException( sprintf(
+				/* translators: 1: parts that came back, 2: parts it had */
+				__( 'The text came back with parts missing (%1$s of its %2$s paragraphs and headings) — nothing was changed.', 'dazont-ecom' ),
+				number_format_i18n( $is ),
+				number_format_i18n( $was )
+			) );
+		}
+		// 3. THE WORDS MOVED BY NO MORE THAN THE ANCHORS CAN ACCOUNT FOR. A
+		//    budget, not a percentage: turning a phrasing around each anchor
+		//    placed is a handful of words, and a section is not.
+		$wb  = str_word_count( wp_strip_all_tags( $before ) );
+		$wa  = str_word_count( wp_strip_all_tags( $after ) );
+		$may = max( 20, $room * 8 );
+		if ( abs( $wa - $wb ) > $may ) {
+			throw new RuntimeException( sprintf(
+				/* translators: 1: words that came back, 2: words it had */
+				__( 'The text came back rewritten rather than linked (%1$s words against %2$s) — nothing was changed.', 'dazont-ecom' ),
+				number_format_i18n( $wa ),
+				number_format_i18n( $wb )
+			) );
+		}
 	}
 
 	/** The language a text is written in, spelled out for a prompt. */

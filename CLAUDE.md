@@ -2231,6 +2231,44 @@ whose screen has not been thought through yet.
     closed. `as_next_scheduled_action()` does tell them apart: a timestamp is
     one waiting its turn, `true` is one in progress, and the loopback is sent
     in that second case since the writer's own lock makes it harmless.
+- **A LINKING PASS ADDS LINKS AND CHANGES NOTHING ELSE.** "How snipers work :
+  3298 words → 3038 words. 4 links → 3 links. L'outil a raccourci l'article de
+  blog, il a enlevé toute une partie à la fin." `weave()` rewrites every
+  article and every category description on this shop and had NO gate at all,
+  which is how three faults shipped together and none of them could be seen.
+  - **A PERCENTAGE CANNOT EXPRESS THE RULE.** The safety net refused an answer
+    under 80% of the text's words — a tolerance of six hundred and sixty words
+    on that article, so the two hundred and sixty it lost went through without
+    a murmur. What the pass may change CAN be said exactly: the prompt lets it
+    turn a phrasing around an anchor and nothing else. So `only_linked()` holds
+    three things, each of them a way it went wrong: **every link the text
+    already carried is still there** (no tolerance — a link the shop wrote is
+    not this pass's to drop, and 4 → 3 is how it showed); **no block-level part
+    is lost**, because a tail cut off always takes paragraphs and headings with
+    it whatever the word count says; and **the words moved by no more than the
+    anchors can account for** — a budget of a handful per link placed, never a
+    share of the document.
+  - **A CEILING IS MEASURED ON WHAT MUST COME BACK.** `$words * 3 + 900`
+    measures the PROSE of a document that travels as HTML. A page builder's
+    markup outweighs its words several times over — a real 330-word builder
+    article asks for 1,890 tokens and is made of 3,700 — so the model was told
+    to hand the body back in a third of the room the body needs, and an answer
+    that runs out of room stops. At the end. In the middle of nothing.
+    `room_for()` takes the length of the document itself as the floor;
+    `max_tokens` is a ceiling and not a spend, so room nobody uses costs
+    nothing. Past what no ceiling could cover it REFUSES before paying, rather
+    than spending and coming back short.
+  - **AN ANSWER THE MODEL NEVER FINISHED IS NOT AN ANSWER.** Anthropic says so
+    itself — `stop_reason` comes back as `max_tokens` — and both completion
+    paths threw that away and handed the half-written text back as a finished
+    one. Every generator in the plugin is downstream of them, so a description,
+    a translated field, an email and a linked article were all cut off in the
+    same silence. `finished()` is ONE guard called by both, never two kept in
+    step. Two rules with it: a reason we cannot read is NEVER read as a failure
+    — a missing `stop_reason`, or one Anthropic adds next year, must not start
+    refusing this shop's work — and what the model managed to write is kept in
+    the trace beside the verdict, because half an answer is what a person needs
+    to see to understand what happened.
 - **A SCREEN THAT SHOWS SOME OF THE QUEUE COUNTS THE SAME SOME OF IT.** The
   Automation page printed "Done — 3 pages are written and waiting for your yes
   or no, below" directly above a list reading "Nothing is waiting for your yes

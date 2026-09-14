@@ -263,7 +263,9 @@ class DZE_Marketing_Ai {
 	/** A stub that READS the request, so a call sending the wrong thing cannot pass. */
 	public static $decide = null;
 	public static function complete( string $system, string $user, string $model = '', int $max = 0, int $t = 0 ): string {
-		self::$sent[] = [ 'system' => $system, 'user' => $user, 'model' => $model ];
+		// THE CEILING IS PART OF THE REQUEST. Never recorded, nothing could be
+		// red on a document asked back in less room than it is made of.
+		self::$sent[] = [ 'system' => $system, 'user' => $user, 'model' => $model, 'max' => $max ];
 		if ( is_callable( self::$decide ) ) { return (string) call_user_func( self::$decide, $user ); }
 		if ( '' === self::$answer ) { throw new RuntimeException( 'no answer' ); }
 		return self::$answer;
@@ -603,6 +605,106 @@ $dze_dead = $dze_pool( 30 );
 ok( 'a refusal loses no candidate',      $dze_dead['Jute rugs']['close'] ?? null, true );
 ok( 'and claims no reading either',
 	(string) ( $dze_dead['Jute rugs']['why'] ?? '' ), 'chosen on wording' );
+DZE_Marketing_Ai::$decide = null;
+
+echo "\nA LINKING PASS ADDS LINKS AND CHANGES NOTHING ELSE\n";
+//
+// "How snipers work : 3298 words → 3038 words. 4 links → 3 links. L'outil a
+// raccourci l'article de blog, il a enlevé toute une partie à la fin."
+// `weave()` rewrites every article and every category description on this shop
+// and had NO gate at all, which is how three faults shipped together.
+DZE_Marketing_Ai::$decide = null;
+DZE_Marketing_Ai::$sent   = [];
+
+// The article as it stands: six sections, and four links already in it.
+$dze_body = '';
+for ( $i = 1; $i <= 6; $i++ ) {
+	$dze_body .= '<h2>Section ' . $i . '</h2><p>' . str_repeat( 'word ', 40 ) . '</p>';
+}
+$dze_body = '<p>A rifle is <a href="https://kula.test/a">one</a> and <a href="https://kula.test/b">two</a> '
+	. 'and <a href="https://kula.test/c">three</a> and <a href="https://kula.test/d">four</a>.</p>' . $dze_body;
+$dze_targets = [ [ 'label' => 'Ghillie suits', 'url' => 'https://kula.test/ghillie', 'kind' => 'category', 'score' => 9, 'products' => 12 ] ];
+$dze_weave = static function ( string $answer ) use ( $dze_body, $dze_targets ): array {
+	DZE_Marketing_Ai::$answer = $answer;
+	try {
+		return [ 'ok' => true, 'res' => DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] ) ];
+	} catch ( \Throwable $e ) {
+		return [ 'ok' => false, 'why' => $e->getMessage() ];
+	}
+};
+
+// AN HONEST RUN GOES THROUGH. The prompt lets the model turn a phrasing around
+// an anchor, so a word or two either way is the job and not a rewrite.
+$dze_good = str_replace(
+	'<h2>Section 3</h2><p>word',
+	'<h2>Section 3</h2><p>A word about <a href="https://kula.test/ghillie">Ghillie suits</a>, word',
+	$dze_body
+);
+$dze_r = $dze_weave( $dze_good );
+ok( 'an honest linking pass goes through', $dze_r['ok'], true );
+ok( 'and counts the link it added',        (int) ( $dze_r['res']['added'] ?? 0 ), 1 );
+ok( 'with the four it found',              (int) ( $dze_r['res']['before'] ?? 0 ), 4 );
+
+// THE TAIL CUT OFF. This is the shop's own case: 3298 → 3038 words is a loss
+// of 8%, which sailed straight through a guard that only refused below 80%.
+$dze_cut = preg_replace( '#<h2>Section 6</h2><p>[^<]*</p>#', '', $dze_good );
+$dze_r   = $dze_weave( $dze_cut );
+ok( 'a text that came back short is refused', $dze_r['ok'], false );
+// AND IT SAYS WHAT HAPPENED. "Try again" over a silent loss is what let this
+// reach the review screen looking like an ordinary result.
+ok( 'and says a part is missing',
+	false !== stripos( (string) ( $dze_r['why'] ?? '' ), 'missing' ), true );
+
+// A LINK THAT WAS ALREADY THERE IS NOT THE PASS'S TO DROP — 4 links → 3. The
+// old guard never looked at them at all: it counted words and nothing else.
+$dze_lost = str_replace( '<a href="https://kula.test/c">three</a>', 'three', $dze_good );
+$dze_r    = $dze_weave( $dze_lost );
+ok( 'a link taken away is refused',        $dze_r['ok'], false );
+ok( 'and the dropped page is named',
+	false !== strpos( (string) ( $dze_r['why'] ?? '' ), 'kula.test/c' ), true );
+
+// A REWRITE THAT KEEPS THE SHAPE. Same blocks, same links, different words:
+// a percentage cannot see it and the word budget can — the pass may only move
+// the few words around each anchor it placed.
+$dze_fat = str_replace(
+	'<h2>Section 2</h2><p>',
+	'<h2>Section 2</h2><p>' . str_repeat( 'padding ', 120 ),
+	$dze_good
+);
+ok( 'a text that came back rewritten is refused', $dze_weave( $dze_fat )['ok'], false );
+
+// AND THE ANSWER THE MODEL NEVER FINISHED. The ceiling was computed from the
+// WORD count of a document that travels as HTML, so a heavily marked-up
+// article asked for less room than its own body needs.
+$dze_seen = 0;
+DZE_Marketing_Ai::$decide = static function ( string $user ) use ( $dze_good ): string { return $dze_good; };
+DZE_Marketing_Ai::$sent = [];
+DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+ok( 'the ceiling is asked for at all',     count( DZE_Marketing_Ai::$sent ), 1 );
+// IT IS MEASURED ON WHAT MUST COME BACK — the HTML — and a document cannot be
+// returned in fewer tokens than it is made of.
+ok( 'and it is big enough for the text',
+	(int) ( DZE_Marketing_Ai::$sent[0]['max'] ?? 0 ) > (int) ( strlen( $dze_body ) / 3 ), true );
+// AND ON A DOCUMENT MADE MOSTLY OF MARKUP, which is what a page builder and
+// Gutenberg both write. `$words * 3 + 900` measures the PROSE of a document
+// that travels as HTML: on this one the tags outweigh the words four to one,
+// so the model was asked to return a body in a third of the room it needs and
+// the answer stopped where the ceiling did — "il a enlevé toute une partie à
+// la fin".
+$dze_heavy = '';
+for ( $i = 1; $i <= 30; $i++ ) {
+	$dze_heavy .= '<div class="elementor-element elementor-element-' . $i . 'a7f3c elementor-widget elementor-widget-text-editor" data-id="' . $i . 'a7f3c" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;none&quot;}" data-widget_type="text-editor.default">'
+		. '<div class="elementor-widget-container"><h2 class="wp-block-heading has-large-font-size" id="sec-' . $i . '">Section ' . $i . '</h2>'
+		. '<p class="wp-block-paragraph has-text-color has-medium-font-size" style="line-height:1.7;color:#1d2327">'
+		. str_repeat( 'word ', 10 ) . '</p></div></div>';
+}
+DZE_Marketing_Ai::$decide = static fn( string $user ): string => $dze_heavy;
+DZE_Marketing_Ai::$sent   = [];
+try {
+	DZE_Category_Content::weave( 'How snipers work', $dze_heavy, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+} catch ( \Throwable $e ) { /* the ceiling is what is being read, not the answer. */ }
+ok( 'a document of markup gets room too',
+	(int) ( DZE_Marketing_Ai::$sent[0]['max'] ?? 0 ) > (int) ( strlen( $dze_heavy ) / 3 ), true );
 DZE_Marketing_Ai::$decide = null;
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
