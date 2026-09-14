@@ -2196,10 +2196,18 @@ final class DZE_Automation {
 		);
 		foreach ( $next_up as $row ) {
 			$name = esc_html( (string) $row['name'] );
-			$url  = self::edit_url( $conf['scope'], (int) $row['tid'] );
+			// THE ROW'S OWN KIND, never the task's scope: this task works on
+			// categories and articles alike.
+			$kind = (string) ( $row['kind'] ?? $conf['scope'] );
+			$oid  = (int) $row['tid'];
+			$url  = self::edit_url( $kind, $oid );
 			printf(
-				'<li class="dze-auto-nextone">%1$s <span class="dze-auto-why">%2$s</span></li>',
+				'<li class="dze-auto-nextone">%1$s%2$s <span class="dze-auto-why">%3$s</span></li>',
 				'' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name,
+				// AND THE PAGE AS A READER SEES IT. "Je veux pouvoir aller
+				// dessus facilement avant, pour comparer ensuite l'après" — the
+				// same symbol Past work wears, from the same one function.
+				wp_kses_post( DZE_Hub::visit_link( self::view_url( $kind, $oid ) ) ),
 				esc_html( (string) $row['why'] )
 			);
 		}
@@ -2540,10 +2548,26 @@ final class DZE_Automation {
 		if ( ! $oid ) {
 			return '';
 		}
-		if ( 'post' === $scope ) {
-			return (string) get_edit_post_link( $oid, '' );
+		if ( 'term' === self::what_is( $scope ) ) {
+			return (string) get_edit_term_link( $oid, 'product_cat' );
 		}
-		return (string) get_edit_term_link( $oid, 'product_cat' );
+		return (string) get_edit_post_link( $oid, '' );
+	}
+
+	/**
+	 * IS THIS OBJECT A TERM OR A POST? Asked of the object's OWN kind, never of
+	 * the task's scope.
+	 *
+	 * "Ici manque de lien direct vers les pages." The linking task works on
+	 * categories AND articles alike, and its rows were linked with the TASK's
+	 * scope — so four rows in five were handed `term.php?tag_ID=<a post id>`:
+	 * not a missing link, a WRONG one, pointing at a term that does not exist.
+	 *
+	 * Everything that is not a product category is a post of some type, which
+	 * is what the mesh itself already assumes.
+	 */
+	private static function what_is( string $kind ): string {
+		return in_array( $kind, [ 'term', 'category', 'product_cat' ], true ) ? 'term' : 'post';
 	}
 
 
@@ -2688,7 +2712,7 @@ final class DZE_Automation {
 		if ( $oid < 1 ) {
 			return '';
 		}
-		if ( 'term' === $what ) {
+		if ( 'term' === self::what_is( $what ) ) {
 			$link = get_term_link( $oid, 'product_cat' );
 			return ( $link && ! is_wp_error( $link ) ) ? (string) $link : '';
 		}
