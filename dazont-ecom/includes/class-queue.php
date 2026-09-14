@@ -1178,6 +1178,58 @@ final class DZE_Queue {
 	 * @param string[] $kinds
 	 * @return array<int,array{id:int,kind:string,oid:int,label:string,job:string,from:string,when:string}>
 	 */
+	/**
+	 * THE ROW BEING WRITTEN RIGHT NOW — or, failing that, the one next up.
+	 *
+	 * "Ici je veux plus d'info sur le post qui est en cours de travail. Pendant
+	 * que ça charge je veux savoir ce que ça charge." The bar gave a figure and
+	 * a percentage and never once named the page it was on, while this table
+	 * has known all along.
+	 *
+	 * A row in flight and a row waiting its turn are different answers and the
+	 * screen says which: `running` is true only for the first. Ordered by id,
+	 * which is the order the writer takes them in.
+	 *
+	 * @return array{kind:string,oid:int,label:string,job:string,running:bool}
+	 *               Empty when nothing of these kinds is waiting or in flight.
+	 */
+	public static function in_flight( array $kinds ): array {
+		global $wpdb;
+		$kinds = array_values( array_filter( array_map(
+			static fn( $k ): string => preg_replace( '/[^a-z_]/', '', strtolower( (string) $k ) ),
+			$kinds
+		) ) );
+		if ( ! $kinds ) {
+			return [];
+		}
+		$table = self::table();
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+		$in = "'" . implode( "','", $kinds ) . "'";
+		// Running first whatever its id: the writer may have taken a later row
+		// while an earlier one waits on something.
+		$row = (array) $wpdb->get_row(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds stripped to [a-z_] above.
+			"SELECT kind, object_id, status FROM {$table}
+			 WHERE status IN ( 'running', 'queued' ) AND kind IN ( {$in} )
+			 ORDER BY FIELD( status, 'running', 'queued' ), id ASC LIMIT 1",
+			ARRAY_A
+		);
+		if ( ! $row ) {
+			return [];
+		}
+		$kind = (string) ( $row['kind'] ?? '' );
+		$defs = self::kinds();
+		return [
+			'kind'    => $kind,
+			'oid'     => (int) ( $row['object_id'] ?? 0 ),
+			'label'   => self::label_for( $kind, (int) ( $row['object_id'] ?? 0 ) ),
+			'job'     => (string) ( $defs[ $kind ]['label'] ?? $kind ),
+			'running' => 'running' === (string) ( $row['status'] ?? '' ),
+		];
+	}
+
 	public static function review_rows_for( array $kinds, int $limit = 10 ): array {
 		global $wpdb;
 		$kinds = array_values( array_filter( array_map(

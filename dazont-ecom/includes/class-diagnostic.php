@@ -3290,6 +3290,10 @@ final class DZE_Diagnostic {
 		if ( $dze_pick ) {
 			echo '<td class="manage-column column-cb check-column"><input type="checkbox" id="dze-diag-all" /></td>';
 		}
+		// THE FEATURED IMAGE FIRST — it is what the eye recognises the object
+		// by, and half these criteria are about pictures. Heading and cell come
+		// from one place, like the id beside them.
+		echo DZE_Hub::thumb_th();
 		echo $goods
 			? $head( 'name', __( 'Product', 'dazont-ecom' ) )
 			: '<th>' . esc_html__( 'Name', 'dazont-ecom' ) . '</th>';
@@ -3336,6 +3340,14 @@ final class DZE_Diagnostic {
 		// list that does not say which is a list you have to work out.
 		$dze_row  = (array) ( $check['row'] ?? [] );
 
+		// One pass for the whole page, never a read per row.
+		$dze_pics = self::thumbs( (string) $check['scope'], $slice );
+		// A BODY THAT MOVES TAKES ITS ASSETS WITH IT. The toolbox brings the
+		// image viewer with it on a PRODUCT criterion and on no other, so a
+		// list of articles or of categories had the thumbnails and nothing to
+		// open them with. The body asks for what it draws, whatever the kind.
+		self::list_assets();
+
 		foreach ( $slice as $oid ) {
 			$oid = (int) $oid;
 			[ $name, $link ] = self::object_link( (string) $check['scope'], $oid );
@@ -3350,6 +3362,12 @@ final class DZE_Diagnostic {
 					$oid
 				);
 			}
+			$dze_pic = (array) ( $dze_pics[ $oid ] ?? [] );
+			echo DZE_Hub::thumb_td(
+				(string) ( $dze_pic['thumb'] ?? '' ),
+				(string) ( $dze_pic['full'] ?? '' ),
+				wp_strip_all_tags( $name )
+			);
 			echo '<td>';
 			// A title with markup in it — "<span> Military Patch </span> Russian
 			// Z" — is a title with markup in it: the tags are the shop's, not
@@ -3673,6 +3691,93 @@ final class DZE_Diagnostic {
 			return ( $term && ! is_wp_error( $term ) ) ? $term : null;
 		}
 		return get_post( $id );
+	}
+
+	/**
+	 * THE FEATURED IMAGE OF A WHOLE PAGE OF ROWS, in one pass.
+	 *
+	 * "Sur la liste des diagnostics il faut l'image featured. Peu importe le
+	 * type de post." Whatever the object is, it has one, and the two places it
+	 * is kept are not the same: a post of any type answers through
+	 * `_thumbnail_id`, a TERM through WooCommerce's own `thumbnail_id` term
+	 * meta — asked as a post it answers 0 and every category row would print
+	 * an empty box.
+	 *
+	 * A list-table column stays O(1) per row: the meta of the whole page is
+	 * primed in one query, and so is the meta of the attachments it names, or
+	 * this is two queries a line on a list of fifty.
+	 *
+	 * @return array<int,array{thumb:string,full:string}> Keyed by object id;
+	 *                                                    absent where there is
+	 *                                                    no featured image.
+	 */
+	/**
+	 * What the problem list itself needs: the ONE image viewer, and its
+	 * styling. Asked for by the body that draws the pictures, so no page hook
+	 * has to be kept in step and a screen that draws this list next year needs
+	 * to know nothing.
+	 */
+	private static function list_assets(): void {
+		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );
+		wp_enqueue_script( 'dze-hzoom', DZE_URL . 'admin/js/hzoom.js', [ 'jquery' ], DZE_VERSION, true );
+		wp_localize_script( 'dze-hzoom', 'dzeZoomI18n', [
+			'zoom'   => __( 'See this image full size', 'dazont-ecom' ),
+			'close'  => __( 'Close', 'dazont-ecom' ),
+			'prev'   => __( 'Previous image', 'dazont-ecom' ),
+			'next'   => __( 'Next image', 'dazont-ecom' ),
+			'failed' => __( 'This image could not be loaded.', 'dazont-ecom' ),
+		] );
+	}
+
+	private static function thumbs( string $scope, array $ids ): array {
+		$ids = array_values( array_unique( array_map( 'intval', $ids ) ) );
+		if ( ! $ids ) {
+			return [];
+		}
+		$of = [];
+		if ( 'category' === $scope ) {
+			if ( function_exists( 'update_termmeta_cache' ) ) {
+				update_termmeta_cache( $ids );
+			}
+			foreach ( $ids as $one ) {
+				$att = (int) get_term_meta( $one, 'thumbnail_id', true );
+				if ( $att > 0 ) {
+					$of[ $one ] = $att;
+				}
+			}
+		} else {
+			update_meta_cache( 'post', $ids );
+			foreach ( $ids as $one ) {
+				$att = (int) get_post_thumbnail_id( $one );
+				if ( $att > 0 ) {
+					$of[ $one ] = $att;
+				}
+			}
+		}
+		if ( ! $of ) {
+			return [];
+		}
+		// The attachments themselves, primed together: `wp_get_attachment_image_url()`
+		// reads a post and its meta, and unprimed that is two queries per row.
+		$files = array_values( array_unique( $of ) );
+		if ( function_exists( '_prime_post_caches' ) ) {
+			_prime_post_caches( $files, false, true );
+		}
+		update_meta_cache( 'post', $files );
+		$out = [];
+		foreach ( $of as $one => $att ) {
+			$small = (string) wp_get_attachment_image_url( $att, 'thumbnail' );
+			if ( '' === $small ) {
+				// An id filed against an attachment that no longer exists is
+				// not a picture: printing it is a broken image on every row.
+				continue;
+			}
+			$out[ $one ] = [
+				'thumb' => $small,
+				'full'  => (string) wp_get_attachment_image_url( $att, 'full' ),
+			];
+		}
+		return $out;
 	}
 
 	private static function object_link( string $scope, int $id ): array {

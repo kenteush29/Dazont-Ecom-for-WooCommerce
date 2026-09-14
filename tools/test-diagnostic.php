@@ -64,8 +64,32 @@ function wp_die( $m = '' ) { throw new RuntimeException( (string) $m ); }
 function is_admin() { return true; }
 function wp_unslash( $v ) { return $v; }
 function wp_style_is( $h, $l = 'enqueued' ) { return true; }
-function wp_enqueue_style( ...$a ) {}
-function wp_enqueue_script( ...$a ) {}
+// WHAT A SCREEN ASKS FOR, RECORDED. A body that moves takes its assets with
+// it, and a harness that loads them itself cannot see a screen that never asks.
+$GLOBALS['dze_asked'] = [];
+function wp_enqueue_style( $h = '', ...$a ) { $GLOBALS['dze_asked'][] = (string) $h; }
+function wp_enqueue_script( $h = '', ...$a ) { $GLOBALS['dze_asked'][] = (string) $h; }
+function wp_localize_script( ...$a ) { return true; }
+// The featured image, for a post of any type and for a term alike.
+$GLOBALS['dze_termmeta'] = [];
+$GLOBALS['dze_primed']   = [];
+function get_term_meta( $id, $key = '', $single = false ) {
+	$v = $GLOBALS['dze_termmeta'][ (int) $id ][ $key ] ?? '';
+	return $single ? $v : [ $v ];
+}
+function update_termmeta_cache( $ids ) { $GLOBALS['dze_primed'][] = [ 'term', (array) $ids ]; return true; }
+$GLOBALS['dze_terms'] = [];
+function get_term( $id, $tax = '' ) { return $GLOBALS['dze_terms'][ (int) $id ] ?? null; }
+function get_edit_term_link( $id, $tax = '' ) { return 'http://example.test/term/' . (int) $id; }
+function _prime_post_caches( $ids, ...$a ) { $GLOBALS['dze_primed'][] = [ 'post', (array) $ids ]; return true; }
+// One attachment, two sizes. An id nothing was filed under answers '' — an
+// image that does not exist must not print as a broken picture.
+function wp_get_attachment_image_url( $id, $size = 'thumbnail' ) {
+	$id = (int) $id;
+	return isset( $GLOBALS['dze_files'][ $id ] )
+		? 'http://img.test/' . $id . '-' . ( is_array( $size ) ? 'x' : $size ) . '.jpg'
+		: '';
+}
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, $d ); }
 function wp_date( $f, $t = null ) { return date( 'Y-m-d H:i', (int) $t ); }
 function human_time_diff( $a, $b = 0 ) { return '1 hour'; }
@@ -107,7 +131,7 @@ function get_posts( $args = [] ) {
 	}
 	return $out;
 }
-function update_meta_cache( $type, $ids ) { return true; }
+function update_meta_cache( $type, $ids ) { $GLOBALS['dze_primed'][] = [ (string) $type, (array) $ids ]; return true; }
 function wp_kses_post( $s ) { return (string) $s; }
 function wc_price( $n ) { return '<span class="amount">$' . number_format( (float) $n, 2 ) . '</span>'; }
 function paginate_links( $a = [] ) { return ''; }
@@ -2039,6 +2063,121 @@ if ( in_array( '--dump-list', (array) $argv, true ) ) {
 	echo (string) ob_get_clean();
 	exit( 0 );
 }
+
+echo "\nTHE FEATURED IMAGE, ON EVERY ROW AND WHATEVER THE POST TYPE\n";
+// "Sur la liste des diagnostics il faut l'image featured. Peu importe le type
+// de post." A list of nine hundred lines of text is a list you read one name
+// at a time; the picture is what the eye actually recognises a product by, and
+// half these criteria are ABOUT pictures.
+$dze_thumb_list = static function ( array $get = [] ) use ( $dze_render ): string {
+	$_GET = $get;
+	$GLOBALS['dze_asked']  = [];
+	$GLOBALS['dze_primed'] = [];
+	ob_start();
+	$dze_render->invoke( DZE_Diagnostic::instance(), 'prod_gallery' );
+	return (string) ob_get_clean();
+};
+update_option( DZE_Diagnostic::OPT, [] );
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'prod_gallery' => [ 101, 102, 103 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'prod_gallery' => 3 ], 'read' => time() ] );
+$GLOBALS['dze_posts'] = [];
+foreach ( [ 101 => 'Ancient cap', 102 => 'Zulu pouch', 103 => 'Balaclava' ] as $dze_i => $dze_name ) {
+	$dze_p = new WP_Post();
+	$dze_p->ID = $dze_i;
+	$dze_p->post_title = $dze_name;
+	$GLOBALS['dze_posts'][ $dze_i ] = $dze_p;
+}
+// Two carry one, the third carries none — which is itself worth seeing.
+$GLOBALS['dze_files'] = [ 9001 => true, 9002 => true ];
+$GLOBALS['dze_meta'][101]['_thumbnail_id'] = 9001;
+$GLOBALS['dze_meta'][102]['_thumbnail_id'] = 9002;
+unset( $GLOBALS['dze_meta'][103]['_thumbnail_id'] );
+
+$dze_th = $dze_thumb_list();
+ok( 'the table has a column for it', substr_count( $dze_th, 'dze-thumb-th' ), 1 );
+ok( 'and a cell on every row',       substr_count( $dze_th, 'dze-thumb-td' ), 3 );
+// THE HEADING AND THE CELL, IN POSITION. A head declared in one place and
+// cells built in another go a column out of step without raising anything.
+/** Which cell of a row (or of the head) a class sits in. */
+$dze_col = static function ( string $tr, string $needle ): int {
+	preg_match_all( '#<t[hd](\s[^>]*)?>#', $tr, $m, PREG_OFFSET_CAPTURE );
+	foreach ( (array) $m[0] as $i => $one ) {
+		if ( false !== strpos( (string) $one[0], $needle ) ) { return (int) $i; }
+	}
+	return -1;
+};
+preg_match( '#<thead><tr>.*?</tr>#s', $dze_th, $dze_head );
+$dze_at = $dze_col( (string) ( $dze_head[0] ?? '' ), 'dze-thumb-th' );
+// BEFORE THE NAME AND BEFORE THE ID: it is what the eye lands on first.
+ok( 'the column is there', $dze_at >= 0, true );
+ok( 'and it comes before the id', $dze_at < $dze_col( (string) ( $dze_head[0] ?? '' ), 'dze-objid-th' ), true );
+// THE HEADING AND THE CELL, ASSERTED TOGETHER AND IN POSITION.
+preg_match( '#<tr data-id="101">.*?</tr>#s', $dze_th, $dze_r );
+ok( 'and the picture is printed under it',
+	$dze_col( (string) ( $dze_r[0] ?? '' ), 'dze-thumb-td' ), $dze_at );
+// IT IS THE ONE IMAGE VIEWER, never a second one: thirteen screens open
+// hzoom.js, and a picture that does not answer a click is a picture you open
+// the product to see.
+ok( 'it opens in the shop\'s own viewer',     false !== strpos( $dze_th, 'dze-hzoom' ), true );
+ok( 'and it carries the full size to show',  false !== strpos( $dze_th, 'data-full="http://img.test/9001-full.jpg"' ), true );
+ok( 'the thumbnail itself is a thumbnail',   false !== strpos( $dze_th, 'src="http://img.test/9001-thumbnail.jpg"' ), true );
+// A PRODUCT WITH NONE SAYS SO. An empty cell reads as a reading that never
+// happened — and on a list of shortfalls, "no featured image" is the shortfall.
+ok( 'a product with no featured image says which empty it is',
+	false !== strpos( $dze_th, 'dze-thumb-none' ), true );
+ok( 'and it is not printed as a broken picture',
+	substr_count( $dze_th, '<img' ), 2 );
+// A BODY THAT MOVES TAKES ITS ASSETS WITH IT — including on a list whose
+// criterion is not about products, where the toolbox is not loaded at all.
+ok( 'the list asks for the viewer',  in_array( 'dze-hzoom', (array) $GLOBALS['dze_asked'], true ), true );
+ok( 'and for the styling it needs',  in_array( 'dze-zoom', (array) $GLOBALS['dze_asked'], true ), true );
+// O(1) PER ROW. A list-table column that reads a meta key per line is a query
+// per line; the whole page is primed in one pass, like `facts()` beside it.
+$dze_primed_sets = array_map( static fn( $r ) => array_values( (array) $r[1] ), (array) $GLOBALS['dze_primed'] );
+// The whole page in ONE call, and exactly one: a second would mean a read that
+// walks the rows again.
+ok( 'the whole page is primed in ONE call, never a read per row',
+	count( array_filter( $dze_primed_sets, static fn( $v ) => [ 101, 102, 103 ] === $v ) ), 1 );
+// And the photographs it named, together — reading a url off an unprimed
+// attachment is two more queries a line.
+ok( 'and so are the photographs it named',
+	in_array( [ 9001, 9002 ], $dze_primed_sets, true ), true );
+
+echo "\nWhatever the post type: an article, and a category\n";
+// "Peu importe le type de post." An article has a featured image like anything
+// else, and a product category keeps its picture in a TERM meta key —
+// `thumbnail_id`, WooCommerce's own — which a post-only reader answers 0 for.
+$GLOBALS['dze_opts']['dze_diagnostic'] = [ 'rows' => [
+	[ 'id' => 'thin_post', 'label' => 'Article too short', 'scope' => 'post',
+	  'field' => 'post.content', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'on' => 1 ],
+	[ 'id' => 'thin_cat', 'label' => 'Category too short', 'scope' => 'category',
+	  'field' => 'category.description', 'key' => '', 'test' => 'lt', 'value' => 50, 'find' => '', 'on' => 1 ],
+] ];
+update_option( DZE_Diagnostic::OPT_LISTS, [ 'thin_post' => [ 501 ], 'thin_cat' => [ 601 ] ] );
+update_option( DZE_Diagnostic::OPT_CENSUS, [ 'checks' => [ 'thin_post' => 1, 'thin_cat' => 1 ], 'read' => time() ] );
+$dze_a = new WP_Post();
+$dze_a->ID = 501;
+$dze_a->post_title = 'How snipers work';
+$GLOBALS['dze_posts'][501] = $dze_a;
+$GLOBALS['dze_files'][9501] = true;
+$GLOBALS['dze_meta'][501]['_thumbnail_id'] = 9501;
+$_GET = [];
+ob_start(); $dze_render->invoke( DZE_Diagnostic::instance(), 'thin_post' ); $dze_post_html = (string) ob_get_clean();
+ok( 'an article carries its featured image too',
+	false !== strpos( $dze_post_html, 'src="http://img.test/9501-thumbnail.jpg"' ), true );
+
+$GLOBALS['dze_terms'][601] = (object) [ 'term_id' => 601, 'name' => 'Plate carriers', 'description' => 'x', 'count' => 4 ];
+$GLOBALS['dze_files'][9601] = true;
+$GLOBALS['dze_termmeta'][601]['thumbnail_id'] = 9601;
+$_GET = [];
+$GLOBALS['dze_primed'] = [];
+ob_start(); $dze_render->invoke( DZE_Diagnostic::instance(), 'thin_cat' ); $dze_cat_html = (string) ob_get_clean();
+ok( 'and a category its own, from the term meta WooCommerce writes',
+	false !== strpos( $dze_cat_html, 'src="http://img.test/9601-thumbnail.jpg"' ), true );
+// A TERM IS PRIMED AS A TERM. Asked for through the post reader it answers
+// nothing at all, which is the silent half of this.
+ok( 'its meta is primed as a term, not as a post',
+	in_array( 'term', array_map( static fn( $r ) => (string) $r[0], (array) $GLOBALS['dze_primed'] ), true ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
