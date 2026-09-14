@@ -695,6 +695,9 @@ trait DZE_Content_Ajax {
 		// of them usable as it stands, tell the model far more together than the
 		// best of them alone. The first is the subject; the others are context.
 		$pastes = isset( $_POST['pastes'] ) ? (array) wp_unslash( $_POST['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
+		// The same answer, on the lane that remakes the main image: a fault
+		// mended on one screen and not the other is the fault still shipped.
+		$refs_for = ( isset( $_POST['refs_use'] ) && 'copy' === sanitize_key( wp_unslash( $_POST['refs_use'] ) ) ) ? 'copy' : 'set';
 		$paste  = isset( $_POST['paste'] ) ? (string) wp_unslash( $_POST['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
 		if ( ! $pastes && '' !== $paste ) {
 			$pastes = [ $paste ];
@@ -894,7 +897,7 @@ trait DZE_Content_Ajax {
 			$prompt = ( '' !== $dze_ctx ? "Product context: {$dze_ctx}\n\n" : '' )
 				. $base
 				. ( '' !== $note ? "\n\nAlso: " . $note : '' )
-				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ( ! empty( $pastes ) && ! $base_main ) ), $ref_n )
+				. self::sources_instruction( $count, $plate_row, 0, $variants, ( $src_id > 0 || ( ! empty( $pastes ) && ! $base_main ) ), $ref_n, $refs_for )
 				. self::note_lines( $pid, '', isset( $_POST['note'] ) ? sanitize_textarea_field( wp_unslash( $_POST['note'] ) ) : '' );
 
 			DZE_Ai_Usage::unit( 'product_img' );
@@ -907,7 +910,12 @@ trait DZE_Content_Ajax {
 			// ways of saying it is two traces nobody can compare.
 			$dze_made = self::sources_said( [
 				[ __( 'of the product', 'dazont-ecom' ), $count ],
-				[ __( 'handed in as a reference', 'dazont-ecom' ), $ref_n ],
+				[
+					'copy' === $refs_for
+						? __( 'handed in to work from', 'dazont-ecom' )
+						: __( 'handed in as a reference', 'dazont-ecom' ),
+					$ref_n,
+				],
 			] );
 			if ( $plate ) {
 				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(
@@ -1028,6 +1036,12 @@ trait DZE_Content_Ajax {
 		$paste  = isset( $in['paste'] ) ? (string) wp_unslash( $in['paste'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as an image below.
 		// Several photographs from outside the shop, the first one the subject.
 		$pastes = isset( $in['pastes'] ) ? (array) wp_unslash( $in['pastes'] ) : []; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- validated as images below.
+		// WHAT THE HANDED-IN PHOTOGRAPHS ARE FOR — a setting to put the product
+		// in, or a design to rework onto it. The plugin used to answer it on
+		// its own, in capitals, and answered it one way only. Anything but the
+		// owner's own word means the setting: a default that means something
+		// else is how a supplier shot became the product.
+		$refs_for = ( isset( $in['refs_use'] ) && 'copy' === (string) $in['refs_use'] ) ? 'copy' : 'set';
 		if ( ! $pastes && '' !== $paste ) {
 			$pastes = [ $paste ];
 		}
@@ -1338,7 +1352,7 @@ trait DZE_Content_Ajax {
 			// the shot this colour already has: then image 1 is the product and
 			// the rest is context, which is a different sentence entirely.
 			$subject_first = ( '' !== $src ) || ( ! empty( $pastes ) && ! $ref_n ) || ( '' !== $v_value && $v_own );
-			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first, $ref_n );
+			$prompt   .= self::sources_instruction( $product_count, $scene, $avoid, $variants, (bool) $subject_first, $ref_n, $refs_for );
 			if ( '' !== $v_value ) {
 				// A pasted photograph IS that variation: it is shown as it is,
 				// and only the picture around it has to be redone.
@@ -1367,7 +1381,12 @@ trait DZE_Content_Ajax {
 				[ __( 'pasted in', 'dazont-ecom' ), $dze_paste_n ],
 				[ __( 'of its other colours', 'dazont-ecom' ), $variants ],
 				[ __( 'said "not like this"', 'dazont-ecom' ), $avoid ],
-				[ __( 'handed in as a reference', 'dazont-ecom' ), $ref_n ],
+				[
+					'copy' === $refs_for
+						? __( 'handed in to work from', 'dazont-ecom' )
+						: __( 'handed in as a reference', 'dazont-ecom' ),
+					$ref_n,
+				],
 			] );
 			if ( $scene ) {
 				$dze_made .= ( '' !== $dze_made ? ' · ' : '' ) . sprintf(

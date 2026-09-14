@@ -347,6 +347,49 @@ $refs = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1 );
 ok( 'a reference is named as the setting',
 	false !== strpos( $refs, 'IS A REFERENCE YOU WERE HANDED' ), true );
 
+echo "\nWHAT THE HANDED-IN PHOTOGRAPHS ARE FOR IS THE OWNER'S ANSWER\n";
+// "Il faut donner l'autorisation de copier les images additionnelles
+// externes. Ce sont des images souvent uniques mais qui doivent être
+// retravaillées."
+//
+// The plugin answered that question on its own, in capitals, and answered it
+// one way only: a photograph handed in was a SETTING, and taking a colour, a
+// pattern or an object from it was forbidden. So the one thing a unique image
+// is handed in FOR — being reworked onto the product — was refused by an
+// appended sentence the owner could not see and had to argue with in his own
+// prompt. Two answers now, and the screen gives one of them.
+$set  = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'set' );
+$copy = DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'copy' );
+ok( 'the setting answer still forbids taking from it',
+	false !== strpos( $set, 'take no colour, pattern, material, shape or object' ), true );
+ok( 'and the copy answer asks for the opposite',
+	false !== strpos( $copy, 'TO WORK FROM' ), true );
+ok( 'it says what is reproduced',
+	false !== strpos( $copy, 'reproduce what it shows on the product' ), true );
+// THE ARBITER IS STILL NAMED. A photograph handed in to work from must not
+// become the product: the shape and the construction are image 1's, or a
+// supplier shot of another model comes back as this one.
+ok( 'and the product is still image 1 for the shape',
+	false !== strpos( $copy, 'The shape and the construction stay those of image 1' ), true );
+// ONE RULE, SAID ONCE. The forbidding sentence must be GONE on that answer,
+// not left standing beside its opposite — two instructions contradicting each
+// other is worse than either of them alone.
+ok( 'the forbidding sentence is not sent as well',
+	false !== strpos( $copy, 'take no colour, pattern, material, shape or object' ), false );
+// SEVERAL of them read the same way.
+$copyn = DZE_Content::sources_instruction( 2, null, 0, 0, true, 3, 'copy' );
+ok( 'several handed in are named together',
+	false !== strpos( $copyn, 'ARE PHOTOGRAPHS YOU WERE HANDED TO WORK FROM' ), true );
+ok( 'and read in the plural',
+	false !== strpos( $copyn, 'reproduce what they show on the product' ), true );
+// An answer nobody gave, and an answer nothing was handed in on, are both the
+// setting: a default that means something else is how a supplier shot became
+// the product.
+ok( 'no answer means the setting',
+	DZE_Content::sources_instruction( 2, null, 0, 0, true, 1 ), $set );
+ok( 'and a word we do not know means the setting too',
+	DZE_Content::sources_instruction( 2, null, 0, 0, true, 1, 'whatever' ), $set );
+
 echo "\nNOTHING APPENDED MAY OVERRULE THE PROMPT\n";
 // "Tu as encore ajouté des instructions custom par dessus le prompt ? Ça
 // t'est interdit. Le prompt est le gagnant. Il est bien rédigé, et aucune

@@ -375,6 +375,7 @@
 			// what was said about it: neither means anything without it.
 			delete pasted[String(id)];
 			delete told[id];
+			delete chose[String(id)];
 		});
 		drawPicked();
 		if (!$('.dze-cb-row').length) { window.location.reload(); }
@@ -504,6 +505,15 @@
 	// stored on the server: a photograph handed in for the run in front of you
 	// dies with the page, exactly like the note.
 	var pasted = {};
+	// WHAT HE PICKED ON A PRODUCT'S PANEL — which photograph is the product,
+	// and what the handed-in ones are for. The panel is thrown away and drawn
+	// again by a run, by a refusal, by closing and reopening it, so an answer
+	// living only in the DOM is an answer silently lost at the very press it
+	// was given for. Kept beside the note and the photographs handed in, for
+	// the same reason and with the same rules: never written to the server,
+	// and gone the moment the product leaves the list.
+	var chose = {};
+	function choseOf(id) { return chose[String(id)] || {}; }
 	function pastedOf(id) { return pasted[String(id)] || []; }
 	var results = {}; // id => { texts, shots, built, open }
 
@@ -683,7 +693,8 @@
 		// place, the light and the styling.
 		window.dzePhotos.subjectInto(
 			data,
-			previewCell(id).find('.dze-cb-subject').val()
+			choseOf(id).subj || previewCell(id).find('.dze-cb-subject').val(),
+			choseOf(id).refs || previewCell(id).find('.dze-cb-refsline').find('.dze-cx-refspick').val()
 		);
 		// Which attempt of this prompt this is: the second one is asked for a
 		// different framing instead of coming back as the first one again.
@@ -871,6 +882,17 @@
 				'<span>' + esc(i18n.subjLabel) + '</span>' +
 				'<select class="dze-cb-subject"><option value="0">' + esc(i18n.subjMainOpt) + '</option></select>' +
 			'</label>' +
+			// AND WHAT THE HANDED-IN ONES ARE FOR. "Il faut donner
+			// l'autorisation de copier les images additionnelles externes. Ce
+			// sont des images souvent uniques mais qui doivent être
+			// retravaillées." The plugin answered it on its own, in capitals,
+			// and answered it one way: the setting, take nothing from them.
+			// Shown only while something has been handed in and the product
+			// leads, or it is a control that cannot act.
+			'<label class="dze-cx-subjline dze-cx-refsline dze-cb-refsline" style="display:none;">' +
+				'<span>' + esc(i18n.refsLabel) + '</span>' +
+				'<select class="dze-cx-refspick"></select>' +
+			'</label>' +
 			// WHAT THE OWNER KNOWS AND NO PHOTOGRAPH SHOWS, on the product it
 			// is about. "Ma note n'est pas envoyée !!! : Ce tapis a une grosse
 			// bande blanche de chaque côté (mal visible sur les images
@@ -1053,13 +1075,35 @@
 	// photos.js, the same list the toolbox offers.
 	function renderSubjects(id) {
 		var b = bucket(id);
+		var $s = previewCell(id).find('.dze-cb-subject');
 		window.dzePhotos.subjects(
-			previewCell(id).find('.dze-cb-subject'),
+			$s,
 			(b.current && b.current.images) || [],
 			pastedOf(id).length,
 			i18n
 		);
+		// What he answered before the panel was redrawn, put back — and only
+		// while that answer still exists: a photograph deleted since must not
+		// be sent as a subject nothing answers for.
+		var was = choseOf(id);
+		if (was.subj && $s.find('option[value="' + was.subj + '"]').length) { $s.val(was.subj); }
+		var $r = previewCell(id).find('.dze-cb-refsline');
+		window.dzePhotos.refsUse($r, pastedOf(id).length, $s.val(), i18n);
+		if (was.refs) { $r.find('.dze-cx-refspick').val(was.refs); }
 	}
+	// The second question depends on the first: choosing the handed-in set as
+	// the subject answers it, so it goes away rather than meaning nothing.
+	$(document).on('change', '.dze-cb-subject', function () {
+		var id = parseInt($(this).closest('[data-id]').data('id'), 10) || 0;
+		if (!id) { return; }
+		chose[String(id)] = $.extend({}, choseOf(id), { subj: String($(this).val() || '0') });
+		renderSubjects(id);
+	});
+	$(document).on('change', '.dze-cb-refsline .dze-cx-refspick', function () {
+		var id = parseInt($(this).closest('[data-id]').data('id'), 10) || 0;
+		if (!id) { return; }
+		chose[String(id)] = $.extend({}, choseOf(id), { refs: String($(this).val() || 'set') });
+	});
 	function renderLog(id) {
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-log');
 		if (!$slot.length || !b.current) { return; }

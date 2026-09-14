@@ -437,6 +437,17 @@
 									'<span>' + esc(i18n.subjLabel) + '</span>' +
 									'<select id="dze-cx-subject"><option value="0">' + esc(i18n.subjMainOpt) + '</option></select>' +
 								'</label>' +
+								// AND WHAT THE HANDED-IN ONES ARE FOR. The plugin
+								// answered this on its own, in capitals: a
+								// photograph handed in was the setting and
+								// taking anything from it was forbidden — so a
+								// unique shot handed in to be reworked could
+								// not be asked for. Shown only while something
+								// has been handed in and the product leads.
+								'<label class="dze-cx-subjline dze-cx-refsline dze-sec-opt" id="dze-cx-refsline" style="display:none;">' +
+									'<span>' + esc(i18n.refsLabel) + '</span>' +
+									'<select class="dze-cx-refspick"></select>' +
+								'</label>' +
 								// What no photograph of this product shows. It
 								// travels with every image made here, and it
 								// was only editable in the one-function popup —
@@ -863,7 +874,17 @@
 			cxPaste ? cxPaste.list().length : 0,
 			i18n
 		);
+		window.dzePhotos.refsUse(
+			$('#dze-cx-refsline'),
+			cxPaste ? cxPaste.list().length : 0,
+			$('#dze-cx-subject').val(),
+			i18n
+		);
 	}
+	// The second question depends on the first: choosing the handed-in set as
+	// the subject answers it, so it goes away rather than sitting there
+	// meaning nothing.
+	$(document).on('change', '#dze-cx-subject', drawSubjects);
 
 	function drawCurrentImages() {
 		// One renderer for both screens: admin/js/photos.js. The product screen
@@ -1102,7 +1123,11 @@
 		// the run used the supplier's shot. "Main photograph" and a chosen one
 		// both mean the product is image 1; what was added from outside is
 		// then read for the place, the light and the styling.
-		window.dzePhotos.subjectInto(data, $('#dze-cx-subject').val());
+		window.dzePhotos.subjectInto(
+			data,
+			$('#dze-cx-subject').val(),
+			$('#dze-cx-refsline').find('.dze-cx-refspick').val()
+		);
 		if (scene === undefined) { scene = job.scene; }
 		if ((cfg.scenes || []).length) { data.scene = scene; }
 		// Where it goes travels with the order, so the strip knows without
@@ -1684,6 +1709,14 @@
 					// with it unless you say otherwise.
 					'<label class="dze-one-withprod"><input type="checkbox" id="dze-one-withprod" checked /> ' +
 						esc(i18n.withProduct) + '</label>' +
+					// WHAT THE HANDED-IN ONES ARE FOR — the same question the
+					// toolbox and the bulk panel ask, on the third screen that
+					// can reach the same lane. A fault mended on one screen and
+					// not the others is the fault still shipped.
+					'<label class="dze-cx-subjline dze-cx-refsline" id="dze-one-refsline" style="display:none;">' +
+						'<span>' + esc(i18n.refsLabel) + '</span>' +
+						'<select class="dze-cx-refspick"></select>' +
+					'</label>' +
 					// Which of the two is the SUBJECT. Pasting used to decide it
 					// on its own — what you added became the thing to
 					// photograph — so there was no way to say "keep this
@@ -1943,6 +1976,14 @@
 		// elsewhere" tile picked instead says the pasted one leads. The
 		// checkbox that used to say the same thing beside them was a second
 		// way of answering one question.
+		// The product leads exactly when a tile of its own is picked, and that
+		// is the one case where what was handed in has a job to be given.
+		window.dzePhotos.refsUse(
+			$('#dze-one-refsline'),
+			pasted,
+			one.srcId ? String(one.srcId) : 'paste',
+			i18n
+		);
 		if (one.srcId) { $l.text(i18n.subjPicked || ''); return; }
 		if (pasted) { $l.text(i18n.subjPaste || ''); return; }
 		$l.text(i18n.subjMain || '');
@@ -2010,6 +2051,7 @@
 			with_product: $('#dze-one-withprod').is(':checked') ? 1 : 0,
 
 			src_id: one.srcId || 0, recipe: $('#dze-one-recipe').val() || '',
+			refs_use: $('#dze-one-refsline').find('.dze-cx-refspick').val() || 'set',
 			bg: $('#dze-one-bg').val() || 0,
 			prompt: undefined === prompt ? ($('#dze-one-prompt').val() || '') : prompt
 		};
