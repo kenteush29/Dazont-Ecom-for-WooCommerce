@@ -70,11 +70,15 @@ const wpcss = `
 // and an article with a long one, both started by the pass that runs on its
 // own, both waiting for a decision — which is the row that carries the most
 // buttons and is therefore the one that breaks first.
+// The two addresses the server sends with every row: a list drawn in the
+// browser can only print what it was sent.
 const rows = [
 	{ id: 11, label: 'Tactical backpack covers', oid: 6223, kind: 'Category internal links',
-	  status: 'review', error: '', progress: '', who: '', from: 'Automatic', when: '13/09/2026 18:34' },
+	  status: 'review', error: '', progress: '', who: '', from: 'Automatic', when: '13/09/2026 18:34',
+	  edit: 'http://dze.test/wp-admin/term.php?tag_ID=6223', view: 'http://kula.test/tactical-backpack-covers' },
 	{ id: 12, label: 'The sniper role: why are they so feared?', oid: 987632358, kind: 'Article internal links',
-	  status: 'review', error: '', progress: '', who: '', from: 'Marie Dupont-Lefevre', when: '13/09/2026 20:25' }
+	  status: 'review', error: '', progress: '', who: '', from: 'Marie Dupont-Lefevre', when: '13/09/2026 20:25',
+	  edit: 'http://dze.test/wp-admin/post.php?post=987632358&action=edit', view: 'http://kula.test/the-sniper-role' }
 ];
 
 const browser = await chromium.launch();
@@ -94,6 +98,10 @@ for ( const [ label, jq ] of jqs ) {
 		+ `<script>${readFileSync( jq, 'utf8' )}</script>`
 		+ `<script>window.ajaxurl='http://dze.test/ajax';window.dzeQueue=${JSON.stringify( cfg )};</script>`
 		+ `</head><body><div id="wpbody-content">${dumped.html}</div>`
+		// THE SHARED MACHINERY IS ON THE PAGE, because the rows are drawn with
+		// it: without hub.js the first row dies on `window.dzeHub` and the
+		// whole list with it.
+		+ `<script>${readFileSync( join( js, 'hub.js' ), 'utf8' )}</script>`
 		+ `<script>${readFileSync( join( js, 'queue.js' ), 'utf8' )}</script></body></html>` } ) );
 
 	// A NARROW WINDOW IS WHERE IT BROKE. The admin menu takes 160px of every
@@ -181,6 +189,25 @@ for ( const [ label, jq ] of jqs ) {
 		ok( `and the actions end inside the table at ${width}px`,
 			shape.actRight <= shape.tableRight + 1, true );
 	}
+	// EVERY ROW THAT NAMES AN OBJECT OFFERS THE TWO WAYS TO IT. This list
+	// printed its label as PLAIN TEXT: it named a category, a product or an
+	// article and offered no way to any of them — not even the editor.
+	const ways = await page.evaluate( () => {
+		const td = document.querySelector( '#dze-q-table tbody tr td strong' );
+		const a = td ? td.querySelector( 'a:not(.dze-hub-visit)' ) : null;
+		const v = td ? td.querySelector( 'a.dze-hub-visit' ) : null;
+		return {
+			name: a ? a.textContent.trim() : ( td ? td.textContent.trim() : '' ),
+			edit: a ? a.getAttribute( 'href' ) : '',
+			view: v ? v.getAttribute( 'href' ) : '',
+			tab: v ? v.getAttribute( 'target' ) : ''
+		};
+	} );
+	ok( 'the row names its object',          ways.name, 'Tactical backpack covers' );
+	ok( 'and the name opens the editor',     ways.edit, 'http://dze.test/wp-admin/term.php?tag_ID=6223' );
+	ok( 'and the page a reader sees is beside it',
+		ways.view, 'http://kula.test/tactical-backpack-covers' );
+	ok( 'in a new tab, so nothing open here is lost', ways.tab, '_blank' );
 	ok( 'nothing was raised drawing it', errors, [] );
 	await page.close();
 }

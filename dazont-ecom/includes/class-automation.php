@@ -1148,7 +1148,7 @@ final class DZE_Automation {
 			if ( $oid < 1 ) {
 				continue;
 			}
-			if ( self::unmark( $oid, $task, 0 === strpos( $kind, 'cat_' ) ? 'term' : 'post' ) ) {
+			if ( self::unmark( $oid, $task, self::what_is( $kind ) ) ) {
 				$n++;
 			}
 		}
@@ -2199,19 +2199,16 @@ final class DZE_Automation {
 			) )
 		);
 		foreach ( $next_up as $row ) {
-			$name = esc_html( (string) $row['name'] );
+			$name = (string) $row['name'];
 			// THE ROW'S OWN KIND, never the task's scope: this task works on
 			// categories and articles alike.
 			$kind = (string) ( $row['kind'] ?? $conf['scope'] );
 			$oid  = (int) $row['tid'];
-			$url  = self::edit_url( $kind, $oid );
 			printf(
-				'<li class="dze-auto-nextone">%1$s%2$s <span class="dze-auto-why">%3$s</span></li>',
-				'' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name,
-				// AND THE PAGE AS A READER SEES IT. "Je veux pouvoir aller
-				// dessus facilement avant, pour comparer ensuite l'après" — the
-				// same symbol Past work wears, from the same one function.
-				wp_kses_post( DZE_Hub::visit_link( self::view_url( $kind, $oid ) ) ),
+				'<li class="dze-auto-nextone">%1$s <span class="dze-auto-why">%2$s</span></li>',
+				// The name, the way to change it and the way a READER sees it,
+				// from the one function that prints an object's name anywhere.
+				wp_kses_post( DZE_Hub::named( $name, self::edit_url( $kind, $oid ), self::view_url( $kind, $oid ) ) ),
 				esc_html( (string) $row['why'] )
 			);
 		}
@@ -2494,12 +2491,18 @@ final class DZE_Automation {
 			echo '<ul class="dze-auto-todo">';
 			foreach ( $rows as $row ) {
 				$jid = (int) $row['id'];
-				$url = self::edit_url( 0 === strpos( (string) $row['kind'], 'cat_' ) ? 'category' : 'post', (int) $row['oid'] );
-				$nm  = esc_html( (string) $row['label'] );
+				$what = self::what_is( (string) $row['kind'] );
+				$oid  = (int) $row['oid'];
 				echo '<li class="dze-auto-job" data-id="' . esc_attr( (string) $jid ) . '">';
 				echo '<input type="checkbox" class="dze-auto-cb" title="'
 					. esc_attr__( 'Pick this one for Accept or Cancel below', 'dazont-ecom' ) . '"> ';
-				echo '<span class="dze-auto-jobname">' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $nm . '</a>' : $nm ) . '</span> ';
+				// The name, the way to change it and the way to SEE it, from
+				// the one function that prints an object's name anywhere.
+				echo '<span class="dze-auto-jobname">' . wp_kses_post( DZE_Hub::named(
+					(string) $row['label'],
+					self::edit_url( 'term' === $what ? 'category' : 'post', $oid ),
+					self::view_url( $what, $oid )
+				) ) . '</span> ';
 				// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID.
 				echo wp_kses_post( DZE_Hub::obj_id( (int) $row['oid'] ) );
 				echo ' <span class="description">' . esc_html( (string) $row['job'] ) . ' · ' . esc_html( (string) $row['when'] ) . '</span>';
@@ -2569,8 +2572,19 @@ final class DZE_Automation {
 	 *
 	 * Everything that is not a product category is a post of some type, which
 	 * is what the mesh itself already assumes.
+	 *
+	 * TWO VOCABULARIES, ONE QUESTION. A task names its scope ('term',
+	 * 'category', 'product_cat') and a queue row names its job kind
+	 * ('cat_links', 'post_links'), and both are asking exactly this. Merging
+	 * the callers onto one function while it only understood ONE of the two
+	 * quietly turned every category job into a post — which is how a page
+	 * dropped from a run stopped being let go. It answers for both, or it is
+	 * not the one answer it claims to be.
 	 */
 	private static function what_is( string $kind ): string {
+		if ( 0 === strpos( $kind, 'cat_' ) ) {
+			return 'term';
+		}
 		return in_array( $kind, [ 'term', 'category', 'product_cat' ], true ) ? 'term' : 'post';
 	}
 
@@ -2745,9 +2759,9 @@ final class DZE_Automation {
 		foreach ( $rows as $row ) {
 			$kind = (string) $row['kind'];
 			$oid  = (int) $row['object_id'];
-			$what = 0 === strpos( $kind, 'cat_' ) ? 'term' : 'post';
+			$what = self::what_is( $kind );
 			$url  = self::edit_url( 'term' === $what ? 'category' : 'post', $oid );
-			$name = esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::label_for( $kind, $oid ) : (string) $oid );
+			$name = class_exists( 'DZE_Queue' ) ? DZE_Queue::label_for( $kind, $oid ) : (string) $oid;
 			// THE UNDO IS OFFERED WHERE IT CAN ACT: the pass keeps the text it
 			// replaced only for what it saved without review, and only while
 			// that pass is still in its own register.
@@ -2758,8 +2772,7 @@ final class DZE_Automation {
 			// rediriger on site." The name opens the editor, which is where
 			// you go to change it — and after accepting a text written onto a
 			// page, the thing you actually want is to look at it.
-			echo '<td><strong>' . ( '' !== $url ? '<a href="' . esc_url( $url ) . '">' . $name . '</a>' : $name ) . '</strong>'
-				. wp_kses_post( DZE_Hub::visit_link( self::view_url( $what, $oid ) ) ) . '</td>';
+			echo '<td><strong>' . wp_kses_post( DZE_Hub::named( $name, $url, self::view_url( $what, $oid ) ) ) . '</strong></td>';
 			echo wp_kses_post( DZE_Hub::id_td( $oid ) );
 			echo '<td>' . esc_html( (string) ( $kinds[ $kind ]['label'] ?? $kind ) ) . '</td>';
 			echo '<td>' . esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $row['from'] ) : '' ) . '</td>';
