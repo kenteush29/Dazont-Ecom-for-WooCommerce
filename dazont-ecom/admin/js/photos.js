@@ -230,82 +230,17 @@
 	});
 
 
-	// ---- WHICH PHOTOGRAPH IS THE SUBJECT ----
+	// THERE IS NO QUESTION LEFT TO ASK HERE.
 	//
-	// The product's own photographs, offered as the subject of what is made,
-	// plus what was pasted in. It lived in the toolbox alone, so the BULK
-	// screen — which has the same paste box — had no picker at all and posted
-	// no answer: a request carrying pasted photographs and nothing else is read
-	// by the server as "the pasted one leads", and a supplier shot came back as
-	// the product, colours included. Filled here, once, for both screens: two
-	// copies of this loop is how two screens start offering different answers.
+	// "Ces 2 fonctions n'ont rien à faire ici. Le 1, c'est évident, on
+	// travaille toujours à partir de l'image principale. Le 2, c'est évident,
+	// on envoie des images supplémentaires qui apportent plus de détail sur le
+	// produit, et jamais rien d'autre."
 	//
-	// @param {jQuery} $s      the select to fill
-	// @param {Array}  images  what the product holds today
-	// @param {number} pasted  how many photographs were handed in
-	// @param {Object} words   subjMainOpt / subjOne / subjPasteOpt / subjPasteOptN
-	function subjects($s, images, pasted, words) {
-		if (!$s || !$s.length) { return; }
-		var was = String($s.val() || '0');
-		$s.empty().append($('<option value="0"></option>').text(words.subjMainOpt || ''));
-		var n = 0;
-		(images || []).forEach(function (im) {
-			if (im.main) { return; }
-			n++;
-			$s.append($('<option></option>').val(im.id).text(
-				im.variation ? String(im.variation) : (words.subjOne || 'Photograph') + ' ' + n
-			));
-		});
-		// WHAT WAS ADDED FROM OUTSIDE IS AN ANSWER TOO — the answer the screen
-		// cannot give is the answer nobody can give.
-		if (pasted) {
-			$s.append($('<option value="paste"></option>').text(
-				1 === pasted ? (words.subjPasteOpt || '') : (words.subjPasteOptN || words.subjPasteOpt || '')
-			));
-		}
-		// A choice that no longer exists falls back to the main photograph
-		// rather than sending an id nothing answers for.
-		$s.val($s.find('option[value="' + was + '"]').length ? was : '0');
-	}
-
-	// WHAT THE PHOTOGRAPHS HANDED IN ARE FOR. "Il faut donner l'autorisation de
-	// copier les images additionnelles externes. Ce sont des images souvent
-	// uniques mais qui doivent être retravaillées." The plugin answered that
-	// on its own, invisibly and in capitals — a handed-in photograph was a
-	// SETTING and taking a colour, a pattern or an object from it was
-	// forbidden — so the one thing a unique shot is handed in for could not be
-	// asked for at all. It is a question, and it is the owner's.
-	//
-	// Shown only where it can act: nothing handed in, or the handed-in set IS
-	// the subject, and there is nothing to answer.
-	//
-	// @param {jQuery} $line  the label wrapping the select
-	// @param {number} pasted how many photographs were handed in
-	// @param {string} pick   the subject picker's own answer
-	// @param {Object} words  refsSet / refsCopy
-	function refsUse($line, pasted, pick, words) {
-		if (!$line || !$line.length) { return; }
-		var $s = $line.find('.dze-cx-refspick');
-		if (!$s.find('option').length) {
-			$s.append($('<option value="set"></option>').text(words.refsSet || ''))
-				.append($('<option value="copy"></option>').text(words.refsCopy || ''));
-		}
-		$line.toggle(!!pasted && 'paste' !== String(pick || '0'));
-	}
-
-	// What a picker's answer means on the wire, in ONE place: "main photograph"
-	// and a chosen one both say the product is image 1, and only "paste" leaves
-	// the pasted set leading. A default that sends nothing is not an answer.
-	function subjectInto(data, pick, use) {
-		if ('paste' === String(pick || '0')) { return data; }
-		data.base_main = 1;
-		var subj = parseInt(pick, 10) || 0;
-		if (subj) { data.src_id = subj; }
-		// The same rule for the second answer: it POSTS what it says, on its
-		// default as much as on the other one.
-		data.refs_use = 'copy' === String(use || '') ? 'copy' : 'set';
-		return data;
-	}
+	// Two pickers lived here — which photograph is the product, and what the
+	// added ones are for — and each of them had one answer on every shop and
+	// every run. A control with one answer is a control to remove: the product
+	// leads, always, and whatever is added is another photograph of it.
 
 	window.dzePhotos = {
 		// The blocks live in hub.js now — one machinery for every screen. These
@@ -313,9 +248,6 @@
 		toggleSec: function ($sec, on) { return window.dzeHub.toggleSec($sec, on); },
 		countSections: function () { return window.dzeHub.count(); },
 		render: render,
-		subjects: subjects,
-		refsUse: refsUse,
-		subjectInto: subjectInto,
 		on: function (name, fn) { handlers[name] = fn; }
 	};
 }(jQuery));

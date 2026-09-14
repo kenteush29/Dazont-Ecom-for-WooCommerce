@@ -103,6 +103,9 @@ final class DZE_Content {
 		add_action( 'wp_ajax_dze_content_prompt_toggle', [ $this, 'ajax_prompt_toggle' ] );
 		add_action( 'wp_ajax_dze_content_price_preview', [ $this, 'ajax_price_preview' ] );
 		add_action( 'wp_ajax_dze_content_current', [ $this, 'ajax_current' ] );
+		// Read on its own, when the fold is opened: a log grows with every
+		// run and must never be cached beside what the product holds.
+		add_action( 'wp_ajax_dze_content_log', [ $this, 'ajax_object_log' ] );
 		add_action( 'wp_ajax_dze_content_boxes', [ $this, 'ajax_boxes' ] );
 		add_action( 'wp_ajax_dze_content_inputs', [ $this, 'ajax_inputs' ] );
 		add_action( 'wp_ajax_dze_content_reframe_preview', [ $this, 'ajax_reframe_preview' ] );
@@ -1300,7 +1303,7 @@ EOT;
 			// The ordinary run: the product's own photographs, nothing pasted,
 			// no scene. What a scene, a pasted photograph or an earlier shot
 			// adds is one line naming that image, said beneath.
-			return trim( self::sources_instruction( self::source_cap(), null, 0, 0, false, 0 ) );
+			return trim( self::sources_instruction( self::source_cap(), null, 0, 0, false ) );
 		}
 		return '';
 	}
@@ -1391,18 +1394,22 @@ EOT;
 	 *                          model can see what it must not do again.
 	 * @param int        $variants Photographs of OTHER COLOURS of the same
 	 *                          product, sent right after the product's own.
-	 * @param string     $refs_for What the handed-in photographs are FOR —
-	 *                          'set' (the place, the light, the mood) or
-	 *                          'copy' (their design is reworked onto the
-	 *                          product). The owner's answer, never ours.
+	 * There is no lane for "photographs handed in from outside" any more, and
+	 * no question about what they are for. "On envoie des images
+	 * supplémentaires qui apportent plus de détail sur le produit, et jamais
+	 * rien d'autre." They are photographs of this product, they travel with the
+	 * product's own, and they are counted in $count with them.
 	 */
-	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false, int $refs = 0, string $refs_for = 'set' ): string {
+	public static function sources_instruction( int $count, ?array $scene, int $avoid = 0, int $variants = 0, bool $subject_first = false ): string {
 		$out = "\n\n";
 		// SHORT, OR IT IS NOT READ. Every sentence here competes with the
 		// shop's own prompt for the model's attention, and this block had
 		// grown to say the same thing four ways: read them together, never
 		// invent, reproduce every fitting, leave out what is not readable.
 		// Four ways of saying one rule is not four times the rule.
+		// The ONE lane with a subject of its own: the ↻ on a tile, remaking a
+		// single photograph that was handed in. Everywhere else the product's
+		// photographs and the ones added to them are one and the same product.
 		if ( $count > 1 && $subject_first ) {
 			$out .= sprintf(
 				'IMAGE 1 IS THE PRODUCT TO WORK ON: its colours, its pattern, its material and its markings are the ones to keep. IMAGES 2 TO %d show the same model in another version — read them for the shape and the construction only, never for a colour, a pattern or a texture.',
@@ -1459,46 +1466,6 @@ EOT;
 				. ( 1 === $avoid ? 'it' : 'them' )
 				. ' as the reference for the product: the photographs above are.';
 		}
-		// Photographs handed in from outside while the PRODUCT stays image 1.
-		// What they are FOR is a question of its own and the owner answers it
-		// on the screen he hands them in on: a setting to put the product in,
-		// or a design to rework onto it. They are named either way, or the
-		// model reads them as the product and hands back something wearing
-		// their colours.
-		if ( $refs > 0 ) {
-			$first = $count + $variants + $avoid + 1;
-			$it    = 1 === $refs ? 'it' : 'them';
-			if ( 'copy' === $refs_for ) {
-				// "Il faut donner l'autorisation de copier les images
-				// additionnelles externes. Ce sont des images souvent uniques
-				// mais qui doivent être retravaillées." A handed-in photograph
-				// is not always a place to stand the product in: it can BE the
-				// material — a pattern, a print, a marking, a unique shot to
-				// rework — and that was the one thing this block forbade, in
-				// capitals, with nothing on screen saying so. The answer is
-				// the owner's, given where the photographs are handed in; what
-				// is appended here says it and nothing more.
-				$out .= ' ' . (
-					1 === $refs
-						? sprintf( 'IMAGE %d IS A PHOTOGRAPH YOU WERE HANDED TO WORK FROM', $first )
-						: sprintf( 'IMAGES %1$d TO %2$d ARE PHOTOGRAPHS YOU WERE HANDED TO WORK FROM', $first, $first + $refs - 1 )
-				);
-				// The arbiter is still named: what is reworked is the surface,
-				// never the object. Without this line a supplier shot of
-				// another model comes back as this product.
-				$out .= ' — reproduce what ' . ( 1 === $refs ? 'it shows' : 'they show' )
-					. ' on the product: the design, the pattern, the markings, the colours. The shape and the construction stay those of image 1.';
-			} else {
-				$out .= ' ' . (
-					1 === $refs
-						? sprintf( 'IMAGE %d IS A REFERENCE YOU WERE HANDED', $first )
-						: sprintf( 'IMAGES %1$d TO %2$d ARE REFERENCES YOU WERE HANDED', $first, $first + $refs - 1 )
-				);
-				$out .= ' for the SETTING only — the place, the light, the framing, the mood. The product is image 1 and nothing else: take no colour, pattern, material, shape or object from '
-					. $it
-					. ' unless the instructions above ask for it.';
-			}
-		}
 		// Technical goods are lost in the details: a buckle, a webbing pitch, a
 		// label, a seam. The model reads a soft photograph, cannot make the
 		// detail out, and paints something plausible instead — which on a
@@ -1510,7 +1477,7 @@ EOT;
 			// image can be a blank product to print on, and a sentence
 			// forbidding a scene from looking like a product fought the prompt
 			// that asked for exactly that.
-			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $variants + $avoid + $refs + 1 );
+			$out .= sprintf( ' THE LAST IMAGE (image %d) IS THE SCENE: the surface, the background and the lighting of the final image. Only one product in the frame.', $count + $variants + $avoid + 1 );
 			if ( '' !== trim( (string) $scene['prompt'] ) ) {
 				$out .= "\n" . trim( (string) $scene['prompt'] );
 			}
@@ -4134,19 +4101,6 @@ Answer with STRICT JSON and nothing else: "
 					// and the pasted photograph led.
 					// The SAME five words the toolbox uses: one wording for one
 					// thing, or two screens ask the same question differently.
-					'subjLabel'     => __( 'Subject', 'dazont-ecom' ),
-					'subjMainOpt'   => __( 'Main photograph', 'dazont-ecom' ),
-					'subjOne'       => __( 'Photograph', 'dazont-ecom' ),
-					'subjPasteOpt'  => __( 'The photograph you added', 'dazont-ecom' ),
-					'subjPasteOptN' => __( 'The photographs you added', 'dazont-ecom' ),
-					// WHAT THE ADDED PHOTOGRAPHS ARE FOR. The plugin used to
-					// answer this on its own, in capitals, and answer it one
-					// way — the setting, take nothing from them — so a unique
-					// shot handed in to be reworked was refused by a sentence
-					// nobody could see. Each answer says its own consequence.
-					'refsLabel' => __( 'What you added is for', 'dazont-ecom' ),
-					'refsSet'   => __( 'The setting — the place, the light, the mood', 'dazont-ecom' ),
-					'refsCopy'  => __( 'Working from — its design goes on the product', 'dazont-ecom' ),
 					'noteTitle' => __( 'Notes about this product', 'dazont-ecom' ),
 					'noteHelp'  => __( 'Sent with the images this run makes, and with nothing after it. What the photographs cannot show, or what came back wrong last time. It is not saved.', 'dazont-ecom' ),
 					'notePh'    => __( 'e.g. black ripstop fabric, matte hardware, red logo on the chest', 'dazont-ecom' ),
@@ -4969,7 +4923,6 @@ Answer with STRICT JSON and nothing else: "
 				// The file is read in the browser and travels inside the
 				// request: nothing is stored on the site for a source image.
 				'qmBrowse'   => __( 'Upload', 'dazont-ecom' ),
-				'withProduct'=> __( 'Send the product\'s own photographs with it', 'dazont-ecom' ),
 				// The price preview.
 				'pricePreview'=> __( 'What will change?', 'dazont-ecom' ),
 				'pvFrom'     => __( 'Cost from', 'dazont-ecom' ),
@@ -5093,26 +5046,13 @@ Answer with STRICT JSON and nothing else: "
 				'oneGallery' => __( 'Gallery images', 'dazont-ecom' ),
 				'imgAll'     => __( 'Every photograph of the product', 'dazont-ecom' ),
 				'noShots'    => __( 'No photograph on this product yet — add the main image to the product and save it, or paste one below.', 'dazont-ecom' ),
-				'subjPaste'  => __( 'Image 1, the subject: the photograph you added. The product\'s own are sent after it, as context.', 'dazont-ecom' ),
 				'subjKeep'   => __( 'Image 1, the subject: the product\'s own photograph. What you added is read for the place, the light and the styling only.', 'dazont-ecom' ),
-				'subjPicked' => __( 'Image 1, the subject: the photograph selected above.', 'dazont-ecom' ),
-				'subjMain'   => __( 'Image 1, the subject: the product\'s main image.', 'dazont-ecom' ),
 				// The picker in the toolbox: which of the product's own
 				// photographs the run works from. Short, because it is an
 				// option on a line, not a sentence.
-				'subjLabel'   => __( 'Subject', 'dazont-ecom' ),
-				'subjMainOpt' => __( 'Main photograph', 'dazont-ecom' ),
-				'subjOne'     => __( 'Photograph', 'dazont-ecom' ),
 				// The other answer the picker has to offer once something has
 				// been added from outside: that photograph is the subject, and
 				// the product's own are sent after it as context.
-				'subjPasteOpt'  => __( 'The photograph you added', 'dazont-ecom' ),
-				'subjPasteOptN' => __( 'The photographs you added', 'dazont-ecom' ),
-				// The same two answers, word for word: two screens asking one
-				// question in two wordings is two screens that drift.
-				'refsLabel' => __( 'What you added is for', 'dazont-ecom' ),
-				'refsSet'   => __( 'The setting — the place, the light, the mood', 'dazont-ecom' ),
-				'refsCopy'  => __( 'Working from — its design goes on the product', 'dazont-ecom' ),
 				'imgRecipe'  => __( 'Prompt', 'dazont-ecom' ),
 				'imgWhere'   => __( 'Put it', 'dazont-ecom' ),
 				'imgReplace' => __( 'and delete the photograph it was made from', 'dazont-ecom' ),
