@@ -159,6 +159,15 @@ class DZE_Post_Links {
 	public static array $asked = [];
 	public static function add_links( int $post_id, array $only = [] ): string {
 		self::$asked[] = [ 'id' => $post_id, 'only' => $only ];
+		// WHAT THE ROW SAID WHEN THE WORK STARTED. A writer that takes a job
+		// and leaves the row untouched until it finishes is a writer whose
+		// job survives it: the request dies mid-call, the row is still
+		// "queued", nothing counted a try and nothing ever failed.
+		global $wpdb;
+		$GLOBALS['claimed_at_start'] = $wpdb->updates;
+		if ( ! empty( $GLOBALS['dze_kill_worker'] ) ) {
+			throw new RuntimeException( 'the server stopped this run' );
+		}
 		return '<p>linked</p>';
 	}
 }
@@ -167,6 +176,7 @@ class DZE_Post_Links {
 class DZE_Ai_Usage {
 	public static function unit( string $u = '' ): void {}
 	public static function about( int $id = 0 ): void {}
+	public static function finished( string $u = '' ): void {}
 	public static function over_budget(): bool { return ! empty( $GLOBALS['over_budget'] ); }
 }
 class DZE_Mesh {
@@ -1166,6 +1176,68 @@ ok( 'and nothing reaches the post either', $GLOBALS['wrote'], [] );
 $GLOBALS['wrote'] = [];
 ok( 'a plain description still saves',
 	DZE_Queue::apply( 'cat_links', 44, '<p>Tidy <a href="https://kula.test/x">rugs</a>.</p>' ), true );
+
+echo "\nA JOB IS CLAIMED BEFORE IT IS WORKED, OR IT OUTLIVES THE WORKER\n";
+// "Nothing has moved for 31 minutes. The writer may be held by a run the
+// server stopped." — 0% and 0 of 1, on a screen polling every second and a
+// half, for half an hour.
+//
+// work() took the row and wrote NOTHING until the job was finished. A request
+// that dies mid-call — the host's own time limit on a slow model answer, a
+// 502 — therefore left the row exactly as it found it: still `queued`, its
+// `updated` untouched, the writer's lock standing. recover() only ever looks
+// at `running` rows, so it could not see it; no try was counted, nothing ever
+// failed, and the next poll took the SAME job and died the same way. A
+// one-step kind never passes through `running`, so on this shop that loop had
+// no end at all: the head of the queue was immortal.
+$GLOBALS['rows'] = [ [
+	'id' => 41, 'kind' => 'post_links', 'object_id' => 77, 'status' => 'queued',
+	'payload' => wp_json_encode( [ 'urls' => [ 'https://kula.test/a' ] ] ),
+	'result' => '', 'auto_apply' => 0,
+] ];
+$GLOBALS['claimed_at_start'] = null;
+$wpdb->updates = [];
+DZE_Queue::unlock();
+DZE_Queue::work();
+$dze_start = (array) ( $GLOBALS['claimed_at_start'] ?? [] );
+ok( 'the writer really ran the job',    count( DZE_Post_Links::$asked ) > 0, true );
+ok( 'and the row was claimed BEFORE it did', count( $dze_start ) >= 1, true );
+$dze_claim = (array) ( $dze_start[0]['data'] ?? [] );
+ok( 'claimed as running',               (string) ( $dze_claim['status'] ?? '' ), 'running' );
+// AND `updated` MOVES ON EVERY ATTEMPT, or "nothing has moved for 31 minutes"
+// stays true for ever however many times the job was tried.
+ok( 'and it stamped when that happened', '' !== (string) ( $dze_claim['updated'] ?? '' ), true );
+
+// A RUN THE SERVER STOPS IS COUNTED. Three of them and the job is failed with
+// something a person can read, rather than blocking the queue for ever.
+$GLOBALS['dze_kill_worker'] = true;
+$wpdb->updates = [];
+DZE_Queue::unlock();
+DZE_Queue::work();
+$dze_last = (array) ( end( $wpdb->updates )['data'] ?? [] );
+ok( 'a job that throws is failed',      (string) ( $dze_last['status'] ?? '' ), 'failed' );
+ok( 'with the reason on the row',       '' !== (string) ( $dze_last['error'] ?? '' ), true );
+$GLOBALS['dze_kill_worker'] = false;
+
+// AND A ROW SOMEBODY IS STILL WORKING ON IS NOT TAKEN A SECOND TIME. The lock
+// is let go by AGE — deliberately, so a run the host killed cannot bar the
+// queue for ever — so without this the same page could be written twice, and
+// the shop pay the model twice for it. The two clocks are one now.
+$GLOBALS['rows'] = [ [
+	'id' => 42, 'kind' => 'post_links', 'object_id' => 79, 'status' => 'running',
+	'payload' => wp_json_encode( [] ), 'result' => '', 'auto_apply' => 0,
+	'updated' => current_time( 'mysql' ),
+] ];
+$wpdb->sent = [];
+DZE_Queue::unlock();
+DZE_Queue::work();
+$dze_pick = implode( ' ', $wpdb->sent );
+ok( 'the picker asks how old a running row is',
+	false !== strpos( $dze_pick, "status = 'running' AND updated <" ), true );
+// AND THE TWO CLOCKS AGREE: what the lock calls abandoned is what the row
+// calls abandoned.
+ok( 'and the same figure decides both',
+	DZE_Queue::step_budget() > 0, true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

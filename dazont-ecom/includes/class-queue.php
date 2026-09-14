@@ -266,9 +266,15 @@ final class DZE_Queue {
 		// something else entirely: "et puis c'est bugé, il ne se passe encore
 		// absolument rien." Asked for one job, it takes that one; asked for
 		// nothing — cron, the kick — it takes the queue in order, as before.
-		$job = $only
-			? $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d AND status IN ('queued','running')", $only ), ARRAY_A ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
-			: $wpdb->get_row( "SELECT * FROM {$table} WHERE status IN ('queued','running') ORDER BY FIELD(status,'running','queued'), id ASC LIMIT 1", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+		// A ROW SOMEBODY IS STILL WORKING ON IS NOT FREE. `running` with a
+		// stamp younger than the step budget means a run has it and has not
+		// come back yet; older than that, `recover()` above has already put it
+		// back to `queued`. Without this the lock was the only guard, and the
+		// lock is deliberately let go by age.
+		$fresh = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - self::STEP_BUDGET ); // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- matches the stored site time.
+		$job   = $only
+			? $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d AND ( status = 'queued' OR ( status = 'running' AND updated < %s ) )", $only, $fresh ), ARRAY_A ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
+			: $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE status = 'queued' OR ( status = 'running' AND updated < %s ) ORDER BY FIELD(status,'running','queued'), id ASC LIMIT 1", $fresh ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 		if ( ! $job ) {
 			delete_transient( self::LOCK );
 			return;
@@ -281,6 +287,33 @@ final class DZE_Queue {
 		$done    = false;
 		$err     = '';
 		$result  = (string) ( $job['result'] ?? '' );
+
+		// A JOB IS CLAIMED BEFORE IT IS WORKED, OR IT OUTLIVES THE WORKER.
+		// "Nothing has moved for 31 minutes. The writer may be held by a run
+		// the server stopped." — 0%, 0 of 1, on a screen polling every second
+		// and a half for half an hour.
+		//
+		// Nothing was written between taking the row and finishing the job, so
+		// a request that died mid-call — the host's own time limit on a slow
+		// model answer, a 502 — left the row exactly as it found it: still
+		// `queued`, its `updated` untouched, the writer's lock standing.
+		// `recover()` only looks at `running` rows and could not see it, so no
+		// try was counted and nothing ever failed; the lock went by age four
+		// minutes later, the next poll took the SAME job, and it died the same
+		// way. A one-step kind never passes through `running` on its own, so
+		// that loop had no end: the head of the queue was immortal and every
+		// figure on the screen was frozen because `updated` never moved.
+		//
+		// Claiming costs one write and answers all of it: the row says a run
+		// has it, the stamp moves on every attempt, and the try is counted
+		// where `recover()` reads it — so three deaths fail the job with a
+		// sentence a person can read and the queue goes on to the next page.
+		$payload['tries'] = (int) ( $payload['tries'] ?? 0 ) + 1;
+		$wpdb->update( $table, [
+			'status'  => 'running',
+			'payload' => wp_json_encode( $payload ),
+			'updated' => current_time( 'mysql' ),
+		], [ 'id' => $id ] );
 
 		try {
 			if ( 'cat_desc' === $job['kind'] ) {
@@ -378,12 +411,24 @@ final class DZE_Queue {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table name.
 			"SELECT id, payload FROM {$table} WHERE status = 'running' AND updated < %s",
 			// Same clock as the column: it is written with current_time().
-			gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 5 * MINUTE_IN_SECONDS ) // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- matches the stored site time.
+			// ONE CLOCK, NOT TWO. The writer's lock is let go once it is older
+			// than the step budget; a row presumed abandoned only a minute
+			// LATER left a window where the lock was free and the row was still
+			// treated as somebody's — so the same job was taken a second time
+			// while the first run was still in flight, and the shop paid the
+			// model twice for one page. Now that every job is claimed, that
+			// window was on every job rather than on the few that reach
+			// `running` by themselves.
+			gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - self::STEP_BUDGET ) // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp.Requested -- matches the stored site time.
 		), ARRAY_A );
 		foreach ( $stale as $r ) {
 			$p            = $r['payload'] ? (array) json_decode( (string) $r['payload'], true ) : [];
 			$p['retries'] = (int) ( $p['retries'] ?? 0 ) + 1;
-			if ( $p['retries'] > 3 ) {
+			// The claim counts the attempts the row never came back from, and
+			// this counts the ones it was found abandoned on. Either is a run
+			// the server stopped, and three of them is a job to give up on
+			// rather than a queue to block.
+			if ( max( (int) $p['retries'], (int) ( $p['tries'] ?? 0 ) ) > 3 ) {
 				$wpdb->update( $table, [
 					'status'  => 'failed',
 					'error'   => __( 'The server stopped this run three times. Try a shorter target length, or a faster model in Settings.', 'dazont-ecom' ),
@@ -438,6 +483,16 @@ final class DZE_Queue {
 			return 1;
 		}
 		return max( 1, time() - $at );
+	}
+
+	/**
+	 * The one figure that decides whether a run is still going or is gone.
+	 *
+	 * Read rather than repeated: the lock, the row and the gate all ask it, so
+	 * there is no second number to keep in step.
+	 */
+	public static function step_budget(): int {
+		return (int) self::STEP_BUDGET;
 	}
 
 	/** Lets the writer go. Nothing is in flight that this could interrupt. */
