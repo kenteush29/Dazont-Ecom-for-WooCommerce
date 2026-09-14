@@ -1855,5 +1855,48 @@ ob_start(); DZE_Automation::render_past(); $dze_past2 = (string) ob_get_clean();
 ok( 'no address, no symbol', false !== strpos( $dze_past2, 'dze-hub-visit' ), false );
 $GLOBALS['permalinks'] = [];
 
+echo "\nEVERY ROW OPENS THE PAGE IT NAMES — ITS EDITOR, AND THE PAGE ITSELF\n";
+// "Ici manque de lien direct vers les pages. Je veux pouvoir aller dessus
+// facilement avant, pour comparer ensuite l'après."
+//
+// Two faults in one line. The link was asked for with the TASK's scope rather
+// than the ROW's — and this task works on categories AND articles alike, so
+// four rows in five were handed `term.php?tag_ID=<a post id>`: not a missing
+// link, a WRONG one, pointing at a term that does not exist. And there was no
+// way at all to the page as a reader sees it, which is the whole of what he
+// asked for: look at it before, compare after.
+fresh( $ON );
+ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_nx = (string) ob_get_clean();
+preg_match_all( '#<li class="dze-auto-nextone">(.*?)</li>#s', $dze_nx, $dze_rows );
+$dze_rows = (array) ( $dze_rows[1] ?? [] );
+ok( 'the block lists what is next', count( $dze_rows ) > 1, true );
+$dze_bad = 0;
+foreach ( $dze_rows as $one ) {
+	if ( false === strpos( $one, '<a href=' ) ) { $dze_bad++; }
+}
+ok( 'every row is a way to the page',  $dze_bad, 0 );
+// AN ARTICLE IS OPENED AS AN ARTICLE. The one that was silently wrong.
+$dze_art = '';
+foreach ( $dze_rows as $one ) {
+	if ( false !== strpos( $one, 'How to choose a tactical backpack' ) ) { $dze_art = $one; }
+}
+ok( 'the article row is there',        '' !== $dze_art, true );
+ok( 'and it opens the POST editor',    false !== strpos( $dze_art, 'post.php' ), true );
+ok( 'never a term that does not exist', false !== strpos( $dze_art, 'tag_ID' ), false );
+// AND A CATEGORY IS STILL OPENED AS A CATEGORY.
+$dze_cat = '';
+foreach ( $dze_rows as $one ) {
+	if ( false !== strpos( $one, 'Tactical backpacks' ) ) { $dze_cat = $one; }
+}
+ok( 'a category still opens its own editor', false !== strpos( $dze_cat, 'tag_ID' ), true );
+// THE PAGE AS A READER SEES IT, beside the name — the same symbol Past work
+// wears, from the same one function.
+foreach ( $dze_rows as $one ) {
+	if ( false === strpos( $one, 'dze-hub-visit' ) ) { $dze_bad++; }
+}
+ok( 'and every row offers the page itself', $dze_bad, 0 );
+ok( 'in a new tab',                    false !== strpos( $dze_nx, 'target="_blank"' ), true );
+ok( 'at the address a reader uses',    false !== strpos( $dze_nx, 'https://kula.test/blog/20/' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -1784,6 +1784,17 @@ whose screen has not been thought through yet.
   per line inside. Two rules: the summary's figure is the number of lines under
   it, or a screen disagrees with itself; and a fold inside a fold must not shut
   the one it sits in.
+- **A LINK IS BUILT FROM THE ROW'S OWN KIND, NEVER FROM THE TASK'S SCOPE.**
+  "Ici manque de lien direct vers les pages. Je veux pouvoir aller dessus
+  facilement avant, pour comparer ensuite l'après." Two faults in one line of
+  markup. The linking task works on categories AND articles alike, and Next in
+  line asked `edit_url()` with the TASK's scope — so four rows in five were
+  handed `term.php?tag_ID=<a post id>`: not a MISSING link, a wrong one
+  pointing at a term that does not exist, which on the shop simply came back
+  empty and read as plain text. `what_is()` answers from the object's own kind
+  and both addresses ask it. And there was no way at all to the page as a
+  READER sees it, which is the whole of what was asked: look at it before,
+  compare after.
 - **A ROW THAT NAMES A PAGE OFFERS THE WAY TO SEE IT.** "Past work — aucun
   bouton pour voir la page côté utilisateur, il manque le petit symbole qui
   devrait rediriger on site." Every list here links a name to its EDITOR, which
