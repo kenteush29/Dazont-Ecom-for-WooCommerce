@@ -189,6 +189,9 @@ final class DZE_Queue {
 			$added++;
 		}
 		if ( $added ) {
+			// What is waiting on an object has just changed, and the pass that
+			// asks is the one deciding whether to queue it a second time.
+			self::forget_count();
 			self::kick();
 		}
 		return $added;
@@ -805,15 +808,14 @@ final class DZE_Queue {
 
 	public static function pending_map( string $family = 'cat_' ): array {
 		global $wpdb;
-		static $cache = [];
 		$family = preg_replace( '/[^a-z_]/', '', strtolower( $family ) );
-		if ( isset( $cache[ $family ] ) ) {
-			return $cache[ $family ];
+		if ( isset( self::$pending_cache[ $family ] ) ) {
+			return self::$pending_cache[ $family ];
 		}
 		$table = self::table();
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
-			$cache[ $family ] = [];
-			return $cache[ $family ];
+			self::$pending_cache[ $family ] = [];
+			return self::$pending_cache[ $family ];
 		}
 		$map  = [];
 		$rows = (array) $wpdb->get_results( $wpdb->prepare(
@@ -830,7 +832,7 @@ final class DZE_Queue {
 			}
 			$map[ $oid ] = [ 'status' => (string) $r['status'], 'id' => (int) $r['id'], 'kind' => (string) $r['kind'] ];
 		}
-		$cache[ $family ] = $map;
+		self::$pending_cache[ $family ] = $map;
 		return $map;
 	}
 
@@ -1244,8 +1246,25 @@ final class DZE_Queue {
 	}
 
 	/** Any change of state can change the bubble. */
+	/**
+	 * What is waiting on each object, kept for the length of one request.
+	 *
+	 * @var array<string,array<int,array>>
+	 */
+	private static array $pending_cache = [];
+
+	/**
+	 * A CACHE HELD FOR A WHOLE REQUEST ANSWERS THE FIRST QUESTION FOR EVER.
+	 *
+	 * `pending_map()` was a function-local static, so a page queued a moment
+	 * ago still read as "nothing waiting on it" for the rest of the request —
+	 * and the pass that decides whether a page has already been taken in hand
+	 * asks exactly that. Anything that changes the queue empties it, at the one
+	 * place every such change already passes.
+	 */
 	public static function forget_count(): void {
 		delete_transient( self::COUNT_KEY );
+		self::$pending_cache = [];
 	}
 
 	/**

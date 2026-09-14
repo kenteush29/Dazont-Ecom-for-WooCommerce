@@ -775,7 +775,7 @@ final class DZE_Automation {
 				$seen[ $key ] = true;
 				return false;
 			}
-			if ( self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) ) {
+			if ( self::cooling( (int) $row['tid'], $id, $type, 0, 0, $cool ) && ! self::promise_broken( (int) $row['tid'], $id, $type, $row['kind'] ) ) {
 				self::$held['recent']++;
 				$seen[ $key ] = true;
 				return false;
@@ -1045,42 +1045,72 @@ final class DZE_Automation {
 	 * reads as a broken one.
 	 */
 	public static function nothing_said(): string {
+		// A FIGURE THE READING CANNOT SUPPORT IS WORSE THAN NO FIGURE. The
+		// tally is a REASON and never a total: the shortlist walks a handful of
+		// candidates and stops the moment it has enough, so "6 pages are short
+		// of links" was however many it happened to look at — printed beside a
+		// chip announcing 165. Where a figure is given it is the QUEUE'S, which
+		// counts the whole shop and knows exactly.
 		$q = (int) self::$held['queued'];
 		$r = (int) self::$held['recent'];
-		if ( $q > 0 && $r > 0 ) {
-			return sprintf(
-				/* translators: 1: pages short of links, 2: how many are in the queue, 3: how many were worked on recently */
-				__( 'Nothing new to work on: %1$s pages are short of links — %2$s are already in the writing queue, and %3$s were worked on in the last few days.', 'dazont-ecom' ),
-				number_format_i18n( $q + $r ),
-				number_format_i18n( $q ),
-				number_format_i18n( $r )
-			);
-		}
 		if ( $q > 0 ) {
-			return sprintf(
-				/* translators: %s: how many pages are waiting in the writing queue */
-				_n(
-					'Nothing new to work on: %s page is short of links and already waiting in the writing queue.',
-					'Nothing new to work on: %s pages are short of links and already waiting in the writing queue.',
-					$q,
-					'dazont-ecom'
-				),
-				number_format_i18n( $q )
-			);
+			$c    = class_exists( 'DZE_Queue' ) ? (array) DZE_Queue::counts_for( self::my_kinds() ) : [];
+			$busy = (int) ( $c['queued'] ?? 0 ) + (int) ( $c['running'] ?? 0 );
+			if ( $busy > 0 ) {
+				return sprintf(
+					/* translators: %s: how many pages are waiting in the writing queue */
+					_n(
+						'Nothing new to start: %s page is already in the writing queue.',
+						'Nothing new to start: %s pages are already in the writing queue.',
+						$busy,
+						'dazont-ecom'
+					),
+					number_format_i18n( $busy )
+				);
+			}
+			return __( 'Nothing new to start: the pages it looked at are already in the writing queue.', 'dazont-ecom' );
 		}
 		if ( $r > 0 ) {
-			return sprintf(
-				/* translators: %s: how many pages were worked on in the last few days */
-				_n(
-					'Nothing new to work on: %s page is short of links but was worked on in the last few days.',
-					'Nothing new to work on: %s pages are short of links but were worked on in the last few days.',
-					$r,
-					'dazont-ecom'
-				),
-				number_format_i18n( $r )
-			);
+			// No figure at all: this one is only knowable by reading the
+			// register of every page on the site, which this is not.
+			return __( 'Nothing new to start: the pages it looked at were all worked on in the last few days.', 'dazont-ecom' );
 		}
 		return __( 'Nothing is short of anything: every page has what its size calls for.', 'dazont-ecom' );
+	}
+
+	/**
+	 * A PROMISE THE QUEUE NEVER KEPT DOES NOT HOLD A PAGE.
+	 *
+	 * "J'ai lancé le link everything bouton, maintenant plus rien ne fonctionne
+	 * correctement. Je ne sais même pas ce qui a été fait ou non." The catch-up
+	 * stamps every page it queues so the daily pass does not do it twice, and
+	 * it stamps them with NO figures because nothing has been written yet —
+	 * that stamp is a promise, not a record. Dropped, failed, or cleared, the
+	 * promise went on holding the page out of the pass meant to mend it, and
+	 * the only way out was to wait three days.
+	 *
+	 * Three things must all be true before it is let go, and the third is what
+	 * stops this from writing a second text over one somebody just accepted:
+	 * the stamp records no work at all, nothing of this page is in the queue,
+	 * and nothing was ever written and accepted for it. An applied row is kept
+	 * for ever — the queue's Clear may not delete one — so that answer does not
+	 * expire.
+	 */
+	private static function promise_broken( int $oid, string $id, string $type, string $kind ): bool {
+		$seen = self::seen( $oid, $id, $type );
+		if ( ! $seen || (int) ( $seen['w'] ?? 0 ) || (int) ( $seen['l'] ?? 0 ) ) {
+			return false; // it carries figures: something was really taken in hand.
+		}
+		if ( ! class_exists( 'DZE_Queue' ) ) {
+			return false;
+		}
+		if ( DZE_Queue::pending_for( $oid, 'product_cat' === $kind ? 'cat_' : 'post_' ) ) {
+			return false; // still waiting its turn: the promise is being kept.
+		}
+		// `done_map()` answers the most recent APPLIED row per object — the
+		// record that this plugin wrote to that page and somebody said yes.
+		$done = (array) DZE_Queue::done_map( [ $oid ] );
+		return empty( $done[ $oid ] );
 	}
 
 	/** Does the register claim this object was worked on by this task? */
@@ -2116,7 +2146,12 @@ final class DZE_Automation {
 		// The whole tool rests on this list, so it is shown, not described.
 		$next_up = self::shortlist( $id, 5 );
 		if ( ! $next_up ) {
-			echo '<p class="description">' . esc_html__( 'Nothing is short of anything right now.', 'dazont-ecom' ) . '</p>';
+			// ONE QUESTION, ONE SENTENCE. This literal and the answer a press
+			// comes back with are the same question, and the screen printed
+			// BOTH, one under the other, contradicting each other: "Nothing new
+			// to work on: 6 pages…" over "Nothing is short of anything right
+			// now." Two literals for one question is two answers that drift.
+			echo '<p class="description">' . esc_html( self::nothing_said() ) . '</p>';
 			return;
 		}
 		echo '<p class="description dze-auto-next">' . esc_html__( 'Next in line:', 'dazont-ecom' ) . ' ';

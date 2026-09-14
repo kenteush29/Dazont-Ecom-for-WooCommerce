@@ -2311,6 +2311,53 @@ whose screen has not been thought through yet.
   (`dropped_rows()`, and after the DELETE there is nothing left to read), and
   the register lets go of exactly those (`free_pages()`), mapping a job kind
   back to its task from `tasks()` rather than from a list kept in step by hand.
+- **ONE QUESTION, ONE SENTENCE — and never a figure the reading cannot
+  support.** "Le module est complètement planté... *Nothing new to work on: 6
+  pages are short of links but were worked on in the last few days.* / *Nothing
+  is short of anything right now.*" Two sentences, contradicting each other,
+  printed one under the other — and the "6" beside a chip announcing 165 pages
+  nothing points at. Both faults arrived in the release meant to mend exactly
+  this, which is what makes them worth writing down:
+  - **TWO LITERALS FOR ONE QUESTION IS TWO ANSWERS THAT DRIFT.** The empty case
+    of "next in line" and the answer a press comes back with are the same
+    question; changing one and leaving the other is how a screen ends up
+    arguing with itself. `render_state()` asks `nothing_said()`, like the press.
+  - **A TALLY IS A REASON, NEVER A TOTAL.** `mesh_shortlist()` walks a handful
+    of candidates and STOPS the moment it has enough, so its count is however
+    many it happened to look at. Printed as "6 pages are short of links" beside
+    a census figure of 165, it reads as a broken module. Where the sentence
+    gives a figure it is the QUEUE'S — which counts the whole shop and knows
+    exactly — and where no honest figure exists it gives none.
+- **A PROMISE THE QUEUE NEVER KEPT DOES NOT HOLD A PAGE.** The catch-up stamps
+  every page it queues so the daily pass does not do it twice, and stamps it
+  with NO figures because nothing has been written yet: that stamp is a
+  promise, not a record. Dropped, failed or cleared, the promise went on
+  holding the page out of the pass meant to mend it, and the only way out was
+  to wait three days. `promise_broken()` lets it go when all three are true —
+  the stamp records no work, nothing of that page is in the queue, and nothing
+  was ever written and ACCEPTED for it. The third is the one that stops this
+  writing a second text over one somebody just said yes to, and it does not
+  expire, because the queue's Clear may never delete an applied row.
+- **`check-methods.php` COUNTS ARGUMENTS NOW.** `DZE_Queue::done_map( array
+  $ids )` was called with two: it parses perfectly, `php -l` is happy, and it
+  is a fatal the moment the line runs. Worse, the gate's own stub had been
+  shaped to the CALL rather than to the function, so the suite went green on
+  code the shop could not execute — **a stub is written from the real
+  signature, never from the call being tested**. The check reads TOKENS, not
+  text: a doc comment naming a method is not a call and a comma inside a string
+  is not an argument. It found a second one the same day, shipped and latent —
+  `DZE_Health::log()` takes three and the Klaviyo auto-pilot's failure path
+  gave it two, so the one path that runs when something has already gone wrong
+  would have died.
+- **A STATIC HELD FOR A WHOLE REQUEST ANSWERS THE FIRST QUESTION FOR EVER —
+  second time.** `DZE_Queue::pending_map()` kept what is waiting on each object
+  in a function-local static, so a page queued a moment ago still read as "free"
+  for the rest of the request — and the pass deciding whether to queue a page a
+  SECOND time asks exactly that. It is emptied by `forget_count()`, at the one
+  place every change to the queue already passes, and `add()` calls it. **And a
+  harness that clears the fake table behind the code's back is lying to it**:
+  emptying the queue in a gate must say so too, through one helper, or the press
+  under test does nothing for a reason that exists only in the test.
 - **A SCREEN THAT SHOWS SOME OF THE QUEUE COUNTS THE SAME SOME OF IT.** The
   Automation page printed "Done — 3 pages are written and waiting for your yes
   or no, below" directly above a list reading "Nothing is waiting for your yes
