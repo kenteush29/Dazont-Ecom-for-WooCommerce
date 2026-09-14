@@ -914,9 +914,17 @@ EOT;
 		return [
 			'shots' => $shots,
 			'spend' => round( $spend, 2 ),
+			// WHICH QUESTION THIS FIGURE ANSWERS, in the figure itself. It sat
+			// as a bare "13 images · $1.04" next to "5 photographs · about
+			// $0.40" — one saying what this product has cost since the day it
+			// was created, the other what the press in front of you is about
+			// to spend — and only the second said so. Read side by side, with
+			// the explanation on a hover nobody hovers: "it literally
+			// generated 5 images, I had to change 3 options and somehow it's
+			// 13 now and I don't actually have 13 images anywhere".
 			'label' => $shots ? sprintf(
 				/* translators: 1: number of images, 2: what they cost */
-				_n( '%1$d image · %2$s', '%1$d images · %2$s', $shots, 'dazont-ecom' ),
+				_n( 'This product so far: %1$d image · %2$s', 'This product so far: %1$d images · %2$s', $shots, 'dazont-ecom' ),
 				$shots,
 				'$' . number_format_i18n( $spend, 2 )
 			) : '',
@@ -1809,17 +1817,33 @@ EOT;
 	 * @return array{urls:string[],ids:int[]} Waiting images (fal URLs, newest
 	 *                                        last) and accepted ones (newest first).
 	 */
-	public static function made_already( int $pid, string $recipe_id ): array {
+	public static function made_already( int $pid, string $recipe_id, string $target = '' ): array {
 		$out = [ 'urls' => [], 'ids' => [] ];
-		if ( ! $pid || '' === $recipe_id ) {
+		if ( ! $pid || ( '' === $recipe_id && '' === $target ) ) {
 			return $out;
 		}
 		$p     = self::pending( $pid );
 		$shots = array_map( 'strval', (array) ( $p['shots'] ?? [] ) );
+		// WHERE IT IS GOING, NOT WHICH PROMPT ASKED. Keyed on the prompt alone
+		// this answered NOTHING the moment somebody changed prompt between two
+		// attempts — "when it gives me bad option and I am trying to change it,
+		// mostly it gives me same exact image" — because a different prompt id
+		// has made nothing yet, so no photograph was sent back as "not this
+		// one" and the model, given the same product shots, returned the same
+		// picture. Two gallery photographs of one product are the same job
+		// whichever prompt asked for them; the slot they are going into is what
+		// says so.
+		$where = (array) ( $p['targets'] ?? [] );
 		foreach ( (array) ( $p['recipes'] ?? [] ) as $url => $rid ) {
 			// A refused attempt leaves the waiting list: it is not something
 			// this product has, so it is not something to avoid repeating.
-			if ( (string) $rid === $recipe_id && in_array( (string) $url, $shots, true ) ) {
+			if ( ! in_array( (string) $url, $shots, true ) ) {
+				continue;
+			}
+			$same = '' !== $target
+				? (string) ( $where[ (string) $url ] ?? '' ) === $target
+				: (string) $rid === $recipe_id;
+			if ( $same ) {
 				$out['urls'][] = (string) $url;
 			}
 		}
@@ -1848,8 +1872,8 @@ EOT;
 	 *
 	 * @return array<int, int|string> Attachment ids and fal URLs, mixed.
 	 */
-	public static function avoid_sources( int $pid, string $recipe_id, int $max = 2 ): array {
-		$made = self::made_already( $pid, $recipe_id );
+	public static function avoid_sources( int $pid, string $recipe_id, int $max = 2, string $target = '' ): array {
+		$made = self::made_already( $pid, $recipe_id, $target );
 		$out  = [];
 		foreach ( array_reverse( $made['urls'] ) as $url ) {
 			if ( count( $out ) >= $max ) {
@@ -1886,7 +1910,7 @@ EOT;
 		if ( 'main' === $target ) {
 			return '';
 		}
-		$already = self::made_already( $pid, $recipe_id );
+		$already = self::made_already( $pid, $recipe_id, $target );
 		$made    = count( $already['urls'] ) + count( $already['ids'] );
 		// A run that writes straight to the product stashes nothing, so the
 		// count above stays at zero: the screen says which attempt this is.
@@ -2310,7 +2334,13 @@ Answer with STRICT JSON and nothing else: "
 					'name'        => $name,
 					'type'        => $type,
 					'prompt'      => $prompt,
-					'inputs'      => $inputs ?: [ 'title', 'description' ],
+					// NOTHING TICKED IS AN ANSWER. `?:` here put title and
+					// description straight back the moment every box was
+					// unticked, so "send this prompt no product data at all"
+					// could not be said — and the screen showed two boxes
+					// ticked that nobody had ticked. This section owns those
+					// checkboxes, so an empty list is what it means.
+					'inputs'      => $inputs,
 					'inputs_meta' => sanitize_text_field( (string) ( $in['pr_inmeta'][ $i ] ?? '' ) ),
 					'output'      => $outsel,
 					'meta_key'    => sanitize_key( (string) ( $in['pr_metakey'][ $i ] ?? '' ) ) ?: '_dze_' . $id,
@@ -2385,7 +2415,7 @@ Answer with STRICT JSON and nothing else: "
 					'name'        => $name,
 					'type'        => $type,
 					'prompt'      => $prompt,
-					'inputs'      => $inputs ?: [ 'title', 'description' ],
+					'inputs'      => $inputs,
 					'inputs_meta' => sanitize_text_field( (string) ( $r['inputs_meta'] ?? '' ) ),
 					'output'      => $outsel,
 					'meta_key'    => sanitize_key( (string) ( $r['meta_key'] ?? '' ) ) ?: '_dze_' . $id,
@@ -4021,6 +4051,8 @@ Answer with STRICT JSON and nothing else: "
 					'oneMore'  => __( 'One more image', 'dazont-ecom' ),
 					'shotPos'  => __( 'Click to change where this image goes', 'dazont-ecom' ),
 					'shotRedo' => __( 'Make this image again', 'dazont-ecom' ),
+					// The same word the toolbox uses: one gesture, one wording.
+					'shotDrop' => __( 'Throw this image away', 'dazont-ecom' ),
 					'shotRedoOne' => __( 'Make this image again with %s', 'dazont-ecom' ),
 					'confirmRedo' => __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
 					'sWait'    => __( 'Waiting', 'dazont-ecom' ),
@@ -4062,7 +4094,7 @@ Answer with STRICT JSON and nothing else: "
 					/* translators: %s: number of ticked products */
 					'generateN' => __( 'Generate (%s)', 'dazont-ecom' ),
 					/* translators: 1: number of photographs, 2: amount in dollars */
-					'willCost'  => __( '%1$s photographs · about %2$s', 'dazont-ecom' ),
+					'willCost'  => __( 'This press: %1$s photographs · about %2$s', 'dazont-ecom' ),
 					/* translators: %s: number of photographs */
 					'willMake'  => __( '%s photographs', 'dazont-ecom' ),
 					/* translators: 1: the ceiling per product, 2: how many are over it */
@@ -4921,7 +4953,7 @@ Answer with STRICT JSON and nothing else: "
 				// What the press about to be made will cost, beside what the
 				// product has already cost: two different questions.
 				/* translators: 1: number of photographs, 2: amount in dollars */
-				'willCost'   => __( '%1$s photographs · about %2$s', 'dazont-ecom' ),
+				'willCost'   => __( 'This press: %1$s photographs · about %2$s', 'dazont-ecom' ),
 				/* translators: %s: number of photographs */
 				'willMake'   => __( '%s photographs', 'dazont-ecom' ),
 				/* translators: 1: the ceiling per product, 2: how many are over it */
@@ -5093,6 +5125,8 @@ Answer with STRICT JSON and nothing else: "
 				'oneMore'    => __( 'One more image', 'dazont-ecom' ),
 				'shotPos'    => __( 'Click to change where this image goes', 'dazont-ecom' ),
 				'shotRedo'   => __( 'Make this image again', 'dazont-ecom' ),
+				// The product's own trace, folded away on this screen too.
+				'askedFor'   => __( 'What was asked for this product', 'dazont-ecom' ),
 				'shotRedoOne'=> __( 'Make this image again with %s', 'dazont-ecom' ),
 				'discard'    => __( 'Cancel', 'dazont-ecom' ),
 				'compare'    => __( 'Current', 'dazont-ecom' ),

@@ -75,6 +75,7 @@ for ( const [ label, jq ] of jqs ) {
 			paste: q.get( 'paste' ), post: q.get( 'post' ), note: q.get( 'note' ),
 			baseMain: q.get( 'base_main' ), srcId: q.get( 'src_id' ),
 			refsUse: q.get( 'refs_use' ),
+			shots: q.getAll( 'shots[]' ).length,
 			pastes: q.getAll( 'pastes[]' ).length } );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
 		if ( 'dze_content_image' === q.get( 'action' ) ) {
@@ -191,10 +192,10 @@ for ( const [ label, jq ] of jqs ) {
 	await page.check( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
 	const spend = async () => ( await page.textContent( '#dze-cb-spend' ) || '' ).trim();
 	ok( 'the press says how many photographs and what they cost',
-		await spend(), '2 photographs · about $0.16' );
+		await spend(), 'This press: 2 photographs · about $0.16' );
 	await page.selectOption( `${row( 1 )} .dze-tpl-n`, '4' );
 	ok( 'four attempts on two products is eight',
-		await spend(), '8 photographs · about $0.64' );
+		await spend(), 'This press: 8 photographs · about $0.64' );
 
 	// His own run, rebuilt: three prompts at four attempts each.
 	await page.click( `${row( 1 )} .dze-tpl-add` );
@@ -202,7 +203,7 @@ for ( const [ label, jq ] of jqs ) {
 	await page.selectOption( `${row( 2 )} .dze-tpl-n`, '4' );
 	await page.selectOption( `${row( 3 )} .dze-tpl-n`, '4' );
 	const said = await spend();
-	ok( 'three prompts at four attempts is twenty-four', said.startsWith( '24 photographs · about $1.92' ), true );
+	ok( 'three prompts at four attempts is twenty-four', said.startsWith( 'This press: 24 photographs · about $1.92' ), true );
 	// AND THE CEILING IS NAMED WHERE IT WOULD BE HIT. Twelve photographs of one
 	// product against a ceiling of ten is a run that stops two short on every
 	// line — said before the press, not as a refusal halfway through.
@@ -220,7 +221,7 @@ for ( const [ label, jq ] of jqs ) {
 	// is multiplied, the same one the button counts.
 	await page.uncheck( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
 	ok( 'one product instead of two, half the bill',
-		( await spend() ).startsWith( '12 photographs · about $0.96' ), true );
+		( await spend() ).startsWith( 'This press: 12 photographs · about $0.96' ), true );
 	// Back to one prompt row, so the checks below run the screen they expect.
 	await page.click( `${row( 3 )} .dze-tpl-del` );
 	await page.click( `${row( 2 )} .dze-tpl-del` );
@@ -354,7 +355,7 @@ for ( const [ label, jq ] of jqs ) {
 		sent.slice( before ),
 		[ { action: 'dze_content_bulk_list', do: 'discard', ids: [ '7' ],
 			paste: null, post: null, note: null, baseMain: null, srcId: null,
-			refsUse: null, pastes: 0 } ] );
+			refsUse: null, shots: 0, pastes: 0 } ] );
 	// THE PRODUCT STAYS. This is the whole of it: it used to leave the screen.
 	ok( 'the product is still on the list',
 		await page.locator( '.dze-cb-row[data-id="7"]' ).count(), 1 );
@@ -511,7 +512,7 @@ for ( const [ label, jq ] of jqs ) {
 	await page.check( '.dze-cb-row[data-id="7"] .dze-cb-pick' );
 	await page.check( '.dze-cb-row[data-id="8"] .dze-cb-pick' );
 	ok( 'two products on the run\'s order is two photographs',
-		await spend(), '2 photographs · about $0.16' );
+		await spend(), 'This press: 2 photographs · about $0.16' );
 
 	await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
 	const hasOwnBox = await page.waitForSelector( '.dze-cb-preview[data-id="8"] .dze-cb-ownon',
@@ -562,7 +563,7 @@ for ( const [ label, jq ] of jqs ) {
 
 		// THE BILL IS A SUM, not one order times a count of products.
 		ok( 'the bill adds the two orders up',
-			await spend(), '4 photographs · about $0.32' );
+			await spend(), 'This press: 4 photographs · about $0.32' );
 		await page.click( '.dze-cb-row[data-id="8"] .dze-cb-toggle' );
 
 		// AND THE PRESS SENDS WHAT THE SCREEN SAYS. Only a browser can see it.
@@ -666,6 +667,45 @@ for ( const [ label, jq ] of jqs ) {
 		{ timeout: 5000 } ).catch( () => {} );
 	ok( 'and it is still in the box the run was pressed from',
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile' ).count(), 1 );
+
+	// ---- AND A WAITING IMAGE CAN BE THROWN AWAY, FROM THIS SCREEN TOO ----
+	//
+	// "Quelque part on peut supprimer les images en attente avec une croix, JE
+	// L'AI FAIS. Je ne sais plus où exactement." It was the toolbox, and only
+	// under the mouse. Here there was no cross at all: a photograph could only
+	// be UNTICKED, which decides nothing — it stayed in the product's waiting
+	// list, kept the product counted as waiting for a yes or no, and went on
+	// being handed to the model as "not this one" on every later run.
+	//
+	// Asserted on the photograph the run above actually made: a section that
+	// starts a run of its own is a section that fails for its own reasons.
+	if ( ! await page.locator( '.dze-cb-preview[data-id="7"]' ).isVisible() ) {
+		await page.click( '.dze-cb-row[data-id="7"] .dze-cb-toggle' );
+	}
+	const hasShot = await page.waitForSelector( '.dze-cb-preview[data-id="7"] .dze-cb-shot',
+		{ state: 'visible', timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'the run left a photograph on the row', hasShot, true );
+	if ( hasShot ) {
+		// IT IS THERE WITHOUT THE MOUSE. Shown only on hover it is a control
+		// used once and never found again.
+		ok( 'and it carries a cross',
+			await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).count() >= 1, true );
+		ok( 'visible without hovering anything',
+			await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).first().isVisible(), true );
+		const wasDrop = sent.length;
+		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shotdrop' ).first().click();
+		await page.waitForTimeout( 500 );
+		const dropped = sent.slice( wasDrop ).filter( r => 'dze_content_pending_clear' === r.action );
+		// AND IT TELLS THE SERVER. Off the screen only, the image stays in the
+		// product's waiting list for ever — which is the whole fault.
+		ok( 'the press tells the waiting list',  dropped.length, 1 );
+		ok( 'about that product',                ( dropped[ 0 ] || {} ).post, '7' );
+		ok( 'naming the photograph',             ( dropped[ 0 ] || {} ).shots, 1 );
+		ok( 'and it is off the screen',
+			await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-shot' ).count(), 0 );
+	}
+	ok( 'nothing was raised throwing it away', errors, [] );
+
 	ok( 'nothing was raised doing it', errors, [] );
 	// NOT STORED, like the note: a photograph handed in for the run in front of
 	// you is not a standing instruction, and a reload is where that is proved.
@@ -675,6 +715,7 @@ for ( const [ label, jq ] of jqs ) {
 		{ timeout: 5000 } ).catch( () => {} );
 	ok( 'and a reload leaves the box empty',
 		await page.locator( '.dze-cb-preview[data-id="7"] .dze-cb-elsebox .dze-pb-tile' ).count(), 0 );
+
 
 	await page.close();
 }

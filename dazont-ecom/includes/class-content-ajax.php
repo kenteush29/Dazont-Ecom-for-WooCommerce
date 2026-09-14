@@ -1314,7 +1314,7 @@ trait DZE_Content_Ajax {
 				// further from the product with each attempt. One says "not
 				// like this" as clearly as two did, and contaminates half as
 				// much.
-				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 1 ) as $ref ) {
+				foreach ( self::avoid_sources( $pid, (string) ( $tpl['id'] ?? '' ), 1, $target ) as $ref ) {
 					if ( is_int( $ref ) ) {
 						// One already on the product: read from disk, and only
 						// while the request body stays a sane size.
@@ -1851,6 +1851,37 @@ trait DZE_Content_Ajax {
 		wp_send_json_success( [] );
 	}
 
+	/**
+	 * Take photographs OUT of a product's waiting list, and nothing else.
+	 *
+	 * The one place that shrinks the store, so the ✗ on a tile, the accept that
+	 * writes a picture onto the product and the refusal of what was not ticked
+	 * all leave it in the same state. What each image was made for goes with
+	 * it: a settled image leaves nothing of itself behind in the row.
+	 *
+	 * @param string[] $urls The photographs that are no longer waiting.
+	 * @return int How many were actually taken out.
+	 */
+	public static function settle_shots( int $pid, array $urls ): int {
+		$urls = array_values( array_filter( array_map( 'strval', $urls ) ) );
+		if ( ! $pid || ! $urls ) {
+			return 0;
+		}
+		$waiting = self::pending( $pid );
+		$had     = (array) ( $waiting['shots'] ?? [] );
+		$waiting['shots'] = array_values( array_diff( $had, $urls ) );
+		foreach ( $urls as $gone ) {
+			unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ] );
+		}
+		if ( empty( $waiting['shots'] ) && empty( $waiting['texts'] ) ) {
+			delete_post_meta( $pid, self::META_PENDING );
+		} else {
+			update_post_meta( $pid, self::META_PENDING, $waiting );
+		}
+		delete_transient( 'dze_pending_count' );
+		return count( $had ) - count( (array) $waiting['shots'] );
+	}
+
 	public function ajax_pending_clear(): void {
 		$this->guard();
 		$pid    = isset( $_POST['post'] ) ? absint( $_POST['post'] ) : 0;
@@ -1880,24 +1911,23 @@ trait DZE_Content_Ajax {
 			self::set_bulk_list( array_values( array_diff( self::bulk_list(), [ $pid ] ) ) );
 			wp_send_json_success( [ 'cleared' => $pid, 'left' => [], 'counts' => self::screen_counts() ] );
 		}
-		$waiting = self::pending( $pid );
-		if ( $shots ) {
-			$waiting['shots'] = array_values( array_diff( (array) ( $waiting['shots'] ?? [] ), $shots ) );
-			// What each image was made for and by which prompt goes with it:
-			// a settled image leaves nothing of itself behind in the row.
-			foreach ( $shots as $gone ) {
-				unset( $waiting['targets'][ $gone ], $waiting['recipes'][ $gone ] );
+		// The photographs go through the ONE function that owns that store, the
+		// same one an accepted picture passes through: two ways of taking an
+		// image out of the waiting list is how two screens start disagreeing
+		// about what is waiting.
+		self::settle_shots( $pid, $shots );
+		if ( $fields ) {
+			$waiting = self::pending( $pid );
+			foreach ( $fields as $fid ) {
+				unset( $waiting['texts'][ $fid ], $waiting['companions'][ $fid ] );
 			}
+			if ( empty( $waiting['shots'] ) && empty( $waiting['texts'] ) ) {
+				delete_post_meta( $pid, self::META_PENDING );
+			} else {
+				update_post_meta( $pid, self::META_PENDING, $waiting );
+			}
+			delete_transient( 'dze_pending_count' );
 		}
-		foreach ( $fields as $fid ) {
-			unset( $waiting['texts'][ $fid ], $waiting['companions'][ $fid ] );
-		}
-		if ( empty( $waiting['shots'] ) && empty( $waiting['texts'] ) ) {
-			delete_post_meta( $pid, self::META_PENDING );
-		} else {
-			update_post_meta( $pid, self::META_PENDING, $waiting );
-		}
-		delete_transient( 'dze_pending_count' );
 		wp_send_json_success( [ 'left' => self::pending( $pid ), 'counts' => self::screen_counts() ] );
 	}
 
@@ -2070,6 +2100,13 @@ trait DZE_Content_Ajax {
 		if ( $replace && in_array( $replace, self::product_image_ids( $pid ), true ) ) {
 			$removed = (int) self::retire_image( $pid, $replace );
 		}
+		// A PHOTOGRAPH THAT IS ON THE PRODUCT IS NOT WAITING FOR A DECISION.
+		// Nothing here ever told the waiting list that, so an accepted image
+		// stayed in it for ever: the product went on being counted as "waiting
+		// for your yes or no", and the "not like this" lane went on handing
+		// that same picture back to the model on every later run of the same
+		// slot. The browser cleared its own copy and the server kept its one.
+		self::settle_shots( $pid, array_map( static fn( array $i ): string => (string) $i['url'], $items ) );
 		wp_send_json_success( [
 			'attached' => count( $ids ),
 			'errors'   => $errors,
