@@ -387,7 +387,7 @@ final class DZE_Klaviyo_Auto {
 					'log'   => self::log_line( $auto, $next['do'], $next['email'], $out['error'] ),
 				] );
 				if ( class_exists( 'DZE_Health' ) ) {
-					DZE_Health::log( 'klaviyo_auto', $next['do'] . ' — ' . $out['error'] );
+					DZE_Health::log( 'klaviyo_auto', (string) $next['do'], (string) $out['error'] );
 				}
 			}
 			return $out;

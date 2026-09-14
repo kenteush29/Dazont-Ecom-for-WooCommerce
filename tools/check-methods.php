@@ -20,14 +20,80 @@
 // until somebody opens that screen.
 $dir = $argv[1];
 $defined = [];   // class => [method => true]
+$arity   = [];   // class => [method => ['min'=>int,'max'=>int|null]]
 $files   = [];
+
+/**
+ * Reads a parameter list, starting at the "(" — how many are REQUIRED and how
+ * many may be given at all (null = variadic).
+ */
+function dze_params(string $src, int $open): array {
+	$inside = dze_inside($src, $open);
+	if ('' === trim($inside)) { return ['min' => 0, 'max' => 0]; }
+	$parts = dze_split($inside);
+	$min = 0; $max = 0; $var = false;
+	foreach ($parts as $p) {
+		if (false !== strpos($p, '...')) { $var = true; continue; }
+		$max++;
+		if (false === strpos($p, '=')) { $min++; }
+	}
+	return ['min' => $min, 'max' => $var ? null : $max];
+}
+
+/** What is between a "(" and its own ")", strings and nesting honoured. */
+function dze_inside(string $src, int $open): string {
+	$depth = 0; $n = strlen($src); $q = '';
+	for ($i = $open; $i < $n; $i++) {
+		$c = $src[$i];
+		if ('' !== $q) {
+			if ('\\' === $c) { $i++; continue; }
+			if ($c === $q) { $q = ''; }
+			continue;
+		}
+		if ('\'' === $c || '"' === $c) { $q = $c; continue; }
+		if ('(' === $c || '[' === $c || '{' === $c) { $depth++; continue; }
+		if (')' === $c || ']' === $c || '}' === $c) {
+			$depth--;
+			if (0 === $depth) { return substr($src, $open + 1, $i - $open - 1); }
+		}
+	}
+	return '';
+}
+
+/** Top-level commas only: a nested call's own commas are not arguments. */
+function dze_split(string $in): array {
+	$out = ['']; $depth = 0; $q = ''; $n = strlen($in);
+	for ($i = 0; $i < $n; $i++) {
+		$c = $in[$i];
+		if ('' !== $q) {
+			$out[count($out) - 1] .= $c;
+			if ('\\' === $c) { $out[count($out) - 1] .= $in[++$i] ?? ''; continue; }
+			if ($c === $q) { $q = ''; }
+			continue;
+		}
+		if ('\'' === $c || '"' === $c) { $q = $c; $out[count($out) - 1] .= $c; continue; }
+		if ('(' === $c || '[' === $c || '{' === $c) { $depth++; }
+		if (')' === $c || ']' === $c || '}' === $c) { $depth--; }
+		if (',' === $c && 0 === $depth) { $out[] = ''; continue; }
+		$out[count($out) - 1] .= $c;
+	}
+	return array_values(array_filter(array_map('trim', $out), static fn($p) => '' !== $p));
+}
 foreach (array_merge(glob("$dir/includes/*.php"), glob("$dir/admin/views/*.php"), [ "$dir/dazont-ecom.php" ]) as $f) {
 	$src = file_get_contents($f);
 	$files[$f] = $src;
 	if (preg_match('/^\s*(?:final\s+|abstract\s+)?(?:class|trait)\s+(\w+)/m', $src, $m)) {
 		$cls = $m[1];
-		preg_match_all('/function\s+(\w+)\s*\(/', $src, $mm);
-		foreach ($mm[1] as $meth) { $defined[$cls][$meth] = true; }
+		preg_match_all('/function\s+(\w+)\s*\(/', $src, $mm, PREG_OFFSET_CAPTURE);
+		foreach ($mm[1] as $k => $hit) {
+			$meth = $hit[0];
+			$defined[$cls][$meth] = true;
+			// HOW MANY ARGUMENTS IT TAKES. `done_map( array $ids )` was called
+			// with two, which parses perfectly and is a fatal the moment the
+			// line runs — and the gate's own stub had been shaped to the CALL,
+			// so it went green on code the shop could not execute.
+			$arity[$cls][$meth] = dze_params($src, $mm[0][$k][1] + strlen($mm[0][$k][0]) - 1);
+		}
 		// A class using a trait inherits its methods.
 		preg_match_all('/^\s*use\s+(DZE_\w+)\s*;/m', $src, $tu);
 		$defined[$cls]['__traits'] = $tu[1];
@@ -41,6 +107,64 @@ foreach ($defined as $cls => $info) {
 	unset($defined[$cls]['__traits']);
 }
 $bad = 0;
+
+// HOW MANY ARGUMENTS A CALL HANDS OVER, read from the TOKENS.
+//
+// `DZE_Queue::done_map( array $ids )` was called with two arguments: it parses
+// perfectly and is a fatal the moment the line runs — and the gate's own stub
+// had been shaped to the CALL rather than to the function, so it went green on
+// code the shop could not execute.
+//
+// Tokens, not text: a doc comment naming `DZE_Category_Content::state()` is not
+// a call, and a comma inside a string is not an argument.
+foreach ($files as $f => $src) {
+	if (preg_match('/^\s*trait\s+\w+/m', $src)) { continue; }
+	$own = null;
+	if (preg_match('/^\s*(?:final\s+|abstract\s+)?class\s+(\w+)/m', $src, $m)) { $own = $m[1]; }
+	$tk = token_get_all($src);
+	$n  = count($tk);
+	for ($i = 0; $i < $n; $i++) {
+		if (!is_array($tk[$i]) || T_DOUBLE_COLON !== $tk[$i][0]) { continue; }
+		// <class> :: <method> (
+		$left = $tk[$i - 1] ?? null;
+		$meth = $tk[$i + 1] ?? null;
+		if (!is_array($left) || !is_array($meth) || T_STRING !== $meth[0]) { continue; }
+		$name = $left[1];
+		$cls  = ('self' === $name || 'static' === $name) ? $own : $name;
+		if (!$cls || !isset($arity[$cls][$meth[1]])) { continue; }
+		// The very next thing must be "(", or it is a constant, not a call.
+		$j = $i + 2;
+		while ($j < $n && is_array($tk[$j]) && T_WHITESPACE === $tk[$j][0]) { $j++; }
+		if (!isset($tk[$j]) || '(' !== $tk[$j]) { continue; }
+		$want  = $arity[$cls][$meth[1]];
+		$got   = 0;
+		$depth = 0;
+		$any   = false;
+		for ($k = $j; $k < $n; $k++) {
+			$t = $tk[$k];
+			if (is_array($t)) { if (T_WHITESPACE !== $t[0] && T_COMMENT !== $t[0] && T_DOC_COMMENT !== $t[0]) { $any = true; } continue; }
+			if ('(' === $t || '[' === $t || '{' === $t) { $depth++; if ($depth > 1) { $any = true; } continue; }
+			if (')' === $t || ']' === $t || '}' === $t) {
+				$depth--;
+				if (0 === $depth) { break; }
+				$any = true;
+				continue;
+			}
+			if (',' === $t && 1 === $depth) { $got++; $any = true; continue; }
+			$any = true;
+		}
+		if ($any) { $got++; }
+		if ($got >= $want['min'] && (null === $want['max'] || $got <= $want['max'])) { continue; }
+		printf(
+			"ARGS     %s::%s() takes %s, given %d  — %s:%d\n",
+			$cls, $meth[1],
+			null === $want['max'] ? $want['min'] . '+' : ($want['min'] === $want['max'] ? (string) $want['min'] : $want['min'] . '-' . $want['max']),
+			$got, basename($f), $meth[2]
+		);
+		$bad++;
+	}
+}
+
 foreach ($files as $f => $src) {
 	$own = null;
 	// A trait's self:: resolves to whatever class uses it, not to the trait,

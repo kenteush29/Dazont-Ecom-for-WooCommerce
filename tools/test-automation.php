@@ -346,6 +346,21 @@ class DZE_Queue {
 	}
 	/** The rows it removed, so the register can let those pages go. */
 	public static function dropped_rows(): array { return self::$drop_rows; }
+	/**
+	 * What was ACCEPTED on each of these objects — the REAL signature, which
+	 * takes ids and nothing else. Shaped to the call instead, this stub went
+	 * green on a call that would have been a fatal on the shop.
+	 */
+	public static array $applied_ids = [];
+	public static function done_map( array $ids ): array {
+		$out = [];
+		foreach ( $ids as $id ) {
+			if ( ! empty( self::$applied_ids[ (int) $id ] ) ) {
+				$out[ (int) $id ] = [ 'kind' => 'cat_links', 'when' => '2026-09-14 09:00:00', 'id' => 7 ];
+			}
+		}
+		return $out;
+	}
 	/** How many finished jobs of these kinds are waiting for a decision. */
 	public static function review_count_for( array $kinds ): int {
 		$n = 0;
@@ -503,7 +518,8 @@ function fresh( array $tasks = [] ): void {
 	DZE_Queue::$retried    = [];
 	DZE_Queue::$dropped    = [];
 	DZE_Queue::$pending_all = false;
-	DZE_Queue::$drop_rows  = [];
+	DZE_Queue::$drop_rows   = [];
+	DZE_Queue::$applied_ids = [];
 	$GLOBALS['failures']   = [
 		[ 'kind' => 'cat_links', 'object_id' => 21, 'error' => 'The model refused: the description is empty.' ],
 	];
@@ -620,12 +636,13 @@ fresh( $ON );
 // Everything the graph offers is already waiting in the writing queue.
 DZE_Queue::$pending_all = true;
 ok( 'held back, so nothing is offered', DZE_Automation::shortlist( 'mesh_links', 5 ), [] );
+// The queue answers for the whole shop; the tally only says WHY.
+DZE_Queue::$counts = [ 'queued' => 42, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
 $dze_said = DZE_Automation::reason_text( 'none' );
 ok( 'and the shop is not told it is finished',
 	false !== stripos( $dze_said, 'every page has what its size calls for' ), false );
-ok( 'it says they are short of links',  false !== stripos( $dze_said, 'short of links' ), true );
-ok( 'how many',                         1 === preg_match( '/\d/', $dze_said ), true );
-ok( 'and where they are',               false !== stripos( $dze_said, 'queue' ), true );
+ok( 'it says where they are',           false !== stripos( $dze_said, 'writing queue' ), true );
+ok( 'with the queue\'s own figure',      false !== strpos( $dze_said, '42' ), true );
 DZE_Queue::$pending_all = false;
 
 // WORKED ON RECENTLY is a different state from ALREADY QUEUED, and says so.
@@ -642,6 +659,89 @@ DZE_Automation::shortlist( 'mesh_links', 50 ); // reads the graph, holds nothing
 DZE_Automation::held_reset();
 ok( 'a finished site is still told so',
 	false !== stripos( DZE_Automation::reason_text( 'none' ), 'every page has what its size calls for' ), true );
+
+echo "\nONE question, ONE sentence, and no figure the reading cannot support\n";
+//
+// "Le module est complètement planté... Nothing new to work on: 6 pages are
+// short of links but were worked on in the last few days. / Nothing is short
+// of anything right now." TWO sentences, contradicting each other, printed one
+// under the other — and the "6" beside a chip announcing 165 pages nothing
+// points at. Both faults arrived in the release that was meant to mend this.
+fresh( $ON );
+DZE_Queue::$pending_all = true;
+ob_start();
+DZE_Automation::render_state( 'mesh_links' );
+$dze_state = (string) ob_get_clean();
+// ONE ANSWER. The empty case of "next in line" and the answer a press comes
+// back with are the SAME question, so they cannot be two literals.
+ok( 'the old sentence is not printed twice',
+	substr_count( $dze_state, 'Nothing is short of anything right now' ), 0 );
+ok( 'and the block says something',      '' !== trim( wp_strip_all_tags( $dze_state ) ), true );
+
+// A FIGURE THE READING CANNOT SUPPORT IS WORSE THAN NO FIGURE. The shortlist
+// walks a HANDFUL of candidates and stops as soon as it has enough, so its
+// tally is however many it happened to look at — never what the shop holds.
+fresh( $ON );
+DZE_Queue::$pending_all = true;
+DZE_Queue::$counts = [ 'queued' => 137, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_q = DZE_Automation::reason_text( 'none' );
+ok( 'the queue figure is the queue\'s own',  false !== strpos( $dze_q, '137' ), true );
+$dze_seen = (int) DZE_Automation::held_now()['queued'];
+ok( 'never the handful it walked',        $dze_seen > 0 && $dze_seen < 137, true );
+ok( 'and that fragment is not printed',   false !== strpos( $dze_q, (string) $dze_seen ), false );
+
+// NOTHING IN THE QUEUE, everything in its wait: no invented figure at all.
+fresh( $ON );
+DZE_Queue::$counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
+DZE_Automation::tick( 'mesh_links', true );
+DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_wait = DZE_Automation::reason_text( 'none' );
+ok( 'a wait is said without a figure',    1 === preg_match( '/\d/', $dze_wait ), false );
+ok( 'and it says what it is waiting on',  false !== stripos( $dze_wait, 'last few days' ), true );
+
+echo "\nA promise the queue never kept does not hold a page\n";
+//
+// The catch-up stamps every page it queues so the daily pass does not do it
+// twice — with NO figures, because nothing has been written yet. Dropped,
+// failed, or cleared, that stamp holds the page out of the pass meant to mend
+// it for three days, having had nothing done to it at all.
+fresh( $ON );
+$dze_pick = DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_oid  = (int) ( $dze_pick[0]['tid'] ?? 0 );
+$dze_type = 'product_cat' === (string) ( $dze_pick[0]['kind'] ?? '' ) ? 'term' : 'post';
+// A promise: queued, nothing written, nothing accepted, nothing in the queue.
+$GLOBALS['tmeta'][ $dze_oid ]['_dze_auto_seen'] = [ 'mesh_links' => [ 't' => time(), 'w' => 0, 'l' => 0 ] ];
+$GLOBALS['pmeta'][ $dze_oid ]['_dze_auto_seen'] = [ 'mesh_links' => [ 't' => time(), 'w' => 0, 'l' => 0 ] ];
+$dze_back = DZE_Automation::shortlist( 'mesh_links', 5 );
+$dze_has  = false;
+foreach ( $dze_back as $r ) { if ( (int) $r['tid'] === $dze_oid ) { $dze_has = true; } }
+ok( 'a promise nobody kept holds nothing', $dze_has, true );
+
+// A PAGE REALLY WORKED ON IS STILL HELD. The stamp carries the figures the
+// page had when the pass took it, so a written page is not a promise.
+fresh( $ON );
+$dze_pick = DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_oid  = (int) ( $dze_pick[0]['tid'] ?? 0 );
+DZE_Automation::tick( 'mesh_links', true );
+$dze_back = DZE_Automation::shortlist( 'mesh_links', 50 );
+$dze_has  = false;
+foreach ( $dze_back as $r ) { if ( (int) $r['tid'] === $dze_oid ) { $dze_has = true; } }
+ok( 'a page really worked on is held',    $dze_has, false );
+
+// AND A PROMISE WHOSE WORK WAS ACCEPTED IS NOT OFFERED AGAIN — or the pass
+// writes a second text over the one somebody just said yes to.
+fresh( $ON );
+$dze_pick = DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_oid  = (int) ( $dze_pick[0]['tid'] ?? 0 );
+$GLOBALS['tmeta'][ $dze_oid ]['_dze_auto_seen'] = [ 'mesh_links' => [ 't' => time(), 'w' => 0, 'l' => 0 ] ];
+$GLOBALS['pmeta'][ $dze_oid ]['_dze_auto_seen'] = [ 'mesh_links' => [ 't' => time(), 'w' => 0, 'l' => 0 ] ];
+DZE_Queue::$applied_ids = [ $dze_oid => true ];
+$dze_back = DZE_Automation::shortlist( 'mesh_links', 50 );
+$dze_has  = false;
+foreach ( $dze_back as $r ) { if ( (int) $r['tid'] === $dze_oid ) { $dze_has = true; } }
+ok( 'a promise already written is held',  $dze_has, false );
+DZE_Queue::$applied_ids = [];
 
 echo "\nCalling a run off frees the pages it drops\n";
 //

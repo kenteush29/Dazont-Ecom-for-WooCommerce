@@ -257,6 +257,33 @@ class DZE_Review_Wpdb {
 		if ( false !== stripos( (string) $q, "status IN ('queued','failed')" ) ) {
 			return $GLOBALS['waiting_rows'] ?? [];
 		}
+		// WHAT WAS ACCEPTED on each object. Answered with the fake shop's
+		// generic rows it hands back documents with no `updated` and no
+		// `decided_by` — a stub must answer in the SHAPE the real function
+		// answers with, and this one holds nothing unless a check says so.
+		if ( false !== stripos( (string) $q, "status = 'applied' AND object_id IN" ) ) {
+			// The rows a check laid out for this question, and NOTHING
+			// otherwise: the fake shop's generic rows have no `updated` and no
+			// `decided_by`, and a stub must answer in the shape the real
+			// function answers with rather than in whatever shape is to hand.
+			return $GLOBALS['applied_rows_sql'] ?? [];
+		}
+		// WHAT IS ALREADY WAITING ON AN OBJECT, answered from what the queue
+		// was actually told to insert. Answered with nothing, the harness
+		// claims no page is in hand — and the pass that decides whether to
+		// queue a page a second time asks exactly this.
+		if ( false !== stripos( (string) $q, "status IN ('queued','running','review')" ) ) {
+			$out = [];
+			foreach ( (array) ( $GLOBALS['queued'] ?? [] ) as $i => $row ) {
+				$out[] = [
+					'id'        => $i + 1,
+					'kind'      => (string) $row['kind'],
+					'object_id' => (int) $row['id'],
+					'status'    => 'queued',
+				];
+			}
+			return $out;
+		}
 		return $GLOBALS['rows'] ?? [];
 	}
 	public function get_col( $q ) { $this->sent[] = (string) $q; return []; }
@@ -280,6 +307,18 @@ class DZE_Review_Wpdb {
 		return 1;
 	}
 }
+/**
+ * Empties the fake queue — AND tells the queue its reading of what is waiting
+ * is stale. `pending_map()` keeps that reading for the request, so a harness
+ * that clears the table behind its back goes on reporting every page as
+ * already in hand, and the press under test queues nothing for a reason that
+ * exists only in the test.
+ */
+function dze_empty_queue(): void {
+	$GLOBALS['queued'] = [];
+	if ( class_exists( 'DZE_Queue' ) ) { DZE_Queue::forget_count(); }
+}
+
 $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
 $GLOBALS['rows'] = [];
 
@@ -369,10 +408,10 @@ ok( 'and what was skipped',             false !== strpos( $sql, "'skipped'" ), t
 ok( 'and NEVER what was applied',       false !== strpos( $sql, "'applied'" ), false );
 
 echo "And it can be found again, per object\n";
-$GLOBALS['rows'] = [
-	[ 'id' => 91, 'kind' => 'product_shot', 'object_id' => 501, 'updated' => '2026-09-03 10:00:00' ],
-	[ 'id' => 90, 'kind' => 'product_shot', 'object_id' => 501, 'updated' => '2026-08-01 09:00:00' ],
-	[ 'id' => 89, 'kind' => 'cat_desc',     'object_id' => 77,  'updated' => '2026-07-01 09:00:00' ],
+$GLOBALS['applied_rows_sql'] = [
+	[ 'id' => 91, 'kind' => 'product_shot', 'object_id' => 501, 'updated' => '2026-09-03 10:00:00', 'decided_by' => 0 ],
+	[ 'id' => 90, 'kind' => 'product_shot', 'object_id' => 501, 'updated' => '2026-08-01 09:00:00', 'decided_by' => 0 ],
+	[ 'id' => 89, 'kind' => 'cat_desc',     'object_id' => 77,  'updated' => '2026-07-01 09:00:00', 'decided_by' => 0 ],
 ];
 $GLOBALS['wpdb']->sent = [];
 $map = DZE_Queue::done_map( [ 501, 77, 999 ] );
@@ -383,6 +422,7 @@ ok( 'naming the job that did it',       $map[501]['kind'], 'product_shot' );
 ok( 'an object with nothing done is absent', isset( $map[999] ), false );
 // One query for a whole page: a lookup per row is fifty queries to draw a list.
 ok( 'read in one query',                count( $GLOBALS['wpdb']->sent ), 1 );
+$GLOBALS['applied_rows_sql'] = [];
 ok( 'and only for applied rows',        false !== strpos( $GLOBALS['wpdb']->sent[0], "status = 'applied'" ), true );
 ok( 'asking about nothing asks nothing', DZE_Queue::done_map( [] ), [] );
 
@@ -596,11 +636,11 @@ ok( 'and the schema moved with the column',
 // It is read from the current user AT THE INSERT, so every path in the plugin
 // fills it without being told — and cron, which has no user, answers 0.
 $GLOBALS['uid']    = 9;
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 DZE_Queue::add( 'cat_desc', [ 12 ] );
 ok( 'a job records who pressed it',     (int) ( $GLOBALS['queued'][0]['made_by'] ?? -1 ), 9 );
 $GLOBALS['uid']    = 0;
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 DZE_Queue::add( 'cat_desc', [ 13 ] );
 ok( 'and a scheduled pass records nobody', (int) ( $GLOBALS['queued'][0]['made_by'] ?? -1 ), 0 );
 // An ORIGIN always has an answer — unlike a decision, which has nobody when a
@@ -742,7 +782,7 @@ $GLOBALS['mesh_plan'] = [
 ];
 $GLOBALS['terms'][31] = '<p>' . str_repeat( 'word ', 200 ) . '</p>';
 $GLOBALS['opts']['dze_auto_settings'] = [ 'tasks' => [ 'mesh_links' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ] ] ];
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $dze_pick = DZE_Automation::shortlist( 'mesh_links', 2 );
 ok( 'the task takes its work from the graph', count( $dze_pick ), 2 );
 ok( 'and each row says which way round it goes',
@@ -758,7 +798,7 @@ ok( 'and it says it queued something',       (int) $dze_res['queued'], 1 );
 // row and runs it, and what lands in the queue is what the graph chose. The
 // test that only calls run() proves run() works and nothing about whether the
 // decision survives the trip.
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $GLOBALS['tmeta']  = [];
 $GLOBALS['pmeta']  = [];
 DZE_Automation::tick( 'mesh_links', true );
@@ -769,13 +809,13 @@ ok( 'and the addresses survived the trip',
 
 // The SAME task, on an article, goes to the article pass — one task, both
 // kinds of page, no second engine.
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $GLOBALS['posts_all'][12] = (object) [ 'ID' => 12, 'post_title' => 'How to choose a backpack', 'post_content' => '<p>' . str_repeat( 'word ', 200 ) . '</p>' ];
 DZE_Automation::run( 'mesh_links', 12, $dze_pick[1] );
 ok( 'an article goes to the article pass',   (string) ( $GLOBALS['queued'][0]['kind'] ?? '' ), 'post_links' );
 // A ROW WITH NOTHING TO ADD QUEUES NOTHING, rather than falling through to
 // "whatever this page would have linked to on its own".
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $dze_none = DZE_Automation::run( 'mesh_links', 999, [ 'kind' => 'post', 'urls' => [] ] );
 ok( 'nothing chosen, nothing queued',        $GLOBALS['queued'], [] );
 ok( 'and it says why',                       (string) $dze_none['reason'], 'none' );
@@ -793,7 +833,7 @@ $GLOBALS['mesh_thin'] = [
 	[ 'kind' => 'post', 'id' => 12, 'title' => 'How to choose a backpack', 'url' => 'http://shop.test/blog/12/',
 		'in' => 4, 'out' => 0, 'words' => 300, 'want' => 6, 'short' => 6 ],
 ];
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $GLOBALS['tmeta']  = [];
 $GLOBALS['pmeta']  = [];
 $dze_two = DZE_Automation::shortlist( 'mesh_links', 5 );
@@ -807,7 +847,7 @@ ok( 'and the row says how far off it is',
 // on a shop that pool ranks product categories above articles.
 ok( 'nothing is chosen for it in advance',   (array) ( $dze_two[0]['urls'] ?? [ 'x' ] ), [] );
 
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $dze_res = DZE_Automation::run( 'mesh_links', 31, $dze_two[0] );
 ok( 'it goes to the pass that writes that page', (string) ( $GLOBALS['queued'][0]['kind'] ?? '' ), 'cat_links' );
 ok( 'and it is queued',                      (int) $dze_res['queued'], 1 );
@@ -820,7 +860,7 @@ ok( 'carrying no addresses at all',
 // THE WHOLE SITE IN ONE PRESS. It is the second phase over everything: the
 // arithmetic is the census's, and the model call happens inside each job, one
 // at a time, in the queue — never three hundred of them inside one press.
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $GLOBALS['tmeta']  = [];
 $GLOBALS['pmeta']  = [];
 // The register as it stands before the press, so what it holds afterwards is
@@ -839,14 +879,20 @@ ok( 'in words the shop can read',
 ok( 'the day counts one pass, not two',  DZE_Automation::done_today( 'mesh_links' ), 1 );
 
 // PRESSED AGAIN, it does nothing rather than queueing the same pages twice.
-$GLOBALS['queued'] = [];
+// The rows are STILL THERE — which is what "pressed again" means on a shop.
 $dze_again = DZE_Automation::catch_up( 'mesh_links' );
 ok( 'pressed again it adds nothing',         (int) $dze_again['queued'], 0 );
+// AND A PROMISE THE QUEUE NEVER KEPT DOES NOT HOLD THE PAGE. With the rows
+// gone — called off, failed, cleared — nothing was written to any of them, so
+// they are work again rather than locked out for three days.
+dze_empty_queue();
+$dze_freed = DZE_Automation::catch_up( 'mesh_links' );
+ok( 'the rows gone, the pages are work again', (int) $dze_freed['queued'] > 0, true );
 // A CEILING, so one press is not a day of writing nobody asked for, and the
 // message says there is more rather than leaving the shop to guess.
 $GLOBALS['tmeta'] = [];
 $GLOBALS['pmeta'] = [];
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $dze_cap = DZE_Automation::catch_up( 'mesh_links', 1 );
 ok( 'the ceiling is kept',                   (int) $dze_cap['queued'], 1 );
 ok( 'and it says there is more to do',       (bool) $dze_cap['more'], true );
@@ -858,7 +904,7 @@ ok( 'in words the shop can read',
 // where it would leave.
 $GLOBALS['tmeta'] = [];
 $GLOBALS['pmeta'] = [];
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $GLOBALS['over_budget'] = true;
 $dze_broke = DZE_Automation::catch_up( 'mesh_links' );
 ok( 'over the budget it queues nothing',     [ (int) $dze_broke['queued'], (string) $dze_broke['reason'] ], [ 0, 'budget' ] );
@@ -869,7 +915,7 @@ $GLOBALS['over_budget'] = false;
 // done to them — the fault this task was already red on once.
 $GLOBALS['tmeta'] = [];
 $GLOBALS['pmeta'] = [];
-$GLOBALS['queued'] = [];
+dze_empty_queue();
 $GLOBALS['queue_busy'] = true;
 $dze_full = DZE_Automation::catch_up( 'mesh_links' );
 ok( 'a queue that refuses queues nothing', (int) $dze_full['queued'], 0 );
