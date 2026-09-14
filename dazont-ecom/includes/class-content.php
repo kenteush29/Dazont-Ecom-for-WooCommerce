@@ -1893,40 +1893,37 @@ EOT;
 	}
 
 	/**
-	 * "Not the same photograph again."
+	 * NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS.
 	 *
-	 * Asking a prompt for a second gallery shot ran exactly the same
-	 * instruction on exactly the same photographs, so it came back with
-	 * exactly the same image — three attempts, three near-identical results,
-	 * three times the bill. The model cannot see what it produced a minute
-	 * ago, so the difference has to be asked for: how many shots this prompt
-	 * has already made on this product is known here, and each one gets its
-	 * own framing.
+	 * "Image 1 : détails fake. Ça arrive beaucoup trop souvent sur des produits
+	 * avec détails fins." Two D-rings at the waist, a velcro panel with two
+	 * press studs and a zipped pocket, on a pair of shorts that has one D-ring,
+	 * a plain flap pocket and no zip.
 	 *
-	 * Never on the main image: there is one right main image, not four
-	 * different ones.
+	 * The plugin was asking for it. On the second attempt of a prompt this
+	 * appended a HINT that chose the subject of the shot — "Come closer: a
+	 * detail of the material, the stitching or the fastening, filling most of
+	 * the frame", or another angle, or the product in its setting. A model
+	 * asked for a close-up of hardware it has never been shown paints plausible
+	 * hardware, and on tactical gear that is immediately, obviously wrong.
+	 *
+	 * It is gone, and the function with it rather than left unused: a sentence
+	 * nothing sends is a sentence somebody wires back up next year. What the
+	 * successive attempts of one prompt differ by is what the OWNER'S prompt
+	 * says, and nothing else.
+	 *
+	 * The anti-repeat is unaffected and was always the better half of this: the
+	 * photograph already made TRAVELS with the request, the legend names it,
+	 * and the model is asked to make something clearly different from it. A set
+	 * of source images saying "not this one" beats a sentence saying so — which
+	 * is exactly why this line was a second way of saying what the images
+	 * already said.
+	 *
+	 * @deprecated Kept as a stub for a moment so nothing calling it fatals on a
+	 *             half-updated install; it appends nothing and is never sent.
 	 */
 	public static function variation_line( int $pid, string $recipe_id, string $target, int $attempt = 0 ): string {
-		if ( 'main' === $target ) {
-			return '';
-		}
-		$already = self::made_already( $pid, $recipe_id, $target );
-		$made    = count( $already['urls'] ) + count( $already['ids'] );
-		// A run that writes straight to the product stashes nothing, so the
-		// count above stays at zero: the screen says which attempt this is.
-		$made = max( $made, $attempt > 0 ? $attempt - 1 : 0 );
-		if ( $made < 1 ) {
-			return '';
-		}
-		$hints = [
-			'Take it from a clearly different angle than a straight-on view: a three-quarter view, the product turned.',
-			'Come closer: a detail of the material, the stitching or the fastening, filling most of the frame.',
-			'Step back: the whole product in its setting, seen from further away and slightly above.',
-			'Change the side: show the part the other photographs do not show — the back, the inside, the reverse.',
-		];
-		$hint = $hints[ ( $made - 1 ) % count( $hints ) ];
-		return "\n\nThis is photograph " . ( $made + 1 ) . ' of a set made for the same product: it must not repeat the ones already made. '
-			. $hint . ' Everything else — the product, the light and the setting — stays as described above.';
+		return '';
 	}
 
 	/**

@@ -1081,5 +1081,57 @@ ok( 'but asked by the slot it finds it',
 ok( 'another slot is not the same job',
 	DZE_Content::made_already( 7, 'tpl_two', 'main' )['urls'], [] );
 
+echo "\nNOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS\n";
+// "Image 1 : détails fake. C'est encore une fois un réel problème, ça arrive
+// beaucoup trop souvent sur des produits avec détails fins." Two D-rings at
+// the waist, a velcro panel with two press studs and a zipped pocket, on a
+// pair of shorts that has one D-ring, a plain flap pocket and no zip.
+//
+// The plugin was asking for it. On the second attempt of a prompt it appended
+// a HINT that chose the subject of the shot — "Come closer: a detail of the
+// material, the stitching or the fastening, filling most of the frame" — on a
+// product whose fastenings may never have been photographed. A model asked
+// for a close-up of hardware it has never been shown paints plausible
+// hardware, and on tactical gear that is immediately, obviously wrong.
+//
+// It is the plugin choosing the content of the photograph, which is the
+// owner's decision and nobody else's: "évidemment que c'est à supprimer".
+$dze_said = DZE_Content::variation_line( 7, 'tpl_one', 'gallery', 2 );
+ok( 'nothing asks for a closer look',
+	false !== stripos( $dze_said, 'Come closer' ), false );
+ok( 'nor for another angle',      false !== stripos( $dze_said, 'three-quarter' ), false );
+ok( 'nor for the product in its setting',
+	false !== stripos( $dze_said, 'Step back' ), false );
+ok( 'nor names a fastening at all',
+	false !== stripos( $dze_said, 'fastening' ), false );
+ok( 'and it appends nothing whatever',           $dze_said, '' );
+// AND THE ANTI-REPEAT IS STILL THERE — SHOWN, NOT TOLD. The photograph
+// already made travels with the request and the legend names it: a set of
+// source images saying "make it different" beats a sentence saying so, which
+// is why this line was a second way of saying what the images already say.
+$dze_avoid = DZE_Content::sources_instruction( 2, null, 1, 0, false, 0 );
+ok( 'the one already made is still named',
+	false !== strpos( $dze_avoid, 'IS A PHOTOGRAPH ALREADY MADE' ), true );
+ok( 'and still asked to be different',
+	false !== strpos( $dze_avoid, 'must be clearly different' ), true );
+// AND THE SOURCE OF THE FAULT IS GONE FROM THE FILE, not merely unused: a
+// sentence nothing sends is a sentence somebody wires back up next year.
+// THE WHOLE APPENDED TEXT IS LOCKED, so nothing joins it by accident. Every
+// sentence under the owner's prompt competes with it for the model's
+// attention, and two of the three that ever went wrong here were added
+// without anybody deciding to add them. A new one now turns this gate red and
+// somebody has to put it in the lock on purpose — "adding a sentence to that
+// note is a decision the shop takes, not one taken for it".
+ok( 'the appended text is exactly what it was',
+	md5( DZE_Content::sources_instruction( 3, null, 0, 0, false, 0 ) ),
+	md5( "\n\nIMAGES 1 TO 3 ARE ONE SINGLE PRODUCT, photographed from different angles. Image 1 is the reference; the others show what it does not."
+		. ' Reproduce it exactly: every buckle, strap, cord, zip, seam and marking the photographs show, in the same places, and NOTHING they do not show.'
+		. ' Where the product data above names a part you cannot see in them — a strap, a fastening, a colour, a pattern — THE PHOTOGRAPHS WIN:'
+		. ' that text describes the product in general, these photographs are the one being made.'
+		. ' A part left out of frame is a photograph; an invented one is a fake.' ) );
+ok( 'the hints are gone from the plugin',
+	substr_count( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' ),
+		'filling most of the frame' ), 0 );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
