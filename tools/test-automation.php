@@ -302,7 +302,10 @@ class DZE_Queue {
 		return count( $ids );
 	}
 	/** What is already waiting on an object, in the shape the real one answers. */
-	public static function pending_for( int $object_id, string $family = 'cat_' ): array { return []; }
+	public static bool $pending_all = false;
+	public static function pending_for( int $object_id, string $family = 'cat_' ): array {
+		return self::$pending_all ? [ [ 'id' => 1, 'status' => 'queued' ] ] : [];
+	}
 	// The queue's own figures, which is all the progress bar reads: nothing is
 	// remembered in the browser, so a reload draws the same bar.
 	public static array $counts = [ 'queued' => 0, 'running' => 0, 'review' => 0, 'applied' => 0, 'failed' => 0, 'skipped' => 0 ];
@@ -336,10 +339,13 @@ class DZE_Queue {
 	}
 	/** What a run called off drops: what waits its turn and what failed. */
 	public static array $dropped = [];
+	public static array $drop_rows = [];
 	public static function drop_waiting( array $kinds ): int {
 		self::$dropped = $kinds;
 		return (int) ( self::$counts['queued'] ?? 0 ) + (int) ( self::$counts['failed'] ?? 0 );
 	}
+	/** The rows it removed, so the register can let those pages go. */
+	public static function dropped_rows(): array { return self::$drop_rows; }
 	/** How many finished jobs of these kinds are waiting for a decision. */
 	public static function review_count_for( array $kinds ): int {
 		$n = 0;
@@ -496,6 +502,8 @@ function fresh( array $tasks = [] ): void {
 	DZE_Queue::$unlocked   = 0;
 	DZE_Queue::$retried    = [];
 	DZE_Queue::$dropped    = [];
+	DZE_Queue::$pending_all = false;
+	DZE_Queue::$drop_rows  = [];
 	$GLOBALS['failures']   = [
 		[ 'kind' => 'cat_links', 'object_id' => 21, 'error' => 'The model refused: the description is empty.' ],
 	];
@@ -600,6 +608,62 @@ ok( "today's figure used up",          DZE_Automation::why_not( 'mesh_links' ), 
 // refusal to answer a button — but it is counted, so the automatic pass does
 // that much less, and what protects the shop never yields to it.
 ok( 'and a press still runs',          DZE_Automation::why_not( 'mesh_links', true ), '' );
+
+echo "\n\"Nothing is short of anything\" must be TRUE of the shop\n";
+//
+// "Nothing is short of anything right now > résultat de Run one now. Alors que
+// plein de pages sont encore sans liens. Je comprends pas." It was a true
+// sentence about the REGISTER and a false one about the shop: the catch-up
+// press stamps every page it queues, so the next press finds nothing NEW and
+// announced that the site was finished. Three different states wore one word.
+fresh( $ON );
+// Everything the graph offers is already waiting in the writing queue.
+DZE_Queue::$pending_all = true;
+ok( 'held back, so nothing is offered', DZE_Automation::shortlist( 'mesh_links', 5 ), [] );
+$dze_said = DZE_Automation::reason_text( 'none' );
+ok( 'and the shop is not told it is finished',
+	false !== stripos( $dze_said, 'every page has what its size calls for' ), false );
+ok( 'it says they are short of links',  false !== stripos( $dze_said, 'short of links' ), true );
+ok( 'how many',                         1 === preg_match( '/\d/', $dze_said ), true );
+ok( 'and where they are',               false !== stripos( $dze_said, 'queue' ), true );
+DZE_Queue::$pending_all = false;
+
+// WORKED ON RECENTLY is a different state from ALREADY QUEUED, and says so.
+fresh( $ON );
+DZE_Automation::tick( 'mesh_links', true );
+$dze_after = DZE_Automation::shortlist( 'mesh_links', 50 );
+DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_held = DZE_Automation::held_now();
+ok( 'the pass counts what it held back', ( (int) $dze_held['recent'] + (int) $dze_held['queued'] ) > 0, true );
+
+// AND WHEN NOTHING REALLY IS SHORT, the old sentence is exactly right.
+fresh( $ON );
+DZE_Automation::shortlist( 'mesh_links', 50 ); // reads the graph, holds nothing back
+DZE_Automation::held_reset();
+ok( 'a finished site is still told so',
+	false !== stripos( DZE_Automation::reason_text( 'none' ), 'every page has what its size calls for' ), true );
+
+echo "\nCalling a run off frees the pages it drops\n";
+//
+// The catch-up stamps every page it queues so the daily pass does not do them
+// twice. Stop then deleted those rows and left the stamps standing: two
+// hundred pages marked as worked on, with nothing written to any of them, and
+// locked out of the pass that was meant to mend them. That is the fault this
+// plugin already refuses by name — "a page stamped by a queue that refused is
+// a page locked out having had nothing done to it" — reintroduced by the
+// button that calls a run off.
+fresh( $ON );
+$dze_pick = DZE_Automation::shortlist( 'mesh_links', 1 );
+$dze_oid  = (int) ( $dze_pick[0]['tid'] ?? 0 );
+$dze_kind = (string) ( $dze_pick[0]['kind'] ?? 'product_cat' );
+DZE_Automation::tick( 'mesh_links', true );
+ok( 'a queued page is stamped',         DZE_Automation::worked_on( $dze_oid, 'mesh_links', 'product_cat' === $dze_kind ? 'term' : 'post' ), true );
+// The queue hands back the rows it dropped, and the register lets them go.
+DZE_Automation::free_pages( [ [ 'kind' => 'product_cat' === $dze_kind ? 'cat_links' : 'post_links', 'object_id' => $dze_oid ] ] );
+ok( 'and calling it off lets it go',    DZE_Automation::worked_on( $dze_oid, 'mesh_links', 'product_cat' === $dze_kind ? 'term' : 'post' ), false );
+// A row of a kind no task queues is not ours to unstamp.
+ok( 'a kind no task queues is left alone',
+	DZE_Automation::free_pages( [ [ 'kind' => 'product_shot', 'object_id' => $dze_oid ] ] ), 0 );
 
 echo "\nA pass that was never queued is not a pass\n";
 //
@@ -1470,8 +1534,16 @@ ok( 'beside the way to try them again',  substr_count( $dze_bad, 'dze-auto-again
 fresh( $ON );
 DZE_Queue::$counts  = [ 'queued' => 194, 'running' => 0, 'review' => 3, 'applied' => 0, 'failed' => 3, 'skipped' => 0 ];
 DZE_Queue::$dropped = [];
+DZE_Queue::$drop_rows = [ [ 'kind' => 'cat_links', 'object_id' => 21 ] ];
+$GLOBALS['tmeta'][21]['_dze_auto_seen'] = [ 'mesh_links' => [ 't' => time(), 'w' => 0, 'l' => 0 ] ];
 $dze_stop = sent_of( static function (): void { DZE_Automation::ajax_run_stop(); } );
 ok( 'the press answers',                 (bool) ( $dze_stop['ok'] ?? false ), true );
+// AND THE PAGES IT DROPPED ARE FREED: a page whose row is gone had nothing
+// written to it, and a stamp saying otherwise locks it out of the pass meant
+// to mend it — the whole of "nothing is short of anything" over a site full of
+// unlinked pages.
+ok( 'and the pages it dropped are freed',
+	DZE_Automation::worked_on( 21, 'mesh_links', 'term' ), false );
 sort( DZE_Queue::$dropped );
 ok( 'it drops its own kinds',            DZE_Queue::$dropped, [ 'cat_desc', 'cat_links', 'post_links' ] );
 ok( 'and says how many it called off',   false !== strpos( (string) ( $dze_stop['data']['message'] ?? '' ), '197' ), true );

@@ -253,6 +253,10 @@ class DZE_Review_Wpdb {
 		if ( false !== stripos( (string) $q, "status = 'running' AND updated <" ) ) {
 			return $GLOBALS['stale_rows'] ?? [];
 		}
+		// The rows a run called off is about to drop, read before the delete.
+		if ( false !== stripos( (string) $q, "status IN ('queued','failed')" ) ) {
+			return $GLOBALS['waiting_rows'] ?? [];
+		}
 		return $GLOBALS['rows'] ?? [];
 	}
 	public function get_col( $q ) { $this->sent[] = (string) $q; return []; }
@@ -1029,6 +1033,11 @@ echo "\nStopping a run that is under way\n";
 // ever and never called off.
 $GLOBALS['tr'] = [];
 $GLOBALS['wpdb']->sent = [];
+$GLOBALS['waiting_rows'] = [
+	[ 'kind' => 'cat_links',  'object_id' => 21 ],
+	[ 'kind' => 'cat_links',  'object_id' => 22 ],
+	[ 'kind' => 'post_links', 'object_id' => 31 ],
+];
 $dze_gone = DZE_Queue::drop_waiting( [ 'cat_links', 'post_links' ] );
 ok( 'what has not been written is dropped', $dze_gone, 3 );
 $dze_sql = implode( ' | ', $GLOBALS['wpdb']->sent );
@@ -1046,8 +1055,20 @@ ok( 'applied rows are never named',      false !== strpos( $dze_sql, 'applied' )
 // A PRESS THAT STOPS A RUN LETS THE WRITER GO TOO: a lock left standing would
 // bar the next press for the whole of its own five minutes.
 ok( 'the writer is let go with them',    DZE_Queue::held_for(), 0 );
+// AND IT SAYS WHICH PAGES IT DROPPED. A page queued by the automatic pass is
+// stamped as worked on so the daily pass does not do it twice; dropped, that
+// stamp is a page locked out of the pass meant to mend it, having had nothing
+// written to it. The register cannot let go of what it is never told about.
+$dze_freed = DZE_Queue::dropped_rows();
+ok( 'the rows it dropped are handed back', count( $dze_freed ), 3 );
+ok( 'each naming its kind',              (string) ( $dze_freed[0]['kind'] ?? '' ), 'cat_links' );
+ok( 'and the object it was about',       (int) ( $dze_freed[0]['object_id'] ?? 0 ) > 0, true );
+// THEY ARE READ BEFORE THE DELETE, or there is nothing left to read.
+ok( 'read before they are deleted',
+	strpos( $dze_sql, 'SELECT' ) < strpos( $dze_sql, 'DELETE' ), true );
 // AND IT IS ASKED FOR NOTHING WHEN THERE IS NOTHING TO ASK.
 ok( 'no kinds, no statement',            DZE_Queue::drop_waiting( [] ), 0 );
+ok( 'and nothing is handed back',        DZE_Queue::dropped_rows(), [] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

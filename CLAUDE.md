@@ -2286,6 +2286,31 @@ whose screen has not been thought through yet.
   persistent `page.on( 'dialog', d => d.accept() )` written as an anonymous
   arrow cannot be taken off, so the check that proves the confirm actually
   guards has no way to exist — name the handler.
+- **"NOTHING TO DO" IS THREE ANSWERS, AND ONLY ONE MEANS THE SITE IS
+  FINISHED.** "Nothing is short of anything right now > résultat de Run one
+  now. Alors que plein de pages sont encore sans liens. Je comprends pas."
+  It was a true sentence about the REGISTER and a false one about the shop. A
+  page already in the writing queue and a page worked on three days ago are
+  both still short of links; saying *every page has what its size calls for*
+  over a site full of unlinked pages is how a working screen reads as a broken
+  one. `mesh_shortlist()` COUNTS why it passed each candidate over — a tally
+  emptied at the top of every reading, never a cache — and `nothing_said()`
+  names the state with its figure: how many are waiting in the queue, how many
+  were worked on in the last few days, and the old sentence only when neither
+  is true. The queue is asked BEFORE the wait, because a page in the queue is
+  where the shop should be sent to look whatever the register says about it.
+- **A STAMP IS A LIE THE MOMENT THE ROW IT STANDS FOR IS DROPPED.** The
+  catch-up stamps every page it queues so the daily pass does not do it twice —
+  right while the row is there. `drop_waiting()` then deleted those rows and
+  left the stamps standing: two hundred pages marked as worked on, with nothing
+  written to any of them, locked out of the very pass meant to mend them. That
+  is the fault this plugin already refuses by name — "a page stamped by a queue
+  that refused is a page locked out having had nothing done to it" — arriving
+  through the button that calls a run off, one release after it was written
+  down. Two rules: the queue READS the rows before it deletes them
+  (`dropped_rows()`, and after the DELETE there is nothing left to read), and
+  the register lets go of exactly those (`free_pages()`), mapping a job kind
+  back to its task from `tasks()` rather than from a list kept in step by hand.
 - **A SCREEN THAT SHOWS SOME OF THE QUEUE COUNTS THE SAME SOME OF IT.** The
   Automation page printed "Done — 3 pages are written and waiting for your yes
   or no, below" directly above a list reading "Nothing is waiting for your yes

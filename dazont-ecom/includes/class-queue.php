@@ -512,12 +512,23 @@ final class DZE_Queue {
 	 */
 	public static function drop_waiting( array $kinds ): int {
 		global $wpdb;
+		self::$dropped = [];
 		$kinds = self::clean_kinds( $kinds );
 		if ( ! $kinds ) {
 			return 0;
 		}
 		$table = self::table();
 		$in    = "'" . implode( "','", $kinds ) . "'";
+		// WHICH PAGES, READ BEFORE THEY GO. A page queued by the automatic pass
+		// is stamped as worked on so the daily pass does not do it twice —
+		// true while the row is there, a lie the moment it is dropped. The
+		// register that holds that stamp cannot let go of what it is never
+		// told about, and after the DELETE there is nothing left to tell it.
+		self::$dropped = (array) $wpdb->get_results(
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
+			"SELECT kind, object_id FROM {$table} WHERE status IN ('queued','failed') AND kind IN ({$in})",
+			ARRAY_A
+		);
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- own table, kinds sanitised above.
 		$n = (int) $wpdb->query( "DELETE FROM {$table} WHERE status IN ('queued','failed') AND kind IN ({$in})" );
 		// The writer goes with them, or the next press is barred for the whole
@@ -525,6 +536,18 @@ final class DZE_Queue {
 		self::unlock();
 		self::forget_count();
 		return $n;
+	}
+
+	/**
+	 * The rows the last `drop_waiting()` removed — kind and object, no more.
+	 *
+	 * @var array<int,array{kind:string,object_id:int}>
+	 */
+	private static array $dropped = [];
+
+	/** @return array<int,array{kind:string,object_id:int}> */
+	public static function dropped_rows(): array {
+		return self::$dropped;
 	}
 
 	/** Why the last few runs of these kinds could not be written. */
