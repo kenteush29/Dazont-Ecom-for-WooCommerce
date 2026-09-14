@@ -504,6 +504,12 @@
 							'<span id="dze-cx-progtime" class="description"></span></p>' +
 					'</div>' +
 				'</div>' +
+				// WHAT WAS ASKED FOR THIS PRODUCT, folded away. The bulk panel
+				// has carried it since the day it was written and the toolbox
+				// never did — and the toolbox is where somebody stands when a
+				// photograph comes back strange. Same markup, same renderer,
+				// same answer from the server.
+				'<div id="dze-cx-logwrap"></div>' +
 				'<div id="dze-cx-result" class="dze-cx-result" style="display:none;">' +
 					'<div class="dze-cb-prev" id="dze-cx-drawers"></div>' +
 					'<div class="dze-cb-shots-slot" id="dze-cx-shots"></div>' +
@@ -886,10 +892,23 @@
 	// meaning nothing.
 	$(document).on('change', '#dze-cx-subject', drawSubjects);
 
+	// The product's own trace of calls to the models, drawn from the same
+	// answer and by the same renderer the bulk panel uses.
+	function drawLog() {
+		var $slot = $('#dze-cx-logwrap');
+		if (!$slot.length) { return; }
+		var body = String((res.current && res.current.log) || '');
+		if (!body) { $slot.empty(); return; }
+		$slot.html('<details class="dze-cx-acc dze-cb-logbox"><summary>' +
+			esc(i18n.askedFor) + '</summary><div class="dze-cb-logbody"></div></details>');
+		$slot.find('.dze-cb-logbody').html(body);
+	}
+
 	function drawCurrentImages() {
 		// One renderer for both screens: admin/js/photos.js. The product screen
 		// adds the AI button, because it has a popup to open.
 		drawSubjects();
+		drawLog();
 		if (!window.dzePhotos) { return; }
 		window.dzePhotos.render($('#dze-cx-nowshots'), (res.current && res.current.images) || [], {
 			post: PID,
@@ -1522,6 +1541,12 @@
 					// the decision is taken: a product the model keeps getting
 					// wrong is a product to stop paying for.
 					'<span class="dze-spend" title="' + esc(i18n.spendTip) + '"></span>' +
+					// AND WHAT THIS PRESS IS ABOUT TO SPEND. The lifetime figure
+					// beside it answers a different question and was the only
+					// one here, so this was the one image screen that let you
+					// ask for four photographs without ever saying what four
+					// would cost.
+					'<span class="description" id="dze-one-willspend" style="display:none;"></span>' +
 				'</p>' +
 			'</div>' +
 		'</div></div>');
@@ -1621,6 +1646,7 @@
 		if ('image' !== mode) { oneFillSettings(fid); }
 		// Asking for several at once is only offered where several make sense.
 		$('#dze-one-nwrap').toggle('image' === mode);
+		oneWillSpend();
 		$('#dze-one').addClass('is-open');
 		if (mode === 'image') {
 			one.srcId = 0; oneShowPasted('');
@@ -1965,6 +1991,24 @@
 		$('.dze-one-srcnew .dze-one-newmsg').toggle(!list.length);
 		oneSubject();
 	}
+	// WHAT THIS PRESS WILL SPEND, in the same words the toolbox and the bulk
+	// screen use, from the same price. A text press spends no picture and says
+	// nothing rather than "0 photographs", which reads as a broken figure.
+	function oneWillSpend() {
+		var $out = $('#dze-one-willspend');
+		if (!$out.length) { return; }
+		var n = ('image' === one.mode) ? Math.max(1, parseInt($('#dze-one-n').val(), 10) || 1) : 0;
+		if (!n) { $out.text('').hide(); return; }
+		var price = parseFloat(cfg.imageCost || 0) || 0;
+		var said = price
+			? sprintf(i18n.willCost, n, '$' + (n * price).toFixed(2))
+			: sprintf(i18n.willMake, n);
+		var cap = parseInt(cfg.falPostCap, 10) || 0;
+		if (cap > 0 && n > cap) { said += ' \u00b7 ' + sprintf(i18n.overCap, cap, n - cap); }
+		$out.show().text(said);
+	}
+	$(document).on('change', '#dze-one-n', oneWillSpend);
+
 	// One line saying what image 1 will be — the same rule the server applies,
 	// written where the decision is made.
 	function oneSubject() {
@@ -2667,7 +2711,12 @@
 						// where a bad attempt could only be unticked and left to
 						// clutter the strip.
 						$('<span class="dze-one-tryredo" role="button" tabindex="-1"></span>')
-							.attr('title', i18n.shotRedo).text('↻')
+							.attr('title', i18n.shotRedo).text('↻'),
+						// AND THE SAME CROSS. This was the third screen where a
+						// bad attempt could only be unticked and left sitting in
+						// the product's waiting list.
+						$('<span class="dze-cb-shotdrop" role="button" tabindex="-1"></span>')
+							.attr('title', i18n.shotDrop || '').html('&times;')
 					)
 			);
 		});
@@ -2716,6 +2765,15 @@
 	// This attempt again: the new one takes its place in the strip instead of
 	// piling up next to it, and the one it replaces leaves the waiting list —
 	// an attempt nobody will ever look at again is not a decision to take.
+	// One attempt thrown away: off the strip and out of the waiting list.
+	$(document).on('click', '.dze-one-try .dze-cb-shotdrop', function (e) {
+		e.stopPropagation();
+		var url = $(this).closest('.dze-one-try').data('url');
+		one.tries = (one.tries || []).filter(function (u) { return u !== url; });
+		delete one.keep[url];
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: PID, shots: [ url ] });
+		oneDrawTries();
+	});
 	$(document).on('click', '.dze-one-tryredo', function (e) {
 		e.stopPropagation();
 		var $card = $(this).closest('.dze-one-try').addClass('is-busy');

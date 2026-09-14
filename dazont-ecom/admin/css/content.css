@@ -360,14 +360,20 @@
 	background: #f0f6fc; border-radius: 999px; padding: 1px 8px;
 }
 .dze-cb-block.is-off .dze-cb-count { color: #646970; background: #f0f0f1; }
-/* Throwing one away: a cross on the image itself, not a hunt in a bar. */
+/* Throwing one away: a cross on the image itself, not a hunt in a bar.
+   IT IS ALWAYS THERE. Shown only on hover it was a control used once and never
+   found again — "quelque part on peut supprimer les images en attente avec une
+   croix, JE L'AI FAIS. Je ne sais plus où exactement." A control nobody can
+   find is a control that does not exist; the hover only deepens it. */
 .dze-cb-shot { position: relative; }
 .dze-cb-shotdrop {
 	position: absolute; top: 2px; right: 2px; z-index: 2; width: 20px; height: 20px;
-	border: none; border-radius: 50%; background: rgba(255,255,255,.9); color: #b32d2e;
-	cursor: pointer; line-height: 1; font-size: 14px; padding: 0; display: none;
+	border: none; border-radius: 50%; background: rgba(255,255,255,.75); color: #b32d2e;
+	cursor: pointer; line-height: 1; font-size: 14px; padding: 0; display: block;
+	opacity: .65; transition: opacity .12s;
 }
-.dze-cb-shot:hover .dze-cb-shotdrop { display: block; }
+.dze-cb-shot:hover .dze-cb-shotdrop,
+.dze-cb-shotdrop:focus { opacity: 1; background: rgba(255,255,255,.95); }
 
 /* ---- One block at a time, from the block itself ---- */
 /* The button sits inside the WordPress box it writes into: quiet, small, and

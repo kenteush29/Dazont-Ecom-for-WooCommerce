@@ -128,7 +128,16 @@ class WC_Product {
 }
 function wc_get_product( $id ) { return new WC_Product( $id ); }
 function wc_placeholder_img_src() { return 'http://shop.test/ph.png'; }
-function get_post_meta( $id, $key = '', $single = false ) { return $single ? '' : []; }
+// A REAL META STORE, because a stub that always answers the same cannot be red
+// on a store that is supposed to shrink. Empty by default, so every check
+// written against the old blind stub reads exactly what it read before.
+$GLOBALS['dze_meta'] = [];
+function get_post_meta( $id, $key = '', $single = false ) {
+	$v = $GLOBALS['dze_meta'][ (int) $id ][ (string) $key ] ?? null;
+	if ( null === $v ) { return $single ? '' : []; }
+	return $single ? $v : [ $v ];
+}
+function update_post_meta( $id, $key, $v ) { $GLOBALS['dze_meta'][ (int) $id ][ (string) $key ] = $v; return true; }
 $GLOBALS['mai'] = [];
 class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return $GLOBALS['mai']; } public static function api_key() { return 'k'; } }
 function get_current_user_id() { return 1; }
@@ -141,7 +150,11 @@ function delete_user_meta( $u, $k ) { $GLOBALS['dze_list'] = []; return true; }
 // Refusing throws away what was waiting on a product, and nothing else: the
 // line stays where it is. What the gate reads back is WHICH products were let
 // go of.
-function delete_post_meta( $id, $key = '', $v = '' ) { $GLOBALS['dze_dropped'][] = (int) $id; return true; }
+function delete_post_meta( $id, $key = '', $v = '' ) {
+	$GLOBALS['dze_dropped'][] = (int) $id;
+	unset( $GLOBALS['dze_meta'][ (int) $id ][ (string) $key ] );
+	return true;
+}
 function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
 function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 function get_posts( ...$a ) { return []; }
@@ -1017,6 +1030,56 @@ $dze_wall = DZE_Ai_Usage::fal_blocked( 0 );
 ok( 'the wall says what went out',   false !== strpos( $dze_wall, 'sent 4 requests' ), true );
 ok( 'and what came back',            false !== strpos( $dze_wall, 'Only 1 came back' ), true );
 ok( 'and how many failed',           false !== strpos( $dze_wall, '3 failed' ), true );
+
+echo "\nA SETTLED PHOTOGRAPH LEAVES THE WAITING LIST, AND \"NOT LIKE THIS\" FOLLOWS THE SLOT\n";
+// "It literally generated 5 images… and I don't actually have 13 images
+// anywhere", and "when it gives me bad option and I am trying to change it,
+// mostly it gives me same exact image."
+//
+// Nothing ever told the waiting list that a photograph had been accepted, so
+// it stayed there for ever: the product went on counting as waiting for a yes
+// or no, and the "not like this" lane went on handing that same picture back.
+$GLOBALS['dze_meta'][7]['_dze_pending_review'] = [
+	'shots'   => [ 'https://fal.media/a.jpg', 'https://fal.media/b.jpg' ],
+	'targets' => [ 'https://fal.media/a.jpg' => 'gallery', 'https://fal.media/b.jpg' => 'main' ],
+	'recipes' => [ 'https://fal.media/a.jpg' => 'tpl_one', 'https://fal.media/b.jpg' => 'tpl_two' ],
+];
+ok( 'two photographs are waiting',
+	count( (array) ( DZE_Content::pending( 7 )['shots'] ?? [] ) ), 2 );
+ok( 'settling one takes one out',
+	DZE_Content::settle_shots( 7, [ 'https://fal.media/a.jpg' ] ), 1 );
+$dze_left = DZE_Content::pending( 7 );
+ok( 'and the other is still there',   (array) $dze_left['shots'], [ 'https://fal.media/b.jpg' ] );
+// WHAT IT WAS MADE FOR GOES WITH IT, or the row keeps answering for a
+// photograph that is no longer in it.
+ok( 'what it was made for goes too',
+	isset( $dze_left['targets']['https://fal.media/a.jpg'] ), false );
+ok( 'and which prompt made it',
+	isset( $dze_left['recipes']['https://fal.media/a.jpg'] ), false );
+// SETTLING THE LAST ONE EMPTIES THE ROW: a product holding nothing is not a
+// product waiting for a decision.
+DZE_Content::settle_shots( 7, [ 'https://fal.media/b.jpg' ] );
+ok( 'the last one empties the row',   DZE_Content::pending( 7 ), [] );
+ok( 'settling nothing does nothing',  DZE_Content::settle_shots( 7, [] ), 0 );
+
+// "NOT LIKE THIS" FOLLOWS THE SLOT, NOT THE PROMPT. Asked by prompt alone it
+// answered nothing the moment somebody changed prompt between two attempts,
+// which is exactly the gesture that came back with the same picture.
+$GLOBALS['dze_meta'][7]['_dze_pending_review'] = [
+	'shots'   => [ 'https://fal.media/g1.jpg' ],
+	'targets' => [ 'https://fal.media/g1.jpg' => 'gallery' ],
+	'recipes' => [ 'https://fal.media/g1.jpg' => 'tpl_one' ],
+];
+ok( 'the same prompt still finds its own',
+	DZE_Content::made_already( 7, 'tpl_one' )['urls'], [ 'https://fal.media/g1.jpg' ] );
+ok( 'a DIFFERENT prompt used to find nothing',
+	DZE_Content::made_already( 7, 'tpl_two' )['urls'], [] );
+ok( 'but asked by the slot it finds it',
+	DZE_Content::made_already( 7, 'tpl_two', 'gallery' )['urls'], [ 'https://fal.media/g1.jpg' ] );
+// AND A DIFFERENT SLOT IS A DIFFERENT JOB: the main image is not a gallery
+// photograph, and there is one right main image rather than four.
+ok( 'another slot is not the same job',
+	DZE_Content::made_already( 7, 'tpl_two', 'main' )['urls'], [] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

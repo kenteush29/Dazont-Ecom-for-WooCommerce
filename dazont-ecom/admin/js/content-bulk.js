@@ -1197,17 +1197,45 @@
 						$('<button type="button" class="dze-cb-shotredo">↻</button>')
 							.attr('title', name ? sprintf(i18n.shotRedoOne, name) : i18n.shotRedo)
 					),
-					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur)
+					$('<input type="hidden" class="dze-cb-shotdest" />').val(cur),
+					// THE SAME CROSS THE TOOLBOX HAS. This screen could only
+					// untick a photograph — which decides nothing: the image
+					// stayed in the product's waiting list, kept it counted as
+					// waiting for a yes or no, and went on being handed to the
+					// model as "not this one" on every later run.
+					$('<button type="button" class="dze-cb-shotdrop">&times;</button>')
+						.attr('title', i18n.shotDrop || '')
 				)
 		);
 	}
+	// One image thrown away: off the screen and out of the product's waiting
+	// list, through the same endpoint the toolbox uses.
+	$(document).on('click', '.dze-cb-shotdrop', function (e) {
+		e.stopPropagation();
+		var $wrap = $(this).closest('.dze-cb-shotwrap');
+		var url   = $wrap.data('url');
+		var id    = parseInt($(this).closest('[data-id]').data('id'), 10) || 0;
+		var b     = bucket(id);
+		b.shots = (b.shots || []).filter(function (u) { return u !== url; });
+		if (b.shotTpl) { delete b.shotTpl[url]; }
+		$.post(cfg.ajaxUrl, { action: 'dze_content_pending_clear', nonce: cfg.nonce, post: id, shots: [ url ] });
+		renderShots(id);
+		drawPicked();
+	});
+
 	function renderShots(id) {
 		window.setTimeout(function () { panelApplyLabel(id); }, 0);
 		var b = bucket(id), $slot = previewCell(id).find('.dze-cb-shots-slot');
 		// The same image can reach the strip twice — restored from an earlier
 		// run and generated again in this one. It is one image either way.
 		b.shots = b.shots.filter(function (u, i) { return b.shots.indexOf(u) === i; });
-		if (!$slot.length || !b.shots.length) { return; }
+		if (!$slot.length) { return; }
+		// NOTHING LEFT IS A STATE TO DRAW, NOT A REASON TO RETURN. Returning
+		// here left the strip exactly as it was, so throwing the last
+		// photograph away took it out of the product's waiting list and left
+		// it sitting on the screen — a press that did the work and looked
+		// like it had done nothing.
+		if (!b.shots.length) { $slot.empty(); return; }
 		// Adding one more attempt redraws the strip: what was already ticked or
 		// unticked, and where each was headed, survives the redraw.
 		var $old = $slot.find('.dze-cb-shots');
