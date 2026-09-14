@@ -123,8 +123,11 @@ for ( $p = 7; $p < 20; $p++ ) {
 	}
 }
 ok( 'a loop over products stops at the hour ceiling', $made, 25 );
+// AND IT SAYS WHICH CEILING STOPPED IT, in the figure it actually counted. It
+// used to read "made 25 images in the past hour", which is what the ceiling
+// counts only on a shop where every request came back.
 ok( 'and it says which ceiling stopped it',
-	false !== strpos( DZE_Ai_Usage::fal_blocked( 99 ), 'made 25 images in the past hour' ), true );
+	false !== strpos( DZE_Ai_Usage::fal_blocked( 99 ), 'sent 25 requests to fal.ai' ), true );
 
 echo "\nCounted on the ATTEMPT, not on what came back\n";
 // A run failing in a loop reaches fal exactly as often as one succeeding. If
@@ -197,6 +200,51 @@ foreach ( [ 'willCost', 'willMake', 'overCap' ] as $key ) {
 ok( 'the bulk screen warns when the order is over the ceiling',
 	false !== strpos( $js, 'i18n.overCap' ), true );
 ok( 'and so does the toolbox',  false !== strpos( $tool, 'i18n.overCap' ), true );
+
+echo "\nA CALL THAT FAILED IS STILL A CALL\n";
+// "Dans logs, je vois la quantite d'appels nanobanana fal qui est a 48. Hors,
+// le module generation d'image est bloque pour limite atteinte de 100 appels
+// par heure. WTF"
+//
+// Both figures were right and neither could be checked against the other. The
+// ceiling counts the ATTEMPT — deliberately, it is what stops a run going
+// round in circles — and `record()` was called only where an image came back,
+// so fifty-two calls that failed were counted by the guard and by nothing the
+// owner can read. The screen then told him the shop had MADE a hundred images.
+$GLOBALS['opts'] = [];
+$GLOBALS['mai']  = [ 'fal_cap_post' => 0, 'fal_cap_hour' => 0 ];
+DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.04 );
+DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.04, true );
+DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0,  true );
+$row = DZE_Ai_Usage::model_report()[0] ?? [];
+ok( 'every call is counted, whatever came back', $row['calls'] ?? 0, 3 );
+ok( 'and the ones that failed are counted too',  $row['ko'] ?? -1, 2 );
+// A REQUEST THE PROVIDER ANSWERED IS PAID FOR EVEN WHEN THE ANSWER IS
+// UNUSABLE. fal returns 200 with no image and bills for it; that cost was
+// dropped on the floor, so the spend under-reported every failed picture.
+ok( 'and a failure the provider billed is in the spend',
+	round( (float) ( $row['cost'] ?? 0 ), 4 ), 0.08 );
+
+echo "\nThe ceiling says what actually happened\n";
+// "The shop has made 100 images in the past hour" over a log holding 48 is a
+// sentence the shop can check and find wrong. What it may say is what it
+// counted: how many went out, and how many came back.
+reset_counters();
+$GLOBALS['mai'] = [ 'fal_cap_post' => 0, 'fal_cap_hour' => 4 ];
+for ( $i = 0; $i < 4; $i++ ) { DZE_Ai_Usage::fal_attempt( 7 ); }
+DZE_Ai_Usage::fal_made( 7 );
+ok( 'what came back is counted on its own',  DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
+ok( 'and what went out is still the ceiling', DZE_Ai_Usage::fal_used( 7 )['hour'], 4 );
+$said = DZE_Ai_Usage::fal_blocked( 7 );
+ok( 'the wall says how many requests went out', false !== strpos( $said, '4 requests' ), true );
+ok( 'and how many came back as a photograph',   false !== strpos( $said, '1 came back' ), true );
+ok( 'it never claims images it did not make',   false !== strpos( $said, 'made 4 images' ), false );
+// A SHOP WHERE NOTHING FAILED IS NOT TOLD ABOUT FAILURES. The second half of
+// the sentence is news, and news every hour is noise.
+reset_counters();
+for ( $i = 0; $i < 4; $i++ ) { DZE_Ai_Usage::fal_attempt( 8 ); DZE_Ai_Usage::fal_made( 8 ); }
+ok( 'all four came back, so nothing is said about failures',
+	false !== strpos( DZE_Ai_Usage::fal_blocked( 8 ), 'came back' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

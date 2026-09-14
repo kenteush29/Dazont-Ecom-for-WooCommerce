@@ -301,7 +301,7 @@ final class DZE_Ai_Usage {
 		];
 	}
 
-	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0 ): void {
+	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0, bool $ko = false ): void {
 		$data = get_option( self::OPT, [] );
 		$data = is_array( $data ) ? $data : [];
 		$m    = gmdate( 'Y-m' );
@@ -310,6 +310,9 @@ final class DZE_Ai_Usage {
 		}
 		[ $p_in, $p_out ]              = self::price( $model ?: $provider );
 		$data[ $m ][ $provider ]['calls']++;
+		if ( $ko ) {
+			$data[ $m ][ $provider ]['ko'] = (int) ( $data[ $m ][ $provider ]['ko'] ?? 0 ) + 1;
+		}
 		$data[ $m ][ $provider ]['in']   += max( 0, $tokens_in );
 		$data[ $m ][ $provider ]['out']  += max( 0, $tokens_out );
 		$cost                             = ( $tokens_in * $p_in + $tokens_out * $p_out ) / 1000000 + max( 0.0, $flat_cost );
@@ -321,6 +324,7 @@ final class DZE_Ai_Usage {
 		$name = $model ?: $provider;
 		$d    = (array) ( $data[ $m ]['_days'][ $day ][ $name ] ?? [ 'calls' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0 ] );
 		$d['calls']++;
+		if ( $ko ) { $d['ko'] = (int) ( $d['ko'] ?? 0 ) + 1; }
 		$d['in']   += max( 0, $tokens_in );
 		$d['out']  += max( 0, $tokens_out );
 		$d['cost']  = round( (float) $d['cost'] + $cost, 4 );
@@ -469,11 +473,24 @@ final class DZE_Ai_Usage {
 		return gmdate( 'YmdH' );
 	}
 
-	/** How many images this hour — for one product, and for the whole shop. */
+	/**
+	 * How many images this hour — for one product, for the whole shop, and how
+	 * many of the shop's actually CAME BACK.
+	 *
+	 * The ceiling counts what went out and must go on doing so. But a shop
+	 * reading "the shop has made 100 images in the past hour" beside a log
+	 * holding 48 is a shop told something it can check and find wrong: "dans
+	 * logs, je vois la quantité d'appels nanobanana fal qui est à 48. Hors, le
+	 * module génération d'image est bloqué pour limite atteinte de 100 appels
+	 * par heure. WTF". Both figures were right. Nothing said the difference was
+	 * fifty-two failures, so the only reading left was that the plugin is
+	 * broken.
+	 */
 	public static function fal_used( int $pid = 0 ): array {
 		$slot = self::fal_slot();
 		return [
 			'hour' => (int) get_transient( 'dze_fal_h_' . $slot ),
+			'made' => (int) get_transient( 'dze_fal_ok_' . $slot ),
 			'post' => $pid > 0 ? (int) get_transient( 'dze_fal_p_' . $pid . '_' . $slot ) : 0,
 		];
 	}
@@ -496,11 +513,24 @@ final class DZE_Ai_Usage {
 		}
 		$hour = self::fal_hour_cap();
 		if ( $hour > 0 && $used['hour'] >= $hour ) {
-			return sprintf(
+			$said = sprintf(
 				/* translators: %s: the shop-wide hourly ceiling */
-				__( 'The shop has made %s images in the past hour, which is the ceiling. Wait for the hour to turn, or raise it under Settings → General.', 'dazont-ecom' ),
-				number_format_i18n( $hour )
+				__( 'The shop has sent %s requests to fal.ai in the past hour, which is the ceiling. Wait for the hour to turn, or raise it under Settings → General.', 'dazont-ecom' ),
+				number_format_i18n( $used['hour'] )
 			);
+			// WHAT CAME BACK, only where it differs from what went out. On a
+			// shop where every request answered, this sentence is news nobody
+			// needs; on the shop that asked the question it IS the answer, and
+			// it says where to read the rest of it.
+			if ( $used['made'] < $used['hour'] ) {
+				$said .= ' ' . sprintf(
+					/* translators: 1: photographs that came back, 2: requests that failed */
+					__( 'Only %1$s came back as a photograph: %2$s failed. Those failures count towards the ceiling because they reach fal.ai just the same — the reason for each is under Dazont Ecom → Logs.', 'dazont-ecom' ),
+					number_format_i18n( $used['made'] ),
+					number_format_i18n( $used['hour'] - $used['made'] )
+				);
+			}
+			return $said;
 		}
 		return '';
 	}
@@ -521,6 +551,17 @@ final class DZE_Ai_Usage {
 		if ( $pid > 0 ) {
 			set_transient( 'dze_fal_p_' . $pid . '_' . $slot, $used['post'] + 1, 2 * HOUR_IN_SECONDS );
 		}
+	}
+
+	/**
+	 * One image came back. Counted beside the attempts, never instead of them:
+	 * the ceiling is about what reaches the provider, and this is only what
+	 * lets the screen say the difference out loud.
+	 */
+	public static function fal_made( int $pid = 0 ): void {
+		$slot = self::fal_slot();
+		$used = self::fal_used( $pid );
+		set_transient( 'dze_fal_ok_' . $slot, $used['made'] + 1, 2 * HOUR_IN_SECONDS );
 	}
 
 	/** Standard error message for a blocked call. */
@@ -692,8 +733,9 @@ final class DZE_Ai_Usage {
 				if ( '' === $name ) {
 					continue;
 				}
-				$row = $out[ $name ] ?? [ 'model' => $name, 'calls' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0 ];
+				$row = $out[ $name ] ?? [ 'model' => $name, 'calls' => 0, 'ko' => 0, 'in' => 0, 'out' => 0, 'cost' => 0.0 ];
 				$row['calls'] += (int) ( $r['calls'] ?? 0 );
+				$row['ko']    += (int) ( $r['ko'] ?? 0 );
 				$row['in']    += (int) ( $r['in'] ?? 0 );
 				$row['out']   += (int) ( $r['out'] ?? 0 );
 				$row['cost']  += (float) ( $r['cost'] ?? 0 );
@@ -737,6 +779,7 @@ final class DZE_Ai_Usage {
 			. '<th style="width:110px;text-align:right;">' . esc_html__( 'Total', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Share', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
+			. '<th style="width:90px;text-align:right;">' . esc_html__( 'Failed', 'dazont-ecom' ) . '</th>'
 			. '<th style="width:170px;text-align:right;">' . esc_html__( 'Tokens in / out', 'dazont-ecom' ) . '</th>'
 			. '</tr></thead><tbody>';
 		$named = 0.0;
@@ -747,16 +790,25 @@ final class DZE_Ai_Usage {
 			$tokens = ( $r['in'] || $r['out'] )
 				? number_format_i18n( $r['in'] ) . ' / ' . number_format_i18n( $r['out'] )
 				: '—';
+			// A CALL THAT FAILED IS STILL A CALL, and until this column existed
+			// there was nowhere at all to read one. A model that never fails
+			// shows a dash: a nought printed on every line of every month is a
+			// figure nobody reads by the end of the week, and it is exactly the
+			// column somebody scans when a run is being refused.
+			$ko = (int) ( $r['ko'] ?? 0 );
 			printf(
 				'<tr><td><code style="font-size:12px;">%1$s</code></td>'
 					. '<td style="text-align:right;"><strong>$%2$s</strong></td>'
 					. '<td style="text-align:right;">%3$s</td>'
 					. '<td style="text-align:right;color:#646970;">%4$s</td>'
-					. '<td style="text-align:right;color:#646970;">%5$s</td></tr>',
+					. '<td style="text-align:right;color:%6$s;">%5$s</td>'
+					. '<td style="text-align:right;color:#646970;">%7$s</td></tr>',
 				esc_html( $r['model'] ),
 				esc_html( number_format( (float) $r['cost'], 2 ) ),
 				esc_html( self::share_said( (float) $r['cost'], $all ) ),
 				esc_html( number_format_i18n( $r['calls'] ) ),
+				esc_html( $ko ? number_format_i18n( $ko ) : '—' ),
+				$ko ? '#b32d2e' : '#646970',
 				esc_html( $tokens )
 			);
 		}
@@ -767,7 +819,7 @@ final class DZE_Ai_Usage {
 		if ( $rest > 0.005 ) {
 			printf(
 				'<tr><td><em>%1$s</em></td><td style="text-align:right;">$%2$s</td>'
-					. '<td style="text-align:right;">%3$s</td><td></td><td></td></tr>',
+					. '<td style="text-align:right;">%3$s</td><td></td><td></td><td></td></tr>',
 				esc_html__( 'Recorded before this breakdown existed', 'dazont-ecom' ),
 				esc_html( number_format( $rest, 2 ) ),
 				esc_html( self::share_said( $rest, $all ) )
@@ -775,13 +827,13 @@ final class DZE_Ai_Usage {
 		}
 		printf(
 			'<tr><td><strong>%1$s</strong></td><td style="text-align:right;"><strong>$%2$s</strong></td>'
-				. '<td style="text-align:right;">100%%</td><td></td><td></td></tr>',
+				. '<td style="text-align:right;">100%%</td><td></td><td></td><td></td></tr>',
 			esc_html__( 'The month', 'dazont-ecom' ),
 			esc_html( number_format( $all, 2 ) )
 		);
 		echo '</tbody></table>';
 		echo '<p class="description" style="max-width:760px;">'
-			. esc_html__( 'The name is the one the provider bills under, so a line here can be matched against an invoice. An image model is charged per picture and carries no tokens. Which model a feature uses is set above, beside its key.', 'dazont-ecom' )
+			. esc_html__( 'The name is the one the provider bills under, so a line here can be matched against an invoice. An image model is charged per picture and carries no tokens. A failed call still reached the provider, so it counts towards the hourly ceiling — and where the provider answered and the answer held no picture, it was billed for too. Which model a feature uses is set above, beside its key.', 'dazont-ecom' )
 			. '</p>';
 	}
 
