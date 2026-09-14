@@ -1363,12 +1363,14 @@ trait DZE_Content_Ajax {
 			$prompt .= self::note_lines( $pid, '' !== $v_value ? $v_attr . '::' . $v_value : '', $note );
 			// A second shot from the same prompt is asked for a different
 			// framing, otherwise it comes back as the first one again.
-			$prompt   .= self::variation_line(
-				$pid,
-				(string) ( $tpl['id'] ?? '' ),
-				'' !== $v_value ? 'main' : $target,
-				isset( $in['attempt'] ) ? absint( $in['attempt'] ) : 0
-			);
+			// NOTHING APPENDED CHOOSES WHAT THE PHOTOGRAPH SHOWS. A hint that
+			// asked the second attempt for "a detail of the material, the
+			// stitching or the fastening" is the plugin choosing the subject of
+			// the shot, on a product whose fastenings may never have been
+			// photographed — which is where invented hardware comes from. What
+			// two attempts of one prompt differ by is what the owner's prompt
+			// says; the photograph already made travels with the request and
+			// the legend asks for something clearly different from it.
 			DZE_Ai_Usage::unit( 'product_img' );
 			DZE_Ai_Usage::about( $pid );
 			// WHAT TRAVELLED, NAMED — read from the very counts the paragraph
