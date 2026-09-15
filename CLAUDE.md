@@ -690,6 +690,41 @@ whose screen has not been thought through yet.
   nothing, and "Nothing is waiting for you." in words when that is the state.
   `test-screens.php` DRAWS the page for it.
 
+- **A CUSTOM FIELD WPML SAYS "TRANSLATE" IS A FIELD OF THE OBJECT — where
+  it holds words.** "Il est annoncé toute sorte de meta field qui n'ont aucun
+  intérêt à traduire pour certaines pages, voire n'existent même pas." The
+  reading printed every key of WPML's custom-field map — which is ONE list
+  for every post type — for every kind of content, as a GAP this module did
+  not send: a page was told about a product's fields, both about keys nothing
+  on the site carries, and all of it as work left undone when the rule the
+  owner set is the opposite ("tout ce que WPML exige de traduire"). So
+  `extra_fields()` makes every mode-2 key that holds TEXT on the object a
+  field of it (`meta:<key>`) — read, sent, held, written, registered like
+  the fixed rows — and `kind_text_keys()` reads, per kind, which keys hold
+  text on that kind and on how many, in one query kept an hour; a key
+  nothing of that kind holds is not a line. Four rules from it: what makes a
+  key a field is the OBJECT'S VALUE, never the map alone — a number, a date,
+  a URL, a serialized array, a builder's JSON or an ACF `field_…` reference
+  is plumbing WPML happens to have been told to translate (`is_text()`), and
+  the gate holds each of those; a key WPML has since switched to COPY is not
+  written, or the next sync erases the words; every field is NAMED for the
+  model (`labels_for()` travels to `translate()`), because `meta:_x` alone
+  tells it nothing; and the excerpt is called what the kind calls it —
+  "Short description" on a product, "Excerpt" on a page.
+- **A TRANSLATION TYPED BY HAND IS RECORDED TOO.** The register was written
+  against what was SENT, and a field typed on the editor was sent nowhere —
+  so it stayed "words have moved" for ever and the next batch paid to
+  translate it again. The person typing it read the original on the screen in
+  front of them: that is the source it was made from, and `accept()` records
+  it so. **And the screen follows the save**: the chip read "not translated"
+  until a reload, Cancel said "Thrown away" over fields still holding the
+  thrown-away text, the editor never said WHICH fields had moved (the whole
+  reason "Translate automatically" leaves one alone), a translation made
+  elsewhere was replaced without the sentence that had been registered for
+  months and printed nowhere, and a batch whose every row FAILED ended with
+  "nothing was spent, they are up to date". Fourteen registered words the
+  script never used went with it.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They

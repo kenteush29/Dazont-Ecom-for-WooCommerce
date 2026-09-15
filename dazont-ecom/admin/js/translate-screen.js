@@ -104,7 +104,7 @@
 		if (!langs.length) { window.alert(i18n.langFirst); return; }
 		if (!refs.length) { window.alert(i18n.tickFirst); return; }
 
-		var total = refs.length, done = 0, waiting = 0, spent = 0, stop = false;
+		var total = refs.length, done = 0, waiting = 0, spent = 0, failed = 0, stop = false;
 		$btn.prop('disabled', true);
 		// A RUN ON FORTY ROWS MUST BE STOPPABLE, like every other long press in
 		// this plugin: it walks one object at a time, so stopping costs nothing
@@ -133,14 +133,18 @@
 				$('#dze-tr-stop').hide();
 				$('#dze-tr-progstep').text(stop ? i18n.stopped : '');
 				// A RUN THAT SPENT NOTHING SAYS SO. "Nothing had moved" and
-				// "it failed" must never read the same — and a run that DID
-				// produce something offers the way to it rather than naming a
-				// tab and leaving the reader to find it.
+				// "it failed" must never read the same — with no key or WPML
+				// silent every row failed and the screen said "nothing was
+				// spent, they are up to date". A run that DID produce something
+				// offers the way to it rather than naming a tab.
 				if (spent) {
 					$('#dze-tr-sendstate').html(
 						esc(sprintf(i18n.sent, waiting)) +
-						(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '')
+						(cfg.reviewUrl ? ' <a href="' + esc(cfg.reviewUrl) + '">' + esc(i18n.goReview) + ' &rarr;</a>' : '') +
+						(failed ? ' ' + esc(sprintf(i18n.someFailed, failed)) : '')
 					);
+				} else if (failed) {
+					$('#dze-tr-sendstate').text(sprintf(i18n.allFailed, failed));
 				} else {
 					$('#dze-tr-sendstate').text(i18n.nothingNew);
 				}
@@ -162,11 +166,13 @@
 					}
 					$('#dze-tr-progstep').text(r.data.label || '');
 				} else {
+					failed++;
 					mark(ref, 'missing', said(r));
 					$('#dze-tr-progstep').text(said(r));
 				}
 			}).fail(function () {
 				done++;
+				failed++;
 				mark(ref, 'missing', i18n.error);
 				$('#dze-tr-progstep').text(i18n.error);
 			}).always(function () {
@@ -213,7 +219,7 @@
 				// NOTHING MOVED IS AN ANSWER, and it is not a failure: WPML asks
 				// again whenever a category is renamed, and this is the module
 				// saying it cost nothing.
-				$st.text(n ? sprintf(i18n.filled, n) : i18n.nothingNew);
+				$st.text(n ? sprintf(i18n.filled, n) : i18n.nothingNewOne);
 			})
 			.fail(function () { $b.prop('disabled', false); $st.addClass('is-ko').text(i18n.error); });
 	});
@@ -253,6 +259,19 @@
 					$e.find('.dze-cb-panelbar').before(
 						'<div class="notice notice-warning inline dze-tr-warn"><p>' + esc(warn.join(' ')) + '</p></div>');
 				}
+				// THE CHIP FOLLOWS THE SAVE. It read "not translated" until the
+				// page was reloaded — a screen disagreeing with the work it had
+				// just done. Same class, same icon, same word as the lists.
+				var $chip = $('.dze-tr-editstate > .dze-tr-chip').first();
+				if ($chip.length) {
+					$chip.attr('class', 'dze-tr-chip is-done');
+					$chip.find('.dashicons').attr('class', 'dashicons ' + (cfg.doneIcon || 'dashicons-edit'));
+					var last = $chip.contents().last()[0];
+					if (last && 3 === last.nodeType) { last.nodeValue = ' ' + (i18n.stateDone || ''); }
+				}
+				$e.find('.dze-tr-moved').remove();
+				// What is on screen is now what the translation holds.
+				$e.find('.dze-tr-new').each(function () { $(this).attr('data-was', $(this).val()); });
 				// THE STATE LINE IS THE LAST THING TO CHANGE, so it is a
 				// truthful signal that the press is finished: set first, a gate
 				// waiting on it reads a screen still working — and passes by
@@ -271,7 +290,14 @@
 		post('dze_tr_decide', { ref: ref, how: 'refuse' })
 			.done(function (r) {
 				if (!r || !r.success) { window.alert(said(r)); return; }
-				if ($e.length) { $st.text(i18n.dropped); return; }
+				if ($e.length) {
+					// "Thrown away" over fields still holding the thrown-away
+					// text is a screen that lies: what the translation holds
+					// today comes back into every field.
+					$e.find('.dze-tr-new').each(function () { $(this).val(String($(this).attr('data-was') || '')); });
+					$st.text(i18n.dropped);
+					return;
+				}
 				$('tr[data-ref="' + ref + '"]').remove();
 			});
 	});

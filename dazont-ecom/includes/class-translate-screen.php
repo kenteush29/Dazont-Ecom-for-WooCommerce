@@ -217,7 +217,7 @@ trait DZE_Translate_Screen {
 		?>
 		<p class="description" style="max-width:900px;margin:16px 0;">
 			<?php esc_html_e( 'What this site holds in each language, read from WPML. Only the post types and the taxonomies WPML is set to translate appear here — a translation WPML would not link is one nobody would ever see.', 'dazont-ecom' ); ?>
-			<a href="<?php echo esc_url( add_query_arg( [ 'page' => class_exists( 'DZE_Marketing_Ai' ) ? DZE_Marketing_Ai::MENU_SLUG : 'dazont-ecom-ai', 'tab' => 'translate' ], admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'The prompt, the glossary and the fields are under Settings → Translation.', 'dazont-ecom' ); ?></a>
+			<a href="<?php echo esc_url( DZE_Screens::url( 'settings', 'translate' ) ); ?>"><?php esc_html_e( 'The prompt, the glossary and the model are under Settings → Translation.', 'dazont-ecom' ); ?></a>
 		</p>
 		<?php if ( ! $scope ) : ?>
 			<div class="notice notice-warning inline"><p>
@@ -406,6 +406,14 @@ trait DZE_Translate_Screen {
 		$current = $target ? self::obj_read( array_merge( $o, [ 'id' => $target ] ) ) : [];
 		$made    = (array) ( self::waiting( $o )['langs'][ $lang ] ?? [] );
 		$labels  = self::labels_for( $o );
+		// WHICH FIELDS MOVED — the module's whole value, and "Translate
+		// automatically" sends only those. Unsaid, a field it did not refill
+		// read as a field it forgot.
+		$moved   = ( $target && 'missing' !== $state ) ? self::obj_stale( $o, $lang ) : [];
+		// WHOSE TRANSLATION THIS IS. One made elsewhere — a spreadsheet, a
+		// hand — is replaced by a save, and the sentence saying so had been
+		// registered for months and printed nowhere.
+		$mine    = ! $target || '1' === self::meta_read( $o, $target, self::META_MINE );
 		?>
 		<p style="margin:14px 0 6px;">
 			<a href="<?php echo esc_url( self::url( [ 'tab' => 'batch' ] ) ); ?>">&larr; <?php esc_html_e( 'Back to the list', 'dazont-ecom' ); ?></a>
@@ -445,6 +453,9 @@ trait DZE_Translate_Screen {
 			<?php endif; ?>
 		</p>
 
+		<?php if ( $target && ! $mine && $current ) : ?>
+			<p class="description dze-tr-notmine" style="color:#8a6d00;"><?php esc_html_e( 'This translation was not written here. Saving replaces its text — read the right-hand column first.', 'dazont-ecom' ); ?></p>
+		<?php endif; ?>
 		<div class="dze-tr-editor" data-ref="<?php echo esc_attr( self::ref( $o ) ); ?>" data-lang="<?php echo esc_attr( $lang ); ?>">
 			<!-- 2. TRANSLATE IT, or write it by hand. One button, and it says
 			     what it will do rather than what it costs us to do it. -->
@@ -478,10 +489,13 @@ trait DZE_Translate_Screen {
 						<td><strong><?php echo esc_html( $dze_label ); ?></strong>
 							<?php if ( isset( $made[ $dze_fid ] ) ) : ?>
 								<br /><span class="description" style="color:#135e96;"><?php esc_html_e( 'just translated', 'dazont-ecom' ); ?></span>
+							<?php elseif ( isset( $moved[ $dze_fid ] ) ) : ?>
+								<br /><span class="description dze-tr-moved" style="color:#8a6d00;"><?php esc_html_e( 'words have moved since the last translation', 'dazont-ecom' ); ?></span>
 							<?php endif; ?>
 						</td>
 						<td><div class="dze-cb-nowbody"><?php echo wp_kses_post( $dze_src ); ?></div></td>
-						<td><textarea class="dze-tr-new" rows="<?php echo esc_attr( strlen( $dze_src ) > 200 ? '8' : '3' ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea></td>
+						<!-- data-was is what the translation holds today: Cancel puts it back. -->
+						<td><textarea class="dze-tr-new" data-was="<?php echo esc_attr( (string) ( $current[ $dze_fid ] ?? '' ) ); ?>" rows="<?php echo esc_attr( strlen( $dze_src ) > 200 ? '8' : '3' ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea></td>
 					</tr>
 				<?php endforeach; ?>
 				<?php if ( ! $dze_any ) : ?>

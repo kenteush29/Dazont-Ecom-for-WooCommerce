@@ -308,6 +308,8 @@ if ( in_array( '--dump-log', (array) $argv, true ) ) {
 	exit( 0 );
 }
 if ( in_array( '--dump-settings', (array) $argv, true ) ) {
+	// The settings intro names the bulk screen from the catalogue.
+	if ( ! class_exists( 'DZE_Screens' ) ) { require __DIR__ . '/../' . $dir . '/includes/class-screens.php'; }
 	if ( ! function_exists( 'wp_get_attachment_image' ) ) { function wp_get_attachment_image( $id, $s = 'thumbnail', $icon = false, $attr = [] ) { return '<img class="' . esc_attr( $attr['class'] ?? '' ) . '" src="" alt="scene ' . (int) $id . '" width="64" height="64" />'; } }
 	if ( ! function_exists( 'wp_get_attachment_image_url' ) ) { function wp_get_attachment_image_url( $id, $s = 'thumbnail' ) { return 'http://dze.test/scene-' . (int) $id . '.jpg'; } }
 	if ( ! function_exists( 'wp_enqueue_media' ) ) { function wp_enqueue_media( ...$a ) {} }

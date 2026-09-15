@@ -177,7 +177,7 @@ final class DZE_Translate {
 	 *
 	 * Only written content: everything else belongs to WooCommerce Multilingual.
 	 */
-	public static function fields( string $kind = 'post' ): array {
+	public static function fields( string $kind = 'post', string $type = '' ): array {
 		if ( 'term' === $kind ) {
 			// A TERM IS ITS NAME AND ITS DESCRIPTION, and nothing else here.
 			// Its SEO fields belong to the SEO plugin's own storage — Yoast
@@ -192,7 +192,10 @@ final class DZE_Translate {
 		return [
 			'title'    => [ 'label' => __( 'Title', 'dazont-ecom' ),                    'type' => 'post', 'key' => 'post_title',   'html' => false ],
 			'content'  => [ 'label' => __( 'Description', 'dazont-ecom' ),              'type' => 'post', 'key' => 'post_content', 'html' => true ],
-			'excerpt'  => [ 'label' => __( 'Short description', 'dazont-ecom' ),        'type' => 'post', 'key' => 'post_excerpt', 'html' => true ],
+			// WooCommerce calls a product's excerpt its short description; on an
+			// article or a page WordPress calls it the excerpt. The label follows
+			// the kind, or a page appears to have a "short description".
+			'excerpt'  => [ 'label' => ( '' === $type || 'product' === $type ) ? __( 'Short description', 'dazont-ecom' ) : __( 'Excerpt', 'dazont-ecom' ), 'type' => 'post', 'key' => 'post_excerpt', 'html' => true ],
 			'seo_title'=> [ 'label' => __( 'SEO title', 'dazont-ecom' ),                'type' => 'meta', 'key' => '',             'html' => false ],
 			'seo_desc' => [ 'label' => __( 'SEO description', 'dazont-ecom' ),          'type' => 'meta', 'key' => '',             'html' => false ],
 			// A THIRD OF THE SHOP'S PRODUCT TEXT LIVED OUTSIDE THESE FIVE
@@ -230,6 +233,190 @@ final class DZE_Translate {
 	public static function active_fields( string $kind = 'post' ): array {
 		return self::fields( $kind );
 	}
+
+	// -------------------------------------------------------------------------
+	// WPML'S OWN "TRANSLATE" CUSTOM FIELDS — sent when they hold text
+	//
+	// "Il est annoncé toute sorte de meta field qui n'ont aucun intérêt à
+	// traduire pour certaines pages, voire n'existent même pas." The screen
+	// listed every custom field WPML is set to translate, for every kind of
+	// content, as a GAP this module did not send — so a page was told about a
+	// product's fields, and both were told about keys no object on the site
+	// carries. And the rule the owner set is the opposite of a gap: "le plugin
+	// doit traduire tout ce que WPML exige de traduire pour avoir une
+	// traduction complète du post."
+	//
+	// So a custom field WPML says "Translate" IS a field of the object — when
+	// the object actually holds TEXT in it. WPML's map is global (one list for
+	// every post type), so what makes a key a field is the object, never the
+	// map alone: a key holding a number, a serialized array, a builder's JSON
+	// or a field reference is plumbing WPML happens to have been told to
+	// translate, and translating it is how a page breaks.
+	// -------------------------------------------------------------------------
+
+	/**
+	 * The custom fields WPML is set to TRANSLATE that this module has no fixed
+	 * row for. The fixed rows keep their own labels and their own keys.
+	 *
+	 * @return string[]
+	 */
+	public static function wpml_text_keys(): array {
+		if ( ! class_exists( 'DZE_Wpml' ) ) {
+			return [];
+		}
+		$map  = (array) ( DZE_Wpml::settings()['translation-management']['custom_fields_translation'] ?? [] );
+		$mine = [];
+		foreach ( self::fields( 'post' ) as $fid => $f ) {
+			if ( 'meta' === ( $f['type'] ?? '' ) ) {
+				$k = self::meta_key_for( $fid );
+				if ( '' !== $k ) {
+					$mine[ $k ] = true;
+				}
+			}
+		}
+		$out = [];
+		foreach ( $map as $key => $mode ) {
+			$key = (string) $key;
+			if ( '' === $key || 2 !== (int) $mode || isset( $mine[ $key ] ) ) {
+				continue;
+			}
+			// A field of this plugin's own is never customer copy.
+			if ( 0 === strpos( $key, '_dze_' ) ) {
+				continue;
+			}
+			$out[] = $key;
+		}
+		return $out;
+	}
+
+	/**
+	 * IS THIS VALUE WORDS? A custom field is not always a line of text: it can
+	 * be a number, a date, a URL, a serialized array, a page builder's JSON or
+	 * an ACF field reference — none of which has a translation.
+	 */
+	public static function is_text( $v ): bool {
+		if ( ! is_string( $v ) ) {
+			return false;
+		}
+		$v = trim( $v );
+		if ( '' === $v ) {
+			return false;
+		}
+		if ( preg_match( '/^[aOsibdN]:\d*[:;{]/', $v ) ) {
+			return false; // serialized.
+		}
+		if ( '{' === $v[0] || '[' === $v[0] ) {
+			return false; // JSON — a builder's layout, never prose.
+		}
+		if ( preg_match( '/^field_[0-9a-f]+$/i', $v ) ) {
+			return false; // an ACF reference to the field's own definition.
+		}
+		if ( preg_match( '#^(https?:)?//\S+$#i', $v ) ) {
+			return false; // an address.
+		}
+		if ( preg_match( '/^[\d\s.,:\/-]+$/', $v ) ) {
+			return false; // a figure or a date.
+		}
+		// Words: three letters in a row somewhere in it.
+		return 1 === preg_match( '/\p{L}{3,}/u', $v );
+	}
+
+	/** What to call a custom field on screen: "_theme_subtitle" reads "Theme subtitle". */
+	public static function key_label( string $key ): string {
+		$w = trim( str_replace( [ '_', '-' ], ' ', ltrim( $key, '_' ) ) );
+		return '' !== $w ? ucfirst( $w ) : $key;
+	}
+
+	/** Does this text carry markup, so it is written as HTML rather than as a line? */
+	public static function looks_html( string $v ): bool {
+		return false !== strpos( $v, '<' ) || false !== strpos( $v, "\n" );
+	}
+
+	/**
+	 * THE WPML "TRANSLATE" FIELDS THIS OBJECT ACTUALLY HOLDS TEXT IN — as
+	 * fields of the object, keyed `meta:<key>`, so everything downstream (what
+	 * is read, what is stale, what is sent, what waits, what the register
+	 * claims, what is written) works unchanged.
+	 *
+	 * @return array<string,array{label:string,key:string,html:bool}>
+	 */
+	public static function extra_fields( array $o ): array {
+		$out = [];
+		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) ) {
+			return $out;
+		}
+		$keys = self::wpml_text_keys();
+		if ( ! $keys ) {
+			return $out;
+		}
+		// One read of every key on the object, never one per key.
+		$all = (array) get_post_meta( (int) $o['id'] );
+		foreach ( $keys as $key ) {
+			$raw = $all[ $key ] ?? null;
+			$v   = is_array( $raw ) ? reset( $raw ) : $raw;
+			if ( ! self::is_text( $v ) ) {
+				continue;
+			}
+			$out[ 'meta:' . $key ] = [
+				'label' => self::key_label( $key ),
+				'key'   => $key,
+				'html'  => self::looks_html( (string) $v ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * WHICH OF THOSE KEYS HOLD TEXT ON THIS KIND OF CONTENT, AND ON HOW MANY —
+	 * the reading the dashboard prints per kind, in one query, kept an hour.
+	 *
+	 * A key no object of this kind holds text in is not listed at all: "a
+	 * field that does not exist here" is not a line somebody has to read.
+	 *
+	 * @return array<string,int> key => how many objects of this type hold text in it
+	 */
+	public static function kind_text_keys( string $type ): array {
+		global $wpdb;
+		$keys = self::wpml_text_keys();
+		if ( ! $keys || ! $wpdb || '' === $type ) {
+			return [];
+		}
+		$ck  = self::KEYS_CACHE . md5( $type . '|' . implode( ',', $keys ) );
+		$got = get_transient( $ck );
+		if ( is_array( $got ) ) {
+			return $got;
+		}
+		$in = "'" . implode( "','", array_map( 'esc_sql', $keys ) ) . "'";
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- keys escaped above, the type prepared.
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT pm.meta_key, COUNT(*) AS n
+			   FROM {$wpdb->postmeta} pm
+			   INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+			  WHERE p.post_type = %s AND p.post_status IN ('publish','draft','pending','private')
+			    AND pm.meta_key IN ( {$in} )
+			    AND pm.meta_value <> ''
+			    AND pm.meta_value NOT LIKE 'a:%' AND pm.meta_value NOT LIKE 'O:%'
+			    AND pm.meta_value NOT LIKE '{%' AND pm.meta_value NOT LIKE '[%'
+			    AND pm.meta_value NOT LIKE 'field\\_%'
+			    AND pm.meta_value NOT REGEXP '^[0-9., :/-]+$'
+			  GROUP BY pm.meta_key",
+			$type
+		), ARRAY_A );
+		// phpcs:enable
+		$out = [];
+		foreach ( $rows as $r ) {
+			$k = (string) ( $r['meta_key'] ?? '' );
+			$n = (int) ( $r['n'] ?? 0 );
+			if ( '' !== $k && $n > 0 ) {
+				$out[ $k ] = $n;
+			}
+		}
+		set_transient( $ck, $out, HOUR_IN_SECONDS );
+		return $out;
+	}
+
+	/** The per-kind reading above is kept an hour under this prefix (declared in DZE_Cleanup). */
+	public const KEYS_CACHE = 'dze_tr_keys_';
 
 	// =========================================================================
 	// WHAT CAN BE TRANSLATED: an OBJECT, not a product
@@ -500,7 +687,10 @@ final class DZE_Translate {
 	 */
 	public static function labels_for( array $o ): array {
 		$out = [];
-		foreach ( self::active_fields( (string) ( $o['kind'] ?? 'post' ) ) as $fid => $f ) {
+		foreach ( self::fields( (string) ( $o['kind'] ?? 'post' ), (string) ( $o['type'] ?? '' ) ) as $fid => $f ) {
+			$out[ $fid ] = (string) $f['label'];
+		}
+		foreach ( self::extra_fields( $o ) as $fid => $f ) {
 			$out[ $fid ] = (string) $f['label'];
 		}
 		foreach ( self::variation_fields( $o ) as $fid => $f ) {
@@ -540,6 +730,13 @@ final class DZE_Translate {
 				$v   = '' !== $key ? (string) get_post_meta( (int) $o['id'], $key, true ) : '';
 			}
 			$v = trim( $v );
+			if ( '' !== $v ) {
+				$out[ $fid ] = $v;
+			}
+		}
+		// AND EVERY CUSTOM FIELD WPML SAYS TO TRANSLATE, where it holds text.
+		foreach ( self::extra_fields( $o ) as $fid => $f ) {
+			$v = trim( (string) get_post_meta( (int) $o['id'], (string) $f['key'], true ) );
 			if ( '' !== $v ) {
 				$out[ $fid ] = $v;
 			}
@@ -645,6 +842,21 @@ final class DZE_Translate {
 					? wp_kses_post( (string) $texts[ $fid ] )
 					: sanitize_text_field( (string) $texts[ $fid ] ) );
 			}
+		}
+		// THE CUSTOM FIELDS WPML SAYS TO TRANSLATE. Written only while WPML
+		// still says so: a key switched to "Copy" since the batch was made is
+		// a key the next sync would overwrite, and words written there are
+		// words lost.
+		foreach ( $texts as $fid => $text ) {
+			if ( 0 !== strpos( (string) $fid, 'meta:' ) ) {
+				continue;
+			}
+			$key = substr( (string) $fid, 5 );
+			if ( '' === $key || 2 !== DZE_Wpml::custom_field_mode( $key ) ) {
+				continue;
+			}
+			$text = (string) $text;
+			update_post_meta( $target_id, $key, self::looks_html( $text ) ? wp_kses_post( $text ) : sanitize_textarea_field( $text ) );
 		}
 		if ( $post ) {
 			$post['ID'] = $target_id;
@@ -783,7 +995,7 @@ final class DZE_Translate {
 	public static function field_report( string $kind, string $type ): array {
 		$out  = [];
 		$wpml = class_exists( 'DZE_Wpml' );
-		foreach ( self::fields( $kind ) as $fid => $f ) {
+		foreach ( self::fields( $kind, $type ) as $fid => $f ) {
 			$key  = ( 'meta' === ( $f['type'] ?? '' ) ) ? self::meta_key_for( $fid ) : (string) ( $f['key'] ?? '' );
 			$mode = ( 'meta' === ( $f['type'] ?? '' ) && '' !== $key && $wpml ) ? DZE_Wpml::custom_field_mode( $key ) : -1;
 			// THE SEO PAIR IS THE ONE FIELD WHOSE KEY DEPENDS ON A PLUGIN
@@ -813,28 +1025,25 @@ final class DZE_Translate {
 			}
 			$out[] = [ 'label' => $f['label'], 'key' => $key, 'tone' => 'ok', 'said' => __( 'translated', 'dazont-ecom' ) ];
 		}
-		// AND WHAT WPML WANTS TRANSLATED THAT THIS MODULE DOES NOT SEND.
+		// AND EVERY CUSTOM FIELD WPML WANTS TRANSLATED — as it stands ON THIS
+		// KIND. WPML's map is one list for every post type, so read whole it
+		// told a page about a product's fields and both about keys nothing on
+		// the site carries: "des meta fields qui n'ont aucun intérêt à
+		// traduire pour certaines pages, voire n'existent même pas". Only a
+		// key that holds text on objects of this kind is a line here, and it
+		// says on how many. They are SENT — the rule is a complete
+		// translation, not a list of what was left out.
 		if ( 'post' === $kind && $wpml ) {
-			$mine = [];
-			foreach ( self::fields( 'post' ) as $fid => $f ) {
-				if ( 'meta' === ( $f['type'] ?? '' ) ) {
-					$k = self::meta_key_for( $fid );
-					if ( '' !== $k ) {
-						$mine[ $k ] = true;
-					}
-				}
-			}
-			$map = (array) ( DZE_Wpml::settings()['translation-management']['custom_fields_translation'] ?? [] );
-			foreach ( $map as $key => $mode ) {
-				$key = (string) $key;
-				if ( 2 !== (int) $mode || isset( $mine[ $key ] ) ) {
-					continue;
-				}
+			foreach ( self::kind_text_keys( $type ) as $key => $n ) {
 				$out[] = [
-					'label' => $key,
+					'label' => self::key_label( $key ),
 					'key'   => $key,
-					'tone'  => 'gap',
-					'said'  => __( 'WPML is set to translate this custom field and this module does not send it. Its English text stays on the translation.', 'dazont-ecom' ),
+					'tone'  => 'ok',
+					'said'  => sprintf(
+						/* translators: %s: how many objects of this kind hold text in the field */
+						_n( 'translated where it holds text — %s of this kind does.', 'translated where it holds text — %s of this kind do.', $n, 'dazont-ecom' ),
+						number_format_i18n( $n )
+					),
 				];
 			}
 		}
@@ -951,9 +1160,19 @@ final class DZE_Translate {
 				<tr>
 					<th scope="row"><label for="dze-tr-model"><?php esc_html_e( 'Model', 'dazont-ecom' ); ?></label></th>
 					<td>
+						<?php
+						// THE SAME LIST THE GENERAL TAB OFFERS — read from the
+						// account, with the one saved here kept selectable even
+						// when the account no longer lists it.
+						$dze_models = is_callable( [ 'DZE_Marketing_Ai', 'available_models' ] ) ? (array) DZE_Marketing_Ai::available_models() : (array) DZE_Marketing_Ai::MODELS;
+						$dze_model  = (string) ( $s['model'] ?? '' );
+						if ( '' !== $dze_model && ! isset( $dze_models[ $dze_model ] ) ) {
+							$dze_models = [ $dze_model => $dze_model ] + $dze_models;
+						}
+						?>
 						<select id="dze-tr-model" name="<?php echo esc_attr( self::OPT ); ?>[model]">
 							<option value=""><?php esc_html_e( 'The model chosen on the General tab', 'dazont-ecom' ); ?></option>
-							<?php foreach ( DZE_Marketing_Ai::MODELS as $mid => $mlabel ) : ?>
+							<?php foreach ( $dze_models as $mid => $mlabel ) : ?>
 								<option value="<?php echo esc_attr( $mid ); ?>" <?php selected( $mid, (string) ( $s['model'] ?? '' ) ); ?>><?php echo esc_html( $mlabel ); ?></option>
 							<?php endforeach; ?>
 						</select>
@@ -986,7 +1205,7 @@ final class DZE_Translate {
 							<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[create]" value="1" <?php checked( ! isset( $s['create'] ) || ! empty( $s['create'] ) ); ?> />
 							<?php esc_html_e( 'Create the translation when the language has none yet', 'dazont-ecom' ); ?>
 						</label>
-						<p class="description"><?php esc_html_e( 'The new product is linked to the original and WPML is asked to copy the fields it owns — price, stock, dimensions — from it. Switch this off to work only on translations WPML has already created.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'The new translation is linked to the original, and WPML is asked to copy the fields it owns from it — on a product its price, stock and dimensions. Switch this off to work only on translations WPML has already created.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 			</table>
@@ -1310,7 +1529,7 @@ final class DZE_Translate {
 				continue;
 			}
 			try {
-				$new = self::translate( $texts, $lang, (string) $o['kind'] );
+				$new = self::translate( $texts, $lang, (string) $o['kind'], self::labels_for( $o ) );
 			} catch ( \Throwable $e ) {
 				$out['errors'][ $lang ] = $e->getMessage();
 				continue;
@@ -1351,6 +1570,7 @@ final class DZE_Translate {
 		// words each variation carries were read, paid for, shown on screen —
 		// and never written.
 		$allowed = self::labels_for( $o );
+		$src_now = null;
 		foreach ( $keep as $lang => $texts ) {
 			$lang  = sanitize_key( (string) $lang );
 			$texts = array_intersect_key( (array) $texts, $allowed );
@@ -1397,7 +1617,18 @@ final class DZE_Translate {
 			// THE REGISTER IS WRITTEN AGAINST WHAT WAS SENT, never against the
 			// source as it stands now: accepting a batch a week later must not
 			// claim a field is current when somebody has edited it since.
-			self::remember( $target, array_intersect_key( $source, $texts ), $o );
+			// A FIELD TYPED BY HAND was sent nowhere, so nothing was kept for
+			// it — and left out of the register it stayed "words have moved"
+			// for ever and the next batch paid to translate it again. The
+			// person typing it read the original on the screen in front of
+			// them, so THAT is the source it was made from.
+			$reg     = array_intersect_key( $source, $texts );
+			$untyped = array_diff_key( $texts, $reg );
+			if ( $untyped ) {
+				$src_now = $src_now ?? self::obj_read( $o );
+				$reg    += array_intersect_key( $src_now, $untyped );
+			}
+			self::remember( $target, $reg, $o );
 			self::obj_settle( $o, $lang );
 			$out['written'][ $lang ] = $target;
 		}
@@ -1625,17 +1856,24 @@ final class DZE_Translate {
 	 * @param array<string,string> $texts
 	 * @return array<string,string>
 	 */
-	public static function translate( array $texts, string $lang_code, string $kind = 'post' ): array {
+	public static function translate( array $texts, string $lang_code, string $kind = 'post', array $names = [] ): array {
 		if ( ! $texts ) {
 			return [];
 		}
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			throw new RuntimeException( __( 'The Marketing Assistant module holds the Anthropic key — switch it back on.', 'dazont-ecom' ) );
 		}
-		$labels = self::fields( $kind );
-		$lines  = [];
+		// EVERY FIELD IS NAMED FOR THE MODEL, the custom ones and the
+		// variations included: handed `meta:_theme_subtitle` and nothing else
+		// it has to guess what kind of text it is looking at.
+		if ( ! $names ) {
+			foreach ( self::fields( $kind ) as $fid => $f ) {
+				$names[ $fid ] = (string) $f['label'];
+			}
+		}
+		$lines = [];
 		foreach ( $texts as $fid => $v ) {
-			$lines[] = '### ' . $fid . ' (' . ( $labels[ $fid ]['label'] ?? $fid ) . ")\n" . $v;
+			$lines[] = '### ' . $fid . ' (' . ( $names[ $fid ] ?? $fid ) . ")\n" . $v;
 		}
 		$glossary = self::glossary();
 		$system   = self::prompt()
@@ -2027,6 +2265,7 @@ final class DZE_Translate {
 			'nonce'   => wp_create_nonce( self::NONCE ),
 			// THE WAY TO WHAT CAME BACK, not the name of the tab it is on.
 			'reviewUrl' => self::url( [ 'tab' => 'review' ] ),
+			'doneIcon'  => self::state_icon( 'done' ),
 			'i18n'    => [
 				'tickFirst'  => __( 'Tick what you want translated first.', 'dazont-ecom' ),
 				'langFirst'  => __( 'Tick at least one language.', 'dazont-ecom' ),
@@ -2036,27 +2275,27 @@ final class DZE_Translate {
 				/* translators: %s: number of objects now waiting to be read */
 				'sent'       => __( 'Done — %s waiting to be read. Open the "To review" tab.', 'dazont-ecom' ),
 				'nothingNew' => __( 'Nothing had moved on any of them: not one word was sent, nothing was spent, and WPML has been told they are up to date.', 'dazont-ecom' ),
+				// ONE OBJECT is not "any of them".
+				'nothingNewOne' => __( 'Nothing has moved on this one: not one word was sent, nothing was spent, and WPML has been told it is up to date.', 'dazont-ecom' ),
+				// A RUN THAT FAILED IS NOT A RUN THAT HAD NOTHING TO DO. With
+				// no key or WPML silent, every row failed and the screen said
+				// "nothing was spent, they are up to date".
+				/* translators: %s: how many rows failed */
+				'allFailed'  => __( 'Nothing was translated: %s row(s) failed — the reason is on each row.', 'dazont-ecom' ),
+				/* translators: %s: how many rows failed */
+				'someFailed' => __( '%s row(s) failed — the reason is on each row.', 'dazont-ecom' ),
 				'goReview'   => __( 'Read what came back', 'dazont-ecom' ),
 				// ON THE ROW ITSELF, so a finished batch is visible line by
 				// line rather than in one sentence at the bottom.
 				'rowHeld'    => __( 'waiting to be read', 'dazont-ecom' ),
 				'rowNothing' => __( 'nothing moved — closed with WPML', 'dazont-ecom' ),
 				'error'      => __( 'Something went wrong.', 'dazont-ecom' ),
-				'loading'    => __( 'Reading…', 'dazont-ecom' ),
-				'source'     => __( 'Original', 'dazont-ecom' ),
-				'current'    => __( 'The translation today', 'dazont-ecom' ),
-				'empty'      => __( '(empty)', 'dazont-ecom' ),
-				'keepHelp'   => __( 'Untick to leave this field out — the rest is still written', 'dazont-ecom' ),
-				'willCreate' => __( 'This language has no translation of this one yet: accepting creates it and links it to the original.', 'dazont-ecom' ),
-				'notMine'    => __( 'This translation was not written here. Accepting replaces its text — read the "translation today" column first.', 'dazont-ecom' ),
-				'open'       => __( 'Open the translation', 'dazont-ecom' ),
 				'confirmNo'  => __( 'Throw this translation away? It cannot be recovered; the object stays exactly as it is.', 'dazont-ecom' ),
 				'saved'      => __( 'Written ✓', 'dazont-ecom' ),
 				'saving'     => __( 'Writing…', 'dazont-ecom' ),
-				/* translators: %s: number of languages still waiting */
-				'someLeft'   => __( 'Written. %s language(s) on this one are still waiting.', 'dazont-ecom' ),
-				// THE TWO WORDS ON THE ROW: what the one screen will open on.
-				'look'       => __( 'Open', 'dazont-ecom' ),
+				// THE CHIP AFTER A SAVE says what the lists say: up to date.
+				'stateDone'  => self::state_said( 'done' ),
+				// THE WORD ON THE ROW once something waits on it.
 				'review'     => __( 'Review', 'dazont-ecom' ),
 				// THE EDITOR'S OWN THREE PRESSES.
 				/* translators: %s: number of fields filled in */
@@ -2068,7 +2307,7 @@ final class DZE_Translate {
 				// WHAT THE PRESS IS ABOUT TO DO, beside the press: rows times
 				// languages, which is the figure nobody had ever multiplied.
 				/* translators: 1: rows, 2: languages, 3: jobs */
-				'bill'       => __( '%1$s ticked × %2$s language(s) = %3$s translations to make', 'dazont-ecom' ),
+				'bill'       => __( '%1$s ticked × %2$s language(s) = up to %3$s translations to make — only words that moved are paid for', 'dazont-ecom' ),
 				'billNone'   => __( 'Nothing ticked.', 'dazont-ecom' ),
 				'stopped'    => __( 'Stopped.', 'dazont-ecom' ),
 			],
