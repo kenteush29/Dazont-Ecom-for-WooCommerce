@@ -36,7 +36,7 @@ trait DZE_Translate_Screen {
 			return;
 		}
 		$waiting = self::review_count();
-		$label   = __( 'WPML Translations', 'dazont-ecom' );
+		$label   = DZE_Screens::label( 'translations' );
 		add_submenu_page(
 			class_exists( 'DZE_Restock' ) ? DZE_Restock::MENU_SLUG : 'dazont-ecom',
 			$label,
@@ -67,10 +67,12 @@ trait DZE_Translate_Screen {
 	 * bar cannot ask.
 	 */
 	public static function tabs(): array {
+		// Named by the catalogue; the figures are this screen's own.
+		$names = DZE_Screens::tabs_of( 'translations' );
 		return [
-			'dashboard' => [ 'label' => __( 'Dashboard', 'dazont-ecom' ), 'n' => count( self::scope() ) ],
-			'batch'     => [ 'label' => __( 'Batch', 'dazont-ecom' ), 'n' => null ],
-			'review'    => [ 'label' => __( 'To review', 'dazont-ecom' ), 'n' => self::review_count() ],
+			'dashboard' => [ 'label' => (string) ( $names['dashboard'] ?? '' ), 'n' => count( self::scope() ) ],
+			'batch'     => [ 'label' => (string) ( $names['batch'] ?? '' ), 'n' => null ],
+			'review'    => [ 'label' => (string) ( $names['review'] ?? '' ), 'n' => self::review_count() ],
 		];
 	}
 
@@ -87,7 +89,7 @@ trait DZE_Translate_Screen {
 		$tab  = self::tab_now();
 		$tabs = self::tabs();
 		echo '<div class="wrap dze-wrap dze-admin">';
-		echo '<h1>' . esc_html__( 'WPML Translations', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'translations' ) ) . '</h1>';
 		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
 		foreach ( $tabs as $id => $one ) {
 			printf(

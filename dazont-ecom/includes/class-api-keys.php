@@ -20,6 +20,82 @@ final class DZE_Api_Keys {
 		add_action( 'wp_ajax_dze_test_key', [ self::class, 'ajax_test' ] );
 	}
 
+	/**
+	 * WHICH KEY, WITH WHICH RIGHTS, AND WHERE IT IS MADE.
+	 *
+	 * "Klaviyo par exemple encore une lacune : je ne sais pas quel type de clé
+	 * API il faut — all access ? ou pas ? Et le plugin pourrait largement
+	 * inclure un URL qui redirige vers le bon menu Klaviyo. C'est exactement de
+	 * ce genre d'attention au détail dont je parle."
+	 *
+	 * A field asking for a key from somebody else's service says three things
+	 * or it sends the owner away to guess: what KIND of key (Klaviyo has
+	 * private and public ones, and a private key has scopes), what it must be
+	 * allowed to do — read off the calls this plugin actually makes, never
+	 * guessed — and the page where it is created, as a link. One function,
+	 * printed under every key field, so the four of them read the same way.
+	 *
+	 * @return array{what:string,url:string,label:string,steps?:array<int,array{0:string,1:string}>}
+	 */
+	public static function hint( string $provider ): array {
+		switch ( $provider ) {
+			case 'anthropic':
+				return [
+					'what'  => __( 'An API key from the Anthropic console. Any key works — there are no permission levels — and every call is billed to that console\'s account.', 'dazont-ecom' ),
+					'url'   => 'https://console.anthropic.com/settings/keys',
+					'label' => __( 'Create it in the Anthropic console', 'dazont-ecom' ),
+				];
+			case 'fal':
+				return [
+					'what'  => __( 'An API key from the fal.ai dashboard. Any key works, and every image is billed to that fal.ai account.', 'dazont-ecom' ),
+					'url'   => 'https://fal.ai/dashboard/keys',
+					'label' => __( 'Create it in the fal.ai dashboard', 'dazont-ecom' ),
+				];
+			case 'klaviyo':
+				// The scopes are what the plugin CALLS: accounts (the check),
+				// campaigns and their messages and send jobs, templates and
+				// their renders, tags, segments, images, metric aggregates.
+				return [
+					'what'  => __( 'A PRIVATE key (it starts with pk_). Simplest: Klaviyo\'s "Full access" preset. A custom key must have read and write on Accounts, Campaigns, Images, Metrics, Segments, Tags and Templates — a read-only key cannot create a campaign.', 'dazont-ecom' ),
+					'url'   => 'https://www.klaviyo.com/settings/account/api-keys',
+					'label' => __( 'Create it in Klaviyo → Settings → API keys', 'dazont-ecom' ),
+				];
+			case 'google':
+				return [
+					'what'  => __( 'An OAuth client of type "Web application" in Google Cloud, with this site\'s redirect URI listed and the app PUBLISHED — in "Testing", Google drops the connection every seven days.', 'dazont-ecom' ),
+					'url'   => 'https://console.cloud.google.com/apis/credentials',
+					'label' => __( 'Create the OAuth client', 'dazont-ecom' ),
+					'steps' => [
+						[ __( 'Create the OAuth client', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/credentials' ],
+						[ __( 'Publish the app', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/credentials/consent' ],
+						[ __( 'Enable the Merchant API', 'dazont-ecom' ), 'https://console.cloud.google.com/apis/library/merchantapi.googleapis.com' ],
+					],
+				];
+		}
+		return [ 'what' => '', 'url' => '', 'label' => '' ];
+	}
+
+	/**
+	 * The hint as it is printed, under the field. '' for a provider it does
+	 * not know, so a screen never prints an empty line.
+	 */
+	public static function hint_html( string $provider ): string {
+		$h = self::hint( $provider );
+		if ( '' === $h['what'] ) {
+			return '';
+		}
+		$links = [];
+		foreach ( (array) ( $h['steps'] ?? [ [ $h['label'], $h['url'] ] ] ) as $i => [ $label, $url ] ) {
+			$links[] = sprintf(
+				'<a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s%3$s ↗</a>',
+				esc_url( $url ),
+				isset( $h['steps'] ) ? esc_html( (string) ( $i + 1 ) ) . '. ' : '',
+				esc_html( $label )
+			);
+		}
+		return '<p class="description dze-key-hint">' . esc_html( $h['what'] ) . ' ' . implode( ' · ', $links ) . '</p>';
+	}
+
 	/** First characters visible, fixed-length mask after (never leaks length). */
 	public static function mask( string $key ): string {
 		if ( '' === $key ) {

@@ -119,6 +119,8 @@ function disabled( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) 
 function selected( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? " selected='selected'" : ''; if ( $e ) { echo $r; } return $r; }
 function submit_button( ...$a ) {}
 function esc_html_e( $s, $d = '' ) { echo esc_html( $s ); }
+function esc_js( $s ) { return addslashes( (string) $s ); }
+function settings_fields( $g ) { echo '<input type="hidden" name="option_page" value="' . esc_attr( $g ) . '" />'; }
 function esc_attr_e( $s, $d = '' ) { echo esc_attr( $s ); }
 function wp_nonce_field( ...$a ) {}
 function _prime_post_caches( ...$a ) {}
@@ -268,6 +270,9 @@ function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (i
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-ai-usage.php';
 require __DIR__ . '/../' . $dir . '/includes/class-content-ajax.php';
+// The real key helper: the hint under the fal.ai field is what is being
+// tested, and a stub of the thing under test is a gate that proves nothing.
+require __DIR__ . '/../' . $dir . '/includes/class-api-keys.php';
 require __DIR__ . '/../' . $dir . '/includes/class-content.php';
 
 $ran = 0; $fails = 0;
@@ -1219,6 +1224,22 @@ ok( 'the appended text is exactly what it was',
 ok( 'the hints are gone from the plugin',
 	substr_count( (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-content.php' ),
 		'filling most of the frame' ), 0 );
+
+echo "\nTHE fal.ai KEY FIELD SAYS WHICH KEY AND WHERE IT IS MADE\n";
+// DRAWN, not described: the field used to say "define DZE_FAL_API_KEY in
+// wp-config.php" and nothing about where a key comes from.
+ob_start();
+DZE_Content::instance()->render_key_field();
+$dze_keyf = (string) ob_get_clean();
+if ( defined( 'DZE_FAL_API_KEY' ) ) {
+	ok( 'locked in wp-config, no field and no hint', false !== strpos( $dze_keyf, 'dze-key-hint' ), false );
+} else {
+	ok( 'the field carries the hint',        false !== strpos( $dze_keyf, 'dze-key-hint' ), true );
+	ok( 'which says which key',              false !== strpos( $dze_keyf, 'An API key from the fal.ai dashboard' ), true );
+	ok( 'and links to where it is made',     false !== strpos( $dze_keyf, 'href="https://fal.ai/dashboard/keys"' ), true );
+	ok( 'and no longer sends the owner to wp-config instead',
+		false !== strpos( $dze_keyf, 'define DZE_FAL_API_KEY' ), false );
+}
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

@@ -2508,7 +2508,10 @@ PROMPT;
 		if ( ! $term || is_wp_error( $term ) || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		echo '<div class="dze-cc-embed"><h2>' . esc_html__( 'Dazont Ecom — description writer', 'dazont-ecom' ) . '</h2>';
+		// ON WORDPRESS'S OWN SCREEN our box is called by the plugin's name, as
+		// the product hub is — "description writer" named half of what it
+		// holds (the linking is in it too) with a word nobody else uses.
+		echo '<div class="dze-cc-embed"><h2>' . esc_html__( 'Dazont Ecom', 'dazont-ecom' ) . '</h2>';
 		$this->render_panel( (int) $term->term_id, 'description' );
 		echo '</div>';
 	}
@@ -2544,11 +2547,17 @@ PROMPT;
 			return;
 		}
 		$n = absint( $_GET['dze_cc_queued'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		// A NOTICE THAT NAMES WHERE THE WORK WENT IS A WAY THERE. "Added to
+		// the queue" left the reader to find the queue; the review list is
+		// where these land, and it is one press away.
+		$to = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'review' ) : '';
 		echo '<div class="notice notice-success"><p>' . sprintf(
 			/* translators: %s: number of categories queued */
 			esc_html( _n( '%s category added to the queue — it starts writing right away.', '%s categories added to the queue — it starts writing right away.', $n, 'dazont-ecom' ) ),
 			esc_html( number_format_i18n( $n ) )
-		) . '</p></div>';
+		) . ( '' !== $to
+			? ' <a href="' . esc_url( $to ) . '">' . esc_html( DZE_Screens::label( 'review' ) ) . ' →</a>'
+			: '' ) . '</p></div>';
 	}
 
 	public function list_modal(): void {

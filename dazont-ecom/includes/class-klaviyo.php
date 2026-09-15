@@ -192,7 +192,7 @@ final class DZE_Klaviyo {
 				// four stop the module dead, and the fourth is advice.
 				'need'  => true,
 				'done'  => '' !== self::key(),
-				'note'  => __( 'Klaviyo → Settings → API keys, with campaigns, templates and lists enabled.', 'dazont-ecom' ),
+				'note'  => DZE_Api_Keys::hint( 'klaviyo' )['what'],
 			],
 			[
 				'label' => __( 'Choose who the emails go to', 'dazont-ecom' ),
@@ -8674,9 +8674,7 @@ CSS;
 						<?php echo DZE_Api_Keys::status_html( 'klaviyo', self::key(), (bool) $locked ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 						<?php if ( ! $locked ) : ?>
 							<input type="password" id="dze-klav-key" name="<?php echo esc_attr( self::OPT . '[api_key]' ); ?>" value="" class="regular-text" autocomplete="new-password" placeholder="<?php echo $has_key ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : 'pk_…'; ?>" />
-							<p class="description">
-								<?php esc_html_e( 'Klaviyo → Settings → API keys → Create private API key, with campaigns, templates and lists/segments enabled.', 'dazont-ecom' ); ?>
-							</p>
+							<?php echo DZE_Api_Keys::hint_html( 'klaviyo' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 						<?php endif; ?>
 					</td>
 				</tr>

@@ -59,8 +59,8 @@ final class DZE_Shortcodes {
 		}
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Shortcodes', 'dazont-ecom' ),
-			__( 'Shortcodes', 'dazont-ecom' ),
+			DZE_Screens::label( 'shortcodes' ),
+			DZE_Screens::label( 'shortcodes' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ self::class, 'render' ]
@@ -76,7 +76,7 @@ final class DZE_Shortcodes {
 		// Content module may not be here to load.
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		echo '<div class="wrap dze-wrap dze-admin">';
-		echo '<h1>' . esc_html__( 'Shortcodes', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'shortcodes' ) ) . '</h1>';
 		echo '<p class="description" style="max-width:900px;">'
 			. esc_html__( 'Everything this plugin can render inside a page, a post or a widget. Copy the tag, drop it where you want it, and use the attributes listed under it.', 'dazont-ecom' )
 			. '</p>';

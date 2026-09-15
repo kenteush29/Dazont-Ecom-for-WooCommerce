@@ -131,14 +131,9 @@ final class DZE_Health {
 	 * @return array<string,string>
 	 */
 	public static function tabs(): array {
-		$tabs = [
-			'calls' => __( 'AI calls', 'dazont-ecom' ),
-			'spend' => __( 'Spend', 'dazont-ecom' ),
-		];
-		if ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'health' ) ) {
-			$tabs['health'] = __( 'Connections', 'dazont-ecom' );
-		}
-		return $tabs;
+		// Named and gated by the catalogue: the calls and the spend are the
+		// plugin's own; the connections go with their module.
+		return DZE_Screens::tabs_of( 'logs' );
 	}
 
 	/** Which tab is being asked for, and one that exists whatever is asked. */
@@ -168,8 +163,8 @@ final class DZE_Health {
 	public static function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Logs', 'dazont-ecom' ),
-			__( 'Logs', 'dazont-ecom' ),
+			DZE_Screens::label( 'logs' ),
+			DZE_Screens::label( 'logs' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ __CLASS__, 'render_page' ]
@@ -183,7 +178,7 @@ final class DZE_Health {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		$now  = self::tab_now( (array) $_GET );
 		$tabs = self::tabs();
-		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html__( 'Logs', 'dazont-ecom' ) . '</h1>';
+		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'logs' ) ) . '</h1>';
 		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
 		foreach ( $tabs as $key => $label ) {
 			printf(
@@ -232,31 +227,15 @@ final class DZE_Health {
 	/**
 	 * Every screen this plugin names in its own sentences, and where it is.
 	 *
-	 * The KEY is the phrase as the messages write it, so the words a reader
-	 * sees and the address behind them are one thing and cannot drift. The
-	 * settings tabs come from the settings page's own list; the plugin's own
-	 * pages are named the way the menu names them.
+	 * The catalogue's own list: the KEY is the phrase exactly as the sentences
+	 * write it — "Settings → General", "Dazont Ecom → Content to review" — so
+	 * the words a reader sees and the address behind them cannot drift, and a
+	 * screen whose module is off is not offered.
 	 *
 	 * @return array<string,string>
 	 */
 	public static function screen_links(): array {
-		$out = [];
-		if ( class_exists( 'DZE_Marketing_Ai' ) ) {
-			foreach ( DZE_Marketing_Ai::tab_links() as $label => $url ) {
-				/* translators: %s: the name of a settings tab */
-				$out[ sprintf( __( 'Settings → %s', 'dazont-ecom' ), $label ) ] = $url;
-			}
-		}
-		/* translators: %s: the name of a screen in the Dazont Ecom menu */
-		$out[ sprintf( __( 'Dazont Ecom → %s', 'dazont-ecom' ), __( 'Logs', 'dazont-ecom' ) ) ] = self::page_url();
-		// A screen whose module is off is never offered: a link to a page that
-		// is not there is worse than no link.
-		if ( class_exists( 'DZE_Automation' )
-			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'automation' ) ) ) {
-			/* translators: %s: the name of a screen in the Dazont Ecom menu */
-			$out[ sprintf( __( 'Dazont Ecom → %s', 'dazont-ecom' ), __( 'Automation', 'dazont-ecom' ) ) ] = DZE_Automation::page_url();
-		}
-		return $out;
+		return DZE_Screens::links();
 	}
 
 	/** Where the failures are written down. */
@@ -382,6 +361,57 @@ final class DZE_Health {
 	}
 
 	/**
+	 * WHERE EACH CONNECTION IS MENDED, and the one word for doing it.
+	 *
+	 * "Dazont Ecom: Google Merchant Center is not answering. See what it said →
+	 * — J'ai été redirigé sur la page du dessus… Je suis perdu et pas
+	 * redirigé au bon endroit." The notice sent the shop to the LOG — a page
+	 * that says what broke and mends nothing — when the one thing to do was
+	 * three screens away behind a button called Connect. A connection that is
+	 * down is a thing to be DONE, so the row and the notice carry the way to
+	 * do it: a screen of ours through the catalogue, or WordPress's own where
+	 * the mending is WordPress's. '' where nothing can be offered — the
+	 * module holding the key is off — and then nothing is drawn.
+	 *
+	 * @return array{url:string,do:string}
+	 */
+	public static function fix_for( string $id ): array {
+		switch ( $id ) {
+			case 'anthropic':
+			case 'fal':
+				return [ 'url' => DZE_Screens::url( 'settings', 'general' ), 'do' => __( 'Check the key', 'dazont-ecom' ) ];
+			case 'klaviyo':
+				return [ 'url' => DZE_Screens::url( 'settings', 'email' ), 'do' => __( 'Check the key', 'dazont-ecom' ) ];
+			case 'gmc':
+				return [ 'url' => DZE_Screens::url( 'marketing', 'gmc' ), 'do' => __( 'Reconnect Google', 'dazont-ecom' ) ];
+			case 'analytics':
+				return [ 'url' => admin_url( 'admin.php?page=wc-admin&path=/analytics/settings' ), 'do' => __( 'Open WooCommerce Analytics', 'dazont-ecom' ) ];
+			case 'jobs':
+				return [ 'url' => admin_url( 'site-health.php' ), 'do' => __( 'Open Site Health', 'dazont-ecom' ) ];
+			case 'plugin':
+				return [ 'url' => admin_url( 'plugins.php' ), 'do' => __( 'Update the plugin', 'dazont-ecom' ) ];
+		}
+		return [ 'url' => '', 'do' => '' ];
+	}
+
+	/**
+	 * The fix as a button, or '' when there is nothing to offer.
+	 *
+	 * ONE renderer for the notice and the row: two would say two things.
+	 */
+	public static function fix_html( string $id ): string {
+		$fix = self::fix_for( $id );
+		if ( '' === $fix['url'] || '' === $fix['do'] ) {
+			return '';
+		}
+		return sprintf(
+			'<a class="button button-small dze-health-fix" href="%1$s">%2$s →</a>',
+			esc_url( $fix['url'] ),
+			esc_html( $fix['do'] )
+		);
+	}
+
+	/**
 	 * Asks every connection one cheap question.
 	 *
 	 * @return array<string,array{state:string,message:string}> state: ok|warn|down|off
@@ -426,6 +456,13 @@ final class DZE_Health {
 		$lines  = [];
 		foreach ( $broke as $id => $message ) {
 			$lines[] = '• ' . ( $labels[ $id ] ?? $id ) . ' — ' . $message;
+			// THE WAY TO MEND IT, in the email as on the screen: a message that
+			// says what broke and leaves the reader to find the button is half
+			// an answer, and an email is read on a phone, away from the admin.
+			$fix = self::fix_for( (string) $id );
+			if ( '' !== $fix['url'] ) {
+				$lines[] = '  ' . $fix['do'] . ': ' . $fix['url'];
+			}
 		}
 		$body = __( 'The weekly checkup found a connection that was working and is not any more:', 'dazont-ecom' ) . "\n\n"
 			. implode( "\n", $lines ) . "\n\n"
@@ -596,31 +633,57 @@ final class DZE_Health {
 	// Screens
 	// =========================================================================
 
-	/** One line at the top of the admin when a connection is down. */
+	/**
+	 * The notice at the top of the admin when a connection is down.
+	 *
+	 * It used to read "X is not answering. See what it said →" and send the
+	 * shop to the log. The log is where a developer goes; the owner wants the
+	 * BUTTON. So: one line per broken connection, what the service said, and
+	 * the way to mend it first — the log stays, second, for whoever wants the
+	 * history. Never on the page that mends it, and never on the Logs, which
+	 * already say all of this.
+	 */
 	public function notice(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		$state = self::state();
-		$down  = [];
+		echo self::notice_html( self::state() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+	}
+
+	/** Split from the hook so it can be exercised. '' when nothing is down. */
+	public static function notice_html( array $state ): string {
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- reading which screen is open.
+		if ( self::MENU_SLUG === $page ) {
+			return '';
+		}
+		$lines = [];
 		foreach ( (array) ( $state['checks'] ?? [] ) as $id => $one ) {
-			if ( 'down' === ( $one['state'] ?? '' ) ) {
-				$down[] = (string) ( self::labels()[ $id ] ?? $id );
+			if ( 'down' !== ( $one['state'] ?? '' ) ) {
+				continue;
 			}
+			$fix = self::fix_for( (string) $id );
+			// A notice standing on the very screen that mends it is the screen
+			// sending you to itself.
+			if ( '' !== $fix['url'] && false !== strpos( $fix['url'], 'page=' . $page ) && '' !== $page ) {
+				continue;
+			}
+			$lines[] = sprintf(
+				'<p><strong>%1$s</strong> %2$s %3$s <a href="%4$s" class="dze-health-said">%5$s</a></p>',
+				esc_html( sprintf(
+					/* translators: %s: the connection that is down */
+					__( 'Dazont Ecom: %s is not answering.', 'dazont-ecom' ),
+					(string) ( self::labels()[ $id ] ?? $id )
+				) ),
+				esc_html( (string) ( $one['message'] ?? '' ) ),
+				self::fix_html( (string) $id ),
+				esc_url( self::log_url() ),
+				esc_html__( 'see the log ↗', 'dazont-ecom' )
+			);
 		}
-		if ( ! $down ) {
-			return;
+		if ( ! $lines ) {
+			return '';
 		}
-		printf(
-			'<div class="notice notice-error"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
-			esc_html( sprintf(
-				/* translators: %s: the connections that are down */
-				__( 'Dazont Ecom: %s is not answering.', 'dazont-ecom' ),
-				implode( ', ', $down )
-			) ),
-			esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'health' ], admin_url( 'admin.php' ) ) ),
-			esc_html__( 'See what it said →', 'dazont-ecom' )
-		);
+		return '<div class="notice notice-error dze-health-notice">' . implode( '', $lines ) . '</div>';
 	}
 
 	public static function ajax_run(): void {
@@ -771,6 +834,14 @@ final class DZE_Health {
 					<td>
 						<span style="color:<?php echo esc_attr( $color ); ?>;font-weight:600;margin-right:6px;"><?php echo esc_html( $dots[ $st ] ?? '·' ); ?></span>
 						<?php echo esc_html( (string) ( $one['message'] ?? __( 'Not checked yet.', 'dazont-ecom' ) ) ); ?>
+						<?php
+						// A ROW THAT SAYS SOMETHING IS BROKEN OFFERS THE WAY TO
+						// MEND IT. The sentence used to name the screen in words
+						// and leave the reader to find it.
+						if ( in_array( $st, [ 'down', 'warn' ], true ) ) {
+							echo ' ' . self::fix_html( (string) $id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+						}
+						?>
 					</td>
 				</tr>
 			<?php endforeach; ?>

@@ -609,6 +609,62 @@ whose screen has not been thought through yet.
   `wpml_object_id`; when a reading must be right outside a page load, ask the
   table.
 
+- **EVERY SCREEN IS NAMED ONCE, AND EVERY SENTENCE THAT SENDS SOMEBODY THERE
+  IS BUILT FROM THAT NAME.** "Dazont Ecom: Google Merchant Center is not
+  answering. See what it said → … J'ai été redirigé sur la page du dessus. Je
+  suis perdu et pas redirigé au bon endroit." Three lists had drifted apart,
+  each kept by hand: the menu label, the phrase a sentence used to name the
+  screen, and the address behind the link. The Google refusal said "Marketing
+  events" for months after that page became "Marketing"; the notice pointed at
+  a settings tab that had been a Logs tab for as long; and the only linker knew
+  the settings tabs, so "Dazont Ecom → Content to review" stayed plain text
+  everywhere it was printed. `DZE_Screens` is the one list — every page and
+  every tab, its slug, its module — and the menu labels, the tab strips,
+  `screen_links()` and every `name()` come out of it. It reads nothing and
+  hooks nothing (a catalogue that counted would cost every admin page a query;
+  the figures on a label are each page's own). `tools/test-screens.php` holds
+  every slug in it to the constant its class really uses, every `'page' =>
+  X, 'tab' => 'y'` link written anywhere to a tab that page has, and the menu
+  order; `test-trace.php` refuses any sentence naming a screen — "Settings →
+  X" or "Dazont Ecom → X → Y" — that is not in it. A hosted page (Content to
+  review is a tab of Content while the diagnostic is on) keeps its own name
+  and answers with its host's address. And the page's own `<h1>` is the
+  catalogue's label: "Dazont Ecom — Dashboard" over a menu entry reading
+  "Dashboard", "Marketing Events" on one tab of "Marketing", a bold line of
+  its own on Sourcing, were one screen named twice.
+- **A CONNECTION THAT IS DOWN IS A THING TO BE DONE, AND THE NOTICE SAYS
+  WHERE.** The notice linked to the log. A log is where a developer goes; the
+  owner wants the button. Every Health check declares its fix (`fix_for()`: a
+  screen of ours through the catalogue, or WordPress's own where the mending
+  is WordPress's) with one word for doing it — "Reconnect Google", "Check the
+  key", "Update the plugin" — and the notice, the Connections row and the
+  weekly email all carry it, the log second. Never on the screen that mends
+  it, which would be the screen sending you to itself, and nothing where the
+  module holding the key is off.
+- **A FIELD THAT ASKS FOR SOMEBODY ELSE'S KEY SAYS WHICH KEY, WITH WHICH
+  RIGHTS, AND LINKS TO WHERE IT IS MADE.** "Je ne sais pas quel type de clé
+  API il faut — all access ? ou pas ? Et le plugin pourrait largement inclure
+  un URL qui redirige vers le bon menu Klaviyo. C'est exactement de ce genre
+  d'attention au détail dont je parle." The Klaviyo field named a path in
+  words with no link and a scope list that was wrong; the Google block named
+  three console screens in prose ("Aucun lien externe pour un setup rapide et
+  instinctif… une opération que je dois refaire assez souvent"). One function
+  (`DZE_Api_Keys::hint()`), under the four fields: the kind of key, the rights
+  READ OFF THE CALLS the plugin makes (never guessed — Klaviyo needs accounts,
+  campaigns, images, metrics, segments, tags and templates, read and write),
+  and the provider's own page as a link in a new tab; Google gets its three
+  screens numbered, with the redirect URI to paste beside them. A key locked
+  in wp-config draws no field and therefore no hint. `tools/test-keys.php`
+  holds the words and that each screen prints its own provider's.
+- **ONE PROMPT EDITOR, on every screen that has a prompt.** The reviews panel
+  still carried an inline editor behind a lone pencil — the surface the
+  category panel was mended of — and it sent whatever it happened to be
+  showing as a one-off override, so Generate ran two different instructions
+  depending on whether the box was open. It is the popup now, and the run
+  reads the saved prompt and nothing else. When a fault is fixed on one
+  screen, grep for its shape on the others: `dze-cx-icon` and a bare
+  `&#9998;` are the two ways a lone pencil is written here.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They
@@ -1514,6 +1570,9 @@ whose screen has not been thought through yet.
   its harness carries a real shop — WooCommerce present, the scheduler running
   — because a fresh install is not a broken one, and a harness without them
   tests a broken shop while looking like a strict one.
+- **`php tools/test-screens.php dazont-ecom` and `php tools/test-keys.php
+  dazont-ecom` must pass.** The catalogue of screens against the code it
+  names, and the four key hints against the screens that print them.
 - **`php tools/test-diagnostic.php dazont-ecom` and
   `php tools/test-klaviyo.php dazont-ecom` must pass**, and every other
   `tools/test-*.php` beside them — `test-blocks.php` (the body → Klaviyo

@@ -45,8 +45,8 @@ final class DZE_Setup {
 	public static function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Setup', 'dazont-ecom' ),
-			__( 'Setup', 'dazont-ecom' ),
+			DZE_Screens::label( 'setup' ),
+			DZE_Screens::label( 'setup' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ __CLASS__, 'render_page' ]
@@ -620,7 +620,7 @@ final class DZE_Setup {
 		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
 		$steps = self::steps();
 		$score = self::score();
-		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html__( 'Setup', 'dazont-ecom' ) . '</h1>';
+		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'setup' ) ) . '</h1>';
 		// WHAT THE THING HOLDS TODAY, in one line, with the figures — the
 		// first part of the shape every screen of this plugin is built from.
 		echo '<p class="dze-setup-said">' . esc_html( $score['todo']

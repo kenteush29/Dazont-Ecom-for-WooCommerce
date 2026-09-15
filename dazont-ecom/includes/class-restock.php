@@ -73,8 +73,8 @@ final class DZE_Restock {
 		);
 		add_submenu_page(
 			self::MENU_SLUG,
-			__( 'Restock', 'dazont-ecom' ),
-			__( 'Restock', 'dazont-ecom' ),
+			DZE_Screens::label( 'restock' ),
+			DZE_Screens::label( 'restock' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]

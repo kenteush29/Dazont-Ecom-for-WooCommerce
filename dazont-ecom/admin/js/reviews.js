@@ -75,23 +75,9 @@
 		renderDrafts($box);
 	});
 
-	// Prompt editor (✎): tweak, regenerate, and 💾 when it is right.
-	$(document).on('click', '.dze-rev-ptoggle', function () {
-		$(this).closest('.dze-rev-box').find('.dze-rev-pwrap').toggle();
-	});
-	$(document).on('click', '.dze-rev-prestore', function () {
-		$(this).closest('.dze-rev-box').find('.dze-rev-ptext').val(i18n.defaultPrompt);
-	});
-	$(document).on('click', '.dze-rev-psave', function () {
-		var $box = $(this).closest('.dze-rev-box'), $btn = $(this).prop('disabled', true);
-		$.post(cfg.ajaxUrl, { action: 'dze_reviews_save_prompt', nonce: $box.data('nonce'), prompt: $box.find('.dze-rev-ptext').val() })
-			.done(function (res) {
-				$btn.prop('disabled', false);
-				if (res && res.success) { $btn.text(i18n.savedPrompt); setTimeout(function () { $btn.text('💾 ' + i18n.savePrompt); }, 1800); }
-				else { window.alert((res && res.data && res.data.message) || i18n.error); }
-			})
-			.fail(function () { $btn.prop('disabled', false); window.alert(i18n.error); });
-	});
+	// The prompt is read, edited and saved in the one popup every "✎ Prompt"
+	// in the plugin opens; the inline editor that lived here is gone, and so
+	// is the one-off override it sent with every run while it was open.
 
 	function setCount(id, total) {
 		$('.dze-rev-open[data-id="' + id + '"] span').first().text(total).css('color', total ? '#2271b1' : '#a7aaad');
@@ -101,12 +87,9 @@
 	$(document).on('click', '.dze-rev-gen', function () {
 		var $box = $(this).closest('.dze-rev-box'), $btn = $(this).prop('disabled', true);
 		var $st = $box.find('.dze-rev-status').css('color', '#646970').removeClass('is-ko').html('<span class="dze-cx-spin"></span> ' + esc(i18n.working));
-		var $p = $box.find('.dze-rev-pwrap');
 		$.post(cfg.ajaxUrl, {
 			action: 'dze_reviews_generate', nonce: $box.data('nonce'),
-			post: $box.data('post'), count: $box.find('.dze-rev-count').val(),
-			// The live prompt applies to this run when the editor is open.
-			prompt: $p.is(':visible') ? ($box.find('.dze-rev-ptext').val() || '') : ''
+			post: $box.data('post'), count: $box.find('.dze-rev-count').val()
 		})
 			.done(function (res) {
 				$btn.prop('disabled', false);

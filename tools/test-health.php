@@ -66,6 +66,7 @@ function human_time_diff( $from, $to = 0 ) { return max( 1, (int) round( ( ( $to
 function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); }
 function wp_date( $f, $ts = null ) { return gmdate( $f, $ts ?? time() ); }
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
+function wp_unslash( $v ) { return $v; }
 function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 
 $GLOBALS['opts'] = [];
@@ -102,6 +103,8 @@ function add_submenu_page( $parent, $t, $m, $cap, $slug, $cb = null ) {
 	return $slug;
 }
 
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-health.php';
 
 $fails = 0;
@@ -261,6 +264,57 @@ ok( 'the settings tabs are named as the messages write them',
 ok( 'and so is the Logs page',          isset( $dze_screens['Dazont Ecom → Logs'] ), true );
 ok( 'which points at itself',
 	false !== strpos( (string) $dze_screens['Dazont Ecom → Logs'], 'page=dazont-ecom-logs' ), true );
+
+echo "\nA CONNECTION THAT IS DOWN IS A THING TO BE DONE, AND THE NOTICE SAYS WHERE\n";
+// "Dazont Ecom: Google Merchant Center is not answering. See what it said →
+// J'ai été redirigé sur la page du dessus… Je suis perdu et pas redirigé au
+// bon endroit." The notice sent the shop to the LOG; the one thing to do was
+// a button three screens away. Now: what broke, what the service said, the
+// way to mend it — and the log second, for whoever wants the history.
+$dze_state = [ 'at' => time(), 'checks' => [
+	'anthropic' => [ 'state' => 'ok',   'message' => 'The model list answers.' ],
+	'gmc'       => [ 'state' => 'down', 'message' => 'Google has revoked this connection.' ],
+] ];
+$_GET = [ 'page' => 'edit.php' ];
+$dze_n = DZE_Health::notice_html( $dze_state );
+ok( 'a broken connection raises the notice',   '' !== $dze_n, true );
+ok( 'it names the connection',                 false !== strpos( $dze_n, 'Google Merchant Center is not answering' ), true );
+ok( 'and what the service said',               false !== strpos( $dze_n, 'Google has revoked this connection.' ), true );
+// THE FIX FIRST: the screen with the Connect button, through the catalogue.
+ok( 'and the way to mend it',                  false !== strpos( $dze_n, 'page=dazont-ecom-marketing-events&tab=gmc' ), true );
+ok( 'with the one word for doing it',          false !== strpos( $dze_n, 'Reconnect Google →' ), true );
+ok( 'never the settings tab that moved',       false !== strpos( $dze_n, 'page=dazont-ecom-ai&tab=health' ), false );
+// THE LOG STAYS, SECOND.
+ok( 'the log is still offered, after it',
+	strpos( $dze_n, 'Reconnect Google' ) < strpos( $dze_n, 'page=dazont-ecom-logs' ), true );
+ok( 'a working connection raises nothing',     false !== strpos( $dze_n, 'Anthropic' ), false );
+// NEVER ON THE SCREEN THAT MENDS IT — a screen sending you to itself — and
+// never on the Logs, which already say all of this.
+$_GET = [ 'page' => 'dazont-ecom-marketing-events', 'tab' => 'gmc' ];
+ok( 'on the Google screen the Google line is silent', DZE_Health::notice_html( $dze_state ), '' );
+$_GET = [ 'page' => 'dazont-ecom-logs' ];
+ok( 'and the Logs carry no notice at all',     DZE_Health::notice_html( $dze_state ), '' );
+$_GET = [];
+ok( 'nothing down, no notice',
+	DZE_Health::notice_html( [ 'checks' => [ 'gmc' => [ 'state' => 'warn', 'message' => 'x' ] ] ] ), '' );
+// EVERY CHECK KNOWS WHERE IT IS MENDED: a connection that can break and
+// offers no way back is a row somebody has to go and ask about.
+foreach ( array_keys( DZE_Health::labels() ) as $dze_id ) {
+	$dze_fix = DZE_Health::fix_for( $dze_id );
+	ok( "$dze_id names its fix",                '' !== $dze_fix['url'] && '' !== $dze_fix['do'], true );
+}
+ok( 'a key is mended where the key is',
+	false !== strpos( DZE_Health::fix_for( 'klaviyo' )['url'], 'page=dazont-ecom-ai&tab=email' ), true );
+// A MODULE THAT IS OFF OFFERS NO WAY TO A SCREEN THAT IS NOT THERE.
+$GLOBALS['off'] = [ 'gmc' ];
+ok( 'with the module off there is no button',  DZE_Health::fix_html( 'gmc' ), '' );
+$GLOBALS['off'] = [];
+// AND THE ROW ON THE CONNECTIONS SCREEN CARRIES THE SAME BUTTON: the sentence
+// used to name the screen in words and leave the reader to find it.
+$GLOBALS['opts'][ DZE_Health::OPT_STATE ] = $dze_state;
+ob_start(); DZE_Health::render(); $dze_rows = (string) ob_get_clean();
+ok( 'the broken row offers the fix',           substr_count( $dze_rows, 'Reconnect Google →' ), 1 );
+ok( 'and the working row offers nothing',      false !== strpos( $dze_rows, 'Check the key →' ), false );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

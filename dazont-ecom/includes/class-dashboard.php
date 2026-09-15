@@ -32,9 +32,10 @@ final class DZE_Dashboard {
 		if ( ! is_admin() ) {
 			return;
 		}
-		// Priority 20: after every module registered its submenu, so the
-		// Dashboard entry can be moved to the top of the list.
-		add_action( 'admin_menu',         [ $this, 'register_menu' ], 20 );
+		// The menu's order is the catalogue's business (DZE_Screens::
+		// reorder_menu), not this page's: the hack that moved this entry to the
+		// top by hand is gone with it.
+		add_action( 'admin_menu',         [ $this, 'register_menu' ] );
 		// Nothing is added to the WordPress home screen: those widgets query the
 		// shop on a page nobody opens for them, and the plugin has its own
 		// Dashboard for exactly the same blocks.
@@ -43,25 +44,12 @@ final class DZE_Dashboard {
 	public function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Dashboard', 'dazont-ecom' ),
-			__( 'Dashboard', 'dazont-ecom' ),
+			DZE_Screens::label( 'dashboard' ),
+			DZE_Screens::label( 'dashboard' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
 		);
-		// Move the Dashboard to the top of the Dazont Ecom submenu.
-		global $submenu;
-		if ( isset( $submenu[ DZE_Restock::MENU_SLUG ] ) ) {
-			$items = $submenu[ DZE_Restock::MENU_SLUG ];
-			foreach ( $items as $i => $item ) {
-				if ( ( $item[2] ?? '' ) === self::MENU_SLUG ) {
-					unset( $items[ $i ] );
-					array_unshift( $items, $item );
-					$submenu[ DZE_Restock::MENU_SLUG ] = array_values( $items ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- submenu reordering only.
-					break;
-				}
-			}
-		}
 	}
 
 	// =========================================================================
@@ -72,7 +60,9 @@ final class DZE_Dashboard {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
-		echo '<div class="wrap"><h1>' . esc_html__( 'Dazont Ecom — Dashboard', 'dazont-ecom' ) . '</h1>';
+		// THE PAGE IS CALLED WHAT THE MENU CALLS IT. "Dazont Ecom — Dashboard"
+		// over a menu entry reading "Dashboard" is the same screen named twice.
+		echo '<div class="wrap"><h1>' . esc_html( DZE_Screens::label( 'dashboard' ) ) . '</h1>';
 		echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px;margin-top:12px;">';
 		$blocks = [
 			__( 'Top categories — last 3 months', 'dazont-ecom' )   => 'block_top_categories',

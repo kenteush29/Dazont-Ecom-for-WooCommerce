@@ -469,6 +469,8 @@ class DZE_Wpml {
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
 
 if ( in_array( '--dump-automation', (array) $argv, true ) ) {

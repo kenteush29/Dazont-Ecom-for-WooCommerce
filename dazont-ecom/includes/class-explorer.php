@@ -109,8 +109,8 @@ EOT;
 	public function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Sourcing Assistant', 'dazont-ecom' ),
-			__( 'Sourcing Assistant', 'dazont-ecom' ),
+			DZE_Screens::label( 'sourcing' ),
+			DZE_Screens::label( 'sourcing' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
