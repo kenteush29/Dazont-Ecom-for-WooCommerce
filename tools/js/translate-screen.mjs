@@ -61,6 +61,9 @@ for ( const [ label, jq ] of jqs ) {
 	// The review list's object IS holding something; the batch list's first row
 	// is not, which is what makes one say Review and the other Look.
 	let holding = false;
+	// When set, the fake server refuses every batch — the way a shop with no
+	// key or WPML silent answers.
+	let failing = false;
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 	page.on( 'dialog', d => d.accept() );
@@ -77,6 +80,9 @@ for ( const [ label, jq ] of jqs ) {
 			keepFr: q.get( 'keep[fr][name]' ), keepFrDesc: q.get( 'keep[fr][description]' )
 		} );
 		const json = d => route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: d } ) } );
+		if ( 'dze_tr_batch' === q.get( 'action' ) && failing ) {
+			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: false, data: { message: 'No Anthropic key.' } } ) } );
+		}
 		if ( 'dze_tr_batch' === q.get( 'action' ) ) {
 			return json( { label: 'Balaclavas', done: [ 'fr' ], skipped: [], errors: {},
 				texts: { fr: { title: 'Chemise de terrain', content: '<p>Une chemise.</p>', 'var:701': 'Olive, fermeture noire.' } } } );
@@ -214,6 +220,24 @@ for ( const [ label, jq ] of jqs ) {
 		await page.locator( `#dze-tr-sendstate a[href="${cfg.reviewUrl}"]` ).count(), 1 );
 	ok( 'nothing was raised sending a batch', errors, [] );
 
+	// A RUN THAT FAILED IS NOT A RUN THAT HAD NOTHING TO DO. With no key or
+	// WPML silent every row failed, and the screen said "nothing was spent,
+	// they are up to date".
+	failing = true;
+	await page.locator( '.dze-tr-row' ).nth( 1 ).locator( '.dze-tr-pickone' ).check();
+	await page.locator( '.dze-tr-row' ).nth( 0 ).locator( '.dze-tr-pickone' ).uncheck().catch( () => {} );
+	await page.click( '#dze-tr-send' );
+	const failedRun = await page.waitForFunction(
+		word => ( ( document.querySelector( '#dze-tr-sendstate' ) || {} ).textContent || '' ).includes( word ),
+		'failed', { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'a run whose every row failed says so', failedRun, true );
+	ok( 'and never that nothing had moved',
+		( ( await page.textContent( '#dze-tr-sendstate' ) ) || '' ).includes( cfg.i18n.nothingNew ), false );
+	failing = false;
+	// A SECTION THAT REWRITES THE LIST PUTS IT BACK: the failed run replaced
+	// the chips on its rows, and the next section presses one of them.
+	await page.goto( 'http://dze.test/dash', { waitUntil: 'domcontentloaded' } );
+
 	// WPML'S OWN GESTURE, ONE LANGUAGE AT A TIME. The plus makes the missing
 	// translation, the arrows bring an out-of-date one back — and it runs the
 	// SAME job the batch button runs, never a second engine.
@@ -303,8 +327,28 @@ for ( const [ label, jq ] of jqs ) {
 	// press, never as a permanent panel explaining our plumbing.
 	ok( 'a translation left unbuyable says so after the save',
 		await page.locator( '.dze-tr-warn' ).count(), 1 );
+	// THE CHIP FOLLOWS THE SAVE: it read "not translated" until the page was
+	// reloaded, a screen disagreeing with the work it had just done.
+	ok( 'the state chip now says what the lists say',
+		( ( await page.textContent( '.dze-tr-editstate > .dze-tr-chip' ) ) || '' ).includes( cfg.i18n.stateDone ), true );
+	ok( 'and wears the done class',
+		( await page.getAttribute( '.dze-tr-editstate > .dze-tr-chip', 'class' ) || '' ).includes( 'is-done' ), true );
 	ok( 'nothing was raised saving', errors, [] );
 	ok( 'and the page never moved', new URL( page.url() ).pathname, '/editor' );
+
+	// CANCEL PUTS BACK WHAT THE TRANSLATION HOLDS. "Thrown away" over fields
+	// still holding the thrown-away text was a screen that lies.
+	await page.fill( '.dze-tr-field[data-field="title"] .dze-tr-new', 'Une bêtise' );
+	before = sent.length;
+	await page.click( '#dze-tr-drop' );
+	const dropped = await page.waitForFunction(
+		word => ( ( document.querySelector( '#dze-tr-publishstate' ) || {} ).textContent || '' ).trim() === word,
+		cfg.i18n.dropped, { timeout: 6000 } ).then( () => true ).catch( () => false );
+	ok( 'cancel answers', dropped, true );
+	ok( 'it posted a refusal', ( sent.slice( before ).filter( x => 'dze_tr_decide' === x.action )[0] || {} ).how, 'refuse' );
+	ok( 'and the field holds the saved words again, not the thrown-away ones',
+		await page.inputValue( '.dze-tr-field[data-field="title"] .dze-tr-new' ), 'Chemise de combat' );
+	ok( 'nothing was raised cancelling', errors, [] );
 
 	// ---- "TRANSLATE WITH DAZONT ECOM", INSIDE WPML'S OWN LANGUAGE BOX ----
 	// "Peut être ajouter directement une option par dessus wpml sur les blocs

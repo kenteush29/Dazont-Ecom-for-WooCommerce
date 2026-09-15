@@ -222,6 +222,8 @@ class DZE_Tr_Test_Wpdb {
 		}
 		return [];
 	}
+	/** Which WPML "Translate" keys hold text on a kind, and on how many. */
+	public array $text_keys = [];   // rows of [ meta_key, n ]
 	/** WPML's own marks, as the screen asks for them. */
 	public array $marks = [];   // rows of [ src, lang, needs ]
 	public array $counts = [];  // rows of [ lang, n ]
@@ -238,6 +240,7 @@ class DZE_Tr_Test_Wpdb {
 		if ( false !== stripos( $sql, 'FROM wp_icl_languages' ) ) { return $this->langs; }
 		// WHAT IS WAITING, PER KIND — told apart from the waiting LIST by what
 		// it groups on, because both read the same two meta tables.
+		if ( false !== stripos( $sql, 'GROUP BY pm.meta_key' ) ) { return $this->text_keys; }
 		if ( false !== stripos( $sql, 'GROUP BY p.post_type' ) ) { return $this->review_posts; }
 		if ( false !== stripos( $sql, 'GROUP BY tt.taxonomy' ) ) { return $this->review_terms; }
 		if ( false !== stripos( $sql, 'wp_postmeta' ) ) { return $this->waiting_posts; }
@@ -857,6 +860,20 @@ DZE_Translate::drop_wait( $cat );
 ok( 'nothing is waiting any more',              DZE_Translate::waiting( $cat ), [] );
 ok( 'and the translation was left exactly as it was', $GLOBALS['terms'][8]['name'], $before );
 
+echo "\nA TRANSLATION TYPED BY HAND IS RECORDED TOO\n";
+// Nothing waiting, nothing sent: the description is typed on the editor and
+// saved. It was written and NOT recorded — so it stayed "words have moved" for
+// ever and the next batch paid to translate it again. The person typing it
+// read the original in front of them: that is the source it was made from.
+$GLOBALS['terms'][7]['description'] = 'Warm ones, for winter.';
+$GLOBALS['wpdb']->written = [];
+$dze_hand = DZE_Translate::accept( $cat, [ 'fr' => [ 'description' => 'Des chaudes, pour l\'hiver.' ] ] );
+ok( 'the hand-typed field is written',          $GLOBALS['terms'][8]['description'] ?? '', 'Des chaudes, pour l\'hiver.' );
+$dze_reg = json_decode( (string) $GLOBALS['termmeta'][8]['_dze_tr_src'], true );
+ok( 'and recorded against the source as it stands',
+	$dze_reg['description'] ?? '', md5( 'Warm ones, for winter.' ) );
+ok( 'so it is not owed again',                  isset( DZE_Translate::obj_stale( $cat, 'fr' )['description'] ), false );
+
 echo "\nA field WPML COPIES is never written here\n";
 // The next custom-field sync puts the original's value straight back over it,
 // so the words are lost and nothing on any screen says so.
@@ -1180,13 +1197,65 @@ $dze_said = [];
 foreach ( $dze_rep as $dze_r ) { $dze_said[ $dze_r['label'] ] = $dze_r['tone']; }
 ok( 'a field WPML copies is reported as left alone', $dze_said['Content block 1'] ?? '', 'warn' );
 ok( 'a field WPML translates is reported as sent',   $dze_said['Content block 2'] ?? '', 'ok' );
-ok( 'and a field WPML wants that we do not send is the gap worth having',
-	$dze_said['_theme_subtitle'] ?? '', 'gap' );
+// A CUSTOM FIELD WPML WANTS TRANSLATED IS SENT, WHERE IT HOLDS TEXT — and the
+// reading says so PER KIND. "Il est annoncé toute sorte de meta field qui
+// n'ont aucun intérêt à traduire pour certaines pages, voire n'existent même
+// pas": the list used to print every key of WPML's global map, for every
+// kind, as a gap. A key nothing of this kind holds is not a line.
+ok( 'a key nothing of this kind holds is not listed at all',
+	isset( $dze_said['_theme_subtitle'] ) || isset( $dze_said['Theme subtitle'] ), false );
+$GLOBALS['wpdb']->text_keys = [ [ 'meta_key' => '_theme_subtitle', 'n' => 12 ] ];
+$GLOBALS['tr'] = [];
+$dze_said = [];
+foreach ( DZE_Translate::field_report( 'post', 'product' ) as $dze_r ) { $dze_said[ $dze_r['label'] ] = $dze_r; }
+ok( 'a key this kind holds text in is listed, named for people',
+	$dze_said['Theme subtitle']['tone'] ?? '', 'ok' );
+ok( 'and says on how many',
+	false !== strpos( (string) ( $dze_said['Theme subtitle']['said'] ?? '' ), '12' ), true );
+ok( 'never as a gap',
+	false !== strpos( (string) ( $dze_said['Theme subtitle']['said'] ?? '' ), 'does not send' ), false );
+// A PAGE IS NOT TOLD ABOUT A PRODUCT'S FIELDS: the reading is per kind.
+$GLOBALS['wpdb']->text_keys = [];
+$GLOBALS['tr'] = [];
+$dze_page = [];
+foreach ( DZE_Translate::field_report( 'post', 'page' ) as $dze_r ) { $dze_page[ $dze_r['label'] ] = $dze_r; }
+ok( 'a page holding none of it is told nothing about it', isset( $dze_page['Theme subtitle'] ), false );
+ok( 'and a page\'s excerpt is called an excerpt, not a short description',
+	isset( $dze_page['Excerpt'] ) && ! isset( $dze_page['Short description'] ), true );
 ok( 'a field WPML ignores is not on the list',       isset( $dze_said['_price'] ), false );
+// AND THE OBJECT: the field is READ where it holds words, and only there.
+$GLOBALS['posts'][61] = [ 'post_title' => 'Cap', 'post_content' => 'Body.', 'post_excerpt' => '', 'type' => 'product' ];
+$GLOBALS['meta'][61]['_theme_subtitle'] = 'Built for the field';
+$GLOBALS['meta'][61]['_price']          = '49.90';
+$GLOBALS['posts'][62] = [ 'post_title' => 'Hat', 'post_content' => 'Body.', 'post_excerpt' => '', 'type' => 'product' ];
+$GLOBALS['meta'][62]['_theme_subtitle'] = 'field_5f3a1b2c';
+$dze_o61 = [ 'kind' => 'post', 'id' => 61, 'type' => 'product' ];
+$dze_o62 = [ 'kind' => 'post', 'id' => 62, 'type' => 'product' ];
+ok( 'a WPML-translate field holding words is a field of the object',
+	DZE_Translate::obj_read( $dze_o61 )['meta:_theme_subtitle'] ?? '', 'Built for the field' );
+ok( 'named for the screen and the model alike',
+	DZE_Translate::labels_for( $dze_o61 )['meta:_theme_subtitle'] ?? '', 'Theme subtitle' );
+ok( 'a field WPML ignores is never read',        isset( DZE_Translate::obj_read( $dze_o61 )['meta:_price'] ), false );
+ok( 'and one holding a field reference, not words, is not a field',
+	isset( DZE_Translate::obj_read( $dze_o62 )['meta:_theme_subtitle'] ), false );
+foreach ( [ '12', '2024-05-01', 'https://kula.test/x', 'a:1:{i:0;s:1:"x";}', '{"a":1}', '' ] as $dze_nt ) {
+	ok( 'not words: ' . ( '' === $dze_nt ? '(empty)' : $dze_nt ), DZE_Translate::is_text( $dze_nt ), false );
+}
+ok( 'words are words',                            DZE_Translate::is_text( 'Built for the field' ), true );
+// AND WRITTEN on accept, onto the translation, as text.
+DZE_Translate::obj_write( $dze_o61, 61, [ 'meta:_theme_subtitle' => 'Conçu pour le terrain' ] );
+ok( 'and written onto the translation',
+	get_post_meta( 61, '_theme_subtitle', true ), 'Conçu pour le terrain' );
+// A key WPML has since switched to COPY is not written: the next sync would
+// put the original straight back over it.
+$GLOBALS['opts']['icl_sitepress_settings']['translation-management']['custom_fields_translation']['_theme_subtitle'] = 1;
+DZE_Translate::obj_write( $dze_o61, 61, [ 'meta:_theme_subtitle' => 'Autre' ] );
+ok( 'a key WPML copies since is left alone',      get_post_meta( 61, '_theme_subtitle', true ), 'Conçu pour le terrain' );
+$GLOBALS['opts']['icl_sitepress_settings']['translation-management']['custom_fields_translation']['_theme_subtitle'] = 2;
 // THE SEO PAIR IS THE ONE FIELD WHOSE KEY DEPENDS ON A PLUGIN BEING THERE.
 // "Translated" printed over a key that does not exist is a screen promising
 // work nobody does.
-ok( 'with an SEO plugin, the SEO pair is sent', $dze_said['SEO title'] ?? '', 'ok' );
+ok( 'with an SEO plugin, the SEO pair is sent', $dze_said['SEO title']['tone'] ?? '', 'ok' );
 $GLOBALS['no_seo'] = true;
 $dze_noseo = [];
 foreach ( DZE_Translate::field_report( 'post', 'product' ) as $dze_r ) { $dze_noseo[ $dze_r['label'] ] = $dze_r['tone']; }
@@ -1501,6 +1570,23 @@ ok( 'an empty field of the original is not a row',
 // 4. PUBLISH IT, or throw it away — side by side.
 ok( 'it ends with save and cancel, side by side',
 	[ substr_count( $dze_ed, 'id="dze-tr-publish"' ), substr_count( $dze_ed, 'id="dze-tr-drop"' ) ], [ 1, 1 ] );
+// WHICH FIELDS MOVED is on the row — the module's whole value, and the only
+// way to understand why "Translate automatically" left a field alone. Here
+// the translation exists and holds no register, so every field has moved.
+ok( 'a field whose words moved says so on its row',
+	substr_count( $dze_ed, 'dze-tr-moved' ) >= 1, true );
+// WHOSE TRANSLATION THIS IS: one not written here is replaced by a save, and
+// the screen says so before the press rather than in a string nobody printed.
+ok( 'a translation not written here is said so',
+	substr_count( $dze_ed, 'dze-tr-notmine' ), 1 );
+$GLOBALS['meta'][800]['_dze_tr_by'] = '1';
+ob_start(); DZE_Translate::instance()->render_page(); $dze_ed_mine = (string) ob_get_clean();
+ok( 'and one written here is not',
+	substr_count( $dze_ed_mine, 'dze-tr-notmine' ), 0 );
+unset( $GLOBALS['meta'][800]['_dze_tr_by'] );
+// CANCEL PUTS BACK WHAT THE TRANSLATION HOLDS: each field carries it.
+ok( 'every field carries what the translation holds today, for Cancel',
+	(bool) preg_match( '/data-field="title"[\s\S]*?data-was="Chemise"/', $dze_ed ), true );
 // AND NOT ONE WORD OF PLUMBING. "Il ne nous dit pas qu'il copie les variations
 // ou je ne sais quoi." No sync reported, no WCML named, no repair button.
 foreach ( [ 'WooCommerce Multilingual', 'Rebuild', 'variations —', 'Attribute terms' ] as $dze_leak ) {

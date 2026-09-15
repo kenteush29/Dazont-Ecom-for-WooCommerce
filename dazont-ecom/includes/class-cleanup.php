@@ -134,6 +134,10 @@ final class DZE_Cleanup {
 				// module that could not be wiped of half its own data would be
 				// a module missing from this map in all but name.
 				'term_meta' => [ '_dze_tr_by', '_dze_tr_src', '_dze_tr_wait' ],
+				// The per-kind reading of which WPML "Translate" custom fields
+				// hold text, kept an hour: an option name ending in `_` is a
+				// prefix here, as with every transient.
+				'transients' => [ 'dze_tr_keys_' ],
 			],
 			// A module that no longer ships. Its descriptors stay so an install
 			// that once used it can still be erased of what it left behind.
