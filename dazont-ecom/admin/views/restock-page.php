@@ -20,12 +20,12 @@ defined( 'ABSPATH' ) || exit;
 				<?php
 				printf(
 					/* translators: %s: formatted date/time */
-					esc_html__( 'Sales cache last updated: %s', 'dazont-ecom' ),
+					esc_html__( 'Sales counted on %s.', 'dazont-ecom' ),
 					esc_html( wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $last_recalc ) )
 				);
 				?>
 			<?php else : ?>
-				<?php esc_html_e( 'Sales cache never built — run a recalculation to populate the sales figures.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'Sales not counted yet — press Recalculate sales now.', 'dazont-ecom' ); ?>
 			<?php endif; ?>
 		</span>
 	</div>

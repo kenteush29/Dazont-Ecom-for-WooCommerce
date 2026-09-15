@@ -618,14 +618,16 @@ final class DZE_Gmc {
 			// believing the plugin is unreliable.
 			return $why;
 		}
-		// The path is BUILT from the catalogue, never typed: typed, it named
+		// The tab is NAMED from the catalogue, never typed: typed, it named
 		// "Marketing events" for months after that page was renamed
-		// "Marketing", and sent the shop looking for a screen that was not
-		// there.
+		// "Marketing". And it names the tab only — every screen that prints
+		// this sentence has the Reconnect button beside it (the Connections
+		// row, the notice, the Marketing screen itself), so a path spelt out
+		// in full was the same thing said twice on one line.
 		return sprintf(
-			/* translators: %s: the screen holding the Connect button, as the menu names it */
-			__( 'Google has revoked this connection — nothing will sync until it is reconnected. %s → Connect Google account again.', 'dazont-ecom' ),
-			DZE_Screens::name( 'marketing', 'gmc' )
+			/* translators: %s: the Google Merchant Center tab, as the screen names it */
+			__( 'Google has revoked this connection — nothing will sync until it is reconnected, under %s.', 'dazont-ecom' ),
+			(string) ( DZE_Screens::tabs_of( 'marketing' )['gmc'] ?? '' )
 		);
 	}
 

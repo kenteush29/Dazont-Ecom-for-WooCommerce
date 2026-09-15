@@ -927,9 +927,9 @@ $chips = DZE_Automation::chips_html( 'mesh_links' );
 ok( 'it says it is running',             false !== strpos( $chips, 'is-on' ), true );
 ok( 'and at what rhythm',                false !== strpos( $chips, '3 a day' ), true );
 ok( 'what waits for a person',
-	false !== strpos( $chips, 'is-wait' ) && false !== strpos( $chips, '>3<' ), true );
+	false !== strpos( $chips, 'is-wait' ) && false !== strpos( $chips, '>3 to review<' ), true );
 ok( 'and what went through',
-	false !== strpos( $chips, 'is-done' ) && false !== strpos( $chips, '>14<' ), true );
+	false !== strpos( $chips, 'is-done' ) && false !== strpos( $chips, '>14 written<' ), true );
 ok( 'with the moment it looks again',    false !== strpos( $chips, 'is-next' ), true );
 ok( 'every figure carries its own word', substr_count( $chips, 'title="' ) >= 4, true );
 // NOTHING TO SAY, NOTHING SAID: a nought on a chip reads as a task that failed.
@@ -1169,7 +1169,7 @@ $GLOBALS['opts']['dze_mesh_census'] = [
 ];
 $chips = DZE_Automation::chips_html( 'mesh_links' );
 ok( 'the figure is on the task that mends them',
-	1 === preg_match( '/is-orphan[^>]*>.*?41</s', $chips ), true );
+	1 === preg_match( '/is-orphan[^>]*>.*?41 unlinked</s', $chips ), true );
 ok( 'and it says what it counts',
 	false !== strpos( $chips, 'menus and breadcrumbs do not count' ), true );
 // AND ON NO OTHER TASK: the writing task and the calendar do not touch the

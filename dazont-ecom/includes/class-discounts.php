@@ -1321,7 +1321,7 @@ final class DZE_Discounts {
 					<option value="lists" <?php selected( 'lists', $where ); ?>><?php esc_html_e( 'on category pages', 'dazont-ecom' ); ?></option>
 					<option value="both" <?php selected( 'both', $where ); ?>><?php esc_html_e( 'in both places', 'dazont-ecom' ); ?></option>
 				</select>
-				<?php submit_button( __( 'Save', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
+				<?php submit_button( __( 'Save Changes', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
 			</p>
 			<p class="description">
 				<?php esc_html_e( '"On the product\'s own page" means the product being looked at, and nothing else on that page: the related products underneath are a grid of tiles and are treated as one. "On category pages" covers every grid — a category, a search, the home page, those related products — where thirty figures side by side is a wall of numbers.', 'dazont-ecom' ); ?>

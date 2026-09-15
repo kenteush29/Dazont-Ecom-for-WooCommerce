@@ -119,6 +119,13 @@ $GLOBALS['opts']['dze_marketing_ai'] = [ 'api_key' => 'sk-ant-SECRET-KEY' ];
 
 require __DIR__ . '/../' . $dir . '/includes/class-transfer.php';
 
+if ( in_array( '--dump-tab', (array) $argv, true ) ) {
+	ob_start();
+	DZE_Transfer::render_tab();
+	echo (string) ob_get_clean();
+	exit( 0 );
+}
+
 $ran = 0; $fails = 0;
 function ok( string $what, $got, $want ) {
 	global $fails, $ran;

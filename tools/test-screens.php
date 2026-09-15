@@ -238,5 +238,82 @@ ok( 'and so does the Sourcing view',
 ok( 'nothing is still called "Dazont Ecom — Something"',
 	array_values( array_filter( glob( __DIR__ . '/../' . $dir . '/includes/*.php' ), static fn( $f ) => false !== strpos( (string) file_get_contents( $f ), "__( 'Dazont Ecom — " ) ) ), [] );
 
+echo "\nTHE HOME SCREEN SAYS WHAT WAITS FOR A PERSON, FIRST\n";
+// The Dashboard said what sold and what was spent and nothing about the three
+// texts waiting for a yes, the translation nobody had read, the connection
+// down since Monday or the key never entered — the questions somebody opens
+// the plugin to answer. One block, first, one line per thing, read from the
+// module that owns each answer; a nought is not printed, and nothing waiting
+// says so in words. THE PAGE IS DRAWN, not the helper called: calling
+// `waiting()` proves the reader works and nothing about whether the screen
+// asks for it.
+function __n_stub() {}
+if ( ! function_exists( '_n' ) ) { function _n( $a, $b, $n, $d = '' ) { return 1 === (int) $n ? $a : $b; } }
+if ( ! function_exists( 'esc_html' ) ) { function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); } }
+if ( ! function_exists( 'esc_html__' ) ) { function esc_html__( $s, $d = '' ) { return esc_html( $s ); } }
+if ( ! function_exists( 'esc_attr' ) ) { function esc_attr( $s ) { return esc_html( $s ); } }
+if ( ! function_exists( 'esc_url' ) ) { function esc_url( $s ) { return (string) $s; } }
+if ( ! function_exists( 'number_format_i18n' ) ) { function number_format_i18n( $n, $d = 0 ) { return number_format( (float) $n, (int) $d ); } }
+if ( ! function_exists( 'is_admin' ) ) { function is_admin() { return true; } }
+if ( ! function_exists( 'add_action' ) ) { function add_action( ...$a ) {} }
+if ( ! function_exists( 'current_user_can' ) ) { function current_user_can( ...$a ) { return true; } }
+if ( ! function_exists( 'wp_die' ) ) { function wp_die( $m = '' ) { throw new RuntimeException( (string) $m ); } }
+if ( ! function_exists( 'get_transient' ) ) { function get_transient( $k ) { return $GLOBALS['dze_trans'][ $k ] ?? false; } }
+if ( ! function_exists( 'set_transient' ) ) { function set_transient( $k, $v, $t = 0 ) { $GLOBALS['dze_trans'][ $k ] = $v; return true; } }
+if ( ! function_exists( 'current_time' ) ) { function current_time( $t = 'timestamp' ) { return 'timestamp' === $t ? time() : gmdate( 'Y-m-d' ); } }
+if ( ! function_exists( 'get_option' ) ) { function get_option( $k, $d = false ) { return $d; } }
+if ( ! function_exists( 'get_term_meta' ) ) { function get_term_meta( ...$a ) { return 0; } }
+if ( ! function_exists( 'human_time_diff' ) ) { function human_time_diff( ...$a ) { return '1 hour'; } }
+if ( ! function_exists( 'date_i18n' ) ) { function date_i18n( $f, $t = null ) { return gmdate( $f, $t ?? time() ); } }
+if ( ! function_exists( 'wc_get_product' ) ) { function wc_get_product( $id ) { return null; } }
+if ( ! defined( 'HOUR_IN_SECONDS' ) ) { define( 'HOUR_IN_SECONDS', 3600 ); }
+if ( ! defined( 'ARRAY_A' ) ) { define( 'ARRAY_A', 'ARRAY_A' ); }
+$GLOBALS['wpdb'] = new class { public $prefix = 'wp_'; public $posts = 'wp_posts'; public $postmeta = 'wp_postmeta'; public $termmeta = 'wp_termmeta'; public function prepare( $q, ...$a ) { return $q; } public function get_results( ...$a ) { return []; } public function get_var( ...$a ) { return null; } };
+// The modules that own each answer, answering what the fake shop holds.
+$GLOBALS['dze_wait'] = [ 'queue' => 3, 'bulk' => 2, 'tr' => 1, 'cal' => 0, 'down' => [], 'todo' => [] ];
+class DZE_Queue      { public static function review_count() { return (int) $GLOBALS['dze_wait']['queue']; } }
+class DZE_Content    { public static function pending_count() { return (int) $GLOBALS['dze_wait']['bulk']; } }
+class DZE_Translate  { public static function review_count() { return (int) $GLOBALS['dze_wait']['tr']; } }
+class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function pending_count() { return (int) $GLOBALS['dze_wait']['cal']; } }
+class DZE_Health     { public static function state() { $c = []; foreach ( (array) $GLOBALS['dze_wait']['down'] as $id ) { $c[ $id ] = [ 'state' => 'down' ]; } return [ 'checks' => $c ]; } public static function labels() { return [ 'gmc' => 'Google Merchant Center', 'fal' => 'fal.ai (the images)' ]; } }
+class DZE_Setup      { public static function score() { return [ 'done' => 3, 'need' => 10, 'todo' => (array) $GLOBALS['dze_wait']['todo'] ]; } }
+class DZE_Restock    { const MENU_SLUG = 'dazont-ecom'; public static function get_line_index() { return []; } public static function get_line_sales( $id ) { return 0; } }
+class DZE_Explorer   { const MENU_SLUG = 'dazont-ecom-explorer'; const META_RESEARCHED = '_dze_researched'; }
+class DZE_Discounts  { const MENU_SLUG = 'dazont-ecom-discounts'; const MENU_SLUG_EVENTS = 'dazont-ecom-marketing-events'; public static function get_rules() { return []; } }
+class DZE_Ai_Usage   { public static function render_graph( ...$a ) { echo '<div id="dze-usage-graph"></div>'; } }
+require __DIR__ . '/../' . $dir . '/includes/class-dashboard.php';
+$GLOBALS['off'] = [];
+ob_start(); DZE_Dashboard::instance()->render_page(); $dze_home = (string) ob_get_clean();
+$dze_first = (int) strpos( $dze_home, 'Waiting for you' );
+ok( 'the page draws the block',                  false !== strpos( $dze_home, 'Waiting for you' ), true );
+ok( 'and draws it FIRST',                        $dze_first > 0 && $dze_first < (int) strpos( $dze_home, 'Top categories' ), true );
+ok( 'content waiting adds the queue and the bulk screen', false !== strpos( $dze_home, '5 pieces of content wait for your yes or no' ), true );
+ok( 'and goes to Content to review',             false !== strpos( $dze_home, DZE_Screens::url( 'review' ) ), true );
+ok( 'one translation, in the singular',          false !== strpos( $dze_home, '1 translation waits to be read' ), true );
+ok( 'and goes to the Translations review tab',   false !== strpos( $dze_home, DZE_Screens::url( 'translations', 'review' ) ), true );
+ok( 'a nought is not printed',                   false !== strpos( $dze_home, 'suggested by the calendar' ), false );
+ok( 'nothing down, no line about connections',   false !== strpos( $dze_home, 'not answering' ), false );
+ok( 'nothing to set up, no line about setup',    false !== strpos( $dze_home, 'still to set up' ), false );
+ok( 'and the spend link goes to the Logs, not to Settings', false !== strpos( $dze_home, DZE_Screens::url( 'logs', 'spend' ) ) && false === strpos( $dze_home, 'Open Settings' ), true );
+ok( 'the marketing link is named by the catalogue', false !== strpos( $dze_home, 'Open Marketing →' ), true );
+// A connection down and a key missing are lines too, each on its own screen.
+$GLOBALS['dze_wait'] = [ 'queue' => 0, 'bulk' => 0, 'tr' => 0, 'cal' => 2, 'down' => [ 'gmc' ], 'todo' => [ 'fal.ai key', 'Klaviyo key' ] ];
+ob_start(); DZE_Dashboard::instance()->render_page(); $dze_home = (string) ob_get_clean();
+ok( 'the calendar\'s suggestions',               false !== strpos( $dze_home, '2 promotions suggested by the calendar wait for an answer' ), true );
+ok( 'named where they are answered',             false !== strpos( $dze_home, DZE_Screens::url( 'marketing', 'events' ) ), true );
+ok( 'a connection down names the connection',    false !== strpos( $dze_home, 'Google Merchant Center is not answering' ), true );
+ok( 'and goes to the Connections log',           false !== strpos( $dze_home, DZE_Screens::url( 'logs', 'health' ) ), true );
+ok( 'what is not set up says how many and the first', false !== strpos( $dze_home, '2 things are still to set up, starting with fal.ai key' ), true );
+ok( 'and goes to Setup',                         false !== strpos( $dze_home, DZE_Screens::url( 'setup' ) ), true );
+ok( 'no content line when nothing waits',        false !== strpos( $dze_home, 'wait for your yes or no' ), false );
+// A MODULE SWITCHED OFF CONTRIBUTES NOTHING — the translation module off is
+// not a shop with no translations to read, it is a shop without the module.
+$GLOBALS['dze_wait'] = [ 'queue' => 0, 'bulk' => 0, 'tr' => 4, 'cal' => 0, 'down' => [], 'todo' => [] ];
+$GLOBALS['off'] = [ 'translate' ];
+ob_start(); DZE_Dashboard::instance()->render_page(); $dze_home = (string) ob_get_clean();
+ok( 'translations off: no translation line',     false !== strpos( $dze_home, 'translation' ), false );
+ok( 'and nothing waiting says so in words',      false !== strpos( $dze_home, 'Nothing is waiting for you.' ), true );
+$GLOBALS['off'] = [];
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

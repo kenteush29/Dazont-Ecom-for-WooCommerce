@@ -850,7 +850,7 @@ PROMPT;
 					</td>
 				</tr>
 			</table>
-			<?php submit_button( __( 'Save review settings', 'dazont-ecom' ) ); ?>
+			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
 		</div>
 		<script>

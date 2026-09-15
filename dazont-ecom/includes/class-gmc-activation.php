@@ -640,32 +640,4 @@ final class DZE_Gmc_Activation {
 		</script>
 		<?php
 	}
-
-	// =========================================================================
-	// Settings tab (invoked from the Settings page)
-	// =========================================================================
-
-	public function render_settings(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return;
-		}
-		?>
-		<div class="dze-admin">
-		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Decides which products and variations are sent to Google Merchant Center. The goal: ONE entry per real product picture — never the same photo twice.', 'dazont-ecom' ); ?>
-		</p>
-		<ul style="max-width:880px;list-style:disc;padding-left:20px;">
-			<li><?php esc_html_e( 'Simple products and variable parents: always sent.', 'dazont-ecom' ); ?></li>
-			<li><?php esc_html_e( 'Variations with their own photo: sent once per distinct photo (duplicates skipped).', 'dazont-ecom' ); ?></li>
-			<li><?php esc_html_e( 'Variations without any photo: one per colour (the product\'s colour attribute is detected automatically; its first attribute is used when there is no colour).', 'dazont-ecom' ); ?></li>
-		</ul>
-		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Special cases (e.g. a rug where only one size matches the photo) are refined product by product: "GMC activation" button in the Dazont Ecom box on the product page.', 'dazont-ecom' ); ?>
-			<?php if ( self::wpml_active() ) : ?>
-				<br /><strong>WPML:</strong> <?php esc_html_e( 'every choice is copied to all translations — one decision per product, whatever the language.', 'dazont-ecom' ); ?>
-			<?php endif; ?>
-		</p>
-		</div>
-		<?php
-	}
 }

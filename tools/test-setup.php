@@ -95,10 +95,10 @@ class DZE_Klaviyo {
 	public static function key() { return $GLOBALS['keys']['klaviyo'] ?? ''; }
 	public static function setup_items() {
 		return [
-			[ 'label' => 'Add your Klaviyo API key', 'url' => 'u1', 'need' => true,  'done' => '' !== self::key(), 'note' => 'n1' ],
-			[ 'label' => 'Choose who the emails go to', 'url' => 'u2', 'need' => true,  'done' => ! empty( $GLOBALS['klav_inc'] ), 'note' => 'n2' ],
-			[ 'label' => 'Leave out your recent buyers', 'url' => 'u3', 'need' => false, 'done' => false, 'note' => 'Recommended, not required' ],
-			[ 'label' => 'Take the header and footer from Klaviyo', 'url' => 'u4', 'need' => true, 'done' => ! empty( $GLOBALS['klav_shell'] ), 'note' => 'n4' ],
+			[ 'label' => 'Klaviyo key', 'do' => 'Add the key', 'url' => 'u1', 'need' => true,  'done' => '' !== self::key(), 'note' => 'n1' ],
+			[ 'label' => 'Who the emails go to', 'do' => 'Choose', 'url' => 'u2', 'need' => true,  'done' => ! empty( $GLOBALS['klav_inc'] ), 'note' => 'n2' ],
+			[ 'label' => 'Recent buyers left out', 'do' => 'Choose', 'url' => 'u3', 'need' => false, 'done' => false, 'note' => 'Recommended, not required' ],
+			[ 'label' => 'Header and footer from Klaviyo', 'do' => 'Read it', 'url' => 'u4', 'need' => true, 'done' => ! empty( $GLOBALS['klav_shell'] ), 'note' => 'n4' ],
 		];
 	}
 }
@@ -236,21 +236,21 @@ echo "\nThe email lines are Klaviyo's own\n";
 blank();
 $labels = array_map( static fn( array $s ): string => (string) $s['label'], DZE_Setup::steps() );
 ok( 'the key line is the module\'s own',
-	in_array( 'Add your Klaviyo API key', $labels, true ), true );
+	in_array( 'Klaviyo key', $labels, true ), true );
 ok( 'and so is the frame',
-	in_array( 'Take the header and footer from Klaviyo', $labels, true ), true );
+	in_array( 'Header and footer from Klaviyo', $labels, true ), true );
 // A RECOMMENDATION IS NOT A SHORTFALL. Counting "leave out your recent
 // buyers" as missing is how a notice never goes away.
 $todo = DZE_Setup::score()['todo'];
 ok( 'a required line is counted',
-	in_array( 'Add your Klaviyo API key', $todo, true ), true );
+	in_array( 'Klaviyo key', $todo, true ), true );
 ok( 'a recommended one is not',
-	in_array( 'Leave out your recent buyers', $todo, true ), false );
+	in_array( 'Recent buyers left out', $todo, true ), false );
 // A SUGGESTION DOES NOT WEAR THE WORD "TO DO". The figure at the top counts
 // what is asked of this shop; a block chip counting something else is one
 // screen saying two things.
 ok( 'and it is marked as a suggestion',
-	step( 'klaviyo_leave_out_your_recent_buyers' )['state'], 'idea' );
+	step( 'klaviyo_recent_buyers_left_out' )['state'], 'idea' );
 
 echo "\nThe notice, while something is missing\n";
 blank();
@@ -371,7 +371,7 @@ ob_start();
 DZE_Setup::render( 'Emails are not set up yet', DZE_Klaviyo::setup_items() );
 $inline = (string) ob_get_clean();
 ok( 'it draws where it was asked for',  false !== strpos( $inline, 'Emails are not set up yet' ), true );
-ok( 'naming what is missing',           false !== strpos( $inline, 'Add your Klaviyo API key' ), true );
+ok( 'naming what is missing',           false !== strpos( $inline, 'Klaviyo key' ), true );
 ok( 'with the way to each one',         false !== strpos( $inline, 'href="u1"' ), true );
 ok( 'and the way to the whole screen',  false !== strpos( $inline, 'page=dze-setup' ), true );
 // A CHECKLIST WITH NOTHING LEFT ON IT IS A BOX IN THE WAY.

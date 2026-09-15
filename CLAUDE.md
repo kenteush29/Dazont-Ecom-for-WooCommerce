@@ -665,6 +665,31 @@ whose screen has not been thought through yet.
   screen, grep for its shape on the others: `dze-cx-icon` and a bare
   `&#9998;` are the two ways a lone pencil is written here.
 
+- **A TOUR IS DONE FROM THE OWNER'S CHAIR, WITH EVERY SCREEN IN FRONT OF
+  YOU — never from a grep.** "Tu n'as rien fait vraiment pour l'UX, n'est-ce
+  pas ?" A pass that read the code found a dozen slugs and not one of the
+  things the owner sees: a home screen linking the spend to Settings months
+  after it moved to the Logs, a budget sentence pointing at "the usage graph
+  below" that was no longer below, a Translation tab describing a module two
+  versions old, a Settings tab holding no control at all, "Delete" beside a
+  product's name for a button that shortens a list, nine wordings for one
+  Save button, chips reading "5 · 3 · 14" with the words on hover only.
+  `node tools/js/tour.mjs` photographs every screen the plugin prints — the
+  gates' own dump modes for the pages they draw, `tools/tour-dump.php` for
+  the ones no gate draws — into the scratchpad, and the tour is READING those
+  pictures one by one and writing down what gêne before touching anything.
+  Three rules from it: a harness that stubs a tab body photographs a tab bar
+  and proves nothing, so every body is drawn by the class that owns it; what
+  the picture shows that the shop does not (a stub's "EN EN", a harness's
+  "1 mins") is checked against the code before it is called a fault; and the
+  list goes to the owner BEFORE the release, in his words, screen by screen.
+  **And the home screen says what WAITS for a person, first** — content to
+  review, translations to read, calendar suggestions, a connection down, a
+  step not set up — one line per thing, read from the module that owns each
+  answer, a nought never printed, a module switched off contributing
+  nothing, and "Nothing is waiting for you." in words when that is the state.
+  `test-screens.php` DRAWS the page for it.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They

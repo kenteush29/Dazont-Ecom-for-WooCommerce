@@ -185,7 +185,12 @@ final class DZE_Klaviyo {
 			: '';
 		return [
 			[
-				'label' => __( 'Add your Klaviyo API key', 'dazont-ecom' ),
+				// NOUNS, like every other row of the Setup screen: "Add your
+				// Klaviyo API key" beside "Anthropic key" was two shapes for
+				// one list, and "Set it up" beside "Add the key" two words for
+				// one gesture.
+				'label' => __( 'Klaviyo key', 'dazont-ecom' ),
+				'do'    => __( 'Add the key', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-key',
 				// REQUIRED IS WHAT `ready()` TESTS, said here so every screen
 				// that draws this list reads the same answer — three of these
@@ -195,21 +200,24 @@ final class DZE_Klaviyo {
 				'note'  => DZE_Api_Keys::hint( 'klaviyo' )['what'],
 			],
 			[
-				'label' => __( 'Choose who the emails go to', 'dazont-ecom' ),
+				'label' => __( 'Who the emails go to', 'dazont-ecom' ),
+				'do'    => __( 'Choose', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-inc',
 				'need'  => true,
 				'done'  => '' !== (string) self::conf( 'included' ),
 				'note'  => __( 'Normally all your contacts, minus your recent buyers.', 'dazont-ecom' ),
 			],
 			[
-				'label' => __( 'Leave out your recent buyers', 'dazont-ecom' ),
+				'label' => __( 'Recent buyers left out', 'dazont-ecom' ),
+				'do'    => __( 'Choose', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-exc',
 				'need'  => false,
 				'done'  => '' !== (string) self::conf( 'excluded' ),
 				'note'  => __( 'Recommended, not required: a sale announced to somebody who paid full price three days ago earns a refund request.', 'dazont-ecom' ),
 			],
 			[
-				'label' => __( 'Take the header and footer from Klaviyo', 'dazont-ecom' ),
+				'label' => __( 'Header and footer from Klaviyo', 'dazont-ecom' ),
+				'do'    => __( 'Read it', 'dazont-ecom' ),
 				'url'   => $tab . '#dze-klav-th',
 				'need'  => true,
 				'done'  => '' !== trim( (string) ( self::settings()['shell'] ?? '' ) ),
@@ -9241,7 +9249,7 @@ CSS;
 			if ( $dze_card ) {
 				DZE_Prompts::card_close();
 			}
-			submit_button( __( 'Save email settings', 'dazont-ecom' ) );
+			submit_button( __( 'Save Changes', 'dazont-ecom' ) );
 			?>
 		</form>
 		<?php

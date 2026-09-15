@@ -1,0 +1,67 @@
+/*
+ * Enough of wp-admin for a screenshot to read like the real screen.
+ *
+ * The tour photographs every page of the plugin outside WordPress, so the
+ * admin stylesheet is not there. This is the handful of rules the plugin's
+ * markup leans on — the page font, the wrap, the tables, the buttons, the tab
+ * strip, the notices, the form tables — copied close enough to WordPress's own
+ * that what is wrong on the picture is wrong on the shop, and not a harness
+ * artefact. It is never loaded by the plugin.
+ */
+html { background: #f0f0f1; }
+body { margin: 0; padding: 20px 20px 40px 20px; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; color: #1d2327; }
+.wrap { margin: 10px 20px 0 2px; }
+h1 { font-size: 23px; font-weight: 400; margin: 0 0 12px; padding: 9px 0 4px; line-height: 1.3; color: #1d2327; }
+h2 { font-size: 1.3em; margin: 1em 0; font-weight: 600; }
+h2.title { font-size: 1.3em; margin: 1.6em 0 .6em; }
+h3 { font-size: 1.1em; margin: 1em 0; }
+a { color: #2271b1; text-decoration: underline; }
+a:hover { color: #135e96; }
+p { margin: 1em 0; }
+code { font-family: Consolas, Monaco, monospace; font-size: 13px; background: rgba(0,0,0,.07); padding: 3px 5px 2px; border-radius: 3px; }
+.description { color: #646970; font-size: 13px; font-style: normal; }
+p.description { margin: 4px 0 0; }
+.button, .button-primary, .button-secondary { display: inline-block; text-decoration: none; font-size: 13px; line-height: 2.15384615; min-height: 30px; margin: 0; padding: 0 10px; cursor: pointer; border: 1px solid #2271b1; border-radius: 3px; color: #2271b1; background: #f6f7f7; vertical-align: top; box-sizing: border-box; font-family: inherit; }
+.button-primary { background: #2271b1; color: #fff; border-color: #2271b1; }
+.button-small, .button.button-small { font-size: 11px; line-height: 2.18181818; min-height: 26px; padding: 0 8px; }
+.button-link { background: none; border: 0; color: #2271b1; text-decoration: underline; cursor: pointer; padding: 0; font-size: 13px; font-family: inherit; }
+.button:disabled, .button[disabled] { color: #a7aaad !important; border-color: #dcdcde !important; background: #f6f7f7 !important; }
+.nav-tab-wrapper, h2.nav-tab-wrapper, nav.nav-tab-wrapper { border-bottom: 1px solid #c3c4c7; margin: 0; padding-top: 9px; padding-bottom: 0; line-height: inherit; }
+.nav-tab { float: left; border: 1px solid #c3c4c7; border-bottom: none; margin-left: .5em; padding: 5px 10px; font-size: 14px; line-height: 1.71428571; font-weight: 600; background: #dcdcde; color: #50575e; text-decoration: none; white-space: nowrap; }
+.nav-tab-active, .nav-tab-active:hover { margin-bottom: -1px; border-bottom: 1px solid #f0f0f1; background: #f0f0f1; color: #1d2327; }
+.nav-tab-wrapper::after { content: ""; display: table; clear: both; }
+.widefat { border-spacing: 0; width: 100%; clear: both; margin: 0; border: 1px solid #c3c4c7; background: #fff; box-shadow: 0 1px 1px rgba(0,0,0,.04); }
+.widefat th, .widefat td { padding: 8px 10px; text-align: left; vertical-align: top; }
+.widefat thead th { border-bottom: 1px solid #c3c4c7; font-weight: 400; }
+.widefat.striped > tbody > :nth-child(odd), ul.striped > :nth-child(odd) { background: #f6f7f7; }
+.widefat td { color: #2c3338; }
+.form-table { border-collapse: collapse; margin-top: .5em; width: 100%; clear: both; }
+.form-table th { vertical-align: top; text-align: left; padding: 20px 10px 20px 0; width: 200px; line-height: 1.3; font-weight: 600; }
+.form-table td { margin-bottom: 9px; padding: 15px 10px; line-height: 1.3; vertical-align: middle; }
+input[type=text], input[type=password], input[type=number], input[type=search], textarea, select { border: 1px solid #8c8f94; border-radius: 4px; padding: 0 8px; line-height: 2; min-height: 30px; font-size: 14px; color: #2c3338; background: #fff; box-shadow: 0 0 0 transparent; font-family: inherit; }
+textarea { padding: 2px 6px; line-height: 1.4; }
+.regular-text { width: 25em; }
+.large-text { width: 99%; }
+.small-text { width: 50px; }
+input[type=checkbox], input[type=radio] { border: 1px solid #8c8f94; border-radius: 4px; background: #fff; height: 1rem; width: 1rem; margin: -.25rem .25rem 0 0; vertical-align: middle; }
+.notice { background: #fff; border: 1px solid #c3c4c7; border-left-width: 4px; box-shadow: 0 1px 1px rgba(0,0,0,.04); margin: 5px 15px 2px; padding: 1px 12px; }
+.notice p { margin: .5em 0; padding: 2px; }
+.notice-error { border-left-color: #d63638; }
+.notice-warning { border-left-color: #dba617; }
+.notice-success { border-left-color: #00a32a; }
+.notice-info { border-left-color: #72aee6; }
+.notice.inline { margin: 5px 0 15px; }
+.dashicons { font-family: sans-serif; display: inline-block; width: 20px; height: 20px; font-size: 20px; line-height: 1; vertical-align: top; }
+.dashicons-external::before { content: "↗"; font-size: 14px; }
+.dashicons-yes-alt::before { content: "✓"; }
+.dashicons-warning::before { content: "⚠"; }
+.update-plugins { display: inline-block; vertical-align: top; box-sizing: border-box; margin: 1px 0 -1px 2px; padding: 0 5px; min-width: 18px; height: 18px; border-radius: 9px; background-color: #d63638; color: #fff; font-size: 9px; line-height: 1.6; text-align: center; }
+details > summary { cursor: pointer; }
+.wp-heading-inline { display: inline-block; margin-right: 5px; }
+.wp-header-end { visibility: hidden; margin: -2px 0 0; }
+.tablenav { clear: both; height: 30px; margin: 6px 0 4px; padding-top: 5px; }
+.tablenav-pages { float: right; margin: 0 0 9px; }
+.subsubsub { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; float: left; color: #646970; }
+.subsubsub li { display: inline-block; margin: 0; padding: 0; white-space: nowrap; }
+.column-cb { width: 2.2em; }
+.fixed { table-layout: fixed; }

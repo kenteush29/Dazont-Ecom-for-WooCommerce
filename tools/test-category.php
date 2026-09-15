@@ -256,9 +256,12 @@ class DZE_Queue {
 }
 /** The writing service. It answers what the test tells it to. */
 class DZE_Marketing_Ai {
+	const MENU_SLUG = 'dazont-ecom-ai';
 	public static string $answer = '';
 	public static array $sent = [];
 	public static function api_key(): string { return $GLOBALS['key'] ?? ''; }
+	public static function available_models(): array { return [ 'claude-opus-4-8' => 'Claude Opus 4.8', 'claude-sonnet-4-5' => 'Claude Sonnet 4.5', 'claude-haiku-4-5-20251001' => 'Claude Haiku 4.5' ]; }
+	public static function tab_links(): array { return []; }
 	public static function get_settings(): array { return []; }
 	/** A stub that READS the request, so a call sending the wrong thing cannot pass. */
 	public static $decide = null;
@@ -293,7 +296,7 @@ function wp_enqueue_editor() {}
 function wp_enqueue_style( ...$a ) {}
 function wp_style_is( ...$a ) { return true; }
 function did_action( $a ) { return 0; }
-function submit_button( ...$a ) {}
+function submit_button( $t = 'Save Changes', ...$a ) { echo '<p class="submit"><button class="button button-primary">' . esc_html( (string) ( $t ?: 'Save Changes' ) ) . '</button></p>'; }
 function get_admin_page_title() { return ''; }
 function wp_nonce_field( ...$a ) { return ''; }
 function size_format( $n ) { return (string) $n; }
@@ -473,6 +476,21 @@ ok( 'nothing beyond the ceiling',       count( $on ) <= 12, true );
 
 // The markup the browser gate presses, assembled the way the plugin
 // assembles it: the panel, and the popup the screen prints for it.
+if ( in_array( '--dump-settings', $argv, true ) ) {
+	if ( ! function_exists( 'add_query_arg' ) ) { function add_query_arg( $args, $url = '' ) { return (string) $url . '?' . http_build_query( (array) $args ); } }
+	if ( ! function_exists( 'admin_url' ) ) { function admin_url( $p = '' ) { return 'http://dze.test/wp-admin/' . $p; } }
+	if ( ! function_exists( 'wp_nonce_field' ) ) { function wp_nonce_field( ...$a ) { echo '<input type="hidden" name="_wpnonce" value="n" />'; } }
+	if ( ! function_exists( 'settings_fields' ) ) { function settings_fields( $g ) { echo '<input type="hidden" name="option_page" value="' . esc_attr( $g ) . '" />'; } }
+	if ( ! function_exists( 'submit_button' ) ) { function submit_button( $t = 'Save Changes', $type = 'primary', $n = 'submit', $wrap = true ) { echo '<p class="submit"><button class="button button-primary">' . esc_html( $t ) . '</button></p>'; } }
+	if ( ! function_exists( 'checked' ) ) { function checked( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? ' checked="checked"' : ''; if ( $e ) { echo $r; } return $r; } }
+	if ( ! function_exists( 'selected' ) ) { function selected( $a, $b = true, $e = true ) { $r = ( (string) $a === (string) $b ) ? ' selected="selected"' : ''; if ( $e ) { echo $r; } return $r; } }
+	ob_start();
+	DZE_Category_Content::instance()->render_settings();
+	$dze_set = (string) ob_get_clean();
+	file_put_contents( 'php://stderr', sprintf( "\n%d checks, %d wrong\n", $ran, $fails ) );
+	echo $dze_set;
+	exit( $fails ? 1 : 0 );
+}
 if ( in_array( '--dump-panel', $argv, true ) ) {
 	ob_start();
 	DZE_Prompts::render_modal();

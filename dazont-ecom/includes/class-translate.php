@@ -877,7 +877,17 @@ final class DZE_Translate {
 			</p></div>
 		<?php endif; ?>
 		<p class="description" style="max-width:900px;">
-			<?php esc_html_e( 'Translates the written content of a product into the other languages of the site, through the Anthropic key on the General tab. Price, stock, attributes and images are left to WooCommerce Multilingual. Open a product and use "Translate" in the Dazont Ecom box.', 'dazont-ecom' ); ?>
+			<?php
+			// The sentence used to describe the module as it was two versions
+			// ago — "a product", a button in the Dazont Ecom box — and sent the
+			// shop looking for a screen that no longer exists. The way in is
+			// read from the catalogue.
+			printf(
+				/* translators: %s: link to the Translations screen */
+				esc_html__( 'Translates products, articles, pages and the taxonomies WPML translates into the site\'s other languages, and holds every translation for a yes or a no. The work is under %s.', 'dazont-ecom' ),
+				'<a href="' . esc_url( DZE_Screens::url( 'translations' ) ) . '">' . esc_html( DZE_Screens::name( 'translations' ) ) . '</a>'
+			);
+			?>
 		</p>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_translate_options' ); ?>
@@ -980,7 +990,7 @@ final class DZE_Translate {
 					</td>
 				</tr>
 			</table>
-			<?php submit_button( __( 'Save translation settings', 'dazont-ecom' ) ); ?>
+			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
 		</div>
 		<script>

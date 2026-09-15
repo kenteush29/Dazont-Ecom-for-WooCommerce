@@ -152,8 +152,8 @@ for ( const [ label, jq ] of jqs ) {
 				state: '<p class="dze-auto-next">Next in line: Boonie hats</p>',
 				chips: '<span class="dze-auto-chips" data-task="' + q.get( 'task' ) + '">'
 					+ '<span class="dze-auto-chip is-on"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
-					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41</button>'
-					+ '<span class="dze-auto-chip is-wait"><span class="dashicons dashicons-visibility"></span>9</span>'
+					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41 unlinked</button>'
+					+ '<span class="dze-auto-chip is-wait"><span class="dashicons dashicons-visibility"></span>9 to review</span>'
 					+ '</span>',
 				log: '<ul><li>Internal linking · Boonie hats</li></ul>'
 			} } ) } );
@@ -252,8 +252,8 @@ for ( const [ label, jq ] of jqs ) {
 			return route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
 				chips: { mesh_links: '<span class="dze-auto-chips" data-task="mesh_links">'
 					+ '<span class="dze-auto-chip is-on" title="Running on its own"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
-					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41</button>'
-					+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1</span>'
+					+ '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them."><span class="dashicons dashicons-editor-unlink"></span>41 unlinked</button>'
+					+ '<span class="dze-auto-chip is-wait" title="Waiting for your yes or no"><span class="dashicons dashicons-visibility"></span>1 to review</span>'
 					+ '</span>' },
 				waiting: waitingNow(),
 				log: '<ul><li>Internal linking · Tactical backpack covers</li></ul>'
@@ -267,7 +267,7 @@ for ( const [ label, jq ] of jqs ) {
 			// The answer carries the LINE as it now stands, not only the body.
 			chips: '<span class="dze-auto-chips" data-task="' + q.get( 'task' ) + '">'
 				+ '<span class="dze-auto-chip is-on"><span class="dashicons dashicons-controls-play"></span>3 a day</span>'
-				+ '<span class="dze-auto-chip is-wait"><span class="dashicons dashicons-visibility"></span>4</span>'
+				+ '<span class="dze-auto-chip is-wait"><span class="dashicons dashicons-visibility"></span>4 to review</span>'
 				+ '</span>',
 			log: '<ul><li>Internal linking · Boonie hats</li></ul>'
 		} } ) } );
@@ -368,7 +368,9 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the rhythm, the orphans, the waiting, the written and the next look',
 		chips.kinds, [ 'is-on', 'is-orphan dze-auto-orph', 'is-wait', 'is-done', 'is-next' ] );
 	ok( 'with the figures on them',         chips.text.slice( 0, 4 ),
-		[ '3 a day', String( dumped.orphans ), '3', '14' ] );
+		// A NUMBER WITH NO UNIT IS A NUMBER NOBODY CAN READ: each figure
+		// carries its word on the chip, not only on hover.
+		[ '3 a day', dumped.orphans + ' unlinked', '3 to review', '14 written' ] );
 	// THE FIGURE FOR THE PAGES NOTHING POINTS AT sits on the task that is the
 	// only thing that mends them, and says so on its own hover.
 	ok( 'and the orphan figure says whose work it is',
@@ -544,7 +546,7 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'the tick decides that job',        [ yes.action, yes.id, yes.accept ], [ 'dze_q_decide', '41', '1' ] );
 	ok( 'the block re-reads itself',        settled, true );
 	ok( 'and its figures follow the rows',
-		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-chip.is-wait' ).catch( () => '' ) || '' ).trim(), '1' );
+		( await page.textContent( '.dze-auto-task:first-of-type .dze-auto-chip.is-wait' ).catch( () => '' ) || '' ).trim(), '1 to review' );
 
 	// ---- THE WHOLE SITE IN ONE PRESS ----
 	// "J'aurais même bien aimé pouvoir lancer le maillage interne de tout le

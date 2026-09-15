@@ -121,12 +121,16 @@ $GLOBALS['reply'] = [ 'body' => json_encode( [
 [ $tok, $err ] = token();
 ok( 'no token, and a sentence instead',  $tok, '' );
 ok( 'in the shop\'s words, not Google\'s', false !== strpos( $err, 'Google has revoked this connection' ), true );
-// The path is the one that EXISTS, built from the catalogue: this sentence
+// The tab is the one that EXISTS, named from the catalogue: this sentence
 // sent the shop to "Settings → Google Merchant Center", then for months to
 // "Marketing events" — a page renamed "Marketing" — because it was typed.
-ok( 'with the one thing to do',          false !== strpos( $err, 'Connect Google account again' ), true );
-ok( 'and where that screen really is',   false !== strpos( $err, DZE_Screens::name( 'marketing', 'gmc' ) ), true );
-ok( 'which is the name the menu shows',  false !== strpos( $err, 'Dazont Ecom → Marketing → Google Merchant Center' ), true );
+// It names the TAB and nothing more: every screen printing it has the
+// Reconnect button beside it, and the full path spelt out next to a button
+// that goes there was the same thing said twice on one line.
+ok( 'with the one thing to do',          false !== strpos( $err, 'until it is reconnected' ), true );
+ok( 'and which tab that is',             false !== strpos( $err, DZE_Screens::tabs_of( 'marketing' )['gmc'] ), true );
+ok( 'which is the name the screen shows', false !== strpos( $err, 'under Google Merchant Center' ), true );
+ok( 'and not a path beside the button',  false !== strpos( $err, '→ Connect' ), false );
 ok( 'and not the one it had before',     false !== strpos( $err, 'Marketing events' ), false );
 ok( 'and it is written down',            DZE_Gmc::broken_since() > 0, true );
 ok( 'the dead access token is dropped',  get_transient( 'dze_gmc_oauth_token' ), false );
