@@ -278,10 +278,26 @@ final class DZE_Prompts {
 			if ( ! self::save_text( $id, $text ) ) {
 				wp_send_json_error( [ 'message' => __( 'This prompt cannot be saved from here.', 'dazont-ecom' ) ] );
 			}
+			// NOTHING TICKED IS AN ANSWER, and ABSENT is not the same answer:
+			// the popup posts `inputs_sent` whenever it drew the boxes, so an
+			// empty list means "send this prompt no product data at all" while
+			// a request that never carried them leaves the row as it stands.
+			// Read with `?? []` both would have written the same thing.
+			if ( isset( $_POST['inputs_sent'] ) && class_exists( 'DZE_Content' ) ) {
+				DZE_Content::set_prompt_inputs(
+					$id,
+					isset( $_POST['inputs'] )
+						? array_map( 'sanitize_key', (array) wp_unslash( $_POST['inputs'] ) )
+						: []
+				);
+			}
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		wp_send_json_success( [ 'saved' => true ] );
+		// WHAT IS SENT WITH IT IS READ BACK FROM THE ROW, not echoed from the
+		// request: a list the screen redraws from what it just posted cannot
+		// disagree with itself, and cannot notice when the write did nothing.
+		wp_send_json_success( [ 'saved' => true, 'data' => self::data_for( $id ) ] );
 	}
 
 	/**
@@ -724,14 +740,31 @@ final class DZE_Prompts {
 				</p>
 				<details id="dze-prompt-data" style="margin:10px 0 0;display:none;">
 					<summary style="cursor:pointer;font-size:12px;color:#2271b1;"><?php esc_html_e( 'What is sent with it', 'dazont-ecom' ); ?></summary>
-					<ul id="dze-prompt-data-list" style="margin:6px 0 0 18px;font-size:12px;color:#50575e;list-style:disc;"></ul>
+					<?php
+					// THE BOXES FIRST, THEN WHAT THEY PRODUCE. The list under
+					// them is READ from the row, so ticking a box and saving
+					// changes both — one value, never two accounts of it.
+					?>
+					<div id="dze-prompt-inputs" style="margin:8px 0 0;display:none;">
+						<p style="margin:0 0 4px;font-weight:600;font-size:12px;" id="dze-prompt-inputs-title"></p>
+						<div id="dze-prompt-inputs-boxes" style="display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;"></div>
+					</div>
+					<ul id="dze-prompt-data-list" style="margin:8px 0 0 18px;font-size:12px;color:#50575e;list-style:disc;"></ul>
 				</details>
 				<p class="description" id="dze-prompt-note"></p>
 			</div>
 		</div></div>
 		<script>
 		jQuery( function ( $ ) {
-			var cur = '', def = '';
+			var cur = '', def = '', has = false;
+			// ONE RENDERER for the list of what travels with the prompt: the
+			// answer that comes back from a save is the same shape as the one
+			// that comes back from opening it, so the block cannot start
+			// saying two different things.
+			function drawSent( lines ) {
+				var $list = $( '#dze-prompt-data-list' ).empty();
+				$.each( lines || [], function ( i, line ) { $list.append( $( '<li/>' ).text( line ) ); } );
+			}
 			$( document ).on( 'click', '.dze-prompt-peek', function ( e ) {
 				e.preventDefault();
 				e.stopPropagation();
@@ -753,10 +786,25 @@ final class DZE_Prompts {
 					$( '#dze-prompt-text' ).val( r.data.text ).prop( 'disabled', ! r.data.editable );
 					$( '#dze-prompt-note' ).text( r.data.note );
 					// What travels with it, in the order it is put together.
-					var $list = $( '#dze-prompt-data-list' ).empty(),
-						lines = r.data.data || [];
-					$.each( lines, function ( i, line ) { $list.append( $( '<li/>' ).text( line ) ); } );
-					$( '#dze-prompt-data' ).toggle( !! lines.length ).prop( 'open', false );
+					drawSent( r.data.data );
+					// AND THE BOXES THAT DECIDE IT, where the prompt is opened.
+					// A prompt that has no such list gets none: a control that
+					// cannot act is a control nobody trusts.
+					var $boxes = $( '#dze-prompt-inputs-boxes' ).empty(),
+						opts = r.data.inputOpts || {},
+						picked = r.data.inputs;
+					has = !! picked && !! r.data.editable;
+					if ( has ) {
+						$( '#dze-prompt-inputs-title' ).text( r.data.inputsTitle || '' );
+						$.each( opts, function ( key, label ) {
+							$boxes.append( $( '<label/>' ).css( { display: 'inline-flex', gap: '4px', alignItems: 'center' } )
+								.append( $( '<input type="checkbox" class="dze-prompt-in"/>' )
+									.val( key ).prop( 'checked', picked.indexOf( key ) >= 0 ) )
+								.append( $( '<span/>' ).text( label ) ) );
+						} );
+					}
+					$( '#dze-prompt-inputs' ).toggle( has );
+					$( '#dze-prompt-data' ).toggle( has || !! ( r.data.data || [] ).length ).prop( 'open', false );
 					$( '#dze-prompt-save' ).toggle( !! r.data.editable );
 					$( '#dze-prompt-reset' ).toggle( !! r.data.editable && !! def );
 					$( '#dze-prompt-edit' ).attr( 'href', r.data.url ).toggle( !! r.data.url );
@@ -789,16 +837,31 @@ final class DZE_Prompts {
 			$( document ).on( 'click', '#dze-prompt-save', function () {
 				var $b = $( this ).prop( 'disabled', true );
 				var $st = $( '#dze-prompt-state' ).removeClass( 'is-ko' ).text( '…' );
-				$.post( window.ajaxurl, {
+				// WHAT IS ON SCREEN IS WHAT TRAVELS. The boxes go with the
+				// text, in one request, so a prompt and the data it is sent
+				// can never be saved half each. `inputs_sent` says the screen
+				// DREW them: without it an empty list and a prompt that has
+				// none look the same on the wire, and one of them means "send
+				// nothing about the product".
+				var data = {
 					action: 'dze_prompt_save',
 					nonce: '<?php echo esc_js( wp_create_nonce( self::NONCE ) ); ?>',
 					id: cur,
 					text: $( '#dze-prompt-text' ).val()
-				} ).done( function ( r ) {
+				};
+				if ( has ) {
+					data.inputs_sent = 1;
+					data.inputs = $( '#dze-prompt-inputs-boxes .dze-prompt-in:checked' )
+						.map( function () { return $( this ).val(); } ).get();
+				}
+				$.post( window.ajaxurl, data ).done( function ( r ) {
 					$b.prop( 'disabled', false );
 					if ( r && r.success ) {
 						$st.text( '<?php echo esc_js( __( 'Saved ✓', 'dazont-ecom' ) ); ?>' );
 						window.setTimeout( function () { $st.text( '' ); }, 2000 );
+						// READ BACK, never echoed: the list says what the row
+						// now holds, so a write that did nothing shows.
+						drawSent( r.data && r.data.data );
 						// The screens holding a copy of this prompt pick it up.
 						$( document ).trigger( 'dze:prompt-saved', [ cur, $( '#dze-prompt-text' ).val() ] );
 						return;
@@ -922,7 +985,36 @@ final class DZE_Prompts {
 			'mine'     => $own && DZE_Prompt_Defaults::has( $id ),
 			'url'      => self::url( $id ),
 			'data'     => self::data_for( $id ),
-			'note'     => __( 'Saved here, this is what every run uses from now on. The product or category data, the shop context, the site language and the answer format are added around it when the call is made.', 'dazont-ecom' ),
+			// THE CONTROL, WHERE THE PROMPT IS OPENED. "Impossible de decocher
+			// la description produit a envoyer pour le contexte sur cet ecran.
+			// Tu m'avais dit avoir tout standardise." It was a READING here
+			// and a set of tick boxes on one settings tab, so the one screen
+			// that could tell you the description was going out was the one
+			// screen that could not stop it.
+			'inputs'   => self::inputs_of( $id ),
+			'inputOpts' => self::input_labels( $id ),
+			'inputsTitle' => __( 'Product data sent with it', 'dazont-ecom' ),
+			'note'     => __( 'Saved here, this is what every run uses from now on. The shop context, the site language and the answer format are added around it when the call is made.', 'dazont-ecom' ),
 		] );
+	}
+
+	/**
+	 * The product data a prompt is sent, or null where the question does not
+	 * arise — a prompt that is not one of the product registry's own has no
+	 * such list, and a control that cannot act must not be drawn.
+	 *
+	 * @return string[]|null
+	 */
+	public static function inputs_of( string $id ): ?array {
+		return ( class_exists( 'DZE_Content' ) && is_callable( [ 'DZE_Content', 'prompt_inputs' ] ) )
+			? DZE_Content::prompt_inputs( $id )
+			: null;
+	}
+
+	/** Every box that list may hold, keyed as it is stored. */
+	public static function input_labels( string $id ): array {
+		return ( null === self::inputs_of( $id ) || ! class_exists( 'DZE_Content' ) )
+			? []
+			: (array) DZE_Content::input_options();
 	}
 }

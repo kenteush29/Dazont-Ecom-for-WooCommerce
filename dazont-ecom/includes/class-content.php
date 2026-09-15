@@ -1248,26 +1248,122 @@ EOT;
 	 * @return string[]
 	 */
 	public static function prompt_data( string $id = '' ): array {
-		// An image row and a text row are not sent the same things at all.
-		$row = '';
-		if ( 0 === strpos( $id, 'content_' ) ) {
-			$row = substr( $id, strlen( 'content_' ) );
+		// READ FROM THE ROW, NEVER WRITTEN BESIDE IT.
+		//
+		// These were three hand-written sentences per kind, and an image one
+		// said "the product's name, so the picture is of the right thing" —
+		// while shoot() sends whatever that row's `inputs` holds, which ships
+		// as the title AND THE DESCRIPTION. So the screen named one field and
+		// the run sent two, and the second was a paragraph reading "adjustable
+		// chest tension strap, three back buckles" on a product that has
+		// neither: exactly the text this plugin then spends an appended
+		// sentence arguing with. A block called "what is sent with it" that
+		// does not read what is sent is worse than no block.
+		$row = self::prompt_row_of( $id );
+		if ( null === $row ) {
+			return [];
 		}
-		foreach ( self::registry() as $one ) {
-			if ( (string) ( $one['id'] ?? '' ) === $row && ( $one['type'] ?? 'text' ) === 'image' ) {
-				return [
-					__( 'The product photographs this template is run on, as real images.', 'dazont-ecom' ),
-					__( 'The product\'s name, so the picture is of the right thing.', 'dazont-ecom' ),
-					__( 'The shape asked for, and where the result is filed.', 'dazont-ecom' ),
-				];
+		$out  = [];
+		$opts = self::input_options();
+		$keys = self::prompt_inputs( $id );
+		foreach ( (array) $keys as $k ) {
+			if ( isset( $opts[ $k ] ) ) {
+				$out[] = (string) $opts[ $k ];
 			}
 		}
-		return [
-			__( 'The product: its title, its description, its attributes, its categories and its price.', 'dazont-ecom' ),
-			__( 'The shop context written once under Settings → General.', 'dazont-ecom' ),
-			__( 'The shop\'s main language, which overrides the language your instructions are written in.', 'dazont-ecom' ),
-			__( 'The answer format the field expects, and its length.', 'dazont-ecom' ),
-		];
+		// The extra meta keys this prompt asks for, named as the shop names
+		// them: they are sent exactly like the fields above.
+		foreach ( array_filter( array_map( 'trim', explode( ',', (string) ( $row['inputs_meta'] ?? '' ) ) ) ) as $k ) {
+			$out[] = $k;
+		}
+		if ( ! $out ) {
+			// A REAL ANSWER, not an empty list. "Nothing" is what an image
+			// prompt sent no product data at all looks like, and it is a
+			// choice somebody can make here.
+			$out[] = __( 'Nothing about the product — your instructions alone.', 'dazont-ecom' );
+		}
+		if ( 'image' === (string) ( $row['type'] ?? 'text' ) ) {
+			$out[] = __( 'The product photographs the run works from, as real images.', 'dazont-ecom' );
+			$out[] = __( 'The shape asked for, and where the result is filed.', 'dazont-ecom' );
+		} else {
+			$out[] = __( 'The answer format the field expects, and its length.', 'dazont-ecom' );
+		}
+		$out[] = __( 'The shop context written once under Settings → General.', 'dazont-ecom' );
+		$out[] = __( 'The shop\'s main language, which overrides the language your instructions are written in.', 'dazont-ecom' );
+		return $out;
+	}
+
+	/** The registry row a prompt id names, or null when it names none. */
+	public static function prompt_row_of( string $id ): ?array {
+		if ( 0 !== strpos( $id, 'content_' ) ) {
+			return null;
+		}
+		$want = substr( $id, strlen( 'content_' ) );
+		foreach ( self::registry() as $one ) {
+			if ( (string) ( $one['id'] ?? '' ) === $want ) {
+				return $one;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * The product data a prompt is sent, as the RUN reads it.
+	 *
+	 * The default lives here and nowhere else: the two lanes that send it used
+	 * to write their own `?? [ 'title', 'description' ]` inline, so a row with
+	 * no key was sent one thing and described as another.
+	 *
+	 * @return string[]|null null when the id names no registry row.
+	 */
+	public static function prompt_inputs( string $id ): ?array {
+		$row = self::prompt_row_of( $id );
+		if ( null === $row ) {
+			return null;
+		}
+		return array_key_exists( 'inputs', $row )
+			? array_values( array_filter( array_map( 'strval', (array) $row['inputs'] ) ) )
+			: self::default_inputs( (string) ( $row['type'] ?? 'text' ) );
+	}
+
+	/** What a row with no answer of its own is sent. */
+	public static function default_inputs( string $type ): array {
+		return 'image' === $type
+			? [ 'title', 'description' ]
+			: [ 'title', 'description', 'attributes', 'price' ];
+	}
+
+	/**
+	 * The product data one prompt is sent, changed from wherever it is opened.
+	 *
+	 * NOTHING TICKED IS AN ANSWER — the popup owns these boxes, so an empty
+	 * list means "send this prompt no product data at all", which is the whole
+	 * point of the control. It goes through the registry like every other
+	 * write to a row, so there is one answer to "where does this prompt live".
+	 *
+	 * @param string[] $keys
+	 * @return bool false when the id names no registry row.
+	 */
+	public static function set_prompt_inputs( string $id, array $keys ): bool {
+		$want = 0 === strpos( $id, 'content_' ) ? substr( $id, strlen( 'content_' ) ) : '';
+		$keys = array_values( array_intersect(
+			array_map( 'sanitize_key', $keys ),
+			array_keys( self::input_options() )
+		) );
+		$rows  = self::registry();
+		$found = false;
+		foreach ( $rows as $k => $r ) {
+			if ( (string) ( $r['id'] ?? '' ) === $want ) {
+				$rows[ $k ]['inputs'] = $keys;
+				$found = true;
+				break;
+			}
+		}
+		if ( ! $found ) {
+			return false;
+		}
+		self::write_setting( 'registry', $rows );
+		return true;
 	}
 
 	/**
