@@ -618,7 +618,15 @@ final class DZE_Gmc {
 			// believing the plugin is unreliable.
 			return $why;
 		}
-		return __( 'Google has revoked this connection — nothing will sync until it is reconnected. Dazont Ecom → Marketing events → Google Merchant Center → Connect Google account again.', 'dazont-ecom' );
+		// The path is BUILT from the catalogue, never typed: typed, it named
+		// "Marketing events" for months after that page was renamed
+		// "Marketing", and sent the shop looking for a screen that was not
+		// there.
+		return sprintf(
+			/* translators: %s: the screen holding the Connect button, as the menu names it */
+			__( 'Google has revoked this connection — nothing will sync until it is reconnected. %s → Connect Google account again.', 'dazont-ecom' ),
+			DZE_Screens::name( 'marketing', 'gmc' )
+		);
 	}
 
 	private function oauth_access_token(): string {

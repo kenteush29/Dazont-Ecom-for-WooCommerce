@@ -46,6 +46,9 @@ final class DZE_Modules {
 		// switched off, and its migration gave up before reaching the line.
 		add_action( 'admin_init', [ 'DZE_Cleanup', 'retire_hooks' ] );
 		add_action( 'admin_menu', [ $this, 'submenu' ], 99 );
+		// THE MENU IS READ IN ONE ORDER, set in one place — the work first,
+		// the plumbing last — after every module has registered its entry.
+		add_action( 'admin_menu', [ 'DZE_Screens', 'reorder_menu' ], 999 );
 		add_action( 'wp_ajax_dze_modules_toggle', [ $this, 'ajax_toggle' ] );
 		// Erasing data is never a side effect of switching a module off: it has
 		// its own endpoints, its own buttons, its own confirmations.
@@ -286,8 +289,8 @@ final class DZE_Modules {
 		}
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Modules', 'dazont-ecom' ),
-			__( 'Modules', 'dazont-ecom' ),
+			DZE_Screens::label( 'modules' ),
+			DZE_Screens::label( 'modules' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
@@ -365,7 +368,7 @@ final class DZE_Modules {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
-		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html__( 'Dazont Ecom — Modules', 'dazont-ecom' ) . '</h1>';
+		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'modules' ) ) . '</h1>';
 		$this->render_tab();
 		echo '</div>';
 	}

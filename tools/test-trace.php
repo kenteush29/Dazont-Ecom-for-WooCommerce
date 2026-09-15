@@ -156,6 +156,8 @@ class DZE_Health { public static function log( ...$a ) {} }
 class DZE_Wpml { public static function is_active() { return false; } }
 
 require __DIR__ . '/../' . $dir . '/includes/class-ai-usage.php';
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-marketing-ai.php';
 
 $fails = 0;
@@ -450,11 +452,15 @@ ok( 'and names a tab that can be opened',
 	isset( $dze_tabs[ trim( (string) ( explode( '.', explode( 'Settings → ', $dze_msg )[1] ?? '' )[0] ?? '' ) ) ] ), true );
 
 // EVERY SENTENCE IN THE PLUGIN, not only these two. A name that no longer
-// matches a tab is a link that will never be drawn and a reader sent to a page
-// that was renamed — the text form of the fault `test-diagnostic.php` catches
-// when a row links to a settings page. Comments are not sentences: the source
-// is TOKENISED, so only what is really a string is read.
-$dze_names = array_keys( $dze_tabs );
+// matches a screen is a link that will never be drawn and a reader sent to a
+// page that was renamed — "Dazont Ecom → Marketing events → Google Merchant
+// Center" stood in the Google refusal for months after that page became
+// "Marketing". The names are the CATALOGUE'S, every screen and every tab of
+// it, with every module on so nothing is missing from the list. Comments are
+// not sentences: the source is TOKENISED, so only what is really a string is
+// read.
+$GLOBALS['dze_off'] = [];
+$dze_names = array_keys( DZE_Screens::links() );
 usort( $dze_names, static fn( $a, $b ) => strlen( $b ) - strlen( $a ) );
 $dze_bad = [];
 $dze_all = [];
@@ -471,30 +477,32 @@ foreach ( $dze_all as $dze_file ) {
 			continue;
 		}
 		$dze_str = (string) $dze_tok[1];
-		$dze_at  = 0;
-		while ( false !== ( $dze_at = strpos( $dze_str, 'Settings → ', $dze_at ) ) ) {
-			$dze_rest = substr( $dze_str, $dze_at + strlen( 'Settings → ' ) );
-			// A TEMPLATE IS NOT A SENTENCE. "Settings → %s" is the line that
-			// BUILDS these phrases; reading it as one would have the gate fail
-			// on the very function that keeps the names right.
-			if ( 0 === strpos( $dze_rest, '%' ) ) {
-				$dze_at += 11;
-				continue;
+		foreach ( [ 'Settings → ', 'Dazont Ecom → ' ] as $dze_lead ) {
+			$dze_at = 0;
+			while ( false !== ( $dze_at = strpos( $dze_str, $dze_lead, $dze_at ) ) ) {
+				$dze_from = substr( $dze_str, $dze_at );
+				// A TEMPLATE IS NOT A SENTENCE. "Settings → %s" is the line that
+				// BUILDS these phrases; reading it as one would have the gate
+				// fail on the very function that keeps the names right.
+				if ( 0 === strpos( substr( $dze_from, strlen( $dze_lead ) ), '%' ) ) {
+					$dze_at += strlen( $dze_lead );
+					continue;
+				}
+				// "Klaviyo → Settings → API keys" names another product's screen.
+				$dze_own = ! ( $dze_at >= 4 && '→ ' === substr( $dze_str, $dze_at - 4, 4 ) );
+				$dze_hit = false;
+				foreach ( $dze_names as $dze_name ) {
+					if ( 0 === strpos( $dze_from, $dze_name ) ) { $dze_hit = true; break; }
+				}
+				if ( $dze_own && ! $dze_hit ) {
+					$dze_bad[] = basename( $dze_file ) . ': ' . substr( $dze_from, 0, 44 );
+				}
+				$dze_at += strlen( $dze_lead );
 			}
-			// "Klaviyo → Settings → API keys" names another product's screen.
-			$dze_own  = ! ( $dze_at >= 4 && '→ ' === substr( $dze_str, $dze_at - 4, 4 ) );
-			$dze_hit  = false;
-			foreach ( $dze_names as $dze_name ) {
-				if ( 0 === strpos( $dze_rest, $dze_name ) ) { $dze_hit = true; break; }
-			}
-			if ( $dze_own && ! $dze_hit ) {
-				$dze_bad[] = basename( $dze_file ) . ': Settings → ' . substr( $dze_rest, 0, 30 );
-			}
-			$dze_at += 11;
 		}
 	}
 }
-ok( 'no sentence names a settings tab that is not there', $dze_bad, [] );
+ok( 'no sentence names a screen that is not there', $dze_bad, [] );
 
 
 echo "\nTHE IMAGE CEILINGS BELONG TO THE PROVIDER THAT MAKES THE IMAGES\n";

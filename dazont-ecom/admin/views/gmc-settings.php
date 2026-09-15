@@ -30,6 +30,13 @@ foreach ( $languages as $l ) {
 	<?php endif; ?>
 
 	<h2 class="title"><?php esc_html_e( 'Connect with Google (recommended)', 'dazont-ecom' ); ?></h2>
+	<?php
+	// THE WAY THERE, AS LINKS. "Aucun lien externe pour un setup rapide et
+	// instinctif… C'est une opération que je dois refaire assez souvent."
+	// The three Google screens this takes, numbered, whatever state the
+	// connection is in — the redirect URI to paste is right under them.
+	echo DZE_Api_Keys::hint_html( 'google' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped.
+	?>
 	<div style="background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;padding:14px 18px;max-width:820px;">
 		<?php
 		// Google can revoke a connection without anybody touching this screen
@@ -89,7 +96,8 @@ foreach ( $languages as $l ) {
 						esc_html( number_format_i18n( $dze_days ) )
 					);
 					?>
-					<?php esc_html_e( 'Google expires it after seven days while your OAuth app is in "Testing": Google Cloud console → APIs & Services → OAuth consent screen → Publish app.', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'Google expires it after seven days while your OAuth app is in "Testing".', 'dazont-ecom' ); ?>
+					<a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Publish the app ↗', 'dazont-ecom' ); ?></a>
 				</p>
 			<?php endif; ?>
 			<p class="description" style="max-width:820px;">
@@ -97,7 +105,7 @@ foreach ( $languages as $l ) {
 				<code><?php echo esc_html( $redirect_uri ); ?></code>
 			</p>
 		<?php else : ?>
-			<p style="margin-top:0;"><?php esc_html_e( 'Create an OAuth Client ID (type “Web application”) in Google Cloud → APIs & Services → Credentials, then paste its Client ID and Secret below and click Connect. You sign in with your own Google account — one connection covers every Merchant Center you have access to.', 'dazont-ecom' ); ?></p>
+			<p style="margin-top:0;"><?php esc_html_e( 'Paste the Client ID and Secret of that OAuth client below, save, and press Connect. You sign in with your own Google account — one connection covers every Merchant Center you have access to.', 'dazont-ecom' ); ?></p>
 			<p>
 				<label style="font-weight:600;"><?php esc_html_e( 'Authorized redirect URI to add to your OAuth client:', 'dazont-ecom' ); ?></label><br>
 				<input type="text" readonly value="<?php echo esc_attr( $redirect_uri ); ?>" class="large-text code" onclick="this.select();" />

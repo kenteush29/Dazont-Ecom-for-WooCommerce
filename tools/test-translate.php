@@ -493,6 +493,8 @@ require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 // The screen half is a trait of the same class — loaded by the autoloader on a
 // real site, required by name here, like every other file this gate runs.
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-translate-screen.php';
 require __DIR__ . '/../' . $dir . '/includes/class-translate.php';
 

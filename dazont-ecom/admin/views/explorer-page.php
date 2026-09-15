@@ -41,9 +41,12 @@ dze_explorer_flat_rows( $categories, [], 0, $dze_rows, $dze_seq );
 ?>
 <div class="wrap dze-x-wrap">
 
-	<div class="dze-x-topbar">
-		<strong class="dze-x-title"><?php esc_html_e( 'Sourcing Assistant — category performance', 'dazont-ecom' ); ?></strong>
-	</div>
+	<?php
+	// THE PAGE IS CALLED WHAT THE MENU CALLS IT, in the heading every other
+	// page of the plugin wears — this one had a bold line of its own, with a
+	// subtitle explaining a screen that explains itself.
+	?>
+	<h1><?php echo esc_html( DZE_Screens::label( 'sourcing' ) ); ?></h1>
 
 	<section id="dze-x-perf" class="dze-x-perf">
 		<div class="dze-x-perf-toolbar">

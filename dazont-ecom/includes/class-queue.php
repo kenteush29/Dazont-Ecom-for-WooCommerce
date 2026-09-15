@@ -1210,7 +1210,7 @@ final class DZE_Queue {
 		// products and articles, everything the shop has generated and not yet
 		// decided on, in one place. A menu named after one of the things on it
 		// is a menu the other things are hidden behind.
-		$label   = __( 'Content to review', 'dazont-ecom' );
+		$label   = DZE_Screens::label( 'review' );
 		$menu    = $waiting
 			? $label . ' <span class="update-plugins count-' . (int) $waiting . '"><span class="plugin-count">'
 				. esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
@@ -1472,7 +1472,7 @@ final class DZE_Queue {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		echo '<div class="wrap dze-admin"><h1>' . esc_html__( 'Content to review', 'dazont-ecom' ) . '</h1>';
+		echo '<div class="wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'review' ) ) . '</h1>';
 		$this->body();
 		echo '</div>';
 	}

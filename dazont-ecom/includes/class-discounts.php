@@ -2402,7 +2402,7 @@ final class DZE_Discounts {
 		// The count rides on the label, as everywhere else in the plugin:
 		// suggested events waiting for a yes or a no are visible without
 		// opening the screen they wait on.
-		$label   = __( 'Marketing', 'dazont-ecom' );
+		$label   = DZE_Screens::label( 'marketing' );
 		$ev_wait = ( class_exists( 'DZE_Marketing_Ai' ) && DZE_Modules::enabled( 'marketing_ai' ) )
 			? DZE_Marketing_Ai::pending_count()
 			: 0;
@@ -2423,8 +2423,8 @@ final class DZE_Discounts {
 		// without listing it.
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Discount rules', 'dazont-ecom' ),
-			__( 'Discount rules', 'dazont-ecom' ),
+			DZE_Screens::label( 'marketing', 'discounts' ),
+			DZE_Screens::label( 'marketing', 'discounts' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_discounts_page' ]
@@ -2489,7 +2489,9 @@ final class DZE_Discounts {
 				wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 			}
 			echo '<div class="wrap dze-wrap">';
-			echo '<h1 class="wp-heading-inline">' . esc_html__( 'Marketing Events', 'dazont-ecom' ) . '</h1><hr class="wp-header-end" />';
+			// ONE NAME PER SCREEN, on every tab of it: this read "Marketing
+			// Events" while the two tabs beside it read "Marketing".
+			echo '<h1 class="wp-heading-inline">' . esc_html( DZE_Screens::label( 'marketing' ) ) . '</h1><hr class="wp-header-end" />';
 			echo $this->events_tabs_html( 'gmc' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from esc_* internally.
 			DZE_Gmc::instance()->render_settings_page();
 			echo '</div>';
@@ -2500,10 +2502,7 @@ final class DZE_Discounts {
 
 	/** Where the Google Merchant Center screen lives, in one place. */
 	public static function gmc_url(): string {
-		return add_query_arg(
-			[ 'page' => self::MENU_SLUG_EVENTS, 'tab' => 'gmc' ],
-			admin_url( 'admin.php' )
-		);
+		return DZE_Screens::url( 'marketing', 'gmc' );
 	}
 
 	/**
@@ -2514,12 +2513,11 @@ final class DZE_Discounts {
 	 * one screen, and nothing on the other said it was there at all.
 	 */
 	public function events_tabs_html( string $active ): string {
-		$tabs = [
-			'events'    => [ __( 'Events & calendar', 'dazont-ecom' ), add_query_arg( [ 'page' => self::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) ) ],
-			'discounts' => [ __( 'Discount rules', 'dazont-ecom' ), add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) ) ],
-		];
-		if ( class_exists( 'DZE_Gmc' ) ) {
-			$tabs['gmc'] = [ __( 'Google Merchant Center', 'dazont-ecom' ), self::gmc_url() ];
+		// The tabs are the catalogue's: named there, gated there, so the strip
+		// and every sentence that sends somebody to one of them agree.
+		$tabs = [];
+		foreach ( DZE_Screens::tabs_of( 'marketing' ) as $key => $label ) {
+			$tabs[ $key ] = [ $label, DZE_Screens::url( 'marketing', $key ) ];
 		}
 		ob_start();
 		?>
@@ -2545,7 +2543,7 @@ final class DZE_Discounts {
 		$menu_slug   = ( 'events' === $mode ) ? self::MENU_SLUG_EVENTS : self::MENU_SLUG;
 		// One name for the screen, whichever tab is open: the tab bar under it
 		// says which of the two this is.
-		$page_title  = __( 'Marketing', 'dazont-ecom' );
+		$page_title  = DZE_Screens::label( 'marketing' );
 		$type_labels = self::types_for_mode( $mode );
 		$rules       = array_filter( self::get_rules(), static fn( $r ) => array_key_exists( $r['type'] ?? '', $type_labels ) );
 		$languages   = DZE_Wpml::get_active_languages();

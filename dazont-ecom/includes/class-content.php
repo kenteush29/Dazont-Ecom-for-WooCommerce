@@ -2555,7 +2555,7 @@ Answer with STRICT JSON and nothing else: "
 					<?php echo DZE_Api_Keys::status_html( 'fal', self::fal_key(), $fal_locked ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 					<?php if ( ! $fal_locked ) : ?>
 						<input type="password" id="dze-fal-key" class="regular-text" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[fal_key]" value="" autocomplete="new-password" placeholder="<?php echo $has_fal ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : esc_attr__( 'Paste your fal.ai key', 'dazont-ecom' ); ?>" />
-						<p class="description"><?php esc_html_e( 'Used for image generation (fal.ai nano-banana-2/edit). For production, define DZE_FAL_API_KEY in wp-config.php.', 'dazont-ecom' ); ?></p>
+						<?php echo DZE_Api_Keys::hint_html( 'fal' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 					<?php endif; ?>
 				</td>
 			</tr>
@@ -3679,7 +3679,7 @@ Answer with STRICT JSON and nothing else: "
 	}
 
 	public function register_bulk_page(): void {
-		$label = __( 'Products AI bulk', 'dazont-ecom' );
+		$label = DZE_Screens::label( 'bulk' );
 		add_submenu_page(
 			'edit.php?post_type=product',
 			$label,
@@ -4273,7 +4273,7 @@ Answer with STRICT JSON and nothing else: "
 			wp_die( esc_html__( 'Permission denied.', 'dazont-ecom' ) );
 		}
 		echo '<div class="wrap dze-wrap dze-admin">';
-		echo '<h1>' . esc_html__( 'Products AI bulk', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'bulk' ) ) . '</h1>';
 		$this->bulk_body( self::bulk_page_url() );
 		echo '</div>';
 	}
@@ -4500,7 +4500,13 @@ Answer with STRICT JSON and nothing else: "
 											<option value="<?php echo (int) $i; ?>" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $t['id'] ?? '' ) ); ?>" data-target="<?php echo esc_attr( (string) ( $t['target'] ?? 'gallery' ) ); ?>" data-scene="<?php echo (int) ( $t['scene_i'] ?? -1 ); ?>"><?php echo esc_html( $t['name'] ); ?></option>
 										<?php endforeach; ?>
 									</select>
-									<button type="button" class="dze-prompt-peek" data-prompt="<?php echo esc_attr( 'content_' . (string) ( $valid_tpls[0]['id'] ?? '' ) ); ?>" title="<?php esc_attr_e( 'See the instructions sent to the model, and edit them', 'dazont-ecom' ); ?>">&#9998;</button>
+									<?php
+									// THE SAME BUTTON AS EVERYWHERE ELSE, with its word: a
+									// lone pencil is a symbol you have to learn, and this
+									// row wore one while every other prompt button in the
+									// plugin reads "✎ Prompt".
+									DZE_Prompts::the_button( 'content_' . (string) ( $valid_tpls[0]['id'] ?? '' ) );
+									?>
 									<?php if ( $dze_bscenes ) : ?>
 										<!-- Opens on the PROMPT's own scene, like the
 										     destination beside it. It used to open on

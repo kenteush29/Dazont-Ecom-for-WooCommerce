@@ -127,6 +127,8 @@ class DZE_Prompts {
 	public static function text_for( $id ) { return in_array( $id, (array) ( $GLOBALS['mine'] ?? [] ), true ) ? 'mine' : 'shipped ' . $id; }
 }
 
+// The catalogue of screens: every page reads its name and its tabs from it.
+require DZE_DIR . 'includes/class-screens.php';
 require DZE_DIR . 'includes/class-setup.php';
 
 $ran = 0; $fails = 0;

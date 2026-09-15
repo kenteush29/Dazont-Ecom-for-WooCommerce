@@ -45,9 +45,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 				<?php echo DZE_Api_Keys::status_html( 'anthropic', DZE_Marketing_Ai::api_key(), $key_locked ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 				<?php if ( ! $key_locked ) : ?>
 					<input type="password" id="dze-mai-key" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[api_key]' ); ?>" value="" class="regular-text" autocomplete="new-password" placeholder="<?php echo $has_key ? esc_attr__( 'Leave blank to keep the saved key', 'dazont-ecom' ) : 'sk-ant-…'; ?>" />
-					<p class="description">
-						<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Get an API key from your Anthropic dashboard ↗', 'dazont-ecom' ); ?></a>
-					</p>
+					<?php echo DZE_Api_Keys::hint_html( 'anthropic' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built escaped. ?>
 				<?php endif; ?>
 			</td>
 		</tr>

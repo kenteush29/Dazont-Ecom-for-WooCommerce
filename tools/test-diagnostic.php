@@ -407,6 +407,8 @@ require __DIR__ . '/../' . $dir . '/includes/class-wpml.php';
 // it. A stub here would prove the screen calls something and nothing about what
 // it draws.
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-diagnostic.php';
 
 // --- the harness ------------------------------------------------------------

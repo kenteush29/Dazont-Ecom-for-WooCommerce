@@ -78,6 +78,8 @@ class DZE_Health { public static function log( ...$a ) {} }
 class DZE_Modules { public static function enabled( $id ) { return true; } }
 
 require __DIR__ . '/../' . $dir . '/includes/class-site.php';
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-gmc.php';
 
 $fails = 0;
@@ -119,10 +121,13 @@ $GLOBALS['reply'] = [ 'body' => json_encode( [
 [ $tok, $err ] = token();
 ok( 'no token, and a sentence instead',  $tok, '' );
 ok( 'in the shop\'s words, not Google\'s', false !== strpos( $err, 'Google has revoked this connection' ), true );
-// The path is the one that EXISTS: this sentence used to send the shop to
-// "Settings → Google Merchant Center", which is not a place in this plugin.
+// The path is the one that EXISTS, built from the catalogue: this sentence
+// sent the shop to "Settings → Google Merchant Center", then for months to
+// "Marketing events" — a page renamed "Marketing" — because it was typed.
 ok( 'with the one thing to do',          false !== strpos( $err, 'Connect Google account again' ), true );
-ok( 'and where that screen really is',   false !== strpos( $err, 'Marketing events' ), true );
+ok( 'and where that screen really is',   false !== strpos( $err, DZE_Screens::name( 'marketing', 'gmc' ) ), true );
+ok( 'which is the name the menu shows',  false !== strpos( $err, 'Dazont Ecom → Marketing → Google Merchant Center' ), true );
+ok( 'and not the one it had before',     false !== strpos( $err, 'Marketing events' ), false );
 ok( 'and it is written down',            DZE_Gmc::broken_since() > 0, true );
 ok( 'the dead access token is dropped',  get_transient( 'dze_gmc_oauth_token' ), false );
 

@@ -335,6 +335,8 @@ $GLOBALS['rows'] = [];
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
 require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
+// The catalogue of screens: every page reads its name and its tabs from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 require __DIR__ . '/../' . $dir . '/includes/class-queue.php';
 require_once __DIR__ . '/../' . $dir . '/includes/class-cleanup.php';
 

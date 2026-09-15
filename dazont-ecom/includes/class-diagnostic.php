@@ -2322,7 +2322,7 @@ final class DZE_Diagnostic {
 		// is what the tab strip under the title says one by one. The standards
 		// it reads against are Settings → Content rules, and nothing else in
 		// the plugin is called either.
-		$label   = __( 'Content', 'dazont-ecom' );
+		$label   = DZE_Screens::label( 'content' );
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
 			$label,
@@ -2429,22 +2429,26 @@ final class DZE_Diagnostic {
 	 * @return array<string,array{label:string,n:int}>
 	 */
 	public static function tabs(): array {
-		$out = [
+		// NAMED AND GATED BY THE CATALOGUE; the figures are this page's own.
+		// A tab named here and in a sentence elsewhere is two names the day
+		// either is edited.
+		$names = DZE_Screens::tabs_of( 'content' );
+		$out   = [
 			'diagnostic' => [
-				'label' => __( 'Diagnostic', 'dazont-ecom' ),
+				'label' => (string) ( $names['diagnostic'] ?? '' ),
 				'n'     => self::waiting(),
 			],
 		];
-		if ( class_exists( 'DZE_Mesh' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'mesh' ) ) ) {
+		if ( isset( $names['linking'] ) && class_exists( 'DZE_Mesh' ) ) {
 			$census = DZE_Mesh::census();
 			$out['linking'] = [
-				'label' => __( 'Linking', 'dazont-ecom' ),
+				'label' => (string) $names['linking'],
 				'n'     => (int) ( $census['counts']['short'] ?? 0 ),
 			];
 		}
-		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
+		if ( isset( $names['review'] ) && class_exists( 'DZE_Queue' ) ) {
 			$out['review'] = [
-				'label' => __( 'To review', 'dazont-ecom' ),
+				'label' => (string) $names['review'],
 				'n'     => DZE_Queue::review_count(),
 			];
 		}
@@ -2456,14 +2460,14 @@ final class DZE_Diagnostic {
 		// a photograph can be looked at, which is their own screen; it is
 		// reached the way every other view here is reached, from the tab
 		// strip, with its own count beside it.
-		if ( class_exists( 'DZE_Content' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'content' ) ) ) {
+		if ( isset( $names['products'] ) && class_exists( 'DZE_Content' ) ) {
 			// A VIEW, not a way out. It carried a `url` and sent the shop to a
 			// screen with no menu entry of its own — "Products, dans Content
 			// diagnostic, redirige vers Products AI bulk... toujours caché,
 			// introuvable dans aucun menu". The body belongs to the module
 			// that owns that work and is printed here, like every other tab.
 			$out['products'] = [
-				'label' => __( 'Products', 'dazont-ecom' ),
+				'label' => (string) $names['products'],
 				// The figure the tab OPENS on: the products in the list. What
 				// waits for a decision is the menu badge's question, and it is
 				// answered there.
@@ -2492,7 +2496,7 @@ final class DZE_Diagnostic {
 		$tab   = self::tab_now();
 		$tabs  = self::tabs();
 		echo '<div class="wrap dze-wrap">';
-		echo '<h1>' . esc_html__( 'Content', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'content' ) ) . '</h1>';
 		if ( count( $tabs ) > 1 ) {
 			echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
 			foreach ( $tabs as $id => $one ) {

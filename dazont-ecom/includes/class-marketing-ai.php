@@ -646,8 +646,8 @@ final class DZE_Marketing_Ai {
 	public function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Settings', 'dazont-ecom' ),
-			__( 'Settings', 'dazont-ecom' ),
+			DZE_Screens::label( 'settings' ),
+			DZE_Screens::label( 'settings' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ $this, 'render_settings_page' ]
@@ -695,50 +695,10 @@ final class DZE_Marketing_Ai {
 	}
 
 	public static function tabs(): array {
-		// A disabled module leaves NO trace: its settings tab disappears with it.
-		$mod_on = [ __CLASS__, 'mod_on' ];
-		$tabs   = [ 'general' => __( 'General', 'dazont-ecom' ) ];
-		if ( $mod_on( 'sourcing' ) ) {
-			$tabs['sourcing'] = __( 'Sourcing Assistant', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'content' ) ) {
-			$tabs['content'] = __( 'Product content', 'dazont-ecom' );
-		}
-
-		if ( $mod_on( 'gmc_activation' ) ) {
-			$tabs['gmc_activation'] = __( 'GMC activation', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'category_content' ) ) {
-			$tabs['categories'] = __( 'Categories', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'reviews' ) ) {
-			$tabs['reviews'] = __( 'Reviews', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'translate' ) ) {
-			$tabs['translate'] = __( 'Translation', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'image_lab' ) ) {
-			$tabs['lab'] = __( 'Image lab', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'discounts' ) ) {
-			$tabs['discounts'] = __( 'Discounts', 'dazont-ecom' );
-		}
-		$tabs['events']  = __( 'Marketing events', 'dazont-ecom' );
-		if ( $mod_on( 'klaviyo' ) ) {
-			$tabs['email'] = __( 'Email campaigns', 'dazont-ecom' );
-		}
-		if ( $mod_on( 'diagnostic' ) ) {
-			// The STANDARDS, not the reading: this tab holds the criteria the
-			// shop is judged against, and the reading itself is Dazont Ecom →
-			// Content. Both were called "Content diagnostic".
-			$tabs['diagnostic'] = __( 'Content rules', 'dazont-ecom' );
-		}
-		// One shop's writing, carried to another. Not gated on a module: it is
-		// the plugin's own, like Modules beside it, and the day a shop needs it
-		// is the day it is standing on a site with nothing set up.
-		$tabs['transfer'] = __( 'Transfer', 'dazont-ecom' );
-		$tabs['modules'] = __( 'Modules', 'dazont-ecom' );
-		return $tabs;
+		// A disabled module leaves NO trace: its settings tab disappears with
+		// it. The names and the gating are the catalogue's (DZE_Screens), so
+		// the strip, the menu and every sentence naming a tab say one thing.
+		return DZE_Screens::tabs_of( 'settings' );
 	}
 
 	/**
@@ -755,10 +715,7 @@ final class DZE_Marketing_Ai {
 	public static function tab_links(): array {
 		$out = [];
 		foreach ( self::tabs() as $key => $label ) {
-			$out[ (string) $label ] = add_query_arg(
-				[ 'page' => self::MENU_SLUG, 'tab' => (string) $key ],
-				admin_url( 'admin.php' )
-			);
+			$out[ (string) $label ] = DZE_Screens::url( 'settings', (string) $key );
 		}
 		return $out;
 	}
@@ -790,7 +747,7 @@ final class DZE_Marketing_Ai {
 		];
 
 		echo '<div class="wrap dze-wrap">';
-		echo '<h1>' . esc_html__( 'Settings', 'dazont-ecom' ) . '</h1>';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'settings' ) ) . '</h1>';
 		$link = static fn( string $key ): string => esc_url( add_query_arg(
 			[ 'page' => self::MENU_SLUG, 'tab' => $key ],
 			admin_url( 'admin.php' )

@@ -134,10 +134,7 @@ final class DZE_Automation {
 	 * @return array<string,string>
 	 */
 	public static function tabs(): array {
-		return [
-			'work' => __( 'Tasks', 'dazont-ecom' ),
-			'past' => __( 'Past work', 'dazont-ecom' ),
-		];
+		return DZE_Screens::tabs_of( 'automation' );
 	}
 
 	/** Which view is being asked for — always one that exists. */
@@ -149,8 +146,8 @@ final class DZE_Automation {
 	public static function register_menu(): void {
 		add_submenu_page(
 			DZE_Restock::MENU_SLUG,
-			__( 'Automation', 'dazont-ecom' ),
-			__( 'Automation', 'dazont-ecom' ),
+			DZE_Screens::label( 'automation' ),
+			DZE_Screens::label( 'automation' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
 			[ __CLASS__, 'render_page' ]
@@ -163,7 +160,7 @@ final class DZE_Automation {
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- tab navigation only.
 		$now = self::tab_now( (array) $_GET );
-		echo '<div class="wrap dze-wrap"><h1>' . esc_html__( 'Automation', 'dazont-ecom' ) . '</h1>';
+		echo '<div class="wrap dze-wrap"><h1>' . esc_html( DZE_Screens::label( 'automation' ) ) . '</h1>';
 		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 18px;">';
 		foreach ( self::tabs() as $key => $label ) {
 			printf(

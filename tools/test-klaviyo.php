@@ -281,7 +281,9 @@ function wp_nonce_field( ...$a ) { echo '<input type="hidden" name="_wpnonce" va
 function do_settings_sections( $p ) {}
 function get_admin_page_title() { return 'Dazont'; }
 function wp_get_attachment_image( $id, $size = '', $icon = false, $attr = [] ) { return '<img />'; }
-class DZE_Api_Keys { public static function status_html( $w, $k, $l = false ) { return '<span>key</span>'; } }
+// THE REAL ONE: the hint under the key field is what is being tested, and a
+// stub of the thing under test is a gate that proves nothing.
+require __DIR__ . '/../' . $dir . '/includes/class-api-keys.php';
 function wp_style_is( ...$a ) { return true; }
 function did_action( $a ) { return 0; }
 class DZE_Prompt_Defaults {
@@ -2753,6 +2755,13 @@ try {
 	$boom   = $e->getMessage();
 }
 ok( 'it draws without dying',           $boom, '' );
+// WHICH KEY, WITH WHICH RIGHTS, AND WHERE IT IS MADE — said under the field
+// (tools/test-keys.php holds the words). This bench keeps the key in
+// wp-config, so the field is not drawn: then the hint is not drawn either. A
+// sentence about making a key, under a key nobody here can enter, is noise.
+ok( 'a key locked in wp-config draws no field',   str_contains( $screen, 'id="dze-klav-key"' ), false );
+ok( 'and no hint about making one',               str_contains( $screen, 'dze-key-hint' ), false );
+ok( 'but says where the key is',                  str_contains( $screen, 'wp-config' ), true );
 // The per-language table is GONE: four columns explaining a mechanism nobody
 // has to know, whose last one broke one word per line. What is left is the
 // switch, and the shop's languages drawn as WPML draws them everywhere else.
