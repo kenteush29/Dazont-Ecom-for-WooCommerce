@@ -183,8 +183,7 @@ foreach ( $languages as $l ) {
 					<button type="button" class="button dze-gmc-verify" data-target="dze-advanced-id"><?php esc_html_e( 'Verify', 'dazont-ecom' ); ?></button>
 					<span class="dze-gmc-verify-status" style="font-size:13px;margin-left:4px;"></span>
 					<p class="description" style="max-width:820px;">
-						<?php esc_html_e( 'If your Merchant Center is an advanced account with sub-accounts (one per domain/country, e.g. .fr, .de, .es, .com), enter the parent account ID here and click “Register GCP” once. Google requires the developer registration on the account where your user exists — the parent — not on each sub-account. After ~5 minutes, syncing to the sub-accounts below works.', 'dazont-ecom' ); ?><br>
-						<?php esc_html_e( 'Save this field first, then click Register GCP.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'Only for an advanced account with one sub-account per country: enter the parent account ID, save, then press Register GCP once. About five minutes later the sub-accounts below can be verified and synced.', 'dazont-ecom' ); ?>
 					</p>
 				</td>
 			</tr>
@@ -267,11 +266,6 @@ foreach ( $languages as $l ) {
 			</label>
 			<span class="description"><?php esc_html_e( 'A promotion pushed to an account no campaign reads goes nowhere.', 'dazont-ecom' ); ?></span>
 		</p>
-		<p class="description" style="max-width:820px;">
-			<strong><?php esc_html_e( 'First time?', 'dazont-ecom' ); ?></strong>
-			<?php esc_html_e( 'Register your Google Cloud project once, using the Advanced (parent) account above — or, for a standalone Merchant Center, using the single account ID. This is required before the Merchant API accepts calls. After registering, wait about 5 minutes, then use Verify / Sync.', 'dazont-ecom' ); ?>
-		</p>
-
 		<?php submit_button(); ?>
 	</form>
 
@@ -305,12 +299,18 @@ foreach ( $languages as $l ) {
 		</tbody>
 	</table>
 	<p class="description" style="max-width:820px;margin-top:6px;">
-		<?php esc_html_e( 'If “Refresh token” shows missing while the OAuth client is present, click “Connect Google account” above. Saving other settings no longer clears the connection.', 'dazont-ecom' ); ?>
+		<?php esc_html_e( 'If the refresh token is missing while the OAuth client is present, press Connect Google account above.', 'dazont-ecom' ); ?>
 	</p>
 
 	<hr />
 	<p class="description" style="max-width:820px;">
-		<?php esc_html_e( 'Sync happens automatically every hour (WP-Cron) for active sales, and can be forced from the Marketing Events list (per promotion or in bulk). Note: GMC promotions apply store-wide (product/category scope is not yet mapped to GMC).', 'dazont-ecom' ); ?>
+		<?php
+		printf(
+			/* translators: %s: the Events & calendar tab, as the screen names it */
+			esc_html__( 'Active promotions are sent every hour on their own, and can be sent now from %s. On Google a promotion applies to the whole store.', 'dazont-ecom' ),
+			esc_html( DZE_Screens::tabs_of( 'marketing' )['events'] ?? '' )
+		);
+		?>
 	</p>
 
 	<hr />

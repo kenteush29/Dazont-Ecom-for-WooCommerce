@@ -70,7 +70,9 @@ trait DZE_Translate_Screen {
 		// Named by the catalogue; the figures are this screen's own.
 		$names = DZE_Screens::tabs_of( 'translations' );
 		return [
-			'dashboard' => [ 'label' => (string) ( $names['dashboard'] ?? '' ), 'n' => count( self::scope() ) ],
+			// A BADGE MEANS "ACT ON ME", NEVER "HERE IS A NUMBER": this one
+			// counted the kinds of content in scope — five, for ever.
+			'dashboard' => [ 'label' => (string) ( $names['dashboard'] ?? '' ), 'n' => null ],
 			'batch'     => [ 'label' => (string) ( $names['batch'] ?? '' ), 'n' => null ],
 			'review'    => [ 'label' => (string) ( $names['review'] ?? '' ), 'n' => self::review_count() ],
 		];
@@ -395,7 +397,10 @@ trait DZE_Translate_Screen {
 			return;
 		}
 		$targets = self::obj_targets( $o );
-		$state   = self::state_of( $o, [ $lang ], self::page_marks( [ $o ] ) )[ $lang ] ?? 'missing';
+		// Every language's state at once: the one being edited wears it on its
+		// chip, and the others wear theirs on the way to their own editor.
+		$states  = self::state_of( $o, array_keys( $targets ), self::page_marks( [ $o ] ) );
+		$state   = (string) ( $states[ $lang ] ?? 'missing' );
 		$source  = self::obj_read( $o );
 		$target  = self::obj_translation( $o, $lang );
 		$current = $target ? self::obj_read( array_merge( $o, [ 'id' => $target ] ) ) : [];
@@ -423,7 +428,18 @@ trait DZE_Translate_Screen {
 				<span class="dze-tr-langjump">
 					<?php foreach ( $targets as $dze_code => $dze_name ) : ?>
 						<?php if ( (string) $dze_code === $lang ) { continue; } ?>
-						<a href="<?php echo esc_url( self::editor_url( $o, (string) $dze_code ) ); ?>" title="<?php echo esc_attr( $dze_name ); ?>"><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?></a>
+						<?php
+						// THE SAME SHAPE AS THE CHIP BESIDE IT. A bare "DE" link next
+						// to "FR · up to date" was two forms for one thing; each other
+						// language is a chip too, saying where it stands, and pressing
+						// it opens that language's editor.
+						$dze_st = (string) ( $states[ (string) $dze_code ] ?? 'missing' );
+						?>
+						<a class="dze-tr-chip is-<?php echo esc_attr( $dze_st ); ?>" href="<?php echo esc_url( self::editor_url( $o, (string) $dze_code ) ); ?>" title="<?php echo esc_attr( $dze_name ); ?>">
+							<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?>
+							<span class="dashicons <?php echo esc_attr( self::state_icon( $dze_st ) ); ?>" aria-hidden="true"></span>
+							<?php echo esc_html( self::state_said( $dze_st ) ); ?>
+						</a>
 					<?php endforeach; ?>
 				</span>
 			<?php endif; ?>

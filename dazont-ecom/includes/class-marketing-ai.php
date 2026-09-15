@@ -732,7 +732,7 @@ final class DZE_Marketing_Ai {
 		$groups = [
 			'shop'    => [
 				'label' => __( 'Shop content', 'dazont-ecom' ),
-				'tabs'  => [ 'categories', 'content', 'gmc_activation', 'reviews' ],
+				'tabs'  => [ 'categories', 'content', 'reviews' ],
 			],
 			'promo'   => [
 				'label' => __( 'Discounts', 'dazont-ecom' ),
@@ -880,7 +880,8 @@ final class DZE_Marketing_Ai {
 			echo '<h2>' . esc_html__( 'About this shop', 'dazont-ecom' ) . '</h2>';
 			$this->render_shop_profile();
 			echo '<hr style="margin:28px 0;" />';
-			echo '<p class="description">' . esc_html__( 'API keys, models and monthly budget. The Anthropic key powers the text generation (content, marketing calendar, sourcing); the fal.ai key powers the image generation. Each key is only ever sent to its own provider.', 'dazont-ecom' ) . '</p>';
+			// One heading per provider and nothing explaining what a key is
+			// for: the key field says so itself, in its own hint.
 			echo '<h2>' . esc_html__( 'Anthropic (Claude)', 'dazont-ecom' ) . '</h2>';
 			$this->render_settings_section( 'general' );
 			// The fal key lives in Content settings but also powers POD.
@@ -930,10 +931,6 @@ final class DZE_Marketing_Ai {
 		} elseif ( 'lab' === $tab ) {
 			if ( class_exists( 'DZE_Image_Lab' ) && $mod_on( 'image_lab' ) ) {
 				DZE_Image_Lab::instance()->render();
-			}
-		} elseif ( 'gmc_activation' === $tab ) {
-			if ( class_exists( 'DZE_Gmc_Activation' ) && $mod_on( 'gmc_activation' ) ) {
-				DZE_Gmc_Activation::instance()->render_settings();
 			}
 		} elseif ( 'categories' === $tab ) {
 			if ( class_exists( 'DZE_Category_Content' ) && $mod_on( 'category_content' ) ) {
@@ -1105,7 +1102,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 						<option value="<?php echo esc_attr( $dze_k ); ?>" <?php selected( $dze_k, $current ); ?>><?php echo esc_html( $dze_e['label'] ); ?></option>
 					<?php endforeach; ?>
 				</select>
-				<?php submit_button( __( 'Save', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
+				<?php submit_button( __( 'Save Changes', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
 			</p>
 			<?php $dze_pv = DZE_Price::preview(); ?>
 			<?php if ( $dze_pv ) : ?>
@@ -2299,7 +2296,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			</p>
 			<textarea id="dze-mai-profile" name="<?php echo esc_attr( self::OPT_SETTINGS ); ?>[shop_profile]" rows="6" class="large-text" style="max-width:820px;" placeholder="<?php esc_attr_e( 'e.g. Online shop selling tactical and military gear (Kula Tactical). Patches, headwear, camo clothing, gloves, chest rigs and outdoor equipment, with a wide catalogue. Customers: airsoft players, collectors, outdoor and tactical-style buyers. Sharp, factual, no-nonsense tone.', 'dazont-ecom' ); ?>"><?php echo esc_textarea( $profile ); ?></textarea>
 			<p>
-				<button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'dazont-ecom' ); ?></button>
+				<button type="submit" class="button button-primary"><?php esc_html_e( 'Save Changes', 'dazont-ecom' ); ?></button>
 				<button type="button" class="button" id="dze-mai-profile-draft"><?php esc_html_e( 'Draft it from my shop', 'dazont-ecom' ); ?></button>
 				<span class="description" id="dze-mai-profile-state"><?php esc_html_e( 'The draft reads your home page and the shape of your catalogue — correct it, then save.', 'dazont-ecom' ); ?></span>
 			</p>

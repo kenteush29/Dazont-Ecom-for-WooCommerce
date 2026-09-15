@@ -238,7 +238,7 @@ final class DZE_Setup {
 				'state'  => ! $on ? 'off' : ( $done ? 'done' : 'todo' ),
 				'said'   => $done ? __( 'Done.', 'dazont-ecom' ) : __( 'Not done yet.', 'dazont-ecom' ),
 				'url'    => (string) ( $item['url'] ?? '' ),
-				'do'     => $done ? __( 'Change', 'dazont-ecom' ) : __( 'Set it up', 'dazont-ecom' ),
+				'do'     => $done ? __( 'Change', 'dazont-ecom' ) : (string) ( $item['do'] ?? __( 'Set it up', 'dazont-ecom' ) ),
 			];
 		}
 		return $out;

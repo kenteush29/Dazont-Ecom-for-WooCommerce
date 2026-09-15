@@ -117,6 +117,31 @@ function ok( string $what, $got, $want ) {
 	printf( "  FAIL  %s\n          got  %s\n          want %s\n", $what, var_export( $got, true ), var_export( $want, true ) );
 }
 
+// THE SCREEN, FOR THE EYE: `--dump-logs=<tab>` prints the Logs page with a
+// reading a shop would actually have — one connection down, an update
+// waiting — so a browser can photograph it.
+foreach ( (array) $argv as $dze_arg ) {
+	if ( 0 === strpos( (string) $dze_arg, '--dump-logs=' ) ) {
+		$GLOBALS['opts'][ DZE_Health::OPT_STATE ] = [ 'at' => time() - 3, 'checks' => [
+			'anthropic' => [ 'state' => 'ok',   'message' => 'The model list answers.' ],
+			'fal'       => [ 'state' => 'ok',   'message' => 'The endpoint answers.' ],
+			'klaviyo'   => [ 'state' => 'ok',   'message' => 'Connected to Kula Tactical.' ],
+			'gmc'       => [ 'state' => 'down', 'message' => 'Google has revoked this connection — nothing will sync until it is reconnected. Dazont Ecom → Marketing → Google Merchant Center → Connect Google account again.' ],
+			'analytics' => [ 'state' => 'ok',   'message' => '541 order lines in the last 30 days.' ],
+			'jobs'      => [ 'state' => 'ok',   'message' => 'Scheduled work is running on time.' ],
+			'plugin'    => [ 'state' => 'warn', 'message' => 'Version 4.404.0 is available — this shop runs 4.401.0. If something above is broken, the fix may already be in it.' ],
+		] ];
+		$GLOBALS['opts'][ DZE_Health::OPT_LOG ] = [
+			[ 'at' => time() - 3600, 'where' => 'gmc', 'doing' => 'Sync now — EN feed', 'said' => 'invalid_grant: Token has been expired or revoked.', 'count' => 5 ],
+		];
+		$_GET = [ 'tab' => substr( (string) $dze_arg, strlen( '--dump-logs=' ) ) ];
+		ob_start();
+		DZE_Health::render_page();
+		echo (string) ob_get_clean();
+		exit( 0 );
+	}
+}
+
 echo "\nOPENING THE SCREEN IS THE QUESTION\n";
 // Never looked at all: there is nothing to show, so it asks.
 ok( 'a shop that was never checked asks',

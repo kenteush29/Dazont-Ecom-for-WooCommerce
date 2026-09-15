@@ -150,7 +150,7 @@ function get_post_meta( $id, $key = '', $single = false ) {
 }
 function update_post_meta( $id, $key, $v ) { $GLOBALS['dze_meta'][ (int) $id ][ (string) $key ] = $v; return true; }
 $GLOBALS['mai'] = [];
-class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return $GLOBALS['mai']; } public static function api_key() { return 'k'; } }
+class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function get_settings() { return $GLOBALS['mai']; } public static function api_key() { return 'k'; } public static function shop_profile() { return 'Online shop selling tactical gear.'; } public static function tab_links() { return []; } }
 function get_current_user_id() { return 1; }
 function get_user_meta( ...$a ) { return $GLOBALS['dze_list'] ?? []; }
 // The fake shop can really shorten its list, so a Discard that removes a
@@ -304,6 +304,30 @@ if ( in_array( '--dump-log', (array) $argv, true ) ) {
 	];
 	ob_start();
 	DZE_Content::instance()->bulk_body( 'http://dze.test/screen' );
+	echo (string) ob_get_clean();
+	exit( 0 );
+}
+if ( in_array( '--dump-settings', (array) $argv, true ) ) {
+	if ( ! function_exists( 'wp_get_attachment_image' ) ) { function wp_get_attachment_image( $id, $s = 'thumbnail', $icon = false, $attr = [] ) { return '<img class="' . esc_attr( $attr['class'] ?? '' ) . '" src="" alt="scene ' . (int) $id . '" width="64" height="64" />'; } }
+	if ( ! function_exists( 'wp_get_attachment_image_url' ) ) { function wp_get_attachment_image_url( $id, $s = 'thumbnail' ) { return 'http://dze.test/scene-' . (int) $id . '.jpg'; } }
+	if ( ! function_exists( 'wp_enqueue_media' ) ) { function wp_enqueue_media( ...$a ) {} }
+	if ( ! function_exists( 'submit_button' ) ) { function submit_button( $t = 'Save Changes', $type = 'primary', $n = 'submit', $wrap = true ) { echo '<p class="submit"><button class="button button-primary">' . esc_html( $t ) . '</button></p>'; } }
+	// THE SHOP CONTENT TAB, FOR THE EYE: the prompt registry and the scenes,
+	// drawn by the real renderer over the same fake shop the bulk screen uses.
+	$GLOBALS['opts']['dze_content_settings'] = [
+		'fal_key'  => 'fake-fal-key',
+		'scenes'   => [
+			[ 'name' => 'Studio backdrop', 'image' => 90, 'prompt' => '', 'default' => true ],
+			[ 'name' => 'Slate', 'image' => 91, 'prompt' => '', 'default' => false ],
+		],
+		'registry' => [
+			[ 'id' => 'main1', 'name' => 'Pack shot', 'type' => 'image', 'output' => 'main', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => 'Studio backdrop' ],
+			[ 'id' => 'ugc', 'name' => 'Customer photo', 'type' => 'image', 'output' => 'gallery', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1, 'scene' => '' ],
+			[ 'id' => 'desc', 'name' => 'Description', 'type' => 'text', 'output' => 'post_content', 'prompt' => 'P', 'tokens' => 400, 'enabled' => 1, 'valid' => 1 ],
+		],
+	];
+	ob_start();
+	DZE_Content::instance()->render_settings_section();
 	echo (string) ob_get_clean();
 	exit( 0 );
 }

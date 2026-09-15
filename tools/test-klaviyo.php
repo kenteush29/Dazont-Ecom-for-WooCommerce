@@ -355,6 +355,15 @@ function ok( string $what, $got, $want ) {
 	$fails++;
 	printf( "  FAIL  %s\n          got  %s\n          want %s\n", $what, var_export( $got, true ), var_export( $want, true ) );
 }
+
+// THE SCREEN, FOR THE EYE: `--dump-klaviyo` prints the Email campaigns tab.
+if ( in_array( '--dump-klaviyo', (array) $argv, true ) ) {
+	$GLOBALS['dze_products'] = [ 7 ];
+	ob_start();
+	DZE_Klaviyo::render_settings();
+	echo (string) ob_get_clean();
+	exit( 0 );
+}
 function last_sent(): array { return end( $GLOBALS['dze_sent'] ) ?: []; }
 function header_of( string $name ) { return last_sent()['headers'][ $name ] ?? null; }
 

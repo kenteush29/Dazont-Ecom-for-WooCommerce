@@ -2082,13 +2082,15 @@ PROMPT;
 				<br />
 				<?php
 				printf(
-					/* translators: 1: target word count, 2: target link count, 3: products in the whole branch, 4: direct sub-categories, 5: sub-categories at any depth */
-					esc_html__( 'Target for this category: %1$s words, and up to %2$s links (one per 50 words) — %3$s products behind it, %4$s sub-categories (%5$s counting every level).', 'dazont-ecom' ),
+					/* translators: 1: target word count, 2: target link count, 3: products in the whole branch, 4: "N sub-categories" in the whole branch */
+					esc_html__( 'Target for this category: %1$s words, and up to %2$s links (one per 50 words) — %3$s products and %4$s in its branch.', 'dazont-ecom' ),
 					'<strong>' . (int) $size['words'] . '</strong>' . ( $size['auto_words'] ? '' : '*' ),
 					'<strong>' . (int) $size['links'] . '</strong>' . ( $size['auto_links'] ? '' : '*' ),
 					'<strong>' . (int) $size['products'] . '</strong>',
-					(int) $size['subs'],
-					(int) $size['branch']
+					// "1 sub-categories (1 counting every level)" was two figures
+					// for one question, one of them wrongly pluralised. The size
+					// is worked out from the whole branch, so that is the figure.
+					esc_html( sprintf( _n( '%s sub-category', '%s sub-categories', (int) $size['branch'], 'dazont-ecom' ), number_format_i18n( (int) $size['branch'] ) ) )
 				);
 				if ( ! $size['auto_words'] || ! $size['auto_links'] ) {
 					echo ' <span class="description">' . esc_html__( '* fixed in the settings, not worked out from the category.', 'dazont-ecom' ) . '</span>';
@@ -2831,7 +2833,16 @@ PROMPT;
 		?>
 		<div class="dze-admin">
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Writes product category descriptions as short buying guides, from the SEMrush queries already imported for that category in the Sourcing Assistant: the secondary queries become H2 headings, the real buyer questions become answered H2 questions. Internal links are picked from the category tree and the category best sellers, so they always resolve. Write them from the Description column on Products → Categories.', 'dazont-ecom' ); ?>
+			<?php
+			// "Write them from the Description column" named a column this
+			// plugin does not add (its own is "Word count"). Where the work
+			// happens is read from the catalogue.
+			printf(
+				/* translators: %s: link to the Content screen */
+				esc_html__( 'Writes a category description as a short buying guide, from the queries imported for it in the Sourcing Assistant, with internal links picked from the category tree. Written from the category\'s own page and from %s.', 'dazont-ecom' ),
+				'<a href="' . esc_url( DZE_Screens::url( 'content' ) ) . '">' . esc_html( DZE_Screens::name( 'content' ) ) . '</a>'
+			);
+			?>
 		</p>
 		<form method="post" action="options.php">
 			<?php settings_fields( 'dze_catcontent_options' ); ?>
@@ -2935,7 +2946,7 @@ PROMPT;
 				DZE_Prompts::card_close();
 			}
 			?>
-			<?php submit_button( __( 'Save category settings', 'dazont-ecom' ) ); ?>
+			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
 		</div>
 		<script>

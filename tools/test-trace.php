@@ -171,6 +171,19 @@ function ok( string $what, $got, $want ) {
 }
 function rows(): array { return DZE_Ai_Usage::trace_rows(); }
 
+// THE SCREEN, FOR THE EYE. `--dump-settings=<tab>` prints the Settings page
+// as the plugin draws it, so a browser can photograph it and somebody can
+// read it from the owner's chair. Never a check: a picture is looked at.
+foreach ( (array) $argv as $dze_arg ) {
+	if ( 0 === strpos( (string) $dze_arg, '--dump-settings=' ) ) {
+		$_GET = [ 'tab' => substr( (string) $dze_arg, strlen( '--dump-settings=' ) ) ];
+		ob_start();
+		DZE_Marketing_Ai::instance()->render_settings_page();
+		echo (string) ob_get_clean();
+		exit( 0 );
+	}
+}
+
 echo "A real call leaves a readable row\n";
 $GLOBALS['dze_http'] = [ 'code' => 200, 'body' => json_encode( [
 	'content' => [ [ 'type' => 'text', 'text' => '{"subject":"Hello"}' ] ],

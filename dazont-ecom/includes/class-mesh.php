@@ -1467,12 +1467,16 @@ final class DZE_Mesh {
 		$needs = self::needs();
 		$ends  = self::dead_ends( 50 );
 		?>
-		<p style="margin:14px 0 6px;"><strong><?php echo esc_html( self::rule_said() ); ?></strong></p>
+				<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages short of links', 'dazont-ecom' ); ?></h2>
 		<?php if ( ! $needs ) : ?>
-			<p class="description"><?php esc_html_e( 'Every page is pointed at from enough places. Nothing to do here.', 'dazont-ecom' ); ?></p>
+			<p class="description"><?php echo esc_html( self::rule_said() ); ?> <?php esc_html_e( 'Every page is pointed at from enough places. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
 			<p class="description">
 				<?php
+				// The rule and the figure on one line under a heading of the
+				// same rank as the block below it: a bold paragraph over one
+				// table and a heading over the next read as two kinds of thing.
+				echo esc_html( self::rule_said() ) . ' ';
 				printf(
 					/* translators: %s: how many pages */
 					esc_html( _n( '%s page is short of that.', '%s pages are short of that.', count( $needs ), 'dazont-ecom' ) ),

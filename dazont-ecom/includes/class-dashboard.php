@@ -65,6 +65,12 @@ final class DZE_Dashboard {
 		echo '<div class="wrap"><h1>' . esc_html( DZE_Screens::label( 'dashboard' ) ) . '</h1>';
 		echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px;margin-top:12px;">';
 		$blocks = [
+			// WHAT WAITS FOR A PERSON COMES FIRST. The home screen said what
+			// sold and what was spent and nothing about the three texts waiting
+			// for a yes, the translation nobody had read or the connection that
+			// had been down since Monday — the questions somebody opens the
+			// plugin to answer.
+			__( 'Waiting for you', 'dazont-ecom' )                  => 'block_waiting',
 			__( 'Top categories — last 3 months', 'dazont-ecom' )   => 'block_top_categories',
 			__( 'Top out-of-stock products', 'dazont-ecom' )        => 'block_out_of_stock',
 			__( 'Marketing calendar', 'dazont-ecom' )               => 'block_events',
@@ -82,6 +88,116 @@ final class DZE_Dashboard {
 	// =========================================================================
 	// Blocks
 	// =========================================================================
+
+	/**
+	 * Everything that waits for a decision or a hand, one line each, read
+	 * from whoever owns that answer — never a store of this page's own.
+	 *
+	 * Each line is a figure and the screen it waits on; a line whose figure is
+	 * nought is not printed, and a module switched off contributes nothing.
+	 * The catalogue names the screens and gives their addresses, so a renamed
+	 * page renames its line here with it.
+	 *
+	 * @return array<int,array{n:int,said:string,url:string,to:string}>
+	 */
+	public static function waiting(): array {
+		$on  = static fn( string $id ): bool => ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
+		$out = [];
+		// TEXTS AND PHOTOGRAPHS WAITING FOR A YES OR NO — the queue's rows and
+		// the bulk screen's products, the same two figures the menu badge adds.
+		$n = 0;
+		if ( class_exists( 'DZE_Queue' ) && $on( 'queue' ) ) {
+			$n += (int) DZE_Queue::review_count();
+		}
+		if ( class_exists( 'DZE_Content' ) && $on( 'content' ) ) {
+			$n += (int) DZE_Content::pending_count();
+		}
+		if ( $n > 0 ) {
+			$out[] = [
+				'n'    => $n,
+				/* translators: %s: how many */
+				'said' => sprintf( _n( '%s piece of content waits for your yes or no', '%s pieces of content wait for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
+				'url'  => DZE_Screens::url( 'review' ),
+				'to'   => DZE_Screens::label( 'review' ),
+			];
+		}
+		if ( class_exists( 'DZE_Translate' ) && $on( 'translate' ) ) {
+			$n = (int) DZE_Translate::review_count();
+			if ( $n > 0 ) {
+				$out[] = [
+					'n'    => $n,
+					/* translators: %s: how many */
+					'said' => sprintf( _n( '%s translation waits to be read', '%s translations wait to be read', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
+					'url'  => DZE_Screens::url( 'translations', 'review' ),
+					'to'   => DZE_Screens::label( 'translations' ),
+				];
+			}
+		}
+		if ( class_exists( 'DZE_Marketing_Ai' ) && $on( 'marketing_ai' ) && $on( 'discounts' ) ) {
+			$n = (int) DZE_Marketing_Ai::pending_count();
+			if ( $n > 0 ) {
+				$out[] = [
+					'n'    => $n,
+					/* translators: %s: how many */
+					'said' => sprintf( _n( '%s promotion suggested by the calendar waits for an answer', '%s promotions suggested by the calendar wait for an answer', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
+					'url'  => DZE_Screens::url( 'marketing', 'events' ),
+					'to'   => DZE_Screens::label( 'marketing' ),
+				];
+			}
+		}
+		// A CONNECTION THAT IS DOWN, from the health module's LAST reading —
+		// never asked again here, since that reaches four providers over HTTP.
+		if ( class_exists( 'DZE_Health' ) && $on( 'health' ) ) {
+			$down = [];
+			foreach ( (array) ( DZE_Health::state()['checks'] ?? [] ) as $id => $one ) {
+				if ( 'down' === ( $one['state'] ?? '' ) ) {
+					$down[] = (string) ( DZE_Health::labels()[ $id ] ?? $id );
+				}
+			}
+			if ( $down ) {
+				$out[] = [
+					'n'    => count( $down ),
+					/* translators: %s: the connections that are down, comma-separated */
+					'said' => sprintf( _n( '%s is not answering', '%s are not answering', count( $down ), 'dazont-ecom' ), implode( ', ', $down ) ),
+					'url'  => DZE_Screens::url( 'logs', 'health' ),
+					'to'   => DZE_Screens::label( 'logs' ),
+				];
+			}
+		}
+		// WHAT IS NOT SET UP, counted the way the Setup screen counts it: only
+		// what an enabled module needs, never a suggestion.
+		if ( class_exists( 'DZE_Setup' ) ) {
+			$score = DZE_Setup::score();
+			$n     = count( (array) ( $score['todo'] ?? [] ) );
+			if ( $n > 0 ) {
+				$out[] = [
+					'n'    => $n,
+					/* translators: 1: how many, 2: the first of them */
+					'said' => sprintf( _n( '%1$s thing is still to set up, starting with %2$s', '%1$s things are still to set up, starting with %2$s', $n, 'dazont-ecom' ), number_format_i18n( $n ), (string) $score['todo'][0] ),
+					'url'  => DZE_Screens::url( 'setup' ),
+					'to'   => DZE_Screens::label( 'setup' ),
+				];
+			}
+		}
+		return $out;
+	}
+
+	/** The block: one line per thing waiting, or one line saying nothing is. */
+	public function block_waiting(): void {
+		$lines = self::waiting();
+		if ( ! $lines ) {
+			echo '<p class="description" style="margin:0;">' . esc_html__( 'Nothing is waiting for you.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		echo '<ul class="dze-dash-waiting" style="margin:0;list-style:none;">';
+		foreach ( $lines as $l ) {
+			echo '<li style="margin:0 0 6px;">'
+				. esc_html( $l['said'] ) . ' — '
+				. '<a href="' . esc_url( $l['url'] ) . '">' . esc_html( $l['to'] ) . ' →</a>'
+				. '</li>';
+		}
+		echo '</ul>';
+	}
 
 	/** Best-selling categories of the last 3 months + their last novelty search. */
 	public function block_top_categories(): void {
@@ -176,7 +292,7 @@ final class DZE_Dashboard {
 			];
 		}
 		if ( empty( $rows ) ) {
-			echo '<p class="description">' . esc_html__( 'No current or upcoming marketing events. Generate a calendar with the AI from the Marketing Events page.', 'dazont-ecom' ) . '</p>';
+			echo '<p class="description">' . esc_html__( 'No current or upcoming marketing events.', 'dazont-ecom' ) . '</p>';
 		} else {
 			usort( $rows, static fn( $a, $b ) => strcmp( $a['start'], $b['start'] ) );
 			$rows = array_slice( $rows, 0, 8 );
@@ -204,12 +320,18 @@ final class DZE_Dashboard {
 			}
 			echo '</tbody></table>';
 		}
-		echo '<p style="margin-bottom:0;"><a href="' . esc_url( add_query_arg( [ 'page' => DZE_Discounts::MENU_SLUG_EVENTS ], admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Open Marketing Events →', 'dazont-ecom' ) . '</a></p>';
+		// THE WAY OUT NAMES THE SCREEN AS THE MENU DOES — read from the
+		// catalogue, so a renamed page renames this line with it.
+		echo '<p style="margin-bottom:0;"><a href="' . esc_url( DZE_Screens::url( 'marketing', 'events' ) ) . '">'
+			/* translators: %s: the Marketing screen, as the menu names it */
+			. esc_html( sprintf( __( 'Open %s →', 'dazont-ecom' ), DZE_Screens::label( 'marketing' ) ) ) . '</a></p>';
 	}
 
 	public function block_ai_usage(): void {
 		DZE_Ai_Usage::render_graph( 6 );
-		echo '<p style="margin-bottom:0;"><a href="' . esc_url( add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Open Settings →', 'dazont-ecom' ) . '</a></p>';
+		// The whole account is a LOG, not a setting: this link sent the shop to
+		// Settings for months after the spend moved to Dazont Ecom → Logs.
+		echo '<p style="margin-bottom:0;"><a href="' . esc_url( DZE_Screens::url( 'logs', 'spend' ) ) . '">' . esc_html__( 'Open the Spend log →', 'dazont-ecom' ) . '</a></p>';
 	}
 
 	// =========================================================================

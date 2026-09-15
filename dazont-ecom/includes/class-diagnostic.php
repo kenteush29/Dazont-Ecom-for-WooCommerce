@@ -3280,12 +3280,21 @@ final class DZE_Diagnostic {
 						count( $ids ),
 						'“' . $cats[ $cat ]['name'] . '”'
 					)
-					: sprintf(
-						/* translators: 1: how many fall short, 2: how many are listed */
-						__( '%1$d fall short. %2$d listed here — the count is exact whatever the list can show.', 'dazont-ecom' ),
-						$n,
-						count( $ids )
-					) ) )
+										: ( $n === count( $ids )
+						? sprintf(
+							/* translators: %d: how many fall short */
+							_n( '%d falls short.', '%d fall short.', $n, 'dazont-ecom' ),
+							$n
+						)
+						// "The count is exact whatever the list can show" explained a
+						// mechanism; the figure is the figure, and only a capped list
+						// needs the second one.
+						: sprintf(
+							/* translators: 1: how many fall short, 2: how many are listed */
+							__( '%1$d fall short, %2$d of them listed here.', 'dazont-ecom' ),
+							$n,
+							count( $ids )
+						) ) ) )
 		);
 
 		// THE FILTER, read from the list it filters. Every option is a

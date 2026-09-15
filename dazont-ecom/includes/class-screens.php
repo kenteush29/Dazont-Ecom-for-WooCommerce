@@ -145,7 +145,6 @@ final class DZE_Screens {
 					'general'        => [ 'label' => __( 'General', 'dazont-ecom' ) ],
 					'sourcing'       => [ 'label' => __( 'Sourcing Assistant', 'dazont-ecom' ), 'module' => 'sourcing' ],
 					'content'        => [ 'label' => __( 'Product content', 'dazont-ecom' ), 'module' => 'content' ],
-					'gmc_activation' => [ 'label' => __( 'GMC activation', 'dazont-ecom' ), 'module' => 'gmc_activation' ],
 					'categories'     => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
 					'reviews'        => [ 'label' => __( 'Reviews', 'dazont-ecom' ), 'module' => 'reviews' ],
 					'translate'      => [ 'label' => __( 'Translation', 'dazont-ecom' ), 'module' => 'translate' ],

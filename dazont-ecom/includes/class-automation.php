@@ -1577,19 +1577,24 @@ final class DZE_Automation {
 				$out .= '<button type="button" class="dze-auto-chip is-orphan dze-auto-orph" title="'
 					. esc_attr__( 'Pages no other page links to in its text — menus and breadcrumbs do not count. Press to see them.', 'dazont-ecom' ) . '">'
 					. '<span class="dashicons dashicons-editor-unlink"></span>'
-					. esc_html( number_format_i18n( $orph ) ) . '</button>';
+					/* translators: %s: how many pages no text links to */
+					. esc_html( sprintf( __( '%s unlinked', 'dazont-ecom' ), number_format_i18n( $orph ) ) ) . '</button>';
 			}
 		}
 		// WAITING FOR A PERSON — the figure this screen exists to surface.
 		$left = self::waiting_for( $id );
 		if ( $left['n'] > 0 ) {
-			$out .= $chip( 'is-wait', 'visibility', number_format_i18n( $left['n'] ), __( 'Waiting for your yes or no', 'dazont-ecom' ) );
+			// A NUMBER WITH NO UNIT IS A NUMBER NOBODY CAN READ. "5 · 3 · 14" on
+			// one line, the words only on hover, is three figures to decode.
+			/* translators: %s: how many pieces of work are waiting */
+			$out .= $chip( 'is-wait', 'visibility', sprintf( __( '%s to review', 'dazont-ecom' ), number_format_i18n( $left['n'] ) ), __( 'Waiting for your yes or no', 'dazont-ecom' ) );
 		}
 		// AND WHAT WENT THROUGH. A task that has never written anything says
 		// nothing rather than a nought, which reads as a task that failed.
 		$done = self::done_count( $id );
 		if ( $done > 0 ) {
-			$out .= $chip( 'is-done', 'yes', number_format_i18n( $done ), __( 'Accepted and written to the shop', 'dazont-ecom' ) );
+			/* translators: %s: how many pieces of work were accepted and written */
+			$out .= $chip( 'is-done', 'yes', sprintf( __( '%s written', 'dazont-ecom' ), number_format_i18n( $done ) ), __( 'Accepted and written to the shop', 'dazont-ecom' ) );
 		}
 		// WHEN IT LOOKS AGAIN, only while it is on: a countdown on a switched
 		// off task is a promise nobody made.
@@ -1706,7 +1711,7 @@ final class DZE_Automation {
 					<div class="dze-auto-live" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_run( $id ); ?></div>
 				</details>
 			<?php endforeach; ?>
-			<?php submit_button( __( 'Save', 'dazont-ecom' ) ); ?>
+			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
 
 		<?php

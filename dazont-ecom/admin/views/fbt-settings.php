@@ -104,6 +104,6 @@ for ( $i = $start; $i < $start + 3; $i++ ) {
 		</table>
 		<p class="description"><?php esc_html_e( 'Ctrl/Cmd-click to pick several “to” categories. Save to add more empty rows.', 'dazont-ecom' ); ?></p>
 
-		<?php submit_button( __( 'Save recommendations', 'dazont-ecom' ) ); ?>
+		<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 	</form>
 </div>

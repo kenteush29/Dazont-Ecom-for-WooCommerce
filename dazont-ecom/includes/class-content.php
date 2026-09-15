@@ -2580,7 +2580,7 @@ Answer with STRICT JSON and nothing else: "
 				</td>
 			</tr>
 		</table>
-		<?php submit_button( __( 'Save fal.ai settings', 'dazont-ecom' ), 'secondary', 'submit', true ); ?>
+		<?php submit_button( __( 'Save Changes', 'dazont-ecom' ), 'secondary', 'submit', true ); ?>
 		</form>
 		</div>
 		<?php
@@ -2599,7 +2599,16 @@ Answer with STRICT JSON and nothing else: "
 		?>
 		<div class="dze-admin">
 		<p class="description" style="max-width:900px;">
-			<?php esc_html_e( 'Generate every product field from the imported data, generate images from templates, and recalculate the price from cost. Text uses the Anthropic key (General tab); images use the fal.ai key (General tab). Tune the prompts and the field mapping, test on real products from the toolbox (preview mode), then tick "Prompts validated" to unlock applying.', 'dazont-ecom' ); ?>
+			<?php
+			// One line saying what is decided here and where the work happens —
+			// "field mapping", "preview mode" and a box to tick are how the
+			// code sees it, not how the shop does.
+			printf(
+				/* translators: %s: link to the products bulk screen */
+				esc_html__( 'What the plugin writes on a product — its texts, its photographs, its price — and the prompts it writes them with. The work happens on each product\'s own page and under %s.', 'dazont-ecom' ),
+				'<a href="' . esc_url( DZE_Screens::url( 'content', 'products' ) ) . '">' . esc_html( DZE_Screens::name( 'content', 'products' ) ) . '</a>'
+			);
+			?>
 		</p>
 		<?php $dze_blk = self::image_blockers(); ?>
 		<?php if ( $dze_blk ) : ?>
@@ -2764,7 +2773,7 @@ Answer with STRICT JSON and nothing else: "
 			<details class="dze-set" open>
 			<summary><?php esc_html_e( 'Prompts — what the plugin writes, and how', 'dazont-ecom' ); ?></summary>
 			<p class="description">
-				<?php esc_html_e( 'ONE universal list of prompts — add as many as you want, for anything. Each prompt has a content type (Text or Image), the product metadata it receives as INPUT, and an OUTPUT destination (product fields, SEO metas, WooCommerce attributes, any custom field — or the product gallery / main image for Image prompts, fully compatible with the product image generator). Text prompts appear in the toolbox and bulk once enabled; apply is unlocked per prompt by its Validated box.', 'dazont-ecom' ); ?>
+				<?php esc_html_e( 'One list. Each prompt says what it makes — a text or a photograph — what product data it reads, and which field it writes to.', 'dazont-ecom' ); ?>
 			</p>
 			<?php $dze_inputs = self::input_options(); $dze_metakeys = self::product_meta_keys(); $dze_ri = 0; ?>
 			<datalist id="dze-metakeys">
@@ -4138,7 +4147,7 @@ Answer with STRICT JSON and nothing else: "
 					'shotDrop' => __( 'Throw this image away', 'dazont-ecom' ),
 					'shotRedoOne' => __( 'Make this image again with %s', 'dazont-ecom' ),
 					'confirmRedo' => __( 'You have edited %s of these texts. Writing again replaces your edits. Continue?', 'dazont-ecom' ),
-					'sWait'    => __( 'Waiting', 'dazont-ecom' ),
+					'sWait'    => __( 'Nothing generated yet', 'dazont-ecom' ),
 					'sRun'     => __( 'Writing…', 'dazont-ecom' ),
 					'sReady'   => __( 'Ready to review', 'dazont-ecom' ),
 					'sDone'    => __( 'Written to the product', 'dazont-ecom' ),
@@ -4170,7 +4179,7 @@ Answer with STRICT JSON and nothing else: "
 					/* translators: %s: number of ticked products holding content */
 					'cancelTip' => __( 'Say no to what was generated for these %s products. It is thrown away, they stay on the list at nothing generated, and the refusal is filed under Done. The products themselves are not modified.', 'dazont-ecom' ),
 					/* translators: %s: number of ticked products */
-					'deleteN'  => __( 'Delete (%s)', 'dazont-ecom' ),
+					'deleteN'  => __( 'Remove (%s)', 'dazont-ecom' ),
 					'discardN' => __( 'Cancel (%s)', 'dazont-ecom' ),
 					/* translators: %s: number of products */
 					'confirmDiscard' => __( 'Throw away what was generated for %s products? It cannot be recovered. They stay on the list, back at nothing generated, and the refusals are filed under Done.', 'dazont-ecom' ),
@@ -4601,9 +4610,12 @@ Answer with STRICT JSON and nothing else: "
 				<!-- The refusal beside the acceptance, and the group form of the
 				     button on every panel: what a line can do, the list can do. -->
 				<button type="button" class="button" id="dze-cb-discard" title="<?php esc_attr_e( 'Say no to what was generated for the ticked products. It is thrown away, they stay on the list at nothing generated, and the refusal is filed under Done. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cancel', 'dazont-ecom' ); ?></button>
-				<button type="button" class="button" id="dze-cb-delete" title="<?php esc_attr_e( 'Take the ticked products out of this list and throw away what is waiting on them. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
+				<!-- REMOVE, never "Delete": beside a product's name that word reads
+				     as deleting the product, and the shop hesitates over a button
+				     that only shortens a list. -->
+				<button type="button" class="button" id="dze-cb-delete" title="<?php esc_attr_e( 'Take the ticked products out of this list and throw away what is waiting on them. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 				<span class="dze-cb-barsep"></span>
-				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;"><?php esc_html_e( 'Delete all', 'dazont-ecom' ); ?></button>
+				<button type="button" class="button-link" id="dze-cb-clearlist" style="color:#b32d2e;" title="<?php esc_attr_e( 'Empty the list. The products themselves are not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Remove all', 'dazont-ecom' ); ?></button>
 			</p>
 
 			<!-- Pinned to the bottom of the window while a run is on: on a list of
@@ -4624,8 +4636,8 @@ Answer with STRICT JSON and nothing else: "
 					<th style="width:70px;" title="<?php esc_attr_e( 'Click a thumbnail to open the product.', 'dazont-ecom' ); ?>"></th>
 					<th title="<?php esc_attr_e( 'A green badge appears under the name for each piece of content produced.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Product', 'dazont-ecom' ); ?></th>
 					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
-					<th style="width:80px;" title="<?php esc_attr_e( 'Cost of goods. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost', 'dazont-ecom' ); ?></th>
-					<th style="width:260px;" title="<?php esc_attr_e( '○ waiting, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
+					<th style="width:90px;" title="<?php esc_attr_e( 'What the product costs you, for the price block. On a variable product this is the lowest cost recorded on its variations.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Cost price', 'dazont-ecom' ); ?></th>
+					<th style="width:260px;" title="<?php esc_attr_e( '○ nothing generated yet, spinner while writing, ✓ ready, ✗ failed. Hover the symbol for the detail.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Status', 'dazont-ecom' ); ?></th>
 				</tr>
 				<?php foreach ( $products as $p ) : ?>
 					<tr class="dze-cb-row" data-id="<?php echo (int) $p['id']; ?>">
@@ -4654,7 +4666,7 @@ Answer with STRICT JSON and nothing else: "
 						<td class="dze-cb-statuscell">
 							<!-- ONE symbol per product, not one per task: the whole
 							     story is in its tooltip. -->
-							<span class="dze-cb-state is-wait" title="<?php esc_attr_e( 'Waiting', 'dazont-ecom' ); ?>">○</span>
+							<span class="dze-cb-state is-wait" title="<?php esc_attr_e( 'Nothing generated yet', 'dazont-ecom' ); ?>">○</span>
 							<span class="dze-cb-rowbar"><i></i></span>
 							<span class="dze-cb-rowpct"></span>
 							<!-- ONE CLICK TO SEE WHAT THE PRODUCT HOLDS TODAY. This
@@ -4673,7 +4685,7 @@ Answer with STRICT JSON and nothing else: "
 							     on. A tick, a cross and a bin in a row said three things
 							     nobody could name. -->
 							<button type="button" class="button button-small dze-cb-apply-one" style="display:none;" title="<?php esc_attr_e( 'Write the generated content of this product to the shop', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Apply', 'dazont-ecom' ); ?></button>
-							<button type="button" class="button button-small dze-cb-del-one" title="<?php esc_attr_e( 'Take this product out of the list and throw away what is waiting on it. The product itself is not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Delete', 'dazont-ecom' ); ?></button>
+							<button type="button" class="button button-small dze-cb-del-one" title="<?php esc_attr_e( 'Take this product out of the list and throw away what is waiting on it. The product itself is not modified.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Remove', 'dazont-ecom' ); ?></button>
 						</td>
 					</tr>
 					<tr class="dze-cb-preview" data-id="<?php echo (int) $p['id']; ?>" style="display:none;"><td colspan="6"></td></tr>
@@ -5010,7 +5022,7 @@ Answer with STRICT JSON and nothing else: "
 				'sceneHelp'  => __( 'The fixed support or background added as a second image, so every product is shot in the same setting. Manage the list under Settings → Product content.', 'dazont-ecom' ),
 				// The toolbox now runs the same flow as the bulk screen and needs
 				// the same words for it.
-				'costLabel'  => __( 'Cost', 'dazont-ecom' ),
+				'costLabel'  => __( 'Cost price', 'dazont-ecom' ),
 				'attempts'   => __( 'Attempts', 'dazont-ecom' ),
 				'attemptsHelp' => __( 'Attempts for this prompt — you keep the good ones once you have seen them.', 'dazont-ecom' ),
 				'blocked'    => __( 'Images cannot be generated right now:', 'dazont-ecom' ),

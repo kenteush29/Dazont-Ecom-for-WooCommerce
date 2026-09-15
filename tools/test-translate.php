@@ -526,6 +526,12 @@ if ( '' !== $dze_dump ) {
 	// the product page — a second per-object surface that narrated its own
 	// plumbing: "cet écran c'est encore du custom. Je veux un seul écran pour
 	// chaque type de post. Comme le fait wpml !"
+	if ( 'settings' === $dze_dump ) {
+		ob_start();
+		DZE_Translate::render_settings();
+		echo wp_json_encode( [ 'html' => (string) ob_get_clean() ] );
+		exit( 0 );
+	}
 	if ( 'editor' === $dze_dump ) {
 		$GLOBALS['posts'][700] = [ 'type' => 'product', 'post_title' => 'Field shirt', 'post_content' => '<p>A shirt for the field.</p>', 'post_excerpt' => '' ];
 		$GLOBALS['posts'][800] = [ 'type' => 'product', 'post_title' => 'Chemise', 'post_content' => '', 'post_excerpt' => '' ];

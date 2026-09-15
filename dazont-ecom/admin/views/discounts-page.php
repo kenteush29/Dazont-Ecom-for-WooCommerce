@@ -235,28 +235,27 @@ $klav_on    = null !== $klav;
 		<?php if ( $is_events ) : ?>
 			<?php esc_html_e( 'Only one marketing event can be active at a time — overlapping ones are kept disabled.', 'dazont-ecom' ); ?>
 		<?php else : ?>
-			<?php esc_html_e( 'Discounts are evergreen: enable a rule once and it keeps applying (no schedule). Bulk offers show in the cart and at checkout as a promo-code line — “Bundle” (Bulk offer per item) and “Wholesale” (Bulk order) — with no code to type. An Automatic product discount instead shows a struck-through price directly on the chosen products.', 'dazont-ecom' ); ?>
+			<?php
+			// A LINE SOMEBODY CAN READ, AND THE MECHANISM ONE PRESS AWAY. This
+			// screen was sixty per cent prose: four paragraphs and a blue box
+			// explaining how discounts stack. One line each; the account is
+			// behind the "?" the modules list and the Automation screen wear.
+			esc_html_e( 'A rule keeps applying until it is switched off; a marketing event always wins over it on the products it covers.', 'dazont-ecom' );
+			echo ' ' . wp_kses_post( DZE_Hub::more_button( 'stack' ) );
+			?>
 		<?php endif; ?>
 	</p>
 
 	<?php if ( ! $is_events ) : ?>
-	<div class="notice notice-info inline" style="max-width:900px;margin-top:16px;">
-		<p style="margin:.6em 0;"><strong><?php esc_html_e( 'How these stack with your other promotions', 'dazont-ecom' ); ?></strong></p>
-		<ul style="list-style:disc;margin:0 0 .6em 18px;">
-			<li><?php esc_html_e( 'Only one Marketing Event (scheduled sale) runs at a time.', 'dazont-ecom' ); ?></li>
-			<li><?php esc_html_e( 'A scheduled sale and an Automatic product discount never stack on the same product — the marketing event always wins for the products it covers.', 'dazont-ecom' ); ?></li>
-			<li><?php esc_html_e( 'Bulk coupons (Bundle / Wholesale) are calculated on the already-discounted price and add on top, like a wholesale incentive over a sale price.', 'dazont-ecom' ); ?></li>
-			<li><?php esc_html_e( 'Classic coupons your customers type keep working alongside these. To stop a coupon from stacking on discounted products, tick “Exclude sale items” on that coupon.', 'dazont-ecom' ); ?></li>
-		</ul>
-	</div>
 
 	<?php if ( isset( $_GET['resynced'] ) ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Sale prices synced into product data.', 'dazont-ecom' ); ?></p></div>
 	<?php endif; ?>
 	<hr style="margin:24px 0;" />
-	<h2><?php esc_html_e( 'Automatic discounts in product data (for feeds)', 'dazont-ecom' ); ?></h2>
+	<h2><?php esc_html_e( 'Sale prices in product data', 'dazont-ecom' ); ?></h2>
 	<p class="description" style="max-width:900px;">
-		<?php esc_html_e( 'Automatic product discounts (slow movers, best-sellers, new arrivals, trending) are written into each product’s native WooCommerce sale price, so feeds/exports (e.g. your GMC WPML export) pick them up — and removed again when the product leaves the selection. Under WPML the sale is written to every translation. Marketing events are NOT written here: they reach Google through the promotion API over your regular feed price, so writing them too would double-count. This reconciles automatically when a discount changes, and once a week. Use the button to force it now.', 'dazont-ecom' ); ?>
+		<?php esc_html_e( 'Automatic discounts are written into each product\'s own sale price, so your feeds pick them up; marketing events are not, since Google gets those as promotions.', 'dazont-ecom' ); ?>
+		<?php echo wp_kses_post( DZE_Hub::more_button( 'feeds' ) ); ?>
 	</p>
 	<?php $dze_mat = DZE_Discounts::instance()->materialized_count(); ?>
 	<p style="max-width:900px;">
@@ -266,7 +265,7 @@ $klav_on    = null !== $klav;
 	<form method="post" action="<?php echo esc_url( $admin_post ); ?>">
 		<input type="hidden" name="action" value="dze_sale_resync" />
 		<?php wp_nonce_field( 'dze_sale_resync' ); ?>
-		<?php submit_button( __( 'Resync sale prices now', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
+		<?php submit_button( __( 'Update sale prices now', 'dazont-ecom' ), 'secondary', 'submit', false ); ?>
 	</form>
 
 	<?php
@@ -277,7 +276,7 @@ $klav_on    = null !== $klav;
 	<hr style="margin:24px 0;" />
 	<h2><?php esc_html_e( 'Never discount these products', 'dazont-ecom' ); ?></h2>
 	<p class="description" style="max-width:900px;">
-		<?php esc_html_e( 'Products (or whole categories) listed here are skipped by EVERY promotion — automatic discounts, bulk offers and marketing-event sales. Use it for things like a “Priority processing” upsell that should always stay full price.', 'dazont-ecom' ); ?>
+		<?php esc_html_e( 'Skipped by every promotion — automatic discounts, bulk offers and marketing events alike.', 'dazont-ecom' ); ?>
 	</p>
 	<?php if ( isset( $_GET['excl_saved'] ) ) : ?>
 		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Exclusions saved.', 'dazont-ecom' ); ?></p></div>
@@ -305,7 +304,20 @@ $klav_on    = null !== $klav;
 				</td>
 			</tr>
 		</table>
-		<?php submit_button( __( 'Save exclusions', 'dazont-ecom' ) ); ?>
+		<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 	</form>
+	<?php
+	// The full account of how discounts behave, behind the two "?" above.
+	DZE_Hub::more_assets( [
+		'stack' => [
+			'title' => __( 'How discounts work together', 'dazont-ecom' ),
+			'text'  => __( 'A discount rule has no dates: switched on, it keeps applying until it is switched off. Bulk offers show in the cart and at checkout as a promo-code line — “Bundle” for a bulk offer per item, “Wholesale” for a bulk order — with no code to type; an automatic product discount shows a struck-through price on the chosen products instead. Only one marketing event runs at a time. A marketing event and an automatic discount never stack on the same product: the event wins for the products it covers. Bulk offers are worked out on the already-discounted price and add on top. Coupons your customers type keep working alongside all of this; to stop one stacking on discounted products, tick “Exclude sale items” on that coupon.', 'dazont-ecom' ),
+		],
+		'feeds' => [
+			'title' => __( 'Sale prices in product data', 'dazont-ecom' ),
+			'text'  => __( 'Automatic discounts — slow movers, best-sellers, new arrivals, trending — are written into each product’s own WooCommerce sale price, so a feed or an export picks them up, and removed again when the product leaves the selection. Under WPML the sale is written to every translation. Marketing events are not written here: Google receives them as promotions over the regular feed price, and writing them into the price too would count them twice. The prices are brought back in step whenever a discount changes and once a week; the button does it now.', 'dazont-ecom' ),
+		],
+	] );
+	?>
 	<?php endif; ?>
 </div>

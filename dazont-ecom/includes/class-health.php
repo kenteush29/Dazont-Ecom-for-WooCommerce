@@ -785,7 +785,7 @@ final class DZE_Health {
 		}
 		?>
 		<p class="description" style="max-width:880px;">
-			<?php esc_html_e( 'Everything this plugin does that can fail happens against somebody else\'s service. Once a week each one is asked a cheap question, and every failed call in between is written down. What breaks is named here as the service itself put it — nothing is changed automatically, because no plugin can rewrite itself to match a provider\'s new API.', 'dazont-ecom' ); ?>
+			<?php esc_html_e( 'Once a week each connection is asked a cheap question, and every failed call in between is written down here, in the service\'s own words.', 'dazont-ecom' ); ?>
 		</p>
 		<p>
 			<button type="button" class="button button-primary" id="dze-health-run"><?php esc_html_e( 'Check now', 'dazont-ecom' ); ?></button>
@@ -813,7 +813,7 @@ final class DZE_Health {
 					<?php esc_html_e( 'Install updates of this plugin by itself, as soon as one is published.', 'dazont-ecom' ); ?>
 				</label>
 				<span class="description" style="display:block;margin-left:24px;">
-					<?php esc_html_e( 'When a provider changes something, the fix travels as a release — this is what makes the shop pick it up without waiting for somebody to click. It is WordPress\'s own auto-update switch, the same one the Plugins screen offers; nothing else installs anything here.', 'dazont-ecom' ); ?>
+					<?php esc_html_e( 'WordPress\'s own auto-update switch for this plugin, so a fix for a broken connection arrives without waiting for a click.', 'dazont-ecom' ); ?>
 				</span>
 			</p>
 		<?php endif; ?>

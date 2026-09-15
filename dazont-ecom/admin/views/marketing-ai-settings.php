@@ -26,18 +26,11 @@ $show_fal     = in_array( $dze_section, [ 'all', 'fal' ], true );
 $dze_img_price = class_exists( 'DZE_Content' ) ? (float) DZE_Content::fal_image_cost() : 0.0;
 $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 ?>
-<?php if ( $show_events ) : ?>
-<p class="description" style="max-width:820px;">
-	<?php esc_html_e( 'The AI Marketing Assistant generates a promotional calendar for your shop. It reads your shop and languages automatically — nothing to describe by hand. The API key and model live on the General tab.', 'dazont-ecom' ); ?>
-</p>
-<?php endif; ?>
-
 <form method="post" action="options.php">
 	<?php settings_fields( 'dze_mai_options' ); ?>
 	<input type="hidden" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS ); ?>[section]" value="<?php echo esc_attr( $dze_section ); ?>" />
 
 	<?php if ( $show_general ) : ?>
-	<h2 class="title"><?php esc_html_e( 'Anthropic API key', 'dazont-ecom' ); ?></h2>
 	<table class="form-table" role="presentation">
 		<tr>
 			<th scope="row"><label for="dze-mai-key"><?php esc_html_e( 'API key', 'dazont-ecom' ); ?></label></th>
@@ -49,10 +42,6 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 				<?php endif; ?>
 			</td>
 		</tr>
-	</table>
-
-	<h2 class="title"><?php esc_html_e( 'Claude model', 'dazont-ecom' ); ?></h2>
-	<table class="form-table" role="presentation">
 		<tr>
 			<th scope="row"><label for="dze-mai-model"><?php esc_html_e( 'Model', 'dazont-ecom' ); ?></label></th>
 			<td>
@@ -82,7 +71,19 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 			<th scope="row"><label for="dze-mai-budget"><?php esc_html_e( 'Monthly AI budget (USD)', 'dazont-ecom' ); ?></label></th>
 			<td>
 				<input type="number" id="dze-mai-budget" name="<?php echo esc_attr( DZE_Marketing_Ai::OPT_SETTINGS . '[budget_month]' ); ?>" value="<?php echo esc_attr( (float) ( $settings['budget_month'] ?? 0 ) ?: '' ); ?>" min="0" step="0.5" style="width:100px;" placeholder="0" />
-				<p class="description"><?php esc_html_e( 'Hard cap for ALL AI features combined (calendar, category insights, keyword matching, product images). When the estimated month spend reaches it, every AI call is blocked until next month. 0 or empty = no cap. Current month spend shows in the usage graph below.', 'dazont-ecom' ); ?></p>
+				<p class="description">
+					<?php esc_html_e( 'Hard cap for everything the plugin asks a model for, images included. When the month reaches it, every call is refused until next month. 0 or empty = no cap.', 'dazont-ecom' ); ?>
+					<?php
+					// A SENTENCE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN: this
+					// one said "the usage graph below" for months after the graph
+					// had moved to the Logs.
+					printf(
+						/* translators: %s: link to the Spend log */
+						esc_html__( 'What the month has spent so far is under %s.', 'dazont-ecom' ),
+						'<a href="' . esc_url( DZE_Screens::url( 'logs', 'spend' ) ) . '">' . esc_html( DZE_Screens::label( 'logs' ) . ' → ' . ( DZE_Screens::tabs_of( 'logs' )['spend'] ?? 'Spend' ) ) . '</a>'
+					);
+					?>
+				</p>
 				<?php
 				// A GUARD THAT IS OFF SAYS SO. This is the one that would have
 				// stopped forty dollars of images in a day, and left empty it
@@ -385,7 +386,7 @@ $show_events  = in_array( $dze_section, [ 'all', 'events' ], true );
 	</script>
 	<?php endif; // $show_events ?>
 
-	<?php submit_button( __( 'Save configuration', 'dazont-ecom' ) ); ?>
+	<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 </form>
 
 <?php if ( $show_events ) : ?>
