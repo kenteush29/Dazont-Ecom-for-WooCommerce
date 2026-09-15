@@ -197,14 +197,29 @@
 	// saying so: the duplicate falls back to a free one.
 	$(document).on('change', '.dze-tplrows .dze-cb-tpl', function () {
 		var $wrap = $(this).closest('.dze-tplrows');
-		var used = {}, $me = $(this);
+		// Which menus this press MOVED, so only those are re-derived below.
+		// By the element itself, never by an index: rows are added and removed.
+		var used = {}, $me = $(this), moved = [];
 		$wrap.find('.dze-cb-tpl').each(function () {
 			var v = $(this).val();
 			if (used[v] && this === $me[0]) { $me.val(firstFreeTpl($wrap)); }
-			else if (used[v]) { $(this).val(firstFreeTpl($wrap)); }
+			else if (used[v]) { $(this).val(firstFreeTpl($wrap)); moved.push(this); }
 			used[$(this).val()] = 1;
 		});
-		$wrap.find('.dze-tplrow').each(function () { syncPeek($(this)); syncTarget($(this)); syncScene($(this)); });
+		// THE ROW THAT CHANGED IS THE ROW THAT IS RE-DERIVED. A row pointed at
+		// another prompt is another order, so its peek button, its destination
+		// and its scene follow the prompt it now points at — but this used to
+		// walk EVERY row in the block, so changing the prompt on one line
+		// threw away the scene chosen by hand on the others. Most prompts
+		// inherit the shop's default background, so what it looked like was
+		// the menu snapping back to that background for no reason anybody
+		// could see. The same fault stood on the toolbox: a fix made on one
+		// screen and not the other is the fault coming back through the door
+		// beside it.
+		$wrap.find('.dze-cb-tpl')
+			.filter(function () { return this === $me[0] || moved.indexOf(this) >= 0; })
+			.closest('.dze-tplrow')
+			.each(function () { syncPeek($(this)); syncTarget($(this)); syncScene($(this)); });
 		syncOldMainRow();
 		rowsChanged($wrap);
 	});
