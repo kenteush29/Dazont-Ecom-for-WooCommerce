@@ -186,6 +186,51 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the main-image question goes away with it',
 		await page.locator( '#dze-cb-oldwrap' ).isVisible(), false );
 
+	// ---- AND A BACKGROUND CHOSEN BY HAND IS NOT THROWN AWAY BY THE ROW
+	//      BESIDE IT ----
+	//
+	// "Un truc change toujours Scene en standard background. C'est chiant."
+	// The menu on a row is a one-off for the run about to be launched, and a
+	// row pointed at another prompt rightly takes that prompt's own scene —
+	// but the handler doing it walked EVERY row in the block, so changing the
+	// prompt on one line silently threw away the background chosen by hand on
+	// the others. Most prompts carry the shop's default, so the symptom was
+	// the menu snapping back to that one for no reason anybody could see. The
+	// same fault stood on the toolbox: a fix made on one screen and not the
+	// other is the fault coming back through the door beside it.
+	await page.click( `${row( 1 )} .dze-tpl-add` );
+	await page.waitForSelector( `${row( 2 )} .dze-cb-tpl`, { timeout: 3000 } );
+	// A background chosen BY HAND on the second row, and deliberately NOT the
+	// one its own prompt declares — otherwise the check passes on a value
+	// nobody had to keep.
+	const own2 = await page.locator( `${row( 2 )} .dze-tpl-scene` ).inputValue();
+	const hand = '0' === own2 ? '1' : '0';
+	await page.selectOption( `${row( 2 )} .dze-tpl-scene`, hand );
+	ok( 'a background chosen by hand is on the row',
+		await page.locator( `${row( 2 )} .dze-tpl-scene` ).inputValue(), hand );
+	ok( 'and it is not the one its prompt declares', hand === own2, false );
+	// The prompt changed on the FIRST row, onto one nothing else is using, so
+	// the duplicate guard moves nothing: a row IT re-points is a row nobody
+	// chose, and re-deriving that one is right. Testing the rule on a
+	// colliding row would prove nothing about the rule.
+	const busy2 = await page.locator( `${row( 2 )} .dze-cb-tpl` ).inputValue();
+	const free2 = [ '0', '1', '2' ].filter( v => v !== busy2 && v !== '2' )[ 0 ];
+	await page.selectOption( `${row( 1 )} .dze-cb-tpl`, free2 );
+	await page.waitForTimeout( 150 );
+	ok( 'the other row keeps its prompt',
+		await page.locator( `${row( 2 )} .dze-cb-tpl` ).inputValue(), busy2 );
+	ok( 'and the background chosen by hand survives',
+		await page.locator( `${row( 2 )} .dze-tpl-scene` ).inputValue(), hand );
+	// AND THE ROW THAT DID CHANGE TAKES ITS NEW PROMPT'S OWN — the half that
+	// is deliberate, and must not be lost while mending the other.
+	ok( 'while the row that changed takes its new prompt\'s own',
+		await page.locator( `${row( 1 )} .dze-tpl-scene` ).inputValue(),
+		'0' === free2 ? '0' : '-1' );
+	// Put the block back the way the checks below expect to find it.
+	await page.click( `${row( 2 )} .dze-tpl-del` );
+	await page.selectOption( `${row( 1 )} .dze-cb-tpl`, '2' );
+	await page.waitForTimeout( 100 );
+
 	// ---- WHAT THE PRESS IS ABOUT TO SPEND, BEFORE IT IS PRESSED ----
 	//
 	// "J'ai dépensé hier 40$ en génération d'images... sur fal j'ai vu 24

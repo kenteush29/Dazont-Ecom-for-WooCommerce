@@ -249,6 +249,7 @@ class DZE_Translate {
 // SCREEN shows is read from the registry the shop actually holds.
 function sanitize_key( $s ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $s ) ); }
 function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); }
+function sanitize_textarea_field( $s ) { return trim( strip_tags( (string) $s ) ); }
 function wp_parse_args( $a, $d = [] ) { return array_merge( (array) $d, (array) $a ); }
 $GLOBALS['opts'] = [];
 
@@ -658,6 +659,50 @@ ok( 'a named scene answers with its place',
 	$dze_t['slate']['scene_i'] ?? 'missing', 1 );
 ok( 'a scene deleted since is no scene',
 	$dze_t['gone']['scene_i'] ?? 'missing', -1 );
+
+echo "\nAND A SAVE THAT HAD NOTHING TO DO WITH THE SCENE LEAVES IT ALONE\n";
+// "Un truc change toujours Scene en standard background. C'est chiant."
+//
+// Two writers could reach a prompt's background without anybody asking them
+// to, and both did it the way this plugin forbids by name: `$r['scene'] ?? ''`
+// on a key that was not submitted. A form whose menu was not drawn for a row,
+// and a canonical save that copied only what it cared about, both wrote "No
+// scene" — an ANSWER, and the owner's — over a background he had chosen. The
+// rule is the same one every other setting here is held to: ABSENT means "as
+// it stands", never "none".
+$dze_san = new ReflectionMethod( 'DZE_Content', 'sanitize' );
+$dze_san->setAccessible( true );
+/** One canonical save, and what the prompts hold afterwards. */
+$dze_after = static function ( array $rows ) use ( $dze_san ): array {
+	$out = $dze_san->invoke( DZE_Content::instance(), [ 'registry' => $rows ] );
+	$by  = [];
+	foreach ( (array) ( $out['registry'] ?? [] ) as $r ) { $by[ (string) $r['id'] ] = $r; }
+	return $by;
+};
+$dze_held = (array) $GLOBALS['opts']['dze_content_settings']['registry'];
+$dze_now  = $dze_after( $dze_held );
+ok( 'a save that carries the scene keeps it',
+	$dze_now['slate']['scene'] ?? 'missing', 'Slate' );
+ok( 'and "no scene" survives it too',   $dze_now['ugc']['scene'] ?? 'missing', '' );
+// THE ROW THAT CARRIES NO KEY MUST COME BACK CARRYING NO KEY. Written as ''
+// it reads as "No scene" for ever after; and there is no way back, because
+// nothing on any screen can tell an answer from a save that invented one.
+ok( 'a row with no scene key is not given one',
+	array_key_exists( 'scene', (array) ( $dze_now['old'] ?? [] ) ), false );
+ok( 'so it still reads as the shop default',
+	DZE_Content::scene_index( DZE_Content::prompt_scene( (array) $dze_now['old'] ) ), 0 );
+// AND A SAVE BY A CALLER THAT COPIED ONLY WHAT IT CARED ABOUT — switching a
+// prompt on from the toolbox is exactly that shape.
+$dze_thin = [];
+foreach ( $dze_held as $r ) {
+	unset( $r['scene'] );
+	$dze_thin[] = $r;
+}
+$dze_now = $dze_after( $dze_thin );
+foreach ( [ 'old', 'ugc', 'slate', 'gone' ] as $dze_id ) {
+	ok( 'no key in, no key out — ' . $dze_id,
+		array_key_exists( 'scene', (array) ( $dze_now[ $dze_id ] ?? [] ) ), false );
+}
 ok( 'and the name is not thrown away with it',
 	$dze_t['gone']['scene'] ?? '', 'Sand' );
 // THE SCREEN CARRIES IT TO THE ROW. Each prompt option says which background

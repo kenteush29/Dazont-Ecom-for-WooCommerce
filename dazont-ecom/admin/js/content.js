@@ -231,26 +231,43 @@
 	// saying so: the duplicate falls back to a free one.
 	$(document).on('change', '.dze-cx-tpl', function () {
 		var $me = $(this), v = $me.val(), seen = false;
-		$('#dze-cx-tplrows .dze-cx-tpl').each(function () {
+		// Which menus this press MOVED, so only those are re-derived below.
+		// Identified by the element itself, never by an index: rows are added
+		// and removed, and an index is a name that goes out of date.
+		var moved = [], $rows = $('#dze-cx-tplrows .dze-cx-tpl');
+		$rows.each(function () {
 			if (this === $me[0]) { seen = true; return; }
-			if (seen && $(this).val() === v) { $(this).val(String(firstFreeTpl())); }
+			if (seen && $(this).val() === v) { $(this).val(String(firstFreeTpl())); moved.push(this); }
 		});
 		var used = {}, dupe = false;
-		$('#dze-cx-tplrows .dze-cx-tpl').each(function () {
+		$rows.each(function () {
 			if (used[$(this).val()]) { dupe = true; }
 			used[$(this).val()] = 1;
 		});
 		if (dupe) { $me.val(String(firstFreeTpl())); }
-		// The peek button follows the prompt the row now points at, and so do
-		// the destination and the scene: a row pointed at another prompt is
-		// another order, and both of those are the prompt's own answers.
-		$('#dze-cx-tplrows .dze-tplrow').each(function () {
-			var $r = $(this), sel = $r.find('.dze-cx-tpl').val();
-			var t = cfg.templates[parseInt(sel, 10)] || {};
-			$r.find('.dze-prompt-peek').attr('data-prompt', 'content_' + (t.id || ''));
-			$r.find('.dze-tpl-target').val(targetOf(sel));
-			$r.find('.dze-tpl-scene').val(String(sceneOf(sel)));
-		});
+		// THE ROW THAT CHANGED IS THE ROW THAT IS RE-DERIVED. A row pointed
+		// at another prompt is another order, so its peek button, its
+		// destination and its scene all follow the prompt it now points at —
+		// but this used to walk EVERY row on the screen, so changing the
+		// prompt on one line threw away the scene chosen by hand on the
+		// others. Most prompts inherit the shop's default background, so what
+		// it looked like was the menu snapping back to that background for no
+		// reason anybody could see: "un truc change toujours Scene en
+		// standard background". The menu on a row is a one-off for the run
+		// about to be launched, and nothing but a press on that row's own
+		// prompt menu may overwrite it.
+		//
+		// A row whose prompt the duplicate guard moved counts as changed too:
+		// it is now pointing somewhere nobody chose, and its old scene belongs
+		// to a prompt it no longer runs.
+		$rows.filter(function () { return this === $me[0] || moved.indexOf(this) >= 0; })
+			.closest('.dze-tplrow').each(function () {
+				var $r = $(this), sel = $r.find('.dze-cx-tpl').val();
+				var t = cfg.templates[parseInt(sel, 10)] || {};
+				$r.find('.dze-prompt-peek').attr('data-prompt', 'content_' + (t.id || ''));
+				$r.find('.dze-tpl-target').val(targetOf(sel));
+				$r.find('.dze-tpl-scene').val(String(sceneOf(sel)));
+			});
 		remember();
 	});
 

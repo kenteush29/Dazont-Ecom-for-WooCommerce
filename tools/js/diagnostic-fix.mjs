@@ -78,12 +78,15 @@ const cfg = {
 	metaKeys: [],
 	anchors: [],
 	backdrops: [],
-	scenes: [],
+	// The shop's backgrounds, and the prompts that declare one. Most prompts
+	// inherit the shop's default, which is why a menu quietly re-derived on
+	// every row looked like "it always goes back to Standard background".
+	scenes: [ { name: 'Standard background' }, { name: 'Wooden table' } ],
 	blockers: [],
 	templates: [
-		{ id: 'main1',  name: 'Main image',    target: 'main',    valid: 1 },
-		{ id: 'detail', name: 'Detail shot',   target: 'gallery', valid: 1 },
-		{ id: 'scene',  name: 'Scene, in use', target: 'gallery', valid: 1 }
+		{ id: 'main1',  name: 'Main image',    target: 'main',    valid: 1, scene: 0 },
+		{ id: 'detail', name: 'Detail shot',   target: 'gallery', valid: 1, scene: 0 },
+		{ id: 'scene',  name: 'Scene, in use', target: 'gallery', valid: 1, scene: 1 }
 	],
 	diagTodo: 1,
 	diagNonce: 'n0nce',
@@ -95,12 +98,7 @@ const cfg = {
 		genImgOpt: 'Make photographs', template: 'Prompt', scene: 'Scene', attempts: 'How many',
 		putIt: 'Put it', addPrompt: 'Add', delPrompt: 'Remove', notValid: 'not validated',
 		stepElse: 'Other photographs', noteTitle: 'Note', noteHelp: '', notePh: '',
-		subjLabel: 'Subject', subjMainOpt: 'Main photograph', subjOne: 'Photograph',
-		subjPasteOpt: 'The photograph you added', subjPasteOptN: 'The photographs you added',
-		refsLabel: 'What you added is for',
-		refsSet: 'The setting — the place, the light, the mood',
-		refsCopy: 'Working from — its design goes on the product',
-		baseMain: 'Use the main image', baseMainTip: '', varTitle: 'Variations',
+		varTitle: 'Variations',
 		varIntro: '', varOpen: 'Open', priceOpt: 'Recalculate', costLabel: 'Cost',
 		pricePreview: 'Preview', pvEdit: 'Edit', blocked: 'Blocked', error: 'error' }
 };
@@ -340,6 +338,61 @@ for ( const [ label, jq ] of jqs ) {
 	await page.waitForTimeout( 150 );
 	ok( 'and pressing it opens one',         await page.locator( '#dze-prompt-modal.is-open' ).count(), 1 );
 	await page.click( '#dze-prompt-modal .dze-hub-close' );
+
+	// 5f. THE SCENE CHOSEN ON A ROW IS THE SCENE THAT RUNS.
+	//
+	// "Un truc change toujours Scene en standard background. C'est chiant."
+	// The menu on a row is a one-off for the run about to be launched, and a
+	// row pointed at another prompt rightly takes that prompt's own scene —
+	// but the handler that did it walked EVERY row on the screen, so changing
+	// the prompt on one line silently threw away the background chosen by hand
+	// on the others. Most prompts carry the shop's default, so the symptom was
+	// the menu snapping back to that one for no reason anybody could see.
+	// Nothing but a browser can see it: it is a value read off the page.
+	const sceneAt = i => page.locator( '#dze-cx-tplrows .dze-tplrow' ).nth( i )
+		.locator( '.dze-tpl-scene' ).inputValue();
+	const tplAt = i => page.locator( '#dze-cx-tplrows .dze-tplrow' ).nth( i )
+		.locator( '.dze-cx-tpl' ).inputValue();
+	ok( 'every row carries the scene menu',
+		await page.locator( '#dze-cx-tplrows .dze-tpl-scene' ).count(), 3 );
+	// ONE PROMPT LEFT FREE, so the press below moves one row and one only:
+	// the duplicate guard legitimately re-points a row that collides, and a
+	// row it re-pointed is a row nobody chose — re-deriving THAT one is right.
+	// Testing the rule on a colliding row proves nothing about the rule.
+	await page.locator( '#dze-cx-tplrows .dze-tplrow' ).nth( 2 ).locator( '.dze-cx-tpldel' ).click();
+	await page.waitForTimeout( 100 );
+	ok( 'two rows are left',                 await page.locator( '#dze-cx-tplrows .dze-tplrow' ).count(), 2 );
+	const busy = [ await tplAt( 0 ), await tplAt( 1 ) ];
+	const free = [ '0', '1', '2' ].filter( v => busy.indexOf( v ) < 0 )[ 0 ];
+	ok( 'on two different prompts',          busy[ 0 ] === busy[ 1 ], false );
+	ok( 'leaving one free',                  undefined !== free, true );
+	// A background chosen BY HAND on the second row, and deliberately not the
+	// one its own prompt declares — otherwise the check passes on a value
+	// nobody had to keep.
+	const own1 = await sceneAt( 1 );
+	const byHand = '1' === own1 ? '0' : '1';
+	await page.locator( '#dze-cx-tplrows .dze-tplrow' ).nth( 1 ).locator( '.dze-tpl-scene' )
+		.selectOption( byHand );
+	ok( 'a background chosen by hand is on the row', await sceneAt( 1 ), byHand );
+	ok( 'and it is not the one its prompt declares', byHand === own1, false );
+	// …and the prompt changed on the OTHER row, onto the free one, so nothing
+	// collides and the only row this press has any business touching is row 0.
+	await page.locator( '#dze-cx-tplrows .dze-tplrow' ).nth( 0 ).locator( '.dze-cx-tpl' )
+		.selectOption( free );
+	await page.waitForTimeout( 150 );
+	ok( 'the other row keeps its prompt',    await tplAt( 1 ), busy[ 1 ] );
+	ok( 'and the background chosen by hand survives', await sceneAt( 1 ), byHand );
+	// AND THE ROW THAT DID CHANGE TAKES ITS NEW PROMPT'S OWN. That half is
+	// deliberate and must not be lost while mending the other: a row pointing
+	// at another prompt is another order.
+	ok( 'while the row that changed takes its new prompt\'s own',
+		await sceneAt( 0 ), '2' === free ? '1' : '0' );
+	// Put the screen back the way the checks below expect to find it: a
+	// section that leaves it changed makes the next one pass or fail for its
+	// own reasons.
+	await page.locator( '#dze-cx-tplrows .dze-tplrow' ).last()
+		.locator( '.dze-cx-tpladd' ).click();
+	await page.waitForTimeout( 100 );
 
 	// 6. AND THE POPUP CARRIES THE PRODUCT'S WHOLE TO-DO LIST, not only the
 	//    line that opened it: the reading belongs to the product, and this

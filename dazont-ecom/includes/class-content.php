@@ -2328,14 +2328,23 @@ Answer with STRICT JSON and nothing else: "
 					// instructions changed nothing and the image came back in
 					// the shape of the photograph it was built from.
 					'ratio'       => self::clean_ratio( (string) ( $in['pr_ratio'][ $i ] ?? '' ) ),
-					// The background this prompt is shot on, by NAME. A shop
-					// with no scene at all draws no menu, so the key does not
-					// come back: absent means "as it stands", never "none".
-					'scene'       => array_key_exists( 'pr_scene', $in )
-						? self::clean_scene( (string) ( $in['pr_scene'][ $i ] ?? '' ) )
-						: ( isset( $held[ $rid ] ) ? self::prompt_scene( (array) $held[ $rid ] ) : '' ),
+					// The background this prompt is shot on, by NAME. Absent
+					// means "as it stands", never "none" — a shop with no
+					// scenes draws no menu, and a row whose menu was not
+					// rendered posts no index. Asked with `?? ''` either of
+					// those wrote "No scene" over a background somebody chose.
+					'scene'       => array_key_exists( $i, (array) ( $in['pr_scene'] ?? [] ) )
+						? self::clean_scene( (string) $in['pr_scene'][ $i ] )
+						: ( isset( $held[ $rid ] ) && array_key_exists( 'scene', (array) $held[ $rid ] )
+							? (string) $held[ $rid ]['scene']
+							: null ),
 					'tokens'      => max( 50, (int) ( $in['pr_tokens'][ $i ] ?? 400 ) ),
 				];
+				// ABSENT, not null: prompt_scene() reads the KEY's presence,
+				// and a key holding null is present and reads as "No scene".
+				if ( null === $rows[ array_key_last( $rows ) ]['scene'] ) {
+					unset( $rows[ array_key_last( $rows ) ]['scene'] );
+				}
 			}
 			if ( $rows ) {
 				$out['registry'] = $rows;
@@ -2394,9 +2403,23 @@ Answer with STRICT JSON and nothing else: "
 					'file_name'   => sanitize_text_field( (string) ( $r['file_name'] ?? '' ) ),
 					'img_title'   => sanitize_text_field( (string) ( $r['img_title'] ?? '' ) ),
 					'ratio'       => self::clean_ratio( (string) ( $r['ratio'] ?? '' ) ),
-					'scene'       => self::clean_scene( (string) ( $r['scene'] ?? '' ) ),
+					// ABSENT MEANS "AS IT STANDS". A row handed in without the
+					// key — a prompt written before the scene belonged to the
+					// prompt, or a caller that copied only what it cared about
+					// — used to have "No scene" written onto it here, which is
+					// an ANSWER, and the owner's own. It is left unset instead,
+					// so prompt_scene() goes on reading it the way it did
+					// before the save.
+					'scene'       => array_key_exists( 'scene', $r )
+						? self::clean_scene( (string) $r['scene'] )
+						: null,
 					'tokens'      => max( 50, (int) ( $r['tokens'] ?? 400 ) ),
 				];
+				// ABSENT, not null: prompt_scene() reads the KEY's presence,
+				// and a key holding null is present and reads as "No scene".
+				if ( null === $rows[ array_key_last( $rows ) ]['scene'] ) {
+					unset( $rows[ array_key_last( $rows ) ]['scene'] );
+				}
 			}
 			if ( $rows ) {
 				$out['registry'] = $rows;
