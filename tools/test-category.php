@@ -477,6 +477,8 @@ ok( 'nothing beyond the ceiling',       count( $on ) <= 12, true );
 // The markup the browser gate presses, assembled the way the plugin
 // assembles it: the panel, and the popup the screen prints for it.
 if ( in_array( '--dump-settings', $argv, true ) ) {
+	// The settings intro names the Content screen from the catalogue.
+	if ( ! class_exists( 'DZE_Screens' ) ) { require __DIR__ . '/../' . $dir . '/includes/class-screens.php'; }
 	if ( ! function_exists( 'add_query_arg' ) ) { function add_query_arg( $args, $url = '' ) { return (string) $url . '?' . http_build_query( (array) $args ); } }
 	if ( ! function_exists( 'admin_url' ) ) { function admin_url( $p = '' ) { return 'http://dze.test/wp-admin/' . $p; } }
 	if ( ! function_exists( 'wp_nonce_field' ) ) { function wp_nonce_field( ...$a ) { echo '<input type="hidden" name="_wpnonce" value="n" />'; } }
