@@ -65,6 +65,7 @@ for ( const [ label, jq ] of jqs ) {
 	page.on( 'pageerror', e => errors.push( String( e ) ) );
 	page.on( 'console', m => { if ( 'error' === m.type() ) { errors.push( m.text() ); } } );
 
+	const saved = [];
 	await page.route( 'http://dze.test/ajax', async route => {
 		const q = new URLSearchParams( route.request().postData() || '' );
 		sent.push( {
@@ -92,6 +93,29 @@ for ( const [ label, jq ] of jqs ) {
 				after: now,
 				words: [ 4, now.split( /\s+/ ).filter( Boolean ).length ],
 				links: [ 0, ( now.match( /<a\s/g ) || [] ).length ]
+			} );
+		}
+		// SAVED. The answer carries what the row NOW holds, read back — never
+		// echoed from the request — so a list that did not move shows.
+		if ( 'dze_prompt_save' === q.get( 'action' ) ) {
+			saved.push( Object.fromEntries( q.entries() ) );
+			const keys = q.getAll( 'inputs[]' ).concat( q.getAll( 'inputs' ) );
+			return json( { saved: true, data: keys.length
+				? keys.map( k => 'FIELD ' + k )
+				: [ 'Nothing about the product — your instructions alone.' ] } );
+		}
+		// A PROMPT OF THE PRODUCT REGISTRY carries the boxes that decide what
+		// is sent with it; one that is not carries none, and the popup must
+		// draw no control it cannot act on.
+		if ( 'content_shot' === q.get( 'id' ) ) {
+			return json( {
+				label: 'Prompt: content_shot',
+				text: 'The instructions for content_shot.',
+				def: 'shipped', note: '', editable: true, own: true, mine: false, url: '',
+				inputs: [ 'title', 'description' ],
+				inputOpts: { title: 'Product title', description: 'Description', price: 'Regular price' },
+				inputsTitle: 'Product data sent with it',
+				data: [ 'Product title', 'Description' ]
 			} );
 		}
 		await route.fulfill( { contentType: 'application/json', body: JSON.stringify( { success: true, data: {
@@ -185,9 +209,85 @@ for ( const [ label, jq ] of jqs ) {
 		ok( 'and what came back is on the screen',
 			( await page.inputValue( '#dze-prompt-text' ) ).includes( id ), true );
 		ok( 'named on the popup',           await page.textContent( '#dze-prompt-title' ), 'Prompt: ' + id );
+		// A CONTROL IS NOT DRAWN WHERE IT CANNOT ACT. A category prompt has no
+		// product data to choose from, so the boxes are absent — not empty,
+		// and not a heading over nothing.
+		ok( 'and no boxes it could not act on',
+			await page.locator( '#dze-prompt-inputs:visible' ).count(), 0 );
 		await page.click( '#dze-prompt-modal .dze-hub-close' );
 		ok( 'and it shuts again',           await page.locator( '#dze-prompt-modal.is-open' ).count(), 0 );
 	}
+
+	// ---- WHAT IS SENT WITH A PROMPT IS CHANGED WHERE THE PROMPT IS OPENED ----
+	//
+	// "Impossible de decocher la description produit a envoyer pour le contexte
+	// sur cet ecran. Tu m'avais dit avoir tout standardise."
+	//
+	// The block was a READING on every screen but one, and the tick boxes were
+	// on a single settings tab — so the one screen that could tell you the
+	// description was going out was the one screen that could not stop it. And
+	// on an image prompt the reading was WRITTEN rather than read: it said only
+	// the product's name travelled while the run sent the description too, the
+	// paragraph of straps and buckles this plugin then spends an appended
+	// sentence arguing with.
+	await page.evaluate( () => {
+		const b = document.createElement( 'button' );
+		b.className = 'dze-prompt-peek';
+		b.setAttribute( 'data-prompt', 'content_shot' );
+		b.id = 'dze-test-peek';
+		b.textContent = 'Prompt';
+		document.querySelector( '#panel' ).appendChild( b );
+	} );
+	await page.click( '#dze-test-peek' );
+	await page.waitForFunction(
+		() => ( document.querySelector( '#dze-prompt-text' ).value || '' ).includes( 'content_shot' ),
+		null, { timeout: 4000 } ).catch( () => {} );
+	// Opened the way somebody opens it: the boxes live inside "What is sent
+	// with it", which is the one place on this popup about that subject, and
+	// it is shut so the popup stays about the prompt itself.
+	ok( 'the block is shut until it is wanted',
+		await page.locator( '#dze-prompt-data' ).evaluate( el => el.open ), false );
+	await page.click( '#dze-prompt-data > summary' );
+	// COUNTED AS THE EYE COUNTS THEM. A box that exists and is not shown is
+	// the fault this whole section is about, and a check that counts the
+	// markup passes on it — then dies pressing one, which says nothing at all
+	// about the checks after it.
+	const inBoxes = await page.locator( '#dze-prompt-inputs-boxes .dze-prompt-in:visible' ).count();
+	ok( 'a product prompt carries its own boxes', inBoxes, 3 );
+	if ( 3 !== inBoxes ) { await page.close(); continue; }
+	ok( 'the heading says what they are',
+		( await page.textContent( '#dze-prompt-inputs-title' ) ).trim(), 'Product data sent with it' );
+	ok( 'and they open on what the row actually holds',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-prompt-inputs-boxes .dze-prompt-in' ) )
+			.filter( b => b.checked ).map( b => b.value ) ), [ 'title', 'description' ] );
+	// THE LIST UNDER THEM IS THE SAME VALUE, so the two can never disagree.
+	ok( 'and the list says the same thing',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-prompt-data-list li' ) )
+			.map( li => li.textContent.trim() ) ), [ 'Product title', 'Description' ] );
+	// UNTICK THE DESCRIPTION — the whole of what was asked for — and save.
+	// Only a browser can see what a press puts on the wire.
+	const wasSaved = saved.length;
+	await page.uncheck( '#dze-prompt-inputs-boxes .dze-prompt-in[value="description"]' );
+	await page.click( '#dze-prompt-save' );
+	await page.waitForFunction(
+		n => window.__dzeSaved !== undefined || true, null, { timeout: 1 } ).catch( () => {} );
+	await page.waitForTimeout( 400 );
+	const put = saved.slice( wasSaved )[ 0 ] || {};
+	ok( 'the save went out',                 saved.length - wasSaved, 1 );
+	ok( 'carrying the prompt it was opened on', put.id, 'content_shot' );
+	// ABSENT AND EMPTY ARE DIFFERENT ANSWERS: the screen says it DREW the
+	// boxes, so an empty list can mean "send nothing about the product".
+	ok( 'and saying it drew the boxes',      put.inputs_sent, '1' );
+	ok( 'with the description no longer in them',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-prompt-inputs-boxes .dze-prompt-in' ) )
+			.filter( b => b.checked ).map( b => b.value ) ), [ 'title' ] );
+	// AND THE LIST IS REDRAWN FROM WHAT THE ROW NOW HOLDS. Echoed from the
+	// request it could not notice a write that did nothing.
+	ok( 'the list follows what was saved',
+		await page.evaluate( () => Array.from( document.querySelectorAll( '#dze-prompt-data-list li' ) )
+			.map( li => li.textContent.trim() ) ), [ 'FIELD title' ] );
+	await page.click( '#dze-prompt-modal .dze-hub-close' );
+	await page.evaluate( () => document.querySelector( '#dze-test-peek' ).remove() );
 
 	// EVERY CONTROL READS THE SAME WAY. It was a lone pencil, a lone ⓘ and two
 	// worded buttons — three ways of saying "look at something". They live in

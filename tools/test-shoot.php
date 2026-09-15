@@ -357,6 +357,13 @@ echo "The queue makes the same picture, and files NOTHING until it is accepted\n
 // picture waits, and accepting it is what puts it on the product.
 class DZE_Content {
 	public static function clean_ratio( $r ) { return (string) $r; }
+	// The one place that says what a row with no answer of its own is sent.
+	// Stubbed from the REAL signature, never from the call being tested.
+	public static function default_inputs( string $type ): array {
+		return 'image' === $type
+			? [ 'title', 'description' ]
+			: [ 'title', 'description', 'attributes', 'price' ];
+	}
 	public static function instance() { return new DZE_Shoot_Host(); }
 }
 class DZE_Modules { public static function enabled( $id ) { return true; } }

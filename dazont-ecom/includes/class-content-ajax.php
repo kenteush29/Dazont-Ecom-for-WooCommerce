@@ -1082,9 +1082,16 @@ trait DZE_Content_Ajax {
 		// everything the whole group has in common, not the colour alone.
 		$v_label = '' !== $v_value ? self::attribute_value_label( $v_attr, $v_value ) : '';
 		$v_name  = '' !== $v_value ? self::variation_group_name( $pid, $v_attr, $v_value ) : '';
-		$pl   = $tpl
-			? self::payload_lines( $pid, (array) ( $tpl['inputs'] ?? [ 'title', 'description' ] ), (string) ( $tpl['inputs_meta'] ?? '' ), $v_name )
-			: self::payload_lines( $pid, [ 'title', 'description' ], '', $v_name );
+		// ONE ANSWER TO "WHAT IS THIS PROMPT SENT". The default used to be
+		// written inline here and inline again on the screen that describes
+		// it, so a row with no answer of its own was SENT the description and
+		// DESCRIBED as carrying only the name. DZE_Content owns it now, and
+		// the popup's tick boxes, this line and the list under them are three
+		// readings of one value.
+		$dze_keys = $tpl && array_key_exists( 'inputs', $tpl )
+			? (array) $tpl['inputs']
+			: DZE_Content::default_inputs( 'image' );
+		$pl   = self::payload_lines( $pid, $dze_keys, (string) ( $tpl['inputs_meta'] ?? '' ), $v_name );
 		$pl   = mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $pl ) ), 0, 800 );
 		$ctx  = trim( self::store_context() . ' ' . $pl );
 		$base = '' !== $custom ? $custom : (string) $tpl['prompt'];

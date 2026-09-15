@@ -37,8 +37,17 @@ function esc_html( $s ) { return htmlspecialchars( (string) $s, ENT_QUOTES ); }
 function esc_attr( $s ) { return esc_html( $s ); }
 function wp_kses_post( $s ) { return (string) $s; }
 function esc_url( $s ) { return (string) $s; }
-function add_action( ...$a ) {}
+// The footer hooks are RECORDED, not thrown away: a button drawn on a screen
+// whose popup is never printed is a button that does nothing and says nothing,
+// and that has shipped here before. The gate asserts the screen ASKED for it,
+// and then runs what it asked for to get the markup the browser presses.
+function add_action( $hook, $fn = null, ...$rest ) {
+	if ( 0 === strpos( (string) $hook, 'admin_footer' ) && is_callable( $fn ) ) {
+		$GLOBALS['dze_footer'][] = $fn;
+	}
+}
 function add_filter( ...$a ) {}
+function remove_filter( ...$a ) {}
 function apply_filters( $t, $v = null, ...$a ) { return $v; }
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $a = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
@@ -315,10 +324,18 @@ if ( in_array( '--dump-bulk', (array) $argv, true ) ) {
 	];
 	$GLOBALS['dze_list'] = [ 7, 8 ];
 	$GLOBALS['dze_todo'] = [ 7 => [ 'Gallery photographs — 0 of 3' ], 8 => [] ];
-	$GLOBALS['loc'] = [];
+	$GLOBALS['loc']        = [];
+	$GLOBALS['dze_footer'] = [];
 	ob_start();
 	DZE_Content::instance()->bulk_body( 'http://dze.test/screen' );
 	$dze_html = (string) ob_get_clean();
+	// EVERYTHING THE SCREEN ASKED THE FOOTER FOR — the prompt popup among it.
+	// Run here rather than pasted into the harness by hand: a gate that prints
+	// the popup itself proves the popup works and nothing about whether the
+	// screen ever asks for it.
+	ob_start();
+	foreach ( (array) $GLOBALS['dze_footer'] as $dze_fn ) { call_user_func( $dze_fn ); }
+	$dze_html .= (string) ob_get_clean();
 	echo wp_json_encode( [ 'html' => $dze_html, 'cfg' => $GLOBALS['loc']['dzeContentBulk'] ?? [] ] );
 	exit( 0 );
 }
@@ -659,6 +676,50 @@ ok( 'a named scene answers with its place',
 	$dze_t['slate']['scene_i'] ?? 'missing', 1 );
 ok( 'a scene deleted since is no scene',
 	$dze_t['gone']['scene_i'] ?? 'missing', -1 );
+
+echo "\nWHAT IS SENT WITH A PROMPT IS READ FROM THE ROW, NEVER WRITTEN BESIDE IT\n";
+// "Impossible de decocher la description produit a envoyer pour le contexte
+// sur cet ecran." Two faults in one report. The block was a READING on every
+// screen but one, while the tick boxes lived on a single settings tab — and
+// the reading itself was three sentences somebody had typed: on an image
+// prompt it said only the product's NAME travelled, while shoot() sends
+// whatever `inputs` holds, which ships as the title AND THE DESCRIPTION. That
+// description is the paragraph of straps and buckles the appended sources
+// block then spends a sentence arguing with.
+( new ReflectionProperty( 'DZE_Content', 'registry_cache' ) )->setValue( null, null );
+$dze_said = DZE_Content::prompt_data( 'content_old' );
+ok( 'an image prompt names the fields it is really sent',
+	in_array( 'Description', $dze_said, true ), true );
+ok( 'and its title too',                in_array( 'Product title', $dze_said, true ), true );
+// It is the SAME list the run reads, so the two cannot drift.
+ok( 'the row answers what the run asks for',
+	DZE_Content::prompt_inputs( 'content_old' ), [ 'title', 'description' ] );
+// A ROW THAT ANSWERED IS NOT OVERRULED. This one says: nothing about the
+// product at all, which is the answer somebody unticking every box gives.
+ok( 'a row that was answered keeps its answer',
+	DZE_Content::set_prompt_inputs( 'content_old', [] ), true );
+( new ReflectionProperty( 'DZE_Content', 'registry_cache' ) )->setValue( null, null );
+ok( 'nothing ticked is an answer',      DZE_Content::prompt_inputs( 'content_old' ), [] );
+$dze_said = DZE_Content::prompt_data( 'content_old' );
+ok( 'and the list says WHICH empty it is',
+	in_array( 'Nothing about the product — your instructions alone.', $dze_said, true ), true );
+ok( 'while the description is gone from it',
+	in_array( 'Description', $dze_said, true ), false );
+// Put it back, and only what was asked for: a save of this list writes that
+// key and nothing else on the row.
+ok( 'one box back on',                  DZE_Content::set_prompt_inputs( 'content_old', [ 'title' ] ), true );
+( new ReflectionProperty( 'DZE_Content', 'registry_cache' ) )->setValue( null, null );
+ok( 'and it is what the run is sent',   DZE_Content::prompt_inputs( 'content_old' ), [ 'title' ] );
+ok( 'the prompt itself is untouched',
+	(string) ( DZE_Content::prompt_row_of( 'content_old' )['prompt'] ?? '' ), 'P' );
+// A PROMPT THAT IS NOT THE PRODUCT REGISTRY'S HAS NO SUCH LIST, and a control
+// that cannot act must not be drawn: null is not an empty list.
+ok( 'a prompt of another module answers with no list',
+	DZE_Content::prompt_inputs( 'cat_desc' ), null );
+ok( 'and a row that does not exist either',
+	DZE_Content::prompt_inputs( 'content_nosuchrow' ), null );
+ok( 'so nothing can be written onto one',
+	DZE_Content::set_prompt_inputs( 'content_nosuchrow', [ 'title' ] ), false );
 
 echo "\nAND A SAVE THAT HAD NOTHING TO DO WITH THE SCENE LEAVES IT ALONE\n";
 // "Un truc change toujours Scene en standard background. C'est chiant."
