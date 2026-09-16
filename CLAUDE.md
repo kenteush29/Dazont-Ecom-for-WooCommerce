@@ -725,6 +725,47 @@ whose screen has not been thought through yet.
   "nothing was spent, they are up to date". Fourteen registered words the
   script never used went with it.
 
+- **A MODULE IS TOURED FROM THE CHAIR OF A SHOP THAT NEVER SET IT UP.** The
+  Linking tab read fine on the shop that built it and wrong on a fresh one,
+  fourteen ways, none visible from the code and all of them visible from the
+  chair: "Read the site AGAIN" over a site never read; a press that failed
+  (a 504, a reading already running) reloading on the old figures as if it
+  had read the site; the pages chooser folded at the foot of two tables of
+  two hundred rows, so a shop that never chose one had its pages absent from
+  every list with nothing saying why; a button that sends a job off to fail
+  later for want of a key nothing on the screen mentioned; two lists with no
+  id column and one of them without the visit symbol; "200 pages are short
+  of that" over a list cut at 200 on a shop with 213; a four-word category
+  offered "Add internal links"; a row already in the queue keeping its
+  button and answering "already waiting" when pressed; "the writing key is
+  not set" printed over rows the wording chose because the MODEL had thrown;
+  three pages sent and one refused answered "Sent"; no way to the prompt
+  behind the pass; and nothing saying whether the daily pass was on. Two
+  were worse than wording:
+  - **A SCREEN BEING DRAWN NEVER CALLS THE MODEL.** "Next in line" on the
+    Automation page was PLANNED at draw — `plan()` → `pairs_for()` → one
+    model call per orphan whose neighbours had not been judged yet, with
+    somebody waiting on the page and the shop paying for the look. The draw
+    asks with `$judge = false`: kept verdicts and the wording, nothing sent;
+    the pass judges when it runs. The gate counts calls across a draw.
+  - **A GRAPH THAT HAS NOT BEEN READ ANSWERS NOTHING, NOT EVERY PAGE.**
+    `orphan_count()` answered null before the first reading and `ranked()`
+    did not: with no census every page counted nought in and nought out, so
+    every page passed for an orphan AND a dead end — next in line was the
+    whole site, "Run one now" queued work on it and "Link the whole site"
+    put two hundred pages in the queue, from a reading that did not exist.
+    Every list comes through `ranked()`, so that is where the guard is, and
+    `nothing_said()` names WHICH nothing with the way to the reading.
+  Each state a row can be in is now the server's own word (`busy_of()` /
+  `busy_said()`), printed on the row at draw and by the press that puts it
+  there, so the screen reads the same before and after a reload; a
+  five-line sentence in a 190px cell is not a state. The figure over a cut
+  list is the census's, and the rows are the figure where the list is not
+  cut — a census written before a rule changed must not disagree with the
+  list under it. And the tour dump prints the SCREEN and nothing else: the
+  checks went to stdout above the markup, and the tour photographed a page
+  of "ok ok ok" over the tab.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They

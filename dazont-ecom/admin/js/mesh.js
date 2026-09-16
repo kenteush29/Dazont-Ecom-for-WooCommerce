@@ -18,21 +18,36 @@
 	/** The panel a row opens: the pages that should point at it. */
 	function panel( $row, res ) {
 		var rows = ( res && res.rows ) || [];
-		var $cell = $( '<td colspan="4"></td>' );
+		// As wide as the row it opens under, whatever columns that row grew.
+		var $cell = $( '<td></td>' ).attr( 'colspan', $row.children( 'td' ).length || 5 );
 		var $tr = $( '<tr class="dze-mesh-panel"></tr>' ).append( $cell );
 		if ( ! rows.length ) {
 			$cell.append( $( '<p class="description"></p>' ).text( L.none ) );
 			return $tr;
 		}
+		// WHICH OF THE TWO CHOSE THEM, in the words that are true of it: no
+		// key is one thing, a reading that did not answer is another.
 		if ( 'words' === res.how ) {
 			$cell.append( $( '<p class="description"></p>' ).text( L.words ) );
+		} else if ( 'unjudged' === res.how ) {
+			$cell.append( $( '<p class="description"></p>' ).text( L.unjudged ) );
 		}
 		var $list = $( '<div class="dze-mesh-list"></div>' );
 		rows.forEach( function ( one ) {
 			var $lab = $( '<label style="display:block;margin:4px 0;"></label>' );
-			$lab.append( $( '<input type="checkbox" checked />' ).val( one.key ) );
+			var $in = $( '<input type="checkbox" />' ).val( one.key );
+			// A PAGE ALREADY BEING WRITTEN INTO IS LISTED AND MARKED, never
+			// offered as if nothing were happening to it: unticked, and not
+			// tickable, with the queue's own word beside it.
+			if ( one.busy ) {
+				$in.prop( { checked: false, disabled: true } );
+				$lab.addClass( 'dze-mesh-isbusy' );
+			} else {
+				$in.prop( 'checked', true );
+			}
+			$lab.append( $in );
 			$lab.append( $( '<strong></strong>' ).text( ' ' + one.title + ' ' ) );
-			$lab.append( $( '<span class="description"></span>' ).text( one.why ? '— ' + one.why : '' ) );
+			$lab.append( $( '<span class="description"></span>' ).text( one.busy ? '— ' + one.busy : ( one.why ? '— ' + one.why : '' ) ) );
 			$list.append( $lab );
 		} );
 		$cell.append( $list );
@@ -151,9 +166,33 @@
 			var $b = $( this );
 			$b.prop( 'disabled', true );
 			$( '#dze-mesh-state' ).text( L.reading );
-			post( 'dze_mesh_scan' ).always( function () {
-				window.location.reload();
-			} );
+			// A PRESS THAT FAILED SAYS SO. This reloaded on EVERY outcome — a
+			// 504 from a slow host, a reading already running — and the
+			// screen came back showing the old figures under a button that
+			// looked as if it had just read the site.
+			post( 'dze_mesh_scan' )
+				.done( function ( res ) {
+					if ( res && res.success ) {
+						window.location.reload();
+						return;
+					}
+					$( '#dze-mesh-state' ).text( ( res && res.data && res.data.message ) || L.failed );
+					$b.prop( 'disabled', false );
+				} )
+				.fail( function () {
+					$( '#dze-mesh-state' ).text( L.failed );
+					$b.prop( 'disabled', false );
+				} );
+		} );
+
+		// "Choose the pages" opens the chooser where it stands, rather than
+		// leaving somebody to find a folded box at the foot of two tables.
+		$( document ).on( 'click', '.dze-mesh-choose', function ( e ) {
+			e.preventDefault();
+			var box = $( '.dze-mesh-pagesbox' );
+			if ( ! box.length ) { return; }
+			box.prop( 'open', true );
+			if ( box[0].scrollIntoView ) { box[0].scrollIntoView( { block: 'start' } ); }
 		} );
 
 		// One row, opened. A second press shuts it again: the panel is a look
@@ -198,7 +237,8 @@
 			post( 'dze_mesh_queue', { to: $panel.prev( 'tr' ).data( 'key' ), from: from } )
 				.done( function ( res ) {
 					if ( res && res.success ) {
-						$said.empty().append( sentSaid() );
+						// What was refused comes first, in the server's words.
+						$said.empty().append( sentSaid( res.data && res.data.said ) );
 						$panel.find( '.dze-mesh-list' ).remove();
 						$b.remove();
 					} else {
@@ -215,8 +255,8 @@
 	// WHAT THE PRESS DID, and the way to what it produced. The sentence named
 	// a tab and left the shop to go and find it; the text it is about is one
 	// click away and takes nothing open here with it.
-	function sentSaid() {
-		var $s = $( '<span class="description"></span>' ).text( L.sent );
+	function sentSaid( before ) {
+		var $s = $( '<span class="description"></span>' ).text( ( before ? before + ' ' : '' ) + L.sent );
 		if ( L.reviewUrl ) {
 			$s.append( ' ' ).append(
 				$( '<a></a>' ).attr( { href: L.reviewUrl, target: '_blank', rel: 'noopener' } ).text( L.reviewGo )
@@ -225,17 +265,30 @@
 		return $s;
 	}
 
+		// THE ROW WEARS THE STATE THE SERVER WOULD PRINT ON IT: the queue's own
+		// word, and the way to where the text will wait. The full sentence
+		// belongs to the panel, which has the room for it.
+		function queuedSaid() {
+			var $s = $( '<span class="description dze-mesh-busy"></span>' ).text( L.queued );
+			if ( L.reviewUrl ) {
+				$s = $s.add( $( '<a></a>' ).attr( { href: L.reviewUrl, target: '_blank', rel: 'noopener' } ).text( L.reviewGo ).before( ' ' ) );
+			}
+			return $s;
+		}
+
 		$( '#dze-mesh-ends' ).on( 'click', '.dze-mesh-out', function () {
 			var $b = $( this );
 			var $row = $b.closest( 'tr' );
 			$b.prop( 'disabled', true ).text( L.sending );
 			post( 'dze_mesh_out', { key: $row.data( 'key' ) } )
 				.done( function ( res ) {
-					$b.replaceWith(
-						res && res.success
-							? sentSaid()
-							: $( '<span class="description"></span>' ).text( ( res && res.data && res.data.message ) || L.failed )
-					);
+					if ( res && res.success ) {
+						var $cell = $b.closest( 'td' );
+						$b.remove();
+						$cell.append( queuedSaid() );
+						return;
+					}
+					$b.replaceWith( $( '<span class="description"></span>' ).text( ( res && res.data && res.data.message ) || L.failed ) );
 				} )
 				.fail( function () {
 					$b.prop( 'disabled', false ).text( L.failed );

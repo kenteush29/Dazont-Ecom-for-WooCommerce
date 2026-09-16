@@ -23,6 +23,13 @@
  *     would have built on its own, so a press answered with nothing.
  */
 $dir = $argv[1] ?? 'dazont-ecom';
+// A DUMP IS THE SCREEN AND NOTHING ELSE. The tour photographs what this
+// prints, and the checks printed above the markup came out as a page of
+// "ok ok ok" over the Linking tab. In a dump mode the checks go to stderr.
+$dze_dump = in_array( '--dump-tab', $argv, true ) || in_array( '--dump-unchosen', $argv, true );
+if ( $dze_dump ) {
+	ob_start();
+}
 
 define( 'ABSPATH', '/wp/' );
 define( 'MINUTE_IN_SECONDS', 60 );
@@ -50,6 +57,11 @@ function trailingslashit( $s ) { return untrailingslashit( $s ) . '/'; }
 function wp_parse_url( $url, $c = -1 ) { return parse_url( (string) $url, $c ); }
 function home_url( $p = '/' ) { return 'https://kula.test' . $p; }
 function admin_url( $p = '' ) { return 'https://kula.test/wp-admin/' . $p; }
+function add_query_arg( $args, $url = '' ) {
+	$q = [];
+	foreach ( (array) $args as $k => $v ) { $q[] = $k . '=' . rawurlencode( (string) $v ); }
+	return $url . ( false === strpos( $url, '?' ) ? '?' : '&' ) . implode( '&', $q );
+}
 function plugins_url( $p = '', $f = '' ) { return 'https://kula.test/wp-content/plugins/' . $p; }
 function current_time( $t ) { return '2026-01-01 00:00:00'; }
 function human_time_diff( $a, $b = 0 ) { return '2 hours'; }
@@ -290,10 +302,17 @@ $wpdb            = $GLOBALS['wpdb'];
 /** The queue: what was asked of it, and nothing done. */
 class DZE_Queue {
 	public static array $added = [];
+	/** What the queue holds, by "family:id" => status — the shape pending_for() answers with. */
+	public static array $holds = [];
 	public static function add( string $kind, array $ids, bool $auto = false, array $payload = [] ): int {
 		self::$added[] = [ 'kind' => $kind, 'ids' => $ids, 'payload' => $payload ];
 		return count( $ids );
 	}
+	public static function pending_for( int $object_id, string $family = 'cat_' ): array {
+		$st = self::$holds[ $family . $object_id ] ?? '';
+		return '' === $st ? [] : [ 'status' => $st, 'id' => 1, 'kind' => $family . 'links' ];
+	}
+	public static function url( array $args = [] ): string { return 'https://kula.test/wp-admin/admin.php?page=dazont-ecom-diagnostic&tab=review'; }
 }
 /** The writing service. It answers what the test tells it to. */
 class DZE_Marketing_Ai {
@@ -322,12 +341,25 @@ class DZE_Wpml {
 	}
 }
 class DZE_Keywords_Absent {}
+/** The prompt popup's button, as the real one prints it. */
+class DZE_Prompts {
+	public static function the_button( string $id, string $label = '' ): void {
+		echo '<button type="button" class="dze-prompt-peek" data-prompt="' . $id . '">' . $label . '</button>';
+	}
+}
+/** The automatic pass: what the shop set it to. */
+class DZE_Automation {
+	public static array $conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
+	public static function conf( string $id ): array { return self::$conf; }
+}
 
 require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
 require __DIR__ . '/../' . $dir . '/includes/class-post-links.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 require __DIR__ . '/../' . $dir . '/includes/class-mesh.php';
+// The catalogue of screens: every sentence naming one is built from it.
+require __DIR__ . '/../' . $dir . '/includes/class-screens.php';
 
 $ran   = 0;
 $fails = 0;
@@ -965,6 +997,136 @@ ok( 'and start out disabled',            substr_count( $box, 'dze-mesh-pick" dat
 ok( 'the count and the message are their own',
 	[ substr_count( $box, 'dze-mesh-count' ), substr_count( $box, 'dze-mesh-msg' ) ], [ 1, 1 ] );
 
+
+echo "\nBefore the first reading, the lists answer nothing\n";
+//
+// With no census every page counted nought links in and nought out, so before
+// the first scan every page read as an orphan AND a dead end: the Automation
+// screen listed the whole site as next in line, "Run one now" queued work on
+// it, and "Link the whole site" put two hundred pages in the queue — from a
+// reading that did not exist. The count already answered null; the lists did
+// not answer the same.
+$dze_keep_census = $GLOBALS['opts']['dze_mesh_census'];
+$GLOBALS['opts']['dze_mesh_census'] = [];
+DZE_Mesh::forget_thin();
+ok( 'no page is short of links',        DZE_Mesh::needs( 500 ), [] );
+ok( 'no page is an orphan',             DZE_Mesh::orphans( 500 ), [] );
+ok( 'no page is a dead end',            DZE_Mesh::dead_ends( 500 ), [] );
+ok( 'no page is under its quota',       DZE_Mesh::thin( 500 ), [] );
+ok( 'the day has no work to hand out',  DZE_Mesh::plan( 5 ), [] );
+ok( 'and the chooser has no figure yet', DZE_Mesh::chosen_said(), null );
+$GLOBALS['opts']['dze_mesh_census'] = $dze_keep_census;
+DZE_Mesh::forget_thin();
+
+echo "\nA text too short to carry a sentence is not a dead end\n";
+//
+// "Boonie hats" holds four words and pointed at nothing, so it was offered
+// "Add internal links": a button whose press produces nothing. A text under
+// the source minimum is a description to write, not a link to place.
+ok( 'the four-word category is not listed',
+	in_array( 'Boonie hats', wp_list_pluck( DZE_Mesh::dead_ends( 500 ), 'title' ), true ), false );
+ok( 'a long one still is',
+	in_array( 'Boonie hat sizing', wp_list_pluck( DZE_Mesh::dead_ends( 500 ), 'title' ), true ), true );
+ok( 'and the census counts the same way',
+	DZE_Mesh::census()['counts']['ends'], count( DZE_Mesh::dead_ends( 500 ) ) );
+
+echo "\nA screen being drawn never calls the model\n";
+//
+// The Automation screen asked, on every open, which neighbour should point at
+// each orphan not yet read — one model call per orphan, with somebody waiting
+// on the page, spending on every draw. Asked NOT to judge, the pairs are the
+// wording's own and no call goes out.
+$GLOBALS['key'] = 'sk-test';
+DZE_Marketing_Ai::$answer = '[{"n":1,"why":"read"}]';
+$GLOBALS['tr'] = array_filter( $GLOBALS['tr'], static fn( $k ) => 0 !== strpos( (string) $k, 'dze_mesh_pick_' ), ARRAY_FILTER_USE_KEY );
+$dze_calls = count( DZE_Marketing_Ai::$sent );
+$res = DZE_Mesh::pairs_for( 'product_cat:12', 6, false );
+ok( 'not judged, no call went out',     count( DZE_Marketing_Ai::$sent ), $dze_calls );
+ok( 'and it says the wording chose',    $res['how'], 'unjudged' );
+ok( 'with rows in it',                  count( $res['rows'] ) > 0, true );
+DZE_Mesh::plan( 3, false );
+ok( 'nor does the plan, unjudged',      count( DZE_Marketing_Ai::$sent ), $dze_calls );
+// A VERDICT ALREADY KEPT IS READ, judged or not.
+DZE_Mesh::pairs_for( 'product_cat:12' );
+ok( 'judged, it is asked once',         count( DZE_Marketing_Ai::$sent ), $dze_calls + 1 );
+ok( 'and the kept verdict serves the draw', DZE_Mesh::pairs_for( 'product_cat:12', 6, false )['how'], 'read' );
+
+echo "\nThe key is set and the reading did not answer: said as what it is\n";
+//
+// The panel said "the writing key is not set" over rows chosen on wording
+// because the model had thrown — a sentence about a key that was there.
+$GLOBALS['tr'] = array_filter( $GLOBALS['tr'], static fn( $k ) => 0 !== strpos( (string) $k, 'dze_mesh_pick_' ), ARRAY_FILTER_USE_KEY );
+DZE_Marketing_Ai::$answer = '';
+ok( 'a reading that threw is "unjudged"', DZE_Mesh::pairs_for( 'product_cat:12' )['how'], 'unjudged' );
+DZE_Marketing_Ai::$answer = 'no json here';
+ok( 'and so is one nobody could read',  DZE_Mesh::pairs_for( 'product_cat:12' )['how'], 'unjudged' );
+$GLOBALS['key'] = '';
+ok( 'no key at all stays "words"',      DZE_Mesh::pairs_for( 'product_cat:12' )['how'], 'words' );
+$GLOBALS['key'] = 'sk-test';
+DZE_Marketing_Ai::$answer = '[{"n":1,"why":"read"}]';
+
+echo "\nA page already in the writing queue is marked, not offered again\n";
+DZE_Queue::$holds = [];
+ok( 'nothing held, nothing said',       DZE_Mesh::busy_of( 'post', 21 ), '' );
+DZE_Queue::$holds['post_21'] = 'queued';
+ok( 'waiting its turn is "queued"',     DZE_Mesh::busy_of( 'post', 21 ), 'queued' );
+DZE_Queue::$holds['post_21'] = 'running';
+ok( 'and so is one being written',      DZE_Mesh::busy_of( 'post', 21 ), 'queued' );
+DZE_Queue::$holds['cat_10'] = 'review';
+ok( 'written and waiting is "review"',  DZE_Mesh::busy_of( 'product_cat', 10 ), 'review' );
+ok( 'each state has its words',
+	[ DZE_Mesh::busy_said( 'queued' ), DZE_Mesh::busy_said( 'review' ), DZE_Mesh::busy_said( '' ) ],
+	[ 'In the writing queue', 'Written — waiting for your yes or no', '' ] );
+$GLOBALS['tr'] = array_filter( $GLOBALS['tr'], static fn( $k ) => 0 !== strpos( (string) $k, 'dze_mesh_pick_' ), ARRAY_FILTER_USE_KEY );
+$GLOBALS['key'] = '';
+$dze_rows = [];
+foreach ( DZE_Mesh::pairs_for( 'product_cat:12' )['rows'] as $r ) { $dze_rows[ $r['key'] ] = $r['busy'] ?? null; }
+ok( 'the row says the queue holds it',  $dze_rows['post:21'] ?? null, 'In the writing queue' );
+DZE_Queue::$holds = [];
+$dze_rows = [];
+foreach ( DZE_Mesh::pairs_for( 'product_cat:12' )['rows'] as $r ) { $dze_rows[ $r['key'] ] = $r['busy'] ?? null; }
+ok( 'and a free row says nothing',      $dze_rows['post:21'] ?? null, '' );
+DZE_Queue::$holds = [];
+$GLOBALS['key'] = 'sk-test';
+
+echo "\nA press that sent some says which\n";
+ok( 'all sent: nothing to add',         DZE_Mesh::sent_said( 3, 3, '' ), '' );
+ok( 'one of three: said, with the reason',
+	DZE_Mesh::sent_said( 1, 3, 'That page is already waiting in the queue.' ),
+	'1 of 3 sent — That page is already waiting in the queue.' );
+
+echo "\nA reading under way is known\n";
+ok( 'nothing running',                  DZE_Mesh::reading_now(), false );
+$GLOBALS['tr']['dze_mesh_lock'] = 1;
+ok( 'locked, it says so',               DZE_Mesh::reading_now(), true );
+unset( $GLOBALS['tr']['dze_mesh_lock'] );
+
+echo "\nThe figure over a list is the site's, not the list's\n";
+ok( 'a list not cut is its own figure', DZE_Mesh::listed_said( 213, 9, 200, 'short' ), '9 pages are short of that.' );
+ok( 'one page reads as one',            DZE_Mesh::listed_said( 1, 1, 200, 'short' ), '1 page is short of that.' );
+ok( 'a list cut says how many it shows', DZE_Mesh::listed_said( 213, 200, 200, 'short' ), '213 pages are short of that, 200 of them listed here.' );
+ok( 'and never a figure under the rows', DZE_Mesh::listed_said( 150, 200, 200, 'short' ), '200 pages are short of that.' );
+ok( 'the other list the same way',      DZE_Mesh::listed_said( 80, 50, 50, 'ends' ), '80 pages point at nothing, 50 of them listed here.' );
+
+echo "\nWhat runs by itself, said where the linking is looked at\n";
+DZE_Automation::$conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
+$dze_auto = DZE_Mesh::auto_said();
+ok( 'off, it says so',                  false !== strpos( $dze_auto['said'], 'Nothing links pages on its own yet' ), true );
+ok( 'and names the screen from the catalogue', $dze_auto['name'], 'Dazont Ecom → Automation' );
+ok( 'with its address',                 false !== strpos( $dze_auto['url'], 'page=dazont-ecom-automation' ), true );
+DZE_Automation::$conf = [ 'on' => true, 'per_day' => 3, 'apply' => false ];
+ok( 'on, the rhythm and the review',    DZE_Mesh::auto_said()['said'], 'Dazont Ecom also links 3 pages a day on its own, held for your yes or no.' );
+DZE_Automation::$conf = [ 'on' => true, 'per_day' => 1, 'apply' => true ];
+ok( 'one a day, saved without review',  DZE_Mesh::auto_said()['said'], 'Dazont Ecom also links 1 page a day on its own, saved without review.' );
+DZE_Automation::$conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
+
+echo "\nHow many pages were chosen, from the reading alone\n";
+$GLOBALS['opts']['dze_mesh_pages'] = [ 23 ];
+ok( 'the site has three pages, one chosen', DZE_Mesh::chosen_said(), [ 'pages' => 3, 'on' => 1 ] );
+$GLOBALS['opts']['dze_mesh_pages'] = [];
+ok( 'none chosen reads as nought',      DZE_Mesh::chosen_said(), [ 'pages' => 3, 'on' => 0 ] );
+$GLOBALS['opts']['dze_mesh_pages'] = [ 23 ];
+
 echo "\nThe tab itself, rendered\n";
 // A SETTINGS TAB THAT DIES TAKES THE WHOLE PAGE WHITE, before any of our own
 // error handling. Calling its pieces proves nothing: the tab is RUN here, and
@@ -979,14 +1141,88 @@ ok( 'saying how far off it is',         false !== strpos( $screen, 'nobody point
 ok( 'with the button that opens the choice', false !== strpos( $screen, 'dze-mesh-pairs' ), true );
 ok( 'and the other list has its own',   false !== strpos( $screen, 'dze-mesh-out' ), true );
 // A ROW LINKS TO THE OBJECT, NEVER TO A SETTINGS PAGE. Twice now a control on
-// a row of objects has shipped pointing at a preferences screen.
-ok( 'no row points at a settings page', preg_match( '#href="[^"]*page=dazont-ecom[^"]*"#', $screen ), 0 );
+// a row of objects has shipped pointing at a preferences screen. The rows are
+// the tables; the lines over them may name a screen.
+preg_match_all( '#<tr data-key=.*?</tr>#s', $screen, $dze_trs );
+ok( 'no row points at a settings page', preg_match( '#href="[^"]*page=dazont-ecom[^"]*"#', implode( '', $dze_trs[0] ) ), 0 );
+// EVERY LIST THAT NAMES AN OBJECT PRINTS ITS ID, heading and cell together,
+// on BOTH tables — and the way to the page as a reader sees it, from the one
+// function that prints an object's name anywhere.
+$dze_needs = substr( $screen, strpos( $screen, 'id="dze-mesh-needs"' ), strpos( $screen, 'id="dze-mesh-ends"' ) - strpos( $screen, 'id="dze-mesh-needs"' ) );
+$dze_ends  = substr( $screen, strpos( $screen, 'id="dze-mesh-ends"' ), strpos( $screen, 'dze-mesh-pagesbox' ) - strpos( $screen, 'id="dze-mesh-ends"' ) );
+ok( 'the short list has an id heading', substr_count( $dze_needs, 'dze-objid-th' ), 1 );
+ok( 'and an id cell per row',           substr_count( $dze_needs, 'dze-objid-td' ), substr_count( $dze_needs, '<tr data-key=' ) );
+ok( 'the dead-end list too',            [ substr_count( $dze_ends, 'dze-objid-th' ), substr_count( $dze_ends, 'dze-objid-td' ) === substr_count( $dze_ends, '<tr data-key=' ) ], [ 1, true ] );
+ok( 'every short row offers the page',  substr_count( $dze_needs, 'dze-hub-visit' ), substr_count( $dze_needs, '<tr data-key=' ) );
+ok( 'and every dead end does',          substr_count( $dze_ends, 'dze-hub-visit' ), substr_count( $dze_ends, '<tr data-key=' ) );
+// THE HEADING AND THE CELL ARE ASSERTED TOGETHER, IN POSITION.
+preg_match( '#<thead>.*?</thead>#s', $dze_needs, $dze_head );
+// `<thead>` begins with "<th" too: the tag is matched whole.
+preg_match_all( '#<th(?:\s[^>]*)?>#', (string) ( $dze_head[0] ?? '' ), $dze_ths );
+ok( 'the id is the second column',      false !== strpos( (string) ( $dze_ths[0][1] ?? '' ), 'dze-objid-th' ), true );
+preg_match( '#<tr data-key=.*?</tr>#s', $dze_needs, $dze_tr1 );
+preg_match_all( '#<td[^>]*>#', (string) ( $dze_tr1[0] ?? '' ), $dze_tds );
+ok( 'and so is its cell',               false !== strpos( (string) ( $dze_tds[0][1] ?? '' ), 'dze-objid-td' ), true );
+// THE PROMPT BEHIND THE PASS, one press away, with the word every screen uses.
+ok( 'the prompt is one press away',     false !== strpos( $screen, 'data-prompt="cat_links"' ), true );
+ok( 'wearing the same word as everywhere', false !== strpos( $screen, '✎ prompt' ), true );
+// THE FIGURE IS THE SITE'S. Nine short pages, none cut off.
+ok( 'the sentence counts the site',     false !== strpos( $screen, ' pages are short of that.' ), true );
+// WITH THE KEY SET, NOTHING STANDS IN THE WAY.
+ok( 'no warning about the key',         false !== strpos( $screen, 'dze-mesh-nokey' ), false );
+ok( 'and the buttons are live',         substr_count( $screen, 'dze-mesh-pairs" disabled' ), 0 );
+// THE PASS THAT RUNS BY ITSELF IS NAMED, off or on.
+ok( 'the automatic pass is said',       false !== strpos( $screen, 'dze-mesh-auto' ), true );
+ok( 'linking to the catalogue\'s screen', false !== strpos( $screen, '>Dazont Ecom → Automation</a>' ), true );
+// A PAGE HAS BEEN CHOSEN, so nothing nags.
+ok( 'no line about choosing pages',     false !== strpos( $screen, 'dze-mesh-unchosen' ), false );
+
+echo "\nThe tab on a shop that never set it up\n";
+// NO KEY: said at the top, and the buttons cannot send a job off to fail.
+$GLOBALS['key'] = '';
+ob_start(); DZE_Mesh::instance()->render_tab(); $dze_nokey = (string) ob_get_clean();
+ok( 'the missing key is said first',    false !== strpos( $dze_nokey, 'dze-mesh-nokey' ), true );
+ok( 'naming the tab that holds it',     false !== strpos( $dze_nokey, '>Settings → General</a>' ), true );
+ok( 'every Link to it is disabled',     substr_count( $dze_nokey, 'dze-mesh-pairs" disabled' ), substr_count( $dze_nokey, 'dze-mesh-pairs' ) );
+ok( 'saying why on hover',              false !== strpos( $dze_nokey, 'disabled title="The writing key is not set' ), true );
+ok( 'and so is every Add internal links', substr_count( $dze_nokey, 'dze-mesh-out" disabled' ), substr_count( $dze_nokey, 'dze-mesh-out' ) );
+$GLOBALS['key'] = 'sk-test';
+// NO PAGE CHOSEN: the screen says so at the top and offers the chooser.
+$GLOBALS['opts']['dze_mesh_pages'] = [];
+DZE_Mesh::recount();
+ob_start(); DZE_Mesh::instance()->render_tab(); $dze_unchosen = (string) ob_get_clean();
+ok( 'no page chosen is said at the top', false !== strpos( $dze_unchosen, 'dze-mesh-unchosen' ), true );
+ok( 'with the way to the chooser',      false !== strpos( $dze_unchosen, 'href="#dze-mesh-pages" class="dze-mesh-choose"' ), true );
+ok( 'which carries that id',            false !== strpos( $dze_unchosen, 'id="dze-mesh-pages"' ), true );
+$GLOBALS['opts']['dze_mesh_pages'] = [ 23 ];
+DZE_Mesh::recount();
+// A DEAD END ALREADY IN THE QUEUE SAYS SO, and offers no button.
+DZE_Queue::$holds['post_21'] = 'review';
+ob_start(); DZE_Mesh::instance()->render_tab(); $dze_busy = (string) ob_get_clean();
+preg_match( '#<tr data-key="post:21">.*?</tr>#s', substr( $dze_busy, strpos( $dze_busy, 'id="dze-mesh-ends"' ) ), $dze_brow );
+ok( 'the row says the text is waiting', false !== strpos( (string) ( $dze_brow[0] ?? '' ), 'Written — waiting for your yes or no' ), true );
+ok( 'and offers the way to it',         false !== strpos( (string) ( $dze_brow[0] ?? '' ), 'tab=review' ), true );
+ok( 'with no button beside it',         false !== strpos( (string) ( $dze_brow[0] ?? '' ), 'dze-mesh-out' ), false );
+DZE_Queue::$holds['post_21'] = 'queued';
+ob_start(); DZE_Mesh::instance()->render_tab(); $dze_busy = (string) ob_get_clean();
+preg_match( '#<tr data-key="post:21">.*?</tr>#s', substr( $dze_busy, strpos( $dze_busy, 'id="dze-mesh-ends"' ) ), $dze_brow );
+ok( 'waiting its turn is said too',     false !== strpos( (string) ( $dze_brow[0] ?? '' ), 'In the writing queue' ), true );
+DZE_Queue::$holds = [];
+// NEVER READ: the button says "Read the site", not "again", and nothing else is drawn.
+$GLOBALS['opts']['dze_mesh_census'] = [];
+ob_start(); DZE_Mesh::instance()->render_tab(); $dze_never = (string) ob_get_clean();
+ok( 'the first reading is not "again"', [ false !== strpos( $dze_never, '>Read the site</button>' ), false !== strpos( $dze_never, 'Read the site again' ) ], [ true, false ] );
+ok( 'and no list is drawn',             false !== strpos( $dze_never, 'dze-mesh-needs' ), false );
+ok( 'nor a line about choosing pages, which the reading has not counted', false !== strpos( $dze_never, 'dze-mesh-unchosen' ), false );
+$GLOBALS['opts']['dze_mesh_census'] = $dze_keep_census;
+DZE_Mesh::recount();
 
 // The markup the browser gate presses, so no copy of it is ever written into
 // a JavaScript file and left to drift.
-if ( in_array( '--dump-tab', $argv, true ) ) {
-	file_put_contents( 'php://stderr', sprintf( "\n%d checks, %d wrong\n", $ran, $fails ) );
-	echo $screen;
+if ( $dze_dump ) {
+	// The checks went into the buffer; the screen alone goes to stdout.
+	file_put_contents( 'php://stderr', (string) ob_get_clean() . sprintf( "\n%d checks, %d wrong\n", $ran, $fails ) );
+	echo in_array( '--dump-unchosen', $argv, true ) ? $dze_unchosen : $screen;
 	exit( $fails ? 1 : 0 );
 }
 
