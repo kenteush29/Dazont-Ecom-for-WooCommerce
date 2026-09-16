@@ -21,6 +21,9 @@
  * with a text that names fastenings, draws fastenings. That is the whole bug.
  */
 $dir = $argv[1] ?? 'dazont-ecom';
+// The shop waits nearly two minutes for a picture; a gate proving what happens
+// when that runs out waits one second.
+define( 'DZE_FAL_WAIT', 1 );
 
 define( 'ABSPATH', '/wp/' );
 define( 'MINUTE_IN_SECONDS', 60 );
@@ -61,14 +64,35 @@ function set_transient( $k, $v, $ttl = 0 ) { $GLOBALS['tr'][ $k ] = $v; return t
 // THE PROVIDER, ANSWERING WHATEVER THIS GATE NEEDS IT TO. fal_generate() is
 // where an image request meets the outside world, and nothing had ever run it:
 // its failure paths were read by eye.
-$GLOBALS['fal_say'] = [ 'code' => 200, 'body' => '{"images":[{"url":"https://fal.media/x.jpg"}]}', 'units' => '1' ];
+//
+// IT SPEAKS THE QUEUE PROTOCOL, because that is what the shop speaks now: a
+// submit that answers with an id, a status that is polled, and a result that
+// is fetched. The whole reason for the move is here — a job fal ACCEPTED is
+// billed whether or not this site waits long enough to see the picture.
+$GLOBALS['fal_say'] = [
+	'code'   => 200,
+	'body'   => '{"request_id":"req-1","status_url":"https://queue.fal.run/fal-ai/nano-banana-2/edit/requests/req-1/status","response_url":"https://queue.fal.run/fal-ai/nano-banana-2/edit/requests/req-1"}',
+	'status' => 'COMPLETED',
+	'result' => '{"images":[{"url":"https://fal.media/x.jpg"}]}',
+	'units'  => '1',
+];
 $GLOBALS['fal_sent'] = [];
+$GLOBALS['fal_got']  = [];
 function wp_remote_post( $url, $args = [] ) {
 	$GLOBALS['fal_sent'][] = [ 'url' => $url ] + $args;
 	if ( ! empty( $GLOBALS['fal_say']['wp_error'] ) ) { return new WP_Error( 'http', $GLOBALS['fal_say']['wp_error'] ); }
 	return [ 'response' => [ 'code' => $GLOBALS['fal_say']['code'] ], 'body' => $GLOBALS['fal_say']['body'] ];
 }
-function wp_remote_get( $url, $args = [] ) { return [ 'response' => [ 'code' => 200 ], 'body' => '' ]; }
+function wp_remote_get( $url, $args = [] ) {
+	$GLOBALS['fal_got'][] = (string) $url;
+	// The status call and the result call are two different questions asked of
+	// two different addresses, and a stub that answers both the same way could
+	// never be red on a job that is still running.
+	if ( '/status' === substr( (string) $url, -7 ) ) {
+		return [ 'response' => [ 'code' => 200 ], 'body' => wp_json_encode( [ 'status' => $GLOBALS['fal_say']['status'] ?? 'COMPLETED' ] ) ];
+	}
+	return [ 'response' => [ 'code' => 200 ], 'body' => (string) ( $GLOBALS['fal_say']['result'] ?? '' ) ];
+}
 function wp_remote_retrieve_response_code( $r ) { return is_array( $r ) ? ( $r['response']['code'] ?? 0 ) : 0; }
 function wp_remote_retrieve_body( $r ) { return is_array( $r ) ? ( $r['body'] ?? '' ) : ''; }
 function wp_remote_retrieve_header( $r, $h ) { return 'x-fal-billable-units' === $h ? ( $GLOBALS['fal_say']['units'] ?? '' ) : ''; }
@@ -1085,7 +1109,16 @@ echo "\nA CALL THAT FAILED IS STILL A CALL\n";
 $GLOBALS['opts'] = [];
 $GLOBALS['tr']   = [];
 $dze_fal = static function ( $say ) {
-	$GLOBALS['fal_say'] = $say + [ 'code' => 200, 'body' => '', 'units' => '1' ];
+	// The defaults are a job fal ACCEPTED and finished: a case names only what
+	// it changes, and a default that wiped the submit answer would make every
+	// case fail for the harness's reasons rather than the plugin's.
+	$GLOBALS['fal_say'] = $say + [
+		'code'   => 200,
+		'body'   => '{"request_id":"req-1","status_url":"https://queue.fal.run/fal-ai/nano-banana-2/edit/requests/req-1/status","response_url":"https://queue.fal.run/fal-ai/nano-banana-2/edit/requests/req-1"}',
+		'status' => 'COMPLETED',
+		'result' => '{"images":[{"url":"https://fal.media/x.jpg"}]}',
+		'units'  => '1',
+	];
 	try {
 		return (string) DZE_Content::instance()->fal_generate( 'Shoot it.', [], 'auto', 7 );
 	} catch ( Throwable $e ) {
@@ -1101,7 +1134,14 @@ $dze_model = static function () {
 
 // 1. It worked.
 ok( 'a photograph that came back is the url',
-	$dze_fal( [ 'body' => '{"images":[{"url":"https://fal.media/ok.jpg"}]}' ] ), 'https://fal.media/ok.jpg' );
+	$dze_fal( [ 'result' => '{"images":[{"url":"https://fal.media/ok.jpg"}]}' ] ), 'https://fal.media/ok.jpg' );
+// AND IT WAS ASKED THE WAY A SLOW JOB SHOULD BE ASKED. `fal.run` holds the
+// socket open until the picture is made; when this site gives up first, fal
+// finishes it and bills for it, and the shop paid for nothing.
+ok( 'the order goes to the queue endpoint',
+	false !== strpos( (string) $GLOBALS['fal_sent'][0]['url'], 'queue.fal.run' ), true );
+ok( 'and the submit does not sit on a two-minute socket',
+	(int) $GLOBALS['fal_sent'][0]['timeout'] <= 30, true );
 ok( 'one call recorded',            ( $dze_model()['calls'] ?? 0 ), 1 );
 ok( 'and none of them failed',      ( $dze_model()['ko'] ?? -1 ), 0 );
 ok( 'and it is counted as come back', DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
@@ -1109,7 +1149,7 @@ ok( 'and it is counted as come back', DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
 // 2. fal answered, and the answer held no picture. THIS ONE IS BILLED.
 $dze_was = (float) ( $dze_model()['cost'] ?? 0 );
 ok( 'an answer with no picture in it fails loudly',
-	$dze_fal( [ 'body' => '{"images":[]}' ] ), 'THREW: fal.ai returned no image.' );
+	$dze_fal( [ 'result' => '{"images":[]}' ] ), 'THREW: fal.ai returned no image.' );
 ok( 'it is counted as a call',   ( $dze_model()['calls'] ?? 0 ), 2 );
 ok( 'and as one that failed',    ( $dze_model()['ko'] ?? 0 ), 1 );
 // The whole of the money half: fal charged for it, so the month must hold it.
@@ -1136,18 +1176,81 @@ ok( 'and as one that failed', ( $dze_model()['ko'] ?? 0 ), 3 );
 ok( 'and nothing was billed for it',
 	round( (float) ( $dze_model()['cost'] ?? 0 ) - $dze_was, 4 ), 0.0 );
 
+// 5. FAL TOOK IT AND HAD NOT FINISHED. This is the one the shop was paying
+// for and losing: the job is accepted, it is billed, and the old code threw
+// the request away on a cURL timeout with the cost written down as nothing.
+$dze_was  = (float) ( $dze_model()['cost'] ?? 0 );
+$dze_sent = count( $GLOBALS['fal_sent'] );
+$dze_left = $dze_fal( [ 'status' => 'IN_PROGRESS' ] );
+ok( 'a job still running says it is kept, not lost',
+	false !== strpos( $dze_left, 'collects it instead of ordering another' ), true );
+ok( 'and what fal billed for it is in the spend',
+	( (float) ( $dze_model()['cost'] ?? 0 ) ) > $dze_was, true );
+// THE JOB IS KEPT ON THE PRODUCT, or there is nothing to collect it by.
+ok( 'the product is owed a picture',
+	(string) ( DZE_Content::fal_pending( 7 )['id'] ?? '' ), 'req-1' );
+// 6. NEVER PAY TWICE. Ordering again while that job is still running is
+// exactly how the credit went.
+$dze_was2 = count( $GLOBALS['fal_sent'] );
+$dze_again = $dze_fal( [ 'status' => 'IN_PROGRESS' ] );
+ok( 'a second order is refused while one is owed',
+	false !== strpos( $dze_again, 'already paid for' ), true );
+ok( 'and nothing new was sent to fal', count( $GLOBALS['fal_sent'] ), $dze_was2 );
+// 7. AND IT IS COLLECTED, for nothing, on the next run.
+$dze_made = DZE_Ai_Usage::fal_used( 7 )['made'];
+$dze_hour = DZE_Ai_Usage::fal_used( 7 )['hour'];
+$dze_sent3 = count( $GLOBALS['fal_sent'] );
+ok( 'the picture already paid for comes back',
+	$dze_fal( [ 'status' => 'COMPLETED', 'result' => '{"images":[{"url":"https://fal.media/late.jpg"}]}' ] ),
+	'https://fal.media/late.jpg' );
+ok( 'without ordering anything',      count( $GLOBALS['fal_sent'] ), $dze_sent3 );
+ok( 'without spending an attempt',    DZE_Ai_Usage::fal_used( 7 )['hour'], $dze_hour );
+ok( 'it counts as a photograph made', DZE_Ai_Usage::fal_used( 7 )['made'], $dze_made + 1 );
+ok( 'and the product owes nothing now', DZE_Content::fal_pending( 7 ), [] );
+
+// EVERY FAILURE SAYS WHY, AND THE MONTH COUNTS THEM BY KIND. "Il me bouffe mon
+// crédit pour 50% de requêtes qui échouent" — the register knew HOW MANY and
+// nothing at all about WHY, so the one question worth asking had no answer.
+$dze_why = [];
+foreach ( DZE_Ai_Usage::fail_report() as $r ) { $dze_why[ $r['key'] ] = $r['n']; }
+ok( 'the answer with no picture is named',   ( $dze_why['noimage'] ?? 0 ), 1 );
+ok( 'the refusal is named',                  ( $dze_why['refused'] ?? 0 ), 1 );
+ok( 'the one that never arrived is named',   ( $dze_why['network'] ?? 0 ), 1 );
+// ONE, not two: the second order was refused before it was sent, so there is
+// nothing to file. A failure written down for a request that never went out is
+// a figure that would make the shop look worse than it is.
+ok( 'the one left to be collected is named', ( $dze_why['abandoned'] ?? 0 ), 1 );
+// A KIND OF FAILURE IS A THING TO ACT ON, so every one of them has words and a
+// share — a key with no words would print a blank row on the one screen
+// somebody opens when the credit is going down.
+$dze_rows = DZE_Ai_Usage::fail_report();
+$dze_dumb = 0;
+foreach ( $dze_rows as $r ) {
+	if ( '' === trim( (string) $r['label'] ) || '' === trim( (string) $r['said'] ) || '' === trim( (string) $r['share'] ) ) { $dze_dumb++; }
+}
+ok( 'every kind of failure has words and a share', $dze_dumb, 0 );
+ok( 'the biggest is first',
+	(int) $dze_rows[0]['n'] >= (int) $dze_rows[ count( $dze_rows ) - 1 ]['n'], true );
+// A MONTH WITH NOTHING WRONG PRINTS NOTHING: news every hour is noise.
+ok( 'a quiet month says nothing', DZE_Ai_Usage::fail_report( '1999-01' ), [] );
+
 // AND THE CEILING COUNTED ALL FOUR. That is the whole point of it: a run that
 // fails in a loop reaches the provider exactly as often as one that works.
-ok( 'every one of the four reached the provider', count( $GLOBALS['fal_sent'] ), 4 );
-ok( 'and the ceiling counted every one',          DZE_Ai_Usage::fal_used( 7 )['hour'], 4 );
-ok( 'while one photograph came back',             DZE_Ai_Usage::fal_used( 7 )['made'], 1 );
+ok( 'every order reached the provider',           count( $GLOBALS['fal_sent'] ), 5 );
+ok( 'and the ceiling counted every one',          DZE_Ai_Usage::fal_used( 7 )['hour'], 5 );
+ok( 'while two photographs came back',            DZE_Ai_Usage::fal_used( 7 )['made'], 2 );
 // SO THE TWO FIGURES CAN BE READ AGAINST EACH OTHER, which is exactly what the
 // shop could not do.
-$GLOBALS['mai']['fal_cap_hour'] = 4;
+$GLOBALS['mai']['fal_cap_hour'] = 5;
 $dze_wall = DZE_Ai_Usage::fal_blocked( 0 );
-ok( 'the wall says what went out',   false !== strpos( $dze_wall, 'sent 4 requests' ), true );
-ok( 'and what came back',            false !== strpos( $dze_wall, 'Only 1 came back' ), true );
-ok( 'and how many failed',           false !== strpos( $dze_wall, '3 failed' ), true );
+ok( 'the wall says what went out',   false !== strpos( $dze_wall, 'sent 5 requests' ), true );
+ok( 'and what came back',            false !== strpos( $dze_wall, 'Only 2 came back' ), true );
+// THREE, not four. The register counted four failures and one of them — the
+// job fal had not finished — was COLLECTED afterwards, so of the five requests
+// that went out, three never became a photograph. Two true figures answering
+// two different questions, and the wall answers the one it is about.
+ok( 'and how many never became a photograph',
+	false !== strpos( $dze_wall, '3 failed' ), true );
 
 echo "\nA SETTLED PHOTOGRAPH LEAVES THE WAITING LIST, AND \"NOT LIKE THIS\" FOLLOWS THE SLOT\n";
 // "It literally generated 5 images… and I don't actually have 13 images

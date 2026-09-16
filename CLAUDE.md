@@ -766,6 +766,66 @@ whose screen has not been thought through yet.
   checks went to stdout above the markup, and the tour photographed a page
   of "ok ok ok" over the tab.
 
+- **A PROVIDER BILLS FROM THE MOMENT IT ACCEPTS THE JOB, NOT FROM THE MOMENT
+  YOU READ THE ANSWER.** "Il faut absolument faire baisser le nombre de
+  requêtes échouées auprès de FAL AI. Il me bouffe mon crédit pour 50% de
+  requêtes qui échouent." Every image went to `fal.run` — the SYNCHRONOUS
+  endpoint — on a 120-second socket. A picture slower than that is one cURL
+  abandons while fal carries on, finishes it and charges for it: the shop paid
+  and got nothing, `record()` wrote the cost down as `0.0` because nothing came
+  back, and the month under-reported the very spend that was disappearing.
+  Half the requests failing and the credit going down were one fault, not two.
+  - **The order goes to `queue.fal.run`**, which hands back a request id: a
+    job this site cannot wait for is then not LOST. `fal_collect()` polls, and
+    what it cannot finish is written on the product (`_dze_fal_wait`).
+  - **NEVER PAY TWICE.** The first thing any new order for a product does is
+    go and collect what that product is already owed — no attempt counted, no
+    ceiling spent, nothing new asked of fal. While a job is still running, a
+    second order is REFUSED with a sentence saying the picture is paid for and
+    coming, rather than quietly buying it again. That refusal is the fix: the
+    old code's answer to a slow picture was to order another one.
+  - **The cost is recorded when fal ACCEPTED**, not when a picture arrived.
+  - **A COUNT OF FAILURES IS NOT A DIAGNOSIS.** The Failed column said how
+    many and nothing said why, so the only reading left was that the plugin is
+    broken. Every failure now carries a REASON, tallied per month
+    (`fail_report()`) and printed on Logs → AI calls, each kind saying whether
+    it was BILLED — which is the only thing about a failure that costs money.
+    **The call site names it, never a sniff of the provider's sentence**: a
+    submit that never left this server and a job fal finished without us both
+    say "timed out" and are opposite answers.
+  - And the gate speaks the queue protocol — submit, status, result — because
+    a harness that answers every call the same way could never be red on a job
+    that is still running, which is the whole fault.
+- **A TASK THAT KEEPS ITS OWN WAITING LIST DOES NOT NEED THE WRITING QUEUE,
+  and cannot be settled on the screen that settles queue rows.** The
+  Translations task translates what WPML says is owed, a few objects a day,
+  held for review — and what it leaves waits on the SOURCE OBJECT, which is
+  where a translation has always waited here: one object times its languages
+  times its fields is not a queue row. Four rules: the list is asked of
+  `DZE_Translate::todo_page()`, the very reader the Translations screen pages
+  with, so the pass can never offer an object the screen does not list; an
+  object already holding a translation nobody has answered is never sent twice,
+  or the second answer replaces the one nobody read; what is OWED is WPML's
+  mark and never ours, while what is SENT is our own register, and they are
+  different questions asked at different moments; and the test for "can this
+  task be listed here" is the task's own declared job kinds, never a scope
+  named in that line — a list somebody keeps in step always has one forgotten
+  entry. `nothing_said()` is per task for the same reason: "every page has what
+  its size calls for" is a true answer about links and a meaningless one about
+  languages.
+- **WHAT WAS HANDED IN BELONGS TO THE PRODUCT, NOT TO THE POPUP.** The
+  toolbox's box of photographs from outside was emptied whenever the popup
+  changed product, with nowhere for what it held to go — and the toolbox hops
+  from row to row on the products list and on the diagnostic. So a supplier's
+  photographs were gone the moment you looked at the next product, while the
+  pictures they had MADE were still waiting for a yes or a no on the first:
+  coming back showed the results and nothing they were made from, and the next
+  order went out without them. It is a store per product now, exactly as the
+  bulk screen already keeps its own, written by the box's own draw so a
+  deletion is recorded like an addition. Nothing is written to the server — a
+  photograph handed in for the run in front of you is not a standing
+  instruction — and a reload empties it.
+
 ## Release pipeline
 
 - **Each criterion's object list is its OWN option, never autoloaded.** They

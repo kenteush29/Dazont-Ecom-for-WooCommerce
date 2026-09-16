@@ -237,7 +237,41 @@ final class DZE_Ai_Usage {
 		echo '<p class="description" style="max-width:880px;">'
 			. esc_html__( 'The last calls this plugin made to a model — what was sent, what came back, how long it took. When a result is wrong (a preview too long, an invented detail on a picture), the cause is in here: open the call, read what was actually asked.', 'dazont-ecom' )
 			. '</p>';
+		self::render_fails();
 		self::render_rows( $rows, __( 'No call recorded yet — the trace fills as the tools are used.', 'dazont-ecom' ) );
+	}
+
+	/**
+	 * WHY CALLS FAILED THIS MONTH — the question a shop watching its credit go
+	 * down is actually asking.
+	 *
+	 * "Il me bouffe mon crédit pour 50% de requêtes qui échouent." The Failed
+	 * column said how many and nothing said why, so the only reading left was
+	 * that the plugin is broken. Each kind says what it means and whether it
+	 * was BILLED, which is the half that costs money — a request fal refused
+	 * is free and a job fal finished without us is not.
+	 *
+	 * Nothing at all is printed on a month where nothing failed: news every
+	 * hour is noise.
+	 */
+	public static function render_fails(): void {
+		$rows = self::fail_report();
+		if ( ! $rows ) {
+			return;
+		}
+		echo '<h3 style="margin:18px 0 6px;">' . esc_html__( 'Why calls failed this month', 'dazont-ecom' ) . '</h3>';
+		echo '<table class="wp-list-table widefat fixed striped dze-ai-fails"><thead><tr>';
+		echo '<th>' . esc_html__( 'What happened', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:90px;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>';
+		echo '<th style="width:90px;">' . esc_html__( 'Share', 'dazont-ecom' ) . '</th>';
+		echo '</tr></thead><tbody>';
+		foreach ( $rows as $r ) {
+			echo '<tr><td><strong>' . esc_html( (string) $r['label'] ) . '</strong><br />'
+				. '<span class="description">' . esc_html( (string) $r['said'] ) . '</span></td>';
+			echo '<td>' . esc_html( number_format_i18n( (int) $r['n'] ) ) . '</td>';
+			echo '<td>' . esc_html( (string) $r['share'] ) . '</td></tr>';
+		}
+		echo '</tbody></table>';
 	}
 
 	/**
@@ -301,7 +335,7 @@ final class DZE_Ai_Usage {
 		];
 	}
 
-	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0, bool $ko = false ): void {
+	public static function record( string $provider, int $tokens_in = 0, int $tokens_out = 0, string $model = '', float $flat_cost = 0.0, bool $ko = false, string $why = '' ): void {
 		$data = get_option( self::OPT, [] );
 		$data = is_array( $data ) ? $data : [];
 		$m    = gmdate( 'Y-m' );
@@ -312,6 +346,14 @@ final class DZE_Ai_Usage {
 		$data[ $m ][ $provider ]['calls']++;
 		if ( $ko ) {
 			$data[ $m ][ $provider ]['ko'] = (int) ( $data[ $m ][ $provider ]['ko'] ?? 0 ) + 1;
+			// A COUNT OF FAILURES IS NOT A DIAGNOSIS. "Il me bouffe mon crédit
+			// pour 50% de requêtes qui échouent" — the register could say HOW
+			// MANY failed and nothing at all about WHY, so the one question
+			// worth asking had no answer anywhere on the shop and the only
+			// reading left was that the plugin is broken. One tally per kind
+			// of failure, per month, beside the figures it explains.
+			$key = self::fail_key( $why );
+			$data[ $m ]['_fails'][ $key ] = (int) ( $data[ $m ]['_fails'][ $key ] ?? 0 ) + 1;
 		}
 		$data[ $m ][ $provider ]['in']   += max( 0, $tokens_in );
 		$data[ $m ][ $provider ]['out']  += max( 0, $tokens_out );
@@ -341,6 +383,142 @@ final class DZE_Ai_Usage {
 		krsort( $data );
 		$data = array_slice( $data, 0, 18, true ); // keep 18 months max.
 		update_option( self::OPT, $data, false );
+	}
+
+	/**
+	 * A failure, filed under a name a person can act on.
+	 *
+	 * The provider's own sentence is not a category — it carries ids, sizes
+	 * and timings, so counting it whole gives a tally of one per line. These
+	 * are the kinds this shop can actually DO something about, and anything
+	 * else is "something else" rather than a hundred rows of noise.
+	 */
+	public static function fail_key( string $why ): string {
+		$w = strtolower( trim( $why ) );
+		if ( '' === $w ) {
+			return 'other';
+		}
+		// WHAT THE CALL SITE KNOWS BEATS WHAT THE SENTENCE LOOKS LIKE. Whether
+		// a failure was BILLED is not readable from the provider's words — a
+		// submit that never left this server and a job fal finished without us
+		// both say "timed out" — and it is the only thing about a failure that
+		// costs money. So the caller names it, and sniffing is the fallback
+		// for a sentence nobody classified.
+		foreach ( [ 'network', 'abandoned', 'refused', 'noimage', 'toobig', 'rate', 'key', 'provider', 'timeout' ] as $known ) {
+			if ( 0 === strpos( $w, $known ) ) {
+				return $known;
+			}
+		}
+		if ( false !== strpos( $w, 'timed out' ) || false !== strpos( $w, 'timeout' ) || false !== strpos( $w, 'operation too slow' ) ) {
+			return 'timeout';
+		}
+		if ( false !== strpos( $w, 'no image' ) ) {
+			return 'noimage';
+		}
+		if ( preg_match( '/\b(401|403|invalid key|unauthorized|forbidden)\b/', $w ) ) {
+			return 'key';
+		}
+		if ( preg_match( '/\b(413|payload too large|too large|request entity)\b/', $w ) ) {
+			return 'toobig';
+		}
+		if ( preg_match( '/\b(422|validation|unprocessable)\b/', $w ) ) {
+			return 'refused';
+		}
+		if ( preg_match( '/\b(429|rate limit|too many requests)\b/', $w ) ) {
+			return 'rate';
+		}
+		if ( preg_match( '/\b(5\d\d)\b/', $w ) ) {
+			return 'provider';
+		}
+		if ( false !== strpos( $w, 'could not resolve' ) || false !== strpos( $w, 'connection' ) || false !== strpos( $w, 'ssl' ) ) {
+			return 'network';
+		}
+		return 'other';
+	}
+
+	/** Those keys in words, and what to do about each. Words live in PHP. */
+	public static function fail_words(): array {
+		return [
+			'timeout'   => [
+				'label' => __( 'The shop gave up waiting', 'dazont-ecom' ),
+				'said'  => __( 'fal took longer than this site waits. The picture is still made and still billed, so it is collected on the next run rather than ordered again.', 'dazont-ecom' ),
+			],
+			'abandoned' => [
+				'label' => __( 'Left to be collected', 'dazont-ecom' ),
+				'said'  => __( 'fal accepted the job and had not finished in time. Nothing is ordered again for that product until this one has been collected.', 'dazont-ecom' ),
+			],
+			'noimage'   => [
+				'label' => __( 'An answer with no picture in it', 'dazont-ecom' ),
+				'said'  => __( 'fal answered and billed, and there was no image in the answer. This is the one failure that is pure loss.', 'dazont-ecom' ),
+			],
+			'toobig'    => [
+				'label' => __( 'The request was too heavy', 'dazont-ecom' ),
+				'said'  => __( 'Too many or too heavy reference photographs for one request. Nothing was billed. Send fewer of them.', 'dazont-ecom' ),
+			],
+			'refused'   => [
+				'label' => __( 'fal refused what was sent', 'dazont-ecom' ),
+				'said'  => __( 'The request arrived and was not carried out — a source it would not read, or a value it would not take. Nothing was billed.', 'dazont-ecom' ),
+			],
+			'rate'      => [
+				'label' => __( 'Too many at once', 'dazont-ecom' ),
+				'said'  => __( 'fal is refusing for the pace, not the content. Nothing was billed.', 'dazont-ecom' ),
+			],
+			'key'       => [
+				'label' => __( 'The key was refused', 'dazont-ecom' ),
+				'said'  => __( 'fal did not accept the key. Nothing was billed, and nothing will work until it is put right.', 'dazont-ecom' ),
+			],
+			'provider'  => [
+				'label' => __( 'fal answered with an error', 'dazont-ecom' ),
+				'said'  => __( 'The provider\'s own side failed. Nothing was billed.', 'dazont-ecom' ),
+			],
+			'network'   => [
+				'label' => __( 'It never reached fal', 'dazont-ecom' ),
+				'said'  => __( 'The request did not arrive. Nothing was billed.', 'dazont-ecom' ),
+			],
+			'other'     => [
+				'label' => __( 'Something else', 'dazont-ecom' ),
+				'said'  => __( 'Read the last calls below for what came back.', 'dazont-ecom' ),
+			],
+		];
+	}
+
+	/**
+	 * WHY CALLS FAILED THIS MONTH, biggest first.
+	 *
+	 * A reading of what was already recorded, so it answers for every month
+	 * the shop still holds and nothing had to be stored first.
+	 *
+	 * @return array<int,array{key:string,label:string,said:string,n:int,share:string}>
+	 */
+	public static function fail_report( string $month = '' ): array {
+		$data  = get_option( self::OPT, [] );
+		$month = $month ?: gmdate( 'Y-m' );
+		$rows  = (array) ( ( is_array( $data ) ? $data : [] )[ $month ]['_fails'] ?? [] );
+		$total = 0;
+		foreach ( $rows as $n ) {
+			$total += (int) $n;
+		}
+		if ( $total < 1 ) {
+			return [];
+		}
+		$words = self::fail_words();
+		$out   = [];
+		foreach ( $rows as $key => $n ) {
+			$n = (int) $n;
+			if ( $n < 1 ) {
+				continue;
+			}
+			$one   = (array) ( $words[ $key ] ?? $words['other'] );
+			$out[] = [
+				'key'   => (string) $key,
+				'label' => (string) $one['label'],
+				'said'  => (string) $one['said'],
+				'n'     => $n,
+				'share' => self::share_said( $n, $total ),
+			];
+		}
+		usort( $out, static fn( $a, $b ) => $b['n'] <=> $a['n'] );
+		return $out;
 	}
 
 	/**

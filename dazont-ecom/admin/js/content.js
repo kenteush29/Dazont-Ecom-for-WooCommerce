@@ -630,11 +630,12 @@
 		PID = target;
 		$('#dze-cx-modal').addClass('is-open');
 		arm(want);
-		// The box that takes photographs from outside is part of the popup: it
-		// is mounted with it, and emptied when the popup changes product.
+		// The box that takes photographs from outside is part of the popup, and
+		// it opens on THIS product's own photographs — never emptied, because
+		// what was handed in belongs to the product and the run it was handed
+		// in for may still be waiting for a decision.
 		cxPasteBox();
 		if (switching) {
-			if (cxPaste) { cxPaste.clear(); }
 			reset();
 			// A product we were not opened on: ask the server who it is, what it
 			// costs and what is already waiting on it, then arm the popup.
@@ -1095,13 +1096,41 @@
 	}
 	// The toolbox's own box of photographs from outside, mounted with the
 	// popup and read by every image it orders.
+	//
+	// WHAT WAS HANDED IN BELONGS TO THE PRODUCT, NOT TO THE POPUP. The box
+	// used to be emptied whenever the popup changed product and there was
+	// nowhere for what it held to go — so from the products list or the
+	// diagnostic, where the toolbox hops from row to row, a supplier's
+	// photographs were gone the moment you looked at the next product, while
+	// the images they had produced were still sitting there waiting for a yes
+	// or a no. Coming back, the popup showed the pictures and nothing they
+	// were made from, and the next order went out without them.
+	//
+	// It is a store per product now, exactly as the bulk screen keeps its own.
+	// Nothing is written to the server: a photograph handed in for the run in
+	// front of you is not a standing instruction, and a reload empties it.
 	var cxPaste = null;
+	var cxPasted = {};
+	var cxPasteOn = 0;
+	function cxPastedOf(pid) { return cxPasted[String(pid)] || []; }
 	function cxPasteBox() {
 		var $slot = $('#dze-cx-else');
 		if (!$slot.length) { cxPaste = null; return null; }
-		if (!cxPaste || !$.contains(document.body, cxPaste.el[0])) {
+		// Mounted again when the popup has moved to another product: the box
+		// carries ONE product's photographs and has to be re-opened on the
+		// store of whichever product it is showing.
+		if (!cxPaste || !$.contains(document.body, cxPaste.el[0]) || cxPasteOn !== PID) {
+			cxPasteOn = PID;
 			cxPaste = window.dzePasteBox.mount($slot, {
-				max: maxPasted(), maxBody: maxBody()
+				max: maxPasted(),
+				maxBody: maxBody(),
+				start: cxPastedOf(PID),
+				// Every change writes it down, deletions included: the box's
+				// own draw fires this, so a photograph taken out of it does
+				// not come back the next time the popup opens on this product.
+				onChange: function (l) {
+					if (PID) { cxPasted[String(PID)] = (l || []).slice(); }
+				}
 			});
 		}
 		return cxPaste;
