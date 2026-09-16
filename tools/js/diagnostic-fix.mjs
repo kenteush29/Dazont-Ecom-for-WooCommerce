@@ -629,6 +629,62 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and no answer about a subject',     asked[0].base_main, undefined );
 	ok( 'nor about what it is for',          asked[0].refs_use, undefined );
 	ok( 'nor a photograph of its own picked', asked[0].src_id, undefined );
+
+	// ---- WHAT WAS HANDED IN BELONGS TO THE PRODUCT ----
+	//
+	// The toolbox opens from three screens, and on two of them it hops from
+	// row to row. The box was emptied on every hop with nowhere for what it
+	// held to go — so the supplier's photographs were gone the moment you
+	// looked at the next product, while the pictures they had MADE were still
+	// waiting for a yes or a no on the first. Coming back showed the results
+	// and nothing they were made from, and the next order went out without
+	// them. Only a browser can see any of this.
+	await page.click( '.dze-cx-close' );
+	// A SECOND PRODUCT TO HOP TO. The rows this list started with have been
+	// mended and removed by the checks above, so the way to ask the toolbox
+	// for another product is the opener it already answers to — the delegated
+	// handler under test — with a button put there for it.
+	const dzeOther = '904';
+	await page.evaluate( id => {
+		const b = document.createElement( 'button' );
+		b.className = 'dze-content-open';
+		b.dataset.id = id;
+		b.textContent = 'other product';
+		document.body.appendChild( b );
+	}, dzeOther );
+	await page.click( `.dze-content-open[data-id="${dzeOther}"]` );
+	await page.waitForTimeout( 300 );
+	ok( 'another product opens on its own box, empty',
+		await page.locator( '#dze-cx-else .dze-pb-tile' ).count(), 0 );
+	await page.click( '.dze-cx-close' );
+	await page.click( '.dze-content-open[data-id="902"]' );
+	await page.waitForTimeout( 300 );
+	ok( 'and coming back, the photographs are still there',
+		await page.locator( '#dze-cx-else .dze-pb-tile' ).count(), 1 );
+	// AND THEY STILL TRAVEL. A box that merely LOOKS right and sends nothing
+	// is the same broken function from the shop's chair.
+	seen = posts.filter( p => 'dze_content_image' === p.action ).length;
+	await page.click( '#dze-cx-run' );
+	await page.waitForSelector( '#dze-cx-shots .dze-cb-shot.is-sel', { timeout: 5000 } ).catch( () => {} );
+	asked = posts.filter( p => 'dze_content_image' === p.action ).slice( seen );
+	ok( 'the run still carries what was handed in',
+		( ( asked[0] || {} ).pastes || ( asked[0] || {} )['pastes[]'] || '' ).slice( 0, 10 ), 'data:image' );
+	// A PHOTOGRAPH TAKEN OUT OF THE BOX STAYS OUT: the store is written by the
+	// box's own draw, so a deletion is recorded like an addition.
+	// The box lives inside a fold this harness never opens, so the press is
+	// dispatched on the button itself: a forced click aims at coordinates, and
+	// coordinates of something with no box land on whatever is behind it. What
+	// is under test is the STORE behind the button, not whether a stylesheet
+	// nobody loaded here would have shown it.
+	await page.locator( '#dze-cx-else .dze-pb-del' ).first().evaluate( el => el.click() );
+	await page.waitForTimeout( 150 );
+	ok( 'the press empties the box there and then',
+		await page.locator( '#dze-cx-else .dze-pb-tile' ).count(), 0 );
+	await page.click( '.dze-cx-close' );
+	await page.click( '.dze-content-open[data-id="902"]' );
+	await page.waitForTimeout( 300 );
+	ok( 'one taken out does not come back',
+		await page.locator( '#dze-cx-else .dze-pb-tile' ).count(), 0 );
 	await page.click( '.dze-cx-close' );
 
 	// A PAGE OF ROWS, handed to the bulk screen the shop already generates

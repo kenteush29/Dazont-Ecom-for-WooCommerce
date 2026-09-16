@@ -341,7 +341,7 @@ for ( const [ label, jq ] of jqs ) {
 	ok( 'and the column is not just the window',
 		edges.task && ( edges.task[1] - edges.task[0] ) < edges.room, true );
 
-	ok( 'three tasks, three blocks',        shut.n, 3 );
+	ok( 'four tasks, four blocks',          shut.n, 4 );
 	ok( 'and every one of them shut',       shut.open, 0 );
 	ok( 'each reading as one line',         shut.heights.every( h => h <= 60 ), true );
 	// A SCREEN THAT OPENS ON A WALL OF TEXT is the screen he photographed. With

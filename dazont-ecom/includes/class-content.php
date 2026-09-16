@@ -37,7 +37,35 @@ final class DZE_Content {
 	public const OPT_SETTINGS = 'dze_content_settings';
 	private const NONCE       = 'dze_content';
 
-	private const FAL_ENDPOINT = 'https://fal.run/fal-ai/nano-banana-2/edit';
+	/**
+	 * THE SAME MODEL, ASKED THE WAY A SLOW JOB SHOULD BE ASKED.
+	 *
+	 * `fal.run` answers on the same connection: the shop holds a socket open
+	 * until the picture is made, and when that takes longer than this site
+	 * waits, cURL gives up — while fal carries on, finishes the picture and
+	 * bills for it. The shop paid and got nothing, the register wrote the
+	 * cost down as $0.00, and the only reading left was "half my requests
+	 * fail and my credit is going down".
+	 *
+	 * `queue.fal.run` hands back a request id instead. A job we cannot wait
+	 * for is then not LOST: it is collected on the next run for that product,
+	 * for nothing, because it was already paid for.
+	 */
+	private const FAL_QUEUE = 'https://queue.fal.run/fal-ai/nano-banana-2/edit';
+
+	/**
+	 * How long the shop waits for one picture before leaving it to be
+	 * collected. Under two minutes on purpose: a PHP worker holding a request
+	 * open past its host's own gateway timeout is a screen that dies anyway,
+	 * and the job is safe in fal's queue either way.
+	 *
+	 * `DZE_FAL_WAIT` overrides it — a host with a short gateway timeout, and
+	 * the gate, which cannot wait two minutes to prove a timeout.
+	 */
+	private const FAL_WAIT = 110;
+
+	/** A job fal accepted and the shop has not collected yet, per product. */
+	public const FAL_PENDING_META = '_dze_fal_wait';
 
 	// The real limit on a generation is the SIZE of the request body, not a
 	// number of photographs — and that limit is enforced on every lane, image
@@ -6679,6 +6707,31 @@ Answer with STRICT JSON and nothing else: "
 		// THE ONE PLACE EVERY IMAGE PASSES THROUGH, so the ceilings are asked
 		// here and nowhere else — six screens call this, and a guard copied
 		// into six places is five places to forget it.
+		// NEVER PAY TWICE FOR ONE PICTURE. A job fal accepted and the shop
+		// could not wait for is already billed, so the first thing any new
+		// order for that product does is go and collect it. It costs nothing,
+		// it is not an attempt, and it does not touch the hourly ceiling:
+		// nothing new is being asked of fal.
+		$owed = self::fal_pending( $pid );
+		if ( $owed ) {
+			try {
+				$back = self::fal_collect( $owed, $pid, $prompt . "\n\n[collected — a job this product had already paid for]", microtime( true ) );
+			} catch ( RuntimeException $e ) {
+				// It finished and held no picture: the money is gone either
+				// way, and the shop is free to order another.
+				self::fal_pending_clear( $pid );
+				$back = '';
+			}
+			if ( '' !== $back ) {
+				return $back;
+			}
+			// Still not finished. Ordering another now is how the credit went:
+			// the shop would be paying a second time for a picture it is
+			// already owed.
+			if ( self::fal_pending( $pid ) ) {
+				throw new RuntimeException( __( 'A photograph of this product is still being made by fal and is already paid for. It arrives on the next run — nothing new has been ordered.', 'dazont-ecom' ) );
+			}
+		}
 		if ( class_exists( 'DZE_Ai_Usage' ) ) {
 			$stop = DZE_Ai_Usage::fal_blocked( $pid );
 			if ( '' !== $stop ) {
@@ -6699,8 +6752,20 @@ Answer with STRICT JSON and nothing else: "
 			$ratio
 		);
 		$dze_t0    = microtime( true );
-		$resp = wp_remote_post( self::FAL_ENDPOINT, [
-			'timeout' => 120,
+		$fail = function ( string $why, float $cost = 0.0 ) use ( $dze_asked, $dze_t0 ): void {
+			// ONE PLACE WRITES DOWN A FAILURE, so no path can forget the flag,
+			// the reason or the trace — and the reason is what turns "half of
+			// them fail" into something a person can act on.
+			DZE_Health::log( 'fal', 'POST ' . self::FAL_QUEUE, $why );
+			if ( class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', $cost, true, $why );
+				DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $why, microtime( true ) - $dze_t0 );
+			}
+		};
+
+		$resp = wp_remote_post( self::FAL_QUEUE, [
+			// The submit is a short call: it answers with an id, not a picture.
+			'timeout' => 30,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],
 			'body'    => wp_json_encode( [
 				'prompt'        => $prompt,
@@ -6714,74 +6779,158 @@ Answer with STRICT JSON and nothing else: "
 			] ),
 		] );
 		if ( is_wp_error( $resp ) ) {
-			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $resp->get_error_message() );
-			// A CALL THAT FAILED IS STILL A CALL. It was counted by the hourly
-			// ceiling — it reaches fal exactly as often as one that works — and
-			// used to be counted by nothing else, so a shop stopped at its
-			// ceiling read a register holding only the successes and could not
-			// tell a runaway loop from a broken key. Nothing was billed here:
-			// the request never arrived.
-			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0, true );
-			DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $resp->get_error_message(), microtime( true ) - $dze_t0 );
+			// Nothing was billed: the request never arrived. It is filed under
+			// that, not under whatever word cURL used — "timed out" here and
+			// "timed out" on a job fal finished and charged for are opposite
+			// answers to the only question that costs money.
+			$fail( 'network — ' . $resp->get_error_message() );
 			throw new RuntimeException( $resp->get_error_message() );
 		}
 		$code = wp_remote_retrieve_response_code( $resp );
 		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
 		if ( $code < 200 || $code >= 300 ) {
-			$msg = 'HTTP ' . $code;
-			if ( is_array( $body ) && isset( $body['detail'] ) ) {
-				if ( is_string( $body['detail'] ) ) {
-					$msg = $body['detail'];
-				} elseif ( is_array( $body['detail'] ) ) {
-					$parts = [];
-					foreach ( $body['detail'] as $d ) {
-						if ( is_array( $d ) && ! empty( $d['msg'] ) ) {
-							$parts[] = (string) $d['msg'] . ( ! empty( $d['loc'] ) ? ' (' . implode( '.', array_map( 'strval', (array) $d['loc'] ) ) . ')' : '' );
-						}
-					}
-					if ( $parts ) {
-						$msg = 'HTTP ' . $code . ' — ' . implode( '; ', $parts );
-					}
-				}
-			}
-			DZE_Health::log( 'fal', 'POST ' . self::FAL_ENDPOINT, $msg );
+			$msg = self::fal_said( $code, $body );
 			// Refused by fal: it arrived and was not carried out, so it is a
-			// call and not a cost.
-			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', 0.0, true );
-			DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, 'ERROR — ' . $msg, microtime( true ) - $dze_t0 );
+			// call and not a cost. 413 and 429 are refusals too and carry
+			// their own words, so the sentence is left to say which.
+			$fail( ( 413 === $code ? 'toobig — ' : ( 429 === $code ? 'rate — ' : ( ( $code >= 500 ) ? 'provider — ' : 'refused — ' ) ) ) . $msg );
 			throw new RuntimeException( sprintf( __( 'fal.ai error: %s', 'dazont-ecom' ), mb_substr( $msg, 0, 300 ) ) );
 		}
-		$url = $body['images'][0]['url'] ?? '';
+		// FROM HERE THE JOB IS FAL'S, AND IT IS BILLED. Everything below only
+		// decides whether the shop collects the picture now or later — never
+		// whether it pays for it.
+		$job = [
+			'id'       => (string) ( $body['request_id'] ?? '' ),
+			'status'   => (string) ( $body['status_url'] ?? '' ),
+			'response' => (string) ( $body['response_url'] ?? '' ),
+		];
+		if ( '' === $job['id'] || '' === $job['status'] ) {
+			$msg = __( 'fal accepted nothing: no request id in the answer.', 'dazont-ecom' );
+			$fail( 'provider — ' . $msg );
+			throw new RuntimeException( $msg );
+		}
+		$got = self::fal_collect( $job, $pid, $dze_asked, $dze_t0 );
+		if ( '' !== $got ) {
+			return $got;
+		}
+		// The picture is not lost and must not be ordered again: the job is
+		// kept on the product and collected before anything else is asked for.
+		self::fal_pending_set( $pid, $job );
+		$fail( 'abandoned — ' . $job['id'], self::fal_image_cost() );
+		throw new RuntimeException( __( 'fal is still working on this one. It is paid for and kept: the next run on this product collects it instead of ordering another.', 'dazont-ecom' ) );
+	}
+
+	/** fal's own words for a refusal, read out of whatever shape it used. */
+	private static function fal_said( int $code, $body ): string {
+		$msg = 'HTTP ' . $code;
+		if ( is_array( $body ) && isset( $body['detail'] ) ) {
+			if ( is_string( $body['detail'] ) ) {
+				return 'HTTP ' . $code . ' — ' . $body['detail'];
+			}
+			if ( is_array( $body['detail'] ) ) {
+				$parts = [];
+				foreach ( $body['detail'] as $d ) {
+					if ( is_array( $d ) && ! empty( $d['msg'] ) ) {
+						$parts[] = (string) $d['msg'] . ( ! empty( $d['loc'] ) ? ' (' . implode( '.', array_map( 'strval', (array) $d['loc'] ) ) . ')' : '' );
+					}
+				}
+				if ( $parts ) {
+					return 'HTTP ' . $code . ' — ' . implode( '; ', $parts );
+				}
+			}
+		}
+		return $msg;
+	}
+
+	/** How long the shop waits for one picture. */
+	public static function fal_wait(): int {
+		return defined( 'DZE_FAL_WAIT' ) ? max( 1, (int) DZE_FAL_WAIT ) : self::FAL_WAIT;
+	}
+
+	/**
+	 * Waits on one accepted job, and files what came back.
+	 *
+	 * '' means "not finished in the time this shop waits" — never "it
+	 * failed": the difference is the whole point, because one of those is
+	 * money to be collected and the other is money gone.
+	 */
+	private static function fal_collect( array $job, int $pid, string $asked, float $t0 ): string {
+		$until = time() + self::fal_wait();
+		// A nap proportional to the budget, so the gate can prove a timeout in
+		// a second and a shop still asks fal eight times a minute rather than
+		// eighty.
+		$nap  = (int) min( 2000000, max( 0, self::fal_wait() * 125000 ) );
+		$done = false;
+		while ( time() < $until ) {
+			$st = wp_remote_get( $job['status'], [
+				'timeout' => 20,
+				'headers' => [ 'Authorization' => 'Key ' . self::fal_key() ],
+			] );
+			if ( ! is_wp_error( $st ) ) {
+				$row = json_decode( wp_remote_retrieve_body( $st ), true );
+				if ( 'COMPLETED' === (string) ( ( is_array( $row ) ? $row : [] )['status'] ?? '' ) ) {
+					$done = true;
+					break;
+				}
+			}
+			if ( $nap > 0 ) {
+				usleep( $nap );
+			}
+		}
+		if ( ! $done ) {
+			return '';
+		}
+		$where = '' !== $job['response'] ? $job['response'] : rtrim( $job['status'], '/status' );
+		$res   = wp_remote_get( $where, [
+			'timeout' => 30,
+			'headers' => [ 'Authorization' => 'Key ' . self::fal_key() ],
+		] );
+		if ( is_wp_error( $res ) ) {
+			return ''; // finished and not fetched: collected on the next run.
+		}
+		$body = json_decode( wp_remote_retrieve_body( $res ), true );
+		$url  = ( is_array( $body ) ? $body : [] )['images'][0]['url'] ?? '';
 		// What this call is actually billed. fal answers with the number of
 		// billable units it charged for; when it does, that number is the
 		// truth and nothing here has to guess how many images a request became.
-		// The price OF a unit is the shop's own — it is on the invoice, not in
-		// the response — and it is asked for once in the settings.
-		$units = (float) wp_remote_retrieve_header( $resp, 'x-fal-billable-units' );
-		// Failing that, what came back: a call that answers with three pictures
-		// was billed for three, whatever it did or did not put in a header.
-		// Never fewer than one — a request that reached the provider is paid
-		// for even when the answer is unusable.
-		$units = max( $units, (float) count( (array) ( $body['images'] ?? [] ) ), 1.0 );
+		$units = (float) wp_remote_retrieve_header( $res, 'x-fal-billable-units' );
+		$units = max( $units, (float) count( (array) ( ( is_array( $body ) ? $body : [] )['images'] ?? [] ) ), 1.0 );
 		self::$last_cost = round( $units * self::fal_image_cost(), 4 );
 		if ( class_exists( 'DZE_Ai_Usage' ) ) {
-			// AN ANSWER THAT HELD NO PICTURE WAS STILL PAID FOR. fal answers
-			// 200 with its billable units and no image, and the cost was
-			// dropped on the floor by a guard reading `if ( $url )` — so the
-			// month under-reported every failed picture while the hourly
-			// ceiling counted them all. It is one record either way; what
-			// changes is the flag beside it.
-			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost, ! $url );
+			// AN ANSWER THAT HELD NO PICTURE WAS STILL PAID FOR.
+			DZE_Ai_Usage::record( 'fal', 0, 0, 'nano-banana-2', self::$last_cost, ! $url, $url ? '' : 'noimage — fal answered and billed, and there was no picture in it' );
 			if ( $url ) {
-				// What CAME BACK, so the ceiling can say the difference between
-				// the requests it counted and the photographs the shop has.
 				DZE_Ai_Usage::fal_made( $pid );
 			}
 		}
-		DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $dze_asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $dze_t0 );
+		DZE_Ai_Usage::trace( 'fal', 'nano-banana-2', $asked, $url ? (string) $url : 'ERROR — no image in the answer', microtime( true ) - $t0 );
+		// Collected: the product owes nothing to fal any more.
+		self::fal_pending_clear( $pid );
 		if ( ! $url ) {
 			throw new RuntimeException( __( 'fal.ai returned no image.', 'dazont-ecom' ) );
 		}
 		return (string) $url;
+	}
+
+	/** The job a product is still owed, if any. */
+	public static function fal_pending( int $pid ): array {
+		if ( $pid < 1 ) {
+			return [];
+		}
+		$row = get_post_meta( $pid, self::FAL_PENDING_META, true );
+		$row = is_array( $row ) ? $row : [];
+		return ( '' !== (string) ( $row['status'] ?? '' ) ) ? $row : [];
+	}
+
+	private static function fal_pending_set( int $pid, array $job ): void {
+		if ( $pid > 0 ) {
+			update_post_meta( $pid, self::FAL_PENDING_META, $job );
+		}
+	}
+
+	public static function fal_pending_clear( int $pid ): void {
+		if ( $pid > 0 ) {
+			delete_post_meta( $pid, self::FAL_PENDING_META );
+		}
 	}
 }

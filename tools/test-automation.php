@@ -466,6 +466,72 @@ class DZE_Marketing_Ai {
 }
 class DZE_Wpml {
 	public static function ids_in_language( string $type, string $lang ): ?array { return null; }
+	public static function is_active(): bool { return (bool) ( $GLOBALS['wpml_on'] ?? true ); }
+	public static function default_language(): string { return 'en'; }
+	public static function get_active_languages(): array {
+		return $GLOBALS['wpml_langs'] ?? [ [ 'code' => 'en' ], [ 'code' => 'fr' ], [ 'code' => 'de' ] ];
+	}
+}
+/**
+ * THE TRANSLATION MODULE, ANSWERING FOR ITSELF. What is under test here is the
+ * automatic PASS — which object it takes, what it sends, what it writes down
+ * and what it refuses — so the module it hands the work to is stubbed, and
+ * every question the pass asks it is recorded.
+ */
+class DZE_Translate {
+	/** kind:id:type => [ 'owes' => [codes], 'waiting' => bool ] */
+	public static array $shop = [];
+	public static array $sent = [];
+	public static array $accepted = [];
+	public static array $fails = [];
+	public static function picked_scope(): array {
+		return [ 'post:product' => [ 'kind' => 'post', 'type' => 'product' ] ];
+	}
+	public static function todo_page( array $scope, string $src, array $targets, int $paged, int $per, bool $todo_only = true ): ?array {
+		if ( ! empty( $GLOBALS['wpml_unreadable'] ) ) { return null; }
+		$out = [];
+		foreach ( array_keys( self::$shop ) as $ref ) {
+			$out[] = self::from_ref( $ref );
+		}
+		return [ array_slice( $out, 0, $per ), count( $out ) ];
+	}
+	public static function ref( array $o ): string { return $o['kind'] . ':' . (int) $o['id'] . ':' . $o['type']; }
+	public static function from_ref( string $ref ): array {
+		$b = explode( ':', $ref );
+		return [ 'kind' => (string) ( $b[0] ?? 'post' ), 'id' => (int) ( $b[1] ?? 0 ), 'type' => (string) ( $b[2] ?? '' ) ];
+	}
+	public static function element_id_of( array $o ): int { return (int) $o['id']; }
+	public static function page_marks( array $objects ): array {
+		$out = [];
+		foreach ( $objects as $o ) {
+			$row = (array) ( self::$shop[ self::ref( $o ) ] ?? [] );
+			$m   = [];
+			foreach ( (array) ( $row['marks'] ?? [] ) as $code => $st ) { $m[ $code ] = $st; }
+			$out[ self::element_id_of( $o ) ] = $m;
+		}
+		return $out;
+	}
+	public static function waiting( array $o ): array {
+		return ! empty( self::$shop[ self::ref( $o ) ]['waiting'] ) ? [ 'langs' => [ 'fr' ] ] : [];
+	}
+	public static function obj_label( array $o ): string { return 'Object ' . (int) $o['id']; }
+	public static function obj_targets( array $o ): array { return [ 'fr' => 'Français', 'de' => 'Deutsch' ]; }
+	public static function produce( array $o, array $langs ): array {
+		self::$sent[] = [ 'ref' => self::ref( $o ), 'langs' => array_values( $langs ) ];
+		if ( ! empty( self::$fails['throw'] ) ) { throw new RuntimeException( 'model down' ); }
+		$row  = (array) ( self::$shop[ self::ref( $o ) ] ?? [] );
+		$back = [];
+		foreach ( $langs as $l ) {
+			if ( ! in_array( $l, (array) ( $row['nothing_moved'] ?? [] ), true ) ) { $back[ $l ] = [ 'title' => 'x' ]; }
+		}
+		$skip = array_values( array_intersect( $langs, (array) ( $row['nothing_moved'] ?? [] ) ) );
+		return [ 'langs' => $back, 'skipped' => $skip, 'errors' => [], 'cost' => (bool) $back ];
+	}
+	public static function accept( array $o, array $keep ): array {
+		self::$accepted[] = [ 'ref' => self::ref( $o ), 'langs' => array_keys( $keep ) ];
+		return [ 'written' => [], 'errors' => [] ];
+	}
+	public static function review_count(): int { return (int) ( $GLOBALS['tr_waiting'] ?? 0 ); }
 }
 
 require __DIR__ . '/../' . $dir . '/includes/class-category-content.php';
@@ -571,7 +637,7 @@ DZE_Mesh::scan(); // the graph is read once a day by its own cron; here, once.
 
 echo "\nThe tasks it offers\n";
 $tasks = DZE_Automation::tasks();
-ok( 'three of them, and no more',      array_keys( $tasks ), [ 'mesh_links', 'cat_desc', 'events' ] );
+ok( 'four of them, and no more',       array_keys( $tasks ), [ 'mesh_links', 'cat_desc', 'translate', 'events' ] );
 // ONE TASK FOR ONE PIECE OF WORK. Linking was two tasks — one for categories,
 // one for articles — each mending half a mesh from its own half-blind reading.
 ok( 'linking is one task over one graph', $tasks['mesh_links']['scope'], 'mesh' );
@@ -884,13 +950,13 @@ ob_start();
 DZE_Automation::render_settings();
 $html = (string) ob_get_clean();
 ok( 'the tab draws',                   '' !== trim( $html ), true );
-ok( 'every task is on it',             substr_count( $html, 'class="dze-auto-state"' ), 3 );
+ok( 'every task is on it',             substr_count( $html, 'class="dze-auto-state"' ), 4 );
 ok( 'each one can be run by hand',     substr_count( $html, 'dze-auto-run' ) >= 3, true );
 // ONE SHUT BLOCK PER TASK, in the shape every other screen of this plugin
 // wears — three tasks are three LINES, not three screens.
-ok( 'each task is a block of its own', substr_count( $html, '<details class="dze-set dze-auto-task">' ), 3 );
+ok( 'each task is a block of its own', substr_count( $html, '<details class="dze-set dze-auto-task">' ), 4 );
 ok( 'shut until it is opened',         false !== strpos( $html, 'dze-auto-task" open' ), false );
-ok( 'and its figures are on the line', substr_count( $html, '<span class="dze-auto-chips"' ), 3 );
+ok( 'and its figures are on the line', substr_count( $html, '<span class="dze-auto-chips"' ), 4 );
 // WHAT IT HAS DONE IS NOT A FOLD UNDER THE WORK: "maintenant que To review est
 // là, ce bloc est inutile". It is a view of its own.
 ok( 'no diary folded under the work', false !== strpos( $html, 'dze-auto-log' ), false );
@@ -1011,7 +1077,7 @@ ob_start();
 DZE_Automation::render_page();
 $page = (string) ob_get_clean();
 ok( 'the page draws its own heading',  false !== strpos( $page, '<h1>Automation</h1>' ), true );
-ok( 'with the tasks on it',            substr_count( $page, 'class="dze-auto-state"' ), 3 );
+ok( 'with the tasks on it',            substr_count( $page, 'class="dze-auto-state"' ), 4 );
 ok( 'with the strip of views on it',   substr_count( $page, '<a class="nav-tab' ), 2 );
 ok( 'the work first, and it is the one showing',
 	1 === preg_match( '/nav-tab nav-tab-active[^>]*>Tasks</', $page ), true );
@@ -1192,7 +1258,7 @@ try {
 } catch ( DZE_Json_Sent $e ) {
 	$sent = $e->ok ? (array) $e->payload : null;
 }
-ok( 'the answer carries every task\'s line', array_keys( (array) ( $sent['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
+ok( 'the answer carries every task\'s line', array_keys( (array) ( $sent['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'translate', 'events' ] );
 ok( 'each one its own',                  false !== strpos( (string) ( $sent['chips']['mesh_links'] ?? '' ), 'data-task="mesh_links"' ), true );
 ok( 'and the one list beside them',      substr_count( (string) ( $sent['waiting'] ?? '' ), 'class="dze-auto-job"' ), 3 );
 ok( 'and what became of the last pass',  array_key_exists( 'past', (array) $sent ), true );
@@ -1571,7 +1637,7 @@ ok( 'the answer carries the bar',
 	false !== strpos( (string) ( $dze_poll['data']['run']['mesh_links'] ?? '' ), 'dze-auto-bar' ), true );
 ok( 'how much is left',                 (int) ( $dze_poll['data']['left'] ?? -1 ), 3 );
 ok( 'the rows waiting beside it',       array_key_exists( 'waiting', (array) ( $dze_poll['data'] ?? [] ) ), true );
-ok( 'and every task\'s own line',       array_keys( (array) ( $dze_poll['data']['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
+ok( 'and every task\'s own line',       array_keys( (array) ( $dze_poll['data']['chips'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'translate', 'events' ] );
 // A LOOK IS NOT A STEP. The first draw of the screen asks where things stand
 // without touching the queue, or opening the page would spend a step.
 DZE_Queue::$worked = 0;
@@ -1743,7 +1809,7 @@ $dze_scr = (string) ob_get_clean();
 // EVERY task gets the wrapper — the poll has to have somewhere to put its
 // answer — and a task that queues nothing gets an EMPTY one rather than none.
 ok( 'every task carries its own place',
-	substr_count( $dze_scr, 'class="dze-auto-live" data-task=' ), 3 );
+	substr_count( $dze_scr, 'class="dze-auto-live" data-task=' ), 4 );
 ok( 'and the one that queues nothing is empty',
 	false !== strpos( $dze_scr, '<div class="dze-auto-live" data-task="events"></div>' ), true );
 ok( 'the linking task has one',
@@ -1780,7 +1846,7 @@ $_POST = [ 'step' => '1' ];
 $dze_poll = sent_of( static function (): void { DZE_Automation::ajax_run_state(); } );
 $_POST = [];
 ok( 'the answer carries a bar per task',
-	array_keys( (array) ( $dze_poll['data']['run'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'events' ] );
+	array_keys( (array) ( $dze_poll['data']['run'] ?? [] ) ), [ 'mesh_links', 'cat_desc', 'translate', 'events' ] );
 ok( 'and the linking one is drawn',
 	false !== strpos( (string) ( $dze_poll['data']['run']['mesh_links'] ?? '' ), 'dze-auto-bar' ), true );
 
@@ -2038,6 +2104,168 @@ ok( 'and clears nothing',                $GLOBALS['dze_cleared'], [] );
 $dze_auto_src = (string) file_get_contents( __DIR__ . '/../' . $dir . '/includes/class-automation.php' );
 ok( 'the migration does not clear it any more',
 	false !== strpos( $dze_auto_src, "wp_clear_scheduled_hook( 'dze_mesh_tick' )" ), false );
+
+echo "\nTHE TRANSLATIONS TASK: what WPML says is owed, and nothing else\n";
+//
+// The one pass here that writes no words of its own. It spends money, so every
+// guard the other tasks have applies — and two of its own: an object already
+// holding a translation nobody has answered is never sent twice, and what
+// waits is NOT a queue row, so this task can neither list nor settle its work
+// on this screen and must say where it lives instead.
+$TR = [ 'translate' => [ 'on' => 1, 'per_day' => 3, 'apply' => 0 ] ];
+$dze_fresh_tr = static function () {
+	DZE_Translate::$sent     = [];
+	DZE_Translate::$accepted = [];
+	DZE_Translate::$fails    = [];
+	DZE_Translate::$shop     = [
+		// Owes French and German: no row at all for either.
+		'post:11:product' => [ 'marks' => [] ],
+		// French is done, German is marked as needing an update.
+		'post:12:product' => [ 'marks' => [ 'fr' => 'done', 'de' => 'marked' ] ],
+		// WPML is satisfied with every language of it: not work.
+		'post:13:product' => [ 'marks' => [ 'fr' => 'done', 'de' => 'done' ] ],
+	];
+	$GLOBALS['wpml_on'] = true;
+	$GLOBALS['tr_waiting'] = 0;
+};
+fresh( $TR );
+$dze_fresh_tr();
+$dze_next = DZE_Automation::shortlist( 'translate', 5 );
+$dze_refs = wp_list_pluck( $dze_next, 'ref' );
+ok( 'it offers what is owed',            in_array( 'post:11:product', $dze_refs, true ), true );
+ok( 'and a language WPML wants redone',  in_array( 'post:12:product', $dze_refs, true ), true );
+// WPML IS SATISFIED: NOT OURS TO OVERRULE. Sending it would pay to translate
+// words nobody says have moved.
+ok( 'an object WPML is happy with is left alone',
+	in_array( 'post:13:product', $dze_refs, true ), false );
+// THE ROW CARRIES THE LANGUAGES IT IS SHORT OF, so the run does not ask the
+// same question a second time and get a different answer.
+$dze_one = null;
+foreach ( $dze_next as $r ) { if ( 'post:12:product' === $r['ref'] ) { $dze_one = $r; } }
+ok( 'the row names the languages owed',  ( $dze_one['langs'] ?? [] ), [ 'de' ] );
+ok( 'and says so in words',              ( $dze_one['why'] ?? '' ), 'owes DE' );
+
+// ONE TICK, ONE OBJECT, AND ONLY THE LANGUAGES IT OWES TRAVEL.
+fresh( $TR );
+$dze_fresh_tr();
+$dze_res = DZE_Automation::tick( 'translate', true );
+ok( 'a press sets one going',            $dze_res['queued'], 1 );
+ok( 'and says which task did it',        $dze_res['task'], 'translate' );
+ok( 'one object was sent',               count( DZE_Translate::$sent ), 1 );
+ok( 'and only the languages it owes',
+	DZE_Translate::$sent[0]['langs'],
+	'post:11:product' === DZE_Translate::$sent[0]['ref'] ? [ 'fr', 'de' ] : [ 'de' ] );
+// HELD FOR REVIEW UNLESS THE SHOP SAID OTHERWISE. Three tasks once shipped
+// with "save without review" ticked, and a shop switching one on got text
+// written straight onto its pages having chosen nothing.
+ok( 'nothing is written without a yes',  DZE_Translate::$accepted, [] );
+// AND THE DAY IS COUNTED, exactly as it is for every other task that spends.
+ok( "the day's figure moved",            DZE_Automation::done_today( 'translate' ), 1 );
+
+// SAVED WITHOUT REVIEW IS A DECISION THE SHOP TOOK, and it is taken by the run
+// rather than left waiting for somebody who is never asked.
+fresh( [ 'translate' => [ 'on' => 1, 'per_day' => 3, 'apply' => 1 ] ] );
+$dze_fresh_tr();
+DZE_Automation::tick( 'translate', true );
+ok( 'ticked, it writes what came back',  count( DZE_Translate::$accepted ), 1 );
+
+// AN OBJECT ALREADY HOLDING A TRANSLATION IS NEVER SENT TWICE: the second
+// answer would quietly replace the one nobody has read yet.
+fresh( $TR );
+$dze_fresh_tr();
+DZE_Translate::$shop['post:11:product']['waiting'] = true;
+DZE_Translate::$shop['post:12:product']['waiting'] = true;
+$GLOBALS['tr_waiting'] = 2;
+ok( 'nothing is offered while they wait', DZE_Automation::shortlist( 'translate', 5 ), [] );
+ok( 'and the sentence says which nothing',
+	false !== strpos( DZE_Automation::nothing_said( 'translate' ), 'waiting for your yes or no' ), true );
+// THE FIGURE IS THE SHOP'S, counted whole by the module that holds them —
+// never the tally, which is however many this reading happened to walk past.
+ok( 'with the figure the module counts',
+	false !== strpos( DZE_Automation::nothing_said( 'translate' ), '2 objects' ), true );
+
+// AND A SENTENCE ABOUT LINKS IS NOT AN ANSWER ABOUT LANGUAGES.
+ok( 'it never talks about links',
+	false !== strpos( DZE_Automation::nothing_said( 'translate' ), 'size calls for' ), false );
+fresh( $TR );
+$dze_fresh_tr();
+DZE_Translate::$shop = [];
+DZE_Automation::shortlist( 'translate', 5 );
+ok( 'nothing owed anywhere says so',
+	false !== strpos( DZE_Automation::nothing_said( 'translate' ), 'WPML is satisfied' ), true );
+
+// WORKED ON TODAY IS LEFT ALONE, like every other object this plugin touches.
+fresh( $TR );
+$dze_fresh_tr();
+DZE_Automation::tick( 'translate', true );
+$dze_did = DZE_Translate::$sent[0]['ref'];
+$dze_back = wp_list_pluck( DZE_Automation::shortlist( 'translate', 5 ), 'ref' );
+ok( 'the one just translated is not offered again',
+	in_array( $dze_did, $dze_back, true ), false );
+
+// NOTHING MOVED IS A REAL ANSWER, AND IT IS FREE. A product flagged because
+// its category was renamed sends nothing and has its mark closed — the whole
+// value of this module beside WPML's own automatic translation.
+fresh( $TR );
+$dze_fresh_tr();
+DZE_Translate::$shop = [ 'post:11:product' => [ 'marks' => [], 'nothing_moved' => [ 'fr', 'de' ] ] ];
+$dze_quiet = DZE_Automation::tick( 'translate', true );
+ok( 'a mark closed for nothing still counts as done', $dze_quiet['queued'], 1 );
+ok( 'and it is marked so it is not looked at again',
+	DZE_Automation::worked_on( 11, 'translate', 'post' ), true );
+
+// WHAT IT NEEDS, AND WHAT IT DOES NOT. It keeps its own waiting list, so the
+// writing queue being off must not switch it off — that would be one module
+// taking another's function with it.
+fresh( $TR );
+$dze_fresh_tr();
+$GLOBALS['mods'] = [ 'queue' => false ];
+ok( 'the writing queue off leaves it working', DZE_Automation::task_ready( 'translate' ), true );
+$GLOBALS['mods'] = [ 'translate' => false ];
+ok( 'its own module off stops it',             DZE_Automation::task_ready( 'translate' ), false );
+$GLOBALS['mods'] = [];
+$GLOBALS['wpml_on'] = false;
+ok( 'and so does WPML not being there',        DZE_Automation::task_ready( 'translate' ), false );
+$GLOBALS['wpml_on'] = true;
+// A COPY OF THE SHOP AND THE MONTHLY BUDGET STOP IT LIKE ANYTHING ELSE THAT
+// SPENDS.
+$GLOBALS['over_budget'] = true;
+ok( 'the budget spent stops it',               DZE_Automation::why_not( 'translate' ), 'budget' );
+ok( 'and a press cannot spend past it',        DZE_Automation::why_not( 'translate', true ), 'budget' );
+$GLOBALS['over_budget'] = false;
+
+// WHAT IT LEAVES IS NOT A QUEUE ROW, so this screen names where it lives
+// rather than listing rows it could never settle.
+fresh( $TR );
+$dze_fresh_tr();
+$GLOBALS['tr_waiting'] = 4;
+$dze_left = DZE_Automation::waiting_for( 'translate' );
+ok( 'the figure is the translation module\'s', $dze_left['n'], 4 );
+ok( 'and it points at the screen that holds it',
+	false !== strpos( (string) $dze_left['url'], 'dazont-ecom-translations' ), true );
+ob_start(); DZE_Automation::render_waiting(); $dze_wait = (string) ob_get_clean();
+ok( 'the list names it and its figure',
+	false !== strpos( $dze_wait, 'Translations' ) && false !== strpos( $dze_wait, '4' ), true );
+// AND IT IS NEVER GIVEN THE REVIEW CONTROLS, which act on queue rows: a tick
+// beside a translation would answer for a row that does not exist.
+ok( 'with no review buttons pretending to settle it',
+	substr_count( $dze_wait, 'dze-q-yes' ), 0 );
+
+// IT IS A CHIP THAT IS SILENT WHEN IT HAS NOTHING TO SAY: a "0 written" on a
+// task whose register lives elsewhere is a figure that lies.
+$dze_chips = DZE_Automation::chips_html( 'translate' );
+ok( 'nothing written is not claimed',    false !== strpos( $dze_chips, 'written' ), false );
+ok( 'and what waits is on the line',     false !== strpos( $dze_chips, '4 to review' ), true );
+
+// A SECTION THAT REARRANGED THE FAKE SHOP PUTS IT BACK. Left as it stood, the
+// next section asserts against a shop this one invented and passes or fails
+// for reasons that exist only in the test.
+DZE_Translate::$shop   = [];
+DZE_Translate::$sent   = [];
+$GLOBALS['tr_waiting'] = 0;
+$GLOBALS['wpml_on']    = true;
+$GLOBALS['mods']       = [];
+fresh( $ON );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

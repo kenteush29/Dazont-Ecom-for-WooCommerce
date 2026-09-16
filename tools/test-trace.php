@@ -277,6 +277,26 @@ ok( 'the tool label is printed',        false !== strpos( $html, 'Promotion emai
 ok( 'the exchange is behind a click',   substr_count( $html, '<details' ) >= 1, true );
 ok( 'what was sent is shown escaped',   false !== strpos( $html, esc_html( 'xxx' ) ), true );
 
+echo "WHY calls failed, on the screen somebody opens when the credit drops\n";
+// "Il me bouffe mon crédit pour 50% de requêtes qui échouent." The register
+// counted how many failed and nothing anywhere said WHY, so the only reading
+// left was that the plugin is broken. The gate DRAWS the screen: calling the
+// table proves the table works and nothing about whether the screen asks for
+// it — the fault this rule exists for.
+$dze_month = gmdate( 'Y-m' );
+$GLOBALS['dze_opts']['dze_ai_usage'] = [ $dze_month => [ '_fails' => [ 'abandoned' => 7, 'refused' => 3 ] ] ];
+ob_start(); DZE_Ai_Usage::render_trace(); $dze_why = (string) ob_get_clean();
+ok( 'the screen asks for the reading',   false !== strpos( $dze_why, 'Why calls failed this month' ), true );
+ok( 'the biggest kind is named',         false !== strpos( $dze_why, 'Left to be collected' ), true );
+ok( 'with its figure',                   false !== strpos( $dze_why, '>7<' ), true );
+ok( 'and what it means for the money',
+	false !== strpos( $dze_why, 'already paid for' ) || false !== strpos( $dze_why, 'collected' ), true );
+ok( 'the smaller one is there too',      false !== strpos( $dze_why, 'fal refused what was sent' ), true );
+// A MONTH WHERE NOTHING FAILED PRINTS NOTHING AT ALL.
+$GLOBALS['dze_opts']['dze_ai_usage'] = [ $dze_month => [ 'fal' => [ 'calls' => 4, 'cost' => 1.0 ] ] ];
+ob_start(); DZE_Ai_Usage::render_trace(); $dze_quiet = (string) ob_get_clean();
+ok( 'nothing wrong, nothing said',       false !== strpos( $dze_quiet, 'Why calls failed this month' ), false );
+
 echo "Every prompt keeps its OWN last call\n";
 // The trace holds a dozen calls for the whole plugin, so the prompt being
 // read is usually not in it — "data reçue par chaque prompt non visible".

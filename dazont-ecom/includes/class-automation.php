@@ -361,6 +361,24 @@ final class DZE_Automation {
 				'apply'   => 0,
 				'kw'      => true, // may be restricted to categories with their SEMrush file.
 			],
+			// THE ONE PASS THAT DOES NOT WRITE ONE WORD OF ITS OWN. Every
+			// other task here asks a model to WRITE something; this one asks
+			// it to say the same thing in another language, and what is
+			// "owed" is not our judgement at all — WPML says it, object by
+			// object, and this reads WPML's own answer.
+			'translate' => [
+				'label'   => __( 'Translations', 'dazont-ecom' ),
+				'what'    => __( 'Hand the shop\'s translations to Dazont Ecom. It translates what WPML says is owed, a few objects a day.', 'dazont-ecom' ),
+				'more'    => __( 'WPML already knows what this shop owes a translation of: an object with no translation in one of your languages, or one WPML has marked as needing an update. This pass takes those, oldest work first, and translates ONE object a day for each you allow — every language it is short of, in one go, because a product translated into French and not into German is a job half done. What is sent is only what really moved: the module keeps its own register of the words each translation was made from, so a product flagged because its category was renamed sends nothing at all and is simply marked up to date, for nothing. Which kinds of content take part is the shop\'s own list under Settings → Translation, and what is inside each object — which fields are translated, which WPML copies — is WPML\'s answer and never ours. An object it has worked on is left alone for a month, and one already holding a translation waiting for your yes or no is never sent twice. Nothing reaches the shop until you accept it: unlike the other tasks here, what it produces does not wait in Content to review — a translation is one object times its languages times its fields, and it is decided on Dazont Ecom → WPML Translations, the screen built for it. Tick "Save without review" and each translation is written the moment it comes back.', 'dazont-ecom' ),
+				'module'  => 'translate',
+				'scope'   => 'translate',
+				// No queue row: what waits lives on the source object, which
+				// is why this task's own block names the screen that holds it
+				// rather than listing rows it could never settle here.
+				'jobs'    => [],
+				'per_day' => 1,
+				'apply'   => 0,
+			],
 			'events'    => [
 				'label'   => __( 'Marketing calendar', 'dazont-ecom' ),
 				'what'    => __( 'Hand the promotion calendar to Dazont Ecom. Once a month it proposes the moments worth a campaign.', 'dazont-ecom' ),
@@ -402,6 +420,18 @@ final class DZE_Automation {
 					[ 'page' => DZE_Marketing_Ai::MENU_SLUG, 'tab' => 'events' ],
 					admin_url( 'admin.php' )
 				),
+			];
+		}
+		// A translation waits on the SOURCE OBJECT, on the screen built to
+		// decide it — one object times its languages times its fields is not
+		// a queue row, and the screen that owns that question owns the figure.
+		if ( 'translate' === (string) ( $task['scope'] ?? '' ) ) {
+			if ( ! class_exists( 'DZE_Translate' ) || ! DZE_Modules::enabled( 'translate' ) ) {
+				return [ 'n' => 0, 'url' => '' ];
+			}
+			return [
+				'n'   => (int) DZE_Translate::review_count(),
+				'url' => class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'translations', 'review' ) : '',
 			];
 		}
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
@@ -464,7 +494,14 @@ final class DZE_Automation {
 		// ready, the screen offered it, and pressing Run answered "that
 		// category is already waiting in the queue": a sentence about a queue
 		// that is not there.
-		if ( 'shop' !== ( $t['scope'] ?? '' ) ) {
+		// A TASK THAT KEEPS ITS OWN WAITING LIST DOES NOT NEED THE QUEUE, and
+		// the test is the task's own declaration — the job kinds it leaves
+		// behind — never a scope named here. Translations wait on the source
+		// object, the calendar's suggestions wait on the calendar; neither has
+		// a queue row, and demanding the writing queue for them would switch
+		// off a function that has nothing to do with it.
+		$queues = ! empty( $t['jobs'] ) || 'mesh' === ( $t['scope'] ?? '' );
+		if ( $queues ) {
 			if ( ! class_exists( 'DZE_Queue' ) ) {
 				return false;
 			}
@@ -472,7 +509,12 @@ final class DZE_Automation {
 				return false;
 			}
 		}
-		if ( 'shop' !== ( $t['scope'] ?? '' ) && ! class_exists( 'DZE_Category_Content' ) ) {
+		if ( 'translate' === ( $t['scope'] ?? '' ) ) {
+			// Its own module is checked above; what it also needs is WPML,
+			// because everything it does is read out of WPML's own tables.
+			return class_exists( 'DZE_Wpml' ) && DZE_Wpml::is_active();
+		}
+		if ( $queues && ! class_exists( 'DZE_Category_Content' ) ) {
 			return false;
 		}
 		if ( 'shop' === ( $t['scope'] ?? '' ) && ! class_exists( 'DZE_Marketing_Ai' ) ) {
@@ -730,6 +772,9 @@ final class DZE_Automation {
 		if ( 'mesh' === $scope ) {
 			return self::mesh_shortlist( $id, $n, '', $judge );
 		}
+		if ( 'translate' === $scope ) {
+			return self::translate_shortlist( $id, $n );
+		}
 		return 'post' === $scope ? self::post_shortlist( $id, $n ) : self::cat_shortlist( $id, $n );
 	}
 
@@ -826,6 +871,121 @@ final class DZE_Automation {
 			] );
 			if ( count( $out ) >= $n ) {
 				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * THE OBJECTS THIS SHOP STILL OWES A TRANSLATION OF.
+	 *
+	 * The list is WPML's own answer, read by the very function the
+	 * Translations screen pages with — one reader, two callers, so the pass
+	 * can never offer an object the screen does not list.
+	 *
+	 * Two things take an object out: one that is already holding a translation
+	 * waiting for a yes or no (sending it again would make a second answer for
+	 * the same words, and the second would quietly replace the first), and one
+	 * worked on within the cooldown. Both are counted, because "nothing to do"
+	 * has to say WHICH nothing.
+	 *
+	 * @return array<int,array{tid:int,name:string,why:string,kind:string,ref:string,langs:string[]}>
+	 */
+	private static function translate_shortlist( string $id, int $n ): array {
+		if ( ! class_exists( 'DZE_Translate' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return [];
+		}
+		self::held_reset();
+		$src = (string) DZE_Wpml::default_language();
+		$out = [];
+		foreach ( DZE_Translate::picked_scope() as $scope ) {
+			if ( count( $out ) >= $n ) {
+				break;
+			}
+			// The languages this kind is short of are the object's own, so the
+			// page is asked for EVERY active language and each row is then
+			// read for what it actually owes.
+			$langs = [];
+			foreach ( DZE_Wpml::get_active_languages() as $l ) {
+				$code = (string) ( $l['code'] ?? '' );
+				if ( '' !== $code && $code !== $src ) {
+					$langs[] = $code;
+				}
+			}
+			if ( ! $langs ) {
+				return []; // one language: there is nothing here to translate into.
+			}
+			// A handful more than needed, because some of them will be held
+			// back — never the whole catalogue, which is a page nobody paged.
+			$page = DZE_Translate::todo_page( $scope, $src, $langs, 1, max( 1, $n ) * 5 );
+			if ( null === $page ) {
+				continue; // WPML's tables cannot be read: this kind answers nothing.
+			}
+			foreach ( (array) $page[0] as $o ) {
+				if ( count( $out ) >= $n ) {
+					break;
+				}
+				$oid  = (int) ( $o['id'] ?? 0 );
+				$type = 'term' === (string) ( $o['kind'] ?? '' ) ? 'term' : 'post';
+				if ( $oid < 1 ) {
+					continue;
+				}
+				// ALREADY WAITING FOR A DECISION IS NOT WORK. A second run
+				// over the same object writes a second translation into the
+				// same store, and the one somebody has not read yet is gone.
+				if ( DZE_Translate::waiting( $o ) ) {
+					self::$held['waiting']++;
+					continue;
+				}
+				if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
+					self::$held['recent']++;
+					continue;
+				}
+				$owed = self::translate_owed( $o, $langs );
+				if ( ! $owed ) {
+					continue; // WPML is satisfied with every language of it.
+				}
+				$out[] = [
+					'tid'   => $oid,
+					'name'  => DZE_Translate::obj_label( $o ),
+					'kind'  => 'term' === $type ? 'product_cat' : 'post',
+					'ref'   => DZE_Translate::ref( $o ),
+					'langs' => $owed,
+					'why'   => sprintf(
+						/* translators: %s: the languages it is short of, e.g. "FR, DE" */
+						_n( 'owes %s', 'owes %s', count( $owed ), 'dazont-ecom' ),
+						implode( ', ', array_map( 'strtoupper', $owed ) )
+					),
+				];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * WHICH LANGUAGES ONE OBJECT IS SHORT OF — WPML's mark, never our own.
+	 *
+	 * A language with no translation at all is owed; one WPML has marked as
+	 * needing an update is owed; anything else is WPML being satisfied and is
+	 * not this module's to send. Our own register decides what is SENT inside
+	 * the job (`obj_stale()`), which is a different and later question.
+	 *
+	 * @param string[] $langs
+	 * @return string[]
+	 */
+	private static function translate_owed( array $o, array $langs ): array {
+		// WPML indexes a post by its id and a TERM by its term taxonomy id, so
+		// the answer is asked for by the one function that knows the
+		// difference — the same one the screen's own rows are drawn from.
+		$marks = (array) DZE_Translate::page_marks( [ $o ] );
+		$mine  = (array) ( $marks[ DZE_Translate::element_id_of( $o ) ] ?? [] );
+		$out   = [];
+		foreach ( $langs as $code ) {
+			$one = (string) ( $mine[ $code ] ?? '' );
+			// No row at all, or a row WPML has marked as needing an update.
+			// 'done' is WPML being satisfied, and that is not ours to overrule.
+			if ( '' === $one || 'marked' === $one ) {
+				$out[] = $code;
 			}
 		}
 		return $out;
@@ -1037,10 +1197,10 @@ final class DZE_Automation {
 	 *
 	 * @var array{queued:int,recent:int}
 	 */
-	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0 ];
+	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0 ];
 
 	public static function held_reset(): void {
-		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0 ];
+		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0, 'waiting' => 0 ];
 	}
 
 	/** @return array{queued:int,recent:int} */
@@ -1057,7 +1217,15 @@ final class DZE_Automation {
 	 * calls for" over a site full of unlinked pages is how a working screen
 	 * reads as a broken one.
 	 */
-	public static function nothing_said(): string {
+	public static function nothing_said( string $task = '' ): string {
+		// ONE QUESTION, ONE SENTENCE — and the question is not the same one
+		// for every task. "Every page has what its size calls for" is a true
+		// answer about links and a meaningless one about languages, and it is
+		// what this said on the Translations task before it had words of its
+		// own.
+		if ( 'translate' === (string) ( self::task( $task )['scope'] ?? '' ) ) {
+			return self::translate_nothing_said();
+		}
 		if ( ! empty( self::$held['unread'] ) ) {
 			return self::unread_said();
 		}
@@ -1092,6 +1260,35 @@ final class DZE_Automation {
 			return __( 'Nothing new to start: the pages it looked at were all worked on in the last few days.', 'dazont-ecom' );
 		}
 		return __( 'Nothing is short of anything: every page has what its size calls for.', 'dazont-ecom' );
+	}
+
+	/**
+	 * "Nothing to translate" is three answers, and only one means the shop is
+	 * up to date in every language.
+	 */
+	private static function translate_nothing_said(): string {
+		$w = (int) self::$held['waiting'];
+		$r = (int) self::$held['recent'];
+		if ( $w > 0 ) {
+			// The figure is the SHOP'S, counted whole by the module that holds
+			// them — never the tally, which is however many this reading
+			// happened to walk past before it had enough.
+			$n = class_exists( 'DZE_Translate' ) ? (int) DZE_Translate::review_count() : $w;
+			return sprintf(
+				/* translators: %s: how many objects hold a translation waiting for a decision */
+				_n(
+					'Nothing new to send: %s object is already holding a translation waiting for your yes or no.',
+					'Nothing new to send: %s objects are already holding a translation waiting for your yes or no.',
+					$n,
+					'dazont-ecom'
+				),
+				number_format_i18n( $n )
+			);
+		}
+		if ( $r > 0 ) {
+			return __( 'Nothing new to send: the objects it looked at were all translated in the last few days.', 'dazont-ecom' );
+		}
+		return __( 'Nothing is owed a translation: WPML is satisfied with every language of everything this shop translates.', 'dazont-ecom' );
 	}
 
 	/** The site has not been read: the one sentence, and the way to the reading. */
@@ -1359,6 +1556,9 @@ final class DZE_Automation {
 		if ( 'mesh' === $conf['scope'] ) {
 			return self::run_mesh( $id, $oid, $row, $conf );
 		}
+		if ( 'translate' === $conf['scope'] ) {
+			return self::run_translate( $id, $oid, $row, $conf );
+		}
 
 		// A shop-wide task has no object and no queue job: it is one call, made
 		// here, whose result waits on a review screen of its own.
@@ -1472,6 +1672,84 @@ final class DZE_Automation {
 		delete_transient( 'dze_auto_survey' );
 		delete_transient( 'dze_pl_census' );
 		DZE_Mesh::forget_thin();
+		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
+	}
+
+	/**
+	 * One object, translated into every language it is short of.
+	 *
+	 * There is no queue job and there must never be one: a translation is an
+	 * object times N languages times M fields, each with its own yes or no,
+	 * and the store that holds it is the source object's own — the same one
+	 * the Translations screen reads. Bending the writing queue to carry that
+	 * is how two screens start disagreeing about what is waiting.
+	 *
+	 * @param array $row The shortlist row when there is one: it carries the
+	 *                   object's reference and the languages it owes. Pressed
+	 *                   by hand there is none, and the same question is asked
+	 *                   again rather than guessed at.
+	 */
+	private static function run_translate( string $id, int $oid, array $row, array $conf ): array {
+		$no = static fn( string $why ): array => [ 'queued' => 0, 'task' => $id, 'reason' => $why ];
+		if ( ! class_exists( 'DZE_Translate' ) || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return $no( 'gone' );
+		}
+		$o = '' !== (string) ( $row['ref'] ?? '' ) ? DZE_Translate::from_ref( (string) $row['ref'] ) : [];
+		if ( ! $o ) {
+			// No row: the object is rebuilt from its id, and the pass asks the
+			// same question the day's work asks rather than translating
+			// whatever happens to be there.
+			foreach ( self::translate_shortlist( $id, 20 ) as $one ) {
+				if ( (int) $one['tid'] === $oid ) {
+					$o   = DZE_Translate::from_ref( (string) $one['ref'] );
+					$row = $one;
+					break;
+				}
+			}
+		}
+		if ( ! $o ) {
+			return $no( 'gone' );
+		}
+		$langs = array_values( array_filter( array_map( 'strval', (array) ( $row['langs'] ?? [] ) ) ) );
+		if ( ! $langs ) {
+			$langs = array_keys( DZE_Translate::obj_targets( $o ) );
+		}
+		if ( ! $langs ) {
+			return $no( 'none' );
+		}
+		// Nobody is waiting on cron, and a product with fifteen fields in five
+		// languages is five model calls.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- cron and a deliberate press.
+		}
+		try {
+			$res = DZE_Translate::produce( $o, $langs );
+		} catch ( \Throwable $e ) {
+			return $no( 'failed' );
+		}
+		// WHAT CAME BACK DECIDES WHAT THIS WAS. Nothing written and nothing
+		// skipped is a failure; nothing written because every language was
+		// already up to date is a real answer and not one.
+		if ( ! $res['langs'] ) {
+			if ( $res['skipped'] ) {
+				// WPML had marked it and our register says not one word moved:
+				// the mark is closed, for nothing, and that is the whole value
+				// of this module. It counts as work done on the object, so it
+				// is marked and not looked at again tomorrow.
+				self::mark( $oid, $id, 'term' === (string) $o['kind'] ? 'term' : 'post', 0, 0 );
+				self::note( $id, $oid, DZE_Translate::obj_label( $o ), 'term' === (string) $o['kind'] ? 'term' : 'post', 0, 0, true );
+				return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
+			}
+			return $no( 'failed' );
+		}
+		// SAVED WITHOUT REVIEW IS A DECISION THE SHOP TOOK, and it is taken
+		// here rather than left for somebody to find waiting.
+		if ( ! empty( $conf['apply'] ) ) {
+			DZE_Translate::accept( $o, $res['langs'] );
+		}
+		$type = 'term' === (string) $o['kind'] ? 'term' : 'post';
+		self::mark( $oid, $id, $type, 0, count( $res['langs'] ) );
+		self::note( $id, $oid, DZE_Translate::obj_label( $o ), $type, 0, count( $res['langs'] ), (bool) $conf['apply'] );
 		return [ 'queued' => 1, 'task' => $id, 'reason' => 'queued' ];
 	}
 
@@ -1637,8 +1915,13 @@ final class DZE_Automation {
 	/** How many of this task's jobs were accepted and written. */
 	public static function done_count( string $id ): int {
 		$task = self::task( $id );
-		if ( ! $task || 'shop' === (string) ( $task['scope'] ?? '' ) ) {
-			return 0; // the calendar writes nothing to the shop on its own.
+		// A task with no queue rows has no applied rows to count. The calendar
+		// writes nothing to the shop on its own, and a translation is recorded
+		// in the translation module's own register — a figure invented here
+		// from a capped log would be a total that lies, and a chip is silent
+		// when it has nothing it can say.
+		if ( ! $task || empty( $task['jobs'] ) ) {
+			return 0;
 		}
 		if ( ! class_exists( 'DZE_Queue' ) || ! DZE_Modules::enabled( 'queue' ) ) {
 			return 0;
@@ -2210,7 +2493,7 @@ final class DZE_Automation {
 			// BOTH, one under the other, contradicting each other: "Nothing new
 			// to work on: 6 pages…" over "Nothing is short of anything right
 			// now." Two literals for one question is two answers that drift.
-			echo '<p class="description">' . esc_html( self::nothing_said() ) . '</p>';
+			echo '<p class="description">' . esc_html( self::nothing_said( $id ) ) . '</p>';
 			return;
 		}
 		// A LIST, NOT A PARAGRAPH — and shut. "Affichage maladroit, mauvais
@@ -2484,7 +2767,12 @@ final class DZE_Automation {
 			if ( $left['n'] < 1 ) {
 				continue;
 			}
-			if ( 'shop' === (string) ( $task['scope'] ?? '' ) ) {
+			// A TASK WHOSE WORK IS NOT A QUEUE ROW CANNOT BE SETTLED HERE, and
+			// the test is what the task declares it leaves behind — never a
+			// scope named in this line, which is a list somebody keeps in step
+			// and forgets. The calendar's suggestions and a waiting
+			// translation are both decided on the screen that owns them.
+			if ( ! ( ( ! empty( $task['jobs'] ) || 'mesh' === (string) ( $task['scope'] ?? '' ) ) ) ) {
 				$aside[] = [ 'label' => (string) $task['label'], 'n' => (int) $left['n'], 'url' => (string) $left['url'] ];
 				continue;
 			}
@@ -2673,14 +2961,14 @@ final class DZE_Automation {
 	 * Why a run did, or did not, queue anything. A button that answers nothing
 	 * when it does nothing is a button that gets clicked five times.
 	 */
-	public static function reason_text( string $reason ): string {
+	public static function reason_text( string $reason, string $task = '' ): string {
 		switch ( $reason ) {
 			case 'queued':
 				return __( 'Queued — the writing queue does it in the background.', 'dazont-ecom' );
 			case 'cap':
 				return __( 'Today\'s figure is used up.', 'dazont-ecom' );
 			case 'none':
-				return self::nothing_said();
+				return self::nothing_said( $task );
 			case 'budget':
 				return __( 'The monthly AI budget is spent.', 'dazont-ecom' );
 			case 'modules':
@@ -2834,7 +3122,7 @@ final class DZE_Automation {
 		wp_send_json_success( [
 			'queued'  => (int) $res['queued'],
 			'task'    => $id,
-			'message' => self::reason_text( (string) $res['reason'] ),
+			'message' => self::reason_text( (string) $res['reason'], (string) ( $res['task'] ?? '' ) ),
 			'state'   => self::block( $id ),
 			'chips'   => self::chips_html( $id ),
 			'waiting' => self::waiting_html(),
@@ -3007,7 +3295,7 @@ final class DZE_Automation {
 	public static function catch_up_said( array $res ): string {
 		$n = (int) ( $res['queued'] ?? 0 );
 		if ( $n < 1 ) {
-			return self::reason_text( (string) ( $res['reason'] ?? 'none' ) );
+			return self::reason_text( (string) ( $res['reason'] ?? 'none' ), (string) ( $res['task'] ?? '' ) );
 		}
 		// AND WHERE THE WORK HAPPENS. The press only puts the pages in the
 		// queue; the writing is done by the queue itself, one at a time, with

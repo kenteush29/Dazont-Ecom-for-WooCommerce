@@ -173,7 +173,13 @@ ok( 'and every one of its calls names its product', $blind, 0 );
 // And nothing reaches the provider around it: one endpoint, one funnel, one
 // place the ceiling has to be asked.
 ok( 'and the provider is reached from exactly one place',
-	substr_count( $src, 'wp_remote_post( self::FAL_ENDPOINT' ), 1 );
+	substr_count( $src, 'wp_remote_post( self::FAL_QUEUE' ), 1 );
+// AND NEVER BY THE ENDPOINT THAT HOLDS THE SOCKET OPEN. `fal.run` answers on
+// the same connection, so a picture slower than this site's patience is one
+// fal finishes, bills, and nobody collects — the shop paying for nothing,
+// which is what "50% of requests fail and eat my credit" was made of.
+ok( 'and never by the one that loses a slow picture',
+	false !== strpos( $src, "'https://fal.run/" ), false );
 
 echo "\nWhat the press is about to spend, said before the press\n";
 // The figures the two screens multiply together are handed over by PHP. A

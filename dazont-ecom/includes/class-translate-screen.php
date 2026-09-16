@@ -927,8 +927,14 @@ trait DZE_Translate_Screen {
 	 * @return array{0:array<int,array>,1:int}|null NULL when WPML's tables
 	 *         cannot be read — the caller then pages everything instead,
 	 *         which is wrong about the count and right about the rows.
+	 *
+	 * PUBLIC because the automatic pass asks the SAME question: "what does
+	 * this shop still owe a translation of?" A second reading written beside
+	 * this one is how a screen and the pass that feeds it start disagreeing
+	 * about which objects are work — the automation would offer an object the
+	 * screen does not list, and nobody could say which of the two was right.
 	 */
-	private static function todo_page( array $scope, string $src, array $targets, int $paged, int $per, bool $todo_only = true ): ?array {
+	public static function todo_page( array $scope, string $src, array $targets, int $paged, int $per, bool $todo_only = true ): ?array {
 		global $wpdb;
 		if ( ! $wpdb || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() || ! $targets ) {
 			return null;
