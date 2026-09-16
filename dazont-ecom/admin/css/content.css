@@ -1675,6 +1675,12 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 /* ==========================================================================
    Which pages take part in linking. Ticks, SHIFT for a run, one bar.
    ========================================================================== */
+.dze-mesh-table .dze-mesh-kindth { width: 150px; }
+.dze-mesh-table .dze-mesh-figth  { width: 180px; }
+.dze-mesh-table .dze-mesh-actth  { width: 190px; }
+.dze-mesh-table td { vertical-align: middle; }
+.dze-mesh-busy { white-space: nowrap; }
+.dze-mesh-isbusy { color: #646970; }
 .dze-mesh-pagesbox { margin-top: 18px; }
 .dze-mesh-pagesbox > summary { font-weight: 600; }
 .dze-mesh-bulk {

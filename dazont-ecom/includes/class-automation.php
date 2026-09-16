@@ -716,7 +716,7 @@ final class DZE_Automation {
 	 *
 	 * @return array<int,array{tid:int,name:string,why:string}>
 	 */
-	public static function shortlist( string $id, int $n = 5 ): array {
+	public static function shortlist( string $id, int $n = 5, bool $judge = true ): array {
 		$task = self::task( $id );
 		if ( ! $task || ! self::task_ready( $id ) ) {
 			// Its module is off: the queue table may not even exist, and there
@@ -728,7 +728,7 @@ final class DZE_Automation {
 			return self::shop_shortlist( $id );
 		}
 		if ( 'mesh' === $scope ) {
-			return self::mesh_shortlist( $id, $n );
+			return self::mesh_shortlist( $id, $n, '', $judge );
 		}
 		return 'post' === $scope ? self::post_shortlist( $id, $n ) : self::cat_shortlist( $id, $n );
 	}
@@ -742,7 +742,7 @@ final class DZE_Automation {
 	 * answer. The plan is asked once here and carried, never rebuilt from an
 	 * integer halfway through.
 	 */
-	private static function mesh_shortlist( string $id, int $n, string $only = '' ): array {
+	private static function mesh_shortlist( string $id, int $n, string $only = '', bool $judge = true ): array {
 		if ( ! class_exists( 'DZE_Mesh' ) ) {
 			return [];
 		}
@@ -756,6 +756,14 @@ final class DZE_Automation {
 		// Three states wore one word; each is counted here and named in the
 		// sentence the press comes back with.
 		self::held_reset();
+		// A GRAPH THAT HAS NOT BEEN READ YET HAS NO WORK TO HAND OUT. Before
+		// the first reading every page read as an orphan and a dead end, so
+		// this listed the whole site as next in line and a press queued work
+		// on it. The lists answer nothing now; this says WHICH nothing.
+		if ( null === DZE_Mesh::orphan_count() ) {
+			self::$held['unread'] = 1;
+			return [];
+		}
 		$take = static function ( array $row ) use ( &$out, &$seen, $id, $cool ): bool {
 			$type = 'product_cat' === $row['kind'] ? 'term' : 'post';
 			$key  = $row['kind'] . ':' . (int) $row['tid'];
@@ -789,7 +797,7 @@ final class DZE_Automation {
 		// PHASE ONE — the holes in the mesh: the pages the site points at
 		// least, mended from the pages closest to them. Always first: a page
 		// nobody can reach is worth more than a page that reads a little thin.
-		foreach ( 'out' === $only ? [] : DZE_Mesh::plan( max( 1, $n ) * 3 ) as $row ) {
+		foreach ( 'out' === $only ? [] : DZE_Mesh::plan( max( 1, $n ) * 3, $judge ) as $row ) {
 			$take( [
 				'tid'   => (int) $row['id'],
 				'name'  => (string) $row['name'],
@@ -856,6 +864,10 @@ final class DZE_Automation {
 		$why = self::why_not( $id, true );
 		if ( '' !== $why ) {
 			$out['reason'] = $why;
+			return $out;
+		}
+		if ( null === DZE_Mesh::orphan_count() ) {
+			$out['reason'] = 'unread';
 			return $out;
 		}
 		$cap  = max( 1, min( self::CATCHUP_MAX, $cap ) );
@@ -1025,10 +1037,10 @@ final class DZE_Automation {
 	 *
 	 * @var array{queued:int,recent:int}
 	 */
-	private static array $held = [ 'queued' => 0, 'recent' => 0 ];
+	private static array $held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0 ];
 
 	public static function held_reset(): void {
-		self::$held = [ 'queued' => 0, 'recent' => 0 ];
+		self::$held = [ 'queued' => 0, 'recent' => 0, 'unread' => 0 ];
 	}
 
 	/** @return array{queued:int,recent:int} */
@@ -1046,6 +1058,9 @@ final class DZE_Automation {
 	 * reads as a broken one.
 	 */
 	public static function nothing_said(): string {
+		if ( ! empty( self::$held['unread'] ) ) {
+			return self::unread_said();
+		}
 		// A FIGURE THE READING CANNOT SUPPORT IS WORSE THAN NO FIGURE. The
 		// tally is a REASON and never a total: the shortlist walks a handful of
 		// candidates and stops the moment it has enough, so "6 pages are short
@@ -1077,6 +1092,15 @@ final class DZE_Automation {
 			return __( 'Nothing new to start: the pages it looked at were all worked on in the last few days.', 'dazont-ecom' );
 		}
 		return __( 'Nothing is short of anything: every page has what its size calls for.', 'dazont-ecom' );
+	}
+
+	/** The site has not been read: the one sentence, and the way to the reading. */
+	public static function unread_said(): string {
+		$where = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'content', 'linking' ) : '';
+		return '' !== $where
+			/* translators: %s: the screen where the site is read */
+			? sprintf( __( 'The site has not been read yet, so there is nothing to link. Read it under %s.', 'dazont-ecom' ), $where )
+			: __( 'The site has not been read yet, so there is nothing to link.', 'dazont-ecom' );
 	}
 
 	/**
@@ -2173,8 +2197,13 @@ final class DZE_Automation {
 		$conf = self::conf( $id );
 
 
-		// The whole tool rests on this list, so it is shown, not described.
-		$next_up = self::shortlist( $id, 5 );
+		// The whole tool rests on this list, so it is shown, not described —
+		// and never JUDGED here: drawing this screen used to ask the model
+		// which neighbour should point at each orphan not yet read, one call
+		// per orphan with somebody waiting on the page, spending on every
+		// open. The list is the wording's where no verdict is kept; the pass
+		// reads before it writes.
+		$next_up = self::shortlist( $id, 5, false );
 		if ( ! $next_up ) {
 			// ONE QUESTION, ONE SENTENCE. This literal and the answer a press
 			// comes back with are the same question, and the screen printed
@@ -2666,6 +2695,8 @@ final class DZE_Automation {
 				return __( 'Too soon after the last one — it is spread on purpose.', 'dazont-ecom' );
 			case 'failed':
 				return __( 'The model could not be reached. It will be tried again.', 'dazont-ecom' );
+			case 'unread':
+				return self::unread_said();
 		}
 		return __( 'Nothing was queued.', 'dazont-ecom' );
 	}

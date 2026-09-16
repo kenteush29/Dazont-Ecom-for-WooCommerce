@@ -687,7 +687,7 @@ final class DZE_Mesh {
 			}
 			// A page built by a builder is not counted as a dead end: this
 			// module does not write into one, so it is not work it can offer.
-			if ( 0 === $o && empty( $p['built'] ) ) {
+			if ( 0 === $o && empty( $p['built'] ) && (int) ( $p['words'] ?? 0 ) >= self::MIN_WORDS ) {
 				$ends++;
 			}
 		}
@@ -713,6 +713,12 @@ final class DZE_Mesh {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
+		// A PRESS THAT DID NOTHING SAYS SO. Locked, `scan()` hands back the
+		// LAST reading's figures, and the screen reloaded on them as if the
+		// press had read the site: an old figure wearing a fresh press.
+		if ( self::reading_now() ) {
+			wp_send_json_error( [ 'message' => __( 'A reading is already under way — it takes a minute. Reload in a moment.', 'dazont-ecom' ) ] );
+		}
 		wp_send_json_success( self::scan() );
 	}
 
@@ -733,10 +739,19 @@ final class DZE_Mesh {
 		return self::ranked( static fn( array $r ): bool => 0 === $r['in'], 'in', $limit );
 	}
 
-	/** The pages that point at nothing — half a mesh, the other way round. */
+	/**
+	 * The pages that point at nothing — half a mesh, the other way round.
+	 *
+	 * A BUTTON ON A ROW MUST BE ABLE TO ACT. A four-word category description
+	 * pointed at nothing and was offered "Add internal links": a pass asked
+	 * to weave a link into four words comes back with nothing, or with a link
+	 * and no sentence around it. A text under the source minimum is not a
+	 * dead end this module can mend — it is a description to write, which the
+	 * Content diagnostic already lists — so it is neither listed nor counted.
+	 */
 	public static function dead_ends( int $limit = 200 ): array {
 		return self::ranked(
-			static fn( array $r ): bool => 0 === $r['out'] && empty( $r['built'] ),
+			static fn( array $r ): bool => 0 === $r['out'] && empty( $r['built'] ) && (int) $r['words'] >= self::MIN_WORDS,
 			'out',
 			$limit
 		);
@@ -745,6 +760,17 @@ final class DZE_Mesh {
 	/** One reader for both, so the two lists cannot answer differently. */
 	private static function ranked( callable $keep, string $by, int $limit ): array {
 		$census = self::census();
+		// A GRAPH THAT HAS NOT BEEN READ YET ANSWERS NOTHING, never a list of
+		// every page. With no reading every page counts nought links in and
+		// nought out, so before the first scan every page passed for an
+		// orphan AND a dead end: the Automation screen listed them as next in
+		// line, "Run one now" queued linking work on them and "Link the whole
+		// site" put two hundred of them in the queue — all of it from a
+		// reading that did not exist. `orphan_count()` already answers null
+		// here; the lists answer the same.
+		if ( empty( $census['at'] ) ) {
+			return [];
+		}
 		$per    = (array) ( $census['per'] ?? [] );
 		$out    = [];
 		foreach ( self::pages() as $key => $p ) {
@@ -1092,7 +1118,25 @@ final class DZE_Mesh {
 	 *
 	 * @return array{how:string,rows:array<int,array{key:string,title:string,url:string,kind:string,why:string}>}
 	 */
-	public static function pairs_for( string $to_key, int $limit = self::OFFER ): array {
+	public static function pairs_for( string $to_key, int $limit = self::OFFER, bool $judge = true ): array {
+		$res = self::pairs_raw( $to_key, $limit, $judge );
+		// WHAT THE QUEUE ALREADY HOLDS ON A SOURCE travels with the row: a
+		// page already being written into is listed and marked, never offered
+		// a second time as if nothing were happening to it.
+		foreach ( $res['rows'] as $i => $row ) {
+			$id = (int) substr( (string) $row['key'], (int) strrpos( (string) $row['key'], ':' ) + 1 );
+			$res['rows'][ $i ]['busy'] = self::busy_said( self::busy_of( (string) $row['kind'], $id ) );
+		}
+		return $res;
+	}
+
+	/**
+	 * The judgment itself. `$judge` false reads only what was already judged
+	 * and otherwise hands back the wording's own answer: a SCREEN being drawn
+	 * must never call the model with somebody waiting on the page — the
+	 * Automation screen did, one call per orphan not yet read, on every open.
+	 */
+	private static function pairs_raw( string $to_key, int $limit, bool $judge ): array {
 		$short = self::shortlist( $to_key );
 		$plain = [];
 		foreach ( array_slice( $short, 0, $limit ) as $row ) {
@@ -1114,20 +1158,26 @@ final class DZE_Mesh {
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) || '' === (string) DZE_Marketing_Ai::api_key() ) {
 			return [ 'how' => 'words', 'rows' => $plain ];
 		}
+		if ( ! $judge ) {
+			return [ 'how' => 'unjudged', 'rows' => $plain ];
+		}
 		$lines = [];
 		foreach ( $short as $i => $row ) {
 			$lines[] = ( $i + 1 ) . '. ' . $row['title'] . ' (' . self::kind_word( $row['kind'] ) . ')';
 		}
 		$user = 'TARGET PAGE: ' . $to['title'] . ' (' . self::kind_word( (string) $to['kind'] ) . ")\n"
 			. 'KEEP AT MOST: ' . (int) $limit . "\n\nCANDIDATES:\n" . implode( "\n", $lines );
+		// THE KEY IS SET AND THE READING DID NOT ANSWER: that is not "the key
+		// is not set", and the screen used to say it was. A different word, so
+		// the sentence beside the rows tells the truth about why.
 		try {
 			$answer = DZE_Marketing_Ai::complete( self::pick_system(), $user, self::model(), 700, 45 );
 		} catch ( Throwable $e ) {
-			return [ 'how' => 'words', 'rows' => $plain ];
+			return [ 'how' => 'unjudged', 'rows' => $plain ];
 		}
 		$picked = self::read_pick( $answer, $short, $limit );
 		if ( ! $picked ) {
-			return [ 'how' => 'words', 'rows' => $plain ];
+			return [ 'how' => 'unjudged', 'rows' => $plain ];
 		}
 		if ( class_exists( 'DZE_Ai_Usage' ) ) {
 			DZE_Ai_Usage::unit( 'mesh_pick' );
@@ -1264,7 +1314,7 @@ final class DZE_Mesh {
 	 *
 	 * @return array<int,array{key:string,kind:string,id:int,name:string,urls:string[],why:string}>
 	 */
-	public static function plan( int $limit = 5 ): array {
+	public static function plan( int $limit = 5, bool $judge = true ): array {
 		$pages = self::pages();
 		$by    = [];
 		$order = [];
@@ -1277,7 +1327,7 @@ final class DZE_Mesh {
 			// Only what it is SHORT of: a page pointed at twice needs one more
 			// link, not another three.
 			$want = max( 1, self::WANT_IN - (int) $row['in'] );
-			foreach ( array_slice( self::pairs_for( $to_key, $want )['rows'], 0, $want ) as $from ) {
+			foreach ( array_slice( self::pairs_for( $to_key, $want, $judge )['rows'], 0, $want ) as $from ) {
 				$key = (string) $from['key'];
 				if ( ! isset( $by[ $key ] ) ) {
 					$page = $pages[ $key ] ?? [];
@@ -1330,6 +1380,123 @@ final class DZE_Mesh {
 			}
 		}
 		return [];
+	}
+
+	// =========================================================================
+	// What the screen states
+	// =========================================================================
+
+	/** Is a reading of the site under way right now? */
+	public static function reading_now(): bool {
+		return (bool) get_transient( self::LOCK );
+	}
+
+	/**
+	 * What the writing queue holds on one page: '' for nothing, 'queued'
+	 * while it waits its turn or is being written, 'review' once the text is
+	 * back and waiting for a yes or no.
+	 */
+	public static function busy_of( string $kind, int $id ): string {
+		if ( ! class_exists( 'DZE_Queue' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'queue' ) ) ) {
+			return '';
+		}
+		$job = DZE_Queue::pending_for( $id, 'product_cat' === $kind ? 'cat_' : 'post_' );
+		if ( ! $job ) {
+			return '';
+		}
+		return 'review' === (string) ( $job['status'] ?? '' ) ? 'review' : 'queued';
+	}
+
+	/** That state in words. Status words live in PHP, never in the JavaScript. */
+	public static function busy_said( string $state ): string {
+		if ( 'review' === $state ) {
+			return __( 'Written — waiting for your yes or no', 'dazont-ecom' );
+		}
+		return 'queued' === $state ? __( 'In the writing queue', 'dazont-ecom' ) : '';
+	}
+
+	/**
+	 * What a press that sent several pages answers when some were refused.
+	 * '' when every one went: the screen already has that sentence.
+	 */
+	public static function sent_said( int $sent, int $total, string $why ): string {
+		if ( $sent >= $total ) {
+			return '';
+		}
+		return sprintf(
+			/* translators: 1: pages sent, 2: pages asked for, 3: why the rest were not */
+			__( '%1$s of %2$s sent — %3$s', 'dazont-ecom' ),
+			number_format_i18n( $sent ),
+			number_format_i18n( $total ),
+			$why
+		);
+	}
+
+	/** Nothing can be written without the writing key: said on this screen, not found later in a failed job. */
+	public static function key_missing(): bool {
+		return class_exists( 'DZE_Marketing_Ai' ) && '' === (string) DZE_Marketing_Ai::api_key();
+	}
+
+	/**
+	 * How many pages the site has and how many were chosen — from the last
+	 * reading, so a screen can say it without reading the shop. NULL before
+	 * the first reading.
+	 *
+	 * @return array{pages:int,on:int}|null
+	 */
+	public static function chosen_said(): ?array {
+		$c = self::census();
+		if ( empty( $c['at'] ) ) {
+			return null;
+		}
+		$chosen = self::chosen_pages();
+		$all    = 0;
+		$on     = 0;
+		foreach ( array_keys( (array) ( $c['per'] ?? [] ) ) as $key ) {
+			if ( 0 !== strpos( (string) $key, 'page:' ) ) {
+				continue;
+			}
+			$all++;
+			if ( isset( $chosen[ (int) substr( (string) $key, 5 ) ] ) ) {
+				$on++;
+			}
+		}
+		return [ 'pages' => $all, 'on' => $on ];
+	}
+
+	/**
+	 * WHETHER ANYTHING LINKS PAGES ON ITS OWN, said where the linking is
+	 * looked at. The daily pass lives two menus away and the tab said nothing
+	 * about it, so a shop pressing rows here one by one had no way of knowing
+	 * the same work runs by itself — or that it does not.
+	 *
+	 * @return array{said:string,url:string,name:string}
+	 */
+	public static function auto_said(): array {
+		$none = [ 'said' => '', 'url' => '', 'name' => '' ];
+		if ( ! class_exists( 'DZE_Automation' ) || ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'automation' ) ) ) {
+			return $none;
+		}
+		$conf = DZE_Automation::conf( 'mesh_links' );
+		$url  = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'automation' ) : '';
+		$name = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'automation' ) : '';
+		if ( ! empty( $conf['on'] ) ) {
+			$n = (int) $conf['per_day'];
+			return [
+				'said' => ! empty( $conf['apply'] )
+					/* translators: %s: pages a day */
+					? sprintf( _n( 'Dazont Ecom also links %s page a day on its own, saved without review.', 'Dazont Ecom also links %s pages a day on its own, saved without review.', $n, 'dazont-ecom' ), number_format_i18n( $n ) )
+					/* translators: %s: pages a day */
+					: sprintf( _n( 'Dazont Ecom also links %s page a day on its own, held for your yes or no.', 'Dazont Ecom also links %s pages a day on its own, held for your yes or no.', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
+				'url'  => $url,
+				'name' => $name,
+			];
+		}
+		return [
+			'said' => __( 'Nothing links pages on its own yet — the Internal linking task is off under', 'dazont-ecom' ),
+			'url'  => $url,
+			'name' => $name,
+		];
 	}
 
 	// =========================================================================
@@ -1430,6 +1597,12 @@ final class DZE_Mesh {
 			'nopick'   => __( 'Tick at least one page.', 'dazont-ecom' ),
 			'none'     => __( 'No page on this site is close enough to link to it. It needs a page written about its subject.', 'dazont-ecom' ),
 			'words'    => __( 'Chosen on wording alone — the writing key is not set, so nothing read these pages.', 'dazont-ecom' ),
+			'unjudged' => __( 'Chosen on wording alone — the reading did not answer this time.', 'dazont-ecom' ),
+			// The word a dead-end row wears once its page is queued: the SAME
+			// word the server prints on that row after a reload, so the screen
+			// reads the same before and after. A five-line sentence in a
+			// 190px cell made the row a hundred pixels tall.
+			'queued'   => self::busy_said( 'queued' ),
 			'failed'   => __( 'That did not go through. Try again.', 'dazont-ecom' ),
 			'add'      => __( 'Send them to the writing queue', 'dazont-ecom' ),
 			// The page chooser. Status words live in PHP, never in the
@@ -1454,12 +1627,31 @@ final class DZE_Mesh {
 		$census = self::census();
 		$counts = (array) ( $census['counts'] ?? [] );
 		$fresh  = ! empty( $census['at'] );
+		// A CONTROL THAT CANNOT ACT IS DISABLED AND SAYS WHAT IS MISSING, on
+		// its hover — never a button that sends a job off to fail later.
+		$off = self::key_missing()
+			? ' disabled title="' . esc_attr__( 'The writing key is not set, so nothing can be written yet.', 'dazont-ecom' ) . '"'
+			: '';
 		?>
 		<p style="margin:16px 0 4px;">
-			<button type="button" class="button button-primary" id="dze-mesh-scan"><?php esc_html_e( 'Read the site again', 'dazont-ecom' ); ?></button>
+			<button type="button" class="button button-primary" id="dze-mesh-scan"><?php
+				// "Again" is a word about a thing that has happened.
+				echo esc_html( $fresh ? __( 'Read the site again', 'dazont-ecom' ) : __( 'Read the site', 'dazont-ecom' ) );
+			?></button>
+			<?php
+			// THE PROMPT BEHIND THE PASS, one press away, wearing the same word
+			// as on every other screen holding a prompt. Both lists send their
+			// work to the one linking pass, so one button serves both.
+			if ( class_exists( 'DZE_Prompts' ) ) {
+				DZE_Prompts::the_button( 'cat_links', __( '✎ prompt', 'dazont-ecom' ) );
+			}
+			?>
 			<span class="description" id="dze-mesh-state" style="margin-left:10px;"><?php echo esc_html( self::read_said() ); ?></span>
 		</p>
-		<?php if ( ! $fresh ) : ?>
+		<?php
+		self::render_lines( $fresh );
+		if ( ! $fresh ) :
+			?>
 			<p class="description"><?php esc_html_e( 'Nothing has been read yet, so there is nothing to show. It takes a minute.', 'dazont-ecom' ); ?></p>
 			<?php
 			return;
@@ -1467,7 +1659,7 @@ final class DZE_Mesh {
 		$needs = self::needs();
 		$ends  = self::dead_ends( 50 );
 		?>
-				<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages short of links', 'dazont-ecom' ); ?></h2>
+		<h2 style="margin-top:28px;"><?php esc_html_e( 'Pages short of links', 'dazont-ecom' ); ?></h2>
 		<?php if ( ! $needs ) : ?>
 			<p class="description"><?php echo esc_html( self::rule_said() ); ?> <?php esc_html_e( 'Every page is pointed at from enough places. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
@@ -1477,32 +1669,26 @@ final class DZE_Mesh {
 				// same rank as the block below it: a bold paragraph over one
 				// table and a heading over the next read as two kinds of thing.
 				echo esc_html( self::rule_said() ) . ' ';
-				printf(
-					/* translators: %s: how many pages */
-					esc_html( _n( '%s page is short of that.', '%s pages are short of that.', count( $needs ), 'dazont-ecom' ) ),
-					esc_html( number_format_i18n( count( $needs ) ) )
-				);
+				echo esc_html( self::listed_said( (int) ( $counts['short'] ?? 0 ), count( $needs ), 200, 'short' ) );
 				?>
 			</p>
-			<table class="wp-list-table widefat fixed striped" id="dze-mesh-needs">
+			<table class="wp-list-table widefat fixed striped dze-mesh-table" id="dze-mesh-needs">
 				<thead><tr>
-					<th style="width:44%;"><?php esc_html_e( 'Page', 'dazont-ecom' ); ?></th>
-					<th style="width:18%;"><?php esc_html_e( 'What it is', 'dazont-ecom' ); ?></th>
-					<th style="width:20%;"><?php esc_html_e( 'Links to it', 'dazont-ecom' ); ?></th>
-					<th><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'Page', 'dazont-ecom' ); ?></th>
+					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
+					<th class="dze-mesh-kindth"><?php esc_html_e( 'What it is', 'dazont-ecom' ); ?></th>
+					<th class="dze-mesh-figth"><?php esc_html_e( 'Links to it', 'dazont-ecom' ); ?></th>
+					<th class="dze-mesh-actth"><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
 				</tr></thead>
 				<tbody>
 				<?php foreach ( $needs as $row ) : ?>
 					<tr data-key="<?php echo esc_attr( $row['kind'] . ':' . $row['id'] ); ?>">
-						<td>
-							<a href="<?php echo esc_url( self::edit_url( (string) $row['kind'], (int) $row['id'] ) ); ?>"><?php echo esc_html( $row['title'] ); ?></a>
-							<?php if ( ! empty( $row['url'] ) ) : ?>
-								<a href="<?php echo esc_url( $row['url'] ); ?>" target="_blank" rel="noopener" style="margin-left:6px;text-decoration:none;" title="<?php esc_attr_e( 'Open the page', 'dazont-ecom' ); ?>">&#8599;</a>
-							<?php endif; ?>
-						</td>
+						<?php // The name, the way to change it and the way a reader sees it, from the one function that prints an object's name anywhere. ?>
+						<td><?php echo wp_kses_post( DZE_Hub::named( (string) $row['title'], self::edit_url( (string) $row['kind'], (int) $row['id'] ), (string) $row['url'] ) ); ?></td>
+						<?php echo wp_kses_post( DZE_Hub::id_td( (int) $row['id'] ) ); ?>
 						<td><?php echo esc_html( self::kind_word( (string) $row['kind'] ) ); ?></td>
 						<td class="dze-mesh-short"><?php echo esc_html( self::short_said( $row ) ); ?></td>
-						<td><button type="button" class="button button-small dze-mesh-pairs"><?php esc_html_e( 'Link to it', 'dazont-ecom' ); ?></button></td>
+						<td><button type="button" class="button button-small dze-mesh-pairs"<?php echo $off; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above. ?>><?php esc_html_e( 'Link to it', 'dazont-ecom' ); ?></button></td>
 					</tr>
 				<?php endforeach; ?>
 				</tbody>
@@ -1513,21 +1699,46 @@ final class DZE_Mesh {
 		<?php if ( ! $ends ) : ?>
 			<p class="description"><?php esc_html_e( 'Every page sends its reader somewhere. Nothing to do here.', 'dazont-ecom' ); ?></p>
 		<?php else : ?>
-			<p class="description"><?php esc_html_e( 'A page that links to nothing keeps every reader it gets. Pages laid out by a page builder are left out: their text is not in the post, so nothing can be written into them.', 'dazont-ecom' ); ?></p>
-			<table class="wp-list-table widefat fixed striped" id="dze-mesh-ends">
+			<p class="description">
+				<?php
+				esc_html_e( 'A page that links to nothing keeps every reader it gets.', 'dazont-ecom' );
+				echo ' ' . esc_html( self::listed_said( (int) ( $counts['ends'] ?? 0 ), count( $ends ), 50, 'ends' ) ) . ' ';
+				printf(
+					/* translators: %d: the fewest words a text needs before a link is written into it */
+					esc_html__( 'Not listed: pages laid out by a page builder, and texts under %d words — nothing can be written into either.', 'dazont-ecom' ),
+					(int) self::MIN_WORDS
+				);
+				?>
+			</p>
+			<table class="wp-list-table widefat fixed striped dze-mesh-table" id="dze-mesh-ends">
 				<thead><tr>
-					<th style="width:44%;"><?php esc_html_e( 'Page', 'dazont-ecom' ); ?></th>
-					<th style="width:18%;"><?php esc_html_e( 'What it is', 'dazont-ecom' ); ?></th>
-					<th style="width:20%;"><?php esc_html_e( 'Words', 'dazont-ecom' ); ?></th>
-					<th><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
+					<th><?php esc_html_e( 'Page', 'dazont-ecom' ); ?></th>
+					<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
+					<th class="dze-mesh-kindth"><?php esc_html_e( 'What it is', 'dazont-ecom' ); ?></th>
+					<th class="dze-mesh-figth"><?php esc_html_e( 'Words', 'dazont-ecom' ); ?></th>
+					<th class="dze-mesh-actth"><?php esc_html_e( 'Action', 'dazont-ecom' ); ?></th>
 				</tr></thead>
 				<tbody>
 				<?php foreach ( $ends as $row ) : ?>
 					<tr data-key="<?php echo esc_attr( $row['kind'] . ':' . $row['id'] ); ?>">
-						<td><a href="<?php echo esc_url( self::edit_url( (string) $row['kind'], (int) $row['id'] ) ); ?>"><?php echo esc_html( $row['title'] ); ?></a></td>
+						<td><?php echo wp_kses_post( DZE_Hub::named( (string) $row['title'], self::edit_url( (string) $row['kind'], (int) $row['id'] ), (string) $row['url'] ) ); ?></td>
+						<?php echo wp_kses_post( DZE_Hub::id_td( (int) $row['id'] ) ); ?>
 						<td><?php echo esc_html( self::kind_word( (string) $row['kind'] ) ); ?></td>
 						<td><?php echo esc_html( number_format_i18n( (int) $row['words'] ) ); ?></td>
-						<td><button type="button" class="button button-small dze-mesh-out"><?php esc_html_e( 'Add internal links', 'dazont-ecom' ); ?></button></td>
+						<td><?php
+							// A JOB IN PROGRESS SAYS IT IS IN PROGRESS. The row
+							// kept its button while its page sat in the queue,
+							// and pressing it answered "already waiting".
+							$busy = self::busy_of( (string) $row['kind'], (int) $row['id'] );
+							if ( '' !== $busy ) {
+								echo '<span class="description dze-mesh-busy">' . esc_html( self::busy_said( $busy ) ) . '</span>';
+								if ( 'review' === $busy && class_exists( 'DZE_Queue' ) ) {
+									echo ' <a href="' . esc_url( DZE_Queue::url() ) . '" target="_blank" rel="noopener">' . esc_html__( 'Content to review ↗', 'dazont-ecom' ) . '</a>';
+								}
+							} else {
+								echo '<button type="button" class="button button-small dze-mesh-out"' . $off . '>' . esc_html__( 'Add internal links', 'dazont-ecom' ) . '</button>'; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.
+							}
+						?></td>
 					</tr>
 				<?php endforeach; ?>
 				</tbody>
@@ -1538,6 +1749,65 @@ final class DZE_Mesh {
 		// a question about this screen's own lists, so it is on this screen
 		// and not on a settings tab two menus away.
 		self::render_pages_box();
+	}
+
+	/**
+	 * The lines under the reading: what stands in the way, and what runs by
+	 * itself. Each is printed only when it has something to say.
+	 */
+	private static function render_lines( bool $fresh ): void {
+		if ( self::key_missing() ) {
+			echo '<p class="description dze-mesh-nokey">' . esc_html__( 'The writing key is not set, so nothing can be written yet.', 'dazont-ecom' );
+			if ( class_exists( 'DZE_Screens' ) && '' !== DZE_Screens::url( 'settings', 'general' ) ) {
+				echo ' <a href="' . esc_url( DZE_Screens::url( 'settings', 'general' ) ) . '">' . esc_html( DZE_Screens::name( 'settings', 'general' ) ) . '</a>';
+			}
+			echo '</p>';
+		}
+		$auto = self::auto_said();
+		if ( '' !== $auto['said'] ) {
+			echo '<p class="description dze-mesh-auto">' . esc_html( $auto['said'] );
+			if ( '' !== $auto['url'] ) {
+				echo ' <a href="' . esc_url( $auto['url'] ) . '">' . esc_html( $auto['name'] ) . '</a>';
+			}
+			echo '</p>';
+		}
+		// A FRESH SHOP HAS TO BE TOLD. The chooser sits folded at the foot of
+		// the screen, after two tables that can run to two hundred rows, and
+		// nothing said that the site's pages take no part until they are
+		// chosen — so on a shop that never set this up, the pages were simply
+		// absent from every list with nothing saying why.
+		$c = $fresh ? self::chosen_said() : null;
+		if ( $c && $c['pages'] > 0 && 0 === $c['on'] ) {
+			echo '<p class="description dze-mesh-unchosen">' . esc_html__( 'No page of the site takes part yet — every article and product category does.', 'dazont-ecom' )
+				. ' <a href="#dze-mesh-pages" class="dze-mesh-choose">' . esc_html__( 'Choose the pages', 'dazont-ecom' ) . '</a></p>';
+		}
+	}
+
+	/**
+	 * THE FIGURE OVER A LIST IS THE SHOP'S, NOT THE LIST'S. Both lists are
+	 * capped, and the sentence counted the rows under it — so a shop with 213
+	 * pages short of links read "200 pages are short of that", which is a
+	 * figure that is true of the screen and false of the site. The census
+	 * counts the whole site; where the list is cut, the sentence says how
+	 * many it shows. Where it is not cut, the rows are the figure — a census
+	 * written before a rule changed must not disagree with the list under it.
+	 */
+	public static function listed_said( int $all, int $shown, int $cap, string $what ): string {
+		$n = $shown < $cap ? $shown : max( $all, $shown );
+		if ( 'short' === $what ) {
+			if ( $n > $shown ) {
+				/* translators: 1: pages short of links on the whole site, 2: how many of them are listed */
+				return sprintf( __( '%1$s pages are short of that, %2$s of them listed here.', 'dazont-ecom' ), number_format_i18n( $n ), number_format_i18n( $shown ) );
+			}
+			/* translators: %s: how many pages */
+			return sprintf( _n( '%s page is short of that.', '%s pages are short of that.', $n, 'dazont-ecom' ), number_format_i18n( $n ) );
+		}
+		if ( $n > $shown ) {
+			/* translators: 1: pages pointing at nothing on the whole site, 2: how many of them are listed */
+			return sprintf( __( '%1$s pages point at nothing, %2$s of them listed here.', 'dazont-ecom' ), number_format_i18n( $n ), number_format_i18n( $shown ) );
+		}
+		/* translators: %s: how many pages */
+		return sprintf( _n( '%s page points at nothing.', '%s pages point at nothing.', $n, 'dazont-ecom' ), number_format_i18n( $n ) );
 	}
 
 	/**
@@ -1574,7 +1844,7 @@ final class DZE_Mesh {
 			}
 		}
 		?>
-		<details class="dze-set dze-mesh-pagesbox">
+		<details class="dze-set dze-mesh-pagesbox" id="dze-mesh-pages">
 			<summary><?php
 				echo esc_html( sprintf(
 					/* translators: 1: pages taking part, 2: pages the site has */
@@ -1704,7 +1974,9 @@ final class DZE_Mesh {
 		if ( ! $sent ) {
 			wp_send_json_error( [ 'message' => $why ?: __( 'Nothing could be queued.', 'dazont-ecom' ) ] );
 		}
-		wp_send_json_success( [ 'sent' => $sent, 'why' => $why ] );
+		// WHAT WAS REFUSED IS SAID, not dropped: three sent and one already in
+		// the queue used to answer "Sent" and nothing about the fourth.
+		wp_send_json_success( [ 'sent' => $sent, 'why' => $why, 'said' => self::sent_said( $sent, count( $from ), $why ) ] );
 	}
 
 	/** The ordinary linking pass on one page that points at nothing. */

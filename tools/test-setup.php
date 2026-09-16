@@ -120,6 +120,7 @@ class DZE_Health {
 class DZE_Mesh {
 	public static function orphan_count() { return $GLOBALS['orph'] ?? null; }
 	public static function read_said() { return 'Read 2 mins ago — 830 pages.'; }
+	public static function chosen_said() { return $GLOBALS['chosen'] ?? null; }
 }
 class DZE_Prompts {
 	public static function catalog() { return array_fill_keys( [ 'a', 'b', 'c', 'd' ], [] ); }
@@ -336,6 +337,23 @@ $GLOBALS['orph'] = 213;
 DZE_Setup::forget();
 ok( 'read, it says what it found',
 	false !== strpos( step( 'mesh' )['said'], '830 pages' ), true );
+// WHICH PAGES TAKE PART is a reading too: a fresh shop has chosen none, and a
+// screen that says what is not set up says so — as a suggestion, never a
+// shortfall, because articles and categories are linked either way.
+blank();
+$GLOBALS['chosen'] = null;
+DZE_Setup::forget();
+ok( 'never read, the chooser is not a line', step( 'mesh_pages' ), [] );
+$GLOBALS['chosen'] = [ 'pages' => 35, 'on' => 0 ];
+DZE_Setup::forget();
+ok( 'none chosen is a suggestion',      step( 'mesh_pages' )['state'], 'idea' );
+ok( 'saying the figures',               step( 'mesh_pages' )['said'], '0 of 35 pages take part.' );
+ok( 'and the way to choose',            [ step( 'mesh_pages' )['do'], false !== strpos( step( 'mesh_pages' )['url'], 'tab=linking' ) ], [ 'Choose them', true ] );
+ok( 'never counted as a thing to do',   in_array( 'Pages that take part in linking', DZE_Setup::score()['todo'], true ), false );
+$GLOBALS['chosen'] = [ 'pages' => 35, 'on' => 8 ];
+DZE_Setup::forget();
+ok( 'some chosen, it is done',          step( 'mesh_pages' )['state'], 'done' );
+$GLOBALS['chosen'] = null;
 // A PROMPT LEFT AT ITS SHIPPED DEFAULT IS NOT A FAULT — a shop running on all
 // of them is a working shop.
 blank();

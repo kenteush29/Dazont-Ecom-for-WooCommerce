@@ -181,6 +181,11 @@ class DZE_Ai_Usage {
 }
 class DZE_Mesh {
 	public static function census(): array { return $GLOBALS['mesh_census'] ?? []; }
+	/** Null before the first reading — a graph not read has no work to hand out. */
+	public static function orphan_count(): ?int {
+		$c = self::census();
+		return empty( $c['at'] ) ? ( isset( $GLOBALS['mesh_plan'] ) ? 0 : null ) : (int) ( $c['counts']['orphans'] ?? 0 );
+	}
 	public static function plan( int $limit = 5 ): array {
 		return array_slice( $GLOBALS['mesh_plan'] ?? [], 0, $limit );
 	}

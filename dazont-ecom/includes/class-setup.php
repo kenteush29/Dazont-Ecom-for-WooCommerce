@@ -163,6 +163,7 @@ final class DZE_Setup {
 		$out[] = self::prompts_step();
 		$out[] = self::rules_step();
 		$out[] = self::mesh_step();
+		$out[] = self::mesh_pages_step();
 
 		// A SUGGESTION IS NOT A SHORTFALL, and it must not wear the same word.
 		// Done in ONE pass rather than in each reader: the figure at the top
@@ -477,6 +478,42 @@ final class DZE_Setup {
 				? add_query_arg( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'linking' ], admin_url( 'admin.php' ) )
 				: '',
 			'do'     => null === $read ? __( 'Read the site', 'dazont-ecom' ) : __( 'Open', 'dazont-ecom' ),
+		];
+	}
+
+	/**
+	 * Which pages take part in linking. Articles and product categories always
+	 * do; a page only when chosen, so a fresh shop links to nothing legal by
+	 * accident — and, until somebody chooses, to none of its guides either.
+	 * Read from the last reading, never from the shop: this screen is drawn
+	 * far more often than the site is read.
+	 */
+	private static function mesh_pages_step(): array {
+		if ( ! class_exists( 'DZE_Mesh' ) || ! self::on( 'mesh' ) ) {
+			return [];
+		}
+		$c = DZE_Mesh::chosen_said();
+		if ( ! $c || $c['pages'] < 1 ) {
+			return []; // not read yet — the line above says so — or a site with no pages at all.
+		}
+		return [
+			'id'     => 'mesh_pages',
+			'group'  => 'check',
+			'label'  => __( 'Pages that take part in linking', 'dazont-ecom' ),
+			'why'    => __( 'Every article and product category takes part. A page only when chosen, so the refund policy and the legal pages are never linked to.', 'dazont-ecom' ),
+			'module' => 'mesh',
+			'need'   => false,
+			'state'  => $c['on'] > 0 ? 'done' : 'todo',
+			'said'   => sprintf(
+				/* translators: 1: pages chosen, 2: pages the site has */
+				__( '%1$s of %2$s pages take part.', 'dazont-ecom' ),
+				number_format_i18n( $c['on'] ),
+				number_format_i18n( $c['pages'] )
+			),
+			'url'    => class_exists( 'DZE_Diagnostic' )
+				? add_query_arg( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'linking' ], admin_url( 'admin.php' ) )
+				: '',
+			'do'     => __( 'Choose them', 'dazont-ecom' ),
 		];
 	}
 

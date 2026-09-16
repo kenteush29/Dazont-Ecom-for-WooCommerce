@@ -460,7 +460,9 @@ class DZE_Marketing_Ai {
 	public static function pending_count(): int { return (int) ( $GLOBALS['pending_events'] ?? 0 ); }
 	public static function covered_until(): int { return 0; }
 	public static function propose( string $from, string $to ): array { self::$asked[] = [ $from, $to ]; return [ 'added' => 2 ]; }
-	public static function complete( string $s, string $u, string $m = '', int $x = 0, int $t = 0 ): string { return ''; }
+	/** Every call counted: a screen being drawn must make none. */
+	public static int $calls = 0;
+	public static function complete( string $s, string $u, string $m = '', int $x = 0, int $t = 0 ): string { self::$calls++; return ''; }
 }
 class DZE_Wpml {
 	public static function ids_in_language( string $type, string $lang ): ?array { return null; }
@@ -615,6 +617,45 @@ ok( 'and carries the addresses chosen', count( (array) $first['urls'] ) > 0, tru
 $builder = false;
 foreach ( $next as $row ) { if ( 23 === (int) $row['tid'] ) { $builder = true; } }
 ok( 'a page builder page is never a source', $builder, false );
+
+echo "\nA screen being drawn never calls the model\n";
+//
+// "Next in line" was PLANNED at draw: one model call per orphan whose
+// neighbours had not been judged yet, with somebody waiting on the page and
+// the shop paying for the look. The draw reads kept verdicts and the wording;
+// the pass judges when it runs.
+fresh( $ON );
+$GLOBALS['tr'] = array_filter( $GLOBALS['tr'] ?? [], static fn( $k ) => 0 !== strpos( (string) $k, 'dze_mesh_pick_' ), ARRAY_FILTER_USE_KEY );
+DZE_Marketing_Ai::$calls = 0;
+ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_drawn = (string) ob_get_clean();
+ok( 'the draw made no call',           DZE_Marketing_Ai::$calls, 0 );
+ok( 'and still lists what is next',    false !== strpos( $dze_drawn, 'dze-auto-nextone' ), true );
+DZE_Automation::shortlist( 'mesh_links', 5 );
+ok( 'the pass itself does judge',      DZE_Marketing_Ai::$calls > 0, true );
+
+echo "\nBefore the first reading there is nothing to link, and it says so\n";
+//
+// With no census every page read as an orphan and a dead end, so this offered
+// the whole site as next in line, "Run one now" queued work on it, and "Link
+// the whole site" put two hundred pages in the queue — from a reading that
+// did not exist.
+fresh( $ON );
+$dze_keep = $GLOBALS['opts']['dze_mesh_census'] ?? [];
+$GLOBALS['opts']['dze_mesh_census'] = [];
+delete_transient( 'dze_mesh_thin' );
+ok( 'nothing is next in line',         DZE_Automation::shortlist( 'mesh_links', 5 ), [] );
+ok( 'and the sentence says which nothing',
+	DZE_Automation::nothing_said(), 'The site has not been read yet, so there is nothing to link. Read it under Dazont Ecom → Content → Linking.' );
+ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_unread = (string) ob_get_clean();
+ok( 'the block prints it',             false !== strpos( $dze_unread, 'The site has not been read yet' ), true );
+$dze_res = DZE_Automation::tick( 'mesh_links', true );
+ok( 'a press queues nothing',          [ $dze_res['queued'], DZE_Queue::$added ], [ 0, [] ] );
+ok( 'and answers with the same words', DZE_Automation::reason_text( $dze_res['reason'] ), DZE_Automation::nothing_said() );
+$dze_cu = DZE_Automation::catch_up( 'mesh_links' );
+ok( 'the catch-up refuses by name',    [ $dze_cu['queued'], $dze_cu['reason'] ], [ 0, 'unread' ] );
+ok( 'with the same sentence',          DZE_Automation::reason_text( 'unread' ), DZE_Automation::nothing_said() );
+$GLOBALS['opts']['dze_mesh_census'] = $dze_keep;
+delete_transient( 'dze_mesh_thin' );
 
 echo "\nOne tick, one job\n";
 fresh( $ON );
