@@ -1740,5 +1740,56 @@ ok( 'and the missing piece was asked for once more',
 	count( $GLOBALS['calls'] ), count( $tr_cut ) + 1 );
 unset( $GLOBALS['model_answer_fn'] );
 
+echo "\nONE BAD ANSWER TAKES ITS OWN FIELDS DOWN, NOT THE WHOLE OBJECT\n";
+//
+// An Elementor page of 63 fields translated nothing at all because the seventh
+// call answered badly — on a page whose first fifty-four fields were already
+// translated and paid for.
+$tr_many = [];
+for ( $i = 0; $i < 8; $i++ ) { $tr_many[ 'meta:_f' . $i ] = str_repeat( "Champ $i. ", 90 ); }
+$GLOBALS['calls'] = [];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match_all( '/### (\S+) /', $user, $m );
+	// The batch holding _f7 answers rubbish; asked one field at a time it is fine.
+	if ( in_array( 'meta:_f7', $m[1], true ) && count( $m[1] ) > 1 ) {
+		return 'Je ne peux pas faire ça.';
+	}
+	$o = [];
+	foreach ( $m[1] as $fid ) { $o[ $fid ] = '[' . $fid . ']'; }
+	return (string) wp_json_encode( $o );
+};
+$tr_got = DZE_Translate::translate( $tr_many, 'fr', 'post', array_combine( array_keys( $tr_many ), array_keys( $tr_many ) ) );
+ok( 'every field still comes back', count( $tr_got ), count( $tr_many ) );
+ok( 'including the one in the bad batch', $tr_got['meta:_f7'] ?? '', '[meta:_f7]' );
+
+// AND A FIELD THAT WILL NOT COME BACK AT ALL IS LEFT AS IT WAS.
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match_all( '/### (\S+) /', $user, $m );
+	if ( in_array( 'meta:_f7', $m[1], true ) ) { return 'Non.'; }
+	$o = [];
+	foreach ( $m[1] as $fid ) { $o[ $fid ] = '[' . $fid . ']'; }
+	return (string) wp_json_encode( $o );
+};
+$tr_got = DZE_Translate::translate( $tr_many, 'fr', 'post', array_combine( array_keys( $tr_many ), array_keys( $tr_many ) ) );
+ok( 'the field that never came back is left alone', isset( $tr_got['meta:_f7'] ), false );
+ok( 'and the others are still translated',          count( $tr_got ), count( $tr_many ) - 1 );
+
+// NOTHING AT ALL BACK IS AN ERROR, NOT AN EMPTY ANSWER.
+$GLOBALS['model_answer_fn'] = static function (): string { return 'Non.'; };
+$tr_why = '';
+try {
+	DZE_Translate::translate( [ 'meta:_a' => 'Bottes' ], 'fr', 'post', [ 'meta:_a' => 'A' ] );
+} catch ( Throwable $e ) { $tr_why = $e->getMessage(); }
+ok( 'nothing back at all says why', false !== stripos( $tr_why, 'expected format' ), true );
+
+// A SENTENCE AROUND THE JSON IS NOT A FAILED CALL.
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match( '/### (\S+) /', $user, $m );
+	return "Voici la traduction :\n" . (string) wp_json_encode( [ $m[1] => 'Bottes' ] ) . "\nBonne journée.";
+};
+$tr_got = DZE_Translate::translate( [ 'meta:_a' => 'Boots' ], 'fr', 'post', [ 'meta:_a' => 'A' ] );
+ok( 'JSON with a greeting around it still reads', $tr_got['meta:_a'] ?? '', 'Bottes' );
+unset( $GLOBALS['model_answer_fn'] );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

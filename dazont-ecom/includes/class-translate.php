@@ -2630,9 +2630,33 @@ final class DZE_Translate {
 			$jobs[] = $batch;
 		}
 
-		$bag = [];
+		// A BATCH THAT COMES BACK UNUSABLE TAKES ITS OWN FIELDS DOWN, NOT THE
+		// WHOLE OBJECT. Cutting the work into pieces multiplies the chances
+		// that one of them comes back malformed, and an Elementor page of 63
+		// fields translated nothing at all because the seventh call answered
+		// badly: "the model did not answer with the expected format", on a
+		// page where the first fifty-four fields were already translated and
+		// paid for. A batch is asked again field by field, and a field that
+		// still will not come back is left as it was.
+		$bag  = [];
+		$last = null;
 		foreach ( $jobs as $job ) {
-			foreach ( self::translate_batch( $job, $lang_code, $names ) as $k => $v ) {
+			try {
+				$res = self::translate_batch( $job, $lang_code, $names );
+			} catch ( \Throwable $e ) {
+				$last = $e;
+				$res  = [];
+				if ( count( $job ) > 1 ) {
+					foreach ( $job as $k => $v ) {
+						try {
+							$res += self::translate_batch( [ $k => $v ], $lang_code, $names );
+						} catch ( \Throwable $ignored ) {
+							$last = $ignored;
+						}
+					}
+				}
+			}
+			foreach ( $res as $k => $v ) {
 				$bag[ $k ] = $v;
 			}
 		}
@@ -2656,6 +2680,11 @@ final class DZE_Translate {
 			}
 		}
 		DZE_Ai_Usage::finished( 'translate' );
+		// Nothing at all came back: the reason the last call gave is worth
+		// more than an empty array the screen has to guess at.
+		if ( ! $bag && $last instanceof \Throwable ) {
+			throw new RuntimeException( $last->getMessage() );
+		}
 
 		$out = [];
 		foreach ( $texts as $fid => $_ ) {
@@ -2804,6 +2833,14 @@ final class DZE_Translate {
 
 		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
 		$rows = json_decode( $json, true );
+		if ( ! is_array( $rows ) ) {
+			// A sentence before the object, or after it, is not a failed call.
+			$a = strpos( $json, '{' );
+			$b = strrpos( $json, '}' );
+			if ( false !== $a && false !== $b && $b > $a ) {
+				$rows = json_decode( substr( $json, $a, $b - $a + 1 ), true );
+			}
+		}
 		if ( ! is_array( $rows ) ) {
 			throw new RuntimeException( __( 'The model did not answer with the expected format.', 'dazont-ecom' ) );
 		}
