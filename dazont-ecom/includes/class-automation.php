@@ -1458,8 +1458,18 @@ final class DZE_Automation {
 		}
 	}
 
-	/** The text one pass is about to replace, kept for the undo. */
+	/**
+	 * The text one pass is about to replace, kept for the undo.
+	 *
+	 * SLASHED ON THE WAY IN. `update_post_meta()` hands its value to
+	 * `wp_unslash()`, which is right for a form and wrong for a copy being
+	 * filed away: every backslash in the article would be gone from the copy
+	 * we put back. Prose rarely holds one, a code sample always does, and an
+	 * undo that quietly returns a slightly different article is worse than one
+	 * that refuses.
+	 */
 	private static function keep_copy( int $oid, string $type, string $html ): void {
+		$html = function_exists( 'wp_slash' ) ? wp_slash( $html ) : $html;
 		if ( 'post' === $type ) {
 			update_post_meta( $oid, self::META_PREV, $html );
 		} else {
