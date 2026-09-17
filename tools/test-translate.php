@@ -1774,6 +1774,21 @@ $tr_got = DZE_Translate::translate( $tr_many, 'fr', 'post', array_combine( array
 ok( 'the field that never came back is left alone', isset( $tr_got['meta:_f7'] ), false );
 ok( 'and the others are still translated',          count( $tr_got ), count( $tr_many ) - 1 );
 
+// UN MORCEAU QUI CASSE DEUX FOIS NEMPORTE PAS LE RESTE. La reprise dun
+// morceau manquant nétait pas protégée : elle jetait hors de translate(),
+// par-dessus les champs déjà traduits et payés. La page annonçait « 0 sur 63 »
+// alors que six de ses dix lots avaient réussi.
+$tr_mix = [ 'meta:_court' => 'Bottes', 'meta:_long' => $tr_art ];
+$GLOBALS['model_answer_fn'] = static function ( string $user ): string {
+	preg_match_all( '/### (\S+) /', $user, $m );
+	foreach ( $m[1] as $fid ) { if ( false !== strpos( $fid, '_long' ) ) { return 'Non.'; } }
+	$o = []; foreach ( $m[1] as $fid ) { $o[ $fid ] = '[' . $fid . ']'; }
+	return (string) wp_json_encode( $o );
+};
+$tr_got = DZE_Translate::translate( $tr_mix, 'fr', 'post', array_combine( array_keys( $tr_mix ), array_keys( $tr_mix ) ) );
+ok( 'le champ court survit au champ long qui casse', $tr_got['meta:_court'] ?? '', '[meta:_court]' );
+ok( 'et le champ long est laisse tel quel',        isset( $tr_got['meta:_long'] ), false );
+
 // NOTHING AT ALL BACK IS AN ERROR, NOT AN EMPTY ANSWER.
 $GLOBALS['model_answer_fn'] = static function (): string { return 'Non.'; };
 $tr_why = '';

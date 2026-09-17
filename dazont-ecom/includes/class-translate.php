@@ -2672,7 +2672,17 @@ final class DZE_Translate {
 				if ( '' === $piece ) {
 					continue;
 				}
-				$again = self::translate_batch( [ $key => $piece ], $lang_code, $names );
+				// AND THIS ASK IS PROTECTED LIKE ANY OTHER. It was not, so a
+				// piece that came back badly TWICE threw out of `translate()`
+				// itself — past the fields that had translated perfectly well
+				// and been paid for. The page reported "0 of 63" while six of
+				// its ten batches had succeeded.
+				try {
+					$again = self::translate_batch( [ $key => $piece ], $lang_code, $names );
+				} catch ( \Throwable $e ) {
+					$last = $e;
+					continue;
+				}
 				if ( isset( $again[ $key ] ) ) {
 					$bag[ $key ] = $again[ $key ];
 				}
