@@ -101,6 +101,14 @@ $GLOBALS['tr']   = [];
 $GLOBALS['opts'] = [];
 function get_transient( $k ) { return $GLOBALS['tr'][ $k ] ?? false; }
 function set_transient( $k, $v, $t = 0 ) { $GLOBALS['tr'][ $k ] = $v; return true; }
+// The shop answers what $GLOBALS['http'] says it answers. A page with no
+// entry is alive: that is the safe way round, since a link is only ever
+// taken out on a clear refusal.
+function wp_remote_head( $url, $args = [] ) {
+	$GLOBALS['heads'][] = $url;
+	return [ 'response' => [ 'code' => (int) ( $GLOBALS['http'][ untrailingslashit( $url ) ] ?? 200 ) ] ];
+}
+function wp_remote_retrieve_response_code( $r ) { return is_array( $r ) ? (int) ( $r['response']['code'] ?? 0 ) : 0; }
 function delete_transient( $k ) { unset( $GLOBALS['tr'][ $k ] ); return true; }
 function get_option( $k, $d = false ) { return $GLOBALS['opts'][ $k ] ?? $d; }
 function update_option( $k, $v, $auto = null ) { $GLOBALS['opts'][ $k ] = $v; return true; }
@@ -687,7 +695,47 @@ ok( 'and the words are now clickable',
 ok( 'and the sentence around them is untouched',
 	false !== strpos( (string) ( $dze_r['res']['html'] ?? '' ), 'A <a href="https://kula.test/ghillie">' ), true );
 
-// THE DEAD LINKS ARE SWEPT ON THE WAY IN, AND THAT IS A SETTING.
+// THE DEAD LINKS ARE SWEPT ON THE WAY IN, AND THE SWEEP IS A RESULT ON ITS OWN.
+//
+// "Le lien mort de Combat Uniforms — retirer les liens morts doit faire partie
+// du module de maillage interne." A page was cleaned on the way in and the
+// cleaning was thrown away with the pass whenever no new link could be placed,
+// which is the case the shop actually brought.
+$dze_rot = str_replace(
+	'<a href="https://kula.test/c">three</a>',
+	'<a href="https://kula.test/gone">three</a>',
+	$dze_body
+);
+$GLOBALS['http']  = [ 'https://kula.test/gone' => 404 ];
+$GLOBALS['heads'] = [];
+$GLOBALS['tr']    = [];
+$dze_rotten = static function ( string $answer ) use ( $dze_rot, $dze_targets ): array {
+	DZE_Marketing_Ai::$answer = $answer;
+	try {
+		return [ 'ok' => true, 'res' => DZE_Category_Content::weave( 'How snipers work', $dze_rot, 'English', $dze_targets, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] ) ];
+	} catch ( \Throwable $e ) {
+		return [ 'ok' => false, 'why' => $e->getMessage() ];
+	}
+};
+$dze_r = $dze_rotten( '[]' );
+ok( 'a page with only a dead link in it is still a result', $dze_r['ok'], true );
+ok( 'and the dead page is named',      $dze_r['res']['dead'] ?? [], [ 'https://kula.test/gone' ] );
+ok( 'no link was placed',              (int) ( $dze_r['res']['added'] ?? -1 ), 0 );
+ok( 'the dead link is gone',           false !== strpos( (string) $dze_r['res']['html'], 'kula.test/gone' ), false );
+ok( 'but its words are kept',          false !== strpos( (string) $dze_r['res']['html'], 'three' ), true );
+ok( 'and the living links are untouched',
+	substr_count( (string) $dze_r['res']['html'], '<a href="https://kula.test/a">' ), 1 );
+
+// AND THE SWEEP PLUS A LINK IS BOTH.
+$GLOBALS['tr'] = [];
+$dze_r = $dze_rotten( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+ok( 'a sweep and a link together go through', $dze_r['ok'], true );
+ok( 'the link is counted',                    (int) ( $dze_r['res']['added'] ?? 0 ), 1 );
+ok( 'and the sweep is reported beside it',    $dze_r['res']['dead'] ?? [], [ 'https://kula.test/gone' ] );
+$GLOBALS['http'] = [];
+$GLOBALS['tr']   = [];
+
+// AND IT IS A SETTING.
 // "Retirer les liens morts doit faire partie du module de maillage interne,
 // parametres ca." Sweeping is the default; the tick turns it off.
 $GLOBALS['tr']['dze_category_content'] = [ 'dead_off' => 1 ];

@@ -1800,6 +1800,21 @@ PROMPT;
 			$allowed[] = untrailingslashit( (string) $l['url'] );
 		}
 		$res = self::apply_edits( $html, $edits, $allowed );
+		// A SWEEP IS A RESULT ON ITS OWN. Taking the dead links out is part of
+		// this module now, and it happens on the way in — but it was thrown
+		// away with the pass whenever no new link could be placed, which is
+		// exactly the case the shop brought: "Combat Uniforms pointe vers
+		// spetsnaz uniforms, je crois que c'est un lien mort." The page was
+		// cleaned and the cleaning was discarded.
+		if ( ! $res['applied'] && $swept['removed'] ) {
+			return [
+				'html'   => $html,
+				'added'  => 0,
+				'before' => count( $done ),
+				'after'  => count( self::linked_urls( $html ) ),
+				'dead'   => $swept['removed'],
+			];
+		}
 		if ( ! $res['applied'] ) {
 			throw new RuntimeException(
 				$res['refused']

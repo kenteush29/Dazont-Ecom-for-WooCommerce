@@ -1683,21 +1683,21 @@ $tr_art = '';
 for ( $p = 1; $p <= 26; $p++ ) {
 	$tr_art .= "<!-- wp:paragraph -->\n<p>Paragraph $p. " . str_repeat( 'Des bottes tactiques tiennent debout. ', 12 ) . "</p>\n<!-- /wp:paragraph -->\n\n";
 }
-$tr_cut = DZE_Translate::split_text( $tr_art, 6000 );
+$tr_cut = DZE_Translate::split_text( $tr_art, 5000 );
 ok( 'a long text is cut in pieces',        count( $tr_cut ) > 1, true );
-ok( 'each piece fits under the ceiling',   max( array_map( 'mb_strlen', $tr_cut ) ) <= 6000, true );
+ok( 'each piece fits under the ceiling',   max( array_map( 'mb_strlen', $tr_cut ) ) <= 5000, true );
 ok( 'and the pieces are the text again',   implode( '', $tr_cut ) === $tr_art, true );
 ok( 'no piece holds half a tag',           (bool) array_filter( $tr_cut, static function ( $p ) {
 	return substr_count( $p, '<' ) !== substr_count( $p, '>' );
 } ), false );
-ok( 'a short text is not cut at all',      DZE_Translate::split_text( 'Trois mots.', 6000 ), [ 'Trois mots.' ] );
+ok( 'a short text is not cut at all',      DZE_Translate::split_text( 'Trois mots.', 5000 ), [ 'Trois mots.' ] );
 // A paragraph longer than the ceiling on its own still has to travel.
 $tr_wall = str_repeat( 'Un mur de texte sans respiration aucune. ', 400 );
-ok( 'a wall of text is cut too',           count( DZE_Translate::split_text( $tr_wall, 6000 ) ) > 1, true );
-ok( 'and is still the text it was',        implode( '', DZE_Translate::split_text( $tr_wall, 6000 ) ) === $tr_wall, true );
+ok( 'a wall of text is cut too',           count( DZE_Translate::split_text( $tr_wall, 5000 ) ) > 1, true );
+ok( 'and is still the text it was',        implode( '', DZE_Translate::split_text( $tr_wall, 5000 ) ) === $tr_wall, true );
 // Accents count as one character, not two: cutting on bytes cuts them in half.
 $tr_acc = str_repeat( 'Des chaussures françaises très éprouvées. ', 300 );
-ok( 'an accented text survives the cut',   implode( '', DZE_Translate::split_text( $tr_acc, 6000 ) ) === $tr_acc, true );
+ok( 'an accented text survives the cut',   implode( '', DZE_Translate::split_text( $tr_acc, 5000 ) ) === $tr_acc, true );
 
 // EACH PIECE IS ITS OWN CALL, and the answers go back in order.
 $GLOBALS['calls'] = [];

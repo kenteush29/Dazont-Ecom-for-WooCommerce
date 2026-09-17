@@ -2569,7 +2569,7 @@ final class DZE_Translate {
 	 * in order, which gives back the original text exactly when nothing is
 	 * translated at all.
 	 */
-	private const CHUNK = 6000;
+	private const CHUNK = 5000;
 
 	/** How a piece of a field is named while it travels. */
 	private const PART = '~p';
@@ -2782,9 +2782,18 @@ final class DZE_Translate {
 			. ' and whose values are the translated texts. No commentary, no code fence.';
 
 		$user = "Translate every field below.\n\n" . implode( "\n\n", $lines );
-		// Room for the answer: the translated text is about the size of the
-		// source, plus the JSON around it.
-		$max = (int) min( 8000, max( 1000, ( mb_strlen( implode( '', $texts ) ) / 2 ) + 800 ) );
+		// ROOM FOR THE ANSWER, WITH ROOM TO SPARE.
+		//
+		// "About half a token per character" is true of English prose and of
+		// almost nothing else this shop sends. HTML tokenises badly, French
+		// runs a tenth longer than the English it comes from, and the JSON
+		// around it escapes every quote and every line break. A 5,800-character
+		// piece came back at 6,450 characters against a ceiling of 3,689 — it
+		// fit by a hair, and a page of 63 fields did not fit at all: "the answer
+		// was cut off before it was finished", and nothing was translated.
+		// A character a token, plus the JSON, is wrong the safe way round:
+		// unused room costs nothing, a ceiling reached costs the whole call.
+		$max = (int) min( 8000, max( 1000, ( mb_strlen( implode( '', $texts ) ) * 1.2 ) + 800 ) );
 
 		DZE_Ai_Usage::unit( 'translate' );
 		try {
