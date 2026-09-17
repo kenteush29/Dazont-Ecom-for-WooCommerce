@@ -852,8 +852,15 @@ DZE_Marketing_Ai::$sent = [];
 $dze_r = $dze_weave( '[]' );
 ok( 'nowhere to put it is still no link', $dze_r['ok'], false );
 ok( 'but it is not asked twice',          count( DZE_Marketing_Ai::$sent ), 1 );
-ok( 'and it says what to do about it',
-	false !== stripos( (string) ( $dze_r['why'] ?? '' ), 'closer page' ), true );
+// ET IL NOMME LES DEUX ARTICLES. Le couple a ete choisi par le maillage tout
+// seul : dire a la boutique de « choisir une page plus proche » lui demandait
+// de corriger une decision quelle navait jamais prise, sans lui montrer le
+// moindre bouton pour le faire.
+$dze_why = (string) ( $dze_r['why'] ?? '' );
+ok( 'il nomme larticle travaille',   false !== strpos( $dze_why, 'How snipers work' ), true );
+ok( 'et la page quon lui demandait', false !== strpos( $dze_why, 'Ghillie suits' ), true );
+ok( 'et il rassure : rien na bouge', false !== stripos( $dze_why, 'left exactly as it was' ), true );
+ok( 'et il nordonne rien a personne', false !== stripos( $dze_why, 'choose' ), false );
 
 // AN OBJECT THAT IS NOT A LINK IS NOT AN EMPTY ANSWER EITHER.
 ok( 'a note dressed as JSON is refused',

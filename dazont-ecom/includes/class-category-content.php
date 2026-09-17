@@ -1669,6 +1669,41 @@ PROMPT;
 	 *
 	 * @return array{html:string,added:int,before:int,after:int}
 	 */
+	/**
+	 * "There was nowhere to put it" said so it can be read once and understood.
+	 *
+	 * Both titles, because the pairing was the mesh's own doing and the shop
+	 * has never seen it; and the plain fact that the article was left alone,
+	 * because "failed" in red beside an untouched page reads like damage.
+	 *
+	 * @param array<int,array<string,mixed>> $links
+	 */
+	public static function nowhere_msg( string $subject, array $links ): string {
+		$names = [];
+		foreach ( array_slice( $links, 0, 3 ) as $l ) {
+			$one = trim( (string) ( $l['label'] ?? '' ) );
+			if ( '' !== $one ) {
+				$names[] = '“' . $one . '”';
+			}
+		}
+		if ( 1 === count( $names ) ) {
+			return sprintf(
+				/* translators: 1: the article being worked on, 2: the page it was asked to link to */
+				__( 'Nothing was written: there is no natural place in %1$s for a link to %2$s. The two subjects are too far apart. This text was left exactly as it was.', 'dazont-ecom' ),
+				'“' . $subject . '”',
+				$names[0]
+			);
+		}
+		if ( $names ) {
+			return sprintf(
+				/* translators: 1: the article being worked on, 2: the pages it was asked to link to */
+				__( 'Nothing was written: there is no natural place in %1$s for a link to any of %2$s. This text was left exactly as it was.', 'dazont-ecom' ),
+				'“' . $subject . '”',
+				implode( ', ', $names )
+			);
+		}
+		return __( 'Nothing was written: there was no natural place in this text for any of the pages it was asked to link to. It was left exactly as it was.', 'dazont-ecom' );
+	}
 	public static function weave( string $subject, string $html, string $language, array $links, int $room, array $opt = [] ): array {
 		if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
 			throw new RuntimeException( __( 'There is no text to work on yet.', 'dazont-ecom' ) );
@@ -1823,7 +1858,15 @@ PROMPT;
 						__( 'No link could be placed: %s.', 'dazont-ecom' ),
 						implode( '; ', array_slice( $res['refused'], 0, 3 ) )
 					)
-					: __( 'No link was placed: the page offered is not close enough to what this text talks about. Choose a closer page, or leave this one as it is.', 'dazont-ecom' )
+					// THE SHOP CHOSE NOTHING, SO IT IS NOT TOLD TO CHOOSE
+					// BETTER. This message used to read "the page offered is
+					// not close enough — choose a closer page", on a pairing
+					// the mesh had picked BY ITSELF while nobody was looking.
+					// It asked the shop to correct a decision it had never
+					// made, and pointed at no button that would let it. What
+					// it needs to read is the two titles and the fact that its
+					// article was not touched.
+					: self::nowhere_msg( $subject, $links )
 			);
 		}
 		$out = $res['html'];
