@@ -354,5 +354,36 @@ ok( 'Produits montre tout le reste, par difference',
 ok( 'et son compteur cesse de compter le maillage',
 	false !== strpos( $sc_diag, 'max( 0, DZE_Queue::review_count() - $mesh )' ), true );
 
+echo "\nL'AUTOMATISME EST UNE PROPRIETE DU TRAVAIL, PAS UNE DESTINATION\n";
+// « Dans automations en fait il n'y aura rien, c'etait peut-etre maladroit de
+// faire ce module. C'est plutot une facon de faire pour automatiser differents
+// modules. » Un reglage qui vit a trois menus de l'ecran sur lequel il agit est
+// un reglage que personne ne trouve.
+$au_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+ok( 'le panneau d\'une tache est reutilisable',
+	false !== strpos( $au_src, 'public static function panel( string $id ): void' ), true );
+ok( 'et son formulaire se pose n\'importe ou',
+	false !== strpos( $au_src, 'public static function panel_form( array $ids, string $title' ), true );
+// LE PIEGE : un formulaire ne portant qu'une tache effacerait les autres.
+ok( 'les taches absentes de l\'ecran voyagent quand meme',
+	false !== strpos( $au_src, 'EVERY TASK TRAVELS, NOT ONLY THE ONES ON SCREEN' ), true );
+ok( 'l\'entree quitte le menu',
+	false !== strpos( $au_src, 'remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );' ), true );
+ok( 'mais la page reste enregistree',
+	false !== strpos( $au_src, "[ __CLASS__, 'render_page' ]" ), true );
+ok( 'et l\'ordre du menu ne la nomme plus',
+	in_array( 'automation', DZE_Screens::menu_order(), true ), false );
+// CHAQUE MODULE PORTE SON PROPRE INTERRUPTEUR.
+foreach ( [
+	'class-mesh.php'            => 'mesh_links',
+	'class-diagnostic.php'      => 'cat_desc',
+	'class-translate-screen.php' => 'translate',
+	'class-discounts.php'       => 'events',
+] as $au_file => $au_task ) {
+	$au_one = file_get_contents( __DIR__ . '/../dazont-ecom/includes/' . $au_file );
+	ok( "$au_file porte l'interrupteur de $au_task",
+		false !== strpos( $au_one, "DZE_Automation::panel_form( [ '$au_task' ]" ), true );
+}
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

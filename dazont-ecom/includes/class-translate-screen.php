@@ -125,6 +125,11 @@ trait DZE_Translate_Screen {
 			}
 		} else {
 			self::dash_body();
+			// AND THE SWITCH THAT TRANSLATES BY ITSELF, under the reading it
+			// acts on rather than three menus away.
+			if ( class_exists( 'DZE_Automation' ) ) {
+				DZE_Automation::panel_form( [ 'translate' ], __( 'Run it by itself', 'dazont-ecom' ) );
+			}
 		}
 		echo '</div>';
 	}

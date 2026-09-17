@@ -352,7 +352,6 @@ final class DZE_Screens {
 			'marketing',
 			'restock',
 			'sourcing',
-			'automation',
 			'shortcodes',
 			'setup',
 			'logs',

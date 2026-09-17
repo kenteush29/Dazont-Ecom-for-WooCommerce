@@ -1678,6 +1678,12 @@ final class DZE_Mesh {
 			DZE_Queue::instance()->body( self::KINDS );
 		} else {
 			$this->render_tab();
+			// AND THE SWITCH THAT MAKES IT RUN BY ITSELF, here, under the work
+			// it acts on. It used to live three menus away, on a screen that
+			// held nothing but other modules' switches.
+			if ( class_exists( 'DZE_Automation' ) ) {
+				DZE_Automation::panel_form( [ 'mesh_links' ], __( 'Run it by itself', 'dazont-ecom' ) );
+			}
 		}
 		echo '</div>';
 	}

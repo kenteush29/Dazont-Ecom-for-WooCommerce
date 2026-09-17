@@ -2615,6 +2615,12 @@ final class DZE_Discounts {
 		// put in the queue and done in the background.
 		self::gmc_follow_all();
 		require DZE_DIR . 'admin/views/discounts-page.php';
+		// AND THE SWITCH THAT BUILDS THE CALENDAR BY ITSELF, on the screen
+		// that screen is about. Only on the events side: the discount rules
+		// are not what the calendar task writes.
+		if ( 'events' === $mode && class_exists( 'DZE_Automation' ) ) {
+			DZE_Automation::panel_form( [ 'events' ], __( 'Run it by itself', 'dazont-ecom' ) );
+		}
 	}
 
 	/** Saves the global "never discount" list. */

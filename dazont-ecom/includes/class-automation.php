@@ -152,6 +152,18 @@ final class DZE_Automation {
 			self::MENU_SLUG,
 			[ __CLASS__, 'render_page' ]
 		);
+		// AND IT LEAVES THE MENU.
+		//
+		// "Dans automations en fait il n'y aura rien, c'était peut-être
+		// maladroit de faire ce module. C'est plutôt une façon de faire pour
+		// automatiser différents modules." Every switch it held is now on
+		// the screen of the work it acts on, so the entry stood for nothing
+		// but a second place to look.
+		//
+		// Registered, then taken out: the page keeps answering, so every
+		// link, bookmark and redirect ever printed at it still lands — and
+		// it is still where the whole day's work is read side by side.
+		remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );
 	}
 
 	public static function render_page(): void {
@@ -1953,27 +1965,105 @@ final class DZE_Automation {
 		return $next ? human_time_diff( time(), (int) $next ) : '';
 	}
 
-	public static function render_settings(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+	/**
+	 * ONE TASK'S SWITCH, WHEREVER THE WORK IS.
+	 *
+	 * "Dans automations en fait il n'y aura rien, c'était peut-être maladroit
+	 * de faire ce module. C'est plutôt une façon de faire pour automatiser
+	 * différents modules." Exactly so: running by itself is a PROPERTY of a
+	 * piece of work, not a destination of its own. A setting that lives three
+	 * menus away from the screen it acts on is a setting nobody finds, and a
+	 * menu holding nothing but other modules' switches is a menu that exists
+	 * for the code's convenience rather than the shop's.
+	 *
+	 * So this block is printed by whoever owns that work. One block, many
+	 * hosts, never two forms that have to be kept in step.
+	 */
+	public static function panel( string $id ): void {
+		$tasks = self::tasks();
+		if ( ! isset( $tasks[ $id ] ) || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		// A BODY THAT MOVES TAKES ITS ASSETS WITH IT. The chips, the folds and
-		// the to-do rows are all drawn with these styles, and nothing else on
-		// this page asks for them: enqueued from a page hook somewhere else,
-		// the one forgotten is always the screen that comes out unstyled.
-		DZE_Assets::admin_css();
-		self::$needs_review = false;
+		$task = $tasks[ $id ];
+		$conf = self::conf( $id );
+		$name = self::OPT . '[tasks][' . $id . ']';
+		self::panel_body( $id, $task, $conf, $name );
+	}
+
+	/**
+	 * The panels a screen is responsible for, in the form that saves them.
+	 *
+	 * Everything a host needs in one call: the styles, WordPress's own options
+	 * form, the blocks, the button, and the scripts the blocks' buttons need.
+	 * A host that had to remember four calls is a host where one of them is
+	 * missing on one screen.
+	 *
+	 * @param array<int,string> $ids
+	 */
+	public static function panel_form( array $ids, string $title = '' ): void {
+		$tasks = self::tasks();
+		$ids   = array_values( array_filter( $ids, static fn( $one ): bool => isset( $tasks[ (string) $one ] ) ) );
+		if ( ! $ids || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		if ( class_exists( 'DZE_Assets' ) ) {
+			DZE_Assets::admin_css();
+		}
+		echo '<div class="dze-admin dze-auto">';
+		if ( '' !== $title ) {
+			echo '<h2 class="dze-auto-h2">' . esc_html( $title ) . '</h2>';
+		}
+		echo '<form method="post" action="' . esc_url( admin_url( 'options.php' ) ) . '">';
+		settings_fields( 'dze_auto_options' );
+		echo '<input type="hidden" name="' . esc_attr( self::OPT ) . '[form]" value="1" />';
+		// EVERY TASK TRAVELS, NOT ONLY THE ONES ON SCREEN. `sanitize()` reads
+		// the whole list and writes what it is given: a form carrying one task
+		// would save that one and blank the others. So the tasks this screen
+		// does not show ride along as hidden fields, exactly as they stand.
+		foreach ( $tasks as $tid => $t ) {
+			if ( in_array( (string) $tid, $ids, true ) ) {
+				continue;
+			}
+			$other = self::conf( (string) $tid );
+			$base  = self::OPT . '[tasks][' . $tid . ']';
+			foreach ( [ 'on', 'per_day', 'apply', 'kw_only' ] as $key ) {
+				if ( ! isset( $other[ $key ] ) || ! $other[ $key ] ) {
+					continue; // an unticked box sends nothing, here as anywhere.
+				}
+				printf(
+					'<input type="hidden" name="%1$s[%2$s]" value="%3$s" />',
+					esc_attr( $base ),
+					esc_attr( $key ),
+					esc_attr( (string) ( true === $other[ $key ] ? 1 : $other[ $key ] ) )
+				);
+			}
+		}
+		foreach ( $ids as $one ) {
+			self::panel( (string) $one );
+		}
+		submit_button( __( 'Save Changes', 'dazont-ecom' ) );
+		echo '</form>';
+		echo '</div>';
+		self::render_assets();
+		$more = [];
+		foreach ( $ids as $one ) {
+			$more[ (string) $one ] = [
+				'title' => (string) ( $tasks[ (string) $one ]['label'] ?? '' ),
+				'text'  => (string) ( $tasks[ (string) $one ]['more'] ?? $tasks[ (string) $one ]['what'] ?? '' ),
+			];
+		}
+		if ( class_exists( 'DZE_Hub' ) ) {
+			DZE_Hub::more_assets( $more );
+		}
+	}
+
+	/**
+	 * @param array<string,mixed> $task
+	 * @param array<string,mixed> $conf
+	 */
+	private static function panel_body( string $id, array $task, array $conf, string $name ): void {
+		$ready = self::task_ready( $id );
 		?>
-		<div class="dze-admin dze-auto">
-		<form method="post" action="options.php">
-			<?php settings_fields( 'dze_auto_options' ); ?>
-			<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[form]" value="1" />
-			<?php foreach ( self::tasks() as $id => $task ) : ?>
-				<?php
-				$conf  = self::conf( $id );
-				$ready = self::task_ready( $id );
-				$name  = self::OPT . '[tasks][' . $id . ']';
-				?>
 				<details class="dze-set dze-auto-task">
 					<summary>
 						<span class="dze-auto-name"><?php echo esc_html( (string) $task['label'] ); ?><?php
@@ -2027,6 +2117,25 @@ final class DZE_Automation {
 					<?php // THE PROGRESS BELONGS TO THE PRESS THAT STARTED IT. ?>
 					<div class="dze-auto-live" data-task="<?php echo esc_attr( $id ); ?>"><?php self::render_run( $id ); ?></div>
 				</details>
+		<?php
+	}
+	public static function render_settings(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		// A BODY THAT MOVES TAKES ITS ASSETS WITH IT. The chips, the folds and
+		// the to-do rows are all drawn with these styles, and nothing else on
+		// this page asks for them: enqueued from a page hook somewhere else,
+		// the one forgotten is always the screen that comes out unstyled.
+		DZE_Assets::admin_css();
+		self::$needs_review = false;
+		?>
+		<div class="dze-admin dze-auto">
+		<form method="post" action="options.php">
+			<?php settings_fields( 'dze_auto_options' ); ?>
+			<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[form]" value="1" />
+			<?php foreach ( array_keys( self::tasks() ) as $id ) : ?>
+				<?php self::panel( (string) $id ); ?>
 			<?php endforeach; ?>
 			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
