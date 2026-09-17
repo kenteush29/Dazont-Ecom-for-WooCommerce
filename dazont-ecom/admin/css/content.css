@@ -737,6 +737,40 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tr-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dze-tr-bar label { display: inline-flex; align-items: center; gap: 6px; }
 
+/* The translation editor, laid out the way WPML's own is: WordPress panels,
+   the original beside the translation, a copy button between the two. A
+   translation read without its source is a guess. */
+.dze-tr-panel { margin: 0 0 14px; }
+.dze-tr-panel > .hndle { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 12px; cursor: default; }
+.dze-tr-panelcount { font-weight: 400; font-size: 12px; color: #646970; }
+.dze-tr-panel > .inside { margin: 0; padding: 0 12px 4px; }
+.dze-tr-field { padding: 12px 0; border-top: 1px solid #f0f0f1; }
+.dze-tr-field:first-child { border-top: 0; }
+.dze-tr-fname { margin: 0 0 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dze-tr-tag { font-size: 11px; line-height: 1.6; padding: 0 7px; border-radius: 9px; border: 1px solid; }
+.dze-tr-tag.is-new { color: #135e96; border-color: #9ec2e6; background: #f0f6fc; }
+.dze-tr-tag.dze-tr-moved { color: #8a6d00; border-color: #e6cf9e; background: #fcf9f0; }
+.dze-tr-pair { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 0 8px; align-items: start; }
+.dze-tr-side { min-width: 0; }
+.dze-tr-sidelab { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #787c82; margin: 0 0 3px; }
+.dze-tr-side .dze-cb-nowbody { max-height: 300px; overflow: auto; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 3px; padding: 8px 10px; }
+.dze-tr-mid { display: flex; justify-content: center; padding-top: 22px; }
+.dze-tr-copy { min-width: 34px; padding: 0 8px; }
+.dze-tr-new { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; line-height: 1.55; resize: vertical; min-height: 84px; }
+.dze-tr-new.dze-tr-html { font-family: Menlo, Consolas, monospace; font-size: 12px; }
+.dze-tr-shared { margin: 6px 0 0; }
+.dze-tr-shared td, .dze-tr-shared th { vertical-align: middle; }
+.dze-tr-chip.is-done { border-color: #a7d7b4; background: #f2f9f4; color: #106b30; }
+.dze-tr-chip.is-missing { border-color: #e6b3b3; background: #fcf2f2; color: #a02222; }
+.dze-tr-varwarn { margin: 0 0 10px; }
+.dze-tr-varnote { margin: 8px 0 2px; }
+
+@media (max-width: 1100px) {
+	.dze-tr-pair { grid-template-columns: 1fr; }
+	.dze-tr-mid { justify-content: flex-start; padding: 6px 0; }
+	.dze-tr-copy::after { content: attr(aria-label); margin-left: 6px; }
+}
+
 /* ---- Shortcodes screen: one boxed card per shortcode ---- */
 .dze-sc-card {
 	background: #fff; border: 1px solid #dcdcde; border-radius: 6px;

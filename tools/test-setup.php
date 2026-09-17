@@ -129,6 +129,9 @@ class DZE_Prompts {
 }
 
 // The catalogue of screens: every page reads its name and its tabs from it.
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require DZE_DIR . 'includes/class-assets.php';
 require DZE_DIR . 'includes/class-screens.php';
 require DZE_DIR . 'includes/class-setup.php';
 

@@ -140,6 +140,7 @@ final class DZE_Category_Content {
 		}
 		if ( isset( $in['form'] ) ) {
 			$out['links_off'] = empty( $in['links_off'] ) ? 0 : 1;
+			$out['dead_off']  = empty( $in['dead_off'] ) ? 0 : 1;
 		}
 		if ( isset( $in['model'] ) ) {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
@@ -375,13 +376,12 @@ PROMPT;
 	 * only shrug at when the result disappoints.
 	 */
 	public static function default_links_prompt(): string {
-		$shipped = "This is an internal-linking pass, not a rewrite. Return the text exactly as it is, with internal links added.\n"
+		$shipped = "This is an internal-linking pass, not a rewrite. You choose where each link goes; the words you name are made clickable exactly as they stand.\n"
 			. "- CLOSENESS FIRST. Link a target only where the text genuinely talks about that subject. The closer the target is to what the sentence is actually saying, the better the link; a target the text never really touches is left out. A forced link is worse than no link, and there is no figure to reach.\n"
 			. "- The targets are listed closest first. Where several would fit, prefer the one carrying the most products: a category with a full catalogue behind it is worth more to the reader than a near-empty one. The product count is shown in brackets.\n"
-			. "- ANCHOR RULE. The anchor is the TITLE of the page it points to. A category keeps its name exactly as it stands. An article or a page keeps its title too, unless that title is a long headline or a question — then keep the identifying part of it, two to six words, dropping the question mark, the verbs and the filler. Never a paraphrase that leaves the destination in doubt.\n"
-			. "- You may adjust the few words around an anchor so the title reads naturally in the sentence — turn a phrasing, move a comma, change an article. Nothing beyond that.\n"
+			. "- ANCHOR RULE. Name words the text already contains — the title of the destination where the text says it, otherwise the run of words that names the same thing beyond doubt. A category's name and an article's subject nearly always appear somewhere in a page that deserves the link; if neither does anywhere in this text, the link does not belong here and you leave it out.\n"
 			. "- The sentence must still read perfectly well without the link. Never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\".\n"
-			. "- Everything else stays as it is: same paragraphs, same headings, same order, same facts, same wording, same HTML structure. No sentence added, none removed, nothing reordered.\n"
+			. "- Nothing else changes: not a word, not a paragraph, not a heading. You are not writing the page, only pointing at words in it.\n"
 			. "- Never link twice to the same page, never link a whole sentence, never link inside a heading, and never link the page the text itself belongs to.\n"
 			. '- Use the supplied URLs verbatim, and no others.';
 		return class_exists( 'DZE_Prompt_Defaults' )
@@ -1693,6 +1693,21 @@ PROMPT;
 				throw new RuntimeException( __( 'Every page this text can link to is already linked.', 'dazont-ecom' ) );
 			}
 		}
+		// THE PAGE IS CLEANED ON THE WAY IN. This pass is about to rewrite the
+		// text anyway, and it is the only thing on the site that ever comes back
+		// to look at a link it wrote. A target deleted since leaves a 404 behind
+		// that nothing else will ever find.
+		$swept = empty( self::get_settings()['dead_off'] )
+			? self::strip_dead_links( $html )
+			: [ 'html' => $html, 'removed' => [] ];
+		$html  = $swept['html'];
+
+		// A TARGET THAT ANSWERS 404 IS NOT A TARGET. The pool was real when it
+		// was read; a page deleted since is not, and the link outlives it.
+		$links = self::only_alive( $links );
+		if ( ! $links ) {
+			throw new RuntimeException( __( 'Every page this text could link to has gone.', 'dazont-ecom' ) );
+		}
 		$done     = self::linked_urls( $html );
 		$room     = max( 1, $room );
 
@@ -1705,7 +1720,7 @@ PROMPT;
 		$user = "--- {$kind} ---\nName: " . $subject . "\n"
 			. "\n--- LINK TARGETS (use these URLs ONLY) ---\n- " . implode( "\n- ", $list ) . "\n"
 			. ( $done ? "\nAlready linked in the text, do not link again:\n- " . implode( "\n- ", $done ) . "\n" : '' )
-			. "\n--- TEXT (HTML, to return with links added) ---\n" . $html . "\n"
+			. "\n--- TEXT (HTML — read it, do NOT return it) ---\n" . $html . "\n"
 			. "\n--- INSTRUCTIONS ---\n"
 			. ( $explicit
 				? '- Add a link for EACH of the ' . $room . " targets above, on a different spot, unless the text truly offers no place for one.\n"
@@ -1713,7 +1728,7 @@ PROMPT;
 			. self::links_prompt() . "\n"
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
-			. 'LINK FORMAT: <a href="URL">anchor</a>, using the URLs above verbatim.' . "\n"
+			. 'THE ANCHOR IS WORDS ALREADY IN THE TEXT: you never write markup and never add a word.' . "\n"
 			// AND THE MARKUP COMES BACK UNTOUCHED. This line used to end "no
 			// comment before or after", which beside a WordPress article is
 			// ambiguous to the point of dangerous: its whole structure is HTML
@@ -1722,20 +1737,85 @@ PROMPT;
 			// in the editor. It is a FACT about the job, like the language and
 			// the link format beside it — not an opinion competing with the
 			// shop's own prompt.
-			. 'OUTPUT: the same HTML fragment with links added and nothing else changed. Keep every tag, attribute, class, id, image, embed, shortcode and HTML comment exactly as given — WordPress block comments included. No markdown, no code fence, nothing added before or after the fragment.';
+			// THE ANSWER IS THE EDITS, NOT THE DOCUMENT. Asking for the whole
+			// article back meant a reworded sentence anywhere in 2,600 words
+			// threw the entire run away — which is what happened every day on
+			// the longest pages, the ones that most need links. A list of
+			// sentences cannot carry a rewrite: what is not named cannot change.
+			// AND IT NEVER WRITES A TAG. Asking for a whole sentence back,
+			// even only to add a link inside it, asks the model to transcribe
+			// HTML character for character — and on a 2,600-word article it
+			// misses, every time, by a space or an entity. It picks the words;
+			// the anchor is built here. There is nothing left for it to get
+			// wrong, because nothing it returns is ever inserted.
+			. 'OUTPUT: a JSON array and nothing else. One object per link you place:' . "\n"
+			. '  [{"anchor":"…","url":"…"}]' . "\n"
+			. '- "anchor": a few consecutive words copied from the text above, exactly as they appear — same spelling, same case, same spaces. They become the clickable words.' . "\n"
+			. '- "url": one address from the list above, copied verbatim.' . "\n"
+			. '- The words must appear only ONCE in the whole text. If they appear twice, take a longer run of words until they are unique.' . "\n"
+			. '- Copy plain prose only: no tags, no <, no &nbsp;, nothing from a heading, a caption, a table, a shortcode or an HTML comment, and never words that are already a link.' . "\n"
+			. '- Do not write any HTML. Do not rewrite the sentence. Just name the words.' . "\n"
+			. '- No markdown, no code fence, no text before or after the JSON.';
 
 		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. You are conservative: you add links, you do not rewrite copy.';
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
 		DZE_Ai_Usage::unit( 'cat_links' );
 		$out    = DZE_Marketing_Ai::complete( $system, $user, '', self::room_for( $html, $words ), 240 );
 		DZE_Ai_Usage::unit();
-		$out    = trim( preg_replace( '/^```(?:html)?|```$/m', '', $out ) );
+		$out    = trim( preg_replace( '/^```(?:json|html)?|```$/m', '', $out ) );
 		if ( '' === $out ) {
 			throw new RuntimeException( __( 'The model returned nothing usable.', 'dazont-ecom' ) );
 		}
-		$out = wp_kses_post( $out );
+		$edits = self::read_picks( $out );
+		if ( null === $edits ) {
+			// ASKED AGAIN, PLAINLY. A model that answers a linking pass with a
+			// note — "I could not find a natural place for this link" — has
+			// said something true and useful in the wrong shape. Throwing the
+			// run away over the shape leaves a real article unlinked and a row
+			// on the review screen that the shop has to press again by hand.
+			// Once is enough: twice would be arguing with it.
+			DZE_Ai_Usage::unit( 'cat_links' );
+			$again = DZE_Marketing_Ai::complete(
+				$system,
+				$user . "\n\nAnswer with the JSON array only — no sentence before it, none after it. If no link belongs in this text, answer []",
+				'',
+				self::room_for( $html, $words ),
+				240
+			);
+			DZE_Ai_Usage::unit();
+			$edits = self::read_picks( trim( (string) preg_replace( '/^```(?:json|html)?|```$/m', '', $again ) ) );
+		}
+		if ( null === $edits ) {
+			// And if it still will not, what it said instead is the useful
+			// part: "the model returned nothing usable" tells the shop nothing
+			// it can act on.
+			throw new RuntimeException( sprintf(
+				/* translators: %s: the opening of what the model said instead */
+				__( 'The model answered with a note instead of the list of links: "%s".', 'dazont-ecom' ),
+				trim( mb_substr( wp_strip_all_tags( $out ), 0, 160 ) )
+			) );
+		}
+		$allowed = [];
+		foreach ( $links as $l ) {
+			$allowed[] = untrailingslashit( (string) $l['url'] );
+		}
+		$res = self::apply_edits( $html, $edits, $allowed );
+		if ( ! $res['applied'] ) {
+			throw new RuntimeException(
+				$res['refused']
+					? sprintf(
+						/* translators: %s: why each edit was refused */
+						__( 'No link could be placed: %s.', 'dazont-ecom' ),
+						implode( '; ', array_slice( $res['refused'], 0, 3 ) )
+					)
+					: __( 'No link was placed: the page offered is not close enough to what this text talks about. Choose a closer page, or leave this one as it is.', 'dazont-ecom' )
+			);
+		}
+		$out = $res['html'];
 
-		// A LINKING PASS ADDS LINKS AND CHANGES NOTHING ELSE.
+		// THE GUARD STAYS. It now checks a document this pass built itself by
+		// exact replacement, so it should never fire — which is exactly why it
+		// is worth keeping: if it ever does, something is wrong here.
 		self::only_linked( $html, $out, $done, $room );
 		$before = count( $done );
 		$after  = count( self::linked_urls( $out ) );
@@ -1744,6 +1824,8 @@ PROMPT;
 			'added'  => max( 0, $after - $before ),
 			'before' => $before,
 			'after'  => $after,
+			// What was taken out on the way in, so the review screen can say it.
+			'dead'   => $swept['removed'],
 		];
 	}
 
@@ -1798,6 +1880,299 @@ PROMPT;
 	 * anchor and nothing else, so every other thing about the document has to
 	 * come back as it went.
 	 */
+	/**
+	 * APPLIES A LIST OF EDITS, AND REFUSES ANYTHING THAT IS NOT ONE.
+	 *
+	 * The pass used to send the whole article and expect the whole article
+	 * back, then check the answer had not been rewritten. On a 2,600-word page
+	 * with galleries, a table and a shortcode, the model reworded a sentence
+	 * here and there and the whole run was refused — "3 could not be written",
+	 * every day, on exactly the longest pages that most need links.
+	 *
+	 * So it no longer asks for the document. It asks for the EDITS: the exact
+	 * sentence to find, and that same sentence with a link in it. Each one is
+	 * applied by exact string replacement, and the sentence must appear once
+	 * and only once — if it does not, that edit is dropped and the others still
+	 * land.
+	 *
+	 * And the rule that makes a rewrite impossible rather than merely detected:
+	 * TAKE THE LINKS BACK OUT OF THE REPLACEMENT AND IT MUST EQUAL THE
+	 * ORIGINAL, character for character. A model that rephrases cannot satisfy
+	 * that, and nothing outside the sentences it names can change at all —
+	 * galleries, tables, shortcodes and block comments are never in the answer
+	 * to begin with.
+	 *
+	 * @param array<int,array{find:string,replace:string}> $edits
+	 * @param string[]                                     $allowed URLs the pass may link to.
+	 * @return array{html:string,applied:int,refused:array<int,string>}
+	 */
+	/**
+	 * DROPS A TARGET WHOSE PAGE IS NOT THERE.
+	 *
+	 * A pool is built from the shop's own pages, so every address in it was
+	 * real when it was read. But a category deleted afterwards leaves the link
+	 * behind: `/spetsnaz-uniforms` sat in a category description answering 404,
+	 * with the sentence around it promising a "dedicated category" that no
+	 * longer existed. Found by reading the 34 internal links this module has
+	 * written; one was dead.
+	 *
+	 * Checked once per run and remembered for a day: a HEAD request per target
+	 * on every pass would cost more than the pass itself.
+	 *
+	 * @param array<int,array{url:string}> $links
+	 * @return array<int,array{url:string}>
+	 */
+	/**
+	 * TAKES OUT THE LINKS THAT LEAD NOWHERE, and keeps the words.
+	 *
+	 * A linking pass writes a link to a page that exists. Months later the page
+	 * can be gone, and the link outlives it: `/spetsnaz-uniforms` answered 404
+	 * inside a category description whose sentence still promised a "dedicated
+	 * category". Nothing on a WordPress site ever goes back to look.
+	 *
+	 * So the pass that rewrites a page also cleans it: every internal link in
+	 * the text it is about to touch is asked whether its page is still there,
+	 * and a dead one loses its anchor tag while its words stay exactly where
+	 * they were. Removing the sentence would be editing copy, which is not this
+	 * module's to do.
+	 *
+	 * Only INTERNAL links: an outside site answering 404 today may be up
+	 * tomorrow, and this module does not police the rest of the web.
+	 *
+	 * @return array{html:string,removed:string[]}
+	 */
+	public static function strip_dead_links( string $html ): array {
+		$removed = [];
+		if ( '' === trim( $html ) || ! function_exists( 'wp_remote_head' ) ) {
+			return [ 'html' => $html, 'removed' => $removed ];
+		}
+		$home = untrailingslashit( (string) home_url() );
+		if ( ! preg_match_all( '#<a\b[^>]*href=(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $m, PREG_SET_ORDER ) ) {
+			return [ 'html' => $html, 'removed' => $removed ];
+		}
+		foreach ( $m as $one ) {
+			$url = html_entity_decode( (string) $one[2] );
+			// Ours only, and only a real page: an anchor, a mailto or a phone
+			// number is not a page that can be missing.
+			if ( 0 !== strpos( $url, $home ) ) {
+				continue;
+			}
+			if ( ! self::dead_url( $url ) ) {
+				continue;
+			}
+			// The anchor tag goes, the words stay. A sentence with a hole in it
+			// reads worse than one with a plain phrase in it.
+			$html      = str_replace( $one[0], $one[3], $html );
+			$removed[] = $url;
+		}
+		return [ 'html' => $html, 'removed' => array_values( array_unique( $removed ) ) ];
+	}
+
+	/**
+	 * Is this address gone? Remembered for a day, and a request that could not
+	 * be made is never an answer — a timeout is not a 404, and treating it as
+	 * one would strip good links off the site every time it is busy.
+	 */
+	public static function dead_url( string $url ): bool {
+		$key = 'dze_alive_' . md5( untrailingslashit( $url ) );
+		$was = function_exists( 'get_transient' ) ? get_transient( $key ) : false;
+		if ( 'no' === $was ) {
+			return true;
+		}
+		if ( 'yes' === $was ) {
+			return false;
+		}
+		$r    = wp_remote_head( $url, [ 'timeout' => 8, 'redirection' => 3 ] );
+		$code = is_wp_error( $r ) ? 0 : (int) wp_remote_retrieve_response_code( $r );
+		if ( 0 === $code ) {
+			return false; // could not ask; nothing is concluded.
+		}
+		$alive = $code >= 200 && $code < 400;
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $key, $alive ? 'yes' : 'no', DAY_IN_SECONDS );
+		}
+		return ! $alive;
+	}
+	public static function only_alive( array $links ): array {
+		// Nothing to ask with, nothing to answer: a pool that cannot be checked
+		// is handed back whole rather than emptied. Dropping every target
+		// because the question could not be put is the worse of the two wrongs.
+		if ( ! function_exists( 'wp_remote_head' ) || ! function_exists( 'get_transient' ) ) {
+			return $links;
+		}
+		$out = [];
+		foreach ( $links as $l ) {
+			$url = (string) ( $l['url'] ?? '' );
+			if ( '' === $url ) {
+				continue;
+			}
+			$key = 'dze_alive_' . md5( untrailingslashit( $url ) );
+			$was = get_transient( $key );
+			if ( 'no' === $was ) {
+				continue;
+			}
+			if ( 'yes' !== $was ) {
+				$r    = wp_remote_head( $url, [ 'timeout' => 8, 'redirection' => 3 ] );
+				$code = is_wp_error( $r ) ? 0 : (int) wp_remote_retrieve_response_code( $r );
+				// A request that could not be made says nothing about the page:
+				// a timeout is not a 404, and dropping a good target on one
+				// would quietly shrink the pool every time the shop is busy.
+				if ( 0 === $code ) {
+					$out[] = $l;
+					continue;
+				}
+				$alive = $code >= 200 && $code < 400;
+				set_transient( $key, $alive ? 'yes' : 'no', DAY_IN_SECONDS );
+				if ( ! $alive ) {
+					continue;
+				}
+			}
+			$out[] = $l;
+		}
+		return $out;
+	}
+	/**
+	 * The list of links out of whatever the model actually sent.
+	 *
+	 * Asked for JSON and nothing else, a model still opens with "Here are the
+	 * links I found:" often enough to matter — and a run of a 1,600-word
+	 * article that threw the whole pass away over a greeting is a run the shop
+	 * has to start again by hand. A single object instead of a list of one is
+	 * the same kind of near miss. Both are read; anything else is refused.
+	 *
+	 * @return array<int,array<string,string>>|null
+	 */
+	public static function read_picks( string $out ): ?array {
+		$try = static function ( string $s ): ?array {
+			$v = json_decode( trim( $s ), true );
+			if ( ! is_array( $v ) ) {
+				return null;
+			}
+			// AN EMPTY LIST IS AN ANSWER. "[]" means the model looked and
+			// found nowhere the link belonged — a judgement, and usually the
+			// right one. Read as gibberish it cost a second call and a failed
+			// row on the review screen saying the model had answered with a
+			// note, quoting "[]".
+			if ( ! $v ) {
+				return [];
+			}
+			// A lone object is a list of one.
+			if ( isset( $v['anchor'] ) || isset( $v['url'] ) ) {
+				return [ $v ];
+			}
+			$rows = array_values( array_filter( $v, 'is_array' ) );
+			// Something came back, but nothing in it is a link: that is not an
+			// empty answer, it is an answer we cannot read.
+			return $rows ? $rows : null;
+		};
+		$picks = $try( $out );
+		if ( null !== $picks ) {
+			return $picks;
+		}
+		// The JSON with something said before or after it.
+		$a = strpos( $out, '[' );
+		$b = strrpos( $out, ']' );
+		if ( false !== $a && false !== $b && $b > $a ) {
+			$picks = $try( substr( $out, $a, $b - $a + 1 ) );
+			if ( null !== $picks ) {
+				return $picks;
+			}
+		}
+		$a = strpos( $out, '{' );
+		$b = strrpos( $out, '}' );
+		if ( false !== $a && false !== $b && $b > $a ) {
+			return $try( substr( $out, $a, $b - $a + 1 ) );
+		}
+		return null;
+	}
+	public static function apply_edits( string $html, array $edits, array $allowed ): array {
+		$refused = [];
+		$seen    = [];
+		$applied = 0;
+		foreach ( $edits as $e ) {
+			$anchor = isset( $e['anchor'] ) ? (string) $e['anchor'] : '';
+			$url    = isset( $e['url'] ) ? untrailingslashit( html_entity_decode( (string) $e['url'] ) ) : '';
+			if ( '' === trim( $anchor ) || '' === $url ) {
+				$refused[] = __( 'an edit came back without its words or its address', 'dazont-ecom' );
+				continue;
+			}
+			if ( ! in_array( $url, $allowed, true ) ) {
+				$refused[] = sprintf(
+					/* translators: %s: the address the model used */
+					__( 'an edit linked to an address that was not offered (%s)', 'dazont-ecom' ),
+					$url
+				);
+				continue;
+			}
+			if ( isset( $seen[ $url ] ) ) {
+				$refused[] = sprintf(
+					/* translators: %s: the address linked twice */
+					__( 'the same page was linked twice (%s)', 'dazont-ecom' ),
+					$url
+				);
+				continue;
+			}
+			// THE WORDS MUST BE THERE, ONCE, AND IN THE PROSE.
+			$n = substr_count( $html, $anchor );
+			if ( 1 !== $n ) {
+				$refused[] = sprintf(
+					/* translators: 1: how many times the words were found, 2: the words */
+					__( 'the words were found %1$d times instead of once (%2$s)', 'dazont-ecom' ),
+					$n,
+					mb_substr( $anchor, 0, 40 )
+				);
+				continue;
+			}
+			$at = strpos( $html, $anchor );
+			if ( ! self::in_prose( $html, $at, strlen( $anchor ) ) ) {
+				$refused[] = sprintf(
+					/* translators: %s: the words the model picked */
+					__( 'the words sit inside a tag, a link or a block comment (%s)', 'dazont-ecom' ),
+					mb_substr( $anchor, 0, 40 )
+				);
+				continue;
+			}
+			// AND WE WRITE THE LINK, not the model. It picks words; the markup
+			// is ours. Asking it to hand back a sentence of HTML character for
+			// character is asking for the one thing it cannot do reliably —
+			// "a sentence came back reworded rather than linked", every time,
+			// on the long articles. Nothing it returns is ever inserted.
+			$html = substr_replace(
+				$html,
+				'<a href="' . esc_url( $url ) . '">' . $anchor . '</a>',
+				$at,
+				strlen( $anchor )
+			);
+			$seen[ $url ] = true;
+			$applied++;
+		}
+		return [ 'html' => $html, 'applied' => $applied, 'refused' => $refused ];
+	}
+
+	/**
+	 * IS THIS SPOT ORDINARY PROSE? Not inside a tag, not inside an existing
+	 * link, not inside an HTML comment — a link opened in any of those breaks
+	 * the markup around it.
+	 */
+	public static function in_prose( string $html, int $at, int $len ): bool {
+		$before = substr( $html, 0, $at );
+		// Inside a tag: the last '<' comes after the last '>'.
+		if ( strrpos( $before, '<' ) > strrpos( $before, '>' ) ) {
+			return false;
+		}
+		// Inside an HTML comment, block comments included.
+		$oc = strrpos( $before, '<!--' );
+		if ( false !== $oc && strrpos( $before, '-->' ) < $oc ) {
+			return false;
+		}
+		// Inside a link already.
+		$oa = strripos( $before, '<a ' );
+		if ( false !== $oa && strripos( $before, '</a>' ) < $oa ) {
+			return false;
+		}
+		// And the words themselves hold no markup.
+		return false === strpos( substr( $html, $at, $len ), '<' );
+	}
 	public static function only_linked( string $before, string $after, array $done, int $room ): void {
 		// 1. EVERY LINK ALREADY THERE IS STILL THERE. No tolerance: a link the
 		//    shop wrote is not this pass's to drop, and 4 → 3 is how it showed.
@@ -2582,7 +2957,7 @@ PROMPT;
 		if ( ! $on_tax && false === strpos( (string) $hook, 'dazont' ) ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		wp_enqueue_editor(); // the panel edits the description in the WP editor.
 		// THE PANEL IS SERVED BY AJAX, AND `admin_footer` NEVER FIRES THERE.
 		// DZE_Prompts::button() asks for the popup by hooking admin_footer, so
@@ -2861,6 +3236,13 @@ PROMPT;
 						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="14" value="<?php echo (int) ( $s['links'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" />
 						<label style="margin-left:12px;"><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[links_off]" value="1" <?php checked( ! empty( $s['links_off'] ) ); ?> /> <?php esc_html_e( 'No internal linking at all', 'dazont-ecom' ); ?></label>
 						<p class="description"><?php esc_html_e( 'Empty means one link per ~150 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Dead links', 'dazont-ecom' ); ?></th>
+					<td>
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[dead_off]" value="1" <?php checked( ! empty( $s['dead_off'] ) ); ?> /> <?php esc_html_e( 'Leave dead links alone', 'dazont-ecom' ); ?></label>
+						<p class="description"><?php esc_html_e( 'By default, every text this module rewrites is checked on the way in: a link pointing at a page of this shop that no longer answers is taken out and its words are kept, so the sentence still reads. Only links to this shop are judged — an outside site that is slow or blocks us is never touched. Each address is checked once a day at most. Tick this to write over a text without looking at the links already in it.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>

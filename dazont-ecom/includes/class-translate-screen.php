@@ -409,7 +409,14 @@ trait DZE_Translate_Screen {
 		// WHICH FIELDS MOVED — the module's whole value, and "Translate
 		// automatically" sends only those. Unsaid, a field it did not refill
 		// read as a field it forgot.
-		$moved   = ( $target && 'missing' !== $state ) ? self::obj_stale( $o, $lang ) : [];
+		// HAS THIS TRANSLATION EVER BEEN MADE HERE? Without the register this
+		// module writes when it saves, there is nothing to compare against —
+		// and every field came back marked "words have moved since the last
+		// translation" on a product where nothing had moved at all. Not
+		// knowing and having changed are two different things and must not
+		// wear the same sentence.
+		$known   = $target ? (bool) DZE_Translate::src_map( $target, $o ) : false;
+		$moved   = ( $target && 'missing' !== $state && $known ) ? self::obj_stale( $o, $lang ) : [];
 		// WHOSE TRANSLATION THIS IS. One made elsewhere — a spreadsheet, a
 		// hand — is replaced by a save, and the sentence saying so had been
 		// registered for months and printed nowhere.
@@ -453,6 +460,9 @@ trait DZE_Translate_Screen {
 			<?php endif; ?>
 		</p>
 
+		<?php if ( $target && ! $known && $current ) : ?>
+			<p class="description" style="color:#50575e;"><?php esc_html_e( 'This translation was not made here, so there is no record of the words it was made from. Nothing below is marked as having moved — translating will simply send every field.', 'dazont-ecom' ); ?></p>
+		<?php endif; ?>
 		<?php if ( $target && ! $mine && $current ) : ?>
 			<p class="description dze-tr-notmine" style="color:#8a6d00;"><?php esc_html_e( 'This translation was not written here. Saving replaces its text — read the right-hand column first.', 'dazont-ecom' ); ?></p>
 		<?php endif; ?>
@@ -462,48 +472,236 @@ trait DZE_Translate_Screen {
 			<p class="dze-cb-actions">
 				<button type="button" class="button button-primary" id="dze-tr-auto"
 					title="<?php esc_attr_e( 'Translates the fields whose words have changed since the last time, and fills them in below. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate automatically', 'dazont-ecom' ); ?></button>
+				<?php
+				// THE SECOND BUTTON IS FOR JUDGING THE TRANSLATOR, not the text.
+				// Changing the model, the instructions or the glossary changes
+				// nothing about the ORIGINAL, so the ordinary run is right to
+				// answer "nothing moved" and would do so for ever. This one
+				// sends every field and pays for every field, which is exactly
+				// why it is second, quiet, and says so before it is pressed.
+				?>
+				<button type="button" class="button" id="dze-tr-auto-all"
+					title="<?php esc_attr_e( 'Sends EVERY field again, even the ones that have not changed — for comparing one model, prompt or glossary against another. It costs a full translation. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate everything again', 'dazont-ecom' ); ?></button>
 				<span id="dze-tr-autostate" class="description"></span>
 			</p>
 
-			<!-- 3. EVERY FIELD, side by side. A variation's own words are a
-			     field like any other; nothing on this screen says where they
-			     are kept or who copies them. -->
-			<table class="widefat striped dze-tr-fields">
-				<thead><tr>
-					<th style="width:180px;"><?php esc_html_e( 'Field', 'dazont-ecom' ); ?></th>
-					<th><?php esc_html_e( 'Original', 'dazont-ecom' ); ?></th>
-					<th><?php echo esc_html( sprintf( /* translators: %s: the language */ __( 'In %s', 'dazont-ecom' ), (string) ( $targets[ $lang ] ?? strtoupper( $lang ) ) ) ); ?></th>
-				</tr></thead>
-				<tbody>
-				<?php $dze_any = false; ?>
-				<?php foreach ( $labels as $dze_fid => $dze_label ) : ?>
-					<?php
-					$dze_src = (string) ( $source[ $dze_fid ] ?? '' );
-					if ( '' === trim( $dze_src ) ) {
-						continue; // a field the original does not hold is not a decision.
-					}
-					$dze_any = true;
-					$dze_val = (string) ( $made[ $dze_fid ] ?? ( $current[ $dze_fid ] ?? '' ) );
-					?>
-					<tr class="dze-tr-field" data-field="<?php echo esc_attr( $dze_fid ); ?>">
-						<td><strong><?php echo esc_html( $dze_label ); ?></strong>
-							<?php if ( isset( $made[ $dze_fid ] ) ) : ?>
-								<br /><span class="description" style="color:#135e96;"><?php esc_html_e( 'just translated', 'dazont-ecom' ); ?></span>
-							<?php elseif ( isset( $moved[ $dze_fid ] ) ) : ?>
-								<br /><span class="description dze-tr-moved" style="color:#8a6d00;"><?php esc_html_e( 'words have moved since the last translation', 'dazont-ecom' ); ?></span>
-							<?php endif; ?>
-						</td>
-						<td><div class="dze-cb-nowbody"><?php echo wp_kses_post( $dze_src ); ?></div></td>
-						<!-- data-was is what the translation holds today: Cancel puts it back. -->
-						<td><textarea class="dze-tr-new" data-was="<?php echo esc_attr( (string) ( $current[ $dze_fid ] ?? '' ) ); ?>" rows="<?php echo esc_attr( strlen( $dze_src ) > 200 ? '8' : '3' ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea></td>
-					</tr>
-				<?php endforeach; ?>
-				<?php if ( ! $dze_any ) : ?>
-					<tr><td colspan="3"><?php esc_html_e( 'This one holds no text to translate.', 'dazont-ecom' ); ?></td></tr>
-				<?php endif; ?>
-				</tbody>
-			</table>
+			<?php
+			// 3. EVERY FIELD, IN PANELS RATHER THAN IN ONE LONG TABLE.
+			//
+			// "La tienne est très brute. Regardes peut être comment WPML
+			// présente ça." WPML's own editor prints WordPress panels — the
+			// same `postbox` a metabox wears — one per kind of thing, and that
+			// is why it reads as part of the admin instead of as a plugin's
+			// own furniture. Twelve rows of equal weight say nothing about
+			// what matters; named panels do.
+			//
+			// The original sits beside the translation with a copy button
+			// between them, which is WPML's arrangement and the reason it can
+			// be judged at a glance: a translation read without its source is
+			// a guess.
+			$dze_groups = DZE_Translate::field_groups();
+			$dze_groups['other'] = [ 'label' => __( 'Other fields', 'dazont-ecom' ), 'fields' => [] ];
+			$dze_bin = [];
+			foreach ( $labels as $dze_fid => $dze_label ) {
+				if ( '' === trim( (string) ( $source[ $dze_fid ] ?? '' ) ) ) {
+					continue; // a field the original does not hold is not a decision.
+				}
+				$dze_bin[ DZE_Translate::field_group( (string) $dze_fid ) ][ $dze_fid ] = $dze_label;
+			}
+			?>
+			<?php if ( ! $dze_bin ) : ?>
+				<div class="notice notice-info inline"><p><?php esc_html_e( 'This one holds no text to translate.', 'dazont-ecom' ); ?></p></div>
+			<?php endif; ?>
+			<?php foreach ( $dze_groups as $dze_gkey => $dze_g ) : ?>
+				<?php if ( empty( $dze_bin[ $dze_gkey ] ) ) { continue; } ?>
+				<div class="postbox dze-tr-panel">
+					<h2 class="hndle">
+						<span><?php echo esc_html( (string) $dze_g['label'] ); ?></span>
+						<span class="dze-tr-panelcount">
+							<?php
+							printf(
+								/* translators: %d: how many fields this panel holds */
+								esc_html( _n( '%d field', '%d fields', count( $dze_bin[ $dze_gkey ] ), 'dazont-ecom' ) ),
+								count( $dze_bin[ $dze_gkey ] )
+							);
+							?>
+						</span>
+					</h2>
+					<div class="inside">
+						<?php foreach ( $dze_bin[ $dze_gkey ] as $dze_fid => $dze_label ) : ?>
+							<?php
+							$dze_src = (string) ( $source[ $dze_fid ] ?? '' );
+							$dze_val = (string) ( $made[ $dze_fid ] ?? ( $current[ $dze_fid ] ?? '' ) );
+							$dze_rows = max( 4, min( 24, (int) ceil( strlen( $dze_src ) / 90 ) + 2 ) );
+							?>
+							<div class="dze-tr-field" data-field="<?php echo esc_attr( $dze_fid ); ?>">
+								<p class="dze-tr-fname">
+									<strong><?php echo esc_html( $dze_label ); ?></strong>
+									<?php if ( isset( $made[ $dze_fid ] ) ) : ?>
+										<span class="dze-tr-tag is-new"><?php esc_html_e( 'just translated', 'dazont-ecom' ); ?></span>
+									<?php elseif ( isset( $moved[ $dze_fid ] ) ) : ?>
+										<span class="dze-tr-tag dze-tr-moved"><?php esc_html_e( 'the original has changed since', 'dazont-ecom' ); ?></span>
+									<?php endif; ?>
+								</p>
+								<div class="dze-tr-pair">
+									<div class="dze-tr-side">
+										<span class="dze-tr-sidelab"><?php esc_html_e( 'Original', 'dazont-ecom' ); ?></span>
+										<div class="dze-cb-nowbody"><?php echo wp_kses_post( $dze_src ); ?></div>
+									</div>
+									<div class="dze-tr-mid">
+										<button type="button" class="button dze-tr-copy" title="<?php esc_attr_e( 'Put the original in the box on the right, to work from it', 'dazont-ecom' ); ?>" aria-label="<?php esc_attr_e( 'Copy from the original', 'dazont-ecom' ); ?>">&rarr;</button>
+									</div>
+									<div class="dze-tr-side">
+										<span class="dze-tr-sidelab"><?php echo esc_html( sprintf( /* translators: %s: the language */ __( 'In %s', 'dazont-ecom' ), (string) ( $targets[ $lang ] ?? strtoupper( $lang ) ) ) ); ?></span>
+										<!-- data-was is what the translation holds today: Cancel puts it back. -->
+										<textarea class="dze-tr-new<?php echo DZE_Translate::looks_html( $dze_src ) ? ' dze-tr-html' : ''; ?>" data-was="<?php echo esc_attr( (string) ( $current[ $dze_fid ] ?? '' ) ); ?>" data-src="<?php echo esc_attr( $dze_src ); ?>" rows="<?php echo esc_attr( (string) $dze_rows ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea>
+									</div>
+								</div>
+							</div>
+						<?php endforeach; ?>
+					</div>
+				</div>
+			<?php endforeach; ?>
 
+			<?php
+			// 3b. WHAT THE PRODUCT IS SOLD ALONG, and what its variations hold.
+			// Neither is a field of the product: an attribute value is a term
+			// shared by every product wearing it, and a variation keeps its own
+			// words. Both were invisible here, so a product could read "up to
+			// date" while the words a customer picks from were still English.
+			$dze_attrs = DZE_Translate::attribute_objects( $o );
+			$dze_vars  = DZE_Translate::variation_tally( $o );
+			?>
+			<?php
+			// THE VARIATIONS, AS A PANEL. WPML's own editor gives them a
+			// section — "Variations data", a group per variation — and it is
+			// right to: a line of small print under a heading is read by
+			// nobody. What is worth showing is not their descriptions, which
+			// WPML is set to leave alone on this shop, but whether the
+			// translation HAS them: a variable product whose variations were
+			// never built offers nothing to pick and its page says the product
+			// is unavailable, while every screen here calls it translated.
+			$dze_vrows = DZE_Translate::variation_rows( $o, $lang );
+			$dze_vmiss = 0;
+			foreach ( $dze_vrows as $dze_v ) {
+				if ( ! $dze_v['target'] ) {
+					$dze_vmiss++;
+				}
+			}
+			?>
+			<?php if ( $dze_vrows ) : ?>
+				<div class="postbox dze-tr-panel">
+					<h2 class="hndle">
+						<span><?php esc_html_e( 'Variations', 'dazont-ecom' ); ?></span>
+						<span class="dze-tr-panelcount">
+							<?php
+							printf(
+								/* translators: 1: variations in all, 2: the language */
+								esc_html( _n( '%1$d variation · %2$s', '%1$d variations · %2$s', count( $dze_vrows ), 'dazont-ecom' ) ),
+								count( $dze_vrows ),
+								esc_html(
+									$dze_vmiss
+										? sprintf(
+											/* translators: %d: variations the translation does not have */
+											_n( '%d missing', '%d missing', $dze_vmiss, 'dazont-ecom' ),
+											$dze_vmiss
+										)
+										: __( 'all present', 'dazont-ecom' )
+								)
+							);
+							?>
+						</span>
+					</h2>
+					<div class="inside">
+						<?php if ( $dze_vmiss ) : ?>
+							<div class="notice notice-error inline dze-tr-varwarn"><p>
+								<?php esc_html_e( 'This translation is missing variations. A variable product with none offers nothing to choose from, and its page tells the customer it is unavailable. Saving the translation builds them.', 'dazont-ecom' ); ?>
+							</p></div>
+						<?php endif; ?>
+						<table class="widefat striped dze-tr-shared">
+							<thead><tr>
+								<th><?php esc_html_e( 'Variation', 'dazont-ecom' ); ?></th>
+								<th style="width:200px;"><?php echo esc_html( sprintf( /* translators: %s: the language */ __( 'In %s', 'dazont-ecom' ), (string) ( $targets[ $lang ] ?? strtoupper( $lang ) ) ) ); ?></th>
+								<th style="width:140px;"><?php esc_html_e( 'Price', 'dazont-ecom' ); ?></th>
+							</tr></thead>
+							<tbody>
+							<?php foreach ( $dze_vrows as $dze_v ) : ?>
+								<tr>
+									<td><strong><?php echo esc_html( (string) $dze_v['label'] ); ?></strong></td>
+									<td>
+										<?php if ( $dze_v['target'] ) : ?>
+											<span class="dze-tr-chip is-done">
+												<span class="dashicons <?php echo esc_attr( self::state_icon( 'done' ) ); ?>" aria-hidden="true"></span>
+												<?php esc_html_e( 'built', 'dazont-ecom' ); ?>
+											</span>
+										<?php else : ?>
+											<span class="dze-tr-chip is-missing">
+												<span class="dashicons <?php echo esc_attr( self::state_icon( 'missing' ) ); ?>" aria-hidden="true"></span>
+												<?php esc_html_e( 'missing', 'dazont-ecom' ); ?>
+											</span>
+										<?php endif; ?>
+									</td>
+									<td><?php echo '' !== $dze_v['price'] ? wp_kses_post( wc_price( (float) $dze_v['price'] ) ) : '—'; ?></td>
+								</tr>
+							<?php endforeach; ?>
+							</tbody>
+						</table>
+						<p class="description dze-tr-varnote">
+							<?php
+							$dze_rule = DZE_Translate::variation_desc_rule();
+							if ( 2 === $dze_rule ) {
+								esc_html_e( 'WPML is set to translate each variation\'s own description, so those are handled in its editor, not here.', 'dazont-ecom' );
+							} elseif ( 1 === $dze_rule ) {
+								esc_html_e( 'WPML is set to copy each variation\'s own description across, unchanged.', 'dazont-ecom' );
+							} else {
+								esc_html_e( 'WPML is set to leave each variation\'s own description alone, so there is nothing of theirs to write. What a customer picks from is the attribute values below.', 'dazont-ecom' );
+							}
+							?>
+						</p>
+					</div>
+				</div>
+			<?php endif; ?>
+			<?php if ( $dze_attrs || $dze_vars['total'] ) : ?>
+				<h3 style="margin:22px 0 4px;"><?php esc_html_e( 'Attributes', 'dazont-ecom' ); ?></h3>
+				<?php if ( $dze_attrs ) : ?>
+					<p class="description" style="margin:0 0 6px;">
+						<?php esc_html_e( 'An attribute value is shared by every product that wears it: translating one here changes it everywhere it is used.', 'dazont-ecom' ); ?>
+					</p>
+					<table class="widefat striped dze-tr-shared">
+						<thead><tr>
+							<th style="width:200px;"><?php esc_html_e( 'Attribute', 'dazont-ecom' ); ?></th>
+							<th style="width:220px;"><?php esc_html_e( 'Value', 'dazont-ecom' ); ?></th>
+							<th><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
+						</tr></thead>
+						<tbody>
+						<?php foreach ( $dze_attrs as $dze_key => $dze_a ) : ?>
+							<?php
+							$dze_obj = (array) $dze_a['obj'];
+							$dze_st  = self::state_of( $dze_obj, array_keys( $targets ) );
+							?>
+							<tr>
+								<td><?php echo esc_html( (string) $dze_a['tax_label'] ); ?></td>
+								<td><strong><?php echo esc_html( (string) $dze_a['name'] ); ?></strong></td>
+								<td>
+									<span class="dze-tr-langjump">
+									<?php foreach ( $targets as $dze_code => $dze_name ) : ?>
+										<?php $dze_one = (string) ( $dze_st[ (string) $dze_code ] ?? 'missing' ); ?>
+										<a class="dze-tr-chip is-<?php echo esc_attr( $dze_one ); ?>"
+											href="<?php echo esc_url( self::editor_url( $dze_obj, (string) $dze_code ) ); ?>"
+											title="<?php echo esc_attr( sprintf( /* translators: 1: the value, 2: the language */ __( 'Translate “%1$s” into %2$s', 'dazont-ecom' ), (string) $dze_a['name'], (string) $dze_name ) ); ?>">
+											<?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $dze_code ) ); ?>
+											<span class="dashicons <?php echo esc_attr( self::state_icon( $dze_one ) ); ?>" aria-hidden="true"></span>
+											<?php echo esc_html( self::state_said( $dze_one ) ); ?>
+										</a>
+									<?php endforeach; ?>
+									</span>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+						</tbody>
+					</table>
+				<?php endif; ?>
+			<?php endif; ?>
 			<!-- 4. PUBLISH IT, or leave it alone. Accept and refuse side by
 			     side, which is what every screen in this plugin ends with. -->
 			<p class="dze-cb-panelbar">

@@ -624,7 +624,7 @@ final class DZE_Prompts {
 		if ( ! self::$cards ) {
 			self::$cards = true;
 			if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
-				wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+				DZE_Assets::admin_css();
 			}
 			?>
 			<script>
@@ -694,7 +694,7 @@ final class DZE_Prompts {
 		// The modal reuses the shared popup styling, which a screen outside the
 		// Content module does not necessarily load.
 		if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
-			wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+			DZE_Assets::admin_css();
 		}
 		// A button can be drawn from inside a popup that is itself printed in the
 		// footer, and 'admin_footer' may already be over by then. The screen's own

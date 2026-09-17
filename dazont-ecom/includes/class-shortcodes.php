@@ -74,7 +74,7 @@ final class DZE_Shortcodes {
 		$cards = self::cards();
 		// The card styling lives in the shared admin stylesheet, which the
 		// Content module may not be here to load.
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'shortcodes' ) ) . '</h1>';
 		echo '<p class="description" style="max-width:900px;">'

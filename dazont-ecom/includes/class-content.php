@@ -4743,7 +4743,7 @@ Answer with STRICT JSON and nothing else: "
 		if ( ! $on_product && ! $on_list && ! $on_bulk && ! $on_settings && ! $on_diag ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		// Dense thumbnails everywhere: the full image on hover instead of
 		// screen space spent on being legible.
 		wp_enqueue_style( 'dze-zoom', DZE_URL . 'admin/css/zoom.css', [], DZE_VERSION );

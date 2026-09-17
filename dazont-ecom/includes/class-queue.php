@@ -1562,7 +1562,7 @@ final class DZE_Queue {
 	 * has nothing to remember.
 	 */
 	public static function review_assets(): void {
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		wp_enqueue_editor();
 		if ( class_exists( 'DZE_Prompts' ) ) {
 			DZE_Prompts::print_assets(); // the review popup shows the prompt behind the job.

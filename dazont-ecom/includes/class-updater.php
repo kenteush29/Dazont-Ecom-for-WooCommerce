@@ -3,7 +3,12 @@ defined( 'ABSPATH' ) || exit;
 
 /**
  * Self-hosted update checker: pulls updates for this plugin directly from the
- * GitHub Releases of the repository. Public repo — no token required.
+ * GitHub Releases of the repository.
+ *
+ * PRIVATE REPO: define DZE_GH_TOKEN in wp-config.php with a token that can read
+ * this repository. Without it a private repo answers 404 and the site simply
+ * says it could not reach GitHub — it never pretends to be up to date.
+ * A public repo needs no token and this file behaves exactly as before.
  *
  * Each release must carry a ZIP asset whose name contains the plugin slug and
  * whose top-level folder is the plugin slug, so WordPress installs it to the
@@ -45,6 +50,33 @@ final class DZE_Updater {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_check_script' ] );
 		add_action( 'wp_ajax_dze_check_updates', [ $this, 'ajax_check' ] );
 		add_action( 'wp_ajax_dze_dev_channel',  [ $this, 'ajax_dev_channel' ] );
+		// Private repo: the ZIP is fetched by us, signed, before WordPress tries.
+		add_filter( 'upgrader_pre_download', [ $this, 'download_private_asset' ], 10, 2 );
+	}
+
+	/**
+	 * The token that reads a private repository, or '' for a public one.
+	 *
+	 * Read from wp-config.php FIRST, on purpose: a token in the database is a
+	 * token in every export, every migration and every backup that leaves the
+	 * server. The option is the fallback for a site whose wp-config cannot be
+	 * edited, and it is never printed back to the screen.
+	 */
+	private function token(): string {
+		if ( defined( 'DZE_GH_TOKEN' ) && is_string( DZE_GH_TOKEN ) && '' !== DZE_GH_TOKEN ) {
+			return (string) DZE_GH_TOKEN;
+		}
+		return (string) get_option( 'dze_gh_token', '' );
+	}
+
+	/** The headers every call to GitHub carries, signed when there is a token. */
+	private function gh_headers( string $accept = 'application/vnd.github+json' ): array {
+		$h = [ 'Accept' => $accept, 'User-Agent' => 'Dazont-Ecom-Updater' ];
+		$t = $this->token();
+		if ( '' !== $t ) {
+			$h['Authorization'] = 'Bearer ' . $t;
+		}
+		return $h;
 	}
 
 	/** Which releases this site follows, in the words the toggle uses. */
@@ -281,10 +313,7 @@ final class DZE_Updater {
 		$url      = sprintf( 'https://api.github.com/repos/%s/%s/releases', self::OWNER, self::REPO );
 		$response = wp_remote_get( $url, [
 			'timeout' => 15,
-			'headers' => [
-				'Accept'     => 'application/vnd.github+json',
-				'User-Agent' => 'Dazont-Ecom-Updater',
-			],
+			'headers' => $this->gh_headers(),
 		] );
 
 		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
@@ -325,7 +354,13 @@ final class DZE_Updater {
 			foreach ( $rel['assets'] ?? [] as $asset ) {
 				$name = $asset['name'] ?? '';
 				if ( strpos( $name, $this->slug ) !== false && substr( $name, -4 ) === '.zip' ) {
-					$zip_url = $asset['browser_download_url'] ?? '';
+					// A PRIVATE REPO answers 404 on browser_download_url to anyone
+					// without a token, and WordPress fetches this link with none of
+					// our headers on it. The asset's own API url can be signed, and
+					// `download_private_asset()` below is what signs it.
+					$zip_url = '' !== $this->token()
+						? (string) ( $asset['url'] ?? '' )
+						: (string) ( $asset['browser_download_url'] ?? '' );
 					break;
 				}
 			}
@@ -364,6 +399,64 @@ final class DZE_Updater {
 		}
 
 		return null;
+	}
+
+	/**
+	 * DOWNLOADS A PRIVATE RELEASE ASSET, because WordPress cannot.
+	 *
+	 * GitHub answers an asset's API url with a 302 to a storage url that
+	 * already carries its own signature. Following that redirect WITH our
+	 * Authorization header still on it is what makes storage refuse the
+	 * download — so the redirect is READ and the signed url fetched bare.
+	 * On a public repo there is no token, the package is an ordinary
+	 * browser_download_url, and this returns untouched.
+	 *
+	 * @param bool|WP_Error $reply   What the caller decided so far.
+	 * @param string        $package The url WordPress is about to fetch.
+	 * @return bool|string|WP_Error  A local file path takes over the download.
+	 */
+	public function download_private_asset( $reply, $package ) {
+		$token = $this->token();
+		if ( '' === $token || ! is_string( $package ) ) {
+			return $reply;
+		}
+		$mine = sprintf( 'https://api.github.com/repos/%s/%s/releases/assets/', self::OWNER, self::REPO );
+		if ( 0 !== strpos( $package, $mine ) ) {
+			return $reply; // not ours: leave every other plugin alone.
+		}
+		if ( ! function_exists( 'download_url' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		$hop = wp_remote_get( $package, [
+			'timeout'     => 30,
+			'redirection' => 0,
+			'headers'     => $this->gh_headers( 'application/octet-stream' ),
+		] );
+		if ( is_wp_error( $hop ) ) {
+			return $hop;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $hop );
+		$to   = (string) wp_remote_retrieve_header( $hop, 'location' );
+		if ( ( 301 === $code || 302 === $code || 307 === $code ) && '' !== $to ) {
+			return download_url( $to, 300 ); // bare: the url is signed already.
+		}
+		if ( 200 === $code ) {
+			$bytes = wp_remote_retrieve_body( $hop );
+			if ( '' !== $bytes ) {
+				$tmp = wp_tempnam( 'dazont-ecom.zip' );
+				if ( $tmp && false !== file_put_contents( $tmp, $bytes ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions
+					return $tmp;
+				}
+			}
+		}
+		return new WP_Error(
+			'dze_asset_download',
+			sprintf(
+				/* translators: %d: the HTTP status GitHub answered with */
+				__( 'GitHub refused the download (HTTP %d). Check that DZE_GH_TOKEN can read this repository.', 'dazont-ecom' ),
+				$code
+			)
+		);
 	}
 
 	public function clear_cache(): void {

@@ -4300,7 +4300,7 @@ final class DZE_Diagnostic {
 		// The card styling belongs to the prompt library's stylesheet, and this
 		// screen is the same list in the same clothes.
 		if ( ! wp_style_is( 'dze-content', 'enqueued' ) ) {
-			wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+			DZE_Assets::admin_css();
 		}
 		$opt    = self::OPT;
 		$fields = self::fields();

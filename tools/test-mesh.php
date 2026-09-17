@@ -146,7 +146,7 @@ $GLOBALS['terms'] = [
 	16 => [ 'name' => 'Combat boots',       'slug' => 'combat-boots',       'parent' => 15, 'count' => 7, 'description' => '<p>' . str_repeat( 'a boot word ', 40 ) . '</p>' ],
 ];
 $GLOBALS['posts'] = [
-	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
+	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>Choosing a pack is a matter of load and season. ' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
 	21 => [ 'type' => 'post', 'title' => 'Boonie hat sizing',                 'content' => '<p>' . str_repeat( 'a hat word ', 90 ) . '</p>' ],
 	22 => [ 'type' => 'page', 'title' => 'About the boonie workshop',         'content' => '' ],
 	// A builder page that points at nothing: the one shape that used to sit at
@@ -724,7 +724,14 @@ echo "\nThe pass that writes the link is given the page that was picked\n";
 // the pool, a press on that screen answered with nothing at all.
 $GLOBALS['tr']['dze_mesh_pages'] = DZE_Mesh::pages( true );
 DZE_Marketing_Ai::$sent   = [];
-DZE_Marketing_Ai::$answer = $GLOBALS['posts'][20]['content'];
+// The pass asks for WORDS, not the document and not a sentence of HTML: the
+// model names a run of words already in the text, and the link is written
+// here. A double that hands a document back is answering a question nobody
+// asks any more.
+DZE_Marketing_Ai::$answer = (string) wp_json_encode( [ [
+	'anchor' => 'load and season',
+	'url'    => 'https://kula.test/category/boonie-hats/',
+] ] );
 try {
 	DZE_Post_Links::add_links( 20, [ 'https://kula.test/category/boonie-hats/' ] );
 } catch ( Throwable $e ) {

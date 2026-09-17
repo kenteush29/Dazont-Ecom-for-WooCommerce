@@ -654,7 +654,7 @@ final class DZE_Setup {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		$steps = self::steps();
 		$score = self::score();
 		echo '<div class="wrap dze-wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'setup' ) ) . '</h1>';

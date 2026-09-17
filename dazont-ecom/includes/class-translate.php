@@ -51,6 +51,21 @@ final class DZE_Translate {
 	 * at a time.
 	 */
 	private const META_SRC  = '_dze_tr_src';
+	/**
+	 * WHAT THIS MODULE REPLACED, so it can be put back.
+	 *
+	 * WordPress's own revisions cover almost nothing here: a PRODUCT has no
+	 * revision support at all, a custom field written with `update_post_meta()`
+	 * leaves no history, and neither does a term written with `wp_update_term()`.
+	 * On a shop of 2,000 products that is the whole of the work with no way
+	 * back — which is not something to find out after a batch of nine thousand
+	 * writes has gone wrong.
+	 *
+	 * One step back, deliberately: the words a translation held immediately
+	 * before this module last wrote to it. Two steps would be a version
+	 * history, which is WordPress's job and not this one's.
+	 */
+	public const META_PREV = '_dze_tr_prev';
 
 	private static ?self $instance = null;
 
@@ -77,6 +92,11 @@ final class DZE_Translate {
 		add_action( 'admin_menu', [ $this, 'register_menu' ] );
 		add_action( 'wp_ajax_dze_tr_batch', [ $this, 'ajax_batch' ] );
 		add_action( 'wp_ajax_dze_tr_decide', [ $this, 'ajax_decide' ] );
+		// WPML'S OWN BUTTONS, doing this module's work. The + and the pencil in
+		// the Languages column are where a shop already goes to translate one
+		// thing; a second button somewhere else is a second habit to learn.
+		add_filter( 'wpml_link_to_translation', [ $this, 'wpml_link' ], 20, 6 );
+		add_filter( 'wpml_text_to_translation', [ $this, 'wpml_text' ], 20, 6 );
 	}
 
 	// =========================================================================
@@ -119,6 +139,11 @@ final class DZE_Translate {
 		if ( isset( $in['create'] ) ) {
 			$out['create'] = ! empty( $in['create'] ) ? 1 : 0;
 		}
+		// Sent by the section that owns it, ticked or not, so unticking it can
+		// actually be saved — a checkbox posts nothing when it is off.
+		if ( ! empty( $in['buttons_sent'] ) ) {
+			$out['buttons'] = ! empty( $in['buttons'] ) ? 1 : 0;
+		}
 		// The extra things this shop translates. The section that owns this
 		// list posts `scope_sent` whether or not a single box is ticked —
 		// without it, unticking the last one would leave the old list standing
@@ -130,6 +155,96 @@ final class DZE_Translate {
 			) );
 		}
 		return $out;
+	}
+
+	/**
+	 * TRUE WHEN THIS MODULE ANSWERS WPML'S OWN BUTTONS.
+	 *
+	 * On by default, and a switch rather than a fact: WPML's editor is paid
+	 * for, and taking it over with no way back is not a decision a plugin
+	 * makes for a shop. Unticked, the + and the pencil go back to WPML the
+	 * moment the page is reloaded.
+	 */
+	public static function owns_buttons(): bool {
+		$s = self::get_settings();
+		return ! isset( $s['buttons'] ) || ! empty( $s['buttons'] );
+	}
+
+	/** The object behind a row of WPML's Languages column, or [] when we pass. */
+	private static function button_obj( int $post_id ): array {
+		if ( ! $post_id || ! self::owns_buttons() ) {
+			return [];
+		}
+		$type = (string) get_post_type( $post_id );
+		if ( '' === $type ) {
+			return [];
+		}
+		// Only what this shop has ticked. Anything else is WPML's to handle,
+		// and sending it to a screen with nothing to show would be worse than
+		// leaving the button alone.
+		if ( ! isset( self::picked_scope()[ 'post:' . $type ] ) ) {
+			return [];
+		}
+		return [ 'kind' => 'post', 'id' => $post_id, 'type' => $type ];
+	}
+
+	/**
+	 * Where WPML's + and pencil go. Same icon, same column, same colours —
+	 * only the destination changes, so nothing new has to be learnt.
+	 *
+	 * @param string $link    Where WPML was going to send it.
+	 * @param int    $post_id The row.
+	 * @param string $lang    The language of the flag pressed.
+	 * @return string
+	 */
+	public function wpml_link( $link, $post_id, $lang = '', $trid = 0, $css_class = '', $status = null ) {
+		if ( ! self::ours_to_answer( (int) $post_id, (string) $lang, $status ) ) {
+			return $link;
+		}
+		return self::editor_url( self::button_obj( (int) $post_id ), (string) $lang );
+	}
+
+	/**
+	 * WHICH OF WPML'S BUTTONS THIS MODULE ANSWERS, and which it keeps its
+	 * hands off.
+	 *
+	 * Only the ones that mean TRANSLATE: the + of a language with nothing in
+	 * it, and the arrows of one the original has moved past. The green pencil
+	 * of a finished translation means EDIT THIS POST, and taking that over
+	 * left the shop with no way at all to open a translated product — which is
+	 * exactly what happened the first afternoon this shipped.
+	 *
+	 * @param int|string|null $status WPML's own status for that language.
+	 */
+	private static function ours_to_answer( int $post_id, string $lang, $status ): bool {
+		if ( '' === $lang ) {
+			return false;
+		}
+		$o = self::button_obj( $post_id );
+		if ( ! $o || ! isset( self::obj_targets( $o )[ $lang ] ) ) {
+			return false;
+		}
+		// Unknown status: WPML did not say, so it keeps its own link. Guessing
+		// here is how the pencil got taken over in the first place.
+		if ( null === $status || '' === $status ) {
+			return false;
+		}
+		$missing = defined( 'ICL_TM_NOT_TRANSLATED' ) ? (int) ICL_TM_NOT_TRANSLATED : 0;
+		$behind  = defined( 'ICL_TM_NEEDS_UPDATE' ) ? (int) ICL_TM_NEEDS_UPDATE : 3;
+		return in_array( (int) $status, [ $missing, $behind ], true );
+	}
+
+	/** The tooltip, saying what will actually happen rather than WPML's words. */
+	public function wpml_text( $text, $post_id, $lang = '', $trid = 0, $css_class = '', $status = null ) {
+		if ( ! self::ours_to_answer( (int) $post_id, (string) $lang, $status ) ) {
+			return $text;
+		}
+		$behind = defined( 'ICL_TM_NEEDS_UPDATE' ) ? (int) ICL_TM_NEEDS_UPDATE : 3;
+		// WPML's own two words, plus whose they are. One label for three
+		// different buttons said nothing about which one was being pressed.
+		return (int) $status === $behind
+			? __( 'Update this translation with Dazont Ecom', 'dazont-ecom' )
+			: __( 'Add this translation with Dazont Ecom', 'dazont-ecom' );
 	}
 
 	/** The shipped instructions. Empty in settings = these. */
@@ -290,6 +405,39 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * THE SAME QUESTION, ASKED FOR A TERM.
+	 *
+	 * WPML keeps two lists, not one: `custom_fields_translation` for posts and
+	 * `custom_term_fields_translation` for terms. This module read the first
+	 * and had no idea the second existed, so a category's SEO title and
+	 * description — which WPML is explicitly set to translate on this shop —
+	 * were never once offered. "Pourquoi pas de rank math seo title et
+	 * description traduis ? Tu as encore oublié plein de champs." Because the
+	 * list was half read.
+	 *
+	 * @return string[] The term meta keys WPML says to translate.
+	 */
+	public static function wpml_term_text_keys(): array {
+		if ( ! class_exists( 'DZE_Wpml' ) ) {
+			return [];
+		}
+		$map = (array) ( DZE_Wpml::settings()['translation-management']['custom_term_fields_translation'] ?? [] );
+		$out = [];
+		foreach ( $map as $key => $mode ) {
+			$key = (string) $key;
+			if ( '' === $key || 2 !== (int) $mode ) {
+				continue;
+			}
+			// A field of this plugin's own is never customer copy.
+			if ( 0 === strpos( $key, '_dze_' ) ) {
+				continue;
+			}
+			$out[] = $key;
+		}
+		return $out;
+	}
+
+	/**
 	 * IS THIS VALUE WORDS? A custom field is not always a line of text: it can
 	 * be a number, a date, a URL, a serialized array, a page builder's JSON or
 	 * an ACF field reference — none of which has a translation.
@@ -342,7 +490,31 @@ final class DZE_Translate {
 	 */
 	public static function extra_fields( array $o ): array {
 		$out = [];
-		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) ) {
+		if ( ! $o ) {
+			return $out;
+		}
+		// A TERM HAS CUSTOM FIELDS TOO, and WPML keeps a separate list for them.
+		if ( 'term' === ( $o['kind'] ?? '' ) ) {
+			$keys = self::wpml_term_text_keys();
+			if ( ! $keys ) {
+				return $out;
+			}
+			$all = (array) get_term_meta( (int) $o['id'] );
+			foreach ( $keys as $key ) {
+				$raw = $all[ $key ] ?? null;
+				$v   = is_array( $raw ) ? reset( $raw ) : $raw;
+				if ( ! self::is_text( $v ) ) {
+					continue;
+				}
+				$out[ 'meta:' . $key ] = [
+					'label' => self::key_label( $key ),
+					'key'   => $key,
+					'html'  => self::looks_html( (string) $v ),
+				];
+			}
+			return $out;
+		}
+		if ( 'post' !== ( $o['kind'] ?? '' ) ) {
 			return $out;
 		}
 		$keys = self::wpml_text_keys();
@@ -622,28 +794,190 @@ final class DZE_Translate {
 	 * @return array<string,array{label:string,vid:int}> field id => the variation
 	 */
 	public static function variation_fields( array $o ): array {
+		// A VARIATION'S DESCRIPTION IS NOT THIS MODULE'S BUSINESS.
+		//
+		// "On ne veut pas traduire les descriptions de variation, normalement
+		// c'est réglé comme ça dans WPML." It is: WPML decides, per field,
+		// what travels to a translation, and a shop that has told it to leave
+		// variation descriptions alone has already answered the question. This
+		// module offering them anyway put ten empty boxes on the screen, each
+		// labelled "words have moved since the last translation", for text
+		// nobody intends to write.
+		//
+		// The variations are still COUNTED — see `variation_tally()` — so the
+		// screen can say they exist and that there is nothing of theirs to do.
+		// Saying nothing is what made a working module look broken.
+		return [];
+	}
+
+	/**
+	 * THE ATTRIBUTE VALUES THIS PRODUCT WEARS, as objects of their own.
+	 *
+	 * A size or a colour is a TERM, shared by every product wearing it, so it
+	 * is not a field of the product: translating one from here changes it
+	 * everywhere it is used, and the screen says so rather than pretending
+	 * otherwise. Until now the only way in was the batch list — hunting one
+	 * term among a taxonomy's hundreds, with nothing saying which product
+	 * needed it — so a product could read "up to date" while the words a
+	 * customer actually picks from were still in English.
+	 *
+	 * Read with a plain query on purpose: `get_terms()` and `wp_get_post_terms()`
+	 * are filtered by WPML to the CURRENT language, which on this screen is the
+	 * wrong one — it would answer with the translations and never the source.
+	 *
+	 * Local attributes (free text in `_product_attributes`) are deliberately
+	 * absent: WooCommerce keeps those on the product itself, where WPML copies
+	 * them with the rest of it.
+	 *
+	 * @return array<string,array{obj:array,tax:string,tax_label:string,name:string}>
+	 */
+	public static function attribute_objects( array $o ): array {
 		$out = [];
 		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) || 'product' !== ( $o['type'] ?? '' ) ) {
 			return $out;
 		}
-		if ( ! function_exists( 'get_children' ) ) {
+		// The taxonomies to ask about are the site's OWN attribute list, taken
+		// from the scope. Asking for `pa_%` instead would be a guess at a naming
+		// convention, and would sweep in an attribute this site has chosen not
+		// to translate.
+		$scope = self::scope();
+		$taxes = [];
+		foreach ( $scope as $row ) {
+			if ( 'term' === ( $row['kind'] ?? '' ) && ! empty( $row['attr'] ) ) {
+				$taxes[] = (string) $row['type'];
+			}
+		}
+		if ( ! $taxes ) {
 			return $out;
 		}
-		$kids = (array) get_children( [
+		global $wpdb;
+		$slots = implode( ', ', array_fill( 0, count( $taxes ), '%s' ) );
+		$rows  = $wpdb->get_results(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $slots is a list of placeholders.
+				"SELECT tt.taxonomy, t.term_id, t.name
+				   FROM {$wpdb->term_relationships} tr
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				   JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+				  WHERE tr.object_id = %d AND tt.taxonomy IN ( {$slots} )
+				  ORDER BY tt.taxonomy, t.name",
+				array_merge( [ (int) $o['id'] ], $taxes )
+			)
+		); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		foreach ( (array) $rows as $row ) {
+			$tax = (string) $row->taxonomy;
+			if ( ! isset( $scope[ 'term:' . $tax ] ) ) {
+				continue; // a taxonomy this site does not translate is not a decision.
+			}
+			$tid = (int) $row->term_id;
+			$out[ 'term:' . $tax . ':' . $tid ] = [
+				'obj'       => [ 'kind' => 'term', 'id' => $tid, 'type' => $tax ],
+				'tax'       => $tax,
+				'tax_label' => (string) ( $scope[ 'term:' . $tax ]['label'] ?? $tax ),
+				'name'      => (string) $row->name,
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * HOW MANY VARIATIONS THIS PRODUCT HAS, and how many hold words.
+	 *
+	 * `variation_fields()` answers with the ones that hold a description,
+	 * which is the only thing about a variation there is to translate. On a
+	 * product whose variations carry none it therefore answers with nothing —
+	 * correct, and indistinguishable on screen from a module that forgot
+	 * them. This is what lets the screen say which of the two it is.
+	 *
+	 * @return array{total:int,with_text:int}
+	 */
+	/**
+	 * THE VARIATIONS, ONE ROW EACH, AND WHETHER THE TRANSLATION HAS THEM.
+	 *
+	 * "Je n'aime pas trop comment tu as fait c'est caché dans un petit texte.
+	 * On ne lit jamais ces textes." Right, and WPML does not do that either:
+	 * its own editor gives variations a section of their own, one group per
+	 * variation. A sentence is what you write when you have nothing to show.
+	 *
+	 * There IS something to show, and it is the thing that broke: a translated
+	 * variable product whose variations were never built has no options to
+	 * pick from, so its page says the product is unavailable while every
+	 * screen in the admin says the translation is finished. That question —
+	 * is this variation there, in this language — is what the rows answer.
+	 *
+	 * @return array<int,array{id:int,label:string,target:int,price:string}>
+	 */
+	public static function variation_rows( array $o, string $lang ): array {
+		$out = [];
+		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) || 'product' !== ( $o['type'] ?? '' ) ) {
+			return $out;
+		}
+		if ( ! function_exists( 'get_children' ) || ! function_exists( 'wc_get_product' ) ) {
+			return $out;
+		}
+		foreach ( (array) get_children( [
 			'post_parent' => (int) $o['id'],
 			'post_type'   => 'product_variation',
 			'post_status' => [ 'publish', 'private' ],
-			'numberposts' => 100,
+			'numberposts' => 200,
 			'orderby'     => 'menu_order',
 			'order'       => 'ASC',
-		] );
-		foreach ( $kids as $kid ) {
-			$vid  = (int) ( is_object( $kid ) ? $kid->ID : 0 );
-			$text = trim( (string) ( is_object( $kid ) ? $kid->post_excerpt : '' ) );
-			if ( ! $vid || '' === $text ) {
+		] ) as $kid ) {
+			$vid = (int) ( is_object( $kid ) ? $kid->ID : 0 );
+			if ( ! $vid ) {
 				continue;
 			}
-			$out[ 'var:' . $vid ] = [ 'label' => self::variation_label( $vid ), 'vid' => $vid ];
+			$tid = '' !== $lang
+				? (int) apply_filters( 'wpml_object_id', $vid, 'product_variation', false, $lang )
+				: 0;
+			// `wc_get_product()` answers false for a product that is not there,
+			// and a filter may hand back something else entirely. A price is
+			// asked for only where there is something to ask.
+			$got = ( $tid && $tid !== $vid ) ? wc_get_product( $tid ) : null;
+			$has = is_object( $got ) && method_exists( $got, 'get_price' );
+			$out[] = [
+				'id'     => $vid,
+				'label'  => self::variation_label( $vid ),
+				'target' => ( $tid && $tid !== $vid ) ? $tid : 0,
+				'price'  => $has ? (string) $got->get_price() : '',
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * WHAT WPML DOES WITH A VARIATION'S OWN DESCRIPTION, in its own words.
+	 *
+	 * 0 = leave it alone, 1 = copy it across, 2 = translate it. Read rather
+	 * than assumed: this screen has no business asserting a setting that lives
+	 * one plugin over, and a shop that changes it should see the change here.
+	 */
+	public static function variation_desc_rule(): int {
+		$s = get_option( 'icl_sitepress_settings' );
+		$f = $s['translation-management']['custom_fields_translation'] ?? [];
+		return isset( $f['_variation_description'] ) ? (int) $f['_variation_description'] : 0;
+	}
+	public static function variation_tally( array $o ): array {
+		$out = [ 'total' => 0, 'with_text' => 0 ];
+		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) || 'product' !== ( $o['type'] ?? '' ) ) {
+			return $out;
+		}
+		$out['total'] = self::variation_count( (int) $o['id'] );
+		if ( ! $out['total'] || ! function_exists( 'get_children' ) ) {
+			return $out;
+		}
+		// Counted here rather than taken from `variation_fields()`, which now
+		// answers with nothing on purpose. The figure is only ever said on
+		// screen, never acted on.
+		foreach ( (array) get_children( [
+			'post_parent' => (int) $o['id'],
+			'post_type'   => 'product_variation',
+			'post_status' => [ 'publish', 'private' ],
+			'numberposts' => 200,
+		] ) as $kid ) {
+			if ( is_object( $kid ) && '' !== trim( (string) $kid->post_excerpt ) ) {
+				$out['with_text']++;
+			}
 		}
 		return $out;
 	}
@@ -693,10 +1027,263 @@ final class DZE_Translate {
 		foreach ( self::extra_fields( $o ) as $fid => $f ) {
 			$out[ $fid ] = (string) $f['label'];
 		}
+		foreach ( self::elementor_fields( $o ) as $fid => $f ) {
+			$out[ $fid ] = (string) $f['label'];
+		}
 		foreach ( self::variation_fields( $o ) as $fid => $f ) {
 			$out[ $fid ] = (string) $f['label'];
 		}
 		return $out;
+	}
+
+	/**
+	 * WHICH PANEL A FIELD BELONGS IN.
+	 *
+	 * "La tienne est très brute. Regardes peut être comment WPML présente ça."
+	 * WPML's own editor does not print one long table: it prints WordPress
+	 * panels, one per kind of thing, and that is why it reads as part of the
+	 * admin rather than as a plugin's own furniture. Twelve rows of equal
+	 * weight say nothing about what matters; four named panels do.
+	 *
+	 * The order of the panels is the order a shop thinks in — what the
+	 * customer reads first, then what Google reads, then the rest.
+	 *
+	 * @return array<string,array{label:string,fields:string[]}>
+	 */
+	public static function field_groups(): array {
+		return [
+			'main' => [
+				'label'  => __( 'What the customer reads', 'dazont-ecom' ),
+				'fields' => [ 'title', 'content', 'excerpt', 'name', 'description' ],
+			],
+			'seo'  => [
+				'label'  => __( 'Search engines', 'dazont-ecom' ),
+				'fields' => [ 'seo_title', 'seo_desc' ],
+			],
+			'block' => [
+				'label'  => __( 'Content blocks', 'dazont-ecom' ),
+				'fields' => [ 'block_text_1', 'block_text_2' ],
+			],
+		];
+	}
+
+	/** The panel a field sits in, 'other' for anything the list does not name. */
+	public static function field_group( string $fid ): string {
+		foreach ( self::field_groups() as $key => $g ) {
+			if ( in_array( $fid, (array) $g['fields'], true ) ) {
+				return $key;
+			}
+		}
+		return 'other';
+	}
+
+	/**
+	 * THE WIDGET SETTINGS ELEMENTOR ACTUALLY SHOWS, as fields of their own.
+	 *
+	 * A page built with Elementor does not display `post_content`: it displays
+	 * `_elementor_data`, a tree of widgets whose words live in their settings.
+	 * The post content beside it is a flattened copy kept for search engines.
+	 * So translating `content` on such a page translated something nobody
+	 * reads, and the page itself came out in English — which is exactly what a
+	 * shop sees when it presses Translate on a landing page and nothing
+	 * happens.
+	 *
+	 * Only the settings that ARE words are offered: a colour, a size, an id or
+	 * a URL is not a translation. `is_text()` decides, as everywhere else.
+	 *
+	 * @return array<string,array{label:string,path:string,html:bool}>
+	 */
+	public static function elementor_fields( array $o ): array {
+		$out = [];
+		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) ) {
+			return $out;
+		}
+		$raw = get_post_meta( (int) $o['id'], '_elementor_data', true );
+		$tree = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		if ( ! is_array( $tree ) || ! $tree ) {
+			return $out;
+		}
+		// The settings a widget keeps its words in. Written down rather than
+		// guessed: a widget has dozens of settings and all but a handful are
+		// numbers, colours and switches.
+		$words = [ 'title', 'editor', 'text', 'description', 'heading_title', 'sub_title',
+			'button_text', 'caption', 'alt_text', 'placeholder', 'before_text', 'after_text',
+			'highlighted_text', 'rotating_text', 'shortcode', 'tab_title', 'tab_content' ];
+		$walk = static function ( array $els, string $trail ) use ( &$walk, &$out, $words ): void {
+			foreach ( $els as $i => $el ) {
+				$id = (string) ( $el['id'] ?? $i );
+				$s  = isset( $el['settings'] ) && is_array( $el['settings'] ) ? $el['settings'] : [];
+				foreach ( $words as $key ) {
+					if ( ! isset( $s[ $key ] ) || ! is_string( $s[ $key ] ) ) {
+						continue;
+					}
+					$v = trim( $s[ $key ] );
+					// A shortcode is a call, not a sentence: translating
+					// `[products on_sale="true"]` breaks the page it sits on.
+					if ( '' === $v || 'shortcode' === $key || ! self::is_text( $v ) ) {
+						continue;
+					}
+					$out[ 'el:' . $id . ':' . $key ] = [
+						'label' => sprintf(
+							/* translators: 1: the widget, 2: the setting */
+							__( 'Elementor · %1$s · %2$s', 'dazont-ecom' ),
+							(string) ( $el['widgetType'] ?? $el['elType'] ?? 'element' ),
+							self::key_label( $key )
+						),
+						'path' => $id . ':' . $key,
+						'html' => self::looks_html( $v ),
+					];
+				}
+				// Repeaters: the lists a widget repeats, whose rows hold words.
+				foreach ( [ 'icon_list', 'tabs', 'slides', 'items' ] as $rep ) {
+					if ( empty( $s[ $rep ] ) || ! is_array( $s[ $rep ] ) ) {
+						continue;
+					}
+					foreach ( $s[ $rep ] as $n => $row ) {
+						if ( ! is_array( $row ) ) {
+							continue;
+						}
+						foreach ( $words as $key ) {
+							if ( ! isset( $row[ $key ] ) || ! is_string( $row[ $key ] ) ) {
+								continue;
+							}
+							$v = trim( $row[ $key ] );
+							if ( '' === $v || ! self::is_text( $v ) ) {
+								continue;
+							}
+							$out[ 'el:' . $id . ':' . $rep . '.' . $n . '.' . $key ] = [
+								'label' => sprintf(
+									/* translators: 1: the widget, 2: the row, 3: the setting */
+									__( 'Elementor · %1$s · row %2$d · %3$s', 'dazont-ecom' ),
+									(string) ( $el['widgetType'] ?? 'list' ),
+									(int) $n + 1,
+									self::key_label( $key )
+								),
+								'path' => $id . ':' . $rep . '.' . $n . '.' . $key,
+								'html' => self::looks_html( $v ),
+							];
+						}
+					}
+				}
+				if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+					$walk( $el['elements'], $trail );
+				}
+			}
+		};
+		$walk( $tree, '' );
+		return $out;
+	}
+
+	/** One widget setting, read from the tree. */
+	public static function elementor_get( int $pid, string $path ): string {
+		$raw  = get_post_meta( $pid, '_elementor_data', true );
+		$tree = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		if ( ! is_array( $tree ) ) {
+			return '';
+		}
+		$found = '';
+		$walk  = static function ( array $els ) use ( &$walk, $path, &$found ): void {
+			[ $want, $key ] = array_pad( explode( ':', $path, 2 ), 2, '' );
+			foreach ( $els as $el ) {
+				if ( (string) ( $el['id'] ?? '' ) === $want ) {
+					$s = isset( $el['settings'] ) && is_array( $el['settings'] ) ? $el['settings'] : [];
+					if ( false === strpos( $key, '.' ) ) {
+						$found = isset( $s[ $key ] ) && is_string( $s[ $key ] ) ? $s[ $key ] : '';
+					} else {
+						[ $rep, $n, $sub ] = array_pad( explode( '.', $key, 3 ), 3, '' );
+						$found = isset( $s[ $rep ][ (int) $n ][ $sub ] ) && is_string( $s[ $rep ][ (int) $n ][ $sub ] )
+							? $s[ $rep ][ (int) $n ][ $sub ] : '';
+					}
+					return;
+				}
+				if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+					$walk( $el['elements'] );
+					if ( '' !== $found ) {
+						return;
+					}
+				}
+			}
+		};
+		$walk( $tree );
+		return $found;
+	}
+
+	/**
+	 * Writes widget settings back into a translation's own Elementor tree.
+	 *
+	 * @param array<string,string> $values path => text
+	 */
+	public static function elementor_put( int $pid, array $values ): bool {
+		if ( ! $pid || ! $values ) {
+			return false;
+		}
+		$raw  = get_post_meta( $pid, '_elementor_data', true );
+		$tree = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		if ( ! is_array( $tree ) || ! $tree ) {
+			return false;
+		}
+		$done = 0;
+		$walk = static function ( array &$els ) use ( &$walk, $values, &$done ): void {
+			foreach ( $els as &$el ) {
+				$id = (string) ( $el['id'] ?? '' );
+				foreach ( $values as $path => $text ) {
+					[ $want, $key ] = array_pad( explode( ':', (string) $path, 2 ), 2, '' );
+					if ( $want !== $id || '' === $key ) {
+						continue;
+					}
+					if ( false === strpos( $key, '.' ) ) {
+						$el['settings'][ $key ] = (string) $text;
+					} else {
+						[ $rep, $n, $sub ] = array_pad( explode( '.', $key, 3 ), 3, '' );
+						if ( isset( $el['settings'][ $rep ][ (int) $n ] ) ) {
+							$el['settings'][ $rep ][ (int) $n ][ $sub ] = (string) $text;
+						}
+					}
+					$done++;
+				}
+				if ( ! empty( $el['elements'] ) && is_array( $el['elements'] ) ) {
+					$walk( $el['elements'] );
+				}
+			}
+		};
+		$walk( $tree );
+		if ( ! $done ) {
+			return false;
+		}
+		update_post_meta( $pid, '_elementor_data', wp_slash( (string) wp_json_encode( $tree ) ) );
+		// Elementor serves a cached copy of the HTML it built; without this the
+		// page keeps showing the old words however correct the data now is.
+		delete_post_meta( $pid, '_elementor_element_cache' );
+		if ( class_exists( '\Elementor\Core\Files\CSS\Post' ) ) {
+			$css = new \Elementor\Core\Files\CSS\Post( $pid );
+			$css->delete();
+			$css->update();
+		}
+		return true;
+	}
+
+	/**
+	 * A TERM AS THE DATABASE HOLDS IT, with no language filter over it.
+	 *
+	 * @return array{name:string,description:string,slug:string}|null
+	 */
+	public static function term_row( int $term_id ): ?array {
+		if ( $term_id <= 0 ) {
+			return null;
+		}
+		global $wpdb;
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT t.name, t.slug, tt.description
+				   FROM {$wpdb->terms} t
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				  WHERE t.term_id = %d
+				  LIMIT 1",
+				$term_id
+			),
+			ARRAY_A
+		); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return is_array( $row ) ? $row : null;
 	}
 
 	/** @return array<string,string> field id => text, empty fields dropped. */
@@ -706,12 +1293,28 @@ final class DZE_Translate {
 		}
 		$out = [];
 		if ( 'term' === $o['kind'] ) {
-			$term = get_term( (int) $o['id'], (string) $o['type'] );
-			if ( ! $term || is_wp_error( $term ) ) {
+			// READ FROM THE TABLES, NOT THROUGH `get_term()`.
+			//
+			// WPML filters `get_term` to the CURRENT language: asking for term
+			// 7552 answers with term 2563, its English original. So this screen
+			// showed the source in the translation's place, `obj_stale()`
+			// compared the source against itself, and an undo would have put
+			// English back over a finished translation. Four term pairs tested,
+			// four wrong answers. The same trap as `get_terms()` on attributes.
+			$row = self::term_row( (int) $o['id'] );
+			if ( ! $row ) {
 				return [];
 			}
 			foreach ( self::active_fields( 'term' ) as $fid => $f ) {
-				$v = trim( (string) ( $term->{$f['key']} ?? '' ) );
+				$v = trim( (string) ( $row[ $f['key'] ] ?? '' ) );
+				if ( '' !== $v ) {
+					$out[ $fid ] = $v;
+				}
+			}
+			// AND THE TERM'S OWN CUSTOM FIELDS, which WPML keeps in a list of
+			// their own and this module never opened.
+			foreach ( self::extra_fields( $o ) as $fid => $f ) {
+				$v = trim( (string) get_term_meta( (int) $o['id'], (string) $f['key'], true ) );
 				if ( '' !== $v ) {
 					$out[ $fid ] = $v;
 				}
@@ -737,6 +1340,15 @@ final class DZE_Translate {
 		// AND EVERY CUSTOM FIELD WPML SAYS TO TRANSLATE, where it holds text.
 		foreach ( self::extra_fields( $o ) as $fid => $f ) {
 			$v = trim( (string) get_post_meta( (int) $o['id'], (string) $f['key'], true ) );
+			if ( '' !== $v ) {
+				$out[ $fid ] = $v;
+			}
+		}
+		// AND THE WORDS ELEMENTOR SHOWS, which are not in the post content at
+		// all. A page built with it displays its own tree; what sits in
+		// `post_content` beside it is a copy kept for search engines.
+		foreach ( self::elementor_fields( $o ) as $fid => $f ) {
+			$v = trim( self::elementor_get( (int) $o['id'], (string) $f['path'] ) );
 			if ( '' !== $v ) {
 				$out[ $fid ] = $v;
 			}
@@ -774,6 +1386,37 @@ final class DZE_Translate {
 		return ( $got && $got !== $id ) ? $got : 0;
 	}
 
+	/**
+	 * PUTS BACK WHAT THE LAST WRITE REPLACED.
+	 *
+	 * @return array<string,string> The fields restored, empty when there was
+	 *                              nothing to put back.
+	 */
+	public static function obj_undo( array $o, int $target_id ): array {
+		if ( ! $o || ! $target_id ) {
+			return [];
+		}
+		$raw  = self::meta_read( $o, $target_id, self::META_PREV );
+		$prev = ( is_string( $raw ) && '' !== $raw ) ? json_decode( $raw, true ) : null;
+		if ( ! is_array( $prev ) || ! $prev ) {
+			return [];
+		}
+		self::obj_write( $o, $target_id, $prev, false );
+		// Spent. An undo offered twice would put the words back a second time
+		// and say it had done something, which is a lie the second time.
+		self::meta_write( $o, $target_id, self::META_PREV, '' );
+		return $prev;
+	}
+
+	/** True when this translation still holds something to go back to. */
+	public static function can_undo( array $o, int $target_id ): bool {
+		if ( ! $o || ! $target_id ) {
+			return false;
+		}
+		$raw = self::meta_read( $o, $target_id, self::META_PREV );
+		return is_string( $raw ) && '' !== $raw && is_array( json_decode( $raw, true ) );
+	}
+
 	/** The register lives on the translation: post meta, or term meta. */
 	private static function meta_read( array $o, int $id, string $key ): string {
 		return 'term' === ( $o['kind'] ?? 'post' )
@@ -794,9 +1437,24 @@ final class DZE_Translate {
 	 *
 	 * @param array<string,string> $texts
 	 */
-	public static function obj_write( array $o, int $target_id, array $texts ): void {
+	public static function obj_write( array $o, int $target_id, array $texts, bool $remember = true ): void {
 		if ( ! $o || ! $target_id ) {
 			return;
+		}
+		// WHAT IS ABOUT TO BE REPLACED, read from the translation as it stands
+		// right now and kept whole. `$remember` is false only when an undo is
+		// putting those very words back: remembering then would file the text
+		// being thrown away as the thing to restore.
+		if ( $remember && $texts ) {
+			$was  = self::obj_read( array_merge( $o, [ 'id' => $target_id ] ) );
+			$prev = [];
+			foreach ( array_keys( $texts ) as $fid ) {
+				// A field the translation did not hold is remembered as empty,
+				// not skipped: putting it back must empty it again, or an undo
+				// leaves half of what it undid.
+				$prev[ (string) $fid ] = (string) ( $was[ $fid ] ?? '' );
+			}
+			self::meta_write( $o, $target_id, self::META_PREV, (string) wp_json_encode( $prev ) );
 		}
 		if ( 'term' === $o['kind'] ) {
 			$args = [];
@@ -810,6 +1468,21 @@ final class DZE_Translate {
 			}
 			if ( $args ) {
 				wp_update_term( $target_id, (string) $o['type'], $args );
+			}
+			// THE TERM'S OWN CUSTOM FIELDS, from WPML's term list — the SEO
+			// title and description a category carries. Written only while
+			// WPML still says to translate them: a key switched to "Copy"
+			// since the batch was made is a key the next sync overwrites.
+			foreach ( $texts as $fid => $text ) {
+				if ( 0 !== strpos( (string) $fid, 'meta:' ) ) {
+					continue;
+				}
+				$key = substr( (string) $fid, 5 );
+				if ( '' === $key || ! in_array( $key, self::wpml_term_text_keys(), true ) ) {
+					continue;
+				}
+				$text = (string) $text;
+				update_term_meta( $target_id, $key, self::looks_html( $text ) ? wp_kses_post( $text ) : sanitize_textarea_field( $text ) );
 			}
 			return;
 		}
@@ -857,6 +1530,17 @@ final class DZE_Translate {
 			}
 			$text = (string) $text;
 			update_post_meta( $target_id, $key, self::looks_html( $text ) ? wp_kses_post( $text ) : sanitize_textarea_field( $text ) );
+		}
+		// THE ELEMENTOR TREE, written in one pass rather than one call per
+		// setting: the tree is decoded, walked and saved once.
+		$el = [];
+		foreach ( $texts as $fid => $text ) {
+			if ( 0 === strpos( (string) $fid, 'el:' ) ) {
+				$el[ substr( (string) $fid, 3 ) ] = (string) $text;
+			}
+		}
+		if ( $el ) {
+			self::elementor_put( $target_id, $el );
 		}
 		if ( $post ) {
 			$post['ID'] = $target_id;
@@ -1208,6 +1892,17 @@ final class DZE_Translate {
 						<p class="description"><?php esc_html_e( 'The new translation is linked to the original, and WPML is asked to copy the fields it owns from it — on a product its price, stock and dimensions. Switch this off to work only on translations WPML has already created.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'WPML\'s own buttons', 'dazont-ecom' ); ?></th>
+					<td>
+						<input type="hidden" name="<?php echo esc_attr( self::OPT ); ?>[buttons_sent]" value="1" />
+						<label>
+							<input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[buttons]" value="1" <?php checked( self::owns_buttons() ); ?> />
+							<?php esc_html_e( 'The + and the pencil in the Languages column open this module', 'dazont-ecom' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'One habit instead of two: you keep pressing where you already press, and this module answers instead of WPML\'s editor — on the kinds of content ticked above, and on nothing else. Switch it off and the buttons go back to WPML on the next page load.', 'dazont-ecom' ); ?></p>
+					</td>
+				</tr>
 			</table>
 			<?php submit_button( __( 'Save Changes', 'dazont-ecom' ) ); ?>
 		</form>
@@ -1262,6 +1957,7 @@ final class DZE_Translate {
 	// =========================================================================
 	// Reading a product
 	// =========================================================================
+
 
 	/** @return array<string,string> field id => text, empty fields dropped. */
 	public static function read( int $pid ): array {
@@ -1493,7 +2189,7 @@ final class DZE_Translate {
 	 *
 	 * @return array{langs:array<string,array<string,string>>,skipped:string[],errors:array<string,string>,cost:bool}
 	 */
-	public static function produce( array $o, array $langs ): array {
+	public static function produce( array $o, array $langs, bool $all = false ): array {
 		$out     = [ 'langs' => [], 'skipped' => [], 'errors' => [], 'cost' => false ];
 		if ( ! $o ) {
 			return $out;
@@ -1522,9 +2218,20 @@ final class DZE_Translate {
 			// module exists beside WPML's own automatic translation. A mark
 			// raised because a category was renamed sends nothing at all, and
 			// is closed on the spot.
-			$texts = self::obj_stale( $o, $lang );
+			// $all IS FOR JUDGING THE TRANSLATOR, NOT THE TEXT. Changing the
+			// model, the instructions or the glossary changes nothing about the
+			// ORIGINAL, so the register is right to say nothing moved and the
+			// screen would answer "nothing was sent" for ever. Asked for
+			// everything, it sends everything and pays for everything — which
+			// is why it is a second button and never the default.
+			$texts = $all ? self::obj_read( $o ) : self::obj_stale( $o, $lang );
 			if ( ! $texts ) {
-				self::obj_settle( $o, $lang );
+				// Nothing to send. Only the ordinary run may call that settled:
+				// an empty answer to "translate everything" means the original
+				// holds no text at all, which settles nothing.
+				if ( ! $all ) {
+					self::obj_settle( $o, $lang );
+				}
 				$out['skipped'][] = $lang;
 				continue;
 			}
@@ -1847,15 +2554,26 @@ final class DZE_Translate {
 	// =========================================================================
 
 	/**
-	 * One call per language, every field in the same request.
+	 * A long text is translated in pieces and put back together.
 	 *
-	 * Field by field would multiply the calls and lose the consistency between
-	 * a title and the description under it — the same words have to be chosen
-	 * in both.
+	 * The model answers in ONE reply, and that reply has a ceiling. A product
+	 * description of 3,000 words asks for more room than the ceiling allows, so
+	 * the JSON came back cut in half and the whole object failed with "the
+	 * model did not answer with the expected format" — the longest texts, the
+	 * ones worth the most, were the ones that never translated.
 	 *
-	 * @param array<string,string> $texts
-	 * @return array<string,string>
+	 * So the work is cut to a size the model can finish. Short fields still
+	 * travel together, because a title and the description under it have to
+	 * choose the same words. A field too long to travel with anything is cut on
+	 * paragraph boundaries — never inside a tag — and its pieces are rejoined
+	 * in order, which gives back the original text exactly when nothing is
+	 * translated at all.
 	 */
+	private const CHUNK = 6000;
+
+	/** How a piece of a field is named while it travels. */
+	private const PART = '~p';
+
 	public static function translate( array $texts, string $lang_code, string $kind = 'post', array $names = [] ): array {
 		if ( ! $texts ) {
 			return [];
@@ -1871,14 +2589,195 @@ final class DZE_Translate {
 				$names[ $fid ] = (string) $f['label'];
 			}
 		}
+
+		$jobs  = [];
+		$parts = [];
+		$batch = [];
+		$len   = 0;
+		foreach ( $texts as $fid => $v ) {
+			$v = (string) $v;
+			$l = mb_strlen( $v );
+			if ( $l > self::CHUNK ) {
+				if ( $batch ) {
+					$jobs[] = $batch;
+					$batch  = [];
+					$len    = 0;
+				}
+				$pieces        = self::split_text( $v, self::CHUNK );
+				$parts[ $fid ] = count( $pieces );
+				foreach ( $pieces as $n => $piece ) {
+					$key           = $fid . self::PART . $n;
+					$names[ $key ] = sprintf(
+						/* translators: 1: the field's name, 2: which piece, 3: how many pieces */
+						__( '%1$s — part %2$d of %3$d', 'dazont-ecom' ),
+						$names[ $fid ] ?? $fid,
+						$n + 1,
+						count( $pieces )
+					);
+					$jobs[] = [ $key => $piece ];
+				}
+				continue;
+			}
+			if ( $batch && $len + $l > self::CHUNK ) {
+				$jobs[] = $batch;
+				$batch  = [];
+				$len    = 0;
+			}
+			$batch[ $fid ] = $v;
+			$len          += $l;
+		}
+		if ( $batch ) {
+			$jobs[] = $batch;
+		}
+
+		$bag = [];
+		foreach ( $jobs as $job ) {
+			foreach ( self::translate_batch( $job, $lang_code, $names ) as $k => $v ) {
+				$bag[ $k ] = $v;
+			}
+		}
+		// A PIECE THAT DID NOT COME BACK IS ASKED FOR AGAIN, once. Half a
+		// description is worse than none: the rest of the object translates and
+		// this one field stays as it was, which the screen already shows.
+		foreach ( $parts as $fid => $n ) {
+			for ( $k = 0; $k < $n; $k++ ) {
+				$key = $fid . self::PART . $k;
+				if ( '' !== trim( (string) ( $bag[ $key ] ?? '' ) ) ) {
+					continue;
+				}
+				$piece = self::split_text( (string) $texts[ $fid ], self::CHUNK )[ $k ] ?? '';
+				if ( '' === $piece ) {
+					continue;
+				}
+				$again = self::translate_batch( [ $key => $piece ], $lang_code, $names );
+				if ( isset( $again[ $key ] ) ) {
+					$bag[ $key ] = $again[ $key ];
+				}
+			}
+		}
+		DZE_Ai_Usage::finished( 'translate' );
+
+		$out = [];
+		foreach ( $texts as $fid => $_ ) {
+			if ( isset( $parts[ $fid ] ) ) {
+				$whole = '';
+				for ( $k = 0; $k < $parts[ $fid ]; $k++ ) {
+					$piece = (string) ( $bag[ $fid . self::PART . $k ] ?? '' );
+					if ( '' === trim( $piece ) ) {
+						$whole = '';
+						break;
+					}
+					$whole .= $piece;
+				}
+				if ( '' !== trim( $whole ) ) {
+					$out[ $fid ] = $whole;
+				}
+				continue;
+			}
+			$v = isset( $bag[ $fid ] ) ? (string) $bag[ $fid ] : '';
+			if ( '' !== trim( $v ) ) {
+				$out[ $fid ] = $v;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Cuts a text into pieces of at most $max characters.
+	 *
+	 * The cuts land after a closing block, a block comment or a blank line, so
+	 * a piece is never half a tag and Gutenberg's own `<!-- wp:… -->` markers
+	 * stay whole. The pieces put end to end are the text that came in, to the
+	 * character — that is what lets the translation be rejoined.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function split_text( string $text, int $max ): array {
+		if ( $max < 1 || mb_strlen( $text ) <= $max ) {
+			return [ $text ];
+		}
+		$bits = preg_split(
+			'#(?<=</p>|</h1>|</h2>|</h3>|</h4>|</h5>|</h6>|</ul>|</ol>|</li>|</table>|</blockquote>|</div>|-->|\n\n)#u',
+			$text,
+			-1,
+			PREG_SPLIT_NO_EMPTY
+		);
+		if ( ! $bits ) {
+			$bits = [ $text ];
+		}
+		// A single paragraph longer than the ceiling is cut at a full stop, and
+		// failing that at the ceiling itself: a text that never breathes still
+		// has to travel.
+		$fine = [];
+		foreach ( $bits as $bit ) {
+			if ( mb_strlen( $bit ) <= $max ) {
+				$fine[] = $bit;
+				continue;
+			}
+			// A ZERO-WIDTH CUT. Splitting ON the space between sentences ate it,
+			// and the pieces no longer added up to the text that came in.
+			$sent = preg_split( '/(?<=[.!?])(?=\s)/u', $bit, -1, PREG_SPLIT_NO_EMPTY );
+			$run  = '';
+			foreach ( (array) $sent as $s ) {
+				if ( '' !== $run && mb_strlen( $run ) + mb_strlen( $s ) > $max ) {
+					$fine[] = $run;
+					$run    = '';
+				}
+				$run .= $s;
+				while ( mb_strlen( $run ) > $max ) {
+					$fine[] = mb_substr( $run, 0, $max );
+					$run    = mb_substr( $run, $max );
+				}
+			}
+			if ( '' !== $run ) {
+				$fine[] = $run;
+			}
+		}
+		$out = [];
+		$run = '';
+		foreach ( $fine as $bit ) {
+			if ( '' !== $run && mb_strlen( $run ) + mb_strlen( $bit ) > $max ) {
+				$out[] = $run;
+				$run   = '';
+			}
+			$run .= $bit;
+		}
+		if ( '' !== $run ) {
+			$out[] = $run;
+		}
+		return $out ? $out : [ $text ];
+	}
+
+	/**
+	 * One call: every field it is given, in the same request.
+	 *
+	 * Field by field would multiply the calls and lose the consistency between
+	 * a title and the description under it — the same words have to be chosen
+	 * in both.
+	 *
+	 * @param array<string,string> $texts
+	 * @param array<string,string> $names
+	 * @return array<string,string>
+	 */
+	private static function translate_batch( array $texts, string $lang_code, array $names ): array {
+		if ( ! $texts ) {
+			return [];
+		}
 		$lines = [];
+		$cut   = false;
 		foreach ( $texts as $fid => $v ) {
 			$lines[] = '### ' . $fid . ' (' . ( $names[ $fid ] ?? $fid ) . ")\n" . $v;
+			$cut     = $cut || false !== strpos( (string) $fid, self::PART );
 		}
 		$glossary = self::glossary();
 		$system   = self::prompt()
 			. "\n\nTarget language: " . self::language_name( $lang_code ) . '.'
 			. ( $glossary ? "\n\nNever translate these terms, reproduce them exactly:\n- " . implode( "\n- ", $glossary ) : '' )
+			// A PIECE IS TRANSLATED AS A PIECE. It may open mid-thought and
+			// stop mid-thought; finishing it off, or opening it with a fresh
+			// introduction, is what breaks a text back into shape wrongly when
+			// the pieces are put end to end.
+			. ( $cut ? "\n\nA field marked \"part N of M\" is one slice of a longer text. Translate exactly what is there: do not finish an unfinished sentence, do not add an opening or a conclusion, do not repeat anything. Keep the leading and trailing spaces and line breaks as they are." : '' )
 			. "\n\nAnswer with STRICT JSON only: an object whose keys are the field ids given to you"
 			. ' and whose values are the translated texts. No commentary, no code fence.';
 
@@ -1893,16 +2792,39 @@ final class DZE_Translate {
 		} finally {
 			DZE_Ai_Usage::unit();
 		}
-		DZE_Ai_Usage::finished( 'translate' );
 
 		$json = trim( (string) preg_replace( '/^```(?:json)?|```$/m', '', $raw ) );
 		$rows = json_decode( $json, true );
 		if ( ! is_array( $rows ) ) {
 			throw new RuntimeException( __( 'The model did not answer with the expected format.', 'dazont-ecom' ) );
 		}
+		// THE KEY IS THE FIELD ID, WHATEVER SHAPE IT COMES BACK IN.
+		//
+		// Each field travels as `### post:content (Article body)` — the id for
+		// us, the name for the model. Handed that, a model answers now and
+		// again with the WHOLE line as the key, parenthesis and all, and every
+		// word it translated was thrown away for a mismatch it could not know
+		// it had made: a 1,600-word article came back in four pieces, three
+		// matched, one did not, and the field was dropped whole.
+		$by = [];
+		foreach ( (array) $rows as $k => $v ) {
+			if ( ! is_string( $v ) ) {
+				continue;
+			}
+			$by[ (string) $k ] = $v;
+			$bare = trim( (string) preg_replace( '/\s*\(.*$/s', '', (string) $k ) );
+			if ( '' !== $bare && ! isset( $by[ $bare ] ) ) {
+				$by[ $bare ] = $v;
+			}
+		}
 		$out = [];
 		foreach ( $texts as $fid => $_ ) {
-			$v = isset( $rows[ $fid ] ) ? (string) $rows[ $fid ] : '';
+			$v = isset( $by[ $fid ] ) ? (string) $by[ $fid ] : '';
+			// One field asked for, one text back: there is nothing to confuse
+			// it with, whatever the key says.
+			if ( '' === trim( $v ) && 1 === count( $texts ) && 1 === count( (array) $rows ) ) {
+				$v = (string) reset( $by );
+			}
 			if ( '' !== trim( $v ) ) {
 				$out[ $fid ] = $v;
 			}
@@ -2093,11 +3015,38 @@ final class DZE_Translate {
 	 *
 	 * @return string What was actually done: '' when WCML could not be asked.
 	 */
+	/**
+	 * WooCommerce Multilingual, however this installation hands it over.
+	 *
+	 * `wcml_get_woocommerce_wpml()` IS NOT THERE on every WCML — it is absent
+	 * from the one running on this shop — and the whole of `sync_product()`
+	 * used to sit behind a `function_exists()` on it. So it returned '' every
+	 * single time, on every product, and the careful work below it had never
+	 * once run: a translation was born with its text and no variations, and
+	 * its page said the product was unavailable.
+	 *
+	 * The global is what WCML has always set, so it is asked first and the
+	 * function is the fallback, not the gate.
+	 */
+	private static function wcml(): ?object {
+		global $woocommerce_wpml;
+		if ( is_object( $woocommerce_wpml ) ) {
+			return $woocommerce_wpml;
+		}
+		if ( function_exists( 'wcml_get_woocommerce_wpml' ) ) {
+			$got = wcml_get_woocommerce_wpml();
+			if ( is_object( $got ) ) {
+				return $got;
+			}
+		}
+		return null;
+	}
+
 	public static function sync_product( int $pid, int $new_id, string $lang ): string {
-		if ( ! $pid || ! $new_id || '' === $lang || ! function_exists( 'wcml_get_woocommerce_wpml' ) ) {
+		if ( ! $pid || ! $new_id || '' === $lang ) {
 			return '';
 		}
-		$wcml = wcml_get_woocommerce_wpml();
+		$wcml = self::wcml();
 		if ( ! is_object( $wcml ) ) {
 			return '';
 		}
@@ -2202,7 +3151,9 @@ final class DZE_Translate {
 		if ( ! $langs ) {
 			wp_send_json_error( [ 'message' => __( 'No language was chosen.', 'dazont-ecom' ) ] );
 		}
-		$made = self::produce( $o, $langs );
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- screen_guard() checked it.
+		$all  = ! empty( $_POST['all'] );
+		$made = self::produce( $o, $langs, $all );
 		wp_send_json_success( [
 			'label'   => self::obj_label( $o ),
 			'done'    => array_keys( $made['langs'] ),
@@ -2257,9 +3208,9 @@ final class DZE_Translate {
 		if ( ! $screen || false === strpos( (string) $screen->id, self::MENU_SLUG ) ) {
 			return;
 		}
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		wp_enqueue_editor();
-		wp_enqueue_script( 'dze-translate-screen', DZE_URL . 'admin/js/translate-screen.js', [ 'jquery' ], DZE_VERSION, true );
+		DZE_Assets::admin_js( 'dze-translate-screen', 'admin/js/translate-screen.js' );
 		wp_localize_script( 'dze-translate-screen', 'dzeTrScreen', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( self::NONCE ),
@@ -2268,6 +3219,12 @@ final class DZE_Translate {
 			'doneIcon'  => self::state_icon( 'done' ),
 			'i18n'    => [
 				'tickFirst'  => __( 'Tick what you want translated first.', 'dazont-ecom' ),
+				// ASKED BEFORE IT IS SPENT. "Translate everything again" pays
+				// for fields that had not moved, on purpose, and a button that
+				// costs money without saying so is a button pressed by mistake.
+				'confirmAll' => __( 'Send every field again, including the ones that have not changed? This costs a full translation. Use it to compare one model, prompt or glossary against another.', 'dazont-ecom' ),
+				// The copy button never replaces words already written without asking.
+				'overwrite'  => __( 'Replace what is in the box with the original?', 'dazont-ecom' ),
 				'langFirst'  => __( 'Tick at least one language.', 'dazont-ecom' ),
 				/* translators: 1: objects done, 2: objects in the batch */
 				'stepN'      => __( '%1$s of %2$s', 'dazont-ecom' ),
@@ -2374,7 +3331,7 @@ final class DZE_Translate {
 		if ( ! isset( self::picked_scope()[ ( $o['kind'] ?? 'post' ) . ':' . ( $o['type'] ?? '' ) ] ) ) {
 			return;
 		}
-		wp_enqueue_script( 'dze-translate-box', DZE_URL . 'admin/js/translate-box.js', [ 'jquery' ], DZE_VERSION, true );
+		DZE_Assets::admin_js( 'dze-translate-box', 'admin/js/translate-box.js' );
 		wp_localize_script( 'dze-translate-box', 'dzeTrBox', [
 			// ONE SCREEN FOR EVERY KIND OF OBJECT, and this is the way to it.
 			// A product used to get a popup of its own here instead — a second

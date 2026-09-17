@@ -1951,7 +1951,7 @@ final class DZE_Automation {
 		// the to-do rows are all drawn with these styles, and nothing else on
 		// this page asks for them: enqueued from a page hook somewhere else,
 		// the one forgotten is always the screen that comes out unstyled.
-		wp_enqueue_style( 'dze-content', DZE_URL . 'admin/css/content.css', [], DZE_VERSION );
+		DZE_Assets::admin_css();
 		self::$needs_review = false;
 		?>
 		<div class="dze-admin dze-auto">

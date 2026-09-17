@@ -436,6 +436,9 @@ class DZE_Queue {
 	public static int $assets = 0;
 	public static function review_assets(): void { self::$assets++; }
 }
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require __DIR__ . '/../' . $dir . '/includes/class-assets.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
 /** The module switches. A class file always exists; this is the real check. */
 class DZE_Modules {

@@ -337,6 +337,9 @@ function dze_empty_queue(): void {
 $GLOBALS['wpdb'] = new DZE_Review_Wpdb();
 $GLOBALS['rows'] = [];
 
+// The one place that versions this plugin's admin files; every screen
+// class asks it rather than hanging DZE_VERSION on the same handle.
+require __DIR__ . '/../' . $dir . '/includes/class-assets.php';
 require __DIR__ . '/../' . $dir . '/includes/class-automation.php';
 require __DIR__ . '/../' . $dir . '/includes/class-blocks.php';
 require __DIR__ . '/../' . $dir . '/includes/class-hub.php';
