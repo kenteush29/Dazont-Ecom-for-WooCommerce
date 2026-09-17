@@ -146,7 +146,7 @@ $GLOBALS['terms'] = [
 	16 => [ 'name' => 'Combat boots',       'slug' => 'combat-boots',       'parent' => 15, 'count' => 7, 'description' => '<p>' . str_repeat( 'a boot word ', 40 ) . '</p>' ],
 ];
 $GLOBALS['posts'] = [
-	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>Choosing a pack is a matter of load and season. ' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
+	20 => [ 'type' => 'post', 'title' => 'How to choose a tactical backpack', 'content' => '<p>Choosing a pack is a matter of load and season. A boonie hat rides on the strap. ' . str_repeat( 'a backpack word ', 90 ) . '<a href="https://kula.test/category/tactical-backpacks/">Tactical backpacks</a></p>' ],
 	21 => [ 'type' => 'post', 'title' => 'Boonie hat sizing',                 'content' => '<p>' . str_repeat( 'a hat word ', 90 ) . '</p>' ],
 	22 => [ 'type' => 'page', 'title' => 'About the boonie workshop',         'content' => '' ],
 	// A builder page that points at nothing: the one shape that used to sit at
@@ -716,6 +716,25 @@ $GLOBALS['tr']['dze_mesh_pages'] = DZE_Mesh::pages( true );
 $picked = DZE_Category_Content::link_pool( 10 );
 ok( 'the pool alone does not offer it', in_array( 'Boonie hats', wp_list_pluck( $picked, 'label' ), true ), false );
 ok( 'and the mesh can still find it',   DZE_Mesh::page_by_url( 'https://kula.test/category/boonie-hats/' )['title'] ?? '', 'Boonie hats' );
+
+echo "\nUN COUPLE QUE LE TEXTE NE NOMME PAS NEST PAS PROPOSE\n";
+// Un lien ne peut saccrocher quà des mots deja presents. Proposer a un
+// article de pointer vers un sujet quil ne nomme jamais fabrique une tache
+// qui ne peut pas aboutir : payee au modele, refusee, puis montree a la
+// boutique en rouge sans quelle puisse rien y faire.
+$GLOBALS['tr']['dze_mesh_pages'] = DZE_Mesh::pages( true );
+$dze_plan2 = DZE_Mesh::plan( 5 );
+$dze_mauvais = 0;
+foreach ( $dze_plan2 as $r ) {
+	$txt = DZE_Mesh::body_of( (string) $r['kind'], (int) $r['id'] );
+	foreach ( (array) $r['urls'] as $u ) {
+		$cible = DZE_Mesh::page_by_url( $u );
+		$nom   = (string) ( $cible['title'] ?? '' );
+		if ( '' !== $nom && ! DZE_Category_Content::mentions( $txt, $nom ) ) { $dze_mauvais++; }
+	}
+}
+ok( 'le plan ne propose que des couples tenables', $dze_mauvais, 0 );
+ok( 'et il propose quand meme du travail',       count( $dze_plan2 ) > 0, true );
 
 echo "\nThe pass that writes the link is given the page that was picked\n";
 // THE HALF THAT MAKES THE SCREEN WORK. The pool answers "what would this

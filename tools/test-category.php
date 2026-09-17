@@ -733,6 +733,58 @@ ok( 'but its words are kept',          false !== strpos( (string) $dze_r['res'][
 ok( 'and the living links are untouched',
 	substr_count( (string) $dze_r['res']['html'], '<a href="https://kula.test/a">' ), 1 );
 
+echo "\nUN COUPLE IMPOSSIBLE EST ECARTE AVANT D'ETRE PAYE\n";
+//
+// Le maillage choisit quelle page doit pointer vers quelle autre, et rien ne
+// regardait si l'une avait quoi que ce soit a voir avec l'autre : il
+// l'apprenait en achetant une reponse au modele. « How To Wear Military Trench
+// Coat? » a ete envoye pointer vers « How To Wear A Bomber Jacket? » sur un
+// article qui dit « trench » 53 fois, « coat » 62, et « bomber » et « jacket »
+// pas une seule. Aucun mot ou accrocher le lien, donc aucun lien, et une ligne
+// rouge pour l'expliquer.
+$dze_trench = '<p>' . str_repeat( 'A trench coat is a coat. ', 30 ) . '</p>';
+ok( 'un article de trench ne parle pas de bomber',
+	DZE_Category_Content::mentions( $dze_trench, 'How To Wear A Bomber Jacket?' ), false );
+ok( 'mais il parle bien de trench coats',
+	DZE_Category_Content::mentions( $dze_trench, 'Military Trench Coats' ), true );
+// Le singulier et le pluriel sont le meme sujet.
+ok( 'un titre au pluriel trouve un texte au singulier',
+	DZE_Category_Content::mentions( '<p>Every tactical boot needs care.</p>', 'Tactical boots' ), true );
+ok( 'et une forme en -es aussi',
+	DZE_Category_Content::mentions( '<p>The admin pouch holds a map.</p>', 'Admin pouches' ), true );
+// Les accents et la casse ne comptent pas.
+ok( 'les accents ne comptent pas',
+	DZE_Category_Content::mentions( '<p>Nos vestes militaires sont chaudes.</p>', 'Vestes Militaires' ), true );
+// Un titre qui ne dit rien de precis n'est pas notre affaire.
+ok( 'un titre sans mot parlant est garde',
+	DZE_Category_Content::mentions( '<p>Rien a voir du tout.</p>', 'The Best For You' ), true );
+// Et le balisage ne compte pas comme du texte.
+// LE VERBE DUN TITRE NE DIT RIEN DU SUJET. « How To Wear A Bomber Jacket? »
+// etait juge acceptable pour un article sur les trenchs parce que cet article
+// dit « wear » une ligne sur deux — et « bomber » et « jacket » pas une fois.
+ok( 'le verbe du titre ne suffit pas',
+	DZE_Category_Content::mentions( '<p>' . str_repeat( 'You wear a trench coat to wear it well. ', 20 ) . '</p>', 'How To Wear A Bomber Jacket?' ), false );
+ok( 'mais le sujet du titre, oui',
+	DZE_Category_Content::mentions( '<p>' . str_repeat( 'You wear a bomber jacket well. ', 20 ) . '</p>', 'How To Wear A Bomber Jacket?' ), true );
+ok( 'un mot cache dans une balise ne compte pas',
+	DZE_Category_Content::mentions( '<a href="/ghillie-suits">x</a><p>rien</p>', 'Ghillie suits' ), false );
+
+// ET LA PASSE REFUSE AVANT D'APPELER LE MODELE.
+DZE_Marketing_Ai::$sent   = [];
+DZE_Marketing_Ai::$decide = null;
+$dze_far = $dze_weave( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+ok( 'un couple possible passe toujours', $dze_far['ok'], true );
+$dze_loin = [ [ 'label' => 'Bomber jackets', 'url' => 'https://kula.test/bombers', 'kind' => 'post', 'score' => 9, 'products' => 0 ] ];
+DZE_Marketing_Ai::$sent = [];
+try {
+	DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_loin, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+	$dze_pourquoi = '';
+} catch ( \Throwable $e ) { $dze_pourquoi = $e->getMessage(); }
+ok( 'un couple impossible est refuse',        '' !== $dze_pourquoi, true );
+ok( 'et le modele na jamais ete appele',      count( DZE_Marketing_Ai::$sent ), 0 );
+ok( 'le message nomme larticle',              false !== strpos( $dze_pourquoi, 'How snipers work' ), true );
+ok( 'et la page quon lui demandait',          false !== strpos( $dze_pourquoi, 'Bomber jackets' ), true );
+ok( 'et rassure : rien na bouge',             false !== stripos( $dze_pourquoi, 'left exactly as it was' ), true );
 // LA BASE REPOND AVANT LE RESEAU, POUR NOS PROPRES PAGES.
 //
 // L'hebergeur de cette boutique repond 403 aux requetes que le site s'adresse a
@@ -939,6 +991,7 @@ for ( $i = 1; $i <= 30; $i++ ) {
 	$dze_heavy .= '<div class="elementor-element elementor-element-' . $i . 'a7f3c elementor-widget elementor-widget-text-editor" data-id="' . $i . 'a7f3c" data-element_type="widget" data-settings="{&quot;_animation&quot;:&quot;none&quot;}" data-widget_type="text-editor.default">'
 		. '<div class="elementor-widget-container"><h2 class="wp-block-heading has-large-font-size" id="sec-' . $i . '">Section ' . $i . '</h2>'
 		. '<p class="wp-block-paragraph has-text-color has-medium-font-size" style="line-height:1.7;color:#1d2327">'
+		. ( 3 === $i ? 'A ghillie suit hides the outline. ' : '' )
 		. str_repeat( 'word ', 10 ) . '</p></div></div>';
 }
 DZE_Marketing_Ai::$decide = static fn( string $user ): string => $dze_heavy;

@@ -1318,6 +1318,8 @@ final class DZE_Mesh {
 		$pages = self::pages();
 		$by    = [];
 		$order = [];
+		// One page's text read once, however many targets are tried against it.
+		$body  = [];
 		foreach ( self::needs( max( 1, $limit ) * 4 ) as $row ) {
 			$to_key = $row['kind'] . ':' . $row['id'];
 			$url    = (string) ( $pages[ $to_key ]['url'] ?? '' );
@@ -1328,12 +1330,35 @@ final class DZE_Mesh {
 			// link, not another three.
 			$want = max( 1, self::WANT_IN - (int) $row['in'] );
 			foreach ( array_slice( self::pairs_for( $to_key, $want, $judge )['rows'], 0, $want ) as $from ) {
-				$key = (string) $from['key'];
-				if ( ! isset( $by[ $key ] ) ) {
-					$page = $pages[ $key ] ?? [];
-					if ( ! $page || ! empty( $page['built'] ) ) {
-						continue; // a page nothing can be written into is not work.
+				$key  = (string) $from['key'];
+				$page = $pages[ $key ] ?? [];
+				if ( ! $page || ! empty( $page['built'] ) ) {
+					continue; // a page nothing can be written into is not work.
+				}
+				// THE PAIRING IS CHECKED BEFORE THE PAGE IS WRITTEN DOWN.
+				//
+				// A link can only be hung on words the text already holds, so
+				// pairing an article with a subject it never names produces a
+				// job that cannot succeed: bought from the model, refused, and
+				// shown to the shop as a red row it can do nothing about. "How
+				// To Wear Military Trench Coat?" was sent to link to "How To
+				// Wear A Bomber Jacket?" on a text saying "bomber" not once.
+				//
+				// And it is checked HERE, before the page joins the day's list,
+				// rather than after: written down first, five pages whose every
+				// target was impossible filled the day's quota, the loop stopped
+				// on a full list, and the plan came out empty with real work
+				// still waiting behind them.
+				$title = (string) ( $pages[ $to_key ]['title'] ?? '' );
+				if ( '' !== $title && class_exists( 'DZE_Category_Content' ) ) {
+					if ( ! isset( $body[ $key ] ) ) {
+						$body[ $key ] = self::body_of( (string) $page['kind'], (int) $page['id'] );
 					}
+					if ( ! DZE_Category_Content::mentions( $body[ $key ], $title ) ) {
+						continue;
+					}
+				}
+				if ( ! isset( $by[ $key ] ) ) {
 					$by[ $key ] = [
 						'key'  => $key,
 						'kind' => (string) $page['kind'],
@@ -1355,6 +1380,14 @@ final class DZE_Mesh {
 		$out = [];
 		foreach ( array_slice( $order, 0, max( 1, $limit ) ) as $key ) {
 			$row = $by[ $key ];
+			// A PAGE LEFT WITH NOTHING TO POINT AT IS NOT WORK. Every target
+			// tried against it turned out to be a subject it never names, so
+			// there is nothing to ask of it — and a row carrying no address is
+			// read further down as one that LOST its addresses, which is an
+			// error where this is simply nothing to do.
+			if ( ! $row['urls'] ) {
+				continue;
+			}
 			// THE ROW NAMES THE PAGE THAT WILL BE WRITTEN INTO, and the urls
 			// are what it will point AT — so the sentence beside it has to
 			// read in that direction. It used to say "2 pages short of links

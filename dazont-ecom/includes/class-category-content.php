@@ -1678,6 +1678,88 @@ PROMPT;
 	 *
 	 * @param array<int,array<string,mixed>> $links
 	 */
+	/**
+	 * Words too common to tell one page from another.
+	 *
+	 * The verbs matter as much as the articles. "How To Wear A Bomber Jacket?"
+	 * was judged a fair target for an article on trench coats because that
+	 * article says "wear" on every other line — and "bomber" and "jacket" not
+	 * once. A word that could head half the pages on the shop cannot be the
+	 * thing that ties two of them together.
+	 */
+	private const SKIP = [
+		'the', 'and', 'for', 'with', 'your', 'you', 'our', 'from', 'that', 'this', 'what', 'how',
+		'are', 'was', 'were', 'best', 'top', 'guide', 'why', 'when', 'which', 'into', 'over',
+		'les', 'des', 'une', 'pour', 'avec', 'dans', 'sur', 'vos', 'votre', 'nos', 'notre',
+		'que', 'qui', 'quoi', 'comment', 'pourquoi', 'meilleur', 'meilleurs', 'meilleure',
+		// The verbs and fillers a how-to title is built from.
+		'wear', 'wearing', 'wash', 'washing', 'clean', 'cleaning', 'care', 'choose', 'choosing',
+		'know', 'need', 'needs', 'keep', 'keeping', 'make', 'made', 'making', 'take', 'taking',
+		'tips', 'everything', 'normally', 'really', 'actually', 'about', 'more', 'most', 'also',
+		'porter', 'laver', 'lavage', 'nettoyer', 'nettoyage', 'entretien', 'choisir', 'savoir',
+		'tout', 'tous', 'toutes', 'conseil', 'conseils', 'guide', 'faut', 'faire',
+	];
+
+	/**
+	 * Does this text talk about that page at all?
+	 *
+	 * THE PAIRING IS CHECKED BEFORE IT IS PAID FOR. The mesh picks which page
+	 * should link to which, and nothing looked at whether the one had anything
+	 * to do with the other — it found out by buying an answer from the model.
+	 * "How To Wear Military Trench Coat?" was sent off to link to "How To Wear
+	 * A Bomber Jacket?" on an article that says "trench" 53 times, "coat" 62,
+	 * and "bomber" and "jacket" not once. There was no word to hang the link
+	 * on, so there was no link, and the shop got a red row explaining it.
+	 *
+	 * The question this answers is deliberately generous: does ONE telling word
+	 * of the page's title appear anywhere in the text. It is there to throw out
+	 * the impossible, not to judge the merely weak — that is still the writer's
+	 * call, and a target we cannot judge at all is kept.
+	 */
+	public static function mentions( string $html, string $label ): bool {
+		$words = self::keywords( $label );
+		if ( ! $words ) {
+			return true; // nothing telling in the title: not ours to refuse.
+		}
+		$text = ' ' . self::fold( wp_strip_all_tags( $html ) ) . ' ';
+		foreach ( $words as $w ) {
+			// Matched at the start of a word, so "boot" finds "boots" and
+			// "booted" — the shop writes both and means the same page.
+			if ( false !== strpos( $text, ' ' . $w ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The telling words of a title, singular-ish and lowercase. */
+	public static function keywords( string $label ): array {
+		$out = [];
+		foreach ( explode( ' ', self::fold( $label ) ) as $w ) {
+			if ( mb_strlen( $w ) < 4 || in_array( $w, self::SKIP, true ) ) {
+				continue;
+			}
+			// Cut the plural back so a title in the plural finds a text in the
+			// singular: "pouches" looks for "pouch", "boots" for "boot".
+			if ( mb_strlen( $w ) > 5 && 'es' === substr( $w, -2 ) ) {
+				$w = substr( $w, 0, -2 );
+			} elseif ( mb_strlen( $w ) > 3 && 's' === substr( $w, -1 ) ) {
+				$w = substr( $w, 0, -1 );
+			}
+			$out[ $w ] = $w;
+		}
+		return array_values( $out );
+	}
+
+	/** Lowercase, unaccented, punctuation turned to space. */
+	public static function fold( string $s ): string {
+		if ( function_exists( 'remove_accents' ) ) {
+			$s = remove_accents( $s );
+		}
+		$s = strtolower( $s );
+		$s = (string) preg_replace( '/[^a-z0-9]+/', ' ', $s );
+		return trim( (string) preg_replace( '/\s+/', ' ', $s ) );
+	}
 	public static function nowhere_msg( string $subject, array $links ): string {
 		$names = [];
 		foreach ( array_slice( $links, 0, 3 ) as $l ) {
@@ -1728,6 +1810,34 @@ PROMPT;
 				throw new RuntimeException( __( 'Every page this text can link to is already linked.', 'dazont-ecom' ) );
 			}
 		}
+		// A PAGE THIS TEXT NEVER MENTIONS IS NOT A TARGET, and finding that out
+		// costs nothing here and a paid answer a few lines further down. The
+		// anchor has to be words already in the text, so a target whose subject
+		// is absent from it cannot be linked by anything.
+		$known = [];
+		$unmet = [];
+		foreach ( $links as $l ) {
+			if ( self::mentions( $html, (string) ( $l['label'] ?? '' ) ) ) {
+				$known[] = $l;
+			} else {
+				$unmet[] = '“' . trim( (string) ( $l['label'] ?? '' ) ) . '”';
+			}
+		}
+		if ( ! $known ) {
+			throw new RuntimeException( sprintf(
+				/* translators: 1: the text being worked on, 2: the pages it was asked to link to */
+				_n(
+					'Nothing was written: %1$s never mentions %2$s, so there are no words in it to turn into that link. This text was left exactly as it was.',
+					'Nothing was written: %1$s never mentions any of %2$s, so there are no words in it to turn into those links. This text was left exactly as it was.',
+					count( $unmet ),
+					'dazont-ecom'
+				),
+				'“' . $subject . '”',
+				implode( ', ', array_slice( $unmet, 0, 4 ) )
+			) );
+		}
+		$links = $known;
+
 		// THE PAGE IS CLEANED ON THE WAY IN. This pass is about to rewrite the
 		// text anyway, and it is the only thing on the site that ever comes back
 		// to look at a link it wrote. A target deleted since leaves a 404 behind
