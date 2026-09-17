@@ -1791,5 +1791,18 @@ $tr_got = DZE_Translate::translate( [ 'meta:_a' => 'Boots' ], 'fr', 'post', [ 'm
 ok( 'JSON with a greeting around it still reads', $tr_got['meta:_a'] ?? '', 'Bottes' );
 unset( $GLOBALS['model_answer_fn'] );
 
+echo "\nSUR UNE PAGE ELEMENTOR, LA COPIE APLATIE NEST PAS DU TEXTE\n";
+// `post_content` y est un vidage de la page RENDUE : tracés SVG, URL de
+// vignettes, le shortcode des avis et ses quarante paramètres. Sur laccueil,
+// 27 000 caractères contre 5 600 de vrais mots — cinq appels sur sept passés
+// à traduire du balisage machine, et la page ne traduisait rien du tout.
+ok( 'elementor_fields sait reconnaitre une page Elementor',
+	method_exists( 'DZE_Translate', 'elementor_fields' ), true );
+$tr_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+ok( 'et la copie aplatie est retiree quand il y en a',
+	false !== strpos( $tr_src, "if ( \$el ) {\n\t\t\tunset( \$out['content'] );" ), true );
+ok( 'apres la lecture des champs Elementor, pas avant',
+	strpos( $tr_src, "unset( \$out['content'] )" ) > strpos( $tr_src, '$el = self::elementor_fields' ), true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

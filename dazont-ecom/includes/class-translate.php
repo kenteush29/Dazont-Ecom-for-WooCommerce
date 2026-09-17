@@ -1347,11 +1347,25 @@ final class DZE_Translate {
 		// AND THE WORDS ELEMENTOR SHOWS, which are not in the post content at
 		// all. A page built with it displays its own tree; what sits in
 		// `post_content` beside it is a copy kept for search engines.
-		foreach ( self::elementor_fields( $o ) as $fid => $f ) {
+		$el = self::elementor_fields( $o );
+		foreach ( $el as $fid => $f ) {
 			$v = trim( self::elementor_get( (int) $o['id'], (string) $f['path'] ) );
 			if ( '' !== $v ) {
 				$out[ $fid ] = $v;
 			}
+		}
+		// AND THE FLATTENED COPY IS NOT SENT AT ALL.
+		//
+		// On a page Elementor builds, `post_content` is a dump of the RENDERED
+		// page: SVG path data, thumbnail URLs, `data-src` attributes, the
+		// reviews shortcode with its forty parameters. On the homepage that is
+		// 27,000 characters against 5,600 of actual words — five calls out of
+		// seven spent translating machine markup, the answers fragile enough
+		// that one of them came back malformed and the page translated nothing
+		// at all. Nobody reads it, Elementor overwrites it, and not one word of
+		// it reaches a visitor.
+		if ( $el ) {
+			unset( $out['content'] );
 		}
 		// AND THE WORDS THE VARIATIONS CARRY. A variable product's colours are
 		// described one by one in the variation's own excerpt, and none of it
@@ -2641,22 +2655,7 @@ final class DZE_Translate {
 		$bag  = [];
 		$last = null;
 		foreach ( $jobs as $job ) {
-			try {
-				$res = self::translate_batch( $job, $lang_code, $names );
-			} catch ( \Throwable $e ) {
-				$last = $e;
-				$res  = [];
-				if ( count( $job ) > 1 ) {
-					foreach ( $job as $k => $v ) {
-						try {
-							$res += self::translate_batch( [ $k => $v ], $lang_code, $names );
-						} catch ( \Throwable $ignored ) {
-							$last = $ignored;
-						}
-					}
-				}
-			}
-			foreach ( $res as $k => $v ) {
+			foreach ( self::run_job( $job, $lang_code, $names, $last ) as $k => $v ) {
 				$bag[ $k ] = $v;
 			}
 		}
@@ -2777,6 +2776,38 @@ final class DZE_Translate {
 		return $out ? $out : [ $text ];
 	}
 
+	/**
+	 * One batch, and what to do when it comes back unusable.
+	 *
+	 * A BAD ANSWER TAKES ITS OWN FIELDS DOWN, NOT THE WHOLE OBJECT. Cutting the
+	 * work into pieces multiplies the chances that one comes back malformed, and
+	 * an Elementor page of 63 fields translated nothing at all because the
+	 * seventh call answered badly — on a page whose first fifty-four fields were
+	 * already translated and paid for.
+	 *
+	 * It is halved rather than taken apart. Asking again field by field turns
+	 * one bad answer into fifty-four calls, which is a bill the shop did not
+	 * ask for; halving finds the field that will not translate in a handful.
+	 *
+	 * @param array<string,string> $job
+	 * @param array<string,string> $names
+	 * @return array<string,string>
+	 */
+	private static function run_job( array $job, string $lang_code, array $names, ?\Throwable &$last ): array {
+		try {
+			return self::translate_batch( $job, $lang_code, $names );
+		} catch ( \Throwable $e ) {
+			$last = $e;
+		}
+		if ( count( $job ) < 2 ) {
+			// One field, asked twice, that still will not come back. It is left
+			// as it was, which the screen already shows as untranslated.
+			return [];
+		}
+		$half = (int) ceil( count( $job ) / 2 );
+		return self::run_job( array_slice( $job, 0, $half, true ), $lang_code, $names, $last )
+			+ self::run_job( array_slice( $job, $half, null, true ), $lang_code, $names, $last );
+	}
 	/**
 	 * One call: every field it is given, in the same request.
 	 *
