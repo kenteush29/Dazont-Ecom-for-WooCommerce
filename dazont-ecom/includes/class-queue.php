@@ -1238,6 +1238,21 @@ final class DZE_Queue {
 			self::MENU_SLUG,
 			[ $this, 'render' ]
 		);
+		// AND IT LEAVES THE MENU.
+		//
+		// It was the one screen that answered "what is waiting for me" — and
+		// it answered it by putting four unrelated kinds of work in one list.
+		// Each kind now has the screen it belongs to, each showing its own
+		// part with its own count, and the dashboard names them one line
+		// each. A fifth entry holding all of it again is a second answer to
+		// a question already answered, and the two could disagree.
+		//
+		// Registered, then taken out: every link, bookmark and redirect ever
+		// printed at it still lands, and it is still the one place to read
+		// everything side by side.
+		if ( function_exists( 'remove_submenu_page' ) ) {
+			remove_submenu_page( $parent, self::MENU_SLUG );
+		}
 	}
 
 	/**

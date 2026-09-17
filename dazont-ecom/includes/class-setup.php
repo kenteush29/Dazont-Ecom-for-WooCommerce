@@ -475,7 +475,7 @@ final class DZE_Setup {
 				? __( 'The site has not been read yet.', 'dazont-ecom' )
 				: DZE_Mesh::read_said(),
 			'url'    => class_exists( 'DZE_Diagnostic' )
-				? add_query_arg( [ 'page' => DZE_Mesh::MENU_SLUG ], admin_url( 'admin.php' ) )
+				? add_query_arg( [ 'page' => defined( 'DZE_Mesh::MENU_SLUG' ) ? DZE_Mesh::MENU_SLUG : 'dazont-ecom-linking' ], admin_url( 'admin.php' ) )
 				: '',
 			'do'     => null === $read ? __( 'Read the site', 'dazont-ecom' ) : __( 'Open', 'dazont-ecom' ),
 		];
@@ -511,7 +511,7 @@ final class DZE_Setup {
 				number_format_i18n( $c['pages'] )
 			),
 			'url'    => class_exists( 'DZE_Diagnostic' )
-				? add_query_arg( [ 'page' => DZE_Mesh::MENU_SLUG ], admin_url( 'admin.php' ) )
+				? add_query_arg( [ 'page' => defined( 'DZE_Mesh::MENU_SLUG' ) ? DZE_Mesh::MENU_SLUG : 'dazont-ecom-linking' ], admin_url( 'admin.php' ) )
 				: '',
 			'do'     => __( 'Choose them', 'dazont-ecom' ),
 		];

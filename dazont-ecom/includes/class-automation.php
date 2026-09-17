@@ -163,7 +163,9 @@ final class DZE_Automation {
 		// Registered, then taken out: the page keeps answering, so every
 		// link, bookmark and redirect ever printed at it still lands — and
 		// it is still where the whole day's work is read side by side.
-		remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );
+		if ( function_exists( 'remove_submenu_page' ) ) {
+			remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );
+		}
 	}
 
 	public static function render_page(): void {

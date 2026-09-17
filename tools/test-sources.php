@@ -972,6 +972,15 @@ ok( 'the Done tab counts the whole register',
 	(int) DZE_Content::screen_counts()['log'], count( DZE_Content::register() ) );
 // AND THE DONE TAB CARRIES IT TOO — drawn, never only counted: a figure on a
 // tab proves nothing about the rows under it.
+// CET HEBERGEUR DESACTIVE shell_exec. Une fatale ici arretait le fichier au
+// milieu, et la suite annoncait « 0 wrong » sur des portes qui navaient jamais
+// tourne — le pire des deux mondes. La partie qui a besoin dun second
+// processus est annoncee comme sautee, le reste du fichier continue.
+if ( ! function_exists( 'shell_exec' ) ) {
+	echo "  (saute : shell_exec est desactive sur cet hebergeur)\n";
+	printf( "\n%d checks, %d wrong\n", $ran, $fails );
+	exit( $fails ? 1 : 0 );
+}
 $dze_log = (string) shell_exec( escapeshellarg( PHP_BINARY ) . ' ' . escapeshellarg( __FILE__ ) . ' ' . escapeshellarg( $dir ) . ' --dump-log 2>/dev/null' );
 ok( 'the Done tab has the same column',
 	substr_count( $dze_log, 'class="dze-objid-th"' ), 1 );

@@ -347,7 +347,6 @@ final class DZE_Screens {
 			'dashboard',
 			'content',
 			'linking',
-			'review',
 			'translations',
 			'marketing',
 			'restock',

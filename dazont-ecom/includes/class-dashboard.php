@@ -103,11 +103,36 @@ final class DZE_Dashboard {
 	public static function waiting(): array {
 		$on  = static fn( string $id ): bool => ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( $id );
 		$out = [];
-		// TEXTS AND PHOTOGRAPHS WAITING FOR A YES OR NO — the queue's rows and
-		// the bulk screen's products, the same two figures the menu badge adds.
+		// ONE LINE PER PLACE THE WORK IS ACTUALLY DONE.
+		//
+		// This used to add the linking passes, the category descriptions and
+		// the photographs into one figure pointing at one list — so the line
+		// said "14 pieces of content wait for your yes or no" and the screen
+		// it opened held four unrelated kinds of work. A count you cannot act
+		// on in one place is a count that sends you looking.
+		//
+		// Each kind of work now has the screen it belongs to, so the inbox
+		// names the screen and hands over the part that is its own.
+		$mesh = class_exists( 'DZE_Mesh' ) ? DZE_Mesh::KINDS : [];
+		if ( class_exists( 'DZE_Queue' ) && $on( 'queue' ) && $mesh && $on( 'mesh' ) ) {
+			$n = (int) ( DZE_Queue::counts_for( $mesh )['review'] ?? 0 );
+			if ( $n > 0 ) {
+				$out[] = [
+					'n'    => $n,
+					/* translators: %s: how many */
+					'said' => sprintf( _n( '%s page has links waiting for your yes or no', '%s pages have links waiting for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
+					'url'  => add_query_arg( [ 'tab' => 'review' ], DZE_Screens::url( 'linking' ) ),
+					'to'   => DZE_Screens::label( 'linking' ),
+				];
+			}
+		}
+		// Everything else waiting for a decision: the category descriptions,
+		// the photographs, and the products holding something generated.
+		// Taken as a DIFFERENCE so a kind nobody thought of still turns up.
 		$n = 0;
 		if ( class_exists( 'DZE_Queue' ) && $on( 'queue' ) ) {
-			$n += (int) DZE_Queue::review_count();
+			$rest = array_values( array_diff( array_keys( DZE_Queue::kinds() ), $mesh ) );
+			$n   += (int) ( DZE_Queue::counts_for( $rest )['review'] ?? 0 );
 		}
 		if ( class_exists( 'DZE_Content' ) && $on( 'content' ) ) {
 			$n += (int) DZE_Content::pending_count();
@@ -117,8 +142,8 @@ final class DZE_Dashboard {
 				'n'    => $n,
 				/* translators: %s: how many */
 				'said' => sprintf( _n( '%s piece of content waits for your yes or no', '%s pieces of content wait for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
-				'url'  => DZE_Screens::url( 'review' ),
-				'to'   => DZE_Screens::label( 'review' ),
+				'url'  => DZE_Screens::url( 'content', 'review' ),
+				'to'   => DZE_Screens::label( 'content' ),
 			];
 		}
 		if ( class_exists( 'DZE_Translate' ) && $on( 'translate' ) ) {

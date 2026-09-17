@@ -275,8 +275,19 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) { define( 'HOUR_IN_SECONDS', 3600 ); }
 if ( ! defined( 'ARRAY_A' ) ) { define( 'ARRAY_A', 'ARRAY_A' ); }
 $GLOBALS['wpdb'] = new class { public $prefix = 'wp_'; public $posts = 'wp_posts'; public $postmeta = 'wp_postmeta'; public $termmeta = 'wp_termmeta'; public function prepare( $q, ...$a ) { return $q; } public function get_results( ...$a ) { return []; } public function get_var( ...$a ) { return null; } };
 // The modules that own each answer, answering what the fake shop holds.
-$GLOBALS['dze_wait'] = [ 'queue' => 3, 'bulk' => 2, 'tr' => 1, 'cal' => 0, 'down' => [], 'todo' => [] ];
-class DZE_Queue      { public static function review_count() { return (int) $GLOBALS['dze_wait']['queue']; } }
+$GLOBALS['dze_wait'] = [ 'queue' => 3, 'mesh' => 2, 'bulk' => 2, 'tr' => 1, 'cal' => 0, 'down' => [], 'todo' => [] ];
+// Fidele : la vraie file connait ses genres et sait les compter par famille,
+// et la boite de reception demande les deux pour separer le maillage du reste.
+class DZE_Queue      {
+	public static function review_count() { return (int) $GLOBALS['dze_wait']['queue']; }
+	public static function kinds() { return [ 'cat_desc' => [], 'cat_links' => [], 'post_links' => [], 'product_shot' => [] ]; }
+	public static function counts_for( array $k ) {
+		$mesh = array_intersect( $k, [ 'cat_links', 'post_links' ] );
+		$n    = $mesh ? (int) ( $GLOBALS['dze_wait']['mesh'] ?? 0 ) : (int) $GLOBALS['dze_wait']['queue'];
+		return [ 'review' => $n ];
+	}
+}
+class DZE_Mesh       { const KINDS = [ 'cat_links', 'post_links' ]; const MENU_SLUG = 'dazont-ecom-linking'; }
 class DZE_Content    { public static function pending_count() { return (int) $GLOBALS['dze_wait']['bulk']; } }
 class DZE_Translate  { public static function review_count() { return (int) $GLOBALS['dze_wait']['tr']; } }
 class DZE_Marketing_Ai { const MENU_SLUG = 'dazont-ecom-ai'; public static function pending_count() { return (int) $GLOBALS['dze_wait']['cal']; } }
@@ -302,7 +313,7 @@ ok( 'nothing to set up, no line about setup',    false !== strpos( $dze_home, 's
 ok( 'and the spend link goes to the Logs, not to Settings', false !== strpos( $dze_home, DZE_Screens::url( 'logs', 'spend' ) ) && false === strpos( $dze_home, 'Open Settings' ), true );
 ok( 'the marketing link is named by the catalogue', false !== strpos( $dze_home, 'Open Marketing →' ), true );
 // A connection down and a key missing are lines too, each on its own screen.
-$GLOBALS['dze_wait'] = [ 'queue' => 0, 'bulk' => 0, 'tr' => 0, 'cal' => 2, 'down' => [ 'gmc' ], 'todo' => [ 'fal.ai key', 'Klaviyo key' ] ];
+$GLOBALS['dze_wait'] = [ 'queue' => 0, 'mesh' => 0, 'bulk' => 0, 'tr' => 0, 'cal' => 2, 'down' => [ 'gmc' ], 'todo' => [ 'fal.ai key', 'Klaviyo key' ] ];
 ob_start(); DZE_Dashboard::instance()->render_page(); $dze_home = (string) ob_get_clean();
 ok( 'the calendar\'s suggestions',               false !== strpos( $dze_home, '2 promotions suggested by the calendar wait for an answer' ), true );
 ok( 'named where they are answered',             false !== strpos( $dze_home, DZE_Screens::url( 'marketing', 'events' ) ), true );
@@ -384,6 +395,33 @@ foreach ( [
 	ok( "$au_file porte l'interrupteur de $au_task",
 		false !== strpos( $au_one, "DZE_Automation::panel_form( [ '$au_task' ]" ), true );
 }
+
+echo "\nLA BOITE DE RECEPTION NOMME LES ECRANS, ET IL N'Y EN A QU'UNE\n";
+// Une ligne disait « 14 pieces of content wait for your yes or no » et ouvrait
+// un ecran tenant quatre travaux sans rapport. Un compte sur lequel on ne peut
+// pas agir a un seul endroit est un compte qui envoie chercher.
+$in_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-dashboard.php' );
+ok( 'le maillage a sa propre ligne',
+	false !== strpos( $in_src, "DZE_Screens::label( 'linking' )" ), true );
+ok( 'et elle ouvre son onglet de revue',
+	false !== strpos( $in_src, "add_query_arg( [ 'tab' => 'review' ], DZE_Screens::url( 'linking' ) )" ), true );
+ok( 'le reste est pris par difference',
+	false !== strpos( $in_src, "array_diff( array_keys( DZE_Queue::kinds() ), \$mesh )" ), true );
+ok( 'et ouvre l\'onglet de Produits',
+	false !== strpos( $in_src, "DZE_Screens::url( 'content', 'review' )" ), true );
+// ET L'ANCIENNE DESTINATION UNIQUE QUITTE LE MENU.
+$in_q = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
+ok( 'la liste fourre-tout quitte le menu',
+	false !== strpos( $in_q, 'remove_submenu_page( $parent, self::MENU_SLUG );' ), true );
+ok( 'mais sa page repond toujours',
+	false !== strpos( $in_q, "[ \$this, 'render' ]" ), true );
+ok( 'et l\'ordre du menu ne la nomme plus',
+	in_array( 'review', DZE_Screens::menu_order(), true ), false );
+// LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
+ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
+	'dashboard', 'content', 'linking', 'translations', 'marketing',
+	'restock', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
+] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
