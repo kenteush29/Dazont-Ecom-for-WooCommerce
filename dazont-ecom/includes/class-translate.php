@@ -1553,12 +1553,21 @@ final class DZE_Translate {
 				$el[ substr( (string) $fid, 3 ) ] = (string) $text;
 			}
 		}
-		if ( $el ) {
-			self::elementor_put( $target_id, $el );
-		}
+		// THE POST FIELDS FIRST, THE ELEMENTOR TREE LAST.
+		//
+		// `wp_update_post()` on a translation is a save, and a save is when
+		// WPML copies from the original everything it is set to copy —
+		// `_elementor_data` included. Written before it, the whole translated
+		// tree went back to English on the way out: 61 fields translated, paid
+		// for, written, and identical to the source a second later. It only
+		// showed on a page being created in the same pass, which is exactly
+		// the run nobody watches.
 		if ( $post ) {
 			$post['ID'] = $target_id;
 			wp_update_post( $post );
+		}
+		if ( $el ) {
+			self::elementor_put( $target_id, $el );
 		}
 		// THE VARIATIONS' OWN WORDS, onto the variations WooCommerce
 		// Multilingual made. We never CREATE one: linking a variation is WCML's

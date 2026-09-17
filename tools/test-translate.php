@@ -1819,5 +1819,17 @@ ok( 'et la copie aplatie est retiree quand il y en a',
 ok( 'apres la lecture des champs Elementor, pas avant',
 	strpos( $tr_src, "unset( \$out['content'] )" ) > strpos( $tr_src, '$el = self::elementor_fields' ), true );
 
+echo "\nLARBRE ELEMENTOR EST ECRIT EN DERNIER\n";
+// wp_update_post() sur une traduction est un enregistrement, et un
+// enregistrement est le moment ou WPML recopie depuis loriginal tout ce
+// quil doit recopier, _elementor_data compris. Ecrit avant lui, larbre
+// traduit repassait en anglais en sortant : 61 champs traduits, payes,
+// ecrits, et identiques a la source une seconde plus tard.
+$tr_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+$tr_up  = strpos( $tr_src, 'wp_update_post( $post );' );
+$tr_el  = strpos( $tr_src, 'self::elementor_put( $target_id, $el );' );
+ok( 'les deux ecritures sont bien la', $tr_up > 0 && $tr_el > 0, true );
+ok( 'et larbre passe apres lenregistrement', $tr_el > $tr_up, true );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
