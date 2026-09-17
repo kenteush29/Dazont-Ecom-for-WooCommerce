@@ -2002,11 +2002,23 @@ PROMPT;
 		if ( 0 === $code ) {
 			return false; // could not ask; nothing is concluded.
 		}
+		// ONLY "THIS PAGE DOES NOT EXIST" COUNTS.
+		//
+		// This is the one thing on the site that deletes something a human
+		// wrote, so the question it answers has to be the narrow one. A 403 is
+		// a firewall, a hotlink rule or a host being careful — on this shop
+		// twelve perfectly good addresses answer 403 to a request made from
+		// the server itself. A 429 is us asking too fast, a 500 is a bad
+		// minute. None of them is proof a page is gone, and a link taken out
+		// on that evidence is a link nobody can put back.
+		$gone  = ( 404 === $code || 410 === $code );
 		$alive = $code >= 200 && $code < 400;
-		if ( function_exists( 'set_transient' ) ) {
-			set_transient( $key, $alive ? 'yes' : 'no', DAY_IN_SECONDS );
+		if ( function_exists( 'set_transient' ) && ( $gone || $alive ) ) {
+			// A verdict that is neither is not remembered: tomorrow it may
+			// answer properly.
+			set_transient( $key, $gone ? 'no' : 'yes', DAY_IN_SECONDS );
 		}
-		return ! $alive;
+		return $gone;
 	}
 	public static function only_alive( array $links ): array {
 		// Nothing to ask with, nothing to answer: a pool that cannot be checked
@@ -2015,34 +2027,22 @@ PROMPT;
 		if ( ! function_exists( 'wp_remote_head' ) || ! function_exists( 'get_transient' ) ) {
 			return $links;
 		}
+		// ONE RULE FOR BOTH ENDS. This used to drop a target on any answer from
+		// 400 up, while `dead_url()` decides what to take OUT of a page. On this
+		// shop twelve real categories and products answer 403 to a request made
+		// from the server itself — "Admin pouches", "Tactical pouches",
+		// "Airsoft helmets" among them — and every one of them was quietly
+		// struck off the list of pages worth linking to. A pool that shrinks in
+		// silence is how a module comes to look like it has nothing to offer.
 		$out = [];
 		foreach ( $links as $l ) {
 			$url = (string) ( $l['url'] ?? '' );
 			if ( '' === $url ) {
 				continue;
 			}
-			$key = 'dze_alive_' . md5( untrailingslashit( $url ) );
-			$was = get_transient( $key );
-			if ( 'no' === $was ) {
-				continue;
+			if ( ! self::dead_url( $url ) ) {
+				$out[] = $l;
 			}
-			if ( 'yes' !== $was ) {
-				$r    = wp_remote_head( $url, [ 'timeout' => 8, 'redirection' => 3 ] );
-				$code = is_wp_error( $r ) ? 0 : (int) wp_remote_retrieve_response_code( $r );
-				// A request that could not be made says nothing about the page:
-				// a timeout is not a 404, and dropping a good target on one
-				// would quietly shrink the pool every time the shop is busy.
-				if ( 0 === $code ) {
-					$out[] = $l;
-					continue;
-				}
-				$alive = $code >= 200 && $code < 400;
-				set_transient( $key, $alive ? 'yes' : 'no', DAY_IN_SECONDS );
-				if ( ! $alive ) {
-					continue;
-				}
-			}
-			$out[] = $l;
 		}
 		return $out;
 	}

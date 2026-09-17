@@ -726,6 +726,38 @@ ok( 'but its words are kept',          false !== strpos( (string) $dze_r['res'][
 ok( 'and the living links are untouched',
 	substr_count( (string) $dze_r['res']['html'], '<a href="https://kula.test/a">' ), 1 );
 
+// LE MEME JUGEMENT SERT A CHOISIR LES CIBLES. Une cible ecartee sur un 403
+// est une categorie reelle que le module ne proposera jamais : le vivier se
+// vide en silence et le module a lair de navoir rien a offrir.
+$GLOBALS['tr']   = [];
+$GLOBALS['http'] = [ 'https://kula.test/pare-feu' => 403, 'https://kula.test/disparue' => 404 ];
+$dze_pool3 = DZE_Category_Content::only_alive( [
+	[ 'label' => 'Vivante',  'url' => 'https://kula.test/ghillie' ],
+	[ 'label' => 'Pare-feu', 'url' => 'https://kula.test/pare-feu' ],
+	[ 'label' => 'Disparue', 'url' => 'https://kula.test/disparue' ],
+] );
+ok( 'une cible en 403 reste proposable', wp_list_pluck( $dze_pool3, 'label' ), [ 'Vivante', 'Pare-feu' ] );
+$GLOBALS['http'] = []; $GLOBALS['tr'] = [];
+
+// AND ONLY "CETTE PAGE NEXISTE PAS" COMPTE. This is the one thing on the
+// site that deletes something a human wrote. Twelve good addresses on this
+// shop answer 403 to a request made from the server itself; a 429 is us
+// asking too fast and a 500 is a bad minute. None is proof a page is gone.
+foreach ( [ 403, 401, 429, 500, 503 ] as $dze_code ) {
+	$GLOBALS['http'] = [ 'https://kula.test/gone' => $dze_code ];
+	$GLOBALS['tr']   = [];
+	$dze_r = $dze_rotten( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
+	ok( "a $dze_code is not a page that is gone", $dze_r['res']['dead'] ?? null, [] );
+	ok( "and the link survives a $dze_code",
+		false !== strpos( (string) $dze_r['res']['html'], 'kula.test/gone' ), true );
+}
+$GLOBALS['http'] = [ 'https://kula.test/gone' => 410 ];
+$GLOBALS['tr']   = [];
+$dze_r = $dze_rotten( '[]' );
+ok( 'but a 410 is gone for good', $dze_r['res']['dead'] ?? [], [ 'https://kula.test/gone' ] );
+$GLOBALS['http'] = [ 'https://kula.test/gone' => 404 ];
+$GLOBALS['tr']   = [];
+
 // AND THE SWEEP PLUS A LINK IS BOTH.
 $GLOBALS['tr'] = [];
 $dze_r = $dze_rotten( $dze_pick( 'ghillie suit hides the outline', 'https://kula.test/ghillie' ) );
