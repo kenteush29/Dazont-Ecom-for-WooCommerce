@@ -730,13 +730,23 @@ final class DZE_Marketing_Ai {
 		// tab keys do not change, so every link ever printed at one of these
 		// screens still lands on it.
 		$groups = [
+			// EVERYTHING THE PLUGIN WRITES OR MAKES FOR THE SHOP, together.
+			// The standards the shop is read against (Content rules) and the
+			// bench the pictures are made on (Image lab) were each a tab of
+			// their own in the top row, beside the three screens they are
+			// about — nine entries where a shop looks for one of three things.
 			'shop'    => [
 				'label' => __( 'Shop content', 'dazont-ecom' ),
-				'tabs'  => [ 'categories', 'content', 'reviews' ],
+				'tabs'  => [ 'categories', 'content', 'reviews', 'lab', 'diagnostic' ],
 			],
 			'promo'   => [
 				'label' => __( 'Discounts', 'dazont-ecom' ),
 				'tabs'  => [ 'discounts', 'events', 'email' ],
+			],
+			// The plugin's own housekeeping, which is not shop work at all.
+			'plugin'  => [
+				'label' => __( 'Plugin', 'dazont-ecom' ),
+				'tabs'  => [ 'transfer', 'modules' ],
 			],
 		];
 		// Sections read the same as the tab they were, except where the group
