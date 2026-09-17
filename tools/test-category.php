@@ -96,6 +96,13 @@ function selected( $a, $b = true, $echo = true ) { return $a == $b ? " selected=
 
 class WP_Error { public function __construct( ...$a ) {} }
 function is_wp_error( $t ) { return $t instanceof WP_Error; }
+// La base de la boutique : $GLOBALS['db'] dit ce qui existe.
+function url_to_postid( $u ) { return (int) ( $GLOBALS['db']['posts'][ untrailingslashit( $u ) ] ?? 0 ); }
+function get_post_status( $id ) { return (string) ( $GLOBALS['db']['status'][ (int) $id ] ?? 'publish' ); }
+function get_taxonomies( $a = [], $o = 'names' ) { return [ 'product_cat' ]; }
+function get_term_by( $by, $slug, $tax ) {
+	return in_array( (string) $slug, (array) ( $GLOBALS['db']['terms'] ?? [] ), true ) ? (object) [ 'slug' => $slug ] : false;
+}
 
 $GLOBALS['tr']   = [];
 $GLOBALS['opts'] = [];
@@ -726,6 +733,39 @@ ok( 'but its words are kept',          false !== strpos( (string) $dze_r['res'][
 ok( 'and the living links are untouched',
 	substr_count( (string) $dze_r['res']['html'], '<a href="https://kula.test/a">' ), 1 );
 
+// LA BASE REPOND AVANT LE RESEAU, POUR NOS PROPRES PAGES.
+//
+// L'hebergeur de cette boutique repond 403 aux requetes que le site s'adresse a
+// lui-meme, par intermittence : une heure plus tot, les douze memes adresses
+// repondaient 200. Un controle qui interroge le reseau est donc aveugle
+// exactement quand il compte. Une page de la boutique est dans la base ou elle
+// n'y est pas, et cette question-la n'a pas d'humeur.
+$GLOBALS['db']   = [
+	'posts'  => [ 'https://kula.test/article-vivant' => 12, 'https://kula.test/brouillon' => 13 ],
+	'status' => [ 12 => 'publish', 13 => 'draft' ],
+	'terms'  => [ 'boonie-hats' ],
+];
+$GLOBALS['http']  = [];
+$GLOBALS['tr']    = [];
+$GLOBALS['heads'] = [];
+ok( 'un article publie est vivant',        DZE_Category_Content::dead_url( 'https://kula.test/article-vivant' ), false );
+ok( 'un brouillon ne l\'est pas',          DZE_Category_Content::dead_url( 'https://kula.test/brouillon' ), true );
+ok( 'une categorie connue est vivante',    DZE_Category_Content::dead_url( 'https://kula.test/boonie-hats' ), false );
+ok( 'la page d\'accueil est vivante',      DZE_Category_Content::dead_url( 'https://kula.test/' ), false );
+ok( 'et le reseau n\'a pas ete derange',   count( $GLOBALS['heads'] ), 0 );
+// Ce que la base ne connait pas peut encore repondre : une redirection, une
+// regle de reecriture. Le reseau a le dernier mot, lui seul.
+$GLOBALS['http'] = [ 'https://kula.test/redirigee' => 200, 'https://kula.test/nulle-part' => 404 ];
+ok( 'une adresse inconnue passe au reseau', DZE_Category_Content::dead_url( 'https://kula.test/redirigee' ), false );
+ok( 'et le reseau a bien ete interroge',    count( $GLOBALS['heads'] ) > 0, true );
+$GLOBALS['tr'] = [];
+ok( 'une adresse inconnue et absente est morte', DZE_Category_Content::dead_url( 'https://kula.test/nulle-part' ), true );
+// Un site qui n'est pas le notre n'est jamais jugé.
+$GLOBALS['tr'] = [];
+ok( 'un site exterieur n\'est jamais juge', DZE_Category_Content::dead_url( 'https://ailleurs.test/quoi' ), false );
+$GLOBALS['db'] = [];
+$GLOBALS['http'] = [];
+$GLOBALS['tr'] = [];
 // LE MEME JUGEMENT SERT A CHOISIR LES CIBLES. Une cible ecartee sur un 403
 // est une categorie reelle que le module ne proposera jamais : le vivier se
 // vide en silence et le module a lair de navoir rien a offrir.

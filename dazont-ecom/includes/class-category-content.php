@@ -1988,6 +1988,50 @@ PROMPT;
 	 * be made is never an answer — a timeout is not a 404, and treating it as
 	 * one would strip good links off the site every time it is busy.
 	 */
+	/**
+	 * Is this address a page of this shop that still exists?
+	 *
+	 * True yes, false no, and NULL for "this is not a question the database
+	 * can answer" — an address on another site, a language domain of its own,
+	 * or a path WordPress routes some other way. Only the first two are ever
+	 * acted on.
+	 */
+	public static function known_here( string $url ): ?bool {
+		if ( ! function_exists( 'home_url' ) || ! function_exists( 'wp_parse_url' ) ) {
+			return null;
+		}
+		$home = (string) wp_parse_url( (string) home_url(), PHP_URL_HOST );
+		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
+		if ( '' === $home || $host !== $home ) {
+			return null; // not ours to judge.
+		}
+		$path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+		if ( '' === $path ) {
+			return true; // the home page.
+		}
+		if ( function_exists( 'url_to_postid' ) ) {
+			$pid = (int) url_to_postid( $url );
+			if ( $pid > 0 ) {
+				return 'publish' === get_post_status( $pid );
+			}
+		}
+		// A CATEGORY IS NOT A POST, and `url_to_postid()` does not answer for
+		// one. The last segment of the path is the term slug on this shop,
+		// whose categories sit at the root.
+		$slug = (string) substr( $path, (int) strrpos( '/' . $path, '/' ) );
+		if ( '' === $slug || ! function_exists( 'get_taxonomies' ) ) {
+			return null;
+		}
+		foreach ( get_taxonomies( [ 'public' => true ], 'names' ) as $tax ) {
+			$term = get_term_by( 'slug', $slug, (string) $tax );
+			if ( $term && ! is_wp_error( $term ) ) {
+				return true;
+			}
+		}
+		// Nothing of ours answers to it — but a redirect or a rewrite rule
+		// still might, so the network gets the last word rather than this.
+		return null;
+	}
 	public static function dead_url( string $url ): bool {
 		$key = 'dze_alive_' . md5( untrailingslashit( $url ) );
 		$was = function_exists( 'get_transient' ) ? get_transient( $key ) : false;
@@ -1996,6 +2040,21 @@ PROMPT;
 		}
 		if ( 'yes' === $was ) {
 			return false;
+		}
+		// THE DATABASE KNOWS BETTER THAN THE NETWORK, for our own pages.
+		//
+		// This shop's host answers 403 to requests the site makes to itself,
+		// intermittently and without warning — an hour ago the same twelve
+		// addresses answered 200. A check that asks the network is therefore
+		// blind exactly when it matters, and its verdict depends on the mood
+		// of a firewall. A page of this shop is either in the database or it
+		// is not, and that question has no mood.
+		$known = self::known_here( $url );
+		if ( null !== $known ) {
+			if ( function_exists( 'set_transient' ) ) {
+				set_transient( $key, $known ? 'yes' : 'no', DAY_IN_SECONDS );
+			}
+			return ! $known;
 		}
 		$r    = wp_remote_head( $url, [ 'timeout' => 8, 'redirection' => 3 ] );
 		$code = is_wp_error( $r ) ? 0 : (int) wp_remote_retrieve_response_code( $r );
