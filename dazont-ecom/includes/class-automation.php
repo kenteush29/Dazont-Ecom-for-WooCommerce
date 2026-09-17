@@ -1981,7 +1981,7 @@ final class DZE_Automation {
 	 * So this block is printed by whoever owns that work. One block, many
 	 * hosts, never two forms that have to be kept in step.
 	 */
-	public static function panel( string $id ): void {
+	public static function panel( string $id, bool $open = false ): void {
 		$tasks = self::tasks();
 		if ( ! isset( $tasks[ $id ] ) || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
@@ -1989,7 +1989,7 @@ final class DZE_Automation {
 		$task = $tasks[ $id ];
 		$conf = self::conf( $id );
 		$name = self::OPT . '[tasks][' . $id . ']';
-		self::panel_body( $id, $task, $conf, $name );
+		self::panel_body( $id, $task, $conf, $name, $open );
 	}
 
 	/**
@@ -2040,8 +2040,11 @@ final class DZE_Automation {
 				);
 			}
 		}
+		// A host screen shows the one task it is about: open. Several, and
+		// they fold, because a wall of open blocks is not a screen.
+		$open = 1 === count( $ids );
 		foreach ( $ids as $one ) {
-			self::panel( (string) $one );
+			self::panel( (string) $one, $open );
 		}
 		submit_button( __( 'Save Changes', 'dazont-ecom' ) );
 		echo '</form>';
@@ -2063,10 +2066,15 @@ final class DZE_Automation {
 	 * @param array<string,mixed> $task
 	 * @param array<string,mixed> $conf
 	 */
-	private static function panel_body( string $id, array $task, array $conf, string $name ): void {
+	private static function panel_body( string $id, array $task, array $conf, string $name, bool $open = false ): void {
 		$ready = self::task_ready( $id );
 		?>
-				<details class="dze-set dze-auto-task">
+				<?php // OPEN WHERE IT IS THE ONLY ONE. Folded, on the screen of the
+					// work it pilots, the switch the shop asked to have within
+					// reach is a switch behind a fold — which is the click it was
+					// complaining about. Folded still on the page that lists all
+					// four side by side, where four open blocks is a wall. ?>
+				<details class="dze-set dze-auto-task"<?php echo $open ? ' open' : ''; ?>>
 					<summary>
 						<span class="dze-auto-name"><?php echo esc_html( (string) $task['label'] ); ?><?php
 							// HOW it works is for whoever wants it, one press

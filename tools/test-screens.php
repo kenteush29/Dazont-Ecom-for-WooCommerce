@@ -372,7 +372,14 @@ echo "\nL'AUTOMATISME EST UNE PROPRIETE DU TRAVAIL, PAS UNE DESTINATION\n";
 // un reglage que personne ne trouve.
 $au_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
 ok( 'le panneau d\'une tache est reutilisable',
-	false !== strpos( $au_src, 'public static function panel( string $id ): void' ), true );
+	false !== strpos( $au_src, 'public static function panel( string $id, bool $open = false ): void' ), true );
+// ET IL SOUVRE QUAND IL EST SEUL. Replie, sur lecran du travail quil pilote,
+// linterrupteur que la boutique voulait a portee de main est un interrupteur
+// derriere un pli — soit exactement le clic dont elle se plaignait.
+ok( 'le panneau souvre quand il est seul',
+	false !== strpos( $au_src, '$open = 1 === count( $ids );' ), true );
+ok( 'et le pli reste quand ils sont plusieurs',
+	false !== strpos( $au_src, "echo \$open ? ' open' : '';" ), true );
 ok( 'et son formulaire se pose n\'importe ou',
 	false !== strpos( $au_src, 'public static function panel_form( array $ids, string $title' ), true );
 // LE PIEGE : un formulaire ne portant qu'une tache effacerait les autres.
