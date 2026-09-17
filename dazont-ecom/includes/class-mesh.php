@@ -90,6 +90,11 @@ final class DZE_Mesh {
 		add_action( 'admin_init', [ $this, 'maybe_install' ] );
 		add_action( 'admin_init', [ __CLASS__, 'schedule' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'assets' ] );
+		// A MENU OF ITS OWN. This work runs by itself, like the translations,
+		// and it was the second tab of a screen called "Content": three
+		// clicks from the dashboard to see the day's linking. The order of
+		// the entry is the catalogue's business, not this page's.
+		add_action( 'admin_menu', [ $this, 'register_menu' ], 12 );
 		add_action( 'wp_ajax_dze_mesh_scan', [ __CLASS__, 'ajax_scan' ] );
 		add_action( 'wp_ajax_dze_mesh_pairs', [ __CLASS__, 'ajax_pairs' ] );
 		add_action( 'wp_ajax_dze_mesh_queue', [ __CLASS__, 'ajax_queue' ] );
@@ -1597,15 +1602,60 @@ final class DZE_Mesh {
 			: admin_url( 'post.php?post=' . $id . '&action=edit' );
 	}
 
-	public function assets( string $hook ): void {
-		if ( ! class_exists( 'DZE_Diagnostic' ) ) {
+	public const MENU_SLUG = 'dazont-ecom-linking';
+
+	/** The two kinds of job this screen owns. */
+	public const KINDS = [ 'cat_links', 'post_links' ];
+
+	public function register_menu(): void {
+		if ( ! class_exists( 'DZE_Screens' ) ) {
 			return;
 		}
+		// WHAT WAITS IS VISIBLE WITHOUT OPENING ANYTHING, the way WordPress
+		// shows comments waiting. "Je dois souvent trop cliquer pour avoir
+		// acces a x ou y chose": a count in the menu is the cheapest click
+		// there is — the one you do not make.
+		$label   = DZE_Screens::label( 'linking' );
+		$waiting = class_exists( 'DZE_Queue' )
+			? (int) ( DZE_Queue::counts_for( self::KINDS )['review'] ?? 0 )
+			: 0;
+		add_submenu_page(
+			DZE_Screens::PARENT,
+			$label,
+			$waiting
+				? $label . ' <span class="update-plugins count-' . $waiting . '"><span class="plugin-count">' . esc_html( number_format_i18n( $waiting ) ) . '</span></span>'
+				: $label,
+			'manage_woocommerce',
+			self::MENU_SLUG,
+			[ $this, 'render_page' ]
+		);
+	}
+
+	/**
+	 * The same body the Content screen used to host, on a page of its own.
+	 *
+	 * One body, two hosts, never two screens that have to be kept in step —
+	 * the rule every other tab here is held to.
+	 */
+	public function render_page(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'linking' ) : __( 'Internal linking', 'dazont-ecom' ) ) . '</h1>';
+		$this->render_tab();
+		echo '</div>';
+	}
+	public function assets( string $hook ): void {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
 		$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 		// phpcs:enable
-		if ( DZE_Diagnostic::MENU_SLUG !== $page || 'linking' !== $tab ) {
+		// The screen moved out of Content into a menu of its own; the old
+		// address still works, so both are served.
+		$mine = self::MENU_SLUG === $page
+			|| ( class_exists( 'DZE_Diagnostic' ) && DZE_Diagnostic::MENU_SLUG === $page && 'linking' === $tab );
+		if ( ! $mine ) {
 			return;
 		}
 		$v = defined( 'DZE_VERSION' ) ? DZE_VERSION : '1';

@@ -2311,7 +2311,15 @@ final class DZE_Diagnostic {
 		// no; the shortfall is a figure on the tab that is about it.
 		$waiting = 0;
 		if ( class_exists( 'DZE_Queue' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'queue' ) ) ) {
-			$waiting = DZE_Queue::review_count() + DZE_Queue::bulk_waiting();
+			// THE LINKING WORK IS COUNTED ON ITS OWN MENU NOW, so it is taken
+			// out here: two entries showing the same number, one of which
+			// cannot act on it, is worse than no number at all. What is left
+			// is everything else waiting — so a kind nobody thought of still
+			// shows up somewhere.
+			$mesh    = class_exists( 'DZE_Mesh' )
+				? (int) ( DZE_Queue::counts_for( DZE_Mesh::KINDS )['review'] ?? 0 )
+				: 0;
+			$waiting = max( 0, DZE_Queue::review_count() - $mesh ) + DZE_Queue::bulk_waiting();
 		}
 		// ONE NAME PER SCREEN. "Content diagnostic" was worn by TWO screens at
 		// once — this page and the settings tab holding the criteria — and a

@@ -1293,7 +1293,7 @@ final class DZE_Automation {
 
 	/** The site has not been read: the one sentence, and the way to the reading. */
 	public static function unread_said(): string {
-		$where = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'content', 'linking' ) : '';
+		$where = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'linking' ) : '';
 		return '' !== $where
 			/* translators: %s: the screen where the site is read */
 			? sprintf( __( 'The site has not been read yet, so there is nothing to link. Read it under %s.', 'dazont-ecom' ), $where )

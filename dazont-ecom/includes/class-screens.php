@@ -45,17 +45,20 @@ final class DZE_Screens {
 	public static function catalog(): array {
 		return [
 			'dashboard'    => [
-				'label'  => __( 'Dashboard', 'dazont-ecom' ),
+				// NAMED BY THE QUESTION IT ANSWERS. "Je ne comprends pas la ou il
+				// faut donner de l'attention": a screen called Dashboard does not
+				// say it is the one that knows.
+				'label'  => __( 'Waiting for you', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-dashboard',
 				'module' => 'dashboard',
 			],
 			'content'      => [
-				'label'  => __( 'Content', 'dazont-ecom' ),
+				// "Content" names the module; "Products" names what is in there.
+				'label'  => __( 'Products', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-diagnostic',
 				'module' => 'diagnostic',
 				'tabs'   => [
 					'diagnostic' => [ 'label' => __( 'Diagnostic', 'dazont-ecom' ) ],
-					'linking'    => [ 'label' => __( 'Linking', 'dazont-ecom' ), 'module' => 'mesh' ],
 					'review'     => [ 'label' => __( 'To review', 'dazont-ecom' ), 'module' => 'queue' ],
 					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ), 'module' => 'content' ],
 				],
@@ -90,6 +93,14 @@ final class DZE_Screens {
 					'work' => [ 'label' => __( 'Tasks', 'dazont-ecom' ) ],
 					'past' => [ 'label' => __( 'Past work', 'dazont-ecom' ) ],
 				],
+			],
+			// A MENU OF ITS OWN. It runs by itself, like the translations, and
+			// it was buried as the second tab of a screen called "Content" —
+			// three clicks from the dashboard to look at the work of the day.
+			'linking'      => [
+				'label'  => __( 'Internal linking', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-linking',
+				'module' => 'mesh',
 			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),
@@ -335,12 +346,13 @@ final class DZE_Screens {
 		return [
 			'dashboard',
 			'content',
+			'linking',
 			'review',
-			'marketing',
 			'translations',
-			'automation',
+			'marketing',
 			'restock',
 			'sourcing',
+			'automation',
 			'shortcodes',
 			'setup',
 			'logs',

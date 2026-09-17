@@ -714,7 +714,7 @@ $GLOBALS['opts']['dze_mesh_census'] = [];
 delete_transient( 'dze_mesh_thin' );
 ok( 'nothing is next in line',         DZE_Automation::shortlist( 'mesh_links', 5 ), [] );
 ok( 'and the sentence says which nothing',
-	DZE_Automation::nothing_said(), 'The site has not been read yet, so there is nothing to link. Read it under Dazont Ecom → Content → Linking.' );
+	DZE_Automation::nothing_said(), 'The site has not been read yet, so there is nothing to link. Read it under Dazont Ecom → Internal linking.' );
 ob_start(); DZE_Automation::render_state( 'mesh_links' ); $dze_unread = (string) ob_get_clean();
 ok( 'the block prints it',             false !== strpos( $dze_unread, 'The site has not been read yet' ), true );
 $dze_res = DZE_Automation::tick( 'mesh_links', true );
