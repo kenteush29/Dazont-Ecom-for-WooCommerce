@@ -49,7 +49,8 @@ function sanitize_textarea_field( $s ) { return trim( (string) $s ); }
 function wp_kses_post( $s ) { return (string) $s; }
 function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); }
 function absint( $n ) { return abs( (int) $n ); }
-function wp_unslash( $v ) { return $v; }
+function wp_unslash( $v ) { return is_string( $v ) ? stripslashes( $v ) : $v; }
+function wp_slash( $v ) { return is_string( $v ) ? addslashes( $v ) : $v; }
 function wp_json_encode( $v, $f = 0 ) { return json_encode( $v, $f ); }
 function add_action( ...$a ) {}
 function add_filter( ...$a ) {}
@@ -94,7 +95,10 @@ function get_post_meta( $id, $key = '', $single = false ) {
 	$v = $GLOBALS['meta'][ (int) $id ][ $key ] ?? ( $GLOBALS['postmeta'][ (int) $id ][ $key ] ?? '' );
 	return $single ? $v : ( '' === $v ? [] : [ $v ] );
 }
-function update_post_meta( $id, $key, $value ) { $GLOBALS['meta'][ (int) $id ][ $key ] = $value; return true; }
+// COMME WORDPRESS : update_post_meta() passe la valeur a wp_unslash() avant
+// de l'enregistrer. Un double qui garde la valeur telle quelle ne peut pas
+// voir le defaut qui rendait tout le registre d'annulation illisible.
+function update_post_meta( $id, $key, $value ) { $GLOBALS['meta'][ (int) $id ][ $key ] = is_string( $value ) ? stripslashes( $value ) : $value; return true; }
 
 /**
  * WPML, answering the way WPML answers — including the one thing that matters
@@ -350,7 +354,8 @@ function get_term_meta( $id, $key = '', $single = false ) {
 	$v = $GLOBALS['termmeta'][ (int) $id ][ $key ] ?? '';
 	return $single ? $v : ( '' === $v ? [] : [ $v ] );
 }
-function update_term_meta( $id, $key, $value ) { $GLOBALS['termmeta'][ (int) $id ][ $key ] = $value; return true; }
+// Fidele lui aussi : update_term_meta() deshabille comme son cousin.
+function update_term_meta( $id, $key, $value ) { $GLOBALS['termmeta'][ (int) $id ][ $key ] = is_string( $value ) ? stripslashes( $value ) : $value; return true; }
 function delete_term_meta( $id, $key ) { unset( $GLOBALS['termmeta'][ (int) $id ][ $key ] ); return true; }
 function delete_post_meta( $id, $key, $v = '' ) { unset( $GLOBALS['meta'][ (int) $id ][ $key ] ); return true; }
 function wp_insert_term( $name, $tax, $args = [] ) {
@@ -1830,6 +1835,50 @@ $tr_up  = strpos( $tr_src, 'wp_update_post( $post );' );
 $tr_el  = strpos( $tr_src, 'self::elementor_put( $target_id, $el );' );
 ok( 'les deux ecritures sont bien la', $tr_up > 0 && $tr_el > 0, true );
 ok( 'et larbre passe apres lenregistrement', $tr_el > $tr_up, true );
+
+echo "\nUNE ANNULATION NE VIDE JAMAIS UNE PAGE\n";
+// Sur une traduction créée dans la même passe, la page ne portait pas encore
+// d'arbre Elementor quand obj_write a commencé : WPML le recopie pendant le
+// wp_update_post() qui suit. Lu trop tôt, chaque champ était retenu comme
+// vide — et l'annulation VIDAIT la page au lieu d'y remettre les mots
+// d'origine. Soixante et un titres et paragraphes effacés, avec un
+// « annulé » pour tout résultat.
+$tr_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-translate.php' );
+$tr_get = strpos( $tr_src, "\$prev_el[ 'el:' . \$path ] = self::elementor_get(" );
+$tr_put = strpos( $tr_src, 'self::elementor_put( $target_id, $el );' );
+ok( 'ce qui va etre remplace est relu',        $tr_get > 0, true );
+ok( 'et relu AVANT le remplacement',           $tr_get < $tr_put, true );
+$tr_upd = strpos( $tr_src, 'wp_update_post( $post );' );
+ok( 'donc apres que WPML ait recopie l\'arbre', $tr_get > $tr_upd, true );
+ok( 'et un champ Elementor vide n\'est jamais remis',
+	false !== strpos( $tr_src, "0 === strpos( (string) \$fid, 'el:' ) && '' === trim( (string) \$prev[ \$fid ] )" ), true );
+
+echo "\nCE QUI EST MIS EN MEMOIRE DOIT POUVOIR EN RESSORTIR\n";
+// update_post_meta() passe par wp_unslash(). JSON echappe chaque guillemet en
+// \" et chaque barre oblique en \/ : deshabille de ses antislashes, il cesse
+// d'etre du JSON. Le registre d'annulation — les mots que portait une
+// traduction avant qu'on ecrive par-dessus — etait donc enregistre entier et
+// revenait illisible chaque fois que le texte contenait un guillemet ou une
+// adresse, c'est-a-dire toujours sur une boutique. 7 271 octets sur le disque,
+// zero champ a la relecture, et un bouton « Annuler » qui n'avait rien
+// derriere lui.
+$tr_w = new ReflectionMethod( 'DZE_Translate', 'meta_write' );
+$tr_w->setAccessible( true );
+$tr_r = new ReflectionMethod( 'DZE_Translate', 'meta_read' );
+$tr_r->setAccessible( true );
+$tr_o = [ 'kind' => 'post', 'id' => 4242, 'type' => 'page' ];
+$tr_hard = [
+	'title'          => 'Il a dit "bonjour"',
+	'el:abc:title'   => 'Voir https://kula.test/bottes-tactiques/ pour la suite',
+	'meta:_x'        => "Une ligne\nune autre, et un antislash \\ tout seul",
+];
+$tr_w->invoke( null, $tr_o, 4242, '_dze_tr_prev', (string) wp_json_encode( $tr_hard ) );
+$tr_back = json_decode( $tr_r->invoke( null, $tr_o, 4242, '_dze_tr_prev' ), true );
+ok( 'ce qui ressort est bien du JSON', is_array( $tr_back ), true );
+ok( 'et tous les champs sont la',      is_array( $tr_back ) ? count( $tr_back ) : 0, 3 );
+ok( 'les guillemets sont intacts',     $tr_back['title'] ?? '', 'Il a dit "bonjour"' );
+ok( 'les adresses aussi',              $tr_back['el:abc:title'] ?? '', 'Voir https://kula.test/bottes-tactiques/ pour la suite' );
+ok( 'et les antislashes aussi',        $tr_back['meta:_x'] ?? '', "Une ligne\nune autre, et un antislash \\ tout seul" );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

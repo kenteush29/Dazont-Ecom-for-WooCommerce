@@ -1415,6 +1415,22 @@ final class DZE_Translate {
 		if ( ! is_array( $prev ) || ! $prev ) {
 			return [];
 		}
+		// AN UNDO NEVER BLANKS A PAGE.
+		//
+		// A post field or a meta key can legitimately have been empty before,
+		// and putting it back means emptying it again. An Elementor setting
+		// cannot: a heading, a paragraph or a tab title is only in the tree
+		// because it holds something. An empty one remembered is a reading
+		// that went wrong, and writing it back leaves the page blank with an
+		// "undone" to show for it. Sixty-one of them, once.
+		foreach ( array_keys( $prev ) as $fid ) {
+			if ( 0 === strpos( (string) $fid, 'el:' ) && '' === trim( (string) $prev[ $fid ] ) ) {
+				unset( $prev[ $fid ] );
+			}
+		}
+		if ( ! $prev ) {
+			return [];
+		}
 		self::obj_write( $o, $target_id, $prev, false );
 		// Spent. An undo offered twice would put the words back a second time
 		// and say it had done something, which is a lie the second time.
@@ -1438,7 +1454,26 @@ final class DZE_Translate {
 			: (string) get_post_meta( $id, $key, true );
 	}
 
+	/**
+	 * WORDPRESS STRIPS THE BACKSLASHES OUT OF EVERY META VALUE IT SAVES.
+	 *
+	 * `update_post_meta()` runs `wp_unslash()` on what it is given, which is
+	 * right for a form post and wrong for anything this module builds itself.
+	 * JSON escapes every quote as `\"` and every slash as `\/`: stripped of its
+	 * backslashes it stops being JSON at all.
+	 *
+	 * So the undo register — the words a translation held before we wrote over
+	 * them — was saved whole and came back unreadable every single time the
+	 * text held a quote or an address, which on a shop is every time. 7,271
+	 * bytes on disk, nought fields on the way out, and an "Undo" button that
+	 * quietly had nothing behind it. The words were all there; only the
+	 * punctuation around them was gone.
+	 *
+	 * `wp_slash()` on the way in cancels that out exactly, the way Elementor's
+	 * own tree is already written a few lines above.
+	 */
 	private static function meta_write( array $o, int $id, string $key, string $value ): void {
+		$value = function_exists( 'wp_slash' ) ? wp_slash( $value ) : $value;
 		if ( 'term' === ( $o['kind'] ?? 'post' ) ) {
 			update_term_meta( $id, $key, $value );
 			return;
@@ -1567,6 +1602,27 @@ final class DZE_Translate {
 			wp_update_post( $post );
 		}
 		if ( $el ) {
+			// AND WHAT IS ABOUT TO BE REPLACED IS READ HERE, NOT AT THE TOP.
+			//
+			// On a translation created in this same pass the page did not hold
+			// an Elementor tree yet when this function began: WPML copies it
+			// during the `wp_update_post()` just above. Read too early, every
+			// field was remembered as empty — and an undo then EMPTIED the
+			// page instead of putting the original words back. Sixty-one
+			// headings and paragraphs blanked, with an "undone" to show for it.
+			if ( $remember ) {
+				$prev_el = [];
+				foreach ( array_keys( $el ) as $path ) {
+					$prev_el[ 'el:' . $path ] = self::elementor_get( $target_id, (string) $path );
+				}
+				$held = json_decode( (string) self::meta_read( $o, $target_id, self::META_PREV ), true );
+				self::meta_write(
+					$o,
+					$target_id,
+					self::META_PREV,
+					(string) wp_json_encode( array_merge( is_array( $held ) ? $held : [], $prev_el ) )
+				);
+			}
 			self::elementor_put( $target_id, $el );
 		}
 		// THE VARIATIONS' OWN WORDS, onto the variations WooCommerce
