@@ -296,13 +296,24 @@ class DZE_Setup      { public static function score() { return [ 'done' => 3, 'n
 class DZE_Restock    { const MENU_SLUG = 'dazont-ecom'; public static function get_line_index() { return []; } public static function get_line_sales( $id ) { return 0; } }
 class DZE_Explorer   { const MENU_SLUG = 'dazont-ecom-explorer'; const META_RESEARCHED = '_dze_researched'; }
 class DZE_Discounts  { const MENU_SLUG = 'dazont-ecom-discounts'; const MENU_SLUG_EVENTS = 'dazont-ecom-marketing-events'; public static function get_rules() { return []; } }
-class DZE_Ai_Usage   { public static function render_graph( ...$a ) { echo '<div id="dze-usage-graph"></div>'; } }
+class DZE_Ai_Usage   {
+	public static function render_graph( ...$a ) { echo '<div id="dze-usage-graph"></div>'; }
+	// Les quatre chiffres seuls : ce que la page daccueil montre desormais,
+	// le rapport entier restant dans le journal des depenses.
+	public static function render_summary( ...$a ) { echo '<div id="dze-usage-summary"></div>'; }
+}
 require __DIR__ . '/../' . $dir . '/includes/class-dashboard.php';
 $GLOBALS['off'] = [];
 ob_start(); DZE_Dashboard::instance()->render_page(); $dze_home = (string) ob_get_clean();
 $dze_first = (int) strpos( $dze_home, 'Waiting for you' );
 ok( 'the page draws the block',                  false !== strpos( $dze_home, 'Waiting for you' ), true );
-ok( 'and draws it FIRST',                        $dze_first > 0 && $dze_first < (int) strpos( $dze_home, 'Top categories' ), true );
+// Et en PLEINE LARGEUR, avant la rangee compacte : cinq cartes de meme poids,
+// tenant deux lignes dun cote et deux ecrans de tableaux de lautre, faisaient
+// du bloc pour lequel la page existe une colonne etroite a cote dun rapport.
+ok( 'and draws it FIRST',                        $dze_first > 0 && $dze_first < (int) strpos( $dze_home, 'The shop at a glance' ), true );
+ok( 'the tables are gone from the home screen', false !== strpos( $dze_home, 'Top out-of-stock products' ), false );
+ok( 'and the spend is the four figures, not the report',
+	[ false !== strpos( $dze_home, 'dze-usage-summary' ), false !== strpos( $dze_home, 'dze-usage-graph' ) ], [ true, false ] );
 ok( 'content waiting adds the queue and the bulk screen', false !== strpos( $dze_home, '5 pieces of content wait for your yes or no' ), true );
 ok( 'and goes to Content to review',             false !== strpos( $dze_home, DZE_Screens::url( 'review' ) ), true );
 ok( 'one translation, in the singular',          false !== strpos( $dze_home, '1 translation waits to be read' ), true );

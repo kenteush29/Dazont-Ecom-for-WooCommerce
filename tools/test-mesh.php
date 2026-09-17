@@ -1138,8 +1138,11 @@ echo "\nWhat runs by itself, said where the linking is looked at\n";
 DZE_Automation::$conf = [ 'on' => false, 'per_day' => 3, 'apply' => false ];
 $dze_auto = DZE_Mesh::auto_said();
 ok( 'off, it says so',                  false !== strpos( $dze_auto['said'], 'Nothing links pages on its own yet' ), true );
-ok( 'and names the screen from the catalogue', $dze_auto['name'], 'Dazont Ecom → Automation' );
-ok( 'with its address',                 false !== strpos( $dze_auto['url'], 'page=dazont-ecom-automation' ), true );
+// ET IL NE NOMME AUCUN AUTRE ECRAN : linterrupteur est en haut de cette page.
+// Envoyer la boutique vers un menu — disparu — presser un controle quelle a
+// deja sous les yeux, cest le clic que toute cette reorganisation visait.
+ok( 'et il dit ou est linterrupteur', false !== strpos( $dze_auto['said'], 'Switch it on above' ), true );
+ok( 'sans renvoyer ailleurs',        [ $dze_auto['url'], $dze_auto['name'] ], [ '', '' ] );
 DZE_Automation::$conf = [ 'on' => true, 'per_day' => 3, 'apply' => false ];
 ok( 'on, the rhythm and the review',    DZE_Mesh::auto_said()['said'], 'Dazont Ecom also links 3 pages a day on its own, held for your yes or no.' );
 DZE_Automation::$conf = [ 'on' => true, 'per_day' => 1, 'apply' => true ];
@@ -1199,7 +1202,8 @@ ok( 'no warning about the key',         false !== strpos( $screen, 'dze-mesh-nok
 ok( 'and the buttons are live',         substr_count( $screen, 'dze-mesh-pairs" disabled' ), 0 );
 // THE PASS THAT RUNS BY ITSELF IS NAMED, off or on.
 ok( 'the automatic pass is said',       false !== strpos( $screen, 'dze-mesh-auto' ), true );
-ok( 'linking to the catalogue\'s screen', false !== strpos( $screen, '>Dazont Ecom → Automation</a>' ), true );
+// SANS RENVOYER NULLE PART : linterrupteur est en haut de cette page.
+ok( 'et lecran ne renvoie vers aucun menu', false !== strpos( $screen, '>Dazont Ecom → Automation</a>' ), false );
 // A PAGE HAS BEEN CHOSEN, so nothing nags.
 ok( 'no line about choosing pages',     false !== strpos( $screen, 'dze-mesh-unchosen' ), false );
 

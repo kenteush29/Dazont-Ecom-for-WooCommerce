@@ -70,12 +70,22 @@ final class DZE_Dashboard {
 			// for a yes, the translation nobody had read or the connection that
 			// had been down since Monday — the questions somebody opens the
 			// plugin to answer.
-			__( 'Waiting for you', 'dazont-ecom' )                  => 'block_waiting',
-			__( 'Top categories — last 3 months', 'dazont-ecom' )   => 'block_top_categories',
-			__( 'Top out-of-stock products', 'dazont-ecom' )        => 'block_out_of_stock',
+			__( 'The shop at a glance', 'dazont-ecom' )             => 'block_glance',
 			__( 'Marketing calendar', 'dazont-ecom' )               => 'block_events',
-			__( 'AI usage per month', 'dazont-ecom' )               => 'block_ai_usage',
+			__( 'What it cost', 'dazont-ecom' )                     => 'block_ai_usage',
 		];
+		// WHAT WAITS FOR YOU COMES FIRST, AND ACROSS THE WHOLE WIDTH.
+		//
+		// "Style de waiting for you, pas très agréable. J'ai fait -50% de
+		// taille d'écran." Five cards of equal weight, holding two lines on one
+		// side and two screens of tables on the other: the block the page
+		// exists for was a narrow column beside a spend report. It is the first
+		// thing, full width, and the rest is a row of short cards under it.
+		echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:16px 18px;margin-bottom:16px;">';
+		echo '<h2 style="margin:0 0 10px;font-size:14px;">' . esc_html__( 'Waiting for you', 'dazont-ecom' ) . '</h2>';
+		$this->block_waiting();
+		echo '</div>';
+		echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">';
 		foreach ( $blocks as $title => $method ) {
 			echo '<div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:16px 18px;">';
 			echo '<h2 style="margin:0 0 10px;font-size:14px;">' . esc_html( $title ) . '</h2>';
@@ -207,6 +217,60 @@ final class DZE_Dashboard {
 		return $out;
 	}
 
+	/**
+	 * THE SHOP IN THREE SENTENCES, not in three tables.
+	 *
+	 * "Il vaudrait mieux compacter. Juste une ligne suffit pour dire combien de
+	 * produits sont à resourcer." A top-eight table of out-of-stock lines on
+	 * the home screen is the Restock screen, drawn a second time, worse and
+	 * smaller — and the same for the top categories and the Sourcing
+	 * Assistant. A figure and the way to the screen that acts on it is the
+	 * whole of what a home screen owes them.
+	 */
+	public function block_glance(): void {
+		$said = [];
+		if ( class_exists( 'DZE_Restock' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'restock' ) ) ) {
+			$n = count( (array) DZE_Restock::get_line_index() );
+			$said[] = [
+				$n
+					/* translators: %s: how many product lines */
+					? sprintf( _n( '%s product line is short of stock', '%s product lines are short of stock', $n, 'dazont-ecom' ), number_format_i18n( $n ) )
+					: __( 'Nothing is out of stock. 👌', 'dazont-ecom' ),
+				$n ? DZE_Screens::url( 'restock' ) : '',
+				DZE_Screens::label( 'restock' ),
+			];
+		}
+		$cats = $this->top_categories();
+		if ( $cats ) {
+			$cold = 0;
+			foreach ( $cats as $r ) {
+				if ( ! (int) get_term_meta( (int) $r['id'], DZE_Explorer::META_RESEARCHED, true ) ) {
+					$cold++;
+				}
+			}
+			$said[] = [
+				$cold
+					/* translators: %s: how many categories */
+					? sprintf( _n( '%s of your best-selling categories has never been searched for novelties', '%s of your best-selling categories have never been searched for novelties', $cold, 'dazont-ecom' ), number_format_i18n( $cold ) )
+					: __( 'Every best-selling category has been searched at least once.', 'dazont-ecom' ),
+				DZE_Screens::url( 'sourcing' ),
+				DZE_Screens::label( 'sourcing' ),
+			];
+		}
+		if ( ! $said ) {
+			echo '<p class="description" style="margin:0;">' . esc_html__( 'Nothing to report.', 'dazont-ecom' ) . '</p>';
+			return;
+		}
+		echo '<ul style="margin:0;list-style:none;">';
+		foreach ( $said as $one ) {
+			echo '<li style="margin:0 0 6px;">' . esc_html( (string) $one[0] );
+			if ( '' !== (string) $one[1] ) {
+				echo ' — <a href="' . esc_url( (string) $one[1] ) . '">' . esc_html( (string) $one[2] ) . ' →</a>';
+			}
+			echo '</li>';
+		}
+		echo '</ul>';
+	}
 	/** The block: one line per thing waiting, or one line saying nothing is. */
 	public function block_waiting(): void {
 		$lines = self::waiting();
@@ -353,7 +417,12 @@ final class DZE_Dashboard {
 	}
 
 	public function block_ai_usage(): void {
-		DZE_Ai_Usage::render_graph( 6 );
+		// THE FOUR FIGURES, NOT THE WHOLE REPORT. `render_graph()` prints the
+		// cost per unit of work, the cost per model, a day-by-day chart and a
+		// month-by-month one — two full screens on a page whose first block
+		// holds two lines. That report is the Spend log, and it is one click
+		// away, named.
+		DZE_Ai_Usage::render_summary();
 		// The whole account is a LOG, not a setting: this link sent the shop to
 		// Settings for months after the spend moved to Dazont Ecom → Logs.
 		echo '<p style="margin-bottom:0;"><a href="' . esc_url( DZE_Screens::url( 'logs', 'spend' ) ) . '">' . esc_html__( 'Open the Spend log →', 'dazont-ecom' ) . '</a></p>';

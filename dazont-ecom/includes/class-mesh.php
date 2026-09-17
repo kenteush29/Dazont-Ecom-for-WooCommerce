@@ -1530,10 +1530,14 @@ final class DZE_Mesh {
 				'name' => $name,
 			];
 		}
+		// AND IT NAMES NO OTHER SCREEN. The switch is at the top of this very
+		// page now; sending the shop to a menu — one that no longer exists —
+		// to press a control it is already looking at is the click this whole
+		// reorganisation was about.
 		return [
-			'said' => __( 'Nothing links pages on its own yet — the Internal linking task is off under', 'dazont-ecom' ),
-			'url'  => $url,
-			'name' => $name,
+			'said' => __( 'Nothing links pages on its own yet. Switch it on above and it works through the list a few pages a day.', 'dazont-ecom' ),
+			'url'  => '',
+			'name' => '',
 		];
 	}
 
@@ -1677,13 +1681,17 @@ final class DZE_Mesh {
 			// in this plugin is held to — and told which work is ours.
 			DZE_Queue::instance()->body( self::KINDS );
 		} else {
-			$this->render_tab();
-			// AND THE SWITCH THAT MAKES IT RUN BY ITSELF, here, under the work
-			// it acts on. It used to live three menus away, on a screen that
-			// held nothing but other modules' switches.
+			// THE SWITCH FIRST, THEN THE WORK.
+			//
+			// "Run it by itself devrait être en haut de page, tu m'assènes avec
+			// des dizaines de lignes et juste en bas de page le réglage
+			// standard." Two tables that run to two hundred rows stood between
+			// the shop and the one control that makes this screen unnecessary.
+			// The decision comes before the list the decision is about.
 			if ( class_exists( 'DZE_Automation' ) ) {
 				DZE_Automation::panel_form( [ 'mesh_links' ], __( 'Run it by itself', 'dazont-ecom' ) );
 			}
+			$this->render_tab();
 		}
 		echo '</div>';
 	}
