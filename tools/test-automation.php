@@ -1554,7 +1554,8 @@ ok( 'no decision is taken on a row',   false !== strpos( $list, 'dze-auto-aside'
 ok( 'the pages left out are counted',  1 === preg_match( '/\\d+ pages? of this site takes? no part in linking/', $list ), true );
 ok( 'and it says which always do',     false !== strpos( $list, 'Every article and every product category does' ), true );
 // A SENTENCE THAT NAMES A SCREEN IS A WAY TO THAT SCREEN.
-ok( 'with the way to choose them',     false !== strpos( $list, 'tab=linking' ), true );
+// Le maillage a sa propre page : la phrase y mene directement.
+ok( 'with the way to choose them',     false !== strpos( $list, 'page=dazont-ecom-linking' ), true );
 ok( 'and the word for it',             false !== strpos( $list, 'Choose them' ), true );
 // NOTHING IS SAID WHEN THERE IS NOTHING TO SAY: a line reporting nought every
 // day is a line nobody reads by the end of the week.

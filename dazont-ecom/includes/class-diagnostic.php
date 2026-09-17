@@ -2523,10 +2523,16 @@ final class DZE_Diagnostic {
 			// other tab here: one function, printed by whoever shows it.
 			DZE_Mesh::instance()->render_tab();
 		} elseif ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
+			// EVERYTHING EXCEPT THE LINKING, which has a screen of its own now.
+			// Taken as a difference rather than a list, so a kind nobody
+			// thought of still turns up somewhere instead of nowhere.
+			$mine = class_exists( 'DZE_Mesh' )
+				? array_values( array_diff( array_keys( DZE_Queue::kinds() ), DZE_Mesh::KINDS ) )
+				: [];
 			// The body belongs to the module that owns that work: one body,
 			// printed here and on its own page alike, never two screens that
 			// have to be kept in step.
-			DZE_Queue::instance()->body();
+			DZE_Queue::instance()->body( $mine );
 		} elseif ( 'products' === $tab && class_exists( 'DZE_Content' ) ) {
 			// The same rule again: one body, and it is handed the address of
 			// the screen showing it so its own two tabs — Selected products,

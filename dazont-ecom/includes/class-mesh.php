@@ -1641,9 +1641,44 @@ final class DZE_Mesh {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$tab     = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'plan';
+		$waiting = class_exists( 'DZE_Queue' )
+			? (int) ( DZE_Queue::counts_for( self::KINDS )['review'] ?? 0 )
+			: 0;
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'linking' ) : __( 'Internal linking', 'dazont-ecom' ) ) . '</h1>';
-		$this->render_tab();
+		// THE WHOLE LIFE OF ONE SUBJECT, ON ONE SCREEN: what to link, and what
+		// came back to be decided on. Sending the shop to another menu to read
+		// the result of the button it just pressed is the "trop de clics" it
+		// complained about, and it is the same list either way — only scoped.
+		$tabs = [
+			'plan'   => __( 'What to link', 'dazont-ecom' ),
+			'review' => $waiting
+				? sprintf(
+					/* translators: %s: how many results are waiting */
+					__( 'To review (%s)', 'dazont-ecom' ),
+					number_format_i18n( $waiting )
+				)
+				: __( 'To review', 'dazont-ecom' ),
+		];
+		echo '<h2 class="nav-tab-wrapper" style="margin-bottom:16px;">';
+		foreach ( $tabs as $id => $label ) {
+			printf(
+				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
+				$tab === $id ? ' nav-tab-active' : '',
+				esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ),
+				esc_html( $label )
+			);
+		}
+		echo '</h2>';
+		if ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
+			// One body, printed by whoever shows it — the rule every other tab
+			// in this plugin is held to — and told which work is ours.
+			DZE_Queue::instance()->body( self::KINDS );
+		} else {
+			$this->render_tab();
+		}
 		echo '</div>';
 	}
 	public function assets( string $hook ): void {
@@ -1656,6 +1691,12 @@ final class DZE_Mesh {
 		$mine = self::MENU_SLUG === $page
 			|| ( class_exists( 'DZE_Diagnostic' ) && DZE_Diagnostic::MENU_SLUG === $page && 'linking' === $tab );
 		if ( ! $mine ) {
+			return;
+		}
+		// THE REVIEW TAB IS THE QUEUE'S OWN SCREEN, and it brings its own
+		// assets when its body is printed — scoped by the host. Nothing for
+		// the mesh to load there.
+		if ( self::MENU_SLUG === $page && 'review' === $tab ) {
 			return;
 		}
 		$v = defined( 'DZE_VERSION' ) ? DZE_VERSION : '1';

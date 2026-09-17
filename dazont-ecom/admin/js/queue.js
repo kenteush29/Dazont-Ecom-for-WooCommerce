@@ -133,7 +133,7 @@
 		// stepping one.
 		if (!$('#dze-q-table').length) { return $.Deferred().resolve(); }
 		if (paused) { return $.Deferred().resolve(); }
-		return $.post(cfg.ajaxUrl, { action: 'dze_q_status', nonce: cfg.nonce })
+		return $.post(cfg.ajaxUrl, { action: 'dze_q_status', nonce: cfg.nonce, kinds: cfg.kinds || [] })
 			.done(function (res) {
 				if (!res || !res.success) { return; }
 				draw(res.data);
@@ -225,7 +225,7 @@
 		});
 		$('#dze-q-clear').on('click', function () {
 			if (!window.confirm(i18n.confirm)) { return; }
-			$.post(cfg.ajaxUrl, { action: 'dze_q_clear', nonce: cfg.nonce }).always(refresh);
+			$.post(cfg.ajaxUrl, { action: 'dze_q_clear', nonce: cfg.nonce, kinds: cfg.kinds || [] }).always(refresh);
 		});
 	});
 

@@ -52,6 +52,8 @@ echo "EVERY SLUG IN THE CATALOGUE IS THE ONE ITS PAGE CLASS USES\n";
 $dze_where = [
 	'dashboard'    => [ 'class-dashboard.php', 'MENU_SLUG' ],
 	'content'      => [ 'class-diagnostic.php', 'MENU_SLUG' ],
+	// Le maillage a son propre ecran depuis quil ne depend plus de Content.
+	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
 	'automation'   => [ 'class-automation.php', 'MENU_SLUG' ],
@@ -148,7 +150,7 @@ ok( 'with the host off it stands alone',      DZE_Screens::hosted_by( 'review' )
 ok( 'at its own address',
 	DZE_Screens::url( 'review' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-queue' );
 ok( 'and the host itself is not offered',     DZE_Screens::offered( 'content' ), false );
-ok( 'nor named',                              DZE_Screens::name( 'content' ), 'Dazont Ecom → Content' );
+ok( 'nor named',                              DZE_Screens::name( 'content' ), 'Dazont Ecom → Products' );
 ok( 'but has no address',                     DZE_Screens::url( 'content' ), '' );
 $GLOBALS['off'] = [];
 
@@ -169,7 +171,10 @@ $GLOBALS['off'] = [];
 echo "\nTHE LINKS ARE EVERY PHRASE, AND NOTHING ELSE\n";
 $dze_links = DZE_Screens::links();
 ok( 'a page phrase is there',             $dze_links['Dazont Ecom → Logs'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-logs' );
-ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Content → Linking'] ), true );
+ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Products → Products'] ), true );
+// Et le maillage est desormais une PAGE, plus un onglet : sa phrase le dit.
+ok( 'le maillage est une page a lui',
+	$dze_links['Dazont Ecom → Internal linking'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-linking' );
 ok( 'a settings phrase is there',         isset( $dze_links['Settings → Email campaigns'] ), true );
 ok( 'a hosted page is there by its own name', isset( $dze_links['Dazont Ecom → Content to review'] ), true );
 ok( 'and every address is an admin one',
@@ -314,6 +319,40 @@ ob_start(); DZE_Dashboard::instance()->render_page(); $dze_home = (string) ob_ge
 ok( 'translations off: no translation line',     false !== strpos( $dze_home, 'translation' ), false );
 ok( 'and nothing waiting says so in words',      false !== strpos( $dze_home, 'Nothing is waiting for you.' ), true );
 $GLOBALS['off'] = [];
+
+echo "\nCHAQUE ECRAN NE VOIT ET NE TOUCHE QUE SON PROPRE TRAVAIL\n";
+// « Je dois souvent trop cliquer pour avoir acces a x ou y chose. » Une liste
+// unique tenant les categories, les articles, les photographies et les passes
+// de maillage est une liste que personne ne lit — et un « Vider » qui balaie
+// une photographie que quelqu'un examine encore est un bouton qui fait plus
+// que ce qu'il dit.
+$sc_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
+ok( 'la file sait se limiter a une famille',
+	false !== strpos( $sc_src, 'public static function rows( int $limit = 200, array $kinds = [] ): array' ), true );
+ok( 'la portee est nettoyee contre le catalogue',
+	false !== strpos( $sc_src, '$kinds = self::clean_kinds( $kinds );' ), true );
+ok( 'l\'ecran passe sa portee a son corps',
+	false !== strpos( $sc_src, 'public function body( array $kinds = [] ): void' ), true );
+ok( 'et elle voyage jusqu\'au navigateur',
+	false !== strpos( $sc_src, "'kinds'   => array_values( self::clean_kinds( \$kinds ) )" ), true );
+ok( 'le vidage est limite lui aussi',
+	false !== strpos( $sc_src, '$scope = $kinds ? " AND kind IN' ), true );
+$sc_js = file_get_contents( __DIR__ . '/../dazont-ecom/admin/js/queue.js' );
+ok( 'le JS envoie la portee en lisant la liste',
+	false !== strpos( $sc_js, "action: 'dze_q_status', nonce: cfg.nonce, kinds: cfg.kinds || []" ), true );
+ok( 'et en vidant',
+	false !== strpos( $sc_js, "action: 'dze_q_clear', nonce: cfg.nonce, kinds: cfg.kinds || []" ), true );
+// Les deux hotes, chacun sa moitie, et la difference plutot qu'une liste.
+$sc_mesh = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-mesh.php' );
+ok( 'le maillage possede ses deux genres',
+	false !== strpos( $sc_mesh, "public const KINDS = [ 'cat_links', 'post_links' ];" ), true );
+ok( 'et ne montre que ceux-la',
+	false !== strpos( $sc_mesh, 'DZE_Queue::instance()->body( self::KINDS )' ), true );
+$sc_diag = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-diagnostic.php' );
+ok( 'Produits montre tout le reste, par difference',
+	false !== strpos( $sc_diag, 'array_diff( array_keys( DZE_Queue::kinds() ), DZE_Mesh::KINDS )' ), true );
+ok( 'et son compteur cesse de compter le maillage',
+	false !== strpos( $sc_diag, 'max( 0, DZE_Queue::review_count() - $mesh )' ), true );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

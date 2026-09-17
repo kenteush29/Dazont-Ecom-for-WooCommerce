@@ -1270,7 +1270,7 @@ $dze_page = (string) ob_get_clean();
 // linking, what waits and the products — and the standards it reads against
 // are Settings → Content rules. Both used to be called "Content diagnostic",
 // which is a name that answers neither question.
-ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Content</h1>' ), true );
+ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Products</h1>' ), true );
 ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
 // THE PRODUCTS TAB IS DRAWN HERE, with its own two tabs inside it — "tu peux
 // rendre l'onglet Products fonctionnel et y faire dedans 2 onglets, Selected
@@ -1316,7 +1316,7 @@ $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Content' );
+ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Products' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
 // THE BADGE IS WHAT WAITS FOR A PERSON. It used to carry the shortfall —
 // "1,205" in red, for ever, on a menu you look at forty times a day, which is

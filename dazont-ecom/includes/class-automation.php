@@ -2194,7 +2194,7 @@ final class DZE_Automation {
 			return;
 		}
 		$url = class_exists( 'DZE_Diagnostic' )
-			? add_query_arg( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'linking' ], admin_url( 'admin.php' ) )
+			? add_query_arg( [ 'page' => DZE_Mesh::MENU_SLUG ], admin_url( 'admin.php' ) )
 			: '';
 		echo '<p class="description dze-auto-orphnote">' . esc_html( sprintf(
 			/* translators: %s: how many pages are not part of the linking work */
