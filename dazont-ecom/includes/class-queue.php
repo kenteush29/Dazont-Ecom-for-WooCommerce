@@ -1621,11 +1621,33 @@ final class DZE_Queue {
 				<span id="dze-q-bulkstatus" class="description"></span>
 			</p>
 			<?php
-			// The product half of "what is waiting for me" is a TAB of the
-			// Content diagnostic, beside this one, with its own count. It was
-			// a notice inside this screen offering to take you to the screen
-			// you were already looking for, which is a screen describing
-			// itself rather than showing the work.
+			// THE PRODUCT HALF OF "WHAT IS WAITING FOR ME" LIVES ELSEWHERE, and
+			// this screen has to say so.
+			//
+			// It used to be a tab beside this one, so a notice pointing at it
+			// was a screen describing itself. It is its own menu entry now —
+			// and the bubble on "To review" counts those products, so the
+			// screen said 7 and listed nothing: "pastille indique 7, sur la
+			// page il n'y a rien." One line, with the way there, only when
+			// there is something to say.
+			$dze_bulk = self::bulk_waiting();
+			if ( $dze_bulk > 0 && class_exists( 'DZE_Content' ) ) {
+				printf(
+					'<div class="notice notice-info inline" style="margin:0 0 14px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+					esc_html( sprintf(
+						/* translators: %s: how many products */
+						_n(
+							'%s product on the writing bench is holding a result nobody has decided on. It is not in this list: a product is accepted on the bench, beside its photographs.',
+							'%s products on the writing bench are holding results nobody has decided on. They are not in this list: a product is accepted on the bench, beside its photographs.',
+							$dze_bulk,
+							'dazont-ecom'
+						),
+						number_format_i18n( $dze_bulk )
+					) ),
+					esc_url( DZE_Content::bulk_url() ),
+					esc_html__( 'Open the bench →', 'dazont-ecom' )
+				);
+			}
 			?>
 			<table class="wp-list-table widefat fixed striped" id="dze-q-table">
 				<thead><tr>

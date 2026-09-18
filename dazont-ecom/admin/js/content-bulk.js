@@ -1913,6 +1913,16 @@
 		var revN = parseInt($('#dze-cb-revn').val(), 10) || 0;
 		reviewMode = $('input[name="dze-cb-mode"]:checked').val() !== 'direct';
 
+		// UNE CASE COCHEE QUI NE COMPTE PAS DOIT LE DIRE. doImg exige un
+		// gabarit : sans lui la case image etait silencieusement ignoree et le
+		// message accusait « rien de coche » sous les yeux de quelqu un qui
+		// venait de cocher. On nomme ce qui manque, et ou le trouver.
+		var imgTicked = $('#dze-cb-image').is(':checked') && !$('#dze-cb-image').prop('disabled');
+		if (imgTicked && !tplList.length) {
+			var anyTpl = $('#dze-cb-tplrows .dze-cb-tpl option').filter(function () { return $(this).val() !== null && $(this).val() !== ''; }).length > 0;
+			window.alert(anyTpl ? i18n.noTpl : i18n.noTplAny);
+			return;
+		}
 		if (!fields.length && !doPrice && !doImg && !doRev) {
 			window.alert(i18n.noFields);
 			return;

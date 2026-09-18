@@ -96,6 +96,21 @@ final class DZE_Ai_Usage {
 	/** How many calls the trace holds before the oldest rolls off. */
 	private const TRACE_KEEP = 12;
 
+	/**
+	 * LE JOURNAL LEGER — qui a depense, quand, avec quel modele.
+	 *
+	 * La trace garde douze appels pour tout le plugin, parce qu elle garde
+	 * le TEXTE : c est ce qu il faut pour comprendre une reponse etrange, et
+	 * c est inutilisable pour comprendre une facture. « 27$ depense
+	 * aujourd hui en un jour. Pour quoi ? aucune idee ! »
+	 *
+	 * Ces lignes-ci ne portent aucun texte : l heure, le module, le modele,
+	 * la duree et deux longueurs. Une soixantaine d octets, donc mille
+	 * d entre elles tiennent dans une option qui ne charge jamais.
+	 */
+	private const LEDGER      = 'dze_ai_ledger';
+	private const LEDGER_KEEP = 1000;
+
 	/** The last call of EACH prompt, so every prompt can show its own. */
 	private const LAST = 'dze_ai_last';
 
@@ -130,6 +145,19 @@ final class DZE_Ai_Usage {
 			'got'      => mb_substr( $got, 0, 10000 ),
 		];
 		update_option( self::TRACE, array_slice( $rows, -self::TRACE_KEEP ), false );
+		// ET LA LIGNE DE COMPTE, qui survit bien plus longtemps que le texte.
+		$led   = get_option( self::LEDGER, [] );
+		$led   = is_array( $led ) ? $led : [];
+		$led[] = [
+			't' => time(),
+			'u' => '' !== self::$unit ? self::$unit : 'other',
+			'p' => sanitize_key( $provider ),
+			'm' => sanitize_text_field( $model ),
+			's' => round( max( 0, $secs ), 1 ),
+			'i' => mb_strlen( $sent ),
+			'o' => mb_strlen( $got ),
+		];
+		update_option( self::LEDGER, array_slice( $led, -self::LEDGER_KEEP ), false );
 		self::remember( end( $rows ) );
 		self::file_on_object( end( $rows ) );
 	}
@@ -222,6 +250,85 @@ final class DZE_Ai_Usage {
 	}
 
 	/** The last calls, newest first. @return array[] */
+	/**
+	 * WHERE THE MONEY WENT, by module, over the last N days.
+	 *
+	 * Read from the ledger rather than the trace: the trace holds a dozen
+	 * calls and answers "why is this answer strange", which is a different
+	 * question from "why was today expensive".
+	 *
+	 * @return array<int,array{unit:string,calls:int,secs:float,in:int,out:int,models:string}>
+	 */
+	/** WHO SPENT IT, as a table, beside the graph that says how much. */
+	public static function render_spend(): void {
+		foreach ( [ 1 => __( 'Today', 'dazont-ecom' ), 7 => __( 'The last seven days', 'dazont-ecom' ) ] as $days => $title ) {
+			$rows = self::spend_by_unit( (int) $days );
+			echo '<h2 style="margin-top:26px;">' . esc_html( $title ) . '</h2>';
+			if ( ! $rows ) {
+				echo '<p class="description">' . esc_html__( 'No call to a model recorded for this period. The record starts when this version is installed — it does not go back.', 'dazont-ecom' ) . '</p>';
+				continue;
+			}
+			echo '<table class="widefat striped"><thead><tr>'
+				. '<th>' . esc_html__( 'Module', 'dazont-ecom' ) . '</th>'
+				. '<th style="width:90px;">' . esc_html__( 'Calls', 'dazont-ecom' ) . '</th>'
+				. '<th style="width:120px;">' . esc_html__( 'Characters in', 'dazont-ecom' ) . '</th>'
+				. '<th style="width:120px;">' . esc_html__( 'Characters out', 'dazont-ecom' ) . '</th>'
+				. '<th style="width:100px;">' . esc_html__( 'Time', 'dazont-ecom' ) . '</th>'
+				. '<th>' . esc_html__( 'Models used', 'dazont-ecom' ) . '</th>'
+				. '</tr></thead><tbody>';
+			foreach ( $rows as $r ) {
+				printf(
+					'<tr><td><strong>%1$s</strong></td><td>%2$s</td><td>%3$s</td><td>%4$s</td><td>%5$s</td><td>%6$s</td></tr>',
+					esc_html( (string) $r['unit'] ),
+					esc_html( number_format_i18n( (int) $r['calls'] ) ),
+					esc_html( number_format_i18n( (int) $r['in'] ) ),
+					esc_html( number_format_i18n( (int) $r['out'] ) ),
+					esc_html( sprintf( /* translators: %s: seconds */ __( '%ss', 'dazont-ecom' ), number_format_i18n( (float) $r['secs'], 0 ) ) ),
+					esc_html( (string) $r['models'] )
+				);
+			}
+			echo '</tbody></table>';
+		}
+		echo '<p class="description" style="margin-top:8px;">'
+			. esc_html__( 'Characters, not tokens: the provider bills tokens, and one token is roughly three to four characters of English. What this table is for is telling the expensive module from the cheap one, which the ratio does not change.', 'dazont-ecom' )
+			. '</p>';
+	}
+	public static function spend_by_unit( int $days = 1 ): array {
+		$rows = get_option( self::LEDGER, [] );
+		$rows = is_array( $rows ) ? $rows : [];
+		$from = time() - max( 1, $days ) * DAY_IN_SECONDS;
+		$by   = [];
+		foreach ( $rows as $r ) {
+			if ( (int) ( $r['t'] ?? 0 ) < $from ) {
+				continue;
+			}
+			$u = (string) ( $r['u'] ?? 'other' );
+			if ( ! isset( $by[ $u ] ) ) {
+				$by[ $u ] = [ 'unit' => $u, 'calls' => 0, 'secs' => 0.0, 'in' => 0, 'out' => 0, 'models' => [] ];
+			}
+			$by[ $u ]['calls']++;
+			$by[ $u ]['secs'] += (float) ( $r['s'] ?? 0 );
+			$by[ $u ]['in']   += (int) ( $r['i'] ?? 0 );
+			$by[ $u ]['out']  += (int) ( $r['o'] ?? 0 );
+			$m = (string) ( $r['m'] ?? '' );
+			if ( '' !== $m ) {
+				$by[ $u ]['models'][ $m ] = ( $by[ $u ]['models'][ $m ] ?? 0 ) + 1;
+			}
+		}
+		// THE BIGGEST SPENDER FIRST, because that is the one question this
+		// answers: a list in module order makes the reader do the sorting.
+		usort( $by, static fn( array $a, array $b ): int => ( $b['in'] + $b['out'] ) <=> ( $a['in'] + $a['out'] ) );
+		foreach ( $by as $i => $one ) {
+			arsort( $one['models'] );
+			$by[ $i ]['models'] = implode( ', ', array_map(
+				static fn( $m, $n ) => $m . ' ×' . $n,
+				array_keys( $one['models'] ),
+				array_values( $one['models'] )
+			) );
+		}
+		return $by;
+	}
+
 	public static function trace_rows(): array {
 		$rows = get_option( self::TRACE, [] );
 		return array_reverse( is_array( $rows ) ? $rows : [] );

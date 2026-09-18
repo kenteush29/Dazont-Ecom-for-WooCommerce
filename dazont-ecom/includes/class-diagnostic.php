@@ -2821,9 +2821,6 @@ final class DZE_Diagnostic {
 					echo '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:9px;background:#f0f0f1;color:#50575e;font-size:11px;font-weight:600;vertical-align:middle;">'
 						. esc_html( (string) ( self::goals()[ $gid ]['label'] ?? $gid ) ) . '</span>';
 				}
-				if ( '' !== (string) ( $check['note'] ?? '' ) ) {
-					echo '<br /><span>' . esc_html( (string) $check['note'] ) . '</span>';
-				}
 				echo '<br /><span class="description" style="font-size:12px;">' . esc_html( (string) $check['why'] ) . '</span></td>';
 				// The share reads big, beside the bar it belongs to, and the two
 				// counts read under it: "75%" over "153 of 203". The other way
@@ -4301,13 +4298,11 @@ final class DZE_Diagnostic {
 				. esc_html( (string) $goal['label'] ) . '</label>';
 		}
 		$out .= '</p>';
-		// The description: written by the shop, shown on the Diagnostic under
-		// the rule, and the place where "why this matters" belongs — the rule
-		// itself only knows what it measures.
-		$out .= '<p class="dze-prb-line"><label style="flex:1 1 100%;"><span>' . esc_html__( 'What to do about it', 'dazont-ecom' ) . '</span>'
-			. '<input type="text" class="dze-diag-note" style="width:100%;max-width:640px;" name="' . $name( 'note' ) . '"'
-			. ' value="' . esc_attr( (string) ( $row['note'] ?? '' ) ) . '"'
-			. ' placeholder="' . esc_attr__( 'Add more photographs to these products, to improve the conversion rate.', 'dazont-ecom' ) . '" /></label></p>';
+		// LE CHAMP EST PARTI, LA VALEUR RESTE. Il occupait une ligne pleine sur
+		// chaque fiche de regle pour une phrase que personne ne relisait.
+		// Cache plutot que supprime : enregistrer une regle n efface pas ce
+		// qu une boutique avait ecrit, et le champ peut revenir sans migration.
+		$out .= '<input type="hidden" class="dze-diag-note" name="' . $name( 'note' ) . '" value="' . esc_attr( (string) ( $row['note'] ?? '' ) ) . '" />';
 		$out .= '</div></div>';
 		return $out;
 	}

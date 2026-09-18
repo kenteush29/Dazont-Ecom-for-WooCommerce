@@ -89,6 +89,8 @@ class DZE_Site {
 class DZE_Ai_Usage {
 	public static function render_graph( $limit = 12 ) { echo '<div id="dze-usage-graph">spend</div>'; }
 	public static function render_trace() { echo '<div id="dze-usage-trace">calls</div>'; }
+	// QUI a depense, a cote de COMBIEN : le graphique ne nomme aucun module.
+	public static function render_spend() { echo '<div id="dze-usage-spend">by module</div>'; }
 }
 class DZE_Restock { const MENU_SLUG = 'dazont-ecom'; }
 class DZE_Marketing_Ai {

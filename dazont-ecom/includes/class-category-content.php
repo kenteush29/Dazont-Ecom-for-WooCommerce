@@ -1560,7 +1560,14 @@ PROMPT;
 		$row  = self::term_row( $term_id );
 		$name = (string) ( $row['name'] ?? $term->name );
 		if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
-			throw new RuntimeException( __( 'This category has no description to work on yet.', 'dazont-ecom' ) );
+			$asked = 0;
+			if ( class_exists( 'DZE_Queue' ) && class_exists( 'DZE_Modules' ) && DZE_Modules::enabled( 'category_content' ) && DZE_Modules::enabled( 'queue' ) ) {
+				$asked = DZE_Queue::add( 'cat_desc', [ $term_id ] );
+			}
+			throw new RuntimeException( $asked
+				? __( 'This category had no description to link inside, so writing one has been queued. The links go in once the text is there — start this pass again after you have accepted it.', 'dazont-ecom' )
+				: __( 'This category has no description to work on yet, and the module that writes one is switched off.', 'dazont-ecom' )
+			);
 		}
 		if ( ! class_exists( 'DZE_Marketing_Ai' ) ) {
 			throw new RuntimeException( __( 'The Marketing Assistant module is required for the Anthropic key.', 'dazont-ecom' ) );
@@ -3903,7 +3910,7 @@ PROMPT;
 					<td>
 						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="14" value="<?php echo (int) ( $s['links'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" />
 						<label style="margin-left:12px;"><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[links_off]" value="1" <?php checked( ! empty( $s['links_off'] ) ); ?> /> <?php esc_html_e( 'No internal linking at all', 'dazont-ecom' ); ?></label>
-						<p class="description"><?php esc_html_e( 'Empty means one link per ~150 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Empty means one link per 50 words, never fewer than three and never fewer than there are sub-categories — a hub carries more links than a leaf. It is a ceiling, not a quota: what gets placed is however many genuinely close pages there are. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>
