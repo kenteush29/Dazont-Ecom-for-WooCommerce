@@ -1624,6 +1624,16 @@ trait DZE_Translate_Screen {
 				<?php echo wp_kses_post( DZE_Hub::id_th() ); ?>
 				<th style="width:150px;"><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
 				<th style="width:200px;"><?php esc_html_e( 'Languages waiting', 'dazont-ecom' ); ?></th>
+				<?php
+				// QUAND. « Manque une colonne de date ! Je ne sais pas quand ces
+				// trads ont été faites. » Une file d'attente sans date ne dit pas
+				// si une ligne est arrivée il y a dix minutes ou il y a trois
+				// semaines — et c'est la seule chose qui fait la différence
+				// entre « je lis ça maintenant » et « l'original a bougé depuis,
+				// autant la refaire ». Le moment est celui où la traduction a
+				// été produite, qui est le seul que cette ligne connaisse.
+				?>
+				<th style="width:170px;"><?php esc_html_e( 'Translated', 'dazont-ecom' ); ?></th>
 				<th style="width:180px;"></th>
 			</tr></thead>
 			<tbody>
@@ -1640,6 +1650,32 @@ trait DZE_Translate_Screen {
 							     language at a time. -->
 							<a class="dze-tr-chip is-stale" href="<?php echo esc_url( self::editor_url( $r, (string) $code ) ); ?>"><?php echo wp_kses_post( DZE_Wpml::flag_html( (string) $code ) ); ?></a>
 						<?php endforeach; ?>
+					</td>
+					<td>
+						<?php
+						// LA DATE, ET « IL Y A COMBIEN » AVEC ELLE. Une date seule
+						// oblige à compter dans sa tête ; « il y a 2 heures » seul
+						// ne dit plus rien au bout d'une semaine. Les deux, et la
+						// date exacte au survol pour lever toute ambiguïté.
+						$dze_at = (int) ( $r['at'] ?? 0 );
+						if ( $dze_at > 0 ) {
+							printf(
+								'<span title="%1$s">%2$s<br /><span class="description">%3$s</span></span>',
+								esc_attr( date_i18n( 'Y-m-d H:i', $dze_at + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) ) ),
+								esc_html( date_i18n( (string) get_option( 'date_format' ), $dze_at + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) ) ),
+								esc_html( sprintf(
+									/* translators: %s: how long ago, e.g. "2 hours" */
+									__( '%s ago', 'dazont-ecom' ),
+									human_time_diff( $dze_at, time() )
+								) )
+							);
+						} else {
+							// UNE LIGNE SANS MOMENT LE DIT. Les traductions mises en
+							// attente avant que ce moment soit gardé n'en ont pas, et
+							// inventer « aujourd'hui » serait pire que se taire.
+							echo '<span class="description">' . esc_html__( 'not recorded', 'dazont-ecom' ) . '</span>';
+						}
+						?>
 					</td>
 					<td>
 						<?php
