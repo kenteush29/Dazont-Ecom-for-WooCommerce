@@ -98,6 +98,12 @@ final class DZE_Screens {
 					'dashboard' => [ 'label' => __( 'Dashboard', 'dazont-ecom' ) ],
 					'batch'     => [ 'label' => __( 'Batch', 'dazont-ecom' ) ],
 					'review'    => [ 'label' => __( 'To review', 'dazont-ecom' ) ],
+					// CE QUI A ETE TRADUIT. « Comment voir le resultat des
+					// traductions, quelles pages ? » On ne pouvait pas : rien ne
+					// listait ce qui avait ete ecrit. Les traductions ne passent pas
+					// par la file — elles attendent sur l objet source — donc le
+					// journal des passes automatiques n en savait rien non plus.
+					'done'      => [ 'label' => __( 'Translated', 'dazont-ecom' ) ],
 				],
 			],
 			'automation'   => [
