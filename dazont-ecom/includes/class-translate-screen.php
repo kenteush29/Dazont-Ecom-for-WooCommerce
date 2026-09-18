@@ -639,6 +639,40 @@ trait DZE_Translate_Screen {
 										<textarea class="dze-tr-new<?php echo DZE_Translate::looks_html( $dze_src ) ? ' dze-tr-html' : ''; ?>" data-was="<?php echo esc_attr( (string) ( $current[ $dze_fid ] ?? '' ) ); ?>" data-src="<?php echo esc_attr( $dze_src ); ?>" rows="<?php echo esc_attr( (string) $dze_rows ); ?>"><?php echo esc_textarea( $dze_val ); ?></textarea>
 									</div>
 								</div>
+								<?php
+								// CE QUI A ETE ENVOYE POUR CE BLOC. « J'aimerais voir les
+								// appels à l'IA par bloc. » Tout est deja ecrit — chaque
+								// appel passe par complete(), qui garde l'echange tel que
+								// le modele l'a lu — mais c'etait range dans les journaux,
+								// loin des mots que l'appel a produits. Replie, parce
+								// qu'on l'ouvre pour comprendre une reponse etrange, pas
+								// a chaque lecture.
+								$dze_calls = DZE_Translate::calls_for( $o, (string) $dze_fid );
+								?>
+								<?php if ( $dze_calls ) : ?>
+									<details class="dze-set dze-tr-calls">
+										<summary><?php
+											echo esc_html( sprintf(
+												/* translators: %s: how many calls */
+												_n( '%s call to the model for this block', '%s calls to the model for this block', count( $dze_calls ), 'dazont-ecom' ),
+												number_format_i18n( count( $dze_calls ) )
+											) );
+										?></summary>
+										<?php foreach ( $dze_calls as $dze_call ) : ?>
+											<p class="dze-tr-callhead">
+												<strong><?php echo esc_html( date_i18n( (string) get_option( 'date_format' ) . ' H:i:s', (int) $dze_call['t'] ) ); ?></strong>
+												· <?php echo esc_html( (string) $dze_call['model'] ); ?>
+												· <?php echo esc_html( sprintf( /* translators: %s: seconds */ __( '%ss', 'dazont-ecom' ), number_format_i18n( (float) $dze_call['secs'], 1 ) ) ); ?>
+											</p>
+											<p class="dze-tr-calllab"><?php esc_html_e( 'The instructions it was given', 'dazont-ecom' ); ?></p>
+											<pre class="dze-tr-callpre"><?php echo esc_html( (string) $dze_call['system'] ); ?></pre>
+											<p class="dze-tr-calllab"><?php esc_html_e( 'The text it was given', 'dazont-ecom' ); ?></p>
+											<pre class="dze-tr-callpre"><?php echo esc_html( mb_substr( (string) $dze_call['user'], 0, 4000 ) ); ?></pre>
+											<p class="dze-tr-calllab"><?php esc_html_e( 'What came back', 'dazont-ecom' ); ?></p>
+											<pre class="dze-tr-callpre"><?php echo esc_html( mb_substr( (string) $dze_call['got'], 0, 2000 ) ); ?></pre>
+										<?php endforeach; ?>
+									</details>
+								<?php endif; ?>
 							</div>
 						<?php endforeach; ?>
 					</div>

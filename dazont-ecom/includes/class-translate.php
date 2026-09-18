@@ -364,6 +364,47 @@ final class DZE_Translate {
 		<?php
 	}
 
+	/**
+	 * THE CALLS THAT CARRIED ONE FIELD, newest first.
+	 *
+	 * "J'aimerais voir les appels à l'IA par bloc." Everything a call was
+	 * built from is written down already — `DZE_Ai_Usage::trace()` keeps the
+	 * exchange as the model read it — but it was filed nowhere near the words
+	 * it produced, so "pourquoi ce titre" had no answer on the screen showing
+	 * the title. The batch names each field `### <id> (Label)`, and that is
+	 * what picks a call out of the object's log.
+	 *
+	 * @return array<int,array{t:int,model:string,secs:float,system:string,user:string,got:string}>
+	 */
+	public static function calls_for( array $o, string $fid, int $keep = 3 ): array {
+		if ( 'post' !== (string) ( $o['kind'] ?? '' ) || ! class_exists( 'DZE_Ai_Usage' ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( DZE_Ai_Usage::object_log( (int) ( $o['id'] ?? 0 ) ) as $row ) {
+			$sent = (string) ( $row['sent'] ?? '' );
+			if ( 'translate' !== (string) ( $row['unit'] ?? '' ) || false === strpos( $sent, '### ' . $fid . ' ' ) ) {
+				continue;
+			}
+			// The exchange is stored as one string, "SYSTEM:…\n\nUSER:…", so a
+			// reader can be shown the instructions apart from the text: the
+			// instructions are what gets changed, the text is what does not.
+			$cut  = strpos( $sent, "\n\nUSER:\n" );
+			$out[] = [
+				't'      => (int) ( $row['t'] ?? 0 ),
+				'model'  => (string) ( $row['model'] ?? '' ),
+				'secs'   => (float) ( $row['secs'] ?? 0 ),
+				'system' => false === $cut ? '' : trim( substr( $sent, 8, $cut - 8 ) ),
+				'user'   => false === $cut ? $sent : trim( substr( $sent, $cut + 8 ) ),
+				'got'    => (string) ( $row['got'] ?? '' ),
+			];
+			if ( count( $out ) >= max( 1, $keep ) ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
@@ -2514,11 +2555,23 @@ final class DZE_Translate {
 				$out['skipped'][] = $lang;
 				continue;
 			}
+			// FILED ON THE PRODUCT, so the call can be read where the bad
+			// translation is read. The bench has done this since the start;
+			// the translations never did, so "pourquoi ce titre" had no
+			// answer anywhere on the screen that showed the title.
+			$about = ( 'post' === (string) ( $o['kind'] ?? '' ) ) ? (int) $o['id'] : 0;
+			if ( $about > 0 && class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::about( $about );
+			}
 			try {
 				$new = self::translate( $texts, $lang, (string) $o['kind'], self::labels_for( $o ) );
 			} catch ( \Throwable $e ) {
 				$out['errors'][ $lang ] = $e->getMessage();
 				continue;
+			} finally {
+				if ( $about > 0 && class_exists( 'DZE_Ai_Usage' ) ) {
+					DZE_Ai_Usage::about();
+				}
 			}
 			if ( ! $new ) {
 				$out['errors'][ $lang ] = __( 'Nothing came back.', 'dazont-ecom' );

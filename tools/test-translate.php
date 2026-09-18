@@ -312,6 +312,12 @@ class DZE_Ai_Usage {
 	public static function over_budget() { return false; }
 	public static function budget_message() { return 'spent'; }
 	public static function unit( $k = '' ) {}
+	// L APPEL EST CLASSE SUR LE PRODUIT, pour etre relu sous le bloc qu il a
+	// produit. Sans cette doublure, produce() attrape l Error comme un echec
+	// du fournisseur et la porte lit « rien n est revenu » — le meme piege
+	// que finished() juste en dessous.
+	public static function about( $oid = 0 ) {}
+	public static function object_log( $oid ) { return $GLOBALS['object_log'] ?? []; }
 	// A METHOD MISSING FROM THE HARNESS IS NOT A MODULE THAT REFUSED TO WORK.
 	// Without this one, `finished()` threw an Error, `produce()` caught it as
 	// a Throwable like any provider failure, and the gate read "the batch came
@@ -1720,6 +1726,37 @@ ok( 'une passe sur un bloc ne solde pas la langue',
 // rejoue effacerait les autres champs deja traduits et en attente.
 ok( 'et elle se fond dans ce qui attend deja',
 	false !== strpos( $dze_src2, "\$keep[ \$lg ] = array_merge(" ), true );
+
+echo "\nL APPEL SE RELIT SOUS LE BLOC QU IL A PRODUIT\n";
+// « J'aimerais voir les appels à l'IA par bloc. » Tout etait deja ecrit —
+// complete() garde l echange tel que le modele l a lu — mais range dans les
+// journaux, loin des mots produits : « pourquoi ce titre » n avait aucune
+// reponse sur l ecran qui montrait le titre.
+$GLOBALS['object_log'] = [
+	[ 't' => 1700000000, 'unit' => 'translate', 'model' => 'claude-opus-5', 'secs' => 1.3,
+	  'sent' => "SYSTEM:\nNe traduis pas les marques.\n\nUSER:\nTranslate every field below.\n\n### title (Title)\nViper hood jacket",
+	  'got'  => '{"title":"Veste viper hood"}' ],
+	[ 't' => 1699999000, 'unit' => 'other', 'model' => 'claude-opus-5', 'secs' => 4.0,
+	  'sent' => "SYSTEM:\nAutre chose.\n\nUSER:\n### title (Title)\npas une traduction", 'got' => '{}' ],
+];
+$dze_cf = DZE_Translate::calls_for( [ 'kind' => 'post', 'id' => 7, 'type' => 'product' ], 'title' );
+ok( 'lappel du champ est retrouve',        count( $dze_cf ), 1 );
+// ET SEULEMENT LES SIENS : le journal d un produit tient aussi les appels de
+// l etabli et des photographies, qui n ont rien a faire ici.
+ok( 'et seulement les appels de traduction',
+	(string) ( $dze_cf[0]['got'] ?? '' ), '{"title":"Veste viper hood"}' );
+// LES INSTRUCTIONS A PART DU TEXTE : ce qu on change, ce sont les
+// instructions ; le texte, lui, ne bouge pas.
+ok( 'les instructions sont separees du texte',
+	[ trim( (string) $dze_cf[0]['system'] ), false !== strpos( (string) $dze_cf[0]['user'], '### title' ) ],
+	[ 'Ne traduis pas les marques.', true ] );
+// UN CHAMP QUI N A PAS VOYAGE DANS CET APPEL N EN HERITE PAS.
+ok( 'un autre champ nherite pas de cet appel',
+	count( DZE_Translate::calls_for( [ 'kind' => 'post', 'id' => 7, 'type' => 'product' ], 'content' ) ), 0 );
+// ET UN TERME N A PAS DE META : il ne faut rien aller y chercher.
+ok( 'et un terme ne cherche rien',
+	DZE_Translate::calls_for( [ 'kind' => 'term', 'id' => 7, 'type' => 'product_cat' ], 'name' ), [] );
+$GLOBALS['object_log'] = [];
 
 // 4. PUBLISH IT, or throw it away — side by side.
 ok( 'it ends with save and cancel, side by side',

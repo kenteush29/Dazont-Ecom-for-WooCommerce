@@ -1899,3 +1899,14 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 .dze-tr-block .dashicons { width: 16px; height: 16px; font-size: 16px; line-height: 1; }
 .dze-tr-blockstate { font-size: 12px; margin-left: 8px; }
 .dze-tr-blockstate.is-ko { color: #b32d2e; }
+
+/* L APPEL, SOUS LE BLOC QU IL A PRODUIT. Replie : on l ouvre pour comprendre
+   une reponse etrange, pas a chaque lecture. */
+.dze-tr-calls { margin: 10px 0 0; max-width: 100%; }
+.dze-tr-calls > summary { font-size: 12px; color: #646970; }
+.dze-tr-callhead { margin: 10px 0 2px; font-size: 12px; color: #646970; }
+.dze-tr-calllab { margin: 8px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #8c8f94; }
+.dze-tr-callpre {
+	margin: 0; padding: 8px 10px; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 4px;
+	font-size: 12px; line-height: 1.5; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
