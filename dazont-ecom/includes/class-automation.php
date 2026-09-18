@@ -99,6 +99,7 @@ final class DZE_Automation {
 		add_action( 'admin_menu', [ __CLASS__, 'register_menu' ], 12 );
 		add_action( 'admin_init', [ __CLASS__, 'maybe_redirect' ] );
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
+		add_filter( 'cron_schedules', [ __CLASS__, 'cron_schedules' ] );
 		add_action( 'admin_init', [ $this, 'schedule' ] );
 		add_action( 'admin_init', [ __CLASS__, 'migrate' ] );
 		add_action( 'wp_ajax_dze_auto_run', [ __CLASS__, 'ajax_run' ] );
@@ -220,10 +221,52 @@ final class DZE_Automation {
 		wp_clear_scheduled_hook( self::HOOK );
 	}
 
-	public function schedule(): void {
-		if ( ! wp_next_scheduled( self::HOOK ) ) {
-			wp_schedule_event( time() + 10 * MINUTE_IN_SECONDS, 'hourly', self::HOOK );
+	/**
+	 * A TEN-MINUTE LOOK, for a task that has been told to take everything.
+	 *
+	 * The hook was scheduled HOURLY, so "comes back every ten minutes" was a
+	 * sentence about nothing: a task can only act when the hook fires, and the
+	 * hook fired once an hour. A shop catching up on two hundred pages would
+	 * have waited eight days for work it had asked to be done unattended.
+	 *
+	 * WordPress has no ten-minute schedule of its own, so this adds one — and
+	 * only ever uses it while a task actually wants it.
+	 */
+	public static function cron_schedules( $schedules ) {
+		$schedules = is_array( $schedules ) ? $schedules : [];
+		$schedules['dze_ten_minutes'] = [
+			'interval' => 10 * MINUTE_IN_SECONDS,
+			'display'  => __( 'Every ten minutes (Dazont Ecom)', 'dazont-ecom' ),
+		];
+		return $schedules;
+	}
+
+	/** Does any task want the short look? */
+	public static function wants_short_look(): bool {
+		foreach ( array_keys( self::tasks() ) as $id ) {
+			$conf = self::conf( (string) $id );
+			if ( ! empty( $conf['on'] ) && self::takes_all( (string) $id ) ) {
+				return true;
+			}
 		}
+		return false;
+	}
+
+	public function schedule(): void {
+		// THE RHYTHM FOLLOWS THE SETTING, and changes with it: a shop that
+		// puts every task back on a daily ration should not keep a look that
+		// runs six times an hour for nothing.
+		$want = self::wants_short_look() ? 'dze_ten_minutes' : 'hourly';
+		$next = wp_next_scheduled( self::HOOK );
+		if ( $next ) {
+			$ev = wp_get_scheduled_event( self::HOOK );
+			$has = $ev && isset( $ev->schedule ) ? (string) $ev->schedule : '';
+			if ( $has === $want ) {
+				return;
+			}
+			wp_clear_scheduled_hook( self::HOOK );
+		}
+		wp_schedule_event( time() + 2 * MINUTE_IN_SECONDS, $want, self::HOOK );
 	}
 
 	/**
