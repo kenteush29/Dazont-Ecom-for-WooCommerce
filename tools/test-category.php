@@ -834,31 +834,91 @@ try {
 	$dze_ouvert = '';
 } catch ( \Throwable $e ) { $dze_ouvert = $e->getMessage(); }
 ok( 'le couple impossible part quand meme au modele', count( DZE_Marketing_Ai::$sent ) > 0, true );
-ok( 'et les consignes lui offrent la phrase',
-	(bool) array_filter( DZE_Marketing_Ai::$sent, static fn( $s ) => false !== strpos( (string) ( $s['user'] ?? '' ), '"sentence"' ) ), true );
+ok( 'et les consignes lui offrent la reecriture sur place',
+	(bool) array_filter( DZE_Marketing_Ai::$sent, static fn( $s ) => false !== strpos( (string) ( $s['user'] ?? '' ), '"find"' ) && false !== strpos( (string) ( $s['user'] ?? '' ), '"replace"' ) ), true );
+// ET PLUS RIEN NE PROPOSE D AJOUTER UNE PHRASE. La consigne « ecris une phrase »
+// cohabitait avec « n ajoute jamais un mot » dix lignes plus bas : devant deux
+// ordres opposes le modele prenait le plus prudent, une phrase neuve posee la ou
+// elle ne derangeait rien, c est-a-dire a la fin.
+ok( 'et plus aucune consigne ne parle d ajouter une phrase',
+	(bool) array_filter( DZE_Marketing_Ai::$sent, static fn( $s ) => false !== strpos( (string) ( $s['user'] ?? '' ), '"sentence"' ) ), false );
 DZE_Marketing_Ai::$decide = null;
 
-// ET L AJOUT N EST QU UN AJOUT. C est la seule chose qui rend cette porte sure :
-// pas un caractere de ce qui etait la ne bouge, et c est verifie, pas promis.
-$dze_av = '<p>When you are in the field, every item needs a purpose.</p>';
+// LE LIEN SE POSE DANS LE TEXTE, PAS A LA FIN.
+//
+// « Les liens doivent se trouver dans le texte. Ils doivent être placés
+// naturellement dans la description. Les placer à la fin comme ça est
+// ridicule. » Sur /military-gear la passe avait colle huit paragraphes a la
+// suite, sous un <h2> vide, chacun un moignon qui nommait une voisine et ne
+// disait rien. Le geste est desormais un REMPLACEMENT : le modele designe une
+// phrase existante et la rend reecrite.
+$dze_av = '<p>When you are in the field, every item needs a purpose and a place to live.</p>';
 $dze_ap = DZE_Category_Content::apply_edits(
 	$dze_av,
-	[ [ 'sentence' => 'Our tactical utility pouches keep the smaller items to hand.', 'anchor' => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] ],
+	[ [
+		'find'    => 'When you are in the field, every item needs a purpose and a place to live.',
+		'replace' => 'When you are in the field, every item needs a purpose, and tactical utility pouches give the smaller ones a place to live.',
+		'anchor'  => 'tactical utility pouches',
+		'url'     => 'https://kula.test/pouches',
+	] ],
 	[ 'https://kula.test/pouches' ]
 );
-ok( 'la phrase est posee',                    $dze_ap['applied'], 1 );
-ok( 'et comptee comme un ajout',              $dze_ap['added'] ?? 0, 1 );
-ok( 'et lancien texte est intact, en tete',   0 === strpos( (string) $dze_ap['html'], $dze_av ), true );
-ok( 'et elle porte bien le lien',             false !== strpos( (string) $dze_ap['html'], '<a href="https://kula.test/pouches">tactical utility pouches</a>' ), true );
-// CE QUI N EST PAS UNE PHRASE UTILISABLE EST REFUSE PLUTOT QUE POSE DE TRAVERS.
-ok( 'une ancre absente de la phrase est refusee',
-	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => 'Rien a voir ici.', 'anchor' => 'utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
-ok( 'un paragraphe entier deguise en phrase est refuse',
-	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => str_repeat( 'mots ', 60 ) . 'utility pouches.', 'anchor' => 'utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'la phrase est remplacee',        $dze_ap['applied'], 1 );
+ok( 'et comptee comme une retouche',  $dze_ap['added'] ?? 0, 1 );
+ok( 'le lien est dans le paragraphe',
+	false !== strpos( (string) $dze_ap['html'], '<a href="https://kula.test/pouches">tactical utility pouches</a>' ), true );
+// LE POINT QUI COMPTE : rien n est colle apres le dernier paragraphe.
+ok( 'rien n est ajoute apres le dernier paragraphe',
+	substr_count( (string) $dze_ap['html'], '<p>' ), 1 );
+ok( 'et le texte se termine toujours par son paragraphe',
+	'</p>' === substr( trim( (string) $dze_ap['html'] ), -4 ), true );
+// ET LA PONCTUATION DU TEXTE RESTE CELLE DU TEXTE : la correspondance s arrete
+// au dernier mot, donc un remplacement qui porte son propre point aurait rendu
+// « … a place to live.. ».
+ok( 'pas de point en double',
+	false !== strpos( (string) $dze_ap['html'], '..' ), false );
+
+// CE QUI N EST PLUS LA MEME PHRASE EST REFUSE, et le texte reste intact.
+$dze_ref = static function ( array $e ) use ( $dze_av ): array {
+	return DZE_Category_Content::apply_edits( $dze_av, [ $e ], [ 'https://kula.test/pouches' ] );
+};
+$dze_phrase = 'When you are in the field, every item needs a purpose and a place to live.';
+ok( 'une phrase introuvable dans le texte est refusee', $dze_ref( [
+	'find'    => 'Une phrase qui ne figure nulle part dans ce texte, absolument nulle part.',
+	'replace' => 'Une phrase qui ne figure nulle part, avec tactical utility pouches dedans.',
+	'anchor'  => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'une reecriture qui vide la phrase est refusee', $dze_ref( [
+	'find'    => $dze_phrase,
+	'replace' => 'See our tactical utility pouches.',
+	'anchor'  => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'une reecriture qui la gonfle est refusee', $dze_ref( [
+	'find'    => $dze_phrase,
+	'replace' => 'When you are in the field, every item needs a purpose and a place to live, and tactical utility pouches ' . str_repeat( 'encore et encore ', 20 ) . 'voila.',
+	'anchor'  => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'une ancre absente du remplacement est refusee', $dze_ref( [
+	'find'    => $dze_phrase,
+	'replace' => 'When you are in the field, every item needs a purpose and a real place to live.',
+	'anchor'  => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'une moitie de reecriture est refusee', $dze_ref( [
+	'find'    => $dze_phrase,
+	'anchor'  => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
+// ET UN REFUS LAISSE LE TEXTE EXACTEMENT COMME IL ETAIT.
+ok( 'et le texte refuse n a pas bouge',
+	$dze_ref( [ 'find' => $dze_phrase, 'replace' => 'See our tactical utility pouches.',
+		'anchor' => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['html'], $dze_av );
+// UNE ANCRE QUI NE NOMME PAS SA CIBLE EST REFUSEE SUR LES DEUX CHEMINS. Elle
+// ne l etait que sur celui des mots deja presents : la phrase ajoutee passait
+// sans que personne ne regarde ce qu elle rendait cliquable.
+ok( 'une ancre qui ne nomme pas la cible est refusee la aussi', $dze_ref( [
+	'find'    => $dze_phrase,
+	'replace' => 'When you are in the field, every item needs a purpose and somewhere sensible to live.',
+	'anchor'  => 'somewhere sensible', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
 // ET LA BOUTIQUE QUI A DIT NON GARDE SON NON.
 update_option( 'dze_catcontent_settings', array_merge( (array) $dze_opt, [ 'add_words' => 0 ] ) );
-ok( 'eteint, laccord est refuse',
-	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => 'Our tactical utility pouches keep the smaller items to hand.', 'anchor' => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'eteint, la reecriture est refusee', $dze_ref( [
+	'find'    => $dze_phrase,
+	'replace' => 'When you are in the field, every item needs a purpose, and tactical utility pouches give the smaller ones a place to live.',
+	'anchor'  => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] )['applied'], 0 );
 update_option( 'dze_catcontent_settings', (array) $dze_opt );
 echo "\nUNE CATEGORIE SE LIT DANS LES TABLES, PAS A TRAVERS WPML\n";
 // « Pochettes administratives tactiques » ne mentionne pas « Utility pouches ».

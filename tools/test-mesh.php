@@ -772,7 +772,8 @@ DZE_Marketing_Ai::$sent   = [];
 // here. A double that hands a document back is answering a question nobody
 // asks any more.
 DZE_Marketing_Ai::$answer = (string) wp_json_encode( [ [
-	'sentence' => 'Our boonie hats keep the sun off on the same kind of day.',
+	'find'     => 'A boonie hat rides on the strap.',
+	'replace'  => 'A pair of boonie hats rides on the strap for the same kind of day.',
 	'anchor'   => 'boonie hats',
 	'url'      => 'https://kula.test/category/boonie-hats/',
 ] ] );

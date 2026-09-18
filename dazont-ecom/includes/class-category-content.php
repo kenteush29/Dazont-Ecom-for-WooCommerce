@@ -1934,11 +1934,29 @@ PROMPT;
 				// ET MODIFIER LE TEXTE EST AUTORISE, ET BON SIGNE. « Je t ai dit
 				// qu on change le texte, c est autorise. C est meme bon signe quand
 				// le texte est change. » Ce n est donc pas un dernier recours.
-				? "- IF the title is not already in the text, WRITE IT IN. Add one short sentence that carries it, where it belongs in the flow. Answer that one as {\"sentence\": \"the whole new sentence, containing the title\", \"anchor\": \"the destination's title, inside that sentence\", \"url\": \"…\"}. It must read as part of this text, in its language, and say something true about the destination. Never 'See X for more'. One sentence, under 200 characters. This is normal and expected — a page that names its neighbours is the point of the pass.\n"
-				: "- If the title is not in the text, leave that target out: this shop does not allow the pass to add words.\n" )
+				//
+				// MAIS PLUS JAMAIS A LA FIN. « Les liens doivent se trouver dans
+				// le texte. Les placer à la fin comme ça est ridicule. » Le
+				// modele designe une phrase existante et la rend reecrite : le
+				// lien tombe au milieu du paragraphe, dans le fil du texte.
+				? "- IF the title is not already in the text, REWRITE ONE SENTENCE OF THE TEXT so that it is. Answer that one as {\"find\": \"the existing sentence, copied out word for word\", \"replace\": \"that same sentence rewritten, containing the title\", \"anchor\": \"the destination's title, inside replace\", \"url\": \"…\"}.\n"
+					. "  - Pick the sentence where the destination genuinely belongs — the one about that subject — not the first or the last.\n"
+					. "  - \"replace\" must still be that sentence: same point, same tone, same language, most of its words. You are threading the title into it, not writing a new one.\n"
+					. "  - Never append a sentence to the end of the text, and never write a stub like 'See X for more' or 'Our X collection covers everything'. A paragraph of link stubs at the foot of the page is the one thing this must not produce.\n"
+					. "  - \"find\" and \"replace\" are PLAIN TEXT: no tags, no entities, no markdown. Copy \"find\" from ordinary prose — never from a heading, a list item carrying markup, a caption or a link.\n"
+				: "- If the title is not in the text, leave that target out: this shop does not allow the pass to change a word.\n" )
 			. "\n--- FACTS (never contradict these) ---\n"
 			. 'LANGUAGE: the text is in ' . $language . " — keep it in that language.\n"
-			. 'THE ANCHOR IS WORDS ALREADY IN THE TEXT: you never write markup and never add a word.' . "\n"
+			// LA CONTRADICTION QUI FABRIQUAIT LA QUEUE DE PAGE. Cette ligne
+			// disait « tu n ajoutes jamais un mot » dix lignes sous une
+			// consigne qui demandait justement d en ecrire. Devant deux ordres
+			// opposes, le modele prenait le plus prudent : une phrase neuve,
+			// posee la ou elle ne derangeait rien — c est-a-dire a la fin. Huit
+			// d affilee sur /military-gear. Ce qu il ne doit jamais faire est
+			// desormais dit une seule fois, et sans contraire.
+			. ( self::may_add()
+				? 'YOU MAY REWORD ONE SENTENCE to fit a title in, and that is expected. You never write markup, never append anything to the end of the text, and never touch a heading.' . "\n"
+				: 'THE ANCHOR IS WORDS ALREADY IN THE TEXT: you never write markup and never add a word.' . "\n" )
 			// AND THE MARKUP COMES BACK UNTOUCHED. This line used to end "no
 			// comment before or after", which beside a WordPress article is
 			// ambiguous to the point of dangerous: its whole structure is HTML
@@ -1958,19 +1976,20 @@ PROMPT;
 			// misses, every time, by a space or an entity. It picks the words;
 			// the anchor is built here. There is nothing left for it to get
 			// wrong, because nothing it returns is ever inserted.
-			. 'OUTPUT: a JSON array and nothing else. One object per link you place:' . "\n"
-			. '  [{"anchor":"…","url":"…"}]' . "\n"
-			. '- "anchor": a few consecutive words copied from the text above, exactly as they appear — same spelling, same case, same spaces. They become the clickable words.' . "\n"
+			. 'OUTPUT: a JSON array and nothing else. One object per link you place, in one of two shapes:' . "\n"
+			. '  [{"anchor":"…","url":"…"}]                                  — the title is ALREADY in the text' . "\n"
+			. '  [{"find":"…","replace":"…","anchor":"…","url":"…"}]         — it is not, so one sentence is reworded' . "\n"
+			. '- "anchor": the destination\'s title. In the first shape it must be words that appear in the text exactly as written there — same spelling, same case, same spaces. In the second it must appear inside "replace".' . "\n"
 			. '- "url": one address from the list above, copied verbatim.' . "\n"
 			. '- The words must appear only ONCE in the whole text. If they appear twice, take a longer run of words until they are unique.' . "\n"
 			. '- Copy plain prose only: no tags, no <, no &nbsp;, nothing from a heading, a caption, a table, a shortcode or an HTML comment, and never words that are already a link.' . "\n"
-			. '- Do not write any HTML. Do not rewrite the sentence. Just name the words.' . "\n"
+			. '- Never write HTML: the link itself is built for you from "anchor" and "url".' . "\n"
 			. '- No markdown, no code fence, no text before or after the JSON.';
 
 		$system = 'You are an SEO editor doing internal linking on an existing page of an online shop. '
 			. 'The anchor of a link is the NAME of the page it points at — its title, or the words of its URL — never an unrelated run of words that happens to be in the text. '
 			. ( self::may_add()
-				? 'When the title is not in the text, you WRITE one short sentence that carries it, where it belongs in the flow. Adding that sentence is expected, not a last resort. You never rewrite or remove anything that is already there.'
+				? 'When the title is not in the text, you REWORD one existing sentence — the one the destination genuinely belongs to — so that it carries the title, and the link sits inside the paragraph where a reader meets it. Rewording is expected, not a last resort. You never append anything to the end of the text: a run of link sentences at the foot of a page is the mark of an amateur, and it is the one thing this job must not produce.'
 				: 'You never add or change a word: if the title is not in the text, you leave that target out.' );
 		$words  = max( 120, str_word_count( wp_strip_all_tags( $html ) ) );
 		DZE_Ai_Usage::unit( 'cat_links' );
@@ -2033,10 +2052,10 @@ PROMPT;
 				$system,
 				$user . "\n\n--- YOUR LAST ANSWER WAS REFUSED ---\n" . $why
 					. "\nThe anchor must be the DESTINATION'S TITLE, exactly as the list writes it, or the words of its URL."
-					. "\nThose titles are not in this text. So WRITE them in: answer with one entry per target you judge genuinely close, each"
-					. ' {"sentence": "one short new sentence containing the title", "anchor": "the title, inside that sentence", "url": "…"}.'
-					. "\nThe sentence belongs to this text: its language, its tone, something true about the destination. Never 'See X for more'. Under 200 characters each."
-					. "\nAnswer with the JSON array only. If not one target belongs here, answer [].",
+					. "\nThose titles are not in this text. So REWORD a sentence of it for each target you judge genuinely close, each"
+					. ' {"find": "the existing sentence, copied word for word", "replace": "that sentence rewritten to contain the title", "anchor": "the title, inside replace", "url": "…"}.'
+					. "\nPick the sentence the destination belongs to, and keep it that sentence: same point, same tone, same language, most of its words. Both fields are plain text — no tags, nothing copied from a heading or a link."
+					. "\nDo NOT add a sentence at the end of the text. Answer with the JSON array only. If not one target belongs here, answer [].",
 				'',
 				self::room_for( $html, $words ),
 				240
@@ -2502,51 +2521,132 @@ PROMPT;
 		return ! isset( $s['add_words'] ) || ! empty( $s['add_words'] );
 	}
 
+	/** How much of a sentence has to survive a rewrite for it to be the same sentence. */
+	private const REWRITE_KEEP = 0.5;
+
 	/**
-	 * THE SENTENCE THE PASS IS ALLOWED TO ADD, and where it may go: the end.
+	 * THE SENTENCE IS REWRITTEN WHERE IT STANDS — never appended to the end.
 	 *
-	 * Appending is the one placement that cannot disturb what is there. Slipped
-	 * into the middle it would have to choose a paragraph, a position inside
-	 * it, and a join — three chances to break a text that was fine.
+	 * « Les liens doivent se trouver dans le texte. Ils doivent être placés
+	 * naturellement dans la description. Les placer à la fin comme ça est
+	 * ridicule. […] on fait un travail propre digne d'un expert SEO. »
 	 *
-	 * @return string The html with the sentence added, or '' when it will not do.
+	 * The pass used to answer a missing title by writing a fresh sentence and
+	 * gluing it after the last paragraph. On /military-gear that left eight of
+	 * them in a row under an empty heading, each a stub that named a neighbour
+	 * and said nothing — "For units operating with canines, our dog gear
+	 * collection covers everything from protection to performance." A reader
+	 * skips them, and Google reads them for exactly what they are.
+	 *
+	 * So the move is a REPLACEMENT, not an addition: the model copies one
+	 * sentence out of the text and hands back the same sentence rewritten to
+	 * carry the destination's title. The link lands mid-paragraph, in the
+	 * flow, which is what an editor doing this by hand would do.
+	 *
+	 * What makes it safe is not trust, it is the measuring: the replacement
+	 * has to be recognisably the SAME sentence — most of its words still
+	 * there, close to its length, no markup of its own — or it is refused and
+	 * the text is left exactly as it was. And the span it replaces has to be
+	 * plain prose: a sentence carrying a tag cannot be swapped for one that
+	 * does not without losing the tag.
+	 *
+	 * @return array{html:string,at:int}|null Null when the rewrite will not do.
 	 */
-	private static function add_sentence( string $html, string $sentence, string $anchor, string $url ): string {
-		$sentence = trim( wp_strip_all_tags( $sentence ) );
-		$anchor   = trim( wp_strip_all_tags( $anchor ) );
-		if ( '' === $sentence || '' === $anchor ) {
-			return '';
+	private static function rewrite_in_place( string $html, string $find, string $replace, string $anchor, string $url ): ?array {
+		$find    = trim( wp_strip_all_tags( html_entity_decode( $find, ENT_QUOTES, 'UTF-8' ) ) );
+		$replace = trim( wp_strip_all_tags( html_entity_decode( $replace, ENT_QUOTES, 'UTF-8' ) ) );
+		$anchor  = trim( wp_strip_all_tags( $anchor ) );
+		// LA PONCTUATION FINALE RESTE CELLE DU TEXTE. `find_anchor()` arrête sa
+		// correspondance au dernier MOT : le point de la phrase d origine n est
+		// donc pas dans la portée remplacée, et une phrase de remplacement qui
+		// porte le sien aurait rendu « … place to live.. ». Les deux sont donc
+		// coupées au dernier mot, et le point du texte se retrouve derrière la
+		// nouvelle phrase exactement comme il était derrière l ancienne.
+		$cut     = static fn( string $s ): string => (string) preg_replace( '~[\s.!?…]+$~u', '', $s );
+		$find    = $cut( $find );
+		$replace = $cut( $replace );
+		if ( '' === $find || '' === $replace || '' === $anchor ) {
+			return null;
 		}
-		// THE WORDS TO LINK MUST BE IN THE SENTENCE THE MODEL WROTE. Otherwise
-		// it is asking for a link on words nobody can see.
-		$at = mb_stripos( $sentence, $anchor );
-		if ( false === $at ) {
-			return '';
+		// THE NEW WORDS MUST CARRY THE ANCHOR, or there is nothing to link.
+		$where = mb_stripos( $replace, $anchor );
+		if ( false === $where ) {
+			return null;
 		}
-		// A SENTENCE, NOT A PARAGRAPH. A model handed this door will otherwise
-		// write three of them and the page grows a tail.
-		if ( mb_strlen( $sentence ) > 220 ) {
-			return '';
+		// AND IT MUST STILL BE THE SAME SENTENCE. A short fragment is not a
+		// sentence to rewrite; a replacement half the length is a deletion
+		// wearing a rewrite's clothes; one far longer is the old tail again,
+		// moved inside the paragraph.
+		$was = mb_strlen( $find );
+		$now = mb_strlen( $replace );
+		// UNE PHRASE, PAS UN BOUT. Le plancher se compte en MOTS et non en
+		// caracteres : « A boonie hat rides on the strap » est une vraie
+		// phrase de trente et un caracteres, et un plancher en caracteres
+		// l aurait refusee tout en laissant passer un fragment de six mots
+		// tres longs — c est-a-dire le chemin « mots deja presents » deguise.
+		if ( count( self::words_of( $find ) ) < 5 || $now < (int) floor( $was * 0.7 ) || $now > $was + 180 ) {
+			return null;
 		}
-		$as_is = mb_substr( $sentence, $at, mb_strlen( $anchor ) );
-		$linked = str_replace(
-			$as_is,
-			'<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>',
-			esc_html( $sentence )
-		);
-		// esc_html() ran over the whole sentence first, so the anchor has to be
-		// found in its escaped form too; when it is not, nothing is added.
-		if ( false === strpos( $linked, '<a href=' ) ) {
-			$linked = str_replace(
-				esc_html( $as_is ),
-				'<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>',
-				esc_html( $sentence )
-			);
+		if ( self::words_kept( $find, $replace ) < self::REWRITE_KEEP ) {
+			return null;
 		}
-		if ( false === strpos( $linked, '<a href=' ) ) {
-			return '';
+		$found = self::find_anchor( $html, $find );
+		if ( null === $found ) {
+			return null;
 		}
-		return $html . "\n<p>" . $linked . "</p>";
+		[ $at, $span ] = $found;
+		if ( ! self::in_prose( $html, $at, $span ) ) {
+			return null;
+		}
+		// THE SPAN HAS TO BE PLAIN. `find_anchor()` reads through inline
+		// markup on purpose — that is what lets it find words split by a
+		// <strong> — but replacing such a span with plain prose would throw
+		// that markup away. Finding is tolerant; overwriting is not.
+		if ( false !== strpos( substr( $html, $at, $span ), '<' ) ) {
+			return null;
+		}
+		$as_is  = mb_substr( $replace, $where, mb_strlen( $anchor ) );
+		$linked = esc_html( mb_substr( $replace, 0, $where ) )
+			. '<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>'
+			. esc_html( mb_substr( $replace, $where + mb_strlen( $anchor ) ) );
+		return [ 'html' => substr_replace( $html, $linked, $at, $span ), 'at' => $at ];
+	}
+
+	/**
+	 * How much of a sentence survived a rewrite, between 0 and 1.
+	 *
+	 * Words of three letters or more only: "the", "of" and "a" come and go
+	 * with any rewording and counting them would call a gutted sentence
+	 * half-kept. Repeats are matched one for one, so a replacement that says
+	 * the same word six times does not pass for six different ones.
+	 */
+	/**
+	 * The words of a sentence that carry its meaning, lowercased.
+	 *
+	 * Three letters or more only: "the", "of" and "a" come and go with any
+	 * rewording, and counting them would call a gutted sentence half-kept.
+	 *
+	 * @return string[]
+	 */
+	private static function words_of( string $s ): array {
+		$w = preg_split( '/[^\p{L}\p{N}]+/u', mb_strtolower( $s ), -1, PREG_SPLIT_NO_EMPTY ) ?: [];
+		return array_values( array_filter( $w, static fn( string $one ): bool => mb_strlen( $one ) > 2 ) );
+	}
+
+	private static function words_kept( string $before, string $after ): float {
+		$was = self::words_of( $before );
+		if ( ! $was ) {
+			return 1.0;
+		}
+		$now  = array_count_values( self::words_of( $after ) );
+		$same = 0;
+		foreach ( $was as $w ) {
+			if ( ! empty( $now[ $w ] ) ) {
+				$now[ $w ]--;
+				$same++;
+			}
+		}
+		return $same / count( $was );
 	}
 
 	public static function apply_edits( string $html, array $edits, array $allowed, array $allowed_labels = [] ): array {
@@ -2577,31 +2677,65 @@ PROMPT;
 				);
 				continue;
 			}
-			// A SENTENCE THE PASS WROTE ITSELF, when the text holds no words
-			// for this target and the shop allows it. It goes at the end, and
-			// what was there is not touched — checked below, not trusted.
-			$say = isset( $e['sentence'] ) ? (string) $e['sentence'] : '';
-			if ( '' !== trim( $say ) ) {
+			// L ANCRE NOMME-T-ELLE LA DESTINATION ? Verifie ici, AVANT de
+			// choisir le chemin : la regle vaut pour les deux, et le chemin
+			// « phrase ajoutee » ne la verifiait pas du tout — c est par la que
+			// passaient les ancres qui ne nommaient rien.
+			$label = '';
+			foreach ( $allowed_labels as $u => $lab ) {
+				if ( untrailingslashit( (string) $u ) === $url ) {
+					$label = (string) $lab;
+					break;
+				}
+			}
+			if ( ! self::names_target( $anchor, $label, $url ) ) {
+				$refused[] = sprintf(
+					/* translators: 1: the words chosen, 2: the destination */
+					__( 'those words do not name the page they point at — “%1$s” for “%2$s”', 'dazont-ecom' ),
+					mb_substr( $anchor, 0, 46 ),
+					'' !== $label ? $label : $url
+				);
+				continue;
+			}
+			$len = str_word_count( wp_strip_all_tags( $anchor ) );
+			if ( $len > 9 || mb_strlen( trim( $anchor ) ) > 72 ) {
+				$refused[] = sprintf(
+					/* translators: 1: how many words, 2: the words */
+					__( 'the words chosen are a sentence, not an anchor — %1$d words (%2$s)', 'dazont-ecom' ),
+					$len,
+					mb_substr( $anchor, 0, 46 ) . '…'
+				);
+				continue;
+			}
+			// UNE PHRASE REECRITE LA OU ELLE EST, quand le titre de la cible
+			// n est pas dans le texte. « Les liens doivent être dans le texte,
+			// avec une ancre qui correspond au titre ou slug de la page cible.
+			// Donc autorisation de modifier le texte pour contenir les liens. »
+			// Plus rien n est colle a la fin : le modele designe une phrase et
+			// la rend reecrite, et c est elle qui est remplacee sur place.
+			$find = isset( $e['find'] ) ? (string) $e['find'] : '';
+			$new  = isset( $e['replace'] ) ? (string) $e['replace'] : '';
+			if ( '' !== trim( $find ) || '' !== trim( $new ) ) {
 				if ( ! self::may_add() ) {
-					$refused[] = __( 'the pass offered to add a sentence, which this shop does not allow', 'dazont-ecom' );
+					$refused[] = __( 'the pass offered to reword a sentence, which this shop does not allow', 'dazont-ecom' );
 					continue;
 				}
-				$grown = self::add_sentence( $html, $say, $anchor, $url );
-				if ( '' === $grown ) {
+				// LES DEUX MOITIES OU RIEN : sans la phrase d origine il n y a
+				// rien a remplacer, sans la nouvelle rien a mettre a la place.
+				if ( '' === trim( $find ) || '' === trim( $new ) ) {
+					$refused[] = __( 'a rewrite came back with only half of itself', 'dazont-ecom' );
+					continue;
+				}
+				$grown = self::rewrite_in_place( $html, $find, $new, $anchor, $url );
+				if ( null === $grown ) {
 					$refused[] = sprintf(
-						/* translators: %s: the sentence the model offered */
-						__( 'the sentence offered could not be used (%s)', 'dazont-ecom' ),
-						mb_substr( trim( $say ), 0, 60 )
+						/* translators: %s: the opening of the sentence the model offered to rewrite */
+						__( 'the rewrite offered could not be used — the sentence was not found once in plain prose, or what came back was no longer the same sentence (%s)', 'dazont-ecom' ),
+						mb_substr( trim( $find ), 0, 60 )
 					);
 					continue;
 				}
-				// THE ONE RULE THAT MAKES THIS SAFE: what was there is still
-				// there, character for character, at the front of what comes out.
-				if ( 0 !== strpos( $grown, $html ) ) {
-					$refused[] = __( 'adding a sentence would have changed the text that was already there', 'dazont-ecom' );
-					continue;
-				}
-				$html         = $grown;
+				$html         = $grown['html'];
 				$seen[ $url ] = true;
 				$added++;
 				$applied++;
@@ -2625,31 +2759,8 @@ PROMPT;
 			// their shape or beauty », soit la phrase entiere. La regle etait
 			// dans le prompt livre, qu un prompt enregistre remplace : elle ne
 			// partait plus. Elle est ici, ou aucune preference ne l atteint.
-			// L ANCRE NOMME-T-ELLE LA DESTINATION ? La regle vit dans le contrat,
-			// mais un contrat est une consigne : celle-ci est verifiee.
-			$label = '';
-			foreach ( $allowed_labels as $u => $lab ) {
-				if ( untrailingslashit( (string) $u ) === $url ) { $label = (string) $lab; break; }
-			}
-			if ( '' !== trim( $anchor ) && ! self::names_target( $anchor, $label, $url ) ) {
-				$refused[] = sprintf(
-					/* translators: 1: the words chosen, 2: the destination */
-					__( 'those words do not name the page they point at — “%1$s” for “%2$s”', 'dazont-ecom' ),
-					mb_substr( $anchor, 0, 46 ),
-					'' !== $label ? $label : $url
-				);
-				continue;
-			}
-			$words = str_word_count( wp_strip_all_tags( $anchor ) );
-			if ( $words > 9 || mb_strlen( trim( $anchor ) ) > 72 ) {
-				$refused[] = sprintf(
-					/* translators: 1: how many words, 2: the words */
-					__( 'the words chosen are a sentence, not an anchor — %1$d words (%2$s)', 'dazont-ecom' ),
-					$words,
-					mb_substr( $anchor, 0, 46 ) . '…'
-				);
-				continue;
-			}
+			// (L ancre a deja ete confrontee a sa destination plus haut, avant
+			// le choix du chemin : les deux y passent.)
 			// ET ELLE NE PREND PAS TOUT SON BLOC : un paragraphe entierement
 			// cliquable se lit comme une publicite, pas comme un texte.
 			$open  = (int) strrpos( substr( $html, 0, $at ), '>' );
@@ -3018,8 +3129,15 @@ PROMPT;
 		//    moitie du controle qui protege vraiment quelque chose.
 		$wb  = str_word_count( wp_strip_all_tags( $before ) );
 		$wa  = str_word_count( wp_strip_all_tags( $after ) );
-		$up  = self::may_add() ? max( 60, $room * 35 ) : max( 20, $room * 8 );
-		$dn  = max( 10, $room * 4 );
+		// LE BUDGET A CHANGE AVEC LE GESTE. Quand la passe collait une phrase
+		// entiere par lien, il fallait lui laisser 35 mots chacun ; maintenant
+		// qu elle reecrit une phrase sur place, un lien coute quelques mots et
+		// peut aussi en rendre. La marge est donc plus etroite des deux cotes,
+		// et c est une garde de plus, pas une de moins : une reponse qui
+		// gonflerait le texte de 35 mots par lien est justement l ancienne
+		// queue de page, deplacee.
+		$up  = self::may_add() ? max( 40, $room * 20 ) : max( 20, $room * 8 );
+		$dn  = self::may_add() ? max( 12, $room * 10 ) : max( 10, $room * 4 );
 		if ( $wa - $wb > $up || $wb - $wa > $dn ) {
 			throw new RuntimeException( sprintf(
 				/* translators: 1: words that came back, 2: words it had */
@@ -4136,7 +4254,8 @@ PROMPT;
 					<td>
 						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[dead_off]" value="1" <?php checked( ! empty( $s['dead_off'] ) ); ?> /> <?php esc_html_e( 'Leave dead links alone', 'dazont-ecom' ); ?></label>
 						<br />
-						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[no_add_words]" value="1" <?php checked( ! DZE_Category_Content::may_add() ); ?> /> <?php esc_html_e( 'Never add a sentence — only link words the text already holds', 'dazont-ecom' ); ?></label>
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[no_add_words]" value="1" <?php checked( ! DZE_Category_Content::may_add() ); ?> /> <?php esc_html_e( 'Never reword anything — only link words the text already holds', 'dazont-ecom' ); ?></label>
+						<p class="description" style="margin:2px 0 0 24px;"><?php esc_html_e( 'Left unticked, the pass may rewrite ONE sentence so the destination\'s title fits inside it, where that sentence already sits. It never appends anything to the end of the text.', 'dazont-ecom' ); ?></p>
 						<span class="description" style="display:block;margin:2px 0 0 24px;"><?php esc_html_e( 'Left as it is, a text that names none of its neighbours may be given ONE short sentence carrying the link, rather than staying orphaned for good. Nothing already written is ever changed: the pass refuses its own answer if a single character has moved.', 'dazont-ecom' ); ?></span>
 						<p class="description"><?php esc_html_e( 'By default, every text this module rewrites is checked on the way in: a link pointing at a page of this shop that no longer answers is taken out and its words are kept, so the sentence still reads. Only links to this shop are judged — an outside site that is slow or blocks us is never touched. Each address is checked once a day at most. Tick this to write over a text without looking at the links already in it.', 'dazont-ecom' ); ?></p>
 					</td>
