@@ -203,6 +203,30 @@ final class DZE_Wpml {
 		return '' !== $out ? '<span class="dze-langs">' . $out . '</span>' : '';
 	}
 
+	/**
+	 * HOW WPML BUILDS A TRANSLATED DOCUMENT'S ADDRESS — read, never decided.
+	 *
+	 * "Sur les réglages wpml, on peut choisir de traduire les slugs ou créer
+	 * les slugs sur la base du nouveau titre du post. J'ai paramétré le
+	 * second. Notre module doit suivre les mêmes réglages que wpml."
+	 *
+	 * WPML → Settings → Translated documents offers exactly two, and this
+	 * returns the one the shop picked rather than a preference of our own:
+	 *
+	 *   auto-generate  — from the title (the default), leaving alone a slug
+	 *                    that already exists;
+	 *   force-generate — from the title always, over whatever is there.
+	 *
+	 * An empty setting is WPML's default, which is `auto-generate` — its own
+	 * screen ticks that box when the key is missing.
+	 */
+	public static function slug_rule(): string {
+		$s = (array) get_option( 'icl_sitepress_settings', [] );
+		return 'force-generate' === (string) ( $s['translated_document_page_url'] ?? '' )
+			? 'force-generate'
+			: 'auto-generate';
+	}
+
 	/** Language code of a post, or '' when unknown / WPML inactive. */
 	public static function post_language( int $post_id, string $post_type ): string {
 		if ( ! self::is_active() ) {

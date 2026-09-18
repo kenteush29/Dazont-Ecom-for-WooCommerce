@@ -66,6 +66,21 @@ final class DZE_Translate {
 	 * history, which is WordPress's job and not this one's.
 	 */
 	public const META_PREV = '_dze_tr_prev';
+	/**
+	 * THE ADDRESS IS STILL THE ORIGINAL'S, AND NOBODY HAS CHOSEN IT.
+	 *
+	 * A translation this module creates is born from the SOURCE title — the
+	 * translated one does not exist yet at that moment — so WordPress makes it
+	 * an English slug, and a German category was published for ever under an
+	 * English address because nothing ever came back to it.
+	 *
+	 * This mark is set at creation and cleared the moment a translated title
+	 * is written, which is the first moment a real slug CAN be made. Its
+	 * absence is what says "this address is somebody's own": a slug a human
+	 * wrote, or one a page has already been served under, is never rewritten
+	 * here — that would 404 an address that is out in the world.
+	 */
+	private const META_SLUG = '_dze_tr_slug_todo';
 
 	private static ?self $instance = null;
 
@@ -1815,6 +1830,82 @@ final class DZE_Translate {
 	}
 
 	/**
+	 * THE SLUG FOLLOWS WPML'S RULE, NOT ONE OF OURS.
+	 *
+	 * "Sur les réglages wpml, on peut choisir de traduire les slugs ou créer
+	 * les slugs sur la base du nouveau titre du post. J'ai paramétré le
+	 * second. Notre module doit suivre les mêmes réglages que wpml."
+	 *
+	 * So the setting is READ (`DZE_Wpml::slug_rule()`) rather than answered
+	 * here, and there are two answers to honour:
+	 *
+	 *   auto-generate  — build it from the title, and leave alone a slug that
+	 *                    somebody already chose. The mark is what tells those
+	 *                    two apart: it exists only on a translation this
+	 *                    module created and has never given a real address.
+	 *   force-generate — build it from the title every time, over whatever is
+	 *                    there, which is exactly what the WPML box says.
+	 *
+	 * THE LOCALE IS SWITCHED FIRST, and it is not a detail: `sanitize_title()`
+	 * folds accents through `remove_accents()`, which reads the CURRENT locale.
+	 * "Militärmäntel" comes out `militaermaentel` in German and
+	 * `militarmantel` in anything else — and this runs from cron, where the
+	 * locale is the site's default unless something switches it. The shop's
+	 * existing German slugs are the `ae`/`ue` kind, so the wrong one would
+	 * stand out as ours.
+	 *
+	 * A TERM GETS ITS OWN CALL, on purpose. `wp_update_term()` refuses a slug
+	 * another term of the taxonomy holds, and refusing it inside the same call
+	 * as the name would take the NAME down with it: the translation would keep
+	 * its English title because its address was taken. Refused, the mark stays
+	 * and the next write tries again.
+	 */
+	private static function slug_follow( array $o, int $target_id, string $title ): void {
+		$title = trim( wp_strip_all_tags( $title ) );
+		if ( '' === $title || ! $target_id ) {
+			return;
+		}
+		$mine = '1' === (string) self::meta_read( $o, $target_id, self::META_SLUG );
+		if ( 'force-generate' !== DZE_Wpml::slug_rule() && ! $mine ) {
+			return;
+		}
+		$kind = (string) ( $o['kind'] ?? 'post' );
+		$type = (string) ( $o['type'] ?? '' );
+		$lang = 'term' === $kind
+			? self::term_language( $target_id, $type )
+			: DZE_Wpml::post_language( $target_id, $type );
+		$was  = (string) apply_filters( 'wpml_current_language', '' );
+		$hop  = '' !== $lang && $was !== $lang;
+		if ( $hop ) {
+			do_action( 'wpml_switch_language', $lang );
+		}
+		try {
+			$slug = sanitize_title( $title );
+			if ( '' === $slug ) {
+				return;
+			}
+			if ( 'term' === $kind ) {
+				$done = wp_update_term( $target_id, $type, [ 'slug' => $slug ] );
+				if ( is_wp_error( $done ) ) {
+					if ( class_exists( 'DZE_Health' ) ) {
+						DZE_Health::log( 'translate', 'slug_follow', sprintf(
+							'terme %d (%s) : %s', $target_id, $slug, $done->get_error_message()
+						) );
+					}
+					return;
+				}
+			} else {
+				wp_update_post( [ 'ID' => $target_id, 'post_name' => $slug ] );
+			}
+		} finally {
+			if ( $hop ) {
+				do_action( 'wpml_switch_language', $was );
+			}
+		}
+		self::meta_write( $o, $target_id, self::META_SLUG, '' );
+	}
+
+	/**
 	 * Writes translated text onto a translation, of either kind.
 	 *
 	 * @param array<string,string> $texts
@@ -1850,6 +1941,9 @@ final class DZE_Translate {
 			}
 			if ( $args ) {
 				wp_update_term( $target_id, (string) $o['type'], $args );
+			}
+			if ( isset( $args['name'] ) ) {
+				self::slug_follow( $o, $target_id, (string) $args['name'] );
 			}
 			// THE TERM'S OWN CUSTOM FIELDS, from WPML's term list — the SEO
 			// title and description a category carries. Written only while
@@ -1933,6 +2027,13 @@ final class DZE_Translate {
 		if ( $post ) {
 			$post['ID'] = $target_id;
 			wp_update_post( $post );
+		}
+		// AFTER the title is on the post, never before: the slug is made from
+		// the title as it now stands, and a second save here is harmless —
+		// WPML has already done its copying on the save just above, and the
+		// Elementor tree is still written after both.
+		if ( isset( $post['post_title'] ) ) {
+			self::slug_follow( $o, $target_id, (string) $post['post_title'] );
 		}
 		if ( $el ) {
 			// AND WHAT IS ABOUT TO BE REPLACED IS READ HERE, NOT AT THE TOP.
@@ -2032,6 +2133,10 @@ final class DZE_Translate {
 		if ( ! $new_id ) {
 			throw new RuntimeException( __( 'The term could not be created.', 'dazont-ecom' ) );
 		}
+		// The slug WordPress just made comes from the ENGLISH name, because
+		// that is the only name there is at this point. `slug_follow()` comes
+		// back for it as soon as the translated name is written.
+		update_term_meta( $new_id, self::META_SLUG, '1' );
 		$src_lang = self::obj_language( $o );
 		$trid     = apply_filters(
 			'wpml_element_trid',
@@ -3507,6 +3612,10 @@ final class DZE_Translate {
 			throw new RuntimeException( $new_id->get_error_message() );
 		}
 		$new_id = (int) $new_id;
+		// Same as a term: the post was inserted with the ORIGINAL's title, so
+		// WordPress derived the original's slug (suffixed, since the original
+		// holds it). The mark says that address is nobody's choice yet.
+		update_post_meta( $new_id, self::META_SLUG, '1' );
 
 		$src_lang = DZE_Wpml::post_language( $pid, $type ) ?: DZE_Wpml::default_language();
 		$trid     = apply_filters( 'wpml_element_trid', null, $pid, DZE_Wpml::element_name( 'post', $type ) );

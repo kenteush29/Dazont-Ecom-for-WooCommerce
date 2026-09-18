@@ -2039,5 +2039,70 @@ ok( 'les guillemets sont intacts',     $tr_back['title'] ?? '', 'Il a dit "bonjo
 ok( 'les adresses aussi',              $tr_back['el:abc:title'] ?? '', 'Voir https://kula.test/bottes-tactiques/ pour la suite' );
 ok( 'et les antislashes aussi',        $tr_back['meta:_x'] ?? '', "Une ligne\nune autre, et un antislash \\ tout seul" );
 
+
+echo "\nLE SLUG SUIT LE REGLAGE DE WPML, PAS LE NOTRE\n";
+// « Sur les réglages wpml, on peut choisir de traduire les slugs ou créer les
+// slugs sur la base du nouveau titre du post. J'ai paramétré le second. Notre
+// module doit suivre les mêmes réglages que wpml. »
+//
+// Le module n ecrivait AUCUN slug : une traduction qu il cree nait du titre
+// SOURCE — le titre traduit n existe pas encore a cet instant — donc WordPress
+// en tire un slug anglais, definitivement. Une categorie allemande publiee
+// sous /military-coats-de.
+ok( 'sans reglage, c est auto-generate (le defaut de WPML)',
+	DZE_Wpml::slug_rule(), 'auto-generate' );
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'translated_document_page_url' => 'force-generate' ];
+ok( 'et le reglage est lu, pas devine',
+	DZE_Wpml::slug_rule(), 'force-generate' );
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'translated_document_page_url' => 'auto-generate' ];
+
+$dze_sf = new ReflectionMethod( 'DZE_Translate', 'slug_follow' );
+$dze_sf->setAccessible( true );
+
+// UNE TRADUCTION QUE LE MODULE VIENT DE CREER : elle porte la marque, donc son
+// adresse n est le choix de personne et peut etre refaite.
+$GLOBALS['terms'][9101] = [ 'term_id' => 9101, 'name' => 'Manteaux militaires', 'slug' => 'military-coats-fr', 'taxonomy' => 'product_cat', 'parent' => 0, 'description' => '', 'count' => 0 ];
+$GLOBALS['termmeta'][9101]['_dze_tr_slug_todo'] = '1';
+$dze_sf->invoke( null, [ 'kind' => 'term', 'id' => 9101, 'type' => 'product_cat' ], 9101, 'Manteaux militaires' );
+ok( 'le slug est refait sur le titre traduit',
+	$GLOBALS['terms'][9101]['slug'] ?? '', 'manteaux-militaires' );
+// ET LA MARQUE TOMBE : refaite une fois, l adresse appartient a la boutique.
+ok( 'et la marque est levee',
+	(string) ( $GLOBALS['termmeta'][9101]['_dze_tr_slug_todo'] ?? '?' ), '' );
+
+// UNE ADRESSE DEJA CHOISIE N EST JAMAIS REECRITE en auto-generate. C est la
+// regle de WPML, et c est aussi ce qui evite de mettre en 404 une page que
+// Google sert deja.
+$GLOBALS['terms'][9102] = [ 'term_id' => 9102, 'name' => 'Vestes', 'slug' => 'un-slug-choisi-a-la-main', 'taxonomy' => 'product_cat', 'parent' => 0, 'description' => '', 'count' => 0 ];
+$dze_sf->invoke( null, [ 'kind' => 'term', 'id' => 9102, 'type' => 'product_cat' ], 9102, 'Vestes camouflage' );
+ok( 'sans la marque, le slug existant est laisse',
+	$GLOBALS['terms'][9102]['slug'] ?? '', 'un-slug-choisi-a-la-main' );
+
+// SAUF SI LA BOUTIQUE A COCHE force-generate, ou WPML ecrase toujours.
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'translated_document_page_url' => 'force-generate' ];
+$dze_sf->invoke( null, [ 'kind' => 'term', 'id' => 9102, 'type' => 'product_cat' ], 9102, 'Vestes camouflage' );
+ok( 'en force-generate il est refait quand meme',
+	$GLOBALS['terms'][9102]['slug'] ?? '', 'vestes-camouflage' );
+$GLOBALS['opts']['icl_sitepress_settings'] = [ 'translated_document_page_url' => 'auto-generate' ];
+
+// UN POST SUIT LA MEME REGLE, sur post_name.
+$GLOBALS['posts'][9201] = [ 'ID' => 9201, 'post_title' => 'Sac a dos tactique', 'post_name' => 'tactical-backpack-2', 'post_type' => 'product', 'post_status' => 'publish' ];
+$GLOBALS['meta'][9201]['_dze_tr_slug_todo'] = '1';
+$dze_sf->invoke( null, [ 'kind' => 'post', 'id' => 9201, 'type' => 'product' ], 9201, 'Sac a dos tactique' );
+ok( 'le produit traduit prend l adresse de son titre',
+	$GLOBALS['posts'][9201]['post_name'] ?? '', 'sac-a-dos-tactique' );
+ok( 'et sa marque tombe aussi',
+	(string) ( $GLOBALS['meta'][9201]['_dze_tr_slug_todo'] ?? '?' ), '' );
+
+// UN TITRE VIDE NE FABRIQUE PAS UNE ADRESSE VIDE. Le champ absent de la reponse
+// du modele arrive ici comme chaine vide, et un slug vide ferait disparaitre la
+// page de son propre site.
+$GLOBALS['posts'][9202] = [ 'ID' => 9202, 'post_title' => '', 'post_name' => 'garde-moi', 'post_type' => 'product', 'post_status' => 'publish' ];
+$GLOBALS['meta'][9202]['_dze_tr_slug_todo'] = '1';
+$dze_sf->invoke( null, [ 'kind' => 'post', 'id' => 9202, 'type' => 'product' ], 9202, '   ' );
+ok( 'un titre vide ne touche a rien',
+	$GLOBALS['posts'][9202]['post_name'] ?? '', 'garde-moi' );
+ok( 'et la marque reste, pour la prochaine fois',
+	(string) ( $GLOBALS['meta'][9202]['_dze_tr_slug_todo'] ?? '' ), '1' );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );
