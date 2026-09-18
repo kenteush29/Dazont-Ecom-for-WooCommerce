@@ -50,39 +50,43 @@ echo "UNE PREFERENCE, PAS UN COUPERET\n";
 // Le classement des ventes, et ce qui est remise dedans.
 $rang = range( 1, 20 );
 
-// RIEN EN PROMO : la preference ne coute rien, le classement passe entier.
+// RIEN EN PROMO : la preference ne coute rien, le classement passe entier et
+// dans le meme ordre.
 ok( 'sans promo, le classement est intact',
-	DZE_Trending::prefer_not_on_sale( $rang, [], 10 ), $rang );
+	DZE_Trending::prefer_not_on_sale( $rang, [] ), $rang );
 
-// ASSEZ DE NON-REMISES : la preference est tenue, et seules elles sortent.
-ok( 'avec assez de non-remises, les remises sont ecartees',
-	DZE_Trending::prefer_not_on_sale( $rang, [ 1, 2, 3 ], 10 ),
-	[ 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 ] );
+// AVEC DES REMISES : elles passent derriere, elles ne disparaissent pas.
+ok( 'les remises passent derriere, sans etre jetees',
+	DZE_Trending::prefer_not_on_sale( $rang, [ 1, 2, 3 ] ),
+	array_merge( range( 4, 20 ), [ 1, 2, 3 ] ) );
 
-// LE CAS DE LA BOUTIQUE : presque tout est remise. Le bloc doit rester plein.
-$presque_tout = array_slice( $rang, 0, 18 ); // 18 des 20 sont en promo
-$sortie = DZE_Trending::prefer_not_on_sale( $rang, $presque_tout, 10 );
-ok( 'pendant une promo generale, le bloc reste plein', count( $sortie ), 10 );
-// ET LES DEUX RESCAPEES PASSENT DEVANT : la preference est tenue autant
-// qu'elle peut l'etre, elle n'est pas abandonnee d'un bloc.
-ok( 'les non-remises passent devant',      array_slice( $sortie, 0, 2 ), [ 19, 20 ] );
-// ET LE COMPLEMENT SUIT L ORDRE DES VENTES, pas un ordre invente.
-ok( 'et le complement suit le classement', array_slice( $sortie, 2 ), [ 1, 2, 3, 4, 5, 6, 7, 8 ] );
+// LE CAS DE LA BOUTIQUE : presque tout est remise, deux rescapees seulement.
+$sortie = DZE_Trending::prefer_not_on_sale( $rang, array_slice( $rang, 0, 18 ) );
+ok( 'les deux rescapees passent devant', array_slice( $sortie, 0, 2 ), [ 19, 20 ] );
+ok( 'et le reste suit le classement',    array_slice( $sortie, 2 ), range( 1, 18 ) );
 
-// TOUT EN PROMO : c'est le cas qui rendait une chaine vide et faisait
-// disparaitre la vitrine. Le bloc montre les meilleures ventes, tout court.
-$toutes = DZE_Trending::prefer_not_on_sale( $rang, $rang, 10 );
-ok( 'tout en promo ne vide plus le bloc', count( $toutes ), 10 );
-ok( 'et il montre bien les dix premieres', $toutes, array_slice( $rang, 0, 10 ) );
+// LE POINT QUI A FAIT MANQUER DES PRODUITS : on REORDONNE, on ne coupe pas.
+//
+// « Il manque des produits maintenant. » La premiere version de ce correctif
+// rendait exactement les dix demandes — et le bloc en affichait huit.
+// [products] ecarte au rendu ce qui est en rupture ou hors catalogue, et ce
+// module sur-tire expres pour absorber ca : « demander autant qu on veut en
+// montrer et en jeter ensuite, c est comme ca qu un bloc de douze revient
+// avec cinq ». Couper la liste supprimait ce coussin.
+ok( 'rien n est jete : autant d identifiants en sortie qu en entree',
+	count( DZE_Trending::prefer_not_on_sale( $rang, array_slice( $rang, 0, 18 ) ) ), count( $rang ) );
+ok( 'et ce sont exactement les memes',
+	array_diff( $rang, DZE_Trending::prefer_not_on_sale( $rang, [ 5, 6 ] ) ), [] );
 
-// UN CLASSEMENT PLUS COURT QUE DEMANDE rend ce qu'il a, pas des trous.
-ok( 'un classement trop court rend ce qu il a',
-	DZE_Trending::prefer_not_on_sale( [ 1, 2, 3 ], [ 1, 2, 3 ], 10 ), [ 1, 2, 3 ] );
-ok( 'et un classement vide rend le vide',
-	DZE_Trending::prefer_not_on_sale( [], [ 1 ], 10 ), [] );
-// UN NOMBRE DEMANDE ABSURDE NE FABRIQUE PAS UNE LISTE VIDE.
-ok( 'zero demande vaut au moins un',
-	DZE_Trending::prefer_not_on_sale( [ 1, 2 ], [ 1, 2 ], 0 ), [ 1 ] );
+// TOUT EN PROMO : le classement sort tel quel, et le bloc vit.
+ok( 'tout en promo rend le classement entier',
+	DZE_Trending::prefer_not_on_sale( $rang, $rang ), $rang );
+
+// ET LES BORDS.
+ok( 'un classement vide rend le vide',
+	DZE_Trending::prefer_not_on_sale( [], [ 1 ] ), [] );
+ok( 'un classement plus court rend ce qu il a',
+	DZE_Trending::prefer_not_on_sale( [ 1, 2, 3 ], [ 1, 2, 3 ] ), [ 1, 2, 3 ] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

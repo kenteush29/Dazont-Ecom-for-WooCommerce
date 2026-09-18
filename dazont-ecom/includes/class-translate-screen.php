@@ -1560,6 +1560,8 @@ trait DZE_Translate_Screen {
 				<th style="width:110px;"><?php esc_html_e( 'Language', 'dazont-ecom' ); ?></th>
 				<th style="width:160px;"><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
 				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
+				<?php // « Ne pas oublier d'afficher aussi par qui ça a été fait. Partout. » Ici c'est qui a dit oui. ?>
+				<th style="width:130px;"><?php esc_html_e( 'Accepted by', 'dazont-ecom' ); ?></th>
 			</tr></thead>
 			<tbody>
 			<?php foreach ( $rows as $r ) : ?>
@@ -1579,6 +1581,14 @@ trait DZE_Translate_Screen {
 					<td><span class="description"><?php
 						echo esc_html( '' !== (string) $r['when'] ? mysql2date( (string) get_option( 'date_format' ) . ' H:i', (string) $r['when'] ) : '—' );
 					?></span></td>
+					<td><?php
+						// Rien plutôt qu'un nom inventé : une traduction écrite
+						// avant que ce soit gardé a bien été acceptée par
+						// quelqu'un, simplement personne ne l'a noté.
+						echo null === ( $r['by'] ?? null )
+							? '<span class="description">' . esc_html__( 'not recorded', 'dazont-ecom' ) . '</span>'
+							: esc_html( (string) $r['by'] );
+					?></td>
 				</tr>
 			<?php endforeach; ?>
 			</tbody>
@@ -1634,6 +1644,8 @@ trait DZE_Translate_Screen {
 				// été produite, qui est le seul que cette ligne connaisse.
 				?>
 				<th style="width:170px;"><?php esc_html_e( 'Translated', 'dazont-ecom' ); ?></th>
+				<?php // « Ne pas oublier d'afficher aussi par qui ça a été fait. Partout, comme sur les bulk product. » ?>
+				<th style="width:130px;"><?php esc_html_e( 'Started by', 'dazont-ecom' ); ?></th>
 				<th style="width:180px;"></th>
 			</tr></thead>
 			<tbody>
@@ -1674,6 +1686,21 @@ trait DZE_Translate_Screen {
 							// attente avant que ce moment soit gardé n'en ont pas, et
 							// inventer « aujourd'hui » serait pire que se taire.
 							echo '<span class="description">' . esc_html__( 'not recorded', 'dazont-ecom' ) . '</span>';
+						}
+						?>
+					</td>
+					<td>
+						<?php
+						// TROIS REPONSES, ET ELLES NE SE CONFONDENT PAS : un nom,
+						// « Automatic » pour la passe qui tourne seule, et rien du
+						// tout quand personne ne l'a noté — une ligne mise en
+						// attente avant que ce soit gardé a bien été demandée par
+						// quelqu'un, et le nommer serait inventer.
+						$dze_by = $r['by'] ?? null;
+						if ( null === $dze_by ) {
+							echo '<span class="description">' . esc_html__( 'not recorded', 'dazont-ecom' ) . '</span>';
+						} else {
+							echo esc_html( class_exists( 'DZE_Queue' ) ? DZE_Queue::started_by( (int) $dze_by ) : (string) $dze_by );
 						}
 						?>
 					</td>

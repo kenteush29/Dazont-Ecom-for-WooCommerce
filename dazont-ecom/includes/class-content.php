@@ -54,6 +54,20 @@ final class DZE_Content {
 	private const FAL_QUEUE = 'https://queue.fal.run/fal-ai/nano-banana-2/edit';
 
 	/**
+	 * L'AUTRE PORTE DU MÊME MODÈLE : écrire une image à partir de rien.
+	 *
+	 * « Image lab exige une image entrante. Règles ça. Ça devrait être libre. »
+	 *
+	 * L'atelier refusait de travailler sans photographie de départ, et ce
+	 * n'était pas une règle du plugin : `/edit` est l'endpoint de RETOUCHE, il
+	 * n'existe que pour transformer des images qu'on lui donne et refuse une
+	 * requête sans `image_urls`. Le même modèle a une porte texte → image, à
+	 * l'adresse sans suffixe, et c'est celle-là qu'il faut pousser quand la
+	 * boutique n'apporte rien : le prompt seul décide alors de la photographie.
+	 */
+	private const FAL_QUEUE_FRESH = 'https://queue.fal.run/fal-ai/nano-banana-2';
+
+	/**
 	 * How long the shop waits for one picture before leaving it to be
 	 * collected. Under two minutes on purpose: a PHP worker holding a request
 	 * open past its host's own gateway timeout is a screen that dies anyway,
@@ -6852,20 +6866,29 @@ Answer with STRICT JSON and nothing else: "
 			}
 		};
 
-		$resp = wp_remote_post( self::FAL_QUEUE, [
+		// SANS PHOTOGRAPHIE DE DEPART, CE N EST PAS LA MEME PORTE. `/edit`
+		// retouche ce qu on lui donne et refuse une requete sans `image_urls` ;
+		// l adresse sans suffixe ecrit l image a partir du prompt seul. Et le
+		// champ vide ne part pas : un tableau vide envoye a une porte qui ne
+		// l attend pas est un refus de plus.
+		$dze_fresh = empty( $image_urls );
+		$dze_body  = [
+			'prompt'        => $prompt,
+			'num_images'    => 1,
+			'aspect_ratio'  => $ratio,
+			// Photographs, on a shop: JPEG. A PNG product image is three to
+			// five times the weight for no visible gain and slows the page
+			// down for every visitor.
+			'output_format' => 'jpeg',
+		];
+		if ( ! $dze_fresh ) {
+			$dze_body['image_urls'] = array_values( $image_urls );
+		}
+		$resp = wp_remote_post( $dze_fresh ? self::FAL_QUEUE_FRESH : self::FAL_QUEUE, [
 			// The submit is a short call: it answers with an id, not a picture.
 			'timeout' => 30,
 			'headers' => [ 'Authorization' => 'Key ' . self::fal_key(), 'content-type' => 'application/json' ],
-			'body'    => wp_json_encode( [
-				'prompt'        => $prompt,
-				'image_urls'    => array_values( $image_urls ),
-				'num_images'    => 1,
-				'aspect_ratio'  => $ratio,
-				// Photographs, on a shop: JPEG. A PNG product image is three to
-				// five times the weight for no visible gain and slows the page
-				// down for every visitor.
-				'output_format' => 'jpeg',
-			] ),
+			'body'    => wp_json_encode( $dze_body ),
 		] );
 		if ( is_wp_error( $resp ) ) {
 			// Nothing was billed: the request never arrived. It is filed under
