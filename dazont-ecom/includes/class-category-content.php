@@ -3903,7 +3903,7 @@ PROMPT;
 					<td>
 						<input type="number" id="dze-cc-links" name="<?php echo esc_attr( self::OPT ); ?>[links]" class="small-text" min="0" max="14" value="<?php echo (int) ( $s['links'] ?? 0 ) ?: ''; ?>" placeholder="<?php esc_attr_e( 'auto', 'dazont-ecom' ); ?>" />
 						<label style="margin-left:12px;"><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[links_off]" value="1" <?php checked( ! empty( $s['links_off'] ) ); ?> /> <?php esc_html_e( 'No internal linking at all', 'dazont-ecom' ); ?></label>
-						<p class="description"><?php esc_html_e( 'Empty means one link per ~150 words, never fewer than there are sub-categories — a hub carries more links than a leaf. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Empty means one link per 50 words, never fewer than three and never fewer than there are sub-categories — a hub carries more links than a leaf. It is a ceiling, not a quota: what gets placed is however many genuinely close pages there are. Individual products are never linked: the page already lists them.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>
 				<tr>

@@ -96,13 +96,32 @@ final class DZE_Api_Keys {
 		return '<p class="description dze-key-hint">' . esc_html( $h['what'] ) . ' ' . implode( ' · ', $links ) . '</p>';
 	}
 
-	/** First characters visible, fixed-length mask after (never leaks length). */
+	/**
+	 * ENOUGH OF THE KEY TO TELL IT FROM THE OTHER TWO.
+	 *
+	 * Seven characters showed "sk-ant-", which every Anthropic key on earth
+	 * starts with: three shops, three keys, one preview. "J'ai une confusion
+	 * au niveau organisationnel dans mon compte anthropic, avec 3 clés pour
+	 * kula-tactical.com."
+	 *
+	 * So it wears the shape the provider's own console wears —
+	 * `sk-ant-api03-EUk…QQAA` — because the point of a preview is to be
+	 * matched against the list on the other screen, and a preview in a
+	 * different shape cannot be. The middle is still hidden, and the mask is
+	 * a fixed length so it never leaks how long the key is.
+	 */
 	public static function mask( string $key ): string {
+		$key = trim( $key );
 		if ( '' === $key ) {
 			return '';
 		}
-		$visible = min( 7, max( 3, (int) floor( strlen( $key ) / 4 ) ) );
-		return substr( $key, 0, $visible ) . '••••••••••';
+		// Short enough that a tail would give away too much of it: old
+		// behaviour, head only.
+		if ( strlen( $key ) < 28 ) {
+			$visible = min( 7, max( 3, (int) floor( strlen( $key ) / 4 ) ) );
+			return substr( $key, 0, $visible ) . '••••••••••';
+		}
+		return substr( $key, 0, 16 ) . '••••••••' . substr( $key, -4 );
 	}
 
 	/**

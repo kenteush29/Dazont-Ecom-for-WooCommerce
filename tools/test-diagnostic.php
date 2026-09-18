@@ -704,7 +704,14 @@ unset( $_GET['goal'] );
 $html = drawn();
 ok( 'both goals are offered',           false !== strpos( $html, 'goal=cro' ) && false !== strpos( $html, 'goal=seo' ), true );
 ok( 'and everything is listed',         false !== strpos( $html, 'SKU is empty' ), true );
-ok( 'each line says what to do',        false !== strpos( $html, 'Write a real description.' ), true );
+ok( 'la note de la boutique ne charge plus la liste',
+	false !== strpos( $html, 'Write a real description.' ), false );
+ok( 'mais chaque ligne dit toujours pourquoi elle compte',
+	(bool) preg_match( '/class="description" style="font-size:12px;"/', $html ), true );
+// ET LA VALEUR N EST PAS PERDUE : le champ part de la fiche mais voyage
+// cache, donc enregistrer une regle ne l efface pas.
+ok( 'et la valeur reste, en champ cache',
+	false !== strpos( (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-diagnostic.php' ), 'type="hidden" class="dze-diag-note"' ), true );
 
 $_GET['goal'] = 'seo';
 $html = drawn();
