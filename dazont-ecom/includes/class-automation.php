@@ -2014,12 +2014,17 @@ final class DZE_Automation {
 		if ( class_exists( 'DZE_Assets' ) ) {
 			DZE_Assets::admin_css();
 		}
+		// SON PROPRE NOM. « dze-auto-bar » etait deja pris par la barre de
+		// PROGRESSION d'une passe, qui vit a l'interieur de ce panneau. Ma
+		// regle arrivant plus bas dans la feuille l'emportait, et la barre de
+		// progression heritait du cadre, du fond degrade et du padding du
+		// panneau. Deux choses differentes ne partagent pas un nom.
 		// DISCREET, AND AT THE TOP. "Run it by itself devrait être en haut de
 		// page… Tu peux le rendre discret, mais en haut de page obligatoirement,
 		// partout là où il existe." So it is a thin bar, not a panel: the
 		// switch is the cherry, not the plate — it must be within reach without
 		// taking the room the work needs.
-		echo '<div class="dze-admin dze-auto dze-auto-bar">';
+		echo '<div class="dze-admin dze-auto dze-auto-strip">';
 		if ( '' !== $title ) {
 			echo '<h2 class="dze-auto-h2">' . esc_html( $title ) . '</h2>';
 		}
@@ -2392,7 +2397,7 @@ final class DZE_Automation {
 		// nothing and explains nothing is the worst kind of broken.
 		if ( typeof jQuery === 'undefined' ) {
 			document.addEventListener( 'DOMContentLoaded', function () {
-				var b = document.querySelector( '.dze-auto-bar' );
+				var b = document.querySelector( '.dze-auto-strip' );
 				if ( b ) { b.insertAdjacentHTML( 'beforeend', '<p class="notice notice-error inline" style="margin:8px 0 0;padding:6px 10px;"><?php echo esc_js( __( 'This panel needs jQuery, which this screen did not load. Its buttons will not answer.', 'dazont-ecom' ) ); ?></p>' ); }
 			} );
 		} else {

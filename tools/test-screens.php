@@ -562,13 +562,21 @@ echo "\nLINTERRUPTEUR EST EN HAUT, DISCRET, ET DIT CE QUIL A LAISSE\n";
 // cerise sur le gateau, pas lassiette en bas de page. Partout la ou il existe. »
 $ab_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
 ok( 'la barre a sa classe a elle',
-	false !== strpos( $ab_src, 'dze-admin dze-auto dze-auto-bar' ), true );
+	false !== strpos( $ab_src, 'dze-admin dze-auto dze-auto-strip' ), true );
 ok( 'elle compte ce qui attend',
 	false !== strpos( $ab_src, 'results are waiting for your yes or no' ), true );
 ok( 'et donne le chemin vers la liste, pre-filtree',
 	false !== strpos( $ab_src, "DZE_Screens::url( 'review' )" ), true );
 $ab_css = file_get_contents( __DIR__ . '/../dazont-ecom/admin/css/content.css' );
-ok( 'et elle a un style discret', false !== strpos( $ab_css, '.dze-auto-bar {' ), true );
+ok( 'et elle a un style discret', false !== strpos( $ab_css, '.dze-auto-strip {' ), true );
+// UN NOM POUR UNE CHOSE. « dze-auto-bar » est la barre de PROGRESSION
+// dune passe, qui vit a linterieur de ce panneau : le panneau lavait
+// pris, sa regle gagnait, et la barre de progression portait le cadre
+// et le fond du panneau.
+ok( 'et elle ne vole pas le nom de la barre de progression', [
+	false !== strpos( $ab_css, '.dze-auto-bar > span' ),
+	false !== strpos( $ab_src, 'dze-auto dze-auto-bar"' ),
+], [ true, false ] );
 // SUR CHAQUE ECRAN QUI EN PORTE UNE, avant le travail dont elle decide.
 foreach ( [ 'class-mesh.php', 'class-category-content.php', 'class-translate-screen.php', 'class-discounts.php' ] as $ab_f ) {
 	$ab_s = file_get_contents( __DIR__ . '/../dazont-ecom/includes/' . $ab_f );
