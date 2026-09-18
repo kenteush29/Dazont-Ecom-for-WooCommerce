@@ -60,6 +60,7 @@ final class DZE_Category_Content {
 
 	private function __construct() {
 		add_action( 'admin_init', [ $this, 'register_settings' ] );
+		add_action( 'admin_menu', [ $this, 'register_menu' ], 12 );
 		// The daily sitemap read went with the layer it fed: the mesh links
 		// categories, posts and pages, and WordPress serves all three.
 		add_action( 'admin_init', [ __CLASS__, 'drop_sitemap_cron' ] );
@@ -3427,6 +3428,83 @@ PROMPT;
 	// Settings tab
 	// =========================================================================
 
+	public const MENU_SLUG = 'dazont-ecom-categories';
+
+	public function register_menu(): void {
+		if ( ! class_exists( 'DZE_Screens' ) ) {
+			return;
+		}
+		add_submenu_page(
+			DZE_Screens::PARENT,
+			DZE_Screens::label( 'categories' ),
+			DZE_Screens::label( 'categories' ),
+			'manage_woocommerce',
+			self::MENU_SLUG,
+			[ $this, 'render_page' ]
+		);
+	}
+
+	/**
+	 * THE WHOLE LIFE OF A CATEGORY DESCRIPTION, on one screen.
+	 *
+	 * This module had no screen of its own: what it writes was started from
+	 * WooCommerce's own category list, what came back was decided on another
+	 * module's tab, and the switch that runs it by itself was parked on the
+	 * Diagnostic — which is not about categories. Three places for one
+	 * subject, and not one of them named it.
+	 */
+	public function render_page(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		echo '<div class="wrap dze-admin">';
+		echo '<h1>' . esc_html( DZE_Screens::label( 'categories' ) ) . '</h1>';
+
+		// WHAT IS SHORT, from the reading that already counted it — never a
+		// second count of this screen's own, which is how two figures for one
+		// thing start disagreeing.
+		$short = 0;
+		if ( class_exists( 'DZE_Diagnostic' ) ) {
+			foreach ( (array) ( DZE_Diagnostic::census()['checks'] ?? [] ) as $id => $one ) {
+				if ( 'cat_desc' === $id ) {
+					$short = (int) ( is_array( $one ) ? ( $one['n'] ?? 0 ) : $one );
+				}
+			}
+		}
+		echo '<p class="description" style="max-width:820px;">' . esc_html(
+			$short
+				? sprintf(
+					/* translators: %s: how many categories */
+					_n( '%s category is short of a description.', '%s categories are short of a description.', $short, 'dazont-ecom' ),
+					number_format_i18n( $short )
+				)
+				: __( 'Every category has a description of its own.', 'dazont-ecom' )
+		) . ' <a href="' . esc_url( admin_url( 'edit-tags.php?taxonomy=product_cat&post_type=product' ) ) . '">'
+			. esc_html__( 'Open the category list →', 'dazont-ecom' ) . '</a></p>';
+
+		// WHAT CAME BACK, said in one line with the way into the ONE list,
+		// pre-filtered to this work. Never a second table.
+		$waiting = class_exists( 'DZE_Queue' ) ? (int) ( DZE_Queue::counts_for( [ 'cat_desc' ] )['review'] ?? 0 ) : 0;
+		if ( $waiting && class_exists( 'DZE_Screens' ) ) {
+			printf(
+				'<div class="notice notice-info inline" style="margin:0 0 16px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+				esc_html( sprintf(
+					/* translators: %s: how many descriptions */
+					_n( '%s description waits for your yes or no.', '%s descriptions wait for your yes or no.', $waiting, 'dazont-ecom' ),
+					number_format_i18n( $waiting )
+				) ),
+				esc_url( add_query_arg( [ 'kind' => 'cat_desc' ], DZE_Screens::url( 'review' ) ) ),
+				esc_html__( 'Read them →', 'dazont-ecom' )
+			);
+		}
+
+		// AND THE SWITCH THAT RUNS IT BY ITSELF, on the screen of the work it
+		// runs — the decision before the list it decides about.
+		if ( class_exists( 'DZE_Automation' ) ) {
+			DZE_Automation::panel_form( [ 'cat_desc' ], __( 'Run it by itself', 'dazont-ecom' ) );
+		}
+		echo '</div>';
+	}
 	public function render_settings(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;

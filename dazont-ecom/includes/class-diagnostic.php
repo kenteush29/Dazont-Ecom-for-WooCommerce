@@ -2531,12 +2531,10 @@ final class DZE_Diagnostic {
 			$this->render_list( $check );
 		} else {
 			$this->render_overview();
-			// AND THE SWITCH THAT WRITES THE MISSING DESCRIPTIONS BY ITSELF,
-			// under the list of what is missing. Running by itself is a
-			// property of this work, not a menu of its own.
-			if ( class_exists( 'DZE_Automation' ) ) {
-				DZE_Automation::panel_form( [ 'cat_desc' ], __( 'Run it by itself', 'dazont-ecom' ) );
-			}
+			// THE CATEGORY SWITCH LEFT THIS SCREEN. Running the category writer
+			// by itself is a property of THAT work, and this screen is the
+			// reading of the whole site — it is about categories no more than it
+			// is about articles. It lives on Dazont Ecom -> Categories now.
 		}
 		echo '</div>';
 	}

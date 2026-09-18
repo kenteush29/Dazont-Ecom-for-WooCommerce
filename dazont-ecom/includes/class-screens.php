@@ -109,6 +109,16 @@ final class DZE_Screens {
 			// A MENU OF ITS OWN. It runs by itself, like the translations, and
 			// it was buried as the second tab of a screen called "Content" —
 			// three clicks from the dashboard to look at the work of the day.
+			// A DESTINATION FOR THE CATEGORIES. This module registered no screen
+			// at all: its work lived on WooCommerce's own category list, its
+			// results were decided on somebody else's tab, and its automation
+			// switch was parked on the Diagnostic — a screen that is not about
+			// it. Three places for one subject, and none of them named it.
+			'categories'   => [
+				'label'  => __( 'Categories', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-categories',
+				'module' => 'category_content',
+			],
 			'linking'      => [
 				'label'  => __( 'Internal linking', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-linking',
@@ -379,6 +389,7 @@ final class DZE_Screens {
 			// « je ne comprends pas la ou il faut donner de lattention ».
 			'review',
 			'content',
+			'categories',
 			'linking',
 			'translations',
 			'marketing',
