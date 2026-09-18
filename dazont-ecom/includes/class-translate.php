@@ -1899,11 +1899,16 @@ final class DZE_Translate {
 				return;
 			}
 			if ( 'term' === $kind ) {
-				$done = wp_update_term( $target_id, $type, [ 'slug' => $slug ] );
-				if ( is_wp_error( $done ) ) {
+				// LE SLUG SEUL, ET RIEN D AUTRE. Par wp_update_term() le noyau
+				// remettait le nom et la description de l ORIGINAL avec, parce
+				// qu il relit le terme par get_term() que WPML filtre. Et
+				// l unicite est verifiee ici : plus personne ne la verifie
+				// pour nous sur ce chemin.
+				$slug = self::free_slug( $slug, $type, $target_id );
+				if ( ! self::term_write( $target_id, $type, [ 'slug' => $slug ] ) ) {
 					if ( class_exists( 'DZE_Health' ) ) {
 						DZE_Health::log( 'translate', 'slug_follow', sprintf(
-							'terme %d (%s) : %s', $target_id, $slug, $done->get_error_message()
+							'le slug %s n a pas pu etre ecrit sur le terme %d', $slug, $target_id
 						) );
 					}
 					return;
@@ -1954,7 +1959,11 @@ final class DZE_Translate {
 					: sanitize_text_field( (string) $texts[ $fid ] );
 			}
 			if ( $args ) {
-				wp_update_term( $target_id, (string) $o['type'], $args );
+				// DANS LES TABLES, PAS PAR wp_update_term() : celui-ci relit le
+				// terme par get_term(), que WPML rend dans la langue courante,
+				// et réécrit tout ce qu'on ne lui a pas nommé — à commencer par
+				// le slug de l'original, qu'il pose sur la traduction.
+				self::term_write( $target_id, (string) $o['type'], $args );
 			}
 			if ( isset( $args['name'] ) ) {
 				self::slug_follow( $o, $target_id, (string) $args['name'] );
@@ -2125,7 +2134,53 @@ final class DZE_Translate {
 	 * traduction voisine occupe — et `wp_insert_term()` refuse ensuite, ce qui
 	 * est exactement le mur qu'on essaie de contourner.
 	 */
-	private static function free_slug( string $base, string $taxonomy ): string {
+	/**
+	 * ÉCRIT UN TERME DANS LES TABLES — jamais par `wp_update_term()`.
+	 *
+	 * C'est le même piège que partout ailleurs dans ce module, et il était
+	 * entré par la porte de derrière. `wp_update_term()` commence par
+	 * `$term = get_term( $term_id, $taxonomy )` puis fusionne : `$args =
+	 * array_merge( $term, $args )`. Or WPML filtre `get_term()` sur la langue
+	 * COURANTE et répond avec l'ORIGINAL quand on l'interroge sur une
+	 * traduction. Tout champ qu'on ne lui passe pas explicitement est donc
+	 * repris à l'anglais et réécrit par-dessus le français.
+	 *
+	 * Ce que ça donnait : `slug_follow()` demandait « change seulement le
+	 * slug », et le noyau remettait le nom et la description anglais avec.
+	 * https://kula-tactical.fr/etiquette-produit/rails-ak — slug français,
+	 * nom anglais, description anglaise, et l'écran des traductions annonçant
+	 * que tout s'était bien passé.
+	 *
+	 * Alors on écrit les colonnes, et rien d'autre : le nom et le slug dans
+	 * `wp_terms`, la description dans `wp_term_taxonomy`. Le module lit déjà
+	 * les termes de cette façon exacte, pour cette raison exacte.
+	 *
+	 * @param array<string,string> $fields name, slug, description.
+	 */
+	private static function term_write( int $term_id, string $taxonomy, array $fields ): bool {
+		global $wpdb;
+		if ( $term_id < 1 || ! $fields ) {
+			return false;
+		}
+		$ok  = true;
+		$row = array_intersect_key( $fields, [ 'name' => 1, 'slug' => 1 ] );
+		if ( $row ) {
+			$ok = false !== $wpdb->update( $wpdb->terms, $row, [ 'term_id' => $term_id ] );
+		}
+		if ( array_key_exists( 'description', $fields ) ) {
+			$ok = ( false !== $wpdb->update(
+				$wpdb->term_taxonomy,
+				[ 'description' => (string) $fields['description'] ],
+				[ 'term_id' => $term_id, 'taxonomy' => $taxonomy ]
+			) ) && $ok;
+		}
+		if ( function_exists( 'clean_term_cache' ) ) {
+			clean_term_cache( $term_id, $taxonomy );
+		}
+		return $ok;
+	}
+
+	private static function free_slug( string $base, string $taxonomy, int $except = 0 ): string {
 		global $wpdb;
 		$base = sanitize_title( $base );
 		if ( '' === $base ) {
@@ -2133,12 +2188,16 @@ final class DZE_Translate {
 		}
 		$slug = $base;
 		for ( $n = 2; $n < 100; $n++ ) {
+			// LE TERME LUI-MEME NE SE FAIT PAS OBSTACLE. Repasser sur une
+			// traduction qui porte deja ce slug lui collerait un « -2 » a
+			// chaque fois, et l adresse changerait pour rien.
 			$taken = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT COUNT(*) FROM {$wpdb->terms} t
 				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-				  WHERE tt.taxonomy = %s AND t.slug = %s",
+				  WHERE tt.taxonomy = %s AND t.slug = %s AND t.term_id <> %d",
 				$taxonomy,
-				$slug
+				$slug,
+				$except
 			) );
 			if ( ! $taken ) {
 				return $slug;
