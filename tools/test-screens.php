@@ -58,6 +58,7 @@ $dze_where = [
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
 	'automation'   => [ 'class-automation.php', 'MENU_SLUG' ],
 	'restock'      => [ 'class-restock.php', 'MENU_SLUG' ],
+	'fbt'          => [ 'class-fbt.php', 'MENU_SLUG' ],
 	'sourcing'     => [ 'class-explorer.php', 'MENU_SLUG' ],
 	'review'       => [ 'class-queue.php', 'MENU_SLUG' ],
 	'bulk'         => [ 'class-content.php', 'BULK_SLUG' ],
@@ -478,7 +479,7 @@ ok( 'et lordre du menu la nomme, juste apres laccueil',
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
 	'dashboard', 'review', 'content', 'linking', 'translations', 'marketing',
-	'restock', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
+	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
 printf( "\n%d checks, %d wrong\n", $ran, $fails );

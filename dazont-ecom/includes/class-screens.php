@@ -119,6 +119,15 @@ final class DZE_Screens {
 				'slug'   => self::PARENT,
 				'module' => 'restock',
 			],
+			// Recommendations (frequently bought together). It registered a menu
+			// entry without being declared here, so it could not be named in a
+			// sentence, linked to, ordered or gated — it simply appeared, after
+			// everything the catalogue knew about.
+			'fbt'          => [
+				'label'  => __( 'Recommendations', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-fbt',
+				'module' => 'fbt',
+			],
 			'sourcing'     => [
 				'label'  => __( 'Sourcing Assistant', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-explorer',
@@ -374,6 +383,7 @@ final class DZE_Screens {
 			'translations',
 			'marketing',
 			'restock',
+			'fbt',
 			'sourcing',
 			'shortcodes',
 			'setup',
