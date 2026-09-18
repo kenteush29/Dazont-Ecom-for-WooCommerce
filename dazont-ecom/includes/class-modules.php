@@ -89,7 +89,7 @@ final class DZE_Modules {
 				'class' => 'DZE_Dashboard',
 				'group' => 'tech',
 				'label' => __( 'Dashboard', 'dazont-ecom' ),
-				'desc'  => __( 'The plugin home screen: stock, spend, calendar, categories.', 'dazont-ecom' ),
+				'desc'  => __( 'The plugin home screen: what waits for your decision, the shop at a glance, the calendar, what it cost.', 'dazont-ecom' ),
 				'more'  => __( 'Four blocks: the top out-of-stock best-sellers waiting for restock, the monthly API spend per provider (and what one unit of work costs: a category description, a product run, an image), the planned marketing calendar (current and upcoming events), and the top product categories of the last 3 months with their last novelty-search date. It adds nothing to the WordPress home screen: those blocks query the shop, and a page opened for other reasons should not pay for them.', 'dazont-ecom' ),
 			],
 			'trending' => [

@@ -48,14 +48,18 @@ final class DZE_Screens {
 				// NAMED BY THE QUESTION IT ANSWERS. "Je ne comprends pas la ou il
 				// faut donner de l'attention": a screen called Dashboard does not
 				// say it is the one that knows.
-				'label'  => __( 'Waiting for you', 'dazont-ecom' ),
+				'label'  => __( 'Overview', 'dazont-ecom' ),
 				// WHAT PRESSING "DAZONT ECOM" OPENS IS THE FIRST SUBMENU, not the
 				// parent's own page: wp-admin/menu-header.php builds that anchor
 				// from $submenu_items[0][2]. So this screen opens the menu by being
 				// FIRST in menu_order() — no address has to move for that, and the
 				// one that did was a public address changed for nothing.
 				'slug'   => 'dazont-ecom-dashboard',
-				'module' => 'dashboard',
+				// GATED ON NO MODULE, like the Logs and the Setup. The screen
+				// that answers "what needs me" must not vanish with a switch:
+				// switched off, the shop lost the one place that says where to
+				// give its attention — and the menu then opened on whatever
+				// happened to be first.
 			],
 			'content'      => [
 				// NAMED BY WHAT IT DOES, not by one of the things it reads.
@@ -78,12 +82,18 @@ final class DZE_Screens {
 			'marketing'    => [
 				'label'  => __( 'Marketing', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-marketing-events',
-				'module' => 'discounts',
+				// GATED PER TAB, NOT ON ONE MODULE. Held to 'discounts' alone,
+				// switching the discount rules off took the whole entry with it
+				// — the marketing calendar (marketing_ai) and Merchant Center
+				// (gmc) went too, which are other modules. A disabled module
+				// must leave zero trace; it must not take its neighbours' work.
+				// With no module of its own, the entry is offered while ANY of
+				// its tabs is (see offered()).
 				'tabs'   => [
-					'events'    => [ 'label' => __( 'Events & calendar', 'dazont-ecom' ) ],
+					'events'    => [ 'label' => __( 'Events & calendar', 'dazont-ecom' ), 'module' => 'marketing_ai' ],
 					// The rules have a page of their own — the tab has to open
 					// on something — taken out of the menu, so it is a tab here.
-					'discounts' => [ 'label' => __( 'Discount rules', 'dazont-ecom' ), 'slug' => 'dazont-ecom-discounts' ],
+					'discounts' => [ 'label' => __( 'Discount rules', 'dazont-ecom' ), 'slug' => 'dazont-ecom-discounts', 'module' => 'discounts' ],
 					'gmc'       => [ 'label' => __( 'Google Merchant Center', 'dazont-ecom' ), 'module' => 'gmc' ],
 				],
 			],
@@ -118,6 +128,15 @@ final class DZE_Screens {
 				'label'  => __( 'Categories', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-categories',
 				'module' => 'category_content',
+			],
+			// A BENCH IS NOT A PREFERENCE. This one has a prompt box and a
+			// Generate button, it makes images and files them in the media
+			// library — that is work, and it lived inside Settings. "Image lab,
+			// peut-être dans le menu directement, c'est un petit module séparé."
+			'lab'          => [
+				'label'  => __( 'Image lab', 'dazont-ecom' ),
+				'slug'   => 'dazont-ecom-lab',
+				'module' => 'image_lab',
 			],
 			'linking'      => [
 				'label'  => __( 'Internal linking', 'dazont-ecom' ),
@@ -194,12 +213,11 @@ final class DZE_Screens {
 				'module' => 'marketing_ai',
 				'tabs'   => [
 					'general'        => [ 'label' => __( 'General', 'dazont-ecom' ) ],
-					'sourcing'       => [ 'label' => __( 'Sourcing Assistant', 'dazont-ecom' ), 'module' => 'sourcing' ],
+					'sourcing'       => [ 'label' => __( 'Sourcing preferences', 'dazont-ecom' ), 'module' => 'sourcing' ],
 					'content'        => [ 'label' => __( 'Product content', 'dazont-ecom' ), 'module' => 'content' ],
 					'categories'     => [ 'label' => __( 'Categories', 'dazont-ecom' ), 'module' => 'category_content' ],
 					'reviews'        => [ 'label' => __( 'Reviews', 'dazont-ecom' ), 'module' => 'reviews' ],
 					'translate'      => [ 'label' => __( 'Translation', 'dazont-ecom' ), 'module' => 'translate' ],
-					'lab'            => [ 'label' => __( 'Image lab', 'dazont-ecom' ), 'module' => 'image_lab' ],
 					'discounts'      => [ 'label' => __( 'Discounts', 'dazont-ecom' ), 'module' => 'discounts' ],
 					// The PREFERENCES of the marketing work — calendar languages,
 					// countries, context, prompt. Not the work itself, which is
@@ -243,6 +261,18 @@ final class DZE_Screens {
 			return false;
 		}
 		if ( '' === $tab ) {
+			// A PAGE WITH TABS BUT NO MODULE OF ITS OWN IS OFFERED WHILE ANY OF
+			// THEM IS. Otherwise it would either always show — with every tab
+			// gone and nothing under the title — or be held to one of its
+			// tabs' modules and take the others down with it.
+			if ( '' === (string) ( $page['module'] ?? '' ) && ! empty( $page['tabs'] ) ) {
+				foreach ( $page['tabs'] as $one ) {
+					if ( self::on( (string) ( $one['module'] ?? '' ) ) ) {
+						return true;
+					}
+				}
+				return false;
+			}
 			return true;
 		}
 		$one = $page['tabs'][ $tab ] ?? null;
@@ -332,6 +362,18 @@ final class DZE_Screens {
 		if ( '' === $label ) {
 			return '';
 		}
+		// AND A SENTENCE NEVER NAMES A SCREEN NOBODY CAN FIND.
+		//
+		// This checked the LABEL and nothing else, so a page registered and
+		// then taken out of the menu kept being named all over the admin:
+		// "Dazont Ecom → Content to review" was printed on screen after
+		// screen while the entry it named was in no menu at all. A page
+		// HOSTED by another is findable — it wears its host's address, which
+		// is the invariant this catalogue is built on — so only a page that
+		// is neither in the menu nor hosted is refused.
+		if ( ! in_array( $id, self::menu_order(), true ) && null === self::hosted_by( $id ) ) {
+			return '';
+		}
 		if ( 'settings' === $id && '' !== $tab ) {
 			/* translators: %s: the name of a settings tab */
 			return sprintf( __( 'Settings → %s', 'dazont-ecom' ), self::label( $id, $tab ) );
@@ -391,6 +433,7 @@ final class DZE_Screens {
 			'content',
 			'categories',
 			'linking',
+			'lab',
 			'translations',
 			'marketing',
 			'restock',

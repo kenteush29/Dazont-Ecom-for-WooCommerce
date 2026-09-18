@@ -54,6 +54,7 @@ $dze_where = [
 	'content'      => [ 'class-diagnostic.php', 'MENU_SLUG' ],
 	// Le maillage a son propre ecran depuis quil ne depend plus de Content.
 	'categories'   => [ 'class-category-content.php', 'MENU_SLUG' ],
+	'lab'          => [ 'class-image-lab.php', 'MENU_SLUG' ],
 	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
@@ -488,7 +489,7 @@ ok( 'et lordre du menu la nomme, juste apres laccueil',
 	array_slice( DZE_Screens::menu_order(), 0, 2 ), [ 'dashboard', 'review' ] );
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
-	'dashboard', 'review', 'content', 'categories', 'linking', 'translations', 'marketing',
+	'dashboard', 'review', 'content', 'categories', 'linking', 'lab', 'translations', 'marketing',
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 

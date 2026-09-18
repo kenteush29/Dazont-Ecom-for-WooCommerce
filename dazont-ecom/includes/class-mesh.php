@@ -1516,8 +1516,11 @@ final class DZE_Mesh {
 			return $none;
 		}
 		$conf = DZE_Automation::conf( 'mesh_links' );
-		$url  = class_exists( 'DZE_Screens' ) ? DZE_Screens::url( 'automation' ) : '';
-		$name = class_exists( 'DZE_Screens' ) ? DZE_Screens::name( 'automation' ) : '';
+		// NO SCREEN IS NAMED HERE: the switch is the bar at the top of this
+		// very page. Sending the shop to a menu to press a control it is
+		// already looking at is the click this whole reorganisation was about.
+		$url  = '';
+		$name = '';
 		if ( ! empty( $conf['on'] ) ) {
 			$n = (int) $conf['per_day'];
 			return [
