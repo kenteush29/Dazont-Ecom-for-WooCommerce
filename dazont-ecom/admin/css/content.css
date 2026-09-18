@@ -1591,6 +1591,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
    sentences the diagnostic prints, so the two screens never disagree. */
 .dze-cb-short { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: #b32d2e; }
 .dze-cb-short.is-ok { color: #646970; }
+/* Whose work is already waiting on this row — read before starting the same
+   product again, so it sits under the name rather than beside the status. */
+.dze-cb-by { margin: 3px 0 0; font-size: 12px; line-height: 1.5; color: #2271b1; display: flex; align-items: center; gap: 4px; }
+.dze-cb-by .dashicons { font-size: 14px; width: 14px; height: 14px; }
 
 /* The panel's "What to generate" — the same shape as the product screens. */
 .dze-cc-whattitle { font-size: 14px; margin: 14px 0 6px; }

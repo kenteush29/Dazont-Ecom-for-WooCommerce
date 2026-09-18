@@ -313,6 +313,11 @@ class DZE_Review_Wpdb {
 					'kind'      => (string) $row['kind'],
 					'object_id' => (int) $row['id'],
 					'status'    => 'queued',
+					// AND WHO ASKED FOR IT COMES BACK OUT. The insert kept it and
+					// the read threw it away, so a screen reading this map saw
+					// every run as nobody's — which is the whole question a
+					// shared bench has to answer.
+					'made_by'   => (int) ( $row['made_by'] ?? 0 ),
 				];
 			}
 			return $out;
@@ -1274,5 +1279,40 @@ ok( 'the picker asks how old a running row is',
 ok( 'and the same figure decides both',
 	DZE_Queue::step_budget() > 0, true );
 
+
+echo "\nLE BANC DIT QUI A LANCE LE TRAVAIL\n";
+// « Dans Bulk writing, ajouter le nom de l'utilisateur qui a lancé le process.
+// Ça évite de ne pas s'embrouiller comme avec wpml le rôle des traducteurs,
+// quand on est plusieurs à travailler en même temps. » Un banc partage disait
+// qu une categorie portait du travail en attente, jamais de qui : le second a
+// relancer payait une deuxieme fois la meme page, et l une des deux reponses
+// partait a la poubelle.
+//
+// Le nom voyage de bout en bout : ecrit a l insertion, relu par la carte.
+$dze_uid_avant = $GLOBALS['uid'] ?? 0;
+$GLOBALS['users'][7] = 'Marie';
+dze_empty_queue();
+$GLOBALS['uid'] = 7;
+DZE_Queue::add( 'cat_desc', [ 7001 ] );
+$GLOBALS['uid'] = 0; // la passe qui tourne toute seule n a pas de compte.
+DZE_Queue::add( 'cat_links', [ 7002 ] );
+DZE_Queue::forget_count(); // la carte est gardee pour la requete : la vider.
+$dze_map = DZE_Queue::pending_map( 'cat_' );
+ok( 'la carte nomme celui qui a lance',
+	(string) ( $dze_map[7001]['by'] ?? '' ), 'Marie' );
+// ET « personne » A UNE REPONSE : c est la passe automatique, pas un blanc ni
+// un compte efface.
+ok( 'et la passe automatique se nomme elle aussi',
+	(string) ( $dze_map[7002]['by'] ?? '' ), 'Automatic' );
+// LE RESTE DE LA CARTE N A PAS BOUGE : ajouter une colonne ne doit rien
+// deplacer de ce que les ecrans lisent deja.
+ok( 'le statut est toujours la',    (string) ( $dze_map[7001]['status'] ?? '' ), 'queued' );
+ok( 'et la sorte de travail aussi', (string) ( $dze_map[7001]['kind'] ?? '' ), 'cat_desc' );
+// ET LA COLONNE EST BIEN DEMANDEE A LA BASE, sinon la carte repondrait
+// « Automatic » partout sans que rien ne le dise.
+ok( 'made_by est bien dans la requete',
+	false !== stripos( implode( ' ', $GLOBALS['wpdb']->sent ), 'object_id, status, made_by' ), true );
+$GLOBALS['uid'] = $dze_uid_avant;
+dze_empty_queue();
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

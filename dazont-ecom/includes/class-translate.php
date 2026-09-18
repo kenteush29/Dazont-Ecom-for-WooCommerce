@@ -3067,6 +3067,32 @@ final class DZE_Translate {
 		return $out;
 	}
 
+	/**
+	 * A TERM THE SHOP NEVER NAMED IS NOT COPY TO TRANSLATE.
+	 *
+	 * Every taxonomy carries a fallback term nobody chose — WordPress's
+	 * default category, WooCommerce's default product category — and it is
+	 * there to catch a post that was filed nowhere, not to be read by a
+	 * customer. Sent for translation it costs a call per language, comes back
+	 * as "Uncategorized" in five spellings, and fills the review list with
+	 * rows whose only honest decision is to ignore them.
+	 *
+	 * The designated default is read from the options WordPress and
+	 * WooCommerce keep for exactly this, never guessed from a slug: a slug is
+	 * whatever the install's language made it, and matching on one would skip
+	 * a real category on a shop that happens to sell filing cabinets.
+	 */
+	public static function is_default_term( int $term_id, string $taxonomy ): bool {
+		if ( $term_id < 1 ) {
+			return false;
+		}
+		$option = [
+			'category'    => 'default_category',
+			'product_cat' => 'default_product_cat',
+		][ $taxonomy ] ?? '';
+		return '' !== $option && $term_id === (int) get_option( $option );
+	}
+
 	public static function review_list( int $limit = 200 ): array {
 		global $wpdb;
 		$out = [];

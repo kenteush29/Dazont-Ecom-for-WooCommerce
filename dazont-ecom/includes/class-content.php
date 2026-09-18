@@ -1844,6 +1844,16 @@ EOT;
 				$cur['recipes'] = $who;
 			}
 		}
+		// WHO LAUNCHED THE WORK ON THIS PRODUCT, kept from the FIRST piece and
+		// never overwritten afterwards. "Ajouter le nom de l'utilisateur qui a
+		// lancé le process. Ça évite de ne pas s'embrouiller […] quand on est
+		// plusieurs à travailler en même temps." A run stashes several pieces
+		// per product — a text, then images — and the last of them is not the
+		// person who started: the one who did is the one whose name settles
+		// whether somebody else should touch this row at all.
+		if ( ! isset( $cur['by'] ) ) {
+			$cur['by'] = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		}
 		$cur['time'] = time();
 		update_post_meta( $pid, self::META_PENDING, $cur );
 		delete_transient( 'dze_pending_count' );
@@ -3971,6 +3981,17 @@ Answer with STRICT JSON and nothing else: "
 					(array) DZE_Diagnostic::todo( $pid )
 				);
 			}
+			// AND WHO IS ALREADY ON IT. A bench shared by several people said
+			// only that a product held work waiting, never whose — so the
+			// second person to look started the same product again, paid for
+			// it twice, and one of the two answers was thrown away. The name
+			// is only printed when there IS work waiting: a row nobody has
+			// touched has nobody to name.
+			$dze_held = get_post_meta( $pid, self::META_PENDING, true );
+			$dze_by   = is_array( $dze_held ) ? (int) ( $dze_held['by'] ?? 0 ) : 0;
+			if ( is_array( $dze_held ) && $dze_held && class_exists( 'DZE_Queue' ) ) {
+				$out[ array_key_last( $out ) ]['by'] = DZE_Queue::started_by( $dze_by );
+			}
 		}
 		$this->bulk_products_cache = $out;
 		return $out;
@@ -4730,6 +4751,19 @@ Answer with STRICT JSON and nothing else: "
 									echo $p['short']
 										? esc_html( implode( ' · ', (array) $p['short'] ) )
 										: esc_html__( 'Nothing missing', 'dazont-ecom' );
+									?>
+								</div>
+							<?php endif; ?>
+							<?php // WHOSE WORK IS ALREADY WAITING ON THIS ROW, so two people on one bench do not generate the same product twice. ?>
+							<?php if ( ! empty( $p['by'] ) ) : ?>
+								<div class="dze-cb-by" title="<?php esc_attr_e( 'Content is waiting for a decision on this product, and this is who started it. Check with them before generating it again.', 'dazont-ecom' ); ?>">
+									<span class="dashicons dashicons-admin-users" aria-hidden="true"></span>
+									<?php
+									printf(
+										/* translators: %s: the name of the person who started the work */
+										esc_html__( 'Started by %s', 'dazont-ecom' ),
+										esc_html( (string) $p['by'] )
+									);
 									?>
 								</div>
 							<?php endif; ?>

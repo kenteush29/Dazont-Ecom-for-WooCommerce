@@ -1071,6 +1071,13 @@ final class DZE_Automation {
 					self::$held['waiting']++;
 					continue;
 				}
+				// LE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT.
+				// « Uncategorized » part en cinq langues, revient en cinq
+				// orthographes et remplit la liste a relire de lignes dont la
+				// seule decision honnete est de les ignorer.
+				if ( 'term' === $type && DZE_Translate::is_default_term( $oid, (string) ( $o['type'] ?? '' ) ) ) {
+					continue;
+				}
 				if ( self::cooling( $oid, $id, $type, 0, 0, time() - self::COOLDOWN * DAY_IN_SECONDS ) ) {
 					self::$held['recent']++;
 					continue;
