@@ -2568,6 +2568,16 @@ PROMPT;
 		if ( '' === $find || '' === $replace || '' === $anchor ) {
 			return null;
 		}
+		// LA TYPOGRAPHIE DU TEXTE RESTE CELLE DU TEXTE. Le modele rend des
+		// apostrophes droites ; une page WordPress porte des apostrophes
+		// courbes, que wptexturize() y met depuis toujours. Une phrase
+		// remplacee sans cela revenait en « Whether it's a tactical backpack »
+		// au milieu de « It’s legal » et « don’t quit » : une ligne qui ne
+		// ressemble pas aux autres, et ca se voit tout de suite.
+		if ( false !== mb_strpos( $html, '’' ) ) {
+			$replace = str_replace( "'", '’', $replace );
+			$anchor  = str_replace( "'", '’', $anchor );
+		}
 		// THE NEW WORDS MUST CARRY THE ANCHOR, or there is nothing to link.
 		$where = mb_stripos( $replace, $anchor );
 		if ( false === $where ) {
@@ -2606,9 +2616,9 @@ PROMPT;
 			return null;
 		}
 		$as_is  = mb_substr( $replace, $where, mb_strlen( $anchor ) );
-		$linked = esc_html( mb_substr( $replace, 0, $where ) )
-			. '<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>'
-			. esc_html( mb_substr( $replace, $where + mb_strlen( $anchor ) ) );
+		$linked = self::esc_text( mb_substr( $replace, 0, $where ) )
+			. '<a href="' . esc_url( $url ) . '">' . self::esc_text( $as_is ) . '</a>'
+			. self::esc_text( mb_substr( $replace, $where + mb_strlen( $anchor ) ) );
 		return [ 'html' => substr_replace( $html, $linked, $at, $span ), 'at' => $at ];
 	}
 
@@ -2620,6 +2630,21 @@ PROMPT;
 	 * half-kept. Repeats are matched one for one, so a replacement that says
 	 * the same word six times does not pass for six different ones.
 	 */
+	/**
+	 * Escapes a TEXT NODE: the three characters that would break the markup,
+	 * and not one more.
+	 *
+	 * `esc_html()` is built for an attribute, so it also turns every quote
+	 * into `&#039;` and `&quot;`. Inside a paragraph that is not safety, it is
+	 * damage: a reworded sentence came back reading `Whether it&#039;s a
+	 * tactical backpack` in the middle of a text whose every other line says
+	 * `it’s`. Escaping `&`, `<` and `>` is the whole of what a text node
+	 * needs; `&` goes first, or the entities it writes get escaped again.
+	 */
+	private static function esc_text( string $s ): string {
+		return str_replace( [ '&', '<', '>' ], [ '&amp;', '&lt;', '&gt;' ], $s );
+	}
+
 	/**
 	 * The words of a sentence that carry its meaning, lowercased.
 	 *
