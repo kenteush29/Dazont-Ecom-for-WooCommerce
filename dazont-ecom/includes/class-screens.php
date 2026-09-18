@@ -71,13 +71,6 @@ final class DZE_Screens {
 				'label'  => __( 'Diagnostic', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-diagnostic',
 				'module' => 'diagnostic',
-				'tabs'   => [
-					'diagnostic' => [ 'label' => __( 'What is missing', 'dazont-ecom' ) ],
-					// The bulk writing bench: its own inner tabs already call it
-					// "Selected products", so the strip stops saying "Products →
-					// Products" over a page whose title was Products too.
-					'products'   => [ 'label' => __( 'Bulk writing', 'dazont-ecom' ), 'module' => 'content' ],
-				],
 			],
 			'marketing'    => [
 				'label'  => __( 'Marketing', 'dazont-ecom' ),
@@ -174,12 +167,17 @@ final class DZE_Screens {
 				'slug'   => 'dazont-ecom-queue',
 				'module' => 'queue',
 			],
+			// THE PRODUCT BENCH, ON ITS OWN. It was a tab of the Diagnostic —
+			// a screen that reads the WHOLE site — so the plugin printed
+			// "Diagnostic → Bulk writing" over a bench that only ever touches
+			// products. It writes product texts and product photographs and
+			// nothing else (post_type = 'product', class-content.php:2055), so
+			// it is named for that, and the categories have a screen of their
+			// own beside it.
 			'bulk'         => [
-				'label'  => __( 'Bulk writing', 'dazont-ecom' ),
+				'label'  => __( 'Products', 'dazont-ecom' ),
 				'slug'   => 'dazont-content-bulk',
 				'module' => 'content',
-				'parent' => 'edit.php?post_type=product',
-				'hosted' => [ 'content', 'products' ],
 			],
 			'shortcodes'   => [
 				'label' => __( 'Shortcodes', 'dazont-ecom' ),
@@ -431,6 +429,7 @@ final class DZE_Screens {
 			// « je ne comprends pas la ou il faut donner de lattention ».
 			'review',
 			'content',
+			'bulk',
 			'categories',
 			'linking',
 			'lab',

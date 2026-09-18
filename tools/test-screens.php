@@ -135,9 +135,9 @@ ok( 'and is where the connect button is',
 // A TAB WITH A PAGE OF ITS OWN answers with that page.
 ok( 'the discount rules tab is its own page',
 	DZE_Screens::url( 'marketing', 'discounts' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-discounts' );
-ok( 'a page under Products is under Products',
-	false !== strpos( DZE_Screens::url( 'bulk' ), 'edit.php?post_type=product&page=dazont-content-bulk' )
-	|| false !== strpos( DZE_Screens::url( 'bulk' ), 'page=dazont-ecom-diagnostic&tab=products' ), true );
+// LETABLI A SON ECRAN, sous Dazont Ecom, nomme pour ce quil traite.
+ok( 'letabli a son adresse a lui',
+	false !== strpos( DZE_Screens::url( 'bulk' ), 'page=dazont-content-bulk' ), true );
 ok( 'a screen not in the catalogue answers nothing', DZE_Screens::name( 'nowhere' ), '' );
 ok( 'and so does a tab the page has not got', DZE_Screens::url( 'logs', 'nowhere' ), '' );
 
@@ -184,7 +184,7 @@ $GLOBALS['off'] = [];
 echo "\nTHE LINKS ARE EVERY PHRASE, AND NOTHING ELSE\n";
 $dze_links = DZE_Screens::links();
 ok( 'a page phrase is there',             $dze_links['Dazont Ecom → Logs'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-logs' );
-ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Diagnostic → Bulk writing'] ), true );
+ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Marketing → Events & calendar'] ), true );
 // Et le maillage est desormais une PAGE, plus un onglet : sa phrase le dit.
 ok( 'le maillage est une page a lui',
 	$dze_links['Dazont Ecom → Internal linking'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-linking' );
@@ -489,7 +489,7 @@ ok( 'et lordre du menu la nomme, juste apres laccueil',
 	array_slice( DZE_Screens::menu_order(), 0, 2 ), [ 'dashboard', 'review' ] );
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
-	'dashboard', 'review', 'content', 'categories', 'linking', 'lab', 'translations', 'marketing',
+	'dashboard', 'review', 'content', 'bulk', 'categories', 'linking', 'lab', 'translations', 'marketing',
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 

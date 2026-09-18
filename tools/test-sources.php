@@ -502,13 +502,18 @@ echo "\nWHERE THE PRODUCT BULK SCREEN LIVES\n";
 // where does every link to this work point, and does the screen keep a menu
 // entry of its own — and they must never disagree.
 $GLOBALS['dze_diag_class'] = true;
-ok( 'hosted where the diagnostic is there', DZE_Content::bulk_hosted(), true );
-ok( 'and every link goes to that tab',
-	false !== strpos( DZE_Content::bulk_url(), 'page=dazont-ecom-diagnostic&tab=products' ), true );
+// LETABLI NEST PLUS HEBERGE : il a son entree. Comme onglet du diagnostic,
+// son adresse dependait de linterrupteur dun autre module, et lecran qui ecrit
+// tous les textes produits portait le nom dun ecran qui lit tout le site.
+ok( 'letabli nest heberge par personne', DZE_Content::bulk_hosted(), false );
+ok( 'et tout lien mene a son ecran',
+	false !== strpos( DZE_Content::bulk_url(), 'admin.php?page=dazont-content-bulk' ), true );
 // A BOOKMARK STILL LANDS. The decision is split from the request, because a
 // handler that ends the request cannot be tested.
-ok( 'the old address is sent to the tab',
-	DZE_Content::bulk_redirect( [ 'page' => DZE_Content::BULK_SLUG ] ), DZE_Content::bulk_url() );
+// ET LANCIENNE ADRESSE REPOND TOUJOURS, sans redirection : elle est enregistree
+// puis retiree de son menu, donc un signet atterrit sur la page elle-meme.
+ok( 'lancienne adresse nest plus redirigee',
+	DZE_Content::bulk_redirect( [ 'page' => DZE_Content::BULK_SLUG ] ), '' );
 ok( 'and every other page is left alone',
 	DZE_Content::bulk_redirect( [ 'page' => 'edit.php' ] ), '' );
 // WITH NOTHING TO HOST IT, the screen is its own page again — and keeps its
@@ -517,7 +522,7 @@ ok( 'and every other page is left alone',
 $GLOBALS['dze_diag_class'] = false;
 ok( 'nothing hosting it, it stands alone', DZE_Content::bulk_hosted(), false );
 ok( 'and links point at its own page',
-	DZE_Content::bulk_url(), DZE_Content::bulk_page_url() );
+	DZE_Content::bulk_url(), 'http://shop.test/wp-admin/admin.php?page=dazont-content-bulk' );
 ok( 'which is where it has always been',
 	false !== strpos( DZE_Content::bulk_page_url(), 'page=dazont-content-bulk' ), true );
 ok( 'and nothing is redirected away from it',

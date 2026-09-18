@@ -2443,6 +2443,13 @@ final class DZE_Diagnostic {
 		// A tab named here and in a sentence elsewhere is two names the day
 		// either is edited.
 		$names = DZE_Screens::tabs_of( 'content' );
+		// ONE SUBJECT, NO VIEWS. This screen reads the shop against its own
+		// standards and says where to go; the benches it used to hold — the
+		// product one, the linking one, the waiting list — each have a screen
+		// of their own now. A strip of one tab is a strip nobody needs.
+		if ( ! $names ) {
+			return [];
+		}
 		$out   = [
 			'diagnostic' => [
 				'label' => (string) ( $names['diagnostic'] ?? '' ),

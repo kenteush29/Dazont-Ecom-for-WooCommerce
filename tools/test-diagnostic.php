@@ -1236,7 +1236,7 @@ echo "One subject, several views: the tabs of Content\n";
 $GLOBALS['review_n'] = 4;
 $GLOBALS['bulk_n']   = 1;
 $dze_tabs = DZE_Diagnostic::tabs();
-ok( 'the reading is a view',            isset( $dze_tabs['diagnostic'] ), true );
+ok( 'la lecture nest plus une vue, cest lecran entier', isset( $dze_tabs['diagnostic'] ), false );
 // LA LISTE DATTENTE NEST PLUS UNE VUE DICI : cest la boite de reception, une
 // entree de menu a elle. Un onglet ici portait un chiffre fait des lignes de
 // maillage au-dessus dune liste batie pour les exclure.
@@ -1250,16 +1250,16 @@ ok( 'la liste dattente nest plus une vue dici', isset( $dze_tabs['review'] ), fa
 // "Products AI bulk > toujours caché, introuvable dans aucun menu. Products,
 // dans Content diagnostic, redirige vers Products AI bulk. Démèles ce
 // bordel." One screen, reached the way the others are.
-ok( 'products are a view of their own',  isset( $dze_tabs['products'] ), true );
-ok( 'and never a way out of the page',   isset( $dze_tabs['products']['url'] ), false );
-// The figure the tab OPENS on, which is the list it shows.
-ok( 'carrying the figure it opens on',   (int) $dze_tabs['products']['n'], 2 );
+// LE DIAGNOSTIC NE FAIT PLUS QUE LIRE. Letabli produits a son ecran, sous son
+// propre nom : « Diagnostic -> Bulk writing » imprimait le nom dun ecran qui
+// lit TOUT le site au-dessus dun etabli qui ne touche que des produits.
+ok( 'le diagnostic na plus de vues', $dze_tabs, [] );
 // A TAB EXISTS ONLY WHILE ITS MODULE DOES. Switching a module off must take
 // its view with it — and leave the others exactly where they were.
 $GLOBALS['module_off'] = [ 'queue' => 1 ];
 $dze_tabs = DZE_Diagnostic::tabs();
 ok( 'a module switched off has no tab',  isset( $dze_tabs['review'] ), false );
-ok( 'and the reading is still there',    isset( $dze_tabs['diagnostic'] ), true );
+ok( 'et la lecture nest plus une vue non plus',    isset( $dze_tabs['diagnostic'] ), false );
 $GLOBALS['module_off'] = [];
 
 // THE PAGE ITSELF: the tabs are drawn, and the view asked for is the one
@@ -1273,30 +1273,14 @@ $dze_page = (string) ob_get_clean();
 // are Settings → Content rules. Both used to be called "Content diagnostic",
 // which is a name that answers neither question.
 ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Diagnostic</h1>' ), true );
-ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
-// THE PRODUCTS TAB IS DRAWN HERE, with its own two tabs inside it — "tu peux
-// rendre l'onglet Products fonctionnel et y faire dedans 2 onglets, Selected
-// products 2 / Done 82". The body belongs to the module that owns that work
-// and is printed by this tab and by its own page alike.
-$GLOBALS['dze_diag_on'] = 1;
-$_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'products' ];
-ob_start();
-DZE_Diagnostic::instance()->render_page();
-$dze_out = (string) ob_get_clean();
-ok( 'the products tab is the one shown',
-	(bool) preg_match( '/class="nav-tab nav-tab-active" href="[^"]*tab=products"/', $dze_out ), true );
-ok( 'and the reading is not drawn under it',
-	false !== strpos( $dze_out, 'What the shop is short of' ), false );
-ok( 'the screen brings its own two tabs',
-	substr_count( $dze_out, 'dze-cb-tabs' ), 1 );
-ok( 'naming what is selected',           false !== strpos( $dze_out, 'Selected products' ), true );
-ok( 'and what is done with',             false !== strpos( $dze_out, 'Done' ), true );
-// THEY STAY WHERE THEY WERE PRESSED. Built from the bulk page's own address
-// they would jump off this screen the moment one of them was clicked.
-ok( 'and both of them stay on this screen',
-	substr_count( $dze_out, 'page=' . DZE_Diagnostic::MENU_SLUG . '&tab=products' ) >= 2, true );
+// ET IL NE DESSINE PLUS DE BARRE DU TOUT : un seul sujet, pas de vues. Letabli
+// produits, le maillage et la liste dattente ont chacun leur ecran ; une barre
+// dun seul onglet est une barre dont personne na besoin.
+ok( 'il ne dessine plus de barre',       false !== strpos( $dze_page, 'nav-tab-wrapper' ), false );
+ok( 'et cest la lecture qui est imprimee',
+	false !== strpos( $dze_page, 'What the shop is short of' ), true );
+
 $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG ];
-ok( 'the reading is the one you land on', false !== strpos( $dze_page, 'nav-tab nav-tab-active' ), true );
 ok( 'and it is the reading that is printed',
 	false !== strpos( $dze_page, 'What the shop is short of' ), true );
 ok( 'not the other view',                false !== strpos( $dze_page, 'the review body' ), false );
