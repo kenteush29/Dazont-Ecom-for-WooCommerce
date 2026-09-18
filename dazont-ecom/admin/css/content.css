@@ -765,7 +765,10 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tr-sidelab { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #787c82; margin: 0 0 3px; }
 .dze-tr-side .dze-cb-nowbody { max-height: 300px; overflow: auto; background: #f6f7f7; border: 1px solid #dcdcde; border-radius: 3px; padding: 8px 10px; }
 .dze-tr-mid { display: flex; justify-content: center; padding-top: 22px; }
-.dze-tr-copy { min-width: 34px; padding: 0 8px; }
+/* LE BOUTON COPIER porte l icone des deux pages superposees, comme WPML :
+   une fleche dit « va a droite », l icone dit ce que le bouton FAIT. */
+.dze-tr-copy { min-width: 36px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.dze-tr-copy .dashicons { width: 18px; height: 18px; font-size: 18px; line-height: 1; }
 .dze-tr-new { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; line-height: 1.55; resize: vertical; min-height: 84px; }
 .dze-tr-new.dze-tr-html { font-family: Menlo, Consolas, monospace; font-size: 12px; }
 .dze-tr-shared { margin: 6px 0 0; }
@@ -778,6 +781,7 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 @media (max-width: 1100px) {
 	.dze-tr-pair { grid-template-columns: 1fr; }
 	.dze-tr-mid { justify-content: flex-start; padding: 6px 0; }
+	.dze-tr-copy { width: auto; padding: 0 10px; }
 	.dze-tr-copy::after { content: attr(aria-label); margin-left: 6px; }
 }
 
@@ -1888,6 +1892,10 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 /* LE BOUTON PAR BLOC, discret dans l'en-tete du champ : il sert au calibrage,
    pas au travail courant, donc il ne doit pas concurrencer « Translate
    automatically » en haut de l'ecran. */
-.dze-tr-block { font-size: 12px; }
+/* « A la place du texte translate c est un bouton qu il faut. » Un vrai
+   bouton, avec l icone de traduction de WordPress — mais small, parce qu il
+   sert au calibrage et ne doit pas concurrencer le bouton principal. */
+.dze-tr-block { display: inline-flex; align-items: center; gap: 4px; height: 26px; line-height: 24px; }
+.dze-tr-block .dashicons { width: 16px; height: 16px; font-size: 16px; line-height: 1; }
 .dze-tr-blockstate { font-size: 12px; margin-left: 8px; }
 .dze-tr-blockstate.is-ko { color: #b32d2e; }

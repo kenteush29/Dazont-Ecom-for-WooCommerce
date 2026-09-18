@@ -1676,6 +1676,23 @@ ok( 'chaque bloc porte son bouton',
 // chaque clic en declenche deux.
 ok( 'et il ne reprend pas le nom du bouton par langue',
 	false !== strpos( $dze_ed, 'button-link dze-tr-one"' ), false );
+// ET C EST UN BOUTON, PAS UN LIEN. « A la place du texte translate c est un
+// bouton qu il faut. » Un lien souligne au milieu d un en-tete de champ ne se
+// lit pas comme une commande.
+ok( 'le bloc se traduit par un vrai bouton',
+	false !== strpos( $dze_ed, 'class="button button-small dze-tr-block"' ), true );
+ok( 'et il porte licone de traduction de WordPress',
+	false !== strpos( $dze_ed, 'dashicons-translation' ), true );
+// LA FLECHE DEVIENT L ICONE. « A la place de tes fleches il faut un symbole de
+// fichiers copier coller. » Une fleche dit « va a droite » ; le bouton COPIE.
+ok( 'le bouton du milieu ne montre plus une fleche',
+	false !== strpos( $dze_ed, '>&rarr;</button>' ), false );
+ok( 'il montre licone des deux pages superposees',
+	substr_count( $dze_ed, 'dze-tr-copy' ) > 0 && false !== strpos( $dze_ed, 'dashicons-admin-page' ), true );
+// ET IL RESTE LISIBLE SANS LES YEUX : une icone seule sans nom est un bouton
+// qu un lecteur d ecran annonce comme « bouton ».
+ok( 'et il garde son nom pour qui ne voit pas licone',
+	false !== strpos( $dze_ed, 'aria-label="Copy from the original"' ), true );
 
 // UN SEUL CHAMP PART, ET UN SEUL REVIENT.
 $GLOBALS['calls'] = [];

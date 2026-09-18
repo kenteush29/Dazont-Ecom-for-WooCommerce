@@ -615,8 +615,8 @@ trait DZE_Translate_Screen {
 									// and it always sends it — a field is re-run
 									// precisely when it has NOT moved.
 									?>
-									<button type="button" class="button-link dze-tr-block"
-										title="<?php esc_attr_e( 'Translates this block on its own, and fills the box on the right. Useful for judging a change to the instructions or the glossary without paying for the whole page. Nothing is written until you save.', 'dazont-ecom' ); ?>"><?php esc_html_e( 'Translate this block', 'dazont-ecom' ); ?></button>
+									<button type="button" class="button button-small dze-tr-block"
+										title="<?php esc_attr_e( 'Translates this block on its own, and fills the box on the right. Useful for judging a change to the instructions or the glossary without paying for the whole page. Nothing is written until you save.', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-translation" aria-hidden="true"></span><?php esc_html_e( 'Translate this block', 'dazont-ecom' ); ?></button>
 									<span class="dze-tr-blockstate description"></span>
 								</p>
 								<div class="dze-tr-pair">
@@ -625,7 +625,13 @@ trait DZE_Translate_Screen {
 										<div class="dze-cb-nowbody"><?php echo wp_kses_post( $dze_src ); ?></div>
 									</div>
 									<div class="dze-tr-mid">
-										<button type="button" class="button dze-tr-copy" title="<?php esc_attr_e( 'Put the original in the box on the right, to work from it', 'dazont-ecom' ); ?>" aria-label="<?php esc_attr_e( 'Copy from the original', 'dazont-ecom' ); ?>">&rarr;</button>
+										<?php
+										// L ICONE PLUTOT QUE LA FLECHE. « A la place de tes
+										// flèches il faut un symbole de fichiers copier
+										// coller. Sur WPML c est quelque chose comme ça. »
+										// Une fleche dit « va a droite » ; ce bouton COPIE,
+										// et deux pages superposees le disent partout.
+										?><button type="button" class="button dze-tr-copy" title="<?php esc_attr_e( 'Put the original in the box on the right, to work from it', 'dazont-ecom' ); ?>" aria-label="<?php esc_attr_e( 'Copy from the original', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-admin-page" aria-hidden="true"></span></button>
 									</div>
 									<div class="dze-tr-side">
 										<span class="dze-tr-sidelab"><?php echo esc_html( sprintf( /* translators: %s: the language */ __( 'In %s', 'dazont-ecom' ), (string) ( $targets[ $lang ] ?? strtoupper( $lang ) ) ) ); ?></span>
