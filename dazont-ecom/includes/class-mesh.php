@@ -474,8 +474,11 @@ final class DZE_Mesh {
 	 */
 	public static function body_of( string $kind, int $id ): string {
 		if ( 'product_cat' === $kind ) {
-			$term = get_term( $id, 'product_cat' );
-			return ( $term && ! is_wp_error( $term ) ) ? (string) $term->description : '';
+			// LE TEXTE DE CETTE CATEGORIE-LA. Par get_term(), le graphe comptait
+			// les liens de la traduction pour juger l original : un texte deja
+			// maille pouvait passer pour orphelin, et l inverse.
+			$row = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row( $id ) : null;
+			return $row ? (string) $row['description'] : '';
 		}
 		$post = get_post( $id );
 		$html = $post ? (string) $post->post_content : '';
@@ -1016,7 +1019,10 @@ final class DZE_Mesh {
 		if ( 'product_cat' !== $a['kind'] || 'product_cat' !== $b['kind'] ) {
 			return false;
 		}
-		$pa = (int) ( get_term( $a['id'], 'product_cat' )->parent ?? 0 );
+		// LE PARENT DE CETTE CATEGORIE-LA, pas de sa traduction : les deux
+		// branches ont des parents differents, donc une parente inventee.
+		$pa_row = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row( (int) $a['id'] ) : null;
+		$pa = $pa_row ? (int) $pa_row['parent'] : 0;
 		$pb = (int) ( get_term( $b['id'], 'product_cat' )->parent ?? 0 );
 		return ( $pa && $pa === (int) $b['id'] ) || ( $pb && $pb === (int) $a['id'] ) || ( $pa && $pa === $pb );
 	}

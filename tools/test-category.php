@@ -192,8 +192,32 @@ class DZE_Mesh_Wpdb {
 	public $posts  = 'wp_posts';
 	public $rows   = [];
 	public $queries = [];
-	public function get_charset_collate() { return ''; }
-	public function prepare( $q, ...$a ) {
+	public $terms         = 'wp_terms';
+	public $term_taxonomy = 'wp_term_taxonomy';
+	// LES TERMES, LUS EN TABLE. term_row() passe par ici plutot que par
+	// get_term(), que WPML filtre sur la langue courante : $GLOBALS['terms']
+	// tient lieu de wp_terms + wp_term_taxonomy pour ces epreuves.
+	public function get_row( $q, $output = ARRAY_A ) {
+		if ( preg_match( '/FROM .*terms .*term_id = (\d+)/is', (string) $q, $m ) ) {
+			$t = $GLOBALS['terms'][ (int) $m[1] ] ?? null;
+			if ( ! $t ) { return null; }
+			$row = [
+				'term_id'          => (int) $m[1],
+				'name'             => (string) ( $t['name'] ?? '' ),
+				'slug'             => (string) ( $t['slug'] ?? '' ),
+				// La meme regle que la doublure get_term de ce fichier, sinon les
+				// deux chemins de lecture divergent et l epreuve mesure la doublure.
+				'term_taxonomy_id' => (int) ( $t['term_taxonomy_id'] ?? ( (int) $m[1] + 500 ) ),
+				'taxonomy'         => (string) ( $t['taxonomy'] ?? 'product_cat' ),
+				'parent'           => (int) ( $t['parent'] ?? 0 ),
+				'count'            => (int) ( $t['count'] ?? 0 ),
+				'description'      => (string) ( $t['description'] ?? '' ),
+			];
+			return ARRAY_A === $output ? $row : (object) $row;
+		}
+		return null;
+	}
+	public function get_charset_collate() { return ''; }	public function prepare( $q, ...$a ) {
 		foreach ( $a as $one ) {
 			$q = preg_replace( '/%[dsf]/', is_int( $one ) ? (string) $one : "'" . $one . "'", (string) $q, 1 );
 		}
@@ -849,8 +873,8 @@ ok( 'le module sait lire une categorie sans passer par WPML',
 $dze_src_cc = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-category-content.php' );
 ok( 'et la passe nomme la categorie par ce nom-la',
 	false !== strpos( $dze_src_cc, 'return self::weave( $name, $html, self::language( $term_id )' ), true );
-ok( 'la requete est bornee a la taxonomie des categories',
-	false !== strpos( $dze_src_cc, "tt.taxonomy = 'product_cat'" ), true );
+ok( 'la requete est bornee a une taxonomie',
+	false !== strpos( $dze_src_cc, 'AND tt.taxonomy = %s' ), true );
 $dze_src_q = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
 ok( 'et la file lit le texte par le meme chemin',
 	false !== strpos( $dze_src_q, "DZE_Category_Content::term_row( \$object_id )" ), true );

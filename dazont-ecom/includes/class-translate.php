@@ -746,13 +746,22 @@ final class DZE_Translate {
 			return [];
 		}
 		if ( 'term' === $kind ) {
-			$term = $type ? get_term( $id, $type ) : get_term( $id );
-			if ( ! $term || is_wp_error( $term ) ) {
+			// L ID DEMANDE, JAMAIS CELUI QUE WPML REND. get_term( 6837 ) repond
+			// le terme 7246 quand la session est en francais : obj() rendait donc
+			// un objet de travail pointant sur la TRADUCTION, et tout le module
+			// suivait — la source lue, la langue deduite, et l ecriture finale
+			// par-dessus l original. L ironie est que obj_read() lit deja en
+			// table sans filtre : il lisait fidelement le mauvais terme.
+			$tax = trim( $type );
+			if ( '' === $tax ) {
+				global $wpdb;
+				$tax = (string) $wpdb->get_var( $wpdb->prepare( "SELECT taxonomy FROM {$wpdb->term_taxonomy} WHERE term_id = %d LIMIT 1", $id ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			}
+			if ( '' === $tax ) {
 				return [];
 			}
-			$tax = (string) $term->taxonomy;
 			return DZE_Wpml::is_translated_taxonomy( $tax )
-				? [ 'kind' => 'term', 'id' => (int) $term->term_id, 'type' => $tax ]
+				? [ 'kind' => 'term', 'id' => $id, 'type' => $tax ]
 				: [];
 		}
 		$pt = (string) get_post_type( $id );
@@ -1895,10 +1904,18 @@ final class DZE_Translate {
 	 * keeps its place in the tree rather than landing at the root.
 	 */
 	private static function create_term( array $o, string $lang ): int {
-		$term = get_term( (int) $o['id'], (string) $o['type'] );
-		if ( ! $term || is_wp_error( $term ) ) {
+		// LE TERME SOURCE, PAS CELUI DE LA LANGUE COURANTE. Ces valeurs partent
+		// droit dans wp_insert_term : lues par get_term(), la nouvelle branche
+		// naissait avec le nom, le texte et le slug d une traduction existante —
+		// une categorie allemande publiee sous un slug francais, definitivement,
+		// car obj_write() ne reecrit jamais le slug.
+		$term = class_exists( 'DZE_Category_Content' )
+			? DZE_Category_Content::term_row( (int) $o['id'], (string) $o['type'] )
+			: null;
+		if ( ! $term ) {
 			throw new RuntimeException( __( 'Term not found.', 'dazont-ecom' ) );
 		}
+		$term = (object) $term;
 		$args = [ 'description' => $term->description ];
 		if ( (int) $term->parent ) {
 			$parent = (int) apply_filters( 'wpml_object_id', (int) $term->parent, (string) $o['type'], false, $lang );

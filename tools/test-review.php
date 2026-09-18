@@ -203,7 +203,21 @@ class DZE_Category_Content {
 	// LA CATEGORIE LUE PAR LES TABLES, que WPML ne detourne pas : get_term()
 	// repond dans la langue COURANTE, donc la file travaillait sur le texte
 	// francais tout en ecrivant la reponse sur le terme anglais.
-	public static function term_row( int $term_id ): ?array { return $GLOBALS['term_rows'][ $term_id ] ?? null; }
+	public static function term_row( int $term_id, string $taxonomy = 'product_cat' ): ?array {
+		if ( ! isset( $GLOBALS['terms'][ $term_id ] ) ) {
+			return null;
+		}
+		return [
+			'term_id'          => $term_id,
+			'name'             => 'Category ' . $term_id,
+			'slug'             => 'category-' . $term_id,
+			'term_taxonomy_id' => $term_id + 500,
+			'taxonomy'         => $taxonomy,
+			'parent'           => 0,
+			'count'            => 5,
+			'description'      => (string) $GLOBALS['terms'][ $term_id ],
+		];
+	}
 	public static function linked_urls( string $html ): array {
 		preg_match_all( '/<a\s[^>]*href="([^"]+)"/i', $html, $m );
 		return $m[1];
