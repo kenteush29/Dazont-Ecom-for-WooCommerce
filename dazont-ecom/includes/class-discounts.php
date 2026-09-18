@@ -589,6 +589,49 @@ final class DZE_Discounts {
 		return is_array( $rules ) ? $rules : [];
 	}
 
+	/**
+	 * ADDS OR REPLACES ONE RULE WITHOUT READING THE OTHERS FIRST.
+	 *
+	 * "Accept selected n'en accepte que un seul. Cette fois ça m'en a supprimé
+	 * et accepté un seul." Accepting the ticked suggestions fires one request
+	 * PER ROW, all at once, and each one read every rule, added its own and
+	 * wrote them all back — so the last writer overwrote the rules the others
+	 * had just created. Four accepted, one kept. A lost update, and invisible
+	 * until somebody ticks more than one box.
+	 *
+	 * The list is re-read INSIDE the lock, because the copy a request has been
+	 * holding since the top of its handler is already stale.
+	 *
+	 * MySQL's named lock, not an option row: `add_option()` checks then
+	 * inserts, which two requests can both pass. It belongs to the CONNECTION,
+	 * so a request killed mid-write releases it. A database that will not give
+	 * one is not a reason to refuse the work.
+	 */
+	public static function put_rule( string $id, array $rule ): bool {
+		$id = trim( $id );
+		if ( '' === $id ) {
+			return false;
+		}
+		global $wpdb;
+		$free = static function () {};
+		if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'get_var' ) ) {
+			$name = substr( 'dze_disc_rules_' . md5( (string) ( $wpdb->prefix ?? '' ) . self::OPTION ), 0, 64 );
+			if ( '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 5 ) ) ) {
+				$free = static function () use ( $wpdb, $name ) {
+					$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+				};
+			}
+		}
+		try {
+			$rules        = self::get_rules();
+			$rules[ $id ] = $rule;
+			self::save_rules( $rules );
+		} finally {
+			$free();
+		}
+		return true;
+	}
+
 	private static function save_rules( array $rules ): void {
 		update_option( self::OPTION, $rules, false );
 		// Refresh our store-wide product cache so scope/exclusion changes are picked

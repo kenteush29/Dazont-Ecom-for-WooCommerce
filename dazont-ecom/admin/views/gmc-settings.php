@@ -174,6 +174,24 @@ foreach ( $languages as $l ) {
 		</details>
 
 		<h2 class="title"><?php esc_html_e( 'Advanced (parent) account', 'dazont-ecom' ); ?></h2>
+		<?php
+		// « Incomprehension totale. Tu as oublie de mettre un lien ici vers le
+		// merchant center. Et de citer le fait qu on s occupe du merchant
+		// center. » Ce bloc demandait un identifiant sans dire ni ou le trouver,
+		// ni pourquoi le plugin le veut, ni ce qu il fera ensuite. Trois phrases
+		// et un lien : ce que c est, quand ca sert, ou aller le chercher.
+		?>
+		<p class="description" style="max-width:820px;">
+			<?php esc_html_e( 'Dazont Ecom keeps your Google Merchant Center up to date: it sends each product, follows the price and the stock, and re-sends what changes. To do that it must be registered once as a developer against your account — that is what this section is for.', 'dazont-ecom' ); ?>
+		</p>
+		<p class="description" style="max-width:820px;">
+			<strong><?php esc_html_e( 'You only need this if you run an ADVANCED account', 'dazont-ecom' ); ?></strong>
+			<?php esc_html_e( '— one parent holding a sub-account per country. With a single ordinary Merchant Center account, leave it empty and fill in the section below instead.', 'dazont-ecom' ); ?>
+		</p>
+		<p class="description" style="max-width:820px;">
+			<?php esc_html_e( 'The account ID is the number at the top right of Merchant Center, beside the account name.', 'dazont-ecom' ); ?>
+			<a href="https://merchants.google.com/" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Open Google Merchant Center', 'dazont-ecom' ); ?> &rarr;</a>
+		</p>
 		<table class="form-table" role="presentation">
 			<tr>
 				<th scope="row"><label for="dze-advanced-id"><?php esc_html_e( 'Advanced account ID', 'dazont-ecom' ); ?></label></th>
@@ -183,7 +201,8 @@ foreach ( $languages as $l ) {
 					<button type="button" class="button dze-gmc-verify" data-target="dze-advanced-id"><?php esc_html_e( 'Verify', 'dazont-ecom' ); ?></button>
 					<span class="dze-gmc-verify-status" style="font-size:13px;margin-left:4px;"></span>
 					<p class="description" style="max-width:820px;">
-						<?php esc_html_e( 'Only for an advanced account with one sub-account per country: enter the parent account ID, save, then press Register GCP once. About five minutes later the sub-accounts below can be verified and synced.', 'dazont-ecom' ); ?>
+						<?php esc_html_e( 'Enter the parent account ID, save, then press Register GCP once. About five minutes later the sub-accounts below can be verified and synced.', 'dazont-ecom' ); ?>
+						<br /><?php esc_html_e( '“GCP project … is already registered” is not a failure: the registration exists and the work goes on. It happens when the same Google project was registered before, here or from another of your shops.', 'dazont-ecom' ); ?>
 					</p>
 				</td>
 			</tr>

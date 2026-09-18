@@ -47,6 +47,37 @@ $ai_settings_url = add_query_arg( [ 'page' => DZE_Marketing_Ai::MENU_SLUG ], adm
 			<button type="button" class="button dze-mai-bulk-refuse"><?php esc_html_e( 'Discard selected', 'dazont-ecom' ); ?></button>
 			<span id="dze-mai-bulk-status" style="margin-left:8px;font-size:13px;color:#666;"></span>
 		</p>
+		<?php
+		// L APPEL QUI A PRODUIT CETTE LISTE, sous elle. « J aurais aime voir
+		// l appel fait a l IA, parce que la reponse laisse perplexe. » Tout est
+		// deja ecrit par complete() ; il manquait seulement un endroit ou le
+		// lire, a cote de ce qu il a produit. Replie : on l ouvre quand une
+		// suggestion etonne, pas a chaque visite.
+		$dze_cal = [];
+		if ( class_exists( 'DZE_Ai_Usage' ) ) {
+			foreach ( array_reverse( (array) DZE_Ai_Usage::trace_rows() ) as $dze_r ) {
+				if ( 'calendar' === (string) ( $dze_r['unit'] ?? '' ) ) { $dze_cal = (array) $dze_r; break; }
+			}
+		}
+		?>
+		<?php if ( $dze_cal ) : ?>
+			<?php $dze_cut = strpos( (string) $dze_cal['sent'], "\n\nUSER:\n" ); ?>
+			<details class="dze-set" style="margin:10px 0;max-width:1100px;">
+				<summary><?php echo esc_html( sprintf(
+					/* translators: 1: date and time, 2: the model, 3: seconds */
+					__( 'The call that produced this — %1$s, %2$s, %3$ss', 'dazont-ecom' ),
+					date_i18n( (string) get_option( 'date_format' ) . ' H:i', (int) $dze_cal['t'] ),
+					(string) $dze_cal['model'],
+					number_format_i18n( (float) $dze_cal['secs'], 1 )
+				) ); ?></summary>
+				<p class="dze-tr-calllab"><?php esc_html_e( 'The instructions it was given', 'dazont-ecom' ); ?></p>
+				<pre class="dze-tr-callpre"><?php echo esc_html( false === $dze_cut ? '' : trim( substr( (string) $dze_cal['sent'], 8, $dze_cut - 8 ) ) ); ?></pre>
+				<p class="dze-tr-calllab"><?php esc_html_e( 'What it was told about the shop', 'dazont-ecom' ); ?></p>
+				<pre class="dze-tr-callpre"><?php echo esc_html( mb_substr( false === $dze_cut ? (string) $dze_cal['sent'] : trim( substr( (string) $dze_cal['sent'], $dze_cut + 8 ) ), 0, 6000 ) ); ?></pre>
+				<p class="dze-tr-calllab"><?php esc_html_e( 'What came back', 'dazont-ecom' ); ?></p>
+				<pre class="dze-tr-callpre"><?php echo esc_html( mb_substr( (string) $dze_cal['got'], 0, 6000 ) ); ?></pre>
+			</details>
+		<?php endif; ?>
 		<table class="widefat striped" id="dze-mai-suggestions">
 			<thead>
 				<tr>

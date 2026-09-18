@@ -1523,8 +1523,20 @@ A safety filter also removes suggestions matching an existing product title.</pr
 	 * @return array{added:int,skipped:int}
 	 */
 	public static function propose( string $start, string $end ): array {
-		$self   = self::instance();
-		$events = $self->generate_events( $start, $end, self::primary_language(), [] );
+		$self = self::instance();
+		// L APPEL PORTE SON NOM. Sans unite declaree, il est enregistre sous
+		// « other » : introuvable quand on demande « montre-moi l appel du
+		// calendrier », et invisible dans les depenses par module.
+		if ( class_exists( 'DZE_Ai_Usage' ) ) {
+			DZE_Ai_Usage::unit( 'calendar' );
+		}
+		try {
+			$events = $self->generate_events( $start, $end, self::primary_language(), [] );
+		} finally {
+			if ( class_exists( 'DZE_Ai_Usage' ) ) {
+				DZE_Ai_Usage::unit();
+			}
+		}
 
 		// Translated here, not at acceptance: what the owner reviews is the
 		// event as it will exist — its title in every language he sells in,
@@ -1988,6 +2000,62 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		update_option( self::OPT_SUGGESTIONS, $s, false );
 	}
 
+	/**
+	 * A LOCK HELD ACROSS ONE READ-AND-WRITE OF THE SUGGESTIONS.
+	 *
+	 * "Accept selected n'en accepte que un seul. C'est bugé, cette fois ça
+	 * m'en a supprimé et accepté un seul." The list is ONE option row, and
+	 * "accept the ticked" fires one request PER ROW, all at once. Each one
+	 * read the whole list, removed its own line and wrote the list back — so
+	 * the last writer put back every line the others had just removed, and
+	 * only one removal survived. A lost update, textbook, and invisible until
+	 * somebody ticks more than one box.
+	 *
+	 * MySQL's named lock, not an option row: `add_option()` checks then
+	 * inserts, which two requests can both pass. GET_LOCK is atomic and
+	 * belongs to the CONNECTION, so a request killed mid-write releases it
+	 * instead of stopping the shop for ever. A database that will not give one
+	 * is not a reason to refuse the work — the write goes ahead as it always
+	 * did, and the narrow race goes with it.
+	 */
+	private static function hold_suggestions(): callable {
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_var' ) ) {
+			return static function () {};
+		}
+		$name = substr( 'dze_mai_sug_' . md5( (string) ( $wpdb->prefix ?? '' ) . self::OPT_SUGGESTIONS ), 0, 64 );
+		$got  = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $name, 5 ) );
+		if ( '1' !== (string) $got ) {
+			return static function () {};
+		}
+		return static function () use ( $wpdb, $name ) {
+			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+		};
+	}
+
+	/**
+	 * Takes one suggestion out of the list, under the lock.
+	 *
+	 * The list is RE-READ inside the lock: the copy the request has been
+	 * holding since the top of the handler is already stale by the time the
+	 * work is done, and writing it back is exactly the bug.
+	 */
+	private static function drop_suggestion( string $id ): void {
+		if ( '' === $id ) {
+			return;
+		}
+		$free = self::hold_suggestions();
+		try {
+			$now = self::get_suggestions();
+			if ( isset( $now[ $id ] ) ) {
+				unset( $now[ $id ] );
+				self::save_suggestions( $now );
+			}
+		} finally {
+			$free();
+		}
+	}
+
 	// =========================================================================
 	// AJAX: accept / refuse
 	// =========================================================================
@@ -2021,8 +2089,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		$ev['i18n'] = $this->posted_i18n();
 		$rule_id    = $this->create_sale_rule( $ev );
 
-		unset( $suggestions[ $id ] );
-		self::save_suggestions( $suggestions );
+		self::drop_suggestion( (string) $id );
 
 		wp_send_json_success( [
 			'message'  => __( 'Added to your calendar and running — switch it off below if you need to.', 'dazont-ecom' ),
@@ -2065,10 +2132,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 		$ev['i18n'] = $this->posted_i18n();
 		$rule_id    = $this->create_sale_rule( $ev );
 
-		if ( $sug_id !== '' && isset( $suggestions[ $sug_id ] ) ) {
-			unset( $suggestions[ $sug_id ] );
-			self::save_suggestions( $suggestions );
-		}
+		self::drop_suggestion( (string) $sug_id );
 
 		$message = __( 'Event added to your calendar (disabled — review and enable it).', 'dazont-ecom' );
 
@@ -2077,7 +2141,11 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			$rules = DZE_Discounts::get_rules();
 			if ( isset( $rules[ $rule_id ] ) ) {
 				$rules[ $rule_id ]['enabled'] = true;
-				update_option( DZE_Discounts::OPTION, $rules, false );
+				// SOUS VERROU, ET SANS REECRIRE LES AUTRES. Ecrire la liste entiere
+		// depuis une copie lue au debut du traitement effacait les regles que
+		// les requetes voisines venaient de creer — « accept selected » en
+		// lance une par ligne, toutes en meme temps.
+		DZE_Discounts::put_rule( (string) $id, $rules[ $id ] );
 				DZE_Discounts::instance()->queue_sale_sync();
 			}
 			$statuses = DZE_Gmc::instance()->sync_rule( $rule_id );
@@ -2172,9 +2240,7 @@ A safety filter also removes suggestions matching an existing product title.</pr
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'dazont-ecom' ) ], 403 );
 		}
 		$id          = isset( $_POST['id'] ) ? sanitize_key( wp_unslash( $_POST['id'] ) ) : '';
-		$suggestions = self::get_suggestions();
-		unset( $suggestions[ $id ] );
-		self::save_suggestions( $suggestions );
+		self::drop_suggestion( (string) $id );
 		wp_send_json_success();
 	}
 
@@ -2237,7 +2303,11 @@ A safety filter also removes suggestions matching an existing product title.</pr
 				), 60 );
 			}
 		}
-		update_option( DZE_Discounts::OPTION, $rules, false );
+		// SOUS VERROU, ET SANS REECRIRE LES AUTRES. Ecrire la liste entiere
+		// depuis une copie lue au debut du traitement effacait les regles que
+		// les requetes voisines venaient de creer — « accept selected » en
+		// lance une par ligne, toutes en meme temps.
+		DZE_Discounts::put_rule( (string) $id, $rules[ $id ] );
 		// An accepted event is a running one, and its channels follow at once
 		// rather than on the next hourly look: the emails start being planned
 		// in the background exactly as a saved event's would.
