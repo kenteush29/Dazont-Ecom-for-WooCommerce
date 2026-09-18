@@ -416,13 +416,13 @@ ok( 'et son formulaire se pose n\'importe ou',
 	false !== strpos( $au_src, 'public static function panel_form( array $ids, string $title' ), true );
 // LE PIEGE : un formulaire ne portant qu'une tache effacerait les autres.
 ok( 'les taches absentes de l\'ecran voyagent quand meme',
+	false !== strpos( $au_src, 'EVERY TASK TRAVELS, NOT ONLY THE ONES ON SCREEN' ), true );
 // ET IL DISPARAIT AVEC SON MODULE. class_exists() nest pas un controle de
 // module — le fichier de classe est toujours la — donc ce panneau setait
 // imprime sur quatre ecrans quel que soit letat du module, avec un Save et un
 // Run morts une fois ses accroches parties.
 ok( 'le panneau se ferme avec son module',
 	false !== strpos( $au_src, "if ( class_exists( 'DZE_Modules' ) && ! DZE_Modules::enabled( 'automation' ) ) {" ), true );
-	false !== strpos( $au_src, 'EVERY TASK TRAVELS, NOT ONLY THE ONES ON SCREEN' ), true );
 ok( 'l\'entree quitte le menu',
 	false !== strpos( $au_src, 'remove_submenu_page( DZE_Restock::MENU_SLUG, self::MENU_SLUG );' ), true );
 ok( 'mais la page reste enregistree',
