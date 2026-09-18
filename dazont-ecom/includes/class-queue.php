@@ -674,7 +674,13 @@ final class DZE_Queue {
 			// and a queued row from the Linking screen mean.
 			$body = trim( (string) ( $payload['html'] ?? '' ) );
 			if ( '' === $body ) {
-				$body = (string) $term->description;
+				// READ FROM THE TABLES. WPML filters get_term() to the CURRENT
+				// language, so $term above can be the FRENCH translation of the
+				// category this job is about — and the pass then worked on the
+				// French text while writing the answer back onto the English
+				// term. Same trap as the name it was called by.
+				$row  = class_exists( 'DZE_Category_Content' ) ? DZE_Category_Content::term_row( $object_id ) : null;
+				$body = (string) ( $row['description'] ?? $term->description );
 			}
 			$res = DZE_Category_Content::add_links( $object_id, $body, (array) ( $payload['urls'] ?? [] ) );
 			return (string) $res['html'];

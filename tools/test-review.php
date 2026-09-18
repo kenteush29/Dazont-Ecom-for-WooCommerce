@@ -200,6 +200,10 @@ class DZE_Category_Content {
 	public const GEN_META = '_dze_desc_generated';
 	public static array $asked = [];
 	public static function default_lang(): string { return ''; }
+	// LA CATEGORIE LUE PAR LES TABLES, que WPML ne detourne pas : get_term()
+	// repond dans la langue COURANTE, donc la file travaillait sur le texte
+	// francais tout en ecrivant la reponse sur le terme anglais.
+	public static function term_row( int $term_id ): ?array { return $GLOBALS['term_rows'][ $term_id ] ?? null; }
 	public static function linked_urls( string $html ): array {
 		preg_match_all( '/<a\s[^>]*href="([^"]+)"/i', $html, $m );
 		return $m[1];

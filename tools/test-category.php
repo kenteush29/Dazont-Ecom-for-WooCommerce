@@ -836,6 +836,25 @@ update_option( 'dze_catcontent_settings', array_merge( (array) $dze_opt, [ 'add_
 ok( 'eteint, laccord est refuse',
 	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => 'Our tactical utility pouches keep the smaller items to hand.', 'anchor' => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
 update_option( 'dze_catcontent_settings', (array) $dze_opt );
+echo "\nUNE CATEGORIE SE LIT DANS LES TABLES, PAS A TRAVERS WPML\n";
+// « Pochettes administratives tactiques » ne mentionne pas « Utility pouches ».
+// WPML filtre get_term() sur la langue COURANTE : demande #6837 « Admin
+// pouches », il repond #7246, sa traduction francaise — meme groupe, autre
+// terme. La passe travaillait donc sur un texte et en nommait un autre, et la
+// file lisait la description francaise pour l ecrire sur le terme anglais.
+// Le module de traduction lit les tables depuis toujours, pour cette raison
+// exacte ; le module des categories ne le faisait pas.
+ok( 'le module sait lire une categorie sans passer par WPML',
+	method_exists( 'DZE_Category_Content', 'term_row' ), true );
+$dze_src_cc = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-category-content.php' );
+ok( 'et la passe nomme la categorie par ce nom-la',
+	false !== strpos( $dze_src_cc, 'return self::weave( $name, $html, self::language( $term_id )' ), true );
+ok( 'la requete est bornee a la taxonomie des categories',
+	false !== strpos( $dze_src_cc, "tt.taxonomy = 'product_cat'" ), true );
+$dze_src_q = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
+ok( 'et la file lit le texte par le meme chemin',
+	false !== strpos( $dze_src_q, "DZE_Category_Content::term_row( \$object_id )" ), true );
+
 // LA BASE REPOND AVANT LE RESEAU, POUR NOS PROPRES PAGES.
 //
 // L'hebergeur de cette boutique repond 403 aux requetes que le site s'adresse a
