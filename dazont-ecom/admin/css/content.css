@@ -750,6 +750,16 @@ table.dze-pricepv tr.is-hit td { font-weight: 600; }
 .dze-tr-tag { font-size: 11px; line-height: 1.6; padding: 0 7px; border-radius: 9px; border: 1px solid; }
 .dze-tr-tag.is-new { color: #135e96; border-color: #9ec2e6; background: #f0f6fc; }
 .dze-tr-tag.dze-tr-moved { color: #8a6d00; border-color: #e6cf9e; background: #fcf9f0; }
+/* UN CHAMP SANS TEXTE reste dans la liste, a la maniere de l'editeur WPML,
+   mais il ne prend pas la place d'un champ qui demande du travail : une ligne,
+   grise, et la raison a cote du nom. */
+.dze-tr-field.is-absent { padding: 4px 0; border: 0; }
+.dze-tr-field.is-absent .dze-tr-fname { margin: 0; }
+.dze-tr-field.is-absent .dze-tr-fname strong { font-weight: 400; color: #646970; }
+.dze-tr-why { font-size: 12px; color: #646970; }
+/* Celle-la se repare, alors elle se voit. */
+.dze-tr-why.is-warn { color: #8a6d00; }
+.dze-tr-why.is-off  { color: #b32d2e; }
 .dze-tr-pair { display: grid; grid-template-columns: 1fr 40px 1fr; gap: 0 8px; align-items: start; }
 .dze-tr-side { min-width: 0; }
 .dze-tr-sidelab { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #787c82; margin: 0 0 3px; }
@@ -1861,3 +1871,16 @@ button.dze-tr-chip:disabled { opacity: .6; cursor: default; }
 	margin: 8px 0 0;
 	padding: 0;
 }
+
+/* LES INSTRUCTIONS, A PORTEE. Repliees sous les onglets de Traductions : on
+   remarque une mauvaise traduction en en lisant une, pas en parcourant des
+   preferences. Le compte du glossaire est sur le repli, pour qu'un glossaire
+   vide se voie sans rien ouvrir. */
+.dze-tr-instr { max-width: 1100px; }
+.dze-tr-instrsaid { font-weight: 400; font-size: 12px; color: #646970; margin-left: 8px; }
+
+/* UNE PASTILLE QUI MENE QUELQUE PART se comporte comme un lien : elle reagit
+   au survol et au clavier. Celle qui ne mene nulle part reste un simple mot. */
+.dze-auto-chip.is-link { text-decoration: none; cursor: pointer; }
+.dze-auto-chip.is-link:hover,
+.dze-auto-chip.is-link:focus { filter: brightness( .96 ); box-shadow: 0 0 0 1px currentColor inset; }

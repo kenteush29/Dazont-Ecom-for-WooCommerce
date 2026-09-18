@@ -1622,7 +1622,46 @@ ob_start();
 DZE_Automation::render_run();
 $dze_done = (string) ob_get_clean();
 ok( 'it says the work is done',         false !== strpos( $dze_done, 'is-done' ), true );
-ok( 'and where it is waiting',          false !== strpos( $dze_done, 'waiting for your yes or no, below' ), true );
+// « BELOW » N ETAIT VRAI QUE SUR UN ECRAN. Cette barre est imprimee sur le
+// maillage, sur les traductions et sur l etabli, ou il n y a aucune liste en
+// dessous : la phrase montrait le vide. Elle dit ce qui attend, et le CHEMIN
+// pour y aller — « je ne peux pas voir quelles pages ont ete retravaillees ».
+ok( 'and it says what is waiting',
+	false !== strpos( $dze_done, 'waiting for your yes or no' ), true );
+ok( 'and it no longer points at a list that is not there',
+	false !== strpos( $dze_done, 'below' ), false );
+ok( 'it offers the way to them instead',
+	false !== strpos( $dze_done, 'Read them' ), true );
+
+echo "\nUN CHIFFRE QU ON PEUT OUVRIR\n";
+// « Ici aussi les boutons ne sont pas fonctionnels, je ne peux pas voir
+// quelles pages ont ete retravaillees. Je voulais voir une liste des pages
+// avec maillage interne refait. » La regle « un chiffre que personne ne peut
+// ouvrir est un chiffre auquel personne ne croit » etait ecrite dans ce
+// fichier et appliquee a UNE pastille sur trois : « 3 to review » et
+// « 14 written » ressemblaient a des boutons et etaient du texte.
+// Le harnais n a ni travail en attente ni travail ecrit pour cette tache, donc
+// ces deux pastilles ne sont pas imprimees ici : ce qui se verifie, c est que
+// le code LEUR DONNE une destination, et que cette destination existe.
+$dze_ch  = DZE_Automation::chips_html( 'mesh_links' );
+$dze_src = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-automation.php' );
+ok( 'une pastille avec destination est un lien, pas un span',
+	false !== strpos( $dze_src, "'<a class=\"dze-auto-chip is-link '" ), true );
+ok( 'ce qui attend une decision recoit ladresse de la liste, filtree',
+	false !== strpos( $dze_src, "add_query_arg( [ 'kind' => implode( ',', \$jobs ) ], DZE_Screens::url( 'review' ) )" ), true );
+ok( 'ce qui est ecrit recoit ladresse des pages ecrites',
+	false !== strpos( $dze_src, "__( 'Written to the shop — press to see which pages', 'dazont-ecom' ), self::past_url( \$id )" ), true );
+ok( 'et cette adresse nomme la tache',
+	false !== strpos( DZE_Automation::past_url( 'mesh_links' ), 'task=mesh_links' ), true );
+// ET CELLE QUI NE MENE NULLE PART RESTE UN MOT : une pastille qui ressemble a
+// un bouton sans en etre un est exactement le defaut qu on repare ici.
+ok( 'et le rythme, qui ne mene nulle part, reste un span',
+	(bool) preg_match( '#<span class="dze-auto-chip (is-on|is-off)#', $dze_ch ), true );
+// LA LISTE SAIT SE REDUIRE A UNE TACHE, sinon le lien tombe sur tout melange.
+ok( 'la liste des passes se filtre par tache',
+	count( DZE_Automation::past( 200, 'mesh_links' ) ) <= count( DZE_Automation::past( 200 ) ), true );
+ok( 'et une tache inconnue ne filtre rien de travers',
+	DZE_Automation::past( 200, 'pas-une-tache' ), [] );
 
 // THE SCREEN THAT SHOWS THE WORK MOVES IT. `refresh()` in queue.js returns at
 // once where there is no job table — right when this page had no running job

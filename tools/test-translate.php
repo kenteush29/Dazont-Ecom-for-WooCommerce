@@ -480,6 +480,7 @@ function add_submenu_page( ...$a ) { $GLOBALS['menu'][] = $a; return 'x'; }
 // Enough of a settings page for the tab to be RENDERED, not only called: a
 // settings tab that dies takes the whole page white, before any of our own
 // error handling, and that has happened here for six versions running.
+function remove_query_arg( $keys, $url = '' ) { return (string) $url; }
 function settings_fields( $g ) {}
 function submit_button( ...$a ) {}
 function wp_die( $m = '' ) { throw new RuntimeException( (string) $m ); }
@@ -1614,9 +1615,56 @@ ok( 'a variation\'s own words are not a row',
 	false !== strpos( $dze_ed, 'data-field="var:701"' ), false );
 ok( 'and its words are not printed either',
 	false !== strpos( $dze_ed, 'Olive, black zip.' ), false );
-// A FIELD THE ORIGINAL DOES NOT HOLD IS NOT A DECISION.
-ok( 'an empty field of the original is not a row',
-	false !== strpos( $dze_ed, 'data-field="excerpt"' ), false );
+// A FIELD THE ORIGINAL DOES NOT HOLD IS STILL LISTED, AND SAYS WHY.
+//
+// It used to be dropped — "a field the original does not hold is not a
+// decision" — which was true and unreadable: an empty SEO pair and an SEO
+// pair this module cannot handle both showed as nothing at all. "Pourquoi pas
+// de traduction des champs seo ? j'ai l'impression qu'il manque plein de
+// choses ici." An owner who knows WPML expects its editor: every field on the
+// list, whether or not it carries words.
+ok( 'an empty field of the original is still listed',
+	false !== strpos( $dze_ed, 'data-field="excerpt"' ), true );
+ok( 'but it is marked as holding nothing',
+	false !== strpos( $dze_ed, 'dze-tr-field is-absent' ), true );
+ok( 'and it says why, rather than being blank',
+	false !== strpos( $dze_ed, 'class="dze-tr-why' ), true );
+// AND IT IS NOT A DECISION EITHER: no box, so nothing to type into and
+// nothing for the save to carry.
+ok( 'and it offers no box to type in',
+	substr_count( $dze_ed, 'class="dze-tr-new' ), substr_count( $dze_ed, 'class="dze-tr-field"' ) );
+echo "\nLES INSTRUCTIONS SONT A PORTEE, ET LE GLOSSAIRE SE COMPTE\n";
+// « Il faut un accès plus facile pour la modification du prompt
+// d'instructions. La qualité des traductions n'est pas bonne. » Elles etaient
+// sous Reglages > Translation, deux menus plus loin : on remarque une
+// mauvaise traduction en en lisant une, pas en parcourant des preferences.
+ob_start();
+DZE_Translate::instructions_panel( '/wp-admin/admin.php?page=dazont-ecom-translations' );
+$dze_ip = (string) ob_get_clean();
+ok( 'le panneau existe',            false !== strpos( $dze_ip, 'dze-tr-instr' ), true );
+ok( 'il porte le prompt',           false !== strpos( $dze_ip, 'dze-tr-instr-prompt' ), true );
+ok( 'et le glossaire avec lui',     false !== strpos( $dze_ip, 'dze-tr-instr-gloss' ), true );
+ok( 'il est replie, pas etale',     false !== strpos( $dze_ip, '<details' ), true );
+// LA REGLE QUI NE SERVAIT A RIEN. Le prompt dit depuis toujours « ne jamais
+// traduire un terme du glossaire » et le glossaire de cette boutique etait
+// VIDE — donc rien n'etait protege, et aucun ecran ne le disait. « Viper hood
+// jacket », ou « viper hood » nomme un camouflage de sniper et non une marque
+// de capuche, revenait en « Veste à capuche Viper ».
+ok( 'un glossaire vide se voit sur le repli',
+	false !== strpos( $dze_ip, 'no term protected' ), true );
+ok( 'et il est explique, pas seulement compte',
+	false !== strpos( $dze_ip, 'the glossary is empty' ), true );
+// ET IL NE PEUT PAS EFFACER LE RESTE : le sanitiseur part des reglages
+// gardes et n'ecrase que les cles recues, donc ces deux champs suffisent.
+$dze_keep = DZE_Translate::get_settings();
+$dze_keep['model'] = 'gardez-moi';
+update_option( DZE_Translate::OPT, $dze_keep );
+$dze_after = DZE_Translate::instance()->sanitize( [ 'prompt' => 'court', 'glossary' => "viper hood\nghillie" ] );
+ok( 'enregistrer les instructions ne touche pas au reste',
+	(string) ( $dze_after['model'] ?? '' ), 'gardez-moi' );
+ok( 'et le glossaire est bien pris',
+	false !== strpos( (string) ( $dze_after['glossary'] ?? '' ), 'viper hood' ), true );
+
 // 4. PUBLISH IT, or throw it away — side by side.
 ok( 'it ends with save and cancel, side by side',
 	[ substr_count( $dze_ed, 'id="dze-tr-publish"' ), substr_count( $dze_ed, 'id="dze-tr-drop"' ) ], [ 1, 1 ] );

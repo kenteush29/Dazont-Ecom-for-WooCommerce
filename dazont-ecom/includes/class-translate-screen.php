@@ -108,6 +108,10 @@ trait DZE_Translate_Screen {
 			];
 		}
 		echo wp_kses_post( DZE_Screens::strip( $strip, $tab ) );
+		// AND THE INSTRUCTIONS UNDER THE TABS, on every one of them: a bad
+		// translation is noticed while reading one, not while browsing
+		// preferences two menus away.
+		DZE_Translate::instructions_panel();
 		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			// ONE SENTENCE OF WARNING IS THE WHOLE OF IT, and it says the one
 			// thing to do rather than explaining a mechanism.
@@ -506,15 +510,35 @@ trait DZE_Translate_Screen {
 			// a guess.
 			$dze_groups = DZE_Translate::field_groups();
 			$dze_groups['other'] = [ 'label' => __( 'Other fields', 'dazont-ecom' ), 'fields' => [] ];
-			$dze_bin = [];
+			// A FIELD WITH NOTHING IN IT IS STILL AN ANSWER, and it was thrown
+			// away here: "a field the original does not hold is not a
+			// decision". True, and it made an empty SEO pair look exactly like
+			// an SEO pair this module cannot handle — "pourquoi pas de
+			// traduction des champs seo ? j'ai l'impression qu'il manque plein
+			// de choses ici". Nothing on the screen could tell the two apart,
+			// because absence has only one appearance.
+			//
+			// So every field is listed, WPML-editor fashion, and the ones with
+			// no words carry the reason instead of a text box. They are still
+			// not decisions — they take no room, they cannot be typed in, and
+			// they are counted apart on the panel.
+			$dze_bin  = [];
+			$dze_why  = [];
+			$dze_full = 0;
 			foreach ( $labels as $dze_fid => $dze_label ) {
-				if ( '' === trim( (string) ( $source[ $dze_fid ] ?? '' ) ) ) {
-					continue; // a field the original does not hold is not a decision.
-				}
 				$dze_bin[ DZE_Translate::field_group( (string) $dze_fid ) ][ $dze_fid ] = $dze_label;
+				if ( '' === trim( (string) ( $source[ $dze_fid ] ?? '' ) ) ) {
+					$dze_why[ $dze_fid ] = DZE_Translate::absent_said(
+						(string) $dze_fid,
+						(string) ( $o['kind'] ?? 'post' ),
+						(string) ( $o['type'] ?? '' )
+					);
+					continue;
+				}
+				$dze_full++;
 			}
 			?>
-			<?php if ( ! $dze_bin ) : ?>
+			<?php if ( ! $dze_full ) : ?>
 				<div class="notice notice-info inline"><p><?php esc_html_e( 'This one holds no text to translate.', 'dazont-ecom' ); ?></p></div>
 			<?php endif; ?>
 			<?php foreach ( $dze_groups as $dze_gkey => $dze_g ) : ?>
@@ -524,11 +548,27 @@ trait DZE_Translate_Screen {
 						<span><?php echo esc_html( (string) $dze_g['label'] ); ?></span>
 						<span class="dze-tr-panelcount">
 							<?php
+							// TWO FIGURES, BECAUSE THEY MEAN DIFFERENT THINGS: what
+							// there is to do, and what was looked at and found empty.
+							// One number over a panel of six lines, four of them
+							// blank, is a number that misleads.
+							$dze_pe = count( array_intersect_key( $dze_why, $dze_bin[ $dze_gkey ] ) );
+							$dze_pf = count( $dze_bin[ $dze_gkey ] ) - $dze_pe;
 							printf(
-								/* translators: %d: how many fields this panel holds */
-								esc_html( _n( '%d field', '%d fields', count( $dze_bin[ $dze_gkey ] ), 'dazont-ecom' ) ),
-								count( $dze_bin[ $dze_gkey ] )
+								/* translators: %d: how many fields in this panel carry text */
+								esc_html( _n( '%d field', '%d fields', $dze_pf, 'dazont-ecom' ) ),
+								$dze_pf
 							);
+							if ( $dze_pe ) {
+								printf(
+									' · %s',
+									esc_html( sprintf(
+										/* translators: %d: how many fields in this panel are empty */
+										_n( '%d with nothing in it', '%d with nothing in them', $dze_pe, 'dazont-ecom' ),
+										$dze_pe
+									) )
+								);
+							}
 							?>
 						</span>
 					</h2>
@@ -539,6 +579,24 @@ trait DZE_Translate_Screen {
 							$dze_val = (string) ( $made[ $dze_fid ] ?? ( $current[ $dze_fid ] ?? '' ) );
 							$dze_rows = max( 4, min( 24, (int) ceil( strlen( $dze_src ) / 90 ) + 2 ) );
 							?>
+							<?php if ( isset( $dze_why[ $dze_fid ] ) ) : ?>
+								<?php
+								// LISTED, AND SAID. It takes one line, it cannot be
+								// typed into, and it is the difference between "this
+								// module does not do SEO" and "this product has no
+								// SEO text on the English original".
+								?>
+								<div class="dze-tr-field is-absent" data-field="<?php echo esc_attr( $dze_fid ); ?>">
+									<p class="dze-tr-fname">
+										<strong><?php echo esc_html( $dze_label ); ?></strong>
+										<span class="dze-tr-why is-<?php echo esc_attr( (string) $dze_why[ $dze_fid ]['tone'] ); ?>"><?php echo esc_html( (string) $dze_why[ $dze_fid ]['said'] ); ?></span>
+										<?php if ( 'warn' === $dze_why[ $dze_fid ]['tone'] ) : ?>
+											<a href="<?php echo esc_url( admin_url( 'admin.php?page=tm/menu/settings' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'WPML → Settings → Custom Fields Translation', 'dazont-ecom' ); ?> &rarr;</a>
+										<?php endif; ?>
+									</p>
+								</div>
+								<?php continue; ?>
+							<?php endif; ?>
 							<div class="dze-tr-field" data-field="<?php echo esc_attr( $dze_fid ); ?>">
 								<p class="dze-tr-fname">
 									<strong><?php echo esc_html( $dze_label ); ?></strong>
@@ -575,6 +633,7 @@ trait DZE_Translate_Screen {
 			// words. Both were invisible here, so a product could read "up to
 			// date" while the words a customer picks from were still English.
 			$dze_attrs = DZE_Translate::attribute_objects( $o );
+			$dze_local = DZE_Translate::local_attributes( $o );
 			$dze_vars  = DZE_Translate::variation_tally( $o );
 			?>
 			<?php
@@ -666,7 +725,7 @@ trait DZE_Translate_Screen {
 					</div>
 				</div>
 			<?php endif; ?>
-			<?php if ( $dze_attrs || $dze_vars['total'] ) : ?>
+			<?php if ( $dze_attrs || $dze_local || $dze_vars['total'] ) : ?>
 				<h3 style="margin:22px 0 4px;"><?php esc_html_e( 'Attributes', 'dazont-ecom' ); ?></h3>
 				<?php if ( $dze_attrs ) : ?>
 					<p class="description" style="margin:0 0 6px;">
@@ -700,6 +759,41 @@ trait DZE_Translate_Screen {
 										</a>
 									<?php endforeach; ?>
 									</span>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+						</tbody>
+					</table>
+				<?php endif; ?>
+				<?php if ( $dze_local ) : ?>
+					<?php
+					// WRITTEN ON THE PRODUCT, SO NOT AN OBJECT ANYBODY CAN
+					// TRANSLATE. And on this catalogue every one of them picks a
+					// variation, which makes translating them worse than leaving
+					// them: WooCommerce matches a variation by the value STRING.
+					?>
+					<p class="description" style="margin:10px 0 6px;">
+						<?php esc_html_e( 'These are typed into the product itself rather than picked from a shared list, so there is no object for WPML to translate. They stay in the original language.', 'dazont-ecom' ); ?>
+					</p>
+					<table class="widefat striped dze-tr-shared">
+						<thead><tr>
+							<th style="width:200px;"><?php esc_html_e( 'Attribute', 'dazont-ecom' ); ?></th>
+							<th style="width:220px;"><?php esc_html_e( 'Value', 'dazont-ecom' ); ?></th>
+							<th><?php esc_html_e( 'Where it stands', 'dazont-ecom' ); ?></th>
+						</tr></thead>
+						<tbody>
+						<?php foreach ( $dze_local as $dze_l ) : ?>
+							<tr>
+								<td><?php echo esc_html( (string) $dze_l['name'] ); ?></td>
+								<td><strong><?php echo esc_html( implode( ' · ', (array) $dze_l['values'] ) ); ?></strong></td>
+								<td>
+									<?php if ( $dze_l['is_variation'] ) : ?>
+										<span class="dze-tr-why is-warn"><?php esc_html_e( 'The customer picks a variation with this. WooCommerce matches a variation to its product by the exact words, so translating them would stop the Add to cart working.', 'dazont-ecom' ); ?></span>
+									<?php else : ?>
+										<span class="dze-tr-why"><?php esc_html_e( 'Not translated: it belongs to this product alone.', 'dazont-ecom' ); ?></span>
+									<?php endif; ?>
+									<br />
+									<a href="<?php echo esc_url( admin_url( 'edit.php?post_type=product&page=product_attributes' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Make it a global attribute so WPML can translate it', 'dazont-ecom' ); ?> &rarr;</a>
 								</td>
 							</tr>
 						<?php endforeach; ?>

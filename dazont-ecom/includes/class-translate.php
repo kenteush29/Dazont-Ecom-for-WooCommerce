@@ -276,6 +276,94 @@ final class DZE_Translate {
 		];
 	}
 
+	/**
+	 * THE INSTRUCTIONS, WHERE THE TRANSLATIONS ARE READ.
+	 *
+	 * "Il faut un accès plus facile pour la modification du prompt
+	 * d'instructions. La qualité des traductions n'est pas bonne." They were
+	 * two menus away, under Settings → Translation, and the moment a shop
+	 * notices a bad translation is the moment it is looking at one — not the
+	 * moment it is browsing preferences. So they are here, folded, on the
+	 * screen where the work is judged, and saving comes straight back to it.
+	 *
+	 * THE GLOSSARY IS THE HALF THAT WAS EMPTY. The prompt has said "never
+	 * translate a term listed in the glossary" since the first version, and on
+	 * this shop the list held nothing at all — so "Viper hood jacket", where
+	 * "viper hood" is the name of a sniper's camouflage and not a brand of
+	 * hood, came back as "Veste à capuche Viper". A rule pointing at an empty
+	 * list is a rule that does nothing, and nothing on any screen said so.
+	 *
+	 * The sanitizer starts from the stored settings and overwrites only the
+	 * keys it is handed, so this short form cannot blank the rest of them.
+	 *
+	 * @param string $back Where to return after saving. The current screen by
+	 *                     default, so the shop lands back on what it was reading.
+	 */
+	public static function instructions_panel( string $back = '' ): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$s     = self::get_settings();
+		$gloss = self::glossary();
+		$own   = '' !== trim( (string) ( $s['prompt'] ?? '' ) );
+		if ( '' === $back ) {
+			$back = remove_query_arg( [ 'settings-updated' ], (string) ( $_SERVER['REQUEST_URI'] ?? '' ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated -- used through esc_url below.
+		}
+		?>
+		<details class="dze-set dze-tr-instr">
+			<summary>
+				<?php esc_html_e( 'The instructions the translator follows', 'dazont-ecom' ); ?>
+				<span class="dze-tr-instrsaid">
+					<?php
+					echo esc_html( $own ? __( 'your own wording', 'dazont-ecom' ) : __( 'the wording shipped with the plugin', 'dazont-ecom' ) );
+					echo ' · ';
+					// THE FIGURE THAT MATTERS, on the fold, so an empty
+					// glossary is visible without opening anything.
+					echo esc_html(
+						$gloss
+							? sprintf(
+								/* translators: %s: how many terms are protected */
+								_n( '%s term never translated', '%s terms never translated', count( $gloss ), 'dazont-ecom' ),
+								number_format_i18n( count( $gloss ) )
+							)
+							: __( 'no term protected', 'dazont-ecom' )
+					);
+					?>
+				</span>
+			</summary>
+			<?php if ( ! $gloss ) : ?>
+				<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>
+					<?php esc_html_e( 'The instructions say never to translate a term from the glossary, and the glossary is empty — so nothing is protected. Trade words the shop uses as they are ("ghillie", "viper hood", "MOLLE", "plate carrier"), and every brand name, belong here: one per line.', 'dazont-ecom' ); ?>
+				</p></div>
+			<?php endif; ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'options.php' ) ); ?>">
+				<?php settings_fields( 'dze_translate_options' ); ?>
+				<input type="hidden" name="_wp_http_referer" value="<?php echo esc_attr( $back ); ?>" />
+				<p>
+					<label for="dze-tr-instr-prompt"><strong><?php esc_html_e( 'What the translator is told', 'dazont-ecom' ); ?></strong></label><br />
+					<textarea id="dze-tr-instr-prompt" name="<?php echo esc_attr( self::OPT ); ?>[prompt]" rows="9" class="large-text code"><?php echo esc_textarea( self::prompt() ); ?></textarea>
+				</p>
+				<p>
+					<label for="dze-tr-instr-gloss"><strong><?php esc_html_e( 'Never translate these — one per line', 'dazont-ecom' ); ?></strong></label><br />
+					<textarea id="dze-tr-instr-gloss" name="<?php echo esc_attr( self::OPT ); ?>[glossary]" rows="6" class="large-text code" placeholder="Kula Tactical&#10;viper hood&#10;ghillie&#10;MOLLE"><?php echo esc_textarea( (string) ( $s['glossary'] ?? '' ) ); ?></textarea>
+				</p>
+				<p class="submit" style="margin:0;padding:0;">
+					<?php submit_button( __( 'Save the instructions', 'dazont-ecom' ), 'primary', 'submit', false ); ?>
+					<span class="description" style="margin-left:10px;">
+						<?php
+						printf(
+							/* translators: %s: the model that does the translating */
+							esc_html__( 'Translated by %s. A change applies to the next translation, not to what is already written.', 'dazont-ecom' ),
+							esc_html( self::model() )
+						);
+						?>
+					</span>
+				</p>
+			</form>
+		</details>
+		<?php
+	}
+
 	public static function prompt(): string {
 		$p = trim( (string) ( self::get_settings()['prompt'] ?? '' ) );
 		return '' !== $p ? $p : self::default_prompt();
@@ -831,6 +919,53 @@ final class DZE_Translate {
 	 *
 	 * @return array<string,array{obj:array,tax:string,tax_label:string,name:string}>
 	 */
+	/**
+	 * THE ATTRIBUTES WRITTEN ON THE PRODUCT ITSELF, which nobody translates.
+	 *
+	 * `attribute_objects()` answers with TERMS — values picked from a shared
+	 * list, which WPML translates as objects of their own. A product can also
+	 * carry attributes typed into its own box: they are text in
+	 * `_product_attributes`, they belong to no taxonomy, and WPML has nothing
+	 * to translate them as. The screen listed the first kind and said nothing
+	 * at all about the second — "même les attributs ne sont pas là" — so a
+	 * product whose sizes and colours are local read as a product with no
+	 * attributes.
+	 *
+	 * Nine products on this catalogue carry ten of them, and every one is a
+	 * VARIATION AXIS. That matters more than the translation: WooCommerce
+	 * matches a variation to its parent by the value STRING. Translate "CVC
+	 * Black" on the parent while the variations still hold the English and
+	 * nothing matches — the product stops being buyable. So these are
+	 * reported, never sent, and the row says which ones would break.
+	 *
+	 * @return array<int,array{name:string,values:string[],is_variation:bool}>
+	 */
+	public static function local_attributes( array $o ): array {
+		if ( 'post' !== ( $o['kind'] ?? '' ) || 'product' !== ( $o['type'] ?? '' ) ) {
+			return [];
+		}
+		$raw = get_post_meta( (int) $o['id'], '_product_attributes', true );
+		if ( ! is_array( $raw ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $raw as $key => $one ) {
+			if ( ! is_array( $one ) || ! empty( $one['is_taxonomy'] ) ) {
+				continue;
+			}
+			$vals = array_values( array_filter( array_map( 'trim', explode( '|', (string) ( $one['value'] ?? '' ) ) ) ) );
+			if ( ! $vals && '' === trim( (string) ( $one['name'] ?? '' ) ) ) {
+				continue;
+			}
+			$out[] = [
+				'name'         => (string) ( $one['name'] ?? $key ),
+				'values'       => $vals,
+				'is_variation' => ! empty( $one['is_variation'] ),
+			];
+		}
+		return $out;
+	}
+
 	public static function attribute_objects( array $o ): array {
 		$out = [];
 		if ( ! $o || 'post' !== ( $o['kind'] ?? '' ) || 'product' !== ( $o['type'] ?? '' ) ) {
@@ -1034,6 +1169,55 @@ final class DZE_Translate {
 			$out[ $fid ] = (string) $f['label'];
 		}
 		return $out;
+	}
+
+	/**
+	 * WHY A FIELD HAS NOTHING IN IT — said, rather than left blank.
+	 *
+	 * The editor printed only the fields that held text, so a field empty on
+	 * the original and a field this module cannot handle looked exactly the
+	 * same: absent. "Pourquoi pas de traduction des champs seo ? title et
+	 * description… j'ai l'impression qu'il manque plein de choses ici." On the
+	 * product that prompted it, the SEO pair and both content blocks were
+	 * empty on the English original — the module was right and said nothing,
+	 * which is the worst of both. An owner who knows WPML expects its editor:
+	 * every field listed, whether or not it carries words.
+	 *
+	 * The order matters. A field WPML copies is worth saying even when it is
+	 * empty, because that is the one the owner can act on.
+	 *
+	 * @param string $fid The field, as `fields()` names it.
+	 * @return array{said:string,tone:string}
+	 */
+	public static function absent_said( string $fid, string $kind = 'post', string $type = '' ): array {
+		$f = self::fields( $kind, $type )[ $fid ] ?? [];
+		if ( ! $f ) {
+			// Not a declared field: it was found ON the object (a WPML custom
+			// field, an Elementor widget, a variation), so it cannot be here
+			// and absent at the same time.
+			return [ 'said' => __( 'nothing to translate.', 'dazont-ecom' ), 'tone' => 'quiet' ];
+		}
+		$key = ( 'meta' === ( $f['type'] ?? '' ) ) ? self::meta_key_for( $fid ) : (string) ( $f['key'] ?? '' );
+		if ( in_array( $fid, [ 'seo_title', 'seo_desc' ], true ) && ( '' === $key || 0 === strpos( $key, '_dze_seo' ) ) ) {
+			return [
+				'said' => __( 'no SEO plugin was found on this site, so nothing reads this field.', 'dazont-ecom' ),
+				'tone' => 'off',
+			];
+		}
+		if ( 'meta' === ( $f['type'] ?? '' ) && '' !== $key && class_exists( 'DZE_Wpml' )
+			&& in_array( DZE_Wpml::custom_field_mode( $key ), [ 1, 3 ], true ) ) {
+			return [
+				'said' => __( 'WPML is set to COPY this field from the original, so it is left alone.', 'dazont-ecom' ),
+				'tone' => 'warn',
+			];
+		}
+		// THE COMMON CASE, AND THE ONE THAT WAS MISSING. The field is
+		// supported, it is sent whenever it holds words, and this object
+		// simply has none.
+		return [
+			'said' => __( 'empty on the original — nothing to translate.', 'dazont-ecom' ),
+			'tone' => 'quiet',
+		];
 	}
 
 	/**
