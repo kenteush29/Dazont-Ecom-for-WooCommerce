@@ -213,5 +213,80 @@ ok( 'the cell names both in words',
 ok( 'and says plainly when nothing is shown',
 	DZE_Discounts::shows_html( array_merge( $dze_live, [ 'banner_enabled' => 0 ] ) ), 'No banner' );
 
+
+echo "\nLA LISTE DES PRODUITS EN PROMO PARLE TOUTES LES LANGUES\n";
+// « Tous les produits sont en solde oui mais ils n'ont pas de sale price
+// inscrit en dur. […] Il faudrait que tout fonctionne bien avec notre module
+// de soldes dynamiques. »
+//
+// Le moteur travaille sur les ORIGINAUX, et il a raison : la regle se lit une
+// fois, WCML porte le prix jusqu aux traductions, et is_on_sale() repond oui
+// sur le produit allemand comme sur l anglais. Mais la LISTE que
+// wc_get_product_ids_on_sale() rend ne contenait que les originaux : sur la
+// page d accueil francaise, exclude_on_sale n excluait rien, et une requete
+// on_sale en allemand ne rendait rien. Les deux moities du meme module
+// disaient une chose et son contraire.
+//
+// La table de traduction du harnais : deux groupes, cinq lignes.
+$GLOBALS['icl'] = [
+	// trid, element_id, element_type
+	[ 1, 10, 'post_product' ], [ 1, 11, 'post_product' ], [ 1, 12, 'post_product' ],
+	[ 2, 20, 'post_product' ], [ 2, 21, 'post_product' ],
+	[ 3, 30, 'post_page' ],
+];
+class DZE_Promo_Wpdb {
+	public $prefix = 'wp_';
+	public $requetes = 0;
+	public function prepare( $q, ...$a ) { return vsprintf( str_replace( [ '%s', '%d' ], [ "'%s'", '%d' ], $q ), $a ); }
+	public function get_var( $q ) {
+		// LA TABLE EXISTE : repondre autrement fait sortir la methode par la
+		// porte de secours, et le test passerait pour la mauvaise raison.
+		return 0 === stripos( trim( (string) $q ), 'SHOW TABLES LIKE' ) ? 'wp_icl_translations' : null;
+	}
+	public function get_col( $q ) {
+		$this->requetes++;
+		preg_match( '/IN \(([^)]*)\)/', (string) $q, $m );
+		$vus = array_map( 'intval', array_filter( explode( ',', (string) ( $m[1] ?? '' ) ) ) );
+		$trids = [];
+		foreach ( (array) $GLOBALS['icl'] as $r ) {
+			if ( 'post_product' === $r[2] && in_array( $r[1], $vus, true ) ) { $trids[ $r[0] ] = true; }
+		}
+		$out = [];
+		foreach ( (array) $GLOBALS['icl'] as $r ) {
+			if ( 'post_product' === $r[2] && isset( $trids[ $r[0] ] ) ) { $out[] = $r[1]; }
+		}
+		return $out;
+	}
+}
+$GLOBALS['wpdb'] = new DZE_Promo_Wpdb();
+
+$dze_al = new ReflectionMethod( 'DZE_Discounts', 'across_languages' );
+$dze_al->setAccessible( true );
+$dze_etend = static function ( array $ids ) use ( $dze_al ): array {
+	$out = (array) $dze_al->invoke( DZE_Discounts::instance(), $ids );
+	sort( $out );
+	return $out;
+};
+
+ok( 'un original entraine ses traductions',
+	$dze_etend( [ 10 ] ), [ 10, 11, 12 ] );
+ok( 'deux originaux entrainent les leurs',
+	$dze_etend( [ 10, 20 ] ), [ 10, 11, 12, 20, 21 ] );
+// ET RIEN D AUTRE : un groupe qui n est pas concerne ne monte pas dans la liste.
+ok( 'et rien de ce qui n est pas concerne',
+	in_array( 30, $dze_etend( [ 10, 20 ] ), true ), false );
+// UN PRODUIT SANS TRADUCTION RESTE LUI-MEME plutot que de disparaitre.
+ok( 'un produit hors groupe se garde',
+	$dze_etend( [ 99 ] ), [ 99 ] );
+// ET LES CAS OU IL N Y A RIEN A FAIRE NE COUTENT PAS UNE REQUETE.
+$GLOBALS['wpdb']->requetes = 0;
+ok( 'une liste vide rend le vide',        $dze_etend( [] ), [] );
+ok( 'et sans interroger la base',         $GLOBALS['wpdb']->requetes, 0 );
+// LES PAQUETS : une clause IN de dix mille identifiants est une requete que
+// MySQL ne planifie pas correctement, donc la liste part par mille.
+$GLOBALS['wpdb']->requetes = 0;
+$dze_al->invoke( DZE_Discounts::instance(), range( 1000, 3499 ) ); // 2 500 identifiants
+ok( 'deux mille cinq cents identifiants partent en trois paquets',
+	$GLOBALS['wpdb']->requetes, 3 );
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

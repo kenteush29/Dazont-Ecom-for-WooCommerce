@@ -1516,7 +1516,7 @@ final class DZE_Discounts {
 			return $id > 0 && ! $this->is_excluded( $id );
 		} );
 		$ids = array_values( array_unique( array_merge( array_map( 'intval', $raw ), array_map( 'intval', $clean ) ) ) );
-		return $this->on_sale_ids = $ids;
+		return $this->on_sale_ids = $this->across_languages( $ids );
 	}
 
 	/** Published, in-stock, non-excluded product IDs in the given categories (exact terms). */
@@ -1537,6 +1537,58 @@ final class DZE_Discounts {
 	}
 
 	/** All published, in-stock, non-excluded product IDs (store-wide sale). Cached 6h. */
+	/**
+	 * LA RÉPONSE EST LA MÊME DANS TOUTES LES LANGUES, PARCE QUE LA REMISE L'EST.
+	 *
+	 * « Tous les produits sont en solde oui mais ils n'ont pas de sale price
+	 * inscrit en dur. […] Il faudrait que tout fonctionne bien avec notre
+	 * module de soldes dynamiques. »
+	 *
+	 * Le moteur de remise travaille sur les ORIGINAUX, et il a raison : les
+	 * règles se lisent une fois, WCML porte le prix jusqu'aux traductions, et
+	 * `is_on_sale()` répond « oui » sur un produit allemand comme sur son
+	 * original anglais. Vérifié sur la boutique : le produit #987595929 et ses
+	 * quatre traductions sont tous en promo.
+	 *
+	 * Mais la LISTE — celle que `wc_get_product_ids_on_sale()` rend, et sur
+	 * laquelle reposent `[products on_sale="true"]`, `exclude_on_sale` et tout
+	 * ce qui interroge « qu'est-ce qui est en promo » — ne contenait que les
+	 * originaux. Sur la page d'accueil française, le bloc des meilleures ventes
+	 * ne reconnaissait aucun produit remisé : il n'excluait rien, et une
+	 * requête `on_sale` en allemand ne rendait rien du tout. Une chose et son
+	 * contraire dits par les deux moitiés du même module.
+	 *
+	 * Donc le calcul reste sur les originaux — il est juste, et cinq fois
+	 * moins cher — et la liste est étendue à leurs traductions au moment où
+	 * elle sort. Par paquets : une clause IN de dix mille identifiants est une
+	 * requête que MySQL refuse de planifier correctement.
+	 *
+	 * @param int[] $ids
+	 * @return int[]
+	 */
+	private function across_languages( array $ids ): array {
+		if ( ! $ids || ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return $ids;
+		}
+		global $wpdb;
+		$table = $wpdb->prefix . 'icl_translations';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return $ids;
+		}
+		$out = $ids;
+		foreach ( array_chunk( array_map( 'intval', $ids ), 1000 ) as $lot ) {
+			$in   = implode( ',', $lot );
+			$rows = (array) $wpdb->get_col(
+				// phpcs:ignore WordPress.DB.PreparedSQL -- ids cast to int just above, table name is ours.
+				"SELECT t2.element_id FROM {$table} t1
+				   JOIN {$table} t2 ON t2.trid = t1.trid AND t2.element_type = t1.element_type
+				  WHERE t1.element_type = 'post_product' AND t1.element_id IN ({$in})"
+			);
+			$out = array_merge( $out, array_map( 'intval', $rows ) );
+		}
+		return array_values( array_unique( $out ) );
+	}
+
 	private function all_saleable_product_ids(): array {
 		$cached = get_transient( 'dze_all_saleable_ids' );
 		if ( is_array( $cached ) ) {
