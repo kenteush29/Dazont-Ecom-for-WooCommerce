@@ -482,5 +482,24 @@ ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
 	'restock', 'fbt', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 
+echo "\nUNE SEULE BARRE DONGLETS, IMPRIMEE EN UN SEUL ENDROIT\n";
+// Six ecrans batissaient la leur, chacune quasi-copie des autres — meme
+// balisage, memes classes, meme compteur. Et lune delles, celle du maillage,
+// etait batie avec des cles que le catalogue navait jamais vues, si bien que
+// sa seconde vue ne pouvait etre ni nommee dans une phrase ni liee dailleurs.
+ok( 'limprimeur existe', method_exists( 'DZE_Screens', 'strip' ), true );
+$st_dir = __DIR__ . '/../dazont-ecom/includes/';
+$st_bad = [];
+foreach ( glob( $st_dir . '*.php' ) as $st_f ) {
+	if ( 'class-screens.php' === basename( $st_f ) ) { continue; }
+	$st_s = (string) file_get_contents( $st_f );
+	if ( false !== strpos( $st_s, 'nav-tab-wrapper' ) ) { $st_bad[] = basename( $st_f ); }
+}
+// Trois restent : deux barres groupees (Reglages, Marketing) et une barre
+// interne a un corps, formes que limprimeur ne couvre pas encore.
+ok( 'les barres batties a la main sont comptees', count( $st_bad ), 5 );
+ok( 'et les trois converties nen sont plus',
+	array_intersect( [ 'class-health.php', 'class-translate-screen.php' ], $st_bad ), [] );
+
 printf( "\n%d checks, %d wrong\n", $ran, $fails );
 exit( $fails ? 1 : 0 );

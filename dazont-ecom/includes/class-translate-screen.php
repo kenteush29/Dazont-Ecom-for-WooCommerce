@@ -92,17 +92,15 @@ trait DZE_Translate_Screen {
 		$tabs = self::tabs();
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'translations' ) ) . '</h1>';
-		echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
+		$strip = [];
 		foreach ( $tabs as $id => $one ) {
-			printf(
-				'<a class="nav-tab%1$s" href="%2$s">%3$s <span class="dze-tab-n">%4$s</span></a>',
-				$tab === $id ? ' nav-tab-active' : '',
-				esc_url( self::url( [ 'tab' => $id ] ) ),
-				esc_html( $one['label'] ),
-				null === $one['n'] ? '' : esc_html( number_format_i18n( (int) $one['n'] ) )
-			);
+			$strip[ (string) $id ] = [
+				'label' => (string) $one['label'],
+				'url'   => self::url( [ 'tab' => $id ] ),
+				'n'     => $one['n'],
+			];
 		}
-		echo '</h2>';
+		echo wp_kses_post( DZE_Screens::strip( $strip, $tab ) );
 		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
 			// ONE SENTENCE OF WARNING IS THE WHOLE OF IT, and it says the one
 			// thing to do rather than explaining a mechanism.

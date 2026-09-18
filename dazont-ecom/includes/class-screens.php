@@ -422,6 +422,36 @@ final class DZE_Screens {
 		return array_map( static fn( array $one ): array => $one[2], $keyed );
 	}
 
+	/**
+	 * THE TAB STRIP, PRINTED IN ONE PLACE.
+	 *
+	 * Six screens built their own, each a near-copy of the others: the same
+	 * markup, the same classes, the same count span — and one of them, the
+	 * linking screen's, was hand-built with keys the catalogue had never heard
+	 * of, so its second view could not be named in a sentence or linked to
+	 * from anywhere. Two builders is how two screens start behaving
+	 * differently while looking the same, which is the rule `check-methods`
+	 * already holds block builders to.
+	 *
+	 * @param array<string,array{label:string,url:string,n?:int|null}> $items
+	 */
+	public static function strip( array $items, string $now, string $style = 'margin:12px 0 0;' ): string {
+		if ( ! $items ) {
+			return '';
+		}
+		$out = '<h2 class="nav-tab-wrapper" style="' . esc_attr( $style ) . '">';
+		foreach ( $items as $id => $one ) {
+			$n = array_key_exists( 'n', $one ) ? $one['n'] : null;
+			$out .= sprintf(
+				'<a class="nav-tab%1$s" href="%2$s">%3$s%4$s</a>',
+				(string) $id === $now ? ' nav-tab-active' : '',
+				esc_url( (string) ( $one['url'] ?? '' ) ),
+				esc_html( (string) ( $one['label'] ?? $id ) ),
+				null === $n ? '' : ' <span class="dze-tab-n">' . esc_html( number_format_i18n( (int) $n ) ) . '</span>'
+			);
+		}
+		return $out . '</h2>';
+	}
 	public static function reorder_menu(): void {
 		global $submenu;
 		if ( isset( $submenu[ self::PARENT ] ) && is_array( $submenu[ self::PARENT ] ) ) {

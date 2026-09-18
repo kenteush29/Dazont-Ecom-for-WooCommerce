@@ -2508,17 +2508,15 @@ final class DZE_Diagnostic {
 		echo '<div class="wrap dze-wrap">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'content' ) ) . '</h1>';
 		if ( count( $tabs ) > 1 ) {
-			echo '<h2 class="nav-tab-wrapper" style="margin:12px 0 0;">';
+			$strip = [];
 			foreach ( $tabs as $id => $one ) {
-				printf(
-					'<a class="nav-tab%1$s" href="%2$s">%3$s <span class="dze-tab-n">%4$s</span></a>',
-					$tab === $id ? ' nav-tab-active' : '',
-					esc_url( (string) ( $one['url'] ?? add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ) ),
-					esc_html( $one['label'] ),
-					esc_html( number_format_i18n( (int) $one['n'] ) )
-				);
+				$strip[ (string) $id ] = [
+					'label' => (string) $one['label'],
+					'url'   => (string) ( $one['url'] ?? add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ),
+					'n'     => (int) $one['n'],
+				];
 			}
-			echo '</h2>';
+			echo wp_kses_post( DZE_Screens::strip( $strip, $tab ) );
 		}
 		if ( 'linking' === $tab && class_exists( 'DZE_Mesh' ) ) {
 			// The body belongs to the module that owns that work, like every
