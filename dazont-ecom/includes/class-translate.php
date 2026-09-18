@@ -2918,6 +2918,90 @@ final class DZE_Translate {
 	 *
 	 * @return array<int,array{kind:string,id:int,type:string,langs:string[],at:int}>
 	 */
+	/**
+	 * WHAT THIS MODULE HAS ACTUALLY WRITTEN, newest first.
+	 *
+	 * "Comment voir le résultat des traductions, quelles pages ?" You could
+	 * not. A translation does not go through the writing queue — it waits on
+	 * the source object and is decided on this screen — so the log of
+	 * automatic passes knew nothing about it either, and nothing anywhere
+	 * listed a finished translation.
+	 *
+	 * The mark is already on every translation this module wrote
+	 * (`_dze_tr_by`), put there at the moment of writing. This reads it back.
+	 *
+	 * @return array<int,array{id:int,kind:string,label:string,lang:string,when:string,edit:string,view:string}>
+	 */
+	/** Language of a term, read by the key WPML indexes: its term_taxonomy_id. */
+	public static function term_language( int $term_id, string $taxonomy ): string {
+		if ( ! class_exists( 'DZE_Wpml' ) || ! DZE_Wpml::is_active() ) {
+			return '';
+		}
+		$ttid = DZE_Wpml::term_element_id( $term_id, $taxonomy );
+		if ( ! $ttid ) {
+			return '';
+		}
+		$lang = apply_filters( 'wpml_element_language_code', null, [
+			'element_id'   => $ttid,
+			'element_type' => 'tax_' . $taxonomy,
+		] );
+		return is_string( $lang ) ? $lang : '';
+	}
+
+	public static function done_list( int $limit = 200 ): array {
+		global $wpdb;
+		$out = [];
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.ID, p.post_type, p.post_title, p.post_modified
+			   FROM {$wpdb->posts} p
+			   JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = %s
+			  WHERE p.post_status IN ('publish','private','draft')
+			  ORDER BY p.post_modified DESC
+			  LIMIT %d",
+			self::META_MINE,
+			max( 1, $limit )
+		), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		foreach ( $rows as $r ) {
+			$id  = (int) $r['ID'];
+			$out[] = [
+				'id'    => $id,
+				'kind'  => (string) $r['post_type'],
+				'label' => (string) $r['post_title'],
+				'lang'  => strtoupper( (string) DZE_Wpml::post_language( $id, (string) $r['post_type'] ) ),
+				'when'  => (string) $r['post_modified'],
+				'edit'  => (string) get_edit_post_link( $id, '' ),
+				'view'  => (string) get_permalink( $id ),
+			];
+		}
+		// AND THE TERMS, which keep their mark in term meta and have no
+		// post_modified to sort by — so they come after, newest id first.
+		$tr = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT t.term_id, t.name, tt.taxonomy
+			   FROM {$wpdb->terms} t
+			   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+			   JOIN {$wpdb->termmeta} m ON m.term_id = t.term_id AND m.meta_key = %s
+			  ORDER BY t.term_id DESC
+			  LIMIT %d",
+			self::META_MINE,
+			max( 1, $limit )
+		), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		foreach ( $tr as $r ) {
+			$tid = (int) $r['term_id'];
+			$tax = (string) $r['taxonomy'];
+			$lnk = get_term_link( $tid, $tax );
+			$out[] = [
+				'id'    => $tid,
+				'kind'  => $tax,
+				'label' => (string) $r['name'],
+				'lang'  => strtoupper( (string) self::term_language( $tid, $tax ) ),
+				'when'  => '',
+				'edit'  => (string) get_edit_term_link( $tid, $tax ),
+				'view'  => is_wp_error( $lnk ) ? '' : (string) $lnk,
+			];
+		}
+		return $out;
+	}
+
 	public static function review_list( int $limit = 200 ): array {
 		global $wpdb;
 		$out = [];

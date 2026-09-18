@@ -75,6 +75,7 @@ trait DZE_Translate_Screen {
 			'dashboard' => [ 'label' => (string) ( $names['dashboard'] ?? '' ), 'n' => null ],
 			'batch'     => [ 'label' => (string) ( $names['batch'] ?? '' ), 'n' => null ],
 			'review'    => [ 'label' => (string) ( $names['review'] ?? '' ), 'n' => self::review_count() ],
+			'done'      => [ 'label' => (string) ( $names['done'] ?? '' ), 'n' => null ],
 		];
 	}
 
@@ -129,7 +130,9 @@ trait DZE_Translate_Screen {
 				. '</p></div></div>';
 			return;
 		}
-		if ( 'review' === $tab ) {
+		if ( 'done' === $tab ) {
+			self::done_body();
+		} elseif ( 'review' === $tab ) {
 			self::review_body();
 		} elseif ( 'batch' === $tab ) {
 			// A REF IS AN OBJECT, AND AN OBJECT HAS ONE SCREEN. The list and
@@ -1532,6 +1535,56 @@ trait DZE_Translate_Screen {
 	// =========================================================================
 	// To review — what a batch produced, read before it lands
 	// =========================================================================
+
+	/**
+	 * WHAT HAS BEEN TRANSLATED, and where to go and look at it.
+	 *
+	 * "Comment voir le résultat des traductions, quelles pages ?" There was no
+	 * answer: a translation never enters the writing queue — it waits on its
+	 * source object and is decided here — so the log of automatic passes held
+	 * nothing about it, and no screen listed a finished one.
+	 */
+	public static function done_body(): void {
+		$rows = DZE_Translate::done_list( 200 );
+		?>
+		<p class="description" style="max-width:900px;margin:16px 0;">
+			<?php esc_html_e( 'Every translation this module has written, newest first. The name opens it for editing; the arrow opens it on the site, as a reader sees it.', 'dazont-ecom' ); ?>
+		</p>
+		<?php if ( ! $rows ) : ?>
+			<p><?php esc_html_e( 'Nothing has been written yet. What is accepted from “To review” lands here.', 'dazont-ecom' ); ?></p>
+			<?php return; ?>
+		<?php endif; ?>
+		<table class="widefat striped" style="max-width:1000px;">
+			<thead><tr>
+				<th><?php esc_html_e( 'Name', 'dazont-ecom' ); ?></th>
+				<th style="width:110px;"><?php esc_html_e( 'Language', 'dazont-ecom' ); ?></th>
+				<th style="width:160px;"><?php esc_html_e( 'What', 'dazont-ecom' ); ?></th>
+				<th style="width:170px;"><?php esc_html_e( 'When', 'dazont-ecom' ); ?></th>
+			</tr></thead>
+			<tbody>
+			<?php foreach ( $rows as $r ) : ?>
+				<tr>
+					<td>
+						<strong><?php
+						echo '' !== (string) $r['edit']
+							? '<a href="' . esc_url( (string) $r['edit'] ) . '">' . esc_html( (string) $r['label'] ) . '</a>'
+							: esc_html( (string) $r['label'] ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped in both branches.
+						?></strong>
+						<?php if ( '' !== (string) $r['view'] ) : ?>
+							<a class="dze-hub-visit" href="<?php echo esc_url( (string) $r['view'] ); ?>" target="_blank" rel="noopener" title="<?php esc_attr_e( 'See it on the site', 'dazont-ecom' ); ?>"><span class="dashicons dashicons-external"></span></a>
+						<?php endif; ?>
+					</td>
+					<td><?php echo esc_html( '' !== (string) $r['lang'] ? (string) $r['lang'] : '—' ); ?></td>
+					<td><span class="description"><?php echo esc_html( (string) $r['kind'] ); ?></span></td>
+					<td><span class="description"><?php
+						echo esc_html( '' !== (string) $r['when'] ? mysql2date( (string) get_option( 'date_format' ) . ' H:i', (string) $r['when'] ) : '—' );
+					?></span></td>
+				</tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
 
 	public static function review_body(): void {
 		$rows = self::review_list();
