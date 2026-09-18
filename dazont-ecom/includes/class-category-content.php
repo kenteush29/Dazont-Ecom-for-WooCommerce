@@ -2339,19 +2339,19 @@ PROMPT;
 				);
 				continue;
 			}
-			// THE WORDS MUST BE THERE, ONCE, AND IN THE PROSE.
-			$n = substr_count( $html, $anchor );
-			if ( 1 !== $n ) {
+			// THE WORDS MUST BE THERE, ONCE, AND IN THE PROSE — read the way a
+			// reader reads them, through whatever inline markup sits between.
+			$found = self::find_anchor( $html, $anchor );
+			if ( null === $found ) {
 				$refused[] = sprintf(
-					/* translators: 1: how many times the words were found, 2: the words */
-					__( 'the words were found %1$d times instead of once (%2$s)', 'dazont-ecom' ),
-					$n,
+					/* translators: %s: the words the model picked */
+					__( 'those words are not in the text exactly once (%s)', 'dazont-ecom' ),
 					mb_substr( $anchor, 0, 40 )
 				);
 				continue;
 			}
-			$at = strpos( $html, $anchor );
-			if ( ! self::in_prose( $html, $at, strlen( $anchor ) ) ) {
+			[ $at, $span_len ] = $found;
+			if ( ! self::in_prose( $html, $at, $span_len ) ) {
 				$refused[] = sprintf(
 					/* translators: %s: the words the model picked */
 					__( 'the words sit inside a tag, a link or a block comment (%s)', 'dazont-ecom' ),
@@ -2364,11 +2364,14 @@ PROMPT;
 			// character is asking for the one thing it cannot do reliably —
 			// "a sentence came back reworded rather than linked", every time,
 			// on the long articles. Nothing it returns is ever inserted.
+			// WHAT GOES BACK IN IS WHAT WAS THERE. The model's spelling of the
+			// words is only used to FIND them; the characters written are the
+			// ones the span already held — its tags, its entities, its case.
 			$html = substr_replace(
 				$html,
-				'<a href="' . esc_url( $url ) . '">' . $anchor . '</a>',
+				'<a href="' . esc_url( $url ) . '">' . substr( $html, $at, $span_len ) . '</a>',
 				$at,
-				strlen( $anchor )
+				$span_len
 			);
 			$seen[ $url ] = true;
 			$applied++;
@@ -2381,6 +2384,155 @@ PROMPT;
 	 * link, not inside an HTML comment — a link opened in any of those breaks
 	 * the markup around it.
 	 */
+	/**
+	 * WHERE THE MODEL'S WORDS ARE IN THE HTML — read the way a READER reads.
+	 *
+	 * The model is shown the text and answers with the words it chose. It
+	 * reads THROUGH inline markup, because that is what the page looks like:
+	 * "giving rise to the <strong>bomber jacket</strong>" reads as "giving
+	 * rise to the bomber jacket", and that is what came back. Searching the
+	 * raw HTML for that string found nothing, so the pass refused the edit
+	 * and wrote no link at all — "rend impossible le maillage sur certaines
+	 * pages du fait du manque des mots dans le texte". On a shop whose copy
+	 * is full of <strong>, most candidates die that way.
+	 *
+	 * So the words are matched with the markup allowed BETWEEN them, and what
+	 * gets wrapped is the ORIGINAL span of HTML — tags and all. The text is
+	 * still never rewritten: `<a …>giving rise to the <strong>bomber
+	 * jacket</strong></a>` holds exactly the characters that were there.
+	 *
+	 * Three other things a model returns that a literal search cannot find,
+	 * and all three are the same bug wearing a different hat:
+	 *   - `&amp;` in the HTML against `&` in the answer;
+	 *   - a curly apostrophe against a straight one;
+	 *   - one space in the answer against a line break in the HTML.
+	 *
+	 * @return array{0:int,1:int}|null Offset and length in the HTML, or null
+	 *                                 when the words are not there exactly once.
+	 */
+	/**
+	 * THE SMALLEST SPAN AROUND THOSE WORDS THAT A LINK CAN LEGALLY WRAP.
+	 *
+	 * The words a reader sees rarely start and end where the markup does.
+	 * "giving rise to the <strong>bomber jacket</strong>" read as prose is
+	 * "giving rise to the bomber jacket", and the match for it stops in the
+	 * middle of the bold — wrap THAT and you get `<a>…<strong>…</a></strong>`,
+	 * which is not HTML.
+	 *
+	 * So the span grows outward over MARKUP ONLY, never over a letter: a tag
+	 * left open takes in the closing tag that follows it, a closing tag with
+	 * no opener takes in the opening tag right before it. The link text does
+	 * not change by one character — only the tags it carries do.
+	 *
+	 * It refuses rather than reaching: if what sits immediately outside is not
+	 * the tag needed, there is no legal span and the edit is dropped.
+	 *
+	 * @return array{0:int,1:int}|null
+	 */
+	private static function balance( string $html, int $at, int $len ): ?array {
+		// Eight steps is far more nesting than prose ever has, and it is a
+		// loop over a model's answer: it ends even when the answer is absurd.
+		for ( $guard = 0; $guard < 8; $guard++ ) {
+			$span  = substr( $html, $at, $len );
+			$open  = [];
+			$loose = [];
+			if ( preg_match_all( '~</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>~', $span, $m, PREG_SET_ORDER ) ) {
+				foreach ( $m as $t ) {
+					if ( '/' === $t[2] ) {
+						continue; // self-closing: balanced on its own.
+					}
+					$name = strtolower( $t[1] );
+					if ( '/' === $t[0][1] ) {
+						if ( $open && end( $open ) === $name ) {
+							array_pop( $open );
+						} else {
+							$loose[] = $name;
+						}
+						continue;
+					}
+					$open[] = $name;
+				}
+			}
+			if ( ! $open && ! $loose ) {
+				return [ $at, $len ];
+			}
+			if ( $open ) {
+				// Left open at the end: the very next thing must close it.
+				$name = (string) end( $open );
+				if ( preg_match( '~^</' . preg_quote( $name, '~' ) . '\s*>~i', substr( $html, $at + $len, 40 ), $mm ) ) {
+					$len += strlen( (string) $mm[0] );
+					continue;
+				}
+				return null;
+			}
+			// Closed without being opened: the opener must sit right before.
+			$name = (string) $loose[0];
+			$back = substr( $html, max( 0, $at - 200 ), min( 200, $at ) );
+			if ( preg_match( '~<' . preg_quote( $name, '~' ) . '\b[^>]*>$~i', $back, $mm ) ) {
+				$at  -= strlen( (string) $mm[0] );
+				$len += strlen( (string) $mm[0] );
+				continue;
+			}
+			return null;
+		}
+		return null;
+	}
+
+	public static function find_anchor( string $html, string $anchor ): ?array {
+		$words = preg_split( '/\s+/u', trim( $anchor ) );
+		$words = array_values( array_filter( (array) $words, static fn( $w ): bool => '' !== $w ) );
+		if ( ! $words ) {
+			return null;
+		}
+		// THE DELIMITER IS `~`, NOT `#`. Several of the tolerances below are
+		// numeric entities — `&#160;`, `&#39;` — and with `#` as the delimiter
+		// the first of them closed the pattern in the middle of itself. PCRE
+		// answered "Internal error", find_anchor() answered null, and every
+		// single edit was refused: a worse version of the bug being fixed.
+		$one = static function ( string $w ): string {
+			$out = '';
+			// Character by character, because the tolerances are per character
+			// and preg_quote() would fight them.
+			foreach ( preg_split( '//u', $w, -1, PREG_SPLIT_NO_EMPTY ) as $ch ) {
+				if ( '&' === $ch ) {
+					$out .= '(?:&amp;|&)';
+				} elseif ( in_array( $ch, [ "'", '’', '‘', '`', '´' ], true ) ) {
+					$out .= '(?:[\'’‘`´]|&#0?39;|&apos;|&rsquo;|&lsquo;)';
+				} elseif ( in_array( $ch, [ '"', '“', '”' ], true ) ) {
+					$out .= '(?:["“”]|&quot;|&#0?34;|&ldquo;|&rdquo;)';
+				} elseif ( in_array( $ch, [ '-', '–', '—' ], true ) ) {
+					$out .= '(?:[-–—]|&ndash;|&mdash;)';
+				} else {
+					$out .= preg_quote( $ch, '~' );
+				}
+			}
+			return $out;
+		};
+		// BETWEEN two words: whitespace, a non-breaking space, or any inline
+		// tag — and at least one of them, so two words never run together.
+		$gap = '(?:\s|&nbsp;|&#160;|</?[a-zA-Z][^>]*>)+';
+		$re  = '~' . implode( $gap, array_map( $one, $words ) ) . '~iu';
+		$n   = preg_match_all( $re, $html, $m, PREG_OFFSET_CAPTURE );
+		// A PATTERN THAT FAILED IS NOT A TEXT WITHOUT THE WORDS. preg_match_all
+		// answers false on a broken pattern and 0 on a text that simply does
+		// not hold them, and reading both as "not there" is how a whole module
+		// goes quiet. This says so in the log rather than refusing in silence.
+		if ( false === $n ) {
+			if ( class_exists( 'DZE_Health' ) ) {
+				DZE_Health::log( 'mesh', 'find_anchor', 'PCRE: ' . preg_last_error_msg() . ' — ' . mb_substr( $anchor, 0, 60 ) );
+			}
+			return null;
+		}
+		// EXACTLY ONCE, still. Words that appear twice cannot be linked without
+		// choosing for the shop which of the two carries the link.
+		if ( 1 !== $n ) {
+			return null;
+		}
+		// AND THE SPAN IS GROWN TO SOMETHING A LINK CAN WRAP — over markup
+		// only, never over a letter.
+		return self::balance( $html, (int) $m[0][0][1], strlen( (string) $m[0][0][0] ) );
+	}
+
 	public static function in_prose( string $html, int $at, int $len ): bool {
 		$before = substr( $html, 0, $at );
 		// Inside a tag: the last '<' comes after the last '>'.
@@ -2397,8 +2549,38 @@ PROMPT;
 		if ( false !== $oa && strripos( $before, '</a>' ) < $oa ) {
 			return false;
 		}
-		// And the words themselves hold no markup.
-		return false === strpos( substr( $html, $at, $len ), '<' );
+		// AND THE SPAN ITSELF MAY HOLD INLINE MARKUP — but nothing that makes
+		// the link illegal or absurd. "<a>giving rise to the <strong>bomber
+		// jacket</strong></a>" is valid and reads right; a span crossing a
+		// paragraph, a list item or another link is neither.
+		$span = substr( $html, $at, $len );
+		if ( preg_match( '#</?a\b#i', $span ) ) {
+			return false; // a link inside a link is not a link.
+		}
+		if ( preg_match( '#</?(?:p|div|li|ul|ol|h[1-6]|table|tr|td|th|section|article|blockquote|br|hr)\b#i', $span ) ) {
+			return false; // it would cross a block boundary.
+		}
+		// Every tag it does hold must open AND close inside the span, or the
+		// wrapper would interleave with it: `<a><strong></a></strong>`.
+		if ( preg_match_all( '#</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>#', $span, $tags, PREG_SET_ORDER ) ) {
+			$open = [];
+			foreach ( $tags as $t ) {
+				if ( '/' === $t[2] ) {
+					continue; // self-closing, balanced on its own.
+				}
+				if ( '/' === $t[0][1] ) {
+					if ( ! $open || array_pop( $open ) !== strtolower( $t[1] ) ) {
+						return false;
+					}
+					continue;
+				}
+				$open[] = strtolower( $t[1] );
+			}
+			if ( $open ) {
+				return false;
+			}
+		}
+		return true;
 	}
 	public static function only_linked( string $before, string $after, array $done, int $room ): void {
 		// 1. EVERY LINK ALREADY THERE IS STILL THERE. No tolerance: a link the

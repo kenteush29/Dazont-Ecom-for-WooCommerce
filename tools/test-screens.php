@@ -538,6 +538,34 @@ ok( 'et il le fait AVANT son propre script',
 ok( 'et il le dit plutot que de mourir en silence',
 	false !== strpos( $bl_aut, "typeof jQuery === 'undefined'" ), true );
 
+echo "\nLINTERRUPTEUR NEST QUE SUR LECRAN QUIL COMMANDE\n";
+// « Attention ces blocs sont aussi visibles sur des pages hors sujet comme le
+// batch onglet. » Imprime AVANT le bandeau donglets, il se tenait sur tous —
+// y compris dans lediteur dUN produit quon traduit a la main. Un interrupteur
+// de passe nocturne au-dessus de ce travail-la est du mobilier qui gene.
+$sw_src = [
+	'class-translate-screen.php' => "'dashboard' === \$tab && class_exists( 'DZE_Automation' )",
+	// L ecran des promotions le faisait deja, cote evenements seulement.
+	'class-discounts.php'        => "'events' === \$mode && class_exists( 'DZE_Automation' )",
+];
+foreach ( $sw_src as $sw_f => $sw_want ) {
+	$sw_s = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/' . $sw_f );
+	ok( 'le bandeau de ' . $sw_f . ' est borne', false !== strpos( $sw_s, $sw_want ), true );
+}
+// ET LES DEUX ECRANS SANS ONGLETS LE GARDENT SANS CONDITION : il ny a quune
+// vue, donc il ny a pas de hors-sujet possible.
+$sw_mesh = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-mesh.php' );
+ok( 'le maillage, qui na quune vue, le porte toujours',
+	false !== strpos( $sw_mesh, "DZE_Automation::panel_form( [ 'mesh_links' ]" ), true );
+// ET LETABLI NE LE MET QUE SUR LE SUJET QUI A UNE TACHE : les produits nen
+// ont pas, les categories oui.
+$sw_bulk = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-content.php' );
+ok( 'letabli produits ne porte pas dinterrupteur',
+	false !== strpos( $sw_bulk, 'DZE_Automation::panel_form' ), false );
+$sw_cat = (string) file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-category-content.php' );
+ok( 'mais le banc des categories, oui',
+	false !== strpos( $sw_cat, "DZE_Automation::panel_form( [ 'cat_desc' ]" ), true );
+
 echo "\nUNE SEULE BARRE DONGLETS, IMPRIMEE EN UN SEUL ENDROIT\n";
 // Six ecrans batissaient la leur, chacune quasi-copie des autres — meme
 // balisage, memes classes, meme compteur. Et lune delles, celle du maillage,

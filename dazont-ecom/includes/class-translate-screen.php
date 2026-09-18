@@ -92,11 +92,20 @@ trait DZE_Translate_Screen {
 		$tabs = self::tabs();
 		echo '<div class="wrap dze-wrap dze-admin">';
 		echo '<h1>' . esc_html( DZE_Screens::label( 'translations' ) ) . '</h1>';
-		// THE SWITCH FIRST. "Pourquoi il n'est pas placé en haut ce bloc ?
-		// C'est l'équivalent de la cerise sur le gâteau, pas l'assiette en bas
-		// de page." So it is a thin bar under the title, on every screen that
-		// has one, before the work it decides about.
-		if ( class_exists( 'DZE_Automation' ) ) {
+		// THE SWITCH FIRST, ON THE SCREEN IT IS ABOUT — AND ONLY THERE.
+		//
+		// "Pourquoi il n'est pas placé en haut ce bloc ? C'est l'équivalent de
+		// la cerise sur le gâteau, pas l'assiette en bas de page." So it is a
+		// thin bar under the title. But printed BEFORE the tab strip it stood
+		// on every tab, including the editor of ONE product — "attention ces
+		// blocs sont aussi visibles sur des pages hors sujet comme le batch
+		// onglet". A switch for a nightly pass, over a product somebody is
+		// translating by hand, is furniture in the way. The Discounts screen
+		// already scoped its own the same way, to the events side only.
+		//
+		// The dashboard is where the module is looked at as a whole; that is
+		// where the decision about the whole belongs.
+		if ( 'dashboard' === $tab && class_exists( 'DZE_Automation' ) ) {
 			DZE_Automation::panel_form( [ 'translate' ], __( 'Runs by itself', 'dazont-ecom' ) );
 		}
 		$strip = [];
