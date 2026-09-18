@@ -2316,10 +2316,12 @@ final class DZE_Diagnostic {
 			// cannot act on it, is worse than no number at all. What is left
 			// is everything else waiting — so a kind nobody thought of still
 			// shows up somewhere.
-			$mesh    = class_exists( 'DZE_Mesh' )
-				? (int) ( DZE_Queue::counts_for( DZE_Mesh::KINDS )['review'] ?? 0 )
-				: 0;
-			$waiting = max( 0, DZE_Queue::review_count() - $mesh ) + DZE_Queue::bulk_waiting();
+			// WHAT WAITS ON *THIS* SCREEN, and nothing else. The queue's rows are
+			// the inbox's business now — counting them here put a figure on this
+			// menu that its own screen could not show, which is the fault the
+			// shop spotted: "le bloc review dans le menu products ne recense que
+			// des actions de internal linking".
+			$waiting = DZE_Queue::bulk_waiting();
 		}
 		// ONE NAME PER SCREEN. "Content diagnostic" was worn by TWO screens at
 		// once — this page and the settings tab holding the criteria — and a
@@ -2522,17 +2524,6 @@ final class DZE_Diagnostic {
 			// The body belongs to the module that owns that work, like every
 			// other tab here: one function, printed by whoever shows it.
 			DZE_Mesh::instance()->render_tab();
-		} elseif ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
-			// EVERYTHING EXCEPT THE LINKING, which has a screen of its own now.
-			// Taken as a difference rather than a list, so a kind nobody
-			// thought of still turns up somewhere instead of nowhere.
-			$mine = class_exists( 'DZE_Mesh' )
-				? array_values( array_diff( array_keys( DZE_Queue::kinds() ), DZE_Mesh::KINDS ) )
-				: [];
-			// The body belongs to the module that owns that work: one body,
-			// printed here and on its own page alike, never two screens that
-			// have to be kept in step.
-			DZE_Queue::instance()->body( $mine );
 		} elseif ( 'products' === $tab && class_exists( 'DZE_Content' ) ) {
 			// The same rule again: one body, and it is handed the address of
 			// the screen showing it so its own two tabs — Selected products,

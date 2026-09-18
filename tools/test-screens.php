@@ -141,16 +141,17 @@ ok( 'and so does a tab the page has not got', DZE_Screens::url( 'logs', 'nowhere
 echo "\nA HOSTED PAGE KEEPS ITS NAME AND ANSWERS WITH ITS HOST'S ADDRESS\n";
 // Content to review is a tab of Content while the diagnostic hosts it. A
 // sentence written for the page — there are several — must still land.
-ok( 'the review list is hosted by Content',   DZE_Screens::hosted_by( 'review' ), [ 'content', 'review' ] );
-ok( 'its name is its own',                    DZE_Screens::name( 'review' ), 'Dazont Ecom → Content to review' );
-ok( 'and its address is the tab',
-	DZE_Screens::url( 'review' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-diagnostic&tab=review' );
+// LA LISTE UNIQUE NEST PLUS HEBERGEE : elle est la boite de reception.
+ok( 'la liste unique nest hebergee par personne', DZE_Screens::hosted_by( 'review' ), null );
+ok( 'its name is its own',                    DZE_Screens::name( 'review' ), 'Dazont Ecom → To review' );
+ok( 'and its address is its own',
+	DZE_Screens::url( 'review' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-queue' );
 $GLOBALS['off'] = [ 'diagnostic' ];
 ok( 'with the host off it stands alone',      DZE_Screens::hosted_by( 'review' ), null );
 ok( 'at its own address',
 	DZE_Screens::url( 'review' ), 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-queue' );
 ok( 'and the host itself is not offered',     DZE_Screens::offered( 'content' ), false );
-ok( 'nor named',                              DZE_Screens::name( 'content' ), 'Dazont Ecom → Products' );
+ok( 'nor named',                              DZE_Screens::name( 'content' ), 'Dazont Ecom → Diagnostic' );
 ok( 'but has no address',                     DZE_Screens::url( 'content' ), '' );
 $GLOBALS['off'] = [];
 
@@ -171,12 +172,12 @@ $GLOBALS['off'] = [];
 echo "\nTHE LINKS ARE EVERY PHRASE, AND NOTHING ELSE\n";
 $dze_links = DZE_Screens::links();
 ok( 'a page phrase is there',             $dze_links['Dazont Ecom → Logs'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-logs' );
-ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Products → Products'] ), true );
+ok( 'a tab phrase is there',              isset( $dze_links['Dazont Ecom → Diagnostic → Bulk writing'] ), true );
 // Et le maillage est desormais une PAGE, plus un onglet : sa phrase le dit.
 ok( 'le maillage est une page a lui',
 	$dze_links['Dazont Ecom → Internal linking'] ?? '', 'http://shop.test/wp-admin/admin.php?page=dazont-ecom-linking' );
 ok( 'a settings phrase is there',         isset( $dze_links['Settings → Email campaigns'] ), true );
-ok( 'a hosted page is there by its own name', isset( $dze_links['Dazont Ecom → Content to review'] ), true );
+ok( 'a hosted page is there by its own name', isset( $dze_links['Dazont Ecom → To review'] ), true );
 ok( 'and every address is an admin one',
 	count( array_filter( $dze_links, static fn( $u ) => 0 === strpos( (string) $u, 'http://shop.test/wp-admin/' ) ) ),
 	count( $dze_links ) );
@@ -315,7 +316,7 @@ ok( 'the tables are gone from the home screen', false !== strpos( $dze_home, 'To
 ok( 'and the spend is the four figures, not the report',
 	[ false !== strpos( $dze_home, 'dze-usage-summary' ), false !== strpos( $dze_home, 'dze-usage-graph' ) ], [ true, false ] );
 ok( 'content waiting adds the queue and the bulk screen', false !== strpos( $dze_home, '5 pieces of content wait for your yes or no' ), true );
-ok( 'and goes to Content to review',             false !== strpos( $dze_home, DZE_Screens::url( 'review' ) ), true );
+ok( 'and goes to the one list',                  false !== strpos( $dze_home, DZE_Screens::url( 'review' ) ), true );
 ok( 'one translation, in the singular',          false !== strpos( $dze_home, '1 translation waits to be read' ), true );
 ok( 'and goes to the Translations review tab',   false !== strpos( $dze_home, DZE_Screens::url( 'translations', 'review' ) ), true );
 ok( 'a nought is not printed',                   false !== strpos( $dze_home, 'suggested by the calendar' ), false );
@@ -368,13 +369,21 @@ ok( 'et en vidant',
 $sc_mesh = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-mesh.php' );
 ok( 'le maillage possede ses deux genres',
 	false !== strpos( $sc_mesh, "public const KINDS = [ 'cat_links', 'post_links' ];" ), true );
-ok( 'et ne montre que ceux-la',
-	false !== strpos( $sc_mesh, 'DZE_Queue::instance()->body( self::KINDS )' ), true );
+// IL NE DESSINE PLUS DE SECONDE LISTE. Un onglet ici tirant la table de la
+// file avec sa propre portee, cetait la troisieme copie dune seule table,
+// avec un troisieme compte pouvant contredire les deux autres.
+ok( 'le maillage ne dessine plus la liste',
+	false !== strpos( $sc_mesh, 'DZE_Queue::instance()->body( self::KINDS )' ), false );
+ok( 'il renvoie vers lunique liste, pre-filtree',
+	false !== strpos( $sc_mesh, "add_query_arg( [ 'kind' => implode( ',', self::KINDS ) ], DZE_Screens::url( 'review' ) )" ), true );
 $sc_diag = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-diagnostic.php' );
-ok( 'Produits montre tout le reste, par difference',
-	false !== strpos( $sc_diag, 'array_diff( array_keys( DZE_Queue::kinds() ), DZE_Mesh::KINDS )' ), true );
-ok( 'et son compteur cesse de compter le maillage',
-	false !== strpos( $sc_diag, 'max( 0, DZE_Queue::review_count() - $mesh )' ), true );
+// PRODUITS NE DESSINE PLUS LA LISTE DU TOUT, et son compteur ne compte plus que
+// ce qui attend sur son propre ecran : compter la file ici mettait sur ce menu un
+// chiffre que son ecran ne pouvait pas montrer — le defaut que la boutique a vu.
+ok( 'Produits ne dessine plus la liste',
+	false !== strpos( $sc_diag, 'array_diff( array_keys( DZE_Queue::kinds() ), DZE_Mesh::KINDS )' ), false );
+ok( 'et son compteur ne compte que le sien',
+	false !== strpos( $sc_diag, '$waiting = DZE_Queue::bulk_waiting();' ), true );
 
 echo "\nL'AUTOMATISME EST UNE PROPRIETE DU TRAVAIL, PAS UNE DESTINATION\n";
 // « Dans automations en fait il n'y aura rien, c'etait peut-etre maladroit de
@@ -419,25 +428,35 @@ echo "\nLA BOITE DE RECEPTION NOMME LES ECRANS, ET IL N'Y EN A QU'UNE\n";
 // un ecran tenant quatre travaux sans rapport. Un compte sur lequel on ne peut
 // pas agir a un seul endroit est un compte qui envoie chercher.
 $in_src = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-dashboard.php' );
+// CHAQUE LIGNE OUVRE LA LISTE UNIQUE, pre-filtree a son travail : une seconde
+// liste avec son propre compte est un compte qui peut contredire lautre.
 ok( 'le maillage a sa propre ligne',
-	false !== strpos( $in_src, "DZE_Screens::label( 'linking' )" ), true );
-ok( 'et elle ouvre son onglet de revue',
-	false !== strpos( $in_src, "add_query_arg( [ 'tab' => 'review' ], DZE_Screens::url( 'linking' ) )" ), true );
+	false !== strpos( $in_src, "implode( ',', \$mesh ) ], DZE_Screens::url( 'review' )" ), true );
+ok( 'et les deux lignes ouvrent la meme liste',
+	substr_count( $in_src, "DZE_Screens::url( 'review' )" ) >= 2, true );
 ok( 'le reste est pris par difference',
 	false !== strpos( $in_src, "array_diff( array_keys( DZE_Queue::kinds() ), \$mesh )" ), true );
-ok( 'et ouvre l\'onglet de Produits',
-	false !== strpos( $in_src, "DZE_Screens::url( 'content', 'review' )" ), true );
+ok( 'et plus rien ne pointe vers longlet disparu',
+	false !== strpos( $in_src, "DZE_Screens::url( 'content', 'review' )" ), false );
 // ET L'ANCIENNE DESTINATION UNIQUE QUITTE LE MENU.
 $in_q = file_get_contents( __DIR__ . '/../dazont-ecom/includes/class-queue.php' );
-ok( 'la liste fourre-tout quitte le menu',
-	false !== strpos( $in_q, 'remove_submenu_page( $parent, self::MENU_SLUG );' ), true );
+// ET ELLE RESTE AU MENU : cest la boite de reception. La retirer laissait la
+// boutique avec trois listes de trois portees differentes et AUCUNE liste de
+// tout — la seule chose que « je ne comprends pas ou donner de lattention »
+// demande vraiment.
+ok( 'la liste unique est au menu',
+	false !== strpos( $in_q, 'remove_submenu_page( $parent, self::MENU_SLUG );' ), false );
+ok( 'elle porte un filtre, pas des ecrans separes',
+	false !== strpos( $in_q, 'public static function rail( array $active ): void' ), true );
+ok( 'et le filtre voyage dans ladresse',
+	false !== strpos( $in_q, "isset( \$_GET['kind'] )" ), true );
 ok( 'mais sa page repond toujours',
 	false !== strpos( $in_q, "[ \$this, 'render' ]" ), true );
-ok( 'et l\'ordre du menu ne la nomme plus',
-	in_array( 'review', DZE_Screens::menu_order(), true ), false );
+ok( 'et lordre du menu la nomme, juste apres laccueil',
+	array_slice( DZE_Screens::menu_order(), 0, 2 ), [ 'dashboard', 'review' ] );
 // LE MENU FINAL : le travail du jour en haut, la plomberie en bas.
 ok( 'le menu est celui voulu', DZE_Screens::menu_order(), [
-	'dashboard', 'content', 'linking', 'translations', 'marketing',
+	'dashboard', 'review', 'content', 'linking', 'translations', 'marketing',
 	'restock', 'sourcing', 'shortcodes', 'setup', 'logs', 'settings', 'modules',
 ] );
 

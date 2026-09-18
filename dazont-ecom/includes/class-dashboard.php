@@ -131,8 +131,10 @@ final class DZE_Dashboard {
 					'n'    => $n,
 					/* translators: %s: how many */
 					'said' => sprintf( _n( '%s page has links waiting for your yes or no', '%s pages have links waiting for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
-					'url'  => add_query_arg( [ 'tab' => 'review' ], DZE_Screens::url( 'linking' ) ),
-					'to'   => DZE_Screens::label( 'linking' ),
+					// Into the ONE list, pre-filtered to this work: a second list
+					// with its own count is a count that can disagree.
+					'url'  => add_query_arg( [ 'kind' => implode( ',', $mesh ) ], DZE_Screens::url( 'review' ) ),
+					'to'   => DZE_Screens::label( 'review' ),
 				];
 			}
 		}
@@ -152,8 +154,8 @@ final class DZE_Dashboard {
 				'n'    => $n,
 				/* translators: %s: how many */
 				'said' => sprintf( _n( '%s piece of content waits for your yes or no', '%s pieces of content wait for your yes or no', $n, 'dazont-ecom' ), number_format_i18n( $n ) ),
-				'url'  => DZE_Screens::url( 'content', 'review' ),
-				'to'   => DZE_Screens::label( 'content' ),
+				'url'  => DZE_Screens::url( 'review' ),
+				'to'   => DZE_Screens::label( 'review' ),
 			];
 		}
 		if ( class_exists( 'DZE_Translate' ) && $on( 'translate' ) ) {

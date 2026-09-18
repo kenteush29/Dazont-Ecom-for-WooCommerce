@@ -1149,19 +1149,21 @@ final class DZE_Queue {
 	 * back to being its own page: a module switched off must never take a
 	 * function with it that has nothing to do with it.
 	 */
+	/**
+	 * NOT HOSTED ANYWHERE ANY MORE. It is the inbox, and it has its own entry.
+	 *
+	 * It used to live as a tab of the diagnostic screen, so its address was
+	 * that screen's — and when the diagnostic module was switched off, the one
+	 * list holding every kind of waiting work became reachable from nowhere at
+	 * all. Kept as a function because callers ask it, and it now answers the
+	 * only true thing: no.
+	 */
 	public static function hosted(): bool {
-		return class_exists( 'DZE_Diagnostic' )
-			&& ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'diagnostic' ) );
+		return false;
 	}
 
-	/** The screen's address, in one place: the menu it hangs from can move. */
+	/** The screen's address, in one place. */
 	public static function url( array $args = [] ): string {
-		if ( self::hosted() ) {
-			return add_query_arg(
-				array_merge( [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'review' ], $args ),
-				admin_url( 'admin.php' )
-			);
-		}
 		return add_query_arg(
 			array_merge( [ 'page' => self::MENU_SLUG ], $args ),
 			admin_url( 'admin.php' )
@@ -1238,21 +1240,13 @@ final class DZE_Queue {
 			self::MENU_SLUG,
 			[ $this, 'render' ]
 		);
-		// AND IT LEAVES THE MENU.
-		//
-		// It was the one screen that answered "what is waiting for me" — and
-		// it answered it by putting four unrelated kinds of work in one list.
-		// Each kind now has the screen it belongs to, each showing its own
-		// part with its own count, and the dashboard names them one line
-		// each. A fifth entry holding all of it again is a second answer to
-		// a question already answered, and the two could disagree.
-		//
-		// Registered, then taken out: every link, bookmark and redirect ever
-		// printed at it still lands, and it is still the one place to read
-		// everything side by side.
-		if ( function_exists( 'remove_submenu_page' ) ) {
-			remove_submenu_page( $parent, self::MENU_SLUG );
-		}
+		// AND IT STAYS IN THE MENU. It was taken out of it earlier today, on
+		// the reasoning that each work screen shows its own part — which left
+		// the shop with three lists of three different scopes and NO list of
+		// everything, the one thing "je ne comprends pas là où il faut donner
+		// de l'attention" actually asks for. It is the inbox: one entry, one
+		// table, one count, filtered by a rail rather than split across
+		// screens. Its rail is printed by `body()`.
 	}
 
 	/**
@@ -1498,12 +1492,68 @@ final class DZE_Queue {
 	 * the tabs is switched off, because switching a module off must never
 	 * hide a function that has nothing to do with it.
 	 */
+	/**
+	 * ONE TABLE, ONE FILTER — WordPress's own Comments pattern.
+	 *
+	 * Three screens each drawing the same table with its own scope is three
+	 * counts that can disagree and no way to clear the day in one place. The
+	 * rail is built from the kinds catalogue, so a kind added tomorrow appears
+	 * here without anybody remembering to add it, and each entry carries its
+	 * own count — read in one query for the whole rail.
+	 *
+	 * @param array<int,string> $active
+	 */
+	public static function rail( array $active ): void {
+		$kinds = self::kinds();
+		$all   = array_keys( $kinds );
+		// The families a shop actually thinks in, named by what waits in them.
+		$groups = [
+			'' => [ 'label' => __( 'All', 'dazont-ecom' ), 'kinds' => $all ],
+		];
+		foreach ( $all as $k ) {
+			$groups[ (string) $k ] = [
+				'label' => (string) ( $kinds[ $k ]['label'] ?? $k ),
+				'kinds' => [ (string) $k ],
+			];
+		}
+		$now  = implode( ',', $active );
+		$base = add_query_arg( [ 'page' => self::MENU_SLUG ], admin_url( 'admin.php' ) );
+		$out  = [];
+		foreach ( $groups as $key => $one ) {
+			$n = (int) ( self::counts_for( $one['kinds'] )['review'] ?? 0 );
+			// A family nothing has ever waited in is not a filter, it is noise.
+			if ( '' !== $key && 0 === $n && ! in_array( $key, $active, true ) ) {
+				continue;
+			}
+			$here = ( '' === $key && ! $active ) || ( $now === $key );
+			$out[] = sprintf(
+				'<a href="%1$s"%2$s>%3$s <span class="count">(%4$s)</span></a>',
+				esc_url( '' === $key ? $base : add_query_arg( [ 'kind' => $key ], $base ) ),
+				$here ? ' class="current"' : '',
+				esc_html( (string) $one['label'] ),
+				esc_html( number_format_i18n( $n ) )
+			);
+		}
+		if ( count( $out ) < 2 ) {
+			return; // one family is not a choice.
+		}
+		echo '<ul class="subsubsub" style="float:none;margin:0 0 12px;">';
+		echo '<li>' . implode( ' |</li><li>', $out ) . '</li>';
+		echo '</ul>';
+	}
 	public function render(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
 		echo '<div class="wrap dze-admin"><h1>' . esc_html( DZE_Screens::label( 'review' ) ) . '</h1>';
-		$this->body();
+		// THE FILTER IS IN THE ADDRESS, so a filtered view is a bookmark and
+		// a link — which is what lets every other screen point AT this list
+		// instead of drawing a second copy of it.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
+		$want = isset( $_GET['kind'] ) ? sanitize_text_field( wp_unslash( $_GET['kind'] ) ) : '';
+		$want = self::clean_kinds( array_map( 'sanitize_key', explode( ',', $want ) ) );
+		self::rail( $want );
+		$this->body( array_values( $want ) );
 		echo '</div>';
 	}
 

@@ -53,14 +53,21 @@ final class DZE_Screens {
 				'module' => 'dashboard',
 			],
 			'content'      => [
-				// "Content" names the module; "Products" names what is in there.
-				'label'  => __( 'Products', 'dazont-ecom' ),
+				// NAMED BY WHAT IT DOES, not by one of the things it reads.
+				// "Content" named the module. "Products" was worse: this screen
+				// reads the WHOLE site — 52 criteria, of which 15 are about
+				// articles and 5 about categories — so the name lied about the
+				// subject on the very first tile. It is the reading of the shop
+				// against the shop's own standards, and it says where to go.
+				'label'  => __( 'Diagnostic', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-diagnostic',
 				'module' => 'diagnostic',
 				'tabs'   => [
-					'diagnostic' => [ 'label' => __( 'Diagnostic', 'dazont-ecom' ) ],
-					'review'     => [ 'label' => __( 'To review', 'dazont-ecom' ), 'module' => 'queue' ],
-					'products'   => [ 'label' => __( 'Products', 'dazont-ecom' ), 'module' => 'content' ],
+					'diagnostic' => [ 'label' => __( 'What is missing', 'dazont-ecom' ) ],
+					// The bulk writing bench: its own inner tabs already call it
+					// "Selected products", so the strip stops saying "Products →
+					// Products" over a page whose title was Products too.
+					'products'   => [ 'label' => __( 'Bulk writing', 'dazont-ecom' ), 'module' => 'content' ],
 				],
 			],
 			'marketing'    => [
@@ -116,13 +123,16 @@ final class DZE_Screens {
 			// otherwise: switching one module off must never hide a function
 			// that has nothing to do with it.
 			'review'       => [
-				'label'  => __( 'Content to review', 'dazont-ecom' ),
+				// THE INBOX. "Content to review" named one of the things on it and
+				// hid the rest: it holds category descriptions, article links,
+				// photographs and product texts. What it IS, is the list of what
+				// waits for a decision.
+				'label'  => __( 'To review', 'dazont-ecom' ),
 				'slug'   => 'dazont-ecom-queue',
 				'module' => 'queue',
-				'hosted' => [ 'content', 'review' ],
 			],
 			'bulk'         => [
-				'label'  => __( 'Products AI bulk', 'dazont-ecom' ),
+				'label'  => __( 'Bulk writing', 'dazont-ecom' ),
 				'slug'   => 'dazont-content-bulk',
 				'module' => 'content',
 				'parent' => 'edit.php?post_type=product',
@@ -345,6 +355,9 @@ final class DZE_Screens {
 	public static function menu_order(): array {
 		return [
 			'dashboard',
+			// LA BOITE DE RECEPTION, juste apres laccueil : cest la reponse a
+			// « je ne comprends pas la ou il faut donner de lattention ».
+			'review',
 			'content',
 			'linking',
 			'translations',

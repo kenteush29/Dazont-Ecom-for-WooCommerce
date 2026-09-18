@@ -1237,8 +1237,10 @@ $GLOBALS['review_n'] = 4;
 $GLOBALS['bulk_n']   = 1;
 $dze_tabs = DZE_Diagnostic::tabs();
 ok( 'the reading is a view',            isset( $dze_tabs['diagnostic'] ), true );
-ok( 'and what waits for a person is another', isset( $dze_tabs['review'] ), true );
-ok( 'each view carries its own figure', (int) $dze_tabs['review']['n'], 4 );
+// LA LISTE DATTENTE NEST PLUS UNE VUE DICI : cest la boite de reception, une
+// entree de menu a elle. Un onglet ici portait un chiffre fait des lignes de
+// maillage au-dessus dune liste batie pour les exclure.
+ok( 'la liste dattente nest plus une vue dici', isset( $dze_tabs['review'] ), false );
 // A COUNT BELONGS TO ONE VIEW. Products waiting for a decision used to be
 // added into the review tab's figure AND announced by a notice inside it —
 // two accounts of the same thing on one screen, neither of them the screen
@@ -1270,7 +1272,7 @@ $dze_page = (string) ob_get_clean();
 // linking, what waits and the products — and the standards it reads against
 // are Settings → Content rules. Both used to be called "Content diagnostic",
 // which is a name that answers neither question.
-ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Products</h1>' ), true );
+ok( 'the page is named for the subject', false !== strpos( $dze_page, '<h1>Diagnostic</h1>' ), true );
 ok( 'it draws WordPress\'s own tabs',     false !== strpos( $dze_page, 'nav-tab-wrapper' ), true );
 // THE PRODUCTS TAB IS DRAWN HERE, with its own two tabs inside it — "tu peux
 // rendre l'onglet Products fonctionnel et y faire dedans 2 onglets, Selected
@@ -1302,8 +1304,8 @@ $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'review' ];
 ob_start();
 DZE_Diagnostic::instance()->render_page();
 $dze_page = (string) ob_get_clean();
-ok( 'asking for the other view prints it', false !== strpos( $dze_page, 'the review body' ), true );
-ok( 'and not the reading',               false !== strpos( $dze_page, 'What the shop is short of' ), false );
+ok( 'demander la vue disparue ramene a la lecture', false !== strpos( $dze_page, 'the review body' ), false );
+ok( 'et cest bien la lecture qui saffiche',     false !== strpos( $dze_page, 'What the shop is short of' ), true );
 // A view that does not exist is not an error: it lands on the first one.
 $_GET = [ 'page' => DZE_Diagnostic::MENU_SLUG, 'tab' => 'nonsense' ];
 ob_start();
@@ -1316,7 +1318,7 @@ $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Products' );
+ok( 'the left menu is named for the subject', (string) ( $dze_menu['title'] ?? '' ), 'Diagnostic' );
 ok( 'and it still points at the same page', (string) ( $dze_menu['slug'] ?? '' ), DZE_Diagnostic::MENU_SLUG );
 // THE BADGE IS WHAT WAITS FOR A PERSON. It used to carry the shortfall —
 // "1,205" in red, for ever, on a menu you look at forty times a day, which is
@@ -1328,8 +1330,13 @@ $GLOBALS['review_n'] = 2;
 $GLOBALS['bulk_n']   = 3;
 DZE_Diagnostic::instance()->register_menu();
 $dze_menu = (array) ( $GLOBALS['dze_submenus'][0] ?? [] );
-ok( 'what waits for a person is on the menu',
-	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>5<' ), true );
+// ET LA PASTILLE NE COMPTE QUE CE QUI ATTEND SUR CET ECRAN. Elle additionnait la
+// file entiere (2) et les produits en attente (3) : un chiffre que lecran ne
+// pouvait pas montrer. La file est la boite de reception, qui porte le sien.
+ok( 'la pastille ne compte que ce qui attend ici',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>3<' ), true );
+ok( 'et jamais la file, qui a son propre menu',
+	false !== strpos( (string) ( $dze_menu['menu'] ?? '' ), '>5<' ), false );
 $GLOBALS['review_n'] = 0;
 $GLOBALS['bulk_n']   = 0;
 $GLOBALS['dze_opts'] = [];

@@ -1645,42 +1645,28 @@ final class DZE_Mesh {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- navigation only.
-		$tab     = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'plan';
 		$waiting = class_exists( 'DZE_Queue' )
 			? (int) ( DZE_Queue::counts_for( self::KINDS )['review'] ?? 0 )
 			: 0;
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html( class_exists( 'DZE_Screens' ) ? DZE_Screens::label( 'linking' ) : __( 'Internal linking', 'dazont-ecom' ) ) . '</h1>';
-		// THE WHOLE LIFE OF ONE SUBJECT, ON ONE SCREEN: what to link, and what
-		// came back to be decided on. Sending the shop to another menu to read
-		// the result of the button it just pressed is the "trop de clics" it
-		// complained about, and it is the same list either way — only scoped.
-		$tabs = [
-			'plan'   => __( 'What to link', 'dazont-ecom' ),
-			'review' => $waiting
-				? sprintf(
-					/* translators: %s: how many results are waiting */
-					__( 'To review (%s)', 'dazont-ecom' ),
-					number_format_i18n( $waiting )
-				)
-				: __( 'To review', 'dazont-ecom' ),
-		];
-		echo '<h2 class="nav-tab-wrapper" style="margin-bottom:16px;">';
-		foreach ( $tabs as $id => $label ) {
+		// AND ITS RESULTS ARE NOT A SECOND LIST. A tab here drawing the queue's
+		// table with its own scope is the third copy of one table, with a third
+		// count that can disagree with the other two. What waits is said in one
+		// line, with the way into the ONE list, pre-filtered to this work.
+		if ( $waiting && class_exists( 'DZE_Queue' ) && class_exists( 'DZE_Screens' ) ) {
 			printf(
-				'<a class="nav-tab%1$s" href="%2$s">%3$s</a>',
-				$tab === $id ? ' nav-tab-active' : '',
-				esc_url( add_query_arg( [ 'page' => self::MENU_SLUG, 'tab' => $id ], admin_url( 'admin.php' ) ) ),
-				esc_html( $label )
+				'<div class="notice notice-info inline" style="margin:0 0 16px;"><p>%1$s <a href="%2$s">%3$s</a></p></div>',
+				esc_html( sprintf(
+					/* translators: %s: how many pages */
+					_n( '%s page has links waiting for your yes or no.', '%s pages have links waiting for your yes or no.', $waiting, 'dazont-ecom' ),
+					number_format_i18n( $waiting )
+				) ),
+				esc_url( add_query_arg( [ 'kind' => implode( ',', self::KINDS ) ], DZE_Screens::url( 'review' ) ) ),
+				esc_html__( 'Read them →', 'dazont-ecom' )
 			);
 		}
-		echo '</h2>';
-		if ( 'review' === $tab && class_exists( 'DZE_Queue' ) ) {
-			// One body, printed by whoever shows it — the rule every other tab
-			// in this plugin is held to — and told which work is ours.
-			DZE_Queue::instance()->body( self::KINDS );
-		} else {
+		{
 			// THE SWITCH FIRST, THEN THE WORK.
 			//
 			// "Run it by itself devrait être en haut de page, tu m'assènes avec
@@ -1695,6 +1681,7 @@ final class DZE_Mesh {
 		}
 		echo '</div>';
 	}
+
 	public function assets( string $hook ): void {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- navigation only.
 		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
@@ -1710,9 +1697,7 @@ final class DZE_Mesh {
 		// THE REVIEW TAB IS THE QUEUE'S OWN SCREEN, and it brings its own
 		// assets when its body is printed — scoped by the host. Nothing for
 		// the mesh to load there.
-		if ( self::MENU_SLUG === $page && 'review' === $tab ) {
-			return;
-		}
+
 		$v = defined( 'DZE_VERSION' ) ? DZE_VERSION : '1';
 		wp_enqueue_script( 'dze-mesh', plugins_url( 'admin/js/mesh.js', DZE_FILE ), [ 'jquery' ], $v, true );
 		wp_localize_script( 'dze-mesh', 'dzeMesh', [
