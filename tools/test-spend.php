@@ -172,8 +172,20 @@ ok( 'the product lane really does make images', count( $calls ) >= 2, true );
 ok( 'and every one of its calls names its product', $blind, 0 );
 // And nothing reaches the provider around it: one endpoint, one funnel, one
 // place the ceiling has to be asked.
+// UN SEUL APPEL, MEME AVEC DEUX PORTES. Le modele a une adresse de retouche
+// et une adresse texte -> image ; le choix se fait DANS l appel, pas dans un
+// second wp_remote_post pose a cote — sinon le plafond serait a redemander la.
 ok( 'and the provider is reached from exactly one place',
-	substr_count( $src, 'wp_remote_post( self::FAL_QUEUE' ), 1 );
+	preg_match_all( '/wp_remote_post\([^;]*FAL_QUEUE/', $src ), 1 );
+// ET LA PORTE LIBRE EXISTE. « Image lab exige une image entrante. Règles ça.
+// Ça devrait être libre. » `/edit` refuse une requete sans image_urls : sans
+// photographie de depart, c est l adresse sans suffixe qu il faut pousser.
+ok( 'la porte texte vers image existe',
+	false !== strpos( $src, "queue.fal.run/fal-ai/nano-banana-2'" ), true );
+// ET LE CHAMP VIDE NE PART PAS AVEC : un image_urls vide envoye a une porte
+// qui ne l attend pas est un refus de plus.
+ok( 'et un image_urls vide n est jamais envoye',
+	(bool) preg_match( '/if \( ! \$dze_fresh \) \{\s*\$dze_body\[.image_urls.\]/', $src ), true );
 // AND NEVER BY THE ENDPOINT THAT HOLDS THE SOCKET OPEN. `fal.run` answers on
 // the same connection, so a picture slower than this site's patience is one
 // fal finishes, bills, and nobody collects — the shop paying for nothing,

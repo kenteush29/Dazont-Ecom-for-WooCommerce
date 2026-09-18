@@ -235,9 +235,10 @@ final class DZE_Image_Lab {
 		} catch ( \Throwable $e ) {
 			wp_send_json_error( [ 'message' => $e->getMessage() ] );
 		}
-		if ( ! $sources ) {
-			wp_send_json_error( [ 'message' => __( 'Add at least one image to work from.', 'dazont-ecom' ) ] );
-		}
+		// RIEN N EST EXIGE EN ENTREE. « Image lab exige une image entrante.
+		// Règles ça. Ça devrait être libre. » Sans photographie de départ le
+		// modèle écrit l'image depuis le prompt seul — `fal_generate()` pousse
+		// alors la porte texte → image au lieu de celle de la retouche.
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}

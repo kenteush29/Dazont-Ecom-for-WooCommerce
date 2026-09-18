@@ -81,6 +81,20 @@ final class DZE_Translate {
 	 * here — that would 404 an address that is out in the world.
 	 */
 	private const META_SLUG = '_dze_tr_slug_todo';
+	/**
+	 * QUI A FAIT CE TRAVAIL — le compte, pas un drapeau.
+	 *
+	 * « Ne pas oublier d'afficher aussi par qui ça a été fait. Partout, comme
+	 * sur les bulk product. »
+	 *
+	 * `_dze_tr_by` existe depuis longtemps et ne porte qu'un « 1 » : il dit que
+	 * ce module a écrit là, jamais qui l'a demandé. Sur une boutique à
+	 * plusieurs mains c'est la première question posée, et les requêtes qui
+	 * lisent ce drapeau s'en servent comme d'une présence — y écrire un
+	 * identifiant les casserait. D'où une clé à côté, qui porte le compte.
+	 * Zéro est une réponse : c'est la passe qui tourne toute seule.
+	 */
+	private const META_WHO = '_dze_tr_who';
 
 	private static ?self $instance = null;
 
@@ -2676,6 +2690,10 @@ final class DZE_Translate {
 		}
 		self::meta_write( $o, (int) $o['id'], self::META_WAIT, (string) wp_json_encode( [
 			'at'    => time(),
+			// ET QUI L A DEMANDE. Une file partagee qui ne nomme personne fait
+			// relancer deux fois le meme objet par deux personnes, et l une des
+			// deux traductions part a la poubelle apres avoir ete payee.
+			'by'    => function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0,
 			'langs' => $langs,
 			// WHAT IT WAS TRANSLATED FROM. Accepting a week later must write
 			// the register against the words that were actually sent, not
@@ -2889,6 +2907,10 @@ final class DZE_Translate {
 			}
 			self::obj_write( $o, $target, array_map( 'strval', $texts ) );
 			self::meta_write( $o, $target, self::META_MINE, '1' );
+			// ET QUI A DIT OUI, a cote du drapeau plutot qu a sa place : les
+			// requetes qui listent le travail fait se servent de ce drapeau
+			// comme d une presence, et un identifiant a la place le casserait.
+			self::meta_write( $o, $target, self::META_WHO, (string) ( function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0 ) );
 			// THE REGISTER IS WRITTEN AGAINST WHAT WAS SENT, never against the
 			// source as it stands now: accepting a batch a week later must not
 			// claim a field is current when somebody has edited it since.
@@ -3036,6 +3058,7 @@ final class DZE_Translate {
 				'when'  => (string) $r['post_modified'],
 				'edit'  => (string) get_edit_post_link( $id, '' ),
 				'view'  => (string) get_permalink( $id ),
+				'by'    => self::who_wrote( [ 'kind' => 'post', 'id' => $id, 'type' => (string) $r['post_type'] ], $id ),
 			];
 		}
 		// AND THE TERMS, which keep their mark in term meta and have no
@@ -3062,9 +3085,29 @@ final class DZE_Translate {
 				'when'  => '',
 				'edit'  => (string) get_edit_term_link( $tid, $tax ),
 				'view'  => is_wp_error( $lnk ) ? '' : (string) $lnk,
+				'by'    => self::who_wrote( [ 'kind' => 'term', 'id' => $tid, 'type' => $tax ], $tid ),
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * QUI A ÉCRIT CETTE TRADUCTION, prêt à afficher — ou rien du tout.
+	 *
+	 * Trois réponses, et elles ne se confondent pas : un nom, « Automatic »
+	 * quand c'est la passe qui tourne seule, et RIEN quand la clé n'existe
+	 * pas — un objet traduit avant que ce soit gardé a bien été accepté par
+	 * quelqu'un, simplement personne ne l'a écrit, et le nommer serait
+	 * inventer. C'est la même règle que sur le banc des produits.
+	 */
+	private static function who_wrote( array $o, int $id ): ?string {
+		$raw = self::meta_read( $o, $id, self::META_WHO );
+		if ( '' === $raw ) {
+			return null;
+		}
+		return class_exists( 'DZE_Queue' )
+			? DZE_Queue::started_by( (int) $raw )
+			: (string) $raw;
 	}
 
 	/**
@@ -3145,6 +3188,10 @@ final class DZE_Translate {
 			'label' => self::obj_label( $o ),
 			'langs' => array_keys( (array) $held['langs'] ),
 			'at'    => (int) ( $held['at'] ?? 0 ),
+			// QUI L A DEMANDE. Absent sur une ligne mise en attente avant que
+			// ce soit garde : la clé manque, et l'écran le dit plutôt que de
+			// nommer quelqu'un au hasard.
+			'by'    => array_key_exists( 'by', (array) $held ) ? (int) $held['by'] : null,
 		];
 	}
 

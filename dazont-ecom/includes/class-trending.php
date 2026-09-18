@@ -161,11 +161,9 @@ final class DZE_Trending {
 			// Discounts module also holds the products IT has marked down —
 			// they are merged into this very function. One answer to "what is
 			// on sale", so this block and the sale block can never disagree.
-			$want        = $limit > 0 ? $limit : ( $paginate ? count( $product_ids ) : 12 );
 			$product_ids = self::prefer_not_on_sale(
 				$product_ids,
-				array_map( 'absint', (array) wc_get_product_ids_on_sale() ),
-				$want
+				array_map( 'absint', (array) wc_get_product_ids_on_sale() )
 			);
 			if ( empty( $product_ids ) ) {
 				return '';
@@ -209,16 +207,24 @@ final class DZE_Trending {
 	 * qui s'efface le jour des soldes est exactement le contraire de ce que
 	 * l'attribut cherchait à obtenir.
 	 *
-	 * Alors : les non-remisées d'abord, dans l'ordre du classement, puis on
-	 * complète avec les remisées tant qu'il manque du monde. La préférence est
-	 * tenue quand elle peut l'être, et le bloc est toujours plein.
+	 * Alors : les non-remisées d'abord, dans l'ordre du classement, puis les
+	 * remisées derrière. La préférence est tenue quand elle peut l'être, et le
+	 * bloc est toujours plein.
+	 *
+	 * ET ON RÉORDONNE, ON NE COUPE PAS. Première version de ce correctif :
+	 * elle rendait exactement les dix demandés — et le bloc en affichait huit.
+	 * `[products]` écarte au rendu ce qui est en rupture ou hors catalogue,
+	 * et le module sur-tire exprès pour ça depuis toujours : « demander
+	 * autant qu'on veut en montrer et en jeter ensuite, c'est comme ça qu'un
+	 * bloc de douze revient avec cinq ». Couper la liste à dix supprimait ce
+	 * coussin. La liste sort donc entière, dans le bon ordre, et c'est
+	 * `limit` qui prend les dix premiers qui tiennent debout.
 	 *
 	 * @param int[] $ranked      Les identifiants, dans l'ordre des ventes.
 	 * @param int[] $on_sale_ids Ce que WooCommerce dit être en promo.
-	 * @param int   $want        Combien le bloc doit afficher.
-	 * @return int[]
+	 * @return int[] Les mêmes identifiants, non-remisés en tête.
 	 */
-	public static function prefer_not_on_sale( array $ranked, array $on_sale_ids, int $want ): array {
+	public static function prefer_not_on_sale( array $ranked, array $on_sale_ids ): array {
 		$sale = array_flip( array_map( 'absint', $on_sale_ids ) );
 		$free = [];
 		$held = [];
@@ -229,10 +235,7 @@ final class DZE_Trending {
 				$free[] = $id;
 			}
 		}
-		$want = max( 1, $want );
-		return count( $free ) >= $want
-			? $free
-			: array_merge( $free, array_slice( $held, 0, $want - count( $free ) ) );
+		return array_merge( $free, $held );
 	}
 
 	// -------------------------------------------------------------------------
