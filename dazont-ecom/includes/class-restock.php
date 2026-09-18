@@ -15,9 +15,6 @@ final class DZE_Restock {
 	public const SALES_META  = '_dze_total_sales_cached';
 	public const LAST_RECALC = 'dze_last_recalc';
 	public const MENU_SLUG   = 'dazont-ecom';
-	// This screen's OWN address, now that the home screen has the menu's.
-	// A slug typed twice is two slugs the day either changes.
-	public const PAGE_SLUG   = 'dazont-ecom-restock';
 	public const NONCE       = 'dze_admin';
 
 	private static ?self $instance = null;
@@ -65,42 +62,23 @@ final class DZE_Restock {
 	public function register_menu(): void {
 		// Top-level "Dazont Ecom" menu; Restock is its first module. Future
 		// modules register additional submenu pages under the same slug.
-		// WHAT PRESSING "DAZONT ECOM" OPENS IS THE HOME SCREEN, not this one.
-		// Restock happens to own the top-level menu — a fact about the code,
-		// not about the shop — and for months that fact decided what the
-		// plugin showed first: a table about stock, to somebody asking where
-		// to give his attention. The home screen takes the menu's own address;
-		// with its module off, this page takes it back rather than leaving the
-		// menu opening on nothing.
-		$home = class_exists( 'DZE_Dashboard' ) && ( ! class_exists( 'DZE_Modules' ) || DZE_Modules::enabled( 'dashboard' ) );
 		add_menu_page(
 			__( 'Dazont Ecom', 'dazont-ecom' ),
 			__( 'Dazont Ecom', 'dazont-ecom' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
-			$home ? [ DZE_Dashboard::instance(), 'render_page' ] : [ $this, 'render_page' ],
+			[ $this, 'render_page' ],
 			'dashicons-cart',
 			56
 		);
 		add_submenu_page(
 			self::MENU_SLUG,
-			$home ? DZE_Screens::label( 'dashboard' ) : DZE_Screens::label( 'restock' ),
-			$home ? DZE_Screens::label( 'dashboard' ) : DZE_Screens::label( 'restock' ),
+			DZE_Screens::label( 'restock' ),
+			DZE_Screens::label( 'restock' ),
 			'manage_woocommerce',
 			self::MENU_SLUG,
-			$home ? [ DZE_Dashboard::instance(), 'render_page' ] : [ $this, 'render_page' ]
+			[ $this, 'render_page' ]
 		);
-		// And this screen keeps an entry of its own, at its own address.
-		if ( $home ) {
-			add_submenu_page(
-				self::MENU_SLUG,
-				DZE_Screens::label( 'restock' ),
-				DZE_Screens::label( 'restock' ),
-				'manage_woocommerce',
-				self::PAGE_SLUG,
-				[ $this, 'render_page' ]
-			);
-		}
 	}
 
 	public function enqueue_assets( string $hook ): void {

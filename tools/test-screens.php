@@ -50,16 +50,14 @@ echo "EVERY SLUG IN THE CATALOGUE IS THE ONE ITS PAGE CLASS USES\n";
 // constant — every link in that module is built from it — and the catalogue
 // must say the same word.
 $dze_where = [
-	// Laccueil repond a ladresse du MENU : cest la quon atterrit en pressant
-	// « Dazont Ecom ». Son ancienne adresse reste enregistree, hors menu.
-	'dashboard'    => [ 'class-restock.php', 'MENU_SLUG' ],
+	'dashboard'    => [ 'class-dashboard.php', 'MENU_SLUG' ],
 	'content'      => [ 'class-diagnostic.php', 'MENU_SLUG' ],
 	// Le maillage a son propre ecran depuis quil ne depend plus de Content.
 	'linking'      => [ 'class-mesh.php', 'MENU_SLUG' ],
 	'marketing'    => [ 'class-discounts.php', 'MENU_SLUG_EVENTS' ],
 	'translations' => [ 'class-translate-screen.php', 'MENU_SLUG' ],
 	'automation'   => [ 'class-automation.php', 'MENU_SLUG' ],
-	'restock'      => [ 'class-restock.php', 'PAGE_SLUG' ],
+	'restock'      => [ 'class-restock.php', 'MENU_SLUG' ],
 	'sourcing'     => [ 'class-explorer.php', 'MENU_SLUG' ],
 	'review'       => [ 'class-queue.php', 'MENU_SLUG' ],
 	'bulk'         => [ 'class-content.php', 'BULK_SLUG' ],
@@ -199,16 +197,21 @@ echo "\nTHE MENU: THE WORK FIRST, THE PLUMBING LAST\n";
 $dze_rows = [
 	[ 'Settings', 'c', 'dazont-ecom-ai' ],
 	[ 'Logs', 'c', 'dazont-ecom-logs' ],
-	[ 'Restock', 'c', 'dazont-ecom-restock' ],
+	[ 'Restock', 'c', 'dazont-ecom' ],
 	[ 'Something new', 'c', 'dazont-ecom-new-thing' ],
 	[ 'Content', 'c', 'dazont-ecom-diagnostic' ],
 	[ 'Setup', 'c', 'dze-setup' ],
-	// Laccueil porte ladresse du menu lui-meme.
-	[ 'Dashboard', 'c', 'dazont-ecom' ],
+	[ 'Dashboard', 'c', 'dazont-ecom-dashboard' ],
 	[ 'Marketing', 'c', 'dazont-ecom-marketing-events' ],
 ];
 $dze_order = array_map( static fn( array $r ): string => $r[0], DZE_Screens::ordered( $dze_rows ) );
 ok( 'the dashboard opens the menu',       $dze_order[0], 'Dashboard' );
+// ET CEST CE QUI DECIDE DE LA PAGE DACCUEIL. wp-admin/menu-header.php batit
+// lancre de lentree de premier niveau depuis $submenu_items[0][2] : cest le
+// PREMIER sous-menu quon ouvre en pressant « Dazont Ecom », jamais la page du
+// slug parent. Aucune adresse na donc a bouger pour changer ce quon ouvre —
+// et celle qui avait bouge etait une adresse publique changee pour rien.
+ok( 'et laccueil est le premier de lordre', DZE_Screens::menu_order()[0], 'dashboard' );
 ok( 'the content work comes next',        $dze_order[1], 'Content' );
 ok( 'then the marketing',                 $dze_order[2], 'Marketing' );
 ok( 'the settings are last',              end( $dze_order ), 'Settings' );

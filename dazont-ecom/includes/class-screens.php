@@ -49,12 +49,12 @@ final class DZE_Screens {
 				// faut donner de l'attention": a screen called Dashboard does not
 				// say it is the one that knows.
 				'label'  => __( 'Waiting for you', 'dazont-ecom' ),
-				// THE ADDRESS OF THE MENU ITSELF. Pressing "Dazont Ecom" opened
-				// the out-of-stock list — the module that happens to own the
-				// menu — so the first thing the plugin ever showed was a table
-				// about stock, on a shop asking "where do I give my attention".
-				// The old address stays registered and redirects here.
-				'slug'   => self::PARENT,
+				// WHAT PRESSING "DAZONT ECOM" OPENS IS THE FIRST SUBMENU, not the
+				// parent's own page: wp-admin/menu-header.php builds that anchor
+				// from $submenu_items[0][2]. So this screen opens the menu by being
+				// FIRST in menu_order() — no address has to move for that, and the
+				// one that did was a public address changed for nothing.
+				'slug'   => 'dazont-ecom-dashboard',
 				'module' => 'dashboard',
 			],
 			'content'      => [
@@ -116,8 +116,7 @@ final class DZE_Screens {
 			],
 			'restock'      => [
 				'label'  => __( 'Restock', 'dazont-ecom' ),
-				// Its own address now that the home screen has the menu's.
-				'slug'   => 'dazont-ecom-restock', // = DZE_Restock::PAGE_SLUG
+				'slug'   => self::PARENT,
 				'module' => 'restock',
 			],
 			'sourcing'     => [
