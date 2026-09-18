@@ -3987,10 +3987,14 @@ Answer with STRICT JSON and nothing else: "
 			// it twice, and one of the two answers was thrown away. The name
 			// is only printed when there IS work waiting: a row nobody has
 			// touched has nobody to name.
+			// AND "NOT RECORDED" IS NOT "AUTOMATIC". Work stashed before this
+			// was kept was started by somebody nobody wrote down; printing
+			// "Automatic" over it would name the scheduled pass for a run a
+			// person made. The key has to BE there — an absent one says
+			// nothing, and the row says nothing.
 			$dze_held = get_post_meta( $pid, self::META_PENDING, true );
-			$dze_by   = is_array( $dze_held ) ? (int) ( $dze_held['by'] ?? 0 ) : 0;
-			if ( is_array( $dze_held ) && $dze_held && class_exists( 'DZE_Queue' ) ) {
-				$out[ array_key_last( $out ) ]['by'] = DZE_Queue::started_by( $dze_by );
+			if ( is_array( $dze_held ) && isset( $dze_held['by'] ) && class_exists( 'DZE_Queue' ) ) {
+				$out[ array_key_last( $out ) ]['by'] = DZE_Queue::started_by( (int) $dze_held['by'] );
 			}
 		}
 		$this->bulk_products_cache = $out;
