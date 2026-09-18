@@ -141,6 +141,9 @@ final class DZE_Category_Content {
 		if ( isset( $in['form'] ) ) {
 			$out['links_off'] = empty( $in['links_off'] ) ? 0 : 1;
 			$out['dead_off']  = empty( $in['dead_off'] ) ? 0 : 1;
+			// Coche a l endroit, celle-ci : la valeur par defaut est OUI,
+			// donc c est la case qui l ETEINT qui est posee.
+			$out['add_words'] = empty( $in['no_add_words'] ) ? 1 : 0;
 		}
 		if ( isset( $in['model'] ) ) {
 			$out['model'] = sanitize_text_field( (string) $in['model'] );
@@ -383,7 +386,13 @@ PROMPT;
 			. "- The sentence must still read perfectly well without the link. Never bolt a sentence on at the end (\"See X for more\", \"Read Y to find out\"), never anchor on \"here\", \"this page\", \"learn more\".\n"
 			. "- Nothing else changes: not a word, not a paragraph, not a heading. You are not writing the page, only pointing at words in it.\n"
 			. "- Never link twice to the same page, never link a whole sentence, never link inside a heading, and never link the page the text itself belongs to.\n"
-			. '- Use the supplied URLs verbatim, and no others.';
+			. "- Use the supplied URLs verbatim, and no others.\n"
+			// THE ONE DOOR OUT of "the text never names it, so no link ever".
+			// A category whose copy never mentions its neighbour used to be
+			// left orphaned for good. It may now be given ONE sentence — and
+			// adding is all it may do: the plugin refuses the answer outright
+			// if a single character of what was there has moved.
+			. "- IF, AND ONLY IF, the text holds no words at all for a target you judge genuinely close, you may write ONE short sentence for it instead. Answer that one as {\"sentence\": \"the whole new sentence\", \"anchor\": \"the words inside it to link\", \"url\": \"…\"}. It must read as part of this text, in its language, say something true about the destination, and be the kind of line the page would have had anyway. Never 'See X for more' or 'Read Y to find out'. One sentence, under 200 characters. Prefer naming words already in the text; this is the last resort, not the first.";
 		return class_exists( 'DZE_Prompt_Defaults' )
 			? DZE_Prompt_Defaults::pick( 'cat_links', $shipped )
 			: $shipped;
@@ -1823,6 +1832,14 @@ PROMPT;
 				$unmet[] = '“' . trim( (string) ( $l['label'] ?? '' ) ) . '”';
 			}
 		}
+		// A TEXT THAT NAMES NONE OF THEM IS NOT A DEAD END ANY MORE — when the
+		// shop allows the pass a sentence of its own, it is given the targets
+		// and asked for one. The refusal below stays for the shop that does
+		// not: without words to point at and without leave to write any, there
+		// is genuinely nothing to do.
+		if ( ! $known && self::may_add() ) {
+			$known = $links;
+		}
 		if ( ! $known ) {
 			throw new RuntimeException( sprintf(
 				/* translators: 1: the text being worked on, 2: the pages it was asked to link to */
@@ -2312,10 +2329,76 @@ PROMPT;
 		}
 		return null;
 	}
+	/**
+	 * IS THE PASS ALLOWED TO ADD WORDS OF ITS OWN?
+	 *
+	 * "Pourquoi ne pas autoriser l'ajout / légère modif de mots ? Vraiment, ça
+	 * mange pas de pain." It does not, as long as ADD means add: a category
+	 * whose text never names its neighbour got no link at all and no way to
+	 * ever get one — "Pochettes administratives tactiques" never mentions
+	 * "Utility pouches", so the pass refused and the page stayed orphaned.
+	 *
+	 * What is still forbidden is REWRITING. A sentence may be appended; not one
+	 * character of what was there may change. That line is the whole reason a
+	 * word count comes back identical, and it is checked rather than trusted.
+	 */
+	public static function may_add(): bool {
+		$s = self::get_settings();
+		return ! isset( $s['add_words'] ) || ! empty( $s['add_words'] );
+	}
+
+	/**
+	 * THE SENTENCE THE PASS IS ALLOWED TO ADD, and where it may go: the end.
+	 *
+	 * Appending is the one placement that cannot disturb what is there. Slipped
+	 * into the middle it would have to choose a paragraph, a position inside
+	 * it, and a join — three chances to break a text that was fine.
+	 *
+	 * @return string The html with the sentence added, or '' when it will not do.
+	 */
+	private static function add_sentence( string $html, string $sentence, string $anchor, string $url ): string {
+		$sentence = trim( wp_strip_all_tags( $sentence ) );
+		$anchor   = trim( wp_strip_all_tags( $anchor ) );
+		if ( '' === $sentence || '' === $anchor ) {
+			return '';
+		}
+		// THE WORDS TO LINK MUST BE IN THE SENTENCE THE MODEL WROTE. Otherwise
+		// it is asking for a link on words nobody can see.
+		$at = mb_stripos( $sentence, $anchor );
+		if ( false === $at ) {
+			return '';
+		}
+		// A SENTENCE, NOT A PARAGRAPH. A model handed this door will otherwise
+		// write three of them and the page grows a tail.
+		if ( mb_strlen( $sentence ) > 220 ) {
+			return '';
+		}
+		$as_is = mb_substr( $sentence, $at, mb_strlen( $anchor ) );
+		$linked = str_replace(
+			$as_is,
+			'<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>',
+			esc_html( $sentence )
+		);
+		// esc_html() ran over the whole sentence first, so the anchor has to be
+		// found in its escaped form too; when it is not, nothing is added.
+		if ( false === strpos( $linked, '<a href=' ) ) {
+			$linked = str_replace(
+				esc_html( $as_is ),
+				'<a href="' . esc_url( $url ) . '">' . esc_html( $as_is ) . '</a>',
+				esc_html( $sentence )
+			);
+		}
+		if ( false === strpos( $linked, '<a href=' ) ) {
+			return '';
+		}
+		return $html . "\n<p>" . $linked . "</p>";
+	}
+
 	public static function apply_edits( string $html, array $edits, array $allowed ): array {
 		$refused = [];
 		$seen    = [];
 		$applied = 0;
+		$added   = 0;
 		foreach ( $edits as $e ) {
 			$anchor = isset( $e['anchor'] ) ? (string) $e['anchor'] : '';
 			$url    = isset( $e['url'] ) ? untrailingslashit( html_entity_decode( (string) $e['url'] ) ) : '';
@@ -2337,6 +2420,36 @@ PROMPT;
 					__( 'the same page was linked twice (%s)', 'dazont-ecom' ),
 					$url
 				);
+				continue;
+			}
+			// A SENTENCE THE PASS WROTE ITSELF, when the text holds no words
+			// for this target and the shop allows it. It goes at the end, and
+			// what was there is not touched — checked below, not trusted.
+			$say = isset( $e['sentence'] ) ? (string) $e['sentence'] : '';
+			if ( '' !== trim( $say ) ) {
+				if ( ! self::may_add() ) {
+					$refused[] = __( 'the pass offered to add a sentence, which this shop does not allow', 'dazont-ecom' );
+					continue;
+				}
+				$grown = self::add_sentence( $html, $say, $anchor, $url );
+				if ( '' === $grown ) {
+					$refused[] = sprintf(
+						/* translators: %s: the sentence the model offered */
+						__( 'the sentence offered could not be used (%s)', 'dazont-ecom' ),
+						mb_substr( trim( $say ), 0, 60 )
+					);
+					continue;
+				}
+				// THE ONE RULE THAT MAKES THIS SAFE: what was there is still
+				// there, character for character, at the front of what comes out.
+				if ( 0 !== strpos( $grown, $html ) ) {
+					$refused[] = __( 'adding a sentence would have changed the text that was already there', 'dazont-ecom' );
+					continue;
+				}
+				$html         = $grown;
+				$seen[ $url ] = true;
+				$added++;
+				$applied++;
 				continue;
 			}
 			// THE WORDS MUST BE THERE, ONCE, AND IN THE PROSE — read the way a
@@ -2376,7 +2489,7 @@ PROMPT;
 			$seen[ $url ] = true;
 			$applied++;
 		}
-		return [ 'html' => $html, 'applied' => $applied, 'refused' => $refused ];
+		return [ 'html' => $html, 'applied' => $applied, 'refused' => $refused, 'added' => $added ];
 	}
 
 	/**
@@ -3710,6 +3823,9 @@ PROMPT;
 					<th scope="row"><?php esc_html_e( 'Dead links', 'dazont-ecom' ); ?></th>
 					<td>
 						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[dead_off]" value="1" <?php checked( ! empty( $s['dead_off'] ) ); ?> /> <?php esc_html_e( 'Leave dead links alone', 'dazont-ecom' ); ?></label>
+						<br />
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPT ); ?>[no_add_words]" value="1" <?php checked( ! DZE_Category_Content::may_add() ); ?> /> <?php esc_html_e( 'Never add a sentence — only link words the text already holds', 'dazont-ecom' ); ?></label>
+						<span class="description" style="display:block;margin:2px 0 0 24px;"><?php esc_html_e( 'Left as it is, a text that names none of its neighbours may be given ONE short sentence carrying the link, rather than staying orphaned for good. Nothing already written is ever changed: the pass refuses its own answer if a single character has moved.', 'dazont-ecom' ); ?></span>
 						<p class="description"><?php esc_html_e( 'By default, every text this module rewrites is checked on the way in: a link pointing at a page of this shop that no longer answers is taken out and its words are kept, so the sentence still reads. Only links to this shop are judged — an outside site that is slow or blocks us is never touched. Each address is checked once a day at most. Tick this to write over a text without looking at the links already in it.', 'dazont-ecom' ); ?></p>
 					</td>
 				</tr>

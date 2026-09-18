@@ -780,11 +780,62 @@ try {
 	DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_loin, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
 	$dze_pourquoi = '';
 } catch ( \Throwable $e ) { $dze_pourquoi = $e->getMessage(); }
+// LE REFUS SEC RESTE, POUR LA BOUTIQUE QUI NE VEUT PAS QU ON ECRIVE POUR ELLE.
+// Sans mots a montrer et sans droit d en ecrire, il n y a vraiment rien a faire.
+$dze_opt = get_option( 'dze_catcontent_settings', [] );
+update_option( 'dze_catcontent_settings', array_merge( (array) $dze_opt, [ 'add_words' => 0 ] ) );
+DZE_Marketing_Ai::$sent = [];
+try {
+	DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_loin, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+	$dze_pourquoi = '';
+} catch ( \Throwable $e ) { $dze_pourquoi = $e->getMessage(); }
 ok( 'un couple impossible est refuse',        '' !== $dze_pourquoi, true );
 ok( 'et le modele na jamais ete appele',      count( DZE_Marketing_Ai::$sent ), 0 );
 ok( 'le message nomme larticle',              false !== strpos( $dze_pourquoi, 'How snipers work' ), true );
 ok( 'et la page quon lui demandait',          false !== strpos( $dze_pourquoi, 'Bomber jackets' ), true );
 ok( 'et rassure : rien na bouge',             false !== stripos( $dze_pourquoi, 'left exactly as it was' ), true );
+
+// MAIS LA PORTE EXISTE. « Pourquoi ne pas autoriser l'ajout / légère modif de
+// mots ? Vraiment, ça mange pas de pain. » Une categorie dont le texte ne
+// nomme jamais sa voisine restait orpheline pour toujours : « Pochettes
+// administratives tactiques » ne mentionne pas « Utility pouches », donc
+// aucun lien, jamais. Avec le droit d ecrire UNE phrase, le couple part au
+// modele au lieu d etre refuse sur le seuil.
+update_option( 'dze_catcontent_settings', array_merge( (array) $dze_opt, [ 'add_words' => 1 ] ) );
+ok( 'le droit d ajouter est la valeur par defaut', DZE_Category_Content::may_add(), true );
+DZE_Marketing_Ai::$sent = [];
+DZE_Marketing_Ai::$decide = static fn() => '[]';
+try {
+	DZE_Category_Content::weave( 'How snipers work', $dze_body, 'English', $dze_loin, 1, [ 'label' => 'ARTICLE', 'self' => 'https://kula.test/snipers' ] );
+	$dze_ouvert = '';
+} catch ( \Throwable $e ) { $dze_ouvert = $e->getMessage(); }
+ok( 'le couple impossible part quand meme au modele', count( DZE_Marketing_Ai::$sent ) > 0, true );
+ok( 'et les consignes lui offrent la phrase',
+	(bool) array_filter( DZE_Marketing_Ai::$sent, static fn( $s ) => false !== strpos( (string) ( $s['user'] ?? '' ), '"sentence"' ) ), true );
+DZE_Marketing_Ai::$decide = null;
+
+// ET L AJOUT N EST QU UN AJOUT. C est la seule chose qui rend cette porte sure :
+// pas un caractere de ce qui etait la ne bouge, et c est verifie, pas promis.
+$dze_av = '<p>When you are in the field, every item needs a purpose.</p>';
+$dze_ap = DZE_Category_Content::apply_edits(
+	$dze_av,
+	[ [ 'sentence' => 'Our tactical utility pouches keep the smaller items to hand.', 'anchor' => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] ],
+	[ 'https://kula.test/pouches' ]
+);
+ok( 'la phrase est posee',                    $dze_ap['applied'], 1 );
+ok( 'et comptee comme un ajout',              $dze_ap['added'] ?? 0, 1 );
+ok( 'et lancien texte est intact, en tete',   0 === strpos( (string) $dze_ap['html'], $dze_av ), true );
+ok( 'et elle porte bien le lien',             false !== strpos( (string) $dze_ap['html'], '<a href="https://kula.test/pouches">tactical utility pouches</a>' ), true );
+// CE QUI N EST PAS UNE PHRASE UTILISABLE EST REFUSE PLUTOT QUE POSE DE TRAVERS.
+ok( 'une ancre absente de la phrase est refusee',
+	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => 'Rien a voir ici.', 'anchor' => 'utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
+ok( 'un paragraphe entier deguise en phrase est refuse',
+	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => str_repeat( 'mots ', 60 ) . 'utility pouches.', 'anchor' => 'utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
+// ET LA BOUTIQUE QUI A DIT NON GARDE SON NON.
+update_option( 'dze_catcontent_settings', array_merge( (array) $dze_opt, [ 'add_words' => 0 ] ) );
+ok( 'eteint, laccord est refuse',
+	DZE_Category_Content::apply_edits( $dze_av, [ [ 'sentence' => 'Our tactical utility pouches keep the smaller items to hand.', 'anchor' => 'tactical utility pouches', 'url' => 'https://kula.test/pouches' ] ], [ 'https://kula.test/pouches' ] )['applied'], 0 );
+update_option( 'dze_catcontent_settings', (array) $dze_opt );
 // LA BASE REPOND AVANT LE RESEAU, POUR NOS PROPRES PAGES.
 //
 // L'hebergeur de cette boutique repond 403 aux requetes que le site s'adresse a
