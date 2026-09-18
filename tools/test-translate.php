@@ -288,8 +288,24 @@ class DZE_Tr_Test_Wpdb {
 		if ( false !== stripos( $sql, 'icl_translations' ) ) { return $this->counts; }
 		return [];
 	}
+	/**
+	 * ET LES TABLES DES TERMES CHANGENT VRAIMENT.
+	 *
+	 * Le module ecrit un terme colonne par colonne — wp_update_term() relit
+	 * par get_term(), que WPML rend dans la langue courante, et reecrit tout
+	 * ce qu on ne lui a pas nomme. Un double qui se contente de noter l appel
+	 * laisse passer une ecriture qui n arrive nulle part.
+	 */
 	public function update( $table, $data, $where, $f = null, $wf = null ) {
 		$this->written[] = [ 'table' => $table, 'data' => $data, 'where' => $where ];
+		$id = (int) ( $where['term_id'] ?? 0 );
+		if ( $id && isset( $GLOBALS['terms'][ $id ] ) ) {
+			foreach ( [ 'name', 'slug', 'description' ] as $col ) {
+				if ( array_key_exists( $col, (array) $data ) ) {
+					$GLOBALS['terms'][ $id ][ $col ] = (string) $data[ $col ];
+				}
+			}
+		}
 		return 1;
 	}
 }
@@ -2176,6 +2192,44 @@ ok( 'un titre vide ne touche a rien',
 	$GLOBALS['posts'][9202]['post_name'] ?? '', 'garde-moi' );
 ok( 'et la marque reste, pour la prochaine fois',
 	(string) ( $GLOBALS['meta'][9202]['_dze_tr_slug_todo'] ?? '' ), '1' );
+
+echo "\nECRIRE LE SLUG NE TOUCHE NI AU NOM NI A LA DESCRIPTION\n";
+// https://kula-tactical.fr/etiquette-produit/rails-ak — slug francais, nom
+// anglais, description anglaise, et l'ecran des traductions annoncant que
+// tout s'etait bien passe.
+//
+// wp_update_term() commence par `$term = get_term( $term_id, $taxonomy )` puis
+// fusionne : `$args = array_merge( $term, $args )`. WPML filtre get_term() sur
+// la langue COURANTE et repond avec l'ORIGINAL quand on l'interroge sur une
+// traduction — donc tout champ qu'on ne lui nomme pas explicitement est repris
+// a l'anglais et reecrit par-dessus le francais. Demander « change seulement
+// le slug » remettait le nom et la description de l'original avec.
+$GLOBALS['terms'][7700] = [
+	'name'             => 'Rails AK',
+	'slug'             => 'ak-rail-fr',
+	'description'      => 'Rails et interfaces pour plateformes AK.',
+	'taxonomy'         => 'product_tag',
+	'parent'           => 0,
+	'term_taxonomy_id' => 8200,
+];
+$GLOBALS['termmeta'][7700]['_dze_tr_slug_todo'] = '1';
+$dze_sf->invoke( null, [ 'kind' => 'term', 'id' => 7700, 'type' => 'product_tag' ], 7700, 'Rails AK' );
+ok( 'le slug est refait',
+	$GLOBALS['terms'][7700]['slug'] ?? '', 'rails-ak' );
+ok( 'et le nom traduit est intact',
+	$GLOBALS['terms'][7700]['name'] ?? '', 'Rails AK' );
+ok( 'et la description traduite aussi',
+	$GLOBALS['terms'][7700]['description'] ?? '', 'Rails et interfaces pour plateformes AK.' );
+// ET L ECRITURE EST ALLEE DANS LES TABLES, pas dans wp_update_term() : c est
+// la seule forme qui ne puisse pas ramener l anglais avec elle.
+$dze_vu = array_filter( (array) $GLOBALS['wpdb']->written,
+	static fn( $w ) => 'wp_terms' === ( $w['table'] ?? '' ) && 7700 === (int) ( $w['where']['term_id'] ?? 0 ) );
+ok( 'ecrit directement dans wp_terms', count( $dze_vu ) > 0, true );
+// ET SEULEMENT LA COLONNE DEMANDEE : un UPDATE qui emporte name avec lui est
+// exactement le bug, meme s il ecrit la bonne valeur ce jour-la.
+$dze_cols = [];
+foreach ( $dze_vu as $w ) { $dze_cols = array_merge( $dze_cols, array_keys( (array) $w['data'] ) ); }
+ok( 'et rien d autre que le slug',   array_values( array_unique( $dze_cols ) ), [ 'slug' ] );
 
 echo "\nLE FOURRE-TOUT D UNE TAXONOMIE N EST PAS DU TEXTE CLIENT\n";
 // « Dont Non classifié(e) et Non catégorisé. C'est un problème quelque chose
